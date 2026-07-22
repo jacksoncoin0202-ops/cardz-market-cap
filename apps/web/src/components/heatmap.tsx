@@ -138,6 +138,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title, eyebro
               className="heatmap-tile"
               key={card.id}
               href={href(`/card/${card.id}`)}
+              prefetch={false}
               style={{ left: x, top: y, width, height }}
               aria-label={`#${card.rank} ${card.name[locale] || t.status.unavailable}, ${card.collectorNumber}`}
               onMouseEnter={() => setActive(card)}

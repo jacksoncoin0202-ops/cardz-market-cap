@@ -9,6 +9,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://cardz-beta.jacksoncoin0202.workers.dev"),
   title: { default: "CARDZ Market Cap", template: "%s | CARDZ Market Cap" },
   description: "Art market intelligence for collectible cards.",
+  icons: { icon: "/icon.svg" },
 };
 
 export const viewport: Viewport = { width: "device-width", initialScale: 1, colorScheme: "light" };
