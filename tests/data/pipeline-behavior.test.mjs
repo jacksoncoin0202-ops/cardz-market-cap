@@ -80,10 +80,11 @@ test("daily orchestrator is fail-closed and contains no writable SQLite authorit
   assert.match(runner, /CARDZ_POINTER_PROMOTE_COMMAND_JSON/);
 });
 
-test("scheduler defaults to 06:30 unattended, singleton, and two-hour timeout", async () => {
+test("scheduler defaults to 06:30 unattended, singleton, and two-hour timeout", async (context) => {
   const installer = await readFile(path.join(root, "pipelines/install_daily_task.ps1"), "utf8");
   const scheduledRunner = await readFile(path.join(root, "pipelines/run_daily.ps1"), "utf8");
-  assert.match(installer, /Grade10-Daily-Scraper/);
+  assert.match(installer, /CARDZ-Market-Cap-Daily-Staging/);
+  assert.match(installer, /Get-Command python\.exe[^\n]+-All[^\n]+Select-Object -First 1/);
   assert.match(installer, /06:30/);
   assert.match(installer, /LogonType S4U/);
   assert.match(installer, /MultipleInstances IgnoreNew/);
@@ -100,6 +101,11 @@ test("scheduler defaults to 06:30 unattended, singleton, and two-hour timeout", 
   assert.match(scheduledRunner, /\$env:CARDZ_GENERATION_CANARY_COMMAND_JSON\s*=/);
   assert.match(scheduledRunner, /\$env:CARDZ_POINTER_PROMOTE_COMMAND_JSON\s*=/);
   assert.match(scheduledRunner, /\$env:CARDZ_STAGING_R2_BUCKET\s*=\s*\$R2Bucket/);
+
+  if (process.platform !== "win32") {
+    context.diagnostic("Task Scheduler WhatIf execution is Windows-only; structural assertions passed.");
+    return;
+  }
 
   const python = (await execute("where.exe", ["python"])).stdout.trim().split(/\r?\n/)[0];
   const sourceScript = path.resolve(root, "../grade10-scraper/grade10_scraper.py");

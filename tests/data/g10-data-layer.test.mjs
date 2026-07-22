@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
@@ -77,7 +77,13 @@ test("shared runtime validator does not embed private provider vocabulary", asyn
   assert.doesNotMatch(runtime, /grade10|gemrate|snkrdunk|sneakerdunk|ebay/i);
 });
 
-test("G10 public builder emits exact Top 100 with no private source vocabulary", async () => {
+test("G10 public builder emits exact Top 100 with no private source vocabulary", async (context) => {
+  const privateSourceRoot = path.resolve(root, "../grade10-scraper/data");
+  const privateSourceAvailable = await stat(privateSourceRoot).then(() => true, () => false);
+  if (!privateSourceAvailable) {
+    context.skip("private read-only G10 source is intentionally absent from clean CI clones");
+    return;
+  }
   const { stdout } = await execute("python", ["pipelines/g10_public_snapshot.py", "--self-test"], { cwd: root });
   const result = JSON.parse(stdout.trim());
   assert.equal(result.top100, 100);

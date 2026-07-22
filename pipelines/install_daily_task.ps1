@@ -1,6 +1,6 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
-    [string]$TaskName = 'Grade10-Daily-Scraper',
+    [string]$TaskName = 'CARDZ-Market-Cap-Daily-Staging',
     [string]$At = '06:30',
     [ValidateSet('staging', 'production')]
     [string]$Mode = 'staging',
@@ -19,7 +19,7 @@ $ErrorActionPreference = 'Stop'
 $RunScript = (Resolve-Path (Join-Path $PSScriptRoot 'run_daily.ps1')).Path
 $AcquireScript = (Resolve-Path -LiteralPath $PrivateAcquireScript).Path
 if ([string]::IsNullOrWhiteSpace($PythonExe)) {
-    $PythonPath = (Get-Command python.exe -CommandType Application -ErrorAction Stop).Source
+    $PythonPath = (Get-Command python.exe -CommandType Application -All -ErrorAction Stop | Select-Object -First 1).Source
 } else {
     $PythonPath = (Resolve-Path -LiteralPath $PythonExe).Path
 }
@@ -43,7 +43,7 @@ if ($Mode -eq 'production' -and [string]::IsNullOrWhiteSpace($ProductionRunner))
     throw 'ProductionRunner is required for JLP MySQL production authority.'
 }
 
-$NodePath = (Get-Command node.exe -CommandType Application -ErrorAction Stop).Source
+$NodePath = (Get-Command node.exe -CommandType Application -All -ErrorAction Stop | Select-Object -First 1).Source
 if ([string]::IsNullOrWhiteSpace($GenerationCanaryCommandJson)) {
     $GenerationCanaryCommandJson = ConvertTo-Json -InputObject @($NodePath, (Resolve-Path (Join-Path $PSScriptRoot 'run-generation-canary.mjs')).Path) -Compress
 }

@@ -33,7 +33,9 @@ The legacy `cardz-platform` and `grade10-scraper` trees remain read-only inputs.
 - [x] (2026-07-22 19:16+09:00) Implemented the shared 1d/7d/30d contract, grader population-change views, truthful daily price/tracked-sales charts, pointer-authorized media, and public privacy gates.
 - [x] (2026-07-22 19:16+09:00) Rebuilt the home heatmap, ranking, details, market/grader routes, locales, currencies, SEO/GEO, and responsive interactions. Reviewed editorial copy is joined by exact identity guard; 45 stories are ready and 55 remain blocked for evidence review.
 - [x] (2026-07-22 19:21+09:00) Passed lint, typecheck, 34 web tests, 27 data tests, 7 hook/canary tests, non-strict verification of 360 images, Next build, public/bundle leak gates, deployment isolation, and canary/staging Wrangler dry-runs.
-- [ ] Deploy a separate Cloudflare staging generation and prove one unattended daily publish canary.
+- [x] (2026-07-22 19:54+09:00) Created and pushed the clean Private GitHub repository, deployed isolated canary and staging Workers, uploaded and read-back-verified all 360 R2 images, promoted generation `daily_20260722T094826496874Z` only after a generation-scoped live canary, and verified build `30e50fbba5c1` on every public route.
+- [x] (2026-07-22 19:54+09:00) Removed all market media and local design artifacts from the Cloudflare static bundle. Live authorized media now resolves only through the active-pointer Worker route with the expected SHA-256 and cache policy; an unlisted hash and the local mockup route both return 404.
+- [ ] Prove one unattended daily publish canary. The exact 06:30 S4U task action is generated and WhatIf-verified, but Windows denied task registration; the current 83-hour-old price observation also correctly blocks a daily run while preserving the R2 pointer byte-for-byte.
 - [ ] Cut production only after the JLP migration runner/owner is confirmed and staging approval is recorded.
 
 ## Surprises & Discoveries
@@ -60,6 +62,11 @@ The legacy `cardz-platform` and `grade10-scraper` trees remain read-only inputs.
 - Observation: metadata proves all 360 exported images are hash-valid raw fronts with exact number/language/TCG resolver evidence, but none has yet been promoted to `human_or_vision_confirmed`. The non-strict staging gate passes and the strict production gate deliberately fails all 360.
 - Observation: the current compatible Next/OpenNext/Wrangler graph resolves `sharp 0.34.5` and Next's bundled `postcss 8.4.31`; the official-registry audit reports five high and one moderate advisory. Forcing patched 0.x packages violates upstream dependency ranges, so production remains blocked instead of shipping an invalid override.
 - Observation: 45 Top 100 editorial stories have printing-specific four-language evidence and 55 remain `review_required` (51 thin evidence, two summary conflicts, two identity conflicts). Missing stories remain absent rather than being filled with generic market prose.
+- Observation: the final sanitized demo generation contains 100 ranked cards and 260 watchlist cards. Its public-gated Top 100 is USD 2,445,570,776 with a 93 Pokemon / 7 One Piece split; the full ungated market-universe benchmark remains USD 2,624,140,427 with the approved 89/11 split.
+- Observation: the first remote publisher attempt exposed a real Windows `spawnSync npx.cmd EINVAL` failure, and the first generation canary exposed a missing private-discovery flag. Both failed before `latest.json`, were repaired with direct Node CLI invocation and explicit private discovery, and are covered by hook tests.
+- Observation: copying raw fronts into `apps/web/public` allowed the static asset binding to serve a known hash without consulting the active pointer. The Cloudflare build now uses a temporary allowlisted public directory and bundles neither market images nor local design artifacts; live tests confirm pointer-authorized media headers and 404 for an unknown hash.
+- Observation: Windows denied registration of the separate `CARDZ-Market-Cap-Daily-Staging` S4U task. The installer no longer risks overwriting the legacy task and correctly resolves the first Python/Node application, but an authorized Windows task-registration context is still required.
+- Observation: the first GitHub clean-clone CI run correctly revealed two portability assumptions: the private sibling G10 source and Windows `where.exe`. Source-dependent replay now runs when the read-only source exists and is explicitly skipped in clean CI; Task Scheduler execution remains Windows-only while its structural contract is checked everywhere.
 
 ## Decision Log
 
@@ -69,7 +76,7 @@ The legacy `cardz-platform` and `grade10-scraper` trees remain read-only inputs.
 - Decision: the combined Top 100 remains `PSA 10 reference price × PSA 10 population`; PSA/BGS/CGC/SGC are not summed.
   Rationale: only PSA currently has defensible price coverage; summing incomplete grader markets would bias rank and market cap.
   Date/Author: 2026-07-22, Codex based on audited coverage and approved plan.
-- Decision: preserve both scopes explicitly: USD 2.624140427B is the traceable current market-universe Top 100 before public identity/image gates; USD 2.248022219B is only the current publishable staging-preview subset. Production remains closed until the actual market Top 100 passes canonical identity and raw-image QC and a price observation is within the freshness SLA.
+- Decision: preserve both scopes explicitly: USD 2.624140427B is the traceable current market-universe Top 100 before public identity/image gates; USD 2.445570776B is the final sanitized staging subset after deterministic identity and image remediation. Production remains closed until the actual market Top 100 passes canonical identity and human/vision raw-image QC and a price observation is within the freshness SLA.
   Rationale: public QC must not change the meaning of the market benchmark, the fetch completion time cannot substitute for the price effective time, and tracked-sale averages cannot silently replace the index reference price.
   Date/Author: 2026-07-22, Codex after deterministic source replay.
 - Decision: one global `1d | 7d | 30d` selector controls heatmap color, table change, and tracked-sales window. Area and rank always use current market cap.
@@ -142,4 +149,6 @@ Source payload hashes and canonical observation keys make imports safe to repeat
 
 ## Outcomes & Retrospective
 
-Pending implementation.
+The clean repository, immutable replay/import contracts, additive JLP schema, sanitized Top 100/watchlist generation, art-first responsive application, private R2 publication chain, isolated Cloudflare canary/staging Workers, and Private GitHub history are implemented. Live route, generation, build, media authorization, leak, and fail-closed pointer canaries pass.
+
+This is a truthful staging result, not a production cutover. Production remains blocked by the missing JLP production migration runner/owner, stale price input, 360 pending human/vision image confirmations, 55 editorial review items, missing independent grader supply coverage, missing production currency feed, unresolved compatible dependency advisories, and unverified live Cloudflare WAF/rate/bot controls. Windows also denied the S4U task registration, so one genuinely unattended daily canary has not yet been demonstrated.
