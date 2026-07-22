@@ -41,12 +41,18 @@ for (const [publicPath, expectedHash] of referenced) {
 }
 
 if (existsSync(publicAssets)) rmSync(publicAssets, { recursive: true, force: true });
-mkdirSync(publicAssets, { recursive: true });
 
-for (const publicPath of referenced.keys()) {
-  const filename = basename(publicPath);
-  const source = resolve(sourceAssets, filename);
-  copyFileSync(source, resolve(publicAssets, filename));
+if (process.env.CARDZ_CLOUDFLARE_BUILD !== "1") {
+  mkdirSync(publicAssets, { recursive: true });
+  for (const publicPath of referenced.keys()) {
+    const filename = basename(publicPath);
+    const source = resolve(sourceAssets, filename);
+    copyFileSync(source, resolve(publicAssets, filename));
+  }
 }
 
-process.stdout.write(`Synced ${referenced.size} referenced raw_front assets.\n`);
+process.stdout.write(
+  process.env.CARDZ_CLOUDFLARE_BUILD === "1"
+    ? `Verified ${referenced.size} raw_front assets without bundling them into Cloudflare static assets.\n`
+    : `Synced ${referenced.size} referenced raw_front assets for local preview.\n`,
+);

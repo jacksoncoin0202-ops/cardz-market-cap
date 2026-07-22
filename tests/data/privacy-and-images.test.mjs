@@ -53,3 +53,13 @@ test("strict production image gate rejects metadata-only demo QC", async () => {
   assert.ok(error, "strict gate unexpectedly accepted metadata-only QC");
   assert.match(`${error.stdout ?? ""}${error.stderr ?? ""}`, /human_or_vision_confirmed/);
 });
+
+test("Cloudflare builds keep raw-front media behind the pointer-authorized Worker route", async () => {
+  const syncScript = await readFile(path.join(root, "apps/web/scripts/sync-snapshot.mjs"), "utf8");
+  const buildScript = await readFile(path.join(root, "apps/web/scripts/cloudflare-build.mjs"), "utf8");
+  assert.match(syncScript, /CARDZ_CLOUDFLARE_BUILD/);
+  assert.match(buildScript, /CARDZ_CLOUDFLARE_BUILD:\s*"1"/);
+  assert.match(buildScript, /card-placeholder\.svg/);
+  assert.match(buildScript, /renameSync\(publicRoot, publicBackup\)/);
+  assert.doesNotMatch(buildScript, /shell:\s*true/);
+});

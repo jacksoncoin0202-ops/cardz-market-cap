@@ -48,7 +48,7 @@ function wranglerCommand() {
   if (process.env.CARDZ_HOOK_TEST_MODE === "1" && process.env.NODE_ENV === "test") {
     return parseCommand(process.env.CARDZ_WRANGLER_COMMAND_JSON ?? "", "CARDZ_WRANGLER_COMMAND_JSON");
   }
-  return [process.platform === "win32" ? "npx.cmd" : "npx", "wrangler"];
+  return [process.execPath, path.join(root, "node_modules", "wrangler", "bin", "wrangler.js")];
 }
 
 function runWrangler(args, { optional = false } = {}) {

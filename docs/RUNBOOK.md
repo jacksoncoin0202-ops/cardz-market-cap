@@ -113,6 +113,8 @@ Publication is ordered and recoverable:
 
 The pointer carries the complete current media-hash allowlist. The Worker checks that allowlist before reading an image object. If an asset must be revoked, publish a clean generation without the hash, verify the new pointer, purge the affected Worker URL from Cloudflare cache, and retain the R2 object only in the private incident record until deletion is approved.
 
+The Cloudflare build verifies every referenced local image but excludes `market-assets` from the static Worker asset bundle. This is required: otherwise a hashed file could bypass the active-pointer allowlist through the static asset binding.
+
 If any step before pointer replacement fails, users remain on the last-good generation. Pointer readback must match the intended generation, key, and canonical hash.
 
 ## Local verification

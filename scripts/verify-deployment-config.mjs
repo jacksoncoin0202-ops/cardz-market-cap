@@ -60,6 +60,9 @@ for (const [name, environment] of Object.entries(environments)) {
   if (environment.assets?.binding !== "ASSETS") {
     fail(`${name} must declare its non-inherited ASSETS binding.`);
   }
+  if (!environment.assets?.run_worker_first?.includes("/market-assets/*")) {
+    fail(`${name} must route market media through the pointer-authorized Worker.`);
+  }
 }
 
 const names = Object.values(environments).map((environment) => environment?.name);
@@ -99,6 +102,21 @@ for (const required of [
 }
 if (/connect-src[^\n]*https?:/i.test(nextConfig)) {
   fail("CSP connect-src must not disclose or permit an upstream HTTP origin.");
+}
+
+const cloudflareBuild = read("apps/web/scripts/cloudflare-build.mjs");
+const snapshotSync = read("apps/web/scripts/sync-snapshot.mjs");
+if (!cloudflareBuild.includes('CARDZ_CLOUDFLARE_BUILD: "1"')) {
+  fail("Cloudflare builds must activate the no-bundled-media gate.");
+}
+if (!cloudflareBuild.includes("renameSync(publicRoot, publicBackup)")) {
+  fail("Cloudflare builds must isolate local public artifacts behind an allowlist.");
+}
+if (!snapshotSync.includes('CARDZ_CLOUDFLARE_BUILD !== "1"')) {
+  fail("Snapshot sync must keep market media out of Cloudflare static assets.");
+}
+if (/shell:\s*true/.test(cloudflareBuild)) {
+  fail("Cloudflare build launcher must not use a shell command wrapper.");
 }
 
 const envExample = read(".env.example");

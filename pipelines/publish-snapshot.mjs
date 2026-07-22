@@ -1,13 +1,15 @@
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
 import { assertPublicSnapshot } from "../packages/market-data/dist/index.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const executeFile = promisify(execFile);
 
 function parseArgs(argv) {
   const options = {
@@ -54,6 +56,10 @@ function sortObject(value) {
   return value;
 }
 
+function wranglerCommand() {
+  return [process.execPath, path.join(root, "node_modules", "wrangler", "bin", "wrangler.js")];
+}
+
 async function atomicWrite(destination, contents) {
   await mkdir(path.dirname(destination), { recursive: true });
   const temporary = `${destination}.${process.pid}.tmp`;
@@ -61,15 +67,29 @@ async function atomicWrite(destination, contents) {
   await rename(temporary, destination);
 }
 
-function r2Put(bucket, key, file, contentType = "application/json", cacheControl = null) {
-  const executable = process.platform === "win32" ? "npx.cmd" : "npx";
-  const args = ["wrangler", "r2", "object", "put", `${bucket}/${key}`, "--file", file, "--remote", "--content-type", contentType];
+async function runWrangler(args, { optional = false } = {}) {
+  const command = wranglerCommand();
+  try {
+    await executeFile(command[0], [...command.slice(1), ...args], {
+      cwd: root,
+      env: process.env,
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    return true;
+  } catch (error) {
+    const diagnostic = [error?.stderr, error?.stdout, error?.message]
+      .filter(Boolean)
+      .map((value) => Buffer.isBuffer(value) ? value.toString("utf8") : String(value))
+      .join("\n");
+    if (optional && /(?:no such key|not found|404|does not exist|enoent)/i.test(diagnostic)) return false;
+    throw new Error("R2 operation failed");
+  }
+}
+
+async function r2Put(bucket, key, file, contentType = "application/json", cacheControl = null) {
+  const args = ["r2", "object", "put", `${bucket}/${key}`, "--file", file, "--remote", "--content-type", contentType];
   if (cacheControl) args.push("--cache-control", cacheControl);
-  execFileSync(
-    executable,
-    args,
-    { cwd: root, stdio: "inherit" },
-  );
+  await runWrangler(args);
 }
 
 function sha256(contents) {
@@ -108,13 +128,8 @@ async function validateImageQc(snapshot, imageManifest, strictSemantic) {
   }
 }
 
-function r2Get(bucket, key, file) {
-  const executable = process.platform === "win32" ? "npx.cmd" : "npx";
-  execFileSync(
-    executable,
-    ["wrangler", "r2", "object", "get", `${bucket}/${key}`, "--file", file, "--remote"],
-    { cwd: root, stdio: "inherit" },
-  );
+async function r2Get(bucket, key, file) {
+  await runWrangler(["r2", "object", "get", `${bucket}/${key}`, "--file", file, "--remote"]);
 }
 
 function parseCommand(raw, label) {
@@ -147,18 +162,20 @@ async function readJsonRequired(file, label) {
   }
 }
 
-function r2GetOptional(bucket, key, file) {
-  const executable = process.platform === "win32" ? "npx.cmd" : "npx";
-  try {
-    execFileSync(
-      executable,
-      ["wrangler", "r2", "object", "get", `${bucket}/${key}`, "--file", file, "--remote"],
-      { cwd: root, stdio: "pipe" },
-    );
-    return true;
-  } catch {
-    return false;
-  }
+async function r2GetOptional(bucket, key, file) {
+  return runWrangler(["r2", "object", "get", `${bucket}/${key}`, "--file", file, "--remote"], { optional: true });
+}
+
+async function forEachConcurrent(items, concurrency, worker) {
+  let nextIndex = 0;
+  const runners = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const item = items[nextIndex];
+      nextIndex += 1;
+      await worker(item);
+    }
+  });
+  await Promise.all(runners);
 }
 
 async function main() {
@@ -209,17 +226,22 @@ async function main() {
     // Content-addressing makes uploads idempotent, but a local pointer is not
     // evidence that another bucket still contains the bytes. Verify every
     // referenced remote object before the generation can be promoted.
-    for (const asset of assets) {
-      r2Put(options.r2Bucket, asset.key, asset.file, asset.contentType, "public,max-age=31536000,immutable");
+    let verifiedAssetCount = 0;
+    await forEachConcurrent(assets, 6, async (asset) => {
+      await r2Put(options.r2Bucket, asset.key, asset.file, asset.contentType, "public,max-age=31536000,immutable");
       const remoteAsset = path.join(verifyRoot, path.basename(asset.file));
-      r2Get(options.r2Bucket, asset.key, remoteAsset);
+      await r2Get(options.r2Bucket, asset.key, remoteAsset);
       if (sha256(await readFile(remoteAsset)) !== asset.hash) {
         throw new Error(`remote raw-front verification failed: ${asset.key}; latest.json was not advanced`);
       }
-    }
-    r2Put(options.r2Bucket, generationKey, generationPath);
+      verifiedAssetCount += 1;
+      if (verifiedAssetCount % 50 === 0 || verifiedAssetCount === assets.length) {
+        process.stdout.write(`Verified ${verifiedAssetCount}/${assets.length} remote raw-front assets.\n`);
+      }
+    });
+    await r2Put(options.r2Bucket, generationKey, generationPath);
     const remoteGenerationTemp = path.join(options.out, "remote-generation.verify.json");
-    r2Get(options.r2Bucket, generationKey, remoteGenerationTemp);
+    await r2Get(options.r2Bucket, generationKey, remoteGenerationTemp);
     const remoteGeneration = JSON.parse(await readFile(remoteGenerationTemp, "utf8"));
     if (
       remoteGeneration.generation?.id !== snapshot.generation.id ||
@@ -233,15 +255,15 @@ async function main() {
     const candidatePointerKey = "candidate.json";
     const candidatePointerFile = path.join(options.out, "candidate-pointer.json");
     await atomicWrite(candidatePointerFile, pointerPayload);
-    r2Put(options.r2Bucket, candidatePointerKey, candidatePointerFile);
+    await r2Put(options.r2Bucket, candidatePointerKey, candidatePointerFile);
     const candidatePointerVerify = path.join(options.out, "remote-candidate-pointer.verify.json");
-    r2Get(options.r2Bucket, candidatePointerKey, candidatePointerVerify);
+    await r2Get(options.r2Bucket, candidatePointerKey, candidatePointerVerify);
     if (sha256(await readFile(candidatePointerVerify)) !== sha256(Buffer.from(pointerPayload))) {
       throw new Error("remote candidate pointer verification failed; latest.json was not advanced");
     }
 
     const baselinePointerFile = path.join(options.out, "remote-latest.baseline.json");
-    const baselineExists = r2GetOptional(options.r2Bucket, "latest.json", baselinePointerFile);
+    const baselineExists = await r2GetOptional(options.r2Bucket, "latest.json", baselinePointerFile);
     const baselinePointerSha256 = baselineExists ? sha256(await readFile(baselinePointerFile)) : "absent";
     const canaryReceipt = path.join(options.out, "generation-canary-receipt.json");
     const promotionRequest = path.join(options.out, "pointer-promotion-request.json");
@@ -281,7 +303,7 @@ async function main() {
       throw new Error("conditional pointer promoter receipt is invalid");
     }
     const remotePointerVerify = path.join(options.out, "remote-latest.verify.json");
-    r2Get(options.r2Bucket, "latest.json", remotePointerVerify);
+    await r2Get(options.r2Bucket, "latest.json", remotePointerVerify);
     const persistedPointer = JSON.parse(await readFile(remotePointerVerify, "utf8"));
     if (
       persistedPointer.generationId !== pointer.generationId ||

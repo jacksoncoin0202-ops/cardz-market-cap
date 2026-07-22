@@ -10,7 +10,7 @@ No control can make public HTML impossible to copy. The practical objective is t
 
 | Class | Examples | Permitted locations |
 | --- | --- | --- |
-| Public | Sanitized page data, opaque CARDZ IDs, QC-passed raw card fronts, localized stories | Versioned public generation, Worker-rendered HTML, public static assets |
+| Public | Sanitized page data, opaque CARDZ IDs, QC-passed raw card fronts, localized stories | Versioned public generation, Worker-rendered HTML, pointer-authorized Worker media |
 | Private | G10 full and incremental payloads, JLP records, source mappings, rejection evidence, full price and sale history, image review queues | Approved Windows runner, JLP, private R2 prefixes, private Git LFS archives |
 | Secret | API keys, cookies, tokens, database credentials, signed URLs, authorization headers | 1Password and approved process memory only |
 
@@ -38,7 +38,7 @@ Private Windows runner -> JLP canonical data -> sanitized immutable generation
 - Framing, MIME sniffing, referrer leakage, browser capabilities, and insecure transport are restricted with response headers.
 - API-shaped paths receive `X-Robots-Tag: noindex, nofollow, noarchive, nosnippet` even when they return an error.
 - Every deployment carries a sanitized `X-CARDZ-Build` value. Data-rendering responses carry `X-CARDZ-Generation`; neither value contains a provider ID.
-- Public asset names are content-addressed. The Worker also requires each requested hash to appear in the active validated pointer; knowing an old R2 key is not authorization. Browser caching is five minutes and edge caching is one hour so a revoked asset does not remain indefinitely reachable through the Worker route. Top 100 imagery must be `raw_front`; unmasked slab files are forbidden from application public folders and build traces.
+- Public asset names are content-addressed. Cloudflare builds verify the local raw-front files and use a temporary allowlisted public directory, so neither market media nor local design artifacts enter the static asset bundle. The Worker requires each requested hash to appear in the active validated pointer before it reads the private R2 object; knowing an old R2 key is not authorization. Browser caching is five minutes and edge caching is one hour so a revoked asset does not remain indefinitely reachable through the Worker route. Top 100 imagery must be `raw_front`; unmasked slab files are forbidden from application public folders and build traces.
 
 The static CSP retains `unsafe-inline` for Next.js bootstrap and styles. It deliberately omits `unsafe-eval` in production. Moving to a request nonce is a future hardening step and must be tested against the Cloudflare/OpenNext renderer before removing the compatibility directive.
 

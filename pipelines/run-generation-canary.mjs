@@ -27,6 +27,8 @@ let canaryCommand = [
   origin,
   "--expect-generation",
   generationId,
+  "--discovery",
+  "private",
 ];
 if (process.env.CARDZ_HOOK_TEST_MODE === "1" && process.env.NODE_ENV === "test") {
   const raw = process.env.CARDZ_PUBLIC_CANARY_COMMAND_JSON ?? "";
