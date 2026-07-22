@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 2,
+  "taskName": "Grade10-Daily-Scraper",
+  "cadence": "daily",
+  "localTime": "06:30",
+  "timezone": "Asia/Tokyo",
+  "mode": "staging",
+  "deterministic": true,
+  "aiInvolvement": false,
+  "action": "powershell.exe -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File pipelines/run_daily.ps1 -Mode staging -PrivateAcquireScript <private-grade10-repo>/grade10_scraper.py -R2Bucket <private-staging-bucket>",
+  "productionAuthority": "JLP MySQL 5.7 runner supplied through CARDZ_JLP_PRODUCTION_RUNNER and CARDZ_JLP_MYSQL_DSN",
+  "success": {
+    "requires": [
+      "private acquisition completed",
+      "600-card source gate passed",
+      "immutable full or incremental landing completed",
+      "canonical validation passed",
+      "all new media hashes uploaded and verified",
+      "generation uploaded and verified",
+      "latest pointer advanced last"
+    ],
+    "failure": "Preserve the previous successful latest pointer."
+  }
+}

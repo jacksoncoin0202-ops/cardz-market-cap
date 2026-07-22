@@ -1,0 +1,37 @@
+{
+  "name": "cardz-market-cap",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "npm@11.8.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm --workspace @cardz/web run dev",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present && node --test tests/*.test.mjs",
+    "test:data": "node --test tests/data/*.test.mjs",
+    "build": "npm run build --workspace @cardz/market-data && npm run build --workspace @cardz/web",
+    "build:cloudflare": "npm --workspace @cardz/web run build:cloudflare",
+    "snapshot:publish": "node pipelines/publish-snapshot.mjs",
+    "images:verify": "python pipelines/verify_images.py",
+    "images:verify:strict": "python pipelines/verify_images.py --strict-semantic",
+    "audit:production": "npm audit --omit=dev --audit-level=high --registry=https://registry.npmjs.org",
+    "verify:public": "node scripts/verify-public.mjs",
+    "verify:deployment": "node scripts/verify-deployment-config.mjs",
+    "verify:all": "npm run lint && npm run typecheck && npm run test && npm run test:data && npm run images:verify && npm run build && npm run verify:public -- --allow-demo --require-build && npm run verify:deployment",
+    "verify:release": "npm run audit:production && npm run images:verify:strict && npm run build:cloudflare && npm run verify:public -- --require-build && npm run verify:deployment",
+    "canary:public": "node scripts/canary-public.mjs",
+    "cf:whoami": "npx wrangler whoami",
+    "cf:dry-run:canary": "npm run build:cloudflare && npm run verify:public -- --allow-demo --require-build && npm run verify:deployment && npx wrangler deploy --dry-run --env canary --config apps/web/wrangler.jsonc --outdir data/runtime/wrangler-canary",
+    "cf:deploy:canary": "npm run build:cloudflare && npm run verify:public -- --allow-demo --require-build && npm run verify:deployment && npx wrangler deploy --env canary --config apps/web/wrangler.jsonc",
+    "cf:dry-run:staging": "npm run build:cloudflare && npm run verify:public -- --allow-demo --require-build && npm run verify:deployment && npx wrangler deploy --dry-run --env staging --config apps/web/wrangler.jsonc --outdir data/runtime/wrangler-staging",
+    "cf:deploy:staging": "npm run build:cloudflare && npm run verify:public -- --allow-demo --require-build && npm run verify:deployment && npx wrangler deploy --env staging --config apps/web/wrangler.jsonc"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}

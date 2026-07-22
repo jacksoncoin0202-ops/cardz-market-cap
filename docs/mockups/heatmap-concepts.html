@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CARDZ Heatmap — 3 Concepts</title>
+<style>
+  :root {
+    --phi-gap: 4px;
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang TC", "Helvetica Neue", Arial, sans-serif;
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    transition: background 0.5s var(--ease-out);
+  }
+
+  /* ============ variant switcher ============ */
+  .switcher {
+    position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
+    z-index: 100; display: flex; gap: 6px;
+    padding: 5px; border-radius: 999px;
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    transition: background 0.5s, box-shadow 0.5s;
+  }
+  .switcher button {
+    border: 0; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600;
+    padding: 8px 18px; border-radius: 999px; letter-spacing: 0.02em;
+    transition: all 0.25s var(--ease-out);
+  }
+  body[data-theme="gallery"] { background: #F4F3EF; }
+  body[data-theme="gallery"] .switcher { background: rgba(255,255,255,0.75); box-shadow: 0 2px 16px rgba(30,30,30,0.10); }
+  body[data-theme="gallery"] .switcher button { background: transparent; color: #6B6B66; }
+  body[data-theme="gallery"] .switcher button.active { background: #1A1A18; color: #F4F3EF; }
+
+  body[data-theme="vault"] { background: #0B0D11; }
+  body[data-theme="vault"] .switcher { background: rgba(20,24,32,0.7); box-shadow: 0 2px 24px rgba(0,0,0,0.6); }
+  body[data-theme="vault"] .switcher button { background: transparent; color: #5E6673; }
+  body[data-theme="vault"] .switcher button.active { background: #E8EAF0; color: #0B0D11; }
+
+  body[data-theme="holo"] { background: #101218; }
+  body[data-theme="holo"] .switcher { background: rgba(24,26,36,0.65); box-shadow: 0 2px 24px rgba(0,0,0,0.5); }
+  body[data-theme="holo"] .switcher button { background: transparent; color: #7A7F92; }
+  body[data-theme="holo"] .switcher button.active {
+    background: linear-gradient(110deg, #B9C6FF, #F3C6FF, #C6F0FF);
+    color: #14151F;
+  }
+
+  .hint {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    z-index: 100; font-size: 12px; letter-spacing: 0.04em;
+    opacity: 0.55; pointer-events: none; transition: color 0.5s;
+  }
+  body[data-theme="gallery"] .hint { color: #55554F; }
+  body[data-theme="vault"] .hint, body[data-theme="holo"] .hint { color: #AAB0C0; }
+
+  /* ============ stage ============ */
+  #stage { position: absolute; inset: 76px 28px 44px 28px; }
+  .tile {
+    position: absolute; overflow: hidden; cursor: pointer;
+    transition: opacity 0.25s var(--ease-out), transform 0.18s var(--ease-out), box-shadow 0.18s var(--ease-out), filter 0.3s var(--ease-out);
+    will-change: transform;
+  }
+  .tile img {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: contain; pointer-events: none;
+  }
+  .tile .rank { position: absolute; top: 5px; left: 7px; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; pointer-events: none; }
+  .tile .pct {
+    position: absolute; top: 5px; right: 7px; font-size: 10.5px; font-weight: 700;
+    font-variant-numeric: tabular-nums; pointer-events: none;
+  }
+  .tile .spark { position: absolute; left: 0; right: 0; bottom: 0; height: 22%; width: 100%; pointer-events: none; }
+  .tile .lowconf {
+    position: absolute; bottom: 4px; right: 6px; font-size: 9px; pointer-events: none;
+    letter-spacing: 0.02em;
+  }
+
+  /* spotlight: dim siblings on hover/focus */
+  #stage:hover .tile:not(:hover), #stage:focus-within .tile:not(:hover):not(:focus-visible) { opacity: 0.45; }
+
+  /* ================================================================
+     1) GALLERY WALL — 白盒畫廊：白縫、幼框、克制的 sparkline
+     ================================================================ */
+  body[data-theme="gallery"] #stage { padding: 0; }
+  body[data-theme="gallery"] .tile {
+    background: #FFFFFF;
+    border: 1px solid #E4E2DA;
+    border-radius: 3px;
+    box-shadow: 0 1px 2px rgba(40,38,32,0.05);
+  }
+  body[data-theme="gallery"] .tile img { padding: 6%; filter: saturate(var(--conf-sat, 1)); }
+  body[data-theme="gallery"] .tile:hover, body[data-theme="gallery"] .tile:focus-visible {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 28px rgba(40,38,32,0.16);
+    z-index: 5;
+  }
+  body[data-theme="gallery"] .tile .rank { color: #8A887F; }
+  body[data-theme="gallery"] .tile .pct.up { color: #1E7A55; }
+  body[data-theme="gallery"] .tile .pct.down { color: #B0405A; }
+  body[data-theme="gallery"] .tile .pct.flat { color: #8A887F; }
+  body[data-theme="gallery"] .tile .lowconf { color: #A8A69C; }
+  body[data-theme="gallery"] .tile::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px;
+    background: var(--edge, transparent); opacity: 0.85;
+  }
+
+  /* ================================================================
+     2) VAULT — 深色保險庫：黑絨底、卡磚內發光、光邊表示升跌
+     ================================================================ */
+  body[data-theme="vault"] #stage { inset: 76px 28px 44px 28px; }
+  body[data-theme="vault"] .tile {
+    background: #14171E;
+    border-radius: 6px;
+    box-shadow:
+      inset 0 0 0 1px rgba(255,255,255,0.05),
+      inset 0 0 22px rgba(0,0,0,0.55),
+      0 0 0 1px rgba(0,0,0,0.6);
+  }
+  body[data-theme="vault"] .tile::before {
+    content: ""; position: absolute; inset: 0; border-radius: 6px; z-index: 2; pointer-events: none;
+    box-shadow: inset 0 0 0 1.5px var(--glow, transparent), inset 0 0 18px var(--glow-soft, transparent);
+    opacity: 0.9;
+  }
+  body[data-theme="vault"] .tile img { padding: 7%; filter: saturate(var(--conf-sat, 1)) brightness(1.02); z-index: 1; }
+  body[data-theme="vault"] .tile:hover, body[data-theme="vault"] .tile:focus-visible {
+    transform: translateY(-3px) scale(1.015);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.09), 0 14px 40px rgba(0,0,0,0.7), 0 0 26px var(--glow-soft, transparent);
+    z-index: 5;
+  }
+  body[data-theme="vault"] .tile .rank { color: #6E7686; z-index: 3; }
+  body[data-theme="vault"] .tile .pct { z-index: 3; text-shadow: 0 1px 6px rgba(0,0,0,0.8); }
+  body[data-theme="vault"] .tile .pct.up { color: #4ADE9D; }
+  body[data-theme="vault"] .tile .pct.down { color: #F06B81; }
+  body[data-theme="vault"] .tile .pct.flat { color: #6E7686; }
+  body[data-theme="vault"] .tile .lowconf { color: #59616F; z-index: 3; }
+  body[data-theme="vault"] .tile .spark { opacity: 0.9; z-index: 3; }
+
+  /* ================================================================
+     3) HOLO — 卡膜箔光：彩虹 foil 掃光 + parallax tilt
+     ================================================================ */
+  body[data-theme="holo"] .tile {
+    background: #181B25;
+    border-radius: 8px;
+    transform-style: preserve-3d;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.5);
+  }
+  body[data-theme="holo"] .tile img { padding: 6%; }
+  body[data-theme="holo"] .tile .foil {
+    position: absolute; inset: -40%; z-index: 2; pointer-events: none;
+    background: linear-gradient(115deg,
+      transparent 30%,
+      rgba(255, 120, 180, 0.10) 42%,
+      rgba(140, 200, 255, 0.14) 50%,
+      rgba(150, 255, 200, 0.10) 58%,
+      transparent 70%);
+    mix-blend-mode: screen;
+    transform: translateX(var(--foil-x, -30%)) rotate(var(--foil-r, 8deg));
+    transition: transform 0.35s var(--ease-out);
+  }
+  body[data-theme="holo"] .tile::before {
+    content: ""; position: absolute; inset: 0; border-radius: 8px; z-index: 3; pointer-events: none;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.07), inset 0 0 0 2.5px var(--glow, transparent);
+    opacity: 0.75;
+  }
+  body[data-theme="holo"] .tile:hover, body[data-theme="holo"] .tile:focus-visible {
+    z-index: 5;
+    box-shadow: 0 18px 48px rgba(0,0,0,0.65), 0 0 30px var(--glow-soft, transparent);
+    transition: box-shadow 0.2s var(--ease-out);
+  }
+  body[data-theme="holo"] .tile:hover .foil { --foil-x: 30%; --foil-r: -6deg; transition: transform 0.6s var(--ease-out); }
+  body[data-theme="holo"] .tile .rank { color: #8A90A6; z-index: 4; }
+  body[data-theme="holo"] .tile .pct { z-index: 4; text-shadow: 0 1px 8px rgba(0,0,0,0.9); }
+  body[data-theme="holo"] .tile .pct.up { color: #7CF0C0; }
+  body[data-theme="holo"] .tile .pct.down { color: #FF8FA8; }
+  body[data-theme="holo"] .tile .pct.flat { color: #8A90A6; }
+  body[data-theme="holo"] .tile .lowconf { color: #6A7086; z-index: 4; }
+
+  /* ============ click demo modal ============ */
+  .modal-backdrop {
+    position: fixed; inset: 0; z-index: 200; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(10,10,14,0.0); transition: background 0.3s;
+  }
+  .modal-backdrop.open { display: flex; background: rgba(10,10,14,0.55); backdrop-filter: blur(6px); }
+  .modal {
+    width: min(720px, 88vw); border-radius: 14px; padding: 28px;
+    display: flex; gap: 26px; align-items: center;
+    transform: translateY(24px) scale(0.96); opacity: 0;
+    transition: transform 0.38s var(--ease-spring), opacity 0.3s;
+  }
+  .modal-backdrop.open .modal { transform: none; opacity: 1; }
+  body[data-theme="gallery"] .modal { background: #FFFFFF; box-shadow: 0 30px 80px rgba(30,28,22,0.3); color: #1A1A18; }
+  body[data-theme="vault"] .modal, body[data-theme="holo"] .modal { background: #171A22; box-shadow: 0 30px 90px rgba(0,0,0,0.7); color: #E8EAF0; }
+  .modal img { width: 190px; border-radius: 6px; }
+  .modal h2 { font-size: 22px; margin-bottom: 4px; }
+  .modal .sub { font-size: 13px; opacity: 0.6; margin-bottom: 16px; }
+  .modal .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 22px; font-size: 13px; }
+  .modal .stats b { display: block; font-size: 16px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .modal .close {
+    position: absolute; top: 14px; right: 18px; border: 0; background: none;
+    font-size: 20px; cursor: pointer; color: inherit; opacity: 0.5;
+  }
+  .modal { position: relative; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 0.01ms !important; animation: none !important; }
+  }
+</style>
+</head>
+<body data-theme="gallery">
+
+<div class="switcher" role="tablist">
+  <button data-theme="gallery" class="active">① 白盒畫廊</button>
+  <button data-theme="vault">② 深色 Vault</button>
+  <button data-theme="holo">③ Holo 卡膜</button>
+</div>
+
+<div id="stage"></div>
+<p class="hint">hover 睇 spotlight + tilt ・ click 睇 FLIP 彈窗 ・ 㩒 1 / 2 / 3 切版</p>
+
+<div class="modal-backdrop" id="backdrop">
+  <div class="modal" role="dialog" aria-modal="true">
+    <button class="close" id="modalClose">✕</button>
+    <img id="mImg" src="" alt="">
+    <div>
+      <h2 id="mName"></h2>
+      <p class="sub" id="mSet"></p>
+      <div class="stats">
+        <div>Market Cap<b id="mCap"></b></div>
+        <div>PSA 10<b id="mPrice"></b></div>
+        <div>30D Change<b id="mChg"></b></div>
+        <div>Tracked Sales<b id="mSales"></b></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------- mock data: 真卡圖 + 虛構市值/升跌 ---------- */
+const SETS = ["base1","base1","base1","base1","base1","base1","swsh12","swsh12","swsh12","sv3pt5","sv3pt5","sv3pt5","basep","basep","xy7","xy7","sm9","sm9","swsh45","swsh45","sv2","sv2","sv1","sv1","neo1","neo1","ex3","ex3","dp7","dp7","bw9","bw9","sm12","sm12","swsh9","swsh9","sv4","sv4","sv5","sv5","svm","svm","g1","g1","pop5","pop5","sm35","sm35","swshp","swshp"];
+const NAMES = ["Charizard","Blastoise","Venusaur","Pikachu","Mewtwo","Chansey","Charizard V","Rayquaza V","Umbreon V","Mew ex","Gengar","Alakazam ex","Mew","Celebi","Gyarados ex","M Rayquaza","Lucario GX","Greninja GX","Charizard VV","Pikachu VV","Miraidon ex","Koraidon ex","Gardevoir ex","Skeledirge ex","Lugia","Typhlosion","Kyogre ex","Rayquaza ex","Dialga Lv.X","Palkia Lv.X","Zekrom","Reshiram","Solgaleo GX","Lunala GX","Zacian V","Zamazenta V","Charizard ex","Iono","Ting-Lu ex","Chien-Pao ex","Palafin","Finizen","Pikachu SIR","Eevee SIR","Espeon ★","Umbreon ★","Mimikyu","Snorlax","Zard Promo","Pika Promo"];
+const CAP0 = 920;
+const cards = NAMES.map((name, i) => {
+  const rank = i + 1;
+  const cap = Math.round(CAP0 * Math.pow(0.93, i) * (0.9 + seeded(i * 7 + 3) * 0.25));
+  const chg = (seeded(i * 13 + 5) - 0.42) * 34;
+  const sales = Math.max(1, Math.round(seeded(i * 29 + 11) * 60));
+  const spark = Array.from({length: 30}, (_, d) => 100 + d * chg / 30 + (seeded(i * 31 + d) - 0.5) * 8);
+  return { rank, name, set: SETS[i], num: (i % 18) + 1, cap, chg, sales, spark,
+           price: Math.round(cap * 1e6 / (800 + seeded(i * 17) * 4000)) };
+});
+function seeded(n) { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
+
+/* ---------- golden-ratio strip treemap (target = card aspect 0.714) ---------- */
+const TARGET = 0.714;
+function worstAspect(row, W, scale) {
+  const area = row.reduce((s, c) => s + c.cap * scale, 0);
+  if (area <= 0) return Infinity;
+  const h = area / W;
+  return row.reduce((w, c) => {
+    const cw = c.cap * scale / h;
+    return Math.max(w, Math.abs(Math.log((cw / h) / TARGET)));
+  }, 0);
+}
+function layout(items, W, H) {
+  const scale = W * H / items.reduce((s, c) => s + c.cap, 0);
+  const rows = []; let cur = 0;
+  while (cur < items.length) {
+    const row = [items[cur++]];
+    while (cur < items.length) {
+      if (worstAspect([...row, items[cur]], W, scale) > worstAspect(row, W, scale)) break;
+      row.push(items[cur++]);
+    }
+    rows.push(row);
+  }
+  const tiles = []; let y = 0;
+  rows.forEach((row, ri) => {
+    const h = ri === rows.length - 1 ? H - y : row.reduce((s, c) => s + c.cap * scale, 0) / W;
+    let x = 0;
+    row.forEach((c, ci) => {
+      const w = ci === row.length - 1 ? W - x : c.cap * scale / h;
+      tiles.push({ c, x, y, w, h }); x += w;
+    });
+    y += h;
+  });
+  return tiles;
+}
+
+/* ---------- color scales ---------- */
+const clampPct = v => Math.max(-15, Math.min(15, v));
+function edgeColor(chg, alpha) {
+  const t = Math.abs(clampPct(chg)) / 15;
+  const a = (0.35 + t * 0.65) * alpha;
+  if (chg > 0.3) return `rgba(38, 160, 110, ${a})`;      // jade
+  if (chg < -0.3) return `rgba(198, 74, 102, ${a})`;     // muted crimson
+  return `rgba(120, 122, 128, ${a * 0.6})`;
+}
+function glowPair(chg) {
+  const t = Math.abs(clampPct(chg)) / 15;
+  const a = 0.25 + t * 0.75;
+  if (chg > 0.3) return [`rgba(52, 211, 153, ${a})`, `rgba(52, 211, 153, ${a * 0.35})`];
+  if (chg < -0.3) return [`rgba(244, 92, 122, ${a})`, `rgba(244, 92, 122, ${a * 0.35})`];
+  return [`rgba(130, 136, 150, ${a * 0.4})`, `rgba(130, 136, 150, 0.08)`];
+}
+function sparkSVG(spark, chg) {
+  const min = Math.min(...spark), max = Math.max(...spark), r = max - min || 1;
+  const pts = spark.map((v, i) => `${(i / (spark.length - 1) * 100).toFixed(1)},${(18 - (v - min) / r * 14).toFixed(1)}`).join(" ");
+  const col = chg > 0.3 ? "#2FA37C" : chg < -0.3 ? "#C64A66" : "#8A8C92";
+  return `<svg class="spark" viewBox="0 0 100 20" preserveAspectRatio="none">
+    <polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.4" vector-effect="non-scaling-stroke" opacity="0.9"/></svg>`;
+}
+function imgURL(c) { return `https://images.pokemontcg.io/${c.set}/${c.num}.png`; }
+
+/* ---------- render ---------- */
+const stage = document.getElementById("stage");
+function render() {
+  stage.innerHTML = "";
+  const rect = stage.getBoundingClientRect();
+  layout(cards, rect.width, rect.height).forEach(({ c, x, y, w, h }) => {
+    if (w < 26 || h < 26) return;
+    const el = document.createElement("div");
+    el.className = "tile"; el.tabIndex = 0;
+    el.style.cssText = `left:${x}px;top:${y}px;width:${w}px;height:${h}px;`;
+    const conf = Math.min(1, c.sales / 20);
+    el.style.setProperty("--conf-sat", (0.55 + conf * 0.45).toFixed(2));
+    el.style.setProperty("--edge", edgeColor(c.chg, 1));
+    const [g, gs] = glowPair(c.chg);
+    el.style.setProperty("--glow", g);
+    el.style.setProperty("--glow-soft", gs);
+    const cls = c.chg > 0.3 ? "up" : c.chg < -0.3 ? "down" : "flat";
+    const sign = c.chg > 0 ? "+" : "";
+    el.innerHTML = `
+      <img src="${imgURL(c)}" alt="" loading="lazy" onerror="this.style.display='none'">
+      <span class="rank">#${c.rank}</span>
+      <span class="pct ${cls}">${sign}${c.chg.toFixed(1)}%</span>
+      ${sparkSVG(c.spark, c.chg)}
+      ${conf < 0.5 ? `<span class="lowconf">成交稀疏</span>` : ""}
+      <span class="foil"></span>`;
+    el.addEventListener("click", () => openModal(c));
+    /* holo tilt */
+    el.addEventListener("pointermove", e => {
+      if (document.body.dataset.theme !== "holo") return;
+      const b = el.getBoundingClientRect();
+      const px = (e.clientX - b.left) / b.width - 0.5;
+      const py = (e.clientY - b.top) / b.height - 0.5;
+      el.style.transform = `perspective(700px) rotateY(${px * 10}deg) rotateX(${-py * 10}deg) translateZ(6px)`;
+    });
+    el.addEventListener("pointerleave", () => { el.style.transform = ""; });
+    stage.appendChild(el);
+  });
+}
+
+/* ---------- modal ---------- */
+const backdrop = document.getElementById("backdrop");
+function openModal(c) {
+  document.getElementById("mImg").src = imgURL(c).replace(".png", "_hires.png");
+  document.getElementById("mName").textContent = `#${c.rank} ${c.name}`;
+  document.getElementById("mSet").textContent = `${c.set.toUpperCase()} · #${c.num}`;
+  document.getElementById("mCap").textContent = "$" + (c.cap / 10).toFixed(1) + "M";
+  document.getElementById("mPrice").textContent = "$" + c.price.toLocaleString();
+  const el = document.getElementById("mChg");
+  el.textContent = (c.chg > 0 ? "+" : "") + c.chg.toFixed(1) + "%";
+  el.style.color = c.chg > 0.3 ? "#2FA37C" : c.chg < -0.3 ? "#C64A66" : "inherit";
+  document.getElementById("mSales").textContent = c.sales + " 宗";
+  backdrop.classList.add("open");
+}
+document.getElementById("modalClose").onclick = () => backdrop.classList.remove("open");
+backdrop.addEventListener("mousedown", e => { if (e.target === backdrop) backdrop.classList.remove("open"); });
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") backdrop.classList.remove("open");
+  const map = { "1": "gallery", "2": "vault", "3": "holo" };
+  if (map[e.key]) setTheme(map[e.key]);
+});
+
+/* ---------- theme switch ---------- */
+function setTheme(t) {
+  document.body.dataset.theme = t;
+  document.querySelectorAll(".switcher button").forEach(b => b.classList.toggle("active", b.dataset.theme === t));
+}
+document.querySelectorAll(".switcher button").forEach(b => b.onclick = () => setTheme(b.dataset.theme));
+
+window.addEventListener("resize", render);
+render();
+</script>
+</body>
+</html>

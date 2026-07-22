@@ -1,0 +1,1977 @@
+{
+  "schemaVersion": "1.0.0",
+  "snapshotEffectiveAt": "2026-07-22T09:48:26.496874Z",
+  "snapshotContentSha256": "894737a06f5947229af177c166b9a40d938896d0b2509d97cc336748ced7215f",
+  "readyCount": 45,
+  "reviewRequiredCount": 55,
+  "entries": [
+    {
+      "id": "cmc_4104320a31c4d989742c067d",
+      "rankAtReview": 1,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "085/SVP",
+      "status": "ready",
+      "evidenceSha256": "ecc0a341c717d4ffe3188c99d067cde4aae00081b5952cfba01003013ee9ee72",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "This promo recasts Pikachu through Van Gogh’s Self-Portrait with Grey Felt Hat, joining a museum collaboration to the Pokémon card market. The cultural crossover widened demand beyond set collectors, while its large graded supply makes turnover and condition more informative than a simple scarcity claim.",
+        "zhTW": "這張宣傳卡以梵高《戴灰色氈帽的自畫像》重新詮釋皮卡丘，把博物館合作帶進寶可夢卡牌市場。文化跨界令需求超越一般系列收藏；在評級供應龐大的情況下，成交承接與品相比單純宣稱稀缺更值得觀察。",
+        "zhCN": "这张宣传卡以梵高《戴灰色毡帽的自画像》重新诠释皮卡丘，把博物馆合作带进宝可梦卡牌市场。文化跨界令需求超越一般系列收藏；在评级供应庞大的情况下，成交承接与品相比单纯宣称稀缺更值得观察。",
+        "ja": "このプロモは、ゴッホの《灰色のフェルト帽をかぶった自画像》を通してピカチュウを再解釈した美術館コラボです。通常のセット収集層を越えて需要が広がった一方、鑑定枚数が多いため、単純な希少性より売買の厚みと状態差が価格形成を左右します。"
+      }
+    },
+    {
+      "id": "cmc_4904c415cfc0e20a5d5ab333",
+      "rankAtReview": 2,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "215/203",
+      "status": "review_required",
+      "evidenceSha256": "abfcbc2be0f441b6bd33534afaef0455c5283332992032414ddfc4e0a7dd845c",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_cbe983e0f115e8e3cd2e1196",
+      "rankAtReview": 3,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "227/S-P",
+      "status": "ready",
+      "evidenceSha256": "f0f18829d6b553dd673ae404889980792351531079af099e003c40b0e8824d22",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Mitsuhiro Arita’s Pikachu echoes Hishikawa Moronobu’s Beauty Looking Back and came through the Japan Post Stamp Box rather than a booster set. The clear ukiyo-e reference connects art buyers with Pikachu specialists, making the exact boxed promo and its condition central to market demand.",
+        "zhTW": "有田滿弘筆下的皮卡丘呼應菱川師宣《回眸美人圖》，並非補充包卡，而是日本郵便郵票盒的限定內容。清晰的浮世繪脈絡同時吸引藝術題材與皮卡丘專門收藏者，因此盒裝出處與卡況對市場需求尤其重要。",
+        "zhCN": "有田满弘笔下的皮卡丘呼应菱川师宣《回眸美人图》，并非补充包卡，而是日本邮政邮票盒的限定内容。清晰的浮世绘脉络同时吸引艺术题材与皮卡丘专项收藏者，因此盒装出处与卡况对市场需求尤其重要。",
+        "ja": "有田満弘が描いたピカチュウは菱川師宣の《見返り美人図》を踏まえ、ブースターパックではなく日本郵便の切手BOXに収録されました。浮世絵との結び付きが美術志向の層とピカチュウ収集家をつなぎ、BOX由来と保存状態が需要を大きく左右します。"
+      }
+    },
+    {
+      "id": "cmc_651886994f7e46422a9d20a7",
+      "rankAtReview": 4,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "294/XY-P",
+      "status": "ready",
+      "evidenceSha256": "5035e2220f8dc9d3dbc6e6c640ba91946568e5fee5fe43fa7920ead3a6cff091",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "The full-art 294/XY-P places Pikachu in Mario’s costume and was issued through the Japan-only Mario Pikachu Special Box. Two instantly recognizable Nintendo worlds meet in one fixed product, so crossover recognition and the finite box-origin supply keep this printing prominent.",
+        "zhTW": "全圖版 294/XY-P 讓皮卡丘穿上瑪利歐服裝，並隨日本限定的 Mario Pikachu Special Box 發行。兩個辨識度極高的任天堂世界集中在同一產品，跨作品認知度與固定盒裝來源使這個版本長期受到市場關注。",
+        "zhCN": "全图版 294/XY-P 让皮卡丘穿上马力欧服装，并随日本限定的 Mario Pikachu Special Box 发行。两个辨识度极高的任天堂世界集中在同一产品，跨作品认知度与固定盒装来源使这个版本长期受到市场关注。",
+        "ja": "フルアートの294/XY-Pは、マリオ姿のピカチュウを日本限定の「マリオピカチュウ スペシャルBOX」に収録したカードです。任天堂を代表する二つの世界が一枚に重なり、BOX由来の供給と高い認知度が継続的な需要を支えています。"
+      }
+    },
+    {
+      "id": "cmc_3456a0654f5328f1a3e324b8",
+      "rankAtReview": 5,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "232/091",
+      "status": "review_required",
+      "evidenceSha256": "647f1a1acf1c41997d0959974914507d37c5b26e201f29f5f5cc6299470b22ed",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_1926a5a1a760ff477e70783a",
+      "rankAtReview": 6,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "125/094",
+      "status": "review_required",
+      "evidenceSha256": "83b00c26c08e70508b227c9c04a2d1e191ea8bec1f609bf66ddcf5b1778aab77",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_9580a494b2aba0835bd8bbb3",
+      "rankAtReview": 7,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "288/SM-P",
+      "status": "ready",
+      "evidenceSha256": "75b553bb2bfce6c3f6ba0caaa2b406b241e9e4383f62b7ed452926cd274e89b8",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Pikachu 288/SM-P was created for Munch: A Retrospective at the Tokyo Metropolitan Art Museum and turns The Scream into a Pokémon scene. Its museum context, short promotional route and unmistakable image bring together fine-art, event-promo and Pikachu demand.",
+        "zhTW": "皮卡丘 288/SM-P 為東京都美術館「蒙克回顧展」而製作，把《吶喊》的構圖轉化為寶可夢場景。博物館背景、限時宣傳渠道與一眼可辨的畫面，令藝術題材、活動宣傳卡及皮卡丘三類需求交會。",
+        "zhCN": "皮卡丘 288/SM-P 为东京都美术馆“蒙克回顾展”而制作，把《呐喊》的构图转化为宝可梦场景。博物馆背景、限时宣传渠道与一眼可辨的画面，令艺术题材、活动宣传卡及皮卡丘三类需求交汇。",
+        "ja": "ピカチュウ288/SM-Pは、東京都美術館の「ムンク展―共鳴する魂の叫び」のために制作され、《叫び》の構図をポケモンの場面へ置き換えました。美術館という来歴、短い配布経路、強い視認性が、美術・イベントプロモ・ピカチュウの需要を一枚に集めています。"
+      }
+    },
+    {
+      "id": "cmc_f3f958cb70020cc53f8473ee",
+      "rankAtReview": 8,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "110/080",
+      "status": "review_required",
+      "evidenceSha256": "2ce9dfe90c5a148ccbbdb49a19e5fb412b26fb007164a3a727f9be3b5a27ab48",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_d097cd7c6596d12cf7b3d3b5",
+      "rankAtReview": 9,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "207/XY-P",
+      "status": "ready",
+      "evidenceSha256": "00eb4092bdefe05f5bc186bbb361ca4b94cdf6f1440c86cbf33c5ee70791c974",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Pikachu wears a Mega Charizard X poncho on 207/XY-P, one half of a Japanese special-box pair that never received a regular English release. The costume concept joins two powerful character markets, while pair-completion demand keeps the exact X version distinct.",
+        "zhTW": "207/XY-P 描繪皮卡丘穿上 Mega 噴火龍 X 斗篷，是日本特別盒裝成對版本之一，未有一般英文版發行。角色扮演概念把兩個強勢角色市場連在一起，而成對收藏需求亦令 X 版本保持清晰辨識。",
+        "zhCN": "207/XY-P 描绘皮卡丘穿上超级喷火龙 X 斗篷，是日本特别盒装成对版本之一，未有常规英文版发行。角色扮演概念把两个强势角色市场连在一起，而成对收藏需求也令 X 版本保持清晰辨识。",
+        "ja": "207/XY-Pは、メガリザードンXのポンチョを着たピカチュウを描く、日本限定スペシャルBOXの対となる一枚です。通常の英語版がなく、二つの人気キャラクターを結ぶコスチューム性とX・Yを揃える需要が、この印刷を明確に差別化しています。"
+      }
+    },
+    {
+      "id": "cmc_39543dca442b7e07b7d067d2",
+      "rankAtReview": 10,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "217/187",
+      "status": "review_required",
+      "evidenceSha256": "cdd66dfc018af23e63f493813a06fb82e3f02e0f488156afe8ed562ef9d1fab6",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_873cdd42323d1fa889223831",
+      "rankAtReview": 11,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "218/203",
+      "status": "review_required",
+      "evidenceSha256": "e88c36627ec929f509e043b87db7c48225c73b156753c4bc3b7329170409fd28",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_76fec566b9ee8f39b4fe6db0",
+      "rankAtReview": 12,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "199/165",
+      "status": "review_required",
+      "evidenceSha256": "7aa2c4899502c88200db5529c1b85a873407747a77a0fd56d47f5a51fc569f53",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_1658bc405c79e532dc27df62",
+      "rankAtReview": 13,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "161/131",
+      "status": "review_required",
+      "evidenceSha256": "4008fa4aa2276cf33a8c304790f26577fcc536b9abf7a22a91f3210e998ed5eb",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_4ba4384ab38506d51d5c4675",
+      "rankAtReview": 14,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "170/181",
+      "status": "review_required",
+      "evidenceSha256": "029d0765ca60bd1fd6543efc8d058a7bc9e032e3ff0c8869b9604b9941551514",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_68fea7f0659465c63c8b9656",
+      "rankAtReview": 15,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "208/XY-P",
+      "status": "ready",
+      "evidenceSha256": "46a79f025ed7060054dd4eee4f267e4732a8f059139703bb1fb1dc8c279a6b42",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Card 208/XY-P is the Mega Charizard Y counterpart in the Japanese Poncho-wearing Pikachu special-box release. Its bright costume design is collected both on its own and as the matching half of 207/XY-P, creating demand that is tied to variant completeness rather than name alone.",
+        "zhTW": "208/XY-P 是日本 Poncho-wearing Pikachu 特別盒裝中的 Mega 噴火龍 Y 對應版本。鮮明的服裝設計既可獨立收藏，也常與 207/XY-P 配成一組，因此需求取決於版本完整性，而不只是卡名。",
+        "zhCN": "208/XY-P 是日本 Poncho-wearing Pikachu 特别盒装中的超级喷火龙 Y 对应版本。鲜明的服装设计既可独立收藏，也常与 207/XY-P 配成一组，因此需求取决于版本完整性，而不只是卡名。",
+        "ja": "208/XY-Pは、日本の「ポンチョを着たピカチュウ」スペシャルBOXに収録されたメガリザードンY版です。単体の図柄だけでなく207/XY-Pとの対で集められるため、カード名以上にバリエーションの揃い方が需要を生みます。"
+      }
+    },
+    {
+      "id": "cmc_2e50cfa47055aa4e381faa3c",
+      "rankAtReview": 16,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "279/XY-P",
+      "status": "ready",
+      "evidenceSha256": "ecd7866b7dc1caa04d3a1acd5365b370acbd7e42f1c7e5c6266863589467652b",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Pikachu 279/XY-P was distributed to participants at Japan’s Pokémon 20th Anniversary Festa and places the mascot beside the Kanto starters. It functions as both event memorabilia and anniversary history, so provenance and clean surviving copies matter to buyers.",
+        "zhTW": "皮卡丘 279/XY-P 是日本寶可夢二十週年 Festa 的參加紀念卡，畫面同時呈現皮卡丘與關都御三家。它兼具活動紀念物與週年歷史意義，因此來源清楚及保存良好的實物更受買家重視。",
+        "zhCN": "皮卡丘 279/XY-P 是日本宝可梦二十周年 Festa 的参加纪念卡，画面同时呈现皮卡丘与关都御三家。它兼具活动纪念物与周年历史意义，因此来源清楚及保存良好的实物更受买家重视。",
+        "ja": "ピカチュウ279/XY-Pは、日本のポケモン20周年記念フェスタで参加者に配布され、ピカチュウとカントー御三家を一枚に収めました。大会記念品と周年史料の両面を持つため、来歴が明確で状態の良い個体ほど市場で重視されます。"
+      }
+    },
+    {
+      "id": "cmc_ffce522e63314c379a227ea8",
+      "rankAtReview": 17,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "186/195",
+      "status": "review_required",
+      "evidenceSha256": "4e9ec0e8e099b65237222a65d8ab735eb5626f2716f2edfb2e7e326434930c67",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_d89c222d681c459728a7d0ae",
+      "rankAtReview": 18,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "271/264",
+      "status": "review_required",
+      "evidenceSha256": "38cfaae8c6fb79b25837f749fea7ec6bc54b68699ec6c89ea58f11756382d767",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_920b7e90b38c2fe802970186",
+      "rankAtReview": 19,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "296/XY-P",
+      "status": "ready",
+      "evidenceSha256": "7cde48b7b42935839dd00fdf4860bb4c447bb8cbc6c7c11091ed62866e579230",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Luigi Pikachu 296/XY-P is the full-art anchor of the Japan-only Luigi Pikachu Special Box. Pikachu’s Luigi costume gives the card immediate cross-franchise recognition, while its companion relationship with the Mario box encourages complete-pair buying.",
+        "zhTW": "Luigi Pikachu 296/XY-P 是日本限定 Luigi Pikachu Special Box 的全圖核心卡。皮卡丘的路易吉造型具有直接的跨作品辨識度，並因與瑪利歐盒裝互為對應而帶動成套買盤。",
+        "zhCN": "Luigi Pikachu 296/XY-P 是日本限定 Luigi Pikachu Special Box 的全图核心卡。皮卡丘的路易吉造型具有直接的跨作品辨识度，并因与马力欧盒装互为对应而带动成套买盘。",
+        "ja": "ルイージピカチュウ296/XY-Pは、日本限定「ルイージピカチュウ スペシャルBOX」の中心となるフルアートです。ルイージ姿の分かりやすいクロスオーバーに加え、マリオBOXとの対で揃える需要が市場の厚みを作っています。"
+      }
+    },
+    {
+      "id": "cmc_b433790e4de64ce7d1824081",
+      "rankAtReview": 20,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "095/069",
+      "status": "ready",
+      "evidenceSha256": "80afcbe65a57e0e61a9dad0f1b712ae29014432af089e66d0f9b42be241464df",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Umbreon VMAX 095/069 from Eevee Heroes is defined by its moonlit alternate art and by Umbreon’s unusually broad fan base. As the visual flagship of a character-focused Japanese set, demand comes from Eeveelution collectors, set completion and modern alternate-art buyers at once.",
+        "zhTW": "《Eevee Heroes》的月亮伊布 VMAX 095/069 以月夜異圖和角色本身的廣泛人氣為核心。它是角色主題日版系列的視覺代表，同時承接伊布家族收藏、整套收集及現代異圖市場三方面需求。",
+        "zhCN": "《Eevee Heroes》的月亮伊布 VMAX 095/069 以月夜异图和角色本身的广泛人气为核心。它是角色主题日版系列的视觉代表，同时承接伊布家族收藏、整套收集及现代异图市场三方面需求。",
+        "ja": "「イーブイヒーローズ」のブラッキーVMAX 095/069は、月夜のスペシャルアートとブラッキー自身の幅広い人気が核です。キャラクター特化型の日本語セットを象徴する一枚として、ブイズ収集、セット完成、現代の別絵需要が重なっています。"
+      }
+    },
+    {
+      "id": "cmc_5cd2734fa71421412e536b40",
+      "rankAtReview": 21,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "276/XY-P",
+      "status": "ready",
+      "evidenceSha256": "bad092d6f146f4168d6ce12307c7de7bebfdc0240895343d224157692c93cb34",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Charizard EX 276/XY-P was packaged with the Pokémon Card Game Art Collection book rather than inserted into boosters, and its artwork stages a Charizard–Venusaur confrontation. The book-exclusive origin and narrative image make sealed provenance and surface condition important parts of demand.",
+        "zhTW": "噴火龍 EX 276/XY-P 隨《Pokémon Card Game Art Collection》畫冊發行，而非從補充包抽取；畫面以噴火龍與妙蛙花的對決為主題。畫冊限定來源與敘事性構圖，使原始出處及表面品相成為需求的重要部分。",
+        "zhCN": "喷火龙 EX 276/XY-P 随《Pokémon Card Game Art Collection》画册发行，而非从补充包抽取；画面以喷火龙与妙蛙花的对决为主题。画册限定来源与叙事性构图，使原始出处及表面品相成为需求的重要部分。",
+        "ja": "リザードンEX 276/XY-Pは、ブースターではなく『ポケモンカードゲーム アートコレクション』に付属し、リザードンとフシギバナの対峙を描きました。書籍限定という来歴と物語性のある画面により、出所と表面状態が需要の重要な判断材料になります。"
+      }
+    },
+    {
+      "id": "cmc_250a7ea3225303876ccbaa19",
+      "rankAtReview": 22,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "231/XY-P",
+      "status": "ready",
+      "evidenceSha256": "11e7aa198ee19f3feca8fae2a022a60ffea6b283de458d98150f89516fe84a57",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Poncho-wearing Pikachu 231/XY-P came from the Rayquaza special box linked to the Pokémon Center Skytree Town opening. The local-event origin, Rayquaza costume and paired release with 230/XY-P give it demand from promo specialists as well as pair builders.",
+        "zhTW": "斗篷皮卡丘 231/XY-P 出自與 Pokémon Center Skytree Town 開幕相關的烈空坐特別盒。地區活動背景、烈空坐造型及與 230/XY-P 成對發行，使它同時吸引宣傳卡專門收藏者與成套買家。",
+        "zhCN": "斗篷皮卡丘 231/XY-P 出自与 Pokémon Center Skytree Town 开幕相关的烈空坐特别盒。地区活动背景、烈空坐造型及与 230/XY-P 成对发行，使它同时吸引宣传卡专项收藏者与成套买家。",
+        "ja": "ポンチョを着たピカチュウ231/XY-Pは、ポケモンセンタースカイツリータウン開業に結び付くレックウザ特別BOXのカードです。地域イベントの来歴、レックウザの装い、230/XY-Pとの対が、プロモ専門層とペア収集層の双方を引き付けます。"
+      }
+    },
+    {
+      "id": "cmc_f3f9667eb067ac723c1a4aea",
+      "rankAtReview": 23,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "186/196",
+      "status": "review_required",
+      "evidenceSha256": "9c3da849a3169d52deb2120ab2802f180277fe48e53b60cf1c4b938fbc68bc4e",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_efdeb48eb1725abfb5d063f0",
+      "rankAtReview": 24,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "230/XY-P",
+      "status": "ready",
+      "evidenceSha256": "0b3c6d7500c3709eb3a25672f94ee34e975bfd2c9dfc68b7190897f557b03db6",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Card 230/XY-P is the companion Rayquaza-poncho printing from the Skytree Town special box. Its value story is inseparable from the two-card presentation: collectors often judge it against 231/XY-P, so matching condition and pair availability influence liquidity.",
+        "zhTW": "230/XY-P 是 Skytree Town 烈空坐特別盒中的另一張斗篷皮卡丘。它的價值脈絡離不開雙卡組合；收藏者常把它與 231/XY-P 一併比較，因此品相是否匹配及成對供應會影響流通性。",
+        "zhCN": "230/XY-P 是 Skytree Town 烈空坐特别盒中的另一张斗篷皮卡丘。它的价值脉络离不开双卡组合；收藏者常把它与 231/XY-P 一并比较，因此品相是否匹配及成对供应会影响流通性。",
+        "ja": "230/XY-Pは、スカイツリータウンのレックウザ特別BOXに入ったもう一方のポンチョピカチュウです。二枚組としての意味が強く、231/XY-Pとの状態の釣り合いとペアでの供給量が流動性に影響します。"
+      }
+    },
+    {
+      "id": "cmc_42c7b693e57043210a691c80",
+      "rankAtReview": 25,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "151/XY-P",
+      "status": "ready",
+      "evidenceSha256": "004e361e7ea540a1b5f3ad39168348847b209a1d2c3512e092e03088fbeb38e3",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Gyarados Pretend Pikachu 151/XY-P commemorates the Pokémon Center Hiroshima opening with Pikachu inside a dramatic Gyarados costume. The regional story and playful mismatch between mascot and monster make it a key piece of the wider costume-promo series.",
+        "zhTW": "Gyarados Pretend Pikachu 151/XY-P 以皮卡丘穿上暴鯉龍造型，紀念 Pokémon Center Hiroshima 開幕。地區故事與吉祥物、巨型寶可夢之間的趣味反差，使它成為整個角色扮演宣傳卡系列的重要一張。",
+        "zhCN": "Gyarados Pretend Pikachu 151/XY-P 以皮卡丘穿上暴鲤龙造型，纪念 Pokémon Center Hiroshima 开幕。地区故事与吉祥物、巨型宝可梦之间的趣味反差，使它成为整个角色扮演宣传卡系列的重要一张。",
+        "ja": "ギャラドスごっこピカチュウ151/XY-Pは、ポケモンセンターヒロシマの開業を記念し、ピカチュウが大きなギャラドス姿になるカードです。地域の物語とキャラクターの意外な組み合わせが、コスチューム系プロモ全体の中でも重要な位置を与えています。"
+      }
+    },
+    {
+      "id": "cmc_87665adb6992d3d58fa32d8f",
+      "rankAtReview": 26,
+      "tcg": "one-piece",
+      "cardLanguage": "ja",
+      "collectorNumber": "ST01-012",
+      "status": "ready",
+      "evidenceSha256": "a082d0927d061087b89d8e46c692b84a81116258dfb4edbab9a1580f8bf38751",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "This ST01-012 Luffy parallel marked the One Piece Card Game’s first-anniversary release in Awakening of the New Era. A milestone issue, the central protagonist and full-art treatment converge in one printing, which is why demand extends beyond players to anniversary collectors.",
+        "zhTW": "這張 ST01-012 路飛平行卡配合《Awakening of the New Era》的一週年節點推出。週年意義、主角地位與全圖處理集中在同一版本，因此需求不只來自玩家，也來自專門收集里程碑版本的人。",
+        "zhCN": "这张 ST01-012 路飞平行卡配合《Awakening of the New Era》的一周年节点推出。周年意义、主角地位与全图处理集中在同一版本，因此需求不只来自玩家，也来自专项收集里程碑版本的人。",
+        "ja": "このST01-012ルフィのパラレルは、『新時代の主役』でONE PIECEカードゲーム一周年を示した一枚です。周年性、主人公という中心性、フルアート表現が重なり、プレイヤーだけでなく節目のカードを集める層からも需要があります。"
+      }
+    },
+    {
+      "id": "cmc_a42e5f8d12f0d14e3955e153",
+      "rankAtReview": 27,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "289/SM-P",
+      "status": "ready",
+      "evidenceSha256": "947907f3513ff9c4561c40d7820efd3c69bb1c4542e6cc0d86cee7a92c321283",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Mimikyu 289/SM-P turns Edvard Munch’s The Scream into a character-perfect museum promo, with Mimikyu’s disguise motif fitting the anxious composition unusually well. That conceptual match and exhibition-only context make it one of the most discussed cards in the Munch group.",
+        "zhTW": "謎擬Q 289/SM-P 把蒙克《吶喊》轉化為角色宣傳卡，而謎擬Q的偽裝設定與不安構圖形成格外自然的呼應。概念上的高度契合，加上展覽限定背景，使它成為蒙克合作組別中最受討論的版本之一。",
+        "zhCN": "谜拟Q 289/SM-P 把蒙克《呐喊》转化为角色宣传卡，而谜拟Q的伪装设定与不安构图形成格外自然的呼应。概念上的高度契合，加上展览限定背景，使它成为蒙克合作组别中最受讨论的版本之一。",
+        "ja": "ミミッキュ289/SM-Pは、ムンクの《叫び》をキャラクターに置き換え、正体を隠す設定と不安な構図が非常に自然に重なった美術館プロモです。企画との相性と展覧会由来の限定性により、ムンクコラボの中でも特に語られる一枚になっています。"
+      }
+    },
+    {
+      "id": "cmc_15aadd519be0c6ddde00bbe5",
+      "rankAtReview": 28,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "150/XY-P",
+      "status": "ready",
+      "evidenceSha256": "c377c7986f78fc34bf9bbcf471e49eadbf3f25f311d68ae08c5065eec6a1ecf4",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Magikarp Pretend Pikachu 150/XY-P pairs a comic Magikarp costume with the Pokémon Center Hiroshima opening. It is collected both as a local commemorative and as the companion to Gyarados 151/XY-P, so matched pairs create a distinct source of demand.",
+        "zhTW": "Magikarp Pretend Pikachu 150/XY-P 以鯉魚王造型配合 Pokémon Center Hiroshima 開幕。它既是地區紀念卡，也是暴鯉龍 151/XY-P 的對應版本，因此品相一致的雙卡組合形成獨立需求。",
+        "zhCN": "Magikarp Pretend Pikachu 150/XY-P 以鲤鱼王造型配合 Pokémon Center Hiroshima 开幕。它既是地区纪念卡，也是暴鲤龙 151/XY-P 的对应版本，因此品相一致的双卡组合形成独立需求。",
+        "ja": "コイキングごっこピカチュウ150/XY-Pは、ポケモンセンターヒロシマ開業に合わせたユーモラスな地域記念カードです。単体に加えてギャラドス151/XY-Pの対として集められるため、状態を揃えた二枚組に固有の需要が生まれます。"
+      }
+    },
+    {
+      "id": "cmc_a97e15f2ef449891af543fde",
+      "rankAtReview": 29,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "111/100",
+      "status": "ready",
+      "evidenceSha256": "8cbbfcca164efb2bc6d318482893dc168b8f74ebdea3cc8f2e3bf64ee8d30a57",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Giratina V 111/100 from Lost Abyss is built around a dense, disorienting alternate-art composition that mirrors the Distortion World. The artwork is the set’s clearest visual signature, concentrating demand from Giratina fans, art collectors and set chasers in one card.",
+        "zhTW": "《Lost Abyss》的騎拉帝納 V 111/100 以密集而失序的異圖構圖呼應反轉世界。這幅畫面成為系列最鮮明的視覺標誌，令騎拉帝納角色粉絲、插畫收藏者及系列追卡者的需求集中於同一張卡。",
+        "zhCN": "《Lost Abyss》的骑拉帝纳 V 111/100 以密集而失序的异图构图呼应反转世界。这幅画面成为系列最鲜明的视觉标志，令骑拉帝纳角色粉丝、插画收藏者及系列追卡者的需求集中于同一张卡。",
+        "ja": "「ロストアビス」のギラティナV 111/100は、反転世界を思わせる密集した迷宮的なスペシャルアートが特徴です。セットを象徴する画面として、ギラティナのファン、イラスト収集家、セットの追跡層の需要が一枚に集中します。"
+      }
+    },
+    {
+      "id": "cmc_f0b8d060ad159ffbcf6a84e9",
+      "rankAtReview": 30,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "78/73",
+      "status": "review_required",
+      "evidenceSha256": "bbdf27447505510b47a75ec5db1d1fe7922a4b3d78c57419aca2f8a034fe097f",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_f4e0334b38501910cfe5be72",
+      "rankAtReview": 31,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "201/165",
+      "status": "review_required",
+      "evidenceSha256": "95926c577ba41e09bc088fa5000706f84cf2772163a2827c1c7d9c6b6784b617",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_e511f8f3357ec9ca9ca43460",
+      "rankAtReview": 32,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "001/025",
+      "status": "ready",
+      "evidenceSha256": "26ca060a781418cb6457fa78f255484b8c5da3bac29d9c8069509a5601b00b8c",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Charizard 001/025 deliberately revisits the original Base Set image for the Pokémon Card Game’s 25th anniversary. It gives buyers a modern, clearly dated route into the franchise’s foundational artwork, linking nostalgia demand with anniversary-set completion.",
+        "zhTW": "噴火龍 001/025 為寶可夢卡牌二十五週年重新呈現初代 Base Set 圖像。它讓買家以具清晰週年標記的現代版本接觸系列奠基畫面，將懷舊需求與週年套卡收藏連結起來。",
+        "zhCN": "喷火龙 001/025 为宝可梦卡牌二十五周年重新呈现初代 Base Set 图像。它让买家以具清晰周年标记的现代版本接触系列奠基画面，将怀旧需求与周年套卡收藏连接起来。",
+        "ja": "リザードン001/025は、ポケモンカード25周年に合わせて初代Base Setの図柄を改めて提示したカードです。明確な周年印を持つ現代版として原点の絵に触れられ、懐古需要と周年セット完成需要を結び付けています。"
+      }
+    },
+    {
+      "id": "cmc_64e7713a4a27e7945f3aea9e",
+      "rankAtReview": 33,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "013/SM-P",
+      "status": "ready",
+      "evidenceSha256": "effa949630958c7cc7a277a54d34035396366ba3d0909253ec63f1c5d23a153b",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Team Skull Pikachu 013/SM-P puts the franchise mascot in a Team Skull Grunt costume and came from a dedicated Japanese special box. Its mischievous visual identity differs sharply from ordinary Pikachu promos, giving the card a recognizable niche within character-cosplay collecting.",
+        "zhTW": "Team Skull Pikachu 013/SM-P 讓系列吉祥物穿上骷髏隊手下服裝，並出自專門的日本特別盒。帶點反叛的視覺身份與一般皮卡丘宣傳卡差異明顯，使它在角色扮演收藏中形成清楚的獨立位置。",
+        "zhCN": "Team Skull Pikachu 013/SM-P 让系列吉祥物穿上骷髅队手下服装，并出自专门的日本特别盒。带点反叛的视觉身份与一般皮卡丘宣传卡差异明显，使它在角色扮演收藏中形成清楚的独立位置。",
+        "ja": "スカル団ごっこピカチュウ013/SM-Pは、マスコットがスカル団のしたっぱ姿になり、専用の日本語スペシャルBOXから登場しました。通常のピカチュウプロモとは異なるいたずらっぽい個性が、コスチューム系収集の中で明確な立ち位置を作っています。"
+      }
+    },
+    {
+      "id": "cmc_c1cb2a6e53671a0c4456eacc",
+      "rankAtReview": 34,
+      "tcg": "one-piece",
+      "cardLanguage": "ja",
+      "collectorNumber": "OP05-119",
+      "status": "ready",
+      "evidenceSha256": "906c55f754ba13317055b7816367c621251ce9b8e25adfea01e258b3d0919903",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "The OP05-119 comic parallel captures Luffy’s Gear Five transformation with manga-panel artwork in Awakening of the New Era. It combines a defining story moment, the lead character and the set’s scarce display treatment, making it a reference point for One Piece chase-card demand.",
+        "zhTW": "OP05-119 漫畫平行版以原作分鏡呈現路飛 Gear Five 變身，出自《Awakening of the New Era》。關鍵劇情、主角地位與系列稀有展示處理集中於一張卡，使它成為海賊王高端卡需求的重要參照。",
+        "zhCN": "OP05-119 漫画平行版以原作分镜呈现路飞 Gear Five 变身，出自《Awakening of the New Era》。关键剧情、主角地位与系列稀有展示处理集中于一张卡，使它成为海贼王高端卡需求的重要参照。",
+        "ja": "OP05-119のコミックパラレルは、『新時代の主役』でルフィのギア5を原作コマによって表現しました。物語の転換点、主人公、希少な見せ方が一枚に集まり、ONE PIECEの高額チェイス需要を測る基準になっています。"
+      }
+    },
+    {
+      "id": "cmc_4b285d43722181d68a358cf4",
+      "rankAtReview": 35,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "347/190",
+      "status": "review_required",
+      "evidenceSha256": "10e9f89c05095098b668df50d9f09049b81b66386fc15cd0c2d31ab96e458179",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_72a19d2b93387c45b381bda5",
+      "rankAtReview": 36,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "293/XY-P",
+      "status": "ready",
+      "evidenceSha256": "452d5c98a090d52752c7bd6d21a8f68e0c1a8ac48a55e75492efa1f481cd62cb",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Mario Pikachu 293/XY-P is the companion promo in the Japan-only Mario Pikachu Special Box, presenting the crossover in a different composition from 294/XY-P. Collectors often pursue both designs, so pair completeness and matching condition support its market relevance.",
+        "zhTW": "Mario Pikachu 293/XY-P 是日本限定 Mario Pikachu Special Box 的另一張宣傳卡，構圖與 294/XY-P 不同。收藏者常同時追求兩個設計，因此雙卡完整性與品相一致度支撐其市場關注。",
+        "zhCN": "Mario Pikachu 293/XY-P 是日本限定 Mario Pikachu Special Box 的另一张宣传卡，构图与 294/XY-P 不同。收藏者常同时追求两个设计，因此双卡完整性与品相一致度支撑其市场关注。",
+        "ja": "マリオピカチュウ293/XY-Pは、日本限定スペシャルBOXに入ったもう一つのデザインで、294/XY-Pとは構図が異なります。二種類を揃える収集が多いため、ペアの完成度と状態の釣り合いが市場での存在感を支えます。"
+      }
+    },
+    {
+      "id": "cmc_6ada1707f134dd9d15cd40e1",
+      "rankAtReview": 37,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "270/SM-P",
+      "status": "ready",
+      "evidenceSha256": "4227d25e1f04e3ef6d0ce2bd9a08c8c65f53979a65bf1e62beffcb0238f87502",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Red’s Pikachu 270/SM-P was issued for the Pokémon Center 20th Anniversary campaign and reunites the original-game protagonist with Pikachu. The card turns franchise history into a compact promo, drawing demand from Trainer collectors as well as Pikachu buyers.",
+        "zhTW": "Red’s Pikachu 270/SM-P 為 Pokémon Center 二十週年活動發行，讓初代遊戲主角 Red 與皮卡丘再次同框。它把系列歷史濃縮在一張宣傳卡中，同時吸引訓練家角色收藏者與皮卡丘買家。",
+        "zhCN": "Red’s Pikachu 270/SM-P 为 Pokémon Center 二十周年活动发行，让初代游戏主角 Red 与皮卡丘再次同框。它把系列历史浓缩在一张宣传卡中，同时吸引训练家角色收藏者与皮卡丘买家。",
+        "ja": "レッドのピカチュウ270/SM-Pは、ポケモンセンター20周年キャンペーンで、初代ゲームの主人公レッドとピカチュウを再び同じ画面に収めました。シリーズ史を一枚に凝縮し、トレーナー収集層とピカチュウ需要の両方を呼び込みます。"
+      }
+    },
+    {
+      "id": "cmc_19c9632d4ea1fa450c34e997",
+      "rankAtReview": 38,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "286/SM-P",
+      "status": "ready",
+      "evidenceSha256": "ca2adec552e0a38e6c741527239e4c84f105a01371cfad5302997a4f0333a495",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Psyduck 286/SM-P translates the panic of Munch’s The Scream into a character whose expression already fits the composition. The visual joke is immediate, while the museum-collaboration origin gives the card cultural context beyond a normal Japanese promo.",
+        "zhTW": "可達鴨 286/SM-P 把蒙克《吶喊》的驚惶感放進本來就擅長困惑表情的角色，畫面笑點一目了然。博物館合作的來源又令它超越一般日版宣傳卡，具備清楚的文化背景。",
+        "zhCN": "可达鸭 286/SM-P 把蒙克《呐喊》的惊惶感放进本来就擅长困惑表情的角色，画面笑点一目了然。博物馆合作的来源又令它超越普通日版宣传卡，具备清楚的文化背景。",
+        "ja": "コダック286/SM-Pは、もともと困惑した表情を持つキャラクターにムンクの《叫び》の不安を重ね、ひと目で伝わるユーモアを生みました。美術館コラボという来歴が、通常の日本語プロモを越えた文化的背景を与えています。"
+      }
+    },
+    {
+      "id": "cmc_315371163a57485d4bcc154d",
+      "rankAtReview": 39,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "105/095",
+      "status": "ready",
+      "evidenceSha256": "d78da4146e3f795996f9960a9a10e69d035d678f8dd77f142a524eb355b94161",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Latias & Latios GX 105/095 arrived with the Tag Team era and presents the Eon duo as a single, emotionally composed card rather than two separate subjects. Its relationship-focused artwork and early Tag Team status give it appeal across character, art and era-completion markets.",
+        "zhTW": "拉帝亞斯與拉帝歐斯 GX 105/095 出現在 TAG TEAM 時代初期，以具情感連結的構圖把兩隻傳說寶可夢合成一個主題。關係感強烈的畫面與早期雙人卡地位，使它同時連接角色、插畫及年代收藏市場。",
+        "zhCN": "拉帝亚斯与拉帝欧斯 GX 105/095 出现在 TAG TEAM 时代初期，以具情感连接的构图把两只传说宝可梦合成一个主题。关系感强烈的画面与早期双人卡地位，使它同时连接角色、插画及年代收藏市场。",
+        "ja": "ラティアス＆ラティオスGX 105/095は、TAG TEAM初期に二体を別々ではなく関係性のある一つの画面として提示しました。感情を感じさせる構図と時代初期の位置付けが、キャラクター、イラスト、年代別収集の需要を横断します。"
+      }
+    },
+    {
+      "id": "cmc_1e498e55d323a40b02ab9a92",
+      "rankAtReview": 40,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "231/244",
+      "status": "review_required",
+      "evidenceSha256": "4ea4cc8d9f0d03826faa32c2b936d4ef55105438ad5a21797a22e0a4b17eadf9",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_b46c211d10ddcb23c9236643",
+      "rankAtReview": 41,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "098/SV-P",
+      "status": "ready",
+      "evidenceSha256": "7db6754b4bd65dda015b6fdcf0f5d37082b86f17c8aee82b02702a15e9324820",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Detective Pikachu 098/SV-P was an early-purchase bonus for the Detective Pikachu Returns Nintendo Switch game. The card is therefore tied to a specific game launch rather than a booster cycle, and its cinematic character art attracts game memorabilia buyers alongside TCG collectors.",
+        "zhTW": "名偵探皮卡丘 098/SV-P 是 Nintendo Switch《Detective Pikachu Returns》的早期購買特典。它的來源連結特定遊戲發售，而非補充包週期；具電影感的角色畫面同時吸引遊戲紀念品買家與卡牌收藏者。",
+        "zhCN": "名侦探皮卡丘 098/SV-P 是 Nintendo Switch《Detective Pikachu Returns》的早期购买特典。它的来源连接特定游戏发售，而非补充包周期；具电影感的角色画面同时吸引游戏纪念品买家与卡牌收藏者。",
+        "ja": "名探偵ピカチュウ098/SV-Pは、Nintendo Switch『帰ってきた 名探偵ピカチュウ』の早期購入特典です。ブースター周期ではなく特定ゲームの発売に結び付き、映画的なキャラクター表現がゲーム記念品層とカード収集層の双方を引き寄せます。"
+      }
+    },
+    {
+      "id": "cmc_317ab0c59e58e4dcfb5e411b",
+      "rankAtReview": 42,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "SM210",
+      "status": "review_required",
+      "evidenceSha256": "aad9650dbf2bbfe81441e64f5347b9afd42f2127a7f6e9feb29e03b1260e5009",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_6de05014a4e186e7b6398d2e",
+      "rankAtReview": 43,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "020/019",
+      "status": "ready",
+      "evidenceSha256": "0c7b8c40cf80bfbabb21f6e15e2492dab2e4c4cb2eb22268bd3a9e73782ed728",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Gengar VMAX 020/019 was a rare special-art inclusion inside a Japanese preconstructed High-Class Deck, not a conventional booster hit. That unusual pull route, combined with the oversized Gigantamax image, makes product origin a central part of how the market understands the card.",
+        "zhTW": "耿鬼 VMAX 020/019 是日本預組 High-Class Deck 內的稀有特別插畫版本，並非常規補充包的大獎。特殊取得方式配合巨大的超極巨化畫面，使產品來源成為市場理解這張卡的核心。",
+        "zhCN": "耿鬼 VMAX 020/019 是日本预组 High-Class Deck 内的稀有特别插画版本，并非常规补充包的大奖。特殊取得方式配合巨大的超极巨化画面，使产品来源成为市场理解这张卡的核心。",
+        "ja": "ゲンガーVMAX 020/019は、通常のブースターではなく、日本語の構築済みハイクラスデッキに低確率で入ったスペシャルアートです。独特な入手経路と巨大なキョダイマックス表現により、商品由来そのものが市場評価の中心になります。"
+      }
+    },
+    {
+      "id": "cmc_cd42cbc79f8e3a537de544a5",
+      "rankAtReview": 44,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "090/XY-P",
+      "status": "ready",
+      "evidenceSha256": "ad23cd6fd19eaac913626e63591ccc133f90f3ad2909a28c52f9b50d95e4aaee",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Pikachu 090/XY-P was distributed as a participation card at Japan’s 2014 Battle Festa, tying it directly to the competitive-event calendar of the XY era. Event provenance and Pikachu’s broad collector base give the card a demand profile different from ordinary set pulls.",
+        "zhTW": "皮卡丘 090/XY-P 是日本 2014 Battle Festa 的參加紀念卡，直接連結 XY 時代的競技活動歷史。活動來源與皮卡丘廣泛的收藏基礎，使它的需求結構有別於一般系列抽卡。",
+        "zhCN": "皮卡丘 090/XY-P 是日本 2014 Battle Festa 的参加纪念卡，直接连接 XY 时代的竞技活动历史。活动来源与皮卡丘广泛的收藏基础，使它的需求结构有别于普通系列抽卡。",
+        "ja": "ピカチュウ090/XY-Pは、日本の「バトルフェスタ2014」で参加記念として配布され、XY期の競技イベント史に直接結び付きます。イベント由来とピカチュウの広い収集基盤により、通常のセット封入カードとは異なる需要構造を持ちます。"
+      }
+    },
+    {
+      "id": "cmc_efb6c842fad326fd55a22f3e",
+      "rankAtReview": 45,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "007/025",
+      "status": "review_required",
+      "evidenceSha256": "47a331a84c7b84318147a8af65b55bf55bc8c1bc672fea6debe339b56a85a47f",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": "summary_printing_conflict",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_9b25fe21caeb8ae34b91285a",
+      "rankAtReview": 46,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "119/114",
+      "status": "ready",
+      "evidenceSha256": "e8cd29e6b95cac3054d78de4ca696e5dadb6ef5f7999486c8505acb448e9dd3d",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Lillie 119/114 is the full-art Secret Rare from GX Battle Boost, pairing a central Sun & Moon character with one of the era’s most recognizable Trainer illustrations. Character demand and the card’s place at the high end of a compact Japanese set keep clean copies closely watched.",
+        "zhTW": "莉莉艾 119/114 是《GX Battle Boost》的全圖 Secret Rare，把《Sun & Moon》的核心角色與該時代具代表性的訓練家插畫結合。角色需求與它在精簡日版系列中的高階位置，使品相良好的實物長期受到關注。",
+        "zhCN": "莉莉艾 119/114 是《GX Battle Boost》的全图 Secret Rare，把《Sun & Moon》的核心角色与该时代具代表性的训练家插画结合。角色需求与它在精简日版系列中的高阶位置，使品相良好的实物长期受到关注。",
+        "ja": "リーリエ119/114は、「GXバトルブースト」のフルアート・シークレットで、サン＆ムーンを代表する人物と時代を象徴するトレーナー絵を結びました。キャラクター需要と小規模な日本語セットの上位枠という位置が、状態の良い個体への注目を支えます。"
+      }
+    },
+    {
+      "id": "cmc_ce5124e356ee0acddf4d90b8",
+      "rankAtReview": 47,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "240/250",
+      "status": "review_required",
+      "evidenceSha256": "bcbd10eb2cb877eaed1fb6644ea854e736625b3b0f715669dc1cffcfa5cc61d7",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_df4ce522a4de006726cd5b4c",
+      "rankAtReview": 48,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "083/067",
+      "status": "review_required",
+      "evidenceSha256": "80e57e2291d93615179784a5caf725b5812d5efe26a58cf4204a2373e2ea0cac",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_f4e7c2baabdbc4f953318c77",
+      "rankAtReview": 49,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "203/193",
+      "status": "review_required",
+      "evidenceSha256": "bba07c3f35d56e87785cb51a344cafc4fc3ee43cc71882b6c8289aaa12bbdb02",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_73612ab2efa96363b8bca125",
+      "rankAtReview": 50,
+      "tcg": "one-piece",
+      "cardLanguage": "en",
+      "collectorNumber": "ST13-003",
+      "status": "review_required",
+      "evidenceSha256": "2f17f1a66c397f93461da1d46bf26b4113f8e2b44206d701c0442ecf5ac506fc",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": "identity_conflict",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_265b5a7dbb37645cf890a7d1",
+      "rankAtReview": 51,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "080/073",
+      "status": "ready",
+      "evidenceSha256": "caef1a1c1785f00a9c119bd859b8efc8a16579d1c1b4f3e79203a1618d3fd247",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Magikarp 080/073 uses Shinji Kanda’s turbulent waterfall scene to turn a modest Pokémon into a story about persistence and transformation, with Gyarados implied in the composition. The narrative artwork made an Art Rare, rather than the set’s nominal power cards, its visual focal point.",
+        "zhTW": "鯉魚王 080/073 透過 Shinji Kanda 的湍急瀑布構圖，把平凡角色轉化為堅持與進化的故事，畫面亦暗示暴鯉龍。這種敘事性令一張 Art Rare 而非名義上的強力卡，成為系列的視覺焦點。",
+        "zhCN": "鲤鱼王 080/073 通过 Shinji Kanda 的湍急瀑布构图，把平凡角色转化为坚持与进化的故事，画面也暗示暴鲤龙。这种叙事性令一张 Art Rare 而非名义上的强力卡，成为系列的视觉焦点。",
+        "ja": "コイキング080/073は、Shinji Kandaの激しい滝の構図によって、弱いポケモンを努力と進化の物語へ変え、画面にはギャラドスの気配も忍ばせています。その物語性が、名目上の強力カードではないARをセットの視覚的中心にしました。"
+      }
+    },
+    {
+      "id": "cmc_330d5b1973229131dede73d6",
+      "rankAtReview": 52,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "GG69/GG70",
+      "status": "review_required",
+      "evidenceSha256": "6a398d290078bfe0280261d4acc503d2fba08531ab3ea420912f36feffdc15df",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_1cf2114a8d0a05611d80a765",
+      "rankAtReview": 53,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "001/030",
+      "status": "ready",
+      "evidenceSha256": "75d047df71aa6f167901c5cac1459ce76922db4e5074e5983434f6ef5246942b",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Pikachu ex 001/030 belongs to the Yokohama World Championships deck created around the first Pokémon World Championships held in Japan. The place-specific deck, milestone event and dedicated illustration turn it into tournament memorabilia as much as a playable card.",
+        "zhTW": "皮卡丘 ex 001/030 出自橫濱世界錦標賽牌組，對應首度在日本舉行的 Pokémon World Championships。具地點標誌的牌組、里程碑活動與專屬插畫，使它既是可用卡牌，也是賽事紀念物。",
+        "zhCN": "皮卡丘 ex 001/030 出自横滨世界锦标赛牌组，对应首次在日本举行的 Pokémon World Championships。具地点标志的牌组、里程碑活动与专属插画，使它既是可用卡牌，也是赛事纪念物。",
+        "ja": "ピカチュウex 001/030は、日本で初めて開催されたポケモン世界大会に合わせた「横浜デッキ」のカードです。開催地を示す商品、節目の大会、専用イラストが重なり、プレイカードであると同時に大会記念品として扱われます。"
+      }
+    },
+    {
+      "id": "cmc_fba18e821cdea8ee04b3bed4",
+      "rankAtReview": 54,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "284/295",
+      "status": "review_required",
+      "evidenceSha256": "f66a9f9b6cba4609588abcde18f26c1ff81d92b4cb0626d968434b598e36d33f",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_1419f5e35a3d98802960a28b",
+      "rankAtReview": 55,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "GG44/GG70",
+      "status": "review_required",
+      "evidenceSha256": "cf2ffc4f7b6559e1e4cbc7fa259d671d3ee52c01b3b8363f2a6fa1656539adcc",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_b9c7ed93a5f3f8dc7bf7ed8d",
+      "rankAtReview": 56,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "287/SM-P",
+      "status": "ready",
+      "evidenceSha256": "191e961123765997a123c52e22db22b175b0dec2c7cd638fbabac0708bff6a81",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Eevee 287/SM-P is another Munch exhibition card, translating The Scream into the softer visual language of the Eeveelution family. It gives collectors a museum-linked Eevee printing that can stand alone or complete the five-card art collaboration.",
+        "zhTW": "伊布 287/SM-P 是蒙克展覽合作的另一張作品，以伊布家族較柔和的視覺語言重新演繹《吶喊》。它既可作為具博物館背景的獨立伊布卡，也能補完整套五張藝術合作系列。",
+        "zhCN": "伊布 287/SM-P 是蒙克展览合作的另一张作品，以伊布家族较柔和的视觉语言重新演绎《呐喊》。它既可作为具博物馆背景的独立伊布卡，也能补完整套五张艺术合作系列。",
+        "ja": "イーブイ287/SM-Pは、ムンク展コラボの一枚で、《叫び》をブイズらしい柔らかな表現へ置き換えました。美術館由来のイーブイカードとして単独でも成立し、五枚のアートコラボを完成させる需要にも応えます。"
+      }
+    },
+    {
+      "id": "cmc_27221c1c82da55a6546483ef",
+      "rankAtReview": 57,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "098/XY-P",
+      "status": "ready",
+      "evidenceSha256": "36d5e51453216c0e803f5619eb1240a1c5abb4a1fbd94918a16a42cac361491a",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Mega Tokyo’s Pikachu 098/XY-P commemorated the Pokémon Center Mega Tokyo opening and dresses Pikachu in a Mega Charizard Y hood. The store-opening provenance and specific costume make it a compact record of both place and the XY era’s Mega Evolution identity.",
+        "zhTW": "Mega Tokyo’s Pikachu 098/XY-P 紀念 Pokémon Center Mega Tokyo 開幕，並讓皮卡丘戴上 Mega 噴火龍 Y 頭套。店舖開幕來源與特定造型，使它同時記錄地點及 XY 時代的 Mega Evolution 特色。",
+        "zhCN": "Mega Tokyo’s Pikachu 098/XY-P 纪念 Pokémon Center Mega Tokyo 开幕，并让皮卡丘戴上超级喷火龙 Y 头套。店铺开幕来源与特定造型，使它同时记录地点及 XY 时代的 Mega Evolution 特色。",
+        "ja": "メガトウキョーのピカチュウ098/XY-Pは、ポケモンセンターメガトウキョー開業を記念し、メガリザードンYのフードを着せたカードです。店舗開業の来歴と固有の衣装が、場所とXY期のメガシンカ文化を一枚に記録しています。"
+      }
+    },
+    {
+      "id": "cmc_d68cbfc623611a37335e3cb0",
+      "rankAtReview": 58,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "110/098",
+      "status": "ready",
+      "evidenceSha256": "ca76cab5086cd8153afa4a63a6c33fe598ca894c4db4dc68bb109f50ff89d8e2",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Lugia V 110/098 is the alternate-art focus of the Japanese Paradigm Trigger set, pairing a long-established legendary Pokémon with a subdued narrative scene. Lugia’s competitive relevance at release added player demand to the illustration-led collector market.",
+        "zhTW": "洛奇亞 V 110/098 是日版《Paradigm Trigger》的異圖焦點，把經典傳說寶可夢放進較克制的敘事場景。發行時的競技用途又在插畫收藏需求之外增加玩家買盤。",
+        "zhCN": "洛奇亚 V 110/098 是日版《Paradigm Trigger》的异图焦点，把经典传说宝可梦放进较克制的叙事场景。发行时的竞技用途又在插画收藏需求之外增加玩家买盘。",
+        "ja": "ルギアV 110/098は、日本語版「パラダイムトリガー」を代表するスペシャルアートで、長年人気の伝説ポケモンを静かな物語の場面に置きました。発売時の競技性も、イラスト中心の収集需要にプレイヤー需要を重ねました。"
+      }
+    },
+    {
+      "id": "cmc_de6481ee6944d61f0ec9b785",
+      "rankAtReview": 59,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "165/181",
+      "status": "review_required",
+      "evidenceSha256": "731e8c54dd96bba7d847b90bee90a07cf82c01cc2b4577e9504a5539639e4aa2",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_e26584b92f17fc9f200157c1",
+      "rankAtReview": 60,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "094/087",
+      "status": "ready",
+      "evidenceSha256": "e8e0a63b72d36295849a735f620c15277fd3d0d10e262aba45c48253d3dcf63a",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Pikachu EX 094/087 sits in the Japanese 20th Anniversary expansion, combining the franchise mascot with the period’s full-art EX treatment. The anniversary context gives it historical clarity, while the secret-number position makes it a natural target for set completion.",
+        "zhTW": "皮卡丘 EX 094/087 位於日版二十週年擴充系列，把系列吉祥物與當時的全圖 EX 設計結合。週年背景提供清晰歷史定位，而超出正常編號的 Secret Rare 身份亦令它成為整套收集的自然目標。",
+        "zhCN": "皮卡丘 EX 094/087 位于日版二十周年扩充系列，把系列吉祥物与当时的全图 EX 设计结合。周年背景提供清晰历史定位，而超出正常编号的 Secret Rare 身份也令它成为整套收集的自然目标。",
+        "ja": "ピカチュウEX 094/087は、日本語版20周年拡張で、シリーズの顔と当時のフルアートEX表現を組み合わせました。周年という明確な歴史的位置と通常番号を超えるシークレット枠が、セット完成の自然な目標にしています。"
+      }
+    },
+    {
+      "id": "cmc_f48dfbf6e216dd42bfee8dec",
+      "rankAtReview": 61,
+      "tcg": "one-piece",
+      "cardLanguage": "ja",
+      "collectorNumber": "OP05-119",
+      "status": "review_required",
+      "evidenceSha256": "25d56c229ceebb0cd6b85adba922ef9abcd03d00a1588c3a86c96b8f3dae5d71",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": "identity_conflict",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_3b66b4e443b28bded58c783e",
+      "rankAtReview": 62,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "SV49/SV94",
+      "status": "review_required",
+      "evidenceSha256": "065c3e3d9cd8b8909ca19cdac27d6be90a840c2157c1950462a2f28aa3177c88",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_966a7423b873bc33b7dd467a",
+      "rankAtReview": 63,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "295/XY-P",
+      "status": "review_required",
+      "evidenceSha256": "d2d08742e79bd89c0f2841a530a571f90be4fe3252a6eb8383b62f459345b16c",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_7991bf461895ed80685b0149",
+      "rankAtReview": 64,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "SWSH262",
+      "status": "review_required",
+      "evidenceSha256": "29186ff627c77b9c50e72a8a5f9e4761872418a62411f44f56783b44890ea984",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_ad4517b0a9c558feacb75d91",
+      "rankAtReview": 65,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "194/203",
+      "status": "review_required",
+      "evidenceSha256": "d36b336cf222f4ba08b9da1b6ed49f891215ab2d183ba6d24d06085fea2406ed",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_25a6c1271fced0619f05fc15",
+      "rankAtReview": 66,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "276/295",
+      "status": "review_required",
+      "evidenceSha256": "bc505eb39c7980d81eea2ac2d198a9db6cf6007be1ce53c3a00cab3b6f136846",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_c54b161a839127653de777c9",
+      "rankAtReview": 67,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "234/091",
+      "status": "review_required",
+      "evidenceSha256": "701f08ac50d4d97c9f01893d4dfbbd6e7aab31ec4cea1ee0eb3e050d39724d6b",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_10a9051d108d95483f4e5d86",
+      "rankAtReview": 68,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "234/250",
+      "status": "review_required",
+      "evidenceSha256": "a1d995385aaecf6a36331beb51bc715d21a14a1a0a2ae85609058012a2bd0b4a",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_d3c7723297aae47a90a360d8",
+      "rankAtReview": 69,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "154/171",
+      "status": "review_required",
+      "evidenceSha256": "fafc0753c8076e107768092a29abb721e3e49c7de1b802ef21bc4bf40e70ffc9",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_4b4ec2546f843c2ee85e8e59",
+      "rankAtReview": 70,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "208/S-P",
+      "status": "ready",
+      "evidenceSha256": "8b6811a52b157dfa02659c4676e72c05b8ee903669c2135c0dd20bf83c03fdca",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Pikachu 208/S-P carries Yu Nagaba’s spare line drawing into a Japanese purchase campaign, making the artist’s hand more important than foil spectacle. The immediately recognizable style connects contemporary-design buyers with Pikachu master-set collectors.",
+        "zhTW": "皮卡丘 208/S-P 把長場雄的極簡線條帶進日本購買活動，藝術家的筆觸比華麗閃面更重要。高度可辨的風格把當代設計買家與皮卡丘全版本收藏者連接起來。",
+        "zhCN": "皮卡丘 208/S-P 把长场雄的极简线条带进日本购买活动，艺术家的笔触比华丽闪面更重要。高度可辨的风格把当代设计买家与皮卡丘全版本收藏者连接起来。",
+        "ja": "ピカチュウ208/S-Pは、長場雄の簡潔な線画を日本の購入キャンペーンに落とし込み、派手な加工より作家性を前面に出しました。ひと目で分かる作風が、現代デザインの購入層とピカチュウ全種収集家を結び付けます。"
+      }
+    },
+    {
+      "id": "cmc_03a1a2ea51e64763e16db13d",
+      "rankAtReview": 71,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "132/138",
+      "status": "review_required",
+      "evidenceSha256": "8b3ca9db9a7906c291dde6d137906de90dd61ac47ec1da2f10d4f52c223dddc7",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_69665b93380839b0fc91910e",
+      "rankAtReview": 72,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "010/032",
+      "status": "ready",
+      "evidenceSha256": "8d5ce2cf8a65fe35574b43e5d78fa27b088248ba8f29d9b63f4c6a73626976b9",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Pikachu 010/032 is the visual centre of Japan’s PokéKyun Collection, a small set built around unusually warm and decorative character art. Its cheerful full-card scene appeals less through battle imagery than through illustration, nostalgia and completion of the compact set.",
+        "zhTW": "皮卡丘 010/032 是日本《PokéKyun Collection》的視覺中心，該小型系列以溫暖而裝飾性強的角色插畫見稱。它的吸引力不依靠戰鬥畫面，而來自完整場景、懷舊感及精簡系列的整套需求。",
+        "zhCN": "皮卡丘 010/032 是日本《PokéKyun Collection》的视觉中心，该小型系列以温暖而装饰性强的角色插画见称。它的吸引力不依靠战斗画面，而来自完整场景、怀旧感及精简系列的整套需求。",
+        "ja": "ピカチュウ010/032は、温かく装飾的なキャラクター絵で構成された日本の小型セット「ポケキュンコレクション」の中心的な一枚です。バトル表現ではなく、一枚絵の楽しさ、懐かしさ、少数セットを揃える需要によって支持されています。"
+      }
+    },
+    {
+      "id": "cmc_e1ff97385fbb5e9aa5be6a7e",
+      "rankAtReview": 73,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "101/095",
+      "status": "review_required",
+      "evidenceSha256": "b172321ef30acf8ec2d97f6f3d0f549e179777fb1bed969f48309701f9dafb41",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_d78dd93ff9156f1385bd08b9",
+      "rankAtReview": 74,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "116/080",
+      "status": "review_required",
+      "evidenceSha256": "a5ff5a64965477bd1d17a2d253a8b635d1ac5e33210fe9c750b84ccb11063395",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_3b430677cf46c17acee18567",
+      "rankAtReview": 75,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "192/203",
+      "status": "review_required",
+      "evidenceSha256": "52691b5b315470208e7e853a1a2f42faa43dd45f197428707c0fac47bae1629a",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_c96bd0a5267b95cd47bcbf08",
+      "rankAtReview": 76,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "203/XY-P",
+      "status": "review_required",
+      "evidenceSha256": "b219caa4a6d7b34598271d405ee9e90a376c7baee4029dd3ecd758fcd2b92ace",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_ad994632a0268c3c6cc2e6c4",
+      "rankAtReview": 77,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "400/SM-P",
+      "status": "review_required",
+      "evidenceSha256": "46751c0eedb7efce39927274caebe8c027c14ed870df4146554de99e30547f13",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": "summary_printing_conflict",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_7e88501df3cbafecb99f7d90",
+      "rankAtReview": 78,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "094/150",
+      "status": "ready",
+      "evidenceSha256": "ed14e783874b2e0b52c6972a0cc3060951978f28650a8f0c8ea475e349ce112f",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "The Japanese Sabrina’s Gengar 094/150 preserves the graveyard imagery that was altered for the Western release, making the art difference part of the card’s identity. Vintage Gym-era history, Gengar demand and the uncensored composition all reinforce attention to this printing.",
+        "zhTW": "日版娜姿的耿鬼 094/150 保留後來在西方版本被修改的墓地畫面，令插畫差異成為這張卡的身份核心。早期 Gym 系列歷史、耿鬼角色需求與未修改構圖，共同支持市場對此版本的關注。",
+        "zhCN": "日版娜姿的耿鬼 094/150 保留后来在西方版本被修改的墓地画面，令插画差异成为这张卡的身份核心。早期 Gym 系列历史、耿鬼角色需求与未修改构图，共同支持市场对此版本的关注。",
+        "ja": "日本語版「ナツメのゲンガー」094/150は、海外版で変更された墓地の表現を残し、その図柄差そのものがカードの個性になっています。旧ジム期の歴史、ゲンガー人気、未修正版の構図が、この印刷への注目を重ねています。"
+      }
+    },
+    {
+      "id": "cmc_dfd8c7d807758221573cbfe6",
+      "rankAtReview": 79,
+      "tcg": "one-piece",
+      "cardLanguage": "ja",
+      "collectorNumber": "ST21-014",
+      "status": "ready",
+      "evidenceSha256": "e902fc561bd80ec83d942ffc0407643b6974a89934a46e119b8293813c8fdaa4",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Luffy ST21-014 was inserted in One Piece Magazine’s twentieth special issue and reflects the publication’s own cover history. Because it came through a Japan-only magazine rather than a card product, manga readership and sealed-publication provenance shape its market.",
+        "zhTW": "路飛 ST21-014 隨《One Piece Magazine》第二十期特刊附送，畫面亦回應雜誌本身的封面歷史。它透過日本限定刊物而非卡牌產品流通，因此漫畫讀者需求及原刊物來源會影響市場。",
+        "zhCN": "路飞 ST21-014 随《One Piece Magazine》第二十期特刊附送，画面也呼应杂志本身的封面历史。它通过日本限定刊物而非卡牌产品流通，因此漫画读者需求及原刊物来源会影响市场。",
+        "ja": "ルフィST21-014は『ONE PIECE magazine』第20号の付録で、同誌の表紙史にもつながる図柄です。カード商品ではなく日本限定雑誌を通じて流通したため、漫画読者の需要と元の刊行物に由来する来歴が市場を形作ります。"
+      }
+    },
+    {
+      "id": "cmc_aec056f7a6265da599210c27",
+      "rankAtReview": 80,
+      "tcg": "one-piece",
+      "cardLanguage": "ja",
+      "collectorNumber": "OP06-118",
+      "status": "ready",
+      "evidenceSha256": "a6ae4cd59bf15eedd6c6ea0a159a50cffa4bfe1a4864239427666d47280c9879",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Zoro OP06-118 is the manga-art Secret Rare from Wings of the Captain, using original comic panels for one of the Straw Hats’ most popular fighters. Character strength, direct manga imagery and a scarce parallel slot make the card a clear focal point for OP06 demand.",
+        "zhTW": "索隆 OP06-118 是《Wings of the Captain》的漫畫圖 Secret Rare，以原作分鏡呈現草帽團最具人氣的戰鬥角色之一。角色號召力、直接漫畫畫面及稀有平行卡位，使它成為 OP06 需求的明確焦點。",
+        "zhCN": "索隆 OP06-118 是《Wings of the Captain》的漫画图 Secret Rare，以原作分镜呈现草帽团最具人气的战斗角色之一。角色号召力、直接漫画画面及稀有平行卡位，使它成为 OP06 需求的明确焦点。",
+        "ja": "ゾロOP06-118は、「双璧の覇者」のコミックアート版シークレットで、麦わらの一味を代表する剣士を原作コマで見せます。キャラクター人気、漫画そのものの図柄、希少なパラレル枠が重なり、OP06需要の明確な中心になっています。"
+      }
+    },
+    {
+      "id": "cmc_9df78d7fc45446c11cf77d3a",
+      "rankAtReview": 81,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "205/165",
+      "status": "review_required",
+      "evidenceSha256": "a935dce4c20ad80b29d8d6dbf856fd4561788ea1ec268f3d6402baaedaf4e924",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_38c3d6a43d36800671a6e5b3",
+      "rankAtReview": 82,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "200/165",
+      "status": "review_required",
+      "evidenceSha256": "682772f334b8bdd66314879a0c7b6ec3d2576d923cb4e39fd3b328172334866d",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_ab3bf9e4eff7d1256bdab428",
+      "rankAtReview": 83,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "082/072",
+      "status": "ready",
+      "evidenceSha256": "7a0d05ae2453dfa865a693a9dfa91c84280c23bff0364204dbef367a0cea94b7",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Mewtwo GX 082/072 is the full-art Secret Rare from Japan’s Shining Legends expansion, giving one of the franchise’s defining legendary characters a premium Sun & Moon treatment. Character recognition and the compact enhanced-set structure concentrate completion demand on this card.",
+        "zhTW": "超夢 GX 082/072 是日版《Shining Legends》的全圖 Secret Rare，讓系列最具代表性的傳說角色之一獲得高規格 Sun & Moon 處理。角色認知度與精簡強化系列結構，使整套收集需求集中在這張卡上。",
+        "zhCN": "超梦 GX 082/072 是日版《Shining Legends》的全图 Secret Rare，让系列最具代表性的传说角色之一获得高规格 Sun & Moon 处理。角色认知度与精简强化系列结构，使整套收集需求集中在这张卡上。",
+        "ja": "ミュウツーGX 082/072は、日本語版「ひかる伝説」のフルアート・シークレットで、シリーズを代表する伝説ポケモンをサン＆ムーン期の上位仕様で描きました。高い認知度と小規模な強化拡張の構成が、セット完成需要をこの一枚へ集めます。"
+      }
+    },
+    {
+      "id": "cmc_831cec18a291308870e6d720",
+      "rankAtReview": 84,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "290/SM-P",
+      "status": "ready",
+      "evidenceSha256": "95c6261ac7dfc2c7dc9385ffed0aab721f7bac377a58df8cb384ffb6fd6de5bf",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Rowlet 290/SM-P completes another side of the Munch museum collaboration, recasting The Scream with a round, understated character. Its lower-key humour broadens the exhibition set beyond the headline Pikachu and supports collectors who pursue the full five-card sequence.",
+        "zhTW": "木木梟 290/SM-P 展現蒙克博物館合作的另一面，以圓潤而含蓄的角色重新演繹《吶喊》。較低調的幽默令展覽組合不只依賴皮卡丘主卡，亦支撐追求完整五張序列的收藏需求。",
+        "zhCN": "木木枭 290/SM-P 展现蒙克博物馆合作的另一面，以圆润而含蓄的角色重新演绎《呐喊》。较低调的幽默令展览组合不只依赖皮卡丘主卡，也支撑追求完整五张序列的收藏需求。",
+        "ja": "モクロー290/SM-Pは、丸く控えめなキャラクターで《叫び》を再構成し、ムンク美術館コラボの別の表情を示します。主役のピカチュウだけに頼らない穏やかなユーモアが、五枚を通して揃える収集需要を支えています。"
+      }
+    },
+    {
+      "id": "cmc_37ef6ebabe9dcd58a76abfbb",
+      "rankAtReview": 85,
+      "tcg": "one-piece",
+      "cardLanguage": "ja",
+      "collectorNumber": "OP01-016",
+      "status": "ready",
+      "evidenceSha256": "d5652b90087f4f7aba77e36e68eed51a66e7363b369b5bef616f59cff53aaef6",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Nami OP01-016 reappears as a comic-style special parallel in the Premium Booster, pairing an early-series card number with manga-led presentation. The combination serves long-time character collectors while also giving premium-set buyers a recognisable chase target.",
+        "zhTW": "娜美 OP01-016 以漫畫風特別平行版在 Premium Booster 再次出現，把早期卡號與原作導向的展示方式結合。這個組合既服務長期角色收藏者，也為高級補充系列買家提供清晰的追卡目標。",
+        "zhCN": "娜美 OP01-016 以漫画风特别平行版在 Premium Booster 再次出现，把早期卡号与原作导向的展示方式结合。这个组合既服务长期角色收藏者，也为高级补充系列买家提供清晰的追卡目标。",
+        "ja": "ナミOP01-016は、プレミアムブースターでコミック調のスペシャルパラレルとして再登場し、初期カード番号と原作寄りの見せ方を結びました。長年のナミ収集層に応えつつ、プレミアム商品の分かりやすいチェイス対象にもなっています。"
+      }
+    },
+    {
+      "id": "cmc_d07c0bdc3773724098e6a5f4",
+      "rankAtReview": 86,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "226/S-P",
+      "status": "ready",
+      "evidenceSha256": "d4c02c09039590a713909519fdd91a57ae5aaaa46541a361d7d56637ac1ab7e4",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Cramorant 226/S-P came from the same Japan Post Stamp Box as Pikachu 227/S-P and draws on Hiroshige’s Wild Geese Flying under the Full Moon. Its quieter ukiyo-e composition is essential to the two-card cultural set, so paired provenance supports demand.",
+        "zhTW": "古月鳥 226/S-P 與皮卡丘 227/S-P 同出日本郵便郵票盒，構圖取材自歌川廣重《月下雁》。較安靜的浮世繪畫面是雙卡文化組合不可缺少的一半，因此成對來源支撐其需求。",
+        "zhCN": "古月鸟 226/S-P 与皮卡丘 227/S-P 同出日本邮政邮票盒，构图取材自歌川广重《月下雁》。较安静的浮世绘画面是双卡文化组合不可缺少的一半，因此成对来源支撑其需求。",
+        "ja": "ウッウ226/S-Pは、ピカチュウ227/S-Pと同じ日本郵便の切手BOXに入り、歌川広重の《月に雁》を踏まえた作品です。静かな浮世絵構図が文化的な二枚組の不可欠な片方となり、ペアとしての来歴が需要を支えます。"
+      }
+    },
+    {
+      "id": "cmc_6c41c7a72ce81bee2bc44e0d",
+      "rankAtReview": 87,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "161/181",
+      "status": "review_required",
+      "evidenceSha256": "82d85dc36a8d0c8c3814577e97c10c6a0635831619f967fab5b621bb793fbc23",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_f8a21ca4dc5a72fdc465a94b",
+      "rankAtReview": 88,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "SV107/SV122",
+      "status": "review_required",
+      "evidenceSha256": "96fc1060a802c48df7e98acd39e6a4e90448ba03fc0ffb20a8e060139c2736c6",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_77c97c76a50a49a4d668858c",
+      "rankAtReview": 89,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "SM168",
+      "status": "review_required",
+      "evidenceSha256": "510b92b120a1553d2903d4c088eb3eec74bac5e594560f56a74cc19a982da8a7",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_f748dff7a50a3e6bd3a770af",
+      "rankAtReview": 90,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "349/190",
+      "status": "review_required",
+      "evidenceSha256": "d05642a2be759d8754125f5bb482a375965bc9d053f49be929ffc5f4590dfa36",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_daaa57ffda79e456916d0820",
+      "rankAtReview": 91,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "212/187",
+      "status": "review_required",
+      "evidenceSha256": "af5cb356ec2a4901f7ab8389fbc2a4164583a2c222fbfddf8c17c882a497319c",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_0ae0ad3814ee728f4751c21d",
+      "rankAtReview": 92,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "023/MEP",
+      "status": "review_required",
+      "evidenceSha256": "18c4c572e9badb4849be99b44a2752a113436a36e2a43b619ec3a69377b4a4b4",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_317553f8d9fe0d00f1bd8e59",
+      "rankAtReview": 93,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "238/191",
+      "status": "review_required",
+      "evidenceSha256": "7ccc75c78d58559026a30aa3e7d015642ba8389dc028020057cbf033ec6d984c",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_95592d4de03401a341ccd97a",
+      "rankAtReview": 94,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "012/025",
+      "status": "ready",
+      "evidenceSha256": "db652a6f8f21ab4958f19be87dd931be13d0483d06959b07e484d51099ccf444",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Umbreon Star 012/025 revisits the celebrated Gold Star Umbreon design for the Japanese 25th Anniversary promo set. It offers a clearly marked anniversary version of an otherwise difficult historical image, linking modern set completion with vintage-design demand.",
+        "zhTW": "月亮伊布 Star 012/025 為日版二十五週年宣傳系列重新呈現經典 Gold Star 月亮伊布設計。它以清晰週年標記提供較易辨識的歷史圖像版本，連接現代套卡收集與舊版設計需求。",
+        "zhCN": "月亮伊布 Star 012/025 为日版二十五周年宣传系列重新呈现经典 Gold Star 月亮伊布设计。它以清晰周年标记提供较易辨识的历史图像版本，连接现代套卡收集与旧版设计需求。",
+        "ja": "ブラッキー☆012/025は、日本語版25周年プロモで名高いゴールドスター・ブラッキーの図柄を再提示しました。周年印が明確な現代版として入手しにくい歴史的デザインに触れられ、現代セット完成と旧デザイン需要を結び付けます。"
+      }
+    },
+    {
+      "id": "cmc_cd893331af30efa98ec5d850",
+      "rankAtReview": 95,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "323/S-P",
+      "status": "ready",
+      "evidenceSha256": "0e0bf238ad35d231d5231309ed8ad6703ddce288d2cce99138508bca7557c462",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Pikachu 323/S-P was included in the made-to-order Precious Collector Box for the close of the Sword & Shield era. Its etched full-art finish and premium product setting make the original box context, preservation and Gen 8 completion central to demand.",
+        "zhTW": "皮卡丘 323/S-P 收錄於為 Sword & Shield 時代收結而設的受注生產 Precious Collector Box。雕刻感全圖處理與高級產品定位，使原盒背景、保存狀態及第八世代完整收藏成為需求核心。",
+        "zhCN": "皮卡丘 323/S-P 收录于为 Sword & Shield 时代收尾而设的定制生产 Precious Collector Box。雕刻感全图处理与高级产品定位，使原盒背景、保存状态及第八世代完整收藏成为需求核心。",
+        "ja": "ピカチュウ323/S-Pは、ソード＆シールド期の締めくくりとなる受注生産の「Precious Collector Box」に収録されました。エッチング調のフルアートと高級商品の位置付けにより、元BOXの来歴、保存状態、第8世代の完成需要が評価の中心になります。"
+      }
+    },
+    {
+      "id": "cmc_6f2c147c59525d1c104d01a3",
+      "rankAtReview": 96,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "223/197",
+      "status": "review_required",
+      "evidenceSha256": "a020a8a5714f89eafacd8f6c1feee56b3f044c1fb4d425d8d8c61b28bdc2b3fd",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_06d57e4d4ac535348c374286",
+      "rankAtReview": 97,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "212/203",
+      "status": "review_required",
+      "evidenceSha256": "6c018181d0f7f87420c865ff7768eac440204a36ec7360a2294282d73ff318fc",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_72b89fd8783c3109b26b974f",
+      "rankAtReview": 98,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "134/108",
+      "status": "review_required",
+      "evidenceSha256": "04cf2ff841e83db4ce060f2e8df94bfb05ee6853264d1d6ab785e8b7229455bc",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_7ac7a4d940bc43917dbee08e",
+      "rankAtReview": 99,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "189/203",
+      "status": "review_required",
+      "evidenceSha256": "6a890ca32632e166548883f83cbb8accdfee0454de65925f10436ce4df9b39f4",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    },
+    {
+      "id": "cmc_0d3de688ca570d09a013d2cc",
+      "rankAtReview": 100,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "053/SVP",
+      "status": "review_required",
+      "evidenceSha256": "4fa1d5e157185db718100d43869ccfd4d2c2961c05d5f851082e807d7451b04f",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": "evidence_too_thin",
+      "stories": {
+        "en": null,
+        "zhTW": null,
+        "zhCN": null,
+        "ja": null
+      }
+    }
+  ]
+}

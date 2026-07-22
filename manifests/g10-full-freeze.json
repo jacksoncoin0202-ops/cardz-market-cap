@@ -1,0 +1,84 @@
+{
+  "schemaVersion": "2.0.0",
+  "role": "private_full_freeze",
+  "mode": "full",
+  "runId": "e7faee46632fde8c9f7c19e39e403f12f4fb4db991871a10e9df911c8531d6fc",
+  "effectiveAt": "2026-07-21T22:37:57.461837Z",
+  "priceEffectiveAt": "2026-07-19T00:00:00Z",
+  "payloadSha256": "91f4183c2a5f93c161d2ff0305eae87d3f108dad286f221d9681112d021d3e57",
+  "fileCount": 9471,
+  "cardCount": 600,
+  "intake": {
+    "accepted": 587,
+    "quarantined": 0,
+    "rejected": 13,
+    "changedFiles": 9471,
+    "deletedFiles": 0
+  },
+  "ungatedMarketUniverse": {
+    "candidateCount": 460,
+    "top100MarketCapUsd": 2624140427,
+    "top100TcgMix": {
+      "pokemon": 89,
+      "one-piece": 11
+    }
+  },
+  "publicGate": {
+    "candidateCount": 360,
+    "top100MarketCapUsd": 2445570776,
+    "top100TcgMix": {
+      "pokemon": 93,
+      "one-piece": 7
+    },
+    "watchlistCount": 260,
+    "rejected": {
+      "identity_incomplete_collector": 31,
+      "identity_language_conflict": 23,
+      "identity_name_conflict": 14,
+      "identity_set_namespace_conflict": 1,
+      "image_duplicate_variant_unproven": 2,
+      "image_raw_front_unavailable": 29,
+      "population": 136,
+      "price": 4
+    }
+  },
+  "publicSnapshot": {
+    "generationId": "daily_20260722T094826496874Z",
+    "generatedAt": "2026-07-22T09:48:26.496874Z",
+    "fileSha256": "17b6af2c26b7178c089f4c2e1c3fb0da0b9e4c5b2e56a5d322ed190bedf4e0bd",
+    "contentSha256": "894737a06f5947229af177c166b9a40d938896d0b2509d97cc336748ced7215f",
+    "rawFrontAssetCount": 360,
+    "imageQcManifestSha256": "497929b02242178a803e122dad67ce3c980af8e65fabd895b581869290eaf352",
+    "imageSemanticStatus": "metadata_exact_unreviewed",
+    "editorialMappingSha256": "163aa8d4eb5199158d51e7e476705bbd849f66abb99f71e56bab8f4769609c76",
+    "top100CollectorQc": {
+      "30": "78/73",
+      "32": "001/025",
+      "43": "020/019",
+      "45": "007/025",
+      "48": "083/067",
+      "51": "080/073",
+      "52": "GG69/GG70",
+      "53": "001/030",
+      "55": "GG44/GG70",
+      "60": "094/087",
+      "62": "SV49/SV94",
+      "72": "010/032",
+      "83": "082/072",
+      "88": "SV107/SV122",
+      "94": "012/025"
+    }
+  },
+  "release": {
+    "productionEligible": false,
+    "blockers": [
+      "canonical_identity_review_pending",
+      "image_semantic_qc_review_pending",
+      "grader_supply_universe_pending",
+      "four_locale_editorial_review_pending",
+      "currency_rate_feed_pending",
+      "production_database_cutover_pending",
+      "price_reference_over_48h"
+    ]
+  }
+}

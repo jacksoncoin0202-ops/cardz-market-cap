@@ -1,0 +1,6 @@
+.next/
+.open-next/
+.wrangler/
+node_modules/
+tsconfig.tsbuildinfo
+public/market-assets/

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 630 880" role="img" aria-labelledby="title description">
+  <title id="title">Card artwork pending</title>
+  <description id="description">A neutral gallery placeholder for a card awaiting image review.</description>
+  <rect width="630" height="880" fill="#eceef1"/>
+  <rect x="34" y="34" width="562" height="812" rx="20" fill="#f8f8f6" stroke="#1b1d20" stroke-width="2"/>
+  <path d="M96 628l126-142 93 91 82-116 137 167" fill="none" stroke="#aeb4bd" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="212" cy="312" r="50" fill="#d6dbe1"/>
+  <text x="315" y="742" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="28" fill="#626973">IMAGE QC</text>
+</svg>

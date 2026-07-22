@@ -1,0 +1,39 @@
+{
+  "name": "@cardz/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "predev": "npm --workspace @cardz/market-data run build && node scripts/sync-snapshot.mjs",
+    "dev": "next dev",
+    "prebuild": "npm --workspace @cardz/market-data run build && node scripts/sync-snapshot.mjs",
+    "build": "next build",
+    "build:cloudflare": "opennextjs-cloudflare build",
+    "start": "next start",
+    "lint": "eslint .",
+    "pretypecheck": "npm --workspace @cardz/market-data run build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "preview": "npm run build:cloudflare && opennextjs-cloudflare preview",
+    "deploy:staging": "npm run build:cloudflare && wrangler deploy --env staging --config wrangler.jsonc"
+  },
+  "dependencies": {
+    "@cardz/market-data": "0.1.0",
+    "@opennextjs/cloudflare": "^1.14.7",
+    "d3-hierarchy": "^3.1.2",
+    "lucide-react": "^1.25.0",
+    "next": "^16.2.10",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260721.1",
+    "@types/d3-hierarchy": "^3.1.7",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "eslint": "^9.0.0",
+    "eslint-config-next": "^16.2.10",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.4"
+  }
+}

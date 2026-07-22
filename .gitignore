@@ -1,0 +1,51 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Dependencies and build output
+node_modules/
+.next/
+.open-next/
+dist/
+coverage/
+.wrangler/
+out/
+apps/web/public/market-assets/
+
+# Runtime and temporary data
+data/runtime/
+apps/web/data/runtime/
+data/private/daily/
+data/private/g10/
+data/private/logs/
+data/private/publish-staging/
+data/public/publish-staging/
+data/private/*.sqlite
+data/private/*.sqlite-wal
+data/private/*.sqlite-shm
+data/private/tmp/
+*.log
+*.tmp
+*.bak
+*.mask-work.*
+.pytest_cache/
+__pycache__/
+*.pyc
+
+# Editors and operating systems
+.DS_Store
+Thumbs.db
+.claude/
+.idea/
+.vscode/
+
+# Playwright artifacts
+playwright-report/
+test-results/
