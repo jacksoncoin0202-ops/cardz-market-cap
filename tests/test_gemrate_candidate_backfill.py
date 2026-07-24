@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 import hashlib
+import os
 import sys
 import tempfile
 import unittest
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -105,7 +106,7 @@ def persist_verified_direct_population(
     gemrate_id: str,
     payload: dict,
     *,
-    fetched_at: str = "2026-07-24T00:00:00Z",
+    fetched_at: str = "2026-07-23T00:00:00Z",
 ) -> None:
     card = cards_root / gemrate_id
     card.mkdir(parents=True, exist_ok=True)
@@ -945,7 +946,13 @@ class GemRateCandidateBackfillTests(unittest.TestCase):
                 )
             mirror = root / "mirror" / "cards" / "ptcg" / "conflict"
             mirror.mkdir(parents=True)
-            (mirror / "populations.json").write_text(json.dumps(mirror_payload(1199)), encoding="utf-8")
+            mirror_file = mirror / "populations.json"
+            mirror_file.write_text(json.dumps(mirror_payload(1199)), encoding="utf-8")
+            # Backdate the cache write so the date-free mirror payload reads as
+            # observed on the run's as_of date (the scenario under test), not
+            # wall-clock today.
+            observed = datetime(2026, 7, 23, tzinfo=timezone.utc).timestamp()
+            os.utime(mirror_file, (observed, observed))
             first = run_offline_backfill(
                 [
                     {"gemrateId": direct_id, "tcg": "pokemon", "identity": None},

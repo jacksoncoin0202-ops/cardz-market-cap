@@ -93,7 +93,7 @@ test("daily orchestrator is fail-closed and contains no writable SQLite authorit
   assert.match(runner, /observation_effective_at=price_effective_at/);
   assert.match(runner, /write_canonical_batch\(manifest_path, source_root, price_effective_at, landing_manifest\)/);
   assert.match(runner, /collect_or_reuse_fx/);
-  assert.match(runner, /fx_snapshot=fx_snapshot/);
+  assert.match(runner, /fx_snapshot = validate_fx_snapshot/);
   assert.match(runner, /"--fx-snapshot", str\(fx_cache\)/);
   assert.match(runner, /CARDZ_GENERATION_CANARY_COMMAND_JSON/);
   assert.match(runner, /CARDZ_POINTER_PROMOTE_COMMAND_JSON/);
@@ -101,28 +101,20 @@ test("daily orchestrator is fail-closed and contains no writable SQLite authorit
 
 test("scheduler defaults to 06:30 unattended, singleton, and two-hour timeout", async (context) => {
   const installer = await readFile(path.join(root, "pipelines/install_daily_task.ps1"), "utf8");
-  const scheduledRunner = await readFile(path.join(root, "pipelines/run_daily.ps1"), "utf8");
-  assert.match(installer, /CARDZ-Market-Cap-Daily-Staging/);
+  const scheduledRunner = await readFile(path.join(root, "deploy/windows/run-cardz-daily.ps1"), "utf8");
+  assert.match(installer, /CARDZ-Market-Cap-Daily/);
   assert.match(installer, /Get-Command python\.exe[^\n]+-All[^\n]+Select-Object -First 1/);
   assert.match(installer, /06:30/);
   assert.match(installer, /LogonType S4U/);
   assert.match(installer, /MultipleInstances IgnoreNew/);
   assert.match(installer, /New-TimeSpan -Hours 2/);
-  assert.match(installer, /RefreshBootstrapSource/);
-  assert.match(installer, /grade10_scraper\.py/);
   assert.match(installer, /-PythonExe/);
-  assert.match(installer, /-CanaryOrigin/);
-  assert.match(installer, /-GenerationCanaryCommandJson/);
-  assert.match(installer, /-PointerPromoteCommandJson/);
-  assert.match(installer, /promote-staging-pointer\.mjs/);
+  assert.match(installer, /-EnvFile/);
+  assert.match(installer, /scripts\\backend\.py/);
   assert.doesNotMatch(installer, /run_daily\.bat|LogonType\s+Interactive/);
-  assert.match(scheduledRunner, /\$env:CARDZ_DEPLOYMENT_ENV\s*=\s*\$Mode/);
-  assert.match(scheduledRunner, /\$env:CARDZ_CANARY_ORIGIN\s*=/);
-  assert.match(scheduledRunner, /\$env:CARDZ_GENERATION_CANARY_COMMAND_JSON\s*=/);
-  assert.match(scheduledRunner, /\$env:CARDZ_POINTER_PROMOTE_COMMAND_JSON\s*=/);
-  assert.match(scheduledRunner, /\$env:CARDZ_STAGING_R2_BUCKET\s*=\s*\$R2Bucket/);
-  assert.match(scheduledRunner, /\[switch\]\$RefreshActiveUniverse/);
-  assert.match(scheduledRunner, /\$Arguments \+= '--refresh-active-universe'/);
+  assert.match(scheduledRunner, /scripts\\backend\.py/);
+  assert.match(scheduledRunner, /daily --external-db --mode \$Mode/);
+  assert.match(scheduledRunner, /Set-Item -Path "Env:\$\(\$Matches\[1\]\)"/);
   assert.doesNotMatch(scheduledRunner, /CARDZ_JLP|ProductionRunner/);
 
   if (process.platform !== "win32") {
@@ -131,20 +123,27 @@ test("scheduler defaults to 06:30 unattended, singleton, and two-hour timeout", 
   }
 
   const python = (await execute("where.exe", ["python"])).stdout.trim().split(/\r?\n/)[0];
-  const sourceScript = path.resolve(root, "../grade10-scraper/grade10_scraper.py");
+  const directory = await mkdtemp(path.join(tmpdir(), "cardz-scheduler-"));
+  const envFile = path.join(directory, "cardz-daily.env");
+  await writeFile(envFile, "CARDZ_DB_PASSWORD=test-not-a-real-secret\n");
   const preview = await execute("powershell.exe", [
     "-NoLogo", "-NoProfile", "-NonInteractive", "-File", path.join(root, "pipelines/install_daily_task.ps1"),
+    "-Action", "dry-run",
     "-PythonExe", python,
-    "-R2Bucket", "cardz-test-private-bucket",
-    "-CanaryOrigin", "https://cardz-canary.example.test",
-    "-WhatIf",
+    "-EnvFile", envFile,
+    "-AllowNonJstHost",
   ], { cwd: root });
-  assert.match(preview.stdout, /CARDZ_ACTION_ARGUMENTS=.*-PythonExe/);
-  assert.doesNotMatch(preview.stdout, /PrivateAcquireScript|RefreshBootstrapSource/);
-  assert.match(preview.stdout, new RegExp(python.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
-  assert.match(preview.stdout, /-CanaryOrigin 'https:\/\/cardz-canary\.example\.test'/);
-  assert.match(preview.stdout, /-GenerationCanaryCommandJson '\[.*run-generation-canary\.mjs.*\]'/);
-  assert.match(preview.stdout, /-PointerPromoteCommandJson '\[.*promote-staging-pointer\.mjs.*\]'/);
+  const plan = JSON.parse(preview.stdout.trim());
+  assert.equal(plan.action, "dry-run");
+  assert.equal(plan.taskName, "CARDZ-Market-Cap-Daily");
+  assert.equal(plan.at, "06:30 JST");
+  assert.equal(plan.singleton, "IgnoreNew plus backend daily lock");
+  assert.equal(plan.timeoutMinutes, 120);
+  assert.equal(plan.restart, "3 retries, 10 minute backoff");
+  assert.match(plan.arguments, /run-cardz-daily\.ps1/);
+  assert.match(plan.arguments, new RegExp(python.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
+  assert.match(plan.arguments, new RegExp(envFile.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
+  assert.doesNotMatch(plan.arguments, /test-not-a-real-secret/);
 });
 
 test("exact source crosswalk and source normalizer are deterministic", async () => {
