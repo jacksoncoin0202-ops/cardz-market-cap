@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { Share2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CardImage } from "./card-image";
+import { CardImageModal } from "./card-image-modal";
+import { CapTicker } from "./cap-ticker";
 import { HistoryChart } from "./history-chart";
 import { PeriodSelector } from "./period-selector";
 import { PriceDelta, MetricDelta } from "./rankings";
 import { absolutePublicUrl, StructuredData } from "./structured-data";
 import { copy } from "@/lib/i18n";
-import { formatDate, formatMetricInteger, formatMetricMoney, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
+import { formatDate, formatMetricInteger, formatMetricMoney, formatMoney, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
 import { graders, type MarketViewSnapshot } from "@/lib/types";
 import { useMarketSettings } from "@/lib/use-market-settings";
 
@@ -87,7 +88,7 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
       <article className="detail-grid">
         <section className="detail-art" aria-label={t.labels.imageAlt}>
           <span className="detail-rank">#{card.rank}</span>
-          <CardImage image={card.image} sizes="(max-width: 680px) 90vw, 560px" loading="eager" alt={card.image.alt[locale] || t.labels.imageAlt} />
+          <CardImageModal card={card} />
         </section>
         <div className="detail-content">
           <header className="detail-header">
@@ -107,7 +108,7 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
           )}
           <div className="detail-period-row"><PeriodSelector compact /></div>
           <section className="detail-metrics" aria-label={t.labels.marketCap}>
-            <div><span>{t.labels.marketCap}</span><strong className="metric-value-fit">{formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true)}</strong><MetricDelta metric={card.marketCap} changePct={windowMetric.changePct} currency={currency} rates={snapshot.rates} locale={locale} /></div>
+            <div><span>{t.labels.marketCap}</span><strong className="metric-value-fit">{card.marketCap.value === null ? formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true) : <CapTicker key={card.marketCap.value} value={card.marketCap.value} format={(n) => formatMoney(n, currency, snapshot.rates, locale, true)} />}</strong><MetricDelta metric={card.marketCap} changePct={windowMetric.changePct} currency={currency} rates={snapshot.rates} locale={locale} /></div>
             <div><span>{t.labels.price}</span><strong className="detail-price-now">{formatMetricMoney(card.pricePsa10, currency, snapshot.rates, locale)}</strong><PriceDelta card={card} period={period} currency={currency} rates={snapshot.rates} locale={locale} /></div>
             <div><span>{t.labels.population}</span><strong>{formatMetricInteger(card.populationPsa10, locale)}</strong></div>
             <div><span>{t.periods[period]} {t.labels.change}</span><strong className={`metric-${metricTone(windowMetric.changePct)}`}>{formatPercent(windowMetric.changePct, locale)}</strong></div>

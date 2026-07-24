@@ -13,7 +13,7 @@
   --lilac: #eeeaf4;
   --section-radius: 24px;
   --control-radius: 12px;
-  --card-img-radius: 9%;
+  --card-img-radius: 9%; /* 2026-07-25 已廢：卡圖統一用原生 RGBA 圓角，唔准再 CSS 削角 */
   --header-height: 68px;
   --shadow: 0 18px 54px rgba(24, 24, 22, 0.14);
 
@@ -479,7 +479,7 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   object-position: center;
 }
 .heatmap-frame:hover .heatmap-tile:not(:hover),
@@ -567,7 +567,7 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   bottom: 18px;
   z-index: 20;
   width: min(520px, calc(100% - 36px));
-  min-height: 310px;
+  height: 310px;
   display: grid;
   grid-template-columns: minmax(190px, 42%) minmax(0, 58%);
   overflow: hidden;
@@ -579,15 +579,25 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   -webkit-backdrop-filter: blur(18px);
   backdrop-filter: blur(18px);
 }
+.heatmap-preview.preview-flip { right: auto; bottom: auto; left: 18px; top: 18px; }
 @keyframes preview-in { from { opacity: 0; transform: translateY(6px) scale(0.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
 .preview-image { min-height: 310px; padding: 16px; background: var(--preview-image-bg); }
-.preview-image img { width: 100%; height: 100%; object-fit: contain; border-radius: var(--card-img-radius); }
+.preview-image img { width: 100%; height: 100%; object-fit: contain; }
 .sheet-image img { width: 100%; height: 100%; object-fit: contain; }
-.preview-copy { min-width: 0; padding: 24px; }
+.preview-copy { min-width: 0; padding: 24px; display: flex; flex-direction: column; }
 .rank-kicker { margin-bottom: 8px; color: var(--accent); font-size: 10px; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; }
 .preview-copy h3,
 .bottom-sheet h3 { margin-bottom: 7px; font-size: 24px; }
+.preview-copy h3 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  line-height: 1.15;
+  max-height: calc(2 * 1.15em);
+}
 .muted-copy { margin-bottom: 15px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.preview-copy .muted-copy { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .preview-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px 14px; margin: 0; }
 .preview-facts div { min-width: 0; }
 .preview-facts dt,
@@ -673,7 +683,7 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   .card-dialog .sheet-handle { display: none; }
   .card-dialog .sheet-card-layout { display: grid; grid-template-columns: minmax(170px, 30%) minmax(0, 1fr); gap: 22px; align-items: start; }
   .card-dialog .sheet-image { min-height: 240px; padding: 12px; border-radius: 18px; background: var(--sheet-image-bg); }
-  .card-dialog .sheet-image img { width: 100%; height: 100%; object-fit: contain; border-radius: var(--card-img-radius); }
+  .card-dialog .sheet-image img { width: 100%; height: 100%; object-fit: contain; }
   .card-dialog .sheet-close {
     min-width: 44px;
     min-height: 44px;
@@ -808,9 +818,8 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
 .mobile-card-metrics .price-delta { margin-top: 0; font-size: 9px; }
 /* 卡內頁卡圖白邊＋光暈移除：同全站其他卡片統一無邊框風格 */
 .detail-art img { border: 0; filter: none; }
-/* 卡圖統一圓角：實卡卡角比例，鏟走原始圖角落白色位 */
-.grader-table .grader-card img,
-.ranking-thumb img { border-radius: var(--card-img-radius); transform: scale(1.1); }
+/* 卡圖統一原生 RGBA 圓角（2026-07-25 標準）：DB 入面每張圖已係 429x600 透明畫布
+   （梵高比卡超做基準），前端唔准再 CSS 削角/放大裁切。 */
 .detail-price-now { font-size: 22px !important; }
 .detail-price-now + .price-delta { display: flex; margin-top: 4px; font-size: 11px; }
 .ranking-card-identity { min-width: 0; display: flex; align-items: center; gap: 12px; }
@@ -825,7 +834,7 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   border-radius: 5px;
   background: var(--thumb-bg);
 }
-.ranking-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.ranking-thumb img { width: 100%; height: 100%; object-fit: contain; }
 .ranking-name { min-width: 0; }
 .ranking-name strong { display: block; overflow: hidden; color: var(--ink); font-size: 13px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
 .collector-cell { color: var(--mobile-number) !important; font-family: "SF Mono", "Roboto Mono", ui-monospace, monospace; font-size: 10px !important; }
@@ -1210,7 +1219,7 @@ html.theme-transitions .site-footer {
   .sheet-close { min-width: 44px; min-height: 44px; display: block; margin: 0 0 10px auto; padding: 0 10px; border: 0; background: transparent; color: var(--sheet-close); font-size: 11px; }
   .sheet-card-layout { display: grid; grid-template-columns: minmax(130px, 36%) minmax(0, 1fr); gap: 20px; }
   .sheet-image { min-height: 270px; padding: 10px; border-radius: 18px; background: var(--sheet-image-bg); }
-  .sheet-image img { max-height: 370px; border-radius: var(--card-img-radius); }
+  .sheet-image img { max-height: 370px; }
   .detail-grid { display: block; grid-template-columns: none; }
   .detail-art { position: relative; top: auto; height: 400px; min-height: 0; margin-bottom: 26px; }
   .detail-header { padding-top: 0; }
@@ -1283,7 +1292,7 @@ html.theme-transitions .site-footer {
   border-radius: var(--section-radius);
   background: var(--detail-art-bg);
 }
-.detail-art img { max-width: 100%; max-height: 100%; padding: 26px; object-fit: contain; border-radius: var(--card-img-radius); }
+.detail-art img { max-width: 100%; max-height: 100%; padding: 26px; object-fit: contain; }
 .detail-rank {
   position: absolute;
   top: 14px;
@@ -1397,6 +1406,180 @@ html.theme-transitions .site-footer {
 
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes sheet-in { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ── UI experiments 2026-07-25（branch ui-experiments-20260725）── */
+
+/* interactionkit spring button：撳落去縮一放，回彈帶少少 overshoot */
+.primary-action,
+.heatmap-export,
+.share-button,
+.ranking-jump,
+.detail-art-button {
+  transition: background 170ms ease, border-color 170ms ease, color 170ms ease,
+    transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.primary-action:active,
+.heatmap-export:active,
+.share-button:active,
+.ranking-jump:active,
+.detail-art-button:active { transform: scale(0.94); }
+
+/* interactionkit image expand：detail-art 撳卡圖開全屏 lightbox */
+.detail-art-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+.image-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  background: rgba(10, 10, 10, 0.86);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  animation: fade-in 160ms ease-out both;
+  cursor: zoom-out;
+}
+.image-modal-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: min(92vw, 60vh);
+  max-height: 78vh;
+  cursor: default;
+  animation: modal-card-in 240ms cubic-bezier(0.34, 1.4, 0.64, 1) both;
+}
+.image-modal-stage img {
+  max-width: 100%;
+  max-height: 78vh;
+  object-fit: contain;
+  filter: drop-shadow(0 24px 60px rgba(0, 0, 0, 0.5));
+}
+@keyframes modal-card-in { from { opacity: 0; transform: scale(0.86) translateY(12px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+.image-modal-close {
+  position: absolute;
+  top: calc(14px + env(safe-area-inset-top));
+  right: 16px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: var(--control-radius);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f2f2f0;
+  font-size: 12px;
+  font-weight: 600;
+}
+.image-modal-caption { margin: 0; color: rgba(242, 242, 240, 0.72); font-size: 12px; text-align: center; }
+
+/* interactionkit tooltip：表頭 ? 撳開定義 bubble，手機可用 */
+.info-tip { position: relative; display: inline-flex; margin-left: 4px; vertical-align: middle; }
+.info-tip-trigger {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--dt-color);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+}
+.info-tip-trigger:hover,
+.info-tip-trigger[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+/* 表頭 cell 有 overflow hidden：bubble 一律落表下面，唔好浮喺 header 上被裁 */
+.info-tip-bubble {
+  position: fixed;
+  z-index: 60;
+  width: 210px;
+  z-index: 60;
+  width: 210px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--preview-bg);
+  box-shadow: var(--shadow);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.5;
+  text-align: left;
+  text-transform: none;
+  white-space: normal;
+  animation: tip-in 150ms ease-out both;
+}
+@keyframes tip-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
+/* moumen ticket ticker：卡詳情頁市值數字 0 滾到目標值 */
+.cap-ticker { display: inline-block; font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) {
+  .cap-ticker { transition: none; }
+}
+
+/* moumen drag-to-reorder：watchlist 手機清單拖放行 */
+@media (max-width: 980px) {
+  .watchlist-sortable .mobile-rank-card { position: relative; }
+  .watchlist-row { padding-left: 4px !important; }
+  .drag-grip {
+    flex: none;
+    width: 34px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--dt-color);
+    cursor: grab;
+    touch-action: none;
+  }
+  .drag-grip:active { cursor: grabbing; color: var(--accent); }
+  .watchlist-row-link {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .watchlist-row-link .sparkline { width: 48px; height: 16px; flex: none; }
+  .watchlist-row.is-dragging {
+    z-index: 30;
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+    transition: none;
+    cursor: grabbing;
+  }
+  .watchlist-sortable[data-dragging="true"] .watchlist-row:not(.is-dragging) { opacity: 0.72; }
+}
+@media (min-width: 981px) {
+  .watchlist-sortable { display: none; }
+}
+@media (max-width: 430px) {
+  .watchlist-row-link { gap: 8px; }
+  .watchlist-row-link .sparkline { width: 48px; height: 16px; flex: none; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }

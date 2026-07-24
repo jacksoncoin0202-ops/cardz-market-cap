@@ -97,6 +97,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title, eyebro
   const frameRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [active, setActive] = useState<MarketCardView | null>(null);
+  const [previewFlip, setPreviewFlip] = useState(false);
   const [sheetCard, setSheetCard] = useState<MarketCardView | null>(null);
   const [pickedCount, setPickedCount] = useState<number | null>(null);
   const [params, setParams] = useState<TileParams>(DEFAULT_TILE);
@@ -184,12 +185,10 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title, eyebro
       if (img && st.showCard) {
         const cw = st.cardW; const ch = st.cardH;
         const cx = tx + (tw - cw) / 2; const cy = ty + (th - ch) / 2;
-        const imgAspect = img.width / img.height;
-        const boxAspect = cw / ch;
-        let sw = img.width; let sh = img.height; let sx = 0; let sy = 0;
-        if (imgAspect > boxAspect) { sw = img.height * boxAspect; sx = (img.width - sw) / 2; }
-        else { sh = img.width / boxAspect; sy = (img.height - sh) / 2; }
-        ctx.drawImage(img, sx, sy, sw, sh, cx, cy, cw, ch);
+        // contain：完整卡圖等比縮放入框，唔准 center-crop 食角
+        const fit = Math.min(cw / img.width, ch / img.height);
+        const dw = img.width * fit; const dh = img.height * fit;
+        ctx.drawImage(img, cx + (cw - dw) / 2, cy + (ch - dh) / 2, dw, dh);
       }
       if (st.move) {
         ctx.font = `700 ${st.fontSize * scale}px system-ui, sans-serif`;
@@ -282,7 +281,13 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title, eyebro
               style={{ left: tileX, top: tileY, width: tileW, height: tileH, background: st.bg }}
               aria-label={`#${card.rank} ${card.name[locale] || t.status.unavailable}, ${card.collectorNumber}`}
               aria-haspopup="dialog"
-              onMouseEnter={() => setActive(card)}
+              onMouseEnter={() => {
+                setActive(card);
+                // 指到右下象限 → preview 反去左上，唔好遮住啲卡
+                setPreviewFlip(
+                  tileX + tileW / 2 > size.width / 2 && tileY + tileH / 2 > size.height / 2,
+                );
+              }}
               onFocus={() => setActive(card)}
               onClick={(event) => {
                 lastTriggerRef.current = event.currentTarget;
@@ -305,7 +310,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title, eyebro
           );
         })}
         {active && (
-          <aside className="heatmap-preview" aria-live="polite">
+          <aside className={`heatmap-preview${previewFlip ? " preview-flip" : ""}`} aria-live="polite">
             <div className="preview-image"><CardImage image={active.image} sizes="220px" alt={active.image.alt[locale] || t.labels.imageAlt} /></div>
             <div className="preview-copy">
               <p className="rank-kicker">#{active.rank} / {active.tcg}</p>

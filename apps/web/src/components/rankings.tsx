@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { ArrowDown, ArrowUp, TrendingDown, TrendingUp } from "lucide-react";
 import { CardImage } from "./card-image";
+import { InfoTip } from "./info-tip";
 import { PeriodSelector } from "./period-selector";
 import { Sparkline } from "./sparkline";
+import { WatchlistMobileList } from "./watchlist-mobile-list";
 import { copy } from "@/lib/i18n";
 import { formatDeltaMoney, formatInteger, formatMetricInteger, formatMetricMoney, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
 import { useMarketSettings } from "@/lib/use-market-settings";
@@ -124,8 +126,10 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                 <col className="col-pop" /><col className="col-cap" /><col className="col-sales" /><col className="col-change" /><col className="col-spark" />
               </colgroup>
               <thead><tr>
-                <th>{t.labels.rank}</th><th>{t.labels.card}</th><th>{t.labels.number}</th><th className="numeric">{t.labels.priceShort}</th>
-                <th className="numeric">{t.labels.populationShort}</th><th className="numeric">{t.labels.marketCapShort}</th>
+                <th>{t.labels.rank}</th><th>{t.labels.card}</th><th>{t.labels.number}</th>
+                <th className="numeric">{t.labels.priceShort}<InfoTip label={t.labels.price} text={t.labels.priceHelp} /></th>
+                <th className="numeric">{t.labels.populationShort}<InfoTip label={t.labels.population} text={t.labels.populationHelp} /></th>
+                <th className="numeric">{t.labels.marketCapShort}<InfoTip label={t.labels.marketCap} text={t.labels.marketCapHelp} /></th>
                 <th className="numeric"><span title={t.labels.salesHelp}>{t.periods[period]} {t.labels.trackedSalesShort}</span></th>
                 <th className="numeric">{t.periods[period]} {t.labels.changeShort}</th>
                 <th className="numeric"><span title={t.labels.salesHelp}>{t.labels.salesTrendShort}</span></th>
@@ -160,6 +164,9 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
               })}</tbody>
             </table>
           </div>
+          {watchlist ? (
+            <WatchlistMobileList cards={cards} locale={locale} currency={currency} snapshot={snapshot} href={href} />
+          ) : (
           <div className="mobile-ranking-list">
             <div className="mobile-list-header" aria-hidden="true">
               <span className="mobile-col-info">{t.labels.card}</span>
@@ -185,6 +192,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
               </Link>
             ))}
           </div>
+          )}
         </>
       )}
     </section>
