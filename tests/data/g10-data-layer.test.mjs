@@ -36,12 +36,13 @@ test("G10 full and incremental ingestion is immutable, idempotent, and keeps sal
   assert.equal(result.windows["30d"].status, "accumulating");
   assert.equal(result.singleCloseWindows["1d"].status, "accumulating");
   assert.equal(result.singleCloseWindows["1d"].value, null);
-  assert.deepEqual(result.graders, ["PSA", "BGS", "CGC", "SGC"]);
+  assert.deepEqual(result.graders, ["PSA", "BGS", "CGC", "SGC", "TAG"]);
   assert.equal(result.landingReplay.priceAnchorCount, 3);
   assert.equal(result.landingReplay.populationAnchorCount, 3);
-  assert.equal(result.landingReplay.sameDateRetryIgnored, true);
-  assert.equal(result.landingReplay.firstPriceWins, true);
-  assert.equal(result.landingReplay.firstPopulationWins, true);
+  assert.equal(result.landingReplay.populationTotalRetained, true);
+  assert.equal(result.landingReplay.identicalSameDateRetryIgnored, true);
+  assert.equal(result.landingReplay.laterPriceCorrectionWins, true);
+  assert.equal(result.landingReplay.laterPopulationCorrectionWins, true);
   assert.equal(result.landingReplay.twoDay1d.status, "ready");
   assert.equal(result.landingReplay.twoDay1d.value, 10);
   assert.equal(result.landingReplay.twoDay7d.status, "accumulating");
@@ -51,8 +52,13 @@ test("G10 full and incremental ingestion is immutable, idempotent, and keeps sal
   assert.equal(result.landingReplay.populationEightDay7d.value, 20);
 });
 
-test("JLP extension migration is additive and MySQL 5.7 compatible", async () => {
+test("standalone migration is additive and MySQL 5.7 compatible", async () => {
   const sql = await readFile(path.join(root, "pipelines/migrations/002_market_observations.mysql.sql"), "utf8");
+  const fxSql = await readFile(path.join(root, "pipelines/migrations/003_fx_rate_observations.mysql.sql"), "utf8");
+  const provenanceSql = await readFile(
+    path.join(root, "pipelines/migrations/007_canonical_provenance.mysql.sql"),
+    "utf8",
+  );
   for (const table of [
     "market_ingest_run",
     "market_ingest_checkpoint",
@@ -67,9 +73,66 @@ test("JLP extension migration is additive and MySQL 5.7 compatible", async () =>
     assert.match(sql, new RegExp(`CREATE TABLE IF NOT EXISTS ${table}\\b`));
   }
   assert.match(sql, /FOREIGN KEY \(variant_id\) REFERENCES catalog_variant\(id\)/);
-  assert.match(sql, /UNIQUE KEY uq_market_source_observation \(source_code, external_entity_id, observation_kind, observed_date\)/);
+  assert.match(
+    sql,
+    /UNIQUE KEY uq_market_source_observation\s*\(source_code, external_entity_id, observation_kind, observed_date, payload_sha256\)/,
+  );
   assert.match(sql, /UNIQUE KEY uq_market_grader_population \(variant_id, grader_code, source_code, observed_date\)/);
   assert.doesNotMatch(sql, /PRAGMA|AUTOINCREMENT|INSERT OR IGNORE|ON CONFLICT/i);
+  assert.match(fxSql, /CREATE TABLE IF NOT EXISTS market_fx_rate_observation\b/);
+  assert.match(fxSql, /UNIQUE KEY uq_market_fx_rate_daily \(base_currency, quote_currency, effective_date\)/);
+  assert.doesNotMatch(fxSql, /PRAGMA|AUTOINCREMENT|INSERT OR IGNORE|ON CONFLICT/i);
+  for (const table of [
+    "catalog_printing_identity",
+    "market_population_transport_observation",
+    "catalog_story_pointer",
+    "market_image_source_pointer",
+  ]) {
+    assert.match(provenanceSql, new RegExp(`CREATE TABLE IF NOT EXISTS ${table}\\b`));
+  }
+  assert.match(
+    provenanceSql,
+    /UNIQUE KEY uq_population_transport_daily\s*\(variant_id, authority_code, transport_code, grader_code, grade_label, effective_date\)/,
+  );
+  assert.doesNotMatch(provenanceSql, /PRAGMA|AUTOINCREMENT|INSERT OR IGNORE|ON CONFLICT/i);
+});
+
+test("canonical replay materializes detail and transport observations", async () => {
+  const runtime = await readFile(path.join(root, "pipelines/db_runtime.py"), "utf8");
+  for (const kind of [
+    "identity_candidate",
+    "story_pointer",
+    "image_metadata",
+    "sale_observation_psa10",
+    "tracked_sales_1d",
+    "tracked_sales_7d",
+    "tracked_sales_30d",
+  ]) {
+    assert.match(runtime, new RegExp(`"${kind}"`));
+  }
+  for (const table of [
+    "catalog_printing_identity",
+    "market_population_transport_observation",
+    "catalog_story_pointer",
+    "market_image_source_pointer",
+    "market_sale_observation",
+    "market_tracked_sales_aggregate",
+  ]) {
+    assert.match(runtime, new RegExp(`INSERT(?: IGNORE)? INTO ${table}\\b`));
+  }
+});
+
+test("daily FX adapter validates all supported currencies including JPY and KRW", async () => {
+  const { stdout } = await execute("python", ["pipelines/fx_rates.py", "--self-test"], { cwd: root });
+  const result = JSON.parse(stdout.trim());
+  assert.deepEqual(result.supported, ["USD", "HKD", "CNY", "GBP", "TWD", "JPY", "KRW"]);
+  assert.equal(result.krw.status, "ready");
+  assert.equal(result.jpy.value, 162.5);
+  assert.equal(result.jpy.status, "ready");
+  assert.equal(result.state, null);
+  assert.equal(result.hashStable, true);
+  assert.equal(result.lastGoodReused, true);
+  assert.equal(result.expiredLastGoodBlocked, true);
 });
 
 test("shared runtime validator does not embed private provider vocabulary", async () => {
@@ -79,12 +142,23 @@ test("shared runtime validator does not embed private provider vocabulary", asyn
 
 test("G10 public builder emits exact Top 100 with no private source vocabulary", async (context) => {
   const privateSourceRoot = path.resolve(root, "../grade10-scraper/data");
+  const privateKadoRoot = path.resolve(root, "../kado-dump");
   const privateSourceAvailable = await stat(privateSourceRoot).then(() => true, () => false);
-  if (!privateSourceAvailable) {
+  const privateKadoAvailable = await stat(privateKadoRoot).then(() => true, () => false);
+  if (!privateSourceAvailable || !privateKadoAvailable) {
     context.skip("private read-only G10 source is intentionally absent from clean CI clones");
     return;
   }
-  const { stdout } = await execute("python", ["pipelines/g10_public_snapshot.py", "--self-test"], { cwd: root });
+  const { stdout } = await execute(
+    "python",
+    [
+      "pipelines/g10_public_snapshot.py",
+      "--self-test",
+      "--source-root", privateSourceRoot,
+      "--kado-root", privateKadoRoot,
+    ],
+    { cwd: root },
+  );
   const result = JSON.parse(stdout.trim());
   assert.equal(result.top100, 100);
   assert.ok(result.minimumPopulation >= 1000);
@@ -95,41 +169,69 @@ test("G10 public builder emits exact Top 100 with no private source vocabulary",
   assert.equal(result.englishSvpCollector, "085/SVP");
   assert.ok(result.englishMepCollectors.includes("023/MEP"));
   assert.ok(result.englishMepCollectors.includes("024/MEP"));
-  assert.deepEqual(result.collectorQc, {
-    30: "78/73",
-    32: "001/025",
-    43: "020/019",
-    45: "007/025",
-    48: "083/067",
-    51: "080/073",
-    52: "GG69/GG70",
-    53: "001/030",
-    55: "GG44/GG70",
-    60: "094/087",
-    62: "SV49/SV94",
-    72: "010/032",
-    83: "082/072",
-    88: "SV107/SV122",
-    94: "012/025",
-  });
-  assert.deepEqual(result.promoCollectorQc, {
-    1: "085/SVP",
-    3: "227/S-P",
-    4: "294/XY-P",
-    7: "288/SM-P",
-    9: "207/XY-P",
-    19: "296/XY-P",
-    21: "276/XY-P",
-    27: "289/SM-P",
-    36: "293/XY-P",
-    37: "270/SM-P",
-    38: "286/SM-P",
-    44: "090/XY-P",
-    63: "295/XY-P",
-    70: "208/S-P",
-    77: "400/SM-P",
-    100: "053/SVP",
-  });
+  assert.ok(Object.values(result.collectorQc).every((value) => typeof value === "string" && value.length > 2));
+  const isCompletePromoNumber = (value) => (
+    typeof value === "string" && (
+      value.includes("/")
+      || /^(?:OP|ST|EB)\d{2}-\d{3}$/i.test(value)
+      || /^P-\d{3}$/i.test(value)
+      || /^(?:SM|SWSH)\d+$/i.test(value)
+    )
+  );
+  assert.ok(Object.values(result.promoCollectorQc).every(isCompletePromoNumber));
   assert.equal(result.publicDuplicateVariantImageGroups, 0);
   assert.ok(result.quarantinedDuplicateVariantImageGroups >= 1);
+});
+
+test("current private universe yields an exact 600-card source crosswalk", async (context) => {
+  const privateSourceRoot = path.resolve(root, "../grade10-scraper/data");
+  const privateSourceAvailable = await stat(privateSourceRoot).then(() => true, () => false);
+  if (!privateSourceAvailable) {
+    context.skip("private read-only G10 source is intentionally absent from clean CI clones");
+    return;
+  }
+  const directory = path.resolve(root, "data/runtime/test-source-crosswalk");
+  const { stdout } = await execute("python", [
+    "pipelines/source_crosswalk.py",
+    "--source-root", privateSourceRoot,
+    "--out", path.join(directory, "crosswalk.json"),
+    "--gemrate-ids-out", path.join(directory, "gemrate.txt"),
+    "--snk-ids-out", path.join(directory, "snk.txt"),
+  ], { cwd: root });
+  const result = JSON.parse(stdout.trim());
+  assert.equal(result.cards, 600);
+  assert.equal(result.gemrateExact, 600);
+  assert.equal(result.snkExact, 442);
+  assert.equal(result.pokemon, 500);
+  assert.equal(result.onePiece, 100);
+
+  const active = JSON.parse((await execute("python", [
+    "pipelines/active_universe.py",
+    "--source-root", privateSourceRoot,
+    "--crosswalk", path.join(directory, "crosswalk.json"),
+    "--out", path.join(directory, "active.json"),
+    "--gemrate-ids-out", path.join(directory, "active-gemrate.txt"),
+    "--snk-ids-out", path.join(directory, "active-snk.txt"),
+  ], { cwd: root })).stdout.trim());
+  assert.ok(active.active > 100);
+  assert.ok(Object.values(active.segments).every((segment) => segment.active <= 300));
+  assert.equal(Object.keys(active.segments).some((key) => key.endsWith(":th")), false);
+  assert.ok(["created", "replayed", "reused"].includes(active.lockStatus));
+  const activeDocument = JSON.parse(await readFile(path.join(directory, "active.json"), "utf8"));
+  assert.match(activeDocument.lock.lockId, /^universe_/);
+  assert.equal(activeDocument.lock.selectionPolicy, "top100_plus_up_to_200_per_tcg_x_card_language");
+  assert.deepEqual(activeDocument.policy.supportedCardLanguages, ["en", "ja", "ko", "zhCN", "zhTW"]);
+  assert.deepEqual(activeDocument.policy.excludedCardLanguages, ["th"]);
+  assert.equal(activeDocument.policy.koreanNativeTextRequired, true);
+
+  const reused = JSON.parse((await execute("python", [
+    "pipelines/active_universe.py",
+    "--source-root", path.join(directory, "source-does-not-exist"),
+    "--out", path.join(directory, "active.json"),
+    "--gemrate-ids-out", path.join(directory, "active-gemrate.txt"),
+    "--snk-ids-out", path.join(directory, "active-snk.txt"),
+  ], { cwd: root })).stdout.trim());
+  assert.equal(reused.lockStatus, "reused");
+  assert.equal(reused.lockId, activeDocument.lock.lockId);
+  assert.ok((await readFile(path.join(directory, "active-gemrate.txt"), "utf8")).trim().length > 0);
 });

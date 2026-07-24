@@ -4,12 +4,14 @@ param(
     [string]$Mode = 'staging',
     [string]$R2Bucket,
     [string]$PrivateAcquireScript = $env:CARDZ_PRIVATE_ACQUIRE_SCRIPT,
-    [string]$ProductionRunner = $env:CARDZ_JLP_PRODUCTION_RUNNER,
     [string]$PythonExe = $(if ($env:CARDZ_PYTHON) { $env:CARDZ_PYTHON } else { 'python.exe' }),
     [string]$CanaryOrigin = $env:CARDZ_CANARY_ORIGIN,
     [string]$GenerationCanaryCommandJson = $env:CARDZ_GENERATION_CANARY_COMMAND_JSON,
     [string]$PointerPromoteCommandJson = $env:CARDZ_POINTER_PROMOTE_COMMAND_JSON,
-    [switch]$SkipSourceRefresh,
+    [switch]$RefreshBootstrapSource,
+    [switch]$SkipMarketSourceRefresh,
+    [switch]$RequireGemRateRefresh,
+    [switch]$RefreshActiveUniverse,
     [switch]$AllowStaleDemo,
     [switch]$LocalOnly
 )
@@ -24,8 +26,8 @@ if ([string]::IsNullOrWhiteSpace($R2Bucket)) {
     $R2Bucket = if ($Mode -eq 'production') { $env:CARDZ_PRODUCTION_R2_BUCKET } else { $env:CARDZ_STAGING_R2_BUCKET }
 }
 
-if (-not $SkipSourceRefresh -and [string]::IsNullOrWhiteSpace($PrivateAcquireScript)) {
-    throw 'Private acquisition is not configured. Set CARDZ_PRIVATE_ACQUIRE_SCRIPT or pass -PrivateAcquireScript explicitly.'
+if ($RefreshBootstrapSource -and [string]::IsNullOrWhiteSpace($PrivateAcquireScript)) {
+    $PrivateAcquireScript = Join-Path $ProjectRoot 'integrations\grade10\run_service.py'
 }
 if (-not $LocalOnly -and [string]::IsNullOrWhiteSpace($R2Bucket)) {
     throw 'Remote daily publish is not configured. Set CARDZ_STAGING_R2_BUCKET or pass -R2Bucket.'
@@ -39,10 +41,6 @@ if (-not $LocalOnly -and [string]::IsNullOrWhiteSpace($GenerationCanaryCommandJs
 if (-not $LocalOnly -and [string]::IsNullOrWhiteSpace($PointerPromoteCommandJson)) {
     throw 'Remote daily publish requires an explicit pointer promoter command JSON.'
 }
-if ($Mode -eq 'production' -and [string]::IsNullOrWhiteSpace($ProductionRunner)) {
-    throw 'Production is blocked until CARDZ_JLP_PRODUCTION_RUNNER is configured.'
-}
-
 if (-not $LocalOnly) {
     $CanaryUri = [Uri]$CanaryOrigin
     if (-not $CanaryUri.IsAbsoluteUri -or $CanaryUri.Scheme -ne 'https') {
@@ -75,16 +73,21 @@ $Arguments = @(
     (Join-Path $PSScriptRoot 'run_daily.py'),
     '--mode', $Mode
 )
-if ($SkipSourceRefresh) {
-    $Arguments += '--skip-source-refresh'
-} else {
+if ($RefreshBootstrapSource) {
+    $Arguments += '--refresh-bootstrap-source'
     $Arguments += @('--private-acquire-script', $PrivateAcquireScript)
 }
 if ($R2Bucket) {
     $Arguments += @('--r2-bucket', $R2Bucket)
 }
-if ($ProductionRunner) {
-    $Arguments += @('--production-runner', $ProductionRunner)
+if ($SkipMarketSourceRefresh) {
+    $Arguments += '--skip-market-source-refresh'
+}
+if ($RequireGemRateRefresh) {
+    $Arguments += '--require-gemrate-refresh'
+}
+if ($RefreshActiveUniverse) {
+    $Arguments += '--refresh-active-universe'
 }
 if ($AllowStaleDemo) {
     $Arguments += '--allow-stale-demo'

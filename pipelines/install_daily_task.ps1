@@ -1,123 +1,135 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
-    [string]$TaskName = 'CARDZ-Market-Cap-Daily-Staging',
+    [ValidateSet('install', 'status', 'uninstall', 'dry-run')]
+    [string]$Action = 'dry-run',
+    [string]$TaskName = 'CARDZ-Market-Cap-Daily',
+    [ValidatePattern('^([01]\d|2[0-3]):[0-5]\d$')]
     [string]$At = '06:30',
     [ValidateSet('staging', 'production')]
-    [string]$Mode = 'staging',
-    [Parameter(Mandatory)]
-    [string]$PrivateAcquireScript,
+    [string]$Mode = 'production',
+    [string]$RepoRoot,
     [string]$PythonExe,
-    [string]$R2Bucket,
     [Parameter(Mandatory)]
-    [string]$CanaryOrigin,
-    [string]$GenerationCanaryCommandJson,
-    [string]$PointerPromoteCommandJson,
-    [string]$ProductionRunner = $env:CARDZ_JLP_PRODUCTION_RUNNER
+    [string]$EnvFile,
+    [switch]$AllowNonJstHost
 )
 
 $ErrorActionPreference = 'Stop'
-$RunScript = (Resolve-Path (Join-Path $PSScriptRoot 'run_daily.ps1')).Path
-$AcquireScript = (Resolve-Path -LiteralPath $PrivateAcquireScript).Path
-if ([string]::IsNullOrWhiteSpace($PythonExe)) {
-    $PythonPath = (Get-Command python.exe -CommandType Application -All -ErrorAction Stop | Select-Object -First 1).Source
-} else {
-    $PythonPath = (Resolve-Path -LiteralPath $PythonExe).Path
-}
-if (-not [IO.File]::Exists($PythonPath)) {
-    throw "Python executable does not exist: $PythonPath"
-}
-if ([string]::IsNullOrWhiteSpace($R2Bucket)) {
-    $R2Bucket = if ($Mode -eq 'production') { $env:CARDZ_PRODUCTION_R2_BUCKET } else { $env:CARDZ_STAGING_R2_BUCKET }
-}
-$CanaryUri = $null
-if (-not ([Uri]::TryCreate($CanaryOrigin, [UriKind]::Absolute, [ref]$CanaryUri)) -or $CanaryUri.Scheme -ne 'https') {
-    throw 'CanaryOrigin must be an absolute HTTPS origin.'
-}
-if ([IO.Path]::GetFileName($AcquireScript) -ne 'grade10_scraper.py') {
-    throw 'PrivateAcquireScript must point directly to grade10_scraper.py, not a legacy wrapper.'
-}
-if ([string]::IsNullOrWhiteSpace($R2Bucket)) {
-    throw 'R2Bucket is required for an unattended website data publish task.'
-}
-if ($Mode -eq 'production' -and [string]::IsNullOrWhiteSpace($ProductionRunner)) {
-    throw 'ProductionRunner is required for JLP MySQL production authority.'
+if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+    $RepoRoot = Split-Path -Parent $PSScriptRoot
 }
 
-$NodePath = (Get-Command node.exe -CommandType Application -All -ErrorAction Stop | Select-Object -First 1).Source
-if ([string]::IsNullOrWhiteSpace($GenerationCanaryCommandJson)) {
-    $GenerationCanaryCommandJson = ConvertTo-Json -InputObject @($NodePath, (Resolve-Path (Join-Path $PSScriptRoot 'run-generation-canary.mjs')).Path) -Compress
-}
-if ([string]::IsNullOrWhiteSpace($PointerPromoteCommandJson)) {
-    if ($Mode -eq 'production') {
-        throw 'Production requires an external atomic pointer promoter command JSON.'
+function Resolve-Python310([string]$Requested) {
+    $candidate = if ([string]::IsNullOrWhiteSpace($Requested)) {
+        (Get-Command python.exe -CommandType Application -All -ErrorAction Stop | Select-Object -First 1).Source
+    } else {
+        (Resolve-Path -LiteralPath $Requested -ErrorAction Stop).Path
     }
-    $PointerPromoteCommandJson = ConvertTo-Json -InputObject @($NodePath, (Resolve-Path (Join-Path $PSScriptRoot 'promote-staging-pointer.mjs')).Path) -Compress
-}
-foreach ($Entry in @(
-    @{ Name = 'GenerationCanaryCommandJson'; Value = $GenerationCanaryCommandJson },
-    @{ Name = 'PointerPromoteCommandJson'; Value = $PointerPromoteCommandJson }
-)) {
-    $Command = ConvertFrom-Json -InputObject ([string]$Entry.Value) -ErrorAction Stop
-    if ($Command -isnot [Array] -or $Command.Count -eq 0) {
-        throw "$($Entry.Name) must be a non-empty JSON string array."
+    $version = & $candidate -c 'import sys; print(str(sys.version_info[0])+chr(46)+str(sys.version_info[1]))'
+    if ($LASTEXITCODE -ne 0 -or [version]$version -lt [version]'3.10') {
+        throw 'CARDZ scheduler requires Python 3.10 or newer.'
     }
-    foreach ($Part in $Command) {
-        if ($Part -isnot [string] -or [string]::IsNullOrWhiteSpace($Part)) {
-            throw "$($Entry.Name) must contain only non-empty strings."
-        }
-    }
+    return $candidate
 }
 
-function ConvertTo-SingleQuotedArgument([string]$Value) {
-    return "'{0}'" -f $Value.Replace("'", "''")
+function Assert-PrivateEnvironmentFile([string]$Path) {
+    $resolved = (Resolve-Path -LiteralPath $Path -ErrorAction Stop).Path
+    if (-not [IO.File]::Exists($resolved)) {
+        throw 'EnvFile must be a file.'
+    }
+    $unsafe = (Get-Acl -LiteralPath $resolved).Access | Where-Object {
+        $_.AccessControlType -eq 'Allow' -and
+        $_.IdentityReference.Value -match '(?i)(everyone|authenticated users|\\users)$' -and
+        ($_.FileSystemRights.ToString() -match 'Read|FullControl|Modify')
+    }
+    if ($unsafe) {
+        throw 'EnvFile ACL permits a broad reader. Restrict it before installing the task.'
+    }
+    return $resolved
 }
 
-$RunAt = [DateTime]::ParseExact($At, 'HH:mm', [Globalization.CultureInfo]::InvariantCulture)
-$PowerShellArguments = @(
-    '-NoLogo',
-    '-NoProfile',
-    '-NonInteractive',
-    '-WindowStyle', 'Hidden',
-    '-ExecutionPolicy', 'Bypass',
-    '-File', ('"{0}"' -f $RunScript),
-    '-Mode', $Mode,
-    '-PythonExe', ('"{0}"' -f $PythonPath),
-    '-PrivateAcquireScript', ('"{0}"' -f $AcquireScript),
-    '-R2Bucket', ('"{0}"' -f $R2Bucket),
-    '-CanaryOrigin', (ConvertTo-SingleQuotedArgument $CanaryUri.GetLeftPart([UriPartial]::Authority)),
-    '-GenerationCanaryCommandJson', (ConvertTo-SingleQuotedArgument $GenerationCanaryCommandJson),
-    '-PointerPromoteCommandJson', (ConvertTo-SingleQuotedArgument $PointerPromoteCommandJson)
-)
-if ($ProductionRunner) {
-    $ResolvedRunner = (Resolve-Path -LiteralPath $ProductionRunner).Path
-    $PowerShellArguments += @('-ProductionRunner', ('"{0}"' -f $ResolvedRunner))
+function Quote-TaskArgument([string]$Value) {
+    return '"{0}"' -f $Value.Replace('"', '\"')
 }
-$Action = New-ScheduledTaskAction `
-    -Execute 'powershell.exe' `
-    -Argument ($PowerShellArguments -join ' ') `
-    -WorkingDirectory (Split-Path -Parent $PSScriptRoot)
-$Trigger = New-ScheduledTaskTrigger -Daily -At $RunAt
-$Settings = New-ScheduledTaskSettingsSet `
+
+if ($Action -eq 'status') {
+    $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    [pscustomobject]@{
+        taskName = $TaskName
+        installed = [bool]$task
+        state = if ($task) { $task.State.ToString() } else { 'absent' }
+    } | ConvertTo-Json -Compress
+    exit 0
+}
+
+if ($Action -eq 'uninstall') {
+    $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    if ($task -and $PSCmdlet.ShouldProcess($TaskName, 'Remove CARDZ daily task')) {
+        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+    }
+    [pscustomobject]@{ taskName = $TaskName; installed = $false; action = 'uninstall' } | ConvertTo-Json -Compress
+    exit 0
+}
+
+$timezone = (Get-TimeZone).Id
+if ($timezone -ne 'Tokyo Standard Time' -and -not $AllowNonJstHost) {
+    throw "Host timezone is '$timezone'. Refusing to schedule 06:30 JST as local time; use Tokyo Standard Time or explicitly pass -AllowNonJstHost."
+}
+$root = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path
+$backend = Join-Path $root 'scripts\backend.py'
+$runner = Join-Path $root 'deploy\windows\run-cardz-daily.ps1'
+if (-not (Test-Path -LiteralPath $backend -PathType Leaf) -or -not (Test-Path -LiteralPath $runner -PathType Leaf)) {
+    throw 'RepoRoot must contain scripts\backend.py and deploy\windows\run-cardz-daily.ps1.'
+}
+$python = Resolve-Python310 $PythonExe
+$environment = Assert-PrivateEnvironmentFile $EnvFile
+$arguments = @(
+    '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+    '-File', (Quote-TaskArgument $runner),
+    '-RepoRoot', (Quote-TaskArgument $root),
+    '-PythonExe', (Quote-TaskArgument $python),
+    '-EnvFile', (Quote-TaskArgument $environment),
+    '-Mode', $Mode
+) -join ' '
+
+if ($Action -eq 'dry-run') {
+    [pscustomobject]@{
+        action = 'dry-run'
+        taskName = $TaskName
+        at = "$At JST"
+        timezone = $timezone
+        execute = 'powershell.exe'
+        arguments = $arguments
+        workingDirectory = $root
+        singleton = 'IgnoreNew plus backend daily lock'
+        timeoutMinutes = 120
+        restart = '3 retries, 10 minute backoff'
+    } | ConvertTo-Json -Compress
+    exit 0
+}
+
+$runAt = [DateTime]::ParseExact($At, 'HH:mm', [Globalization.CultureInfo]::InvariantCulture)
+$taskAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arguments -WorkingDirectory $root
+$trigger = New-ScheduledTaskTrigger -Daily -At $runAt
+$settings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
     -MultipleInstances IgnoreNew `
-    -ExecutionTimeLimit (New-TimeSpan -Hours 2)
-$Principal = New-ScheduledTaskPrincipal `
+    -ExecutionTimeLimit (New-TimeSpan -Hours 2) `
+    -RestartCount 3 `
+    -RestartInterval (New-TimeSpan -Minutes 10)
+$principal = New-ScheduledTaskPrincipal `
     -UserId "$env:USERDOMAIN\$env:USERNAME" `
     -LogonType S4U `
     -RunLevel Limited
 
-if ($WhatIfPreference) {
-    Write-Output ("CARDZ_ACTION_ARGUMENTS={0}" -f $Action.Arguments)
-}
-
-if ($PSCmdlet.ShouldProcess($TaskName, "Register unattended CARDZ pipeline at $At local time")) {
+if ($PSCmdlet.ShouldProcess($TaskName, "Register CARDZ backend daily at $At JST")) {
     Register-ScheduledTask `
         -TaskName $TaskName `
-        -Action $Action `
-        -Trigger $Trigger `
-        -Settings $Settings `
-        -Principal $Principal `
-        -Description 'CARDZ G10 acquisition, immutable incremental intake, canonical derivation, validation, and pointer-safe publish.' `
+        -Action $taskAction `
+        -Trigger $trigger `
+        -Settings $settings `
+        -Principal $principal `
+        -Description 'CARDZ daily canonical DB sync. Runs scripts/backend.py daily only; no deploy or public publish.' `
         -Force | Out-Null
-    Get-ScheduledTask -TaskName $TaskName | Select-Object TaskName, State
 }
+Get-ScheduledTask -TaskName $TaskName | Select-Object TaskName, State

@@ -11,6 +11,8 @@
 
 # Dependencies and build output
 node_modules/
+.codegraph/
+.venv-backend/
 .next/
 .open-next/
 dist/
@@ -24,6 +26,12 @@ data/runtime/
 apps/web/data/runtime/
 data/private/daily/
 data/private/g10/
+data/private/gemrate/
+data/private/kado/
+data/private/snk/
+data/tag/*.jsonl
+data/tag/*.jsonl.state
+data/tag/daily/
 data/private/logs/
 data/private/publish-staging/
 data/public/publish-staging/
@@ -31,10 +39,13 @@ data/private/*.sqlite
 data/private/*.sqlite-wal
 data/private/*.sqlite-shm
 data/private/tmp/
+integrations/grade10/data/
 *.log
 *.tmp
 *.bak
 *.mask-work.*
+pipelines/gemrate_ids.txt
+pipelines/snk_ids.txt
 .pytest_cache/
 __pycache__/
 *.pyc

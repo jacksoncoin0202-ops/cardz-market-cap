@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable
 
 
-SOURCE_PRIORITY = {"gemrate": 0, "g10": 1, "legacy": 2}
+SOURCE_PRIORITY = {"gemrate": 0, "g10": 1, "tag": 2, "legacy": 3}
 READY_SECONDS = 48 * 3600
 STALE_SECONDS = 7 * 24 * 3600
 

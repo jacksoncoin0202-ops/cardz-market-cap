@@ -8,15 +8,16 @@ export const MARKET_STATUSES = [
 ] as const;
 
 export const MARKET_WINDOWS = ["1d", "7d", "30d"] as const;
-export const GRADERS = ["PSA", "BGS", "CGC", "SGC"] as const;
+export const GRADERS = ["PSA", "BGS", "CGC", "SGC", "TAG"] as const;
 export const COVERAGE_STATUSES = ["partial", "stale", "unavailable"] as const;
+export const CURRENCIES = ["USD", "HKD", "CNY", "GBP", "TWD", "JPY", "KRW"] as const;
 
 export type MarketStatus = (typeof MARKET_STATUSES)[number];
 export type MarketWindow = (typeof MARKET_WINDOWS)[number];
 export type Grader = (typeof GRADERS)[number];
 export type CoverageStatus = (typeof COVERAGE_STATUSES)[number];
 export type Locale = "en" | "zhTW" | "zhCN" | "ja";
-export type Currency = "USD" | "HKD" | "CNY" | "GBP" | "TWD";
+export type Currency = (typeof CURRENCIES)[number];
 export type Tcg = "pokemon" | "one-piece" | "other";
 export type PublicImageKind = "raw_front";
 
@@ -51,6 +52,7 @@ export interface PublicImage {
   height: number;
   alt: LocalizedText;
   qcAt: string;
+  variants?: Partial<Record<"200" | "600", string>>;
 }
 
 export interface TrackedSalesMetric {

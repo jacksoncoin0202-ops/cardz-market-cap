@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "importedAt": "2026-07-23",
+  "source": "read-only local grade10-scraper dependency",
+  "files": [
+    {"path": "grade10_scraper.py", "bytes": 13849, "sha256": "ccdc2d9f2ad648842a8e5457dd727070f8593037a989a7bed9d4f3c73f3f41f6"},
+    {"path": "grade10_analytics.py", "bytes": 24670, "sha256": "fe4d62c1cfa221726ae56bca51a787c0d9c4e810ca93cfe77ec3496897c64284"},
+    {"path": "grade10_kline.py", "bytes": 5229, "sha256": "f0ee48e0d618061307d488853082aa83eb9b34771aee0cf4f020e480346e5bb9"},
+    {"path": "OPERATOR_GUIDE.md", "bytes": 10039, "sha256": "7cc8c99aefc8729735218fb8f25b650d46e756658c4ce000309df13af29b550c"},
+    {"path": "TECHNICAL_DOC.md", "bytes": 15888, "sha256": "20cbb4a64828ff86e01f5d4e698667225f10a94e2963c346b1f144404984aa42"},
+    {"path": "DATA_GUIDE.md", "bytes": 7525, "sha256": "75ae90a2a721f88ac72f1a8b4140f403bc672e77b483e9417790d667ca779702"},
+    {"path": "run_daily.bat", "bytes": 469, "sha256": "29b37c0f8a76ec100b5709689ad3011a01361e5fd182161e30e4d95046054239"}
+  ]
+}

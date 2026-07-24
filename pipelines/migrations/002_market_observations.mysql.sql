@@ -1,6 +1,5 @@
--- CARDZ Market Cap additive market-observation schema.
--- Target: JLP MySQL 5.7. This migration assumes 001_canonical_card_catalog.sql
--- has already created catalog_variant and its related canonical tables.
+-- CARDZ Market Cap market-observation schema.
+-- Compatible with standalone MySQL 5.7/8.x. Apply after 001.
 
 CREATE TABLE IF NOT EXISTS market_ingest_run (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -50,7 +49,8 @@ CREATE TABLE IF NOT EXISTS market_source_observation (
     observed_at DATETIME(6) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    UNIQUE KEY uq_market_source_observation (source_code, external_entity_id, observation_kind, observed_date),
+    UNIQUE KEY uq_market_source_observation
+        (source_code, external_entity_id, observation_kind, observed_date, payload_sha256),
     KEY ix_market_source_observation_run (run_id),
     KEY ix_market_source_observation_lookup (source_code, observation_kind, effective_at),
     CONSTRAINT fk_market_source_observation_run FOREIGN KEY (run_id) REFERENCES market_ingest_run(id)
@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS market_grader_population_observation (
     external_entity_id VARCHAR(191) NOT NULL,
     grader_code VARCHAR(8) NOT NULL,
     top_grade_label VARCHAR(32) NOT NULL,
-    total_population INT UNSIGNED NOT NULL,
+    total_population INT UNSIGNED NULL,
     top_grade_population INT UNSIGNED NOT NULL,
     estimated TINYINT(1) NOT NULL DEFAULT 0,
     effective_at DATETIME(6) NOT NULL,
@@ -215,3 +215,5 @@ CREATE TABLE IF NOT EXISTS market_identity_review_queue (
     CONSTRAINT fk_market_identity_review_run FOREIGN KEY (run_id) REFERENCES market_ingest_run(id),
     CONSTRAINT fk_market_identity_review_variant FOREIGN KEY (resolved_variant_id) REFERENCES catalog_variant(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO cardz_schema_version (version_code) VALUES ('002');

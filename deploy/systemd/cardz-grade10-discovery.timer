@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh CARDZ broad discovery roster before the daily canonical run
+
+[Timer]
+OnCalendar=*-*-* 05:45:00 Asia/Tokyo
+Persistent=true
+RandomizedDelaySec=180
+Unit=cardz-grade10-discovery.service
+
+[Install]
+WantedBy=timers.target

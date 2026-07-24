@@ -120,9 +120,13 @@ if (/shell:\s*true/.test(cloudflareBuild)) {
 }
 
 const envExample = read(".env.example");
-for (const secretName of ["GEMRATE_API_KEY", "CARDZ_JLP_MYSQL_DSN"]) {
-  const match = envExample.match(new RegExp(`^${secretName}=(.*)$`, "m"));
-  if (!match || match[1].trim() !== "") fail(`${secretName} must remain blank in .env.example.`);
+const gemRateKey = envExample.match(/^GEMRATE_API_KEY=(.*)$/m);
+if (!gemRateKey || gemRateKey[1].trim() !== "") {
+  fail("GEMRATE_API_KEY must remain blank in .env.example.");
+}
+const legacyJlpDsn = envExample.match(/^CARDZ_JLP_MYSQL_DSN=(.*)$/m);
+if (legacyJlpDsn && legacyJlpDsn[1].trim() !== "") {
+  fail("Legacy CARDZ_JLP_MYSQL_DSN must remain blank when present in .env.example.");
 }
 
 const gitignore = read(".gitignore");

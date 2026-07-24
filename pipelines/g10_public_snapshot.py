@@ -25,6 +25,7 @@ from urllib.parse import unquote, urlparse
 
 from PIL import Image, ImageChops, ImageOps
 
+from fx_rates import DEFAULT_CACHE as DEFAULT_FX_CACHE, public_currency_block
 from g10_ingest import (
     GRADERS,
     aggregate_sales,
@@ -43,8 +44,8 @@ from g10_ingest import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_SOURCE = ROOT.parent / "grade10-scraper" / "data"
-DEFAULT_KADO = ROOT.parent / "kado-dump"
+DEFAULT_SOURCE = ROOT / "integrations" / "grade10" / "data"
+DEFAULT_KADO = ROOT / "data" / "private" / "kado"
 DEFAULT_OUTPUT = ROOT / "data" / "public" / "seed-snapshot.json"
 DEFAULT_ASSETS = ROOT / "data" / "public" / "market-assets"
 DEFAULT_IMAGE_MANIFEST = ROOT / "manifests" / "image-qc.json"
@@ -575,6 +576,113 @@ def resolve_identity_and_image(
     return dict(asset), collector, raw_image, card_dir, language
 
 
+# 白邊 QC（2026-07-24 用戶規矩）：裸卡圖唔准有白色邊框殘留。
+# 卡面本身有高亮元素（HP 數字、白雲），所以只准由四邊向內掃連續近白帶，
+# 唔准喺卡面中間搵白。邊帶判定用 column/row 嘅「近白 pixel 比例」（≥45% 近白先算白帶），
+# 咁樣邊緣上嘅深色 logo/文字唔會阻住裁切。
+# 「近白」要同時夠亮（lum ≥220）兼夠灰（chroma = max(r,g,b)−min(r,g,b) ≤ 26）：
+# 純白邊係無色嘅；黃色 TAG TEAM 閃邊、Munch 米白畫布、Special Delivery 黃框呢類
+# 有色亮區 chroma 高，係卡畫本身，唔准裁。
+# 置中策略：四邊各自搵到白帶深度之後，以最淺嗰邊做基準，其餘邊裁到同一視覺厚度，
+# 防止只裁一邊令卡面走位。
+WHITE_BORDER_LUMINANCE = 220       # 亮度高過呢個值嘅 pixel 先有可能算近白
+WHITE_BORDER_MAX_CHROMA = 26       # 仲要無色（r≈g≈b）先算白；有色亮區（黃框/米白畫布）係卡畫
+WHITE_BORDER_BAND_FRACTION = 0.45  # 成條邊帶有幾多 % pixel 近白先成條裁（斜放卡白邊只有部分邊，門檻唔可以太高）
+WHITE_BORDER_MAX_DEPTH = 0.15      # 每邊最多裁 15%（有些原圖白邊達 8-10%）
+WHITE_BORDER_MIN_DEPTH_PX = 2      # 淺過 2px 唔裁（截圖 AA 噪音）
+
+
+def _white_border_depth(px: list[int], width: int, height: int, axis: str, from_start: bool) -> int:
+    """由一條邊向內掃，返回連續近白帶深度（px）。px 係 RGB flat list。"""
+    limit = int((height if axis == "x" else width) * WHITE_BORDER_MAX_DEPTH)
+    span = width if axis == "x" else height
+    min_white = int(span * WHITE_BORDER_BAND_FRACTION)
+    depth = 0
+    for offset in range(limit):
+        if from_start:
+            base = offset * width if axis == "x" else offset
+            step = 1 if axis == "x" else width
+        else:
+            base = (height - 1 - offset) * width if axis == "x" else width - 1 - offset
+            step = 1 if axis == "x" else width
+        white = 0
+        for i in range(span):
+            p = (base + i * step) * 3
+            r, g, b = px[p], px[p + 1], px[p + 2]
+            if (
+                r >= WHITE_BORDER_LUMINANCE
+                and g >= WHITE_BORDER_LUMINANCE
+                and b >= WHITE_BORDER_LUMINANCE
+                and max(r, g, b) - min(r, g, b) <= WHITE_BORDER_MAX_CHROMA
+            ):
+                white += 1
+        if white < min_white:
+            break
+        depth = offset + 1
+    return depth
+
+
+def trim_white_border(image: Image.Image) -> Image.Image:
+    """鏟走裸卡圖四邊嘅白色邊框。QC 準則見上面常數註解。"""
+    if "A" in image.getbands():
+        # 透明邊嘅圖唔使裁（crop box 已經用 alpha mask 收緊過）
+        return image
+    rgb = image.convert("RGB")
+    width, height = rgb.size
+    px = list(rgb.getdata())
+    px = [c for pixel in px for c in pixel]
+    top = _white_border_depth(px, width, height, "x", True)
+    bottom = _white_border_depth(px, width, height, "x", False)
+    left = _white_border_depth(px, width, height, "y", True)
+    right = _white_border_depth(px, width, height, "y", False)
+    if max(top, bottom, left, right) < WHITE_BORDER_MIN_DEPTH_PX:
+        return image
+    # 以最淺嗰邊做基準，其餘邊裁到同一視覺厚度，防止裁完卡面偏咗位
+    min_detected = min(d for d in (top, bottom, left, right) if d >= WHITE_BORDER_MIN_DEPTH_PX) if any(
+        d >= WHITE_BORDER_MIN_DEPTH_PX for d in (top, bottom, left, right)
+    ) else 0
+    top = max(top, min_detected)
+    bottom = max(bottom, min_detected)
+    left = max(left, min_detected)
+    right = max(right, min_detected)
+    box = (left, top, width - right, height - bottom)
+    if box[2] - box[0] < 180 or box[3] - box[1] < 250:
+        return image
+    return image.crop(box)
+
+
+# 顯示用縮圖：tile/ranking 用 200w，detail/preview 用 600w（用戶 2026-07-24 性能要求）
+DERIVATIVE_SPECS: tuple[tuple[str, int, int], ...] = (("200", 200, 60), ("600", 600, 70))
+
+
+def _save_webp(image: Image.Image, quality: int) -> bytes:
+    output = io.BytesIO()
+    if "A" in image.getbands():
+        image.save(output, format="WEBP", lossless=True, method=6)
+    else:
+        image.convert("RGB").save(output, format="WEBP", quality=quality, method=6)
+    return output.getvalue()
+
+
+def _save_webp_lossy(image: Image.Image, quality: int) -> bytes:
+    output = io.BytesIO()
+    if "A" in image.getbands():
+        image.save(output, format="WEBP", quality=quality, method=6)
+    else:
+        image.convert("RGB").save(output, format="WEBP", quality=quality, method=6)
+    return output.getvalue()
+
+
+def encode_derivatives(image: Image.Image) -> dict[str, bytes]:
+    """由已 trim 嘅 master image 出縮圖；key 係寬度字串（"200"/"600"）。"""
+    variants: dict[str, bytes] = {}
+    for suffix, target_w, quality in DERIVATIVE_SPECS:
+        variant = image.copy()
+        variant.thumbnail((target_w, target_w * 2), Image.Resampling.LANCZOS)
+        variants[suffix] = _save_webp_lossy(variant, quality)
+    return variants
+
+
 def encode_raw_front(source: Path) -> tuple[bytes, int, int]:
     with Image.open(source) as opened:
         image = ImageOps.exif_transpose(opened)
@@ -582,13 +690,9 @@ def encode_raw_front(source: Path) -> tuple[bytes, int, int]:
         if crop_box is None:
             raise ValueError(f"image did not pass raw-front geometry: {source}")
         image = image.crop(crop_box)
+        image = trim_white_border(image)
         image.thumbnail((1200, 1680), Image.Resampling.LANCZOS)
-        output = io.BytesIO()
-        if "A" in image.getbands():
-            image.save(output, format="WEBP", lossless=True, method=6)
-        else:
-            image.convert("RGB").save(output, format="WEBP", quality=92, method=6)
-        return output.getvalue(), image.width, image.height
+        return _save_webp(image, 92), image.width, image.height
 
 
 def stable_json(value: Any) -> bytes:
@@ -764,7 +868,7 @@ def grader_populations(card_dir: Path, generated_at: datetime) -> dict[str, Any]
     values = normalize_grader_populations(document, observed_at)
     age = generated_at - observed_at
     freshness = "ready" if age <= timedelta(hours=48) else "stale" if age <= timedelta(days=7) else "unavailable"
-    labels = {"PSA": "10", "BGS": "Black Label", "CGC": "10", "SGC": "10"}
+    labels = {"PSA": "10", "BGS": "Black Label", "CGC": "10", "SGC": "10", "TAG": "10P"}
     for grader, label in labels.items():
         values[grader]["topGrade"] = label
         for field in ("total", "topGradePopulation"):
@@ -774,6 +878,70 @@ def grader_populations(card_dir: Path, generated_at: datetime) -> dict[str, Any]
                     values[grader][field]["value"] = None
                     values[grader][field]["asOf"] = None
     return values
+
+
+def replayed_populations(
+    populations: dict[str, Any],
+    source_ref: tuple[str, str],
+    replay_populations: Mapping[tuple[str, str, str], Mapping[date, int]],
+    replay_totals: Mapping[tuple[str, str, str], Mapping[date, int]],
+    generated_at: datetime,
+) -> dict[str, Any]:
+    """Overlay exact daily grader observations on the bounded G10 fallback."""
+
+    values = json.loads(json.dumps(populations))
+    source_code, external_id = source_ref
+    for grader in GRADERS:
+        daily = replay_populations.get((source_code, external_id, grader))
+        if not daily:
+            continue
+        observed = max(daily)
+        age = generated_at - datetime.combine(observed, time.min, tzinfo=timezone.utc)
+        status = "ready" if age <= timedelta(hours=48) else "stale" if age <= timedelta(days=7) else "unavailable"
+        current = values[grader]["topGradePopulation"]
+        current["status"] = status
+        current["value"] = int(daily[observed]) if status != "unavailable" else None
+        current["asOf"] = iso_utc(datetime.combine(observed, time.min, tzinfo=timezone.utc)) if status != "unavailable" else None
+        total_daily = replay_totals.get((source_code, external_id, grader))
+        if total_daily and observed in total_daily:
+            total = values[grader]["total"]
+            total["status"] = status
+            total["value"] = int(total_daily[observed]) if status != "unavailable" else None
+            total["asOf"] = current["asOf"] if status != "unavailable" else None
+    return values
+
+
+def replayed_price(
+    row: Mapping[str, Any],
+    source_ref: tuple[str, str],
+    replay_prices: Mapping[tuple[str, str], Mapping[date, float]],
+    fallback_at: datetime,
+    generated_at: datetime,
+    allow_stale: bool = False,
+) -> tuple[float | None, str, datetime | None, dict[date, float]]:
+    """Resolve the latest daily PSA 10 close, using G10 only as last-good."""
+
+    daily = dict(replay_prices.get(source_ref, {}))
+    if daily:
+        observed = max(daily)
+        value = float(daily[observed])
+        observed_at = datetime.combine(observed, time.min, tzinfo=timezone.utc)
+    else:
+        raw = row.get("priceUsd")
+        if not isinstance(raw, (int, float)) or raw <= 0:
+            return None, "unavailable", None, daily
+        value = float(raw)
+        observed_at = fallback_at
+        daily.setdefault(fallback_at.date(), value)
+    age = generated_at - observed_at
+    status = (
+        "ready" if age <= timedelta(hours=30)
+        else "stale" if age <= timedelta(hours=48) or allow_stale
+        else "unavailable"
+    )
+    if status == "unavailable":
+        return None, status, None, daily
+    return value, status, observed_at, daily
 
 
 def candidate_rows(source_root: Path) -> list[tuple[str, Mapping[str, Any]]]:
@@ -796,9 +964,12 @@ def build_snapshot(
     kado_root: Path,
     assets_out: Path | None,
     landing_root: Path | None = None,
-    max_cards: int = 500,
+    fx_snapshot: Mapping[str, Any] | None = None,
+    max_cards: int = 300,
+    active_source_refs: set[tuple[str, str]] | None = None,
     private_mapping: list[dict[str, Any]] | None = None,
     private_gap_report: dict[str, Any] | None = None,
+    allow_stale_price: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     generated_at = datetime.now(timezone.utc)
     ingest_at = load_ingest_at(source_root)
@@ -813,34 +984,49 @@ def build_snapshot(
     ungated_market: list[dict[str, Any]] = []
     qc_records: list[dict[str, Any]] = []
     rejected = defaultdict(int)
+    rows = candidate_rows(source_root)
+    if active_source_refs is not None:
+        rows = [row for row in rows if private_source_ref(row[1]) in active_source_refs]
     stages = {
-        "deduped": len(candidate_rows(source_root)),
+        "deduped": len(rows),
         "populationGate": 0,
         "positiveIndexPrice": 0,
         "exactCompleteRawFront": 0,
         "finalCandidates": 0,
     }
 
-    for market, row in candidate_rows(source_root):
+    for market, row in rows:
         private_dir = card_source_dir(source_root, row)
         if private_dir is None:
             rejected["population"] += 1
+            continue
+        source_ref = private_source_ref(row)
+        if source_ref is None:
+            rejected["identity_missing_source"] += 1
             continue
         preflight_populations = grader_populations(private_dir[0], generated_at)
         if preflight_populations is None:
             rejected["population"] += 1
             continue
+        preflight_populations = replayed_populations(
+            preflight_populations,
+            source_ref,
+            replay.grader_populations,
+            replay.grader_totals,
+            generated_at,
+        )
         preflight_psa = preflight_populations["PSA"]["topGradePopulation"]
         if preflight_psa["status"] not in {"ready", "stale"} or not isinstance(preflight_psa["value"], int) or preflight_psa["value"] < 1000:
             rejected["population"] += 1
             continue
         stages["populationGate"] += 1
-        price = row.get("priceUsd")
-        if not isinstance(price, (int, float)) or price <= 0:
+        price, card_price_status, card_price_at, daily_prices = replayed_price(
+            row, source_ref, replay.prices, price_effective_at, generated_at, allow_stale=allow_stale_price
+        )
+        if price is None or card_price_at is None:
             rejected["price"] += 1
             continue
         stages["positiveIndexPrice"] += 1
-        source_ref = private_source_ref(row)
         expected_language = canonical_card_language(row.get("lang"))
         raw_collector = normalize_collector(row_number(row.get("name")), expected_language)
         if not raw_collector.complete:
@@ -952,19 +1138,14 @@ def build_snapshot(
         sales, sales_observed_at = read_sales(card_dir, public_id)
         if source_ref is None:
             raise RuntimeError(f"missing source identity for {public_id}")
-        daily_prices = dict(replay.prices.get(source_ref, {}))
-        # A standalone/demo build still exposes one truthful current close. In
-        # the unattended staging flow the just-written immutable batch already
-        # supplies this date, so setdefault also preserves first-write-wins on
-        # a same-day retry.
-        daily_prices.setdefault(price_effective_at.date(), float(price))
-        derived_changes = daily_change_metrics(daily_prices, price_status)
+        card_price_iso = iso_utc(card_price_at)
+        derived_changes = daily_change_metrics(daily_prices, card_price_status)
         windows: dict[str, Any] = {}
         for window in WINDOWS:
             if derived_changes[window]["status"] in {"ready", "stale"}:
                 change = derived_changes[window]
             elif window == "30d" and isinstance(row.get("change30dPct"), (int, float)):
-                change = metric(round(float(row["change30dPct"]), 6), price_status, price_effective_iso)
+                change = metric(round(float(row["change30dPct"]), 6), card_price_status, card_price_iso)
             else:
                 change = derived_changes[window]
             windows[window] = {
@@ -986,12 +1167,12 @@ def build_snapshot(
                 "sets": localized(set_name),
                 "stories": localized(),
                 "image": image,
-                "pricePsa10": metric(float(price), price_status, price_effective_iso),
+                "pricePsa10": metric(float(price), card_price_status, card_price_iso),
                 "populationPsa10": dict(psa_population),
-                "marketCap": metric(market_cap, price_status, price_effective_iso),
+                "marketCap": metric(market_cap, card_price_status, card_price_iso),
                 "windows": windows,
                 "graderPopulations": add_population_windows(populations, source_ref, replay.grader_populations),
-                "historyDaily": daily_history(daily_prices, price_status, sales),
+                "historyDaily": daily_history(daily_prices, card_price_status, sales),
             }
         )
 
@@ -1035,7 +1216,7 @@ def build_snapshot(
     if len(candidates) < 100:
         raise RuntimeError(f"production gate: only {len(candidates)} exact, complete, raw-front candidates")
     top100 = candidates[:100]
-    watchlist = candidates[100:500]
+    watchlist = candidates[100:300]
     ungated_market.sort(key=lambda value: (-float(value["marketCapUsd"]), str(value["sourceId"])))
     for rank, record in enumerate(ungated_market, start=1):
         record["ungatedRank"] = rank
@@ -1097,6 +1278,12 @@ def build_snapshot(
         for grader in GRADERS
     }
     localized_story_count = {locale: sum(bool(card["stories"][locale]) for card in top100) for locale in LOCALES}
+    currencies, fx_state = public_currency_block(fx_snapshot, generated_at)
+    fx_blockers = (
+        ["currency_rate_feed_unavailable"] if fx_state == "unavailable"
+        else ["currency_rate_feed_stale"] if fx_state == "stale"
+        else []
+    )
     snapshot: dict[str, Any] = {
         "schemaVersion": "2.0.0",
         "generation": {
@@ -1118,8 +1305,7 @@ def build_snapshot(
                 "image_semantic_qc_review_pending",
                 "grader_supply_universe_pending",
                 "four_locale_editorial_review_pending",
-                "currency_rate_feed_pending",
-                "production_database_cutover_pending",
+                *fx_blockers,
                 *( ["price_reference_over_48h"] if price_age > timedelta(hours=48) else [] ),
             ],
         },
@@ -1138,23 +1324,12 @@ def build_snapshot(
             "graderPopulationReady": grader_ready,
             "graderPopulationChangeReady": grader_change_ready,
             # Coverage describes the published Top 100, not every candidate.
-            # Demo rows remain deliberately unconfirmed until the JLP exact
-            # identity gate has accepted them.
+            # Demo rows remain deliberately unconfirmed until the exact
+            # canonical identity gate has accepted them.
             "completeIdentityCount": sum(card["identityStatus"] == "confirmed" for card in top100),
             "localizedStoryCount": localized_story_count,
         },
-        "currencies": {
-            "base": "USD",
-            "supported": ["USD", "HKD", "CNY", "GBP", "TWD"],
-            "rates": {
-                "USD": metric(1, "ready", generated_iso),
-                "HKD": metric(None, "unavailable", None),
-                "CNY": metric(None, "unavailable", None),
-                "GBP": metric(None, "unavailable", None),
-                "TWD": metric(None, "unavailable", None),
-            },
-            "asOf": generated_iso,
-        },
+        "currencies": currencies,
         "top100": top100,
         "watchlist": watchlist,
     }
@@ -1281,6 +1456,7 @@ def main() -> None:
     parser.add_argument("--assets-out", type=Path, default=DEFAULT_ASSETS)
     parser.add_argument("--manifest-out", type=Path, default=DEFAULT_IMAGE_MANIFEST)
     parser.add_argument("--landing-root", type=Path, default=DEFAULT_LANDING)
+    parser.add_argument("--fx-snapshot", type=Path, default=DEFAULT_FX_CACHE)
     parser.add_argument("--private-mapping-out", type=Path)
     parser.add_argument("--private-gap-report-out", type=Path)
     parser.add_argument("--clean-assets", action="store_true")
@@ -1294,13 +1470,17 @@ def main() -> None:
         raise SystemExit(f"Kado root does not exist: {kado_root}")
     private_mapping: list[dict[str, Any]] | None = [] if args.private_mapping_out else None
     private_gap_report: dict[str, Any] | None = {} if args.private_gap_report_out else None
+    fx_path = args.fx_snapshot.resolve()
+    fx_snapshot = read_json(fx_path) if fx_path.is_file() else None
     snapshot, manifest, summary = build_snapshot(
         source_root,
         kado_root,
         None if args.self_test else args.assets_out.resolve(),
         landing_root=args.landing_root.resolve(),
+        fx_snapshot=fx_snapshot,
         private_mapping=private_mapping,
         private_gap_report=private_gap_report,
+        allow_stale_price=args.self_test,
     )
     if args.self_test:
         print(json.dumps(summary, sort_keys=True))

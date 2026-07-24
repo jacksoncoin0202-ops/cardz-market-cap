@@ -11,7 +11,7 @@ No control can make public HTML impossible to copy. The practical objective is t
 | Class | Examples | Permitted locations |
 | --- | --- | --- |
 | Public | Sanitized page data, opaque CARDZ IDs, QC-passed raw card fronts, localized stories | Versioned public generation, Worker-rendered HTML, pointer-authorized Worker media |
-| Private | G10 full and incremental payloads, JLP records, source mappings, rejection evidence, full price and sale history, image review queues | Approved Windows runner, JLP, private R2 prefixes, private Git LFS archives |
+| Private | G10 full and incremental payloads, canonical database records, source mappings, rejection evidence, full price and sale history, image review queues | Approved Windows/Linux runner, standalone MySQL-compatible database, private R2 prefixes, private Git LFS archives |
 | Secret | API keys, cookies, tokens, database credentials, signed URLs, authorization headers | 1Password and approved process memory only |
 
 Private and secret values never belong in browser bundles, public R2 domains, HTML, URLs, telemetry, build traces, GitHub Actions, tickets, screenshots, documentation examples, or chat.
@@ -19,14 +19,14 @@ Private and secret values never belong in browser bundles, public R2 domains, HT
 ## Runtime boundary
 
 ```text
-Private Windows runner -> JLP canonical data -> sanitized immutable generation
-                                              -> private R2 bucket
-                                              -> Worker server rendering
-                                              -> bounded public HTML
+Private Windows/Linux runner -> standalone canonical database -> sanitized immutable generation
+                                                              -> private R2 bucket
+                                                              -> Worker server rendering
+                                                              -> bounded public HTML
 ```
 
-- Collection and provider fallback run only on the private Windows runner.
-- JLP MySQL 5.7 is the production canonical authority. A local SQLite replay is a fixture, not a production fallback.
+- Collection and provider fallback run only on an approved private Windows/Linux runner.
+- The standalone MySQL-compatible database is the current operational canonical authority and is reproducible from immutable accepted batches. JLP is only a future integration seam. A local SQLite replay is a fixture, not a production fallback.
 - `MARKET_DATA` is a private R2 binding. Do not enable `r2.dev`, attach a public bucket domain, expose an object-listing endpoint, or return `latest.json` and generation objects directly.
 - The Worker reads one validated pointer and one immutable generation server-side. A pointer mismatch, schema failure, or unavailable object fails closed to the previous in-memory or cached last-good page; it must not fall back to legacy/provider reads.
 - Staging and production use different Worker names and different R2 buckets. Production rejects demo generations.

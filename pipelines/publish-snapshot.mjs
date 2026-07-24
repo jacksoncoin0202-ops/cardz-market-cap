@@ -108,6 +108,14 @@ async function collectAssets(snapshot, assetsRoot) {
     const contents = await readFile(file);
     if (sha256(contents) !== hash) throw new Error(`local raw-front hash mismatch: ${filename}`);
     assets.set(filename, { file, hash, key: `market-assets/${filename}`, contentType: "image/webp" });
+    /* 縮圖 derivative：optional，有就一齊上傳（唔 hash-verify，內容由 master derive） */
+    for (const suffix of ["200", "600"]) {
+      const derivativeFile = path.join(assetsRoot, `${hash}_${suffix}.webp`);
+      try {
+        await readFile(derivativeFile);
+        assets.set(`${hash}_${suffix}.webp`, { file: derivativeFile, hash, key: `market-assets/${hash}_${suffix}.webp`, contentType: "image/webp", skipHashVerify: true });
+      } catch { /* derivative 唔存在就 skip */ }
+    }
   }
   return [...assets.values()].sort((left, right) => left.key.localeCompare(right.key));
 }
@@ -229,6 +237,10 @@ async function main() {
     let verifiedAssetCount = 0;
     await forEachConcurrent(assets, 6, async (asset) => {
       await r2Put(options.r2Bucket, asset.key, asset.file, asset.contentType, "public,max-age=31536000,immutable");
+      if (asset.skipHashVerify) {
+        verifiedAssetCount += 1;
+        return;
+      }
       const remoteAsset = path.join(verifyRoot, path.basename(asset.file));
       await r2Get(options.r2Bucket, asset.key, remoteAsset);
       if (sha256(await readFile(remoteAsset)) !== asset.hash) {

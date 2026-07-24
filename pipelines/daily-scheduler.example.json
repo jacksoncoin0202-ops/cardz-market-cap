@@ -1,24 +1,42 @@
 {
-  "schemaVersion": 2,
-  "taskName": "Grade10-Daily-Scraper",
+  "schemaVersion": 3,
+  "taskName": "CARDZ-Market-Cap-Daily",
   "cadence": "daily",
   "localTime": "06:30",
   "timezone": "Asia/Tokyo",
-  "mode": "staging",
+  "mode": "production",
   "deterministic": true,
   "aiInvolvement": false,
-  "action": "powershell.exe -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File pipelines/run_daily.ps1 -Mode staging -PrivateAcquireScript <private-grade10-repo>/grade10_scraper.py -R2Bucket <private-staging-bucket>",
-  "productionAuthority": "JLP MySQL 5.7 runner supplied through CARDZ_JLP_PRODUCTION_RUNNER and CARDZ_JLP_MYSQL_DSN",
+  "entrypoint": [
+    "python3.10+",
+    "scripts/backend.py",
+    "daily",
+    "--external-db",
+    "--mode",
+    "production"
+  ],
+  "singleton": {
+    "scheduler": "ignore-new",
+    "pipeline": "data/runtime/locks/daily.lock"
+  },
+  "timeoutSeconds": 7200,
+  "retry": {
+    "maxAttempts": 3,
+    "backoffSeconds": 600
+  },
+  "environment": {
+    "source": "private environment file or server secret manager",
+    "git": false,
+    "minimumPermissions": "owner-read-write only"
+  },
   "success": {
     "requires": [
-      "private acquisition completed",
-      "600-card source gate passed",
-      "immutable full or incremental landing completed",
-      "canonical validation passed",
-      "all new media hashes uploaded and verified",
-      "generation uploaded and verified",
-      "latest pointer advanced last"
+      "broad discovery gate passed",
+      "bounded active-universe acquisition completed",
+      "immutable incremental landing completed",
+      "canonical import and integrity validation passed",
+      "ranking and alert derivation completed"
     ],
-    "failure": "Preserve the previous successful latest pointer."
+    "failure": "Stop the run and preserve the previous canonical and public last-good generations."
   }
 }

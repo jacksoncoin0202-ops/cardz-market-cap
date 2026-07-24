@@ -1,0 +1,17 @@
+{
+  "activeUniverseSha256": "455b8b6fd35bbcadf3f0e3fbddc5d94bb787b6fd01ebbf5526af86f1a57ab7c4",
+  "catalogRows": 26145,
+  "catalogSha256": "c0f829ebd0b7bc34c3ddf01b3aef70172443f7de2e51edb6776039c5d69ea140",
+  "counts": {
+    "active": 402,
+    "ambiguous": 33,
+    "matched": 208,
+    "pokemon": 306,
+    "unmatched": 65,
+    "unsupportedTcg": 96
+  },
+  "observedDate": "2026-07-22",
+  "outputSha256": "7ced0e033f5cd9bd2b2ea9bfba4982da50a3d5b762738f2b1efc5a0c923f4f9b",
+  "schemaVersion": "1.0.0",
+  "tagMarketTotal": null
+}

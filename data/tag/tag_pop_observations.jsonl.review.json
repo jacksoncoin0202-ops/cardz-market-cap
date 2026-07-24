@@ -1,0 +1,896 @@
+{
+  "counts": {
+    "active": 402,
+    "ambiguous": 33,
+    "matched": 208,
+    "pokemon": 306,
+    "unmatched": 65,
+    "unsupportedTcg": 96
+  },
+  "observedDate": "2026-07-22",
+  "rows": [
+    {
+      "candidateCount": 2,
+      "canonicalExternalId": "8413f2a9-0f88-48a3-975b-e58ff1763e26",
+      "canonicalSourceCode": "ebay",
+      "collectorNumber": "SWSH074",
+      "language": "en",
+      "pokedexId": "cmc_4f7afc01fb40089a6e0d9119",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 3,
+      "canonicalExternalId": "eba665f5-0be9-4c6b-ba00-220ef94dc593",
+      "canonicalSourceCode": "ebay",
+      "collectorNumber": "SM162",
+      "language": "en",
+      "pokedexId": "cmc_91cb17ee34c0e380504bcd97",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 2,
+      "canonicalExternalId": "106314",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "051/087",
+      "language": "ja",
+      "pokedexId": "cmc_f3d88dde37413e4c1fbe79a7",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 2,
+      "canonicalExternalId": "106322",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "049/087",
+      "language": "ja",
+      "pokedexId": "cmc_aa23f544034012919fd6babd",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 2,
+      "canonicalExternalId": "128089",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "173/165",
+      "language": "ja",
+      "pokedexId": "cmc_94e06b144c15c7881c394e14",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 3,
+      "canonicalExternalId": "128147",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "025/165",
+      "language": "ja",
+      "pokedexId": "cmc_113e9cad03556282f439a115",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 3,
+      "canonicalExternalId": "128265",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "150/165",
+      "language": "ja",
+      "pokedexId": "cmc_c7b5f37d6ee8d90a7219de9c",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 3,
+      "canonicalExternalId": "141410",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "001/028",
+      "language": "ja",
+      "pokedexId": "cmc_bca2cc855785d54e776c12db",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 3,
+      "canonicalExternalId": "141411",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "001/028",
+      "language": "ja",
+      "pokedexId": "cmc_bca2cc855785d54e776c12db",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 2,
+      "canonicalExternalId": "386919",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "033/087",
+      "language": "ja",
+      "pokedexId": "cmc_e13d5d3287ef02fc8f14d32d",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 3,
+      "canonicalExternalId": "471633",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "092/187",
+      "language": "ja",
+      "pokedexId": "cmc_f49ab511d60cfdc5612db103",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 2,
+      "canonicalExternalId": "91156",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "001/025",
+      "language": "ja",
+      "pokedexId": "cmc_8642087499862190ec12d6a1",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 2,
+      "canonicalExternalId": "91157",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "002/025",
+      "language": "ja",
+      "pokedexId": "cmc_58230c3bc8c7abe05293542b",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 2,
+      "canonicalExternalId": "91158",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "003/025",
+      "language": "ja",
+      "pokedexId": "cmc_339b59e4a490b573b7c81031",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 2,
+      "canonicalExternalId": "91161",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "030/028",
+      "language": "ja",
+      "pokedexId": "cmc_e9eb2ccf2efb42a64b8a0fcc",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 2,
+      "canonicalExternalId": "91461",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "094/087",
+      "language": "ja",
+      "pokedexId": "cmc_8d932711e6ef4f07f2dce084",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 2,
+      "canonicalExternalId": "91467",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "011/087",
+      "language": "ja",
+      "pokedexId": "cmc_644da925d03adab7e92dd74a",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 2,
+      "canonicalExternalId": "91475",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "017/036",
+      "language": "ja",
+      "pokedexId": "cmc_bbac1e5b5066199b98c925c9",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 2,
+      "canonicalExternalId": "91515",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "095/081",
+      "language": "ja",
+      "pokedexId": "cmc_36f5ef49f93995701de7ce06",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 2,
+      "canonicalExternalId": "91525",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "015/034",
+      "language": "ja",
+      "pokedexId": "cmc_8e92c11ded0b9a93a4568d8b",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 2,
+      "canonicalExternalId": "91526",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "006/034",
+      "language": "ja",
+      "pokedexId": "cmc_9d981e2ebbd3afd0d884e5c5",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 2,
+      "canonicalExternalId": "91537",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "090/088",
+      "language": "ja",
+      "pokedexId": "cmc_484db9848a5484fc40b365be",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 2,
+      "canonicalExternalId": "91584",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "024/020",
+      "language": "ja",
+      "pokedexId": "cmc_1a88f3c84faacaa0e69a71fd",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 2,
+      "canonicalExternalId": "91585",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "007/020",
+      "language": "ja",
+      "pokedexId": "cmc_5b61604e5d8a0030ec3f691c",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 2,
+      "canonicalExternalId": "91795",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "068/092",
+      "language": "ja",
+      "pokedexId": "cmc_710bb6abf71bc960130e4079",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 2,
+      "canonicalExternalId": "91926",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "072/088",
+      "language": "ja",
+      "pokedexId": "cmc_f9ec77fbe6fb130531e7622a",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 2,
+      "canonicalExternalId": "91959",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "044/088",
+      "language": "ja",
+      "pokedexId": "cmc_3f00a1e04f4f7bd6f724ccec",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 2,
+      "canonicalExternalId": "92072",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "043/090",
+      "language": "ja",
+      "pokedexId": "cmc_fc75ff951e343f5b2d299849",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 2,
+      "canonicalExternalId": "92081",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "091/141",
+      "language": "ja",
+      "pokedexId": "cmc_18f1ff578278ede50df602ef",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 2,
+      "canonicalExternalId": "93286",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "089/088",
+      "language": "ja",
+      "pokedexId": "cmc_8532be90cfe557f963959eee",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 3,
+      "canonicalExternalId": "96667",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "073/071",
+      "language": "ja",
+      "pokedexId": "cmc_1d2ee6e892c55d2b7341efc2",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 2,
+      "canonicalExternalId": "98529",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "020/025",
+      "language": "ja",
+      "pokedexId": "cmc_1e5f4ed6cee5c3dc8accbff2",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 2,
+      "canonicalExternalId": "98530",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "021/025",
+      "language": "ja",
+      "pokedexId": "cmc_df45e50605d2f1ba0c759636",
+      "reason": "ambiguous_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "712df551-2987-42dd-ab50-906887cf53d4",
+      "canonicalSourceCode": "ebay",
+      "collectorNumber": "SM191",
+      "language": "en",
+      "pokedexId": "cmc_209c6e27c8c27d348cf8aaf0",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "c3e26a7d-af44-49bd-b7c9-8ff755bfb53b",
+      "canonicalSourceCode": "ebay",
+      "collectorNumber": "173/SVP",
+      "language": "en",
+      "pokedexId": "cmc_2765d4c4171531de62d99521",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "eb8b7c12-3252-4688-9c51-e070ce60950f",
+      "canonicalSourceCode": "ebay",
+      "collectorNumber": "SV107",
+      "language": "en",
+      "pokedexId": "cmc_79a84c35a02d207feebd5c4e",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "100090",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "288/SM-P",
+      "language": "ja",
+      "pokedexId": "cmc_095c8e48a2e469a94e132b69",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "100092",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "290/SM-P",
+      "language": "ja",
+      "pokedexId": "cmc_b7e2d43bc68f369ba67d0ca0",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "104784",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "1/SV-P",
+      "language": "ja",
+      "pokedexId": "cmc_f46473adc5d285fb4c4204e6",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "107448",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "392/SM-P",
+      "language": "ja",
+      "pokedexId": "cmc_277196fc9381496974412c9e",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "108500",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "055/080",
+      "language": "ja",
+      "pokedexId": "cmc_3426df18c088a80563610d8b",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "120250",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "144/S-P",
+      "language": "ja",
+      "pokedexId": "cmc_b032aeef7b4a94707c9705a7",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "122054",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "62/SV-P",
+      "language": "ja",
+      "pokedexId": "cmc_f33fa5de29ec7955d5263a94",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "126338",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "208/XY-P",
+      "language": "ja",
+      "pokedexId": "cmc_925594f67ef74693ef6c50e9",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "127035",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "407/SM-P",
+      "language": "ja",
+      "pokedexId": "cmc_31320f90451803dbe9b95539",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "128212",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "94/165",
+      "language": "en",
+      "pokedexId": "cmc_556b1ba4d61aaef95ab1cca6",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "146897",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "085/SVP",
+      "language": "en",
+      "pokedexId": "cmc_fc229f7ae1b256b2119fa79b",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "405055",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "051/050",
+      "language": "ja",
+      "pokedexId": "cmc_2156b9960465a6fce6c935b9",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "408743",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "155/XY-P",
+      "language": "ja",
+      "pokedexId": "cmc_c85521c7c684dc5397e658f8",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "411732",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "079/XY-P",
+      "language": "ja",
+      "pokedexId": "cmc_64cce04bb159b75d85b61fe0",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "418755",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "136/106",
+      "language": "en",
+      "pokedexId": "cmc_8ec42308b04fcb483c21bbe4",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "459741",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "153/SV-P",
+      "language": "en",
+      "pokedexId": "cmc_0103541f6d6a575e546ab9ae",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "525751",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "086/063",
+      "language": "ja",
+      "pokedexId": "cmc_aceb2a50cb0b52b0c6520959",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "528636",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "132/SVP",
+      "language": "en",
+      "pokedexId": "cmc_2f2808f2caa8f62293764001",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "571039",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "131/SVP",
+      "language": "en",
+      "pokedexId": "cmc_5caf70f48c1668b44839fb66",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "618446",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "261/SV-P",
+      "language": "ja",
+      "pokedexId": "cmc_ebed605f18ec3c094f3cb66d",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "666682",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "SWSH144",
+      "language": "en",
+      "pokedexId": "cmc_595d49cf6f9a2404d33d5b40",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "722239",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "223/193",
+      "language": "ja",
+      "pokedexId": "cmc_67282475511add5228e17292",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91103",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "104/S-P",
+      "language": "ja",
+      "pokedexId": "cmc_580d8bf846b554b086fbb0f4",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91105",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "103/S-P",
+      "language": "ja",
+      "pokedexId": "cmc_71fb1aed0b7c5df8cf0d44b5",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91113",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "147/S-P",
+      "language": "ja",
+      "pokedexId": "cmc_96a80f2a4a8a113930c3fee0",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91127",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "002/S-P",
+      "language": "ja",
+      "pokedexId": "cmc_13296596138011f86fcc1d8b",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91160",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "012/025",
+      "language": "ja",
+      "pokedexId": "cmc_bbc52f42442ed181da7a28b6",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91197",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "114/100",
+      "language": "en",
+      "pokedexId": "cmc_8d6c9b69ba8069b23ee47124",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91209",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "068/SM-P",
+      "language": "ja",
+      "pokedexId": "cmc_9f4c962df6014b758b7dfbd9",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91218",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "013/SM-P",
+      "language": "ja",
+      "pokedexId": "cmc_4a36fe2181f4d737cd1676a0",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91223",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "037/SM-P",
+      "language": "ja",
+      "pokedexId": "cmc_5b9e167bdbae084098503a08",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91224",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "38/SM-P",
+      "language": "ja",
+      "pokedexId": "cmc_be1d33fd264f6ebaee04b633",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91226",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "191/SM-P",
+      "language": "ja",
+      "pokedexId": "cmc_479f6001d403ec1aed9b63cf",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91230",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "197/SM-P",
+      "language": "ja",
+      "pokedexId": "cmc_88d38bb98bde83055127d5d6",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91231",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "014/SM-P",
+      "language": "en",
+      "pokedexId": "cmc_01460bdb742b385f7f720624",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91243",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "005/SM-P",
+      "language": "en",
+      "pokedexId": "cmc_1f0b6cc864001bbdb634b44c",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91246",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "088/SM-P",
+      "language": "ja",
+      "pokedexId": "cmc_cb06c2eaf29e57638a5b0165",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91260",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "325/SM-P",
+      "language": "en",
+      "pokedexId": "cmc_e0732e28dd6dd1aec37f8de3",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91281",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "68/64",
+      "language": "en",
+      "pokedexId": "cmc_adc99bba3a0b751a23a3e015",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91283",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "60/54",
+      "language": "en",
+      "pokedexId": "cmc_a70f58d46c0c3f90a04a9084",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91293",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "209/150",
+      "language": "en",
+      "pokedexId": "cmc_7f3b06e26666849692d1bb1b",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91296",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "153/150",
+      "language": "en",
+      "pokedexId": "cmc_e29502a9dbf19db2d2a1e4be",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91302",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "104/96",
+      "language": "en",
+      "pokedexId": "cmc_200369a7251e3bde6defde37",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91317",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "70/66",
+      "language": "en",
+      "pokedexId": "cmc_6434fbcfe623ebdb6abd0571",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91325",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "120/114",
+      "language": "en",
+      "pokedexId": "cmc_13ebaa7291cdef350f5aa1c5",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91330",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "55/50",
+      "language": "en",
+      "pokedexId": "cmc_26a63a9c49be905d27327e03",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91354",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "056/049",
+      "language": "ja",
+      "pokedexId": "cmc_18be97011f5d29a60ad4c23a",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91389",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "207/XY-P",
+      "language": "ja",
+      "pokedexId": "cmc_d2ad422df514e02502cea351",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91396",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "230/XY-P",
+      "language": "ja",
+      "pokedexId": "cmc_d9e5aa6a82ebac605bf24a6d",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91397",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "231/XY-P",
+      "language": "ja",
+      "pokedexId": "cmc_2c20c7cc9e58e1cb8f640435",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91423",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "221/XY-P",
+      "language": "en",
+      "pokedexId": "cmc_2e3b8f090157fd0f224df899",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91459",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "091/087",
+      "language": "ja",
+      "pokedexId": "cmc_5bc56d095420a11b811f57be",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91491",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "20/32",
+      "language": "en",
+      "pokedexId": "cmc_2bcc424aee85c7bd0475e464",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91546",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "089/080",
+      "language": "ja",
+      "pokedexId": "cmc_7c6bd1652f23254be7af2ba5",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "91616",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "53/50",
+      "language": "en",
+      "pokedexId": "cmc_755742eef9a52f50f95c1b1f",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "93015",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "007/025",
+      "language": "ja",
+      "pokedexId": "cmc_7c916f6ef3aa36d1eda991ba",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "93053",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "395/SM-P",
+      "language": "en",
+      "pokedexId": "cmc_5c9c1b9164c70b08b909c54e",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "93076",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "2019/SM-P",
+      "language": "ja",
+      "pokedexId": "cmc_e6152716c23cef734b87d991",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "93083",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "196/173",
+      "language": "en",
+      "pokedexId": "cmc_b60848b0b00e5fc3407450ae",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "93333",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "188/S-P",
+      "language": "ja",
+      "pokedexId": "cmc_f014f733483d5ddadc629cfa",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "93381",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "001/S-P",
+      "language": "ja",
+      "pokedexId": "cmc_68ffaacdf8a508889e2633f4",
+      "reason": "no_exact_identity"
+    },
+    {
+      "candidateCount": 0,
+      "canonicalExternalId": "98403",
+      "canonicalSourceCode": "snkrdunk",
+      "collectorNumber": "305/S-P",
+      "language": "ja",
+      "pokedexId": "cmc_bfbd328feb72fea33debc901",
+      "reason": "no_exact_identity"
+    }
+  ],
+  "schemaVersion": "1.0.0"
+}

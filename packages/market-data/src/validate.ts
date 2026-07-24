@@ -1,5 +1,6 @@
 import {
   COVERAGE_STATUSES,
+  CURRENCIES,
   GRADERS,
   MARKET_STATUSES,
   MARKET_WINDOWS,
@@ -146,6 +147,16 @@ function validateCard(card: PublicCard, path: string, errors: string[]): void {
   assert(card.image.src.startsWith("/market-assets/"), `${path}.image.src is outside public assets`, errors);
   assert(/^[0-9a-f]{64}$/.test(card.image.sha256), `${path}.image.sha256 is invalid`, errors);
   assert(card.image.width > 0 && card.image.height > 0, `${path}.image dimensions are invalid`, errors);
+  if (card.image.variants !== undefined) {
+    for (const [key, value] of Object.entries(card.image.variants)) {
+      assert(key === "200" || key === "600", `${path}.image.variants has unknown size ${key}`, errors);
+      assert(
+        typeof value === "string" && value.startsWith("/market-assets/") && value.endsWith(`_${key}.webp`),
+        `${path}.image.variants.${key} must be a /market-assets/ _${key}.webp path`,
+        errors,
+      );
+    }
+  }
   validateLocalized(card.names, `${path}.names`, errors);
   validateLocalized(card.sets, `${path}.sets`, errors);
   validateLocalized(card.stories, `${path}.stories`, errors);
@@ -230,6 +241,15 @@ export function validatePublicSnapshot(
   assert(snapshot.top100.length === 100, "top100 must contain exactly 100 cards", errors);
   assert(snapshot.watchlist.length <= 400, "watchlist must contain at most 400 cards", errors);
   assert(snapshot.universe.windows.join(",") === MARKET_WINDOWS.join(","), "universe.windows is invalid", errors);
+  assert(snapshot.currencies.base === "USD", "currencies.base must be USD", errors);
+  assert(snapshot.currencies.supported.join(",") === CURRENCIES.join(","), "currencies.supported is invalid", errors);
+  for (const currency of CURRENCIES) {
+    const rate = snapshot.currencies.rates[currency];
+    validateMetric(rate, `currencies.rates.${currency}`, errors);
+    if (rate.status === "ready" || rate.status === "stale") {
+      assert(typeof rate.value === "number" && rate.value > 0, `currencies.rates.${currency}.value must be positive`, errors);
+    }
+  }
   const allCards = [...snapshot.top100, ...snapshot.watchlist];
   assert(new Set(allCards.map((card) => card.id)).size === allCards.length, "public card IDs must be unique", errors);
   assert(snapshot.top100.every((card, index) => card.rank === index + 1), "top100 ranks must be contiguous", errors);

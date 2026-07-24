@@ -2,18 +2,29 @@
 
 ## Operating boundary
 
-The private Windows runner ingests the operator-provided G10 full history and daily incrementals, resolves exact canonical identities, writes JLP history, derives public metrics, and publishes a sanitized generation. GitHub Actions never collects provider data. A daily data update advances an R2 pointer; it does not rebuild or redeploy the website.
+The private runner uses GemRate-led discovery and population, exact SNK PSA 10
+prices/trades, and validated eBay sold transactions when available. GemRate
+direct API is the preferred population transport; Grade10
+`price.getGradingPopulations` may supply a current-population GemRate mirror
+only, with provenance retained. G10 otherwise remains bootstrap/research
+evidence only. The runner imports canonical facts into standalone MySQL,
+derives complete rankings for combined TCG, Pokémon, and One Piece, and slices
+those rankings into presentation views such as Top 100, Top 300, Top 350, and
+`top100_plus_200`. The same Python control path runs on Windows and Linux.
+Immutable private runs are replay evidence; JLP is only a possible future
+integration. GitHub Actions never collects provider data. A daily data update
+does not rebuild or redeploy the website.
 
-Production stays on the existing site until the new staging Worker, data generation, scheduler canary, JLP migration runner, and production route are independently approved.
+Production stays on the existing site until the new data generation, scheduler canary, release gates, and production route are independently approved. No JLP owner or runner is required for the standalone release.
 
 ## Required tools and authority
 
 - Node.js 24 and npm 11.
 - Python 3.10 or newer.
+- Docker Compose for bundled MySQL, or an externally managed compatible MySQL database.
 - Git LFS.
 - 1Password CLI signed into the approved account.
 - Wrangler authenticated to the approved Cloudflare account for deployment or R2 mutation.
-- A confirmed JLP MySQL 5.7 migration runner and database owner for production writes.
 
 Verify metadata only:
 
@@ -26,7 +37,68 @@ op whoami
 npm run cf:whoami
 ```
 
-Do not print environment dumps, request headers, provider responses, database URLs, signed URLs, or credentials. If 1Password or the JLP owner is unavailable, stop before collection or production migration.
+Do not print environment dumps, request headers, provider responses, signed URLs, or credentials. If approved secret injection is unavailable, skip that live collector and use only a still-valid bounded last-good observation.
+
+## Standalone database bootstrap
+
+Use the same Python entrypoint on a Windows workstation or Linux server:
+
+```text
+git lfs pull
+python scripts/backend.py bootstrap --bootstrap-archive data/private/cardz-active-bootstrap.tar.gz
+python scripts/backend.py registry --json
+python scripts/backend.py import
+python scripts/backend.py status
+python scripts/backend.py audit
+python scripts/backend.py daily
+```
+
+`audit` is the truthful pre-database coverage gate and does not require Docker or
+MySQL. It resolves the newest private SNK PSA 10 run, validates local GemRate
+payloads rather than counting mapped IDs, requires exact collector-number and
+grade evidence, converts SNK JPY through the private daily FX snapshot, and
+writes `data/runtime/private-reports/data-coverage-audit.json`.
+
+Run the coverage audit before any public-market promotion:
+
+```powershell
+python pipelines/fx_rates.py
+python scripts/backend.py audit
+```
+
+The report is coverage diagnosis for complete rankings and does not itself
+select a public cutoff. A publication gate checks only the requested view
+(`top100`, `top300`, `top350`, `top100_plus_200`, or `reserve50`) against the
+complete ranking for its scope. The report includes exact GemRate/SNK refill
+worklists and quarantine reasons; a mapping without a matching local payload
+never counts as verified data.
+
+For Amazon RDS, inject `CARDZ_DB_HOST`, `CARDZ_DB_PORT`, `CARDZ_DB_NAME`, `CARDZ_DB_USER`, and `CARDZ_DB_PASSWORD`, set `CARDZ_DB_MODE=external`, and set `CARDZ_DB_SSL_CA` to the readable managed-database CA bundle. Production external-database runs fail closed without TLS verification. Then run:
+
+```text
+git lfs pull
+python3 scripts/backend.py bootstrap --external-db --mode production --bootstrap-archive data/private/cardz-active-bootstrap.tar.gz
+python3 scripts/backend.py daily --external-db --mode production
+```
+
+Amazon Linux 2023 keeps `/usr/bin/python3` on Python 3.9, so install a supported versioned interpreter. `backend.sh` selects the first installed Python 3.10+ interpreter, or use `CARDZ_PYTHON=python3.12 bash scripts/backend.sh ...` to pin one explicitly. Do not change the operating system's `python3` symlink. The launcher passes the selected interpreter through to venv creation and every child pipeline. Reference: [AWS Python in AL2023](https://docs.aws.amazon.com/linux/al2023/ug/python.html).
+
+`bootstrap` first verifies every archive path, checksum, canonical identity, and
+dated observation before restoring it. It then migrates and replays the dated
+canonical batches. Re-running `import` must replay completed batches with zero
+inserted observations. Local secrets are created only under ignored
+`data/runtime/config/backend.env`; managed-database credentials must be
+explicitly injected into the current process and are never read from that local
+file or written to the repository.
+
+Build the private Git LFS bootstrap only after the active lock and canonical landing pass validation:
+
+```text
+python scripts/bootstrap_archive.py build --output data/private/cardz-active-bootstrap.tar.gz --overwrite
+python scripts/bootstrap_archive.py verify --archive data/private/cardz-active-bootstrap.tar.gz
+```
+
+The archive excludes broad discovery payloads, undated derived points, images, `.env` files, provider credentials, and identities outside the current lock. Restoring over an existing runtime tree requires the explicit `--restore-overwrite` flag; normal clean-clone bootstrap does not use it.
 
 ## Secret injection
 
@@ -34,12 +106,12 @@ Do not print environment dumps, request headers, provider responses, database UR
 
 ```dotenv
 GEMRATE_API_KEY=op://Private/CARDZ Market Data/GemRate API Key
-CARDZ_JLP_MYSQL_DSN=op://Private/CARDZ Market Data/JLP MySQL DSN
-CARDZ_JLP_PRODUCTION_RUNNER=C:\private\cardz-jlp-runner.py
-CARDZ_PRIVATE_ACQUIRE_SCRIPT=C:\private\grade10-scraper\grade10_scraper.py
+CARDZ_PRIVATE_ACQUIRE_SCRIPT=integrations/grade10/run_service.py
 CARDZ_GENERATION_CANARY_COMMAND_JSON=["node","pipelines/run-generation-canary.mjs"]
 CARDZ_POINTER_PROMOTE_COMMAND_JSON=["node","pipelines/promote-staging-pointer.mjs"]
 CARDZ_CANARY_ORIGIN=https://<approved-canary-worker>.workers.dev
+# Optional: point at an approved self-hosted compatible endpoint.
+CARDZ_FX_ENDPOINT=https://api.frankfurter.dev/v2/rates
 ```
 
 Example:
@@ -53,41 +125,55 @@ For the unattended staging task, persist the non-secret hook commands and canary
 ```powershell
 powershell -NoProfile -File pipelines/install_daily_task.ps1 `
   -Mode staging `
-  -PrivateAcquireScript C:\private\grade10-scraper\grade10_scraper.py `
   -R2Bucket cardz-market-cap-staging-data `
   -CanaryOrigin https://<approved-canary-worker>.workers.dev
 ```
 
 The installer resolves absolute Python, Node, canary-hook, and staging-promoter paths and embeds their JSON command arrays plus the HTTPS canary origin in the S4U task action. Use `-WhatIf` to inspect that action before registration. Production must pass an external atomic `-PointerPromoteCommandJson`; the installer refuses to default to the bundled staging promoter in production mode.
 
-## First G10 full import
+## First full backfill: current facts, then target history
 
-1. Treat `cardz-platform` as read-only. The external `grade10-scraper.py` remains the separately owned mutable acquisition producer; after it exits successfully, CARDZ import code only reads the completed source tree and copies changed bytes into its own immutable landing namespace.
-2. Freeze the selected G10 files under `data/runtime/private-landing/g10/full/<generation>/` outside Git tracking. Existing derived analytics and K-line output are evidence only and never become canonical observations.
-3. Record SHA-256, file count, card count, effective date, schema version, and accepted/quarantined/rejected counts in the private import manifest.
-4. Import raw observations without correction. Resolve canonical printings through exact TCG, language, set, complete collector number, edition, parallel, and finish mappings.
-5. Quarantine missing numbers, language conflicts, ambiguous identities, unsafe images, and unsupported grader-price combinations.
-6. Write accepted observations idempotently to JLP. Repeating the full import must not increase observation counts.
-7. Derive the production candidate twice and require identical canonical hashes.
+1. Treat `cardz-platform` as read-only. The vendored Grade10 integration is a supported Windows/Linux bootstrap route, but it is not the global candidate boundary.
+2. Run broad current candidate discovery, exact identity resolution, GemRate current PSA 10 population collection, and exact SNK current PSA 10 price collection.
+3. Freeze every raw source result in its private landing namespace and record SHA-256, file count, effective date, schema version, and accepted/quarantined/rejected counts in the manifest.
+4. Import current canonical facts without correction. Resolve printings through exact TCG, language, set, complete collector number, edition, parallel, and finish mappings.
+5. Derive complete eligible rankings for `tcg-combined`, `pokemon`, and `one-piece`; select configured presentation ranges only after this calculation.
+6. Deduplicate the selected historical targets across scopes, then backfill available GemRate population history, SNK price history, and tracked trades. Cards outside the target range retain current/radar evidence and are queued automatically when they qualify.
+7. Quarantine missing numbers, language conflicts, ambiguous identities, unsafe images, and unsupported grader-price combinations. Repeating the same full import must not increase observation counts.
 
 Do not treat the existing derived K-lines as exchange-quality OHLC. Do not use a fallback grade to construct PSA 10 market cap. Do not direct-read G10 or legacy tables from the web application.
 
 ## Daily incremental job
 
-Task Scheduler runs one private process daily at 06:30 JST with overlap disabled. A lock and run ID prevent two publishers from racing. The required sequence is:
+Windows Task Scheduler or a Linux systemd timer runs the same backend command once daily at 06:30 JST. The scheduler invokes `python scripts/backend.py daily` (or `python3 ... daily --external-db`); all collection and replay logic remains in Python. A cross-platform file lock and run ID prevent two runs from racing. This command currently completes steps 1–11 below and stops after database integrity validation:
 
-1. Run the private collector with image acquisition enabled, then read the last successful checkpoint and the current 600-card local generation.
-2. Validate payload hashes and append only unseen raw observations.
-3. Resolve exact identities and quarantine conflicts without weakening the production gate.
-4. Refresh GemRate identity/population within its plan limits; use private G10 population fallback according to the data contract.
-5. Record one daily PSA 10 reference close and top-grade PSA/BGS/CGC/SGC populations. Missing SGC price remains unavailable.
-6. Derive 1d, 7d, and 30d close-to-close changes from canonical daily observations. Missing anchors remain accumulating.
-7. Rebuild partial tracked-sales aggregates for 1d, 7d, and 30d. A day with no observed sale is not automatically zero coverage.
-8. Rank confirmed cards by unrounded `PSA 10 price × PSA 10 population`; require population at least 1,000, fresh price, complete number, and QC-passed raw front.
-9. Generate an immutable sanitized candidate and run data, image, release, and leak gates.
-10. Publish the candidate generation, verify it remotely, run staging canaries, then advance the pointer.
+1. Validate the routing registry, refresh broad candidate/radar current facts, and resolve exact identities. Grade10 can provide bootstrap evidence but is not the candidate boundary. A failure stops the parent run before canonical import or alert evaluation.
+2. Fetch one private USD FX snapshot for HKD/CNY/GBP/TWD/JPY/KRW. Validate all seven rates, write it atomically, and reuse a last-good response for at most 72 hours when the endpoint temporarily fails. The browser never calls this endpoint.
+3. Recalculate complete eligibility rankings from current canonical facts. A printing is stored once even when it belongs to multiple ranking scopes. `top100`, `top300`, `top350`, `top100_plus_200`, and `reserve50` are exporter views, not active-universe database locks. A requested view fails closed when it lacks enough eligible members; the database still retains all accepted current facts and historical evidence.
+4. Refresh GemRate current population for target and radar IDs through the configured transport order: direct API, exact page-initiated JSON from the verified public `/card/{id}` page (with labelled DOM fallback), then the Grade10 `price.getGradingPopulations` current-population mirror. Direct `/card-details` fetches are not a transport. The mirror does not change authority. Same-date direct/mirror disagreement fails the run; page JSON records its live fetch time separately from its last-population-change metadata. Daily mode does not re-download full history except for newly promoted historical targets.
+5. Refresh auxiliary TAG population coverage. A live schema/timeout failure may reuse only a checksum-valid catalog whose persisted `capturedAt` is no more than 72 hours old, while preserving its original `observedDate`. Future dates, malformed manifests, copied files without persisted capture time, and checksum mismatches are rejected. If no valid fallback exists, mark TAG unavailable and continue; TAG must never stop the primary price path.
+6. Refresh every active exact SNK card with `trading_card_single_psa10`. A failed card prevents atomic promotion of that run.
+7. Normalize observations with `market_source_sync.py`, retain recent daily price anchors, recalculate complete combined, Pokémon, and One Piece rankings, and queue new historical targets. Missing exact GemRate/SNK data stays unavailable; G10 cannot fill a canonical ranking dependency.
+8. Import the immutable batch through `scripts/backend.py import`, then require
+   `scripts/backend.py status` to pass the tracked-universe one-to-one integrity
+   gate. A failed import does not promote the new universe.
+9. Derive 1d, 7d, and 30d close-to-close changes from canonical daily observations. Missing anchors remain accumulating.
+10. Rebuild partial tracked-sales aggregates for 1d, 7d, and 30d. A day with no observed sale is not automatically zero coverage.
+11. Rank confirmed cards by unrounded `PSA 10 price × PSA 10 population`; require population at least 1,000, fresh price, complete number, and QC-passed raw front. A discovered printing without exact population is only a candidate. Korean printings additionally require Korean card/set text; KRW is display conversion only and never changes the USD ranking basis.
 
-The job must return nonzero on any failed stage. Its bounded private log contains run ID, generation ID, step status, counts, hashes, and redacted error categories only.
+The following public-publication stage is deliberately separate and is not invoked by `backend.py daily` yet:
+
+12. Export an immutable sanitized candidate from the validated database and run data, image, release, and leak gates.
+13. Publish the candidate generation, verify it remotely, run staging canaries, then advance the pointer.
+
+Until the DB-derived exporter is connected, a successful backend daily run
+proves canonical collection/replay only; it must not be reported as a live
+website update. The older public builder still depends on legacy discovery
+evidence and is not part of the portable canonical AWS contract.
+
+The job must return nonzero on any failed stage. One singleton parent task runs all collectors and publishes one generation, preventing mixed-date price/population state. Its bounded private log contains run ID, generation ID, step status, counts, hashes, and redacted error categories only.
+
+The default FX adapter is `pipelines/fx_rates.py`. It uses the keyless Frankfurter v2 daily API through a configurable `CARDZ_FX_ENDPOINT`, so the same pipeline can point to a privately self-hosted compatible service after a server move. Run `python pipelines/fx_rates.py` for a private live collection check; its output reports timestamps and currency codes only, never the upstream payload or URL.
 
 ## Versioned R2 publication contract
 
@@ -205,16 +291,88 @@ Data rollback does not redeploy code:
 
 Code rollback switches the route to the prior verified Worker version or the retained legacy Worker. Do not combine a code rollback with deletion of data generations.
 
+## Backend control-plane and full-backfill bootstrap
+
+The current collection scope is language-neutral. First inspect the routing
+registry, then collect broad current facts, derive complete rankings, and
+backfill history only for the deduplicated target ranges:
+
+```powershell
+.\.venv-backend\Scripts\python.exe -X utf8 scripts\backend.py registry --json
+.\.venv-backend\Scripts\python.exe -X utf8 scripts\backend.py explain market_cap
+.\.venv-backend\Scripts\python.exe -X utf8 scripts\backend.py graph --format html
+.\.venv-backend\Scripts\python.exe -X utf8 scripts\backend.py routes
+.\.venv-backend\Scripts\python.exe -X utf8 scripts\backend.py full-backfill
+.\.venv-backend\Scripts\python.exe -X utf8 scripts\backend.py status
+```
+
+One canonical printing may appear in multiple ranking scopes but is stored once.
+The snapshot exporter later chooses the rank range it needs; it does not rebuild
+the database to switch from Top 100 to Top 300 or Top 350.
+
+`full-backfill` is intentionally a different profile from `daily`: it refreshes
+the private G10 bootstrap landing, rebuilds the exact source crosswalk, resumes
+the broad GemRate candidate classification, builds an exact SNK PSA 10 refill
+worklist, pulls the resolved IDs' actual SNK PSA 10 history/trades into an
+immutable run, and overlays only those exact candidate identities before the
+existing normalize → canonical DB → derive → alert → audit path. The final
+daily import then pulls SNK again for the complete merged universe; it never
+uses the candidate-only run as a substitute for existing tracked cards. A source-run
+transport failure stops before canonical observations or the last-good
+generation can change. Classified `review` / `unavailable` candidates remain
+private retry evidence; they do not discard unrelated verified facts, but they
+cannot enter a formal rank or presentation view. It never publishes.
+
+When candidate SNK prices must be converted from JPY, `full-backfill` refreshes
+one private FX snapshot before building the candidate overlay and passes that
+same snapshot into the final daily import. A missing or invalid FX snapshot is
+therefore a fail-closed collection error, never a silently guessed USD price.
+
+The public-card GemRate collector is deliberately opt-in because it is a long,
+resumable acquisition job. Do not run it while another collector owns the same
+worklist:
+
+```powershell
+.\.venv-backend\Scripts\python.exe -X utf8 scripts\backend.py full-backfill --collect-public-candidates
+```
+
+Without that flag, `full-backfill` reuses validated private candidate receipts
+and reports a fail-closed incomplete manifest if more exact POP evidence is
+required. The private artifacts are resumable under
+`data/runtime/private-source-map/`; no provider data, key, or raw payload is
+placed in a public snapshot.
+
+GemRate backfill uses the generated exact worklist. Inject the API key through the process environment or an external secret manager; never place it in the repository:
+
+```powershell
+.\.venv-backend\Scripts\python.exe -X utf8 pipelines\gemrate_source.py api-dump `
+  --ids-file data\runtime\private-source-map\tracked-gemrate-ids.txt --resume
+```
+
+Run the unattended incremental path with the same Python entrypoint on Windows or Linux:
+
+```powershell
+.\.venv-backend\Scripts\python.exe -X utf8 scripts\backend.py daily --mode staging
+```
+
+The daily job refreshes discovery, checkpoints provider acquisition, normalizes
+immutable batches, imports idempotently, derives complete ranks/windows/alerts,
+queues newly qualified historical targets, and prints one final machine-readable
+status. Auxiliary TAG failure is reported without discarding valid primary-source
+observations. A source or canonical failure returns non-zero and does not advance
+a public pointer.
+
 ## Production stop gates
 
 Do not cut over production until all are true:
 
-- JLP migration runner and database owner are confirmed.
 - Full import replay is idempotent and daily incremental checkpoints are proven.
 - A real unattended scheduled run has completed successfully.
-- Strict release gate passes with exactly 100 eligible cards and no demo blocker.
+- The requested presentation view has enough eligible cards in each declared
+  scope, with rank, market cap, and source freshness verified from the same
+  complete canonical generation.
 - Official-registry production dependency audit passes without forcing packages outside their declared compatibility ranges.
-- All public Top 100 assets are exact-match raw fronts.
+- All public Top 300 assets are exact-match raw fronts.
 - Staging live canary passes for the expected build and generation.
 - Cloudflare zone controls and production route are explicitly approved.
 - Previous Worker version and last-good data generation are recorded and tested for rollback.

@@ -1,0 +1,85 @@
+{
+  "schemaVersion": "1.0",
+  "layers": [
+    {
+      "id": "raw_landing",
+      "purpose": "Keep every acquired provider response immutable for replay and audit; never repair or overwrite source evidence.",
+      "storage": "data/runtime/private-landing/<source>/<run-id>/ with manifest hash and source pointer",
+      "mysqlPolicy": "no_raw_payload_body"
+    },
+    {
+      "id": "normalized_observation",
+      "purpose": "Parse source facts into typed observations with a deterministic dedupe key and explicit rejection reason.",
+      "storage": "private normalized batch plus market_source_effective_observation pointer",
+      "mysqlPolicy": "typed observation plus payload hash and private pointer"
+    },
+    {
+      "id": "canonical_facts",
+      "purpose": "Store one confirmed printing identity and dated population, price, sale, FX and image metadata facts.",
+      "storage": "MySQL canonical tables",
+      "mysqlPolicy": "append idempotent canonical facts"
+    },
+    {
+      "id": "derived_daily_snapshot",
+      "purpose": "Derive daily market cap, ranks, change windows, tracked-sales aggregates and alerts from canonical facts only.",
+      "storage": "market_candidate_daily_snapshot, market_index_snapshot and market_index_constituent",
+      "mysqlPolicy": "derived; rebuildable from canonical facts"
+    }
+  ],
+  "identity": {
+    "tuple": ["tcg", "set", "collector_number_complete", "language", "edition", "parallel", "finish"],
+    "matchPolicy": "exact_all_fields; no first-search-result, guessed suffix, padding or language substitution",
+    "failureTarget": "identity_review_queue"
+  },
+  "metricPolicies": {
+    "psa10Population": {
+      "authority": "gemrate",
+      "requiredGrader": "PSA",
+      "requiredGrade": "10",
+      "estimatedPolicy": "reject_from_formal_ranking",
+      "dedupeKey": ["canonical_printing", "authority", "transport", "grader", "grade", "effective_date", "payload_sha256"]
+    },
+    "psa10ReferencePrice": {
+      "authority": "snk_exact_psa10_history",
+      "requiredCondition": "trading_card_single_psa10",
+      "forbiddenFields": ["used_min_price"],
+      "dedupeKey": ["canonical_printing", "source", "required_condition", "observed_date", "payload_sha256"]
+    },
+    "trackedSales": {
+      "allowedGrades": ["PSA 10"],
+      "bundlePolicy": "exclude_bundle_from_unit_price_and_reference_price; retain only explicitly split quantity and unit value",
+      "dedupeKey": ["source", "external_transaction_id_or_fingerprint"],
+      "coverage": "partial_until_source_pagination_is_proven_complete"
+    }
+  },
+  "fieldPolicies": {
+    "timestamps": {
+      "effectiveAt": "provider event or market date used for history and window anchors",
+      "fetchedAt": "CARDZ acquisition time; never replaces effectiveAt",
+      "relativeDate": "quarantine_when_no_absolute_provider_date"
+    },
+    "currency": {
+      "base": "USD",
+      "native": "retain native value and ISO currency alongside USD",
+      "fx": "use dated FX observation; never rewrite historical USD values with today's rate"
+    },
+    "missingValues": {
+      "policy": "null_with_status_never_zero",
+      "statuses": ["ready", "accumulating", "stale", "unavailable"]
+    }
+  },
+  "freshness": {
+    "psa10Population": {"readyHours": 48, "staleHours": 168, "expiredAction": "exclude_from_formal_ranking"},
+    "psa10ReferencePrice": {"readyHours": 30, "staleHours": 48, "expiredAction": "exclude_from_formal_ranking"}
+  },
+  "populationBands": {
+    "formalRanking": {"minimumInclusivePsa10Population": 1000, "action": "eligible_for_formal_rank_after_all_other_gates"},
+    "preEntryRadar": {"minimumInclusivePsa10Population": 971, "maximumInclusivePsa10Population": 999, "action": "monitor_current_population_and_exact_price_only"},
+    "discoveryOnly": {"maximumInclusivePsa10Population": 970, "action": "retain_discovery_evidence_only"}
+  },
+  "mysql": {
+    "rawPayloadStorage": "private_pointer_only_after_ingest",
+    "canonicalObservationRule": "one_effective_observation_per_canonical_printing_source_metric_scope_effective_date",
+    "rawPayloadPointerTables": ["market_raw_payload_object", "market_source_observation_payload_pointer", "market_source_effective_observation"]
+  }
+}

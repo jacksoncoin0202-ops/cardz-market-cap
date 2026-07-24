@@ -1,0 +1,11 @@
+[Unit]
+Description=Run CARDZ Market Cap daily at 06:30 Asia/Tokyo
+
+[Timer]
+OnCalendar=*-*-* 06:30:00 Asia/Tokyo
+Persistent=true
+AccuracySec=1min
+Unit=cardz-market-cap-daily.service
+
+[Install]
+WantedBy=timers.target

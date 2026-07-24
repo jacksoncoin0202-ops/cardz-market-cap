@@ -21,6 +21,34 @@ CARDZ helps people answer five questions:
 4. Which cards are approaching Top 100 eligibility?
 5. Why does the market care about this exact printing?
 
+## Curated market universe
+
+CARDZ is not attempting to catalogue every collectible card. It deliberately
+tracks a small market universe that can support reliable daily prices,
+population history, change windows, images, and editorial context.
+
+- Rankings are scoped to combined TCG, Pokémon, and One Piece. Language and
+  release market remain canonical printing metadata, not separate leaderboards.
+- Top 100, Top 300, and Top 350 are presentation cuts over the same complete
+  eligible ranking; they do not cap canonical storage.
+- Formal ranking eligibility requires GemRate-authoritative PSA 10 population
+  of at least 1,000. The pre-entry monitoring pool is narrowly defined as
+  population 971–999.
+- A printing must first have a confirmed Pokédex/canonical identity, complete
+  collector number, TCG, card language, set, and native-language name.
+- Pokémon supports Japanese, English, Korean, Traditional Chinese, and
+  Simplified Chinese printing metadata. Thai printings are explicitly out of
+  scope.
+- Korean printings require Korean card/set text and KRW is a supported display
+  currency. English fallback is not accepted as Korean catalogue content.
+- Cards leaving a presentation view retain their historical observations for
+  audit. Cards in POP 971–999 stay in daily pre-entry monitoring and can enter
+  the formal ranking automatically after reaching POP 1,000.
+
+The broad source catalogue is a discovery input, not the production tracking
+database. Growth in source catalogues must not silently expand the active
+time-series universe.
+
 ## Market language
 
 Use precise, neutral language. Explain what the data covers and what it does not cover.

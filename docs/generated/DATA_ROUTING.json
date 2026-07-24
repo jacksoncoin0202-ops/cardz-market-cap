@@ -1,0 +1,1886 @@
+{
+  "architecture": {
+    "codeIndex": {
+      "authority": false,
+      "database": ".codegraph/codegraph.db",
+      "purpose": "Read-only AST call/import/impact index; never overrides routing, ranking, storage or work-item policy.",
+      "tool": "@colbymchenry/codegraph"
+    },
+    "edges": [
+      {
+        "from": "discovery.candidates",
+        "id": "edge.discovery-authority",
+        "relation": "requests_exact_identity_and_population",
+        "required": true,
+        "to": "authority.gemrate"
+      },
+      {
+        "from": "authority.gemrate",
+        "id": "edge.authority-direct",
+        "relation": "preferred_transport",
+        "required": false,
+        "to": "transport.gemrate-direct"
+      },
+      {
+        "from": "authority.gemrate",
+        "id": "edge.authority-public",
+        "relation": "keyless_exact_transport",
+        "required": false,
+        "to": "transport.gemrate-public"
+      },
+      {
+        "from": "authority.gemrate",
+        "id": "edge.authority-mirror",
+        "relation": "current_population_fallback_transport",
+        "required": false,
+        "to": "transport.gemrate-mirror"
+      },
+      {
+        "from": "transport.gemrate-direct",
+        "id": "edge.direct-landing",
+        "relation": "writes_receipt",
+        "required": false,
+        "to": "landing.immutable-receipts"
+      },
+      {
+        "from": "transport.gemrate-public",
+        "id": "edge.public-landing",
+        "relation": "writes_receipt",
+        "required": false,
+        "to": "landing.immutable-receipts"
+      },
+      {
+        "from": "transport.gemrate-mirror",
+        "id": "edge.mirror-landing",
+        "relation": "writes_receipt",
+        "required": false,
+        "to": "landing.immutable-receipts"
+      },
+      {
+        "from": "landing.immutable-receipts",
+        "id": "edge.landing-identity",
+        "relation": "normalizes",
+        "required": true,
+        "to": "normalizer.identity"
+      },
+      {
+        "from": "normalizer.identity",
+        "id": "edge.identity-alias",
+        "relation": "confirms_exact_alias",
+        "required": true,
+        "to": "crosswalk.provider-alias"
+      },
+      {
+        "from": "normalizer.identity",
+        "id": "edge.identity-review",
+        "relation": "quarantines_conflict",
+        "required": false,
+        "to": "review.identity"
+      },
+      {
+        "from": "crosswalk.provider-alias",
+        "id": "edge.alias-snk",
+        "relation": "enables_exact_price_lookup",
+        "required": true,
+        "to": "collector.snk-exact"
+      },
+      {
+        "from": "crosswalk.provider-alias",
+        "id": "edge-alias-db",
+        "relation": "persists_alias_evidence",
+        "required": true,
+        "to": "database.canonical"
+      },
+      {
+        "from": "collector.snk-exact",
+        "id": "edge-snk-db",
+        "relation": "writes_normalized_market_facts",
+        "required": true,
+        "to": "database.canonical"
+      },
+      {
+        "from": "database.canonical",
+        "id": "edge-db-gate",
+        "relation": "validates_current_facts",
+        "required": true,
+        "to": "validator.eligibility"
+      },
+      {
+        "from": "validator.eligibility",
+        "id": "edge-gate-derive",
+        "relation": "admits_formal_and_radar_bands",
+        "required": true,
+        "to": "derivation.market"
+      },
+      {
+        "from": "derivation.market",
+        "id": "edge-derive-rank",
+        "relation": "orders_eligible_market_cap",
+        "required": true,
+        "to": "ranking.scopes"
+      },
+      {
+        "from": "ranking.scopes",
+        "id": "edge-rank-views",
+        "relation": "projects_rank_ranges",
+        "required": true,
+        "to": "export.views"
+      },
+      {
+        "from": "export.views",
+        "id": "edge-views-snapshot",
+        "relation": "sanitizes_for_frontend",
+        "required": true,
+        "to": "export.sanitized-snapshot"
+      },
+      {
+        "from": "orchestrator.daily",
+        "id": "edge-daily-state",
+        "relation": "promotes_only_after_all_gates",
+        "required": true,
+        "to": "state.last-good"
+      },
+      {
+        "from": "index.codegraph",
+        "id": "edge-codegraph-orchestrator",
+        "relation": "explains_code_impact_only",
+        "required": false,
+        "to": "orchestrator.daily"
+      }
+    ],
+    "entrypoint": "config/data-routing.json",
+    "nodes": [
+      {
+        "id": "discovery.candidates",
+        "kind": "collector",
+        "label": "Candidate discovery and radar",
+        "refs": {
+          "metricIds": [
+            "candidate_identity"
+          ],
+          "toolIds": [
+            "grade10-bootstrap",
+            "candidate-gemrate-backfill"
+          ]
+        }
+      },
+      {
+        "id": "authority.gemrate",
+        "kind": "authority",
+        "label": "GemRate identity and population authority",
+        "refs": {
+          "metricIds": [
+            "candidate_identity",
+            "psa10_population",
+            "psa10_population_history",
+            "grader_supply_psa_bgs_cgc_sgc_tag"
+          ]
+        }
+      },
+      {
+        "id": "transport.gemrate-direct",
+        "kind": "transport",
+        "label": "GemRate direct API",
+        "refs": {
+          "metricIds": [
+            "psa10_population",
+            "psa10_population_history"
+          ],
+          "toolIds": [
+            "gemrate-population"
+          ]
+        }
+      },
+      {
+        "id": "transport.gemrate-public",
+        "kind": "transport",
+        "label": "GemRate exact public card receipt",
+        "refs": {
+          "metricIds": [
+            "candidate_identity",
+            "psa10_population"
+          ],
+          "toolIds": [
+            "candidate-gemrate-backfill"
+          ]
+        }
+      },
+      {
+        "id": "transport.gemrate-mirror",
+        "kind": "transport",
+        "label": "Grade10 GemRate current-POP mirror",
+        "refs": {
+          "metricIds": [
+            "psa10_population"
+          ],
+          "toolIds": [
+            "grade10-bootstrap",
+            "gemrate-population"
+          ]
+        }
+      },
+      {
+        "id": "landing.immutable-receipts",
+        "kind": "landing",
+        "label": "Immutable private receipts and manifests",
+        "refs": {
+          "profileIds": [
+            "full-backfill",
+            "daily"
+          ]
+        }
+      },
+      {
+        "id": "normalizer.identity",
+        "kind": "normalizer",
+        "label": "Exact canonical printing resolver",
+        "refs": {
+          "metricIds": [
+            "candidate_identity"
+          ],
+          "toolIds": [
+            "exact-crosswalk",
+            "canonical-sync"
+          ]
+        }
+      },
+      {
+        "id": "crosswalk.provider-alias",
+        "kind": "normalizer",
+        "label": "Provider alias to canonical printing",
+        "refs": {
+          "databaseTargets": [
+            "catalog_source_identity",
+            "catalog_provider_identity_alias"
+          ],
+          "metricIds": [
+            "candidate_identity"
+          ],
+          "toolIds": [
+            "candidate-gemrate-backfill",
+            "canonical-db"
+          ]
+        }
+      },
+      {
+        "id": "review.identity",
+        "kind": "review_queue",
+        "label": "Identity conflict review queue",
+        "refs": {
+          "databaseTargets": [
+            "market_identity_review_queue"
+          ],
+          "metricIds": [
+            "candidate_identity"
+          ]
+        }
+      },
+      {
+        "id": "collector.snk-exact",
+        "kind": "collector",
+        "label": "Exact SNK PSA 10 price and trades",
+        "refs": {
+          "metricIds": [
+            "psa10_reference_price",
+            "tracked_sales"
+          ],
+          "toolIds": [
+            "snk-exact-refill",
+            "snk-reference-price"
+          ]
+        }
+      },
+      {
+        "id": "database.canonical",
+        "kind": "database",
+        "label": "Canonical MySQL-compatible facts",
+        "refs": {
+          "consumerIds": [
+            "canonical_mysql"
+          ],
+          "databaseTargets": [
+            "catalog_variant",
+            "catalog_source_identity",
+            "catalog_provider_identity_alias",
+            "market_grader_population_observation",
+            "market_price_observation",
+            "market_daily_sales_aggregate",
+            "market_candidate_daily_snapshot",
+            "market_index_snapshot",
+            "market_index_constituent"
+          ],
+          "toolIds": [
+            "canonical-db"
+          ]
+        }
+      },
+      {
+        "id": "validator.eligibility",
+        "kind": "validator",
+        "label": "POP, identity and price eligibility gate",
+        "refs": {
+          "metricIds": [
+            "candidate_identity",
+            "psa10_population",
+            "psa10_reference_price",
+            "psa10_market_cap"
+          ],
+          "toolIds": [
+            "coverage-audit"
+          ]
+        }
+      },
+      {
+        "id": "derivation.market",
+        "kind": "derivation",
+        "label": "Market cap, windows, sales and alerts",
+        "refs": {
+          "metricIds": [
+            "price_change_1d_7d_30d",
+            "psa10_market_cap",
+            "tracked_sales"
+          ],
+          "toolIds": [
+            "ranking-derivation",
+            "ranking-alerts"
+          ]
+        }
+      },
+      {
+        "id": "ranking.scopes",
+        "kind": "derivation",
+        "label": "Complete TCG, Pokemon and One Piece rankings",
+        "refs": {
+          "metricIds": [
+            "psa10_market_cap"
+          ],
+          "toolIds": [
+            "ranking-derivation"
+          ]
+        }
+      },
+      {
+        "id": "export.views",
+        "kind": "export",
+        "label": "Top 100, 300, 350 and reserve projections",
+        "refs": {
+          "consumerIds": [
+            "sanitized_snapshot"
+          ]
+        }
+      },
+      {
+        "id": "export.sanitized-snapshot",
+        "kind": "export",
+        "label": "Provider-safe frontend handshake",
+        "refs": {
+          "consumerIds": [
+            "sanitized_snapshot"
+          ],
+          "toolIds": [
+            "snapshot-export"
+          ]
+        }
+      },
+      {
+        "id": "orchestrator.daily",
+        "kind": "orchestrator",
+        "label": "One Python daily control flow",
+        "refs": {
+          "profileIds": [
+            "daily",
+            "weekly-candidate-refresh",
+            "full-backfill"
+          ]
+        }
+      },
+      {
+        "id": "state.last-good",
+        "kind": "checkpoint",
+        "label": "Atomic checkpoint and last-good generation",
+        "refs": {
+          "profileIds": [
+            "daily",
+            "export"
+          ]
+        }
+      },
+      {
+        "id": "index.codegraph",
+        "kind": "code_index",
+        "label": "Local CodeGraph SQLite index",
+        "refs": {}
+      }
+    ]
+  },
+  "consumers": [
+    {
+      "entrypoint": "scripts/backend.py",
+      "id": "manual_operator",
+      "reads": [
+        "profiles",
+        "tools",
+        "routes"
+      ],
+      "type": "manual"
+    },
+    {
+      "entrypoint": "tests/test_data_routing.py",
+      "id": "automated_tests",
+      "reads": [
+        "routes",
+        "tools",
+        "profiles"
+      ],
+      "type": "test"
+    },
+    {
+      "entrypoint": "pipelines/db_runtime.py",
+      "id": "canonical_mysql",
+      "reads": [
+        "routes",
+        "tools",
+        "storagePolicy"
+      ],
+      "type": "database"
+    },
+    {
+      "entrypoint": "pipelines/canonical_public_snapshot.py",
+      "id": "sanitized_snapshot",
+      "reads": [
+        "rankingPolicy",
+        "presentationViews",
+        "routes"
+      ],
+      "type": "snapshot"
+    }
+  ],
+  "dataCleaningPolicy": {
+    "manualPath": "docs/DATA_CLEANING_RULES.md",
+    "rulesPath": "config/data-cleaning-rules.json",
+    "schemaPath": "config/data-cleaning-rules.schema.json"
+  },
+  "manuals": [
+    {
+      "id": "backend-runbook",
+      "path": "docs/RUNBOOK.md",
+      "purpose": "operator commands, checkpoint and rollback"
+    },
+    {
+      "id": "data-contract",
+      "path": "docs/DATA_CONTRACT.md",
+      "purpose": "canonical data and snapshot contract"
+    },
+    {
+      "id": "data-cleaning-rules",
+      "path": "docs/DATA_CLEANING_RULES.md",
+      "purpose": "raw retention, normalization, canonical fact and derivation rules"
+    },
+    {
+      "id": "frontend-handshake",
+      "path": "docs/FRONTEND_HANDSHAKE.md",
+      "purpose": "sanitized frontend fields only"
+    },
+    {
+      "id": "aws-handoff",
+      "path": "docs/AWS_HANDOFF.md",
+      "purpose": "Linux/AWS restore and scheduler handoff"
+    },
+    {
+      "id": "gemrate-source",
+      "path": "pipelines/GEMRATE_SOURCE.md",
+      "purpose": "GemRate authority and transports"
+    },
+    {
+      "id": "grade10-operator",
+      "path": "integrations/grade10/OPERATOR_GUIDE.md",
+      "purpose": "Grade10 bootstrap and mirror operation"
+    },
+    {
+      "id": "snk-manual",
+      "path": "docs/SNKRDUNK_API_MANUAL.md",
+      "purpose": "exact SNK price/history collection"
+    }
+  ],
+  "policyVersion": "cardz-routing-2026-07-24",
+  "presentationViews": [
+    {
+      "description": "Public headline projection of the canonical ranking.",
+      "id": "top100",
+      "rankRange": "1-100"
+    },
+    {
+      "description": "Public Top 300 projection of the canonical ranking.",
+      "id": "top300",
+      "rankRange": "1-300"
+    },
+    {
+      "description": "Operator view containing Top 300 plus reserve50.",
+      "id": "top350",
+      "rankRange": "1-350"
+    },
+    {
+      "aliasOf": "top300",
+      "description": "Compatibility alias for ranks 1-100 leaders plus ranks 101-300 watch candidates.",
+      "id": "top100_plus_200",
+      "rankRange": "1-300"
+    },
+    {
+      "description": "Private reserve projection; never emitted in a public snapshot.",
+      "id": "reserve50",
+      "rankEnd": 350,
+      "rankStart": 301
+    }
+  ],
+  "profiles": [
+    {
+      "id": "full-backfill",
+      "phases": [
+        {
+          "id": "preflight",
+          "tools": [
+            "route-contract"
+          ]
+        },
+        {
+          "id": "discovery",
+          "tools": [
+            "grade10-bootstrap",
+            "exact-crosswalk",
+            "tracked-universe",
+            "candidate-gemrate-backfill"
+          ]
+        },
+        {
+          "id": "collect",
+          "tools": [
+            "snk-exact-refill",
+            "gemrate-population",
+            "snk-reference-price",
+            "ebay-sold-normalizer"
+          ]
+        },
+        {
+          "id": "normalize",
+          "tools": [
+            "canonical-sync"
+          ]
+        },
+        {
+          "id": "ingest",
+          "tools": [
+            "canonical-db"
+          ]
+        },
+        {
+          "id": "derive",
+          "tools": [
+            "ranking-derivation",
+            "ranking-alerts"
+          ]
+        },
+        {
+          "id": "audit",
+          "tools": [
+            "coverage-audit"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "weekly-candidate-refresh",
+      "phases": [
+        {
+          "id": "preflight",
+          "tools": [
+            "route-contract"
+          ]
+        },
+        {
+          "id": "discovery",
+          "tools": [
+            "candidate-gemrate-backfill",
+            "exact-crosswalk"
+          ]
+        },
+        {
+          "id": "collect",
+          "tools": [
+            "snk-exact-refill"
+          ]
+        },
+        {
+          "id": "normalize",
+          "tools": [
+            "canonical-sync"
+          ]
+        },
+        {
+          "id": "ingest",
+          "tools": [
+            "canonical-db"
+          ]
+        },
+        {
+          "id": "derive",
+          "tools": [
+            "ranking-derivation",
+            "ranking-alerts"
+          ]
+        },
+        {
+          "id": "audit",
+          "tools": [
+            "coverage-audit"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "daily",
+      "phases": [
+        {
+          "id": "preflight",
+          "tools": [
+            "route-contract"
+          ]
+        },
+        {
+          "id": "discovery",
+          "tools": [
+            "exact-crosswalk"
+          ]
+        },
+        {
+          "id": "collect",
+          "tools": [
+            "gemrate-population",
+            "snk-reference-price",
+            "ebay-sold-normalizer"
+          ]
+        },
+        {
+          "id": "normalize",
+          "tools": [
+            "canonical-sync"
+          ]
+        },
+        {
+          "id": "ingest",
+          "tools": [
+            "canonical-db"
+          ]
+        },
+        {
+          "id": "derive",
+          "tools": [
+            "ranking-derivation",
+            "ranking-alerts"
+          ]
+        },
+        {
+          "id": "audit",
+          "tools": [
+            "coverage-audit"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "export",
+      "phases": [
+        {
+          "id": "audit",
+          "tools": [
+            "coverage-audit"
+          ]
+        },
+        {
+          "id": "export",
+          "tools": [
+            "snapshot-export"
+          ]
+        }
+      ]
+    },
+    {
+      "aliasOf": "export",
+      "id": "snapshot-export",
+      "phases": [
+        {
+          "id": "audit",
+          "tools": [
+            "coverage-audit"
+          ]
+        },
+        {
+          "id": "export",
+          "tools": [
+            "snapshot-export"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "seed-build",
+      "phases": [
+        {
+          "id": "audit",
+          "tools": [
+            "coverage-audit"
+          ]
+        },
+        {
+          "id": "seed",
+          "tools": [
+            "canonical-seed",
+            "handoff-verify"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "restore",
+      "phases": [
+        {
+          "id": "verify",
+          "tools": [
+            "handoff-verify"
+          ]
+        },
+        {
+          "id": "restore",
+          "tools": [
+            "seed-restore"
+          ]
+        },
+        {
+          "id": "canary",
+          "tools": [
+            "route-contract",
+            "coverage-audit"
+          ]
+        }
+      ]
+    },
+    {
+      "aliasOf": "restore",
+      "id": "seed-restore",
+      "phases": [
+        {
+          "id": "verify",
+          "tools": [
+            "handoff-verify"
+          ]
+        },
+        {
+          "id": "restore",
+          "tools": [
+            "seed-restore"
+          ]
+        },
+        {
+          "id": "canary",
+          "tools": [
+            "route-contract",
+            "coverage-audit"
+          ]
+        }
+      ]
+    }
+  ],
+  "rankingPolicy": {
+    "canonicalMembership": "complete_eligible_rankings",
+    "eligibility": "psa10_population>=1000 && canonical_identity_confirmed && fresh_psa10_reference_price",
+    "indexes": [
+      {
+        "id": "tcg",
+        "scope": [
+          "pokemon",
+          "one-piece"
+        ],
+        "storageLimit": null
+      },
+      {
+        "id": "pokemon",
+        "scope": [
+          "pokemon"
+        ],
+        "storageLimit": null
+      },
+      {
+        "id": "one-piece",
+        "scope": [
+          "one-piece"
+        ],
+        "storageLimit": null
+      }
+    ],
+    "languagePartitioning": false,
+    "preEntryPolicy": "970<psa10_population<1000; collect current POP and exact PSA 10 price for radar only; never rank or publish as formal membership"
+  },
+  "routeDefaults": {
+    "importerTool": "canonical-db",
+    "normalizerTool": "canonical-sync"
+  },
+  "routes": [
+    {
+      "authority": "gemrate",
+      "bootstrapEvidence": [
+        "grade10_index_discovery"
+      ],
+      "collector": "pipelines/gemrate_candidate_backfill.py --resume",
+      "collectorTool": "candidate-gemrate-backfill",
+      "databaseTarget": "catalog_source_identity + catalog_provider_identity_alias + market_identity_review_queue",
+      "failureMode": "candidate_unresolved",
+      "freshnessHours": 168,
+      "metric": "candidate_identity",
+      "primary": "gemrate_direct_api_identity_receipt",
+      "rankingRequired": true,
+      "secondary": [
+        "snk_catalog_discovery"
+      ],
+      "snapshotFields": [
+        "cards.<id>.identityStatus",
+        "cards.<id>.collectorNumber",
+        "cards.<id>.language",
+        "cards.<id>.names",
+        "cards.<id>.sets"
+      ],
+      "transport": {
+        "alternates": [
+          "gemrate_public_exact_card_page_receipt",
+          "grade10_gemrate_mirror_identity_evidence"
+        ],
+        "directRoute": "/cards/{gemrate_id}/population?parsed_description=true",
+        "discoveryOnly": [
+          "gemrate_structured_search",
+          "gemrate_universal_search"
+        ],
+        "mirrorRoute": "price.getGradingPopulations",
+        "preferred": "gemrate_direct_api_identity_receipt",
+        "promotionRule": "only an exact crosswalk may confirm a canonical printing; public card_number is provider evidence and may be short or blank; mirror and discovery evidence cannot bind or rebind a canonical printing",
+        "publicCardPageRoute": "/card/{gemrate_id}"
+      }
+    },
+    {
+      "authority": "gemrate",
+      "collector": "pipelines/gemrate_source.py daily",
+      "collectorTool": "gemrate-population",
+      "databaseTarget": "market_grader_population_observation",
+      "failureMode": "exclude_from_ranking",
+      "fallback": [],
+      "freshnessHours": 48,
+      "metric": "psa10_population",
+      "primary": "gemrate",
+      "rankingRequired": true,
+      "snapshotFields": [
+        "cards.<id>.populationPsa10",
+        "cards.<id>.graderPopulations.PSA"
+      ],
+      "staleHours": 168,
+      "transport": {
+        "alternates": [
+          "gemrate_public_card_page",
+          "grade10_getGradingPopulations_mirror"
+        ],
+        "deprecatedPublicCardDetailsRoute": "/card-details?gemrate_id={gemrate_id}",
+        "differentDayPolicy": "direct_then_public_card_page_then_mirror_with_transport_provenance",
+        "mirrorCollector": "integrations/grade10/grade10_scraper.py",
+        "mirrorRoute": "price.getGradingPopulations",
+        "mirrorScope": "current population only",
+        "preferred": "gemrate_direct_api",
+        "publicCardPageRoute": "/card/{gemrate_id}",
+        "sameDayPolicy": "require_equal_value_or_fail_run_for_direct_and_mirror"
+      },
+      "upstreamRoute": "/cards/{gemrate_id}/population"
+    },
+    {
+      "authority": "gemrate",
+      "collector": "pipelines/gemrate_source.py daily",
+      "collectorTool": "gemrate-population",
+      "databaseTarget": "market_grader_population_observation",
+      "failureMode": "history_accumulating",
+      "fallback": [],
+      "freshnessHours": 24,
+      "metric": "psa10_population_history",
+      "primary": "gemrate",
+      "rankingRequired": false,
+      "snapshotFields": [
+        "cards.<id>.graderPopulations.PSA.topGradePopulationChangePct"
+      ],
+      "transport": {
+        "alternate": null,
+        "mirrorScope": "not available for historical population",
+        "preferred": "gemrate_direct_api"
+      },
+      "upstreamRoute": "/cards/{gemrate_id}/population/history?interval=week"
+    },
+    {
+      "authority": "snk_exact_psa10_history",
+      "bootstrapEvidence": [
+        "grade10_last_good"
+      ],
+      "collector": "pipelines/snk_market_data.py",
+      "collectorTool": "snk-exact-refill",
+      "databaseTarget": "market_price_observation",
+      "failureMode": "exclude_from_ranking",
+      "fallback": [],
+      "freshnessHours": 30,
+      "metric": "psa10_reference_price",
+      "primary": "snk",
+      "rankingRequired": true,
+      "secondary": [
+        "ebay_psa10_sold_validation"
+      ],
+      "snapshotFields": [
+        "cards.<id>.pricePsa10",
+        "cards.<id>.historyDaily"
+      ],
+      "staleHours": 48
+    },
+    {
+      "authority": "snk_exact_recent_trades",
+      "bootstrapEvidence": [
+        "grade10_ebay_sale_history"
+      ],
+      "collector": "pipelines/snk_market_data.py + pending repository-owned eBay sold adapter",
+      "collectorTool": "snk-reference-price",
+      "databaseTarget": "market_daily_sales_aggregate",
+      "failureMode": "show_unavailable",
+      "fallback": [],
+      "freshnessHours": 30,
+      "metric": "tracked_sales",
+      "primary": "snk_recent_trades",
+      "rankingRequired": false,
+      "secondary": [
+        "ebay_psa10_sold"
+      ],
+      "snapshotFields": [
+        "cards.<id>.windows.1d.trackedSales",
+        "cards.<id>.windows.7d.trackedSales",
+        "cards.<id>.windows.30d.trackedSales",
+        "cards.<id>.historyDaily"
+      ]
+    },
+    {
+      "authority": "cardz_daily_reference_price_derivation",
+      "collector": "pipelines/market_alerts.py",
+      "collectorTool": "ranking-alerts",
+      "databaseTarget": "market_candidate_daily_snapshot",
+      "dependsOn": [
+        "psa10_reference_price"
+      ],
+      "failureMode": "show_accumulating",
+      "fallback": [],
+      "metric": "price_change_1d_7d_30d",
+      "primary": "cardz_derived",
+      "rankingRequired": false,
+      "snapshotFields": [
+        "cards.<id>.windows.1d.changePct",
+        "cards.<id>.windows.7d.changePct",
+        "cards.<id>.windows.30d.changePct"
+      ]
+    },
+    {
+      "authority": "cardz_psa10_market_cap_formula",
+      "collector": "pipelines/market_alerts.py",
+      "collectorTool": "ranking-derivation",
+      "databaseTarget": "market_candidate_daily_snapshot",
+      "dependsOn": [
+        "psa10_population",
+        "psa10_reference_price"
+      ],
+      "failureMode": "exclude_from_ranking",
+      "fallback": [],
+      "formula": "psa10_population * psa10_reference_price",
+      "metric": "psa10_market_cap",
+      "primary": "cardz_derived",
+      "rankingRequired": true,
+      "snapshotFields": [
+        "cards.<id>.marketCap",
+        "cards.<id>.rank"
+      ]
+    },
+    {
+      "authority": "gemrate",
+      "collector": "pipelines/gemrate_source.py daily",
+      "collectorTool": "gemrate-population",
+      "coverageNote": "Per-card TAG remains unavailable until returned by the GemRate card API; grader-level TAG volume is stored separately and never substituted.",
+      "databaseTarget": "market_grader_population_observation",
+      "failureMode": "show_unavailable",
+      "fallback": [],
+      "freshnessHours": 48,
+      "metric": "grader_supply_psa_bgs_cgc_sgc_tag",
+      "primary": "gemrate",
+      "rankingRequired": false,
+      "snapshotFields": [
+        "cards.<id>.graderPopulations"
+      ]
+    },
+    {
+      "authority": "cardz_editorial",
+      "bootstrapEvidence": [
+        "grade10_summary"
+      ],
+      "collector": "editorial import keyed by canonical printing",
+      "collectorTool": "canonical-sync",
+      "databaseTarget": "card_market_story",
+      "failureMode": "show_unavailable",
+      "fallback": [],
+      "metric": "card_market_story",
+      "primary": "cardz_editorial",
+      "rankingRequired": false,
+      "snapshotFields": [
+        "cards.<id>.stories"
+      ]
+    },
+    {
+      "authority": "frankfurter",
+      "collector": "pipelines/fx_rates.py",
+      "collectorTool": "canonical-db",
+      "databaseTarget": "fx_rate_observation",
+      "failureMode": "disable_currency_conversion",
+      "fallback": [
+        "last_good_72h"
+      ],
+      "freshnessHours": 36,
+      "metric": "fx_usd_display_rates",
+      "primary": "frankfurter",
+      "rankingRequired": false,
+      "snapshotFields": [
+        "currencies"
+      ],
+      "staleHours": 72
+    }
+  ],
+  "rules": {
+    "languagePartitioning": false,
+    "populationAuthority": "gemrate",
+    "populationBands": {
+      "discoveryOnly": {
+        "maximumInclusivePsa10Population": 970
+      },
+      "formalRanking": {
+        "minimumPsa10Population": 1000
+      },
+      "preEntryRadar": {
+        "maximumExclusivePsa10Population": 1000,
+        "minimumExclusivePsa10Population": 970
+      }
+    },
+    "populationTransportOrder": [
+      "gemrate_direct_api",
+      "gemrate_public_card_page",
+      "grade10_getGradingPopulations_mirror"
+    ],
+    "trackedIndexes": [
+      "tcg",
+      "pokemon",
+      "one-piece"
+    ]
+  },
+  "schemaVersion": "3.0",
+  "storagePolicy": {
+    "canonicalObservationRetention": "append_idempotent",
+    "canonicalRankingStorageLimit": null,
+    "rawPayloadPolicy": "private_pointer_only",
+    "seedPolicy": "canonical_logical_seed_excludes_raw_payloads"
+  },
+  "tests": [
+    {
+      "id": "registry-lineage",
+      "path": "tests/test_registry_lineage.py"
+    },
+    {
+      "id": "candidate-backfill",
+      "path": "tests/test_gemrate_candidate_backfill.py"
+    },
+    {
+      "id": "gemrate-transport",
+      "path": "tests/test_gemrate_transport.py"
+    },
+    {
+      "id": "snk-exact-refill",
+      "path": "tests/test_snkrdunk_bulk_refill.py"
+    },
+    {
+      "id": "canonical-sync",
+      "path": "tests/test_market_source_gemrate.py"
+    },
+    {
+      "id": "ranking-derivation",
+      "path": "tests/test_ranking_derivation.py"
+    },
+    {
+      "id": "snapshot-export",
+      "path": "tests/test_canonical_public_snapshot.py"
+    },
+    {
+      "id": "ebay-normalizer",
+      "path": "tests/test_ebay_sold_data.py"
+    },
+    {
+      "id": "market-alerts",
+      "path": "tests/test_market_alerts.py"
+    },
+    {
+      "id": "coverage-audit",
+      "path": "tests/test_data_coverage_audit.py"
+    },
+    {
+      "id": "daily-orchestration",
+      "path": "tests/test_run_daily_orchestration.py"
+    }
+  ],
+  "toolDefaults": {
+    "dependencies": [
+      "python>=3.11",
+      "pipelines/requirements.txt"
+    ],
+    "manualRefs": [
+      "backend-runbook",
+      "data-contract"
+    ],
+    "operatingSystems": [
+      "windows",
+      "linux",
+      "aws"
+    ],
+    "sideEffects": "writes only private landing, canonical DB or generated snapshot according to the active profile; never deploys or pushes",
+    "testRefs": [
+      "registry-lineage"
+    ],
+    "timeoutSeconds": 1800
+  },
+  "tools": [
+    {
+      "command": [
+        "python",
+        "pipelines/data_routing.py"
+      ],
+      "consumers": [
+        "manual_operator",
+        "automated_tests",
+        "canonical_mysql",
+        "sanitized_snapshot"
+      ],
+      "entrypoint": "pipelines/data_routing.py",
+      "id": "route-contract",
+      "phase": "preflight",
+      "routeMetrics": [
+        "candidate_identity",
+        "psa10_population",
+        "psa10_population_history",
+        "psa10_reference_price",
+        "tracked_sales",
+        "price_change_1d_7d_30d",
+        "psa10_market_cap",
+        "grader_supply_psa_bgs_cgc_sgc_tag",
+        "card_market_story",
+        "fx_usd_display_rates"
+      ]
+    },
+    {
+      "command": [
+        "python",
+        "integrations/grade10/run_service.py"
+      ],
+      "consumers": [
+        "manual_operator",
+        "canonical_mysql"
+      ],
+      "entrypoint": "integrations/grade10/run_service.py",
+      "id": "grade10-bootstrap",
+      "phase": "discovery",
+      "routeMetrics": [
+        "candidate_identity"
+      ]
+    },
+    {
+      "command": [
+        "python",
+        "pipelines/gemrate_candidate_backfill.py",
+        "--resume"
+      ],
+      "consumers": [
+        "manual_operator",
+        "canonical_mysql"
+      ],
+      "entrypoint": "pipelines/gemrate_candidate_backfill.py",
+      "id": "candidate-gemrate-backfill",
+      "manualRefs": [
+        "gemrate-source",
+        "backend-runbook"
+      ],
+      "phase": "discovery",
+      "routeMetrics": [
+        "candidate_identity",
+        "psa10_population",
+        "psa10_population_history",
+        "grader_supply_psa_bgs_cgc_sgc_tag"
+      ],
+      "sideEffects": "writes immutable private candidate receipts and a resumable exact-card worklist; keyless public collection requires the explicit --collect-public-candidates full-backfill flag; no public export",
+      "testRefs": [
+        "candidate-backfill",
+        "gemrate-transport"
+      ],
+      "timeoutSeconds": 14400
+    },
+    {
+      "command": [
+        "python",
+        "pipelines/source_crosswalk.py"
+      ],
+      "consumers": [
+        "manual_operator",
+        "canonical_mysql"
+      ],
+      "entrypoint": "pipelines/source_crosswalk.py",
+      "id": "exact-crosswalk",
+      "phase": "discovery",
+      "routeMetrics": [
+        "candidate_identity"
+      ]
+    },
+    {
+      "command": [
+        "python",
+        "pipelines/tracked_universe.py"
+      ],
+      "consumers": [
+        "manual_operator",
+        "canonical_mysql"
+      ],
+      "entrypoint": "pipelines/tracked_universe.py",
+      "id": "tracked-universe",
+      "manualRefs": [
+        "backend-runbook"
+      ],
+      "phase": "discovery",
+      "routeMetrics": [
+        "candidate_identity"
+      ],
+      "sideEffects": "writes the private active-universe lock from exact crosswalk evidence; no public export",
+      "testRefs": [
+        "daily-orchestration"
+      ]
+    },
+    {
+      "command": [
+        "python",
+        "pipelines/gemrate_source.py",
+        "daily"
+      ],
+      "consumers": [
+        "manual_operator",
+        "canonical_mysql"
+      ],
+      "entrypoint": "pipelines/gemrate_source.py",
+      "id": "gemrate-population",
+      "manualRefs": [
+        "gemrate-source",
+        "backend-runbook"
+      ],
+      "phase": "collect",
+      "routeMetrics": [
+        "psa10_population",
+        "psa10_population_history",
+        "grader_supply_psa_bgs_cgc_sgc_tag"
+      ],
+      "testRefs": [
+        "gemrate-transport",
+        "daily-orchestration"
+      ]
+    },
+    {
+      "command": [
+        "python",
+        "pipelines/snkrdunk_bulk.py",
+        "--condition",
+        "trading_card_single_psa10"
+      ],
+      "consumers": [
+        "manual_operator",
+        "canonical_mysql"
+      ],
+      "entrypoint": "pipelines/snkrdunk_bulk.py",
+      "id": "snk-exact-refill",
+      "manualRefs": [
+        "snk-manual",
+        "backend-runbook"
+      ],
+      "phase": "collect",
+      "routeMetrics": [
+        "psa10_reference_price",
+        "tracked_sales"
+      ],
+      "sideEffects": "writes exact-match SNK private landing only after canonical identity crosswalk",
+      "testRefs": [
+        "snk-exact-refill"
+      ],
+      "timeoutSeconds": 14400
+    },
+    {
+      "command": [
+        "python",
+        "pipelines/snk_market_data.py"
+      ],
+      "consumers": [
+        "manual_operator",
+        "canonical_mysql"
+      ],
+      "entrypoint": "pipelines/snk_market_data.py",
+      "id": "snk-reference-price",
+      "manualRefs": [
+        "snk-manual",
+        "backend-runbook"
+      ],
+      "phase": "collect",
+      "routeMetrics": [
+        "psa10_reference_price",
+        "tracked_sales"
+      ],
+      "testRefs": [
+        "snk-exact-refill",
+        "daily-orchestration"
+      ]
+    },
+    {
+      "command": [
+        "python",
+        "pipelines/ebay_sold_data.py"
+      ],
+      "consumers": [
+        "manual_operator",
+        "canonical_mysql"
+      ],
+      "entrypoint": "pipelines/ebay_sold_data.py",
+      "id": "ebay-sold-normalizer",
+      "manualRefs": [
+        "data-contract",
+        "backend-runbook"
+      ],
+      "phase": "collect",
+      "routeMetrics": [
+        "tracked_sales",
+        "psa10_reference_price"
+      ],
+      "testRefs": [
+        "ebay-normalizer"
+      ]
+    },
+    {
+      "command": [
+        "python",
+        "pipelines/market_source_sync.py"
+      ],
+      "consumers": [
+        "manual_operator",
+        "canonical_mysql"
+      ],
+      "entrypoint": "pipelines/market_source_sync.py",
+      "id": "canonical-sync",
+      "manualRefs": [
+        "data-contract",
+        "backend-runbook"
+      ],
+      "phase": "normalize",
+      "routeMetrics": [
+        "candidate_identity",
+        "psa10_population",
+        "psa10_population_history",
+        "psa10_reference_price",
+        "tracked_sales",
+        "grader_supply_psa_bgs_cgc_sgc_tag",
+        "card_market_story"
+      ],
+      "testRefs": [
+        "canonical-sync"
+      ]
+    },
+    {
+      "command": [
+        "python",
+        "pipelines/db_runtime.py"
+      ],
+      "consumers": [
+        "manual_operator",
+        "canonical_mysql"
+      ],
+      "entrypoint": "pipelines/db_runtime.py",
+      "id": "canonical-db",
+      "manualRefs": [
+        "data-contract",
+        "backend-runbook",
+        "aws-handoff"
+      ],
+      "phase": "ingest",
+      "routeMetrics": [
+        "candidate_identity",
+        "psa10_population",
+        "psa10_population_history",
+        "psa10_reference_price",
+        "tracked_sales",
+        "grader_supply_psa_bgs_cgc_sgc_tag",
+        "card_market_story",
+        "fx_usd_display_rates"
+      ],
+      "testRefs": [
+        "canonical-sync"
+      ]
+    },
+    {
+      "command": [
+        "python",
+        "pipelines/ranking_derivation.py"
+      ],
+      "consumers": [
+        "manual_operator",
+        "canonical_mysql",
+        "sanitized_snapshot"
+      ],
+      "entrypoint": "pipelines/ranking_derivation.py",
+      "id": "ranking-derivation",
+      "manualRefs": [
+        "data-contract"
+      ],
+      "phase": "derive",
+      "routeMetrics": [
+        "psa10_market_cap"
+      ],
+      "testRefs": [
+        "ranking-derivation"
+      ]
+    },
+    {
+      "command": [
+        "python",
+        "pipelines/market_alerts.py"
+      ],
+      "consumers": [
+        "manual_operator",
+        "canonical_mysql",
+        "sanitized_snapshot"
+      ],
+      "entrypoint": "pipelines/market_alerts.py",
+      "id": "ranking-alerts",
+      "manualRefs": [
+        "data-contract",
+        "backend-runbook"
+      ],
+      "phase": "derive",
+      "routeMetrics": [
+        "price_change_1d_7d_30d",
+        "psa10_market_cap"
+      ],
+      "testRefs": [
+        "market-alerts"
+      ]
+    },
+    {
+      "command": [
+        "python",
+        "pipelines/data_coverage_audit.py"
+      ],
+      "consumers": [
+        "manual_operator",
+        "automated_tests",
+        "canonical_mysql",
+        "sanitized_snapshot"
+      ],
+      "entrypoint": "pipelines/data_coverage_audit.py",
+      "id": "coverage-audit",
+      "manualRefs": [
+        "data-contract",
+        "backend-runbook"
+      ],
+      "phase": "audit",
+      "routeMetrics": [
+        "candidate_identity",
+        "psa10_population",
+        "psa10_reference_price",
+        "psa10_market_cap"
+      ],
+      "testRefs": [
+        "coverage-audit"
+      ]
+    },
+    {
+      "command": [
+        "python",
+        "pipelines/canonical_public_snapshot.py"
+      ],
+      "consumers": [
+        "manual_operator",
+        "sanitized_snapshot"
+      ],
+      "entrypoint": "pipelines/canonical_public_snapshot.py",
+      "id": "snapshot-export",
+      "manualRefs": [
+        "frontend-handshake",
+        "data-contract"
+      ],
+      "phase": "export",
+      "routeMetrics": [
+        "psa10_population",
+        "psa10_reference_price",
+        "tracked_sales",
+        "price_change_1d_7d_30d",
+        "psa10_market_cap"
+      ],
+      "testRefs": [
+        "snapshot-export"
+      ]
+    },
+    {
+      "command": [
+        "python",
+        "scripts/canonical_seed.py"
+      ],
+      "consumers": [
+        "manual_operator",
+        "canonical_mysql"
+      ],
+      "entrypoint": "scripts/canonical_seed.py",
+      "id": "canonical-seed",
+      "phase": "seed",
+      "routeMetrics": []
+    },
+    {
+      "command": [
+        "python",
+        "scripts/seed_restore.py"
+      ],
+      "consumers": [
+        "manual_operator",
+        "canonical_mysql"
+      ],
+      "entrypoint": "scripts/seed_restore.py",
+      "id": "seed-restore",
+      "phase": "restore",
+      "routeMetrics": []
+    },
+    {
+      "command": [
+        "python",
+        "scripts/verify_handoff.py"
+      ],
+      "consumers": [
+        "manual_operator",
+        "automated_tests"
+      ],
+      "entrypoint": "scripts/verify_handoff.py",
+      "id": "handoff-verify",
+      "phase": "verify",
+      "routeMetrics": []
+    }
+  ],
+  "workItems": [
+    {
+      "acceptance": [
+        "unknown node, tool, metric, profile, consumer and task references fail",
+        "dependency cycles fail"
+      ],
+      "dependsOn": [],
+      "id": "P0-REGISTRY-SCHEMA",
+      "inputs": [
+        "config/data-routing.json"
+      ],
+      "nodeIds": [
+        "orchestrator.daily",
+        "index.codegraph"
+      ],
+      "outputs": [
+        "validated architecture DAG",
+        "validated task DAG"
+      ],
+      "ownerFiles": [
+        "pipelines/registry_lineage.py",
+        "tests/test_registry_lineage.py"
+      ],
+      "priority": "P0",
+      "status": "completed",
+      "title": "Validate architecture and task references"
+    },
+    {
+      "acceptance": [
+        "config/data-routing.json is the only handwritten architecture source"
+      ],
+      "dependsOn": [],
+      "id": "P0-CONTROL-PLANE-NODES",
+      "inputs": [
+        "existing metrics, tools, profiles and presentation views"
+      ],
+      "nodeIds": [
+        "orchestrator.daily",
+        "database.canonical",
+        "export.sanitized-snapshot"
+      ],
+      "outputs": [
+        "architecture nodes and edges"
+      ],
+      "ownerFiles": [
+        "config/data-routing.json"
+      ],
+      "priority": "P0",
+      "status": "completed",
+      "title": "Define the single architecture entrypoint"
+    },
+    {
+      "acceptance": [
+        "every work item references architecture nodes and owner files"
+      ],
+      "dependsOn": [
+        "P0-CONTROL-PLANE-NODES"
+      ],
+      "id": "P0-TASK-BOARD-SOURCE",
+      "inputs": [
+        "backend gaps"
+      ],
+      "nodeIds": [
+        "orchestrator.daily"
+      ],
+      "outputs": [
+        "workItems"
+      ],
+      "ownerFiles": [
+        "config/data-routing.json"
+      ],
+      "priority": "P0",
+      "status": "completed",
+      "title": "Store bounded work items in the registry"
+    },
+    {
+      "acceptance": [
+        "generate-docs --check detects drift",
+        "generated files are never edited manually"
+      ],
+      "dependsOn": [
+        "P0-REGISTRY-SCHEMA",
+        "P0-CONTROL-PLANE-NODES"
+      ],
+      "id": "P0-GENERATED-DOCS",
+      "inputs": [
+        "architecture nodes, edges and workItems"
+      ],
+      "nodeIds": [
+        "index.codegraph",
+        "orchestrator.daily"
+      ],
+      "outputs": [
+        "generated Markdown and self-contained HTML"
+      ],
+      "ownerFiles": [
+        "pipelines/registry_lineage.py",
+        "docs/generated"
+      ],
+      "priority": "P0",
+      "status": "completed",
+      "title": "Generate control-plane diagram and task board"
+    },
+    {
+      "acceptance": [
+        "operators can trace source to DB to snapshot without repository grep"
+      ],
+      "dependsOn": [
+        "P0-REGISTRY-SCHEMA"
+      ],
+      "id": "P0-GRAPH-QUERY",
+      "inputs": [
+        "registry identifiers"
+      ],
+      "nodeIds": [
+        "index.codegraph",
+        "orchestrator.daily"
+      ],
+      "outputs": [
+        "backend explain and work-items commands"
+      ],
+      "ownerFiles": [
+        "pipelines/registry_lineage.py",
+        "pipelines/data_routing.py",
+        "scripts/backend.py"
+      ],
+      "priority": "P0",
+      "status": "completed",
+      "title": "Expose node and task reverse lookup"
+    },
+    {
+      "acceptance": [
+        "graph status is healthy and one explore query returns call paths"
+      ],
+      "dependsOn": [],
+      "id": "P0-CODEGRAPH-ADAPTER",
+      "inputs": [
+        "repository code"
+      ],
+      "nodeIds": [
+        "index.codegraph"
+      ],
+      "outputs": [
+        ".codegraph SQLite runtime",
+        "npm graph scripts"
+      ],
+      "ownerFiles": [
+        "package.json",
+        "package-lock.json",
+        ".gitignore"
+      ],
+      "priority": "P0",
+      "status": "completed",
+      "title": "Install local AST code graph without making it authoritative"
+    },
+    {
+      "acceptance": [
+        "same alias cannot rebind across canonical printings",
+        "member and spec aliases are grader namespaced",
+        "replay adds no duplicate association"
+      ],
+      "dependsOn": [
+        "P0-CONTROL-PLANE-NODES"
+      ],
+      "id": "T2-GEMRATE-ALIAS-DURABILITY",
+      "inputs": [
+        "verified GemRate identity receipts"
+      ],
+      "nodeIds": [
+        "crosswalk.provider-alias",
+        "database.canonical",
+        "review.identity"
+      ],
+      "outputs": [
+        "catalog_provider_identity_alias",
+        "SNK source identity binding"
+      ],
+      "ownerFiles": [
+        "pipelines/db_runtime.py",
+        "pipelines/migrations/010_provider_identity_alias.mysql.sql",
+        "tests/test_db_runtime.py"
+      ],
+      "priority": "P0",
+      "status": "completed",
+      "title": "Persist exact GemRate aliases and exact SNK identity"
+    },
+    {
+      "acceptance": [
+        "all candidates have one terminal classification",
+        "no name-search result promotes identity",
+        "failed receipt IDs remain retryable"
+      ],
+      "dependsOn": [
+        "T2-GEMRATE-ALIAS-DURABILITY"
+      ],
+      "id": "T3-GEMRATE-CANDIDATE-CLASSIFICATION",
+      "inputs": [
+        "candidate IDs",
+        "GemRate direct or public receipts"
+      ],
+      "nodeIds": [
+        "discovery.candidates",
+        "transport.gemrate-public",
+        "normalizer.identity",
+        "review.identity"
+      ],
+      "outputs": [
+        "resolved, below-threshold, unavailable and review classifications"
+      ],
+      "ownerFiles": [
+        "pipelines/gemrate_source.py",
+        "pipelines/gemrate_candidate_backfill.py",
+        "data/runtime/private-source-runs"
+      ],
+      "priority": "P0",
+      "status": "in_progress",
+      "title": "Classify the complete candidate receipt worklist"
+    },
+    {
+      "acceptance": [
+        "number, language and grade mismatches are rejected",
+        "replay is idempotent"
+      ],
+      "dependsOn": [
+        "T3-GEMRATE-CANDIDATE-CLASSIFICATION"
+      ],
+      "id": "T4-SNK-EXACT-PRICE-HISTORY",
+      "inputs": [
+        "exact canonical printing and SNK item binding"
+      ],
+      "nodeIds": [
+        "crosswalk.provider-alias",
+        "collector.snk-exact",
+        "database.canonical"
+      ],
+      "outputs": [
+        "daily price and tracked-sale observations"
+      ],
+      "ownerFiles": [
+        "pipelines/snkrdunk_bulk.py",
+        "pipelines/snk_market_data.py",
+        "pipelines/source_crosswalk.py"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "title": "Collect exact SNK PSA 10 current and history facts"
+    },
+    {
+      "acceptance": [
+        "POP >=1000 only enters formal ranking",
+        "POP 971-999 remains pre-entry",
+        "all views are slices of one generation"
+      ],
+      "dependsOn": [
+        "T4-SNK-EXACT-PRICE-HISTORY"
+      ],
+      "id": "T5-RANKING-VIEWS",
+      "inputs": [
+        "current canonical population and price facts"
+      ],
+      "nodeIds": [
+        "validator.eligibility",
+        "derivation.market",
+        "ranking.scopes",
+        "export.views"
+      ],
+      "outputs": [
+        "three complete rankings",
+        "Top 100, 300, 350 and reserve views"
+      ],
+      "ownerFiles": [
+        "pipelines/ranking_derivation.py",
+        "pipelines/canonical_public_snapshot.py"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "title": "Derive complete rankings and presentation views"
+    },
+    {
+      "acceptance": [
+        "partial source failure never advances last-good",
+        "Windows and Linux call the same Python command"
+      ],
+      "dependsOn": [
+        "T5-RANKING-VIEWS"
+      ],
+      "id": "T6-DAILY-RECOVERY",
+      "inputs": [
+        "validated collectors, canonical DB and exporter"
+      ],
+      "nodeIds": [
+        "orchestrator.daily",
+        "state.last-good"
+      ],
+      "outputs": [
+        "daily checkpoint and last-good generation"
+      ],
+      "ownerFiles": [
+        "scripts/backend.py",
+        "pipelines/run_daily.py",
+        "docs/RUNBOOK.md"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "title": "Run unattended daily with atomic recovery"
+    }
+  ]
+}

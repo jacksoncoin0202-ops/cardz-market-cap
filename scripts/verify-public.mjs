@@ -14,9 +14,9 @@ const passes = [];
 
 const SNAPSHOT_PATH = path.join(root, "data", "public", "seed-snapshot.json");
 const LOCALES = ["en", "zhTW", "zhCN", "ja"];
-const CURRENCIES = ["USD", "HKD", "CNY", "GBP", "TWD"];
+const CURRENCIES = ["USD", "HKD", "CNY", "GBP", "TWD", "JPY", "KRW"];
 const WINDOWS = ["1d", "7d", "30d"];
-const GRADERS = ["PSA", "BGS", "CGC", "SGC"];
+const GRADERS = ["PSA", "BGS", "CGC", "SGC", "TAG"];
 const STATUSES = new Set(["ready", "accumulating", "stale", "unavailable"]);
 const COVERAGES = new Set(["partial", "stale", "unavailable"]);
 const TEXT_EXTENSIONS = new Set([
@@ -67,7 +67,7 @@ function listFiles(entry, { skipBuild = false } = {}) {
   if (stat.isFile()) return [entry];
   const files = [];
   for (const item of fs.readdirSync(entry, { withFileTypes: true })) {
-    if (["node_modules", ".git", ".wrangler"].includes(item.name)) continue;
+    if (["node_modules", ".git", ".wrangler", ".venv", ".venv-backend", ".preview"].includes(item.name)) continue;
     if (skipBuild && [".next", ".open-next", "out", "dist"].includes(item.name)) continue;
     const child = path.join(entry, item.name);
     if (skipBuild && /^(?:apps\/web\/)?data\/runtime(?:\/|$)/.test(relative(child))) continue;
@@ -332,7 +332,7 @@ function validateCard(card, label, expectedRank, generatedAt, productionMode, re
     validateMetric(card.windows[window].changePct, `${label}.windows.${window}.changePct`);
     validateTrackedSales(card.windows[window].trackedSales, `${label}.windows.${window}.trackedSales`);
   }
-  if (!isObject(card.graderPopulations) || GRADERS.some((grader) => !isObject(card.graderPopulations[grader])) || Object.keys(card.graderPopulations ?? {}).length !== GRADERS.length) fail(`${label}.graderPopulations must contain PSA, BGS, CGC, and SGC only.`);
+  if (!isObject(card.graderPopulations) || GRADERS.some((grader) => !isObject(card.graderPopulations[grader])) || Object.keys(card.graderPopulations ?? {}).length !== GRADERS.length) fail(`${label}.graderPopulations must contain PSA, BGS, CGC, SGC, and TAG only.`);
   else for (const grader of GRADERS) {
     const population = card.graderPopulations[grader];
     if (!isNonEmptyString(population.topGrade)) fail(`${label}.graderPopulations.${grader}.topGrade is missing.`);

@@ -1,36 +1,18 @@
 {
-  "schemaVersion": "2.0.0",
-  "role": "private_full_freeze",
+  "coverage": {
+    "assetInfo": 595,
+    "cardCount": 600,
+    "populations": 600,
+    "quarantined": 5
+  },
+  "effectiveAt": "2026-07-22T21:46:34.760892Z",
+  "fileCount": 9480,
+  "landingManifestSha256": "748c2cb1d914574ea4d5ea5c3c95bb65cb123f4f7ff2ae9fb6ed2737cb0e5998",
   "mode": "full",
-  "runId": "e7faee46632fde8c9f7c19e39e403f12f4fb4db991871a10e9df911c8531d6fc",
-  "effectiveAt": "2026-07-21T22:37:57.461837Z",
+  "payloadSha256": "6b9da3168c7ef648792b4fa936a62652f514406bac3ad4bbda12b34e3ea311f0",
   "priceEffectiveAt": "2026-07-19T00:00:00Z",
-  "payloadSha256": "91f4183c2a5f93c161d2ff0305eae87d3f108dad286f221d9681112d021d3e57",
-  "fileCount": 9471,
-  "cardCount": 600,
-  "intake": {
-    "accepted": 587,
-    "quarantined": 0,
-    "rejected": 13,
-    "changedFiles": 9471,
-    "deletedFiles": 0
-  },
-  "ungatedMarketUniverse": {
-    "candidateCount": 460,
-    "top100MarketCapUsd": 2624140427,
-    "top100TcgMix": {
-      "pokemon": 89,
-      "one-piece": 11
-    }
-  },
   "publicGate": {
     "candidateCount": 360,
-    "top100MarketCapUsd": 2445570776,
-    "top100TcgMix": {
-      "pokemon": 93,
-      "one-piece": 7
-    },
-    "watchlistCount": 260,
     "rejected": {
       "identity_incomplete_collector": 31,
       "identity_language_conflict": 23,
@@ -40,17 +22,23 @@
       "image_raw_front_unavailable": 29,
       "population": 136,
       "price": 4
-    }
+    },
+    "top100MarketCapUsd": 2445570776,
+    "top100TcgMix": {
+      "one-piece": 7,
+      "pokemon": 93
+    },
+    "watchlistCount": 260
   },
   "publicSnapshot": {
-    "generationId": "daily_20260722T094826496874Z",
-    "generatedAt": "2026-07-22T09:48:26.496874Z",
-    "fileSha256": "17b6af2c26b7178c089f4c2e1c3fb0da0b9e4c5b2e56a5d322ed190bedf4e0bd",
     "contentSha256": "894737a06f5947229af177c166b9a40d938896d0b2509d97cc336748ced7215f",
-    "rawFrontAssetCount": 360,
+    "editorialMappingSha256": "163aa8d4eb5199158d51e7e476705bbd849f66abb99f71e56bab8f4769609c76",
+    "fileSha256": "17b6af2c26b7178c089f4c2e1c3fb0da0b9e4c5b2e56a5d322ed190bedf4e0bd",
+    "generatedAt": "2026-07-22T09:48:26.496874Z",
+    "generationId": "daily_20260722T094826496874Z",
     "imageQcManifestSha256": "497929b02242178a803e122dad67ce3c980af8e65fabd895b581869290eaf352",
     "imageSemanticStatus": "metadata_exact_unreviewed",
-    "editorialMappingSha256": "163aa8d4eb5199158d51e7e476705bbd849f66abb99f71e56bab8f4769609c76",
+    "rawFrontAssetCount": 360,
     "top100CollectorQc": {
       "30": "78/73",
       "32": "001/025",
@@ -69,8 +57,34 @@
       "94": "012/025"
     }
   },
+  "quarantine": [
+    {
+      "externalId": "36bc91e4-a03d-4fe5-a1b3-55233656b0a6",
+      "reason": "missing_asset_info",
+      "sourceCode": "altxyz"
+    },
+    {
+      "externalId": "4d7cf160-de91-4aa9-9e44-505c8ddd8a73",
+      "reason": "missing_asset_info",
+      "sourceCode": "altxyz"
+    },
+    {
+      "externalId": "76a40dc9-9b9f-42d2-ae3d-d994bfa54fa0",
+      "reason": "missing_asset_info",
+      "sourceCode": "altxyz"
+    },
+    {
+      "externalId": "80d293fc-3542-49a4-8e2c-d054a444af1e",
+      "reason": "missing_asset_info",
+      "sourceCode": "altxyz"
+    },
+    {
+      "externalId": "d51dfc39-2f70-4e72-b9d2-10d9e6a0238f",
+      "reason": "missing_asset_info",
+      "sourceCode": "altxyz"
+    }
+  ],
   "release": {
-    "productionEligible": false,
     "blockers": [
       "canonical_identity_review_pending",
       "image_semantic_qc_review_pending",
@@ -79,6 +93,18 @@
       "currency_rate_feed_pending",
       "production_database_cutover_pending",
       "price_reference_over_48h"
-    ]
+    ],
+    "productionEligible": false
+  },
+  "role": "private_full_freeze",
+  "runId": "100a886065e7fc25eaffb8e0f5e3e368181af8dd748be0370a21a0cf55c9d08c",
+  "schemaVersion": "1.0.0",
+  "ungatedMarketUniverse": {
+    "candidateCount": 460,
+    "top100MarketCapUsd": 2624140427,
+    "top100TcgMix": {
+      "one-piece": 11,
+      "pokemon": 89
+    }
   }
 }

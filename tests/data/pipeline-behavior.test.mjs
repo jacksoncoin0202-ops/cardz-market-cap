@@ -63,19 +63,38 @@ test("immutable landing replays full input and archives only changed incremental
 
 test("daily orchestrator is fail-closed and contains no writable SQLite authority", async () => {
   await assert.rejects(
-    execute("python", ["pipelines/run_daily.py", "--mode", "staging", "--local-only"], { cwd: root }),
-    /private acquisition is not configured/i,
+    execute("python", ["pipelines/run_daily.py", "--mode", "staging", "--local-only", "--source-root", path.join(root, "does-not-exist")], { cwd: root }),
+    /source data root does not exist/i,
   );
-  await assert.rejects(
-    execute("python", ["pipelines/run_daily.py", "--mode", "production", "--skip-source-refresh", "--local-only"], { cwd: root }),
-    /production requires the JLP MySQL runner and remote R2 publish/i,
-  );
+  const help = (await execute("python", ["pipelines/run_daily.py", "--help"], { cwd: root })).stdout;
+  assert.match(help, /--skip-market-source-refresh/);
+  assert.match(help, /--refresh-bootstrap-source/);
+  assert.match(help, /--refresh-active-universe/);
+  assert.doesNotMatch(help, /--skip-source-refresh/);
+  assert.doesNotMatch(help, /JLP|production-runner|mysql-dsn/i);
   const runner = await readFile(path.join(root, "pipelines/run_daily.py"), "utf8");
   assert.doesNotMatch(runner, /sqlite3|canonical-history\.sqlite|grade10_analytics|grade10_kline/i);
   assert.match(runner, /grade10_scraper\.py/);
+  assert.match(runner, /source_crosswalk\.py/);
+  assert.match(runner, /tracked_universe\.py/);
+  assert.match(runner, /tracked-universe\.json/);
+  assert.match(runner, /tracked-gemrate-ids\.txt/);
+  assert.match(runner, /tracked-snk-ids\.txt/);
+  assert.match(runner, /def bootstrap_history_exists[\s\S]*rglob\("canonical-batch\.json"\)/);
+  assert.match(runner, /bootstrap_exists = bootstrap_history_exists\(landing_root\)/);
+  assert.match(runner, /gemrate_source\.py/);
+  assert.match(runner, /tag_daily_capture\.py/);
+  assert.match(runner, /snk_market_data\.py/);
+  assert.match(runner, /market_source_sync\.py/);
+  assert.match(runner, /if tag_input is not None:[\s\S]*"--tag-run", str\(tag_input\)/);
+  assert.match(runner, /tag_status = "unavailable"[\s\S]*tag_input = None/);
+  assert.doesNotMatch(runner, /CARDZ_JLP|run_production_authority|production-runner|mysql-dsn/i);
   assert.doesNotMatch(runner, /--skip-images/);
   assert.match(runner, /observation_effective_at=price_effective_at/);
   assert.match(runner, /write_canonical_batch\(manifest_path, source_root, price_effective_at, landing_manifest\)/);
+  assert.match(runner, /collect_or_reuse_fx/);
+  assert.match(runner, /fx_snapshot=fx_snapshot/);
+  assert.match(runner, /"--fx-snapshot", str\(fx_cache\)/);
   assert.match(runner, /CARDZ_GENERATION_CANARY_COMMAND_JSON/);
   assert.match(runner, /CARDZ_POINTER_PROMOTE_COMMAND_JSON/);
 });
@@ -89,6 +108,7 @@ test("scheduler defaults to 06:30 unattended, singleton, and two-hour timeout", 
   assert.match(installer, /LogonType S4U/);
   assert.match(installer, /MultipleInstances IgnoreNew/);
   assert.match(installer, /New-TimeSpan -Hours 2/);
+  assert.match(installer, /RefreshBootstrapSource/);
   assert.match(installer, /grade10_scraper\.py/);
   assert.match(installer, /-PythonExe/);
   assert.match(installer, /-CanaryOrigin/);
@@ -101,6 +121,9 @@ test("scheduler defaults to 06:30 unattended, singleton, and two-hour timeout", 
   assert.match(scheduledRunner, /\$env:CARDZ_GENERATION_CANARY_COMMAND_JSON\s*=/);
   assert.match(scheduledRunner, /\$env:CARDZ_POINTER_PROMOTE_COMMAND_JSON\s*=/);
   assert.match(scheduledRunner, /\$env:CARDZ_STAGING_R2_BUCKET\s*=\s*\$R2Bucket/);
+  assert.match(scheduledRunner, /\[switch\]\$RefreshActiveUniverse/);
+  assert.match(scheduledRunner, /\$Arguments \+= '--refresh-active-universe'/);
+  assert.doesNotMatch(scheduledRunner, /CARDZ_JLP|ProductionRunner/);
 
   if (process.platform !== "win32") {
     context.diagnostic("Task Scheduler WhatIf execution is Windows-only; structural assertions passed.");
@@ -111,17 +134,87 @@ test("scheduler defaults to 06:30 unattended, singleton, and two-hour timeout", 
   const sourceScript = path.resolve(root, "../grade10-scraper/grade10_scraper.py");
   const preview = await execute("powershell.exe", [
     "-NoLogo", "-NoProfile", "-NonInteractive", "-File", path.join(root, "pipelines/install_daily_task.ps1"),
-    "-PrivateAcquireScript", sourceScript,
     "-PythonExe", python,
     "-R2Bucket", "cardz-test-private-bucket",
     "-CanaryOrigin", "https://cardz-canary.example.test",
     "-WhatIf",
   ], { cwd: root });
   assert.match(preview.stdout, /CARDZ_ACTION_ARGUMENTS=.*-PythonExe/);
+  assert.doesNotMatch(preview.stdout, /PrivateAcquireScript|RefreshBootstrapSource/);
   assert.match(preview.stdout, new RegExp(python.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
   assert.match(preview.stdout, /-CanaryOrigin 'https:\/\/cardz-canary\.example\.test'/);
   assert.match(preview.stdout, /-GenerationCanaryCommandJson '\[.*run-generation-canary\.mjs.*\]'/);
   assert.match(preview.stdout, /-PointerPromoteCommandJson '\[.*promote-staging-pointer\.mjs.*\]'/);
+});
+
+test("exact source crosswalk and source normalizer are deterministic", async () => {
+  const crosswalk = JSON.parse((await execute("python", ["pipelines/source_crosswalk.py", "--self-test"], { cwd: root })).stdout.trim());
+  assert.equal(crosswalk.counts.cards, 2);
+  assert.equal(crosswalk.counts.gemrateExact, 2);
+  assert.equal(crosswalk.counts.snkExact, 1);
+  assert.equal(crosswalk.hashStable, true);
+
+  const universe = JSON.parse((await execute("python", ["pipelines/active_universe.py", "--self-test"], { cwd: root })).stdout.trim());
+  assert.equal(universe.ja.active, 300);
+  assert.equal(universe.ja.top100, 100);
+  assert.equal(universe.ja.watchlist, 200);
+  assert.equal(universe.maxSegment, 300);
+  assert.equal(universe.allOver100, true);
+  assert.equal(universe.koreanAlias, "ko");
+  assert.equal(universe.thaiAlias, "");
+  assert.equal(universe.nativeKoreanAccepted, true);
+  assert.equal(universe.englishOnlyKoreanRejected, true);
+  assert.equal(universe.lockCreated, true);
+  assert.equal(universe.lockReused, true);
+  assert.equal(universe.providerIdsFromLock, true);
+  assert.match(universe.lockId, /^universe_20260723T000000Z_[a-f0-9]{12}$/);
+
+  const activeUniverseSource = await readFile(path.join(root, "pipelines/active_universe.py"), "utf8");
+  assert.match(activeUniverseSource, /if output\.is_file\(\) and not args\.refresh_lock:/);
+  assert.match(activeUniverseSource, /load_active_universe_lock\(output, lock_root\)/);
+  assert.match(activeUniverseSource, /write_provider_ids\(document, gemrate_ids, snk_ids\)/);
+  assert.match(activeUniverseSource, /with path\.open\("xb"\)/);
+  assert.match(activeUniverseSource, /immutable active-universe locks exist but the active pointer is missing or legacy/);
+
+  const sourceSync = JSON.parse((await execute("python", ["pipelines/market_source_sync.py", "--self-test"], { cwd: root })).stdout.trim());
+  assert.equal(sourceSync.priceUsd, 100);
+  assert.equal(sourceSync.priority, 200);
+  assert.equal(sourceSync.counts.snkPriceObservations, 1);
+  assert.equal(sourceSync.tagTopGradePopulation, 12);
+  assert.equal(sourceSync.tagTotal, 21);
+  assert.equal(sourceSync.tagPriority, 150);
+  assert.equal(sourceSync.counts.tagObservations, 1);
+
+  const tag = JSON.parse((await execute("python", ["pipelines/tag_daily_capture.py", "--self-test"], { cwd: root })).stdout.trim());
+  assert.equal(tag.counts.matched, 1);
+  assert.equal(tag.matchedTopGrade, 14);
+  assert.equal(tag.matchedTotalExcludesVa, 14);
+  assert.equal(tag.suffixWasNotGuessed, true);
+  assert.equal(tag.ambiguousWasQuarantined, true);
+  assert.equal(tag.secondReplay, true);
+});
+
+test("GemRate, TAG, and SNK collectors keep credentials private and publish only complete runs", async () => {
+  const gemrate = await readFile(path.join(root, "pipelines/gemrate_source.py"), "utf8");
+  const tag = await readFile(path.join(root, "pipelines/tag_daily_capture.py"), "utf8");
+  const tagClient = await readFile(path.join(root, "pipelines/tag_pop_data.py"), "utf8");
+  const snkClient = await readFile(path.join(root, "pipelines/snkrdunk_bulk.py"), "utf8");
+  const snkPipeline = await readFile(path.join(root, "pipelines/snk_market_data.py"), "utf8");
+  assert.doesNotMatch(gemrate, /subprocess\.run\(|f["']x-api-key:/);
+  assert.match(gemrate, /os\.environ\.get\("GEMRATE_API_KEY"/);
+  assert.match(gemrate, /os\.replace\(temporary, path\)/);
+  assert.match(tag, /ambiguous_exact_identity/);
+  assert.match(tag, /no_exact_identity/);
+  assert.match(tag, /write_immutable_jsonl/);
+  assert.doesNotMatch(tag, /match_600|join_card/);
+  assert.match(tagClient, /dump_fresh/);
+  assert.match(tagClient, /partial\.with_suffix\(partial\.suffix \+ "\.state"\)/);
+  assert.match(tagClient, /os\.replace\(complete, destination\)/);
+  assert.match(snkClient, /response\.status_code == 429/);
+  assert.match(snkClient, /500 <= response\.status_code < 600/);
+  assert.match(snkPipeline, /default="trading_card_single_psa10"/);
+  assert.match(snkPipeline, /os\.replace\(partial, out_path\)/);
+  assert.match(snkPipeline, /state_path\.unlink\(missing_ok=True\)/);
 });
 
 test("publisher verifies all raw-front assets before writing latest pointer", async () => {

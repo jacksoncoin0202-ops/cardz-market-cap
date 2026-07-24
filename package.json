@@ -11,11 +11,16 @@
     "dev": "npm --workspace @cardz/web run dev",
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present && node --test tests/*.test.mjs",
+    "test": "npm run test --workspaces --if-present && node --test tests/*.test.mjs && npm run test:python",
+    "test:python": "python -m unittest discover -s tests -p \"test_*.py\" -v",
     "test:data": "node --test tests/data/*.test.mjs",
     "build": "npm run build --workspace @cardz/market-data && npm run build --workspace @cardz/web",
     "build:cloudflare": "npm --workspace @cardz/web run build:cloudflare",
     "snapshot:publish": "node pipelines/publish-snapshot.mjs",
+    "graph:init": "codegraph init .",
+    "graph:sync": "codegraph sync .",
+    "graph:status": "codegraph status .",
+    "graph:query": "codegraph query",
     "images:verify": "python pipelines/verify_images.py",
     "images:verify:strict": "python pipelines/verify_images.py --strict-semantic",
     "audit:production": "npm audit --omit=dev --audit-level=high --registry=https://registry.npmjs.org",
@@ -31,6 +36,7 @@
     "cf:deploy:staging": "npm run build:cloudflare && npm run verify:public -- --allow-demo --require-build && npm run verify:deployment && npx wrangler deploy --env staging --config apps/web/wrangler.jsonc"
   },
   "devDependencies": {
+    "@colbymchenry/codegraph": "^1.5.0",
     "@types/node": "^24.0.0",
     "typescript": "^5.9.0"
   }

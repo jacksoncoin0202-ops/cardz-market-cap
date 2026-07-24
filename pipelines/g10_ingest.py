@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 
-GRADERS = ("PSA", "BGS", "CGC", "SGC")
+GRADERS = ("PSA", "BGS", "CGC", "SGC", "TAG")
 WINDOW_DAYS = {"1d": 1, "7d": 7, "30d": 30}
 _SOURCE_REF = re.compile(r"/card/([^/]+)/([^/?#]+)", re.IGNORECASE)
 
@@ -85,6 +85,341 @@ def iter_constituents(source_root: Path) -> Iterable[tuple[str, Mapping[str, Any
         for row in rows:
             if isinstance(row, Mapping):
                 yield market, row
+
+
+_COMPLETE_COLLECTOR_NUMBER = re.compile(
+    r"^(?:[A-Z0-9]+/\d{2,4}|(?:OP|ST|EB)\d{2}-\d{3}|P-\d{3}|(?:SM|SWSH)\d+)$",
+    re.IGNORECASE,
+)
+_COLLECTOR_IN_TEXT = re.compile(
+    r"#\s*((?:[A-Z0-9]+/\d{2,4}|(?:OP|ST|EB)\d{2}-\d{3}|P-\d{3}|(?:SM|SWSH)\d+))\b",
+    re.IGNORECASE,
+)
+_LANGUAGE_CODES = {
+    "en": "en",
+    "english": "en",
+    "ja": "ja",
+    "jp": "ja",
+    "japanese": "ja",
+    "ko": "ko",
+    "korean": "ko",
+    "zh-cn": "zhCN",
+    "zh-hans": "zhCN",
+    "zhcn": "zhCN",
+    "zh-tw": "zhTW",
+    "zh-hant": "zhTW",
+    "zhtw": "zhTW",
+}
+
+
+def normalize_language(value: Any) -> str | None:
+    """Return a declared card language; never infer one from a card name."""
+
+    normalized = str(value or "").strip().casefold().replace("_", "-")
+    return _LANGUAGE_CODES.get(normalized)
+
+
+def complete_collector_number(value: Any) -> str | None:
+    """Accept only an upstream-provided complete collector number.
+
+    Short display fragments such as ``085`` are deliberately rejected.  The
+    crosswalk owns any later exact set suffix resolution.
+    """
+
+    candidate = re.sub(r"\s+", "", str(value or "").upper())
+    return candidate if _COMPLETE_COLLECTOR_NUMBER.fullmatch(candidate) else None
+
+
+def collector_number_from_asset(asset: Mapping[str, Any], constituent: Mapping[str, Any]) -> str | None:
+    explicit = complete_collector_number(asset.get("cardId"))
+    if explicit:
+        return explicit
+    for value in (asset.get("displayTitle"), asset.get("fullTitle"), constituent.get("name")):
+        match = _COLLECTOR_IN_TEXT.search(str(value or ""))
+        if match:
+            return complete_collector_number(match.group(1))
+    return None
+
+
+def market_tcg(market: str) -> str:
+    if market == "opcg":
+        return "one-piece"
+    return "pokemon"
+
+
+def detail_observation(
+    *,
+    source_code: str,
+    external_id: str,
+    market: str,
+    observation_kind: str,
+    effective_at: datetime,
+    payload: Mapping[str, Any],
+    observed_date: date | None = None,
+) -> dict[str, Any]:
+    payload_value = dict(payload)
+    payload_hash = sha256_bytes(canonical_json(payload_value))
+    observed = observed_date or effective_at.date()
+    return {
+        "observationKey": sha256_bytes(
+            f"{source_code}|{external_id}|{observation_kind}|{observed.isoformat()}|{payload_hash}".encode()
+        ),
+        "sourceCode": source_code,
+        "externalEntityId": external_id,
+        "observationKind": observation_kind,
+        "market": market,
+        "effectiveAt": iso_utc(effective_at),
+        "observedDate": observed.isoformat(),
+        "payloadHash": payload_hash,
+        "payload": payload_value,
+    }
+
+
+def _summary_locale(path: Path) -> str | None:
+    match = re.fullmatch(r"summary_([a-z-]+)\.json", path.name.casefold())
+    return normalize_language(match.group(1)) if match else None
+
+
+def _exact_sale_observations(
+    card_root: Path,
+    *,
+    source_code: str,
+    external_id: str,
+    market: str,
+    effective_at: datetime,
+    quarantine: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[SaleObservation]]:
+    observations: list[dict[str, Any]] = []
+    normalized: list[SaleObservation] = []
+    for filename in ("ebay_PSA_10.json", "apparel_grade_22.json"):
+        path = card_root / filename
+        if not path.is_file():
+            continue
+        document = read_json(path)
+        if not isinstance(document, Mapping):
+            quarantine.append(
+                {
+                    "sourceCode": source_code,
+                    "externalEntityId": external_id,
+                    "reason": "invalid_sales_document",
+                    "payloadHash": sha256_file(path),
+                }
+            )
+            continue
+        rows = document.get("saleHistory")
+        if not isinstance(rows, list):
+            continue
+        row_quarantine: list[dict[str, Any]] = []
+        sales = normalize_psa10_sales(
+            [row for row in rows if isinstance(row, Mapping)],
+            effective_at,
+            f"{source_code}:{external_id}:{filename}",
+            row_quarantine,
+            allow_relative_dates=False,
+        )
+        for item in row_quarantine:
+            quarantine.append(
+                {
+                    "sourceCode": source_code,
+                    "externalEntityId": external_id,
+                    "reason": item["reason"],
+                    "payloadHash": item["payloadHash"],
+                    "sourcePath": path.relative_to(card_root.parents[2]).as_posix(),
+                }
+            )
+        for sale in sales:
+            normalized.append(sale)
+            sold_at = parse_effective_at(sale.sold_at)
+            payload = {
+                "grader": "PSA",
+                "gradeLabel": "PSA 10",
+                "soldAt": sale.sold_at,
+                "sourceDateText": sale.source_date_text,
+                "timestampQuality": sale.timestamp_quality,
+                "unitPriceUsd": sale.unit_price_usd,
+                "quantity": sale.quantity,
+                "transactionValueUsd": sale.transaction_value_usd,
+                "transactionFingerprint": sale.fingerprint,
+                "sourcePath": path.relative_to(card_root.parents[2]).as_posix(),
+                "sourcePayloadSha256": sha256_file(path),
+                "coverage": "partial",
+            }
+            observations.append(
+                detail_observation(
+                    source_code=source_code,
+                    external_id=external_id,
+                    market=market,
+                    observation_kind="sale_observation_psa10",
+                    effective_at=effective_at,
+                    observed_date=sold_at.date(),
+                    payload=payload,
+                )
+            )
+    return observations, normalized
+
+
+def build_detail_observations(
+    source_root: Path,
+    effective_at: datetime,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Extract private Grade10 card detail into deterministic candidate rows.
+
+    This is an intake boundary, not a crosswalk.  It emits only evidence that
+    is explicit in an asset payload; incomplete identities and undated sales
+    stay quarantined for the exact resolver instead of being guessed.
+    """
+
+    accepted: list[dict[str, Any]] = []
+    quarantined: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for market, constituent in iter_constituents(source_root):
+        source_ref = private_source_ref(constituent)
+        if source_ref is None or source_ref in seen:
+            continue
+        seen.add(source_ref)
+        source_code, external_id = source_ref
+        card_root = source_root / "cards" / storage_source(source_code) / external_id
+        asset_path = card_root / "asset_info.json"
+        if not asset_path.is_file():
+            quarantined.append(
+                {
+                    "sourceCode": source_code,
+                    "externalEntityId": external_id,
+                    "reason": "missing_asset_info",
+                    "payloadHash": sha256_bytes(canonical_json(dict(constituent))),
+                }
+            )
+            continue
+        asset = read_json(asset_path)
+        if not isinstance(asset, Mapping):
+            quarantined.append(
+                {
+                    "sourceCode": source_code,
+                    "externalEntityId": external_id,
+                    "reason": "invalid_asset_info",
+                    "payloadHash": sha256_file(asset_path),
+                }
+            )
+            continue
+        collector_number = collector_number_from_asset(asset, constituent)
+        language = normalize_language(asset.get("language")) or normalize_language(constituent.get("lang"))
+        set_name = str(asset.get("setName") or constituent.get("setName") or "").strip() or None
+        identity_status = "candidate" if collector_number and language and set_name else "review"
+        identity_payload = {
+            "tcg": market_tcg(market),
+            "set": set_name,
+            "language": language,
+            "collectorNumber": collector_number,
+            "edition": None,
+            "parallel": None,
+            "finish": None,
+            "name": str(asset.get("cardName") or constituent.get("name") or "").strip() or None,
+            "year": str(asset.get("year") or "").strip() or None,
+            "identityStatus": identity_status,
+            "sourcePath": asset_path.relative_to(source_root).as_posix(),
+            "sourceVersionSha256": sha256_file(asset_path),
+        }
+        accepted.append(
+            detail_observation(
+                source_code=source_code,
+                external_id=external_id,
+                market=market,
+                observation_kind="identity_candidate",
+                effective_at=effective_at,
+                payload=identity_payload,
+            )
+        )
+        if identity_status != "candidate":
+            quarantined.append(
+                {
+                    "sourceCode": source_code,
+                    "externalEntityId": external_id,
+                    "reason": "incomplete_identity_candidate",
+                    "payloadHash": sha256_bytes(canonical_json(identity_payload)),
+                }
+            )
+        image_value = str(asset.get("image") or "").strip()
+        if image_value:
+            accepted.append(
+                detail_observation(
+                    source_code=source_code,
+                    external_id=external_id,
+                    market=market,
+                    observation_kind="image_metadata",
+                    effective_at=effective_at,
+                    payload={
+                        "imageKind": "unverified_remote",
+                        "remoteUrlSha256": sha256_bytes(image_value.encode("utf-8")),
+                        "sourcePath": asset_path.relative_to(source_root).as_posix(),
+                        "sourceVersionSha256": sha256_file(asset_path),
+                        "publicAllowed": False,
+                    },
+                )
+            )
+        for summary_path in sorted(card_root.glob("summary_*.json"), key=lambda item: item.name.casefold()):
+            locale = _summary_locale(summary_path)
+            document = read_json(summary_path)
+            if locale is None or not isinstance(document, Mapping) or not isinstance(document.get("summary"), str):
+                quarantined.append(
+                    {
+                        "sourceCode": source_code,
+                        "externalEntityId": external_id,
+                        "reason": "invalid_story_pointer",
+                        "payloadHash": sha256_file(summary_path),
+                    }
+                )
+                continue
+            accepted.append(
+                detail_observation(
+                    source_code=source_code,
+                    external_id=external_id,
+                    market=market,
+                    observation_kind="story_pointer",
+                    effective_at=effective_at,
+                    payload={
+                        "locale": locale,
+                        "sourcePath": summary_path.relative_to(source_root).as_posix(),
+                        "sourceVersionSha256": sha256_file(summary_path),
+                    },
+                )
+            )
+        sales, normalized_sales = _exact_sale_observations(
+            card_root,
+            source_code=source_code,
+            external_id=external_id,
+            market=market,
+            effective_at=effective_at,
+            quarantine=quarantined,
+        )
+        accepted.extend(sales)
+        for window, days in WINDOW_DAYS.items():
+            aggregate = aggregate_sales(normalized_sales, effective_at, days)
+            accepted.append(
+                detail_observation(
+                    source_code=source_code,
+                    external_id=external_id,
+                    market=market,
+                    observation_kind=f"tracked_sales_{window}",
+                    effective_at=effective_at,
+                    payload=aggregate,
+                )
+            )
+        accepted.append(
+            detail_observation(
+                source_code=source_code,
+                external_id=external_id,
+                market=market,
+                observation_kind="daily_price_history_status",
+                effective_at=effective_at,
+                payload={
+                    "status": "unavailable",
+                    "reason": "no_explicit_daily_reference_history_in_grade10_detail",
+                },
+            )
+        )
+    accepted.sort(key=lambda row: (row["sourceCode"], row["externalEntityId"], row["observationKind"], row["observationKey"]))
+    quarantined.sort(key=lambda row: (str(row.get("sourceCode") or ""), str(row.get("externalEntityId") or ""), str(row.get("reason") or ""), str(row.get("payloadHash") or "")))
+    return accepted, quarantined
 
 
 def build_constituent_observations(source_root: Path, effective_at: datetime) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -182,6 +517,8 @@ def build_grader_population_observations(
                 "totalPopulation": total,
                 "topGradePopulation": top_grade_population,
                 "estimated": False,
+                "authority": "gemrate",
+                "transport": "grade10_gemrate_mirror",
             }
             observation_kind = f"grader_population_{grader.casefold()}"
             key_material = f"{source_code}|{external_id}|{observation_kind}|{observed_date}".encode()
@@ -189,6 +526,8 @@ def build_grader_population_observations(
                 {
                     "observationKey": sha256_bytes(key_material),
                     "sourceCode": source_code,
+                    "providerCode": "gemrate",
+                    "transportCode": "grade10_gemrate_mirror",
                     "externalEntityId": external_id,
                     "observationKind": observation_kind,
                     "market": market,
@@ -208,7 +547,8 @@ def build_daily_observations(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     prices, price_rejected = build_constituent_observations(source_root, price_effective_at)
     populations, population_rejected = build_grader_population_observations(source_root, population_effective_at)
-    return [*prices, *populations], [*price_rejected, *population_rejected]
+    details, detail_quarantined = build_detail_observations(source_root, population_effective_at)
+    return [*prices, *populations, *details], [*price_rejected, *population_rejected, *detail_quarantined]
 
 
 def create_landing_manifest(
@@ -328,6 +668,7 @@ class ObservationLedger:
 class LandingReplay:
     prices: dict[tuple[str, str], dict[date, float]]
     grader_populations: dict[tuple[str, str, str], dict[date, int]]
+    grader_totals: dict[tuple[str, str, str], dict[date, int]]
     batch_count: int
     accepted_price_anchors: int
     accepted_population_anchors: int
@@ -339,13 +680,15 @@ def load_landing_replay(landing_root: Path) -> LandingReplay:
 
     Only observations carrying an explicit ``observedDate`` are accepted. This
     deliberately excludes the legacy batch format that conflated fetch time
-    with the upstream price date. Batches are applied by fetch time and the
-    first observation for a source identity/date wins, matching the JLP unique
-    key contract and preventing a same-day retry from manufacturing history.
+    with the upstream price date. Batches are applied by fetch time. An exact
+    same-priority payload is a retry, while a later changed payload replaces
+    the daily anchor, matching the normalized database upsert contract.
     """
 
     batches: list[tuple[datetime, str, Path, Mapping[str, Any]]] = []
-    for path in (landing_root / "g10").rglob("canonical-batch.json"):
+    # G10, GemRate and SNK all land as immutable canonical batches below the
+    # same private root.  Public code only sees the deterministic replay.
+    for path in landing_root.rglob("canonical-batch.json"):
         if not path.is_file():
             continue
         document = read_json(path)
@@ -358,9 +701,14 @@ def load_landing_replay(landing_root: Path) -> LandingReplay:
 
     prices: dict[tuple[str, str], dict[date, float]] = defaultdict(dict)
     populations: dict[tuple[str, str, str], dict[date, int]] = defaultdict(dict)
+    totals: dict[tuple[str, str, str], dict[date, int]] = defaultdict(dict)
     price_anchors = 0
     population_anchors = 0
     retries = 0
+    price_priorities: dict[tuple[str, str, date], int] = {}
+    population_priorities: dict[tuple[str, str, str, date], int] = {}
+    price_payloads: dict[tuple[str, str, date], bytes] = {}
+    population_payloads: dict[tuple[str, str, str, date], bytes] = {}
     for _, _, _, batch in batches:
         observations = batch.get("observations")
         if not isinstance(observations, list):
@@ -381,32 +729,60 @@ def load_landing_replay(landing_root: Path) -> LandingReplay:
             kind = str(observation.get("observationKind") or "")
             if not source_code or not external_id or not isinstance(payload, Mapping):
                 continue
+            priority_raw = observation.get("sourcePriority", 100)
+            priority = int(priority_raw) if isinstance(priority_raw, (int, float)) else 100
             if kind == "index_constituent":
                 price = payload.get("priceUsd")
                 if not isinstance(price, (int, float)) or price <= 0:
                     continue
                 daily = prices[(source_code, external_id)]
-                if observed_date in daily:
-                    retries += 1
-                    continue
+                priority_key = (source_code, external_id, observed_date)
+                existing_priority = price_priorities.get(priority_key)
+                payload_signature = canonical_json(payload)
+                if existing_priority is not None:
+                    if priority < existing_priority:
+                        continue
+                    if priority == existing_priority and price_payloads[priority_key] == payload_signature:
+                        retries += 1
+                        continue
                 daily[observed_date] = float(price)
-                price_anchors += 1
+                price_priorities[priority_key] = priority
+                price_payloads[priority_key] = payload_signature
+                if existing_priority is None:
+                    price_anchors += 1
                 continue
             if kind.startswith("grader_population_"):
                 grader = str(payload.get("grader") or kind.rsplit("_", 1)[-1]).upper()
                 value = payload.get("topGradePopulation")
+                total = payload.get("total")
                 if grader not in GRADERS or not isinstance(value, int) or value < 0:
                     continue
-                daily = populations[(source_code, external_id, grader)]
-                if observed_date in daily:
-                    retries += 1
+                if total is not None and (not isinstance(total, int) or total < value):
                     continue
+                daily = populations[(source_code, external_id, grader)]
+                priority_key = (source_code, external_id, grader, observed_date)
+                existing_priority = population_priorities.get(priority_key)
+                payload_signature = canonical_json(payload)
+                if existing_priority is not None:
+                    if priority < existing_priority:
+                        continue
+                    if priority == existing_priority and population_payloads[priority_key] == payload_signature:
+                        retries += 1
+                        continue
                 daily[observed_date] = value
-                population_anchors += 1
+                if isinstance(total, int):
+                    totals[(source_code, external_id, grader)][observed_date] = total
+                else:
+                    totals[(source_code, external_id, grader)].pop(observed_date, None)
+                population_priorities[priority_key] = priority
+                population_payloads[priority_key] = payload_signature
+                if existing_priority is None:
+                    population_anchors += 1
 
     return LandingReplay(
         prices=dict(prices),
         grader_populations=dict(populations),
+        grader_totals=dict(totals),
         batch_count=len(batches),
         accepted_price_anchors=price_anchors,
         accepted_population_anchors=population_anchors,
@@ -443,6 +819,7 @@ class SaleObservation:
     quantity: int
     transaction_value_usd: float
     timestamp_quality: str
+    source_date_text: str
 
 
 def normalize_psa10_sales(
@@ -450,6 +827,8 @@ def normalize_psa10_sales(
     discovered_at: datetime,
     identity: str,
     quarantine: list[dict[str, Any]] | None = None,
+    *,
+    allow_relative_dates: bool = False,
 ) -> list[SaleObservation]:
     staged: list[dict[str, Any]] = []
     occurrences: Counter[str] = Counter()
@@ -459,6 +838,10 @@ def normalize_psa10_sales(
             continue
         parsed = parse_sale_at(row.get("date"), discovered_at)
         if parsed is None:
+            continue
+        if parsed[1] == "relative_date_bucket" and not allow_relative_dates:
+            if quarantine is not None:
+                quarantine.append({"reason": "relative_sale_date", "payloadHash": sha256_bytes(canonical_json(row))})
             continue
         price = row.get("price")
         quantity_raw = row.get("bundleSize", 1)
@@ -517,6 +900,7 @@ def normalize_psa10_sales(
                 "quantity": quantity,
                 "transaction_value_usd": round(transaction_value, 6),
                 "timestamp_quality": quality,
+                "source_date_text": str(row.get("date") or ""),
             }
         )
     return [SaleObservation(**item) for item in staged]
@@ -605,26 +989,26 @@ def self_test() -> dict[str, Any]:
     replay = ledger.append(full_rows)
     incremental = ledger.append([observation("c")])
     raw_sales = [
-        {"date": "0 day ago", "grade": "PSA10", "price": 100, "txAmount": 200, "bundleSize": 2, "currency": "usd"},
-        {"date": "0 day ago", "grade": "PSA10", "price": 100, "bundleSize": 2, "currency": "usd"},
-        {"date": "1 day ago", "grade": "PSA 10", "price": 100, "currency": "usd"},
-        {"date": "1 day ago", "grade": "PSA 10", "price": 100, "currency": "usd"},
-        {"date": "1 day ago", "grade": "PSA 9", "price": 50, "currency": "usd"},
+        {"date": "2026-07-22", "grade": "PSA10", "price": 100, "txAmount": 200, "bundleSize": 2, "currency": "usd"},
+        {"date": "2026-07-22", "grade": "PSA10", "price": 100, "bundleSize": 2, "currency": "usd"},
+        {"date": "2026-07-21", "grade": "PSA 10", "price": 100, "currency": "usd"},
+        {"date": "2026-07-21", "grade": "PSA 10", "price": 100, "currency": "usd"},
+        {"date": "2026-07-21", "grade": "PSA 9", "price": 50, "currency": "usd"},
     ]
     sale_quarantine: list[dict[str, Any]] = []
     sales = normalize_psa10_sales(raw_sales, base_at, "fixture-card", sale_quarantine)
     repeated_day_one = normalize_psa10_sales(
         [
-            {"date": "1 day ago", "grade": "PSA 10", "price": 100, "currency": "usd"},
-            {"date": "1 day ago", "grade": "PSA 10", "price": 100, "currency": "usd"},
+            {"date": "2026-07-21", "grade": "PSA 10", "price": 100, "currency": "usd"},
+            {"date": "2026-07-21", "grade": "PSA 10", "price": 100, "currency": "usd"},
         ],
         base_at,
         "fixture-card",
     )
     repeated_day_two = normalize_psa10_sales(
         [
-            {"date": "2 days ago", "grade": "PSA 10", "price": 100, "currency": "usd"},
-            {"date": "2 days ago", "grade": "PSA 10", "price": 100, "currency": "usd"},
+            {"date": "2026-07-21", "grade": "PSA 10", "price": 100, "currency": "usd"},
+            {"date": "2026-07-21", "grade": "PSA 10", "price": 100, "currency": "usd"},
         ],
         base_at + timedelta(days=1),
         "fixture-card",
@@ -683,6 +1067,7 @@ def self_test() -> dict[str, Any]:
                     "externalEntityId": "card-1",
                     "observationKind": "index_constituent",
                     "observedDate": observed_date,
+                    "sourcePriority": 100,
                     "payload": {"priceUsd": price},
                 },
                 {
@@ -690,7 +1075,8 @@ def self_test() -> dict[str, Any]:
                     "externalEntityId": "card-1",
                     "observationKind": "grader_population_psa",
                     "observedDate": observed_date,
-                    "payload": {"grader": "PSA", "topGradePopulation": population},
+                    "sourcePriority": 100,
+                    "payload": {"grader": "PSA", "topGradePopulation": population, "total": population * 2},
                 },
             ]
             (run_root / "canonical-batch.json").write_text(
@@ -698,8 +1084,9 @@ def self_test() -> dict[str, Any]:
                 encoding="utf-8",
             )
 
-        replay_batch("day-0", "2026-07-14", "2026-07-14T06:30:00Z", 100, 1000)
+        replay_batch("day-0", "2026-07-14", "2026-07-14T06:30:00Z", 999, 9999)
         replay_batch("day-0-retry", "2026-07-14", "2026-07-14T07:00:00Z", 999, 9999)
+        replay_batch("day-0-correction", "2026-07-14", "2026-07-14T07:30:00Z", 100, 1000)
         replay_batch("day-1", "2026-07-15", "2026-07-15T06:30:00Z", 110, 1100)
         replay_batch("day-7", "2026-07-21", "2026-07-21T06:30:00Z", 121, 1200)
         landing = load_landing_replay(landing_root)
@@ -711,9 +1098,10 @@ def self_test() -> dict[str, Any]:
         landing_replay = {
             "priceAnchorCount": len(landing.prices[price_key]),
             "populationAnchorCount": len(landing.grader_populations[population_key]),
-            "sameDateRetryIgnored": landing.ignored_same_date_retries == 2,
-            "firstPriceWins": landing.prices[price_key][date(2026, 7, 14)] == 100,
-            "firstPopulationWins": landing.grader_populations[population_key][date(2026, 7, 14)] == 1000,
+            "populationTotalRetained": landing.grader_totals[population_key][date(2026, 7, 21)] == 2400,
+            "identicalSameDateRetryIgnored": landing.ignored_same_date_retries == 2,
+            "laterPriceCorrectionWins": landing.prices[price_key][date(2026, 7, 14)] == 100,
+            "laterPopulationCorrectionWins": landing.grader_populations[population_key][date(2026, 7, 14)] == 1000,
             "twoDay1d": derive_price_windows(two_day_prices, date(2026, 7, 15))["1d"],
             "twoDay7d": derive_price_windows(two_day_prices, date(2026, 7, 15))["7d"],
             "eightDay7d": derive_price_windows(landing.prices[price_key], date(2026, 7, 21))["7d"],
@@ -756,7 +1144,11 @@ def self_test() -> dict[str, Any]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--self-test", action="store_true")
-    parser.add_argument("--source-root", type=Path, default=Path(__file__).resolve().parents[2] / "grade10-scraper" / "data")
+    parser.add_argument(
+        "--source-root",
+        type=Path,
+        default=Path(__file__).resolve().parents[1] / "integrations" / "grade10" / "data",
+    )
     parser.add_argument("--landing-root", type=Path, default=Path(__file__).resolve().parents[1] / "data" / "runtime" / "private-landing")
     parser.add_argument("--mode", choices=("full", "incremental"), default="incremental")
     parser.add_argument("--effective-at")
