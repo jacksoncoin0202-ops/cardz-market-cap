@@ -26,10 +26,11 @@ export function marketMetadata(locale: Locale, title: string, description: strin
         "zh-Hant": localizedPath(path, "zh-TW"),
         "zh-Hans": localizedPath(path, "zh-CN"),
         ja: localizedPath(path, "ja"),
+        ko: localizedPath(path, "ko"),
         "x-default": localizedPath(path, "en"),
       },
     },
-    openGraph: { title, description, siteName: "CARDZ Market Cap", type: "website", locale },
+    openGraph: { title, description, siteName: "CARDS Market Cap", type: "website", locale },
     twitter: { card: "summary_large_image", title, description },
   };
 }

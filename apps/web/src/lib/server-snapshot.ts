@@ -25,8 +25,18 @@ function ranked(cards: MarketCardView[]): MarketCardView[] {
 function listCard(card: MarketCardView): MarketCardView {
   return {
     ...card,
-    story: { en: "", "zh-TW": "", "zh-CN": "", ja: "" },
-    historyDaily: [],
+    story: { en: "", "zh-TW": "", "zh-CN": "", ja: "", ko: "" },
+    historyDaily: card.historyDaily
+      .filter((point) => point.trackedSalesValueUsd !== null)
+      .slice(-14)
+      .map(({ at, trackedSalesValueUsd }) => ({
+        at,
+        priceUsd: null,
+        priceStatus: "unavailable" as const,
+        trackedSalesValueUsd: trackedSalesValueUsd === null ? null : Math.round(trackedSalesValueUsd),
+        trackedSalesCount: null,
+        salesCoverage: "partial" as const,
+      })),
   };
 }
 
@@ -71,7 +81,7 @@ export function scopeSnapshot(
   scope: "all" | "pokemon" | "one-piece" | "watchlist",
 ): MarketViewSnapshot {
   if (scope === "all") return { ...snapshot, top100: snapshot.top100.map(listCard), watchlist: [] };
-  if (scope === "watchlist") return { ...snapshot, top100: snapshot.watchlist.map(listCard), watchlist: [] };
+  if (scope === "watchlist") return { ...snapshot, top100: snapshot.watchlist.filter((card) => card.rank >= 101 && card.rank <= 300).map(listCard), watchlist: [] };
   const expected = scope === "pokemon" ? "Pokémon" : "One Piece";
   const candidates = [...snapshot.top100, ...snapshot.watchlist].filter((card) => card.tcg === expected);
   return { ...snapshot, top100: ranked(candidates).map(listCard), watchlist: [] };

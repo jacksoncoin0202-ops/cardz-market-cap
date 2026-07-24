@@ -1,11 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { ArrowDown, ArrowUp, TrendingDown, TrendingUp } from "lucide-react";
+import { CardImage } from "./card-image";
 import { PeriodSelector } from "./period-selector";
+import { Sparkline } from "./sparkline";
 import { copy } from "@/lib/i18n";
-import { formatMetricInteger, formatMetricMoney, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
+import { formatDeltaMoney, formatInteger, formatMetricInteger, formatMetricMoney, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
 import { useMarketSettings } from "@/lib/use-market-settings";
-import type { Currency, Locale, MarketCardView, MarketViewSnapshot } from "@/lib/types";
+import type { Currency, Locale, MarketCardView, MarketMetric, MarketViewSnapshot, TrackedSalesMetric } from "@/lib/types";
 
 interface RankingsProps {
   cards: MarketCardView[];
@@ -17,12 +20,86 @@ interface RankingsProps {
   marketLabel?: string;
 }
 
+export function MetricDelta({ metric, changePct, currency, rates, locale }: {
+  metric: MarketMetric<number>;
+  changePct: MarketMetric<number>;
+  currency: Currency;
+  rates: Record<Currency, number>;
+  locale: Locale;
+}) {
+  const delta = formatDeltaMoney(metric, changePct, currency, rates, locale);
+  if (!delta) return null;
+  return <DeltaChip delta={delta} />;
+}
+
+export function PriceDelta({ card, period, currency, rates, locale }: {
+  card: MarketCardView;
+  period: "1d" | "7d" | "30d";
+  currency: Currency;
+  rates: Record<Currency, number>;
+  locale: Locale;
+}) {
+  return <MetricDelta metric={card.pricePsa10} changePct={card.windows[period].changePct} currency={currency} rates={rates} locale={locale} />;
+}
+
+function SalesDelta({ sales, changePct, currency, rates, locale }: {
+  sales: TrackedSalesMetric;
+  changePct: MarketMetric<number>;
+  currency: Currency;
+  rates: Record<Currency, number>;
+  locale: Locale;
+}) {
+  if (sales.coverage === "unavailable" || sales.valueUsd.value === null || sales.valueUsd.value <= 0
+    || sales.count.value === null || sales.count.value <= 0) return null;
+  return <MetricDelta metric={sales.valueUsd} changePct={changePct} currency={currency} rates={rates} locale={locale} />;
+}
+
+/* 人口係存量型：永遠唔會跌，負 delta 夾做中性，唔顯示跌箭嘴 */
+function PopulationDelta({ card, period, locale }: { card: MarketCardView; period: "1d" | "7d" | "30d"; locale: Locale }) {
+  const change = card.graderPopulations.PSA.topGradePopulationChangePct[period];
+  const pop = card.populationPsa10;
+  if (change.value === null || (change.status !== "ready" && change.status !== "stale") || change.value <= 0) return null;
+  if (pop.value === null || (pop.status !== "ready" && pop.status !== "stale") || change.value <= -100) return null;
+  const baseline = pop.value / (1 + change.value / 100);
+  const delta = Math.round(pop.value - baseline);
+  if (delta <= 0) return null;
+  return (
+    <span className="price-delta metric-positive" data-dir="up">
+      <ArrowUp aria-hidden="true" size={11} strokeWidth={2.4} />
+      +{formatInteger(delta, locale)}
+    </span>
+  );
+}
+
+function DeltaChip({ delta }: { delta: string }) {
+  const up = delta.startsWith("+");
+  const Icon = up ? ArrowUp : ArrowDown;
+  return (
+    <span className={`price-delta metric-${up ? "positive" : "negative"}`} data-dir={up ? "up" : "down"}>
+      <Icon aria-hidden="true" size={11} strokeWidth={2.4} />
+      {delta}
+    </span>
+  );
+}
+
 function CardIdentity({ card, locale, unavailable }: { card: MarketCardView; locale: Locale; unavailable: string }) {
   return (
     <div className="ranking-card-identity">
-      <div className="ranking-thumb"><img src={card.image.url} alt="" loading="lazy" /></div>
+      <div className="ranking-thumb"><CardImage image={card.image} sizes="56px" /></div>
       <div className="ranking-name"><strong>{card.name[locale] || unavailable}</strong></div>
     </div>
+  );
+}
+
+function ChangeBadge({ card, period, locale }: { card: MarketCardView; period: "1d" | "7d" | "30d"; locale: Locale }) {
+  const change = card.windows[period].changePct;
+  const tone = metricTone(change);
+  const Icon = tone === "positive" ? TrendingUp : tone === "negative" ? TrendingDown : null;
+  return (
+    <span className={`mobile-change-badge metric-${tone}`}>
+      {Icon && <Icon aria-hidden="true" size={13} strokeWidth={2} />}
+      {formatPercent(change, locale)}
+    </span>
   );
 }
 
@@ -34,7 +111,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
       <div className="ranking-heading">
         <div>
           <p className="section-kicker">{watchlist ? t.labels.watchStatus : marketLabel ?? t.nav.all}</p>
-          <h2 id="ranking-heading">{watchlist ? t.nav.watchlist : t.heatmap.rankingTitle}</h2>
+          <h2 id="ranking-heading">{watchlist ? t.nav.watchlist : t.heatmap.rankingTitle.replace("{count}", String(cards.length))}</h2>
         </div>
         <PeriodSelector compact />
       </div>
@@ -44,13 +121,14 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
             <table>
               <colgroup>
                 <col className="col-rank" /><col className="col-card" /><col className="col-number" /><col className="col-price" />
-                <col className="col-pop" /><col className="col-cap" /><col className="col-sales" /><col className="col-change" />
+                <col className="col-pop" /><col className="col-cap" /><col className="col-sales" /><col className="col-change" /><col className="col-spark" />
               </colgroup>
               <thead><tr>
-                <th>{t.labels.rank}</th><th>{t.labels.card}</th><th>{t.labels.number}</th><th className="numeric">{t.labels.price}</th>
-                <th className="numeric">{t.labels.population}</th><th className="numeric">{t.labels.marketCap}</th>
-                <th className="numeric"><span title={t.labels.salesHelp}>{t.periods[period]} {t.labels.trackedSales}<sup>i</sup></span></th>
-                <th className="numeric">{t.periods[period]} {t.labels.change}</th>
+                <th>{t.labels.rank}</th><th>{t.labels.card}</th><th>{t.labels.number}</th><th className="numeric">{t.labels.priceShort}</th>
+                <th className="numeric">{t.labels.populationShort}</th><th className="numeric">{t.labels.marketCapShort}</th>
+                <th className="numeric"><span title={t.labels.salesHelp}>{t.periods[period]} {t.labels.trackedSalesShort}</span></th>
+                <th className="numeric">{t.periods[period]} {t.labels.changeShort}</th>
+                <th className="numeric"><span title={t.labels.salesHelp}>{t.labels.salesTrendShort}</span></th>
               </tr></thead>
               <tbody>{cards.map((card) => {
                 const metrics = card.windows[period];
@@ -59,34 +137,53 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                     <td className="rank-cell">{card.rank}</td>
                     <td><Link href={href(`/card/${card.id}`)}><CardIdentity card={card} locale={locale} unavailable={t.status.unavailable} /></Link></td>
                     <td className="collector-cell">{card.collectorNumber}</td>
-                    <td className="numeric">{formatMetricMoney(card.pricePsa10, currency, snapshot.rates, locale)}</td>
-                    <td className="numeric">{formatMetricInteger(card.populationPsa10, locale)}</td>
-                    <td className="numeric market-cap-cell">{formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true)}</td>
-                    <td className="numeric" title={t.labels.salesHelp}>{formatTrackedSales(metrics.trackedSales, currency, snapshot.rates, locale)}</td>
+                    <td className="numeric price-cell">
+                      <span className="price-now">{formatMetricMoney(card.pricePsa10, currency, snapshot.rates, locale)}</span>
+                      <PriceDelta card={card} period={period} currency={currency} rates={snapshot.rates} locale={locale} />
+                    </td>
+                    <td className="numeric">
+                      <span className="pop-now">{formatMetricInteger(card.populationPsa10, locale)}</span>
+                      <PopulationDelta card={card} period={period} locale={locale} />
+                    </td>
+                    <td className="numeric market-cap-cell">
+                      <span className="price-now">{formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true)}</span>
+                      <MetricDelta metric={card.marketCap} changePct={metrics.changePct} currency={currency} rates={snapshot.rates} locale={locale} />
+                    </td>
+                    <td className="numeric sales-cell" title={t.labels.salesHelp}>
+                      <span className="price-now">{formatTrackedSales(metrics.trackedSales, currency, snapshot.rates, locale)}</span>
+                      <SalesDelta sales={metrics.trackedSales} changePct={metrics.changePct} currency={currency} rates={snapshot.rates} locale={locale} />
+                    </td>
                     <td className={`numeric metric-${metricTone(metrics.changePct)}`}>{formatPercent(metrics.changePct, locale)}</td>
+                    <td className="numeric spark-cell"><Sparkline points={card.historyDaily} label={t.labels.salesTrend} /></td>
                   </tr>
                 );
               })}</tbody>
             </table>
           </div>
           <div className="mobile-ranking-list">
-            {cards.map((card) => {
-              const metrics = card.windows[period];
-              return (
-                <Link className="mobile-rank-card" href={href(`/card/${card.id}`)} key={card.id}>
-                  <span className="mobile-rank">#{card.rank}</span>
-                  <CardIdentity card={card} locale={locale} unavailable={t.status.unavailable} />
-                  <span className="mobile-number">{card.collectorNumber}</span>
-                  <dl>
-                    <div><dt>{t.labels.marketCap}</dt><dd>{formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true)}</dd></div>
-                    <div><dt>{t.labels.price}</dt><dd>{formatMetricMoney(card.pricePsa10, currency, snapshot.rates, locale)}</dd></div>
-                    <div><dt>{t.labels.population}</dt><dd>{formatMetricInteger(card.populationPsa10, locale)}</dd></div>
-                    <div><dt>{t.periods[period]} {t.labels.change}</dt><dd className={`metric-${metricTone(metrics.changePct)}`}>{formatPercent(metrics.changePct, locale)}</dd></div>
-                    <div className="mobile-sales"><dt>{t.periods[period]} {t.labels.trackedSales}</dt><dd>{formatTrackedSales(metrics.trackedSales, currency, snapshot.rates, locale)}</dd></div>
-                  </dl>
-                </Link>
-              );
-            })}
+            <div className="mobile-list-header" aria-hidden="true">
+              <span className="mobile-col-info">{t.labels.card}</span>
+              <span className="mobile-col-right">{t.labels.priceShort}</span>
+              <span className="mobile-col-spark">{t.labels.salesTrendShort}</span>
+            </div>
+            {cards.map((card) => (
+              <Link className="mobile-rank-card" href={href(`/card/${card.id}`)} key={card.id}>
+                <span className="mobile-rank-index">{card.rank}</span>
+                <div className="ranking-thumb"><CardImage image={card.image} sizes="56px" /></div>
+                <div className="mobile-card-info">
+                  <span className="mobile-card-number">{card.collectorNumber}</span>
+                  <strong className="mobile-card-name">{card.name[locale] || t.status.unavailable}</strong>
+                  <span className="mobile-card-sub">
+                    <span className="mobile-card-cap">{formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true)}</span>
+                  </span>
+                </div>
+                <div className="mobile-card-right">
+                  <span className="mobile-card-price">{formatMetricMoney(card.pricePsa10, currency, snapshot.rates, locale)}</span>
+                  <ChangeBadge card={card} period={period} locale={locale} />
+                </div>
+                <Sparkline points={card.historyDaily} label={t.labels.salesTrend} />
+              </Link>
+            ))}
           </div>
         </>
       )}

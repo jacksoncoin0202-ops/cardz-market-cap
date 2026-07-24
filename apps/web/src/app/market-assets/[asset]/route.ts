@@ -53,6 +53,7 @@ export async function GET(
     const pointerObject = await bucket.get(pointerKey);
     if (!pointerObject) throw new Error("Snapshot pointer unavailable");
     const pointer = parseSnapshotPointer(JSON.parse(await pointerObject.text()));
+    /* derivative（_200/_600）嘅 base hash 要喺 pointer.media.hashes 先入到嚟 */
     if (!pointer.media.hashes.includes(hash)) return notFound();
     const object = await bucket.get(key);
 

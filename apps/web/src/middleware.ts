@@ -5,6 +5,7 @@ const htmlLanguages = {
   "zh-TW": "zh-Hant",
   "zh-CN": "zh-Hans",
   ja: "ja",
+  ko: "ko",
 } as const;
 
 export function middleware(request: NextRequest) {

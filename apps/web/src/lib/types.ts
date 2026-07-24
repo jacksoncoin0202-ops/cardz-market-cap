@@ -1,12 +1,14 @@
-export const locales = ["en", "zh-TW", "zh-CN", "ja"] as const;
-export const currencies = ["USD", "HKD", "CNY", "GBP", "TWD"] as const;
+export const locales = ["en", "zh-TW", "zh-CN", "ja", "ko"] as const;
+export const currencies = ["USD", "HKD", "CNY", "GBP", "TWD", "JPY", "KRW"] as const;
 export const marketWindows = ["1d", "7d", "30d"] as const;
-export const graders = ["PSA", "BGS", "CGC", "SGC"] as const;
+export const graders = ["PSA", "BGS", "CGC", "SGC", "TAG"] as const;
+export const themes = ["light", "dark"] as const;
 
 export type Locale = (typeof locales)[number];
 export type Currency = (typeof currencies)[number];
 export type MarketWindow = (typeof marketWindows)[number];
 export type Grader = (typeof graders)[number];
+export type Theme = (typeof themes)[number];
 export type MetricStatus = "ready" | "accumulating" | "stale" | "unavailable";
 export type CoverageStatus = "partial" | "stale" | "unavailable";
 
@@ -60,6 +62,7 @@ export interface MarketCardView {
     url: string;
     alt: LocalizedText;
     kind: "raw_front" | "placeholder";
+    variants?: Partial<Record<"200" | "600", string>>;
   };
   pricePsa10: MarketMetric<number>;
   populationPsa10: MarketMetric<number>;

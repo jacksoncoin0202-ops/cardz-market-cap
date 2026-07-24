@@ -1,7 +1,7 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import type { MetadataRoute } from "next";
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://cardz-beta.jacksoncoin0202.workers.dev";
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://cardsmarketcap.com";
 
 export const dynamic = "force-dynamic";
 

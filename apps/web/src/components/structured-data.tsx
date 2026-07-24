@@ -1,4 +1,4 @@
-const siteBase = process.env.NEXT_PUBLIC_SITE_URL ?? "https://cardz-beta.jacksoncoin0202.workers.dev";
+const siteBase = process.env.NEXT_PUBLIC_SITE_URL ?? "https://cardsmarketcap.com";
 
 export function absolutePublicUrl(path: string): string {
   return new URL(path, siteBase).toString();

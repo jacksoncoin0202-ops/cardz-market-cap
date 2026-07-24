@@ -1,4 +1,4 @@
-import { currencies, locales, type Currency, type Locale, type MarketMetric, type TrackedSalesMetric } from "./types";
+import { currencies, locales, themes, type Currency, type Locale, type MarketMetric, type Theme, type TrackedSalesMetric } from "./types";
 import { copy } from "./i18n";
 
 const intlLocale: Record<Locale, string> = {
@@ -6,6 +6,7 @@ const intlLocale: Record<Locale, string> = {
   "zh-TW": "zh-Hant-TW",
   "zh-CN": "zh-Hans-CN",
   ja: "ja-JP",
+  ko: "ko-KR",
 };
 
 export function normaliseLocale(value: string | null | undefined): Locale {
@@ -14,6 +15,10 @@ export function normaliseLocale(value: string | null | undefined): Locale {
 
 export function normaliseCurrency(value: string | null | undefined): Currency {
   return currencies.includes(value as Currency) ? (value as Currency) : "USD";
+}
+
+export function normaliseTheme(value: string | null | undefined): Theme {
+  return themes.includes(value as Theme) ? (value as Theme) : "light";
 }
 
 export function formatMoney(
@@ -51,7 +56,27 @@ export function formatMetricMoney(
     return copy[locale].status[metric.status === "ready" ? "unavailable" : metric.status];
   }
   const value = formatMoney(metric.value, currency, rates, locale, compact);
-  return metric.status === "stale" ? `${value} (${copy[locale].status.stale})` : value;
+  return value;
+}
+
+// Absolute money delta implied by a percentage change: baseline = value / (1 + pct/100).
+export function formatDeltaMoney(
+  metric: MarketMetric<number>,
+  changePct: MarketMetric<number>,
+  currency: Currency,
+  rates: Record<Currency, number>,
+  locale: Locale,
+): string | null {
+  if (
+    metric.value === null || (metric.status !== "ready" && metric.status !== "stale") ||
+    changePct.value === null || (changePct.status !== "ready" && changePct.status !== "stale") ||
+    changePct.value <= -100
+  ) return null;
+  const baseline = metric.value / (1 + changePct.value / 100);
+  const delta = metric.value - baseline;
+  if (Math.abs(delta) < 0.005) return null;
+  const formatted = formatMoney(Math.abs(delta), currency, rates, locale, true);
+  return `${delta >= 0 ? "+" : "−"}${formatted}`;
 }
 
 export function formatMetricInteger(metric: MarketMetric<number>, locale: Locale): string {
@@ -59,7 +84,7 @@ export function formatMetricInteger(metric: MarketMetric<number>, locale: Locale
     return copy[locale].status[metric.status === "ready" ? "unavailable" : metric.status];
   }
   const value = formatInteger(metric.value, locale);
-  return metric.status === "stale" ? `${value} (${copy[locale].status.stale})` : value;
+  return value;
 }
 
 export function formatPercent(metric: MarketMetric<number>, locale: Locale): string {
@@ -68,7 +93,7 @@ export function formatPercent(metric: MarketMetric<number>, locale: Locale): str
   }
   const sign = metric.value > 0 ? "+" : "";
   const value = `${sign}${metric.value.toFixed(2)}%`;
-  return metric.status === "stale" ? `${value} (${copy[locale].status.stale})` : value;
+  return value;
 }
 
 export function formatTrackedSales(
@@ -86,7 +111,7 @@ export function formatTrackedSales(
     sales.valueUsd.status === "unavailable"
   ) return "—";
   const value = formatMoney(sales.valueUsd.value, currency, rates, locale, true);
-  return sales.coverage === "stale" || sales.valueUsd.status === "stale" ? `${value} (${copy[locale].status.stale})` : value;
+  return value;
 }
 
 export function formatDate(value: string | null, locale: Locale): string {

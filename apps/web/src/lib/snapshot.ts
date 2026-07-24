@@ -1,6 +1,7 @@
 import seedSnapshot from "../../../../data/public/seed-snapshot.json";
 import editorialPack from "../../../../data/editorial/top100-stories.json";
 import type { PublicCard as CanonicalCard, PublicMarketSnapshot as CanonicalSnapshot } from "@cardz/market-data";
+import { localizedCardName } from "./card-names";
 import {
   currencies,
   graders,
@@ -33,12 +34,23 @@ function editorialStories(card: CanonicalCard): CanonicalCard["stories"] {
   return entry.stories;
 }
 
-function localised(value: CanonicalCard["names"], fallback: string): LocalizedText {
+function localised(value: CanonicalCard["names"], fallback: string, translate?: boolean): LocalizedText {
+  const en = value.en || fallback;
+  if (!translate) {
+    return {
+      en,
+      "zh-TW": value.zhTW || value.en || fallback,
+      "zh-CN": value.zhCN || value.zhTW || value.en || fallback,
+      ja: value.ja || value.en || fallback,
+      ko: value.en || fallback,
+    };
+  }
   return {
-    en: value.en || fallback,
-    "zh-TW": value.zhTW || "",
-    "zh-CN": value.zhCN || "",
-    ja: value.ja || "",
+    en,
+    "zh-TW": localizedCardName(en, value.zhTW, "zh-TW"),
+    "zh-CN": value.zhCN || value.zhTW || localizedCardName(en, null, "zh-CN"),
+    ja: localizedCardName(en, value.ja, "ja"),
+    ko: localizedCardName(en, null, "ko"),
   };
 }
 
@@ -47,7 +59,7 @@ function metric(value: CanonicalCard["pricePsa10"]): MarketMetric<number> {
 }
 
 function cardView(card: CanonicalCard): MarketCardView {
-  const name = localised(card.names, `Card ${card.rank}`);
+  const name = localised(card.names, `Card ${card.rank}`, true);
   const stories = editorialStories(card);
   const imageIsSafe = card.image.kind === "raw_front"
     && Boolean(card.image.qcAt)
@@ -66,6 +78,7 @@ function cardView(card: CanonicalCard): MarketCardView {
       url: imageIsSafe ? card.image.src : "/card-placeholder.svg",
       alt: localised(card.image.alt, `${name.en} card artwork`),
       kind: imageIsSafe ? "raw_front" : "placeholder",
+      variants: imageIsSafe ? card.image.variants : undefined,
     },
     pricePsa10: metric(card.pricePsa10),
     populationPsa10: metric(card.populationPsa10),

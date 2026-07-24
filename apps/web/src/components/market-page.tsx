@@ -1,5 +1,6 @@
 "use client";
 
+import { GradingPulse } from "./grading-pulse";
 import { Heatmap } from "./heatmap";
 import { Rankings } from "./rankings";
 import { absolutePublicUrl, StructuredData } from "./structured-data";
@@ -8,7 +9,7 @@ import { useMarketSettings } from "@/lib/use-market-settings";
 import type { MarketViewSnapshot } from "@/lib/types";
 
 export function MarketPage({ kind, snapshot }: { kind: "all" | "pokemon" | "one-piece" | "watchlist"; snapshot: MarketViewSnapshot }) {
-  const { locale, currency, href } = useMarketSettings();
+  const { locale, currency, period, href } = useMarketSettings();
   const t = copy[locale];
   const hero = kind === "pokemon" ? t.pokemonHero : kind === "one-piece" ? t.onePieceHero : kind === "watchlist" ? t.watchlistHero : t.hero;
   const cards = snapshot.top100;
@@ -51,10 +52,10 @@ export function MarketPage({ kind, snapshot }: { kind: "all" | "pokemon" | "one-
           <p className="hero-copy">{hero.body}</p>
         </section>
       )}
-      {kind === "watchlist" && snapshot.mode === "preview" && <p className="preview-notice" role="status">{t.previewNotice}</p>}
       {kind !== "watchlist" && (
         <Heatmap cards={cards} locale={locale} currency={currency} snapshot={snapshot} href={href} title={heatmapTitle} eyebrow={hero.eyebrow} />
       )}
+      {kind !== "watchlist" && <GradingPulse cards={cards} locale={locale} period={period} />}
       <Rankings cards={cards} locale={locale} currency={currency} snapshot={snapshot} href={href} watchlist={kind === "watchlist"} marketLabel={marketLabel} />
     </div>
   );

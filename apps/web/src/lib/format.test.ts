@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { formatMetricMoney, formatMoney, formatPercent, formatTrackedSales, metricTone, normaliseCurrency, normaliseLocale } from "./format";
+import { formatDeltaMoney, formatMetricMoney, formatMoney, formatPercent, formatTrackedSales, metricTone, normaliseCurrency, normaliseLocale } from "./format";
 
-const rates = { USD: 1, HKD: 7.8, CNY: 7.2, GBP: 0.78, TWD: 32.5 };
+const rates = { USD: 1, HKD: 7.8, CNY: 7.2, GBP: 0.78, TWD: 32.5, JPY: 162.5, KRW: 1380 };
 
 describe("market formatting", () => {
   it("defaults to English and USD", () => {
@@ -11,14 +11,15 @@ describe("market formatting", () => {
 
   it("converts values using snapshot rates", () => {
     expect(formatMoney(100, "HKD", rates, "en")).toContain("780");
+    expect(formatMoney(100, "JPY", rates, "ja")).toContain("16,250");
   });
 
   it("never turns accumulating change into a fake zero", () => {
     expect(formatPercent({ value: null, status: "accumulating", asOf: null }, "en")).toBe("Accumulating");
   });
 
-  it("marks stale price metrics instead of presenting them as current", () => {
-    expect(formatMetricMoney({ value: 100, status: "stale", asOf: "2026-07-21" }, "USD", rates, "en")).toContain("Stale");
+  it("renders stale price metrics as plain values without a label", () => {
+    expect(formatMetricMoney({ value: 100, status: "stale", asOf: "2026-07-21" }, "USD", rates, "en")).toBe("$100");
   });
 
   it("keeps stale directional metrics red or green while non-values stay neutral", () => {
@@ -44,5 +45,31 @@ describe("market formatting", () => {
       coverage: "partial",
       asOf: "2026-07-22",
     }, "USD", rates, "en")).toBe("—");
+  });
+
+  it("derives the absolute money delta from the percentage change", () => {
+    const price = { value: 105, status: "ready" as const, asOf: "2026-07-22" };
+    const up = { value: 5, status: "ready" as const, asOf: "2026-07-22" };
+    const down = { value: -4.762, status: "ready" as const, asOf: "2026-07-22" };
+    expect(formatDeltaMoney(price, up, "USD", rates, "en")).toBe("+$5");
+    expect(formatDeltaMoney(price, down, "USD", rates, "en")).toMatch(/^−\$/);
+  });
+
+  it("shows no delta arrow when the change did not move the value", () => {
+    const price = { value: 100, status: "ready" as const, asOf: "2026-07-22" };
+    const flat = { value: 0, status: "ready" as const, asOf: "2026-07-22" };
+    expect(formatDeltaMoney(price, flat, "USD", rates, "en")).toBeNull();
+  });
+
+  it("never shows a delta for accumulating or unavailable data", () => {
+    const price = { value: 100, status: "ready" as const, asOf: "2026-07-22" };
+    const accumulating = { value: 5, status: "accumulating" as const, asOf: null };
+    expect(formatDeltaMoney(price, accumulating, "USD", rates, "en")).toBeNull();
+  });
+
+  it("still derives a delta from a stale price instead of dropping it", () => {
+    const price = { value: 105, status: "stale" as const, asOf: "2026-07-21" };
+    const up = { value: 5, status: "ready" as const, asOf: "2026-07-22" };
+    expect(formatDeltaMoney(price, up, "USD", rates, "en")).toBe("+$5");
   });
 });

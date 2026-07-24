@@ -48,6 +48,12 @@ if (process.env.CARDZ_CLOUDFLARE_BUILD !== "1") {
     const filename = basename(publicPath);
     const source = resolve(sourceAssets, filename);
     copyFileSync(source, resolve(publicAssets, filename));
+    /* 縮圖 derivative 一齊 copy（唔 hash-verify） */
+    const stem = filename.replace(/\.webp$/, "");
+    for (const suffix of ["200", "600"]) {
+      const derivative = resolve(sourceAssets, `${stem}_${suffix}.webp`);
+      if (existsSync(derivative)) copyFileSync(derivative, resolve(publicAssets, `${stem}_${suffix}.webp`));
+    }
   }
 }
 
