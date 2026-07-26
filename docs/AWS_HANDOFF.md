@@ -2,70 +2,52 @@
 
 This is the repeatable server handoff for the **backend only**. It does not deploy the website, publish a public snapshot, or run any third-party collector in GitHub Actions.
 
-## 🔴 STOP — a clean clone is not deployable today (measured 2026-07-26 18:48, HEAD `57e9bf3`)
-
-**30 of the 51 files this deployment requires are not in `HEAD`.** They exist in the working
-tree, so `git clone` on the AWS host does not produce them. Measured with:
+## ✅ A clean clone is deployable (re-measured 2026-07-26 19:2x, HEAD `b0da73a`)
 
 ```bash
-python -X utf8 scripts/verify_clean_clone.py    # exit 1, requiredFiles.missing = 30
+python -X utf8 scripts/verify_clean_clone.py     # exit 3, requiredFiles.missing = []
 ```
 
-A commit is being prepared: **20 of the 30 are now staged** (889 files in the index at 18:48,
-including both hard requirements `scripts/verify_daily_run.py` and `scripts/notify_alert.py`).
-Staged is not committed — `git clone` still produces none of them until that commit lands, so
-this section stands until `verify_clean_clone.py` is re-run against the new `HEAD`.
+Exit 3 is the intended pass. It means all 51 required files are present in `HEAD` and the only
+thing left is that `data/public/seed-snapshot.json` is the demo placeholder — which is deliberate,
+because git must never carry production data. Generate the real one on the host (§ Release-preparation
+gate below). **Exit 0 or 3 = deploy. Exit 1 = stop.**
 
-**10 of the 30 are in nobody's index and will be missed by that commit:**
-`scripts/verify_clean_clone.py`, `PROJECT_STATE.md`, `.dockerignore`,
-`docs/{HANDOFF,AWS_DEPLOY,SERVER_MIGRATION,SOAK_RUNBOOK,PACKAGING_CHECKLIST}.md`,
-`deploy/windows/{install_daily_task,freeze-sweep-guard}.ps1`.
-Verify with `git diff --cached --name-only` before committing, or the handoff ships without its
-own verifier and without every runbook it tells the operator to read.
+> If you were handed the **zip** (`cardz-handoff-20260726.zip`, `PACKAGE_PROVENANCE.md` at its root)
+> rather than a clone, it is equivalent: built from the same working tree, verified byte-identical on
+> `deploy/linux/cardz-daily-systemd.sh` (348 lines), `docs/SERVER_MIGRATION.md`, `docs/AWS_HANDOFF.md`,
+> `.dockerignore`, `apps/web/Dockerfile`. It ships no `.git`, so nothing in it can be reverted by a
+> stray `git checkout`.
 
-This is a **packaging bug on the source side, not a host problem**, and it cannot be fixed from
-the server. Someone with commit rights must `git add` the remainder before the handoff. The worst
-of the 30:
+### Why this section used to say STOP — read before you edit the installer
 
-| Missing from `HEAD` | In the pending commit? | Why it stops the deploy |
-|---|---|---|
-| `scripts/verify_daily_run.py` | staged | The outcome gate. `run-cardz-daily.sh` exits 1 without it → **every scheduled run fails** |
-| `deploy/systemd/cardz-market-cap-watchdog.{service,timer}` + `run-cardz-watchdog.sh` | staged | The whole watchdog in the table below |
-| `deploy/systemd/cardz-market-cap-alert@.service` + `run-cardz-alert.sh` + `scripts/notify_alert.py` | staged | The entire failure-notification layer |
-| `deploy/systemd/cardz-gemrate-freeze.*`, `cardz-image-backfill.*` | staged | Weekly freeze sweep and image backfill |
-| `apps/web/Dockerfile`, `apps/web/src/app/api/health/route.ts` | staged | The Docker image and its healthcheck target |
-| **`scripts/verify_clean_clone.py`** | **NOT staged** | The check on line 17 **of this document** |
-| **`.dockerignore`** | **NOT staged** | Without it the build context ships `data/` and any local `.env` into the image |
-| **`docs/SERVER_MIGRATION.md`, `docs/AWS_DEPLOY.md`, `docs/HANDOFF.md`, `docs/SOAK_RUNBOOK.md`, `docs/PACKAGING_CHECKLIST.md`, `PROJECT_STATE.md`** | **NOT staged** | Every runbook this document tells the operator to follow |
+Until `b0da73a`, 30 of those 51 files existed only in the working tree, so `git clone` produced a
+repo that could not be installed: no outcome gate (`scripts/verify_daily_run.py`), no notifier layer,
+no systemd unit for watchdog / alert / freeze / image-backfill, no `Dockerfile`, and none of the
+runbooks this document tells the operator to read. Two failure modes came out of that and both are
+worth keeping in mind, because they are properties of the design, not of that one commit:
 
-### And three different installers exist right now — commit the right one
-
-`deploy/linux/cardz-daily-systemd.sh` exists in three generations simultaneously: 86 lines in
-`HEAD`, 230 lines in the index (someone staged an intermediate save), 348 lines in the working
-tree. **A commit made right now ships the 230-line middle one.** All three were run `dry-run`
-against the same `git clone --depth 1` of `HEAD` `57e9bf3`, WSL Ubuntu 24.04, 2026-07-26 18:5x:
+**1. An installer that exits 0 is more dangerous than one that exits 1.** `cardz-daily-systemd.sh`
+existed in three generations at once — 86 lines in `HEAD`, 230 staged, 348 in the working tree. All
+three were dry-run against the same `git clone --depth 1`, WSL Ubuntu 24.04, 2026-07-26 18:5x:
 
 | Generation | Exit | What the operator sees |
 |---|---|---|
-| `HEAD`, 86 lines | **0** | `schedule=06:30 Asia/Tokyo` — reports success on a clone that cannot run |
-| index, 230 lines | 1 | `Missing required file: …/cardz-market-cap-alert@.service` — one line, no remedy |
-| working tree, 348 lines | 1 | `FATAL … NOTHING was installed`, 1 core + 3 non-fatal named, each with a reason and a fix |
+| 86 lines | **0** | `schedule=06:30 Asia/Tokyo` — reports success on a clone that cannot run |
+| 230 lines | 1 | `Missing required file: …/cardz-market-cap-alert@.service` — one line, no remedy |
+| 348 lines (shipped) | 1 | `FATAL … NOTHING was installed`, 1 core + 3 non-fatal named, each with cause and fix |
 
-`HEAD` is the dangerous one: `06:30 Asia/Tokyo` is **the exact trigger value that caused the
-2026-07-25 silent failure** (explained in "Two timers are required" below), and it exits 0 while
-the clone is missing the outcome gate and the entire notifier layer.
+`06:30 Asia/Tokyo` in the 86-line copy is the exact trigger value behind the 2026-07-25 silent
+failure (see "Two timers are required" below). The 230-line copy stops at the *first* missing file,
+which on that clone was a notifier component — so an operator patching forward never reaches the
+real blocker. **If you modify the installer, keep it fail-loud and keep it reporting every missing
+item in one pass.** Confirm what you are about to commit with
+`git show :deploy/linux/cardz-daily-systemd.sh | wc -l` → 348.
 
-The staged 230-line version fixes the schedule string but stops at the *first* missing file, and
-on this clone that first file is `cardz-market-cap-alert@.service` — a notifier component. The
-operator supplies it, re-runs, and hits the next one; the actual blocker,
-`scripts/verify_daily_run.py`, is never mentioned. The working-tree version reports all four at
-once and separates "every run will fail" from "runs work but nobody is watching".
-
-**Before committing, re-`git add deploy/linux/cardz-daily-systemd.sh`** so the 348-line version
-is what lands. Confirm with `git show :deploy/linux/cardz-daily-systemd.sh | wc -l` → 348.
-
-**Do not deploy from a clone until `verify_clean_clone.py` exits 0 or 3.** Exit 3 means every file
-is present and only the demo snapshot remains — that one is expected and is handled below.
+**2. Staged ≠ working tree, and the gap is silent.** The same bulk-`git add` that swept in the
+230-line installer also left 72 tracked files staged at an older revision than the working tree,
+including `apps/web/src/lib/route-metadata.ts`. Committing then would have shipped that day's
+frontend fixes in name only. Before any release commit: `git diff --name-only` must be empty.
 
 ## Release-preparation gate
 
