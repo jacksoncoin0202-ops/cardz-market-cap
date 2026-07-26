@@ -2,13 +2,34 @@ import type { Locale } from "./types";
 
 type LocalizedName = Partial<Record<Locale, string>>;
 
+// English names the upstream catalog stores truncated. `canonical_name` cannot be repaired
+// in the database because it feeds `opaque_id`, so editing it would orphan the card's price
+// and population history; the repair belongs here, in the display layer. Each replacement is
+// taken from a local source, never guessed:
+//   Monkey.D.Luff    -> grade10-scraper/data/cards/snkrdunk/287031/summary_en.json
+//   Okuge            -> grade10-scraper/data/cards/snkrdunk/91423/summary_en.json
+//   Ethan's Ho       -> catalog_variant 732/742/746, the English printings of the same card
+const EN_DISPLAY: Record<string, string> = {
+  "Monkey.D.Luff": "Monkey.D.Luffy",
+  "Okuge": "Okuge-sama and Maiko-han Pikachu",
+  "Ethan's Ho": "Ethan's Ho-Oh ex",
+};
+
+export function displayCardNameEn(englishName: string): string {
+  return EN_DISPLAY[englishName.trim()] ?? englishName;
+}
+
 // Verified canonical names for Pokémon species, One Piece characters and known
 // special printings. Unlisted names fall back to English upstream until the
 // data pipeline ships full four-locale editorial names.
 const EXACT: Record<string, LocalizedName> = {
   "Pikachu": { "zh-TW": "皮卡丘", "zh-CN": "皮卡丘", ja: "ピカチュウ" },
   "Poncho": { "zh-TW": "斗篷皮卡丘", "zh-CN": "斗篷皮卡丘", ja: "ポンチョを着たピカチュウ" },
-  "Pikachu with Grey Felt Hat": { "zh-TW": "梵高皮卡丘", "zh-CN": "梵高皮卡丘", ja: "グレーのフェルト帽をかぶったピカチュウ" },
+  // 085/SVP 只出過英文版（梵高美術館＋海外 Pokémon Center 限定），冇日文印刷版，
+  // 所以冇「官方日文卡名」。日本市場一律叫「ゴッホピカチュウ」——magi、スニーカーダンク、
+  // ARTnews JAPAN、Hypebeast JP 都用呢個名。原本嗰個「グレーのフェルト帽をかぶった
+  // ピカチュウ」係照英文卡名逐字譯出嚟，日本人唔會咁叫。
+  "Pikachu with Grey Felt Hat": { "zh-TW": "梵高皮卡丘", "zh-CN": "梵高皮卡丘", ja: "ゴッホピカチュウ", ko: "반 고흐 피카츄" },
   "Mario Pikachu": { "zh-TW": "瑪利歐皮卡丘", "zh-CN": "马力欧皮卡丘", ja: "マリオピカチュウ" },
   "Luigi Pikachu": { "zh-TW": "路易吉皮卡丘", "zh-CN": "路易吉皮卡丘", ja: "ルイージピカチュウ" },
   "Detective Pikachu": { "zh-TW": "名偵探皮卡丘", "zh-CN": "大侦探皮卡丘", ja: "名探偵ピカチュウ" },
@@ -19,7 +40,7 @@ const EXACT: Record<string, LocalizedName> = {
   "Tokyo Pikachu": { "zh-TW": "東京皮卡丘", "zh-CN": "东京皮卡丘", ja: "トウキョーのピカチュウ" },
   "Tohoku Pikachu": { "zh-TW": "東北皮卡丘", "zh-CN": "东北皮卡丘", ja: "トウホクのピカチュウ" },
   "Easter's Pikachu": { "zh-TW": "復活節皮卡丘", "zh-CN": "复活节皮卡丘", ja: "イースターのピカチュウ" },
-  "Red's Pikachu": { "zh-TW": "小智的皮卡丘", "zh-CN": "小智的皮卡丘", ja: "レッドのピカチュウ" },
+  "Red's Pikachu": { "zh-TW": "赤紅的皮卡丘", "zh-CN": "赤红的皮卡丘", ja: "レッドのピカチュウ" },
   "Team Skull Pikachu": { "zh-TW": "骷髏隊皮卡丘", "zh-CN": "骷髅队皮卡丘", ja: "スカル団のピカチュウ" },
   "Gyarados Pretend Pikachu": { "zh-TW": "扮暴鯉龍的皮卡丘", "zh-CN": "扮暴鲤龙的皮卡丘", ja: "ギャラドスごっこピカチュウ" },
   "Magikarp Pretend Pikachu": { "zh-TW": "扮鯉魚王的皮卡丘", "zh-CN": "扮鲤鱼王的皮卡丘", ja: "コイキングごっこピカチュウ" },
@@ -197,7 +218,7 @@ const COMPOSED_EXACT: Record<string, LocalizedName> = {
   "M Rayquaza EX": { "zh-TW": "超級烈空坐ex", "zh-CN": "超级烈空坐ex", ja: "メガレックウザex", ko: "메가레쿠쟈ex" },
   "M Gengar EX": { "zh-TW": "超級耿鬼ex", "zh-CN": "超级耿鬼ex", ja: "メガゲンガーex", ko: "메가팬텀ex" },
   "Rocket's Mewtwo": { "zh-TW": "火箭隊的超夢", "zh-CN": "火箭队的超梦", ja: "ロケット団のミュウツー", ko: "로켓단의 뮤츠" },
-  "Ethan's Ho": { "zh-TW": "阿響的鳳王", "zh-CN": "阿响的凤王", ja: "ヒビキのホウオウ", ko: "심향의 칠색조" },
+  "Ethan's Ho-Oh ex": { "zh-TW": "阿響的鳳王ex", "zh-CN": "阿响的凤王ex", ja: "ヒビキのホウオウex", ko: "심향의 칠색조ex" },
   "_____'s Pikachu": { "zh-TW": "皮卡丘", "zh-CN": "皮卡丘", ja: "ピカチュウ", ko: "피카츄" },
   "Pikachu wearing a poncho": { "zh-TW": "穿斗篷的皮卡丘", "zh-CN": "穿斗篷的皮卡丘", ja: "ポンチョを着たピカチュウ", ko: "판초를 입은 피카츄" },
   "Pikachu wearing a poncho Pikachu": { "zh-TW": "穿斗篷的皮卡丘", "zh-CN": "穿斗篷的皮卡丘", ja: "ポンチョを着たピカチュウ", ko: "판초를 입은 피카츄" },
@@ -251,7 +272,7 @@ const KO_LEXICON: Array<[string, string]> = [
   ["Kingdra", "킹드라"], ["Clefairy", "삐삐"], ["Oricorio", "춤추새"], ["Rowlet", "나몰빼미"],
   ["Wattrel", "찌리비"], ["Calyrex", "버드렉스"], ["Victini", "비크티니"], ["Zygarde", "지가륍데"],
   ["Hoopa", "후파"], ["Pikachu", "피카츄"],
-  ["Monkey D Luffy", "몽키・D・루피"], ["Monkey D Luffy", "몽키・D・루피"],
+  ["Monkey D Luffy", "몽키・D・루피"],
   ["Roronoa Zoro", "롤로노아・조로"], ["Nami", "나미"], ["Sanji", "상디"],
   ["Tony Tony Chopper", "토니토니・쵸파"], ["Boa Hancock", "보아・핸콕"], ["Trafalgar Law", "트라팔가・로"],
   ["Dracule Mihawk", "쥬라큘・미호크"], ["Marshall D Teach", "마샬・D・티치"], ["Gol D Roger", "골・D・로저"],

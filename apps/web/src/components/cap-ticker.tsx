@@ -2,9 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 
-/* moumen ticket-ticker 概念：數字由 0 滾去目標值，ease-out 漸停，唔係閃變 */
+/* moumen ticket-ticker 概念：數字由 0 滾去目標值，ease-out 漸停，唔係閃變。
+   初始 state 用真實值，唔用 0 —— server render 同無 JS 訪客（連爬蟲）見到嘅
+   係真市值；由 0 起跳嘅動畫喺 useEffect 入面行，即係只喺 hydrate 之後先發生。 */
 export function CapTicker({ value, format }: { value: number; format: (n: number) => string }) {
-  const [display, setDisplay] = useState(0);
+  const [display, setDisplay] = useState(value);
   const rafRef = useRef<number | null>(null);
 
   useEffect(() => {

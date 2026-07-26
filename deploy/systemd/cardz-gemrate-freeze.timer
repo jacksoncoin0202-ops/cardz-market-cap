@@ -1,0 +1,20 @@
+[Unit]
+Description=Weekly GemRate roster + population freeze (Sun 14:23 UTC / Mon 23:23 JST)
+
+[Timer]
+# 時間點係揀出嚟避開所有嘢，唔係求其填：
+#   00:30 UTC  daily（行 2–2.5 鐘，即係佔住 00:30–03:00）
+#   05:07 UTC  watchdog
+#   23:43 UTC  Grade10 discovery
+# 14:23 UTC 離最近嗰個都有 9 個鐘以上，斷咗都唔會撞到每日出數。
+OnCalendar=Sun *-*-* 14:23:00 UTC
+# 1 個鐘 jitter。全掃唔需要準時，而 fixed 時間 = 對外一個可預測嘅指紋。
+# 路線更新第 3 點明講「爬取時序唔准貼住 G10 自己嘅日程」，週掃係最應該散開嗰條。
+RandomizedDelaySec=3600
+# 錯過咗（機關咗／重啟）就開機補跑。全掃係凍結歷史用，遲好過冇。
+Persistent=true
+AccuracySec=1min
+Unit=cardz-gemrate-freeze.service
+
+[Install]
+WantedBy=timers.target

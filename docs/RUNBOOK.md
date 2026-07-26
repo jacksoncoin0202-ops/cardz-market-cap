@@ -123,7 +123,7 @@ op run --env-file=.env.private -- powershell -NoProfile -File pipelines/run_dail
 For the unattended staging task, persist the non-secret hook commands and canary origin in the Task Scheduler action instead of relying on an interactive shell environment:
 
 ```powershell
-powershell -NoProfile -File pipelines/install_daily_task.ps1 `
+powershell -NoProfile -File deploy/windows/install_daily_task.ps1 `
   -Mode staging `
   -R2Bucket cardz-market-cap-staging-data `
   -CanaryOrigin https://<approved-canary-worker>.workers.dev
@@ -145,7 +145,11 @@ Do not treat the existing derived K-lines as exchange-quality OHLC. Do not use a
 
 ## Daily incremental job
 
-Windows Task Scheduler or a Linux systemd timer runs the same backend command once daily at 06:30 JST. The scheduler invokes `python scripts/backend.py daily` (or `python3 ... daily --external-db`); all collection and replay logic remains in Python. A cross-platform file lock and run ID prevent two runs from racing. This command currently completes steps 1–11 below and stops after database integrity validation:
+Windows Task Scheduler or a Linux systemd timer runs the same backend command once daily at **09:30 JST (00:30 UTC)**. The scheduler invokes `python scripts/backend.py daily` (or `python3 ... daily --external-db`); all collection and replay logic remains in Python. A cross-platform file lock and run ID prevent two runs from racing. This command currently completes steps 1–11 below and stops after database integrity validation:
+
+On Linux the timer carries `RandomizedDelaySec=1800`, so the actual start floats within **09:30–10:00 JST**. The daily chain is the only outbound crawl on a fixed daily cadence, and a to-the-second start time is itself a fingerprint; the G10 stealth rule (`docs/HANDOFF.md` §8 rule 2) forbids reproducing a fixed schedule. The `cardz-grade10-discovery.timer` pre-warm carries its own jitter for the same reason, so the interval between the two also floats rather than sitting at a constant offset. The jitter cannot simply be raised: the latest start must stay inside the same UTC day (see the paragraph below) and the latest finish must stay clear of the 05:07 UTC watchdog. `deploy/systemd/README.md` documents both bounds and `tests/test_daily_scheduler_contract.py` enforces them.
+
+The trigger time is load-bearing and must not be moved back to 06:30 JST. `pipelines/run_daily.py` derives `market_run_id` from the **UTC** date, so a 06:30 JST trigger fires at 21:30 UTC on the previous calendar day. The collectors then find an existing output directory for that run ID, replay it instead of fetching, `effective_date` never advances, and the `INSERT IGNORE INTO market_index_snapshot` in `pipelines/market_alerts.py` degrades to a no-op. The chain still exits zero with zero new observations and zero alerts, which is precisely the 2026-07-25 silent failure. 09:30 JST equals 00:30 UTC, so the local day and the UTC day agree and the split cannot recur. The Linux service allows 21600 seconds (6 hours) for the run; a measured full chain takes 2 to 2.5 hours, and the earlier 7200-second limit killed the process tree mid-crawl before the outcome gate could run.
 
 1. Validate the routing registry, refresh broad candidate/radar current facts, and resolve exact identities. Grade10 can provide bootstrap evidence but is not the candidate boundary. A failure stops the parent run before canonical import or alert evaluation.
 2. Fetch one private USD FX snapshot for HKD/CNY/GBP/TWD/JPY/KRW. Validate all seven rates, write it atomically, and reuse a last-good response for at most 72 hours when the endpoint temporarily fails. The browser never calls this endpoint.
@@ -161,17 +165,83 @@ Windows Task Scheduler or a Linux systemd timer runs the same backend command on
 10. Rebuild partial tracked-sales aggregates for 1d, 7d, and 30d. A day with no observed sale is not automatically zero coverage.
 11. Rank confirmed cards by unrounded `PSA 10 price × PSA 10 population`; require population at least 1,000, fresh price, complete number, and QC-passed raw front. A discovered printing without exact population is only a candidate. Korean printings additionally require Korean card/set text; KRW is display conversion only and never changes the USD ranking basis.
 
-The following public-publication stage is deliberately separate and is not invoked by `backend.py daily` yet:
+The public-publication stage is a separate opt-in, controlled by the `CARDZ_DAILY_PUBLISH` environment variable:
 
 12. Export an immutable sanitized candidate from the validated database and run data, image, release, and leak gates.
 13. Publish the candidate generation, verify it remotely, run staging canaries, then advance the pointer.
 
-Until the DB-derived exporter is connected, a successful backend daily run
-proves canonical collection/replay only; it must not be reported as a live
-website update. The older public builder still depends on legacy discovery
-evidence and is not part of the portable canonical AWS contract.
+**On Linux these steps do run under the shipped units.** `cardz-market-cap-daily.service` sets `Environment=CARDZ_DAILY_PUBLISH=local`; `run-cardz-daily.sh` turns that into `--publish --local-only`; `scripts/backend.py` drops `--backend-only` from the `run_daily.py` command line, which is the flag that would otherwise `return 0` before the candidate block. Step 12 and the local half of step 13 therefore execute on every scheduled run, ending in `{"status": "published", "remotePublished": false, ...}`. Trace it yourself with `grep -n "CARDZ_DAILY_PUBLISH" deploy/systemd/*` and `grep -n "backend_only" pipelines/run_daily.py`.
+
+`--local-only` writes the local public tree and skips only the remote leg: no R2 bucket is passed to `pipelines/publish-snapshot.mjs`, and `CARDZ_GENERATION_CANARY_COMMAND_JSON` / `CARDZ_POINTER_PROMOTE_COMMAND_JSON` are not required. Set `CARDZ_DAILY_PUBLISH=remote` to enable the full remote path, or `off` to stop after the backend stage. See the *Publish mode* table in `deploy/systemd/README.md`.
+
+**On Windows the default is `off`,** deliberately — the dev machine should not publish. A backend-only run proves canonical collection and replay only, and must not be reported as a live website update.
 
 The job must return nonzero on any failed stage. One singleton parent task runs all collectors and publishes one generation, preventing mixed-date price/population state. Its bounded private log contains run ID, generation ID, step status, counts, hashes, and redacted error categories only.
+
+### Outcome gate
+
+A zero exit from the collection chain does not prove that the day's data landed. Replayed collector output, a no-op `INSERT IGNORE`, and a stale `effective_date` all exit zero. The scheduler wrapper therefore always runs `scripts/verify_daily_run.py` after the daily command, whether that command succeeded or failed, and reports the gate's result as the task result. Exit 0 means the data is fresh, exit 1 means it is not, and exit 2 means verification itself could not run. A non-zero exit writes an alert file to `data/runtime/alerts/` and marks the scheduled task or systemd unit as failed. On Linux the wrapper `deploy/systemd/run-cardz-daily.sh` deliberately does not end with `exec`, because `exec` replaces the shell and the gate would never execute.
+
+The gate runs five hard checks:
+
+| Check | Fails when |
+|-------|-----------|
+| `price_freshness` | `max(observed_date)` in `market_price_observation` is older than the expected date |
+| `snapshot_freshness` | any of the three index snapshots has a stale `effective_date` |
+| `source_coverage` | `gemrate` wrote nothing, or neither `snk_psa10` nor `snkrdunk` did |
+| `ingest_activity` | zero rows were written today, regardless of what yesterday's data looks like |
+| `volume_floor` | any source fell below **90 %** of its previous-day row count |
+
+`constituent_sanity` is a sixth, warning-only check on index membership; it never fails the gate.
+
+#### Why `volume_floor` exists
+
+The first four checks all answer *whether*, never *how much*. A `gemrate` source that wrote 3,779 rows yesterday and 12 rows today passes every one of them: the price date is current, the snapshots are current, the source is present, and the run demonstrably did work. Silently losing 99.7 % of a day's data is the failure mode that produces no signal at all, so it gets its own check.
+
+`volume_floor` compares each source's row count on the expected date against the same source on the day before, and fails if any of them is below `VOLUME_FLOOR_RATIO` (0.9). Sources whose baseline is under `VOLUME_FLOOR_MIN_BASELINE` (10 rows) are ignored, because a two-row wobble on a three-row source is noise. Unlike `constituent_sanity`, this check is **always emitted** — it is never omitted when it cannot be computed, because an absent check and a passing check look identical in the summary.
+
+**It is fail-closed.** If there is no previous-day baseline the check reports `pass: false` with `cannot measure volume, failing closed`. In production an empty previous day genuinely means the prior run lost everything; on a freshly bootstrapped database it means the gate has nothing to compare against yet, and in neither case may it report success.
+
+Every run also appends its per-source row counts to `data/runtime/verify/source_volume.json`, a rolling 30-day ledger keyed by date. This is what catches the slow version of the same failure — a source shrinking 5 % a day passes the floor every single day and is down a third after a week. Writing the ledger is telemetry, not a gate: a write failure prints a line and changes nothing about the verdict, and the ledger is written even on a failing run, so a post-mortem has numbers rather than just the word "failed".
+
+### Alert delivery
+
+The gate writes an alert file on every failure, but a file nobody opens is not a notification. `scripts/notify_alert.py` is the delivery layer, and it is driven entirely by environment variables — **no webhook URL or token may be committed to this repository.**
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `CARDZ_ALERT_WEBHOOK` | unset | Destination URL. Unset means alerts are still written to disk but nothing is sent. |
+| `CARDZ_ALERT_REPEAT_DAYS` | `3` | How often an unchanged, ongoing failure is re-sent. A three-day outage must not produce three identical messages. |
+
+Set it in `/etc/cardz-market-cap/backend.env` on Linux (the wrapper already requires that file to be root-owned and not group- or world-readable) or in `data/runtime/config/backend.env` locally:
+
+```bash
+CARDZ_ALERT_WEBHOOK=https://hooks.slack.com/services/...
+```
+
+The payload is JSON and includes a top-level `text` field holding the whole summary line, which is what Slack-shaped receivers (Slack, Mattermost, and Discord via `/slack`) render verbatim; every other receiver can read the structured fields — `key`, `status`, `stage`, `date`, `exitCode`, `unit`, `host`, `logPath`, `logTail`, `occurrences`. The webhook URL is never echoed into the payload, the logs, or an error message.
+
+Verify a real endpoint end to end before trusting it:
+
+```bash
+CARDZ_ALERT_WEBHOOK=https://... python -X utf8 scripts/notify_alert.py --self-test --key ops
+```
+
+`--self-test` bypasses dedupe and leaves the throttle state untouched, so it can be run as often as needed.
+
+Behaviour when delivery does not work, measured 2026-07-26 against a live local receiver and a dead port:
+
+| Situation | Result |
+|-----------|--------|
+| `CARDZ_ALERT_WEBHOOK` unset | `no CARDZ_ALERT_WEBHOOK configured; alert recorded only`, **exit 0** — an unconfigured channel must never fail the chain |
+| Endpoint refuses the connection | `delivery failed (URLError: ...)`, exit 1 from the CLI, no traceback. The throttle state is *not* advanced, so the next run tries again rather than treating the alert as sent. |
+| Called in-process by the gate | `notify_failure()` swallows every notifier error and returns a result dict. A broken notifier can never convert a diagnosable data failure into a crash. |
+
+Two entry points feed the same notifier, covering two different death modes: `verify_daily_run.py` calls it in-process when the chain exited 0 but the data is wrong (systemd cannot see that case), and `deploy/systemd/run-cardz-alert.sh`, triggered by `OnFailure=`, covers the cases where the gate never ran at all — `TimeoutStartSec` killing the process tree, `226/NAMESPACE`, or a crash before the gate is reached. Both derive the same dedupe key, so one incident makes one sound.
+
+### Watchdog
+
+The built-in gate only runs when the daily job actually ran. A powered-off host, a disabled timer, or a hung run produces no gate invocation and therefore no signal at all. A second, independent scheduled task runs `scripts/verify_daily_run.py --tag watchdog` at **14:07 JST (05:07 UTC)**, several hours after the daily job's worst-case finish. It first records the daily unit's and timer's state so an operator can distinguish "ran but produced nothing" from "never ran", then applies the same freshness checks. It is read-only and has no retry, because a watchdog failure is the signal that must be preserved.
 
 The default FX adapter is `pipelines/fx_rates.py`. It uses the keyless Frankfurter v2 daily API through a configurable `CARDZ_FX_ENDPOINT`, so the same pipeline can point to a privately self-hosted compatible service after a server move. Run `python pipelines/fx_rates.py` for a private live collection check; its output reports timestamps and currency codes only, never the upstream payload or URL.
 

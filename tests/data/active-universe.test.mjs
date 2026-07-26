@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 
 const execute = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+// Ubuntu 24.04 冇 /usr/bin/python，Windows 嘅 python3 又係 Store 假 alias，所以兩邊各用各嘅名。
+const PYTHON = process.env.CARDZ_PYTHON ?? (process.platform === "win32" ? "python" : "python3");
 
 const behavioralProbe = String.raw`
 import json
@@ -121,7 +123,7 @@ print(
 `;
 
 test("active universe trusts exact crosswalk language and caps a short-core watchlist at 200", async () => {
-  const { stdout } = await execute("python", ["-c", behavioralProbe], { cwd: root });
+  const { stdout } = await execute(PYTHON, ["-c", behavioralProbe], { cwd: root });
   const result = JSON.parse(stdout.trim());
 
   assert.equal(result.sourceLanguage, "ja");
@@ -133,7 +135,7 @@ test("active universe trusts exact crosswalk language and caps a short-core watc
 });
 
 test("active universe rejects invalid segment, language, and role", async () => {
-  const { stdout } = await execute("python", ["-c", behavioralProbe], { cwd: root });
+  const { stdout } = await execute(PYTHON, ["-c", behavioralProbe], { cwd: root });
   const { errors } = JSON.parse(stdout.trim());
 
   assert.match(errors.segment, /invalid language segment/);

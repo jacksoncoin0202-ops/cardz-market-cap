@@ -74,6 +74,43 @@ class CompleteRankingConsumerTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "non-contiguous"):
                 market_source_sync.load_active_universe(path)
 
+    def test_stale_lock_population_yields_to_fresh_observation(self) -> None:
+        document = complete_ranking_document(per_market=2)
+        recovered = document["cards"][0]
+        recovered["populationPsa10"] = 976
+        recovered["populationObservations"] = [
+            {
+                "grader": "PSA",
+                "sourceCode": recovered["canonicalSourceCode"],
+                "externalId": recovered["canonicalExternalId"],
+                "topGradePopulation": 1005,
+                "observedDate": "2026-07-24",
+            }
+        ]
+        still_below = document["cards"][1]
+        still_below["populationPsa10"] = 976
+        still_below["populationObservations"] = [
+            {
+                "grader": "PSA",
+                "sourceCode": still_below["canonicalSourceCode"],
+                "externalId": still_below["canonicalExternalId"],
+                "topGradePopulation": 977,
+                "observedDate": "2026-07-24",
+            }
+        ]
+        document["payloadSha256"] = db_runtime.sha256(db_runtime.canonical_json(document["cards"]))
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "ranking.json"
+            path.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "below POP 1000"):
+                market_source_sync.load_active_universe(path)
+        still_below["populationObservations"][0]["topGradePopulation"] = 1002
+        document["payloadSha256"] = db_runtime.sha256(db_runtime.canonical_json(document["cards"]))
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "ranking.json"
+            path.write_text(json.dumps(document), encoding="utf-8")
+            self.assertEqual(len(market_source_sync.load_active_universe(path)["cards"]), 4)
+
     def test_v5_monitoring_pool_is_validated_and_included_once_in_collection_union(self) -> None:
         rows = [
             {

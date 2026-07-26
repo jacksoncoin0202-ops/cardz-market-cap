@@ -196,6 +196,12 @@ def enrich_candidates(
         if language not in SUPPORTED_CARD_LANGUAGES:
             rejected["unsupported_card_language"] += 1
             continue
+        raw_collector = str(source_card.get("collectorNumberRaw") or "")
+        # Japanese promo printings use a "-P" promo suffix after the slash
+        # (227/S-P, 207/XY-P). Some source rows mislabel them as en/zhCN; the
+        # suffix is authoritative for the printing language.
+        if "/" in raw_collector and raw_collector.split("/")[-1].endswith("-P") and language != "ja":
+            language = "ja"
         name = str(source_card.get("name") or "").strip()
         collector = normalize_collector(source_card.get("collectorNumberRaw"), language)
         set_name = str(source_card.get("setName") or row.get("setName") or "").strip()

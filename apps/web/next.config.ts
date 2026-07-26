@@ -47,10 +47,15 @@ const securityHeaders = [
   { key: "X-CARDZ-Build", value: publicBuildId },
 ];
 
+/* CARDZ_BUILD_TARGET=node 出 .next/standalone 自帶 server.js（AWS / Docker）。
+   唔設就照舊出標準 build，Cloudflare OpenNext 路徑不受影響。 */
+const standaloneOutput = process.env.CARDZ_BUILD_TARGET === "node";
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   productionBrowserSourceMaps: false,
+  ...(standaloneOutput ? { output: "standalone" as const } : {}),
   outputFileTracingRoot: repositoryRoot,
   turbopack: { root: repositoryRoot },
   experimental: {

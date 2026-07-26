@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -82,6 +83,53 @@ class BackendCliContractTests(unittest.TestCase):
         self.assertIn("--backend-only", events[0])
         self.assertNotIn("--backend-only", events[1])
         coverage_audit.assert_not_called()
+
+    def test_daily_local_publish_forwards_local_only_and_withholds_the_bucket(self) -> None:
+        """--local-only must reach run_daily.py *and* strip the ambient bucket.
+
+        run_daily.py resolves CARDZ_*_R2_BUCKET from its own environment and then
+        raises on "--local-only cannot be combined with an R2 bucket", so leaking
+        the bucket into the child turns the scheduled daily run into a hard failure.
+        A remote publish is the only shape allowed to inherit it.
+        """
+
+        calls: list[tuple[list[str], dict[str, str]]] = []
+        patches = (
+            mock.patch.object(backend, "validate_external_transport"),
+            mock.patch.object(backend, "runtime_config", return_value=({"CARDZ_DB_HOST": "db"}, False)),
+            mock.patch.object(backend, "ensure_python_environment", return_value=Path(sys.executable)),
+            mock.patch.object(backend, "run_data_routing_tool"),
+            mock.patch.object(backend, "run_discovery_tool"),
+            mock.patch.object(backend, "run_database_tool"),
+            mock.patch.object(
+                backend.subprocess,
+                "run",
+                side_effect=lambda command, **kwargs: calls.append((command, kwargs.get("env", {}))),
+            ),
+            mock.patch.dict(os.environ, {"CARDZ_PRODUCTION_R2_BUCKET": "cardz-production"}, clear=False),
+        )
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
+            with mock.patch.object(
+                sys, "argv", ["backend.py", "daily", "--external-db", "--publish", "--local-only"]
+            ):
+                self.assertEqual(backend.main(), 0)
+            with mock.patch.object(sys, "argv", ["backend.py", "daily", "--external-db", "--publish"]):
+                self.assertEqual(backend.main(), 0)
+
+        local_command, local_env = calls[0]
+        self.assertIn("--local-only", local_command)
+        self.assertNotIn("--backend-only", local_command)
+        self.assertNotIn("CARDZ_PRODUCTION_R2_BUCKET", local_env)
+        self.assertNotIn("CARDZ_STAGING_R2_BUCKET", local_env)
+
+        remote_command, remote_env = calls[1]
+        self.assertNotIn("--local-only", remote_command)
+        self.assertEqual(remote_env["CARDZ_PRODUCTION_R2_BUCKET"], "cardz-production")
+
+    def test_local_only_without_publish_is_rejected_instead_of_silently_ignored(self) -> None:
+        with mock.patch.object(sys, "argv", ["backend.py", "daily", "--external-db", "--local-only"]):
+            with self.assertRaisesRegex(RuntimeError, "--local-only only qualifies daily --publish"):
+                backend.main()
 
     def test_seed_restore_delegates_to_empty_database_restore_only_after_confirmation(self) -> None:
         archive = ROOT / "data/private/canonical-seed.sql.gz"

@@ -1,6 +1,7 @@
 Pillow==11.3.0
 PyMySQL==1.1.2
 cryptography==49.0.0
+curl_cffi==0.15.0
 pycryptodome==3.23.0
 requests==2.34.2
 playwright==1.55.0

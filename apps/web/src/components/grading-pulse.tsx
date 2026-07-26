@@ -66,12 +66,14 @@ export function GradingPulse({ cards, locale, period }: { cards: MarketCardView[
           {stats.map((stat) => {
             const share = total > 0 ? (stat.topGradePop / total) * 100 : 0;
             const delta = stat.change.value ?? 0;
-            const deltaCount = Math.round(stat.topGradePop - stat.topGradePop / (1 + delta / 100));
+            const deltaCount = Math.max(0, Math.round(stat.topGradePop - stat.topGradePop / (1 + delta / 100)));
             return (
               <li key={stat.grader} className="grading-pulse-item">
-                <span className={`grading-dot grading-${stat.grader.toLowerCase()}`} aria-hidden="true" />
-                <span className="grading-name">{t.grader.names[stat.grader]}</span>
-                <span className="grading-delta">{deltaCount >= 0 ? "+" : ""}{deltaCount.toLocaleString()}</span>
+                <span className="grading-identity">
+                  <span className={`grading-dot grading-${stat.grader.toLowerCase()}`} aria-hidden="true" />
+                  <span className="grading-name">{t.grader.names[stat.grader]}</span>
+                </span>
+                <span className="grading-delta">+{deltaCount.toLocaleString()}</span>
                 <span className={`grading-pct metric-${metricTone(stat.change)}`}>{formatPercent(stat.change, locale)}</span>
                 <span className="grading-share-label">{share.toFixed(1)}%</span>
               </li>

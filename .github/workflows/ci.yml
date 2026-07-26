@@ -48,7 +48,13 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          # 對齊生產 Linux server：Ubuntu 24.04 嘅 /usr/bin/python3 就係 3.12，而
+          # run-cardz-daily.sh / run-cardz-watchdog.sh 揀直譯器係「由新到舊」探測
+          # （python3.14…python3.10）再 fallback 去 python3，server 上實際命中 3.12。
+          # CI 舊值 3.10 係跟 Windows 開發機（.venv-backend = 3.10.11），測唔到生產嗰個版本。
+          # 3.10 仍然係硬底線（兩個 wrapper 都 gate sys.version_info < (3, 10)），所以
+          # Windows 側照跑得；改動只係令 CI 測返 server 真正會用嗰個版本。
+          python-version: "3.12"
 
       - name: Install JavaScript dependencies
         run: npm ci --ignore-scripts

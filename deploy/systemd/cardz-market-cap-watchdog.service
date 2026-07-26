@@ -1,0 +1,28 @@
+[Unit]
+Description=CARDZ outcome watchdog (read-only verify of the daily run)
+After=network-online.target
+Wants=network-online.target
+# Watchdog 自己死（連唔到 DB、python 爆）都要出聲，唔可以靜靜地變 failed。
+OnFailure=cardz-market-cap-alert@%n.service
+
+[Service]
+Type=oneshot
+User=cardz
+Group=cardz
+WorkingDirectory=/opt/cardz-market-cap
+EnvironmentFile=/etc/cardz-market-cap/backend.env
+Environment=CARDZ_REPO_ROOT=/opt/cardz-market-cap
+Environment=CARDZ_ENV_FILE=/etc/cardz-market-cap/backend.env
+ExecStart=/usr/bin/env bash /opt/cardz-market-cap/deploy/systemd/run-cardz-watchdog.sh
+# 唯讀查 DB + 寫一個 alert 檔，秒級完成；20 分鐘已經係極寬鬆嘅上限。
+TimeoutStartSec=1200
+# 刻意唔設 Restart：watchdog fail 本身就係要保留嘅訊號，重試只會沖淡佢。
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/cardz-market-cap/data/runtime
+
+[Install]
+WantedBy=multi-user.target

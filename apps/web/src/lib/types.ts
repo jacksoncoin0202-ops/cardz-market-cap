@@ -12,7 +12,12 @@ export type Theme = (typeof themes)[number];
 export type MetricStatus = "ready" | "accumulating" | "stale" | "unavailable";
 export type CoverageStatus = "partial" | "stale" | "unavailable";
 
-export type LocalizedText = Record<Locale, string>;
+/*
+ * `en` 一定有值；其他語系冇來源時係 `null`，唔係英文副本。
+ * 消費端一律 `card.setName[locale] || fallback`，所以 `null` 會跌落顯示層自己嘅
+ * fallback（`t.status.unavailable` / `t.labels.imageAlt`），唔會扮咗有翻譯。
+ */
+export type LocalizedText = Record<Locale, string | null> & { en: string };
 
 export interface MarketMetric<T> {
   value: T | null;
@@ -38,7 +43,12 @@ export interface TrackedSalesMetric {
 }
 
 export interface WindowMetrics {
+  /** 參考價（PSA10）嘅窗口變動。淨係價，唔包 POP —— 唔好攞嚟當市值或成交額用。 */
   changePct: MarketMetric<number>;
+  /** 市值窗口變動 = (1+Δ價)(1+ΔPOP)−1。view mapper 保證三個窗口都有。 */
+  marketCapChangePct: MarketMetric<number>;
+  /** 窗口成交金額 vs 前一個同長度窗口。 */
+  trackedSalesChangePct: MarketMetric<number>;
   trackedSales: TrackedSalesMetric;
 }
 

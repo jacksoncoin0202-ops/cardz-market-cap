@@ -1,6 +1,6 @@
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { assertPublicSnapshot, type PublicMarketSnapshot } from "@cardz/market-data";
 import { cache } from "react";
+import { cloudflareEnv, isNodeRuntime } from "./cloudflare-env";
 import { getSeedSnapshot, normaliseSnapshot } from "./snapshot";
 import { parseSnapshotPointer } from "./snapshot-pointer";
 import type { Grader, MarketCardView, MarketViewSnapshot } from "./types";
@@ -40,16 +40,67 @@ function listCard(card: MarketCardView): MarketCardView {
   };
 }
 
+/*
+ * Node server（AWS / Docker）路徑：冇 R2 binding，數據來自 build 時打包咗嘅
+ * seed snapshot，或者 MARKET_DATA_SNAPSHOT_PATH 指住嘅檔。讀一次 cache 落
+ * 進程，換數據要重啟。
+ */
+let nodeSnapshot: MarketViewSnapshot | null = null;
+
+/*
+ * `next build` 會 prerender 靜態頁（/sitemap.xml 等），嗰陣一定行得到呢條路，
+ * 而嗰刻 build context 入面通常仲係 demo seed。build 期 throw = build 直接炸，
+ * 所以 demo 閘只喺 runtime 生效，build 期放行。
+ */
+function isBuildPhase(): boolean {
+  return process.env.NEXT_PHASE === "phase-production-build";
+}
+
+async function loadNodeSnapshot(): Promise<MarketViewSnapshot> {
+  if (nodeSnapshot) return nodeSnapshot;
+  const snapshotPath = process.env.MARKET_DATA_SNAPSHOT_PATH?.trim();
+  if (!snapshotPath) {
+    /*
+     * 冇 MARKET_DATA_SNAPSHOT_PATH 就用 build 時燒死入 bundle 嗰份。
+     * git 入面嗰份 data/public/seed-snapshot.json 按硬規矩永遠係 demo placeholder，
+     * 所以 clone → docker build → 出街 呢條路預設會派 360 張假卡，而且 200 OK、
+     * 冇 error、冇 log、冇 alert——demo 扮真數據係最壞嘅失敗模式，寧願唔出。
+     *
+     * normaliseSnapshot() 已經幫我哋計咗：mode === "canonical" 等同
+     * generation.mode === "production" && generation.productionEligible。
+     */
+    const seed = getSeedSnapshot();
+    const demoAllowed = process.env.MARKET_DATA_ALLOW_DEMO === "true";
+    if (seed.mode !== "canonical" && !demoAllowed && !isBuildPhase()) {
+      throw new Error(
+        `Refusing to serve non-production data. The snapshot compiled into this build is generation ` +
+          `"${seed.generation}" (mode=${seed.mode}); it is a demo placeholder, not real market data. ` +
+          `Fix: rebuild the image with a production data/public/seed-snapshot.json in the build context ` +
+          `(see docs/AWS_DEPLOY.md "Shipping real data"), or point MARKET_DATA_SNAPSHOT_PATH at a ` +
+          `production snapshot file. To serve the demo placeholder deliberately, set MARKET_DATA_ALLOW_DEMO=true.`,
+      );
+    }
+    nodeSnapshot = seed;
+    return nodeSnapshot;
+  }
+  const { readFile } = await import("node:fs/promises");
+  const canonical = JSON.parse(await readFile(snapshotPath, "utf8")) as PublicMarketSnapshot;
+  assertPublicSnapshot(canonical, { production: process.env.MARKET_DATA_ALLOW_DEMO !== "true" });
+  nodeSnapshot = normaliseSnapshot(canonical);
+  return nodeSnapshot;
+}
+
 export const loadMarketSnapshot = cache(async (): Promise<MarketViewSnapshot> => {
   if (process.env.NODE_ENV === "development") return getSeedSnapshot();
+  if (isNodeRuntime()) return loadNodeSnapshot();
   let allowDemo = process.env.MARKET_DATA_ALLOW_DEMO === "true";
   try {
-    const context = await getCloudflareContext({ async: true });
-    const environment = context.env as unknown as {
+    const environment = await cloudflareEnv<{
       MARKET_DATA?: MarketBucket;
       MARKET_DATA_ALLOW_DEMO?: string;
       MARKET_DATA_POINTER_KEY?: string;
-    };
+    }>();
+    if (!environment) throw new Error("Cloudflare bindings unavailable");
     allowDemo = environment.MARKET_DATA_ALLOW_DEMO === "true" || allowDemo;
     const bucket = environment.MARKET_DATA;
     if (!bucket) throw new Error("Market data binding unavailable");

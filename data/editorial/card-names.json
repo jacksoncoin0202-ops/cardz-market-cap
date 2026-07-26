@@ -1,0 +1,893 @@
+{
+  "schemaVersion": "card-names-v1",
+  "generatedAt": "2026-07-25T23:05:01.955Z",
+  "source": "apps/web/src/lib/card-names.ts",
+  "note": "由 TS 譯名表導出，TS 係唯一真源。改譯名改 .ts 再重跑 temp/dump-card-names.mjs。",
+  "entries": {
+    "Arceus & Dialga & Palkia GX": {
+      "zhTW": "阿爾宙斯＆帝牙盧卡＆帕路奇亞GX",
+      "zhCN": "阿尔宙斯＆帝牙卢卡＆帕路奇亚GX",
+      "ja": "アルセウス＆ディアルガ＆パルキアGX"
+    },
+    "Arceus VSTAR": {
+      "zhTW": "阿爾宙斯VSTAR",
+      "zhCN": "阿尔宙斯VSTAR",
+      "ja": "アルセウスVSTAR"
+    },
+    "Arceus Vstar": {
+      "zhTW": "阿爾宙斯VSTAR",
+      "zhCN": "阿尔宙斯VSTAR",
+      "ja": "アルセウスVSTAR"
+    },
+    "Armored Mewtwo": {
+      "zhTW": "裝甲超夢",
+      "zhCN": "装甲超梦",
+      "ja": "アーマードミュウツー"
+    },
+    "Blastoise": {
+      "zhTW": "水箭龜",
+      "zhCN": "水箭龟",
+      "ja": "カメックス"
+    },
+    "Blastoise ex": {
+      "zhTW": "水箭龜ex",
+      "zhCN": "水箭龟ex",
+      "ja": "カメックスex"
+    },
+    "Boa Hancock": {
+      "zhTW": "波雅・漢考克",
+      "zhCN": "波雅・汉库克",
+      "ja": "ボア・ハンコック"
+    },
+    "Boa Hancock SR-SP Booster Pack The Future After 500 years": {
+      "zhTW": "波雅・漢考克SR-SP",
+      "zhCN": "波雅・汉库克SR-SP",
+      "ja": "ボア・ハンコックSR-SP"
+    },
+    "Boa Hancock SR-SPC": {
+      "zhTW": "波雅・漢考克SR-SPC",
+      "zhCN": "波雅・汉库克SR-SPC",
+      "ja": "ボア・ハンコックSR-SPC"
+    },
+    "Carmine": {
+      "zhTW": "丹瑜",
+      "zhCN": "丹瑜",
+      "ja": "セイリー"
+    },
+    "Charizard": {
+      "zhTW": "噴火龍",
+      "zhCN": "喷火龙",
+      "ja": "リザードン"
+    },
+    "Charizard EX": {
+      "zhTW": "噴火龍ex",
+      "zhCN": "喷火龙ex",
+      "ja": "リザードンex"
+    },
+    "Charizard GX": {
+      "zhTW": "噴火龍GX",
+      "zhCN": "喷火龙GX",
+      "ja": "リザードンGX"
+    },
+    "Charizard Gx": {
+      "zhTW": "噴火龍GX",
+      "zhCN": "喷火龙GX",
+      "ja": "リザードンGX"
+    },
+    "Charizard V": {
+      "zhTW": "噴火龍V",
+      "zhCN": "喷火龙V",
+      "ja": "リザードンV"
+    },
+    "Charizard VMAX": {
+      "zhTW": "噴火龍VMAX",
+      "zhCN": "喷火龙VMAX",
+      "ja": "リザードンVMAX"
+    },
+    "Charizard VMAX SUR": {
+      "zhTW": "噴火龍VMAX SUR",
+      "zhCN": "喷火龙VMAX SUR",
+      "ja": "リザードンVMAX SUR"
+    },
+    "Charizard VSTAR": {
+      "zhTW": "噴火龍VSTAR",
+      "zhCN": "喷火龙VSTAR",
+      "ja": "リザードンVSTAR"
+    },
+    "Charizard ex": {
+      "zhTW": "噴火龍ex",
+      "zhCN": "喷火龙ex",
+      "ja": "リザードンex"
+    },
+    "Charmander": {
+      "zhTW": "小火龍",
+      "zhCN": "小火龙",
+      "ja": "ヒトカゲ"
+    },
+    "Cherry Blossom Afro Pikachu": {
+      "zhTW": "櫻花爆炸頭皮卡丘",
+      "zhCN": "樱花爆炸头皮卡丘",
+      "ja": "サクラアフロのピカチュウ"
+    },
+    "Clefairy": {
+      "zhTW": "皮皮",
+      "zhCN": "皮皮",
+      "ja": "ピッピ"
+    },
+    "Cramorant": {
+      "zhTW": "古月鳥",
+      "zhCN": "古月鸟",
+      "ja": "ウッウ"
+    },
+    "Cynthia": {
+      "zhTW": "Cynthia",
+      "zhCN": "Cynthia",
+      "ja": "Cynthia"
+    },
+    "Cynthia's Garchomp ex": {
+      "zhTW": "竹蘭的烈咬陸鯊ex",
+      "zhCN": "竹兰的烈咬陆鲨ex",
+      "ja": "シロナのガブリアスex"
+    },
+    "Dark Gyarados": {
+      "zhTW": "黑暗暴鯉龍",
+      "zhCN": "黑暗暴鲤龙",
+      "ja": "ダークギャラドス"
+    },
+    "Darkrai VSTAR": {
+      "zhTW": "達克萊伊VSTAR",
+      "zhCN": "达克莱伊VSTAR",
+      "ja": "ダークライVSTAR"
+    },
+    "Detective Pikachu": {
+      "zhTW": "名偵探皮卡丘",
+      "zhCN": "大侦探皮卡丘",
+      "ja": "名探偵ピカチュウ"
+    },
+    "Dracule Mihawk SEC-SP Booster Pack THE AZURE SEA'S SEVEN": {
+      "zhTW": "喬拉可爾・密佛格SEC-SP",
+      "zhCN": "乔拉可尔・米霍克SEC-SP",
+      "ja": "ジュラキュール・ミホークSEC-SP"
+    },
+    "Easter's Pikachu": {
+      "zhTW": "復活節皮卡丘",
+      "zhCN": "复活节皮卡丘",
+      "ja": "イースターのピカチュウ"
+    },
+    "Eevee": {
+      "zhTW": "伊布",
+      "zhCN": "伊布",
+      "ja": "イーブイ"
+    },
+    "Eevee ex": {
+      "zhTW": "伊布ex",
+      "zhCN": "伊布ex",
+      "ja": "イーブイex"
+    },
+    "Erika's Hospitality": {
+      "zhTW": "莉佳的款待",
+      "zhCN": "莉佳的款待",
+      "ja": "エリカのおもてなし"
+    },
+    "Espeon VMAX": {
+      "zhTW": "太陽伊布VMAX",
+      "zhCN": "太阳伊布VMAX",
+      "ja": "エーフィVMAX"
+    },
+    "Espeon ex": {
+      "zhTW": "太陽伊布ex",
+      "zhCN": "太阳伊布ex",
+      "ja": "エーフィex"
+    },
+    "Ethan's Ho": {
+      "zhTW": "阿響的鳳王",
+      "zhCN": "阿响的凤王",
+      "ja": "ヒビキのホウオウ"
+    },
+    "Flareon": {
+      "zhTW": "火伊布",
+      "zhCN": "火伊布",
+      "ja": "ブースター"
+    },
+    "Flareon EX": {
+      "zhTW": "火伊布ex",
+      "zhCN": "火伊布ex",
+      "ja": "ブースターex"
+    },
+    "Flareon ex": {
+      "zhTW": "火伊布ex",
+      "zhCN": "火伊布ex",
+      "ja": "ブースターex"
+    },
+    "Friends in Alola": {
+      "zhTW": "阿羅拉的夥伴",
+      "zhCN": "阿罗拉的伙伴",
+      "ja": "アローラの仲間たち"
+    },
+    "Fukuoka's Pikachu": {
+      "zhTW": "福岡的皮卡丘",
+      "zhCN": "福冈的皮卡丘",
+      "ja": "フクオカのピカチュウ"
+    },
+    "Gardevoir EX": {
+      "zhTW": "沙奈朵ex",
+      "zhCN": "沙奈朵ex",
+      "ja": "サーナイトex"
+    },
+    "Gengar": {
+      "zhTW": "耿鬼",
+      "zhCN": "耿鬼",
+      "ja": "ゲンガー"
+    },
+    "Gengar & Mimikyu GX": {
+      "zhTW": "耿鬼＆謎擬ＱGX",
+      "zhCN": "耿鬼＆谜拟ＱGX",
+      "ja": "ゲンガー＆ミミッキュGX"
+    },
+    "Gengar VMAX": {
+      "zhTW": "耿鬼VMAX",
+      "zhCN": "耿鬼VMAX",
+      "ja": "ゲンガーVMAX"
+    },
+    "Giratina V": {
+      "zhTW": "騎拉帝納V",
+      "zhCN": "骑拉帝纳V",
+      "ja": "ギラティナV"
+    },
+    "Giratina VSTAR": {
+      "zhTW": "騎拉帝納VSTAR",
+      "zhCN": "骑拉帝纳VSTAR",
+      "ja": "ギラティナVSTAR"
+    },
+    "Giratina Vstar": {
+      "zhTW": "騎拉帝納VSTAR",
+      "zhCN": "骑拉帝纳VSTAR",
+      "ja": "ギラティナVSTAR"
+    },
+    "Glaceon ex": {
+      "zhTW": "冰伊布ex",
+      "zhCN": "冰伊布ex",
+      "ja": "グレイシアex"
+    },
+    "Gol D. Roger SEC-GSP": {
+      "zhTW": "哥爾・D・羅傑SEC-GSP",
+      "zhCN": "哥尔・D・罗杰SEC-GSP",
+      "ja": "ゴール・D・ロジャーSEC-GSP"
+    },
+    "Green's Exploration": {
+      "zhTW": "小藍的探索",
+      "zhCN": "小蓝的探索",
+      "ja": "グリーンの戦略"
+    },
+    "Greninja Star": {
+      "zhTW": "甲賀忍蛙★",
+      "zhCN": "甲贺忍蛙★",
+      "ja": "ゲッコウガ★"
+    },
+    "Greninja ex": {
+      "zhTW": "甲賀忍蛙ex",
+      "zhCN": "甲贺忍蛙ex",
+      "ja": "ゲッコウガex"
+    },
+    "Haunter": {
+      "zhTW": "鬼斯通",
+      "zhCN": "鬼斯通",
+      "ja": "ゴースト"
+    },
+    "Hiroshima's Pikachu": {
+      "zhTW": "廣島的皮卡丘",
+      "zhCN": "广岛的皮卡丘",
+      "ja": "ヒロシマのピカチュウ"
+    },
+    "Iono": {
+      "zhTW": "奇樹",
+      "zhCN": "奇树",
+      "ja": "ナンジャモ"
+    },
+    "Jolteon ex": {
+      "zhTW": "雷伊布ex",
+      "zhCN": "雷伊布ex",
+      "ja": "サンダースex"
+    },
+    "Kanazawa Pikachu No Mark S-P": {
+      "zhTW": "金澤皮卡丘（無標記）S-P",
+      "zhCN": "金泽皮卡丘（无标记）S-P",
+      "ja": "カナザワのピカチュウ（マークなし）S-P"
+    },
+    "Kanazawa Pikachu With Mark": {
+      "zhTW": "金澤皮卡丘（有標記）",
+      "zhCN": "金泽皮卡丘（有标记）",
+      "ja": "カナザワのピカチュウ（マークあり）"
+    },
+    "Kingdra ex": {
+      "zhTW": "刺龍王ex",
+      "zhCN": "刺龙王ex",
+      "ja": "キングドラex"
+    },
+    "Latias & Latios GX": {
+      "zhTW": "拉帝亞斯＆拉帝歐斯GX",
+      "zhCN": "拉帝亚斯＆拉帝欧斯GX",
+      "ja": "ラティアス＆ラティオスGX"
+    },
+    "Leafeon": {
+      "zhTW": "葉伊布",
+      "zhCN": "叶伊布",
+      "ja": "リーフィア"
+    },
+    "Leafeon ex": {
+      "zhTW": "葉伊布ex",
+      "zhCN": "叶伊布ex",
+      "ja": "リーフィアex"
+    },
+    "Lillie": {
+      "zhTW": "莉莉艾",
+      "zhCN": "莉莉艾",
+      "ja": "リーリエ"
+    },
+    "Lillie's Clefairy ex": {
+      "zhTW": "莉莉艾的皮皮ex",
+      "zhCN": "莉莉艾的皮皮ex",
+      "ja": "リーリエのピッピex"
+    },
+    "Lillie's Determination": {
+      "zhTW": "莉莉艾的決心",
+      "zhCN": "莉莉艾的决心",
+      "ja": "リーリエの決心"
+    },
+    "Lillie's Full Force": {
+      "zhTW": "莉莉艾的全力",
+      "zhCN": "莉莉艾的全力",
+      "ja": "リーリエの全力"
+    },
+    "Lisia": {
+      "zhTW": "Lisia",
+      "zhCN": "Lisia",
+      "ja": "Lisia"
+    },
+    "Luigi Pikachu": {
+      "zhTW": "路易吉皮卡丘",
+      "zhCN": "路易吉皮卡丘",
+      "ja": "ルイージピカチュウ"
+    },
+    "Lusamine": {
+      "zhTW": "Lusamine",
+      "zhCN": "Lusamine",
+      "ja": "Lusamine"
+    },
+    "M Gengar EX": {
+      "zhTW": "超級耿鬼ex",
+      "zhCN": "超级耿鬼ex",
+      "ja": "メガゲンガーex"
+    },
+    "M Rayquaza EX": {
+      "zhTW": "超級烈空坐ex",
+      "zhCN": "超级烈空坐ex",
+      "ja": "メガレックウザex"
+    },
+    "Magikarp": {
+      "zhTW": "鯉魚王",
+      "zhCN": "鲤鱼王",
+      "ja": "コイキング"
+    },
+    "Manzai play Pikachu": {
+      "zhTW": "漫才皮卡丘",
+      "zhCN": "漫才皮卡丘",
+      "ja": "漫才ごっこピカチュウ"
+    },
+    "Mario Pikachu": {
+      "zhTW": "瑪利歐皮卡丘",
+      "zhCN": "马力欧皮卡丘",
+      "ja": "マリオピカチュウ"
+    },
+    "Marnie": {
+      "zhTW": "瑪俐",
+      "zhCN": "玛俐",
+      "ja": "マリィ"
+    },
+    "Mega Charizard X ex": {
+      "zhTW": "超級噴火龍Xex",
+      "zhCN": "超级喷火龙Xex",
+      "ja": "メガリザードンXex"
+    },
+    "Mega Dragonite ex": {
+      "zhTW": "超級快龍ex",
+      "zhCN": "超级快龙ex",
+      "ja": "メガカイリューex"
+    },
+    "Mega Gardevoir ex": {
+      "zhTW": "超級沙奈朵ex",
+      "zhCN": "超级沙奈朵ex",
+      "ja": "メガサーナイトex"
+    },
+    "Mega Gengar ex": {
+      "zhTW": "超級耿鬼ex",
+      "zhCN": "超级耿鬼ex",
+      "ja": "メガゲンガーex"
+    },
+    "Mega Latias ex": {
+      "zhTW": "超級拉帝亞斯ex",
+      "zhCN": "超级拉帝亚斯ex",
+      "ja": "メガラティアスex"
+    },
+    "Mega Lucario ex": {
+      "zhTW": "超級路卡利歐ex",
+      "zhCN": "超级路卡利欧ex",
+      "ja": "メガルカリオex"
+    },
+    "Mega Rayquaza EX": {
+      "zhTW": "超級烈空坐ex",
+      "zhCN": "超级烈空坐ex",
+      "ja": "メガレックウザex"
+    },
+    "Mega Zygarde ex": {
+      "zhTW": "超級基格爾德ex",
+      "zhCN": "超级基格尔德ex",
+      "ja": "メガジガルデex"
+    },
+    "Member Pretend Pikachu": {
+      "zhTW": "Member Pretend Pikachu",
+      "zhCN": "Member Pretend Pikachu",
+      "ja": "Member Pretend Pikachu"
+    },
+    "Meowth": {
+      "zhTW": "喵喵",
+      "zhCN": "喵喵",
+      "ja": "ニャース"
+    },
+    "Meowth ex": {
+      "zhTW": "喵喵ex",
+      "zhCN": "喵喵ex",
+      "ja": "ニャースex"
+    },
+    "Mew": {
+      "zhTW": "夢幻",
+      "zhCN": "梦幻",
+      "ja": "ミュウ"
+    },
+    "Mew V": {
+      "zhTW": "夢幻V",
+      "zhCN": "梦幻V",
+      "ja": "ミュウV"
+    },
+    "Mew VMAX": {
+      "zhTW": "夢幻VMAX",
+      "zhCN": "梦幻VMAX",
+      "ja": "ミュウVMAX"
+    },
+    "Mew ex": {
+      "zhTW": "夢幻ex",
+      "zhCN": "梦幻ex",
+      "ja": "ミュウex"
+    },
+    "Mew/Mewtwo Gx": {
+      "zhTW": "夢幻超夢GX &",
+      "zhCN": "梦幻超梦GX &",
+      "ja": "ミュウミュウツーGX &"
+    },
+    "Mewtwo": {
+      "zhTW": "超夢",
+      "zhCN": "超梦",
+      "ja": "ミュウツー"
+    },
+    "Mewtwo & Mew GX": {
+      "zhTW": "超夢＆夢幻GX",
+      "zhCN": "超梦＆梦幻GX",
+      "ja": "ミュウツー＆ミュウGX"
+    },
+    "Mewtwo EX": {
+      "zhTW": "超夢ex",
+      "zhCN": "超梦ex",
+      "ja": "ミュウツーex"
+    },
+    "Mewtwo GX": {
+      "zhTW": "超夢GX",
+      "zhCN": "超梦GX",
+      "ja": "ミュウツーGX"
+    },
+    "Mewtwo V": {
+      "zhTW": "超夢V",
+      "zhCN": "超梦V",
+      "ja": "ミュウツーV"
+    },
+    "Mewtwo VSTAR": {
+      "zhTW": "超夢VSTAR",
+      "zhCN": "超梦VSTAR",
+      "ja": "ミュウツーVSTAR"
+    },
+    "Mewtwo Vstar": {
+      "zhTW": "超夢VSTAR",
+      "zhCN": "超梦VSTAR",
+      "ja": "ミュウツーVSTAR"
+    },
+    "Mimikyu": {
+      "zhTW": "謎擬Ｑ",
+      "zhCN": "谜拟Ｑ",
+      "ja": "ミミッキュ"
+    },
+    "Moltres & Zapdos & Articuno GX": {
+      "zhTW": "火焰鳥閃電鳥急凍鳥GX & &",
+      "zhCN": "火焰鸟闪电鸟急冻鸟GX & &",
+      "ja": "ファイヤーサンダーフリーザーGX & &"
+    },
+    "Moltres Zapdos Articuno GX": {
+      "zhTW": "火焰鳥・閃電鳥・急凍鳥GX",
+      "zhCN": "火焰鸟・闪电鸟・急冻鸟GX",
+      "ja": "ファイヤー・サンダー・フリーザーGX"
+    },
+    "Monkey D Luffy SEC-P": {
+      "zhTW": "蒙其・D・魯夫SEC-P",
+      "zhCN": "蒙奇・D・路飞SEC-P",
+      "ja": "モンキー・D・ルフィSEC-P"
+    },
+    "Monkey.D.Luff": {
+      "zhTW": "Monkey.D.Luff",
+      "zhCN": "Monkey.D.Luff",
+      "ja": "Monkey.D.Luff"
+    },
+    "Monkey.D.Luffy L": {
+      "zhTW": "蒙其・D・魯夫L",
+      "zhCN": "蒙奇・D・路飞L",
+      "ja": "モンキー・D・ルフィL"
+    },
+    "Monkey.D.Luffy SEC-SP Booster Pack A Fist of Divine Speed": {
+      "zhTW": "蒙其・D・魯夫SEC-SP",
+      "zhCN": "蒙奇・D・路飞SEC-SP",
+      "ja": "モンキー・D・ルフィSEC-SP"
+    },
+    "Monkey.D.Luffy SEC-SP Booster Pack Awakening Of The New Era": {
+      "zhTW": "蒙其・D・魯夫SEC-SP",
+      "zhCN": "蒙奇・D・路飞SEC-SP",
+      "ja": "モンキー・D・ルフィSEC-SP"
+    },
+    "Monkey.D.Luffy SEC-SP Booster Pack CARRYING ON HIS WILL": {
+      "zhTW": "蒙其・D・魯夫SEC-SP",
+      "zhCN": "蒙奇・D・路飞SEC-SP",
+      "ja": "モンキー・D・ルフィSEC-SP"
+    },
+    "Monkey.D.Luffy SEC-SP Booster Pack Emperors In The New World": {
+      "zhTW": "蒙其・D・魯夫SEC-SP",
+      "zhCN": "蒙奇・D・路飞SEC-SP",
+      "ja": "モンキー・D・ルフィSEC-SP"
+    },
+    "Monkey.D.Luffy SEC-SP Extra Booster Anime 25th Collection": {
+      "zhTW": "蒙其・D・魯夫SEC-SPBooster Extra Anime 25th Collection",
+      "zhCN": "蒙奇・D・路飞SEC-SPBooster Extra Anime 25th Collection",
+      "ja": "モンキー・D・ルフィSEC-SPBooster Extra Anime 25th Collection"
+    },
+    "Monkey.D.Luffy SEC-SPC 3th Anniversary Special Card Booster Pack A Fist of Divine Speed": {
+      "zhTW": "蒙其・D・魯夫SEC-SPC",
+      "zhCN": "蒙奇・D・路飞SEC-SPC",
+      "ja": "モンキー・D・ルフィSEC-SPC"
+    },
+    "Nami R-SP Premium Booster One Piece Card The Best": {
+      "zhTW": "娜美R-SP",
+      "zhCN": "娜美R-SP",
+      "ja": "ナミR-SP"
+    },
+    "Okuge": {
+      "zhTW": "Okuge",
+      "zhCN": "Okuge",
+      "ja": "Okuge"
+    },
+    "Oricorio ex": {
+      "zhTW": "花舞鳥ex",
+      "zhCN": "花舞鸟ex",
+      "ja": "オドリドリex"
+    },
+    "Pikachu": {
+      "zhTW": "皮卡丘",
+      "zhCN": "皮卡丘",
+      "ja": "ピカチュウ"
+    },
+    "Pikachu & Zekrom GX": {
+      "zhTW": "皮卡丘＆捷克羅姆GX",
+      "zhCN": "皮卡丘＆捷克罗姆GX",
+      "ja": "ピカチュウ＆ゼクロムGX"
+    },
+    "Pikachu EX": {
+      "zhTW": "皮卡丘ex",
+      "zhCN": "皮卡丘ex",
+      "ja": "ピカチュウex"
+    },
+    "Pikachu Munch": {
+      "zhTW": "吶喊皮卡丘",
+      "zhCN": "呐喊皮卡丘",
+      "ja": "ムンク ピカチュウ"
+    },
+    "Pikachu Seven-Eleven": {
+      "zhTW": "7-Eleven 皮卡丘",
+      "zhCN": "7-Eleven 皮卡丘",
+      "ja": "セブン-イレブンのピカチュウ"
+    },
+    "Pikachu V": {
+      "zhTW": "皮卡丘V",
+      "zhCN": "皮卡丘V",
+      "ja": "ピカチュウV"
+    },
+    "Pikachu VMAX": {
+      "zhTW": "皮卡丘VMAX",
+      "zhCN": "皮卡丘VMAX",
+      "ja": "ピカチュウVMAX"
+    },
+    "Pikachu ex": {
+      "zhTW": "皮卡丘ex",
+      "zhCN": "皮卡丘ex",
+      "ja": "ピカチュウex"
+    },
+    "Pikachu wearing a poncho": {
+      "zhTW": "穿斗篷的皮卡丘",
+      "zhCN": "穿斗篷的皮卡丘",
+      "ja": "ポンチョを着たピカチュウ"
+    },
+    "Pikachu with Grey Felt Hat": {
+      "zhTW": "梵高皮卡丘",
+      "zhCN": "梵高皮卡丘",
+      "ja": "グレーのフェルト帽をかぶったピカチュウ"
+    },
+    "Pikachu/Zekrom Gx": {
+      "zhTW": "皮卡丘＆捷克羅姆GX",
+      "zhCN": "皮卡丘＆捷克罗姆GX",
+      "ja": "ピカチュウ＆ゼクロムGX"
+    },
+    "Poncho": {
+      "zhTW": "斗篷皮卡丘",
+      "zhCN": "斗篷皮卡丘",
+      "ja": "ポンチョを着たピカチュウ"
+    },
+    "Pretend Tea Ceremony Pikachu": {
+      "zhTW": "Pretend Tea Ceremony Pikachu",
+      "zhCN": "Pretend Tea Ceremony Pikachu",
+      "ja": "Pretend Tea Ceremony Pikachu"
+    },
+    "Psyduck": {
+      "zhTW": "可達鴨",
+      "zhCN": "可达鸭",
+      "ja": "コダック"
+    },
+    "Radiant Charizard": {
+      "zhTW": "光輝噴火龍",
+      "zhCN": "光辉喷火龙",
+      "ja": "かがやくリザードン"
+    },
+    "Rayquaza": {
+      "zhTW": "烈空坐",
+      "zhCN": "烈空坐",
+      "ja": "レックウザ"
+    },
+    "Rayquaza V": {
+      "zhTW": "烈空坐V",
+      "zhCN": "烈空坐V",
+      "ja": "レックウザV"
+    },
+    "Rayquaza VMAX": {
+      "zhTW": "烈空坐VMAX",
+      "zhCN": "烈空坐VMAX",
+      "ja": "レックウザVMAX"
+    },
+    "Rayquaza Vmax": {
+      "zhTW": "烈空坐VMAX",
+      "zhCN": "烈空坐VMAX",
+      "ja": "レックウザVMAX"
+    },
+    "Red's Pikachu": {
+      "zhTW": "小智的皮卡丘",
+      "zhCN": "小智的皮卡丘",
+      "ja": "レッドのピカチュウ"
+    },
+    "Reshiram": {
+      "zhTW": "萊希拉姆",
+      "zhCN": "莱希拉姆",
+      "ja": "レシラム"
+    },
+    "Reshiram & Charizard GX": {
+      "zhTW": "萊希拉姆＆噴火龍GX",
+      "zhCN": "莱希拉姆＆喷火龙GX",
+      "ja": "レシラム＆リザードンGX"
+    },
+    "Reshiram & Zekrom GX": {
+      "zhTW": "萊希拉姆＆捷克羅姆GX",
+      "zhCN": "莱希拉姆＆捷克罗姆GX",
+      "ja": "レシラム＆ゼクロムGX"
+    },
+    "Reshiram ex": {
+      "zhTW": "萊希拉姆ex",
+      "zhCN": "莱希拉姆ex",
+      "ja": "レシラムex"
+    },
+    "Roaring Moon ex": {
+      "zhTW": "轟鳴月ex",
+      "zhCN": "轰鸣月ex",
+      "ja": "トドロクツキex"
+    },
+    "Roronoa Zoro": {
+      "zhTW": "羅羅亞・索隆",
+      "zhCN": "罗罗诺亚・索隆",
+      "ja": "ロロノア・ゾロ"
+    },
+    "Roronoa Zoro SEC-SP Booster Pack Wings Of The Captain": {
+      "zhTW": "羅羅亞・索隆SEC-SP",
+      "zhCN": "罗罗诺亚・索隆SEC-SP",
+      "ja": "ロロノア・ゾロSEC-SP"
+    },
+    "Rosa": {
+      "zhTW": "鳴依",
+      "zhCN": "鸣依",
+      "ja": "メイ"
+    },
+    "Rosa's Encouragement": {
+      "zhTW": "鳴依的鼓舞",
+      "zhCN": "鸣依的鼓舞",
+      "ja": "メイの励まし"
+    },
+    "Rowlet Munch": {
+      "zhTW": "吶喊木木梟",
+      "zhCN": "呐喊木木枭",
+      "ja": "ムンク モクロー"
+    },
+    "Shadow Rider Calyrex VMAX": {
+      "zhTW": "騎黑馬的蕾冠王VMAX",
+      "zhCN": "骑黑马的蕾冠王VMAX",
+      "ja": "こくばじゃバドレックスVMAX"
+    },
+    "Shanks SEC-SP Booster Pack ROMANCE DAWN": {
+      "zhTW": "傑克SEC-SP",
+      "zhCN": "香克斯SEC-SP",
+      "ja": "シャンクスSEC-SP"
+    },
+    "Shibuya Pikachu": {
+      "zhTW": "澀谷皮卡丘",
+      "zhCN": "涩谷皮卡丘",
+      "ja": "シブヤのピカチュウ"
+    },
+    "Shining Magikarp": {
+      "zhTW": "閃耀鯉魚王",
+      "zhCN": "闪耀鲤鱼王",
+      "ja": "ひかるコイキング"
+    },
+    "Shining Rayquaza": {
+      "zhTW": "閃耀烈空坐",
+      "zhCN": "闪耀烈空坐",
+      "ja": "ひかるレックウザ"
+    },
+    "Sightseer": {
+      "zhTW": "觀光客",
+      "zhCN": "观光客",
+      "ja": "かんこうきゃく"
+    },
+    "Solgaleo & Lunala GX": {
+      "zhTW": "索爾迦雷歐＆露奈雅拉GX",
+      "zhCN": "索尔迦雷欧＆露奈雅拉GX",
+      "ja": "ソルガレオ＆ルナアーラGX"
+    },
+    "Special Delivery Charizard": {
+      "zhTW": "特快專遞噴火龍",
+      "zhCN": "特快专递喷火龙",
+      "ja": "スペシャルデリバリー リザードン"
+    },
+    "Surfing Pikachu V": {
+      "zhTW": "衝浪皮卡丘V",
+      "zhCN": "冲浪皮卡丘V",
+      "ja": "なみのりピカチュウV"
+    },
+    "Surfing Pikachu VMAX": {
+      "zhTW": "衝浪皮卡丘VMAX",
+      "zhCN": "冲浪皮卡丘VMAX",
+      "ja": "なみのりピカチュウVMAX"
+    },
+    "Sylveon ex": {
+      "zhTW": "仙子伊布ex",
+      "zhCN": "仙子伊布ex",
+      "ja": "ニンフィアex"
+    },
+    "Team Aqua's Kyogre EX": {
+      "zhTW": "海洋隊的蓋歐卡ex",
+      "zhCN": "海洋队的盖欧卡ex",
+      "ja": "アクア団のカイオーガex"
+    },
+    "Team Magma's Groudon EX": {
+      "zhTW": "熔岩隊的固拉多ex",
+      "zhCN": "熔岩队的固拉多ex",
+      "ja": "マグマ団のグラードンex"
+    },
+    "Team Rocket's Mewtwo ex": {
+      "zhTW": "火箭隊的超夢ex",
+      "zhCN": "火箭队的超梦ex",
+      "ja": "ロケット団のミュウツーex"
+    },
+    "Team Rocket's Moltres ex": {
+      "zhTW": "火箭隊的火焰鳥ex",
+      "zhCN": "火箭队的火焰鸟ex",
+      "ja": "ロケット団のファイヤーex"
+    },
+    "Team Skull Pikachu": {
+      "zhTW": "骷髏隊皮卡丘",
+      "zhCN": "骷髅队皮卡丘",
+      "ja": "スカル団のピカチュウ"
+    },
+    "Tohoku's Pikachu": {
+      "zhTW": "東北的皮卡丘",
+      "zhCN": "东北的皮卡丘",
+      "ja": "トウホクのピカチュウ"
+    },
+    "Trafalgar Law": {
+      "zhTW": "托拉法爾加・羅",
+      "zhCN": "特拉法尔加・罗",
+      "ja": "トラファルガー・ロー"
+    },
+    "Umbreon": {
+      "zhTW": "月亮伊布",
+      "zhCN": "月亮伊布",
+      "ja": "ブラッキー"
+    },
+    "Umbreon & Darkrai GX": {
+      "zhTW": "月亮伊布＆達克萊伊GX",
+      "zhCN": "月亮伊布＆达克莱伊GX",
+      "ja": "ブラッキー＆ダークライGX"
+    },
+    "Umbreon GX": {
+      "zhTW": "月亮伊布GX",
+      "zhCN": "月亮伊布GX",
+      "ja": "ブラッキーGX"
+    },
+    "Umbreon Star": {
+      "zhTW": "月亮伊布★",
+      "zhCN": "月亮伊布★",
+      "ja": "ブラッキー★"
+    },
+    "Umbreon ex": {
+      "zhTW": "月亮伊布ex",
+      "zhCN": "月亮伊布ex",
+      "ja": "ブラッキーex"
+    },
+    "Uta SEC-SP Extra Booster ONE PIECE Heroines edition": {
+      "zhTW": "Uta SEC-SP Extra Booster ONE PIECE Heroines edition",
+      "zhCN": "Uta SEC-SP Extra Booster ONE PIECE Heroines edition",
+      "ja": "Uta SEC-SP Extra Booster ONE PIECE Heroines edition"
+    },
+    "Vaporeon ex": {
+      "zhTW": "水伊布ex",
+      "zhCN": "水伊布ex",
+      "ja": "シャワーズex"
+    },
+    "Venusaur": {
+      "zhTW": "妙蛙花",
+      "zhCN": "妙蛙花",
+      "ja": "フシギバナ"
+    },
+    "Venusaur ex": {
+      "zhTW": "妙蛙花ex",
+      "zhCN": "妙蛙花ex",
+      "ja": "フシギバナex"
+    },
+    "Victini": {
+      "zhTW": "比克提尼",
+      "zhCN": "比克提尼",
+      "ja": "ビクティニ"
+    },
+    "Yokohama's Pikachu": {
+      "zhTW": "橫濱的皮卡丘",
+      "zhCN": "横滨的皮卡丘",
+      "ja": "ヨコハマのピカチュウ"
+    },
+    "Zapdos ex": {
+      "zhTW": "閃電鳥ex",
+      "zhCN": "闪电鸟ex",
+      "ja": "サンダーex"
+    },
+    "Zekrom": {
+      "zhTW": "捷克羅姆",
+      "zhCN": "捷克罗姆",
+      "ja": "ゼクロム"
+    },
+    "Zekrom ex": {
+      "zhTW": "捷克羅姆ex",
+      "zhCN": "捷克罗姆ex",
+      "ja": "ゼクロムex"
+    },
+    "_____'s Pikachu": {
+      "zhTW": "皮卡丘",
+      "zhCN": "皮卡丘",
+      "ja": "ピカチュウ"
+    }
+  }
+}

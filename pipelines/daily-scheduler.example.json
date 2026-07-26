@@ -1,9 +1,11 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "taskName": "CARDZ-Market-Cap-Daily",
   "cadence": "daily",
-  "localTime": "06:30",
+  "localTime": "09:30",
   "timezone": "Asia/Tokyo",
+  "utcTime": "00:30",
+  "scheduleNote": "09:30 JST == 00:30 UTC。run_daily.py 用 UTC 日期砌 market_run_id，所以本地時間必須落喺 UTC 同一日之內。06:30 JST 係前一日 21:30 UTC，run_id 會落返舊日期，collector 見到同名 run_id 就 replay 舊輸出，全鏈 exit 0 但零新數據（2026-07-25 事故）。唔准改返 06:30。",
   "mode": "production",
   "deterministic": true,
   "aiInvolvement": false,
@@ -15,11 +17,31 @@
     "--mode",
     "production"
   ],
+  "outcomeGate": {
+    "entrypoint": ["python3.10+", "scripts/verify_daily_run.py"],
+    "runsAfter": "daily",
+    "runsEvenWhenDailyFails": true,
+    "note": "daily 鏈 exit 0 唔代表今日數據落咗地（collector replay / INSERT IGNORE no-op / stale effective_date 全部都係 exit 0）。verify 查 price / snapshot / source 三項 freshness，fail 就寫 data/runtime/alerts/ 並以非零 exit 令排程變 failed。",
+    "exitCodes": {
+      "0": "數據新鮮，通過",
+      "1": "數據檢查唔過（今日冇新 snapshot / 價格 / 來源）",
+      "2": "驗證唔到（DB 連唔上、模組缺失等 infra 問題）"
+    }
+  },
+  "watchdog": {
+    "localTime": "14:07",
+    "utcTime": "05:07",
+    "timezone": "Asia/Tokyo",
+    "entrypoint": ["python3.10+", "scripts/verify_daily_run.py", "--tag", "watchdog"],
+    "timeoutSeconds": 1200,
+    "note": "daily 內建嘅 verify 只喺 daily 真係行完先跑，所以「部機冇著 / timer 被 disable / run 掛住」呢類情況完全靜音。呢個獨立排程喺 daily 之後幾個鐘照 verify 一次，令「乜都冇發生」都會留低 alert。"
+  },
   "singleton": {
     "scheduler": "ignore-new",
     "pipeline": "data/runtime/locks/daily.lock"
   },
-  "timeoutSeconds": 7200,
+  "timeoutSeconds": 21600,
+  "timeoutNote": "實測全鏈（FX + GemRate 1468 頁 + SNK + import + alerts）要 2–2.5 小時。排程 timeout 會殺成個 process tree，設得太貼會令尾段嘅 outcome gate 永遠冇機會跑 → 靜默死亡、零 alert。",
   "retry": {
     "maxAttempts": 3,
     "backoffSeconds": 600
@@ -35,7 +57,8 @@
       "bounded active-universe acquisition completed",
       "immutable incremental landing completed",
       "canonical import and integrity validation passed",
-      "ranking and alert derivation completed"
+      "ranking and alert derivation completed",
+      "outcome gate passed: today produced a new market_index_snapshot row"
     ],
     "failure": "Stop the run and preserve the previous canonical and public last-good generations."
   }

@@ -25,8 +25,15 @@ PRESENTATION_VIEW_RANGES: dict[str, tuple[int, int]] = {
 PRESENTATION_VIEW_ALIASES = {"top100_plus_200": "top300"}
 PRESENTATION_VIEWS = tuple((*PRESENTATION_VIEW_RANGES, *PRESENTATION_VIEW_ALIASES))
 POPULATION_MINIMUM = 1_000
+# Pre-entry radar floor for pipeline-derived monitoring candidates.
 MONITORING_POPULATION_MINIMUM = 971
 MONITORING_POPULATION_MAXIMUM = POPULATION_MINIMUM - 1
+# Operator-expanded buffer bands (exhaustive PSA 10 census) are also valid
+# monitoring members; each band is validated against its own range.
+MONITORING_POPULATION_BANDS: dict[str, tuple[int, int]] = {
+    "pre_entry_population_971_999": (971, 999),
+    "buffer_850_999": (850, 999),
+}
 PRICE_FRESHNESS_HOURS = 48
 PROJECTED_RANK300_PROXIMITY = 0.80
 POPULATION_ESTIMATE_STATES = {"estimate", "estimated", "unavailable", "stale"}

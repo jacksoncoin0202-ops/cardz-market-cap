@@ -27,7 +27,7 @@ describe("qrMatrix", () => {
   });
 
   it("produces a valid-size matrix for the site URL", () => {
-    const m = qrMatrix("https://cardsmarketcap.com");
+    const m = qrMatrix("https://cardzmarketcap.com");
     expect(m).not.toBeNull();
     expect(m!.length).toBe((m![0]).length);
     expect(m!.length % 4).toBe(1); // 17 + 4v
@@ -36,7 +36,7 @@ describe("qrMatrix", () => {
   it("matches Nayuki reference implementation exactly (EC level M)", async () => {
     const nayuki = await loadNayuki();
     if (!nayuki) return; // offline：skip，唔當 fail
-    for (const text of ["https://cardsmarketcap.com", "https://cardsmarketcap.com/", "HELLO WORLD", "A", "https://cardsmarketcap.com/card/abc123?period=7d"]) {
+    for (const text of ["https://cardzmarketcap.com", "https://cardzmarketcap.com/", "HELLO WORLD", "A", "https://cardzmarketcap.com/card/abc123?period=7d"]) {
       const expected = nayuki.toMatrix(text, nayuki.Ecc.MEDIUM);
       const actual = qrMatrix(text);
       expect(actual, `matrix for ${text}`).toEqual(expected);

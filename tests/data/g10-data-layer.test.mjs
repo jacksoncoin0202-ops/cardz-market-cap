@@ -8,9 +8,11 @@ import { fileURLToPath } from "node:url";
 
 const execute = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+// Ubuntu 24.04 冇 /usr/bin/python，Windows 嘅 python3 又係 Store 假 alias，所以兩邊各用各嘅名。
+const PYTHON = process.env.CARDZ_PYTHON ?? (process.platform === "win32" ? "python" : "python3");
 
 test("G10 full and incremental ingestion is immutable, idempotent, and keeps sale semantics", async () => {
-  const { stdout } = await execute("python", ["pipelines/g10_ingest.py", "--self-test"], { cwd: root });
+  const { stdout } = await execute(PYTHON, ["pipelines/g10_ingest.py", "--self-test"], { cwd: root });
   const result = JSON.parse(stdout.trim());
   assert.equal(result.full.accepted, 2);
   assert.equal(result.full.rejected, 1);
@@ -123,7 +125,7 @@ test("canonical replay materializes detail and transport observations", async ()
 });
 
 test("daily FX adapter validates all supported currencies including JPY and KRW", async () => {
-  const { stdout } = await execute("python", ["pipelines/fx_rates.py", "--self-test"], { cwd: root });
+  const { stdout } = await execute(PYTHON, ["pipelines/fx_rates.py", "--self-test"], { cwd: root });
   const result = JSON.parse(stdout.trim());
   assert.deepEqual(result.supported, ["USD", "HKD", "CNY", "GBP", "TWD", "JPY", "KRW"]);
   assert.equal(result.krw.status, "ready");
@@ -150,7 +152,7 @@ test("G10 public builder emits exact Top 100 with no private source vocabulary",
     return;
   }
   const { stdout } = await execute(
-    "python",
+    PYTHON,
     [
       "pipelines/g10_public_snapshot.py",
       "--self-test",
@@ -191,7 +193,7 @@ test("current private universe yields an exact 600-card source crosswalk", async
     return;
   }
   const directory = path.resolve(root, "data/runtime/test-source-crosswalk");
-  const { stdout } = await execute("python", [
+  const { stdout } = await execute(PYTHON, [
     "pipelines/source_crosswalk.py",
     "--source-root", privateSourceRoot,
     "--out", path.join(directory, "crosswalk.json"),
@@ -201,11 +203,15 @@ test("current private universe yields an exact 600-card source crosswalk", async
   const result = JSON.parse(stdout.trim());
   assert.equal(result.cards, 600);
   assert.equal(result.gemrateExact, 600);
-  assert.equal(result.snkExact, 442);
+  // Floor 而唔係等號：cards / gemrateExact / pokemon / onePiece 係 frozen 600 卡 universe
+  // 嘅邊界常數，但 snkExact 係「600 卡入面夾到 SNK item id」嘅覆蓋率，crosswalk 每次夾多
+  // 幾張就會升（寫呢個測試嗰陣 442，今日 479）。寫死等號等於每次覆蓋率進步都假紅，所以只
+  // 守歷史低位，真係跌穿先算 regression。
+  assert.ok(result.snkExact >= 442, `snkExact 跌穿已知低位 442：${result.snkExact}`);
   assert.equal(result.pokemon, 500);
   assert.equal(result.onePiece, 100);
 
-  const active = JSON.parse((await execute("python", [
+  const active = JSON.parse((await execute(PYTHON, [
     "pipelines/active_universe.py",
     "--source-root", privateSourceRoot,
     "--crosswalk", path.join(directory, "crosswalk.json"),
@@ -224,7 +230,7 @@ test("current private universe yields an exact 600-card source crosswalk", async
   assert.deepEqual(activeDocument.policy.excludedCardLanguages, ["th"]);
   assert.equal(activeDocument.policy.koreanNativeTextRequired, true);
 
-  const reused = JSON.parse((await execute("python", [
+  const reused = JSON.parse((await execute(PYTHON, [
     "pipelines/active_universe.py",
     "--source-root", path.join(directory, "source-does-not-exist"),
     "--out", path.join(directory, "active.json"),

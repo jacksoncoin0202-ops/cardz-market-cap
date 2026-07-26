@@ -14,7 +14,9 @@ import argparse
 import hashlib
 import json
 import os
+import sys
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -23,6 +25,10 @@ from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 
 BASE = "https://api.taggrading.com"
+# A single unusable set must never abort the multi-year catalog dump, but a
+# systemically broken set index must never be promoted as a complete snapshot
+# either.  Measured 2026-07-26 against the live index: 2637 sets, 0 unusable.
+TAG_MAX_UNUSABLE_SET_RATIO = 0.02
 SALT = "TZY0j76MKF1AA0QK0ppAGySAaCNgKG"
 ENC_KEY = hashlib.sha256(b"K5ucGQIf7vigW9ITOXLak5MjSIxxsgixqj").digest()
 
@@ -149,6 +155,26 @@ def _atomic_json(path: Path, value: Any) -> None:
     os.replace(temporary, path)
 
 
+def _skip_set(
+    sink: list[dict[str, str]],
+    *,
+    year: str,
+    brand_name: str,
+    field: str,
+    reason: str,
+    set_name: str = "",
+) -> None:
+    """Record and announce one skipped set.  Silent loss is never acceptable."""
+
+    record = {"year": year, "brandName": brand_name, "setName": set_name, "field": field, "reason": reason}
+    sink.append(record)
+    print(
+        f"[tag] WARN skipping set year={year} brandName={brand_name!r} setName={set_name!r} "
+        f"field={field} reason={reason}",
+        file=sys.stderr,
+    )
+
+
 def _row_identity(row: Mapping[str, Any]) -> tuple[str, ...]:
     return tuple(
         str(row.get(field) or "")
@@ -170,7 +196,7 @@ def dump_fresh(category: str, out_path: str | Path, delay: float) -> dict[str, i
         rows = sum(1 for line in destination.open(encoding="utf-8") if line.strip())
         if rows < 1_000:
             raise RuntimeError(f"completed TAG snapshot is unexpectedly small: {rows}")
-        return {"rows": rows, "totalGraded": 0, "replayed": 1}
+        return {"rows": rows, "totalGraded": 0, "replayed": 1, "totalSets": 0, "unnamedSets": 0, "unusableSets": 0}
 
     partial = destination.with_suffix(destination.suffix + ".partial")
     state_path = partial.with_suffix(partial.suffix + ".state")
@@ -191,6 +217,9 @@ def dump_fresh(category: str, out_path: str | Path, delay: float) -> dict[str, i
         if isinstance(row, Mapping)
     )
     destination.parent.mkdir(parents=True, exist_ok=True)
+    total_sets = 0
+    unnamed_sets: Counter[str] = Counter()
+    unusable_sets: list[dict[str, str]] = []
     with partial.open("a", encoding="utf-8") as output:
         for year_row in years:
             if not isinstance(year_row, Mapping) or not year_row.get("cardYear"):
@@ -199,40 +228,82 @@ def dump_fresh(category: str, out_path: str | Path, delay: float) -> dict[str, i
             sets = client.pops_by_set(category, year)
             if not isinstance(sets, list):
                 raise RuntimeError(f"TAG set index is invalid for {year}")
+            total_sets += len(sets)
             for set_row in sets:
                 if not isinstance(set_row, Mapping):
-                    raise RuntimeError(f"TAG set index contains an invalid row for {year}")
+                    _skip_set(unusable_sets, year=year, brand_name="", field="setRow", reason="not_a_mapping")
+                    continue
                 brand_name = str(set_row.get("brandName") or "")
                 set_name = str(set_row.get("cardSetName") or "")
-                if not brand_name or not set_name:
-                    raise RuntimeError(f"TAG set identity is incomplete for {year}")
+                if not brand_name:
+                    _skip_set(unusable_sets, year=year, brand_name="", field="brandName", reason="empty")
+                    continue
+                if not set_name:
+                    # TAG genuinely publishes promo sets with an empty
+                    # cardSetName and the card endpoint still serves them
+                    # (verified 2026-07-26: 28 such sets, 576 card rows).
+                    # Dropping them would be a silent 2% catalog loss, so they
+                    # are crawled and reported rather than skipped.
+                    unnamed_sets[year] += 1
                 key = f"{year}|{brand_name}|{set_name}"
                 if key in done:
                     continue
-                cards = client.pops_by_card(category, year, brand_name, set_name)
-                if not isinstance(cards, list):
-                    raise RuntimeError(f"TAG card index is invalid for {key}")
-                for card in cards:
-                    if not isinstance(card, Mapping):
-                        raise RuntimeError(f"TAG card index contains an invalid row for {key}")
-                    output.write(
-                        json.dumps(
-                            {
-                                "category": category,
-                                "year": year,
-                                "brandName": brand_name,
-                                "setName": set_name,
-                                **card,
-                            },
-                            ensure_ascii=False,
-                            sort_keys=True,
+                try:
+                    cards = client.pops_by_card(category, year, brand_name, set_name)
+                    if not isinstance(cards, list):
+                        raise RuntimeError("card index is not a list")
+                    lines = []
+                    for card in cards:
+                        if not isinstance(card, Mapping):
+                            raise RuntimeError("card index contains a non-mapping row")
+                        lines.append(
+                            json.dumps(
+                                {
+                                    "category": category,
+                                    "year": year,
+                                    "brandName": brand_name,
+                                    "setName": set_name,
+                                    **card,
+                                },
+                                ensure_ascii=False,
+                                sort_keys=True,
+                            )
+                            + "\n"
                         )
-                        + "\n"
+                except Exception as error:  # noqa: BLE001 - one set must not abort the dump
+                    _skip_set(
+                        unusable_sets,
+                        year=year,
+                        brand_name=brand_name,
+                        field="cards",
+                        reason=f"{type(error).__name__}: {error}",
+                        set_name=set_name,
                     )
+                    continue
+                output.writelines(lines)
                 output.flush()
                 os.fsync(output.fileno())
                 done.add(key)
                 _atomic_json(state_path, sorted(done))
+
+    print(
+        "[tag] catalog crawl: sets={sets} unnamedSets={unnamed} unusableSets={unusable}".format(
+            sets=total_sets, unnamed=sum(unnamed_sets.values()), unusable=len(unusable_sets)
+        ),
+        file=sys.stderr,
+    )
+    if unnamed_sets:
+        print(
+            f"[tag] unnamed cardSetName by year (crawled anyway): {dict(sorted(unnamed_sets.items()))}",
+            file=sys.stderr,
+        )
+    unusable_ratio = len(unusable_sets) / total_sets if total_sets else 1.0
+    if unusable_ratio > TAG_MAX_UNUSABLE_SET_RATIO:
+        breakdown = Counter(f"{row['year']}:{row['field']}" for row in unusable_sets)
+        raise RuntimeError(
+            f"TAG set index is degraded beyond tolerance: {len(unusable_sets)}/{total_sets} sets unusable "
+            f"({unusable_ratio:.2%} > {TAG_MAX_UNUSABLE_SET_RATIO:.2%}); breakdown={dict(sorted(breakdown.items()))}"
+        )
 
     rows_by_identity: dict[tuple[str, ...], dict[str, Any]] = {}
     with partial.open(encoding="utf-8") as source:
@@ -258,7 +329,14 @@ def dump_fresh(category: str, out_path: str | Path, delay: float) -> dict[str, i
     os.replace(complete, destination)
     partial.unlink(missing_ok=True)
     state_path.unlink(missing_ok=True)
-    return {"rows": len(rows_by_identity), "totalGraded": total_graded, "replayed": 0}
+    return {
+        "rows": len(rows_by_identity),
+        "totalGraded": total_graded,
+        "replayed": 0,
+        "totalSets": total_sets,
+        "unnamedSets": sum(unnamed_sets.values()),
+        "unusableSets": len(unusable_sets),
+    }
 
 
 def match_600(pop_path: str, manifest_path: str | None, out_path: str) -> None:

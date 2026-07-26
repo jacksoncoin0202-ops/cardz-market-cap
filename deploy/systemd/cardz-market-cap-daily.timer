@@ -1,8 +1,28 @@
 [Unit]
-Description=Run CARDZ Market Cap daily at 06:30 Asia/Tokyo
+Description=Run CARDZ Market Cap daily at 00:30-01:00 UTC (09:30-10:00 Asia/Tokyo)
 
 [Timer]
-OnCalendar=*-*-* 06:30:00 Asia/Tokyo
+# 00:30 UTC = 09:30 JST。必須用 UTC，唔准改返 "06:30 Asia/Tokyo"。
+# run_daily.py 用 UTC 日期砌 market_run_id；06:30 JST = 前一日 21:30 UTC，
+# run_id 會落返舊日期，collector 見到同名 run_id 就 replay 舊輸出 →
+# 全鏈 exit 0 但零新數據（2026-07-25 事故）。
+OnCalendar=*-*-* 00:30:00 UTC
+
+# Jitter：呢條鏈係唯一一條直接向外爬嘅每日排程，準時到秒嘅出擊時間本身就係
+# 一個可被對面辨認嘅指紋。docs/HANDOFF.md §8 第 2 條（G10 stealth）要求爬取
+# 時序唔准照抄任何一方嘅固定日程 —— 包括我哋自己嘅。
+#
+# 點解揀 1800s（30 分鐘）而唔係更大：
+#   1. 上限唔可以推到跨 UTC 日。00:30 + 30min = 最遲 01:00 UTC，離 24:00 UTC
+#      仲有 23 個鐘，market_run_id 嘅 UTC 日對齊照舊成立（見上面嗰段事故）。
+#   2. 全鏈實測 2–2.5 鐘，最遲 01:00 開跑 → 最遲 03:30 完。Watchdog 喺
+#      05:07 UTC 跑，仲有 1 個半鐘 buffer；jitter 再大就會撞正 watchdog，
+#      令個專捉靜默失敗嘅閘反過嚟報自己嘅假警。
+#   3. 對外表現係 09:30–10:00 JST 之間隨機一點，唔再係鐘擺。
+#
+# 同一時間 cardz-grade10-discovery.timer 亦都有自己嘅 jitter，所以兩者之間
+# 嘅間距每日浮動，冇固定 offset 可以對。改任何一邊嘅時間前，兩個 unit 一齊睇。
+RandomizedDelaySec=1800
 Persistent=true
 AccuracySec=1min
 Unit=cardz-market-cap-daily.service

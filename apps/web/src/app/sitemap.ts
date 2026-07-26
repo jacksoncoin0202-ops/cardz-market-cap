@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 import { loadMarketSnapshot } from "@/lib/server-snapshot";
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://cardsmarketcap.com";
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://cardzmarketcap.com";
 const locales = {
   en: "",
   "zh-Hant": "?lang=zh-TW",

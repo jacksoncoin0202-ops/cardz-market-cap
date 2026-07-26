@@ -12,3 +12,19 @@ data/private/images/**/* filter=lfs diff=lfs merge=lfs -text
 *.ts text eol=lf
 *.tsx text eol=lf
 *.md text eol=lf
+
+# 部署到 Linux 嘅檔一律 LF，唔理 core.autocrlf。CRLF 嘅 .sh 喺 Linux 係
+# 「bad interpreter: /usr/bin/env bash^M」即死；systemd unit 嘅 ExecStart 值
+# 尾巴帶 \r 會變成揾唔到嘅路徑。呢啲檔喺 Windows working tree 都要保持 LF，
+# 否則由 WSL 經 /mnt/c 直接跑就會中招。
+*.sh text eol=lf
+*.bash text eol=lf
+*.service text eol=lf
+*.timer text eol=lf
+*.py text eol=lf
+*.sql text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+Dockerfile text eol=lf
+*.env.example text eol=lf

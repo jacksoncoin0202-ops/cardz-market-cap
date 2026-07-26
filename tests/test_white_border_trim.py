@@ -140,7 +140,13 @@ def test_real_webp_assets_have_no_white_border_after_trim():
         if path.name.startswith(KNOWN_WHITE_FACE):
             continue
         with Image.open(path) as opened:
-            img = opened.convert("RGB")
+            if "A" in opened.getbands():
+                # RGBA 來源：trim_white_border 本身唔會處理（見
+                # test_transparent_image_untouched 鎖住嗰個 contract），
+                # 由 is_native_rounded() 嘅角位 alpha gate 做 QC。透明邊底下
+                # 嘅 RGB 值本身冇定義（未必係白），強制起底當白邊量度會誤判。
+                continue
+            img = opened.copy()
         out = trim_white_border(img)
         w, h = out.size
         flat = [c for pixel in out.convert("RGB").getdata() for c in pixel]

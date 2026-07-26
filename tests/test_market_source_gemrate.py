@@ -126,5 +126,54 @@ class MarketSourceGemRateTests(unittest.TestCase):
         self.assertEqual(by_kind["grader_population_cgc"]["payload"]["transport"], "direct_api")
 
 
+    def test_current_json_grader_populations_reach_canonical_observations(self) -> None:
+        gemrate_id = "c" * 40
+        crosswalk = {
+            "cards": [
+                {
+                    "canonicalSourceCode": "snkrdunk",
+                    "canonicalExternalId": "303",
+                    "gemrateId": gemrate_id,
+                    "tcg": "one-piece",
+                }
+            ]
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            card_root = Path(temporary) / gemrate_id
+            card_root.mkdir(parents=True)
+            (card_root / "current.json").write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": "1.0.0",
+                        "authority": "gemrate",
+                        "transport": "public_card_details",
+                        "populationPsa10": 1200,
+                        "graderPopulations": {"PSA": 1200, "CGC": 300, "BGS": 45, "SGC": 12},
+                        "effectiveDate": "2026-07-24",
+                        "fetchedAt": "2026-07-24T00:00:00Z",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            observations, _ = build_source_observations(
+                crosswalk,
+                Path(temporary),
+                {},
+                {},
+                {},
+                160,
+                datetime(2026, 7, 24, tzinfo=timezone.utc),
+                None,
+            )
+
+        by_kind = {item["observationKind"]: item for item in observations}
+        self.assertEqual(by_kind["grader_population_psa"]["payload"]["topGradePopulation"], 1200)
+        self.assertEqual(by_kind["grader_population_cgc"]["payload"]["topGradePopulation"], 300)
+        self.assertEqual(by_kind["grader_population_cgc"]["payload"]["transport"], "public_card_details")
+        self.assertEqual(by_kind["grader_population_bgs"]["payload"]["topGradePopulation"], 45)
+        self.assertEqual(by_kind["grader_population_sgc"]["payload"]["topGradePopulation"], 12)
+
+
 if __name__ == "__main__":
     unittest.main()

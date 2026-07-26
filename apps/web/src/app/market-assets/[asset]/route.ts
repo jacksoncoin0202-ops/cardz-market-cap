@@ -1,4 +1,4 @@
-import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { cloudflareEnv } from "@/lib/cloudflare-env";
 import { MARKET_ASSET_CACHE_CONTROL, marketAssetHash, marketAssetObjectKey } from "@/lib/market-media";
 import { parseSnapshotPointer } from "@/lib/snapshot-pointer";
 
@@ -45,8 +45,8 @@ export async function GET(
   if (!key || !hash) return notFound();
 
   try {
-    const context = await getCloudflareContext({ async: true });
-    const environment = context.env as unknown as MarketMediaEnvironment;
+    const environment = await cloudflareEnv<MarketMediaEnvironment>();
+    if (!environment) throw new Error("Cloudflare bindings unavailable");
     const bucket = environment.MARKET_DATA;
     if (!bucket) throw new Error("Market data binding unavailable");
     const pointerKey = environment.MARKET_DATA_POINTER_KEY ?? "latest.json";

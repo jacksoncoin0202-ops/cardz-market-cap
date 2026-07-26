@@ -160,7 +160,7 @@ G10 is historical bootstrap/research evidence only: old summaries, mappings, sam
 
 Supported card languages for both Pokémon and One Piece are Japanese, English, Korean, Traditional Chinese, and Simplified Chinese. They distinguish printings during exact identity resolution but do not produce independent rankings. A language with no exact source data remains unavailable; English or Japanese data never fills it silently. Thai printings are out of scope.
 
-Data sources are first-class collectors coordinated by one 06:30 parent task:
+Data sources are first-class collectors coordinated by one daily parent task that runs at 09:30 JST (00:30 UTC). The trigger must stay inside the same UTC calendar day as the run ID that `pipelines/run_daily.py` builds from `datetime.now(timezone.utc)`; an earlier local time such as 06:30 JST resolves to 21:30 UTC on the previous day, which makes collectors replay the previous run and the whole chain exits zero with no new data. The collectors are:
 
 - `integrations/grade10/grade10_scraper.py` (G10) — bootstrap/research evidence only; `price.getGradingPopulations` is permitted solely as a provenance-labelled GemRate current-population mirror transport.
 - `pipelines/source_crosswalk.py` — builds the private exact discovery crosswalk; no name-search matching.

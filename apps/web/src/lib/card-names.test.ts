@@ -1,8 +1,32 @@
 import { describe, expect, it } from "vitest";
-import { localizedCardName } from "./card-names";
+import { displayCardNameEn, localizedCardName } from "./card-names";
 import type { Locale } from "./types";
 
 const locales: Locale[] = ["zh-TW", "zh-CN", "ja"];
+
+describe("displayCardNameEn", () => {
+  it("repairs English names the catalog stores truncated", () => {
+    expect(displayCardNameEn("Monkey.D.Luff")).toBe("Monkey.D.Luffy");
+    expect(displayCardNameEn("Okuge")).toBe("Okuge-sama and Maiko-han Pikachu");
+    expect(displayCardNameEn("Ethan's Ho")).toBe("Ethan's Ho-Oh ex");
+  });
+
+  it("leaves every other name alone", () => {
+    expect(displayCardNameEn("Pikachu")).toBe("Pikachu");
+    expect(displayCardNameEn("Monkey.D.Luffy")).toBe("Monkey.D.Luffy");
+  });
+
+  // A repaired name has to stay translatable, otherwise the repair trades a truncated
+  // English name for an untranslated one in the three other locales.
+  it("keeps the repaired name reachable by the localisation tables", () => {
+    const luffy = displayCardNameEn("Monkey.D.Luff");
+    expect(localizedCardName(luffy, null, "zh-TW")).toBe("蒙其・D・魯夫");
+    expect(localizedCardName(luffy, null, "ja")).toBe("モンキー・D・ルフィ");
+    const hooh = displayCardNameEn("Ethan's Ho");
+    expect(localizedCardName(hooh, null, "zh-TW")).toBe("阿響的鳳王ex");
+    expect(localizedCardName(hooh, null, "ja")).toBe("ヒビキのホウオウex");
+  });
+});
 
 describe("localizedCardName", () => {
   it("keeps upstream translated names untouched", () => {

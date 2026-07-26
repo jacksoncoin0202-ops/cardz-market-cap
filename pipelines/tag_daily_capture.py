@@ -308,7 +308,7 @@ def main() -> int:
     total_graded: int | None = None
     if args.from_file:
         catalog = args.from_file.resolve()
-        acquisition = {"rows": None, "totalGraded": 0, "replayed": 1}
+        acquisition = {"rows": None, "totalGraded": 0, "replayed": 1, "totalSets": 0, "unnamedSets": 0, "unusableSets": 0}
     else:
         if args.catalog_out is None:
             raise RuntimeError("live TAG capture requires --catalog-out")
@@ -336,6 +336,10 @@ def main() -> int:
         "outputSha256": hashlib.sha256(args.out.resolve().read_bytes()).hexdigest(),
         "catalogRows": len(tag_rows),
         "tagMarketTotal": total_graded,
+        "catalogAcquisition": {
+            key: acquisition.get(key)
+            for key in ("replayed", "rows", "totalSets", "unnamedSets", "unusableSets")
+        },
         "counts": counts,
     }
     atomic_write(review_out.resolve(), json.dumps(review_document, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8"))

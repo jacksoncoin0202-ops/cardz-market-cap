@@ -1,0 +1,37 @@
+[Unit]
+Description=CARDZ Market Cap on-demand roster image backfill
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=1h
+StartLimitBurst=3
+OnFailure=cardz-market-cap-alert@%n.service
+# 補圖會寫 data/public/market-assets，daily 個 publish 鏈（quarantine 用
+# shutil.move 搬走冇引用嘅 asset）都會寫同一棵樹。兩者同時行 = 一邊寫緊
+# 一邊被搬走。Conflicts 保證唔會重疊。
+Conflicts=cardz-market-cap-daily.service
+
+[Service]
+Type=oneshot
+User=cardz
+Group=cardz
+WorkingDirectory=/opt/cardz-market-cap
+EnvironmentFile=/etc/cardz-market-cap/backend.env
+Environment=CARDZ_REPO_ROOT=/opt/cardz-market-cap
+Environment=LANG=C.UTF-8
+Environment=LC_ALL=C.UTF-8
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/env bash /opt/cardz-market-cap/deploy/systemd/run-cardz-image-backfill.sh
+TimeoutStartSec=3600
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# data/public   market-assets 落圖 ＋ 覆寫 snapshot 自己（--write）
+# manifests     image-qc.json QC record
+# data/runtime  log
+# 冇 timer：呢個 unit 係 `systemctl start` 觸發嘅。「按需」係設計，唔係漏咗排程。
+ReadWritePaths=/opt/cardz-market-cap/data/public /opt/cardz-market-cap/manifests /opt/cardz-market-cap/data/runtime
+
+[Install]
+WantedBy=multi-user.target

@@ -41,6 +41,7 @@ from g10_ingest import (
     sha256_file,
     load_landing_replay,
 )
+from verify_images import referenced_asset_names
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,6 +51,8 @@ DEFAULT_OUTPUT = ROOT / "data" / "public" / "seed-snapshot.json"
 DEFAULT_ASSETS = ROOT / "data" / "public" / "market-assets"
 DEFAULT_IMAGE_MANIFEST = ROOT / "manifests" / "image-qc.json"
 DEFAULT_LANDING = ROOT / "data" / "runtime" / "private-landing"
+
+QUARANTINE_MANIFEST_NAME = "quarantine-manifest.json"
 
 WINDOWS = ("1d", "7d", "30d")
 LOCALES = ("en", "zhTW", "zhCN", "ja")
@@ -92,7 +95,38 @@ def row_number(value: Any) -> str:
     return match.group(1).strip() if match else ""
 
 
-def normalize_collector(raw: Any, language: str | None = None) -> CollectorNumber:
+# Gallery subsets print a namespace-scoped denominator ("GG69/GG70").  Only CGC
+# reports it; PSA, SGC and Beckett publish the numerator alone, so upstream rows
+# arrive truncated.  Every denominator below is transcribed from that set's own
+# CGC payloads under data/private/gemrate/cards/*/raw/ — none are inferred.
+# Keyed by a distinctive set token because upstream set names disagree on
+# punctuation ("Pokemon Sword & Shield Astral Radiance" versus
+# "Pokemon Sword and Shield Astral Radiance").  Radiant Collection (RC) is
+# absent on purpose: no catalog row and no CGC payload attests a denominator.
+SUBSET_DENOMINATORS: dict[tuple[str, str], str] = {
+    ("GG", "crownzenith"): "GG70",
+    ("SV", "hiddenfates"): "SV94",
+    ("SV", "shiningfates"): "SV122",
+    ("TG", "astralradiance"): "TG30",
+    ("TG", "brilliantstars"): "TG30",
+    ("TG", "lostorigin"): "TG30",
+    ("TG", "silvertempest"): "TG30",
+}
+
+
+def subset_denominator(prefix: str, set_name: Any) -> str:
+    """Return the printed denominator for a gallery subset, or "" when unknown."""
+
+    key = normalized_text(set_name)
+    if not key:
+        return ""
+    for (subset_prefix, token), denominator in SUBSET_DENOMINATORS.items():
+        if subset_prefix == prefix and token in key:
+            return denominator
+    return ""
+
+
+def normalize_collector(raw: Any, language: str | None = None, set_name: Any = None) -> CollectorNumber:
     value = re.sub(r"\s+", "", str(raw or "").upper())
     value = value.replace("＿", "-").replace("_", "-")
     if not value:
@@ -159,11 +193,24 @@ def normalize_collector(raw: Any, language: str | None = None) -> CollectorNumbe
         else:
             display = f"{numeric_set.group(1)}/{numeric_set.group(2)}"
         return CollectorNumber(display, display.casefold(), True)
+    # Gallery subsets: the numerator alone already identifies the printing inside
+    # its set, so it stays the normalized identity token while the display
+    # carries the printed denominator.  Accepting both "GG69" and "GG69/GG70"
+    # here keeps normalization idempotent and leaves opaque ids untouched.
+    subset = re.fullmatch(r"(GG|SV|TG|RC)(\d{1,4})(?:/((?:GG|SV|TG|RC)?\d{1,4}))?", value)
+    if subset:
+        prefix, number, printed_total = subset.group(1), subset.group(2), subset.group(3)
+        total = printed_total or subset_denominator(prefix, set_name)
+        if total and not total.startswith(prefix):
+            total = f"{prefix}{total}"
+        display = f"{prefix}{number}/{total}" if total else f"{prefix}{number}"
+        return CollectorNumber(display, f"{prefix}{number}".casefold(), True)
+
     if re.fullmatch(r"[A-Z]+\d{1,4}/[A-Z]+\d{1,4}", value):
         return CollectorNumber(value, value.casefold(), True)
 
-    # Gallery and promo namespaces are globally meaningful collector numbers.
-    if re.fullmatch(r"(?:SWSH|SM|SV|GG|TG|RC|XY)\d{1,4}", value):
+    # Promo namespaces are globally meaningful collector numbers on their own.
+    if re.fullmatch(r"(?:SWSH|SM|XY)\d{1,4}", value):
         return CollectorNumber(value, value.casefold(), True)
 
     return CollectorNumber(value, value.casefold(), False)
@@ -1426,10 +1473,9 @@ def build_snapshot(
 def quarantine_unreferenced_assets(assets_out: Path, snapshot: Mapping[str, Any], quarantine_root: Path) -> int:
     if not assets_out.is_dir():
         return 0
-    expected = {
-        Path(card["image"]["src"]).name
-        for card in [*snapshot["top100"], *snapshot["watchlist"]]
-    }
+    # 必須連 image["variants"] 一齊當「有人引用」。淨數 src 嘅話，每張卡兩個生效中
+    # 嘅衍生尺寸（_200 / _600）會被當成孤兒搬入 quarantine，全站細尺寸卡圖即刻爛。
+    expected = referenced_asset_names(snapshot)
     stale = [path for path in assets_out.iterdir() if path.is_file() and path.name not in expected]
     if not stale:
         return 0
@@ -1437,6 +1483,22 @@ def quarantine_unreferenced_assets(assets_out: Path, snapshot: Mapping[str, Any]
     if resolved_assets.name != "market-assets" or resolved_assets.parent.name != "public":
         raise RuntimeError(f"refusing to quarantine unexpected asset directory: {resolved_assets}")
     quarantine_root.mkdir(parents=True, exist_ok=True)
+    stale.sort(key=lambda path: path.name)
+    # Manifest 喺搬檔之前寫：實測一次 run 搬走 3667 個檔，凈回傳一個數字係查唔返
+    # 「邊個 run 搬走咗邊啲檔」，亦搬唔返。寫喺前面係為咗容錯方向——中途死機
+    # 會令 manifest 多列咗未搬走嘅檔（對住目錄一 diff 就對得返），寫喺後面死機
+    # 就一個記錄都冇，檔已經唔見咗但查無可查。
+    write_json(
+        quarantine_root / QUARANTINE_MANIFEST_NAME,
+        {
+            "schemaVersion": 1,
+            "quarantinedAt": iso_utc(datetime.now(timezone.utc)),
+            "run": quarantine_root.name,
+            "sourceDirectory": str(resolved_assets),
+            "count": len(stale),
+            "files": [{"name": path.name, "originalPath": str(path)} for path in stale],
+        },
+    )
     for path in stale:
         shutil.move(str(path), str(quarantine_root / path.name))
     return len(stale)

@@ -14,4 +14,14 @@ describe("robots discovery policy", () => {
     expect(JSON.stringify(policy.rules)).toContain("/data/private/");
     expect(JSON.stringify(policy.rules)).toContain("OAI-SearchBot");
   });
+
+  it("excludes the internal tuning lab from every crawler in production", () => {
+    const rules = createRobotsPolicy("production").rules;
+    const entries = Array.isArray(rules) ? rules : [rules];
+    for (const rule of entries) {
+      const disallow = rule.disallow;
+      const paths = Array.isArray(disallow) ? disallow : disallow ? [disallow] : [];
+      expect(paths.includes("/tune") || paths.includes("/")).toBe(true);
+    }
+  });
 });

@@ -39,6 +39,12 @@ data/private/*.sqlite
 data/private/*.sqlite-wal
 data/private/*.sqlite-shm
 data/private/tmp/
+# 上面逐個子目錄咁擋，擋唔到 data/private/ 頂層新出嘅檔。2026-07-26 就係咁
+# 俾一個 12.8 MB 嘅 cardz-active-bootstrap.tar.gz 溜咗入 index —— 入面係
+# active-gemrate-ids / active-snk-ids / active-universe，即係我哋追蹤邊啲卡、
+# 由邊個源攞，一 commit 就永久留喺 history。改成預設全擋、要出貨先逐個開白名單。
+data/private/*
+!data/private/.gitkeep
 integrations/grade10/data/
 *.log
 *.tmp

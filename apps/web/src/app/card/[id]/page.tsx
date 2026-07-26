@@ -14,7 +14,8 @@ export async function generateMetadata({ params, searchParams }: CardRouteProps)
   const card = [...snapshot.top100, ...snapshot.watchlist].find((candidate) => candidate.id === id);
   const title = card?.name[locale] || copy[locale].labels.viewCard;
   const description = card?.story[locale] || copy[locale].labels.viewCard;
-  return marketMetadata(locale, title, description, `/card/${id}`);
+  // 每張卡出自己嗰張 OG（卡名 / set / 市值 / PSA 10 價同 POP），揾唔到卡就回落品牌預設圖。
+  return marketMetadata(locale, title, description, `/card/${id}`, `/api/og/card/${encodeURIComponent(id)}`);
 }
 
 export default async function CardPage({ params }: CardRouteProps) {

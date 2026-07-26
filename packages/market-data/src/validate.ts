@@ -57,6 +57,54 @@ function metricAgeHours(metric: MarketMetric, effectiveAt: string): number | nul
   return Math.max(0, (end - observed) / 3_600_000);
 }
 
+// 出街新鮮度 SLA。POP 揀 168h 係因為：`run_daily.py` 容許 72h 內重播
+// last-good TAG catalog，閘一定要企喺個重播窗之上，唔係正常回退日就會誤報；
+// 而 gemrate 實測真係有 3 日空檔（07-21 → 07-24），收得再緊會喺健康日爆。
+const PRICE_FRESHNESS_HOURS = 48;
+const POPULATION_FRESHNESS_HOURS = 168;
+
+// 每個評級行嘅 POP 都要獨立驗新鮮度。原本淨係驗 `card.populationPsa10`，
+// 而嗰個欄位只由 PSA 觀測填，所以 TAG／BGS／CGC／SGC 凍咗幾耐都冇人知——
+// 2026-07-22..07-26 TAG 就係咁靜靜餵住五日前嘅數，validator 全程冇聲出。
+function assertGraderPopulationFreshness(
+  card: PublicCard,
+  path: string,
+  effectiveAt: string,
+  errors: string[],
+): void {
+  for (const grader of GRADERS) {
+    const population = card.graderPopulations[grader];
+    if (population === undefined) continue;
+    const metric = population.topGradePopulation;
+    // 出唔到數（`unavailable`／`accumulating`）係覆蓋率問題，唔係新鮮度問題。
+    // 唔可以攞新鮮度閘去殺一張某評級行根本冇收錄嘅卡。
+    //
+    // 【源死咗點算 — 2026-07-26 定案，揀 (c)】
+    // TAG 源 07-22 之後斷咗，DB 觀測凍喺 2026-07-22T00:00:00Z（220 張 ranked 卡，
+    // 同一秒），07-29 呢條閘會一次過爆 220 條 error。三條路揀咗 (c)：
+    //   (a) 照 fail 逼人修源 —— 純 fail-closed，但一個評級行冧就炸埋
+    //       PSA/BGS/CGC/SGC 四個健康源嘅日更，唔成比例。
+    //   (b) 俾 TAG 專屬長 SLA —— 醫錯位。等於喺 validator 度立法容許
+    //       陳舊數據出街，同加閘嘅初衷正正相反。
+    //   (c) ✅ producer 喺源死時將 status 標成 `unavailable`（value = null），
+    //       自然被下面呢句 skip，前端行返「暫無」嗰條路。
+    // 揀 (c) 嘅理由係實測：demo seed 360 張卡嘅 TAG **本來就係** `unavailable`，
+    // 即係前端一路都識渲染呢個狀態，(c) 唔係新行為，係本來設計好嘅形狀。
+    // 問題根源係 producer 攞一個死源標成 `ready`；閘只係揭穿咗佢，
+    // 喺 validator 度放寬只會將謊言合法化。
+    // 要改嘅係 producer（`pipelines/canonical_public_snapshot.py` 嘅
+    // `latest_populations()` 冇日期下限），做法寫喺 docs/DATA_GAPS.md，
+    // 本檔唔負責、亦唔應該幫佢兜。
+    if (metric.status !== "ready" && metric.status !== "stale") continue;
+    const age = metricAgeHours(metric, effectiveAt);
+    assert(
+      age !== null && age <= POPULATION_FRESHNESS_HOURS,
+      `${path}.graderPopulations.${grader}.topGradePopulation exceeds ${POPULATION_FRESHNESS_HOURS}h freshness SLA`,
+      errors,
+    );
+  }
+}
+
 function validateMetric(metric: MarketMetric, path: string, errors: string[]): void {
   assert(metric !== null && typeof metric === "object", `${path} must be an object`, errors);
   if (metric === null || typeof metric !== "object") return;
@@ -174,6 +222,28 @@ function validateCard(card: PublicCard, path: string, errors: string[]): void {
     assert(metrics !== undefined, `${path}.windows.${window} is missing`, errors);
     if (metrics === undefined) continue;
     validateMetric(metrics.changePct, `${path}.windows.${window}.changePct`, errors);
+    // 市值／成交額嘅窗口變動係後加欄位，舊 snapshot 冇 —— 有先驗。
+    // 有嘅話唔可以同 `changePct` 一模一樣咁孖住走：市值變動 = 價 × POP 兩截，
+    // 除非 ΔPOP 啱啱好係 0，否則同價格變動相等即係又攞價格頂替返市值。
+    if (metrics.marketCapChangePct !== undefined) {
+      validateMetric(metrics.marketCapChangePct, `${path}.windows.${window}.marketCapChangePct`, errors);
+      const populationChange = card.graderPopulations?.PSA?.topGradePopulationChangePct?.[window];
+      if (
+        metrics.marketCapChangePct.value !== null
+        && metrics.changePct.value !== null
+        && populationChange?.value != null
+        && populationChange.value !== 0
+      ) {
+        assert(
+          Math.abs(metrics.marketCapChangePct.value - metrics.changePct.value) > 1e-9,
+          `${path}.windows.${window}.marketCapChangePct equals changePct while PSA population moved`,
+          errors,
+        );
+      }
+    }
+    if (metrics.trackedSalesChangePct !== undefined) {
+      validateMetric(metrics.trackedSalesChangePct, `${path}.windows.${window}.trackedSalesChangePct`, errors);
+    }
     validateMetric(metrics.trackedSales.valueUsd, `${path}.windows.${window}.trackedSales.valueUsd`, errors);
     validateMetric(metrics.trackedSales.count, `${path}.windows.${window}.trackedSales.count`, errors);
     validateCoverage(metrics.trackedSales.coverage, `${path}.windows.${window}.trackedSales.coverage`, errors);
@@ -286,14 +356,17 @@ export function validatePublicSnapshot(
       assert(stories.every((story) => !genericStory.test(story)), `top100[${index}] story uses a rejected generic template`, errors);
       const priceAge = metricAgeHours(card.pricePsa10, snapshot.generation.effectiveAt);
       const populationAge = metricAgeHours(card.populationPsa10, snapshot.generation.effectiveAt);
-      assert(priceAge !== null && priceAge <= 48, `top100[${index}] price exceeds 48h freshness SLA`, errors);
-      assert(populationAge !== null && populationAge <= 168, `top100[${index}] population exceeds 7d freshness SLA`, errors);
+      assert(priceAge !== null && priceAge <= PRICE_FRESHNESS_HOURS, `top100[${index}] price exceeds 48h freshness SLA`, errors);
+      assert(populationAge !== null && populationAge <= POPULATION_FRESHNESS_HOURS, `top100[${index}] population exceeds 7d freshness SLA`, errors);
+      assertGraderPopulationFreshness(card, `top100[${index}]`, snapshot.generation.effectiveAt, errors);
     }
     for (const [index, card] of snapshot.watchlist.entries()) {
       assert(card.identityStatus === "confirmed", `watchlist[${index}] identity is not confirmed`, errors);
       for (const field of [card.names, card.sets]) {
         assert(Object.values(field).every((value) => typeof value === "string" && value.length > 0), `watchlist[${index}] identity localization is incomplete`, errors);
       }
+      // watchlist 一樣有 graderPopulations 出街，凍咗嘅數喺邊個榜都一樣係錯數。
+      assertGraderPopulationFreshness(card, `watchlist[${index}]`, snapshot.generation.effectiveAt, errors);
     }
   }
 

@@ -31,7 +31,59 @@ from g10_ingest import (
     sha256_bytes,
     storage_source,
 )
-from db_runtime import active_universe_lock_hash
+from db_runtime import MONITORING_STATE_BANDS, active_universe_lock_hash
+
+
+def _effective_population(card: Mapping[str, Any]) -> Any:
+    """Prefer a fresh population observation over the universe lock value.
+
+    The daily GemRate run can push a locked member below the POP 1000 bar
+    after the lock was sealed. When that happens the universe card's own
+    population is stale bootstrap evidence; the fresh observation decides
+    eligibility, and the ranked derivation below already soft-skips any
+    card that stays below the minimum.
+
+    A member stays locked only while its fresh PSA 10 population is at
+    least 971 (the pre-entry radar floor). Below that the card no longer
+    qualifies for the complete-ranking universe at all, and leaving it in
+    the lock would fail the daily run forever.
+    """
+
+    if not isinstance(card, Mapping):
+        return None
+    population = card.get("populationPsa10")
+    band = MONITORING_STATE_BANDS.get(str(card.get("monitoringState") or ""))
+    floor = band[0] if band else 1000
+    if isinstance(population, int) and not isinstance(population, bool) and population >= floor:
+        return population
+    observations = card.get("populationObservations")
+    if not isinstance(observations, list) or not observations:
+        return population
+    source_ref = str(card.get("canonicalSourceCode") or "")
+    external_ref = str(card.get("canonicalExternalId") or "")
+    fresh = [
+        row
+        for row in observations
+        if isinstance(row, Mapping)
+        and row.get("grader") == "PSA"
+        and str(row.get("sourceCode") or "") == source_ref
+        and str(row.get("externalId") or "") == external_ref
+        and isinstance(row.get("topGradePopulation"), int)
+        and not isinstance(row.get("topGradePopulation"), bool)
+    ]
+    if not fresh:
+        return population
+    observed = max(
+        fresh,
+        key=lambda row: (str(row.get("observedDate") or ""), str(row.get("effectiveAt") or "")),
+    )
+    value = observed["topGradePopulation"]
+    return value if value >= 971 else population
+
+
+def _population_band_floor(card: Mapping[str, Any]) -> int:
+    band = MONITORING_STATE_BANDS.get(str(card.get("monitoringState") or ""))
+    return band[0] if band else 1000
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -120,13 +172,15 @@ def load_active_universe(path: Path) -> dict[str, Any]:
                 raise RuntimeError("complete-ranking universe card is invalid")
             source_ref = (str(card.get("canonicalSourceCode") or ""), str(card.get("canonicalExternalId") or ""))
             memberships = card.get("rankMemberships")
+            # Operator-expanded cards may await their first price before they
+            # hold formal ranks; their membership stays empty until then.
+            memberships_pending = memberships in (None, {})
             if (
                 not all(source_ref)
                 or source_ref in identities
                 or card.get("pokedexStatus") != "confirmed"
                 or not isinstance(memberships, Mapping)
-                or "tcg" not in memberships
-                or str(card.get("tcg") or "") not in memberships
+                or (not memberships_pending and ("tcg" not in memberships or str(card.get("tcg") or "") not in memberships))
             ):
                 raise RuntimeError("complete-ranking universe contains an invalid canonical member")
             if any(
@@ -137,8 +191,10 @@ def load_active_universe(path: Path) -> dict[str, Any]:
                 for index, rank in memberships.items()
             ):
                 raise RuntimeError("complete-ranking universe contains an invalid rank membership")
-            if not isinstance(card.get("populationPsa10"), int) or int(card["populationPsa10"]) < 1000:
-                raise RuntimeError("complete-ranking universe contains a card below POP 1000")
+            population = _effective_population(card)
+            if not isinstance(population, int) or population < 1000:
+                if not isinstance(population, int) or population < _population_band_floor(card):
+                    raise RuntimeError("complete-ranking universe contains a card below POP 1000 (or its monitoring-band floor)")
             identities.add(source_ref)
             for index, rank in memberships.items():
                 index_ranks[str(index)].append(int(rank))
@@ -155,6 +211,9 @@ def load_active_universe(path: Path) -> dict[str, Any]:
                 or document.get("monitoringPayloadSha256") != sha256_bytes(canonical_json(monitoring))
             ):
                 raise RuntimeError("pre-entry monitoring contract is invalid")
+            extra_ranges = policy.get("monitoringAdditionalBandsInclusive")
+            if extra_ranges is not None and extra_ranges != {"buffer_850_999": {"minimum": 850, "maximum": 999}}:
+                raise RuntimeError("additional monitoring population bands are invalid")
             monitoring_identities: set[tuple[str, str]] = set()
             for candidate in monitoring:
                 if not isinstance(candidate, Mapping):
@@ -163,20 +222,22 @@ def load_active_universe(path: Path) -> dict[str, Any]:
                     str(candidate.get("canonicalSourceCode") or ""),
                     str(candidate.get("canonicalExternalId") or ""),
                 )
-                population = candidate.get("populationPsa10")
+                population = _effective_population(candidate)
                 state = str(candidate.get("populationSourceState") or "").strip().lower()
+                band = MONITORING_STATE_BANDS.get(str(candidate.get("monitoringState") or ""))
                 if (
                     not all(source_ref)
                     or source_ref in identities
                     or source_ref in monitoring_identities
                     or candidate.get("pokedexStatus") != "confirmed"
                     or not str(candidate.get("gemrateId") or "").strip()
+                    or band is None
                     or not isinstance(population, int)
                     or isinstance(population, bool)
-                    or not 971 <= population <= 999
+                    or population < band[0]
+                    or population > band[1]
                     or bool(candidate.get("populationEstimated"))
                     or state in {"estimate", "estimated", "unavailable", "stale"}
-                    or candidate.get("monitoringState") != "pre_entry_population_971_999"
                     or candidate.get("collectionCadence") != "daily"
                 ):
                     raise RuntimeError("pre-entry monitoring candidate is invalid")
@@ -327,6 +388,19 @@ def gemrate_current_observations(card_root: Path) -> dict[str, tuple[date, int, 
         existing = selected.get("PSA")
         if value >= 0 and priority and (existing is None or (observed, priority) >= (existing[0], existing[3])):
             selected["PSA"] = candidate
+        # The daily run's selected transport may carry per-grader top-grade
+        # populations. Direct API rows above win per grader unless this
+        # observation is newer or at least as authoritative.
+        grader_populations = current.get("graderPopulations")
+        if isinstance(grader_populations, Mapping) and priority:
+            for grader, grader_value in grader_populations.items():
+                code = str(grader).upper()
+                if code not in TOP_GRADE or not isinstance(grader_value, int) or grader_value < 0:
+                    continue
+                grader_candidate = (observed, grader_value, transport, priority)
+                grader_existing = selected.get(code)
+                if grader_existing is None or (observed, priority) >= (grader_existing[0], grader_existing[3]):
+                    selected[code] = grader_candidate
 
     return {grader: (observed, value, transport) for grader, (observed, value, transport, _) in selected.items()}
 
@@ -760,7 +834,8 @@ def derive_rankings(
                 pop_day = effective_at.date()
             coverage["activeLockPopulationFallback"] += 1
         if not isinstance(population, int) or population < 1000:
-            continue
+            if source_ref in formal_source_refs or population < _population_band_floor(universe_card):
+                continue
         if source_ref not in formal_source_refs:
             continue
         eligible.append(

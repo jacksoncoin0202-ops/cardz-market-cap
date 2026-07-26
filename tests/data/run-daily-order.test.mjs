@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
 
 const execute = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+// Ubuntu 24.04 冇 /usr/bin/python，Windows 嘅 python3 又係 Store 假 alias，所以兩邊各用各嘅名。
+const PYTHON = process.env.CARDZ_PYTHON ?? (process.platform === "win32" ? "python" : "python3");
 
 test("a local finalization failure cannot invoke remote pointer publication", async () => {
   const program = String.raw`
@@ -29,7 +31,7 @@ with tempfile.TemporaryDirectory() as directory:
         pass
     print(json.dumps({'remotePointerAdvanced': marker.exists()}))
 `;
-  const result = JSON.parse((await execute("python", ["-c", program], { cwd: root })).stdout.trim());
+  const result = JSON.parse((await execute(PYTHON, ["-c", program], { cwd: root })).stdout.trim());
   assert.equal(result.remotePointerAdvanced, false);
 });
 

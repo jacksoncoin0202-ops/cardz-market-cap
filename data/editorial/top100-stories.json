@@ -2,8 +2,8 @@
   "schemaVersion": "1.0.0",
   "snapshotEffectiveAt": "2026-07-22T09:48:26.496874Z",
   "snapshotContentSha256": "894737a06f5947229af177c166b9a40d938896d0b2509d97cc336748ced7215f",
-  "readyCount": 45,
-  "reviewRequiredCount": 55,
+  "readyCount": 112,
+  "reviewRequiredCount": 38,
   "entries": [
     {
       "id": "cmc_4104320a31c4d989742c067d",
@@ -104,6 +104,25 @@
       }
     },
     {
+      "id": "cmc_f3f958cb70020cc53f8473ee",
+      "rankAtReview": 5,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "110/080",
+      "status": "ready",
+      "evidenceSha256": "ba4e76eb93abeb322a0cacbebd95c379788783292ec6e8a30c8073a1efd5e2c1",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Mega Charizard X ex is the Japanese-language Special Art Rare numbered 110/080 in the 2025 Inferno X set. With 47,266 copies already certified at PSA 10, graded supply is deep, so turnover and the distribution of condition explain its working price band more convincingly than any scarcity claim.",
+        "zhTW": "超級噴火龍Xex 出自《2025 烈獄狂火X 日版 特別藝術稀有》，編號 110/080，為日文版收藏向卡。PSA 10 評級數量已達 47,266 張，供應規模龐大；在這種結構下，成交承接與品相分布比稀缺敘事更能解釋價格。",
+        "zhCN": "这张超级喷火龙Xex 属于日文版《2025 烈狱狂火X 日版 特别艺术稀有》，收藏编号 110/080。目前 PSA 10 已评出 47,266 张，处于高供应层级，因此价格讨论的重点落在换手速度与品相差异，而非单纯的稀有度。",
+        "ja": "メガリザードンXexは、Inferno X（2025年・日本語版）のスペシャルアートレアで、番号は110/080。PSA10の鑑定枚数は47,266枚に達しており、供給が厚いため、希少性の主張よりも売買回転と状態分布のほうが価格帯をよく説明する。"
+      }
+    },
+    {
       "id": "cmc_1926a5a1a760ff477e70783a",
       "rankAtReview": 6,
       "tcg": "pokemon",
@@ -120,6 +139,45 @@
         "zhTW": null,
         "zhCN": null,
         "ja": null
+      }
+    },
+    {
+      "id": "cmc_39543dca442b7e07b7d067d2",
+      "rankAtReview": 6,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "217/187",
+      "status": "ready",
+      "evidenceSha256": "94e9eeabbf1e13bcc78560c83b87ae4496a3ecbbe00f69165327bb4c106dbdb9",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Umbreon ex is the Japanese Special Art Rare numbered 217/187 from the 2024 Scarlet and Violet Terastal Festival ex set. Its PSA 10 population of 77,238 is among the deepest on this board, which makes trading volume and grade distribution the practical drivers of price rather than limited supply.",
+        "zhTW": "月亮伊布ex 為《2024 朱與紫 太晶慶典ex 日版 特別藝術稀有》的日文版卡，編號 217/187。PSA 10 評級數量達 77,238 張，屬於本榜追蹤範圍內最厚的供應之一；價格因此主要由換手量與品相分布決定，而非供給稀缺。",
+        "zhCN": "月亮伊布ex 收录于日文版《2024 朱与紫 太晶庆典ex 日版 特别艺术稀有》，编号 217/187。该卡 PSA 10 累计 77,238 张，鉴定供应极为充裕，因此其价格更多反映市场换手与品相层级的差异，而非稀有度本身。",
+        "ja": "ブラッキーexは、Terastal Festival ex（2024年・日本語版）のスペシャルアートレアで、番号は217/187。PSA10は77,238枚と本ランキング内でも最厚クラスの供給であり、価格は希少性ではなく取引の厚みとグレード分布によって形成される。"
+      }
+    },
+    {
+      "id": "cmc_93789e346bbc157fac002457",
+      "rankAtReview": 7,
+      "tcg": "one-piece",
+      "cardLanguage": "en",
+      "collectorNumber": "EB02-010",
+      "status": "ready",
+      "evidenceSha256": "e4ce76f7113e2161e6c14b480eb102f31e7c7bbe1bd289a481d2204b9233265d",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "This Leader-rarity promo pairs the ONE PIECE Card Game with the Los Angeles Dodgers, handed to attendees of the club's ONE PIECE Night at Dodger Stadium with art drawn by series creator Eiichiro Oda. The crossover pulls demand from anime, TCG and sports-card audiences at once, while a stadium-scale giveaway and an unusually high gem rate have left 11,288 copies certified at PSA 10, so condition premium and turnover matter more here than raw scarcity.",
+        "zhTW": "這張首領（L）稀有度宣傳卡由 ONE PIECE 卡牌遊戲與洛杉磯道奇聯名推出，於球場舉行的 ONE PIECE 之夜作為入場贈品發放，卡圖由原作者尾田榮一郎親自繪製。跨界屬性同時吸引動漫、卡牌與運動收藏客群；而球場級發放量配合偏高的滿分評級率，令 PSA 10 已達 11,288 張，價格因此由品相溢價與換手節奏主導。",
+        "zhCN": "蒙其・D・鲁夫L 是 ONE PIECE 卡牌游戏与洛杉矶道奇的联名宣传卡，在道奇球场的 ONE PIECE 之夜以入场赠品形式发放，卡面由原作者尾田荣一郎绘制。三重受众叠加带来需求，但发放基数大、满分评级比例偏高，PSA 10 已累积 11,288 张，市场定价更依赖品相层级与成交承接。",
+        "ja": "モンキー・D・ルフィLは、ONE PIECEカードゲームとロサンゼルス・ドジャースのコラボプロモで、球場イベント「ONE PIECE Night」の来場者に配布された。イラストは原作者・尾田栄一郎が自ら手掛けている。アニメ・TCG・スポーツ収集層が重なる一方、配布規模が大きく高評価率も高いため、PSA10は11,288枚に達し、価格は希少性より状態差と売買の厚みで決まる。"
       }
     },
     {
@@ -143,23 +201,22 @@
       }
     },
     {
-      "id": "cmc_f3f958cb70020cc53f8473ee",
-      "rankAtReview": 8,
+      "id": "cmc_317ab0c59e58e4dcfb5e411b",
+      "rankAtReview": 9,
       "tcg": "pokemon",
-      "cardLanguage": "ja",
-      "collectorNumber": "110/080",
-      "status": "review_required",
-      "evidenceSha256": "2ce9dfe90c5a148ccbbdb49a19e5fb412b26fb007164a3a727f9be3b5a27ab48",
+      "cardLanguage": "en",
+      "collectorNumber": "SM210",
+      "status": "ready",
+      "evidenceSha256": "05bef12c642a768d704b514252f9b989ec7da713cd7e4362d568014eb4a783c9",
       "evidence": [
-        "asset_identity",
-        "research_summary"
+        "asset_identity"
       ],
-      "reviewReason": "evidence_too_thin",
+      "reviewReason": null,
       "stories": {
-        "en": null,
-        "zhTW": null,
-        "zhCN": null,
-        "ja": null
+        "en": "Moltres Zapdos Articuno GX is the English SM210 black star promo, recorded in our data under the 2019 Sun and Moon Hidden Fates Elite Trainer Box distribution. Box-attached promos tend to build large certified populations, and at 41,868 PSA 10 copies this one sits firmly in that bracket, so the readable signals are turnover and the share of submissions that reach the top grade.",
+        "zhTW": "火焰鳥・閃電鳥・急凍鳥GX 為英文版黑星宣傳卡，編號 SM210，於資料中對應《2019 太陽與月亮 黑星宣傳卡 隱藏命運 精英訓練家收藏盒》一線。隨盒附贈型宣傳卡通常會累積龐大評級數量，本卡 PSA 10 已達 41,868 張，觀察重點在於換手速度與送評達標比例。",
+        "zhCN": "火焰鸟・闪电鸟・急冻鸟GX 是英文版黑星宣传卡，编号 SM210，在本站数据中归属《2019 太阳与月亮 黑星宣传卡 隐藏命运 精英训练家收藏盒》。随盒发放的宣传卡往往形成庞大的评级存量，该卡 PSA 10 已达 41,868 张；因此价格更多取决于成交节奏与高分占比。",
+        "ja": "ファイヤー・サンダー・フリーザーGXは、英語版のブラックスタープロモ（SM210）で、当データではHidden Fates Elite Trainer Box系の配布として記録されている。同梱型プロモは鑑定枚数が積み上がりやすく、PSA10は41,868枚。注目点は希少性ではなく、売買回転と高評価到達率にある。"
       }
     },
     {
@@ -180,26 +237,6 @@
         "zhTW": "207/XY-P 描繪皮卡丘穿上 Mega 噴火龍 X 斗篷，是日本特別盒裝成對版本之一，未有一般英文版發行。角色扮演概念把兩個強勢角色市場連在一起，而成對收藏需求亦令 X 版本保持清晰辨識。",
         "zhCN": "207/XY-P 描绘皮卡丘穿上超级喷火龙 X 斗篷，是日本特别盒装成对版本之一，未有常规英文版发行。角色扮演概念把两个强势角色市场连在一起，而成对收藏需求也令 X 版本保持清晰辨识。",
         "ja": "207/XY-Pは、メガリザードンXのポンチョを着たピカチュウを描く、日本限定スペシャルBOXの対となる一枚です。通常の英語版がなく、二つの人気キャラクターを結ぶコスチューム性とX・Yを揃える需要が、この印刷を明確に差別化しています。"
-      }
-    },
-    {
-      "id": "cmc_39543dca442b7e07b7d067d2",
-      "rankAtReview": 10,
-      "tcg": "pokemon",
-      "cardLanguage": "ja",
-      "collectorNumber": "217/187",
-      "status": "review_required",
-      "evidenceSha256": "cdd66dfc018af23e63f493813a06fb82e3f02e0f488156afe8ed562ef9d1fab6",
-      "evidence": [
-        "asset_identity",
-        "research_summary"
-      ],
-      "reviewReason": "evidence_too_thin",
-      "stories": {
-        "en": null,
-        "zhTW": null,
-        "zhCN": null,
-        "ja": null
       }
     },
     {
@@ -358,6 +395,25 @@
       }
     },
     {
+      "id": "cmc_f4e0334b38501910cfe5be72",
+      "rankAtReview": 18,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "201/165",
+      "status": "ready",
+      "evidenceSha256": "4c7d421df223729da1c49dbc6ad302cd688fcaeb70486dc1c88a3b5cbbd41e33",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Charizard ex is the Japanese Special Art Rare numbered 201/165 from the 2023 Scarlet and Violet Strength Expansion Pack 151. Charizard art rares draw demand from well beyond set completists, and with 37,002 copies certified at PSA 10 the supply is deep enough that price discussion centres on how quickly graded stock changes hands rather than on scarcity.",
+        "zhTW": "噴火龍ex 為《2023 朱與紫 強化擴充包 寶可夢卡牌151 日版 特別藝術稀有》收錄的日文版卡，編號 201/165。噴火龍題材的需求向來超出單一系列的收藏圈；本卡 PSA 10 已評出 37,002 張，供應深度充足，價格觀察應著重評級存量的流通速度與品相分層。",
+        "zhCN": "喷火龙ex 收录于日文版《2023 朱与紫 强化扩充包 宝可梦卡牌151 日版 特别艺术稀有》，编号 201/165。喷火龙题材的买盘长期跨越系列收藏圈，而该卡 PSA 10 存量已达 37,002 张；供应充裕之下，换手速度与品相差异比稀缺叙事更具参考价值。",
+        "ja": "リザードンexは、Strength Expansion Pack 151（2023年・日本語版）のスペシャルアートレアで、番号は201/165。リザードン題材の需要はセット収集層を超えて広がる一方、PSA10は37,002枚と供給が厚く、価格の焦点は鑑定在庫の回転速度と状態差に置かれる。"
+      }
+    },
+    {
       "id": "cmc_920b7e90b38c2fe802970186",
       "rankAtReview": 19,
       "tcg": "pokemon",
@@ -438,6 +494,25 @@
       }
     },
     {
+      "id": "cmc_4b285d43722181d68a358cf4",
+      "rankAtReview": 22,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "347/190",
+      "status": "ready",
+      "evidenceSha256": "c92e8e48537e63eff6c66c28e2ec4789305769f097c01a84a5b0a8ab3337f9a5",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Mew ex is the Japanese Special Art Rare numbered 347/190 in the 2023 Scarlet and Violet High Class Pack Shiny Treasure ex. High-class packs concentrate collector demand into a small number of top-end art cards, and with 25,901 PSA 10 examples on record the market reads through certified supply and condition tiers rather than through a scarcity story.",
+        "zhTW": "夢幻ex 出自《2023 朱與紫 高級擴充包 閃色寶藏ex 日版 特別藝術稀有》，編號 347/190，屬日文版收藏向卡。高級擴充包的需求集中於少數頂端美術卡，本卡 PSA 10 已登錄 25,901 張；在此供應水位下，市場主要透過評級存量與品相分層來定價。",
+        "zhCN": "梦幻ex 属于日文版《2023 朱与紫 高级扩充包 闪色宝藏ex 日版 特别艺术稀有》，编号 347/190。高级扩充包的买盘往往集中在少数顶端美术卡上，而该卡 PSA 10 登记量为 25,901 张；供应并不稀薄，定价因此更依赖成交承接与品相分层。",
+        "ja": "ミュウexは、High Class Pack Shiny Treasure ex（2023年・日本語版）のスペシャルアートレアで、番号は347/190。ハイクラスパックは少数の上位アートに需要が集中するが、PSA10は25,901枚が記録されており、価格は希少性より鑑定供給と状態階層を通じて形成される。"
+      }
+    },
+    {
       "id": "cmc_f3f9667eb067ac723c1a4aea",
       "rankAtReview": 23,
       "tcg": "pokemon",
@@ -454,6 +529,25 @@
         "zhTW": null,
         "zhCN": null,
         "ja": null
+      }
+    },
+    {
+      "id": "cmc_19c9632d4ea1fa450c34e997",
+      "rankAtReview": 24,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "286/SM-P",
+      "status": "ready",
+      "evidenceSha256": "74a68cbfee98b45f513e4a9641f7dc8a84a9b9147bf23c12cb8745676f90d823",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Psyduck is the Japanese promo numbered 286/SM-P, filed in our data under the 2018 Sun and Moon Munch: A Retrospective promo line. Certified supply is thin by the standards of this board at 1,942 PSA 10 copies, so individual sales carry more weight in price discovery and condition gaps show up quickly in realised levels.",
+        "zhTW": "可達鴨為日文版宣傳卡，編號 286/SM-P，資料中歸入《2018 太陽與月亮 宣傳卡 孟克展 日版》一線。相對於榜上多數名目，本卡評級供應偏薄，PSA 10 僅 1,942 張；成交筆數有限的情況下，單筆交易對價格區間的影響較大，品相差距亦更快反映在成交水平。",
+        "zhCN": "可达鸭是日文版宣传卡，编号 286/SM-P，在本站数据中归属《2018 太阳与月亮 宣传卡 孟克展 日版》。与榜单上多数标的相比，其鉴定存量偏薄，PSA 10 仅 1,942 张。样本稀少意味着单笔成交的指示性更强，品相层级之间的价差也更容易被放大。",
+        "ja": "コダックは日本語版のプロモで、番号は286/SM-P。当データではMunch: A Retrospective（2018年）関連のプロモ枠として記録されている。PSA10は1,942枚と本ランキングでは供給が薄く、成約件数が限られるぶん一件あたりの価格影響が大きく、状態差も水準に表れやすい。"
       }
     },
     {
@@ -494,6 +588,25 @@
         "zhTW": "Gyarados Pretend Pikachu 151/XY-P 以皮卡丘穿上暴鯉龍造型，紀念 Pokémon Center Hiroshima 開幕。地區故事與吉祥物、巨型寶可夢之間的趣味反差，使它成為整個角色扮演宣傳卡系列的重要一張。",
         "zhCN": "Gyarados Pretend Pikachu 151/XY-P 以皮卡丘穿上暴鲤龙造型，纪念 Pokémon Center Hiroshima 开幕。地区故事与吉祥物、巨型宝可梦之间的趣味反差，使它成为整个角色扮演宣传卡系列的重要一张。",
         "ja": "ギャラドスごっこピカチュウ151/XY-Pは、ポケモンセンターヒロシマの開業を記念し、ピカチュウが大きなギャラドス姿になるカードです。地域の物語とキャラクターの意外な組み合わせが、コスチューム系プロモ全体の中でも重要な位置を与えています。"
+      }
+    },
+    {
+      "id": "cmc_df4ce522a4de006726cd5b4c",
+      "rankAtReview": 25,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "083/067",
+      "status": "ready",
+      "evidenceSha256": "b6e72ac06083eaea5fbb36f365ab2bde19fb98b616875bf1671ff442c375cdd3",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Rayquaza VMAX is the Japanese Hyper Rare numbered 083/067 from the 2021 Sword and Shield Blue Sky Stream set. Only 2,483 copies are certified at PSA 10, a fraction of the populations behind the largest modern names on this board, so the price band rests on a comparatively narrow flow of graded sales and reacts more sharply to condition.",
+        "zhTW": "烈空坐VMAX 為《2021 劍與盾 蒼空烈流 日版 高稀有》收錄的日文版卡，編號 083/067。PSA 10 評級數量為 2,483 張，相較榜上多張現代高人口卡屬於小基數；價格因此建立在較窄的評級成交流之上，對品相變化的反應亦較敏感。",
+        "zhCN": "烈空坐VMAX 出自日文版《2021 剑与盾 苍空烈流 日版 高稀有》，编号 083/067。该卡 PSA 10 存量为 2,483 张，与榜单上动辄数万张的现代卡相比基数明显较小。成交样本较窄，价格区间的稳定性因此更依赖持续的评级供给与品相一致性。",
+        "ja": "レックウザVMAXは、Blue Sky Stream（2021年・日本語版）のハイパーレアで、番号は083/067。PSA10は2,483枚にとどまり、本ランキング上位の現代カードと比べて母数は小さい。鑑定済みの成約フローが細いため、価格帯は状態のばらつきに左右されやすい。"
       }
     },
     {
@@ -577,6 +690,25 @@
       }
     },
     {
+      "id": "cmc_209c6e27c8c27d348cf8aaf0",
+      "rankAtReview": 30,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "SM191",
+      "status": "ready",
+      "evidenceSha256": "9fc280595f150f3efb99b929a9f6e879b1daa0319d2c86a702a8a845d8d86704",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Mew/Mewtwo GX is the English black star promo numbered SM191, recorded in our data as a 2019 Power Partnership tin distribution. Tin-attached promos reach collectors in volume, and 9,531 copies have been certified at PSA 10; at that level the useful signals are how consistently graded stock clears and how wide the gap runs between top-grade and lower-grade sales.",
+        "zhTW": "夢幻超夢GX 為英文版黑星宣傳卡，編號 SM191，資料中對應《2019 太陽與月亮 黑星宣傳卡 力量搭檔 鐵盒》的發放。鐵盒隨附型宣傳卡流通量較廣，本卡 PSA 10 已達 9,531 張；此水位下值得觀察的是評級存量的消化速度，以及高分與次級品相之間的價差。",
+        "zhCN": "梦幻超梦GX 是英文版黑星宣传卡，编号 SM191，在本站数据中对应 2019 年力量搭档铁盒的发放渠道。铁盒附赠类宣传卡流通面广，该卡 PSA 10 已累计 9,531 张。存量处于中位区间，观察重点落在评级供给的消化节奏以及高分与次级品相之间的价差。",
+        "ja": "ミュウミュウツーGXは英語版のブラックスタープロモで、番号はSM191。当データでは2019年のPower Partnership缶に付属した配布として扱われる。缶同梱型プロモは流通量が広く、PSA10は9,531枚。注目点は鑑定在庫の消化ペースと、高評価品と下位グレードの価格差の広さにある。"
+      }
+    },
+    {
       "id": "cmc_f0b8d060ad159ffbcf6a84e9",
       "rankAtReview": 30,
       "tcg": "pokemon",
@@ -596,23 +728,43 @@
       }
     },
     {
-      "id": "cmc_f4e0334b38501910cfe5be72",
+      "id": "cmc_f48dfbf6e216dd42bfee8dec",
       "rankAtReview": 31,
-      "tcg": "pokemon",
+      "tcg": "one-piece",
       "cardLanguage": "ja",
-      "collectorNumber": "201/165",
-      "status": "review_required",
-      "evidenceSha256": "95926c577ba41e09bc088fa5000706f84cf2772163a2827c1c7d9c6b6784b617",
+      "collectorNumber": "OP05-119",
+      "status": "ready",
+      "evidenceSha256": "054d2cef45b524c938b02d8464f781cbcd6e58664130d0a2c3a1e325ede15e21",
       "evidence": [
         "asset_identity",
         "research_summary"
       ],
-      "reviewReason": "evidence_too_thin",
+      "reviewReason": null,
       "stories": {
-        "en": null,
-        "zhTW": null,
-        "zhCN": null,
-        "ja": null
+        "en": "This is the Japanese OP05-119 Secret Special Card of Monkey D. Luffy, issued as a 3rd Anniversary commemorative in the A Fist of Divine Speed booster line and set apart by its gold-background foil treatment. Anniversary chase cards concentrate submissions at the top of the grade scale, and with only 1,240 PSA 10 copies on record the graded pool stays narrow enough that condition and availability set the working price band.",
+        "zhTW": "蒙其・D・魯夫SEC-SPC 為日文版編號 OP05-119 的秘密特別卡，屬三週年紀念版本，並以《金色背景》燙金處理與一般 SEC 卡區隔。週年紀念型主打卡的送評需求集中於最高分段，本卡 PSA 10 僅 1,240 張，評級池偏窄；價格區間主要由品相與可得性決定。",
+        "zhCN": "蒙其・D・鲁夫SEC-SPC 是日文版 OP05-119 秘密特别卡，作为三周年纪念卡发行，采用《金色背景》烫金工艺，与常规 SEC 版本形成区隔。此类周年主打卡的送评集中在最高分段，而该卡 PSA 10 仅 1,240 张，评级池狭窄，成交价格因此对品相与放盘节奏尤为敏感。",
+        "ja": "モンキー・D・ルフィSEC-SPCは、OP05-119の日本語版シークレットスペシャルカードであり、3周年記念として「A Fist of Divine Speed」枠で登場した金背景仕様である。記念系の主役カードは最上位グレードへの提出が集中するが、PSA10は1,240枚と鑑定母数が狭く、価格帯は状態と出回り具合に強く依存する。"
+      }
+    },
+    {
+      "id": "cmc_594f21860a030a9e975ac09c",
+      "rankAtReview": 32,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "240/193",
+      "status": "ready",
+      "evidenceSha256": "a9b7589e5d3bc20d00d4a655d28ce4904259c442a5b82d7cde80aa5f0d628be0",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Mega Gengar ex is the Japanese secret rare numbered 240/193 from the High Class Pack: MEGA Dream ex, a full-art treatment that carried the return of Mega Evolution into a premium Japanese product. Collector attention has focused as much on centring as on the artwork, since borders on this print are a recurring grading discussion, and with 29,763 copies already at PSA 10 the spread between gem-grade and near-miss examples is the more informative part of the price picture.",
+        "zhTW": "超級耿鬼ex 為《M2a：高級擴充包 超級進化夢想ex》收錄的日文版秘稀有卡，編號 240/193，採整面美術設計，並將超級進化題材帶回高階商品線。收藏端的討論除美術外亦集中於置中裁切，該版本邊框在送評社群屬常見話題；本卡 PSA 10 已達 29,763 張，滿分與擦身而過之間的價差，比稀缺敘事更能說明價格結構。",
+        "zhCN": "超级耿鬼ex 是日文版《M2a：高级扩充包 超级进化梦想ex》的秘稀卡，编号 240/193，采用整面美术设计，将超级进化题材重新带入高阶产品线。除画面外，居中裁切一直是该版本的送评焦点；目前 PSA 10 已累计 29,763 张，满分件与次级件之间的价差，比稀缺性更能解释其价格结构。",
+        "ja": "メガゲンガーexは、High Class Pack: MEGA Dream ex（M2a・日本語版）の240/193にあたるシークレットレアで、フルアート仕様によりメガシンカ題材を上位商品へ引き戻した一枚である。鑑定面ではセンタリングが継続的な話題であり、PSA10は29,763枚。価格を読む鍵は希少性ではなく、満点と僅差落ちの価格差にある。"
       }
     },
     {
@@ -656,6 +808,25 @@
       }
     },
     {
+      "id": "cmc_966a7423b873bc33b7dd467a",
+      "rankAtReview": 33,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "295/XY-P",
+      "status": "ready",
+      "evidenceSha256": "265a63b8e8ec57a905e2218aed51deb9726071c7773084ea5eb67000c2fe96a0",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Luigi Pikachu is the Japanese holo promo numbered 295/XY-P, recorded in our data under a 2016 XY-era special box distribution. Certified supply is limited at 2,337 PSA 10 copies, well below the modern chase cards that dominate this board, so the price band rests on a thin flow of graded sales in which condition and listing timing carry disproportionate weight.",
+        "zhTW": "路易吉皮卡丘為日文版閃卡宣傳卡，編號 295/XY-P，資料中歸入《2016 XY 宣傳卡 特別BOX 日版 閃卡》的發放。評級供應有限，PSA 10 僅 2,337 張，遠低於榜上主導的現代主打卡；成交流偏薄的結構下，品相與掛牌時點對價格的影響相對放大。",
+        "zhCN": "路易吉皮卡丘是日文版闪卡宣传卡，编号 295/XY-P，在本站数据中归属 2016 年 XY 时期的特别 BOX 发放。其 PSA 10 存量仅 2,337 张，远低于榜单上主导的现代主打卡。评级成交流较窄，因此品相差异与放盘节奏对最终成交价的影响被明显放大。",
+        "ja": "ルイージピカチュウは日本語版のホロプロモで、番号は295/XY-P。当データでは2016年のXY期スペシャルBOX配布として記録されている。PSA10は2,337枚と、本ランキングを占める現代の主役級カードよりも母数がかなり小さい。鑑定成約が細いぶん、状態差と出品タイミングが価格に反映されやすい。"
+      }
+    },
+    {
       "id": "cmc_c1cb2a6e53671a0c4456eacc",
       "rankAtReview": 34,
       "tcg": "one-piece",
@@ -676,23 +847,22 @@
       }
     },
     {
-      "id": "cmc_4b285d43722181d68a358cf4",
+      "id": "cmc_efb6c842fad326fd55a22f3e",
       "rankAtReview": 35,
       "tcg": "pokemon",
       "cardLanguage": "ja",
-      "collectorNumber": "347/190",
-      "status": "review_required",
-      "evidenceSha256": "10e9f89c05095098b668df50d9f09049b81b66386fc15cd0c2d31ab96e458179",
+      "collectorNumber": "007/025",
+      "status": "ready",
+      "evidenceSha256": "959e93f4fe82fce78dd06ef894a20b0ae682888726b7d4f4e9202b7330d9743e",
       "evidence": [
-        "asset_identity",
-        "research_summary"
+        "asset_identity"
       ],
-      "reviewReason": "evidence_too_thin",
+      "reviewReason": null,
       "stories": {
-        "en": null,
-        "zhTW": null,
-        "zhCN": null,
-        "ja": null
+        "en": "This Japanese holo promo, catalogued as _____'s Pikachu and numbered 007/025, comes from the 2021 25th Anniversary Edition promo pack line. Anniversary promo packs circulated widely, and with 26,196 copies certified at PSA 10 the graded pool is deep, which shifts price formation onto turnover and onto how much premium the top grade actually commands.",
+        "zhTW": "這張皮卡丘為日文版閃卡宣傳卡，編號 007/025，出自《2021 25週年紀念版 宣傳卡包 日版 閃卡》。紀念版宣傳卡包流通面廣，本卡 PSA 10 已達 26,196 張，評級池深厚；價格形成的重心因而落在換手速度，以及最高分段實際能取得多少溢價。",
+        "zhCN": "这张皮卡丘属于日文版《2021 25周年纪念版 宣传卡包 日版 闪卡》，编号 007/025。纪念版宣传卡包发行面广，其 PSA 10 存量已达 26,196 张，评级池相当深厚。定价重心因此落在成交换手效率，以及最高分段相对次级品相能兑现的溢价幅度。",
+        "ja": "このピカチュウは、25th Anniversary Edition プロモパック（2021年・日本語版）のホロカードで、番号は007/025。記念プロモパックは流通量が広く、PSA10は26,196枚と鑑定母数は厚い。価格形成の軸は希少性ではなく、売買回転と最上位グレードが実際に取れるプレミアムの大きさにある。"
       }
     },
     {
@@ -716,6 +886,25 @@
       }
     },
     {
+      "id": "cmc_d1a8a79fe5185c3cceafaa15",
+      "rankAtReview": 36,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "GG69/GG70",
+      "status": "ready",
+      "evidenceSha256": "c673fb15042edf2647e2c90a2af3b9fa039aa5741a14dfe3989c92be2363d5a2",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Giratina VSTAR is the English secret rare numbered GG69/GG70 within the 2023 Crown Zenith Galarian Gallery subset. Its graded base is deep at 23,750 PSA 10 copies, and that is the defining feature for price purposes: with top-grade examples readily available, movement tends to follow turnover and the size of the gem premium rather than any scarcity narrative.",
+        "zhTW": "騎拉帝納VSTAR 為英文版秘稀有卡，編號 GG69/GG70，收錄於《2023 劍與盾 王冠絕頂 伽勒爾畫廊 秘稀有》子系列。本卡評級基數深厚，PSA 10 已達 23,750 張；在高分品相供應充裕的情況下，價格走勢主要跟隨換手量與滿分溢價幅度，而非稀缺程度。",
+        "zhCN": "骑拉帝纳VSTAR 是英文版秘稀卡，编号 GG69/GG70，属于《2023 剑与盾 王冠绝顶 伽勒尔画廊 秘稀有》子系列。该卡评级基数较深，PSA 10 已达 23,750 张。顶级品相供给充足意味着价格更多由成交量与满分溢价决定，稀缺性并不是主要变量。",
+        "ja": "ギラティナVSTARは英語版のシークレットレアで、番号はGG69/GG70。Crown ZenithのGalarian Gallery（2023年）枠に位置づけられる。PSA10は23,750枚と鑑定母数が厚く、高評価個体の供給が確保されているため、価格は希少性の物語よりも取引量とジェムプレミアムの大きさに従いやすい。"
+      }
+    },
+    {
       "id": "cmc_6ada1707f134dd9d15cd40e1",
       "rankAtReview": 37,
       "tcg": "pokemon",
@@ -736,23 +925,22 @@
       }
     },
     {
-      "id": "cmc_19c9632d4ea1fa450c34e997",
+      "id": "cmc_b26568a2eee0439cdd89ae53",
       "rankAtReview": 38,
       "tcg": "pokemon",
-      "cardLanguage": "ja",
-      "collectorNumber": "286/SM-P",
+      "cardLanguage": "en",
+      "collectorNumber": "GG44/GG70",
       "status": "ready",
-      "evidenceSha256": "ca2adec552e0a38e6c741527239e4c84f105a01371cfad5302997a4f0333a495",
+      "evidenceSha256": "341df45abc4e5b27603e0f0509f43e9621049688788b006eec1ee42a57c42585",
       "evidence": [
-        "asset_identity",
-        "research_summary"
+        "asset_identity"
       ],
       "reviewReason": null,
       "stories": {
-        "en": "Psyduck 286/SM-P translates the panic of Munch’s The Scream into a character whose expression already fits the composition. The visual joke is immediate, while the museum-collaboration origin gives the card cultural context beyond a normal Japanese promo.",
-        "zhTW": "可達鴨 286/SM-P 把蒙克《吶喊》的驚惶感放進本來就擅長困惑表情的角色，畫面笑點一目了然。博物館合作的來源又令它超越一般日版宣傳卡，具備清楚的文化背景。",
-        "zhCN": "可达鸭 286/SM-P 把蒙克《呐喊》的惊惶感放进本来就擅长困惑表情的角色，画面笑点一目了然。博物馆合作的来源又令它超越普通日版宣传卡，具备清楚的文化背景。",
-        "ja": "コダック286/SM-Pは、もともと困惑した表情を持つキャラクターにムンクの《叫び》の不安を重ね、ひと目で伝わるユーモアを生みました。美術館コラボという来歴が、通常の日本語プロモを越えた文化的背景を与えています。"
+        "en": "Mewtwo VSTAR carries number GG44/GG70 in the English Crown Zenith Galarian Gallery run from 2023. With 25,822 examples certified at PSA 10, it trades against one of the larger graded bases in this section of the board, and that depth means quoted levels track how quickly listed copies are absorbed far more closely than they track supply constraints.",
+        "zhTW": "超夢VSTAR 為英文版《2023 劍與盾 王冠絕頂 伽勒爾畫廊》編號 GG44/GG70 的卡片。PSA 10 評級數量為 25,822 張，在同一畫廊子系列中屬供應較厚的一檔；報價因此更貼近掛牌被吸收的速度，而非供給端的限制。",
+        "zhCN": "超梦VSTAR 是英文版《2023 剑与盾 王冠绝顶 伽勒尔画廊》中的 GG44/GG70。其 PSA 10 鉴定量为 25,822 张，在同一画廊子系列内属于供应偏厚的一档。厚度带来的结果是报价与挂牌消化速度高度相关，而与供给约束关系有限。",
+        "ja": "ミュウツーVSTARは、英語版Crown ZenithのGalarian Gallery（2023年）に属するGG44/GG70である。PSA10は25,822枚で、同ギャラリー枠のなかでも供給は厚い部類に入る。この厚みゆえに、提示価格は供給制約よりも、出品在庫がどれだけ速く消化されるかに連動しやすい。"
       }
     },
     {
@@ -773,6 +961,26 @@
         "zhTW": "拉帝亞斯與拉帝歐斯 GX 105/095 出現在 TAG TEAM 時代初期，以具情感連結的構圖把兩隻傳說寶可夢合成一個主題。關係感強烈的畫面與早期雙人卡地位，使它同時連接角色、插畫及年代收藏市場。",
         "zhCN": "拉帝亚斯与拉帝欧斯 GX 105/095 出现在 TAG TEAM 时代初期，以具情感连接的构图把两只传说宝可梦合成一个主题。关系感强烈的画面与早期双人卡地位，使它同时连接角色、插画及年代收藏市场。",
         "ja": "ラティアス＆ラティオスGX 105/095は、TAG TEAM初期に二体を別々ではなく関係性のある一つの画面として提示しました。感情を感じさせる構図と時代初期の位置付けが、キャラクター、イラスト、年代別収集の需要を横断します。"
+      }
+    },
+    {
+      "id": "cmc_04996d46d61ee064dce7c766",
+      "rankAtReview": 40,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "SWSH075",
+      "status": "ready",
+      "evidenceSha256": "e182787fd87d425c9c3419240e7cd47e94d8524da1e21d34d196d84bc66aad38",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Special Delivery Charizard is the English SWSH075 black star promo tied to the launch of the Pokemon Center online store in the United Kingdom, illustrated with Charizard in a mail carrier's cap and distributed through a registration and purchase-code system after a delayed rollout. That gated distribution kept certified supply modest at 4,524 PSA 10 copies, and with a Charizard subject drawing buyers from outside promo collecting, the price band reflects competition for a limited graded float rather than routine set turnover.",
+        "zhTW": "特快專遞噴火龍為英文版黑星宣傳卡，編號 SWSH075，配合英國寶可夢中心線上商店啟動而推出，卡面描繪戴郵差帽的噴火龍，並透過登記與購買序號制度發放，推出時程曾經延後。受限的發放方式令評級供應維持在較低水位，PSA 10 為 4,524 張；配合噴火龍題材吸引宣傳卡圈以外的買方，價格反映的是有限評級流通量的競逐。",
+        "zhCN": "特快专递喷火龙是英文版黑星宣传卡，编号 SWSH075，伴随英国宝可梦中心线上商店启动发行，画面为戴邮差帽的喷火龙，采用登记加购买序号的限量发放方式，上市时间曾经推迟。发放受限使其评级存量维持在 4,524 张 PSA 10 的较低水平；加上喷火龙题材本身吸引宣传卡圈以外的买家，价格主要体现为对有限评级流通量的争夺。",
+        "ja": "スペシャルデリバリー リザードンは、英語版のブラックスタープロモSWSH075で、英国のポケモンセンター オンライン開設に合わせて登場した一枚である。郵便配達帽をかぶったリザードンを描き、登録と購入コードによる限定配布が採られ、実施時期も後ろ倒しとなった。配布が絞られたためPSA10は4,524枚にとどまり、リザードン題材の外部需要と相まって、価格は限られた鑑定流通量の奪い合いを映す。"
       }
     },
     {
@@ -815,23 +1023,42 @@
       }
     },
     {
-      "id": "cmc_317ab0c59e58e4dcfb5e411b",
+      "id": "cmc_19727069ac175f158769c2f6",
       "rankAtReview": 42,
       "tcg": "pokemon",
       "cardLanguage": "en",
-      "collectorNumber": "SM210",
-      "status": "review_required",
-      "evidenceSha256": "aad9650dbf2bbfe81441e64f5347b9afd42f2127a7f6e9feb29e03b1260e5009",
+      "collectorNumber": "SV49/SV94",
+      "status": "ready",
+      "evidenceSha256": "ee339b541b6fdca342245022ccec0bc8b0965eaddf7f85b689107392bd4aa3b7",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Charizard GX is the English card numbered SV49/SV94 in the 2019 Sun and Moon Hidden Fates set. Charizard names attract buyers who never touch the rest of a set, and 9,517 copies at PSA 10 place it in the middle of this board's supply range: deep enough to quote consistently, but not so deep that a run of top-grade listings passes unnoticed.",
+        "zhTW": "噴火龍GX 為英文版《2019 太陽與月亮 隱藏命運》編號 SV49/SV94 的卡片。噴火龍題材長期吸引系列收藏圈以外的買方，本卡 PSA 10 為 9,517 張，供應在本榜屬於中段水位：足以支撐穩定報價，但仍未厚到讓一批高分掛牌被市場忽略。",
+        "zhCN": "喷火龙GX 是英文版《2019 太阳与月亮 隐藏命运》中的 SV49/SV94。喷火龙题材长期吸引系列收藏圈之外的买盘，而该卡 PSA 10 存量为 9,517 张，在本榜属于中段供应。这一水位既能支撑相对稳定的报价，也意味着高分挂牌集中出现时价格会随之反应。",
+        "ja": "リザードンGXは、英語版Hidden Fates（2019年）のSV49/SV94にあたるカードである。リザードン題材はセット収集の枠外からも買いを集めるが、PSA10は9,517枚と本ランキングでは中位の供給にとどまる。安定した気配値を支える一方、高評価個体の出品がまとまれば相場に反映されやすい水準である。"
+      }
+    },
+    {
+      "id": "cmc_099c73c8aa24eaa7d50ac334",
+      "rankAtReview": 43,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "132/106",
+      "status": "ready",
+      "evidenceSha256": "03d78d948bb892579d03fe0564dbbed8181016a20a70d644cb6ff44a0279f41e",
       "evidence": [
         "asset_identity",
         "research_summary"
       ],
-      "reviewReason": "evidence_too_thin",
+      "reviewReason": null,
       "stories": {
-        "en": null,
-        "zhTW": null,
-        "zhCN": null,
-        "ja": null
+        "en": "Pikachu ex is the Japanese Special Art Rare numbered 132/106 in SV8: Super Electric Breaker, showing the set's cover Pokemon in its Terastallized Stellar form above the standard set count. Its record is unusually two-sided: an early run higher after release, then a retreat in the Japanese print while the later English release held firmer, and with 19,528 copies now at PSA 10 the relevant comparison is between the two language versions rather than against a scarcity baseline.",
+        "zhTW": "皮卡丘ex 為《SV8：超電突圍》收錄的日文版特別藝術稀有卡，編號 132/106，超出系列基礎張數，畫面描繪擔任封面的皮卡丘太晶化姿態。此卡走勢具兩面性：上市初期一度走高，其後日文版回落，而較晚推出的英文版相對抗跌；PSA 10 已達 19,528 張，跨語言版本之間的價差因而比稀缺程度更值得追蹤。",
+        "zhCN": "皮卡丘ex 是日文版《SV8：超电突围》的特别艺术稀有卡，编号 132/106，高于系列基础张数，画面为担任封面的皮卡丘太晶化形态。其行情呈现明显的双向特征：上市初期一度上行，随后日文版回落，而晚一步推出的英文版相对坚挺。目前 PSA 10 存量为 19,528 张，因此跨语种版本之间的价差比稀有度更具观察价值。",
+        "ja": "ピカチュウexは、SV8: Super Electric Breaker（日本語版）の132/106にあたるスペシャルアートレアで、セット表紙を飾るテラスタル姿のピカチュウを描く。番号はセットの基本枚数を上回る。発売直後に上昇したのち日本語版は調整し、後発の英語版が相対的に底堅く推移した経緯があり、PSA10が19,528枚に達した現在、注目点は希少性よりも言語版間の価格差にある。"
       }
     },
     {
@@ -875,23 +1102,61 @@
       }
     },
     {
-      "id": "cmc_efb6c842fad326fd55a22f3e",
+      "id": "cmc_e1ff97385fbb5e9aa5be6a7e",
+      "rankAtReview": 44,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "101/095",
+      "status": "ready",
+      "evidenceSha256": "b61bd4395de999f027c323e060a167c3e8c32aa9abb7fe26e9e7e3b2226069e6",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Pikachu & Zekrom GX is a Japanese card numbered 101/095 in the Tag Bolt set, built around two headline Pokemon sharing a single card face. Its PSA 10 population sits near three thousand, a comparatively narrow certified base for a Pikachu-linked printing. Where the graded pool is that thin, individual sales carry more weight in price discovery than they would in a deeply certified market.",
+        "zhTW": "皮卡丘＆捷克羅姆GX 收錄於 2018 太陽與月亮 搭檔閃電 日版，編號 101/095，卡面由兩隻主角寶可夢共同構成。目前 PSA 10 評級數量約三千張，在皮卡丘題材之中屬於偏窄的認證基數。評級池規模有限的情況下，單筆成交對價格參考的影響會被明顯放大。",
+        "zhCN": "这张编号 101/095 的皮卡丘＆捷克罗姆GX 出自 2018 太阳与月亮 搭档闪电 日版，两只主角宝可梦同时出现在一张卡面上。评级供给方面，PSA 10 累计约三千张，规模在皮卡丘题材中并不算大。基数偏窄意味着报价更容易被少数成交记录牵动，而非由连续挂牌决定。",
+        "ja": "ピカチュウ＆ゼクロムGX は Tag Bolt 収録の日本語版カードで、ナンバーは 101/095。二体の看板ポケモンが一枚に同居する構図である。PSA 10 の鑑定枚数は約三千枚と、ピカチュウ関連としては母数が厚くない。鑑定池が薄い分、個別の約定が価格の見え方を左右しやすい。"
+      }
+    },
+    {
+      "id": "cmc_ad994632a0268c3c6cc2e6c4",
       "rankAtReview": 45,
       "tcg": "pokemon",
       "cardLanguage": "ja",
-      "collectorNumber": "007/025",
-      "status": "review_required",
-      "evidenceSha256": "47a331a84c7b84318147a8af65b55bf55bc8c1bc672fea6debe339b56a85a47f",
+      "collectorNumber": "400/SM-P",
+      "status": "ready",
+      "evidenceSha256": "1e9e3d1ba16f86b2e089225bce7eade12f763a878cdbc7e83b7a849d08f5ef95",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "This Japanese Pikachu carries the promo number 400/SM-P and is catalogued under the Sun and Moon Limited Collection Master Battle Set. With a PSA 10 population below three thousand, its certified supply is thin relative to the many other Pikachu printings in circulation. Quoted levels therefore rest on a limited stream of confirmed sales rather than on continuous two-way interest.",
+        "zhTW": "此張皮卡丘為日文版宣傳卡，編號 400/SM-P，於目錄之中歸入 2019 太陽與月亮 限定收藏 大師對戰組合 日版。PSA 10 評級數量不足三千張，相對於市面流通的眾多皮卡丘版本屬於供給偏薄的一支。報價因此高度依賴少數已確認成交，而非持續存在的雙向掛牌。",
+        "zhCN": "皮卡丘的这一版为日文宣传卡，卡号 400/SM-P，目录归属 2019 太阳与月亮 限定收藏 大师对战组合 日版。就评级层面而言，PSA 10 累计不足三千张。皮卡丘版本众多而该版供给偏薄，价格参考更多来自零星成交，连续报价的支撑相当有限。",
+        "ja": "日本語版ピカチュウのプロモで、ナンバーは 400/SM-P、Sun and Moon Limited Collection Master Battle Set に分類される。PSA 10 の鑑定枚数は三千枚に届かず、数多く存在するピカチュウ版のなかでは供給が薄い部類にあたる。値付けは継続的な気配より、限られた成約事例に依存しやすい構造である。"
+      }
+    },
+    {
+      "id": "cmc_987203bae3dc73614c748ccc",
+      "rankAtReview": 46,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "131/SVP",
+      "status": "ready",
+      "evidenceSha256": "97ca71074e8761d31b73c0e6ccabc3c2ec749cd7c169855fd03404bf93c07a96",
       "evidence": [
         "asset_identity",
         "research_summary"
       ],
-      "reviewReason": "summary_printing_conflict",
+      "reviewReason": null,
       "stories": {
-        "en": null,
-        "zhTW": null,
-        "zhCN": null,
-        "ja": null
+        "en": "Kingdra ex is an English Black Star Promo numbered 131/SVP, issued within the Shrouded Fable Special Illustration Collection with artwork by akagi showing the Pokemon surging through stylised waves under a full moon on a silver holo pattern. Demand is led by the illustration rather than by play value, and collectors openly acquire repeat copies of the same art. With more than eighteen thousand PSA 10 examples on record, turnover depth and condition tiers describe this market better than scarcity does.",
+        "zhTW": "刺龍王ex 為英文版黑星宣傳卡，編號 131/SVP，收錄於 2024 朱與紫 黑星宣傳卡 Shrouded Fable 特別插畫收藏，由 akagi 繪製，畫面呈現刺龍王於滿月之下衝破浪濤，並配以銀色閃箔底紋。需求主要由插畫本身帶動而非對戰用途，收藏者重複購入同一畫面的情況常見。PSA 10 評級數量已逾一萬八千張，觀察重點在於成交厚度與品相分層，而非稀缺性。",
+        "zhCN": "这张刺龙王ex 属英文黑星宣传卡，卡号 131/SVP，来自 2024 朱与紫 黑星宣传卡 Shrouded Fable 特别插画收藏；绘师 akagi 以满月与浪涛构图，搭配银色闪箔底纹。买盘的驱动力集中在画面而非实战强度，藏家为同一插画重复入手的做法并不罕见。评级方面 PSA 10 已累积逾一万八千张，供给厚实，成交频度与品相区间比稀缺叙事更能说明定价。",
+        "ja": "キングドラex は英語版のブラックスター・プロモで、ナンバーは 131/SVP。Shrouded Fable Special Illustration Collection に収録され、akagi によるイラストは満月と波間を進む姿をシルバーのホロ地に描く。需要を牽引するのは対戦性能ではなく絵柄であり、同じ絵を複数枚確保する層も見られる。PSA 10 の鑑定枚数は一万八千枚を超え、希少性より売買の厚みと状態差が価格を説明する。"
       }
     },
     {
@@ -915,6 +1180,26 @@
       }
     },
     {
+      "id": "cmc_0f731ceb9c66227d1750cbef",
+      "rankAtReview": 47,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "234/193",
+      "status": "ready",
+      "evidenceSha256": "c73134d56a847f56b66bf95a27fca94cc3f4b1decb3cfea0b9d1ef1482506131",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Pikachu ex 234/193 is the Special Art Rare chase card of the Japanese High Class Pack MEGA Dream ex, illustrated by James Turner and released in late 2025. Collector discussion centres on grading friction, with slight centring shifts and print lines making a gem-mint result far from automatic, alongside an open debate about holding Japanese copies versus waiting on an English printing. With more than twenty-seven thousand PSA 10 examples recorded, the spread between raw and certified condition is the more informative signal.",
+        "zhTW": "皮卡丘ex 編號 234/193，為日文版 M2a：高級擴充包 超級進化夢想ex 的特別藝術稀有主打卡，由 James Turner 繪製，於 2025 年末推出。收藏端的討論集中在評級難度：輕微置中偏移與印刷線使滿分並非理所當然，同時亦存在日文版持有與等待英文版之間的取捨爭論。PSA 10 已錄得逾二萬七千張，裸卡與評級品之間的價差，比單純的稀缺敘事更具參考價值。",
+        "zhCN": "这张皮卡丘ex 卡号 234/193，是日文 M2a：高级扩充包 超级进化梦想ex 的特别艺术稀有主打卡，绘师为 James Turner，2025 年末面世。市场关注点落在评级环节，居中偏移与印刷线的报告不少，满分并非稳拿；先收日文版还是等待英文版发行，也是持续讨论的题目。PSA 10 存量已超过二万七千张，裸卡与评级品的价差比讨论稀缺更能反映真实定价。",
+        "ja": "ピカチュウex（234/193）は M2a: High Class Pack: MEGA Dream ex のスペシャルアートレアで、イラストは James Turner、2025 年末の登場である。話題の中心は鑑定難度で、わずかなセンタリングのずれや印刷線の報告があり、最高評価は当然ではない。日本語版を今押さえるか英語版を待つかという議論も続く。PSA 10 は二万七千枚を超えており、生カードと鑑定品の価格差が最も情報量の多い指標となる。"
+      }
+    },
+    {
       "id": "cmc_ce5124e356ee0acddf4d90b8",
       "rankAtReview": 47,
       "tcg": "pokemon",
@@ -935,23 +1220,42 @@
       }
     },
     {
-      "id": "cmc_df4ce522a4de006726cd5b4c",
+      "id": "cmc_5d77aec84cadd6bd2b5ad25e",
       "rankAtReview": 48,
-      "tcg": "pokemon",
+      "tcg": "one-piece",
       "cardLanguage": "ja",
-      "collectorNumber": "083/067",
-      "status": "review_required",
-      "evidenceSha256": "80e57e2291d93615179784a5caf725b5812d5efe26a58cf4204a2373e2ea0cac",
+      "collectorNumber": "EB02-061",
+      "status": "ready",
+      "evidenceSha256": "791cafa35c4a2196c2e33d8cccff82e7c0478a7f583ae2065bd15e4992509f05",
       "evidence": [
         "asset_identity",
         "research_summary"
       ],
-      "reviewReason": "evidence_too_thin",
+      "reviewReason": null,
       "stories": {
-        "en": null,
-        "zhTW": null,
-        "zhCN": null,
-        "ja": null
+        "en": "This Monkey D. Luffy is the Comic Parallel SEC-SP numbered EB02-061 from the One Piece Card Game Extra Booster Anime 25th Collection, a set assembled entirely from new illustrations by the television anime's artists. The manga-panel treatment and its standing as one of the hardest pulls in the set tie demand to the anniversary theme rather than to competitive play. Certified supply stays thin at roughly 2,300 PSA 10 copies, and collectors openly weigh grading costs against holding the card raw.",
+        "zhTW": "蒙其・D・魯夫SEC-SP 編號 EB02-061，屬 ONE PIECE 卡牌遊戲 Extra Booster「Anime 25th Collection」的漫畫平行卡，該補充包的插畫全部由電視動畫團隊重新繪製。以漫畫分鏡風格呈現，加上抽取難度居該彈之最，需求主要繫於周年紀念題材而非對戰強度。PSA 10 評級數量約二千三百張，供給偏薄；送評成本與維持裸卡之間的取捨，本身即為市場討論焦點。",
+        "zhCN": "这张蒙其・D・鲁夫SEC-SP 卡号 EB02-061，出自 ONE PIECE 卡牌游戏 Extra Booster「Anime 25th Collection」，属漫画平行卡；该补充包的插画由电视动画团队全新绘制。漫画分镜式画面与全弹最低的抽出率，使买盘围绕周年纪念主题而非竞技需求展开。评级供给仅约二千三百张 PSA 10，规模有限；送评费用是否值得，也是藏家反复权衡的变量。",
+        "ja": "モンキー・D・ルフィSEC-SP（EB02-061）は、ONE PIECE カードゲームのエクストラブースター「Anime 25th Collection」に収録されたコミックパラレルである。テレビアニメの作画陣による描き下ろしで構成された弾であり、漫画のコマを思わせる絵柄と最高難度の封入率が需要を支える。牽引役は競技性ではなく周年テーマだ。PSA 10 の鑑定枚数は約二千三百枚と薄く、鑑定費用を払うか生のまま保有するかという判断自体が相場の論点となっている。"
+      }
+    },
+    {
+      "id": "cmc_4b4ec2546f843c2ee85e8e59",
+      "rankAtReview": 49,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "208/S-P",
+      "status": "ready",
+      "evidenceSha256": "b4112d81af7931ff80859aba817a7a52e0bed6c96d11a9c513e59766f561ceb4",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "This Japanese Pikachu promo carries the number 208/S-P and is catalogued under the Sword and Shield Yu Nagaba x Pokemon Card Game campaign. Its certified base is unusually deep for a promo, with more than thirty-eight thousand PSA 10 copies recorded, which places the market closer to a liquid, frequently traded item than to a scarcity story. Condition tiering and turnover therefore carry most of the pricing signal.",
+        "zhTW": "此張皮卡丘為日文版宣傳卡，編號 208/S-P，收錄於 2021 劍與盾 宣傳卡 長場雄×寶可夢卡牌遊戲 活動 日版。以宣傳卡而言其評級基數異常龐大，PSA 10 已逾三萬八千張，市場型態接近流動性充足的常態交易品，而非稀缺標的。定價訊號因此主要來自品相分層與換手頻度。",
+        "zhCN": "皮卡丘的这一版是日文宣传卡，卡号 208/S-P，归属 2021 剑与盾 宣传卡 长场雄×宝可梦卡牌游戏 活动 日版。评级层面的存量在宣传卡中相当罕见地厚实，PSA 10 超过三万八千张；这类结构更接近换手活跃的流动品种，而不是靠稀缺支撑的标的。因此价格更多由品相区间与成交频率决定。",
+        "ja": "日本語版ピカチュウのプロモで、ナンバーは 208/S-P、Sword and Shield 期の Yu Nagaba × Pokemon Card Game キャンペーンに分類される。プロモとしては鑑定枚数が突出しており、PSA 10 は三万八千枚を超える。希少性で語る対象というより、流動性の高い常時取引銘柄に近い構造である。価格の手掛かりは状態の階層と回転の速さに集まる。"
       }
     },
     {
@@ -994,6 +1298,25 @@
       }
     },
     {
+      "id": "cmc_d78dd93ff9156f1385bd08b9",
+      "rankAtReview": 50,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "116/080",
+      "status": "ready",
+      "evidenceSha256": "5ed8a269bf3295656185ae430a305d2842a39e741a87deb0a1a73171676d4f9e",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Mega Charizard X ex appears at 116/080 in the Japanese Inferno X set and sits at the Mega Ultra Rare tier. Because the printing is recent, its certified base remains modest at roughly 4,400 PSA 10 copies, a figure better read as a supply curve still forming than as a settled ceiling. At this stage of a card's life, turnover usually moves ahead of the census.",
+        "zhTW": "超級噴火龍Xex 編號 116/080，收錄於 2025 烈獄狂火X 日版，屬超級極稀有階層。由於發行時間尚近，評級基數仍然有限，PSA 10 約四千四百張；此一數字宜視為仍在形成中的供給曲線，而非已經定型的上限。現階段成交節奏通常領先於評級統計。",
+        "zhCN": "超级喷火龙Xex 卡号 116/080，出自 2025 烈狱狂火X 日版，评级为超级极稀有一档。这一版发行不久，PSA 10 存量约四千四百张，规模仍属有限；与其视为供给上限，不如当作尚在累积的曲线。在这个阶段，实际成交的变化往往先于评级数据反映出来。",
+        "ja": "メガリザードンXex はナンバー 116/080、日本語版 Inferno X 収録のメガウルトラレアである。発売から日が浅く、PSA 10 の鑑定枚数は約四千四百枚にとどまる。この数字は供給の上限ではなく、なお積み上がり途中の曲線として読むのが妥当だ。現段階では鑑定集計より売買の動きが先行しやすい。"
+      }
+    },
+    {
       "id": "cmc_265b5a7dbb37645cf890a7d1",
       "rankAtReview": 51,
       "tcg": "pokemon",
@@ -1011,6 +1334,25 @@
         "zhTW": "鯉魚王 080/073 透過 Shinji Kanda 的湍急瀑布構圖，把平凡角色轉化為堅持與進化的故事，畫面亦暗示暴鯉龍。這種敘事性令一張 Art Rare 而非名義上的強力卡，成為系列的視覺焦點。",
         "zhCN": "鲤鱼王 080/073 通过 Shinji Kanda 的湍急瀑布构图，把平凡角色转化为坚持与进化的故事，画面也暗示暴鲤龙。这种叙事性令一张 Art Rare 而非名义上的强力卡，成为系列的视觉焦点。",
         "ja": "コイキング080/073は、Shinji Kandaの激しい滝の構図によって、弱いポケモンを努力と進化の物語へ変え、画面にはギャラドスの気配も忍ばせています。その物語性が、名目上の強力カードではないARをセットの視覚的中心にしました。"
+      }
+    },
+    {
+      "id": "cmc_9df78d7fc45446c11cf77d3a",
+      "rankAtReview": 51,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "205/165",
+      "status": "ready",
+      "evidenceSha256": "c6affd4ac61a3858ef2b92ff3e33d452a2878111d0596fcc4f260df311ed2d47",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Mew ex is the 205/165 Special Art Rare from the Japanese Scarlet and Violet expansion Pokemon Card 151. Certified supply is deep, with more than twenty-one thousand PSA 10 copies recorded, a profile characteristic of a widely opened modern set rather than a limited release. In a pool of that size the informative variables are submission flow and the premium gem-mint copies hold over lower grades.",
+        "zhTW": "夢幻ex 為 2023 朱與紫 擴充包 寶可夢卡牌151 日版的特別藝術稀有，編號 205/165。評級供給相當厚實，PSA 10 已逾二萬一千張，屬於開包量龐大的現代系列特徵，而非限量發行。在如此規模的存量之下，值得追蹤的是送評流量，以及滿分品相相對次級評分所維持的溢價。",
+        "zhCN": "梦幻ex 卡号 205/165，来自 2023 朱与紫 扩充包 宝可梦卡牌151 日版，属特别艺术稀有。PSA 10 累计已超过二万一千张，供给厚度反映的是开包量巨大的现代系列，而非限量产品。存量到达这一级别之后，真正有信息量的是送评节奏，以及满分与次一级评分之间的溢价幅度。",
+        "ja": "ミュウex は日本語版 Pokemon Card 151 のスペシャルアートレアで、ナンバーは 205/165。PSA 10 の鑑定枚数は二万一千枚を超え、供給は厚い。限定品ではなく、開封量の多い現行セットに典型的な構造である。この規模では、鑑定提出の流れと、最高評価が下位評価に対して保つプレミアムが主要な観察点となる。"
       }
     },
     {
@@ -1091,6 +1433,25 @@
       }
     },
     {
+      "id": "cmc_f748dff7a50a3e6bd3a770af",
+      "rankAtReview": 55,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "349/190",
+      "status": "ready",
+      "evidenceSha256": "9e54a79563c662735e8cae44d512d755b16b6347c28408b15d42b804067c8ba7",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Charizard ex carries the number 349/190 in the Japanese Shiny Treasure ex set and sits in the Special Art Rare tier. With roughly twenty-four thousand PSA 10 copies on record, this is one of the more heavily certified modern Charizard printings, so scarcity is not the operative variable. What moves the market instead is how consistently gem-mint copies clear against a large standing inventory.",
+        "zhTW": "噴火龍ex 編號 349/190，收錄於 2023 朱與紫 閃色寶藏ex 日版，屬特別藝術稀有。PSA 10 評級數量約二萬四千張，在現代噴火龍卡之中屬於送評量偏高的一支，稀缺性並非主要變數。真正牽動市場的，是滿分品相能否在龐大的既有存量之中持續順利消化。",
+        "zhCN": "喷火龙ex 卡号 349/190，出自 2023 朱与紫 闪色宝藏ex 日版，评级属特别艺术稀有。PSA 10 存量约二万四千张，在现代喷火龙题材中送评比例偏高，稀缺并不是定价的核心。更值得留意的是，面对庞大的现有库存，满分品相的成交能否保持稳定。",
+        "ja": "リザードンex はナンバー 349/190、日本語版 Shiny Treasure ex 収録のスペシャルアートレアである。PSA 10 の鑑定枚数は約二万四千枚に達し、現行のリザードン系のなかでも提出量が多い部類にあたる。したがって希少性は主要な変数ではない。厚い在庫を背景に、最高評価品がどれだけ安定して捌けるかが相場を動かす。"
+      }
+    },
+    {
       "id": "cmc_b9c7ed93a5f3f8dc7bf7ed8d",
       "rankAtReview": 56,
       "tcg": "pokemon",
@@ -1131,6 +1492,25 @@
       }
     },
     {
+      "id": "cmc_550980a99a198821d965863b",
+      "rankAtReview": 57,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "066/060",
+      "status": "ready",
+      "evidenceSha256": "41adbef89e6fdaf1eaee3491355917eb13755e5b15ed1c50d8fdb65fba0bacaa",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Lillie is the full-art SR numbered 066/060 from the Japanese Collection Moon set. Its PSA 10 population of about 1,160 is the thinnest in this rank band, meaning the certified market is genuinely narrow rather than merely selective. Where so few graded copies exist, quoted levels are set by individual listings and can gap noticeably between transactions.",
+        "zhTW": "莉莉艾 編號 066/060，為 2016 收藏月亮 日版的全圖SR。PSA 10 評級數量約一千一百六十張，在同一排名區間之中屬於最薄的一檔，代表評級市場確實狹窄，而非單純挑剔。認證數量如此有限的情況下，報價由零星掛牌所決定，成交之間出現明顯跳空並不罕見。",
+        "zhCN": "莉莉艾 卡号 066/060，属 2016 收藏月亮 日版的全图SR。PSA 10 累计约一千一百六十张，是本排名区间中最少的一档；这意味着评级市场本身规模有限，而非买方挑剔所致。认证品数量稀少时，价格主要由个别挂牌撑起，相邻成交之间容易出现明显落差。",
+        "ja": "リーリエ はナンバー 066/060、日本語版 Collection Moon のフルアート SR である。PSA 10 の鑑定枚数は約千百六十枚で、この順位帯では最も薄い水準にある。鑑定市場そのものが狭いということだ。認定品が限られる状況では、値は個々の出品によって形成され、約定ごとに価格が飛びやすい。"
+      }
+    },
+    {
       "id": "cmc_d68cbfc623611a37335e3cb0",
       "rankAtReview": 58,
       "tcg": "pokemon",
@@ -1151,6 +1531,25 @@
       }
     },
     {
+      "id": "cmc_daaa57ffda79e456916d0820",
+      "rankAtReview": 59,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "212/187",
+      "status": "ready",
+      "evidenceSha256": "da3934c0ce63f491e215ad20fa08c46546550ee4cb6afe7ae6bb33d95a93ca0b",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Sylveon ex is the 212/187 Special Art Rare from the Japanese Terastal Festival ex set. Its PSA 10 population approaches fifty thousand, the deepest certified base in this rank band, which places it firmly in liquid-market territory. At that scale the census works almost as a proxy for open interest, and pricing responds to submission volume and grade distribution rather than to availability.",
+        "zhTW": "仙子伊布ex 編號 212/187，為 2024 朱與紫 太晶慶典ex 日版的特別藝術稀有。PSA 10 評級數量接近五萬張，是本排名區間之中最厚的認證基數，市場結構已進入高流動性區間。存量達到此一水準時，評級統計近似於未平倉量的替代指標；價格反映的是送評量與評分分布，而非可得性。",
+        "zhCN": "仙子伊布ex 卡号 212/187，出自 2024 朱与紫 太晶庆典ex 日版，属特别艺术稀有。PSA 10 存量接近五万张，为本区间最厚，市场早已进入流动性充足的状态。当基数达到这一量级，评级统计更接近持仓规模的近似值；决定价格的是送评数量与评分分布，而不是能否买到。",
+        "ja": "ニンフィアex はナンバー 212/187、日本語版 Terastal Festival ex のスペシャルアートレアである。PSA 10 の鑑定枚数は五万枚に迫り、この順位帯で最も厚い母数を持つ。すでに流動性の高い市場に属する銘柄だ。この規模では鑑定統計が建玉に近い代理指標となり、価格を動かすのは入手可否ではなく提出量と評価の分布である。"
+      }
+    },
+    {
       "id": "cmc_de6481ee6944d61f0ec9b785",
       "rankAtReview": 59,
       "tcg": "pokemon",
@@ -1167,6 +1566,25 @@
         "zhTW": null,
         "zhCN": null,
         "ja": null
+      }
+    },
+    {
+      "id": "cmc_79a84c35a02d207feebd5c4e",
+      "rankAtReview": 60,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "SV107/SV122",
+      "status": "ready",
+      "evidenceSha256": "b6114a7cee19c8cea3e9a4d1e73e2cc5832695943bbbce3be80e4dcf39efe95f",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Charizard VMAX SUR is numbered SV107/SV122 within the English Sword and Shield Shining Fates set. Roughly thirty-six thousand PSA 10 copies have been certified, an unusually deep graded base for this rarity tier and a reflection of how widely the printing circulated. With supply that broad, the card trades closer to a benchmark instrument, and the informative signals are turnover and the premium gem-mint copies hold over lower grades.",
+        "zhTW": "噴火龍VMAX SUR 編號 SV107/SV122，收錄於英文版 劍與盾 閃耀命運。PSA 10 認證數量約三萬六千張，就此一稀有度而言屬異常厚實的評級基數，反映該版本流通範圍甚廣。供給如此充足的情況下，其交易型態接近市場基準標的；可觀察的訊號在於換手速度，以及滿分品相相對次級評分所維持的溢價。",
+        "zhCN": "喷火龙VMAX SUR 卡号 SV107/SV122，属英文版 剑与盾 闪耀命运。PSA 10 认证量约三万六千张，对同级稀有度而言基数厚得罕见，说明该版本当年流通极广。供给充裕使它更像一支基准标的：真正可读的是换手频率，以及满分与次级评分之间的价差表现。",
+        "ja": "リザードンVMAX SUR は英語版 Shining Fates 収録、ナンバーは SV107/SV122 である。PSA 10 の認定枚数は約三万六千枚に達し、このレアリティとしては異例に厚い母数を持つ。流通量が広かったことの裏付けだ。供給が潤沢な銘柄はベンチマークに近い値動きを示し、注視すべきは回転の速さと最高評価品が下位評価に対して保つプレミアムとなる。"
       }
     },
     {
@@ -1190,23 +1608,22 @@
       }
     },
     {
-      "id": "cmc_f48dfbf6e216dd42bfee8dec",
+      "id": "cmc_77c97c76a50a49a4d668858c",
       "rankAtReview": 61,
-      "tcg": "one-piece",
-      "cardLanguage": "ja",
-      "collectorNumber": "OP05-119",
-      "status": "review_required",
-      "evidenceSha256": "25d56c229ceebb0cd6b85adba922ef9abcd03d00a1588c3a86c96b8f3dae5d71",
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "SM168",
+      "status": "ready",
+      "evidenceSha256": "8f30cd37ef953f256d8971cbd9b7fb3899cab48a7732947b4fbafc52706e0bd1",
       "evidence": [
-        "asset_identity",
-        "research_summary"
+        "asset_identity"
       ],
-      "reviewReason": "identity_conflict",
+      "reviewReason": null,
       "stories": {
-        "en": null,
-        "zhTW": null,
-        "zhCN": null,
-        "ja": null
+        "en": "This English Pikachu and Zekrom GX carries the black star promo number SM168 and is catalogued with the Sun and Moon tag team tin releases. Its PSA 10 population sits near 5,200, moderate next to the mainline set printings of the same pairing. The certified pool stays narrow enough that individual sales continue to shape the reference price rather than merely confirm it.",
+        "zhTW": "皮卡丘＆捷克羅姆GX 此版為英文黑星宣傳卡，編號 SM168，歸入 2019 太陽與月亮 黑星宣傳卡 TAG TEAM 鐵盒。PSA 10 評級數量約五千二百張，相較同一組合的主系列版本屬中等規模。評級池仍然偏窄，單筆成交對參考價格具有實質塑造力，而非僅作確認之用。",
+        "zhCN": "皮卡丘＆捷克罗姆GX 的英文黑星宣传卡版本，卡号 SM168，收录于 2019 太阳与月亮 黑星宣传卡 TAG TEAM 铁盒。PSA 10 累计约五千二百张，与同组合的主系列版本相比属于中等量级。评级池规模有限，个别成交仍足以左右市场参考价，而不只是对既有价位的印证。",
+        "ja": "英語版のピカチュウ＆ゼクロムGX で、ブラックスター・プロモのナンバーは SM168、Sun and Moon 期のタッグチーム缶に紐づく一枚である。PSA 10 の鑑定枚数は約五千二百枚。同じ組み合わせの通常セット版と比べれば中程度の規模にとどまる。鑑定母数が薄いため、個別の約定が参照価格を動かす余地は依然として大きい。"
       }
     },
     {
@@ -1229,23 +1646,23 @@
       }
     },
     {
-      "id": "cmc_966a7423b873bc33b7dd467a",
-      "rankAtReview": 63,
+      "id": "cmc_ddbdb9190bd5943de9249ae6",
+      "rankAtReview": 62,
       "tcg": "pokemon",
       "cardLanguage": "ja",
-      "collectorNumber": "295/XY-P",
-      "status": "review_required",
-      "evidenceSha256": "d2d08742e79bd89c0f2841a530a571f90be4fe3252a6eb8383b62f459345b16c",
+      "collectorNumber": "174/086",
+      "status": "ready",
+      "evidenceSha256": "8b0f5dd51b992dcb718eb46e9cd07256689ac991bf1e3b65a612306660198355",
       "evidence": [
         "asset_identity",
         "research_summary"
       ],
-      "reviewReason": "evidence_too_thin",
+      "reviewReason": null,
       "stories": {
-        "en": null,
-        "zhTW": null,
-        "zhCN": null,
-        "ja": null
+        "en": "Reshiram ex 174/086 introduced the Black and White Rare tier in the Japanese White Flare set, a grade above Special Art Rare rendered by 5ban Graphics as an all-white embossed card. Collector attention splits between the texture itself, which scans reproduce poorly, and a confirmed misprint variant that adds a second chase to the same card number. About twelve thousand PSA 10 copies are certified, so the live question is how cleanly an embossed surface converts into top grades.",
+        "zhTW": "萊希拉姆ex 編號 174/086，收錄於 SV11W：純白閃焰，是黑白稀有此一新階層的首發卡；該階層高於特別藝術稀有，由 5ban Graphics 以全白壓紋工藝呈現。收藏端的關注同時落在難以透過掃描判讀的壓紋質感，以及已獲確認的印刷瑕疵版本，令同一編號出現第二條追逐線。PSA 10 評級數量約一萬二千張，市場真正的問題在於壓紋表面能否穩定取得頂級評分。",
+        "zhCN": "莱希拉姆ex 卡号 174/086，出自 SV11W：纯白闪焰，是黑白稀有这一新等级的首张卡；该等级高于特别艺术稀有，由 5ban Graphics 以全白压纹工艺完成。买方的注意力一方面在扫描图难以还原的压纹质感，另一方面在已确认存在的印刷瑕疵版本，使同一卡号衍生出第二条收藏线。PSA 10 存量约一万二千张，核心变量是压纹表面能否稳定拿到最高评分。",
+        "ja": "レシラムex（174/086）は SV11W: White Flare に収録され、スペシャルアートレアを上回る新等級ブラック＆ホワイトレアの第一号である。5ban Graphics による全面ホワイトのエンボス仕上げで、スキャンでは質感が伝わりにくい点が話題となってきた。加えて誤刷版の存在が確認されており、同一ナンバーに二本目の収集軸が生まれている。PSA 10 は約一万二千枚。エンボス面が最高評価にどれだけ安定して届くかが相場の焦点だ。"
       }
     },
     {
@@ -1265,6 +1682,44 @@
         "zhTW": null,
         "zhCN": null,
         "ja": null
+      }
+    },
+    {
+      "id": "cmc_cccf530a69e1996963cefe37",
+      "rankAtReview": 64,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "205/172",
+      "status": "ready",
+      "evidenceSha256": "829e19228080ddac8dc2c2988f158ae38bbe47376338e1fc65f18ca617370c55",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "This Japanese Pikachu is numbered 205/172 in the Sword and Shield High Class Pack VSTAR Universe. Its certified base is deep, with more than seventeen thousand PSA 10 copies recorded, which places it among the widely graded modern Pikachu printings rather than the scarce ones. Submission pace and the spread between top-grade and near-mint examples carry most of the pricing information here.",
+        "zhTW": "此張皮卡丘編號 205/172，收錄於 2022 劍與盾 高級擴充包 天地萬物VSTAR 日版。評級基數相當厚實，PSA 10 已逾一萬七千張，屬於認證量龐大的現代皮卡丘版本，而非稀缺一類。定價資訊主要來自送評節奏，以及頂級評分與次一級品相之間的價差幅度。",
+        "zhCN": "这一版皮卡丘卡号 205/172，出自 2022 剑与盾 高级扩充包 天地万物VSTAR 日版。评级存量厚实，PSA 10 超过一万七千张，属于认证量庞大的现代皮卡丘版本，而不是稀缺品。价格信息主要体现在送评速度，以及最高评分与次一级品相之间的差价上。",
+        "ja": "このピカチュウはナンバー 205/172、日本語版 High Class Pack VSTAR Universe の収録カードである。PSA 10 の鑑定枚数は一万七千枚を超え、母数は厚い。希少な部類ではなく、広く認定が進んだ現行ピカチュウの一枚と位置づけられる。価格情報の多くは、提出ペースと最高評価品が準美品に対して保つ価格差から読み取れる。"
+      }
+    },
+    {
+      "id": "cmc_5de460731b35320a646b8e3f",
+      "rankAtReview": 65,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "103/095",
+      "status": "ready",
+      "evidenceSha256": "1df9473b648d02b2759fee6035bc2e6118ef9e5f39a3f71f54fac682f58421b2",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Gengar & Mimikyu GX is numbered 103/095 in the Japanese Tag Bolt set, pairing two Pokemon on a single card face. Its PSA 10 population of roughly 2,700 keeps the certified pool narrow, and that structure matters more than headline recognition: with few graded copies changing hands, the reference price rests on a small and uneven stream of confirmed sales.",
+        "zhTW": "耿鬼＆謎擬ＱGX 編號 103/095，收錄於 2018 太陽與月亮 搭檔閃電 日版，卡面由兩隻寶可夢共同構成。PSA 10 評級數量約二千七百張，認證池明顯偏窄；相較於知名度，此一供給結構更值得重視，因為換手筆數有限，參考價格建立在零散且不平均的成交紀錄之上。",
+        "zhCN": "耿鬼＆谜拟ＱGX 卡号 103/095，属 2018 太阳与月亮 搭档闪电 日版，两只宝可梦同处一张卡面。PSA 10 累计约二千七百张，认证规模有限。比起知名度，这一供给结构更值得关注：成交笔数稀少，参考价格建立在零散且分布不均的记录之上。",
+        "ja": "ゲンガー＆ミミッキュGX はナンバー 103/095、日本語版 Tag Bolt の収録カードで、二体のポケモンが一枚に同居する構図を採る。PSA 10 の鑑定枚数は約二千七百枚にとどまり、認定母数は薄い。知名度よりもこの供給構造が重要で、成約件数が少ないため参照価格はまばらな取引記録の上に成り立っている。"
       }
     },
     {
@@ -1303,6 +1758,45 @@
         "zhTW": null,
         "zhCN": null,
         "ja": null
+      }
+    },
+    {
+      "id": "cmc_72b89fd8783c3109b26b974f",
+      "rankAtReview": 66,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "134/108",
+      "status": "ready",
+      "evidenceSha256": "3998a0bf100c3ad1c1af0a847e5aeaffe31470b18bdc1dcae2e44de6d428c476",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Charizard ex is the 134/108 Special Art Rare from the Japanese Ruler of the Black Flame set. Close to twenty thousand PSA 10 copies have been certified, placing this printing inside the heavily graded band of modern Charizard cards. Where certification is that broad, price behaviour tracks the flow of new submissions and the durability of the gem-mint premium rather than any scarcity argument.",
+        "zhTW": "噴火龍ex 編號 134/108，為 2023 朱與紫 黯焰支配者 日版的特別藝術稀有。PSA 10 認證數量接近二萬張，落在現代噴火龍卡送評密度最高的一段區間。認證覆蓋如此廣泛時，價格走勢反映的是新送評的流入速度與滿分溢價能否維持，而非任何稀缺論述。",
+        "zhCN": "喷火龙ex 卡号 134/108，出自 2023 朱与紫 黯焰支配者 日版，属特别艺术稀有。PSA 10 认证量接近二万张，处于现代喷火龙卡送评最密集的区间。认证覆盖面这样广的情况下，价格更多跟随新增送评的流入节奏，以及满分溢价能否守住，而与稀缺无关。",
+        "ja": "リザードンex（134/108）は日本語版 Ruler of the Black Flame のスペシャルアートレアである。PSA 10 の認定枚数は二万枚に迫り、現行リザードン系のなかでも鑑定密度の高い層に属する。ここまで認定が行き渡った銘柄では、価格を左右するのは希少性の議論ではなく、新規提出の流入速度と最高評価プレミアムの持続力である。"
+      }
+    },
+    {
+      "id": "cmc_28efefc241a58cc1506cb8cb",
+      "rankAtReview": 67,
+      "tcg": "one-piece",
+      "cardLanguage": "ja",
+      "collectorNumber": "OP09-118",
+      "status": "ready",
+      "evidenceSha256": "f4b7a30481432933839f356f3d147b5c9a8a600d2b54e780b35995ccadfb690e",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Gol D. Roger SEC-GSP, numbered OP09-118 in the Emperors in the New World booster, marks the Pirate King's first appearance in the One Piece Card Game after eight prior sets, and introduced the Gold Super Parallel tier named in his honour. The artwork is a manga rare assembled from actual manga panels, which anchors demand in source-material attachment as much as in competitive use. Only about 1,335 PSA 10 copies are certified, leaving a narrow graded float in which grading decisions are themselves a live market topic.",
+        "zhTW": "哥爾・D・羅傑SEC-GSP 編號 OP09-118，收錄於 補充包 新世界的皇帝，是這位角色歷經八個系列之後首度登場，同時開創了以其名號命名的金色超平行稀有階層。卡面屬漫畫稀有，直接取用原作分鏡，使需求同時建立在原著情感與對戰價值之上。PSA 10 認證僅約一千三百三十五張，可流通的評級數量極為有限，送評與否本身即為市場焦點。",
+        "zhCN": "哥尔・D・罗杰SEC-GSP 卡号 OP09-118，出自 补充包 新世界的皇帝。该角色在此前八个系列中始终缺席，这张卡是其首次登场，并开启了以其名号命名的金色超平行稀有等级。画面采用原作漫画分镜的漫画稀有形式，买盘因此同时来自原著情结与实战需求。PSA 10 认证量仅约一千三百三十五张，可交易的评级筹码极少，是否送评本身就是市场讨论的题目。",
+        "ja": "ゴール・D・ロジャーSEC-GSP（OP09-118）は Emperors in the New World 収録で、八弾を経てようやく実現した初登場カードであり、その名を冠したゴールドスーパーパラレルという新レアリティの第一号でもある。原作のコマをそのまま用いたマンガレア仕様で、需要は競技面と原作への思い入れの双方に支えられる。PSA 10 の認定枚数は約千三百三十五枚と浮動玉が乏しく、鑑定に出すか否かという判断自体が相場の話題となっている。"
       }
     },
     {
@@ -1345,6 +1839,45 @@
       }
     },
     {
+      "id": "cmc_fa4683aabd56dbecb3b2a55a",
+      "rankAtReview": 68,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "SWSH261",
+      "status": "ready",
+      "evidenceSha256": "a3175b6be5efee722075a102378f1d5baf3e890b71dfb27ae2990b6bfa1c59eb",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Charizard remains the most heavily traded character in Pokemon collecting, and this English VMAX promo is catalogued at SWSH261 in the Sword and Shield Black Star promo line. A PSA 10 population of 9,864 puts it firmly in the high-supply tier, so pricing here tracks turnover and correct printing identification rather than scarcity.",
+        "zhTW": "噴火龍VMAX 是寶可夢收藏市場中交易最密集的角色之一，本卡為英文版，編號 SWSH261，歸入劍與盾黑星宣傳卡系列。PSA 10 評級數量已達 9,864 張，屬於供應充裕的一級；價格主要由成交承接與版本辨識決定，而非稀缺程度。",
+        "zhCN": "喷火龙VMAX 长期是宝可梦收藏市场关注度最高的角色之一。这张英文版编号 SWSH261，归入剑与盾黑星宣传卡系列；PSA 10 认证数量为 9,864 张，供给规模偏大，因此成交深度与版本确认对报价的影响，明显大于稀缺叙事。",
+        "ja": "リザードンVMAXは、ポケモンカード市場で最も取引の厚いキャラクターの一つである。本カードは英語版で番号はSWSH261、ソード＆シールドのブラックスタープロモ系統に属する。PSA10の鑑定枚数は9,864枚と供給は厚く、価格は希少性よりも売買の回転と版の特定に左右されやすい。"
+      }
+    },
+    {
+      "id": "cmc_113e9cad03556282f439a115",
+      "rankAtReview": 69,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "025/165",
+      "status": "ready",
+      "evidenceSha256": "8ef4f1c5da2b90c7e2c0c9e962c69506889e7eacd5ddaa78fc9298282bc0c45b",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Pikachu 025/165 comes from SV2a: Pokemon Card 151, the Japanese set built around the original 151 Pokemon, and is a common whose Poke Ball and Master Ball pattern reverse holos draw the strongest collector attention. Nostalgia for the first generation keeps submission volume high, and with 12,432 copies recorded at PSA 10 the market prices the parallel tier and centering quality rather than the base print.",
+        "zhTW": "皮卡丘 025/165 出自 SV2a：寶可夢卡牌151，該系列以初代 151 隻寶可夢為主題，本卡稀有度為普通卡，收藏焦點集中於「精靈球紋」與「大師球紋」兩種反閃版本。初代情懷持續推高送評數量，PSA 10 已累積 12,432 張，市場定價主要取決於版式層級與置中品相，而非基礎版本本身。",
+        "zhCN": "皮卡丘 025/165 收录于 SV2a：宝可梦卡牌151，该弹以初代 151 只宝可梦为核心题材。基础版本稀有度只是普通卡，真正被追逐的是精灵球纹与大师球纹两种反闪变体；PSA 10 认证量达 12,432 张，说明送评基数庞大，报价差异主要来自版式与居中表现。",
+        "ja": "ピカチュウ025/165は、初代151匹をテーマにしたSV2a「ポケモンカード151」に収録されたコモンである。収集の中心はポケボール柄・マスターボール柄のリバースホロで、初代への郷愁が鑑定提出を押し上げてきた。PSA10は12,432枚に達し、価格差は基礎版よりも柄違いとセンタリングの精度に依存する。"
+      }
+    },
+    {
       "id": "cmc_d3c7723297aae47a90a360d8",
       "rankAtReview": 69,
       "tcg": "pokemon",
@@ -1364,23 +1897,23 @@
       }
     },
     {
-      "id": "cmc_4b4ec2546f843c2ee85e8e59",
+      "id": "cmc_2192fc3a44a4a5a3b02ce7d4",
       "rankAtReview": 70,
       "tcg": "pokemon",
       "cardLanguage": "ja",
-      "collectorNumber": "208/S-P",
+      "collectorNumber": "174/086",
       "status": "ready",
-      "evidenceSha256": "8b6811a52b157dfa02659c4676e72c05b8ee903669c2135c0dd20bf83c03fdca",
+      "evidenceSha256": "192829b0aa61d011893216ab3e92f0857c3b3e6ff9f632cd3566614f6d6696b5",
       "evidence": [
         "asset_identity",
         "research_summary"
       ],
       "reviewReason": null,
       "stories": {
-        "en": "Pikachu 208/S-P carries Yu Nagaba’s spare line drawing into a Japanese purchase campaign, making the artist’s hand more important than foil spectacle. The immediately recognizable style connects contemporary-design buyers with Pikachu master-set collectors.",
-        "zhTW": "皮卡丘 208/S-P 把長場雄的極簡線條帶進日本購買活動，藝術家的筆觸比華麗閃面更重要。高度可辨的風格把當代設計買家與皮卡丘全版本收藏者連接起來。",
-        "zhCN": "皮卡丘 208/S-P 把长场雄的极简线条带进日本购买活动，艺术家的笔触比华丽闪面更重要。高度可辨的风格把当代设计买家与皮卡丘全版本收藏者连接起来。",
-        "ja": "ピカチュウ208/S-Pは、長場雄の簡潔な線画を日本の購入キャンペーンに落とし込み、派手な加工より作家性を前面に出しました。ひと目で分かる作風が、現代デザインの購入層とピカチュウ全種収集家を結び付けます。"
+        "en": "Zekrom ex 174/086 is a Special Art Rare from the Japanese SV11B: Black Bolt expansion, numbered past the set count and illustrated as a full-art lightning storm that ties the set name back to Zekrom's signature attack. As a headline chase pull, it drew heavy grading traffic quickly, and a PSA 10 population of 12,737 means condition spread rather than availability sets the price ladder.",
+        "zhTW": "捷克羅姆ex 174/086 為 SV11B：漆黑伏特 的特別藝術稀有卡，編號超出系列總數，全圖以雷暴場景呈現，與系列命名同樣源自該寶可夢的招牌招式。作為擴充包的主打稀有卡，其送評速度極快，PSA 10 現有 12,737 張，價格層級由品相分佈而非取得難度決定。",
+        "zhCN": "捷克罗姆ex 174/086 属于 SV11B：漆黑伏特 的特别美术稀有，编号超出系列基数，采用雷暴主题的全图设计，与系列名称同样呼应该宝可梦的招牌招式。这类主打稀有卡在开包期即大量送评，PSA 10 已录得 12,737 张，因此报价梯度更多取决于品相分布，而非货源多寡。",
+        "ja": "ゼクロムex174/086は、SV11B「ブラックボルト」のスペシャルアートレアで、セット番号を超えた採番が高レア枠であることを示す。雷雨を描いた全面イラストは、セット名の由来でもある看板技と結び付く。発売直後から鑑定提出が集中し、PSA10は12,737枚。価格差は入手難度よりも状態の分布に規定される。"
       }
     },
     {
@@ -1404,6 +1937,26 @@
       }
     },
     {
+      "id": "cmc_899f4d9c52191783186cfcc0",
+      "rankAtReview": 71,
+      "tcg": "one-piece",
+      "cardLanguage": "ja",
+      "collectorNumber": "OP01-120",
+      "status": "ready",
+      "evidenceSha256": "a11996610463c767b8a2efd6157fa5405ffaa86b993c1301d28374638a03cfe8",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "The Shanks Comic Parallel OP01-120 is a secret rare from Romance Dawn, the One Piece Card Game's debut booster set, and its art lifts a manga panel directly rather than using a newly drawn card illustration. Being the flagship chase from the first set anchors it as a reference point for the game's early market, while a PSA 10 population of 4,156 keeps graded supply thin enough that grade tier dominates pricing.",
+        "zhTW": "傑克SEC-SP 編號 OP01-120，出自 ROMANCE DAWN 首彈補充包的漫畫平行卡，畫面直接取自漫畫分鏡，而非另行繪製的卡圖。作為首彈的頭號目標卡，長期被視為航海王卡牌早期市場的定價基準；PSA 10 僅 4,156 張，評級供應相對緊縮，級距差異主導成交結果。",
+        "zhCN": "杰克SEC-SP（OP01-120）来自航海王卡牌首弹 ROMANCE DAWN 的漫画平行卡，图面直接沿用漫画分镜画格，而非重新绘制。首弹头号目标卡的身份，使其长期充当该系列早期行情的参照物；PSA 10 存量为 4,156 张，评级供给偏紧，等级差价因此成为报价主轴。",
+        "ja": "シャンクスSEC-SP（OP01-120）は、ワンピースカードゲーム第1弾「ROMANCE DAWN」のコミックパラレルであり、図柄は描き下ろしではなく漫画のコマをそのまま用いている。第1弾の看板カードとして初期相場の基準となってきた。PSA10は4,156枚と鑑定供給は薄く、グレード差が価格を大きく左右する。"
+      }
+    },
+    {
       "id": "cmc_69665b93380839b0fc91910e",
       "rankAtReview": 72,
       "tcg": "pokemon",
@@ -1424,43 +1977,61 @@
       }
     },
     {
-      "id": "cmc_e1ff97385fbb5e9aa5be6a7e",
-      "rankAtReview": 73,
-      "tcg": "pokemon",
+      "id": "cmc_6ee16483a23ca752b64a8c8b",
+      "rankAtReview": 72,
+      "tcg": "one-piece",
       "cardLanguage": "ja",
-      "collectorNumber": "101/095",
-      "status": "review_required",
-      "evidenceSha256": "b172321ef30acf8ec2d97f6f3d0f549e179777fb1bed969f48309701f9dafb41",
+      "collectorNumber": "OP07-051",
+      "status": "ready",
+      "evidenceSha256": "617269d8b85b42a919852f95acf242b38f523b2c7712107aafe95a1b57303d2b",
       "evidence": [
         "asset_identity",
         "research_summary"
       ],
-      "reviewReason": "evidence_too_thin",
+      "reviewReason": null,
       "stories": {
-        "en": null,
-        "zhTW": null,
-        "zhCN": null,
-        "ja": null
+        "en": "Boa Hancock OP07-051 is the Comic Parallel treatment from the 500 Years in the Future booster, an alternate art drawn from a manga panel and set apart from the standard super rare by its heart motifs and full-art holo finish. Character-driven demand rather than competitive play carries this card, and with 4,472 copies at PSA 10 the graded pool stays small enough that centering and surface quality separate tiers clearly.",
+        "zhTW": "波雅・漢考克SR-SP 編號 OP07-051，為「500年後的未來」補充包的漫畫平行卡，取材自漫畫分鏡的替代畫稿，以心型元素與全圖閃箔區別於一般 SR 版本。其需求由角色人氣主導，而非賽場表現；PSA 10 累積 4,472 張，評級池偏小，置中與表面狀態造成的級距差異相當明顯。",
+        "zhCN": "波雅·汉考克SR-SP（OP07-051）出自「500年后的未来」补充包的漫画平行卡系列，画稿取自漫画画格，并以心形元素与全图闪箔同常规 SR 版本拉开距离。支撑其行情的是角色人气而非竞技需求；PSA 10 数量为 4,472 张，评级基数不大，居中与表面状况带来的级差因此格外突出。",
+        "ja": "ボア・ハンコックSR-SPは、ブースターパック「500年後の未来」（OP07-051）のコミックパラレルで、漫画のコマを起こした別イラストにハート意匠と全面ホロを重ねた仕様である。需要を支えるのは競技性ではなくキャラクター人気だ。PSA10は4,472枚と母数が小さく、センタリングと表面状態によるグレード差が価格に直結する。"
       }
     },
     {
-      "id": "cmc_d78dd93ff9156f1385bd08b9",
+      "id": "cmc_8866732cee61fb3c8390bfcc",
+      "rankAtReview": 73,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "261/172",
+      "status": "ready",
+      "evidenceSha256": "7cb58674e36beb8fafe07fb066741dacd92862110b9380e1dc24a017c0282171",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Giratina VSTAR at 261/172 is a Japanese high class pack card whose collector number runs past the set count, the standard marker for a secret-tier printing. Its PSA 10 population of 29,559 is the largest in this rank band, so the card trades as a high-liquidity, high-supply name where small grade and centering differences, not availability, drive the spread.",
+        "zhTW": "騎拉帝納VSTAR 編號 261/172，日文版，編號超出系列總數，屬於高級擴充包中的秘稀層級。其 PSA 10 評級數量達 29,559 張，為同名次區間內最高；市場因此將其視為流動性強、供應厚實的標的，價差主要來自級距與置中差異，而非貨源多寡。",
+        "zhCN": "骑拉帝纳VSTAR 为日文版 261/172，编号越过系列基数，对应高级扩充包中的秘稀档位。该卡 PSA 10 认证量高达 29,559 张，在同名次区间内居首；换言之流通盘厚、成交活跃，价格分层几乎完全由等级与居中差异决定，而不是货源紧张所致。",
+        "ja": "ギラティナVSTARは日本語版の261/172で、セット番号を超える採番はシークレット級を示す。PSA10の鑑定枚数は29,559枚に達し、この順位帯では最大規模である。流通量が厚く売買も活発なため、値幅を決めるのは在庫の希少性ではなく、グレードとセンタリングの僅かな差だ。"
+      }
+    },
+    {
+      "id": "cmc_4f575cbdf4af5a01ad660f48",
       "rankAtReview": 74,
       "tcg": "pokemon",
       "cardLanguage": "ja",
-      "collectorNumber": "116/080",
-      "status": "review_required",
-      "evidenceSha256": "a5ff5a64965477bd1d17a2d253a8b635d1ac5e33210fe9c750b84ccb11063395",
+      "collectorNumber": "182/173",
+      "status": "ready",
+      "evidenceSha256": "62875ec02f5b7e38c1f28d4b14d61e16ac355009683ac535a0ee476f5f11f3bc",
       "evidence": [
-        "asset_identity",
-        "research_summary"
+        "asset_identity"
       ],
-      "reviewReason": "evidence_too_thin",
+      "reviewReason": null,
       "stories": {
-        "en": null,
-        "zhTW": null,
-        "zhCN": null,
-        "ja": null
+        "en": "Umbreon & Darkrai GX pairs two dark-type fan favourites on a single Japanese TAG TEAM card, and its 182/173 number sits above the set count that marks the secret rare tier. Graded supply is comparatively narrow at 4,748 PSA 10 copies, so the card behaves like a character-led holding where demand concentrates on the top grade rather than spreading across condition tiers.",
+        "zhTW": "月亮伊布＆達克萊伊GX 將兩隻高人氣惡系寶可夢並置於同一張日文版 TAG TEAM 卡上，編號 182/173 超出系列總數，屬秘稀層級。PSA 10 評級數量為 4,748 張，供應相對收窄，需求明顯集中於最高級距，而非分散在各個品相層之間。",
+        "zhCN": "月亮伊布＆达克莱伊GX 把两只人气恶系宝可梦并列于同一张日文版 TAG TEAM 卡面，182/173 的编号越过系列基数，对应秘稀档位。PSA 10 存量仅 4,748 张，评级供给偏窄；买盘因此高度集中在满级，而不是在各品相层之间摊开。",
+        "ja": "ブラッキー＆ダークライGXは、人気の高い悪タイプ2体を1枚に収めた日本語版のTAG TEAMカードで、182/173という採番がシークレット帯であることを示す。PSA10は4,748枚と鑑定供給は限られ、需要は最上位グレードに集中しやすい。状態帯ごとに買いが分散するというより、満点の一枚へ集約される構図である。"
       }
     },
     {
@@ -1480,6 +2051,45 @@
         "zhTW": null,
         "zhCN": null,
         "ja": null
+      }
+    },
+    {
+      "id": "cmc_e5d9e2c0a1c357d34bcc456a",
+      "rankAtReview": 75,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "076/067",
+      "status": "ready",
+      "evidenceSha256": "9d40022575a609beb0377359d807b059b40c5697fcc519c2e336cb12e015669d",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Rayquaza V carries collector number 076/067, a Japanese printing numbered beyond the base set that signals alternate art or secret-tier treatment. With 5,051 copies certified at PSA 10 the graded float sits in the mid range for this rank band, which keeps the card liquid enough to quote regularly while leaving grade quality as the main lever on realised price.",
+        "zhTW": "烈空坐V 編號 076/067，日文版，編號超出系列基數，通常對應替代畫稿或秘稀層級的處理。PSA 10 評級數量為 5,051 張，在此名次區間屬中等水準，既足以維持穩定報價，也使品相級距成為實際成交價的主要變數。",
+        "zhCN": "烈空坐V 的编号为 076/067，属日文版越号采番，一般对应替代美术或秘稀档位。该卡 PSA 10 认证量 5,051 张，在同名次段落中处于中位；流通盘既不至于稀薄到难以定价，也不足以摊平等级差，因此成交价主要跟着品相走。",
+        "ja": "レックウザVは076/067という日本語版の超過採番で、別イラストやシークレット帯に相当する仕様を示す。PSA10の鑑定枚数は5,051枚と、この順位帯では中位に位置する。恒常的に値が付く程度の流通量は確保されている一方、実際の約定価格を動かす主因はグレードの精度である。"
+      }
+    },
+    {
+      "id": "cmc_632da00dc13355c85aa630d1",
+      "rankAtReview": 76,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "144/S-P",
+      "status": "ready",
+      "evidenceSha256": "557d0e17299b29a074eb42a170e39a12b858fb85b0c0cd10e1fb491ba8bd6fd3",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "The Kanazawa Pikachu 144/S-P is a Japanese promo issued for the Pokemon Center Kanazawa opening, pairing kimono artwork with a gold-leaf motif drawn from the city's craft tradition; the marked version carries the Pokemon Center Kanazawa logo that its box-exclusive counterpart lacks. Distribution ran through in-person collection at Japanese Pokemon Centers, and with 21,092 copies at PSA 10 the discussion has shifted from acquisition to whether the graded premium justifies submission cost.",
+        "zhTW": "金澤皮卡丘（有標記）編號 144/S-P，為寶可夢中心金澤開幕發行的日文版宣傳卡，畫面採和服造型並融入源自當地工藝的金箔意象；「有標記」指卡面帶有寶可夢中心金澤標誌，與盒裝限定版本形成區別。此卡當年僅於日本實體門市現場發放，PSA 10 現已累積 21,092 張，市場討論重心由取得難度轉向評級溢價是否足以覆蓋送評成本。",
+        "zhCN": "金泽皮卡丘（有标记）编号 144/S-P，是为宝可梦中心金泽店开幕发行的日文版宣传卡，和服造型搭配取材自当地工艺的金箔视觉。所谓「有标记」，指卡面印有宝可梦中心金泽的标志，用以区分盒装限定的无标记版本。当年仅在日本实体门店线下发放；PSA 10 已达 21,092 张，讨论焦点也从抢卡转向送评溢价能否覆盖成本。",
+        "ja": "カナザワのピカチュウ（マークあり）144/S-Pは、ポケモンセンターカナザワの開店に合わせて配布された日本語プロモである。着物姿のイラストには金沢の工芸に通じる金箔的な意匠が織り込まれ、「マークあり」はセンターのロゴの有無で箱限定版と区別される。PSA10は21,092枚に達し、論点は入手難度から鑑定プレミアムと提出コストの釣り合いへ移っている。"
       }
     },
     {
@@ -1503,23 +2113,42 @@
       }
     },
     {
-      "id": "cmc_ad994632a0268c3c6cc2e6c4",
+      "id": "cmc_241540731b226e1945dd1153",
       "rankAtReview": 77,
       "tcg": "pokemon",
       "cardLanguage": "ja",
-      "collectorNumber": "400/SM-P",
-      "status": "review_required",
-      "evidenceSha256": "46751c0eedb7efce39927274caebe8c027c14ed870df4146554de99e30547f13",
+      "collectorNumber": "096/071",
+      "status": "ready",
+      "evidenceSha256": "db27d956b28b1a3236de704122f6b02ddaec4e8a5ded4f045773744e807a16af",
       "evidence": [
         "asset_identity",
         "research_summary"
       ],
-      "reviewReason": "summary_printing_conflict",
+      "reviewReason": null,
       "stories": {
-        "en": null,
-        "zhTW": null,
-        "zhCN": null,
-        "ja": null
+        "en": "Iono 096/071 is the Special Art Rare from the Japanese Clay Burst expansion, numbered past the set count and built around a full-art portrait of the Gym Leader rather than a Pokemon subject. Trainer art of this kind pulls demand from outside competitive play, and while 16,917 PSA 10 copies make supply substantial, collectors consistently cite print lines and centering as the limiting factor on gem rates.",
+        "zhTW": "奇樹 096/071 為日文版碟旋暴擊的特別藝術稀有卡，編號超出系列總數，主體為道館訓練家的全圖畫稿而非寶可夢。此類訓練家卡的需求多來自賽場以外的收藏群體；PSA 10 雖已累積 16,917 張、供應充足，但印刷線痕與置中偏差長期被視為滿級率的主要限制。",
+        "zhCN": "奇树 096/071 是日文版碟旋暴击的特别美术稀有，编号越过系列基数，画面主体为道馆训练家的全图，而非宝可梦本身。这类训练家卡的买盘主要来自竞技圈之外的收藏需求；PSA 10 存量已有 16,917 张，货源并不紧张，真正压制满级率的是印刷线痕与居中偏差。",
+        "ja": "ナンジャモ096/071は、日本語版「クレイバースト」のスペシャルアートレアで、セット数を超える採番と、ポケモンではなくジムリーダーを主役に据えた全面イラストが特徴である。需要の中心は競技層ではなく収集層にある。PSA10は16,917枚と供給は厚いが、印刷線とセンタリングのばらつきが満点率を抑える要因として語られ続けている。"
+      }
+    },
+    {
+      "id": "cmc_2bcf38a826c7fbba22c75617",
+      "rankAtReview": 78,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "091/063",
+      "status": "ready",
+      "evidenceSha256": "0afbf5bbd618b8f4c8be338e0370573a81b254cb31ff0372a6c8c5db0925fed7",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Lillie's Determination 091/063 is a Japanese Trainer card numbered above the set count, placing it in the special art tier where illustration appeal rather than playability carries the value. Graded supply built up quickly to 19,384 copies at PSA 10, a level that usually compresses the premium on top grades until the population curve flattens out.",
+        "zhTW": "莉莉艾的決心 091/063 為日文版訓練家卡，編號超出系列總數，屬特別藝術層級，其價值主要來自畫稿吸引力而非對戰實用性。評級供應累積迅速，PSA 10 已達 19,384 張；在人口曲線趨緩之前，這樣的供應量通常會壓縮最高級距的溢價。",
+        "zhCN": "莉莉艾的决心 091/063 是日文版训练家卡，采番越过系列基数，归入特别美术档位；支撑其价格的是画面吸引力，而非对战层面的实用性。评级存量堆积很快，PSA 10 已录得 19,384 张。在人口曲线走平之前，这一供给水平通常会削薄满级卡的溢价空间。",
+        "ja": "リーリエの決心091/063は、セット数を超えて採番された日本語版のトレーナーカードで、価値の源泉は対戦での有用性ではなくイラストの訴求力にある。鑑定提出は短期間で積み上がり、PSA10は19,384枚。母数の伸びが鈍化するまでは、この供給水準が最上位グレードのプレミアムを圧縮しやすい。"
       }
     },
     {
@@ -1543,6 +2172,25 @@
       }
     },
     {
+      "id": "cmc_165940f6ac211b75368e855e",
+      "rankAtReview": 79,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "011/087",
+      "status": "ready",
+      "evidenceSha256": "9d8ac9dac461e9ef2b594b544523238a5a8e63f165cbad94109d118a2dc301f3",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Charizard is the single most price-setting character in Pokemon collecting, and this Japanese holo carries collector number 011/087. A PSA 10 population of 8,587 places it in the mid-supply band, where the name alone sustains a steady bid while the actual spread between grades is what separates one listing from the next.",
+        "zhTW": "噴火龍是寶可夢收藏市場中最具定價影響力的角色，本卡為日文版閃卡，編號 011/087。PSA 10 評級數量為 8,587 張，屬中等供應區間；角色本身足以維持穩定買盤，實際報價差異則主要落在級距與品相之間。",
+        "zhCN": "喷火龙在宝可梦收藏市场中的定价影响力长期居首，本卡为日文版闪卡，编号 011/087。PSA 10 认证数量 8,587 张，处于中等供给区间。角色号召力保证了买盘的连续性，而挂单之间的价差，基本由等级与品相细节拉开。",
+        "ja": "リザードンはポケモンカード市場で最も価格を牽引するキャラクターであり、本カードは日本語版のホロ、番号は011/087である。PSA10の鑑定枚数は8,587枚と供給は中位に位置する。銘柄としての買い需要は途切れにくい一方、個々の出品の価格差はグレードと状態の細部で決まる。"
+      }
+    },
+    {
       "id": "cmc_dfd8c7d807758221573cbfe6",
       "rankAtReview": 79,
       "tcg": "one-piece",
@@ -1560,6 +2208,26 @@
         "zhTW": "路飛 ST21-014 隨《One Piece Magazine》第二十期特刊附送，畫面亦回應雜誌本身的封面歷史。它透過日本限定刊物而非卡牌產品流通，因此漫畫讀者需求及原刊物來源會影響市場。",
         "zhCN": "路飞 ST21-014 随《One Piece Magazine》第二十期特刊附送，画面也呼应杂志本身的封面历史。它通过日本限定刊物而非卡牌产品流通，因此漫画读者需求及原刊物来源会影响市场。",
         "ja": "ルフィST21-014は『ONE PIECE magazine』第20号の付録で、同誌の表紙史にもつながる図柄です。カード商品ではなく日本限定雑誌を通じて流通したため、漫画読者の需要と元の刊行物に由来する来歴が市場を形作ります。"
+      }
+    },
+    {
+      "id": "cmc_4060db8224618c851c0c4e29",
+      "rankAtReview": 80,
+      "tcg": "one-piece",
+      "cardLanguage": "ja",
+      "collectorNumber": "ST10-010",
+      "status": "ready",
+      "evidenceSha256": "4d19dc4251afae39af1fb818f841e28f2668f088df58b1f638d55f932ccd3ee7",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "This Trafalgar Law ST10-010 is the Championship Prize printing, handed out through official 2023 One Piece tournament events and separated from the retail deck version by the Championship 2023 logo on the card face. Distribution outside packs keeps the certified pool small at 1,720 PSA 10 copies, the thinnest in this rank band, so quotes move on individual listings rather than on a deep order book.",
+        "zhTW": "托拉法爾加・羅 ST10-010 為錦標賽獎品版本，經由 2023 年官方賽事發放，卡面印有 Championship 2023 標誌，藉此與市售套牌版本區隔。由於不經補充包流通，評級數量僅 1,720 張，為此名次區間內最低；成交價因此更容易受單一掛牌影響，而非由厚實的買賣盤決定。",
+        "zhCN": "托拉法尔加·罗 ST10-010 属锦标赛奖品版，通过 2023 年官方赛事发放，卡面上的 Championship 2023 标志将其与市售套牌版本区分开来。这一路径绕开了补充包流通，PSA 10 认证量仅 1,720 张，是该名次区间中最少的；报价因而更多受个别挂单牵动，而非依托厚实的买卖盘。",
+        "ja": "トラファルガー・ローST10-010は、2023年の公式大会で配布されたチャンピオンシップ賞品版であり、カード面のChampionship 2023ロゴによって市販デッキ版と区別される。パック流通を経ないため鑑定枚数は1,720枚と、この順位帯で最も薄い。板が厚くない分、値動きは個々の出品に左右されやすい。"
       }
     },
     {
@@ -1583,23 +2251,23 @@
       }
     },
     {
-      "id": "cmc_9df78d7fc45446c11cf77d3a",
+      "id": "cmc_4c07d1ed0262369a611b5032",
       "rankAtReview": 81,
       "tcg": "pokemon",
       "cardLanguage": "ja",
-      "collectorNumber": "205/165",
-      "status": "review_required",
-      "evidenceSha256": "a935dce4c20ad80b29d8d6dbf856fd4561788ea1ec268f3d6402baaedaf4e924",
+      "collectorNumber": "119/100",
+      "status": "ready",
+      "evidenceSha256": "0a308bd4480adea8a98fa19d0b54a6eadcf5799122cf90807c435298de300d8a",
       "evidence": [
         "asset_identity",
         "research_summary"
       ],
-      "reviewReason": "evidence_too_thin",
+      "reviewReason": null,
       "stories": {
-        "en": null,
-        "zhTW": null,
-        "zhCN": null,
-        "ja": null
+        "en": "Mew VMAX 119/100 is the Hyper Rare alternate art from the Japanese Fusion Arts expansion, numbered past the set count and rendered as a full-art scene rather than a standard card frame. It also served as a defining competitive card for years after release, so demand arrived from players and collectors at once; with 5,765 copies at PSA 10 the graded pool stays tight relative to that dual demand base.",
+        "zhTW": "夢幻VMAX 119/100 為日文版匯流藝術的高稀有替代畫稿版本，編號超出系列總數，採全圖構圖而非一般卡框。此卡在發行後多年同時是對戰主力，需求兼具賽場與收藏兩端；PSA 10 僅 5,765 張，相對於雙重需求基礎，評級供應顯得緊湊。",
+        "zhCN": "梦幻VMAX 119/100 是日文版汇流艺术的高稀有替代画稿，采番越过系列基数，采用全图构图而非常规卡框。发行后多年，它同时是竞技层面的主力选择，买盘因此来自赛场与收藏两侧；PSA 10 存量仅 5,765 张，相对这一双重需求基础显得偏紧。",
+        "ja": "ミュウVMAX119/100は、日本語版「フュージョンアーツ」のハイパーレア（別イラスト）で、通常の枠を使わない全面構図が採られている。発売後も長く競技の中心にあり、需要はプレイヤー層と収集層の双方から生じた。PSA10は5,765枚にとどまり、二重の需要基盤に照らせば鑑定供給は厚いとは言えない。"
       }
     },
     {
@@ -1622,6 +2290,26 @@
       }
     },
     {
+      "id": "cmc_edef76ea5862274fd1f9a183",
+      "rankAtReview": 82,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "192/173",
+      "status": "ready",
+      "evidenceSha256": "edf3c0102591a97aad4a16bd24083d860a3d2fd2affea8c6549632486baa362a",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Sightseer 192/173 is a Full Art Trainer secret rare from the Japanese Tag All Stars high class pack, unusual in depicting a generic trainer class rather than a named character from the games. It never received an English printing, which concentrates demand on the Japanese copy; graded supply sits at 5,616 PSA 10 examples, with centering consistency the obstacle collectors most often cite on submissions.",
+        "zhTW": "觀光客 192/173 為日文版 TAG TEAM GX 全明星的全圖訓練家秘稀卡，特別之處在於描繪的是遊戲中的通用訓練家類型，而非具名角色。此卡未曾推出英文版，需求因而集中於日文版本；PSA 10 評級數量為 5,616 張，送評時最常被提及的限制仍是置中一致性。",
+        "zhCN": "观光客 192/173 属日文版 TAG TEAM GX 全明星的全图训练家秘稀，画面主角是游戏中的通用训练家职业，而非具名人物，这一点在同类卡中并不常见。该卡从未发行英文版，需求全部落在日版身上；PSA 10 认证量 5,616 张，送评环节最常被提到的瓶颈是居中一致性。",
+        "ja": "かんこうきゃく192/173は、日本語版「タッグオールスターズ」のフルアート・トレーナー（シークレット）で、固有名を持つ人物ではなくゲーム中の一般トレーナー職を描く点が異色である。英語版は発行されておらず、需要は日本語版に集中する。PSA10は5,616枚、提出時の障壁として繰り返し挙がるのはセンタリングの安定性だ。"
+      }
+    },
+    {
       "id": "cmc_ab3bf9e4eff7d1256bdab428",
       "rankAtReview": 83,
       "tcg": "pokemon",
@@ -1639,6 +2327,44 @@
         "zhTW": "超夢 GX 082/072 是日版《Shining Legends》的全圖 Secret Rare，讓系列最具代表性的傳說角色之一獲得高規格 Sun & Moon 處理。角色認知度與精簡強化系列結構，使整套收集需求集中在這張卡上。",
         "zhCN": "超梦 GX 082/072 是日版《Shining Legends》的全图 Secret Rare，让系列最具代表性的传说角色之一获得高规格 Sun & Moon 处理。角色认知度与精简强化系列结构，使整套收集需求集中在这张卡上。",
         "ja": "ミュウツーGX 082/072は、日本語版「ひかる伝説」のフルアート・シークレットで、シリーズを代表する伝説ポケモンをサン＆ムーン期の上位仕様で描きました。高い認知度と小規模な強化拡張の構成が、セット完成需要をこの一枚へ集めます。"
+      }
+    },
+    {
+      "id": "cmc_c77b02511149164339ca40c9",
+      "rankAtReview": 83,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "GG70/GG70",
+      "status": "ready",
+      "evidenceSha256": "d45079da1d2285cdfcd875298dc88831f3c4a553ddeea70182addd5587d71f94",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Arceus VSTAR is the GG70 card in the Galarian Gallery subset of Crown Zenith, an English printing catalogued at the secret rare end of that gallery run. A PSA 10 population of 20,108 makes it one of the more heavily certified cards in this rank band, so liquidity is high and the pricing question is about grade distribution rather than finding a copy.",
+        "zhTW": "阿爾宙斯VSTAR 編號 GG70，屬王冠絕頂的伽勒爾畫廊子系列，本卡為英文版，位於該畫廊的秘稀層級。PSA 10 評級數量達 20,108 張，在此名次區間屬於送評密度較高者；流動性充足，價格的關鍵在於級距分佈，而非能否找到現貨。",
+        "zhCN": "阿尔宙斯VSTAR 编号 GG70，收录于王冠绝顶的伽勒尔画廊子系列，本卡为英文版，处在该画廊的秘稀档位。其 PSA 10 认证数量达 20,108 张，在同名次区间属于送评密度较高的一类；货源充裕，定价的核心问题落在等级分布上，而不是能否买到。",
+        "ja": "アルセウスVSTARは、クラウンゼニスのガラルギャラリーに属するGG70で、本カードは英語版、同ギャラリー内でもシークレット帯に位置する。PSA10の鑑定枚数は20,108枚と、この順位帯では提出密度が高い部類に入る。現物の確保は容易であり、価格を左右するのはグレードの分布そのものである。"
+      }
+    },
+    {
+      "id": "cmc_5964def2b98493de2fbea6d7",
+      "rankAtReview": 84,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "TG20/TG30",
+      "status": "ready",
+      "evidenceSha256": "a1a39da22ba4b8bf29bb5f800ae5746975315ed544069b1cea1263c5095a3b1c",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Rayquaza VMAX is TG20/TG30 from the Silver Tempest Trainer Gallery, an English subset printing where the gallery numbering runs on its own track separate from the main set. Certified supply is broad at 16,538 PSA 10 copies, which keeps quoting straightforward and pushes the real variance onto how consistently copies reach that top grade.",
+        "zhTW": "烈空坐VMAX 編號 TG20/TG30，出自白銀狂風的訓練家畫廊子系列，該畫廊採用獨立於本篇的編號序列，本卡為英文版。PSA 10 評級數量為 16,538 張，供應面相當寬鬆，報價本身不難確立，真正的變數在於各批貨源能否穩定達到最高級距。",
+        "zhCN": "烈空坐VMAX 的编号为 TG20/TG30，来自白银狂风的训练家画廊子系列，该画廊使用独立于正篇的编号序列，本卡为英文版。PSA 10 认证数量 16,538 张，供给面宽松，报价并不难形成；真正的不确定性，在于各批货源能否稳定拿到满级。",
+        "ja": "レックウザVMAXはTG20/TG30、シルバーテンペストのトレーナーギャラリーに属する英語版で、このギャラリーは本編とは別系統の採番を用いる。PSA10は16,538枚と供給は広く、値付け自体に難しさはない。実質的な変動要因は、個々のロットが安定して満点に届くかどうかに移る。"
       }
     },
     {
@@ -1682,6 +2408,45 @@
       }
     },
     {
+      "id": "cmc_dd54cfa205c077c3b720cc09",
+      "rankAtReview": 85,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "125/098",
+      "status": "ready",
+      "evidenceSha256": "f56d457b03bd3cf0144d2b250b49cde2e4b8f8875b8cd7900a2789958637d36e",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Team Rocket's Mewtwo ex 125/098 is a secret rare from the Japanese Glory of Team Rocket expansion, numbered past the set count and framed around Mewtwo under Team Rocket's control rather than in its usual solitary depiction. The set revives the Team Rocket's Pokemon ex archetype that veteran collectors associate with the franchise's origin story, and with 11,682 copies at PSA 10 the card already trades on an established graded base rather than on release-window scarcity.",
+        "zhTW": "火箭隊的超夢ex 125/098 為 SV10：火箭隊的榮耀 的秘稀卡，編號超出系列總數，畫面刻意呈現受火箭隊控制狀態下的超夢，而非其慣見的孤立形象。此系列重啟資深收藏者熟悉的「火箭隊寶可夢ex」路線，敘事根源直指該角色的起源；PSA 10 已累積 11,682 張，交易基礎建立於既成的評級供應，而非新卡上市初期的稀缺感。",
+        "zhCN": "火箭队的超梦ex 125/098 是 SV10：火箭队的荣耀 中的秘稀，采番越过系列基数，画面刻意描绘受火箭队控制的超梦，而非其常见的孤身形象。该弹重启了资深藏家熟悉的「火箭队宝可梦ex」脉络，直接呼应角色的起源设定；PSA 10 存量已有 11,682 张，其交易依托的是成型的评级基数，而不是上市初期的稀缺感。",
+        "ja": "ロケット団のミュウツーex125/098は、SV10「ロケット団の栄光」のシークレットレアで、セット数を超える採番を持つ。孤高の姿ではなく、ロケット団の支配下に置かれたミュウツーを描く構図が特徴だ。往年の「ロケット団のポケモンex」系譜を復活させた弾でもある。PSA10は11,682枚に達し、値動きの土台は発売直後の希少感ではなく、既に形成された鑑定母数にある。"
+      }
+    },
+    {
+      "id": "cmc_afd82df1f166784d2f7b563f",
+      "rankAtReview": 86,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "067/SV-P",
+      "status": "ready",
+      "evidenceSha256": "bdedc683187a32795ebb437097f773165da8901cbaa683df726c0be69a5cc4ac",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Umbreon 067/SV-P is a Japanese-language Scarlet and Violet promo issued under the Yu Nagaba x Pokemon Center campaign. Its PSA 10 population exceeds 28,000, among the deepest in this ranking band, so price discovery here rests on turnover and the spread between condition tiers rather than on scarcity.",
+        "zhTW": "月亮伊布 067/SV-P 為日文版宣傳卡，隸屬 2023 朱與紫 宣傳卡 日版 長場雄×寶可夢中心 活動。PSA 10 鑑定數量超過二萬八千張，在本榜段之中屬供應最深的一批，因此價格形成主要取決於成交承接與品相分佈，而非稀缺程度。",
+        "zhCN": "月亮伊布 067/SV-P 归入 2023 朱与紫 宣传卡 日版 长场雄×宝可梦中心 活动，卡面语言为日文。该卡 PSA 10 评级存量已逾二万八千张，供给厚度在同一区间内位居前列；观察重点因此落在成交量能与品相结构，而不是稀有度本身。",
+        "ja": "ブラッキー 067/SV-P は、2023 Scarlet and Violet Promo Japanese Yu Nagaba X Pokemon Center Campaign に属する日本語版プロモである。PSA 10 の鑑定枚数は二万八千枚を超え、本ランキングでも供給が厚い部類にあたるため、価格形成は希少性よりも売買の厚みと状態差に左右される。"
+      }
+    },
+    {
       "id": "cmc_d07c0bdc3773724098e6a5f4",
       "rankAtReview": 86,
       "tcg": "pokemon",
@@ -1721,6 +2486,44 @@
       }
     },
     {
+      "id": "cmc_efdcf43dc1f206f6636fa2d0",
+      "rankAtReview": 87,
+      "tcg": "one-piece",
+      "cardLanguage": "en",
+      "collectorNumber": "OP07-051",
+      "status": "ready",
+      "evidenceSha256": "ea4485f1f406f4fa380bdfba36c244d1823c7250f55114cbcfddf7e630581903",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Boa Hancock OP07-051 comes from the English-language 500 Years In the Future set and carries its manga-art treatment. Fewer than 2,500 copies hold a PSA 10, a comparatively thin certified float at this rank, which leaves quoted levels sensitive to how many graded copies actually change hands.",
+        "zhTW": "波雅・漢考克 OP07-051 出自 2024 500年後的未來 漫畫圖，屬英文版航海王卡牌。PSA 10 鑑定數量約二千四百張，在同級卡之中屬偏薄的評級流通量，因此掛牌價格對實際成交筆數相當敏感，單筆買賣即足以改變參考區間。",
+        "zhCN": "波雅・汉考克 OP07-051 属英文版航海王卡牌，收录于 2024 500年后的未来 漫画图。目前 PSA 10 存量约二千四百张，评级流通盘偏窄；在这种供给结构之下，报价更容易被单笔成交带动，观察成交频率比只看标价更有意义。",
+        "ja": "ボア・ハンコック OP07-051 は、英語版の 2024 500 Years In the Future に収録されたマンガアート仕様である。PSA 10 の鑑定枚数は約二千四百枚と、この順位帯では鑑定済みの流通量が薄く、提示価格は実際の約定件数に左右されやすい。"
+      }
+    },
+    {
+      "id": "cmc_56ee9fc46a89b8cb27c99a3c",
+      "rankAtReview": 88,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "308/190",
+      "status": "ready",
+      "evidenceSha256": "3ffe3ba2dd467cf48f5a289d982054bd89abd3fe63801acdaf9f1654104b5925",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Charizard VMAX 308/190 is a Japanese-language card from the 2020 Sword and Shield Shiny Star V set, numbered beyond the base run. Its PSA 10 population sits above 26,000, so the pricing question is less about how many exist and more about how consistently high-grade copies clear at the levels being asked.",
+        "zhTW": "噴火龍VMAX 308/190 為 2020 劍與盾 閃亮之星V 日版之日文卡，編號排在系列基礎編號之後。PSA 10 鑑定數量逾二萬六千張，供應規模龐大，因此觀察重點在於高分卡能否穩定按掛牌水平成交，而非存世數量多寡。",
+        "zhCN": "喷火龙VMAX 308/190 出自 2020 剑与盾 闪亮之星V 日版，卡面语言为日文，编号位于系列基础编号之外。该卡 PSA 10 存量超过二万六千张；供给既然充裕，价格判断的关键便转向高分个体的成交连续性，而非存量规模。",
+        "ja": "リザードンVMAX 308/190 は、2020 Sword and Shield Shiny Star V Japanese に属する日本語版カードで、番号はセットの基本ナンバーを超える位置にある。PSA 10 の鑑定枚数は二万六千枚を上回り供給が厚いため、焦点は現存数よりも高評価個体が提示水準で継続的に成約するかどうかに移る。"
+      }
+    },
+    {
       "id": "cmc_f8a21ca4dc5a72fdc465a94b",
       "rankAtReview": 88,
       "tcg": "pokemon",
@@ -1740,62 +2543,63 @@
       }
     },
     {
-      "id": "cmc_77c97c76a50a49a4d668858c",
+      "id": "cmc_b65576f31e835c86d8da18fc",
       "rankAtReview": 89,
       "tcg": "pokemon",
-      "cardLanguage": "en",
-      "collectorNumber": "SM168",
-      "status": "review_required",
-      "evidenceSha256": "510b92b120a1553d2903d4c088eb3eec74bac5e594560f56a74cc19a982da8a7",
+      "cardLanguage": "ja",
+      "collectorNumber": "007/032",
+      "status": "ready",
+      "evidenceSha256": "267fc9c1a040ea5fac564c498adf62d53a2f8a99ca7180ef7ca6ac53320ac48b",
       "evidence": [
-        "asset_identity"
+        "asset_identity",
+        "research_summary"
       ],
-      "reviewReason": "evidence_too_thin",
+      "reviewReason": null,
       "stories": {
-        "en": null,
-        "zhTW": null,
-        "zhCN": null,
-        "ja": null
+        "en": "The 2016 PokeKyun Collection printing gives Flareon EX a full-art, chibi-styled illustration by Atsuko Nishida, with Vaporeon and Jolteon flanking it and four personality charms set along one edge, a design language the set never reused. Renewed interest in sixth-generation cards ahead of Pokemon Legends: Z-A has drawn demand back toward it, while clean copies from this era get harder to source, leaving the PSA 10 population near 2,600 as the practical condition benchmark.",
+        "zhTW": "火伊布ex 出自 CP3：PokeKyun 收藏包，採用該系列獨有的全圖 Q 版風格，畫面同時繪有水伊布與雷伊布，卡側另設四款性格護符。隨著 Pokemon Legends: Z-A 令第六世代卡牌重新獲得注視，需求有所回流；而該年代品相乾淨的原卡日益難尋，PSA 10 約二千六百張的鑑定數量成為判斷品相的實際基準。",
+        "zhCN": "火伊布ex 收录于 CP3：PokeKyun 收藏包，全图设计采用该系列特有的 Q 版画风，同一画面中还安排了水伊布与雷伊布，卡侧则排布四枚性格护符。第六世代卡牌因 Pokemon Legends: Z-A 而重获关注，买盘随之回流；考虑到该时期品相完好的未评级卡越来越少，PSA 10 约二千六百张的存量便构成品相层面的现实参照。",
+        "ja": "ブースターex は CP3: PokeKyun Collection 収録のフルアートで、同セット特有のデフォルメ調の絵柄にシャワーズとサンダースを併せて描き、カード側面には四つの性格チャームが配される。Pokemon Legends: Z-A を控えて第六世代への関心が戻る一方、この年代の状態良好な未鑑定品は入手が難しくなっており、PSA 10 の約二千六百枚という鑑定枚数が状態判断の実務的な基準となる。"
       }
     },
     {
-      "id": "cmc_f748dff7a50a3e6bd3a770af",
+      "id": "cmc_0ea061885dcede2f53a440cb",
       "rankAtReview": 90,
       "tcg": "pokemon",
       "cardLanguage": "ja",
-      "collectorNumber": "349/190",
-      "status": "review_required",
-      "evidenceSha256": "d05642a2be759d8754125f5bb482a375965bc9d053f49be929ffc5f4590dfa36",
+      "collectorNumber": "261/SV-P",
+      "status": "ready",
+      "evidenceSha256": "b5b2ec6084371f3d1cbf59aca9dd88ce525d19b654a3d34900c6dc259c032718",
       "evidence": [
         "asset_identity",
         "research_summary"
       ],
-      "reviewReason": "evidence_too_thin",
+      "reviewReason": null,
       "stories": {
-        "en": null,
-        "zhTW": null,
-        "zhCN": null,
-        "ja": null
+        "en": "Hiroshima's Pikachu 261/SV-P is a mirror-holo promo tied to the relaunch of Pokemon Center Hiroshima, distributed mainly through a lottery for the store's Special Box, with artwork by REOspikee placing Pikachu on a Red Gyarados in a nod to the location's logo. That lottery gate shaped the first wave of distribution, yet more than 20,000 copies already sit at PSA 10, so the market reads through submission volume and condition rather than through the allocation story.",
+        "zhTW": "廣島的皮卡丘 261/SV-P 為鏡面閃宣傳卡，用以紀念寶可夢中心廣島遷址重開，主要透過該店特別BOX 的抽選配售；插畫由 REOspikee 繪製，皮卡丘騎乘紅色暴鯉龍，呼應店舖標誌。抽選機制限制了初期流通，但目前 PSA 10 鑑定數量已逾二萬張，市場判讀因此更倚重送評數量與品相分佈，而非當初的配售條件。",
+        "zhCN": "广岛的皮卡丘 261/SV-P 属镜面闪宣传卡，为纪念宝可梦中心广岛迁址重开而发行，主要经由该店特别BOX 的抽选发售；卡面由 REOspikee 绘制，皮卡丘骑乘红色暴鲤龙，与店铺标志相互呼应。抽选虽然收窄了最初的分发面，但 PSA 10 存量现已突破二万张，因此定价线索更多来自送评节奏与品相结构。",
+        "ja": "ヒロシマのピカチュウ 261/SV-P は、ポケモンセンターヒロシマの移転リニューアルを記念したミラーホロのプロモで、同店の特別BOX の抽選を主な配布経路とした。イラストは REOspikee が手がけ、店舗ロゴに呼応する赤いギャラドスにピカチュウが騎乗する構図である。抽選による初期配布にもかかわらず PSA 10 の鑑定枚数は二万枚を超えており、価格の手がかりは配布経緯よりも鑑定提出量と状態差にある。"
       }
     },
     {
-      "id": "cmc_daaa57ffda79e456916d0820",
+      "id": "cmc_f7587553086109d751e1a7c1",
       "rankAtReview": 91,
-      "tcg": "pokemon",
-      "cardLanguage": "ja",
-      "collectorNumber": "212/187",
-      "status": "review_required",
-      "evidenceSha256": "af5cb356ec2a4901f7ab8389fbc2a4164583a2c222fbfddf8c17c882a497319c",
+      "tcg": "one-piece",
+      "cardLanguage": "en",
+      "collectorNumber": "ST10-006",
+      "status": "ready",
+      "evidenceSha256": "0d0ecd4d3eecf62d3eb1c3bd05d973afc21ae2a9be150ece426b0b3a8abdecb5",
       "evidence": [
         "asset_identity",
         "research_summary"
       ],
-      "reviewReason": "evidence_too_thin",
+      "reviewReason": null,
       "stories": {
-        "en": null,
-        "zhTW": null,
-        "zhCN": null,
-        "ja": null
+        "en": "Monkey.D.Luff ST10-006 in the 1st Anniversary Set is the English commemorative printing of the card, marked out by holo and textured foil and by the ukiyo-e styling applied to the Straw Hat crew. Because the same number also appears in other English products, a quote only reads correctly once the printing is specified, and with roughly 1,300 copies at PSA 10 the certified pool stays thin enough that individual sales move the reference level.",
+        "zhTW": "Monkey.D.Luff ST10-006 為一週年紀念套組收錄之英文版紀念印刷，以閃箔加壓紋處理與浮世繪風格的草帽海賊團繪圖區別於其他版本。由於相同編號亦見於其他英文商品，報價必須先指明版本方具意義；加上 PSA 10 鑑定數量僅約一千三百張，評級流通盤偏薄，單筆成交即足以牽動參考價位。",
+        "zhCN": "Monkey.D.Luff ST10-006 收录于一周年纪念套组，是该卡的英文纪念印次，靠闪箔与压纹工艺、以及浮世绘风格的草帽海贼团画面与其他版本区分开来。同一编号在其他英文商品中同样出现，因此脱离印次谈价格并无意义；而 PSA 10 存量仅约一千三百张，评级盘口偏窄，单笔成交便可能改写参考区间。",
+        "ja": "Monkey.D.Luff ST10-006 は、1st Anniversary Set に収録された英語版の記念仕様であり、ホロとテクスチャ加工、そして浮世絵調の麦わらの一味の描写によって他の刷りと区別される。同じ番号は他の英語版商品にも存在するため、刷りを特定しない価格は意味を持たない。PSA 10 の鑑定枚数は約千三百枚にとどまり、鑑定済みの流通量が薄いぶん、一件の約定が基準値を動かしやすい。"
       }
     },
     {
@@ -1819,6 +2623,26 @@
       }
     },
     {
+      "id": "cmc_b3c206dcb7e072f3299cd7ee",
+      "rankAtReview": 92,
+      "tcg": "one-piece",
+      "cardLanguage": "ja",
+      "collectorNumber": "OP05-119",
+      "status": "ready",
+      "evidenceSha256": "de1fa234689d785fbc3fefacb8a950ed1c98ab1ee424e1d605b2518c2f1a653e",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "This SEC-SPC printing of Monkey.D.Luffy OP05-119 carries the third-anniversary silver treatment over the manga-style alternate art from OP-05, and belongs to a subset seeded across the OP-11 to OP-14 booster runs rather than to any single set. Seeding rates that low, combined with a long-running counterfeit problem around this card number, make certification the practical checkpoint, and the PSA 10 count near 1,100 shows how little verified supply actually exists.",
+        "zhTW": "蒙其・D・魯夫SEC-SPC OP05-119 屬銀色背景之三週年特別卡，沿用 OP-05 補充包的漫畫風異圖並改以銀箔處理，該子集分散投放於 OP-11 至 OP-14 各補充包，而非收錄於單一系列。投放比例極低，加上此編號歷來存在仿品爭議，鑑定實際上承擔驗證角色；PSA 10 鑑定數量僅約一千一百張，反映經核驗的流通量相當有限。",
+        "zhCN": "蒙其・D・鲁夫SEC-SPC OP05-119 为银色背景的三周年特别卡，画面沿用 OP-05 的漫画风异图，另行加上银箔工艺；该子集并非收录于某一个系列，而是分散投放在 OP-11 至 OP-14 的补充包之中。投放比例极低，加之这一编号长期存在仿制品争议，评级因此兼具鉴真功能；PSA 10 存量约一千一百张，说明可核验的供给规模相当有限。",
+        "ja": "モンキー・D・ルフィSEC-SPC OP05-119 は、OP-05 のマンガ風異絵を銀箔仕様に置き換えた3周年記念のスペシャルカードであり、このサブセットは単一のセットではなく OP-11 から OP-14 の各ブースターに分散して封入される。封入率が極めて低いうえ、この番号には模造品の指摘が続いてきたため、鑑定が事実上の真贋確認として機能する。PSA 10 の鑑定枚数は約千百枚にとどまり、検証済みの流通量は限られる。"
+      }
+    },
+    {
       "id": "cmc_317553f8d9fe0d00f1bd8e59",
       "rankAtReview": 93,
       "tcg": "pokemon",
@@ -1835,6 +2659,44 @@
         "zhTW": null,
         "zhCN": null,
         "ja": null
+      }
+    },
+    {
+      "id": "cmc_d8a379b5c185adbeeca93d16",
+      "rankAtReview": 93,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "098/094",
+      "status": "ready",
+      "evidenceSha256": "53cac1096c13639ef3371ff41fda838d18326f9bc91a78b37770f4ca2773fa46",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Mewtwo & Mew GX 098/094 is a Japanese-language Tag Team card recorded under the 2019 Sun and Moon Miracle Twin release, with a number that runs past the base set count. Its PSA 10 population of roughly 2,200 is modest next to the promos ranked around it, so the level it trades at depends more on how regularly certified copies surface than on headline supply.",
+        "zhTW": "超夢＆夢幻GX 098/094 為日文版 TAG TEAM 卡，收錄於 2019 太陽與月亮 奇蹟雙子 日版，編號排在系列基礎編號之後。PSA 10 鑑定數量約二千二百張，相較同一區間的宣傳卡屬中等規模，價格水平主要取決於評級卡出現的頻率，而非整體供應量。",
+        "zhCN": "超梦＆梦幻GX 098/094 出自 2019 太阳与月亮 奇迹双子 日版，属日文版 TAG TEAM 卡，编号位于系列基础编号之外。该卡 PSA 10 存量约二千二百张，在相邻排名的宣传卡当中并不算大；成交水平因此更取决于评级个体出现的密度，而非总体供给规模。",
+        "ja": "ミュウツー＆ミュウGX 098/094 は、2019 Sun and Moon Miracle Twin Japanese に収録された日本語版の TAG TEAM カードで、番号はセットの基本ナンバーを超えている。PSA 10 の鑑定枚数は約二千二百枚と、近接する順位のプロモに比べれば控えめであり、取引水準は総供給量よりも鑑定済み個体が市場に出る頻度に依存する。"
+      }
+    },
+    {
+      "id": "cmc_8638436f7999f0cf8386cda5",
+      "rankAtReview": 94,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "061/SM-P",
+      "status": "ready",
+      "evidenceSha256": "0d0512072aa4f5bcff408ddae55faed179dc0acc9382303e0c80eee27e38a77c",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "This Pikachu is a Japanese-language Sun and Moon promo numbered 061/SM-P, recorded against the 2017 Card Festa distribution. Pikachu promos are the most crowded name in the graded market, so the 2,200 or so PSA 10 copies here only mean something once the number and the printing have been matched exactly.",
+        "zhTW": "這張皮卡丘為日文版太陽與月亮宣傳卡，編號 061/SM-P，記錄對應 2017 卡牌嘉年華發放。皮卡丘宣傳卡同名者眾，同名不同版的情況在市場上相當普遍，因此在約二千二百張 PSA 10 的基礎之上，必須先核對編號與版本，報價才具參考價值。",
+        "zhCN": "本卡为日文版太阳与月亮宣传卡，编号 061/SM-P，对应 2017 卡牌嘉年华的发放记录。皮卡丘宣传卡数量庞大，同名而编号不同的版本极易混淆；该卡 PSA 10 存量约二千二百张，任何报价都需要先确认编号与印次，否则参考意义有限。",
+        "ja": "このピカチュウは 061/SM-P の番号を持つ日本語版のサン&ムーン プロモで、2017 Card Festa での配布として記録されている。ピカチュウのプロモは同名カードが極めて多く、PSA 10 の鑑定枚数が約二千二百枚という水準であっても、番号と刷りを特定しない限り提示価格は参照値として成立しない。"
       }
     },
     {
@@ -1855,6 +2717,26 @@
         "zhTW": "月亮伊布 Star 012/025 為日版二十五週年宣傳系列重新呈現經典 Gold Star 月亮伊布設計。它以清晰週年標記提供較易辨識的歷史圖像版本，連接現代套卡收集與舊版設計需求。",
         "zhCN": "月亮伊布 Star 012/025 为日版二十五周年宣传系列重新呈现经典 Gold Star 月亮伊布设计。它以清晰周年标记提供较易辨识的历史图像版本，连接现代套卡收集与旧版设计需求。",
         "ja": "ブラッキー☆012/025は、日本語版25周年プロモで名高いゴールドスター・ブラッキーの図柄を再提示しました。周年印が明確な現代版として入手しにくい歴史的デザインに触れられ、現代セット完成と旧デザイン需要を結び付けます。"
+      }
+    },
+    {
+      "id": "cmc_c483e4ea15578cfc565511b6",
+      "rankAtReview": 95,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "211/SM-P",
+      "status": "ready",
+      "evidenceSha256": "a23f3146bd0bf1c207f6d7329efc964f92a1258fe625495090b7dd11ea6ecb93",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Cherry Blossom Afro Pikachu 211/SM-P was issued for the opening of Pokemon Center Tokyo DX in March 2018 and handed out only to customers buying five or more booster packs at participating stores, with Kouki Saitou's illustration turning the blossoms into a hanami reference. Supply therefore traced store traffic during a single campaign rather than a print run, and with about 3,100 copies at PSA 10 the spread between grades does more to explain pricing than the promo label alone.",
+        "zhTW": "櫻花爆炸頭皮卡丘 211/SM-P 為紀念寶可夢中心東京DX 於 2018 年 3 月開幕而發行，僅向在指定店舖購買五包以上補充包的顧客發放，畫面以櫻花構成的髮型呼應賞櫻習俗。其供應量取決於單次活動期間的到店人流，而非一般印量；在 PSA 10 約三千一百張的基礎之上，分數級距之間的價差比宣傳卡身份更能解釋價格結構。",
+        "zhCN": "樱花爆炸头皮卡丘 211/SM-P 发行于 2018 年 3 月，用以纪念宝可梦中心东京DX 开幕，仅面向在指定门店购买五包以上补充包的顾客发放，卡面以樱花堆成的发型呼应赏樱风俗。由于分发规模取决于活动期间的到店客流而非常规印量，该卡 PSA 10 存量约三千一百张；解释价格结构时，各评分档位之间的价差比宣传卡身份更具说明力。",
+        "ja": "サクラアフロのピカチュウ 211/SM-P は、ポケモンセンタートウキョーDX の 2018 年 3 月の開店を記念して発行され、対象店舗で拡張パックを五個以上購入した客に限って配布された。桜で形づくられたアフロは花見の習慣を踏まえた意匠である。配布量は通常の印刷部数ではなく単発キャンペーン期間の来店動向に左右されており、PSA 10 が約三千百枚という水準では、プロモという肩書よりも評価点ごとの価格差のほうが値動きを説明する。"
       }
     },
     {
@@ -1897,6 +2779,26 @@
       }
     },
     {
+      "id": "cmc_da2bd4b536d7213f1635da2a",
+      "rankAtReview": 96,
+      "tcg": "one-piece",
+      "cardLanguage": "ja",
+      "collectorNumber": "OP09-119",
+      "status": "ready",
+      "evidenceSha256": "0dd1f6f6676bdc36b754bb5de72b42f506e41231d63d97141357a54e9ea25c09",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "The Comic Parallel treatment of Monkey.D.Luffy OP09-119 comes from Emperors In The New World, the OP-09 set that marked the card game's second anniversary by reissuing the Four Emperors with new illustrations, and it pairs holographic and textured finishing. That same finish is what makes flawless copies scarce: reported foil and relief variation pushes the value gap almost entirely into the PSA 10 tier, where roughly 2,400 certified copies now sit, while lower grades often fail to recover the cost of submission.",
+        "zhTW": "蒙其・D・魯夫SEC-SP OP09-119 之漫畫平行卡出自 OP-09 補充包 Emperors In The New World，該系列為卡牌遊戲二週年重新繪製四皇平行卡，並採閃箔加壓紋處理。同一工藝亦令完美個體稀少：箔面與壓紋的批次差異，使溢價幾乎集中於 PSA 10 一檔，目前鑑定數量約二千四百張，較低分數往往難以覆蓋送評成本。",
+        "zhCN": "蒙其・D・鲁夫SEC-SP OP09-119 的漫画平行卡收录于 OP-09 补充包 Emperors In The New World，该系列为卡牌游戏二周年重绘四皇平行卡，工艺上叠加了闪箔与压纹。正是这道工艺使无瑕个体变得稀少：箔面与压纹存在批次差异，价差因而高度集中在 PSA 10 这一档，目前存量约二千四百张，而较低评分通常连送评成本都难以收回。",
+        "ja": "モンキー・D・ルフィSEC-SP OP09-119 のコミックパラレルは、カードゲーム2周年に合わせて四皇のパラレルを新規イラストで再登場させた OP-09「Emperors In The New World」に収録され、ホロと加工テクスチャを併せ持つ。その加工ゆえに無傷の個体は少なく、箔や凹凸のばらつきによって価格差は PSA 10 の一段に集中する。鑑定枚数は約二千四百枚で、それ以下の評価では鑑定費用を回収できない場合が多い。"
+      }
+    },
+    {
       "id": "cmc_06d57e4d4ac535348c374286",
       "rankAtReview": 97,
       "tcg": "pokemon",
@@ -1916,23 +2818,42 @@
       }
     },
     {
-      "id": "cmc_72b89fd8783c3109b26b974f",
-      "rankAtReview": 98,
+      "id": "cmc_5a10707011b4ed76ecf8df3d",
+      "rankAtReview": 97,
       "tcg": "pokemon",
       "cardLanguage": "ja",
-      "collectorNumber": "134/108",
-      "status": "review_required",
-      "evidenceSha256": "04cf2ff841e83db4ce060f2e8df94bfb05ee6853264d1d6ab785e8b7229455bc",
+      "collectorNumber": "325/SM-P",
+      "status": "ready",
+      "evidenceSha256": "3d9181dd579ee0796ed684ab81ba7ef2eaf7554c01cf09ef7077a8b9ba8f2d45",
       "evidence": [
         "asset_identity",
         "research_summary"
       ],
-      "reviewReason": "evidence_too_thin",
+      "reviewReason": null,
       "stories": {
-        "en": null,
-        "zhTW": null,
-        "zhCN": null,
-        "ja": null
+        "en": "Pretend Tea Ceremony Pikachu 325/SM-P was distributed through the Petal Dance campaign that ran from mid-March to early April 2019 for the relocated Pokemon Center Kyoto, and it never received an English printing. The three-week window put a hard edge on supply, but centering on this promo is widely reported as difficult, so the roughly 6,000 PSA 10 copies say more about grading attrition than about how many were handed out.",
+        "zhTW": "Pretend Tea Ceremony Pikachu 325/SM-P 透過 2019 年 3 月中至 4 月初的活動配發，用以紀念寶可夢中心京都遷址重開，且從未推出英文版本。三週的發放窗口為供應設下明確界線；惟此卡置中普遍被認為偏難，因此約六千張 PSA 10 反映的是評級篩選結果，多於原始發放規模。",
+        "zhCN": "Pretend Tea Ceremony Pikachu 325/SM-P 于 2019 年 3 月中旬至 4 月初随活动发放，用以纪念宝可梦中心京都迁址重开，并且始终没有英文版本。三周的窗口期限定了投放总量；不过该卡的置中难度在收藏圈内早有共识，因此约六千张 PSA 10 更多体现评级筛选的结果，而非当初发放的数量。",
+        "ja": "Pretend Tea Ceremony Pikachu 325/SM-P は、移転リニューアルしたポケモンセンターキョウトを記念し、2019 年 3 月中旬から 4 月上旬までのキャンペーンで配布されたもので、英語版は発行されていない。三週間という配布期間が総量に上限を与えた一方、このプロモはセンタリングが難しいと繰り返し指摘されており、PSA 10 の約六千枚という数字は配布量よりも鑑定通過率を映している。"
+      }
+    },
+    {
+      "id": "cmc_64f6ef4d6ec22d3920e26767",
+      "rankAtReview": 98,
+      "tcg": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "132/SVP",
+      "status": "ready",
+      "evidenceSha256": "317073e55752a8e69060c34d6542704497267adf0f583b2c2ed8fc278b4aa18b",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "Greninja ex 132/SVP is the English black star promo issued with the Shrouded Fable Special Illustration Collection. Nearly 15,000 copies have reached PSA 10, a large certified pool for a promo of this age, which shifts the pricing question toward how quickly graded copies are absorbed rather than toward availability.",
+        "zhTW": "甲賀忍蛙ex 132/SVP 為英文版黑星宣傳卡，隨 2024 朱與紫 黑星宣傳卡 Shrouded Fable 特別插畫收藏 發行。PSA 10 鑑定數量接近一萬五千張，以面世時間尚短的宣傳卡而言屬相當龐大的評級存量，價格觀察重點因此落在評級卡的消化速度，而非取得難度。",
+        "zhCN": "甲贺忍蛙ex 132/SVP 属英文版黑星宣传卡，随 2024 朱与紫 黑星宣传卡 Shrouded Fable 特别插画收藏 一同发行。目前 PSA 10 存量接近一万五千张，对于面世不久的宣传卡而言评级基数相当可观；因此值得关注的是评级卡被市场吸收的速度，而不是能否买到。",
+        "ja": "ゲッコウガex 132/SVP は、2024 Scarlet and Violet Black Star Promo Shrouded Fable Special Illustration Collection に伴って発行された英語版のブラックスタープロモである。PSA 10 の鑑定枚数は一万五千枚近くに達し、発行から日が浅いプロモとしては鑑定済みの母数が大きいため、注目点は入手難度ではなく鑑定品が市場に吸収される速度に移る。"
       }
     },
     {
@@ -1955,6 +2876,26 @@
       }
     },
     {
+      "id": "cmc_f49836946cca6c34d042050f",
+      "rankAtReview": 99,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "094/165",
+      "status": "ready",
+      "evidenceSha256": "99051ae6f6078b289e0cb7a4d8f3fa63569129f565fbb8adca900eb482cd0510",
+      "evidence": [
+        "asset_identity",
+        "research_summary"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "This Gengar is the holo rare from SV2a: Pokemon Card 151, the Japanese set that revisited the original Kanto line-up, illustrated by Tomokazu Komiya. The same 094/165 also exists as Poke Ball and Master Ball reverse holo variants, so a quote is only readable once the variant is named, and the roughly 6,200 PSA 10 copies counted here belong to the base holo rare alone.",
+        "zhTW": "耿鬼 094/165 為 SV2a：寶可夢卡牌151 之閃卡，該日文系列以初代關都圖鑑為題重新繪製。同一編號另有精靈球與大師球兩種反閃版本，因此報價必須指明版本方能解讀；此處約六千二百張 PSA 10 僅對應基本閃卡一種，並不涵蓋其餘變體。",
+        "zhCN": "耿鬼 094/165 是 SV2a：宝可梦卡牌151 中的闪卡，该日文系列以初代关都图鉴为主题重新绘制。相同编号还存在精灵球与大师球两种反闪版本，价格信息脱离版本便无从判读；本条约六千二百张的 PSA 10 存量，仅计入基础闪卡这一种。",
+        "ja": "ゲンガー 094/165 は、初代カントー図鑑を題材に再構成した日本語セット SV2a: Pokemon Card 151 のホロレアである。同じ番号にはモンスターボール柄とマスターボール柄のリバースホロも存在するため、版を特定しない価格は読み取れない。ここでの PSA 10 約六千二百枚は、通常のホロレアのみを対象とした数字である。"
+      }
+    },
+    {
       "id": "cmc_0d3de688ca570d09a013d2cc",
       "rankAtReview": 100,
       "tcg": "pokemon",
@@ -1971,6 +2912,25 @@
         "zhTW": null,
         "zhCN": null,
         "ja": null
+      }
+    },
+    {
+      "id": "cmc_b545d0cbd3a59794f54a8cee",
+      "rankAtReview": 100,
+      "tcg": "pokemon",
+      "cardLanguage": "ja",
+      "collectorNumber": "1/SV-P",
+      "status": "ready",
+      "evidenceSha256": "8011553d5404c31e3ed277d77b078a3983420f182e9d74a92c70d5e887b25216",
+      "evidence": [
+        "asset_identity"
+      ],
+      "reviewReason": null,
+      "stories": {
+        "en": "This Pikachu carries number 1/SV-P and is recorded as a Japanese-language Scarlet and Violet promo from the early-purchase bonus distribution. Its PSA 10 population above 74,000 is by far the deepest in this ranking band, which makes it a liquidity name rather than a scarcity one: bid depth and grade distribution set the level, and small percentage moves still cover large absolute volume.",
+        "zhTW": "這張皮卡丘編號 1/SV-P，記錄為 2022 朱與紫 宣傳卡 日版 早期購買特典限定 之日文卡。PSA 10 鑑定數量逾七萬四千張，於本榜段之中供應最為深厚；此類標的由流動性主導而非稀缺性主導，價格由買盤厚度與分數分佈決定，即使百分比波動不大，對應的絕對成交量亦相當可觀。",
+        "zhCN": "本卡编号 1/SV-P，记录归属 2022 朱与紫 宣传卡 日版 早期购买特典限定，卡面语言为日文。其 PSA 10 存量超过七万四千张，在同一排名区间内供给最为充裕；这类标的由流动性而非稀缺性主导，定价取决于买盘厚度与评分结构，即便涨跌幅有限，背后对应的成交量依然庞大。",
+        "ja": "このピカチュウは番号 1/SV-P を持ち、2022 Scarlet and Violet Promo Japanese Early Purchase Bonus Exclusive に属する日本語版カードとして記録されている。PSA 10 の鑑定枚数は七万四千枚を超え、この順位帯では最も供給が厚い。希少性ではなく流動性が主導する銘柄であり、価格は買い板の厚みと評価点の分布で決まるため、変動率が小さくても対応する取引量は大きい。"
       }
     }
   ]

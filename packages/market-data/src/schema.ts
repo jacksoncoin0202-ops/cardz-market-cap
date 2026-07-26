@@ -63,7 +63,18 @@ export interface TrackedSalesMetric {
 }
 
 export interface WindowMetrics {
+  /** 參考價（PSA10）嘅窗口變動。淨係價，唔包 POP。 */
   changePct: MarketMetric;
+  /**
+   * 市值窗口變動 = (1+Δ價)(1+ΔPOP)−1。
+   *
+   * Optional：呢個 producer 版本之前出街嘅 snapshot 冇呢條欄，舊 payload 一樣
+   * 要驗得過。消費端見唔到就自己由 `changePct` × `topGradePopulationChangePct`
+   * 砌返（`composeChangePct`），**唔准**退返去單用 `changePct`。
+   */
+  marketCapChangePct?: MarketMetric;
+  /** 窗口成交金額對上一個同長度窗口嘅變動。同 `changePct` 冇任何數學關係。 */
+  trackedSalesChangePct?: MarketMetric;
   trackedSales: TrackedSalesMetric;
 }
 

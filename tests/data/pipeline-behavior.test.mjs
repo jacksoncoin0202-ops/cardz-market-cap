@@ -9,9 +9,11 @@ import { fileURLToPath } from "node:url";
 
 const execute = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+// Ubuntu 24.04 冇 /usr/bin/python，Windows 嘅 python3 又係 Store 假 alias，所以兩邊各用各嘅名。
+const PYTHON = process.env.CARDZ_PYTHON ?? (process.platform === "win32" ? "python" : "python3");
 
 test("daily resolver uses 1d close-to-close and never self-anchors", async () => {
-  const { stdout } = await execute("python", ["pipelines/daily_prices.py", "--self-test"], { cwd: root });
+  const { stdout } = await execute(PYTHON, ["pipelines/daily_prices.py", "--self-test"], { cwd: root });
   const result = JSON.parse(stdout.trim());
   assert.equal(result.ready.status, "ready");
   assert.equal(result.ready.value, 10);
@@ -25,8 +27,8 @@ test("daily resolver uses 1d close-to-close and never self-anchors", async () =>
 });
 
 test("GemRate and population fallback resolvers accept exact identity only", async () => {
-  const gemrate = JSON.parse((await execute("python", ["pipelines/gemrate_client.py", "--self-test"], { cwd: root })).stdout.trim());
-  const population = JSON.parse((await execute("python", ["pipelines/population_daily.py"], { cwd: root })).stdout.trim());
+  const gemrate = JSON.parse((await execute(PYTHON, ["pipelines/gemrate_client.py", "--self-test"], { cwd: root })).stdout.trim());
+  const population = JSON.parse((await execute(PYTHON, ["pipelines/population_daily.py"], { cwd: root })).stdout.trim());
   assert.equal(gemrate.rows, 1);
   assert.equal(gemrate.psa10, 1234);
   assert.equal(population.official.value, 1300);
@@ -45,13 +47,13 @@ test("immutable landing replays full input and archives only changed incremental
     "pipelines/g10_ingest.py", "--source-root", source, "--landing-root", landing,
     "--mode", "full", "--effective-at", "2026-07-21T00:00:00Z", "--archive-payload",
   ];
-  const first = JSON.parse((await execute("python", fullArgs, { cwd: root })).stdout.trim());
-  const replay = JSON.parse((await execute("python", fullArgs, { cwd: root })).stdout.trim());
+  const first = JSON.parse((await execute(PYTHON, fullArgs, { cwd: root })).stdout.trim());
+  const replay = JSON.parse((await execute(PYTHON, fullArgs, { cwd: root })).stdout.trim());
   assert.equal(first.cardCount, 1);
   assert.equal(replay.replayed, true);
 
   await writeFile(constituents, JSON.stringify({ rows: [{ name: "Pikachu #001", priceUsd: 11, url: "https://private.invalid/card/source/card-1" }] }));
-  const incremental = JSON.parse((await execute("python", [
+  const incremental = JSON.parse((await execute(PYTHON, [
     "pipelines/g10_ingest.py", "--source-root", source, "--landing-root", landing,
     "--mode", "incremental", "--effective-at", "2026-07-22T00:00:00Z", "--archive-payload",
   ], { cwd: root })).stdout.trim());
@@ -63,10 +65,10 @@ test("immutable landing replays full input and archives only changed incremental
 
 test("daily orchestrator is fail-closed and contains no writable SQLite authority", async () => {
   await assert.rejects(
-    execute("python", ["pipelines/run_daily.py", "--mode", "staging", "--local-only", "--source-root", path.join(root, "does-not-exist")], { cwd: root }),
+    execute(PYTHON, ["pipelines/run_daily.py", "--mode", "staging", "--local-only", "--source-root", path.join(root, "does-not-exist")], { cwd: root }),
     /source data root does not exist/i,
   );
-  const help = (await execute("python", ["pipelines/run_daily.py", "--help"], { cwd: root })).stdout;
+  const help = (await execute(PYTHON, ["pipelines/run_daily.py", "--help"], { cwd: root })).stdout;
   assert.match(help, /--skip-market-source-refresh/);
   assert.match(help, /--refresh-bootstrap-source/);
   assert.match(help, /--refresh-active-universe/);
@@ -99,21 +101,30 @@ test("daily orchestrator is fail-closed and contains no writable SQLite authorit
   assert.match(runner, /CARDZ_POINTER_PROMOTE_COMMAND_JSON/);
 });
 
-test("scheduler defaults to 06:30 unattended, singleton, and two-hour timeout", async (context) => {
+test("scheduler defaults to 09:30 unattended, singleton, six-hour timeout, and a watchdog", async (context) => {
   const installer = await readFile(path.join(root, "pipelines/install_daily_task.ps1"), "utf8");
   const scheduledRunner = await readFile(path.join(root, "deploy/windows/run-cardz-daily.ps1"), "utf8");
   assert.match(installer, /CARDZ-Market-Cap-Daily/);
   assert.match(installer, /Get-Command python\.exe[^\n]+-All[^\n]+Select-Object -First 1/);
-  assert.match(installer, /06:30/);
+  // 09:30 JST = 00:30 UTC 同 run_id 嘅 UTC 日期對齊；06:30 會令 run_id 落返前一日觸發 replay
+  assert.match(installer, /\$At = '09:30'/);
+  assert.doesNotMatch(installer, /\$At = '06:30'/);
   assert.match(installer, /LogonType S4U/);
   assert.match(installer, /MultipleInstances IgnoreNew/);
-  assert.match(installer, /New-TimeSpan -Hours 2/);
+  // 全 universe 掃一次實測約 2-2.5 鐘，2 小時上限會中途斬死成棵 process tree（連 verify 都跑唔到）
+  assert.match(installer, /New-TimeSpan -Hours 6/);
+  assert.match(installer, /run-cardz-watchdog\.ps1/);
   assert.match(installer, /-PythonExe/);
   assert.match(installer, /-EnvFile/);
   assert.match(installer, /scripts\\backend\.py/);
   assert.doesNotMatch(installer, /run_daily\.bat|LogonType\s+Interactive/);
   assert.match(scheduledRunner, /scripts\\backend\.py/);
-  assert.match(scheduledRunner, /daily --external-db --mode \$Mode/);
+  assert.match(scheduledRunner, /daily --mode \$Mode/);
+  // PS 層 2>&1 + ErrorActionPreference=Stop 會將 python 第一行 stderr 變 terminating error
+  assert.match(scheduledRunner, /cmd\.exe \/c/);
+  // outcome gate 必須永遠喺 daily 之後跑，且唔受 daily exit code 影響
+  assert.match(scheduledRunner, /verify_daily_run\.py/);
+  assert.match(scheduledRunner, /exit \$verifyExit/);
   assert.match(scheduledRunner, /Set-Item -Path "Env:\$\(\$Matches\[1\]\)"/);
   assert.doesNotMatch(scheduledRunner, /CARDZ_JLP|ProductionRunner/);
 
@@ -136,9 +147,10 @@ test("scheduler defaults to 06:30 unattended, singleton, and two-hour timeout", 
   const plan = JSON.parse(preview.stdout.trim());
   assert.equal(plan.action, "dry-run");
   assert.equal(plan.taskName, "CARDZ-Market-Cap-Daily");
-  assert.equal(plan.at, "06:30 JST");
+  assert.equal(plan.at, "09:30 JST");
   assert.equal(plan.singleton, "IgnoreNew plus backend daily lock");
-  assert.equal(plan.timeoutMinutes, 120);
+  assert.equal(plan.timeoutMinutes, 360);
+  assert.equal(plan.watchdogTaskName, "CARDZ-Market-Cap-Daily-Watchdog");
   assert.equal(plan.restart, "3 retries, 10 minute backoff");
   assert.match(plan.arguments, /run-cardz-daily\.ps1/);
   assert.match(plan.arguments, new RegExp(python.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
@@ -146,14 +158,35 @@ test("scheduler defaults to 06:30 unattended, singleton, and two-hour timeout", 
   assert.doesNotMatch(plan.arguments, /test-not-a-real-secret/);
 });
 
+test("scheduled PowerShell scripts with non-ASCII content carry a UTF-8 BOM", async () => {
+  // Task Scheduler 用 powershell.exe (5.1)，佢讀無 BOM 嘅檔會當本機 ANSI（呢部機係 cp950）。
+  // 中文註解嘅 UTF-8 位元組會被當成 Big5 雙位元組，有機會食咗個收尾引號 → 整份腳本 parse error。
+  // 加 BOM 係唯一穩陣做法，唔好靠「今次啱啱好唔撞」。
+  const scripts = [
+    "deploy/windows/run-cardz-daily.ps1",
+    "deploy/windows/run-cardz-watchdog.ps1",
+    "deploy/windows/cardz-status.ps1",
+    "pipelines/install_daily_task.ps1",
+  ];
+  for (const relative of scripts) {
+    const raw = await readFile(path.join(root, relative));
+    const hasNonAscii = raw.some((byte) => byte > 0x7f);
+    if (!hasNonAscii) continue;
+    assert.ok(
+      raw[0] === 0xef && raw[1] === 0xbb && raw[2] === 0xbf,
+      `${relative} 有非 ASCII 內容但冇 UTF-8 BOM，powershell.exe 5.1 會讀錯`,
+    );
+  }
+});
+
 test("exact source crosswalk and source normalizer are deterministic", async () => {
-  const crosswalk = JSON.parse((await execute("python", ["pipelines/source_crosswalk.py", "--self-test"], { cwd: root })).stdout.trim());
+  const crosswalk = JSON.parse((await execute(PYTHON, ["pipelines/source_crosswalk.py", "--self-test"], { cwd: root })).stdout.trim());
   assert.equal(crosswalk.counts.cards, 2);
   assert.equal(crosswalk.counts.gemrateExact, 2);
   assert.equal(crosswalk.counts.snkExact, 1);
   assert.equal(crosswalk.hashStable, true);
 
-  const universe = JSON.parse((await execute("python", ["pipelines/active_universe.py", "--self-test"], { cwd: root })).stdout.trim());
+  const universe = JSON.parse((await execute(PYTHON, ["pipelines/active_universe.py", "--self-test"], { cwd: root })).stdout.trim());
   assert.equal(universe.ja.active, 300);
   assert.equal(universe.ja.top100, 100);
   assert.equal(universe.ja.watchlist, 200);
@@ -175,7 +208,7 @@ test("exact source crosswalk and source normalizer are deterministic", async () 
   assert.match(activeUniverseSource, /with path\.open\("xb"\)/);
   assert.match(activeUniverseSource, /immutable active-universe locks exist but the active pointer is missing or legacy/);
 
-  const sourceSync = JSON.parse((await execute("python", ["pipelines/market_source_sync.py", "--self-test"], { cwd: root })).stdout.trim());
+  const sourceSync = JSON.parse((await execute(PYTHON, ["pipelines/market_source_sync.py", "--self-test"], { cwd: root })).stdout.trim());
   assert.equal(sourceSync.priceUsd, 100);
   assert.equal(sourceSync.priority, 200);
   assert.equal(sourceSync.counts.snkPriceObservations, 1);
@@ -184,7 +217,7 @@ test("exact source crosswalk and source normalizer are deterministic", async () 
   assert.equal(sourceSync.tagPriority, 150);
   assert.equal(sourceSync.counts.tagObservations, 1);
 
-  const tag = JSON.parse((await execute("python", ["pipelines/tag_daily_capture.py", "--self-test"], { cwd: root })).stdout.trim());
+  const tag = JSON.parse((await execute(PYTHON, ["pipelines/tag_daily_capture.py", "--self-test"], { cwd: root })).stdout.trim());
   assert.equal(tag.counts.matched, 1);
   assert.equal(tag.matchedTopGrade, 14);
   assert.equal(tag.matchedTotalExcludesVa, 14);

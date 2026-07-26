@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -51,8 +52,19 @@ DEFAULT_KADO_ROOT = ROOT / "data" / "private" / "kado"
 COVERAGE_AUDIT_PATH = ROOT / "pipelines" / "data_coverage_audit.py"
 CANONICAL_SNAPSHOT_PATH = ROOT / "pipelines" / "canonical_public_snapshot.py"
 
+# 揀 5%：checked-in 嘅每個 snapshot 版本都係 100 + 260 = 360 張，即係正常 churn 實測係 0，
+# 收緊個閘喺實務上唔會嘈。唯一見過嘅變動就係要攔嗰單 360 → 192（-46.7%）。5% 喺現行
+# 192 張 catalog 上面 ≈ 9 張，夠位俾真係落榜嘅卡走，但因為呢條鏈係單向棘輪（跌咗嘅卡
+# 張圖即刻俾 quarantine 搬走，返唔到轉頭），閘一鬆就變成靜靜雞連續縮水：25% 嘅話兩個
+# run 就可以合法地劈一半。寧願要人手明確批准一次，好過默許滑落。
+DEFAULT_MAX_CATALOG_SHRINK_PCT = 5.0
+
 
 class StaleSourceError(RuntimeError):
+    pass
+
+
+class CatalogShrinkError(RuntimeError):
     pass
 
 
@@ -96,10 +108,16 @@ def run_checked(command: list[str], *, cwd: Path, timeout: int, env: Mapping[str
     subprocess.run(command, cwd=cwd, timeout=timeout, check=True, env=dict(env) if env else None)
 
 
-def gemrate_daily_command(gemrate_ids: Path, active_universe: Path, source_root: Path) -> list[str]:
+def gemrate_daily_command(
+    gemrate_ids: Path,
+    active_universe: Path,
+    source_root: Path,
+    *,
+    timeout: int | None = None,
+) -> list[str]:
     """Build the population-authority refresh command without assuming an API key."""
 
-    return [
+    command = [
         sys.executable,
         str(ROOT / "pipelines/gemrate_source.py"),
         "daily",
@@ -112,6 +130,12 @@ def gemrate_daily_command(gemrate_ids: Path, active_universe: Path, source_root:
         "--speed",
         "medium",
     ]
+    if timeout:
+        # Give the browser pass half the step's timeout. It must return partial
+        # rather than be killed on the wall: a killed process loses the direct
+        # and mirror results it already staged, a partial one keeps them.
+        command += ["--website-budget-seconds", str(max(60, timeout // 2))]
+    return command
 
 
 def post_derive_audit_command(
@@ -316,13 +340,30 @@ def run_market_source_refresh(
     # direct API, page-initiated public card-page JSON/DOM fallback, or the
     # exact Grade10 mirror.
     # A missing trial key must never skip population refresh silently.
-    run_checked(
-        gemrate_daily_command(gemrate_ids, active_universe, source_root),
-        cwd=ROOT,
-        timeout=timeout,
-        env=os.environ,
-    )
-    gemrate_live = True
+    #
+    # A partial refresh is not a reason to abandon the day. The route manifest
+    # declares psa10_population failureMode=exclude_from_ranking with
+    # staleHours=168, and gemrate_source.py already leaves the durable POP
+    # cache untouched when it cannot resolve every tracked card. Aborting here
+    # instead threw away the whole chain -- prices, index snapshot, publish --
+    # so a single unreachable card froze the public snapshot indefinitely
+    # (observed 2026-07-24 -> 07-26: three days with no index row). Record the
+    # degraded state on the run and carry on with last-good population.
+    try:
+        run_checked(
+            gemrate_daily_command(gemrate_ids, active_universe, source_root, timeout=timeout),
+            cwd=ROOT,
+            timeout=timeout,
+            env=os.environ,
+        )
+        gemrate_live = True
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        gemrate_live = False
+        print(
+            f"[daily] population refresh degraded ({type(error).__name__}); "
+            "continuing on last-good population, gemrateLive=false",
+            file=sys.stderr,
+        )
 
     # TAG is auxiliary grader-population coverage. A live schema defect must
     # not block the primary SNK price run. Reuse only a bounded last-good
@@ -474,6 +515,47 @@ def promote_file(source: Path, destination: Path) -> None:
     os.replace(temporary, destination)
 
 
+def published_card_count(snapshot: Mapping[str, Any]) -> int:
+    """已發佈卡數：同 `verify_images.referenced_asset_names` 睇同一批卡（top100 + watchlist）。"""
+
+    return len(snapshot.get("top100") or []) + len(snapshot.get("watchlist") or [])
+
+
+def assert_catalog_not_shrinking(
+    candidate_snapshot: Path,
+    published_snapshot: Path,
+    max_shrink_pct: float,
+) -> None:
+    """Day N 嘅輸出就係 Day N+1 嘅輸入，所以縮水係單向棘輪，必須喺搬檔之前攔。
+
+    `canonical_public_snapshot.py` 攞現行 `data/public/seed-snapshot.json` 做 presentation
+    輸入，出完新 candidate 之後 promote 覆蓋返同一個檔，跟住 quarantine 搬走所有唔再被
+    引用嘅 asset。即係一旦一張卡今日跌咗出榜，佢張圖即刻俾搬走，聽日就算佢應該返嚟都
+    冇圖可用——catalog 淨係可以維持或者跌，永遠唔會自己升返，而且一跌即刻不可逆。
+
+    實測：360 張卡跑一次變 192 張（-46.7%），全程冇任何 gate，exit code 仲係 0。
+    """
+
+    if not published_snapshot.is_file():
+        return  # 未有基準（首次發佈）：冇嘢可以比較，唔應該攔。
+    before = published_card_count(read_json(published_snapshot))
+    if before <= 0:
+        return
+    after = published_card_count(read_json(candidate_snapshot))
+    if after >= before:
+        return
+    shrink_pct = (before - after) / before * 100
+    if shrink_pct <= max_shrink_pct:
+        return
+    raise CatalogShrinkError(
+        f"catalog shrink gate: published cards drop from {before} to {after} "
+        f"(-{shrink_pct:.1f}%), over the -{max_shrink_pct:.1f}% limit. "
+        f"Nothing was promoted or quarantined. Investigate the export first; if this "
+        f"drop is genuinely correct, approve it explicitly for this one run with "
+        f"--max-catalog-shrink-pct {math.ceil(shrink_pct)}"
+    )
+
+
 def finalize_local_candidate_then_publish(
     candidate_snapshot: Path,
     candidate_image_manifest: Path,
@@ -484,6 +566,7 @@ def finalize_local_candidate_then_publish(
     publish_command: list[str],
     production: bool,
     timeout: int,
+    max_catalog_shrink_pct: float = DEFAULT_MAX_CATALOG_SHRINK_PCT,
 ) -> int:
     """Finish every fallible local gate before invoking remote promotion."""
 
@@ -498,7 +581,14 @@ def finalize_local_candidate_then_publish(
     ]
     if production:
         verify_images.append("--strict-semantic")
-    run_checked(verify_images, cwd=ROOT, timeout=timeout)
+    # 第一 pass 容許未引用檔：assets 目錄係 content-addressed 累積落嚟，每次卡圖
+    # 重算都會留低舊 sha，所以「有孤兒檔」係 quarantine 未行之前嘅正常狀態。
+    # 用嚴格 pass 做第一道閘會令成條鏈死鎖——閘因為啲檔而 fail，而清走啲檔嗰步
+    # 喺閘之後，永遠去唔到。呢一 pass 嘅職責係喺搬任何檔之前確認 snapshot 本身
+    # 完好（每張卡圖存在、hash 啱、尺寸啱、有 QC 記錄）。
+    run_checked([*verify_images, "--allow-unreferenced"], cwd=ROOT, timeout=timeout)
+    # 縮水閘擺喺 promote / quarantine 之前——擺後面等於冇用，quarantine 係不可逆。
+    assert_catalog_not_shrinking(candidate_snapshot, snapshot_destination, max_catalog_shrink_pct)
 
     # The snapshot is the local pointer, so its companion QC evidence is
     # promoted first. Remote candidate/canary/latest operations are strictly
@@ -507,6 +597,8 @@ def finalize_local_candidate_then_publish(
     promote_file(candidate_snapshot, snapshot_destination)
     snapshot_document = read_json(candidate_snapshot)
     quarantined = quarantine_unreferenced_assets(assets_out, snapshot_document, quarantine_root)
+    # 清完先做嚴格 pass：發佈嗰刻目錄入面唔可以仲有冇人引用嘅檔。
+    run_checked(verify_images, cwd=ROOT, timeout=timeout)
     run_checked(publish_command, cwd=ROOT, timeout=timeout)
     return quarantined
 
@@ -566,6 +658,13 @@ def main() -> int:
     parser.add_argument("--snk-run", type=Path, help="completed exact PSA 10 SNK run to reuse instead of recollecting")
     parser.add_argument("--landing-root", type=Path, default=ROOT / "data/runtime/private-landing")
     parser.add_argument("--snapshot", type=Path, default=ROOT / "data/public/seed-snapshot.json")
+    parser.add_argument(
+        "--max-catalog-shrink-pct",
+        type=float,
+        default=DEFAULT_MAX_CATALOG_SHRINK_PCT,
+        help="how far the published card count may fall below the live snapshot before the run "
+        "stops instead of promoting and quarantining; raise it to approve a real shrink",
+    )
     parser.add_argument("--assets-out", type=Path, default=ROOT / "data/public/market-assets")
     parser.add_argument("--image-manifest", type=Path, default=ROOT / "manifests/image-qc.json")
     parser.add_argument("--publish-out", type=Path, default=ROOT / "data/runtime/publish-staging")
@@ -741,6 +840,16 @@ def main() -> int:
                 timeout=args.pipeline_timeout_seconds,
                 env=os.environ,
             )
+            # FX 快取上面已經收咗，但 `canonical_public_snapshot.currency_block()` 係讀
+            # DB 表，唔係讀嗰個檔。冇呢一步，六隻非 USD 貨幣喺出街 snapshot 永遠係
+            # unavailable，前端一撳就成版錢銀空白。
+            if fx_snapshot is not None:
+                run_checked(
+                    [sys.executable, str(ROOT / "pipelines/fx_db_load.py"), "--snapshot", str(fx_cache)],
+                    cwd=ROOT,
+                    timeout=args.pipeline_timeout_seconds,
+                    env=os.environ,
+                )
             run_checked(
                 [sys.executable, str(ROOT / "pipelines/market_alerts.py")],
                 cwd=ROOT,
@@ -823,6 +932,20 @@ def main() -> int:
         if args.mode == "production":
             export_command.append("--production")
         run_checked(export_command, cwd=ROOT, timeout=args.pipeline_timeout_seconds)
+        # 卡圖自愈（2026-07-25 用戶規矩）：新入列嘅卡即日統一成梵高標準
+        # 429x600 透明畫布 + RGBA 原生圓角，就地用現有 asset 修，唔重下載。
+        run_checked(
+            [
+                sys.executable,
+                "-X",
+                "utf8",
+                str(ROOT / "pipelines" / "ensure_std_card_images.py"),
+                str(candidate_snapshot),
+                "--write",
+            ],
+            cwd=ROOT,
+            timeout=args.pipeline_timeout_seconds,
+        )
         if not args.image_manifest.resolve().is_file():
             raise RuntimeError("canonical publish requires the checked image QC manifest")
         shutil.copy2(args.image_manifest.resolve(), candidate_image_manifest)
@@ -860,6 +983,7 @@ def main() -> int:
             publish,
             production=args.mode == "production",
             timeout=args.pipeline_timeout_seconds,
+            max_catalog_shrink_pct=args.max_catalog_shrink_pct,
         )
         print(
             json.dumps(

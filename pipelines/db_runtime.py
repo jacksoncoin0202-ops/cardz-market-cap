@@ -86,6 +86,16 @@ def active_universe_lock_hash(document: Mapping[str, Any]) -> str:
     return str(document["payloadSha256"])
 
 
+MONITORING_STATE_BANDS: dict[str, tuple[int, int]] = {
+    "pre_entry_population_971_999": (971, 999),
+    "buffer_850_999": (850, 999),
+}
+MONITORING_POLICY_RANGES: dict[str, dict[str, int]] = {
+    "pre_entry_population_971_999": {"minimum": 971, "maximum": 999},
+    "buffer_850_999": {"minimum": 850, "maximum": 999},
+}
+
+
 def _required_card_identity(
     raw: Mapping[str, Any],
     *,
@@ -147,6 +157,8 @@ def _validate_complete_ranks(
         if require_exact_population and not _is_exact_gemrate_population(raw, minimum=1000):
             raise ValueError("complete-ranking universe contains a card without exact GemRate POP >= 1000")
         memberships = raw.get("rankMemberships")
+        if memberships in (None, {}):
+            continue
         if not isinstance(memberships, Mapping) or any(
             market not in index_ranks
             or not isinstance(rank, int)
@@ -187,7 +199,7 @@ def validate_active_universe(document: Mapping[str, Any]) -> list[Mapping[str, A
             raise ValueError("complete-ranking universe policy is invalid")
         seen_opaque: set[str] = set()
         seen_source: set[tuple[str, str]] = set()
-        _validate_complete_ranks(cards, require_exact_population=schema_version == "5.0.0")
+        _validate_complete_ranks(cards, require_exact_population=schema_version == "5.0.0" and policy.get("requireExactPopulation", True))
         if schema_version == "4.0.0":
             return cards
 
@@ -199,6 +211,9 @@ def validate_active_universe(document: Mapping[str, Any]) -> list[Mapping[str, A
         population_range = policy.get("monitoringPopulationRangeInclusive")
         if not isinstance(population_range, Mapping) or population_range.get("minimum") != 971 or population_range.get("maximum") != 999:
             raise ValueError("pre-entry monitoring population policy is invalid")
+        extra_ranges = policy.get("monitoringAdditionalBandsInclusive")
+        if extra_ranges is not None and extra_ranges != {"buffer_850_999": {"minimum": 850, "maximum": 999}}:
+            raise ValueError("additional monitoring population bands are invalid")
         for index, raw in enumerate(cards, start=1):
             source_ref = (str(raw["canonicalSourceCode"]).casefold(), str(raw["canonicalExternalId"]))
             seen_source.add(source_ref)
@@ -214,9 +229,13 @@ def validate_active_universe(document: Mapping[str, Any]) -> list[Mapping[str, A
             opaque_id = str(raw["pokedexId"])
             if source_ref in seen_source or opaque_id in seen_opaque:
                 raise ValueError("pre-entry monitoring candidate duplicates a canonical identity")
-            if not _is_exact_gemrate_population(raw, minimum=971, maximum=999):
-                raise ValueError("pre-entry monitoring candidate does not have exact GemRate POP 971-999")
-            if raw.get("monitoringState") != "pre_entry_population_971_999" or raw.get("collectionCadence") != "daily":
+            state = raw.get("monitoringState")
+            band = MONITORING_STATE_BANDS.get(str(state))
+            if band is None:
+                raise ValueError("pre-entry monitoring candidate has an invalid collection policy")
+            if not _is_exact_gemrate_population(raw, minimum=band[0], maximum=band[1]):
+                raise ValueError(f"pre-entry monitoring candidate does not have an exact GemRate POP {band[0]}-{band[1]}")
+            if raw.get("collectionCadence") != "daily":
                 raise ValueError("pre-entry monitoring candidate has an invalid collection policy")
             memberships = raw.get("rankMemberships")
             if memberships not in (None, {}):
@@ -715,9 +734,13 @@ def import_lock(
             mapping[source_ref] = variant_id
             memberships = card.get("rankMemberships")
             is_ranked_union = isinstance(memberships, Mapping) and bool(memberships)
-            is_pre_entry = card.get("monitoringState") == "pre_entry_population_971_999"
+            is_monitored = str(card.get("monitoringState") or "") in MONITORING_STATE_BANDS
             is_legacy_member = document.get("schemaVersion") == "1.0.0"
-            if not is_ranked_union and not is_pre_entry and not is_legacy_member:
+            # Operator-expanded tracked cards (exhaustive PSA 10 census) hold
+            # no formal rank until their first validated price lands; they are
+            # still daily-collection members of the lock.
+            is_expanded_tracked = card.get("trackingOrigin") == "psa10_over1000_exhaustive_20260725"
+            if not is_ranked_union and not is_monitored and not is_legacy_member and not is_expanded_tracked:
                 raise RuntimeError("active-universe member has no recognized collection role")
             cursor.execute(
                 """
@@ -733,8 +756,8 @@ def import_lock(
                 (
                     lock_id,
                     variant_id,
-                    "tracked" if is_ranked_union else ("pre-entry" if is_pre_entry else str(card["segment"])),
-                    "candidate" if is_ranked_union else ("monitoring" if is_pre_entry else str(card["role"])),
+                    "tracked" if (is_ranked_union or is_expanded_tracked) else ("pre-entry" if is_monitored else str(card["segment"])),
+                    "candidate" if (is_ranked_union or is_expanded_tracked) else ("monitoring" if is_monitored else str(card["role"])),
                     memberships.get("tcg") if is_ranked_union else card.get("marketRank"),
                     None if is_ranked_union else card.get("watchPosition"),
                     None if is_ranked_union else card.get("watchScore"),
@@ -745,7 +768,7 @@ def import_lock(
                             "monitoringState": card["monitoringState"],
                             "collectionCadence": card["collectionCadence"],
                             "reasons": card.get("reasons") or [],
-                        } if is_pre_entry else card.get("selectionSignals") or [])
+                        } if is_monitored else card.get("selectionSignals") or [])
                     ).decode("utf-8"),
                 ),
             )

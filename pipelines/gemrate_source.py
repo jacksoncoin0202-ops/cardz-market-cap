@@ -36,12 +36,15 @@ USAGE
   # Flatten everything harvested into one analysis CSV:
   python pipelines/gemrate_source.py export-csv --out data/private/gemrate/population_history.csv
 
-SCHEDULER (Windows Task Scheduler — do NOT use WSL cron):
-  Daily at 06:45 (after the price scraper):
-    Program : C:\\Users\\jackson0202\\AppData\\Local\\Programs\\Python\\Python310\\python.exe
-    Args    : pipelines\\gemrate_source.py daily --ids-file pipelines\\gemrate_ids.txt
-    Start in: C:\\Users\\jackson0202\\Documents\\Playground\\cardz-market-cap
-  Or register pipelines\\install_gemrate_task.ps1 once (see bottom of this file).
+SCHEDULER — this file is NOT scheduled on its own.
+  `pipelines/run_daily.py` calls `gemrate_source.py daily` inside the canonical
+  daily run (see `gemrate_daily_command`), so GemRate follows the daily trigger:
+    Linux (production) : cardz-market-cap-daily.timer, 00:30 UTC = 09:30 JST
+    Windows (legacy)   : CARDZ-Market-Cap-Daily, 09:30 local
+  There is no standalone GemRate task registered on either host. Register
+  `deploy\\windows\\install_gemrate_task.ps1` (bottom of this file) only if you need a
+  detached Windows run; do NOT reuse 06:45 — that slot belongs to
+  CARDZ-TAG-Daily-Capture.
 
 ENV
   GEMRATE_API_KEY   injected secret for direct API. Never logged or written out.
@@ -78,6 +81,14 @@ DEFAULT_G10_MIRROR_ROOT = ROOT / "integrations" / "grade10" / "data"
 
 # Delay between API calls (seconds). 429 backoff = 5x delay, doubling.
 SPEEDS = {"slow": 3.0, "medium": 1.0, "fast": 0.15}
+
+# Cards per browser batch on the public-card-page pass. Small enough that the
+# wall-clock budget is checked often, large enough to amortise browser startup.
+WEBSITE_CHUNK = 25
+# Default wall clock for the whole public-card-page pass. run_daily wraps this
+# process in --pipeline-timeout-seconds (7200 by default) and the direct API
+# leg plus mirror pass have to fit alongside it, so leave generous headroom.
+DEFAULT_WEBSITE_BUDGET_SECONDS = 3600
 
 # Graders GemRate tracks in per-card population (verified 2026-07: API enum is
 # psa/cgc/sgc/beckett/csg; TAG is NOT yet in per-card population — it only appears
@@ -278,6 +289,23 @@ def _persist_public_card_capture(cards_dir: Path, gemrate_id: str, payload: Mapp
 
     normalized = dict(payload)
     raw = normalized.pop(PRIVATE_PAGE_JSON_FIELD, None)
+    population_data = normalized.get("population_data")
+    if isinstance(population_data, list):
+        normalized_rows = []
+        for row in population_data:
+            if not isinstance(row, Mapping):
+                continue
+            key = str(row.get("grader") or "").casefold()
+            if GRADER_CODE_BY_KEY.get(key) is None:
+                continue
+            grades = row.get("grades")
+            value = _top_grade_value(key, grades) if isinstance(grades, Mapping) else None
+            if value is None:
+                continue
+            row = dict(row)
+            row["grades"] = {**grades, "g10": value}
+            normalized_rows.append(row)
+        normalized["population_data"] = normalized_rows
     card_dir = cards_dir / gemrate_id
     page_meta = normalized.get("publicCardPage")
     mode = page_meta.get("populationMode") if isinstance(page_meta, Mapping) else None
@@ -318,8 +346,8 @@ def _persist_public_card_capture(cards_dir: Path, gemrate_id: str, payload: Mapp
     else:
         receipt.update({"rawStatus": "not_captured", "contentSha256": None, "sourcePointer": None})
     normalized["privateSourceReceipt"] = receipt
-    _save(card_dir / "card_details.raw.receipt.json", receipt)
     _save(card_dir / "card_details.json", normalized)
+    _save(card_dir / "card_details.raw.receipt.json", receipt)
     return normalized
 
 
@@ -394,19 +422,59 @@ def _iso_date(value: object, fallback: str) -> tuple[str, str]:
     return date.fromisoformat(fallback[:10]).isoformat(), "run_fetched_date"
 
 
+GRADER_CODE_BY_KEY: dict[str, str] = {
+    "psa": "PSA",
+    "cgc": "CGC",
+    "beckett": "BGS",
+    "sgc": "SGC",
+}
+
+
+def _top_grade_value(grader_key: str, grades: Mapping[str, Any]) -> int | None:
+    """Top-grade population for one normalized grader row.
+
+    PSA/CGC/SGC rows carry a flat ``g10``. Beckett splits its top grade into
+    pristine (``g10p``) and black label (``g10b``); BGS Pristine is the
+    canonical top-grade population, matching ``beckett_10_pristine`` on the
+    direct API. A Beckett row without a pristine count contributes no BGS
+    point (never fall back to black label).
+    """
+
+    if grader_key == "beckett":
+        value = grades.get("g10p")
+    else:
+        value = grades.get("g10")
+    return value if isinstance(value, int) and value >= 0 else None
+
+
 def _direct_population(payload: Mapping[str, Any], fetched_at: str) -> dict[str, Any] | None:
-    """Extract a current PSA 10 point from one direct GemRate response."""
+    """Extract current per-grader top-grade points from one direct GemRate response."""
 
     try:
         population_data = payload["data"]["population"]["population_data"]
-        value = population_data["by_grader"]["psa"]["grades"]["psa_10"]
+        by_grader = population_data["by_grader"]
+        psa_value = by_grader["psa"]["grades"]["psa_10"]
     except (KeyError, TypeError):
         return None
-    if not isinstance(value, int) or value < 0:
+    if not isinstance(psa_value, int) or psa_value < 0:
+        return None
+    if not isinstance(by_grader, Mapping):
         return None
     effective_date, effective_source = _iso_date(population_data.get("data_last_updated"), fetched_at)
+    grader_populations: dict[str, int] = {}
+    for key, code in GRADER_CODE_BY_KEY.items():
+        row = by_grader.get(key)
+        grades = row.get("grades") if isinstance(row, Mapping) else None
+        if not isinstance(grades, Mapping):
+            continue
+        # Direct API rows carry per-grader top-grade keys (psa_10,
+        # beckett_10_pristine, ...) rather than the website g10 naming.
+        value = grades.get(TOP_GRADE[key])
+        if isinstance(value, int) and value >= 0:
+            grader_populations[code] = value
     return {
-        "populationPsa10": value,
+        "populationPsa10": psa_value,
+        "graderPopulations": grader_populations,
         "effectiveDate": effective_date,
         "effectiveDateSource": effective_source,
         "transport": DIRECT_TRANSPORT,
@@ -439,41 +507,54 @@ def _mirror_population(payload: Mapping[str, Any], fetched_at: str) -> dict[str,
 
 
 def _website_population(payload: Mapping[str, Any], fetched_at: str) -> dict[str, Any] | None:
-    """Extract current PSA 10 from the exact public GemRate card-page receipt."""
+    """Extract current per-grader points from the exact public GemRate card-page receipt."""
 
     rows = payload.get("population_data")
     if not isinstance(rows, list):
         return None
+    grader_rows: dict[str, Mapping[str, Any]] = {}
+    grader_values: dict[str, int] = {}
     for row in rows:
-        if not isinstance(row, Mapping) or str(row.get("grader") or "").casefold() != "psa":
+        if not isinstance(row, Mapping):
+            continue
+        key = str(row.get("grader") or "").casefold()
+        code = GRADER_CODE_BY_KEY.get(key)
+        if code is None:
             continue
         grades = row.get("grades")
-        value = grades.get("g10") if isinstance(grades, Mapping) else None
-        if not isinstance(value, int) or value < 0:
+        value = _top_grade_value(key, grades) if isinstance(grades, Mapping) else None
+        if value is None:
             continue
-        page_metadata = payload.get("publicCardPage")
-        is_live_page_json = isinstance(page_metadata, Mapping) and page_metadata.get("populationMode") == "page_initiated_json"
-        if is_live_page_json:
-            # GemRate's public JSON `date`/`last_population_change` describes
-            # the last reported population change, not proof that the page was
-            # stale.  Its current POP was observed live during this run.
-            point = {
-                "populationPsa10": value,
-                "effectiveDate": date.fromisoformat(fetched_at[:10]).isoformat(),
-                "effectiveDateSource": "live_public_snapshot_fetch",
-                "sourceDate": payload.get("date"),
-                "lastPopulationChange": row.get("last_population_change") or payload.get("last_population_change"),
-                "transport": WEBSITE_TRANSPORT,
-            }
-            return point
-        effective_date, effective_source = _iso_date(row.get("last_population_change") or payload.get("date"), fetched_at)
-        return {
+        grader_rows[code] = row
+        grader_values[code] = value
+    psa_row = grader_rows.get("PSA")
+    if psa_row is None:
+        return None
+    value = grader_values["PSA"]
+    page_metadata = payload.get("publicCardPage")
+    is_live_page_json = isinstance(page_metadata, Mapping) and page_metadata.get("populationMode") == "page_initiated_json"
+    if is_live_page_json:
+        # GemRate's public JSON `date`/`last_population_change` describes
+        # the last reported population change, not proof that the page was
+        # stale.  Its current POP was observed live during this run.
+        point = {
             "populationPsa10": value,
-            "effectiveDate": effective_date,
-            "effectiveDateSource": effective_source,
+            "graderPopulations": dict(grader_values),
+            "effectiveDate": date.fromisoformat(fetched_at[:10]).isoformat(),
+            "effectiveDateSource": "live_public_snapshot_fetch",
+            "sourceDate": payload.get("date"),
+            "lastPopulationChange": psa_row.get("last_population_change") or payload.get("last_population_change"),
             "transport": WEBSITE_TRANSPORT,
         }
-    return None
+        return point
+    effective_date, effective_source = _iso_date(psa_row.get("last_population_change") or payload.get("date"), fetched_at)
+    return {
+        "populationPsa10": value,
+        "graderPopulations": dict(grader_values),
+        "effectiveDate": effective_date,
+        "effectiveDateSource": effective_source,
+        "transport": WEBSITE_TRANSPORT,
+    }
 
 
 def build_public_card_page_payload(
@@ -574,12 +655,23 @@ def build_public_card_page_json_payload(
     if not isinstance(rows, list):
         return None, "page_initiated_json_population_missing"
     psa_row: Mapping[str, Any] | None = None
+    other_grader_rows: dict[str, tuple[Mapping[str, Any], int]] = {}
     for row in rows:
-        if isinstance(row, Mapping) and str(row.get("grader") or "").casefold() == "psa":
-            grades = row.get("grades")
-            if isinstance(grades, Mapping) and isinstance(grades.get("g10"), int) and grades["g10"] >= 0:
+        if not isinstance(row, Mapping):
+            continue
+        key = str(row.get("grader") or "").casefold()
+        code = GRADER_CODE_BY_KEY.get(key)
+        if code is None:
+            continue
+        grades = row.get("grades")
+        value = _top_grade_value(key, grades) if isinstance(grades, Mapping) else None
+        if value is None:
+            continue
+        if code == "PSA":
+            if psa_row is None:
                 psa_row = row
-                break
+        elif code not in other_grader_rows:
+            other_grader_rows[code] = (row, value)
     if psa_row is None:
         return None, "page_initiated_json_psa_g10_missing"
 
@@ -600,10 +692,21 @@ def build_public_card_page_json_payload(
     last_change = psa_row.get("last_population_change") or payload.get("last_population_change")
     if isinstance(last_change, str) and last_change.strip():
         normalized_psa["last_population_change"] = last_change.strip()
+    normalized_rows: list[dict[str, Any]] = [normalized_psa]
+    for code in ("CGC", "BGS", "SGC"):
+        entry = other_grader_rows.get(code)
+        if entry is None:
+            continue
+        row, value = entry
+        key = "beckett" if code == "BGS" else code.casefold()
+        normalized_rows.append({
+            "grader": str(row.get("grader") or key),
+            "grades": {"g10": value},
+        })
     return {
         "gemrate_id": gemrate_id,
         "date": source_date.strip(),
-        "population_data": [normalized_psa],
+        "population_data": normalized_rows,
         PRIVATE_PAGE_JSON_FIELD: dict(payload),
         "publicCardPage": {
             "canonicalUrl": resolved_url,
@@ -697,20 +800,22 @@ def build_population_transport_run(
 
         points = [point for point in (direct_point, website_point, mirror_point) if point is not None]
         for point in points:
-            observations.append(
-                {
-                    "gemrateId": gid,
-                    "authority": "gemrate",
-                    "transport": point["transport"],
-                    "populationPsa10": point["populationPsa10"],
-                    "effectiveDate": point["effectiveDate"],
-                    "effectiveDateSource": point["effectiveDateSource"],
-                    "sourceDate": point.get("sourceDate"),
-                    "lastPopulationChange": point.get("lastPopulationChange"),
-                    "fetchedAt": fetched_at,
-                    "historyStatus": "unavailable" if point["transport"] == MIRROR_TRANSPORT else "not_collected",
-                }
-            )
+            observation = {
+                "gemrateId": gid,
+                "authority": "gemrate",
+                "transport": point["transport"],
+                "populationPsa10": point["populationPsa10"],
+                "effectiveDate": point["effectiveDate"],
+                "effectiveDateSource": point["effectiveDateSource"],
+                "sourceDate": point.get("sourceDate"),
+                "lastPopulationChange": point.get("lastPopulationChange"),
+                "fetchedAt": fetched_at,
+                "historyStatus": "unavailable" if point["transport"] == MIRROR_TRANSPORT else "not_collected",
+            }
+            grader_populations = point.get("graderPopulations")
+            if isinstance(grader_populations, Mapping) and grader_populations:
+                observation["graderPopulations"] = dict(grader_populations)
+            observations.append(observation)
 
         comparable_points = [point for point in points if point["transport"] != WEBSITE_TRANSPORT]
         for left_index, left in enumerate(comparable_points):
@@ -746,16 +851,18 @@ def build_population_transport_run(
                 point["effectiveDate"],
             ),
         )
-        resolved.append(
-            {
-                "gemrateId": gid,
-                "populationPsa10": selected["populationPsa10"],
-                "effectiveDate": selected["effectiveDate"],
-                "effectiveDateSource": selected["effectiveDateSource"],
-                "authority": "gemrate",
-                "transport": selected["transport"],
-            }
-        )
+        resolved_row = {
+            "gemrateId": gid,
+            "populationPsa10": selected["populationPsa10"],
+            "effectiveDate": selected["effectiveDate"],
+            "effectiveDateSource": selected["effectiveDateSource"],
+            "authority": "gemrate",
+            "transport": selected["transport"],
+        }
+        selected_graders = selected.get("graderPopulations")
+        if isinstance(selected_graders, Mapping) and selected_graders:
+            resolved_row["graderPopulations"] = dict(selected_graders)
+        resolved.append(resolved_row)
 
     manifest = {
         "schemaVersion": "2.0.0",
@@ -989,6 +1096,13 @@ def _run_harvest(ids: list[str], key: str, delay: float, resume: bool,
             print(f"\nKEY LOST ACCESS ({note}). {done} done, {fail} failed. "
                   f"Re-run with --resume after fixing the key.", file=sys.stderr)
             return 3
+        if note.endswith("_429"):
+            # The daily request quota is spent. _api_get has already burned its
+            # retry ladder on this card; every remaining card would do the same
+            # for nothing. Stop instead of hammering a quota that cannot serve.
+            print(f"\nQUOTA SPENT ({note}) after {done} cards, {fail} failed. "
+                  f"Re-run with --resume when the quota window reopens.", file=sys.stderr)
+            return 4
         if ok:
             done += 1
             if done % 10 == 0:
@@ -1056,16 +1170,64 @@ def cmd_daily(args) -> int:
                     _save(run_cards / gid / "identity.receipt.json", receipt)
             else:
                 print(f"[daily] direct {gid}: {note}", file=sys.stderr)
+                # A 429 means the key's daily request quota is spent, not that this one
+                # card blipped: every later call returns 429 too. Measured 2026-07-26 --
+                # a clean cut at request ~1000 of a 1468-card roster, so the roster can
+                # never be covered by the direct API alone. Burning the rest of the loop
+                # on calls that are all guaranteed to 429 just delays the fallback, so
+                # stop and let the public card page take the remainder.
+                if note == "POP_HTTP_429":
+                    print(
+                        f"[daily] direct quota spent after {len(direct_payloads)} cards; "
+                        f"{len(selected_ids) - len(direct_attempted)} remaining cards fall to "
+                        "the public card page",
+                        file=sys.stderr,
+                    )
+                    break
             time.sleep(delay)
     website_ids = [gid for gid in selected_ids if gid not in direct_payloads]
     if website_ids:
+        # The browser pass is the slowest transport (~4.4s/card measured
+        # 2026-07-26) and the caller wraps this process in a hard
+        # --pipeline-timeout-seconds. Overrunning it kills the process and
+        # discards every result already written this run, which is strictly
+        # worse than returning a partial run: a partial run at least leaves its
+        # staged payloads on disk and lets the rest of the daily chain proceed.
+        # So walk the ids in chunks and stop starting new ones once the budget
+        # is gone.
+        budget = getattr(args, "website_budget_seconds", None) or DEFAULT_WEBSITE_BUDGET_SECONDS
+        deadline = time.monotonic() + budget
         website_attempted.update(website_ids)
-        try:
-            website_payloads = _chrome_card_details(website_ids, delay=max(0.3, delay))
-        except RuntimeError as error:
-            print(f"[daily] public card page unavailable: {error}", file=sys.stderr)
-        for gid, payload in website_payloads.items():
-            _persist_public_card_capture(run_cards, gid, payload)
+        pending = list(website_ids)
+        for pass_delay, label in ((max(0.3, delay), "first"), (SPEEDS["slow"], "slow retry")):
+            if not pending:
+                break
+            if label != "first":
+                print(
+                    f"[daily] public card page {label} for {len(pending)} cards",
+                    file=sys.stderr,
+                )
+            for start in range(0, len(pending), WEBSITE_CHUNK):
+                if time.monotonic() >= deadline:
+                    print(
+                        f"[daily] public card page budget spent; "
+                        f"{len(pending) - start} cards left unattempted on this pass",
+                        file=sys.stderr,
+                    )
+                    break
+                chunk = pending[start:start + WEBSITE_CHUNK]
+                try:
+                    chunk_payloads = _chrome_card_details(chunk, delay=pass_delay)
+                except RuntimeError as error:
+                    print(f"[daily] public card page unavailable: {error}", file=sys.stderr)
+                    break
+                for gid, payload in chunk_payloads.items():
+                    website_payloads[gid] = payload
+                    _persist_public_card_capture(run_cards, gid, payload)
+            # A per-page failure (CF challenge timing, browser evaluation) usually
+            # clears on one slower retry, so whatever the fast pass missed gets a
+            # second, gentler attempt inside the same budget.
+            pending = [gid for gid in pending if gid not in website_payloads]
     if mirror_root.is_dir():
         for card in cards:
             gid = str(card["gemrateId"])
@@ -1132,18 +1294,19 @@ def cmd_daily(args) -> int:
         _save(CARDS_DIR / gid / "population_mirror.json", payload)
     for resolved in manifest["resolved"]:
         gid = str(resolved["gemrateId"])
-        _save(
-            CARDS_DIR / gid / "current.json",
-            {
-                "schemaVersion": "1.0.0",
-                "authority": "gemrate",
-                "transport": resolved["transport"],
-                "populationPsa10": resolved["populationPsa10"],
-                "effectiveDate": resolved["effectiveDate"],
-                "effectiveDateSource": resolved["effectiveDateSource"],
-                "fetchedAt": fetched_at,
-            },
-        )
+        current = {
+            "schemaVersion": "1.0.0",
+            "authority": "gemrate",
+            "transport": resolved["transport"],
+            "populationPsa10": resolved["populationPsa10"],
+            "effectiveDate": resolved["effectiveDate"],
+            "effectiveDateSource": resolved["effectiveDateSource"],
+            "fetchedAt": fetched_at,
+        }
+        resolved_graders = resolved.get("graderPopulations")
+        if isinstance(resolved_graders, Mapping) and resolved_graders:
+            current["graderPopulations"] = dict(resolved_graders)
+        _save(CARDS_DIR / gid / "current.json", current)
     if manifest.get("historyIncluded"):
         for gid in selected_ids:
             history_file = run_cards / gid / "history_full.json"
@@ -1373,11 +1536,24 @@ def _chrome_card_pages_with_receipts(
                     """async (gemrateId) => {
                         const norm = (value) => String(value || "")
                           .replace(/\\s+/g, " ").trim().toUpperCase();
-                        const table = Array.from(document.querySelectorAll("table")).find((candidate) => {
-                          const headers = Array.from(candidate.querySelectorAll("thead th"))
-                            .map((cell) => norm(cell.textContent));
-                          return headers.includes("POP") && headers.includes("GEM MINT");
-                        });
+                        const deadline = Date.now() + 30000;
+                        let table = null;
+                        // The population table can render well after domcontentloaded
+                        // (page-initiated JSON resolves later). Poll briefly before
+                        // declaring it missing so slow cards are not misclassified.
+                        while (Date.now() < deadline) {
+                          table = Array.from(document.querySelectorAll("table")).find((candidate) => {
+                            const headers = Array.from(candidate.querySelectorAll("thead th"))
+                              .map((cell) => norm(cell.textContent));
+                            return headers.includes("POP") && headers.includes("GEM MINT");
+                          });
+                          const ready = table && Array.from(table.querySelectorAll("tbody tr")).some((row) => {
+                            const cells = Array.from(row.querySelectorAll("th,td"));
+                            return norm(cells[0] && cells[0].textContent) === "PSA";
+                          });
+                          if (ready) break;
+                          await new Promise((resolve) => setTimeout(resolve, 500));
+                        }
                         if (!table) return {__failureReason: "population_table_missing"};
                         const headers = Array.from(table.querySelectorAll("thead th"))
                           .map((cell) => norm(cell.textContent));
@@ -1939,6 +2115,9 @@ def main(argv=None) -> int:
     d.add_argument("--limit", type=int)
     d.add_argument("--identity-file", help="private tracked-universe JSON used for exact mirror routing")
     d.add_argument("--mirror-root", help="private Grade10 data root containing cards/<scope>/<id>/populations.json")
+    d.add_argument("--website-budget-seconds", type=int, default=DEFAULT_WEBSITE_BUDGET_SECONDS,
+                   help="wall-clock cap for the public-card-page pass; it stops starting new "
+                        "batches past this so the run returns partial instead of being killed")
     d.add_argument("--volume-slug", help="monthly recap slug for grader volume, e.g. june-2026-recap")
     d.set_defaults(fn=cmd_daily)
 
@@ -1998,14 +2177,20 @@ if __name__ == "__main__":
 
 
 # ---------------------------------------------------------------------------
-# Windows Task Scheduler registration (run once, PowerShell):
+# LEGACY / OPTIONAL — Windows Task Scheduler registration (run once, PowerShell).
+#
+# Not part of production. Production is a Linux server where GemRate runs inside
+# cardz-market-cap-daily.service (00:30 UTC = 09:30 JST) via run_daily.py, and no
+# CARDZ-GemRate-Daily task is registered on the legacy Windows host either. Only
+# use this for a detached manual run, and pick a slot that collides with neither
+# CARDZ-TAG-Daily-Capture (06:45) nor CARDZ-Market-Cap-Daily (09:30).
 #
 #   $py   = "C:\Users\jackson0202\AppData\Local\Programs\Python\Python310\python.exe"
 #   $root = "C:\Users\jackson0202\Documents\Playground\cardz-market-cap"
 #   $act  = New-ScheduledTaskAction -Execute $py `
 #           -Argument "pipelines\gemrate_source.py daily --ids-file pipelines\gemrate_ids.txt" `
 #           -WorkingDirectory $root
-#   $trg  = New-ScheduledTaskTrigger -Daily -At 06:45
+#   $trg  = New-ScheduledTaskTrigger -Daily -At 07:30
 #   Register-ScheduledTask -TaskName "CARDZ-GemRate-Daily" -Action $act -Trigger $trg `
 #           -Description "Daily GemRate 4-grader population update"
 #

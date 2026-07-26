@@ -47,13 +47,12 @@ export function MarketPage({ kind, snapshot }: { kind: "all" | "pokemon" | "one-
       <StructuredData value={structuredData} />
       {kind === "watchlist" && (
         <section className="hero-section">
-          <p className="section-kicker">{hero.eyebrow}</p>
           <h1>{hero.title}</h1>
           <p className="hero-copy">{hero.body}</p>
         </section>
       )}
       {kind !== "watchlist" && (
-        <Heatmap cards={cards} locale={locale} currency={currency} snapshot={snapshot} href={href} title={heatmapTitle} eyebrow={hero.eyebrow} />
+        <Heatmap cards={cards} locale={locale} currency={currency} snapshot={snapshot} href={href} title={heatmapTitle} />
       )}
       {kind !== "watchlist" && <GradingPulse cards={cards} locale={locale} period={period} />}
       <Rankings cards={cards} locale={locale} currency={currency} snapshot={snapshot} href={href} watchlist={kind === "watchlist"} marketLabel={marketLabel} />

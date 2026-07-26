@@ -6,10 +6,9 @@ import { Footer, Header } from "@/components/header";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://cardsmarketcap.com"),
-  title: { default: "CARDS Market Cap", template: "%s | CARDS Market Cap" },
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://cardzmarketcap.com"),
+  title: { default: "CardZ Marketcap", template: "%s | CardZ Marketcap" },
   description: "Art market intelligence for collectible cards.",
-  icons: { icon: "/icon.svg" },
 };
 
 export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", colorScheme: "light dark" };

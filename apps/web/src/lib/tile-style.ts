@@ -4,6 +4,7 @@
 export interface TileParams {
   clamp: number;      // change% 到幾多就當最深色（爆色）
   gamma: number;      // 誇大/壓細強度曲線
+  deadzone: number;   // ±deadzone% 之內當中立：褪色近灰（0 = 關閉）
   aMin: number;       // 最淺色透明度
   aMax: number;       // 最深色透明度
   gap: number;        // 格與格之間距離 px
@@ -17,7 +18,7 @@ export interface TileParams {
 }
 
 export const DEFAULT_TILE: TileParams = {
-  clamp: 5, gamma: 4, aMin: 0.78, aMax: 1, gap: 3,
+  clamp: 5, gamma: 4, deadzone: 0, aMin: 0.78, aMax: 1, gap: 3,
   cardPct: 0.62, cardAspect: 0.714, neutralTile: "rgba(138, 133, 120, 0.3)",
   upDark: "#17b576", upLight: "#1b714e",
   downDark: "#dc567c", downLight: "#972646",
@@ -38,9 +39,21 @@ function hexToRgb(hex: string): [number, number, number] {
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
 }
 
+/* 強度 0–1：|value| 喺 deadzone 內 → 0（近灰）；過咗 deadzone 之後由 0 重新升到 clamp 爆色 */
 export function frameStrength(value: number | null, p: TileParams): number {
-  if (value === null || !Number.isFinite(value) || value === 0) return 0;
-  return Math.pow(Math.min(Math.abs(value), p.clamp) / p.clamp, p.gamma);
+  if (value === null || !Number.isFinite(value)) return 0;
+  const mag = Math.abs(value);
+  if (mag <= p.deadzone && p.deadzone > 0) return 0;
+  const span = Math.max(p.clamp - p.deadzone, 0.1);
+  return Math.pow(Math.min(Math.max(mag - p.deadzone, 0), span) / span, p.gamma);
+}
+
+/* 飽和度跟強度行：t=0 全灰（保留明暗），t=1 全彩——deadzone 內嘅格就近灰色 */
+function scaleSaturation(r: number, g: number, b: number, t: number): [number, number, number] {
+  const s = 1 - Math.min(Math.max(t, 0), 1);
+  if (s <= 0) return [r, g, b];
+  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return [r + (lum - r) * s, g + (lum - g) * s, b + (lum - b) * s].map((v) => Math.round(v)) as [number, number, number];
 }
 
 export interface TileStyle {
@@ -59,8 +72,10 @@ export function tileStyle(value: number | null, w: number, h: number, colors: Ti
   const alpha = p.aMin + t * (p.aMax - p.aMin);
   const direction: TileStyle["direction"] = value !== null && value > 0 ? "up" : value !== null && value < 0 ? "down" : "neutral";
   const hex = direction === "up" ? colors.up : colors.down;
-  const [r, g, b] = hexToRgb(hex);
-  const bg = direction === "neutral" ? colors.neutral : `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`;
+  const [r, g, b] = p.deadzone > 0 ? scaleSaturation(...hexToRgb(hex), t) : hexToRgb(hex);
+  const bg = direction === "neutral" || (p.deadzone > 0 && t === 0)
+    ? colors.neutral
+    : `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`;
   const shortSide = Math.min(w, h);
   let cardH = shortSide * p.cardPct;
   let cardW = cardH * p.cardAspect;

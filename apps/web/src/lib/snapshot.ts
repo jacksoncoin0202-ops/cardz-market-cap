@@ -1,7 +1,9 @@
 import seedSnapshot from "../../../../data/public/seed-snapshot.json";
 import editorialPack from "../../../../data/editorial/top100-stories.json";
+import setNamePack from "../../../../data/editorial/set-names.json";
+import { composeChangePct } from "@cardz/market-data";
 import type { PublicCard as CanonicalCard, PublicMarketSnapshot as CanonicalSnapshot } from "@cardz/market-data";
-import { localizedCardName } from "./card-names";
+import { displayCardNameEn, localizedCardName } from "./card-names";
 import {
   currencies,
   graders,
@@ -34,22 +36,65 @@ function editorialStories(card: CanonicalCard): CanonicalCard["stories"] {
   return entry.stories;
 }
 
+type SetNameEntry = { zhTW?: string; zhCN?: string; ja?: string };
+
+/*
+ * Set 名嘅翻譯來源。呢個檔一直存在但從來冇人 import，而 snapshot 入面
+ * `sets.zhTW / zhCN / ja` 三條全部係空字串（360 張卡逐張核過），
+ * 所以五個語系嘅 set 名一律跌返英文。接返線之後 209/360 張卡有中日文 set 名。
+ */
+const editorialSetNames = setNamePack.entries as Record<string, SetNameEntry>;
+
+function localisedSetName(sets: CanonicalCard["sets"]): LocalizedText {
+  const en = sets.en || "";
+  const editorial = editorialSetNames[en];
+  const zhTW = sets.zhTW || editorial?.zhTW || "";
+  return {
+    en,
+    "zh-TW": zhTW || en,
+    "zh-CN": sets.zhCN || editorial?.zhCN || zhTW || en,
+    ja: sets.ja || editorial?.ja || en,
+    /*
+     * 韓文 set 名一條來源都冇（見下面 localised() 註解）。但 set 名本身就係英文
+     * 產品標題（「2014 XY Flashfire」），零翻譯之下 zh-TW / zh-CN / ja 三個語系
+     * 一樣跌返 `en`。ko 單獨出 null 會令顯示層行 fallback 出「데이터 없음」，
+     * 即係有一個完全正確、可顯示嘅值都唔出，反而似壞咗。
+     * 出原文唔等於扮有韓文譯名 —— 禁止嘅係作一個譯名出嚟，唔係顯示原文。
+     * 卡名唔同：`card-names.ts` 有獨立 KO 字典，所以嗰邊維持 ko: null。
+     */
+    ko: en,
+  };
+}
+
 function localised(value: CanonicalCard["names"], fallback: string, translate?: boolean): LocalizedText {
-  const en = value.en || fallback;
+  const raw = value.en || fallback;
   if (!translate) {
     return {
-      en,
+      en: raw,
       "zh-TW": value.zhTW || value.en || fallback,
       "zh-CN": value.zhCN || value.zhTW || value.en || fallback,
       ja: value.ja || value.en || fallback,
-      ko: value.en || fallback,
+      /*
+       * 之前呢度硬寫 `ko: value.en`，即係無論如何都出英文，仲要係扮成韓文內容出。
+       * 實測全部韓文來源都唔存在：canonical snapshot 得 en/zhTW/zhCN/ja 四條 key，
+       * top100-stories.json 150 條得 en/zhTW/zhCN/ja，set-names.json 172 條得 zhTW/zhCN/ja。
+       * 所以韓文係真係冇 —— 出 `null`，等顯示層自己揀 fallback，唔准扮有。
+       * 補數據嘅工單見 docs/DATA_GAPS.md。
+       */
+      ko: null,
     };
   }
+  // When the upstream English name has no translation, the producer copies it into every
+  // locale field. Repairing a truncated English name therefore has to discard those copies,
+  // or zh/ja would keep rendering the truncation the repair just removed.
+  const en = displayCardNameEn(raw);
+  const stale = en !== raw;
+  const zhFallback = stale ? "" : value.zhCN || value.zhTW || "";
   return {
     en,
-    "zh-TW": localizedCardName(en, value.zhTW, "zh-TW"),
-    "zh-CN": value.zhCN || value.zhTW || localizedCardName(en, null, "zh-CN"),
-    ja: localizedCardName(en, value.ja, "ja"),
+    "zh-TW": localizedCardName(en, stale ? null : value.zhTW, "zh-TW"),
+    "zh-CN": zhFallback || localizedCardName(en, null, "zh-CN"),
+    ja: localizedCardName(en, stale ? null : value.ja, "ja"),
     ko: localizedCardName(en, null, "ko"),
   };
 }
@@ -72,7 +117,7 @@ function cardView(card: CanonicalCard): MarketCardView {
     language: card.language,
     collectorNumber: card.collectorNumber.display,
     name,
-    setName: localised(card.sets, ""),
+    setName: localisedSetName(card.sets),
     story: localised(stories, ""),
     image: {
       url: imageIsSafe ? card.image.src : "/card-placeholder.svg",
@@ -85,6 +130,20 @@ function cardView(card: CanonicalCard): MarketCardView {
     marketCap: metric(card.marketCap),
     windows: Object.fromEntries(marketWindows.map((window) => [window, {
       changePct: metric(card.windows[window].changePct),
+      // 市值變動 = (1+Δ價)(1+ΔPOP)−1。producer 出咗就直接用；舊 snapshot 冇呢條欄
+      // 就即場由同一份 payload 入面兩條已出街嘅欄砌返（同一條式，`composeChangePct`）。
+      // 兩個輸入有一個唔齊就出 null —— 唔准退返去用 `changePct` 頂替。
+      marketCapChangePct: metric(
+        card.windows[window].marketCapChangePct
+          ?? composeChangePct(
+            card.windows[window].changePct,
+            card.graderPopulations.PSA?.topGradePopulationChangePct?.[window],
+          ),
+      ),
+      // 成交額環比要 producer 出真數；冇就係計唔到，一樣唔准借價格變動。
+      trackedSalesChangePct: metric(
+        card.windows[window].trackedSalesChangePct ?? { value: null, status: "accumulating", asOf: null },
+      ),
       trackedSales: {
         valueUsd: metric(card.windows[window].trackedSales.valueUsd),
         count: metric(card.windows[window].trackedSales.count),

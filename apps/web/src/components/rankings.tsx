@@ -3,10 +3,9 @@
 import Link from "next/link";
 import { ArrowDown, ArrowUp, TrendingDown, TrendingUp } from "lucide-react";
 import { CardImage } from "./card-image";
-import { InfoTip } from "./info-tip";
 import { PeriodSelector } from "./period-selector";
 import { Sparkline } from "./sparkline";
-import { WatchlistMobileList } from "./watchlist-mobile-list";
+import { Tooltip } from "./tooltip";
 import { copy } from "@/lib/i18n";
 import { formatDeltaMoney, formatInteger, formatMetricInteger, formatMetricMoney, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
 import { useMarketSettings } from "@/lib/use-market-settings";
@@ -85,10 +84,11 @@ function DeltaChip({ delta }: { delta: string }) {
 }
 
 function CardIdentity({ card, locale, unavailable }: { card: MarketCardView; locale: Locale; unavailable: string }) {
+  const name = card.name[locale] || unavailable;
   return (
     <div className="ranking-card-identity">
       <div className="ranking-thumb"><CardImage image={card.image} sizes="56px" /></div>
-      <div className="ranking-name"><strong>{card.name[locale] || unavailable}</strong></div>
+      <div className="ranking-name"><strong>{name}</strong></div>
     </div>
   );
 }
@@ -127,9 +127,9 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
               </colgroup>
               <thead><tr>
                 <th>{t.labels.rank}</th><th>{t.labels.card}</th><th>{t.labels.number}</th>
-                <th className="numeric">{t.labels.priceShort}<InfoTip label={t.labels.price} text={t.labels.priceHelp} /></th>
-                <th className="numeric">{t.labels.populationShort}<InfoTip label={t.labels.population} text={t.labels.populationHelp} /></th>
-                <th className="numeric">{t.labels.marketCapShort}<InfoTip label={t.labels.marketCap} text={t.labels.marketCapHelp} /></th>
+                <th className="numeric">{t.labels.priceShort}<Tooltip label={t.labels.price} text={t.labels.priceHelp} /></th>
+                <th className="numeric">{t.labels.populationShort}<Tooltip label={t.labels.population} text={t.labels.populationHelp} /></th>
+                <th className="numeric">{t.labels.marketCapShort}<Tooltip label={t.labels.marketCap} text={t.labels.marketCapHelp} /></th>
                 <th className="numeric"><span title={t.labels.salesHelp}>{t.periods[period]} {t.labels.trackedSalesShort}</span></th>
                 <th className="numeric">{t.periods[period]} {t.labels.changeShort}</th>
                 <th className="numeric"><span title={t.labels.salesHelp}>{t.labels.salesTrendShort}</span></th>
@@ -151,11 +151,11 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                     </td>
                     <td className="numeric market-cap-cell">
                       <span className="price-now">{formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true)}</span>
-                      <MetricDelta metric={card.marketCap} changePct={metrics.changePct} currency={currency} rates={snapshot.rates} locale={locale} />
+                      <MetricDelta metric={card.marketCap} changePct={metrics.marketCapChangePct} currency={currency} rates={snapshot.rates} locale={locale} />
                     </td>
                     <td className="numeric sales-cell" title={t.labels.salesHelp}>
                       <span className="price-now">{formatTrackedSales(metrics.trackedSales, currency, snapshot.rates, locale)}</span>
-                      <SalesDelta sales={metrics.trackedSales} changePct={metrics.changePct} currency={currency} rates={snapshot.rates} locale={locale} />
+                      <SalesDelta sales={metrics.trackedSales} changePct={metrics.trackedSalesChangePct} currency={currency} rates={snapshot.rates} locale={locale} />
                     </td>
                     <td className={`numeric metric-${metricTone(metrics.changePct)}`}>{formatPercent(metrics.changePct, locale)}</td>
                     <td className="numeric spark-cell"><Sparkline points={card.historyDaily} label={t.labels.salesTrend} /></td>
@@ -164,9 +164,6 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
               })}</tbody>
             </table>
           </div>
-          {watchlist ? (
-            <WatchlistMobileList cards={cards} locale={locale} currency={currency} snapshot={snapshot} href={href} />
-          ) : (
           <div className="mobile-ranking-list">
             <div className="mobile-list-header" aria-hidden="true">
               <span className="mobile-col-info">{t.labels.card}</span>
@@ -180,9 +177,11 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                 <div className="mobile-card-info">
                   <span className="mobile-card-number">{card.collectorNumber}</span>
                   <strong className="mobile-card-name">{card.name[locale] || t.status.unavailable}</strong>
-                  <span className="mobile-card-sub">
-                    <span className="mobile-card-cap">{formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true)}</span>
-                  </span>
+                  {card.marketCap.value !== null && (card.marketCap.status === "ready" || card.marketCap.status === "stale") && (
+                    <span className="mobile-card-sub">
+                      <span className="mobile-card-cap">{formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true)}</span>
+                    </span>
+                  )}
                 </div>
                 <div className="mobile-card-right">
                   <span className="mobile-card-price">{formatMetricMoney(card.pricePsa10, currency, snapshot.rates, locale)}</span>
@@ -192,7 +191,6 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
               </Link>
             ))}
           </div>
-          )}
         </>
       )}
     </section>

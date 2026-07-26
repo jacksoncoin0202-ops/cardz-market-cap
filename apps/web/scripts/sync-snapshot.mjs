@@ -33,11 +33,30 @@ for (const card of cards) {
   referenced.set(card.image.src, hash);
 }
 
+/* srcSet 用 `w` descriptor + sizes，`src` 唔喺候選集，所以 derivative 缺一張
+   就係一張爛圖，冇 fallback。以前呢度靜靜 skip，成站爛咗都 build 綠燈。 */
+const derivativeSuffixes = ["200", "600"];
+const missingDerivatives = [];
+
 for (const [publicPath, expectedHash] of referenced) {
   const filename = basename(publicPath);
   const source = resolve(sourceAssets, filename);
   if (!existsSync(source)) throw new Error(`Referenced public image is missing: ${filename}`);
   if (fileSha256(source) !== expectedHash) throw new Error(`Referenced public image failed SHA-256 verification: ${filename}`);
+  const stem = filename.replace(/\.webp$/, "");
+  for (const suffix of derivativeSuffixes) {
+    if (!existsSync(resolve(sourceAssets, `${stem}_${suffix}.webp`))) missingDerivatives.push(`${stem}_${suffix}.webp`);
+  }
+}
+
+if (missingDerivatives.length) {
+  const sample = missingDerivatives.slice(0, 10).join("\n  ");
+  throw new Error(
+    `${missingDerivatives.length} responsive derivative(s) missing for ${referenced.size} referenced assets. ` +
+      `<img srcSet> uses w descriptors, so a missing derivative renders as a broken image with no src fallback. ` +
+      `Run: python -X utf8 pipelines/build_asset_derivatives.py --write\n  ${sample}` +
+      (missingDerivatives.length > 10 ? `\n  ...and ${missingDerivatives.length - 10} more` : ""),
+  );
 }
 
 if (existsSync(publicAssets)) rmSync(publicAssets, { recursive: true, force: true });
@@ -48,17 +67,17 @@ if (process.env.CARDZ_CLOUDFLARE_BUILD !== "1") {
     const filename = basename(publicPath);
     const source = resolve(sourceAssets, filename);
     copyFileSync(source, resolve(publicAssets, filename));
-    /* 縮圖 derivative 一齊 copy（唔 hash-verify） */
+    /* 縮圖 derivative 一齊 copy（唔 hash-verify）。上面已經驗證過齊晒，
+       所以呢度唔再 existsSync —— 真係唔見要即刻炸，唔准靜靜跳過。 */
     const stem = filename.replace(/\.webp$/, "");
-    for (const suffix of ["200", "600"]) {
-      const derivative = resolve(sourceAssets, `${stem}_${suffix}.webp`);
-      if (existsSync(derivative)) copyFileSync(derivative, resolve(publicAssets, `${stem}_${suffix}.webp`));
+    for (const suffix of derivativeSuffixes) {
+      copyFileSync(resolve(sourceAssets, `${stem}_${suffix}.webp`), resolve(publicAssets, `${stem}_${suffix}.webp`));
     }
   }
 }
 
 process.stdout.write(
   process.env.CARDZ_CLOUDFLARE_BUILD === "1"
-    ? `Verified ${referenced.size} raw_front assets without bundling them into Cloudflare static assets.\n`
-    : `Synced ${referenced.size} referenced raw_front assets for local preview.\n`,
+    ? `Verified ${referenced.size} raw_front assets + ${referenced.size * derivativeSuffixes.length} derivatives without bundling them into Cloudflare static assets.\n`
+    : `Synced ${referenced.size} referenced raw_front assets + ${referenced.size * derivativeSuffixes.length} derivatives for local preview.\n`,
 );

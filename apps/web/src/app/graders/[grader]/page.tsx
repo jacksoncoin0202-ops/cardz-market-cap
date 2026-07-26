@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { GraderPage } from "@/components/grader-page";
 import { copy } from "@/lib/i18n";
+import { graderShareTotals, gradersWithCards } from "@/lib/grader-share";
 import { localeFromSearchParams, marketMetadata, type PageSearchParams } from "@/lib/route-metadata";
 import { graderSnapshot, loadMarketSnapshot } from "@/lib/server-snapshot";
 import { graders, type Grader } from "@/lib/types";
@@ -27,5 +28,14 @@ export async function generateMetadata({ params, searchParams }: GraderRouteProp
 export default async function GraderRoute({ params }: GraderRouteProps) {
   const grader = parseGrader((await params).grader);
   if (!grader) notFound();
-  return <GraderPage grader={grader} snapshot={graderSnapshot(await loadMarketSnapshot(), grader)} />;
+  // 市佔同 tab 清單都要用未篩過嘅市場 snapshot 算，唔可以用 graderSnapshot() 出嚟嗰個。
+  const market = await loadMarketSnapshot();
+  return (
+    <GraderPage
+      grader={grader}
+      snapshot={graderSnapshot(market, grader)}
+      shareTotals={graderShareTotals(market)}
+      availableGraders={gradersWithCards(market)}
+    />
+  );
 }

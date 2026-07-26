@@ -46,8 +46,8 @@ def direct_payload(gemrate_id: str, population: int, effective_date: str = "2026
     }
 
 
-def mirror_payload(population: int) -> dict:
-    return {"population": [{"gradeName": "PSA", "topGrade": population}]}
+def mirror_payload(population: int, effective_date: str = "2026-07-24") -> dict:
+    return {"effectiveDate": effective_date, "population": [{"gradeName": "PSA", "topGrade": population}]}
 
 
 def public_payload(gemrate_id: str, population: int, effective_date: str = "2026-07-23") -> dict:
@@ -61,6 +61,27 @@ def public_payload(gemrate_id: str, population: int, effective_date: str = "2026
             }
         ],
     }
+
+
+def public_payload_multi_grader(
+    gemrate_id: str,
+    populations: dict[str, int],
+    effective_date: str = "2026-07-23",
+) -> dict:
+    grader_key = {"PSA": "psa", "CGC": "cgc", "BGS": "beckett", "SGC": "sgc"}
+    rows = []
+    for code in ("PSA", "CGC", "BGS", "SGC"):
+        if code not in populations:
+            continue
+        if code == "BGS":
+            grades = {"g10p": populations[code], "g10b": 0, "g9_5": 0}
+        else:
+            grades = {"g10": populations[code]}
+        row = {"grader": grader_key[code], "grades": grades}
+        if code == "PSA":
+            row["last_population_change"] = effective_date
+        rows.append(row)
+    return {"gemrate_id": gemrate_id, "population_data": rows}
 
 
 def public_receipt(
@@ -87,7 +108,13 @@ def public_receipt(
     return payload
 
 
-def persist_verified_public_capture(cards_root: Path, gemrate_id: str, payload: dict) -> None:
+def persist_verified_public_capture(
+    cards_root: Path,
+    gemrate_id: str,
+    payload: dict,
+    *,
+    fetched_at: str | None = None,
+) -> None:
     captured = dict(payload)
     page = dict(captured.get("publicCardPage") or {})
     page.update({
@@ -98,7 +125,18 @@ def persist_verified_public_capture(cards_root: Path, gemrate_id: str, payload: 
     })
     captured["publicCardPage"] = page
     captured[PRIVATE_PAGE_JSON_FIELD] = {"gemrate_id": gemrate_id, "fixture": True}
-    _persist_public_card_capture(cards_root, gemrate_id, captured)
+    normalized = _persist_public_card_capture(cards_root, gemrate_id, captured)
+    if fetched_at is not None:
+        card_dir = cards_root / gemrate_id
+        receipt = normalized["privateSourceReceipt"]
+        receipt["fetchedAt"] = fetched_at
+        normalized["privateSourceReceipt"] = receipt
+        (card_dir / "card_details.raw.receipt.json").write_text(
+            json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        (card_dir / "card_details.json").write_text(
+            json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
 
 def persist_verified_direct_population(
@@ -150,6 +188,73 @@ def persist_direct_identity_receipt(cards_root: Path, gemrate_id: str, payload: 
 
 
 class GemRateCandidateBackfillTests(unittest.TestCase):
+    def test_public_capture_normalizes_all_grader_rows(self) -> None:
+        gemrate_id = "a" * 40
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            persist_verified_public_capture(
+                root / "public",
+                gemrate_id,
+                public_payload_multi_grader(gemrate_id, {"PSA": 1200, "CGC": 300, "BGS": 45, "SGC": 12}),
+                fetched_at="2026-07-24T00:00:00Z",
+            )
+            normalized = json.loads((root / "public" / gemrate_id / "card_details.json").read_text(encoding="utf-8"))
+            manifest = run_offline_backfill(
+                [{"gemrateId": gemrate_id, "tcg": "pokemon", "identity": None}],
+                direct_root=root / "direct",
+                public_root=root / "public",
+                mirror_root=root / "mirror",
+                as_of=date(2026, 7, 24),
+            )
+
+        graders = {row["grader"]: row["grades"]["g10"] for row in normalized["population_data"]}
+        self.assertEqual(graders, {"psa": 1200, "cgc": 300, "beckett": 45, "sgc": 12})
+        row = manifest["candidates"][0]
+        self.assertEqual(row["status"], "resolved")
+        self.assertEqual(row["populationPsa10"], 1200)
+
+    def test_beckett_top_grade_uses_pristine_not_black_label(self) -> None:
+        gemrate_id = "b" * 40
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            persist_verified_public_capture(
+                root / "public",
+                gemrate_id,
+                {
+                    "gemrate_id": gemrate_id,
+                    "population_data": [
+                        {"grader": "psa", "grades": {"g10": 500}, "last_population_change": "2026-07-23"},
+                        {"grader": "beckett", "grades": {"g10p": 7, "g10b": 99, "g9_5": 40}},
+                    ],
+                },
+                fetched_at="2026-07-24T00:00:00Z",
+            )
+            normalized = json.loads((root / "public" / gemrate_id / "card_details.json").read_text(encoding="utf-8"))
+
+        graders = {row["grader"]: row["grades"]["g10"] for row in normalized["population_data"]}
+        self.assertEqual(graders, {"psa": 500, "beckett": 7})
+
+    def test_beckett_row_without_pristine_contributes_no_bgs_point(self) -> None:
+        gemrate_id = "d" * 40
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            persist_verified_public_capture(
+                root / "public",
+                gemrate_id,
+                {
+                    "gemrate_id": gemrate_id,
+                    "population_data": [
+                        {"grader": "psa", "grades": {"g10": 500}, "last_population_change": "2026-07-23"},
+                        {"grader": "beckett", "pop_results": True},
+                    ],
+                },
+                fetched_at="2026-07-24T00:00:00Z",
+            )
+            normalized = json.loads((root / "public" / gemrate_id / "card_details.json").read_text(encoding="utf-8"))
+
+        graders = {row["grader"]: row["grades"]["g10"] for row in normalized["population_data"]}
+        self.assertEqual(graders, {"psa": 500})
+
     def test_direct_receipt_exact_confirmation_is_preferred(self) -> None:
         gemrate_id = "c" * 40
         candidate = {
@@ -762,7 +867,7 @@ class GemRateCandidateBackfillTests(unittest.TestCase):
         gemrate_id = "a" * 40
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            persist_verified_public_capture(root / "public", gemrate_id, public_payload(gemrate_id, 1200))
+            persist_verified_public_capture(root / "public", gemrate_id, public_payload(gemrate_id, 1200), fetched_at="2026-07-24T00:00:00Z")
             manifest = run_offline_backfill(
                 [{"gemrateId": gemrate_id, "tcg": "pokemon", "identity": None}],
                 direct_root=root / "direct",
@@ -947,7 +1052,7 @@ class GemRateCandidateBackfillTests(unittest.TestCase):
             mirror = root / "mirror" / "cards" / "ptcg" / "conflict"
             mirror.mkdir(parents=True)
             mirror_file = mirror / "populations.json"
-            mirror_file.write_text(json.dumps(mirror_payload(1199)), encoding="utf-8")
+            mirror_file.write_text(json.dumps(mirror_payload(1199, "2026-07-23")), encoding="utf-8")
             # Backdate the cache write so the date-free mirror payload reads as
             # observed on the run's as_of date (the scenario under test), not
             # wall-clock today.
@@ -1076,7 +1181,7 @@ class GemRateCandidateBackfillTests(unittest.TestCase):
 
         def collector(ids: list[str], *, cards_dir: Path, delay: float, resume: bool) -> dict:
             calls.append({"ids": ids, "delay": delay, "resume": resume})
-            persist_verified_public_capture(cards_dir, gemrate_id, public_payload(gemrate_id, 1200))
+            persist_verified_public_capture(cards_dir, gemrate_id, public_payload(gemrate_id, 1200), fetched_at="2026-07-24T00:00:00Z")
             return {"attempted": 1, "succeeded": 1, "failed": 0, "cached": 0, "partial": False}
 
         with tempfile.TemporaryDirectory() as temp:

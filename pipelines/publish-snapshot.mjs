@@ -212,7 +212,8 @@ async function main() {
     sha256: snapshot.generation.contentSha256,
     media: {
       prefix: "market-assets/",
-      hashes: assets.map((asset) => asset.hash),
+      /* base/_200/_600 共用同一 base hash；worker 端 parseSnapshotPointer 要求 unique */
+      hashes: [...new Set(assets.map((asset) => asset.hash))],
       remoteVerified: Boolean(options.r2Bucket),
       remoteScope,
     },

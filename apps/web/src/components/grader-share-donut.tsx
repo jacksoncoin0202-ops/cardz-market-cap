@@ -1,7 +1,7 @@
 import { useId } from "react";
 import { copy } from "@/lib/i18n";
 import { formatInteger } from "@/lib/format";
-import { graders, type Grader, type Locale, type MarketViewSnapshot } from "@/lib/types";
+import { graders, type Grader, type Locale } from "@/lib/types";
 
 const SIZE = 132;
 const STROKE = 18;
@@ -16,18 +16,16 @@ interface ShareSlice {
   offset: number;
 }
 
-export function GraderShareDonut({ snapshot, locale }: { snapshot: MarketViewSnapshot; locale: Locale }) {
+/*
+ * `totals` 係全市場總數，喺 server 端由 `graderShareTotals()` 計好傳落嚟。
+ * 唔可以喺呢度用當前版面嘅 snapshot 自己計 —— 嗰個 snapshot 已經按 grader 篩過，
+ * 分母會跟住版面郁。詳見 lib/grader-share.ts。
+ */
+export function GraderShareDonut({ totals, locale }: { totals: Record<Grader, number>; locale: Locale }) {
   const labelId = useId();
   const t = copy[locale];
 
-  const slices: ShareSlice[] = graders.map((grader) => {
-    let value = 0;
-    for (const card of snapshot.top100) {
-      const metric = card.graderPopulations[grader].total;
-      if (metric.status === "ready" && metric.value !== null && Number.isFinite(metric.value)) value += metric.value;
-    }
-    return { grader, value, share: 0, offset: 0 };
-  });
+  const slices: ShareSlice[] = graders.map((grader) => ({ grader, value: totals[grader] ?? 0, share: 0, offset: 0 }));
   const total = slices.reduce((sum, slice) => sum + slice.value, 0);
   let runningOffset = CIRCUMFERENCE / 4;
   for (const slice of slices) {

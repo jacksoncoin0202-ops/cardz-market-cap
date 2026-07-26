@@ -30,6 +30,7 @@ if sys.version_info < (3, 10):
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / "data" / "runtime" / "config" / "backend.env"
+SECRETS_PATH = ROOT / "data" / "runtime" / "config" / "gemrate.env"
 COMPOSE_PATH = ROOT / "compose.backend.yaml"
 REQUIREMENTS_PATH = ROOT / "pipelines" / "requirements.txt"
 DB_RUNTIME_PATH = ROOT / "pipelines" / "db_runtime.py"
@@ -350,11 +351,19 @@ def validate_external_transport(*, external: bool, mode: str) -> None:
         raise RuntimeError("production managed database runs require CARDZ_DB_SSL_CA")
 
 
-def daily_environment(config: Mapping[str, str], *, external: bool, backend_only: bool = True) -> dict[str, str]:
+def daily_environment(config: Mapping[str, str], *, external: bool, remote_publish: bool = False) -> dict[str, str]:
     environment = {**os.environ, **config, "CARDZ_DB_MODE": "external" if external else "local"}
-    if backend_only:
-        # This portable action intentionally owns canonical DB collection and
-        # replay only. Public generation/R2 promotion remains a separate gate.
+    # Source credentials live outside backend.env so they never round-trip through
+    # write_local_config. Without this the scheduled run starts with no
+    # GEMRATE_API_KEY, gemrate_source.py daily reports direct=disabled, and all
+    # 1468 tracked cards fall through to the Playwright public-card-page crawl,
+    # which cannot finish inside --pipeline-timeout-seconds.
+    for key, value in read_env_file(SECRETS_PATH).items():
+        environment.setdefault(key, value)
+    if not remote_publish:
+        # Only an explicit remote publish may resolve a bucket. run_daily.py reads
+        # CARDZ_*_R2_BUCKET itself, so an inherited value would silently promote a
+        # backend-only run to R2, and would hard-fail --local-only outright.
         environment.pop("CARDZ_STAGING_R2_BUCKET", None)
         environment.pop("CARDZ_PRODUCTION_R2_BUCKET", None)
     return environment
@@ -595,7 +604,7 @@ def run_full_backfill(
     """
 
     run_data_routing_tool(python)
-    environment = daily_environment(config, external=external, backend_only=True)
+    environment = daily_environment(config, external=external, remote_publish=False)
     subprocess.run(
         full_backfill_bootstrap_command(python, args.mode),
         check=True,
@@ -783,6 +792,11 @@ def main() -> int:
     parser.add_argument("--output", type=Path, help="Registry/graph output file or generated-doc directory")
     parser.add_argument("--check", action="store_true", help="Check generated registry documents for drift")
     parser.add_argument("--publish", action="store_true", help="Allow daily to enter the separately configured publish path")
+    parser.add_argument(
+        "--local-only",
+        action="store_true",
+        help="Publish into the local public tree only; never resolves an R2 bucket or promotes a remote pointer",
+    )
     parser.add_argument("--confirm-rebuild-db", action="store_true", help="Confirm canonical migration plus import; this command never drops a database")
     parser.add_argument("--seed-archive", type=Path, help="Bootstrap seed archive used by seed-build, seed-verify or seed-restore")
     parser.add_argument("--seed-target", type=Path, help="Empty target root accepted by seed-restore")
@@ -804,6 +818,8 @@ def main() -> int:
         raise RuntimeError("rebuild-db requires --confirm-rebuild-db; it migrates and imports but never drops a database")
     if args.action == "full-backfill" and args.publish:
         raise RuntimeError("full-backfill is backend-only; use daily --publish only after a completed backfill")
+    if args.local_only and not (args.action == "daily" and args.publish):
+        raise RuntimeError("--local-only only qualifies daily --publish")
     if args.action == "doctor":
         print(json.dumps(doctor_report(), sort_keys=True))
         return 0
@@ -917,11 +933,13 @@ def main() -> int:
         if args.publish:
             command.remove("--backend-only")
             command.extend(["--required-presentation-view", args.presentation_view])
+            if args.local_only:
+                command.append("--local-only")
         if args.refresh_active_universe:
             command.append("--refresh-active-universe")
         if args.require_gemrate_refresh:
             command.append("--require-gemrate-refresh")
-        environment = daily_environment(config, external=external, backend_only=not args.publish)
+        environment = daily_environment(config, external=external, remote_publish=args.publish and not args.local_only)
         subprocess.run(command, check=True, cwd=ROOT, env=environment)
     return 0
 

@@ -9,6 +9,8 @@ import { promisify } from "node:util";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const execute = promisify(execFile);
+// Ubuntu 24.04 冇 /usr/bin/python，Windows 嘅 python3 又係 Store 假 alias，所以兩邊各用各嘅名。
+const PYTHON = process.env.CARDZ_PYTHON ?? (process.platform === "win32" ? "python" : "python3");
 
 test("public seed contains no provider identity or source URL", async () => {
   const raw = await readFile(path.join(root, "data/public/seed-snapshot.json"), "utf8");
@@ -47,7 +49,7 @@ test("every public raw front carries exact resolver evidence and an explicit QC 
 });
 
 test("strict production image gate rejects metadata-only demo QC", async () => {
-  const error = await execute("python", ["pipelines/verify_images.py", "--strict-semantic"], { cwd: root })
+  const error = await execute(PYTHON, ["pipelines/verify_images.py", "--strict-semantic"], { cwd: root })
     .then(() => null)
     .catch((failure) => failure);
   assert.ok(error, "strict gate unexpectedly accepted metadata-only QC");
