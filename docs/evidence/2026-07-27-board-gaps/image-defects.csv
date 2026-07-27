@@ -1,0 +1,192 @@
+﻿variantId,boards,rank,tcg,name,set,collectorNumber,tier,missingImage,nonStdCanvas,reachableViaCurrentOpaqueId,onDiskDims,packImageDims,qcVersion
+1,ptcg100|tcg300,1,pokemon,Pikachu with Grey Felt Hat,SVP EN “Van gogh exhibition”,085/SVP,C_drift_nonstd,False,True,False,438x610,438x610,raw-front-v3
+2,ptcg100|tcg300,2,pokemon,Pikachu,SWSH: Sword & Shield Promo Cards,227/S-P,C_drift_nonstd,False,True,False,632x895,632x895,raw-front-v3
+4,ptcg100|tcg300,3,pokemon,Pikachu Munch,SM-P,288/SM-P,C_drift_nonstd,False,True,False,432x609,432x609,raw-front-v3
+5,ptcg100|tcg300,6,pokemon,Mega Charizard X ex,M2: Inferno X,110/080,C_drift_nonstd,False,True,False,705x1000,705x1000,raw-front-v3
+6,ptcg100|tcg300,7,pokemon,Umbreon ex,SV8a: Terastal Fest ex,217/187,C_drift_nonstd,False,True,False,670x933,670x933,raw-front-v3
+7,ptcg100|tcg300,5,pokemon,Poncho,XY Promos,207/XY-P,C_drift_nonstd,False,True,False,716x996,1000x730,raw-front-v3
+9,ptcg100|tcg300,4,pokemon,Poncho,XY Promos,208/XY-P,C_drift_nonstd,False,True,False,716x996,716x996,raw-front-v3
+10,ptcg100|tcg300,9,pokemon,Luigi Pikachu,XY-P: XY Promos,296/XY-P,C_drift_nonstd,False,True,False,716x996,716x996,raw-front-v3
+11,ptcg100|tcg300,10,pokemon,Charizard EX,XY-P: XY Promos,276/XY-P,C_drift_nonstd,False,True,False,716x998,716x998,raw-front-v3
+12,ptcg100|tcg300,11,pokemon,Poncho,XY-P: XY Promos,231/XY-P,C_drift_nonstd,False,True,False,716x996,716x996,raw-front-v3
+13,ptcg100|tcg300,8,pokemon,Poncho,XY-P: XY Promos,230/XY-P,C_drift_nonstd,False,True,False,716x996,716x996,raw-front-v3
+15,ptcg100|tcg300,13,pokemon,Giratina V,S11: Lost Abyss,111/100,C_drift_nonstd,False,True,False,640x903,640x903,raw-front-v3
+16,ptcg100|tcg300,14,pokemon,Mimikyu,SM-P: Sun & Moon Promos,289/SM-P,C_drift_nonstd,False,True,False,715x994,715x994,raw-front-v3
+17,ptcg100|tcg300,15,pokemon,Charizard ex,SV2a: Pokemon Card 151,201/165,C_drift_nonstd,False,True,False,640x904,640x904,raw-front-v3
+18,ptcg100|tcg300,16,pokemon,Charizard,s8a-P: Promo Card Pack 25th Anniversary Edition,001/025,C_drift_nonstd,False,True,False,500x698,500x698,raw-front-v3
+19,tcg300|op100,3,one-piece,Monkey D Luffy,2023 Awakening of the New Era Special Art,ST01-012,D_no_file,True,False,False,,1000x730,
+20,ptcg100|tcg300,17,pokemon,Latias & Latios GX,SM9: Tag Bolt,105/095,C_drift_nonstd,False,True,False,716x998,716x998,raw-front-v3
+21,ptcg100|tcg300,12,pokemon,Team Skull Pikachu,Special BOX Member Pretend Pikachu,013/SM-P,C_drift_nonstd,False,True,False,430x610,430x610,raw-front-v3
+23,ptcg100|tcg300,20,pokemon,Mew ex,SV4a: Shiny Treasure ex,347/190,C_drift_nonstd,False,True,False,640x899,640x899,raw-front-v3
+24,tcg300|op100,4,one-piece,Monkey D. Luffy,2023 Awakening of the New Era Manga Alternate Art,OP05-119,D_no_file,True,False,False,,1000x730,
+25,ptcg100|tcg300,19,pokemon,Red's Pikachu,SM-P: Sun & Moon Promos,270/SM-P,C_drift_nonstd,False,True,False,716x995,716x995,raw-front-v3
+26,ptcg100|tcg300,18,pokemon,Mario Pikachu,XY-P: XY Promos,293/XY-P,C_drift_nonstd,False,True,False,716x996,716x996,raw-front-v3
+27,ptcg100|tcg300,21,pokemon,Psyduck,SM-P: Sun & Moon Promos,286/SM-P,C_drift_nonstd,False,True,False,715x994,715x994,raw-front-v3
+29,ptcg100|tcg300,22,pokemon,Gengar VMAX,SS: Gengar VMAX High-Class Deck,020/019,C_drift_nonstd,False,True,False,573x800,573x800,raw-front-v3
+30,ptcg100|tcg300,24,pokemon,Detective Pikachu,SV-P,098/SV-P,C_drift_nonstd,False,True,False,434x609,434x609,raw-front-v3
+31,ptcg100|tcg300,25,pokemon,Moltres Zapdos Articuno GX,Sun Moon Promotional Card,SM210,C_drift_nonstd,False,True,False,441x610,441x610,raw-front-v3
+32,ptcg100|tcg300,30,pokemon,_____'s Pikachu,s8a-P: Promo Card Pack 25th Anniversary Edition,007/025,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+33,ptcg100|tcg300,23,pokemon,Lillie,SM4+: GX Battle Boost,119/114,C_drift_nonstd,False,True,False,716x997,716x997,raw-front-v3
+35,ptcg100|tcg300,27,pokemon,Pikachu,Promotional Cards 5th Anniversary Card,153/SV-P,D_no_file,True,False,False,,700x512,
+38,ptcg100|tcg300,28,pokemon,Pikachu ex,WCS23: 2023 World Championships Yokohama Deck: Pikachu,001/030,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+40,ptcg100|tcg300,33,pokemon,Eevee,SM-P: Sun & Moon Promos,287/SM-P,C_drift_nonstd,False,True,False,715x994,715x994,raw-front-v3
+43,tcg300|op100,6,one-piece,Monkey D. Luffy,2025 A Fist of Divine Speed 3rd Anniversary Gold Foil,OP05-119,D_no_file,True,False,False,,1000x730,
+44,ptcg100|tcg300,41,pokemon,Pikachu,CP3: PokeKyun Collection,010/032,C_drift_nonstd,False,True,False,716x999,716x999,raw-front-v3
+45,ptcg100|tcg300,29,pokemon,Pikachu EX,CP6: Expansion Pack 20th Anniversary,094/087,C_drift_nonstd,False,True,False,716x996,716x996,raw-front-v3
+46,ptcg100|tcg300,35,pokemon,Magikarp,SV1a: Triplet Beat,080/073,C_drift_nonstd,False,True,False,640x910,640x910,raw-front-v3
+50,ptcg100|tcg300,39,pokemon,Pikachu & Zekrom GX,SM9: Tag Bolt,101/095,C_drift_nonstd,False,True,False,716x997,716x997,raw-front-v3
+51,ptcg100|tcg300,26,pokemon,Luigi Pikachu,XY-P: XY Promos,295/XY-P,C_drift_nonstd,False,True,False,716x996,716x996,raw-front-v3
+53,ptcg100|tcg300,38,pokemon,Pikachu,SM-P: Sun & Moon Promos,400/SM-P,C_drift_nonstd,False,True,False,716x996,716x996,raw-front-v3
+57,ptcg100|tcg300,43,pokemon,Pikachu,S-P Promotional cards「YU NAGABA×Pokemon Card Game」,208/S-P,C_drift_nonstd,False,True,False,426x609,426x609,raw-front-v3
+59,ptcg100|tcg300,44,pokemon,Mega Charizard X ex,M2: Inferno X,116/080,C_drift_nonstd,False,True,False,717x1000,717x1000,raw-front-v3
+60,tcg300|op100,8,one-piece,Roronoa Zoro,2024 Wings of the Captain Manga Alternate Art,OP06-118,D_no_file,True,False,False,,1000x730,
+61,ptcg100|tcg300,45,pokemon,Mew ex,SV2a: Pokemon Card 151,205/165,C_drift_nonstd,False,True,False,500x706,500x706,raw-front-v3
+63,tcg300|op100,9,one-piece,Monkey D. Luffy,2025 Eb02-Extra Booster -Anime 25th Collection- Manga Alternate Art,EB02-061,D_no_file,True,False,False,,1000x730,
+65,ptcg100|tcg300,46,pokemon,Mewtwo GX,SM3+: Shining Legends,082/072,C_drift_nonstd,False,True,False,504x712,504x712,raw-front-v3
+66,ptcg100|tcg300,49,pokemon,Charizard ex,SV4a: Shiny Treasure ex,349/190,C_drift_nonstd,False,True,False,640x903,640x903,raw-front-v3
+68,ptcg100|tcg300,54,pokemon,Lillie,SM1M: Collection Moon,066/060,C_drift_nonstd,False,True,False,716x998,716x998,raw-front-v3
+69,tcg300|op100,10,one-piece,Monkey D. Luffy,2025 Piece Card Game Carrying On His Will,OP13-118,D_no_file,True,False,False,,1000x730,
+70,ptcg100|tcg300,50,pokemon,Cramorant,SWSH: Sword & Shield Promo Cards,226/S-P,C_drift_nonstd,False,True,False,632x895,632x895,raw-front-v3
+72,tcg300|op100,11,one-piece,Monkey D. Luffy,2025 Piece Card Game A Fist of Divine Speed,OP05-119,D_no_file,True,False,False,,1000x730,
+73,ptcg100|tcg300,55,pokemon,Sylveon ex,SV8a: Terastal Fest ex,212/187,C_drift_nonstd,False,True,False,715x1000,715x1000,raw-front-v3
+77,ptcg100|tcg300,52,pokemon,Pikachu,S12a: VSTAR Universe,205/172,C_drift_nonstd,False,True,False,704x1000,704x1000,raw-front-v3
+78,tcg300|op100,13,one-piece,Nami,2024 Premium Booster the Best Manga Alternate Art,OP01-016,D_no_file,True,False,False,,1000x730,
+79,ptcg100|tcg300,56,pokemon,Charizard ex,SV3: Ruler of the Black Flame,134/108,C_drift_nonstd,False,True,False,640x904,640x904,raw-front-v3
+81,ptcg100|tcg300,57,pokemon,Umbreon Star,s8a-P: Promo Card Pack 25th Anniversary Edition,012/025,C_drift_nonstd,False,True,False,500x698,500x698,raw-front-v3
+82,ptcg100|tcg300,66,pokemon,Special Delivery Charizard,Sword Shield 2022 Pokemon Center UK Special Promo,SWSH075,C_drift_nonstd,False,True,False,437x610,437x610,raw-front-v3
+84,ptcg100|tcg300,58,pokemon,Gengar & Mimikyu GX,SM9: Tag Bolt,103/095,C_drift_nonstd,False,True,False,716x996,716x996,raw-front-v3
+88,ptcg100|tcg300,64,pokemon,Giratina VSTAR,S12a: VSTAR Universe,261/172,C_drift_nonstd,False,True,False,708x1000,708x1000,raw-front-v3
+91,ptcg100|tcg300,62,pokemon,Rayquaza V,S7R: Blue Sky Stream,076/067,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+92,ptcg100|tcg300,70,pokemon,Kanazawa Pikachu With Mark,S-P,144/S-P,C_drift_nonstd,False,True,False,430x610,430x610,raw-front-v3
+93,ptcg100|tcg300,67,pokemon,Umbreon & Darkrai GX,SM12a: TAG TEAM GX: Tag All Stars,182/173,C_drift_nonstd,False,True,False,716x996,716x996,raw-front-v3
+94,ptcg100|tcg300,65,pokemon,Iono,SV2D: Clay Burst,096/071,C_drift_nonstd,False,True,False,640x906,640x906,raw-front-v3
+95,ptcg100|tcg300,69,pokemon,Lillie's Determination,m1L: Mega Brave,091/063,C_drift_nonstd,False,True,False,640x903,640x903,raw-front-v3
+96,ptcg100|tcg300,48,pokemon,Charizard,CP6: Expansion Pack 20th Anniversary,011/087,C_drift_nonstd,False,True,False,716x996,716x996,raw-front-v3
+97,ptcg100|tcg300,68,pokemon,Sightseer,SM12a: TAG TEAM GX: Tag All Stars,192/173,C_drift_nonstd,False,True,False,716x999,716x999,raw-front-v3
+99,ptcg100|tcg300,73,pokemon,Mew VMAX,S8: Fusion Arts,119/100,C_drift_nonstd,False,True,False,640x905,640x905,raw-front-v3
+102,tcg300|op100,19,one-piece,Shanks SEC-SP Booster Pack ROMANCE DAWN,Comic Parallel,OP01-120,D_no_file,True,False,False,,434x610,
+103,tcg300|op100,20,one-piece,Monkey D. Luffy,2022 Romance Dawn Alternate Art,OP01-003,D_no_file,True,False,False,,1000x730,
+105,ptcg100|tcg300,74,pokemon,Umbreon,SV-P Promotional cards「YU NAGABA×Pokemon Card Game」,067/SV-P,C_drift_nonstd,False,True,False,441x610,441x610,raw-front-v3
+113,ptcg100|tcg300,81,pokemon,Hiroshima's Pikachu,SV-P Promotional Cards,261/SV-P,C_drift_nonstd,False,True,False,341x476,341x476,raw-front-v3
+114,ptcg100|tcg300,83,pokemon,Pikachu,SV-P Promotional Cards,1/SV-P,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+115,ptcg100|tcg300,76,pokemon,Kingdra ex,Scarlet Violet Promotional Card,131/SVP,C_drift_nonstd,False,True,False,436x610,436x610,raw-front-v3
+116,ptcg100|tcg300,84,pokemon,Charizard VSTAR,S12a: VSTAR Universe,212/172,C_drift_nonstd,False,True,False,707x1000,707x1000,raw-front-v3
+119,ptcg100|tcg300,82,pokemon,Pikachu,Pokemon Card Festa 2017,061/SM-P,C_drift_nonstd,False,True,False,427x610,427x610,raw-front-v3
+120,ptcg100|tcg300,75,pokemon,Mewtwo & Mew GX,SM11: Miracle Twin,098/094,C_drift_nonstd,False,True,False,716x996,716x996,raw-front-v3
+122,ptcg100|tcg300,89,pokemon,Greninja ex,Scarlet Violet Shrouded Fable Greninja ex Special Illustration Collection,132/SVP,C_drift_nonstd,False,True,False,441x610,441x610,raw-front-v3
+125,ptcg100|tcg300,80,pokemon,Manzai play Pikachu,S-P,407/SM-P,C_drift_nonstd,False,True,False,441x610,441x610,raw-front-v3
+126,ptcg100|tcg300,86,pokemon,Mewtwo VSTAR,S12a: VSTAR Universe,221/172,C_drift_nonstd,False,True,False,709x1000,709x1000,raw-front-v3
+128,tcg300|op100,24,one-piece,Monkey D. Luffy,2025 A Fist of Divine Speed Manga Alternate Art,OP11-118,D_no_file,True,False,False,,1000x730,
+129,ptcg100|tcg300,87,pokemon,Espeon VMAX,S-P,189/S-P,C_drift_nonstd,False,True,False,441x610,441x610,raw-front-v3
+130,ptcg100|tcg300,88,pokemon,Charizard VMAX,S4a: Shiny Star V,308/190,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+131,ptcg100|tcg300,51,pokemon,Charizard VMAX,Sword Shield Promotional Card,SWSH261,C_drift_nonstd,False,True,False,433x605,433x605,raw-front-v3
+132,tcg300|op100,25,one-piece,Boa Hancock,2023 Kingdoms of Intrigue,OP01-078,D_no_file,True,False,False,,1000x730,
+133,ptcg100|tcg300,79,pokemon,Fukuoka's Pikachu,Special Box Pokemon Center Fukuoka,289/SV-P,C_drift_nonstd,False,True,False,435x607,435x607,raw-front-v3
+134,tcg300|op100,26,one-piece,Monkey D. Luffy,2025 Carrying On His Will (Op13) - English Manga Alt. Art Parallel,OP13-118,D_no_file,True,False,False,,1000x730,
+136,ptcg100|tcg300,93,pokemon,Pikachu,SM11b: Dream League,054/049,C_drift_nonstd,False,True,False,715x995,715x995,raw-front-v3
+142,ptcg100|tcg300,92,pokemon,Shibuya Pikachu,S-P,002/S-P,C_drift_nonstd,False,True,False,430x610,430x610,raw-front-v3
+143,ptcg100|tcg300,100,pokemon,Greninja ex,SV5a: Crimson Haze,090/066,C_drift_nonstd,False,True,False,640x903,640x903,raw-front-v3
+144,ptcg100|tcg300,95,pokemon,Clefairy,SM Promos,381/SM-P,C_drift_nonstd,False,True,False,715x995,715x995,raw-front-v3
+146,tcg300|op100,28,one-piece,Monkey D Luffy,2024 Premium Booster: the Best English Manga Alt. Art Parallel,OP05-119,D_no_file,True,False,False,,1000x730,
+149,tcg300,135,pokemon,Charizard EX,CP6: Expansion Pack 20th Anniversary,090/087,C_drift_nonstd,False,True,False,716x996,716x996,raw-front-v3
+152,tcg300,130,pokemon,Reshiram & Charizard GX,SM10: Double Blaze,097/095,C_drift_nonstd,False,True,False,716x996,716x996,raw-front-v3
+153,ptcg100|tcg300,98,pokemon,Espeon ex,SV8a: Terastal Fest ex,211/187,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+154,tcg300,131,pokemon,Team Aqua's Kyogre EX,CP1: Magma Gang vs Aqua Gang: Double Crisis,006/034,C_drift_nonstd,False,True,False,716x998,716x998,raw-front-v3
+155,tcg300,138,pokemon,Arceus VSTAR,S12a: VSTAR Universe,262/172,C_drift_nonstd,False,True,False,706x1000,706x1000,raw-front-v3
+158,tcg300,141,pokemon,Easter's Pikachu,SM-P,055/SM-P,C_drift_nonstd,False,True,False,427x610,427x610,raw-front-v3
+159,tcg300,134,pokemon,Team Magma's Groudon EX,CP1: Magma Gang vs Aqua Gang: Double Crisis,015/034,C_drift_nonstd,False,True,False,716x998,716x998,raw-front-v3
+160,tcg300,166,pokemon,Lillie's Clefairy ex,SV9: Battle Partners,126/100,C_drift_nonstd,False,True,False,640x903,640x903,raw-front-v3
+161,tcg300,136,pokemon,Greninja Star,Sword Shield Celebrations Promotional Card,SWSH144,C_drift_nonstd,False,True,False,437x610,437x610,raw-front-v3
+162,tcg300,133,pokemon,Mew,CP5: Mythical & Legendary Dream Shine Collection,017/036,C_drift_nonstd,False,True,False,716x997,716x997,raw-front-v3
+163,tcg300|op100,31,one-piece,Monkey D. Luffy,2025 3rd Anniversary! One Piece Card Treasure Campaign Pack,ST21-014,D_no_file,True,False,False,,1000x730,
+164,ptcg100|tcg300,97,pokemon,Victini,Promotional Cards Victini BWR Competition Top Prize,288/SV-P,C_drift_nonstd,False,True,False,437x610,437x610,raw-front-v3
+165,tcg300,137,pokemon,Venusaur ex,SV2a: Pokemon Card 151,200/165,C_drift_nonstd,False,True,False,640x910,640x910,raw-front-v3
+166,ptcg100|tcg300,94,pokemon,Tohoku's Pikachu,Special Box Pokemon Center Tohoku,260/SV-P,C_drift_nonstd,False,True,False,436x608,436x608,raw-front-v3
+167,tcg300,139,pokemon,Pikachu Seven-Eleven,S-P,001/S-P,C_drift_nonstd,False,True,False,441x610,441x610,raw-front-v3
+168,ptcg100|tcg300,99,pokemon,Mew EX,Shiny Collection,024/020,D_no_file,True,False,False,,1000x730,
+171,tcg300|op100,32,one-piece,Monkey D Luffy,"2024 Emperors In the New World (Op09) - English (Borderless, Manga Art) Alt Art",OP09-119,D_no_file,True,False,False,,1000x730,
+173,ptcg100|tcg300,90,pokemon,Friends in Alola,SM-P: Sun & Moon Promos,401/SM-P,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+174,tcg300,143,pokemon,Solgaleo & Lunala GX,SM11b: Dream League,063/049,C_drift_nonstd,False,True,False,716x996,716x996,raw-front-v3
+175,tcg300|op100,33,one-piece,Tony Tony Chopper,2024 Memorial Collection Manga Alternate Art,EB01-006,D_no_file,True,False,False,,1000x730,
+176,tcg300,149,pokemon,Pikachu,SV2a: Pokemon Card 151,173/165,C_drift_nonstd,False,True,False,640x914,640x914,raw-front-v3
+177,tcg300,154,pokemon,Blastoise ex,SV2a: Pokemon Card 151,202/165,C_drift_nonstd,False,True,False,640x903,640x903,raw-front-v3
+179,tcg300,163,pokemon,Mew,S8a: 25th Anniversary Collection,030/028,C_drift_nonstd,False,True,False,565x800,565x800,raw-front-v3
+181,tcg300,151,pokemon,Erika's Hospitality,SM12a: TAG TEAM GX: Tag All Stars,190/173,C_drift_nonstd,False,True,False,716x999,716x999,raw-front-v3
+182,tcg300,153,pokemon,Leafeon ex,SV8a: Terastal Fest ex,200/187,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+183,tcg300,155,pokemon,Lillie's Full Force,SM11b: Dream League,068/049,C_drift_nonstd,False,True,False,716x996,716x996,raw-front-v3
+184,tcg300,147,pokemon,Mega Rayquaza EX,XY7: Bandit Ring,095/081,C_drift_nonstd,False,True,False,716x998,716x998,raw-front-v3
+185,tcg300,157,pokemon,Marnie,S1H: Shield,068/060,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+186,tcg300,148,pokemon,Pikachu,SM-P: Sun & Moon Promos,224/SM-P,C_drift_nonstd,False,True,False,715x995,715x995,raw-front-v3
+187,tcg300,178,pokemon,Eevee ex,SV8a: Terastal Fest ex,224/187,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+188,tcg300|op100,34,one-piece,Portgas D. Ace,2023 Japanese Manga Art,OP02-013,D_no_file,True,False,False,,792x608,
+189,tcg300,161,pokemon,Pikachu,S10a: Dark Phantasma,073/071,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+190,tcg300,158,pokemon,Shining Magikarp,s8a-P: Promo Card Pack 25th Anniversary Edition,010/025,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+191,tcg300,168,pokemon,Vaporeon ex,SV8a: Terastal Fest ex,205/187,C_drift_nonstd,False,True,False,651x907,651x907,raw-front-v3
+192,tcg300|op100,35,one-piece,Sanji,2025 Premium Booster: the Best Vol.2 (Prb-02) - English Manga Alt. Art Parallel (En Above Japan On Border),OP06-119,D_no_file,True,False,False,,1000x730,
+193,tcg300,152,pokemon,Glaceon ex,SV8a: Terastal Fest ex,206/187,C_drift_nonstd,False,True,False,586x817,586x817,raw-front-v3
+195,tcg300,165,pokemon,Charizard V,S4a: Shiny Star V,307/190,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+196,tcg300,183,pokemon,Mewtwo,SV2a: Pokemon Card 151,183/165,C_drift_nonstd,False,True,False,500x711,500x711,raw-front-v3
+197,tcg300|op100,36,one-piece,Nami,2025 Card Game Promo Championship Offline Regionals Top  Prize,OP09-050,D_no_file,True,False,False,,1000x730,
+198,tcg300,164,pokemon,Pikachu wearing a poncho,SM-P,037/SM-P,C_drift_nonstd,False,True,False,430x610,430x610,raw-front-v3
+204,tcg300,169,pokemon,Gengar & Mimikyu GX,SM9: Tag Bolt,038/095,C_drift_nonstd,False,True,False,716x997,716x997,raw-front-v3
+205,tcg300,173,pokemon,Mew,S12a: VSTAR Universe,183/172,C_drift_nonstd,False,True,False,707x1000,707x1000,raw-front-v3
+207,tcg300,172,pokemon,Rosa,SM11b: Dream League,067/049,C_drift_nonstd,False,True,False,716x996,716x996,raw-front-v3
+210,tcg300,179,pokemon,M Rayquaza EX,s8a-P: Promo Card Pack 25th Anniversary Edition,024/025,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+212,tcg300,167,pokemon,Flareon,SV-P Promotional cards「YU NAGABA×Pokemon Card Game」,065/SV-P,C_drift_nonstd,False,True,False,441x610,441x610,raw-front-v3
+213,tcg300,171,pokemon,Armored Mewtwo,SM-P: Sun & Moon Promos,365/SM-P,C_drift_nonstd,False,True,False,715x994,715x994,raw-front-v3
+214,tcg300,174,pokemon,Flareon ex,SV8a: Terastal Fest ex,202/187,C_drift_nonstd,False,True,False,531x746,531x746,raw-front-v3
+218,tcg300,180,pokemon,Leafeon,SV-P Promotional cards「YU NAGABA×Pokemon Card Game」,068/SV-P,C_drift_nonstd,False,True,False,441x610,441x610,raw-front-v3
+219,tcg300,175,pokemon,Jolteon ex,SV8a: Terastal Fest ex,209/187,C_drift_nonstd,False,True,False,515x721,515x721,raw-front-v3
+222,tcg300,177,pokemon,Marnie,S4a: Shiny Star V,198/190,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+223,tcg300,182,pokemon,Rayquaza VMAX,S8b: VMAX Climax,252/184,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+233,tcg300,184,pokemon,Kanazawa Pikachu No Mark S-P,No Mark,147/S-P,C_drift_nonstd,False,True,False,441x610,441x610,raw-front-v3
+236,tcg300,190,pokemon,Yokohama's Pikachu,SM-P: Sun & Moon Promos,283/SM-P,C_drift_nonstd,False,True,False,716x996,716x996,raw-front-v3
+237,tcg300,191,pokemon,Pikachu,Illustration Contest 2024 Promo Card Commemoration Campaign for Award-Winning Works,242/SV-P,C_drift_nonstd,False,True,False,433x609,433x609,raw-front-v3
+241,tcg300,185,pokemon,Eevee ex,SV8a: Terastal Fest ex,223/187,C_drift_nonstd,False,True,False,669x935,669x935,raw-front-v3
+243,tcg300,188,pokemon,Reshiram & Zekrom GX,SM11b: Dream League,064/049,C_drift_nonstd,False,True,False,716x996,716x996,raw-front-v3
+246,tcg300,192,pokemon,Blastoise,s8a-P: Promo Card Pack 25th Anniversary Edition,003/025,C_drift_nonstd,False,True,False,500x698,500x698,raw-front-v3
+248,tcg300,186,pokemon,Arceus & Dialga & Palkia GX,SM12: Alter Genesis,100/095,C_drift_nonstd,False,True,False,716x996,716x996,raw-front-v3
+252,tcg300,199,pokemon,Pikachu VMAX,S8b: VMAX Climax,223/184,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+253,tcg300,203,pokemon,Zekrom ex,SV11B: Black Bolt,169/086,C_drift_nonstd,False,True,False,320x452,320x452,raw-front-v3
+254,tcg300,194,pokemon,Zapdos ex,SV2a: Pokemon Card 151,204/165,C_drift_nonstd,False,True,False,640x900,640x900,raw-front-v3
+255,tcg300,193,pokemon,Reshiram ex,SV11W: White Flare,168/086,C_drift_nonstd,False,True,False,320x452,320x452,raw-front-v3
+260,tcg300,197,pokemon,Charmander,SV2a: Pokemon Card 151,168/165,C_drift_nonstd,False,True,False,640x905,640x905,raw-front-v3
+264,tcg300,195,pokemon,Pikachu,SV-P,120/SV-P,C_drift_nonstd,False,True,False,434x609,434x609,raw-front-v3
+265,tcg300,196,pokemon,Venusaur,s8a-P: Promo Card Pack 25th Anniversary Edition,002/025,C_drift_nonstd,False,True,False,600x838,600x838,raw-front-v3
+266,tcg300,204,pokemon,Mew ex,s8a-P: Promo Card Pack 25th Anniversary Edition,014/025,C_drift_nonstd,False,True,False,500x698,500x698,raw-front-v3
+275,tcg300,214,pokemon,Pikachu,Pika! Pika! Pikachu! Promotion Card Campaign,124/S-P,C_drift_nonstd,False,True,False,430x610,430x610,raw-front-v3
+280,tcg300,201,pokemon,Mew V,S8: Fusion Arts,106/100,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+288,tcg300,212,pokemon,Pikachu ex,SV8a: Terastal Fest ex,236/187,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+292,tcg300,209,pokemon,Pikachu VMAX,Pika! Pika! Pikachu! Promotion Card Campaign,123/S-P,C_drift_nonstd,False,True,False,430x610,430x610,raw-front-v3
+295,tcg300,211,pokemon,Charizard V,S12a: VSTAR Universe,211/172,C_drift_nonstd,False,True,False,709x1000,709x1000,raw-front-v3
+297,tcg300,206,pokemon,M Gengar EX,Promotional Cards White Mega Gengar Campaign Gift For Purchasers of Eligible Products,079/XY-P,C_drift_nonstd,False,True,False,430x610,430x610,raw-front-v3
+300,tcg300,213,pokemon,Zekrom,s8a-P: Promo Card Pack 25th Anniversary Edition,021/025,C_drift_nonstd,False,True,False,500x698,500x698,raw-front-v3
+320,tcg300,216,pokemon,Pikachu,SV4a: Shiny Treasure ex,236/190,C_drift_nonstd,False,True,False,640x912,640x912,raw-front-v3
+325,tcg300,210,pokemon,Reshiram,s8a-P: Promo Card Pack 25th Anniversary Edition,020/025,C_drift_nonstd,False,True,False,500x698,500x698,raw-front-v3
+332,tcg300,217,pokemon,Pikachu V,S8b: VMAX Climax,222/184,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+336,tcg300,223,pokemon,Meowth,Start Deck Generations Special Battle Set,192/SV-P,C_drift_nonstd,False,True,False,430x610,430x610,raw-front-v3
+344,tcg300,228,pokemon,Pikachu,S-P: Sword & Shield Promos,272/S-P,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+345,tcg300,227,pokemon,Pikachu VMAX,S8b: VMAX Climax,279/184,C_drift_nonstd,False,True,False,711x1000,711x1000,raw-front-v3
+348,tcg300,222,pokemon,Carmine,SV6: Transformation Mask,130/101,C_drift_nonstd,False,True,False,640x905,640x905,raw-front-v3
+349,tcg300,224,pokemon,Gardevoir EX,CP3: PokeKyun Collection,019/032,C_drift_nonstd,False,True,False,716x999,716x999,raw-front-v3
+350,tcg300,229,pokemon,Shadow Rider Calyrex VMAX,S6K: Jet-Black Spirit,086/070,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+351,tcg300,230,pokemon,Shining Rayquaza,SM3+: Shining Legends,057/072,C_drift_nonstd,False,True,False,715x994,715x994,raw-front-v3
+356,tcg300,235,pokemon,Roaring Moon ex,SV8a: Terastal Fest ex,218/187,C_drift_nonstd,False,True,False,600x838,600x838,raw-front-v3
+357,tcg300,231,pokemon,Mega Charizard X ex,M2: Inferno X,094/080,C_drift_nonstd,False,True,False,708x1000,708x1000,raw-front-v3
+358,tcg300,233,pokemon,Pikachu VMAX,Monthly Coro Coro Comic February 2022 issue supplement,265/S-P,C_drift_nonstd,False,True,False,430x610,430x610,raw-front-v3
+359,tcg300,236,pokemon,Charizard ex,SV2a: Pokemon Card 151,185/165,C_drift_nonstd,False,True,False,640x902,640x902,raw-front-v3
+362,tcg300,238,pokemon,Mewtwo EX,s8a-P: Promo Card Pack 25th Anniversary Edition,022/025,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+364,tcg300,240,pokemon,Oricorio ex,M2: Inferno X,111/080,C_drift_nonstd,False,True,False,710x1000,710x1000,raw-front-v3
+365,tcg300,243,pokemon,Dark Gyarados,s8a-P: Promo Card Pack 25th Anniversary Edition,005/025,C_drift_nonstd,False,True,False,500x698,500x698,raw-front-v3
+368,tcg300,245,pokemon,Radiant Charizard,S10b: Pokemon GO,011/071,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+370,tcg300,244,pokemon,Mewtwo & Mew GX,SM12a: TAG TEAM GX: Tag All Stars,052/173,C_drift_nonstd,False,True,False,716x997,716x997,raw-front-v3
+378,tcg300,249,pokemon,Pikachu,Promotional Cards WCS2024 Commemorative Campaign,197/SV-P,C_drift_nonstd,False,True,False,430x609,430x609,raw-front-v3
+379,tcg300,250,pokemon,Green's Exploration,SM9b: Full Metal Wall,061/054,C_drift_nonstd,False,True,False,716x999,716x999,raw-front-v3
+380,tcg300,254,pokemon,Gengar VMAX,SS: Gengar VMAX High-Class Deck,002/019,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+384,tcg300,255,pokemon,Darkrai VSTAR,S12a: VSTAR Universe,228/172,C_drift_nonstd,False,True,False,706x1000,706x1000,raw-front-v3
+386,tcg300,259,pokemon,Rayquaza,S3a: Legendary Heartbeat,056/076,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+387,tcg300,257,pokemon,Mega Gengar ex,MBG: MEGA Starter Set Mega Gengar ex,003/021,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+390,tcg300,260,pokemon,Mewtwo,Pokemon TCG Classic: Blastoise,014/032,C_drift_nonstd,False,True,False,444x620,444x620,raw-front-v3
+391,tcg300,262,pokemon,Rayquaza VMAX,S8b: VMAX Climax,284/184,C_drift_nonstd,False,True,False,710x1000,710x1000,raw-front-v3
+392,tcg300,261,pokemon,Surfing Pikachu VMAX,S8a: 25th Anniversary Collection,022/028,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3
+394,tcg300,264,pokemon,Surfing Pikachu V,S8a: 25th Anniversary Collection,021/028,C_drift_nonstd,False,True,False,716x1000,716x1000,raw-front-v3

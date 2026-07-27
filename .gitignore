@@ -66,3 +66,18 @@ Thumbs.db
 # Playwright artifacts
 playwright-report/
 test-results/
+
+# Agent scratch and preview builds. 2026-07-27 打包前實測：呢六個從未被 ignore，
+# 加埋 1.8 GB / 3,300+ 檔，全部係 agent 中途產物（.err/.json probe、__pycache__、
+# 截圖、backdated fixture）。冇一個係交付物，但一 commit 就永久留喺 history。
+.agent/
+temp/
+verification/
+tempseed-committed.json
+temptestdata_win.txt
+apps/web/.preview/
+
+# 大體積衍生物：mockup 自己複製一份卡圖（102 MB，data/public/market-assets/ 已經有
+# canonical 版），同一個冇任何 consumer 嘅 6.3 MB pack（grep 全 repo 零引用）。
+docs/mockups/market-assets/
+data/public/presentation-pack.json

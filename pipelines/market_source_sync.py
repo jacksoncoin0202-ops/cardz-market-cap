@@ -380,6 +380,7 @@ def gemrate_current_observations(card_root: Path) -> dict[str, tuple[date, int, 
             transport = ""
         priorities = {
             "direct_api": 3,
+            "gemrate_public_card_page": 2,
             "public_card_details": 2,
             "grade10_gemrate_mirror": 1,
         }

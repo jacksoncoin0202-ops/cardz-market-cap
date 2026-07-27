@@ -174,6 +174,6 @@ Data sources are first-class collectors coordinated by one daily parent task tha
 
 The machine-readable source contract is `config/data-routing.json`; see `docs/DATA_ROUTING.md` and `docs/DATA_SOURCE_INVENTORY.md`. The current legacy eBay Browse client exposes active asking prices, not sold transactions, so it is not used as a price authority.
 
-Do not install separate GemRate or SNK scheduler tasks. `pipelines/run_daily.py` owns the singleton run ID and publishes only after the complete generation passes validation.
+Do not install separate GemRate or SNK **daily price/population** scheduler tasks — `pipelines/run_daily.py` owns the singleton daily run ID and publishes only after the complete generation passes validation. The GemRate **freeze/roster sweep** tasks (`CARDZ-GemRate-Freeze-Oneshot-*`) and `CARDZ-TAG-Daily-Capture` run on a deliberately separate cadence and are exempt (user-ratified 2026-07-27).
 
 The legacy worker and production route remain unchanged until staging passes its live canary and a separate production cutover is approved.

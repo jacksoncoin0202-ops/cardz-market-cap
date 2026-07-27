@@ -1,0 +1,1825 @@
+[
+ {
+  "variant_id": 1424,
+  "collector_number": "ST01-012",
+  "canonical_name": "Monkey D. Luffy (1st Anniversary)",
+  "set_name": "One Piece Awakening of the New Era",
+  "psa10_pop": 5440,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 19,
+    "set_name": "2023 Awakening of the New Era Special Art",
+    "price_rows": 19,
+    "uuid": "b69a3067-c2cc-414f-902e-76db8b5fd3f4"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1440,
+  "collector_number": "OP11-080",
+  "canonical_name": "Gear Two",
+  "set_name": "One Piece A Fist of Divine Speed",
+  "psa10_pop": 4800,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 247,
+    "set_name": "2025 A Fist of Divine Speed Alternate Art",
+    "price_rows": 10,
+    "uuid": "5672781b-39df-404e-9873-18c8b7aa425d"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 954,
+  "collector_number": "OP11-058",
+  "canonical_name": "Monkey D. Luffy",
+  "set_name": "One Piece Carrying On His Will",
+  "psa10_pop": 4696,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1300,
+  "collector_number": "ST01-007",
+  "canonical_name": "Nami",
+  "set_name": "One Piece Wings of the Captain",
+  "psa10_pop": 4601,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1204,
+  "collector_number": "OP05-119",
+  "canonical_name": "Monkey D. Luffy",
+  "set_name": "One Piece Awakening of the New Era",
+  "psa10_pop": 4496,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 24,
+    "set_name": "2023 Awakening of the New Era Manga Alternate Art",
+    "price_rows": 20,
+    "uuid": "231edf8e-4170-439b-8134-ce15ee82f0d9"
+   },
+   {
+    "variant_id": 304,
+    "set_name": "2023 Awakening of the New Era Alternate Art",
+    "price_rows": 8,
+    "uuid": "78836be6-8ce1-4d38-9feb-c4e3e56bfcb3"
+   },
+   {
+    "variant_id": 146,
+    "set_name": "2024 Premium Booster: the Best English Manga Alt. Art Parallel",
+    "price_rows": 19,
+    "uuid": "7c57a2c7-6647-4603-9651-d522e997db3f"
+   },
+   {
+    "variant_id": 239,
+    "set_name": "Booster Pack Emperors in the New World",
+    "price_rows": 15,
+    "uuid": "bd6cfeb9-1dc9-4eb0-81b5-1aff08bac251"
+   },
+   {
+    "variant_id": 72,
+    "set_name": "2025 Piece Card Game A Fist of Divine Speed",
+    "price_rows": 16,
+    "uuid": "d2210393-3c59-4cb3-a438-ed7a70370d3d"
+   },
+   {
+    "variant_id": 43,
+    "set_name": "2025 A Fist of Divine Speed 3rd Anniversary Gold Foil",
+    "price_rows": 18,
+    "uuid": "d26d574b-0e45-4e7a-aa57-66bd27ef61a1"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1465,
+  "collector_number": "OP13-118",
+  "canonical_name": "Monkey D. Luffy",
+  "set_name": "One Piece Carrying On His Will",
+  "psa10_pop": 4085,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 1466,
+    "set_name": "One Piece Carrying On His Will",
+    "price_rows": 13,
+    "uuid": "3b0daf4e-ac0e-4906-ba2d-c3de0aeec1d0"
+   },
+   {
+    "variant_id": 315,
+    "set_name": "2025 Carrying On His Will Alternate Art",
+    "price_rows": 5,
+    "uuid": "8e058d43-d5b0-4d0d-9761-e7776c808cb9"
+   },
+   {
+    "variant_id": 69,
+    "set_name": "2025 Piece Card Game Carrying On His Will",
+    "price_rows": 12,
+    "uuid": "f31ebe4b-7675-46f1-86c3-245e4bc10005"
+   },
+   {
+    "variant_id": 134,
+    "set_name": "2025 Carrying On His Will (Op13) - English Manga Alt. Art Parallel",
+    "price_rows": 13,
+    "uuid": "f3741d7c-c2f3-4775-a8f2-f08b2f9cab66"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1209,
+  "collector_number": "OP07-109",
+  "canonical_name": "Monkey D. Luffy",
+  "set_name": "One Piece Two Legends",
+  "psa10_pop": 3919,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 110,
+    "set_name": "2024 Championship 2024 Event Pack Cs Event Pack-Serialized",
+    "price_rows": 4,
+    "uuid": "4ee16483-0d75-417e-8f1b-452ba4f474fd"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1457,
+  "collector_number": "OP05-119",
+  "canonical_name": "Monkey D. Luffy",
+  "set_name": "One Piece Awakening of the New Era",
+  "psa10_pop": 3292,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 24,
+    "set_name": "2023 Awakening of the New Era Manga Alternate Art",
+    "price_rows": 20,
+    "uuid": "231edf8e-4170-439b-8134-ce15ee82f0d9"
+   },
+   {
+    "variant_id": 304,
+    "set_name": "2023 Awakening of the New Era Alternate Art",
+    "price_rows": 8,
+    "uuid": "78836be6-8ce1-4d38-9feb-c4e3e56bfcb3"
+   },
+   {
+    "variant_id": 146,
+    "set_name": "2024 Premium Booster: the Best English Manga Alt. Art Parallel",
+    "price_rows": 19,
+    "uuid": "7c57a2c7-6647-4603-9651-d522e997db3f"
+   },
+   {
+    "variant_id": 239,
+    "set_name": "Booster Pack Emperors in the New World",
+    "price_rows": 15,
+    "uuid": "bd6cfeb9-1dc9-4eb0-81b5-1aff08bac251"
+   },
+   {
+    "variant_id": 72,
+    "set_name": "2025 Piece Card Game A Fist of Divine Speed",
+    "price_rows": 16,
+    "uuid": "d2210393-3c59-4cb3-a438-ed7a70370d3d"
+   },
+   {
+    "variant_id": 43,
+    "set_name": "2025 A Fist of Divine Speed 3rd Anniversary Gold Foil",
+    "price_rows": 18,
+    "uuid": "d26d574b-0e45-4e7a-aa57-66bd27ef61a1"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1436,
+  "collector_number": "OP12-037",
+  "canonical_name": "Demon Aura Nine Sword Style Asura Blades Drawn Dead Man's Game",
+  "set_name": "One Piece Legacy of the Master",
+  "psa10_pop": 3288,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1203,
+  "collector_number": "OP01-016",
+  "canonical_name": "Nami",
+  "set_name": "One Piece Awakening of the New Era",
+  "psa10_pop": 2983,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 200,
+    "set_name": "2022 Romance Dawn Alternate Art",
+    "price_rows": 19,
+    "uuid": "d24a0cd8-6f61-415c-93f4-470e9e29d60f"
+   },
+   {
+    "variant_id": 78,
+    "set_name": "2024 Premium Booster the Best Manga Alternate Art",
+    "price_rows": 10,
+    "uuid": "dde83737-3fdb-4631-8b57-7836fb264422"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1248,
+  "collector_number": "OP05-119",
+  "canonical_name": "Monkey D. Luffy",
+  "set_name": "One Piece Emperors in the New World",
+  "psa10_pop": 2972,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 24,
+    "set_name": "2023 Awakening of the New Era Manga Alternate Art",
+    "price_rows": 20,
+    "uuid": "231edf8e-4170-439b-8134-ce15ee82f0d9"
+   },
+   {
+    "variant_id": 304,
+    "set_name": "2023 Awakening of the New Era Alternate Art",
+    "price_rows": 8,
+    "uuid": "78836be6-8ce1-4d38-9feb-c4e3e56bfcb3"
+   },
+   {
+    "variant_id": 146,
+    "set_name": "2024 Premium Booster: the Best English Manga Alt. Art Parallel",
+    "price_rows": 19,
+    "uuid": "7c57a2c7-6647-4603-9651-d522e997db3f"
+   },
+   {
+    "variant_id": 239,
+    "set_name": "Booster Pack Emperors in the New World",
+    "price_rows": 15,
+    "uuid": "bd6cfeb9-1dc9-4eb0-81b5-1aff08bac251"
+   },
+   {
+    "variant_id": 72,
+    "set_name": "2025 Piece Card Game A Fist of Divine Speed",
+    "price_rows": 16,
+    "uuid": "d2210393-3c59-4cb3-a438-ed7a70370d3d"
+   },
+   {
+    "variant_id": 43,
+    "set_name": "2025 A Fist of Divine Speed 3rd Anniversary Gold Foil",
+    "price_rows": 18,
+    "uuid": "d26d574b-0e45-4e7a-aa57-66bd27ef61a1"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1243,
+  "collector_number": "ST18-004",
+  "canonical_name": "Zoro-Juurou",
+  "set_name": "One Piece Emperors in the New World",
+  "psa10_pop": 2614,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 941,
+  "collector_number": "OP09-061",
+  "canonical_name": "Monkey D. Luffy",
+  "set_name": "One Piece Emperors in the New World",
+  "psa10_pop": 2607,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 262,
+    "set_name": "2025 2nd Anniversary Set - English",
+    "price_rows": 13,
+    "uuid": "2921ab0e-8d98-4233-b56c-858576547d94"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1218,
+  "collector_number": "OP12-060",
+  "canonical_name": "Boeuf Burst",
+  "set_name": "One Piece Legacy of the Master",
+  "psa10_pop": 2523,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1226,
+  "collector_number": "OP11-114",
+  "canonical_name": "Gum-Gum Fire-Fist Pistol Red Hawk",
+  "set_name": "One Piece A Fist of Divine Speed",
+  "psa10_pop": 2508,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1273,
+  "collector_number": "OP13-001",
+  "canonical_name": "Monkey D. Luffy",
+  "set_name": "One Piece Carrying On His Will",
+  "psa10_pop": 2488,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1238,
+  "collector_number": "PRB02-006",
+  "canonical_name": "Roronoa Zoro",
+  "set_name": "One Piece the Azure Sea's Seven",
+  "psa10_pop": 2391,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1425,
+  "collector_number": "OP05-060",
+  "canonical_name": "Monkey D. Luffy",
+  "set_name": "One Piece Awakening of the New Era",
+  "psa10_pop": 2389,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1439,
+  "collector_number": "ST18-005",
+  "canonical_name": "Luffy-Tarou",
+  "set_name": "One Piece A Fist of Divine Speed",
+  "psa10_pop": 2379,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1459,
+  "collector_number": "OP12-118",
+  "canonical_name": "Jewelry Bonney",
+  "set_name": "One Piece Legacy of the Master",
+  "psa10_pop": 2375,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 287,
+    "set_name": "2025 Op12-Legacy of the Master Manga Alternate Art",
+    "price_rows": 11,
+    "uuid": "d1d66aae-a105-4295-8655-70b0cf2f8244"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1442,
+  "collector_number": "OP07-038",
+  "canonical_name": "Boa Hancock",
+  "set_name": "One Piece 500 Years in the Future",
+  "psa10_pop": 2363,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1272,
+  "collector_number": "OP13-076",
+  "canonical_name": "Divine Departure",
+  "set_name": "One Piece Carrying On His Will",
+  "psa10_pop": 2283,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1220,
+  "collector_number": "ST18-004",
+  "canonical_name": "Zoro-Juurou",
+  "set_name": "One Piece Legacy of the Master",
+  "psa10_pop": 2279,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1441,
+  "collector_number": "OP06-101",
+  "canonical_name": "O-Nami",
+  "set_name": "One Piece 500 Years in the Future",
+  "psa10_pop": 2276,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1467,
+  "collector_number": "OP13-119",
+  "canonical_name": "Portgas D. Ace",
+  "set_name": "One Piece Carrying On His Will",
+  "psa10_pop": 2217,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 245,
+    "set_name": "2025 Piece Card Game Carrying On His Will",
+    "price_rows": 16,
+    "uuid": "656c8cfb-d86b-40a9-8f32-9701ec850832"
+   },
+   {
+    "variant_id": 313,
+    "set_name": "2025 Carrying On His Will Wanted Poster Error",
+    "price_rows": 14,
+    "uuid": "b9fceb72-7438-47ad-b9bc-be88280894d6"
+   },
+   {
+    "variant_id": 1565,
+    "set_name": "One Piece Carrying On His Will",
+    "price_rows": 15,
+    "uuid": "fee2e56c-922e-47fa-9d99-fead533e8677"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1231,
+  "collector_number": "OP11-018",
+  "canonical_name": "Honesty Impact",
+  "set_name": "One Piece A Fist of Divine Speed",
+  "psa10_pop": 2156,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 589,
+  "collector_number": "OP02-120",
+  "canonical_name": "Uta",
+  "set_name": "One Piece Awakening of the New Era",
+  "psa10_pop": 2151,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1444,
+  "collector_number": "OP14-118",
+  "canonical_name": "You'll Frighten Me...",
+  "set_name": "One Piece the Azure Sea's Seven",
+  "psa10_pop": 2125,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1247,
+  "collector_number": "OP09-004",
+  "canonical_name": "Shanks",
+  "set_name": "One Piece Emperors in the New World",
+  "psa10_pop": 2124,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 305,
+    "set_name": "2025 Carrying On His Will (Op13) - English SP Ver. (Sp Next To Number) Gold",
+    "price_rows": 17,
+    "uuid": "3dbbdb68-491a-4821-b570-860e5090e375"
+   },
+   {
+    "variant_id": 279,
+    "set_name": "2024 Emperors In the New World Manga Alternate Art",
+    "price_rows": 20,
+    "uuid": "572eae79-88fe-4371-a4cc-81fafe3f3e25"
+   },
+   {
+    "variant_id": 316,
+    "set_name": "2025 Promos Official Event Top Prize",
+    "price_rows": 12,
+    "uuid": "f8d64092-c93c-49ac-adf8-8eb50886feb8"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1450,
+  "collector_number": "OP01-016",
+  "canonical_name": "Nami (Errata)",
+  "set_name": "One Piece Romance Dawn",
+  "psa10_pop": 2114,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 200,
+    "set_name": "2022 Romance Dawn Alternate Art",
+    "price_rows": 19,
+    "uuid": "d24a0cd8-6f61-415c-93f4-470e9e29d60f"
+   },
+   {
+    "variant_id": 78,
+    "set_name": "2024 Premium Booster the Best Manga Alternate Art",
+    "price_rows": 10,
+    "uuid": "dde83737-3fdb-4631-8b57-7836fb264422"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1430,
+  "collector_number": "OP10-119",
+  "canonical_name": "Trafalgar Law",
+  "set_name": "One Piece Royal Blood",
+  "psa10_pop": 2104,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 301,
+    "set_name": "2025 Piece Card Game Royal Blood Manga Art",
+    "price_rows": 11,
+    "uuid": "cbcebb1c-eabb-471b-b0d9-1dbc499a890b"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1448,
+  "collector_number": "OP08-106",
+  "canonical_name": "Nami",
+  "set_name": "One Piece Emperors in the New World",
+  "psa10_pop": 2100,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 271,
+    "set_name": "2024 Emperors In the New World Special Alternate Art",
+    "price_rows": 16,
+    "uuid": "5f47c27e-4973-4d7f-97fb-e05bc9d127b5"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1271,
+  "collector_number": "OP09-119",
+  "canonical_name": "Monkey D. Luffy",
+  "set_name": "One Piece Carrying On His Will",
+  "psa10_pop": 2099,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 171,
+    "set_name": "2024 Emperors In the New World (Op09) - English (Borderless, Manga Art) Alt Art",
+    "price_rows": 14,
+    "uuid": "484c087a-94ae-4e5a-90ac-06f75236c848"
+   },
+   {
+    "variant_id": 310,
+    "set_name": "2025 Piece Card Game Carrying On His Will",
+    "price_rows": 10,
+    "uuid": "53ec6007-8833-454d-8b2c-0b4a138d1e2f"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1464,
+  "collector_number": "OP13-119",
+  "canonical_name": "Portgas D. Ace (Error)",
+  "set_name": "One Piece Carrying On His Will",
+  "psa10_pop": 2095,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 245,
+    "set_name": "2025 Piece Card Game Carrying On His Will",
+    "price_rows": 16,
+    "uuid": "656c8cfb-d86b-40a9-8f32-9701ec850832"
+   },
+   {
+    "variant_id": 313,
+    "set_name": "2025 Carrying On His Will Wanted Poster Error",
+    "price_rows": 14,
+    "uuid": "b9fceb72-7438-47ad-b9bc-be88280894d6"
+   },
+   {
+    "variant_id": 1565,
+    "set_name": "One Piece Carrying On His Will",
+    "price_rows": 15,
+    "uuid": "fee2e56c-922e-47fa-9d99-fead533e8677"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1427,
+  "collector_number": "OP02-013",
+  "canonical_name": "Portgas D. Ace",
+  "set_name": "One Piece Two Legends",
+  "psa10_pop": 2087,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 188,
+    "set_name": "2023 Japanese Manga Art",
+    "price_rows": 20,
+    "uuid": "d2b07a31-e001-4819-a6f8-d405548ac6bf"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1199,
+  "collector_number": "OP01-121",
+  "canonical_name": "Yamato",
+  "set_name": "One Piece Awakening of the New Era",
+  "psa10_pop": 2050,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 713,
+  "collector_number": "ST13-011",
+  "canonical_name": "Portgas D. Ace",
+  "set_name": "One Piece Legacy of the Master",
+  "psa10_pop": 2011,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1445,
+  "collector_number": "OP09-119",
+  "canonical_name": "Monkey D. Luffy",
+  "set_name": "One Piece Emperors in the New World",
+  "psa10_pop": 2000,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 171,
+    "set_name": "2024 Emperors In the New World (Op09) - English (Borderless, Manga Art) Alt Art",
+    "price_rows": 14,
+    "uuid": "484c087a-94ae-4e5a-90ac-06f75236c848"
+   },
+   {
+    "variant_id": 310,
+    "set_name": "2025 Piece Card Game Carrying On His Will",
+    "price_rows": 10,
+    "uuid": "53ec6007-8833-454d-8b2c-0b4a138d1e2f"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1428,
+  "collector_number": "OP08-118",
+  "canonical_name": "Silvers Rayleigh",
+  "set_name": "One Piece Two Legends",
+  "psa10_pop": 1988,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 308,
+    "set_name": "2024 Two Legends Manga Alternate Art",
+    "price_rows": 16,
+    "uuid": "fb2f5ecd-1f08-449c-94eb-a5c1ec039193"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1213,
+  "collector_number": "ST15-002",
+  "canonical_name": "Edward Newgate",
+  "set_name": "One Piece Royal Blood",
+  "psa10_pop": 1974,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 958,
+  "collector_number": "UNKNOWN",
+  "canonical_name": "DON!! Card (Gold)",
+  "set_name": "One Piece Carrying On His Will",
+  "psa10_pop": 1966,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 715,
+  "collector_number": "OP12-020",
+  "canonical_name": "Roronoa Zoro",
+  "set_name": "One Piece Legacy of the Master",
+  "psa10_pop": 1915,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1479,
+  "collector_number": "OP06-118",
+  "canonical_name": "Roronoa Zoro",
+  "set_name": "One Piece Wings of the Captain",
+  "psa10_pop": 1896,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 60,
+    "set_name": "2024 Wings of the Captain Manga Alternate Art",
+    "price_rows": 15,
+    "uuid": "d68bf285-3bb0-4268-92e9-c643d266984c"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1468,
+  "collector_number": "OP13-118",
+  "canonical_name": "Monkey D. Luffy",
+  "set_name": "One Piece Carrying On His Will",
+  "psa10_pop": 1876,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 1466,
+    "set_name": "One Piece Carrying On His Will",
+    "price_rows": 13,
+    "uuid": "3b0daf4e-ac0e-4906-ba2d-c3de0aeec1d0"
+   },
+   {
+    "variant_id": 315,
+    "set_name": "2025 Carrying On His Will Alternate Art",
+    "price_rows": 5,
+    "uuid": "8e058d43-d5b0-4d0d-9761-e7776c808cb9"
+   },
+   {
+    "variant_id": 69,
+    "set_name": "2025 Piece Card Game Carrying On His Will",
+    "price_rows": 12,
+    "uuid": "f31ebe4b-7675-46f1-86c3-245e4bc10005"
+   },
+   {
+    "variant_id": 134,
+    "set_name": "2025 Carrying On His Will (Op13) - English Manga Alt. Art Parallel",
+    "price_rows": 13,
+    "uuid": "f3741d7c-c2f3-4775-a8f2-f08b2f9cab66"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 590,
+  "collector_number": "OP04-044",
+  "canonical_name": "Kaido",
+  "set_name": "One Piece Awakening of the New Era",
+  "psa10_pop": 1875,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1245,
+  "collector_number": "OP09-093",
+  "canonical_name": "Marshall D. Teach",
+  "set_name": "One Piece Emperors in the New World",
+  "psa10_pop": 1872,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 278,
+    "set_name": "2025 Legacy of the Master (Op12) - English SP Version (Sp Next To Number) Gold",
+    "price_rows": 16,
+    "uuid": "82263cbe-3190-4d9c-9897-216103ba9894"
+   },
+   {
+    "variant_id": 290,
+    "set_name": "2024 Emperors In the New World Manga Alternate Art",
+    "price_rows": 19,
+    "uuid": "937d37ff-9dce-4be8-84d7-c3ed883c4013"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1429,
+  "collector_number": "OP10-019",
+  "canonical_name": "Divine Departure",
+  "set_name": "One Piece Royal Blood",
+  "psa10_pop": 1868,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1210,
+  "collector_number": "ST02-007",
+  "canonical_name": "Jewelry Bonney",
+  "set_name": "One Piece Two Legends",
+  "psa10_pop": 1840,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 953,
+  "collector_number": "OP01-078",
+  "canonical_name": "Boa Hancock",
+  "set_name": "One Piece Romance Dawn",
+  "psa10_pop": 1840,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 132,
+    "set_name": "2023 Kingdoms of Intrigue",
+    "price_rows": 17,
+    "uuid": "8f872687-5dac-4339-bd85-cc26c7107e9d"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1447,
+  "collector_number": "OP07-051",
+  "canonical_name": "Boa Hancock",
+  "set_name": "One Piece Emperors in the New World",
+  "psa10_pop": 1839,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 107,
+    "set_name": "2024 500 Years In the Future Manga Art",
+    "price_rows": 13,
+    "uuid": "d00d2083-0262-4d4f-8550-348e76573afc"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1446,
+  "collector_number": "OP09-051",
+  "canonical_name": "Buggy",
+  "set_name": "One Piece Emperors in the New World",
+  "psa10_pop": 1787,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1222,
+  "collector_number": "OP11-041",
+  "canonical_name": "Nami",
+  "set_name": "One Piece A Fist of Divine Speed",
+  "psa10_pop": 1785,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1480,
+  "collector_number": "OP06-118",
+  "canonical_name": "Roronoa Zoro",
+  "set_name": "One Piece Wings of the Captain",
+  "psa10_pop": 1783,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 60,
+    "set_name": "2024 Wings of the Captain Manga Alternate Art",
+    "price_rows": 15,
+    "uuid": "d68bf285-3bb0-4268-92e9-c643d266984c"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1462,
+  "collector_number": "OP14-112",
+  "canonical_name": "Boa Hancock",
+  "set_name": "One Piece the Azure Sea's Seven",
+  "psa10_pop": 1782,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1214,
+  "collector_number": "OP08-052",
+  "canonical_name": "Portgas D. Ace",
+  "set_name": "One Piece Royal Blood",
+  "psa10_pop": 1775,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1244,
+  "collector_number": "OP05-067",
+  "canonical_name": "Zoro-Juurou",
+  "set_name": "One Piece Emperors in the New World",
+  "psa10_pop": 1754,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1253,
+  "collector_number": "OP01-016",
+  "canonical_name": "Nami",
+  "set_name": "One Piece Romance Dawn",
+  "psa10_pop": 1752,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 200,
+    "set_name": "2022 Romance Dawn Alternate Art",
+    "price_rows": 19,
+    "uuid": "d24a0cd8-6f61-415c-93f4-470e9e29d60f"
+   },
+   {
+    "variant_id": 78,
+    "set_name": "2024 Premium Booster the Best Manga Alternate Art",
+    "price_rows": 10,
+    "uuid": "dde83737-3fdb-4631-8b57-7836fb264422"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1202,
+  "collector_number": "OP05-100",
+  "canonical_name": "Enel",
+  "set_name": "One Piece Awakening of the New Era",
+  "psa10_pop": 1751,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1239,
+  "collector_number": "OP14-041",
+  "canonical_name": "Boa Hancock",
+  "set_name": "One Piece the Azure Sea's Seven",
+  "psa10_pop": 1698,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1216,
+  "collector_number": "OP10-063",
+  "canonical_name": "Vinsmoke Sanji",
+  "set_name": "One Piece Legacy of the Master",
+  "psa10_pop": 1648,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 956,
+  "collector_number": "OP13-120",
+  "canonical_name": "Sabo",
+  "set_name": "One Piece Carrying On His Will",
+  "psa10_pop": 1646,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 317,
+    "set_name": "2025 Carrying On His Will (Op13) - English Manga Alt. Art Parallel",
+    "price_rows": 17,
+    "uuid": "38409ff2-626e-42e5-b76d-fe7b990e2120"
+   },
+   {
+    "variant_id": 303,
+    "set_name": "2025 Carrying On His Will Red Manga Art",
+    "price_rows": 15,
+    "uuid": "478bb621-0783-4d3e-aad8-f901b53da596"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1236,
+  "collector_number": "OP14-031",
+  "canonical_name": "Nami",
+  "set_name": "One Piece the Azure Sea's Seven",
+  "psa10_pop": 1642,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1451,
+  "collector_number": "OP01-024",
+  "canonical_name": "Monkey D. Luffy",
+  "set_name": "One Piece Romance Dawn",
+  "psa10_pop": 1637,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1232,
+  "collector_number": "OP06-119",
+  "canonical_name": "Sanji",
+  "set_name": "One Piece A Fist of Divine Speed",
+  "psa10_pop": 1630,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 192,
+    "set_name": "2025 Premium Booster: the Best Vol.2 (Prb-02) - English Manga Alt. Art Parallel (En Above Japan On Border)",
+    "price_rows": 17,
+    "uuid": "e10dfc65-66d6-4c21-80e8-355455c075bb"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1280,
+  "collector_number": "OP04-083",
+  "canonical_name": "Sabo",
+  "set_name": "One Piece Kingdoms of Intrigue",
+  "psa10_pop": 1627,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1279,
+  "collector_number": "OP13-051",
+  "canonical_name": "Boa Hancock",
+  "set_name": "One Piece Carrying On His Will",
+  "psa10_pop": 1620,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1438,
+  "collector_number": "EB01-057",
+  "canonical_name": "Shirahoshi",
+  "set_name": "One Piece A Fist of Divine Speed",
+  "psa10_pop": 1613,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1223,
+  "collector_number": "OP11-040",
+  "canonical_name": "Monkey D. Luffy",
+  "set_name": "One Piece A Fist of Divine Speed",
+  "psa10_pop": 1595,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1224,
+  "collector_number": "ST16-004",
+  "canonical_name": "Shanks",
+  "set_name": "One Piece A Fist of Divine Speed",
+  "psa10_pop": 1561,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1302,
+  "collector_number": "OP05-091",
+  "canonical_name": "Rebecca",
+  "set_name": "One Piece Wings of the Captain",
+  "psa10_pop": 1550,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1274,
+  "collector_number": "EB02-028",
+  "canonical_name": "Portgas D. Ace",
+  "set_name": "One Piece Carrying On His Will",
+  "psa10_pop": 1545,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1453,
+  "collector_number": "OP06-022",
+  "canonical_name": "Yamato",
+  "set_name": "One Piece Wings of the Captain",
+  "psa10_pop": 1532,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1303,
+  "collector_number": "OP04-064",
+  "canonical_name": "Ms. All Sunday",
+  "set_name": "One Piece Wings of the Captain",
+  "psa10_pop": 1528,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1225,
+  "collector_number": "OP07-085",
+  "canonical_name": "Stussy",
+  "set_name": "One Piece A Fist of Divine Speed",
+  "psa10_pop": 1522,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 601,
+  "collector_number": "OP03-112",
+  "canonical_name": "Charlotte Pudding",
+  "set_name": "One Piece Two Legends",
+  "psa10_pop": 1517,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1246,
+  "collector_number": "OP09-119",
+  "canonical_name": "Monkey D. Luffy",
+  "set_name": "One Piece Emperors in the New World",
+  "psa10_pop": 1514,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 171,
+    "set_name": "2024 Emperors In the New World (Op09) - English (Borderless, Manga Art) Alt Art",
+    "price_rows": 14,
+    "uuid": "484c087a-94ae-4e5a-90ac-06f75236c848"
+   },
+   {
+    "variant_id": 310,
+    "set_name": "2025 Piece Card Game Carrying On His Will",
+    "price_rows": 10,
+    "uuid": "53ec6007-8833-454d-8b2c-0b4a138d1e2f"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 753,
+  "collector_number": "OP02-013",
+  "canonical_name": "Portgas D. Ace",
+  "set_name": "One Piece Paramount War",
+  "psa10_pop": 1505,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 188,
+    "set_name": "2023 Japanese Manga Art",
+    "price_rows": 20,
+    "uuid": "d2b07a31-e001-4819-a6f8-d405548ac6bf"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 952,
+  "collector_number": "OP01-120",
+  "canonical_name": "Shanks",
+  "set_name": "One Piece Romance Dawn",
+  "psa10_pop": 1501,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 178,
+    "set_name": "2023 Promos Event Prize",
+    "price_rows": 13,
+    "uuid": "47081b3c-179e-4d95-b888-e9391c23b76e"
+   },
+   {
+    "variant_id": 102,
+    "set_name": "Comic Parallel",
+    "price_rows": 21,
+    "uuid": "a09484fa-a467-46c1-af98-18f6ab17b3ee"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 955,
+  "collector_number": "OP09-118",
+  "canonical_name": "Gol D. Roger",
+  "set_name": "One Piece Carrying On His Will",
+  "psa10_pop": 1482,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 135,
+    "set_name": "2024 Emperors In New World Gold Manga Alternate Art",
+    "price_rows": 9,
+    "uuid": "399e3fad-d487-4a06-adc0-58680741b309"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1212,
+  "collector_number": "OP10-118",
+  "canonical_name": "Monkey D. Luffy",
+  "set_name": "One Piece Royal Blood",
+  "psa10_pop": 1480,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1276,
+  "collector_number": "OP13-007",
+  "canonical_name": "Ace & Sabo & Luffy",
+  "set_name": "One Piece Carrying On His Will",
+  "psa10_pop": 1458,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1449,
+  "collector_number": "OP01-001",
+  "canonical_name": "Roronoa Zoro",
+  "set_name": "One Piece Romance Dawn",
+  "psa10_pop": 1457,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1197,
+  "collector_number": "ST01-012",
+  "canonical_name": "Monkey D. Luffy",
+  "set_name": "One Piece Pillars of Strength",
+  "psa10_pop": 1430,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 19,
+    "set_name": "2023 Awakening of the New Era Special Art",
+    "price_rows": 19,
+    "uuid": "b69a3067-c2cc-414f-902e-76db8b5fd3f4"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 712,
+  "collector_number": "OP12-087",
+  "canonical_name": "Nico Robin",
+  "set_name": "One Piece Legacy of the Master",
+  "psa10_pop": 1428,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1452,
+  "collector_number": "OP04-039",
+  "canonical_name": "Rebecca",
+  "set_name": "One Piece Kingdoms of Intrigue",
+  "psa10_pop": 1420,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1205,
+  "collector_number": "OP03-092",
+  "canonical_name": "Rob Lucci",
+  "set_name": "One Piece Awakening of the New Era",
+  "psa10_pop": 1397,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1219,
+  "collector_number": "OP12-118",
+  "canonical_name": "Jewelry Bonney",
+  "set_name": "One Piece Legacy of the Master",
+  "psa10_pop": 1397,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 287,
+    "set_name": "2025 Op12-Legacy of the Master Manga Alternate Art",
+    "price_rows": 11,
+    "uuid": "d1d66aae-a105-4295-8655-70b0cf2f8244"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1299,
+  "collector_number": "OP06-101",
+  "canonical_name": "O-Nami",
+  "set_name": "One Piece Wings of the Captain",
+  "psa10_pop": 1384,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1221,
+  "collector_number": "OP12-119",
+  "canonical_name": "Bartholomew Kuma",
+  "set_name": "One Piece Legacy of the Master",
+  "psa10_pop": 1379,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 942,
+  "collector_number": "OP09-118",
+  "canonical_name": "Gol D. Roger",
+  "set_name": "One Piece Emperors in the New World",
+  "psa10_pop": 1377,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 135,
+    "set_name": "2024 Emperors In New World Gold Manga Alternate Art",
+    "price_rows": 9,
+    "uuid": "399e3fad-d487-4a06-adc0-58680741b309"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 878,
+  "collector_number": "OP07-109",
+  "canonical_name": "Monkey D. Luffy (Error)",
+  "set_name": "One Piece 500 Years in the Future",
+  "psa10_pop": 1366,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 110,
+    "set_name": "2024 Championship 2024 Event Pack Cs Event Pack-Serialized",
+    "price_rows": 4,
+    "uuid": "4ee16483-0d75-417e-8f1b-452ba4f474fd"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1309,
+  "collector_number": "OP04-001",
+  "canonical_name": "Nefeltari Vivi",
+  "set_name": "One Piece Kingdoms of Intrigue",
+  "psa10_pop": 1345,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1304,
+  "collector_number": "OP03-008",
+  "canonical_name": "Buggy",
+  "set_name": "One Piece Wings of the Captain",
+  "psa10_pop": 1329,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1437,
+  "collector_number": "OP02-036",
+  "canonical_name": "Nami",
+  "set_name": "One Piece Paramount War",
+  "psa10_pop": 1323,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1242,
+  "collector_number": "OP09-001",
+  "canonical_name": "Shanks",
+  "set_name": "One Piece Emperors in the New World",
+  "psa10_pop": 1321,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1281,
+  "collector_number": "OP01-047",
+  "canonical_name": "Trafalgar Law",
+  "set_name": "One Piece Kingdoms of Intrigue",
+  "psa10_pop": 1315,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1208,
+  "collector_number": "ST06-006",
+  "canonical_name": "Tashigi",
+  "set_name": "One Piece Two Legends",
+  "psa10_pop": 1308,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 957,
+  "collector_number": "OP07-118",
+  "canonical_name": "Sabo",
+  "set_name": "One Piece Carrying On His Will",
+  "psa10_pop": 1274,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1275,
+  "collector_number": "OP13-003",
+  "canonical_name": "Gol D. Roger",
+  "set_name": "One Piece Carrying On His Will",
+  "psa10_pop": 1255,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1200,
+  "collector_number": "OP05-098",
+  "canonical_name": "Enel",
+  "set_name": "One Piece Awakening of the New Era",
+  "psa10_pop": 1244,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1426,
+  "collector_number": "OP08-106",
+  "canonical_name": "Nami",
+  "set_name": "One Piece Two Legends",
+  "psa10_pop": 1242,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 271,
+    "set_name": "2024 Emperors In the New World Special Alternate Art",
+    "price_rows": 16,
+    "uuid": "5f47c27e-4973-4d7f-97fb-e05bc9d127b5"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1196,
+  "collector_number": "OP03-040",
+  "canonical_name": "Nami",
+  "set_name": "One Piece Pillars of Strength",
+  "psa10_pop": 1237,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1234,
+  "collector_number": "OP07-051",
+  "canonical_name": "Boa Hancock",
+  "set_name": "One Piece 500 Years in the Future",
+  "psa10_pop": 1232,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 107,
+    "set_name": "2024 500 Years In the Future Manga Art",
+    "price_rows": 13,
+    "uuid": "d00d2083-0262-4d4f-8550-348e76573afc"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1240,
+  "collector_number": "OP14-096",
+  "canonical_name": "Ground Death",
+  "set_name": "One Piece the Azure Sea's Seven",
+  "psa10_pop": 1208,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1217,
+  "collector_number": "OP10-082",
+  "canonical_name": "Kuzan",
+  "set_name": "One Piece Legacy of the Master",
+  "psa10_pop": 1204,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1237,
+  "collector_number": "OP12-030",
+  "canonical_name": "Dracule Mihawk",
+  "set_name": "One Piece the Azure Sea's Seven",
+  "psa10_pop": 1174,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 714,
+  "collector_number": "OP06-050",
+  "canonical_name": "Tashigi",
+  "set_name": "One Piece Legacy of the Master",
+  "psa10_pop": 1166,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 602,
+  "collector_number": "ST14-003",
+  "canonical_name": "Sanji",
+  "set_name": "One Piece Royal Blood",
+  "psa10_pop": 1165,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1227,
+  "collector_number": "OP11-118",
+  "canonical_name": "Monkey D. Luffy",
+  "set_name": "One Piece A Fist of Divine Speed",
+  "psa10_pop": 1142,
+  "category": "twin-mapped",
+  "twin_variants": [
+   {
+    "variant_id": 128,
+    "set_name": "2025 A Fist of Divine Speed Manga Alternate Art",
+    "price_rows": 11,
+    "uuid": "d2c7ca43-7bc6-420b-8321-d817970ba02e"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1277,
+  "collector_number": "OP13-002",
+  "canonical_name": "Portgas D. Ace",
+  "set_name": "One Piece Carrying On His Will",
+  "psa10_pop": 1131,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1228,
+  "collector_number": "OP09-015",
+  "canonical_name": "Lucky Roux",
+  "set_name": "One Piece A Fist of Divine Speed",
+  "psa10_pop": 1125,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1229,
+  "collector_number": "OP09-005",
+  "canonical_name": "Silvers Rayleigh",
+  "set_name": "One Piece A Fist of Divine Speed",
+  "psa10_pop": 1125,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1230,
+  "collector_number": "OP11-054",
+  "canonical_name": "Nami",
+  "set_name": "One Piece A Fist of Divine Speed",
+  "psa10_pop": 1120,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1250,
+  "collector_number": "OP09-062",
+  "canonical_name": "Nico Robin",
+  "set_name": "One Piece Emperors in the New World",
+  "psa10_pop": 1093,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 716,
+  "collector_number": "OP09-013",
+  "canonical_name": "Yasopp",
+  "set_name": "One Piece Legacy of the Master",
+  "psa10_pop": 1089,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1282,
+  "collector_number": "OP04-019",
+  "canonical_name": "Donquixote Doflamingo",
+  "set_name": "One Piece Kingdoms of Intrigue",
+  "psa10_pop": 1085,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1252,
+  "collector_number": "OP01-060",
+  "canonical_name": "Donquixote Doflamingo",
+  "set_name": "One Piece Romance Dawn",
+  "psa10_pop": 1078,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 781,
+  "collector_number": "OP11-106",
+  "canonical_name": "Zeus",
+  "set_name": "One Piece A Fist of Divine Speed",
+  "psa10_pop": 1074,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1241,
+  "collector_number": "OP14-084",
+  "canonical_name": "Ms. All Sunday",
+  "set_name": "One Piece the Azure Sea's Seven",
+  "psa10_pop": 1068,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1201,
+  "collector_number": "OP05-074",
+  "canonical_name": "Eustass \\\"Captain\\\" Kid",
+  "set_name": "One Piece Awakening of the New Era",
+  "psa10_pop": 1062,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1198,
+  "collector_number": "OP03-122",
+  "canonical_name": "Sogeking",
+  "set_name": "One Piece Pillars of Strength",
+  "psa10_pop": 1060,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1251,
+  "collector_number": "OP01-121",
+  "canonical_name": "Yamato",
+  "set_name": "One Piece Romance Dawn",
+  "psa10_pop": 1060,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1206,
+  "collector_number": "OP05-041",
+  "canonical_name": "Sakazuki",
+  "set_name": "One Piece Awakening of the New Era",
+  "psa10_pop": 1059,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1249,
+  "collector_number": "OP07-015",
+  "canonical_name": "Monkey D. Dragon",
+  "set_name": "One Piece Emperors in the New World",
+  "psa10_pop": 1048,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1278,
+  "collector_number": "OP13-079",
+  "canonical_name": "Imu",
+  "set_name": "One Piece Carrying On His Will",
+  "psa10_pop": 1044,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1211,
+  "collector_number": "ST18-001",
+  "canonical_name": "Uso-Hachi",
+  "set_name": "One Piece Royal Blood",
+  "psa10_pop": 1040,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1254,
+  "collector_number": "OP01-003",
+  "canonical_name": "Monkey D. Luffy (Errata)",
+  "set_name": "One Piece Romance Dawn",
+  "psa10_pop": 1032,
+  "category": "already-mapped-no-sales",
+  "twin_variants": [
+   {
+    "variant_id": 103,
+    "set_name": "2022 Romance Dawn Alternate Art",
+    "price_rows": 16,
+    "uuid": "d1302f6a-183f-43e8-84c1-1f6867e12d10"
+   }
+  ],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1301,
+  "collector_number": "OP06-021",
+  "canonical_name": "Perona",
+  "set_name": "One Piece Wings of the Captain",
+  "psa10_pop": 1021,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1568,
+  "collector_number": "OP07-111",
+  "canonical_name": "Lilith",
+  "set_name": "One Piece Carrying On His Will",
+  "psa10_pop": 1014,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1207,
+  "collector_number": "OP05-001",
+  "canonical_name": "Sabo",
+  "set_name": "One Piece Awakening of the New Era",
+  "psa10_pop": 1005,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1461,
+  "collector_number": "OP07-019",
+  "canonical_name": "Jewelry Bonney",
+  "set_name": "One Piece 500 Years in the Future",
+  "psa10_pop": 1003,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ },
+ {
+  "variant_id": 1235,
+  "collector_number": "OP01-073",
+  "canonical_name": "Donquixote Doflamingo",
+  "set_name": "One Piece 500 Years in the Future",
+  "psa10_pop": 1001,
+  "category": "no-uuid-in-g10",
+  "twin_variants": [],
+  "unbound_uuids": []
+ }
+]

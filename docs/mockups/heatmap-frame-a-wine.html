@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CARDZ · Plan A — 酒紅底 · 發光內框 · 深淺漸層</title>
+<style>
+  :root {
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+    --wine: #150609;
+    --wine-panel: rgba(34, 12, 17, 0.78);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    background:
+      radial-gradient(1200px 700px at 20% -10%, rgba(110, 20, 36, 0.22), transparent 60%),
+      radial-gradient(900px 600px at 90% 110%, rgba(70, 12, 24, 0.30), transparent 55%),
+      var(--wine);
+    transition: background-color 0.5s var(--ease-out);
+  }
+
+  /* ============ chrome (header widgets) ============ */
+  .switcher {
+    position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+    z-index: 100; display: flex; gap: 6px; padding: 5px; border-radius: 999px;
+    background: var(--wine-panel);
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    box-shadow: 0 2px 24px rgba(0,0,0,0.55);
+  }
+  .switcher button {
+    border: 0; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600;
+    padding: 8px 18px; border-radius: 999px; letter-spacing: 0.02em;
+    background: transparent; color: #7C5A62;
+    transition: all 0.25s var(--ease-out);
+  }
+  .switcher button.active { background: #E9DCD2; color: #22070C; }
+
+  .period-switcher {
+    position: fixed; top: 16px; left: 24px;
+    z-index: 100; display: flex; gap: 2px; padding: 4px; border-radius: 8px;
+    background: var(--wine-panel);
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    box-shadow: 0 2px 24px rgba(0,0,0,0.5);
+  }
+  .period-switcher button {
+    border: 0; cursor: pointer; font: inherit; font-size: 12px; font-weight: 700;
+    padding: 7px 14px; border-radius: 5px; letter-spacing: 0.04em;
+    font-variant-numeric: tabular-nums;
+    background: transparent; color: #6E4A52;
+    transition: all 0.2s var(--ease-out);
+  }
+  .period-switcher button.active { background: #E9DCD2; color: #22070C; }
+  .period-switcher button:disabled { opacity: 0.35; cursor: default; }
+  .period-note {
+    position: fixed; top: 58px; left: 28px; z-index: 100; margin: 0;
+    font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: rgba(233, 220, 210, 0.4);
+  }
+
+  .share-btn {
+    position: fixed; top: 20px; right: 24px; z-index: 100;
+    border: 0; cursor: pointer; font: inherit; font-size: 13px; font-weight: 700;
+    padding: 10px 20px; border-radius: 999px; letter-spacing: 0.02em;
+    transition: all 0.25s var(--ease-out);
+    display: flex; align-items: center; gap: 8px;
+    background: #E9DCD2; color: #22070C;
+  }
+  .share-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+  .share-btn:disabled { opacity: 0.5; cursor: wait; }
+
+  .daynight {
+    position: fixed; top: 16px; right: 150px; z-index: 100;
+    display: flex; gap: 2px; padding: 4px; border-radius: 999px;
+    background: var(--wine-panel);
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    box-shadow: 0 2px 24px rgba(0,0,0,0.5);
+  }
+  .daynight button {
+    border: 0; cursor: pointer; font: inherit; font-size: 14px; line-height: 1;
+    width: 34px; height: 34px; border-radius: 999px;
+    background: transparent; color: #6E4A52;
+    transition: all 0.25s var(--ease-out);
+  }
+  .daynight button.active { background: #E9DCD2; color: #22070C; }
+
+  .tune-toggle {
+    position: fixed; top: 16px; right: 238px; z-index: 301;
+    border: 0; cursor: pointer; font: inherit; font-size: 12px; font-weight: 700;
+    padding: 10px 16px; border-radius: 999px; letter-spacing: 0.06em;
+    transition: all 0.25s var(--ease-out);
+    background: var(--wine-panel); color: #E9DCD2; box-shadow: 0 2px 24px rgba(0,0,0,0.5);
+  }
+
+  .hint {
+    position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+    z-index: 100; font-size: 12px; letter-spacing: 0.04em; opacity: 0.55; pointer-events: none;
+    color: #B59A9E;
+  }
+
+  /* ============ stage · 每張卡 = 酒紅地板上一幅細畫 ============
+     卡主體縮細 8%，喺 tile 正中；外圍係色框（frame）。
+     框編碼：
+       - 框色 = 升/跌色，alpha 隨 |chg| 加深（0.16 → 0.95，曲線 0.75）
+       - 框粗 = 1.5px → 5px，隨 |chg| 加粗
+       - 框到卡之間嘅 mat（留白圈）= 發光漸層，由外緣同色滲向卡身，愈勁愈似燈箱
+  */
+  #stage { position: absolute; inset: 72px 24px 40px 24px; }
+  .tile {
+    position: absolute; overflow: visible; cursor: pointer;
+    transition: opacity 0.22s var(--ease-out), transform 0.2s var(--ease-out),
+                box-shadow 0.22s var(--ease-out), filter 0.25s var(--ease-out);
+    will-change: transform;
+  }
+  .tile .frame {
+    position: absolute; inset: var(--gap-inset, 1px); z-index: 1;
+    border: var(--frame-w, 2px) solid var(--frame-color, rgba(140,120,124,0.25));
+    border-radius: 7px;
+    background:
+      radial-gradient(90% 90% at 50% 50%, var(--glow-core, transparent) 0%, transparent 78%),
+      rgba(30, 10, 14, 0.55);
+    box-shadow:
+      inset 0 0 18px rgba(0, 0, 0, 0.45),
+      0 10px 26px rgba(0, 0, 0, 0.40);
+    pointer-events: none;
+  }
+  .tile .art {
+    position: absolute; z-index: 2;
+    inset: calc(var(--gap-inset, 1px) + var(--mat, 10px));
+    overflow: hidden; border-radius: 3px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0,0,0,0.35);
+    pointer-events: none;
+  }
+  .tile .art img {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; object-position: center 22%;
+    filter: blur(var(--card-blur, 0px)) saturate(0.92);
+  }
+  .tile .art .tint { position: absolute; inset: 0; z-index: 2; }
+
+  .tile .bigpct {
+    position: absolute; left: calc(var(--gap-inset, 1px) + var(--mat, 10px) + 6px);
+    bottom: calc(var(--gap-inset, 1px) + var(--mat, 10px) + 5px);
+    z-index: 4; pointer-events: none;
+    font-size: 13px; font-weight: 800; letter-spacing: 0.01em;
+    font-variant-numeric: tabular-nums; color: #FFD54A;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85), 0 0 12px rgba(0, 0, 0, 0.5);
+  }
+
+  /* spotlight */
+  #stage:hover .tile:not(:hover),
+  #stage:focus-within .tile:not(:hover):not(:focus-visible) {
+    opacity: 0.30; filter: saturate(0.35) brightness(0.72);
+  }
+  .tile:hover, .tile:focus-visible {
+    z-index: 8;
+    transform: scale(1.07);
+    box-shadow: 0 22px 60px rgba(0,0,0,0.8), 0 0 44px var(--glow-soft, transparent);
+  }
+
+  /* ============ tune panel ============ */
+  .tune-panel {
+    position: fixed; top: 62px; right: 16px; z-index: 300;
+    width: 272px; max-height: calc(100vh - 100px); overflow-y: auto;
+    border-radius: 14px; padding: 16px 16px 12px;
+    font-size: 11px; letter-spacing: 0.03em;
+    opacity: 0; transform: translateX(16px); pointer-events: none;
+    transition: opacity 0.25s var(--ease-out), transform 0.25s var(--ease-out);
+    background: rgba(28, 10, 15, 0.96); box-shadow: 0 18px 50px rgba(0,0,0,0.7); color: #E9DCD2;
+  }
+  .tune-panel.open { opacity: 1; transform: none; pointer-events: auto; }
+  .tune-panel h3 { font-size: 10px; font-weight: 800; letter-spacing: 0.22em; text-transform: uppercase; opacity: 0.5; margin-bottom: 10px; }
+  .tune-panel h4 { font-size: 9px; font-weight: 800; letter-spacing: 0.2em; text-transform: uppercase; opacity: 0.38; margin: 14px 0 2px; border-top: 1px solid rgba(233,220,210,0.16); padding-top: 10px; }
+  .tune-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+  .tune-row label { width: 96px; flex: none; font-weight: 600; opacity: 0.75; }
+  .tune-row input[type="range"] { flex: 1; accent-color: #FFD54A; height: 18px; }
+  .tune-row .val { width: 40px; text-align: right; font-variant-numeric: tabular-nums; opacity: 0.85; flex: none; }
+  .tune-row input[type="number"] {
+    width: 56px; font: inherit; font-variant-numeric: tabular-nums;
+    border: 1px solid rgba(233,220,210,0.28); border-radius: 5px; padding: 3px 6px; background: transparent; color: inherit;
+  }
+  .tune-row input[type="color"] {
+    width: 30px; height: 22px; border: 1px solid rgba(233,220,210,0.28); border-radius: 5px;
+    padding: 0 2px; background: transparent; cursor: pointer; flex: none;
+  }
+  .tune-row .hex { width: 62px; font: inherit; font-size: 10px; font-variant-numeric: tabular-nums;
+    border: 1px solid rgba(233,220,210,0.28); border-radius: 5px; padding: 3px 6px; background: transparent; color: inherit; }
+  .tune-actions { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+  .tune-actions button {
+    flex: 1; min-width: 70px; border: 1px solid rgba(233,220,210,0.35); cursor: pointer;
+    font: inherit; font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+    padding: 7px 4px; border-radius: 7px; background: transparent; color: inherit;
+    transition: all 0.2s;
+  }
+  .tune-actions button:hover { background: #E9DCD2; color: #22070C; border-color: #E9DCD2; }
+
+  /* ============ hover preview / modal / legend / toast ============ */
+  #preview {
+    position: fixed; z-index: 150; width: 300px; pointer-events: none;
+    border-radius: 12px; padding: 16px; opacity: 0; transform: translateY(6px);
+    transition: opacity 0.18s var(--ease-out), transform 0.18s var(--ease-out);
+    display: flex; gap: 14px;
+    background: rgba(30, 12, 17, 0.97); box-shadow: 0 20px 60px rgba(0,0,0,0.7); color: #E9DCD2;
+  }
+  #preview.show { opacity: 1; transform: none; }
+  #preview img { width: 84px; height: 117px; object-fit: cover; object-position: center 22%; border-radius: 4px; }
+  #preview .p-name { font-size: 14px; font-weight: 700; line-height: 1.25; }
+  #preview .p-set { font-size: 11px; opacity: 0.6; margin: 2px 0 8px; }
+  #preview .p-row { display: flex; justify-content: space-between; font-size: 11.5px; padding: 2px 0; }
+  #preview .p-row b { font-variant-numeric: tabular-nums; }
+  #preview .p-chg { font-size: 20px; font-weight: 800; margin-top: 6px; }
+  #preview .p-chg.up { color: #35B06F; } #preview .p-chg.down { color: #C9405E; }
+
+  .modal-backdrop {
+    position: fixed; inset: 0; z-index: 200; display: none; align-items: center; justify-content: center;
+    background: rgba(8,4,6,0); transition: background 0.3s;
+  }
+  .modal-backdrop.open { display: flex; background: rgba(8,4,6,0.65); backdrop-filter: blur(8px); }
+  .modal {
+    width: min(760px, 90vw); border-radius: 16px; padding: 30px; position: relative;
+    display: flex; gap: 28px; align-items: flex-start;
+    transform: translateY(28px) scale(0.95); opacity: 0;
+    transition: transform 0.4s var(--ease-spring), opacity 0.3s;
+    background: #201016; box-shadow: 0 34px 100px rgba(0,0,0,0.8); color: #E9DCD2;
+  }
+  .modal-backdrop.open .modal { transform: none; opacity: 1; }
+  .modal img { width: 210px; border-radius: 8px; }
+  .modal h2 { font-size: 22px; margin-bottom: 4px; }
+  .modal .sub { font-size: 13px; opacity: 0.6; margin-bottom: 18px; }
+  .modal .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 26px; font-size: 12px; }
+  .modal .stats span { opacity: 0.6; }
+  .modal .stats b { display: block; font-size: 17px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .modal .close { position: absolute; top: 14px; right: 18px; border: 0; background: none; font-size: 22px; cursor: pointer; color: inherit; opacity: 0.5; }
+  .modal .close:hover { opacity: 1; }
+
+  #legend {
+    position: fixed; bottom: 34px; left: 50%; transform: translateX(-50%);
+    z-index: 100; display: flex; align-items: center; gap: 8px;
+    font-size: 11px; letter-spacing: 0.03em; pointer-events: none; font-variant-numeric: tabular-nums;
+    color: #B59A9E;
+  }
+  #legend .bar { width: 90px; height: 8px; border-radius: 4px; display: inline-block; }
+
+  #toast {
+    position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%) translateY(10px);
+    z-index: 300; padding: 10px 22px; border-radius: 999px; font-size: 13px; font-weight: 600;
+    opacity: 0; transition: all 0.3s var(--ease-out); pointer-events: none;
+    background: #E9DCD2; color: #22070C;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 0.01ms !important; animation: none !important; }
+  }
+</style>
+</head>
+<body data-theme="wine" data-mode="dark">
+
+<div class="switcher" role="tablist">
+  <button data-theme="wine" class="active">Wine Frame</button>
+</div>
+
+<div class="period-switcher" role="tablist" aria-label="Period">
+  <button data-period="chg1" disabled>1D</button>
+  <button data-period="chg7" disabled>7D</button>
+  <button data-period="chg30" class="active">30D</button>
+</div>
+<p class="period-note" id="periodNote"></p>
+
+<div class="daynight" role="tablist" aria-label="Day / dark mode">
+  <button data-mode="dark" class="active" title="Dark">☾</button>
+</div>
+
+<button class="share-btn" id="shareBtn">⬇ Share card</button>
+<button class="tune-toggle" id="tuneToggle">TUNE</button>
+
+<aside class="tune-panel" id="tunePanel">
+  <h3>調節面板 · 開會拍板用</h3>
+
+  <div class="tune-row">
+    <label>卡數</label>
+    <input type="range" id="tCount" min="1" max="100" step="1" value="50">
+    <input type="number" id="tCountN" min="1" max="100" step="1" value="50">
+  </div>
+
+  <h4>色碼（酒紅系）</h4>
+  <div class="tune-row">
+    <label>升色</label>
+    <input type="color" id="tUp" value="#35B06F">
+    <input type="text" class="hex" id="tUpHex" value="#35B06F" spellcheck="false">
+  </div>
+  <div class="tune-row">
+    <label>跌色</label>
+    <input type="color" id="tDown" value="#C9405E">
+    <input type="text" class="hex" id="tDownHex" value="#C9405E" spellcheck="false">
+  </div>
+  <div class="tune-row">
+    <label>中性色</label>
+    <input type="color" id="tNeutral" value="#8C787C">
+    <input type="text" class="hex" id="tNeutralHex" value="#8C787C" spellcheck="false">
+  </div>
+  <div class="tune-row">
+    <label>黃字色</label>
+    <input type="color" id="tBadge" value="#FFD54A">
+    <input type="text" class="hex" id="tBadgeHex" value="#FFD54A" spellcheck="false">
+  </div>
+
+  <h4>框強度</h4>
+  <div class="tune-row">
+    <label>爆色 %</label>
+    <input type="range" id="tClamp" min="5" max="30" step="1" value="15">
+    <span class="val" id="tClampV">15</span>
+  </div>
+  <div class="tune-row">
+    <label>最淺框</label>
+    <input type="range" id="tAMin" min="0.02" max="0.40" step="0.01" value="0.16">
+    <span class="val" id="tAMinV">0.16</span>
+  </div>
+  <div class="tune-row">
+    <label>最深框</label>
+    <input type="range" id="tAMax" min="0.40" max="1.00" step="0.01" value="0.95">
+    <span class="val" id="tAMaxV">0.95</span>
+  </div>
+  <div class="tune-row">
+    <label>加深曲線</label>
+    <input type="range" id="tGamma" min="0.50" max="2.00" step="0.05" value="0.75">
+    <span class="val" id="tGammaV">0.75</span>
+  </div>
+
+  <h4>框結構</h4>
+  <div class="tune-row">
+    <label>框線粗(px)</label>
+    <input type="range" id="tFwMin" min="1" max="4" step="0.5" value="1.5">
+    <span class="val" id="tFwMinV">1.5</span>
+  </div>
+  <div class="tune-row">
+    <label>框線最粗(px)</label>
+    <input type="range" id="tFwMax" min="3" max="9" step="0.5" value="5">
+    <span class="val" id="tFwMaxV">5</span>
+  </div>
+  <div class="tune-row">
+    <label>發光最強</label>
+    <input type="range" id="tGlow" min="0" max="0.6" step="0.02" value="0.34">
+    <span class="val" id="tGlowV">0.34</span>
+  </div>
+  <div class="tune-row">
+    <label>留白圈(%)</label>
+    <input type="range" id="tMat" min="3" max="14" step="0.5" value="8">
+    <span class="val" id="tMatV">8</span>
+  </div>
+  <div class="tune-row">
+    <label>格仔縫隙</label>
+    <input type="range" id="tGap" min="0" max="6" step="1" value="2">
+    <span class="val" id="tGapV">2</span>
+  </div>
+  <div class="tune-row">
+    <label>黃字數量</label>
+    <input type="range" id="tBadges" min="0" max="20" step="1" value="12">
+    <span class="val" id="tBadgesV">12</span>
+  </div>
+
+  <div class="tune-actions">
+    <button id="tCopy">複製設定</button>
+  </div>
+</aside>
+
+<div id="stage"></div>
+
+<div id="legend">
+  <span id="legendLo">−15%+</span><i class="bar down" id="barDown"></i><span>0</span><i class="bar up" id="barUp"></i><span id="legendHi">+15%+</span>
+  <span style="opacity:0.4;margin-left:6px" id="legendCount">· TOP 50</span>
+</div>
+<p class="hint">Plan A — 酒紅底 · 發光內框 · 框色深淺 = 升跌幅度 · hover 聚焦 · S = 分享圖</p>
+
+<div id="preview"></div>
+
+<div class="modal-backdrop" id="backdrop">
+  <div class="modal" role="dialog" aria-modal="true">
+    <button class="close" id="modalClose">✕</button>
+    <img id="mImg" src="" alt="">
+    <div>
+      <h2 id="mName"></h2>
+      <p class="sub" id="mSet"></p>
+      <div class="stats">
+        <div><span>Market cap</span><b id="mCap"></b></div>
+        <div><span>PSA 10 price</span><b id="mPrice"></b></div>
+        <div><span>1D change</span><b id="mChg1"></b></div>
+        <div><span>7D change</span><b id="mChg7"></b></div>
+        <div><span>30D change</span><b id="mChg"></b></div>
+        <div><span>30D tracked sales</span><b id="mSales"></b></div>
+        <div><span>PSA 10 population</span><b id="mPop"></b></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+let cards = [];
+let period = "chg30";
+const PERIOD_LABEL = { chg1: "1D", chg7: "7D", chg30: "30D" };
+const PERIOD_DESC = { chg1: "24-hour window", chg7: "7-day window", chg30: "30-day window" };
+const stage = document.getElementById("stage");
+
+/* ================= squarified treemap ================= */
+const TARGET = 0.714, IDEAL = 1 / TARGET;
+function worstRatio(areas, side) {
+  const rowArea = areas.reduce((a, b) => a + b, 0);
+  const t = rowArea / side;
+  let worst = 0;
+  for (const a of areas) {
+    const aspect = (a / t) / t;
+    const r = Math.max(aspect, 1 / aspect);
+    worst = Math.max(worst, Math.abs(Math.log(r / IDEAL)));
+  }
+  return worst;
+}
+function layoutRow(row, rect, scale, tiles) {
+  const rowArea = row.reduce((s, c) => s + c.cap * scale, 0);
+  if (rect.w >= rect.h) {
+    const rw = rowArea / rect.h;
+    let ry = rect.y;
+    row.forEach((c, i) => {
+      const ch = i === row.length - 1 ? rect.y + rect.h - ry : c.cap * scale / rw;
+      tiles.push({ c, x: rect.x, y: ry, w: rw, h: ch }); ry += ch;
+    });
+    rect.x += rw; rect.w -= rw;
+  } else {
+    const rh = rowArea / rect.w;
+    let rx = rect.x;
+    row.forEach((c, i) => {
+      const cw = i === row.length - 1 ? rect.x + rect.w - rx : c.cap * scale / rh;
+      tiles.push({ c, x: rx, y: rect.y, w: cw, h: rh }); rx += cw;
+    });
+    rect.y += rh; rect.h -= rh;
+  }
+}
+function layout(items, W, H) {
+  const sorted = [...items].sort((a, b) => b.cap - a.cap);
+  const scale = W * H / sorted.reduce((s, c) => s + c.cap, 0);
+  const rect = { x: 0, y: 0, w: W, h: H };
+  const tiles = []; let row = []; const queue = [...sorted];
+  while (queue.length) {
+    const side = Math.min(rect.w, rect.h);
+    const areas = row.map(c => c.cap * scale);
+    const next = queue[0].cap * scale;
+    if (row.length && worstRatio([...areas, next], side) > worstRatio(areas, side)) {
+      layoutRow(row, rect, scale, tiles); row = [];
+    } else row.push(queue.shift());
+  }
+  if (row.length) layoutRow(row, rect, scale, tiles);
+  return tiles;
+}
+
+/* ================= 全域調節參數 ================= */
+const CFG = {
+  count: 50, badgeCount: 12,
+  up: "#35B06F", down: "#C9405E", neutral: "#8C787C", badge: "#FFD54A",
+  clamp: 15, aMin: 0.16, aMax: 0.95, gamma: 0.75,
+  fwMin: 1.5, fwMax: 5, glowMax: 0.34, mat: 8, gap: 2, blur: 0,
+};
+function hexToRgb(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec((hex || "").trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+/* 強度 t ∈ [0,1]，0% = 靜止，≥clamp% = 爆色 */
+function strength(chg) {
+  if (chg === null || chg === undefined || !isFinite(chg) || chg === 0) return 0;
+  return Math.pow(Math.min(Math.abs(chg), CFG.clamp) / CFG.clamp, CFG.gamma);
+}
+function chgColor(chg) {
+  if (chg > 0) return CFG.up;
+  if (chg < 0) return CFG.down;
+  return CFG.neutral;
+}
+function rgba(hex, a) {
+  const [r, g, b] = hexToRgb(hex) || [128, 128, 132];
+  return `rgba(${r},${g},${b},${a.toFixed(3)})`;
+}
+/* 框線色：強度越深越實 */
+function frameColor(chg) {
+  const t = strength(chg);
+  return rgba(chgColor(chg), CFG.aMin + t * (CFG.aMax - CFG.aMin));
+}
+/* 框線粗：1.5px → 5px */
+function frameWidth(chg) {
+  const t = strength(chg);
+  return CFG.fwMin + t * (CFG.fwMax - CFG.fwMin);
+}
+/* mat 發光漸層：由卡身向內滲嘅同色光 */
+function glowCore(chg) {
+  const t = strength(chg);
+  return rgba(chgColor(chg), t * CFG.glowMax);
+}
+/* 卡面 tint：淡啲，框先係主角 */
+function tintStyle(chg) {
+  const t = strength(chg);
+  if (chg === null || chg === undefined || !isFinite(chg)) return rgba(CFG.neutral, 0.10);
+  if (chg === 0) return rgba(CFG.neutral, 0.06);
+  return rgba(chgColor(chg), 0.04 + t * 0.18);
+}
+
+/* ================= render ================= */
+function render() {
+  stage.innerHTML = "";
+  const rect = stage.getBoundingClientRect();
+  const shown = cards.slice(0, CFG.count);
+  const topBadge = new Set(shown.slice(0, CFG.badgeCount).map(c => c.rank));
+  layout(shown, rect.width, rect.height).forEach(({ c, x, y, w, h }) => {
+    if (w < 10 || h < 10) return;
+    const el = document.createElement("div");
+    el.className = "tile"; el.tabIndex = 0;
+    el.style.cssText = `left:${x}px;top:${y}px;width:${w}px;height:${h}px;`;
+    const chg = c[period];
+    const shortSide = Math.min(w, h);
+    const matPx = Math.max(5, shortSide * CFG.mat / 100);
+    el.style.setProperty("--gap-inset", CFG.gap + "px");
+    el.style.setProperty("--mat", matPx.toFixed(1) + "px");
+    el.style.setProperty("--frame-color", frameColor(chg));
+    el.style.setProperty("--frame-w", frameWidth(chg).toFixed(2) + "px");
+    el.style.setProperty("--glow-core", glowCore(chg));
+    el.style.setProperty("--glow-soft", rgba(chgColor(chg), 0.12 + strength(chg) * 0.28));
+    el.style.setProperty("--card-blur", CFG.blur + "px");
+    const badge = topBadge.has(c.rank) && chg != null
+      ? `<span class="bigpct" style="color:${CFG.badge}">${chg > 0 ? "+" : ""}${chg.toFixed(1)}%</span>`
+      : "";
+    el.innerHTML = `
+      <div class="frame"></div>
+      <div class="art">
+        <img src="${c.img}" alt="" loading="eager"
+             onerror="this.onerror=null;this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22438%22 height=%22610%22%3E%3Crect width=%22438%22 height=%22610%22 fill=%22%2322262e%22/%3E%3C/svg%3E'">
+        <span class="tint" style="background:${tintStyle(chg)}"></span>
+      </div>
+      ${badge}`;
+    el.addEventListener("pointerenter", () => showPreview(c, el));
+    el.addEventListener("pointerleave", hidePreview);
+    el.addEventListener("click", () => { hidePreview(); openModal(c); });
+    stage.appendChild(el);
+  });
+
+  document.getElementById("legendCount").textContent = `· TOP ${shown.length}`;
+  document.getElementById("legendLo").textContent = `−${CFG.clamp}%+`;
+  document.getElementById("legendHi").textContent = `+${CFG.clamp}%+`;
+  document.getElementById("barDown").style.background =
+    `linear-gradient(90deg, ${CFG.down}, ${frameColor(-0.0001)})`;
+  document.getElementById("barUp").style.background =
+    `linear-gradient(90deg, ${frameColor(0.0001)}, ${CFG.up})`;
+}
+
+/* ================= hover preview ================= */
+const preview = document.getElementById("preview");
+const fmt$ = v => v == null ? "—" : "$" + (v >= 1e6 ? (v / 1e6).toFixed(1) + "M" : v >= 1e3 ? (v / 1e3).toFixed(1) + "K" : v.toLocaleString());
+const fmtPct = v => v == null ? "—" : (v > 0 ? "+" : "") + v.toFixed(1) + "%";
+function showPreview(c, el) {
+  const chg = c[period];
+  const chgCls = chg > 0 ? "up" : "down";
+  preview.innerHTML = `
+    <img src="${c.img}" alt="">
+    <div style="flex:1;min-width:0">
+      <div class="p-name">${c.name}</div>
+      <div class="p-set">#${c.rank} · ${c.num} · ${c.tcg}</div>
+      <div class="p-row"><span>Market cap</span><b>${fmt$(c.cap)}</b></div>
+      <div class="p-row"><span>PSA 10</span><b>${fmt$(c.pricePsa10)}</b></div>
+      <div class="p-row"><span>30D sales</span><b>${c.sales30}</b></div>
+      <div class="p-chg ${chgCls}">${fmtPct(chg)} <span style="font-size:11px;opacity:0.55;font-weight:600">${PERIOD_LABEL[period]}</span></div>
+    </div>`;
+  const b = el.getBoundingClientRect();
+  const pw = 300, ph = 170;
+  let px = b.right + 12, py = b.top + b.height / 2 - ph / 2;
+  if (px + pw > innerWidth - 12) px = b.left - pw - 12;
+  py = Math.max(70, Math.min(innerHeight - ph - 50, py));
+  preview.style.left = px + "px"; preview.style.top = py + "px";
+  preview.classList.add("show");
+}
+function hidePreview() { preview.classList.remove("show"); }
+
+/* ================= modal ================= */
+const backdrop = document.getElementById("backdrop");
+function openModal(c) {
+  document.getElementById("mImg").src = c.img;
+  document.getElementById("mName").textContent = `#${c.rank} ${c.name}`;
+  document.getElementById("mSet").textContent = `${c.num} · ${c.set || c.tcg}`;
+  document.getElementById("mCap").textContent = fmt$(c.cap);
+  document.getElementById("mPrice").textContent = fmt$(c.pricePsa10);
+  const mChg = document.getElementById("mChg");
+  mChg.textContent = fmtPct(c.chg30);
+  mChg.style.color = c.chg30 > 0 ? CFG.up : c.chg30 < 0 ? CFG.down : "inherit";
+  const mChg1 = document.getElementById("mChg1");
+  mChg1.parentElement.style.display = c.chg1 == null ? "none" : "";
+  mChg1.textContent = fmtPct(c.chg1);
+  mChg1.style.color = c.chg1 > 0 ? CFG.up : c.chg1 < 0 ? CFG.down : "inherit";
+  const mChg7 = document.getElementById("mChg7");
+  mChg7.parentElement.style.display = c.chg7 == null ? "none" : "";
+  mChg7.textContent = fmtPct(c.chg7);
+  mChg7.style.color = c.chg7 > 0 ? CFG.up : c.chg7 < 0 ? CFG.down : "inherit";
+  document.getElementById("mSales").textContent = `${c.sales30} · ${fmt$(c.salesValue30)}`;
+  document.getElementById("mPop").textContent = c.pop == null ? "—" : c.pop.toLocaleString();
+  backdrop.classList.add("open");
+}
+document.getElementById("modalClose").onclick = () => backdrop.classList.remove("open");
+backdrop.addEventListener("mousedown", e => { if (e.target === backdrop) backdrop.classList.remove("open"); });
+
+/* ================= share PNG — 酒紅菲林版（同 Plan A 視覺一致） ================= */
+async function sharePNG() {
+  const btn = document.getElementById("shareBtn");
+  btn.disabled = true;
+
+  const W = 1600, H = 1000;
+  const PAPER = 48, FRAME_INSET = 12;
+  const FX = PAPER + FRAME_INSET;
+  const FY = PAPER + FRAME_INSET + 62;
+  const FW = W - FX * 2;
+  const FH = H - FY - PAPER - FRAME_INSET - 52;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+
+  const asOf = (cards[0] && cards[0].asOf) ? cards[0].asOf.slice(0, 10) : new Date().toISOString().slice(0, 10);
+
+  /* 酒紅底 + 角落滲色 */
+  ctx.fillStyle = "#150609";
+  ctx.fillRect(0, 0, W, H);
+  let rg = ctx.createRadialGradient(W * 0.2, -80, 0, W * 0.2, -80, 900);
+  rg.addColorStop(0, "rgba(110,20,36,0.25)"); rg.addColorStop(1, "transparent");
+  ctx.fillStyle = rg; ctx.fillRect(0, 0, W, H);
+
+  /* header */
+  ctx.fillStyle = "#E9DCD2";
+  ctx.font = "800 30px -apple-system, 'SF Pro Display', Arial, sans-serif";
+  ctx.fillText("CARDZ", FX, PAPER + 6);
+  const cw = ctx.measureText("CARDZ").width;
+  ctx.fillStyle = "#8C787C";
+  ctx.font = "300 30px -apple-system, 'SF Pro Display', Arial, sans-serif";
+  ctx.fillText(" MARKET CAP", FX + cw, PAPER + 6);
+  const mw = ctx.measureText(" MARKET CAP").width;
+
+  const plabel = PERIOD_LABEL[period];
+  ctx.font = "700 14px -apple-system, Arial, sans-serif";
+  const pw = ctx.measureText(plabel).width;
+  const px = FX + cw + mw + 16;
+  ctx.strokeStyle = "#E9DCD2"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.roundRect(px, PAPER - 16, pw + 18, 24, 12); ctx.stroke();
+  ctx.fillStyle = "#E9DCD2";
+  ctx.fillText(plabel, px + 9, PAPER + 1);
+
+  ctx.textAlign = "right";
+  ctx.font = "500 14px -apple-system, Arial, sans-serif";
+  ctx.fillStyle = "rgba(233,220,210,0.6)";
+  ctx.fillText("As of " + asOf, W - FX, PAPER + 5);
+  ctx.textAlign = "left";
+
+  ctx.strokeStyle = "#E9DCD2"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(FX, PAPER + 22); ctx.lineTo(FX + 120, PAPER + 22); ctx.stroke();
+
+  /* 內框深底 */
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.5)"; ctx.shadowBlur = 18; ctx.shadowOffsetY = 4;
+  ctx.fillStyle = "#1E0A0F";
+  ctx.fillRect(FX, FY, FW, FH);
+  ctx.restore();
+
+  const shown = cards.slice(0, CFG.count);
+  const tiles = layout(shown, FW, FH);
+  const topBadge = new Set(shown.slice(0, CFG.badgeCount).map(c => c.rank));
+  const loadImg = src => new Promise(res => {
+    const im = new Image(); im.crossOrigin = "anonymous";
+    im.onload = () => res(im); im.onerror = () => res(null);
+    im.src = src;
+  });
+  const imgs = await Promise.all(tiles.map(t => loadImg(t.c.img)));
+
+  tiles.forEach((t, i) => {
+    const GAP = CFG.gap;
+    const x = FX + t.x + GAP / 2, y = FY + t.y + GAP / 2, w = t.w - GAP, h = t.h - GAP;
+    if (w < 8 || h < 8) return;
+    const chg = t.c[period];
+    const fw = frameWidth(chg);
+    const matPx = Math.max(5, Math.min(w, h) * CFG.mat / 100);
+
+    /* mat + 發光漸層 */
+    ctx.fillStyle = "rgba(30,10,14,0.9)";
+    ctx.fillRect(x, y, w, h);
+    const g = ctx.createRadialGradient(x + w/2, y + h/2, 0, x + w/2, y + h/2, Math.max(w, h) * 0.65);
+    g.addColorStop(0, glowCore(chg));
+    g.addColorStop(0.8, "rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(x, y, w, h);
+
+    /* 卡主體 */
+    const ax = x + matPx, ay = y + matPx, aw = w - matPx * 2, ah = h - matPx * 2;
+    if (aw > 4 && ah > 4) {
+      ctx.save();
+      ctx.beginPath(); ctx.rect(ax, ay, aw, ah); ctx.clip();
+      const im = imgs[i];
+      if (im) {
+        const ir = im.width / im.height, tr = aw / ah;
+        let sw, sh, sx, sy;
+        if (ir > tr) { sh = im.height; sw = sh * tr; sx = (im.width - sw) / 2; sy = 0; }
+        else { sw = im.width; sh = sw / tr; sx = 0; sy = (im.height - sh) * 0.22; }
+        ctx.drawImage(im, sx, sy, sw, sh, ax, ay, aw, ah);
+      } else {
+        ctx.fillStyle = "#2A1218"; ctx.fillRect(ax, ay, aw, ah);
+      }
+      ctx.fillStyle = tintStyle(chg);
+      ctx.fillRect(ax, ay, aw, ah);
+      ctx.restore();
+      if (topBadge.has(t.c.rank) && chg != null) {
+        const label = (chg > 0 ? "+" : "") + chg.toFixed(1) + "%";
+        ctx.font = "800 15px -apple-system, 'SF Pro Display', Arial, sans-serif";
+        ctx.shadowColor = "rgba(0,0,0,0.85)"; ctx.shadowBlur = 6;
+        ctx.fillStyle = CFG.badge;
+        ctx.fillText(label, ax + 7, ay + ah - 8);
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    /* 框線 */
+    ctx.strokeStyle = frameColor(chg);
+    ctx.lineWidth = fw;
+    ctx.strokeRect(x + fw / 2, y + fw / 2, w - fw, h - fw);
+  });
+
+  /* 細框線 + 對位十字 */
+  ctx.strokeStyle = "rgba(233,220,210,0.5)"; ctx.lineWidth = 1;
+  ctx.strokeRect(FX, FY, FW, FH);
+  const corners = [[FX, FY], [FX + FW, FY], [FX, FY + FH], [FX + FW, FY + FH]];
+  ctx.beginPath();
+  corners.forEach(([cx, cy]) => {
+    ctx.moveTo(cx - 5, cy); ctx.lineTo(cx + 5, cy);
+    ctx.moveTo(cx, cy - 5); ctx.lineTo(cx, cy + 5);
+  });
+  ctx.stroke();
+
+  /* 齒孔 */
+  const perfY = FY + FH + 18;
+  const perfW = 9, perfH = 13, perfGap = 22;
+  const perfEnd = W - FX - 76;
+  const perfCount = Math.floor((perfEnd - FX) / perfGap);
+  ctx.fillStyle = "rgba(233,220,210,0.55)";
+  for (let i = 0; i < perfCount; i++) {
+    const px2 = FX + i * perfGap;
+    ctx.beginPath(); ctx.roundRect(px2, perfY, perfW, perfH, 2); ctx.fill();
+  }
+
+  /* QR 留位 */
+  const qrSize = 56, qrX = W - FX - qrSize, qrY = FY + FH + 8;
+  ctx.strokeStyle = "#8C787C"; ctx.lineWidth = 1;
+  ctx.setLineDash([4, 3]);
+  ctx.strokeRect(qrX, qrY, qrSize, qrSize);
+  ctx.setLineDash([]);
+  ctx.fillStyle = "#8C787C";
+  ctx.font = "600 11px -apple-system, Arial, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("QR", qrX + qrSize / 2, qrY + qrSize / 2 + 4);
+  ctx.fillText("cardz.io", qrX + qrSize / 2, qrY + qrSize + 15);
+  ctx.textAlign = "left";
+
+  /* 說明行 */
+  ctx.font = "600 10px -apple-system, Arial, sans-serif";
+  ctx.fillStyle = "rgba(233,220,210,0.55)";
+  const desc = `PSA 10  ·  TOP ${shown.length}  ·  ${PERIOD_DESC[period].toUpperCase()}  ·  AS OF ${asOf.toUpperCase()}`;
+  let dx = FX;
+  for (const ch of desc) {
+    ctx.fillText(ch, dx, perfY + perfH + 18);
+    dx += ctx.measureText(ch).width + 2.2;
+  }
+
+  ctx.font = "400 9px -apple-system, Arial, sans-serif";
+  ctx.fillStyle = "rgba(233,220,210,0.38)";
+  ctx.textAlign = "right";
+  ctx.fillText(`N° ${asOf.replace(/-/g, '')} / ${shown.length}`, W - FX + 4, FY - 16);
+  ctx.textAlign = "left";
+
+  const a = document.createElement("a");
+  a.download = `cardz-market-cap-${PERIOD_LABEL[period].toLowerCase()}-${asOf}.png`;
+  a.href = canvas.toDataURL("image/png");
+  a.click();
+  btn.disabled = false;
+  const toast = document.getElementById("toast");
+  toast.textContent = "PNG 已儲存 — 貼落任何群組會自動預覽";
+  toast.classList.add("show");
+  setTimeout(() => toast.classList.remove("show"), 2600);
+}
+document.getElementById("shareBtn").onclick = sharePNG;
+
+/* ================= TUNE 面板 ================= */
+const tunePanel = document.getElementById("tunePanel");
+function showToast(msg) {
+  const toast = document.getElementById("toast");
+  toast.textContent = msg;
+  toast.classList.add("show");
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => toast.classList.remove("show"), 2400);
+}
+function bindRange(rangeId, valId, key, fmt) {
+  const el = document.getElementById(rangeId);
+  const out = valId ? document.getElementById(valId) : null;
+  el.addEventListener("input", () => {
+    CFG[key] = parseFloat(el.value);
+    if (out) out.textContent = fmt ? fmt(CFG[key]) : CFG[key];
+    render();
+  });
+}
+function bindColor(colorId, hexId, key) {
+  const c = document.getElementById(colorId);
+  const h = document.getElementById(hexId);
+  const apply = v => {
+    if (!hexToRgb(v)) return;
+    CFG[key] = v.toUpperCase();
+    c.value = CFG[key];
+    if (h.value.toUpperCase() !== CFG[key]) h.value = CFG[key];
+    render();
+  };
+  c.addEventListener("input", () => apply(c.value));
+  h.addEventListener("change", () => apply(h.value));
+}
+function initTune() {
+  document.getElementById("tuneToggle").onclick = () => tunePanel.classList.toggle("open");
+  const cntR = document.getElementById("tCount"), cntN = document.getElementById("tCountN");
+  const setCount = v => {
+    CFG.count = Math.max(1, Math.min(cards.length || 100, Math.round(v)));
+    cntR.value = CFG.count; cntN.value = CFG.count;
+    render();
+  };
+  cntR.addEventListener("input", () => setCount(cntR.value));
+  cntN.addEventListener("change", () => setCount(cntN.value));
+
+  bindColor("tUp", "tUpHex", "up");
+  bindColor("tDown", "tDownHex", "down");
+  bindColor("tNeutral", "tNeutralHex", "neutral");
+  bindColor("tBadge", "tBadgeHex", "badge");
+
+  bindRange("tClamp", "tClampV", "clamp");
+  bindRange("tAMin", "tAMinV", "aMin", v => v.toFixed(2));
+  bindRange("tAMax", "tAMaxV", "aMax", v => v.toFixed(2));
+  bindRange("tGamma", "tGammaV", "gamma", v => v.toFixed(2));
+  bindRange("tFwMin", "tFwMinV", "fwMin", v => v.toFixed(1));
+  bindRange("tFwMax", "tFwMaxV", "fwMax", v => v.toFixed(1));
+  bindRange("tGlow", "tGlowV", "glowMax", v => v.toFixed(2));
+  bindRange("tMat", "tMatV", "mat", v => v.toFixed(1));
+  bindRange("tGap", "tGapV", "gap");
+  bindRange("tBadges", "tBadgesV", "badgeCount");
+
+  document.getElementById("tCopy").onclick = async () => {
+    const json = JSON.stringify(CFG, null, 1);
+    try { await navigator.clipboard.writeText(json); showToast("設定已複製 — 貼落群組就可以拍板"); }
+    catch { showToast(json); }
+  };
+}
+
+/* ================= 期間切換 ================= */
+document.querySelectorAll(".period-switcher button").forEach(b => b.onclick = () => {
+  if (b.disabled) return;
+  period = b.dataset.period;
+  document.querySelectorAll(".period-switcher button").forEach(x => x.classList.toggle("active", x === b));
+  render();
+});
+function initPeriods() {
+  const btns = [...document.querySelectorAll(".period-switcher button")];
+  const hasData = p => cards.some(c => c[p] != null);
+  let firstAvail = null;
+  btns.forEach(b => {
+    const ok = hasData(b.dataset.period);
+    b.disabled = !ok;
+    if (ok && !firstAvail) firstAvail = b;
+  });
+  if (!hasData(period) && firstAvail) {
+    period = firstAvail.dataset.period;
+    btns.forEach(x => x.classList.toggle("active", x === firstAvail));
+  }
+  const missing = btns.filter(b => b.disabled).map(b => b.textContent);
+  document.getElementById("periodNote").textContent =
+    missing.length ? `${missing.join(" · ")} collecting — ${btns.filter(b => !b.disabled).map(b => b.textContent).join(" · ")} live` : "";
+}
+document.addEventListener("keydown", e => {
+  if (e.target.matches("input, textarea")) return;
+  if (e.key === "Escape") { backdrop.classList.remove("open"); tunePanel.classList.remove("open"); }
+  if (e.key.toLowerCase() === "t") tunePanel.classList.toggle("open");
+  if (e.key.toLowerCase() === "s") sharePNG();
+});
+
+/* ================= boot ================= */
+window.addEventListener("resize", render);
+fetch("real-cards.json")
+  .then(r => r.json())
+  .then(data => {
+    cards = data;
+    initPeriods(); initTune(); render();
+    cards.forEach(c => { const im = new Image(); im.src = c.img; });
+  });
+</script>
+</body>
+</html>

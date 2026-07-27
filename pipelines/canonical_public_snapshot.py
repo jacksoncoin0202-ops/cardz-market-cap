@@ -52,6 +52,10 @@ POPULATION_HISTORY_KEYS = {
     "SGC": ("sgc", "sgc_10_pristine"),
 }
 POPULATION_WINDOW_DAYS = {"1d": 1, "7d": 7, "30d": 30}
+# 評級 POP 觀測超過 168 小時（7 日）當過期：成個 grader block fail-closed 出
+# unavailable，唔准舊數扮新。基準係快照嘅 effective_at，唔係跑機當刻，
+# 令同一個 generation 喺任何時間重跑都出一樣結果。
+POPULATION_STALE_HOURS = 168
 # 同 g10_ingest.derive_price_windows 一模一樣嘅容差，唔另立第二套標準：
 # 錨點要真係落喺窗口附近，唔可以攞 35 日前嘅點當「30 日變動」。
 POPULATION_WINDOW_TOLERANCE = {"1d": 1, "7d": 2, "30d": 3}
@@ -62,6 +66,10 @@ PRESENTATION_VIEW_LIMITS = {
     "top300": 300,
     "top350": 350,
     "top100_plus_200": 300,
+    # combined Top300 ∪ 同日分榜（one-piece / pokemon）成員。分榜有卡跌出
+    # combined 300 名以外（實測 07-26：3 張 One Piece，rank 304/312/336），
+    # 冇聯集嘅話 /one-piece 分榜頁出唔齊自己榜嘅卡。limit 只管 core 部分。
+    "top300_boards": 300,
 }
 # Minimum constituents a combined index snapshot must hold before it may back
 # a given public view. The full Top 300 export requires complete coverage;
@@ -72,6 +80,7 @@ PRESENTATION_VIEW_MIN_COVERAGE = {
     "top300": 100,
     "top350": 350,
     "top100_plus_200": 100,
+    "top300_boards": 100,
 }
 
 
@@ -128,8 +137,36 @@ def integer(value: Any) -> int | None:
     return None if value is None else int(value)
 
 
+def js_safe_numbers(value: Any) -> Any:
+    """數值正規化：令 Python 序列化文字 == JS `JSON.stringify(JSON.parse(text))`。
+
+    validate.ts 嘅 `publicSnapshotContentSha256` 係 parse 完再 restringify 先 hash，
+    所以任何「Python 寫法 ≠ JS 重寫法」嘅數值都會令 contentSha256 對唔上。
+    實測出現過嘅只有整數值 float（Python `0.0` / JS `0`），呢度轉 int；
+    指數寫法（Python `1e-05` / JS `0.00001`）一出現即 fail-closed，唔准靜靜出街。
+    """
+
+    if isinstance(value, float):
+        if not isfinite(value):
+            raise SnapshotExportError(f"snapshot contains non-finite number: {value!r}")
+        if value.is_integer() and abs(value) < 2**53:
+            return int(value)
+        if "e" in repr(value):
+            raise SnapshotExportError(
+                f"float {value!r} serializes with exponent notation; Python/JS texts diverge"
+            )
+        return value
+    if isinstance(value, dict):
+        return {key: js_safe_numbers(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [js_safe_numbers(item) for item in value]
+    return value
+
+
 def stable_json(value: Any) -> bytes:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return json.dumps(
+        js_safe_numbers(value), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
 
 
 def snapshot_content_sha256(snapshot: Mapping[str, Any]) -> str:
@@ -139,6 +176,8 @@ def snapshot_content_sha256(snapshot: Mapping[str, Any]) -> str:
     會用同一條規則重算再比對，唔啱就 reject 成份 snapshot。所以任何改完 snapshot
     內容再寫返落磁碟嘅腳本（例如 ensure_std_card_images.py 換卡圖 block）都必須
     經呢度重算——改咗內容但唔重算，出嚟嘅 snapshot 喺 validator 眼中係壞檔。
+    數值經 `js_safe_numbers()` 正規化（`stable_json` 入面），寫檔嗰邊 `atomic_json`
+    用同一份正規化，hash 同磁碟文字唔會分家。
     """
 
     payload = dict(snapshot)
@@ -151,7 +190,9 @@ def atomic_json(path: Path, value: Mapping[str, Any]) -> None:
     fd, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
-            json.dump(value, handle, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            json.dump(
+                js_safe_numbers(value), handle, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            )
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
@@ -431,7 +472,40 @@ def latest_generation(connection: Any, min_constituents: int) -> Mapping[str, An
     )
 
 
-def market_rows(connection: Any, generation: Mapping[str, Any], *, required_count: int) -> list[dict[str, Any]]:
+BOARD_UNION_INDEX_CODES = ("one-piece", "pokemon")
+
+
+def board_member_variant_ids(connection: Any, effective_date: Any) -> set[int]:
+    """同日（或最近一日）分榜成員 variant_id，top300_boards 聯集 view 用。"""
+    members: set[int] = set()
+    for index_code in BOARD_UNION_INDEX_CODES:
+        board = fetchone(
+            connection,
+            """
+            SELECT id FROM market_index_snapshot
+            WHERE index_code=%s AND effective_date<=%s
+            ORDER BY effective_date DESC,id DESC LIMIT 1
+            """,
+            (index_code, effective_date),
+        )
+        if not board:
+            continue
+        rows = fetchall(
+            connection,
+            "SELECT variant_id FROM market_index_constituent WHERE index_snapshot_id=%s",
+            (int(board["id"]),),
+        )
+        members.update(int(row["variant_id"]) for row in rows)
+    return members
+
+
+def market_rows(
+    connection: Any,
+    generation: Mapping[str, Any],
+    *,
+    required_count: int,
+    include_board_extras: bool = False,
+) -> list[dict[str, Any]]:
     evaluation = fetchone(
         connection,
         """
@@ -442,9 +516,7 @@ def market_rows(connection: Any, generation: Mapping[str, Any], *, required_coun
         (generation["effective_date"],),
     )
     evaluation_id = int(evaluation["id"]) if evaluation else -1
-    top = fetchall(
-        connection,
-        """
+    row_query = """
         SELECT v.id AS variant_id,v.opaque_id,v.identity_status,
                v.canonical_name,v.set_name,v.collector_number,v.tcg_code,v.card_language,
                c.rank_position AS rank_position,c.reference_price_usd,c.psa10_population,
@@ -454,9 +526,12 @@ def market_rows(connection: Any, generation: Mapping[str, Any], *, required_coun
         JOIN catalog_variant v ON v.id=c.variant_id
         LEFT JOIN market_candidate_daily_snapshot d
           ON d.variant_id=c.variant_id AND d.evaluation_id=%s
-        WHERE c.index_snapshot_id=%s AND c.rank_position<=%s
+        WHERE c.index_snapshot_id=%s AND c.rank_position{rank_cond}
         ORDER BY c.rank_position
-        """,
+    """
+    top = fetchall(
+        connection,
+        row_query.format(rank_cond="<=%s"),
         (evaluation_id, generation["id"], required_count),
     )
     if len(top) > required_count:
@@ -465,10 +540,66 @@ def market_rows(connection: Any, generation: Mapping[str, Any], *, required_coun
         )
     if [int(row["rank_position"]) for row in top] != list(range(1, len(top) + 1)):
         raise SnapshotExportError("canonical combined ranking has non-contiguous ranks")
-    return [dict(row) for row in top]
+    if not include_board_extras:
+        return [dict(row) for row in top]
+    # 聯集尾巴：combined 榜 required_count 名以外、但屬於同日分榜嘅卡，
+    # 照 combined rank 排喺 core 後面。出版前 build_snapshot 會重排 1..N，
+    # 所以呢度唔使（亦唔應該）連續。
+    members = board_member_variant_ids(connection, generation["effective_date"])
+    if not members:
+        return [dict(row) for row in top]
+    placeholders = ",".join(["%s"] * len(members))
+    extras = fetchall(
+        connection,
+        row_query.format(rank_cond=f">%s AND c.variant_id IN ({placeholders})"),
+        (evaluation_id, generation["id"], required_count, *sorted(members)),
+    )
+    return [dict(row) for row in [*top, *extras]]
 
 
 SALES_WINDOW_DAYS = {"1d": 1, "7d": 7, "30d": 30}
+
+
+def ebay_psa10_daily_rows(
+    connection: Any,
+    variant_ids: list[int],
+    earliest: date | None = None,
+    anchor: date | None = None,
+) -> list[Mapping[str, Any]]:
+    """eBay PSA 10 日成交，由逐筆表 market_sale_observation 即場滾出嚟。
+
+    點解唔讀 market_daily_sales_aggregate 嘅 ebay 行：嗰批係 g10_ebay_ingest
+    將全部 grade（PSA10+PSA9+CGC10+BGS10+BGS BL）滾埋一齊嘅總量，日表冇 grade
+    欄分唔返開，直接用會令 PSA9/BGS/CGC 成交混入 PSA10 序列。逐筆表有
+    grader_code/grade_label，先篩得出純 PSA 10（8,558 行 / 505 variant /
+    2026-04-25 起，2026-07-27 實測）。
+    口徑照抄 ingest 嘅日 rollup（daily_sales_rows）：sales_count = 筆數
+    （quantity 全部係 1，實測），sales_value_usd = SUM(unit_price_usd)。
+    coverage_status 逐筆行全部 'partial'；用 MAX() 係為咗第日混入其他值時
+    揀字母序最大嗰個（'quarantined' > 'partial'），出錯方向係 fail-closed。
+    """
+    if not variant_ids:
+        return []
+    placeholders = ",".join(["%s"] * len(variant_ids))
+    params: list[Any] = [*variant_ids]
+    date_cond = ""
+    if earliest is not None and anchor is not None:
+        date_cond = "AND DATE(sold_at) BETWEEN %s AND %s"
+        params.extend([earliest, anchor])
+    return fetchall(
+        connection,
+        f"""
+        SELECT variant_id, DATE(sold_at) AS observed_date,
+               COUNT(*) AS sales_count, SUM(unit_price_usd) AS sales_value_usd,
+               MAX(coverage_status) AS coverage_status
+        FROM market_sale_observation
+        WHERE variant_id IN ({placeholders})
+          AND source_code='ebay' AND grader_code='psa' AND grade_label='10'
+          AND sold_at IS NOT NULL {date_cond}
+        GROUP BY variant_id, DATE(sold_at)
+        """,
+        params,
+    )
 
 
 def latest_sales(
@@ -485,7 +616,9 @@ def latest_sales(
     change_{1,7,30}d_pct 同一個基準。成交數據落後就照樣顯示縮水 —— 唔會攞
     「該卡最後有成交嗰日」當今日嚟造靚個數。
 
-    每日表冇 grader/grade 欄，PSA10 篩選由 source_code='snk_psa10' 隱含。
+    兩個 PSA10 成交源相加：SNKRDUNK（日表 source_code='snk_psa10'）+ eBay
+    （逐筆表篩 psa/10，見 ebay_psa10_daily_rows）。日本 app 同美國市場係兩批
+    唔同嘅成交件，冇 double count。日表嘅 ebay 行係全 grade 混合，唔准用。
     """
     if not variant_ids:
         return {}
@@ -507,8 +640,12 @@ def latest_sales(
         """,
         [*variant_ids, earliest, anchor],
     )
+    ebay_rows = ebay_psa10_daily_rows(connection, variant_ids, earliest, anchor)
     result: dict[tuple[int, str], Mapping[str, Any]] = {}
-    for row in rows:
+    # 桶內係純累加（交換律），兩源行 concat 就得，唔使 pre-merge 同日行。
+    # coverage_status/window_end_at 跟窗口內最新一日行走；同日兩源都係
+    # 'partial'，邊個 last-wins 都一樣。
+    for row in [*rows, *ebay_rows]:
         variant_id = int(row["variant_id"])
         observed = row["observed_date"]
         for window, span in SALES_WINDOW_DAYS.items():
@@ -649,6 +786,38 @@ def population_series(
             observed = observed.date()
         series[(int(row["variant_id"]), str(row["grader_code"]).upper())][observed] = int(value)
     return dict(series)
+
+
+def population_is_stale(observation: Mapping[str, Any], effective_at: str) -> bool:
+    """POP 觀測老過 POPULATION_STALE_HOURS 就係過期，唔准入快照。
+
+    冇 effective_at 或者 parse 唔到，一律當過期——寧願 unavailable 都唔好
+    stamp 個假時間出街。
+    """
+
+    observed_at = observation.get("effective_at")
+    if not isinstance(observed_at, datetime):
+        return True
+    if observed_at.tzinfo is None:
+        observed_at = observed_at.replace(tzinfo=timezone.utc)
+    try:
+        generated = datetime.fromisoformat(str(effective_at).replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if generated.tzinfo is None:
+        generated = generated.replace(tzinfo=timezone.utc)
+    return (generated - observed_at) > timedelta(hours=POPULATION_STALE_HOURS)
+
+
+def top_grade_label(observation: Mapping[str, Any] | None, grader: str) -> str:
+    """DB 而家 9,862 行 top_grade_label 全部係字面 'top'（ingest 層 bug，
+    Part② 先修根）。快照層防守：literal 'top'／空值一律回退 TOP_GRADE 表，
+    真 label（將來 ingest 修好後）原样直出。"""
+
+    label = str(observation.get("top_grade_label") or "").strip() if observation else ""
+    if not label or label.lower() == "top":
+        return TOP_GRADE[grader]
+    return label
 
 
 def observed_day(observation: Mapping[str, Any] | None) -> date | None:
@@ -793,11 +962,10 @@ def daily_history(connection: Any, variant_ids: list[int]) -> dict[int, list[dic
         """,
         variant_ids,
     )
-    # 同 latest_sales() 一樣鎖死 snk_psa10：每日成交表冇 grade 欄，PSA10 篩選全靠
-    # source_code 隱含。G10 eBay 入庫（run 70/71）寫咗 8,209 行 ebay，sales_count
-    # 總和 13,015 = PSA10 5,857 + PSA9 3,747 + CGC10 2,045 + BGS10 1,080 + BGS BL 286，
-    # 即係全 grade 撈埋。冇呢個 filter 就會（一）PSA9/BGS/CGC 成交混入 PSA10 序列，
-    # （二）ebay 行 id 大過 snk_psa10，下面 dict comprehension last-wins 會靜靜蓋走重疊日。
+    # 同 latest_sales() 一樣：SNK 讀日表（source_code='snk_psa10'），eBay 由逐筆表
+    # 篩 psa/10 即場滾（日表嘅 ebay 行係全 grade 混合，唔准用——詳見
+    # ebay_psa10_daily_rows docstring）。同一 (variant, 日) 兩源都有成交就相加，
+    # 唔准 last-wins 蓋數。
     sales = fetchall(
         connection,
         f"""
@@ -809,7 +977,20 @@ def daily_history(connection: Any, variant_ids: list[int]) -> dict[int, list[dic
         """,
         variant_ids,
     )
-    sales_by_day = {(int(row["variant_id"]), str(row["observed_date"])): row for row in sales}
+    ebay_sales = ebay_psa10_daily_rows(connection, variant_ids)
+    sales_by_day: dict[tuple[int, str], dict[str, Any]] = {}
+    for row in [*sales, *ebay_sales]:
+        sale_key = (int(row["variant_id"]), str(row["observed_date"]))
+        merged = sales_by_day.get(sale_key)
+        if merged is None:
+            sales_by_day[sale_key] = {
+                "sales_count": int(row["sales_count"] or 0),
+                "sales_value_usd": float(row["sales_value_usd"] or 0),
+                "coverage_status": str(row["coverage_status"]),
+            }
+        else:
+            merged["sales_count"] += int(row["sales_count"] or 0)
+            merged["sales_value_usd"] += float(row["sales_value_usd"] or 0)
     grouped: dict[int, list[dict[str, Any]]] = defaultdict(list)
     seen: set[tuple[int, str]] = set()
     for row in prices:
@@ -935,12 +1116,17 @@ def card_from_row(
         }
     for grader in GRADERS:
         observed = populations.get((variant_id, grader))
+        # Date floor：過期觀測直接當冇——label／total／POP／changePct 四樣
+        # 全部跟住自動歸 unavailable，唔會留低半新半舊嘅卡片。
+        # （TAG 07-29 起最先觸發：freeze 後冇新觀測，就係應該熄。）
+        if observed is not None and population_is_stale(observed, effective_at):
+            observed = None
         observed_at = iso(observed["effective_at"]) if observed else None
         observed_status = "ready" if observed else "unavailable"
         total_value = integer(observed["total_population"]) if observed else None
         top_value = integer(observed["top_grade_population"]) if observed else None
         card["graderPopulations"][grader] = {
-            "topGrade": str(observed["top_grade_label"]) if observed else TOP_GRADE[grader],
+            "topGrade": top_grade_label(observed, grader),
             # total population is not shipped by the GemRate top-grade pipeline;
             # emit unavailable instead of ready/null so public validation holds.
             "total": metric(
@@ -977,7 +1163,12 @@ def build_snapshot(
     required_count = presentation_view_limit(presentation_view)
     generation = latest_generation(connection, presentation_view_min_coverage(presentation_view))
     effective_at = iso(generation["effective_at"])
-    rows = market_rows(connection, generation, required_count=required_count)
+    rows = market_rows(
+        connection,
+        generation,
+        required_count=required_count,
+        include_board_extras=(presentation_view == "top300_boards"),
+    )
     resolved, skipped, tiers = resolve_presentation_entries(
         rows,
         cards_by_id,

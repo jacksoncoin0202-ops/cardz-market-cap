@@ -47,7 +47,7 @@ Task Scheduler (14:07 JST) — 獨立第二層
  → deploy\windows\run-cardz-watchdog.ps1
  → scripts\verify_daily_run.py --tag watchdog        ← 唯讀重驗，捉「根本冇行過」
 ```
-- **backend-only 路徑冇 export/publish**。publish 係另一條路：`backend.py daily --publish`（拎走 --backend-only，加 --required-presentation-view top300）
+- **backend-only 路徑冇 export/publish**。publish 係另一條路：`backend.py daily --publish --presentation-view top300`（拎走 --backend-only。⚠ `backend.py` 收嘅 flag 係 `--presentation-view`，佢個 daily dispatch 會自動轉成 `--required-presentation-view` 傳落 `run_daily.py`；直接跑 `run_daily.py` 先至用 `--required-presentation-view`。兩個名唔互通，餵錯邊個都係 argparse exit 2 即死）
 - Derive 核心：[market_alerts.py](../pipelines/market_alerts.py) 個 `evaluate()` 嘅 `INSERT IGNORE INTO market_index_snapshot`，unique key `(index_code, index_version, effective_date)`；`effective_date` = `MAX(observed_date) FROM market_price_observation`（同檔 `latest_price_date()`）。**價唔推進 → snapshot 永遠唔會有新行，完全靜默。**
 
 ## 3. ★ 2026-07-26 Root Cause：timezone 撕裂（已修）
@@ -109,12 +109,12 @@ Task Scheduler (14:07 JST) — 獨立第二層
 
 - MySQL 8.4 Docker `cardz-market-cap-db-1`，`127.0.0.1:3308`，DB `cardz_market_cap`，user `cardz`，密碼喺 `data\runtime\config\backend.env`（只讀查詢用，**永不印出**）
 - `market_index_snapshot` 欄位：id, run_id, index_code(`tcg-combined`/`pokemon`/`one-piece`), index_version(`psa10-v3-complete`), effective_at, effective_date, constituent_count, total_market_cap_usd, snapshot_sha256, created_at（**冇** snapshot_date/scope_code）
-- `market_grader_population_observation`.external_entity_id 格式 `gemrate:<gid>`（帶 prefix）
+- `market_grader_population_observation`.external_entity_id 係 `<namespace>:<id>`，namespace 有三個：`gemrate:` / `snkrdunk:` / `ebay:`。**namespace 唔等同 `source_code`** —— `source_code='gemrate'` 嘅行入面 1147 行係 `snkrdunk:` prefix、103 行係 `ebay:`（2026-07-27 實測）。撈某個 source 一律用 `source_code` 過濾，唔好靠 prefix。
 - 07-24 最新快照：run 29 = combined 262 / pokemon 230 / one-piece 32，$2.518B
 
 ## 8. 風險與地雷
 
-1. **GemRate key ~07-29 到期——已降級為非事件（2026-07-26 02:20 JST 實證）**：07-25/26 backfill run log 見 `[daily] 1468 cards, direct=disabled, public-card-page=enabled, mirror=enabled`（[gemrate_source.py](../pipelines/gemrate_source.py) 個 `cmd_daily()` 打印），即 pipeline **已經以 keyless transport 做 primary** 行緊（public card page + Grade10 mirror，成功率 ~96%，07-25 入咗 1136 行 source observation）。`.env.private` 冇 set `GEMRATE_API_KEY`（grep 實證 0 hit），冇「過期 key 殘留令 direct 403」風險。key 到期唯一影響 = direct API transport 唔再可用，而佢本身已 disabled。keyless 路線細節：[pipelines/GEMRATE_SOURCE.md](../pipelines/GEMRATE_SOURCE.md)。
+1. **GemRate key ~07-29 到期——係真風險（2026-07-27 13:00 JST 實測，推翻 07-26「非事件」結論）**：`daily_staging_off_20260727_093001.log` 見 `[daily] 1468 cards, direct=enabled, public-card-page=standby, mirror=enabled`（[gemrate_source.py](../pipelines/gemrate_source.py) 個 `cmd_daily()` 打印），即 direct API 而家係 **primary transport**，keyless public card page 只係 standby。07-26 個「已降級為非事件」結論係 key 未接線時期嘅量度——當日稍後 key 接咗線（`data/runtime/config/gemrate.env` → [scripts/backend.py](../scripts/backend.py) `SECRETS_PATH` 灌入子進程），每日 run 已轉用 direct，所以「`.env.private` grep 0 hit」嗰句唔再證明冇 key。key 到期＝primary transport 失效，必須喺 07-29 前實測 standby keyless 路徑食得住 1468 卡全量。keyless 路線細節：[pipelines/GEMRATE_SOURCE.md](../pipelines/GEMRATE_SOURCE.md)。
 2. G10 stealth 規則：上傳/爬取**唔准照抄 G10 日程**。
 3. TAG 係輔助，schema 壞唔擋主流程（run_daily 已 fail-soft + last_good fallback）。
 4. eBay 採集預設 disabled（`CARDZ_EBAY_SOLD_ENABLED` 控制）。

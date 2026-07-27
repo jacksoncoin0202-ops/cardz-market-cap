@@ -61,6 +61,53 @@ class MarketSourceGemRateTests(unittest.TestCase):
         self.assertEqual(row["payload"]["authority"], "gemrate")
         self.assertEqual(row["payload"]["transport"], "public_card_details")
 
+    def test_website_transport_current_population_reaches_canonical_observation(self) -> None:
+        gemrate_id = "c" * 40
+        crosswalk = {
+            "cards": [
+                {
+                    "canonicalSourceCode": "snkrdunk",
+                    "canonicalExternalId": "303",
+                    "gemrateId": gemrate_id,
+                    "tcg": "one-piece",
+                }
+            ]
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            card_root = Path(temporary) / gemrate_id
+            card_root.mkdir(parents=True)
+            (card_root / "current.json").write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": "1.0.0",
+                        "authority": "gemrate",
+                        "transport": "gemrate_public_card_page",
+                        "populationPsa10": 1333,
+                        "effectiveDate": "2026-07-26",
+                        "fetchedAt": "2026-07-26T14:15:38Z",
+                        "graderPopulations": {"PSA": 1333, "CGC": 22},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            observations, counts = build_source_observations(
+                crosswalk,
+                Path(temporary),
+                {},
+                {},
+                {},
+                160,
+                datetime(2026, 7, 26, tzinfo=timezone.utc),
+                None,
+            )
+
+        by_kind = {item["observationKind"]: item for item in observations if item["observationKind"].startswith("grader_population_")}
+        self.assertEqual(counts["gemrateCards"], 1)
+        self.assertEqual(by_kind["grader_population_psa"]["payload"]["topGradePopulation"], 1333)
+        self.assertEqual(by_kind["grader_population_psa"]["payload"]["transport"], "gemrate_public_card_page")
+        self.assertEqual(by_kind["grader_population_cgc"]["payload"]["topGradePopulation"], 22)
+
     def test_newer_keyless_current_overrides_older_direct_psa_but_keeps_other_graders(self) -> None:
         gemrate_id = "b" * 40
         crosswalk = {

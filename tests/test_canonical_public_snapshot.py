@@ -20,10 +20,17 @@ SPEC.loader.exec_module(snapshot)
 
 
 class FakeConnection:
-    """`fetchall()` 只用到 cursor 三個方法，唔使真 DB 就試到窗口切分。"""
+    """`fetchall()` 只用到 cursor 三個方法，唔使真 DB 就試到窗口切分。
+
+    要按 query 分派，唔可以一律返同一批 rows：`latest_sales()` 行兩個 query
+    （SNKRDUNK 日表 `market_daily_sales_aggregate` + eBay 逐筆表
+    `market_sale_observation`），一律返同一批就等於每筆成交計兩次，
+    窗口切分斷言會見到雙倍金額。測試 rows 係日表口徑。
+    """
 
     def __init__(self, rows: list[dict[str, object]]) -> None:
         self._rows = rows
+        self._query = ""
 
     def cursor(self) -> "FakeConnection":
         return self
@@ -34,10 +41,12 @@ class FakeConnection:
     def __exit__(self, *_: object) -> bool:
         return False
 
-    def execute(self, _query: str, _args: tuple[object, ...] = ()) -> None:
-        return None
+    def execute(self, query: str, _args: tuple[object, ...] = ()) -> None:
+        self._query = query
 
     def fetchall(self) -> list[dict[str, object]]:
+        if "market_sale_observation" in self._query:
+            return []
         return self._rows
 
 
@@ -164,6 +173,58 @@ class CanonicalPublicSnapshotTests(unittest.TestCase):
                 {},
                 {7: "2026-07-23T18:00:00Z"},
             )
+
+    def test_stale_population_observation_fails_closed_per_grader(self) -> None:
+        """168h date floor：過期 grader 觀測成個 block 歸 unavailable。
+
+        TAG freeze 之後冇新觀測，07-29 起最先觸發——過期唔准扮新、
+        唔准出負 delta，label 回退 TOP_GRADE 表。PSA 新鮮嗰邊唔受影響。
+        """
+        card = self.presentation_card()
+        populations = self.psa_population(datetime(2026, 7, 23, 12, tzinfo=timezone.utc))
+        populations[(7, "TAG")] = {
+            "top_grade_label": "10",
+            "total_population": 900,
+            "top_grade_population": 400,
+            "estimated": False,
+            # 07-16 00:00 vs 快照 07-24 00:00 = 192h > 168h
+            "effective_at": datetime(2026, 7, 16, tzinfo=timezone.utc),
+        }
+        result = snapshot.card_from_row(
+            self.ranked_row(card),
+            card,
+            "2026-07-24T00:00:00Z",
+            {},
+            populations,
+            {},
+            {7: "2026-07-23T18:00:00Z"},
+        )
+        tag = result["graderPopulations"]["TAG"]
+        self.assertEqual(tag["topGradePopulation"], {"value": None, "status": "unavailable", "asOf": None, "estimated": False})
+        self.assertEqual(tag["total"]["status"], "unavailable")
+        self.assertEqual(tag["topGrade"], "10")
+        for window in ("1d", "7d", "30d"):
+            self.assertEqual(tag["topGradePopulationChangePct"][window]["status"], "unavailable")
+        self.assertEqual(result["graderPopulations"]["PSA"]["topGradePopulation"]["status"], "ready")
+
+    def test_population_stale_boundary_is_exactly_168h(self) -> None:
+        base = "2026-07-24T00:00:00Z"
+        fresh = {"effective_at": datetime(2026, 7, 17, tzinfo=timezone.utc)}  # 168h 整，唔算過期
+        stale = {"effective_at": datetime(2026, 7, 16, 23, 59, tzinfo=timezone.utc)}  # 168h+1min
+        self.assertFalse(snapshot.population_is_stale(fresh, base))
+        self.assertTrue(snapshot.population_is_stale(stale, base))
+        # effective_at 唔係 datetime（斷鏈／髒行）一律當過期
+        self.assertTrue(snapshot.population_is_stale({"effective_at": None}, base))
+
+    def test_top_grade_literal_top_maps_to_grader_default(self) -> None:
+        """DB ingest bug 令 9,862 行 label 全部係字面 'top'——快照層要回退
+        TOP_GRADE 表，唔准俾 'top' 出街做 grade label。"""
+        self.assertEqual(snapshot.top_grade_label({"top_grade_label": "top"}, "PSA"), "10")
+        self.assertEqual(snapshot.top_grade_label({"top_grade_label": "Top"}, "BGS"), "10")
+        self.assertEqual(snapshot.top_grade_label({"top_grade_label": ""}, "CGC"), "10")
+        self.assertEqual(snapshot.top_grade_label(None, "TAG"), "10")
+        # 將來 ingest 修好之後，真 label 原样直出
+        self.assertEqual(snapshot.top_grade_label({"top_grade_label": "9.5"}, "BGS"), "9.5")
 
     def test_earlier_is_not_fooled_by_microsecond_precision(self) -> None:
         # 字串直接 min() 會揀錯：'.' (0x2E) 細過 'Z' (0x5A)
@@ -410,6 +471,26 @@ class CanonicalPublicSnapshotTests(unittest.TestCase):
             snapshot.atomic_json(output, {"generation": "canonical"})
             self.assertEqual(json.loads(output.read_text(encoding="utf-8")), {"generation": "canonical"})
             self.assertEqual(list(output.parent.glob("*.tmp")), [])
+
+
+class JsSafeNumbersTests(unittest.TestCase):
+    """contentSha256 契約：Python 序列化文字必須 == JS parse 完 restringify 嘅文字。"""
+
+    def test_integral_floats_serialize_as_ints(self) -> None:
+        self.assertEqual(
+            snapshot.stable_json({"a": 0.0, "b": [1.0, -50.0], "c": 0.1}),
+            b'{"a":0,"b":[1,-50],"c":0.1}',
+        )
+
+    def test_atomic_json_uses_same_normalization(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "snapshot.json"
+            snapshot.atomic_json(output, {"value": 25.0})
+            self.assertEqual(output.read_text(encoding="utf-8"), '{"value":25}\n')
+
+    def test_exponent_notation_fails_closed(self) -> None:
+        with self.assertRaises(snapshot.SnapshotExportError):
+            snapshot.stable_json({"a": 1e-05})
 
 
 if __name__ == "__main__":

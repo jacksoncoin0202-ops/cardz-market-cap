@@ -1,0 +1,26 @@
+{
+  "g10Root": "C:\\Users\\jackson0202\\Documents\\Playground\\cardz-market-cap\\data\\editorial\\long-form-stories",
+  "localeCode": "en",
+  "sourceCode": "g10_research",
+  "identityRows": 585,
+  "stats": {
+    "accepted": 28,
+    "accepted_altxyz": 28,
+    "dir_seen": 28,
+    "dir_seen_altxyz": 28,
+    "observed": 28,
+    "observed_altxyz": 28
+  },
+  "rejectRatio": 0.0,
+  "skips": [],
+  "indexSnapshot": {
+    "id": 19,
+    "effective_at": "2026-07-25 00:00:00",
+    "effective_date": "2026-07-25",
+    "constituent_count": 255
+  },
+  "top100Covered": 13,
+  "top100Total": 100,
+  "write": null,
+  "failReason": null
+}

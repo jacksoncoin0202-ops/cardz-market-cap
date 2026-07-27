@@ -54,7 +54,7 @@ export function GraderPage({ grader, snapshot, shareTotals, availableGraders }: 
         <div className="ranking-heading">
           <div>
             <h2 id="grader-ranking-heading">{t.grader.topGradePopulation}</h2>
-            <p>{grader === "PSA" ? t.grader.marketCapAvailable : t.grader.marketCapUnavailable}</p>
+            <p>{t.grader.marketCapAvailable}</p>
           </div>
           <PeriodSelector compact />
         </div>
@@ -81,7 +81,9 @@ export function GraderPage({ grader, snapshot, shareTotals, availableGraders }: 
                   <td className="numeric">{populationText(population.topGradePopulation, locale)}</td>
                   <td className="numeric">{populationText(population.total, locale)}</td>
                   <td className={`numeric metric-${metricTone(population.topGradePopulationChangePct[period])}`}>{formatPercent(population.topGradePopulationChangePct[period], locale)}</td>
-                  <td className="numeric market-cap-cell">{grader === "PSA" ? formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true) : "—"}</td>
+                  {/* 市值一律係 PSA10 市值（見 heading 副題）。之前非 PSA 版硬出「—」係錯 ——
+                      五個 grader 版都係同一批卡，marketCap 條數一直喺 payload 入面。 */}
+                  <td className="numeric market-cap-cell">{formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true)}</td>
                 </tr>
               );
             })}</tbody>
@@ -95,7 +97,8 @@ export function GraderPage({ grader, snapshot, shareTotals, availableGraders }: 
           </div>
           {snapshot.top100.map((card) => {
             const population = card.graderPopulations[grader];
-            const price = grader === "PSA" ? card.pricePsa10 : card.marketCap;
+            // 價一律 PSA10 價；之前非 PSA 版攞 marketCap 當價，同 cap 副行重複又唔係價。
+            const price = card.pricePsa10;
             const change = card.windows[period].changePct;
             const tone = metricTone(change);
             return (

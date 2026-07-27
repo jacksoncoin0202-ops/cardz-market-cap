@@ -21,7 +21,7 @@ apps/web/public/market-assets
 packages/*/node_modules
 packages/*/dist
 
-# build 期真正要嘅只有三樣（snapshot.ts 兩個 static import + sync-snapshot.mjs 嘅圖），
+# build 期真正要嘅只有四樣（snapshot.ts 三個 static import + sync-snapshot.mjs 嘅圖），
 # 其餘 data/ 6.8 GB 一律唔入 context。
 !data
 data/*
@@ -32,6 +32,7 @@ data/public/*
 !data/editorial
 data/editorial/*
 !data/editorial/top100-stories.json
+!data/editorial/set-names.json
 
 **/node_modules
 **/.git

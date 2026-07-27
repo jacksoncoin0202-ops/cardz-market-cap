@@ -1,0 +1,31 @@
+identity_rows=1496
+=== [A] 磁碟存量 data/private/gemrate/cards/
+card_dirs_total=2978
+dirs_with_history_full=833
+parse_fail=0
+grader_history_present={'psa': 806, 'beckett': 804, 'sgc': 724, 'cgc': 808}
+window_intervals={'week': 632, 'two_week': 201}
+total_grader_date_points=433936
+distinct_dates=393
+date_min=2023-07-25  date_max=2026-07-26
+per_card_datepoint_hist={79: 201, 157: 632}
+
+=== [B] roster(population variants) × 磁碟
+roster_variants_with_gemrate_identity=1495
+roster_covered_by_history=730
+roster_dir_exists_but_no_history=735
+roster_no_disk_dir_at_all=30
+history_files_not_in_roster=103
+
+=== [C] 覆蓋卡嘅序列質量
+series_(variant,grader)=2761
+series_per_grader={'PSA': 708, 'BGS': 713, 'CGC': 706, 'SGC': 634}
+usable_grade_points=320182
+points_overlapping_db_dates=2761
+points_on_new_dates=317421
+distinct_dates=393  range=2023-07-25 .. 2026-07-26
+points_dropped_missing_gradekey={'psa_10': 21096, 'beckett_10_pristine': 22094, 'cgc_10_perfect': 21846, 'sgc_10_pristine': 18619}
+series_with_negative_delta=155
+negative_delta_steps=264
+negative_delta_magnitude_buckets={'-1': 239, '-2..-9': 22, '-10..-99': 3}
+worst_negative_step=(-67, 336, 'BGS', ('2025-12-21', 68), ('2025-12-28', 1))

@@ -24,6 +24,11 @@ export interface MarketMetric<T> {
   status: MetricStatus;
   asOf: string | null;
   anchorAt?: string | null;
+  /**
+   * 2026-07-27 上線頂檔：呢個值係由較短窗口借返嚟（30d→7d→1d），唔係本窗口真數。
+   * 有呢個欄位就代表係借數 —— 日後真數據源接返嚟，搵晒佢就可以還原 fail-closed。
+   */
+  fallbackWindow?: MarketWindow;
 }
 
 export interface PricePoint {

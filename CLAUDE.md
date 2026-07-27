@@ -279,11 +279,11 @@ comm -12 <(sort gemrate-ids.txt) <(sort tracked-gemrate-ids.txt) | wc -l   # →
 | 裁決佇列 `market_identity_review_queue` | ✅ **203 行（全部 pending）** |
 | 故事 `catalog_story_pointer` | ✅ 466 行 |
 
-**真係仲 0 行嘅 6 張**：`market_tracked_sales_aggregate`（已正式廢棄）、`catalog_printing_identity`、
+**真係仲 0 行嘅 5 張**（07-27 更新：`catalog_printing_identity` 已通電 **68 行**，見 PROJECT_STATE §4 identity-batch）：`market_tracked_sales_aggregate`（已正式廢棄）、
 `market_raw_payload_object`、`market_source_observation_payload_pointer`、
 `market_source_effective_observation`、`market_retention_archive_manifest`。
 
-**去重結論同直覺相反**：price / population 兩張 fact table 實測 **0% 重複**（UNIQUE KEY 生效，而且真 key 用 `source_code` 唔係 brief 寫嘅 `source_priority`）。真正重複喺 **`catalog_variant` 自己**（24 組 / 52 行 / 3.3%，同一實體卡 2–3 個 variant_id）。收斂應該落 `catalog_printing_identity`（設計上就係做呢件事，目前 0 行）。
+**去重結論同直覺相反**：price / population 兩張 fact table 實測 **0% 重複**（UNIQUE KEY 生效，而且真 key 用 `source_code` 唔係 brief 寫嘅 `source_priority`）。真正重複喺 **`catalog_variant` 自己**（24 組 / 52 行 / 3.3%，同一實體卡 2–3 個 variant_id）。收斂應該落 `catalog_printing_identity`（設計上就係做呢件事，07-27 已通電 68 行：19 組真重複收斂 + 10 組假陽性擋低，opaque_id 零變動，證據 `docs/evidence/2026-07-27-identity-batch/`）。
 
 **價格歷史覆蓋率 —— 兩個分母講法唔同，唔好混**：
 - 對 **catalog** 全量：395 / 1,705（**23.2%**）
@@ -639,6 +639,11 @@ fail-closed identity assert（`ValueError: opaque_id canonical identity changed`
 ---
 
 # TAG 每日死亡（2026-07-26 查實，唔好再當「生死未確認」）
+
+> ⚠ **07-27 注記（pm-closeout）**：PROJECT_STATE §0.5 實測 **07-26 有 324 行
+> `source_code='tag'` POP 寫入**（@verified 戳 `id=db.pop_obs.tag_0726`），
+> 「全庫得 07-22 一日」已被推翻 —— 本章節嘅死亡結論**引用前要重驗**。
+> 死因分析（1997 爛行 raise）本身可能仍然成立，但「之後零」呢個量測已過時。
 
 **一句講晒**：TAG 唔係「靜默」，係**每日 fail 得好準時**。全庫得 **07-22 一日 / 307 卡**，之後零。
 

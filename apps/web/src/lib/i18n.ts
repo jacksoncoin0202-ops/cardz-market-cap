@@ -96,7 +96,6 @@ export interface Copy {
     populationChangeShort: string;
     liquidity: string;
     marketCapAvailable: string;
-    marketCapUnavailable: string;
     marketShare: string;
     names: Record<Grader, string>;
   };
@@ -184,7 +183,7 @@ export const copy: Record<Locale, Copy> = {
       title: "{grader} market supply",
       body: "Top-grade population and tracked liquidity are shown without inventing unavailable prices.",
       topGrade: "Top grade", topGradeShort: "Grade", topGradePopulation: "Top-grade population", topGradePopulationShort: "Pop", totalPopulation: "Total graded population", totalPopulationShort: "Total", populationChange: "population change", populationChangeShort: "change",
-      liquidity: "Tracked liquidity", marketCapAvailable: "PSA 10 market cap", marketCapUnavailable: "Market cap unavailable", marketShare: "Market share",
+      liquidity: "Tracked liquidity", marketCapAvailable: "PSA 10 market cap", marketShare: "Market share",
       names: { PSA: "PSA", BGS: "BGS", CGC: "CGC", SGC: "SGC", TAG: "TAG" },
     },
     theme: { dark: "Dark mode", light: "Light mode" },
@@ -255,7 +254,7 @@ export const copy: Record<Locale, Copy> = {
       title: "{grader} 市場供應",
       body: "呈現最高評級數量及已追蹤流動性，不會為缺失價格製造估算。",
       topGrade: "最高評級", topGradeShort: "評級", topGradePopulation: "最高評級數量", topGradePopulationShort: "數量", totalPopulation: "評級總數量", totalPopulationShort: "總數", populationChange: "數量變化", populationChangeShort: "變化",
-      liquidity: "已追蹤流動性", marketCapAvailable: "PSA 10 市值", marketCapUnavailable: "暫無市值", marketShare: "市佔",
+      liquidity: "已追蹤流動性", marketCapAvailable: "PSA 10 市值", marketShare: "市佔",
       names: { PSA: "PSA", BGS: "BGS", CGC: "CGC", SGC: "SGC", TAG: "TAG" },
     },
     theme: { dark: "深色模式", light: "淺色模式" },
@@ -317,7 +316,7 @@ export const copy: Record<Locale, Copy> = {
     grader: {
       eyebrow: "评级供应", title: "{grader} 市场供应", body: "呈现最高评级数量及已追踪流动性，不会为缺失价格制造估算。",
       topGrade: "最高评级", topGradeShort: "评级", topGradePopulation: "最高评级数量", topGradePopulationShort: "数量", totalPopulation: "评级总数量", totalPopulationShort: "总数", populationChange: "数量变化", populationChangeShort: "变化",
-      liquidity: "已追踪流动性", marketCapAvailable: "PSA 10 市值", marketCapUnavailable: "暂无市值", marketShare: "市占",
+      liquidity: "已追踪流动性", marketCapAvailable: "PSA 10 市值", marketShare: "市占",
       names: { PSA: "PSA", BGS: "BGS", CGC: "CGC", SGC: "SGC", TAG: "TAG" },
     },
     theme: { dark: "深色模式", light: "浅色模式" },
@@ -379,7 +378,7 @@ export const copy: Record<Locale, Copy> = {
     grader: {
       eyebrow: "鑑定供給", title: "{grader} の市場供給", body: "最高評価枚数と追跡流動性を表示し、欠損価格は推計しません。",
       topGrade: "最高評価", topGradeShort: "評価", topGradePopulation: "最高評価枚数", topGradePopulationShort: "枚数", totalPopulation: "鑑定総数", totalPopulationShort: "総数", populationChange: "枚数変化", populationChangeShort: "変化",
-      liquidity: "追跡流動性", marketCapAvailable: "PSA 10 時価総額", marketCapUnavailable: "時価総額データなし", marketShare: "シェア",
+      liquidity: "追跡流動性", marketCapAvailable: "PSA 10 時価総額", marketShare: "シェア",
       names: { PSA: "PSA", BGS: "BGS", CGC: "CGC", SGC: "SGC", TAG: "TAG" },
     },
     theme: { dark: "ダークモード", light: "ライトモード" },
@@ -448,7 +447,7 @@ export const copy: Record<Locale, Copy> = {
     grader: {
       eyebrow: "감정 공급", title: "{grader} 시장 공급", body: "최고 등급 매수와 추적 유동성을 표시하며, 누락된 가격은 추정하지 않습니다.",
       topGrade: "최고 등급", topGradeShort: "등급", topGradePopulation: "최고 등급 매수", topGradePopulationShort: "매수", totalPopulation: "총 감정 수", totalPopulationShort: "총수", populationChange: "매수 변화", populationChangeShort: "변화",
-      liquidity: "추적 유동성", marketCapAvailable: "PSA 10 시가총액", marketCapUnavailable: "시가총액 데이터 없음", marketShare: "점유율",
+      liquidity: "추적 유동성", marketCapAvailable: "PSA 10 시가총액", marketShare: "점유율",
       names: { PSA: "PSA", BGS: "BGS", CGC: "CGC", SGC: "SGC", TAG: "TAG" },
     },
     theme: { dark: "다크 모드", light: "라이트 모드" },

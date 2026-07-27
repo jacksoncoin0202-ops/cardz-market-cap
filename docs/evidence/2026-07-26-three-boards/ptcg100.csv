@@ -1,0 +1,101 @@
+rank,variant_id,tcg,name,set,collector_number,price_usd,psa10_pop,market_cap_usd,price_as_of,pop_as_of,origin,price_source
+1,1,pokemon,Pikachu with Grey Felt Hat,SVP EN “Van gogh exhibition”,085/SVP,3054.554341,49517,151252367.303297,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+2,2,pokemon,Pikachu,SWSH: Sword & Shield Promo Cards,227/S-P,3848.738469,21194,81570163.111986,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+3,4,pokemon,Pikachu Munch,SM-P,288/SM-P,14967.316269,3930,58821552.93717,2026-07-24,2026-07-25,eval8_ready,eval8_reference
+4,9,pokemon,Poncho,XY Promos,208/XY-P,22800.000000,2419,55153200.0,2026-07-24,2026-07-25,eval8_ready,eval8_reference
+5,7,pokemon,Poncho,XY Promos,207/XY-P,22800.000000,2389,54469200.0,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+6,5,pokemon,Mega Charizard X ex,M2: Inferno X,110/080,1075.203128,47266,50820551.048048,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+7,6,pokemon,Umbreon ex,SV8a: Terastal Fest ex,217/187,610.910868,77238,47185533.622584,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+8,13,pokemon,Poncho,XY-P: XY Promos,230/XY-P,19750.000000,2290,45227500.0,2026-07-24,2026-07-25,eval8_ready,eval8_reference
+9,10,pokemon,Luigi Pikachu,XY-P: XY Promos,296/XY-P,17349.868654,2358,40910990.286132,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+10,11,pokemon,Charizard EX,XY-P: XY Promos,276/XY-P,11667.894866,3343,39005772.537038,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+11,12,pokemon,Poncho,XY-P: XY Promos,231/XY-P,16800.048873,2128,35750504.001744,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+12,21,pokemon,Team Skull Pikachu,Special BOX Member Pretend Pikachu,013/SM-P,14056.055023,2089,29363098.943047,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+13,15,pokemon,Giratina V,S11: Lost Abyss,111/100,2161.630000,13516,29216591.08,2026-07-24,2026-07-25,eval8_ready,eval8_reference
+14,16,pokemon,Mimikyu,SM-P: Sun & Moon Promos,289/SM-P,19344.141489,1451,28068349.300539,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+15,17,pokemon,Charizard ex,SV2a: Pokemon Card 151,201/165,729.427577,37002,26990279.204154,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+16,18,pokemon,Charizard,s8a-P: Promo Card Pack 25th Anniversary Edition,001/025,767.688924,33112,25419715.651488,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+17,20,pokemon,Latias & Latios GX,SM9: Tag Bolt,105/095,8002.932372,3170,25369295.61924,2026-07-25,2026-07-25,eval8_ready,eval8_reference
+18,26,pokemon,Mario Pikachu,XY-P: XY Promos,293/XY-P,10255.465488,2383,24438774.257904,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+19,25,pokemon,Red's Pikachu,SM-P: Sun & Moon Promos,270/SM-P,1312.474800,17953,23562860.0844,2026-07-24,2026-07-25,eval8_ready,eval8_reference
+20,23,pokemon,Mew ex,SV4a: Shiny Treasure ex,347/190,909.493555,25901,23556792.568055,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+21,27,pokemon,Psyduck,SM-P: Sun & Moon Promos,286/SM-P,11360.845001,1942,22062760.991942,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+22,29,pokemon,Gengar VMAX,SS: Gengar VMAX High-Class Deck,020/019,2504.734559,7993,20020343.330087,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+23,33,pokemon,Lillie,SM4+: GX Battle Boost,119/114,16549.987718,1200,19859985.2616,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+24,30,pokemon,Detective Pikachu,SV-P,098/SV-P,409.206427,47676,19509325.613652,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+25,31,pokemon,Moltres Zapdos Articuno GX,Sun Moon Promotional Card,SM210,440.000000,41868,18421920.0,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+26,51,pokemon,Luigi Pikachu,XY-P: XY Promos,295/XY-P,7341.562270,2337,17157231.02499,2026-07-24,2026-07-25,eval8_ready,eval8_reference
+27,35,pokemon,Pikachu,Promotional Cards 5th Anniversary Card,153/SV-P,3250.000000,5264,17108000.0,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+28,38,pokemon,Pikachu ex,WCS23: 2023 World Championships Yokohama Deck: Pikachu,001/030,608.668825,27959,17017771.678175,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+29,45,pokemon,Pikachu EX,CP6: Expansion Pack 20th Anniversary,094/087,9163.663022,1857,17016922.231854,2026-07-24,2026-07-25,eval8_ready,eval8_reference
+30,32,pokemon,_____'s Pikachu,s8a-P: Promo Card Pack 25th Anniversary Edition,007/025,648.518541,26196,16988591.700036,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+31,37,pokemon,Mega Gengar ex,M2a: High Class Pack: MEGA Dream ex,240/193,567.670597,29763,16895579.978511,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+32,34,pokemon,Mew/Mewtwo Gx,2019 Sun and Moon Black Star Promo Power Partnership Tins,SM191,1749.990000,9531,16679154.69,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+33,40,pokemon,Eevee,SM-P: Sun & Moon Promos,287/SM-P,5158.437730,3223,16625644.80379,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+34,39,pokemon,Giratina Vstar,2023 Sword and Shield Crown Zenith Galarian Gallery Secret Rare,GG69,689.995000,23805,16425330.975,2026-07-24,2026-07-25,eval8_ready,eval8_reference
+35,46,pokemon,Magikarp,SV1a: Triplet Beat,080/073,283.144969,56446,15982400.920174,2026-07-25,2026-07-25,eval8_ready,eval8_reference
+36,41,pokemon,Mewtwo Vstar,2023 Sword and Shield Crown Zenith Galarian Gallery,GG44,606.635000,25822,15664528.97,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+37,48,pokemon,Charizard Gx,2019 Sun and Moon Hidden Fates,SV49,1585.000000,9517,15084445.0,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+38,53,pokemon,Pikachu,SM-P: Sun & Moon Promos,400/SM-P,5388.233857,2798,15076278.331886,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+39,50,pokemon,Pikachu & Zekrom GX,SM9: Tag Bolt,101/095,4881.177836,3081,15038908.912716,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+40,49,pokemon,Pikachu ex,SV8: Super Electric Breaker,132/106,731.871220,19528,14291981.18416,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+41,44,pokemon,Pikachu,CP3: PokeKyun Collection,010/032,4700.812511,2967,13947310.720137,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+42,55,pokemon,Pikachu ex,M2a: High Class Pack: MEGA Dream ex,234/193,479.974342,27308,13107139.331336,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+43,57,pokemon,Pikachu,S-P Promotional cards「YU NAGABA×Pokemon Card Game」,208/S-P,323.122976,38670,12495165.48192,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+44,59,pokemon,Mega Charizard X ex,M2: Inferno X,116/080,2810.189993,4383,12317062.739319,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+45,61,pokemon,Mew ex,SV2a: Pokemon Card 151,205/165,549.819781,21445,11790885.203545,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+46,65,pokemon,Mewtwo GX,SM3+: Shining Legends,082/072,4826.195858,2403,11597348.646774,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+47,74,pokemon,Charizard VMAX SUR,Sword Shield Shining Fates,SV107,320.000000,35851,11472320.0,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+48,96,pokemon,Charizard,CP6: Expansion Pack 20th Anniversary,011/087,1275.000000,8600,10965000.0,2026-07-24,2026-07-25,eval8_ready,eval8_reference
+49,66,pokemon,Charizard ex,SV4a: Shiny Treasure ex,349/190,448.255849,24007,10761278.166943,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+50,70,pokemon,Cramorant,SWSH: Sword & Shield Promo Cards,226/S-P,650.009164,16362,10635449.941368,2026-07-24,2026-07-25,eval8_ready,eval8_reference
+51,131,pokemon,Charizard VMAX,Sword Shield Promotional Card,SWSH261,1049.995000,9864,10357150.68,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+52,77,pokemon,Pikachu,S12a: VSTAR Universe,205/172,578.306555,17575,10163737.704125,2026-07-24,2026-07-25,eval8_ready,eval8_reference
+53,85,pokemon,Reshiram ex,SV11W: White Flare,174/086,796.933227,12674,10100331.718998,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+54,68,pokemon,Lillie,SM1M: Collection Moon,066/060,8674.934327,1161,10071598.753647,2026-07-25,2026-07-25,eval8_ready,eval8_reference
+55,73,pokemon,Sylveon ex,SV8a: Terastal Fest ex,212/187,201.600586,49670,10013501.10662,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+56,79,pokemon,Charizard ex,SV3: Ruler of the Black Flame,134/108,505.821981,19588,9908040.963828,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+57,81,pokemon,Umbreon Star,s8a-P: Promo Card Pack 25th Anniversary Edition,012/025,351.273749,27570,9684617.25993,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+58,84,pokemon,Gengar & Mimikyu GX,SM9: Tag Bolt,103/095,3512.737492,2733,9600311.565636,2026-07-23,2026-07-24,eval8_ready,eval8_reference
+59,75,pokemon,Pikachu/Zekrom Gx,2019 Sun and Moon Black Star Promo Tag Team Tins,SM168,1797.530000,5268,9469388.04,2026-07-24,2026-07-25,eval8_ready,eval8_reference
+60,109,pokemon,Flareon EX,CP3: PokeKyun Collection,007/032,3558.555807,2658,9458641.335006,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+61,86,pokemon,Zekrom ex,SV11B: Black Bolt,174/086,720.874824,12825,9245219.6178,2026-07-24,2026-07-25,eval8_ready,eval8_reference
+62,91,pokemon,Rayquaza V,S7R: Blue Sky Stream,076/067,1771.641518,5051,8948561.307418,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+63,83,pokemon,Pikachu,SV2a: Pokemon Card 151,025/165,716.292993,12432,8904954.488976,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+64,88,pokemon,Giratina VSTAR,S12a: VSTAR Universe,261/172,299.010324,29559,8838446.167116,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+65,94,pokemon,Iono,SV2D: Clay Burst,096/071,521.125298,16917,8815876.666266,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+66,82,pokemon,Special Delivery Charizard,Sword Shield 2022 Pokemon Center UK Special Promo,SWSH075,1925.000000,4524,8708700.0,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+67,93,pokemon,Umbreon & Darkrai GX,SM12a: TAG TEAM GX: Tag All Stars,182/173,1822.548720,4765,8684444.6508,2026-07-24,2026-07-25,eval8_ready,eval8_reference
+68,97,pokemon,Sightseer,SM12a: TAG TEAM GX: Tag All Stars,192/173,1542.549942,5616,8662960.474272,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+69,95,pokemon,Lillie's Determination,m1L: Mega Brave,091/063,441.554157,19587,8648721.273159,2026-07-25,2026-07-25,eval8_ready,eval8_reference
+70,92,pokemon,Kanazawa Pikachu With Mark,S-P,144/S-P,408.821553,21092,8622864.195876,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+71,101,pokemon,Arceus Vstar,2023 Sword and Shield Crown Zenith Galarian Gallery Secret Rare,GG70,416.000000,20108,8364928.0,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+72,100,pokemon,Team Rocket's Mewtwo ex,SV10: The Glory of Team Rocket,125/098,706.762783,11682,8256402.831006,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+73,99,pokemon,Mew VMAX,S8: Fusion Arts,119/100,1429.531431,5765,8241248.699715,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+74,105,pokemon,Umbreon,SV-P Promotional cards「YU NAGABA×Pokemon Card Game」,067/SV-P,277.017533,28548,7908296.532084,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+75,120,pokemon,Mewtwo & Mew GX,SM11: Miracle Twin,098/094,3573.828578,2173,7765929.499994,2026-07-25,2026-07-25,eval8_ready,eval8_reference
+76,115,pokemon,Kingdra ex,Scarlet Violet Promotional Card,131/SVP,418.740000,18191,7617299.34,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+77,104,pokemon,Rayquaza Vmax,2022 Sword and Shield Silver Tempest Trainer Gallery,TG20,447.495000,16614,7434681.93,2026-07-24,2026-07-25,eval8_ready,eval8_reference
+78,127,pokemon,Mega Dragonite ex,M2a: High Class Pack: MEGA Dream ex,246/193,326.886187,22646,7402664.590802,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+79,133,pokemon,Fukuoka's Pikachu,Special Box Pokemon Center Fukuoka,289/SV-P,268.678600,27084,7276891.2024,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+80,125,pokemon,Manzai play Pikachu,S-P,407/SM-P,1001.282913,7199,7208235.690687,2026-07-24,2026-07-25,eval8_ready,eval8_reference
+81,113,pokemon,Hiroshima's Pikachu,SV-P Promotional Cards,261/SV-P,356.955220,20168,7199072.87696,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+82,119,pokemon,Pikachu,Pokemon Card Festa 2017,061/SM-P,3176.736514,2232,7090475.899248,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+83,114,pokemon,Pikachu,SV-P Promotional Cards,1/SV-P,94.281874,74171,6992980.876454,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+84,116,pokemon,Charizard VSTAR,S12a: VSTAR Universe,212/172,179.809396,37772,6791760.505712,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+85,117,pokemon,Pretend Tea Ceremony Pikachu,SM-P: Sun & Moon Promos,325/SM-P,1130.000000,5983,6760790.0,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+86,126,pokemon,Mewtwo VSTAR,S12a: VSTAR Universe,221/172,204.655141,32991,6751777.756731,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+87,129,pokemon,Espeon VMAX,S-P,189/S-P,468.324271,14105,6605713.842455,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+88,130,pokemon,Charizard VMAX,S4a: Shiny Star V,308/190,245.891624,26287,6463753.120088,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+89,122,pokemon,Greninja ex,Scarlet Violet Shrouded Fable Greninja ex Special Illustration Collection,132/SVP,440.000000,14687,6462280.0,2026-07-25,2026-07-25,eval8_ready,eval8_reference
+90,173,pokemon,Friends in Alola,SM-P: Sun & Moon Promos,401/SM-P,4256.014417,1514,6443605.827338,2026-07-24,2026-07-25,eval8_ready,eval8_reference
+91,139,pokemon,Charizard GX,SM8b: GX Ultra Shiny,209/150,2238.988332,2842,6363204.839544,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+92,142,pokemon,Shibuya Pikachu,S-P,002/S-P,824.729672,7572,6244853.076384,2026-07-25,2026-07-25,eval8_ready,eval8_reference
+93,136,pokemon,Pikachu,SM11b: Dream League,054/049,395.564787,15688,6205620.378456,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+94,166,pokemon,Tohoku's Pikachu,Special Box Pokemon Center Tohoku,260/SV-P,280.408088,21958,6157200.796304,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+95,144,pokemon,Clefairy,SM Promos,381/SM-P,565.000000,10867,6139855.0,2026-07-24,2026-07-25,eval8_ready,eval8_reference
+96,148,pokemon,Lisia,SM7: Sky-Splitting Charisma,104/096,1780.805181,3365,5992409.434065,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+97,164,pokemon,Victini,Promotional Cards Victini BWR Competition Top Prize,288/SV-P,1710.550431,3498,5983505.407638,2026-07-24,2026-07-24,eval8_ready,eval8_reference
+98,153,pokemon,Espeon ex,SV8a: Terastal Fest ex,211/187,150.974403,39070,5898569.92521,2026-07-25,2026-07-24,eval8_ready,eval8_reference
+99,168,pokemon,Mew EX,Shiny Collection,024/020,7500.000000,785,5887500.0,2026-07-24,2026-07-24,derived_out_of_roster,ebay
+100,143,pokemon,Greninja ex,SV5a: Crimson Haze,090/066,387.928401,14850,5760736.75485,2026-07-25,2026-07-24,eval8_ready,eval8_reference

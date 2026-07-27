@@ -91,7 +91,14 @@ async function loadNodeSnapshot(): Promise<MarketViewSnapshot> {
 }
 
 export const loadMarketSnapshot = cache(async (): Promise<MarketViewSnapshot> => {
-  if (process.env.NODE_ENV === "development") return getSeedSnapshot();
+  if (process.env.NODE_ENV === "development") {
+    /*
+     * dev 預設照舊派 demo seed；設咗 MARKET_DATA_SNAPSHOT_PATH 先改行 node 路徑，
+     * 同生產一樣過 assertPublicSnapshot({ production: true }) 閘，壞檔直接 throw。
+     */
+    if (process.env.MARKET_DATA_SNAPSHOT_PATH?.trim()) return loadNodeSnapshot();
+    return getSeedSnapshot();
+  }
   if (isNodeRuntime()) return loadNodeSnapshot();
   let allowDemo = process.env.MARKET_DATA_ALLOW_DEMO === "true";
   try {

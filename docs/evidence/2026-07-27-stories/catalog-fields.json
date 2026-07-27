@@ -1,0 +1,259 @@
+[
+  {
+    "statement": "SELECT id AS variant_id, tcg_code, card_language, canonical_name, set_name, collector_number, opaque_id FROM catalog_variant WHERE id IN (19,24,34,39,41,43,48,60,63,69,72,74,75,78,101,103,104,107,128,132,134,146,163,171,175,188,192,197) ORDER BY id",
+    "rows": [
+      {
+        "variant_id": 19,
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "canonical_name": "Monkey D Luffy",
+        "set_name": "2023 Awakening of the New Era Special Art",
+        "collector_number": "ST01-012",
+        "opaque_id": "cmc_334667e52d3f7f5aff7fd1a5"
+      },
+      {
+        "variant_id": 24,
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "canonical_name": "Monkey D. Luffy",
+        "set_name": "2023 Awakening of the New Era Manga Alternate Art",
+        "collector_number": "OP05-119",
+        "opaque_id": "cmc_058d84cf05991c2c0ab2409b"
+      },
+      {
+        "variant_id": 34,
+        "tcg_code": "pokemon",
+        "card_language": "en",
+        "canonical_name": "Mew/Mewtwo Gx",
+        "set_name": "2019 Sun and Moon Black Star Promo Power Partnership Tins",
+        "collector_number": "SM191",
+        "opaque_id": "cmc_209c6e27c8c27d348cf8aaf0"
+      },
+      {
+        "variant_id": 39,
+        "tcg_code": "pokemon",
+        "card_language": "en",
+        "canonical_name": "Giratina Vstar",
+        "set_name": "2023 Sword and Shield Crown Zenith Galarian Gallery Secret Rare",
+        "collector_number": "GG69",
+        "opaque_id": "cmc_d1a8a79fe5185c3cceafaa15"
+      },
+      {
+        "variant_id": 41,
+        "tcg_code": "pokemon",
+        "card_language": "en",
+        "canonical_name": "Mewtwo Vstar",
+        "set_name": "2023 Sword and Shield Crown Zenith Galarian Gallery",
+        "collector_number": "GG44",
+        "opaque_id": "cmc_b26568a2eee0439cdd89ae53"
+      },
+      {
+        "variant_id": 43,
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "canonical_name": "Monkey D. Luffy",
+        "set_name": "2025 A Fist of Divine Speed 3rd Anniversary Gold Foil",
+        "collector_number": "OP05-119",
+        "opaque_id": "cmc_2c605964de9f67642f9d6197"
+      },
+      {
+        "variant_id": 48,
+        "tcg_code": "pokemon",
+        "card_language": "en",
+        "canonical_name": "Charizard Gx",
+        "set_name": "2019 Sun and Moon Hidden Fates",
+        "collector_number": "SV49",
+        "opaque_id": "cmc_19727069ac175f158769c2f6"
+      },
+      {
+        "variant_id": 60,
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "canonical_name": "Roronoa Zoro",
+        "set_name": "2024 Wings of the Captain Manga Alternate Art",
+        "collector_number": "OP06-118",
+        "opaque_id": "cmc_0df175352be781a08a19275c"
+      },
+      {
+        "variant_id": 63,
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "canonical_name": "Monkey D. Luffy",
+        "set_name": "2025 Eb02-Extra Booster -Anime 25th Collection- Manga Alternate Art",
+        "collector_number": "EB02-061",
+        "opaque_id": "cmc_fc1d979ca8dcf60b9baed043"
+      },
+      {
+        "variant_id": 69,
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "canonical_name": "Monkey D. Luffy",
+        "set_name": "2025 Piece Card Game Carrying On His Will",
+        "collector_number": "OP13-118",
+        "opaque_id": "cmc_4b5d3876c5f0c2a6d7fcfb1b"
+      },
+      {
+        "variant_id": 72,
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "canonical_name": "Monkey D. Luffy",
+        "set_name": "2025 Piece Card Game A Fist of Divine Speed",
+        "collector_number": "OP05-119",
+        "opaque_id": "cmc_dfe920ea3ab9aa3c55471fd7"
+      },
+      {
+        "variant_id": 74,
+        "tcg_code": "pokemon",
+        "card_language": "en",
+        "canonical_name": "Charizard VMAX SUR",
+        "set_name": "Sword Shield Shining Fates",
+        "collector_number": "SV107",
+        "opaque_id": "cmc_79a84c35a02d207feebd5c4e"
+      },
+      {
+        "variant_id": 75,
+        "tcg_code": "pokemon",
+        "card_language": "en",
+        "canonical_name": "Pikachu/Zekrom Gx",
+        "set_name": "2019 Sun and Moon Black Star Promo Tag Team Tins",
+        "collector_number": "SM168",
+        "opaque_id": "cmc_77c97c76a50a49a4d668858c"
+      },
+      {
+        "variant_id": 78,
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "canonical_name": "Nami",
+        "set_name": "2024 Premium Booster the Best Manga Alternate Art",
+        "collector_number": "OP01-016",
+        "opaque_id": "cmc_16890293ef095bbeecf8792a"
+      },
+      {
+        "variant_id": 101,
+        "tcg_code": "pokemon",
+        "card_language": "en",
+        "canonical_name": "Arceus Vstar",
+        "set_name": "2023 Sword and Shield Crown Zenith Galarian Gallery Secret Rare",
+        "collector_number": "GG70",
+        "opaque_id": "cmc_c77b02511149164339ca40c9"
+      },
+      {
+        "variant_id": 103,
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "canonical_name": "Monkey D. Luffy",
+        "set_name": "2022 Romance Dawn Alternate Art",
+        "collector_number": "OP01-003",
+        "opaque_id": "cmc_7f757e4ecc3aa9b69b5dd012"
+      },
+      {
+        "variant_id": 104,
+        "tcg_code": "pokemon",
+        "card_language": "en",
+        "canonical_name": "Rayquaza Vmax",
+        "set_name": "2022 Sword and Shield Silver Tempest Trainer Gallery",
+        "collector_number": "TG20",
+        "opaque_id": "cmc_5964def2b98493de2fbea6d7"
+      },
+      {
+        "variant_id": 107,
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "canonical_name": "Boa Hancock",
+        "set_name": "2024 500 Years In the Future Manga Art",
+        "collector_number": "OP07-051",
+        "opaque_id": "cmc_efdcf43dc1f206f6636fa2d0"
+      },
+      {
+        "variant_id": 128,
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "canonical_name": "Monkey D. Luffy",
+        "set_name": "2025 A Fist of Divine Speed Manga Alternate Art",
+        "collector_number": "OP11-118",
+        "opaque_id": "cmc_a97002894deef0055a443602"
+      },
+      {
+        "variant_id": 132,
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "canonical_name": "Boa Hancock",
+        "set_name": "2023 Kingdoms of Intrigue",
+        "collector_number": "OP01-078",
+        "opaque_id": "cmc_dacb08e98dd4781013b9b9de"
+      },
+      {
+        "variant_id": 134,
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "canonical_name": "Monkey D. Luffy",
+        "set_name": "2025 Carrying On His Will (Op13) - English Manga Alt. Art Parallel",
+        "collector_number": "OP13-118",
+        "opaque_id": "cmc_79579a6d522f2e49f0e54949"
+      },
+      {
+        "variant_id": 146,
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "canonical_name": "Monkey D Luffy",
+        "set_name": "2024 Premium Booster: the Best English Manga Alt. Art Parallel",
+        "collector_number": "OP05-119",
+        "opaque_id": "cmc_d911b2f32f701c32ada0f8af"
+      },
+      {
+        "variant_id": 163,
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "canonical_name": "Monkey D. Luffy",
+        "set_name": "2025 3rd Anniversary! One Piece Card Treasure Campaign Pack",
+        "collector_number": "ST21-014",
+        "opaque_id": "cmc_a0accd63b7240ff7357ec7ba"
+      },
+      {
+        "variant_id": 171,
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "canonical_name": "Monkey D Luffy",
+        "set_name": "2024 Emperors In the New World (Op09) - English (Borderless, Manga Art) Alt Art",
+        "collector_number": "OP09-119",
+        "opaque_id": "cmc_b9e3dbde32ffa1418c85447c"
+      },
+      {
+        "variant_id": 175,
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "canonical_name": "Tony Tony Chopper",
+        "set_name": "2024 Memorial Collection Manga Alternate Art",
+        "collector_number": "EB01-006",
+        "opaque_id": "cmc_d28f13261d43426bf2db2076"
+      },
+      {
+        "variant_id": 188,
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "canonical_name": "Portgas D. Ace",
+        "set_name": "2023 Japanese Manga Art",
+        "collector_number": "OP02-013",
+        "opaque_id": "cmc_0dca1574369a3b550922f228"
+      },
+      {
+        "variant_id": 192,
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "canonical_name": "Sanji",
+        "set_name": "2025 Premium Booster: the Best Vol.2 (Prb-02) - English Manga Alt. Art Parallel (En Above Japan On Border)",
+        "collector_number": "OP06-119",
+        "opaque_id": "cmc_48f49134505612b25e5792fa"
+      },
+      {
+        "variant_id": 197,
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "canonical_name": "Nami",
+        "set_name": "2025 Card Game Promo Championship Offline Regionals Top  Prize",
+        "collector_number": "OP09-050",
+        "opaque_id": "cmc_6b7c379edd7d4a83728b6fc3"
+      }
+    ]
+  }
+]

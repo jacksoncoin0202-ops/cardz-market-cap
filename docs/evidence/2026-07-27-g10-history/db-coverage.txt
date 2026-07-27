@@ -1,0 +1,42 @@
+
+=== [1] market_grader_population_observation 全表覆蓋
+   {"rows_total": 10751, "variants": 1590, "min_d": "2026-07-21", "max_d": "2026-07-27", "date_points": 7}
+
+=== [2] market_grader_population_observation 逐日
+   {"observed_date": "2026-07-21", "rows_n": 2477, "variants": 641, "graders": 4, "sources": 3}
+   {"observed_date": "2026-07-22", "rows_n": 521, "variants": 309, "graders": 5, "sources": 4}
+   {"observed_date": "2026-07-23", "rows_n": 1, "variants": 1, "graders": 1, "sources": 1}
+   {"observed_date": "2026-07-24", "rows_n": 3883, "variants": 1216, "graders": 4, "sources": 3}
+   {"observed_date": "2026-07-25", "rows_n": 2656, "variants": 1211, "graders": 4, "sources": 1}
+   {"observed_date": "2026-07-26", "rows_n": 889, "variants": 388, "graders": 5, "sources": 2}
+   {"observed_date": "2026-07-27", "rows_n": 324, "variants": 324, "graders": 1, "sources": 1}
+
+=== [3] market_population_transport_observation 全表覆蓋
+   {"rows_total": 11170, "variants": 1590, "min_d": "2026-07-21", "max_d": "2026-07-27", "date_points": 7}
+
+=== [4] market_population_transport_observation 逐日
+   {"effective_date": "2026-07-21", "rows_n": 2555, "variants": 641, "transports": 3}
+   {"effective_date": "2026-07-22", "rows_n": 315, "variants": 309, "transports": 2}
+   {"effective_date": "2026-07-23", "rows_n": 1, "variants": 1, "transports": 1}
+   {"effective_date": "2026-07-24", "rows_n": 4074, "variants": 1216, "transports": 4}
+   {"effective_date": "2026-07-25", "rows_n": 3007, "variants": 1211, "transports": 3}
+   {"effective_date": "2026-07-26", "rows_n": 894, "variants": 388, "transports": 3}
+   {"effective_date": "2026-07-27", "rows_n": 324, "variants": 324, "transports": 1}
+
+=== [5] 原始觀測表逐 kind（對照組：價格/K線史已入庫 1134/1102 日，POP 史得 5-6 日）
+   {"observation_kind": "index_constituent", "n": 278770, "min_d": "2023-06-19", "max_d": "2026-07-26", "dates": 1134}
+   {"observation_kind": "g10_kline_daily", "n": 47582, "min_d": "2023-07-20", "max_d": "2026-07-25", "dates": 1102}
+   {"observation_kind": "tracked_sales_daily", "n": 19047, "min_d": "2023-07-20", "max_d": "2026-07-27", "dates": 218}
+   {"observation_kind": "grader_population_psa", "n": 3992, "min_d": "2026-07-21", "max_d": "2026-07-26", "dates": 6}
+   {"observation_kind": "grader_population_cgc", "n": 2308, "min_d": "2026-07-21", "max_d": "2026-07-26", "dates": 5}
+   {"observation_kind": "grader_population_bgs", "n": 2082, "min_d": "2026-07-21", "max_d": "2026-07-26", "dates": 5}
+   {"observation_kind": "grader_population_sgc", "n": 2021, "min_d": "2026-07-21", "max_d": "2026-07-26", "dates": 5}
+   {"observation_kind": "grader_population_tag", "n": 1161, "min_d": "2026-07-22", "max_d": "2026-07-27", "dates": 3}
+   {"observation_kind": "g10_card_metrics", "n": 641, "min_d": "2026-07-25", "max_d": "2026-07-25", "dates": 1}
+   {"observation_kind": "g10_index_chart", "n": 18, "min_d": "2026-07-22", "max_d": "2026-07-23", "dates": 2}
+   {"observation_kind": "g10_index_constituents", "n": 3, "min_d": "2026-07-22", "max_d": "2026-07-23", "dates": 2}
+   {"observation_kind": "g10_index_stats", "n": 3, "min_d": "2026-07-22", "max_d": "2026-07-23", "dates": 2}
+   {"observation_kind": "g10_index_summary", "n": 3, "min_d": "2026-07-22", "max_d": "2026-07-23", "dates": 2}
+
+=== [6] roster 同 gemrate identity 覆蓋
+   {"pop_variants": 1590, "pop_variants_with_gemrate_id": 1495}

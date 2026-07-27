@@ -1,0 +1,4 @@
+option,cards_targeted,already_have_gemrate_id,need_keyless_identity_search_first,api_calls_current_pop_only,api_calls_freeze_with_history,cards_with_price_in_2d_window,observed_pop_ge_1000,pop_unknown_weighted,expected_new_board_entries_if_roster_expanded,board_depth_after
+top10,10,4,6,4,8,10,2,1.9,3.9,45.9
+top30,30,6,24,6,12,30,12,2.8,14.8,56.8
+all_76,76,6,70,6,12,76,22,13.6,35.6,77.6

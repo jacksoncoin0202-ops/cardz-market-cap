@@ -30,7 +30,8 @@ export function formatMoney(
 ): string {
   if (valueUsd === null || !Number.isFinite(valueUsd)) return copy[locale].status.unavailable;
   const rate = rates[currency];
-  if (!Number.isFinite(rate)) return copy[locale].status.unavailable;
+  // 匯率 0 或負數只可能來自壞 FX feed —— fail-closed 出「暫無資料」，唔准出假零價。
+  if (!Number.isFinite(rate) || rate <= 0) return copy[locale].status.unavailable;
   const converted = valueUsd * rate;
   return new Intl.NumberFormat(intlLocale[locale], {
     style: "currency",
@@ -91,6 +92,7 @@ export function formatPercent(metric: MarketMetric<number>, locale: Locale): str
   if (metric.value === null || metric.status === "accumulating" || metric.status === "unavailable") {
     return copy[locale].status[metric.status === "ready" ? "unavailable" : metric.status];
   }
+  if (!Number.isFinite(metric.value)) return copy[locale].status.unavailable;
   const sign = metric.value > 0 ? "+" : "";
   const value = `${sign}${metric.value.toFixed(2)}%`;
   return value;

@@ -1,0 +1,145 @@
+{
+ "measuredAt": "2026-07-26 17:04 UTC",
+ "thresholds": {
+  "tiltSlope": 2.0,
+  "whiteBand": 0.12
+ },
+ "counts": {
+  "universe": 265,
+  "resolved": 243,
+  "noImage": 22,
+  "c1fail": 109,
+  "c1white": 93,
+  "c1all4": 78,
+  "native": 98,
+  "c2checked": 86,
+  "c2fail": 3,
+  "c3fail": 12,
+  "c3suspect": 17,
+  "nonstd": 185,
+  "allpass": 111,
+  "redo": 107,
+  "redoP0": 3,
+  "redoP1": 12,
+  "redoP2": 92
+ },
+ "sheetsReviewed": [
+  "op100-01.png",
+  "op100-02.png",
+  "fails-01.png (第一版隊列)",
+  "fails-02.png",
+  "fails-03.png"
+ ],
+ "redoTop10": [
+  {
+   "優先級": "P0-換圖",
+   "最佳板位": 1,
+   "variant_id": 8,
+   "卡名": "Monkey.D.Luffy L",
+   "collector_number": "EB02-010",
+   "tcg": "one-piece",
+   "畫布": "429x600",
+   "原因": "唔係卡面：影住一包未開封嘅卡包（EB02-010 換圖任務進行中）",
+   "圖檔路徑": "apps/web/public/market-assets/b7e4d2e14b0580b6b16cad3aee7d8f7f72f4cfbf7c2229a26b67e8f0a3b72812.webp"
+  },
+  {
+   "優先級": "P0-換圖",
+   "最佳板位": 23,
+   "variant_id": 111,
+   "卡名": "Monkey.D.Luff",
+   "collector_number": "ST10-006",
+   "tcg": "one-piece",
+   "畫布": "429x600",
+   "原因": "佔位圖：卡面印住大字「NOW DESIGNING」，官方未出圖",
+   "圖檔路徑": "apps/web/public/market-assets/203b13932049817a0d6bd4169a768015afbcb28e9b6a97e989419e35c11edd58.webp"
+  },
+  {
+   "優先級": "P0-換圖",
+   "最佳板位": 38,
+   "variant_id": 276,
+   "卡名": "Boa Hancock SR-SPC",
+   "collector_number": "EB03-026",
+   "tcg": "one-piece",
+   "畫布": "436x610",
+   "原因": "樣本圖：卡面印住大字「SAMPLE」水印",
+   "圖檔路徑": "apps/web/public/market-assets/2ff47d7dd0644e8b4bc263d9e50c5cd1d22a7565ac3777f3147c508bbe1e3f9c.webp"
+  },
+  {
+   "優先級": "P1-重切",
+   "最佳板位": 5,
+   "variant_id": 36,
+   "卡名": "Monkey.D.Luffy SEC-SPC 3th Anniversary Special Card Booster Pack A Fist of Divine Speed",
+   "collector_number": "OP05-119",
+   "tcg": "one-piece",
+   "畫布": "431x608",
+   "原因": "卡面歪斜／白邊，肉眼一望就唔啱",
+   "圖檔路徑": "apps/web/public/market-assets/0835b5571e97ed6a63faf4b1de616a1e28d4fcef20dba6996e8fe4d3f10652bf.webp"
+  },
+  {
+   "優先級": "P1-重切",
+   "最佳板位": 14,
+   "variant_id": 71,
+   "卡名": "Nami R-SP Premium Booster One Piece Card The Best",
+   "collector_number": "OP01-016",
+   "tcg": "one-piece",
+   "畫布": "436x610",
+   "原因": "卡面歪斜／白邊，肉眼一望就唔啱",
+   "圖檔路徑": "apps/web/public/market-assets/042e5b03dc11936b17da440b397d26b1b3a9d7499b9ee8e62750add31c55ab9c.webp"
+  },
+  {
+   "優先級": "P1-重切",
+   "最佳板位": 15,
+   "variant_id": 80,
+   "卡名": "Gol D. Roger SEC-GSP",
+   "collector_number": "OP09-118",
+   "tcg": "one-piece",
+   "畫布": "436x610",
+   "原因": "卡面歪斜／白邊，肉眼一望就唔啱",
+   "圖檔路徑": "apps/web/public/market-assets/1540ba99065b8f575a915416f88d9e2159b25e0df05913cb79a393707ab0cd0b.webp"
+  },
+  {
+   "優先級": "P1-重切",
+   "最佳板位": 16,
+   "variant_id": 98,
+   "卡名": "Shanks SEC-SP Booster Pack ROMANCE DAWN",
+   "collector_number": "OP01-120",
+   "tcg": "one-piece",
+   "畫布": "434x610",
+   "原因": "卡面歪斜／白邊，肉眼一望就唔啱",
+   "圖檔路徑": "apps/web/public/market-assets/50b2a9ec5d7d444c9ec56f61d06d528b32b187af70eef787e8dba9b82a848850.webp"
+  },
+  {
+   "優先級": "P1-重切",
+   "最佳板位": 22,
+   "variant_id": 112,
+   "卡名": "Monkey.D.Luffy SEC-SPC 3th Anniversary Special Card Booster Pack A Fist of Divine Speed",
+   "collector_number": "OP05-119",
+   "tcg": "one-piece",
+   "畫布": "445x610",
+   "原因": "卡面歪斜／白邊，肉眼一望就唔啱",
+   "圖檔路徑": "apps/web/public/market-assets/0f5fde6fb92a0f3e5486b781f4bd250908b6c222f441ade44e9b0226a96dc6a8.webp"
+  },
+  {
+   "優先級": "P1-重切",
+   "最佳板位": 34,
+   "variant_id": 39,
+   "卡名": "Giratina Vstar",
+   "collector_number": "GG69",
+   "tcg": "pokemon",
+   "畫布": "429x600",
+   "原因": "卡面歪斜／白邊，肉眼一望就唔啱",
+   "圖檔路徑": "apps/web/public/market-assets/cc20cc2151effc3eae41766c9f06b4bee541cf1f0837b2bef4de29b612be9218.webp"
+  },
+  {
+   "優先級": "P1-重切",
+   "最佳板位": 36,
+   "variant_id": 41,
+   "卡名": "Mewtwo Vstar",
+   "collector_number": "GG44",
+   "tcg": "pokemon",
+   "畫布": "429x600",
+   "原因": "卡面歪斜／白邊，肉眼一望就唔啱",
+   "圖檔路徑": "apps/web/public/market-assets/452a94fd004dc28398fb1c98c347c260ec5528489f27df3ddd09865e50b27151.webp"
+  }
+ ]
+}

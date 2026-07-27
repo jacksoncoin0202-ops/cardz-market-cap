@@ -1,0 +1,2095 @@
+{
+  "generatedAt": "2026-07-26T15:49:31+00:00Z",
+  "summary": {
+    "criterion": "(tcg_code, card_language, set_name, collector_number)",
+    "dupGroups": 29,
+    "dupRows": 68,
+    "trueDuplicateGroups": 19,
+    "divergentNameGroups": 10,
+    "byStatus": {
+      "canonical": 19,
+      "duplicate": 20,
+      "review": 29
+    },
+    "catalogVariantRows": 1705
+  },
+  "report": {
+    "rowsUpserted": 68,
+    "identityBefore": 0,
+    "identityAfterInTxn": 68,
+    "variantFingerprintBefore": {
+      "n": "1705",
+      "xor_id_opaque": "1575974989",
+      "sum_crc_opaque": "3667728756811",
+      "sum_crc_identity": "3680829030494"
+    },
+    "variantFingerprintAfter": {
+      "n": "1705",
+      "xor_id_opaque": "1575974989",
+      "sum_crc_opaque": "3667728756811",
+      "sum_crc_identity": "3680829030494"
+    },
+    "committed": true
+  },
+  "groups": [
+    {
+      "groupKey": {
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "set_name": "One Piece Awakening of the New Era",
+        "collector_number": "OP05-119"
+      },
+      "printingKeySha256": "eda4c7b7d61127c3972ab60ffe4bfc244e1f79934705d9e06d31080f74557224",
+      "members": 2,
+      "distinctNames": 1,
+      "sameCard": true,
+      "canonicalVariantId": 1204,
+      "variantIds": [
+        1204,
+        1457
+      ],
+      "memberDetail": [
+        {
+          "variantId": 1204,
+          "opaqueId": "cmc_f9957e2163c2368ec4234b13",
+          "canonicalName": "Monkey D. Luffy",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 5,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1457,
+          "opaqueId": "cmc_3879b94cb3a623a4229fe9c4",
+          "canonicalName": "Monkey D. Luffy",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 5,
+            "sourceIds": 1
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "set_name": "One Piece Carrying On His Will",
+        "collector_number": "OP13-080"
+      },
+      "printingKeySha256": "49b5c767e1ad306749926f194eba709007e7a09acf98317de73c14ca671dfc45",
+      "members": 2,
+      "distinctNames": 1,
+      "sameCard": true,
+      "canonicalVariantId": 1554,
+      "variantIds": [
+        1554,
+        1560
+      ],
+      "memberDetail": [
+        {
+          "variantId": 1554,
+          "opaqueId": "cmc_c22b7b0526521bc8a87f8676",
+          "canonicalName": "St. Ethanbaron V. Nusjuro",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 8,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1560,
+          "opaqueId": "cmc_7aebf2d376bc657a808858c4",
+          "canonicalName": "St. Ethanbaron V. Nusjuro",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 5,
+            "sourceIds": 1
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "set_name": "One Piece Carrying On His Will",
+        "collector_number": "OP13-084"
+      },
+      "printingKeySha256": "b1416b33799c3e979f6c6a0476d302c32bb9d3349220adb0203f8ab865626b90",
+      "members": 2,
+      "distinctNames": 1,
+      "sameCard": true,
+      "canonicalVariantId": 1567,
+      "variantIds": [
+        1567,
+        1569
+      ],
+      "memberDetail": [
+        {
+          "variantId": 1567,
+          "opaqueId": "cmc_63867844c34f36a30272ec1c",
+          "canonicalName": "St. Shepherd Ju Peter",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 8,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1569,
+          "opaqueId": "cmc_a1979502aa31156618e7f086",
+          "canonicalName": "St. Shepherd Ju Peter",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 6,
+            "sourceIds": 1
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "set_name": "One Piece Carrying On His Will",
+        "collector_number": "OP13-091"
+      },
+      "printingKeySha256": "84dced50f83ef39a72f81794615161470925e7c23638b76ec98e92df957df37a",
+      "members": 2,
+      "distinctNames": 1,
+      "sameCard": true,
+      "canonicalVariantId": 1562,
+      "variantIds": [
+        1559,
+        1562
+      ],
+      "memberDetail": [
+        {
+          "variantId": 1559,
+          "opaqueId": "cmc_53eb3b90c1176d4f4ac542ac",
+          "canonicalName": "St. Marcus Mars",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 6,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1562,
+          "opaqueId": "cmc_7ea796bb7dc6d73292bf02a0",
+          "canonicalName": "St. Marcus Mars",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 7,
+            "sourceIds": 1
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "set_name": "One Piece Carrying On His Will",
+        "collector_number": "OP13-118"
+      },
+      "printingKeySha256": "4447a601cd0f5f79b2f1c937a78013cc1cf27366f122047ec3ee83969c580ed3",
+      "members": 3,
+      "distinctNames": 1,
+      "sameCard": true,
+      "canonicalVariantId": 1466,
+      "variantIds": [
+        1465,
+        1466,
+        1468
+      ],
+      "memberDetail": [
+        {
+          "variantId": 1465,
+          "opaqueId": "cmc_cca3474f979121ef2656a88c",
+          "canonicalName": "Monkey D. Luffy",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 4,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1466,
+          "opaqueId": "cmc_0422b5b83e7f0509fddf8d8c",
+          "canonicalName": "Monkey D. Luffy",
+          "weights": {
+            "priceObs": 13,
+            "popObs": 5,
+            "sourceIds": 2
+          }
+        },
+        {
+          "variantId": 1468,
+          "opaqueId": "cmc_9b2d759a94ab4398a955e34b",
+          "canonicalName": "Monkey D. Luffy",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 4,
+            "sourceIds": 1
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "set_name": "One Piece Carrying On His Will",
+        "collector_number": "OP13-119"
+      },
+      "printingKeySha256": "7e910aff6220bff83cc6c457bde9a119d40c12584df505176d46bcf13c8dd5eb",
+      "members": 3,
+      "distinctNames": 3,
+      "sameCard": false,
+      "canonicalVariantId": null,
+      "variantIds": [
+        1464,
+        1467,
+        1565
+      ],
+      "memberDetail": [
+        {
+          "variantId": 1464,
+          "opaqueId": "cmc_645ba4bc2f20894fd832e6b0",
+          "canonicalName": "Portgas D. Ace (Error)",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 5,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1467,
+          "opaqueId": "cmc_75925ea167dc784f0a42680e",
+          "canonicalName": "Portgas D. Ace",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 8,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1565,
+          "opaqueId": "cmc_537af7e5ff58d1bf1ff52807",
+          "canonicalName": "Portgas D. Ace (Super)",
+          "weights": {
+            "priceObs": 15,
+            "popObs": 5,
+            "sourceIds": 2
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "set_name": "One Piece Carrying On His Will",
+        "collector_number": "OP13-120"
+      },
+      "printingKeySha256": "7e409b1af00d72458390ca976af826a127f23b86c380b8c3f776758766ffe6ea",
+      "members": 3,
+      "distinctNames": 2,
+      "sameCard": false,
+      "canonicalVariantId": null,
+      "variantIds": [
+        956,
+        1558,
+        1563
+      ],
+      "memberDetail": [
+        {
+          "variantId": 956,
+          "opaqueId": "cmc_09f3520d1832285cc14efeaf",
+          "canonicalName": "Sabo",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 2,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1558,
+          "opaqueId": "cmc_970411a6de5566663150dadb",
+          "canonicalName": "Sabo (Super)",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 6,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1563,
+          "opaqueId": "cmc_e5b8c6ec13f776fa17b25fb6",
+          "canonicalName": "Sabo",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 8,
+            "sourceIds": 1
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "set_name": "One Piece Emperors in the New World",
+        "collector_number": "OP09-004"
+      },
+      "printingKeySha256": "2ac775599e8a9c3b3dda0a2c73fa27eb422bd2b5d5ecbacb449e9fbb9e10daac",
+      "members": 2,
+      "distinctNames": 1,
+      "sameCard": true,
+      "canonicalVariantId": 1552,
+      "variantIds": [
+        1247,
+        1552
+      ],
+      "memberDetail": [
+        {
+          "variantId": 1247,
+          "opaqueId": "cmc_d178d3b777cc32ed6c5ca3e7",
+          "canonicalName": "Shanks",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 5,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1552,
+          "opaqueId": "cmc_e37f5d3d1c9de7de817e0524",
+          "canonicalName": "Shanks",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 6,
+            "sourceIds": 1
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "set_name": "One Piece Emperors in the New World",
+        "collector_number": "OP09-093"
+      },
+      "printingKeySha256": "543849966776162de735aae1058e2aa4717182e89d8c98d45370ee46370adc13",
+      "members": 2,
+      "distinctNames": 1,
+      "sameCard": true,
+      "canonicalVariantId": 1553,
+      "variantIds": [
+        1245,
+        1553
+      ],
+      "memberDetail": [
+        {
+          "variantId": 1245,
+          "opaqueId": "cmc_8ab00552a360f47e83c41005",
+          "canonicalName": "Marshall D. Teach",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 5,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1553,
+          "opaqueId": "cmc_7ba8963bfa98e95d0aca7b0d",
+          "canonicalName": "Marshall D. Teach",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 7,
+            "sourceIds": 1
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "set_name": "One Piece Emperors in the New World",
+        "collector_number": "OP09-119"
+      },
+      "printingKeySha256": "961115b3918eb7d10865df137b2b1bf73662e43d74ed32f82a6b084489a15622",
+      "members": 2,
+      "distinctNames": 1,
+      "sameCard": true,
+      "canonicalVariantId": 1445,
+      "variantIds": [
+        1246,
+        1445
+      ],
+      "memberDetail": [
+        {
+          "variantId": 1246,
+          "opaqueId": "cmc_7fb34454d2389acb7d244cab",
+          "canonicalName": "Monkey D. Luffy",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 5,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1445,
+          "opaqueId": "cmc_1878cfffac31f93036f5acfc",
+          "canonicalName": "Monkey D. Luffy",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 8,
+            "sourceIds": 1
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "set_name": "One Piece Legacy of the Master",
+        "collector_number": "OP12-118"
+      },
+      "printingKeySha256": "1d07d97e36078507dce19ce8243d666f0ee72cc5f1c8d6f7f9f1642aaa940608",
+      "members": 2,
+      "distinctNames": 1,
+      "sameCard": true,
+      "canonicalVariantId": 1219,
+      "variantIds": [
+        1219,
+        1459
+      ],
+      "memberDetail": [
+        {
+          "variantId": 1219,
+          "opaqueId": "cmc_9b2a12c605a194c68d299678",
+          "canonicalName": "Jewelry Bonney",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 5,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1459,
+          "opaqueId": "cmc_99a9ba74b5aed22867750d1a",
+          "canonicalName": "Jewelry Bonney",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 5,
+            "sourceIds": 1
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "set_name": "One Piece Paramount War",
+        "collector_number": "OP02-013"
+      },
+      "printingKeySha256": "8e58b7027ecf130f2f440e5523b8b9c8019598657b285f9c7093dec096787304",
+      "members": 2,
+      "distinctNames": 1,
+      "sameCard": true,
+      "canonicalVariantId": 1525,
+      "variantIds": [
+        753,
+        1525
+      ],
+      "memberDetail": [
+        {
+          "variantId": 753,
+          "opaqueId": "cmc_c65d31dcbc133485defce2cd",
+          "canonicalName": "Portgas D. Ace",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 2,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1525,
+          "opaqueId": "cmc_750611c1e2d1f00cf4bbbbc1",
+          "canonicalName": "Portgas D. Ace",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 8,
+            "sourceIds": 1
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "set_name": "One Piece Romance Dawn",
+        "collector_number": "OP01-016"
+      },
+      "printingKeySha256": "c568cf636058a3e8d5b57efebfd1067fc32344fd205b9fc6a4e5c1f46413c2ea",
+      "members": 2,
+      "distinctNames": 2,
+      "sameCard": false,
+      "canonicalVariantId": null,
+      "variantIds": [
+        1253,
+        1450
+      ],
+      "memberDetail": [
+        {
+          "variantId": 1253,
+          "opaqueId": "cmc_0e40ad68f4dc2733718a6218",
+          "canonicalName": "Nami",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 5,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1450,
+          "opaqueId": "cmc_c39f11394d831b003ae72c01",
+          "canonicalName": "Nami (Errata)",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 5,
+            "sourceIds": 1
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "set_name": "One Piece Two Legends",
+        "collector_number": "OP08-106"
+      },
+      "printingKeySha256": "70a036e1da5aed5fe718e194512c27bfeb611c96fcb826544437e2c05c0bcb7b",
+      "members": 2,
+      "distinctNames": 1,
+      "sameCard": true,
+      "canonicalVariantId": 1426,
+      "variantIds": [
+        1426,
+        1499
+      ],
+      "memberDetail": [
+        {
+          "variantId": 1426,
+          "opaqueId": "cmc_b8c0697753996e4cbd02be0b",
+          "canonicalName": "Nami",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 8,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1499,
+          "opaqueId": "cmc_3d7ab87296bc6bb345e8b388",
+          "canonicalName": "Nami",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 4,
+            "sourceIds": 1
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "set_name": "One Piece Two Legends",
+        "collector_number": "OP08-118"
+      },
+      "printingKeySha256": "2489f891da48af23f282747903c7216c74557e60b6742b41ecb76d6df5030dfe",
+      "members": 2,
+      "distinctNames": 1,
+      "sameCard": true,
+      "canonicalVariantId": 1428,
+      "variantIds": [
+        1428,
+        1503
+      ],
+      "memberDetail": [
+        {
+          "variantId": 1428,
+          "opaqueId": "cmc_d7a2bf097d0520a86fc9a2ae",
+          "canonicalName": "Silvers Rayleigh",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 8,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1503,
+          "opaqueId": "cmc_ad754bb0f6ccf45151331801",
+          "canonicalName": "Silvers Rayleigh",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 7,
+            "sourceIds": 1
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "set_name": "One Piece Wings of the Captain",
+        "collector_number": "OP06-118"
+      },
+      "printingKeySha256": "aa5f60219bb80df85eab2976ecaa55f4bbf797a32cbb192790f43c0c8c538ab2",
+      "members": 2,
+      "distinctNames": 1,
+      "sameCard": true,
+      "canonicalVariantId": 1479,
+      "variantIds": [
+        1479,
+        1480
+      ],
+      "memberDetail": [
+        {
+          "variantId": 1479,
+          "opaqueId": "cmc_a9ba66ebc1d3b32879d45a0c",
+          "canonicalName": "Roronoa Zoro",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 8,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1480,
+          "opaqueId": "cmc_5806491bcb82b61a2542363f",
+          "canonicalName": "Roronoa Zoro",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 5,
+            "sourceIds": 1
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "one-piece",
+        "card_language": "en",
+        "set_name": "One Piece the Azure Sea's Seven",
+        "collector_number": "OP14-112"
+      },
+      "printingKeySha256": "b6af21806b528fbda9904f31affe0522548f7b5559237a6ee665438c58f909f2",
+      "members": 2,
+      "distinctNames": 1,
+      "sameCard": true,
+      "canonicalVariantId": 1463,
+      "variantIds": [
+        1462,
+        1463
+      ],
+      "memberDetail": [
+        {
+          "variantId": 1462,
+          "opaqueId": "cmc_1f7f5af6715f91468966668a",
+          "canonicalName": "Boa Hancock",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 4,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1463,
+          "opaqueId": "cmc_de0186601b1b298140622632",
+          "canonicalName": "Boa Hancock",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 4,
+            "sourceIds": 2
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "one-piece",
+        "card_language": "ja",
+        "set_name": "Booster Pack CARRYING ON HIS WILL",
+        "collector_number": "OP09-004"
+      },
+      "printingKeySha256": "65b276bc627a0fbc173fa34127700fdab8f8e7459c59ffce0a1b1ffec85047e6",
+      "members": 2,
+      "distinctNames": 2,
+      "sameCard": false,
+      "canonicalVariantId": null,
+      "variantIds": [
+        312,
+        319
+      ],
+      "memberDetail": [
+        {
+          "variantId": 312,
+          "opaqueId": "cmc_db587c73ccc310190267ce16",
+          "canonicalName": "Shanks Gold Background SR-SPC 3th Anniversary Special Card",
+          "weights": {
+            "priceObs": 126,
+            "popObs": 1,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 319,
+          "opaqueId": "cmc_46d31536f17d140d3703be82",
+          "canonicalName": "Shanks Silver Background SR-SPC 3th Anniversary Special Card",
+          "weights": {
+            "priceObs": 113,
+            "popObs": 3,
+            "sourceIds": 1
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "one-piece",
+        "card_language": "ja",
+        "set_name": "Booster Pack CARRYING ON HIS WILL",
+        "collector_number": "OP13-118"
+      },
+      "printingKeySha256": "b58886c2792bd4da3d4b80de747b1c17ad3fe6f1a29427a3932819539166f12a",
+      "members": 2,
+      "distinctNames": 2,
+      "sameCard": false,
+      "canonicalVariantId": null,
+      "variantIds": [
+        1626,
+        1627
+      ],
+      "memberDetail": [
+        {
+          "variantId": 1626,
+          "opaqueId": "cmc_fa97ea63cade8b9f90d5f5bb",
+          "canonicalName": "Monkey.D.Luffy Wanted SEC-SPC",
+          "weights": {
+            "priceObs": 14,
+            "popObs": 0,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1627,
+          "opaqueId": "cmc_3eca7e931136a82ffc5cc6b4",
+          "canonicalName": "Monkey.D.Luffy SEC-P",
+          "weights": {
+            "priceObs": 11,
+            "popObs": 0,
+            "sourceIds": 1
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "pokemon",
+        "card_language": "en",
+        "set_name": "Pokemon Jungle",
+        "collector_number": "60"
+      },
+      "printingKeySha256": "dd299d3e75e367271c5e78fd088acbdef2d6d988319d81459320b5b17128511f",
+      "members": 2,
+      "distinctNames": 1,
+      "sameCard": true,
+      "canonicalVariantId": 1194,
+      "variantIds": [
+        1194,
+        1195
+      ],
+      "memberDetail": [
+        {
+          "variantId": 1194,
+          "opaqueId": "cmc_662a6b2bff60665f67ef3be1",
+          "canonicalName": "Pikachu",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 8,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1195,
+          "opaqueId": "cmc_662a6b2bff60665f67ef3be1_fcda4004",
+          "canonicalName": "Pikachu",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 5,
+            "sourceIds": 1
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "pokemon",
+        "card_language": "en",
+        "set_name": "Pokemon Scarlet and Violet Prismatic Evolutions",
+        "collector_number": "59"
+      },
+      "printingKeySha256": "72a083f2b8b74c7251c5f95eb8d59eed1e656c0c68bf378213022937903309ba",
+      "members": 2,
+      "distinctNames": 1,
+      "sameCard": true,
+      "canonicalVariantId": 1530,
+      "variantIds": [
+        823,
+        1530
+      ],
+      "memberDetail": [
+        {
+          "variantId": 823,
+          "opaqueId": "cmc_e4200817edb786b26cea4d0a",
+          "canonicalName": "Umbreon",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 4,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1530,
+          "opaqueId": "cmc_4af269f73dc43ce3fd65b179",
+          "canonicalName": "Umbreon",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 7,
+            "sourceIds": 1
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "pokemon",
+        "card_language": "en",
+        "set_name": "Pokemon Sword and Shield Celebrations Classic Collection",
+        "collector_number": "15"
+      },
+      "printingKeySha256": "b90a0cd367eb7cd4e5e68e3f18dc611a057ff6612ff2c15685fdf8cfd018a5fd",
+      "members": 3,
+      "distinctNames": 3,
+      "sameCard": false,
+      "canonicalVariantId": null,
+      "variantIds": [
+        913,
+        917,
+        922
+      ],
+      "memberDetail": [
+        {
+          "variantId": 913,
+          "opaqueId": "cmc_3dc8d3134b49367d94e7932e",
+          "canonicalName": "Here Comes Team Rocket!",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 7,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 917,
+          "opaqueId": "cmc_ae1aa929e8fe83ced3ce3192",
+          "canonicalName": "Venusaur",
+          "weights": {
+            "priceObs": 5,
+            "popObs": 4,
+            "sourceIds": 2
+          }
+        },
+        {
+          "variantId": 922,
+          "opaqueId": "cmc_24be3490b9405274cf589c7e",
+          "canonicalName": "Rocket's Zapdos",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 7,
+            "sourceIds": 1
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "pokemon",
+        "card_language": "en",
+        "set_name": "Pokemon Sword and Shield Vivid Voltage",
+        "collector_number": "25"
+      },
+      "printingKeySha256": "9b5fb9c6173463500ff5a0aa935af7ce967e32c0d6699d4cc07972b2ef21bad1",
+      "members": 2,
+      "distinctNames": 1,
+      "sameCard": true,
+      "canonicalVariantId": 484,
+      "variantIds": [
+        484,
+        1184
+      ],
+      "memberDetail": [
+        {
+          "variantId": 484,
+          "opaqueId": "cmc_0af0ba667b2fc50723b3c550",
+          "canonicalName": "Charizard",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 8,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1184,
+          "opaqueId": "cmc_f949168a2a73a00d7b5c2c80",
+          "canonicalName": "Charizard",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 7,
+            "sourceIds": 1
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "pokemon",
+        "card_language": "ja",
+        "set_name": "Challenge from the Darkness",
+        "collector_number": "Unknown"
+      },
+      "printingKeySha256": "1624a78f5811d104a52b6cb049f348910d0e0c4c88929bc8d3558bb3a2cb7920",
+      "members": 3,
+      "distinctNames": 3,
+      "sameCard": false,
+      "canonicalVariantId": null,
+      "variantIds": [
+        1686,
+        1687,
+        1688
+      ],
+      "memberDetail": [
+        {
+          "variantId": 1686,
+          "opaqueId": "cmc_fce83e4fe19be1209c77b50e",
+          "canonicalName": "Blaine's Charizard",
+          "weights": {
+            "priceObs": 16,
+            "popObs": 0,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1687,
+          "opaqueId": "cmc_126afb7062afb328c1579939",
+          "canonicalName": "Sabrina's Gengar",
+          "weights": {
+            "priceObs": 14,
+            "popObs": 0,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1688,
+          "opaqueId": "cmc_649d37648ddac4b396a1ce0f",
+          "canonicalName": "Rocket's Mewtwo",
+          "weights": {
+            "priceObs": 14,
+            "popObs": 0,
+            "sourceIds": 1
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "pokemon",
+        "card_language": "ja",
+        "set_name": "Expansion Pack",
+        "collector_number": "Unknown"
+      },
+      "printingKeySha256": "f4a03e3d687d02b9c32c425611456f08186e32586e64c54ca71c70796f4f6214",
+      "members": 4,
+      "distinctNames": 4,
+      "sameCard": false,
+      "canonicalVariantId": null,
+      "variantIds": [
+        1601,
+        1693,
+        1694,
+        1695
+      ],
+      "memberDetail": [
+        {
+          "variantId": 1601,
+          "opaqueId": "cmc_9640ced533813aefc8d415f0",
+          "canonicalName": "Pikachu",
+          "weights": {
+            "priceObs": 15,
+            "popObs": 0,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1693,
+          "opaqueId": "cmc_658fecc328dda9f9c3396cf8",
+          "canonicalName": "Charizard",
+          "weights": {
+            "priceObs": 11,
+            "popObs": 0,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1694,
+          "opaqueId": "cmc_631a29f02da9ddbed7e83bed",
+          "canonicalName": "Mewtwo",
+          "weights": {
+            "priceObs": 12,
+            "popObs": 0,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1695,
+          "opaqueId": "cmc_6fde25f426568e1497087462",
+          "canonicalName": "Blastoise",
+          "weights": {
+            "priceObs": 13,
+            "popObs": 0,
+            "sourceIds": 1
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "pokemon",
+        "card_language": "ja",
+        "set_name": "Mystery of the Fossils",
+        "collector_number": "Unknown"
+      },
+      "printingKeySha256": "d097d33336d37d79a6cd695ad477a252176f05b64fbf7d858e92f4963e44d165",
+      "members": 3,
+      "distinctNames": 3,
+      "sameCard": false,
+      "canonicalVariantId": null,
+      "variantIds": [
+        1691,
+        1692,
+        1699
+      ],
+      "memberDetail": [
+        {
+          "variantId": 1691,
+          "opaqueId": "cmc_7a5db94ff904f4e323457137",
+          "canonicalName": "Mew",
+          "weights": {
+            "priceObs": 9,
+            "popObs": 0,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1692,
+          "opaqueId": "cmc_f15095d3aafe23a1ef2b49cc",
+          "canonicalName": "Dragonite",
+          "weights": {
+            "priceObs": 11,
+            "popObs": 0,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1699,
+          "opaqueId": "cmc_dd7e0f9be663c53cf11cf329",
+          "canonicalName": "Gengar",
+          "weights": {
+            "priceObs": 13,
+            "popObs": 0,
+            "sourceIds": 1
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "pokemon",
+        "card_language": "ja",
+        "set_name": "Pokemon Japanese Terastal Fest EX",
+        "collector_number": "62"
+      },
+      "printingKeySha256": "238501c702869e75d850cb3511f0b75d6d92ba20e23462a7f22ff4d17fda97f0",
+      "members": 2,
+      "distinctNames": 1,
+      "sameCard": true,
+      "canonicalVariantId": 1583,
+      "variantIds": [
+        1065,
+        1583
+      ],
+      "memberDetail": [
+        {
+          "variantId": 1065,
+          "opaqueId": "cmc_535bcccab393141e113fa7a4",
+          "canonicalName": "Espeon",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 4,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1583,
+          "opaqueId": "cmc_d0d89b39e348939f21c7b1af",
+          "canonicalName": "Espeon",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 5,
+            "sourceIds": 1
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "pokemon",
+        "card_language": "ja",
+        "set_name": "Pokemon Japanese Terastal Fest EX",
+        "collector_number": "68"
+      },
+      "printingKeySha256": "aa9a5288955b54dacb127311f65d19c03228f9cd3a4ab1c2386df50486c9d881",
+      "members": 2,
+      "distinctNames": 1,
+      "sameCard": true,
+      "canonicalVariantId": 1582,
+      "variantIds": [
+        1080,
+        1582
+      ],
+      "memberDetail": [
+        {
+          "variantId": 1080,
+          "opaqueId": "cmc_b3712e103f6494247564a361",
+          "canonicalName": "Sylveon",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 4,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1582,
+          "opaqueId": "cmc_63d21a53203b077412e3c3f3",
+          "canonicalName": "Sylveon",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 7,
+            "sourceIds": 1
+          }
+        }
+      ]
+    },
+    {
+      "groupKey": {
+        "tcg_code": "pokemon",
+        "card_language": "ja",
+        "set_name": "Rocket Gang",
+        "collector_number": "Unknown"
+      },
+      "printingKeySha256": "d47ed38099e80b3076fa3fb48fe29cea91733ae507bcfcf8e2f2222ed3c8c4d3",
+      "members": 4,
+      "distinctNames": 4,
+      "sameCard": false,
+      "canonicalVariantId": null,
+      "variantIds": [
+        1609,
+        1689,
+        1690,
+        1704
+      ],
+      "memberDetail": [
+        {
+          "variantId": 1609,
+          "opaqueId": "cmc_b401fa256098ad52d19329ae",
+          "canonicalName": "Dark Dragonite",
+          "weights": {
+            "priceObs": 15,
+            "popObs": 0,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1689,
+          "opaqueId": "cmc_5ef3366d783ed3cb95fb3cd4",
+          "canonicalName": "Dark Charizard",
+          "weights": {
+            "priceObs": 0,
+            "popObs": 0,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1690,
+          "opaqueId": "cmc_cabb4589c99de9e1e471912d",
+          "canonicalName": "Dark Gyarados",
+          "weights": {
+            "priceObs": 15,
+            "popObs": 0,
+            "sourceIds": 1
+          }
+        },
+        {
+          "variantId": 1704,
+          "opaqueId": "cmc_d3d9deca62d2efc1aac18ee1",
+          "canonicalName": "Dark Blastoise",
+          "weights": {
+            "priceObs": 14,
+            "popObs": 0,
+            "sourceIds": 1
+          }
+        }
+      ]
+    }
+  ],
+  "rows": [
+    {
+      "variantId": 1204,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Awakening of the New Era",
+      "collectorNumber": "OP05-119",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "eda4c7b7d61127c3972ab60ffe4bfc244e1f79934705d9e06d31080f74557224",
+      "identityStatus": "canonical",
+      "evidenceSha256": "e44696f1a82633ad232c0181424bce6c0d2fd1e35db14642ebb0582a123562fa",
+      "canonicalName": "Monkey D. Luffy",
+      "opaqueId": "cmc_f9957e2163c2368ec4234b13"
+    },
+    {
+      "variantId": 1457,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Awakening of the New Era",
+      "collectorNumber": "OP05-119",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "9db25cf1faff431461c948a836793641298e98466502e367394cee0316687e81",
+      "identityStatus": "duplicate",
+      "evidenceSha256": "8cde6f7d8488bf8f742e73f7dab04415fd5f47e79113b922e635d67af4e1b713",
+      "canonicalName": "Monkey D. Luffy",
+      "opaqueId": "cmc_3879b94cb3a623a4229fe9c4"
+    },
+    {
+      "variantId": 1554,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Carrying On His Will",
+      "collectorNumber": "OP13-080",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "49b5c767e1ad306749926f194eba709007e7a09acf98317de73c14ca671dfc45",
+      "identityStatus": "canonical",
+      "evidenceSha256": "35fbc18e87d22e09ee8c9f96109ae8126d25b724ae8a59b6b45d4d7734893f5b",
+      "canonicalName": "St. Ethanbaron V. Nusjuro",
+      "opaqueId": "cmc_c22b7b0526521bc8a87f8676"
+    },
+    {
+      "variantId": 1560,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Carrying On His Will",
+      "collectorNumber": "OP13-080",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "a8b4628cf44c866325b97065cee77b7ab5bb178782453ccbbb4204fa59687622",
+      "identityStatus": "duplicate",
+      "evidenceSha256": "054ad7a531f9772b49ca35692da70ad4c29d55b949e222e356b27b4337cc50e3",
+      "canonicalName": "St. Ethanbaron V. Nusjuro",
+      "opaqueId": "cmc_7aebf2d376bc657a808858c4"
+    },
+    {
+      "variantId": 1567,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Carrying On His Will",
+      "collectorNumber": "OP13-084",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "b1416b33799c3e979f6c6a0476d302c32bb9d3349220adb0203f8ab865626b90",
+      "identityStatus": "canonical",
+      "evidenceSha256": "9cd02c0f8a8028c168b45e6a5bd1acfca694901f9cb6d41913ff5c26b7f3b26d",
+      "canonicalName": "St. Shepherd Ju Peter",
+      "opaqueId": "cmc_63867844c34f36a30272ec1c"
+    },
+    {
+      "variantId": 1569,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Carrying On His Will",
+      "collectorNumber": "OP13-084",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "9008e5baf1996e0e20fed3fc0fccc1da18a42fc3c604f0cad6776ff5cf38af00",
+      "identityStatus": "duplicate",
+      "evidenceSha256": "56252ccb63d4f0b91871ae6f390e77a7bf9187dd5e06c9c33a8c8732fff6a399",
+      "canonicalName": "St. Shepherd Ju Peter",
+      "opaqueId": "cmc_a1979502aa31156618e7f086"
+    },
+    {
+      "variantId": 1559,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Carrying On His Will",
+      "collectorNumber": "OP13-091",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "25d8ff8d8d445e41b40ce29f15ee97513a1ec7f6b8fc3b220eaaff625e3cb7db",
+      "identityStatus": "duplicate",
+      "evidenceSha256": "0d4b48c8365171071c77cf942da21b26e7c33170d3b3608c52f431b3b2b2c9fa",
+      "canonicalName": "St. Marcus Mars",
+      "opaqueId": "cmc_53eb3b90c1176d4f4ac542ac"
+    },
+    {
+      "variantId": 1562,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Carrying On His Will",
+      "collectorNumber": "OP13-091",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "84dced50f83ef39a72f81794615161470925e7c23638b76ec98e92df957df37a",
+      "identityStatus": "canonical",
+      "evidenceSha256": "a1762cf5d701f04f69c02b20ef92c61d832c6ab537c7732fccd791b7d674535b",
+      "canonicalName": "St. Marcus Mars",
+      "opaqueId": "cmc_7ea796bb7dc6d73292bf02a0"
+    },
+    {
+      "variantId": 1465,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Carrying On His Will",
+      "collectorNumber": "OP13-118",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "1818b6f43803f866133bc11800b9f88ee8def46657f0b6962123cb183d27c206",
+      "identityStatus": "duplicate",
+      "evidenceSha256": "3b7dd3251a33a5c8c18d98995772e58a55f2facd13da7835ed23cab456437592",
+      "canonicalName": "Monkey D. Luffy",
+      "opaqueId": "cmc_cca3474f979121ef2656a88c"
+    },
+    {
+      "variantId": 1466,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Carrying On His Will",
+      "collectorNumber": "OP13-118",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "4447a601cd0f5f79b2f1c937a78013cc1cf27366f122047ec3ee83969c580ed3",
+      "identityStatus": "canonical",
+      "evidenceSha256": "e3d3f4b622e0c7a404687dfb9782616bded974e9b3e344d4b4fc979d85e28a85",
+      "canonicalName": "Monkey D. Luffy",
+      "opaqueId": "cmc_0422b5b83e7f0509fddf8d8c"
+    },
+    {
+      "variantId": 1468,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Carrying On His Will",
+      "collectorNumber": "OP13-118",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "a898ff257a40141d6c9f0b5d12cd6ab834e99d76df0c9ae9f0b8553475cbfa48",
+      "identityStatus": "duplicate",
+      "evidenceSha256": "a2b5f51c5e66cf2385528090ecc1cf6aac4fda7e895f55528fde3ff80517f1ce",
+      "canonicalName": "Monkey D. Luffy",
+      "opaqueId": "cmc_9b2d759a94ab4398a955e34b"
+    },
+    {
+      "variantId": 1464,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Carrying On His Will",
+      "collectorNumber": "OP13-119",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "fab6db898047552151fcdd846df6a8379b102c0cc4e41ec25a95b3de2c7e8a21",
+      "identityStatus": "review",
+      "evidenceSha256": "f82c815cdb1ac64ae454f4c7f6395bf9d2b7bab97f81811a2e33b3afd54c2970",
+      "canonicalName": "Portgas D. Ace (Error)",
+      "opaqueId": "cmc_645ba4bc2f20894fd832e6b0"
+    },
+    {
+      "variantId": 1467,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Carrying On His Will",
+      "collectorNumber": "OP13-119",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "6d46d375f9059e6107fdd24734c0b01f761467721850c3c5b4da22c345fad2f4",
+      "identityStatus": "review",
+      "evidenceSha256": "3917cd1683b0985edd1ca2a9b1ca31e2717291f7e40dbc1068f19b2ff1d4f7f7",
+      "canonicalName": "Portgas D. Ace",
+      "opaqueId": "cmc_75925ea167dc784f0a42680e"
+    },
+    {
+      "variantId": 1565,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Carrying On His Will",
+      "collectorNumber": "OP13-119",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "ffc9a8704fff2720345ddc70810deaa20334242064ebf8bf28e2f3e172368dd5",
+      "identityStatus": "review",
+      "evidenceSha256": "04add278965d243101923383c42f3fec4829f135d8334b646f6d6a8d9e821a7f",
+      "canonicalName": "Portgas D. Ace (Super)",
+      "opaqueId": "cmc_537af7e5ff58d1bf1ff52807"
+    },
+    {
+      "variantId": 956,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Carrying On His Will",
+      "collectorNumber": "OP13-120",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "506b29dba031eb2f38b42c73d2bfe482b222953de4d1aa3cd87250200b5184ec",
+      "identityStatus": "review",
+      "evidenceSha256": "dc4cc94826e1c9e789307efc60828e30b6ba92f2ea2f7feec4f845e702cab1de",
+      "canonicalName": "Sabo",
+      "opaqueId": "cmc_09f3520d1832285cc14efeaf"
+    },
+    {
+      "variantId": 1558,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Carrying On His Will",
+      "collectorNumber": "OP13-120",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "b03f40482bfbcb4c847dc21ffe1f363418e9cbc9959036ab3635851577c66a4d",
+      "identityStatus": "review",
+      "evidenceSha256": "03b489d48d7d05fbf51fafa6cbbaeaa9730b23cf8ee2dea260d23faab87710b3",
+      "canonicalName": "Sabo (Super)",
+      "opaqueId": "cmc_970411a6de5566663150dadb"
+    },
+    {
+      "variantId": 1563,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Carrying On His Will",
+      "collectorNumber": "OP13-120",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "eb74439afff18cd1adc4efb40143e6bff4170979ec28d717d7551c38652f6156",
+      "identityStatus": "review",
+      "evidenceSha256": "bf45db8d1f87b2183f55e719cdd5d82add38a59ee32efb1a3e5a4ba47c41ef85",
+      "canonicalName": "Sabo",
+      "opaqueId": "cmc_e5b8c6ec13f776fa17b25fb6"
+    },
+    {
+      "variantId": 1247,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Emperors in the New World",
+      "collectorNumber": "OP09-004",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "6370ef6fd256ac9dae1dbb5b52ed3b283289be4625770f4ac3081fb087405ad1",
+      "identityStatus": "duplicate",
+      "evidenceSha256": "dd396ed89efde71fe5b4a51a14fa900845e66823fe7be4c8cf3c48c4c84eb585",
+      "canonicalName": "Shanks",
+      "opaqueId": "cmc_d178d3b777cc32ed6c5ca3e7"
+    },
+    {
+      "variantId": 1552,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Emperors in the New World",
+      "collectorNumber": "OP09-004",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "2ac775599e8a9c3b3dda0a2c73fa27eb422bd2b5d5ecbacb449e9fbb9e10daac",
+      "identityStatus": "canonical",
+      "evidenceSha256": "51354d9807919b66e79872cc4138162ae26fd31e7a9f1db9a2ce50fc144b55ff",
+      "canonicalName": "Shanks",
+      "opaqueId": "cmc_e37f5d3d1c9de7de817e0524"
+    },
+    {
+      "variantId": 1245,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Emperors in the New World",
+      "collectorNumber": "OP09-093",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "aabc36559616da4bd94d44e12063caa610447675ca1cd8126800a558d406a298",
+      "identityStatus": "duplicate",
+      "evidenceSha256": "466a10dd5d67a170722a10e710a61bf1c96fe7338884b38745f8f768aa840fec",
+      "canonicalName": "Marshall D. Teach",
+      "opaqueId": "cmc_8ab00552a360f47e83c41005"
+    },
+    {
+      "variantId": 1553,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Emperors in the New World",
+      "collectorNumber": "OP09-093",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "543849966776162de735aae1058e2aa4717182e89d8c98d45370ee46370adc13",
+      "identityStatus": "canonical",
+      "evidenceSha256": "95fdfa75912528cd04e0b411bd1b330d688df817b7608fd901df111c31c89e69",
+      "canonicalName": "Marshall D. Teach",
+      "opaqueId": "cmc_7ba8963bfa98e95d0aca7b0d"
+    },
+    {
+      "variantId": 1246,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Emperors in the New World",
+      "collectorNumber": "OP09-119",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "52197c8c6bc610705d613e88a4b878cfdcf96fb16be2b40c0a191b9cfcd870f2",
+      "identityStatus": "duplicate",
+      "evidenceSha256": "65acc281eb59b7d6ef1450e95ce89c7c14400d978f606235fe4a4839ce97eeaf",
+      "canonicalName": "Monkey D. Luffy",
+      "opaqueId": "cmc_7fb34454d2389acb7d244cab"
+    },
+    {
+      "variantId": 1445,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Emperors in the New World",
+      "collectorNumber": "OP09-119",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "961115b3918eb7d10865df137b2b1bf73662e43d74ed32f82a6b084489a15622",
+      "identityStatus": "canonical",
+      "evidenceSha256": "09535d0a6210ef88c81968b39462f860c86d3ab022b56aaddcae17b8e29e6e82",
+      "canonicalName": "Monkey D. Luffy",
+      "opaqueId": "cmc_1878cfffac31f93036f5acfc"
+    },
+    {
+      "variantId": 1219,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Legacy of the Master",
+      "collectorNumber": "OP12-118",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "1d07d97e36078507dce19ce8243d666f0ee72cc5f1c8d6f7f9f1642aaa940608",
+      "identityStatus": "canonical",
+      "evidenceSha256": "ead82cb9ec4981682cbcf5911e15ddf68f87a4fd44dd1006e602a262a51d56e4",
+      "canonicalName": "Jewelry Bonney",
+      "opaqueId": "cmc_9b2a12c605a194c68d299678"
+    },
+    {
+      "variantId": 1459,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Legacy of the Master",
+      "collectorNumber": "OP12-118",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "ae90373b078cd323246c6ae191aabefee52da036d1bda1fe1eff4df86b8a3b10",
+      "identityStatus": "duplicate",
+      "evidenceSha256": "1b921ebaea728b263c2b41ac1ba054140a2e0ffe02eeb3758d9394e374479c23",
+      "canonicalName": "Jewelry Bonney",
+      "opaqueId": "cmc_99a9ba74b5aed22867750d1a"
+    },
+    {
+      "variantId": 753,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Paramount War",
+      "collectorNumber": "OP02-013",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "017f80835de2ded5d0cb098f30d0d53ebafe3bba7b75fd405bbf3f33c8a45a82",
+      "identityStatus": "duplicate",
+      "evidenceSha256": "249f32e75ca85b528daf5a53db5a8bbd61361245bdded68613651181dc7b7820",
+      "canonicalName": "Portgas D. Ace",
+      "opaqueId": "cmc_c65d31dcbc133485defce2cd"
+    },
+    {
+      "variantId": 1525,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Paramount War",
+      "collectorNumber": "OP02-013",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "8e58b7027ecf130f2f440e5523b8b9c8019598657b285f9c7093dec096787304",
+      "identityStatus": "canonical",
+      "evidenceSha256": "8d97386bdc7eed60e343ef4feb75e8bb0d503e9a769556c22a7b58a4b54231ae",
+      "canonicalName": "Portgas D. Ace",
+      "opaqueId": "cmc_750611c1e2d1f00cf4bbbbc1"
+    },
+    {
+      "variantId": 1253,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Romance Dawn",
+      "collectorNumber": "OP01-016",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "2701c0b11385291a788a04ff6092f7cefc3f2f505202c63a8c764a9a8af75842",
+      "identityStatus": "review",
+      "evidenceSha256": "469654f237fd1b9eabed3a55eee32400ad027a5c16a2906a4e1764a4e1e1eca5",
+      "canonicalName": "Nami",
+      "opaqueId": "cmc_0e40ad68f4dc2733718a6218"
+    },
+    {
+      "variantId": 1450,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Romance Dawn",
+      "collectorNumber": "OP01-016",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "404d037d5bbccfa05ffcbf0068009d004fb526340149a0afaa353655509bef8b",
+      "identityStatus": "review",
+      "evidenceSha256": "12bca3c945a5558bcf2742f8b0150f7ead5d6b9c396bf5e2d2b3c7d26f021753",
+      "canonicalName": "Nami (Errata)",
+      "opaqueId": "cmc_c39f11394d831b003ae72c01"
+    },
+    {
+      "variantId": 1426,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Two Legends",
+      "collectorNumber": "OP08-106",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "70a036e1da5aed5fe718e194512c27bfeb611c96fcb826544437e2c05c0bcb7b",
+      "identityStatus": "canonical",
+      "evidenceSha256": "d5ebfa5e8c80d26540af6e968a586b5cc8f2dba0bc4404e8ede3d05bc9a2a057",
+      "canonicalName": "Nami",
+      "opaqueId": "cmc_b8c0697753996e4cbd02be0b"
+    },
+    {
+      "variantId": 1499,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Two Legends",
+      "collectorNumber": "OP08-106",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "e30d4b477c29ef1bcafc0c36836113f09491a6babd1e49ef571e58076ffe6550",
+      "identityStatus": "duplicate",
+      "evidenceSha256": "9a03a75e919e7c03b488ee6c3466a4817091c0eab5521caa09318dda1c2cb76c",
+      "canonicalName": "Nami",
+      "opaqueId": "cmc_3d7ab87296bc6bb345e8b388"
+    },
+    {
+      "variantId": 1428,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Two Legends",
+      "collectorNumber": "OP08-118",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "2489f891da48af23f282747903c7216c74557e60b6742b41ecb76d6df5030dfe",
+      "identityStatus": "canonical",
+      "evidenceSha256": "3a1dab6789967507161eadde96b46529457fc7d112b76bc0ce2ddec83580ff47",
+      "canonicalName": "Silvers Rayleigh",
+      "opaqueId": "cmc_d7a2bf097d0520a86fc9a2ae"
+    },
+    {
+      "variantId": 1503,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Two Legends",
+      "collectorNumber": "OP08-118",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "cfab7dce0930add99cd74832def67617c0f0331a62ef1d887a175a5c3556814b",
+      "identityStatus": "duplicate",
+      "evidenceSha256": "46eba726eca18a2dc66dea61d8320e9a54691c6679816d9287cad689f7dea71f",
+      "canonicalName": "Silvers Rayleigh",
+      "opaqueId": "cmc_ad754bb0f6ccf45151331801"
+    },
+    {
+      "variantId": 1479,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Wings of the Captain",
+      "collectorNumber": "OP06-118",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "aa5f60219bb80df85eab2976ecaa55f4bbf797a32cbb192790f43c0c8c538ab2",
+      "identityStatus": "canonical",
+      "evidenceSha256": "42d90dd9e4eefe8233307f67a25bccc8d0726348e29d110a55fdc6aa1ddaa838",
+      "canonicalName": "Roronoa Zoro",
+      "opaqueId": "cmc_a9ba66ebc1d3b32879d45a0c"
+    },
+    {
+      "variantId": 1480,
+      "tcgCode": "one-piece",
+      "setName": "One Piece Wings of the Captain",
+      "collectorNumber": "OP06-118",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "41cb27652b84657cfc2e245b6c5a8f976444bd237dd9e658c171253e25377c01",
+      "identityStatus": "duplicate",
+      "evidenceSha256": "c51108699b3cefaa5d4113e86201513e8055609180a344038813761997593d25",
+      "canonicalName": "Roronoa Zoro",
+      "opaqueId": "cmc_5806491bcb82b61a2542363f"
+    },
+    {
+      "variantId": 1462,
+      "tcgCode": "one-piece",
+      "setName": "One Piece the Azure Sea's Seven",
+      "collectorNumber": "OP14-112",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "6b9abeb4143c3e407201f0d2ed26d6c9cb955177aa5263747653da571015d1bd",
+      "identityStatus": "duplicate",
+      "evidenceSha256": "01b2c629807c487611e2b33e954a26507f99e4c1af5936a7e805e38ab8da7cd1",
+      "canonicalName": "Boa Hancock",
+      "opaqueId": "cmc_1f7f5af6715f91468966668a"
+    },
+    {
+      "variantId": 1463,
+      "tcgCode": "one-piece",
+      "setName": "One Piece the Azure Sea's Seven",
+      "collectorNumber": "OP14-112",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "b6af21806b528fbda9904f31affe0522548f7b5559237a6ee665438c58f909f2",
+      "identityStatus": "canonical",
+      "evidenceSha256": "e70b0fad77cc248205e6d043fc7250e3364bb3d1ce21681ee7e6a485541fb622",
+      "canonicalName": "Boa Hancock",
+      "opaqueId": "cmc_de0186601b1b298140622632"
+    },
+    {
+      "variantId": 312,
+      "tcgCode": "one-piece",
+      "setName": "Booster Pack CARRYING ON HIS WILL",
+      "collectorNumber": "OP09-004",
+      "cardLanguage": "ja",
+      "canonicalPrintingSha256": "232b21cd3bbe7e75acd9c6dbdbcba886f0d86db2086ce64044cc489ca185f129",
+      "identityStatus": "review",
+      "evidenceSha256": "7639b01abf9cd6667c39a661f1e2c528524f049a32e34629206a175d018b8a26",
+      "canonicalName": "Shanks Gold Background SR-SPC 3th Anniversary Special Card",
+      "opaqueId": "cmc_db587c73ccc310190267ce16"
+    },
+    {
+      "variantId": 319,
+      "tcgCode": "one-piece",
+      "setName": "Booster Pack CARRYING ON HIS WILL",
+      "collectorNumber": "OP09-004",
+      "cardLanguage": "ja",
+      "canonicalPrintingSha256": "100c948bdd6da010c0274f7fcfccfd9314c18181856ac94371be7ce5d6be938a",
+      "identityStatus": "review",
+      "evidenceSha256": "57aac40843d467b47473d51924bb38494d55e3bd94e61aa8db67b7dd96ece12d",
+      "canonicalName": "Shanks Silver Background SR-SPC 3th Anniversary Special Card",
+      "opaqueId": "cmc_46d31536f17d140d3703be82"
+    },
+    {
+      "variantId": 1626,
+      "tcgCode": "one-piece",
+      "setName": "Booster Pack CARRYING ON HIS WILL",
+      "collectorNumber": "OP13-118",
+      "cardLanguage": "ja",
+      "canonicalPrintingSha256": "135a009738173723bc1d5c87104f7ef8e87394806c1947cbaa12ef2d4dd38bb0",
+      "identityStatus": "review",
+      "evidenceSha256": "6ae3c08c2ca9c7423030efd16c3e886db591da63655781090cc10ec25029dd87",
+      "canonicalName": "Monkey.D.Luffy Wanted SEC-SPC",
+      "opaqueId": "cmc_fa97ea63cade8b9f90d5f5bb"
+    },
+    {
+      "variantId": 1627,
+      "tcgCode": "one-piece",
+      "setName": "Booster Pack CARRYING ON HIS WILL",
+      "collectorNumber": "OP13-118",
+      "cardLanguage": "ja",
+      "canonicalPrintingSha256": "e9d46659be244174c20bb16f870a49ea289d70afc6bd5df1a70bc54991c9b868",
+      "identityStatus": "review",
+      "evidenceSha256": "e6b0f298b2c402f3a52b5c3d4a7bf4c326e5a329aa1f16c9af5360ff05e8e6dc",
+      "canonicalName": "Monkey.D.Luffy SEC-P",
+      "opaqueId": "cmc_3eca7e931136a82ffc5cc6b4"
+    },
+    {
+      "variantId": 1194,
+      "tcgCode": "pokemon",
+      "setName": "Pokemon Jungle",
+      "collectorNumber": "60",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "dd299d3e75e367271c5e78fd088acbdef2d6d988319d81459320b5b17128511f",
+      "identityStatus": "canonical",
+      "evidenceSha256": "81e3c533230488aec15aed0e40a2b7b218f12d9026f497cf2f5b215c7578ecb5",
+      "canonicalName": "Pikachu",
+      "opaqueId": "cmc_662a6b2bff60665f67ef3be1"
+    },
+    {
+      "variantId": 1195,
+      "tcgCode": "pokemon",
+      "setName": "Pokemon Jungle",
+      "collectorNumber": "60",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "45019f5cca1a1886319da28ac5adaee0bfd8552bdeb98f967669b2ed378d2348",
+      "identityStatus": "duplicate",
+      "evidenceSha256": "8c023fdedc9c374ef4af2aec5425cd4ffb97232afa339660f1ae7e4397fac3e6",
+      "canonicalName": "Pikachu",
+      "opaqueId": "cmc_662a6b2bff60665f67ef3be1_fcda4004"
+    },
+    {
+      "variantId": 823,
+      "tcgCode": "pokemon",
+      "setName": "Pokemon Scarlet and Violet Prismatic Evolutions",
+      "collectorNumber": "59",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "93b117494f0dae9f805b7b2379eb09e45016c3988dafbceacf3bf2713d68dc66",
+      "identityStatus": "duplicate",
+      "evidenceSha256": "c3d706aa42e93e340f0ab10678be9d83051d2b3ea8cba806a303d34827727cc1",
+      "canonicalName": "Umbreon",
+      "opaqueId": "cmc_e4200817edb786b26cea4d0a"
+    },
+    {
+      "variantId": 1530,
+      "tcgCode": "pokemon",
+      "setName": "Pokemon Scarlet and Violet Prismatic Evolutions",
+      "collectorNumber": "59",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "72a083f2b8b74c7251c5f95eb8d59eed1e656c0c68bf378213022937903309ba",
+      "identityStatus": "canonical",
+      "evidenceSha256": "d34f0c96548074ffc0b03ffceb3449a4a3ad862f4effbf6c0aa42f61af0f7dbd",
+      "canonicalName": "Umbreon",
+      "opaqueId": "cmc_4af269f73dc43ce3fd65b179"
+    },
+    {
+      "variantId": 913,
+      "tcgCode": "pokemon",
+      "setName": "Pokemon Sword and Shield Celebrations Classic Collection",
+      "collectorNumber": "15",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "c5e30d61a1ea3ce231ad1269d73922c8f39e0fa00970414df07e6fbdd1dc628d",
+      "identityStatus": "review",
+      "evidenceSha256": "2a19c5818ce01c30eaaa461a325b6898c3a77170de1a5de7d2b8d0b90e7275fe",
+      "canonicalName": "Here Comes Team Rocket!",
+      "opaqueId": "cmc_3dc8d3134b49367d94e7932e"
+    },
+    {
+      "variantId": 917,
+      "tcgCode": "pokemon",
+      "setName": "Pokemon Sword and Shield Celebrations Classic Collection",
+      "collectorNumber": "15",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "bdd28cb5c090a7d7068558d75126ed7d18962615d747680c00fdb633fa20b4d3",
+      "identityStatus": "review",
+      "evidenceSha256": "cdcecd45dc192cb03d689c9091532c388b635f2e7b8c7253caa016af23625dd6",
+      "canonicalName": "Venusaur",
+      "opaqueId": "cmc_ae1aa929e8fe83ced3ce3192"
+    },
+    {
+      "variantId": 922,
+      "tcgCode": "pokemon",
+      "setName": "Pokemon Sword and Shield Celebrations Classic Collection",
+      "collectorNumber": "15",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "23f6a2c1e116c36a49c66201046ef600d8825a0bb26a8eb1e938f2163df9e64e",
+      "identityStatus": "review",
+      "evidenceSha256": "0363f71c03095748df0875c69ff6a9c2e68866367ae5d1c9901d3c5f2684baca",
+      "canonicalName": "Rocket's Zapdos",
+      "opaqueId": "cmc_24be3490b9405274cf589c7e"
+    },
+    {
+      "variantId": 484,
+      "tcgCode": "pokemon",
+      "setName": "Pokemon Sword and Shield Vivid Voltage",
+      "collectorNumber": "25",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "9b5fb9c6173463500ff5a0aa935af7ce967e32c0d6699d4cc07972b2ef21bad1",
+      "identityStatus": "canonical",
+      "evidenceSha256": "7eb2bc0b905862fb8292893c1bb4c3fae6ae4c672d3af035715f3dd7dc53098f",
+      "canonicalName": "Charizard",
+      "opaqueId": "cmc_0af0ba667b2fc50723b3c550"
+    },
+    {
+      "variantId": 1184,
+      "tcgCode": "pokemon",
+      "setName": "Pokemon Sword and Shield Vivid Voltage",
+      "collectorNumber": "25",
+      "cardLanguage": "en",
+      "canonicalPrintingSha256": "f688c63830b96a3699499ff09261341e7b66fc9120b75ac6bbe2620be59166bc",
+      "identityStatus": "duplicate",
+      "evidenceSha256": "dafc02e7ebcc8e80c245f478eca0de0a83e4b9176de98821decade5e58f11491",
+      "canonicalName": "Charizard",
+      "opaqueId": "cmc_f949168a2a73a00d7b5c2c80"
+    },
+    {
+      "variantId": 1686,
+      "tcgCode": "pokemon",
+      "setName": "Challenge from the Darkness",
+      "collectorNumber": "Unknown",
+      "cardLanguage": "ja",
+      "canonicalPrintingSha256": "474ac15d626ec5f90c1758e8a88bbb19d60290c53de4d4af59ff2ca8da4f5834",
+      "identityStatus": "review",
+      "evidenceSha256": "766c2ad81e3297bf77bb65ec158d124e972e4493e9b9fd64196271e6abac768f",
+      "canonicalName": "Blaine's Charizard",
+      "opaqueId": "cmc_fce83e4fe19be1209c77b50e"
+    },
+    {
+      "variantId": 1687,
+      "tcgCode": "pokemon",
+      "setName": "Challenge from the Darkness",
+      "collectorNumber": "Unknown",
+      "cardLanguage": "ja",
+      "canonicalPrintingSha256": "1899df15a67f7dcf120266679481db41912f4779c41a14b92a65ee34bbe549c0",
+      "identityStatus": "review",
+      "evidenceSha256": "540bc3beb6acb7277dd37421d18c1392415b45f07aaff4169ee4b4e3affbbb02",
+      "canonicalName": "Sabrina's Gengar",
+      "opaqueId": "cmc_126afb7062afb328c1579939"
+    },
+    {
+      "variantId": 1688,
+      "tcgCode": "pokemon",
+      "setName": "Challenge from the Darkness",
+      "collectorNumber": "Unknown",
+      "cardLanguage": "ja",
+      "canonicalPrintingSha256": "f7374cf8d42d97c99fa012e6d3dd48c5b513e6c2740b57a3aee11f1f07fa1058",
+      "identityStatus": "review",
+      "evidenceSha256": "b15c648909679f4a8d0bc45410b199150c27e99b00eb529529af2580df587886",
+      "canonicalName": "Rocket's Mewtwo",
+      "opaqueId": "cmc_649d37648ddac4b396a1ce0f"
+    },
+    {
+      "variantId": 1601,
+      "tcgCode": "pokemon",
+      "setName": "Expansion Pack",
+      "collectorNumber": "Unknown",
+      "cardLanguage": "ja",
+      "canonicalPrintingSha256": "9026fbbfc19f3746dd99b324f38daaac6155418121ebd4ed9bcbb73b1691b02d",
+      "identityStatus": "review",
+      "evidenceSha256": "fe763db0e29cea1c33a9b7c164b5f0883465be2545bcf5cc19962541e4319648",
+      "canonicalName": "Pikachu",
+      "opaqueId": "cmc_9640ced533813aefc8d415f0"
+    },
+    {
+      "variantId": 1693,
+      "tcgCode": "pokemon",
+      "setName": "Expansion Pack",
+      "collectorNumber": "Unknown",
+      "cardLanguage": "ja",
+      "canonicalPrintingSha256": "858b62e754dcbc02294003039f445a2262c26982da7090d905be18ded76b0f90",
+      "identityStatus": "review",
+      "evidenceSha256": "43cd45ff06626f3b3c10de777ccf68f38b546addcf5a5f00b1558c6d2fb8c20b",
+      "canonicalName": "Charizard",
+      "opaqueId": "cmc_658fecc328dda9f9c3396cf8"
+    },
+    {
+      "variantId": 1694,
+      "tcgCode": "pokemon",
+      "setName": "Expansion Pack",
+      "collectorNumber": "Unknown",
+      "cardLanguage": "ja",
+      "canonicalPrintingSha256": "8cdeceaf64b65643440cd76e36a69597fac46ae8ecb5d7e95034bb8605c30acf",
+      "identityStatus": "review",
+      "evidenceSha256": "0e6bf6d44b467e6cce749cd2d0803f0af934e5bf0c59edd3c481b0b2b8ab7432",
+      "canonicalName": "Mewtwo",
+      "opaqueId": "cmc_631a29f02da9ddbed7e83bed"
+    },
+    {
+      "variantId": 1695,
+      "tcgCode": "pokemon",
+      "setName": "Expansion Pack",
+      "collectorNumber": "Unknown",
+      "cardLanguage": "ja",
+      "canonicalPrintingSha256": "669983f188b493a9e408d3f7162f677fbc82074a04df522502f7040f008dc8d0",
+      "identityStatus": "review",
+      "evidenceSha256": "de5dee46206c592742b88e2ef9af4ed78eff2b9e75c9041c89e3109ae018eea4",
+      "canonicalName": "Blastoise",
+      "opaqueId": "cmc_6fde25f426568e1497087462"
+    },
+    {
+      "variantId": 1691,
+      "tcgCode": "pokemon",
+      "setName": "Mystery of the Fossils",
+      "collectorNumber": "Unknown",
+      "cardLanguage": "ja",
+      "canonicalPrintingSha256": "dab3f122e1f0ca9ecf1ab59da5fc74280d1fae239bb1514415f470c41e8ca16b",
+      "identityStatus": "review",
+      "evidenceSha256": "60288e24589041eba0f8c0ec6bb6312da32349af30104cfd6c1ee2eabfb68827",
+      "canonicalName": "Mew",
+      "opaqueId": "cmc_7a5db94ff904f4e323457137"
+    },
+    {
+      "variantId": 1692,
+      "tcgCode": "pokemon",
+      "setName": "Mystery of the Fossils",
+      "collectorNumber": "Unknown",
+      "cardLanguage": "ja",
+      "canonicalPrintingSha256": "3a299a324de8fbc1bf00e676daa26c1a7f3bb51634d8f5cc34aa7715c571fcba",
+      "identityStatus": "review",
+      "evidenceSha256": "abfe5327614463da1f124cb8bcac51cf0bc56aee64828c9cda222ad3970d53f2",
+      "canonicalName": "Dragonite",
+      "opaqueId": "cmc_f15095d3aafe23a1ef2b49cc"
+    },
+    {
+      "variantId": 1699,
+      "tcgCode": "pokemon",
+      "setName": "Mystery of the Fossils",
+      "collectorNumber": "Unknown",
+      "cardLanguage": "ja",
+      "canonicalPrintingSha256": "5fc343abf10d0d2bae9b741593be6422aa0f3c9ac5b853d515d4c2c82024adff",
+      "identityStatus": "review",
+      "evidenceSha256": "ab92505fd83b733e67325d77627c18661c41892904904758ae6dc787e2cd6dac",
+      "canonicalName": "Gengar",
+      "opaqueId": "cmc_dd7e0f9be663c53cf11cf329"
+    },
+    {
+      "variantId": 1065,
+      "tcgCode": "pokemon",
+      "setName": "Pokemon Japanese Terastal Fest EX",
+      "collectorNumber": "62",
+      "cardLanguage": "ja",
+      "canonicalPrintingSha256": "2748eed1a5accb1939ca51ab5842036e81993b2e160f58f0ae952d65ed5b850a",
+      "identityStatus": "duplicate",
+      "evidenceSha256": "abeaccae9b105e0bef1c7e6e5aa28fcbe359df20553522c6db1c370504f55310",
+      "canonicalName": "Espeon",
+      "opaqueId": "cmc_535bcccab393141e113fa7a4"
+    },
+    {
+      "variantId": 1583,
+      "tcgCode": "pokemon",
+      "setName": "Pokemon Japanese Terastal Fest EX",
+      "collectorNumber": "62",
+      "cardLanguage": "ja",
+      "canonicalPrintingSha256": "238501c702869e75d850cb3511f0b75d6d92ba20e23462a7f22ff4d17fda97f0",
+      "identityStatus": "canonical",
+      "evidenceSha256": "1b33646e915b2b23a41eaaa0456ba1686b1e08865feb239252aae5d6d6e616ad",
+      "canonicalName": "Espeon",
+      "opaqueId": "cmc_d0d89b39e348939f21c7b1af"
+    },
+    {
+      "variantId": 1080,
+      "tcgCode": "pokemon",
+      "setName": "Pokemon Japanese Terastal Fest EX",
+      "collectorNumber": "68",
+      "cardLanguage": "ja",
+      "canonicalPrintingSha256": "722e1c79244f2fa74dcfbecad7beb6ce2c3003538ca754aa3df1d913d6c822b4",
+      "identityStatus": "duplicate",
+      "evidenceSha256": "53424efdd122d9e2a55769de111bf97b149a7efb557283ac23a3b82bad2fd2a4",
+      "canonicalName": "Sylveon",
+      "opaqueId": "cmc_b3712e103f6494247564a361"
+    },
+    {
+      "variantId": 1582,
+      "tcgCode": "pokemon",
+      "setName": "Pokemon Japanese Terastal Fest EX",
+      "collectorNumber": "68",
+      "cardLanguage": "ja",
+      "canonicalPrintingSha256": "aa9a5288955b54dacb127311f65d19c03228f9cd3a4ab1c2386df50486c9d881",
+      "identityStatus": "canonical",
+      "evidenceSha256": "5c818f041386e0e353ddf1303d099f725c0a3f1a1251b8d5710af2b9a11c8990",
+      "canonicalName": "Sylveon",
+      "opaqueId": "cmc_63d21a53203b077412e3c3f3"
+    },
+    {
+      "variantId": 1609,
+      "tcgCode": "pokemon",
+      "setName": "Rocket Gang",
+      "collectorNumber": "Unknown",
+      "cardLanguage": "ja",
+      "canonicalPrintingSha256": "520567de553d45e992235cfdfbf2472d55c994e3b93bbd6c1b87a4ba95f825ef",
+      "identityStatus": "review",
+      "evidenceSha256": "2b6f1d38b9e45c56dcd47aaa50b4514982aee249f6e41fa3b35a7a660b99a689",
+      "canonicalName": "Dark Dragonite",
+      "opaqueId": "cmc_b401fa256098ad52d19329ae"
+    },
+    {
+      "variantId": 1689,
+      "tcgCode": "pokemon",
+      "setName": "Rocket Gang",
+      "collectorNumber": "Unknown",
+      "cardLanguage": "ja",
+      "canonicalPrintingSha256": "a70475d06f32fc8dac6a4559afb4d8b602b4a856a01dabceda530657e5516216",
+      "identityStatus": "review",
+      "evidenceSha256": "3dfc8ebb2d0adc81d82a1c675a5eaf091c523b7b17489d8406a6757e4c40cf16",
+      "canonicalName": "Dark Charizard",
+      "opaqueId": "cmc_5ef3366d783ed3cb95fb3cd4"
+    },
+    {
+      "variantId": 1690,
+      "tcgCode": "pokemon",
+      "setName": "Rocket Gang",
+      "collectorNumber": "Unknown",
+      "cardLanguage": "ja",
+      "canonicalPrintingSha256": "317c3f7e3ec974cc73b6ce335c3399e05a09b00811c93720a142ffd055647aca",
+      "identityStatus": "review",
+      "evidenceSha256": "d7727f68600c8fc67b8d159a6d5e71189d81b08c8ac21f4fecd7ce0023c7133b",
+      "canonicalName": "Dark Gyarados",
+      "opaqueId": "cmc_cabb4589c99de9e1e471912d"
+    },
+    {
+      "variantId": 1704,
+      "tcgCode": "pokemon",
+      "setName": "Rocket Gang",
+      "collectorNumber": "Unknown",
+      "cardLanguage": "ja",
+      "canonicalPrintingSha256": "b0bf6c5b5ffc96dbc4db2e221fcb39ee143760e682c4378309e305fb2ebc9d45",
+      "identityStatus": "review",
+      "evidenceSha256": "f9f72bfc16397cd234e9d6e83cc3c48908535faa5f95036f684f5aa2efdacd15",
+      "canonicalName": "Dark Blastoise",
+      "opaqueId": "cmc_d3d9deca62d2efc1aac18ee1"
+    }
+  ]
+}

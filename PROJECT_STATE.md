@@ -3,8 +3,36 @@
 > **單一真相來源。** 任何 agent（Claude Code / Codex / Hermes / Pi / 其他）開工前一定要讀呢份，
 > 收工前一定要更新呢份。呢份文係 model-agnostic —— 唔靠任何一個 model 嘅 session 記憶。
 >
-> 最後更新：**2026-07-26（本機時區）** by Claude Code (Opus 5) —— 文檔真相校正 + TAG/alert 查因
-> ＋ 市值/成交 delta 修正（斷點 #5 · #6 收工，見 §4）
+> 最後更新：**2026-07-27 20:55（本機時區）** by Claude Code (pkg-release) ——
+> **quota 切點交接（→ Opus 5 接手，用戶下令停低寫低先）**。今晚三件事：
+> ① **eBay PSA10 成交接入 producer**：零成交卡 12→1（剩 rank 96 兩源皆死）、
+> 主板 Top100「—」11→1、30d 成交環比 54→106。⚠ 唯一正確取法 = `market_sale_observation`
+> 過濾 ebay/psa/10，**唔准用 `market_daily_sales_aggregate` 嘅 ebay 行**（全 grade 混合）。
+> 三個陷阱（`--view` 默認錯配、`trackedSales` nested、SSR 頁面 memory cache）記
+> [docs/evidence/2026-07-27-ebay-sales-wiring/FINDING.md](docs/evidence/2026-07-27-ebay-sales-wiring/FINDING.md)。
+> ② **借數 cascade 方向用戶更正**：任何空窗以 **1d→7d→30d 最新鮮優先**借
+> （唔再係只長借短），code/test/DATA_CONCERNS 已同步。
+> ③ **OP 卡名 i18n 7 卡批案已批 + discovery 完成、code 一行未落**：病灶 = producer
+> pass-through 蓋死 card-names.ts lookup；接手照
+> [docs/evidence/2026-07-27-i18n-7cards/HANDOFF.md](docs/evidence/2026-07-27-i18n-7cards/HANDOFF.md) §4 直行。
+> **docker build GO 已俾（07-27 晚）**：隊列 = i18n 完成 → build（seed 臨時蓋入→即還原）→ push GH。
+> 上一輪：**OP 已出版 27 張「價唔得」三病類診斷歸位**（27/27 有價 90/90 點；A 單日源 spike
+> rank 5 +544% 已定案上游 SNKRDUNK 單日異常唔係身份污染，修法 source-level sanity gate 未實裝
+> · B snk 日更源死/冇 → 窗口借數 · C 稀疏源 forward-fill 24/27 Δ1=0。證據
+> [docs/evidence/2026-07-27-op-published-27/FINDING.md](docs/evidence/2026-07-27-op-published-27/FINDING.md)）
+> + **OPTCG canonical 圖源制度化**（用戶人眼驗收拍板：G10 樹 SNKRDUNK assets，寫入
+> [docs/CARD_SOURCING_HANDBOOK.md](docs/CARD_SOURCING_HANDBOOK.md)「三之一」+ 來源審批制度表）。
+> 上一輪：**上線打包前端修復兩單齊**（grader 板市值駁通 + 窗口借數 cascade——初版 30d→7d→1d，
+> **07-27 晚已更正方向做 1d→7d→30d**——30d 價變 258/258、市值變 244/258、TAG POP 0→86，
+> 代價見 launch-fallback DATA_CONCERNS）
+> 上一輪：**六個背景 agent 全部收工 + doc-rot 4 條 BROKEN 已修**（HANDOFF ×3 + DB_INVENTORY ×1）。
+> 最大反轉：**GemRate key 07-29 到期係真風險** —— 07-27 run log `direct=enabled`
+> 即 key 係 primary transport，07-26「已降級為非事件」結論作廢（見 §4 新段 + §2）
+> 上一輪：**用戶投訴兩單全修**：heatmap 空白（`allowedDevOrigins` 修 127.0.0.1 hydration 403）
+> + One Piece 得 20 張（producer 新增 `top300_boards` 聯集 view，OP **20 → 27 張**）
+> + 途中撞出故事 gate 全站 500，4 張新卡故事四語補齊（Sonnet 代筆），258 published —— 見 §4
+> 上一輪：3800 serving 鏈修好 + 五條線收齊（K 線橋接 run_id=107 / image-fix / 故事 243）；
+> 再上一輪：真 Top 300 推導（排到 **257**，樽頸係價格唔係 POP）——見 §1 / §4 / §5 / §6 D9
 > 分支：`ui-experiments-20260725`｜工作區大量未 commit 檔案
 >
 > ⚠ 呢輪更新推翻咗幾個之前寫錯嘅「事實」，如果你手上有舊版印象，以下四條要覆寫：
@@ -82,15 +110,21 @@ python -X utf8 -m pytest -q --no-cov            # 全 repo 測試（唔喺 .venv
 | `market_identity_review_queue` | **203** | **全部 pending，冇人裁過**。呢粒用 `expect=` 唔用 `>=` —— 佢**跌**先係好消息（有人開始裁），升亦都要知，任何郁動都想見到 <!--@verified 2026-07-26 id=db.review_queue.pending expect=203 sql=SELECT COUNT(*) FROM market_identity_review_queue--> |
 | `market_fx_rate_observation` | 10 | ✅ 已接線 <!--@verified 2026-07-26 id=db.fx.rows expect>=10 sql=SELECT COUNT(*) FROM market_fx_rate_observation--> |
 
-**真係 0 行嘅得 6 張**：`market_tracked_sales_aggregate`（已廢棄）· `catalog_printing_identity` ·
-`market_raw_payload_object` · `market_source_observation_payload_pointer` ·
-`market_source_effective_observation` · `market_retention_archive_manifest`。
+**真係 0 行嘅得 5 張**（07-27：`catalog_printing_identity` 已通電 68 行，見 §4 identity-batch）：
+`market_tracked_sales_aggregate`（已廢棄）· `market_raw_payload_object` ·
+`market_source_observation_payload_pointer` · `market_source_effective_observation` ·
+`market_retention_archive_manifest`。
 
 **價格覆蓋率兩個分母**：對 roster 395/1,468（**26.9%**）；對 catalog 395/1,705（**23.2%**）。
 舊文寫嘅「硬上限 18.6%」**已作廢**，唔好再引用。
 
 **POP 每日真相**：07-21 641 卡 · 07-22 **2 卡 + TAG 307 卡** · 07-23 **1 卡** ·
 07-24 1,216 卡 · 07-25 1,211 卡。即係 gemrate 得 3 日真量，**TAG 一世得 07-22 一日**。
+
+⚠ **07-26 更正**：當日 POP 寫入全部係 `source_code='tag'` **324 行** —— 「TAG 一世得
+07-22 一日」已被推翻，TAG 似乎翻生咗 <!--@verified 2026-07-26 id=db.pop_obs.tag_0726 expect>=324 ttl=14 sql=SELECT COUNT(*) FROM market_grader_population_observation WHERE source_code='tag' AND observed_date='2026-07-26'-->。
+記低未追（組裝模式）；影響：CLAUDE.md「TAG 每日死亡」章節要重驗先好引用。
+GemRate 最新完整日仍然係 **07-25**（JST 午夜收盤制）。
 
 **上線快照覆蓋**（id=19 / 2026-07-25 / 255 卡）：價格 255 · POP 255 · 市值 255 ·
 卡圖 **251** · 四語 **236** · delta 1d 255 / 7d **237** / 30d **232** ·
@@ -100,7 +134,65 @@ POP delta 7d/30d **0** · sparkline 尾 14 日 **251**。
 
 ## 1. 而家喺邊
 
-### 🚀 目標變咗（2026-07-26 用戶指令）：**明日交一個可以擺上 AWS 嘅出街版本**
+### 🧭 工作模式再變（2026-07-26 深夜用戶指令，最新）：**組裝模式 —— 用戶一步步帶住做**
+
+用戶原話：「記住我依家搵你做嗰啲嘢，你一定要 mark 翻低。因為基本上我依家就係組裝翻個網站
+嘅流程嚟嘅。依家組裝翻網站，我一步步帶住你做，如果唔係，你發散性思維，咩都做，可以做一世。」
+
+規則：每收到一步指示**即場寫低先執行**；只做該步範圍；隔籬發現嘅問題記低唔准追。
+優先級 = **真確性**（「我唔想個數據出到街俾人質疑」）。詳見 §6 D9。
+
+**現行四步（用戶 2026-07-26 定）同進度**：
+1. ① 證明數據冇消失 —— ✅ 已證：全部 fact table append-only，POP-ever 1,590 卡 ≥ roster 1,468；
+   用戶記憶中嘅「~1,900」最貼近 POP-ever 1,590，冇嘢被刪過。
+2. ② POP 全 roster 掃齊 → 推出真 Top 300 —— ✅ 已量：gemrate POP 新鮮度 **97.8%**
+   （1,435/1,468 停喺 07-24/25），**唔使全宇宙重掃**；真市值榜今日深度 = **257 唔係 300**，
+   樽頸係**價格覆蓋**（395/1,468 有過任何價）。證據包：
+   [docs/evidence/2026-07-26-top300-derivation/](docs/evidence/2026-07-26-top300-derivation/)。
+   淨低 33 張 POP 缺口卡（見 §5）。
+3. ③ Top 300 價格長期日日追 —— 排緊隊（§5 P0-組③）。價係 flow data，冇得事後補。
+4. ④ 圖片 / metadata / 小故事一律 **DEFER**，Top 300 穩定先追（包括 EB02-010 錯圖）。
+
+**⑤ 現行步（2026-07-26 深夜用戶指令，收尾）** 用戶原話重點：「我想組裝到 top 300 出到嚟先，
+同埋睇嚇仲有冇啲缺圖片。跟住如果出唔到嚟，你幫我去爬返啲數據返嚟就得。我有腳本，
+腳本唔啱你就改一改通用版本。……我依家其實都係維護呢 1,590 張卡嘅啫，暫時嚟講……
+真係入咗圍嘅數據先會開始爬佢嘅價錢。圖片方面，係上網嗰陣時候先需要去揾圖片，準則已齊。」
+追問：「海賊王已經一定有問題，冇理由 live 嘅數據得二十張，我爬一百都唔齊。」
+
+**海賊王診斷（2026-07-26 全實測 —— 數據冇消失，係兩個口徑錯位）**：
+- 用戶爬嘅 OP 價**全部仲喺 DB**：priced-ever **95 張**，且 95 張全部 7 日內有新價（採集器一直行緊）。
+- 但 95 張入面 **55 張唔喺 roster 1,468 內** → eval 唔計、live 唔顯示；roster 內只有 40 張有過價。
+- OP roster 227 張（ready 33 + accumulating 169 + unavailable 25），其中 **181 張連
+  ebay/snkrdunk 價源 identity 都冇** —— 結構上永遠冇可能有價，收集器點跑都追唔到。
+- 結果：OP 上榜 = **33 張**（rank 9 / 15 / 18 / 25 / 38 …），再過 image/eligible gate
+  → 用戶眼見 ~20-30 張。「live 得二十張」同「爬咗一百」**兩句都啱**，中間差咗入圍同 mapping。
+  `@verified 2026-07-26 id=op.roster_no_identity expect=181 ttl=7
+  sql=SELECT COUNT(*) FROM market_candidate_daily_snapshot s JOIN catalog_variant v ON v.id=s.variant_id
+  WHERE s.evaluation_id=8 AND v.tcg_code='one-piece' AND NOT EXISTS (SELECT 1 FROM
+  catalog_source_identity c WHERE c.variant_id=s.variant_id AND c.source_code IN ('ebay','snkrdunk'))`
+- 順帶解決舊矛盾：`market_sale_observation` 93,063 行 = ebay 13,015 + snk_grade 14,546 +
+  snkrdunk 65,502 —— **`g10_ebay_ingest.py` 已經入咗庫**（docstring 講「0 行」係寫嗰時嘅舊話）。
+  G10 disk 有 559 卡 eBay PSA10 數據，DB 只 join 到 344 卡 → ~215 卡差額全部卡喺 identity join。
+- 缺圖實測：257 ready 中冇 image asset 只有 **4 張** —— 圖片唔係樽頸，價源 identity 先係。
+
+**⑥ 現行步（2026-07-26 深夜再落，蓋過⑤嘅收尾狀態）** 用戶原話：「擺哂 TOP300 即係
+海賊王 100 加 PTCG 100，仲有係 TCG 300。你擺曬上去先，跟住之後我哋就就著呢一啲數據，
+去搵返佢哋缺少嘅資料：缺文就補文，缺圖就搵圖。仲有，要用實時今日嘅數據加歷史數據，
+咁樣先為之完成。如果有啲遇 block 嘅就唔好停，過咗佢先。記得嘅問題事後先翻去，
+再做多次、再研究下點樣過 block，點樣去解決件事。」
+
+操作定義（照原話解讀，唔擅自加減）：
+1. 榜制改**三張榜**：海賊王 Top 100 ＋ PTCG Top 100 ＋ 總榜 TCG Top 300。先擺上站
+   （本地 :3800 驗收；push production 照舊等用戶點頭先郁）。
+2. 「海賊王 100」數學上必然要用埋嗰 **55 張 out-of-roster priced OP**（roster 內
+   得 40 張有過價）——即係用戶對「55 張入唔入圍」嘅答案係**入**。正規 roster/lock
+   擴張程序另計；未完成之前三張榜由 derivation 層出數，provenance 標明邊啲卡未入 lock。
+3. 「實時今日 + 歷史」= 今日（07-26/27）採集行要落埋今日數 + G10 disk 歷史（559 卡
+   只入咗 344）要入晒庫，先算「完成」。
+4. 遇 block **唔停**：過咗先，全部記入 blocker log（evidence 目錄），事後逐個返轉頭解。
+5. 榜出咗之後先做「缺文補文、缺圖搵圖」盤點——以三張榜嘅卡做範圍。
+
+### 🚀 上一個目標（2026-07-26 朝用戶指令，已達成）：**明日交一個可以擺上 AWS 嘅出街版本**
 
 用戶原話：「其實依家你俾我哋個 website 先出到街先，我知道 DB 可能未必齊，
 但係我哋出街嗰啲照齊先。即係我哋後面啲線點樣駁得齊啲、點樣自動化，後面再算。
@@ -192,6 +284,11 @@ log 去 `data/runtime/logs/gemrate_freeze_slow.log`。慢但唔會撞牆。
 | Linux/WSL 遷移 | systemd unit 寫好、驗過 | Claude | [docs/SERVER_MIGRATION.md](docs/SERVER_MIGRATION.md)、`deploy/systemd/` |
 | 新卡 auto-add soak 監察 | runbook 寫好，等 soak Day 1 | Claude | [docs/SOAK_RUNBOOK.md](docs/SOAK_RUNBOOK.md) |
 | **AWS 交付** | ✅ **做完，實測過** | Claude (Opus 5) | [docs/AWS_DEPLOY.md](docs/AWS_DEPLOY.md)、[apps/web/Dockerfile](apps/web/Dockerfile)、[.dockerignore](.dockerignore) |
+| **:3800 dev server（用戶驗收接口）** | 🟢 **行緊**（`npx next dev -p 3800`，07-27 03:00 起）。⚠ 每次 producer 重寫 snapshot 後要重啟先食到新數據（`loadNodeSnapshot` 進程內 cache） | pm-closeout | 見 §4「3800 serving 鏈」+ §7 next start 地雷 |
+| today-prices #12：今日 ebay+snk 價格採集 | ✅ 完成（07-27 凌晨）：snk +56 價格行（07-26 收盤 17 卡有成交＋07-25 補 39）；ebay 0 行＝上游 G10 未有 07-26 收成（fail-closed 正常，外部阻塞非採集壞） | Opus 背景 agent | docs/evidence/2026-07-27-today-prices/FINDING.md |
+| board-gaps：三榜缺圖缺文盤點 + EB02-010 換圖候選 | ✅ 完成（07-27 凌晨）：265 卡全集，缺圖 22／缺英文故事 28／非標準畫布 169／opaque_id 漂移 191；EB02-010 換圖候選＝TCGplayer 641620（HTTP 實測 625×873 乾淨卡面，等用戶拍板先入庫） | Opus 背景 agent | docs/evidence/2026-07-27-board-gaps/FINDING.md |
+| **上線打包 rel-20260727** | 🟡 **GO 已俾（07-27 晚）**，排喺 i18n 批案之後開波。前端修復兩單 + eBay PSA10 接線完成兼實測（見 §4）。build 步驟：production snapshot 臨時蓋入 build context 嘅 seed → build → 即刻 `git checkout` 還原 seed → 驗容器 `/api/health` → commit + push GH（唔准 force-push） | pkg-release | [docs/evidence/2026-07-27-launch-fallback/DATA_CONCERNS.md](docs/evidence/2026-07-27-launch-fallback/DATA_CONCERNS.md)、[.dockerignore](.dockerignore) |
+| **OP 卡名 i18n 7 卡批案** | 🟡 **discovery 完成、code 一行未落**（quota 切點交接俾 Opus 5）。病灶 = producer pass-through 蓋死 card-names.ts lookup；實測 14 張 pass-through（批案只 7 張，其餘唔准順手譯）、「3th」實際喺 rank 36+91（批案講 20/36，過目時要講明出入）、rank 47 爛值要 exact override。接手照 HANDOFF §4 edit 計劃直行；`card-names.ts` claim 喺 FILE_CLAIMS（19:28 起 4h 租，過期 re-stamp） | pkg-release（→ Opus 5） | [docs/evidence/2026-07-27-i18n-7cards/HANDOFF.md](docs/evidence/2026-07-27-i18n-7cards/HANDOFF.md) |
 
 ---
 
@@ -199,6 +296,222 @@ log 去 `data/runtime/logs/gemrate_freeze_slow.log`。慢但唔會撞牆。
 
 > 呢個 section 存在嘅唯一理由：阻止下一個 agent 重新考古。
 > 見到下面任何一項，**唔好再查一次**，直接信，除非 §0 嘅命令話你知佢壞咗。
+
+**eBay PSA10 成交接入 producer + 借數方向更正（2026-07-27 20:55，pkg-release）**
+- `latest_sales()` 由 snk_psa10 單源改成 snk+eBay 雙源合併（history sparkline 同步）。
+  實測（258 published，前→後）：零成交卡 12→**1**（剩 rank 96 ST10-006，snk 死 06-15 兼
+  eBay 無 PSA10 成交，兩源都冇嘢可接）、主板 Top100「—」11→**1**、30d 成交環比 54→**106**、
+  7d 194→**232**。窗口 containment（1d⊆7d⊆30d）0 violations。
+  ⚠ **eBay PSA10 唯一正確取法 = `market_sale_observation` 過濾
+  `source_code='ebay' AND grader_code='psa' AND grade_label='10'` 逐單聚合；
+  唔准用 `market_daily_sales_aggregate` 嘅 ebay 行**（全 grade 混合，唔係 PSA10）。
+  三個真踩過嘅陷阱（`--view` argparse 默認 `top300` ≠ 生產 `top300_boards`、
+  `trackedSales` 係 nested `{count:{value},…}`、SSR 頁面 route 揸 snapshot 喺 process memory
+  → promotion 後要重啟 dev server）詳見
+  [docs/evidence/2026-07-27-ebay-sales-wiring/FINDING.md](docs/evidence/2026-07-27-ebay-sales-wiring/FINDING.md)。
+- **借數 cascade 方向更正（用戶下令）**：由「30d→7d→1d 只長借短」改成
+  **任何空窗以 1d→7d→30d 順序借（最新鮮優先，跳過自己）**。
+  [market-cap-delta.test.ts](apps/web/src/lib/market-cap-delta.test.ts) 鎖死新次序，
+  DATA_CONCERNS 同步注記。fail-closed 底線冇郁（三窗全空照舊空白）。
+
+**OP 已出版 27 張價格診斷收官 + OPTCG 圖源制度化（2026-07-27 19:05，pkg-release）**
+- **27/27 全部有價格歷史**（90/90 點 priced，status=ready，冇一張缺價）。用戶見到嘅怪數字分三病：
+  **A 單日源 spike** —— rank 5 ST21-014 Luffy +544%：snk_psa10 07-26 ¥294,500 vs 07-25 ¥45,700。
+  **已定案：上游 SNKRDUNK 單日異常，唔係身份污染** —— 兩張 ST21-014（variant 54 = Jump 雜誌
+  promo ↔ snk 706813；variant 240 = Flagship Battle 優勝紀念 ↔ 605546）`catalog_source_identity`
+  綁定 1:1 乾淨；原始 payload（`referenceMethod: snk_daily_history`）07-26 SNK 自己就報
+  ¥294,500，而同卡 07-25 G10 metrics 先 $295.53 —— pipeline 冇抄錯。修法 = source-level
+  日環比 sanity gate（一日 ×N 隔離候審，N≈3 起步），**未實裝**。
+  **B snk 日更源死/冇 → 窗口借數** —— rank 95 Boa OP07-051（零 snk，ebay-only 13 行）、
+  rank 96 ST10-006（snk 死 06-15）、Law ST10-010 / Zoro OP01-025（07-11 死）：30d 砌唔出
+  → 借 7d/1d，畫面嘅 +6.41% / 0.00% 就係借數結果（有 `fallbackWindow` 標記）。
+  **C 稀疏源 forward-fill** —— 24/27 張 Δ1=0.00%。全部證據 + tail -80 截斷推「冇」嘅反面教訓：
+  [docs/evidence/2026-07-27-op-published-27/FINDING.md](docs/evidence/2026-07-27-op-published-27/FINDING.md)。
+- **OPTCG canonical 圖源制度化**（用戶 07-27 人眼驗收拍板「啲卡又是正，亦都冇 sample 字眼」）：
+  G10 樹 SNKRDUNK assets（480 bundle，一包齊圖/價/POP）。已寫入
+  [docs/CARD_SOURCING_HANDBOOK.md](docs/CARD_SOURCING_HANDBOOK.md)「三之一」章 +
+  「來源審批制度」表（用戶逐源人眼驗收，OK 先入 canonical，被彈嘅記低唔准再用）。
+- OP 卡名 i18n：7 張譯名批案**已批（07-27 晚）**，discovery 完成未落筆——進度同 edit 計劃
+  睇 §3 i18n 行 + [docs/evidence/2026-07-27-i18n-7cards/HANDOFF.md](docs/evidence/2026-07-27-i18n-7cards/HANDOFF.md)。
+
+**上線打包前端修復：grader 市值駁通 + 30d 窗口借數 cascade（2026-07-27 15:35，pkg-release）**
+- **grader 板市值欄（用戶投訴一）**：BGS/CGC/SGC/TAG 版之前市值全部「—」，唔係冇數 ——
+  係 [grader-page.tsx](apps/web/src/components/grader-page.tsx) 對非 PSA grader 硬編碼唔出
+  `card.marketCap`（marketCap 一直喺 payload）。已拆：五版統一出 PSA10 市值（heading 副題注明），
+  mobile 版順手修埋攞 marketCap 當價嘅重複顯示（改用 `pricePsa10`）。
+  [i18n.ts](apps/web/src/lib/i18n.ts) 刪咗五語 `marketCapUnavailable` 死文案。
+  實測：BGS 版 100/100 個市值格有 $ 值，0 個「—」。
+- **30d→7d→1d 整窗口借數（用戶投訴二，產品取捨蓋過 fail-closed）**：本窗口指標唔可顯示就借
+  較短窗口嘅**成個結果**，標 `stale` + `fallbackWindow`。落腳 [snapshot.ts](apps/web/src/lib/snapshot.ts)
+  `borrowWindowMetric()` / `borrowTrackedSales()`（view 層，producer 同 `composeChangePct` 零改動，
+  同窗口頂替照舊禁止）。實測收益（30d，258 published）：價變 235→258、市值變 224→244、
+  TAG POP change 0→86/100、SGC 12→13；成交 12 張三窗全零冇得借，維持「—」。
+  代價（TAG 30d 全部係借 7d 之類）+ 還原四步全部寫低喺
+  [docs/evidence/2026-07-27-launch-fallback/DATA_CONCERNS.md](docs/evidence/2026-07-27-launch-fallback/DATA_CONCERNS.md)。
+- 驗證：vitest 103/103（含新 borrow test 鎖借數次序唔准跳級）、tsc 0 error、eslint 清、
+  :3800 五 grader 版 + 主板 + watchlist 逐版數格（數字見 DATA_CONCERNS）。
+- 順手發現寫低：snapshot `coverage.graderPopulationChangeReady` 5 grader × 3 窗全報 0
+  但 per-card PSA 30d 實際 98 ready —— producer 計數器 bug，冇 UI 讀，唔擋出街。
+- **.dockerignore 補咗 `!data/editorial/set-names.json`**（snapshot.ts static import，
+  之前 docker build 會 Module not found）。deny-all-then-allow 結構冇郁。
+
+**六 agent 審計波次收工 + doc-rot 4 條 BROKEN 修復（2026-07-27 13:20，pm-live-3800）**
+- 六個背景 agent 交付齊：story provenance · 指數停更診斷 · doc-rot 審計 · verify gate 時區 ·
+  G10 歷史 POP 盤點 · OP POP 決策包。證據包全部喺 `docs/evidence/2026-07-27-*/`。
+- **doc-rot 審計（34 份文 637 個引用）：BROKEN 4 · STALE 10 · OK 14** —— 零死連結零缺 script，
+  腐爛 100% 集中喺數字/狀態描述。**4 條 BROKEN 已即場修好**：
+  ① [docs/HANDOFF.md](docs/HANDOFF.md)「GemRate key 到期非事件」→ **推翻**（07-27 log
+  `direct=enabled`，key 係 primary transport；07-29 前必須實測 keyless standby 食唔食到
+  1468 全量）；② HANDOFF publish 命令 `--required-presentation-view` → `--presentation-view`
+  （`backend.py` 只收後者，餵錯 argparse exit 2）；③ HANDOFF external_entity_id「格式
+  `gemrate:<gid>`」→ 實測三個 namespace 且同 `source_code` 唔對齊（`source_code='gemrate'`
+  行入面 1147 行 `snkrdunk:` prefix），撈 source 一律用 `source_code`；
+  ④ [docs/DB_INVENTORY_20260726.md](docs/DB_INVENTORY_20260726.md)「07-25 永久缺口」→
+  已被 07-26 補 run 填返（0 → 755 行）。10 條 STALE 記隊列（逐字改法喺
+  [docs/evidence/2026-07-27-doc-rot/FINDING.md](docs/evidence/2026-07-27-doc-rot/FINDING.md)），
+  最高槓桿係 STALE-9：推廣 `@verified` 戳（34 份文得 1 份用，4 條 BROKEN 全部本可自動捉到）。
+- **verify gate 時區 bug 已修**（commit `b0da73a`）：`verify_daily_run.py`
+  `default_expected_date()` 改 T-1 基準 + 回歸測試。兩個前提更正：bug 真身喺
+  [scripts/verify_daily_run.py](scripts/verify_daily_run.py)（唔係 verify_handoff.py，後者零日期
+  邏輯）；本機係 **JST UTC+9**（唔係 UTC+8）。殘留三項記隊列唔擋 live：volume_floor 攞 T-1
+  未熟數對 T-2 熟數（報 87% 跌實係同齡 171% 升）· ingest_activity 結構上 fail 唔到（97% 回填
+  都照 PASS）· `verify_claims.py` naive `date.today()` JST/UTC 判決可差一日。
+- **G10 歷史 POP 盤點（零 DB 寫入）**：磁碟有 3 年真歷史（833 個 `history_full.json` /
+  393 個日期，2023-07-25 起），DB 兩張 POP 表得 7 日點，缺口 317,421 個 grade 點。
+  **兩個政策阻塞等用戶拍板先可以起 producer**：① 唯一寫者用 `ON DUPLICATE KEY UPDATE`，
+  直餵會 mutate 2,761 行現有數據（違 append-only）；② 來源有 264 個負 delta 點（155 條序列，
+  違「POP 只升唔跌」紅線）。前端 POP delta **唔受影響**（`population_series()` 直讀磁碟繞過
+  DB）。就算做到 100% 都只係 730/1590（45.9%）—— 735 張冇歷史檔。
+- **OP POP 決策包**：「71 張缺 POP」前提修正 —— roster 內 227 張 OP **零缺** POP，缺嘅係
+  榜外 76 張（70 張連 gemrate identity 都冇，要先行 keyless `collect`）。**quota 唔係約束，
+  identity 先係**（有 id 嗰 6 張只需 6-12 call）。「~07-29 到期」呢個**日期**冇實證（8 處
+  出處全係內部循環引證，最實係 `gemrate-freeze-oneshot.ps1` 參數預設）。真樽頸係價：
+  132 張 POP≥1000 只差一個價，補價上限 42 → 174 張上榜，**零 GemRate call**。
+  四選項 A/B/C/D 等用戶揀（詳見 docs/evidence/2026-07-27-op-pop-decision/）。
+
+**heatmap + OP 27 張 + 故事 gate 修復（2026-07-27 13:00，pm-live-3800）**
+- **heatmap 空白根因**：Next.js 16 dev 對帶 Origin 嘅 cross-origin 資源預設 403（server 自認
+  localhost，用戶開 127.0.0.1）→ hydration 死 → client-only heatmap 空白。修法：
+  `apps/web/next.config.ts` 加 `allowedDevOrigins: ["127.0.0.1"]`。驗收：帶
+  `Origin: http://127.0.0.1:3800` 打 app chunk 全 200，dev log **0 個 "Blocked cross-origin"**。
+- **One Piece 20 → 27 張**：`pipelines/canonical_public_snapshot.py` 新增 `top300_boards`
+  presentation view = combined top300 core ∪ 同日分榜（one-piece/pokemon）成員（實測 3 張 OP
+  跌出 combined 300 外：rank 304/312/336）。producer 出貨 **336 ranked / 258 published /
+  78 skipped（全部 image_unavailable）**，generation `canonical_20260726_e88c81289ac3`。
+- **故事 gate 全站 500 修復**：新榜 4 張卡（vid 42/145/234/240 = ST13-003 BVB / P-110
+  OP DAY'25 / OP06-119 Comic Parallel / ST21-014 Flagship 優勝紀念）四語故事全空，
+  `validate.ts` assertPublicSnapshot throw → SSR + API 全 500。修法（唔放寬 gate，補內容）：
+  Sonnet 子 agent 寫 4 篇 G10 標準英文長文（2813–2913 字）+ 4×3 語譯文；
+  `g10_research_ingest --write` run_id=110（32/32 accepted，story_pointer 494→498）；
+  `editorial_locale_sync --write` run_id=111（zhTW/zhCN/ja 各 246→250）。
+  英文長文擺 `data/editorial/long-form-stories/snkrdunk/<snkrdunk_id>/`（4 張冇 ebay identity，
+  用 snkrdunk provider 對表）。producer 重跑 **stories 258 attached / 0 missing**。
+- **驗收（07-27 13:00 實測）**：`/one-piece` 200（**27 卡行**）、`/pokemon` 200（100）、
+  `/watchlist` 200（158）、`/` 200（top100=100）、`/api/v1/market` 200 count=100
+  effectiveAt=2026-07-26。dev log 唯一 error 係 server 重啟前舊 browser tab 嘅 HMR 殘影
+  （時序在所有新 request 之前），新 snapshot 過晒 validate。
+- 剩 15 張 OP 未出街：13 張 skip 係圖源問題（TCGplayer 100% SAMPLE 水印、本機 100% 評級殼相，
+  等 One Piece 官方卡 DB 採集——下一單工程）+ 2 張榜外。
+
+**3800 serving 鏈修好 + 五條線收齊（2026-07-27 03:00，pm-closeout）**
+- **3800 而家出緊 production 快照，已驗收**：`/api/v1/market` `generatedAt=2026-07-26T17:39:32.725922Z`
+  `count=100` `effectiveAt=2026-07-25T00:00:00Z`；one-piece SSR 269,818 bytes，
+  新圖 sha `b7e4d2e1`(v8 EB02-010) ×9、`74169e81`(v111 ST10-006) ×9、舊爛圖 `398cebb1` ×0。
+  serving 檔 = `data/runtime/local-serve/snapshot.json`（5,107,810 bytes，
+  generation `canonical_20260725_aaca5dd2ee9f`），由 `apps/web/.env.local` 嘅
+  `MARKET_DATA_SNAPSHOT_PATH` 指入去。**啟動方式一定係 `npx next dev -p 3800`** —— 點解唔係
+  next start 見 §7 新地雷。
+- **producer 最終版**：243 published / 12 skipped（全部 `image_unavailable`）；
+  故事 **243/243 全齊**、價格 0 缺、POP 0 缺。v8 + v111 兩張換圖新 sha 已出街。
+- **K 線橋接（run_id=107）**：`pipelines/g10_kline_price_bridge.py` 將 ledger 47,582 行
+  `g10_kline_daily` 入面 4,357 條真成交（carried=0）扣 374 條 identity 對唔到後，
+  **3,964 行 PSA10 收盤價寫入 `market_price_observation`**（source_code=`g10_kline`、
+  priority=300 補洞位，直採源永遠贏）。ebay 體系三年價格歷史（最遠 2023-08-31）接通前端。
+  證據 [docs/evidence/2026-07-27-kline-bridge/](docs/evidence/2026-07-27-kline-bridge/)。
+- **image-fix 返貨**：**4 張搞掂**（v8 EB02-010 + v111 ST10-006 已出街；v168 入庫**未出街**
+  因唔喺榜；v35 撤回因 language mismatch）；**21 張有據未處理**（20 張 OP：altxyz 全評級殼、
+  TCGplayer 36/36 SAMPLE 水印，等乾淨圖源；v276 EB03-026 雙重卡死）。
+  證據 [docs/evidence/2026-07-27-image-fix/](docs/evidence/2026-07-27-image-fix/)（gap-table.json 25 張逐張結局）。
+  ⚠ 發現 `manifests/image-qc.json` **624 條記錄得 420 個唯一 publicId（204 條重複）**，
+  `upsert_qc()` 只換第一條 match —— 已入 §5 必修。
+- **EB02-010 錯圖重做（用戶欽點嗰單）就此完成** —— 唔好再照 §5 舊字句去做。
+
+**Boards UI 全剷 + OP100 樽頸實測 + 出街範圍定案（2026-07-27 凌晨）**
+- **用戶最終決定「BOARDS 直頭唔要，唔使有呢個掣」** —— watchlist 三榜 toggle 連 BoardsView 成個 UI
+  剷除（`git checkout HEAD` 還原 market-page.tsx / i18n.ts / globals.css，刪 boards-view.tsx 同
+  apps/web/src/data/）。驗證：tsc 0 error · vitest 83/83 · /watchlist SSR 冇 toggle。
+  三榜**數據**照留：CSV + build_boards_json.py 喺 [docs/evidence/2026-07-26-three-boards/](docs/evidence/2026-07-26-three-boards/)，
+  用戶原話「數據嘅邏輯都係：數據擺曬喺度」。
+  ⚠ [apps/web/src/lib/server-snapshot.ts](apps/web/src/lib/server-snapshot.ts) 工作區改動（dev 讀
+  `MARKET_DATA_SNAPSHOT_PATH`）係**有意保留**，3800 靠佢先出真數據，唔好 revert。
+- **出街範圍定案（用戶 07-27 欽點）**：TCG300 ∪ OP100 ∪ PTCG100 ∪ watchlist(101–300)，
+  合計 ~400–500 張唯一卡。次序：補卡 → 補齊**用戶可見**內容（價、故事、圖）→ QC → 出街。
+  數據上見唔到嘅嘢慢慢執甚至唔執。**用戶驗收接口 = http://127.0.0.1:3800**（佢用 3800 判斷上線狀態）。
+- **OP100 樽頸實測（07-27）**：OP catalog 311 → 282 有 PSA POP（最新 07-26）→ **196 張 POP≥1000
+  過官方 gate** <!--@verified 2026-07-27 id=op100.pop_qualified expect>=196 ttl=7 sql=SELECT COUNT(*) FROM (SELECT p.variant_id FROM market_grader_population_observation p JOIN catalog_variant v ON v.id=p.variant_id WHERE p.grader_code='PSA' AND v.tcg_code='one-piece' GROUP BY p.variant_id HAVING MAX(p.top_grade_population)>=1000) t-->
+  → 63 張有過價 → 得 11 張價喺 48h 內。**樽頸係價格覆蓋，唔係 POP**：133 張 POP 合格但一行價都冇。
+  修法 = 擴 OP 價格採集（snk/ebay 已有 collector），**唔係**降 gate、**唔係**掃 POP。live 得 20 張
+  係 evaluation 時 fresh-price 卡少嘅直接後果。
+- **`catalog_printing_identity` 通電（identity-batch）**：0 → **68 行**
+  <!--@verified 2026-07-27 id=db.printing_identity.rows expect>=68 sql=SELECT COUNT(*) FROM catalog_printing_identity-->
+  —— 19 組真重複收斂（19 canonical + 20 duplicate）+ 10 組 false-dup 送 review（29 行 review）。
+  opaque_id 零變動、腳本冪等。證據包 docs/evidence/2026-07-27-identity-batch/。**3 個裁決等用戶**。
+
+**真 Top 300 推導 + POP 覆蓋真相（2026-07-26 深夜）**
+- 證據包 [docs/evidence/2026-07-26-top300-derivation/](docs/evidence/2026-07-26-top300-derivation/)：
+  `FINDING.md` + 可重跑 `produce_top300.py` + `top300.csv`（257 行）+ `gap33.csv`（33 行）。
+- **結論**：eval 8（07-26 06:28 建，1,468 行 = 全 roster，lock 9）`metric_status='ready'`
+  得 **257** 張 <!--@verified 2026-07-26 id=top300.eval8.ready expect=257 ttl=14 sql=SELECT COUNT(*) FROM market_candidate_daily_snapshot WHERE evaluation_id=8 AND metric_status='ready'--> ——
+  真市值榜深度係 257 唔係 300。accumulating 1,186 張入面 **1,181 張有 POP 冇價**（樽頸鐵證）。
+- **POP 唔係樽頸**：gemrate/PSA 新鮮度 97.8% fresh / 99.5% ever。缺口淨返 **33 張**
+  （25 stale 停 07-21 + 8 never，全部 One Piece，全部有 gemrate id mapping，0 斷鏈）
+  <!--@verified 2026-07-26 id=top300.pop_gap expect<=33 ttl=14 sql=SELECT COUNT(*) FROM market_candidate_daily_snapshot s LEFT JOIN (SELECT variant_id, MAX(observed_date) d FROM market_grader_population_observation WHERE grader_code='PSA' AND source_code='gemrate' GROUP BY variant_id) p ON p.variant_id=s.variant_id WHERE s.evaluation_id=8 AND (p.d IS NULL OR p.d < '2026-07-24')-->。
+  ⚠ 8 張 never 入面 **3 張靠 snkrdunk/ebay 非權威 PSA POP 入咗 ready**，出街前要 gemrate 或人手覆核。
+- **唔使做**：全宇宙 POP 重掃（用戶原本假設要）。**要做**：擴價格覆蓋（§5 P0-組③）+ 補 33 張（§5 P1-組②）。
+- 用戶問嘅「數據有冇消失」：**冇**。表全部 append-only，POP-ever 1,590 ≥ roster 1,468，
+  佢記得嘅「~1,900」≈ POP-ever 1,590。
+
+**六項投訴排查 + Google Drive 交接歸檔包（2026-07-26 夜）**
+- **「熱力圖消失 + theme/語言/貨幣/share 四個掣全部死」係同一個根因，app code 冇壞。**
+  `heatmap.tsx` 啲 tile 係 client-only（`useEffect` 裝 `ResizeObserver` 量完 frame 先 render，
+  SSR HTML 實測 `heatmap-tile` 出現 **0** 次係設計）；React 19 hydration retry 行
+  `requestAnimationFrame`，**背景/hidden tab 唔 fire rAF → 成頁零 hydration** →
+  空 heatmap + 全部掣冇 listener。用可見 tab 重開就正常。SSR 健康已驗：
+  curl 主頁 1,146,126 bytes、`</html>` 完整、generation `aaca5dd2ee9f`。
+- **07-26 daily 實況**：09:30 JST run 死於 GemRate 7200s timeout，14:12 JST 重跑成功，
+  index snapshot 15:28 JST 落地，`verify_daily_run` **5 PASS / 1 FAIL（volume_floor）**：
+  07-25 資料日 ebay 66→**0** 行、snkrdunk 142→**0** 行（gemrate/snk_psa10 正常）。
+  eBay/SNKRDUNK 斷供係真 degradation，歸 Part② eBay 補量隊列，唔係管道斷鏈。
+- **交接歸檔包（用戶要求單一 folder 上 Google Drive）**：
+  `C:\Users\jackson0202\Documents\Playground\cardz-market-cap-handoff-20260726\`（repo 外），
+  **778MB / 13,509 檔**。`db/`（canonical seed 19.5MB + manifest，verify 通過
+  seedSha256 `b7a8ed26…`）· `images/`（G10 run `100a8860…` 146MB，456 個 DB 資產全中）·
+  `snapshot/`（local-serve 出街快照）· `docs/` 全量 · `source/` 全源碼
+  （排除 node_modules / .next / 任何 .env / publish-staging；secret sweep 零命中）。
+  說明書 `README_HANDOFF.md` 喺包內（還原步驟、驗證命令、排除清單、已知問題）。
+
+**contentSha256 跨語言序列化 bug 根修 + 本機 :3800 接 production 快照（2026-07-26 深夜）**
+- **病因**：TS `publicSnapshotContentSha256`（[validate.ts](packages/market-data/src/validate.ts)）
+  係 parse 完 restringify 先 hash；Python 就 hash 自己序列化文字。整數值 float
+  Python 寫 `0.0`／JS 重寫做 `0` → 兩份文字差 430 bytes → production 快照 hash 永遠
+  對唔上（demo seed 冇整數值 float 所以一直冇事）。實測全快照 24,009 個 float lexeme
+  只有 6 個 distinct 整數值；16,015 個非整數 float 零 mismatch，指數寫法零出現。
+- **修法（producer 側，`validate.ts` 一行冇郁）**：[canonical_public_snapshot.py](pipelines/canonical_public_snapshot.py)
+  加 `js_safe_numbers()`——整數值 float → int；non-finite／指數寫法 fail-closed raise。
+  `stable_json`（hash）同 `atomic_json`（寫檔）行同一份正規化，hash 同磁碟文字冇得分家。
+  測試 +3（`JsSafeNumbersTests` 釘死序列化 bytes）。
+- **:3800 接線**：[server-snapshot.ts](apps/web/src/lib/server-snapshot.ts) `loadMarketSnapshot`
+  dev 分支加 guard——設咗 `MARKET_DATA_SNAPSHOT_PATH` 先行 `loadNodeSnapshot()`
+  （同生產同一條 `assertPublicSnapshot({production:true})` 閘），冇設照舊派 demo seed。
+- **新檔歸位**：`data/runtime/local-serve/snapshot.json`（gitignored；邊個寫 =
+  `canonical_public_snapshot.py --production --output`；邊個讀 = dev server 經
+  `MARKET_DATA_SNAPSHOT_PATH`；✅ 用緊）＋ `apps/web/.env.local`（gitignored；人手維護；
+  Next dev 自動 load；✅ 用緊 —— delete 佢即退返 demo seed）。
+- **驗證**（2026-07-26 深夜實測）：快照 `canonical_20260725_aaca5dd2ee9f` TS validator
+  production:true PASS；:3800 主頁 HTML demo seed 零出現、`2026-07-25` 1,132 處；
+  `/card/<top1>`／`/graders/PSA`／`/watchlist`／`/api/v1/market` 全 200；tsc 乾淨。
+  **git 入面 `data/public/seed-snapshot.json` 一個 bit 冇掂。**
+  ⚠ 換數據要重啟 dev server（`loadNodeSnapshot` 進程內 cache）。
 
 **市值 delta / 成交 delta 修正（2026-07-26，斷點 #5 · #6）**
 - **一條價格變動率一直扮緊三個指標。** `rankings.tsx` 嘅 :154（市值）、:158（成交）、
@@ -295,13 +608,22 @@ log 去 `data/runtime/logs/gemrate_freeze_slow.log`。慢但唔會撞牆。
 | ~~P0-2~~ | ~~i18n 文案~~ | ✅ **2026-07-26 完成** | production error 0。上線快照四語齊 236/255 |
 | **P0-新** | **TAG 每日 fail** | 🔴 一行級 bug，但係影響訪客 | [tag_pop_data.py:208](pipelines/tag_pop_data.py:208) 1997 年 3 條爛行 → `raise` 炸咗成個 catalog dump。TAG 全庫**得 07-22 一日**，而家每日靜靜咁餵過期數俾訪客，`status` 照報 `ready`，**冇任何 validator 會叫**。詳情見 CLAUDE.md「TAG 每日死亡」 |
 | P1-2 | POP delta 寫死 null | ✅ 已接線，⏳ 覆蓋率仍受 P3 封頂 | producer 2026-07-26 接咗 [canonical_public_snapshot.py](pipelines/canonical_public_snapshot.py) `population_change_windows()`。實測 243 published 入面 ready = 1d **66** / 7d **67** / 30d **119**，負 delta 全域 **0**（POP 係存量，只升不跌）。**呢個數同時封頂市值 delta 覆蓋率** —— ΔPOP 冇數嗰啲卡，市值 delta 一律 fail-closed 出 null，唔准退返去用價格 delta 頂替。要多啲數就要做 P3 |
-| P2-3 | `topGrade` 出字面 `"top"` | 🐛 | [canonical_public_snapshot.py](pipelines/canonical_public_snapshot.py) `card_from_row()` 嘅 `"topGrade": str(observed["top_grade_label"])` |
+| ~~P2-3~~ | ~~`topGrade` 出字面 `"top"`~~ | ✅ **2026-07-26 快照層修咗** | `top_grade_label()` 將 literal 'top'／空值回退 `TOP_GRADE[grader]`。regen 實測 literal "top" **1,108 → 0**。DB 9,862 行 label 根修（ingest 層）留 Part②，見 [BETA_PLAN_20260726.md](docs/BETA_PLAN_20260726.md) §3.5 |
 | P2-1/2 | 市值 delta、成交 delta | ✅ 2026-07-26 已修 | schema 加咗 `marketCapChangePct` / `trackedSalesChangePct`，producer 用 `(1+Δ價)(1+ΔPOP)−1` 組合、成交行真環比。實測 seed 30d **14/100 張卡舊碼箭嘴指錯方向**（rank 2 −76,503 → +2,401,322）。詳見 §4 |
 | P3 | POP 每日覆蓋 → ≥90% | ⏳ | 唔搞掂呢個，上面所有「等時間」嘅日期都冇意義。**要連 TAG 一齊修** |
 | **P3-新** | **10 萬條 quarantine / 203 條裁決積壓** | 🔴 未知數據債 | 94 次 run 累計 quarantined **70,474** + rejected **32,738**，`market_identity_review_queue` **203 條 pending** —— 全部冇人睇過。閘一直有響，係冇人聽 |
 | ~~—~~ | ~~eBay sold comps 採集~~ | ✅ **唔係工程項** | 實測 **3,824 行 / 343 卡 / 92 個日期（04-25 → 07-25）**，已經每日跑緊 3 個月，覆蓋卡數多過 snk_psa10。舊講法「92 行 / 59 variant / 2 個日期」係**讀錯咗**（92 係日期數）。剩返擴覆蓋率，唔係起採集器 |
+| **P0-組③** | **Top300 價格覆蓋擴張（組裝模式步驟③）** | 🔴 用戶現行步驟 | 真市值榜深度 257/300，**1,181 張有 POP 冇價**（OP accumulating 169 / pokemon 1,017）。**第一子步唔係爬蟲，係價源 identity 補洞**：OP roster 181 張連 ebay/snkrdunk mapping 都冇，mapping 唔起好收集器擴極都冇用（pokemon 邊要同款審計，未量）。素材：private-source-map `one-piece-*`、`source-crosswalk.json`、G10 disk 559 卡（DB 只 join 到 344，差 ~215）。55 張 out-of-roster priced OP **入唔入圍等用戶決定**（roster 係 lock 9，唔准自行擴）。價係 flow data 冇得事後補——每遲一日就永久少一日。見 §4 + §1 步驟⑤ |
+| **P1-組②** | **33 張 POP 缺口卡補掃** | ⏳ 有兩條路 | 全 One Piece（25 stale 停 07-21 + 8 never），gemrate id 全齊 0 斷鏈。路 A：`gemrate_source.py public-card-dump` 逐張（無 key 無 quota，33×~4.4s≈2.5 分鐘）；路 B：摺入 07-27 00:30 UTC quota 窗。名單：[gap33.csv](docs/evidence/2026-07-26-top300-derivation/gap33.csv) |
 
-**其他排咗隊**：seed 刷新 + 本地 site 驗收、排程加 `--publish`、soak Day 1 驗收、
+**其他排咗隊**：**Top-300 逐卡外部連結**（07-27 用戶交帶：每張卡出 Cardland / SNKRDUNK /
+eBay / PSA 官網直達 link）、**POP 官方源優先 + click-through**（07-27 用戶交帶：POP 數
+優先用 PSA 官方數（非 GemRate 匯總），POP 數字本身做 link 跳去 PSA 官網對應頁）、
+~~EB02-010 錯圖重做~~（✅ **07-27 完成**，新圖 sha `b7e4d2e1` 已出街，見 §4）、
+**`manifests/image-qc.json` 去重**（624 條記錄得 420 個唯一 publicId，**204 條重複**；
+`upsert_qc()` 只換第一條 match，delta skip 判斷可能讀到舊條目 —— 修法係一次過 groupby publicId
+留最新再收窄 upsert）、
+seed 刷新 + 本地 site 驗收、排程加 `--publish`、soak Day 1 驗收、
 排名語義（grader 頁重編 rank）、卡圖補 4 張（上線快照 251/255）、通知渠道未配置
 （所有 alert 而家淨係寫檔，冇人收到）、TCGplayer adapter 攞唔攞到 graded listing、
 fail-closed 數量閘、節奏拆三條 timer、48h 閘基準線、daily timer jitter/stealth、
@@ -358,10 +680,50 @@ WSL 原生 ext4（`~/cardz-market-cap`）係執行同驗證環境 —— 用戶�
 （全域 `C:\Users\jackson0202\CLAUDE.md` 嗰條「Primary Environment: Windows」係寫俾
 kami-content-ops 嘅，**呢個 project 唔適用**。）
 
+**D9 — 組裝模式：用戶一步步帶住做，唔准發散。**（07-26 深夜新增，用戶欽點）
+用戶原話見 §1。每步指示**即場寫低（呢份文 + memory）先執行**；只做該步範圍；
+隔籬發現嘅問題記低唔准追。優先級 = **真確性 > 速度 > 覆蓋面**
+（「我唔想個數據出到街俾人質疑」）。圖片／metadata／小故事 DEFER 到 Top 300 穩定。
+呢條蓋過本文其他優先次序（包括 §1 AWS 段嗰句「蓋過所有」——嗰個目標已達成，
+組裝模式係之後嘅新指令）。
+
+**D10 — README scheduler 禁令收窄：每日價/POP 唔准另裝，freeze/sweep/TAG 豁免。**（07-27 用戶裁決「改文檔認可」）
+背景：doc-rot 審計 STALE-7 發現 README 寫「唔准裝任何獨立 GemRate/SNK scheduler」，
+但實機有 freeze oneshot 兩個 + TAG capture 一個，全部行緊。用戶裁決以現狀為準——
+呢啲 task 係刻意嘅獨立節奏，唔係違規。README data-routing 段已改（註明 user-ratified 2026-07-27）。
+`run_daily.py` 仍然獨佔每日 run ID 同 publish gate，呢層冇放寬。
+
+**D11 — POP 數據有衝突，一律以 GemRate 嘅 POP 數為準。**（07-27 用戶裁決）
+用戶原話：「按道理，佢哋同一個資訊來源應該係對嘅，唔會有出入。如果大家有衝突嘅話，
+請根據 GEM rate 嗰個 POP 數為準。」
+事實澄清：G10 磁碟歷史（833 個 history_full.json）**本身就係 GemRate 嘅數**——
+264 個負 delta 步係 GemRate 自己歷史序列內部嘅跳動（例：variant 336 BGS 68→1），
+唔係兩個來源打交。原則應用：入庫層照錄 GemRate 原數（as-is，唔准自己「修正」）；
+展示層「population never shows negative delta」紅線係另一層，維持不變
+（前端 population_series() 直讀磁碟，唔受入庫影響）。
+G10 歷史 backfill 本身做唔做未拍板——唔擋 live，記隊列；真係做先起 append-only producer
+（現有 UPSERT 會 mutate 2,761 行歷史，禁止用）。
+
 ---
 
 ## 7. 地雷 —— 踩過，唔好再踩
 
+- **:3800 本地驗收一律用 `npx next dev -p 3800`，唔准用 `next start`。**（07-27 踩過）
+  `next start` serve 嘅係 `.next` **舊 build** —— working-tree 嘅 `server-snapshot.ts`
+  改動（`MARKET_DATA_SNAPSHOT_PATH` 支援）從未 build 過入 production bundle，
+  於是 `.env.local` 正確都照出 demo seed（`2026-07-22T09:48:26` 嗰份）。
+  dev mode 即時反映 working tree，先係本地驗收嘅正確形態。
+  另外兩個連帶陷阱：①TaskStop/Ctrl-C 殺咗 shell 唔等於殺咗 child node process，
+  port 3800 會俾殭屍霸住 EADDRINUSE —— 用 PowerShell
+  `Get-NetTCPConnection -LocalPort 3800 -State Listen` 揾 PID 再 `Stop-Process -Force`；
+  ②producer 重寫 snapshot 檔之後**必須重啟 dev server** —— `loadNodeSnapshot()`
+  個 module-level cache 係進程級，唔會自己 reload。
+- **「成版掣死晒 + heatmap 空白」唔好當 app bug 查。** heatmap tile 係 client-only
+  （`ResizeObserver` 量完 frame 先出 tile，SSR HTML `heatmap-tile` 0 次係**正常**），
+  而 React 19 hydration retry 用 `requestAnimationFrame` —— **hidden/背景 tab 唔 fire rAF，
+  成頁永遠唔 hydrate**：theme/語言/貨幣/share 掣全部冇 listener。診斷次序：
+  先 curl SSR（`</html>` 有冇 + generation id 啱唔啱），再叫用戶用**可見 tab** 重開，
+  唔好一上嚟就改 code。
 - **`canonical_public_snapshot.py` 唔加 `--output` 會覆寫 `data/public/seed-snapshot.json`。**
   永遠寫 `--output temp/xxx.json`。
 - **`pytest` 唔喺 `.venv-backend`。** 用系統 `python -X utf8 -m pytest`。
@@ -370,8 +732,10 @@ kami-content-ops 嘅，**呢個 project 唔適用**。）
 - **`data/private/gemrate/cards/` 嘅檔案數 ≠ roster 進度。** 個目錄同時累積 candidate 探索卡
   （2978 個目錄 vs roster 1468）。一定要同 roster 取交集先算覆蓋率。
 - **DB 時鐘慢本機大約一日**（`CURDATE()` 返 07-25 而本機 07-26）。
-  ⚠ **唔好攞呢條解釋 snapshot 缺失。** 實測 `market_index_snapshot` 最新係 **07-24**，
-  07-25 同 07-26 兩日都冇行 —— 差兩日唔係一日，係真嘅斷鏈唔係時鐘偏移。
+  ~~07-26 凌晨曾實測 snapshot 停喺 07-24、疑似斷鏈~~ → **07-26 10:38 UTC 重跑
+  `verify_daily_run.py`：`PASS snapshot_freshness`，3 個指數都有 effective_date≥07-25
+  新行，鏈已癒合**（當日 09:30 JST run 補返）。判斷斷鏈一律以 `verify_daily_run.py`
+  即場輸出為準，唔好引本文舊量度。
 - **~~Daily run 正常要跑成兩個鐘~~ —— 呢句係錯嘅，2026-07-26 推翻。**
   真相：`--pipeline-timeout-seconds` 預設 **7200s 硬牆**，跑唔切就 `TimeoutExpired` exit 1，
   永遠唔會完。09:30 嗰 run 就係咁死（log `daily_staging_off_20260726_093000.log:94-112`）。
@@ -490,8 +854,12 @@ kami-content-ops 嘅，**呢個 project 唔適用**。）
   而個 `raise` 喺雙層迴圈**入面**，所以一條爛行炸咗成個多年份 dump。
   07-23 靠 `latest_tag_catalog(max_age_hours=72)` fallback 成功過一次（重用 07-22 數），
   之後 cache 過期就日日 `tag_status = "unavailable"` 靜靜跳過。
-  **168h 新鮮度閘救唔到你**：閘只讀 `populationPsa10`（由 PSA 行嚟，gemrate 健康），
-  `graderPopulations['TAG'].asOf` 冇任何地方查年齡，`latest_populations()` 又冇 date floor。
+  ~~**168h 新鮮度閘救唔到你**：閘只讀 `populationPsa10`（由 PSA 行嚟，gemrate 健康），
+  `graderPopulations['TAG'].asOf` 冇任何地方查年齡，`latest_populations()` 又冇 date floor。~~
+  **→ 2026-07-26 已封**：producer `card_from_row()` 加咗 168h date floor
+  （`POPULATION_STALE_HOURS`），過期 grader 觀測成個 block 歸 unavailable，
+  唔會再靜靜餵過期數扮 ready。TAG 採集本身（tag_pop_data.py 條 raise）仲係要修，
+  但爛數而家會**熄**，唔會**呃人**。
 
 ---
 
@@ -508,6 +876,8 @@ kami-content-ops 嘅，**呢個 project 唔適用**。）
 | `config/data-routing.json` | **架構所有權契約**：邊個檔擁有邊個 node、work item acceptance。**唯一手寫架構源** | 架構／所有權／依賴／公開契約改變 |
 | `docs/ARCHITECTURE_CHAIN.md` | 前端 → API → snapshot → DB 一條鏈同 9 個斷點 | 斷點修好／新增 |
 | `docs/HANDOFF.md` | ⚠️ **2026-07-26 01:45 嘅凍結快照，已過時**（寫住 publish 未通，其實通咗）。當歷史讀，唔好當現況 | 唔再更新，由呢份取代 |
+| **`docs/BETA_PLAN_20260726.md`** | **現行階段計劃（07-26 起）**：Beta 上線三步（①前端數據補齊 ②DB 整理 ③自動化押後）、風險日曆、驗收標準。操作人決策記錄喺 §0 | 階段目標／次序改變 |
+| `docs/STAGE_REVIEW_20260726.md` | 上一階段（AWS 交付衝刺）凍結盤點：五類反覆錯誤 + ghost source 發現。當歷史讀 | 唔改（凍結） |
 | **`docs/AWS_DEPLOY.md`** | **交俾第三方嘅 AWS/Node 部署手冊**：build 命令、env var、port、health check、已知限制 | Dockerfile／env var／health check 改變 |
 | `apps/web/Dockerfile` | Node standalone runtime image（3-stage，build context 要 repo root） | 依賴／Node 版本／啟動方式改變 |
 | `.dockerignore` | Docker build context 白名單（deny-all 再放行）。`data/` 有 6.8 GB，根目錄有 `.env.private`，**唔准改成黑名單** | 新增 build 期要讀嘅 repo 檔 |

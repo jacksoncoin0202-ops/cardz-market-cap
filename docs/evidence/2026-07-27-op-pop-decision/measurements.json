@@ -1,0 +1,205 @@
+{
+  "op_catalog_total": 311,
+  "roster_total": 1468,
+  "op_in_roster": 227,
+  "op_out_of_roster": 84,
+  "op_without_gemrate_pop": 76,
+  "op_without_gemrate_pop_in_roster": 0,
+  "op_without_gemrate_id": 70,
+  "op_without_gemrate_pop_and_without_id": 70,
+  "op_without_gemrate_pop_but_has_g10_pop": 47,
+  "op_without_any_psa_pop": 29,
+  "op_with_gemrate_pop": 235,
+  "roster_ref_pop_median": 1392,
+  "roster_ref_pop_share_ge_1000": 0.7404,
+  "comparable_ref_n": 47,
+  "comparable_ref_pop_min": 143,
+  "comparable_ref_pop_median": 924,
+  "comparable_ref_pop_max": 4727,
+  "comparable_ref_pop_p25": 445,
+  "comparable_ref_pop_p75": 2095,
+  "comparable_ref_share_ge_1000": 0.4681,
+  "op_no_pop_with_price": 76,
+  "op_no_pop_without_price": 0,
+  "op_no_pop_with_psa10_price": 76,
+  "op_board_current_depth": 42,
+  "op_board_snapshot_effective": "2026-07-26",
+  "op_roster_blockers": {
+    "on_board": 42,
+    "pop_below_1000": 3,
+    "no_current_price_in_2d_window": 182
+  },
+  "price_window_floor": "2026-07-24",
+  "op_roster_never_priced": 182,
+  "op_roster_pop_ge_1000_but_no_price": 132,
+  "board_depth_projection": [
+    {
+      "option": "top10",
+      "cards_targeted": 10,
+      "already_have_gemrate_id": 4,
+      "need_keyless_identity_search_first": 6,
+      "api_calls_current_pop_only": 4,
+      "api_calls_freeze_with_history": 8,
+      "cards_with_price_in_2d_window": 10,
+      "observed_pop_ge_1000": 2,
+      "pop_unknown_weighted": 1.9,
+      "expected_new_board_entries_if_roster_expanded": 3.9,
+      "board_depth_after": 45.9
+    },
+    {
+      "option": "top30",
+      "cards_targeted": 30,
+      "already_have_gemrate_id": 6,
+      "need_keyless_identity_search_first": 24,
+      "api_calls_current_pop_only": 6,
+      "api_calls_freeze_with_history": 12,
+      "cards_with_price_in_2d_window": 30,
+      "observed_pop_ge_1000": 12,
+      "pop_unknown_weighted": 2.8,
+      "expected_new_board_entries_if_roster_expanded": 14.8,
+      "board_depth_after": 56.8
+    },
+    {
+      "option": "all_76",
+      "cards_targeted": 76,
+      "already_have_gemrate_id": 6,
+      "need_keyless_identity_search_first": 70,
+      "api_calls_current_pop_only": 6,
+      "api_calls_freeze_with_history": 12,
+      "cards_with_price_in_2d_window": 76,
+      "observed_pop_ge_1000": 22,
+      "pop_unknown_weighted": 13.6,
+      "expected_new_board_entries_if_roster_expanded": 35.6,
+      "board_depth_after": 77.6
+    }
+  ],
+  "merged_board_total": 64,
+  "merged_new_in_top10": 0,
+  "merged_new_in_top30": 2,
+  "merged_newcomer_best_rank": 26,
+  "gemrate_pop_observation_window": [
+    {
+      "source_code": "gemrate",
+      "grader_code": "PSA",
+      "rows_": 2878,
+      "cards_": 1489,
+      "mn": "2026-07-21",
+      "mx": "2026-07-26"
+    },
+    {
+      "source_code": "gemrate",
+      "grader_code": "CGC",
+      "rows_": 1871,
+      "cards_": 1415,
+      "mn": "2026-07-21",
+      "mx": "2026-07-26"
+    },
+    {
+      "source_code": "gemrate",
+      "grader_code": "SGC",
+      "rows_": 1729,
+      "cards_": 1297,
+      "mn": "2026-07-21",
+      "mx": "2026-07-26"
+    },
+    {
+      "source_code": "gemrate",
+      "grader_code": "BGS",
+      "rows_": 1671,
+      "cards_": 1299,
+      "mn": "2026-07-21",
+      "mx": "2026-07-26"
+    },
+    {
+      "source_code": "tag",
+      "grader_code": "TAG",
+      "rows_": 854,
+      "cards_": 358,
+      "mn": "2026-07-22",
+      "mx": "2026-07-27"
+    },
+    {
+      "source_code": "snkrdunk",
+      "grader_code": "PSA",
+      "rows_": 407,
+      "cards_": 336,
+      "mn": "2026-07-21",
+      "mx": "2026-07-24"
+    },
+    {
+      "source_code": "snkrdunk",
+      "grader_code": "CGC",
+      "rows_": 316,
+      "cards_": 316,
+      "mn": "2026-07-21",
+      "mx": "2026-07-21"
+    },
+    {
+      "source_code": "snkrdunk",
+      "grader_code": "BGS",
+      "rows_": 297,
+      "cards_": 297,
+      "mn": "2026-07-21",
+      "mx": "2026-07-21"
+    },
+    {
+      "source_code": "snkrdunk",
+      "grader_code": "TAG",
+      "rows_": 285,
+      "cards_": 285,
+      "mn": "2026-07-22",
+      "mx": "2026-07-22"
+    },
+    {
+      "source_code": "snkrdunk",
+      "grader_code": "SGC",
+      "rows_": 201,
+      "cards_": 201,
+      "mn": "2026-07-21",
+      "mx": "2026-07-21"
+    },
+    {
+      "source_code": "ebay",
+      "grader_code": "PSA",
+      "rows_": 92,
+      "cards_": 59,
+      "mn": "2026-07-21",
+      "mx": "2026-07-24"
+    },
+    {
+      "source_code": "ebay",
+      "grader_code": "CGC",
+      "rows_": 49,
+      "cards_": 49,
+      "mn": "2026-07-21",
+      "mx": "2026-07-21"
+    },
+    {
+      "source_code": "ebay",
+      "grader_code": "BGS",
+      "rows_": 48,
+      "cards_": 48,
+      "mn": "2026-07-21",
+      "mx": "2026-07-21"
+    },
+    {
+      "source_code": "ebay",
+      "grader_code": "SGC",
+      "rows_": 31,
+      "cards_": 31,
+      "mn": "2026-07-21",
+      "mx": "2026-07-21"
+    },
+    {
+      "source_code": "ebay",
+      "grader_code": "TAG",
+      "rows_": 22,
+      "cards_": 22,
+      "mn": "2026-07-22",
+      "mx": "2026-07-22"
+    }
+  ],
+  "_measured_at": "2026-07-27",
+  "_evaluation_id": 9,
+  "_effective_date": "2026-07-26"
+}
