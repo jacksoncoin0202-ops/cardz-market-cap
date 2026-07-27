@@ -46,7 +46,7 @@ jobs:
           cache: npm
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           # 對齊生產 Linux server：Ubuntu 24.04 嘅 /usr/bin/python3 就係 3.12，而
           # run-cardz-daily.sh / run-cardz-watchdog.sh 揀直譯器係「由新到舊」探測
