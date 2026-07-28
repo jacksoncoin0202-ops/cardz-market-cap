@@ -324,9 +324,29 @@ def snapshot_hash(snapshot: CandidateSnapshot) -> str:
     return hashlib.sha256(canonical_json(asdict(snapshot))).hexdigest()
 
 
+def variants_with_sale_30d(cursor: Any) -> set[int]:
+    """Watchlist-agnostic: any variant with PSA10-window sales in last 30 days.
+
+    Used as Top100 liquidity gate: 0 sales in 30d = low liquidity → rank after
+    liquid cards (so they cannot occupy Top100 slots when enough liquid exist).
+    Full history is still stored; this window is derived only.
+    """
+
+    cursor.execute(
+        """
+        SELECT DISTINCT variant_id
+        FROM market_sale_observation
+        WHERE sold_at IS NOT NULL
+          AND sold_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)
+        """
+    )
+    return {int(row["variant_id"]) for row in cursor.fetchall()}
+
+
 def tracked_indexes(
     snapshots: Sequence[CandidateSnapshot],
     tcg_by_variant: Mapping[int, str],
+    liquid_30d: set[int] | None = None,
 ) -> dict[str, list[CandidateSnapshot]]:
     ready = [
         row for row in snapshots
@@ -335,7 +355,13 @@ def tracked_indexes(
         and row.psa10_population >= 1000
         and row.market_cap_usd is not None
     ]
-    key = lambda row: (-float(row.market_cap_usd or 0), row.variant_id)
+    # Liquid (30d sales > 0) always ranks above illiquid — Top100 gate.
+    liquid = liquid_30d or set()
+
+    def key(row: CandidateSnapshot) -> tuple[int, float, int]:
+        has_liq = 1 if row.variant_id in liquid else 0
+        return (-has_liq, -float(row.market_cap_usd or 0), row.variant_id)
+
     return {
         "tcg-combined": sorted(ready, key=key),
         "pokemon": sorted(
@@ -347,6 +373,94 @@ def tracked_indexes(
             key=key,
         ),
     }
+
+
+def materialize_index_revisions(
+    cursor: Any,
+    evaluation_id: int,
+    effective_date: date,
+    snapshots: Sequence[CandidateSnapshot],
+) -> int:
+    """Create only missing evaluation-bound indexes, including legacy reuse."""
+
+    if not snapshots:
+        return 0
+    cursor.execute(
+        "SELECT id FROM market_ingest_run "
+        "WHERE status='complete' ORDER BY effective_at DESC,id DESC LIMIT 1"
+    )
+    run = cursor.fetchone()
+    if not run:
+        return 0
+    cursor.execute(
+        "SELECT id,tcg_code FROM catalog_variant WHERE id IN ("
+        + ",".join(["%s"] * len(snapshots))
+        + ")",
+        tuple(row.variant_id for row in snapshots),
+    )
+    tcg_by_variant = {
+        int(row["id"]): str(row["tcg_code"])
+        for row in cursor.fetchall()
+    }
+    liquid_30d = variants_with_sale_30d(cursor)
+    created = 0
+    for index_code, rows in tracked_indexes(snapshots, tcg_by_variant, liquid_30d).items():
+        if not rows:
+            continue
+        cursor.execute(
+            """
+            SELECT id FROM market_index_snapshot
+            WHERE evaluation_id=%s AND index_code=%s AND index_version=%s
+            LIMIT 1
+            """,
+            (evaluation_id, index_code, INDEX_VERSION),
+        )
+        if cursor.fetchone():
+            continue
+        index_hash = hashlib.sha256(
+            canonical_json([asdict(row) for row in rows])
+        ).hexdigest()
+        cursor.execute(
+            """
+            INSERT INTO market_index_snapshot
+                (run_id,evaluation_id,index_code,index_version,effective_at,effective_date,
+                 constituent_count,total_market_cap_usd,snapshot_sha256)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                run["id"],
+                evaluation_id,
+                index_code,
+                INDEX_VERSION,
+                datetime.combine(effective_date, datetime.min.time()),
+                effective_date,
+                len(rows),
+                sum(row.market_cap_usd or 0 for row in rows),
+                index_hash,
+            ),
+        )
+        index_id = int(cursor.lastrowid)
+        for rank, row in enumerate(rows, start=1):
+            cursor.execute(
+                """
+                INSERT INTO market_index_constituent
+                    (index_snapshot_id,variant_id,rank_position,reference_price_usd,
+                     psa10_population,market_cap_usd,change_30d_pct,metric_status)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                """,
+                (
+                    index_id,
+                    row.variant_id,
+                    rank,
+                    row.reference_price_usd,
+                    row.psa10_population,
+                    row.market_cap_usd,
+                    row.change_30d_pct,
+                    row.metric_status,
+                ),
+            )
+        created += 1
+    return created
 
 
 def evaluation_input_hash(
@@ -383,16 +497,15 @@ def previous_snapshots(connection: Any, effective_date: date) -> dict[int, Candi
         cursor.execute(
             """
             SELECT s.* FROM market_candidate_daily_snapshot s
-            JOIN market_alert_evaluation e ON e.id = s.evaluation_id
-            WHERE e.index_code=%s AND e.index_version=%s AND e.policy_version=%s
-              AND e.effective_date < %s
-              AND e.effective_date = (
-                SELECT MAX(e2.effective_date) FROM market_alert_evaluation e2
-                WHERE e2.index_code=e.index_code AND e2.index_version=e.index_version
-                  AND e2.policy_version=e.policy_version AND e2.effective_date < %s
+            WHERE s.evaluation_id = (
+                SELECT e2.id FROM market_alert_evaluation e2
+                WHERE e2.index_code=%s AND e2.index_version=%s
+                  AND e2.policy_version=%s AND e2.effective_date < %s
+                ORDER BY e2.effective_date DESC, e2.id DESC
+                LIMIT 1
               )
             """,
-            (INDEX_CODE, INDEX_VERSION, POLICY_VERSION, effective_date, effective_date),
+            (INDEX_CODE, INDEX_VERSION, POLICY_VERSION, effective_date),
         )
         rows = list(cursor.fetchall())
     result = {}
@@ -547,7 +660,7 @@ def evaluate(
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT id, input_sha256, coverage_status, eligible_count
+                SELECT id, input_sha256, coverage_status, eligible_count, publish_gate_status
                 FROM market_alert_evaluation
                 WHERE index_code=%s AND index_version=%s AND effective_date=%s
                   AND policy_version=%s AND input_sha256=%s
@@ -558,13 +671,22 @@ def evaluate(
             )
             existing = cursor.fetchone()
             if existing:
-                connection.rollback()
+                evaluation_id = int(existing["id"])
+                revisions_created = materialize_index_revisions(
+                    cursor,
+                    evaluation_id,
+                    effective_date,
+                    snapshots,
+                )
+                connection.commit()
                 return {
                     "status": "reused",
-                    "evaluationId": int(existing["id"]),
+                    "evaluationId": evaluation_id,
                     "effectiveDate": effective_date.isoformat(),
                     "coverageStatus": existing["coverage_status"],
+                    "publishGateStatus": existing["publish_gate_status"],
                     "eligible": int(existing["eligible_count"]),
+                    "indexRevisionsCreated": revisions_created,
                 }
             cursor.execute(
                 """
@@ -600,60 +722,22 @@ def evaluate(
                 snapshot_ids[snapshot.variant_id] = int(cursor.lastrowid)
             events = apply_alerts(cursor, evaluation_id, effective_date, snapshots, snapshot_ids, previous)
 
-            if cutoff is not None:
-                cursor.execute("SELECT id FROM market_ingest_run WHERE status='complete' ORDER BY effective_at DESC,id DESC LIMIT 1")
-                run = cursor.fetchone()
-                if run:
-                    cursor.execute(
-                        "SELECT id,tcg_code FROM catalog_variant WHERE id IN ("
-                        + ",".join(["%s"] * len(snapshots))
-                        + ")",
-                        tuple(row.variant_id for row in snapshots),
-                    )
-                    tcg_by_variant = {
-                        int(row["id"]): str(row["tcg_code"])
-                        for row in cursor.fetchall()
-                    }
-                    indexes = tracked_indexes(snapshots, tcg_by_variant)
-                    for index_code, rows in indexes.items():
-                        if not rows:
-                            continue
-                        index_hash = hashlib.sha256(canonical_json([asdict(row) for row in rows])).hexdigest()
-                        cursor.execute(
-                            """
-                            INSERT IGNORE INTO market_index_snapshot
-                                (run_id,index_code,index_version,effective_at,effective_date,constituent_count,
-                                 total_market_cap_usd,snapshot_sha256)
-                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-                            """,
-                            (run["id"], index_code, INDEX_VERSION,
-                             datetime.combine(effective_date, datetime.min.time()), effective_date,
-                             len(rows), sum(row.market_cap_usd or 0 for row in rows), index_hash),
-                        )
-                        if not cursor.rowcount:
-                            continue
-                        index_id = int(cursor.lastrowid)
-                        for rank, row in enumerate(rows, start=1):
-                            cursor.execute(
-                                """
-                                INSERT INTO market_index_constituent
-                                    (index_snapshot_id,variant_id,rank_position,reference_price_usd,
-                                     psa10_population,market_cap_usd,change_30d_pct,metric_status)
-                                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-                                """,
-                                (index_id, row.variant_id, rank, row.reference_price_usd,
-                                 row.psa10_population, row.market_cap_usd, row.change_30d_pct,
-                                 row.metric_status),
-                            )
+            revisions_created = (
+                materialize_index_revisions(cursor, evaluation_id, effective_date, snapshots)
+                if cutoff is not None
+                else 0
+            )
         connection.commit()
         return {
             "status": "evaluated",
             "evaluationId": evaluation_id,
             "effectiveDate": effective_date.isoformat(),
             "coverageStatus": coverage_status,
+            "publishGateStatus": "pending",
             "eligible": len(eligible),
             "cutoffUsd": cutoff,
             "candidates": len(snapshots),
+            "indexRevisionsCreated": revisions_created,
             **events,
         }
     except Exception:
@@ -663,6 +747,102 @@ def evaluate(
         with connection.cursor() as cursor:
             cursor.execute("SELECT RELEASE_LOCK('cardz_market_alert_evaluation')")
         connection.commit()
+
+
+def mark_evaluation_passed(connection: Any, evaluation_id: int) -> dict[str, Any]:
+    """Make one exact immutable evaluation exportable after external gates pass."""
+
+    if evaluation_id <= 0:
+        raise ValueError("evaluation ID must be a positive integer")
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT e.id,e.coverage_status,e.publish_gate_status,
+                       (
+                           SELECT COUNT(*) FROM market_index_constituent c
+                           JOIN market_index_snapshot s ON s.id=c.index_snapshot_id
+                           WHERE s.evaluation_id=e.id AND s.index_code=%s
+                             AND s.index_version=%s
+                       ) AS combined_count,
+                       (
+                           SELECT COUNT(*) FROM market_index_constituent c
+                           JOIN market_index_snapshot s ON s.id=c.index_snapshot_id
+                           WHERE s.evaluation_id=e.id AND s.index_code=%s
+                             AND s.index_version=%s
+                       ) AS pokemon_count,
+                       (
+                           SELECT COUNT(*) FROM market_index_constituent c
+                           JOIN market_index_snapshot s ON s.id=c.index_snapshot_id
+                           WHERE s.evaluation_id=e.id AND s.index_code=%s
+                             AND s.index_version=%s
+                       ) AS one_piece_count
+                FROM market_alert_evaluation e
+                WHERE e.id=%s
+                FOR UPDATE
+                """,
+                (
+                    INDEX_CODE,
+                    INDEX_VERSION,
+                    "pokemon",
+                    INDEX_VERSION,
+                    "one-piece",
+                    INDEX_VERSION,
+                    evaluation_id,
+                ),
+            )
+            evaluation = cursor.fetchone()
+            if not evaluation:
+                raise RuntimeError(f"market alert evaluation does not exist: {evaluation_id}")
+            if str(evaluation["coverage_status"]) == "blocked":
+                raise RuntimeError(
+                    f"market alert evaluation {evaluation_id} has blocked coverage"
+                )
+            constituent_counts = {
+                "tcg-combined": int(evaluation["combined_count"] or 0),
+                "pokemon": int(evaluation["pokemon_count"] or 0),
+                "one-piece": int(evaluation["one_piece_count"] or 0),
+            }
+            minimums = {"tcg-combined": 300, "pokemon": 100, "one-piece": 100}
+            short = {
+                index_code: {
+                    "actual": constituent_counts[index_code],
+                    "required": minimum,
+                }
+                for index_code, minimum in minimums.items()
+                if constituent_counts[index_code] < minimum
+            }
+            if short:
+                raise RuntimeError(
+                    "market alert evaluation "
+                    f"{evaluation_id} does not satisfy top300_boards counts: "
+                    f"{json.dumps(short, sort_keys=True)}"
+                )
+            current_status = str(evaluation["publish_gate_status"])
+            if current_status not in {"pending", "passed"}:
+                raise RuntimeError(
+                    f"market alert evaluation {evaluation_id} has invalid publish gate: {current_status}"
+                )
+            cursor.execute(
+                """
+                UPDATE market_alert_evaluation
+                SET publish_gate_status='passed',
+                    publish_gate_passed_at=COALESCE(publish_gate_passed_at,CURRENT_TIMESTAMP(6))
+                WHERE id=%s
+                """,
+                (evaluation_id,),
+            )
+        connection.commit()
+        return {
+            "status": "gate-passed",
+            "evaluationId": evaluation_id,
+            "publishGateStatus": "passed",
+            "updated": current_status != "passed",
+            "constituentCounts": constituent_counts,
+        }
+    except Exception:
+        connection.rollback()
+        raise
 
 
 def latest_price_date(connection: Any) -> date:
@@ -711,6 +891,19 @@ def self_test() -> dict[str, Any]:
     }
 
 
+def write_result(path: Path, report: Mapping[str, Any]) -> None:
+    """Write the evaluation receipt atomically for the parent daily attempt."""
+
+    resolved = path.resolve()
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    temporary = resolved.with_name(f".{resolved.name}.{os.getpid()}.tmp")
+    temporary.write_text(
+        json.dumps(report, sort_keys=True, default=str) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(temporary, resolved)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate CARDZ daily market candidate alerts")
     add_connection_args(parser)
@@ -720,31 +913,44 @@ def main() -> int:
     parser.add_argument("--discovery-sha256")
     parser.add_argument("--coverage-status", choices=("certified", "observed", "blocked"))
     parser.add_argument("--unresolved-high-potential", type=int)
+    parser.add_argument("--mark-passed-evaluation-id", type=int)
+    parser.add_argument("--result-out", type=Path)
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
         print(json.dumps(self_test(), sort_keys=True))
         return 0
-    manifest_sha, manifest_status, manifest_unresolved = discovery_state(
-        args.discovery_manifest.resolve(), args.discovery_max_age_hours
-    )
-    discovery_sha = (args.discovery_sha256 or manifest_sha).casefold()
-    coverage_status = args.coverage_status or manifest_status
-    unresolved = args.unresolved_high_potential if args.unresolved_high_potential is not None else manifest_unresolved
-    if len(discovery_sha) != 64 or any(char not in "0123456789abcdef" for char in discovery_sha):
-        raise RuntimeError("discovery SHA-256 must be 64 hexadecimal characters")
     from db_runtime import connection_from_args
 
     connection = connection_from_args(args)
     try:
-        effective = args.effective_date or latest_price_date(connection)
-        report = evaluate(
-            connection,
-            effective,
-            discovery_sha256=discovery_sha,
-            coverage_status=coverage_status,
-            unresolved_high_potential_count=unresolved,
-        )
+        if args.mark_passed_evaluation_id is not None:
+            report = mark_evaluation_passed(connection, args.mark_passed_evaluation_id)
+        else:
+            manifest_sha, manifest_status, manifest_unresolved = discovery_state(
+                args.discovery_manifest.resolve(), args.discovery_max_age_hours
+            )
+            discovery_sha = (args.discovery_sha256 or manifest_sha).casefold()
+            coverage_status = args.coverage_status or manifest_status
+            unresolved = (
+                args.unresolved_high_potential
+                if args.unresolved_high_potential is not None
+                else manifest_unresolved
+            )
+            if len(discovery_sha) != 64 or any(
+                char not in "0123456789abcdef" for char in discovery_sha
+            ):
+                raise RuntimeError("discovery SHA-256 must be 64 hexadecimal characters")
+            effective = args.effective_date or latest_price_date(connection)
+            report = evaluate(
+                connection,
+                effective,
+                discovery_sha256=discovery_sha,
+                coverage_status=coverage_status,
+                unresolved_high_potential_count=unresolved,
+            )
+        if args.result_out:
+            write_result(args.result_out, report)
         print(json.dumps(report, sort_keys=True, default=str))
         return 0
     finally:

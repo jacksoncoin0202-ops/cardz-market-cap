@@ -13,6 +13,7 @@
 node_modules/
 .codegraph/
 .venv-backend/
+.venv-backend-windows/
 .next/
 .open-next/
 dist/

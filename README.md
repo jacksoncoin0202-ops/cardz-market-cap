@@ -14,6 +14,18 @@ The repository is a clean-room rebuild. The legacy application is a read-only im
 
 See [CARDZ_POSITIONING.md](docs/CARDZ_POSITIONING.md), [DATA_CONTRACT.md](docs/DATA_CONTRACT.md), [FRONTEND_HANDSHAKE.md](docs/FRONTEND_HANDSHAKE.md), and [DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md) for the product contract.
 
+### Ops / handoff (2026-07-29)
+
+| Doc | What |
+|---|---|
+| [PROJECT_STATE.md](PROJECT_STATE.md) | **唯一營運現況** |
+| [docs/FE_LIVE_100.md](docs/FE_LIVE_100.md) | FE_SET 素材 100% 驗收 |
+| [docs/RECALL_VERIFY_OPS.md](docs/RECALL_VERIFY_OPS.md) | 低門檻召回 + 腳本 QC 入庫 |
+| [docs/AGENT_HANDOFF_INCREMENTAL.md](docs/AGENT_HANDOFF_INCREMENTAL.md) | 下一位 agent：增量到全量 |
+| [docs/DEPLOY_FOR_HANDOVER.md](docs/DEPLOY_FOR_HANDOVER.md) | **部署最短路徑**（本機 / Linux / CF） |
+| [docs/SESSION_RETRO_20260729.md](docs/SESSION_RETRO_20260729.md) | 今晚全流程經驗總結 |
+| [docs/PROJECT_MAP.md](docs/PROJECT_MAP.md) | 分支地圖 + 點做 |
+
 ## Repository layout
 
 ```text
@@ -149,7 +161,7 @@ The private runner uses G10 only as discovery/bootstrap evidence, then records
 idempotent daily price, population, rank, and tracked-sales observations in one
 canonical store. It derives complete eligible rankings for combined TCG,
 Pokémon, and One Piece. A canonical printing is stored once and may belong to
-more than one ranking scope; language remains identity metadata only. Top 100,
+more than one ranking scope; language is not part of card identity. Top 100,
 Top 300, Top 350, and `top100_plus_200` are presentation views sliced from the
 same generation. It derives close-to-close 1-day, 7-day, and 30-day changes and
 recalculates every eligible card's market cap. There is no 1-hour metric. The
@@ -158,7 +170,9 @@ redeploy application code and does not require an AI task to monitor it.
 
 G10 is historical bootstrap/research evidence only: old summaries, mappings, sample payloads, and last-good comparison values. It is not a canonical provider and is not a completeness boundary. GemRate supplies canonical identity and grader population; its direct API is preferred, while Grade10 `price.getGradingPopulations` is a current-population GemRate mirror transport with retained provenance. SNK supplies exact PSA 10 reference prices and recent trades, eBay will supply additional tracked sold transactions after its repository-owned exact-grade adapter passes validation, and CARDZ derives the three Top 300 indexes plus 1d/7d/30d metrics. JLP is only a future integration seam and is not required to run or publish CARDZ Market Cap.
 
-Supported card languages for both Pokémon and One Piece are Japanese, English, Korean, Traditional Chinese, and Simplified Chinese. They distinguish printings during exact identity resolution but do not produce independent rankings. A language with no exact source data remains unavailable; English or Japanese data never fills it silently. Thai printings are out of scope.
+Localized card names and stories may be Japanese, English, Korean, Traditional
+Chinese, or Simplified Chinese, but locale never splits card identity. Distinct
+printings are preserved by explicit edition, parallel, and finish evidence.
 
 Data sources are first-class collectors coordinated by one daily parent task that runs at 09:30 JST (00:30 UTC). The trigger must stay inside the same UTC calendar day as the run ID that `pipelines/run_daily.py` builds from `datetime.now(timezone.utc)`; an earlier local time such as 06:30 JST resolves to 21:30 UTC on the previous day, which makes collectors replay the previous run and the whole chain exits zero with no new data. The collectors are:
 
@@ -172,7 +186,7 @@ Data sources are first-class collectors coordinated by one daily parent task tha
 - `pipelines/snk_market_data.py` — daily PSA 10 reference-price history and partial recent-trade observations for active exact identities.
 - `pipelines/market_source_sync.py` — normalizes immutable observations and derives combined, Pokémon, and One Piece private rankings.
 
-The machine-readable source contract is `config/data-routing.json`; see `docs/DATA_ROUTING.md` and `docs/DATA_SOURCE_INVENTORY.md`. The current legacy eBay Browse client exposes active asking prices, not sold transactions, so it is not used as a price authority.
+The machine-readable source contract is `config/data-routing.json`; see `docs/DATA_ROUTING.md` and `docs/DATA_SOURCE_INVENTORY.md`. Provider collection manuals for agents: [`docs/PROVIDER_API_INDEX.md`](docs/PROVIDER_API_INDEX.md) (SNK / PriceCharting / TCGplayer). The current legacy eBay Browse client exposes active asking prices, not sold transactions, so it is not used as a price authority.
 
 Do not install separate GemRate or SNK **daily price/population** scheduler tasks — `pipelines/run_daily.py` owns the singleton daily run ID and publishes only after the complete generation passes validation. The GemRate **freeze/roster sweep** tasks (`CARDZ-GemRate-Freeze-Oneshot-*`) and `CARDZ-TAG-Daily-Capture` run on a deliberately separate cadence and are exempt (user-ratified 2026-07-27).
 

@@ -9,6 +9,11 @@ you finish. It is model-agnostic on purpose — a task list that lives inside on
 agent's session is invisible to every other agent, which is how work gets
 repeated.
 
+**Required:** [`PROJECT_STATE.md`](PROJECT_STATE.md)（營運 + 務實精華）。  
+**Script / reverse map（點做）:** [`docs/PROJECT_MAP.md`](docs/PROJECT_MAP.md)。
+
+Optional: identity files under `data/runtime/private-source-map/`, long manuals only when debugging one provider.
+
 Do not trust its prose alone. Section 0 lists three verification commands; run
 them and let the real output override anything the document claims.
 

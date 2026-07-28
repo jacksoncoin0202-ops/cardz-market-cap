@@ -77,10 +77,10 @@ PRESENTATION_VIEW_LIMITS = {
 # materialized rows stay rank-contiguous from 1.
 PRESENTATION_VIEW_MIN_COVERAGE = {
     "top100": 100,
-    "top300": 100,
+    "top300": 300,
     "top350": 350,
-    "top100_plus_200": 100,
-    "top300_boards": 100,
+    "top100_plus_200": 300,
+    "top300_boards": 300,
 }
 
 
@@ -277,23 +277,22 @@ def load_public_images(qc_path: Path = IMAGE_QC_PATH, asset_dir: Path = PUBLIC_A
     return PublicImages(by_public_id, allowed_sha)
 
 
-def printing_key(tcg: Any, language: Any, collector_normalized: Any) -> tuple[str, str, str]:
+def printing_key(tcg: Any, collector_normalized: Any) -> tuple[str, str]:
     """Identity key shared by the canonical catalog and the presentation pack."""
 
     return tuple(  # type: ignore[return-value]
         "".join(character for character in str(part or "").strip().casefold() if not character.isspace())
-        for part in (tcg, language, collector_normalized)
+        for part in (tcg, collector_normalized)
     )
 
 
-def row_printing_key(row: Mapping[str, Any]) -> tuple[str, str, str]:
-    language = row.get("card_language")
-    collector = normalize_collector(row.get("collector_number"), language)
-    return printing_key(row.get("tcg_code"), language, collector.normalized)
+def row_printing_key(row: Mapping[str, Any]) -> tuple[str, str]:
+    collector = normalize_collector(row.get("collector_number"))
+    return printing_key(row.get("tcg_code"), collector.normalized)
 
 
 def catalog_printing_key_counts(connection: Any) -> Counter:
-    rows = fetchall(connection, "SELECT tcg_code,card_language,collector_number FROM catalog_variant")
+    rows = fetchall(connection, "SELECT tcg_code,collector_number FROM catalog_variant")
     counts: Counter = Counter()
     for row in rows:
         counts[row_printing_key(row)] += 1
@@ -310,12 +309,11 @@ def presentation_from_identity(row: Mapping[str, Any], image: Mapping[str, Any])
     name = str(row.get("canonical_name") or "").strip()
     set_name = str(row.get("set_name") or "").strip()
     tcg = str(row.get("tcg_code") or "").strip().lower()
-    language = str(row.get("card_language") or "").strip().lower()
-    if not name or not set_name or not tcg or not language:
+    if not name or not set_name or not tcg:
         return None
     if str(row.get("identity_status") or "") != "confirmed":
         return None
-    collector = normalize_collector(row.get("collector_number"), language, set_name)
+    collector = normalize_collector(row.get("collector_number"), None, set_name)
     if not collector.complete:
         return None
     localized = {locale: (name if locale == "en" else None) for locale in LOCALES}
@@ -330,7 +328,6 @@ def presentation_from_identity(row: Mapping[str, Any], image: Mapping[str, Any])
         "id": str(row["opaque_id"]),
         "identityStatus": "confirmed",
         "image": {**image, "alt": dict(localized)},
-        "language": language,
         "marketCap": metric(None, "unavailable", None),
         "names": dict(localized),
         "populationPsa10": metric(None, "unavailable", None, estimated=False),
@@ -347,7 +344,7 @@ def resolve_presentation_entries(
     rows: Iterable[Mapping[str, Any]],
     cards_by_id: Mapping[str, Mapping[str, Any]],
     images: PublicImages,
-    catalog_key_counts: Mapping[tuple[str, str, str], int],
+    catalog_key_counts: Mapping[tuple[str, str], int],
 ) -> tuple[dict[str, Mapping[str, Any]], list[tuple[str, str]], Counter]:
     """Pair every ranked row with a presentation entry it may legally publish.
 
@@ -357,9 +354,9 @@ def resolve_presentation_entries(
     """
 
     pack_key_counts: Counter = Counter()
-    pack_by_key: dict[tuple[str, str, str], Mapping[str, Any]] = {}
+    pack_by_key: dict[tuple[str, str], Mapping[str, Any]] = {}
     for card in cards_by_id.values():
-        key = printing_key(card.get("tcg"), card.get("language"), (card.get("collectorNumber") or {}).get("normalized"))
+        key = printing_key(card.get("tcg"), (card.get("collectorNumber") or {}).get("normalized"))
         pack_key_counts[key] += 1
         pack_by_key.setdefault(key, card)
 
@@ -378,7 +375,7 @@ def resolve_presentation_entries(
         if not BARE_SUBSET_NUMBER.fullmatch(str(current.get("display") or "")):
             return entry
         collector = normalize_collector(
-            row.get("collector_number"), row.get("card_language"), row.get("set_name")
+            row.get("collector_number"), None, row.get("set_name")
         )
         if not collector.complete or collector.display == current.get("display"):
             return entry
@@ -453,10 +450,12 @@ def latest_generation(connection: Any, min_constituents: int) -> Mapping[str, An
     rows = fetchall(
         connection,
         """
-        SELECT id,effective_at,effective_date,constituent_count,snapshot_sha256
-        FROM market_index_snapshot
-        WHERE index_code='tcg-combined'
-        ORDER BY effective_at DESC,id DESC
+        SELECT s.id,s.evaluation_id,s.effective_at,s.effective_date,
+               s.constituent_count,s.snapshot_sha256
+        FROM market_index_snapshot s
+        JOIN market_alert_evaluation e ON e.id=s.evaluation_id
+        WHERE s.index_code='tcg-combined' AND e.publish_gate_status='passed'
+        ORDER BY s.effective_date DESC,s.evaluation_id DESC,s.id DESC
         """,
     )
     for row in rows:
@@ -475,28 +474,63 @@ def latest_generation(connection: Any, min_constituents: int) -> Mapping[str, An
 BOARD_UNION_INDEX_CODES = ("one-piece", "pokemon")
 
 
-def board_member_variant_ids(connection: Any, effective_date: Any) -> set[int]:
+def board_member_variant_ids(
+    connection: Any,
+    effective_date: Any,
+    evaluation_id: int | None = None,
+) -> set[int]:
     """同日（或最近一日）分榜成員 variant_id，top300_boards 聯集 view 用。"""
     members: set[int] = set()
     for index_code in BOARD_UNION_INDEX_CODES:
-        board = fetchone(
-            connection,
-            """
-            SELECT id FROM market_index_snapshot
-            WHERE index_code=%s AND effective_date<=%s
-            ORDER BY effective_date DESC,id DESC LIMIT 1
-            """,
-            (index_code, effective_date),
-        )
+        if evaluation_id is not None:
+            board = fetchone(
+                connection,
+                """
+                SELECT id FROM market_index_snapshot
+                WHERE index_code=%s AND evaluation_id=%s
+                ORDER BY id DESC LIMIT 1
+                """,
+                (index_code, evaluation_id),
+            )
+        else:
+            board = fetchone(
+                connection,
+                """
+                SELECT id FROM market_index_snapshot
+                WHERE index_code=%s AND effective_date<=%s
+                ORDER BY effective_date DESC,id DESC LIMIT 1
+                """,
+                (index_code, effective_date),
+            )
         if not board:
             continue
         rows = fetchall(
             connection,
-            "SELECT variant_id FROM market_index_constituent WHERE index_snapshot_id=%s",
+            """
+            SELECT variant_id FROM market_index_constituent
+            WHERE index_snapshot_id=%s AND rank_position<=100
+            """,
             (int(board["id"]),),
         )
         members.update(int(row["variant_id"]) for row in rows)
     return members
+
+
+def generation_evaluation_id(connection: Any, generation: Mapping[str, Any]) -> int:
+    """Use the exact evaluation bound to a revision; query only for legacy rows."""
+
+    if generation.get("evaluation_id") is not None:
+        return int(generation["evaluation_id"])
+    evaluation = fetchone(
+        connection,
+        """
+        SELECT id FROM market_alert_evaluation
+        WHERE index_code='tcg-combined' AND effective_date<=%s
+        ORDER BY effective_date DESC,id DESC LIMIT 1
+        """,
+        (generation["effective_date"],),
+    )
+    return int(evaluation["id"]) if evaluation else -1
 
 
 def market_rows(
@@ -506,19 +540,10 @@ def market_rows(
     required_count: int,
     include_board_extras: bool = False,
 ) -> list[dict[str, Any]]:
-    evaluation = fetchone(
-        connection,
-        """
-        SELECT id,effective_date FROM market_alert_evaluation
-        WHERE index_code='tcg-combined' AND effective_date<=%s
-        ORDER BY effective_date DESC,id DESC LIMIT 1
-        """,
-        (generation["effective_date"],),
-    )
-    evaluation_id = int(evaluation["id"]) if evaluation else -1
+    evaluation_id = generation_evaluation_id(connection, generation)
     row_query = """
         SELECT v.id AS variant_id,v.opaque_id,v.identity_status,
-               v.canonical_name,v.set_name,v.collector_number,v.tcg_code,v.card_language,
+               v.canonical_name,v.set_name,v.collector_number,v.tcg_code,
                c.rank_position AS rank_position,c.reference_price_usd,c.psa10_population,
                c.market_cap_usd,c.metric_status,
                d.change_1d_pct,d.change_7d_pct,d.change_30d_pct
@@ -534,7 +559,7 @@ def market_rows(
         row_query.format(rank_cond="<=%s"),
         (evaluation_id, generation["id"], required_count),
     )
-    if len(top) > required_count:
+    if len(top) != required_count:
         raise SnapshotExportError(
             f"canonical combined ranking has {len(top)} rows for requested Top {required_count} view"
         )
@@ -545,7 +570,11 @@ def market_rows(
     # 聯集尾巴：combined 榜 required_count 名以外、但屬於同日分榜嘅卡，
     # 照 combined rank 排喺 core 後面。出版前 build_snapshot 會重排 1..N，
     # 所以呢度唔使（亦唔應該）連續。
-    members = board_member_variant_ids(connection, generation["effective_date"])
+    members = board_member_variant_ids(
+        connection,
+        generation["effective_date"],
+        evaluation_id if evaluation_id >= 0 else None,
+    )
     if not members:
         return [dict(row) for row in top]
     placeholders = ",".join(["%s"] * len(members))
@@ -1169,6 +1198,10 @@ def build_snapshot(
         required_count=required_count,
         include_board_extras=(presentation_view == "top300_boards"),
     )
+    if len(rows) > 500:
+        raise SnapshotExportError(
+            f"{presentation_view} resolves {len(rows)} cards; the public projection limit is 500"
+        )
     resolved, skipped, tiers = resolve_presentation_entries(
         rows,
         cards_by_id,
@@ -1223,8 +1256,15 @@ def build_snapshot(
     blockers: list[str] = []
     if len(top) != 100:
         blockers.append("combined_top100_incomplete")
-    generated_at = iso(datetime.now(timezone.utc))
-    generation_id = f"canonical_{str(generation['effective_date']).replace('-', '')}_{str(generation['snapshot_sha256'])[:12]}"
+    if len(cards) != len(rows):
+        blockers.append("presentation_assets_incomplete")
+    generated_now = datetime.now(timezone.utc)
+    generated_at = iso(generated_now)
+    generation_id = (
+        f"canonical_{str(generation['effective_date']).replace('-', '')}"
+        f"_e{int(generation['evaluation_id'])}_{str(generation['snapshot_sha256'])[:12]}"
+        f"_{generated_now.strftime('%Y%m%dT%H%M%S%fZ')}"
+    )
     snapshot = {
         "schemaVersion": "2.0.0",
         "generation": {
