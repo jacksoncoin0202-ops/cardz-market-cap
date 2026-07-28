@@ -121,3 +121,14 @@ print('n', len(cards))
 - [ ] 知 secrets 喺邊、唔 commit  
 - [ ] 知 Windows Python 路徑  
 - [ ] 下一優先：全池成交／identity 增量（§2）  
+
+---
+
+## 6. 共同管理聯絡（用戶指定）
+
+| 角色 | 聯絡 |
+|---|---|
+| 最高共同 admin（用戶指定） | **yoyyoy1924@gmail.com** |
+
+用途：同 Jackson 一齊管理 **Ripple**（用戶口頭指派）同本 repo／CARDZ 營運交接。  
+**注意：** 呢個 email 已寫入交接文檔；**外部 Ripple 產品後台加 admin 需要有現有 Owner 帳號登入操作**——agent 無法代替登入第三方 SaaS。GitHub org／repo collaborator 亦要 Owner 用 GitHub UI 或 `gh` 邀請。
