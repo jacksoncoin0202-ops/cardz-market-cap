@@ -10,7 +10,11 @@
 | 觸發 | commit message 含 `[deploy]` |
 | 伺服器 | `git pull` → `docker compose up --build` |
 | 站點 | https://app.cardzmarketcap.com |
+| GitHub Webhook Payload URL | `https://spwebhook.funtoken.me/hooks/deploy-cardzmarketcap`（**唔帶** `.com` 尾；舊 path `…/deploy-cardzmarketcap.com` 會 miss） |
+| Events | push only |
 | 本機 compose | 根目錄 [`compose.yaml`](../compose.yaml)（web；`compose.backend.yaml` 只係 MySQL） |
+
+> 2026-07-29 IT：Webhook 路徑曾誤加 `.com`，修正後需再 push 一次 `[deploy]` 驗證。
 
 ## 1. 本機預覽（你而家）
 

@@ -13,7 +13,7 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
-        CARDZ_PUBLIC_BUILD_ID: ${CARDZ_PUBLIC_BUILD_ID:-webhook-realdata-20260729}
+        CARDZ_PUBLIC_BUILD_ID: ${CARDZ_PUBLIC_BUILD_ID:-webhook-retry-20260729-1806}
     image: cardz-web:latest
     ports:
       - "${CARDZ_WEB_PORT:-3000}:3000"
