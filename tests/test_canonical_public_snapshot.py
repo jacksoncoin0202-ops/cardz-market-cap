@@ -998,6 +998,49 @@ class JsSafeNumbersTests(unittest.TestCase):
         with self.assertRaises(snapshot.SnapshotExportError):
             snapshot.stable_json({"a": 1e-05})
 
+    def _sale_row(self, variant: int, day: date, price: float, source: str, ext: str, fingerprint: str) -> dict[str, object]:
+        return {
+            "variant_id": variant,
+            "observed_date": day,
+            "source_code": source,
+            "external_entity_id": ext,
+            "transaction_fingerprint": fingerprint,
+            "grader_code": "PSA",
+            "grade_label": "10",
+            "timestamp_quality": "exact",
+            "unit_price_usd": price,
+            "quantity": 1,
+            "transaction_value_usd": price,
+            "coverage_status": "partial",
+            "source_payload_sha256": "a" * 64,
+            "identity_confirmed": True,
+        }
+
+    def test_cross_feed_sales_dedupe_caps_at_max_single_feed_count(self) -> None:
+        day = date(2026, 7, 24)
+        uuid_ext = "e7f34f6f-339e-4c8a-b9b0-8b100c6342a0"
+        rows = [
+            # 同一單 $100 eBay 成交俾三個 feed 重複上報 → 只計一次
+            self._sale_row(7, day, 100.0, "ebay", uuid_ext, "fp-uuid"),
+            self._sale_row(7, day, 100.0, "ebay", f"ebay:{uuid_ext}", "fp-prefixed"),
+            self._sale_row(7, day, 100.0, "ebay", "pc:1066", "fp-pc"),
+            # 同一 feed 兩單同價真實成交 → 保留兩單
+            self._sale_row(7, day, 200.0, "ebay", uuid_ext, "fp-dup-a"),
+            self._sale_row(7, day, 200.0, "ebay", uuid_ext, "fp-dup-b"),
+            # SNK 係另一本體,同價同日都係獨立成交 → 保留
+            self._sale_row(7, day, 100.0, "snk_psa10", "146897", "fp-snk"),
+        ]
+        daily = snapshot.approved_psa10_daily_rows(FakeConnection(rows), [7])
+        self.assertEqual(len(daily), 1)
+        self.assertEqual(daily[0]["sales_count"], 4)
+        self.assertEqual(daily[0]["sales_value_usd"], 600.0)
+
+    def test_sale_ledger_scheme_splits_marketplaces_and_feeds(self) -> None:
+        self.assertEqual(snapshot.sale_ledger_scheme({"source_code": "snk_psa10", "external_entity_id": "146897"}), ("snk_psa10", "snk_psa10"))
+        self.assertEqual(snapshot.sale_ledger_scheme({"source_code": "ebay", "external_entity_id": "pc:1066"}), ("ebay", "pc"))
+        self.assertEqual(snapshot.sale_ledger_scheme({"source_code": "ebay", "external_entity_id": "ebay:abc"}), ("ebay", "ebay-prefixed"))
+        self.assertEqual(snapshot.sale_ledger_scheme({"source_code": "ebay", "external_entity_id": "abc"}), ("ebay", "uuid"))
+
 
 if __name__ == "__main__":
     unittest.main()

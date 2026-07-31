@@ -1350,6 +1350,7 @@ def approved_psa10_daily_rows(
             continue
         seen_fingerprints.add(key)
         accepted.append(row)
+    accepted = dedupe_cross_feed_sales(accepted)
     daily: dict[tuple[int, date], dict[str, Any]] = {}
     for row in accepted:
         observed = row.get("observed_date")
@@ -1364,6 +1365,64 @@ def approved_psa10_daily_rows(
         bucket["sales_count"] += 1
         bucket["sales_value_usd"] += float(row["unit_price_usd"])
     return list(daily.values())
+
+
+def sale_ledger_scheme(row: Mapping[str, Any]) -> tuple[str, str]:
+    """(ledger, scheme)：ledger 係市場本體（SNK vs eBay）；scheme 係同一本體入面嘅 feed。
+
+    eBay 本體而家有三套 external id：G10 嘅 altxyz UUID、`ebay:` prefixed UUID、
+    PriceCharting 嘅 `pc:` 產品 ID —— 三套都係同一份 eBay 成交賬。
+    """
+
+    source = str(row.get("source_code") or "").casefold()
+    if source != "ebay":
+        return (source or "unknown", source or "unknown")
+    ext = str(row.get("external_entity_id") or "").casefold()
+    if ext.startswith("pc:"):
+        scheme = "pc"
+    elif ext.startswith("ebay:"):
+        scheme = "ebay-prefixed"
+    else:
+        scheme = "uuid"
+    return ("ebay", scheme)
+
+
+def dedupe_cross_feed_sales(accepted: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """收起同一本體跨 feed 嘅重複上報，唔郁同一 feed 嘅真實同價多單。
+
+    G10、ebay:-prefixed、PriceCharting 三套 ID 各自嵌入 fingerprint，所以
+    fingerprint dedupe 擋唔到同一單物理成交俾幾個 feed 重複入庫（實測
+    2026-07-31：1,235 個 (variant, date, price) 組跨 scheme 重複）。規則：
+    每個 (variant, date, price) 嘅保留行數 = 單一 feed 嘅最大行數 ——
+    跨 feed 重複即刻消失，同一 feed 嘅真實同價多單完整保留。SNK 係
+    另一個市場本體，同價同日都係獨立成交，唔參與呢個 cap。
+    """
+
+    ebay_rows = [row for row in accepted if sale_ledger_scheme(row)[0] == "ebay"]
+    other_rows = [row for row in accepted if sale_ledger_scheme(row)[0] != "ebay"]
+    groups: dict[tuple[int, date, float], list[Mapping[str, Any]]] = {}
+    for row in ebay_rows:
+        observed = row.get("observed_date")
+        if isinstance(observed, datetime):
+            observed = observed.date()
+        if not isinstance(observed, date):
+            continue
+        key = (int(row["variant_id"]), observed, round(float(row["unit_price_usd"]), 2))
+        groups.setdefault(key, []).append(row)
+    kept: list[Mapping[str, Any]] = []
+    for rows in groups.values():
+        per_scheme: dict[str, list[Mapping[str, Any]]] = {}
+        for row in rows:
+            per_scheme.setdefault(sale_ledger_scheme(row)[1], []).append(row)
+        allowed = max(len(scheme_rows) for scheme_rows in per_scheme.values())
+        remaining = allowed
+        for scheme in sorted(per_scheme, key=lambda s: (-len(per_scheme[s]), s)):
+            for row in sorted(per_scheme[scheme], key=lambda r: str(r.get("transaction_fingerprint"))):
+                if remaining <= 0:
+                    break
+                kept.append(row)
+                remaining -= 1
+    return other_rows + kept
 
 
 def latest_sales(
