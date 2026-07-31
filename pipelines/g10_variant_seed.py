@@ -89,8 +89,8 @@ PROVIDER = "snkrdunk"
 IDENTITY_SOURCE = "snkrdunk"
 ASSET_FILENAME = "asset_info.json"
 
-# G10 `language` → `catalog_variant.card_language`。DB 目前只有 en / ja 兩個值，
-# 見到第三種語言唔准自創新 code，quarantine 交人裁。
+# G10 source language 只供 collector-number normalization；唔會寫入 DB identity。
+# 見到第三種未支援格式仍然 quarantine，避免錯誤正規化。
 LANGUAGE_MAP = {"jp": "ja", "en": "en"}
 
 # One Piece 判別。`P-\d{2,3}` 嗰半條專門捉 JUMP 附錄促銷卡 —— 佢哋個 setName 係雜誌名
@@ -160,21 +160,24 @@ def load_existing(cursor: Any) -> tuple[dict[str, int], dict[tuple, list[int]], 
     """現有 catalog 嘅三個索引：opaque → id、printing key → [id]、已有 identity 嘅目錄名。"""
 
     cursor.execute(
-        "SELECT id, opaque_id, tcg_code, card_language, set_name, collector_number "
-        "FROM catalog_variant"
+        "SELECT v.id, v.opaque_id, v.tcg_code, v.set_name, "
+        "v.collector_number, COALESCE(a.canonical_variant_id, v.id) AS resolved_variant_id "
+        "FROM catalog_variant AS v "
+        "LEFT JOIN catalog_variant_alias AS a ON a.duplicate_variant_id=v.id"
     )
     by_opaque: dict[str, int] = {}
     by_printing: dict[tuple, list[int]] = {}
     for row in cursor.fetchall():
-        variant_id = int(row["id"])
+        variant_id = int(row["resolved_variant_id"])
         by_opaque[str(row["opaque_id"])] = variant_id
         key = (
             str(row["tcg_code"]).casefold(),
-            str(row["card_language"]).casefold(),
             str(row["set_name"]).strip().casefold(),
             str(row["collector_number"]).strip().casefold(),
         )
-        by_printing.setdefault(key, []).append(variant_id)
+        candidates = by_printing.setdefault(key, [])
+        if variant_id not in candidates:
+            candidates.append(variant_id)
 
     cursor.execute(
         "SELECT external_entity_id FROM catalog_source_identity WHERE source_code = %s",
@@ -261,7 +264,7 @@ def scan(
                     eid,
                     "g10_language_unmapped",
                     evidence,
-                    f"language={raw_language!r} 冇對應 DB card_language（只有 en/ja）",
+                    f"language={raw_language!r} 冇對應 collector normalization（只有 en/ja）",
                 )
             )
             continue
@@ -295,7 +298,6 @@ def scan(
         opaque = opaque_id(tcg_code, language, set_name, collector, name)
         printing_key = (
             tcg_code.casefold(),
-            language.casefold(),
             set_name.casefold(),
             collector.display.strip().casefold(),
         )
@@ -361,6 +363,47 @@ def table_count(cursor: Any, table: str) -> int:
     return int(cursor.fetchone()["n"])
 
 
+def bind_source_identity(cursor: Any, row: SeedRow, variant_id: int) -> bool:
+    """Bind one provider identity without ever changing its existing owner."""
+
+    key = (IDENTITY_SOURCE, row.external_entity_id)
+    cursor.execute(
+        """
+        SELECT variant_id
+        FROM catalog_source_identity
+        WHERE source_code=%s AND external_entity_id=%s
+        FOR UPDATE
+        """,
+        key,
+    )
+    existing = cursor.fetchone()
+    if existing is not None:
+        owner = int(existing["variant_id"])
+        if owner != variant_id:
+            raise ValueError(
+                f"source identity ownership changed: {key[0]}:{key[1]} "
+                f"{owner} -> {variant_id}"
+            )
+        cursor.execute(
+            """
+            UPDATE catalog_source_identity
+            SET match_status=%s, evidence_sha256=%s
+            WHERE source_code=%s AND external_entity_id=%s
+            """,
+            (row.resolution, row.evidence_sha256, *key),
+        )
+        return False
+    cursor.execute(
+        """
+        INSERT INTO catalog_source_identity
+            (source_code, external_entity_id, variant_id, match_status, evidence_sha256)
+        VALUES (%s, %s, %s, %s, %s)
+        """,
+        (*key, variant_id, row.resolution, row.evidence_sha256),
+    )
+    return True
+
+
 def write_all(connection: Any, rows: list[SeedRow], skipped: list[Skipped], stats: Counter) -> dict:
     started_at = datetime.now(timezone.utc).replace(tzinfo=None)
     run_key = sha256_text(f"{SOURCE_CODE}|{started_at.isoformat()}")
@@ -401,14 +444,13 @@ def write_all(connection: Any, rows: list[SeedRow], skipped: list[Skipped], stat
                 cursor.execute(
                     """
                     INSERT INTO catalog_variant
-                        (opaque_id, tcg_code, card_language, canonical_name, set_name,
+                        (opaque_id, tcg_code, canonical_name, set_name,
                          collector_number, identity_status)
-                    VALUES (%s, %s, %s, %s, %s, %s, 'confirmed')
+                    VALUES (%s, %s, %s, %s, %s, 'confirmed')
                     """,
                     (
                         row.opaque,
                         row.tcg_code,
-                        row.card_language,
                         row.canonical_name,
                         row.set_name,
                         row.collector_number,
@@ -416,24 +458,14 @@ def write_all(connection: Any, rows: list[SeedRow], skipped: list[Skipped], stat
                 )
                 variant_id = int(cursor.lastrowid)
                 created += 1
-            cursor.execute(
-                """
-                INSERT INTO catalog_source_identity
-                    (source_code, external_entity_id, variant_id, match_status, evidence_sha256)
-                VALUES (%s, %s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE
-                    variant_id=VALUES(variant_id), evidence_sha256=VALUES(evidence_sha256)
-                """,
-                (IDENTITY_SOURCE, row.external_entity_id, variant_id, row.resolution, row.evidence_sha256),
-            )
+            bind_source_identity(cursor, row, variant_id)
 
         if skipped:
             cursor.executemany(
                 """
-                INSERT INTO market_identity_review_queue
+                INSERT IGNORE INTO market_identity_review_queue
                     (run_id, source_code, external_entity_id, reason_code, evidence_sha256)
                 VALUES (%s, %s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE status='pending'
                 """,
                 [
                     (run_id, IDENTITY_SOURCE, s.external_entity_id, s.reason_code, s.evidence_sha256)

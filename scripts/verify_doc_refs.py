@@ -16,6 +16,11 @@ What this catches
 -----------------
 BROKEN    the referenced file does not exist, or the file is shorter than the
           line being cited.  Cheap, certain.
+BROKENLINK an active/generated Markdown document links to a missing local
+          document.
+DOCROUTE  an active/generated Markdown document links to a registered
+          reference-only, superseded, historical, quarantined, or delete
+          candidate document.
 DRIFT     the doc names a symbol next to the line number, the symbol is really
           defined in that file, and it is defined at a *different* line.  This
           is the case above, and it is unambiguous: no false positives are
@@ -46,6 +51,7 @@ Read-only.  Never edits a document, never touches the database.
 
     python -X utf8 scripts/verify_doc_refs.py
     python -X utf8 scripts/verify_doc_refs.py --json
+    python -X utf8 scripts/verify_doc_refs.py --authority-active-only --strict
     python -X utf8 scripts/verify_doc_refs.py CLAUDE.md
 
 Exit codes: 0 = nothing broken, 1 = BROKEN/DRIFT/TEMPDEP present, 2 = nothing
@@ -60,6 +66,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -67,6 +74,7 @@ DEFAULT_DOCS = ("CLAUDE.md", "PROJECT_STATE.md", "AGENTS.md", "README.md", "FILE
 DEFAULT_DOC_GLOBS = ("docs/*.md", "docs/**/*.md")
 
 SOURCE_SUFFIXES = {".py", ".ts", ".tsx", ".mjs", ".js", ".sh", ".ps1", ".sql"}
+DOCUMENT_ROUTE_SUFFIXES = {".md", ".html", ".json"}
 
 # Opt-out for lines that quote a reference as an EXAMPLE rather than making one.
 # Line-level and explicit on purpose - see the comment in scan_document().
@@ -100,6 +108,8 @@ TEMP_EXEC_RE = re.compile(
 )
 
 BROKEN = "BROKEN"
+BROKENLINK = "BROKENLINK"
+DOCROUTE = "DOCROUTE"
 DRIFT = "DRIFT"
 RENAMED = "RENAMED"
 AMBIGUOUS = "AMBIGUOUS"
@@ -115,7 +125,7 @@ OK = "OK"
 # unrelated symbol in the same sentence).  A check that hard-fails on a coin
 # flip gets switched off within a week, so DRIFT reports loudly and exits 0
 # unless --strict is passed.
-FAILING = {BROKEN, TEMPDEP}
+FAILING = {BROKEN, BROKENLINK, DOCROUTE, TEMPDEP}
 WARNING = {RENAMED, AMBIGUOUS}
 
 
@@ -510,7 +520,155 @@ def collect_docs(explicit: list[str], root: Path) -> list[Path]:
     return unique
 
 
-def build_report(root: Path, docs: list[Path], *, skip_tasks: bool = False) -> dict:
+def load_document_authority(root: Path) -> dict[str, dict]:
+    """Load the registered document path-to-record map."""
+
+    registry_path = root / "config" / "data-routing.json"
+    try:
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+        documents = registry["documentAuthority"]["documents"]
+    except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
+        raise ValueError(f"cannot load document authority: {error}") from error
+    if not isinstance(documents, list):
+        raise ValueError("cannot load document authority: documents must be an array")
+    authority: dict[str, dict] = {}
+    for item in documents:
+        if not isinstance(item, dict):
+            raise ValueError("cannot load document authority: document entry must be an object")
+        value = item.get("path")
+        status = item.get("status")
+        if not isinstance(value, str) or not isinstance(status, str):
+            raise ValueError("cannot load document authority: document requires path and status")
+        candidate = (root / value).resolve()
+        try:
+            normalized = candidate.relative_to(root.resolve()).as_posix()
+        except ValueError as error:
+            raise ValueError(f"document authority path escapes repository: {value}") from error
+        if normalized in authority:
+            raise ValueError(f"duplicate document authority path: {normalized}")
+        authority[normalized] = item
+    return authority
+
+
+def collect_authority_docs(root: Path) -> list[Path]:
+    """Return active/generated Markdown from the single document registry."""
+
+    documents = load_document_authority(root)
+    selected: list[Path] = []
+    for normalized, item in documents.items():
+        if item.get("status") not in {"active", "generated"}:
+            continue
+        if not normalized.casefold().endswith(".md"):
+            continue
+        candidate = root / normalized
+        if candidate.is_file():
+            selected.append(candidate)
+    return selected
+
+
+def scan_document_routes(
+    doc_path: Path,
+    root: Path,
+    authority: dict[str, dict],
+) -> list[Ref]:
+    """Check local document links from active/generated documents."""
+
+    source = doc_path.resolve().relative_to(root.resolve()).as_posix()
+    source_record = authority.get(source)
+    if source_record is None or source_record.get("status") not in {"active", "generated"}:
+        return []
+    try:
+        text = doc_path.read_text(encoding="utf-8", errors="replace")
+    except OSError as error:
+        return [
+            Ref(
+                source,
+                0,
+                source,
+                None,
+                None,
+                True,
+                status=BROKENLINK,
+                detail=str(error),
+            )
+        ]
+
+    routes: list[Ref] = []
+    root_resolved = root.resolve()
+    for lineno, line in enumerate(text.splitlines(), 1):
+        if EXAMPLE_MARKER in line:
+            continue
+        for match in LINK_RE.finditer(line):
+            raw_target = match.group("target").strip().strip("<>")
+            if (
+                not raw_target
+                or raw_target.startswith(("#", "//"))
+                or re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", raw_target)
+            ):
+                continue
+            route_target = unquote(raw_target.split("#", 1)[0].split("?", 1)[0])
+            line_target = re.fullmatch(
+                r"(?P<path>.*\.(?:md|html|json)):\d+(?:[-–]\d+)?",
+                route_target,
+                flags=re.IGNORECASE,
+            )
+            if line_target:
+                route_target = line_target.group("path")
+            if Path(route_target.replace("\\", "/")).suffix.casefold() not in DOCUMENT_ROUTE_SUFFIXES:
+                continue
+            if route_target.startswith(("/", "\\")):
+                candidate = root / route_target.lstrip("/\\")
+            else:
+                candidate = doc_path.parent / route_target
+            candidate = candidate.resolve()
+            ref = Ref(
+                doc=source,
+                doc_line=lineno,
+                target=raw_target,
+                start=None,
+                end=None,
+                linked=True,
+            )
+            try:
+                normalized = candidate.relative_to(root_resolved).as_posix()
+            except ValueError:
+                ref.status = BROKENLINK
+                ref.detail = "local document link escapes repository"
+                routes.append(ref)
+                continue
+            ref.resolved = normalized
+            if not candidate.is_file():
+                ref.status = BROKENLINK
+                ref.detail = "linked local document does not exist"
+                routes.append(ref)
+                continue
+            target_record = authority.get(normalized)
+            if target_record is not None and target_record.get("status") not in {
+                "active",
+                "generated",
+            }:
+                ref.status = DOCROUTE
+                ref.detail = (
+                    f"registered document status is {target_record.get('status')}; "
+                    "it cannot be an active route"
+                )
+            elif target_record is None:
+                ref.status = OK
+                ref.detail = "unregistered local document; evidence/reference only"
+            else:
+                ref.status = OK
+                ref.detail = f"registered {target_record['status']} document"
+            routes.append(ref)
+    return routes
+
+
+def build_report(
+    root: Path,
+    docs: list[Path],
+    *,
+    skip_tasks: bool = False,
+    document_authority: dict[str, dict] | None = None,
+) -> dict:
     index = basename_index(root)
     refs: list[Ref] = []
     for doc in docs:
@@ -518,6 +676,8 @@ def build_report(root: Path, docs: list[Path], *, skip_tasks: bool = False) -> d
             continue
         for ref in scan_document(doc, root):
             refs.append(classify(ref, root, index))
+        if document_authority is not None:
+            refs.extend(scan_document_routes(doc, root, document_authority))
 
     temp_deps = repo_temp_deps(root)
     if not skip_tasks:
@@ -642,16 +802,40 @@ def main() -> int:
     parser.add_argument("--json", action="store_true", help="machine-readable report")
     parser.add_argument("--skip-tasks", action="store_true", help="do not query the OS scheduler")
     parser.add_argument("--strict", action="store_true", help="also fail on heuristic line/symbol mismatches")
+    parser.add_argument(
+        "--authority-active-only",
+        action="store_true",
+        help="scan only active/generated Markdown from config/data-routing.json",
+    )
     parser.add_argument("--out", type=Path, help="write the report to a file as well as stdout")
     args = parser.parse_args()
 
     root = args.root.resolve()
-    docs = collect_docs(args.docs, root)
+    if args.authority_active_only and args.docs:
+        parser.error("--authority-active-only cannot be combined with explicit documents")
+    try:
+        document_authority = (
+            load_document_authority(root)
+            if args.authority_active_only
+            else None
+        )
+        docs = (
+            collect_authority_docs(root)
+            if args.authority_active_only
+            else collect_docs(args.docs, root)
+        )
+    except ValueError as error:
+        parser.error(str(error))
     if not docs:
         print("no documents to scan", file=sys.stderr)
         return 2
 
-    report = build_report(root, docs, skip_tasks=args.skip_tasks)
+    report = build_report(
+        root,
+        docs,
+        skip_tasks=args.skip_tasks,
+        document_authority=document_authority,
+    )
     text = json.dumps(report, indent=2, ensure_ascii=False) if args.json else render(report)
     print(text)
     if args.out:

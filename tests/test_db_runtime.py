@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -72,10 +74,69 @@ def schema5_document() -> dict[str, object]:
     }
 
 
+def alias_schema5_document() -> dict[str, object]:
+    canonical = formal_card()
+    alias = dict(canonical)
+    alias.update(
+        {
+            "pokedexId": "alias-1",
+            "canonicalExternalId": "alias-1",
+            "name": "Alias Presentation Name",
+            "rankMemberships": {"tcg": 2, "pokemon": 2},
+        }
+    )
+    cards = [alias, canonical]
+    document = schema5_document()
+    document["cards"] = cards
+    document["monitoringCandidates"] = []
+    document["payloadSha256"] = db_runtime.sha256(db_runtime.canonical_json(cards))
+    document["monitoringPayloadSha256"] = db_runtime.sha256(db_runtime.canonical_json([]))
+    document["collectionPayloadSha256"] = db_runtime.sha256(
+        db_runtime.canonical_json({"cards": cards, "monitoringCandidates": []})
+    )
+    return document
+
+
+def formal_alias_and_monitoring_canonical_document() -> dict[str, object]:
+    alias = formal_card()
+    alias.update(
+        {
+            "pokedexId": "alias-1",
+            "canonicalExternalId": "alias-1",
+            "name": "Accepted Alias Presentation",
+            "rankMemberships": {"tcg": 1, "pokemon": 1},
+        }
+    )
+    canonical = formal_card()
+    canonical.pop("rankMemberships")
+    canonical.update(
+        {
+            "populationPsa10": 999,
+            "monitoringState": "pre_entry_population_971_999",
+            "collectionCadence": "daily",
+            "reasons": ["population_971_999"],
+        }
+    )
+    document = schema5_document()
+    document["cards"] = [alias]
+    document["monitoringCandidates"] = [canonical]
+    document["payloadSha256"] = db_runtime.sha256(db_runtime.canonical_json([alias]))
+    document["monitoringPayloadSha256"] = db_runtime.sha256(
+        db_runtime.canonical_json([canonical])
+    )
+    document["collectionPayloadSha256"] = db_runtime.sha256(
+        db_runtime.canonical_json(
+            {"cards": [alias], "monitoringCandidates": [canonical]}
+        )
+    )
+    return document
+
+
 class Cursor:
     def __init__(self) -> None:
         self.calls: list[tuple[str, object]] = []
         self.lastrowid = 1
+        self.next_variant_id = 1
 
     def __enter__(self) -> "Cursor":
         return self
@@ -84,7 +145,11 @@ class Cursor:
         return None
 
     def execute(self, query: str, args: object = None) -> None:
-        self.calls.append((" ".join(query.split()), args))
+        normalized = " ".join(query.split())
+        self.calls.append((normalized, args))
+        if normalized.startswith("INSERT INTO catalog_variant"):
+            self.lastrowid = self.next_variant_id
+            self.next_variant_id += 1
 
     def fetchone(self) -> dict[str, int]:
         if self.calls[-1][0].startswith("SELECT GET_LOCK"):
@@ -135,7 +200,103 @@ class IdentityCursor(Cursor):
         return {"id": self.lastrowid}
 
 
+class UniverseAliasCursor(Cursor):
+    def __init__(self) -> None:
+        super().__init__()
+        common = {
+            "tcg_code": "pokemon",
+            "card_language": "ja",
+            "set_name": "Fixture Set",
+            "collector_number": "001/TEST",
+        }
+        self.variants = {
+            "alias-1": {
+                "id": 20,
+                "canonical_variant_id": 10,
+                **common,
+            },
+            "formal-1": {
+                "id": 10,
+                "canonical_variant_id": None,
+                **common,
+            },
+        }
+        self.source_owners = {
+            ("fixture", "alias-1"): 10,
+            ("fixture", "formal-1"): 10,
+        }
+
+    def execute(self, query: str, args: object = None) -> None:
+        super().execute(query, args)
+        if self.calls[-1][0].startswith("INSERT INTO market_universe_lock"):
+            self.lastrowid = 41
+
+    def fetchone(self) -> dict[str, object] | None:
+        query, args = self.calls[-1]
+        values = tuple(args or ())  # type: ignore[arg-type]
+        if "FROM catalog_variant AS v" in query:
+            return self.variants.get(str(values[0]))
+        if "FROM catalog_source_identity" in query:
+            owner = self.source_owners.get((str(values[0]), str(values[1])))
+            return {"variant_id": owner} if owner is not None else None
+        if query.startswith("SELECT id FROM market_universe_lock"):
+            return {"id": 41}
+        return {"id": self.lastrowid}
+
+
+class UniverseAliasConnection(Connection):
+    def __init__(self) -> None:
+        super().__init__()
+        self.cursor_value = UniverseAliasCursor()
+
+
+class AliasStatusCursor(Cursor):
+    def __init__(self, lock_hash: str) -> None:
+        super().__init__()
+        self.lock_hash = lock_hash
+
+    def fetchone(self) -> dict[str, object] | None:
+        query = self.calls[-1][0]
+        if query.startswith("SELECT COUNT(*) AS count FROM"):
+            return {"count": 0}
+        if query.startswith("SELECT id, lock_sha256, member_count FROM market_universe_lock"):
+            return {
+                "id": 41,
+                "lock_sha256": self.lock_hash,
+                "member_count": 1,
+            }
+        if query.startswith("SELECT COUNT(*) AS members"):
+            return {"members": 1, "variants": 1}
+        if "FROM market_alert_evaluation" in query:
+            return None
+        return {"id": 1}
+
+    def fetchall(self) -> list[dict[str, object]]:
+        query = self.calls[-1][0]
+        if "FROM catalog_variant AS v" in query:
+            return [
+                {"opaque_id": "alias-1", "resolved_variant_id": 10},
+                {"opaque_id": "formal-1", "resolved_variant_id": 10},
+            ]
+        return []
+
+
+class AliasStatusConnection(Connection):
+    def __init__(self, lock_hash: str) -> None:
+        super().__init__()
+        self.cursor_value = AliasStatusCursor(lock_hash)
+
+
 class DbRuntimeSchema5Tests(unittest.TestCase):
+    def test_private_db_env_strips_windows_crlf(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "backend.env"
+            path.write_bytes(b"CARDZ_DB_USER=cardz\r\nCARDZ_DB_PORT=3308\r\n")
+            with patch.dict(os.environ, {}, clear=True):
+                db_runtime.load_db_env(path)
+                self.assertEqual(os.environ["CARDZ_DB_USER"], "cardz")
+                self.assertEqual(os.environ["CARDZ_DB_PORT"], "3308")
+
     def test_schema5_validates_formal_and_pre_entry_but_returns_collection_union(self) -> None:
         document = schema5_document()
 
@@ -216,6 +377,80 @@ class DbRuntimeSchema5Tests(unittest.TestCase):
         self.assertEqual(member_arguments[0][2:5], ("tracked", "candidate", 1))  # type: ignore[index]
         self.assertEqual(member_arguments[1][2:5], ("pre-entry", "monitoring", None))  # type: ignore[index]
         self.assertEqual(connection.commits, 1)
+
+    def test_canonical_and_alias_entries_materialize_one_canonical_member(self) -> None:
+        connection = UniverseAliasConnection()
+        mapping, lock_id = db_runtime.import_lock(
+            connection,
+            alias_schema5_document(),
+        )
+
+        self.assertEqual(lock_id, 41)
+        self.assertEqual(
+            mapping,
+            {
+                ("fixture", "alias-1"): 10,
+                ("fixture", "formal-1"): 10,
+            },
+        )
+        lock_args = next(
+            args
+            for query, args in connection.cursor_value.calls
+            if query.startswith("INSERT INTO market_universe_lock")
+        )
+        self.assertEqual(lock_args[3], 1)  # type: ignore[index]
+        member_args = [
+            args
+            for query, args in connection.cursor_value.calls
+            if query.startswith("INSERT INTO market_universe_member")
+        ]
+        self.assertEqual(len(member_args), 1)
+        self.assertEqual(member_args[0][1], 10)  # type: ignore[index]
+        self.assertEqual(member_args[0][4], 1)  # canonical entry's tcg rank
+        catalog_updates = [
+            args
+            for query, args in connection.cursor_value.calls
+            if query.startswith("UPDATE catalog_variant")
+        ]
+        self.assertEqual(catalog_updates, [("Formal Card", 10)])
+
+    def test_formal_alias_role_outranks_canonical_monitoring_role(self) -> None:
+        connection = UniverseAliasConnection()
+        mapping, _ = db_runtime.import_lock(
+            connection,
+            formal_alias_and_monitoring_canonical_document(),
+        )
+
+        self.assertEqual(len(set(mapping.values())), 1)
+        member_args = [
+            args
+            for query, args in connection.cursor_value.calls
+            if query.startswith("INSERT INTO market_universe_member")
+        ]
+        self.assertEqual(len(member_args), 1)
+        self.assertEqual(member_args[0][1:5], (10, "tracked", "candidate", 1))
+
+    def test_status_accepts_distinct_canonical_member_count_and_reports_source_entries(self) -> None:
+        document = alias_schema5_document()
+        lock_hash = db_runtime.active_universe_lock_hash(document)
+        report = db_runtime.status(
+            AliasStatusConnection(lock_hash),
+            document,
+        )
+
+        self.assertEqual(
+            report["activeUniverse"],
+            {
+                "members": 1,
+                "sourceEntries": 2,
+                "aliasesCollapsed": 1,
+                "formalMembers": 1,
+                "formalSourceEntries": 2,
+                "monitoringMembers": 0,
+                "monitoringSourceEntries": 0,
+                "payloadSha256": lock_hash,
+            },
+        )
 
 
 class DbRuntimeIdentityContinuityTests(unittest.TestCase):
@@ -316,9 +551,75 @@ class DbRuntimeIdentityContinuityTests(unittest.TestCase):
         self.assertEqual(db_runtime.upsert_variant(cursor, card), 5)
 
         catalog_update = next(args for query, args in cursor.calls if query.startswith("UPDATE catalog_variant"))
-        self.assertEqual(catalog_update, ("Corrected Formal Card", 5))
+        self.assertEqual(catalog_update, ("Corrected Formal Card", "confirmed", 5))
         source_update = next(query for query, _ in cursor.calls if query.startswith("UPDATE catalog_source_identity"))
         self.assertNotIn("variant_id", source_update)
+
+    def test_provisional_card_never_overwrites_a_confirmed_catalog_status(self) -> None:
+        card = formal_card()
+        card["identityStatus"] = "provisional"
+        cursor = IdentityCursor(
+            variant={
+                "id": 5,
+                "tcg_code": "pokemon",
+                "card_language": "ja",
+                "set_name": "Fixture Set",
+                "collector_number": "001/TEST",
+            },
+            source=None,
+        )
+
+        self.assertEqual(db_runtime.upsert_variant(cursor, card), 5)
+
+        catalog_update = next(args for query, args in cursor.calls if query.startswith("UPDATE catalog_variant"))
+        self.assertEqual(catalog_update, ("Formal Card", "provisional", 5))
+
+    def test_new_provisional_card_is_not_materialized_as_confirmed(self) -> None:
+        card = formal_card()
+        card["identityStatus"] = "provisional"
+        cursor = IdentityCursor(variant=None, source=None)
+
+        self.assertEqual(db_runtime.upsert_variant(cursor, card), 1)
+
+        variant_insert = next(args for query, args in cursor.calls if "INSERT INTO catalog_variant" in query)
+        self.assertEqual(variant_insert[-1], "provisional")
+        source_inserts = [args for query, args in cursor.calls if "INSERT INTO catalog_source_identity" in query]
+        self.assertEqual([(args[0], args[1]) for args in source_inserts], [("fixture", "formal-1")])
+
+    def test_provisional_source_reuses_existing_owner_without_rebinding_it(self) -> None:
+        card = formal_card()
+        card["pokedexId"] = "g10_relaxed_overlay_card"
+        card["identityStatus"] = "provisional"
+        cursor = IdentityCursor(variant=None, source={"variant_id": 5})
+
+        self.assertEqual(db_runtime.upsert_variant(cursor, card), 5)
+
+        self.assertFalse(any("INSERT INTO catalog_variant" in query for query, _ in cursor.calls))
+        self.assertFalse(any("UPDATE catalog_source_identity" in query for query, _ in cursor.calls))
+
+    def test_provisional_status_resolution_can_use_exact_source_owner(self) -> None:
+        class SourceOwnerCursor:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, object]] = []
+                self.phase = 0
+
+            def execute(self, query: str, args: object = None) -> None:
+                self.calls.append((query, args))
+                self.phase += 1
+
+            def fetchall(self) -> list[dict[str, object]]:
+                if self.phase == 1:
+                    return []
+                return [{"source_code": "ebay", "external_entity_id": "g10-source", "resolved_variant_id": 7}]
+
+        cards = [{
+            "pokedexId": "g10_overlay_id",
+            "identityStatus": "provisional",
+            "canonicalSourceCode": "ebay",
+            "canonicalExternalId": "g10-source",
+        }]
+        resolved = db_runtime.resolved_universe_variants(SourceOwnerCursor(), cards)
+        self.assertEqual(resolved, {"g10_overlay_id": 7})
 
     def test_exact_gemrate_id_is_bound_alongside_non_gemrate_canonical_identity(self) -> None:
         card = formal_card()
@@ -407,13 +708,47 @@ class DbRuntimeTransactionTests(unittest.TestCase):
         ):
             result = db_runtime.import_all(connection, Path("active.json"), Path("landing"))
 
-        self.assertEqual(result, {"active": 2, "batches": 1, "replayedBatches": 0, "observations": 3})
+        self.assertEqual(
+            result,
+            {
+                "active": 2,
+                "sourceEntries": 2,
+                "aliasesCollapsed": 0,
+                "batches": 1,
+                "replayedBatches": 0,
+                "observations": 3,
+            },
+        )
         import_lock.assert_called_once_with(connection, document, commit=False)
         import_batch.assert_called_once_with(connection, batches[0][0], batches[0][1], variants, document["collectionPayloadSha256"], commit=False)
         promote_lock.assert_called_once_with(connection, 41, 2, commit=False)
         self.assertEqual(connection.commits, 1)
         self.assertEqual(connection.rollbacks, 0)
         self.assertTrue(any("RELEASE_LOCK" in query for query, _ in connection.cursor_value.calls))
+
+    def test_import_all_promotes_distinct_canonical_members_but_reports_source_entries(self) -> None:
+        connection = Connection()
+        document = alias_schema5_document()
+        variants = {
+            ("fixture", "alias-1"): 10,
+            ("fixture", "formal-1"): 10,
+        }
+        with (
+            patch.object(db_runtime, "read_json", return_value=document),
+            patch.object(db_runtime, "import_lock", return_value=(variants, 41)),
+            patch.object(db_runtime, "iter_batches", return_value=[]),
+            patch.object(db_runtime, "promote_lock") as promote_lock,
+        ):
+            result = db_runtime.import_all(
+                connection,
+                Path("active.json"),
+                Path("landing"),
+            )
+
+        self.assertEqual(result["active"], 1)
+        self.assertEqual(result["sourceEntries"], 2)
+        self.assertEqual(result["aliasesCollapsed"], 1)
+        promote_lock.assert_called_once_with(connection, 41, 1, commit=False)
 
 
 class AliasCursor(Cursor):

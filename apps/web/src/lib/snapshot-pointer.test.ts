@@ -6,9 +6,16 @@ const pointer = {
   generationId: "daily_20260722T031500Z",
   snapshotKey: "generations/daily_20260722T031500Z/snapshot.json",
   sha256: "a".repeat(64),
+  qcReceiptKey: "generations/daily_20260722T031500Z/qc-receipt.json",
+  qcReceiptSha256: "d".repeat(64),
   media: {
     prefix: "market-assets/" as const,
     hashes: ["b".repeat(64)],
+    assets: [
+      { key: `market-assets/${"b".repeat(64)}.webp`, sha256: "b".repeat(64) },
+      { key: `market-assets/${"b".repeat(64)}_200.webp`, sha256: "e".repeat(64) },
+      { key: `market-assets/${"b".repeat(64)}_600.webp`, sha256: "f".repeat(64) },
+    ],
     remoteVerified: true,
     remoteScope: "c".repeat(16),
   },
@@ -22,12 +29,28 @@ describe("snapshot pointer", () => {
   it("rejects legacy field names and mismatched generation keys", () => {
     expect(() => parseSnapshotPointer({ key: pointer.snapshotKey, generation: pointer.generationId })).toThrow();
     expect(() => parseSnapshotPointer({ ...pointer, snapshotKey: "generations/other/snapshot.json" })).toThrow();
+    expect(() => parseSnapshotPointer({ ...pointer, qcReceiptKey: "generations/other/qc-receipt.json" })).toThrow();
+    expect(() => parseSnapshotPointer({ ...pointer, qcReceiptSha256: undefined })).toThrow();
   });
 
   it("rejects missing, duplicate, or malformed media authorization", () => {
     expect(() => parseSnapshotPointer({ ...pointer, media: undefined })).toThrow("Snapshot pointer invalid");
     expect(() => parseSnapshotPointer({ ...pointer, media: { ...pointer.media, hashes: ["b".repeat(64), "b".repeat(64)] } })).toThrow("Snapshot pointer invalid");
     expect(() => parseSnapshotPointer({ ...pointer, media: { ...pointer.media, hashes: ["../private"] } })).toThrow("Snapshot pointer invalid");
+    expect(() => parseSnapshotPointer({ ...pointer, media: { ...pointer.media, assets: pointer.media.assets.slice(0, 2) } })).toThrow("Snapshot pointer invalid");
+    expect(() => parseSnapshotPointer({
+      ...pointer,
+      media: {
+        ...pointer.media,
+        assets: pointer.media.assets.map((asset, index) => (
+          index === 1 ? { ...asset, key: pointer.media.assets[0].key } : asset
+        )),
+      },
+    })).toThrow("Snapshot pointer invalid");
+    expect(() => parseSnapshotPointer({
+      ...pointer,
+      media: { ...pointer.media, remoteVerified: false },
+    })).toThrow("Snapshot pointer invalid");
   });
 
   it.each([

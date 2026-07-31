@@ -54,6 +54,18 @@ class FakeConnection:
 
 
 class CanonicalSeedTests(unittest.TestCase):
+    def test_seed_preserves_identity_aliases_and_review_audit(self) -> None:
+        self.assertIn("catalog_variant_alias", seed.CANONICAL_TABLES)
+        self.assertIn("market_identity_review_resolution", seed.CANONICAL_TABLES)
+        self.assertLess(
+            seed.CANONICAL_TABLES.index("catalog_variant_alias"),
+            seed.CANONICAL_TABLES.index("catalog_source_identity"),
+        )
+        self.assertGreater(
+            seed.CANONICAL_TABLES.index("market_identity_review_resolution"),
+            seed.CANONICAL_TABLES.index("market_identity_review_queue"),
+        )
+
     def test_seed_excludes_migration_owned_rows_that_restore_recreates(self) -> None:
         self.assertNotIn("cardz_schema_version", seed.CANONICAL_TABLES)
         self.assertNotIn("cardz_migration_ledger", seed.CANONICAL_TABLES)

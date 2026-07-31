@@ -170,8 +170,13 @@ def probe_pop_delta(cursor) -> dict:
 def probe_pop_coverage(cursor, roster_size: int) -> dict:
     best = scalar(
         cursor,
-        "SELECT MAX(v) FROM (SELECT COUNT(DISTINCT variant_id) v "
-        "FROM market_grader_population_observation GROUP BY observed_date) t",
+        "SELECT MAX(v) FROM ("
+        " SELECT p.observed_date,COUNT(DISTINCT p.variant_id) v"
+        " FROM market_grader_population_observation p"
+        " JOIN market_universe_member m ON m.variant_id=p.variant_id"
+        " JOIN market_universe_lock l ON l.id=m.universe_lock_id AND l.is_current=1"
+        " GROUP BY p.observed_date"
+        ") t",
     )
     pct = (best / roster_size * 100) if roster_size else 0.0
     return {
@@ -186,30 +191,64 @@ def probe_pop_coverage(cursor, roster_size: int) -> dict:
 
 
 def probe_price_coverage(cursor, roster_size: int) -> dict:
+    exact_identity = scalar(
+        cursor,
+        "SELECT COUNT(DISTINCT m.variant_id)"
+        " FROM market_universe_member m"
+        " JOIN market_universe_lock l ON l.id=m.universe_lock_id AND l.is_current=1"
+        " JOIN catalog_source_identity i ON i.variant_id=m.variant_id"
+        " WHERE i.source_code='snkrdunk'",
+    )
     covered = scalar(
-        cursor, "SELECT COUNT(DISTINCT variant_id) FROM market_price_observation"
+        cursor,
+        "SELECT COUNT(DISTINCT p.variant_id)"
+        " FROM market_universe_member m"
+        " JOIN market_universe_lock l ON l.id=m.universe_lock_id AND l.is_current=1"
+        " JOIN market_price_observation p ON p.variant_id=m.variant_id",
+    )
+    fresh = scalar(
+        cursor,
+        "SELECT COUNT(DISTINCT p.variant_id)"
+        " FROM market_universe_member m"
+        " JOIN market_universe_lock l ON l.id=m.universe_lock_id AND l.is_current=1"
+        " JOIN market_price_observation p ON p.variant_id=m.variant_id"
+        " WHERE p.observed_date >= DATE_SUB("
+        "   COALESCE((SELECT MAX(effective_date) FROM market_index_snapshot),"
+        "            (SELECT MAX(observed_date) FROM market_price_observation)),"
+        "   INTERVAL 2 DAY"
+        " )",
     )
     pct = (covered / roster_size * 100) if roster_size else 0.0
+    fresh_pct = (fresh / roster_size * 100) if roster_size else 0.0
+    identity_pct = (exact_identity / roster_size * 100) if roster_size else 0.0
     return {
         "gap": "price_coverage",
         "surface": "價 / 價 delta / 市值",
         "table": "market_price_observation",
         "rows": int(covered),
+        "exactIdentityRows": int(exact_identity),
+        "freshRows": int(fresh),
         "consumer": "canonical_public_snapshot.py",
         "verdict": "ok" if pct >= 90 else "structural_ceiling",
         "detail": (
-            f"{covered}/{roster_size} = {pct:.1f}% roster 有過價格觀測。"
+            f"current universe exact SNK identity {exact_identity}/{roster_size} = {identity_pct:.1f}%；"
+            f"有過價格 {covered}/{roster_size} = {pct:.1f}%；"
+            f"48h 新鮮價格 {fresh}/{roster_size} = {fresh_pct:.1f}%。"
             f"呢個係結構性上限，唔係等時間解決得到 —— 要加價格源"
         ),
     }
 
 
-def roster_count() -> int:
-    path = ROOT / "data" / "runtime" / "private-source-map" / "tracked-gemrate-ids.txt"
-    if not path.exists():
-        return 0
-    # CRLF 陷阱：呢個檔係 CRLF，其他 roster 檔係 LF。一律 strip 先比對。
-    return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+def current_universe_count(cursor) -> int:
+    return int(
+        scalar(
+            cursor,
+            "SELECT COUNT(*)"
+            " FROM market_universe_member m"
+            " JOIN market_universe_lock l ON l.id=m.universe_lock_id"
+            " WHERE l.is_current=1",
+        )
+    )
 
 
 # 會令 exit 1 嘅：可以修好、修好之後應該永久消失嘅斷點。
@@ -238,9 +277,9 @@ def main() -> int:
         print(f"[wiring] FAIL 驗唔到: {type(error).__name__}: {error}", file=sys.stderr)
         return 2
 
-    roster = roster_count()
     try:
         cursor = connection.cursor()
+        roster = current_universe_count(cursor)
         probes = [
             probe_fx(cursor),
             probe_tracked_sales(cursor),

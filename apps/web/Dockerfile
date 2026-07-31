@@ -30,9 +30,9 @@ ENV CARDZ_PUBLIC_BUILD_ID=${CARDZ_PUBLIC_BUILD_ID} \
 WORKDIR /repo/apps/web
 RUN npm run build
 
-# Next standalone 唔會自動帶埋 .next/static 同 public，要人手放埋入 standalone 樹。
-RUN cp -r .next/static .next/standalone/apps/web/.next/static \
- && cp -r public .next/standalone/apps/web/public
+# apps/web/scripts/prepare-standalone.mjs 已經將 .next/static 同非市場 public
+# assets 放入 standalone 樹；市場圖必須經 generation-aware route。Docker 同
+# WSL 共用同一個可驗證 build contract。
 
 
 FROM node:24-bookworm-slim AS runner

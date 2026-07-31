@@ -49,8 +49,10 @@ unique 卡名，卡名 match 係假嘅）：
 `card_number_match` / `language_match` 係真係攞 asset_info 對 `catalog_variant`
 比出嚟。`tcg_match` 恆為 0 —— asset_info **根本冇寫 TCG**，冇得確認就唔准當 1。
 `raw_front_confirmed` 用四角 alpha 判原生去背卡圖（同 `is_native_rounded()` 同
-一把尺），唔係靠檔名估。`public_allowed` 全部 0：入私庫係一件事，出街係另一件
-事，唔喺呢度決定。
+一把尺），唔係靠檔名估。strict 保持 `public_allowed=0`；
+`relaxed-launch-v1` 會將已對到 identity、已驗 private landing bytes 嘅 G10
+raw-front 圖標為公開候選，但繼續保留所有未確認 metadata，同時唔會寫 provider URL
+入公開資料。
 
 ## Idempotency
 
@@ -78,6 +80,12 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
+from data_routing import (
+    DEFAULT_RELEASE_PROFILE,
+    DEFAULT_ROUTES,
+    load_and_validate,
+    load_release_profile,
+)
 from db_runtime import add_connection_args, connection_from_args
 
 DEFAULT_G10_ROOT = ROOT.parent / "grade10-scraper" / "data"
@@ -87,13 +95,14 @@ SOURCE_CODE = "g10_asset"
 IMAGE_KIND = "raw_front"
 QC_VERSION = "g10-asset-v1"
 SEMANTIC_MATCH_STATUS = "source_id_exact"
+RELAXED_LAUNCH_PROFILE = "relaxed-launch-v1"
 
 # G10 目錄前綴 → catalog_source_identity.source_code
 PROVIDER_IDENTITY_SOURCE = {"altxyz": "ebay", "snkrdunk": "snkrdunk"}
 
 PIL_FORMAT_MIME = {"JPEG": "image/jpeg", "WEBP": "image/webp", "PNG": "image/png"}
 
-# asset_info["language"] → catalog_variant.card_language
+# Source language 只供 asset evidence；唔會寫入 catalog identity。
 LANGUAGE_ALIASES = {"jp": "ja", "ja": "ja", "en": "en"}
 
 # 四角 alpha 低過呢個值先當原生去背圓角卡圖（同 native_image_resolver 同一把尺）
@@ -303,14 +312,38 @@ def load_variants(connection, variant_ids: set[int]) -> dict[int, Mapping[str, A
     placeholders = ", ".join(["%s"] * len(ids))
     with connection.cursor() as cursor:
         cursor.execute(
-            "SELECT id, canonical_name, collector_number, card_language, tcg_code "
+            "SELECT id, canonical_name, collector_number, tcg_code "
             f"FROM catalog_variant WHERE id IN ({placeholders})",
             ids,
         )
         return {int(row["id"]): row for row in cursor.fetchall()}
 
 
-def build_qc(image: ImageRecord, variant: Mapping[str, Any] | None) -> dict[str, Any]:
+def g10_images_public_eligible(release_profile: Mapping[str, Any] | None) -> bool:
+    """Whether this profile accepts Grade10 raw-front assets as public candidates."""
+
+    if not isinstance(release_profile, Mapping):
+        return False
+    if str(release_profile.get("releaseProfile") or "").strip() != RELAXED_LAUNCH_PROFILE:
+        return False
+    policy = release_profile.get("policy")
+    if not isinstance(policy, Mapping):
+        return False
+    accepted = policy.get("acceptedBootstrapSources")
+    if not isinstance(accepted, Mapping):
+        return False
+    images = accepted.get("images")
+    if not isinstance(images, (list, tuple)):
+        return False
+    return "grade10" in {str(value).strip().casefold() for value in images}
+
+
+def build_qc(
+    image: ImageRecord,
+    variant: Mapping[str, Any] | None,
+    *,
+    public_allowed: bool = False,
+) -> dict[str, Any]:
     """只記真係量得到嘅嘢，量唔到就 0 + 寫低點解。"""
     source_data = image.source.data if image.source else {}
     unconfirmed: list[str] = []
@@ -321,11 +354,8 @@ def build_qc(image: ImageRecord, variant: Mapping[str, Any] | None) -> dict[str,
     if not card_number_match:
         unconfirmed.append("card_number" if source_number else "card_number_absent_in_source")
 
-    source_language = LANGUAGE_ALIASES.get(str(source_data.get("language") or "").lower(), "")
-    variant_language = str((variant or {}).get("card_language") or "").lower()
-    language_match = bool(source_language and source_language == variant_language)
-    if not language_match:
-        unconfirmed.append("language" if source_language else "language_absent_in_source")
+    language_match = False
+    unconfirmed.append("card_language_removed")
 
     # asset_info 冇 TCG 欄位，冇得確認 → 恆 0，唔准當 1
     unconfirmed.append("tcg_unstated_in_source")
@@ -339,12 +369,19 @@ def build_qc(image: ImageRecord, variant: Mapping[str, Any] | None) -> dict[str,
         "language_match": int(language_match),
         "tcg_match": 0,
         "raw_front_confirmed": int(image.has_alpha_corners),
-        "public_allowed": 0,
+        "public_allowed": int(public_allowed),
         "rejection_reason": ("unconfirmed:" + ",".join(unconfirmed))[:500] if unconfirmed else None,
     }
 
 
-def build(connection, cards_root: Path, images_root: Path, landing_root: Path) -> dict[str, Any]:
+def build(
+    connection,
+    cards_root: Path,
+    images_root: Path,
+    landing_root: Path,
+    *,
+    release_profile: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     sources, source_skips = scan_source_records(cards_root)
     images, image_skips = scan_images(images_root)
 
@@ -397,7 +434,15 @@ def build(connection, cards_root: Path, images_root: Path, landing_root: Path) -
     image_tally.accepted = len(asset_rows)
 
     variants = load_variants(connection, {r.variant_id for r in asset_rows if r.variant_id})
-    qc_rows = {r.content_sha256: build_qc(r, variants.get(r.variant_id or 0)) for r in asset_rows}
+    public_eligible = g10_images_public_eligible(release_profile)
+    qc_rows = {
+        r.content_sha256: build_qc(
+            r,
+            variants.get(r.variant_id or 0),
+            public_allowed=public_eligible,
+        )
+        for r in asset_rows
+    }
 
     fingerprints = sorted(
         [f"pointer|{r.variant_id}|{r.version_sha256}" for r in pointer_rows]
@@ -415,6 +460,10 @@ def build(connection, cards_root: Path, images_root: Path, landing_root: Path) -
         "variants": variants,
         "source_tally": source_tally,
         "image_tally": image_tally,
+        "releaseProfile": str(release_profile.get("releaseProfile") or "strict-v1")
+        if isinstance(release_profile, Mapping)
+        else "strict-v1",
+        "g10ImagesPublicEligible": public_eligible,
         "landing_run": landing_run.name,
         "effective_at": effective_at,
         "payload_sha256": sha256_text("\n".join(fingerprints)),
@@ -469,7 +518,9 @@ def write(connection, plan: Mapping[str, Any]) -> dict[str, Any]:
                 INSERT IGNORE INTO market_image_source_pointer
                     (variant_id, image_kind, remote_url_sha256, source_path,
                      source_version_sha256, public_allowed, observed_at)
-                VALUES (%s, %s, %s, %s, %s, 0, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    public_allowed=GREATEST(public_allowed, VALUES(public_allowed))
                 """,
                 (
                     record.variant_id,
@@ -477,6 +528,7 @@ def write(connection, plan: Mapping[str, Any]) -> dict[str, Any]:
                     sha256_text(record.remote_url),
                     str(record.path.relative_to(record.path.parents[3]))[:500],
                     record.version_sha256,
+                    int(bool(plan["g10ImagesPublicEligible"])),
                     record.observed_at,
                 ),
             )
@@ -512,11 +564,13 @@ def write(connection, plan: Mapping[str, Any]) -> dict[str, Any]:
             qc = plan["qc_rows"][record.content_sha256]
             cursor.execute(
                 """
-                INSERT IGNORE INTO market_image_qc
+                INSERT INTO market_image_qc
                     (image_asset_id, semantic_match_status, card_number_match, language_match,
                      tcg_match, raw_front_confirmed, public_allowed, rejection_reason,
                      checked_at, qc_version)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    public_allowed=GREATEST(public_allowed, VALUES(public_allowed))
                 """,
                 (
                     int(row["id"]),
@@ -560,6 +614,7 @@ def print_report(plan: Mapping[str, Any], write_result: Mapping[str, Any] | None
     assets = plan["asset_rows"]
 
     print("== G10 asset ingest ==")
+    print(f"  release profile   : {plan['releaseProfile']}")
     print(f"  landing freeze run : {plan['landing_run']}")
     print(f"  effective_at       : {plan['effective_at']}")
 
@@ -599,7 +654,10 @@ def print_report(plan: Mapping[str, Any], write_result: Mapping[str, Any] | None
     print(f"  language_match    : {sum(v['language_match'] for v in qc.values())}/{len(qc)}")
     print(f"  raw_front_confirmed: {sum(v['raw_front_confirmed'] for v in qc.values())}/{len(qc)}")
     print(f"  tcg_match         : 0/{len(qc)} (asset_info 冇 TCG 欄位，冇得確認)")
-    print(f"  public_allowed    : 0/{len(qc)} (入私庫唔等於出街)")
+    print(
+        f"  public_allowed    : {sum(v['public_allowed'] for v in qc.values())}/{len(qc)}"
+        " (relaxed G10 bootstrap candidate only)"
+    )
 
     if write_result is None:
         print("\n(dry-run — 加 --write 先會真係寫入)")
@@ -617,9 +675,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--g10-root", type=Path, default=DEFAULT_G10_ROOT)
     parser.add_argument("--landing-root", type=Path, default=DEFAULT_LANDING)
+    parser.add_argument("--release-profile", default=DEFAULT_RELEASE_PROFILE)
     parser.add_argument("--write", action="store_true", help="真係寫入（預設 dry-run）")
     add_connection_args(parser)
     args = parser.parse_args(argv)
+    release_profile = load_release_profile(
+        load_and_validate(DEFAULT_ROUTES), args.release_profile
+    )
 
     cards_root = args.g10_root / "cards"
     images_root = args.g10_root / "images"
@@ -630,7 +692,13 @@ def main(argv: list[str] | None = None) -> int:
     connection = connection_from_args(args)
     try:
         try:
-            plan = build(connection, cards_root, images_root, args.landing_root)
+            plan = build(
+                connection,
+                cards_root,
+                images_root,
+                args.landing_root,
+                release_profile=release_profile,
+            )
         except FileNotFoundError as exc:
             print(str(exc), file=sys.stderr)
             return 2

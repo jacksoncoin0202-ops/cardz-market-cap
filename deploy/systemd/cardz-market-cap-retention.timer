@@ -1,0 +1,12 @@
+[Unit]
+Description=Prepare CARDZ retention plan weekly (disabled by default)
+
+[Timer]
+OnCalendar=Tue *-*-* 17:17:00 UTC
+RandomizedDelaySec=1800
+Persistent=true
+AccuracySec=1min
+Unit=cardz-market-cap-retention.service
+
+# Intentionally no installation section. This timer remains disabled until a reviewed
+# one-time archive/pointer apply proves the retention contract.

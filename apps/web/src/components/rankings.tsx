@@ -108,12 +108,17 @@ function ChangeBadge({ card, period, locale }: { card: MarketCardView; period: "
 export function Rankings({ cards, locale, currency, snapshot, href, watchlist = false, marketLabel }: RankingsProps) {
   const { period } = useMarketSettings();
   const t = copy[locale];
+  const fullVerifiedTop100 = snapshot.coverage.claim === "verified-top-100"
+    && snapshot.coverage.verifiedCount === 100
+    && cards.length === 100;
+  const rankingTitle = (fullVerifiedTop100 ? t.heatmap.rankingTitle : t.heatmap.verifiedRankingTitle)
+    .replace("{count}", String(cards.length));
   return (
     <section className="rankings-section" id="market-ranking" aria-labelledby="ranking-heading">
       <div className="ranking-heading">
         <div>
           <p className="section-kicker">{watchlist ? t.labels.watchStatus : marketLabel ?? t.nav.all}</p>
-          <h2 id="ranking-heading">{watchlist ? t.nav.watchlist : t.heatmap.rankingTitle.replace("{count}", String(cards.length))}</h2>
+          <h2 id="ranking-heading">{watchlist ? t.nav.watchlist : rankingTitle}</h2>
         </div>
         <PeriodSelector compact />
       </div>
@@ -138,7 +143,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                 const metrics = card.windows[period];
                 return (
                   <tr key={card.id}>
-                    <td className="rank-cell">{card.rank}</td>
+                    <td className="rank-cell">{card.viewRank}</td>
                     <td><Link href={href(`/card/${card.id}`)}><CardIdentity card={card} locale={locale} unavailable={t.status.unavailable} /></Link></td>
                     <td className="collector-cell">{card.collectorNumber}</td>
                     <td className="numeric price-cell">
@@ -172,7 +177,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
             </div>
             {cards.map((card) => (
               <Link className="mobile-rank-card" href={href(`/card/${card.id}`)} key={card.id}>
-                <span className="mobile-rank-index">{card.rank}</span>
+                <span className="mobile-rank-index">{card.viewRank}</span>
                 <div className="ranking-thumb"><CardImage image={card.image} sizes="56px" /></div>
                 <div className="mobile-card-info">
                   <span className="mobile-card-number">{card.collectorNumber}</span>

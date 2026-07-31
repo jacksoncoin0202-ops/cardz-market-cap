@@ -8,7 +8,7 @@
 用法：
     python -X utf8 pipelines/ensure_std_card_images.py <snapshot.json> [--write]
 
-預設 dry-run 出報告；--write 先正式覆寫 snapshot + 寫 image-qc.json。
+預設 dry-run 出報告；--write 先正式覆寫 snapshot + 指定嘅 QC candidate。
 每日 pipeline（canonical_public_snapshot 出完貨）叫一次 --write，
 新入列嘅卡即日自動統一，唔駛等人手追。
 """
@@ -30,6 +30,38 @@ from canonical_public_snapshot import snapshot_content_sha256  # noqa: E402
 from PIL import Image  # noqa: E402
 
 QC = ROOT / "manifests" / "image-qc.json"
+LATEST_POINTERS = (
+    ROOT / "data" / "runtime" / "publish-staging" / "latest.json",
+    ROOT / "data" / "public" / "publish-staging" / "latest.json",
+)
+
+
+def assert_not_pointed_generation(
+    snapshot_path: Path,
+    pointer_path: Path = LATEST_POINTERS[0],
+) -> None:
+    """Refuse to mutate the snapshot currently selected by the local pointer."""
+
+    pointer_path = pointer_path.resolve()
+    if not pointer_path.is_file():
+        return
+    try:
+        pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"cannot validate active publish pointer: {pointer_path}") from exc
+    snapshot_key = pointer.get("snapshotKey") if isinstance(pointer, dict) else None
+    if not isinstance(snapshot_key, str) or not snapshot_key.strip():
+        raise RuntimeError(f"active publish pointer has no safe snapshotKey: {pointer_path}")
+    publish_root = pointer_path.parent
+    pointed_path = (publish_root / snapshot_key).resolve()
+    try:
+        pointed_path.relative_to(publish_root)
+    except ValueError as exc:
+        raise RuntimeError(f"active publish pointer snapshotKey escapes publish root: {snapshot_key}") from exc
+    if snapshot_path.resolve() == pointed_path:
+        raise RuntimeError(
+            f"refusing to mutate active pointed generation snapshot: {snapshot_path.resolve()}"
+        )
 
 
 def ensure_cards(cards: list[dict], *, write: bool) -> tuple[dict[str, int], dict[str, str]]:
@@ -97,9 +129,24 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("snapshot", type=Path)
     parser.add_argument("--write", action="store_true", help="正式覆寫 snapshot + QC（預設 dry-run）")
+    parser.add_argument(
+        "--manifest",
+        type=Path,
+        default=QC,
+        help="candidate image-QC manifest; daily publication must not overwrite the canonical input",
+    )
+    parser.add_argument(
+        "--pointer",
+        action="append",
+        type=Path,
+        default=[],
+        help="additional local latest pointer whose selected generation is immutable",
+    )
     args = parser.parse_args()
-
     snapshot_path = args.snapshot.resolve()
+    if args.write:
+        for pointer_path in dict.fromkeys([*LATEST_POINTERS, *args.pointer]):
+            assert_not_pointed_generation(snapshot_path, pointer_path)
     snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
     cards = snapshot["top100"] + snapshot["watchlist"]
     stats, origins = ensure_cards(cards, write=args.write)
@@ -109,7 +156,8 @@ def main() -> int:
     if not args.write or not (stats["resized"] or stats["rounded"]):
         return 0
 
-    manifest = json.loads(QC.read_text(encoding="utf-8"))
+    manifest_path = args.manifest.resolve()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     records = manifest.setdefault("records", [])
     have = {r["contentSha256"] for r in records}
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -133,7 +181,7 @@ def main() -> int:
             "languageMatch": True,
             "nativeRgba": True,
             "stdCanvas": nir.NORMALIZED_MARKER,
-            "publicAllowed": True,
+            "publicAllowed": False,
             "publicId": card["id"],
             "qcAt": now,
             "qcVersion": "raw-front-v4",
@@ -151,7 +199,7 @@ def main() -> int:
         have.add(sha)
         added += 1
     records.sort(key=lambda r: r["publicId"])
-    QC.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     # 換完卡圖 block（sha256 / 尺寸 / src / variants 全部變咗）就一定要重算
     # generation.contentSha256，否則 packages/market-data 個 validator 重算出嚟
     # 唔啱，成份 snapshot 會被 reject —— 而呢個腳本淨係喺「有新卡要修」嗰陣

@@ -31,7 +31,9 @@ from g10_asset_ingest import (  # noqa: E402
     probe_image,
     scan_images,
     scan_source_records,
+    write,
 )
+from data_routing import DEFAULT_ROUTES, load_and_validate, load_release_profile  # noqa: E402
 
 
 # --------------------------------------------------------------------------- fixtures
@@ -296,9 +298,10 @@ def test_qc_never_claims_tcg_or_public():
     assert qc["tcg_match"] == 0
     assert qc["public_allowed"] == 0
     assert "tcg_unstated_in_source" in qc["rejection_reason"]
-    # 呢兩個係真係比出嚟
+    # 卡號同 raw-front 證據仍然保留；語言已退出 DB identity。
     assert qc["card_number_match"] == 1
-    assert qc["language_match"] == 1
+    assert qc["language_match"] == 0
+    assert "card_language_removed" in qc["rejection_reason"]
     assert qc["raw_front_confirmed"] == 1
 
 
@@ -339,6 +342,98 @@ def test_qc_row_per_accepted_asset(g10_tree: Path, tmp_path: Path):
         landing,
     )
     assert set(plan["qc_rows"]) == {r.content_sha256 for r in plan["asset_rows"]}
+
+
+def test_relaxed_profile_marks_valid_g10_images_public_without_metadata_qc_gate(
+    g10_tree: Path, tmp_path: Path
+):
+    landing = _landing_from(g10_tree / "images", tmp_path)
+    routing = load_and_validate(DEFAULT_ROUTES)
+    relaxed = load_release_profile(routing, "relaxed-launch-v1")
+    strict = load_release_profile(routing, "strict-v1")
+
+    relaxed_plan = build(
+        _connection(identities=DEFAULT_IDENTITIES, variants=DEFAULT_VARIANTS),
+        g10_tree / "cards",
+        g10_tree / "images",
+        landing,
+        release_profile=relaxed,
+    )
+    assert relaxed_plan["g10ImagesPublicEligible"] is True
+    assert relaxed_plan["releaseProfile"] == "relaxed-launch-v1"
+    assert {row["public_allowed"] for row in relaxed_plan["qc_rows"].values()} == {1}
+    # The G10 fixture has no TCG proof; relaxed acceptance must not turn that
+    # absence into a pre-ingest QC gate.
+    assert {row["tcg_match"] for row in relaxed_plan["qc_rows"].values()} == {0}
+
+    strict_plan = build(
+        _connection(identities=DEFAULT_IDENTITIES, variants=DEFAULT_VARIANTS),
+        g10_tree / "cards",
+        g10_tree / "images",
+        landing,
+        release_profile=strict,
+    )
+    assert strict_plan["g10ImagesPublicEligible"] is False
+    assert {row["public_allowed"] for row in strict_plan["qc_rows"].values()} == {0}
+
+    class RecordingCursor:
+        def __init__(self, connection):
+            self.connection = connection
+            self.lastrowid = 1
+            self.row = None
+
+        def execute(self, sql, params=None):
+            self.connection.statements.append((sql, params))
+            if "SELECT COUNT(*)" in sql:
+                self.row = {"c": 0}
+            elif "SELECT id FROM market_image_asset" in sql:
+                self.row = {"id": 1}
+            else:
+                self.row = None
+
+        def fetchone(self):
+            return self.row
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    class RecordingConnection:
+        def __init__(self):
+            self.statements = []
+            self.committed = False
+
+        def cursor(self):
+            return RecordingCursor(self)
+
+        def commit(self):
+            self.committed = True
+
+    connection = RecordingConnection()
+    write(connection, relaxed_plan)
+    pointer_writes = [
+        (sql, params)
+        for sql, params in connection.statements
+        if "INSERT IGNORE INTO market_image_source_pointer" in sql
+    ]
+    qc_writes = [
+        (sql, params)
+        for sql, params in connection.statements
+        if "INSERT INTO market_image_qc" in sql
+    ]
+    assert pointer_writes and qc_writes
+    assert all(params[-2] == 1 for _sql, params in pointer_writes)
+    assert all(params[6] == 1 for _sql, params in qc_writes)
+    assert all("ON DUPLICATE KEY UPDATE" in sql for sql, _params in pointer_writes + qc_writes)
+    # The upstream image URL is reduced to a hash; it is not written into a
+    # public-eligible pointer field.
+    assert all(
+        "https://" not in str(value)
+        for _sql, params in pointer_writes
+        for value in params
+    )
 
 
 # --------------------------------------------------------------------------- run ledger

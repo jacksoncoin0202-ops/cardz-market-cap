@@ -179,7 +179,7 @@ rm -rf /tmp/clone-check
 |-----|------|-----------|
 | `CARDZ_DB_HOST` / `CARDZ_DB_PORT` / `CARDZ_DB_NAME` / `CARDZ_DB_USER` | local docker 有預設值（`127.0.0.1` / `3308` / `cardz_market_cap` / `cardz`）；managed DB 必需明確設 | [compose.backend.yaml](../compose.backend.yaml) / 雲商 console |
 | `CARDZ_DB_MODE` | 用 managed DB 時設 `external` | 部署決定 |
-| `CARDZ_DB_SSL_CA` | `external` + `--mode production` **必需**，否則 [scripts/backend.py](../scripts/backend.py) 直接 raise `production managed database runs require CARDZ_DB_SSL_CA` | 雲商 CA bundle 檔路徑 |
+| `CARDZ_DB_SSL_CA` | 非 loopback `external` + `--mode production` **必需**，否則 [scripts/backend.py](../scripts/backend.py) 直接 raise `production managed database runs require CARDZ_DB_SSL_CA`；只得本機 `127.0.0.1`／`::1`／`localhost` 豁免 | 雲商 CA bundle 檔路徑 |
 
 #### 可選
 
@@ -357,7 +357,7 @@ sudo -u cardz .venv-backend/bin/python scripts/verify_handoff.py \
 | Charset | `utf8mb4` / `utf8mb4_unicode_ci`，容器 `TZ: UTC` |
 | DB / user | `cardz_market_cap` / `cardz` |
 
-Schema 由 [pipelines/migrations/](../pipelines/migrations/) 十個 immutable 檔按序套用（`001_canonical_card_catalog` → `010_provider_identity_alias`），執行者 `backend.py bootstrap`。[scripts/seed_restore.py](../scripts/seed_restore.py) 對 migration 檔做 SHA-256 contract 檢查，**migration 檔遷移途中唔准改**。
+Schema 由 [pipelines/migrations/](../pipelines/migrations/) 十二個 immutable 檔按序套用（`001_canonical_card_catalog` → `012_index_evaluation_revisions`），執行者 `backend.py bootstrap`。`011` 加入 auditable variant alias／review resolution；`012` 將 index revision 綁到 exact evaluation，並加入 pending/passed publish gate。[scripts/seed_restore.py](../scripts/seed_restore.py) 對 migration 檔做 SHA-256 contract 檢查，**migration 檔遷移途中唔准改**。
 
 ### 4.2 路線 A：由 LFS bootstrap archive 重建（乾淨）
 
@@ -812,7 +812,7 @@ sudo -u cardz .venv-backend/bin/python -m pytest tests/test_verify_daily_run.py 
 
 ### 7.2 `scripts/verify_daily_run.py`——判成敗嘅唯一標準
 
-**唔准用 exit 0 或者 log 冇 traceback 當成功。** daily 鏈有三個已知靜默失敗位（collector replay、`INSERT IGNORE` no-op、`status` 只驗 integrity 唔驗 freshness）全部都 exit 0。
+**唔准用 exit 0 或者 log 冇 traceback 當成功。** 舊 daily 鏈曾有 collector replay、first-write-wins index 同只驗 integrity 唔驗 freshness 三個靜默位。現行 attempt/evaluation revision 已封前兩個，但 post-run outcome gate 仍然係成功標準。
 
 CLI（實測自 [scripts/verify_daily_run.py](../scripts/verify_daily_run.py)）：
 
@@ -933,11 +933,11 @@ SELECT observed_date, COUNT(*) FROM market_price_observation GROUP BY observed_d
 
 機制（2026-07-25 實證，[docs/HANDOFF.md](HANDOFF.md) §3）：
 
-1. [pipelines/run_daily.py](../pipelines/run_daily.py) `market_run_id = datetime.now(timezone.utc).strftime("sources_%Y%m%d")`
+1. 舊版 [pipelines/run_daily.py](../pipelines/run_daily.py) 只用 UTC 日期砌 `market_run_id`
 2. 排程設 06:30 JST → 該刻 UTC 係**前一日 21:30** → `run_id` = 尋日
 3. SNK collector 見同名 `run_id` 已有輸出 → `"replayed": true` → 唔重爬
 4. `market_price_observation` 唔推進 → 最新價日期停滯
-5. [pipelines/market_alerts.py](../pipelines/market_alerts.py) `INSERT IGNORE INTO market_index_snapshot`，unique key `(index_code, index_version, effective_date)` → no-op
+5. 舊版 [pipelines/market_alerts.py](../pipelines/market_alerts.py) 用 date-only unique key，修正版 retry 推唔走第一版
 6. 全鏈 exit 0，觀測數仲有增長（GemRate 用本地日期戳），表面完全正常
 
 | 排程時間 | 對應 UTC | 判定 |
@@ -947,7 +947,7 @@ SELECT observed_date, COUNT(*) FROM market_price_observation GROUP BY observed_d
 | 06:30 JST | 21:30 **前一日** | ❌ 已證靜默 no-op |
 | 00:05 UTC | 00:05 同日 | ⚠ 太貼午夜，`AccuracySec` 抖動可能落前一日 |
 
-Run 全程實測 2–2.5 小時，00:30 UTC 起最遲約 03:00 UTC 完，仍喺同一 UTC 日；`verify` 預設 `--expected-date` 亦係 UTC 今日，三者對齊。Watchdog 排喺 05:07 UTC，即係留咗約兩個鐘水位，唔會撞正 daily 仲跑緊。**主機時區設 UTC 令呢類撕裂由結構上消失。**
+以上係 2026-07-25 事故機制，唔係現行 run-ID 契約。現行每次 invocation 都有 timestamped immutable attempt ID，index row 綁 exact evaluation，只有 latest passed revision 可 export；同日下午恢復重跑會重新採集並可以取代上午 pending/failed attempt。Run 全程實測 2–2.5 小時，00:30 UTC 起最遲約 03:00 UTC 完；Watchdog 排喺 05:07 UTC，仍保留約兩個鐘水位。
 
 `TimeoutStartSec` 同樣係呢條時間線嘅一部分：service 已設 21600 秒（6 小時）。舊值 7200 秒（2 小時）低過實測時長，會喺 GemRate 爬到一半殺成棵 process tree，令 wrapper 尾段個 verify gate 永遠冇機會跑——即係「排錯時間」同「逾時太短」兩個問題會導致同一個結果：靜默死亡、零 alert。**兩個都唔准改回舊值。**
 
@@ -1169,8 +1169,8 @@ Linux 預設已經 UTF-8，`-X utf8` **保留無害**，建議照跟 Windows 寫
 |---|-----|------|
 | G2 | 冇 `.nvmrc`、`package.json` 冇 `engines` | Node 版本只喺 CI 同 [docs/RUNBOOK.md](RUNBOOK.md) 出現，新機易裝錯 major |
 | G3 | ✅ **已關閉（2026-07-26）**：daily 排程已經真正發佈 | 原問題：`backend.py daily` 只行 `--backend-only`，後端 run 成功 **≠** 網站更新。而家 unit 帶 `CARDZ_DAILY_PUBLISH=local`，`backend.py daily --publish --local-only` 行足 snapshot → 卡圖自愈 → catalog shrink gate → promote → quarantine → strict verify → `npm run build` → `publish-snapshot.mjs`。要埋 R2 上傳就轉 `remote`（要先備妥 bucket + canary + pointer JSON），詳見 [§6.2](#62-cardz-market-cap-dailyservice) |
-| G4 | Coverage audit 同 canonical DB 脫節 | `data-coverage-audit.json` 嘅 `canonicalDb.state="not_queried"`，唔擋遷移 |
-| G5 | Alert evaluation 全部 `coverage_status=blocked` | 唔擋 snapshot 寫入（已實證） |
+| G4 | ✅ **已關閉（2026-07-28）**：Coverage audit 只計 current-universe intersection | 分開 exact identity、ever-priced、fresh-price coverage，唔再將 roster 外 facts 計入分母／分子 |
+| G5 | ✅ **已關閉（2026-07-28）**：Alert evaluation 有 explicit publish gate | `coverage_status=blocked` 或 combined/Pokémon/One Piece board 數不足時保持 `pending`；snapshot exporter只揀 latest `passed` evaluation |
 | G6 | ✅ **已關閉（2026-07-26）**：[pipelines/gemrate_source.py](../pipelines/gemrate_source.py) 模組 docstring 同檔尾註冊範例原本寫「Daily at 06:45」，已改寫成「由 `run_daily.py` 帶起，跟 daily 時間 00:30 UTC = 09:30 JST」 | 實測 Windows 排程冇 `CARDZ-GemRate-Daily` task，06:45 個 slot 屬於 `CARDZ-TAG-Daily-Capture`。檔尾 PowerShell 範例已標明 LEGACY／OPTIONAL 並改用不撞車的時間 |
 | G7 | Log 冇 rotation | `data/runtime/logs/` 每 run 一檔，建議加 logrotate |
 | G8 | `apps/web/NUL` 未 track 且係 Windows 意外產物 | 刪咗，唔好搬 |

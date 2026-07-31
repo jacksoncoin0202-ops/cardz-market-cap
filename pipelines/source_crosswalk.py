@@ -168,32 +168,47 @@ def complete_collector_number(value: Any) -> bool:
     if "/" not in collector:
         return False
     left, right = collector.split("/", 1)
-    return bool(re.search(r"\d", left) and re.search(r"[A-Z0-9]", right))
+    if not re.search(r"\d", left):
+        return False
+    if right.isdigit():
+        return int(right) > 0
+    if re.search(r"\d", right):
+        return True
+    # Explicit Pokémon promo namespaces use denominators such as S-P, SM-P,
+    # SVP, and MEP. A generic one-letter/token denominator is not enough
+    # evidence for an exact printing.
+    return bool(
+        re.fullmatch(r"[A-Z0-9]{1,8}-P", right)
+        or re.fullmatch(r"[A-Z]{2,6}P", right)
+    )
 
 
 def canonical_printing_key(
     *,
     market: str,
+    language: str,
     set_name: str,
     collector_number: str,
-    language: str,
     edition: str,
     parallel: str,
     finish: str,
 ) -> str:
     """Return the exact canonical printing key from supplied identity fields.
 
-    Callers must have already verified the collector number and language.  This
-    function deliberately does not parse names, infer a set suffix, or use a
-    provider search result as identity evidence.
+    Callers must have already verified the complete collector number and the
+    physical card language.  The order matches ``card_identity.printing_key7``:
+    TCG, language, set, collector number, edition, parallel, finish.
     """
 
+    canonical_lang = canonical_language(language)
+    if not canonical_lang:
+        raise ValueError("canonical_printing_key_requires_language")
     return "|".join(
         (
             normalized_identity_part(market),
+            canonical_lang,
             normalized_identity_part(set_name),
             normalized_identity_part(collector_number),
-            normalized_identity_part(language),
             normalized_identity_part(edition),
             normalized_identity_part(parallel),
             normalized_identity_part(finish),
@@ -267,7 +282,7 @@ def build_gemrate_receipt_identity_proposal(
         page_identity.get("language"),
     ])
     if not language:
-        reasons.append("language_unavailable" if not language_matches else "language_conflict")
+        reasons.append("language_missing_or_conflicting")
 
     # GemRate's current receipt has no edition/finish fields.  They can only
     # enter an automatically confirmed printing when a retained, explicit
@@ -284,9 +299,9 @@ def build_gemrate_receipt_identity_proposal(
 
     identity = {
         "tcg": tcg,
+        "language": language,
         "setName": receipt_set,
         "collectorNumber": receipt_number,
-        "language": language,
         "edition": edition,
         "parallel": receipt_parallel,
         "finish": finish,
@@ -303,9 +318,9 @@ def build_gemrate_receipt_identity_proposal(
         },
         "canonicalPrintingKey": canonical_printing_key(
             market=tcg,
+            language=language,
             set_name=receipt_set,
             collector_number=receipt_number,
-            language=language,
             edition=edition,
             parallel=receipt_parallel,
             finish=finish,
@@ -378,14 +393,14 @@ def build_gemrate_direct_identity_proposal(
         candidate.get("languageEvidence"), candidate.get("descriptionEvidence"),
         candidate.get("setEvidence"), candidate.get("language"),
     ])
+    if not language:
+        reasons.append("language_missing_or_conflicting")
     if tcg not in {"pokemon", "one-piece"}:
         reasons.append("tcg_missing_or_unsupported")
     if not candidate_set:
         reasons.append("set_missing")
     if not complete_collector_number(candidate_number):
         reasons.append("collector_number_incomplete")
-    if not language:
-        reasons.append("language_unavailable" if not language_matches else "language_conflict")
     if not has_edition:
         reasons.append("edition_unavailable")
     if not has_parallel:
@@ -405,7 +420,6 @@ def build_gemrate_direct_identity_proposal(
     fields = {
         "set": (candidate_set, ("set", "setName", "set_name")),
         "collector_number": (candidate_number, ("cardNumber", "card_number", "collectorNumber", "collector_number")),
-        "language": (language, ("language", "lang")),
         "edition": (edition, ("edition",)),
         "parallel": (parallel, ("parallel", "variant")),
         "finish": (finish, ("finish",)),
@@ -415,16 +429,13 @@ def build_gemrate_direct_identity_proposal(
             actual = next((text(description.get(name)) for name in names if text(description.get(name))), "")
             if not actual:
                 continue
-            if label == "language":
-                actual_language = canonical_language(actual)
-                if not actual_language or actual_language != expected:
-                    reasons.append("direct_language_conflict")
-            elif normalized_identity_part(actual) != normalized_identity_part(expected):
+            if normalized_identity_part(actual) != normalized_identity_part(expected):
                 reasons.append(f"direct_{label}_conflict")
 
     identity = {
-        "tcg": tcg, "setName": candidate_set, "collectorNumber": candidate_number,
-        "language": language, "edition": edition, "parallel": parallel, "finish": finish,
+        "tcg": tcg, "language": language, "setName": candidate_set,
+        "collectorNumber": candidate_number,
+        "edition": edition, "parallel": parallel, "finish": finish,
     }
     return {
         "gemrateId": gemrate_id,
@@ -435,8 +446,9 @@ def build_gemrate_direct_identity_proposal(
             "storageScope": "gemrate_direct", "snkItemId": None,
         },
         "canonicalPrintingKey": canonical_printing_key(
-            market=tcg, set_name=candidate_set, collector_number=candidate_number,
-            language=language, edition=edition, parallel=parallel, finish=finish,
+            market=tcg, language=language, set_name=candidate_set,
+            collector_number=candidate_number,
+            edition=edition, parallel=parallel, finish=finish,
         ) if not reasons else None,
         "identityEvidence": {
             "directReceipt": {
@@ -551,26 +563,24 @@ def build_crosswalk(source_root: Path, generated_at: datetime | None = None) -> 
         if gemrate_id is None:
             missing_gemrate.append(f"{source_code}:{external_id}")
 
-        source_language = canonical_language(row.get("lang"))
-        asset_language = canonical_language(asset.get("language"))
         card_market = "one-piece" if market == "opcg" else "pokemon"
         collector = str(asset.get("cardId") or "").strip()
         set_name = str(asset.get("setName") or row.get("setName") or "").strip()
         edition = str(asset.get("edition") or row.get("edition") or "").strip()
         parallel = str(asset.get("parallel") or row.get("parallel") or "").strip()
         finish = str(asset.get("finish") or row.get("finish") or "").strip()
+        language, language_matches = language_from_exact_evidence(
+            [asset.get("language"), row.get("language"), row.get("lang")]
+        )
         reasons: list[str] = []
         if not asset:
             reasons.append("asset_identity_missing")
-        if not source_language and not asset_language:
-            reasons.append("language_missing")
-        elif source_language and asset_language and source_language != asset_language:
-            reasons.append("language_conflict")
         if not complete_collector_number(collector):
             reasons.append("collector_number_incomplete")
         if not set_name:
             reasons.append("set_missing")
-        resolved_language = asset_language or source_language
+        if not language:
+            reasons.append("language_missing_or_conflicting")
         card = {
             "canonicalSourceCode": source_code,
             "canonicalExternalId": external_id,
@@ -580,9 +590,10 @@ def build_crosswalk(source_root: Path, generated_at: datetime | None = None) -> 
             "snkItemId": int(external_id) if source_code == "snkrdunk" and external_id.isdigit() else None,
             "name": str(asset.get("cardName") or row.get("name") or "").strip(),
             "collectorNumberRaw": collector,
-            "language": resolved_language,
-            "sourceLanguage": source_language or None,
             "setName": set_name,
+            "language": language,
+            "sourceLanguage": str(asset.get("language") or "").strip(),
+            "languageEvidenceMatches": language_matches,
             "edition": edition,
             "parallel": parallel,
             "finish": finish,
@@ -593,9 +604,9 @@ def build_crosswalk(source_root: Path, generated_at: datetime | None = None) -> 
         if not reasons:
             card["canonicalPrintingKey"] = canonical_printing_key(
                 market=card_market,
+                language=language,
                 set_name=set_name,
                 collector_number=collector,
-                language=resolved_language,
                 edition=edition,
                 parallel=parallel,
                 finish=finish,

@@ -1,0 +1,126 @@
+{
+  "asOf": "2026-07-30",
+  "policy": "docs/POLICY_DB_PROVENANCE.md",
+  "entries": [
+    {
+      "fact": "price_exact_snk",
+      "db_table": "market_price_observation",
+      "source_codes": ["snk_psa10", "snk", "snkrdunk"],
+      "scripts": ["pipelines/snk_market_data.py", "pipelines/snkrdunk_bulk.py"],
+      "channel": "snkrdunk_http_api",
+      "identity": "catalog_source_identity.snkrdunk",
+      "incremental": "python -X utf8 pipelines/snk_market_data.py --ids-file IDS --out OUT.jsonl && python -X utf8 pipelines/snk_market_data.py --ingest-jsonl OUT.jsonl",
+      "notes": "exact primary JP path"
+    },
+    {
+      "fact": "price_exact_g10_kline",
+      "db_table": "market_price_observation",
+      "source_codes": ["g10_kline"],
+      "scripts": ["pipelines/g10_analytics_ingest.py", "pipelines/g10_kline_price_bridge.py"],
+      "channel": "g10_analytics_ledger",
+      "identity": "catalog_source_identity ebay|snkrdunk via ebay:uuid or snkrdunk:id",
+      "incremental": "python -X utf8 pipelines/g10_kline_price_bridge.py --write",
+      "notes": "DADDY 2026-07-30 exact-allowed; priority 300; freshness 48h still applies"
+    },
+    {
+      "fact": "price_exact_g10_ebay_median",
+      "db_table": "market_price_observation",
+      "source_codes": ["ebay"],
+      "scripts": ["pipelines/g10_ebay_ingest.py"],
+      "channel": "g10_local_altxyz_files",
+      "identity": "catalog_source_identity.ebay = altxyz UUID",
+      "incremental": "python -X utf8 pipelines/g10_ebay_ingest.py (from grade10-scraper data/cards)",
+      "notes": "NOT live eBay API; DADDY G10 trusted exact"
+    },
+    {
+      "fact": "sale_g10_ebay",
+      "db_table": "market_sale_observation",
+      "source_codes": ["ebay"],
+      "scripts": ["pipelines/g10_ebay_ingest.py"],
+      "channel": "g10_local_altxyz_files",
+      "identity": "external_entity_id = UUID",
+      "incremental": "same as g10_ebay_ingest",
+      "notes": "entity is UUID not pc:"
+    },
+    {
+      "fact": "sale_pc_sold_labeled_ebay",
+      "db_table": "market_sale_observation",
+      "source_codes": ["ebay"],
+      "scripts": [
+        "pipelines/pricecharting_cf_session.py",
+        "pipelines/pc_full_serial_driver.py",
+        "pipelines/pc_full_shard_runner.py",
+        "pipelines/c11_pc_sold_ingest.py",
+        "pipelines/pricecharting_page_parse.py"
+      ],
+      "channel": "pricecharting_cdp_chrome",
+      "identity": "external_entity_id = pc:{productId}; map in c11_pc_ebay_map*.jsonl",
+      "incremental": "serial PC runner → c11_pc_sold_ingest.py --write",
+      "notes": "NAMING TRAP: source_code ebay but channel is PriceCharting"
+    },
+    {
+      "fact": "sale_snk",
+      "db_table": "market_sale_observation",
+      "source_codes": ["snkrdunk", "snk_psa10", "snk", "snk_grade"],
+      "scripts": ["pipelines/ingest_snk_trades_sales.py", "pipelines/snk_market_data.py"],
+      "channel": "snkrdunk_http_api",
+      "identity": "snkrdunk apparel id",
+      "incremental": "after snk harvest with trades"
+    },
+    {
+      "fact": "population",
+      "db_table": "market_grader_population_observation",
+      "source_codes": ["gemrate"],
+      "scripts": ["pipelines/gemrate_source.py", "pipelines/gemrate_history_ingest.py", "pipelines/gemrate_brute_harvest.py"],
+      "channel": "gemrate_api_or_page",
+      "identity": "catalog_source_identity.gemrate",
+      "incremental": "gemrate harvest + history"
+    },
+    {
+      "fact": "identity_binds",
+      "db_table": "catalog_source_identity",
+      "source_codes": ["snkrdunk", "ebay", "pricecharting", "gemrate", "tcgpricelookup", "tcgfish"],
+      "scripts": ["pipelines/semi_auto_identity.py", "pipelines/attach_g10_ebay_watchlist.py", "pipelines/bind_snk_watchlist.py", "pipelines/pc_full_shard_runner.py"],
+      "channel": "multi",
+      "identity": "self",
+      "incremental": "per-source bind only; never invent UUID"
+    },
+    {
+      "fact": "image_snk",
+      "db_table": "market_image_asset",
+      "source_codes": ["snkrdunk"],
+      "scripts": ["pipelines/snk_image_ingest.py", "pipelines/snk_image_promotion.py"],
+      "channel": "snkrdunk_primaryMedia",
+      "identity": "snkrdunk",
+      "incremental": "snk_image_ingest.py --write --missing-only"
+    },
+    {
+      "fact": "image_op_limitless",
+      "db_table": "market_image_asset",
+      "source_codes": ["limitless"],
+      "scripts": ["pipelines/op_limitless_images.py"],
+      "channel": "limitless_cdn",
+      "identity": "collector_number OP",
+      "incremental": "op_limitless_images.py --write --only-missing",
+      "notes": "images only never PSA10 price"
+    },
+    {
+      "fact": "index_rank",
+      "db_table": "market_index_snapshot / constituents",
+      "source_codes": ["derived"],
+      "scripts": ["pipelines/market_alerts.py", "pipelines/ranking_derivation.py"],
+      "channel": "derived_from_price_pop",
+      "identity": "variant_id",
+      "incremental": "market_alerts after price+pop refresh"
+    },
+    {
+      "fact": "qc",
+      "db_table": "n/a (filesystem report)",
+      "source_codes": [],
+      "scripts": ["pipelines/canonical_db_qc.py"],
+      "channel": "read_only_mysql",
+      "identity": "n/a",
+      "incremental": "canonical_db_qc.py --run-id qc_YYYYMMDD_fill_rN"
+    }
+  ]
+}

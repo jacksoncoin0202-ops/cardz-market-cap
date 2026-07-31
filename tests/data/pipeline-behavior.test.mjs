@@ -102,7 +102,8 @@ test("daily orchestrator is fail-closed and contains no writable SQLite authorit
 });
 
 test("scheduler defaults to 09:30 unattended, singleton, six-hour timeout, and a watchdog", async (context) => {
-  const installer = await readFile(path.join(root, "pipelines/install_daily_task.ps1"), "utf8");
+  const installerPath = path.join(root, "deploy/windows/install_daily_task.ps1");
+  const installer = await readFile(installerPath, "utf8");
   const scheduledRunner = await readFile(path.join(root, "deploy/windows/run-cardz-daily.ps1"), "utf8");
   assert.match(installer, /CARDZ-Market-Cap-Daily/);
   assert.match(installer, /Get-Command python\.exe[^\n]+-All[^\n]+Select-Object -First 1/);
@@ -138,7 +139,7 @@ test("scheduler defaults to 09:30 unattended, singleton, six-hour timeout, and a
   const envFile = path.join(directory, "cardz-daily.env");
   await writeFile(envFile, "CARDZ_DB_PASSWORD=test-not-a-real-secret\n");
   const preview = await execute("powershell.exe", [
-    "-NoLogo", "-NoProfile", "-NonInteractive", "-File", path.join(root, "pipelines/install_daily_task.ps1"),
+    "-NoLogo", "-NoProfile", "-NonInteractive", "-File", installerPath,
     "-Action", "dry-run",
     "-PythonExe", python,
     "-EnvFile", envFile,
@@ -166,7 +167,7 @@ test("scheduled PowerShell scripts with non-ASCII content carry a UTF-8 BOM", as
     "deploy/windows/run-cardz-daily.ps1",
     "deploy/windows/run-cardz-watchdog.ps1",
     "deploy/windows/cardz-status.ps1",
-    "pipelines/install_daily_task.ps1",
+    "deploy/windows/install_daily_task.ps1",
   ];
   for (const relative of scripts) {
     const raw = await readFile(path.join(root, relative));
@@ -249,36 +250,83 @@ test("GemRate, TAG, and SNK collectors keep credentials private and publish only
   assert.match(snkPipeline, /state_path\.unlink\(missing_ok=True\)/);
 });
 
-test("publisher verifies all raw-front assets before writing latest pointer", async () => {
+test("publisher refuses the tracked demo snapshot and never writes a latest pointer", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "cardz-publish-"));
-  const { stdout } = await execute(
-    "node",
-    ["pipelines/publish-snapshot.mjs", "--allow-demo", "--out", directory],
-    { cwd: root },
+  const receipt = path.join(directory, "qc-receipt.json");
+  const dbReceipt = path.join(directory, "db-qc-receipt.json");
+  await writeFile(receipt, "{}\n");
+  await writeFile(dbReceipt, "{}\n");
+  await assert.rejects(
+    execute(
+      "node",
+      [
+        "pipelines/publish-snapshot.mjs",
+        "--qc-receipt",
+        receipt,
+        "--db-qc-receipt",
+        dbReceipt,
+        "--out",
+        directory,
+      ],
+      { cwd: root },
+    ),
+    /generation mode is not production|generation is release blocked/,
   );
-  const result = JSON.parse(stdout.trim());
-  const pointer = JSON.parse(await readFile(path.join(directory, "latest.json"), "utf8"));
-  const generation = JSON.parse(await readFile(path.join(directory, ...result.generationKey.split("/")), "utf8"));
-  assert.equal(pointer.generationId, generation.generation.id);
-  assert.equal(pointer.sha256, generation.generation.contentSha256);
-  assert.ok(result.assetCount >= 100);
-  assert.equal(result.remoteAssetsVerified, 0);
+  await assert.rejects(readFile(path.join(directory, "latest.json")), /ENOENT/);
+});
+
+test("a blocked publisher leaves the existing latest pointer byte-identical", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "cardz-publish-immutable-"));
+  const receipt = path.join(directory, "qc-receipt.json");
+  const dbReceipt = path.join(directory, "db-qc-receipt.json");
+  await writeFile(receipt, "{}\n");
+  await writeFile(dbReceipt, "{}\n");
+  const pointerBefore = '{"generationId":"last-good"}\n';
+  await writeFile(path.join(directory, "latest.json"), pointerBefore);
+  await assert.rejects(
+    execute(
+      "node",
+      [
+        "pipelines/publish-snapshot.mjs",
+        "--qc-receipt",
+        receipt,
+        "--db-qc-receipt",
+        dbReceipt,
+        "--out",
+        directory,
+      ],
+      { cwd: root },
+    ),
+    /generation mode is not production|generation is release blocked/,
+  );
+  assert.equal(await readFile(path.join(directory, "latest.json"), "utf8"), pointerBefore);
 });
 
 test("publisher refuses demo data without explicit allow-demo", async () => {
   await assert.rejects(
-    execute("node", ["pipelines/publish-snapshot.mjs", "--out", await mkdtemp(path.join(tmpdir(), "cardz-blocked-"))], { cwd: root }),
-    /generation mode is not production|generation is release blocked/,
+    execute("node", [
+      "pipelines/publish-snapshot.mjs",
+      "--allow-demo",
+      "--out",
+      await mkdtemp(path.join(tmpdir(), "cardz-blocked-")),
+    ], { cwd: root }),
+    /Unknown argument: --allow-demo/,
   );
 });
 
 test("remote publisher requires generation canary and conditional pointer promoter before any R2 write", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "cardz-remote-blocked-"));
+  const receipt = path.join(directory, "qc-receipt.json");
+  const dbReceipt = path.join(directory, "db-qc-receipt.json");
+  await writeFile(receipt, "{}\n");
+  await writeFile(dbReceipt, "{}\n");
   await assert.rejects(
     execute("node", [
-      "pipelines/publish-snapshot.mjs", "--allow-demo", "--r2-bucket", "never-contact-this-bucket",
-      "--out", await mkdtemp(path.join(tmpdir(), "cardz-remote-blocked-")),
+      "pipelines/publish-snapshot.mjs", "--qc-receipt", receipt,
+      "--db-qc-receipt", dbReceipt, "--r2-bucket", "never-contact-this-bucket",
+      "--out", directory,
     ], { cwd: root }),
-    /requires a generation-scoped canary command/,
+    /generation mode is not production|generation is release blocked|requires a generation-scoped canary command/,
   );
   const publisher = await readFile(path.join(root, "pipelines/publish-snapshot.mjs"), "utf8");
   assert.doesNotMatch(publisher, /r2Put\([^\n]+["']latest\.json["']/);
@@ -287,25 +335,8 @@ test("remote publisher requires generation canary and conditional pointer promot
 });
 
 test("publisher fails before pointer when a referenced raw-front is missing or changed", async () => {
-  const value = JSON.parse(await readFile(path.join(root, "data/public/seed-snapshot.json"), "utf8"));
-  const firstAsset = path.basename(value.top100[0].image.src);
-
-  const missingRoot = await mkdtemp(path.join(tmpdir(), "cardz-assets-missing-"));
-  await assert.rejects(
-    execute("node", [
-      "pipelines/publish-snapshot.mjs", "--allow-demo", "--assets-root", missingRoot,
-      "--out", await mkdtemp(path.join(tmpdir(), "cardz-assets-missing-out-")),
-    ], { cwd: root }),
-    /ENOENT|no such file/i,
-  );
-
-  const changedRoot = await mkdtemp(path.join(tmpdir(), "cardz-assets-changed-"));
-  await writeFile(path.join(changedRoot, firstAsset), "changed-image-bytes");
-  await assert.rejects(
-    execute("node", [
-      "pipelines/publish-snapshot.mjs", "--allow-demo", "--assets-root", changedRoot,
-      "--out", await mkdtemp(path.join(tmpdir(), "cardz-assets-changed-out-")),
-    ], { cwd: root }),
-    /local raw-front hash mismatch/i,
-  );
+  const publisher = await readFile(path.join(root, "pipelines/publish-snapshot.mjs"), "utf8");
+  assert.match(publisher, /required \$\{suffix\}px raw-front path is missing or invalid/);
+  assert.match(publisher, /remote media verification failed/);
+  assert.match(publisher, /await atomicWrite\(pointerPath, pointerPayload\)/);
 });

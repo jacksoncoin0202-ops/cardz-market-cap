@@ -1,24 +1,36 @@
 # Agent 交接：由 FE live → 全量池 → 增量研究
 
-> 給下一位 agent／同事。**先讀** [PROJECT_STATE.md](../PROJECT_STATE.md) · [RECALL_VERIFY_OPS.md](RECALL_VERIFY_OPS.md) · [SESSION_RETRO_20260729.md](SESSION_RETRO_20260729.md)
+> 給下一位 agent／同事。**先讀** [PROJECT_STATE.md](../PROJECT_STATE.md) · [FILL_LOOP_LESSONS.md](FILL_LOOP_LESSONS.md) · [RECALL_VERIFY_OPS.md](RECALL_VERIFY_OPS.md) · [SESSION_RETRO_20260729.md](SESSION_RETRO_20260729.md)
+
+> **2026-07-31 active policy:** 唔保留舊 runtime／G10 writer 指示。唯一
+> code authority 係
+> `/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap`，WSL runtime
+> 係 `/home/jackson0202/cardz-market-cap/.venv-backend`。`g10_kline`／G10
+> analytics 明文禁止寫 canonical DB 或作 market-cap/FE 價；只可用 exact
+> PriceCharting、SNK、eBay market facts。每次 canonical QC 後用
+> `qc_failure_sync.py --write` 投影到原有 ledger，再按 lane
+> `failure_ledger.py export-retry`；opaque ID 因語言 rekey 時以穩定
+> `variantId + lane` 關閉舊 item，唔可以重撈 ghost work。完整現行契約見
+> [DATA_CONTRACT.md](DATA_CONTRACT.md) 同
+> [CARD_LANGUAGE.md](CARD_LANGUAGE.md)。
 
 ---
 
-## 0. 而家狀態（交接點）
+## 0. 而家狀態（交接點 · 2026-07-31）
 
 | 項 | 狀態 |
 |---|---|
-| FE_SET（top100∪watchlist）素材 | **100%**（價/POP/市值/圖/史/成交/故事） |
-| Snapshot | `data/public/publish-staging/generations/canonical_live_fe/` |
-| Pointer | `data/public/publish-staging/latest.json` |
-| 940 全池 | 未齊（正常）；增量繼續 |
-| 主入口 | Windows · Docker MySQL `127.0.0.1:3308` · `CARDZ_DB_HOST=127.0.0.1` |
+| Canonical cohort | **937** 張（以最新 canonical DB QC receipt 為準） |
+| 主資料庫 | MySQL `cardz_market_cap`，唯一 business DB |
+| 價格來源 | exact PriceCharting PSA 10、SNK PSA 10、exact-bound eBay PSA 10 |
+| 成交來源 | SNK、exact-bound eBay／PC 成交；來源內指紋冪等 |
+| 圖片 | 獨立 lane；價＋成交 gate 先行 |
+| 主入口 | **WSL Ubuntu** + `.venv-backend` |
 
-```powershell
-cd C:\Users\jackson0202\Documents\Playground\cardz-market-cap
-$env:CARDZ_DB_HOST = "127.0.0.1"
-# load backend.env into env (never commit this file)
-python -X utf8 pipelines\qualified_pool_operator.py status
+```bash
+cd /mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap
+/home/jackson0202/cardz-market-cap/.venv-backend/bin/python \
+  pipelines/canonical_db_qc.py --run-id handoff-check-YYYYMMDDTHHMMSSZ
 ```
 
 ---
@@ -28,20 +40,22 @@ python -X utf8 pipelines\qualified_pool_operator.py status
 ### 硬流程
 
 ```text
-1. 讀 PROJECT_STATE + RECALL_VERIFY_OPS
+1. 讀 PROJECT_STATE + FILL_LOOP_LESSONS + RECALL_VERIFY_OPS
 2. status 量度現況（唔好靠記憶）
-3. 低門檻 RECALL 多源撈
-4. 腳本 VERIFY／QC（必過先寫 DB）
-5. mark identity + registry + ledger
-6. 需要上 FE → rebuild snapshot + pointer
-7. 更新 PROJECT_STATE 數字
+3. 每個來源一次拉齊可得欄位，再按 exact printing 重組
+4. exact identity gate 後寫 PriceCharting／SNK／eBay 價與成交
+5. canonical DB QC（價、成交、POP、printing、圖）
+6. `qc_failure_sync.py --write`，按 lane 輸出 retry worklist
+7. Agent 只重跑 worklist 失敗項；成功綁定永久保留
+8. 需要上 FE → immutable candidate → preview → 人手批准 → pointer
 ```
 
 ### 禁止
 
 - 低門檻直接 INSERT  
 - AI 感覺 OK 就 commit identity  
-- WSL Python 跑 production（路徑 `\` 會爛）  
+- Windows Python／第二個 DB 跑 production
+- `g10`／`g10_kline`／G10 analytics 寫 canonical DB 或作 FE 價
 - commit secrets / `backend.env` / 大体积 private harvest  
 - first-hit 名搜 bind  
 
@@ -59,16 +73,17 @@ python -X utf8 pipelines\qualified_pool_operator.py status
 | 2 | SNK harvest 新 id（OP／新 set keyword） | `snkrdunk_discover` → `snkrdunk_bulk.pull_all` append |
 | 3 | recall→verify bind | `semi_auto_identity.py run --write --recall-min 20` |
 | 4 | 已 bind 拉成交 | `snk_market_data` + `ingest_snk_trades_sales` |
-| 5 | G10 本地長史 | `g10_sales_cache_ingest --write --platforms snkrdunk` |
-| 6 | 圖缺口（只 FE cut 或上板） | `fill-images` / `op_limitless_images` / Drive |
-| 7 | 價缺口 | operator `map-tpl` / `harvest-tpl` / `ingest-prices` |
-| 8 | 全源一條龍 | `full_volume_recall_verify.py --write --recall-min 20` |
-| 9 | 上板 | `canonical_public_snapshot.py --view top300_boards` + 更新 pointer |
+| 5 | PC exact-bound 成交／現價 | `c11_pc_sold_ingest` → `pc_psa10_price_derivation` → reviewed materializer |
+| 6 | 全量 QC + failure ledger | `canonical_db_qc` → `qc_failure_sync --write` |
+| 7 | Agent 重試價／成交缺口 | `failure_ledger export-retry --stage psa10_price|sales` |
+| 8 | 圖缺口（只處理 `price-sales-gate.json` 批次） | image lane |
+| 9 | 上板 | immutable candidate + preview approval，先至更新 pointer |
 
 ### 增量定義
 
 - **有 registry 嘅卡**：只跑 `preferredLiquiditySource` 對應腳本  
 - **無 registry**：recall→verify 發現 → mark → 下次變增量  
+- **PC 精準修正後**：只跑 `pc_full_serial_driver.py --consolidate-only` 重建 current-exact map，禁止為重建 map 重跑全量 shard
 - **成交**：永遠 full history upsert（指紋去重），唔截 30d  
 
 ### 全量完成標準（池）
@@ -85,12 +100,16 @@ python -X utf8 pipelines\qualified_pool_operator.py status
 
 ## 3. QC 責任
 
-| 層 | 誰 |
-|---|---|
-| Verify 硬閘 | **腳本** `semi_auto_identity` |
-| 編排／擴 alias | **Agent** |
-| 殘渣 needsReview | Agent 半自動批次 → 仍寫同一 DB |
-| 品味／法律 | 人 |
+**搵料免 QC；入庫前必 QC**（2026-07-29 用戶更正）。見 repo 根 [`AGENTS.md`](../AGENTS.md)「QC 閘口」。
+
+| 階段 | 層 | 誰 |
+|---|---|---|
+| Harvest／research | 免 QC | Agent 全速撈 |
+| 寫 DB identity／成交／價 | Verify 硬閘 | **腳本** `semi_auto_identity` 等 |
+| 寫 public 圖 | SAMPLE 硬閘 | `sample_image_qc` + store_* |
+| 編排／擴 alias | 編排 | **Agent** |
+| 殘渣 needsReview | 半自動 | Agent 批次 → 仍寫同一 DB |
+| 品味／法律 | 人 | 人 |
 
 詳：[RECALL_VERIFY_OPS.md](RECALL_VERIFY_OPS.md)
 
@@ -98,18 +117,12 @@ python -X utf8 pipelines\qualified_pool_operator.py status
 
 ## 4. 驗 FE 100%（每次 snapshot 後）
 
-```powershell
-python -X utf8 -c @"
-import json
-from pathlib import Path
-d=json.loads(Path('data/public/publish-staging/generations/canonical_live_fe/snapshot.json').read_text(encoding='utf-8'))
-cards=d['top100']+d['watchlist']
-# expect all 7 fields ready for every card
-print('n', len(cards))
-"@
+```bash
+/home/jackson0202/cardz-market-cap/.venv-backend/bin/python \
+  pipelines/canonical_db_qc.py --run-id pre-public-YYYYMMDDTHHMMSSZ
 ```
 
-或重用 `temp/fe_live_readiness.py` 精神：top100+watchlist 七欄全綠。
+只接受 immutable report + receipt；唔可以用舊 seed／舊 preview 代替。
 
 ---
 
@@ -117,18 +130,25 @@ print('n', len(cards))
 
 - [ ] 讀 STATE + RECALL_VERIFY + 本檔  
 - [ ] `status` 跑通  
-- [ ] 知 FE_SET 100% 路徑同 pointer  
+- [ ] 知 canonical QC receipt 同 retry worklist 路徑
 - [ ] 知 secrets 喺邊、唔 commit  
-- [ ] 知 Windows Python 路徑  
+- [ ] 知 WSL venv 路徑
 - [ ] 下一優先：全池成交／identity 增量（§2）  
 
 ---
 
-## 6. 共同管理聯絡（用戶指定）
+## 6. 本 Repo 最高共同 Admin（用戶指定）
 
 | 角色 | 聯絡 |
 |---|---|
-| 最高共同 admin（用戶指定） | **yoyyoy1924@gmail.com** |
+| 本 repo 最高共同 Admin（用戶指定） | **yoyyoy1924@gmail.com** |
 
-用途：同 Jackson 一齊管理 **Ripple**（用戶口頭指派）同本 repo／CARDZ 營運交接。  
-**注意：** 呢個 email 已寫入交接文檔；**外部 Ripple 產品後台加 admin 需要有現有 Owner 帳號登入操作**——agent 無法代替登入第三方 SaaS。GitHub org／repo collaborator 亦要 Owner 用 GitHub UI 或 `gh` 邀請。
+用途：同 Owner（`jacksoncoin0202-ops`）一齊管理 **GitHub repo** [`jacksoncoin0202-ops/cardz-market-cap`](https://github.com/jacksoncoin0202-ops/cardz-market-cap)——改 code、settings、collaborators、deploy 相關。
+
+**權限說明（GitHub 個人帳號 repo）：**
+- Owner = 帳號 `jacksoncoin0202-ops`（唯一可 delete／transfer repo）
+- Collaborator **Admin** = 最高可授角色（push、settings、manage access、merge）——即用戶要求嘅「最高級 admin 改嘢」
+- 邀請入口：https://github.com/jacksoncoin0202-ops/cardz-market-cap/settings/access → **Add people** → email `yoyyoy1924@gmail.com` → 角色 **Admin**
+- `gh` REST 邀請**必須**對方已有 GitHub username；純 email 未對應 username 時 API 會 404，要用網頁 UI 用 email 邀請
+
+**狀態：** email 已寫入本檔；實際 collaborator invite 以 GitHub 上 pending／accepted 為準。

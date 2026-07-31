@@ -15,10 +15,10 @@
 
 | Field / metric | Accept | Normalize | Reject / quarantine |
 |---|---|---|---|
-| Printing identity | exact TCG, set, complete collector number, language, edition, parallel, finish | canonical opaque CARDZ ID | missing/partial number, language conflict, ambiguous multiple match |
+| Printing identity | exact TCG, card language, set, complete collector number, edition, parallel, finish；語言係 canonical printing identity 一部分，JA/EN 唔可以互綁；ranking board 仍可另外做 language-combined grouping | canonical opaque CARDZ ID | missing/partial number, ambiguous multiple match, language mismatch, guessed language or printing |
 | PSA 10 POP | GemRate exact PSA grade 10 with source date, live observation time and transport | integer `populationPsa10`; direct API preferred; page-initiated current JSON records `sourceDate`/`lastPopulationChange` separately from live `fetchedAt`; Grade10 mirror labelled transport | estimated / generic total / search result / grade not PSA 10 |
 | POP history | GemRate direct history point with effective date | one observation per printing + grader + grade + effective date + source scope + payload hash | mirror/public current copied as history, synthetic date, duplicate conflicting point |
-| PSA 10 price | exact SNK printing + PSA 10 daily reference point | decimal native currency + FX observation to USD; retain effective date | `used_min_price`, non-PSA10, fuzzy name match, stale beyond policy |
+| PSA 10 price | exact SNK printing + PSA 10 daily reference **or** DADDY-approved G10 path (`g10_kline` / G10 `ebay` PSA10 median) with exact source identity | decimal native currency + FX observation to USD; retain effective date | `used_min_price`, non-PSA10, fuzzy name match, stale beyond policy, TPL as exact |
 | Tracked sale | exact PSA 10 non-bundle transaction | preserve sale date, fetched time, unit price, quantity, transaction value separately | bundle total as unit price, relative date promoted to sale date, grade mismatch |
 | Currency | source native value + dated FX rate | store native amount/currency and derived USD separately | recalculate old history with today FX, unknown currency |
 | Missing data | explicit `unavailable` / `accumulating` / `stale` | nullable metric + status/reason | numeric zero placeholder |

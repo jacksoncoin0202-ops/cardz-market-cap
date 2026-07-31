@@ -1,0 +1,24 @@
+[Unit]
+Description=CARDZ weekly candidate discovery and additive universe promotion
+After=network-online.target
+Wants=network-online.target
+OnFailure=cardz-market-cap-alert@%n.service
+
+[Service]
+Type=oneshot
+User=cardz
+Group=cardz
+WorkingDirectory=/opt/cardz-market-cap
+EnvironmentFile=/etc/cardz-market-cap/backend.env
+EnvironmentFile=-/etc/cardz-market-cap/gemrate.env
+Environment=LANG=C.UTF-8
+Environment=LC_ALL=C.UTF-8
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/flock --nonblock /opt/cardz-market-cap/data/runtime/cardz-writer.lock /opt/cardz-market-cap/.venv-backend/bin/python -X utf8 /opt/cardz-market-cap/scripts/backend.py full-backfill --external-db --mode production --collect-public-candidates --require-gemrate-refresh --promote-universe --presentation-view top300_boards
+TimeoutStartSec=43200
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/cardz-market-cap/integrations/grade10/data /opt/cardz-market-cap/data/runtime /opt/cardz-market-cap/data/private/gemrate /opt/cardz-market-cap/.venv-backend

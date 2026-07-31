@@ -12,19 +12,21 @@ The repository is a clean-room rebuild. The legacy application is a read-only im
 - Missing data stays missing. The product never turns unavailable or accumulating metrics into a false zero.
 - Private collection stays private. Provider identifiers, source URLs, secrets, and unmasked slab labels never enter public snapshots or builds.
 
-See [CARDZ_POSITIONING.md](docs/CARDZ_POSITIONING.md), [DATA_CONTRACT.md](docs/DATA_CONTRACT.md), [FRONTEND_HANDSHAKE.md](docs/FRONTEND_HANDSHAKE.md), and [DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md) for the product contract.
+See [CARDZ_POSITIONING.md](docs/CARDZ_POSITIONING.md),
+[DATA_CONTRACT.md](docs/DATA_CONTRACT.md), and the typed schema under
+`packages/market-data/src` for the active product contract. The former design
+system is quarantined pending an explicit product-contract decision.
 
-### Ops / handoff (2026-07-29)
+### Agent and operator entry
 
 | Doc | What |
 |---|---|
-| [PROJECT_STATE.md](PROJECT_STATE.md) | **唯一營運現況** |
-| [docs/FE_LIVE_100.md](docs/FE_LIVE_100.md) | FE_SET 素材 100% 驗收 |
-| [docs/RECALL_VERIFY_OPS.md](docs/RECALL_VERIFY_OPS.md) | 低門檻召回 + 腳本 QC 入庫 |
-| [docs/AGENT_HANDOFF_INCREMENTAL.md](docs/AGENT_HANDOFF_INCREMENTAL.md) | 下一位 agent：增量到全量 |
-| [docs/DEPLOY_FOR_HANDOVER.md](docs/DEPLOY_FOR_HANDOVER.md) | **部署最短路徑**（本機 / Linux / CF） |
-| [docs/SESSION_RETRO_20260729.md](docs/SESSION_RETRO_20260729.md) | 今晚全流程經驗總結 |
-| [docs/PROJECT_MAP.md](docs/PROJECT_MAP.md) | 分支地圖 + 點做 |
+| [AGENTS.md](AGENTS.md) | Stable start rules |
+| [PROJECT_STATE.md](PROJECT_STATE.md) | Machine-generated operational state |
+| [docs/generated/DOCUMENT_AUTHORITY.md](docs/generated/DOCUMENT_AUTHORITY.md) | Which documents can direct execution |
+| [docs/generated/AGENT_EXECUTION_FUNNEL.md](docs/generated/AGENT_EXECUTION_FUNNEL.md) | A01–A12 roles, waves, write scopes, and dispatch prompt |
+| [docs/generated/AGENT_EXECUTION_ARCHITECTURE.html](docs/generated/AGENT_EXECUTION_ARCHITECTURE.html) | Visual execution architecture |
+| [docs/generated/TOOL_REGISTRY.md](docs/generated/TOOL_REGISTRY.md) | Registered tools and work items |
 
 ## Repository layout
 
@@ -130,7 +132,13 @@ historical backfill for new high-value targets, and validates MySQL. It does
 exporter is a separate remaining integration gate; running the backend job must
 not be described as a live website publication.
 
-The broad discovery/bootstrap collector is now self-contained under `integrations/grade10/`. Its exact upstream operating instructions are preserved in [OPERATOR_GUIDE.md](integrations/grade10/OPERATOR_GUIDE.md), while [the integration README](integrations/grade10/README.md) defines the portable CARDZ entrypoint. Run `python integrations/grade10/run_service.py self-check` after a clean clone. An explicit `--refresh-bootstrap-source` uses the vendored runner by default; no sibling `grade10-scraper` checkout or Windows batch file is required. The legacy analytics and synthetic K-line scripts are retained for replay compatibility only and are not canonical CARDZ ranking inputs.
+The broad discovery/bootstrap collector is self-contained under
+`integrations/grade10/`, but its older local guides are reference-only and
+cannot direct execution. Resolve the current collector, command, dependencies,
+and acceptance through the
+[A05 role pack](docs/generated/roles/A05.md), its assigned work item, and the
+generated tool registry. Legacy analytics and synthetic K-line scripts remain
+replay evidence only and are not canonical CARDZ ranking inputs.
 
 Daily market alerts are persisted by `python scripts/backend.py alerts`. Normal
 `backend.py daily` runs the same evaluator after canonical import. The radar
@@ -161,18 +169,22 @@ The private runner uses G10 only as discovery/bootstrap evidence, then records
 idempotent daily price, population, rank, and tracked-sales observations in one
 canonical store. It derives complete eligible rankings for combined TCG,
 Pokémon, and One Piece. A canonical printing is stored once and may belong to
-more than one ranking scope; language is not part of card identity. Top 100,
-Top 300, Top 350, and `top100_plus_200` are presentation views sliced from the
-same generation. It derives close-to-close 1-day, 7-day, and 30-day changes and
+more than one ranking scope. Physical card language is identity-bearing:
+otherwise identical JA and EN cards are separate canonical printings and may
+never share an image or source binding. Ranking boards may group those
+printings without merging their identities. Top 100, Top 300, Top 350, and
+`top100_plus_200` are presentation views sliced from the same generation. It
+derives close-to-close 1-day, 7-day, and 30-day changes and
 recalculates every eligible card's market cap. There is no 1-hour metric. The
 website reads the new snapshot automatically, so a daily refresh does not
 redeploy application code and does not require an AI task to monitor it.
 
-G10 is historical bootstrap/research evidence only: old summaries, mappings, sample payloads, and last-good comparison values. It is not a canonical provider and is not a completeness boundary. GemRate supplies canonical identity and grader population; its direct API is preferred, while Grade10 `price.getGradingPopulations` is a current-population GemRate mirror transport with retained provenance. SNK supplies exact PSA 10 reference prices and recent trades, eBay will supply additional tracked sold transactions after its repository-owned exact-grade adapter passes validation, and CARDZ derives the three Top 300 indexes plus 1d/7d/30d metrics. JLP is only a future integration seam and is not required to run or publish CARDZ Market Cap.
+G10 is historical bootstrap/research evidence only: old summaries, mappings, sample payloads, and last-good comparison values. It is not a canonical provider and is not a completeness boundary. GemRate supplies canonical identity and grader population; its direct API is preferred, while Grade10 `price.getGradingPopulations` is a current-population GemRate mirror transport with retained provenance. Exact PriceCharting PSA 10, exact SNK PSA 10, and exact eBay PSA 10 sold evidence are primary market inputs; one fresh exact-bound source family is enough to confirm a price. When multiple fresh families are present within a 2x spread, CARDZ uses their arithmetic mean; a wider spread fails closed. For liquidity, exact-bound SNK trades, Grade10-cached eBay PSA 10 completed sales, and PriceCharting-page eBay PSA 10 completed sales have equal authority under the same QC and dedupe gate; this does not authorize derived `g10_kline` data. CARDZ derives the three Top 300 indexes plus 1d/7d/30d metrics. JLP is only a future integration seam and is not required to run or publish CARDZ Market Cap.
 
 Localized card names and stories may be Japanese, English, Korean, Traditional
-Chinese, or Simplified Chinese, but locale never splits card identity. Distinct
-printings are preserved by explicit edition, parallel, and finish evidence.
+Chinese, or Simplified Chinese. UI locale does not change identity, but physical
+card language does: the seven-part printing key preserves language, set,
+complete collector number, edition, parallel, and finish.
 
 Data sources are first-class collectors coordinated by one daily parent task that runs at 09:30 JST (00:30 UTC). The trigger must stay inside the same UTC calendar day as the run ID that `pipelines/run_daily.py` builds from `datetime.now(timezone.utc)`; an earlier local time such as 06:30 JST resolves to 21:30 UTC on the previous day, which makes collectors replay the previous run and the whole chain exits zero with no new data. The collectors are:
 
@@ -186,7 +198,13 @@ Data sources are first-class collectors coordinated by one daily parent task tha
 - `pipelines/snk_market_data.py` — daily PSA 10 reference-price history and partial recent-trade observations for active exact identities.
 - `pipelines/market_source_sync.py` — normalizes immutable observations and derives combined, Pokémon, and One Piece private rankings.
 
-The machine-readable source contract is `config/data-routing.json`; see `docs/DATA_ROUTING.md` and `docs/DATA_SOURCE_INVENTORY.md`. Provider collection manuals for agents: [`docs/PROVIDER_API_INDEX.md`](docs/PROVIDER_API_INDEX.md) (SNK / PriceCharting / TCGplayer). The current legacy eBay Browse client exposes active asking prices, not sold transactions, so it is not used as a price authority.
+The machine-readable source contract is `config/data-routing.json`; use
+[`docs/generated/TOOL_REGISTRY.md`](docs/generated/TOOL_REGISTRY.md) and
+[`docs/generated/DATA_LINEAGE.html`](docs/generated/DATA_LINEAGE.html) as its
+generated operator views. A provider document may direct execution only when
+[`docs/generated/DOCUMENT_AUTHORITY.md`](docs/generated/DOCUMENT_AUTHORITY.md)
+marks it active. The current legacy eBay Browse client exposes active asking
+prices, not sold transactions, so it is not used as a price authority.
 
 Do not install separate GemRate or SNK **daily price/population** scheduler tasks — `pipelines/run_daily.py` owns the singleton daily run ID and publishes only after the complete generation passes validation. The GemRate **freeze/roster sweep** tasks (`CARDZ-GemRate-Freeze-Oneshot-*`) and `CARDZ-TAG-Daily-Capture` run on a deliberately separate cadence and are exempt (user-ratified 2026-07-27).
 

@@ -1,4 +1,1402 @@
 {
+  "agentExecution": {
+    "assignments": [
+      {
+        "contributorRoleIds": [
+          "A03",
+          "A04"
+        ],
+        "ownerRoleId": "A05",
+        "workItemId": "T3-GEMRATE-CANDIDATE-CLASSIFICATION"
+      },
+      {
+        "contributorRoleIds": [
+          "A03",
+          "A07"
+        ],
+        "ownerRoleId": "A06",
+        "workItemId": "T4-SNK-EXACT-PRICE-HISTORY"
+      },
+      {
+        "contributorRoleIds": [
+          "A01",
+          "A02",
+          "A05",
+          "A06",
+          "A07"
+        ],
+        "ownerRoleId": "A10",
+        "workItemId": "T5-RANKING-VIEWS"
+      },
+      {
+        "contributorRoleIds": [
+          "A04",
+          "A05",
+          "A06",
+          "A07",
+          "A08",
+          "A09",
+          "A10"
+        ],
+        "ownerRoleId": "A11",
+        "workItemId": "T6-DAILY-RECOVERY"
+      },
+      {
+        "contributorRoleIds": [
+          "A05",
+          "A12"
+        ],
+        "ownerRoleId": "A03",
+        "workItemId": "P0-UNIVERSE-AUTHORITY"
+      },
+      {
+        "contributorRoleIds": [
+          "A05",
+          "A06",
+          "A12"
+        ],
+        "ownerRoleId": "A03",
+        "workItemId": "P0-CANONICAL-PRINTING-MATERIALIZATION"
+      },
+      {
+        "contributorRoleIds": [
+          "A08",
+          "A12"
+        ],
+        "ownerRoleId": "A02",
+        "workItemId": "P0-GENERATION-QC"
+      },
+      {
+        "contributorRoleIds": [
+          "A03",
+          "A12"
+        ],
+        "ownerRoleId": "A11",
+        "roleStage": "A11.bootstrap",
+        "workItemId": "QC-A11-BASELINE-BOOTSTRAP"
+      },
+      {
+        "contributorRoleIds": [
+          "A02",
+          "A12"
+        ],
+        "ownerRoleId": "A01",
+        "roleStage": "A01",
+        "workItemId": "QC-A01-FRONTEND-CONSUMERS"
+      },
+      {
+        "contributorRoleIds": [
+          "A01",
+          "A03",
+          "A12"
+        ],
+        "ownerRoleId": "A02",
+        "roleStage": "A02",
+        "workItemId": "QC-A02-PUBLIC-FIELD-LINEAGE"
+      },
+      {
+        "contributorRoleIds": [
+          "A04",
+          "A12"
+        ],
+        "ownerRoleId": "A03",
+        "roleStage": "A03",
+        "workItemId": "QC-A03-CANONICAL-SCHEMA-FINGERPRINT"
+      },
+      {
+        "contributorRoleIds": [
+          "A11",
+          "A12"
+        ],
+        "ownerRoleId": "A04",
+        "roleStage": "A04",
+        "workItemId": "QC-A04-SCRIPT-LIFECYCLE"
+      },
+      {
+        "contributorRoleIds": [
+          "A01",
+          "A02",
+          "A03",
+          "A04",
+          "A12"
+        ],
+        "ownerRoleId": "A11",
+        "roleStage": "A11.control",
+        "workItemId": "QC-A11-CONTROL-CLI"
+      },
+      {
+        "contributorRoleIds": [
+          "A03",
+          "A12"
+        ],
+        "ownerRoleId": "A05",
+        "roleStage": "A05",
+        "workItemId": "QC-A05-POP-GRADER"
+      },
+      {
+        "contributorRoleIds": [
+          "A03",
+          "A07",
+          "A12"
+        ],
+        "ownerRoleId": "A06",
+        "roleStage": "A06",
+        "workItemId": "QC-A06-PRICE-HISTORY"
+      },
+      {
+        "contributorRoleIds": [
+          "A03",
+          "A06",
+          "A12"
+        ],
+        "ownerRoleId": "A07",
+        "roleStage": "A07",
+        "workItemId": "QC-A07-SALES-LIQUIDITY"
+      },
+      {
+        "contributorRoleIds": [
+          "A02",
+          "A03",
+          "A12"
+        ],
+        "ownerRoleId": "A08",
+        "roleStage": "A08",
+        "workItemId": "QC-A08-IMAGE-MEDIA"
+      },
+      {
+        "contributorRoleIds": [
+          "A01",
+          "A02",
+          "A12"
+        ],
+        "ownerRoleId": "A09",
+        "roleStage": "A09",
+        "workItemId": "QC-A09-EDITORIAL-LOCALES"
+      },
+      {
+        "contributorRoleIds": [
+          "A01",
+          "A02",
+          "A05",
+          "A06",
+          "A07",
+          "A12"
+        ],
+        "ownerRoleId": "A10",
+        "roleStage": "A10",
+        "workItemId": "QC-A10-DERIVED-RANKING"
+      },
+      {
+        "contributorRoleIds": [
+          "A04",
+          "A05",
+          "A06",
+          "A07",
+          "A08",
+          "A09",
+          "A10",
+          "A12"
+        ],
+        "ownerRoleId": "A11",
+        "roleStage": "A11.runtime",
+        "workItemId": "QC-A11-INCREMENTAL-RUNTIME"
+      },
+      {
+        "contributorRoleIds": [],
+        "ownerRoleId": "A12",
+        "roleStage": "A12",
+        "workItemId": "QC-A12-INDEPENDENT-REDTEAM"
+      }
+    ],
+    "capabilityRoutes": [
+      {
+        "adapterCandidates": [
+          "rg",
+          "CodeGraph"
+        ],
+        "availabilityPolicy": "runtime_discovery",
+        "id": "code-navigation",
+        "loadWhen": "an exact role node, field, caller, writer or work item needs source impact evidence",
+        "missingAdapterPolicy": "use scoped rg when available or report a capability gap; never invent a call edge",
+        "outputRule": "evidence_not_authority"
+      },
+      {
+        "adapterCandidates": [
+          "architecture-diagram"
+        ],
+        "availabilityPolicy": "runtime_discovery",
+        "id": "architecture-visualization",
+        "loadWhen": "the assigned work item explicitly requires a control-plane or dependency diagram",
+        "missingAdapterPolicy": "return the validated registry view without installing or substituting a plugin",
+        "outputRule": "generated_view_only"
+      },
+      {
+        "adapterCandidates": [
+          "cardz-psa10-price",
+          "ptcg-price-research"
+        ],
+        "availabilityPolicy": "runtime_discovery",
+        "id": "live-market-research",
+        "loadWhen": "the exact work item explicitly authorizes live price or source research",
+        "missingAdapterPolicy": "report a capability gap; never replace live research with stale prose",
+        "outputRule": "volatile_material_with_provenance"
+      },
+      {
+        "adapterCandidates": [
+          "design-taste-frontend"
+        ],
+        "availabilityPolicy": "runtime_discovery",
+        "id": "frontend-design",
+        "loadWhen": "only after MAIN supplies an accepted versioned frontend target-state contract; consumer census alone does not trigger it",
+        "missingAdapterPolicy": "return CONTRACT_GAP to MAIN; do not infer target behavior from quarantined design notes",
+        "outputRule": "contract_gap_candidate_only"
+      },
+      {
+        "adapterCandidates": [
+          "media-use"
+        ],
+        "availabilityPolicy": "runtime_discovery",
+        "id": "media-processing",
+        "loadWhen": "the exact A08 work item creates or transforms media rather than auditing identity and rights",
+        "missingAdapterPolicy": "report a capability gap; do not substitute unverified media",
+        "outputRule": "private_candidate_before_qc"
+      },
+      {
+        "adapterCandidates": [
+          "human-writer"
+        ],
+        "availabilityPolicy": "runtime_discovery",
+        "id": "editorial-writing",
+        "loadWhen": "the exact A09 work item drafts or rewrites editorial content",
+        "missingAdapterPolicy": "apply the active editorial contract without loading unrelated writing packs",
+        "outputRule": "provenance_bound_candidate"
+      }
+    ],
+    "delegationPolicy": {
+      "authorityInheritance": "children inherit the parent baseline, role, blocked actions and no additional authority",
+      "childWriteRequirements": [
+        "MAIN-approved non-overlapping subclaim",
+        "same immutable baseline",
+        "exact child output root",
+        "parent-owned integration",
+        "independent acceptance command"
+      ],
+      "crossRolePolicy": "return a structured dependency request to MAIN; do not silently spawn a cross-role writer",
+      "defaultChildMode": "read_only_same_role",
+      "requiredChildPromptFields": [
+        "parent_agent_id",
+        "agent_id",
+        "wave_id",
+        "role_stage",
+        "role_mode",
+        "work_item_id",
+        "baseline_id",
+        "baseline_manifest",
+        "baseline_manifest_sha256",
+        "cohort_sha256",
+        "routing_sha256",
+        "db_state_fingerprint",
+        "mode",
+        "write_claim_id",
+        "allowed_tool_ids",
+        "read_set",
+        "write_set",
+        "generated_set",
+        "forbidden",
+        "input_artifacts",
+        "dependency_receipts",
+        "output_root",
+        "acceptance",
+        "handoff_to"
+      ]
+    },
+    "feedbackProtocol": {
+      "categories": [
+        {
+          "agentAction": "continue only inside the owned candidate or registered writer path",
+          "architectureChange": false,
+          "decisionOwner": "owning role",
+          "id": "FACT_UPDATE"
+        },
+        {
+          "agentAction": "fix only inside the existing write claim and acceptance contract",
+          "architectureChange": false,
+          "decisionOwner": "owning role",
+          "id": "IMPLEMENTATION_DEFECT"
+        },
+        {
+          "agentAction": "pause the dependent write, continue independent read-only work, and route to MAIN",
+          "architectureChange": false,
+          "decisionOwner": "MAIN",
+          "id": "CROSS_ROLE_DEPENDENCY"
+        },
+        {
+          "agentAction": "stop the affected decision and submit a versioned contract proposal",
+          "architectureChange": true,
+          "decisionOwner": "MAIN",
+          "id": "CONTRACT_GAP"
+        },
+        {
+          "agentAction": "stop the affected work; do not bypass or reinterpret the invariant",
+          "architectureChange": true,
+          "decisionOwner": "DADDY_AND_MAIN",
+          "id": "INVARIANT_CONFLICT"
+        },
+        {
+          "agentAction": "stop the affected path and return redacted evidence only",
+          "architectureChange": false,
+          "decisionOwner": "MAIN",
+          "id": "SECURITY_OR_PRIVACY"
+        }
+      ],
+      "hardInvariantRule": "a role cannot change an invariant; accepted invariant changes require DADDY approval, MAIN integration, registry versioning, regeneration and reverse tests",
+      "noSilentFallback": true,
+      "requiredFields": [
+        "feedback_id",
+        "agent_id",
+        "work_item_id",
+        "baseline_id",
+        "category",
+        "blocked_rule_or_contract",
+        "evidence",
+        "impact",
+        "proposed_owner",
+        "proposed_change",
+        "can_continue_read_only"
+      ],
+      "softFactRule": "numbers and current statuses may change through a registered writer with provenance, freshness and read-back evidence; never edit architecture to update a number",
+      "states": [
+        "OBSERVED",
+        "PROPOSED",
+        "ACCEPTED",
+        "REJECTED",
+        "SUPERSEDED"
+      ]
+    },
+    "informationClasses": [
+      {
+        "allowedContent": [
+          "authority rules",
+          "role boundaries",
+          "dependency DAG",
+          "write claims",
+          "feedback protocol"
+        ],
+        "forbiddenContent": [
+          "live counts",
+          "current prices",
+          "current completion claims",
+          "installed adapter availability",
+          "dated handoff state"
+        ],
+        "id": "timeless_invariant",
+        "mutability": "architecture_change_only",
+        "purpose": "Identity, authority, dependency order, write ownership and stop conditions that must not contain current business facts."
+      },
+      {
+        "allowedContent": [
+          "typed schemas",
+          "migration contracts",
+          "formula definitions",
+          "CLI contracts",
+          "QC predicates"
+        ],
+        "forbiddenContent": [
+          "unverified runtime values",
+          "silent fallback",
+          "chat-only decisions"
+        ],
+        "id": "versioned_contract",
+        "mutability": "versioned_change_control",
+        "purpose": "Schemas, formulas, reason codes and tool interfaces that remain exact for one declared version or hash."
+      },
+      {
+        "allowedContent": [
+          "baseline manifests",
+          "PROJECT_STATE",
+          "work-item status",
+          "source receipts",
+          "runtime capability discovery"
+        ],
+        "forbiddenContent": [
+          "architecture authority",
+          "unversioned field semantics",
+          "implicit permission"
+        ],
+        "id": "volatile_material",
+        "mutability": "registered_writer_or_fresh_read",
+        "purpose": "Current counts, prices, statuses, source availability, plugin availability and fingerprints used only as input material."
+      },
+      {
+        "allowedContent": [
+          "raw test output",
+          "before and after hashes",
+          "reason codes",
+          "change requests",
+          "QC receipts"
+        ],
+        "forbiddenContent": [
+          "silent overwrite",
+          "authority expansion",
+          "unstated provenance"
+        ],
+        "id": "evidence",
+        "mutability": "append_only_or_superseding_receipt",
+        "purpose": "Immutable observations, test output, hashes, decisions and receipts that prove or challenge a result."
+      }
+    ],
+    "policy": {
+      "databaseApplyPolicy": "main_serialized",
+      "defaultWritePolicy": "deny",
+      "generatedDocsWritePolicy": "generator_only",
+      "integratorRoleId": "MAIN",
+      "parallelWritePolicy": "exclusive_claims",
+      "releaseAuthority": "mainHermes",
+      "requiredHandoffFields": [
+        "parent_agent_id",
+        "agent_id",
+        "wave_id",
+        "role_stage",
+        "role_mode",
+        "work_item_id",
+        "baseline_id",
+        "baseline_manifest_sha256",
+        "cohort_sha256",
+        "routing_sha256",
+        "db_state_fingerprint",
+        "write_claim_id",
+        "scope",
+        "read_set",
+        "write_set",
+        "generated_set",
+        "input_artifacts",
+        "output_artifacts_with_sha256",
+        "dependency_receipts",
+        "commands_run",
+        "test_output",
+        "raw_test_output",
+        "acceptance_verdict",
+        "zero_mutation_proof",
+        "risks",
+        "blockers",
+        "feedback_records",
+        "next_owner",
+        "intent_fidelity",
+        "yagni"
+      ],
+      "toolExecutionPolicy": "a registered tool is necessary but not sufficient; execution requires the assigned work-item node, matching role stage, exact baseline, declared side-effect envelope and explicit allowed tool IDs"
+    },
+    "progressiveDisclosure": {
+      "dispatcherInitialDocumentIds": [
+        "agent-entry",
+        "document-authority-view",
+        "agent-execution-funnel"
+      ],
+      "documentClassBindings": [
+        {
+          "documentIds": [
+            "agent-entry",
+            "claude-compatibility-entry",
+            "architecture-registry",
+            "document-authority-view",
+            "agent-execution-funnel",
+            "agent-role-a01",
+            "agent-role-a02",
+            "agent-role-a03",
+            "agent-role-a04",
+            "agent-role-a05",
+            "agent-role-a06",
+            "agent-role-a07",
+            "agent-role-a08",
+            "agent-role-a09",
+            "agent-role-a10",
+            "agent-role-a11",
+            "agent-role-a12",
+            "agent-execution-architecture"
+          ],
+          "informationClassId": "timeless_invariant"
+        },
+        {
+          "documentIds": [
+            "repository-overview",
+            "tool-registry-view",
+            "data-lineage-view",
+            "backend-runbook",
+            "data-contract",
+            "canonical-printing",
+            "data-cleaning-rules",
+            "gemrate-source",
+            "snk-manual",
+            "product-positioning",
+            "security-policy",
+            "editorial-review"
+          ],
+          "informationClassId": "versioned_contract"
+        },
+        {
+          "documentIds": [
+            "operational-state",
+            "data-routing-view"
+          ],
+          "informationClassId": "volatile_material"
+        },
+        {
+          "documentIds": [
+            "grade10-operator",
+            "provider-api-index",
+            "pricecharting-manual",
+            "tcgplayer-manual",
+            "source-qc-patterns",
+            "design-system",
+            "us-price-source-rules",
+            "ingest-verify-gate-legacy",
+            "recall-verify-ops-legacy",
+            "fill-loop-lessons-legacy",
+            "file-claims-legacy",
+            "project-map-legacy",
+            "agent-pipeline-index-legacy",
+            "frontend-handshake-legacy",
+            "page-data-requirements-legacy",
+            "data-routing-legacy",
+            "data-source-inventory-legacy",
+            "incremental-handoff-legacy",
+            "architecture-chain-legacy",
+            "handoff-legacy",
+            "data-gaps-legacy",
+            "practical-ops-legacy",
+            "deploy-skill-legacy"
+          ],
+          "informationClassId": "evidence"
+        }
+      ],
+      "forbiddenBulkLoads": [
+        "all role packs",
+        "all manuals",
+        "all historical reports",
+        "entire docs tree",
+        "entire skill catalog",
+        "repo-wide source before backend explain and scoped search"
+      ],
+      "levels": [
+        {
+          "id": "L0",
+          "informationClassId": "timeless_invariant",
+          "label": "Invariant kernel",
+          "loadRule": "always load AGENTS and document authority only"
+        },
+        {
+          "id": "L1",
+          "informationClassId": "timeless_invariant",
+          "label": "Role route",
+          "loadRule": "dispatcher loads funnel; worker loads exactly docs/generated/roles/<AGENT_ID>.md"
+        },
+        {
+          "id": "L2",
+          "informationClassId": "versioned_contract",
+          "label": "Work contract",
+          "loadRule": "load exactly backend explain <WORK_ITEM_ID> and its dependency receipts"
+        },
+        {
+          "id": "L3",
+          "informationClassId": "versioned_contract",
+          "label": "Department context",
+          "loadRule": "load only the role pack required documents and triggered capability routes"
+        },
+        {
+          "id": "L4",
+          "informationClassId": "volatile_material",
+          "label": "Runtime material",
+          "loadRule": "load only prompt-named baseline, cohort, current-state slice and input artifacts"
+        },
+        {
+          "id": "L5",
+          "informationClassId": "evidence",
+          "label": "Evidence and feedback",
+          "loadRule": "return exact outputs, tests, receipts, blockers and change requests"
+        }
+      ],
+      "principle": "load the minimum exact context needed for the current decision",
+      "sectionClassifications": [
+        {
+          "consumerRule": "may enter stable architecture and generated role packs",
+          "informationClassId": "timeless_invariant",
+          "selector": "architecture|documentAuthority|agentExecution.policy|agentExecution.roles|agentExecution.waves|agentExecution.writeClaims|agentExecution.capabilityRoutes|agentExecution.delegationPolicy|agentExecution.feedbackProtocol"
+        },
+        {
+          "consumerRule": "load only by referenced version, hash, node, field or tool",
+          "informationClassId": "versioned_contract",
+          "selector": "rules|schemas|routes|tools|profiles|presentationViews|dataCleaningPolicy"
+        },
+        {
+          "consumerRule": "dispatcher or assigned worker only; never copy into durable role contracts",
+          "informationClassId": "volatile_material",
+          "selector": "workItems.status|agentExecution.assignments|PROJECT_STATE|runtime capability availability|current source values"
+        },
+        {
+          "consumerRule": "content-addressed exact inputs and append-only or superseding outputs",
+          "informationClassId": "evidence",
+          "selector": "baseline manifests|source receipts|test output|QC receipts|feedback records"
+        }
+      ],
+      "volatileMaterialRule": "volatile values may be read or updated only through registered role-owned tools and evidence; they never become architecture by being copied into prose",
+      "workerInitialDocumentIds": [
+        "agent-entry",
+        "document-authority-view",
+        "assigned_role_pack_only"
+      ]
+    },
+    "roles": [
+      {
+        "acceptance": [
+          "every consumer and requested cardinality is mapped",
+          "no frontend component defines backend authority"
+        ],
+        "blockedActions": [
+          "database_write",
+          "snapshot_publish",
+          "pointer_write",
+          "timer_change"
+        ],
+        "capabilityRouteIds": [
+          "code-navigation",
+          "frontend-design"
+        ],
+        "handoffTo": [
+          "A02",
+          "A09",
+          "A10",
+          "A12"
+        ],
+        "id": "A01",
+        "label": "Frontend Consumer Census",
+        "layer": "L1",
+        "mission": "Map every page, API, selector, filter, sort and cardinality to stable public fields.",
+        "mode": "AUDIT_IMPLEMENT",
+        "nodeIds": [
+          "export.views",
+          "export.sanitized-snapshot"
+        ],
+        "readPaths": [
+          "apps/web",
+          "packages/market-data/src"
+        ],
+        "requiredDocumentIds": [
+          "data-contract"
+        ],
+        "roleDocumentId": "agent-role-a01",
+        "writeClaimIds": [
+          "frontend-consumers"
+        ]
+      },
+      {
+        "acceptance": [
+          "every public field is mapped or explicitly unmapped",
+          "typed schema remains the only public property authority"
+        ],
+        "blockedActions": [
+          "canonical_database_write",
+          "pointer_write",
+          "timer_change"
+        ],
+        "capabilityRouteIds": [
+          "code-navigation"
+        ],
+        "handoffTo": [
+          "A09",
+          "A10",
+          "A11",
+          "A12"
+        ],
+        "id": "A02",
+        "label": "Snapshot and Field Lineage",
+        "layer": "L1",
+        "mission": "Map every public field through producer, SQL target, authority, freshness and validator.",
+        "mode": "AUDIT_IMPLEMENT",
+        "nodeIds": [
+          "export.sanitized-snapshot",
+          "validator.public-qc"
+        ],
+        "readPaths": [
+          "packages/market-data/src",
+          "pipelines/canonical_public_snapshot.py"
+        ],
+        "requiredDocumentIds": [
+          "data-contract",
+          "data-lineage-view"
+        ],
+        "roleDocumentId": "agent-role-a02",
+        "writeClaimIds": [
+          "public-schema-exporter"
+        ]
+      },
+      {
+        "acceptance": [
+          "schema and keys are exact",
+          "materialization is receipt-bound and second apply is a no-op"
+        ],
+        "blockedActions": [
+          "unapproved_database_apply",
+          "snapshot_publish",
+          "pointer_write",
+          "timer_change"
+        ],
+        "capabilityRouteIds": [
+          "code-navigation"
+        ],
+        "handoffTo": [
+          "A05",
+          "A06",
+          "A07",
+          "A08",
+          "A10",
+          "A12"
+        ],
+        "id": "A03",
+        "label": "Canonical DB and Printing Gatekeeper",
+        "layer": "L1_L2",
+        "mission": "Own schema, printing identity, source aliases, DB fingerprint and approved materialization plans.",
+        "mode": "AUDIT_IMPLEMENT_SERIAL_APPLY",
+        "nodeIds": [
+          "database.canonical",
+          "normalizer.identity",
+          "authority.universe"
+        ],
+        "readPaths": [
+          "pipelines/migrations",
+          "pipelines/db_runtime.py",
+          "information_schema"
+        ],
+        "requiredDocumentIds": [
+          "data-contract",
+          "canonical-printing"
+        ],
+        "roleDocumentId": "agent-role-a03",
+        "writeClaimIds": [
+          "canonical-db-schema"
+        ]
+      },
+      {
+        "acceptance": [
+          "unclassified executables equal zero",
+          "each protected writer has exactly one controller"
+        ],
+        "blockedActions": [
+          "execute_temp_code",
+          "execute_evidence_code",
+          "database_write",
+          "pointer_write",
+          "timer_change"
+        ],
+        "capabilityRouteIds": [
+          "code-navigation",
+          "architecture-visualization"
+        ],
+        "handoffTo": [
+          "A05",
+          "A06",
+          "A07",
+          "A08",
+          "A09",
+          "A11",
+          "A12"
+        ],
+        "id": "A04",
+        "label": "Script Lifecycle and Call Graph",
+        "layer": "L1",
+        "mission": "Classify every executable, caller, writer surface, scheduler edge and lifecycle.",
+        "mode": "AUDIT_IMPLEMENT",
+        "nodeIds": [
+          "index.codegraph",
+          "orchestrator.daily"
+        ],
+        "readPaths": [
+          "scripts",
+          "pipelines",
+          "integrations",
+          "deploy",
+          "package.json",
+          "temp",
+          "docs/evidence"
+        ],
+        "requiredDocumentIds": [
+          "tool-registry-view",
+          "data-lineage-view"
+        ],
+        "roleDocumentId": "agent-role-a04",
+        "writeClaimIds": [
+          "script-inventory-control"
+        ]
+      },
+      {
+        "acceptance": [
+          "all cohort POP cells reach a terminal state",
+          "no inferred identity or synthesized history"
+        ],
+        "blockedActions": [
+          "direct_canonical_sql",
+          "snapshot_publish",
+          "pointer_write",
+          "timer_change"
+        ],
+        "capabilityRouteIds": [
+          "code-navigation"
+        ],
+        "handoffTo": [
+          "A10",
+          "A11",
+          "A12"
+        ],
+        "id": "A05",
+        "label": "GemRate POP and Grader",
+        "layer": "L2",
+        "mission": "Close current POP, POP history, grader supply, alias and freshness cells without synthesizing history.",
+        "mode": "HARVEST_CANDIDATE_IMPLEMENT",
+        "nodeIds": [
+          "authority.gemrate",
+          "transport.gemrate-direct",
+          "transport.gemrate-public",
+          "transport.gemrate-mirror"
+        ],
+        "readPaths": [
+          "pipelines/gemrate_source.py",
+          "pipelines/gemrate_candidate_backfill.py",
+          "data/runtime/private-source-runs"
+        ],
+        "requiredDocumentIds": [
+          "gemrate-source"
+        ],
+        "roleDocumentId": "agent-role-a05",
+        "writeClaimIds": [
+          "gemrate-domain"
+        ]
+      },
+      {
+        "acceptance": [
+          "all price cells reach a terminal state",
+          "source identity and price timestamps are exact"
+        ],
+        "blockedActions": [
+          "direct_canonical_sql",
+          "snapshot_publish",
+          "pointer_write",
+          "timer_change"
+        ],
+        "capabilityRouteIds": [
+          "code-navigation",
+          "live-market-research"
+        ],
+        "handoffTo": [
+          "A10",
+          "A11",
+          "A12"
+        ],
+        "id": "A06",
+        "label": "Price and History",
+        "layer": "L2",
+        "mission": "Close exact current price, history, anchors and outlier decisions under approved source policy.",
+        "mode": "HARVEST_CANDIDATE_IMPLEMENT",
+        "nodeIds": [
+          "collector.snk-exact",
+          "database.canonical"
+        ],
+        "readPaths": [
+          "pipelines/snk_market_data.py",
+          "pipelines/snkrdunk_bulk.py",
+          "market_price_observation"
+        ],
+        "requiredDocumentIds": [
+          "snk-manual",
+          "data-contract"
+        ],
+        "roleDocumentId": "agent-role-a06",
+        "writeClaimIds": [
+          "price-domain"
+        ]
+      },
+      {
+        "acceptance": [
+          "bundle, grade and printing mismatches are rejected",
+          "no-sales states carry coverage evidence"
+        ],
+        "blockedActions": [
+          "direct_canonical_sql",
+          "snapshot_publish",
+          "pointer_write",
+          "timer_change"
+        ],
+        "capabilityRouteIds": [
+          "code-navigation",
+          "live-market-research"
+        ],
+        "handoffTo": [
+          "A10",
+          "A11",
+          "A12"
+        ],
+        "id": "A07",
+        "label": "Sales and Liquidity",
+        "layer": "L2",
+        "mission": "Close exact sale identity, grade filtering, dedupe, coverage and verified-none semantics.",
+        "mode": "HARVEST_CANDIDATE_IMPLEMENT",
+        "nodeIds": [
+          "collector.snk-exact",
+          "derivation.market"
+        ],
+        "readPaths": [
+          "pipelines/ebay_sold_data.py",
+          "market_daily_sales_aggregate",
+          "market_sale_observation"
+        ],
+        "requiredDocumentIds": [
+          "data-contract"
+        ],
+        "roleDocumentId": "agent-role-a07",
+        "writeClaimIds": [
+          "sales-domain"
+        ]
+      },
+      {
+        "acceptance": [
+          "every decision binds the approved image policy",
+          "public candidate has zero SAMPLE and cross-card images"
+        ],
+        "blockedActions": [
+          "snapshot_publish",
+          "pointer_write",
+          "timer_change",
+          "shared_asset_promotion"
+        ],
+        "capabilityRouteIds": [
+          "code-navigation",
+          "media-processing"
+        ],
+        "handoffTo": [
+          "A11",
+          "A12"
+        ],
+        "id": "A08",
+        "label": "Image and Media",
+        "layer": "L2",
+        "mission": "Close semantic card identity, SAMPLE, rights, hash and derivative decisions.",
+        "mode": "HARVEST_CANDIDATE_IMPLEMENT",
+        "nodeIds": [
+          "review.media",
+          "validator.public-qc"
+        ],
+        "readPaths": [
+          "pipelines/verify_images.py",
+          "manifests",
+          "apps/web/public/market-assets"
+        ],
+        "requiredDocumentIds": [
+          "security-policy",
+          "data-contract"
+        ],
+        "roleDocumentId": "agent-role-a08",
+        "writeClaimIds": [
+          "image-media-domain"
+        ]
+      },
+      {
+        "acceptance": [
+          "required editorial cells reach a terminal state",
+          "missing locale content stays missing"
+        ],
+        "blockedActions": [
+          "canonical_market_write",
+          "snapshot_publish",
+          "pointer_write",
+          "timer_change"
+        ],
+        "capabilityRouteIds": [
+          "code-navigation",
+          "editorial-writing"
+        ],
+        "handoffTo": [
+          "A11",
+          "A12"
+        ],
+        "id": "A09",
+        "label": "Editorial and Localization",
+        "layer": "L2",
+        "mission": "Close required names, set labels, stories, provenance and locale states without fake fallback.",
+        "mode": "AUDIT_CANDIDATE_IMPLEMENT",
+        "nodeIds": [
+          "export.sanitized-snapshot",
+          "review.media"
+        ],
+        "readPaths": [
+          "apps/web/src",
+          "data/runtime/private-editorial"
+        ],
+        "requiredDocumentIds": [
+          "editorial-review",
+          "data-contract"
+        ],
+        "roleDocumentId": "agent-role-a09",
+        "writeClaimIds": [
+          "editorial-domain"
+        ]
+      },
+      {
+        "acceptance": [
+          "one formula path is used",
+          "rankings are contiguous and projections preserve truthful coverage"
+        ],
+        "blockedActions": [
+          "canonical_source_fact_write",
+          "snapshot_publish",
+          "pointer_write",
+          "timer_change"
+        ],
+        "capabilityRouteIds": [
+          "code-navigation"
+        ],
+        "handoffTo": [
+          "A11",
+          "A12"
+        ],
+        "id": "A10",
+        "label": "Derived Metrics and Ranking",
+        "layer": "L2_L3",
+        "mission": "Own windows, market cap, ranking, view cardinality and truthful UI semantics.",
+        "mode": "IMPLEMENT_VERIFY",
+        "nodeIds": [
+          "derivation.market",
+          "ranking.scopes",
+          "export.views"
+        ],
+        "readPaths": [
+          "pipelines/ranking_derivation.py",
+          "pipelines/market_alerts.py",
+          "packages/market-data/src"
+        ],
+        "requiredDocumentIds": [
+          "data-contract"
+        ],
+        "roleDocumentId": "agent-role-a10",
+        "writeClaimIds": [
+          "derived-ranking-domain"
+        ]
+      },
+      {
+        "acceptance": [
+          "baseline is frozen before domain work",
+          "full and incremental use one engine",
+          "retry resumes and same input is a no-op"
+        ],
+        "blockedActions": [
+          "collector_business_logic_change",
+          "unapproved_database_apply",
+          "pointer_write",
+          "timer_enable"
+        ],
+        "capabilityRouteIds": [
+          "code-navigation"
+        ],
+        "handoffTo": [
+          "A12"
+        ],
+        "id": "A11",
+        "label": "Bootstrap Control and Runtime",
+        "layer": "L1_L3",
+        "mission": "Run baseline bootstrap, control CLI integration, then full/delta orchestration, locks, receipts and retry.",
+        "mode": "SERIAL_PHASES",
+        "nodeIds": [
+          "orchestrator.daily",
+          "state.last-good",
+          "status.machine"
+        ],
+        "readPaths": [
+          "scripts/backend.py",
+          "pipelines/run_daily.py",
+          "pipelines/run_receipts.py",
+          "deploy"
+        ],
+        "requiredDocumentIds": [
+          "backend-runbook"
+        ],
+        "roleDocumentId": "agent-role-a11",
+        "writeClaimIds": [
+          "runtime-control"
+        ]
+      },
+      {
+        "acceptance": [
+          "no unresolved P0 remains",
+          "verdict cites exact commands, hashes and raw test output"
+        ],
+        "blockedActions": [
+          "production_source_write",
+          "database_write",
+          "snapshot_publish",
+          "pointer_write",
+          "timer_change"
+        ],
+        "capabilityRouteIds": [
+          "code-navigation"
+        ],
+        "handoffTo": [
+          "MAIN"
+        ],
+        "id": "A12",
+        "label": "Independent Red Team",
+        "layer": "ALL",
+        "mission": "Attack contracts, replay, privacy, writer containment and release claims independently.",
+        "mode": "VERIFY_READ_ONLY",
+        "nodeIds": [
+          "validator.canonical-db-qc",
+          "validator.public-qc",
+          "status.machine"
+        ],
+        "readPaths": [
+          "tests",
+          "docs/generated",
+          "data/runtime/private-reports"
+        ],
+        "requiredDocumentIds": [
+          "document-authority-view",
+          "security-policy"
+        ],
+        "roleDocumentId": "agent-role-a12",
+        "writeClaimIds": [
+          "red-team-tests"
+        ]
+      }
+    ],
+    "waves": [
+      {
+        "dependsOn": [],
+        "id": "wave-0-bootstrap",
+        "label": "Freeze read-only baseline",
+        "roleStages": [
+          "A11.bootstrap"
+        ]
+      },
+      {
+        "dependsOn": [
+          "wave-0-bootstrap"
+        ],
+        "id": "wave-1-contracts",
+        "label": "Map consumers, fields, DB and scripts",
+        "roleStages": [
+          "A01",
+          "A02",
+          "A03",
+          "A04"
+        ]
+      },
+      {
+        "dependsOn": [
+          "wave-1-contracts"
+        ],
+        "id": "wave-2-control",
+        "label": "Integrate explain, audit and matrix controls",
+        "roleStages": [
+          "A11.control"
+        ]
+      },
+      {
+        "dependsOn": [
+          "wave-2-control"
+        ],
+        "id": "wave-3-domains",
+        "label": "Close POP, price, sales, image, editorial and derived dimensions",
+        "roleStages": [
+          "A05",
+          "A06",
+          "A07",
+          "A08",
+          "A09",
+          "A10"
+        ]
+      },
+      {
+        "dependsOn": [
+          "wave-3-domains"
+        ],
+        "id": "wave-4-runtime",
+        "label": "Unify full and incremental runtime",
+        "roleStages": [
+          "A11.runtime"
+        ]
+      },
+      {
+        "dependsOn": [
+          "wave-4-runtime"
+        ],
+        "id": "wave-5-red-team",
+        "label": "Independent final verification",
+        "roleStages": [
+          "A12"
+        ]
+      }
+    ],
+    "writeClaims": [
+      {
+        "id": "agent-entry-control",
+        "mode": "exclusive",
+        "ownerRoleId": "MAIN",
+        "paths": [
+          "AGENTS.md",
+          "CLAUDE.md",
+          "README.md"
+        ]
+      },
+      {
+        "id": "registry-control-plane",
+        "mode": "exclusive",
+        "ownerRoleId": "MAIN",
+        "paths": [
+          "config/data-routing.json"
+        ]
+      },
+      {
+        "id": "generated-control-plane",
+        "mode": "generator_only",
+        "ownerRoleId": "MAIN",
+        "paths": [
+          "docs/generated/**"
+        ]
+      },
+      {
+        "id": "document-control-implementation",
+        "mode": "exclusive",
+        "ownerRoleId": "MAIN",
+        "paths": [
+          "pipelines/registry_lineage.py",
+          "scripts/verify_doc_refs.py",
+          "tests/test_registry_lineage.py",
+          "tests/test_verify_doc_refs.py"
+        ]
+      },
+      {
+        "id": "frontend-consumers",
+        "mode": "exclusive",
+        "ownerRoleId": "A01",
+        "paths": [
+          "apps/web/src/**"
+        ]
+      },
+      {
+        "id": "public-schema-exporter",
+        "mode": "exclusive",
+        "ownerRoleId": "A02",
+        "paths": [
+          "packages/market-data/src/**",
+          "pipelines/canonical_public_snapshot.py"
+        ]
+      },
+      {
+        "id": "canonical-db-schema",
+        "mode": "exclusive_serial_apply",
+        "ownerRoleId": "A03",
+        "paths": [
+          "pipelines/db_runtime.py",
+          "pipelines/migrations/**",
+          "pipelines/universe_authority.py"
+        ]
+      },
+      {
+        "id": "script-inventory-control",
+        "mode": "exclusive",
+        "ownerRoleId": "A04",
+        "paths": [
+          "pipelines/script_inventory.py",
+          "tests/test_script_inventory.py"
+        ]
+      },
+      {
+        "id": "gemrate-domain",
+        "mode": "exclusive",
+        "ownerRoleId": "A05",
+        "paths": [
+          "pipelines/gemrate_source.py",
+          "pipelines/gemrate_candidate_backfill.py",
+          "pipelines/gemrate_brute_harvest.py",
+          "tests/test_gemrate_transport.py",
+          "tests/test_gemrate_candidate_backfill.py"
+        ]
+      },
+      {
+        "id": "price-domain",
+        "mode": "exclusive",
+        "ownerRoleId": "A06",
+        "paths": [
+          "pipelines/snk_market_data.py",
+          "pipelines/snkrdunk_bulk.py",
+          "tests/test_snkrdunk_bulk_refill.py"
+        ]
+      },
+      {
+        "id": "sales-domain",
+        "mode": "exclusive",
+        "ownerRoleId": "A07",
+        "paths": [
+          "pipelines/ebay_sold_data.py",
+          "pipelines/c11_pc_sold_ingest.py",
+          "pipelines/pc_full_shard_runner.py",
+          "pipelines/pricecharting_cf_session.py",
+          "pipelines/pricecharting_ebay_export.py",
+          "tests/test_ebay_sold_data.py"
+        ]
+      },
+      {
+        "id": "image-media-domain",
+        "mode": "exclusive",
+        "ownerRoleId": "A08",
+        "paths": [
+          "pipelines/verify_images.py",
+          "tests/test_public_snapshot_qc.py"
+        ]
+      },
+      {
+        "id": "editorial-domain",
+        "mode": "exclusive",
+        "ownerRoleId": "A09",
+        "paths": [
+          "pipelines/editorial_import.py",
+          "tests/test_editorial_import.py"
+        ]
+      },
+      {
+        "id": "derived-ranking-domain",
+        "mode": "exclusive",
+        "ownerRoleId": "A10",
+        "paths": [
+          "pipelines/ranking_derivation.py",
+          "pipelines/market_alerts.py",
+          "tests/test_ranking_derivation.py",
+          "tests/test_market_alerts.py"
+        ]
+      },
+      {
+        "id": "runtime-control",
+        "mode": "exclusive_serial_phases",
+        "ownerRoleId": "A11",
+        "paths": [
+          "scripts/backend.py",
+          "scripts/pc_full900_supervisor.ps1",
+          "pipelines/run_daily.py",
+          "pipelines/run_receipts.py",
+          "pipelines/failure_ledger.py",
+          "pipelines/pc_full_serial_driver.py",
+          "tests/test_run_daily_orchestration.py",
+          "tests/test_failure_ledger.py",
+          "tests/test_failure_integrations.py"
+        ]
+      },
+      {
+        "id": "red-team-tests",
+        "mode": "read_only_production",
+        "ownerRoleId": "A12",
+        "paths": [
+          "tests/acceptance/**",
+          "data/runtime/private-reports/red-team/**"
+        ]
+      }
+    ]
+  },
   "architecture": {
     "codeIndex": {
       "authority": false,
@@ -78,6 +1476,13 @@
         "to": "review.identity"
       },
       {
+        "from": "normalizer.identity",
+        "id": "edge.identity-db",
+        "relation": "materializes_approved_printing_receipts",
+        "required": true,
+        "to": "database.canonical"
+      },
+      {
         "from": "crosswalk.provider-alias",
         "id": "edge.alias-snk",
         "relation": "enables_exact_price_lookup",
@@ -97,6 +1502,34 @@
         "relation": "writes_normalized_market_facts",
         "required": true,
         "to": "database.canonical"
+      },
+      {
+        "from": "database.canonical",
+        "id": "edge-db-full-qc",
+        "relation": "audits_all_deterministic_discovery_evidence",
+        "required": true,
+        "to": "validator.canonical-db-qc"
+      },
+      {
+        "from": "validator.canonical-db-qc",
+        "id": "edge-full-qc-snapshot",
+        "relation": "blocks_export_until_release_ready",
+        "required": true,
+        "to": "export.sanitized-snapshot"
+      },
+      {
+        "from": "database.canonical",
+        "id": "edge-db-universe",
+        "relation": "derives_immutable_membership",
+        "required": true,
+        "to": "authority.universe"
+      },
+      {
+        "from": "authority.universe",
+        "id": "edge-universe-gate",
+        "relation": "supplies_resolved_membership",
+        "required": true,
+        "to": "validator.eligibility"
       },
       {
         "from": "database.canonical",
@@ -134,11 +1567,46 @@
         "to": "export.sanitized-snapshot"
       },
       {
+        "from": "export.sanitized-snapshot",
+        "id": "edge-snapshot-qc",
+        "relation": "audits_and_binds_receipt",
+        "required": true,
+        "to": "validator.public-qc"
+      },
+      {
+        "from": "validator.public-qc",
+        "id": "edge-qc-review",
+        "relation": "queues_rejections",
+        "required": false,
+        "to": "review.media"
+      },
+      {
+        "from": "validator.public-qc",
+        "id": "edge-qc-publisher",
+        "relation": "admits_passed_generation_only",
+        "required": true,
+        "to": "publisher.official"
+      },
+      {
+        "from": "publisher.official",
+        "id": "edge-publisher-state",
+        "relation": "atomically_promotes_pointer",
+        "required": true,
+        "to": "state.last-good"
+      },
+      {
         "from": "orchestrator.daily",
         "id": "edge-daily-state",
         "relation": "promotes_only_after_all_gates",
         "required": true,
         "to": "state.last-good"
+      },
+      {
+        "from": "database.canonical",
+        "id": "edge-status-db",
+        "relation": "reports_read_only_integrity",
+        "required": true,
+        "to": "status.machine"
       },
       {
         "from": "index.codegraph",
@@ -240,7 +1708,9 @@
           ],
           "toolIds": [
             "exact-crosswalk",
-            "canonical-sync"
+            "canonical-sync",
+            "printing-plan",
+            "printing-materialize"
           ]
         }
       },
@@ -300,6 +1770,7 @@
           ],
           "databaseTargets": [
             "catalog_variant",
+            "catalog_printing_identity",
             "catalog_source_identity",
             "catalog_provider_identity_alias",
             "market_grader_population_observation",
@@ -310,7 +1781,47 @@
             "market_index_constituent"
           ],
           "toolIds": [
-            "canonical-db"
+            "canonical-db",
+            "printing-materialize"
+          ]
+        }
+      },
+      {
+        "id": "validator.canonical-db-qc",
+        "kind": "validator",
+        "label": "Read-only full canonical DB release QC",
+        "refs": {
+          "consumerIds": [
+            "manual_operator",
+            "automated_tests",
+            "canonical_mysql"
+          ],
+          "metricIds": [
+            "candidate_identity",
+            "psa10_population",
+            "psa10_reference_price",
+            "tracked_sales",
+            "psa10_market_cap"
+          ],
+          "toolIds": [
+            "canonical-db-qc"
+          ]
+        }
+      },
+      {
+        "id": "authority.universe",
+        "kind": "authority",
+        "label": "Deterministic DB-derived qualified and monitoring universe",
+        "refs": {
+          "consumerIds": [
+            "canonical_mysql"
+          ],
+          "databaseTargets": [
+            "market_universe_lock",
+            "market_universe_member"
+          ],
+          "toolIds": [
+            "universe-authority"
           ]
         }
       },
@@ -327,6 +1838,32 @@
           ],
           "toolIds": [
             "coverage-audit"
+          ]
+        }
+      },
+      {
+        "id": "review.media",
+        "kind": "review_queue",
+        "label": "Identity, image and outlier QC review",
+        "refs": {
+          "consumerIds": [
+            "manual_operator"
+          ],
+          "toolIds": [
+            "public-snapshot-qc"
+          ]
+        }
+      },
+      {
+        "id": "validator.public-qc",
+        "kind": "validator",
+        "label": "Generation-bound strict public QC receipt",
+        "refs": {
+          "consumerIds": [
+            "sanitized_snapshot"
+          ],
+          "toolIds": [
+            "public-snapshot-qc"
           ]
         }
       },
@@ -383,6 +1920,19 @@
         }
       },
       {
+        "id": "publisher.official",
+        "kind": "export",
+        "label": "Only generation and atomic pointer publisher",
+        "refs": {
+          "consumerIds": [
+            "sanitized_snapshot"
+          ],
+          "toolIds": [
+            "official-publisher"
+          ]
+        }
+      },
+      {
         "id": "orchestrator.daily",
         "kind": "orchestrator",
         "label": "One Python daily control flow",
@@ -391,6 +1941,21 @@
             "daily",
             "weekly-candidate-refresh",
             "full-backfill"
+          ]
+        }
+      },
+      {
+        "id": "status.machine",
+        "kind": "validator",
+        "label": "Read-only machine release status",
+        "refs": {
+          "consumerIds": [
+            "manual_operator",
+            "automated_tests"
+          ],
+          "toolIds": [
+            "machine-status",
+            "project-state-render"
           ]
         }
       },
@@ -440,7 +2005,8 @@
       "reads": [
         "routes",
         "tools",
-        "storagePolicy"
+        "storagePolicy",
+        "universePolicy"
       ],
       "type": "database"
     },
@@ -450,6 +2016,7 @@
       "reads": [
         "rankingPolicy",
         "presentationViews",
+        "publicReleasePolicy",
         "routes"
       ],
       "type": "snapshot"
@@ -460,52 +2027,816 @@
     "rulesPath": "config/data-cleaning-rules.json",
     "schemaPath": "config/data-cleaning-rules.schema.json"
   },
+  "documentAuthority": {
+    "archiveRoots": [
+      "docs/archive",
+      "docs/evidence",
+      "docs/mockups"
+    ],
+    "claimPolicyEnum": [
+      "machine_generated",
+      "stable_contract_only",
+      "runtime_verification_required",
+      "historical_snapshot"
+    ],
+    "defaultUnregisteredStatus": "reference_only",
+    "documents": [
+      {
+        "authorityDomains": [
+          "agent_start"
+        ],
+        "claimPolicy": "stable_contract_only",
+        "executionAllowed": true,
+        "id": "agent-entry",
+        "instructional": true,
+        "kind": "agent_entry",
+        "path": "AGENTS.md",
+        "status": "active"
+      },
+      {
+        "authorityDomains": [
+          "claude_compatibility_entry"
+        ],
+        "claimPolicy": "stable_contract_only",
+        "executionAllowed": true,
+        "id": "claude-compatibility-entry",
+        "instructional": true,
+        "kind": "agent_entry",
+        "path": "CLAUDE.md",
+        "status": "active"
+      },
+      {
+        "authorityDomains": [
+          "live_operational_state"
+        ],
+        "claimPolicy": "machine_generated",
+        "executionAllowed": false,
+        "generatorToolId": "project-state-render",
+        "id": "operational-state",
+        "instructional": false,
+        "kind": "machine_state",
+        "path": "PROJECT_STATE.md",
+        "status": "generated"
+      },
+      {
+        "authorityDomains": [
+          "repository_orientation"
+        ],
+        "claimPolicy": "stable_contract_only",
+        "executionAllowed": false,
+        "id": "repository-overview",
+        "instructional": false,
+        "kind": "reference",
+        "path": "README.md",
+        "status": "active"
+      },
+      {
+        "authorityDomains": [
+          "architecture_ownership",
+          "document_authority",
+          "agent_execution"
+        ],
+        "claimPolicy": "stable_contract_only",
+        "executionAllowed": true,
+        "id": "architecture-registry",
+        "instructional": true,
+        "kind": "machine_contract",
+        "path": "config/data-routing.json",
+        "status": "active"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "machine_generated",
+        "executionAllowed": true,
+        "generatorToolId": "route-contract",
+        "id": "document-authority-view",
+        "instructional": true,
+        "kind": "generated_view",
+        "path": "docs/generated/DOCUMENT_AUTHORITY.md",
+        "status": "generated"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "machine_generated",
+        "executionAllowed": true,
+        "generatorToolId": "route-contract",
+        "id": "agent-execution-funnel",
+        "instructional": true,
+        "kind": "generated_view",
+        "path": "docs/generated/AGENT_EXECUTION_FUNNEL.md",
+        "status": "generated"
+      },
+      {
+        "authorityDomains": [
+          "agent_role_A01"
+        ],
+        "claimPolicy": "machine_generated",
+        "executionAllowed": true,
+        "generatorToolId": "route-contract",
+        "id": "agent-role-a01",
+        "instructional": true,
+        "kind": "generated_view",
+        "path": "docs/generated/roles/A01.md",
+        "status": "generated"
+      },
+      {
+        "authorityDomains": [
+          "agent_role_A02"
+        ],
+        "claimPolicy": "machine_generated",
+        "executionAllowed": true,
+        "generatorToolId": "route-contract",
+        "id": "agent-role-a02",
+        "instructional": true,
+        "kind": "generated_view",
+        "path": "docs/generated/roles/A02.md",
+        "status": "generated"
+      },
+      {
+        "authorityDomains": [
+          "agent_role_A03"
+        ],
+        "claimPolicy": "machine_generated",
+        "executionAllowed": true,
+        "generatorToolId": "route-contract",
+        "id": "agent-role-a03",
+        "instructional": true,
+        "kind": "generated_view",
+        "path": "docs/generated/roles/A03.md",
+        "status": "generated"
+      },
+      {
+        "authorityDomains": [
+          "agent_role_A04"
+        ],
+        "claimPolicy": "machine_generated",
+        "executionAllowed": true,
+        "generatorToolId": "route-contract",
+        "id": "agent-role-a04",
+        "instructional": true,
+        "kind": "generated_view",
+        "path": "docs/generated/roles/A04.md",
+        "status": "generated"
+      },
+      {
+        "authorityDomains": [
+          "agent_role_A05"
+        ],
+        "claimPolicy": "machine_generated",
+        "executionAllowed": true,
+        "generatorToolId": "route-contract",
+        "id": "agent-role-a05",
+        "instructional": true,
+        "kind": "generated_view",
+        "path": "docs/generated/roles/A05.md",
+        "status": "generated"
+      },
+      {
+        "authorityDomains": [
+          "agent_role_A06"
+        ],
+        "claimPolicy": "machine_generated",
+        "executionAllowed": true,
+        "generatorToolId": "route-contract",
+        "id": "agent-role-a06",
+        "instructional": true,
+        "kind": "generated_view",
+        "path": "docs/generated/roles/A06.md",
+        "status": "generated"
+      },
+      {
+        "authorityDomains": [
+          "agent_role_A07"
+        ],
+        "claimPolicy": "machine_generated",
+        "executionAllowed": true,
+        "generatorToolId": "route-contract",
+        "id": "agent-role-a07",
+        "instructional": true,
+        "kind": "generated_view",
+        "path": "docs/generated/roles/A07.md",
+        "status": "generated"
+      },
+      {
+        "authorityDomains": [
+          "agent_role_A08"
+        ],
+        "claimPolicy": "machine_generated",
+        "executionAllowed": true,
+        "generatorToolId": "route-contract",
+        "id": "agent-role-a08",
+        "instructional": true,
+        "kind": "generated_view",
+        "path": "docs/generated/roles/A08.md",
+        "status": "generated"
+      },
+      {
+        "authorityDomains": [
+          "agent_role_A09"
+        ],
+        "claimPolicy": "machine_generated",
+        "executionAllowed": true,
+        "generatorToolId": "route-contract",
+        "id": "agent-role-a09",
+        "instructional": true,
+        "kind": "generated_view",
+        "path": "docs/generated/roles/A09.md",
+        "status": "generated"
+      },
+      {
+        "authorityDomains": [
+          "agent_role_A10"
+        ],
+        "claimPolicy": "machine_generated",
+        "executionAllowed": true,
+        "generatorToolId": "route-contract",
+        "id": "agent-role-a10",
+        "instructional": true,
+        "kind": "generated_view",
+        "path": "docs/generated/roles/A10.md",
+        "status": "generated"
+      },
+      {
+        "authorityDomains": [
+          "agent_role_A11"
+        ],
+        "claimPolicy": "machine_generated",
+        "executionAllowed": true,
+        "generatorToolId": "route-contract",
+        "id": "agent-role-a11",
+        "instructional": true,
+        "kind": "generated_view",
+        "path": "docs/generated/roles/A11.md",
+        "status": "generated"
+      },
+      {
+        "authorityDomains": [
+          "agent_role_A12"
+        ],
+        "claimPolicy": "machine_generated",
+        "executionAllowed": true,
+        "generatorToolId": "route-contract",
+        "id": "agent-role-a12",
+        "instructional": true,
+        "kind": "generated_view",
+        "path": "docs/generated/roles/A12.md",
+        "status": "generated"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "machine_generated",
+        "executionAllowed": false,
+        "generatorToolId": "route-contract",
+        "id": "agent-execution-architecture",
+        "instructional": false,
+        "kind": "generated_view",
+        "path": "docs/generated/AGENT_EXECUTION_ARCHITECTURE.html",
+        "status": "generated"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "machine_generated",
+        "executionAllowed": false,
+        "generatorToolId": "route-contract",
+        "id": "tool-registry-view",
+        "instructional": false,
+        "kind": "generated_view",
+        "path": "docs/generated/TOOL_REGISTRY.md",
+        "status": "generated"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "machine_generated",
+        "executionAllowed": false,
+        "generatorToolId": "route-contract",
+        "id": "data-lineage-view",
+        "instructional": false,
+        "kind": "generated_view",
+        "path": "docs/generated/DATA_LINEAGE.html",
+        "status": "generated"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "machine_generated",
+        "executionAllowed": false,
+        "generatorToolId": "route-contract",
+        "id": "data-routing-view",
+        "instructional": false,
+        "kind": "machine_state",
+        "path": "docs/generated/DATA_ROUTING.json",
+        "status": "generated"
+      },
+      {
+        "authorityDomains": [
+          "backend_operator_commands"
+        ],
+        "claimPolicy": "runtime_verification_required",
+        "executionAllowed": false,
+        "id": "backend-runbook",
+        "instructional": true,
+        "kind": "manual",
+        "path": "docs/RUNBOOK.md",
+        "runtimeVerificationContract": {
+          "domain": "backend_control_plane",
+          "evidenceClass": "fresh_tool_output",
+          "freshnessRule": "verify inside the assigned work item; copied status is never current",
+          "roleIds": [
+            "A11"
+          ],
+          "sideEffectClass": "read_only_or_generated_view_only"
+        },
+        "runtimeVerificationToolIds": [
+          "route-contract",
+          "machine-status"
+        ],
+        "status": "active"
+      },
+      {
+        "authorityDomains": [
+          "canonical_data_semantics"
+        ],
+        "claimPolicy": "stable_contract_only",
+        "executionAllowed": true,
+        "id": "data-contract",
+        "instructional": true,
+        "kind": "machine_contract",
+        "path": "docs/DATA_CONTRACT.md",
+        "status": "active"
+      },
+      {
+        "authorityDomains": [
+          "canonical_printing_materialization"
+        ],
+        "claimPolicy": "stable_contract_only",
+        "executionAllowed": true,
+        "id": "canonical-printing",
+        "instructional": true,
+        "kind": "machine_contract",
+        "path": "docs/CANONICAL_PRINTING_MATERIALIZATION.md",
+        "status": "active"
+      },
+      {
+        "authorityDomains": [
+          "data_cleaning"
+        ],
+        "claimPolicy": "stable_contract_only",
+        "executionAllowed": true,
+        "id": "data-cleaning-rules",
+        "instructional": true,
+        "kind": "machine_contract",
+        "path": "docs/DATA_CLEANING_RULES.md",
+        "status": "active"
+      },
+      {
+        "authorityDomains": [
+          "gemrate_source_operation"
+        ],
+        "claimPolicy": "runtime_verification_required",
+        "executionAllowed": false,
+        "id": "gemrate-source",
+        "instructional": true,
+        "kind": "manual",
+        "path": "pipelines/GEMRATE_SOURCE.md",
+        "runtimeVerificationContract": {
+          "domain": "gemrate_population",
+          "evidenceClass": "content_addressed_private_source_receipt",
+          "freshnessRule": "use the work-item as-of window and exact printing identity",
+          "roleIds": [
+            "A05"
+          ],
+          "sideEffectClass": "private_source_cache_and_receipts_only"
+        },
+        "runtimeVerificationToolIds": [
+          "gemrate-population"
+        ],
+        "status": "active"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "historical_snapshot",
+        "executionAllowed": false,
+        "id": "grade10-operator",
+        "instructional": false,
+        "kind": "manual",
+        "path": "integrations/grade10/OPERATOR_GUIDE.md",
+        "status": "reference_only"
+      },
+      {
+        "authorityDomains": [
+          "snk_source_operation"
+        ],
+        "claimPolicy": "runtime_verification_required",
+        "executionAllowed": false,
+        "id": "snk-manual",
+        "instructional": true,
+        "kind": "manual",
+        "path": "docs/SNKRDUNK_API_MANUAL.md",
+        "runtimeVerificationContract": {
+          "domain": "snk_price_history_sales",
+          "evidenceClass": "content_addressed_private_source_receipt",
+          "freshnessRule": "use the work-item as-of window and exact printing identity",
+          "roleIds": [
+            "A06"
+          ],
+          "sideEffectClass": "private_source_cache_and_receipts_only"
+        },
+        "runtimeVerificationToolIds": [
+          "snk-reference-price"
+        ],
+        "status": "active"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "historical_snapshot",
+        "executionAllowed": false,
+        "id": "provider-api-index",
+        "instructional": false,
+        "kind": "reference",
+        "path": "docs/PROVIDER_API_INDEX.md",
+        "status": "reference_only"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "historical_snapshot",
+        "executionAllowed": false,
+        "id": "us-price-source-rules",
+        "instructional": false,
+        "kind": "manual",
+        "path": "docs/US_PRICE_SOURCE_RULES.md",
+        "status": "quarantine"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "historical_snapshot",
+        "executionAllowed": false,
+        "id": "pricecharting-manual",
+        "instructional": false,
+        "kind": "manual",
+        "path": "docs/PRICECHARTING_API_MANUAL.md",
+        "status": "reference_only"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "historical_snapshot",
+        "executionAllowed": false,
+        "id": "tcgplayer-manual",
+        "instructional": false,
+        "kind": "manual",
+        "path": "docs/TCGPLAYER_API_MANUAL.md",
+        "status": "quarantine"
+      },
+      {
+        "authorityDomains": [
+          "product_positioning"
+        ],
+        "claimPolicy": "stable_contract_only",
+        "executionAllowed": true,
+        "id": "product-positioning",
+        "instructional": true,
+        "kind": "machine_contract",
+        "path": "docs/CARDZ_POSITIONING.md",
+        "status": "active"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "historical_snapshot",
+        "executionAllowed": false,
+        "id": "design-system",
+        "instructional": false,
+        "kind": "reference",
+        "path": "docs/DESIGN_SYSTEM.md",
+        "status": "quarantine"
+      },
+      {
+        "authorityDomains": [
+          "security_boundary"
+        ],
+        "claimPolicy": "stable_contract_only",
+        "executionAllowed": true,
+        "id": "security-policy",
+        "instructional": true,
+        "kind": "machine_contract",
+        "path": "docs/SECURITY.md",
+        "status": "active"
+      },
+      {
+        "authorityDomains": [
+          "editorial_review"
+        ],
+        "claimPolicy": "stable_contract_only",
+        "executionAllowed": true,
+        "id": "editorial-review",
+        "instructional": true,
+        "kind": "machine_contract",
+        "path": "docs/EDITORIAL_REVIEW.md",
+        "status": "active"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "historical_snapshot",
+        "executionAllowed": false,
+        "id": "source-qc-patterns",
+        "instructional": false,
+        "kind": "reference",
+        "path": "docs/SOURCE_QC_PATTERNS.md",
+        "status": "reference_only"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "historical_snapshot",
+        "executionAllowed": false,
+        "id": "ingest-verify-gate-legacy",
+        "instructional": false,
+        "kind": "reference",
+        "path": "docs/INGEST_VERIFY_GATE.md",
+        "status": "quarantine"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "historical_snapshot",
+        "executionAllowed": false,
+        "id": "recall-verify-ops-legacy",
+        "instructional": false,
+        "kind": "reference",
+        "path": "docs/RECALL_VERIFY_OPS.md",
+        "status": "quarantine"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "historical_snapshot",
+        "executionAllowed": false,
+        "id": "fill-loop-lessons-legacy",
+        "instructional": false,
+        "kind": "reference",
+        "path": "docs/FILL_LOOP_LESSONS.md",
+        "status": "quarantine"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "historical_snapshot",
+        "executionAllowed": false,
+        "id": "file-claims-legacy",
+        "instructional": false,
+        "kind": "reference",
+        "path": "FILE_CLAIMS.md",
+        "status": "superseded",
+        "supersededBy": "agent-execution-funnel"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "historical_snapshot",
+        "executionAllowed": false,
+        "id": "project-map-legacy",
+        "instructional": false,
+        "kind": "reference",
+        "path": "docs/PROJECT_MAP.md",
+        "status": "superseded",
+        "supersededBy": "agent-execution-funnel"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "historical_snapshot",
+        "executionAllowed": false,
+        "id": "agent-pipeline-index-legacy",
+        "instructional": false,
+        "kind": "reference",
+        "path": "docs/AGENT_PIPELINE_INDEX.md",
+        "status": "superseded",
+        "supersededBy": "tool-registry-view"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "historical_snapshot",
+        "executionAllowed": false,
+        "id": "frontend-handshake-legacy",
+        "instructional": false,
+        "kind": "reference",
+        "path": "docs/FRONTEND_HANDSHAKE.md",
+        "status": "superseded",
+        "supersededBy": "data-contract"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "historical_snapshot",
+        "executionAllowed": false,
+        "id": "page-data-requirements-legacy",
+        "instructional": false,
+        "kind": "reference",
+        "path": "docs/PAGE_DATA_REQUIREMENTS.md",
+        "status": "superseded",
+        "supersededBy": "data-contract"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "historical_snapshot",
+        "executionAllowed": false,
+        "id": "data-routing-legacy",
+        "instructional": false,
+        "kind": "reference",
+        "path": "docs/DATA_ROUTING.md",
+        "status": "superseded",
+        "supersededBy": "data-routing-view"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "historical_snapshot",
+        "executionAllowed": false,
+        "id": "data-source-inventory-legacy",
+        "instructional": false,
+        "kind": "reference",
+        "path": "docs/DATA_SOURCE_INVENTORY.md",
+        "status": "superseded",
+        "supersededBy": "tool-registry-view"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "historical_snapshot",
+        "executionAllowed": false,
+        "id": "incremental-handoff-legacy",
+        "instructional": false,
+        "kind": "evidence",
+        "path": "docs/AGENT_HANDOFF_INCREMENTAL.md",
+        "status": "quarantine"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "historical_snapshot",
+        "executionAllowed": false,
+        "id": "architecture-chain-legacy",
+        "instructional": false,
+        "kind": "evidence",
+        "path": "docs/ARCHITECTURE_CHAIN.md",
+        "status": "historical"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "historical_snapshot",
+        "executionAllowed": false,
+        "id": "handoff-legacy",
+        "instructional": false,
+        "kind": "evidence",
+        "path": "docs/HANDOFF.md",
+        "status": "historical"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "historical_snapshot",
+        "executionAllowed": false,
+        "id": "data-gaps-legacy",
+        "instructional": false,
+        "kind": "evidence",
+        "path": "docs/DATA_GAPS.md",
+        "status": "historical"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "historical_snapshot",
+        "executionAllowed": false,
+        "id": "practical-ops-legacy",
+        "instructional": false,
+        "kind": "reference",
+        "path": "docs/PRACTICAL_OPS.md",
+        "status": "delete_candidate"
+      },
+      {
+        "authorityDomains": [],
+        "claimPolicy": "historical_snapshot",
+        "executionAllowed": false,
+        "id": "deploy-skill-legacy",
+        "instructional": false,
+        "kind": "reference",
+        "path": "docs/DEPLOY_SKILL.md",
+        "status": "delete_candidate"
+      }
+    ],
+    "entrySequence": [
+      "agent-entry",
+      "document-authority-view",
+      "agent-execution-funnel"
+    ],
+    "excludedExecutionRoots": [
+      "temp",
+      "docs/archive",
+      "docs/evidence",
+      "docs/mockups"
+    ],
+    "generatedRoot": "docs/generated",
+    "kindEnum": [
+      "agent_entry",
+      "machine_state",
+      "machine_contract",
+      "manual",
+      "generated_view",
+      "reference",
+      "evidence"
+    ],
+    "managedRoots": [
+      "AGENTS.md",
+      "CLAUDE.md",
+      "FILE_CLAIMS.md",
+      "PROJECT_STATE.md",
+      "README.md",
+      "docs"
+    ],
+    "statusEnum": [
+      "active",
+      "generated",
+      "reference_only",
+      "superseded",
+      "historical",
+      "quarantine",
+      "delete_candidate"
+    ]
+  },
   "manuals": [
     {
+      "documentId": "backend-runbook",
       "id": "backend-runbook",
       "path": "docs/RUNBOOK.md",
       "purpose": "operator commands, checkpoint and rollback"
     },
     {
+      "documentId": "data-contract",
       "id": "data-contract",
       "path": "docs/DATA_CONTRACT.md",
       "purpose": "canonical data and snapshot contract"
     },
     {
+      "documentId": "canonical-printing",
+      "id": "canonical-printing",
+      "path": "docs/CANONICAL_PRINTING_MATERIALIZATION.md",
+      "purpose": "content-addressed printing approval, candidate, transaction and rollback contract"
+    },
+    {
+      "documentId": "data-cleaning-rules",
       "id": "data-cleaning-rules",
       "path": "docs/DATA_CLEANING_RULES.md",
       "purpose": "raw retention, normalization, canonical fact and derivation rules"
     },
     {
-      "id": "frontend-handshake",
-      "path": "docs/FRONTEND_HANDSHAKE.md",
-      "purpose": "sanitized frontend fields only"
-    },
-    {
-      "id": "aws-handoff",
-      "path": "docs/AWS_HANDOFF.md",
-      "purpose": "Linux/AWS restore and scheduler handoff"
-    },
-    {
+      "documentId": "gemrate-source",
       "id": "gemrate-source",
       "path": "pipelines/GEMRATE_SOURCE.md",
       "purpose": "GemRate authority and transports"
     },
     {
+      "documentId": "grade10-operator",
       "id": "grade10-operator",
       "path": "integrations/grade10/OPERATOR_GUIDE.md",
       "purpose": "Grade10 bootstrap and mirror operation"
     },
     {
+      "documentId": "snk-manual",
       "id": "snk-manual",
       "path": "docs/SNKRDUNK_API_MANUAL.md",
       "purpose": "exact SNK price/history collection"
+    },
+    {
+      "documentId": "provider-api-index",
+      "id": "provider-api-index",
+      "path": "docs/PROVIDER_API_INDEX.md",
+      "purpose": "agent reference index for SNK / PriceCharting / TCGplayer manuals"
+    },
+    {
+      "documentId": "pricecharting-manual",
+      "id": "pricecharting-manual",
+      "path": "docs/PRICECHARTING_API_MANUAL.md",
+      "purpose": "PriceCharting current price CSV/API + product-page VGPC history/sales"
     }
   ],
-  "policyVersion": "cardz-routing-2026-07-24",
+  "ownership": {
+    "dataOps": {
+      "owns": [
+        "source acquisition",
+        "canonical ingest",
+        "lineage receipts"
+      ],
+      "publicReleaseAuthority": false
+    },
+    "mainHermes": {
+      "owns": [
+        "release promotion",
+        "rollback"
+      ],
+      "publicReleaseAuthority": true
+    },
+    "qcApprover": {
+      "owns": [
+        "canonical identity review",
+        "image semantic review",
+        "data anomaly review"
+      ],
+      "publicReleaseAuthority": false,
+      "sla": {
+        "otherCandidatesBusinessDays": 3,
+        "rankedCandidatesHours": 24
+      }
+    }
+  },
+  "policyVersion": "cardz-routing-2026-07-29-qc-v1",
   "presentationViews": [
     {
-      "description": "Public headline projection of the canonical ranking.",
+      "description": "Compatibility array for a QC-filtered Verified Top N; it claims Verified Top 100 only when all 100 pass.",
       "id": "top100",
       "rankRange": "1-100"
     },
@@ -513,6 +2844,11 @@
       "description": "Public Top 300 projection of the canonical ranking.",
       "id": "top300",
       "rankRange": "1-300"
+    },
+    {
+      "description": "Public multi-board union, deduplicated by canonical variant and capped at 500 cards.",
+      "id": "top300_boards",
+      "rankRange": "combined 1-300 union pokemon 1-100 union one-piece 1-100"
     },
     {
       "description": "Operator view containing Top 300 plus reserve50.",
@@ -582,6 +2918,7 @@
         {
           "id": "audit",
           "tools": [
+            "canonical-db-qc",
             "coverage-audit"
           ]
         }
@@ -631,6 +2968,7 @@
         {
           "id": "audit",
           "tools": [
+            "canonical-db-qc",
             "coverage-audit"
           ]
         }
@@ -642,7 +2980,8 @@
         {
           "id": "preflight",
           "tools": [
-            "route-contract"
+            "route-contract",
+            "machine-status"
           ]
         },
         {
@@ -672,6 +3011,12 @@
           ]
         },
         {
+          "id": "materialize",
+          "tools": [
+            "universe-authority"
+          ]
+        },
+        {
           "id": "derive",
           "tools": [
             "ranking-derivation",
@@ -681,7 +3026,26 @@
         {
           "id": "audit",
           "tools": [
+            "canonical-db-qc",
             "coverage-audit"
+          ]
+        },
+        {
+          "id": "export",
+          "tools": [
+            "snapshot-export"
+          ]
+        },
+        {
+          "id": "qc",
+          "tools": [
+            "public-snapshot-qc"
+          ]
+        },
+        {
+          "id": "publish",
+          "tools": [
+            "official-publisher"
           ]
         }
       ]
@@ -692,6 +3056,7 @@
         {
           "id": "audit",
           "tools": [
+            "canonical-db-qc",
             "coverage-audit"
           ]
         },
@@ -699,6 +3064,18 @@
           "id": "export",
           "tools": [
             "snapshot-export"
+          ]
+        },
+        {
+          "id": "qc",
+          "tools": [
+            "public-snapshot-qc"
+          ]
+        },
+        {
+          "id": "publish",
+          "tools": [
+            "official-publisher"
           ]
         }
       ]
@@ -710,6 +3087,7 @@
         {
           "id": "audit",
           "tools": [
+            "canonical-db-qc",
             "coverage-audit"
           ]
         },
@@ -717,6 +3095,18 @@
           "id": "export",
           "tools": [
             "snapshot-export"
+          ]
+        },
+        {
+          "id": "qc",
+          "tools": [
+            "public-snapshot-qc"
+          ]
+        },
+        {
+          "id": "publish",
+          "tools": [
+            "official-publisher"
           ]
         }
       ]
@@ -789,6 +3179,20 @@
       ]
     }
   ],
+  "publicReleasePolicy": {
+    "coverageClaims": [
+      "verified-top-n",
+      "verified-top-100"
+    ],
+    "imageSemanticStatus": "human_or_vision_confirmed",
+    "minimumVerifiedCount": 1,
+    "pointerPromotion": "generation_bound_atomic_last",
+    "populationFreshnessHoursMaximum": 168,
+    "priceFreshnessHoursMaximum": 48,
+    "publisher": "pipelines/publish-snapshot.mjs",
+    "requestedCount": 100,
+    "trackedPsa10Sales30dMinimumInclusive": 10
+  },
   "rankingPolicy": {
     "canonicalMembership": "complete_eligible_rankings",
     "eligibility": "psa10_population>=1000 && canonical_identity_confirmed && fresh_psa10_reference_price",
@@ -831,7 +3235,7 @@
       ],
       "collector": "pipelines/gemrate_candidate_backfill.py --resume",
       "collectorTool": "candidate-gemrate-backfill",
-      "databaseTarget": "catalog_source_identity + catalog_provider_identity_alias + market_identity_review_queue",
+      "databaseTarget": "catalog_printing_identity + catalog_source_identity + catalog_provider_identity_alias + market_identity_review_queue",
       "failureMode": "candidate_unresolved",
       "freshnessHours": 168,
       "metric": "candidate_identity",
@@ -843,7 +3247,6 @@
       "snapshotFields": [
         "cards.<id>.identityStatus",
         "cards.<id>.collectorNumber",
-        "cards.<id>.language",
         "cards.<id>.names",
         "cards.<id>.sets"
       ],
@@ -859,7 +3262,7 @@
         ],
         "mirrorRoute": "price.getGradingPopulations",
         "preferred": "gemrate_direct_api_identity_receipt",
-        "promotionRule": "only an exact crosswalk may confirm a canonical printing; public card_number is provider evidence and may be short or blank; mirror and discovery evidence cannot bind or rebind a canonical printing",
+        "promotionRule": "exact GemRate and exact SNK bindings are necessary but not sufficient; all seven printing fields (tcgCode, cardLanguage, setName, collectorNumber, editionCode, parallelCode, finishCode), the QC card evidence hash and content-addressed field-level source receipts must match before canonicalization; cardLanguage is identity-bearing and separates otherwise identical JA/EN printings; ranking boards may remain language-combined",
         "publicCardPageRoute": "/card/{gemrate_id}"
       }
     },
@@ -917,22 +3320,31 @@
       "upstreamRoute": "/cards/{gemrate_id}/population/history?interval=week"
     },
     {
-      "authority": "snk_exact_psa10_history",
+      "acceptedPrimarySources": [
+        "pricecharting_explicit_psa10",
+        "snk_exact_psa10",
+        "ebay_exact_psa10_sold_median"
+      ],
+      "authority": "cardz_exact_psa10_cross_source_qc",
       "bootstrapEvidence": [
         "grade10_last_good"
       ],
-      "collector": "pipelines/snk_market_data.py",
-      "collectorTool": "snk-exact-refill",
+      "collector": "pipelines/snk_market_data.py + pipelines/pc_psa10_price_materialize.py + exact eBay PSA10 sold median",
+      "collectorTool": "canonical-db-qc",
       "databaseTarget": "market_price_observation",
       "failureMode": "exclude_from_ranking",
       "fallback": [],
       "freshnessHours": 30,
       "metric": "psa10_reference_price",
-      "primary": "snk",
+      "primary": "cardz_cross_source_qc",
+      "qcRule": {
+        "aggregation": "arithmetic_mean_of_fresh_authority_families",
+        "failureLane": "psa10_price",
+        "freshnessHours": 48,
+        "maximumPriceRatio": 2.0,
+        "minimumFreshExactSourceFamilies": 1
+      },
       "rankingRequired": true,
-      "secondary": [
-        "ebay_psa10_sold_validation"
-      ],
       "snapshotFields": [
         "cards.<id>.pricePsa10",
         "cards.<id>.historyDaily"
@@ -940,22 +3352,26 @@
       "staleHours": 48
     },
     {
-      "authority": "snk_exact_recent_trades",
-      "bootstrapEvidence": [
-        "grade10_ebay_sale_history"
+      "acceptedPrimarySources": [
+        "snk_exact_recent_trades",
+        "grade10_exact_ebay_psa10_completed_sales",
+        "pricecharting_product_page_ebay_completed_sales"
       ],
-      "collector": "pipelines/snk_market_data.py + pending repository-owned eBay sold adapter",
+      "authority": "cardz_exact_psa10_sales_qc",
+      "bootstrapEvidence": [
+        "grade10_unbound_ebay_sale_history",
+        "pricecharting_unbound_product_page_sales"
+      ],
+      "collector": "pipelines/snk_market_data.py + pipelines/g10_ebay_ingest.py + pipelines/c11_pc_sold_ingest.py + pipelines/pricecharting_ebay_export.py → ebay_sold_data.py",
       "collectorTool": "snk-reference-price",
       "databaseTarget": "market_daily_sales_aggregate",
       "failureMode": "show_unavailable",
       "fallback": [],
       "freshnessHours": 30,
       "metric": "tracked_sales",
-      "primary": "snk_recent_trades",
+      "observationTarget": "market_sale_observation",
+      "primary": "snk_grade10_pricecharting_exact_psa10_sales",
       "rankingRequired": false,
-      "secondary": [
-        "ebay_psa10_sold"
-      ],
       "snapshotFields": [
         "cards.<id>.windows.1d.trackedSales",
         "cards.<id>.windows.7d.trackedSales",
@@ -1055,7 +3471,21 @@
     }
   ],
   "rules": {
+    "canonicalPrintingIdentity": {
+      "fields": [
+        "tcgCode",
+        "cardLanguage",
+        "setName",
+        "collectorNumber",
+        "editionCode",
+        "parallelCode",
+        "finishCode"
+      ],
+      "languageInclusive": true,
+      "partCount": 7
+    },
     "languagePartitioning": false,
+    "languagePartitioningScope": "ranking_board_grouping_only",
     "populationAuthority": "gemrate",
     "populationBands": {
       "discoveryOnly": {
@@ -1080,7 +3510,7 @@
       "one-piece"
     ]
   },
-  "schemaVersion": "3.0",
+  "schemaVersion": "3.3",
   "storagePolicy": {
     "canonicalObservationRetention": "append_idempotent",
     "canonicalRankingStorageLimit": null,
@@ -1105,6 +3535,10 @@
       "path": "tests/test_snkrdunk_bulk_refill.py"
     },
     {
+      "id": "failure-ledger",
+      "path": "tests/test_failure_ledger.py"
+    },
+    {
       "id": "canonical-sync",
       "path": "tests/test_market_source_gemrate.py"
     },
@@ -1117,8 +3551,36 @@
       "path": "tests/test_canonical_public_snapshot.py"
     },
     {
+      "id": "universe-authority",
+      "path": "tests/test_universe_authority.py"
+    },
+    {
+      "id": "canonical-db-qc",
+      "path": "tests/test_canonical_db_qc.py"
+    },
+    {
+      "id": "project-state-render",
+      "path": "tests/test_project_state_renderer.py"
+    },
+    {
+      "id": "public-snapshot-qc",
+      "path": "tests/test_public_snapshot_qc.py"
+    },
+    {
+      "id": "run-receipts",
+      "path": "tests/test_run_receipts.py"
+    },
+    {
+      "id": "official-publisher",
+      "path": "tests/data/publication-containment.test.mjs"
+    },
+    {
       "id": "ebay-normalizer",
       "path": "tests/test_ebay_sold_data.py"
+    },
+    {
+      "id": "tcgpricelookup-ssr",
+      "path": "tests/test_tcgpricelookup_ssr.py"
     },
     {
       "id": "market-alerts",
@@ -1131,6 +3593,14 @@
     {
       "id": "daily-orchestration",
       "path": "tests/test_run_daily_orchestration.py"
+    },
+    {
+      "id": "backend-cli",
+      "path": "tests/test_backend_cli_contract.py"
+    },
+    {
+      "id": "canonical-printing",
+      "path": "tests/test_printing_materialization.py"
     }
   ],
   "toolDefaults": {
@@ -1166,6 +3636,7 @@
         "sanitized_snapshot"
       ],
       "entrypoint": "pipelines/data_routing.py",
+      "evidenceOutputClass": "fresh_tool_output",
       "id": "route-contract",
       "phase": "preflight",
       "routeMetrics": [
@@ -1179,7 +3650,91 @@
         "grader_supply_psa_bgs_cgc_sgc_tag",
         "card_market_story",
         "fx_usd_display_rates"
+      ],
+      "sideEffectClass": "read_only_or_generated_view_only",
+      "sideEffects": "read-only registry inspection by default; optional output and generated-doc modes write only explicit generated-view targets"
+    },
+    {
+      "command": [
+        "python",
+        "pipelines/failure_ledger.py",
+        "summary"
+      ],
+      "consumers": [
+        "manual_operator",
+        "automated_tests"
+      ],
+      "entrypoint": "pipelines/failure_ledger.py",
+      "evidenceOutputClass": "append_only_private_failure_receipt",
+      "id": "failure-ledger",
+      "manualRefs": [
+        "backend-runbook"
+      ],
+      "phase": "status",
+      "routeMetrics": [],
+      "sideEffectClass": "private_runtime_receipts_only",
+      "sideEffects": "list and summary are read-only; collectors append sanitized private failure or resolution events; export-retry writes a deterministic private worklist; never writes canonical DB, public snapshot, pointer, timer, or deployment state",
+      "testRefs": [
+        "failure-ledger"
       ]
+    },
+    {
+      "command": [
+        "python",
+        "pipelines/pc_full_shard_runner.py"
+      ],
+      "consumers": [
+        "manual_operator",
+        "canonical_mysql"
+      ],
+      "entrypoint": "pipelines/pc_full_shard_runner.py",
+      "evidenceOutputClass": "content_addressed_private_source_receipt",
+      "id": "pricecharting-full-shard",
+      "manualRefs": [
+        "data-contract",
+        "backend-runbook"
+      ],
+      "phase": "collect",
+      "routeMetrics": [
+        "tracked_sales",
+        "psa10_reference_price"
+      ],
+      "sideEffectClass": "private_source_receipts_and_exact_identity_binding",
+      "sideEffects": "serial CDP PriceCharting collection writes private HTML, append-only result/failure receipts, and after verified product/sales evidence may upsert PriceCharting catalog identity plus identity evidence once; it never writes market observations, public snapshot, pointer, timer, or deployment state",
+      "testRefs": [
+        "failure-ledger"
+      ],
+      "timeoutSeconds": 14400
+    },
+    {
+      "command": [
+        "python",
+        "pipelines/pc_full_serial_driver.py",
+        "--shards",
+        "6"
+      ],
+      "consumers": [
+        "manual_operator",
+        "canonical_mysql"
+      ],
+      "entrypoint": "pipelines/pc_full_serial_driver.py",
+      "evidenceOutputClass": "content_addressed_private_source_receipt",
+      "id": "pricecharting-full-serial",
+      "manualRefs": [
+        "data-contract",
+        "backend-runbook"
+      ],
+      "phase": "collect",
+      "routeMetrics": [
+        "tracked_sales",
+        "psa10_reference_price"
+      ],
+      "sideEffectClass": "private_source_receipts_and_exact_identity_binding",
+      "sideEffects": "runs registered PriceCharting shards one at a time, inherits their verified exact-identity writes, stops on the first non-zero shard for supervisor recovery, and never executes temp or evidence code",
+      "testRefs": [
+        "failure-ledger"
+      ],
+      "timeoutSeconds": 86400
     },
     {
       "command": [
@@ -1220,7 +3775,7 @@
         "psa10_population_history",
         "grader_supply_psa_bgs_cgc_sgc_tag"
       ],
-      "sideEffects": "writes immutable private candidate receipts and a resumable exact-card worklist; keyless public collection requires the explicit --collect-public-candidates full-backfill flag; no public export",
+      "sideEffects": "writes immutable private candidate receipts and a resumable exact-card worklist; may read exact canonical DB GemRate identities and fresh accepted PSA 10 observations without writing DB state; keyless public collection requires the explicit --collect-public-candidates full-backfill flag; no public export",
       "testRefs": [
         "candidate-backfill",
         "gemrate-transport"
@@ -1261,7 +3816,7 @@
       "routeMetrics": [
         "candidate_identity"
       ],
-      "sideEffects": "writes the private active-universe lock from exact crosswalk evidence; no public export",
+      "sideEffects": "writes the private active-universe lock from exact crosswalk evidence and merges exact SNK refill associations by immutable canonical source reference; no public export",
       "testRefs": [
         "daily-orchestration"
       ]
@@ -1277,6 +3832,7 @@
         "canonical_mysql"
       ],
       "entrypoint": "pipelines/gemrate_source.py",
+      "evidenceOutputClass": "content_addressed_private_source_receipt",
       "id": "gemrate-population",
       "manualRefs": [
         "gemrate-source",
@@ -1288,6 +3844,8 @@
         "psa10_population_history",
         "grader_supply_psa_bgs_cgc_sgc_tag"
       ],
+      "sideEffectClass": "private_source_cache_and_receipts_only",
+      "sideEffects": "writes only private GemRate run receipts and promotable private source cache; never writes canonical DB, public snapshot, pointer, timer, or deployment state",
       "testRefs": [
         "gemrate-transport",
         "daily-orchestration"
@@ -1331,6 +3889,7 @@
         "canonical_mysql"
       ],
       "entrypoint": "pipelines/snk_market_data.py",
+      "evidenceOutputClass": "content_addressed_private_source_receipt",
       "id": "snk-reference-price",
       "manualRefs": [
         "snk-manual",
@@ -1341,6 +3900,8 @@
         "psa10_reference_price",
         "tracked_sales"
       ],
+      "sideEffectClass": "private_source_cache_and_receipts_only",
+      "sideEffects": "writes only caller-scoped private SNK JSONL, resumable state, and report; never writes canonical DB, public snapshot, pointer, timer, or deployment state",
       "testRefs": [
         "snk-exact-refill",
         "daily-orchestration"
@@ -1369,6 +3930,53 @@
       "testRefs": [
         "ebay-normalizer"
       ]
+    },
+    {
+      "command": [
+        "python",
+        "pipelines/tcgpricelookup_ssr.py",
+        "harvest",
+        "--mode",
+        "incremental"
+      ],
+      "consumers": [
+        "manual_operator",
+        "canonical_mysql"
+      ],
+      "entrypoint": "pipelines/tcgpricelookup_ssr.py",
+      "id": "tcgpricelookup-ssr",
+      "manualRefs": [
+        "data-contract"
+      ],
+      "phase": "collect",
+      "routeMetrics": [
+        "psa10_reference_price",
+        "price_change_1d_7d_30d"
+      ],
+      "sideEffects": "writes private SSR card JSON under data/runtime/private-source-map/tcgpricelookup; no paid API keys",
+      "testRefs": [
+        "tcgpricelookup-ssr"
+      ],
+      "timeoutSeconds": 14400
+    },
+    {
+      "command": [
+        "python",
+        "pipelines/us_price_fallback.py"
+      ],
+      "consumers": [
+        "manual_operator"
+      ],
+      "entrypoint": "pipelines/us_price_fallback.py",
+      "id": "us-price-fallback",
+      "manualRefs": [
+        "data-contract"
+      ],
+      "phase": "collect",
+      "routeMetrics": [
+        "psa10_reference_price"
+      ],
+      "sideEffects": "resolves one card via TPL→TCGFish→Collectr chain without API keys"
     },
     {
       "command": [
@@ -1412,8 +4020,7 @@
       "id": "canonical-db",
       "manualRefs": [
         "data-contract",
-        "backend-runbook",
-        "aws-handoff"
+        "backend-runbook"
       ],
       "phase": "ingest",
       "routeMetrics": [
@@ -1428,6 +4035,173 @@
       ],
       "testRefs": [
         "canonical-sync"
+      ]
+    },
+    {
+      "command": [
+        "python",
+        "pipelines/canonical_db_qc.py"
+      ],
+      "consumers": [
+        "manual_operator",
+        "automated_tests",
+        "canonical_mysql",
+        "sanitized_snapshot"
+      ],
+      "entrypoint": "pipelines/canonical_db_qc.py",
+      "id": "canonical-db-qc",
+      "manualRefs": [
+        "data-contract",
+        "backend-runbook"
+      ],
+      "phase": "audit",
+      "routeMetrics": [
+        "candidate_identity",
+        "psa10_population",
+        "psa10_reference_price",
+        "tracked_sales",
+        "psa10_market_cap"
+      ],
+      "sideEffects": "opens one consistent read-only canonical MySQL snapshot and writes immutable private report/receipt evidence only; never repairs observations or advances a pointer",
+      "testRefs": [
+        "canonical-db-qc"
+      ]
+    },
+    {
+      "command": [
+        "python",
+        "pipelines/universe_authority.py",
+        "status"
+      ],
+      "consumers": [
+        "manual_operator",
+        "automated_tests",
+        "canonical_mysql"
+      ],
+      "entrypoint": "pipelines/universe_authority.py",
+      "id": "universe-authority",
+      "manualRefs": [
+        "data-contract",
+        "backend-runbook"
+      ],
+      "phase": "materialize",
+      "routeMetrics": [
+        "candidate_identity",
+        "psa10_population"
+      ],
+      "sideEffects": "build and status are read-only; materialize is an explicit transactional command that preserves prior locks and never edits source observations",
+      "testRefs": [
+        "universe-authority"
+      ]
+    },
+    {
+      "command": [
+        "python",
+        "pipelines/db_runtime.py",
+        "printing-plan",
+        "--qc-run",
+        "<qc_run>"
+      ],
+      "consumers": [
+        "manual_operator",
+        "automated_tests",
+        "canonical_mysql"
+      ],
+      "entrypoint": "pipelines/db_runtime.py",
+      "id": "printing-plan",
+      "manualRefs": [
+        "canonical-printing",
+        "data-contract",
+        "backend-runbook"
+      ],
+      "phase": "materialize",
+      "routeMetrics": [
+        "candidate_identity"
+      ],
+      "sideEffects": "reads canonical MySQL and immutable private evidence only, then writes one exact-plan-hash-addressed private candidate; never changes database facts, universe, pointer, timer or publisher state",
+      "testRefs": [
+        "canonical-printing",
+        "backend-cli"
+      ]
+    },
+    {
+      "command": [
+        "python",
+        "pipelines/db_runtime.py",
+        "printing-materialize"
+      ],
+      "consumers": [
+        "manual_operator",
+        "automated_tests",
+        "canonical_mysql"
+      ],
+      "entrypoint": "pipelines/db_runtime.py",
+      "id": "printing-materialize",
+      "manualRefs": [
+        "canonical-printing",
+        "data-contract",
+        "backend-runbook"
+      ],
+      "phase": "materialize",
+      "routeMetrics": [
+        "candidate_identity"
+      ],
+      "sideEffects": "defaults to a rolled-back validation; explicit --apply may update only catalog_printing_identity under fixed writer locks after exact plan, QC, decision, quarantine and read-back validation; never changes observations, universe, pointer, timer or publisher state",
+      "testRefs": [
+        "canonical-printing",
+        "backend-cli"
+      ]
+    },
+    {
+      "command": [
+        "python",
+        "scripts/backend.py",
+        "status",
+        "--json"
+      ],
+      "consumers": [
+        "manual_operator",
+        "automated_tests"
+      ],
+      "entrypoint": "scripts/backend.py",
+      "evidenceOutputClass": "fresh_tool_output",
+      "id": "machine-status",
+      "manualRefs": [
+        "backend-runbook"
+      ],
+      "phase": "status",
+      "routeMetrics": [
+        "candidate_identity",
+        "psa10_population",
+        "psa10_reference_price",
+        "tracked_sales",
+        "psa10_market_cap"
+      ],
+      "sideEffectClass": "read_only_or_generated_view_only",
+      "sideEffects": "strictly read-only; never creates config, virtualenv or dependencies",
+      "testRefs": [
+        "universe-authority"
+      ],
+      "timeoutSeconds": 5
+    },
+    {
+      "command": [
+        "python",
+        "scripts/render_project_state.py"
+      ],
+      "consumers": [
+        "manual_operator"
+      ],
+      "entrypoint": "scripts/render_project_state.py",
+      "id": "project-state-render",
+      "manualRefs": [
+        "backend-runbook"
+      ],
+      "phase": "status",
+      "routeMetrics": [],
+      "sideEffects": "atomically rewrites PROJECT_STATE.md from the read-only machine status; never changes database, pointer, scheduler or dependencies",
+      "testRefs": [
+        "project-state-render"
       ]
     },
     {
@@ -1518,7 +4292,6 @@
       "entrypoint": "pipelines/canonical_public_snapshot.py",
       "id": "snapshot-export",
       "manualRefs": [
-        "frontend-handshake",
         "data-contract"
       ],
       "phase": "export",
@@ -1531,6 +4304,57 @@
       ],
       "testRefs": [
         "snapshot-export"
+      ]
+    },
+    {
+      "command": [
+        "python",
+        "pipelines/public_snapshot_qc.py",
+        "audit"
+      ],
+      "consumers": [
+        "manual_operator",
+        "automated_tests",
+        "sanitized_snapshot"
+      ],
+      "entrypoint": "pipelines/public_snapshot_qc.py",
+      "id": "public-snapshot-qc",
+      "manualRefs": [
+        "data-contract"
+      ],
+      "phase": "qc",
+      "routeMetrics": [
+        "candidate_identity",
+        "psa10_population",
+        "psa10_reference_price",
+        "tracked_sales",
+        "psa10_market_cap"
+      ],
+      "sideEffects": "writes immutable candidate audit/receipt/final snapshot only; never writes latest.json",
+      "testRefs": [
+        "public-snapshot-qc"
+      ]
+    },
+    {
+      "command": [
+        "node",
+        "pipelines/publish-snapshot.mjs"
+      ],
+      "consumers": [
+        "manual_operator",
+        "sanitized_snapshot"
+      ],
+      "entrypoint": "pipelines/publish-snapshot.mjs",
+      "id": "official-publisher",
+      "manualRefs": [
+        "data-contract",
+        "backend-runbook"
+      ],
+      "phase": "publish",
+      "routeMetrics": [],
+      "sideEffects": "writes one immutable generation and advances latest.json only after snapshot, QC receipt, media and optional remote canary verification",
+      "testRefs": [
+        "official-publisher"
       ]
     },
     {
@@ -1576,6 +4400,19 @@
       "routeMetrics": []
     }
   ],
+  "universePolicy": {
+    "aliasResolutionRequired": true,
+    "authority": "canonical_mysql_latest_exact_gemrate_psa10",
+    "discoveryPopulationMaximumInclusive": 970,
+    "estimatedPopulationAllowed": false,
+    "languagePartitioning": false,
+    "monitoringPopulationRangeInclusive": {
+      "maximum": 999,
+      "minimum": 971
+    },
+    "promotion": "immutable_lock_transactional_explicit",
+    "qualifiedPopulationMinimumInclusive": 1000
+  },
   "workItems": [
     {
       "acceptance": [
@@ -1733,6 +4570,552 @@
     },
     {
       "acceptance": [
+        "unregistered documents default to reference-only",
+        "reference-only, superseded, historical and quarantine documents cannot direct execution",
+        "active and generated Markdown routes cannot target blocked documents",
+        "one active document owns each authority domain"
+      ],
+      "dependsOn": [
+        "P0-REGISTRY-SCHEMA"
+      ],
+      "id": "P0-DOCUMENT-AUTHORITY",
+      "inputs": [
+        "repository Markdown inventory",
+        "manual registry",
+        "current inbound references"
+      ],
+      "nodeIds": [
+        "index.codegraph",
+        "orchestrator.daily"
+      ],
+      "outputs": [
+        "document authority registry",
+        "generated authority view",
+        "archive and delete queue"
+      ],
+      "ownerFiles": [
+        "config/data-routing.json",
+        "pipelines/registry_lineage.py",
+        "scripts/verify_doc_refs.py",
+        "tests/test_registry_lineage.py",
+        "tests/test_verify_doc_refs.py",
+        "docs/generated/DOCUMENT_AUTHORITY.md"
+      ],
+      "priority": "P0",
+      "status": "completed",
+      "title": "Classify every instruction source and quarantine stale execution paths"
+    },
+    {
+      "acceptance": [
+        "every wave stage and open work item has one registered owner",
+        "all role, document, capability, feedback, node and nested write-claim references validate",
+        "workers load one role pack and one work item before volatile material",
+        "Main remains the only shared-registry and generated-doc integrator"
+      ],
+      "dependsOn": [
+        "P0-DOCUMENT-AUTHORITY"
+      ],
+      "id": "P0-AGENT-EXECUTION-FUNNEL",
+      "inputs": [
+        "A01-A12 role contracts",
+        "open work items",
+        "protected writer surfaces"
+      ],
+      "nodeIds": [
+        "index.codegraph",
+        "orchestrator.daily"
+      ],
+      "outputs": [
+        "generated execution funnel",
+        "twelve generated demand-loaded role packs",
+        "generated role architecture",
+        "copyable dispatch contract"
+      ],
+      "ownerFiles": [
+        "config/data-routing.json",
+        "pipelines/registry_lineage.py",
+        "tests/test_registry_lineage.py",
+        "docs/generated/AGENT_EXECUTION_FUNNEL.md",
+        "docs/generated/AGENT_EXECUTION_ARCHITECTURE.html",
+        "docs/generated/roles"
+      ],
+      "priority": "P0",
+      "status": "completed",
+      "title": "Route twelve agents through roles, waves and exclusive write claims"
+    },
+    {
+      "acceptance": [
+        "baseline creation proves zero DB, pointer, timer and public mutation",
+        "every later role can cite one immutable baseline ID"
+      ],
+      "dependsOn": [
+        "P0-AGENT-EXECUTION-FUNNEL"
+      ],
+      "id": "QC-A11-BASELINE-BOOTSTRAP",
+      "inputs": [
+        "approved source snapshot",
+        "approved target cohort policy",
+        "current routing registry",
+        "read-only database identity"
+      ],
+      "nodeIds": [
+        "status.machine",
+        "database.canonical",
+        "index.codegraph"
+      ],
+      "outputs": [
+        "immutable baseline manifest",
+        "source, cohort, routing and DB fingerprints"
+      ],
+      "ownerFiles": [
+        "scripts/backend.py",
+        "tests/test_backend_cli_contract.py"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "title": "Freeze one read-only source, cohort, routing and DB baseline"
+    },
+    {
+      "acceptance": [
+        "every page, API, filter, sort and limit is mapped",
+        "unmapped consumers equal zero"
+      ],
+      "dependsOn": [
+        "QC-A11-BASELINE-BOOTSTRAP"
+      ],
+      "id": "QC-A01-FRONTEND-CONSUMERS",
+      "inputs": [
+        "apps/web routes, components, selectors and API consumers",
+        "approved baseline manifest"
+      ],
+      "nodeIds": [
+        "export.views",
+        "export.sanitized-snapshot"
+      ],
+      "outputs": [
+        "frontend consumer census",
+        "page to list/detail/cardinality requirements"
+      ],
+      "ownerFiles": [
+        "apps/web/src",
+        "tests/frontend-consumer-census"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "title": "Inventory every frontend consumer and requested cardinality"
+    },
+    {
+      "acceptance": [
+        "every public field is mapped or explicitly unmapped",
+        "typed schema remains the sole public property authority"
+      ],
+      "dependsOn": [
+        "QC-A11-BASELINE-BOOTSTRAP"
+      ],
+      "id": "QC-A02-PUBLIC-FIELD-LINEAGE",
+      "inputs": [
+        "typed public schema",
+        "snapshot validator",
+        "exporter SQL and serialization",
+        "approved baseline manifest"
+      ],
+      "nodeIds": [
+        "export.sanitized-snapshot",
+        "validator.public-qc",
+        "database.canonical"
+      ],
+      "outputs": [
+        "field lineage contract",
+        "nullable, stale, derived and fallback semantics"
+      ],
+      "ownerFiles": [
+        "packages/market-data/src",
+        "pipelines/canonical_public_snapshot.py",
+        "tests/test_canonical_public_snapshot.py"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "title": "Map every public field from typed schema to producer and DB target"
+    },
+    {
+      "acceptance": [
+        "all relevant tables, keys and writer surfaces are mapped",
+        "fingerprint invalidates stale QC receipts"
+      ],
+      "dependsOn": [
+        "QC-A11-BASELINE-BOOTSTRAP"
+      ],
+      "id": "QC-A03-CANONICAL-SCHEMA-FINGERPRINT",
+      "inputs": [
+        "applied migration ledger",
+        "migration SQL",
+        "information_schema",
+        "canonical DB QC"
+      ],
+      "nodeIds": [
+        "database.canonical",
+        "normalizer.identity",
+        "authority.universe"
+      ],
+      "outputs": [
+        "exact table, key and join map",
+        "DB fingerprint contract",
+        "receipt-bound printing plan"
+      ],
+      "ownerFiles": [
+        "pipelines/migrations",
+        "pipelines/db_runtime.py",
+        "pipelines/canonical_db_qc.py",
+        "tests/test_printing_materialization.py"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "title": "Map canonical schema, printing identity and DB fingerprint inputs"
+    },
+    {
+      "acceptance": [
+        "unclassified executables equal zero",
+        "temp and evidence execution paths are denied",
+        "each protected writer has exactly one controller"
+      ],
+      "dependsOn": [
+        "QC-A11-BASELINE-BOOTSTRAP"
+      ],
+      "id": "QC-A04-SCRIPT-LIFECYCLE",
+      "inputs": [
+        "scripts, pipelines, integrations, deploy definitions, package commands, temp and evidence inventory"
+      ],
+      "nodeIds": [
+        "index.codegraph",
+        "orchestrator.daily",
+        "publisher.official"
+      ],
+      "outputs": [
+        "complete script lifecycle registry",
+        "call graph",
+        "protected writer and scheduler maps"
+      ],
+      "ownerFiles": [
+        "pipelines/script_inventory.py",
+        "tests/test_script_inventory.py"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "title": "Classify every executable, caller, writer and scheduler edge"
+    },
+    {
+      "acceptance": [
+        "each command has help, fixture test and zero-mutation proof",
+        "domain roles no longer choose scripts by repository search"
+      ],
+      "dependsOn": [
+        "QC-A01-FRONTEND-CONSUMERS",
+        "QC-A02-PUBLIC-FIELD-LINEAGE",
+        "QC-A03-CANONICAL-SCHEMA-FINGERPRINT",
+        "QC-A04-SCRIPT-LIFECYCLE"
+      ],
+      "id": "QC-A11-CONTROL-CLI",
+      "inputs": [
+        "consumer, field, schema and script contracts"
+      ],
+      "nodeIds": [
+        "orchestrator.daily",
+        "index.codegraph",
+        "status.machine"
+      ],
+      "outputs": [
+        "explain extensions",
+        "audit-scripts",
+        "card-routes",
+        "card-matrix commands"
+      ],
+      "ownerFiles": [
+        "scripts/backend.py",
+        "tests/test_backend_cli_contract.py"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "title": "Expose field, script, card-route and matrix controls"
+    },
+    {
+      "acceptance": [
+        "all cohort POP cells are terminal",
+        "no inferred identity or synthesized history"
+      ],
+      "dependsOn": [
+        "QC-A11-CONTROL-CLI",
+        "QC-A03-CANONICAL-SCHEMA-FINGERPRINT"
+      ],
+      "id": "QC-A05-POP-GRADER",
+      "inputs": [
+        "approved cohort",
+        "exact GemRate receipts",
+        "fresh canonical observations"
+      ],
+      "nodeIds": [
+        "authority.gemrate",
+        "transport.gemrate-direct",
+        "database.canonical"
+      ],
+      "outputs": [
+        "per-card POP and grader candidate shard",
+        "terminal reason codes and freshness"
+      ],
+      "ownerFiles": [
+        "pipelines/gemrate_source.py",
+        "pipelines/gemrate_candidate_backfill.py",
+        "tests/test_gemrate_transport.py"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "title": "Classify POP, POP history, grader supply and alias cells"
+    },
+    {
+      "acceptance": [
+        "all current and history price cells are terminal",
+        "source ownership, grade and timestamp are exact"
+      ],
+      "dependsOn": [
+        "QC-A11-CONTROL-CLI",
+        "QC-A03-CANONICAL-SCHEMA-FINGERPRINT"
+      ],
+      "id": "QC-A06-PRICE-HISTORY",
+      "inputs": [
+        "approved cohort",
+        "exact source bindings",
+        "price receipts and history"
+      ],
+      "nodeIds": [
+        "collector.snk-exact",
+        "database.canonical"
+      ],
+      "outputs": [
+        "per-card price candidate shard",
+        "terminal reason codes and anomaly queue"
+      ],
+      "ownerFiles": [
+        "pipelines/snk_market_data.py",
+        "pipelines/snkrdunk_bulk.py",
+        "tests/test_snkrdunk_bulk_refill.py"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "title": "Classify exact current price, history, anchors and outliers"
+    },
+    {
+      "acceptance": [
+        "bundle, grade and printing mismatches are rejected",
+        "no-sales claims bind coverage and recheck dates"
+      ],
+      "dependsOn": [
+        "QC-A11-CONTROL-CLI",
+        "QC-A03-CANONICAL-SCHEMA-FINGERPRINT"
+      ],
+      "id": "QC-A07-SALES-LIQUIDITY",
+      "inputs": [
+        "approved cohort",
+        "exact sale receipts",
+        "source coverage evidence"
+      ],
+      "nodeIds": [
+        "collector.snk-exact",
+        "derivation.market",
+        "database.canonical"
+      ],
+      "outputs": [
+        "per-card sales candidate shard",
+        "coverage and verified-none receipts"
+      ],
+      "ownerFiles": [
+        "pipelines/ebay_sold_data.py",
+        "tests/test_ebay_sold_data.py"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "title": "Classify sales identity, dedupe, liquidity and verified-none states"
+    },
+    {
+      "acceptance": [
+        "all decisions bind card identity and image policy hashes",
+        "public candidates contain zero SAMPLE and cross-card images"
+      ],
+      "dependsOn": [
+        "QC-A11-CONTROL-CLI",
+        "QC-A02-PUBLIC-FIELD-LINEAGE",
+        "QC-A03-CANONICAL-SCHEMA-FINGERPRINT"
+      ],
+      "id": "QC-A08-IMAGE-MEDIA",
+      "inputs": [
+        "approved cohort",
+        "image DB and manifest evidence",
+        "approved image policy"
+      ],
+      "nodeIds": [
+        "review.media",
+        "validator.public-qc"
+      ],
+      "outputs": [
+        "per-card media candidate shard",
+        "semantic and rights review queue"
+      ],
+      "ownerFiles": [
+        "pipelines/verify_images.py",
+        "tests/test_public_snapshot_qc.py"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "title": "Classify image identity, SAMPLE, rights, hashes and derivatives"
+    },
+    {
+      "acceptance": [
+        "all required editorial cells are terminal",
+        "missing locale content remains missing and is never fabricated"
+      ],
+      "dependsOn": [
+        "QC-A11-CONTROL-CLI",
+        "QC-A01-FRONTEND-CONSUMERS",
+        "QC-A02-PUBLIC-FIELD-LINEAGE"
+      ],
+      "id": "QC-A09-EDITORIAL-LOCALES",
+      "inputs": [
+        "frontend content requirements",
+        "editorial source evidence",
+        "approved cohort"
+      ],
+      "nodeIds": [
+        "export.sanitized-snapshot",
+        "review.media"
+      ],
+      "outputs": [
+        "per-card editorial candidate shard",
+        "missing and review reason codes"
+      ],
+      "ownerFiles": [
+        "pipelines/editorial_import.py",
+        "tests/test_editorial_import.py"
+      ],
+      "priority": "P1",
+      "status": "planned",
+      "title": "Classify names, sets, stories, provenance and required locales"
+    },
+    {
+      "acceptance": [
+        "one formula path is used",
+        "rankings are contiguous",
+        "view cardinality and coverage claims are truthful"
+      ],
+      "dependsOn": [
+        "QC-A01-FRONTEND-CONSUMERS",
+        "QC-A02-PUBLIC-FIELD-LINEAGE",
+        "QC-A05-POP-GRADER",
+        "QC-A06-PRICE-HISTORY",
+        "QC-A07-SALES-LIQUIDITY"
+      ],
+      "id": "QC-A10-DERIVED-RANKING",
+      "inputs": [
+        "terminal POP, price and sales shards",
+        "approved formula and view contracts"
+      ],
+      "nodeIds": [
+        "derivation.market",
+        "ranking.scopes",
+        "export.views"
+      ],
+      "outputs": [
+        "derived candidate shard",
+        "contiguous rankings and presentation projections"
+      ],
+      "ownerFiles": [
+        "pipelines/ranking_derivation.py",
+        "pipelines/market_alerts.py",
+        "tests/test_ranking_derivation.py"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "title": "Rebuild windows, market cap, rankings and truthful views"
+    },
+    {
+      "acceptance": [
+        "full and incremental share business stages",
+        "same input rerun is a no-op",
+        "partial retry resumes without advancing downstream cursors"
+      ],
+      "dependsOn": [
+        "QC-A04-SCRIPT-LIFECYCLE",
+        "QC-A05-POP-GRADER",
+        "QC-A06-PRICE-HISTORY",
+        "QC-A07-SALES-LIQUIDITY",
+        "QC-A08-IMAGE-MEDIA",
+        "QC-A09-EDITORIAL-LOCALES",
+        "QC-A10-DERIVED-RANKING"
+      ],
+      "id": "QC-A11-INCREMENTAL-RUNTIME",
+      "inputs": [
+        "terminal domain contracts",
+        "script lifecycle registry",
+        "run receipt contract"
+      ],
+      "nodeIds": [
+        "orchestrator.daily",
+        "state.last-good",
+        "publisher.official"
+      ],
+      "outputs": [
+        "shared full and incremental DAG",
+        "locks, checkpoints, retry and invalidation receipts"
+      ],
+      "ownerFiles": [
+        "scripts/backend.py",
+        "pipelines/run_daily.py",
+        "pipelines/run_receipts.py",
+        "tests/test_run_daily_orchestration.py"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "title": "Unify full and due-delta runs under one resumable engine"
+    },
+    {
+      "acceptance": [
+        "no unresolved P0 remains",
+        "verdict cites exact hashes, commands and raw test output",
+        "production remains read-only"
+      ],
+      "dependsOn": [
+        "QC-A01-FRONTEND-CONSUMERS",
+        "QC-A02-PUBLIC-FIELD-LINEAGE",
+        "QC-A03-CANONICAL-SCHEMA-FINGERPRINT",
+        "QC-A04-SCRIPT-LIFECYCLE",
+        "QC-A05-POP-GRADER",
+        "QC-A06-PRICE-HISTORY",
+        "QC-A07-SALES-LIQUIDITY",
+        "QC-A08-IMAGE-MEDIA",
+        "QC-A09-EDITORIAL-LOCALES",
+        "QC-A10-DERIVED-RANKING",
+        "QC-A11-INCREMENTAL-RUNTIME"
+      ],
+      "id": "QC-A12-INDEPENDENT-REDTEAM",
+      "inputs": [
+        "all role artifacts, diffs, receipts and tests"
+      ],
+      "nodeIds": [
+        "validator.canonical-db-qc",
+        "validator.public-qc",
+        "status.machine"
+      ],
+      "outputs": [
+        "independent severity-ranked verdict",
+        "release blocker list"
+      ],
+      "ownerFiles": [
+        "tests/acceptance",
+        "data/runtime/private-reports/red-team"
+      ],
+      "priority": "P0",
+      "status": "planned",
+      "title": "Attack all contracts, writers, replay, privacy and release claims"
+    },
+    {
+      "acceptance": [
         "same alias cannot rebind across canonical printings",
         "member and spec aliases are grader namespaced",
         "replay adds no duplicate association"
@@ -1766,7 +5149,9 @@
       "acceptance": [
         "all candidates have one terminal classification",
         "no name-search result promotes identity",
-        "failed receipt IDs remain retryable"
+        "failed receipt IDs remain retryable",
+        "missing or route-unverified receipt does not downgrade exact canonical identity",
+        "fresh canonical DB population suppresses duplicate public collection without bypassing freshness"
       ],
       "dependsOn": [
         "T2-GEMRATE-ALIAS-DURABILITY"
@@ -1774,7 +5159,9 @@
       "id": "T3-GEMRATE-CANDIDATE-CLASSIFICATION",
       "inputs": [
         "candidate IDs",
-        "GemRate direct or public receipts"
+        "GemRate direct or public receipts",
+        "exact canonical DB GemRate identities",
+        "fresh accepted canonical DB GemRate PSA 10 observations"
       ],
       "nodeIds": [
         "discovery.candidates",
@@ -1796,7 +5183,8 @@
     },
     {
       "acceptance": [
-        "number, language and grade mismatches are rejected",
+        "card language, complete number, edition, parallel, finish and grade mismatches are rejected; JA and EN are distinct canonical printings",
+        "resolved SNK worklist is merged by immutable canonical source reference before ingest",
         "replay is idempotent"
       ],
       "dependsOn": [
@@ -1812,12 +5200,15 @@
         "database.canonical"
       ],
       "outputs": [
+        "resolved SNK worklist associations",
         "daily price and tracked-sale observations"
       ],
       "ownerFiles": [
         "pipelines/snkrdunk_bulk.py",
         "pipelines/snk_market_data.py",
-        "pipelines/source_crosswalk.py"
+        "pipelines/source_crosswalk.py",
+        "pipelines/tracked_universe.py",
+        "scripts/backend.py"
       ],
       "priority": "P0",
       "status": "planned",
@@ -1857,7 +5248,9 @@
     {
       "acceptance": [
         "partial source failure never advances last-good",
-        "Windows and Linux call the same Python command"
+        "every successful stage shares one run_id",
+        "Windows and Linux call the same Python command",
+        "two unattended WSL runs remain required before writer enablement"
       ],
       "dependsOn": [
         "T5-RANKING-VIEWS"
@@ -1868,19 +5261,262 @@
       ],
       "nodeIds": [
         "orchestrator.daily",
-        "state.last-good"
+        "state.last-good",
+        "publisher.official"
       ],
       "outputs": [
-        "daily checkpoint and last-good generation"
+        "ACQUIRED through PUBLISHED immutable receipts",
+        "last-good generation"
       ],
       "ownerFiles": [
         "scripts/backend.py",
         "pipelines/run_daily.py",
+        "pipelines/run_receipts.py",
         "docs/RUNBOOK.md"
       ],
       "priority": "P0",
-      "status": "planned",
+      "status": "in_progress",
       "title": "Run unattended daily with atomic recovery"
+    },
+    {
+      "acceptance": [
+        "POP >=1000 qualified",
+        "POP 971-999 monitoring",
+        "aliases resolve before membership",
+        "same candidate materializes idempotently",
+        "current lock is never silently rewritten"
+      ],
+      "dependsOn": [
+        "T2-GEMRATE-ALIAS-DURABILITY"
+      ],
+      "id": "P0-UNIVERSE-AUTHORITY",
+      "inputs": [
+        "latest exact non-estimated GemRate PSA 10 DB observations",
+        "canonical variant aliases"
+      ],
+      "nodeIds": [
+        "database.canonical",
+        "authority.universe",
+        "status.machine"
+      ],
+      "outputs": [
+        "immutable schema-5 candidate lock",
+        "transactional explicit promotion",
+        "integrity status"
+      ],
+      "ownerFiles": [
+        "pipelines/universe_authority.py",
+        "pipelines/db_runtime.py",
+        "scripts/backend.py",
+        "tests/test_universe_authority.py"
+      ],
+      "priority": "P0",
+      "status": "in_progress",
+      "title": "Replace conflicting universe locks with one deterministic DB authority"
+    },
+    {
+      "acceptance": [
+        "audit uses one read-only consistent MySQL snapshot",
+        "all discovery evidence is evaluated even when no formal universe can be built",
+        "failed QC prevents exporter and publisher execution"
+      ],
+      "dependsOn": [
+        "P0-UNIVERSE-AUTHORITY"
+      ],
+      "id": "P0-CANONICAL-DB-QC",
+      "inputs": [
+        "latest exact GemRate POP >=971 discovery evidence",
+        "canonical identity, source, price, sales, market-cap and image facts"
+      ],
+      "nodeIds": [
+        "database.canonical",
+        "validator.canonical-db-qc",
+        "review.media"
+      ],
+      "outputs": [
+        "immutable full DB QC report",
+        "report-bound receipt",
+        "review queues and rejection counts"
+      ],
+      "ownerFiles": [
+        "pipelines/canonical_db_qc.py",
+        "pipelines/run_daily.py",
+        "tests/test_canonical_db_qc.py"
+      ],
+      "priority": "P0",
+      "status": "completed",
+      "title": "Audit the deterministic DB discovery population without repairs"
+    },
+    {
+      "acceptance": [
+        "missing, inferred, ambiguous or stale evidence is quarantined",
+        "apply requires the exact plan hash and canonical database",
+        "second apply is an exact no-op",
+        "no observation, universe, pointer, timer or publisher state changes"
+      ],
+      "dependsOn": [
+        "T2-GEMRATE-ALIAS-DURABILITY",
+        "P0-CANONICAL-DB-QC"
+      ],
+      "id": "P0-CANONICAL-PRINTING-MATERIALIZATION",
+      "inputs": [
+        "latest immutable canonical DB QC receipt",
+        "content-addressed seven-field language-inclusive approval receipts",
+        "exact GemRate and SNK source ownership"
+      ],
+      "nodeIds": [
+        "normalizer.identity",
+        "review.identity",
+        "database.canonical"
+      ],
+      "outputs": [
+        "immutable printing candidate",
+        "transactional catalog_printing_identity rows",
+        "quarantine reasons"
+      ],
+      "ownerFiles": [
+        "pipelines/db_runtime.py",
+        "scripts/backend.py",
+        "config/data-routing.json",
+        "docs/CANONICAL_PRINTING_MATERIALIZATION.md",
+        "tests/test_printing_materialization.py",
+        "tests/test_backend_cli_contract.py"
+      ],
+      "priority": "P0",
+      "status": "in_progress",
+      "title": "Materialize only receipt-approved canonical printing identities"
+    },
+    {
+      "acceptance": [
+        "wrong card ID, cross-TCG image, SAMPLE, future metric, missing 30d PSA10 sale and fake zero fail",
+        "only human_or_vision_confirmed cards enter the receipt",
+        "receipt binds every public card and image hash"
+      ],
+      "dependsOn": [
+        "P0-UNIVERSE-AUTHORITY"
+      ],
+      "id": "P0-GENERATION-QC",
+      "inputs": [
+        "candidate snapshot",
+        "card-bound image manifest",
+        "generation assets"
+      ],
+      "nodeIds": [
+        "validator.public-qc",
+        "review.media",
+        "export.sanitized-snapshot"
+      ],
+      "outputs": [
+        "immutable audit",
+        "strict QC receipt",
+        "production-eligible Verified Top N snapshot"
+      ],
+      "ownerFiles": [
+        "pipelines/public_snapshot_qc.py",
+        "pipelines/verify_images.py",
+        "tests/test_public_snapshot_qc.py"
+      ],
+      "priority": "P0",
+      "status": "in_progress",
+      "title": "Bind Verified Top N to strict card and media evidence"
+    },
+    {
+      "acceptance": [
+        "helper scripts never write latest, seed or runtime snapshot",
+        "failed validation leaves pointer byte-identical",
+        "pointer generation, snapshot hash and media hashes agree"
+      ],
+      "dependsOn": [
+        "P0-GENERATION-QC"
+      ],
+      "id": "P0-OFFICIAL-PUBLISHER",
+      "inputs": [
+        "production-eligible snapshot",
+        "exact strict QC receipt",
+        "complete generation media"
+      ],
+      "nodeIds": [
+        "validator.public-qc",
+        "publisher.official",
+        "state.last-good"
+      ],
+      "outputs": [
+        "immutable generation",
+        "verified media",
+        "atomic latest pointer"
+      ],
+      "ownerFiles": [
+        "pipelines/publish-snapshot.mjs",
+        "pipelines/ensure_std_card_images.py",
+        "pipelines/native_image_refetch.py",
+        "pipelines/canvas_normalize_backfill.py",
+        "scripts/bake_publish_pack.py",
+        "scripts/db_fill_until_green.py",
+        "tests/test_legacy_image_backfill_containment.py"
+      ],
+      "priority": "P0",
+      "status": "completed",
+      "title": "Contain shadow publishers and make one atomic pointer owner"
+    },
+    {
+      "acceptance": [
+        "1d never borrows 7d or 30d",
+        "null grader delta never renders +0",
+        "market rank remains distinct from filtered view rank"
+      ],
+      "dependsOn": [
+        "P0-GENERATION-QC"
+      ],
+      "id": "P1-TRUTHFUL-FRONTEND",
+      "inputs": [
+        "coverage claim",
+        "null metrics",
+        "marketRank and viewRank"
+      ],
+      "nodeIds": [
+        "export.sanitized-snapshot"
+      ],
+      "outputs": [
+        "truthful unavailable and accumulating UI",
+        "Verified Top N title",
+        "image layout fallback"
+      ],
+      "ownerFiles": [
+        "packages/market-data/src",
+        "apps/web/src"
+      ],
+      "priority": "P1",
+      "status": "completed",
+      "title": "Remove cross-window borrowing and expose Verified Top N"
+    },
+    {
+      "acceptance": [
+        "operational counts are machine-derived and carry asOf",
+        "previous handwritten state is archived",
+        "renderer never mutates DB, pointer or dependencies"
+      ],
+      "dependsOn": [
+        "P0-REGISTRY-SCHEMA"
+      ],
+      "id": "P1-MACHINE-PROJECT-STATE",
+      "inputs": [
+        "scripts/backend.py status --json"
+      ],
+      "nodeIds": [
+        "status.machine"
+      ],
+      "outputs": [
+        "timestamped PROJECT_STATE.md summary"
+      ],
+      "ownerFiles": [
+        "scripts/render_project_state.py",
+        "PROJECT_STATE.md",
+        "docs/archive/PROJECT_STATE_PRE_QC_20260729.md",
+        "tests/test_project_state_renderer.py"
+      ],
+      "priority": "P1",
+      "status": "completed",
+      "title": "Generate PROJECT_STATE from the read-only machine status"
     }
   ]
 }

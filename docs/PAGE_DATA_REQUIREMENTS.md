@@ -2,6 +2,12 @@
 
 The canonical database stores each resolved printing and observation once. Rankings are complete ordered views over those facts, while Top 100, Top 300 and Top 350 are presentation cuts rather than storage limits. Language is printing identity metadata and does not create a separate leaderboard.
 
+**Operational checklist (which CARDs, max counts, DB fill order):**  
+→ [`FRONTEND_REQUIREMENT_CHECKLIST.md`](FRONTEND_REQUIREMENT_CHECKLIST.md)（**主處方 · Grading 每頁 ≤100**）
+
+**Implementation matrix (UI field → DB source → gap notes):**  
+→ [`FRONTEND_DB_REQUIREMENTS.md`](FRONTEND_DB_REQUIREMENTS.md)
+
 ## Pages and required data
 
 | Surface | Required canonical data | Not required |

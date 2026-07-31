@@ -30,6 +30,7 @@ SEED_SCHEMA_VERSION = "1.0.0"
 # records; raw source payload JSON and its retention pointers stay outside it.
 CANONICAL_TABLES: tuple[str, ...] = (
     "catalog_variant",
+    "catalog_variant_alias",
     "catalog_variant_locale",
     "catalog_source_identity",
     "catalog_provider_identity_alias",
@@ -52,6 +53,7 @@ CANONICAL_TABLES: tuple[str, ...] = (
     "market_index_snapshot",
     "market_index_constituent",
     "market_identity_review_queue",
+    "market_identity_review_resolution",
     "market_alert_evaluation",
     "market_candidate_daily_snapshot",
     "market_alert",

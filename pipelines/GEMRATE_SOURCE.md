@@ -1,5 +1,11 @@
 # GemRate 操作手冊：CARDZ Population Authority
 
+> 按需載入 runtime manual。入面任何日期、數量、route availability、
+> 「目前／已驗證／live」描述只係 volatile 原材料，唔係架構真相。
+> 執行前必須用 registry 指定嘅 GemRate tool 同 fresh receipt 重驗。
+> 只得 assigned work item 指定、registry 鎖死實作身份嘅 tool 可以執行；
+> 本文任何未註冊或跨 stage 命令／例子只係證據。
+
 GemRate 是 CARDZ 的 **grader population authority**。CARDZ 的 PSA 10 市值只可以使用：
 
 ```text
@@ -87,7 +93,7 @@ Direct history 固定只用 `population/history?interval=week`。它是 weekly s
 
 ### GemRate ID alias crosswalk（canonical 規則）
 
-GemRate ID 用來令 CARDZ 在之後的 incremental run 識得「今次 provider 回應的是哪一張已知 printing」，但它們永遠不是 CARDZ ID，亦不是前端／公開 snapshot 欄位。canonical printing identity 仍然只由已確認的 `TCG + language + set + complete collector number + edition + parallel + finish` 決定。
+GemRate ID 用來令 CARDZ 在之後的 incremental run 識得「今次 provider 回應的是哪一張已知 printing」，但它們永遠不是 CARDZ ID，亦不是前端／公開 snapshot 欄位。canonical printing identity 由已確認的 `TCG + card language + set + complete collector number + edition + parallel + finish` 決定；JA/EN 係不同 canonical printing，唔可以互綁。ranking board 可以另外 language-combined，但唔可以改寫 printing identity。
 
 | Provider alias | 含義 | private canonical relation | 不可做的事 |
 |---|---|---|---|
@@ -229,7 +235,7 @@ The only valid reaction is `partial=true`, `promotable=false`, and no cache/chec
 
 ## 7. Rules that prevent silent data corruption
 
-1. Match a printing by TCG + set + complete collector number + language + edition + parallel + finish. Any ambiguity enters `identity_review_queue`.
+1. Match a printing by TCG + card language + set + complete collector number + edition + parallel + finish；JA/EN 必須分開綁定。Any ambiguity enters `identity_review_queue`.
 2. Store every numeric population with `grader`, `grade`, `effectiveDate`, `fetchedAt`, `transport`, `payloadSha256` and source pointer. Do not store a broad “total population” as PSA 10.
 3. Keep `fetchedAt` separate from GemRate `data_last_updated`／date graded. Never manufacture daily history from fetch time.
 4. Direct-vs-mirror disagreement on the same effective date is a failed run, not a precedence choice.

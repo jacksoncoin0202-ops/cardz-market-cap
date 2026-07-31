@@ -1,3 +1,5 @@
+import type { ReleaseProfileId } from "./release-policy.generated.js";
+
 export const SNAPSHOT_SCHEMA_VERSION = "2.0.0" as const;
 
 export const MARKET_STATUSES = [
@@ -20,6 +22,7 @@ export type Locale = "en" | "zhTW" | "zhCN" | "ja";
 export type Currency = (typeof CURRENCIES)[number];
 export type Tcg = "pokemon" | "one-piece" | "other";
 export type PublicImageKind = "raw_front";
+export type SnapshotCoverageClaim = "verified-top-n" | "verified-top-100";
 
 export interface MarketMetric {
   value: number | null;
@@ -99,18 +102,63 @@ export interface DailyHistoryPoint {
   salesCoverage: CoverageStatus;
 }
 
+export interface PublicPrintingIdentity {
+  setName: string;
+  collectorNumber: string;
+  editionCode: string;
+  parallelCode: string;
+  finishCode: string;
+  /**
+   * Physical print language in the 7-part canonicalPrintingSha256 key
+   * (`tcg|lang|set|collector|edition|parallel|finish`). The nullable type can
+   * read retained legacy evidence, but strict production validation rejects a
+   * missing language.
+   */
+  cardLanguage?: CardLanguage | null;
+  canonicalPrintingSha256: string;
+  evidenceSha256: string;
+}
+
+export interface CanonicalDbQcBinding {
+  runId: string;
+  receiptSha256: string;
+  database: "cardz_market_cap";
+  universeCandidateSha256: string;
+}
+
+/** Canonical card *print* language (not UI locale). */
+export type CardLanguage = "en" | "ja" | "ko" | "zhCN" | "zhTW";
+
 export interface PublicCard {
   id: string;
+  /** Legacy display rank. Kept equal to `viewRank` for existing consumers. */
   rank: number;
+  /** Rank in the canonical market-cap universe before view-specific filtering. */
+  marketRank: number;
+  /** Contiguous rank in the current public view. */
+  viewRank: number;
   tcg: Tcg;
-  language: string;
+  /**
+   * Physical print language of this catalog identity (en|ja|ko|zhCN|zhTW).
+   * Distinct from interface locale. Optional only while reading legacy demo
+   * evidence; strict production validation requires it.
+   */
+  cardLanguage?: CardLanguage | null;
   collectorNumber: CollectorNumber;
-  identityStatus: "confirmed" | "demo_observed";
+  /** Required by the production release gate; optional only for legacy demo snapshots. */
+  printingIdentity?: PublicPrintingIdentity;
+  identityStatus: "confirmed" | "provisional" | "demo_observed";
   names: LocalizedText;
   sets: LocalizedText;
   stories: LocalizedText;
   image: PublicImage;
   pricePsa10: MarketMetric;
+  /**
+   * Detail-only ungraded / RAW reference. It never participates in PSA 10
+   * ranking, market-cap, price deltas, tracked sales, or history.
+   * Optional so pre-field snapshots remain valid.
+   */
+  priceUngradedReference?: MarketMetric;
   populationPsa10: PopulationMetric;
   marketCap: MarketMetric;
   windows: Record<MarketWindow, WindowMetrics>;
@@ -123,6 +171,17 @@ export interface SnapshotGeneration {
   generatedAt: string;
   effectiveAt: string;
   contentSha256: string;
+  qcReceiptSha256: string;
+  /** Required for production; omitted by pre-QC/demo candidates. */
+  dbQc?: CanonicalDbQcBinding;
+  /** Required for production; omitted only by retained legacy/demo candidates. */
+  releaseProfile?: ReleaseProfileId;
+  /** SHA-256 of the named policy as generated from config/data-routing.json. */
+  policySha256?: string;
+  /** SHA-256 fingerprint of the canonical CARDZ Market Cap database evaluation. */
+  dbFingerprint?: string;
+  /** Immutable canonical evaluation backing this generation. */
+  evaluationId?: number;
   mode: "demo" | "production";
   productionEligible: boolean;
   blockers: string[];
@@ -139,6 +198,9 @@ export interface PublicMarketSnapshot {
     salesCoverage: "partial";
   };
   coverage: {
+    claim: SnapshotCoverageClaim;
+    requestedCount: 100;
+    verifiedCount: number;
     top100Count: number;
     watchlistCount: number;
     changeReady: Record<MarketWindow, number>;

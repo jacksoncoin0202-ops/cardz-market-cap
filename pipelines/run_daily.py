@@ -38,10 +38,23 @@ from g10_public_snapshot import (
     candidate_rows,
     load_ingest_at,
     load_price_effective_at,
-    quarantine_unreferenced_assets,
     write_json,
 )
 from db_runtime import active_universe_lock_hash
+from run_receipts import (
+    assert_zero_mutation_side_effects,
+    compute_input_fingerprint,
+    engine_profile,
+    plan_engine_run,
+    profiles_share_engine,
+    shared_business_stages,
+    write_input_fingerprint,
+    write_stage_receipt,
+)
+try:
+    from .failure_ledger import record_failure, record_resolution
+except ImportError:
+    from failure_ledger import record_failure, record_resolution
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,7 +63,14 @@ DEFAULT_SOURCE_ROOT = GRADE10_INTEGRATION_ROOT / "data"
 DEFAULT_ACQUIRE_SCRIPT = GRADE10_INTEGRATION_ROOT / "run_service.py"
 DEFAULT_KADO_ROOT = ROOT / "data" / "private" / "kado"
 COVERAGE_AUDIT_PATH = ROOT / "pipelines" / "data_coverage_audit.py"
+CANONICAL_DB_QC_PATH = ROOT / "pipelines" / "canonical_db_qc.py"
+QC_FAILURE_SYNC_PATH = ROOT / "pipelines" / "qc_failure_sync.py"
+FAILURE_LEDGER_PATH = ROOT / "pipelines" / "failure_ledger.py"
 CANONICAL_SNAPSHOT_PATH = ROOT / "pipelines" / "canonical_public_snapshot.py"
+PUBLIC_SNAPSHOT_QC_PATH = ROOT / "pipelines" / "public_snapshot_qc.py"
+DEFAULT_ACTIVE_UNIVERSE = ROOT / "data/runtime/private-source-map/tracked-universe.json"
+RETRY_WORKLIST_ROOT = ROOT / "data/runtime/private-reports/retry-worklists"
+PRESENTATION_VIEWS = ("top100", "top300", "top350", "top100_plus_200", "top300_boards", "all_eligible")
 
 # 揀 5%：checked-in 嘅每個 snapshot 版本都係 100 + 260 = 360 張，即係正常 churn 實測係 0，
 # 收緊個閘喺實務上唔會嘈。唯一見過嘅變動就係要攔嗰單 360 → 192（-46.7%）。5% 喺現行
@@ -104,8 +124,241 @@ def singleton_lock(path: Path) -> Iterator[None]:
         handle.close()
 
 
-def run_checked(command: list[str], *, cwd: Path, timeout: int, env: Mapping[str, str] | None = None) -> None:
-    subprocess.run(command, cwd=cwd, timeout=timeout, check=True, env=dict(env) if env else None)
+def run_checked(
+    command: list[str],
+    *,
+    cwd: Path,
+    timeout: int,
+    env: Mapping[str, str] | None = None,
+    allowed_returncodes: tuple[int, ...] = (),
+) -> int:
+    command_hash = hashlib.sha256(
+        json.dumps(command, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:16]
+    executable = Path(command[1] if len(command) > 1 and "python" in Path(command[0]).name.lower() else command[0])
+    item_key = f"{executable.name}:{command_hash}"
+    try:
+        subprocess.run(command, cwd=cwd, timeout=timeout, check=True, env=dict(env) if env else None)
+    except subprocess.TimeoutExpired:
+        record_failure(
+            source="daily",
+            stage="subprocess",
+            script=__file__,
+            item_key=item_key,
+            reason_code="timeout",
+            message="registered daily subprocess timed out",
+            retryable=True,
+            context={"executable": executable.name, "timeoutSeconds": timeout},
+            next_action="agent_review_then_retry",
+            error_type="TimeoutExpired",
+        )
+        raise
+    except subprocess.CalledProcessError as error:
+        if error.returncode in allowed_returncodes:
+            return error.returncode
+        record_failure(
+            source="daily",
+            stage="subprocess",
+            script=__file__,
+            item_key=item_key,
+            reason_code="nonzero_exit",
+            message="registered daily subprocess returned non-zero",
+            retryable=True,
+            context={"executable": executable.name, "returnCode": error.returncode},
+            next_action="agent_review_then_retry",
+            error_type="CalledProcessError",
+        )
+        raise
+    record_resolution(
+        source="daily",
+        stage="subprocess",
+        script=__file__,
+        item_key=item_key,
+        resolution="subprocess_completed",
+        context={"executable": executable.name},
+    )
+    return 0
+
+
+def source_attempt_id(started_at: datetime) -> str:
+    """One immutable source attempt per invocation, grouped by UTC logical date."""
+
+    return started_at.astimezone(timezone.utc).strftime("sources_%Y%m%dT%H%M%S%fZ")
+
+
+def enforce_gemrate_refresh(*, required: bool, refreshed: bool) -> None:
+    if required and not refreshed:
+        raise RuntimeError("required GemRate refresh did not complete; canonical import and pointer stay unchanged")
+
+
+def requires_remote_publish(
+    *,
+    backend_only: bool,
+    bootstrap_only: bool,
+    local_only: bool,
+) -> bool:
+    """Return whether this invocation enters the remote publication contract."""
+
+    return not backend_only and not bootstrap_only and not local_only
+
+
+def shared_engine_entrypoint() -> str:
+    """Single runtime entrypoint used by both full and incremental profiles."""
+
+    return "pipelines/run_daily.py"
+
+
+def resolve_run_profile(profile: str | None, *, landing_hint: str | None = None) -> str:
+    """Map CLI/registry labels onto the shared engine profile ids."""
+
+    if profile:
+        normalized = profile.strip().casefold()
+        aliases = {
+            "full": "full",
+            "full-backfill": "full",
+            "incremental": "incremental",
+            "daily": "incremental",
+            "due-delta": "incremental",
+        }
+        if normalized not in aliases:
+            raise ValueError(f"unknown run profile: {profile!r}")
+        return aliases[normalized]
+    if landing_hint == "full":
+        return "full"
+    return "incremental"
+
+
+def build_engine_input_material(
+    *,
+    profile_id: str,
+    active_universe: Path | None,
+    mode: str,
+    backend_only: bool,
+) -> dict[str, Any]:
+    """Selector-scoped material hashed for same-input no-op detection."""
+
+    profile = engine_profile(profile_id)
+    return {
+        "profileId": profile["profileId"],
+        "selector": profile["selector"],
+        "cursorPolicy": profile["cursorPolicy"],
+        "rangePolicy": profile["rangePolicy"],
+        "freshnessPolicy": profile["freshnessPolicy"],
+        "mode": mode,
+        "backendOnly": bool(backend_only),
+        "activeUniverse": str(active_universe.resolve()) if active_universe else None,
+        "sharedStages": list(shared_business_stages()),
+        "entrypoint": shared_engine_entrypoint(),
+    }
+
+
+def backend_database_command(backend: Path, action: str, active_universe: Path) -> list[str]:
+    return [
+        sys.executable,
+        str(backend),
+        action,
+        "--active-universe",
+        str(active_universe.resolve()),
+    ]
+
+
+def canonical_db_qc_command(
+    run_id: str, release_profile: str = "relaxed-launch-v1"
+) -> list[str]:
+    """Bind the public path to one immutable, read-only canonical DB QC receipt."""
+
+    return [
+        sys.executable,
+        str(CANONICAL_DB_QC_PATH),
+        "--run-id",
+        run_id,
+        "--release-profile",
+        release_profile,
+    ]
+
+
+def canonical_db_qc_failure_commands(report: Path, run_id: str) -> list[list[str]]:
+    """Persist canonical QC blockers and refresh the agent retry worklists."""
+
+    report = report.resolve()
+    return [
+        [
+            sys.executable,
+            str(QC_FAILURE_SYNC_PATH),
+            "--report",
+            str(report),
+            "--write",
+            "--summary-only",
+        ],
+        *[
+            [
+                sys.executable,
+                str(FAILURE_LEDGER_PATH),
+                "export-retry",
+                "--source",
+                "canonical_db_qc",
+                "--script",
+                "pipelines/qc_failure_sync.py",
+                "--stage",
+                lane,
+                "--out",
+                str((RETRY_WORKLIST_ROOT / f"{run_id}-{lane}.json").resolve()),
+            ]
+            for lane in ("psa10_price", "sales")
+        ],
+    ]
+
+
+def price_sales_gate_evaluation_command(
+    report: Path,
+    expected_candidate_sha256: str,
+    result_out: Path,
+) -> list[str]:
+    """Export the exact price+sales-passed cohort before any image work."""
+
+    expected = expected_candidate_sha256.strip().casefold()
+    if len(expected) != 64 or any(char not in "0123456789abcdef" for char in expected):
+        raise ValueError("canonical QC candidate SHA-256 is invalid")
+    return [
+        sys.executable,
+        str(ROOT / "pipelines/market_alerts.py"),
+        "--dry-run",
+        "--universe-qc-report",
+        str(report.resolve()),
+        "--expected-universe-candidate-sha256",
+        expected,
+        "--price-sales-only",
+        "--result-out",
+        str(result_out.resolve()),
+    ]
+
+
+def market_alert_evaluation_command(result_out: Path) -> list[str]:
+    return [
+        sys.executable,
+        str(ROOT / "pipelines/market_alerts.py"),
+        "--result-out",
+        str(result_out.resolve()),
+    ]
+
+
+def mark_market_evaluation_passed_command(evaluation_id: int) -> list[str]:
+    if evaluation_id <= 0:
+        raise ValueError("evaluation ID must be a positive integer")
+    return [
+        sys.executable,
+        str(ROOT / "pipelines/market_alerts.py"),
+        "--mark-passed-evaluation-id",
+        str(evaluation_id),
+    ]
+
+
+def load_evaluation_id(result_path: Path) -> int:
+    document = read_json(result_path.resolve())
+    evaluation_id = document.get("evaluationId")
+    if not isinstance(evaluation_id, int) or isinstance(evaluation_id, bool) or evaluation_id <= 0:
+        raise RuntimeError("market alert evaluation receipt has no valid evaluationId")
+    return evaluation_id
 
 
 def gemrate_daily_command(
@@ -142,6 +395,7 @@ def post_derive_audit_command(
     snk_run: Path | None,
     *,
     required_presentation_view: str | None = None,
+    active_universe: Path | None = None,
     production: bool | None = None,
 ) -> list[str]:
     """Audit the current run only, after canonical derive has completed."""
@@ -149,8 +403,11 @@ def post_derive_audit_command(
     if snk_run is None:
         raise RuntimeError("post-derive audit requires a current SNK PSA 10 run")
     command = [sys.executable, str(COVERAGE_AUDIT_PATH), "--snk-run", str(snk_run.resolve())]
-    if required_presentation_view is None and production:
-        required_presentation_view = "top300"
+    command.append("--discovery-complete")
+    if active_universe is not None:
+        command.extend(["--active-universe", str(active_universe.resolve())])
+    if required_presentation_view is None:
+        required_presentation_view = "top300_boards"
     if required_presentation_view:
         command.extend(["--require-presentation-view", required_presentation_view])
     return command
@@ -278,6 +535,7 @@ def run_market_source_refresh(
     landing_root: Path,
     fx_cache: Path,
     run_id: str,
+    effective_at: datetime,
     timeout: int,
     require_gemrate: bool,
     refresh_active_universe: bool,
@@ -364,6 +622,7 @@ def run_market_source_refresh(
             "continuing on last-good population, gemrateLive=false",
             file=sys.stderr,
         )
+    enforce_gemrate_refresh(required=require_gemrate, refreshed=gemrate_live)
 
     # TAG is auxiliary grader-population coverage. A live schema defect must
     # not block the primary SNK price run. Reuse only a bounded last-good
@@ -459,20 +718,34 @@ def run_market_source_refresh(
     elif not snk_run.is_file():
         raise RuntimeError(f"explicit SNK run does not exist: {snk_run}")
     ebay_status = "disabled"
+    # eBay PSA10 sold evidence: repository-owned file OR PriceCharting export
+    # (eBay-derived). Direct eBay sold search remains PerimeterX-blocked.
     if os.environ.get("CARDZ_EBAY_SOLD_ENABLED", "").casefold() == "true":
+        ebay_env = dict(os.environ)
+        ebay_input = Path(ebay_env.get("CARDZ_EBAY_SOLD_INPUT", "") or "")
+        default_pc_export = ROOT / "data/runtime/private-source-map/ebay-sold-from-pricecharting.json"
+        if (not ebay_input.is_file()) and default_pc_export.is_file():
+            ebay_env["CARDZ_EBAY_SOLD_INPUT"] = str(default_pc_export)
+            ebay_input = default_pc_export
         try:
+            if not ebay_input.is_file():
+                raise RuntimeError(
+                    "eBay sold enabled but no CARDZ_EBAY_SOLD_INPUT / "
+                    "pricecharting export present"
+                )
             run_checked(
                 [
                     sys.executable,
                     str(ROOT / "pipelines/ebay_sold_data.py"),
                     "--active-universe", str(active_universe),
+                    "--input", str(ebay_input),
                     "--out", str(ebay_run),
                 ],
                 cwd=ROOT,
                 timeout=timeout,
-                env=os.environ,
+                env=ebay_env,
             )
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, RuntimeError):
             ebay_status = "unavailable"
             ebay_run.unlink(missing_ok=True)
         else:
@@ -485,6 +758,7 @@ def run_market_source_refresh(
         "--fx-snapshot", str(fx_cache),
         "--landing-root", str(landing_root),
         "--run-id", source_run_id,
+        "--effective-at", iso_utc(effective_at),
     ]
     if tag_input is not None:
         market_sync_command.extend(["--tag-run", str(tag_input)])
@@ -508,13 +782,6 @@ def run_market_source_refresh(
     }
 
 
-def promote_file(source: Path, destination: Path) -> None:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_suffix(destination.suffix + ".next")
-    shutil.copy2(source, temporary)
-    os.replace(temporary, destination)
-
-
 def published_card_count(snapshot: Mapping[str, Any]) -> int:
     """已發佈卡數：同 `verify_images.referenced_asset_names` 睇同一批卡（top100 + watchlist）。"""
 
@@ -526,15 +793,7 @@ def assert_catalog_not_shrinking(
     published_snapshot: Path,
     max_shrink_pct: float,
 ) -> None:
-    """Day N 嘅輸出就係 Day N+1 嘅輸入，所以縮水係單向棘輪，必須喺搬檔之前攔。
-
-    `canonical_public_snapshot.py` 攞現行 `data/public/seed-snapshot.json` 做 presentation
-    輸入，出完新 candidate 之後 promote 覆蓋返同一個檔，跟住 quarantine 搬走所有唔再被
-    引用嘅 asset。即係一旦一張卡今日跌咗出榜，佢張圖即刻俾搬走，聽日就算佢應該返嚟都
-    冇圖可用——catalog 淨係可以維持或者跌，永遠唔會自己升返，而且一跌即刻不可逆。
-
-    實測：360 張卡跑一次變 192 張（-46.7%），全程冇任何 gate，exit code 仲係 0。
-    """
+    """Compare with the pointed last-good generation before advancing latest.json."""
 
     if not published_snapshot.is_file():
         return  # 未有基準（首次發佈）：冇嘢可以比較，唔應該攔。
@@ -550,25 +809,42 @@ def assert_catalog_not_shrinking(
     raise CatalogShrinkError(
         f"catalog shrink gate: published cards drop from {before} to {after} "
         f"(-{shrink_pct:.1f}%), over the -{max_shrink_pct:.1f}% limit. "
-        f"Nothing was promoted or quarantined. Investigate the export first; if this "
+        f"The runtime pointer is unchanged. Investigate the export first; if this "
         f"drop is genuinely correct, approve it explicitly for this one run with "
         f"--max-catalog-shrink-pct {math.ceil(shrink_pct)}"
     )
+
+
+def runtime_snapshot_from_pointer(publish_root: Path) -> Path | None:
+    """Resolve the last promoted immutable generation without trusting path traversal."""
+
+    root = publish_root.resolve()
+    pointer_path = root / "latest.json"
+    if not pointer_path.is_file():
+        return None
+    pointer = read_json(pointer_path)
+    snapshot_key = str(pointer.get("snapshotKey") or "") if isinstance(pointer, Mapping) else ""
+    if not snapshot_key:
+        raise RuntimeError(f"runtime snapshot pointer has no snapshotKey: {pointer_path}")
+    snapshot = (root / Path(snapshot_key)).resolve()
+    if not snapshot.is_relative_to(root):
+        raise RuntimeError(f"runtime snapshot pointer escapes its generation root: {pointer_path}")
+    if not snapshot.is_file():
+        raise RuntimeError(f"runtime snapshot generation is missing: {snapshot}")
+    return snapshot
 
 
 def finalize_local_candidate_then_publish(
     candidate_snapshot: Path,
     candidate_image_manifest: Path,
     assets_out: Path,
-    snapshot_destination: Path,
-    image_manifest_destination: Path,
-    quarantine_root: Path,
+    published_snapshot: Path | None,
     publish_command: list[str],
     production: bool,
     timeout: int,
     max_catalog_shrink_pct: float = DEFAULT_MAX_CATALOG_SHRINK_PCT,
 ) -> int:
-    """Finish every fallible local gate before invoking remote promotion."""
+    """Validate a candidate, then let the versioned publisher advance the sole pointer."""
 
     if not candidate_image_manifest.is_file():
         raise RuntimeError("candidate image QC manifest is missing")
@@ -584,28 +860,38 @@ def finalize_local_candidate_then_publish(
     # 第一 pass 容許未引用檔：assets 目錄係 content-addressed 累積落嚟，每次卡圖
     # 重算都會留低舊 sha，所以「有孤兒檔」係 quarantine 未行之前嘅正常狀態。
     # 用嚴格 pass 做第一道閘會令成條鏈死鎖——閘因為啲檔而 fail，而清走啲檔嗰步
-    # 喺閘之後，永遠去唔到。呢一 pass 嘅職責係喺搬任何檔之前確認 snapshot 本身
+    # 喺閘之後，永遠去唔到。呢一 pass 嘅職責係喺發佈之前確認 snapshot 本身
     # 完好（每張卡圖存在、hash 啱、尺寸啱、有 QC 記錄）。
     run_checked([*verify_images, "--allow-unreferenced"], cwd=ROOT, timeout=timeout)
-    # 縮水閘擺喺 promote / quarantine 之前——擺後面等於冇用，quarantine 係不可逆。
-    assert_catalog_not_shrinking(candidate_snapshot, snapshot_destination, max_catalog_shrink_pct)
+    if published_snapshot is not None:
+        assert_catalog_not_shrinking(candidate_snapshot, published_snapshot, max_catalog_shrink_pct)
 
-    # The snapshot is the local pointer, so its companion QC evidence is
-    # promoted first. Remote candidate/canary/latest operations are strictly
-    # later than every local gate and quarantine step.
-    promote_file(candidate_image_manifest, image_manifest_destination)
-    promote_file(candidate_snapshot, snapshot_destination)
-    snapshot_document = read_json(candidate_snapshot)
-    quarantined = quarantine_unreferenced_assets(assets_out, snapshot_document, quarantine_root)
-    # 清完先做嚴格 pass：發佈嗰刻目錄入面唔可以仲有冇人引用嘅檔。
-    run_checked(verify_images, cwd=ROOT, timeout=timeout)
+    # publish-snapshot.mjs 先寫 immutable generation + generation-scoped assets，
+    # 驗完整包，最後先 atomic replace latest.json。呢度唔再覆寫 tracked demo seed、
+    # QC manifest 或 quarantine 共用 asset tree；失敗時上一個 pointer 原封不動。
     run_checked(publish_command, cwd=ROOT, timeout=timeout)
-    return quarantined
+    return 0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the standalone CARDZ daily market-data pipeline")
     parser.add_argument("--mode", choices=("staging", "production"), required=True)
+    parser.add_argument("--release-profile", default="relaxed-launch-v1")
+    parser.add_argument(
+        "--run-profile",
+        choices=("full", "incremental", "full-backfill", "daily", "due-delta"),
+        help="shared engine profile; full and incremental share stages/path and differ only in selector/cursor/range/freshness",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="plan the shared engine only; never lock, apply DB, publish, or touch timers/pointers",
+    )
+    parser.add_argument(
+        "--resume-receipt-root",
+        type=Path,
+        help="existing stage-receipt root for retry resume / same-input no-op (dry-run or live)",
+    )
     parser.add_argument("--source-root", type=Path, default=DEFAULT_SOURCE_ROOT)
     parser.add_argument("--kado-root", type=Path, default=DEFAULT_KADO_ROOT)
     parser.add_argument("--private-acquire-script", type=Path, default=DEFAULT_ACQUIRE_SCRIPT)
@@ -644,7 +930,7 @@ def main() -> int:
     parser.add_argument("--require-gemrate-refresh", action="store_true")
     parser.add_argument(
         "--required-presentation-view",
-        choices=("top100", "top300", "top350", "top100_plus_200", "reserve50"),
+        choices=PRESENTATION_VIEWS,
         help="after collection and derive, require this export view before publication",
     )
     parser.add_argument(
@@ -676,6 +962,47 @@ def main() -> int:
         env_name = "CARDZ_PRODUCTION_R2_BUCKET" if args.mode == "production" else "CARDZ_STAGING_R2_BUCKET"
         args.r2_bucket = os.environ.get(env_name)
 
+    run_profile = resolve_run_profile(args.run_profile)
+    if not profiles_share_engine("full", "incremental"):
+        raise RuntimeError("full and incremental must share one engine entrypoint, path, and stages")
+
+    if args.dry_run:
+        # Dry-run never acquires the daily lock, never writes pointers/timers,
+        # and never enters collectors. It only emits the shared-engine plan.
+        material = build_engine_input_material(
+            profile_id=run_profile,
+            active_universe=args.active_universe.resolve() if args.active_universe else None,
+            mode=args.mode,
+            backend_only=bool(args.backend_only),
+        )
+        fingerprint = compute_input_fingerprint(material)
+        plan = plan_engine_run(
+            run_profile,
+            receipt_root=args.resume_receipt_root.resolve() if args.resume_receipt_root else None,
+            input_fingerprint=fingerprint,
+            resume=args.resume_receipt_root is not None,
+            dry_run=True,
+            allow_publish=False,
+            allow_timer=False,
+            allow_database_apply=False,
+        )
+        assert_zero_mutation_side_effects(plan)
+        print(
+            json.dumps(
+                {
+                    "status": plan["status"],
+                    "mode": args.mode,
+                    "runProfile": run_profile,
+                    "inputFingerprint": fingerprint,
+                    "enginePlan": plan,
+                    "pointerWrite": False,
+                    "timerEnable": False,
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
+
     if args.backend_only and args.r2_bucket:
         raise RuntimeError("--backend-only cannot be combined with an R2 bucket")
     if args.backend_only and args.skip_database_sync:
@@ -691,14 +1018,19 @@ def main() -> int:
         raise RuntimeError("--snk-run requires an explicit active-universe overlay")
     if args.local_only and args.r2_bucket:
         raise RuntimeError("--local-only cannot be combined with an R2 bucket")
-    if not args.backend_only and not args.local_only and not args.r2_bucket:
+    remote_publish = requires_remote_publish(
+        backend_only=args.backend_only,
+        bootstrap_only=args.bootstrap_only,
+        local_only=args.local_only,
+    )
+    if remote_publish and not args.r2_bucket:
         raise RuntimeError("remote daily publish requires CARDZ_STAGING_R2_BUCKET or --r2-bucket")
-    if not args.backend_only and not args.local_only and not os.environ.get("CARDZ_GENERATION_CANARY_COMMAND_JSON"):
+    if remote_publish and not os.environ.get("CARDZ_GENERATION_CANARY_COMMAND_JSON"):
         raise RuntimeError("remote daily publish requires CARDZ_GENERATION_CANARY_COMMAND_JSON")
-    if not args.backend_only and not args.local_only and not os.environ.get("CARDZ_POINTER_PROMOTE_COMMAND_JSON"):
+    if remote_publish and not os.environ.get("CARDZ_POINTER_PROMOTE_COMMAND_JSON"):
         raise RuntimeError("remote daily publish requires CARDZ_POINTER_PROMOTE_COMMAND_JSON")
-    if not args.backend_only and args.required_presentation_view is None:
-        args.required_presentation_view = "top300"
+    if remote_publish and args.required_presentation_view is None:
+        args.required_presentation_view = "top300_boards"
     if args.allow_stale_demo and (args.mode != "staging" or not args.local_only):
         raise RuntimeError("stale data is permitted only for an explicit local staging preview")
     if args.skip_database_sync and (args.mode != "staging" or not args.local_only):
@@ -810,16 +1142,42 @@ def main() -> int:
                 )
             )
             return 0
-        pipeline_run_id = datetime.now(timezone.utc).strftime("daily_%Y%m%dT%H%M%S%fZ")
+        attempt_started_at = datetime.now(timezone.utc)
+        pipeline_run_id = attempt_started_at.strftime("daily_%Y%m%dT%H%M%S%fZ")
+        stage_receipt_root = (
+            landing_root / "daily-attempts" / pipeline_run_id / "stages"
+        )
+        evaluation_receipt = (
+            landing_root / "daily-attempts" / pipeline_run_id / "market-alert-evaluation.json"
+        )
+        # Bind the attempt to one shared-engine input fingerprint so retry
+        # resume and same-input no-op can be proven from receipts alone.
+        engine_material = build_engine_input_material(
+            profile_id=run_profile,
+            active_universe=args.active_universe.resolve() if args.active_universe else None,
+            mode=args.mode,
+            backend_only=bool(args.backend_only),
+        )
+        engine_fingerprint = compute_input_fingerprint(engine_material)
+        write_input_fingerprint(
+            stage_receipt_root,
+            run_id=pipeline_run_id,
+            profile_id=run_profile,
+            fingerprint=engine_fingerprint,
+            material=engine_material,
+        )
 
         source_refresh = {"gemrateLive": False, "snkRun": None, "tagRun": None, "tagStatus": "unavailable", "tagCards": None, "crosswalk": None, "activeUniverse": None, "activeUniverseLockId": None, "activeCards": None}
         if not args.skip_market_source_refresh:
-            market_run_id = datetime.now(timezone.utc).strftime("sources_%Y%m%d")
+            # The parent run ID is shared across acquisition, DB, derive, QC,
+            # and publication. Provider receipts remain nested evidence.
+            market_run_id = pipeline_run_id
             source_refresh = run_market_source_refresh(
                 source_root,
                 landing_root,
                 fx_cache,
                 market_run_id,
+                attempt_started_at,
                 args.pipeline_timeout_seconds,
                 args.require_gemrate_refresh,
                 args.refresh_active_universe,
@@ -829,13 +1187,49 @@ def main() -> int:
                 args.snk_run.resolve() if args.snk_run else None,
             )
 
+        active_path = (
+            Path(str(source_refresh["activeUniverse"])).resolve()
+            if source_refresh.get("activeUniverse")
+            else (args.active_universe.resolve() if args.active_universe else DEFAULT_ACTIVE_UNIVERSE.resolve())
+        )
+        acquired_outputs = [
+            Path(str(value))
+            for value in (
+                source_refresh.get("snkRun"),
+                source_refresh.get("tagRun"),
+                source_refresh.get("crosswalk"),
+                active_path,
+            )
+            if value
+        ]
+        write_stage_receipt(
+            stage_receipt_root,
+            run_id=pipeline_run_id,
+            stage="ACQUIRED",
+            inputs=[fx_cache],
+            outputs=acquired_outputs,
+            counts={
+                "activeCards": int(source_refresh.get("activeCards") or 0),
+                "changedFiles": int(changed_files),
+            },
+        )
+        write_stage_receipt(
+            stage_receipt_root,
+            run_id=pipeline_run_id,
+            stage="VERIFIED",
+            inputs=acquired_outputs,
+            outputs=[active_path],
+            counts={"activeCards": int(source_refresh.get("activeCards") or 0)},
+        )
         database_synced = False
         alert_evaluated = False
         post_derive_audited = False
+        evaluation_id: int | None = None
+        evaluation_passed = False
         if not args.skip_database_sync:
             backend = str(ROOT / "scripts/backend.py")
             run_checked(
-                [sys.executable, backend, "import"],
+                backend_database_command(Path(backend), "import", active_path),
                 cwd=ROOT,
                 timeout=args.pipeline_timeout_seconds,
                 env=os.environ,
@@ -851,14 +1245,15 @@ def main() -> int:
                     env=os.environ,
                 )
             run_checked(
-                [sys.executable, str(ROOT / "pipelines/market_alerts.py")],
+                market_alert_evaluation_command(evaluation_receipt),
                 cwd=ROOT,
                 timeout=args.pipeline_timeout_seconds,
                 env=os.environ,
             )
+            evaluation_id = load_evaluation_id(evaluation_receipt)
             alert_evaluated = True
             run_checked(
-                [sys.executable, backend, "status"],
+                backend_database_command(Path(backend), "status", active_path),
                 cwd=ROOT,
                 timeout=args.pipeline_timeout_seconds,
                 env=os.environ,
@@ -870,17 +1265,41 @@ def main() -> int:
                     post_derive_audit_command(
                         Path(str(snk_run)),
                         required_presentation_view=args.required_presentation_view,
+                        active_universe=active_path,
                     ),
                     cwd=ROOT,
                     timeout=args.pipeline_timeout_seconds,
                     env=os.environ,
                 )
                 post_derive_audited = True
+                run_checked(
+                    mark_market_evaluation_passed_command(evaluation_id),
+                    cwd=ROOT,
+                    timeout=args.pipeline_timeout_seconds,
+                    env=os.environ,
+                )
+                evaluation_passed = True
             elif not args.backend_only:
                 raise RuntimeError("snapshot export requires a current SNK PSA 10 audit")
 
+        if database_synced:
+            write_stage_receipt(
+                stage_receipt_root,
+                run_id=pipeline_run_id,
+                stage="INGESTED",
+                inputs=[active_path],
+                counts={"activeCards": int(source_refresh.get("activeCards") or 0)},
+            )
+            write_stage_receipt(
+                stage_receipt_root,
+                run_id=pipeline_run_id,
+                stage="DERIVED",
+                inputs=[active_path],
+                outputs=[evaluation_receipt],
+                counts={"evaluationId": int(evaluation_id or 0)},
+            )
+
         if args.backend_only:
-            active_path = ROOT / "data/runtime/private-source-map/tracked-universe.json"
             active_document = read_json(active_path)
             print(
                 json.dumps(
@@ -903,6 +1322,8 @@ def main() -> int:
                         "activeUniverseLockId": active_universe_lock_hash(active_document),
                         "databaseSynced": database_synced,
                         "alertEvaluated": alert_evaluated,
+                        "evaluationId": evaluation_id,
+                        "evaluationPassed": evaluation_passed,
                         "postDeriveAudited": post_derive_audited,
                     },
                     sort_keys=True,
@@ -911,27 +1332,95 @@ def main() -> int:
             return 0
 
         candidate_root = ROOT / "data/runtime/candidates" / pipeline_run_id
+        raw_candidate_snapshot = candidate_root / "snapshot.candidate.json"
         candidate_snapshot = candidate_root / "snapshot.json"
         candidate_image_manifest = candidate_root / "image-qc.json"
+        candidate_qc_audit = candidate_root / "public-qc-audit.json"
+        candidate_qc_receipt = candidate_root / "public-qc-receipt.json"
         private_mapping_path = candidate_root / "editorial-top100-mapping.json"
         private_gap_path = candidate_root / "public-gate-gap.json"
         candidate_root.mkdir(parents=True, exist_ok=True)
 
         if not database_synced:
             raise RuntimeError("public candidate requires a successful canonical database sync")
+        canonical_db_qc_root = (
+            ROOT / "data/runtime/private-reports/canonical-db-qc" / pipeline_run_id
+        )
+        canonical_db_qc_report = canonical_db_qc_root / "report.json"
+        canonical_db_qc_receipt = canonical_db_qc_root / "receipt.json"
+        price_sales_gate_receipt = canonical_db_qc_root / "price-sales-gate.json"
+        # This command uses a consistent read-only MySQL snapshot and applies
+        # the named release profile.  Strict remains all-pool fail-closed;
+        # relaxed launch is card-scoped and only global integrity blockers stop
+        # the cohort.
+        canonical_db_qc_exit = run_checked(
+            canonical_db_qc_command(pipeline_run_id, args.release_profile),
+            cwd=ROOT,
+            timeout=args.pipeline_timeout_seconds,
+            env=os.environ,
+            allowed_returncodes=(1,),
+        )
+        if not canonical_db_qc_report.is_file() or not canonical_db_qc_receipt.is_file():
+            raise RuntimeError("canonical DB QC did not produce immutable report and receipt")
+        canonical_qc_document = read_json(canonical_db_qc_report)
+        canonical_qc_universe = canonical_qc_document.get("universe")
+        if not isinstance(canonical_qc_universe, Mapping):
+            raise RuntimeError("canonical DB QC report has no universe contract")
+        canonical_qc_candidate_sha256 = str(
+            canonical_qc_universe.get("candidateSha256") or ""
+        )
+        # The legacy market-alerts dry-run has a fixed ten-sale predicate.  It
+        # is useful strict-audit evidence, but must not silently re-tighten the
+        # relaxed profile after canonical DB QC has accepted its five-sale
+        # card-scoped cohort.
+        if args.release_profile == "strict-v1":
+            run_checked(
+                price_sales_gate_evaluation_command(
+                    canonical_db_qc_report,
+                    canonical_qc_candidate_sha256,
+                    price_sales_gate_receipt,
+                ),
+                cwd=ROOT,
+                timeout=args.pipeline_timeout_seconds,
+                env=os.environ,
+            )
+        for command in canonical_db_qc_failure_commands(
+            canonical_db_qc_report,
+            pipeline_run_id,
+        ):
+            run_checked(
+                command,
+                cwd=ROOT,
+                timeout=args.pipeline_timeout_seconds,
+                env=os.environ,
+            )
+        if canonical_db_qc_exit == 1:
+            raise RuntimeError(
+                "canonical DB QC blocked; retry worklists exported and public pointer unchanged"
+            )
+        published_snapshot = runtime_snapshot_from_pointer(args.publish_out.resolve())
+        presentation_snapshot = published_snapshot or args.snapshot.resolve()
         export_command = [
             sys.executable,
             str(CANONICAL_SNAPSHOT_PATH),
             "--presentation",
-            str(args.snapshot.resolve()),
+            str(presentation_snapshot),
             "--output",
-            str(candidate_snapshot),
+            str(raw_candidate_snapshot),
             "--view",
-            str(args.required_presentation_view or "top300"),
+            str(args.required_presentation_view or "all_eligible"),
+            "--release-profile",
+            args.release_profile,
+            "--db-qc-report",
+            str(canonical_db_qc_report),
         ]
-        if args.mode == "production":
-            export_command.append("--production")
         run_checked(export_command, cwd=ROOT, timeout=args.pipeline_timeout_seconds)
+        if not args.image_manifest.resolve().is_file():
+            raise RuntimeError("canonical publish requires the checked image QC manifest")
+        # The source QC file is evidence.  Every candidate owns an exact copy;
+        # self-healing may append metadata-only records to that copy but must
+        # never overwrite the canonical manifest before the candidate passes.
+        shutil.copy2(args.image_manifest.resolve(), candidate_image_manifest)
         # 卡圖自愈（2026-07-25 用戶規矩）：新入列嘅卡即日統一成梵高標準
         # 429x600 透明畫布 + RGBA 原生圓角，就地用現有 asset 修，唔重下載。
         run_checked(
@@ -940,15 +1429,97 @@ def main() -> int:
                 "-X",
                 "utf8",
                 str(ROOT / "pipelines" / "ensure_std_card_images.py"),
-                str(candidate_snapshot),
+                str(raw_candidate_snapshot),
                 "--write",
+                "--manifest",
+                str(candidate_image_manifest),
+                "--pointer",
+                str(args.publish_out.resolve() / "latest.json"),
             ],
             cwd=ROOT,
             timeout=args.pipeline_timeout_seconds,
         )
-        if not args.image_manifest.resolve().is_file():
-            raise RuntimeError("canonical publish requires the checked image QC manifest")
-        shutil.copy2(args.image_manifest.resolve(), candidate_image_manifest)
+        # Audit writes its immutable failed-candidate evidence before returning
+        # non-zero.  With no human/vision-confirmed card (or no 30d PSA10 sale)
+        # this stops here and the last-good pointer remains byte-identical.
+        run_checked(
+            [
+                sys.executable,
+                "-X",
+                "utf8",
+                str(PUBLIC_SNAPSHOT_QC_PATH),
+                "audit",
+                "--snapshot",
+                str(raw_candidate_snapshot),
+                "--manifest",
+                str(candidate_image_manifest),
+                "--assets",
+                str(args.assets_out.resolve()),
+                "--output",
+                str(candidate_qc_audit),
+                "--run-id",
+                pipeline_run_id,
+                "--db-qc-receipt",
+                str(canonical_db_qc_receipt),
+                "--db-qc-report",
+                str(canonical_db_qc_report),
+                "--release-profile",
+                args.release_profile,
+            ],
+            cwd=ROOT,
+            timeout=args.pipeline_timeout_seconds,
+        )
+        run_checked(
+            [
+                sys.executable,
+                "-X",
+                "utf8",
+                str(PUBLIC_SNAPSHOT_QC_PATH),
+                "finalize",
+                "--snapshot",
+                str(raw_candidate_snapshot),
+                "--audit",
+                str(candidate_qc_audit),
+                "--output",
+                str(candidate_snapshot),
+                "--receipt",
+                str(candidate_qc_receipt),
+                "--assets",
+                str(args.assets_out.resolve()),
+                "--db-qc-receipt",
+                str(canonical_db_qc_receipt),
+                "--release-profile",
+                args.release_profile,
+            ],
+            cwd=ROOT,
+            timeout=args.pipeline_timeout_seconds,
+        )
+        qc_audit_document = read_json(candidate_qc_audit)
+        rejection_counts = qc_audit_document.get("rejectionCounts")
+        write_stage_receipt(
+            stage_receipt_root,
+            run_id=pipeline_run_id,
+            stage="QC_PASSED",
+            inputs=[
+                canonical_db_qc_receipt,
+                raw_candidate_snapshot,
+                candidate_image_manifest,
+            ],
+            outputs=[candidate_qc_audit, candidate_qc_receipt, candidate_snapshot],
+            counts={
+                "candidateCards": int(qc_audit_document.get("candidateCount") or 0),
+                "verifiedTopCount": int(qc_audit_document.get("verifiedCount") or 0),
+            },
+            rejection_reasons=(
+                {
+                    str(key): int(value)
+                    for key, value in rejection_counts.items()
+                    if isinstance(value, int)
+                }
+                if isinstance(rejection_counts, Mapping)
+                else {}
+            ),
+        )
         write_json(private_mapping_path, {"schemaVersion": 1, "top100": []})
         write_json(private_gap_path, {"schemaVersion": 1, "source": "canonical-db", "gaps": []})
 
@@ -965,25 +1536,36 @@ def main() -> int:
             str(candidate_snapshot),
             "--out",
             str(args.publish_out.resolve()),
-            "--image-manifest",
-            str(candidate_image_manifest),
+            "--assets-root",
+            str(args.assets_out.resolve()),
+            "--qc-receipt",
+            str(candidate_qc_receipt),
+            "--db-qc-receipt",
+            str(canonical_db_qc_receipt),
         ]
-        if args.mode == "staging":
-            publish.append("--allow-demo")
         if args.r2_bucket:
             publish.extend(["--r2-bucket", args.r2_bucket])
-        quarantine_root = ROOT / "data/runtime/private-quarantine/legacy-public-assets" / pipeline_run_id
         quarantined = finalize_local_candidate_then_publish(
             candidate_snapshot,
             candidate_image_manifest,
             args.assets_out.resolve(),
-            args.snapshot.resolve(),
-            args.image_manifest.resolve(),
-            quarantine_root,
+            published_snapshot,
             publish,
-            production=args.mode == "production",
+            # A staging canary uses the same strict generation contract as
+            # production.  Only its destination differs.
+            production=True,
             timeout=args.pipeline_timeout_seconds,
             max_catalog_shrink_pct=args.max_catalog_shrink_pct,
+        )
+        write_stage_receipt(
+            stage_receipt_root,
+            run_id=pipeline_run_id,
+            stage="PUBLISHED",
+            inputs=[candidate_snapshot, candidate_qc_receipt, canonical_db_qc_receipt],
+            outputs=[args.publish_out.resolve() / "latest.json"],
+            counts={
+                "publishedCards": published_card_count(read_json(candidate_snapshot)),
+            },
         )
         print(
             json.dumps(
@@ -1008,6 +1590,8 @@ def main() -> int:
                     "activeUniverseLockId": source_refresh["activeUniverseLockId"],
                     "databaseSynced": database_synced,
                     "alertEvaluated": alert_evaluated,
+                    "evaluationId": evaluation_id,
+                    "evaluationPassed": evaluation_passed,
                     "postDeriveAudited": post_derive_audited,
                     "remotePublished": bool(args.r2_bucket),
                     "quarantinedAssets": quarantined,
@@ -1019,4 +1603,26 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        exit_code = main()
+    except Exception as error:
+        record_failure(
+            source="daily",
+            stage="orchestrate",
+            script=__file__,
+            item_key="shared-engine",
+            reason_code="pipeline_aborted",
+            message="daily pipeline aborted before successful completion",
+            retryable=True,
+            next_action="agent_review_then_retry",
+            error_type=type(error).__name__,
+        )
+        raise
+    record_resolution(
+        source="daily",
+        stage="orchestrate",
+        script=__file__,
+        item_key="shared-engine",
+        resolution="pipeline_completed",
+    )
+    raise SystemExit(exit_code)

@@ -1,0 +1,838 @@
+{
+  "asOf": "2026-07-29T11:50:21Z",
+  "write": true,
+  "today": "2026-07-29",
+  "ratio": 5.0,
+  "jump": 5.0,
+  "deleteCount": 661,
+  "reasonTally": {
+    "latest_spread_extreme": 41,
+    "same_source_outlier": 620
+  },
+  "flaggedOpaque": [],
+  "flaggedVariantIds": [],
+  "samples": [
+    {
+      "id": 2077354,
+      "variant_id": 176,
+      "source": "tcgpricelookup",
+      "price": 618.0,
+      "median": 122.0,
+      "ratio": 5.07,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2185187,
+      "variant_id": 260,
+      "source": "snk_psa10",
+      "price": 21.368826,
+      "median": 113.0,
+      "ratio": 0.19,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2077636,
+      "variant_id": 260,
+      "source": "tcgpricelookup",
+      "price": 625.0,
+      "median": 113.0,
+      "ratio": 5.53,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2165763,
+      "variant_id": 90,
+      "source": "tcgpricelookup",
+      "price": 509.5,
+      "median": 4943.502825,
+      "ratio": 0.1,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2186228,
+      "variant_id": 111,
+      "source": "tcgpricelookup",
+      "price": 39.99,
+      "median": 1831.613652,
+      "ratio": 0.02,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2179591,
+      "variant_id": 655,
+      "source": "snk_psa10",
+      "price": 45.790341,
+      "median": 252.8951705,
+      "ratio": 0.18,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2179635,
+      "variant_id": 907,
+      "source": "snk_psa10",
+      "price": 38.463887,
+      "median": 6019.2319435,
+      "ratio": 0.01,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2179595,
+      "variant_id": 1268,
+      "source": "snk_psa10",
+      "price": 128.212956,
+      "median": 2764.106478,
+      "ratio": 0.05,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2185300,
+      "variant_id": 1024,
+      "source": "snk_psa10",
+      "price": 21.368826,
+      "median": 251.684413,
+      "ratio": 0.08,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2185296,
+      "variant_id": 1051,
+      "source": "snk_psa10",
+      "price": 15.263447,
+      "median": 192.1317235,
+      "ratio": 0.08,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2185299,
+      "variant_id": 1472,
+      "source": "snk_psa10",
+      "price": 11.60022,
+      "median": 255.80011,
+      "ratio": 0.05,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2185297,
+      "variant_id": 1475,
+      "source": "snk_psa10",
+      "price": 12.210758,
+      "median": 193.605379,
+      "ratio": 0.06,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2185301,
+      "variant_id": 1470,
+      "source": "snk_psa10",
+      "price": 10.989682,
+      "median": 230.489841,
+      "ratio": 0.05,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2185305,
+      "variant_id": 1471,
+      "source": "snk_psa10",
+      "price": 12.210758,
+      "median": 231.105379,
+      "ratio": 0.05,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2113811,
+      "variant_id": 632,
+      "source": "snk_psa10",
+      "price": 15.263447,
+      "median": 107.6267235,
+      "ratio": 0.14,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2082423,
+      "variant_id": 790,
+      "source": "tcgpricelookup",
+      "price": 84.0,
+      "median": 5842.109897,
+      "ratio": 0.01,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2083772,
+      "variant_id": 547,
+      "source": "tcgpricelookup",
+      "price": 134.5,
+      "median": 970.846068,
+      "ratio": 0.14,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2185306,
+      "variant_id": 1047,
+      "source": "snk_psa10",
+      "price": 12.08865,
+      "median": 206.039325,
+      "ratio": 0.06,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2113781,
+      "variant_id": 1730,
+      "source": "snk_psa10",
+      "price": 280.841321,
+      "median": 3927.9206605,
+      "ratio": 0.07,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2185304,
+      "variant_id": 1477,
+      "source": "snk_psa10",
+      "price": 9.158068,
+      "median": 90.82903400000001,
+      "ratio": 0.1,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2185308,
+      "variant_id": 1469,
+      "source": "snk_psa10",
+      "price": 6.105379,
+      "median": 93.0526895,
+      "ratio": 0.07,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2093016,
+      "variant_id": 718,
+      "source": "tcgpricelookup",
+      "price": 176.865,
+      "median": 1981.09994,
+      "ratio": 0.09,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2185307,
+      "variant_id": 1474,
+      "source": "snk_psa10",
+      "price": 6.105379,
+      "median": 88.8026895,
+      "ratio": 0.07,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2185302,
+      "variant_id": 1478,
+      "source": "snk_psa10",
+      "price": 6.105379,
+      "median": 83.0476895,
+      "ratio": 0.07,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2096246,
+      "variant_id": 797,
+      "source": "tcgpricelookup",
+      "price": 48.0,
+      "median": 648.2749865,
+      "ratio": 0.07,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2185240,
+      "variant_id": 1025,
+      "source": "snk_psa10",
+      "price": 54.94841,
+      "median": 752.474205,
+      "ratio": 0.07,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2185224,
+      "variant_id": 1000,
+      "source": "snk_psa10",
+      "price": 9.158068,
+      "median": 59.829034,
+      "ratio": 0.15,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2105707,
+      "variant_id": 605,
+      "source": "tcgpricelookup",
+      "price": 150.0,
+      "median": 6943.5511935,
+      "ratio": 0.02,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2185181,
+      "variant_id": 998,
+      "source": "snk_psa10",
+      "price": 6.105379,
+      "median": 108.0526895,
+      "ratio": 0.06,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2185182,
+      "variant_id": 992,
+      "source": "snk_psa10",
+      "price": 6.105379,
+      "median": 139.0526895,
+      "ratio": 0.04,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2113773,
+      "variant_id": 1042,
+      "source": "snk_psa10",
+      "price": 9.158068,
+      "median": 187.079034,
+      "ratio": 0.05,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2169142,
+      "variant_id": 102,
+      "source": "tcgpricelookup",
+      "price": 99.95,
+      "median": 2638.6556275,
+      "ratio": 0.04,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2179631,
+      "variant_id": 1425,
+      "source": "snk_psa10",
+      "price": 48.843031,
+      "median": 424.4215155,
+      "ratio": 0.12,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2185368,
+      "variant_id": 1479,
+      "source": "snk_psa10",
+      "price": 6.105379,
+      "median": 60.8176895,
+      "ratio": 0.1,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2396928,
+      "variant_id": 1216,
+      "source": "snk_psa10",
+      "price": 6.715917,
+      "median": 153.3579585,
+      "ratio": 0.04,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2396921,
+      "variant_id": 1438,
+      "source": "snk_psa10",
+      "price": 6.105379,
+      "median": 107.3026895,
+      "ratio": 0.06,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2396973,
+      "variant_id": 1281,
+      "source": "snk_psa10",
+      "price": 6.105379,
+      "median": 48.0476895,
+      "ratio": 0.13,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2396917,
+      "variant_id": 1748,
+      "source": "snk_psa10",
+      "price": 6.105379,
+      "median": 61.0401895,
+      "ratio": 0.1,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2396926,
+      "variant_id": 1228,
+      "source": "snk_psa10",
+      "price": 6.105379,
+      "median": 70.4276895,
+      "ratio": 0.09,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2185179,
+      "variant_id": 1282,
+      "source": "snk_psa10",
+      "price": 17.095061,
+      "median": 98.7975305,
+      "ratio": 0.17,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 2185183,
+      "variant_id": 1044,
+      "source": "snk_psa10",
+      "price": 6.105379,
+      "median": 190.0626895,
+      "ratio": 0.03,
+      "reason": "latest_spread_extreme"
+    },
+    {
+      "id": 95341,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4315.576534,
+      "series_median": 855.514007,
+      "ratio": 5.04,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 95584,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4685.631092,
+      "series_median": 855.514007,
+      "ratio": 5.48,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 95804,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4890.308343,
+      "series_median": 855.514007,
+      "ratio": 5.72,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 96015,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4777.392264,
+      "series_median": 855.514007,
+      "ratio": 5.58,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 96219,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4781.462637,
+      "series_median": 855.514007,
+      "ratio": 5.59,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 96427,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4720.161834,
+      "series_median": 855.514007,
+      "ratio": 5.52,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 96629,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4622.080549,
+      "series_median": 855.514007,
+      "ratio": 5.4,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 96837,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4566.909827,
+      "series_median": 855.514007,
+      "ratio": 5.34,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 97035,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4360.32612,
+      "series_median": 855.514007,
+      "ratio": 5.1,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 97429,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4395.267578,
+      "series_median": 855.514007,
+      "ratio": 5.14,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 97605,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4376.877337,
+      "series_median": 855.514007,
+      "ratio": 5.12,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 98002,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4352.357016,
+      "series_median": 855.514007,
+      "ratio": 5.09,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 99562,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4450.438301,
+      "series_median": 855.514007,
+      "ratio": 5.2,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 99757,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4468.828542,
+      "series_median": 855.514007,
+      "ratio": 5.22,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 99962,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4369.980997,
+      "series_median": 855.514007,
+      "ratio": 5.11,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 100159,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4461.165941,
+      "series_median": 855.514007,
+      "ratio": 5.21,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 100355,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4597.492797,
+      "series_median": 855.514007,
+      "ratio": 5.37,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 100567,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4572.426899,
+      "series_median": 855.514007,
+      "ratio": 5.34,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 100783,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4576.092687,
+      "series_median": 855.514007,
+      "ratio": 5.35,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 101201,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4560.166738,
+      "series_median": 855.514007,
+      "ratio": 5.33,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 101407,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4523.993134,
+      "series_median": 855.514007,
+      "ratio": 5.29,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 101607,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4500.839821,
+      "series_median": 855.514007,
+      "ratio": 5.26,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 101788,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4444.30822,
+      "series_median": 855.514007,
+      "ratio": 5.19,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 101984,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4469.263777,
+      "series_median": 855.514007,
+      "ratio": 5.22,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 102186,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4481.088702,
+      "series_median": 855.514007,
+      "ratio": 5.24,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 102573,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4450.438301,
+      "series_median": 855.514007,
+      "ratio": 5.2,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 102763,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4438.17814,
+      "series_median": 855.514007,
+      "ratio": 5.19,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 103079,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4291.056213,
+      "series_median": 855.514007,
+      "ratio": 5.02,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 103269,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4352.357016,
+      "series_median": 855.514007,
+      "ratio": 5.09,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 103466,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4318.641574,
+      "series_median": 855.514007,
+      "ratio": 5.05,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 103647,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4291.056213,
+      "series_median": 855.514007,
+      "ratio": 5.02,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 104022,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4279.856556,
+      "series_median": 855.514007,
+      "ratio": 5.0,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 104215,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4364.617176,
+      "series_median": 855.514007,
+      "ratio": 5.1,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 104403,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4342.138172,
+      "series_median": 855.514007,
+      "ratio": 5.08,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 104795,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4335.499295,
+      "series_median": 855.514007,
+      "ratio": 5.07,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 104969,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4352.350886,
+      "series_median": 855.514007,
+      "ratio": 5.09,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 105155,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4411.616502,
+      "series_median": 855.514007,
+      "ratio": 5.16,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 105756,
+      "variant_id": 2,
+      "source": "snk_psa10",
+      "price": 4309.446454,
+      "series_median": 855.514007,
+      "ratio": 5.04,
+      "reason": "same_source_outlier:snk_psa10"
+    },
+    {
+      "id": 113461,
+      "variant_id": 15,
+      "source": "snk_psa10",
+      "price": 4100.848803,
+      "series_median": 765.034022,
+      "ratio": 5.36,
+      "reason": "same_source_outlier:snk_psa10"
+    }
+  ],
+  "deleteIdsHead": [
+    1673,
+    1731,
+    2020,
+    2155,
+    2218,
+    2277,
+    3235,
+    3481,
+    3552,
+    3955,
+    4303,
+    4636,
+    4654,
+    5073,
+    5110,
+    5155,
+    5652,
+    5781,
+    5886,
+    6039,
+    6070,
+    6112,
+    6227,
+    6264,
+    6295,
+    6328,
+    6503,
+    6542,
+    6695,
+    6952,
+    6991,
+    6997,
+    7002,
+    7150,
+    7495,
+    7561,
+    7595,
+    7635,
+    7673,
+    7766,
+    7788,
+    7818,
+    7823,
+    7945,
+    8208,
+    8266,
+    8339,
+    8446,
+    8616,
+    8739,
+    8794,
+    8950,
+    9007,
+    9057,
+    9066,
+    9117,
+    9420,
+    9499,
+    9680,
+    9754,
+    9765,
+    9839,
+    9922,
+    10071,
+    10124,
+    10308,
+    10400,
+    10411,
+    10521,
+    10558,
+    10859,
+    10862,
+    11419,
+    11511,
+    11553,
+    11794,
+    11953,
+    11992,
+    11995,
+    12079,
+    12127,
+    12174,
+    12207,
+    12343,
+    12373,
+    12400,
+    12508,
+    12528,
+    12575,
+    12777,
+    12836,
+    12953,
+    13084,
+    13101,
+    13142,
+    13151,
+    13158,
+    13224,
+    13246,
+    13260
+  ]
+}

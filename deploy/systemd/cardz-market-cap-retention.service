@@ -1,0 +1,23 @@
+[Unit]
+Description=CARDZ raw-observation retention and capacity dry-run plan
+After=network-online.target
+Wants=network-online.target
+OnFailure=cardz-market-cap-alert@%n.service
+
+[Service]
+Type=oneshot
+User=cardz
+Group=cardz
+WorkingDirectory=/opt/cardz-market-cap
+EnvironmentFile=/etc/cardz-market-cap/backend.env
+Environment=LANG=C.UTF-8
+Environment=LC_ALL=C.UTF-8
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/cardz-market-cap/.venv-backend/bin/python -X utf8 /opt/cardz-market-cap/pipelines/db_retention.py --limit 25000 --plan-json /opt/cardz-market-cap/data/runtime/private-reports/retention/latest.json
+TimeoutStartSec=3600
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/cardz-market-cap/data/runtime

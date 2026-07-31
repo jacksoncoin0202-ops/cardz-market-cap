@@ -946,6 +946,14 @@ def self_test() -> dict[str, Any]:
         }
 
 
+def source_attempt_id(logical_at: datetime, *, started_at: datetime | None = None) -> str:
+    """Return one immutable attempt ID while keeping its UTC logical date visible."""
+
+    logical = logical_at.astimezone(timezone.utc)
+    attempt = (started_at or logical_at).astimezone(timezone.utc)
+    return f"sources_{logical:%Y%m%d}T{attempt:%H%M%S%f}Z"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Normalize exact GemRate/SNK source observations")
     parser.add_argument("--source-root", type=Path, default=DEFAULT_SOURCE, help=argparse.SUPPRESS)
@@ -972,7 +980,10 @@ def main() -> int:
         return 0
 
     effective_at = parse_effective_at(args.effective_at) if args.effective_at else datetime.now(timezone.utc)
-    run_id = args.run_id or effective_at.strftime("sources_%Y%m%d")
+    run_id = args.run_id or source_attempt_id(
+        effective_at,
+        started_at=datetime.now(timezone.utc),
+    )
     run_root = args.landing_root.resolve() / "sources" / run_id
     batch_path = run_root / "canonical-batch.json"
     rankings_path = run_root / "rankings.json"

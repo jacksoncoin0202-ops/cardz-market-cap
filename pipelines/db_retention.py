@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Plan and safely compact duplicated private source payloads.
+"""Plan storage, backfill effective pointers, or compact private source payloads.
 
 The canonical metric tables remain untouched.  This tool only moves completed
 ``market_source_observation.payload_json`` values into a local content-addressed
 private archive and replaces the in-row JSON with an archive hash pointer.
-``--apply`` is deliberately required for any database write.
+The separate ``--backfill-effective-pointers --apply`` operation only upserts
+the effective-pointer table and never changes raw observations or payload JSON.
+``--apply`` is deliberately required for every database write.
 """
 
 from __future__ import annotations
@@ -24,6 +26,14 @@ if TYPE_CHECKING:
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_ARCHIVE_ROOT = ROOT / "data" / "runtime" / "private-payload-archive"
 POINTER_KEY = "archivePayloadSha256"
+CAPACITY_TABLES = (
+    "market_source_observation",
+    "market_source_observation_payload_pointer",
+    "market_source_effective_observation",
+    "market_raw_payload_object",
+    "market_retention_archive_manifest",
+)
+IMPORT_ADVISORY_LOCK = "cardz_market_cap_import"
 
 
 def utc_now() -> str:
@@ -223,11 +233,184 @@ def fetch_completed_payload_rows(connection: Any, limit: int) -> list[dict[str, 
         return list(cursor.fetchall())
 
 
+def fetch_capacity_report(connection: Any) -> dict[str, Any]:
+    """Return global raw/pointer counts and approximate MySQL table capacity."""
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT
+                (SELECT COUNT(*) FROM market_source_observation) AS raw_rows,
+                (SELECT COUNT(*) FROM market_source_observation_payload_pointer) AS payload_pointer_rows,
+                (SELECT COUNT(*) FROM market_source_effective_observation) AS effective_pointer_rows,
+                COUNT(*) AS uncompacted_rows,
+                COALESCE(SUM(OCTET_LENGTH(source.payload_json)), 0) AS uncompacted_payload_bytes
+            FROM market_source_observation AS source
+            INNER JOIN market_ingest_run AS run ON run.id = source.run_id AND run.status = 'complete'
+            LEFT JOIN market_source_observation_payload_pointer AS pointer ON pointer.observation_id = source.id
+            WHERE pointer.observation_id IS NULL
+            """
+        )
+        totals = cursor.fetchone()
+        if not isinstance(totals, Mapping):
+            raise RuntimeError("capacity count query did not return a row")
+        placeholders = ",".join(["%s"] * len(CAPACITY_TABLES))
+        cursor.execute(
+            f"""
+            SELECT TABLE_NAME AS table_name, TABLE_ROWS AS table_rows,
+                   DATA_LENGTH AS data_length, INDEX_LENGTH AS index_length
+            FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ({placeholders})
+            ORDER BY TABLE_NAME
+            """,
+            CAPACITY_TABLES,
+        )
+        table_rows = list(cursor.fetchall())
+    tables: dict[str, dict[str, int]] = {}
+    for row in table_rows:
+        table_name = str(row["table_name"])
+        data_bytes = int(row.get("data_length") or 0)
+        index_bytes = int(row.get("index_length") or 0)
+        tables[table_name] = {
+            "rowsEstimate": int(row.get("table_rows") or 0),
+            "dataBytes": data_bytes,
+            "indexBytes": index_bytes,
+            "totalBytes": data_bytes + index_bytes,
+        }
+    return {
+        "rawRows": int(totals.get("raw_rows") or 0),
+        "payloadPointers": int(totals.get("payload_pointer_rows") or 0),
+        "effectivePointers": int(totals.get("effective_pointer_rows") or 0),
+        "uncompactedRows": int(totals.get("uncompacted_rows") or 0),
+        "uncompactedPayloadBytes": int(totals.get("uncompacted_payload_bytes") or 0),
+        "tables": tables,
+    }
+
+
 def database_plan(connection: Any, limit: int) -> dict[str, Any]:
     rows = fetch_completed_payload_rows(connection, limit)
     plan = build_compaction_plan(rows)
     plan["requestedLimit"] = limit
+    plan["capacity"] = fetch_capacity_report(connection)
     return plan
+
+
+def fetch_effective_pointer_winners(connection: Any, limit: int) -> list[dict[str, Any]]:
+    """Select incomplete/stale pointer keys using latest effective_at, then id."""
+
+    if limit < 1:
+        raise ValueError("effective-pointer backfill limit must be positive")
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT source.source_code, source.external_entity_id, source.observation_kind,
+                   source.observed_date, source.id AS observation_id, source.effective_at
+            FROM market_source_observation AS source
+            INNER JOIN market_ingest_run AS run
+                ON run.id = source.run_id AND run.status = 'complete'
+            LEFT JOIN market_source_effective_observation AS current
+                ON current.source_code = source.source_code
+               AND current.external_entity_id = source.external_entity_id
+               AND current.observation_kind = source.observation_kind
+               AND current.observed_date = source.observed_date
+            WHERE (
+                    current.observation_id IS NULL
+                    OR current.observation_id <> source.id
+                    OR current.effective_at <> source.effective_at
+                  )
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM market_source_observation AS newer
+                    INNER JOIN market_ingest_run AS newer_run
+                        ON newer_run.id = newer.run_id AND newer_run.status = 'complete'
+                    WHERE newer.source_code = source.source_code
+                      AND newer.external_entity_id = source.external_entity_id
+                      AND newer.observation_kind = source.observation_kind
+                      AND newer.observed_date = source.observed_date
+                      AND (
+                            newer.effective_at > source.effective_at
+                            OR (newer.effective_at = source.effective_at AND newer.id > source.id)
+                          )
+                  )
+            ORDER BY source.source_code, source.external_entity_id,
+                     source.observation_kind, source.observed_date
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        return list(cursor.fetchall())
+
+
+def backfill_effective_pointers(connection: Any, *, limit: int) -> dict[str, Any]:
+    """Fill every missing/stale complete-run effective pointer in bounded batches."""
+
+    if limit < 1:
+        raise ValueError("effective-pointer backfill limit must be positive")
+    total = 0
+    batches = 0
+    acquired = False
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT GET_LOCK(%s, 0) AS acquired", (IMPORT_ADVISORY_LOCK,))
+            row = cursor.fetchone()
+            if not isinstance(row, Mapping) or int(row.get("acquired") or 0) != 1:
+                raise RuntimeError("CARDZ database import writer lock is busy")
+            acquired = True
+        while True:
+            with connection.cursor() as cursor:
+                cursor.execute("START TRANSACTION")
+            try:
+                winners = fetch_effective_pointer_winners(connection, limit)
+                if not winners:
+                    connection.commit()
+                    break
+                selected_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                with connection.cursor() as cursor:
+                    cursor.executemany(
+                        """
+                        INSERT INTO market_source_effective_observation
+                            (source_code, external_entity_id, observation_kind, observed_date,
+                             observation_id, effective_at, selected_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        ON DUPLICATE KEY UPDATE
+                            observation_id=VALUES(observation_id),
+                            effective_at=VALUES(effective_at),
+                            selected_at=VALUES(selected_at)
+                        """,
+                        [
+                            (
+                                winner["source_code"],
+                                winner["external_entity_id"],
+                                winner["observation_kind"],
+                                winner["observed_date"],
+                                winner["observation_id"],
+                                winner["effective_at"],
+                                selected_at,
+                            )
+                            for winner in winners
+                        ],
+                    )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+            total += len(winners)
+            batches += 1
+            if len(winners) < limit:
+                break
+    finally:
+        if acquired:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT RELEASE_LOCK(%s)", (IMPORT_ADVISORY_LOCK,))
+    return {
+        "applied": total > 0,
+        "operation": "backfill-effective-pointers",
+        "backfilledPointers": total,
+        "batches": batches,
+        "winnerRule": "latest effective_at, then highest observation id, from complete ingest runs only",
+        "rawObservationsChanged": 0,
+        "payloadJsonChanged": 0,
+    }
 
 
 def apply_compaction(
@@ -313,7 +496,12 @@ def apply_compaction(
                          observation_id, effective_at, selected_at)
                     VALUES (%s, %s, %s, %s, %s, %s, %s)
                     ON DUPLICATE KEY UPDATE
-                        observation_id=IF(VALUES(effective_at) >= effective_at, VALUES(observation_id), observation_id),
+                        observation_id=IF(
+                            VALUES(effective_at) > effective_at
+                            OR (VALUES(effective_at) = effective_at AND VALUES(observation_id) > observation_id),
+                            VALUES(observation_id),
+                            observation_id
+                        ),
                         effective_at=GREATEST(effective_at, VALUES(effective_at)),
                         selected_at=VALUES(selected_at)
                     """,
@@ -336,19 +524,34 @@ def apply_compaction(
     }
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Plan or explicitly apply CARDZ source-payload compaction")
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Report CARDZ DB capacity, backfill effective pointers, or explicitly compact source payloads"
+    )
     parser.add_argument("--limit", type=int, default=25_000)
     parser.add_argument("--plan-json", type=Path)
     parser.add_argument("--archive-root", type=Path, default=DEFAULT_ARCHIVE_ROOT)
     parser.add_argument("--apply", action="store_true", help="write archive objects and transactional DB pointers")
-    args = parser.parse_args()
+    parser.add_argument(
+        "--backfill-effective-pointers",
+        action="store_true",
+        help="with --apply, upsert complete-run effective winners only; payload compaction is not run",
+    )
+    args = parser.parse_args(argv)
+    if args.backfill_effective_pointers and not args.apply:
+        parser.error("--backfill-effective-pointers requires --apply")
+    return args
+
+
+def main() -> int:
+    args = parse_args()
     with connection_from_environment() as connection:
-        if args.apply:
+        if args.backfill_effective_pointers:
+            result = backfill_effective_pointers(connection, limit=args.limit)
+        elif args.apply:
             result = apply_compaction(connection, args.archive_root.resolve(), limit=args.limit)
         else:
             result = database_plan(connection, args.limit)
-        connection.close()
     rendered = json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True)
     if args.plan_json:
         _atomic_write(args.plan_json.resolve(), rendered.encode("utf-8"))

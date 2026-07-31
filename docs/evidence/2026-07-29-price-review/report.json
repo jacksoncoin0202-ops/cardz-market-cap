@@ -1,0 +1,1817 @@
+{
+  "asOf": "2026-07-29T11:51:29Z",
+  "today": "2026-07-29",
+  "snapshotPath": "data/public/publish-staging/generations/plan_a_qc3_20260729_154227/snapshot.json",
+  "A": {
+    "watchlist": {
+      "watch": 941,
+      "has_variant": 941,
+      "any_price": 881,
+      "strict_price": 881,
+      "snk_psa10": 147,
+      "tcgpricelookup": 753,
+      "ebay": 90,
+      "g10_kline": 87,
+      "tcgfish": 52,
+      "snk_family": 200,
+      "snk_id": 560
+    },
+    "sourceEnum": [
+      {
+        "source_code": "snk_psa10",
+        "rows_n": 117406,
+        "variants": 457,
+        "min_d": "2023-06-19",
+        "max_d": "2026-07-29"
+      },
+      {
+        "source_code": "tcgpricelookup",
+        "rows_n": 39035,
+        "variants": 754,
+        "min_d": "2025-07-28",
+        "max_d": "2026-07-29"
+      },
+      {
+        "source_code": "ebay",
+        "rows_n": 5948,
+        "variants": 502,
+        "min_d": "2026-04-25",
+        "max_d": "2026-07-27"
+      },
+      {
+        "source_code": "g10_kline",
+        "rows_n": 3809,
+        "variants": 562,
+        "min_d": "2023-07-20",
+        "max_d": "2026-07-25"
+      },
+      {
+        "source_code": "snkrdunk",
+        "rows_n": 564,
+        "variants": 329,
+        "min_d": "2025-11-24",
+        "max_d": "2026-07-27"
+      },
+      {
+        "source_code": "tcgfish",
+        "rows_n": 52,
+        "variants": 52,
+        "min_d": "2026-07-29",
+        "max_d": "2026-07-29"
+      }
+    ],
+    "recent14d": [
+      {
+        "observed_date": "2026-07-29",
+        "source_code": "snk_psa10",
+        "n": 128
+      },
+      {
+        "observed_date": "2026-07-29",
+        "source_code": "tcgfish",
+        "n": 52
+      },
+      {
+        "observed_date": "2026-07-29",
+        "source_code": "tcgpricelookup",
+        "n": 2
+      },
+      {
+        "observed_date": "2026-07-28",
+        "source_code": "snk_psa10",
+        "n": 78
+      },
+      {
+        "observed_date": "2026-07-27",
+        "source_code": "snk_psa10",
+        "n": 99
+      },
+      {
+        "observed_date": "2026-07-27",
+        "source_code": "ebay",
+        "n": 55
+      },
+      {
+        "observed_date": "2026-07-27",
+        "source_code": "snkrdunk",
+        "n": 1
+      },
+      {
+        "observed_date": "2026-07-26",
+        "source_code": "ebay",
+        "n": 290
+      },
+      {
+        "observed_date": "2026-07-26",
+        "source_code": "snk_psa10",
+        "n": 195
+      },
+      {
+        "observed_date": "2026-07-26",
+        "source_code": "snkrdunk",
+        "n": 3
+      },
+      {
+        "observed_date": "2026-07-25",
+        "source_code": "g10_kline",
+        "n": 543
+      },
+      {
+        "observed_date": "2026-07-25",
+        "source_code": "snk_psa10",
+        "n": 186
+      },
+      {
+        "observed_date": "2026-07-25",
+        "source_code": "ebay",
+        "n": 184
+      },
+      {
+        "observed_date": "2026-07-25",
+        "source_code": "snkrdunk",
+        "n": 69
+      },
+      {
+        "observed_date": "2026-07-24",
+        "source_code": "g10_kline",
+        "n": 543
+      },
+      {
+        "observed_date": "2026-07-24",
+        "source_code": "ebay",
+        "n": 199
+      },
+      {
+        "observed_date": "2026-07-24",
+        "source_code": "snk_psa10",
+        "n": 174
+      },
+      {
+        "observed_date": "2026-07-24",
+        "source_code": "snkrdunk",
+        "n": 70
+      },
+      {
+        "observed_date": "2026-07-23",
+        "source_code": "ebay",
+        "n": 206
+      },
+      {
+        "observed_date": "2026-07-23",
+        "source_code": "snk_psa10",
+        "n": 192
+      },
+      {
+        "observed_date": "2026-07-23",
+        "source_code": "snkrdunk",
+        "n": 3
+      },
+      {
+        "observed_date": "2026-07-22",
+        "source_code": "g10_kline",
+        "n": 513
+      },
+      {
+        "observed_date": "2026-07-22",
+        "source_code": "ebay",
+        "n": 243
+      },
+      {
+        "observed_date": "2026-07-22",
+        "source_code": "snk_psa10",
+        "n": 207
+      },
+      {
+        "observed_date": "2026-07-22",
+        "source_code": "snkrdunk",
+        "n": 2
+      },
+      {
+        "observed_date": "2026-07-21",
+        "source_code": "ebay",
+        "n": 218
+      },
+      {
+        "observed_date": "2026-07-21",
+        "source_code": "snk_psa10",
+        "n": 201
+      },
+      {
+        "observed_date": "2026-07-21",
+        "source_code": "snkrdunk",
+        "n": 4
+      },
+      {
+        "observed_date": "2026-07-20",
+        "source_code": "snk_psa10",
+        "n": 225
+      },
+      {
+        "observed_date": "2026-07-20",
+        "source_code": "ebay",
+        "n": 194
+      },
+      {
+        "observed_date": "2026-07-20",
+        "source_code": "tcgpricelookup",
+        "n": 9
+      },
+      {
+        "observed_date": "2026-07-20",
+        "source_code": "snkrdunk",
+        "n": 4
+      },
+      {
+        "observed_date": "2026-07-19",
+        "source_code": "ebay",
+        "n": 344
+      },
+      {
+        "observed_date": "2026-07-19",
+        "source_code": "snkrdunk",
+        "n": 328
+      },
+      {
+        "observed_date": "2026-07-19",
+        "source_code": "snk_psa10",
+        "n": 190
+      },
+      {
+        "observed_date": "2026-07-19",
+        "source_code": "tcgpricelookup",
+        "n": 38
+      },
+      {
+        "observed_date": "2026-07-18",
+        "source_code": "snk_psa10",
+        "n": 187
+      },
+      {
+        "observed_date": "2026-07-18",
+        "source_code": "ebay",
+        "n": 184
+      },
+      {
+        "observed_date": "2026-07-18",
+        "source_code": "tcgpricelookup",
+        "n": 39
+      },
+      {
+        "observed_date": "2026-07-18",
+        "source_code": "snkrdunk",
+        "n": 2
+      },
+      {
+        "observed_date": "2026-07-17",
+        "source_code": "snk_psa10",
+        "n": 199
+      },
+      {
+        "observed_date": "2026-07-17",
+        "source_code": "ebay",
+        "n": 129
+      },
+      {
+        "observed_date": "2026-07-17",
+        "source_code": "tcgpricelookup",
+        "n": 34
+      },
+      {
+        "observed_date": "2026-07-17",
+        "source_code": "snkrdunk",
+        "n": 3
+      },
+      {
+        "observed_date": "2026-07-16",
+        "source_code": "snk_psa10",
+        "n": 204
+      },
+      {
+        "observed_date": "2026-07-16",
+        "source_code": "ebay",
+        "n": 168
+      },
+      {
+        "observed_date": "2026-07-16",
+        "source_code": "tcgpricelookup",
+        "n": 41
+      },
+      {
+        "observed_date": "2026-07-16",
+        "source_code": "snkrdunk",
+        "n": 2
+      },
+      {
+        "observed_date": "2026-07-15",
+        "source_code": "snk_psa10",
+        "n": 219
+      },
+      {
+        "observed_date": "2026-07-15",
+        "source_code": "ebay",
+        "n": 139
+      },
+      {
+        "observed_date": "2026-07-15",
+        "source_code": "tcgpricelookup",
+        "n": 43
+      },
+      {
+        "observed_date": "2026-07-15",
+        "source_code": "snkrdunk",
+        "n": 1
+      }
+    ],
+    "indexSnapshots": [
+      {
+        "id": 49,
+        "run_id": 244,
+        "index_code": "one-piece",
+        "effective_date": "2026-07-29",
+        "constituent_count": 128,
+        "total_market_cap_usd": 213702177.064361,
+        "created_at": "2026-07-29 11:51:27"
+      },
+      {
+        "id": 48,
+        "run_id": 244,
+        "index_code": "pokemon",
+        "effective_date": "2026-07-29",
+        "constituent_count": 791,
+        "total_market_cap_usd": 2341863162.820563,
+        "created_at": "2026-07-29 11:51:26"
+      },
+      {
+        "id": 47,
+        "run_id": 244,
+        "index_code": "tcg-combined",
+        "effective_date": "2026-07-29",
+        "constituent_count": 919,
+        "total_market_cap_usd": 2555565339.884923,
+        "created_at": "2026-07-29 11:51:26"
+      },
+      {
+        "id": 46,
+        "run_id": 244,
+        "index_code": "one-piece",
+        "effective_date": "2026-07-29",
+        "constituent_count": 136,
+        "total_market_cap_usd": 204723334.124609,
+        "created_at": "2026-07-29 11:48:43"
+      },
+      {
+        "id": 45,
+        "run_id": 244,
+        "index_code": "pokemon",
+        "effective_date": "2026-07-29",
+        "constituent_count": 828,
+        "total_market_cap_usd": 2040028599.526038,
+        "created_at": "2026-07-29 11:48:43"
+      },
+      {
+        "id": 44,
+        "run_id": 244,
+        "index_code": "tcg-combined",
+        "effective_date": "2026-07-29",
+        "constituent_count": 964,
+        "total_market_cap_usd": 2244751933.650646,
+        "created_at": "2026-07-29 11:48:42"
+      },
+      {
+        "id": 43,
+        "run_id": 244,
+        "index_code": "one-piece",
+        "effective_date": "2026-07-29",
+        "constituent_count": 144,
+        "total_market_cap_usd": 210307818.931745,
+        "created_at": "2026-07-29 06:42:27"
+      },
+      {
+        "id": 42,
+        "run_id": 244,
+        "index_code": "pokemon",
+        "effective_date": "2026-07-29",
+        "constituent_count": 838,
+        "total_market_cap_usd": 2100974349.433309,
+        "created_at": "2026-07-29 06:42:26"
+      },
+      {
+        "id": 41,
+        "run_id": 244,
+        "index_code": "tcg-combined",
+        "effective_date": "2026-07-29",
+        "constituent_count": 982,
+        "total_market_cap_usd": 2311282168.365052,
+        "created_at": "2026-07-29 06:42:25"
+      },
+      {
+        "id": 40,
+        "run_id": 244,
+        "index_code": "one-piece",
+        "effective_date": "2026-07-29",
+        "constituent_count": 145,
+        "total_market_cap_usd": 216115598.581745,
+        "created_at": "2026-07-29 06:32:10"
+      },
+      {
+        "id": 39,
+        "run_id": 244,
+        "index_code": "pokemon",
+        "effective_date": "2026-07-29",
+        "constituent_count": 838,
+        "total_market_cap_usd": 2100974349.433309,
+        "created_at": "2026-07-29 06:32:09"
+      },
+      {
+        "id": 38,
+        "run_id": 244,
+        "index_code": "tcg-combined",
+        "effective_date": "2026-07-29",
+        "constituent_count": 983,
+        "total_market_cap_usd": 2317089948.015052,
+        "created_at": "2026-07-29 06:32:09"
+      }
+    ],
+    "catalogVariants": 1749,
+    "universeMembers": 932
+  },
+  "B": {
+    "noPriceCount": 60,
+    "fakeTodayCount": 0,
+    "fakeTodayBySource": {},
+    "bulkTodayClusters": [
+      {
+        "source_code": "snk_psa10",
+        "eff_day": "2026-07-28",
+        "n": 128,
+        "variants": 128
+      },
+      {
+        "source_code": "tcgfish",
+        "eff_day": "2026-07-28",
+        "n": 52,
+        "variants": 52
+      }
+    ],
+    "unknownSources": [],
+    "forbiddenSourceHits": [],
+    "noPriceClassified": {
+      "noTplNoSnk": 0,
+      "tplOnly": 11,
+      "snkOnly": 12,
+      "bothIds": 37
+    }
+  },
+  "C": {
+    "pool": {
+      "poolDepth": {
+        "variantsWithAnyBar": 876,
+        "can_1d": 526,
+        "can_7d": 586,
+        "can_30d": 566,
+        "bars30d_ge1": 358,
+        "bars30d_ge5": 208,
+        "bars30d_ge10": 134,
+        "sparse_no_30d_anchor": 310
+      },
+      "depthHist30d": {
+        "0": 518,
+        "1": 112,
+        "2": 12,
+        "3": 14,
+        "4": 12,
+        "5": 8,
+        "6": 16,
+        "7": 16,
+        "8": 12,
+        "9": 22,
+        "10": 12,
+        "11": 11,
+        "12": 16,
+        "13": 14,
+        "14": 12,
+        "15": 11,
+        "16": 8,
+        "17": 2,
+        "18": 4,
+        "19": 3,
+        "20": 2,
+        "21": 3,
+        "22": 1,
+        "24": 3,
+        "25": 2,
+        "26": 2,
+        "27": 4,
+        "29": 3,
+        "30": 21
+      },
+      "candidateDaily": {
+        "rows": 997,
+        "change_1d_nonnull": 317,
+        "change_7d_nonnull": 613,
+        "change_30d_nonnull": 783
+      }
+    },
+    "snapshot": {
+      "top100": {
+        "label": "top100",
+        "n": 100,
+        "priceReady": 100,
+        "priceMissing": 0,
+        "windows": {
+          "1d": {
+            "ready": 97,
+            "accumulating": 3
+          },
+          "7d": {
+            "ready": 92,
+            "accumulating": 3,
+            "stale": 5
+          },
+          "30d": {
+            "ready": 92,
+            "stale": 5,
+            "accumulating": 3
+          }
+        },
+        "fakeZero": [
+          {
+            "rank": 10,
+            "id": "cmc_e511f8f3357ec9ca9ca43460",
+            "name": "Charizard",
+            "window": "1d",
+            "latest": 757.066976,
+            "anchor": 766.0
+          },
+          {
+            "rank": 17,
+            "id": "cmc_1cf2114a8d0a05611d80a765",
+            "name": "Pikachu ex",
+            "window": "1d",
+            "latest": 595.274437,
+            "anchor": 610.0
+          },
+          {
+            "rank": 36,
+            "id": "cmc_4bb5a55fb17470b3c7926c01",
+            "name": "Pikachu ex",
+            "window": "1d",
+            "latest": 950.0,
+            "anchor": 935.0
+          },
+          {
+            "rank": 46,
+            "id": "cmc_d8a379b5c185adbeeca93d16",
+            "name": "Mewtwo & Mew GX",
+            "window": "1d",
+            "latest": 3602.173515,
+            "anchor": 3323.0
+          },
+          {
+            "rank": 54,
+            "id": "cmc_057a6e6677093f47bc6acd34",
+            "name": "Mega Dragonite ex",
+            "window": "1d",
+            "latest": 305.268942,
+            "anchor": 366.91
+          },
+          {
+            "rank": 68,
+            "id": "cmc_089b2675a12d5c8a86b2c2e7",
+            "name": "Victini",
+            "window": "1d",
+            "latest": 1709.499969,
+            "anchor": 1375.0
+          },
+          {
+            "rank": 78,
+            "id": "cmc_adb7c1e92807b4a6423ff7c3",
+            "name": "Pikachu wearing a poncho",
+            "window": "1d",
+            "latest": 3480.065938,
+            "anchor": 3367.0
+          },
+          {
+            "rank": 91,
+            "id": "cmc_aa4bd0f810e2a4d2fb87435c",
+            "name": "Suicune V",
+            "window": "1d",
+            "latest": 250.0,
+            "anchor": 242.5
+          }
+        ],
+        "nullChange": {
+          "1d": [
+            {
+              "rank": 35,
+              "id": "cmc_ea376bfc103cb7b5b8f28555",
+              "name": "Monkey D. Luffy (1st Anniversary)",
+              "status": "accumulating"
+            },
+            {
+              "rank": 72,
+              "id": "cmc_d00be94cb5e7ec7c0144f2e1",
+              "name": "Nami",
+              "status": "accumulating"
+            },
+            {
+              "rank": 84,
+              "id": "cmc_7ca1e1ee1441c542e85bc031",
+              "name": "O-Nami",
+              "status": "accumulating"
+            }
+          ],
+          "7d": [
+            {
+              "rank": 35,
+              "id": "cmc_ea376bfc103cb7b5b8f28555",
+              "name": "Monkey D. Luffy (1st Anniversary)",
+              "status": "accumulating"
+            },
+            {
+              "rank": 72,
+              "id": "cmc_d00be94cb5e7ec7c0144f2e1",
+              "name": "Nami",
+              "status": "accumulating"
+            },
+            {
+              "rank": 84,
+              "id": "cmc_7ca1e1ee1441c542e85bc031",
+              "name": "O-Nami",
+              "status": "accumulating"
+            }
+          ],
+          "30d": [
+            {
+              "rank": 35,
+              "id": "cmc_ea376bfc103cb7b5b8f28555",
+              "name": "Monkey D. Luffy (1st Anniversary)",
+              "status": "accumulating"
+            },
+            {
+              "rank": 72,
+              "id": "cmc_d00be94cb5e7ec7c0144f2e1",
+              "name": "Nami",
+              "status": "accumulating"
+            },
+            {
+              "rank": 84,
+              "id": "cmc_7ca1e1ee1441c542e85bc031",
+              "name": "O-Nami",
+              "status": "accumulating"
+            }
+          ]
+        },
+        "marketCapChangeReady": {
+          "1d": 67,
+          "7d": 90,
+          "30d": 45
+        },
+        "popChangeReady": {
+          "1d": 70,
+          "7d": 93,
+          "30d": 47
+        },
+        "fakeZeroCount": 8
+      },
+      "watchlist": {
+        "label": "watchlist",
+        "n": 143,
+        "priceReady": 143,
+        "priceMissing": 0,
+        "windows": {
+          "1d": {
+            "accumulating": 3,
+            "ready": 106,
+            "stale": 34
+          },
+          "7d": {
+            "accumulating": 3,
+            "ready": 119,
+            "stale": 21
+          },
+          "30d": {
+            "accumulating": 3,
+            "ready": 112,
+            "stale": 28
+          }
+        },
+        "fakeZero": [
+          {
+            "rank": 105,
+            "id": "cmc_75b86c6db32f46e2a728a4a3",
+            "name": "Gear Two",
+            "window": "1d",
+            "latest": 733.13,
+            "anchor": 552.0
+          },
+          {
+            "rank": 112,
+            "id": "cmc_a13cfd319f931311b1fb1eb2",
+            "name": "Roronoa Zoro",
+            "window": "1d",
+            "latest": 1819.402894,
+            "anchor": 1450.0
+          },
+          {
+            "rank": 127,
+            "id": "cmc_9b2a12c605a194c68d299678",
+            "name": "Jewelry Bonney",
+            "window": "1d",
+            "latest": 1155.34,
+            "anchor": 950.0
+          },
+          {
+            "rank": 180,
+            "id": "cmc_b52c6e80eb42cd0bff396656",
+            "name": "Zoro-Juurou",
+            "window": "30d",
+            "latest": 315.0,
+            "anchor": 291.0
+          }
+        ],
+        "nullChange": {
+          "1d": [
+            {
+              "rank": 101,
+              "id": "cmc_3f1f59c406740db40d199a78",
+              "name": "Yamato",
+              "status": "accumulating"
+            },
+            {
+              "rank": 152,
+              "id": "cmc_f5192689b3fff07c090eef87",
+              "name": "Monkey D. Luffy",
+              "status": "accumulating"
+            },
+            {
+              "rank": 168,
+              "id": "cmc_941cb4727e913bb360dc1ebe",
+              "name": "Eustass \\\"Captain\\\" Kid",
+              "status": "accumulating"
+            }
+          ],
+          "7d": [
+            {
+              "rank": 101,
+              "id": "cmc_3f1f59c406740db40d199a78",
+              "name": "Yamato",
+              "status": "accumulating"
+            },
+            {
+              "rank": 152,
+              "id": "cmc_f5192689b3fff07c090eef87",
+              "name": "Monkey D. Luffy",
+              "status": "accumulating"
+            },
+            {
+              "rank": 168,
+              "id": "cmc_941cb4727e913bb360dc1ebe",
+              "name": "Eustass \\\"Captain\\\" Kid",
+              "status": "accumulating"
+            }
+          ],
+          "30d": [
+            {
+              "rank": 101,
+              "id": "cmc_3f1f59c406740db40d199a78",
+              "name": "Yamato",
+              "status": "accumulating"
+            },
+            {
+              "rank": 152,
+              "id": "cmc_f5192689b3fff07c090eef87",
+              "name": "Monkey D. Luffy",
+              "status": "accumulating"
+            },
+            {
+              "rank": 168,
+              "id": "cmc_941cb4727e913bb360dc1ebe",
+              "name": "Eustass \\\"Captain\\\" Kid",
+              "status": "accumulating"
+            }
+          ]
+        },
+        "marketCapChangeReady": {
+          "1d": 110,
+          "7d": 113,
+          "30d": 57
+        },
+        "popChangeReady": {
+          "1d": 113,
+          "7d": 116,
+          "30d": 59
+        },
+        "fakeZeroCount": 4
+      },
+      "feSetN": 243,
+      "meta": {
+        "generatedAt": null,
+        "effectiveAt": null,
+        "generationId": null
+      }
+    }
+  },
+  "D": {
+    "snapshot": {
+      "flagCount": 11,
+      "top100_abs30d_gt200": 0,
+      "topFlags": [
+        {
+          "bucket": "watchlist",
+          "rank": 195,
+          "id": "cmc_d32f12f47e94d7a6f58d04ea",
+          "name": "Sabo",
+          "pricePsa10": 276.76,
+          "marketCap": 451395.56,
+          "pct_1d": 176.76,
+          "pct_7d": 176.76,
+          "pct_30d": 1007.04,
+          "reasons": "|1d|=176.8%>100.0;|30d|=1007.0%>500.0"
+        },
+        {
+          "bucket": "watchlist",
+          "rank": 158,
+          "id": "cmc_0422b5b83e7f0509fddf8d8c",
+          "name": "Monkey D. Luffy",
+          "pricePsa10": 320.0,
+          "marketCap": 1336000.0,
+          "pct_1d": -2.883156,
+          "pct_7d": 251.648352,
+          "pct_30d": 255.555556,
+          "reasons": "|7d|=251.6%>200.0"
+        },
+        {
+          "bucket": "top100",
+          "rank": 71,
+          "id": "cmc_07d540e4186f06a607f042f9",
+          "name": "Mega Venusaur ex",
+          "pricePsa10": 641.064778,
+          "marketCap": 5667653.702298,
+          "pct_1d": 174.545943,
+          "pct_7d": 103.519089,
+          "pct_30d": 106.79509,
+          "reasons": "|1d|=174.5%>50.0;|7d|=103.5%>100.0"
+        },
+        {
+          "bucket": "watchlist",
+          "rank": 142,
+          "id": "cmc_6a9081ae0bbfdb096a006691",
+          "name": "Boa Hancock",
+          "pricePsa10": 1600.0,
+          "marketCap": 1982400.0,
+          "pct_1d": 104.813108,
+          "pct_7d": 104.813108,
+          "pct_30d": 104.813108,
+          "reasons": "|1d|=104.8%>100.0"
+        },
+        {
+          "bucket": "top100",
+          "rank": 42,
+          "id": "cmc_e038422db31d372e39282007",
+          "name": "Alakazam ex",
+          "pricePsa10": 711.276635,
+          "marketCap": 8077257.46706,
+          "pct_1d": 69.75576,
+          "pct_7d": 73.982837,
+          "pct_30d": 87.424673,
+          "reasons": "|1d|=69.8%>50.0"
+        },
+        {
+          "bucket": "top100",
+          "rank": 82,
+          "id": "cmc_565518d6804153ca2d000d46",
+          "name": "Blastoise ex",
+          "pricePsa10": 244.209048,
+          "marketCap": 4541799.874704,
+          "pct_1d": -59.96573,
+          "pct_7d": -69.473869,
+          "pct_30d": -61.541882,
+          "reasons": "|1d|=-60.0%>50.0"
+        },
+        {
+          "bucket": "top100",
+          "rank": 85,
+          "id": "cmc_daaa57ffda79e456916d0820",
+          "name": "Sylveon ex",
+          "pricePsa10": 85.475304,
+          "marketCap": 4274449.002432,
+          "pct_1d": -56.923077,
+          "pct_7d": -68.34248,
+          "pct_30d": -56.889915,
+          "reasons": "|1d|=-56.9%>50.0"
+        },
+        {
+          "bucket": "top100",
+          "rank": 11,
+          "id": "cmc_39543dca442b7e07b7d067d2",
+          "name": "Umbreon ex",
+          "pricePsa10": 264.564381,
+          "marketCap": 20549773.729794,
+          "pct_1d": -56.405433,
+          "pct_7d": -66.236025,
+          "pct_30d": -53.174775,
+          "reasons": "|1d|=-56.4%>50.0"
+        },
+        {
+          "bucket": "top100",
+          "rank": 88,
+          "id": "cmc_113e9cad03556282f439a115",
+          "name": "Pikachu",
+          "pricePsa10": 323.585078,
+          "marketCap": 4032840.827114,
+          "pct_1d": -53.508772,
+          "pct_7d": -60.916844,
+          "pct_30d": -51.152074,
+          "reasons": "|1d|=-53.5%>50.0"
+        },
+        {
+          "bucket": "top100",
+          "rank": 29,
+          "id": "cmc_fd700a542094cf0863c7ea83",
+          "name": "Umbreon VMAX",
+          "pricePsa10": 2136.882594,
+          "marketCap": 11299835.157072,
+          "pct_1d": -60.227273,
+          "pct_7d": -59.155881,
+          "pct_30d": -54.248366,
+          "reasons": "|1d|=-60.2%>50.0"
+        },
+        {
+          "bucket": "top100",
+          "rank": 28,
+          "id": "cmc_cc9a385b4fda2e85724d9ff5",
+          "name": "Charizard ex",
+          "pricePsa10": 335.673729,
+          "marketCap": 12467593.642518,
+          "pct_1d": -53.797931,
+          "pct_7d": -56.336261,
+          "pct_30d": -49.835766,
+          "reasons": "|1d|=-53.8%>50.0"
+        }
+      ]
+    },
+    "db": {
+      "crossSourceSpreadGt5x": 0,
+      "riskyVsTrustedGt5x": 0,
+      "crossSourceSample": [],
+      "riskySample": []
+    }
+  },
+  "E": [
+    {
+      "bucket": "top",
+      "rank": 1,
+      "id": "cmc_4104320a31c4d989742c067d",
+      "name": "Pikachu with Grey Felt Hat",
+      "price": 2562.5,
+      "pop": 49517.0,
+      "cap": 126887312.5,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": -10.558464,
+          "derived": -10.5585,
+          "match": true
+        },
+        "7d": {
+          "published": -24.024324,
+          "derived": -17.7078,
+          "match": false
+        },
+        "30d": {
+          "published": -11.031512,
+          "derived": -11.6558,
+          "match": true
+        }
+      },
+      "histPoints": 90
+    },
+    {
+      "bucket": "top",
+      "rank": 2,
+      "id": "cmc_f8a2618ccf22a885374494e0",
+      "name": "Umbreon VMAX (Alternate Art Secret)",
+      "price": 4305.0,
+      "pop": 21308.0,
+      "cap": 91730940.0,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": -1.034483,
+          "derived": -1.0345,
+          "match": true
+        },
+        "7d": {
+          "published": -13.9,
+          "derived": -5.6794,
+          "match": false
+        },
+        "30d": {
+          "published": -3.741773,
+          "derived": -3.7418,
+          "match": true
+        }
+      },
+      "histPoints": 53
+    },
+    {
+      "bucket": "top",
+      "rank": 3,
+      "id": "cmc_15ad9f131059cf9f7b3a8a96",
+      "name": "Mega Charizard X ex",
+      "price": 1964.8,
+      "pop": 28077.0,
+      "cap": 55165689.6,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": -22.94902,
+          "derived": -22.949,
+          "match": true
+        },
+        "7d": {
+          "published": -39.544615,
+          "derived": -39.5446,
+          "match": true
+        },
+        "30d": {
+          "published": -39.544615,
+          "derived": null,
+          "match": null
+        }
+      },
+      "histPoints": 5
+    },
+    {
+      "bucket": "top",
+      "rank": 4,
+      "id": "cmc_00a142a7a41c584c80f3e2be",
+      "name": "Charizard ex",
+      "price": 1501.9,
+      "pop": 28229.0,
+      "cap": 42397135.1,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": -1.02768,
+          "derived": -1.0277,
+          "match": true
+        },
+        "7d": {
+          "published": -11.652941,
+          "derived": -0.7336,
+          "match": false
+        },
+        "30d": {
+          "published": -10.387828,
+          "derived": -4.2766,
+          "match": false
+        }
+      },
+      "histPoints": 84
+    },
+    {
+      "bucket": "top",
+      "rank": 5,
+      "id": "cmc_b11d4b02e53af144060dd03c",
+      "name": "Rayquaza VMAX (Alternate Art Secret)",
+      "price": 2550.0,
+      "pop": 14853.0,
+      "cap": 37875150.0,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": -10.05291,
+          "derived": -10.0529,
+          "match": true
+        },
+        "7d": {
+          "published": -32.0,
+          "derived": -15.0,
+          "match": false
+        },
+        "30d": {
+          "published": -12.820513,
+          "derived": null,
+          "match": null
+        }
+      },
+      "histPoints": 58
+    },
+    {
+      "bucket": "top",
+      "rank": 6,
+      "id": "cmc_6b5268dd41bba8c6a38c614f",
+      "name": "Gengar VMAX (Alternate Art Secret)",
+      "price": 2599.0,
+      "pop": 14379.0,
+      "cap": 37371021.0,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": 1.921569,
+          "derived": 1.9216,
+          "match": true
+        },
+        "7d": {
+          "published": -16.543307,
+          "derived": -4.9321,
+          "match": false
+        },
+        "30d": {
+          "published": -8.807018,
+          "derived": -8.807,
+          "match": true
+        }
+      },
+      "histPoints": 68
+    },
+    {
+      "bucket": "top",
+      "rank": 7,
+      "id": "cmc_43b328c7ff9e3a7923d37350",
+      "name": "Lugia V (Alternate Full Art)",
+      "price": 1375.0,
+      "pop": 25184.0,
+      "cap": 34628000.0,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": -8.272181,
+          "derived": -8.2722,
+          "match": true
+        },
+        "7d": {
+          "published": -8.333333,
+          "derived": -5.1724,
+          "match": false
+        },
+        "30d": {
+          "published": -12.280702,
+          "derived": -12.2807,
+          "match": true
+        }
+      },
+      "histPoints": 60
+    },
+    {
+      "bucket": "top",
+      "rank": 8,
+      "id": "cmc_bcff04dde5b3ed4bb2606d20",
+      "name": "Giratina V (Alternate Full Art)",
+      "price": 3350.0,
+      "pop": 9620.0,
+      "cap": 32227000.0,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": 3.395062,
+          "derived": 3.3951,
+          "match": true
+        },
+        "7d": {
+          "published": -10.666667,
+          "derived": -6.2937,
+          "match": false
+        },
+        "30d": {
+          "published": 8.064516,
+          "derived": 8.0645,
+          "match": true
+        }
+      },
+      "histPoints": 90
+    },
+    {
+      "bucket": "top",
+      "rank": 9,
+      "id": "cmc_334667e52d3f7f5aff7fd1a5",
+      "name": "Monkey D Luffy",
+      "price": 21510.0,
+      "pop": 1392.0,
+      "cap": 29941920.0,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": 15.794574,
+          "derived": 15.7946,
+          "match": true
+        },
+        "7d": {
+          "published": 16.833502,
+          "derived": 16.8335,
+          "match": true
+        },
+        "30d": {
+          "published": 7.55,
+          "derived": 20.1676,
+          "match": false
+        }
+      },
+      "histPoints": 21
+    },
+    {
+      "bucket": "top",
+      "rank": 10,
+      "id": "cmc_e511f8f3357ec9ca9ca43460",
+      "name": "Charizard",
+      "price": 757.066976,
+      "pop": 33205.0,
+      "cap": 25138408.93808,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": 0.0,
+          "derived": 0.0,
+          "match": true
+        },
+        "7d": {
+          "published": -22.011756,
+          "derived": -1.037,
+          "match": false
+        },
+        "30d": {
+          "published": -2.66876,
+          "derived": -1.5873,
+          "match": false
+        }
+      },
+      "histPoints": 90
+    },
+    {
+      "bucket": "mid",
+      "rank": 46,
+      "id": "cmc_d8a379b5c185adbeeca93d16",
+      "name": "Mewtwo & Mew GX",
+      "price": 3602.173515,
+      "pop": 2173.0,
+      "cap": 7827523.048095,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": 0.0,
+          "derived": 0.0,
+          "match": true
+        },
+        "7d": {
+          "published": -1.474973,
+          "derived": -1.475,
+          "match": true
+        },
+        "30d": {
+          "published": 14.563107,
+          "derived": 25.5319,
+          "match": false
+        }
+      },
+      "histPoints": 90
+    },
+    {
+      "bucket": "mid",
+      "rank": 47,
+      "id": "cmc_014fba80fd3db0e8bc30ff62",
+      "name": "Espeon VMAX (Alternate Art Secret)",
+      "price": 627.5,
+      "pop": 12386.0,
+      "cap": 7772215.0,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": -23.084466,
+          "derived": -23.0845,
+          "match": true
+        },
+        "7d": {
+          "published": -19.551282,
+          "derived": -10.3571,
+          "match": false
+        },
+        "30d": {
+          "published": -21.5625,
+          "derived": -21.5625,
+          "match": true
+        }
+      },
+      "histPoints": 90
+    },
+    {
+      "bucket": "mid",
+      "rank": 48,
+      "id": "cmc_621de397dc869e6003336aaf",
+      "name": "Reshiram ex",
+      "price": 1250.0,
+      "pop": 6071.0,
+      "cap": 7588750.0,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": -20.797851,
+          "derived": -20.7979,
+          "match": true
+        },
+        "7d": {
+          "published": -7.407407,
+          "derived": -6.5197,
+          "match": true
+        },
+        "30d": {
+          "published": -9.156977,
+          "derived": null,
+          "match": null
+        }
+      },
+      "histPoints": 90
+    },
+    {
+      "bucket": "mid",
+      "rank": 49,
+      "id": "cmc_afd82df1f166784d2f7b563f",
+      "name": "Umbreon",
+      "price": 262.53129,
+      "pop": 28635.0,
+      "cap": 7517583.48915,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": -24.980343,
+          "derived": -24.9803,
+          "match": true
+        },
+        "7d": {
+          "published": -42.92674,
+          "derived": -29.0456,
+          "match": false
+        },
+        "30d": {
+          "published": -4.972376,
+          "derived": -6.1135,
+          "match": false
+        }
+      },
+      "histPoints": 90
+    },
+    {
+      "bucket": "mid",
+      "rank": 50,
+      "id": "cmc_0ea061885dcede2f53a440cb",
+      "name": "Hiroshima's Pikachu",
+      "price": 351.053178,
+      "pop": 20911.0,
+      "cap": 7340873.005158,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": 0.172474,
+          "derived": 0.1725,
+          "match": true
+        },
+        "7d": {
+          "published": -24.299569,
+          "derived": -9.0536,
+          "match": false
+        },
+        "30d": {
+          "published": -8.633128,
+          "derived": -7.4344,
+          "match": false
+        }
+      },
+      "histPoints": 90
+    },
+    {
+      "bucket": "mid",
+      "rank": 51,
+      "id": "cmc_fc5e8611472c4883ba6331bf",
+      "name": "Fukuoka's Pikachu",
+      "price": 256.425911,
+      "pop": 28570.0,
+      "cap": 7326088.27727,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": -1.639344,
+          "derived": -1.6393,
+          "match": true
+        },
+        "7d": {
+          "published": -49.193416,
+          "derived": 4.9344,
+          "match": false
+        },
+        "30d": {
+          "published": -8.840319,
+          "derived": -10.0508,
+          "match": false
+        }
+      },
+      "histPoints": 90
+    },
+    {
+      "bucket": "mid",
+      "rank": 52,
+      "id": "cmc_5a4ba5cfc28dd5a57545898e",
+      "name": "Umbreon V (Alternate Full Art)",
+      "price": 870.0,
+      "pop": 8388.0,
+      "cap": 7297560.0,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": -11.454888,
+          "derived": -11.4549,
+          "match": true
+        },
+        "7d": {
+          "published": -21.296171,
+          "derived": -11.0161,
+          "match": false
+        },
+        "30d": {
+          "published": -35.507784,
+          "derived": -31.7647,
+          "match": false
+        }
+      },
+      "histPoints": 79
+    },
+    {
+      "bucket": "mid",
+      "rank": 53,
+      "id": "cmc_9f9f3313170ae799d6b9fdc5",
+      "name": "Greninja ex",
+      "price": 733.0,
+      "pop": 9825.0,
+      "cap": 7201725.0,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": -16.201756,
+          "derived": -16.2018,
+          "match": true
+        },
+        "7d": {
+          "published": -19.450549,
+          "derived": -14.0176,
+          "match": false
+        },
+        "30d": {
+          "published": -24.820513,
+          "derived": -24.8205,
+          "match": true
+        }
+      },
+      "histPoints": 68
+    },
+    {
+      "bucket": "mid",
+      "rank": 54,
+      "id": "cmc_057a6e6677093f47bc6acd34",
+      "name": "Mega Dragonite ex",
+      "price": 305.268942,
+      "pop": 23528.0,
+      "cap": 7182367.667376,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": 0.0,
+          "derived": 0.0,
+          "match": true
+        },
+        "7d": {
+          "published": -43.016008,
+          "derived": -2.7502,
+          "match": false
+        },
+        "30d": {
+          "published": -6.919597,
+          "derived": -7.8426,
+          "match": true
+        }
+      },
+      "histPoints": 90
+    },
+    {
+      "bucket": "mid",
+      "rank": 55,
+      "id": "cmc_8638436f7999f0cf8386cda5",
+      "name": "Pikachu",
+      "price": 3174.796996,
+      "pop": 2236.0,
+      "cap": 7098846.083056,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": -5.511994,
+          "derived": -5.512,
+          "match": true
+        },
+        "7d": {
+          "published": -19.625393,
+          "derived": 1.0181,
+          "match": false
+        },
+        "30d": {
+          "published": 7.438017,
+          "derived": -16.4494,
+          "match": false
+        }
+      },
+      "histPoints": 90
+    },
+    {
+      "bucket": "extreme",
+      "rank": 71,
+      "id": "cmc_07d540e4186f06a607f042f9",
+      "name": "Mega Venusaur ex",
+      "price": 641.064778,
+      "pop": 8841.0,
+      "cap": 5667653.702298,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": 174.545943,
+          "derived": 174.5459,
+          "match": true
+        },
+        "7d": {
+          "published": 103.519089,
+          "derived": 141.4557,
+          "match": false
+        },
+        "30d": {
+          "published": 106.79509,
+          "derived": null,
+          "match": null
+        }
+      },
+      "histPoints": 64
+    },
+    {
+      "bucket": "extreme",
+      "rank": 42,
+      "id": "cmc_e038422db31d372e39282007",
+      "name": "Alakazam ex",
+      "price": 711.276635,
+      "pop": 11356.0,
+      "cap": 8077257.46706,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": 69.75576,
+          "derived": 69.7558,
+          "match": true
+        },
+        "7d": {
+          "published": 73.982837,
+          "derived": 124.3775,
+          "match": false
+        },
+        "30d": {
+          "published": 87.424673,
+          "derived": null,
+          "match": null
+        }
+      },
+      "histPoints": 64
+    },
+    {
+      "bucket": "extreme",
+      "rank": 40,
+      "id": "cmc_79579a6d522f2e49f0e54949",
+      "name": "Monkey D. Luffy",
+      "price": 7300.0,
+      "pop": 1158.0,
+      "cap": 8453400.0,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": -10.97561,
+          "derived": -10.9756,
+          "match": true
+        },
+        "7d": {
+          "published": -66.412212,
+          "derived": 14.761,
+          "match": false
+        },
+        "30d": {
+          "published": -82.107843,
+          "derived": -82.1078,
+          "match": true
+        }
+      },
+      "histPoints": 52
+    },
+    {
+      "bucket": "extreme",
+      "rank": 100,
+      "id": "cmc_c0f9543077e9ce088e4d4492",
+      "name": "Monkey D. Luffy",
+      "price": 1250.0,
+      "pop": 2976.0,
+      "cap": 3720000.0,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": 0.0,
+          "derived": 0.0,
+          "match": true
+        },
+        "7d": {
+          "published": 6.382979,
+          "derived": null,
+          "match": null
+        },
+        "30d": {
+          "published": -80.769231,
+          "derived": 7.0205,
+          "match": false
+        }
+      },
+      "histPoints": 34
+    },
+    {
+      "bucket": "extreme",
+      "rank": 96,
+      "id": "cmc_90ead1c4534d9696e6e68f16",
+      "name": "Umbreon Star",
+      "price": 200.256426,
+      "pop": 19073.0,
+      "cap": 3819490.813098,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": -46.526989,
+          "derived": -46.527,
+          "match": true
+        },
+        "7d": {
+          "published": -57.840752,
+          "derived": -53.1015,
+          "match": false
+        },
+        "30d": {
+          "published": -62.392806,
+          "derived": null,
+          "match": null
+        }
+      },
+      "histPoints": 56
+    },
+    {
+      "bucket": "extreme",
+      "rank": 82,
+      "id": "cmc_565518d6804153ca2d000d46",
+      "name": "Blastoise ex",
+      "price": 244.209048,
+      "pop": 18598.0,
+      "cap": 4541799.874704,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": -59.96573,
+          "derived": -59.9657,
+          "match": true
+        },
+        "7d": {
+          "published": -69.473869,
+          "derived": 28.5311,
+          "match": false
+        },
+        "30d": {
+          "published": -61.541882,
+          "derived": null,
+          "match": null
+        }
+      },
+      "histPoints": 90
+    },
+    {
+      "bucket": "extreme",
+      "rank": 85,
+      "id": "cmc_daaa57ffda79e456916d0820",
+      "name": "Sylveon ex",
+      "price": 85.475304,
+      "pop": 50008.0,
+      "cap": 4274449.002432,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": -56.923077,
+          "derived": -56.9231,
+          "match": true
+        },
+        "7d": {
+          "published": -68.34248,
+          "derived": -62.011,
+          "match": false
+        },
+        "30d": {
+          "published": -56.889915,
+          "derived": -56.8899,
+          "match": true
+        }
+      },
+      "histPoints": 90
+    },
+    {
+      "bucket": "extreme",
+      "rank": 29,
+      "id": "cmc_fd700a542094cf0863c7ea83",
+      "name": "Umbreon VMAX",
+      "price": 2136.882594,
+      "pop": 5288.0,
+      "cap": 11299835.157072,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": -60.227273,
+          "derived": -60.2273,
+          "match": true
+        },
+        "7d": {
+          "published": -59.155881,
+          "derived": -57.3171,
+          "match": false
+        },
+        "30d": {
+          "published": -54.248366,
+          "derived": -54.2484,
+          "match": true
+        }
+      },
+      "histPoints": 90
+    },
+    {
+      "bucket": "extreme",
+      "rank": 11,
+      "id": "cmc_39543dca442b7e07b7d067d2",
+      "name": "Umbreon ex",
+      "price": 264.564381,
+      "pop": 77674.0,
+      "cap": 20549773.729794,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": -56.405433,
+          "derived": -56.4054,
+          "match": true
+        },
+        "7d": {
+          "published": -66.236025,
+          "derived": -56.7405,
+          "match": false
+        },
+        "30d": {
+          "published": -53.174775,
+          "derived": -53.1748,
+          "match": true
+        }
+      },
+      "histPoints": 90
+    },
+    {
+      "bucket": "extreme",
+      "rank": 88,
+      "id": "cmc_113e9cad03556282f439a115",
+      "name": "Pikachu",
+      "price": 323.585078,
+      "pop": 12463.0,
+      "cap": 4032840.827114,
+      "capEqualsPriceTimesPop": true,
+      "windows": {
+        "1d": {
+          "published": -53.508772,
+          "derived": -53.5088,
+          "match": true
+        },
+        "7d": {
+          "published": -60.916844,
+          "derived": -56.8755,
+          "match": false
+        },
+        "30d": {
+          "published": -51.152074,
+          "derived": -51.1521,
+          "match": true
+        }
+      },
+      "histPoints": 90
+    }
+  ],
+  "layers": {
+    "note": "parallel counts — not the same pool",
+    "watchlist": 941,
+    "strictPrice": 881,
+    "anyPrice": 881,
+    "universeMembers": 932,
+    "catalogVariants": 1749,
+    "feSet": 243
+  },
+  "verdicts": {
+    "Q1_coverage": "PARTIAL",
+    "Q2_windows": "PARTIAL",
+    "Q3_outliers": "PASS"
+  }
+}

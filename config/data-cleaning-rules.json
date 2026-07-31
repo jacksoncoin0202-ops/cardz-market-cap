@@ -27,8 +27,8 @@
     }
   ],
   "identity": {
-    "tuple": ["tcg", "set", "collector_number_complete", "language", "edition", "parallel", "finish"],
-    "matchPolicy": "exact_all_fields; no first-search-result, guessed suffix, padding or language substitution",
+    "tuple": ["tcg", "card_language", "set", "collector_number_complete", "edition", "parallel", "finish"],
+    "matchPolicy": "exact_all_fields; card_language is identity-bearing and splits otherwise identical canonical printings; ranking boards may remain language-combined; no first-search-result, guessed suffix or padding",
     "failureTarget": "identity_review_queue"
   },
   "metricPolicies": {

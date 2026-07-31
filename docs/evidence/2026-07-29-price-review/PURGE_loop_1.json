@@ -1,0 +1,68 @@
+{
+  "asOf": "2026-07-29T11:49:19Z",
+  "write": true,
+  "today": "2026-07-29",
+  "ratio": 5.0,
+  "jump": 5.0,
+  "deleteCount": 5,
+  "reasonTally": {
+    "latest_spread_risky": 4,
+    "same_source_jump": 1
+  },
+  "flaggedOpaque": [],
+  "flaggedVariantIds": [],
+  "samples": [
+    {
+      "id": 1945170,
+      "variant_id": 353,
+      "source": "g10_kline",
+      "price": 450.0,
+      "trusted_median": 51.0,
+      "ratio": 8.82,
+      "reason": "latest_spread_risky"
+    },
+    {
+      "id": 1947513,
+      "variant_id": 1028,
+      "source": "g10_kline",
+      "price": 4920.0,
+      "trusted_median": 903.596068,
+      "ratio": 5.44,
+      "reason": "latest_spread_risky"
+    },
+    {
+      "id": 2268257,
+      "variant_id": 1248,
+      "source": "g10_kline",
+      "price": 1250.0,
+      "trusted_median": 6500.0,
+      "ratio": 0.19,
+      "reason": "latest_spread_risky"
+    },
+    {
+      "id": 2279503,
+      "variant_id": 1248,
+      "source": "ebay",
+      "price": 1199.99,
+      "trusted_median": 6500.0,
+      "ratio": 0.18,
+      "reason": "latest_spread_risky"
+    },
+    {
+      "id": 112074,
+      "variant_id": 14,
+      "source": "snk_psa10",
+      "price": 8274.086786,
+      "series_median": 1151.6888370000001,
+      "ratio": 7.18,
+      "reason": "same_source_jump:snk_psa10"
+    }
+  ],
+  "deleteIdsHead": [
+    112074,
+    1945170,
+    1947513,
+    2268257,
+    2279503
+  ]
+}

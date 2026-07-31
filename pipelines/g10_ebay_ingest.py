@@ -239,23 +239,53 @@ def sale_rows_from_document(
     return rows
 
 
-def load_identity_map(connection: Any) -> dict[tuple[str, str], int]:
-    """(G10 provider 目錄, 目錄名) → variant_id。唯一合法對應路徑。"""
+def load_identity_map(
+    connection: Any,
+    *,
+    variant_ids: set[int] | None = None,
+) -> dict[tuple[str, str], int]:
+    """(G10 provider 目錄, 目錄名) → variant_id。唯一合法對應路徑。
+
+    Fail-closed: only ``match_status='exact'`` owns a directory. Rejected/derived
+    rows (e.g. metal-card SNK twin 610624 vs exact 486166 on Mew ex) must not
+    pull eBay comps onto the catalog variant — that caused sale_source_identity_not_exact.
+    """
 
     with connection.cursor() as cursor:
         cursor.execute(
-            "SELECT variant_id, source_code, external_entity_id FROM catalog_source_identity "
-            "WHERE source_code IN ('ebay','snkrdunk')"
+            "SELECT COALESCE(alias.canonical_variant_id, identity.variant_id) AS variant_id, "
+            "identity.source_code, identity.external_entity_id "
+            "FROM catalog_source_identity AS identity "
+            "LEFT JOIN catalog_variant_alias AS alias "
+            "ON alias.duplicate_variant_id=identity.variant_id "
+            "WHERE identity.source_code IN ('ebay','snkrdunk') "
+            "AND identity.match_status='exact'"
         )
         rows = cursor.fetchall()
     by_source = {source: provider for provider, source in PROVIDER_IDENTITY_SOURCE.items()}
     mapping: dict[tuple[str, str], int] = {}
     for row in rows:
+        variant_id = int(row["variant_id"])
+        if variant_ids is not None and variant_id not in variant_ids:
+            continue
         provider = by_source.get(str(row["source_code"]))
         if provider is None:
             continue
-        mapping[(provider, str(row["external_entity_id"]))] = int(row["variant_id"])
+        mapping[(provider, str(row["external_entity_id"]))] = variant_id
     return mapping
+
+
+def load_universe_variant_ids(connection: Any, universe_lock_id: int) -> set[int]:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT variant_id FROM market_universe_member WHERE universe_lock_id=%s",
+            (universe_lock_id,),
+        )
+        rows = cursor.fetchall()
+    variant_ids = {int(row["variant_id"]) for row in rows}
+    if not variant_ids:
+        raise ValueError(f"empty_or_missing_universe_lock:{universe_lock_id}")
+    return variant_ids
 
 
 def iter_card_dirs(g10_root: Path, limit: int | None) -> Iterable[tuple[str, Path]]:
@@ -577,6 +607,12 @@ def main() -> int:
     parser.add_argument("--grades", default=",".join(GRADE_FILES))
     parser.add_argument("--write", action="store_true", help="真入庫（預設 dry-run）")
     parser.add_argument("--limit", type=int, default=None, help="只掃頭 N 個卡目錄")
+    parser.add_argument(
+        "--universe-lock-id",
+        type=int,
+        default=None,
+        help="只處理指定 immutable universe lock 內的 canonical variants",
+    )
     add_connection_args(parser)
     args = parser.parse_args()
 
@@ -593,7 +629,12 @@ def main() -> int:
 
     connection = connection_from_args(args)
     try:
-        identity = load_identity_map(connection)
+        variant_ids = (
+            load_universe_variant_ids(connection, args.universe_lock_id)
+            if args.universe_lock_id is not None
+            else None
+        )
+        identity = load_identity_map(connection, variant_ids=variant_ids)
         rows, stats, file_hashes, unmatched = collect(g10_root, grades, identity, args.limit)
         sales = daily_sales_rows(rows)
         prices = daily_price_rows(rows)

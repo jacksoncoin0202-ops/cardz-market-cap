@@ -141,6 +141,19 @@ class NormalizeCanvasTest(unittest.TestCase):
         raw = (self.temp_dir / f"{block['sha256']}.webp").read_bytes()
         self.assertIsNone(nir.store_normalized_image(raw, "Std Card"))
 
+    def test_correct_canvas_with_tiny_card_is_not_delta_skipped(self):
+        """429x600 alone is insufficient: a shrunken card must be re-normalized."""
+        image = Image.new("RGBA", (429, 600), (0, 0, 0, 0))
+        for x in range(94, 335):
+            for y in range(132, 469):
+                image.putpixel((x, y), (60, 120, 200, 255))
+        output = io.BytesIO()
+        image.save(output, format="PNG")
+        block = nir.store_normalized_image(output.getvalue(), "Shrunken Card")
+        self.assertIsNotNone(block)
+        repaired = Image.open(self.temp_dir / f"{block['sha256']}.webp")
+        self.assertTrue(nir.is_normalized(repaired))
+
     def test_rgb_old_image_normalized_centered(self):
         """RGB 舊圖（無 alpha）→ 置中落透明畫布，唔准去背、唔准壓平。"""
         rgb = Image.new("RGB", (632, 895), (255, 255, 255))

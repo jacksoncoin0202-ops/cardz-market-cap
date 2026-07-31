@@ -34,6 +34,7 @@ class FullBackfillProfileTests(unittest.TestCase):
             Path("python"), output=ROOT / "data/runtime/private-source-map/test-candidates", collect_public=False
         )
         self.assertIn("--resume", command)
+        self.assertIn("--use-canonical-db-identities", command)
         self.assertNotIn("--collect-public", command)
         enabled = candidate_backfill_command(
             Path("python"), output=ROOT / "data/runtime/private-source-map/test-candidates", collect_public=True
@@ -149,15 +150,22 @@ class FullBackfillProfileTests(unittest.TestCase):
             )
             commands: list[list[str]] = []
             events: list[str] = []
+            migration_offsets: list[int] = []
             with (
                 mock.patch("backend.run_data_routing_tool", side_effect=lambda _python: events.append("routes")),
-                mock.patch("backend.run_database_tool", side_effect=lambda *_args: events.append("migrate")),
-                mock.patch("backend.run_coverage_audit", side_effect=lambda *_args, **_kwargs: events.append("audit")),
+                mock.patch(
+                    "backend.run_database_tool",
+                    side_effect=lambda *_args: (
+                        events.append("migrate"),
+                        migration_offsets.append(len(commands)),
+                    ),
+                ),
                 mock.patch("backend.subprocess.run", side_effect=lambda command, **_kwargs: commands.append(command)),
             ):
                 run_full_backfill(Path("python"), args=args, config={"CARDZ_DB_HOST": "db"}, external=True)
 
-        self.assertEqual(events, ["routes", "migrate", "audit"])
+        self.assertEqual(events, ["routes", "migrate"])
+        self.assertEqual(migration_offsets, [3])
         self.assertIn("--bootstrap-only", commands[0])
         self.assertTrue(commands[1][-1].endswith("source_crosswalk.py"))
         self.assertTrue(commands[2][-1].endswith("tracked_universe.py"))
@@ -168,6 +176,7 @@ class FullBackfillProfileTests(unittest.TestCase):
         self.assertIn("snk_market_data.py", " ".join(commands[6]))
         self.assertIn("tracked_universe.py", " ".join(commands[7]))
         self.assertIn("--candidate-manifest", commands[7])
+        self.assertIn("--snk-worklist", commands[7])
         self.assertIn("run_daily.py", " ".join(commands[8]))
         self.assertIn("--backend-only", commands[8])
         self.assertIn("--active-universe", commands[8])

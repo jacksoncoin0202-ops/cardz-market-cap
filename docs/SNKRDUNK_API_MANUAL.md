@@ -1,6 +1,12 @@
 # SNKRDUNK — 點做
 
-> 只寫命令同 endpoint。地圖：[PROJECT_MAP.md](PROJECT_MAP.md) §3 · 營運：[PROJECT_STATE.md](../PROJECT_STATE.md)
+> 按需載入 runtime manual。任何當前 endpoint 行為、coverage、ID binding、
+> 數量或 availability 只係 volatile 原材料。執行前要用 registry 指定嘅
+> SNK tool 同 fresh receipt 重驗。
+> 只得 assigned work item 指定、registry 鎖死實作身份嘅 tool 可以執行；
+> 本文任何未註冊或跨 stage 命令／例子只係證據。
+
+> 只寫命令同 endpoint。執行路線：[AGENT_EXECUTION_FUNNEL.md](generated/AGENT_EXECUTION_FUNNEL.md) · 工具：[TOOL_REGISTRY.md](generated/TOOL_REGISTRY.md) · 營運：[PROJECT_STATE.md](../PROJECT_STATE.md)
 
 ```powershell
 cd C:\Users\jackson0202\Documents\Playground\cardz-market-cap

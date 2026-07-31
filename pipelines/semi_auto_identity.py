@@ -22,6 +22,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,6 +43,9 @@ STOP = {
     "anniversary", "collection", "game", "mirror", "monster", "ball", "master",
     "sar", "sr", "rr", "chr", "ur", "ar", "sec", "l", "leader",
     "mega",  # too common prefix — require species token after
+    # regional / form prefixes (Galarian Articuno ≠ Galarian Slowking via "galarian")
+    "galarian", "hisuian", "alolan", "paldean", "radiant", "origin", "altered",
+    "therian", "bloodmoon", "team",
 }
 
 
@@ -98,22 +102,76 @@ def species_token(name: str) -> str | None:
     return None
 
 
+def _normalize_collector_raw(raw: str) -> str:
+    """NFKC + collapse unicode spaces (playbook §3 fullwidth / NBSP)."""
+    s = unicodedata.normalize("NFKC", raw or "")
+    return re.sub(r"[\s\u00a0\u3000]+", " ", s).strip()
+
+
 def collector_forms(raw: str) -> set[str]:
+    """Expand collector number to lookup keys (docs/IDENTITY_HUMAN_SEARCH_PLAYBOOK §3).
+
+    Recall may use short forms (bare number, slash numerator). verify_pair remains
+    the hard gate (species / set hint / stage / non-single).
+    """
     out: set[str] = set()
-    s = (raw or "").strip()
+    s = _normalize_collector_raw(raw)
     if not s:
         return out
+
     out.add(norm_alnum(s))
-    m = re.match(r"^([A-Za-z]{1,5})[-\s]?(\d{1,4})([A-Za-z]?)$", s)
-    if m:
-        p, n, suf = m.group(1).upper(), m.group(2), (m.group(3) or "").upper()
+
+    # 215/203 or 215-203 (pure digit dual) → numerator + compact + hyphen-eq
+    # Do NOT emit bare denominator (too noisy for recall).
+    if "/" in s or re.fullmatch(r"\d{1,4}\s*-\s*\d{1,4}", s):
+        left, right = "", ""
+        if "/" in s:
+            left, _, right = s.partition("/")
+        else:
+            left, _, right = s.partition("-")
+        left, right = left.strip(), right.strip()
+        if left and right:
+            out.add(norm_alnum(left))
+            out.add(norm_alnum(f"{left}{right}"))
+            out.add(norm_alnum(f"{left}-{right}"))
+            if left.isdigit() or re.fullmatch(r"0*\d+", left):
+                n = left.lstrip("0") or left
+                out.add(left)
+                out.add(n)
+                out.add(n.zfill(3))
+            # letter+num numerator e.g. GG70/GG70 → expand left
+            m_left = re.match(r"^([A-Za-z]{1,5})(\d{1,4})([A-Za-z]?)$", left)
+            if m_left:
+                p, n, suf = m_left.group(1).upper(), m_left.group(2), (m_left.group(3) or "").upper()
+                for nf in {n, n.lstrip("0") or n, n.zfill(3)}:
+                    out.add(f"{p}{nf}{suf}")
+
+    # OP01-016 / ST10-010 / OP01 016 — set code + card no (hyphen or space)
+    m_hy = re.match(r"^([A-Za-z]{1,6})(\d{1,3})[-\s](\d{1,4})([A-Za-z]?)$", s)
+    if m_hy:
+        prefix = f"{m_hy.group(1).upper()}{m_hy.group(2)}"
+        n = m_hy.group(3)
+        suf = (m_hy.group(4) or "").upper()
+        for nf in {n, n.lstrip("0") or n, n.zfill(3), n.zfill(2)}:
+            out.add(f"{prefix}{nf}{suf}")
+            out.add(norm_alnum(f"{prefix}-{nf}{suf}"))
+            out.add(nf)  # bare card no — index hit; verify still needs name
+
+    # GG70 / TG20 / SV49 / SWSH012 / GG 70 (compact or single separator)
+    m_sub = re.match(r"^([A-Za-z]{1,5})[-\s]?(\d{1,4})([A-Za-z]?)$", s)
+    if m_sub:
+        p, n, suf = m_sub.group(1).upper(), m_sub.group(2), (m_sub.group(3) or "").upper()
         for nf in {n, n.lstrip("0") or n, n.zfill(3)}:
             out.add(f"{p}{nf}{suf}")
             out.add(norm_alnum(f"{p}-{nf}{suf}"))
+
+    # pure digits
     if s.isdigit() or re.fullmatch(r"0*\d+", s):
         n = s.lstrip("0") or s
         out.add(n)
         out.add(n.zfill(3))
+        out.add(s)
+
     out.discard("")
     return out
 
@@ -123,8 +181,9 @@ def extract_snk_keys(name: str, product_number: str) -> set[str]:
     name = name or ""
     pn = product_number or ""
     for m in re.finditer(r"\[([^\]\s]+)\s+([0-9A-Za-z]{1,6}(?:/[0-9A-Za-z]{1,6})?)\]", name):
-        out |= collector_forms(m.group(2).split("/")[0])
-        out.add(norm_alnum(m.group(1) + m.group(2).split("/")[0]))
+        token = m.group(2)
+        out |= collector_forms(token)
+        out.add(norm_alnum(m.group(1) + token.split("/")[0]))
     for m in re.finditer(r"\[([A-Za-z]{1,5}\d{0,3}[- ]?\d{1,4}[A-Za-z]?)\]", name):
         out |= collector_forms(m.group(1))
     if pn:
@@ -230,10 +289,33 @@ def species_hit(sp: str, cand_name: str) -> bool:
     return sp in tokens(cand_name)
 
 
+# OP spelling bridges (EN GemRate ↔ JP SNK). Applied in op_name_hit so clean
+# and SCALE S8 exact binds agree (C09 Enel→Eneru / Luffy-Tarou→Taro were deleted).
+_OP_NAME_ALIASES: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"\beneru\b", re.I), "enel"),
+    (re.compile(r"\btarou\b", re.I), "taro"),
+    (re.compile(r"\bo[-\s]?nami\b", re.I), "onami"),
+    (re.compile(r"\bnefeltari\b", re.I), "nefertari"),
+    (re.compile(r"\blillith\b", re.I), "lilith"),
+    (re.compile(r"\bjuurou\b", re.I), "juro"),
+    (re.compile(r"\bdepartur\b", re.I), "departure"),
+    (re.compile(r"\bgear\s*2\b", re.I), "gear two"),
+    (re.compile(r"\bi'?m\s+scared\b", re.I), "frighten"),
+    (re.compile(r"\byou'?ll\s+frighten\s+me\b", re.I), "frighten"),
+]
+
+
+def _norm_op_name(name: str) -> str:
+    s = name or ""
+    for pat, rep in _OP_NAME_ALIASES:
+        s = pat.sub(rep, s)
+    return s
+
+
 def op_name_hit(watch_name: str, cand_name: str) -> bool:
     """One Piece: require all major name tokens (monkey + luffy)."""
-    wt = tokens(watch_name)
-    ct = tokens(cand_name)
+    wt = tokens(_norm_op_name(watch_name))
+    ct = tokens(_norm_op_name(cand_name))
     if not wt:
         return False
     # if watch has 2+ tokens, require ≥2 hit or all if only 2
@@ -254,37 +336,50 @@ def set_hints(set_name: str, collector: str, card_name: str) -> set[str]:
     for m in re.finditer(r"\b([A-Z]{1,4}\d{1,2}[A-Z]?)\b", text, re.I):
         codes.add(norm_alnum(m.group(1)))
     aliases = [
-        (r"\b151\b", ["SV2A"]),
-        (r"terastal\s*festival", ["SV8A"]),
-        (r"prismatic\s*evolutions", ["SV8A", "SV8"]),
-        (r"black\s*flame|ruler of the black", ["SV3"]),
-        (r"blue\s*sky\s*stream", ["S7R"]),
-        (r"vstar\s*universe", ["S12A"]),
-        (r"mega\s*dream|phantasmal", ["M2A", "M2"]),
+        # JP codes + EN title / set-code tokens as printed on SNK EN product lines
+        (r"\b151\b", ["SV2A", "151", "MEW"]),
+        (r"terastal\s*festival", ["SV8A", "TERASTAL"]),
+        (r"prismatic\s*evolutions", ["SV8A", "SV8", "PRISMATIC"]),
+        (r"black\s*flame|ruler of the black", ["SV3", "BLACKFLAME", "OBSIDIAN"]),
+        (r"blue\s*sky\s*stream", ["S7R", "BLUESKY"]),
+        (r"vstar\s*universe", ["S12A", "VSTARUNIVERSE"]),
+        # MEGA line: plain "Mega Evolution" watch set (bind_snk parity) + pack titles
+        (r"mega\s*evolution", ["M1", "M1A", "M2", "M2A", "M3", "M4", "MEG", "MEGAEVOLUTION"]),
+        (r"mega\s*dream|phantasmal", ["M2A", "M2", "PFL", "PHANTASMAL", "PHANTASMALFLAMES"]),
         (r"inferno", ["M2"]),
-        (r"twilight\s*masquerade", ["SV6", "SV6A"]),
-        (r"crown\s*zenith", ["S12A"]),
-        (r"evolving\s*skies", ["S6A", "S7R"]),
-        (r"celebrations", ["S8A", "S8AP", "S8A-P"]),
-        (r"pokemon\s*go", ["S10B"]),
-        (r"paldea\s*evolved", ["SV2", "SV2A"]),
-        (r"obsidian\s*flames", ["SV3", "SV3A"]),
-        (r"temporal\s*forces", ["SV5", "SV5A"]),
-        (r"stellar\s*crown", ["SV7", "SV7A"]),
-        (r"surging\s*sparks", ["SV8", "SV8A"]),
-        (r"destined\s*rivals|journey\s*together", ["SV9", "SV9A"]),
-        (r"paldean\s*fates", ["SV4A", "SV4"]),
-        (r"paradox\s*rift", ["SV4", "SV4A"]),
-        (r"shrouded\s*fable", ["SV6A"]),
-        (r"brilliant\s*stars", ["S9", "S9A"]),
-        (r"silver\s*tempest", ["S12", "S12A"]),
-        (r"lost\s*origin", ["S11", "S11A"]),
-        (r"chilling\s*reign", ["S5I", "S5A", "S5R"]),
-        (r"vivid\s*voltage", ["S4", "S4A"]),
-        (r"fusion\s*strike", ["S8", "S8B"]),
-        (r"battle\s*styles", ["S5R", "S5I"]),
-        (r"astral\s*radiance", ["S10", "S10A"]),
+        (r"twilight\s*masquerade", ["SV6", "SV6A", "TWM", "TWILIGHT", "TWILIGHTMASQUERADE"]),
+        (r"crown\s*zenith", ["S12A", "CROWNZENITH", "CROWN", "ZENITH"]),
+        (r"evolving\s*skies", ["S6A", "S7R", "EVOLVINGSKIES", "EVOLVING"]),
+        # S8A code + pack title token (SNK often only prints "Celebrations")
+        (r"celebrations", ["S8A", "S8AP", "S8A-P", "CELEBRATIONS"]),
+        (r"25th\s*anniversary", ["S8A", "S8AP", "S8A-P", "CELEBRATIONS"]),
+        (r"pokemon\s*go", ["S10B", "POKEMONGO"]),
+        (r"paldea\s*evolved", ["SV2", "SV2A", "PALDEAEVOLVED"]),
+        (r"obsidian\s*flames", ["SV3", "SV3A", "OBSIDIANFLAMES", "OBSIDIAN"]),
+        (r"temporal\s*forces", ["SV5", "SV5A", "TEMPORALFORCES", "TEMPORAL"]),
+        (r"stellar\s*crown", ["SV7", "SV7A", "STELLARCROWN", "STELLAR"]),
+        (r"surging\s*sparks", ["SV8", "SV8A", "SSP", "SURGING", "SURGINGSPARKS"]),
+        (r"destined\s*rivals|journey\s*together", ["SV9", "SV9A", "DRI", "DESTINED", "DESTINEDRIVALS"]),
+        (r"paldean\s*fates", ["SV4A", "SV4", "PAF", "PALDEANFATES", "PALDEAN"]),
+        (r"paradox\s*rift", ["SV4", "SV4A", "PARADOXRIFT", "PARADOX"]),
+        (r"shrouded\s*fable", ["SV6A", "SHROUDEDFABLE", "SHROUDED"]),
+        (r"brilliant\s*stars", ["S9", "S9A", "BRILLIANTSTARS", "BRILLIANT", "STARBIRTH"]),
+        (r"silver\s*tempest", ["S12", "S12A", "SILVERTEMPEST", "SILVER", "TEMPEST"]),
+        (r"lost\s*origin", ["S11", "S11A", "LOSTORIGIN", "LOST"]),
+        (r"chilling\s*reign", ["S5I", "S5A", "S5R", "CHILLINGREIGN", "CHILLING"]),
+        (r"vivid\s*voltage", ["S4", "S4A", "VIVIDVOLTAGE", "VIVID"]),
+        (r"fusion\s*strike", ["S8", "S8B", "FUSIONSTRIKE", "FUSION"]),
+        (r"battle\s*styles", ["S5R", "S5I", "BATTLESTYLES"]),
+        (r"astral\s*radiance", ["S10", "S10A", "ASTRALRADIANCE", "ASTRAL"]),
         (r"sword\s*and\s*shield:\s*base|sword\s*&\s*shield\s*base", ["S1H", "S1W", "S1A"]),
+        (r"shining\s*fates", ["S4A", "SHININGFATES", "SHINING"]),
+        (r"darkness\s*ablaze", ["S3", "S3A", "DARKNESSABLAZE", "DARKNESS"]),
+        # bind_snk_watchlist parity (narrow JP codes)
+        (r"triplet\s*beat|tripletbeat", ["SV1A"]),
+        (r"eevee\s*heroes", ["S6A", "EEVEEHEROES"]),
+        (r"vmax\s*climax", ["S8B", "VMAXCLIMAX"]),
+        (r"black\s*bolt", ["SV11B", "BLACKBOLT"]),
+        (r"white\s*flare", ["SV11W", "WHITEFLARE"]),
         (r"one\s*piece|op-\d", []),  # OP codes extracted above
     ]
     for pat, vals in aliases:
@@ -373,7 +468,18 @@ def verify_pair(
         hints = set_hints(watch_set, watch_col, watch_name)
         if not hints:
             return False, "verify_no_set_hint", 0
-        if not any(h in blob for h in hints if len(h) >= 2):
+        # Compare norm_alnum forms so "S8A-P" hits blob "S8AP" / "CELEBRATIONS".
+        # Short codes (S3/S4/S8) use bounded match — avoid PCS3 ⊂ S3 false positive.
+        def _hint_in_blob(h: str) -> bool:
+            nh = norm_alnum(h)
+            if len(nh) < 2:
+                return False
+            if len(nh) <= 2:
+                # Allow digit after (M2+125 → m2125) but not letter before (PCS3 ⊄ S3)
+                return bool(re.search(rf"(?<![a-z0-9]){re.escape(nh)}(?![a-z])", blob))
+            return nh in blob
+
+        if not any(_hint_in_blob(h) for h in hints):
             return False, "verify_set", 0
 
     wn = (watch_name or "").casefold()
@@ -383,6 +489,22 @@ def verify_pair(
             return False, "verify_rarity", 0
     if re.search(r"\bgx\b", wn) and not re.search(r"\bgx\b", cn):
         return False, "verify_rarity", 0
+    if re.search(r"\bex\b", wn) and not re.search(r"\bex\b", cn):
+        return False, "verify_rarity", 0
+    # Reject stage upgrades that share species only (Pikachu ex ≠ Pikachu & Zekrom GX)
+    if re.search(r"\bgx\b", cn) and not re.search(r"\bgx\b", wn):
+        return False, "verify_rarity", 0
+    # Plain V stage (not VMAX/VSTAR): cand should carry V / VMAX / VSTAR / SR:SA style
+    if re.search(r"(?<![a-z])v(?![a-z])", wn) and "vmax" not in wn and "vstar" not in wn:
+        if not re.search(r"(?<![a-z])v(?![a-z])|\bvmax\b|\bvstar\b", cn):
+            return False, "verify_rarity", 0
+    # Reject promo/snack/goods when watch is main-set PTCG (pure digit); OP keep bracket path
+    if pure_digit and re.search(
+        r"\b(promo|promotional|chocolate|snack|playing\s*mat|rubber)\b", cn
+    ):
+        if not re.search(r"\b(promo|promotional|stamp|staff)\b", wn):
+            if "promo" not in (watch_set or "").casefold():
+                return False, "verify_promo_goods", 0
 
     # reject obvious non-card product lines
     if re.search(r"\b(sleeve|playmat|box|deck|booster pack)\b", cn) and "ex" not in cn:

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CARDZ Image Picker · 人類揀唯一圖</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>CARDZ 卡圖揀選器</h1>
+      <p class="sub">只顯示 <strong>Double／非 SNK·G10 爭議圖</strong>。SNK + G10 預設物認 OK（auto）。A–E 揀 · U 重揀 · 可續傳。</p>
+    </div>
+    <div class="stats" id="stats">loading…</div>
+  </header>
+
+  <section class="toolbar">
+    <label>操作者 <input id="actor" placeholder="你的名字 / initials" maxlength="32" /></label>
+    <label>跳去 index <input id="jump" type="number" min="0" step="1" style="width:5rem" /></label>
+    <button type="button" id="btnJump">Go</button>
+    <button type="button" id="btnSkip">Skip →</button>
+    <button type="button" id="btnClear" class="btn-warn" disabled title="清除本卡揀選">↩ 重揀</button>
+    <button type="button" id="btnPrev">← Prev</button>
+    <button type="button" id="btnNext">Next →</button>
+    <button type="button" id="btnExport">Export JSON</button>
+    <span class="hint">快捷鍵：A–E 揀圖 · U/Del 重揀 · N 下 · P 上 · S skip · R 重載</span>
+  </section>
+
+  <main id="main" class="main">
+    <p class="loading">載入 worklist…</p>
+  </main>
+
+  <footer class="foot">
+    <div id="progressBar" class="bar"><i id="progressFill"></i></div>
+    <div id="queueInfo"></div>
+  </footer>
+
+  <script src="./app.js" type="module"></script>
+</body>
+</html>

@@ -82,3 +82,9 @@ apps/web/.preview/
 # canonical 版），同一個冇任何 consumer 嘅 6.3 MB pack（grep 全 repo 零引用）。
 docs/mockups/market-assets/
 data/public/presentation-pack.json
+
+# local camofox self-issued key
+data/private/camofox_local.env
+
+# Local CodeGraph/Graphify analysis output; never part of the product or release.
+graphify-out/

@@ -2,17 +2,20 @@ import type { Locale } from "./types";
 
 type LocalizedName = Partial<Record<Locale, string>>;
 
-// English names the upstream catalog stores truncated. `canonical_name` cannot be repaired
-// in the database because it feeds `opaque_id`, so editing it would orphan the card's price
-// and population history; the repair belongs here, in the display layer. Each replacement is
-// taken from a local source, never guessed:
-//   Monkey.D.Luff    -> grade10-scraper/data/cards/snkrdunk/287031/summary_en.json
-//   Okuge            -> grade10-scraper/data/cards/snkrdunk/91423/summary_en.json
+// English names the upstream catalog stores truncated or misspelled. `canonical_name` cannot
+// be repaired in the database because it feeds `opaque_id`, so editing it would orphan the
+// card's price and population history; the repair belongs here, in the display layer. Each
+// replacement is backed by an approved local identity receipt, never guessed:
+//   Monkey.D.Luff    -> canonical English identity receipt
+//   Okuge            -> canonical English identity receipt
 //   Ethan's Ho       -> catalog_variant 732/742/746, the English printings of the same card
+//   3th Anniversary  -> "3th" is not an English ordinal; the printing is the 3rd Anniversary
 const EN_DISPLAY: Record<string, string> = {
   "Monkey.D.Luff": "Monkey.D.Luffy",
   "Okuge": "Okuge-sama and Maiko-han Pikachu",
   "Ethan's Ho": "Ethan's Ho-Oh ex",
+  "Monkey.D.Luffy SEC-SPC 3th Anniversary Special Card Booster Pack A Fist of Divine Speed":
+    "Monkey.D.Luffy SEC-SPC 3rd Anniversary Special Card Booster Pack A Fist of Divine Speed",
 };
 
 export function displayCardNameEn(englishName: string): string {

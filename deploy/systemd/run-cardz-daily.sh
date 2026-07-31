@@ -5,6 +5,16 @@ repo_root="${CARDZ_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd
 env_file="${CARDZ_ENV_FILE:-/etc/cardz-market-cap/backend.env}"
 mode="${CARDZ_DAILY_MODE:-production}"
 
+# WSL systemd 內所有 canonical writer 共用一把鎖。weekly full-backfill 亦用同一檔；
+# 撞期即 fail，唔會兩條 writer 同時改 DB / universe。Windows → WSL cutover 仍由
+# installer 嘅 --confirm-single-writer 閘住，因為兩個 OS 唔可以靠同一個 flock。
+if [[ "${CARDZ_WRITER_LOCK_HELD:-0}" != "1" ]]; then
+  writer_lock="$repo_root/data/runtime/cardz-writer.lock"
+  mkdir -p "$(dirname "$writer_lock")"
+  exec /usr/bin/flock --nonblock "$writer_lock" \
+    /usr/bin/env CARDZ_WRITER_LOCK_HELD=1 bash "$0" "$@"
+fi
+
 # local  = 行足 publish 鏈，但淨係寫本機 public tree（唔使 R2／canary／pointer env）
 # remote = 同上再加 R2 上傳同 pointer promotion，backend.env 要有齊
 #          CARDZ_PRODUCTION_R2_BUCKET + CARDZ_GENERATION_CANARY_COMMAND_JSON
@@ -54,6 +64,12 @@ if [[ ! -f "$verify_script" ]]; then
 fi
 
 daily_args=(daily --external-db --mode "$mode")
+if [[ "$mode" == production ]]; then
+  # Production publication is live-refresh-only. A partial/fallback GemRate
+  # pass may retain last-good DB facts, but it cannot advance an evaluation or
+  # runtime pointer.
+  daily_args+=(--require-gemrate-refresh)
+fi
 if [[ "$publish_mode" != off ]]; then
   # 前置檢查，唔係擺設：publish 鏈個 npm run build 喺全鏈最尾，行到嗰步已經燒咗
   # 2–2.5 鐘 GemRate quota。npm 唔喺 PATH 就即刻死，唔好死喺最後一步。

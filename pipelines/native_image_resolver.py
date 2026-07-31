@@ -1,15 +1,12 @@
 """Native rounded-corner card image resolver.
 
-搵返來源本來就有嘅 RGBA 圓角卡圖，**保留 alpha 直接入庫**，唔做去背、
-唔做裁角、唔做 trim。存在嘅意義：舊 ingest 喺落圖後 ``.convert("RGB")``
-壓平咗 SNK 原生圓角圖，先至要 trim 白邊 + CSS border-radius 遮醜。
+來源 priority chain（2026-07-28 用戶拍板）:
+1. **TCGplayer** product art（主線）— CDN 方角圖 → normalize + 補原生圓角
+2. **SNK / G10** harvest + get_master（fallback）— 原生 RGBA 圓角優先
+3. Kado dump RGBA WebP — 冷門備用
 
-來源 priority chain（實測 2026-07-24）:
-1. SNK harvest cache / SNK get_master — RGBA WebP 1000x730，100% 原生圓角
-2. Kado dump RGBA WebP — 約 16% set 有原生圓角，做冷門備用
-3. TCGdex EN PNG — 英文卡專用（ja 同 webp 版冇 alpha，唔好用）
-
-每張候選圖落完必過 corner-alpha gate：4 角 pixel alpha 全部 < 10 先收貨。
+TCGplayer 方角圖唔過 corner-alpha gate；改為 normalize_card_canvas +
+apply_rounded_corners 後入庫。SNK 原生圓角仍走 is_native_rounded 快路徑。
 """
 from __future__ import annotations
 
@@ -29,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
 import g10_public_snapshot as g10  # noqa: E402
+from image_geometry_qc import inspect_image  # noqa: E402
 
 ASSETS = ROOT / "data" / "public" / "market-assets"
 SNK_HARVEST = ROOT / "data" / "private" / "snkrdunk_brute" / "snkrdunk_all.jsonl"
@@ -51,9 +49,10 @@ NORMALIZED_MARKER = f"std-{CANVAS_W}x{CANVAS_H}"
 
 @dataclass(frozen=True)
 class NativeCandidate:
-    source: str          # "snk_cache" | "snk_master" | "kado" | "tcgdex_en"
+    source: str          # "tcgplayer" | "snk_cache" | "snk_master" | "kado" | "g10"
     url: str | None      # 要下載嘅遠端 URL
     path: Path | None    # 本地已有嘅圖檔
+    raw: bytes | None = None  # 已下載 bytes（TCGplayer）
 
 
 @dataclass(frozen=True)
@@ -105,8 +104,8 @@ def normalize_card_canvas(image: Image.Image) -> Image.Image:
 
 
 def is_normalized(image: Image.Image) -> bool:
-    """已經係統一畫布規格 → delta skip。"""
-    return image.size == (CANVAS_W, CANVAS_H)
+    """Dimensions plus card-body fill/centering must satisfy the public policy."""
+    return inspect_image(image)["status"] == "passed"
 
 
 # 圓角規格（梵高比卡超實測 2026-07-25）：423x589 卡身角弧 ~25px，
@@ -181,12 +180,51 @@ def _write_image_block(image: Image.Image, alt: str) -> dict[str, Any]:
     }
 
 
-def store_native_image(raw: bytes, alt: str) -> dict[str, Any]:
+def store_native_image(
+    raw: bytes,
+    alt: str,
+    *,
+    source_path: str | None = None,
+    tcg_code: str | None = None,
+) -> dict[str, Any]:
     """保留 RGBA 入庫，統一畫布規格。絕對唔准 .convert("RGB") —— 壓平 alpha 係舊 bug 根源。"""
 
+    from sample_image_qc import assert_raw_source_not_sample
+
+    assert_raw_source_not_sample(
+        raw,
+        source_path=source_path,
+        tcg_code=tcg_code,
+        context="store_native_image",
+    )
     with Image.open(io.BytesIO(raw)) as opened:
         image = opened.copy()
     return _write_image_block(normalize_card_canvas(image), alt)
+
+
+def store_face_art_image(
+    raw: bytes,
+    alt: str,
+    *,
+    source_path: str | None = None,
+    tcg_code: str | None = None,
+) -> dict[str, Any]:
+    """方角／非原生圓角卡面（TCGplayer 等）→ 標準畫布 + 補圓角後入庫。"""
+
+    from sample_image_qc import assert_raw_source_not_sample
+
+    # QC hard gate: TCGplayer SAMPLE / NOW DESIGNING never public
+    assert_raw_source_not_sample(
+        raw,
+        source_path=source_path,
+        tcg_code=tcg_code,
+        context="store_face_art_image",
+    )
+    with Image.open(io.BytesIO(raw)) as opened:
+        image = normalize_card_canvas(opened.copy())
+    if not has_rounded_corners(image):
+        image = apply_rounded_corners(image)
+    return _write_image_block(image, alt)
 
 
 def store_normalized_image(raw: bytes, alt: str) -> dict[str, Any] | None:
@@ -269,9 +307,11 @@ def resolve_native_image(
     snk_item_id: int | None = None,
     manual_snk_id: int | None = None,
     snk_harvest: Mapping[int, str] | None = None,
+    tcgplayer_product_id: int | None = None,
+    allow_tcgplayer_first_hit: bool = False,
     delay: float = DOWNLOAD_DELAY_S,
 ) -> NativeImageResult | None:
-    """行 priority chain 搵原生圓角圖，逐個候選過 corner-alpha gate。
+    """行 priority chain：TCGplayer 主線 → SNK/G10 fallback → Kado。
 
     card 需要有 names.en / collectorNumber.display / language / tcg 呢啲欄
     （canonical snapshot card schema）。搵唔到合格圖就回 None，由 caller
@@ -279,19 +319,69 @@ def resolve_native_image(
     """
 
     names = card.get("names") or {}
-    alt = str(names.get("en") or card.get("id") or "card")
-    collector = str((card.get("collectorNumber") or {}).get("display") or "")
+    alt = str(names.get("en") or card.get("name") or card.get("id") or "card")
+    collector_obj = card.get("collectorNumber")
+    if isinstance(collector_obj, Mapping):
+        collector = str(collector_obj.get("display") or "")
+    else:
+        collector = str(collector_obj or card.get("collectorNumber") or "")
     language = str(card.get("language") or "")
+    tcg_code = str(card.get("tcg") or "")
     set_name = ""
     sets = card.get("sets")
     if isinstance(sets, Mapping):
         set_name = str(sets.get("en") or sets.get("name") or "")
+    elif card.get("setName"):
+        set_name = str(card.get("setName") or "")
     number = collector.split("/", 1)[0]
 
+    # --- 1) TCGplayer primary ---
+    try:
+        from tcgplayer_images import resolve_tcgplayer_candidate
+
+        tcg_hit = resolve_tcgplayer_candidate(
+            {
+                **dict(card),
+                "collectorNumber": collector,
+                "name": alt,
+                "setName": set_name,
+            },
+            product_id=tcgplayer_product_id,
+            allow_first_hit=allow_tcgplayer_first_hit,
+        )
+    except Exception as error:  # noqa: BLE001
+        print(f"[tcgplayer-fail] {alt} {collector}: {error}")
+        tcg_hit = None
+
+    if isinstance(tcg_hit, Mapping) and tcg_hit.get("raw"):
+        try:
+            block = store_face_art_image(
+                tcg_hit["raw"],
+                alt,
+                source_path=str(tcg_hit.get("cdn") or ""),
+                tcg_code=tcg_code,
+            )
+            print(
+                f"[native-ok] {alt} {collector} <- tcgplayer "
+                f"pid={tcg_hit.get('productId')} sha={block['sha256'][:12]}"
+            )
+            time.sleep(delay)
+            return NativeImageResult(block, "tcgplayer")
+        except Exception as error:  # noqa: BLE001
+            print(f"[tcgplayer-store-fail] {alt} {collector}: {error}")
+    elif isinstance(tcg_hit, Mapping) and tcg_hit.get("selection", "").startswith("ambiguous"):
+        print(
+            f"[tcgplayer-ambiguous] {alt} {collector} "
+            f"selection={tcg_hit.get('selection')} candidates={len(tcg_hit.get('candidates') or [])}"
+        )
+
+    # --- 2) SNK / G10 fallback ---
     candidates: list[NativeCandidate] = []
     harvest = snk_harvest if snk_harvest is not None else load_snk_harvest_urls()
 
     item_id = snk_item_id or manual_snk_id
+    if item_id is None and isinstance(card.get("snkItemId"), int):
+        item_id = int(card["snkItemId"])
     if item_id and item_id in harvest:
         candidates.append(NativeCandidate("snk_cache", harvest[item_id], None))
     if item_id:
@@ -305,14 +395,36 @@ def resolve_native_image(
 
     for candidate in candidates:
         try:
-            raw = candidate.path.read_bytes() if candidate.path else _download(str(candidate.url))
+            if candidate.raw is not None:
+                raw = candidate.raw
+            elif candidate.path is not None:
+                raw = candidate.path.read_bytes()
+            else:
+                raw = _download(str(candidate.url))
         except Exception as error:  # noqa: BLE001
             print(f"[native-fetch-fail] {alt} {collector} {candidate.source}: {error}")
             continue
-        if not is_native_rounded(raw):
-            print(f"[native-reject] {alt} {collector} {candidate.source}: corners not transparent")
-            continue
-        block = store_native_image(raw, alt)
+        if is_native_rounded(raw):
+            block = store_native_image(
+                raw,
+                alt,
+                source_path=str(candidate.url or candidate.path or candidate.source),
+                tcg_code=tcg_code,
+            )
+        else:
+            # SNK/G10 偶發方角或 opaque 角：補圓角後仍可用
+            try:
+                block = store_face_art_image(
+                    raw,
+                    alt,
+                    source_path=str(
+                        candidate.url or candidate.path or candidate.source
+                    ),
+                    tcg_code=tcg_code,
+                )
+            except Exception as error:  # noqa: BLE001
+                print(f"[native-reject] {alt} {collector} {candidate.source}: {error}")
+                continue
         print(f"[native-ok] {alt} {collector} <- {candidate.source} sha={block['sha256'][:12]}")
         time.sleep(delay)
         return NativeImageResult(block, candidate.source)

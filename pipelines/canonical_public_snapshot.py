@@ -20,24 +20,31 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from math import isfinite
 from pathlib import Path
-from typing import Any, Iterable, Mapping, NamedTuple
+from typing import Any, Iterable, Mapping, NamedTuple, Sequence
+
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
 from db_runtime import add_connection_args, connection_from_args
+from canonical_db_qc import BLOCKER_CATEGORY
+from data_routing import DEFAULT_RELEASE_PROFILE, load_registry, load_release_profile
 from editorial_localization import coverage_summary, localize_cards
 from g10_public_snapshot import normalize_collector
+from image_geometry_qc import inspect_path
+from image_source_qc import classify_content_sha256, classify_source
 
 
 WINDOWS = ("1d", "7d", "30d")
+MIN_PURE_PSA10_SALES_30D = 10
 LOCALES = ("en", "zhTW", "zhCN", "ja")
 IMAGE_QC_PATH = ROOT / "manifests/image-qc.json"
 PUBLIC_ASSET_DIR = ROOT / "data/public/market-assets"
+DEFAULT_ROUTING_CONFIG = ROOT / "config" / "data-routing.json"
 GRADERS = ("PSA", "BGS", "CGC", "SGC", "TAG")
-# Mirrors the published-schema rule in packages/market-data/src/validate.ts: a
-# gallery subset number is only publishable with its denominator.
-BARE_SUBSET_NUMBER = re.compile(r"(?:GG|SV|TG|RC)\d+", re.IGNORECASE)
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+OPAQUE_PUBLIC_ID_RE = re.compile(r"^cmc_[0-9a-f]{24}$")
 CURRENCIES = ("USD", "HKD", "CNY", "GBP", "TWD", "JPY", "KRW")
 TOP_GRADE = {"PSA": "10", "BGS": "10", "CGC": "10", "SGC": "10", "TAG": "10"}
 # GemRate 每張卡嘅 3 年週線 POP 史，由 `gemrate_source.py` 落地（gitignore）。
@@ -59,6 +66,10 @@ POPULATION_STALE_HOURS = 168
 # 同 g10_ingest.derive_price_windows 一模一樣嘅容差，唔另立第二套標準：
 # 錨點要真係落喺窗口附近，唔可以攞 35 日前嘅點當「30 日變動」。
 POPULATION_WINDOW_TOLERANCE = {"1d": 1, "7d": 2, "30d": 3}
+# 價格窗口：candidate daily 缺 change_* 時由 historyDaily 回補（heatmap = 表同一源）。
+# 計法就係頭尾：而家價 ÷ ~N 日前價。容差細少少——搵唔到目標日就 ± 幾日，唔玩花巧。
+PRICE_WINDOW_DAYS = {"1d": 1, "7d": 7, "30d": 30}
+PRICE_WINDOW_TOLERANCE = {"1d": 2, "7d": 3, "30d": 3}
 # The public schema remains top100 + watchlist.  These selectors only control
 # how many ordered canonical ranks are materialized into that stable shape.
 PRESENTATION_VIEW_LIMITS = {
@@ -70,6 +81,9 @@ PRESENTATION_VIEW_LIMITS = {
     # combined 300 名以外（實測 07-26：3 張 One Piece，rank 304/312/336），
     # 冇聯集嘅話 /one-piece 分榜頁出唔齊自己榜嘅卡。limit 只管 core 部分。
     "top300_boards": 300,
+    # One full, release-profile-filtered public snapshot.  It has no raw rank
+    # truncation; the profile capacity is checked after all per-card gates.
+    "all_eligible": None,
 }
 # Minimum constituents a combined index snapshot must hold before it may back
 # a given public view. The full Top 300 export requires complete coverage;
@@ -81,14 +95,230 @@ PRESENTATION_VIEW_MIN_COVERAGE = {
     "top350": 350,
     "top100_plus_200": 300,
     "top300_boards": 300,
+    "all_eligible": 100,
 }
+QC_REPORT_SCHEMA_VERSION = 1
+IMAGE_QC_CATEGORIES = frozenset(
+    {"imageIdentity", "imageSemantic", "imageSample", "imageGeometry", "imageDuplicate"}
+)
 
 
 class SnapshotExportError(RuntimeError):
     """Raised before an invalid canonical generation can replace a snapshot."""
 
 
-def presentation_view_limit(name: str) -> int:
+def resolved_release_profile(
+    release_profile: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Return the exact policy envelope bound into one public generation."""
+
+    if release_profile is None:
+        # Direct unit callers retain the historic strict path.  The CLI supplies
+        # the configured effective profile (relaxed-launch-v1).
+        return load_release_profile(load_registry(DEFAULT_ROUTING_CONFIG), "strict-v1")
+    profile_id = str(release_profile.get("releaseProfile") or "").strip()
+    policy = release_profile.get("policy")
+    policy_sha256 = str(release_profile.get("policySha256") or "").strip().casefold()
+    if (
+        not profile_id
+        or not isinstance(policy, Mapping)
+        or not SHA256_RE.fullmatch(policy_sha256)
+    ):
+        raise SnapshotExportError("release profile envelope is invalid")
+    return {
+        "releaseProfile": profile_id,
+        "policy": dict(policy),
+        "policySha256": policy_sha256,
+    }
+
+
+def _policy_int(policy: Mapping[str, Any], key: str) -> int:
+    value = policy.get(key)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise SnapshotExportError(f"release profile has invalid {key}")
+    return value
+
+
+def qc_gate_current_lock_sha256(connection: Any, evaluation_id: int) -> str:
+    """Return the current lock bound to this exact evaluation, or fail closed."""
+
+    row = fetchone(
+        connection,
+        """
+        SELECT l.lock_sha256
+        FROM market_alert_evaluation e
+        JOIN market_universe_lock l ON l.id=e.universe_lock_id
+        WHERE e.id=%s AND l.is_current=1
+        """,
+        (evaluation_id,),
+    )
+    lock_sha256 = str((row or {}).get("lock_sha256") or "").casefold()
+    if not SHA256_RE.fullmatch(lock_sha256):
+        raise SnapshotExportError(
+            f"evaluation {evaluation_id} has no current formal universe lock"
+        )
+    return lock_sha256
+
+
+def qc_gate_allowed_opaque_ids(
+    report_path: Path,
+    generation: Mapping[str, Any],
+    current_lock_sha256: str,
+    release_profile: Mapping[str, Any] | None = None,
+) -> set[str]:
+    """Accept only exact-report cards without any non-image QC blocker.
+
+    Images intentionally stay outside this gate: their independent pipeline may
+    finish later, but identity, price, sales, population, market-cap and time
+    evidence must already be authoritative before presentation resolution.
+    """
+
+    try:
+        document = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise SnapshotExportError(f"cannot read authoritative DB QC report: {error}") from error
+    if not isinstance(document, Mapping):
+        raise SnapshotExportError("authoritative DB QC report must be an object")
+    if document.get("schemaVersion") != QC_REPORT_SCHEMA_VERSION:
+        raise SnapshotExportError("authoritative DB QC report schema is unsupported")
+    if release_profile is not None:
+        expected = resolved_release_profile(release_profile)
+        if (
+            document.get("releaseProfile") != expected["releaseProfile"]
+            or document.get("policySha256") != expected["policySha256"]
+        ):
+            raise SnapshotExportError("authoritative DB QC report release profile/hash mismatch")
+    database = document.get("database")
+    if not isinstance(database, Mapping) or (
+        database.get("authority") != "canonical_mysql"
+        or database.get("name") != "cardz_market_cap"
+    ):
+        raise SnapshotExportError("authoritative DB QC report database is not canonical cardz_market_cap")
+    as_of = document.get("asOf")
+    try:
+        report_day = datetime.fromisoformat(str(as_of).replace("Z", "+00:00")).date()
+        generation_day = date.fromisoformat(str(generation["effective_date"]))
+    except (KeyError, TypeError, ValueError) as error:
+        raise SnapshotExportError("authoritative DB QC report or generation has invalid as-of date") from error
+    if report_day != generation_day:
+        raise SnapshotExportError("authoritative DB QC report as-of date does not match evaluation")
+    if database.get("marketEvaluationId") != generation.get("evaluation_id"):
+        raise SnapshotExportError("authoritative DB QC report evaluation does not match generation")
+    universe = document.get("universe")
+    report_lock = str((universe or {}).get("formalUniverseLockSha256") or "").casefold()
+    if not SHA256_RE.fullmatch(report_lock) or report_lock != current_lock_sha256:
+        raise SnapshotExportError("authoritative DB QC report formal universe lock does not match evaluation")
+    cards = document.get("cards")
+    if not isinstance(cards, list):
+        raise SnapshotExportError("authoritative DB QC report cards must be a list")
+
+    allowed: set[str] = set()
+    for card in cards:
+        if not isinstance(card, Mapping):
+            continue
+        opaque_id = str(card.get("id") or "")
+        if not OPAQUE_PUBLIC_ID_RE.fullmatch(opaque_id):
+            continue
+        blockers = card.get("blockers")
+        if not isinstance(blockers, list):
+            continue
+        categories = {BLOCKER_CATEGORY.get(str(blocker)) for blocker in blockers}
+        if categories - IMAGE_QC_CATEGORIES:
+            continue
+        if None in categories:
+            continue
+        allowed.add(opaque_id)
+    return allowed
+
+
+def qc_gate_release_image_receipts(
+    report_path: Path,
+    release_profile: Mapping[str, Any],
+) -> dict[str, Mapping[str, Any]]:
+    """Return the exact relaxed image choices already bound by DB QC.
+
+    Export never reruns the confidence selector: it consumes the immutable
+    receipt chosen by the same card-level DB QC evaluation.
+    """
+
+    expected = resolved_release_profile(release_profile)
+    if expected["releaseProfile"] != "relaxed-launch-v1":
+        return {}
+    try:
+        document = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise SnapshotExportError(f"cannot read relaxed image receipt report: {error}") from error
+    if (
+        not isinstance(document, Mapping)
+        or document.get("releaseProfile") != expected["releaseProfile"]
+        or document.get("policySha256") != expected["policySha256"]
+    ):
+        raise SnapshotExportError("relaxed image receipt profile/hash mismatch")
+    result: dict[str, Mapping[str, Any]] = {}
+    cards = document.get("cards")
+    if not isinstance(cards, list):
+        raise SnapshotExportError("relaxed image receipt report has no cards")
+    for card in cards:
+        if not isinstance(card, Mapping):
+            continue
+        card_id = str(card.get("id") or "")
+        image = (card.get("facts") or {}).get("image") if isinstance(card.get("facts"), Mapping) else None
+        receipt = image.get("releaseImageReceipt") if isinstance(image, Mapping) else None
+        if not OPAQUE_PUBLIC_ID_RE.fullmatch(card_id) or not isinstance(receipt, Mapping):
+            continue
+        payload = dict(receipt)
+        declared = str(payload.pop("receiptSha256", "")).casefold()
+        calculated = hashlib.sha256(
+            (json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n").encode("utf-8")
+        ).hexdigest()
+        chosen = receipt.get("chosen")
+        if (
+            not SHA256_RE.fullmatch(declared)
+            or declared != calculated
+            or receipt.get("releaseProfile") != expected["releaseProfile"]
+            or str(receipt.get("cardId") or "") != card_id
+            or not isinstance(chosen, Mapping)
+            or chosen.get("hardBlockers") != []
+            or str(receipt.get("chosenContentSha256") or "") != str(chosen.get("contentSha256") or "")
+        ):
+            raise SnapshotExportError(f"relaxed image receipt is invalid for {card_id}")
+        result[card_id] = receipt
+    return result
+
+
+def qc_gate_identity_statuses(
+    report_path: Path,
+    release_profile: Mapping[str, Any],
+) -> dict[str, str]:
+    """Read DB-QC identity outcomes without exposing its private evidence."""
+
+    expected = resolved_release_profile(release_profile)
+    policy = expected["policy"]
+    allowed = policy.get("allowedIdentityStatuses") if isinstance(policy, Mapping) else None
+    if not isinstance(allowed, list) or not all(isinstance(value, str) for value in allowed):
+        raise SnapshotExportError("release profile has invalid allowedIdentityStatuses")
+    try:
+        document = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise SnapshotExportError(f"cannot read DB-QC identity report: {error}") from error
+    if (
+        not isinstance(document, Mapping)
+        or document.get("releaseProfile") != expected["releaseProfile"]
+        or document.get("policySha256") != expected["policySha256"]
+    ):
+        raise SnapshotExportError("DB-QC identity profile/hash mismatch")
+    result: dict[str, str] = {}
+    for card in document.get("cards") or []:
+        if not isinstance(card, Mapping):
+            continue
+        card_id = str(card.get("id") or "")
+        status = str(card.get("identityStatus") or "")
+        if OPAQUE_PUBLIC_ID_RE.fullmatch(card_id) and status in allowed:
+            result[card_id] = status
+    return result
+
+
+def presentation_view_limit(name: str) -> int | None:
     normalized = str(name).strip()
     try:
         return PRESENTATION_VIEW_LIMITS[normalized]
@@ -231,40 +461,60 @@ class PublicImages(NamedTuple):
     allowed_sha: set[str]
 
 
-def load_public_images(qc_path: Path = IMAGE_QC_PATH, asset_dir: Path = PUBLIC_ASSET_DIR) -> PublicImages:
+def public_derivatives_ready(asset_dir: Path, sha: str) -> bool:
+    """Require both responsive WEBP derivatives before an image can publish."""
+
+    for suffix, expected_size in (("200", (200, 280)), ("600", (429, 600))):
+        path = asset_dir / f"{sha}_{suffix}.webp"
+        if not path.is_file():
+            return False
+        try:
+            with Image.open(path) as image:
+                image.load()
+                if image.format != "WEBP" or image.size != expected_size:
+                    return False
+        except (OSError, ValueError):
+            return False
+    return True
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def load_public_images(
+    qc_path: Path = IMAGE_QC_PATH,
+    asset_dir: Path = PUBLIC_ASSET_DIR,
+    connection: Any | None = None,
+    release_image_receipts: Mapping[str, Mapping[str, Any]] | None = None,
+) -> PublicImages:
     """Index raw-front artwork that already passed public QC and exists on disk.
 
-    Nothing here invents an image: a record only counts when it is public
-    allowed, carries a real content hash and dimensions, and its master asset
-    file is present, which is the same contract publish-snapshot enforces.
+    Prefer DB (variant → current opaque_id) so opaque_id rehashes do not orphan
+    images. Manifest is a fallback for offline/demo paths.
     """
 
-    try:
-        document = json.loads(qc_path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return PublicImages({}, set())
     by_public_id: dict[str, dict[str, Any]] = {}
     allowed_sha: set[str] = set()
-    for record in document.get("records", []) if isinstance(document, Mapping) else []:
-        if not isinstance(record, Mapping) or not record.get("publicAllowed"):
-            continue
-        if str(record.get("imageKind") or "") != "raw_front":
-            continue
-        sha = str(record.get("contentSha256") or "")
-        width = integer(record.get("width"))
-        height = integer(record.get("height"))
-        if len(sha) != 64 or not width or not height:
-            continue
-        if not (asset_dir / f"{sha}.webp").is_file():
-            continue
-        allowed_sha.add(sha)
-        public_id = str(record.get("publicId") or "")
+
+    def add_image(public_id: str, sha: str, width: int, height: int, qc_at: str | None) -> None:
         if not public_id or public_id in by_public_id:
-            continue
+            return
+        if len(sha) != 64 or not width or not height:
+            return
+        if not (asset_dir / f"{sha}.webp").is_file():
+            return
+        if not public_derivatives_ready(asset_dir, sha):
+            return
+        allowed_sha.add(sha)
         by_public_id[public_id] = {
             "height": height,
             "kind": "raw_front",
-            "qcAt": str(record["qcAt"]) if record.get("qcAt") else None,
+            "qcAt": qc_at,
             "sha256": sha,
             "src": f"/market-assets/{sha}.webp",
             "variants": {
@@ -274,32 +524,330 @@ def load_public_images(qc_path: Path = IMAGE_QC_PATH, asset_dir: Path = PUBLIC_A
             },
             "width": width,
         }
+
+    if connection is not None:
+        # Only current CAS-bound human review may enter production.
+        rows = fetchall(
+            connection,
+            """
+            SELECT v.opaque_id, a.content_sha256, a.width_px, a.height_px,
+                   a.source_version_sha256, q.checked_at, p.source_path, v.tcg_code
+            FROM catalog_variant v
+            JOIN market_image_asset a ON a.variant_id = v.id AND a.image_kind = 'raw_front'
+            JOIN market_image_qc q ON q.image_asset_id = a.id
+              AND q.public_allowed = 1
+              AND q.qc_version = 'human-review-v2'
+              AND q.semantic_match_status = 'human_or_vision_confirmed'
+              AND q.card_number_match = 1 AND q.language_match = 1
+              AND q.tcg_match = 1 AND q.raw_front_confirmed = 1
+            JOIN market_image_review_approval b
+              ON b.image_asset_id = a.id
+              AND b.variant_id = a.variant_id
+              AND b.content_sha256 = a.content_sha256
+              AND b.source_version_sha256 = a.source_version_sha256
+              AND b.binding_sha256 = SHA2(CONCAT_WS('|',a.id,a.variant_id,
+                  a.content_sha256,a.source_version_sha256,
+                  b.canonical_printing_sha256,b.expected_language),256)
+            JOIN catalog_printing_identity pi
+              ON pi.variant_id = v.id
+              AND pi.identity_status = 'canonical'
+              AND pi.canonical_printing_sha256 = b.canonical_printing_sha256
+              AND pi.card_language = b.expected_language
+              AND v.card_language = b.expected_language
+            JOIN market_image_source_pointer p
+              ON p.variant_id = v.id AND p.image_kind = 'raw_front'
+              AND p.source_version_sha256 = a.source_version_sha256
+              AND p.public_allowed = 1
+            LEFT JOIN market_image_rejection_registry rejected
+              ON rejected.variant_id = a.variant_id
+              AND rejected.content_sha256 = a.content_sha256
+            WHERE rejected.variant_id IS NULL
+            ORDER BY v.id, q.checked_at DESC, a.id DESC
+            """,
+        )
+        seen_opaque: set[str] = set()
+        for row in rows:
+            oid = str(row["opaque_id"] or "")
+            if not oid or oid in seen_opaque:
+                continue
+            seen_opaque.add(oid)
+            sha = str(row["content_sha256"] or "")
+            if classify_content_sha256(sha).get("status") == "reject":
+                continue
+            source = classify_source(
+                str(row.get("source_path") or ""),
+                tcg_code=str(row.get("tcg_code") or ""),
+                width_px=row.get("width_px"),
+                height_px=row.get("height_px"),
+            )
+            if source.get("status") == "reject":
+                continue
+            master = asset_dir / f"{sha}.webp"
+            if not master.is_file() or inspect_path(master).get("status") != "passed":
+                continue
+            width = integer(row.get("width_px")) or 429
+            height = integer(row.get("height_px")) or 600
+            qc_at = iso(row["checked_at"]) if row.get("checked_at") else None
+            add_image(oid, sha, width, height, qc_at)
+
+    # Production always supplies canonical MySQL. An empty DB result is a hard
+    # no-image state, never permission to revive an old manifest entry.
+    if connection is not None and release_image_receipts is not None:
+        if not release_image_receipts:
+            return PublicImages({}, set())
+        public_ids = sorted(release_image_receipts)
+        marks = ",".join(["%s"] * len(public_ids))
+        rows = fetchall(
+            connection,
+            f"""
+            SELECT v.opaque_id, a.id AS asset_id, a.content_sha256,
+                   a.width_px, a.height_px
+            FROM catalog_variant AS v
+            JOIN market_image_asset AS a
+              ON a.variant_id=v.id AND a.image_kind='raw_front'
+            WHERE v.opaque_id IN ({marks})
+            ORDER BY v.opaque_id, a.id
+            """,
+            public_ids,
+        )
+        for row in rows:
+            oid = str(row.get("opaque_id") or "")
+            receipt = release_image_receipts.get(oid)
+            chosen = receipt.get("chosen") if isinstance(receipt, Mapping) else None
+            if not isinstance(chosen, Mapping):
+                continue
+            chosen_asset_id = chosen.get("assetId")
+            chosen_sha = str(chosen.get("contentSha256") or "").casefold()
+            if row.get("asset_id") != chosen_asset_id or str(row.get("content_sha256") or "").casefold() != chosen_sha:
+                continue
+            if not SHA256_RE.fullmatch(chosen_sha):
+                continue
+            master = asset_dir / f"{chosen_sha}.webp"
+            if (
+                not master.is_file()
+                or sha256_file(master) != chosen_sha
+                or inspect_path(master).get("status") != "passed"
+            ):
+                continue
+            width = integer(row.get("width_px")) or 429
+            height = integer(row.get("height_px")) or 600
+            add_image(oid, chosen_sha, width, height, None)
+        return PublicImages(by_public_id, allowed_sha)
+
+    if connection is not None:
+        return PublicImages(by_public_id, allowed_sha)
+
+    try:
+        document = json.loads(qc_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return PublicImages({}, set())
+    for record in document.get("records", []) if isinstance(document, Mapping) else []:
+        if not isinstance(record, Mapping) or not record.get("publicAllowed"):
+            continue
+        if str(record.get("imageKind") or "") != "raw_front":
+            continue
+        sha = str(record.get("contentSha256") or "")
+        if classify_content_sha256(sha).get("status") == "reject":
+            continue
+        master = asset_dir / f"{sha}.webp"
+        if not master.is_file() or inspect_path(master).get("status") != "passed":
+            continue
+        width = integer(record.get("width"))
+        height = integer(record.get("height"))
+        if not width or not height:
+            continue
+        public_id = str(record.get("publicId") or "")
+        add_image(
+            public_id,
+            sha,
+            width,
+            height,
+            str(record["qcAt"]) if record.get("qcAt") else None,
+        )
     return PublicImages(by_public_id, allowed_sha)
 
 
-def printing_key(tcg: Any, collector_normalized: Any) -> tuple[str, str]:
-    """Identity key shared by the canonical catalog and the presentation pack."""
+# 7-part: tcg | language | set | collector | edition | parallel | finish
+PrintingKey = tuple[str, str, str, str, str, str, str]
 
-    return tuple(  # type: ignore[return-value]
-        "".join(character for character in str(part or "").strip().casefold() if not character.isspace())
-        for part in (tcg, collector_normalized)
+
+def printing_key(
+    tcg: Any,
+    set_name: Any,
+    collector_number: Any,
+    edition_code: Any,
+    parallel_code: Any,
+    finish_code: Any,
+    language: Any = "",
+) -> PrintingKey:
+    """Return the canonical seven-part printing key (language inclusive)."""
+
+    from card_identity import printing_key7
+
+    return printing_key7(
+        tcg, language, set_name, collector_number, edition_code, parallel_code, finish_code
     )
 
 
-def row_printing_key(row: Mapping[str, Any]) -> tuple[str, str]:
-    collector = normalize_collector(row.get("collector_number"))
-    return printing_key(row.get("tcg_code"), collector.normalized)
+def printing_key_sha256(key: PrintingKey) -> str:
+    return hashlib.sha256("|".join(key).encode("utf-8")).hexdigest()
 
 
-def catalog_printing_key_counts(connection: Any) -> Counter:
-    rows = fetchall(connection, "SELECT tcg_code,collector_number FROM catalog_variant")
+def public_printing_identity(
+    row: Mapping[str, Any], *, allow_provisional: bool = False
+) -> dict[str, str] | None:
+    """Validate and expose the DB-owned printing tuple for a public card.
+
+    Empty edition/parallel/finish values are missing evidence, not defaults.
+    Only a canonical row whose base identity agrees with ``catalog_variant``
+    and whose stored hash recomputes may enter the presentation resolver.
+
+    Hash is 7-part (includes card_language) after rehash_identity_language.
+    """
+
+    lang = row.get("printing_card_language") or row.get("card_language") or ""
+    values = (
+        row.get("printing_tcg_code"),
+        row.get("printing_set_name"),
+        row.get("printing_collector_number"),
+        row.get("edition_code"),
+        row.get("parallel_code"),
+        row.get("finish_code"),
+        lang,
+    )
+    key = printing_key(
+        values[0], values[1], values[2], values[3], values[4], values[5], language=values[6]
+    )
+    printing_status = str(row.get("printing_identity_status") or "").strip().casefold()
+    allowed_statuses = {"canonical", "candidate"} if allow_provisional else {"canonical"}
+    if printing_status not in allowed_statuses:
+        return None
+    # Every component is evidence-bearing. Missing language, edition, parallel,
+    # or finish must never be interpreted as a default printing.
+    if any(not part for part in key):
+        return None
+    base_key = printing_key(
+        row.get("tcg_code"),
+        row.get("set_name"),
+        row.get("collector_number"),
+        "",
+        "",
+        "",
+        language=row.get("card_language") or "",
+    )
+    # tcg, language, set, collector must agree between printing row and variant
+    if key[:4] != base_key[:4]:
+        return None
+    canonical_hash = str(row.get("canonical_printing_sha256") or "").strip().casefold()
+    evidence_hash = str(row.get("printing_evidence_sha256") or "").strip().casefold()
+    if (
+        not SHA256_RE.fullmatch(canonical_hash)
+        or canonical_hash != printing_key_sha256(key)
+        or not SHA256_RE.fullmatch(evidence_hash)
+    ):
+        return None
+    return {
+        "setName": str(values[1]).strip(),
+        "collectorNumber": str(values[2]).strip(),
+        "editionCode": str(values[3]).strip(),
+        "parallelCode": str(values[4]).strip(),
+        "finishCode": str(values[5]).strip(),
+        "cardLanguage": str(lang).strip() or None,
+        "canonicalPrintingSha256": canonical_hash,
+        "evidenceSha256": evidence_hash,
+    }
+
+
+def row_printing_key(
+    row: Mapping[str, Any], *, allow_provisional: bool = False
+) -> PrintingKey | None:
+    identity = public_printing_identity(row, allow_provisional=allow_provisional)
+    if identity is None:
+        return None
+    return printing_key(
+        row.get("printing_tcg_code"),
+        identity["setName"],
+        identity["collectorNumber"],
+        identity["editionCode"],
+        identity["parallelCode"],
+        identity["finishCode"],
+        language=identity.get("cardLanguage") or row.get("card_language") or "",
+    )
+
+
+def card_printing_key(card: Mapping[str, Any]) -> PrintingKey | None:
+    identity = card.get("printingIdentity")
+    if not isinstance(identity, Mapping):
+        return None
+    key = printing_key(
+        card.get("tcg"),
+        identity.get("setName"),
+        identity.get("collectorNumber"),
+        identity.get("editionCode"),
+        identity.get("parallelCode"),
+        identity.get("finishCode"),
+        language=identity.get("cardLanguage") or card.get("cardLanguage") or "",
+    )
+    canonical_hash = str(identity.get("canonicalPrintingSha256") or "").strip().casefold()
+    evidence_hash = str(identity.get("evidenceSha256") or "").strip().casefold()
+    if (
+        any(not part for part in key)
+        or not SHA256_RE.fullmatch(canonical_hash)
+        or canonical_hash != printing_key_sha256(key)
+        or not SHA256_RE.fullmatch(evidence_hash)
+    ):
+        return None
+    return key
+
+
+def catalog_printing_key_counts(
+    connection: Any, *, allow_provisional: bool = False
+) -> Counter:
+    rows = fetchall(
+        connection,
+        """
+        SELECT v.tcg_code,v.set_name,v.collector_number,v.card_language,
+               pi.tcg_code AS printing_tcg_code,
+               pi.card_language AS printing_card_language,
+               pi.set_name AS printing_set_name,
+               pi.collector_number AS printing_collector_number,
+               pi.edition_code,pi.parallel_code,pi.finish_code,
+               pi.canonical_printing_sha256,
+               pi.identity_status AS printing_identity_status,
+               pi.evidence_sha256 AS printing_evidence_sha256
+        FROM catalog_variant v
+        LEFT JOIN catalog_printing_identity pi ON pi.variant_id=v.id
+        """,
+    )
     counts: Counter = Counter()
     for row in rows:
-        counts[row_printing_key(row)] += 1
+        key = row_printing_key(row, allow_provisional=allow_provisional)
+        if key is not None:
+            counts[key] += 1
     return counts
 
 
-def presentation_from_identity(row: Mapping[str, Any], image: Mapping[str, Any]) -> dict[str, Any] | None:
+def base_identity_complete(row: Mapping[str, Any]) -> bool:
+    name = str(row.get("canonical_name") or "").strip()
+    set_name = str(row.get("set_name") or "").strip()
+    tcg = str(row.get("tcg_code") or "").strip()
+    language = str(row.get("card_language") or "").strip()
+    collector = normalize_collector(row.get("collector_number"), None, set_name)
+    return bool(
+        OPAQUE_PUBLIC_ID_RE.fullmatch(str(row.get("opaque_id") or ""))
+        and
+        name
+        and set_name
+        and tcg
+        and language in {"en", "ja", "ko", "zhCN", "zhTW"}
+        and str(row.get("identity_status") or "") == "confirmed"
+        and collector.complete
+    )
+
+
+def presentation_from_identity(
+    row: Mapping[str, Any], image: Mapping[str, Any], *, allow_provisional: bool = False
+) -> dict[str, Any] | None:
     """Build a presentation entry for a ranked card the pack has never seen.
 
     Returns None when the canonical catalog cannot supply a complete identity;
@@ -309,15 +857,20 @@ def presentation_from_identity(row: Mapping[str, Any], image: Mapping[str, Any])
     name = str(row.get("canonical_name") or "").strip()
     set_name = str(row.get("set_name") or "").strip()
     tcg = str(row.get("tcg_code") or "").strip().lower()
-    if not name or not set_name or not tcg:
+    if not base_identity_complete(row):
         return None
-    if str(row.get("identity_status") or "") != "confirmed":
+    printing_identity = public_printing_identity(row, allow_provisional=allow_provisional)
+    if printing_identity is None:
         return None
     collector = normalize_collector(row.get("collector_number"), None, set_name)
     if not collector.complete:
         return None
     localized = {locale: (name if locale == "en" else None) for locale in LOCALES}
+    card_language = str(row.get("card_language") or "").strip() or None
+    if card_language not in {None, "en", "ja", "ko", "zhCN", "zhTW"}:
+        card_language = None
     return {
+        "cardLanguage": card_language,
         "collectorNumber": {
             "complete": True,
             "display": collector.display,
@@ -331,6 +884,7 @@ def presentation_from_identity(row: Mapping[str, Any], image: Mapping[str, Any])
         "marketCap": metric(None, "unavailable", None),
         "names": dict(localized),
         "populationPsa10": metric(None, "unavailable", None, estimated=False),
+        "printingIdentity": printing_identity,
         "pricePsa10": metric(None, "unavailable", None),
         "rank": 0,
         "sets": {locale: (set_name if locale == "en" else None) for locale in LOCALES},
@@ -344,7 +898,9 @@ def resolve_presentation_entries(
     rows: Iterable[Mapping[str, Any]],
     cards_by_id: Mapping[str, Mapping[str, Any]],
     images: PublicImages,
-    catalog_key_counts: Mapping[tuple[str, str], int],
+    catalog_key_counts: Mapping[PrintingKey, int],
+    *,
+    allow_provisional: bool = False,
 ) -> tuple[dict[str, Mapping[str, Any]], list[tuple[str, str]], Counter]:
     """Pair every ranked row with a presentation entry it may legally publish.
 
@@ -354,9 +910,11 @@ def resolve_presentation_entries(
     """
 
     pack_key_counts: Counter = Counter()
-    pack_by_key: dict[tuple[str, str], Mapping[str, Any]] = {}
+    pack_by_key: dict[PrintingKey, Mapping[str, Any]] = {}
     for card in cards_by_id.values():
-        key = printing_key(card.get("tcg"), (card.get("collectorNumber") or {}).get("normalized"))
+        key = card_printing_key(card)
+        if key is None:
+            continue
         pack_key_counts[key] += 1
         pack_by_key.setdefault(key, card)
 
@@ -364,28 +922,33 @@ def resolve_presentation_entries(
         return str((entry.get("image") or {}).get("sha256") or "") in images.allowed_sha
 
     def refreshed(entry: Mapping[str, Any], row: Mapping[str, Any]) -> Mapping[str, Any]:
-        """Restore a gallery denominator the pack froze before it was resolvable.
+        """Bind a reused presentation row to the current canonical identity."""
 
-        Reused pack entries otherwise carry their published collector number
-        forward verbatim, so a truncated subset number such as "GG69" would
-        survive every later export.
-        """
-
+        printing_identity = public_printing_identity(row, allow_provisional=allow_provisional)
+        if printing_identity is None:
+            raise AssertionError("refreshed() received an invalid printing identity")
         current = entry.get("collectorNumber") or {}
-        if not BARE_SUBSET_NUMBER.fullmatch(str(current.get("display") or "")):
-            return entry
         collector = normalize_collector(
             row.get("collector_number"), None, row.get("set_name")
         )
-        if not collector.complete or collector.display == current.get("display"):
-            return entry
+        sets = entry.get("sets") if isinstance(entry.get("sets"), Mapping) else {}
+        card_language = str(row.get("card_language") or "").strip() or None
+        if card_language not in {None, "en", "ja", "ko", "zhCN", "zhTW"}:
+            card_language = None
         return {
             **entry,
+            "id": str(row["opaque_id"]),
+            "tcg": str(row.get("tcg_code") or "").strip().lower(),
+            "cardLanguage": card_language,
+            "identityStatus": "confirmed",
+            "printingIdentity": printing_identity,
             "collectorNumber": {
                 **current,
                 "display": collector.display,
                 "normalized": collector.normalized,
+                "complete": collector.complete,
             },
+            "sets": {**sets, "en": str(row.get("set_name") or "").strip()},
         }
 
     resolved: dict[str, Mapping[str, Any]] = {}
@@ -394,13 +957,22 @@ def resolve_presentation_entries(
     claimed: set[str] = set()
     for row in rows:
         opaque_id = str(row["opaque_id"])
+        if not OPAQUE_PUBLIC_ID_RE.fullmatch(opaque_id):
+            skipped.append((opaque_id, "opaque_id_invalid"))
+            continue
+        if not base_identity_complete(row):
+            skipped.append((opaque_id, "identity_incomplete"))
+            continue
+        key = row_printing_key(row, allow_provisional=allow_provisional)
+        if key is None:
+            skipped.append((opaque_id, "printing_identity_incomplete"))
+            continue
         entry = cards_by_id.get(opaque_id)
         if entry is not None and opaque_id not in claimed and image_usable(entry):
             claimed.add(opaque_id)
             resolved[opaque_id] = refreshed(entry, row)
             tiers["pack_id"] += 1
             continue
-        key = row_printing_key(row)
         candidate = pack_by_key.get(key)
         unique = pack_key_counts.get(key) == 1 and catalog_key_counts.get(key, 0) == 1
         if candidate is not None and unique and str(candidate["id"]) not in claimed and image_usable(candidate):
@@ -415,7 +987,9 @@ def resolve_presentation_entries(
             )
             skipped.append((opaque_id, "ambiguous_printing_key" if collides else "image_unavailable"))
             continue
-        rebuilt = presentation_from_identity(row, image)
+        rebuilt = presentation_from_identity(
+            row, image, allow_provisional=allow_provisional
+        )
         if rebuilt is None:
             skipped.append((opaque_id, "identity_incomplete"))
             continue
@@ -469,6 +1043,36 @@ def latest_generation(connection: Any, min_constituents: int) -> Mapping[str, An
     raise SnapshotExportError(
         f"no canonical combined ranking snapshot covers at least {min_constituents} constituents"
     )
+
+
+def staging_generation(
+    connection: Any,
+    evaluation_id: int,
+    min_constituents: int,
+) -> Mapping[str, Any]:
+    row = fetchone(
+        connection,
+        """
+        SELECT s.id,s.evaluation_id,s.effective_at,s.effective_date,
+               s.constituent_count,s.snapshot_sha256
+        FROM market_index_snapshot s
+        WHERE s.index_code='tcg-combined' AND s.evaluation_id=%s
+        ORDER BY s.id DESC LIMIT 1
+        """,
+        (evaluation_id,),
+    )
+    if not row:
+        raise SnapshotExportError(f"staging evaluation {evaluation_id} has no combined snapshot")
+    count = int(fetchone(
+        connection,
+        "SELECT COUNT(*) AS n FROM market_index_constituent WHERE index_snapshot_id=%s",
+        (row["id"],),
+    )["n"])
+    if count < min_constituents:
+        raise SnapshotExportError(
+            f"staging evaluation {evaluation_id} covers only {count} constituents"
+        )
+    return row
 
 
 BOARD_UNION_INDEX_CODES = ("one-piece", "pokemon")
@@ -537,29 +1141,46 @@ def market_rows(
     connection: Any,
     generation: Mapping[str, Any],
     *,
-    required_count: int,
+    required_count: int | None,
     include_board_extras: bool = False,
 ) -> list[dict[str, Any]]:
     evaluation_id = generation_evaluation_id(connection, generation)
     row_query = """
         SELECT v.id AS variant_id,v.opaque_id,v.identity_status,
                v.canonical_name,v.set_name,v.collector_number,v.tcg_code,
+               v.card_language AS card_language,
+               pi.tcg_code AS printing_tcg_code,
+               pi.card_language AS printing_card_language,
+               pi.set_name AS printing_set_name,
+               pi.collector_number AS printing_collector_number,
+               pi.edition_code,pi.parallel_code,pi.finish_code,
+               pi.canonical_printing_sha256,
+               pi.identity_status AS printing_identity_status,
+               pi.evidence_sha256 AS printing_evidence_sha256,
                c.rank_position AS rank_position,c.reference_price_usd,c.psa10_population,
                c.market_cap_usd,c.metric_status,
                d.change_1d_pct,d.change_7d_pct,d.change_30d_pct
         FROM market_index_constituent c
         JOIN catalog_variant v ON v.id=c.variant_id
+        LEFT JOIN catalog_printing_identity pi ON pi.variant_id=v.id
         LEFT JOIN market_candidate_daily_snapshot d
           ON d.variant_id=c.variant_id AND d.evaluation_id=%s
         WHERE c.index_snapshot_id=%s AND c.rank_position{rank_cond}
         ORDER BY c.rank_position
     """
-    top = fetchall(
-        connection,
-        row_query.format(rank_cond="<=%s"),
-        (evaluation_id, generation["id"], required_count),
-    )
-    if len(top) != required_count:
+    if required_count is None:
+        top = fetchall(
+            connection,
+            row_query.format(rank_cond=">=1"),
+            (evaluation_id, generation["id"]),
+        )
+    else:
+        top = fetchall(
+            connection,
+            row_query.format(rank_cond="<=%s"),
+            (evaluation_id, generation["id"], required_count),
+        )
+    if required_count is not None and len(top) != required_count:
         raise SnapshotExportError(
             f"canonical combined ranking has {len(top)} rows for requested Top {required_count} view"
         )
@@ -631,24 +1252,124 @@ def ebay_psa10_daily_rows(
     )
 
 
+def approved_psa10_daily_rows(
+    connection: Any,
+    variant_ids: list[int],
+    earliest: date | None = None,
+    anchor: date | None = None,
+) -> list[Mapping[str, Any]]:
+    """Roll up only canonical-QC-equivalent, exact-bound PSA10 observations.
+
+    The daily aggregate cannot prove grade, exact identity, or fingerprint, so
+    it is deliberately not merged here; SNK and eBay/PriceCharting sales share
+    this one transaction-level path.
+    """
+    if not variant_ids:
+        return []
+    placeholders = ",".join(["%s"] * len(variant_ids))
+    params: list[Any] = [*variant_ids]
+    date_cond = ""
+    if earliest is not None and anchor is not None:
+        date_cond = "AND DATE(sale.sold_at) BETWEEN %s AND %s"
+        params.extend([earliest, anchor])
+    rows = fetchall(
+        connection,
+        f"""
+        SELECT sale.variant_id, DATE(sale.sold_at) AS observed_date,
+               sale.source_code, sale.external_entity_id,
+               sale.transaction_fingerprint, sale.grader_code, sale.grade_label,
+               sale.timestamp_quality, sale.unit_price_usd, sale.quantity,
+               sale.transaction_value_usd, sale.coverage_status,
+               sale.source_payload_sha256, 1 AS identity_confirmed
+        FROM market_sale_observation AS sale
+        WHERE sale.variant_id IN ({placeholders})
+          AND sale.sold_at IS NOT NULL {date_cond}
+          AND UPPER(sale.grader_code)='PSA' AND UPPER(sale.grade_label) IN ('10', 'PSA 10', 'PSA10')
+          AND sale.quantity=1 AND sale.unit_price_usd > 0
+          AND sale.transaction_value_usd = sale.unit_price_usd
+          AND sale.timestamp_quality IN ('exact', 'date', 'timestamp', 'exact_date', 'relative_resolved', 'relative_subday')
+          AND sale.coverage_status IN ('partial', 'complete', 'certified')
+          AND LOWER(sale.source_payload_sha256) REGEXP '^[0-9a-f]{{64}}$'
+          AND (
+            (sale.source_code IN ('snk_psa10', 'snk', 'snkrdunk', 'snk_grade')
+             AND sale.external_entity_id REGEXP '^[0-9]+$'
+             AND CAST(sale.external_entity_id AS UNSIGNED) > 0
+             AND EXISTS (
+               SELECT 1 FROM catalog_source_identity AS identity
+               LEFT JOIN catalog_variant_alias AS alias ON alias.duplicate_variant_id=identity.variant_id
+               WHERE COALESCE(alias.canonical_variant_id, identity.variant_id)=sale.variant_id
+                 AND identity.source_code IN ('snk', 'snkrdunk') AND identity.match_status='exact'
+                 AND identity.external_entity_id REGEXP '^[0-9]+$'
+                 AND CAST(identity.external_entity_id AS UNSIGNED)=CAST(sale.external_entity_id AS UNSIGNED)
+             ))
+            OR (sale.source_code='ebay' AND (
+              (sale.external_entity_id REGEXP '^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}$'
+               AND EXISTS (
+                 SELECT 1 FROM catalog_source_identity AS identity
+                 LEFT JOIN catalog_variant_alias AS alias ON alias.duplicate_variant_id=identity.variant_id
+                 WHERE COALESCE(alias.canonical_variant_id, identity.variant_id)=sale.variant_id
+                   AND identity.source_code='ebay' AND identity.match_status='exact'
+                   AND LOWER(identity.external_entity_id)=LOWER(sale.external_entity_id)
+               ))
+              OR (sale.external_entity_id REGEXP '^[0-9]+$' AND CAST(sale.external_entity_id AS UNSIGNED)>0
+               AND EXISTS (
+                 SELECT 1 FROM catalog_source_identity AS identity
+                 LEFT JOIN catalog_variant_alias AS alias ON alias.duplicate_variant_id=identity.variant_id
+                 WHERE COALESCE(alias.canonical_variant_id, identity.variant_id)=sale.variant_id
+                   AND identity.source_code IN ('snk', 'snkrdunk') AND identity.match_status='exact'
+                   AND identity.external_entity_id REGEXP '^[0-9]+$'
+                   AND CAST(identity.external_entity_id AS UNSIGNED)=CAST(sale.external_entity_id AS UNSIGNED)
+               ))
+              OR (sale.external_entity_id REGEXP '^pc:[0-9]+$'
+               AND EXISTS (
+                 SELECT 1 FROM catalog_source_identity AS identity
+                 LEFT JOIN catalog_variant_alias AS alias ON alias.duplicate_variant_id=identity.variant_id
+                 WHERE COALESCE(alias.canonical_variant_id, identity.variant_id)=sale.variant_id
+                   AND identity.source_code='pricecharting' AND identity.match_status='exact'
+                   AND identity.external_entity_id REGEXP '^[0-9]+$'
+                   AND CAST(identity.external_entity_id AS UNSIGNED)=CAST(SUBSTRING(sale.external_entity_id, 4) AS UNSIGNED)
+               ))
+            ))
+          )
+        """,
+        params,
+    )
+    accepted: list[Mapping[str, Any]] = []
+    seen_fingerprints: set[tuple[int, str, str, str]] = set()
+    for row in rows:
+        fingerprint = str(row.get("transaction_fingerprint") or "").strip()
+        key = (int(row["variant_id"]), str(row.get("source_code") or "").casefold(), str(row.get("external_entity_id") or "").casefold(), fingerprint)
+        if (
+            not row.get("identity_confirmed") or not fingerprint or key in seen_fingerprints
+            or str(row.get("grader_code") or "").upper() != "PSA"
+            or str(row.get("grade_label") or "").upper() not in {"10", "PSA 10", "PSA10"}
+            or int(row.get("quantity") or 0) != 1
+            or float(row.get("unit_price_usd") or 0) <= 0
+            or float(row.get("unit_price_usd") or 0) != float(row.get("transaction_value_usd") or 0)
+        ):
+            continue
+        seen_fingerprints.add(key)
+        accepted.append(row)
+    daily: dict[tuple[int, date], dict[str, Any]] = {}
+    for row in accepted:
+        observed = row.get("observed_date")
+        if isinstance(observed, datetime):
+            observed = observed.date()
+        if not isinstance(observed, date):
+            continue
+        bucket = daily.setdefault(
+            (int(row["variant_id"]), observed),
+            {"variant_id": int(row["variant_id"]), "observed_date": observed, "sales_count": 0, "sales_value_usd": 0.0, "coverage_status": "partial"},
+        )
+        bucket["sales_count"] += 1
+        bucket["sales_value_usd"] += float(row["unit_price_usd"])
+    return list(daily.values())
+
+
 def latest_sales(
     connection: Any, variant_ids: list[int], anchor: date | datetime
 ) -> dict[tuple[int, str], Mapping[str, Any]]:
-    """1d/7d/30d 成交彙總，由 market_daily_sales_aggregate 即場滾出嚟。
-
-    呢度以前讀 market_tracked_sales_aggregate —— 嗰張表 0 行，而每日成交
-    （3592 行 / 336 variant / 2023-07 起）一直寫落 market_daily_sales_aggregate，
-    即係同一個檔入面 daily_history() 讀緊嗰張。兩邊都冇 error，前端就長期
-    顯示「成交數據不可用」。詳見 docs/ARCHITECTURE_CHAIN.md 斷點 #2。
-
-    窗口 anchor 綁 snapshot generation 嘅 effective date，同價格
-    change_{1,7,30}d_pct 同一個基準。成交數據落後就照樣顯示縮水 —— 唔會攞
-    「該卡最後有成交嗰日」當今日嚟造靚個數。
-
-    兩個 PSA10 成交源相加：SNKRDUNK（日表 source_code='snk_psa10'）+ eBay
-    （逐筆表篩 psa/10，見 ebay_psa10_daily_rows）。日本 app 同美國市場係兩批
-    唔同嘅成交件，冇 double count。日表嘅 ebay 行係全 grade 混合，唔准用。
-    """
+    """Aggregate approved canonical observations against the generation date."""
     if not variant_ids:
         return {}
     if isinstance(anchor, datetime):
@@ -657,24 +1378,12 @@ def latest_sales(
     # 兩倍窗口長度：除咗當前窗口，仲要罩住緊貼前面嗰個同長度窗口，
     # 先至砌得出真嘅成交額環比（見下面 prev_* 欄）。
     earliest = anchor - timedelta(days=max(SALES_WINDOW_DAYS.values()) * 2 - 1)
-    rows = fetchall(
-        connection,
-        f"""
-        SELECT variant_id,observed_date,sales_count,sales_value_usd,coverage_status
-        FROM market_daily_sales_aggregate
-        WHERE variant_id IN ({placeholders})
-          AND source_code='snk_psa10'
-          AND observed_date BETWEEN %s AND %s
-        ORDER BY observed_date,id
-        """,
-        [*variant_ids, earliest, anchor],
-    )
-    ebay_rows = ebay_psa10_daily_rows(connection, variant_ids, earliest, anchor)
+    rows = approved_psa10_daily_rows(connection, variant_ids, earliest, anchor)
     result: dict[tuple[int, str], Mapping[str, Any]] = {}
     # 桶內係純累加（交換律），兩源行 concat 就得，唔使 pre-merge 同日行。
     # coverage_status/window_end_at 跟窗口內最新一日行走；同日兩源都係
     # 'partial'，邊個 last-wins 都一樣。
-    for row in [*rows, *ebay_rows]:
+    for row in rows:
         variant_id = int(row["variant_id"])
         observed = row["observed_date"]
         for window, span in SALES_WINDOW_DAYS.items():
@@ -863,6 +1572,102 @@ def observed_day(observation: Mapping[str, Any] | None) -> date | None:
         return None
 
 
+def _history_price_map(history_points: list[dict[str, Any]] | None) -> dict[date, float]:
+    positive: dict[date, float] = {}
+    for point in history_points or []:
+        price = number(point.get("priceUsd"))
+        if price is None or price <= 0:
+            continue
+        raw_at = str(point.get("at") or "")
+        try:
+            day = date.fromisoformat(raw_at[:10])
+        except (TypeError, ValueError):
+            continue
+        positive[day] = float(price)
+    return positive
+
+
+def price_change_from_history(
+    history_points: list[dict[str, Any]] | None, window: str
+) -> dict[str, Any]:
+    """頭尾計 %：而家價 vs 同一窗口 ~N 日前價。
+
+    只接受目標日 ± 容差內嘅同卡價格。歷史短過窗口係 accumulating；
+    歷史跨過窗口但目標附近缺 observation 係 unavailable。禁止用較短／較長
+    窗口或任意最早價格填補，因為嗰個百分比唔代表 requested window。
+    """
+
+    days = PRICE_WINDOW_DAYS[window]
+    tolerance = PRICE_WINDOW_TOLERANCE[window]
+    positive = _history_price_map(history_points)
+    if not positive:
+        return metric(None, "unavailable", None)
+    latest_date = max(positive)
+    current = positive[latest_date]
+    earlier = {key: value for key, value in positive.items() if key < latest_date and value > 0}
+    if not earlier:
+        return metric(None, "accumulating", None)
+
+    target = latest_date - timedelta(days=days)
+    as_of = iso(datetime.combine(latest_date, time.min, tzinfo=timezone.utc))
+
+    # 目標日 ± 容差內：最貼；同距離寧取 target 或之前（窗口略長好過略短）
+    near = [
+        (abs((key - target).days), key, value)
+        for key, value in earlier.items()
+        if abs((key - target).days) <= tolerance
+    ]
+    if near:
+        _, anchor_date, anchor = min(near, key=lambda item: (item[0], item[1] > target, item[1]))
+        status = "ready"
+    else:
+        earliest = min(earlier)
+        missing_status = "accumulating" if earliest > target + timedelta(days=tolerance) else "unavailable"
+        return metric(None, missing_status, None)
+
+    if anchor <= 0:
+        return metric(None, "unavailable", None)
+    change = ((current / anchor) - 1) * 100
+    if not isfinite(change):
+        return metric(None, "unavailable", None)
+    return metric(
+        round(change, 6),
+        status,
+        as_of,
+        anchorAt=anchor_date.isoformat(),
+    )
+
+
+def resolve_price_change_metric(
+    index_change: float | None,
+    history_points: list[dict[str, Any]] | None,
+    window: str,
+    effective_at: str,
+) -> dict[str, Any]:
+    """Resolve a window without presenting an unproved index zero as fact.
+
+    A real zero needs two distinct valid history dates whose canonical daily
+    prices are equal.  A zero-shaped index fallback without that evidence is
+    missing data and remains accumulating.
+    """
+
+    derived = price_change_from_history(history_points, window)
+    derived_ok = derived.get("status") in {"ready", "stale"} and derived.get("value") is not None
+
+    if index_change is None:
+        return derived
+
+    if abs(float(index_change)) > 1e-9:
+        return metric(index_change, "ready", effective_at)
+
+    if derived_ok:
+        return derived
+    missing_status = str(derived.get("status") or "unavailable")
+    if missing_status not in {"accumulating", "unavailable"}:
+        missing_status = "unavailable"
+    return metric(None, missing_status, None)
+
+
 def population_change_windows(
     points: Mapping[date, int], current_value: int | None, current_day: date | None, status: str
 ) -> dict[str, dict[str, Any]]:
@@ -956,25 +1761,67 @@ def latest_price_at(connection: Any, variant_ids: list[int]) -> dict[int, str]:
     `generation.effectiveAt`：`validate.ts` 個 48h 新鮮度閘量度嘅正正係兩者之差，
     如果 stamp 咗 snapshot 自己嘅時間，age 由構造上永遠係 0，爬蟲死咗個閘都唔會響。
 
-    排序同 `daily_history()` 一致，攞返建 constituent 嗰陣揀中嘅同一行觀測。
+    Prefer eBay then SNK timestamps (real market). Never any legacy G10-derived
+    source: it is analytics/index data, not a bindable market observation.
     """
+    if not variant_ids:
+        return {}
+    placeholders = ",".join(["%s"] * len(variant_ids))
+    # Priority: ebay (0) > SNK (1) > rest (2). Legacy G10 sources never egress.
+    rows = fetchall(
+        connection,
+        f"""
+        SELECT variant_id, effective_at, source_code, source_priority, observed_date, id
+        FROM market_price_observation
+        WHERE variant_id IN ({placeholders})
+          AND price_usd IS NOT NULL
+          AND price_usd > 0
+          AND LOWER(source_code) NOT LIKE 'g10%'
+        ORDER BY
+          CASE
+            WHEN source_code IN ('ebay') THEN 0
+            WHEN source_code IN ('snk_psa10', 'snk', 'snkrdunk') THEN 1
+            ELSE 2
+          END,
+          effective_at DESC,
+          source_priority ASC,
+          id DESC
+        """,
+        tuple(variant_ids),
+    )
+    result: dict[int, str] = {}
+    for row in rows:
+        if row.get("effective_at") is None:
+            continue
+        result.setdefault(int(row["variant_id"]), iso(row["effective_at"]))
+    return result
+
+
+def latest_ungraded_reference_prices(
+    connection: Any, variant_ids: list[int]
+) -> dict[int, Mapping[str, Any]]:
+    """Latest positive RAW reference per variant, kept outside PSA10 metrics."""
+
     if not variant_ids:
         return {}
     placeholders = ",".join(["%s"] * len(variant_ids))
     rows = fetchall(
         connection,
         f"""
-        SELECT variant_id,effective_at
-        FROM market_price_observation
+        SELECT variant_id,price_usd,observed_at,id
+        FROM market_ungraded_reference_price
         WHERE variant_id IN ({placeholders})
-        ORDER BY observed_date DESC,source_priority ASC,effective_at DESC,id DESC
+          AND price_usd > 0
+        ORDER BY observed_at DESC,id DESC
         """,
-        variant_ids,
+        tuple(variant_ids),
     )
-    result: dict[int, str] = {}
+    latest: dict[int, Mapping[str, Any]] = {}
     for row in rows:
-        result.setdefault(int(row["variant_id"]), iso(row["effective_at"]))
-    return result
+        if row.get("observed_at") is None:
+            continue
+        latest.setdefault(int(row["variant_id"]), row)
+    return latest
 
 
 def daily_history(connection: Any, variant_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
@@ -987,28 +1834,16 @@ def daily_history(connection: Any, variant_ids: list[int]) -> dict[int, list[dic
         SELECT variant_id,observed_date,price_usd,metric_status,source_priority,effective_at
         FROM market_price_observation
         WHERE variant_id IN ({placeholders})
+          AND LOWER(source_code) NOT LIKE 'g10%'
         ORDER BY observed_date DESC,source_priority ASC,effective_at DESC,id DESC
         """,
         variant_ids,
     )
-    # 同 latest_sales() 一樣：SNK 讀日表（source_code='snk_psa10'），eBay 由逐筆表
-    # 篩 psa/10 即場滾（日表嘅 ebay 行係全 grade 混合，唔准用——詳見
-    # ebay_psa10_daily_rows docstring）。同一 (variant, 日) 兩源都有成交就相加，
-    # 唔准 last-wins 蓋數。
-    sales = fetchall(
-        connection,
-        f"""
-        SELECT variant_id,observed_date,sales_count,sales_value_usd,coverage_status
-        FROM market_daily_sales_aggregate
-        WHERE variant_id IN ({placeholders})
-          AND source_code='snk_psa10'
-        ORDER BY observed_date,id
-        """,
-        variant_ids,
-    )
-    ebay_sales = ebay_psa10_daily_rows(connection, variant_ids)
+    # Same approved observation path as latest_sales(); never merge the daily
+    # table, because it cannot establish pure PSA10 transaction eligibility.
+    sales = approved_psa10_daily_rows(connection, variant_ids)
     sales_by_day: dict[tuple[int, str], dict[str, Any]] = {}
-    for row in [*sales, *ebay_sales]:
+    for row in sales:
         sale_key = (int(row["variant_id"]), str(row["observed_date"]))
         merged = sales_by_day.get(sale_key)
         if merged is None:
@@ -1079,6 +1914,8 @@ def card_from_row(
     history: Mapping[int, list[dict[str, Any]]],
     price_at: Mapping[int, str],
     pop_series: Mapping[tuple[int, str], Mapping[date, int]] | None = None,
+    ungraded_references: Mapping[int, Mapping[str, Any]] | None = None,
+    identity_status: str = "confirmed",
 ) -> dict[str, Any]:
     card = json.loads(json.dumps(presentation))
     variant_id = int(row["variant_id"])
@@ -1098,9 +1935,20 @@ def card_from_row(
             f"ranked card {row['opaque_id']} has no backing PSA population observation to date populationPsa10"
         )
     population_observed_at = iso(psa_population["effective_at"])
+    # ``marketRank`` survives view-specific filtering; ``viewRank`` is made
+    # contiguous after unusable presentation/image rows are removed.  Keep the
+    # legacy ``rank`` equal to ``viewRank`` for existing consumers.
+    card["marketRank"] = int(row["rank_position"])
+    card["viewRank"] = int(row["rank_position"])
     card["rank"] = int(row["rank_position"])
-    card["identityStatus"] = "confirmed"
+    card["identityStatus"] = identity_status
     card["pricePsa10"] = metric(number(row["reference_price_usd"]), status, price_observed_at)
+    ungraded = (ungraded_references or {}).get(variant_id)
+    card["priceUngradedReference"] = (
+        metric(number(ungraded["price_usd"]), "ready", iso(ungraded["observed_at"]))
+        if ungraded is not None
+        else metric(None, "unavailable", None)
+    )
     card["populationPsa10"] = metric(
         integer(row["psa10_population"]), "ready", population_observed_at, estimated=False
     )
@@ -1117,9 +1965,10 @@ def card_from_row(
         observed_day(psa_population),
         "ready",
     )
+    variant_history = history.get(variant_id) or []
     for window, column in (("1d", "change_1d_pct"), ("7d", "change_7d_pct"), ("30d", "change_30d_pct")):
         change = number(row.get(column))
-        change_metric = metric(change, "ready" if change is not None else "accumulating", effective_at)
+        change_metric = resolve_price_change_metric(change, variant_history, window, effective_at)
         aggregate = sales.get((variant_id, window))
         coverage = str(aggregate["coverage_status"]) if aggregate else "unavailable"
         aggregate_at = iso(aggregate["window_end_at"]) if aggregate else None
@@ -1181,16 +2030,83 @@ def card_from_row(
     return card
 
 
+def is_frontend_liquid(card: Mapping[str, Any]) -> bool:
+    """Return whether the DATA_CONTRACT 30d pure-PSA10 listing gate is met."""
+    window = (card.get("windows") or {}).get("30d") or {}
+    sales = window.get("trackedSales") or {}
+    count = sales.get("count") or {}
+    value = count.get("value") if isinstance(count, Mapping) else count
+    return has_frontend_sales_30d(value)
+
+
+def has_frontend_sales_30d(
+    value: Any, minimum: int = MIN_PURE_PSA10_SALES_30D
+) -> bool:
+    """Missing sales are unavailable, never a fabricated zero."""
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and value >= minimum
+    )
+
+
+def frontend_liquid_cards(
+    cards: Sequence[dict[str, Any]], *, sales_minimum: int = MIN_PURE_PSA10_SALES_30D
+) -> list[dict[str, Any]]:
+    """Delist cards without enough 30d pure-PSA10 sales, then rank the public view."""
+    liquid_cards: list[dict[str, Any]] = []
+    for card in cards:
+        window = (card.get("windows") or {}).get("30d") or {}
+        sales = window.get("trackedSales") or {}
+        count = sales.get("count") or {}
+        value = count.get("value") if isinstance(count, Mapping) else count
+        liquid = has_frontend_sales_30d(value, sales_minimum)
+        card["feTop100LiquidityOk"] = liquid
+        if liquid:
+            liquid_cards.append(card)
+
+    def market_cap_value(card: Mapping[str, Any]) -> float:
+        raw = card.get("marketCap")
+        if isinstance(raw, Mapping):
+            raw = raw.get("value")
+        return float(raw) if isinstance(raw, (int, float)) and not isinstance(raw, bool) else 0.0
+
+    ordered = sorted(liquid_cards, key=market_cap_value, reverse=True)
+    for position, card in enumerate(ordered, start=1):
+        card["marketRank"] = position
+        card["viewRank"] = position
+        card["rank"] = position
+    return ordered
+
+
 def build_snapshot(
     connection: Any,
     presentation_path: Path,
     *,
     production: bool,
     presentation_view: str = "top300",
+    staging_evaluation_id: int | None = None,
+    db_qc_report: Path | None = None,
+    release_profile: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    release = resolved_release_profile(release_profile)
+    profile_bound = release_profile is not None
+    release_profile_id = str(release["releaseProfile"])
+    policy = release["policy"]
+    if not isinstance(policy, Mapping):
+        raise SnapshotExportError("release profile policy is invalid")
+    sales_minimum = _policy_int(policy, "trackedPsa10Sales30dMinimumInclusive")
+    card_capacity = _policy_int(policy, "publicCardsMaximum")
+    asset_capacity = _policy_int(policy, "publicImageAssetsMaximum")
+    allow_provisional = release_profile_id == "relaxed-launch-v1"
     template, cards_by_id = load_presentation(presentation_path)
     required_count = presentation_view_limit(presentation_view)
-    generation = latest_generation(connection, presentation_view_min_coverage(presentation_view))
+    minimum = presentation_view_min_coverage(presentation_view)
+    generation = (
+        staging_generation(connection, staging_evaluation_id, minimum)
+        if staging_evaluation_id is not None
+        else latest_generation(connection, minimum)
+    )
     effective_at = iso(generation["effective_at"])
     rows = market_rows(
         connection,
@@ -1198,23 +2114,74 @@ def build_snapshot(
         required_count=required_count,
         include_board_extras=(presentation_view == "top300_boards"),
     )
-    if len(rows) > 500:
+    if required_count is not None and required_count > card_capacity:
         raise SnapshotExportError(
-            f"{presentation_view} resolves {len(rows)} cards; the public projection limit is 500"
+            f"{presentation_view} exceeds {release_profile_id} public card capacity {card_capacity}"
         )
+    release_image_receipts: dict[str, Mapping[str, Any]] = {}
+    identity_status_by_id: dict[str, str] = {}
+    if db_qc_report is not None:
+        allowed_opaque_ids = qc_gate_allowed_opaque_ids(
+            db_qc_report,
+            generation,
+            qc_gate_current_lock_sha256(connection, int(generation["evaluation_id"])),
+            release if profile_bound else None,
+        )
+        if profile_bound:
+            identity_status_by_id = qc_gate_identity_statuses(db_qc_report, release)
+            release_image_receipts = qc_gate_release_image_receipts(db_qc_report, release)
+        before_qc_gate = len(rows)
+        rows = [row for row in rows if str(row["opaque_id"]) in allowed_opaque_ids]
+        print(
+            f"qc_gate_excluded={before_qc_gate - len(rows)} "
+            f"qc_gate_allowed={len(rows)}",
+            file=sys.stderr,
+        )
+    all_variant_ids = [int(row["variant_id"]) for row in rows]
+    sales = latest_sales(connection, all_variant_ids, generation["effective_at"])
+    liquid_rows = [
+        row for row in rows
+        if has_frontend_sales_30d(
+            (sales.get((int(row["variant_id"]), "30d")) or {}).get("sales_count"),
+            sales_minimum,
+        )
+    ]
+    # Delisted rows do not need public images or presentation text, so they
+    # cannot create an assets blocker before their liquidity returns.
     resolved, skipped, tiers = resolve_presentation_entries(
-        rows,
+        liquid_rows,
         cards_by_id,
-        load_public_images(),
-        catalog_printing_key_counts(connection),
+        load_public_images(
+            connection=connection,
+            release_image_receipts=(
+                release_image_receipts if allow_provisional and profile_bound else None
+            ),
+        ),
+        catalog_printing_key_counts(connection, allow_provisional=allow_provisional),
+        allow_provisional=allow_provisional,
     )
-    publishable = [row for row in rows if str(row["opaque_id"]) in resolved]
+    publishable = [row for row in liquid_rows if str(row["opaque_id"]) in resolved]
     variant_ids = [int(row["variant_id"]) for row in publishable]
-    sales = latest_sales(connection, variant_ids, generation["effective_at"])
     populations = latest_populations(connection, variant_ids)
     history = daily_history(connection, variant_ids)
     price_at = latest_price_at(connection, variant_ids)
+    ungraded_references = latest_ungraded_reference_prices(connection, variant_ids)
     pop_series = population_series(connection, variant_ids)
+    # Fail-closed per card: skip ranked rows still missing price or PSA pop observation
+    # rather than aborting the whole FE export (index can lag a single observation).
+    usable_publishable: list[Mapping[str, Any]] = []
+    for row in publishable:
+        vid = int(row["variant_id"])
+        if vid not in price_at:
+            skipped.append((str(row["opaque_id"]), "price_observation_missing"))
+            continue
+        if (vid, "PSA") not in populations and (vid, "psa") not in populations:
+            # populations keys use grader codes from loader — check PSA
+            if not any(k[0] == vid and str(k[1]).upper() == "PSA" for k in populations):
+                skipped.append((str(row["opaque_id"]), "psa_population_missing"))
+                continue
+        usable_publishable.append(row)
+    publishable = usable_publishable
     cards = [
         card_from_row(
             row,
@@ -1225,12 +2192,16 @@ def build_snapshot(
             history,
             price_at,
             pop_series,
+            ungraded_references,
+            identity_status_by_id.get(str(row["opaque_id"]), "confirmed"),
         )
         for row in publishable
     ]
-    # Skipped cards leave holes in the canonical order; the public contract
-    # requires top100 to run 1..100 and the watchlist to continue from 101.
+    # Skipped cards leave holes in canonical ``marketRank``.  The public view
+    # remains contiguous via ``viewRank``/legacy ``rank`` without pretending
+    # that a lower-ranked verified card had a different market position.
     for position, card in enumerate(cards, start=1):
+        card["viewRank"] = position
         card["rank"] = position
     # 譯名／譯文要喺呢度貼，唔可以喺 presentation_from_identity ——
     # 嗰個 function 淨係砌 tier-3 卡，tier-1/2 由 presentation pack 直接抬過嚟，
@@ -1251,30 +2222,65 @@ def build_snapshot(
     )
     print(resolution_summary(len(rows), tiers, skipped), file=sys.stderr)
     print(coverage_summary(localization), file=sys.stderr)
-    top = cards[:100]
-    watch = cards[100:]
+    # DATA_CONTRACT liquidity gate: cards with fewer than 10, or unavailable,
+    # 30d pure-PSA10 sales are delisted from every public collection.
+    cards_by_mcap = frontend_liquid_cards(cards, sales_minimum=sales_minimum)
+    if len(cards_by_mcap) > card_capacity:
+        raise SnapshotExportError(
+            f"{release_profile_id} public card capacity exceeded: "
+            f"{len(cards_by_mcap)} > {card_capacity}"
+        )
+    image_hashes = {
+        str((card.get("image") or {}).get("sha256") or "")
+        for card in cards_by_mcap
+        if str((card.get("image") or {}).get("sha256") or "")
+    }
+    if len(image_hashes) * 3 > asset_capacity:
+        raise SnapshotExportError(
+            f"{release_profile_id} public image asset capacity exceeded: "
+            f"more than {asset_capacity} derivatives required"
+        )
+    top = cards_by_mcap[:100]
+    watch = cards_by_mcap[100:]
+    # viewRank for watchlist must start at 101 per validate.ts
+    for position, card in enumerate(watch, start=101):
+        card["viewRank"] = position
+        card["rank"] = position
     blockers: list[str] = []
     if len(top) != 100:
         blockers.append("combined_top100_incomplete")
-    if len(cards) != len(rows):
+    if len(liquid_rows) < 100:
+        blockers.append("top100_liquidity_shortfall")
+    if len(cards) != len(liquid_rows):
         blockers.append("presentation_assets_incomplete")
     generated_now = datetime.now(timezone.utc)
     generated_at = iso(generated_now)
     generation_id = (
         f"canonical_{str(generation['effective_date']).replace('-', '')}"
         f"_e{int(generation['evaluation_id'])}_{str(generation['snapshot_sha256'])[:12]}"
+        f"_{release_profile_id}"
         f"_{generated_now.strftime('%Y%m%dT%H%M%S%fZ')}"
     )
     snapshot = {
         "schemaVersion": "2.0.0",
         "generation": {
             "id": generation_id,
+            "releaseProfile": release_profile_id,
+            "policySha256": release["policySha256"],
+            "dbFingerprint": (
+                str((json.loads(db_qc_report.read_text(encoding="utf-8")) if db_qc_report else {}).get("database", {}).get("fingerprint") or "")
+            ),
+            "evaluationId": int(generation["evaluation_id"]),
             "generatedAt": generated_at,
             "effectiveAt": effective_at,
             "contentSha256": "",
-            "mode": "production" if production else "demo",
-            "productionEligible": production and not blockers,
-            "blockers": blockers,
+            # Export is candidate-only.  ``public_snapshot_qc.py finalize`` is
+            # the sole step allowed to bind a strict receipt and turn these
+            # fields into a production-eligible generation.
+            "qcReceiptSha256": "",
+            "mode": "demo",
+            "productionEligible": False,
+            "blockers": sorted(set([*blockers, "strict_qc_receipt_missing"])),
         },
         "universe": {
             "populationMin": 1000,
@@ -1284,10 +2290,14 @@ def build_snapshot(
             "salesCoverage": "partial",
         },
         "coverage": {
+            "claim": "verified-top-n",
+            "requestedCount": 100,
+            "verifiedCount": 0,
             "requestedView": presentation_view,
             "top100Count": len(top),
             "watchlistCount": len(watch),
             "publicTop300Count": len(cards),
+            "publicCardCount": len(cards_by_mcap),
             "privateReserveExcludedCount": max(0, int(generation["constituent_count"]) - len(cards)),
             "changeReady": {window: sum(card["windows"][window]["changePct"]["status"] == "ready" for card in cards) for window in WINDOWS},
             "salesReady": {window: sum(card["windows"][window]["trackedSales"]["coverage"] == "partial" for card in cards) for window in WINDOWS},
@@ -1316,10 +2326,25 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--presentation", type=Path, default=ROOT / "data/public/seed-snapshot.json")
     parser.add_argument("--output", type=Path, default=ROOT / "data/public/seed-snapshot.json")
-    parser.add_argument("--view", choices=tuple(PRESENTATION_VIEW_LIMITS), default="top300")
-    parser.add_argument("--production", action="store_true")
+    parser.add_argument("--view", choices=tuple(PRESENTATION_VIEW_LIMITS), default="all_eligible")
+    parser.add_argument("--routing-config", type=Path, default=DEFAULT_ROUTING_CONFIG)
+    parser.add_argument("--release-profile", default=DEFAULT_RELEASE_PROFILE)
+    parser.add_argument("--staging-evaluation-id", type=int)
+    parser.add_argument(
+        "--db-qc-report",
+        type=Path,
+        help="authoritative canonical DB QC report bound to this exact evaluation",
+    )
+    parser.add_argument(
+        "--production",
+        action="store_true",
+        help="deprecated compatibility flag; export remains blocked until strict QC finalization",
+    )
     add_connection_args(parser)
     args = parser.parse_args()
+    release = load_release_profile(
+        load_registry(args.routing_config.resolve()), args.release_profile
+    )
     connection = connection_from_args(args)
     try:
         snapshot = build_snapshot(
@@ -1327,6 +2352,9 @@ def main() -> int:
             args.presentation.resolve(),
             production=args.production,
             presentation_view=args.view,
+            staging_evaluation_id=args.staging_evaluation_id,
+            db_qc_report=args.db_qc_report.resolve() if args.db_qc_report else None,
+            release_profile=release,
         )
     finally:
         connection.close()
@@ -1335,6 +2363,8 @@ def main() -> int:
         json.dumps(
             {
                 "generation": snapshot["generation"]["id"],
+                "releaseProfile": snapshot["generation"]["releaseProfile"],
+                "policySha256": snapshot["generation"]["policySha256"],
                 "top100": len(snapshot["top100"]),
                 "watchlist": len(snapshot["watchlist"]),
                 "output": str(args.output.resolve()),

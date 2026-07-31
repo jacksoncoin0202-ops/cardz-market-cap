@@ -21,6 +21,24 @@ The legacy `cardz-platform` and `grade10-scraper` trees remain read-only inputs.
 
 ## Progress
 
+- [x] (2026-07-29 20:35+09:00) Closed the independent printing review findings before any DB write: unverified `source_field` evidence is rejected until a deterministic extractor receipt exists, future-dated canonical DB QC authorities fail closed, and both attacks have regressions. Migrated the stale tracked demo seed to the already-defined Verified Top N contract only after preserving its exact 4,787,390 bytes and SHA-256; the migration changed no card facts or generation ID and re-sealed the content hash.
+- [x] (2026-07-29 20:35+09:00) Completed final local validation without promotion: `994 passed, 145 subtests`, the npm suites passed 115 web, 58 data, 12 root Node and 855 Python unittest cases, lint/typecheck/build and generated-doc drift passed. The live printing candidate remains the same blocked `d7e5405d...a6ed` plan with zero approved and 932 quarantined; rollback-only materialization changed zero rows. Strict image QC and the 11-high dependency audit remain real release blockers.
+- [x] (2026-07-29 20:07+09:00) Hardened the SNK review boundary and implemented the first receipt-driven canonical printing materializer without promoting data. Exact SNK source status, image asset/path, QC report/receipt bytes, card evidence and complete printing hash are now one fingerprint; four cleaned multi-SNK cases are resolved by append-only receipts while Newgate remains quarantined. `printing-plan` produced immutable blocked plan `d7e5405d...a6ed` from `qc_20260729_sale_contract_01`: 932 qualified, zero approved, 932 quarantined. Its exact materialize dry-run rolled back with zero changes; empty `--apply` is forbidden.
+- [ ] (2026-07-29 20:07+09:00) Produce content-addressed, field-level approval receipts for the first Top-ranked cards, then rebuild a non-empty printing plan, dry-run it, obtain explicit DB-write approval, apply the exact plan twice and regenerate full DB QC. Image enrolment/approval follows printing materialization; pointer, publisher and WSL timers remain out of scope.
+- [x] (2026-07-29 18:27+09:00) Completed the independent critical hardening and final local verification. Canonical sale QC now rejects weak timestamps, invalid coverage, missing payload hashes, non-unit/non-PSA10 values and non-exact provider-card ownership. The public receipt binds the same-run canonical DB QC receipt, the complete final snapshot facts, and the exact base/200/600 bytes and dimensions; status, Node/WSL and Cloudflare validate the same contract, with Cloudflare additionally requiring remote verification. Full validation passed 1,036 tests, lint, typecheck, Next production build, generated-doc drift and deployment config. Machine status completed in 203 ms and remained blocked; strict image QC and production dependency audit correctly remained red. `latest.json`, the demo seed, canonical facts and all WSL unit states remained unchanged.
+- [x] (2026-07-29 17:03+09:00) Implemented Milestone 10's fail-closed control plane without promoting data: the canonical MySQL authority now produces a deterministic printing-level universe candidate, a full read-only DB QC receipt audits every POP-qualified discovery candidate, daily orchestration binds one run ID through that receipt, the official publisher alone may advance a receipt/media-bound pointer, frontend gaps remain null, and machine status reports the release decision in under five seconds. The current lock, local/remote pointers, canonical facts and disabled WSL writers/timers were not changed.
+- [ ] (2026-07-29 17:03+09:00) Remediate the evidence queues by replaying accepted source receipts, then build/materialize the first non-empty immutable candidate twice, review Top-ranked images, and run the two unattended WSL attempts plus local/staging canaries. Current evidence correctly blocks this phase: 932 qualified discovery candidates were audited, zero are release-ready, and no production or staging promotion is authorized.
+- [x] (2026-07-28 17:03+09:00) Completed final verification: 817 Python tests plus 117 subtests, 107 web tests, 12 root Node tests, all 40 data-contract tests, lint, typecheck, Node standalone build, generated-doc drift, 21 live claim stamps, deployment config, 1,890 referenced-image integrity checks in cumulative-store mode, and the live WSL generation/header/404 canary passed. The tracked cumulative demo asset tree still has 810 historical unreferenced files, so the legacy global-tree strict check remains intentionally red rather than deleting tracked demo evidence.
+- [x] (2026-07-28 16:40+09:00) Implemented the approved DB/frontend repair wave: confirmed duplicates converged without deleting raw evidence, same-day source/index retries are revision-safe, coverage is current-universe-only, the generation-aware Node frontend is live on WSL, and all WSL writers remain disabled pending the two-run soak gate.
+- [x] (2026-07-28 15:24+09:00) Took and checksummed a canonical Docker Desktop table-level backup, proved migrations 011/012 and the stable convergence plan twice on a disposable clone, then applied the identical plan hash live. Twenty duplicate variants became aliases; 1,468 frozen source entries now materialize 1,448 canonical members; raw observations stayed at 367,517 and review stayed at 216.
+- [x] (2026-07-28 15:59+09:00) Backfilled 131,405 effective-observation pointers in resumable transactions. Latest `effective_at` then highest row ID wins; raw payload rows, payload bytes and payload CRC remained unchanged.
+- [x] (2026-07-28 16:18+09:00) Promoted the existing 258-card production-eligible local LKG into one immutable local generation without touching the tracked demo seed. Its 774 master/derivative assets and pointer agree; the 256 metadata-exact-but-unreviewed image records remain an explicit migration debt, and future publication still uses the strict semantic gate.
+- [x] (2026-07-28 16:40+09:00) Built a 2,485-file clean Windows source artifact plus a secret-name-scanned runtime seed, deployed them to a new `/opt/cardz-market-cap`, created the `cardz` service account and root-only LF environment files, installed a clean Python/Playwright/Node runtime, and started only the read-only web service on port 3900.
+- [x] (2026-07-28 16:40+09:00) Proved WSL reaches canonical server UUID `9e69728c-8694-11f1-bc42-42d95543b589`, not the same-named WSL Docker database. Health reports generation `canonical_20260726_e88c81289ac3` and 258 cards; one card page, master, 200/600 derivatives return 200 from the same generation, while an unlisted hash returns 404. Daily, watchdog, freeze, candidate and retention timers are all disabled/inactive.
+- [x] (2026-07-28 13:33+09:00) Reproduced the DB/collector disconnect from the current live MySQL through WSL: 1,496 exact GemRate source identities exist, but the candidate manifest does not carry them into exact SNK refill; 237 currently population-eligible candidates already have an exact DB identity that the file pipeline ignores.
+- [x] (2026-07-28 13:59+09:00) Preserved existing exact canonical identities when a new receipt is missing or route-unverified, continued to quarantine verified identity conflicts, and reused only fresh accepted canonical DB GemRate PSA 10 facts.
+- [x] (2026-07-28 13:59+09:00) Carried newly resolved exact SNK worklist IDs back into the candidate manifest before tracked-universe construction and canonical ingest, with absent, mismatched, duplicate, and rebind associations failing closed.
+- [x] (2026-07-28 13:59+09:00) Passed 60 focused tests and the complete WSL Python 3.12 suite (`749 passed, 2 skipped, 113 subtests`), regenerated/checksummed registry docs, and completed a live-DB read-only replay without publishing or mutating canonical facts.
 - [x] (2026-07-24) Installed `@colbymchenry/codegraph` 1.5.0 as a local read-only SQLite/WAL code index, added reproducible npm commands, and verified the index against 172 repository files.
 - [x] (2026-07-24) Added the architecture DAG and bounded task DAG to `config/data-routing.json`, exposed node/task reverse lookup through `backend.py explain` and `work-items`, generated the self-contained control-plane diagram/task board, and added drift/cycle/reference tests.
 - [x] (2026-07-24) Upgraded `config/data-routing.json` into the single executable backend registry covering storage policy, ranking scopes, presentation views, metrics, tools, profiles, database destinations, and public consumers. Manual/test lineage metadata is the remaining registry polish.
@@ -95,6 +113,46 @@ The legacy `cardz-platform` and `grade10-scraper` trees remain read-only inputs.
 
 ## Surprises & Discoveries
 
+- Observation: accepting a declared `source_field` while only checking the receipt file hash did not prove that the six printing values were extracted from that receipt. An empty receipt could therefore authorize declared values. The gate now accepts only `human_verified_source_field` or `vision_verified_source_field`; future canonical DB QC `asOf` values are also rejected rather than being selected as the newest authority.
+  Evidence: fail-closed regressions in `tests/test_printing_materialization.py`.
+- Observation: the tracked demo seed had the new validator/tests but not the new coverage/rank fields. Its legacy ranks were already complete, unique and contiguous 1–229, so the safe repair was a schema-only mapping rather than a DB export. Exact pre-migration bytes are preserved at `data/runtime/candidates/failed/seed-contract-migration-20260729/exact-pre-migration-20260729T112714Z/`; structural comparison proves no other field changed apart from the declared contract additions and content re-seal.
+- Observation: the apparent image-review backlog was not the next executable gate. Every current qualified card still lacks a complete six-field canonical printing receipt, so strict code correctly requires `identity clean -> printing decision/materialize -> image review/approve`. Adding more SNK files cannot unlock ranking.
+- Observation: four historical multi-SNK quarantine cases had already been reduced to one exact binding plus non-exact retained evidence. Treating every historical quarantine receipt as permanently active would block valid future work; deleting it would destroy audit history. Append-only resolution receipts now bind the original receipt, selected exact SNK ID and before/after source fingerprints. Newgate 1213 remains unresolved.
+- Observation: the final live read-only QC run `qc_20260729_sale_contract_01` audited all 932 population-qualified discovery candidates and released zero. It recorded 3,025 card blockers: all 932 lack a confirmed canonical printing and human/vision-confirmed image; 666 lack a valid 30-day exact PSA10 unit sale; 181 have no exact per-sale provider-card binding; the remaining blockers include 186 market-cap/current-price mismatches, 50 missing exact prices and six unapproved image duplicates.
+  Evidence: immutable report SHA-256 `29eac6ddd9b44e7324f9ab66c05a786c4396655a08d12435c5190c1b866b0e26` and receipt SHA-256 `f0a8f94fdc0cc96c3aec9eed7d2e248cabad50038b3935959612596609012d1c`.
+- Observation: hashing the QC receipt file was insufficient because the earlier receipt did not structurally bind its DB receipt contents, derivative bytes or final card metrics. A valid WebP could be swapped, or card metrics could be edited and the ordinary generation hash resealed while reusing the old receipt. The final contract fixes this with exact DB/run/universe fields, byte hashes and dimensions for all three media variants, plus a non-circular `snapshotContentSha256` computed with only the two hash fields blank.
+  Evidence: attack regressions in `tests/data/publication-containment.test.mjs`, `tests/test_universe_authority.py` and `apps/web/src/lib/server-snapshot.test.ts`; all leave an existing pointer byte-identical.
+- Observation: the final strict image scan verified 7,641 files but correctly failed with 271 findings: 214 cards lack card-bound public QC, 25 are not human/vision confirmed, 12 cross-TCG duplicate groups and 19 other unapproved duplicate groups remain, plus 6,924 cumulative unreferenced files. Production dependency audit independently reports 11 high findings; the only advertised complete fixes are destructive OpenNext/Next downgrades, so no force fix was applied.
+- Observation: the first full canonical DB audit cannot truthfully materialize the apparent 932-card qualified pool. All 932 POP-qualified discovery candidates lack a confirmed, unique full printing contract; all also lack human/vision image approval, 551 lack 30-day PSA10 sales, and 186 have a current-price/market-cap mismatch. The resulting immutable QC report has zero release-ready cards and intentionally exits non-zero.
+  Evidence: `data/runtime/private-reports/canonical-db-qc/qc_20260729_full_03/report.json` and its SHA-256-bound receipt.
+- Observation: 924 of 1,531 image-manifest rows marked `publicAllowed=true` had no valid resolver-source evidence. Their exact pre-change manifest was preserved under the private fail-close evidence directory, then those 924 flags were revoked without inventing approval evidence; 607 evidence-backed rows remain allowed.
+  Evidence: `data/runtime/private-reports/image-qc-failclose/image_qc_failclose_20260729/` and the post-change `manifests/image-qc.json`.
+- Observation: the tracked demo seed had already been normalized before an exact pre-migration byte backup was taken. A deterministic semantic reconstruction is preserved and explicitly declares `exactRawBytesClaimed=false`; its 5,681,825 bytes cannot be represented as the observed 5,681,826-byte original.
+  Evidence: `data/runtime/candidates/failed/seed-contract-migration-20260729/semantic-reconstruction/`.
+- Observation: the current database lock uses the exact schema-5 collection hash from `tracked-universe.json`, but its stored `member_count` and member rows were expanded from the document's 73 resolved members to 997. A presence-oriented qualified-pool status can therefore look green while the canonical integrity command correctly fails.
+  Evidence: read-only `qualified_pool_operator.py status`, `db_runtime.py status`, and a grouped query of current lock 23 on 2026-07-29.
+- Observation: two untracked helper scripts write or synthesize publication state outside the official pointer contract. `bake_publish_pack.py` hashes the serialized file instead of the canonical content contract and hardcodes `feSetComplete`; `db_fill_until_green.py` copies a candidate over the seed/local runtime and writes `latest.json` when only change values are non-null.
+  Evidence: source inspection plus `data/public/publish-staging/latest.json`, whose pointer generation differs from its snapshot generation and whose snapshot remains demo/blocked.
+- Observation: Windows Docker Desktop and WSL rootful Docker both exposed a container named `cardz-market-cap-db-1`, but they were different databases. Only Docker Desktop had server UUID `9e69728c-8694-11f1-bc42-42d95543b589`; using unqualified WSL `docker` would have backed up or migrated the wrong database.
+  Evidence: independent `@@server_uuid` probes through `docker.exe`, WSL `docker`, the migration clone, and the final `/opt` service environment. The noncanonical backup is explicitly labelled `NONCANONICAL_WSL_DAEMON_DO_NOT_RESTORE`.
+- Observation: several duplicate/canonical pairs had different universe roles. Blindly retaining the canonical row would have downgraded a tracked member to monitoring; blindly retaining the duplicate would have violated canonical identity ownership.
+  Evidence: disposable-clone convergence conflict and the stable plan hash `5076a5457cd6d4fe95f4766da9b98244da939c10e87fce26ee9d6ba61d0992c5`. Formal tracked role now outranks monitoring, same-strength formal-role conflicts fail closed, and ties prefer the canonical opaque row.
+- Observation: the existing versioned pointer referenced a 192-card demo generation, while the actual 258-card production-eligible LKG was a separate `data/runtime/local-serve/snapshot.json`. Of those 258 images, 256 are `metadata_exact_unreviewed`; all are public-allowed and byte/derivative-valid, but only two are human/vision confirmed.
+  Evidence: pointer/snapshot inspection, image-manifest aggregate and `verify_images.py` (`errors: []`, 1,890 files checked). A one-time local LKG migration used the relaxed semantic bootstrap; every future daily publish remains strict and therefore retains LKG until semantic QC is complete.
+- Observation: copying all of `apps/web/public` into Next standalone shadowed the dynamic `/market-assets/[asset]` route. Images returned 200 without `X-CARDZ-Generation`, so they were not actually bound to the active pointer despite correct route code.
+  Evidence: live WSL response headers before and after removing `standalone/apps/web/public/market-assets`. The final canary returns the active generation on master and both derivatives, and 404 for an unlisted hash.
+- Observation: the WSL host has a pre-existing half-configured `mysql-server` package and can reserve over 100 GiB after large artifact/build IO, causing intermittent new `wsl.exe` relay timeouts (`0x8007274c`). Playwright shared libraries were already present and its real browser launch passed; CARDZ neither repairs nor enables that unrelated MySQL service.
+  Evidence: `playwright install-deps` dpkg failure, direct browser launch, Windows/WSL memory probes and repeated minimal relay canaries. Cache drops restored control without terminating the distro or unrelated Hermes/OpenViking/Docker services.
+- Observation: the live DB already contains 1,496 `catalog_source_identity(source_code='gemrate', match_status='exact')` rows, but the current 2,097-row candidate manifest carries no canonical identity fields. A read-only join found 245 population-resolved rows with an exact DB identity, including 237 formal eligible rows.
+  Evidence: WSL read-only PyMySQL join of `gemrate-candidate-backfill/manifest.json` to `catalog_source_identity` and `catalog_variant` on 2026-07-28.
+- Observation: `snkrdunk_bulk.py` can discover exact new SNK IDs and emits them in `snk-price-refill.json`, but `run_full_backfill()` passes only the pre-refill candidate manifest and SNK history JSONL to `tracked_universe.py`. The resolved worklist is never consumed, so a newly discovered SNK association cannot reach the overlay or canonical ingest.
+  Evidence: `scripts/backend.py:638-716`, `pipelines/tracked_universe.py:134-228`, and focused CodeGraph exploration.
+- Observation: a current offline candidate replay downgraded every candidate from exact/unmapped state to zero confirmed identities, with 2,804 review rows. The largest reason was `public_receipt_route_unverified`; transport absence is currently allowed to overwrite previously exact identity evidence.
+  Evidence: `data/runtime/private-reports/candidate-backfill-current-probe/manifest.json` generated without public collection on 2026-07-28; this ignored private probe is not a production artifact.
+- Observation: the first post-fix read-only replay preserved 355 exact identities but still resolved zero candidates because file-local population receipts had aged out. Canonical MySQL already holds accepted GemRate PSA observations for 1,489 variants through 2026-07-26, which are within the existing two-day freshness window on 2026-07-28.
+  Evidence: WSL live-DB aggregate over `market_grader_population_observation` plus `data/runtime/private-reports/candidate-backfill-db-overlay-after-fix/manifest.json`; no DB write or public collection was performed.
+- Observation: the configured `gpt55-plan` read-only planning command is unavailable on this workstation.
+  Evidence: PowerShell returned `The term 'gpt55-plan' is not recognized`; implementation proceeds from repository registry, CodeGraph, tests, and live read-only DB evidence.
 - Observation: the local G10 source is a daily full pull plus overwrite, not a database-style incremental pipeline. Only the existing sales cache attempts accumulation.
   Evidence: `grade10_scraper.py`, `grade10_analytics.py`, and `data/_state/last_run.json`.
 - Observation: the configured `Grade10-Daily-Scraper` task has never completed an automatic run; the current data was created manually.
@@ -170,6 +228,60 @@ The legacy `cardz-platform` and `grade10-scraper` trees remain read-only inputs.
 
 ## Decision Log
 
+- Decision: ordinary `source_field` declarations cannot materialize canonical printing values. Until a deterministic extractor receipt proves field-level extraction, every approved field must be explicitly human- or vision-verified, and the bound QC authority must have a valid non-future timestamp.
+  Rationale: hashing an evidence file proves only its bytes, not that the proposed value came from those bytes; a future authority can also displace the genuine current run.
+  Date/Author: 2026-07-29, Jackson and Codex.
+- Decision: migrate the tracked demo seed contract mechanically from its existing complete rank sequence, after an exact byte archive, instead of rerunning the canonical exporter or weakening validation.
+  Rationale: exporter replay would mix current DB/card changes into a schema repair, while validator compatibility would leave consumers without the promised fields. Exact archiving plus structural comparison makes the narrow migration reversible and auditable.
+  Date/Author: 2026-07-29, Jackson and Codex.
+- Decision: canonical printing may be materialized only from a content-addressed per-card approval receipt that binds the latest immutable QC card evidence, exactly one GemRate and SNK owner, all six printing fields and each field's actual private source receipt bytes. The materializer requires the exact plan hash, fixed writer locks, canonical database assertion, commit-time authority revalidation and exact read-back; a zero-row apply is an error.
+  Rationale: exact provider IDs and populated columns are necessary but do not prove edition, parallel or finish. Receipt-bound transaction replay prevents defaults, mutable review files and stale plans from creating canonical-looking false data.
+  Date/Author: 2026-07-29, Jackson and Codex.
+- Decision: identity quarantine is append-only. A cleaned conflict is released by a self-hashed resolution that supersedes one known quarantine receipt and binds the chosen exact SNK ID plus before/after source fingerprints; unresolved or drifted cases remain blocked.
+  Rationale: deleting quarantine evidence loses the reason for the original stop, while treating it as permanent prevents legitimate evidence repair.
+  Date/Author: 2026-07-29, Jackson and Codex.
+- Decision: a production QC receipt is structured evidence, not merely a file hash. It must bind one canonical DB QC run and universe candidate, the final snapshot facts, every approved card in order, and the actual base/200/600 media bytes and dimensions. Node may accept a locally verified pointer for WSL canary work, but Cloudflare production additionally requires `remoteVerified=true`.
+  Rationale: a hash proves only that some bytes are unchanged. Without parsing and cross-binding those bytes, stale/fake receipts, resealed metrics and swapped derivatives can still appear internally consistent.
+  Date/Author: 2026-07-29, Jackson and Codex.
+- Decision: missing source evidence is revoked, never backfilled by assertion. The 924 image-manifest rows without valid resolver evidence are now non-public, while their exact prior manifest remains immutable private audit evidence.
+  Rationale: a conservative false negative can enter a review queue; a fabricated public approval would recreate the false-green condition this milestone removes.
+  Date/Author: 2026-07-29, Jackson and Codex.
+- Decision: do not materialize an empty universe, run unattended writers, or perform local/staging canaries while the full DB QC result is zero release-ready. Keep the current lock and last-good pointer unchanged until receipt replay produces a non-empty candidate that passes the same gates twice.
+  Rationale: exercise of a release path is not evidence that its data is safe. The acceptance sequence starts only after the upstream identity, sales, price and image blockers are real inputs rather than bypassed conditions.
+  Date/Author: 2026-07-29, Jackson and Codex.
+- Decision: Milestone 10 has one computed truth path and no compatibility exception: canonical MySQL facts generate a new immutable qualified/pre-entry universe; strict per-card QC generates a receipt; only the official generation publisher may atomically advance a pointer. Helper loops remain diagnostics/candidate builders and cannot copy into the seed, local last-good, or `latest.json`.
+  Rationale: the current false-green state exists because membership, FE readiness, media presence and release state can be asserted independently. One receipt-bound path makes disagreement fail closed.
+  Date/Author: 2026-07-29, Jackson and Codex.
+- Decision: the public compatibility array remains named `top100`, but it carries only verified cards and may contain 1–100 entries. The claim and UI are `verified-top-n` until all 100 positions pass; source-window gaps stay null and image semantic approval is mandatory for every newly published generation.
+  Rationale: preserving the field avoids a broad API break while preventing the product from claiming one hundred trustworthy cards when fewer have passed.
+  Date/Author: 2026-07-29, Jackson and Codex.
+- Decision: Docker Desktop server UUID `9e69728c-8694-11f1-bc42-42d95543b589` is the single canonical local database endpoint. Container names are not identity; every backup, migration and WSL canary must verify the UUID before a write.
+  Rationale: two Docker daemons expose the same container name and schema name. Endpoint ambiguity can produce a perfectly successful migration against the wrong database.
+  Date/Author: 2026-07-28, Jackson and Codex.
+- Decision: duplicate convergence retains the strongest accepted universe role, with formal tracked roles above monitoring; equal-strength incompatible formal roles stop the transaction, while equal roles prefer the canonical variant. Raw evidence is immutable and the duplicate survives only as an alias/tombstone.
+  Rationale: canonical identity and product membership are separate concerns. Convergence must not silently demote a tracked card or invent a role.
+  Date/Author: 2026-07-28, Jackson and Codex.
+- Decision: the WSL web service may start read-only before writer cutover, but no WSL writer, watchdog, freeze, candidate or retention timer is enabled until two consecutive unattended daily runs pass and agree with canonical DB counts and web generation. Windows remains the sole writer during the soak.
+  Rationale: installing code and proving reads does not authorize a second scheduler. The gate prevents duplicate attempts and split-brain publication.
+  Date/Author: 2026-07-28, Jackson and Codex.
+- Decision: Node standalone never bundles `public/market-assets`; all production market media is served through the active pointer's generation-aware allowlist. Ordinary public files and Next static chunks remain bundled.
+  Rationale: a static file takes precedence over the route and can return bytes from a different generation without the pointer check.
+  Date/Author: 2026-07-28, Jackson and Codex.
+- Decision: the existing 258-card production-eligible LKG may be imported once into the versioned local runtime after byte/hash/derivative and `publicAllowed` validation, despite 256 legacy `metadata_exact_unreviewed` records. This exception does not weaken the normal publisher: every new generation still requires strict human/vision semantic QC.
+  Rationale: the migration must preserve what the current frontend already serves without falsely treating the tracked demo seed as production; retaining the strict forward gate prevents the debt from silently expanding.
+  Date/Author: 2026-07-28, Jackson and Codex.
+- Decision: an existing exact canonical mapping may be challenged only by verified contradictory identity evidence. A missing, invalid, or route-unverified receipt is a transport failure and must not erase or downgrade the exact DB/crosswalk identity.
+  Rationale: absence of new evidence is not evidence that the persisted exact mapping is wrong; downgrading it disconnects valid population and price facts without improving correctness. Verified set, collector, language, edition, parallel, or finish conflicts still enter review.
+  Date/Author: 2026-07-28, Jackson and Codex.
+- Decision: full backfill must treat the exact SNK refill worklist as a required association artifact. The worklist is merged by immutable canonical source reference, rejects rebinding, and is consumed before `tracked_universe.py` derives the overlay.
+  Rationale: collecting a new SNK ID without carrying its exact candidate association forward creates an orphan result and permanently caps price coverage even though the scraper succeeded.
+  Date/Author: 2026-07-28, Jackson and Codex.
+- Decision: reuse the standalone canonical MySQL identity already present in this repository; do not introduce JLP, a second catalogue DB, name-only matching, or a synchronized shadow mapping store.
+  Rationale: this task repairs one broken join in the current CARDZ pipeline. Additive use of the existing exact identity contract is the smallest safe change and preserves the single-database decision.
+  Date/Author: 2026-07-28, Jackson and Codex.
+- Decision: an accepted canonical DB GemRate PSA 10 observation may satisfy candidate current-population classification only through the existing two-day freshness gate. Stale DB population remains retry evidence and never suppresses collection.
+  Rationale: the DB already owns accepted canonical facts, so ignoring a fresh row causes duplicate collection and false missing-data states; extending its lifetime would instead disguise an upstream refresh failure.
+  Date/Author: 2026-07-28, Jackson and Codex.
 - Decision: local CodeGraph SQLite is a read-only implementation index, while `config/data-routing.json` remains the only handwritten architecture and task authority. Generated diagrams and task tables may be regenerated from the registry but may never become a second source of rules.
   Rationale: static call/import evidence helps agents locate implementation impact, but it cannot define provider authority, canonical data meaning, ranking policy, or execution ownership.
   Date/Author: 2026-07-24, Jackson and Codex.
@@ -218,7 +330,7 @@ The legacy `cardz-platform` and `grade10-scraper` trees remain read-only inputs.
 - Decision: immutable content-addressed runs remain the disaster-recovery evidence, while a standalone MySQL-compatible database is the operational canonical authority. The database is rebuilt only through the same idempotent normalized batches; no second hand-edited catalogue is permitted. A future JLP adapter may consume the same schema contract without becoming a current release gate.
   Rationale: Jackson requires this workstation to behave like the eventual server and a clean GitHub clone to restore history, initialize its own database and continue daily increments. Immutable runs preserve reproducibility; MySQL-compatible operation supplies the production-equivalent runtime without depending on JLP.
   Date/Author: 2026-07-23, Jackson and Codex.
-- Decision: Windows, Linux, EC2, and RDS use the same Python 3.10+ backend entrypoint. PowerShell and shell files are convenience launchers only; the portable Python path owns venv creation, dependency installation, archive verification/restore, migrations, replay, integrity status, singleton daily collection, and fail-closed exit codes. RDS configuration must be explicitly process-injected, and production external-database mode requires verified TLS through `CARDZ_DB_SSL_CA`.
+- Decision: Windows, Linux, EC2, and RDS use the same Python 3.10+ backend entrypoint. PowerShell and shell files are convenience launchers only; the portable Python path owns venv creation, dependency installation, archive verification/restore, migrations, replay, integrity status, singleton daily collection, and fail-closed exit codes. RDS configuration must be explicitly process-injected, and every non-loopback production external-database mode requires verified TLS through `CARDZ_DB_SSL_CA`; the local WSL → Docker Desktop endpoint is an explicit loopback exception.
   Rationale: the local workstation must behave like the eventual server, and a clean GitHub clone must not depend on Windows Task Scheduler, drive-letter logic, or a local Docker password file.
   Date/Author: 2026-07-23, Jackson and Codex.
 - Decision: public editorial HTML is searchable while bulk data, raw history, provider identity, and upstream assets remain private and rate-limited.
@@ -332,6 +444,109 @@ From `C:/Users/jackson0202/Documents/Playground/cardz-market-cap`, run:
 
 Expect the registry validator to resolve every metric, tool, database destination, manual and public consumer; generated files to be byte-stable; GemRate direct/public/mirror fixtures to preserve one authority with transport provenance; the same ranking generation to yield consistent Top 100/300/350 views; and injected source failure to preserve checkpoint and last-good state.
 
+## Milestone 8 - Bridge canonical DB identity to exact SNK refill
+
+Make candidate classification reuse an exact `catalog_source_identity(gemrate)` mapping and fresh accepted canonical GemRate PSA 10 observation without changing canonical rows or trusting names. Existing exact crosswalk or DB identity survives missing/unverified receipt transport, while a verified contradictory receipt still goes to review. Make `scripts/backend.py full-backfill` pass the resolved SNK worklist to `tracked_universe.py`; merge only rows whose canonical source reference and exact identity agree, reject attempted rebinding, and then build the private overlay used by canonical ingest.
+
+No schema migration or live DB write is required for this repair. The source candidate manifest, resolved SNK worklist, and merged universe remain private runtime artifacts. Rollback is the code revert: old DB rows and last-good/public generations are untouched.
+
+### Validation
+
+From `C:/Users/jackson0202/Documents/Playground/cardz-market-cap`, run:
+
+    python -X utf8 -m unittest tests.test_gemrate_candidate_backfill tests.test_tracked_universe tests.test_full_backfill_profile -v
+    python -X utf8 -m unittest tests.test_registry_lineage tests.test_data_routing -v
+    python -X utf8 scripts/backend.py generate-docs
+    python -X utf8 scripts/backend.py generate-docs --check
+
+Then run the same focused tests with WSL Python 3.12 against `/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap`. Expect a DB-exact identity to survive a route-unverified receipt, a verified conflicting receipt to remain review, a newly resolved SNK ID to appear in the candidate overlay exactly once, a conflicting existing SNK ID to fail closed, and the full-backfill command to pass `--snk-worklist` before any canonical ingest. Do not run `--write`, `daily --publish`, or pointer promotion as part of this milestone.
+
+## Milestone 9 - Converge canonical variants and close the WSL publication loop
+
+Converge only printing groups already marked as confirmed duplicates.  The data
+repair is a separate, plan-hash-gated transaction: source identities, normalized
+facts and the current universe are rebound to the canonical survivor; raw source
+observations remain immutable; unresolved printing groups remain in review; and
+the duplicate variant becomes an auditable alias rather than being deleted.
+
+Give every daily invocation an immutable attempt identity while retaining its
+logical effective date.  A retry must collect a new source attempt, and the
+index snapshot must point to the exact alert evaluation revision that produced
+it.  Coverage is measured against the current universe intersection.  The
+public view is the deduplicated `top300_boards` union.  Local publication writes
+one versioned snapshot-and-assets generation and advances one runtime pointer
+only after all gates pass; the tracked demo seed is never the production
+pointer.
+
+Prepare a clean `/opt/cardz-market-cap` WSL artifact, Node web unit, daily unit,
+weekly additive-candidate unit and retention-report unit.  Install and start are
+separate operations.  Windows remains the sole writer until two unattended WSL
+runs pass and their DB counts and `/api/health` generation agree.
+
+### Validation
+
+Run the identity plan twice in dry-run mode and require the same plan hash. Test
+the data repair against a disposable MySQL copy before a table-level live
+backup. Simulate a failed and then successful same-day source attempt and verify
+that the later evaluation, index snapshot, generation pointer and health
+response all advance together. Run Python unit/integration tests, market-data
+tests, web tests, lint, typecheck, build, deployment verifier and WSL systemd
+dry-run. No Windows task is disabled and no WSL writer is enabled until the
+two-run soak gate is independently satisfied.
+
+## Milestone 10 - Re-establish one truthful universe, strict QC, and Verified Top N
+
+Keep the current remote pointer, local last-good generation, dirty worktree and
+canonical observations intact while rebuilding the release decision. Generate a
+new schema-5 universe from the latest accepted non-estimated GemRate PSA 10
+population: population 1000 or above is qualified, 971–999 is monitoring, and
+lower rows remain discovery evidence. Resolve aliases before membership, create
+a new immutable lock instead of rewriting lock 23, materialize it transactionally,
+and require the document count, stored count and distinct member count to agree.
+
+Audit every qualified member for canonical identity, exact source ownership,
+fresh population and exact PSA 10 price, 30-day PSA 10 sales, temporal
+consistency, market-cap arithmetic, image identity and semantic approval. The
+initial human/vision queue starts at canonical market rank 1 and continues until
+100 cards pass. Every public card must have a versioned QC decision tied to its
+card ID and content hash; hash-valid but unreviewed, SAMPLE, placeholder,
+cross-TCG reuse and unexplained cross-identity reuse are blocked.
+
+Remove cross-window borrowing from the frontend and keep null grader changes
+null. Extend the sanitized snapshot with a verified claim/count, separate
+market/view rank and a QC receipt hash while retaining the `top100` field for
+compatibility. Only `pipelines/publish-snapshot.mjs` may produce the complete
+generation assets and pointer contract; failed gates retain the previous
+pointer. `scripts/backend.py status --json` becomes a fast, read-only aggregate
+of universe integrity, QC coverage, review counts and last-good age and must
+never install dependencies.
+
+Register every active owner, table, tool and acceptance contract in
+`config/data-routing.json`, regenerate the derived control-plane documents, and
+replace manually asserted operational counts in `PROJECT_STATE.md` with a
+timestamped machine-status transcript. Owner roles are Data Ops for lineage,
+QC approver for identity/media anomalies, and Main/Hermes for release/rollback;
+ranked reviews target 24 hours and other reviews three working days.
+
+### Validation
+
+From `C:/Users/jackson0202/Documents/Playground/cardz-market-cap`, run:
+
+    python -X utf8 -m unittest tests.test_db_runtime tests.test_universe_promotion tests.test_backend_cli_contract tests.test_registry_lineage tests.test_data_routing -v
+    npm run test
+    npm run test:data
+    npm run images:verify:strict
+    npm run build
+    npm run verify:release
+    python -X utf8 scripts/backend.py generate-docs --check
+
+Then verify the canonical Docker Desktop server UUID, materialize the new
+universe twice and require the second pass to add no facts or members. Run two
+unattended WSL daily attempts with every WSL timer still disabled and compare
+run IDs, observation counts, universe hash and `/api/health`. Finally perform a
+WSL local canary and Cloudflare staging canary. Production promotion and writer
+timer enablement remain separately approval-gated.
+
 ## Interfaces and Dependencies
 
 - `MarketWindow = "1d" | "7d" | "30d"`
@@ -350,12 +565,87 @@ Source payload hashes and canonical observation keys make imports safe to repeat
 
 ## Outcomes & Retrospective
 
+Milestone 10 is implemented as a fail-closed local control plane, not a data
+promotion. Canonical MySQL remains the only business database; the deterministic
+candidate currently has 932 discovery rows but zero promotable printings, and
+the immutable full-DB QC receipt reports zero of 932 release-ready. The snapshot
+contract now supports truthful Verified Top N coverage, separate market/view
+ranks, strict time/price/sales/image gates and a generation-bound QC receipt.
+The final receipt is also bound to the exact canonical DB QC bytes, same run ID,
+universe hash, complete final snapshot facts and each base/200/600 media object.
+Legacy image mutators are archived, helper scripts cannot advance `latest.json`,
+and the official publisher verifies every referenced media object before an
+atomic pointer update. Machine status remains read-only and reports the current
+generation/pointer mismatch and every release blocker rather than accepting a
+handwritten `feSetComplete` flag.
+
+The next remediation slice is now executable but intentionally empty: the
+content-addressed printing candidate from the latest QC authority contains zero
+approved rows and 932 explicit `missing_printing_receipt` quarantines. The
+materializer's rollback-only validation passed and no canonical DB row changed.
+Four resolved multi-SNK histories remain preserved alongside their resolution
+receipts; Newgate stays active. This establishes the safe transaction path, but
+does not claim that any printing, image or public rank has passed human review.
+
+Final local verification passed `994` pytest cases plus `145` subtests. The npm
+contract passed 115 web tests, 58 market-data tests, 12 root Node tests and 855
+Python unittest cases (1,040 total), plus lint, typecheck, the Next production
+build and generated-doc drift. Status completed in 218 ms against canonical
+MySQL and remained release-blocked. Strict image QC inspected 7,650 files and
+correctly reported 203 not human/vision-confirmed cards, 24 cards without a
+card-bound public QC record and 6,963 cumulative unreferenced files.
+`npm run verify:release` stops at 11 high dependency advisories; the advertised
+force fixes are breaking downgrades, so neither blocker was hidden or
+force-fixed. Pointer file SHA
+`ab81dcb38fea290a1c8b71eaf14510f1b043e4bf12b2184ccc1ac3fd8b55be54`
+remained unchanged. The demo seed was intentionally migrated from exact archived
+SHA `52a849c1dca94649135730632d24747c0b7a731fe69c670246f6ccc99ab3d595`
+to SHA `2d4455d0c800d60567ecd11de5d1b9cb66a8dbe01d7a663365c13ca28d1d89fb`
+with no card-fact or generation-ID change.
+
+No canonical fact, current universe lock, runtime/public pointer, remote object,
+WSL writer/timer or staging environment was changed. The remaining work is
+evidence remediation through accepted source receipts, followed by idempotent
+materialization, Top-ranked human/vision review and the approval-gated soak and
+canary sequence. Until that happens, the product must retain its previous
+last-good generation and cannot claim Verified Top 100.
+
 The clean repository, immutable replay/import contracts, sanitized Top 100/watchlist generation, art-first responsive application, private R2 publication chain, isolated Cloudflare canary/staging Workers, and Private GitHub history are implemented. The backend now selects a bounded active universe before G10/GemRate/SNK/TAG collection, refreshes the 600-card broad radar before any daily database change, persists evidence-bound market-entry alerts, and validates USD/HKD/CNY/GBP/TWD/JPY/KRW rates without browser-side upstream calls. The exact Grade10 dependency and AWS/Linux units are now present and tested in the worktree; fresh-clone reproducibility still requires committing and pushing those currently untracked files and the LFS archive pointer.
 
 This is a truthful backend staging result, not a production cutover. JLP is no longer a blocker. The standalone database/bootstrap path, deduplicated three-index tracked universe, full SNK history replay, idempotent MySQL import, and a real tracked-universe daily canary now pass on the workstation. The current selector has 300 combined, 300 Pokémon, and only 95 qualified One Piece members, producing a 395-printing union; the missing 205 One Piece candidates require broader exact discovery rather than fabricated rows. GemRate history is locally available for 52 of 395 mapped candidates and needs a privately injected API key to backfill the remaining worklist. Remaining backend proof is a second calendar-day unattended increment, managed-MySQL/RDS TLS canary when a server exists, and the database-derived public exporter/pointer publisher.
 
 Wave 1 now makes the transport boundary explicit in the checked-in routing contract and operator documentation. It does not implement the direct/mirror collector selection, provenance storage, or same-day comparison gate; those are deliberately Wave 2 runtime work.
 
+## Image Binding Convergence — 2026-07-31
+
+The 936-card frozen cohort now uses a three-bucket binding plan:
+
+1. Preserve clean `source_id_exact` bindings; do not ask the operator to review
+   them again.
+2. Auto-reject deterministic failures by source x TCG, language, SAMPLE
+   evidence, missing bytes, geometry and duplicate evidence. Rejections remain
+   retryable and enter the replacement-image ledger; an existing exact raw card
+   may be normalized without changing its identity binding.
+3. Present only the unresolved survivors in the localhost review proxy. Reject
+   decisions require a reason; SAMPLE rejects also require a location.
+
+The 2026-07-31 v3 funnel found 402 preservable exact bindings, 131 unresolved
+human candidates and 403 deterministic rejects. Jackson subsequently rejected
+the complete `limitless-one-piece-en` source family because its One Piece images
+systematically contain SAMPLE content. The v4 refresh must therefore remove
+that family from the human queue before any DB/public write.
+
+Replacement search order is local G10/SNK exact language + printing, purchased
+Google Drive exact language + printing, SNK live exact language + printing,
+then other clean exact sources. Collector-number-only matches are candidates,
+not bindings. The current local worklist has a local G10 collector+language
+candidate for all 16 explicit JA/EN mismatches, but printing disambiguation
+still gates promotion.
+
 The P0/P1 operational review on 2026-07-24 closed three release-critical failures. Canonical seed archives no longer contain migration-owned metadata or transaction control, so restore owns one rollback boundary and can safely resume a repository-created empty migrated schema after a failed insert. The public exporter and `daily --publish` path now derive rank, price, population, changes, tracked sales, and history from canonical MySQL; the checked snapshot is presentation-only. Daily history selects the highest-priority observation per date and retains the latest 90 days rather than the oldest 90.
 
 The full Python suite (128 tests), web suite (54 tests), market-data contract tests, direct Next production build, and structural snapshot contract pass. A live MySQL export/restore/daily canary is still unproved on this workstation because the database runtime is not running. Production release verification also remains closed until a fresh Cloudflare/OpenNext build replaces the stale provider-bearing Worker artifact; the current source-side external provider link was removed so a new build will not reproduce that leak.
+
+Milestone 8 repaired the DB-to-collector identity loop without a new table or shadow catalogue. A WSL read-only loader found 1,496 exact GemRate identities, 1,490 with accepted PSA population and 272 with one exact SNK identity. The final 2,097-candidate replay retained 355 exact identities and classified 25 rows from fresh canonical DB population (`1` eligible, `5` pre-entry, `19` outside radar) instead of the pre-fix zero, while 1,576 verified conflicts and 496 unavailable rows remained private review/retry evidence. The code was validated against live MySQL without a DB write or public collection; a real operator-approved `full-backfill` remains the step that collects stale rows and advances canonical data.
+
+Milestone 9 completed the authorized live identity repair and the read-only WSL deployment without cutting over the writer. Migrations 011/012, 20 aliases, 1,448 canonical roster members and 131,405 effective pointers are live on the verified Docker Desktop database; 367,517 raw observations and 216 pending reviews were preserved. Daily attempts and index evaluations are revisioned, passed-evaluation selection replaces first-write-wins, coverage is current-universe-only, weekly candidate promotion is additive and disabled by default, and retention remains a dry-run report. `/opt/cardz-market-cap` serves the existing 258-card production LKG on port 3900 from a generation-scoped pointer and media route. The remaining release gates are real rather than implementation gaps: strict semantic QC is incomplete for 256 LKG images, price coverage is still too low to promise 400–500 cards, and WSL writer cutover requires two unattended successful daily runs while Windows remains the only scheduler.

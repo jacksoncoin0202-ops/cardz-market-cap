@@ -96,3 +96,22 @@ Pointer：`data/public/publish-staging/latest.json` → `generations/canonical_l
 - productionEligible 清 74 skip（identity incomplete / image）  
 - 深度 editorial 故事（而家有模板短文）  
 - 日更 incremental 只跑 registry preferred 源  
+- 剩 sparse 2（ST10、Greninja）——源窗真乾  
+- comic/SEC-SP 同 collector 共用 Limitless base 面——按 printing 分圖  
+
+---
+
+## 7. 晚間續（2026-07-29 PM · 升跌 + SAMPLE + 填庫）
+
+| 做咗 | 證據／結果 |
+|---|---|
+| 30d 假 0% | TPL today-stamp bug 修；#34/37/88/89 有真 % |
+| changePct 頭尾 | `canonical_public_snapshot` 簡單 head-tail；見 FILL_LOOP_LESSONS |
+| G10 kline bridge | +183 價行；sparse 5→2 |
+| SNK 161 harvest + trades | +2772 trades；sale_any **261** |
+| G10 sales_cache | 大批 snkrdunk 成交 upsert |
+| SAMPLE OP 20 張 | Limitless `_EN` + P-110 G10；re-scan **0** |
+| 文檔 | PROJECT_STATE · FE_LIVE_100 · HANDOFF · CARD_SOURCING · FILL_LOOP_LESSONS |
+| 腳本 | `scripts/db_fill_until_green.py` |
+
+**用戶澄清**：SAMPLE≈美版 TCGplayer 感；clean 主力係 **EN Limitless** 唔係日版；OP 美日共用 number 唔共用 SKU。  

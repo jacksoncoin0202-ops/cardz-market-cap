@@ -20,7 +20,8 @@ import sys
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator
+from types import ModuleType
+from typing import Iterable, Iterator
 
 
 ROOT = Path(__file__).resolve().parent
@@ -30,6 +31,7 @@ SCRAPER = ROOT / "grade10_scraper.py"
 ANALYTICS = ROOT / "grade10_analytics.py"
 KLINE = ROOT / "grade10_kline.py"
 LOCK_PATH = DATA_ROOT / "_state" / "collector.lock"
+KNOWN_MINIMUM_ASSET_INFO = 595
 
 
 @contextmanager
@@ -137,7 +139,72 @@ def indexed_cards() -> set[tuple[str, str]]:
     return cards
 
 
-def validate_collection(expected_cards: int, *, scope: str, not_before: datetime) -> dict[str, object]:
+def valid_json_object(path: Path) -> bool:
+    try:
+        return path.is_file() and isinstance(read_json(path), dict)
+    except (OSError, ValueError):
+        return False
+
+
+def detail_coverage(
+    cards: Iterable[tuple[str, str]] | None = None,
+) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    missing_assets: list[tuple[str, str]] = []
+    missing_populations: list[tuple[str, str]] = []
+    for source, external_id in sorted(cards if cards is not None else indexed_cards()):
+        card_root = DATA_ROOT / "cards" / source / external_id
+        if not valid_json_object(card_root / "asset_info.json"):
+            missing_assets.append((source, external_id))
+        if not valid_json_object(card_root / "populations.json"):
+            missing_populations.append((source, external_id))
+    return missing_assets, missing_populations
+
+
+def missing_detail_cards(
+    cards: Iterable[tuple[str, str]] | None = None,
+) -> list[tuple[str, str]]:
+    missing_assets, missing_populations = detail_coverage(cards)
+    return sorted(set(missing_assets) | set(missing_populations))
+
+
+def load_scraper() -> ModuleType:
+    spec = importlib.util.spec_from_file_location("cardz_grade10_scraper", SCRAPER)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Grade10 scraper module cannot be loaded")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def repair_missing_details(
+    missing: Iterable[tuple[str, str]],
+    *,
+    skip_images: bool,
+) -> int:
+    targets = list(dict.fromkeys(missing))
+    if not targets:
+        return 0
+    scraper = load_scraper()
+    cards = {
+        (str(card.get("source") or "").casefold(), str(card.get("id") or "")): card
+        for card in scraper.enumerate_cards()
+    }
+    unresolved = [identity for identity in targets if identity not in cards]
+    if unresolved:
+        rendered = ", ".join(f"{source}:{external_id}" for source, external_id in unresolved)
+        raise RuntimeError(f"missing Grade10 repair identities from current indexes: {rendered}")
+    for identity in targets:
+        scraper.scrape_card(cards[identity], skip_images=skip_images)
+    return len(targets)
+
+
+def validate_collection(
+    expected_cards: int,
+    *,
+    scope: str,
+    not_before: datetime,
+    minimum_asset_info: int | None = None,
+) -> dict[str, object]:
     state_path = DATA_ROOT / "_state" / "last_run.json"
     if not state_path.is_file():
         raise RuntimeError("collector did not produce data/_state/last_run.json")
@@ -155,30 +222,52 @@ def validate_collection(expected_cards: int, *, scope: str, not_before: datetime
     cards = indexed_cards()
     if len(cards) != expected_cards:
         raise RuntimeError(f"collector index identity coverage failed: {len(cards)} != {expected_cards}")
-    detail_count = 0
+    asset_count = 0
+    population_count = 0
+    missing_assets: list[tuple[str, str]] = []
     if scope in {"cards", "full"}:
-        for source, external_id in cards:
-            card_root = DATA_ROOT / "cards" / source / external_id
-            asset = card_root / "asset_info.json"
-            populations = card_root / "populations.json"
-            if not asset.is_file() or not populations.is_file():
-                continue
-            if not isinstance(read_json(asset), dict) or not isinstance(read_json(populations), dict):
-                continue
-            detail_count += 1
-        if detail_count != expected_cards:
-            raise RuntimeError(f"collector detail coverage failed: {detail_count} != {expected_cards}")
+        missing_assets, missing_populations = detail_coverage(cards)
+        asset_count = len(cards) - len(missing_assets)
+        population_count = len(cards) - len(missing_populations)
+        if population_count != expected_cards:
+            raise RuntimeError(
+                f"collector population detail coverage failed: {population_count} != {expected_cards}"
+            )
+        required_assets = (
+            min(expected_cards, KNOWN_MINIMUM_ASSET_INFO)
+            if minimum_asset_info is None
+            else minimum_asset_info
+        )
+        if required_assets < 0 or required_assets > expected_cards:
+            raise RuntimeError("minimum asset-info coverage must be between zero and expected cards")
+        if asset_count < required_assets:
+            raise RuntimeError(
+                f"collector asset identity coverage failed: {asset_count} < {required_assets}"
+            )
     return {
         "status": "collected",
         "cardCount": card_count,
         "indexedCards": len(cards),
-        "detailCards": detail_count if scope in {"cards", "full"} else None,
+        "detailCards": asset_count if scope in {"cards", "full"} else None,
+        "assetInfoCards": asset_count if scope in {"cards", "full"} else None,
+        "populationCards": population_count if scope in {"cards", "full"} else None,
+        "missingAssetInfo": [
+            {"source": source, "externalId": external_id}
+            for source, external_id in missing_assets
+        ],
         "lastRun": last_run.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
         "dataRoot": str(DATA_ROOT),
     }
 
 
-def collect(scope: str, *, skip_images: bool, expected_cards: int, timeout: int) -> dict[str, object]:
+def collect(
+    scope: str,
+    *,
+    skip_images: bool,
+    expected_cards: int,
+    timeout: int,
+    minimum_asset_info: int | None = None,
+) -> dict[str, object]:
     arguments: list[str] = []
     if scope == "index":
         arguments.append("--index-only")
@@ -189,7 +278,14 @@ def collect(scope: str, *, skip_images: bool, expected_cards: int, timeout: int)
     with singleton_lock(LOCK_PATH):
         started_at = datetime.now(timezone.utc)
         run_script(SCRAPER, arguments, timeout)
-        return validate_collection(expected_cards, scope=scope, not_before=started_at)
+        if scope in {"cards", "full"}:
+            repair_missing_details(missing_detail_cards(), skip_images=skip_images)
+        return validate_collection(
+            expected_cards,
+            scope=scope,
+            not_before=started_at,
+            minimum_asset_info=minimum_asset_info,
+        )
 
 
 def legacy_derive(timeout: int) -> dict[str, object]:
@@ -213,6 +309,7 @@ def main() -> int:
     collect_parser.add_argument("--scope", choices=("index", "cards", "full"), default="index")
     collect_parser.add_argument("--skip-images", action="store_true")
     collect_parser.add_argument("--expected-cards", type=int, default=600)
+    collect_parser.add_argument("--minimum-asset-info", type=int, default=KNOWN_MINIMUM_ASSET_INFO)
     collect_parser.add_argument("--timeout-seconds", type=int, default=5_400)
     legacy_parser = subparsers.add_parser("legacy-derive", help="compatibility output; never canonical")
     legacy_parser.add_argument("--timeout-seconds", type=int, default=5_400)
@@ -226,6 +323,7 @@ def main() -> int:
             skip_images=args.skip_images,
             expected_cards=args.expected_cards,
             timeout=args.timeout_seconds,
+            minimum_asset_info=args.minimum_asset_info,
         )
     else:
         result = legacy_derive(args.timeout_seconds)

@@ -49,6 +49,56 @@ class DataCleaningRulesTests(unittest.TestCase):
         self.assertEqual(explanation["value"]["authority"], "gemrate")
         self.assertEqual(explanation["value"]["requiredGrade"], "10")
 
+    def test_printing_identity_is_language_inclusive_even_when_rankings_group(self) -> None:
+        rules = load_and_validate()
+        self.assertEqual(
+            rules["identity"]["tuple"],
+            [
+                "tcg",
+                "card_language",
+                "set",
+                "collector_number_complete",
+                "edition",
+                "parallel",
+                "finish",
+            ],
+        )
+        self.assertIn(
+            "card_language is identity-bearing",
+            rules["identity"]["matchPolicy"],
+        )
+        self.assertIn(
+            "ranking boards may remain language-combined",
+            rules["identity"]["matchPolicy"],
+        )
+
+    def test_six_part_language_provenance_policy_is_rejected(self) -> None:
+        rules = load_and_validate()
+        invalid = copy.deepcopy(rules)
+        invalid["identity"] = {
+            "tuple": [
+                "tcg",
+                "set",
+                "collector_number_complete",
+                "edition",
+                "parallel",
+                "finish",
+            ],
+            "matchPolicy": (
+                "exact_all_fields; language is provenance only and cannot split ranking; "
+                "no first-search-result, guessed suffix or padding"
+            ),
+            "failureTarget": "identity_review_queue",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "rules.json"
+            path.write_text(json.dumps(invalid), encoding="utf-8")
+            with self.assertRaisesRegex(
+                DataCleaningRuleError,
+                "seven-part language-inclusive",
+            ):
+                load_and_validate(path)
+
 
 if __name__ == "__main__":
     unittest.main()

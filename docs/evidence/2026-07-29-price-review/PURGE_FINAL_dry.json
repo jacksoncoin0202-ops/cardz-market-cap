@@ -1,0 +1,27 @@
+{
+  "asOf": "2026-07-29T11:49:35Z",
+  "write": false,
+  "today": "2026-07-29",
+  "ratio": 5.0,
+  "jump": 5.0,
+  "deleteCount": 1,
+  "reasonTally": {
+    "same_source_jump": 1
+  },
+  "flaggedOpaque": [],
+  "flaggedVariantIds": [],
+  "samples": [
+    {
+      "id": 108946,
+      "variant_id": 14,
+      "source": "snk_psa10",
+      "price": 7599.901937,
+      "series_median": 1143.431619,
+      "ratio": 6.65,
+      "reason": "same_source_jump:snk_psa10"
+    }
+  ],
+  "deleteIdsHead": [
+    108946
+  ]
+}

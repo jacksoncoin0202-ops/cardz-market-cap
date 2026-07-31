@@ -1,0 +1,139 @@
+{
+  "asOf": "2026-07-29T11:48:49Z",
+  "write": false,
+  "today": "2026-07-29",
+  "ratio": 5.0,
+  "jump": 5.0,
+  "deleteCount": 8,
+  "reasonTally": {
+    "latest_spread_risky": 4,
+    "same_source_jump": 4
+  },
+  "flaggedOpaque": [
+    "cmc_d32f12f47e94d7a6f58d04ea",
+    "cmc_0422b5b83e7f0509fddf8d8c",
+    "cmc_07d540e4186f06a607f042f9",
+    "cmc_6a9081ae0bbfdb096a006691",
+    "cmc_e038422db31d372e39282007",
+    "cmc_565518d6804153ca2d000d46",
+    "cmc_daaa57ffda79e456916d0820",
+    "cmc_39543dca442b7e07b7d067d2",
+    "cmc_113e9cad03556282f439a115",
+    "cmc_fd700a542094cf0863c7ea83",
+    "cmc_cc9a385b4fda2e85724d9ff5",
+    "cmc_e511f8f3357ec9ca9ca43460",
+    "cmc_1cf2114a8d0a05611d80a765",
+    "cmc_4bb5a55fb17470b3c7926c01",
+    "cmc_d8a379b5c185adbeeca93d16",
+    "cmc_057a6e6677093f47bc6acd34",
+    "cmc_089b2675a12d5c8a86b2c2e7",
+    "cmc_adb7c1e92807b4a6423ff7c3",
+    "cmc_aa4bd0f810e2a4d2fb87435c",
+    "cmc_75b86c6db32f46e2a728a4a3",
+    "cmc_a13cfd319f931311b1fb1eb2",
+    "cmc_9b2a12c605a194c68d299678",
+    "cmc_b52c6e80eb42cd0bff396656"
+  ],
+  "flaggedVariantIds": [
+    1466,
+    127,
+    543,
+    83,
+    758,
+    650,
+    1234,
+    1440,
+    1219,
+    1255,
+    707,
+    1220,
+    17,
+    1280,
+    662,
+    868
+  ],
+  "samples": [
+    {
+      "id": 1945171,
+      "variant_id": 353,
+      "source": "g10_kline",
+      "price": 385.0,
+      "trusted_median": 51.0,
+      "ratio": 7.55,
+      "reason": "latest_spread_risky"
+    },
+    {
+      "id": 1947514,
+      "variant_id": 1028,
+      "source": "g10_kline",
+      "price": 4920.0,
+      "trusted_median": 903.596068,
+      "ratio": 5.44,
+      "reason": "latest_spread_risky"
+    },
+    {
+      "id": 2268258,
+      "variant_id": 1248,
+      "source": "g10_kline",
+      "price": 1250.0,
+      "trusted_median": 6500.0,
+      "ratio": 0.19,
+      "reason": "latest_spread_risky"
+    },
+    {
+      "id": 2279504,
+      "variant_id": 1248,
+      "source": "ebay",
+      "price": 1225.0,
+      "trusted_median": 6500.0,
+      "ratio": 0.19,
+      "reason": "latest_spread_risky"
+    },
+    {
+      "id": 31873,
+      "variant_id": 260,
+      "source": "snk_psa10",
+      "price": 318.764176,
+      "series_median": 59.872494,
+      "ratio": 5.32,
+      "reason": "same_source_jump:snk_psa10"
+    },
+    {
+      "id": 112506,
+      "variant_id": 14,
+      "source": "snk_psa10",
+      "price": 8752.145134,
+      "series_median": 1152.455097,
+      "ratio": 7.59,
+      "reason": "same_source_jump:snk_psa10"
+    },
+    {
+      "id": 1933117,
+      "variant_id": 220,
+      "source": "ebay",
+      "price": 65000.0,
+      "series_median": 3076.8,
+      "ratio": 21.13,
+      "reason": "same_source_jump:ebay"
+    },
+    {
+      "id": 2177935,
+      "variant_id": 1252,
+      "source": "tcgpricelookup",
+      "price": 325.0,
+      "series_median": 64.995,
+      "ratio": 5.0,
+      "reason": "same_source_jump:tcgpricelookup"
+    }
+  ],
+  "deleteIdsHead": [
+    31873,
+    112506,
+    1933117,
+    1945171,
+    1947514,
+    2177935,
+    2268258,
+    2279504
+  ]
+}

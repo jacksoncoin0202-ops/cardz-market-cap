@@ -11,10 +11,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
-from market_source_sync import build_source_observations  # noqa: E402
+from market_source_sync import build_source_observations, source_attempt_id  # noqa: E402
 
 
 class MarketSourceGemRateTests(unittest.TestCase):
+    def test_default_attempt_id_preserves_logical_date_without_same_day_replay(self) -> None:
+        first = source_attempt_id(datetime(2026, 7, 28, 0, 30, 0, 1, tzinfo=timezone.utc))
+        second = source_attempt_id(datetime(2026, 7, 28, 0, 30, 0, 2, tzinfo=timezone.utc))
+        self.assertEqual(first[:17], second[:17])
+        self.assertNotEqual(first, second)
+
     def test_keyless_normalized_current_population_reaches_canonical_observation(self) -> None:
         gemrate_id = "a" * 40
         crosswalk = {

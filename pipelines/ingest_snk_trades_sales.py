@@ -31,6 +31,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
+from failure_ledger import record_failure, record_resolution  # noqa: E402
+
 MAP = ROOT / "data/runtime/private-source-map"
 DEFAULT_HARVEST = MAP / "snk-psa10-940.jsonl"
 REGISTRY = MAP / "liquidity-source-registry.jsonl"
@@ -73,7 +75,9 @@ def jpy_per_usd(cur) -> float:
         """
     )
     row = cur.fetchone()
-    return float(row["rate"]) if row else 163.79
+    if not row or row.get("rate") is None or float(row["rate"]) <= 0:
+        raise RuntimeError("USD/JPY FX rate missing; refuse to invent conversion")
+    return float(row["rate"])
 
 
 def parse_qty(label: str) -> int:
@@ -102,14 +106,21 @@ def item_to_variant(cur) -> dict[int, int]:
     cur.execute(
         """
         SELECT external_entity_id, variant_id
-        FROM catalog_source_identity
-        WHERE source_code IN ('snkrdunk', 'snk')
+        FROM (
+            SELECT identity.external_entity_id,
+                   COALESCE(alias.canonical_variant_id, identity.variant_id) AS variant_id
+            FROM catalog_source_identity AS identity
+            LEFT JOIN catalog_variant_alias AS alias
+              ON alias.duplicate_variant_id = identity.variant_id
+            WHERE identity.source_code IN ('snkrdunk', 'snk', 'snk_psa10')
+              AND LOWER(identity.match_status) = 'exact'
+        ) AS exact_identity
         """
     )
     out: dict[int, int] = {}
     for r in cur.fetchall():
         try:
-            out[int(r["external_entity_id"])] = int(r["variant_id"])
+            out.setdefault(int(r["external_entity_id"]), int(r["variant_id"]))
         except (TypeError, ValueError):
             continue
     return out
@@ -177,6 +188,8 @@ def main() -> int:
     skipped_bad = 0
     cards_with_sales = set()
     registry_updates: list[dict[str, Any]] = []
+    sales_to_write: list[tuple[Any, ...]] = []
+    resolved_cards: list[tuple[int, int, int]] = []
 
     for row in rows:
         item = row.get("item_id")
@@ -185,6 +198,18 @@ def main() -> int:
         vid = id_map.get(item)
         if not vid:
             skipped_no_vid += 1
+            record_failure(
+                source="snkrdunk",
+                stage="normalize_psa10_sales",
+                script=__file__,
+                item_key=item,
+                reason_code="no_exact_identity",
+                message="harvest item has no exact canonical identity",
+                retryable=False,
+                run_id=run_key,
+                evidence_paths=[harvest_path],
+                next_action="agent_identity_review",
+            )
             continue
         trades = row.get("recent_trades") or []
         if not isinstance(trades, list) or not trades:
@@ -200,6 +225,19 @@ def main() -> int:
                         "note": "activity only, no recent_trades list",
                     }
                 )
+            record_failure(
+                source="snkrdunk",
+                stage="normalize_psa10_sales",
+                script=__file__,
+                item_key=item,
+                reason_code="no_psa10_trades",
+                message="source snapshot has no recent PSA 10 trades",
+                retryable=True,
+                run_id=run_key,
+                context={"variantId": vid},
+                evidence_paths=[harvest_path],
+                next_action="retry_later_or_cross_source",
+            )
             continue
 
         card_sales = 0
@@ -227,46 +265,28 @@ def main() -> int:
             fp = fingerprint(item, sold_raw, float(price_jpy), qty, title)
             payload = {"itemId": item, "priceJpy": price_jpy, "qty": qty, "title": title, "soldAt": sold_raw}
             ph = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
-            try:
-                cur.execute(
-                    """
-                    INSERT INTO market_sale_observation
-                        (run_id, variant_id, source_code, external_entity_id, transaction_fingerprint,
-                         grader_code, grade_label, sold_at, source_date_text, fetched_at,
-                         timestamp_quality, unit_price_usd, quantity, transaction_value_usd,
-                         source_payload_sha256, coverage_status)
-                    VALUES
-                        (%s, %s, 'snkrdunk', %s, %s,
-                         'psa', '10', %s, %s, %s,
-                         'exact_date', %s, %s, %s,
-                         %s, 'partial')
-                    ON DUPLICATE KEY UPDATE
-                        unit_price_usd=VALUES(unit_price_usd),
-                        quantity=VALUES(quantity),
-                        transaction_value_usd=VALUES(transaction_value_usd),
-                        sold_at=VALUES(sold_at),
-                        fetched_at=VALUES(fetched_at)
-                    """,
-                    (
-                        run_id,
-                        vid,
-                        str(item),
-                        fp,
-                        sold_at,
-                        sold_raw[:100],
-                        effective,
-                        unit_usd,
-                        qty,
-                        round(unit_usd * qty, 6),
-                        ph,
-                    ),
+            sales_to_write.append(
+                (
+                    run_id,
+                    vid,
+                    "snkrdunk",
+                    str(item),
+                    fp,
+                    "psa",
+                    "10",
+                    sold_at,
+                    sold_raw[:100],
+                    effective,
+                    "exact_date",
+                    unit_usd,
+                    qty,
+                    round(unit_usd * qty, 6),
+                    ph,
+                    "partial",
                 )
-                written += 1
-                card_sales += 1
-            except Exception as exc:  # noqa: BLE001
-                skipped_bad += 1
-                if written < 3:
-                    print("insert_err", exc, flush=True)
+            )
+            written += 1
+            card_sales += 1
 
         if card_sales > 0:
             cards_with_sales.add(vid)
@@ -280,16 +300,72 @@ def main() -> int:
                     "updatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 }
             )
+            resolved_cards.append((item, vid, card_sales))
+        else:
+            record_failure(
+                source="snkrdunk",
+                stage="normalize_psa10_sales",
+                script=__file__,
+                item_key=item,
+                reason_code="zero_valid_psa10_trades",
+                message="recent trades were present but none passed PSA 10 normalization",
+                retryable=True,
+                run_id=run_key,
+                context={"variantId": vid, "rawTrades": len(trades)},
+                evidence_paths=[harvest_path],
+                next_action="agent_review_or_cross_source",
+            )
 
-    cur.execute(
-        """
-        UPDATE market_ingest_run
-        SET status='complete', observed_count=%s, accepted_count=%s, completed_at=%s
-        WHERE id=%s
-        """,
-        (written, written, datetime.now(timezone.utc).replace(tzinfo=None), run_id),
-    )
-    conn.commit()
+    sales_upsert = """
+        INSERT INTO market_sale_observation
+            (run_id, variant_id, source_code, external_entity_id, transaction_fingerprint,
+             grader_code, grade_label, sold_at, source_date_text, fetched_at,
+             timestamp_quality, unit_price_usd, quantity, transaction_value_usd,
+             source_payload_sha256, coverage_status)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            run_id=VALUES(run_id),
+            variant_id=VALUES(variant_id),
+            unit_price_usd=VALUES(unit_price_usd),
+            quantity=VALUES(quantity),
+            transaction_value_usd=VALUES(transaction_value_usd),
+            sold_at=VALUES(sold_at),
+            fetched_at=VALUES(fetched_at),
+            source_payload_sha256=VALUES(source_payload_sha256),
+            coverage_status=VALUES(coverage_status)
+    """
+    try:
+        for offset in range(0, len(sales_to_write), 1000):
+            cur.executemany(
+                sales_upsert,
+                sales_to_write[offset : offset + 1000],
+            )
+        cur.execute(
+            """
+            UPDATE market_ingest_run
+            SET status='complete', observed_count=%s, accepted_count=%s, completed_at=%s
+            WHERE id=%s
+            """,
+            (written, written, datetime.now(timezone.utc).replace(tzinfo=None), run_id),
+        )
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        record_failure(
+            source="snkrdunk",
+            stage="write_psa10_sales",
+            script=__file__,
+            item_key=run_key,
+            reason_code="batch_write_failed",
+            message=str(exc),
+            retryable=True,
+            run_id=run_key,
+            evidence_paths=[harvest_path],
+            next_action="retry",
+            error_type=type(exc).__name__,
+        )
+        conn.close()
+        raise
 
     # coverage after — windows are derived from full history (ingest keeps all sold_at)
     cur.execute(
@@ -310,6 +386,17 @@ def main() -> int:
     watch_ever = int(win.get("ever") or 0)
     watch_30d = int(win.get("d30") or 0)
     conn.close()
+    for item, vid, card_sales in resolved_cards:
+        record_resolution(
+            source="snkrdunk",
+            stage="normalize_psa10_sales",
+            script=__file__,
+            item_key=item,
+            run_id=run_key,
+            resolution="accepted_psa10_sales",
+            context={"variantId": vid, "tradesIngested": card_sales},
+            evidence_paths=[harvest_path],
+        )
 
     # merge registry
     by_vid: dict[int, dict] = {}

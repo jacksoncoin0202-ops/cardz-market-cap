@@ -303,10 +303,6 @@ def resolve_asset(
         set_key = normalize_set(asset.set_name)
         narrowed = [vid for vid in candidates if normalize_set(rows[vid].set_name) == set_key]
         method = "name_collector_set"
-        if len(narrowed) != 1:
-            language = normalize_language(asset.language)
-            narrowed = [vid for vid in candidates if rows[vid].card_language == language]
-            method = "name_collector_language"
         if len(narrowed) == 1:
             return Resolution(
                 asset=asset, variant_id=narrowed[0], method=method, match_status="derived",
@@ -328,7 +324,7 @@ def _variant_evidence(row: VariantRow | None) -> dict[str, Any] | None:
         return None
     return {
         "id": row.id, "name": row.canonical_name, "setName": row.set_name,
-        "collectorNumber": row.collector_number, "language": row.card_language,
+        "collectorNumber": row.collector_number,
     }
 
 
@@ -372,12 +368,12 @@ def load_identities(cursor: Any) -> dict[tuple[str, str], int]:
 
 def load_variants(cursor: Any) -> list[VariantRow]:
     cursor.execute(
-        "SELECT id, canonical_name, set_name, collector_number, card_language FROM catalog_variant"
+        "SELECT id, canonical_name, set_name, collector_number FROM catalog_variant"
     )
     return [
         VariantRow(
             id=int(row["id"]), canonical_name=row["canonical_name"], set_name=row["set_name"],
-            collector_number=row["collector_number"], card_language=row["card_language"],
+            collector_number=row["collector_number"], card_language="",
         )
         for row in cursor.fetchall()
     ]

@@ -64,9 +64,23 @@ def load_and_validate(path: Path = DEFAULT_RULES, schema_path: Path = DEFAULT_SC
         raise DataCleaningRuleError("normalized observations must retain a private payload pointer")
 
     identity = _object(document.get("identity"), "identity")
-    expected_tuple = ["tcg", "set", "collector_number_complete", "language", "edition", "parallel", "finish"]
-    if identity.get("tuple") != expected_tuple or identity.get("matchPolicy") != "exact_all_fields; no first-search-result, guessed suffix, padding or language substitution":
-        raise DataCleaningRuleError("identity must use the complete exact seven-part printing tuple")
+    expected_tuple = [
+        "tcg",
+        "card_language",
+        "set",
+        "collector_number_complete",
+        "edition",
+        "parallel",
+        "finish",
+    ]
+    if (
+        identity.get("tuple") != expected_tuple
+        or identity.get("matchPolicy")
+        != "exact_all_fields; card_language is identity-bearing and splits otherwise identical canonical printings; ranking boards may remain language-combined; no first-search-result, guessed suffix or padding"
+    ):
+        raise DataCleaningRuleError(
+            "identity must use the complete exact seven-part language-inclusive printing tuple"
+        )
     if identity.get("failureTarget") != "identity_review_queue":
         raise DataCleaningRuleError("identity failures must enter identity_review_queue")
 

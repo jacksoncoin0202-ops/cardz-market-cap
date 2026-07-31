@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +14,10 @@ const warnings = [];
 const passes = [];
 
 const SNAPSHOT_PATH = path.join(root, "data", "public", "seed-snapshot.json");
+const ROUTING_CONFIG_PATH = path.join(root, "config", "data-routing.json");
+const STRICT_RELEASE_PROFILE = "strict-v1";
+const RELAXED_RELEASE_PROFILE = "relaxed-launch-v1";
+const RELEASE_PROFILE_IDS = new Set([STRICT_RELEASE_PROFILE, RELAXED_RELEASE_PROFILE]);
 const LOCALES = ["en", "zhTW", "zhCN", "ja"];
 const CURRENCIES = ["USD", "HKD", "CNY", "GBP", "TWD", "JPY", "KRW"];
 const WINDOWS = ["1d", "7d", "30d"];
@@ -76,6 +81,22 @@ function listFiles(entry, { skipBuild = false } = {}) {
   return files;
 }
 
+function listGitVisibleFiles() {
+  try {
+    const output = execFileSync(
+      "git",
+      ["ls-files", "-co", "--exclude-standard", "-z"],
+      { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+    );
+    return [...new Set(output.split("\0").filter(Boolean))]
+      .map((file) => path.join(root, file))
+      .filter((file) => fs.existsSync(file) && fs.statSync(file).isFile());
+  } catch (error) {
+    fail(`Could not enumerate the Git-visible repository boundary: ${error.message}`);
+    return [];
+  }
+}
+
 function readText(file) {
   if (!TEXT_EXTENSIONS.has(path.extname(file).toLowerCase())) return null;
   if (fs.statSync(file).size > 64 * 1024 * 1024) {
@@ -132,8 +153,23 @@ function scanRepositorySecrets(files) {
     }
     const portablePath = relative(file);
     if (!/(?:^|\/)(?:package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock)$/i.test(portablePath)) {
-      const candidates = content.match(/\b[A-Za-z0-9]{40,80}\b/g) ?? [];
-      if (candidates.some((candidate) => /[a-z]/.test(candidate) && /[A-Z]/.test(candidate) && /\d/.test(candidate) && !/^[a-f0-9]+$/i.test(candidate))) {
+      const candidates = [...content.matchAll(/\b[A-Za-z0-9]{40,80}\b/g)];
+      const looksLikeCredential = candidates.some((match) => {
+        const candidate = match[0];
+        const index = match.index ?? 0;
+        const before = content.slice(Math.max(0, index - 1), index);
+        const after = content.slice(index + candidate.length, index + candidate.length + 4);
+        const quotedPropertyKey = (before === '"' || before === "'")
+          && new RegExp(`^${before}\\s*:`).test(after);
+        const explicitSafeAlphabet = candidate === "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        return !quotedPropertyKey
+          && !explicitSafeAlphabet
+          && /[a-z]/.test(candidate)
+          && /[A-Z]/.test(candidate)
+          && /\d/.test(candidate)
+          && !/^[a-f0-9]+$/i.test(candidate);
+      });
+      if (looksLikeCredential) {
         fail(`${portablePath} contains a high-entropy credential-like token.`);
       }
     }
@@ -173,6 +209,122 @@ function canonicalHash(snapshot) {
   return createHash("sha256").update(JSON.stringify(stableSort(clone))).digest("hex");
 }
 
+// `data_routing.release_profile_sha256` hashes a Python canonical JSON payload.
+// JSON.parse preserves the policy values but loses the lexical `.0` on the one
+// approved ratio field, so keep that field's Python float representation here.
+function pythonCanonicalJson(value, key = "") {
+  if (value === null || typeof value === "boolean" || typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new Error("policy contains a non-finite number");
+    if (key === "priceSpreadMaximumRatio" && Number.isInteger(value)) return `${value}.0`;
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) return `[${value.map((entry) => pythonCanonicalJson(entry)).join(",")}]`;
+  if (!isObject(value)) throw new Error("policy contains an unsupported value");
+  return `{${Object.keys(value).sort().map((entry) => (
+    `${JSON.stringify(entry)}:${pythonCanonicalJson(value[entry], entry)}`
+  )).join(",")}}`;
+}
+
+function releaseProfileSha256(profileId, policy) {
+  const payload = pythonCanonicalJson({ releaseProfile: profileId, policy });
+  return createHash("sha256").update(`${payload}\n`, "utf8").digest("hex");
+}
+
+function loadReleaseProfiles() {
+  try {
+    const routing = JSON.parse(fs.readFileSync(ROUTING_CONFIG_PATH, "utf8"));
+    if (!isObject(routing.releaseProfiles)) throw new Error("releaseProfiles is missing");
+    const profiles = {};
+    for (const profileId of RELEASE_PROFILE_IDS) {
+      const policy = routing.releaseProfiles[profileId];
+      if (!isObject(policy)) throw new Error(`${profileId} is missing or invalid`);
+      profiles[profileId] = policy;
+    }
+    return profiles;
+  } catch (error) {
+    fail(`Could not load central release policy: ${error.message}`);
+    return null;
+  }
+}
+
+function policyInteger(policy, field, fallback) {
+  const value = policy?.[field];
+  if (!Number.isInteger(value) || value <= 0) {
+    fail(`Central release policy ${field} must be a positive integer.`);
+    return fallback;
+  }
+  return value;
+}
+
+function policyIdentityStatuses(policy) {
+  const statuses = policy?.allowedIdentityStatuses;
+  if (!Array.isArray(statuses) || statuses.length === 0 || statuses.some((value) => !isNonEmptyString(value))) {
+    fail("Central release policy allowedIdentityStatuses is invalid.");
+    return new Set(["confirmed"]);
+  }
+  return new Set(statuses);
+}
+
+function releaseContext(generation) {
+  const hasProfile = Object.hasOwn(generation, "releaseProfile");
+  const hasPolicyHash = Object.hasOwn(generation, "policySha256");
+  const hasDatabaseBinding = Object.hasOwn(generation, "dbFingerprint") || Object.hasOwn(generation, "evaluationId");
+  const profileBound = hasProfile || hasPolicyHash || hasDatabaseBinding;
+  let profileId = STRICT_RELEASE_PROFILE;
+  if (hasProfile) {
+    if (!isNonEmptyString(generation.releaseProfile)) fail("generation.releaseProfile is invalid.");
+    else profileId = generation.releaseProfile;
+  }
+  if (!RELEASE_PROFILE_IDS.has(profileId)) {
+    fail("generation.releaseProfile is unknown.");
+    profileId = STRICT_RELEASE_PROFILE;
+  }
+
+  const profiles = loadReleaseProfiles();
+  const policy = profiles?.[profileId] ?? null;
+  if (profileBound) {
+    if (!hasProfile || !hasPolicyHash) fail("generation release profile and policy SHA-256 must be bound together.");
+    const declaredHash = String(generation.policySha256 ?? "").toLowerCase();
+    if (!/^[a-f0-9]{64}$/.test(declaredHash)) fail("generation.policySha256 must be a SHA-256 digest.");
+    else if (policy !== null && declaredHash !== releaseProfileSha256(profileId, policy)) {
+      fail("generation.policySha256 does not match the central release policy.");
+    }
+    if (!/^[a-f0-9]{64}$/i.test(generation.dbFingerprint ?? "")) {
+      fail("generation.dbFingerprint must be a SHA-256 digest for a profile-bound release.");
+    }
+    if (!Number.isInteger(generation.evaluationId) || generation.evaluationId <= 0) {
+      fail("generation.evaluationId must be a positive integer for a profile-bound release.");
+    }
+  }
+  if (profileId === RELAXED_RELEASE_PROFILE && !profileBound) {
+    fail("relaxed-launch-v1 must declare its release profile and policy SHA-256.");
+  }
+
+  const strict = profileId === STRICT_RELEASE_PROFILE;
+  const requestedCount = policyInteger(policy, "requestedCount", 100);
+  if (requestedCount !== 100) fail("Central release policy requestedCount must remain 100.");
+  const publicCardsMaximum = policyInteger(policy, "publicCardsMaximum", strict ? 500 : 1000);
+  const priceFreshnessHours = policyInteger(policy, "priceFreshnessHoursMaximum", strict ? 48 : 720);
+  const lastGoodHours = policyInteger(policy, "lastGoodMaximumHours", strict ? 48 : 720);
+  const populationFreshnessHours = policyInteger(policy, "populationFreshnessHoursMaximum", 168);
+  const salesMinimum = policyInteger(policy, "trackedPsa10Sales30dMinimumInclusive", strict ? 10 : 5);
+  const minimumVerifiedCount = policyInteger(policy, "minimumVerifiedCount", strict ? 1 : 100);
+  return {
+    profileId,
+    profileBound,
+    relaxed: profileId === RELAXED_RELEASE_PROFILE,
+    allowedIdentityStatuses: policyIdentityStatuses(policy),
+    requestedCount,
+    publicCardsMaximum,
+    watchlistMaximum: Math.max(0, publicCardsMaximum - requestedCount),
+    priceMaximumHours: Math.min(priceFreshnessHours, lastGoodHours),
+    populationMaximumHours: populationFreshnessHours,
+    salesMinimum,
+    minimumVerifiedCount,
+  };
+}
+
 function validateLocalized(value, label, minimumLengths = {}) {
   if (!isObject(value)) {
     fail(`${label} must be a localized object.`);
@@ -208,11 +360,24 @@ function validateMetric(metric, label, { positive = false } = {}) {
   return { asOf: parseTime(metric.asOf, `${label}.asOf`, !["ready", "stale"].includes(metric.status)) };
 }
 
-function validateFreshness(metric, label, generatedAt, readyHours, staleHours, enforceSla = true) {
+function validateFreshness(
+  metric,
+  label,
+  generatedAt,
+  readyHours,
+  staleHours,
+  enforceSla = true,
+  { allowEitherStatusWithinMaximum = false } = {},
+) {
   const { asOf } = validateMetric(metric, label, { positive: true });
   if (asOf === null || generatedAt === null) return;
   const ageHours = (generatedAt - asOf) / 3_600_000;
   if (ageHours < -0.1) fail(`${label}.asOf is after generation.generatedAt.`);
+  if (enforceSla && allowEitherStatusWithinMaximum) {
+    if (ageHours > staleHours) fail(`${label} exceeds the ${staleHours}h release-profile freshness limit.`);
+    if (!["ready", "stale"].includes(metric.status)) fail(`${label} is not ranking eligible.`);
+    return;
+  }
   if (enforceSla && metric.status === "ready" && ageHours > readyHours) fail(`${label} is too old for ready status.`);
   if (enforceSla && metric.status === "stale" && (ageHours <= readyHours || ageHours > staleHours)) fail(`${label} is outside the stale window.`);
   if (!["ready", "stale"].includes(metric.status)) fail(`${label} is not ranking eligible.`);
@@ -255,7 +420,8 @@ function validateImage(image, label, requireLocalization) {
 }
 
 function validatePopulationMetric(metric, label) {
-  validateMetric(metric, label, { positive: true });
+  validateMetric(metric, label);
+  if (typeof metric?.value === "number" && metric.value < 0) fail(`${label}.value cannot be negative.`);
   if (metric?.estimated !== false) fail(`${label}.estimated must be false.`);
 }
 
@@ -285,7 +451,7 @@ function validateHistory(history, label, generatedAt) {
   });
 }
 
-function validateCard(card, label, expectedRank, generatedAt, productionMode, requireStory, requireLocalization) {
+function validateCard(card, label, expectedRank, generatedAt, productionMode, requireStory, requireLocalization, release) {
   if (!isObject(card)) {
     fail(`${label} must be an object.`);
     return;
@@ -293,7 +459,10 @@ function validateCard(card, label, expectedRank, generatedAt, productionMode, re
   if (!/^cmc_[a-z0-9]{12,64}$/i.test(card.id ?? "")) fail(`${label}.id is not an opaque CARDZ ID.`);
   if (card.rank !== expectedRank) fail(`${label}.rank must be ${expectedRank}.`);
   if (!["pokemon", "one-piece", "other"].includes(card.tcg)) fail(`${label}.tcg is invalid.`);
-  if (!isNonEmptyString(card.language)) fail(`${label}.language is missing.`);
+  const cardLanguage = card.cardLanguage;
+  const validCardLanguage = ["en", "ja", "ko", "zhCN", "zhTW"].includes(cardLanguage);
+  if (cardLanguage !== undefined && cardLanguage !== null && !validCardLanguage) fail(`${label}.cardLanguage is invalid.`);
+  if (productionMode && !validCardLanguage) fail(`${label}.cardLanguage is required in production.`);
   if (!isObject(card.collectorNumber)) fail(`${label}.collectorNumber must be an object.`);
   else {
     const display = card.collectorNumber.display ?? "";
@@ -302,7 +471,7 @@ function validateCard(card, label, expectedRank, generatedAt, productionMode, re
     if (!isNonEmptyString(card.collectorNumber.normalized)) fail(`${label}.collectorNumber.normalized is missing.`);
     if (card.collectorNumber.complete !== true) fail(`${label}.collectorNumber.complete must be true.`);
   }
-  const japaneseSetNumber = card.tcg === "pokemon" && card.language === "ja"
+  const japaneseSetNumber = card.tcg === "pokemon" && cardLanguage === "ja"
     ? card.collectorNumber.display.match(/^(\d{1,4})\/(\d{1,4})$/)
     : null;
   if (japaneseSetNumber && (japaneseSetNumber[1].length !== 3 || japaneseSetNumber[2].length !== 3)) {
@@ -311,17 +480,46 @@ function validateCard(card, label, expectedRank, generatedAt, productionMode, re
   if (/^(?:GG|SV|TG|RC)\d+$/i.test(card.collectorNumber.display)) {
     fail(`${label}.collectorNumber.display is missing its subset denominator.`);
   }
-  const allowedIdentity = productionMode ? ["confirmed"] : ["confirmed", "demo_observed"];
-  if (!allowedIdentity.includes(card.identityStatus)) fail(`${label}.identityStatus is not publishable.`);
+  const allowedIdentity = productionMode
+    ? release.allowedIdentityStatuses
+    : new Set(["confirmed", "demo_observed", ...(release.relaxed ? ["provisional"] : [])]);
+  if (!allowedIdentity.has(card.identityStatus)) fail(`${label}.identityStatus is not publishable.`);
   if (productionMode && requireLocalization) validateLocalized(card.names, `${label}.names`); else validateOptionalLocalized(card.names, `${label}.names`);
   if (productionMode && requireLocalization) validateLocalized(card.sets, `${label}.sets`); else validateOptionalLocalized(card.sets, `${label}.sets`);
   if (productionMode && requireStory) validateLocalized(card.stories, `${label}.stories`, { en: 80, zhTW: 40, zhCN: 40, ja: 40 }); else validateOptionalLocalized(card.stories, `${label}.stories`);
   validateImage(card.image, `${label}.image`, productionMode && requireLocalization);
-  validateFreshness(card.pricePsa10, `${label}.pricePsa10`, generatedAt, 30, 48, productionMode);
-  validateFreshness(card.populationPsa10, `${label}.populationPsa10`, generatedAt, 48, 168, productionMode);
+  const relaxedFreshness = release.relaxed
+    ? { allowEitherStatusWithinMaximum: true }
+    : undefined;
+  validateFreshness(
+    card.pricePsa10,
+    `${label}.pricePsa10`,
+    generatedAt,
+    release.relaxed ? release.priceMaximumHours : 30,
+    release.relaxed ? release.priceMaximumHours : 48,
+    productionMode,
+    relaxedFreshness,
+  );
+  validateFreshness(
+    card.populationPsa10,
+    `${label}.populationPsa10`,
+    generatedAt,
+    release.relaxed ? release.populationMaximumHours : 48,
+    release.relaxed ? release.populationMaximumHours : 168,
+    productionMode,
+    relaxedFreshness,
+  );
   validatePopulationMetric(card.populationPsa10, `${label}.populationPsa10`);
   if (typeof card.populationPsa10?.value === "number" && card.populationPsa10.value < 1000) fail(`${label}.populationPsa10.value is below 1000.`);
-  validateFreshness(card.marketCap, `${label}.marketCap`, generatedAt, 30, 48, productionMode);
+  validateFreshness(
+    card.marketCap,
+    `${label}.marketCap`,
+    generatedAt,
+    release.relaxed ? release.priceMaximumHours : 30,
+    release.relaxed ? release.priceMaximumHours : 48,
+    productionMode,
+    relaxedFreshness,
+  );
   if (card.marketCap?.status !== card.pricePsa10?.status || card.marketCap?.asOf !== card.pricePsa10?.asOf) fail(`${label}.marketCap freshness must match price.`);
   if ([card.pricePsa10?.value, card.populationPsa10?.value, card.marketCap?.value].every((value) => typeof value === "number")) {
     const expected = card.pricePsa10.value * card.populationPsa10.value;
@@ -331,6 +529,20 @@ function validateCard(card, label, expectedRank, generatedAt, productionMode, re
   else for (const window of WINDOWS) {
     validateMetric(card.windows[window].changePct, `${label}.windows.${window}.changePct`);
     validateTrackedSales(card.windows[window].trackedSales, `${label}.windows.${window}.trackedSales`);
+  }
+  if (productionMode && release.profileBound) {
+    const sales = card.windows?.["30d"]?.trackedSales;
+    const count = sales?.count;
+    if (
+      !isObject(sales)
+      || !["partial", "stale"].includes(sales.coverage)
+      || !isObject(count)
+      || !["ready", "stale"].includes(count.status)
+      || !Number.isInteger(count.value)
+      || count.value < release.salesMinimum
+    ) {
+      fail(`${label} requires at least ${release.salesMinimum} pure PSA10 tracked sales in 30d.`);
+    }
   }
   if (!isObject(card.graderPopulations) || GRADERS.some((grader) => !isObject(card.graderPopulations[grader])) || Object.keys(card.graderPopulations ?? {}).length !== GRADERS.length) fail(`${label}.graderPopulations must contain PSA, BGS, CGC, SGC, and TAG only.`);
   else for (const grader of GRADERS) {
@@ -356,6 +568,7 @@ function validateSnapshot(snapshot) {
   else if (canonicalHash(snapshot) !== snapshot.generation.contentSha256) fail("generation.contentSha256 does not match canonical content.");
   if (!["demo", "production"].includes(snapshot.generation.mode)) fail("generation.mode is invalid.");
   if (!Array.isArray(snapshot.generation.blockers)) fail("generation.blockers must be an array.");
+  const release = releaseContext(snapshot.generation);
   const productionMode = snapshot.generation.mode === "production" && snapshot.generation.productionEligible === true;
   const enforceProduction = productionMode || !allowDemo;
   if (!allowDemo && !productionMode) fail("Release gate requires an eligible production generation.");
@@ -378,14 +591,32 @@ function validateSnapshot(snapshot) {
   const top100 = Array.isArray(snapshot.top100) ? snapshot.top100 : [];
   const watchlist = Array.isArray(snapshot.watchlist) ? snapshot.watchlist : [];
   if (top100.length !== 100) fail(`top100 must contain exactly 100 cards, found ${top100.length}.`);
-  if (watchlist.length > 400) fail(`watchlist may contain at most ranks 101 to 500, found ${watchlist.length}.`);
+  if (release.relaxed) {
+    if (top100.length + watchlist.length > release.publicCardsMaximum) {
+      fail(`release-profile card capacity is ${release.publicCardsMaximum}, found ${top100.length + watchlist.length}.`);
+    }
+    if (watchlist.length > release.watchlistMaximum) {
+      fail(`watchlist may contain at most ${release.watchlistMaximum} cards for ${release.profileId}, found ${watchlist.length}.`);
+    }
+  } else if (watchlist.length > 400) {
+    fail(`watchlist may contain at most ranks 101 to 500, found ${watchlist.length}.`);
+  }
   const ids = new Set();
   let previousMarketCap = Infinity;
   [...top100, ...watchlist].forEach((card, index) => {
     const inTop100 = index < top100.length;
     const watchIndex = index - top100.length;
     const label = inTop100 ? `top100[${index}]` : `watchlist[${watchIndex}]`;
-    validateCard(card, label, inTop100 ? index + 1 : watchIndex + 101, generatedAt, enforceProduction, inTop100, inTop100);
+    validateCard(
+      card,
+      label,
+      inTop100 ? index + 1 : watchIndex + 101,
+      release.relaxed ? effectiveAt : generatedAt,
+      enforceProduction,
+      inTop100,
+      inTop100,
+      release,
+    );
     if (ids.has(card?.id)) fail(`${label}.id is duplicated.`); else ids.add(card?.id);
     if (typeof card?.marketCap?.value === "number") {
       if (card.marketCap.value > previousMarketCap) fail("top100 and watchlist are not ordered by descending market cap.");
@@ -396,20 +627,36 @@ function validateSnapshot(snapshot) {
   if (!isObject(snapshot.coverage)) fail("coverage is missing.");
   else {
     if (snapshot.coverage.top100Count !== top100.length || snapshot.coverage.watchlistCount !== watchlist.length) fail("coverage rank counts are inconsistent.");
+    const coverageCards = release.relaxed ? [...top100, ...watchlist] : top100;
+    if (release.relaxed) {
+      if (snapshot.coverage.verifiedCount !== coverageCards.length) {
+        fail("coverage.verifiedCount must equal the relaxed release card count.");
+      }
+      if (coverageCards.length < release.minimumVerifiedCount) {
+        fail(`relaxed release must contain at least ${release.minimumVerifiedCount} verified cards.`);
+      }
+      if (snapshot.coverage.publicCardCount !== coverageCards.length) {
+        fail("coverage.publicCardCount must equal the relaxed release card count.");
+      }
+    }
     for (const window of WINDOWS) {
-      const changeReady = top100.filter((card) => card?.windows?.[window]?.changePct?.status === "ready").length;
-      const salesReady = top100.filter((card) => card?.windows?.[window]?.trackedSales?.valueUsd?.status === "ready").length;
+      const changeReady = coverageCards.filter((card) => card?.windows?.[window]?.changePct?.status === "ready").length;
+      const salesReady = release.relaxed
+        ? coverageCards.filter((card) => ["partial", "stale"].includes(card?.windows?.[window]?.trackedSales?.coverage)).length
+        : coverageCards.filter((card) => card?.windows?.[window]?.trackedSales?.valueUsd?.status === "ready").length;
       if (snapshot.coverage.changeReady?.[window] !== changeReady) fail(`coverage.changeReady.${window} is inconsistent.`);
       if (snapshot.coverage.salesReady?.[window] !== salesReady) fail(`coverage.salesReady.${window} is inconsistent.`);
     }
     for (const grader of GRADERS) {
-      const ready = top100.filter((card) => card?.graderPopulations?.[grader]?.topGradePopulation?.status === "ready").length;
+      const ready = coverageCards.filter((card) => card?.graderPopulations?.[grader]?.topGradePopulation?.status === "ready").length;
       if (snapshot.coverage.graderPopulationReady?.[grader] !== ready) fail(`coverage.graderPopulationReady.${grader} is inconsistent.`);
     }
-    const confirmed = top100.filter((card) => card?.identityStatus === "confirmed").length;
-    if (snapshot.coverage.completeIdentityCount !== confirmed) fail("coverage.completeIdentityCount is inconsistent.");
+    const completeIdentity = release.relaxed
+      ? coverageCards.filter((card) => card?.collectorNumber?.complete === true).length
+      : coverageCards.filter((card) => card?.identityStatus === "confirmed").length;
+    if (snapshot.coverage.completeIdentityCount !== completeIdentity) fail("coverage.completeIdentityCount is inconsistent.");
     for (const locale of LOCALES) {
-      const count = top100.filter((card) => isNonEmptyString(card?.stories?.[locale])).length;
+      const count = coverageCards.filter((card) => isNonEmptyString(card?.stories?.[locale])).length;
       if (snapshot.coverage.localizedStoryCount?.[locale] !== count) fail(`coverage.localizedStoryCount.${locale} is inconsistent.`);
     }
   }
@@ -421,7 +668,7 @@ function validateSnapshot(snapshot) {
 console.log("CARDZ public release verification");
 console.log(`Mode: ${allowDemo ? "structural demo check" : "strict production gate"}`);
 
-scanRepositorySecrets(listFiles(root, { skipBuild: true }));
+scanRepositorySecrets(listGitVisibleFiles());
 const publicSourceFiles = listFiles(path.join(root, "apps", "web"), { skipBuild: true });
 scanTextFiles(publicSourceFiles, "public source", { reject24h: true, allowDiscoveryPrivateRoute: true });
 const bulkSnapshotRoute = path.join(root, "apps", "web", "src", "app", "api", "snapshot", "route.ts");

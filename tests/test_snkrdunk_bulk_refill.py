@@ -89,6 +89,17 @@ class SnkrdunkBulkRefillTests(unittest.TestCase):
         self.assertEqual(worklist["counts"]["resolved"], 0)
         self.assertEqual(worklist["cards"][0]["reason"], "candidate_identity_not_confirmed")
 
+    def test_language_mismatch_cannot_bind_an_exact_printing(self) -> None:
+        row = candidate("101")
+        row["language"] = "en"
+        row["snkItemId"] = 1
+        snk_master = master(1)
+        snk_master["identity"]["language"] = "ja"
+        worklist = build_price_refill_worklist([row], {1: snk_master})
+        self.assertEqual(worklist["counts"]["resolved"], 0)
+        self.assertEqual(worklist["counts"]["review"], 1)
+        self.assertEqual(worklist["cards"][0]["reason"], "snk_identity_mismatch")
+
     def test_ambiguous_exact_match_goes_to_review(self) -> None:
         worklist = build_price_refill_worklist([candidate("101"), candidate("102")], {1: master(1)})
         self.assertEqual(worklist["counts"]["resolved"], 0)

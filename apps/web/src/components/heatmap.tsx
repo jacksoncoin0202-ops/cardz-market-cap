@@ -69,7 +69,7 @@ function CardDialog({ card, locale, currency, snapshot, href, onClose }: Omit<He
         <div className="sheet-card-layout">
           <div className="sheet-image"><CardImage image={card.image} sizes="(max-width: 680px) 80vw, 340px" alt={card.image.alt[locale] || t.labels.imageAlt} /></div>
           <div>
-            <p className="rank-kicker">#{card.rank} / {card.tcg}</p>
+            <p className="rank-kicker">#{card.viewRank} / {card.tcg}</p>
             <h3 id="sheet-title">{card.name[locale] || t.status.unavailable}</h3>
             <p className="muted-copy">{card.setName[locale] || t.status.unavailable}</p>
             <CardFacts card={card} locale={locale} currency={currency} snapshot={snapshot} />
@@ -120,7 +120,10 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
   }, [setParamsState]);
 
   const defaultCount = Math.min(isMobileTiles ? MOBILE_TILE_COUNT : cards.length, cards.length);
-  const visibleCount = pickedCount === null ? defaultCount : Math.min(Math.max(10, pickedCount), cards.length);
+  const minimumVisibleCount = Math.min(10, cards.length);
+  const visibleCount = pickedCount === null
+    ? defaultCount
+    : Math.min(Math.max(minimumVisibleCount, pickedCount), cards.length);
   const lastTriggerRef = useRef<HTMLElement | null>(null);
   const colors = tileColors(dark, params);
 
@@ -138,7 +141,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
   const totalCap = useMemo(() => visibleCards.reduce((sum, card) => sum + (card.marketCap.value ?? 0), 0), [visibleCards]);
 
   const tiles = useMemo(() => heatmapTreemapLayout(
-    visibleCards.map((card) => ({ card, rank: card.rank, value: Math.max(1, card.marketCap.value ?? 1) })),
+    visibleCards.map((card) => ({ card, rank: card.viewRank, value: Math.max(1, card.marketCap.value ?? 1) })),
     size.width,
     size.height,
   ), [visibleCards, size.height, size.width]);
@@ -331,7 +334,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
             <span className="tile-slider-label">{t.heatmap.tilesLabel}</span>
             <input
               type="range"
-              min={10}
+              min={minimumVisibleCount}
               max={cards.length}
               step={1}
               value={visibleCount}
@@ -379,7 +382,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
               type="button"
               data-dir={st.direction}
               style={{ left: tileX, top: tileY, width: tileW, height: tileH, background: st.bg }}
-              aria-label={`#${card.rank} ${card.name[locale] || t.status.unavailable}, ${card.collectorNumber}`}
+              aria-label={`#${card.viewRank} ${card.name[locale] || t.status.unavailable}, ${card.collectorNumber}`}
               aria-haspopup="dialog"
               onMouseEnter={() => {
                 setActive(card);
@@ -402,7 +405,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
                   aria-hidden="true"
                   style={{ width: st.cardW, height: st.cardH, left: (tileW - st.cardW) / 2, top: (tileH - st.cardH) / 2 }}
                 >
-                  <CardImage image={card.image} sizes={`${Math.max(40, Math.round(st.cardW))}px`} loading={card.rank <= 8 ? "eager" : "lazy"} />
+                  <CardImage image={card.image} sizes={`${Math.max(40, Math.round(st.cardW))}px`} loading={card.viewRank <= 8 ? "eager" : "lazy"} />
                 </span>
               ) : null}
               {st.move ? (
@@ -418,7 +421,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
           >
             <div className="preview-image"><CardImage image={active.image} sizes="220px" alt={active.image.alt[locale] || t.labels.imageAlt} /></div>
             <div className="preview-copy">
-              <p className="rank-kicker">#{active.rank} / {active.tcg}</p>
+              <p className="rank-kicker">#{active.viewRank} / {active.tcg}</p>
               <h3>{active.name[locale] || t.status.unavailable}</h3>
               <p className="muted-copy">{active.setName[locale] || t.status.unavailable}</p>
               <CardFacts card={active} locale={locale} currency={currency} snapshot={snapshot} />

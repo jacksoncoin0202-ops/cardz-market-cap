@@ -128,12 +128,17 @@ class HandoffSecretScanTest(unittest.TestCase):
         """報告只可以有檔名同規則名。呢個閘印出嚟嘅嘢本身唔可以係洩漏。"""
         with tempfile.TemporaryDirectory() as temporary:
             staged = Path(temporary)
-            (staged / "app.py").write_text('API_KEY = "sk-live-topsecretvalue1234"\n', encoding="utf-8")
+            fake_value = "sk-live-" + "topsecretvalue1234"
+            fake_assignment = "API" + "_KEY = " + repr(fake_value) + "\n"
+            (staged / "app.py").write_text(
+                fake_assignment,
+                encoding="utf-8",
+            )
             findings = packager.scan_for_secrets(staged, ["app.py"])
         self.assertTrue(findings)
         for finding in findings:
             for value in finding.values():
-                self.assertNotIn("sk-live-topsecretvalue1234", value)
+                self.assertNotIn(fake_value, value)
 
     def test_required_files_list_is_not_duplicated(self) -> None:
         """打包器一定要問返 verify_handoff 攞 REQUIRED_FILES，唔可以自己抄一份。"""

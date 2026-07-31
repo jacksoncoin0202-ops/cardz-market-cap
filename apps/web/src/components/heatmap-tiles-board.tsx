@@ -28,7 +28,7 @@ export function HeatmapTilesBoard({ cards, period, params, dark, onPick }: {
   }, []);
 
   const tiles = useMemo(() => heatmapTreemapLayout(
-    cards.map((card) => ({ card, rank: card.rank, value: Math.max(1, card.marketCap.value ?? 1) })),
+    cards.map((card) => ({ card, rank: card.viewRank, value: Math.max(1, card.marketCap.value ?? 1) })),
     size.width,
     size.height,
   ), [cards, size.height, size.width]);
@@ -52,7 +52,7 @@ export function HeatmapTilesBoard({ cards, period, params, dark, onPick }: {
             type="button"
             data-dir={st.direction}
             style={{ left: tileX, top: tileY, width: tileW, height: tileH, background: st.bg }}
-            aria-label={`#${card.rank} ${card.collectorNumber}`}
+            aria-label={`#${card.viewRank} ${card.collectorNumber}`}
             onClick={() => onPick?.(card)}
           >
             {st.showCard ? (
@@ -61,7 +61,7 @@ export function HeatmapTilesBoard({ cards, period, params, dark, onPick }: {
                 aria-hidden="true"
                 style={{ width: st.cardW, height: st.cardH, left: (tileW - st.cardW) / 2, top: (tileH - st.cardH) / 2 }}
               >
-                <CardImage image={card.image} sizes={`${Math.max(40, Math.round(st.cardW))}px`} loading={card.rank <= 8 ? "eager" : "lazy"} />
+                <CardImage image={card.image} sizes={`${Math.max(40, Math.round(st.cardW))}px`} loading={card.viewRank <= 8 ? "eager" : "lazy"} />
               </span>
             ) : null}
             {st.move ? (

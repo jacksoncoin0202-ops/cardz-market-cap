@@ -27,11 +27,11 @@ Population history remains direct-GemRate-only.
 
 | Required data | Authority | Repository collector / transport | Ranking fallback | Failure behavior |
 | --- | --- | --- | --- | --- |
-| Candidate identity | GemRate exact identity evidence | preferred direct API identity receipt; alternate exact public-card receipt; Grade10 GemRate mirror is evidence only | structured/universal search and SNK are discovery only; G10 is bootstrap evidence only | keep unresolved; do not rank |
-| PSA 10 population | GemRate | preferred direct API; alternate Grade10 `price.getGradingPopulations` GemRate mirror | none | exclude from ranking |
+| Candidate identity | **≥2 independent sources agree** on one `variant_id` (pool: GemRate, SNK, PriceCharting, PSA). EN cards should get PC via CF session. | GemRate receipts; SNK bind; `pricecharting_cf_session` / C11 sold; PSA when needed; attach via `identity_evidence_ledger` | G10 bootstrap only; TPL not identity authority | keep unresolved if &lt;2 sources or conflict |
+| PSA 10 population | GemRate | preferred direct API; alternate Grade10 `price.getGradingPopulations` GemRate mirror; **cross-check PSA official when identity disputed** | none | exclude from ranking |
 | PSA 10 population history | GemRate | direct API through `gemrate_source.py api-dump` | none | accumulating |
-| PSA 10 reference price | SNK exact printing | `snk_market_data.py` | exact eBay PSA 10 sold data validates the reference; no ranking fallback | exclude when unavailable |
-| Tracked sales | SNK recent trades + exact eBay PSA 10 sold records | SNK collector + repository-owned eBay sold adapter | G10 sale history is bootstrap evidence only | unavailable |
+| PSA 10 reference price | SNK exact printing | `snk_market_data.py` | exact eBay PSA 10 sold (incl. **PriceCharting** sold path) validates the reference; no ranking fallback | exclude when unavailable |
+| Tracked sales | SNK recent trades + exact eBay PSA 10 sold records | SNK collector + repository-owned eBay sold adapter + **PriceCharting CF session** (`pricecharting_cf_session.py`, `c11_pc_sold_ingest.py`) | G10 sale history is bootstrap evidence only | unavailable |
 | 1d/7d/30d price change | CARDZ daily observations | `market_alerts.py` | none | accumulating |
 | PSA 10 market cap | CARDZ derived | `market_alerts.py` | none | exclude when either dependency is absent |
 | Display FX | Frankfurter daily USD base | `fx_rates.py` | last-good up to 72 hours | disable conversion |

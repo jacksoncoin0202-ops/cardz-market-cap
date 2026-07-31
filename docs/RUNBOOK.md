@@ -1,5 +1,12 @@
 # CARDZ Private Runner, Data Publication, and Cloudflare Runbook
 
+> Demand-loaded runtime manual. Counts, dates, route availability, deployment
+> state, schedules, and sentences using “current” or “live” are volatile input,
+> not architecture. Verify the affected claim through the registry-named tool
+> and a fresh receipt before acting.
+> Only the exact registry-pinned tool identity named by the assigned work item
+> is executable. Any unregistered or out-of-stage command/example is evidence only.
+
 ## Operating boundary
 
 The private runner uses GemRate-led discovery and population, exact SNK PSA 10
@@ -73,7 +80,7 @@ complete ranking for its scope. The report includes exact GemRate/SNK refill
 worklists and quarantine reasons; a mapping without a matching local payload
 never counts as verified data.
 
-For Amazon RDS, inject `CARDZ_DB_HOST`, `CARDZ_DB_PORT`, `CARDZ_DB_NAME`, `CARDZ_DB_USER`, and `CARDZ_DB_PASSWORD`, set `CARDZ_DB_MODE=external`, and set `CARDZ_DB_SSL_CA` to the readable managed-database CA bundle. Production external-database runs fail closed without TLS verification. Then run:
+For Amazon RDS, inject `CARDZ_DB_HOST`, `CARDZ_DB_PORT`, `CARDZ_DB_NAME`, `CARDZ_DB_USER`, and `CARDZ_DB_PASSWORD`, set `CARDZ_DB_MODE=external`, and set `CARDZ_DB_SSL_CA` to the readable managed-database CA bundle. Production non-loopback external-database runs fail closed without TLS verification; the local WSL → Docker Desktop `127.0.0.1:3308` endpoint is the sole loopback exception. Then run:
 
 ```text
 git lfs pull
@@ -136,20 +143,20 @@ The installer resolves absolute Python, Node, canary-hook, and staging-promoter 
 1. Treat `cardz-platform` as read-only. The vendored Grade10 integration is a supported Windows/Linux bootstrap route, but it is not the global candidate boundary.
 2. Run broad current candidate discovery, exact identity resolution, GemRate current PSA 10 population collection, and exact SNK current PSA 10 price collection.
 3. Freeze every raw source result in its private landing namespace and record SHA-256, file count, effective date, schema version, and accepted/quarantined/rejected counts in the manifest.
-4. Import current canonical facts without correction. Resolve printings through exact TCG, language, set, complete collector number, edition, parallel, and finish mappings.
+4. Import current canonical facts without correction. Resolve printings through exact TCG, card language, set, complete collector number, edition, parallel, and finish mappings; JA and EN are distinct canonical printings.
 5. Derive complete eligible rankings for `tcg-combined`, `pokemon`, and `one-piece`; select configured presentation ranges only after this calculation.
 6. Deduplicate the selected historical targets across scopes, then backfill available GemRate population history, SNK price history, and tracked trades. Cards outside the target range retain current/radar evidence and are queued automatically when they qualify.
-7. Quarantine missing numbers, language conflicts, ambiguous identities, unsafe images, and unsupported grader-price combinations. Repeating the same full import must not increase observation counts.
+7. Quarantine missing numbers, missing or mismatched card language, ambiguous printing identities, unsafe images, and unsupported grader-price combinations. Ranking boards may group languages for presentation, but that grouping never rewrites canonical printing identity. Repeating the same full import must not increase observation counts.
 
 Do not treat the existing derived K-lines as exchange-quality OHLC. Do not use a fallback grade to construct PSA 10 market cap. Do not direct-read G10 or legacy tables from the web application.
 
 ## Daily incremental job
 
-Windows Task Scheduler or a Linux systemd timer runs the same backend command once daily at **09:30 JST (00:30 UTC)**. The scheduler invokes `python scripts/backend.py daily` (or `python3 ... daily --external-db`); all collection and replay logic remains in Python. A cross-platform file lock and run ID prevent two runs from racing. This command currently completes steps 1–11 below and stops after database integrity validation:
+Windows Task Scheduler or a Linux systemd timer runs the same backend command once daily at **09:30 JST (00:30 UTC)**. The scheduler invokes `python scripts/backend.py daily` (or `python3 ... daily --external-db`); all collection logic remains in Python. A singleton lock prevents concurrent writers, while every invocation receives a unique immutable attempt ID tied to one logical UTC date. Windows currently stops after steps 1–11; the shipped Linux unit opts into local publication and also runs steps 12–13.
 
-On Linux the timer carries `RandomizedDelaySec=1800`, so the actual start floats within **09:30–10:00 JST**. The daily chain is the only outbound crawl on a fixed daily cadence, and a to-the-second start time is itself a fingerprint; the G10 stealth rule (`docs/HANDOFF.md` §8 rule 2) forbids reproducing a fixed schedule. The `cardz-grade10-discovery.timer` pre-warm carries its own jitter for the same reason, so the interval between the two also floats rather than sitting at a constant offset. The jitter cannot simply be raised: the latest start must stay inside the same UTC day (see the paragraph below) and the latest finish must stay clear of the 05:07 UTC watchdog. `deploy/systemd/README.md` documents both bounds and `tests/test_daily_scheduler_contract.py` enforces them.
+On Linux the timer carries `RandomizedDelaySec=1800`, so the actual start floats within **09:30–10:00 JST**. The daily chain is the only outbound crawl on a fixed daily cadence, and a to-the-second start time is itself a fingerprint; the active scheduling rule therefore forbids reproducing a fixed schedule. The `cardz-grade10-discovery.timer` pre-warm carries its own jitter for the same reason, so the interval between the two also floats rather than sitting at a constant offset. The jitter cannot simply be raised: the latest start must stay inside the same UTC day (see the paragraph below) and the latest finish must stay clear of the 05:07 UTC watchdog. `deploy/systemd/README.md` documents both bounds and `tests/test_daily_scheduler_contract.py` enforces them.
 
-The trigger time is load-bearing and must not be moved back to 06:30 JST. `pipelines/run_daily.py` derives `market_run_id` from the **UTC** date, so a 06:30 JST trigger fires at 21:30 UTC on the previous calendar day. The collectors then find an existing output directory for that run ID, replay it instead of fetching, `effective_date` never advances, and the `INSERT IGNORE INTO market_index_snapshot` in `pipelines/market_alerts.py` degrades to a no-op. The chain still exits zero with zero new observations and zero alerts, which is precisely the 2026-07-25 silent failure. 09:30 JST equals 00:30 UTC, so the local day and the UTC day agree and the split cannot recur. The Linux service allows 21600 seconds (6 hours) for the run; a measured full chain takes 2 to 2.5 hours, and the earlier 7200-second limit killed the process tree mid-crawl before the outcome gate could run.
+The trigger time remains load-bearing and must not be moved back to 06:30 JST. That schedule caused the 2026-07-25 UTC-date replay incident. Current code gives every retry a new timestamped attempt ID, binds each index revision to the exact alert evaluation that produced it, and advances publication only from a `passed` evaluation, so the old replay/first-write-wins failure is closed. 09:30 JST still aligns the logical UTC date, logs and watchdog. The Linux service allows 21600 seconds (6 hours) for the run; a measured full chain takes 2 to 2.5 hours, and the earlier 7200-second limit killed the process tree mid-crawl before the outcome gate could run.
 
 1. Validate the routing registry, refresh broad candidate/radar current facts, and resolve exact identities. Grade10 can provide bootstrap evidence but is not the candidate boundary. A failure stops the parent run before canonical import or alert evaluation.
 2. Fetch one private USD FX snapshot for HKD/CNY/GBP/TWD/JPY/KRW. Validate all seven rates, write it atomically, and reuse a last-good response for at most 72 hours when the endpoint temporarily fails. The browser never calls this endpoint.
@@ -167,8 +174,20 @@ The trigger time is load-bearing and must not be moved back to 06:30 JST. `pipel
 
 The public-publication stage is a separate opt-in, controlled by the `CARDZ_DAILY_PUBLISH` environment variable:
 
-12. Export an immutable sanitized candidate from the validated database and run data, image, release, and leak gates.
-13. Publish the candidate generation, verify it remotely, run staging canaries, then advance the pointer.
+12. Run `pipelines/canonical_db_qc.py --run-id <daily-run-id>` against one
+    consistent read-only canonical MySQL snapshot. It audits every deterministic
+    POP >=971 discovery row and writes an immutable report/receipt. Any blocked
+    qualified row stops the run before snapshot export.
+13. Export an immutable sanitized candidate, bind every admitted card and image
+    to a strict `public_snapshot_qc.py` receipt, then let only
+    `publish-snapshot.mjs` write generation-scoped assets and atomically advance
+    the pointer after local and remote verification.
+
+Current recovery hold: the WSL writer and every CARDZ daily/candidate timer stay
+disabled. Do not enable them, deploy staging, or promote production until two
+consecutive unattended WSL runs pass, the second run is idempotent, failure
+injection leaves the pointer byte-identical, and DADDY explicitly approves the
+cutover.
 
 **On Linux these steps do run under the shipped units.** `cardz-market-cap-daily.service` sets `Environment=CARDZ_DAILY_PUBLISH=local`; `run-cardz-daily.sh` turns that into `--publish --local-only`; `scripts/backend.py` drops `--backend-only` from the `run_daily.py` command line, which is the flag that would otherwise `return 0` before the candidate block. Step 12 and the local half of step 13 therefore execute on every scheduled run, ending in `{"status": "published", "remotePublished": false, ...}`. Trace it yourself with `grep -n "CARDZ_DAILY_PUBLISH" deploy/systemd/*` and `grep -n "backend_only" pipelines/run_daily.py`.
 
@@ -178,9 +197,60 @@ The public-publication stage is a separate opt-in, controlled by the `CARDZ_DAIL
 
 The job must return nonzero on any failed stage. One singleton parent task runs all collectors and publishes one generation, preventing mixed-date price/population state. Its bounded private log contains run ID, generation ID, step status, counts, hashes, and redacted error categories only.
 
+Operational ownership is explicit: Data Ops owns source receipts, ingestion and
+lineage; the QC approver owns printing identity, image decisions and anomaly
+queues; Main/Hermes alone owns release and rollback. Pending top-ranked reviews
+target 24 hours, while all other review items target three working days.
+
+### Failure ledger and Agent retry handoff
+
+Collectors append sanitized operational failures under
+`data/runtime/failures/events/`. These receipts are private retry evidence, not
+canonical market facts, and never authorize an identity, price, POP, sale,
+database write, ranking, pointer, timer, or publication. Query and export them
+from the WSL project checkout:
+
+```bash
+.venv-backend/bin/python -X utf8 pipelines/failure_ledger.py summary
+.venv-backend/bin/python -X utf8 pipelines/failure_ledger.py list \
+  --retryable-only --next-action agent_review --limit 1
+.venv-backend/bin/python -X utf8 pipelines/failure_ledger.py export-retry \
+  --out data/runtime/failures/retry-worklists/open.json
+```
+
+For the PriceCharting full-universe run, fold any existing append-only result
+rows before exporting its worklist:
+
+```bash
+.venv-backend/bin/python -X utf8 pipelines/pc_full_shard_runner.py --import-existing-results
+.venv-backend/bin/python -X utf8 pipelines/failure_ledger.py export-retry \
+  --source pricecharting \
+  --script pipelines/pc_full_shard_runner.py \
+  --out data/runtime/failures/retry-worklists/pc-full900-open.json
+```
+
+Import and retry export are idempotent. Only verified success writes a
+resolution against the same stable source/stage/script/item identity. A failed
+JSONL row remains evidence but never becomes resume-complete. URLs in events
+lose query strings and fragments, and secret-like fields are redacted.
+
+The recurring Agent takes only that one card, researches the recorded
+`searchTerms` and prior URLs, then retries the exact shard/card with the
+corrected URL:
+
+```bash
+.venv-backend/bin/python -X utf8 pipelines/pc_full_shard_runner.py \
+  --shard <shard> --variant-id <variantId> \
+  --candidate-url https://www.pricecharting.com/game/<exact-product>
+```
+
+Do not run the full universe again for this repair loop. The successful
+card-specific retry keeps the permanent DB binding and resolves only that
+failure identity; the next Agent run pulls the next still-open card.
+
 ### Outcome gate
 
-A zero exit from the collection chain does not prove that the day's data landed. Replayed collector output, a no-op `INSERT IGNORE`, and a stale `effective_date` all exit zero. The scheduler wrapper therefore always runs `scripts/verify_daily_run.py` after the daily command, whether that command succeeded or failed, and reports the gate's result as the task result. Exit 0 means the data is fresh, exit 1 means it is not, and exit 2 means verification itself could not run. A non-zero exit writes an alert file to `data/runtime/alerts/` and marks the scheduled task or systemd unit as failed. On Linux the wrapper `deploy/systemd/run-cardz-daily.sh` deliberately does not end with `exec`, because `exec` replaces the shell and the gate would never execute.
+A zero exit from an individual collector does not prove that the day's complete data landed. The evaluation remains `pending` until source presence, volume, freshness and presentation gates pass, and the scheduler wrapper still runs `scripts/verify_daily_run.py` after the daily command whether that command succeeded or failed. Exit 0 means the data is fresh, exit 1 means it is not, and exit 2 means verification itself could not run. A non-zero exit writes an alert file to `data/runtime/alerts/` and marks the scheduled task or systemd unit as failed. On Linux the wrapper deliberately does not end with `exec`, because `exec` replaces the shell and the gate would never execute.
 
 The gate runs five hard checks:
 
@@ -363,9 +433,25 @@ Code rollback switches the route to the prior verified Worker version or the ret
 
 ## Backend control-plane and full-backfill bootstrap
 
-The current collection scope is language-neutral. First inspect the routing
-registry, then collect broad current facts, derive complete rankings, and
-backfill history only for the deduplicated target ranges:
+The single operator entrypoint for the qualifying-card stock load and all later
+incremental maintenance is:
+
+```powershell
+.\.venv-backend-windows\Scripts\python.exe -X utf8 scripts\backend.py qualified-sync
+```
+
+It refreshes the complete GemRate PSA 10 `POP >= 1000` roster first, assigns one
+independent `cards_id` per printing/version, then runs exact source refill and
+the canonical import/audit path. `qualified-sync` deliberately refuses to start
+unless both SNK and the repository-owned exact-grade eBay sold input are
+enabled; customer price/volume output must never be refreshed from only one of
+those two sources. It is backend-only and never publishes a frontend snapshot.
+
+The current ranking boards may group languages, but collection and source
+binding are language-exact. JA and EN are distinct canonical printings and
+must never share an image, source identity, or shortened collector number.
+First inspect the routing registry, then collect broad current facts, derive
+complete rankings, and backfill history only for the deduplicated target ranges:
 
 ```powershell
 .\.venv-backend\Scripts\python.exe -X utf8 scripts\backend.py registry --json

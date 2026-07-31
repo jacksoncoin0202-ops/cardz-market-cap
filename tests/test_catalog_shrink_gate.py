@@ -1,12 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Catalog 縮水閘 + quarantine 審計 regression（2026-07-26）。
+"""Catalog 縮水閘 + immutable pointer regression。
 
-每日鏈嘅 public candidate 段落係一個**閉環**：
-
-    canonical_public_snapshot --presentation data/public/seed-snapshot.json
-        → candidate
-        → promote 覆蓋返 data/public/seed-snapshot.json
-        → quarantine 搬走所有唔再被引用嘅 asset
+每日鏈以 runtime latest.json指向上一代immutable generation，tracked demo seed永不覆寫。
 
 Day N 嘅輸出就係 Day N+1 嘅輸入。實測跑出嚟：舊 pack 360 張卡 export 出 192 張（70 張
 因為冇合格圖被剔），promote + quarantine 搬走 3667 個檔；跟住攞返嗰個 360 張嘅舊 pack
@@ -74,14 +69,9 @@ class CatalogShrinkGateTests(unittest.TestCase):
             else:
                 self.calls.append("publish")
 
-        for name, replacement in (
-            ("run_checked", fake_run_checked),
-            ("promote_file", lambda *_a, **_k: self.calls.append("promote")),
-            ("quarantine_unreferenced_assets", lambda *_a, **_k: self.calls.append("quarantine") or 7),
-        ):
-            original = getattr(run_daily, name)
-            setattr(run_daily, name, replacement)
-            self.addCleanup(setattr, run_daily, name, original)
+        original = run_daily.run_checked
+        run_daily.run_checked = fake_run_checked
+        self.addCleanup(setattr, run_daily, "run_checked", original)
 
     def write_snapshots(self, *, before: int | None, after: int) -> None:
         if before is not None:
@@ -93,9 +83,7 @@ class CatalogShrinkGateTests(unittest.TestCase):
             candidate_snapshot=self.candidate,
             candidate_image_manifest=self.manifest,
             assets_out=self.temp / "market-assets",
-            snapshot_destination=self.published,
-            image_manifest_destination=self.temp / "out-image-qc.json",
-            quarantine_root=self.temp / "quarantine",
+            published_snapshot=self.published if self.published.is_file() else None,
             publish_command=["node", "publish-snapshot.mjs"],
             production=False,
             timeout=60,
@@ -138,17 +126,13 @@ class CatalogShrinkGateTests(unittest.TestCase):
     def test_a_shrink_inside_the_threshold_still_publishes(self) -> None:
         # 真係有卡落榜嘅日子唔應該攔——閘唔可以嚴到冇人用得。
         self.write_snapshots(before=200, after=195)
-        self.assertEqual(self.finalize(), 7)
-        self.assertEqual(
-            self.calls,
-            ["verify:lenient", "promote", "promote", "quarantine", "verify:strict", "publish"],
-        )
+        self.assertEqual(self.finalize(), 0)
+        self.assertEqual(self.calls, ["verify:lenient", "publish"])
 
     def test_an_explicit_approval_lets_a_large_shrink_through(self) -> None:
         # 合法大收縮（例如一次過清走一批落榜卡）要行得，但要人明確講。
         self.write_snapshots(before=360, after=192)
-        self.assertEqual(self.finalize(max_catalog_shrink_pct=50), 7)
-        self.assertIn("quarantine", self.calls)
+        self.assertEqual(self.finalize(max_catalog_shrink_pct=50), 0)
         self.assertIn("publish", self.calls)
 
     def test_the_suggested_approval_value_actually_works(self) -> None:
@@ -157,7 +141,7 @@ class CatalogShrinkGateTests(unittest.TestCase):
         with self.assertRaises(run_daily.CatalogShrinkError) as caught:
             self.finalize()
         suggested = float(re.search(r"--max-catalog-shrink-pct (\d+(?:\.\d+)?)", str(caught.exception)).group(1))
-        self.assertEqual(self.finalize(max_catalog_shrink_pct=suggested), 7)
+        self.assertEqual(self.finalize(max_catalog_shrink_pct=suggested), 0)
 
     def test_approval_is_per_run_and_never_persisted(self) -> None:
         # 批准一次唔等於永久放行：下一次唔帶 flag 要照攔。
@@ -169,16 +153,16 @@ class CatalogShrinkGateTests(unittest.TestCase):
 
     def test_growth_is_never_blocked(self) -> None:
         self.write_snapshots(before=192, after=360)
-        self.assertEqual(self.finalize(), 7)
+        self.assertEqual(self.finalize(), 0)
 
     def test_an_unchanged_catalog_is_never_blocked(self) -> None:
         self.write_snapshots(before=192, after=192)
-        self.assertEqual(self.finalize(), 7)
+        self.assertEqual(self.finalize(), 0)
 
     def test_the_first_publish_has_no_baseline_to_compare(self) -> None:
         # 未有 seed-snapshot.json 嘅時候冇嘢比較，唔應該攔死首次發佈。
         self.write_snapshots(before=None, after=192)
-        self.assertEqual(self.finalize(), 7)
+        self.assertEqual(self.finalize(), 0)
 
     def test_a_total_wipe_is_blocked(self) -> None:
         # 最惡劣嘅一種：export 出零張卡，跟住 quarantine 清晒全部圖。

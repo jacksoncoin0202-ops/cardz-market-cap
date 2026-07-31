@@ -19,7 +19,7 @@ The service user's home is `/var/lib/cardz`, matching `docs/SERVER_MIGRATION.md`
 
 `git lfs pull` is deliberately unfiltered. Once `CARDZ_DAILY_PUBLISH` is `local` or `remote` the publish chain reads the real `data/public/market-assets/*.webp` bytes, so restricting the pull to the bootstrap archive would leave ~131-byte LFS pointer files that only fail much later, inside Pillow, with an error that never mentions LFS.
 
-Materialize `/etc/cardz-market-cap/backend.env` from the approved server secret manager. It must contain `CARDZ_DB_MODE=external`, the five `CARDZ_DB_*` connection values, and a readable `CARDZ_DB_SSL_CA` path. Keep it owned by `root:root` with mode `0600`; do not put that file in Git. Both the daily wrapper and the installer refuse to run if that file is group/world-readable, and the installer additionally requires it to be root-owned.
+Materialize `/etc/cardz-market-cap/backend.env` from the approved server secret manager. It must contain `CARDZ_DB_MODE=external` and the five `CARDZ_DB_*` connection values. A non-loopback production host also requires a readable `CARDZ_DB_SSL_CA` path; the current WSL → Docker Desktop canonical endpoint is explicitly `127.0.0.1:3308` and is the only production-mode loopback exception. Keep the file LF-only, owned by `root:root` with mode `0600`; do not put it in Git. Both the daily wrapper and the installer refuse insecure permissions, and the installer also rejects CRLF before systemd can inject values containing a hidden `\r`.
 
 Run the bootstrap once before enabling any timer. The installer described below deliberately does **not** cover `cardz-market-cap-bootstrap.service` or the optional `cardz-grade10-discovery.*` units, so install those the plain way:
 
@@ -30,9 +30,10 @@ sudo systemctl start cardz-market-cap-bootstrap.service
 sudo systemctl status cardz-market-cap-bootstrap.service
 ```
 
-## Installing the daily and watchdog timers
+## Installing the WSL web and scheduler units
 
-Use the repo installer — it is the supported path for these four units:
+Use the repo installer. The default `install` action writes/render units and
+does `daemon-reload` only; it deliberately does not enable or start anything:
 
 ```bash
 sudo deploy/linux/cardz-daily-systemd.sh dry-run     # default action; changes nothing
@@ -41,16 +42,53 @@ sudo deploy/linux/cardz-daily-systemd.sh install
 
 `dry-run` is the default action and only prints what would happen. Check its output before installing; `schedule=00:30 UTC (09:30 Asia/Tokyo)`, `watchdogSchedule=05:07 UTC (14:07 Asia/Tokyo)` and `timeoutSeconds=21600` must all read as shown. It also prints `readWritePaths=` and `readWritePathsMissing=` so the sandbox paths can be checked before they matter.
 
-Flags: `--repo-root` (default `/opt/cardz-market-cap`), `--unit-dir` (default `/etc/systemd/system`), `--env-file` (default `/etc/cardz-market-cap/backend.env`), `--user` (default `cardz`). Other actions are `status` (`systemctl status` on all four units) and `uninstall` (disables both timers, removes the four unit files, reloads). `install` and `uninstall` require root; `install` also requires the service user to already exist.
+Flags: `--repo-root` (default `/opt/cardz-market-cap`), `--unit-dir` (default `/etc/systemd/system`), `--env-file` (default `/etc/cardz-market-cap/backend.env`), `--user` (default `cardz`). State changes require both an explicit flag and the single-writer assertion:
 
-What `install` does that a plain `install -m 0644` of the unit files does not:
+```bash
+# Only after the Windows scheduled writer is disabled and cutover is approved:
+sudo deploy/linux/cardz-daily-systemd.sh install \
+  --enable --start --confirm-single-writer
+```
+
+The installer enables/starts the web, daily, watchdog and GemRate-freeze units
+only with those flags. `cardz-market-cap-candidate-refresh.timer` and
+`cardz-market-cap-retention.timer` are installed without `[Install]` and remain
+disabled; retention only writes a dry-run plan and never passes `--apply`.
+That weekly report includes total raw rows, payload/effective-pointer counts,
+uncompacted payload rows and bytes, plus the relevant MySQL table data/index
+sizes.
+
+The one-time effective-pointer repair is a separate manual operation. It ranks
+complete-run observations by latest `effective_at`, then highest observation
+ID, and only upserts `market_source_effective_observation`; it does not compact
+or change `payload_json`:
+
+```bash
+sudo systemd-run --uid=cardz --wait --pipe \
+  --property=EnvironmentFile=/etc/cardz-market-cap/backend.env \
+  /opt/cardz-market-cap/.venv-backend/bin/python -X utf8 \
+  /opt/cardz-market-cap/pipelines/db_retention.py \
+  --backfill-effective-pointers --apply --limit 25000
+```
+
+Keep this command manual and run it only after the DB migration/table backup
+check. The retention timer must remain dry-run-only and must never gain either
+`--apply` or `--backfill-effective-pointers`.
+
+What `install` does that plain file copies do not:
 
 - **Pre-creates every sandbox path.** It reads the `ReadWritePaths=` lines back out of the daily and watchdog service templates (the paths are *extracted* from the templates; the installed units keep their `ReadWritePaths=` intact), rewrites the `/opt/cardz-market-cap` prefix to the real `--repo-root`, then creates each one with `install -d -m 0750` owned by the service user. This is not cosmetic: `ProtectSystem=strict` requires every path listed in `ReadWritePaths=` to exist when systemd builds the mount namespace. If one is missing the unit dies with `status=226/NAMESPACE` **before `ExecStart`**, so the journal shows no Python output at all and the run looks like it never happened. Four of the seven daily paths (`integrations/grade10/data`, `data/runtime`, `data/private/gemrate`, `.venv-backend`) are gitignored and therefore absent from a fresh clone; the three publish paths (`data/public`, `manifests`, `packages/market-data/dist`) are present in a clone except for `dist`, which only exists after a build. Because the list is read from the units, editing `ReadWritePaths=` keeps the installer in sync automatically.
 - **Renders the units instead of copying them.** `/opt/cardz-market-cap`, the env-file path, and `User=`/`Group=cardz` are substituted for the values actually passed in. The two `.timer` files carry no paths and are installed verbatim.
 - **Refuses to install a broken chain.** Missing `scripts/backend.py` or `scripts/verify_daily_run.py` aborts the install — without the latter there is no outcome gate. The watchdog units are installed only when all three of its files are present.
-- Finishes with `daemon-reload`, `enable` + `start` on both timers, and `systemctl list-timers`.
+- Renders and installs the versioned-snapshot web runtime, post-publish
+  restart/health helper, daily/watchdog/freeze stack, candidate refresh and
+  retention dry-run units, then performs `daemon-reload`.
 
-The equivalent manual route, if the installer cannot be used, is `install -m 0644` for the four unit files plus `install -d -m 0750 -o cardz -g cardz` for each `ReadWritePaths=` entry. It only works unmodified when the repository really is at `/opt/cardz-market-cap` and the service user really is `cardz`, since nothing rewrites the paths baked into the units.
+The web service reads
+`data/runtime/publish-staging/latest.json`, then loads both snapshot and assets
+from that exact versioned generation. A successful daily outcome triggers the
+root-owned refresh helper, which restarts the Node service and refuses success
+unless `/api/health` reports the promoted generation as fresh.
 
 ## Schedule
 
@@ -59,6 +97,8 @@ The equivalent manual route, if the installer cannot be used, is `install -m 064
 | `cardz-market-cap-daily.timer` | `OnCalendar=*-*-* 00:30:00 UTC` + `RandomizedDelaySec=1800` — fires 00:30–01:00 UTC = 09:30–10:00 JST | Full collection chain, then the outcome gate |
 | `cardz-market-cap-watchdog.timer` | `OnCalendar=*-*-* 05:07:00 UTC` — 05:07 UTC = 14:07 JST | Read-only re-verification of that day's result |
 | `cardz-gemrate-freeze.timer` | `OnCalendar=Sun *-*-* 14:23:00 UTC` + `RandomizedDelaySec=3600` | Weekly GemRate roster + POP freeze (heavy; daily API quota is 1000) |
+| `cardz-market-cap-candidate-refresh.timer` | `OnCalendar=Mon *-*-* 14:17:00 UTC` + `RandomizedDelaySec=3600` | Disabled-by-default exact candidate intake and additive universe promotion |
+| `cardz-market-cap-retention.timer` | `OnCalendar=Tue *-*-* 17:17:00 UTC` + `RandomizedDelaySec=1800` | Disabled-by-default retention plan; dry-run only, never `--apply` |
 | `cardz-grade10-discovery.timer` (optional) | `OnCalendar=*-*-* 21:17:00 UTC` + `RandomizedDelaySec=1500` — fires 21:17–21:42 UTC = 06:17–06:42 JST | Optional preflight refresh of the broad discovery roster |
 | `cardz-image-backfill.service` | none — `systemctl start` only | On-demand image/derivative backfill. The absence of a timer is the design, not an omission. |
 
@@ -66,11 +106,11 @@ Every timer is expressed in UTC; none of them may be rewritten in local time.
 
 **Both outbound timers carry jitter, and the gap between them is deliberately not constant.** The G10 stealth rule (`docs/HANDOFF.md` §8 rule 2) forbids mirroring a fixed schedule. Two to-the-second timers a constant 47 minutes apart — which is what `23:43 UTC` + `00:30 UTC` was — is the same fingerprint as copying a published schedule: the pair itself is the pattern. With `RandomizedDelaySec` on both, the interval now floats between 2h48m and 3h43m, and the off-the-hour minutes (`:17`, `:23`) additionally keep the jobs off on-the-hour scheduling peaks.
 
-The daily jitter is capped at 1800 s for two reasons, both of which break if it is raised: the latest start (01:00 UTC) must stay inside the same UTC day, because `market_run_id` is built from the UTC date (see below); and the latest finish (01:00 + the measured 2–2.5 h chain ≈ 03:30 UTC) must stay clear of the 05:07 UTC watchdog, or the job that exists to catch silent failures starts raising false alarms against a run that is still going. `tests/test_daily_scheduler_contract.py::test_outbound_timers_are_jittered_and_not_a_fixed_offset_apart` reads both bounds back out of the unit files and fails if either is violated.
+The daily jitter is capped at 1800 s for two reasons, both of which break if it is raised: the latest start (01:00 UTC) must stay inside the intended logical UTC date; and the latest finish (01:00 + the measured 2–2.5 h chain ≈ 03:30 UTC) must stay clear of the 05:07 UTC watchdog, or the job that exists to catch silent failures starts raising false alarms against a run that is still going. Every invocation now has a timestamped immutable attempt ID, so a same-date retry collects again instead of reusing the first attempt. `tests/test_daily_scheduler_contract.py::test_outbound_timers_are_jittered_and_not_a_fixed_offset_apart` reads both timer bounds back out of the unit files and fails if either is violated.
 
 The discovery timer previously read `05:45:00 Asia/Tokyo`, which was 45 minutes ahead of the old 06:30 JST daily but landed at 20:45 UTC on the *previous* day once the daily moved to 00:30 UTC. It was then moved to 23:43 UTC to restore a 47-minute lead — which is the fixed offset described above. At 21:17 UTC it runs at 06:17 JST, roughly three hours before the daily, restoring the original 05:45 JST placement without the constant spacing. Its worst case (jitter + the service's own 1800 s `TimeoutStartSec`) still finishes before the daily's earliest start, and it is only a pre-warm in any case: `scripts/backend.py daily` calls `run_discovery_tool()` itself, so moving or disabling this timer cannot break the daily run.
 
-The daily trigger is expressed in UTC and must not be moved back to `06:30 Asia/Tokyo`. `pipelines/run_daily.py` builds `market_run_id` from the **UTC** date, so a 06:30 JST trigger fires at 21:30 UTC on the *previous* day. The collectors then see a run ID they have already produced output for, replay it instead of fetching, `effective_date` never advances, and the `INSERT IGNORE INTO market_index_snapshot` in `pipelines/market_alerts.py` becomes a no-op. The whole chain still exits zero with zero new rows and zero alerts; this is exactly the 2026-07-25 silent failure. Keeping the trigger at 00:30 UTC aligns the local day with the UTC day and removes the split structurally.
+The daily trigger is expressed in UTC and must not be moved back to `06:30 Asia/Tokyo`. That old schedule created the 2026-07-25 date/replay incident. The repair is now structural as well as operational: collection uses a unique attempt ID, every index revision is bound to its exact alert evaluation, and only a source/volume/freshness-gated `passed` evaluation can advance publication. Keeping the trigger at 00:30 UTC still aligns the operational date, watchdog and reports, but a later same-date retry no longer replays or gets trapped behind a first-write-wins index row.
 
 The daily job first refreshes the broad constituent radar, then collects the frozen active universe, appends/imports canonical observations, and derives rankings and alerts. Any required-stage failure prevents later stages from running and preserves the last-good database/public generation. `cardz-grade10-discovery.service` and its timer remain optional operator preflight tools; they are not required because the parent daily job performs the same discovery gate. Raw acquisition output and database credentials never enter Git.
 
@@ -86,7 +126,7 @@ The daily job first refreshes the broad constituent radar, then collects the fro
 | `remote` | `--publish` | Adds the R2 upload and conditional pointer promotion. `backend.env` must supply `CARDZ_PRODUCTION_R2_BUCKET`, `CARDZ_GENERATION_CANARY_COMMAND_JSON` and `CARDZ_POINTER_PROMOTE_COMMAND_JSON`; `pipelines/run_daily.py` refuses to start if any is missing. |
 | `off` | none | The previous behaviour: `run_daily.py --backend-only`, collection and database sync only. |
 
-The publish chain runs, in order, `canonical_public_snapshot.py` → `ensure_std_card_images.py --write` → `verify_images.py --allow-unreferenced` → the catalog-shrink ratchet → the manifest and snapshot promotion → quarantine of unreferenced assets → a strict `verify_images.py` → `npm run build --workspace @cardz/market-data` → `pipelines/publish-snapshot.mjs`. The shrink ratchet sits ahead of promotion and quarantine because quarantine moves files and is not reversible; its default tolerance is -5 percent and lowering it defeats the gate.
+The publish chain runs, in order, `canonical_public_snapshot.py` → `ensure_std_card_images.py --write` → `verify_images.py --allow-unreferenced` → the catalog-shrink ratchet → the Node standalone build → `pipelines/publish-snapshot.mjs`. The daily unit fixes both `CARDZ_BUILD_TARGET=node` and `CARDZ_RUNTIME=node`; the standalone build copies ordinary public/static files but deliberately excludes build-time `public/market-assets`, so every market image must pass through the active generation-aware route. The publisher writes the snapshot and all master/derivative assets into one immutable generation, verifies it, and only then atomically replaces `data/runtime/publish-staging/latest.json`. It does not overwrite the tracked demo seed or quarantine the shared asset tree; a failure leaves the last-known-good pointer unchanged.
 
 The Windows counterpart, `deploy/windows/run-cardz-daily.ps1`, defaults its `-Publish` parameter to `off`, not `local`. The divergence is deliberate: on Linux the mode is written explicitly into the unit file, so the default in the wrapper is only a manual-invocation fallback, whereas the Windows scheduled task `CARDZ-Market-Cap-Daily` was registered before publish existed and passes no `-Publish` at all. A `local` default there would have turned publishing on for the next 09:30 JST run through a file edit alone, with no scheduling change and no review. Publishing on Windows must be opted into from the task action.
 

@@ -92,7 +92,7 @@
 ### 實際代價（2026-07-26 實證）
 
 `opaque_id = sha256(tcg, language, set_name, collector.normalized, name)[:24]`
-（[g10_public_snapshot.py](../pipelines/g10_public_snapshot.py) `opaque_id()`）
+（[card_identity.py](../pipelines/card_identity.py) — single source; language required）
 
 → **normalizer 唔一致 = 同一張卡分裂成兩個 id = 價格同 POP 史各自孤立。**
 

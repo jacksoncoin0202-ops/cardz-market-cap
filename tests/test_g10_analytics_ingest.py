@@ -358,10 +358,10 @@ class ForbiddenWriteTests(unittest.TestCase):
     def test_never_writes_market_price_observation(self):
         self.assertNotIn("INTO market_price_observation", self.SOURCE)
 
-    def test_only_expected_tables_are_written(self):
+    def test_no_canonical_tables_are_written(self):
         written = {line.split("INTO", 1)[1].strip().split()[0]
                    for line in self.SOURCE.splitlines() if "INSERT" in line and "INTO" in line}
-        self.assertEqual(written, {"market_ingest_run", "market_source_observation"})
+        self.assertEqual(written, set())
 
     def test_never_writes_market_tracked_sales_aggregate(self):
         """2026-07-26 起嗰張表冇 consumer 又冇 source_code 欄

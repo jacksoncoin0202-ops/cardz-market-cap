@@ -6,9 +6,12 @@ import sys
 import tempfile
 import unittest
 from collections import Counter
+from contextlib import redirect_stderr
 from datetime import datetime
 from decimal import Decimal
+from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,6 +49,40 @@ def build_rows(
         stats=stats if stats is not None else Counter(),
         unknown_grades=unknown if unknown is not None else Counter(),
     )
+
+
+class ExistingKeyCursor:
+    def __init__(self, existing: set[tuple[str, str]]) -> None:
+        self.existing = existing
+        self.calls: list[tuple[str, object]] = []
+        self._rows: list[dict[str, str]] = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def execute(self, query: str, params: object = None) -> None:
+        self.calls.append((query, params))
+        values = list(params or [])
+        pairs = zip(values[1::2], values[2::2])
+        self._rows = [
+            {"external_entity_id": external, "transaction_fingerprint": fingerprint}
+            for external, fingerprint in pairs
+            if (external, fingerprint) in self.existing
+        ]
+
+    def fetchall(self) -> list[dict[str, str]]:
+        return self._rows
+
+
+class ExistingKeyConnection:
+    def __init__(self, existing: set[tuple[str, str]]) -> None:
+        self.cursor_value = ExistingKeyCursor(existing)
+
+    def cursor(self) -> ExistingKeyCursor:
+        return self.cursor_value
 
 
 class DateSemanticsTests(unittest.TestCase):
@@ -142,6 +179,33 @@ class PlatformScopeTests(unittest.TestCase):
             sale("2026-07-19T00:00:00+00:00", "2026-07-25", 16100.0, platform="ebay"),
         ]}, platforms=("snkrdunk", "ebay"))
         self.assertEqual([row.platform for row in rows], ["ebay"])
+
+    def test_write_with_ebay_is_refused_before_a_database_connection(self) -> None:
+        stderr = StringIO()
+        with patch.object(sys, "argv", ["g10_sales_cache_ingest.py", "--write", "--platforms", "ebay"]):
+            with patch.object(ingest, "connection_from_args") as connect:
+                with redirect_stderr(stderr):
+                    self.assertEqual(ingest.main(), 1)
+        connect.assert_not_called()
+        self.assertIn("g10_ebay_ingest.py", stderr.getvalue())
+
+    def test_write_with_snkrdunk_reaches_the_existing_connection_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "g10_sales_cache_ingest.py",
+                    "--write",
+                    "--platforms",
+                    "snkrdunk",
+                    "--g10-root",
+                    tmp,
+                ],
+            ):
+                with patch.object(ingest, "connection_from_args", side_effect=RuntimeError("connection reached")):
+                    with self.assertRaisesRegex(RuntimeError, "connection reached"):
+                        ingest.main()
 
 
 class GradeMappingTests(unittest.TestCase):
@@ -276,6 +340,51 @@ class MoneyTests(unittest.TestCase):
     def test_money_quantizes_to_the_column_scale(self) -> None:
         self.assertEqual(ingest.money(Decimal("219.74983044469332")), "219.749830")
         self.assertEqual(ingest.money(Decimal("16100")), "16100.000000")
+
+
+class IncrementalWriteTests(unittest.TestCase):
+    def test_split_existing_rows_only_returns_delta_without_mutating_history(self) -> None:
+        rows = build_rows({"sales": [
+            sale("2026-07-19T00:00:00+00:00", "2026-07-25", 10.0),
+            sale("2026-07-20T00:00:00+00:00", "2026-07-25", 11.0),
+        ]})
+        conn = ExistingKeyConnection({(rows[0].external_entity_id, rows[0].fingerprint)})
+
+        delta, already_existing = ingest.split_existing_rows(conn, rows)
+
+        self.assertEqual(already_existing, 1)
+        self.assertEqual([row.fingerprint for row in delta], [rows[1].fingerprint])
+        query, params = conn.cursor_value.calls[0]
+        self.assertIn("SELECT external_entity_id, transaction_fingerprint", query)
+        self.assertEqual(list(params or [])[0], ingest.SOURCE_CODE)
+
+    def test_existing_key_lookup_is_batched(self) -> None:
+        rows = [
+            build_rows({"sales": [sale(f"2026-01-{day:02d}T00:00:00+00:00", "2026-07-25", float(day))]},
+                       external_entity_id=str(day))[0]
+            for day in range(1, ingest.EXISTING_LOOKUP_CHUNK + 2)
+        ]
+        conn = ExistingKeyConnection(set())
+
+        self.assertEqual(ingest.existing_sale_keys(conn.cursor(), rows), set())
+
+        self.assertEqual(len(conn.cursor_value.calls), 2)
+        self.assertEqual(len(list(conn.cursor_value.calls[0][1] or [])), 1 + ingest.EXISTING_LOOKUP_CHUNK * 2)
+        self.assertEqual(len(list(conn.cursor_value.calls[1][1] or [])), 3)
+
+    def test_empty_delta_skips_the_ingest_run(self) -> None:
+        result = ingest.write_all(
+            object(), [], [], 10, candidate_count=10, already_existing=10
+        )
+
+        self.assertIsNone(result["run_id"])
+        self.assertEqual(result["already_existing"], 10)
+        self.assertEqual(result["inserted"], 0)
+
+    def test_insert_is_ignore_only_and_never_duplicate_updates_existing_sales(self) -> None:
+        source = MODULE_PATH.read_text(encoding="utf-8")
+        self.assertIn("INSERT IGNORE INTO market_sale_observation", source)
+        self.assertNotIn("ON DUPLICATE KEY UPDATE", source)
 
 
 if __name__ == "__main__":

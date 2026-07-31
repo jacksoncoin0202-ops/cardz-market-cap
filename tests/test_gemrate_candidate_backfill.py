@@ -15,9 +15,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
 from gemrate_candidate_backfill import (  # noqa: E402
+    apply_canonical_db_identity_overlay,
     apply_public_receipt_identity_proposals,
     build_public_card_details_worklist,
     build_candidate_roster,
+    load_canonical_db_identity_overlay,
     merge_receipt_mappings,
     persist_receipt_identity_mappings,
     resolve_immutable_mirror_root,
@@ -188,6 +190,194 @@ def persist_direct_identity_receipt(cards_root: Path, gemrate_id: str, payload: 
 
 
 class GemRateCandidateBackfillTests(unittest.TestCase):
+    def test_canonical_db_loader_uses_only_exact_snk_and_keeps_ambiguous_ids_unset(self) -> None:
+        gemrate_id = "0" * 40
+
+        class Cursor:
+            query = ""
+
+            def execute(self, query: str) -> None:
+                self.query = query
+
+            def fetchall(self) -> list[dict]:
+                base = {
+                    "gemrate_id": gemrate_id,
+                    "variant_id": 42,
+                    "gemrate_evidence_sha256": "a" * 64,
+                    "tcg_code": "one-piece",
+                    "card_language": "ja",
+                    "canonical_name": "Shanks",
+                    "set_name": "Romance Dawn",
+                    "collector_number": "OP01-120",
+                    "edition_code": "standard",
+                    "parallel_code": "manga",
+                    "finish_code": "foil",
+                    "printing_identity_status": "canonical",
+                    "db_psa10_population": 1200,
+                    "db_population_observed_date": date(2026, 7, 28),
+                    "db_population_effective_at": datetime(2026, 7, 28, tzinfo=timezone.utc),
+                    "db_population_payload_sha256": "b" * 64,
+                    "snk_match_status": "exact",
+                }
+                return [
+                    {**base, "snk_external_entity_id": "123"},
+                    {**base, "snk_external_entity_id": "456"},
+                ]
+
+        cursor = Cursor()
+        overlay = load_canonical_db_identity_overlay(cursor)
+
+        self.assertIn("snk.match_status = 'exact'", cursor.query)
+        self.assertIsNone(overlay[gemrate_id]["snkItemId"])
+        self.assertEqual(overlay[gemrate_id]["snkIdentityCount"], 2)
+        self.assertEqual(overlay[gemrate_id]["canonicalDbPopulation"]["populationPsa10"], 1200)
+
+    def test_canonical_db_overlay_attaches_exact_identity_and_unique_snk(self) -> None:
+        gemrate_id = "1" * 40
+        identity = {
+            "tcg": "one-piece",
+            "setName": "Romance Dawn",
+            "collectorNumber": "OP01-120",
+            "language": "ja",
+            "edition": "standard",
+            "parallel": "manga",
+            "finish": "foil",
+            "name": "Shanks",
+        }
+        rows, counts = apply_canonical_db_identity_overlay(
+            [{"gemrateId": gemrate_id, "tcg": "one-piece", "identityStatus": "unmapped"}],
+            {
+                gemrate_id: {
+                    "variantId": 42,
+                    "gemrateEvidenceSha256": "a" * 64,
+                    "canonicalIdentity": identity,
+                    "canonicalPrintingKey": "one-piece|romance dawn|op01-120|ja|standard|manga|foil",
+                    "canonicalSource": {
+                        "sourceCode": "gemrate",
+                        "externalId": gemrate_id,
+                        "storageScope": "canonical_db",
+                        "snkItemId": 123,
+                    },
+                    "canonicalDbPopulation": {
+                        "populationPsa10": 1200,
+                        "effectiveDate": date.today().isoformat(),
+                        "effectiveAt": f"{date.today().isoformat()}T00:00:00",
+                        "payloadSha256": "b" * 64,
+                        "sourceCode": "gemrate",
+                    },
+                    "snkIdentityCount": 1,
+                }
+            },
+        )
+
+        self.assertEqual(rows[0]["identityStatus"], "exact_confirmed")
+        self.assertEqual(rows[0]["canonicalIdentity"], identity)
+        self.assertEqual(rows[0]["snkItemId"], 123)
+        self.assertEqual(rows[0]["canonicalDbPopulation"]["populationPsa10"], 1200)
+        self.assertEqual(rows[0]["canonicalDbIdentityEvidence"]["variantId"], 42)
+        self.assertEqual(counts["attached"], 1)
+        self.assertEqual(counts["snkCarried"], 1)
+        self.assertEqual(counts["populationCarried"], 1)
+
+    def test_canonical_db_overlay_preserves_review_and_rejects_tcg_conflict(self) -> None:
+        review_id = "2" * 40
+        conflict_id = "3" * 40
+        mapping = {
+            "variantId": 42,
+            "canonicalIdentity": {
+                "tcg": "one-piece",
+                "setName": "Romance Dawn",
+                "collectorNumber": "OP01-120",
+                "language": "ja",
+            },
+            "canonicalPrintingKey": "one-piece|romance dawn|op01-120|ja|||",
+            "canonicalSource": {
+                "sourceCode": "gemrate",
+                "externalId": conflict_id,
+                "storageScope": "canonical_db",
+                "snkItemId": None,
+            },
+            "snkIdentityCount": 0,
+        }
+        rows, counts = apply_canonical_db_identity_overlay(
+            [
+                {
+                    "gemrateId": review_id,
+                    "tcg": "one-piece",
+                    "identityStatus": "review",
+                    "identityReviewReasons": ["duplicate_gemrate_id"],
+                },
+                {"gemrateId": conflict_id, "tcg": "pokemon", "identityStatus": "unmapped"},
+            ],
+            {
+                review_id: {
+                    **mapping,
+                    "canonicalSource": {**mapping["canonicalSource"], "externalId": review_id},
+                },
+                conflict_id: mapping,
+            },
+        )
+
+        self.assertEqual(rows[0]["identityReviewReasons"], ["duplicate_gemrate_id"])
+        self.assertEqual(rows[1]["identityStatus"], "review")
+        self.assertEqual(rows[1]["identityReviewReasons"], ["canonical_db_tcg_conflict"])
+        self.assertEqual(counts["preservedReview"], 1)
+        self.assertEqual(counts["tcgConflict"], 1)
+
+    def test_fresh_canonical_db_population_resolves_without_public_retry(self) -> None:
+        gemrate_id = "4" * 40
+        today = date.today()
+        candidate = {
+            "gemrateId": gemrate_id,
+            "tcg": "one-piece",
+            "identityStatus": "exact_confirmed",
+            "canonicalPrintingKey": "one-piece|romance dawn|op01-120|ja|standard|manga|foil",
+            "canonicalIdentity": {
+                "tcg": "one-piece",
+                "setName": "Romance Dawn",
+                "collectorNumber": "OP01-120",
+                "language": "ja",
+                "edition": "standard",
+                "parallel": "manga",
+                "finish": "foil",
+            },
+            "canonicalSource": {
+                "sourceCode": "gemrate",
+                "externalId": gemrate_id,
+                "storageScope": "canonical_db",
+                "snkItemId": None,
+            },
+            "canonicalSourceCode": "gemrate",
+            "canonicalExternalId": gemrate_id,
+            "storageScope": "canonical_db",
+            "snkItemId": None,
+            "canonicalDbPopulation": {
+                "populationPsa10": 1200,
+                "effectiveDate": today.isoformat(),
+                "effectiveAt": f"{today.isoformat()}T00:00:00",
+                "payloadSha256": "c" * 64,
+                "sourceCode": "gemrate",
+            },
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest, worklist = run_candidate_backfill(
+                [candidate],
+                direct_root=root / "direct",
+                public_root=root / "public",
+                mirror_root=root / "mirror",
+                as_of=today,
+            )
+
+        row = manifest["candidates"][0]
+        self.assertEqual(row["status"], "resolved")
+        self.assertEqual(row["identityStatus"], "exact_confirmed")
+        self.assertEqual(row["populationPsa10"], 1200)
+        self.assertEqual(row["currentTransport"], "canonical_db_gemrate_replay")
+        self.assertEqual(manifest["actualCounts"]["canonicalDbCurrent"], 1)
+        self.assertEqual(worklist["worklistCount"], 0)
+        self.assertEqual(worklist["skipped"][0]["reason"], "canonical_db_current")
+
     def test_public_capture_normalizes_all_grader_rows(self) -> None:
         gemrate_id = "a" * 40
         with tempfile.TemporaryDirectory() as temp:
@@ -306,7 +496,10 @@ class GemRateCandidateBackfillTests(unittest.TestCase):
             )
         self.assertEqual(reviews, [])
         self.assertEqual(candidates[0]["identityStatus"], "exact_confirmed")
-        self.assertEqual(candidates[0]["canonicalPrintingKey"], "one-piece|romance dawn|op01-120|ja|standard|manga|foil")
+        self.assertEqual(
+            candidates[0]["canonicalPrintingKey"],
+            "one-piece|ja|romance dawn|op01-120|standard|manga|foil",
+        )
 
     def test_exact_receipt_never_replaces_a_real_candidate_identity_conflict(self) -> None:
         gemrate_id = "f" * 40
@@ -380,9 +573,9 @@ class GemRateCandidateBackfillTests(unittest.TestCase):
         self.assertEqual(row["identityStatus"], "exact_confirmed")
         self.assertEqual(row["canonicalIdentity"], {
             "tcg": "one-piece",
+            "language": "ja",
             "setName": "One Piece Japanese OP01-Romance Dawn",
             "collectorNumber": "OP01-120",
-            "language": "ja",
             "edition": "standard",
             "parallel": "Manga Alternate Art",
             "finish": "foil",
@@ -419,7 +612,7 @@ class GemRateCandidateBackfillTests(unittest.TestCase):
         self.assertEqual(row["snkEligibility"], "eligible")
         self.assertEqual(manifest["publicReceiptIdentityResolution"]["confirmed"], 1)
 
-    def test_public_receipt_language_conflict_enters_review_without_guessing(self) -> None:
+    def test_public_receipt_language_conflict_requires_review(self) -> None:
         gemrate_id = "b" * 40
         candidate = {
             "gemrateId": gemrate_id,
@@ -437,8 +630,11 @@ class GemRateCandidateBackfillTests(unittest.TestCase):
             candidates, reviews = apply_public_receipt_identity_proposals([candidate], public_root=root)
 
         self.assertEqual(candidates[0]["identityStatus"], "review")
-        self.assertIn("language_conflict", candidates[0]["identityReviewReasons"])
-        self.assertEqual(reviews[0]["gemrateId"], gemrate_id)
+        self.assertEqual(
+            candidates[0]["identityReviewReasons"],
+            ["language_missing_or_conflicting"],
+        )
+        self.assertEqual(reviews[0]["reasons"], ["language_missing_or_conflicting"])
 
     def test_fresh_receipt_conflict_demotes_existing_confirmation_to_review(self) -> None:
         gemrate_id = "a" * 40
@@ -467,6 +663,36 @@ class GemRateCandidateBackfillTests(unittest.TestCase):
         self.assertEqual(candidates[0]["identityStatus"], "review")
         self.assertIn("collector_number_conflict", candidates[0]["identityReviewReasons"])
         self.assertEqual(reviews[0]["gemrateId"], gemrate_id)
+
+    def test_unverified_public_route_does_not_downgrade_existing_exact_identity(self) -> None:
+        gemrate_id = "9" * 40
+        candidate = {
+            "gemrateId": gemrate_id,
+            "tcg": "one-piece",
+            "identityStatus": "exact_confirmed",
+            "canonicalPrintingKey": "one-piece|romance dawn|op01-120|ja|standard|manga|foil",
+            "canonicalIdentity": {
+                "tcg": "one-piece",
+                "setName": "Romance Dawn",
+                "collectorNumber": "OP01-120",
+                "language": "ja",
+                "edition": "standard",
+                "parallel": "manga",
+                "finish": "foil",
+            },
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            persist_verified_public_capture(root, gemrate_id, public_receipt(gemrate_id))
+            document_path = root / gemrate_id / "card_details.json"
+            document = json.loads(document_path.read_text(encoding="utf-8"))
+            document["publicCardPage"]["routeVerified"] = False
+            document_path.write_text(json.dumps(document), encoding="utf-8")
+            candidates, reviews = apply_public_receipt_identity_proposals([candidate], public_root=root)
+
+        self.assertEqual(reviews, [])
+        self.assertEqual(candidates[0]["identityStatus"], "exact_confirmed")
+        self.assertEqual(candidates[0]["canonicalPrintingKey"], candidate["canonicalPrintingKey"])
 
     def test_public_receipt_short_candidate_number_and_parallel_conflict_are_reviewed(self) -> None:
         gemrate_id = "c" * 40

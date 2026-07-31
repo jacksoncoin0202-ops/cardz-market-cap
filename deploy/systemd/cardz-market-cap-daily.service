@@ -9,6 +9,8 @@ StartLimitBurst=3
 # gate 有跑到嗰啲（exit 1 / 2）由 verify_daily_run.py 喺 process 入面通報，
 # 兩邊共用 dedupe key "daily"，一單事故只出一次聲。
 OnFailure=cardz-market-cap-alert@%n.service
+# ExecStart 連 outcome gate 都成功先會重啟 web，再對 latest.json generation 驗 health。
+OnSuccess=cardz-market-cap-web-refresh.service
 
 [Service]
 Type=oneshot
@@ -16,9 +18,12 @@ User=cardz
 Group=cardz
 WorkingDirectory=/opt/cardz-market-cap
 EnvironmentFile=/etc/cardz-market-cap/backend.env
+EnvironmentFile=-/etc/cardz-market-cap/gemrate.env
 Environment=CARDZ_REPO_ROOT=/opt/cardz-market-cap
 Environment=CARDZ_ENV_FILE=/etc/cardz-market-cap/backend.env
 Environment=CARDZ_DAILY_MODE=production
+Environment=CARDZ_BUILD_TARGET=node
+Environment=CARDZ_RUNTIME=node
 # local = 行足 publish 鏈但只寫本機 public tree。要開 R2 就改做 remote，並喺
 # backend.env 補齊 CARDZ_PRODUCTION_R2_BUCKET / CARDZ_GENERATION_CANARY_COMMAND_JSON
 # / CARDZ_POINTER_PROMOTE_COMMAND_JSON；off 係舊嘅 backend-only 行為。
@@ -64,6 +69,8 @@ ProtectHome=true
 #                           shutil.move 搬走冇引用嘅 asset ＋ snapshot promote
 #   manifests               image-qc.json（promote_file 目標）
 #   packages/market-data/dist  npm run build → tsc outDir
+#   apps/web/public            prebuild image sync
+#   apps/web/.next             Node standalone build + static/public copy
 #
 # 尾三個係開咗 CARDZ_DAILY_PUBLISH=local/remote 之後先需要。install 腳本
 # deploy/linux/cardz-daily-systemd.sh 會 sed 呢行出嚟逐個 install -d，所以照跑
@@ -84,7 +91,7 @@ ProtectHome=true
 #   data/tag                    tag_daily_capture.py 預設 catalog 係唯讀輸入，
 #                               run_daily.py 用 --catalog-out 寫去 private-source-runs
 #   data/private/cardz-active-bootstrap  由 bootstrap_archive.py export 寫，唔喺 daily
-ReadWritePaths=/opt/cardz-market-cap/integrations/grade10/data /opt/cardz-market-cap/data/runtime /opt/cardz-market-cap/data/private/gemrate /opt/cardz-market-cap/.venv-backend /opt/cardz-market-cap/data/public /opt/cardz-market-cap/manifests /opt/cardz-market-cap/packages/market-data/dist
+ReadWritePaths=/opt/cardz-market-cap/integrations/grade10/data /opt/cardz-market-cap/data/runtime /opt/cardz-market-cap/data/private/gemrate /opt/cardz-market-cap/.venv-backend /opt/cardz-market-cap/data/public /opt/cardz-market-cap/manifests /opt/cardz-market-cap/packages/market-data/dist /opt/cardz-market-cap/apps/web/public /opt/cardz-market-cap/apps/web/.next
 
 [Install]
 WantedBy=multi-user.target

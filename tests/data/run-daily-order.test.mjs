@@ -23,7 +23,7 @@ with tempfile.TemporaryDirectory() as directory:
     try:
         finalize_local_candidate_then_publish(
             root / 'candidate.json', root / 'missing-image-qc.json', root / 'assets',
-            root / 'seed.json', root / 'image-qc.json', root / 'quarantine',
+            None,
             [sys.executable, '-c', f"from pathlib import Path; Path(r'{marker}').write_text('advanced')"],
             False, 10,
         )
@@ -35,10 +35,32 @@ with tempfile.TemporaryDirectory() as directory:
   assert.equal(result.remotePointerAdvanced, false);
 });
 
-test("run_daily orders local verify, promote, and quarantine before publish", async () => {
+test("run_daily delegates sole promotion to the versioned publisher", async () => {
   const source = await readFile(path.join(root, "pipelines/run_daily.py"), "utf8");
   const helper = source.slice(source.indexOf("def finalize_local_candidate_then_publish"), source.indexOf("def main()"));
-  assert.ok(helper.indexOf("verify_images.py") < helper.indexOf("promote_file(candidate_image_manifest"));
-  assert.ok(helper.indexOf("promote_file(candidate_snapshot") < helper.indexOf("quarantine_unreferenced_assets"));
-  assert.ok(helper.indexOf("quarantine_unreferenced_assets") < helper.indexOf("run_checked(publish_command"));
+  assert.ok(helper.indexOf("verify_images.py") < helper.indexOf("run_checked(publish_command"));
+  assert.equal(helper.includes("promote_file("), false);
+  assert.equal(helper.includes("quarantine_unreferenced_assets"), false);
+});
+
+test("the exact evaluation becomes exportable only after the post-derive audit", async () => {
+  const source = await readFile(path.join(root, "pipelines/run_daily.py"), "utf8");
+  const main = source.slice(source.indexOf("def main()"));
+  const audit = main.indexOf("post_derive_audit_command(");
+  const passGate = main.indexOf("mark_market_evaluation_passed_command(evaluation_id)");
+  const exportCandidate = main.indexOf("export_command =");
+  assert.ok(audit >= 0);
+  assert.ok(audit < passGate);
+  assert.ok(passGate < exportCandidate);
+});
+
+test("canonical DB QC must pass before snapshot export or pointer publication", async () => {
+  const source = await readFile(path.join(root, "pipelines/run_daily.py"), "utf8");
+  const main = source.slice(source.indexOf("def main()"));
+  const databaseQc = main.indexOf("canonical_db_qc_command(pipeline_run_id)");
+  const exportCandidate = main.indexOf("export_command =");
+  const publisher = main.indexOf('"pipelines/publish-snapshot.mjs"');
+  assert.ok(databaseQc >= 0);
+  assert.ok(databaseQc < exportCandidate);
+  assert.ok(exportCandidate < publisher);
 });

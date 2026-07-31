@@ -20,13 +20,7 @@ SPEC.loader.exec_module(snapshot)
 
 
 class FakeConnection:
-    """`fetchall()` 只用到 cursor 三個方法，唔使真 DB 就試到窗口切分。
-
-    要按 query 分派，唔可以一律返同一批 rows：`latest_sales()` 行兩個 query
-    （SNKRDUNK 日表 `market_daily_sales_aggregate` + eBay 逐筆表
-    `market_sale_observation`），一律返同一批就等於每筆成交計兩次，
-    窗口切分斷言會見到雙倍金額。測試 rows 係日表口徑。
-    """
+    """Observation rollup test double; legacy daily rows expand into transactions."""
 
     def __init__(self, rows: list[dict[str, object]]) -> None:
         self._rows = rows
@@ -45,19 +39,334 @@ class FakeConnection:
         self._query = query
 
     def fetchall(self) -> list[dict[str, object]]:
-        if "market_sale_observation" in self._query:
-            return []
-        return self._rows
+        if "market_sale_observation" not in self._query:
+            return self._rows
+        if self._rows and "transaction_fingerprint" in self._rows[0]:
+            return self._rows
+        observations: list[dict[str, object]] = []
+        for row in self._rows:
+            count = int(row["sales_count"])
+            unit = float(row["sales_value_usd"]) / count
+            for index in range(count):
+                observations.append(
+                    {
+                        "variant_id": row["variant_id"], "observed_date": row["observed_date"],
+                        "source_code": "snk", "external_entity_id": "123",
+                        "transaction_fingerprint": f"{row['variant_id']}-{row['observed_date']}-{index}",
+                        "grader_code": "PSA", "grade_label": "10", "timestamp_quality": "exact",
+                        "unit_price_usd": unit, "quantity": 1, "transaction_value_usd": unit,
+                        "coverage_status": row["coverage_status"], "source_payload_sha256": "a" * 64,
+                        "identity_confirmed": True,
+                    }
+                )
+        return observations
 
 
 class CanonicalPublicSnapshotTests(unittest.TestCase):
+    def test_public_image_query_requires_immutable_binding_and_no_rejection(
+        self,
+    ) -> None:
+        class Cursor:
+            query = ""
+
+            def __enter__(self) -> "Cursor":
+                return self
+
+            def __exit__(self, *_: object) -> bool:
+                return False
+
+            def execute(self, query: str, _args: object = ()) -> None:
+                self.query = " ".join(query.split())
+
+            def fetchall(self) -> list[dict[str, object]]:
+                return []
+
+        class Connection:
+            cursor_value = Cursor()
+
+            def cursor(self) -> Cursor:
+                return self.cursor_value
+
+        with tempfile.TemporaryDirectory() as temporary:
+            images = snapshot.load_public_images(
+                Path(temporary) / "unused.json",
+                Path(temporary),
+                connection=Connection(),
+            )
+        query = Connection.cursor_value.query
+        self.assertEqual(images.by_public_id, {})
+        self.assertIn("JOIN market_image_review_approval b", query)
+        self.assertIn("JOIN catalog_printing_identity pi", query)
+        self.assertIn("LEFT JOIN market_image_rejection_registry rejected", query)
+        self.assertIn("WHERE rejected.variant_id IS NULL", query)
+
+    def test_authoritative_qc_gate_keeps_only_cards_without_non_image_blockers(self) -> None:
+        lock = "a" * 64
+        allowed_id = "cmc_0123456789abcdef01234567"
+        price_failed_id = "cmc_1123456789abcdef01234567"
+        with tempfile.TemporaryDirectory() as temporary:
+            report_path = Path(temporary) / "report.json"
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 1,
+                        "asOf": "2026-07-31T05:30:00Z",
+                        "database": {
+                            "authority": "canonical_mysql",
+                            "name": "cardz_market_cap",
+                            "marketEvaluationId": 97,
+                        },
+                        "universe": {"formalUniverseLockSha256": lock},
+                        "cards": [
+                            {
+                                "id": allowed_id,
+                                "blockers": ["image_not_human_or_vision_confirmed"],
+                            },
+                            {
+                                "id": price_failed_id,
+                                "blockers": ["price_anchor_source_method_mismatch"],
+                            },
+                            {
+                                "id": "cmc_2123456789abcdef01234567",
+                                "blockers": ["unrecognized_blocker"],
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            allowed = snapshot.qc_gate_allowed_opaque_ids(
+                report_path,
+                {"evaluation_id": 97, "effective_date": "2026-07-31"},
+                lock,
+            )
+
+        self.assertEqual(allowed, {allowed_id})
+
+    def test_authoritative_qc_gate_rejects_a_report_for_a_different_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            report_path = Path(temporary) / "report.json"
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 1,
+                        "asOf": "2026-07-31T05:30:00Z",
+                        "database": {
+                            "authority": "canonical_mysql",
+                            "name": "cardz_market_cap",
+                            "marketEvaluationId": 97,
+                        },
+                        "universe": {"formalUniverseLockSha256": "a" * 64},
+                        "cards": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(snapshot.SnapshotExportError, "formal universe lock"):
+                snapshot.qc_gate_allowed_opaque_ids(
+                    report_path,
+                    {"evaluation_id": 97, "effective_date": "2026-07-31"},
+                    "b" * 64,
+                )
+
+    def test_invalid_opaque_id_fails_closed_before_presentation_resolution(self) -> None:
+        row = {
+            "opaque_id": "card-7", "canonical_name": "Luffy", "set_name": "OP-01",
+            "tcg_code": "one_piece", "card_language": "ja", "identity_status": "confirmed",
+            "collector_number": "001/121",
+        }
+
+        resolved, skipped, _ = snapshot.resolve_presentation_entries(
+            [row], {}, snapshot.PublicImages({}, set()), {}
+        )
+
+        self.assertFalse(snapshot.base_identity_complete(row))
+        self.assertEqual(resolved, {})
+        self.assertEqual(skipped, [("card-7", "opaque_id_invalid")])
+
+    def test_card_printing_key_uses_card_language(self) -> None:
+        key = snapshot.printing_key("one_piece", "OP-01", "001", "base", "none", "foil", language="ja")
+        card = {
+            "tcg": "one_piece", "cardLanguage": "ja",
+            "printingIdentity": {
+                "setName": "OP-01", "collectorNumber": "001", "editionCode": "base",
+                "parallelCode": "none", "finishCode": "foil", "cardLanguage": "ja",
+                "canonicalPrintingSha256": snapshot.printing_key_sha256(key), "evidenceSha256": "a" * 64,
+            },
+        }
+        self.assertEqual(snapshot.card_printing_key(card), key)
+
+    def test_frontend_liquidity_gate_excludes_low_and_unavailable_30d_sales(self) -> None:
+        liquid = {
+            "marketCap": {"value": 100},
+            "windows": {"30d": {"trackedSales": {"count": {"value": 10}}}},
+        }
+        low = {
+            "marketCap": {"value": 300},
+            "windows": {"30d": {"trackedSales": {"count": {"value": 9}}}},
+        }
+        unavailable = {
+            "marketCap": {"value": 200},
+            "windows": {"30d": {"trackedSales": {"count": {"value": None}}}},
+        }
+
+        exported = snapshot.frontend_liquid_cards([low, unavailable, liquid])
+
+        self.assertEqual(exported, [liquid])
+        self.assertFalse(low["feTop100LiquidityOk"])
+        self.assertFalse(unavailable["feTop100LiquidityOk"])
+        self.assertTrue(liquid["feTop100LiquidityOk"])
+
+    def test_frontend_liquid_cards_are_market_cap_ordered_with_contiguous_ranks(self) -> None:
+        lower = {
+            "marketCap": {"value": 100},
+            "windows": {"30d": {"trackedSales": {"count": {"value": 12}}}},
+        }
+        higher = {
+            "marketCap": {"value": 200},
+            "windows": {"30d": {"trackedSales": {"count": {"value": 10}}}},
+        }
+
+        exported = snapshot.frontend_liquid_cards([lower, higher])
+
+        self.assertEqual(exported, [higher, lower])
+        self.assertEqual(
+            [(card["marketRank"], card["viewRank"], card["rank"]) for card in exported],
+            [(1, 1, 1), (2, 2, 2)],
+        )
+
+    def test_board_union_reads_only_each_boards_top100(self) -> None:
+        class Cursor:
+            queries: list[str] = []
+
+            def __enter__(self) -> "Cursor":
+                return self
+
+            def __exit__(self, *_: object) -> bool:
+                return False
+
+            def execute(self, query: str, _args: object = ()) -> None:
+                self.query = " ".join(query.split())
+                self.queries.append(self.query)
+
+            def fetchall(self) -> list[dict[str, object]]:
+                if self.query.startswith("SELECT id FROM market_index_snapshot"):
+                    return [{"id": 9}]
+                return []
+
+        class Connection:
+            cursor_value = Cursor()
+
+            def cursor(self) -> Cursor:
+                return self.cursor_value
+
+        connection = Connection()
+        self.assertEqual(
+            snapshot.board_member_variant_ids(
+                connection,
+                date(2026, 7, 28),
+                evaluation_id=77,
+            ),
+            set(),
+        )
+        constituent_queries = [
+            query
+            for query in connection.cursor_value.queries
+            if "FROM market_index_constituent" in query
+        ]
+        self.assertEqual(len(constituent_queries), 2)
+        self.assertTrue(all("rank_position<=100" in query for query in constituent_queries))
+
+    def test_latest_generation_filters_out_pending_evaluations(self) -> None:
+        class Cursor:
+            query = ""
+
+            def __enter__(self) -> "Cursor":
+                return self
+
+            def __exit__(self, *_: object) -> bool:
+                return False
+
+            def execute(self, query: str, _args: object = ()) -> None:
+                self.query = " ".join(query.split())
+
+            def fetchall(self) -> list[dict[str, object]]:
+                return []
+
+        class Connection:
+            cursor_value = Cursor()
+
+            def cursor(self) -> Cursor:
+                return self.cursor_value
+
+        connection = Connection()
+        with self.assertRaises(snapshot.SnapshotExportError):
+            snapshot.latest_generation(connection, 300)
+        self.assertIn(
+            "JOIN market_alert_evaluation e ON e.id=s.evaluation_id",
+            connection.cursor_value.query,
+        )
+        self.assertIn("e.publish_gate_status='passed'", connection.cursor_value.query)
+
     def test_public_view_alias_uses_the_top300_card_count(self) -> None:
         self.assertEqual(snapshot.presentation_view_limit("top100"), 100)
         self.assertEqual(snapshot.presentation_view_limit("top300"), 300)
         self.assertEqual(snapshot.presentation_view_limit("top350"), 350)
         self.assertEqual(snapshot.presentation_view_limit("top100_plus_200"), 300)
+        self.assertEqual(snapshot.presentation_view_limit("top300_boards"), 300)
+        self.assertEqual(snapshot.presentation_view_min_coverage("top300"), 300)
+        self.assertEqual(snapshot.presentation_view_min_coverage("top100_plus_200"), 300)
+        self.assertEqual(snapshot.presentation_view_min_coverage("top300_boards"), 300)
         with self.assertRaisesRegex(snapshot.SnapshotExportError, "unknown public presentation view"):
             snapshot.presentation_view_limit("reserve50")
+
+    def test_generation_evaluation_id_uses_the_bound_revision(self) -> None:
+        class NoQueryConnection:
+            def cursor(self) -> object:
+                raise AssertionError("bound evaluation must not run a legacy lookup")
+
+        self.assertEqual(
+            snapshot.generation_evaluation_id(
+                NoQueryConnection(),
+                {"evaluation_id": 42, "effective_date": date(2026, 7, 28)},
+            ),
+            42,
+        )
+
+    def test_market_rows_joins_the_canonical_printing_identity(self) -> None:
+        class Cursor:
+            query = ""
+
+            def __enter__(self) -> "Cursor":
+                return self
+
+            def __exit__(self, *_: object) -> bool:
+                return False
+
+            def execute(self, query: str, _args: object = ()) -> None:
+                self.query = " ".join(query.split())
+
+            def fetchall(self) -> list[dict[str, object]]:
+                return [{"rank_position": 1, "opaque_id": "cmc_0123456789abcdef01234567"}]
+
+        class Connection:
+            cursor_value = Cursor()
+
+            def cursor(self) -> Cursor:
+                return self.cursor_value
+
+        connection = Connection()
+        rows = snapshot.market_rows(
+            connection,
+            {"id": 9, "evaluation_id": 8},
+            required_count=1,
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertIn(
+            "LEFT JOIN catalog_printing_identity pi ON pi.variant_id=v.id",
+            connection.cursor_value.query,
+        )
+        self.assertIn("pi.edition_code", connection.cursor_value.query)
 
     def test_json_numbers_do_not_hash_integral_decimals_as_floats(self) -> None:
         self.assertEqual(snapshot.number(Decimal("100.000000")), 100)
@@ -113,7 +422,7 @@ class CanonicalPublicSnapshotTests(unittest.TestCase):
         self.assertEqual(result["pricePsa10"]["value"], 100.0)
         self.assertEqual(result["populationPsa10"]["value"], 2000)
         self.assertEqual(result["marketCap"]["value"], 200000.0)
-        self.assertEqual(result["windows"]["1d"]["changePct"], {"value": None, "status": "accumulating", "asOf": None})
+        self.assertEqual(result["windows"]["1d"]["changePct"], {"value": None, "status": "unavailable", "asOf": None})
         self.assertEqual(result["windows"]["7d"]["trackedSales"]["valueUsd"]["value"], 1200.0)
         self.assertEqual(result["windows"]["30d"]["changePct"]["value"], -4.0)
         self.assertEqual(result["graderPopulations"]["PSA"]["topGradePopulation"]["status"], "ready")
@@ -310,6 +619,81 @@ class CanonicalPublicSnapshotTests(unittest.TestCase):
         )
         self.assertEqual(gapped["7d"]["status"], "unavailable")
 
+    def test_price_change_from_history_never_borrows_another_window(self) -> None:
+        """短歷史只可證明短窗口；唔准借佢扮 30d。"""
+        short_hist = [
+            {"at": "2026-07-17T00:00:00Z", "priceUsd": 100},
+            {"at": "2026-07-20T00:00:00Z", "priceUsd": 110},
+            {"at": "2026-07-26T00:00:00Z", "priceUsd": 130},
+        ]
+        d7 = snapshot.price_change_from_history(short_hist, "7d")
+        d30 = snapshot.price_change_from_history(short_hist, "30d")
+        self.assertIsNotNone(d7["value"])
+        self.assertIn(d7["status"], {"ready", "stale"})
+        self.assertEqual(d30, {"value": None, "status": "accumulating", "asOf": None})
+        # 單價日亦係歷史未夠
+        single = snapshot.price_change_from_history(
+            [{"at": "2026-07-26T00:00:00Z", "priceUsd": 100}], "30d"
+        )
+        self.assertIsNone(single["value"])
+        self.assertEqual(single["status"], "accumulating")
+
+    def test_missing_1d_anchor_is_unavailable_even_when_older_windows_exist(self) -> None:
+        history = [
+            {"at": "2026-06-26T00:00:00Z", "priceUsd": 100},
+            {"at": "2026-07-19T00:00:00Z", "priceUsd": 110},
+            {"at": "2026-07-26T00:00:00Z", "priceUsd": 130},
+        ]
+        self.assertEqual(
+            snapshot.price_change_from_history(history, "1d"),
+            {"value": None, "status": "unavailable", "asOf": None},
+        )
+
+    def test_price_change_from_history_30d_is_head_vs_tail_near_target(self) -> None:
+        """30d = 而家 ÷ ~30 日前；目標日冇點就用之前最近（容差／翻前幾日）。"""
+        hist = [
+            {"at": "2026-06-22T00:00:00Z", "priceUsd": 100},
+            {"at": "2026-06-28T00:00:00Z", "priceUsd": 110},  # ~30d before 7/28
+            {"at": "2026-07-20T00:00:00Z", "priceUsd": 120},
+            {"at": "2026-07-28T00:00:00Z", "priceUsd": 130},
+        ]
+        d30 = snapshot.price_change_from_history(hist, "30d")
+        # 7/28 vs 6/28 = +18.18...
+        self.assertIsNotNone(d30["value"])
+        self.assertAlmostEqual(float(d30["value"]), (130 / 110 - 1) * 100, places=4)
+        self.assertEqual(d30.get("anchorAt"), "2026-06-28")
+
+    def test_index_zero_requires_two_distinct_equal_history_dates(self) -> None:
+        no_history = snapshot.resolve_price_change_metric(
+            0, [], "1d", "2026-07-29T00:00:00Z"
+        )
+        self.assertEqual(
+            no_history,
+            {"value": None, "status": "unavailable", "asOf": None},
+        )
+        one_date = snapshot.resolve_price_change_metric(
+            0,
+            [{"at": "2026-07-29T00:00:00Z", "priceUsd": 100}],
+            "1d",
+            "2026-07-29T00:00:00Z",
+        )
+        self.assertEqual(
+            one_date,
+            {"value": None, "status": "accumulating", "asOf": None},
+        )
+        proved_zero = snapshot.resolve_price_change_metric(
+            0,
+            [
+                {"at": "2026-07-28T00:00:00Z", "priceUsd": 100},
+                {"at": "2026-07-29T00:00:00Z", "priceUsd": 100},
+            ],
+            "1d",
+            "2026-07-29T00:00:00Z",
+        )
+        self.assertEqual(proved_zero["value"], 0)
+        self.assertEqual(proved_zero["status"], "ready")
+        self.assertEqual(proved_zero["anchorAt"], "2026-07-28")
+
     def test_population_change_windows_refuse_a_far_anchor_as_a_near_window(self) -> None:
         # 3 日前嘅點唔可以扮 1 日變動：容差同 derive_price_windows 對齊。
         windows = snapshot.population_change_windows(
@@ -464,6 +848,128 @@ class CanonicalPublicSnapshotTests(unittest.TestCase):
                  "sales_value_usd": Decimal("800"), "coverage_status": "partial"}]
         aggregates = snapshot.latest_sales(FakeConnection(rows), [7], date(2026, 7, 25))
         self.assertNotIn((7, "30d"), aggregates)
+
+    def test_snk_observations_feed_the_30d_gate_once_and_reject_invalid_sales(self) -> None:
+        def sale(fingerprint: str, **overrides: object) -> dict[str, object]:
+            return {
+                "variant_id": 7, "observed_date": date(2026, 7, 25),
+                "source_code": "snk", "external_entity_id": "123", "transaction_fingerprint": fingerprint,
+                "grader_code": "PSA", "grade_label": "10", "timestamp_quality": "exact",
+                "unit_price_usd": 100.0, "quantity": 1, "transaction_value_usd": 100.0,
+                "coverage_status": "partial", "source_payload_sha256": "a" * 64,
+                "identity_confirmed": True, **overrides,
+            }
+
+        rows = [sale(f"snk-{index}") for index in range(10)]
+        rows.extend([
+            sale("snk-0"),  # repeated canonical fingerprint is one transaction
+            sale("wrong-grade", grader_code="BGS"),
+            sale("bundle", quantity=2, transaction_value_usd=200.0),
+            sale("unbound", identity_confirmed=False),
+        ])
+
+        aggregate = snapshot.latest_sales(FakeConnection(rows), [7], date(2026, 7, 25))[(7, "30d")]
+
+        self.assertEqual(aggregate["sales_count"], 10)
+        self.assertEqual(aggregate["sales_value_usd"], 1000.0)
+        self.assertTrue(snapshot.has_frontend_sales_30d(aggregate["sales_count"]))
+
+    def test_daily_history_uses_approved_snk_observations_not_daily_aggregate(self) -> None:
+        sale = {
+            "variant_id": 7, "observed_date": date(2026, 7, 25),
+            "source_code": "snk", "external_entity_id": "123", "transaction_fingerprint": "snk-1",
+            "grader_code": "PSA", "grade_label": "10", "timestamp_quality": "exact",
+            "unit_price_usd": 100.0, "quantity": 1, "transaction_value_usd": 100.0,
+            "coverage_status": "partial", "source_payload_sha256": "a" * 64,
+            "identity_confirmed": True,
+        }
+
+        class Connection:
+            query = ""
+
+            def cursor(self) -> "Connection":
+                return self
+
+            def __enter__(self) -> "Connection":
+                return self
+
+            def __exit__(self, *_: object) -> bool:
+                return False
+
+            def execute(self, query: str, _args: object = ()) -> None:
+                self.query = query
+
+            def fetchall(self) -> list[dict[str, object]]:
+                if "market_price_observation" in self.query:
+                    return [{"variant_id": 7, "observed_date": date(2026, 7, 25), "price_usd": 100.0,
+                             "metric_status": "ready", "source_priority": 1,
+                             "effective_at": datetime(2026, 7, 25, tzinfo=timezone.utc)}]
+                return [sale]
+
+        history = snapshot.daily_history(Connection(), [7])
+
+        self.assertEqual(history[7][0]["trackedSalesCount"], 1)
+        self.assertEqual(history[7][0]["trackedSalesValueUsd"], 100.0)
+
+    def test_price_egress_excludes_all_g10_sources_but_keeps_real_families(self) -> None:
+        observations = [
+            {"variant_id": 7, "observed_date": date(2026, 7, 3), "price_usd": 103.0,
+             "metric_status": "ready", "source_code": "ebay", "source_priority": 1,
+             "effective_at": datetime(2026, 7, 3, tzinfo=timezone.utc), "id": 1},
+            {"variant_id": 7, "observed_date": date(2026, 7, 2), "price_usd": 102.0,
+             "metric_status": "ready", "source_code": "snk", "source_priority": 2,
+             "effective_at": datetime(2026, 7, 2, tzinfo=timezone.utc), "id": 2},
+            {"variant_id": 7, "observed_date": date(2026, 7, 1), "price_usd": 101.0,
+             "metric_status": "ready", "source_code": "pricecharting", "source_priority": 3,
+             "effective_at": datetime(2026, 7, 1, tzinfo=timezone.utc), "id": 3},
+            {"variant_id": 7, "observed_date": date(2026, 7, 6), "price_usd": 900.0,
+             "metric_status": "ready", "source_code": "g10_kline", "source_priority": 0,
+             "effective_at": datetime(2026, 7, 6, tzinfo=timezone.utc), "id": 4},
+            {"variant_id": 7, "observed_date": date(2026, 7, 5), "price_usd": 800.0,
+             "metric_status": "ready", "source_code": "g10_analytics", "source_priority": 0,
+             "effective_at": datetime(2026, 7, 5, tzinfo=timezone.utc), "id": 5},
+            {"variant_id": 7, "observed_date": date(2026, 7, 4), "price_usd": 700.0,
+             "metric_status": "ready", "source_code": "G10_INDEX", "source_priority": 0,
+             "effective_at": datetime(2026, 7, 4, tzinfo=timezone.utc), "id": 6},
+        ]
+
+        class Connection:
+            def __init__(self) -> None:
+                self.queries: list[str] = []
+                self.query = ""
+
+            def cursor(self) -> "Connection":
+                return self
+
+            def __enter__(self) -> "Connection":
+                return self
+
+            def __exit__(self, *_: object) -> bool:
+                return False
+
+            def execute(self, query: str, _args: object = ()) -> None:
+                self.query = query
+                self.queries.append(query)
+
+            def fetchall(self) -> list[dict[str, object]]:
+                if "market_price_observation" not in self.query:
+                    return []
+                if "LOWER(source_code) NOT LIKE 'g10%'" not in self.query:
+                    raise AssertionError("price egress query must exclude legacy G10 sources")
+                return [row for row in observations if not str(row["source_code"]).lower().startswith("g10")]
+
+        connection = Connection()
+        latest = snapshot.latest_price_at(connection, [7])
+        history = snapshot.daily_history(connection, [7])
+
+        self.assertEqual(latest, {7: "2026-07-03T00:00:00Z"})
+        self.assertEqual(
+            [point["priceUsd"] for point in history[7]],
+            [101.0, 102.0, 103.0],
+        )
+        price_queries = [query for query in connection.queries if "market_price_observation" in query]
+        self.assertEqual(len(price_queries), 2)
+        self.assertTrue(all("LOWER(source_code) NOT LIKE 'g10%'" in query for query in price_queries))
 
     def test_atomic_json_replaces_complete_document(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

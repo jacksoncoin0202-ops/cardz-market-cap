@@ -1,0 +1,48 @@
+{
+  "asOf": "2026-07-29T11:49:25Z",
+  "write": true,
+  "today": "2026-07-29",
+  "ratio": 5.0,
+  "jump": 5.0,
+  "deleteCount": 3,
+  "reasonTally": {
+    "latest_spread_risky": 2,
+    "same_source_jump": 1
+  },
+  "flaggedOpaque": [],
+  "flaggedVariantIds": [],
+  "samples": [
+    {
+      "id": 1945167,
+      "variant_id": 353,
+      "source": "g10_kline",
+      "price": 450.0,
+      "trusted_median": 51.0,
+      "ratio": 8.82,
+      "reason": "latest_spread_risky"
+    },
+    {
+      "id": 2279500,
+      "variant_id": 1248,
+      "source": "ebay",
+      "price": 1168.0,
+      "trusted_median": 6500.0,
+      "ratio": 0.18,
+      "reason": "latest_spread_risky"
+    },
+    {
+      "id": 110381,
+      "variant_id": 14,
+      "source": "snk_psa10",
+      "price": 8151.507722,
+      "series_median": 1150.41378,
+      "ratio": 7.09,
+      "reason": "same_source_jump:snk_psa10"
+    }
+  ],
+  "deleteIdsHead": [
+    110381,
+    1945167,
+    2279500
+  ]
+}

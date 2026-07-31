@@ -4,7 +4,8 @@
 ## 重複判定口徑
 
 跟 `docs/DB_INVENTORY_20260726.md` §4.2 記錄嘅主口徑：
-`(tcg_code, card_language, set_name, collector_number)` 出現多過一次即一組。
+`(tcg_code, card_language, set_name, collector_number, edition_code, parallel_code, finish_code)`
+出現多過一次即一組。
 呢個口徑係「舊 evidence 用咩，我就用咩」，唔係重新發明——所以數字可以同舊報告
 直接對比（舊報告 1,590 行時 24 組／52 行）。
 
@@ -19,7 +20,8 @@
 所以收斂用呢個做法：
 
 * **真重複組**（成員 `canonical_name` 一致）：選一個 canonical 成員，佢拿純
-  7-part hash（同 `db_runtime.py` 一模一樣嘅配方）同 `identity_status='canonical'`；
+  7-part language-inclusive hash（同 `db_runtime.py` 一模一樣嘅配方）同
+  `identity_status='canonical'`；
   其餘成員拿 `<純key>|variant:<id>` 嘅 salted hash 同 `identity_status='duplicate'`。
   `WHERE identity_status='canonical'` 就係每組一行。
 * **名字唔一致組**（例如 `collector_number='Unknown'` 令 Pikachu 同 Charizard 撞埋）：
@@ -55,7 +57,16 @@ sys.path.insert(0, str(ROOT / "pipelines"))
 from db_runtime import add_connection_args, connection_from_args  # noqa: E402
 
 # 口徑常數，寫落 evidence 度好過散落 SQL string 之間。
-GROUP_KEY_COLUMNS = ("tcg_code", "card_language", "set_name", "collector_number")
+# Language is part of printing identity (post-018 / rehash_identity_language).
+GROUP_KEY_COLUMNS = (
+    "tcg_code",
+    "card_language",
+    "set_name",
+    "collector_number",
+    "edition_code",
+    "parallel_code",
+    "finish_code",
+)
 GROUP_CRITERION = "(" + ", ".join(GROUP_KEY_COLUMNS) + ")"
 
 STATUS_CANONICAL = "canonical"
@@ -72,31 +83,31 @@ def sha256(value: bytes) -> str:
 
 
 def printing_key(row: Mapping[str, Any]) -> str:
-    """7-part canonical printing key，配方同 db_runtime.py 嘅 identity_candidate 一致。
+    """7-part canonical printing key (includes card_language).
 
-    語言唔 casefold（跟返 db_runtime），edition/parallel/finish 留空——空係 schema
-    default，亦即「未有證據分辨版本」。唔准由 canonical_name 尾嘅 "(Error)" 之類
+    edition/parallel/finish 只讀已有 canonical printing evidence；空代表未有證據。
+    唔准由 canonical_name 尾嘅 "(Error)" 之類
     反推 parallel_code：咁樣係猜，猜錯就係寫假數據落 canonical 層。
     """
-    parts = [
-        str(row.get("tcg_code") or "").strip().casefold(),
-        str(row.get("set_name") or "").strip().casefold(),
-        str(row.get("collector_number") or "").strip().casefold(),
-        str(row.get("card_language") or "").strip(),
-        "",
-        "",
-        "",
-    ]
-    return "|".join(parts)
+    from card_identity import printing_key7_from_row
+
+    return "|".join(printing_key7_from_row(row))
 
 
 def load_variants(cursor: Any) -> list[dict[str, Any]]:
     cursor.execute(
         """
-        SELECT id, opaque_id, tcg_code, card_language, canonical_name, set_name,
-               collector_number, identity_status
-        FROM catalog_variant
-        ORDER BY id
+        SELECT variant.id, variant.opaque_id, variant.tcg_code,
+               variant.card_language,
+               variant.canonical_name, variant.set_name,
+               variant.collector_number, variant.identity_status,
+               COALESCE(printing.edition_code, '') AS edition_code,
+               COALESCE(printing.parallel_code, '') AS parallel_code,
+               COALESCE(printing.finish_code, '') AS finish_code
+        FROM catalog_variant AS variant
+        LEFT JOIN catalog_printing_identity AS printing
+          ON printing.variant_id=variant.id
+        ORDER BY variant.id
         """
     )
     return [dict(row) for row in cursor.fetchall()]
@@ -132,7 +143,7 @@ def variant_fingerprint(cursor: Any) -> dict[str, Any]:
         SELECT COUNT(*) AS n,
                BIT_XOR(CRC32(CONCAT(id, ':', opaque_id))) AS xor_id_opaque,
                SUM(CRC32(opaque_id)) AS sum_crc_opaque,
-               SUM(CRC32(CONCAT_WS('|', tcg_code, card_language, canonical_name,
+               SUM(CRC32(CONCAT_WS('|', tcg_code, canonical_name,
                                         set_name, collector_number))) AS sum_crc_identity
         FROM catalog_variant
         """
@@ -160,7 +171,7 @@ def build_groups(
 
         names = {str(member["canonical_name"] or "") for member in members}
         base_key = printing_key(members[0])
-        # 同組成員嘅 7 條 identity 欄位理論上一樣，key 都應該一樣。唔一樣就係分組
+        # 同組成員嘅 identity 欄位理論上一樣，key 都應該一樣。唔一樣就係分組
         # 邏輯同 key 配方脫節，fail-closed 好過寫落去。
         for member in members:
             if printing_key(member) != base_key:
@@ -228,12 +239,12 @@ def build_rows(groups: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
                 {
                     "variantId": variant_id,
                     "tcgCode": str(member["tcg_code"] or "").strip().casefold(),
+                    "cardLanguage": str(member.get("card_language") or "") or None,
                     "setName": str(member["set_name"] or ""),
                     "collectorNumber": str(member["collector_number"] or ""),
-                    "cardLanguage": str(member["card_language"] or ""),
-                    "editionCode": "",
-                    "parallelCode": "",
-                    "finishCode": "",
+                    "editionCode": str(member["edition_code"] or ""),
+                    "parallelCode": str(member["parallel_code"] or ""),
+                    "finishCode": str(member["finish_code"] or ""),
                     "canonicalPrintingSha256": sha256(hash_input.encode("utf-8")),
                     "identityStatus": status,
                     "evidenceSha256": sha256(canonical_json(evidence)),
@@ -267,20 +278,24 @@ def apply_rows(connection: Any, rows: Sequence[Mapping[str, Any]], *, commit: bo
             cursor.execute(
                 """
                 INSERT INTO catalog_printing_identity
-                    (variant_id, tcg_code, set_name, collector_number, card_language,
+                    (variant_id, tcg_code, card_language, set_name, collector_number,
                      edition_code, parallel_code, finish_code, canonical_printing_sha256,
                      identity_status, evidence_sha256)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
-                    tcg_code=VALUES(tcg_code), set_name=VALUES(set_name),
-                    collector_number=VALUES(collector_number), card_language=VALUES(card_language),
+                    tcg_code=VALUES(tcg_code), card_language=VALUES(card_language),
+                    set_name=VALUES(set_name),
+                    collector_number=VALUES(collector_number),
                     edition_code=VALUES(edition_code), parallel_code=VALUES(parallel_code),
-                    finish_code=VALUES(finish_code), identity_status=VALUES(identity_status),
+                    finish_code=VALUES(finish_code),
+                    canonical_printing_sha256=VALUES(canonical_printing_sha256),
+                    identity_status=VALUES(identity_status),
                     evidence_sha256=VALUES(evidence_sha256)
                 """,
                 (
-                    row["variantId"], row["tcgCode"], row["setName"], row["collectorNumber"],
-                    row["cardLanguage"], row["editionCode"], row["parallelCode"], row["finishCode"],
+                    row["variantId"], row["tcgCode"], row.get("cardLanguage"),
+                    row["setName"], row["collectorNumber"],
+                    row["editionCode"], row["parallelCode"], row["finishCode"],
                     row["canonicalPrintingSha256"], row["identityStatus"], row["evidenceSha256"],
                 ),
             )
@@ -346,8 +361,10 @@ def _print_report(
         key = group["groupKey"]
         tag = "SAME-CARD" if group["sameCard"] else "DIVERGENT"
         print(
-            f"  [{tag}] {key['tcg_code']}/{key['card_language']} | {key['set_name']} "
-            f"| #{key['collector_number']} | members={group['members']} names={group['distinctNames']}"
+            f"  [{tag}] {key['tcg_code']} | {key['set_name']} "
+            f"| #{key['collector_number']} | edition={key['edition_code'] or '-'} "
+            f"parallel={key['parallel_code'] or '-'} finish={key['finish_code'] or '-'} "
+            f"| members={group['members']} names={group['distinctNames']}"
         )
         print(f"      variant_ids  : {group['variantIds']}")
         print(f"      canonical    : {group['canonicalVariantId'] if group['canonicalVariantId'] else '—（唔選）'}")

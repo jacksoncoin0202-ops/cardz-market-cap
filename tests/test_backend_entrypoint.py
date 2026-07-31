@@ -17,6 +17,10 @@ SPEC.loader.exec_module(backend)
 
 
 class BackendEntrypointTests(unittest.TestCase):
+    def test_backend_virtualenv_is_platform_scoped(self) -> None:
+        expected = ".venv-backend-windows" if os.name == "nt" else ".venv-backend"
+        self.assertEqual(backend.VENV_PATH.name, expected)
+
     def test_external_database_requires_explicit_process_environment(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             local_config = Path(temporary) / "backend.env"
@@ -46,6 +50,10 @@ class BackendEntrypointTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {}, clear=True):
             with self.assertRaisesRegex(RuntimeError, "CARDZ_DB_SSL_CA"):
                 backend.validate_external_transport(external=True, mode="production")
+        with mock.patch.dict(os.environ, {"CARDZ_DB_HOST": "127.0.0.1"}, clear=True):
+            backend.validate_external_transport(external=True, mode="production")
+        with mock.patch.dict(os.environ, {"CARDZ_DB_HOST": "localhost."}, clear=True):
+            backend.validate_external_transport(external=True, mode="production")
         backend.validate_external_transport(external=False, mode="production")
         backend.validate_external_transport(external=True, mode="staging")
 

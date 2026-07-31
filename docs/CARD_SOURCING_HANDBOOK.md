@@ -32,18 +32,28 @@
 
 ---
 
-## 三、卡圖來源 priority chain（實測 2026-07-24）
+## 三、卡圖來源 priority chain（2026-07-28 用戶拍板）
 
-逐個來源試，每張候選圖落完必過 **corner-alpha gate**（4 角 pixel alpha 全部 < 10）先收貨：
+`pipelines/native_image_resolver.py` + `pipelines/tcgplayer_images.py`：
 
 | 優先 | 來源 | 格式 | 覆蓋 | 備註 |
 |------|------|------|------|------|
-| 1 | SNK harvest cache（`data/private/snkrdunk_brute/snkrdunk_all.jsonl`） | RGBA WebP 1000×730 | 寶可夢 JA 主力 | 100% 原生圓角 |
-| 2 | SNK get_master（`pipelines/snkrdunk_bulk.py`） | RGBA WebP | cache 冇嘅用 universe `snkItemId` | 同上 |
-| 3 | Kado dump RGBA WebP（`kado-dump`） | RGBA | ~16% set 有原生圓角 | 冷門備用 |
-| 4 | TCGdex EN PNG | RGBA PNG 600×825 | 英文卡專用 | ja 同 webp 版冇 alpha，日文卡唔好用 |
+| 1 | **TCGplayer** CDN（主線） | JPG/WebP product art | EN/多語卡面 | 方角 → `store_face_art_image`（normalize + 補圓角）。多印次唔好 first-hit 自動入庫 |
+| 2 | **SNK** live `get_master` / harvest / G10 樹（**有 exact snk id 時可升為主圖**） | RGBA WebP `upload_bg_removed` | 寶可夢 JA / OP | 必先 identity bind + QC；見 [SNK_IMAGE_PIPELINE.md](SNK_IMAGE_PIPELINE.md) |
+| 3 | Kado dump RGBA WebP | RGBA | 冷門 | 備用 |
 
-**OPTCG（One Piece）** 已有既定路線（2026-07-27 用戶驗收拍板），見下面「三之一、OPTCG 卡圖來源」。
+TCGplayer SAMPLE 水印圖要 QC reject（尤其部分 OP 印次），唔准當乾淨卡面出街。
+
+**SAMPLE vs 語言（2026-07-31 修正）**  
+- 有 SAMPLE ≈ 多來自 **TCGplayer EN** 商城圖（美／英版觀感）——水印係商城防盜，唔係「日版標籤」。  
+- Limitless `_EN.webp` **整個 One Piece family 拒收**：2026-07-31 全量 OCR
+  實測有系統性 SAMPLE 污染；唔再交人工候選。
+- `_EN.webp` 只可配 `en` variant。DB 係 `ja` 就算卡號相同都要
+  `reject_language_mismatch`，改搵 G10／SNK／Drive 同語言 exact printing。
+- OP **美／日共用 number**（如 OP01-016），但係 **唔同 SKU／語言印刷**；comic／SEC-SP 同 collector 可能共用 base 面——已知風險，要按 printing 分圖時另開。
+
+**OPTCG（One Piece）** 既定路線見下面「三之一」；Limitless One Piece
+已整源停用。
 
 ### 方角卡點算？（自助轉格式，已解決）
 如果只有 RGB 方角圖（舊 ingest 壓平咗），**唔使重下載**：用
@@ -75,8 +85,13 @@
 
 1. 落圖照過 corner-alpha gate（4 角 alpha < 10）+ `normalize_card_canvas()` 429×600，同寶可夢一致，冇豁免。
 2. `summary_jp.json` 唔係日文（G10_BASELINE 三坑之一），唔好攞嚟做 ja 文案。
-3. 新 OP 卡揾圖次序：**先查 G10 樹 snkrdunk 目錄有冇現成 bundle**（480 個 dir 覆蓋主流卡），有就直接用；冇先行 SNKRDUNK API（[docs/SNKRDUNK_API_MANUAL.md](SNKRDUNK_API_MANUAL.md)）。
-4. 呢條源同時係**價源**（`ebay_PSA_10.json`）同 **POP 源**（`populations.json`）—— 一個 bundle 三種數據，揾新卡優先行呢度係一石三鳥。
+3. **FE／出街 OP 圖次序（2026-07-29）**  
+   1. G10 樹 snkrdunk exact bundle / SNK product CDN（語言、卡號、印次一致）
+   2. 已購／Google Drive exact 圖庫
+   3. 其他 exact clean source（Limitless One Piece 已拒收）
+   **禁止** TCGplayer SAMPLE 出街。  
+4. 呢條 G10 源同時係**價源**（`ebay_PSA_10.json`）同 **POP 源**（`populations.json`）。  
+5. 換圖用 **新 content-hash**；唔覆寫舊 `{sha}.webp`（可能共用）；舊 sample 檔可留碟。
 
 ### 來源審批制度（2026-07-27 起，用戶欽點工作流）
 
@@ -85,8 +100,18 @@
 | 源 | 判決 | 日期 | 原因 |
 |---|---|---|---|
 | G10 樹 SNKRDUNK assets（OPTCG） | ✅ 收貨 | 2026-07-27 | 「啲卡又是正，亦都冇 sample 字眼」 |
+| Limitless OP `_EN.webp` CDN | ❌ 整源拒收 | 2026-07-31 | 系統性 SAMPLE 污染；不可再入人工候選 |
+| SNK live `get_master` `upload_bg_removed` | ✅ 收貨（有 exact id） | 2026-07-29 | sample [93024 Glaceon VMAX HR](https://snkrdunk.com/en/trading-cards/93024)：RGBA 原生圓角、無 SAMPLE；**必先 identity bind + QC** |
+| TCGplayer SAMPLE 水印 | ❌ 禁出街 | 持續 | QC reject |
 
 新源未經用戶過目前，只准落 staging/temp 比較，唔准直接入庫做 raw_front。
+
+### SNK live 原圖流水（2026-07-29）
+
+- **Plan / 波次：** [docs/SNK_IMAGE_PIPELINE.md](SNK_IMAGE_PIPELINE.md)
+- **腳本：** [pipelines/snk_image_ingest.py](../pipelines/snk_image_ingest.py)（`--snk-id` / `--missing-only` / `--upgrade-bad`；預設 dry-run，`--write` 先入庫）
+- **後台綁定：** 先 `catalog_source_identity` snkrdunk → 再 A/B/C（asset + disk + `public_allowed`）
+- **入庫前 QC：** SAMPLE 拒 · title/collector 對 master 名 · 角 alpha／補圓角 · 429×600
 
 ---
 
@@ -101,12 +126,35 @@ run_daily.py
 
 `ensure_std_card_images.py --write` 對 snapshot 每張卡做 delta 檢查：
 
-1. 唔係 429×600 → `store_normalized_image()`（alpha-bbox crop + 等比縮放 + 置中）
-2. 方角 → `store_rounded_image()`（補 6% 圓角）
-3. 已達標 → skip（content-addressed，同一張圖永遠唔會重做）
-4. 寫 `image-qc.json` QC 記錄（`stdCanvas: "std-429x600"`）
+1. 用 `cardz-front-geometry-v1` 驗 429×600 透明 RGBA 畫布、卡面雙軸填充
+   ≥95%、卡面比例 0.68–0.75、中心偏移 ≤6 px；淨係尺寸相同唔算達標
+2. geometry 唔合格 → `store_normalized_image()`（alpha-bbox crop + 等比縮放 + 置中）
+3. 方角 → `store_rounded_image()`（補 6% 圓角）
+4. 已達標 → skip（content-addressed，同一張圖永遠唔會重做）
+5. 寫 `image-qc.json` QC 記錄（`stdCanvas: "std-429x600"`）
 
 **即係：新卡今日入 Top 350，聽日 pipeline 行完佢已經係梵高標準，唔駛人追。**
+
+語義 QC 另行用 human／vision receipt。`local_vlm_image_review.py` 會先過
+geometry gate，再逐張寫私人 receipt；單張 timeout 只入 failure ledger，唔會
+取消同批成功結果，亦唔會自動批准 DB 或 public asset。
+
+SAMPLE 漏斗用 `cardz-source-sample-v1`：已證實必帶 SAMPLE 嘅 One Piece
+官方 card-list path 直接整源拒收；TCGplayer 只按已證實嘅 OP 水印模板尺寸
+`600×837`、`600×838`、`716×1000` 拒收，唔准將全部 TCGplayer 一刀切。
+所有來源（包括 Limitless 同 SNK）都要跑 SAMPLE OCR；另外先用來源檔名／
+metadata 做語言硬閘。錯卡、印次、語言、geometry、public approval 仍然
+逐張驗。最後灰區交本機人工 review；主流程唔用本機 LLM。
+
+本機人工 review：
+
+1. `image_prefilter_qc.py` 先剔除 geometry／已知污染源／缺 asset，並寫 failure ledger。
+2. `image_review_proxy.py build` 將 survivors 凍結成 hash-bound dataset。
+3. `image_review_proxy.py serve` 只聽 `127.0.0.1`；DADDY 逐張撳 OK／唔得。
+4. 頁面輸出 `CARDZ-IMG-QC1:` decision code；唔直接連 DB。
+5. `image_review_decisions.py` 預設 dry-run，重驗 dataset、variant、latest asset、
+   content hash、geometry 同 source policy；`--write` 先寫 `human-review-v1`
+   QC，同時只將選中嘅 source pointer 設為 public-eligible。
 
 ---
 

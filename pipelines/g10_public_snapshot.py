@@ -193,10 +193,9 @@ def normalize_collector(raw: Any, language: str | None = None, set_name: Any = N
         else:
             display = f"{numeric_set.group(1)}/{numeric_set.group(2)}"
         return CollectorNumber(display, display.casefold(), True)
-    # Gallery subsets: the numerator alone already identifies the printing inside
-    # its set, so it stays the normalized identity token while the display
-    # carries the printed denominator.  Accepting both "GG69" and "GG69/GG70"
-    # here keeps normalization idempotent and leaves opaque ids untouched.
+    # Gallery subsets keep the numerator as their normalized token, but they are
+    # complete only when the printed denominator is present or independently
+    # attested by the exact set mapping above.
     subset = re.fullmatch(r"(GG|SV|TG|RC)(\d{1,4})(?:/((?:GG|SV|TG|RC)?\d{1,4}))?", value)
     if subset:
         prefix, number, printed_total = subset.group(1), subset.group(2), subset.group(3)
@@ -204,7 +203,11 @@ def normalize_collector(raw: Any, language: str | None = None, set_name: Any = N
         if total and not total.startswith(prefix):
             total = f"{prefix}{total}"
         display = f"{prefix}{number}/{total}" if total else f"{prefix}{number}"
-        return CollectorNumber(display, f"{prefix}{number}".casefold(), True)
+        return CollectorNumber(
+            display,
+            f"{prefix}{number}".casefold(),
+            bool(total),
+        )
 
     if re.fullmatch(r"[A-Z]+\d{1,4}/[A-Z]+\d{1,4}", value):
         return CollectorNumber(value, value.casefold(), True)
@@ -217,8 +220,10 @@ def normalize_collector(raw: Any, language: str | None = None, set_name: Any = N
 
 
 def opaque_id(tcg: str, language: str, set_name: str, collector: CollectorNumber, name: str) -> str:
-    value = "\x1f".join(part.strip().casefold() for part in (tcg, language, set_name, collector.normalized, name))
-    return f"cmc_{hashlib.sha256(value.encode('utf-8')).hexdigest()[:24]}"
+    """Delegate to card_identity — language is a required identity dimension."""
+    from card_identity import opaque_id as _opaque_id
+
+    return _opaque_id(tcg, language, set_name, collector.normalized, name)
 
 
 def metric(value: float | int | None, status: str, as_of: str | None, **extra: Any) -> dict[str, Any]:
@@ -1523,6 +1528,10 @@ def main() -> None:
     parser.add_argument("--private-gap-report-out", type=Path)
     parser.add_argument("--clean-assets", action="store_true")
     args = parser.parse_args()
+    if not args.self_test:
+        raise SystemExit(
+            "g10_public_snapshot public writer permanently disabled: legacy Kado/G10 output is not canonical Market Cap publication"
+        )
 
     source_root = args.source_root.resolve()
     kado_root = args.kado_root.resolve()

@@ -3,8 +3,7 @@ import type { Grader } from "./types";
 // The population feed ships `topGrade` straight from `top_grade_label`. Some rows carry the
 // raw enum "top" instead of the grader's actual top-grade designation, so the label has to be
 // resolved here in the display layer — the database column feeds identity and must not be
-// rewritten. The per-grader designation is taken from the producer that already owns it,
-// `pipelines/g10_public_snapshot.py:918`:
+// rewritten. The per-grader designation is taken from the snapshot producer contract:
 //   labels = {"PSA": "10", "BGS": "Black Label", "CGC": "10", "SGC": "10", "TAG": "10P"}
 // The published seed agrees exactly: for every card carrying "top" upstream, the seed shows
 // BGS "Black Label", TAG "10P" and PSA/CGC/SGC "10".

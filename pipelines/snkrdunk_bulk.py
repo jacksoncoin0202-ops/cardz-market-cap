@@ -24,6 +24,13 @@ from typing import Any, Iterable, Mapping
 
 import requests
 
+try:
+    from .failure_ledger import record_failure, record_resolution
+    from .source_crosswalk import canonical_language, complete_collector_number
+except ImportError:
+    from failure_ledger import record_failure, record_resolution
+    from source_crosswalk import canonical_language, complete_collector_number
+
 BASE = "https://snkrdunk.com"
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -269,9 +276,9 @@ def _identity_from_candidate(candidate: Mapping[str, Any]) -> dict[str, str]:
     source = canonical if isinstance(canonical, Mapping) else candidate
     return {
         "tcg": _canonical_market(source.get("tcg") or source.get("market") or candidate.get("tcg") or candidate.get("market")),
+        "language": canonical_language(source.get("language") or candidate.get("language")),
         "setName": str(source.get("setName") or candidate.get("setName") or "").strip(),
         "collectorNumber": str(source.get("collectorNumber") or source.get("collectorNumberRaw") or candidate.get("collectorNumber") or candidate.get("collectorNumberRaw") or "").strip(),
-        "language": str(source.get("language") or candidate.get("language") or "").strip().casefold(),
         "edition": str(source.get("edition") or candidate.get("edition") or "").strip(),
         "parallel": str(source.get("parallel") or candidate.get("parallel") or "").strip(),
         "finish": str(source.get("finish") or candidate.get("finish") or "").strip(),
@@ -297,20 +304,37 @@ def _identity_from_master(master: Mapping[str, Any]) -> dict[str, str] | None:
     source = nested if isinstance(nested, Mapping) else master
     identity = {
         "tcg": _canonical_market(source.get("tcg") or source.get("market") or source.get("game")),
+        "language": canonical_language(source.get("language")),
         "setName": str(source.get("setName") or source.get("set") or "").strip(),
         "collectorNumber": str(source.get("collectorNumber") or source.get("cardNumber") or source.get("productNumber") or "").strip(),
-        "language": str(source.get("language") or "").strip().casefold(),
         "edition": str(source.get("edition") or "").strip(),
         "parallel": str(source.get("parallel") or "").strip(),
         "finish": str(source.get("finish") or "").strip(),
     }
-    if not all(identity[field] for field in ("tcg", "setName", "collectorNumber", "language")):
+    if (
+        not all(
+            identity[field]
+            for field in ("tcg", "language", "setName", "collectorNumber")
+        )
+        or not complete_collector_number(identity["collectorNumber"])
+    ):
         return None
     return identity
 
 
 def _identity_signature(identity: Mapping[str, str]) -> tuple[str, ...]:
-    return tuple(_identity_value(identity[key]) for key in ("tcg", "setName", "collectorNumber", "language", "edition", "parallel", "finish"))
+    return tuple(
+        _identity_value(identity[key])
+        for key in (
+            "tcg",
+            "language",
+            "setName",
+            "collectorNumber",
+            "edition",
+            "parallel",
+            "finish",
+        )
+    )
 
 
 def _candidate_population(candidate: Mapping[str, Any]) -> int | None:
@@ -365,8 +389,9 @@ def build_price_refill_worklist(
     for candidate in eligible:
         identity = _identity_from_candidate(candidate)
         if _exact_identity_confirmed(candidate) and all(
-            identity[field] for field in ("tcg", "setName", "collectorNumber", "language")
-        ):
+            identity[field]
+            for field in ("tcg", "language", "setName", "collectorNumber")
+        ) and complete_collector_number(identity["collectorNumber"]):
             signature = _identity_signature(identity)
             candidate_signature_counts[signature] = candidate_signature_counts.get(signature, 0) + 1
     master_identities = {item_id: _identity_from_master(master) for item_id, master in masters.items()}
@@ -381,7 +406,13 @@ def build_price_refill_worklist(
         if not _exact_identity_confirmed(candidate):
             rows.append(_result_row(candidate, identity, status="review", reason="candidate_identity_not_confirmed"))
             continue
-        if not all(identity[field] for field in ("tcg", "setName", "collectorNumber", "language")):
+        if (
+            not all(
+                identity[field]
+                for field in ("tcg", "language", "setName", "collectorNumber")
+            )
+            or not complete_collector_number(identity["collectorNumber"])
+        ):
             rows.append(_result_row(candidate, identity, status="review", reason="candidate_identity_incomplete"))
             continue
         signature = _identity_signature(identity)
@@ -527,11 +558,13 @@ def pull_all(
         with out_path.open(encoding="utf-8") as f:
             for line in f:
                 try:
-                    done.add(json.loads(line)["item_id"])
+                    row = json.loads(line)
+                    if not row.get("error"):
+                        done.add(row["item_id"])
                 except (json.JSONDecodeError, KeyError):
                     continue
 
-    ok, skipped = 0, 0
+    ok, failed, skipped = 0, 0, 0
     with out_path.open("a", encoding="utf-8") as f:
         for iid in item_ids:
             if iid in done:
@@ -539,17 +572,47 @@ def pull_all(
                 continue
             try:
                 card = api.pull_card(iid, condition_code=condition_code)
-            except requests.HTTPError as e:
+                if card.get("error"):
+                    raise RuntimeError(str(card["error"]))
+                record_resolution(
+                    source="snkrdunk",
+                    stage="bulk_pull",
+                    script=__file__,
+                    item_key=iid,
+                    resolution="accepted_payload",
+                    context={"condition": condition_code},
+                    evidence_paths=[out_path],
+                )
+                ok += 1
+            except Exception as e:
                 card = {"item_id": iid, "error": str(e)}
+                failed += 1
+                record_failure(
+                    source="snkrdunk",
+                    stage="bulk_pull",
+                    script=__file__,
+                    item_key=iid,
+                    reason_code="item_pull_failed",
+                    message=str(e),
+                    retryable=True,
+                    url=f"{BASE}/en/apparels/{iid}",
+                    context={"condition": condition_code},
+                    evidence_paths=[out_path],
+                    next_action="retry",
+                    error_type=type(e).__name__,
+                )
             f.write(json.dumps(card, ensure_ascii=False) + "\n")
             f.flush()
-            ok += 1
-            print(f"[{ok + skipped}/{len(item_ids)}] {iid} {card.get('product_number') or card.get('error')}")
+            print(
+                f"[{ok + failed + skipped}/{len(item_ids)}] "
+                f"{iid} {card.get('product_number') or card.get('error')}"
+            )
 
     return {
         "x_version": version,
         "total": len(item_ids),
         "fetched": ok,
+        "failed": failed,
         "skipped_existing": skipped,
         "out": str(out_path),
     }

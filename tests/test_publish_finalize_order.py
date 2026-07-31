@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Publish 收尾次序 regression（2026-07-26）。
+"""Versioned publish 收尾次序 regression。
 
 `finalize_local_candidate_then_publish` 原本嘅次序係：
 
@@ -10,16 +10,12 @@
 未引用檔就 exit 1，`run_checked` 拋錯，於是**清走嗰啲檔嘅 quarantine 步永遠去唔到**。
 閘因為垃圾而 fail，掃垃圾嗰步喺閘之後：條 publish 鏈自己鎖死自己。
 
-而家改成兩 pass：
+而家由 publisher 擁有唯一 promotion：
 
-    verify(--allow-unreferenced) → promote → quarantine → verify(嚴格) → publish
+    verify(--allow-unreferenced) → shrink gate → publish immutable generation/assets → latest.json
 
-第一 pass 嘅職責係喺搬任何檔之前確認 snapshot 本身完好（每張卡圖存在、hash 啱、
-尺寸啱、有 QC 記錄）——destructive 動作之前一定要有驗證。第二 pass 保住原本個
-不變式：發佈嗰刻目錄唔可以仲有孤兒檔。
-
-呢個檔同時釘住兩個方向：唔准調返一 pass（死鎖翻兜），亦唔准索性刪咗嚴格 pass
-（咁等於為咗解死鎖而閹咗檢查，比原本更差）。
+共用 asset tree 可以有舊 content-addressed bytes；publisher只包今代引用資產。
+run_daily唔准再覆寫 tracked seed/QC或先 quarantine後先知 pointer失敗。
 """
 
 from __future__ import annotations
@@ -65,51 +61,33 @@ class FinalizeOrderTests(unittest.TestCase):
             else:
                 self.calls.append("publish")
 
-        for name, replacement in (
-            ("run_checked", fake_run_checked),
-            ("promote_file", lambda *_a, **_k: self.calls.append("promote")),
-            ("read_json", lambda *_a, **_k: {}),
-            ("quarantine_unreferenced_assets", lambda *_a, **_k: self.calls.append("quarantine") or 7),
-        ):
-            original = getattr(run_daily, name)
-            setattr(run_daily, name, replacement)
-            self.addCleanup(setattr, run_daily, name, original)
+        original = run_daily.run_checked
+        run_daily.run_checked = fake_run_checked
+        self.addCleanup(setattr, run_daily, "run_checked", original)
 
     def finalize(self, *, production: bool = False) -> int:
         return run_daily.finalize_local_candidate_then_publish(
             candidate_snapshot=self.temp / "snapshot.json",
             candidate_image_manifest=self.manifest,
             assets_out=self.temp / "market-assets",
-            snapshot_destination=self.temp / "out-snapshot.json",
-            image_manifest_destination=self.temp / "out-image-qc.json",
-            quarantine_root=self.temp / "quarantine",
+            published_snapshot=None,
             publish_command=["node", "publish-snapshot.mjs"],
             production=production,
             timeout=60,
         )
 
-    def test_quarantine_is_sandwiched_between_a_lenient_and_a_strict_verify(self) -> None:
-        self.assertEqual(self.finalize(), 7)
-        self.assertEqual(
-            self.calls,
-            ["verify:lenient", "promote", "promote", "quarantine", "verify:strict", "publish"],
-        )
+    def test_versioned_publisher_runs_after_the_lenient_local_gate(self) -> None:
+        self.assertEqual(self.finalize(), 0)
+        self.assertEqual(self.calls, ["verify:lenient", "publish"])
 
-    def test_snapshot_is_validated_before_anything_is_moved(self) -> None:
-        # destructive 動作之前一定要有驗證，否則 snapshot 壞嘅時候會先搬走好檔。
+    def test_snapshot_is_validated_before_pointer_publication(self) -> None:
         self.finalize()
-        self.assertLess(self.calls.index("verify:lenient"), self.calls.index("quarantine"))
+        self.assertLess(self.calls.index("verify:lenient"), self.calls.index("publish"))
 
-    def test_strict_pass_still_gates_publish(self) -> None:
-        # 唔准為咗解死鎖而索性刪咗嚴格 pass。
+    def test_run_daily_never_mutates_the_shared_asset_tree(self) -> None:
         self.finalize()
-        self.assertIn("verify:strict", self.calls)
-        self.assertLess(self.calls.index("verify:strict"), self.calls.index("publish"))
-
-    def test_lenient_pass_never_leaks_into_the_final_gate(self) -> None:
-        self.finalize()
-        self.assertEqual(self.calls.count("verify:lenient"), 1)
-        self.assertEqual(self.calls.count("verify:strict"), 1)
+        self.assertNotIn("promote", self.calls)
+        self.assertNotIn("quarantine", self.calls)
 
     def test_a_failing_first_pass_stops_before_quarantine(self) -> None:
         def exploding_run_checked(command, **_kwargs):
@@ -119,10 +97,9 @@ class FinalizeOrderTests(unittest.TestCase):
         run_daily.run_checked = exploding_run_checked
         with self.assertRaises(RuntimeError):
             self.finalize()
-        self.assertNotIn("quarantine", self.calls)
-        self.assertNotIn("promote", self.calls)
+        self.assertNotIn("publish", self.calls)
 
-    def test_production_keeps_strict_semantic_on_both_passes(self) -> None:
+    def test_production_keeps_strict_semantic_on_the_local_gate(self) -> None:
         seen: list[list[str]] = []
 
         def capture(command, **_kwargs):
@@ -132,7 +109,7 @@ class FinalizeOrderTests(unittest.TestCase):
 
         run_daily.run_checked = capture
         self.finalize(production=True)
-        self.assertEqual(len(seen), 2)
+        self.assertEqual(len(seen), 1)
         for command in seen:
             self.assertIn("--strict-semantic", command)
 

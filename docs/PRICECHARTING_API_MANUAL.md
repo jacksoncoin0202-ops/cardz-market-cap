@@ -21,10 +21,16 @@ python -X utf8 pipelines\pricecharting_ebay_export.py --map path\to\card-pc-map.
 
 # 3) normalizer → market_sale_observation
 # daily / qualified-sync 讀 CARDZ_EBAY_SOLD_INPUT 或上面預設檔
+
+# C11 存量 map（variant+pc_url+html，無 altxyz UUID）→ 直接 sold 入庫
+python -X utf8 pipelines\c11_pc_sold_ingest.py --write
+# 讀 data/runtime/private-source-map/c11_pc_ebay_map.jsonl
+# 寫 market_sale_observation source=ebay external=pc:{product_id}；唔寫 identity
 ```
 
 Parse 腳本：`pipelines/pricecharting_page_parse.py`  
-Normalizer：`pipelines/ebay_sold_data.py`
+Normalizer：`pipelines/ebay_sold_data.py`  
+C11 sold 直寫：`pipelines/c11_pc_sold_ingest.py`（verify 閘 + variant 綁定）
 
 ---
 

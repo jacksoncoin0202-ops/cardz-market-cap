@@ -1,0 +1,12 @@
+[Unit]
+Description=Run CARDZ additive candidate refresh weekly (disabled by default)
+
+[Timer]
+OnCalendar=Mon *-*-* 14:17:00 UTC
+RandomizedDelaySec=3600
+Persistent=true
+AccuracySec=1min
+Unit=cardz-market-cap-candidate-refresh.service
+
+# Intentionally no installation section. Enable only after the operator approves the
+# first manual full-backfill receipt and confirms the singleton writer cutover.

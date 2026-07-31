@@ -120,7 +120,7 @@ def load_catalog(args: argparse.Namespace) -> dict[str, dict[str, Any]] | None:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT opaque_id, tcg_code, card_language, canonical_name,
+                SELECT opaque_id, tcg_code, canonical_name,
                        set_name, collector_number, identity_status
                 FROM catalog_variant
                 """
@@ -181,7 +181,6 @@ def classify(
                 or None,
                 "method": str((record.get("resolverEvidence") or {}).get("method") or "") or None,
                 "tcg": (identity or {}).get("tcg_code"),
-                "language": (identity or {}).get("card_language"),
                 "collectorNumber": (identity or {}).get("collector_number"),
                 "name": (identity or {}).get("canonical_name"),
                 "setName": (identity or {}).get("set_name"),
@@ -360,6 +359,10 @@ def main() -> int:
     except Exception:
         pass
     args = parser.parse_args()
+    if args.recover:
+        raise SystemExit(
+            "image_store_consolidate --recover public writer permanently disabled: use the gated image review pipeline"
+        )
 
     if not QC_PATH.is_file():
         print(json.dumps({"status": "missing_qc", "path": str(QC_PATH)}), file=sys.stderr)

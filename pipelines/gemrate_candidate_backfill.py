@@ -32,6 +32,8 @@ from source_crosswalk import (
     build_gemrate_direct_identity_proposal,
     build_gemrate_receipt_identity_proposal,
     canonical_language,
+    canonical_printing_key,
+    complete_collector_number,
     normalized_identity_part,
     same_collector_number_evidence,
 )
@@ -49,6 +51,7 @@ DEFAULT_OUT = ROOT / "data/runtime/private-source-map/gemrate-candidate-backfill
 DEFAULT_RECEIPT_MAPPINGS = ROOT / "data/runtime/private-source-map/gemrate-receipt-mappings.json"
 HEX40 = re.compile(r"^[0-9a-f]{40}$", re.IGNORECASE)
 HEX64 = re.compile(r"^[0-9a-f]{64}$", re.IGNORECASE)
+CANONICAL_DB_TRANSPORT = "canonical_db_gemrate_replay"
 
 
 def _canonical_json(value: Any) -> str:
@@ -581,6 +584,265 @@ def build_candidate_roster(
     return roster
 
 
+def load_canonical_db_identity_overlay(cursor: Any) -> dict[str, dict[str, Any]]:
+    """Load exact GemRate-to-variant identity already settled in canonical MySQL.
+
+    The canonical DB mapping is an identity anchor, not a fuzzy matcher.  SNK
+    is carried only when exactly one numeric SNK identity belongs to the same
+    variant; multiple IDs stay unset for the exact refill/review lane.
+    """
+
+    cursor.execute(
+        """
+        SELECT
+            gem.external_entity_id AS gemrate_id,
+            gem.variant_id,
+            gem.evidence_sha256 AS gemrate_evidence_sha256,
+            variant.tcg_code,
+            variant.card_language,
+            variant.canonical_name,
+            variant.set_name,
+            variant.collector_number,
+            printing.edition_code,
+            printing.parallel_code,
+            printing.finish_code,
+            printing.identity_status AS printing_identity_status,
+            population.top_grade_population AS db_psa10_population,
+            population.observed_date AS db_population_observed_date,
+            population.effective_at AS db_population_effective_at,
+            population.payload_sha256 AS db_population_payload_sha256,
+            snk.external_entity_id AS snk_external_entity_id,
+            snk.match_status AS snk_match_status
+        FROM catalog_source_identity AS gem
+        JOIN catalog_variant AS variant ON variant.id = gem.variant_id
+        LEFT JOIN catalog_printing_identity AS printing ON printing.variant_id = gem.variant_id
+        LEFT JOIN (
+            SELECT
+                observation.variant_id,
+                observation.top_grade_population,
+                observation.observed_date,
+                observation.effective_at,
+                observation.payload_sha256
+            FROM market_grader_population_observation AS observation
+            JOIN (
+                SELECT variant_id, MAX(observed_date) AS observed_date
+                FROM market_grader_population_observation
+                WHERE source_code = 'gemrate'
+                  AND grader_code = 'PSA'
+                  AND top_grade_label = 'top'
+                  AND estimated = 0
+                GROUP BY variant_id
+            ) AS latest
+              ON latest.variant_id = observation.variant_id
+             AND latest.observed_date = observation.observed_date
+            WHERE observation.source_code = 'gemrate'
+              AND observation.grader_code = 'PSA'
+              AND observation.top_grade_label = 'top'
+              AND observation.estimated = 0
+        ) AS population ON population.variant_id = gem.variant_id
+        LEFT JOIN catalog_source_identity AS snk
+            ON snk.variant_id = gem.variant_id
+           AND snk.source_code = 'snkrdunk'
+           AND snk.match_status = 'exact'
+        WHERE gem.source_code = 'gemrate'
+          AND gem.match_status = 'exact'
+          AND variant.identity_status = 'confirmed'
+        ORDER BY gem.external_entity_id, snk.external_entity_id
+        """
+    )
+    grouped: dict[str, dict[str, Any]] = {}
+    for raw in cursor.fetchall():
+        row = dict(raw)
+        gemrate_id = str(row.get("gemrate_id") or "").strip().casefold()
+        if not _is_exact_id(gemrate_id):
+            continue
+        variant_id = int(row["variant_id"])
+        current = grouped.get(gemrate_id)
+        if current is not None and int(current["variantId"]) != variant_id:
+            raise RuntimeError(f"canonical DB GemRate identity is rebound: {gemrate_id}")
+        trusted_printing = str(row.get("printing_identity_status") or "") in {
+            "canonical",
+            "duplicate",
+        }
+        identity = {
+            "tcg": str(row.get("tcg_code") or "").strip(),
+            "language": canonical_language(row.get("card_language")),
+            "setName": str(row.get("set_name") or "").strip(),
+            "collectorNumber": str(row.get("collector_number") or "").strip(),
+            "edition": str(row.get("edition_code") or "").strip() if trusted_printing else "",
+            "parallel": str(row.get("parallel_code") or "").strip() if trusted_printing else "",
+            "finish": str(row.get("finish_code") or "").strip() if trusted_printing else "",
+            "name": str(row.get("canonical_name") or "").strip(),
+        }
+        if not all(
+            identity[field]
+            for field in ("tcg", "language", "setName", "collectorNumber")
+        ) or not complete_collector_number(identity["collectorNumber"]):
+            continue
+        if current is None:
+            population_value = row.get("db_psa10_population")
+            population_date = row.get("db_population_observed_date")
+            population_effective_at = row.get("db_population_effective_at")
+            population_payload_sha256 = str(row.get("db_population_payload_sha256") or "")
+            canonical_db_population = None
+            if (
+                isinstance(population_value, int)
+                and not isinstance(population_value, bool)
+                and population_value >= 0
+                and population_date is not None
+                and HEX64.fullmatch(population_payload_sha256)
+            ):
+                canonical_db_population = {
+                    "populationPsa10": population_value,
+                    "effectiveDate": (
+                        population_date.isoformat()
+                        if hasattr(population_date, "isoformat")
+                        else str(population_date)
+                    ),
+                    "effectiveAt": (
+                        population_effective_at.isoformat()
+                        if hasattr(population_effective_at, "isoformat")
+                        else str(population_effective_at or "")
+                    ),
+                    "payloadSha256": population_payload_sha256,
+                    "sourceCode": "gemrate",
+                }
+            current = {
+                "variantId": variant_id,
+                "gemrateEvidenceSha256": str(row.get("gemrate_evidence_sha256") or ""),
+                "canonicalIdentity": identity,
+                "canonicalDbPopulation": canonical_db_population,
+                "snkIdentities": set(),
+            }
+            grouped[gemrate_id] = current
+        snk_external_id = str(row.get("snk_external_entity_id") or "").strip()
+        if snk_external_id.isdigit():
+            current["snkIdentities"].add(int(snk_external_id))
+
+    overlay: dict[str, dict[str, Any]] = {}
+    for gemrate_id, row in grouped.items():
+        identity = dict(row["canonicalIdentity"])
+        snk_identities = set(row.pop("snkIdentities"))
+        snk_item_id = next(iter(snk_identities)) if len(snk_identities) == 1 else None
+        printing_key = canonical_printing_key(
+            market=identity["tcg"],
+            language=identity["language"],
+            set_name=identity["setName"],
+            collector_number=identity["collectorNumber"],
+            edition=identity["edition"],
+            parallel=identity["parallel"],
+            finish=identity["finish"],
+        )
+        overlay[gemrate_id] = {
+            **row,
+            "canonicalIdentity": identity,
+            "canonicalPrintingKey": printing_key,
+            "canonicalSource": {
+                "sourceCode": "gemrate",
+                "externalId": gemrate_id,
+                "storageScope": "canonical_db",
+                "snkItemId": snk_item_id,
+            },
+            "snkItemId": snk_item_id,
+            "snkIdentityCount": len(snk_identities),
+        }
+    return overlay
+
+
+def apply_canonical_db_identity_overlay(
+    candidates: Iterable[Mapping[str, Any]],
+    overlay: Mapping[str, Mapping[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Attach only exact canonical DB identities to otherwise-unsettled candidates."""
+
+    rows: list[dict[str, Any]] = []
+    counts = {
+        "candidates": 0,
+        "dbExactAvailable": 0,
+        "attached": 0,
+        "preservedExact": 0,
+        "preservedReview": 0,
+        "tcgConflict": 0,
+        "snkCarried": 0,
+        "snkAmbiguous": 0,
+        "populationCarried": 0,
+    }
+    for raw in candidates:
+        candidate = dict(raw)
+        counts["candidates"] += 1
+        gemrate_id = str(candidate.get("gemrateId") or "").strip().casefold()
+        mapping = overlay.get(gemrate_id)
+        if not isinstance(mapping, Mapping):
+            rows.append(candidate)
+            continue
+        counts["dbExactAvailable"] += 1
+        status = str(candidate.get("identityStatus") or "")
+        if status == "exact_confirmed":
+            population = mapping.get("canonicalDbPopulation")
+            if isinstance(population, Mapping):
+                candidate["canonicalDbPopulation"] = dict(population)
+                counts["populationCarried"] += 1
+            counts["preservedExact"] += 1
+            rows.append(candidate)
+            continue
+        if status == "review" and candidate.get("identityReviewReasons"):
+            counts["preservedReview"] += 1
+            rows.append(candidate)
+            continue
+        identity = mapping.get("canonicalIdentity")
+        source = mapping.get("canonicalSource")
+        if not isinstance(identity, Mapping) or not isinstance(source, Mapping):
+            rows.append(candidate)
+            continue
+        candidate_tcg = str(candidate.get("tcg") or "").strip()
+        canonical_tcg = str(identity.get("tcg") or "").strip()
+        if candidate_tcg and candidate_tcg != canonical_tcg:
+            candidate["identityStatus"] = "review"
+            candidate["identityReviewReasons"] = ["canonical_db_tcg_conflict"]
+            counts["tcgConflict"] += 1
+            rows.append(candidate)
+            continue
+        candidate.update(
+            {
+                "identityStatus": "exact_confirmed",
+                "canonicalIdentity": dict(identity),
+                "canonicalSource": dict(source),
+                "canonicalSourceCode": source["sourceCode"],
+                "canonicalExternalId": source["externalId"],
+                "storageScope": source["storageScope"],
+                "snkItemId": source.get("snkItemId"),
+                "canonicalPrintingKey": mapping["canonicalPrintingKey"],
+                "setName": identity["setName"],
+                "collectorNumber": identity["collectorNumber"],
+                "language": identity["language"],
+                "edition": identity.get("edition", ""),
+                "parallel": identity.get("parallel", ""),
+                "finish": identity.get("finish", ""),
+                "name": identity.get("name", ""),
+                "identity": {
+                    "storageScope": source["storageScope"],
+                    "canonicalExternalId": source["externalId"],
+                },
+                "canonicalDbIdentityEvidence": {
+                    "variantId": mapping["variantId"],
+                    "gemrateEvidenceSha256": mapping.get("gemrateEvidenceSha256"),
+                    "snkIdentityCount": mapping.get("snkIdentityCount", 0),
+                },
+            }
+        )
+        population = mapping.get("canonicalDbPopulation")
+        if isinstance(population, Mapping):
+            candidate["canonicalDbPopulation"] = dict(population)
+            counts["populationCarried"] += 1
+        counts["attached"] += 1
+        if isinstance(source.get("snkItemId"), int):
+            counts["snkCarried"] += 1
+        elif int(mapping.get("snkIdentityCount", 0)) > 1:
+            counts["snkAmbiguous"] += 1
+        rows.append(candidate)
+    return rows, counts
+
+
 def apply_public_receipt_identity_proposals(
     candidates: Iterable[Mapping[str, Any]], *, public_root: Path, direct_root: Path | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -606,7 +868,7 @@ def apply_public_receipt_identity_proposals(
         page = public_receipt.get("publicCardPage") if isinstance(public_receipt, Mapping) else None
         direct_receipt, direct_payload, direct_error = _verified_direct_identity_receipt(direct_root, gemrate_id) if direct_root else (None, None, None)
         proposal: Mapping[str, Any] | None = None
-        if direct_error:
+        if direct_error and status != "exact_confirmed":
             proposal = {"identityStatus": "review", "reviewReasons": [direct_error], "identityEvidence": {"directReceipt": {"error": direct_error}}}
         elif direct_receipt is not None and direct_payload is not None:
             candidate["directIdentityReceipt"] = dict(direct_receipt)
@@ -618,7 +880,7 @@ def apply_public_receipt_identity_proposals(
                 direct_key = str(proposal.get("canonicalPrintingKey") or "")
                 public_key = str(public_proposal.get("canonicalPrintingKey") or "")
                 public_conflicts = {
-                    "set_conflict", "collector_number_conflict", "parallel_conflict", "language_conflict",
+                    "set_conflict", "collector_number_conflict", "parallel_conflict",
                 }.intersection(str(reason) for reason in public_proposal.get("reviewReasons", []))
                 if direct_key and ((public_key and direct_key != public_key) or public_conflicts):
                     proposal = {**dict(proposal), "identityStatus": "review", "canonicalIdentity": None,
@@ -627,7 +889,7 @@ def apply_public_receipt_identity_proposals(
         elif isinstance(page, Mapping) and isinstance(page.get("identity"), Mapping):
             proposal = build_gemrate_receipt_identity_proposal(candidate, public_receipt)
             candidate["publicIdentityProposal"] = proposal
-        elif public_error:
+        elif public_error and status != "exact_confirmed":
             proposal = {
                 "identityStatus": "review",
                 "reviewReasons": [public_error],
@@ -831,6 +1093,37 @@ def _mirror_current(path: Path, as_of: date) -> dict[str, Any] | None:
     return _mirror_population(document, _path_fetched_at(path, fallback)) if document is not None else None
 
 
+def _canonical_db_current(candidate: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Return the latest accepted canonical GemRate PSA 10 fact, if valid."""
+
+    population = candidate.get("canonicalDbPopulation")
+    if not isinstance(population, Mapping):
+        return None
+    value = population.get("populationPsa10")
+    effective_date = str(population.get("effectiveDate") or "")
+    payload_sha256 = str(population.get("payloadSha256") or "")
+    try:
+        date.fromisoformat(effective_date)
+    except ValueError:
+        return None
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or value < 0
+        or not HEX64.fullmatch(payload_sha256)
+        or population.get("sourceCode") != "gemrate"
+    ):
+        return None
+    return {
+        "populationPsa10": value,
+        "effectiveDate": effective_date,
+        "effectiveDateSource": "canonical_db_observed_date",
+        "fetchedAt": str(population.get("effectiveAt") or ""),
+        "payloadSha256": payload_sha256,
+        "transport": CANONICAL_DB_TRANSPORT,
+    }
+
+
 def _exact_mirror_path(root: Path, candidate: Mapping[str, Any]) -> Path | None:
     identity = candidate.get("identity")
     if not isinstance(identity, Mapping):
@@ -897,10 +1190,13 @@ def build_public_card_details_worklist(
         fetched_at = "1970-01-01T00:00:00Z"
         direct = _direct_current(direct_root, gemrate_id, fetched_at)
         public = _public_current(public_root / gemrate_id / "card_details.json", as_of, gemrate_id)
+        canonical_db = _canonical_db_current(candidate)
         if _is_fresh(direct, as_of):
             skipped.append({"gemrateId": gemrate_id, "reason": "direct_current_cached"})
         elif _is_fresh(public, as_of):
             skipped.append({"gemrateId": gemrate_id, "reason": "public_current_cached"})
+        elif _is_fresh(canonical_db, as_of):
+            skipped.append({"gemrateId": gemrate_id, "reason": "canonical_db_current"})
         else:
             worklist.append({"gemrateId": gemrate_id, "tcg": candidate.get("tcg")})
     ids = [str(row["gemrateId"]) for row in worklist]
@@ -921,7 +1217,7 @@ def build_public_card_details_worklist(
 
 def _summarize(
     rows: Iterable[Mapping[str, Any]], *, carried_forward: int, direct_current: int,
-    public_current: int, mirror_current: int, direct_history: int,
+    public_current: int, canonical_db_current: int, mirror_current: int, direct_history: int,
 ) -> dict[str, int]:
     result = {
         "candidateCount": 0,
@@ -933,6 +1229,7 @@ def _summarize(
         "carriedForward": carried_forward,
         "directCurrent": direct_current,
         "publicCurrent": public_current,
+        "canonicalDbCurrent": canonical_db_current,
         "mirrorCurrent": mirror_current,
         "directHistory": direct_history,
         "eligible": 0,
@@ -1018,7 +1315,7 @@ def run_offline_backfill(
     prior = _checkpoint_rows(checkpoint, as_of) if resume else {}
     public_root = public_root or direct_root
     rows: list[dict[str, Any]] = []
-    carried_forward = direct_current = public_current = mirror_current = direct_history = 0
+    carried_forward = direct_current = public_current = canonical_db_current = mirror_current = direct_history = 0
     fetched_at = f"{as_of.isoformat()}T00:00:00Z"
     for candidate in sorted(candidate_rows, key=lambda row: (str(row.get("tcg")), str(row["gemrateId"]))):
         gemrate_id = str(candidate["gemrateId"])
@@ -1043,20 +1340,24 @@ def run_offline_backfill(
         direct = _direct_current(direct_root, gemrate_id, fetched_at)
         history_ready = (direct_dir / "history_full.json").is_file() if direct is not None else False
         public = _public_current(public_root / gemrate_id / "card_details.json", as_of, gemrate_id)
+        canonical_db = _canonical_db_current(candidate)
         mirror_path = _exact_mirror_path(mirror_root, candidate)
         mirror = _mirror_current(mirror_path, as_of) if mirror_path is not None else None
         if _is_fresh(direct, as_of):
             direct_current += 1
         if _is_fresh(public, as_of):
             public_current += 1
+        if _is_fresh(canonical_db, as_of):
+            canonical_db_current += 1
         if _is_fresh(mirror, as_of):
             mirror_current += 1
         if history_ready:
             direct_history += 1
-        points = [point for point in (direct, public, mirror) if _is_fresh(point, as_of)]
+        points = [point for point in (direct, public, canonical_db, mirror) if _is_fresh(point, as_of)]
         transport_labels = {
             DIRECT_TRANSPORT: "gemrate_direct",
             WEBSITE_TRANSPORT: WEBSITE_TRANSPORT,
+            CANONICAL_DB_TRANSPORT: CANONICAL_DB_TRANSPORT,
             MIRROR_TRANSPORT: "grade10_gemrate_mirror",
         }
         transport_observations = [
@@ -1099,11 +1400,13 @@ def run_offline_backfill(
             })
             continue
         # Official direct API outranks live public card-page evidence, which
-        # outranks the exact Grade10 mirror. A page JSON's source date is last
-        # population change metadata, not a freshness date for conflict checks.
+        # outranks the latest accepted canonical DB fact and the exact Grade10
+        # mirror. A page JSON's source date is last population change metadata,
+        # not a freshness date for conflict checks.
         priority = {
-            DIRECT_TRANSPORT: 3,
-            WEBSITE_TRANSPORT: 2,
+            DIRECT_TRANSPORT: 4,
+            WEBSITE_TRANSPORT: 3,
+            CANONICAL_DB_TRANSPORT: 2,
             MIRROR_TRANSPORT: 1,
         }
         selected = max(
@@ -1145,6 +1448,7 @@ def run_offline_backfill(
         carried_forward=carried_forward,
         direct_current=direct_current,
         public_current=public_current,
+        canonical_db_current=canonical_db_current,
         mirror_current=mirror_current,
         direct_history=direct_history,
     )
@@ -1287,6 +1591,14 @@ def main() -> int:
     parser.add_argument("--collect-public", action="store_true", help="repair missing exact public card-details POP via Playwright")
     parser.add_argument("--public-delay", type=float, default=0.3)
     parser.add_argument("--require-ranking-ready", action="store_true", help="fail if any candidate is unavailable or in review")
+    parser.add_argument(
+        "--use-canonical-db-identities",
+        action="store_true",
+        help="read exact GemRate-to-variant identities from canonical MySQL before receipt resolution",
+    )
+    from db_runtime import add_connection_args, connection_from_args
+
+    add_connection_args(parser)
     parser.add_argument("--as-of", type=date.fromisoformat, default=date.today())
     args = parser.parse_args()
     receipt_mappings = _load_json(args.receipt_mappings)
@@ -1299,6 +1611,18 @@ def main() -> int:
         _read_document(args.one_piece_candidates),
         crosswalk,
     )
+    canonical_db_identity_overlay: dict[str, int] | None = None
+    if args.use_canonical_db_identities:
+        connection = connection_from_args(args)
+        try:
+            with connection.cursor() as cursor:
+                db_identities = load_canonical_db_identity_overlay(cursor)
+        finally:
+            connection.close()
+        roster, canonical_db_identity_overlay = apply_canonical_db_identity_overlay(
+            roster,
+            db_identities,
+        )
     checkpoint_path = args.out / "checkpoint.json"
     checkpoint = _read_document(checkpoint_path) if args.resume and checkpoint_path.is_file() else None
     mirror_root = args.mirror_root or resolve_immutable_mirror_root(args.freeze_manifest, args.landing_root)
@@ -1316,6 +1640,8 @@ def main() -> int:
     manifest["receiptIdentityMappings"] = persist_receipt_identity_mappings(
         manifest["candidates"], path=args.receipt_mappings,
     )
+    if canonical_db_identity_overlay is not None:
+        manifest["canonicalDbIdentityOverlay"] = canonical_db_identity_overlay
     _atomic_write_json(args.out / "public-card-details-worklist.json", worklist)
     _atomic_write_text(
         args.out / "public-card-details-ids.txt",

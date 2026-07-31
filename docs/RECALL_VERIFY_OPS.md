@@ -1,13 +1,16 @@
 # 召回 → 二次 QC → 入庫（營運鐵律）
 
 > **2026-07-29** 深度協作後凍結。  
-> 營運總覽：[PROJECT_STATE.md](../PROJECT_STATE.md) · 點做地圖：[PROJECT_MAP.md](PROJECT_MAP.md)
+> 營運總覽：[PROJECT_STATE.md](../PROJECT_STATE.md) · 點做地圖：[PROJECT_MAP.md](PROJECT_MAP.md)  
+> **入庫前工序 checklist（短）：** [INGEST_VERIFY_GATE.md](INGEST_VERIFY_GATE.md)
 
 ---
 
 ## 0. 一句
 
 **門檻可以極低去撈；入 DB 前必須過可重跑嘅 verify／QC。通過先 mark 一次；之後增量只跟已記 ID + 腳本。**
+
+**人類點 search（變種 × 日英名 × 編號多寫法）：** 必讀 [IDENTITY_HUMAN_SEARCH_PLAYBOOK.md](IDENTITY_HUMAN_SEARCH_PLAYBOOK.md)——agent 唔可以淨跑腳本名而無 query ladder。
 
 ---
 

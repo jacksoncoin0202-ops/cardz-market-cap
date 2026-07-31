@@ -123,6 +123,10 @@ Rules:
 - Source price and tracked transaction price are distinct series. Transaction medians cannot silently replace the reference/index price.
 - Price age `≤30h` is ready, `30–48h` is stale, and `>48h` is unavailable and ineligible.
 - CARDZ derives 1d, 7d, and 30d from exact PSA 10 daily closes. A verified SNK history backfill may immediately supply these anchors; copied provider percentages are never canonical. Missing anchors remain accumulating.
+- A historical anchor from a different authority family is never mixed into
+  the current source's change calculation. It is a review warning and that
+  change window stays accumulating; it does not invalidate an otherwise exact,
+  fresh current PSA 10 price or delist the card.
 
 ## Tracked sales
 
@@ -132,7 +136,45 @@ Tracked sales are partial observations, not total market volume. For each window
 - A source-supplied sale date is preserved; discovery date does not replace it.
 - Repeated rolling windows are reconciled without collapsing distinct same-day same-price transactions.
 - A source window with no provable coverage displays `—`, not `$0`.
+- Exact-bound SNK recent trades, Grade10-cached eBay PSA 10 completed sales, and
+  PriceCharting-page eBay PSA 10 completed sales are equal primary transaction
+  evidence. All three pass the same printing, grade, timestamp, quantity,
+  dedupe, and 30-day checks; an unbound cache remains bootstrap evidence only.
+- The SNK identity family is closed over `snk_psa10`, `snk`, and `snkrdunk`.
+  A numeric sale card ID may bind across those aliases only when the exact
+  numeric external ID is identical; names never bridge the aliases.
 - Current source pagination is incomplete, so public coverage remains `partial` until a stronger feed proves otherwise.
+
+## Operational source and retry policy (hard)
+
+- Cardz Market Cap is not CardzOS, CardzPSA10, CARDZ.Game/JLP, or Kado. Its
+  only business database is MySQL `cardz_market_cap` and production execution
+  uses the WSL repo plus `/home/jackson0202/cardz-market-cap/.venv-backend`.
+- A provider pass collects every useful field available on the exact product
+  page in one capture. Parsing may split those fields into price, sales,
+  identity, and raw-reference rows afterwards; it must not refetch the same
+  product once per field.
+- An exact source binding is durable. Full stock repair runs once; later runs
+  fetch only new observations plus retry-worklist failures. After targeted
+  PriceCharting repairs, rebuild the current-exact map with
+  `pc_full_serial_driver.py --consolidate-only`; never rerun all provider
+  shards merely to refresh the local map.
+- G10 may transport saved eBay or SNK evidence for research, but G10 index,
+  kline, analytics, and any `g10*` price source code are forbidden in the
+  canonical DB, market-cap calculation, and frontend snapshot. Accepted facts
+  retain their real market family (`ebay` or `snk*`) and exact printing
+  provenance.
+- Do not discard a valid authority's observations merely because another
+  authority covers the same product. Writers remain idempotent on their own
+  durable item/fingerprint and preserve source-family provenance.
+- Every completed canonical DB QC, including a blocked run, must be projected
+  with `qc_failure_sync.py --write`. The price and sales lanes are exported as
+  deterministic retry worklists. A blocked QC then stops publication; it does
+  not lose the work queue.
+- Before any image work, `run_daily.py` derives an immutable
+  `price-sales-gate.json` from that same QC report. Only cards with a confirmed
+  authority price and at least 10 exact single-card PSA 10 sales in 30 days
+  enter the image batch; final full QC remains the release gate.
 
 ## Price history and chart integrity
 
@@ -142,11 +184,46 @@ The current derived candle files are quarantined because price sorting cannot es
 
 ## Canonical identity and CardzGame crosswalk
 
-A publishable printing has an opaque CARDZ ID, TCG, language, set identity/code, complete collector number, and edition/parallel/finish when those distinguish printings. Examples include `227/S-P`, `294/XY-P`, and `OP01-120`. Frontend code may not guess a missing suffix, prefix, denominator, or zero padding.
+A publishable printing has an opaque CARDZ ID plus exact TCG, card language, set identity/code, complete collector number, edition, parallel, and finish evidence. Language is identity-bearing: otherwise identical JA and EN cards are different canonical printings and must never share an image or source binding. Ranking boards may still group languages, but that grouping cannot rewrite printing identity. Examples include `227/S-P`, `294/XY-P`, and `OP01-120`. Frontend code may not guess a missing language, suffix, prefix, denominator, zero padding, edition, parallel, or finish.
+
+### Identity verification (hard)
+
+**Every verified fact about a printing hangs off one `catalog_variant.id`.** Binds, external URLs, POP snapshots, sold evidence, and human/agent reviews are accumulated on that id (see `catalog_identity_evidence` / `pipelines/identity_evidence_ledger.py`). Agents must not leave verification only in chat.
+
+**Identity trusted when any two independent sources agree it is the same printing** (collector + set/edition + parallel). Sources in the pool: **GemRate**, **SNK**, **PriceCharting**, **PSA official**. A third/fourth source thickens evidence; it is **not** required for the identity minimum.
+
+- **English cards:** PriceCharting product pages are expected to exist; missing PC is usually "not fetched / CF session stale", not "no market".
+- **PriceCharting access:** use `pipelines/pricecharting_cf_session.py` (or saved CF session). Direct HTTP/`web_fetch` hitting Cloudflare does **not** count as PC failure of the source.
+- Conflict between two sources on printing ⇒ fail-closed; no invent, no averaging POP.
+
+**tcgpricelookup is not an identity authority** for ranking (wrong-slug risk). Full criteria: [`IDENTITY_VERIFICATION_CRITERIA.md`](IDENTITY_VERIFICATION_CRITERIA.md).
 
 Provider mappings remain private and separate from CardzGame mappings. CardzGame `card`, `card_chip`, and `card_pack_sub` records map through canonical printing/variant IDs. Fragment value is derived from the mapped variant price multiplied by the fragment ratio; fragments do not receive independent provider prices.
 
 Ambiguous identity, language conflicts, incomplete collector numbers, fuzzy-only matches, and semantic image mismatches enter `identity_review_queue` and cannot enter a public ranking.
+
+### Parallel and language identity (hard)
+
+- The executable language policy, evidence order, closed language-code set, and
+  twin-repair contract are maintained in [`CARD_LANGUAGE.md`](CARD_LANGUAGE.md).
+- Parallel is part of printing identity: Base / Alternate Art / Manga / Wanted / Special / Reverse Holo are distinct printings and distinct canonical variants. Their POP, price, and sales are never merged into one variant.
+- One GemRate member maps to exactly one canonical variant. A POP observation write that would merge multiple members of one variant is fail-closed skipped and counted as quarantined.
+- Source bindings must match the variant's `card_language`. SNK and PriceCharting list Japanese and English printings as separate products with separate prices, sales, and charts.
+- Twin-set hazard: Japanese 151 versus English 151 share names and numbers. Resolve through the correct language-specific set path only; a bare name+number search is not evidence.
+- PriceCharting shard/workfile language is never authoritative. Before any browse or bind, the runner must replace it with the current canonical variant language and fail closed when that language is missing or unsupported.
+- A current exact PriceCharting product binding is the card/printing identity gate for that product page. Its completed-sale titles are transport metadata, so they must not be required to repeat the collector number, card name, or language. The sale writer still rejects missing/invalid item IDs, non-positive prices, invalid dates, non-PSA-10 grades, raw cards, and bundles; a missing, stale, or ambiguous exact product binding rejects the whole map row.
+- Because language changes the opaque public ID, QC retry projection reconciles
+  rekeys by stable `variantId + lane`: the old opaque-ID item is resolved and
+  only a still-current blocker is re-opened under the new public ID.
+
+### Price authority and liquidity (hard)
+
+- Exact PriceCharting PSA 10, exact SNK PSA 10, and exact eBay PSA 10 sold medians are accepted primary source families. PriceCharting raw, generic graded, asking-price, and unmatched product rows are not PSA 10 price authority.
+- CARDZ owns the final QC decision: one exact-bound, ready authority source family observed within 48 hours is enough to confirm a current reference price. When two or more authority families are available and `max(price) / min(price) > 2.0`, the card fails closed into the PSA 10 price retry lane until another authoritative leg resolves the conflict.
+- With one fresh authority family, its exact price is the reference price. With two or more fresh authority families inside the 2x guard, the reference price is their arithmetic mean; the individual source values remain in private evidence.
+- When only sales exist, the shadow reference price is the median unit price of PSA 10 sales in the last 30 days; freshness follows the operator window (90 days).
+- Unit price is always transaction value divided by quantity. Unresolved bundles are rejected, never averaged into single-card prices.
+- Liquidity gate: a card needs at least 10 PSA 10 sales in the last 30 days across approved channels to stay frontend-listed. Nine or fewer is low-liquidity — a delisting status, not a deletion — and returns automatically when sales resume.
 
 ## Images
 
@@ -155,9 +232,26 @@ The public heatmap and ranking accept only `raw_front` images that pass all of t
 - TCG, language, collector number, and printing semantic match.
 - Full card face is visible with safe `object-contain` presentation.
 - No slab case, grader label, barcode, or certification number.
+- Deterministic `cardz-front-geometry-v1` passes before semantic review: RGBA
+  transparent 429×600 canvas, card fill at least 95% on both axes, card aspect
+  ratio 0.68–0.75, and centre offset no more than 6 px. Matching canvas
+  dimensions alone are not approval.
+- `cardz-source-sample-v1` runs before OCR. Known SAMPLE-only source paths and
+  proven One Piece TCGplayer watermark-template dimensions fail immediately;
+  every remaining source family still receives SAMPLE OCR. Explicit source
+  language markers must match the variant language before human review.
 - Content hash, dimensions, source version, QC timestamp, and reviewer/method are recorded privately.
 
 Slab, label crop, unmasked grader asset, and uncertain card crop may remain private evidence but cannot be copied into public assets or build traces. A changed upstream hash forces a new classification and QC run.
+Local VLM output is an immutable review receipt only. It may create a
+human/vision confirmation candidate, but it never promotes a DB row or public
+asset by itself.
+
+The active stock-image review path is script-first and does not use a local
+LLM: source policy, geometry, then WSL Tesseract. Remaining candidates enter
+the localhost review proxy. An operator decision code binds the dataset hash,
+variant ID, asset ID, and content hash; the DB writer rechecks the latest asset
+and all hashes before applying `human-review-v1`.
 
 ## Ranking, presentation views, and grader markets
 
@@ -173,10 +267,15 @@ Eligibility requires:
 PSA 10 population >= 1000
 AND population is not estimated
 AND canonical identity is confirmed
+AND identity confirmed by at least two independent sources
+    (any two of GemRate / SNK / PriceCharting / PSA on same printing)
+AND identity evidence hung on this variant_id (ledger)
 AND collector number is complete
 AND price age <= 48 hours
 AND raw-front image QC passed
 ```
+
+Human/agent reviews must always include **PSA10 POP** and external verification URLs (at least GemRate + PriceCharting/SNK when available). See `IDENTITY_VERIFICATION_CRITERIA.md`.
 
 Eligible cards are sorted by unrounded market cap into complete rankings for
 `tcg-combined`, `pokemon`, and `one-piece`. The canonical database stores

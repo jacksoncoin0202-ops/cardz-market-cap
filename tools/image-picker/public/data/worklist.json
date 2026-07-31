@@ -1,0 +1,23 @@
+{
+  "meta": {
+    "generatedAt": "2026-07-30T09:35:09.724847+00:00",
+    "policy": "snk_g10_auto_ok_human_only_double_untrusted",
+    "policyNote": "SNK + G10（含 market-assets SNK 血統）圖/價預設物認 OK，auto-pick。只入 queue：≥2 distinct SHA 且含非 SNK/G10 來源（Double／爭議）。",
+    "nCardsHuman": 0,
+    "nAuto": 1493,
+    "stats": {
+      "scanned": 1493,
+      "autoSingle": 535,
+      "autoTrustedFamily": 958,
+      "humanQueue": 0,
+      "noImage": 0
+    },
+    "withAnyCandidate": 0,
+    "multiCandidate": 0,
+    "withPrices": 0,
+    "copiedImages": 0,
+    "missingOnDisk": 0,
+    "priceNote": "口價只供爭議卡認卡用。SNK/G10 已 auto OK 唔使你覆核。ebay 標籤 = G10 存量 median 或 PC sold。"
+  },
+  "cards": []
+}

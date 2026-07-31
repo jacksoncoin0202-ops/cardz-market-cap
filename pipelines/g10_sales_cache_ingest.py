@@ -129,6 +129,7 @@ GRADE_MAP: dict[str, tuple[str, str]] = {
 UNPARSED_FAIL_RATIO = 0.05
 CENT = Decimal("0.000001")
 INSERT_CHUNK = 5000
+EXISTING_LOOKUP_CHUNK = 1000
 
 # `canonical_public_snapshot.py:695` 要 coverage == 'partial' 先當 sales ready。
 ACCEPTED_COVERAGE = "partial"
@@ -397,12 +398,73 @@ def table_count(cursor: Any, table: str, source_code: str) -> int:
     return int(cursor.fetchone()["c"])
 
 
+def existing_sale_keys(cursor: Any, rows: Sequence[SaleRow]) -> set[tuple[str, str]]:
+    """Read the table's composite unique keys before an incremental write.
+
+    Existing observations are immutable evidence.  Find them first so a rerun
+    inserts only the delta, rather than issuing a duplicate-key UPDATE across
+    the full historical cache.
+    """
+
+    existing: set[tuple[str, str]] = set()
+    for start in range(0, len(rows), EXISTING_LOOKUP_CHUNK):
+        batch = rows[start:start + EXISTING_LOOKUP_CHUNK]
+        placeholders = ",".join(["(%s, %s)"] * len(batch))
+        params: list[Any] = [SOURCE_CODE]
+        for row in batch:
+            params.extend([row.external_entity_id, row.fingerprint])
+        cursor.execute(
+            f"""
+            SELECT external_entity_id, transaction_fingerprint
+            FROM market_sale_observation
+            WHERE source_code=%s
+              AND (external_entity_id, transaction_fingerprint) IN ({placeholders})
+            """,
+            params,
+        )
+        existing.update(
+            (str(row["external_entity_id"]), str(row["transaction_fingerprint"]))
+            for row in cursor.fetchall()
+        )
+    return existing
+
+
+def split_existing_rows(connection: Any, rows: Sequence[SaleRow]) -> tuple[list[SaleRow], int]:
+    """Return only new rows and the number already durably stored."""
+
+    with connection.cursor() as cursor:
+        existing = existing_sale_keys(cursor, rows)
+    new_rows = [
+        row
+        for row in rows
+        if (row.external_entity_id, row.fingerprint) not in existing
+    ]
+    return new_rows, len(rows) - len(new_rows)
+
+
 def write_all(
     connection: Any,
     rows: Sequence[SaleRow],
     file_hashes: Sequence[str],
     observed_count: int,
+    *,
+    candidate_count: int,
+    already_existing: int,
 ) -> dict[str, Any]:
+    if not rows:
+        return {
+            "run_id": None,
+            "run_key": None,
+            "before": {},
+            "after": {},
+            "source_observed": observed_count,
+            "candidate_rows": candidate_count,
+            "already_existing": already_existing,
+            "inserted": 0,
+            "accepted": 0,
+            "quarantined": 0,
+            "rejected": 0,
+        }
     started_at = datetime.now(timezone.utc).replace(tzinfo=None)
     run_key = sha256_text(f"g10_sales_cache|{started_at.isoformat()}")
     effective_at = max(row.fetched_at for row in rows)
@@ -410,7 +472,7 @@ def write_all(
     manifest_sha256 = sha256_text("\n".join(sorted(file_hashes)))
     accepted = sum(1 for row in rows if row.accepted)
     quarantined = len(rows) - accepted
-    rejected = max(0, observed_count - len(rows))
+    rejected = max(0, observed_count - candidate_count)
 
     with connection.cursor() as cursor:
         before = {"market_sale_observation": table_count(cursor, "market_sale_observation", SOURCE_CODE)}
@@ -421,7 +483,7 @@ def write_all(
                  status, observed_count, started_at)
             VALUES (%s, %s, 'backfill', %s, %s, %s, 'running', %s, %s)
             """,
-            (run_key, SOURCE_CODE, effective_at, payload_sha256, manifest_sha256, observed_count, started_at),
+            (run_key, SOURCE_CODE, effective_at, payload_sha256, manifest_sha256, len(rows), started_at),
         )
         run_id = int(cursor.lastrowid)
 
@@ -437,17 +499,11 @@ def write_all(
         for start in range(0, len(payload), INSERT_CHUNK):
             cursor.executemany(
                 """
-                INSERT INTO market_sale_observation
+                INSERT IGNORE INTO market_sale_observation
                     (run_id, variant_id, source_code, external_entity_id, transaction_fingerprint,
                      grader_code, grade_label, sold_at, source_date_text, fetched_at, timestamp_quality,
                      unit_price_usd, quantity, transaction_value_usd, source_payload_sha256, coverage_status)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE
-                    run_id=VALUES(run_id), variant_id=VALUES(variant_id), grader_code=VALUES(grader_code),
-                    grade_label=VALUES(grade_label), sold_at=VALUES(sold_at), fetched_at=VALUES(fetched_at),
-                    timestamp_quality=VALUES(timestamp_quality), unit_price_usd=VALUES(unit_price_usd),
-                    quantity=VALUES(quantity), transaction_value_usd=VALUES(transaction_value_usd),
-                    source_payload_sha256=VALUES(source_payload_sha256), coverage_status=VALUES(coverage_status)
                 """,
                 payload[start:start + INSERT_CHUNK],
             )
@@ -460,17 +516,27 @@ def write_all(
             WHERE id=%s
             """,
             (
-                observed_count, accepted, quarantined, rejected,
+                len(rows), accepted, quarantined, rejected,
                 datetime.now(timezone.utc).replace(tzinfo=None), run_id,
             ),
         )
         after = {"market_sale_observation": table_count(cursor, "market_sale_observation", SOURCE_CODE)}
+        inserted = after["market_sale_observation"] - before["market_sale_observation"]
+        if inserted != len(rows):
+            raise RuntimeError(
+                "market_sale_observation delta readback mismatch: "
+                f"expected {len(rows)}, got {inserted}"
+            )
     return {
         "run_id": run_id,
         "run_key": run_key,
         "before": before,
         "after": after,
-        "observed": observed_count,
+        "source_observed": observed_count,
+        "candidate_rows": candidate_count,
+        "already_existing": already_existing,
+        "inserted": inserted,
+        "observed": len(rows),
         "accepted": accepted,
         "quarantined": quarantined,
         "rejected": rejected,
@@ -487,10 +553,14 @@ def print_report(
     identity_size: int,
     unparsed_ratio: float,
     observed_count: int,
+    delta_rows: Sequence[SaleRow],
+    already_existing: int,
     write_result: Mapping[str, Any] | None,
 ) -> None:
     accepted = sum(1 for row in rows if row.accepted)
     quarantined = len(rows) - accepted
+    delta_accepted = sum(1 for row in delta_rows if row.accepted)
+    delta_quarantined = len(delta_rows) - delta_accepted
     sold = [row.sold_at.date() for row in rows if row.accepted]
 
     print("=" * 74)
@@ -536,9 +606,14 @@ def print_report(
         print(f"  sold_at 範圍  : {min(sold)} → {max(sold)}   distinct 日數 {len(set(sold))}"
               f"   跨度 {(max(sold) - min(sold)).days} 日")
 
+    print("\n[增量判斷]")
+    print(f"  canonical candidate rows      : {len(rows)}")
+    print(f"  already existing（immutable） : {already_existing}")
+    print(f"  delta rows to insert          : {len(delta_rows)}"
+          f"   (accepted {delta_accepted} / quarantined {delta_quarantined})")
     print("\n[會寫入幾多行]")
-    print(f"  market_sale_observation      : {len(rows)}"
-          f"   (accepted {accepted} / quarantined {quarantined})")
+    print(f"  market_sale_observation      : {len(delta_rows)}"
+          f"   (delta accepted {delta_accepted} / quarantined {delta_quarantined})")
     print("  market_daily_sales_aggregate : 0  —— 本 pipeline 唔寫（會蓋 sparkline）")
     print("  market_price_observation     : 0  —— 本 pipeline 唔寫（會改前端顯示價）")
 
@@ -549,6 +624,9 @@ def print_report(
         print(f"  market_ingest_run 計數: observed {write_result['observed']} / "
               f"accepted {write_result['accepted']} / quarantined {write_result['quarantined']} / "
               f"rejected {write_result['rejected']}")
+        print(f"  immutable existing skipped: {write_result['already_existing']} / "
+              f"inserted: {write_result['inserted']} / "
+              f"source observed: {write_result['source_observed']}")
         table = "market_sale_observation"
         before = write_result["before"][table]
         after = write_result["after"][table]
@@ -573,6 +651,13 @@ def main() -> int:
     platforms = tuple(item.strip() for item in str(args.platforms).split(",") if item.strip())
     if not platforms:
         print("--platforms 唔可以空", file=sys.stderr)
+        return 1
+    if args.write and platforms != ("snkrdunk",):
+        print(
+            "FAIL-CLOSED: --write 只接受 --platforms snkrdunk；"
+            "eBay 入庫請用 pipelines/g10_ebay_ingest.py。",
+            file=sys.stderr,
+        )
         return 1
 
     g10_root = args.g10_root.resolve()
@@ -599,11 +684,11 @@ def main() -> int:
         )
 
         if not rows:
-            print_report(write_result=None, **report)
+            print_report(delta_rows=[], already_existing=0, write_result=None, **report)
             print("\n!! 冇任何成交行，唔會寫入。", file=sys.stderr)
             return 1
         if unknown_grades:
-            print_report(write_result=None, **report)
+            print_report(delta_rows=[], already_existing=0, write_result=None, **report)
             print(
                 f"\n!! FAIL-CLOSED: 見到未知 grade {sorted(unknown_grades)}，"
                 "唔入庫。要先喺 GRADE_MAP 加對應，唔准撞彩填。",
@@ -611,7 +696,7 @@ def main() -> int:
             )
             return 1
         if unparsed_ratio > UNPARSED_FAIL_RATIO:
-            print_report(write_result=None, **report)
+            print_report(delta_rows=[], already_existing=0, write_result=None, **report)
             print(
                 f"\n!! FAIL-CLOSED: unparsed 比例 {unparsed_ratio * 100:.2f}% "
                 f"> {UNPARSED_FAIL_RATIO * 100:.0f}%，唔入庫。日期規則要先修。",
@@ -619,15 +704,28 @@ def main() -> int:
             )
             return 1
 
+        delta_rows, already_existing = split_existing_rows(connection, rows)
         write_result = None
         if args.write:
             try:
-                write_result = write_all(connection, rows, file_hashes, observed_count)
+                write_result = write_all(
+                    connection,
+                    delta_rows,
+                    file_hashes,
+                    observed_count,
+                    candidate_count=len(rows),
+                    already_existing=already_existing,
+                )
                 connection.commit()
             except Exception:
                 connection.rollback()
                 raise
-        print_report(write_result=write_result, **report)
+        print_report(
+            delta_rows=delta_rows,
+            already_existing=already_existing,
+            write_result=write_result,
+            **report,
+        )
         if not args.write:
             print("\n(dry-run — 加 --write 先真入庫)")
         return 0

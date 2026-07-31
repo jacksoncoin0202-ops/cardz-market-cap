@@ -74,7 +74,7 @@ export function GraderPage({ grader, snapshot, shareTotals, availableGraders }: 
               const population = card.graderPopulations[grader];
               return (
                 <tr key={card.id}>
-                  <td className="rank-cell">{card.rank}</td>
+                  <td className="rank-cell">{card.viewRank}</td>
                   <td><Link href={href(`/card/${card.id}`)}><span className="grader-card"><span className="ranking-thumb"><CardImage image={card.image} sizes="56px" /></span><strong>{card.name[locale] || t.status.unavailable}</strong></span></Link></td>
                   <td className="collector-cell">{card.collectorNumber}</td>
                   <td>{displayTopGrade(grader, population.topGrade) || t.status.unavailable}</td>
@@ -103,7 +103,7 @@ export function GraderPage({ grader, snapshot, shareTotals, availableGraders }: 
             const tone = metricTone(change);
             return (
               <Link className="mobile-rank-card" href={href(`/card/${card.id}`)} key={card.id}>
-                <span className="mobile-rank-index">{card.rank}</span>
+                <span className="mobile-rank-index">{card.viewRank}</span>
                 <div className="ranking-thumb"><CardImage image={card.image} sizes="56px" /></div>
                 <div className="mobile-card-info">
                   <span className="mobile-card-number">{card.collectorNumber}</span>

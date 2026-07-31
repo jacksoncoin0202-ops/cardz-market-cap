@@ -112,8 +112,59 @@ def cmd_status() -> dict[str, Any]:
           SUM(w.variant_id IS NOT NULL) AS has_variant,
           SUM(EXISTS(SELECT 1 FROM market_price_observation p WHERE p.variant_id=w.variant_id)) AS any_price,
           SUM(EXISTS(SELECT 1 FROM market_price_observation p WHERE p.variant_id=w.variant_id AND p.source_code='snk_psa10')) AS snk_price,
-          SUM(EXISTS(SELECT 1 FROM market_price_observation p WHERE p.variant_id=w.variant_id AND p.source_code IN ('snk_psa10','snkrdunk','g10_kline'))) AS snk_family_price,
+          SUM(EXISTS(SELECT 1 FROM market_price_observation p WHERE p.variant_id=w.variant_id AND p.source_code IN ('snk_psa10','snk','snkrdunk'))) AS snk_family_price,
           SUM(EXISTS(SELECT 1 FROM market_price_observation p WHERE p.variant_id=w.variant_id AND p.source_code='ebay')) AS ebay_price,
+          SUM(
+            CASE
+              WHEN EXISTS(
+                SELECT 1
+                FROM market_price_observation p
+                WHERE p.variant_id=w.variant_id
+                  AND p.source_code='ebay'
+                  AND p.price_usd > 0
+                  AND p.metric_status='ready'
+                  AND p.effective_at <= UTC_TIMESTAMP()
+                  AND EXISTS(
+                    SELECT 1 FROM catalog_source_identity s
+                    WHERE s.variant_id=w.variant_id
+                      AND s.match_status='exact'
+                      AND s.source_code IN ('ebay','pricecharting')
+                  )
+              )
+              THEN EXISTS(
+                SELECT 1
+                FROM market_price_observation p
+                WHERE p.variant_id=w.variant_id
+                  AND p.source_code='ebay'
+                  AND p.price_usd > 0
+                  AND p.metric_status='ready'
+                  AND p.effective_at BETWEEN DATE_SUB(UTC_TIMESTAMP(), INTERVAL 48 HOUR)
+                                         AND UTC_TIMESTAMP()
+                  AND EXISTS(
+                    SELECT 1 FROM catalog_source_identity s
+                    WHERE s.variant_id=w.variant_id
+                      AND s.match_status='exact'
+                      AND s.source_code IN ('ebay','pricecharting')
+                  )
+              )
+              ELSE EXISTS(
+                SELECT 1
+                FROM market_price_observation p
+                WHERE p.variant_id=w.variant_id
+                  AND p.source_code IN ('snk_psa10','snk','snkrdunk')
+                  AND p.price_usd > 0
+                  AND p.metric_status='ready'
+                  AND p.effective_at BETWEEN DATE_SUB(UTC_TIMESTAMP(), INTERVAL 48 HOUR)
+                                         AND UTC_TIMESTAMP()
+                  AND EXISTS(
+                    SELECT 1 FROM catalog_source_identity s
+                    WHERE s.variant_id=w.variant_id
+                      AND s.match_status='exact'
+                      AND s.source_code IN ('snk_psa10','snk','snkrdunk')
+                  )
+              )
+            END
+          ) AS authoritative_price,
           SUM(EXISTS(SELECT 1 FROM market_price_observation p WHERE p.variant_id=w.variant_id AND p.source_code=%s)) AS tpl_price,
           SUM(EXISTS(SELECT 1 FROM market_image_asset i WHERE i.variant_id=w.variant_id)) AS image_asset,
           SUM(EXISTS(SELECT 1 FROM market_image_source_pointer ip WHERE ip.variant_id=w.variant_id)) AS image_ptr,
@@ -505,6 +556,12 @@ def _psa10_usd_from_tpl(doc: Mapping[str, Any]) -> float | None:
 
 
 def cmd_ingest_prices(*, dry_run: bool = False) -> dict[str, Any]:
+    # Operator 2026-07-30: TPL purged from DB as catastrophic wrong-printing source.
+    # Do not re-ingest tcgpricelookup prices or identities.
+    raise SystemExit(
+        "REFUSED: tcgpricelookup ingest disabled (2026-07-30 operator purge). "
+        "Use SNK/eBay price paths only — see A06-TPL-PURGE-R1."
+    )
     mapped = {int(r["variantId"]): r for r in read_jsonl(TPL_MAP) if r.get("variantId") and r.get("tplSlug")}
     from tcgpricelookup_ssr import card_store_path
 
@@ -568,8 +625,17 @@ def cmd_ingest_prices(*, dry_run: bool = False) -> dict[str, Any]:
     for row in rows_to_write:
         points: list[tuple[str, float]] = list(row["history"])
         if row.get("priceUsd") is not None:
-            # ensure today/current present
-            points.append((today, float(row["priceUsd"])))
+            # TPL "current" ebayAvg1d often equals last history bar (no new sales).
+            # Stamping that as *today* fabricates a same-price head/tail → 0% 30d.
+            # Only append today when it is a real new observation (differs from last hist).
+            cur_price = float(row["priceUsd"])
+            hist_dates = [d for d, _ in points if re.fullmatch(r"\d{4}-\d{2}-\d{2}", d or "")]
+            last_hist_price = None
+            if hist_dates:
+                last_d = max(hist_dates)
+                last_hist_price = next(p for d, p in reversed(points) if d == last_d)
+            if last_hist_price is None or abs(cur_price - float(last_hist_price)) > 1e-6:
+                points.append((today, cur_price))
         # dedupe by date keep last
         by_date: dict[str, float] = {}
         for d, p in points:
@@ -645,6 +711,12 @@ def cmd_ingest_prices(*, dry_run: bool = False) -> dict[str, Any]:
 
 def cmd_fill_images(*, limit: int | None = None, delay: float = 0.5, write: bool = False) -> dict[str, Any]:
     """Fill missing images for watchlist using TPL CDN or TCGplayer product id."""
+
+    if write:
+        raise RuntimeError(
+            "qualified_pool_operator fill-images public writer permanently disabled: "
+            "use the gated image review pipeline"
+        )
 
     import native_image_resolver as nir
     from tcgplayer_images import download_product_image
@@ -918,7 +990,10 @@ def cmd_maintain(
         if not cards_dir.is_dir() or not any(cards_dir.glob("*.json")):
             mode = "full"
         report["harvest"] = cmd_harvest_tpl(mode=mode, limit=harvest_limit)
-        report["ingest"] = cmd_ingest_prices(dry_run=False)
+        report["ingest"] = {
+            "status": "disabled",
+            "reason": "tcgpricelookup_is_not_a_price_authority",
+        }
     if not skip_images:
         report["images"] = cmd_fill_images(limit=image_limit, write=True)
     report["after"] = cmd_status()
@@ -946,23 +1021,18 @@ def cmd_gap_report() -> dict[str, Any]:
     watch = status.get("watch") or 0
     if watch < 900:
         gaps["blockers"].append("watchlist_not_940")
-    if (status.get("tplMapped") or 0) < watch * 0.8:
-        gaps["blockers"].append("tpl_slug_map_incomplete")
-        gaps["nextActions"].append("python -X utf8 pipelines/qualified_pool_operator.py map-tpl")
-    if (status.get("tpl_price") or 0) < watch * 0.5:
-        gaps["blockers"].append("tpl_prices_not_in_db")
-        gaps["nextActions"].append("harvest-tpl + ingest-prices")
-    if (status.get("snk_price") or 0) < 100:
-        gaps["blockers"].append("snk_jp_price_coverage_low_for_ranking")
-        gaps["nextActions"].append("expand SNK exact bindings for ranking authority")
+    authoritative_price = status.get("authoritative_price") or 0
+    if authoritative_price < watch:
+        gaps["blockers"].append("authoritative_price_coverage_incomplete")
+        gaps["nextActions"].append("fill exact SNK/eBay prices for unresolved variants")
     if (status.get("image_asset") or 0) < watch * 0.5:
         gaps["blockers"].append("images_missing_majority")
         gaps["nextActions"].append("fill-images --write")
     # frontend still needs public snapshot export
     gaps["blockers"].append("public_snapshot_export_from_db_not_one_button_yet")
     gaps["nextActions"].append("canonical_public_snapshot / publish pipeline after DB green")
-    if (status.get("tpl_price") or 0) > 0:
-        gaps["readyEnoughFor"].append("private_db_us_price_secondary_partial")
+    if authoritative_price > 0:
+        gaps["readyEnoughFor"].append("canonical_price_coverage_partial")
     if (status.get("image_asset") or 0) > 50:
         gaps["readyEnoughFor"].append("partial_image_qc")
     gaps["mappedNeedsReview"] = sum(1 for r in mapped if r.get("needsReview"))

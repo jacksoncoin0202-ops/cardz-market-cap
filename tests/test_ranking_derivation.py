@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import unittest
 
-from pipelines.ranking_derivation import derive_rankings
+from pipelines.ranking_derivation import derive_rankings, market_cap_usd, window_percent_change
 
 
 EFFECTIVE_AT = datetime(2026, 7, 24, 12, tzinfo=timezone.utc)
@@ -28,7 +28,7 @@ def candidate(
         "language": "ja",
         "name": f"Card {card_id}",
         "setName": "Fixture Set",
-        "collectorNumber": f"{card_id}/TEST",
+        "collectorNumber": "001/999",
         "populationPsa10": population,
         "populationSourceState": "gemrate_direct",
         "priceUsd": price,
@@ -120,9 +120,12 @@ class RankingDerivationTests(unittest.TestCase):
 
     def test_requires_complete_identity_non_estimate_population_and_fresh_price(self) -> None:
         rows = [
-            candidate("missing-language", "pokemon", language=""),
+            # Ranking boards may group languages, but canonical printings still
+            # require both language and a complete collector number.
+            candidate("missing-collector", "pokemon", collectorNumber=""),
             candidate("estimated", "pokemon", populationEstimated=True),
-            candidate("old-price", "one-piece", price_as_of="2026-07-20T11:59:59Z"),
+            # Beyond 90d membership window (PRICE_FRESHNESS_HOURS = 90*24).
+            candidate("old-price", "one-piece", price_as_of="2026-01-01T11:59:59Z"),
         ]
         document = derive_rankings(rows, effective_at=EFFECTIVE_AT)
 
@@ -132,6 +135,63 @@ class RankingDerivationTests(unittest.TestCase):
             "population_not_gemrate_confirmed_psa10_1000": 1,
             "reference_price_not_fresh": 1,
         })
+
+    def test_language_missing_blocks_ranking_even_when_identity_is_confirmed(self) -> None:
+        rows = [
+            candidate("p-langless", "pokemon", language="", price=150),
+            candidate("o-langless", "one-piece", language="", price=200),
+        ]
+        document = derive_rankings(rows, effective_at=EFFECTIVE_AT)
+
+        self.assertEqual(document["counts"]["validatedCanonical"], 0)
+        self.assertEqual(document["policy"]["languagePartitioning"], False)
+        self.assertFalse(document["policy"]["languageIsProvenanceOnly"])
+        self.assertEqual(document["rankings"]["tcg"], [])
+        self.assertEqual(document["rejected"], {"identity_unconfirmed_or_incomplete": 2})
+
+    def test_missing_price_or_population_never_invents_market_cap_zero(self) -> None:
+        rows = [
+            candidate("no-price", "pokemon", price=0),
+            {
+                **candidate("no-pop", "pokemon", price=999),
+                "populationPsa10": None,
+            },
+            candidate("ok", "one-piece", price=50, population=1000),
+        ]
+        document = derive_rankings(rows, effective_at=EFFECTIVE_AT)
+
+        self.assertEqual(document["counts"]["validatedCanonical"], 1)
+        self.assertEqual(document["counts"]["uniqueRanked"], 1)
+        ranked_ids = {row["pokedexId"] for row in document["cards"]}
+        self.assertEqual(ranked_ids, {"ok"})
+        self.assertNotIn(0, [row.get("marketCapUsd") for row in document["cards"]])
+        self.assertEqual(
+            document["rejected"]["reference_price_not_fresh"]
+            + document["rejected"]["population_not_gemrate_confirmed_psa10_1000"],
+            2,
+        )
+
+    def test_eligible_rankings_are_contiguous_from_one(self) -> None:
+        rows = [
+            candidate("p1", "pokemon", price=300),
+            candidate("p2", "pokemon", price=200),
+            candidate("p3", "pokemon", price=100),
+            candidate("o1", "one-piece", price=250),
+        ]
+        document = derive_rankings(rows, effective_at=EFFECTIVE_AT)
+        for index, ranked in document["rankings"].items():
+            ranks = [row["rank"] for row in ranked]
+            self.assertEqual(ranks, list(range(1, len(ranked) + 1)), index)
+
+    def test_single_formula_path_market_cap_and_window_null_semantics(self) -> None:
+        self.assertEqual(market_cap_usd(100.0, 1000), 100000.0)
+        self.assertIsNone(market_cap_usd(None, 1000))
+        self.assertIsNone(market_cap_usd(100.0, None))
+        self.assertIsNone(market_cap_usd(0, 1000))
+        self.assertIsNone(market_cap_usd(100.0, 0))
+        self.assertIsNone(window_percent_change(110, None))
+        self.assertIsNone(window_percent_change(110, 0))
+        self.assertAlmostEqual(window_percent_change(110, 100) or 0.0, 10.0)
 
     def test_membership_history_and_hash_are_idempotent(self) -> None:
         initial = derive_rankings(

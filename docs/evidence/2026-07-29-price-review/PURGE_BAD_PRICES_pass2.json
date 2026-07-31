@@ -1,0 +1,98 @@
+{
+  "asOf": "2026-07-29T11:49:00Z",
+  "write": true,
+  "today": "2026-07-29",
+  "ratio": 5.0,
+  "jump": 5.0,
+  "deleteCount": 8,
+  "reasonTally": {
+    "latest_spread_risky": 4,
+    "same_source_jump": 4
+  },
+  "flaggedOpaque": [],
+  "flaggedVariantIds": [],
+  "samples": [
+    {
+      "id": 1945171,
+      "variant_id": 353,
+      "source": "g10_kline",
+      "price": 385.0,
+      "trusted_median": 51.0,
+      "ratio": 7.55,
+      "reason": "latest_spread_risky"
+    },
+    {
+      "id": 1947514,
+      "variant_id": 1028,
+      "source": "g10_kline",
+      "price": 4920.0,
+      "trusted_median": 903.596068,
+      "ratio": 5.44,
+      "reason": "latest_spread_risky"
+    },
+    {
+      "id": 2268258,
+      "variant_id": 1248,
+      "source": "g10_kline",
+      "price": 1250.0,
+      "trusted_median": 6500.0,
+      "ratio": 0.19,
+      "reason": "latest_spread_risky"
+    },
+    {
+      "id": 2279504,
+      "variant_id": 1248,
+      "source": "ebay",
+      "price": 1225.0,
+      "trusted_median": 6500.0,
+      "ratio": 0.19,
+      "reason": "latest_spread_risky"
+    },
+    {
+      "id": 31873,
+      "variant_id": 260,
+      "source": "snk_psa10",
+      "price": 318.764176,
+      "series_median": 59.872494,
+      "ratio": 5.32,
+      "reason": "same_source_jump:snk_psa10"
+    },
+    {
+      "id": 112506,
+      "variant_id": 14,
+      "source": "snk_psa10",
+      "price": 8752.145134,
+      "series_median": 1152.455097,
+      "ratio": 7.59,
+      "reason": "same_source_jump:snk_psa10"
+    },
+    {
+      "id": 1933117,
+      "variant_id": 220,
+      "source": "ebay",
+      "price": 65000.0,
+      "series_median": 3076.8,
+      "ratio": 21.13,
+      "reason": "same_source_jump:ebay"
+    },
+    {
+      "id": 2177935,
+      "variant_id": 1252,
+      "source": "tcgpricelookup",
+      "price": 325.0,
+      "series_median": 64.995,
+      "ratio": 5.0,
+      "reason": "same_source_jump:tcgpricelookup"
+    }
+  ],
+  "deleteIdsHead": [
+    31873,
+    112506,
+    1933117,
+    1945171,
+    1947514,
+    2177935,
+    2268258,
+    2279504
+  ]
+}

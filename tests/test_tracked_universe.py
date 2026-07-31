@@ -6,7 +6,12 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from pipelines.tracked_universe import candidate_manifest_rows, select_ranked_union, write_outputs
+from pipelines.tracked_universe import (
+    candidate_manifest_rows,
+    merge_snk_refill_worklist,
+    select_ranked_union,
+    write_outputs,
+)
 
 
 EFFECTIVE_AT = datetime(2026, 7, 24, 12, tzinfo=timezone.utc)
@@ -144,6 +149,139 @@ class TrackedUniverseTests(unittest.TestCase):
         self.assertEqual(rejected["tracked_candidate_unresolved"], 1)
         document = select_ranked_union(rows, generated_at=EFFECTIVE_AT)
         self.assertEqual(document["counts"]["uniqueRanked"], 1)
+
+    def test_exact_snk_worklist_association_is_merged_before_candidate_promotion(self) -> None:
+        identity = {
+            "tcg": "one-piece",
+            "language": "ja",
+            "setName": "OP Test",
+            "collectorNumber": "OP01-001",
+            "name": "Candidate",
+            "edition": "standard",
+            "parallel": "manga",
+            "finish": "foil",
+        }
+        manifest = {
+            "candidates": [
+                {
+                    "status": "resolved",
+                    "trackingStatus": "eligible",
+                    "identityStatus": "exact_confirmed",
+                    "gemrateId": "gem-candidate",
+                    "snkItemId": None,
+                    "populationPsa10": 1200,
+                    "effectiveDate": "2026-07-24",
+                    "canonicalSourceCode": "gemrate",
+                    "canonicalExternalId": "candidate-1",
+                    "canonicalSource": {
+                        "sourceCode": "gemrate",
+                        "externalId": "candidate-1",
+                        "snkItemId": None,
+                    },
+                    "canonicalIdentity": identity,
+                }
+            ]
+        }
+        worklist = {
+            "cards": [
+                {
+                    "status": "resolved",
+                    "identityStatus": "exact_confirmed",
+                    "snkItemId": 99,
+                    "canonicalSourceCode": "gemrate",
+                    "canonicalExternalId": "candidate-1",
+                    "canonicalIdentity": {**identity, "language": "en"},
+                }
+            ]
+        }
+
+        merged, counts = merge_snk_refill_worklist(manifest, worklist)
+        rows, rejected = candidate_manifest_rows(
+            merged,
+            snk_rows={99: {"item_id": 99, "kline": [{"date": "2026-07-24", "price_jpy": 15000}]}},
+            jpy_per_usd=150,
+        )
+
+        self.assertEqual(counts["attached"], 1)
+        self.assertEqual(merged["candidates"][0]["canonicalSource"]["snkItemId"], 99)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rejected, {})
+
+    def test_exact_snk_worklist_requires_complete_printing_not_language(self) -> None:
+        identity = {
+            "tcg": "one-piece",
+            "language": "ja",
+            "setName": "OP Test",
+            "collectorNumber": "OP01-001",
+            "edition": "standard",
+            "parallel": "manga",
+            "finish": "foil",
+        }
+        candidate = {
+            "identityStatus": "exact_confirmed",
+            "snkItemId": None,
+            "canonicalSourceCode": "gemrate",
+            "canonicalExternalId": "candidate-1",
+            "canonicalIdentity": identity,
+        }
+        worklist_card = {
+            "status": "resolved",
+            "identityStatus": "exact_confirmed",
+            "snkItemId": 99,
+            "canonicalSourceCode": "gemrate",
+            "canonicalExternalId": "candidate-1",
+            "canonicalIdentity": {**identity, "language": "en"},
+        }
+        merged, counts = merge_snk_refill_worklist(
+            {"candidates": [candidate]},
+            {"cards": [worklist_card]},
+        )
+        self.assertEqual(counts["attached"], 1)
+        self.assertEqual(merged["candidates"][0]["snkItemId"], 99)
+
+        incomplete = {**worklist_card, "canonicalIdentity": {**identity, "finish": ""}}
+        with self.assertRaisesRegex(RuntimeError, "identity mismatch"):
+            merge_snk_refill_worklist(
+                {"candidates": [{**candidate, "snkItemId": None}]},
+                {"cards": [incomplete]},
+            )
+
+    def test_exact_snk_worklist_rebind_is_blocked(self) -> None:
+        identity = {
+            "tcg": "one-piece",
+            "language": "ja",
+            "setName": "OP Test",
+            "collectorNumber": "OP01-001",
+            "edition": "standard",
+            "parallel": "manga",
+            "finish": "foil",
+        }
+        manifest = {
+            "candidates": [
+                {
+                    "identityStatus": "exact_confirmed",
+                    "snkItemId": 98,
+                    "canonicalSourceCode": "gemrate",
+                    "canonicalExternalId": "candidate-1",
+                    "canonicalIdentity": identity,
+                }
+            ]
+        }
+        worklist = {
+            "cards": [
+                {
+                    "status": "resolved",
+                    "identityStatus": "exact_confirmed",
+                    "snkItemId": 99,
+                    "canonicalSourceCode": "gemrate",
+                    "canonicalExternalId": "candidate-1",
+                    "canonicalIdentity": identity,
+                }
+            ]
+        }
+
+        with self.assertRaisesRegex(RuntimeError, "SNK identity rebind blocked"):
+            merge_snk_refill_worklist(manifest, worklist)
 
 
 if __name__ == "__main__":

@@ -26,6 +26,12 @@ def write_json(path: Path, value: object) -> None:
 
 
 class SourceCrosswalkTests(unittest.TestCase):
+    def test_complete_collector_number_rejects_truncated_or_malformed_values(self) -> None:
+        for value in ("185/159", "GG68/GG70", "085/SVP", "227/S-P", "OP01-120"):
+            self.assertTrue(crosswalk.complete_collector_number(value), value)
+        for value in ("185", "185/A", "185/0", "1/XYZ"):
+            self.assertFalse(crosswalk.complete_collector_number(value), value)
+
     def test_collector_evidence_normalizer_only_equates_explicit_formats(self) -> None:
         self.assertTrue(crosswalk.same_collector_number_evidence("110/80", "110/080"))
         self.assertTrue(crosswalk.same_collector_number_evidence("1/25", "001/025"))
@@ -72,7 +78,6 @@ class SourceCrosswalkTests(unittest.TestCase):
         )
         self.assertEqual(proposal["identityStatus"], "review")
         self.assertIn("collector_number_incomplete", proposal["reviewReasons"])
-        self.assertIn("language_unavailable", proposal["reviewReasons"])
     def make_source(self, root: Path) -> None:
         write_json(
             root / "index" / "ptcg" / "constituents.json",
@@ -90,7 +95,7 @@ class SourceCrosswalkTests(unittest.TestCase):
         )
         assets = {
             "101": {"cardName": "Pikachu", "cardId": "085/SVP", "language": "English", "setName": "Scarlet & Violet Promo", "edition": "standard", "parallel": "", "finish": "holo"},
-            "102": {"cardName": "Pikachu", "cardId": "085/SVP", "language": "Japanese", "setName": "Scarlet & Violet Promo", "edition": "standard", "parallel": "", "finish": "holo"},
+            "102": {"cardName": "Pikachu", "cardId": "085/SVP", "language": "Japanese", "setName": "Scarlet & Violet Promo", "edition": "first", "parallel": "", "finish": "holo"},
             # A bare number must not silently inherit a promo suffix from its name.
             "103": {"cardName": "Guess Me", "cardId": "227", "language": "Japanese", "setName": "Promo"},
             # The row says JP while the canonical asset says EN: do not guess which wins.
@@ -110,16 +115,21 @@ class SourceCrosswalkTests(unittest.TestCase):
         cards = {str(card["canonicalExternalId"]): card for card in document["cards"]}
         accepted = cards["101"]
         self.assertEqual(accepted["identityStatus"], "confirmed")
-        self.assertEqual(accepted["canonicalPrintingKey"], "pokemon|scarlet & violet promo|085/svp|en|standard||holo")
+        self.assertEqual(
+            accepted["canonicalPrintingKey"],
+            "pokemon|en|scarlet & violet promo|085/svp|standard||holo",
+        )
         self.assertEqual(cards["103"]["identityStatus"], "review")
         self.assertIsNone(cards["103"]["canonicalPrintingKey"])
         self.assertIn("collector_number_incomplete", cards["103"]["reviewReasons"])
         self.assertEqual(cards["201"]["identityStatus"], "review")
-        self.assertIn("language_conflict", cards["201"]["reviewReasons"])
+        self.assertIn(
+            "language_missing_or_conflicting", cards["201"]["reviewReasons"]
+        )
         queue = document["identityReviewQueue"]
         self.assertEqual([(row["externalId"], row["reasons"]) for row in queue], [
             ("103", ["collector_number_incomplete"]),
-            ("201", ["language_conflict"]),
+            ("201", ["language_missing_or_conflicting"]),
         ])
         self.assertEqual(document["counts"]["identityConfirmed"], 2)
         self.assertEqual(document["counts"]["identityReview"], 2)
@@ -132,6 +142,7 @@ class SourceCrosswalkTests(unittest.TestCase):
             duplicate = root / "cards" / "snkrdunk" / "102" / "asset_info.json"
             asset = json.loads(duplicate.read_text(encoding="utf-8"))
             asset["language"] = "English"
+            asset["edition"] = "standard"
             duplicate.write_text(json.dumps(asset), encoding="utf-8")
             index = root / "index" / "ptcg" / "constituents.json"
             rows = json.loads(index.read_text(encoding="utf-8"))

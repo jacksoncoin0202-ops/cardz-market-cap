@@ -284,5 +284,42 @@ class RealFixtureShapeTests(unittest.TestCase):
         self.assertTrue(all(row.grader_code == "psa" and row.grade_label == "10" for row in rows))
 
 
+class IdentityScopeTests(unittest.TestCase):
+    def test_identity_map_resolves_aliases_and_filters_to_frozen_cohort(self) -> None:
+        class Cursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def execute(self, statement, _params=None):
+                self.statement = statement
+
+            def fetchall(self):
+                return [
+                    {
+                        "variant_id": 7,
+                        "source_code": "ebay",
+                        "external_entity_id": "uuid-7",
+                    },
+                    {
+                        "variant_id": 8,
+                        "source_code": "snkrdunk",
+                        "external_entity_id": "800",
+                    },
+                ]
+
+        cursor = Cursor()
+
+        class Connection:
+            def cursor(self):
+                return cursor
+
+        mapping = ingest.load_identity_map(Connection(), variant_ids={7})
+        self.assertEqual(mapping, {("altxyz", "uuid-7"): 7})
+        self.assertIn("catalog_variant_alias", cursor.statement)
+
+
 if __name__ == "__main__":
     unittest.main()

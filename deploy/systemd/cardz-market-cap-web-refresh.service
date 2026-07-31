@@ -1,0 +1,24 @@
+[Unit]
+Description=Restart CARDZ web after a promoted generation and verify health
+After=cardz-market-cap-daily.service
+OnFailure=cardz-market-cap-alert@%n.service
+ConditionPathExists=/opt/cardz-market-cap/data/runtime/publish-staging/latest.json
+
+[Service]
+Type=oneshot
+Environment=CARDZ_REPO_ROOT=/opt/cardz-market-cap
+Environment=CARDZ_WEB_UNIT=cardz-market-cap-web.service
+Environment=CARDZ_WEB_HEALTH_URL=http://127.0.0.1:3900/api/health
+Environment=MARKET_DATA_POINTER_PATH=/opt/cardz-market-cap/data/runtime/publish-staging/latest.json
+ExecStart=/usr/bin/env bash /opt/cardz-market-cap/deploy/systemd/run-cardz-web-refresh.sh
+TimeoutStartSec=90
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

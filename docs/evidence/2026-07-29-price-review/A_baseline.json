@@ -1,0 +1,433 @@
+{
+  "watchlist": {
+    "watch": 941,
+    "has_variant": 941,
+    "any_price": 881,
+    "strict_price": 881,
+    "snk_psa10": 147,
+    "tcgpricelookup": 753,
+    "ebay": 90,
+    "g10_kline": 87,
+    "tcgfish": 52,
+    "snk_family": 200,
+    "snk_id": 560
+  },
+  "sourceEnum": [
+    {
+      "source_code": "snk_psa10",
+      "rows_n": 117406,
+      "variants": 457,
+      "min_d": "2023-06-19",
+      "max_d": "2026-07-29"
+    },
+    {
+      "source_code": "tcgpricelookup",
+      "rows_n": 39035,
+      "variants": 754,
+      "min_d": "2025-07-28",
+      "max_d": "2026-07-29"
+    },
+    {
+      "source_code": "ebay",
+      "rows_n": 5948,
+      "variants": 502,
+      "min_d": "2026-04-25",
+      "max_d": "2026-07-27"
+    },
+    {
+      "source_code": "g10_kline",
+      "rows_n": 3809,
+      "variants": 562,
+      "min_d": "2023-07-20",
+      "max_d": "2026-07-25"
+    },
+    {
+      "source_code": "snkrdunk",
+      "rows_n": 564,
+      "variants": 329,
+      "min_d": "2025-11-24",
+      "max_d": "2026-07-27"
+    },
+    {
+      "source_code": "tcgfish",
+      "rows_n": 52,
+      "variants": 52,
+      "min_d": "2026-07-29",
+      "max_d": "2026-07-29"
+    }
+  ],
+  "recent14d": [
+    {
+      "observed_date": "2026-07-29",
+      "source_code": "snk_psa10",
+      "n": 128
+    },
+    {
+      "observed_date": "2026-07-29",
+      "source_code": "tcgfish",
+      "n": 52
+    },
+    {
+      "observed_date": "2026-07-29",
+      "source_code": "tcgpricelookup",
+      "n": 2
+    },
+    {
+      "observed_date": "2026-07-28",
+      "source_code": "snk_psa10",
+      "n": 78
+    },
+    {
+      "observed_date": "2026-07-27",
+      "source_code": "snk_psa10",
+      "n": 99
+    },
+    {
+      "observed_date": "2026-07-27",
+      "source_code": "ebay",
+      "n": 55
+    },
+    {
+      "observed_date": "2026-07-27",
+      "source_code": "snkrdunk",
+      "n": 1
+    },
+    {
+      "observed_date": "2026-07-26",
+      "source_code": "ebay",
+      "n": 290
+    },
+    {
+      "observed_date": "2026-07-26",
+      "source_code": "snk_psa10",
+      "n": 195
+    },
+    {
+      "observed_date": "2026-07-26",
+      "source_code": "snkrdunk",
+      "n": 3
+    },
+    {
+      "observed_date": "2026-07-25",
+      "source_code": "g10_kline",
+      "n": 543
+    },
+    {
+      "observed_date": "2026-07-25",
+      "source_code": "snk_psa10",
+      "n": 186
+    },
+    {
+      "observed_date": "2026-07-25",
+      "source_code": "ebay",
+      "n": 184
+    },
+    {
+      "observed_date": "2026-07-25",
+      "source_code": "snkrdunk",
+      "n": 69
+    },
+    {
+      "observed_date": "2026-07-24",
+      "source_code": "g10_kline",
+      "n": 543
+    },
+    {
+      "observed_date": "2026-07-24",
+      "source_code": "ebay",
+      "n": 199
+    },
+    {
+      "observed_date": "2026-07-24",
+      "source_code": "snk_psa10",
+      "n": 174
+    },
+    {
+      "observed_date": "2026-07-24",
+      "source_code": "snkrdunk",
+      "n": 70
+    },
+    {
+      "observed_date": "2026-07-23",
+      "source_code": "ebay",
+      "n": 206
+    },
+    {
+      "observed_date": "2026-07-23",
+      "source_code": "snk_psa10",
+      "n": 192
+    },
+    {
+      "observed_date": "2026-07-23",
+      "source_code": "snkrdunk",
+      "n": 3
+    },
+    {
+      "observed_date": "2026-07-22",
+      "source_code": "g10_kline",
+      "n": 513
+    },
+    {
+      "observed_date": "2026-07-22",
+      "source_code": "ebay",
+      "n": 243
+    },
+    {
+      "observed_date": "2026-07-22",
+      "source_code": "snk_psa10",
+      "n": 207
+    },
+    {
+      "observed_date": "2026-07-22",
+      "source_code": "snkrdunk",
+      "n": 2
+    },
+    {
+      "observed_date": "2026-07-21",
+      "source_code": "ebay",
+      "n": 218
+    },
+    {
+      "observed_date": "2026-07-21",
+      "source_code": "snk_psa10",
+      "n": 201
+    },
+    {
+      "observed_date": "2026-07-21",
+      "source_code": "snkrdunk",
+      "n": 4
+    },
+    {
+      "observed_date": "2026-07-20",
+      "source_code": "snk_psa10",
+      "n": 225
+    },
+    {
+      "observed_date": "2026-07-20",
+      "source_code": "ebay",
+      "n": 194
+    },
+    {
+      "observed_date": "2026-07-20",
+      "source_code": "tcgpricelookup",
+      "n": 9
+    },
+    {
+      "observed_date": "2026-07-20",
+      "source_code": "snkrdunk",
+      "n": 4
+    },
+    {
+      "observed_date": "2026-07-19",
+      "source_code": "ebay",
+      "n": 344
+    },
+    {
+      "observed_date": "2026-07-19",
+      "source_code": "snkrdunk",
+      "n": 328
+    },
+    {
+      "observed_date": "2026-07-19",
+      "source_code": "snk_psa10",
+      "n": 190
+    },
+    {
+      "observed_date": "2026-07-19",
+      "source_code": "tcgpricelookup",
+      "n": 38
+    },
+    {
+      "observed_date": "2026-07-18",
+      "source_code": "snk_psa10",
+      "n": 187
+    },
+    {
+      "observed_date": "2026-07-18",
+      "source_code": "ebay",
+      "n": 184
+    },
+    {
+      "observed_date": "2026-07-18",
+      "source_code": "tcgpricelookup",
+      "n": 39
+    },
+    {
+      "observed_date": "2026-07-18",
+      "source_code": "snkrdunk",
+      "n": 2
+    },
+    {
+      "observed_date": "2026-07-17",
+      "source_code": "snk_psa10",
+      "n": 199
+    },
+    {
+      "observed_date": "2026-07-17",
+      "source_code": "ebay",
+      "n": 129
+    },
+    {
+      "observed_date": "2026-07-17",
+      "source_code": "tcgpricelookup",
+      "n": 34
+    },
+    {
+      "observed_date": "2026-07-17",
+      "source_code": "snkrdunk",
+      "n": 3
+    },
+    {
+      "observed_date": "2026-07-16",
+      "source_code": "snk_psa10",
+      "n": 204
+    },
+    {
+      "observed_date": "2026-07-16",
+      "source_code": "ebay",
+      "n": 168
+    },
+    {
+      "observed_date": "2026-07-16",
+      "source_code": "tcgpricelookup",
+      "n": 41
+    },
+    {
+      "observed_date": "2026-07-16",
+      "source_code": "snkrdunk",
+      "n": 2
+    },
+    {
+      "observed_date": "2026-07-15",
+      "source_code": "snk_psa10",
+      "n": 219
+    },
+    {
+      "observed_date": "2026-07-15",
+      "source_code": "ebay",
+      "n": 139
+    },
+    {
+      "observed_date": "2026-07-15",
+      "source_code": "tcgpricelookup",
+      "n": 43
+    },
+    {
+      "observed_date": "2026-07-15",
+      "source_code": "snkrdunk",
+      "n": 1
+    }
+  ],
+  "indexSnapshots": [
+    {
+      "id": 49,
+      "run_id": 244,
+      "index_code": "one-piece",
+      "effective_date": "2026-07-29",
+      "constituent_count": 128,
+      "total_market_cap_usd": 213702177.064361,
+      "created_at": "2026-07-29 11:51:27"
+    },
+    {
+      "id": 48,
+      "run_id": 244,
+      "index_code": "pokemon",
+      "effective_date": "2026-07-29",
+      "constituent_count": 791,
+      "total_market_cap_usd": 2341863162.820563,
+      "created_at": "2026-07-29 11:51:26"
+    },
+    {
+      "id": 47,
+      "run_id": 244,
+      "index_code": "tcg-combined",
+      "effective_date": "2026-07-29",
+      "constituent_count": 919,
+      "total_market_cap_usd": 2555565339.884923,
+      "created_at": "2026-07-29 11:51:26"
+    },
+    {
+      "id": 46,
+      "run_id": 244,
+      "index_code": "one-piece",
+      "effective_date": "2026-07-29",
+      "constituent_count": 136,
+      "total_market_cap_usd": 204723334.124609,
+      "created_at": "2026-07-29 11:48:43"
+    },
+    {
+      "id": 45,
+      "run_id": 244,
+      "index_code": "pokemon",
+      "effective_date": "2026-07-29",
+      "constituent_count": 828,
+      "total_market_cap_usd": 2040028599.526038,
+      "created_at": "2026-07-29 11:48:43"
+    },
+    {
+      "id": 44,
+      "run_id": 244,
+      "index_code": "tcg-combined",
+      "effective_date": "2026-07-29",
+      "constituent_count": 964,
+      "total_market_cap_usd": 2244751933.650646,
+      "created_at": "2026-07-29 11:48:42"
+    },
+    {
+      "id": 43,
+      "run_id": 244,
+      "index_code": "one-piece",
+      "effective_date": "2026-07-29",
+      "constituent_count": 144,
+      "total_market_cap_usd": 210307818.931745,
+      "created_at": "2026-07-29 06:42:27"
+    },
+    {
+      "id": 42,
+      "run_id": 244,
+      "index_code": "pokemon",
+      "effective_date": "2026-07-29",
+      "constituent_count": 838,
+      "total_market_cap_usd": 2100974349.433309,
+      "created_at": "2026-07-29 06:42:26"
+    },
+    {
+      "id": 41,
+      "run_id": 244,
+      "index_code": "tcg-combined",
+      "effective_date": "2026-07-29",
+      "constituent_count": 982,
+      "total_market_cap_usd": 2311282168.365052,
+      "created_at": "2026-07-29 06:42:25"
+    },
+    {
+      "id": 40,
+      "run_id": 244,
+      "index_code": "one-piece",
+      "effective_date": "2026-07-29",
+      "constituent_count": 145,
+      "total_market_cap_usd": 216115598.581745,
+      "created_at": "2026-07-29 06:32:10"
+    },
+    {
+      "id": 39,
+      "run_id": 244,
+      "index_code": "pokemon",
+      "effective_date": "2026-07-29",
+      "constituent_count": 838,
+      "total_market_cap_usd": 2100974349.433309,
+      "created_at": "2026-07-29 06:32:09"
+    },
+    {
+      "id": 38,
+      "run_id": 244,
+      "index_code": "tcg-combined",
+      "effective_date": "2026-07-29",
+      "constituent_count": 983,
+      "total_market_cap_usd": 2317089948.015052,
+      "created_at": "2026-07-29 06:32:09"
+    }
+  ],
+  "catalogVariants": 1749,
+  "universeMembers": 932
+}

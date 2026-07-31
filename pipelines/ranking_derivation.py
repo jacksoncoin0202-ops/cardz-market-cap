@@ -9,6 +9,11 @@ from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping
 
+try:
+    from .source_crosswalk import canonical_language, complete_collector_number
+except ImportError:
+    from source_crosswalk import canonical_language, complete_collector_number
+
 
 INDEXES = ("tcg", "pokemon", "one-piece")
 # Ranking membership is complete for every eligible printing.  These ranges
@@ -34,7 +39,9 @@ MONITORING_POPULATION_BANDS: dict[str, tuple[int, int]] = {
     "pre_entry_population_971_999": (971, 999),
     "buffer_850_999": (850, 999),
 }
-PRICE_FRESHNESS_HOURS = 48
+# Operator 2026-07-29: FE Top100-first. 48h was emptying One Piece board (~27–40).
+# Membership accepts prices up to 90d; fresher prices still win when scoring.
+PRICE_FRESHNESS_HOURS = 90 * 24
 PROJECTED_RANK300_PROXIMITY = 0.80
 POPULATION_ESTIMATE_STATES = {"estimate", "estimated", "unavailable", "stale"}
 PRICE_UNAVAILABLE_STATES = {"estimate", "estimated", "unavailable"}
@@ -74,14 +81,21 @@ def identity_key(row: Mapping[str, Any]) -> str:
 
 
 def identity_is_complete(row: Mapping[str, Any]) -> bool:
+    """Canonical identity for ranking eligibility under registry rankingPolicy.
+
+    rankingPolicy.eligibility requires a confirmed, language-bearing printing,
+    POP, and a fresh price. Ranking boards may group languages, but that view
+    choice never makes language optional in canonical printing identity.
+    """
+
     return (
         str(row.get("pokedexStatus") or "").strip() == "confirmed"
         and str(row.get("tcg") or "").strip() in {"pokemon", "one-piece"}
         and bool(identity_key(row))
         and bool(str(row.get("canonicalSourceCode") or "").strip())
         and bool(str(row.get("canonicalExternalId") or "").strip())
-        and bool(str(row.get("collectorNumber") or "").strip())
-        and bool(str(row.get("language") or "").strip())
+        and bool(canonical_language(row.get("language")))
+        and complete_collector_number(row.get("collectorNumber"))
     )
 
 
@@ -122,6 +136,33 @@ def rejection_reason(row: Mapping[str, Any], effective_at: datetime) -> str | No
     return None
 
 
+def market_cap_usd(price_usd: float | int | None, population_psa10: int | None) -> float | None:
+    """Single formula path: PSA10 market cap = population × reference price.
+
+    Missing price or population is never coerced to zero.
+    """
+
+    if price_usd is None or population_psa10 is None:
+        return None
+    if isinstance(price_usd, bool) or isinstance(population_psa10, bool):
+        return None
+    if not isinstance(price_usd, (int, float)) or not isinstance(population_psa10, int):
+        return None
+    if price_usd <= 0 or population_psa10 <= 0:
+        return None
+    return round(float(price_usd) * int(population_psa10), 2)
+
+
+def window_percent_change(current: float | int | None, previous: float | int | None) -> float | None:
+    """Percent change for windows; missing/non-positive previous stays unknown."""
+
+    if current is None or previous is None or float(previous) <= 0:
+        return None
+    if isinstance(current, bool) or isinstance(previous, bool):
+        return None
+    return (float(current) / float(previous) - 1.0) * 100.0
+
+
 def choose_canonical(rows: Iterable[Mapping[str, Any]], effective_at: datetime) -> dict[str, Any]:
     """Resolve duplicate copies of one already-exact printing deterministically."""
 
@@ -135,7 +176,10 @@ def choose_canonical(rows: Iterable[Mapping[str, Any]], effective_at: datetime) 
         ),
     )
     selected = ordered[0]
-    selected["marketCapUsd"] = round(float(selected["priceUsd"]) * int(selected["populationPsa10"]), 2)
+    cap = market_cap_usd(selected.get("priceUsd"), selected.get("populationPsa10"))
+    if cap is None:
+        raise ValueError("choose_canonical requires validated positive price and population")
+    selected["marketCapUsd"] = cap
     return selected
 
 
@@ -472,13 +516,23 @@ def derive_rankings(
         "effectiveAt": iso_utc(effective_at),
         "policy": {
             "formula": "gemrate_psa10_population * validated_psa10_reference_price_usd",
+            "formulaPath": "pipelines/ranking_derivation.py::choose_canonical",
             "populationMinimumInclusive": POPULATION_MINIMUM,
             "priceFreshnessHoursMaximum": PRICE_FRESHNESS_HOURS,
             "canonicalMembership": "complete_eligible",
+            "eligibility": (
+                "psa10_population>=1000 && canonical_identity_confirmed "
+                "&& fresh_psa10_reference_price"
+            ),
+            "preEntryPolicy": (
+                "970<psa10_population<1000; radar only; never formal rank"
+            ),
             "presentationViews": list(PRESENTATION_VIEWS),
             "indexes": list(INDEXES),
             "languagePartitioning": False,
+            "languageIsProvenanceOnly": False,
             "canonicalCardStoredOnce": True,
+            "missingIsNotZero": True,
             "monitoringPopulationRangeInclusive": {
                 "minimum": MONITORING_POPULATION_MINIMUM,
                 "maximum": MONITORING_POPULATION_MAXIMUM,

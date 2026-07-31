@@ -33,7 +33,11 @@ PRESENTATION_VIEW_LIMITS = {
     "top300": 300,
     "top350": 350,
     "top100_plus_200": 300,
+    "top300_boards": 300,
     "reserve50": 350,
+}
+PRESENTATION_VIEW_REQUIREMENTS = {
+    "top300_boards": {"tcg": 300, "pokemon": 100, "onePiece": 100},
 }
 RESERVE_START_RANK = 301
 RESERVE_END_RANK = 350
@@ -350,6 +354,24 @@ def load_active_overlay(path: Path | None) -> dict[tuple[str, str], Mapping[str,
     }
 
 
+def presentation_view_readiness(
+    view_name: str,
+    ranking_counts: Mapping[str, int],
+) -> tuple[dict[str, bool], dict[str, int]]:
+    minimum = PRESENTATION_VIEW_LIMITS[view_name]
+    requirements = PRESENTATION_VIEW_REQUIREMENTS.get(
+        view_name,
+        {scope: minimum for scope in ("pokemon", "onePiece", "tcg")},
+    )
+    return (
+        {
+            scope: int(ranking_counts.get(scope, 0)) >= required
+            for scope, required in requirements.items()
+        },
+        dict(requirements),
+    )
+
+
 def build_audit(
     crosswalk_path: Path,
     gemrate_root: Path,
@@ -548,12 +570,10 @@ def build_audit(
     )
     presentation_views: dict[str, dict[str, Any]] = {}
     for view_name, minimum_rank in PRESENTATION_VIEW_LIMITS.items():
-        ready = {
-            scope: count >= minimum_rank
-            for scope, count in ranking_counts.items()
-        }
+        ready, requirements = presentation_view_readiness(view_name, ranking_counts)
         presentation_views[view_name] = {
             "minimumRank": minimum_rank,
+            "requirements": requirements,
             "range": (
                 {"start": RESERVE_START_RANK, "end": RESERVE_END_RANK}
                 if view_name == "reserve50"

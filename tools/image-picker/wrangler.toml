@@ -1,0 +1,19 @@
+name = "cardz-image-picker"
+main = "worker/index.js"
+compatibility_date = "2026-07-22"
+workers_dev = true
+
+# Static site (worklist + images + HTML)
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[kv_namespaces]]
+binding = "SELECTIONS_KV"
+# Create with: npx wrangler kv namespace create SELECTIONS_KV
+# Then paste id below (preview_id optional)
+id = "REPLACE_AFTER_KV_CREATE"
+preview_id = "REPLACE_AFTER_KV_CREATE"
+
+[vars]
+# empty = same-origin /api/selections

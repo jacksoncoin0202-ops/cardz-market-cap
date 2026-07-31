@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-HK">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>CARDZ 圖片 QC</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0b0c0f;--panel:#15171c;--line:#2a2e36;--text:#f4f5f7;--muted:#9da4b2;--ok:#35d07f;--bad:#ff6269;--accent:#f6c453}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 Inter,system-ui,sans-serif}
+    button,select,input,textarea{font:inherit}.top{position:sticky;top:0;z-index:3;display:grid;gap:10px;padding:12px 18px;background:#0b0c0ff2;border-bottom:1px solid var(--line);backdrop-filter:blur(12px)}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.brand{font-weight:800;letter-spacing:.04em}.muted{color:var(--muted)}
+    .progress{height:7px;overflow:hidden;border-radius:9px;background:#262a31}.progress i{display:block;height:100%;background:linear-gradient(90deg,var(--ok),var(--accent));width:0}
+    button,select{border:1px solid var(--line);border-radius:9px;background:#1b1e24;color:var(--text);padding:9px 13px;cursor:pointer}button:hover{border-color:#596170}
+    .main{display:grid;grid-template-columns:minmax(320px,48vw) minmax(320px,1fr);min-height:calc(100vh - 118px)}
+    .visual{display:grid;place-items:center;padding:24px;background:radial-gradient(circle at 50% 35%,#222631 0,#111318 55%,#0c0d10 100%)}
+    .visual img{display:block;max-width:min(92%,520px);max-height:72vh;object-fit:contain;filter:drop-shadow(0 18px 34px #000a)}
+    .info{padding:28px;display:flex;flex-direction:column;gap:18px;border-left:1px solid var(--line)}h1{margin:0;font-size:clamp(24px,3vw,40px);line-height:1.05}
+    .chips{display:flex;gap:8px;flex-wrap:wrap}.chip{padding:5px 9px;border:1px solid var(--line);border-radius:999px;color:#d8dbe2;background:#181b20}
+    dl{display:grid;grid-template-columns:145px 1fr;gap:8px 14px;margin:0}dt{color:var(--muted)}dd{margin:0;word-break:break-word}
+    .actions{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:auto}.actions button{font-size:18px;font-weight:800;padding:16px}
+    .ok{background:#123b29;border-color:#23754d;color:#85f3b8}.bad{background:#411b20;border-color:#8a3039;color:#ff9ca1}.selected{outline:3px solid var(--accent)}
+    dialog{width:min(900px,94vw);border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--text);padding:20px}textarea{width:100%;height:34vh;background:#0d0f12;color:#dff7e9;border:1px solid var(--line);border-radius:8px;padding:12px;font:12px/1.4 ui-monospace,monospace}.reject-form{display:grid;gap:12px}.reject-form label{display:grid;gap:6px}.reject-form select,.reject-form input{width:100%;padding:10px;background:#0d0f12;color:var(--text);border:1px solid var(--line);border-radius:8px}
+    @media(max-width:800px){.main{grid-template-columns:1fr}.visual{min-height:54vh;padding:16px}.visual img{max-height:50vh}.info{border-left:0;border-top:1px solid var(--line);padding:20px}dl{grid-template-columns:115px 1fr}}
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="row"><span class="brand">CARDZ 圖片 QC</span><span id="status" class="muted">載入中…</span></div>
+    <div class="progress"><i id="bar"></i></div>
+    <div class="row">
+      <button id="prev">← 上一張</button><button id="next">下一張 →</button><button id="nextTodo">下一張未決定</button>
+      <select id="tcg"><option value="">全部 TCG</option><option value="one-piece">One Piece</option><option value="pokemon">Pokémon</option></select>
+      <select id="state"><option value="">全部狀態</option><option value="todo">未決定</option><option value="ok">OK</option><option value="reject">唔得</option></select>
+      <button id="export">完成／輸出 code</button>
+    </div>
+  </header>
+  <main class="main">
+    <section class="visual"><img id="image" alt=""></section>
+    <section class="info">
+      <div><div id="counter" class="muted"></div><h1 id="name">—</h1></div>
+      <div id="chips" class="chips"></div>
+      <dl id="facts"></dl>
+      <div class="muted">快捷鍵：O = OK、R = 揀拒絕原因、←/→ = 上下張。SAMPLE 要註明位置；決定只留喺呢部機 browser，輸出 code 後貼返畀 Agent。</div>
+      <div class="actions"><button id="ok" class="ok">OK，呢張得</button><button id="reject" class="bad">唔得，換圖</button></div>
+    </section>
+  </main>
+  <dialog id="dialog"><h2>Decision code</h2><p class="muted">Copy 全段貼返畀 Agent。Code 已綁定今批 dataset，同 DB 寫入時會再驗 asset hash。</p><textarea id="code" readonly></textarea><div class="row"><button id="copy">Copy</button><button id="close">關閉</button></div></dialog>
+  <dialog id="rejectDialog">
+    <h2>點解呢張唔得？</h2>
+    <div class="reject-form">
+      <label>原因<select id="rejectReason">
+        <option value="sample">SAMPLE 水印</option>
+        <option value="language_mismatch">語言錯（JA / EN 對唔上）</option>
+        <option value="wrong_card">錯卡／錯卡號</option>
+        <option value="wrong_printing">錯印次／錯 Parallel</option>
+        <option value="slab_or_label">有卡磚／標籤／背景</option>
+        <option value="crop_or_size">裁切／尺寸／縮水</option>
+        <option value="duplicate_or_placeholder">重複／Placeholder</option>
+        <option value="other">其他</option>
+      </select></label>
+      <label id="positionRow">SAMPLE 位置<select id="samplePosition">
+        <option value="center">中央</option><option value="diagonal_center">斜跨中央</option>
+        <option value="top_left">左上</option><option value="top_right">右上</option>
+        <option value="bottom_left">左下</option><option value="bottom_right">右下</option>
+        <option value="whole_face">全卡面</option><option value="unknown">唔確定</option>
+      </select></label>
+      <label>備註（可留空）<input id="rejectNote" maxlength="200" placeholder="例如：白色大字、來源英版但 DB 係日版"></label>
+      <div class="row"><button id="confirmReject" class="bad">確認：唔得，換圖</button><button id="cancelReject">取消</button></div>
+    </div>
+  </dialog>
+  <script>
+    const $=id=>document.getElementById(id);let data,cards=[],view=[],index=0,decisions={};
+    const enc=s=>btoa(unescape(encodeURIComponent(s))).replaceAll("+","-").replaceAll("/","_").replaceAll("=","");
+    const key=()=>`cardz-image-review:${data.datasetSha256}`;
+    const save=()=>localStorage.setItem(key(),JSON.stringify(decisions));
+    const decisionValue=x=>typeof x==="string"?x:x?.d;
+    function filters(){view=cards.filter(c=>(!$("tcg").value||c.tcg===$("tcg").value)&&(!$("state").value||($("state").value==="todo"?!decisions[c.assetId]:decisionValue(decisions[c.assetId])===$("state").value)));index=Math.min(index,Math.max(0,view.length-1));render()}
+    function render(){const c=view[index],done=Object.keys(decisions).length,ok=Object.values(decisions).filter(x=>decisionValue(x)==="ok").length,bad=done-ok;$("status").textContent=`已鎖正確 ${data.preservedBindingCount||0} · 人工候選 ${cards.length} · 已決定 ${done} · OK ${ok} · 唔得 ${bad} · 自動剔除 ${data.autoRejectedCount||0}`;$("bar").style.width=`${cards.length?done/cards.length*100:0}%`;if(!c){$("name").textContent="冇符合條件嘅卡";$("image").removeAttribute("src");$("facts").innerHTML="";return}$("counter").textContent=`${index+1}/${view.length} · 全批 #${cards.indexOf(c)+1}`;$("name").textContent=c.name||c.cardId;$("image").src=c.imageUrl;$("image").alt=`${c.name} ${c.collectorNumber}`;$("chips").innerHTML=[c.tcg,c.language,c.collectorNumber,c.finish,c.parallel].filter(Boolean).map(v=>`<span class="chip">${esc(v)}</span>`).join("");const facts=[["Set",c.setName],["Edition",c.edition],["來源",c.sourceFamily],["來源指針",c.sourcePath],["尺寸",`${c.geometry?.widthPx||"?"} × ${c.geometry?.heightPx||"?"}`],["Rank",c.marketRank],["PSA 10 價",c.priceUsd?`US$${c.priceUsd}`:"—"],["PSA 10 POP",c.populationPsa10],["30日成交",c.sales30d],["Card ID",c.cardId],["Variant / Asset",`${c.variantId} / ${c.assetId}`],["Image hash",c.contentSha256]];$("facts").innerHTML=facts.map(([a,b])=>`<dt>${esc(a)}</dt><dd>${esc(b??"—")}</dd>`).join("");$("ok").classList.toggle("selected",decisionValue(decisions[c.assetId])==="ok");$("reject").classList.toggle("selected",decisionValue(decisions[c.assetId])==="reject")}
+    const esc=v=>String(v).replace(/[&<>"']/g,x=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[x]));
+    function decide(value){const c=view[index];if(!c)return;decisions[c.assetId]=value;save();if($("state").value)filters();else{index=Math.min(index+1,view.length-1);render()}}
+    const openReject=()=>{if(!view[index])return;$("rejectDialog").showModal()};
+    $("rejectReason").onchange=()=>$("positionRow").hidden=$("rejectReason").value!=="sample";
+    $("confirmReject").onclick=()=>{const reason=$("rejectReason").value,position=reason==="sample"?$("samplePosition").value:"";decide({d:"reject",reason,position,note:$("rejectNote").value.trim()});$("rejectNote").value="";$("rejectDialog").close()};
+    $("cancelReject").onclick=()=>$("rejectDialog").close();
+    $("ok").onclick=()=>decide({d:"ok"});$("reject").onclick=openReject;$("prev").onclick=()=>{index=Math.max(0,index-1);render()};$("next").onclick=()=>{index=Math.min(view.length-1,index+1);render()};$("nextTodo").onclick=()=>{const n=view.findIndex((c,i)=>i>index&&!decisions[c.assetId]);index=n>=0?n:Math.max(0,view.findIndex(c=>!decisions[c.assetId]));render()};$("tcg").onchange=filters;$("state").onchange=filters;
+    $("export").onclick=()=>{const items=cards.filter(c=>decisions[c.assetId]).map(c=>{const d=decisions[c.assetId],v=decisionValue(d);return v==="ok"?[c.variantId,c.assetId,"o",c.canonicalPrintingSha256,c.expectedLanguage,c.sourceLanguage||c.expectedLanguage]:[c.variantId,c.assetId,"r",d.reason,d.position||"",d.note||""]});const payload={v:2,d:data.datasetSha256,i:items};$("code").value="CARDZ-IMG-QC1:"+enc(JSON.stringify(payload));$("dialog").showModal()};$("copy").onclick=async()=>{await navigator.clipboard.writeText($("code").value);$("copy").textContent="已 Copy"};$("close").onclick=()=>$("dialog").close();
+    addEventListener("keydown",e=>{if(e.target.matches("textarea,input,select")||$("rejectDialog").open)return;if(e.key.toLowerCase()==="o")decide({d:"ok"});if(e.key.toLowerCase()==="r")openReject();if(e.key==="ArrowLeft")$("prev").click();if(e.key==="ArrowRight")$("next").click()});
+    fetch("/api/cards",{cache:"no-store"}).then(r=>r.json()).then(x=>{data=x;cards=x.cards;decisions=JSON.parse(localStorage.getItem(key())||"{}");for(const [id,d] of Object.entries(decisions)){if(typeof d==="string")decisions[id]={d}}view=cards;render()}).catch(e=>$("status").textContent=`載入失敗：${e.message}`);
+  </script>
+</body>
+</html>

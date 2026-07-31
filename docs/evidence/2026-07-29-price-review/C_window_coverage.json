@@ -1,0 +1,350 @@
+{
+  "pool": {
+    "poolDepth": {
+      "variantsWithAnyBar": 876,
+      "can_1d": 526,
+      "can_7d": 586,
+      "can_30d": 566,
+      "bars30d_ge1": 358,
+      "bars30d_ge5": 208,
+      "bars30d_ge10": 134,
+      "sparse_no_30d_anchor": 310
+    },
+    "depthHist30d": {
+      "0": 518,
+      "1": 112,
+      "2": 12,
+      "3": 14,
+      "4": 12,
+      "5": 8,
+      "6": 16,
+      "7": 16,
+      "8": 12,
+      "9": 22,
+      "10": 12,
+      "11": 11,
+      "12": 16,
+      "13": 14,
+      "14": 12,
+      "15": 11,
+      "16": 8,
+      "17": 2,
+      "18": 4,
+      "19": 3,
+      "20": 2,
+      "21": 3,
+      "22": 1,
+      "24": 3,
+      "25": 2,
+      "26": 2,
+      "27": 4,
+      "29": 3,
+      "30": 21
+    },
+    "candidateDaily": {
+      "rows": 997,
+      "change_1d_nonnull": 317,
+      "change_7d_nonnull": 613,
+      "change_30d_nonnull": 783
+    }
+  },
+  "snapshot": {
+    "top100": {
+      "label": "top100",
+      "n": 100,
+      "priceReady": 100,
+      "priceMissing": 0,
+      "windows": {
+        "1d": {
+          "ready": 97,
+          "accumulating": 3
+        },
+        "7d": {
+          "ready": 92,
+          "accumulating": 3,
+          "stale": 5
+        },
+        "30d": {
+          "ready": 92,
+          "stale": 5,
+          "accumulating": 3
+        }
+      },
+      "fakeZero": [
+        {
+          "rank": 10,
+          "id": "cmc_e511f8f3357ec9ca9ca43460",
+          "name": "Charizard",
+          "window": "1d",
+          "latest": 757.066976,
+          "anchor": 766.0
+        },
+        {
+          "rank": 17,
+          "id": "cmc_1cf2114a8d0a05611d80a765",
+          "name": "Pikachu ex",
+          "window": "1d",
+          "latest": 595.274437,
+          "anchor": 610.0
+        },
+        {
+          "rank": 36,
+          "id": "cmc_4bb5a55fb17470b3c7926c01",
+          "name": "Pikachu ex",
+          "window": "1d",
+          "latest": 950.0,
+          "anchor": 935.0
+        },
+        {
+          "rank": 46,
+          "id": "cmc_d8a379b5c185adbeeca93d16",
+          "name": "Mewtwo & Mew GX",
+          "window": "1d",
+          "latest": 3602.173515,
+          "anchor": 3323.0
+        },
+        {
+          "rank": 54,
+          "id": "cmc_057a6e6677093f47bc6acd34",
+          "name": "Mega Dragonite ex",
+          "window": "1d",
+          "latest": 305.268942,
+          "anchor": 366.91
+        },
+        {
+          "rank": 68,
+          "id": "cmc_089b2675a12d5c8a86b2c2e7",
+          "name": "Victini",
+          "window": "1d",
+          "latest": 1709.499969,
+          "anchor": 1375.0
+        },
+        {
+          "rank": 78,
+          "id": "cmc_adb7c1e92807b4a6423ff7c3",
+          "name": "Pikachu wearing a poncho",
+          "window": "1d",
+          "latest": 3480.065938,
+          "anchor": 3367.0
+        },
+        {
+          "rank": 91,
+          "id": "cmc_aa4bd0f810e2a4d2fb87435c",
+          "name": "Suicune V",
+          "window": "1d",
+          "latest": 250.0,
+          "anchor": 242.5
+        }
+      ],
+      "nullChange": {
+        "1d": [
+          {
+            "rank": 35,
+            "id": "cmc_ea376bfc103cb7b5b8f28555",
+            "name": "Monkey D. Luffy (1st Anniversary)",
+            "status": "accumulating"
+          },
+          {
+            "rank": 72,
+            "id": "cmc_d00be94cb5e7ec7c0144f2e1",
+            "name": "Nami",
+            "status": "accumulating"
+          },
+          {
+            "rank": 84,
+            "id": "cmc_7ca1e1ee1441c542e85bc031",
+            "name": "O-Nami",
+            "status": "accumulating"
+          }
+        ],
+        "7d": [
+          {
+            "rank": 35,
+            "id": "cmc_ea376bfc103cb7b5b8f28555",
+            "name": "Monkey D. Luffy (1st Anniversary)",
+            "status": "accumulating"
+          },
+          {
+            "rank": 72,
+            "id": "cmc_d00be94cb5e7ec7c0144f2e1",
+            "name": "Nami",
+            "status": "accumulating"
+          },
+          {
+            "rank": 84,
+            "id": "cmc_7ca1e1ee1441c542e85bc031",
+            "name": "O-Nami",
+            "status": "accumulating"
+          }
+        ],
+        "30d": [
+          {
+            "rank": 35,
+            "id": "cmc_ea376bfc103cb7b5b8f28555",
+            "name": "Monkey D. Luffy (1st Anniversary)",
+            "status": "accumulating"
+          },
+          {
+            "rank": 72,
+            "id": "cmc_d00be94cb5e7ec7c0144f2e1",
+            "name": "Nami",
+            "status": "accumulating"
+          },
+          {
+            "rank": 84,
+            "id": "cmc_7ca1e1ee1441c542e85bc031",
+            "name": "O-Nami",
+            "status": "accumulating"
+          }
+        ]
+      },
+      "marketCapChangeReady": {
+        "1d": 67,
+        "7d": 90,
+        "30d": 45
+      },
+      "popChangeReady": {
+        "1d": 70,
+        "7d": 93,
+        "30d": 47
+      },
+      "fakeZeroCount": 8
+    },
+    "watchlist": {
+      "label": "watchlist",
+      "n": 143,
+      "priceReady": 143,
+      "priceMissing": 0,
+      "windows": {
+        "1d": {
+          "accumulating": 3,
+          "ready": 106,
+          "stale": 34
+        },
+        "7d": {
+          "accumulating": 3,
+          "ready": 119,
+          "stale": 21
+        },
+        "30d": {
+          "accumulating": 3,
+          "ready": 112,
+          "stale": 28
+        }
+      },
+      "fakeZero": [
+        {
+          "rank": 105,
+          "id": "cmc_75b86c6db32f46e2a728a4a3",
+          "name": "Gear Two",
+          "window": "1d",
+          "latest": 733.13,
+          "anchor": 552.0
+        },
+        {
+          "rank": 112,
+          "id": "cmc_a13cfd319f931311b1fb1eb2",
+          "name": "Roronoa Zoro",
+          "window": "1d",
+          "latest": 1819.402894,
+          "anchor": 1450.0
+        },
+        {
+          "rank": 127,
+          "id": "cmc_9b2a12c605a194c68d299678",
+          "name": "Jewelry Bonney",
+          "window": "1d",
+          "latest": 1155.34,
+          "anchor": 950.0
+        },
+        {
+          "rank": 180,
+          "id": "cmc_b52c6e80eb42cd0bff396656",
+          "name": "Zoro-Juurou",
+          "window": "30d",
+          "latest": 315.0,
+          "anchor": 291.0
+        }
+      ],
+      "nullChange": {
+        "1d": [
+          {
+            "rank": 101,
+            "id": "cmc_3f1f59c406740db40d199a78",
+            "name": "Yamato",
+            "status": "accumulating"
+          },
+          {
+            "rank": 152,
+            "id": "cmc_f5192689b3fff07c090eef87",
+            "name": "Monkey D. Luffy",
+            "status": "accumulating"
+          },
+          {
+            "rank": 168,
+            "id": "cmc_941cb4727e913bb360dc1ebe",
+            "name": "Eustass \\\"Captain\\\" Kid",
+            "status": "accumulating"
+          }
+        ],
+        "7d": [
+          {
+            "rank": 101,
+            "id": "cmc_3f1f59c406740db40d199a78",
+            "name": "Yamato",
+            "status": "accumulating"
+          },
+          {
+            "rank": 152,
+            "id": "cmc_f5192689b3fff07c090eef87",
+            "name": "Monkey D. Luffy",
+            "status": "accumulating"
+          },
+          {
+            "rank": 168,
+            "id": "cmc_941cb4727e913bb360dc1ebe",
+            "name": "Eustass \\\"Captain\\\" Kid",
+            "status": "accumulating"
+          }
+        ],
+        "30d": [
+          {
+            "rank": 101,
+            "id": "cmc_3f1f59c406740db40d199a78",
+            "name": "Yamato",
+            "status": "accumulating"
+          },
+          {
+            "rank": 152,
+            "id": "cmc_f5192689b3fff07c090eef87",
+            "name": "Monkey D. Luffy",
+            "status": "accumulating"
+          },
+          {
+            "rank": 168,
+            "id": "cmc_941cb4727e913bb360dc1ebe",
+            "name": "Eustass \\\"Captain\\\" Kid",
+            "status": "accumulating"
+          }
+        ]
+      },
+      "marketCapChangeReady": {
+        "1d": 110,
+        "7d": 113,
+        "30d": 57
+      },
+      "popChangeReady": {
+        "1d": 113,
+        "7d": 116,
+        "30d": 59
+      },
+      "fakeZeroCount": 4
+    },
+    "feSetN": 243,
+    "meta": {
+      "generatedAt": null,
+      "effectiveAt": null,
+      "generationId": null
+    }
+  }
+}

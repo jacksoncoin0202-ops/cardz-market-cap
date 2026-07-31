@@ -125,6 +125,37 @@ class VerifyExtrasTests(unittest.TestCase):
         self.assertEqual(len(errors), 1)
         self.assertIn("1 unreferenced", errors[0])
 
+    def test_verified_top_n_accepts_one_to_one_hundred_cards(self) -> None:
+        errors = verify(self.snapshot_path, self.assets, allow_unreferenced=True)
+        self.assertFalse(any("top100 does not contain" in error for error in errors), errors)
+
+    def test_strict_semantic_qc_is_bound_to_the_snapshot_card_id(self) -> None:
+        manifest = self.temp / "image-qc.json"
+        manifest.write_text(
+            json.dumps(
+                {
+                    "records": [
+                        {
+                            "publicId": "wrong-card-id",
+                            "contentSha256": self.sha,
+                            "publicAllowed": True,
+                            "semanticMatchStatus": "human_or_vision_confirmed",
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        errors = verify(
+            self.snapshot_path,
+            self.assets,
+            manifest,
+            strict_semantic=True,
+            allow_unreferenced=True,
+        )
+        self.assertTrue(any("card-bound" in error for error in errors), errors)
+        self.assertTrue(any("canvas geometry invalid" in error for error in errors), errors)
+
 
 class QuarantineTests(unittest.TestCase):
     def setUp(self) -> None:

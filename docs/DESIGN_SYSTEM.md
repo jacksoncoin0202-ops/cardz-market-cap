@@ -1,5 +1,10 @@
 # CARDS Market Cap Design System
 
+> QUARANTINED — non-executable design evidence. Brand spelling, public URL,
+> heatmap clamp/layout, and link-vs-dialog behavior conflict with the current
+> implementation. Do not use this file as target-state authority; return
+> `CONTRACT_GAP` to MAIN for an explicit product decision.
+
 ## Design intent
 
 CARDS uses a cold-gallery editorial system: white and near-black structure, soft neutral fields, restrained CARDS orange, and semantic market tints. It should feel like an art index with credible market evidence, not a generic finance dashboard or a card-shop catalog.
@@ -136,14 +141,3 @@ The heatmap export renders a Fuji-film-style framed PNG via canvas:
 ## Branding
 
 User-visible brand is **CARDS Market Cap** (logo, metadata, i18n in all five locales, share-image stamp, filenames). Infrastructure identifiers (`@cardz/market-data`, `CARDZ_ENVIRONMENT`, worker/bucket names) intentionally keep the legacy spelling until the backend rename is scheduled.
-
-## Implemented front-end reference (2026-07-24)
-
-Stack: Next.js 16 App Router (Turbopack), React 19, TypeScript, vitest (57 tests), ESLint. Single theme token layer in `src/app/globals.css` (`:root` light + `[data-theme="dark"]` overrides; `--control-radius` 12px / `--section-radius` 24px radius family; 4px reserved for images and table cells).
-
-- `src/components/heatmap.tsx` — treemap hero, tile slider (with text label), period selector, share-image export, hover preview, touch bottom sheet.
-- `src/lib/tile-style.ts` — tile layout params baked into `DEFAULT_TILE`; card image shown whenever the tile fits ≥ 8×11 px so the default Top 100 always shows all 100 images.
-- `src/components/rankings.tsx`, `grader-page.tsx` — desktop tables and dedicated mobile lists share the same column language; grader tabs and share buttons meet the 44 px target.
-- `src/components/heatmap.tsx` mobile H1 unified at 36px/1.1 across home, grader, and detail pages.
-- `src/components/canvasui/ParticleReveal.tsx` — installed, not yet wired into any route (requires Chromium experimental HTML-in-Canvas; ships a plain fallback via `supportsHtmlInCanvas()`).
-- Known data gap (not a UI issue): TAG grader page shows no rows until the pipeline `pokedexId ↔ seed id` join lands.

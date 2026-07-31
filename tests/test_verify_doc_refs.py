@@ -115,6 +115,74 @@ class BrokenReferenceTests(SandboxCase):
         self.assertIn("2 lines", report["failures"][0]["detail"])
 
 
+class DocumentRouteTests(SandboxCase):
+    def _authority(self, **statuses: str) -> dict[str, dict]:
+        return {
+            path: {"path": path, "status": status}
+            for path, status in statuses.items()
+        }
+
+    def test_active_document_cannot_route_to_blocked_document(self) -> None:
+        source = self.box.write("docs/ACTIVE.md", "[old](OLD.md)\n")
+        self.box.write("docs/OLD.md", "historical\n")
+        authority = self._authority(
+            **{
+                "docs/ACTIVE.md": "active",
+                "docs/OLD.md": "superseded",
+            }
+        )
+        report = vdr.build_report(
+            self.box.root,
+            [source],
+            skip_tasks=True,
+            document_authority=authority,
+        )
+        self.assertEqual(report["failures"][0]["status"], vdr.DOCROUTE)
+        self.assertFalse(report["ok"])
+
+    def test_active_document_missing_markdown_link_is_broken(self) -> None:
+        source = self.box.write("docs/ACTIVE.md", "[missing](MISSING.md)\n")
+        authority = self._authority(**{"docs/ACTIVE.md": "active"})
+        report = vdr.build_report(
+            self.box.root,
+            [source],
+            skip_tasks=True,
+            document_authority=authority,
+        )
+        self.assertEqual(report["failures"][0]["status"], vdr.BROKENLINK)
+
+    def test_historical_source_is_not_an_execution_route(self) -> None:
+        source = self.box.write("docs/HISTORY.md", "[old](MISSING.md)\n")
+        authority = self._authority(**{"docs/HISTORY.md": "historical"})
+        report = vdr.build_report(
+            self.box.root,
+            [source],
+            skip_tasks=True,
+            document_authority=authority,
+        )
+        self.assertEqual(report["references"], 0)
+        self.assertEqual(report["failures"], [])
+
+    def test_active_to_active_document_route_is_counted_and_clean(self) -> None:
+        source = self.box.write("docs/ACTIVE.md", "[next](NEXT.md)\n")
+        self.box.write("docs/NEXT.md", "active\n")
+        authority = self._authority(
+            **{
+                "docs/ACTIVE.md": "active",
+                "docs/NEXT.md": "generated",
+            }
+        )
+        report = vdr.build_report(
+            self.box.root,
+            [source],
+            skip_tasks=True,
+            document_authority=authority,
+        )
+        self.assertEqual(report["references"], 1)
+        self.assertEqual(report["counts"], {vdr.OK: 1})
+        self.assertTrue(report["clean"])
+
+
 class DriftTests(SandboxCase):
     def test_symbol_that_moved_is_reported_with_its_real_line(self) -> None:
         """The measured failure: 80 lines inserted, `localize_cards()` moved."""
@@ -290,6 +358,35 @@ class ReverseTests(unittest.TestCase):
             result = self._run([str(SCRIPT), str(doc.relative_to(ROOT)), "--skip-tasks"])
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_authority_cli_exits_nonzero_on_active_to_blocked_route(self) -> None:
+        with tempfile.TemporaryDirectory(dir=str(ROOT / "temp")) as tmp:
+            root = Path(tmp)
+            (root / "config").mkdir()
+            (root / "docs").mkdir()
+            (root / "docs" / "ACTIVE.md").write_text(
+                "[old](OLD.md)\n",
+                encoding="utf-8",
+            )
+            (root / "docs" / "OLD.md").write_text("old\n", encoding="utf-8")
+            (root / "config" / "data-routing.json").write_text(
+                '{"documentAuthority":{"documents":['
+                '{"path":"docs/ACTIVE.md","status":"active"},'
+                '{"path":"docs/OLD.md","status":"historical"}'
+                "]}}",
+                encoding="utf-8",
+            )
+            result = self._run(
+                [
+                    str(SCRIPT),
+                    "--root",
+                    str(root),
+                    "--authority-active-only",
+                    "--skip-tasks",
+                ]
+            )
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("DOCROUTE", result.stdout)
+
     def test_claim_checker_exits_nonzero_on_a_number_that_is_wrong(self) -> None:
         """End-to-end proof that verify_claims wires DRIFT through to exit 1.
 
@@ -315,6 +412,33 @@ class ReverseTests(unittest.TestCase):
 
 class ProjectDocTests(unittest.TestCase):
     """Guards over the real documents, not synthetic ones."""
+
+    def test_document_authority_selects_only_active_or_generated_markdown(self) -> None:
+        selected = {
+            path.relative_to(ROOT).as_posix()
+            for path in vdr.collect_authority_docs(ROOT)
+        }
+        self.assertIn("AGENTS.md", selected)
+        self.assertIn("docs/generated/DOCUMENT_AUTHORITY.md", selected)
+        self.assertNotIn("docs/PROJECT_MAP.md", selected)
+        self.assertNotIn("docs/DATA_GAPS.md", selected)
+        self.assertNotIn("docs/archive/PROJECT_STATE_PRE_QC_20260729.md", selected)
+
+    def test_active_document_routes_do_not_target_blocked_documents(self) -> None:
+        authority = vdr.load_document_authority(ROOT)
+        report = vdr.build_report(
+            ROOT,
+            vdr.collect_authority_docs(ROOT),
+            skip_tasks=True,
+            document_authority=authority,
+        )
+        routed_failures = [
+            failure
+            for failure in report["failures"]
+            if failure["status"] in {vdr.BROKENLINK, vdr.DOCROUTE}
+        ]
+        self.assertEqual(routed_failures, [])
+        self.assertGreater(report["references"], 0)
 
     def test_the_repo_docs_have_no_broken_references(self) -> None:
         report = vdr.build_report(ROOT, vdr.collect_docs([], ROOT), skip_tasks=True)

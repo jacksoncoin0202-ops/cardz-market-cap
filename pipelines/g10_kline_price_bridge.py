@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""把 ledger 入面嘅 G10 日 K 線橋接落 `market_price_observation`。
+"""已禁用：G10 日 K 線不得寫入 canonical DB。
 
 點解要有呢個檔：`g10_analytics_ingest.py` 已經將 47,582 條 PSA10 日 K 線
 （2023-07-20 → 2026-07-25、636 個實體）原封落咗 `market_source_observation`
@@ -24,7 +24,11 @@
 * **INSERT IGNORE**：`uq_market_price_daily (variant_id, source_code,
   observed_date)` 撞到即係已入過，重跑 idempotent，唔蓋 provenance。
 
-Exit codes: 0 = 正常, 1 = 冇嘢做, 2 = 異常。
+Hard policy (DADDY 2026-07-31): ``g10_kline`` is G10-derived data and must
+never enter the canonical ``cardz_market_cap`` database.  This command is
+kept only as an explicit, fail-closed compatibility endpoint: dry-run reports
+the ban without opening a DB connection; ``--write`` exits 2 before any DB
+operation.
 """
 
 from __future__ import annotations
@@ -47,6 +51,9 @@ SOURCE_PRIORITY = 300
 KIND_KLINE_DAILY = "g10_kline_daily"
 LEDGER_SOURCE = "g10_analytics"
 BATCH_SIZE = 2000
+CANONICAL_DB_WRITE_BANNED_REASON = (
+    "G10-derived K-line data (source_code=g10_kline) is forbidden from canonical DB"
+)
 
 
 def sha256_text(value: str) -> str:
@@ -110,83 +117,17 @@ def collect(cursor: Any) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--write", action="store_true", help="真寫入；唔俾就 dry-run")
+    parser.add_argument("--write", action="store_true", help="已禁用；永遠不會寫入 canonical DB")
     add_connection_args(parser)
     args = parser.parse_args()
-    connection = connection_from_args(args)
-    try:
-        with connection.cursor() as cursor:
-            collected = collect(cursor)
-            counts = collected["counts"]
-            rows = collected["rows"]
-            cursor.execute(
-                "SELECT COUNT(*) AS c FROM market_price_observation WHERE source_code=%s",
-                (SOURCE_CODE,),
-            )
-            before = int(cursor.fetchone()["c"])
-            print(f"[K線橋接] ledger 讀入 {counts['observed']} | carried 跳過 {counts['carried_skipped']} | "
-                  f"identity 對唔到 {counts['quarantined']}（{len(collected['unmatched_entities'])} 個實體）| "
-                  f"無效 close {counts['rejected']} | 候選寫入 {counts['accepted']}")
-            print(f"[K線橋接] market_price_observation source={SOURCE_CODE} 現有 {before} 行")
-            if not rows:
-                print("[K線橋接] 冇嘢寫")
-                return 1
-            if not args.write:
-                print("[DRY-RUN] 未寫入。加 --write 先真寫。")
-                return 0
 
-            started_at = datetime.now(timezone.utc).replace(tzinfo=None)
-            run_key = sha256_text(f"{SOURCE_CODE}|{started_at.isoformat()}")
-            effective_at = max(r[2] for r in rows)
-            manifest_sha = sha256_text("\n".join(sorted(r[4] for r in rows)))
-            cursor.execute(
-                """
-                INSERT INTO market_ingest_run
-                    (run_key, source_code, ingest_mode, effective_at, payload_sha256, manifest_sha256,
-                     status, observed_count, started_at)
-                VALUES (%s, %s, 'backfill', %s, %s, %s, 'running', %s, %s)
-                """,
-                (run_key, SOURCE_CODE, effective_at, manifest_sha, manifest_sha,
-                 counts["observed"], started_at),
-            )
-            run_id = int(cursor.lastrowid)
-            inserted = 0
-            for batch in chunked(rows, BATCH_SIZE):
-                inserted += cursor.executemany(
-                    """
-                    INSERT IGNORE INTO market_price_observation
-                        (run_id, variant_id, source_code, observed_date, effective_at,
-                         price_usd, native_price, native_currency, source_priority,
-                         metric_status, payload_sha256)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, 'USD', %s, 'ready', %s)
-                    """,
-                    [
-                        (run_id, variant_id, SOURCE_CODE, observed_date, eff, close, close,
-                         SOURCE_PRIORITY, sha)
-                        for variant_id, observed_date, eff, close, sha in batch
-                    ],
-                )
-            cursor.execute(
-                """
-                UPDATE market_ingest_run
-                SET status='completed', observed_count=%s, accepted_count=%s,
-                    quarantined_count=%s, rejected_count=%s, completed_at=%s
-                WHERE id=%s
-                """,
-                (counts["observed"], counts["accepted"], counts["quarantined"],
-                 counts["rejected"], datetime.now(timezone.utc).replace(tzinfo=None), run_id),
-            )
-            connection.commit()
-            cursor.execute(
-                "SELECT COUNT(*) AS c FROM market_price_observation WHERE source_code=%s",
-                (SOURCE_CODE,),
-            )
-            after = int(cursor.fetchone()["c"])
-            print(f"[K線橋接] run_id={run_id} 新插入 {inserted} | "
-                  f"source={SOURCE_CODE} 行數 {before} → {after}")
-        return 0
-    finally:
-        connection.close()
+    # Keep this gate before connection_from_args(): neither the compatibility
+    # dry-run nor an accidental --write may touch canonical MySQL.
+    if args.write:
+        print(f"[BANNED] {CANONICAL_DB_WRITE_BANNED_REASON}", file=sys.stderr)
+        return 2
+    print(f"[BANNED DRY-RUN] {CANONICAL_DB_WRITE_BANNED_REASON}; no DB connection or write.")
+    return 0
 
 
 if __name__ == "__main__":

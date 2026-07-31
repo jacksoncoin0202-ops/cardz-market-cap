@@ -96,16 +96,6 @@ def _entries(path: Path) -> dict[str, Any]:
     return dict(document.get("entries") or {})
 
 
-def load_tables(connection: Any | None = None) -> dict[str, Any]:
-    stories, sources = _story_table(connection)
-    return {
-        "names": _entries(CARD_NAMES),
-        "sets": _entries(SET_NAMES),
-        "stories": stories,
-        "storySources": sources,
-    }
-
-
 def _accept(candidate: Mapping[str, Any]) -> dict[str, str] | None:
     """四語齊、每語 >=80 字、互不相同先收貨，否則掉。
 
@@ -177,6 +167,120 @@ def _differs(field: Mapping[str, Any], english: str) -> bool:
     return any(field.get(locale) != english for locale in TRANSLATED_LOCALES)
 
 
+def _norm_name_key(name: str) -> str:
+    """Collapse EN name variants so frontend/JSON keys still hit.
+
+    Handles: ``Monkey D. Luffy`` vs ``Monkey D Luffy`` vs ``Monkey.D.Luffy``,
+    punctuation and case. Used only for *lookup*, never as display text.
+    """
+
+    s = str(name or "").casefold().strip()
+    s = s.replace("・", " ").replace("·", " ")
+    # dots between letters (Monkey.D.Luffy) → space
+    s = re.sub(r"\.(?=\w)", " ", s)
+    s = re.sub(r"[^\w\s\-']+", " ", s, flags=re.UNICODE)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _build_name_index(names: Mapping[str, Any]) -> dict[str, dict[str, str]]:
+    """Map normalized EN key → {zhTW, zhCN, ja} with locale key normalization."""
+
+    index: dict[str, dict[str, str]] = {}
+    for raw_key, raw_val in (names or {}).items():
+        if not isinstance(raw_val, Mapping):
+            continue
+        entry: dict[str, str] = {}
+        for locale in TRANSLATED_LOCALES:
+            # accept zhTW / zh-TW / zh_TW
+            for k in (locale, locale.replace("zh", "zh-").replace("TW", "TW"), f"zh-TW" if locale == "zhTW" else None, f"zh-CN" if locale == "zhCN" else None):
+                if k and raw_val.get(k):
+                    entry[locale] = str(raw_val[k])
+                    break
+            if locale not in entry:
+                # card-names.ts style
+                alt = {"zhTW": "zh-TW", "zhCN": "zh-CN", "ja": "ja"}.get(locale)
+                if alt and raw_val.get(alt):
+                    entry[locale] = str(raw_val[alt])
+        if not entry:
+            continue
+        for key_src in (raw_key, raw_val.get("en"), raw_val.get("enName")):
+            if key_src:
+                index[_norm_name_key(str(key_src))] = entry
+    return index
+
+
+def _load_frontend_card_names() -> dict[str, Any]:
+    """Best-effort parse EXACT map from apps/web card-names.ts into JSON-like entries."""
+
+    ts_path = ROOT / "apps" / "web" / "src" / "lib" / "card-names.ts"
+    if not ts_path.is_file():
+        return {}
+    text = ts_path.read_text(encoding="utf-8")
+    # EXACT block: "English": { "zh-TW": "...", "zh-CN": "...", ja: "..." }
+    entries: dict[str, dict[str, str]] = {}
+    # Match object entries inside EXACT const
+    for m in re.finditer(
+        r'["\']([^"\']+)["\']\s*:\s*\{\s*["\']zh-TW["\']\s*:\s*["\']([^"\']*)["\']\s*,\s*["\']zh-CN["\']\s*:\s*["\']([^"\']*)["\']\s*,\s*ja\s*:\s*["\']([^"\']*)["\']',
+        text,
+    ):
+        en, zhtw, zhcn, ja = m.group(1), m.group(2), m.group(3), m.group(4)
+        entries[en] = {"zhTW": zhtw, "zhCN": zhcn, "ja": ja}
+    # LEXICON array form: ["English", { "zh-TW": "...", ... }]
+    for m in re.finditer(
+        r'\["([^"]+)",\s*\{\s*["\']zh-TW["\']\s*:\s*["\']([^"\']*)["\']\s*,\s*["\']zh-CN["\']\s*:\s*["\']([^"\']*)["\']\s*,\s*ja\s*:\s*["\']([^"\']*)["\']',
+        text,
+    ):
+        en, zhtw, zhcn, ja = m.group(1), m.group(2), m.group(3), m.group(4)
+        entries.setdefault(en, {"zhTW": zhtw, "zhCN": zhcn, "ja": ja})
+    return entries
+
+
+def _db_name_index(connection: Any | None) -> dict[str, dict[str, str]]:
+    """variant opaque_id → translated names from catalog_variant_locale."""
+
+    if connection is None:
+        return {}
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT v.opaque_id, l.locale_code, l.localized_name
+                FROM catalog_variant_locale l
+                JOIN catalog_variant v ON v.id = l.variant_id
+                WHERE l.localized_name IS NOT NULL AND TRIM(l.localized_name) <> ''
+                  AND l.locale_code IN ('zhTW', 'zhCN', 'ja')
+                """
+            )
+            rows = cursor.fetchall()
+    except Exception:
+        return {}
+    by_opaque: dict[str, dict[str, str]] = {}
+    for row in rows:
+        if isinstance(row, Mapping):
+            opaque, locale, name = row["opaque_id"], row["locale_code"], row["localized_name"]
+        else:
+            opaque, locale, name = row[0], row[1], row[2]
+        by_opaque.setdefault(str(opaque), {})[str(locale)] = str(name)
+    return by_opaque
+
+
+def load_tables(connection: Any | None = None) -> dict[str, Any]:
+    stories, sources = _story_table(connection)
+    names = dict(_entries(CARD_NAMES))
+    # Merge frontend EXACT/LEXICON so producer matches what web already ships
+    for k, v in _load_frontend_card_names().items():
+        names.setdefault(k, v)
+    return {
+        "names": names,
+        "nameIndex": _build_name_index(names),
+        "dbNamesByOpaque": _db_name_index(connection),
+        "sets": _entries(SET_NAMES),
+        "stories": stories,
+        "storySources": sources,
+    }
+
+
 def localize_cards(
     cards: Iterable[Mapping[str, Any]],
     tables: Mapping[str, Any] | None = None,
@@ -194,7 +298,11 @@ def localize_cards(
     """
 
     tables = tables or load_tables(connection)
-    names, sets_, stories = tables.get("names") or {}, tables.get("sets") or {}, tables.get("stories") or {}
+    names = tables.get("names") or {}
+    name_index = tables.get("nameIndex") or _build_name_index(names)
+    db_names = tables.get("dbNamesByOpaque") or {}
+    sets_ = tables.get("sets") or {}
+    stories = tables.get("stories") or {}
     story_sources = tables.get("storySources") or {}
     coverage = {
         "cards": 0,
@@ -212,7 +320,18 @@ def localize_cards(
         coverage["cards"] += 1
 
         english_name = str(card["names"].get("en") or "")
-        translated = names.get(english_name) or {}
+        published_id = str(card.get("id") or "")
+        # Priority: DB locale by opaque → exact EN key → normalized key (FE/JSON)
+        translated = dict(db_names.get(published_id) or {})
+        if not any(translated.get(l) for l in TRANSLATED_LOCALES):
+            translated = dict(names.get(english_name) or {})
+        if not any(
+            translated.get(l) and str(translated.get(l)) != english_name for l in TRANSLATED_LOCALES
+        ):
+            hit = name_index.get(_norm_name_key(english_name)) or {}
+            for locale in TRANSLATED_LOCALES:
+                if hit.get(locale):
+                    translated[locale] = hit[locale]
         for locale in TRANSLATED_LOCALES:
             card["names"][locale] = str(translated.get(locale) or english_name)
         # 量「有冇真係譯到」要對比英文，唔可以淨係睇張表有冇 entry ——
@@ -222,8 +341,15 @@ def localize_cards(
 
         english_set = str(card["sets"].get("en") or "")
         translated_set = sets_.get(english_set) or {}
+        if not translated_set:
+            translated_set = name_index.get(_norm_name_key(english_set)) or {}
+        # sets table may use same locale keys
         for locale in TRANSLATED_LOCALES:
-            card["sets"][locale] = str(translated_set.get(locale) or english_set)
+            card["sets"][locale] = str(
+                translated_set.get(locale)
+                or translated_set.get({"zhTW": "zh-TW", "zhCN": "zh-CN", "ja": "ja"}.get(locale, locale))
+                or english_set
+            )
         coverage["setTranslated" if _differs(card["sets"], english_set) else "setFallbackEnglish"] += 1
 
         # 兩個 key 都試：DB 表用 `opaque_id`，JSON fallback 表用出版 `cmc_*` id。

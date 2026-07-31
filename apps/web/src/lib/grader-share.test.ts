@@ -5,6 +5,25 @@ import type { MarketViewSnapshot } from "./types";
 
 const seed = getSeedSnapshot();
 
+function withoutTagPopulation(snapshot: MarketViewSnapshot): MarketViewSnapshot {
+  const clear = (card: MarketViewSnapshot["top100"][number]) => ({
+    ...card,
+    graderPopulations: {
+      ...card.graderPopulations,
+      TAG: {
+        ...card.graderPopulations.TAG,
+        topGradePopulation: { value: null, status: "unavailable" as const, asOf: null, estimated: false },
+        total: { value: null, status: "unavailable" as const, asOf: null, estimated: false },
+      },
+    },
+  });
+  return {
+    ...snapshot,
+    top100: snapshot.top100.map(clear),
+    watchlist: snapshot.watchlist.map(clear),
+  };
+}
+
 function withTagPopulation(snapshot: MarketViewSnapshot): MarketViewSnapshot {
   const [first, ...rest] = snapshot.top100;
   return {
@@ -36,9 +55,9 @@ describe("grader share", () => {
   });
 
   it("does not list a grader that has no eligible cards", () => {
-    // 呢個係 /graders/tag 死版嘅根源：TAG 一張卡都入唔到榜。
-    expect(gradersWithCards(seed)).not.toContain("TAG");
-    expect(gradersWithCards(seed)).toContain("PSA");
+    const withoutTag = withoutTagPopulation(seed);
+    expect(gradersWithCards(withoutTag)).not.toContain("TAG");
+    expect(gradersWithCards(withoutTag)).toContain("PSA");
   });
 
   it("lists TAG the moment TAG population lands, with no code change", () => {
@@ -47,8 +66,8 @@ describe("grader share", () => {
   });
 
   it("keeps a grader with no cards visible in the share breakdown at 0%", () => {
-    // 分母係全市場，所以 TAG 冇數據只會係 0%，唔會拖冧成個 widget。
-    expect(graderShareTotals(seed).TAG).toBe(0);
-    expect(graderShareTotals(withTagPopulation(seed)).TAG).toBe(40);
+    const withoutTag = withoutTagPopulation(seed);
+    expect(graderShareTotals(withoutTag).TAG).toBe(0);
+    expect(graderShareTotals(withTagPopulation(withoutTag)).TAG).toBe(40);
   });
 });

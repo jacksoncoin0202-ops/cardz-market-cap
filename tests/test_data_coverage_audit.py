@@ -11,10 +11,24 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
-from data_coverage_audit import build_audit  # noqa: E402
+from data_coverage_audit import build_audit, presentation_view_readiness  # noqa: E402
 
 
 class DataCoverageAuditTests(unittest.TestCase):
+    def test_top300_boards_uses_combined_300_and_each_board_100(self) -> None:
+        ready, requirements = presentation_view_readiness(
+            "top300_boards",
+            {"tcg": 300, "pokemon": 100, "onePiece": 100},
+        )
+        self.assertEqual(requirements, {"tcg": 300, "pokemon": 100, "onePiece": 100})
+        self.assertTrue(all(ready.values()))
+
+        short, _ = presentation_view_readiness(
+            "top300_boards",
+            {"tcg": 300, "pokemon": 100, "onePiece": 99},
+        )
+        self.assertFalse(short["onePiece"])
+
     def test_mapping_only_is_not_counted_as_verified_data(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

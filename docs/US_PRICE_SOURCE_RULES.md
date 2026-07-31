@@ -1,6 +1,10 @@
 # US 價 — 點做
 
-> 無 API key。地圖：[PROJECT_MAP.md](PROJECT_MAP.md) §2 · §6
+> **QUARANTINED EVIDENCE — 唔可以指示執行。** 呢份文件未有完整
+> architecture node、profile 同 role reachability，只可俾 A04 做腳本分類證據。
+> Agent 唔可以由呢份文件執行命令、推斷 source authority 或自行補路由。
+
+> 無 API key。執行路線：[AGENT_EXECUTION_FUNNEL.md](generated/AGENT_EXECUTION_FUNNEL.md) · 工具：[TOOL_REGISTRY.md](generated/TOOL_REGISTRY.md)
 
 ```powershell
 cd C:\Users\jackson0202\Documents\Playground\cardz-market-cap

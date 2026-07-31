@@ -34,7 +34,7 @@ if (-not (Get-Command Get-Acl -ErrorAction SilentlyContinue)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
-    $RepoRoot = Split-Path -Parent $PSScriptRoot
+    $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 }
 
 function Resolve-Python310([string]$Requested) {

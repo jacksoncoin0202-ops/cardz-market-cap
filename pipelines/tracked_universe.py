@@ -88,6 +88,163 @@ def write_outputs(document: Mapping[str, Any], output: Path, gemrate_ids: Path, 
     atomic_write(snk_ids, (("\n".join(str(value) for value in snk) + "\n") if snk else "").encode("ascii"))
 
 
+G10_RELAXED_OVERLAY_SCHEMA = "4.0.0"
+G10_RELAXED_OVERLAY_POLICY = {
+    "indexes": ["tcg", "pokemon", "one-piece"],
+    "canonicalMembership": "complete_eligible",
+    "languagePartitioning": False,
+    "bootstrapSource": "grade10",
+    "releaseProfile": "relaxed-launch-v1",
+    "rankBasis": "deterministic_crosswalk_order",
+    "identityStatus": "provisional",
+}
+
+
+def _g10_overlay_hash(source_code: str, external_id: str) -> str:
+    return hashlib.sha256(f"{source_code.casefold()}|{external_id}".encode("utf-8")).hexdigest()
+
+
+def _g10_provisional_collector(source_code: str, external_id: str) -> str:
+    """Keep a DB-required identifier without pretending it is a printing number."""
+
+    return f"G10-{_g10_overlay_hash(source_code, external_id)[:20]}"
+
+
+def build_g10_relaxed_overlay(
+    crosswalk: Mapping[str, Any],
+    *,
+    effective_at: datetime,
+) -> dict[str, Any]:
+    """Build the isolated 600-card Grade10 bootstrap overlay.
+
+    This is deliberately separate from the current strict universe lock.  It
+    preserves each crosswalk source reference and its available identity fields,
+    while an explicit ``G10-<hash>`` marker makes a missing collector number
+    provisional instead of inventing a real printing number.
+    """
+
+    source = crosswalk.get("cards")
+    if not isinstance(source, list):
+        raise RuntimeError("Grade10 crosswalk has no cards")
+
+    cards: list[dict[str, Any]] = []
+    seen_sources: set[tuple[str, str]] = set()
+    seen_opaque_ids: set[str] = set()
+    provisional_collectors = 0
+    for index, raw in enumerate(source, start=1):
+        if not isinstance(raw, Mapping):
+            raise RuntimeError(f"Grade10 crosswalk card {index} is invalid")
+        source_code = str(raw.get("canonicalSourceCode") or "").strip().casefold()
+        external_id = str(raw.get("canonicalExternalId") or "").strip()
+        tcg = str(raw.get("market") or "").strip()
+        language = str(raw.get("language") or "").strip()
+        name = str(raw.get("name") or "").strip()
+        set_name = str(raw.get("setName") or "").strip()
+        if (
+            not source_code
+            or not external_id
+            or tcg not in {"pokemon", "one-piece"}
+            or language not in {"en", "ja", "ko", "zhCN", "zhTW"}
+            or not name
+            or not set_name
+        ):
+            raise RuntimeError(f"Grade10 crosswalk card {index} lacks bootstrap identity")
+        source_ref = (source_code, external_id)
+        if source_ref in seen_sources:
+            raise RuntimeError(f"Grade10 crosswalk repeats source identity: {source_code}:{external_id}")
+        digest = _g10_overlay_hash(source_code, external_id)
+        opaque_id = f"g10_{digest[:24]}"
+        if opaque_id in seen_opaque_ids:
+            raise RuntimeError("Grade10 bootstrap opaque ID collision")
+        seen_sources.add(source_ref)
+        seen_opaque_ids.add(opaque_id)
+
+        raw_collector = str(raw.get("collectorNumberRaw") or "").strip()
+        provisional_collector = not raw_collector
+        collector = raw_collector or _g10_provisional_collector(source_code, external_id)
+        provisional_collectors += int(provisional_collector)
+        snk_item_id = raw.get("snkItemId")
+        cards.append(
+            {
+                "pokedexId": opaque_id,
+                "pokedexStatus": "provisional",
+                "identityStatus": "provisional",
+                "canonicalSourceCode": source_code,
+                "canonicalExternalId": external_id,
+                "gemrateId": str(raw.get("gemrateId") or "").strip() or None,
+                "snkItemId": (
+                    int(snk_item_id)
+                    if isinstance(snk_item_id, int) and not isinstance(snk_item_id, bool) and snk_item_id > 0
+                    else None
+                ),
+                "tcg": tcg,
+                "language": language,
+                "name": name,
+                "setName": set_name,
+                "collectorNumber": collector,
+                "rankMemberships": {},
+                "g10Bootstrap": {
+                    "sourceCrosswalkIdentityStatus": str(raw.get("identityStatus") or "review"),
+                    "collectorNumberRaw": raw_collector or None,
+                    "collectorNumberStatus": "provisional_marker" if provisional_collector else "source_value",
+                    "canonicalPrintingKey": raw.get("canonicalPrintingKey"),
+                    "edition": str(raw.get("edition") or "").strip(),
+                    "parallel": str(raw.get("parallel") or "").strip(),
+                    "finish": str(raw.get("finish") or "").strip(),
+                },
+            }
+        )
+
+    cards.sort(
+        key=lambda row: (
+            str(row["tcg"]),
+            str(row["canonicalSourceCode"]),
+            str(row["canonicalExternalId"]),
+        )
+    )
+    market_ranks: Counter[str] = Counter()
+    for combined_rank, card in enumerate(cards, start=1):
+        tcg = str(card["tcg"])
+        market_ranks[tcg] += 1
+        card["rankMemberships"] = {"tcg": combined_rank, tcg: market_ranks[tcg]}
+
+    effective = effective_at.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return {
+        "schemaVersion": G10_RELAXED_OVERLAY_SCHEMA,
+        "authority": {
+            "source": "grade10_crosswalk",
+            "releaseProfile": "relaxed-launch-v1",
+            "crosswalkPayloadSha256": crosswalk.get("payloadSha256"),
+        },
+        "effectiveAt": effective,
+        "generatedAt": effective,
+        "policy": dict(G10_RELAXED_OVERLAY_POLICY),
+        "counts": {
+            "cards": len(cards),
+            "pokemon": market_ranks["pokemon"],
+            "onePiece": market_ranks["one-piece"],
+            "gemrateMapped": sum(bool(card.get("gemrateId")) for card in cards),
+            "snkMapped": sum(isinstance(card.get("snkItemId"), int) for card in cards),
+            "provisionalCollectorMarkers": provisional_collectors,
+        },
+        "payloadSha256": hashlib.sha256(
+            json.dumps(cards, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest(),
+        "cards": cards,
+    }
+
+
+def write_g10_relaxed_overlay(
+    document: Mapping[str, Any],
+    output: Path,
+    gemrate_ids: Path,
+    snk_ids: Path,
+) -> None:
+    """Write a private relaxed overlay plus its paired provider worklists."""
+
+    write_outputs(document, output, gemrate_ids, snk_ids)
+
+
 def _load_snk_rows(path: Path) -> dict[int, Mapping[str, Any]]:
     rows: dict[int, Mapping[str, Any]] = {}
     with path.open(encoding="utf-8") as source:
@@ -100,6 +257,100 @@ def _load_snk_rows(path: Path) -> dict[int, Mapping[str, Any]]:
                 raise RuntimeError(f"invalid SNK row at line {line_number}: {path}")
             rows[int(row["item_id"])] = row
     return rows
+
+
+def _canonical_source_ref(row: Mapping[str, Any]) -> tuple[str, str]:
+    nested = row.get("canonicalSource")
+    source = nested if isinstance(nested, Mapping) else row
+    return (
+        str(source.get("sourceCode") or row.get("canonicalSourceCode") or "").strip(),
+        str(source.get("externalId") or row.get("canonicalExternalId") or "").strip(),
+    )
+
+
+def _canonical_identity_signature(row: Mapping[str, Any]) -> tuple[str, ...] | None:
+    identity = row.get("canonicalIdentity")
+    if not isinstance(identity, Mapping):
+        return None
+    fields = ("tcg", "setName", "collectorNumber", "edition", "parallel", "finish")
+    values = tuple(str(identity.get(field) or "").strip().casefold() for field in fields)
+    return values if all(values) else None
+
+
+def merge_snk_refill_worklist(
+    manifest: Mapping[str, Any],
+    worklist: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, int]]:
+    """Carry exact resolved SNK IDs back to their immutable candidate reference."""
+
+    raw_candidates = manifest.get("candidates")
+    raw_worklist = worklist.get("cards")
+    if not isinstance(raw_candidates, list):
+        raise RuntimeError("candidate manifest has no candidates")
+    if not isinstance(raw_worklist, list):
+        raise RuntimeError("SNK exact refill worklist has no candidate rows")
+
+    candidates = [dict(row) for row in raw_candidates if isinstance(row, Mapping)]
+    by_source: dict[tuple[str, str], dict[str, Any]] = {}
+    for candidate in candidates:
+        source_ref = _canonical_source_ref(candidate)
+        if not all(source_ref):
+            continue
+        if source_ref in by_source:
+            raise RuntimeError(f"candidate manifest repeats canonical source reference: {source_ref[0]}:{source_ref[1]}")
+        by_source[source_ref] = candidate
+
+    counts = {
+        "worklistRows": len(raw_worklist),
+        "resolvedRows": 0,
+        "attached": 0,
+        "replayed": 0,
+        "unresolvedRows": 0,
+    }
+    resolved_by_source: dict[tuple[str, str], int] = {}
+    for raw in raw_worklist:
+        if not isinstance(raw, Mapping) or raw.get("status") != "resolved":
+            counts["unresolvedRows"] += 1
+            continue
+        counts["resolvedRows"] += 1
+        source_ref = _canonical_source_ref(raw)
+        snk_item_id = raw.get("snkItemId")
+        if (
+            not all(source_ref)
+            or raw.get("identityStatus") != "exact_confirmed"
+            or not isinstance(snk_item_id, int)
+            or isinstance(snk_item_id, bool)
+            or snk_item_id <= 0
+        ):
+            raise RuntimeError("resolved SNK worklist row is missing an exact candidate association")
+        prior = resolved_by_source.get(source_ref)
+        if prior is not None and prior != snk_item_id:
+            raise RuntimeError(f"SNK worklist rebind blocked: {source_ref[0]}:{source_ref[1]}")
+        resolved_by_source[source_ref] = snk_item_id
+        candidate = by_source.get(source_ref)
+        if candidate is None:
+            raise RuntimeError(f"SNK worklist candidate is absent from manifest: {source_ref[0]}:{source_ref[1]}")
+        candidate_identity = _canonical_identity_signature(candidate)
+        worklist_identity = _canonical_identity_signature(raw)
+        if (
+            candidate_identity is None
+            or worklist_identity is None
+            or candidate_identity != worklist_identity
+        ):
+            raise RuntimeError(f"SNK worklist identity mismatch: {source_ref[0]}:{source_ref[1]}")
+        existing = candidate.get("snkItemId")
+        if isinstance(existing, int) and not isinstance(existing, bool):
+            if existing != snk_item_id:
+                raise RuntimeError(f"SNK identity rebind blocked: {source_ref[0]}:{source_ref[1]}")
+            counts["replayed"] += 1
+            continue
+        candidate["snkItemId"] = snk_item_id
+        nested_source = candidate.get("canonicalSource")
+        if isinstance(nested_source, Mapping):
+            candidate["canonicalSource"] = {**dict(nested_source), "snkItemId": snk_item_id}
+        counts["attached"] += 1
+
+    return {**dict(manifest), "candidates": candidates}, counts
 
 
 def _fx_jpy_per_usd(path: Path) -> float:
@@ -232,6 +483,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Build complete combined/Pokémon/One Piece eligible ranking union")
     parser.add_argument("--source-root", type=Path, default=DEFAULT_SOURCE)
     parser.add_argument("--crosswalk", type=Path, default=DEFAULT_CROSSWALK)
+    parser.add_argument(
+        "--g10-relaxed-overlay",
+        action="store_true",
+        help="build a separate Grade10-backed relaxed-launch-v1 bootstrap universe; never overwrite the strict lock",
+    )
+    parser.add_argument(
+        "--expect-crosswalk-cards",
+        type=int,
+        default=600,
+        help="required Grade10 crosswalk cardinality for --g10-relaxed-overlay",
+    )
     parser.add_argument("--landing-root", type=Path, default=DEFAULT_LANDING)
     parser.add_argument("--gemrate-root", type=Path, default=DEFAULT_GEMRATE)
     parser.add_argument(
@@ -243,6 +505,11 @@ def main() -> int:
         "--snk-run",
         type=Path,
         help="completed exact PSA 10 SNK JSONL required together with --candidate-manifest",
+    )
+    parser.add_argument(
+        "--snk-worklist",
+        type=Path,
+        help="exact refill association worklist merged into the candidate manifest before overlay construction",
     )
     parser.add_argument(
         "--fx-snapshot",
@@ -268,6 +535,39 @@ def main() -> int:
         else datetime.now(timezone.utc)
     )
     crosswalk_path = args.crosswalk.resolve()
+    if args.g10_relaxed_overlay:
+        output = args.out.resolve()
+        gemrate_ids = args.gemrate_ids_out.resolve()
+        snk_ids = args.snk_ids_out.resolve()
+        if output == DEFAULT_OUT.resolve():
+            raise RuntimeError("--g10-relaxed-overlay requires a separate --out; tracked-universe.json is protected")
+        if gemrate_ids == DEFAULT_GEMRATE_IDS.resolve() or snk_ids == DEFAULT_SNK_IDS.resolve():
+            raise RuntimeError("--g10-relaxed-overlay requires separate --gemrate-ids-out and --snk-ids-out")
+        if not crosswalk_path.is_file():
+            raise RuntimeError(f"Grade10 crosswalk does not exist: {crosswalk_path}")
+        loaded_crosswalk = json.loads(crosswalk_path.read_text(encoding="utf-8-sig"))
+        if not isinstance(loaded_crosswalk, Mapping):
+            raise RuntimeError("Grade10 crosswalk is invalid")
+        document = build_g10_relaxed_overlay(loaded_crosswalk, effective_at=effective_at)
+        if len(document["cards"]) != args.expect_crosswalk_cards:
+            raise RuntimeError(
+                f"Grade10 relaxed overlay completeness failed: {len(document['cards'])} != {args.expect_crosswalk_cards}"
+            )
+        write_g10_relaxed_overlay(document, output, gemrate_ids, snk_ids)
+        print(
+            json.dumps(
+                {
+                    "status": "ready",
+                    "mode": "g10_relaxed_overlay",
+                    "output": str(output),
+                    "gemrateIds": str(gemrate_ids),
+                    "snkIds": str(snk_ids),
+                    **document["counts"],
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
     crosswalk = (
         json.loads(crosswalk_path.read_text(encoding="utf-8-sig"))
         if crosswalk_path.is_file()
@@ -282,10 +582,18 @@ def main() -> int:
     )
     if (args.candidate_manifest is None) != (args.snk_run is None):
         raise RuntimeError("--candidate-manifest and --snk-run must be supplied together")
+    if args.snk_worklist is not None and args.candidate_manifest is None:
+        raise RuntimeError("--snk-worklist requires --candidate-manifest and --snk-run")
+    snk_worklist_merge: dict[str, int] | None = None
     if args.candidate_manifest is not None and args.snk_run is not None:
         manifest = json.loads(args.candidate_manifest.resolve().read_text(encoding="utf-8-sig"))
         if not isinstance(manifest, Mapping):
             raise RuntimeError("candidate manifest is invalid")
+        if args.snk_worklist is not None:
+            worklist = json.loads(args.snk_worklist.resolve().read_text(encoding="utf-8-sig"))
+            if not isinstance(worklist, Mapping):
+                raise RuntimeError("SNK exact refill worklist is invalid")
+            manifest, snk_worklist_merge = merge_snk_refill_worklist(manifest, worklist)
         candidate_rows, candidate_rejected = candidate_manifest_rows(
             manifest,
             snk_rows=_load_snk_rows(args.snk_run.resolve()),
@@ -310,6 +618,8 @@ def main() -> int:
     combined_rejected = Counter(document["rejected"])
     combined_rejected.update(rejected)
     document["rejected"] = dict(sorted(combined_rejected.items()))
+    if snk_worklist_merge is not None:
+        document["candidateSnkWorklistMerge"] = snk_worklist_merge
     write_outputs(document, args.out.resolve(), args.gemrate_ids_out.resolve(), args.snk_ids_out.resolve())
     print(json.dumps({"output": str(args.out.resolve()), **document["counts"]}, sort_keys=True))
     return 0

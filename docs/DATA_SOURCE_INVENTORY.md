@@ -13,6 +13,10 @@ does not turn an available script into a canonical authority.
 | G10 eBay details | `integrations/grade10/grade10_scraper.py` | small rolling `saleHistory` sample | bootstrap/test evidence | grade filter is keyword-based and has no stable pagination |
 | Grade10/G10 | vendored integration and immutable old runs | summaries, mappings, historical samples, comparison values | research/bootstrap/last-good comparison only | copied upstream values are not canonical CARDZ observations |
 | CARDZ | database derivation | 1d/7d/30d, market cap, rank, alerts | derived authority | requires fresh GemRate population and SNK price |
+| TCGplayer | public mp-search / mpapi / infinite-api / CDN; PoC `docs/evidence/2026-07-27-image-fix/tcgplayer_lookup.py` | productId, set, collector number, clean face art URL, optional raw market/history | **image candidate source** only | multi-printing per number; QC required; not PSA10 authority. Manual: [TCGPLAYER_API_MANUAL.md](TCGPLAYER_API_MANUAL.md) |
+| PriceCharting | official `/api/product`+CSV (token); product-page `VGPC` after CF (`pipelines/pricecharting_*`) | PSA10 current (`manual-only-price` cents), annual `sales-volume`, optional page history + eBay sale rows | secondary eBay-derived price / liquidity evidence | paid token not in repo; API has no historic sales; page depth needs headed CF session; bulk current = daily CSV. Manual: [PRICECHARTING_API_MANUAL.md](PRICECHARTING_API_MANUAL.md) |
+
+**Agent entry for all provider API manuals:** [PROVIDER_API_INDEX.md](PROVIDER_API_INDEX.md)
 
 ## eBay routes（2026-07-24 更新）
 

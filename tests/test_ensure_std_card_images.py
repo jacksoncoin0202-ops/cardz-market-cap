@@ -41,6 +41,7 @@ def bench(tmp_path, monkeypatch):
     qc.write_text(json.dumps({"records": []}), encoding="utf-8")
     monkeypatch.setattr(nir, "ASSETS", assets)
     monkeypatch.setattr(mod, "QC", qc)
+    monkeypatch.setattr(mod, "LATEST_POINTERS", ())
     return assets, qc, tmp_path
 
 
@@ -99,6 +100,7 @@ def test_qc_record_carries_source_content_sha256(bench, monkeypatch):
     assert evidence["sourceContentSha256"] == source_sha
     assert len(evidence["sourceContentSha256"]) == 64
     assert evidence["sourceContentSha256"] != records[0]["contentSha256"]
+    assert records[0]["publicAllowed"] is False
 
 
 def test_missing_asset_writes_no_public_record(bench, monkeypatch):
@@ -115,3 +117,36 @@ def test_missing_asset_writes_no_public_record(bench, monkeypatch):
     records = run_main(tmp_path, [card, ghost], monkeypatch)
 
     assert [r["publicId"] for r in records] == ["cmc_test_real"]
+
+
+def test_write_refuses_the_snapshot_selected_by_latest_pointer(bench, monkeypatch):
+    """Active last-good generation係 immutable；image self-heal只准改 candidate。"""
+
+    assets, qc, tmp_path = bench
+    publish_root = tmp_path / "data" / "runtime" / "publish-staging"
+    snapshot_path = publish_root / "generations" / "g1" / "snapshot.json"
+    snapshot_path.parent.mkdir(parents=True)
+    snapshot_bytes = json.dumps(
+        {"generation": {"contentSha256": ""}, "top100": [], "watchlist": []}
+    ).encode("utf-8")
+    snapshot_path.write_bytes(snapshot_bytes)
+    pointer = publish_root / "latest.json"
+    pointer.write_text(
+        json.dumps({"snapshotKey": "generations/g1/snapshot.json"}),
+        encoding="utf-8",
+    )
+    before_qc = qc.read_bytes()
+    before_assets = sorted(path.name for path in assets.iterdir())
+    monkeypatch.setattr(mod, "LATEST_POINTERS", (pointer,))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["ensure_std_card_images.py", str(snapshot_path), "--write"],
+    )
+
+    with pytest.raises(RuntimeError, match="active pointed generation"):
+        mod.main()
+
+    assert snapshot_path.read_bytes() == snapshot_bytes
+    assert qc.read_bytes() == before_qc
+    assert sorted(path.name for path in assets.iterdir()) == before_assets

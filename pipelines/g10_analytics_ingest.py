@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""把 G10 (`../grade10-scraper`) 已經算好嘅指標、逐日 K 線同指數入庫。
+"""已禁用：G10 analytics／index／K 線不得寫入 canonical DB。
 
 點解要有呢個檔：G10 `data/analytics/` 入面有 641 行卡片指標（rank / weight /
 indexPrice / change1d,7d,30d / volume1d,7d,30d）同 636 個逐日 OHLC 檔（47,582 條
@@ -50,7 +50,10 @@ variant_id），計入 `quarantined_count`，等 identity 擴充之後重跑自�
 `market_source_observation.external_entity_id` 沿用 DB 現行慣例
 `{identity_source}:{id}`（實測 277,127 行全部係呢個格式）。
 
-Exit codes: 0 = 正常, 1 = 冇嘢做 / 爆閘, 2 = G10 目錄唔見。
+Hard policy (DADDY 2026-07-31): all G10-derived analytics, index and K-line
+source codes are forbidden from the canonical ``cardz_market_cap`` database.
+The command remains as a compatibility endpoint only: dry-run reports the ban
+without opening MySQL; ``--write`` exits 2 before any DB operation.
 """
 
 from __future__ import annotations
@@ -110,6 +113,14 @@ INDEX_CODES = ("ptcg", "ptcg100", "opcg")
 COVERAGE_PARTIAL = "partial"
 CENT = Decimal("0.000001")
 BATCH_SIZE = 2000
+CANONICAL_DB_WRITE_BANNED_SOURCE_CODES = frozenset({SOURCE_CODE, INDEX_SOURCE_CODE})
+CANONICAL_DB_WRITE_BANNED_REASON = (
+    "G10-derived analytics, index, and K-line data are forbidden from canonical DB"
+)
+
+
+class CanonicalG10WriteBanned(RuntimeError):
+    """Raised before an imported caller can write G10-derived rows to MySQL."""
 
 
 def canonical_json(value: Any) -> str:
@@ -619,75 +630,9 @@ def write_all(
     collected: Collected,
     counts: Mapping[str, int],
 ) -> dict[str, Any]:
-    started_at = datetime.now(timezone.utc).replace(tzinfo=None)
-    run_key = sha256_text(f"{SOURCE_CODE}|{started_at.isoformat()}")
-    observations = collected.observations
-    effective_at = max(observation.effective_at for observation in observations)
-    payload_sha256 = sha256_text("\n".join(sorted(o.payload_sha256 for o in observations)))
-    manifest_sha256 = sha256_text("\n".join(sorted(collected.file_hashes)))
-
-    with connection.cursor() as cursor:
-        before = {
-            "market_source_observation": table_count(cursor, *COUNT_LEDGER),
-            "market_tracked_sales_aggregate": table_count(cursor, *COUNT_TRACKED),
-        }
-        cursor.execute(
-            """
-            INSERT INTO market_ingest_run
-                (run_key, source_code, ingest_mode, effective_at, payload_sha256, manifest_sha256,
-                 status, observed_count, started_at)
-            VALUES (%s, %s, 'backfill', %s, %s, %s, 'running', %s, %s)
-            """,
-            (
-                run_key, SOURCE_CODE, effective_at, payload_sha256, manifest_sha256,
-                counts["observed"], started_at,
-            ),
-        )
-        run_id = int(cursor.lastrowid)
-
-        # INSERT IGNORE 而唔係 ON DUPLICATE KEY UPDATE：ledger 係 append-only，
-        # 重跑唔應該將舊行嘅 run_id 搶過嚟（provenance 要留返俾第一次寫嗰個 run）。
-        # 同 `db_runtime.py:873` 一致。
-        inserted_observations = 0
-        for batch in chunked(observations, BATCH_SIZE):
-            inserted_observations += cursor.executemany(
-                """
-                INSERT IGNORE INTO market_source_observation
-                    (run_id, source_code, external_entity_id, observation_kind, effective_at,
-                     observed_date, payload_sha256, payload_json, observed_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """,
-                [
-                    (
-                        run_id, o.source_code, o.external_entity_id, o.observation_kind, o.effective_at,
-                        o.observed_date, o.payload_sha256, o.payload_text, o.observed_at,
-                    )
-                    for o in batch
-                ],
-            )
-        cursor.execute(
-            """
-            UPDATE market_ingest_run
-            SET status='completed', observed_count=%s, accepted_count=%s,
-                quarantined_count=%s, rejected_count=%s, completed_at=%s
-            WHERE id=%s
-            """,
-            (
-                counts["observed"], counts["accepted"], counts["quarantined"], counts["rejected"],
-                datetime.now(timezone.utc).replace(tzinfo=None), run_id,
-            ),
-        )
-        after = {
-            "market_source_observation": table_count(cursor, *COUNT_LEDGER),
-            "market_tracked_sales_aggregate": table_count(cursor, *COUNT_TRACKED),
-        }
-    return {
-        "run_id": run_id,
-        "run_key": run_key,
-        "before": before,
-        "after": after,
-        "inserted": {"market_source_observation": inserted_observations},
-    }
+    # ``main`` rejects earlier, but keep the writer itself fail-closed for
+    # imported callers as well.
+    raise CanonicalG10WriteBanned(CANONICAL_DB_WRITE_BANNED_REASON)
 
 
 def run_counts(collected: Collected, stats: Counter) -> dict[str, int]:
@@ -796,10 +741,18 @@ def print_report(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Ingest local G10 analytics metrics / klines / index into CARDZ MySQL")
     parser.add_argument("--g10-root", type=Path, default=DEFAULT_G10_ROOT, help="G10 `data/` 目錄")
-    parser.add_argument("--write", action="store_true", help="真入庫（預設 dry-run）")
+    parser.add_argument("--write", action="store_true", help="已禁用；永遠不會寫入 canonical DB")
     parser.add_argument("--limit", type=int, default=None, help="只掃頭 N 個 kline 檔")
     add_connection_args(parser)
     args = parser.parse_args()
+
+    # This must stay before both file and DB work.  An accidental scheduled
+    # invocation must not reconnect to canonical MySQL just to inspect G10.
+    if args.write:
+        print(f"[BANNED] {CANONICAL_DB_WRITE_BANNED_REASON}", file=sys.stderr)
+        return 2
+    print(f"[BANNED DRY-RUN] {CANONICAL_DB_WRITE_BANNED_REASON}; no DB connection or write.")
+    return 0
 
     g10_root = args.g10_root.resolve()
     if not (g10_root / "analytics" / "card_metrics.json").is_file():

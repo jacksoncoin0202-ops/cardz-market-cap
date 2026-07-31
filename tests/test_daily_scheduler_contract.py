@@ -66,6 +66,7 @@ class DailySchedulerContractTests(unittest.TestCase):
         self.assertIn("Restart=on-failure", service)
         self.assertIn("RestartSec=10min", service)
         self.assertIn("EnvironmentFile=/etc/cardz-market-cap/backend.env", service)
+        self.assertIn("EnvironmentFile=-/etc/cardz-market-cap/gemrate.env", service)
         self.assertIn(f"OnCalendar=*-*-* {CORRECT_UTC_TIME}:00 UTC", timer)
         self.assertNotIn(f"{INCIDENT_LOCAL_TIME}:00 Asia/Tokyo", timer)
         self.assertIn("Persistent=true", timer)
@@ -170,6 +171,7 @@ class DailySchedulerContractTests(unittest.TestCase):
         # 必須喺裝之前攔住，唔好裝完先至日日 fail。
         self.assertIn("scripts/verify_daily_run.py", installer)
         self.assertNotIn(f"schedule={INCIDENT_LOCAL_TIME}", installer)
+        self.assertIn("Environment file must use LF line endings", installer)
 
     def test_linux_installer_creates_readwrite_paths_before_enabling_units(self) -> None:
         # ProtectSystem=strict 配 ReadWritePaths= 要求每個路徑喺 systemd 起 mount

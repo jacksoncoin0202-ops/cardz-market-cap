@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "policyId": "cardz-source-sample-v1",
+  "contentRules": [
+    {
+      "id": "reject-snk-op11-058-visible-sample",
+      "contentSha256": "4a53529faf845d82b7c06ab04e9fa161792b2d2d9c1e9bee01b594cfef3895a6",
+      "status": "reject",
+      "family": "snkrdunk-card-front",
+      "reason": "known_sample_content_visual_confirmed",
+      "nextAction": "replace_image_source"
+    }
+  ],
+  "rules": [
+    {
+      "id": "reject-one-piece-official-cardlist",
+      "tcg": "one-piece",
+      "containsAll": [
+        "onepiece-cardgame.com",
+        "/images/cardlist/card/"
+      ],
+      "status": "reject",
+      "family": "official-one-piece-cardlist",
+      "reason": "known_sample_source_official_one_piece_cardlist",
+      "nextAction": "replace_image_source"
+    },
+    {
+      "id": "reject-one-piece-tcgplayer-sample-template",
+      "tcg": "one-piece",
+      "containsAll": [
+        "tcgplayer"
+      ],
+      "sizeIn": [
+        [600, 837],
+        [600, 838],
+        [716, 1000]
+      ],
+      "status": "reject",
+      "family": "tcgplayer",
+      "reason": "known_sample_source_tcgplayer_one_piece_template",
+      "nextAction": "replace_image_source"
+    },
+    {
+      "id": "reject-one-piece-limitless-site",
+      "tcg": "one-piece",
+      "hostIn": [
+        "onepiece.limitlesstcg.com"
+      ],
+      "status": "reject",
+      "family": "limitless-one-piece-en",
+      "reason": "known_sample_source_limitless_one_piece_en",
+      "nextAction": "replace_image_source"
+    },
+    {
+      "id": "reject-one-piece-limitless-cdn",
+      "tcg": "one-piece",
+      "hostIn": [
+        "limitlesstcg.nyc3.cdn.digitaloceanspaces.com"
+      ],
+      "pathContains": "/one-piece/",
+      "status": "reject",
+      "family": "limitless-one-piece-en",
+      "reason": "known_sample_source_limitless_one_piece_en",
+      "nextAction": "replace_image_source"
+    },
+    {
+      "id": "scan-snkrdunk-card-front",
+      "tcg": "*",
+      "containsAll": [
+        "snkrdunk"
+      ],
+      "containsAny": [
+        "upload_bg_removed",
+        "cards/snkrdunk/"
+      ],
+      "status": "scan_required",
+      "family": "snkrdunk-card-front",
+      "reason": null,
+      "nextAction": "sample_ocr"
+    }
+  ]
+}
