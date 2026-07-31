@@ -57,7 +57,7 @@ otherwise a clean clone cannot restore the canonical bootstrap. The archive is
 canonical data, not a Top 100/300/350 storage lock; those are export views
 derived after restore.
 
-```powershell
+```bash
 git lfs install --local
 git lfs pull
 python -X utf8 scripts/verify_handoff.py --require-archive --require-tracked --verify-archive
@@ -110,7 +110,7 @@ python3 -X utf8 pipelines/canonical_public_snapshot.py \
 
 `python3 -X utf8 scripts/verify_clean_clone.py` reports this state explicitly and exits **3** while the snapshot is still the demo placeholder — but only once every required file is committed. Today it exits **1** for the different and larger reason at the top of this document, which masks the snapshot check. The two exit codes are not interchangeable: `1` = files missing, `3` = files all present and only the snapshot is still demo. (Measured 2026-07-26.)
 
-Install the repository's prepared systemd units and perform the one-time bootstrap, then enable both the daily timer and the watchdog timer. The exact commands and ownership layout are in [the systemd runbook](../deploy/systemd/README.md). Both Windows Task Scheduler and Linux systemd execute the same `scripts/backend.py daily` entrypoint; no AI process is required for steady-state collection.
+Install the repository's prepared systemd units and perform the one-time bootstrap, then enable both the daily timer and the watchdog timer. The exact commands and ownership layout are in [the systemd runbook](../deploy/systemd/README.md). Linux systemd (WSL today, EC2 on arrival) executes the `scripts/backend.py daily` entrypoint; the Windows Task Scheduler entry is retired as of 2026-07-31. No AI process is required for steady-state collection.
 
 Two timers are required, not one:
 
@@ -199,7 +199,7 @@ python3 -X utf8 -m pytest tests/ -q --no-cov
 ```
 
 Use the system Python. The zip deliberately excludes `.venv-backend/` — a venv carries
-absolute Windows paths and native wheels that will not resolve on the target host.
+host-specific absolute paths and native wheels that will not resolve on the target host.
 
 ### 4. Web app
 

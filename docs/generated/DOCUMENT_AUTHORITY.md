@@ -140,6 +140,7 @@ and cannot override an active authority or provide an executable command.
 - `docs/CARD_INDEPENDENT_QC.md`
 - `docs/CARD_LANGUAGE.md`
 - `docs/CARD_SOURCING_HANDBOOK.md`
+- `docs/CUTOVER_WINDOWS_TO_WSL.md`
 - `docs/DATA_NORMALIZATION.md`
 - `docs/DB_100_EXHAUST.md`
 - `docs/DB_INVENTORY_20260726.md`
@@ -161,6 +162,7 @@ and cannot override an active authority or provide an executable command.
 - `docs/IMAGE_STORE_INDEX.md`
 - `docs/LIQUIDITY_SOURCE_GAP.md`
 - `docs/MEGA_MERGE_S1S5.md`
+- `docs/OPERATIONS_PLAYBOOK.md`
 - `docs/OPERATOR_HARD_GATES.md`
 - `docs/OPTIMAL_DATA_AND_IMAGE_MATRIX.md`
 - `docs/OPTIMAL_SOURCE_ASSEMBLY.md`

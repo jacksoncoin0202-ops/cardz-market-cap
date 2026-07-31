@@ -206,6 +206,21 @@
         "ownerRoleId": "A12",
         "roleStage": "A12",
         "workItemId": "QC-A12-INDEPENDENT-REDTEAM"
+      },
+      {
+        "contributorRoleIds": [],
+        "ownerRoleId": "MAIN",
+        "workItemId": "W1-OBSERVATION-KIND-EXPANSION"
+      },
+      {
+        "contributorRoleIds": [],
+        "ownerRoleId": "MAIN",
+        "workItemId": "W2-IDENTITY-STRENGTHENING-FIELDS"
+      },
+      {
+        "contributorRoleIds": [],
+        "ownerRoleId": "MAIN",
+        "workItemId": "W3-CARD-CERT-REGISTRY"
       }
     ],
     "capabilityRoutes": [
@@ -2027,6 +2042,7 @@
     "rulesPath": "config/data-cleaning-rules.json",
     "schemaPath": "config/data-cleaning-rules.schema.json"
   },
+  "defaultReleaseProfile": "relaxed-launch-v1",
   "documentAuthority": {
     "archiveRoots": [
       "docs/archive",
@@ -3180,18 +3196,26 @@
     }
   ],
   "publicReleasePolicy": {
+    "acceptedBootstrapSources": {
+      "data": [
+        "grade10"
+      ],
+      "images": [
+        "grade10"
+      ]
+    },
     "coverageClaims": [
       "verified-top-n",
       "verified-top-100"
     ],
-    "imageSemanticStatus": "human_or_vision_confirmed",
-    "minimumVerifiedCount": 1,
+    "imageSemanticStatus": "highest_confidence_eligible",
+    "minimumVerifiedCount": 100,
     "pointerPromotion": "generation_bound_atomic_last",
     "populationFreshnessHoursMaximum": 168,
-    "priceFreshnessHoursMaximum": 48,
+    "priceFreshnessHoursMaximum": 720,
     "publisher": "pipelines/publish-snapshot.mjs",
     "requestedCount": 100,
-    "trackedPsa10Sales30dMinimumInclusive": 10
+    "trackedPsa10Sales30dMinimumInclusive": 5
   },
   "rankingPolicy": {
     "canonicalMembership": "complete_eligible_rankings",
@@ -3222,6 +3246,112 @@
     ],
     "languagePartitioning": false,
     "preEntryPolicy": "970<psa10_population<1000; collect current POP and exact PSA 10 price for radar only; never rank or publish as formal membership"
+  },
+  "releaseProfiles": {
+    "relaxed-launch-v1": {
+      "acceptedBootstrapSources": {
+        "data": [
+          "grade10"
+        ],
+        "images": [
+          "grade10"
+        ]
+      },
+      "allPoolFailureAction": "per_card_exclude",
+      "allowedIdentityStatuses": [
+        "confirmed",
+        "provisional"
+      ],
+      "coverageClaims": [
+        "verified-top-n",
+        "verified-top-100"
+      ],
+      "identityConflictAction": "block",
+      "identityStatus": "provisional",
+      "imageHardExclusions": [
+        "not_public_allowed",
+        "not_raw_front",
+        "asset_unreadable",
+        "content_hash_invalid",
+        "geometry_invalid",
+        "sample_or_placeholder",
+        "human_rejected",
+        "cross_card_duplicate",
+        "cross_tcg_duplicate"
+      ],
+      "imageHumanReviewRequired": false,
+      "imageSemanticStatus": "highest_confidence_eligible",
+      "lastGoodMaximumHours": 720,
+      "minimumExactAuthorityBindings": 1,
+      "minimumVerifiedCount": 100,
+      "pointerPromotion": "generation_bound_atomic_last",
+      "populationFreshnessHoursMaximum": 168,
+      "priceFreshnessHoursMaximum": 720,
+      "priceSelection": "pricecharting_explicit_psa10_then_ebay_exact_psa10_sold_median_then_snk_exact_psa10",
+      "priceSpreadAction": "warning",
+      "priceSpreadMaximumRatio": 2.0,
+      "publicCardsMaximum": 1000,
+      "publicImageAssetsMaximum": 3000,
+      "publisher": "pipelines/publish-snapshot.mjs",
+      "recognizedIdentityAuthorities": [
+        "gemrate",
+        "snk",
+        "pricecharting",
+        "psa"
+      ],
+      "requestedCount": 100,
+      "requireCanonicalPrinting": false,
+      "requireCompleteSevenPartPrinting": true,
+      "trackedPsa10Sales30dMinimumInclusive": 5
+    },
+    "strict-v1": {
+      "acceptedBootstrapSources": {
+        "data": [],
+        "images": []
+      },
+      "allPoolFailureAction": "block_release",
+      "allowedIdentityStatuses": [
+        "confirmed"
+      ],
+      "coverageClaims": [
+        "verified-top-n",
+        "verified-top-100"
+      ],
+      "identityConflictAction": "block",
+      "identityStatus": "confirmed",
+      "imageHardExclusions": [
+        "not_public_allowed",
+        "not_raw_front",
+        "asset_unreadable",
+        "content_hash_invalid",
+        "geometry_invalid",
+        "sample_or_placeholder",
+        "human_rejected",
+        "cross_card_duplicate",
+        "cross_tcg_duplicate"
+      ],
+      "imageHumanReviewRequired": true,
+      "imageSemanticStatus": "human_or_vision_confirmed",
+      "lastGoodMaximumHours": 48,
+      "minimumExactAuthorityBindings": 1,
+      "minimumVerifiedCount": 1,
+      "pointerPromotion": "generation_bound_atomic_last",
+      "populationFreshnessHoursMaximum": 168,
+      "priceFreshnessHoursMaximum": 48,
+      "priceSelection": "arithmetic_mean_of_fresh_authority_families",
+      "priceSpreadAction": "block",
+      "priceSpreadMaximumRatio": 2.0,
+      "publicCardsMaximum": 500,
+      "publicImageAssetsMaximum": 1500,
+      "publisher": "pipelines/publish-snapshot.mjs",
+      "recognizedIdentityAuthorities": [
+        "gemrate"
+      ],
+      "requestedCount": 100,
+      "requireCanonicalPrinting": true,
+      "requireCompleteSevenPartPrinting": true,
+      "trackedPsa10Sales30dMinimumInclusive": 10
+    }
   },
   "routeDefaults": {
     "importerTool": "canonical-db",
@@ -5517,6 +5647,94 @@
       "priority": "P1",
       "status": "completed",
       "title": "Generate PROJECT_STATE from the read-only machine status"
+    },
+    {
+      "acceptance": [
+        "no schema migration required; only new source_code values",
+        "cross-feed dedupe still counts one physical sale once",
+        "price series and ranking untouched"
+      ],
+      "dependsOn": [],
+      "id": "W1-OBSERVATION-KIND-EXPANSION",
+      "inputs": [
+        "G10 apparel grade files beyond PSA10",
+        "Grade10 searchSales feed",
+        "qualified-940 TCGplayer bindings"
+      ],
+      "nodeIds": [
+        "collector.snk-exact",
+        "database.canonical"
+      ],
+      "outputs": [
+        "new source_code rows in market_sale_observation and market_daily_sales_aggregate"
+      ],
+      "ownerFiles": [
+        "pipelines/g10_snkrdunk_grades_ingest.py",
+        "pipelines/c11_pc_sold_ingest.py",
+        "pipelines/ebay_sold_data.py"
+      ],
+      "priority": "P2",
+      "status": "planned",
+      "title": "Expand observation kinds without schema change (G10 remaining apparel grades, searchSales, TCGplayer)"
+    },
+    {
+      "acceptance": [
+        "migration is additive only (no column drops or rewrites)",
+        "cert_number uniqueness enforced per grader where provable",
+        "seed build and restore round-trip cleanly"
+      ],
+      "dependsOn": [
+        "W1-OBSERVATION-KIND-EXPANSION"
+      ],
+      "id": "W2-IDENTITY-STRENGTHENING-FIELDS",
+      "inputs": [
+        "PSA cert numbers from graded sales",
+        "official scan URLs (cdn.snkrdunk.com upload_bg_removed)"
+      ],
+      "nodeIds": [
+        "normalizer.identity",
+        "database.canonical"
+      ],
+      "outputs": [
+        "migration 021+ adding cert_number, official_scan_url, source_priority_hint"
+      ],
+      "ownerFiles": [
+        "pipelines/migrations",
+        "pipelines/db_runtime.py",
+        "config/data-routing.json"
+      ],
+      "priority": "P2",
+      "status": "planned",
+      "title": "Add identity-strengthening fields (cert_number, official_scan_url, source_priority_hint)"
+    },
+    {
+      "acceptance": [
+        "one row per physical graded slab per grader",
+        "every registry row binds to exactly one canonical printing",
+        "public boundary unchanged: cert numbers never enter public snapshots"
+      ],
+      "dependsOn": [
+        "W2-IDENTITY-STRENGTHENING-FIELDS"
+      ],
+      "id": "W3-CARD-CERT-REGISTRY",
+      "inputs": [
+        "cert numbers from PSA/BGS/CGC/SGC/TAG sales and population data"
+      ],
+      "nodeIds": [
+        "normalizer.identity",
+        "database.canonical"
+      ],
+      "outputs": [
+        "card_cert_registry design doc and migration"
+      ],
+      "ownerFiles": [
+        "pipelines/migrations",
+        "docs/DATA_CONTRACT.md",
+        "config/data-routing.json"
+      ],
+      "priority": "P2",
+      "status": "planned",
+      "title": "Design card_cert_registry: per-slab cert-level identity for ultimate uniqueness"
     }
   ]
 }
