@@ -157,7 +157,11 @@ def sql_value(value: Any) -> str:
     # value before encoding instead of looking only at the generated SQL.
     scan_secret_bytes(value.encode("utf-8"), context="canonical value")
     # Hex avoids SQL-mode-dependent quote/backslash escaping and preserves
-    # every Unicode card name exactly under utf8mb4.
+    # every Unicode card name exactly under utf8mb4. An empty hex literal
+    # (`CONVERT(0x USING ...)`) is not valid SQL — MySQL reads `0x` as a
+    # column name — so empty strings stay plain quoted empties.
+    if value == "":
+        return "''"
     return f"CONVERT(0x{value.encode('utf-8').hex()} USING utf8mb4)"
 
 

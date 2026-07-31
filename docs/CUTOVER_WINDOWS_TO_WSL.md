@@ -28,9 +28,11 @@
 ## 已知事項 / 伏
 
 - **Port 3308 phantom bind**:WSL docker 對 3308 嘅 port publish 無聲失效（NetworkSettings.Ports 空），改 3310 即刻好。EC2 唔受影響（冇 host port mapping)。
+- **docker-proxy RTT ~60ms(bulk load 伏,2026-08-01 發現）**:WSL host 經 `127.0.0.1:3310`(docker-proxy userland）連 MySQL,每個 round-trip ~62ms,seed restore 得 ~17 INSERT/s(716k 行要 ~12 個鐘）。直連 container IP(`docker inspect` 攞，port 3306）係 ~0.3ms,~1150 INSERT/s,12 分鐘搞掂。**大批量操作(restore/backfill/migration）一定要用直連**:`CARDZ_DB_HOST=<container-ip> CARDZ_DB_PORT=3306`。日常 app query 量少唔覺，但 daily pipeline 如果慢，第一樣要查呢樣。EC2/RDS 唔受影響（冇 docker-proxy)。
 - **兩個 docker daemon**:WSL-native(`/usr/bin/docker`, unix socket)vs Docker Desktop(`docker.exe`, npipe)。localhost forwarding 會將 WSL `127.0.0.1:3308` 指去 Windows container — 所以淨係停自己個 container，forward 先現形。
 - **GemRate direct API 已停(403)**:所有 population 收集而家係 keyless 逆向（public card page / G10 mirror)。`gemrate_candidate_backfill.py` 要加 `--collect-public`(Playwright)先行得。
 - **q940 名單文件會過期**:`qualified-940-identity.jsonl` 嘅 variantId 同 opaqueId 都會喺 identity convergence 後失效。真維護名單永遠以 `market_universe_lock`(is_current=1）為準。
+- **Cloudflare auth 會過期(blocker,2026-08-01 發現)**:staging publish 靠 wrangler OAuth(`~/.config/.wrangler/config/default.toml`),token 2026-07-29 過期後 non-interactive refresh 失敗,`wrangler whoami` 報 not authenticated。WSL 同 Windows 兩邊嘅 OAuth store 都已過期;repo 同 `~/.hermes/.env` 都冇 `CLOUDFLARE_API_TOKEN`。**修復方法(要用戶做一次)**:揀一個 — (a) 喺 WSL 行 `cd ~/cardz-aws && node node_modules/wrangler/bin/wrangler.js login`(要 browser 完成 OAuth);或 (b) 去 Cloudflare dashboard 出 API token(Edit R2 + Workers 權限),放入 `~/.hermes/.env` 做 `CLOUDFLARE_API_TOKEN=...`,publish 前 `source` 佢。publish 鏈本身(`pipelines/publish-snapshot.mjs` + canary + pointer)唔使改。
 
 ## 完成後嘅驗收
 
