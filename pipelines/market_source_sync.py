@@ -564,6 +564,7 @@ def build_source_observations(
     jpy_per_usd: float,
     effective_at: datetime,
     history_days: int | None,
+    snk_by_gemrate: Mapping[str, int] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     observations: list[dict[str, Any]] = []
     counts = {
@@ -660,6 +661,10 @@ def build_source_observations(
                 counts["ebayUnavailable"] += 1
 
         snk_id = card.get("snkItemId")
+        if not isinstance(snk_id, int) and snk_by_gemrate:
+            # GemRate-keyed active universe carries no snkItemId; resolve it
+            # through the canonical source-identity bindings.
+            snk_id = snk_by_gemrate.get(str(card.get("gemrateId") or card.get("canonicalExternalId") or "").casefold())
         if not isinstance(snk_id, int):
             continue
         snk = snk_rows.get(snk_id)
@@ -845,7 +850,9 @@ def derive_rankings(
                 "externalId": source_ref[1],
                 "pokedexId": universe_card["pokedexId"],
                 "tcg": str(universe_card["tcg"]),
-                "language": universe_card["language"],
+                "language": universe_card.get("language")
+                or (universe_card.get("printingIdentity") or {}).get("cardLanguage")
+                or "",
                 "segment": str(universe_card.get("segment") or universe_card["tcg"]),
                 "name": str(universe_card.get("name") or ""),
                 "collectorNumber": universe_card["collectorNumber"],
@@ -996,6 +1003,27 @@ def main() -> int:
         raise RuntimeError(f"incomplete immutable source generation exists: {run_root}")
 
     active_universe = load_active_universe(args.active_universe.resolve())
+    snk_by_gemrate: dict[str, int] = {}
+    source_map_path = args.active_universe.resolve().with_name("active-source-identities.json")
+    if source_map_path.is_file():
+        source_map = read_json(source_map_path)
+        source_cards = source_map.get("cards") if isinstance(source_map, Mapping) else None
+        if isinstance(source_cards, list):
+            gemrate_by_variant: dict[int, str] = {}
+            snk_by_variant: dict[int, int] = {}
+            for card in source_cards:
+                if not isinstance(card, Mapping) or not isinstance(card.get("variantId"), int):
+                    continue
+                variant_id = int(card["variantId"])
+                code = str(card.get("canonicalSourceCode") or "").casefold()
+                external = str(card.get("canonicalExternalId") or "")
+                if code == "gemrate":
+                    gemrate_by_variant[variant_id] = external.casefold()
+                elif code == "snkrdunk" and external.isdigit():
+                    snk_by_variant.setdefault(variant_id, int(external))
+            for variant_id, gemrate_id in gemrate_by_variant.items():
+                if variant_id in snk_by_variant:
+                    snk_by_gemrate[gemrate_id] = snk_by_variant[variant_id]
     snk_rows = load_snk_run(args.snk_run.resolve() if args.snk_run else None)
     tag_rows = load_tag_run(args.tag_run.resolve() if args.tag_run else None)
     ebay_rows = load_ebay_run(args.ebay_run.resolve() if args.ebay_run else None)
@@ -1009,6 +1037,7 @@ def main() -> int:
         jpy_per_usd,
         effective_at,
         None if args.full_history else args.history_days,
+        snk_by_gemrate=snk_by_gemrate,
     )
     batch = {
         "schemaVersion": "2.0.0",

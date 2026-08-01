@@ -369,7 +369,16 @@ def pick_rank_price(
     family_rows = [row for row in (pc, ebay, snk) if row is not None]
     values = [float(row["price_usd"]) for row in family_rows]
     if len(values) >= 2 and max(values) / min(values) > 2.0:
-        return None
+        # config/data-routing.json relaxed-launch-v1 sets priceSpreadAction to
+        # "warning", not "block": JP-market cards routinely diverge >2x
+        # between SNK (domestic) and eBay (international).  Fail-closed would
+        # strip the whole One Piece board, so follow the configured policy —
+        # keep the highest-priority authority family instead of dropping the
+        # card, and let QC record the spread warning.
+        selected = dict(min(family_rows, key=lambda row: int(row.get("source_priority") or 100)))
+        selected["price_usd"] = round(float(selected["price_usd"]), 6)
+        selected["price_spread_warning"] = round(max(values) / min(values), 3)
+        return selected
     selected = dict(pc or ebay or snk or min(current_trusted, key=trusted_key))
     selected["price_usd"] = round(sum(values) / len(values), 6)
     return selected
