@@ -1186,6 +1186,31 @@ def cmd_daily(args) -> int:
                     break
             time.sleep(delay)
     website_ids = [gid for gid in selected_ids if gid not in direct_payloads]
+    # Same-day fresh cache: cards whose durable current.json was already
+    # observed today need no browser pass.  Overnight/repeat runs reuse them
+    # instead of re-crawling the full roster (~4.4s/card saved per card).
+    today = fetched_at[:10]
+    fresh_cached: list[str] = []
+    for gid in list(website_ids):
+        current_path = CARDS_DIR / gid / "current.json"
+        details_path = CARDS_DIR / gid / "card_details.json"
+        try:
+            current = json.loads(current_path.read_text(encoding="utf-8")) if current_path.is_file() else None
+            details = json.loads(details_path.read_text(encoding="utf-8")) if details_path.is_file() else None
+        except (OSError, json.JSONDecodeError):
+            continue
+        if (
+            isinstance(current, Mapping)
+            and isinstance(details, Mapping)
+            and str(current.get("effectiveDate") or "") == today
+            and str(current.get("authority") or "") == "gemrate"
+        ):
+            website_payloads[gid] = details
+            website_attempted.add(gid)
+            fresh_cached.append(gid)
+    if fresh_cached:
+        website_ids = [gid for gid in website_ids if gid not in fresh_cached]
+        print(f"[daily] {len(fresh_cached)} cards reused from same-day fresh cache", file=sys.stderr)
     if website_ids:
         # The browser pass is the slowest transport (~4.4s/card measured
         # 2026-07-26) and the caller wraps this process in a hard
