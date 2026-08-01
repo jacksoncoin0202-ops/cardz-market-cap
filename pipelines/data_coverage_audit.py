@@ -23,6 +23,7 @@ from typing import Any, Mapping
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CROSSWALK = ROOT / "data" / "runtime" / "private-source-map" / "source-crosswalk.json"
 DEFAULT_ACTIVE = ROOT / "data" / "runtime" / "private-source-map" / "tracked-universe.json"
+DEFAULT_ACTIVE_SOURCE_MAP = ROOT / "data" / "runtime" / "private-source-map" / "active-source-identities.json"
 DEFAULT_GEMRATE = ROOT / "data" / "private" / "gemrate" / "cards"
 DEFAULT_FX = ROOT / "data" / "runtime" / "private-fx" / "latest.json"
 DEFAULT_OUT = ROOT / "data" / "runtime" / "private-reports" / "data-coverage-audit.json"
@@ -380,6 +381,7 @@ def build_audit(
     captured_at: datetime,
     jpy_per_usd: float,
     active_path: Path | None = None,
+    active_source_map_path: Path | None = None,
     discovery_complete: bool = False,
     g10_mirror_root: Path | None = None,
     ebay_path: Path | None = None,
@@ -392,6 +394,25 @@ def build_audit(
     if not isinstance(cards, list):
         raise ValueError("crosswalk cards are missing")
     active = load_active_overlay(active_path)
+    gemrate_by_variant: dict[int, str] = {}
+    if active_source_map_path is not None and active_source_map_path.is_file():
+        # Canonical-DB export of every source identity bound to active-lock
+        # members (scripts/export_active_source_identities.py).  Rows are
+        # keyed by their owning source, letting source-keyed crosswalk rows
+        # join the GemRate-keyed active universe.
+        source_map = read_json(active_source_map_path)
+        source_cards = source_map.get("cards") if isinstance(source_map, Mapping) else None
+        if isinstance(source_cards, list):
+            for card in source_cards:
+                if not isinstance(card, Mapping):
+                    continue
+                key = (
+                    str(card.get("canonicalSourceCode") or "").casefold(),
+                    str(card.get("canonicalExternalId") or ""),
+                )
+                active.setdefault(key, card)
+                if key[0] == "gemrate" and isinstance(card.get("variantId"), int):
+                    gemrate_by_variant[int(card["variantId"])] = key[1].casefold()
     snk_rows = load_snk_rows(snk_path)
     ebay_coverage = load_ebay_fallback_coverage(ebay_path, captured_at)
     canonical_db_inventory, canonical_db_coverage = read_canonical_db_coverage(canonical_db)
@@ -406,15 +427,30 @@ def build_audit(
     mirror_matches_direct = 0
     mirror_mismatches: list[dict[str, Any]] = []
 
+    # The active-universe authority is GemRate-keyed (canonicalSourceCode
+    # "gemrate") since the printing-identity convergence, while crosswalk rows
+    # stay keyed by their owning source (snkrdunk/ebay).  Index the overlay by
+    # GemRate ID as well so a source-keyed crosswalk row still matches its
+    # active-universe card.
+    active_by_gemrate = {
+        str(card.get("gemrateId") or card.get("canonicalExternalId") or "").casefold(): card
+        for card in active.values()
+        if str(card.get("gemrateId") or card.get("canonicalExternalId") or "")
+    }
+
     for raw in cards:
         if not isinstance(raw, Mapping):
             continue
         source_code = str(raw.get("canonicalSourceCode") or "").casefold()
         external_id = str(raw.get("canonicalExternalId") or "")
-        if active and (source_code, external_id) not in active:
+        gemrate_id_key = str(raw.get("gemrateId") or "").casefold()
+        overlay = active.get((source_code, external_id))
+        if overlay is None and gemrate_id_key:
+            overlay = active_by_gemrate.get(gemrate_id_key)
+        if active and overlay is None:
             continue
         counts["mapped"] += 1
-        overlay = active.get((source_code, external_id), {})
+        overlay = overlay or {}
         market = str(raw.get("market") or overlay.get("tcg") or "")
         language = canonical_language(raw.get("language") or overlay.get("language"))
         collector = str(overlay.get("collectorNumber") or raw.get("collectorNumberRaw") or "").strip()
@@ -427,6 +463,12 @@ def build_audit(
             reason = "collector_incomplete"
 
         gemrate_id = str(raw.get("gemrateId") or "").casefold()
+        # Prefer the canonical GemRate identity for the matched variant: the
+        # crosswalk's own gemrateId comes from the source payload's extraction
+        # and predates the identity convergence for most rows.
+        variant_id = overlay.get("variantId")
+        if isinstance(variant_id, int) and variant_id in gemrate_by_variant:
+            gemrate_id = gemrate_by_variant[variant_id]
         population = gemrate_population(
             gemrate_root / gemrate_id / "population.json",
             gemrate_id,
@@ -658,6 +700,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Audit real CARDZ GemRate/SNK coverage")
     parser.add_argument("--crosswalk", type=Path, default=DEFAULT_CROSSWALK)
     parser.add_argument("--active-universe", type=Path, default=DEFAULT_ACTIVE)
+    parser.add_argument("--active-source-map", type=Path, default=DEFAULT_ACTIVE_SOURCE_MAP)
     parser.add_argument("--gemrate-root", type=Path, default=DEFAULT_GEMRATE)
     parser.add_argument("--snk-run", type=Path)
     parser.add_argument("--g10-mirror-root", type=Path, default=DEFAULT_G10_LANDING)
@@ -681,6 +724,7 @@ def main() -> int:
         captured_at=datetime.now(timezone.utc),
         jpy_per_usd=jpy_rate(args.fx_snapshot.resolve()),
         active_path=args.active_universe.resolve() if args.active_universe else None,
+        active_source_map_path=args.active_source_map.resolve() if args.active_source_map else None,
         discovery_complete=args.discovery_complete,
         g10_mirror_root=args.g10_mirror_root.resolve() if args.g10_mirror_root else None,
         ebay_path=args.ebay_run.resolve() if args.ebay_run else None,
