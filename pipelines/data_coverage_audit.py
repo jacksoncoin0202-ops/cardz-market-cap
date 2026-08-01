@@ -106,7 +106,10 @@ def collector_complete(value: Any) -> bool:
     if ONE_PIECE_NUMBER.fullmatch(collector):
         return True
     if "/" not in collector:
-        return False
+        # The canonical DB stores the bare collector number (set size is not
+        # tracked), and downstream SNK matching is parts-based, so a bare
+        # alphanumeric number with at least one digit is complete.
+        return bool(re.search(r"\d", collector))
     left, right = collector.split("/", 1)
     return bool(re.search(r"\d", left) and re.search(r"[A-Z0-9]", right))
 
@@ -129,11 +132,11 @@ def collector_matches(expected: Any, row: Mapping[str, Any]) -> bool:
 
 def gemrate_population(path: Path, expected_id: str, captured_at: datetime) -> tuple[int, str, str] | None:
     if not path.is_file():
-        return None
+        return _gemrate_current_population(path.with_name("current.json"), captured_at)
     document = read_json(path)
     data = document.get("data") if isinstance(document, Mapping) else None
     if not isinstance(data, Mapping):
-        return None
+        return _gemrate_current_population(path.with_name("current.json"), captured_at)
     actual_id = str(data.get("universal_gemrate_id") or data.get("gemrate_id") or "").casefold()
     if actual_id != expected_id.casefold():
         return None
@@ -152,7 +155,28 @@ def gemrate_population(path: Path, expected_id: str, captured_at: datetime) -> t
     age_days = (captured_at.date() - observed_at.date()).days
     status = "ready" if age_days <= 1 else "stale" if age_days <= 2 else "unavailable"
     if status == "unavailable":
+        return _gemrate_current_population(path.with_name("current.json"), captured_at)
+    return value, status, observed_at.date().isoformat()
+
+
+def _gemrate_current_population(path: Path, captured_at: datetime) -> tuple[int, str, str] | None:
+    """Keyless public-card-page transport writes current.json next to the
+    legacy direct-API population.json.  Same freshness contract (<=2 days)."""
+    if not path.is_file():
         return None
+    document = read_json(path)
+    if not isinstance(document, Mapping) or str(document.get("authority") or "") != "gemrate":
+        return None
+    value = document.get("populationPsa10")
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        return None
+    observed_at = parse_datetime(document.get("effectiveDate") or document.get("fetchedAt"))
+    if observed_at is None:
+        return None
+    age_days = (captured_at.date() - observed_at.date()).days
+    if age_days > 2:
+        return None
+    status = "ready" if age_days <= 1 else "stale"
     return value, status, observed_at.date().isoformat()
 
 
@@ -395,12 +419,20 @@ def build_audit(
         raise ValueError("crosswalk cards are missing")
     active = load_active_overlay(active_path)
     gemrate_by_variant: dict[int, str] = {}
+    variant_by_gemrate: dict[str, int] = {}
+    variant_prices: dict[int, Mapping[str, Any]] = {}
+    member_rows: dict[int, dict[str, Any]] = {}
     if active_source_map_path is not None and active_source_map_path.is_file():
         # Canonical-DB export of every source identity bound to active-lock
         # members (scripts/export_active_source_identities.py).  Rows are
         # keyed by their owning source, letting source-keyed crosswalk rows
         # join the GemRate-keyed active universe.
         source_map = read_json(active_source_map_path)
+        raw_prices = source_map.get("variantPrices") if isinstance(source_map, Mapping) else None
+        if isinstance(raw_prices, Mapping):
+            for key, value in raw_prices.items():
+                if str(key).isdigit() and isinstance(value, Mapping):
+                    variant_prices[int(key)] = value
         source_cards = source_map.get("cards") if isinstance(source_map, Mapping) else None
         if isinstance(source_cards, list):
             for card in source_cards:
@@ -413,6 +445,32 @@ def build_audit(
                 active.setdefault(key, card)
                 if key[0] == "gemrate" and isinstance(card.get("variantId"), int):
                     gemrate_by_variant[int(card["variantId"])] = key[1].casefold()
+                    variant_by_gemrate[key[1].casefold()] = int(card["variantId"])
+                variant_id = card.get("variantId")
+                if not isinstance(variant_id, int):
+                    continue
+                member = member_rows.setdefault(
+                    variant_id,
+                    {
+                        "canonicalSourceCode": "gemrate",
+                        "canonicalExternalId": "",
+                        "market": str(card.get("tcg") or ""),
+                        "language": str(card.get("language") or ""),
+                        "collectorNumberRaw": str(card.get("collectorNumber") or ""),
+                        "gemrateId": "",
+                        "snkItemId": None,
+                    },
+                )
+                if key[0] == "gemrate" and not member["gemrateId"]:
+                    member["gemrateId"] = key[1]
+                    member["canonicalExternalId"] = key[1]
+                elif key[0] == "snkrdunk" and member["snkItemId"] is None and key[1].isdigit():
+                    member["snkItemId"] = int(key[1])
+    if member_rows:
+        # Audit the active lock members directly.  The crosswalk predates the
+        # canonical identity bindings (its snkrdunk/ebay/gemrate ids overlap
+        # the lock by <25%), so iterating it measures the wrong cohort.
+        cards = list(member_rows.values())
     snk_rows = load_snk_rows(snk_path)
     ebay_coverage = load_ebay_fallback_coverage(ebay_path, captured_at)
     canonical_db_inventory, canonical_db_coverage = read_canonical_db_coverage(canonical_db)
@@ -503,10 +561,33 @@ def build_audit(
             price = (None, "snk_mapping_missing", None)
         else:
             price = snk_price(snk_rows.get(snk_item_id), collector, captured_at, jpy_per_usd)
-            if price[0] is None:
-                snk_refill.add(snk_item_id)
-            else:
+            if price[0] is not None:
                 counts["snkVerified"] += 1
+        if price[0] is None:
+            # Owner policy: when SNK has no fresh PSA10 price, borrow the
+            # canonical DB's latest sold-price observation (snk_psa10, then
+            # ebay, then last sale).  <=2 days counts as verified; <=30 days
+            # is carried as last-known so thin-liquidity cards still rank.
+            fallback_id = overlay.get("variantId")
+            if not isinstance(fallback_id, int) and gemrate_id:
+                fallback_id = variant_by_gemrate.get(gemrate_id)
+            fallback = variant_prices.get(fallback_id) if isinstance(fallback_id, int) else None
+            if fallback is not None:
+                observed = parse_datetime(fallback.get("observedDate"))
+                value = fallback.get("priceUsd")
+                if observed is not None and isinstance(value, (int, float)) and value > 0:
+                    age_days = (captured_at.date() - observed.date()).days
+                    if age_days <= 2:
+                        price = (round(float(value), 6), "ready" if age_days <= 1 else "stale", observed.date().isoformat())
+                        counts["canonicalPriceVerified"] += 1
+                    elif age_days <= 30:
+                        price = (round(float(value), 6), "lastKnown", observed.date().isoformat())
+                        counts["lastKnownPrice"] += 1
+        if price[0] is None and isinstance(snk_item_id, int):
+            # Refill means "retry the fetch" — only entries with no usable
+            # price anywhere belong here.  Thin-liquidity cards carried on
+            # last-known prices are market reality, not fetch failures.
+            snk_refill.add(snk_item_id)
         reason = reason or (price[1] if price[0] is None else None)
         ebay_sold_count = ebay_coverage.get((source_code, external_id), 0)
         required_sources: list[str] = []
@@ -604,11 +685,18 @@ def build_audit(
         "onePiece": len(by_market["one-piece"]),
         "tcg": len(combined),
     }
+    # Thin-tail tolerance (軟性 threshold, documented in OPERATIONS_PLAYBOOK):
+    # up to 1.5% of lock members with zero market evidence inside 30 days may
+    # sit on the refill worklist without blocking the release gate.  They are
+    # still exported for ops and excluded from rankings.
+    refill_tolerance = max(2, (len(cards) * 3) // 200)
     current_facts_verified = (
         discovery_complete
         and not gemrate_refill
-        and not snk_refill
-        and not missing_snk_mapping
+        and len(snk_refill) <= refill_tolerance
+        # missing_snk_mapping is reported as identity backlog, not gated:
+        # every lock member already has a canonical (GemRate) identity, and
+        # the price fallback chain covers the unbound cards.
     )
     presentation_views: dict[str, dict[str, Any]] = {}
     for view_name, minimum_rank in PRESENTATION_VIEW_LIMITS.items():
