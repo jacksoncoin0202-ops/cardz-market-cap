@@ -54,6 +54,23 @@ def build_radar(source_root: Path, active_path: Path, captured_at: datetime) -> 
         for card in active["cards"]
         if isinstance(card, Mapping)
     }
+    # The lock file is GemRate-keyed; constituent refs are source-keyed.
+    # Union in every canonical source binding so lock members are not
+    # misread as outside discoveries.
+    source_map_path = active_path.with_name("active-source-identities.json")
+    if source_map_path.is_file():
+        source_map = read_json(source_map_path)
+        source_cards = source_map.get("cards") if isinstance(source_map, Mapping) else None
+        if isinstance(source_cards, list):
+            for card in source_cards:
+                if not isinstance(card, Mapping):
+                    continue
+                active_refs.add(
+                    (
+                        str(card.get("canonicalSourceCode") or "").casefold(),
+                        str(card.get("canonicalExternalId") or ""),
+                    )
+                )
     roster: list[dict[str, Any]] = []
     rejected = 0
     for tcg, index_name in INDEXES:
@@ -109,23 +126,69 @@ def build_radar(source_root: Path, active_path: Path, captured_at: datetime) -> 
             )
     deduped = {(row["sourceCode"], row["externalId"]): row for row in roster}
     ordered = sorted(deduped.values(), key=lambda row: (row["tcg"], row["observedRank"], row["candidateKey"]))
+    # A high-potential candidate only stays "unresolved" while it has never
+    # been classified by the GemRate candidate backfill.  Classification
+    # (confirmed/review/unavailable) is the owner-policy radar layer: those
+    # cards auto-enter the daily ranking when their fresh POP crosses 1000,
+    # so they advise the release instead of blocking it.
+    classifications = _backfill_classifications(active_path)
+    for row in ordered:
+        if row["active"]:
+            continue
+        row["backfillStatus"] = classifications.get((row["sourceCode"], row["externalId"]))
     payload_hash = hashlib.sha256(canonical_json(ordered)).hexdigest()
     outside = [row for row in ordered if not row["active"]]
     high = [row for row in outside if row["potentialStatus"] == "high"]
+    unresolved_high = [row for row in high if not row["backfillStatus"]]
     unavailable_price = [row for row in ordered if row["priceStatus"] == "unavailable"]
     return {
         "schemaVersion": 1,
         "capturedAt": captured_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
         "discoverySha256": payload_hash,
-        "coverageStatus": "blocked" if high else "observed",
+        "coverageStatus": "blocked" if unresolved_high else "observed",
         "rosterCount": len(ordered),
         "activeMatchedCount": len(ordered) - len(outside),
         "outsideLockCount": len(outside),
-        "unresolvedHighPotentialCount": len(high),
+        "unresolvedHighPotentialCount": len(unresolved_high),
+        "classifiedHighPotentialCount": len(high) - len(unresolved_high),
         "unavailablePriceCount": len(unavailable_price),
         "rejectedCount": rejected,
         "candidates": outside,
     }
+
+
+def _backfill_classifications(active_path: Path) -> dict[tuple[str, str], str]:
+    """Map (sourceCode, externalId) -> backfill status via the crosswalk's
+    GemRate ids and the candidate-backfill checkpoint."""
+    map_root = active_path.parent
+    crosswalk_path = map_root / "source-crosswalk.json"
+    checkpoint_path = map_root / "gemrate-candidate-backfill" / "checkpoint.json"
+    if not crosswalk_path.is_file() or not checkpoint_path.is_file():
+        return {}
+    crosswalk = read_json(crosswalk_path)
+    cards = crosswalk.get("cards") if isinstance(crosswalk, Mapping) else None
+    if not isinstance(cards, list):
+        return {}
+    gemrate_by_ref = {
+        (str(card.get("canonicalSourceCode") or ""), str(card.get("canonicalExternalId") or "")): str(card.get("gemrateId") or "")
+        for card in cards
+        if isinstance(card, Mapping)
+    }
+    checkpoint = read_json(checkpoint_path)
+    candidates = checkpoint.get("candidates") if isinstance(checkpoint, Mapping) else None
+    if not isinstance(candidates, list):
+        return {}
+    status_by_gemrate = {
+        str(candidate.get("gemrateId") or "").casefold(): str(candidate.get("status") or "")
+        for candidate in candidates
+        if isinstance(candidate, Mapping) and candidate.get("status")
+    }
+    resolved: dict[tuple[str, str], str] = {}
+    for reference, gemrate_id in gemrate_by_ref.items():
+        status = status_by_gemrate.get(gemrate_id.casefold())
+        if status:
+            resolved[reference] = status
+    return resolved
 
 
 def atomic_write(path: Path, document: Mapping[str, Any]) -> None:
