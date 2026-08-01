@@ -93,6 +93,8 @@
 - **missing SNK binding 唔再阻塞 release**:lock 成員全部有 canonical(gemrate）身份，SNK 綁定屬 identity backlog，照樣出喺報告俾 ops 跟。
 - **Bare collector number 算 complete**:canonical DB 唔存 set size,SNK matching 係 parts-based，強制要有 `/` 係舊 crosswalk 時代嘅假設。
 - **GEMRATE_API_KEY 係死 key(403)**:daily 嘅 GemRate 步驟一定要 `unset GEMRATE_API_KEY` 行 keyless，唔係會逐張 retry 死 API 零進度。server 嘅 `gemrate.env` 到咗 AWS 要清走個 key。
+- **價格 source 分歧 >2x 唔再 fail-closed**:SNK（日本國內盤）同 eBay（國際盤）對 One Piece 日文卡成日差 3 倍，呢個係市場事實唔係綁錯。`config/data-routing.json` 嘅 relaxed-launch-v1 本來就係 `priceSpreadAction: warning`,market_alerts 而家跟返呢個 policy：取最高 priority 嘅 source family(SNK 先），唔再成版 drop 39 張卡。
+- **market_source_sync 要食 canonical source 綁定**:active universe 係 gemrate-keyed，冇 snkItemId,sync 要靠 `active-source-identities.json` 先入到 SNK 價（唔係會靜靜雞入 0 行）。
 - **Worklist 要由 canonical DB 出**:`tracked-gemrate-ids.txt` / `tracked-snk-ids.txt` 本來係 7-28 舊貨（73/71 張），已改由 lock 37 成員綁定出（585/564 張）。每日鏈如果唔經 `tracked_universe.py` 重生，就要用 exporter 嗰套邏輯。
 - **G10 數據根喺 WSL 係由 Windows 抄過嚟**:`integrations/grade10/data` 而家係 7-31 嘅 copy。上咗 AWS 之後 G10 scraper 自己會生，唔使再抄。
 
