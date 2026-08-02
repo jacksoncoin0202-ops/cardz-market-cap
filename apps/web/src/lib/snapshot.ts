@@ -102,11 +102,38 @@ function metric(value: CanonicalCard["pricePsa10"]): MarketMetric<number> {
   return { value: value.value, status: value.status, asOf: value.asOf };
 }
 
+/*
+ * 顯示層專用嘅 printing identity 投影。
+ * 兩個危險位：
+ *  1. producer 對未知 code 寫嘅係空字串 `""`，唔係 undefined —— 直接傳落去會出空 chip，
+ *     所以逐條 `|| null` 正規化。
+ *  2. canonical `PublicPrintingIdentity` 帶住 canonicalPrintingSha256 / evidenceSha256，
+ *     呢兩條唔准出 DOM，所以逐條白名單抄，唔用 spread。
+ * 冇 `printingIdentity` 嘅 snapshot（seed / legacy evidence）一律出 `null`，
+ * 顯示層乜都唔應該畫。
+ */
+function printingIdentityView(card: CanonicalCard): MarketCardView["printingIdentity"] {
+  const identity = card.printingIdentity;
+  if (!identity) return null;
+  return {
+    setName: identity.setName || "",
+    setCode: identity.setCode || null,
+    collectorNumber: identity.collectorNumber || "",
+    // 卡包名：owner 2026-08-02 批准出喺內頁／熱力圖彈卡（唔准入 Top 100 表）。
+    editionCode: identity.editionCode || null,
+    rarityCode: identity.rarityCode || null,
+    parallelCode: identity.parallelCode || null,
+    finishCode: identity.finishCode || null,
+    printingCode: identity.printingCode || null,
+  };
+}
+
 function cardView(card: CanonicalCard): MarketCardView {
   const name = localised(card.names, `Card ${card.rank}`, true);
   const stories = editorialStories(card);
+  // 圖片信任來自 release receipt + rejection registry（owner 2026-08-02 拆舊 image QC gate）；
+  // receipt 路徑出嘅 qcAt 永遠係 null，再要求 qcAt 就會全站 placeholder。
   const imageIsSafe = card.image.kind === "raw_front"
-    && Boolean(card.image.qcAt)
     && /^\/market-assets\/[a-f0-9]{64}\.webp$/.test(card.image.src);
 
   const windows = Object.fromEntries(marketWindows.map((window) => [window, {
@@ -133,7 +160,9 @@ function cardView(card: CanonicalCard): MarketCardView {
     },
   }])) as MarketCardView["windows"];
 
-  const printLang = (card as { cardLanguage?: string | null }).cardLanguage;
+  // `cardLanguage` 已經係 schema 正式欄位（packages/market-data/src/schema.ts），唔使再 cast。
+  // 但仍然逐個值核一次：snapshot 係 runtime JSON，type 唔會幫你擋走樣嘅 code。
+  const printLang: string | null | undefined = card.cardLanguage;
   const cardLanguage =
     printLang === "en" || printLang === "ja" || printLang === "ko"
       || printLang === "zhCN" || printLang === "zhTW"
@@ -147,6 +176,7 @@ function cardView(card: CanonicalCard): MarketCardView {
     viewRank: card.viewRank,
     tcg: card.tcg === "one-piece" ? "One Piece" : card.tcg === "pokemon" ? "Pokémon" : "TCG",
     cardLanguage,
+    printingIdentity: printingIdentityView(card),
     collectorNumber: card.collectorNumber.display,
     name,
     setName: localisedSetName(card.sets),

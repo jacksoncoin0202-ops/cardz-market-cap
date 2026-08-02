@@ -10,26 +10,13 @@ import type { MarketViewSnapshot } from "@/lib/types";
 
 type MarketPageKind = "all" | "pokemon" | "one-piece" | "watchlist";
 
-export function marketHeatmapTitle(
-  kind: MarketPageKind,
-  coverage: MarketViewSnapshot["coverage"],
-  cardCount: number,
-  t: Copy,
-): string {
-  const fullVerifiedTop100 = coverage.claim === "verified-top-100"
-    && coverage.verifiedCount === 100
-    && cardCount === 100;
+export function marketHeatmapTitle(kind: MarketPageKind, cardCount: number, t: Copy): string {
   const marketTitle = kind === "pokemon"
     ? t.heatmap.pokemonTitle
     : kind === "one-piece"
       ? t.heatmap.onePieceTitle
       : t.heatmap.title;
-  const title = fullVerifiedTop100
-    ? marketTitle
-    : kind === "all"
-      ? t.heatmap.verifiedTitle
-      : `${marketTitle} · ${t.heatmap.verifiedRankingTitle}`;
-  return title.replace("{count}", String(cardCount));
+  return marketTitle.replace("{count}", String(cardCount));
 }
 
 export function MarketPage({ kind, snapshot }: { kind: MarketPageKind; snapshot: MarketViewSnapshot }) {
@@ -37,7 +24,7 @@ export function MarketPage({ kind, snapshot }: { kind: MarketPageKind; snapshot:
   const t = copy[locale];
   const hero = kind === "pokemon" ? t.pokemonHero : kind === "one-piece" ? t.onePieceHero : kind === "watchlist" ? t.watchlistHero : t.hero;
   const cards = snapshot.top100;
-  const heatmapTitle = marketHeatmapTitle(kind, snapshot.coverage, cards.length, t);
+  const heatmapTitle = marketHeatmapTitle(kind, cards.length, t);
   const marketLabel = kind === "pokemon" ? t.nav.pokemon : kind === "one-piece" ? t.nav.onePiece : t.nav.all;
   const structuredData = {
     "@context": "https://schema.org",

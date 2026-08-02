@@ -106,7 +106,9 @@ export function GraderPage({ grader, snapshot, shareTotals, availableGraders }: 
                 <span className="mobile-rank-index">{card.viewRank}</span>
                 <div className="ranking-thumb"><CardImage image={card.image} sizes="56px" /></div>
                 <div className="mobile-card-info">
-                  <span className="mobile-card-number">{card.collectorNumber}</span>
+                  <span className="mobile-card-sub">
+                    <span className="mobile-card-number">{card.collectorNumber}</span>
+                  </span>
                   <strong className="mobile-card-name">{card.name[locale] || t.status.unavailable}</strong>
                   <span className="mobile-card-sub">
                     <span className="mobile-card-cap">{formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true)}</span>

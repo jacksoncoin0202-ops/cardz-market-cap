@@ -53,6 +53,30 @@ describe("snapshot pointer", () => {
     })).toThrow("Snapshot pointer invalid");
   });
 
+  it("accepts and enforces the relaxed-launch-v1 capacity bounds", () => {
+    const pointerWithHashCount = (count: number) => {
+      const hashes = Array.from({ length: count }, (_, index) => index.toString(16).padStart(64, "0"));
+      return {
+        ...pointer,
+        media: {
+          ...pointer.media,
+          hashes,
+          assets: hashes.flatMap((hash) => [
+            { key: `market-assets/${hash}.webp`, sha256: hash },
+            { key: `market-assets/${hash}_200.webp`, sha256: hash },
+            { key: `market-assets/${hash}_600.webp`, sha256: hash },
+          ]),
+        },
+      };
+    };
+    // ~520 卡出街規模：546 hashes / 1638 assets 要照收。
+    const launchScale = pointerWithHashCount(546);
+    expect(launchScale.media.assets).toHaveLength(1638);
+    expect(parseSnapshotPointer(launchScale)).toEqual(launchScale);
+    // publicCardsMaximum 1000 係硬上限：1001 拒收。
+    expect(() => parseSnapshotPointer(pointerWithHashCount(1001))).toThrow("Snapshot pointer invalid");
+  });
+
   it.each([
     ["dot traversal generation", { ...pointer, generationId: "..", snapshotKey: "generations/../snapshot.json" }],
     ["nested generation", { ...pointer, generationId: "daily/nested", snapshotKey: "generations/daily/nested/snapshot.json" }],

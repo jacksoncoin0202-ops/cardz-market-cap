@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Globe2, Moon, Sun } from "lucide-react";
 import { SelectControl } from "./select-control";
+import { Tagline } from "./tagline";
 import { copy } from "@/lib/i18n";
 import { currencies, locales, type Currency, type Locale } from "@/lib/types";
 import { useMarketSettings } from "@/lib/use-market-settings";
@@ -82,6 +83,7 @@ export function Footer() {
         <p className="footer-methodology-title">{t.methodology.title}</p>
         <p>{t.methodology.body}</p>
       </div>
+      <Tagline slot="footer" locale={locale} />
     </footer>
   );
 }

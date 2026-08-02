@@ -6,6 +6,7 @@ import { CopyButton } from "./copy-button";
 import { CapTicker } from "./cap-ticker";
 import { HistoryChart } from "./history-chart";
 import { PeriodSelector } from "./period-selector";
+import { DETAIL_PRINT_FIELDS, printIdentityRows } from "./print-badge";
 import { PriceDelta, MetricDelta } from "./rankings";
 import { absolutePublicUrl, StructuredData } from "./structured-data";
 import { copy } from "@/lib/i18n";
@@ -66,8 +67,15 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
             <p className="section-kicker">{card.tcg}</p>
             <h1>{card.name[locale] || t.status.unavailable}</h1>
             <p className="detail-set">{card.setName[locale] || t.status.unavailable}</p>
+            {/* 印刷版本逐條併入現有 identity list：冇值嘅欄根本唔會回，
+                所以完全冇資料嗰陣呢個 dl 同以前一模一樣。
+                owner 2026-08-02：語言版本＋卡包來源喺內頁出齊（DETAIL_PRINT_FIELDS 包
+                editionCode），唔再出 badge —— 欄位先係佢要嘅形式。 */}
             <dl className="identity-list">
               <div><dt>{t.labels.number}</dt><dd>{card.collectorNumber}</dd></div>
+              {printIdentityRows(card, locale, DETAIL_PRINT_FIELDS).map((row) => (
+                <div key={row.key}><dt>{row.label}</dt><dd>{row.value}</dd></div>
+              ))}
             </dl>
           </header>
           {story && (

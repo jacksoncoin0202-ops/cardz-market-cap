@@ -72,6 +72,28 @@ export interface MarketCardView {
   tcg: string;
   /** Print language of this identity; null when unknown / not backfilled. */
   cardLanguage: PrintLanguage | null;
+  /*
+   * Display-safe projection of the canonical printing identity. `null` when the
+   * snapshot carries no `printingIdentity` at all (legacy / seed evidence), and each
+   * sub-field is `null` when the producer wrote an empty string for it.
+   * Deliberately NOT the canonical `PublicPrintingIdentity`: that type carries
+   * `canonicalPrintingSha256` / `evidenceSha256`, which must never reach the DOM.
+   * `printingCode` is threaded for completeness but has no public vocabulary —
+   * do not render it. `editionCode`（卡包名）was previously withheld entirely
+   * (owner red line, 36/433 已出街卡錯對); owner 2026-08-02 reversed for the
+   * detail page / heatmap popup only — never in the Top 100 table. Optional
+   * because older published snapshots predate the projection.
+   */
+  printingIdentity: {
+    setName: string;
+    setCode: string | null;
+    collectorNumber: string;
+    editionCode?: string | null;
+    rarityCode: string | null;
+    parallelCode: string | null;
+    finishCode: string | null;
+    printingCode: string | null;
+  } | null;
   collectorNumber: string;
   name: LocalizedText;
   setName: LocalizedText;

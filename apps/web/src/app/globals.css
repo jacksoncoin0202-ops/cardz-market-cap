@@ -68,6 +68,17 @@
   --grader-cgc: #5a4fa8;
   --grader-sgc: #3f7f5f;
   --grader-tag: #1d9e8f;
+
+  /* 印刷版本 badge / chips（printing identity）。日文版行 accent 暖色，英文版行冷色。 */
+  --print-badge-neutral-bg: rgba(23, 23, 23, 0.07);
+  --print-badge-neutral-text: #4f4f4a;
+  --print-badge-ja-bg: rgba(184, 84, 22, 0.11);
+  --print-badge-ja-text: #96450f;
+  --print-badge-en-bg: rgba(59, 110, 165, 0.11);
+  --print-badge-en-text: #33608f;
+  --print-chip-bg: rgba(255, 255, 255, 0.72);
+  --print-chip-text: #5f5f5a;
+  --print-pill-shadow: 0 1px 4px rgba(22, 22, 20, 0.1);
 }
 
 [data-theme="dark"] {
@@ -136,6 +147,16 @@
   --grader-cgc: #8f81d4;
   --grader-sgc: #6bb894;
   --grader-tag: #4cc9bc;
+
+  --print-badge-neutral-bg: rgba(236, 236, 236, 0.10);
+  --print-badge-neutral-text: #b0b0ab;
+  --print-badge-ja-bg: rgba(232, 130, 63, 0.17);
+  --print-badge-ja-text: #eda068;
+  --print-badge-en-bg: rgba(107, 158, 212, 0.17);
+  --print-badge-en-text: #93b9e2;
+  --print-chip-bg: rgba(36, 36, 36, 0.72);
+  --print-chip-text: #a5a5a0;
+  --print-pill-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
 }
 
 * { box-sizing: border-box; }
@@ -1056,6 +1077,9 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
     padding: 12px 14px 12px 10px;
     border-bottom: 1px solid var(--line);
     transition: background 170ms ease;
+    /* ~500+ 卡列表：off-screen 行唔洗 layout/paint，跌入嚟先計。 */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 72px;
   }
   .mobile-rank-card:last-child { border-bottom: 0; }
   .mobile-rank-card:hover,
@@ -1403,7 +1427,8 @@ html.theme-transitions .brand-logo-dark {
 .detail-content { min-width: 0; }
 .detail-header { padding-top: 6px; }
 .detail-header h1 { font-size: clamp(34px, 3.4vw, 48px); letter-spacing: -0.02em; }
-.detail-set { margin-top: 6px; color: var(--muted); font-size: 13px; }
+/* set 名後面跟印刷語言 badge，所以要 flex + gap（純文字行冇 gap 會黐埋個 pill） */
+.detail-set { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; color: var(--muted); font-size: 13px; }
 .detail-period-row { margin: 18px 0 12px; }
 .detail-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .detail-metrics > div { min-width: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--surface-translucent); }
@@ -1581,3 +1606,100 @@ html.theme-transitions .brand-logo-dark {
   .primary-action:hover,
   .primary-action:focus-visible { transform: none; }
 }
+
+/* ── 404 + prestige tagline（ui-experiments-20260725 移植）───── */
+.not-found { padding-top: 96px; padding-bottom: 140px; }
+.not-found h1 { margin-bottom: 16px; font-size: clamp(36px, 5vw, 68px); }
+.not-found .primary-action { margin-top: 28px; }
+.site-footer .prestige-tagline,
+.not-found .prestige-tagline { margin: 16px 0 0; color: var(--footer-methodology-text); font-size: 11px; font-weight: 500; letter-spacing: 0.1em; line-height: 1.6; opacity: 0.8; }
+.not-found .prestige-tagline { margin-top: 24px; max-width: 65ch; }
+
+/* ── 印刷版本：語言 badge／identity chips／語言篩選 ─────────────────────
+ * 全部頂層 selector，唔准搬入 @media —— .mobile-change-badge 就係困死喺
+ * max-width block 入面，desktop 完全唔生效，唔好再撞同一個坑。
+ * 顏色一律行 token，light/dark 兩套值喺檔頭定義。
+ */
+.print-badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--print-badge-neutral-bg);
+  color: var(--print-badge-neutral-text);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  white-space: nowrap;
+}
+.print-badge--ja { background: var(--print-badge-ja-bg); color: var(--print-badge-ja-text); }
+.print-badge--en { background: var(--print-badge-en-bg); color: var(--print-badge-en-text); }
+.print-badge--compact { padding: 2px 7px; font-size: 10px; font-weight: 600; }
+
+.print-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.print-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--print-chip-bg);
+  color: var(--print-chip-text);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.6;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lang-filter {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--soft);
+}
+.lang-filter button {
+  position: relative;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--control-radius);
+  background: transparent;
+  color: var(--control-idle);
+  font-size: 12px;
+  font-weight: 600;
+  transition: color 170ms ease;
+}
+.lang-filter button:hover { color: var(--ink); }
+.lang-filter button[aria-pressed="true"] { color: var(--ink); }
+/* 個 pill 都係 button 嘅直屬 span，唔排除佢就會俾呢條規則覆蓋成 position: relative，
+   膠囊即刻由背景變成一嚿撐大 button 嘅方塊。 */
+.lang-filter button > span:not(.lang-filter-pill) { position: relative; z-index: 1; }
+.lang-filter-pill {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: var(--control-radius);
+  background: var(--surface);
+  box-shadow: var(--print-pill-shadow);
+}
+/* 榜標題底下獨立一行，唔好逼死右邊 sticky 嘅 PeriodSelector */
+.ranking-heading .lang-filter { margin-top: 10px; }
+/* 編號 cell：chips 另起一行，set code 唔可以睇落似 collector number 嘅一部分 */
+.collector-cell .print-chips { display: flex; margin-top: 4px; }

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { CardImage } from "./card-image";
 import { CopyButton } from "./copy-button";
 import { PeriodSelector } from "./period-selector";
+import { DETAIL_PRINT_FIELDS, printIdentityRows } from "./print-badge";
 import { copy } from "@/lib/i18n";
 import { formatDate, formatMetricInteger, formatMetricMoney, formatMoney, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
 import { heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
@@ -29,6 +30,11 @@ function CardFacts({ card, locale, currency, snapshot }: Omit<HeatmapProps, "car
   return (
     <dl className="preview-facts">
       <div><dt>{t.labels.number}</dt><dd>{card.collectorNumber}</dd></div>
+      {/* CardFacts 一改，dialog（sheet）同 hover preview 兩個 surface 一次過搞掂。
+          冇印刷資料就一條都唔會加，格數同以前一樣。 */}
+      {printIdentityRows(card, locale, DETAIL_PRINT_FIELDS).map((row) => (
+        <div key={row.key}><dt>{row.label}</dt><dd>{row.value}</dd></div>
+      ))}
       <div><dt>{t.labels.marketCap}</dt><dd>{formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true)}</dd></div>
       <div><dt>{t.labels.price}</dt><dd>{formatMetricMoney(card.pricePsa10, currency, snapshot.rates, locale)}</dd></div>
       <div><dt>{t.labels.population}</dt><dd>{formatMetricInteger(card.populationPsa10, locale)}</dd></div>

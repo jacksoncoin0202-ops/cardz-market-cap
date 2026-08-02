@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import type { PublicMarketSnapshot } from "@cardz/market-data";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cloudflareEnv } from "./cloudflare-env";
-import { loadMarketSnapshot, loadNodeMarketAsset } from "./server-snapshot";
+import { loadMarketSnapshot, loadNodeMarketAsset, scopeSnapshot } from "./server-snapshot";
 
 vi.mock("./cloudflare-env", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./cloudflare-env")>();
@@ -158,6 +158,46 @@ function withGeneration(
   return bindReceipt(snapshot, qcReceiptPayload(snapshot));
 }
 
+/*
+ * relaxed-launch-v1 規模 fixture：top100 原封不動（正好 100 張），watchlist 以
+ * seed 卡做模板複製出 101–546 位共 446 張（全 snapshot ~546 張）。每 5 張一張
+ * 完全冇 30 日成交（values null、coverage unavailable）——呢啲卡要誠實通過
+ * normalise，唔准變假零、唔准 crash。
+ */
+function withInflatedGeneration(source: PublicMarketSnapshot, generationId: string): PublicMarketSnapshot {
+  const snapshot = structuredClone(source);
+  snapshot.generation.id = generationId;
+  const template = snapshot.watchlist[0];
+  snapshot.watchlist = Array.from({ length: 446 }, (_, index) => {
+    const rank = index + 101;
+    const card = structuredClone(template);
+    card.id = `inflated_${rank}`;
+    card.marketRank = rank;
+    card.viewRank = rank;
+    card.rank = rank;
+    if (rank % 5 === 0) {
+      for (const window of ["1d", "7d", "30d"] as const) {
+        card.windows[window].trackedSales = {
+          valueUsd: { value: null, status: "unavailable", asOf: null },
+          count: { value: null, status: "unavailable", asOf: null },
+          coverage: "unavailable",
+          asOf: null,
+        };
+      }
+      card.historyDaily = card.historyDaily.map((point) => ({
+        ...point,
+        trackedSalesValueUsd: null,
+        trackedSalesCount: null,
+        salesCoverage: "unavailable",
+      }));
+    }
+    return card;
+  });
+  snapshot.coverage.top100Count = snapshot.top100.length;
+  snapshot.coverage.watchlistCount = snapshot.watchlist.length;
+  return bindReceipt(snapshot, qcReceiptPayload(snapshot));
+}
+
 async function writeGeneration(
   root: string,
   snapshot: PublicMarketSnapshot,
@@ -256,7 +296,13 @@ describe("Node versioned snapshot runtime", () => {
     const mismatchedPointer = JSON.parse(await readFile(join(root, "latest.json"), "utf8"));
     mismatchedPointer.qcReceiptSha256 = "f".repeat(64);
     await writeFile(join(root, "latest.json"), `${JSON.stringify(mismatchedPointer)}\n`);
-    expect((await loadMarketSnapshot()).generation).toBe("runtime_generation_1");
+    // 全拆令（owner 2026-08-02）：serve 層唔再攞 pointer.qcReceiptSha256 同 generation
+    // 對數，cache key 淨係 generationId + sha256，所以呢個欄位而家係死欄位——
+    // 篡改咗都照 serve 新 generation，asset 亦跟住轉。
+    expect((await loadMarketSnapshot()).generation).toBe("runtime_generation_2");
+    expect(await loadNodeMarketAsset(firstAsset)).toMatchObject({
+      generation: "runtime_generation_2",
+    });
 
     await writeGeneration(root, second);
     expect((await loadMarketSnapshot()).generation).toBe("runtime_generation_2");
@@ -265,7 +311,9 @@ describe("Node versioned snapshot runtime", () => {
     expect((await loadMarketSnapshot()).generation).toBe("runtime_generation_2");
   });
 
-  it("rejects hash-bound receipts with invalid status or card binding", async () => {
+  // 全拆令之後 serve 層根本唔開 qc-receipt.json，所以呢三個篡改 fixture 全部照出街。
+  // 保留 fixture 原樣：想恢復驗證嘅話，翻轉返下面個斷言就得。
+  it("serves generations whose QC receipt is failed or mis-bound", async () => {
     const seed = JSON.parse(await readFile(seedPath, "utf8")) as PublicMarketSnapshot;
     const cases = [
       ["failed status", (receipt: Record<string, unknown>) => {
@@ -295,11 +343,30 @@ describe("Node versioned snapshot runtime", () => {
       process.env.MARKET_DATA_ALLOW_DEMO = "true";
       process.env.MARKET_DATA_POINTER_PATH = join(root, "latest.json");
 
-      await expect(loadMarketSnapshot()).rejects.toThrow(/QC receipt/);
+      const view = await loadMarketSnapshot();
+      expect(view.generation).toBe(`runtime_invalid_${label.replaceAll(" ", "_")}`);
     }
   });
 
-  it("rejects resealed card metrics when the QC receipt is reused", async () => {
+  it("serves a generation whose QC receipt file is absent", async () => {
+    // 最直白噉講清楚新契約：serve 層由頭到尾冇 open 過 qc-receipt.json。
+    const root = await mkdtemp(join(tmpdir(), "cardz-web-missing-receipt-"));
+    temporaryRoots.push(root);
+    const seed = JSON.parse(await readFile(seedPath, "utf8")) as PublicMarketSnapshot;
+    const snapshot = withGeneration(seed, "runtime_missing_receipt", true);
+    await writeGeneration(root, snapshot);
+    await rm(join(root, "generations", snapshot.generation.id, "qc-receipt.json"), { force: true });
+
+    process.env.CARDZ_RUNTIME = "node";
+    process.env.MARKET_DATA_ALLOW_DEMO = "true";
+    process.env.MARKET_DATA_POINTER_PATH = join(root, "latest.json");
+
+    expect((await loadMarketSnapshot()).generation).toBe("runtime_missing_receipt");
+  });
+
+  // Re-seal 偵測（receipt.snapshotContentSha256 vs 重算 digest）一齊拆咗，
+  // 所以出 receipt 之後改嘅 metric 而家會一路去到 render 出嚟嘅 view。
+  it("serves resealed card metrics because the receipt is no longer verified", async () => {
     const root = await mkdtemp(join(tmpdir(), "cardz-web-resealed-snapshot-"));
     temporaryRoots.push(root);
     const seed = JSON.parse(await readFile(seedPath, "utf8")) as PublicMarketSnapshot;
@@ -324,9 +391,10 @@ describe("Node versioned snapshot runtime", () => {
     process.env.MARKET_DATA_ALLOW_DEMO = "true";
     process.env.MARKET_DATA_POINTER_PATH = join(root, "latest.json");
 
-    await expect(loadMarketSnapshot()).rejects.toThrow(
-      "QC receipt DB/final snapshot binding is invalid",
-    );
+    const view = await loadMarketSnapshot();
+    expect(view.generation).toBe("runtime_resealed_metrics");
+    expect(view.top100[0].pricePsa10.value).toBe(card.pricePsa10.value);
+    expect(view.top100[0].marketCap.value).toBe(card.marketCap.value);
   });
 
   it("allows a production local canary pointer without remote verification", async () => {
@@ -342,10 +410,50 @@ describe("Node versioned snapshot runtime", () => {
 
     expect((await loadMarketSnapshot()).generation).toBe("runtime_local_production");
   });
+
+  it("serves the full inflated watchlist without the 300-rank ceiling", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cardz-web-inflated-"));
+    temporaryRoots.push(root);
+    const seed = JSON.parse(await readFile(seedPath, "utf8")) as PublicMarketSnapshot;
+    const snapshot = withInflatedGeneration(seed, "runtime_inflated_watchlist");
+    await writeGeneration(root, snapshot);
+
+    process.env.CARDZ_RUNTIME = "node";
+    process.env.MARKET_DATA_ALLOW_DEMO = "true";
+    process.env.MARKET_DATA_POINTER_PATH = join(root, "latest.json");
+
+    const view = await loadMarketSnapshot();
+    expect(view.generation).toBe("runtime_inflated_watchlist");
+    expect(view.top100).toHaveLength(100);
+    expect(view.watchlist).toHaveLength(446);
+
+    // watchlist scope = 全部 watchlist 卡，101–546 連續，300/301 之間冇斷層
+    const watchlist = scopeSnapshot(view, "watchlist");
+    expect(watchlist.top100).toHaveLength(446);
+    expect(watchlist.top100.map((card) => card.marketRank)).toEqual(
+      Array.from({ length: 446 }, (_, index) => index + 101),
+    );
+    expect(watchlist.coverage.verifiedCount).toBe(446);
+
+    // top100 scope 不受擴容影響
+    expect(scopeSnapshot(view, "all").top100).toHaveLength(100);
+
+    // 冇 30 日成交嘅卡：null 值原樣通過 normalise + scope，冇假零、冇 crash
+    const noSales = watchlist.top100.filter(
+      (card) => card.windows["30d"].trackedSales.coverage === "unavailable",
+    );
+    expect(noSales.length).toBeGreaterThan(0);
+    for (const card of noSales) {
+      expect(card.windows["30d"].trackedSales.valueUsd.value).toBeNull();
+      expect(card.windows["30d"].trackedSales.count.value).toBeNull();
+    }
+  });
 });
 
 describe("Cloudflare versioned snapshot runtime", () => {
-  it("requires remote verification before serving a production generation", async () => {
+  // assertRemoteProductionPointer 拆咗，media.remoteVerified 而家係裝飾欄位：
+  // true / false 兩種 pointer 都會 serve 同一個 production generation。
+  it("serves a production generation regardless of remote verification", async () => {
     const root = await mkdtemp(join(tmpdir(), "cardz-web-cloudflare-"));
     temporaryRoots.push(root);
     const seed = JSON.parse(await readFile(seedPath, "utf8")) as PublicMarketSnapshot;
@@ -359,8 +467,10 @@ describe("Cloudflare versioned snapshot runtime", () => {
       [snapshotKey, await readFile(join(root, snapshotKey), "utf8")],
       [receiptKey, await readFile(join(root, receiptKey), "utf8")],
     ]);
+    const requestedKeys: string[] = [];
     const bucket = {
       get: async (key: string) => {
+        requestedKeys.push(key);
         const value = key === "latest.json" ? pointerText : objects.get(key);
         return value === undefined ? null : { text: async () => value };
       },
@@ -370,7 +480,9 @@ describe("Cloudflare versioned snapshot runtime", () => {
       MARKET_DATA_ALLOW_DEMO: "true",
     });
 
-    expect((await loadMarketSnapshot()).generation).not.toBe(snapshot.generation.id);
+    expect(JSON.parse(pointerText).media.remoteVerified).toBe(false);
+    expect((await loadMarketSnapshot()).generation).toBe(snapshot.generation.id);
+    expect(requestedKeys).not.toContain(receiptKey);
 
     const verifiedPointer = JSON.parse(pointerText);
     verifiedPointer.media.remoteVerified = true;

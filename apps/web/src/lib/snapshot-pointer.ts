@@ -55,12 +55,12 @@ export function parseSnapshotPointer(value: unknown): SnapshotPointer {
     pointer.media?.prefix !== "market-assets/" ||
     !Array.isArray(hashes) ||
     hashes.length === 0 ||
-    hashes.length > 500 ||
+    hashes.length > 1000 ||
     new Set(hashes).size !== hashes.length ||
     hashes.some((hash) => typeof hash !== "string" || !SHA256_PATTERN.test(hash)) ||
     !Array.isArray(assets) ||
     assets.length !== expectedAssetKeys.length ||
-    assets.length > 1500 ||
+    assets.length > 3000 ||
     new Set(assetKeys).size !== assets.length ||
     assets.some((asset) => {
       if (!asset || typeof asset !== "object") return true;

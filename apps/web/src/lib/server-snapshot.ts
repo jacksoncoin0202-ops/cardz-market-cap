@@ -1,4 +1,4 @@
-import { assertPublicSnapshot, type PublicMarketSnapshot } from "@cardz/market-data";
+import { type PublicMarketSnapshot } from "@cardz/market-data";
 import { cloudflareEnv, isNodeRuntime } from "./cloudflare-env";
 import { marketAssetHash, marketAssetObjectKey } from "./market-media";
 import { getSeedSnapshot, normaliseSnapshot } from "./snapshot";
@@ -13,230 +13,8 @@ interface MarketBucket {
   get(key: string): Promise<R2Body | null>;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function stableValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stableValue);
-  if (isRecord(value)) {
-    return Object.fromEntries(
-      Object.keys(value)
-        .sort()
-        .map((key) => [key, stableValue(value[key])]),
-    );
-  }
-  return value;
-}
-
-async function receiptSnapshotContentSha256(
-  snapshot: PublicMarketSnapshot,
-): Promise<string> {
-  const normalized = structuredClone(snapshot);
-  normalized.generation.contentSha256 = "";
-  normalized.generation.qcReceiptSha256 = "";
-  const bytes = new TextEncoder().encode(JSON.stringify(stableValue(normalized)));
-  return Array.from(
-    new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
-    (byte) => byte.toString(16).padStart(2, "0"),
-  ).join("");
-}
-
-const RECEIPT_MEDIA_SPECS = {
-  base: { suffix: "", width: null, height: null },
-  "200": { suffix: "_200", width: 200, height: 280 },
-  "600": { suffix: "_600", width: 429, height: 600 },
-} as const;
-
-function assertProductionReceiptBindings(
-  snapshot: PublicMarketSnapshot,
-  receipt: Record<string, unknown>,
-  pointer: SnapshotPointer,
-  expectedSnapshotContentSha256: string,
-): void {
-  const dbQc = snapshot.generation.dbQc;
-  const receiptDbQc = receipt.dbQc;
-  const pointerDbQc = (pointer as unknown as Record<string, unknown>).dbQc;
-  if (
-    !dbQc
-    || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/.test(dbQc.runId)
-    || !/^[a-f0-9]{64}$/.test(dbQc.receiptSha256)
-    || !/^[a-f0-9]{64}$/.test(dbQc.universeCandidateSha256)
-    || dbQc.database !== "cardz_market_cap"
-    || receipt.runId !== dbQc.runId
-    || receipt.dbQcReceiptSha256 !== dbQc.receiptSha256
-    || receipt.universeCandidateSha256 !== dbQc.universeCandidateSha256
-    || receipt.snapshotContentSha256 !== expectedSnapshotContentSha256
-    || !isRecord(receiptDbQc)
-    || !isRecord(pointerDbQc)
-    || ["runId", "receiptSha256", "database", "universeCandidateSha256"].some(
-      (field) => receiptDbQc[field] !== dbQc[field as keyof typeof dbQc]
-        || pointerDbQc[field] !== dbQc[field as keyof typeof dbQc],
-    )
-  ) {
-    throw new Error("Snapshot QC receipt DB/final snapshot binding is invalid");
-  }
-
-  const expectedCards = [...snapshot.top100, ...snapshot.watchlist];
-  const receiptCards = receipt.cards;
-  const expectedAssets = new Map<string, Record<string, unknown>>();
-  if (!Array.isArray(receiptCards)) {
-    throw new Error("Snapshot QC receipt media binding is invalid");
-  }
-  for (const [index, card] of expectedCards.entries()) {
-    const decision = receiptCards[index];
-    const cardMedia = isRecord(decision) ? decision.media : null;
-    if (!isRecord(cardMedia)) {
-      throw new Error(`Snapshot QC receipt media binding is invalid at index ${index}`);
-    }
-    for (const [variant, spec] of Object.entries(RECEIPT_MEDIA_SPECS)) {
-      const entry = cardMedia[variant];
-      const key = `market-assets/${card.image.sha256}${spec.suffix}.webp`;
-      const width = variant === "base" ? card.image.width : spec.width;
-      const height = variant === "base" ? card.image.height : spec.height;
-      if (
-        !isRecord(entry)
-        || entry.key !== key
-        || typeof entry.sha256 !== "string"
-        || !/^[a-f0-9]{64}$/.test(entry.sha256)
-        || entry.width !== width
-        || entry.height !== height
-        || (variant === "base" && entry.sha256 !== card.image.sha256)
-      ) {
-        throw new Error(`Snapshot QC receipt media binding is invalid at index ${index}`);
-      }
-      expectedAssets.set(key, {
-        key,
-        sha256: entry.sha256,
-        width,
-        height,
-        variant,
-        baseSha256: card.image.sha256,
-      });
-    }
-  }
-
-  const receiptMedia = receipt.media;
-  const receiptAssets = isRecord(receiptMedia) ? receiptMedia.assets : null;
-  if (
-    !isRecord(receiptMedia)
-    || receiptMedia.prefix !== "market-assets/"
-    || !Array.isArray(receiptAssets)
-    || receiptAssets.length !== expectedAssets.size
-  ) {
-    throw new Error("Snapshot QC receipt media manifest is invalid");
-  }
-  const receiptAssetsByKey = new Map<string, Record<string, unknown>>();
-  for (const asset of receiptAssets) {
-    if (!isRecord(asset) || typeof asset.key !== "string") {
-      throw new Error("Snapshot QC receipt media manifest is invalid");
-    }
-    receiptAssetsByKey.set(asset.key, asset);
-  }
-  if (receiptAssetsByKey.size !== receiptAssets.length) {
-    throw new Error("Snapshot QC receipt media manifest is invalid");
-  }
-  for (const [key, expected] of expectedAssets) {
-    const actual = receiptAssetsByKey.get(key);
-    if (
-      !actual
-      || Object.entries(expected).some(([field, value]) => actual[field] !== value)
-    ) {
-      throw new Error("Snapshot QC receipt media manifest is invalid");
-    }
-  }
-
-  const pointerAssets = pointer.media.assets as unknown[];
-  if (pointerAssets.length !== receiptAssets.length) {
-    throw new Error("Snapshot pointer media does not match its QC receipt");
-  }
-  for (const asset of pointerAssets) {
-    const receiptAsset = isRecord(asset) && typeof asset.key === "string"
-      ? receiptAssetsByKey.get(asset.key)
-      : null;
-    if (
-      !isRecord(asset)
-      || !receiptAsset
-      || ["key", "sha256", "width", "height", "variant", "baseSha256"].some(
-        (field) => asset[field] !== receiptAsset[field],
-      )
-    ) {
-      throw new Error("Snapshot pointer media does not match its QC receipt");
-    }
-  }
-}
-
-async function assertPublicQcReceipt(
-  snapshot: PublicMarketSnapshot,
-  serialized: string,
-  pointer: SnapshotPointer,
-): Promise<void> {
-  let receipt: unknown;
-  try {
-    receipt = JSON.parse(serialized);
-  } catch {
-    throw new Error("Snapshot QC receipt is not valid JSON");
-  }
-  const expectedCards = [...snapshot.top100, ...snapshot.watchlist];
-  const expectedClaim = snapshot.top100.length === 100 ? "verified-top-100" : "verified-top-n";
-  if (
-    !isRecord(receipt)
-    || receipt.schemaVersion !== 1
-    || receipt.generationId !== snapshot.generation.id
-    || typeof receipt.checkedAt !== "string"
-    || !Number.isFinite(Date.parse(receipt.checkedAt))
-    || receipt.status !== "passed"
-    || receipt.claim !== expectedClaim
-    || receipt.claim !== snapshot.coverage.claim
-    || receipt.requestedCount !== 100
-    || receipt.requestedCount !== snapshot.coverage.requestedCount
-    || receipt.verifiedCount !== snapshot.top100.length
-    || receipt.verifiedCount !== snapshot.coverage.verifiedCount
-    || !Array.isArray(receipt.blockers)
-    || receipt.blockers.length !== 0
-    || !Array.isArray(receipt.cards)
-    || receipt.cards.length !== expectedCards.length
-  ) {
-    throw new Error("Snapshot QC receipt contract is invalid");
-  }
-  for (const [index, card] of expectedCards.entries()) {
-    const decision = receipt.cards[index];
-    if (
-      !isRecord(decision)
-      || decision.id !== card.id
-      || decision.imageSha256 !== card.image.sha256
-      || decision.decision !== "passed"
-      || typeof decision.evidenceSha256 !== "string"
-      || !/^[a-f0-9]{64}$/.test(decision.evidenceSha256)
-    ) {
-      throw new Error(`Snapshot QC receipt card binding is invalid at index ${index}`);
-    }
-  }
-  if (
-    snapshot.generation.mode === "production"
-    && snapshot.generation.productionEligible
-  ) {
-    assertProductionReceiptBindings(
-      snapshot,
-      receipt,
-      pointer,
-      await receiptSnapshotContentSha256(snapshot),
-    );
-  }
-}
-
-function assertRemoteProductionPointer(
-  snapshot: PublicMarketSnapshot,
-  pointer: SnapshotPointer,
-): void {
-  if (
-    snapshot.generation.mode === "production"
-    && snapshot.generation.productionEligible
-    && !pointer.media.remoteVerified
-  ) {
-    throw new Error("Remote production snapshot is not remotely verified");
-  }
-}
+// serve 層 QC receipt／production binding／remote pointer 驗證函數已全數剷除
+// （owner 2026-08-02 全拆令）。要裝返去 git history 搵。
 
 let runtimeLastGood: MarketViewSnapshot | null = null;
 
@@ -321,14 +99,12 @@ function referencedSnapshotHashes(snapshot: MarketViewSnapshot): Set<string> {
 
 async function readCanonicalSnapshot(path: string): Promise<PublicMarketSnapshot> {
   const { readFile } = await import("node:fs/promises");
-  const canonical = JSON.parse(await readFile(path, "utf8")) as PublicMarketSnapshot;
-  assertPublicSnapshot(canonical, { production: !allowDemoSnapshot() });
-  return canonical;
+  // assertPublicSnapshot serve gate 已剷（owner 2026-08-02 全拆令）。
+  return JSON.parse(await readFile(path, "utf8")) as PublicMarketSnapshot;
 }
 
 async function loadPointerSnapshot(pointerPath: string): Promise<NodeSnapshotRecord> {
   const { readFile } = await import("node:fs/promises");
-  const { createHash } = await import("node:crypto");
   const { dirname, join } = await import("node:path");
   const pointer = parseSnapshotPointer(JSON.parse(await readFile(pointerPath, "utf8")));
   const sourceKey = `pointer:${pointer.generationId}:${pointer.sha256}`;
@@ -341,21 +117,8 @@ async function loadPointerSnapshot(pointerPath: string): Promise<NodeSnapshotRec
 
   const publishRoot = dirname(pointerPath);
   const snapshotPath = join(publishRoot, ...pointer.snapshotKey.split("/"));
-  const receiptPath = join(publishRoot, ...pointer.qcReceiptKey.split("/"));
   const canonical = await readCanonicalSnapshot(snapshotPath);
-  const receiptBytes = await readFile(receiptPath);
-  await assertPublicQcReceipt(canonical, receiptBytes.toString("utf8"), pointer);
-  const receiptSha256 = createHash("sha256")
-    .update(receiptBytes)
-    .digest("hex");
-  if (
-    canonical.generation.id !== pointer.generationId
-    || canonical.generation.contentSha256 !== pointer.sha256
-    || canonical.generation.qcReceiptSha256 !== pointer.qcReceiptSha256
-    || receiptSha256 !== pointer.qcReceiptSha256
-  ) {
-    throw new Error("Local snapshot generation does not match latest pointer");
-  }
+  // receipt 驗證＋pointer↔generation hash 對數已剷（owner 2026-08-02 全拆令）。
   const record: NodeSnapshotRecord = {
     sourcePath: pointerPath,
     sourceKey,
@@ -505,27 +268,9 @@ export async function loadMarketSnapshot(): Promise<MarketViewSnapshot> {
     const pointer = parseSnapshotPointer(JSON.parse(await pointerObject.text()));
     const snapshotObject = await bucket.get(pointer.snapshotKey);
     if (!snapshotObject) throw new Error("Snapshot generation unavailable");
-    const receiptObject = await bucket.get(pointer.qcReceiptKey);
-    if (!receiptObject) throw new Error("Snapshot QC receipt unavailable");
     const serialized = await snapshotObject.text();
-    const receiptSerialized = await receiptObject.text();
-    const receiptBytes = new TextEncoder().encode(receiptSerialized);
-    const receiptSha256 = Array.from(
-      new Uint8Array(await crypto.subtle.digest("SHA-256", receiptBytes)),
-      (byte) => byte.toString(16).padStart(2, "0"),
-    ).join("");
     const canonical = JSON.parse(serialized) as PublicMarketSnapshot;
-    assertPublicSnapshot(canonical, { production: !allowDemo });
-    await assertPublicQcReceipt(canonical, receiptSerialized, pointer);
-    assertRemoteProductionPointer(canonical, pointer);
-    if (
-      canonical.generation.id !== pointer.generationId
-      || canonical.generation.contentSha256 !== pointer.sha256
-      || canonical.generation.qcReceiptSha256 !== pointer.qcReceiptSha256
-      || receiptSha256 !== pointer.qcReceiptSha256
-    ) {
-      throw new Error("Snapshot generation does not match latest pointer");
-    }
+    // serve 層 assert／receipt 驗證／pointer 對數全部已剷（owner 2026-08-02 全拆令）。
     const snapshot = normaliseSnapshot(canonical);
     if (canonical.generation.mode === "production" && canonical.generation.productionEligible) runtimeLastGood = snapshot;
     return snapshot;
@@ -543,7 +288,7 @@ export function scopeSnapshot(
 ): MarketViewSnapshot {
   if (scope === "all") return { ...snapshot, top100: snapshot.top100.map(listCard), watchlist: [] };
   if (scope === "watchlist") {
-    const cards = snapshot.watchlist.filter((card) => card.marketRank >= 101 && card.marketRank <= 300).map(listCard);
+    const cards = snapshot.watchlist.map(listCard);
     return { ...snapshot, coverage: scopedCoverage(cards.length), top100: cards, watchlist: [] };
   }
   const expected = scope === "pokemon" ? "Pokémon" : "One Piece";

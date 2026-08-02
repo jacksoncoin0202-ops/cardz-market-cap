@@ -30,13 +30,16 @@ describe("market formatting", () => {
     expect(metricTone({ value: 3.1, status: "accumulating", asOf: null })).toBe("neutral");
   });
 
-  it("never turns unavailable tracked sales into a fake zero", () => {
-    expect(formatTrackedSales({
-      valueUsd: { value: null, status: "unavailable", asOf: null },
-      count: { value: null, status: "unavailable", asOf: null },
-      coverage: "unavailable",
+  it("labels unavailable tracked sales honestly instead of a fake zero", () => {
+    const unavailable = {
+      valueUsd: { value: null, status: "unavailable" as const, asOf: null },
+      count: { value: null, status: "unavailable" as const, asOf: null },
+      coverage: "unavailable" as const,
       asOf: null,
-    }, "USD", rates, "en")).toBe("—");
+    };
+    expect(formatTrackedSales(unavailable, "USD", rates, "en")).toBe("No sales recorded");
+    expect(formatTrackedSales(unavailable, "USD", rates, "ja")).toBe("成約記録なし");
+    expect(formatTrackedSales(unavailable, "USD", rates, "zh-TW")).toBe("無成交紀錄");
   });
 
   it("does not present an unobserved partial window as zero sales", () => {
@@ -45,7 +48,7 @@ describe("market formatting", () => {
       count: { value: 0, status: "ready", asOf: "2026-07-22" },
       coverage: "partial",
       asOf: "2026-07-22",
-    }, "USD", rates, "en")).toBe("—");
+    }, "USD", rates, "en")).toBe("No sales recorded");
   });
 
   it("derives the absolute money delta from the percentage change", () => {
