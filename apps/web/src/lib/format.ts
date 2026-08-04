@@ -111,7 +111,7 @@ export function formatTrackedSales(
     sales.count.value === null ||
     sales.count.value <= 0 ||
     sales.valueUsd.status === "unavailable"
-  ) return "—";
+  ) return copy[locale].labels.noSales;
   const value = formatMoney(sales.valueUsd.value, currency, rates, locale, true);
   return value;
 }

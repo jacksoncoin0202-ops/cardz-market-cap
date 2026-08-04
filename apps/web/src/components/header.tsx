@@ -19,7 +19,6 @@ export function Header() {
     { path: "/", label: t.nav.all },
     { path: "/pokemon", label: t.nav.pokemon },
     { path: "/one-piece", label: t.nav.onePiece },
-    { path: "/graders/psa", label: t.nav.graders },
     { path: "/watchlist", label: t.nav.watchlist },
   ];
 
@@ -33,7 +32,7 @@ export function Header() {
         </Link>
         <nav className="primary-nav" aria-label="Primary">
           {links.map((link) => (
-            <Link key={link.path} href={href(link.path)} data-active={pathname === link.path || (link.path.startsWith("/graders") && pathname.startsWith("/graders")) ? "true" : "false"}>
+            <Link key={link.path} href={href(link.path)} data-active={pathname === link.path ? "true" : "false"}>
               {link.label}
             </Link>
           ))}
@@ -77,10 +76,12 @@ export function Footer() {
   const t = copy[locale];
   return (
     <footer className="site-footer">
-      <p>{t.footer}</p>
-      <div className="footer-methodology">
-        <p className="footer-methodology-title">{t.methodology.title}</p>
-        <p>{t.methodology.body}</p>
+      <div className="footer-inner">
+        <p className="footer-brandline">{t.footer}</p>
+        <div className="footer-methodology">
+          <p className="footer-methodology-title">{t.methodology.title}</p>
+          <p className="footer-methodology-body">{t.methodology.body}</p>
+        </div>
       </div>
     </footer>
   );

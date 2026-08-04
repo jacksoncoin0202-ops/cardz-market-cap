@@ -54,6 +54,8 @@ const standaloneOutput = process.env.CARDZ_BUILD_TARGET === "node";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  /* 本機工程版：紅色 issue badge 同 build activity 遮內容，唔需要。 */
+  devIndicators: false,
   /* dev server 自認 localhost；用 127.0.0.1 開頁時，帶 Origin 嘅 dev 資源請求
      （dynamic import / RSC fetch / font）會被 Next 16 預設 403，client hydration
      即死 —— SSR 內容照見、client-only 組件（heatmap）空白。實測 403 已重現。 */

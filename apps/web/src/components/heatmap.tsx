@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import { CardImage } from "./card-image";
 import { CopyButton } from "./copy-button";
 import { PeriodSelector } from "./period-selector";
+import { DETAIL_PRINT_FIELDS, printIdentityRows } from "./print-badge";
 import { copy } from "@/lib/i18n";
 import { formatDate, formatMetricInteger, formatMetricMoney, formatMoney, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
 import { heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
@@ -29,6 +31,11 @@ function CardFacts({ card, locale, currency, snapshot }: Omit<HeatmapProps, "car
   return (
     <dl className="preview-facts">
       <div><dt>{t.labels.number}</dt><dd>{card.collectorNumber}</dd></div>
+      {/* CardFacts 一改，dialog（sheet）同 hover preview 兩個 surface 一次過搞掂。
+          冇印刷資料就一條都唔會加，格數同以前一樣。 */}
+      {printIdentityRows(card, locale, DETAIL_PRINT_FIELDS).map((row) => (
+        <div key={row.key} data-field={row.key}><dt>{row.label}</dt><dd title={row.value}>{row.value}</dd></div>
+      ))}
       <div><dt>{t.labels.marketCap}</dt><dd>{formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true)}</dd></div>
       <div><dt>{t.labels.price}</dt><dd>{formatMetricMoney(card.pricePsa10, currency, snapshot.rates, locale)}</dd></div>
       <div><dt>{t.labels.population}</dt><dd>{formatMetricInteger(card.populationPsa10, locale)}</dd></div>
@@ -69,7 +76,7 @@ function CardDialog({ card, locale, currency, snapshot, href, onClose }: Omit<He
         <div className="sheet-card-layout">
           <div className="sheet-image"><CardImage image={card.image} sizes="(max-width: 680px) 80vw, 340px" alt={card.image.alt[locale] || t.labels.imageAlt} /></div>
           <div>
-            <p className="rank-kicker">#{card.rank} / {card.tcg}</p>
+            <p className="rank-kicker">#{card.viewRank} / {card.tcg}</p>
             <h3 id="sheet-title">{card.name[locale] || t.status.unavailable}</h3>
             <p className="muted-copy">{card.setName[locale] || t.status.unavailable}</p>
             <CardFacts card={card} locale={locale} currency={currency} snapshot={snapshot} />
@@ -98,6 +105,8 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
   const [active, setActive] = useState<MarketCardView | null>(null);
   // preview 對角擺位：right = 去右邊、bottom = 去下邊（tile 喺左→右，喺上→下）
   const [previewCorner, setPreviewCorner] = useState({ right: true, bottom: true });
+  // preview 用 fixed 對齊 viewport，脫離 heatmap-frame 嘅 overflow 裁切
+  const [previewPos, setPreviewPos] = useState<{ left: number; top: number } | null>(null);
   const [sheetCard, setSheetCard] = useState<MarketCardView | null>(null);
   const [pickedCount, setPickedCount] = useState<number | null>(null);
   const [showTune, setShowTune] = useState(false);
@@ -120,7 +129,10 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
   }, [setParamsState]);
 
   const defaultCount = Math.min(isMobileTiles ? MOBILE_TILE_COUNT : cards.length, cards.length);
-  const visibleCount = pickedCount === null ? defaultCount : Math.min(Math.max(10, pickedCount), cards.length);
+  const minimumVisibleCount = Math.min(10, cards.length);
+  const visibleCount = pickedCount === null
+    ? defaultCount
+    : Math.min(Math.max(minimumVisibleCount, pickedCount), cards.length);
   const lastTriggerRef = useRef<HTMLElement | null>(null);
   const colors = tileColors(dark, params);
 
@@ -138,7 +150,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
   const totalCap = useMemo(() => visibleCards.reduce((sum, card) => sum + (card.marketCap.value ?? 0), 0), [visibleCards]);
 
   const tiles = useMemo(() => heatmapTreemapLayout(
-    visibleCards.map((card) => ({ card, rank: card.rank, value: Math.max(1, card.marketCap.value ?? 1) })),
+    visibleCards.map((card) => ({ card, rank: card.viewRank, value: Math.max(1, card.marketCap.value ?? 1) })),
     size.width,
     size.height,
   ), [visibleCards, size.height, size.width]);
@@ -331,7 +343,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
             <span className="tile-slider-label">{t.heatmap.tilesLabel}</span>
             <input
               type="range"
-              min={10}
+              min={minimumVisibleCount}
               max={cards.length}
               step={1}
               value={visibleCount}
@@ -363,7 +375,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
           />
         </div>
       </div>
-      <div className="heatmap-frame" ref={frameRef} onMouseLeave={() => setActive(null)}>
+      <div className="heatmap-frame" ref={frameRef} onMouseLeave={() => { setActive(null); setPreviewPos(null); }}>
         {tiles.map(({ item, x, y, width, height }) => {
           const card = item.card;
           const gap = params.gap;
@@ -379,18 +391,30 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
               type="button"
               data-dir={st.direction}
               style={{ left: tileX, top: tileY, width: tileW, height: tileH, background: st.bg }}
-              aria-label={`#${card.rank} ${card.name[locale] || t.status.unavailable}, ${card.collectorNumber}`}
+              aria-label={`#${card.viewRank} ${card.name[locale] || t.status.unavailable}, ${card.collectorNumber}`}
               aria-haspopup="dialog"
               onMouseEnter={() => {
                 setActive(card);
                 // 對角原則：tile 喺左半 → preview 去右邊；右半 → 去左邊；
                 // 上半 → 去下邊；下半 → 去上邊。唔會遮住指緊嘅卡。
-                setPreviewCorner({
-                  right: tileX + tileW / 2 <= size.width / 2,
-                  bottom: tileY + tileH / 2 <= size.height / 2,
-                });
+                const right = tileX + tileW / 2 <= size.width / 2;
+                const bottom = tileY + tileH / 2 <= size.height / 2;
+                setPreviewCorner({ right, bottom });
+                // fixed 定位：用 tile 嘅 viewport rect 計，頂住視窗邊都唔會被 frame 裁
+                const frame = frameRef.current;
+                if (frame) {
+                  const fr = frame.getBoundingClientRect();
+                  const PW = 520, PH = 380, M = 12;
+                  const vw = window.innerWidth, vh = window.innerHeight;
+                  const absL = fr.left + tileX, absT = fr.top + tileY;
+                  let left = right ? absL + tileW + M : absL - PW - M;
+                  let top = bottom ? absT + tileH + M : absT - PH - M;
+                  left = Math.max(M, Math.min(left, vw - PW - M));
+                  top = Math.max(M, Math.min(top, vh - PH - M));
+                  setPreviewPos({ left, top });
+                }
               }}
-              onFocus={() => setActive(card)}
+              onFocus={() => { setActive(card); setPreviewPos(null); }}
               onClick={(event) => {
                 lastTriggerRef.current = event.currentTarget;
                 setSheetCard(card);
@@ -402,7 +426,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
                   aria-hidden="true"
                   style={{ width: st.cardW, height: st.cardH, left: (tileW - st.cardW) / 2, top: (tileH - st.cardH) / 2 }}
                 >
-                  <CardImage image={card.image} sizes={`${Math.max(40, Math.round(st.cardW))}px`} loading={card.rank <= 8 ? "eager" : "lazy"} />
+                  <CardImage image={card.image} sizes={`${Math.max(40, Math.round(st.cardW))}px`} loading={card.viewRank <= 8 ? "eager" : "lazy"} />
                 </span>
               ) : null}
               {st.move ? (
@@ -411,21 +435,6 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
             </button>
           );
         })}
-        {active && (
-          <aside
-            className={`heatmap-preview${previewCorner.right ? "" : " preview-left"}${previewCorner.bottom ? "" : " preview-top"}`}
-            aria-live="polite"
-          >
-            <div className="preview-image"><CardImage image={active.image} sizes="220px" alt={active.image.alt[locale] || t.labels.imageAlt} /></div>
-            <div className="preview-copy">
-              <p className="rank-kicker">#{active.rank} / {active.tcg}</p>
-              <h3>{active.name[locale] || t.status.unavailable}</h3>
-              <p className="muted-copy">{active.setName[locale] || t.status.unavailable}</p>
-              <CardFacts card={active} locale={locale} currency={currency} snapshot={snapshot} />
-              <p className="preview-time">{t.labels.asOf}: {formatDate(active.windows[period].changePct.asOf ?? active.pricePsa10.asOf, locale)}</p>
-            </div>
-          </aside>
-        )}
       </div>
       <div className="heatmap-footer">
         <div className="heatmap-legend" aria-label={t.heatmap.body}>
@@ -438,6 +447,23 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
         <a className="ranking-jump" href="#market-ranking">{t.heatmap.viewRanking.replace("{count}", String(visibleCards.length))}</a>
       </div>
       {sheetCard && <CardDialog card={sheetCard} locale={locale} currency={currency} snapshot={snapshot} href={href} onClose={closeSheet} />}
+      {active && previewPos && createPortal(
+        <aside
+          className={`heatmap-preview heatmap-preview-fixed${previewCorner.right ? "" : " preview-left"}${previewCorner.bottom ? "" : " preview-top"}`}
+          style={{ left: previewPos.left, top: previewPos.top }}
+          aria-live="polite"
+        >
+          <div className="preview-image"><CardImage image={active.image} sizes="220px" alt={active.image.alt[locale] || t.labels.imageAlt} /></div>
+          <div className="preview-copy">
+            <p className="rank-kicker">#{active.viewRank} / {active.tcg}</p>
+            <h3>{active.name[locale] || t.status.unavailable}</h3>
+            <p className="muted-copy">{active.setName[locale] || t.status.unavailable}</p>
+            <CardFacts card={active} locale={locale} currency={currency} snapshot={snapshot} />
+            <p className="preview-time">{t.labels.asOf}: {formatDate(active.windows[period].changePct.asOf ?? active.pricePsa10.asOf, locale)}</p>
+          </div>
+        </aside>,
+        document.body,
+      )}
       {showTune && (
         <div className="tune-panel-backdrop" role="presentation" onClick={() => setShowTune(false)}>
           <aside className="tune-panel" aria-label={t.heatmap.customizeTitle} onClick={(e) => e.stopPropagation()}>

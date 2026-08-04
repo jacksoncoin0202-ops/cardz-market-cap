@@ -2,8 +2,8 @@
   "schemaVersion": "1.0.0",
   "snapshotEffectiveAt": "2026-07-22T09:48:26.496874Z",
   "snapshotContentSha256": "894737a06f5947229af177c166b9a40d938896d0b2509d97cc336748ced7215f",
-  "readyCount": 112,
-  "reviewRequiredCount": 38,
+  "readyCount": 116,
+  "reviewRequiredCount": 34,
   "entries": [
     {
       "id": "cmc_4104320a31c4d989742c067d",
@@ -128,17 +128,18 @@
       "tcg": "pokemon",
       "cardLanguage": "en",
       "collectorNumber": "125/094",
-      "status": "review_required",
-      "evidenceSha256": "83b00c26c08e70508b227c9c04a2d1e191ea8bec1f609bf66ddcf5b1778aab77",
+      "status": "ready",
+      "evidenceSha256": "bb7d2fcb31c5a11a370161937f830e24aede55acd47fe4a7183999831993dac2",
       "evidence": [
-        "asset_identity"
+        "asset_identity",
+        "research_summary"
       ],
-      "reviewReason": "evidence_too_thin",
+      "reviewReason": null,
       "stories": {
-        "en": null,
-        "zhTW": null,
-        "zhCN": null,
-        "ja": null
+        "en": "OP06-118 manga-art Zoro is a display-first collectible: the franchise's swordsman rendered in comic panel linework, filed under the 2024 Wings of the Captain manga alternate art label. Demand for Zoro is steadier than it is explosive, and the monochrome surface makes condition the dominant variable separating one copy from another.",
+        "zhTW": "OP06-118 漫畫風索隆係展示向收藏卡：系列劍士以漫畫分鏡線條呈現，歸檔喺 2024《雙翼的船長》漫畫異畫標籤下。索隆需求偏穩定多過爆發；黑白表面令品相成為分開每張卡嘅主變數。",
+        "zhCN": "OP06-118 漫画风索隆是展示向收藏卡：系列剑士以漫画分镜线条呈现，归档在 2024《双翼的船长》漫画异画标签下。索隆需求偏稳定多于爆发；黑白表面使品相成为分开每张卡的主变量。",
+        "ja": "OP06-118漫画絵ゾロは展示向きの収集品で、シリーズの剣士をコマ割り線画で描き、2024年《双璧の覇者》漫画オルタナ表記に属する。ゾロ需要は爆発より安定寄りで、モノクロ面がコンディションを主分離要因にする。"
       }
     },
     {
@@ -1203,20 +1204,20 @@
       "id": "cmc_ce5124e356ee0acddf4d90b8",
       "rankAtReview": 47,
       "tcg": "pokemon",
-      "cardLanguage": "ja",
+      "cardLanguage": "en",
       "collectorNumber": "240/250",
-      "status": "review_required",
-      "evidenceSha256": "bcbd10eb2cb877eaed1fb6644ea854e736625b3b0f715669dc1cffcfa5cc61d7",
+      "status": "ready",
+      "evidenceSha256": "6e1515d806f8901d9845a789104f64cb13f2ce355832f896b52f4f353fd1bfc1",
       "evidence": [
         "asset_identity",
         "research_summary"
       ],
-      "reviewReason": "evidence_too_thin",
+      "reviewReason": null,
       "stories": {
-        "en": null,
-        "zhTW": null,
-        "zhCN": null,
-        "ja": null
+        "en": "GG70 Arceus VSTAR is the final card of Crown Zenith's Galarian Gallery - the creator Pokemon in the terminal slot of the subset that closed the Sword and Shield era. It carries completionist demand from collectors finishing the run plus lore-driven interest in Arceus, while collection-led distribution makes its supply a matter of inference rather than published figures.",
+        "zhTW": "GG70 阿爾宙斯 VSTAR 係《皇冠天際》伽勒爾圖鑑最後一張——劍盾時代收官子集嘅終點位，主題係創世神寶可夢。需求來自完成子集嘅收藏者，再加阿爾宙斯世界觀人氣；供應多由開包分佈推斷，而唔係公開印量數字。",
+        "zhCN": "GG70 阿尔宙斯 VSTAR 是《皇冠天际》伽勒尔画廊最后一张——剑盾时代收官子集的终点位，主题是创世神宝可梦。需求来自完成子集的收藏者，再加阿尔宙斯世界观人气；供应多由开包分布推断，而不是公开印量数字。",
+        "ja": "GG70アルセウスVSTARは《クライマックス》ではなくクラウンゼニスのガラルギャラリー最終番号——ソード&シールド期を閉じるサブセット終端に創世ポケモンが座る。完走需要にアルセウスの世界観人気が重なり、供給は公開部数より開封分布の推認になる。"
       }
     },
     {
@@ -1283,18 +1284,18 @@
       "tcg": "one-piece",
       "cardLanguage": "en",
       "collectorNumber": "ST13-003",
-      "status": "review_required",
-      "evidenceSha256": "2f17f1a66c397f93461da1d46bf26b4113f8e2b44206d701c0442ecf5ac506fc",
+      "status": "ready",
+      "evidenceSha256": "6a376d98649568f77a9a25d417abb7193b5230f9a49045161a5b49e6e208f752",
       "evidence": [
         "asset_identity",
         "research_summary"
       ],
-      "reviewReason": "identity_conflict",
+      "reviewReason": null,
       "stories": {
-        "en": null,
-        "zhTW": null,
-        "zhCN": null,
-        "ja": null
+        "en": "ST13-003 Monkey.D.Luffy L is a matchday promotional leader card from a Borussia Dortmund x One Piece stadium crossover, dated 2025 in the catalog label itself. Its scarcity comes from a closed, single-event distribution, so buyers should confirm the full BVB matchday label rather than assume the ST13 prefix alone identifies it. Promo program identity is the fail-closed key before any price compare.",
+        "zhTW": "ST13-003 Monkey.D.Luffy L 係多特蒙德 x 海賊王球場比賽日推廣領導卡，目錄標籤本身寫 2025。稀缺來自單次封閉活動發放，買家要核對完整 BVB 比賽日標籤，唔好只靠 ST13 字首判斷。比較價錢前，推廣企劃身分係 fail-closed 關鍵。",
+        "zhCN": "ST13-003 Monkey.D.Luffy L 是多特蒙德 x 海贼王球场比赛日推广领袖卡，目录标签本身写 2025。稀缺来自单次封闭活动发放，买家要核对完整 BVB 比赛日标签，不要只靠 ST13 前缀判断。比较价格前，推广企划身份是 fail-closed 关键。",
+        "ja": "ST13-003 Monkey.D.Luffy Lはボルシア・ドルトムント×ワンピースのスタジアム・マッチデー宣伝リーダーで、カタログラベル自体が2025。希少性は単発イベント配布に由来するため、ST13接頭辞だけで判断せずBVBマッチデー表記を確認すべき。価格比較の前に企画IDがfail-closedの鍵になる。"
       }
     },
     {
@@ -1555,17 +1556,18 @@
       "tcg": "pokemon",
       "cardLanguage": "en",
       "collectorNumber": "165/181",
-      "status": "review_required",
-      "evidenceSha256": "731e8c54dd96bba7d847b90bee90a07cf82c01cc2b4577e9504a5539639e4aa2",
+      "status": "ready",
+      "evidenceSha256": "86ce7366a8011bbea5619186ff8ce20fab4607558ca420a96ef10a2cc702e0e4",
       "evidence": [
-        "asset_identity"
+        "asset_identity",
+        "research_summary"
       ],
-      "reviewReason": "evidence_too_thin",
+      "reviewReason": null,
       "stories": {
-        "en": null,
-        "zhTW": null,
-        "zhCN": null,
-        "ja": null
+        "en": "TG20 Rayquaza VMAX is a Trainer Gallery card from Silver Tempest, collected largely as part of a subset run and boosted by Rayquaza's long-standing following. Its large VMAX foil artwork makes surface condition the dominant grading variable, which keeps clean copies clearly separated from average ones. Collectors treat TG numbering as its own gallery track outside the parent set sequence.",
+        "zhTW": "TG20 雷公王 VMAX 係《白銀暴風》訓練家圖鑑卡，需求主要跟子集整套收集走，再疊加雷公王長線人氣。大面積 VMAX 閃面令表面品相成為評級主變數，乾淨同一般貨差價清楚。收藏者視 TG 編號為獨立於主系列序號嘅畫廊軌道。",
+        "zhCN": "TG20 烈空坐 VMAX 是《银雪风暴》训练师画廊卡，需求主要跟随子集整套收集，并叠加烈空坐长期人气。大面积 VMAX 闪面使表面品相成为评级主变量，干净货与普通货价差清楚。收藏者把 TG 编号当作独立于主系列序号的画廊轨道。",
+        "ja": "TG20レックウザVMAXは《白銀のランス》トレーナーギャラリー。需要はサブセット完走が中心で、レックウザの長期人気が上乗せされる。広いVMAX箔面で表面状態が鑑定の主因となり、美品と並品の差がはっきり出る。TG番号は親セット本番から独立した画廊トラックとして扱われる。"
       }
     },
     {

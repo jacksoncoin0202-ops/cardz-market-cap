@@ -1,13 +1,9 @@
 [Unit]
-Description=CARDZ Market Cap canonical daily sync
+Description=CARDZ Market Cap new-era active refresh
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=1h
 StartLimitBurst=3
-# Unit 層面死法（TimeoutStartSec 殺 process tree、226/NAMESPACE、python 未入到
-# outcome gate 就爆）根本冇人叫 verify，所以只可以靠 systemd 自己觸發通報。
-# gate 有跑到嗰啲（exit 1 / 2）由 verify_daily_run.py 喺 process 入面通報，
-# 兩邊共用 dedupe key "daily"，一單事故只出一次聲。
 OnFailure=cardz-market-cap-alert@%n.service
 
 [Service]
@@ -16,23 +12,13 @@ User=cardz
 Group=cardz
 WorkingDirectory=/opt/cardz-market-cap
 EnvironmentFile=/etc/cardz-market-cap/backend.env
+EnvironmentFile=-/etc/cardz-market-cap/gemrate.env
 Environment=CARDZ_REPO_ROOT=/opt/cardz-market-cap
 Environment=CARDZ_ENV_FILE=/etc/cardz-market-cap/backend.env
-Environment=CARDZ_DAILY_MODE=production
-# local = 行足 publish 鏈但只寫本機 public tree。要開 R2 就改做 remote，並喺
-# backend.env 補齊 CARDZ_PRODUCTION_R2_BUCKET / CARDZ_GENERATION_CANARY_COMMAND_JSON
-# / CARDZ_POINTER_PROMOTE_COMMAND_JSON；off 係舊嘅 backend-only 行為。
-Environment=CARDZ_DAILY_PUBLISH=local
-# systemd 唔會繼承 login shell 個 locale。publish 鏈會行 node/tsc，輸出撞非 UTF-8
-# locale 會爛。PYTHONUNBUFFERED 係為咗 run-cardz-daily.sh 個 tee：唔設就 block
-# buffering，TimeoutStartSec 殺 process tree 嗰陣連最後嗰段 log 都冇埋。
 Environment=LANG=C.UTF-8
 Environment=LC_ALL=C.UTF-8
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/env bash /opt/cardz-market-cap/deploy/systemd/run-cardz-daily.sh
-# 6 小時。實測全鏈（FX + GemRate 1468 頁 + SNK + import + alerts）要 2–2.5 小時，
-# 原本 7200s（2h）會喺 GemRate 爬到一半就殺成個 process tree，
-# 令尾段嘅 verify gate 永遠冇機會跑 → 靜默死亡、零 alert。
 TimeoutStartSec=21600
 Restart=on-failure
 RestartSec=10min
@@ -41,50 +27,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-# ReadWritePaths 清單嘅來源（2026-07-26 逐條 grep 全 pipelines/ + scripts/ 得出，
-# 唔好再縮窄）。ProtectSystem=strict 之下唔喺呢個清單嘅目錄一律唯讀，寫落去唔係
-# 報 PermissionError 咁簡單——namespace 砌唔起會喺 ExecStart 之前就 226/NAMESPACE
-# 死，零 log、verify gate 都唔會跑。
-#
-# 呢個 unit 實際跑嘅係 run-cardz-daily.sh → backend.py daily --publish --local-only
-# → run_daily.py --local-only，即係行足 canonical_public_snapshot →
-# ensure_std_card_images → verify_images(lenient) → catalog shrink gate →
-# promote → quarantine → verify_images(strict) → npm run build → publish-snapshot.mjs。
-#
-#   data/runtime            logs / locks(daily.lock) / alerts / config /
-#                           private-fx / private-landing / private-source-map /
-#                           private-source-runs（snk・tag・ebay 全部落呢度）/
-#                           private-reports / candidates
-#   data/private/gemrate    gemrate_source.py daily：cards/ runs/ pop_report.json /
-#                           population_history.csv / grader_volume.json
-#   integrations/grade10/data  run_service.py collect（_state/collector.lock + dump）
-#                           ＋ gemrate_source.py --mirror-root
-#   .venv-backend           backend.py ensure_python_environment（pip + marker）
-#   data/public             publish 鏈：market-assets 寫入 ＋ quarantine 用
-#                           shutil.move 搬走冇引用嘅 asset ＋ snapshot promote
-#   manifests               image-qc.json（promote_file 目標）
-#   packages/market-data/dist  npm run build → tsc outDir
-#
-# 尾三個係開咗 CARDZ_DAILY_PUBLISH=local/remote 之後先需要。install 腳本
-# deploy/linux/cardz-daily-systemd.sh 會 sed 呢行出嚟逐個 install -d，所以照跑
-# 腳本裝就會有；手動 copy unit 而個目錄未存在 = ExecStart 之前 226/NAMESPACE
-# 死，零 log。
-#
-# PrivateTmp=true 已經俾咗可寫 /tmp，所以 tempfile 預設目標唔使列。但
-# canonical_public_snapshot.atomic_json 用 mkstemp(dir=path.parent)，temp 檔跌喺
-# 目標旁邊，所以「目標自己個目錄」一定要喺上面清單入面。
-#
-# 查證後確認唔使加（docs/SERVER_MIGRATION.md §8.3 曾經列錯）：
-#   data/private/snk            只出現喺 snk_market_data.py docstring 例子；
-#                               run_daily.py 傳 --out 去 private-source-runs
-#   data/private/snkrdunk_brute snkrdunk_discover.py 有 module-level mkdir，但全
-#                               repo 冇嘢 import 佢；daily 行嘅係 snkrdunk_bulk
-#   data/private/ebay_brute     ebay_brute_harvest.py 同上，唯一 importer 係
-#                               gemrate_resume_failed.py（手動工具，唔喺 daily）
-#   data/tag                    tag_daily_capture.py 預設 catalog 係唯讀輸入，
-#                               run_daily.py 用 --catalog-out 寫去 private-source-runs
-#   data/private/cardz-active-bootstrap  由 bootstrap_archive.py export 寫，唔喺 daily
-ReadWritePaths=/opt/cardz-market-cap/integrations/grade10/data /opt/cardz-market-cap/data/runtime /opt/cardz-market-cap/data/private/gemrate /opt/cardz-market-cap/.venv-backend /opt/cardz-market-cap/data/public /opt/cardz-market-cap/manifests /opt/cardz-market-cap/packages/market-data/dist
+ReadWritePaths=/opt/cardz-market-cap/data/runtime /opt/cardz-market-cap/data/private/gemrate /opt/cardz-market-cap/data/private/pricecharting_session
 
 [Install]
 WantedBy=multi-user.target

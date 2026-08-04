@@ -6,7 +6,7 @@
     "predev": "npm --workspace @cardz/market-data run build && node scripts/sync-snapshot.mjs",
     "dev": "next dev",
     "prebuild": "npm --workspace @cardz/market-data run build && node scripts/sync-snapshot.mjs",
-    "build": "next build",
+    "build": "next build && node scripts/prepare-standalone.mjs",
     "build:cloudflare": "node scripts/cloudflare-build.mjs",
     "start": "next start",
     "lint": "eslint .",

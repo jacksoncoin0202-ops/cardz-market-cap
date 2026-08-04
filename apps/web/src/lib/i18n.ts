@@ -1,9 +1,8 @@
-import type { Grader, Locale, MarketWindow } from "./types";
+import type { Locale, MarketWindow } from "./types";
 
-// The card's printing language, not the reader's locale. These are the codes the ingest layer
-// emits — `_LANGUAGE_CODES` in `pipelines/g10_ingest.py:98`. `card.language` is typed as a plain
-// string in the public schema, so an unrecognised code falls back to the raw upstream value the
-// same way `names`/`sets` keep their English source when no translation exists.
+// The card's printing language, not the reader's locale. These are the codes emitted by the
+// canonical ingest language contract. An unrecognised code falls back to the supplied display
+// value in the same way `names` and `sets` keep their English text when no translation exists.
 export const cardLanguages = ["en", "ja", "ko", "zhCN", "zhTW"] as const;
 export type CardLanguage = (typeof cardLanguages)[number];
 
@@ -12,7 +11,6 @@ export interface Copy {
     all: string;
     pokemon: string;
     onePiece: string;
-    graders: string;
     watchlist: string;
   };
   hero: { eyebrow: string; title: string; body: string };
@@ -51,6 +49,7 @@ export interface Copy {
     number: string;
     language: string;
     price: string;
+    ungradedReference: string;
     priceShort: string;
     population: string;
     populationShort: string;
@@ -73,6 +72,7 @@ export interface Copy {
     imageAlt: string;
     noHistory: string;
     noCards: string;
+    noSales: string;
     watchStatus: string;
     share: string;
     shareDone: string;
@@ -81,41 +81,28 @@ export interface Copy {
     marketCapHelp: string;
     populationHelp: string;
     priceHelp: string;
-  };
-  grader: {
-    eyebrow: string;
-    title: string;
-    body: string;
-    topGrade: string;
-    topGradeShort: string;
-    topGradePopulation: string;
-    topGradePopulationShort: string;
-    totalPopulation: string;
-    totalPopulationShort: string;
-    populationChange: string;
-    populationChangeShort: string;
-    liquidity: string;
-    marketCapAvailable: string;
-    marketShare: string;
-    names: Record<Grader, string>;
+    /*
+     * 印刷版本相關。`printLanguage` 係 template：`languages` 只出裸字（「日文」），
+     * 但 badge 要出「日文版」，所以用 {language} 佔位符夾 localizedCardLanguage() 嘅輸出。
+     * 其餘幾條係 printing identity 各欄嘅標籤。
+     */
+    printLanguage: string;
+    setCode: string;
+    rarity: string;
+    parallel: string;
+    finish: string;
+    packSource: string;
+    languageFilterAll: string;
   };
   theme: { dark: string; light: string };
   methodology: { title: string; body: string };
-  gradingPulse: {
-    eyebrow: string;
-    title: string;
-    subtitle: string;
-    windowCaption: string;
-    submissions: string;
-    share: string;
-  };
   status: Record<"accumulating" | "stale" | "unavailable", string>;
   footer: string;
 }
 
 export const copy: Record<Locale, Copy> = {
   en: {
-    nav: { all: "TCG Market", pokemon: "Pokémon", onePiece: "One Piece", graders: "Graders", watchlist: "Watchlist" },
+    nav: { all: "TCG Market", pokemon: "Pokémon", onePiece: "One Piece", watchlist: "Watchlist" },
     hero: {
       eyebrow: "CARDZ MARKET INDEX",
       title: "The market view for collectible cards",
@@ -134,7 +121,7 @@ export const copy: Record<Locale, Copy> = {
     watchlistHero: {
       eyebrow: "MARKET WATCH",
       title: "Cards approaching the leading market",
-      body: "Ranks 101 to 300, monitored for identity, price freshness, supply and demand.",
+      body: "Ranks 101 and beyond, monitored for identity, price freshness, supply and demand.",
     },
     heatmap: {
       title: "Top {count} market heatmap",
@@ -163,7 +150,7 @@ export const copy: Record<Locale, Copy> = {
     periods: { "1d": "1d", "7d": "7d", "30d": "30d" },
     languages: { en: "English", ja: "Japanese", ko: "Korean", zhCN: "Simplified Chinese", zhTW: "Traditional Chinese" },
     labels: {
-      rank: "Rank", card: "Card", number: "Full number", language: "Language", price: "PSA 10 price",
+      rank: "Rank", card: "Card", number: "Full number", language: "Language", price: "PSA 10 price", ungradedReference: "Ungraded / RAW reference",
       priceShort: "Price",
       population: "PSA 10 population", populationShort: "Pop",
       marketCap: "Market cap", marketCapShort: "Mkt Cap", trackedSales: "Tracked sales",
@@ -171,39 +158,25 @@ export const copy: Record<Locale, Copy> = {
       salesHelp: "Only completed PSA 10 sales captured within CardZ Marketcap tracked coverage.", change: "Change", changeShort: "Chg", asOf: "Data time",
       viewCard: "Open card profile", close: "Close", story: "Why the market cares", history: "Daily market history",
       dailyPrice: "Reference price", trackedSalesBars: "Tracked sales", salesTrend: "Tracked sales trend", salesTrendShort: "Sales trend", imageAlt: "Card artwork",
-      noHistory: "Daily price history is still accumulating.", noCards: "No eligible cards are available in this view.", watchStatus: "Eligibility watch",
+      noHistory: "Daily price history is still accumulating.", noCards: "No eligible cards are available in this view.", noSales: "No sales recorded", watchStatus: "Watchlist status",
       share: "Share card", shareDone: "Link copied", shareError: "Copy failed — select the address bar",
       expandImage: "View full-size card",
       marketCapHelp: "PSA 10 price × PSA 10 population — the tradable value of the top-grade supply.",
       populationHelp: "Verified PSA 10 graded copies counted in the registry.",
       priceHelp: "Latest verified PSA 10 sale price in the tracked window.",
-    },
-    grader: {
-      eyebrow: "GRADING SUPPLY",
-      title: "{grader} market supply",
-      body: "Top-grade population and tracked liquidity are shown without inventing unavailable prices.",
-      topGrade: "Top grade", topGradeShort: "Grade", topGradePopulation: "Top-grade population", topGradePopulationShort: "Pop", totalPopulation: "Total graded population", totalPopulationShort: "Total", populationChange: "population change", populationChangeShort: "change",
-      liquidity: "Tracked liquidity", marketCapAvailable: "PSA 10 market cap", marketShare: "Market share",
-      names: { PSA: "PSA", BGS: "BGS", CGC: "CGC", SGC: "SGC", TAG: "TAG" },
+      printLanguage: "{language} print", setCode: "Set code", rarity: "Rarity", parallel: "Parallel", finish: "Surface", packSource: "Pack source",
+      languageFilterAll: "All languages",
     },
     theme: { dark: "Dark mode", light: "Light mode" },
     methodology: {
       title: "How CardZ Marketcap ranks the market",
-      body: "Every card in this index has at least 1,000 verified PSA 10 examples. That floor keeps the ranking tied to real, tradable supply — not thin populations that a handful of sales could move.",
-    },
-    gradingPulse: {
-      eyebrow: "GRADING PULSE",
-      title: "Daily grading flow",
-      subtitle: "Across the tracked top 100",
-      windowCaption: "Change vs prior {period}",
-      submissions: "Top-grade population change",
-      share: "Share of tracked top-grade population",
+      body: "A place in this index is earned, never assumed. Every card carries a verified population of at least 1,000 PSA 10 examples — and a Top 100 seat holds only while the market itself keeps confirming it, with no fewer than five verified PSA 10 sales inside every rolling 30-day window. Real supply, real demand, and nothing else.",
     },
     status: { accumulating: "Accumulating", stale: "Stale", unavailable: "Not available" },
     footer: "CardZ Marketcap. Art market intelligence for collectible cards.",
   },
   "zh-TW": {
-    nav: { all: "TCG 市場", pokemon: "寶可夢", onePiece: "海賊王", graders: "評級公司", watchlist: "觀察名單" },
+    nav: { all: "TCG 市場", pokemon: "寶可夢", onePiece: "海賊王", watchlist: "觀察名單" },
     hero: {
       eyebrow: "CARDZ MARKET INDEX",
       title: "收藏卡牌的市場全景",
@@ -222,7 +195,7 @@ export const copy: Record<Locale, Copy> = {
     watchlistHero: {
       eyebrow: "市場觀察",
       title: "正在接近領先市場的卡牌",
-      body: "持續觀察第 101 至 300 位卡牌的身份、價格時效、供應及需求。",
+      body: "持續觀察第 101 位起所有卡牌的身份、價格時效、供應及需求。",
     },
     heatmap: {
       title: "市值前 {count} 熱力圖", rankingTitle: "市值前 {count} 排行", pokemonTitle: "寶可夢市場熱力圖", onePieceTitle: "海賊王市場熱力圖",
@@ -234,7 +207,7 @@ export const copy: Record<Locale, Copy> = {
     periods: { "1d": "1 日", "7d": "7 日", "30d": "30 日" },
     languages: { en: "英文", ja: "日文", ko: "韓文", zhCN: "簡體中文", zhTW: "繁體中文" },
     labels: {
-      rank: "排名", card: "卡牌", number: "完整編號", language: "語言", price: "PSA 10 價格",
+      rank: "排名", card: "卡牌", number: "完整編號", language: "語言", price: "PSA 10 價格", ungradedReference: "未評級／RAW 參考價",
       priceShort: "價格",
       population: "PSA 10 數量", populationShort: "數量",
       marketCap: "市值", marketCapShort: "市值", trackedSales: "已追蹤成交額",
@@ -242,39 +215,25 @@ export const copy: Record<Locale, Copy> = {
       salesHelp: "只包括 CardZ Marketcap 追蹤範圍內捕捉到的 PSA 10 完成成交。", change: "升跌", changeShort: "升跌", asOf: "資料時間",
       viewCard: "查看卡牌詳情", close: "關閉", story: "市場為何追捧", history: "每日市場走勢",
       dailyPrice: "參考價格", trackedSalesBars: "已追蹤成交額", salesTrend: "已追蹤成交額走勢", salesTrendShort: "成交走勢", imageAlt: "卡牌圖像",
-      noHistory: "每日價格歷史仍在累積。", noCards: "此分類暫時沒有合資格卡牌。", watchStatus: "入榜觀察",
+      noHistory: "每日價格歷史仍在累積。", noCards: "此分類暫時沒有合資格卡牌。", noSales: "無成交紀錄", watchStatus: "觀察狀態",
       share: "分享卡牌", shareDone: "已複製連結", shareError: "複製失敗，請手動複製網址",
       expandImage: "放大檢視卡牌",
       marketCapHelp: "PSA 10 價格乘以已核實的 PSA 10 數量——頂級評分存量的可流通價值。",
       populationHelp: "登記在冊、經核實的 PSA 10 存世數量。",
       priceHelp: "追蹤期內最近一筆經核實的 PSA 10 成交價。",
-    },
-    grader: {
-      eyebrow: "評級供應",
-      title: "{grader} 市場供應",
-      body: "呈現最高評級數量及已追蹤流動性，不會為缺失價格製造估算。",
-      topGrade: "最高評級", topGradeShort: "評級", topGradePopulation: "最高評級數量", topGradePopulationShort: "數量", totalPopulation: "評級總數量", totalPopulationShort: "總數", populationChange: "數量變化", populationChangeShort: "變化",
-      liquidity: "已追蹤流動性", marketCapAvailable: "PSA 10 市值", marketShare: "市佔",
-      names: { PSA: "PSA", BGS: "BGS", CGC: "CGC", SGC: "SGC", TAG: "TAG" },
+      printLanguage: "{language}版", setCode: "系列代碼", rarity: "稀有度", parallel: "平行卡", finish: "卡面", packSource: "卡包來源",
+      languageFilterAll: "全部語言",
     },
     theme: { dark: "深色模式", light: "淺色模式" },
     methodology: {
       title: "CardZ Marketcap 如何排列市場",
-      body: "本指數收錄的每一張卡，均至少有 1,000 張經核實的 PSA 10。此門檻確保排名錨定真實、可交易的供應——而非流通量極少、數筆成交即可推動的品種。",
-    },
-    gradingPulse: {
-      eyebrow: "評級動態",
-      title: "每日送評流向",
-      subtitle: "涵蓋已追蹤前 100 名",
-      windowCaption: "較上一{period}的變化",
-      submissions: "最高評級數量變化",
-      share: "佔已追蹤最高評級總量",
+      body: "入選，從來不是理所當然。本指數收錄的每一張卡，均至少有 1,000 張經核實的 PSA 10；而百大席位，只在市場持續確認下得以保留——每 30 日內須有不少於五宗經核實的 PSA 10 成交。真實供應、真實需求，除此以外別無其他。",
     },
     status: { accumulating: "資料累積中", stale: "資料已逾時", unavailable: "暫無資料" },
     footer: "CardZ Marketcap，收藏卡牌藝術市場情報。",
   },
   "zh-CN": {
-    nav: { all: "TCG 市场", pokemon: "宝可梦", onePiece: "海贼王", graders: "评级公司", watchlist: "观察名单" },
+    nav: { all: "TCG 市场", pokemon: "宝可梦", onePiece: "海贼王", watchlist: "观察名单" },
     hero: {
       eyebrow: "CARDZ MARKET INDEX", title: "收藏卡牌的市场全景",
       body: "以艺术价值为起点，通过经核实的身份、可流通供应及当前价格理解市场。",
@@ -286,7 +245,7 @@ export const copy: Record<Locale, Copy> = {
       eyebrow: "海贼王市场", title: "以流动市场视角理解海贼王卡牌", body: "按已核实印刷版本、PSA 10 供应及当前价格排列。",
     },
     watchlistHero: {
-      eyebrow: "市场观察", title: "正在接近领先市场的卡牌", body: "持续观察第 101 至 300 位卡牌的身份、价格时效、供应及需求。",
+      eyebrow: "市场观察", title: "正在接近领先市场的卡牌", body: "持续观察第 101 位起所有卡牌的身份、价格时效、供应及需求。",
     },
     heatmap: {
       title: "市值前 {count} 热力图", rankingTitle: "市值前 {count} 排行", pokemonTitle: "宝可梦市场热力图", onePieceTitle: "海贼王市场热力图",
@@ -298,7 +257,7 @@ export const copy: Record<Locale, Copy> = {
     periods: { "1d": "1 日", "7d": "7 日", "30d": "30 日" },
     languages: { en: "英文", ja: "日文", ko: "韩文", zhCN: "简体中文", zhTW: "繁体中文" },
     labels: {
-      rank: "排名", card: "卡牌", number: "完整编号", language: "语言", price: "PSA 10 价格",
+      rank: "排名", card: "卡牌", number: "完整编号", language: "语言", price: "PSA 10 价格", ungradedReference: "未评级／RAW 参考价",
       priceShort: "价格",
       population: "PSA 10 数量", populationShort: "数量",
       marketCap: "市值", marketCapShort: "市值", trackedSales: "已追踪成交额",
@@ -306,37 +265,25 @@ export const copy: Record<Locale, Copy> = {
       salesHelp: "只包括 CardZ Marketcap 追踪范围内捕捉到的 PSA 10 完成成交。", change: "涨跌", changeShort: "涨跌", asOf: "数据时间",
       viewCard: "查看卡牌详情", close: "关闭", story: "市场为何追捧", history: "每日市场走势",
       dailyPrice: "参考价格", trackedSalesBars: "已追踪成交额", salesTrend: "已追踪成交额走势", salesTrendShort: "成交走势", imageAlt: "卡牌图像",
-      noHistory: "每日价格历史仍在累积。", noCards: "此分类暂时没有合资格卡牌。", watchStatus: "入榜观察",
+      noHistory: "每日价格历史仍在累积。", noCards: "此分类暂时没有合资格卡牌。", noSales: "无成交纪录", watchStatus: "观察状态",
       share: "分享卡牌", shareDone: "已复制链接", shareError: "复制失败，请手动复制网址",
       expandImage: "放大查看卡牌",
       marketCapHelp: "PSA 10 价格乘以已核实的 PSA 10 数量——顶级评级存量的可流通价值。",
       populationHelp: "登记在册、经核实的 PSA 10 存世数量。",
       priceHelp: "追踪期内最近一笔经核实的 PSA 10 成交价。",
-    },
-    grader: {
-      eyebrow: "评级供应", title: "{grader} 市场供应", body: "呈现最高评级数量及已追踪流动性，不会为缺失价格制造估算。",
-      topGrade: "最高评级", topGradeShort: "评级", topGradePopulation: "最高评级数量", topGradePopulationShort: "数量", totalPopulation: "评级总数量", totalPopulationShort: "总数", populationChange: "数量变化", populationChangeShort: "变化",
-      liquidity: "已追踪流动性", marketCapAvailable: "PSA 10 市值", marketShare: "市占",
-      names: { PSA: "PSA", BGS: "BGS", CGC: "CGC", SGC: "SGC", TAG: "TAG" },
+      printLanguage: "{language}版", setCode: "系列代码", rarity: "稀有度", parallel: "平行卡", finish: "卡面", packSource: "卡包来源",
+      languageFilterAll: "全部语言",
     },
     theme: { dark: "深色模式", light: "浅色模式" },
     methodology: {
       title: "CardZ Marketcap 如何排列市场",
-      body: "本指数收录的每一张卡都至少有 1,000 张经核实的 PSA 10。这一门槛确保排名锚定真实、可交易的供应——而非流通量极少、几笔成交即可推动的品种。",
-    },
-    gradingPulse: {
-      eyebrow: "评级动态",
-      title: "每日送评流向",
-      subtitle: "覆盖已追踪前 100 名",
-      windowCaption: "较上一{period}的变化",
-      submissions: "最高评级数量变化",
-      share: "占已追踪最高评级总量",
+      body: "入选，从来不是理所当然。本指数收录的每一张卡都至少有 1,000 张经核实的 PSA 10；而百大席位，只在市场持续确认下得以保留——每 30 天内须有不少于五笔经核实的 PSA 10 成交。真实供应、真实需求，除此以外别无其他。",
     },
     status: { accumulating: "数据累积中", stale: "数据已过期", unavailable: "暂无数据" },
     footer: "CardZ Marketcap，收藏卡牌艺术市场情报。",
   },
   ja: {
-    nav: { all: "TCG 市場", pokemon: "ポケモン", onePiece: "ワンピース", graders: "鑑定会社", watchlist: "ウォッチリスト" },
+    nav: { all: "TCG 市場", pokemon: "ポケモン", onePiece: "ワンピース", watchlist: "ウォッチリスト" },
     hero: {
       eyebrow: "CARDZ MARKET INDEX", title: "コレクティブルカード市場を一望する",
       body: "アートの価値を起点に、確認済みのカード情報、流通供給、現在価格から市場を読み解きます。",
@@ -348,7 +295,7 @@ export const copy: Record<Locale, Copy> = {
       eyebrow: "ワンピース市場", title: "動く市場として見るワンピースカード", body: "確認済みの印刷版、PSA 10 供給、現在価格で順位付けします。",
     },
     watchlistHero: {
-      eyebrow: "マーケットウォッチ", title: "主要市場に近づくカード", body: "101 位から 300 位までの識別情報、価格鮮度、供給、需要を観察します。",
+      eyebrow: "マーケットウォッチ", title: "主要市場に近づくカード", body: "101 位以降のカードの識別情報、価格鮮度、供給、需要を観察します。",
     },
     heatmap: {
       title: "時価総額トップ {count} ヒートマップ", rankingTitle: "時価総額トップ {count}", pokemonTitle: "ポケモン市場ヒートマップ", onePieceTitle: "ワンピース市場ヒートマップ",
@@ -360,7 +307,7 @@ export const copy: Record<Locale, Copy> = {
     periods: { "1d": "1 日", "7d": "7 日", "30d": "30 日" },
     languages: { en: "英語", ja: "日本語", ko: "韓国語", zhCN: "簡体中国語", zhTW: "繁体中国語" },
     labels: {
-      rank: "順位", card: "カード", number: "完全な番号", language: "言語", price: "PSA 10 価格",
+      rank: "順位", card: "カード", number: "完全な番号", language: "言語", price: "PSA 10 価格", ungradedReference: "未鑑定／RAW 参考価格",
       priceShort: "価格",
       population: "PSA 10 枚数", populationShort: "枚数",
       marketCap: "時価総額", marketCapShort: "時価総額", trackedSales: "追跡成約額",
@@ -368,37 +315,25 @@ export const copy: Record<Locale, Copy> = {
       salesHelp: "CardZ Marketcap の追跡範囲で確認できた PSA 10 の成約のみを含みます。", change: "変動", changeShort: "変動", asOf: "データ時刻",
       viewCard: "カード詳細を見る", close: "閉じる", story: "市場で支持される理由", history: "日次市場推移",
       dailyPrice: "参考価格", trackedSalesBars: "追跡成約額", salesTrend: "追跡成約額の推移", salesTrendShort: "成約推移", imageAlt: "カード画像",
-      noHistory: "日次価格履歴を蓄積しています。", noCards: "この表示には適格カードがありません。", watchStatus: "適格性を観察中",
+      noHistory: "日次価格履歴を蓄積しています。", noCards: "この表示には適格カードがありません。", noSales: "成約記録なし", watchStatus: "観察ステータス",
       share: "カードを共有", shareDone: "リンクをコピーしました", shareError: "コピーに失敗しました。URL を手動でコピーしてください",
       expandImage: "カードを拡大表示",
       marketCapHelp: "PSA 10 価格 × 確認済み PSA 10 枚数——最高評価の流通可能な価値。",
       populationHelp: "レジストリに記録された、確認済みの PSA 10 現存枚数。",
       priceHelp: "追跡期間内で確認できた直近の PSA 10 成約価格。",
-    },
-    grader: {
-      eyebrow: "鑑定供給", title: "{grader} の市場供給", body: "最高評価枚数と追跡流動性を表示し、欠損価格は推計しません。",
-      topGrade: "最高評価", topGradeShort: "評価", topGradePopulation: "最高評価枚数", topGradePopulationShort: "枚数", totalPopulation: "鑑定総数", totalPopulationShort: "総数", populationChange: "枚数変化", populationChangeShort: "変化",
-      liquidity: "追跡流動性", marketCapAvailable: "PSA 10 時価総額", marketShare: "シェア",
-      names: { PSA: "PSA", BGS: "BGS", CGC: "CGC", SGC: "SGC", TAG: "TAG" },
+      printLanguage: "{language}版", setCode: "セットコード", rarity: "レアリティ", parallel: "パラレル", finish: "表面", packSource: "収録パック",
+      languageFilterAll: "すべての言語",
     },
     theme: { dark: "ダークモード", light: "ライトモード" },
     methodology: {
       title: "CardZ Marketcap の市場ランキング方法",
-      body: "この指数に掲載されるカードは、いずれも確認済みの PSA 10 が 1,000 枚以上。実際に取引できる供給量に連動したランキングを保ち、数件の取引で動いてしまう希少品の影響を抑えます。",
-    },
-    gradingPulse: {
-      eyebrow: "鑑定パルス",
-      title: "毎日の鑑定フロー",
-      subtitle: "追跡対象トップ 100 全体",
-      windowCaption: "前回の{period}からの変化",
-      submissions: "最高評価枚数の変化",
-      share: "追跡対象の最高評価総数に占める割合",
+      body: "掲載は、与えられるものではなく獲得するもの。この指数のカードはすべて確認済み PSA 10 が 1,000 枚以上。さらにトップ100の座は、30日ごとに5件以上の確認済み PSA 10 取引という形で、市場自身が認め続けた場合にのみ維持されます。実在する供給と需要、それ以外は数えません。",
     },
     status: { accumulating: "集計中", stale: "更新待ち", unavailable: "データなし" },
     footer: "CardZ Marketcap。コレクティブルカードのアート市場情報。",
   },
   ko: {
-    nav: { all: "TCG 마켓", pokemon: "포켓몬", onePiece: "원피스", graders: "감정사", watchlist: "관심 목록" },
+    nav: { all: "TCG 마켓", pokemon: "포켓몬", onePiece: "원피스", watchlist: "관심 목록" },
     hero: {
       eyebrow: "CARDZ MARKET INDEX",
       title: "컬렉터블 카드 시장을 한눈에",
@@ -417,7 +352,7 @@ export const copy: Record<Locale, Copy> = {
     watchlistHero: {
       eyebrow: "마켓 워치",
       title: "주요 시장에 근접한 카드",
-      body: "101위부터 300위까지의 카드 식별 정보, 가격 신선도, 공급, 수요를 관찰합니다.",
+      body: "101위 이후 카드의 식별 정보, 가격 신선도, 공급, 수요를 관찰합니다.",
     },
     heatmap: {
       title: "시가총액 상위 {count} 히트맵", rankingTitle: "시가총액 상위 {count}", pokemonTitle: "포켓몬 시장 히트맵", onePieceTitle: "원피스 시장 히트맵",
@@ -429,7 +364,7 @@ export const copy: Record<Locale, Copy> = {
     periods: { "1d": "1일", "7d": "7일", "30d": "30일" },
     languages: { en: "영어", ja: "일본어", ko: "한국어", zhCN: "중국어 간체", zhTW: "중국어 번체" },
     labels: {
-      rank: "순위", card: "카드", number: "전체 번호", language: "언어", price: "PSA 10 가격",
+      rank: "순위", card: "카드", number: "전체 번호", language: "언어", price: "PSA 10 가격", ungradedReference: "미감정／RAW 참고가",
       priceShort: "가격",
       population: "PSA 10 매수", populationShort: "매수",
       marketCap: "시가총액", marketCapShort: "시총", trackedSales: "추적 거래액",
@@ -437,39 +372,27 @@ export const copy: Record<Locale, Copy> = {
       salesHelp: "CardZ Marketcap 추적 범위에서 확인된 PSA 10 완료 거래만 포함합니다.", change: "등락", changeShort: "등락", asOf: "데이터 시각",
       viewCard: "카드 상세 보기", close: "닫기", story: "시장이 주목하는 이유", history: "일별 시장 추이",
       dailyPrice: "기준 가격", trackedSalesBars: "추적 거래액", salesTrend: "추적 거래액 추이", salesTrendShort: "거래 추이", imageAlt: "카드 이미지",
-      noHistory: "일별 가격 이력을 축적하고 있습니다.", noCards: "이 보기에 적격 카드가 없습니다.", watchStatus: "자격 관찰 중",
+      noHistory: "일별 가격 이력을 축적하고 있습니다.", noCards: "이 보기에 적격 카드가 없습니다.", noSales: "거래 기록 없음", watchStatus: "관찰 상태",
       share: "카드 공유", shareDone: "링크 복사됨", shareError: "복사 실패 — 주소창에서 직접 복사하세요",
       expandImage: "카드 크게 보기",
       marketCapHelp: "PSA 10 가격 × 검증된 PSA 10 매수 — 최고 등급 공급의 거래 가능 가치.",
       populationHelp: "레지스트리에 기록된 검증된 PSA 10 현존 매수.",
       priceHelp: "추적 기간 내 가장 최근에 검증된 PSA 10 거래 가격.",
-    },
-    grader: {
-      eyebrow: "감정 공급", title: "{grader} 시장 공급", body: "최고 등급 매수와 추적 유동성을 표시하며, 누락된 가격은 추정하지 않습니다.",
-      topGrade: "최고 등급", topGradeShort: "등급", topGradePopulation: "최고 등급 매수", topGradePopulationShort: "매수", totalPopulation: "총 감정 수", totalPopulationShort: "총수", populationChange: "매수 변화", populationChangeShort: "변화",
-      liquidity: "추적 유동성", marketCapAvailable: "PSA 10 시가총액", marketShare: "점유율",
-      names: { PSA: "PSA", BGS: "BGS", CGC: "CGC", SGC: "SGC", TAG: "TAG" },
+      printLanguage: "{language}판", setCode: "세트 코드", rarity: "레어도", parallel: "패러렐", finish: "표면", packSource: "수록 팩",
+      languageFilterAll: "모든 언어",
     },
     theme: { dark: "다크 모드", light: "라이트 모드" },
     methodology: {
       title: "CardZ Marketcap의 시장 순위 방식",
-      body: "이 지수에 수록되는 모든 카드는 검증된 PSA 10이 1,000장 이상입니다. 이 기준은 순위가 실제 거래 가능한 공급에 연동되도록 하여, 소수 거래로 움직이는 희소 품목의 영향을 줄입니다.",
-    },
-    gradingPulse: {
-      eyebrow: "감정 펄스",
-      title: "일별 감정 흐름",
-      subtitle: "추적 대상 상위 100 전체",
-      windowCaption: "이전 {period} 대비 변화",
-      submissions: "최고 등급 매수 변화",
-      share: "추적 대상 최고 등급 총량 대비 비중",
+      body: "수록은 주어지는 것이 아니라 얻어내는 것입니다. 이 지수의 모든 카드는 검증된 PSA 10이 1,000장 이상이며, 톱 100 자리는 매 30일마다 5건 이상의 검증된 PSA 10 거래로 시장 스스로 계속 확인할 때만 유지됩니다. 실제 공급과 실제 수요, 그 외에는 없습니다.",
     },
     status: { accumulating: "집계 중", stale: "오래된 데이터", unavailable: "데이터 없음" },
     footer: "CardZ Marketcap. 컬렉터블 카드 아트 마켓 인텔리전스.",
   },
 };
 
-// Mirrors the ingest alias table (`_LANGUAGE_CODES`, `pipelines/g10_ingest.py:98`) so a printing
-// language written in any of its accepted spellings resolves to the same canonical code.
+// Mirrors the canonical ingest alias table so a printing language written in any accepted
+// spelling resolves to the same canonical code.
 const CARD_LANGUAGE_ALIASES: Record<string, CardLanguage> = {
   en: "en", english: "en",
   ja: "ja", jp: "ja", japanese: "ja",

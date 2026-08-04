@@ -1,6 +1,6 @@
 {
   "schemaVersion": "set-names-v1",
-  "generatedAt": "2026-07-25T23:23:10Z",
+  "generatedAt": "2026-08-03T00:00:00Z",
   "entries": {
     "1st Anniversary Set": {
       "zhTW": "一週年紀念套組",
@@ -825,7 +825,8 @@
     "SV8a: Terastal Fest ex": {
       "zhTW": "SV8a：太晶慶典ex",
       "zhCN": "SV8a：太晶庆典ex",
-      "ja": "SV8a：テラスタルフェスex"
+      "ja": "SV8a：テラスタルフェスex",
+      "ko": "테라스탈 페스티벌 ex"
     },
     "SV9a: Heat Wave Arena": {
       "zhTW": "SV9a：熱風競技場",
@@ -861,6 +862,850 @@
       "zhTW": "m1S：超級交響樂",
       "zhCN": "m1S：超级交响乐",
       "ja": "m1S：メガシンフォニア"
+    },
+    "Pokemon Japanese Card 151": {
+      "zhTW": "寶可夢 日版 卡牌 151",
+      "zhCN": "宝可梦 日版 卡牌 151",
+      "ja": "ポケモンカード151",
+      "ko": "포켓몬 일본판 카드 151"
+    },
+    "Japanese Card 151": {
+      "zhTW": "寶可夢 日版 卡牌 151",
+      "zhCN": "宝可梦 日版 卡牌 151",
+      "ja": "ポケモンカード151",
+      "ko": "포켓몬 일본판 카드 151"
+    },
+    "Pokemon Japanese Terastal Fest EX": {
+      "zhTW": "寶可夢 日版 太晶慶典ex",
+      "zhCN": "宝可梦 日版 太晶庆典ex",
+      "ja": "テラスタルフェスex",
+      "ko": "포켓몬 일본판 테라스탈 페스티벌 ex"
+    },
+    "Japanese Terastal Fest EX": {
+      "zhTW": "寶可夢 日版 太晶慶典ex",
+      "zhCN": "宝可梦 日版 太晶庆典ex",
+      "ja": "テラスタルフェスex",
+      "ko": "포켓몬 일본판 테라스탈 페스티벌 ex"
+    },
+    "Pokemon Sword and Shield Crown Zenith": {
+      "zhTW": "寶可夢 劍盾 皇冠天際",
+      "zhCN": "宝可梦 剑盾 皇冠天极",
+      "ja": "ソード&シールド クライマックス",
+      "ko": "포켓몬 소드&실드 크라운 제니스"
+    },
+    "Sword and Shield Crown Zenith": {
+      "zhTW": "寶可夢 劍盾 皇冠天際",
+      "zhCN": "宝可梦 剑盾 皇冠天极",
+      "ja": "ソード&シールド クライマックス",
+      "ko": "포켓몬 소드&실드 크라운 제니스"
+    },
+    "Pokemon Sword & Shield Crown Zenith": {
+      "zhTW": "寶可夢 劍盾 皇冠天際",
+      "zhCN": "宝可梦 剑盾 皇冠天极",
+      "ja": "ソード&シールド クライマックス"
+    },
+    "Pokemon Sword and Shield Brilliant Stars": {
+      "zhTW": "寶可夢 劍盾 明亮之星",
+      "zhCN": "宝可梦 剑盾 明亮之星",
+      "ja": "ソード&シールド スターバース",
+      "ko": "포켓몬 소드&실드 브릴리언트 스타즈"
+    },
+    "Sword and Shield Brilliant Stars": {
+      "zhTW": "寶可夢 劍盾 明亮之星",
+      "zhCN": "宝可梦 剑盾 明亮之星",
+      "ja": "ソード&シールド スターバース",
+      "ko": "포켓몬 소드&실드 브릴리언트 스타즈"
+    },
+    "Pokemon Sword & Shield Brilliant Stars": {
+      "zhTW": "寶可夢 劍盾 明亮之星",
+      "zhCN": "宝可梦 剑盾 明亮之星",
+      "ja": "ソード&シールド スターバース"
+    },
+    "Pokemon Sword and Shield Evolving Skies": {
+      "zhTW": "寶可夢 劍盾 蒼空之流",
+      "zhCN": "宝可梦 剑盾 苍空之流",
+      "ja": "ソード&シールド イーブイヒーローズ",
+      "ko": "포켓몬 소드&실드 이볼빙 스카이"
+    },
+    "Sword and Shield Evolving Skies": {
+      "zhTW": "寶可夢 劍盾 蒼空之流",
+      "zhCN": "宝可梦 剑盾 苍空之流",
+      "ja": "ソード&シールド イーブイヒーローズ",
+      "ko": "포켓몬 소드&실드 이볼빙 스카이"
+    },
+    "Pokemon Sword & Shield Evolving Skies": {
+      "zhTW": "寶可夢 劍盾 蒼空之流",
+      "zhCN": "宝可梦 剑盾 苍空之流",
+      "ja": "ソード&シールド イーブイヒーローズ"
+    },
+    "Pokemon Scarlet and Violet Destined Rivals": {
+      "zhTW": "寶可夢 朱紫 宿命對手",
+      "zhCN": "宝可梦 朱紫 宿命对手",
+      "ja": "スカーレット&バイオレット ライバルズ",
+      "ko": "포켓몬 스칼렛&바이올렛 데스티니드 라이벌즈"
+    },
+    "Scarlet and Violet Destined Rivals": {
+      "zhTW": "寶可夢 朱紫 宿命對手",
+      "zhCN": "宝可梦 朱紫 宿命对手",
+      "ja": "スカーレット&バイオレット ライバルズ",
+      "ko": "포켓몬 스칼렛&바이올렛 데스티니드 라이벌즈"
+    },
+    "Pokemon Scarlet & Violet Destined Rivals": {
+      "zhTW": "寶可夢 朱紫 宿命對手",
+      "zhCN": "宝可梦 朱紫 宿命对手",
+      "ja": "スカーレット&バイオレット ライバルズ"
+    },
+    "Pokemon Scarlet and Violet 151 MEW": {
+      "zhTW": "寶可夢 朱紫 151",
+      "zhCN": "宝可梦 朱紫 151",
+      "ja": "スカーレット&バイオレット 151",
+      "ko": "포켓몬 스칼렛&바이올렛 151"
+    },
+    "Scarlet and Violet 151 MEW": {
+      "zhTW": "寶可夢 朱紫 151",
+      "zhCN": "宝可梦 朱紫 151",
+      "ja": "スカーレット&バイオレット 151",
+      "ko": "포켓몬 스칼렛&바이올렛 151"
+    },
+    "Pokemon Scarlet & Violet 151 MEW": {
+      "zhTW": "寶可夢 朱紫 151",
+      "zhCN": "宝可梦 朱紫 151",
+      "ja": "スカーレット&バイオレット 151"
+    },
+    "Pokemon Scarlet and Violet Prismatic Evolutions": {
+      "zhTW": "寶可夢 朱紫 棱彩進化",
+      "zhCN": "宝可梦 朱紫 棱彩进化",
+      "ja": "スカーレット&バイオレット テラスタルフェス",
+      "ko": "포켓몬 스칼렛&바이올렛 프리즈매틱 에볼루션즈"
+    },
+    "Scarlet and Violet Prismatic Evolutions": {
+      "zhTW": "寶可夢 朱紫 棱彩進化",
+      "zhCN": "宝可梦 朱紫 棱彩进化",
+      "ja": "スカーレット&バイオレット テラスタルフェス",
+      "ko": "포켓몬 스칼렛&바이올렛 프리즈매틱 에볼루션즈"
+    },
+    "Pokemon Scarlet & Violet Prismatic Evolutions": {
+      "zhTW": "寶可夢 朱紫 棱彩進化",
+      "zhCN": "宝可梦 朱紫 棱彩进化",
+      "ja": "スカーレット&バイオレット テラスタルフェス"
+    },
+    "Pokemon Mega Evolution Phantasmal Flames": {
+      "zhTW": "寶可夢 超級進化 幻影之焰",
+      "zhCN": "宝可梦 超级进化 幻影之焰",
+      "ja": "メガ進化 幻影の炎",
+      "ko": "포켓몬 메가 에볼루션 팬태즈멀 플레임즈"
+    },
+    "Mega Evolution Phantasmal Flames": {
+      "zhTW": "寶可夢 超級進化 幻影之焰",
+      "zhCN": "宝可梦 超级进化 幻影之焰",
+      "ja": "メガ進化 幻影の炎",
+      "ko": "포켓몬 메가 에볼루션 팬태즈멀 플레임즈"
+    },
+    "Pokemon Sword and Shield Lost Origin": {
+      "zhTW": "寶可夢 劍盾 失落起源",
+      "zhCN": "宝可梦 剑盾 失落起源",
+      "ja": "ソード&シールド ロストアビス",
+      "ko": "포켓몬 소드&실드 로스트 오리진"
+    },
+    "Sword and Shield Lost Origin": {
+      "zhTW": "寶可夢 劍盾 失落起源",
+      "zhCN": "宝可梦 剑盾 失落起源",
+      "ja": "ソード&シールド ロストアビス",
+      "ko": "포켓몬 소드&실드 로스트 오리진"
+    },
+    "Pokemon Sword & Shield Lost Origin": {
+      "zhTW": "寶可夢 劍盾 失落起源",
+      "zhCN": "宝可梦 剑盾 失落起源",
+      "ja": "ソード&シールド ロストアビス"
+    },
+    "One Piece Carrying On His Will": {
+      "zhTW": "海賊王 繼承意志",
+      "zhCN": "海贼王 继承意志",
+      "ja": "ONE PIECE 受け継がれる意志",
+      "ko": "원피스 이어지는 의지"
+    },
+    "Carrying On His Will": {
+      "zhTW": "海賊王 繼承意志",
+      "zhCN": "海贼王 继承意志",
+      "ja": "ONE PIECE 受け継がれる意志",
+      "ko": "원피스 이어지는 의지"
+    },
+    "Pokemon Scarlet and Violet Surging Sparks": {
+      "zhTW": "寶可夢 朱紫 電光火花",
+      "zhCN": "宝可梦 朱紫 电光火花",
+      "ja": "スカーレット&バイオレット ステラミラクル",
+      "ko": "포켓몬 스칼렛&바이올렛 서징 스파크스"
+    },
+    "Scarlet and Violet Surging Sparks": {
+      "zhTW": "寶可夢 朱紫 電光火花",
+      "zhCN": "宝可梦 朱紫 电光火花",
+      "ja": "スカーレット&バイオレット ステラミラクル",
+      "ko": "포켓몬 스칼렛&바이올렛 서징 스파크스"
+    },
+    "Pokemon Scarlet & Violet Surging Sparks": {
+      "zhTW": "寶可夢 朱紫 電光火花",
+      "zhCN": "宝可梦 朱紫 电光火花",
+      "ja": "スカーレット&バイオレット ステラミラクル"
+    },
+    "One Piece A Fist of Divine Speed": {
+      "zhTW": "海賊王 神速一擊",
+      "zhCN": "海贼王 神速一击",
+      "ja": "ONE PIECE 神速の拳",
+      "ko": "원피스 신속한 일격"
+    },
+    "A Fist of Divine Speed": {
+      "zhTW": "海賊王 神速一擊",
+      "zhCN": "海贼王 神速一击",
+      "ja": "ONE PIECE 神速の拳",
+      "ko": "원피스 신속한 일격"
+    },
+    "Pokemon Sword and Shield Fusion Strike": {
+      "zhTW": "寶可夢 劍盾 匯流打擊",
+      "zhCN": "宝可梦 剑盾 汇流打击",
+      "ja": "ソード&シールド フュージョンアーツ",
+      "ko": "포켓몬 소드&실드 퓨전 스트라이크"
+    },
+    "Sword and Shield Fusion Strike": {
+      "zhTW": "寶可夢 劍盾 匯流打擊",
+      "zhCN": "宝可梦 剑盾 汇流打击",
+      "ja": "ソード&シールド フュージョンアーツ",
+      "ko": "포켓몬 소드&실드 퓨전 스트라이크"
+    },
+    "Pokemon Sword & Shield Fusion Strike": {
+      "zhTW": "寶可夢 劍盾 匯流打擊",
+      "zhCN": "宝可梦 剑盾 汇流打击",
+      "ja": "ソード&シールド フュージョンアーツ"
+    },
+    "One Piece Emperors in the New World": {
+      "zhTW": "海賊王 新世界的四皇",
+      "zhCN": "海贼王 新世界的四皇",
+      "ja": "ONE PIECE 新世界の四皇",
+      "ko": "원피스 신세계의 사황"
+    },
+    "Emperors in the New World": {
+      "zhTW": "海賊王 新世界的四皇",
+      "zhCN": "海贼王 新世界的四皇",
+      "ja": "ONE PIECE 新世界の四皇",
+      "ko": "원피스 신세계의 사황"
+    },
+    "Pokemon Scarlet and Violet Temporal Forces": {
+      "zhTW": "寶可夢 朱紫 時間之力",
+      "zhCN": "宝可梦 朱紫 时间之力",
+      "ja": "スカーレット&バイオレット サイバージャッジ",
+      "ko": "포켓몬 스칼렛&바이올렛 템포럴 포시스"
+    },
+    "Scarlet and Violet Temporal Forces": {
+      "zhTW": "寶可夢 朱紫 時間之力",
+      "zhCN": "宝可梦 朱紫 时间之力",
+      "ja": "スカーレット&バイオレット サイバージャッジ",
+      "ko": "포켓몬 스칼렛&바이올렛 템포럴 포시스"
+    },
+    "Pokemon Scarlet & Violet Temporal Forces": {
+      "zhTW": "寶可夢 朱紫 時間之力",
+      "zhCN": "宝可梦 朱紫 时间之力",
+      "ja": "スカーレット&バイオレット サイバージャッジ"
+    },
+    "Pokemon Sword and Shield Shining Fates": {
+      "zhTW": "寶可夢 劍盾 光耀命運",
+      "zhCN": "宝可梦 剑盾 光耀命运",
+      "ja": "ソード&シールド シャイニースターV",
+      "ko": "포켓몬 소드&실드 샤이닝 페이트"
+    },
+    "Sword and Shield Shining Fates": {
+      "zhTW": "寶可夢 劍盾 光耀命運",
+      "zhCN": "宝可梦 剑盾 光耀命运",
+      "ja": "ソード&シールド シャイニースターV",
+      "ko": "포켓몬 소드&실드 샤이닝 페이트"
+    },
+    "Pokemon Sword & Shield Shining Fates": {
+      "zhTW": "寶可夢 劍盾 光耀命運",
+      "zhCN": "宝可梦 剑盾 光耀命运",
+      "ja": "ソード&シールド シャイニースターV"
+    },
+    "Pokemon Scarlet and Violet Stellar Crown": {
+      "zhTW": "寶可夢 朱紫 星晶王冠",
+      "zhCN": "宝可梦 朱紫 星晶王冠",
+      "ja": "スカーレット&バイオレット ステラミラクル",
+      "ko": "포켓몬 스칼렛&바이올렛 스텔라 크라운"
+    },
+    "Scarlet and Violet Stellar Crown": {
+      "zhTW": "寶可夢 朱紫 星晶王冠",
+      "zhCN": "宝可梦 朱紫 星晶王冠",
+      "ja": "スカーレット&バイオレット ステラミラクル",
+      "ko": "포켓몬 스칼렛&바이올렛 스텔라 크라운"
+    },
+    "Pokemon Scarlet & Violet Stellar Crown": {
+      "zhTW": "寶可夢 朱紫 星晶王冠",
+      "zhCN": "宝可梦 朱紫 星晶王冠",
+      "ja": "スカーレット&バイオレット ステラミラクル"
+    },
+    "Pokemon Mega Evolution": {
+      "zhTW": "寶可夢 超級進化",
+      "zhCN": "宝可梦 超级进化",
+      "ja": "メガ進化",
+      "ko": "포켓몬 메가 에볼루션"
+    },
+    "Mega Evolution": {
+      "zhTW": "寶可夢 超級進化",
+      "zhCN": "宝可梦 超级进化",
+      "ja": "メガ進化",
+      "ko": "포켓몬 메가 에볼루션"
+    },
+    "One Piece Awakening of the New Era": {
+      "zhTW": "海賊王 新時代的覺醒",
+      "zhCN": "海贼王 新时代的觉醒",
+      "ja": "ONE PIECE 新時代の主役",
+      "ko": "원피스 신시대의 각성"
+    },
+    "Awakening of the New Era": {
+      "zhTW": "海賊王 新時代的覺醒",
+      "zhCN": "海贼王 新时代的觉醒",
+      "ja": "ONE PIECE 新時代の主役",
+      "ko": "원피스 신시대의 각성"
+    },
+    "One Piece Wings of the Captain": {
+      "zhTW": "海賊王 船長之翼",
+      "zhCN": "海贼王 船长之翼",
+      "ja": "ONE PIECE 強大な敵",
+      "ko": "원피스 선장의 날개"
+    },
+    "Wings of the Captain": {
+      "zhTW": "海賊王 船長之翼",
+      "zhCN": "海贼王 船长之翼",
+      "ja": "ONE PIECE 強大な敵",
+      "ko": "원피스 선장의 날개"
+    },
+    "One Piece Romance Dawn": {
+      "zhTW": "海賊王 冒險的黎明",
+      "zhCN": "海贼王 冒险的黎明",
+      "ja": "ONE PIECE ROMANCE DAWN",
+      "ko": "원피스 로맨스 던"
+    },
+    "Romance Dawn": {
+      "zhTW": "海賊王 冒險的黎明",
+      "zhCN": "海贼王 冒险的黎明",
+      "ja": "ONE PIECE ROMANCE DAWN",
+      "ko": "원피스 로맨스 던"
+    },
+    "Pokemon Scarlet and Violet Journey Together": {
+      "zhTW": "寶可夢 朱紫 同行旅程",
+      "zhCN": "宝可梦 朱紫 同行旅程",
+      "ja": "スカーレット&バイオレット バトルパートナーズ",
+      "ko": "포켓몬 스칼렛&바이올렛 저니 투게더"
+    },
+    "Scarlet and Violet Journey Together": {
+      "zhTW": "寶可夢 朱紫 同行旅程",
+      "zhCN": "宝可梦 朱紫 同行旅程",
+      "ja": "スカーレット&バイオレット バトルパートナーズ",
+      "ko": "포켓몬 스칼렛&바이올렛 저니 투게더"
+    },
+    "Pokemon Scarlet & Violet Journey Together": {
+      "zhTW": "寶可夢 朱紫 同行旅程",
+      "zhCN": "宝可梦 朱紫 同行旅程",
+      "ja": "スカーレット&バイオレット バトルパートナーズ"
+    },
+    "Pokemon Scarlet and Violet Paldean Fates": {
+      "zhTW": "寶可夢 朱紫 帕底亞的命運",
+      "zhCN": "宝可梦 朱紫 帕底亚的命运",
+      "ja": "スカーレット&バイオレット シャイニートレジャーex",
+      "ko": "포켓몬 스칼렛&바이올렛 팔데아 페이트"
+    },
+    "Scarlet and Violet Paldean Fates": {
+      "zhTW": "寶可夢 朱紫 帕底亞的命運",
+      "zhCN": "宝可梦 朱紫 帕底亚的命运",
+      "ja": "スカーレット&バイオレット シャイニートレジャーex",
+      "ko": "포켓몬 스칼렛&바이올렛 팔데아 페이트"
+    },
+    "Pokemon Scarlet & Violet Paldean Fates": {
+      "zhTW": "寶可夢 朱紫 帕底亞的命運",
+      "zhCN": "宝可梦 朱紫 帕底亚的命运",
+      "ja": "スカーレット&バイオレット シャイニートレジャーex"
+    },
+    "Pokemon Scarlet and Violet Obsidian Flames": {
+      "zhTW": "寶可夢 朱紫 黑曜火焰",
+      "zhCN": "宝可梦 朱紫 黑曜火焰",
+      "ja": "スカーレット&バイオレット 黒炎の支配者",
+      "ko": "포켓몬 스칼렛&바이올렛 옵시디언 플레임즈"
+    },
+    "Scarlet and Violet Obsidian Flames": {
+      "zhTW": "寶可夢 朱紫 黑曜火焰",
+      "zhCN": "宝可梦 朱紫 黑曜火焰",
+      "ja": "スカーレット&バイオレット 黒炎の支配者",
+      "ko": "포켓몬 스칼렛&바이올렛 옵시디언 플레임즈"
+    },
+    "Pokemon Scarlet & Violet Obsidian Flames": {
+      "zhTW": "寶可夢 朱紫 黑曜火焰",
+      "zhCN": "宝可梦 朱紫 黑曜火焰",
+      "ja": "スカーレット&バイオレット 黒炎の支配者"
+    },
+    "Pokemon Scarlet and Violet Twilight Masquerade": {
+      "zhTW": "寶可夢 朱紫 暮光假面",
+      "zhCN": "宝可梦 朱紫 暮光假面",
+      "ja": "スカーレット&バイオレット 変幻の仮面",
+      "ko": "포켓몬 스칼렛&바이올렛 트와일라잇 마스커레이드"
+    },
+    "Scarlet and Violet Twilight Masquerade": {
+      "zhTW": "寶可夢 朱紫 暮光假面",
+      "zhCN": "宝可梦 朱紫 暮光假面",
+      "ja": "スカーレット&バイオレット 変幻の仮面",
+      "ko": "포켓몬 스칼렛&바이올렛 트와일라잇 마스커레이드"
+    },
+    "Pokemon Scarlet & Violet Twilight Masquerade": {
+      "zhTW": "寶可夢 朱紫 暮光假面",
+      "zhCN": "宝可梦 朱紫 暮光假面",
+      "ja": "スカーレット&バイオレット 変幻の仮面"
+    },
+    "One Piece Legacy of the Master": {
+      "zhTW": "海賊王 師父的遺產",
+      "zhCN": "海贼王 师父的遗产",
+      "ja": "ONE PIECE 伝説の英雄",
+      "ko": "원피스 스승의 유산"
+    },
+    "Legacy of the Master": {
+      "zhTW": "海賊王 師父的遺產",
+      "zhCN": "海贼王 师父的遗产",
+      "ja": "ONE PIECE 伝説の英雄",
+      "ko": "원피스 스승의 유산"
+    },
+    "Scarlet Violet 151": {
+      "zhTW": "寶可夢 朱紫 151",
+      "zhCN": "宝可梦 朱紫 151",
+      "ja": "スカーレット&バイオレット 151",
+      "ko": "포켓몬 스칼렛&바이올렛 151"
+    },
+    "One Piece Kingdoms of Intrigue": {
+      "zhTW": "海賊王 謀略之國",
+      "zhCN": "海贼王 谋略之国",
+      "ja": "ONE PIECE 謀略の王国",
+      "ko": "원피스 모략의 왕국"
+    },
+    "Kingdoms of Intrigue": {
+      "zhTW": "海賊王 謀略之國",
+      "zhCN": "海贼王 谋略之国",
+      "ja": "ONE PIECE 謀略の王国",
+      "ko": "원피스 모략의 왕국"
+    },
+    "One Piece the Azure Sea's Seven": {
+      "zhTW": "海賊王 蔚藍大海的七人",
+      "zhCN": "海贼王 蔚蓝大海的七人",
+      "ja": "ONE PIECE 双璧の覇者",
+      "ko": "원피스 푸른 바다의 일곱"
+    },
+    "the Azure Sea's Seven": {
+      "zhTW": "海賊王 蔚藍大海的七人",
+      "zhCN": "海贼王 蔚蓝大海的七人",
+      "ja": "ONE PIECE 双璧の覇者",
+      "ko": "원피스 푸른 바다의 일곱"
+    },
+    "One Piece Legacy of the Master OP-12": {
+      "zhTW": "海賊王 師父的遺產 OP-12",
+      "zhCN": "海贼王 师父的遗产 OP-12",
+      "ja": "ONE PIECE 伝説の英雄 OP-12"
+    },
+    "Legacy of the Master OP-12": {
+      "zhTW": "海賊王 師父的遺產 OP-12",
+      "zhCN": "海贼王 师父的遗产 OP-12",
+      "ja": "ONE PIECE 伝説の英雄 OP-12"
+    },
+    "Pokemon Scarlet and Violet Black Bolt": {
+      "zhTW": "寶可夢 朱紫 黑閃電",
+      "zhCN": "宝可梦 朱紫 黑闪电",
+      "ja": "スカーレット&バイオレット ブラックボルト",
+      "ko": "포켓몬 스칼렛&바이올렛 블랙 볼트"
+    },
+    "Scarlet and Violet Black Bolt": {
+      "zhTW": "寶可夢 朱紫 黑閃電",
+      "zhCN": "宝可梦 朱紫 黑闪电",
+      "ja": "スカーレット&バイオレット ブラックボルト",
+      "ko": "포켓몬 스칼렛&바이올렛 블랙 볼트"
+    },
+    "Pokemon Scarlet & Violet Black Bolt": {
+      "zhTW": "寶可夢 朱紫 黑閃電",
+      "zhCN": "宝可梦 朱紫 黑闪电",
+      "ja": "スカーレット&バイオレット ブラックボルト"
+    },
+    "Sword Shield Evolving Skies": {
+      "zhTW": "寶可夢 劍盾 蒼空之流",
+      "zhCN": "宝可梦 剑盾 苍空之流",
+      "ja": "ソード&シールド イーブイヒーローズ"
+    },
+    "Pokemon Sword and Shield Silver Tempest": {
+      "zhTW": "寶可夢 劍盾 銀雪暴風",
+      "zhCN": "宝可梦 剑盾 银雪暴风",
+      "ja": "ソード&シールド パラダイムトリガー",
+      "ko": "포켓몬 소드&실드 실버 템페스트"
+    },
+    "Sword and Shield Silver Tempest": {
+      "zhTW": "寶可夢 劍盾 銀雪暴風",
+      "zhCN": "宝可梦 剑盾 银雪暴风",
+      "ja": "ソード&シールド パラダイムトリガー",
+      "ko": "포켓몬 소드&실드 실버 템페스트"
+    },
+    "Pokemon Sword & Shield Silver Tempest": {
+      "zhTW": "寶可夢 劍盾 銀雪暴風",
+      "zhCN": "宝可梦 剑盾 银雪暴风",
+      "ja": "ソード&シールド パラダイムトリガー"
+    },
+    "Sword Shield Celebrations": {
+      "zhTW": "寶可夢 劍盾 25週年慶典",
+      "zhCN": "宝可梦 剑盾 25周年庆典",
+      "ja": "ソード&シールド 25th ANNIVERSARY"
+    },
+    "One Piece Two Legends": {
+      "zhTW": "海賊王 兩大傳說",
+      "zhCN": "海贼王 两大传说",
+      "ja": "ONE PIECE 二つの伝説",
+      "ko": "원피스 두 전설"
+    },
+    "Two Legends": {
+      "zhTW": "海賊王 兩大傳說",
+      "zhCN": "海贼王 两大传说",
+      "ja": "ONE PIECE 二つの伝説",
+      "ko": "원피스 두 전설"
+    },
+    "Pokemon Sword and Shield Chilling Reign": {
+      "zhTW": "寶可夢 劍盾 冰冷統治",
+      "zhCN": "宝可梦 剑盾 冰冷统治",
+      "ja": "ソード&シールド 漆黒のガイスト",
+      "ko": "포켓몬 소드&실드 칠링 레인"
+    },
+    "Sword and Shield Chilling Reign": {
+      "zhTW": "寶可夢 劍盾 冰冷統治",
+      "zhCN": "宝可梦 剑盾 冰冷统治",
+      "ja": "ソード&シールド 漆黒のガイスト",
+      "ko": "포켓몬 소드&실드 칠링 레인"
+    },
+    "Pokemon Sword & Shield Chilling Reign": {
+      "zhTW": "寶可夢 劍盾 冰冷統治",
+      "zhCN": "宝可梦 剑盾 冰冷统治",
+      "ja": "ソード&シールド 漆黒のガイスト"
+    },
+    "Pokemon Sword and Shield Pokemon Go": {
+      "zhTW": "寶可夢 劍盾 Pokémon GO",
+      "zhCN": "宝可梦 剑盾 Pokémon GO",
+      "ja": "ソード&シールド Pokémon GO",
+      "ko": "포켓몬 소드&실드 포켓몬 GO"
+    },
+    "Sword and Shield Pokemon Go": {
+      "zhTW": "寶可夢 劍盾 Pokémon GO",
+      "zhCN": "宝可梦 剑盾 Pokémon GO",
+      "ja": "ソード&シールド Pokémon GO",
+      "ko": "포켓몬 소드&실드 포켓몬 GO"
+    },
+    "Pokemon Sword & Shield Pokemon Go": {
+      "zhTW": "寶可夢 劍盾 Pokémon GO",
+      "zhCN": "宝可梦 剑盾 Pokémon GO",
+      "ja": "ソード&シールド Pokémon GO"
+    },
+    "One Piece Royal Blood": {
+      "zhTW": "海賊王 王族血統",
+      "zhCN": "海贼王 王族血统",
+      "ja": "ONE PIECE 王族の血統",
+      "ko": "원피스 왕족의 혈통"
+    },
+    "Royal Blood": {
+      "zhTW": "海賊王 王族血統",
+      "zhCN": "海贼王 王族血统",
+      "ja": "ONE PIECE 王族の血統",
+      "ko": "원피스 왕족의 혈통"
+    },
+    "One Piece Pillars of Strength": {
+      "zhTW": "海賊王 力量支柱",
+      "zhCN": "海贼王 力量支柱",
+      "ja": "ONE PIECE 強大な敵",
+      "ko": "원피스 힘의 기둥"
+    },
+    "Pillars of Strength": {
+      "zhTW": "海賊王 力量支柱",
+      "zhCN": "海贼王 力量支柱",
+      "ja": "ONE PIECE 強大な敵",
+      "ko": "원피스 힘의 기둥"
+    },
+    "Pokemon Scarlet and Violet": {
+      "zhTW": "寶可夢 朱紫",
+      "zhCN": "宝可梦 朱紫",
+      "ja": "スカーレット&バイオレット"
+    },
+    "Scarlet and Violet": {
+      "zhTW": "寶可夢 朱紫",
+      "zhCN": "宝可梦 朱紫",
+      "ja": "スカーレット&バイオレット"
+    },
+    "Pokemon Scarlet & Violet": {
+      "zhTW": "寶可夢 朱紫",
+      "zhCN": "宝可梦 朱紫",
+      "ja": "スカーレット&バイオレット"
+    },
+    "Pokemon Sword and Shield": {
+      "zhTW": "寶可夢 劍盾",
+      "zhCN": "宝可梦 剑盾",
+      "ja": "ソード&シールド"
+    },
+    "Sword and Shield": {
+      "zhTW": "寶可夢 劍盾",
+      "zhCN": "宝可梦 剑盾",
+      "ja": "ソード&シールド"
+    },
+    "Pokemon Sword & Shield": {
+      "zhTW": "寶可夢 劍盾",
+      "zhCN": "宝可梦 剑盾",
+      "ja": "ソード&シールド"
+    },
+    "Pokemon Scarlet and Violet White Flare": {
+      "zhTW": "寶可夢 朱紫 白焰",
+      "zhCN": "宝可梦 朱紫 白焰",
+      "ja": "スカーレット&バイオレット ホワイトフレア"
+    },
+    "Scarlet and Violet White Flare": {
+      "zhTW": "寶可夢 朱紫 白焰",
+      "zhCN": "宝可梦 朱紫 白焰",
+      "ja": "スカーレット&バイオレット ホワイトフレア"
+    },
+    "Pokemon Scarlet & Violet White Flare": {
+      "zhTW": "寶可夢 朱紫 白焰",
+      "zhCN": "宝可梦 朱紫 白焰",
+      "ja": "スカーレット&バイオレット ホワイトフレア"
+    },
+    "Pokemon Scarlet and Violet Shrouded Fable": {
+      "zhTW": "寶可夢 朱紫 隱密寓言",
+      "zhCN": "宝可梦 朱紫 隐密寓言",
+      "ja": "スカーレット&バイオレット ナイトワンダラー"
+    },
+    "Scarlet and Violet Shrouded Fable": {
+      "zhTW": "寶可夢 朱紫 隱密寓言",
+      "zhCN": "宝可梦 朱紫 隐密寓言",
+      "ja": "スカーレット&バイオレット ナイトワンダラー"
+    },
+    "Pokemon Scarlet & Violet Shrouded Fable": {
+      "zhTW": "寶可夢 朱紫 隱密寓言",
+      "zhCN": "宝可梦 朱紫 隐密寓言",
+      "ja": "スカーレット&バイオレット ナイトワンダラー"
+    },
+    "Pokemon Scarlet and Violet Paradox Rift": {
+      "zhTW": "寶可夢 朱紫 悖論裂縫",
+      "zhCN": "宝可梦 朱紫 悖论裂缝",
+      "ja": "スカーレット&バイオレット 古代の咆哮"
+    },
+    "Scarlet and Violet Paradox Rift": {
+      "zhTW": "寶可夢 朱紫 悖論裂縫",
+      "zhCN": "宝可梦 朱紫 悖论裂缝",
+      "ja": "スカーレット&バイオレット 古代の咆哮"
+    },
+    "Pokemon Scarlet & Violet Paradox Rift": {
+      "zhTW": "寶可夢 朱紫 悖論裂縫",
+      "zhCN": "宝可梦 朱紫 悖论裂缝",
+      "ja": "スカーレット&バイオレット 古代の咆哮"
+    },
+    "Pokemon Scarlet and Violet Paldea Evolved": {
+      "zhTW": "寶可夢 朱紫 帕底亞進化",
+      "zhCN": "宝可梦 朱紫 帕底亚进化",
+      "ja": "スカーレット&バイオレット スノーハザード"
+    },
+    "Scarlet and Violet Paldea Evolved": {
+      "zhTW": "寶可夢 朱紫 帕底亞進化",
+      "zhCN": "宝可梦 朱紫 帕底亚进化",
+      "ja": "スカーレット&バイオレット スノーハザード"
+    },
+    "Pokemon Scarlet & Violet Paldea Evolved": {
+      "zhTW": "寶可夢 朱紫 帕底亞進化",
+      "zhCN": "宝可梦 朱紫 帕底亚进化",
+      "ja": "スカーレット&バイオレット スノーハザード"
+    },
+    "One Piece 500 Years in the Future": {
+      "zhTW": "海賊王 500年後的未來",
+      "zhCN": "海贼王 500年后的未来",
+      "ja": "ONE PIECE 500年後の未来"
+    },
+    "500 Years in the Future": {
+      "zhTW": "海賊王 500年後的未來",
+      "zhCN": "海贼王 500年后的未来",
+      "ja": "ONE PIECE 500年後の未来"
+    },
+    "One Piece The Best": {
+      "zhTW": "海賊王 The Best",
+      "zhCN": "海贼王 The Best",
+      "ja": "ONE PIECE CARD THE BEST"
+    },
+    "The Best": {
+      "zhTW": "海賊王 The Best",
+      "zhCN": "海贼王 The Best",
+      "ja": "ONE PIECE CARD THE BEST"
+    },
+    "One Piece 500 Years in the Future OP-07": {
+      "zhTW": "海賊王 500年後的未來 OP-07",
+      "zhCN": "海贼王 500年后的未来 OP-07",
+      "ja": "ONE PIECE 500年後の未来 OP-07"
+    },
+    "Pokemon Sword and Shield Celebrations Classic Collection": {
+      "zhTW": "寶可夢 劍盾 25週年慶典 經典收藏",
+      "zhCN": "宝可梦 剑盾 25周年庆典 经典收藏",
+      "ja": "ソード&シールド 25th クラシックコレクション"
+    },
+    "One Piece Emperors in the New World OP-09": {
+      "zhTW": "海賊王 新世界的四皇 OP-09",
+      "zhCN": "海贼王 新世界的四皇 OP-09",
+      "ja": "ONE PIECE 新世界の四皇 OP-09"
+    },
+    "Sword Shield Vivid Voltage": {
+      "zhTW": "寶可夢 劍盾 驚天伏特",
+      "zhCN": "宝可梦 剑盾 惊天伏特",
+      "ja": "ソード&シールド 仰天のボルテッカー"
+    },
+    "Pokemon Sword and Shield Vivid Voltage": {
+      "zhTW": "寶可夢 劍盾 驚天伏特",
+      "zhCN": "宝可梦 剑盾 惊天伏特",
+      "ja": "ソード&シールド 仰天のボルテッカー"
+    },
+    "One Piece Awakening of the New Era OP-05": {
+      "zhTW": "海賊王 新時代的覺醒 OP-05",
+      "zhCN": "海贼王 新时代的觉醒 OP-05",
+      "ja": "ONE PIECE 新時代の主役 OP-05"
+    },
+    "One Piece Carrying On His Will OP-13": {
+      "zhTW": "海賊王 繼承意志 OP-13",
+      "zhCN": "海贼王 继承意志 OP-13",
+      "ja": "ONE PIECE 受け継がれる意志 OP-13"
+    },
+    "One Piece Romance Dawn OP-01": {
+      "zhTW": "海賊王 冒險的黎明 OP-01",
+      "zhCN": "海贼王 冒险的黎明 OP-01",
+      "ja": "ONE PIECE ROMANCE DAWN OP-01"
+    },
+    "One Piece A Fist of Divine Speed OP-11": {
+      "zhTW": "海賊王 神速一擊 OP-11",
+      "zhCN": "海贼王 神速一击 OP-11",
+      "ja": "ONE PIECE 神速の拳 OP-11"
+    },
+    "Pokemon Scarlet and Violet Paldean Evolved": {
+      "zhTW": "寶可夢 朱紫 帕底亞進化",
+      "zhCN": "宝可梦 朱紫 帕底亚进化",
+      "ja": "スカーレット&バイオレット スノーハザード"
+    },
+    "Pokemon Sword and Shield Champions Path": {
+      "zhTW": "寶可夢 劍盾 冠軍之路",
+      "zhCN": "宝可梦 剑盾 冠军之路",
+      "ja": "ソード&シールド 伝説の鼓動"
+    },
+    "Sword Shield Champion's Path": {
+      "zhTW": "寶可夢 劍盾 冠軍之路",
+      "zhCN": "宝可梦 剑盾 冠军之路",
+      "ja": "ソード&シールド 伝説の鼓動"
+    },
+    "Pokemon Sword and Shield Celebrations": {
+      "zhTW": "寶可夢 劍盾 25週年慶典",
+      "zhCN": "宝可梦 剑盾 25周年庆典",
+      "ja": "ソード&シールド 25th ANNIVERSARY"
+    },
+    "2025 Carrying On His Will (Op13) - English Manga Alt. Art Parallel": {
+      "zhTW": "海賊王 繼承意志 OP-13 英文漫畫異圖",
+      "zhCN": "海贼王 继承意志 OP-13 英文漫画异图",
+      "ja": "ONE PIECE 受け継がれる意志 OP-13 英語版マンガパラレル"
+    },
+    "2023 Japanese Manga Art": {
+      "zhTW": "2023 日版漫畫藝術",
+      "zhCN": "2023 日版漫画艺术",
+      "ja": "2023 日本版マンガアート"
+    },
+    "Pokemon Sword and Shield Astral Radiance": {
+      "zhTW": "寶可夢 劍盾 星光璀璨",
+      "zhCN": "宝可梦 剑盾 星光璀璨",
+      "ja": "ソード&シールド タイムゲイザー"
+    },
+    "Pokemon Sword and Shield Battle Styles": {
+      "zhTW": "寶可夢 劍盾 對戰風格",
+      "zhCN": "宝可梦 剑盾 对战风格",
+      "ja": "ソード&シールド 一撃マスター"
+    },
+    "One Piece Wings of the Captain OP-06": {
+      "zhTW": "海賊王 船長之翼 OP-06",
+      "zhCN": "海贼王 船长之翼 OP-06",
+      "ja": "ONE PIECE 強大な敵 OP-06"
+    },
+    "One Piece Royal Blood OP-10": {
+      "zhTW": "海賊王 王族血統 OP-10",
+      "zhCN": "海贼王 王族血统 OP-10",
+      "ja": "ONE PIECE 王族の血統 OP-10"
+    },
+    "One Piece Two Legends OP-08": {
+      "zhTW": "海賊王 兩大傳說 OP-08",
+      "zhCN": "海贼王 两大传说 OP-08",
+      "ja": "ONE PIECE 二つの伝説 OP-08"
+    },
+    "One Piece Kingdoms of Intrigue OP-04": {
+      "zhTW": "海賊王 謀略之國 OP-04",
+      "zhCN": "海贼王 谋略之国 OP-04",
+      "ja": "ONE PIECE 謀略の王国 OP-04"
+    },
+    "One Piece Pillars of Strength OP-03": {
+      "zhTW": "海賊王 力量支柱 OP-03",
+      "zhCN": "海贼王 力量支柱 OP-03",
+      "ja": "ONE PIECE 強大な敵 OP-03"
+    },
+    "One Piece Paramount War OP-02": {
+      "zhTW": "海賊王 頂上戰爭 OP-02",
+      "zhCN": "海贼王 顶上战争 OP-02",
+      "ja": "ONE PIECE 頂上決戦 OP-02"
+    },
+    "Extra Booster EGGHEAD CRISIS": {
+      "zhTW": "海賊王 額外補充包 蛋頭危機",
+      "zhCN": "海贼王 额外补充包 蛋头危机",
+      "ja": "ONE PIECE エクストラブースター エッグヘッド"
+    },
+    "Booster Pack The Kingdom Of Conspiracy": {
+      "zhTW": "海賊王 擴充包 謀略之國",
+      "zhCN": "海贼王 扩充包 谋略之国",
+      "ja": "ONE PIECE ブースターパック 謀略の王国"
+    },
+    "Scarlet Violet 151 Ultra-Premium Collection Metal Card": {
+      "zhTW": "寶可夢 朱紫 151 超豪華合集金屬卡",
+      "zhCN": "宝可梦 朱紫 151 超豪华合集金属卡",
+      "ja": "スカーレット&バイオレット 151 ウルトラプレミアム メタルカード"
+    },
+    "Booster Pack CARRYING ON HIS WILL": {
+      "zhTW": "海賊王 擴充包 繼承意志",
+      "zhCN": "海贼王 扩充包 继承意志",
+      "ja": "ONE PIECE ブースターパック 受け継がれる意志"
+    },
+    "Booster Pack 500 Yeas in the Future": {
+      "zhTW": "海賊王 擴充包 500年後的未來",
+      "zhCN": "海贼王 扩充包 500年后的未来",
+      "ja": "ONE PIECE ブースターパック 500年後の未来"
+    },
+    "One Piece The Azure Sea's Seven OP-14": {
+      "zhTW": "海賊王 蔚藍大海的七人 OP-14",
+      "zhCN": "海贼王 蔚蓝大海的七人 OP-14",
+      "ja": "ONE PIECE 双璧の覇者 OP-14"
+    },
+    "Booster Pack THE AZURE SEA'S SEVEN": {
+      "zhTW": "海賊王 擴充包 蔚藍大海的七人",
+      "zhCN": "海贼王 扩充包 蔚蓝大海的七人",
+      "ja": "ONE PIECE ブースターパック 双璧の覇者"
+    },
+    "McDonald's Original MinimumPack": {
+      "zhTW": "麥當勞 Original Minimum Pack",
+      "zhCN": "麦当劳 Original Minimum Pack",
+      "ja": "マクドナルド Original Minimum Pack"
+    },
+    "Pokemon Terastal Festival EX Japanese": {
+      "zhTW": "寶可夢 日版 太晶慶典ex",
+      "zhCN": "宝可梦 日版 太晶庆典ex",
+      "ja": "テラスタルフェスex"
+    },
+    "Booster Pack Royal Blood": {
+      "zhTW": "海賊王 擴充包 王族血統",
+      "zhCN": "海贼王 扩充包 王族血统",
+      "ja": "ONE PIECE ブースターパック 王族の血統"
+    },
+    "Booster Pack ROMANCE DAWN": {
+      "zhTW": "海賊王 擴充包 冒險的黎明",
+      "zhCN": "海贼王 扩充包 冒险的黎明",
+      "ja": "ONE PIECE ブースターパック ROMANCE DAWN"
+    },
+    "Booster Pack LEGACY OF THE MASTER": {
+      "zhTW": "海賊王 擴充包 師父的遺產",
+      "zhCN": "海贼王 扩充包 师父的遗产",
+      "ja": "ONE PIECE ブースターパック 伝説の英雄"
     }
-  }
+  },
+  "note": "Board-aligned set names for active operator universe; unified calm market tone."
 }

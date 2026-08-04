@@ -1,3 +1,6 @@
+"use client";
+
+import type { SyntheticEvent } from "react";
 import type { MarketCardView } from "@/lib/types";
 
 type CardImageImage = MarketCardView["image"];
@@ -8,6 +11,14 @@ function srcSet(image: CardImageImage): string | undefined {
   if (image.variants["200"]) entries.push(`${image.variants["200"]} 200w`);
   if (image.variants["600"]) entries.push(`${image.variants["600"]} 600w`);
   return entries.length ? entries.join(", ") : undefined;
+}
+
+export function handleCardImageError(event: SyntheticEvent<HTMLImageElement>): void {
+  const target = event.currentTarget;
+  if (target.dataset.cardzFallback === "true") return;
+  target.dataset.cardzFallback = "true";
+  target.removeAttribute("srcset");
+  target.src = "/card-placeholder.svg";
 }
 
 export function CardImage({ image, sizes, loading = "lazy", alt = "", className }: {
@@ -26,6 +37,7 @@ export function CardImage({ image, sizes, loading = "lazy", alt = "", className 
       loading={loading}
       decoding="async"
       className={className}
+      onError={handleCardImageError}
     />
   );
 }

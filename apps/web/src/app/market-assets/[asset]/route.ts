@@ -1,5 +1,6 @@
 import { cloudflareEnv } from "@/lib/cloudflare-env";
 import { MARKET_ASSET_CACHE_CONTROL, marketAssetHash, marketAssetObjectKey } from "@/lib/market-media";
+import { loadNodeMarketAsset } from "@/lib/server-snapshot";
 import { parseSnapshotPointer } from "@/lib/snapshot-pointer";
 
 interface MarketMediaObject {
@@ -44,6 +45,20 @@ export async function GET(
   const hash = marketAssetHash(asset);
   if (!key || !hash) return notFound();
 
+  const localAsset = await loadNodeMarketAsset(asset);
+  if (localAsset) {
+    return new Response(localAsset.body, {
+      headers: {
+        "Cache-Control": MARKET_ASSET_CACHE_CONTROL,
+        "Content-Length": String(localAsset.body.byteLength),
+        "Content-Type": "image/webp",
+        "Cross-Origin-Resource-Policy": "same-origin",
+        "X-CARDZ-Generation": localAsset.generation,
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  }
+
   try {
     const environment = await cloudflareEnv<MarketMediaEnvironment>();
     if (!environment) throw new Error("Cloudflare bindings unavailable");
@@ -53,8 +68,12 @@ export async function GET(
     const pointerObject = await bucket.get(pointerKey);
     if (!pointerObject) throw new Error("Snapshot pointer unavailable");
     const pointer = parseSnapshotPointer(JSON.parse(await pointerObject.text()));
-    /* derivative（_200/_600）嘅 base hash 要喺 pointer.media.hashes 先入到嚟 */
-    if (!pointer.media.hashes.includes(hash)) return notFound();
+    if (
+      !pointer.media.hashes.includes(hash)
+      || !pointer.media.assets.some((candidate) => candidate.key === key)
+    ) {
+      return notFound();
+    }
     const object = await bucket.get(key);
 
     if (object?.body) {
@@ -66,6 +85,7 @@ export async function GET(
       });
       if (object.httpEtag) headers.set("ETag", object.httpEtag);
       if (typeof object.size === "number") headers.set("Content-Length", String(object.size));
+      headers.set("X-CARDZ-Generation", pointer.generationId);
       return new Response(object.body, { headers });
     }
 

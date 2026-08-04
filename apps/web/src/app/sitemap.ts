@@ -21,7 +21,7 @@ function entry(path: string, lastModified: string): MetadataRoute.Sitemap[number
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const snapshot = await loadMarketSnapshot();
-  const core = ["/", "/pokemon", "/one-piece", "/watchlist", "/graders/psa", "/graders/bgs", "/graders/cgc", "/graders/sgc"];
+  const core = ["/", "/pokemon", "/one-piece", "/watchlist"];
   const cardPaths = [...snapshot.top100, ...snapshot.watchlist].map((card) => `/card/${card.id}`);
   return [...core, ...cardPaths].map((path) => entry(path, snapshot.effectiveAt));
 }

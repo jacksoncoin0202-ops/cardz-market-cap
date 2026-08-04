@@ -11,6 +11,7 @@ export type Grader = (typeof graders)[number];
 export type Theme = (typeof themes)[number];
 export type MetricStatus = "ready" | "accumulating" | "stale" | "unavailable";
 export type CoverageStatus = "partial" | "stale" | "unavailable";
+export type SnapshotCoverageClaim = "verified-top-n" | "verified-top-100";
 
 /*
  * `en` 一定有值；其他語系冇來源時係 `null`，唔係英文副本。
@@ -24,11 +25,6 @@ export interface MarketMetric<T> {
   status: MetricStatus;
   asOf: string | null;
   anchorAt?: string | null;
-  /**
-   * 2026-07-27 上線頂檔：呢個值係由較短窗口借返嚟（30d→7d→1d），唔係本窗口真數。
-   * 有呢個欄位就代表係借數 —— 日後真數據源接返嚟，搵晒佢就可以還原 fail-closed。
-   */
-  fallbackWindow?: MarketWindow;
 }
 
 export interface PricePoint {
@@ -64,11 +60,40 @@ export interface GraderPopulationView {
   topGradePopulationChangePct: Record<MarketWindow, MarketMetric<number>>;
 }
 
+/** Physical card print language (not UI locale). Canonical: en|ja|ko|zhCN|zhTW. */
+export type PrintLanguage = "en" | "ja" | "ko" | "zhCN" | "zhTW";
+
 export interface MarketCardView {
   id: string;
+  /** Legacy alias for `viewRank`. */
   rank: number;
+  marketRank: number;
+  viewRank: number;
   tcg: string;
-  language: string;
+  /** Print language of this identity; null when unknown / not backfilled. */
+  cardLanguage: PrintLanguage | null;
+  /*
+   * Display-safe projection of the canonical printing identity. `null` when the
+   * snapshot carries no `printingIdentity` at all (legacy / seed evidence), and each
+   * sub-field is `null` when the producer wrote an empty string for it.
+   * Deliberately NOT the canonical `PublicPrintingIdentity`: that type carries
+   * `canonicalPrintingSha256` / `evidenceSha256`, which must never reach the DOM.
+   * `printingCode` is threaded for completeness but has no public vocabulary —
+   * do not render it. `editionCode`（卡包名）was previously withheld entirely
+   * (owner red line, 36/433 已出街卡錯對); owner 2026-08-02 reversed for the
+   * detail page / heatmap popup only — never in the Top 100 table. Optional
+   * because older published snapshots predate the projection.
+   */
+  printingIdentity: {
+    setName: string;
+    setCode: string | null;
+    collectorNumber: string;
+    editionCode?: string | null;
+    rarityCode: string | null;
+    parallelCode: string | null;
+    finishCode: string | null;
+    printingCode: string | null;
+  } | null;
   collectorNumber: string;
   name: LocalizedText;
   setName: LocalizedText;
@@ -80,6 +105,8 @@ export interface MarketCardView {
     variants?: Partial<Record<"200" | "600", string>>;
   };
   pricePsa10: MarketMetric<number>;
+  /** Detail-only RAW / ungraded reference; never used by rank, market cap, or deltas. */
+  priceUngradedReference: MarketMetric<number>;
   populationPsa10: MarketMetric<number>;
   marketCap: MarketMetric<number>;
   windows: Record<MarketWindow, WindowMetrics>;
@@ -93,6 +120,12 @@ export interface MarketViewSnapshot {
   generatedAt: string;
   effectiveAt: string;
   mode: "canonical" | "preview";
+  qcReceiptSha256: string;
+  coverage: {
+    claim: SnapshotCoverageClaim;
+    requestedCount: 100;
+    verifiedCount: number;
+  };
   ratesAsOf: string | null;
   rates: Record<Currency, number>;
   top100: MarketCardView[];

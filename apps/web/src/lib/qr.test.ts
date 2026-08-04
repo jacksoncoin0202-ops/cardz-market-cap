@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import { qrMatrix } from "./qr";
 
 async function loadNayuki(): Promise<{ toMatrix: (text: string, ecl: unknown) => boolean[][]; Ecc: { MEDIUM: unknown } } | null> {
-  const res = await fetch("https://cdn.jsdelivr.net/npm/qrcodegen@1.8.0/qrcodegen.js").catch(() => null);
+  const res = await fetch(
+    "https://cdn.jsdelivr.net/npm/qrcodegen@1.8.0/qrcodegen.js",
+    { signal: AbortSignal.timeout(1_500) },
+  ).catch(() => null);
   if (!res || !res.ok) return null;
   const source = await res.text();
   const factory = new Function(`${source}; return qrcodegen;`);

@@ -77,9 +77,14 @@ export function tileStyle(value: number | null, w: number, h: number, colors: Ti
     ? colors.neutral
     : `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`;
   const shortSide = Math.min(w, h);
-  let cardH = shortSide * p.cardPct;
+  /* 卡圖用長邊做基準：橫 tile 唔會得個角落咁細。
+     高：長邊 × cardPct；闊：aspect 計完再夾喺 tile 闊 92% 內。 */
+  const longSide = Math.max(w, h);
+  let cardH = longSide * p.cardPct;
   let cardW = cardH * p.cardAspect;
-  if (cardW > w * 0.92) { cardW = w * 0.92; cardH = cardW / p.cardAspect; }
+  /* 闊高雙夾，留最少 6% 邊，細 tile 唔會貼死框邊 */
+  if (cardW > w * 0.88) { cardW = w * 0.88; cardH = cardW / p.cardAspect; }
+  if (cardH > h * 0.86) { cardH = h * 0.86; cardW = cardH * p.cardAspect; }
   /* 門檻放寬：tile 細都照 show 卡圖，保持成版整齊（用戶 2026-07-24 指示） */
   const showCard = p.cardPct > 0 && cardW >= 5 && cardH >= 7;
   const move = value !== null ? `${value > 0 ? "+" : ""}${value.toFixed(1)}%` : null;

@@ -25,20 +25,22 @@ function snapshot(): PublicMarketSnapshot {
   const card: PublicMarketSnapshot["top100"][number] = {
     id: "cmc_7fa922",
     rank: 1,
+    marketRank: 1,
+    viewRank: 1,
     tcg: "pokemon",
-    language: "English",
+    cardLanguage: "en",
     collectorNumber: { display: "085/SVP", normalized: "085SVP", complete: true },
     identityStatus: "confirmed",
-    names: { en: "Pikachu", zhTW: "皮卡丘", zhCN: "皮卡丘", ja: "ピカチュウ" },
-    sets: { en: "Promo", zhTW: "宣傳卡", zhCN: "宣传卡", ja: "プロモ" },
-    stories: { en: "A documented market story.", zhTW: "完整市場故事。", zhCN: "完整市场故事。", ja: "市場の物語。" },
+    names: { en: "Pikachu", zhTW: "皮卡丘", zhCN: "皮卡丘", ja: "ピカチュウ", ko: null },
+    sets: { en: "Promo", zhTW: "宣傳卡", zhCN: "宣传卡", ja: "プロモ", ko: null },
+    stories: { en: "A documented market story.", zhTW: "完整市場故事。", zhCN: "完整市场故事。", ja: "市場の物語。", ko: null },
     image: {
       src: "/market-assets/7fa9227fa9227fa9227fa9227fa9227fa9227fa9227fa9227fa9227fa9227fa9.webp",
       sha256: "7fa9227fa9227fa9227fa9227fa9227fa9227fa9227fa9227fa9227fa9227fa9",
       kind: "raw_front",
       width: 630,
       height: 880,
-      alt: { en: "Pikachu card", zhTW: "皮卡丘卡牌", zhCN: "皮卡丘卡牌", ja: "ピカチュウカード" },
+      alt: { en: "Pikachu card", zhTW: "皮卡丘卡牌", zhCN: "皮卡丘卡牌", ja: "ピカチュウカード", ko: null },
       qcAt: asOf,
     },
     pricePsa10: metric(2993),
@@ -63,9 +65,21 @@ function snapshot(): PublicMarketSnapshot {
   };
   return {
     schemaVersion: "2.0.0",
-    generation: { id: "generation-1", generatedAt: asOf, effectiveAt: asOf, contentSha256: "abc", mode: "production", productionEligible: true, blockers: [] },
+    generation: {
+      id: "generation-1",
+      generatedAt: asOf,
+      effectiveAt: asOf,
+      contentSha256: "abc",
+      qcReceiptSha256: "a".repeat(64),
+      mode: "production",
+      productionEligible: true,
+      blockers: [],
+    },
     universe: { populationMin: 1000, grade: "PSA 10", rankingMetric: "psa10_market_cap_usd", windows: ["1d", "7d", "30d"], salesCoverage: "partial" },
     coverage: {
+      claim: "verified-top-n",
+      requestedCount: 100,
+      verifiedCount: 1,
       top100Count: 1,
       watchlistCount: 0,
       changeReady: { "1d": 0, "7d": 1, "30d": 1 },
@@ -79,7 +93,7 @@ function snapshot(): PublicMarketSnapshot {
         TAG: { "1d": 0, "7d": 0, "30d": 0 },
       },
       completeIdentityCount: 1,
-      localizedStoryCount: { en: 1, zhTW: 1, zhCN: 1, ja: 1 },
+      localizedStoryCount: { en: 1, zhTW: 1, zhCN: 1, ja: 1, ko: 0 },
     },
     currencies: {
       base: "USD",
@@ -97,6 +111,9 @@ describe("canonical snapshot view adapter", () => {
     const view = normaliseSnapshot(snapshot());
     expect(view.mode).toBe("canonical");
     expect(view.effectiveAt).toBe(asOf);
+    expect(view.qcReceiptSha256).toBe("a".repeat(64));
+    expect(view.coverage).toEqual({ claim: "verified-top-n", requestedCount: 100, verifiedCount: 1 });
+    expect(view.top100[0]).toMatchObject({ rank: 1, marketRank: 1, viewRank: 1 });
     expect(view.top100[0].collectorNumber).toBe("085/SVP");
     expect(view.top100[0].name["zh-TW"]).toBe("皮卡丘");
     expect(view.top100[0].windows["7d"].trackedSales.valueUsd.value).toBe(22440);
@@ -105,10 +122,20 @@ describe("canonical snapshot view adapter", () => {
     expect(view.top100[0].graderPopulations.PSA.topGradePopulationChangePct["30d"].value).toBe(1.5);
   });
 
+  it("keeps unavailable windows null instead of borrowing another window", () => {
+    const view = normaliseSnapshot(snapshot());
+    const card = view.top100[0];
+    expect(card.windows["1d"].changePct).toMatchObject({ value: null, status: "accumulating" });
+    expect(card.windows["1d"].trackedSales.valueUsd).toMatchObject({ value: null, status: "accumulating" });
+    expect(card.windows["7d"].changePct.value).toBe(1.25);
+    expect(card.windows["7d"].trackedSales.valueUsd.value).toBe(22440);
+  });
+
   it("joins only identity-guarded, reviewed editorial copy into the staging view", () => {
     const view = getSeedSnapshot();
-    expect(view.top100[0].collectorNumber).toBe("085/SVP");
-    expect(view.top100[0].story.en).toContain("Van Gogh");
-    expect(view.top100[0].story["zh-TW"]).toContain("梵高");
+    const card = [...view.top100, ...view.watchlist].find((entry) => entry.id === "cmc_4104320a31c4d989742c067d");
+    expect(card?.collectorNumber).toBe("085/SVP");
+    expect(card?.story.en).toContain("Van Gogh");
+    expect(card?.story["zh-TW"]).toContain("梵高");
   });
 });

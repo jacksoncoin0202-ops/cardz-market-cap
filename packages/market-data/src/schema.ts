@@ -1,3 +1,5 @@
+import type { ReleaseProfileId } from "./release-policy.generated.js";
+
 export const SNAPSHOT_SCHEMA_VERSION = "2.0.0" as const;
 
 export const MARKET_STATUSES = [
@@ -16,10 +18,11 @@ export type MarketStatus = (typeof MARKET_STATUSES)[number];
 export type MarketWindow = (typeof MARKET_WINDOWS)[number];
 export type Grader = (typeof GRADERS)[number];
 export type CoverageStatus = (typeof COVERAGE_STATUSES)[number];
-export type Locale = "en" | "zhTW" | "zhCN" | "ja";
+export type Locale = "en" | "zhTW" | "zhCN" | "ja" | "ko";
 export type Currency = (typeof CURRENCIES)[number];
 export type Tcg = "pokemon" | "one-piece" | "other";
 export type PublicImageKind = "raw_front";
+export type SnapshotCoverageClaim = "verified-top-n" | "verified-top-100";
 
 export interface MarketMetric {
   value: number | null;
@@ -36,6 +39,7 @@ export interface LocalizedText {
   zhTW: string | null;
   zhCN: string | null;
   ja: string | null;
+  ko: string | null;
 }
 
 export interface CollectorNumber {
@@ -63,15 +67,8 @@ export interface TrackedSalesMetric {
 }
 
 export interface WindowMetrics {
-  /** 參考價（PSA10）嘅窗口變動。淨係價，唔包 POP。 */
   changePct: MarketMetric;
-  /**
-   * 市值窗口變動 = (1+Δ價)(1+ΔPOP)−1。
-   *
-   * Optional：呢個 producer 版本之前出街嘅 snapshot 冇呢條欄，舊 payload 一樣
-   * 要驗得過。消費端見唔到就自己由 `changePct` × `topGradePopulationChangePct`
-   * 砌返（`composeChangePct`），**唔准**退返去單用 `changePct`。
-   */
+  /** Optional window market-cap change. 2026-08 policy: may equal price changePct; ΔPOP not product-maintained. */
   marketCapChangePct?: MarketMetric;
   /** 窗口成交金額對上一個同長度窗口嘅變動。同 `changePct` 冇任何數學關係。 */
   trackedSalesChangePct?: MarketMetric;
@@ -99,18 +96,69 @@ export interface DailyHistoryPoint {
   salesCoverage: CoverageStatus;
 }
 
+export interface PublicPrintingIdentity {
+  setName: string;
+  collectorNumber: string;
+  editionCode: string;
+  parallelCode: string;
+  finishCode: string;
+  /** Short set code（例如 "EVS"）；唔係每個 producer 都有，所以 optional。 */
+  setCode?: string | null;
+  /** 稀有度 code；producer 未供應時係 null。 */
+  rarityCode?: string | null;
+  /** 印刷版本 code；暫時冇公開 vocabulary，display 唔會用。 */
+  printingCode?: string | null;
+  /**
+   * Physical print language in the 7-part canonicalPrintingSha256 key
+   * (`tcg|lang|set|collector|edition|parallel|finish`). The nullable type can
+   * read retained legacy evidence, but strict production validation rejects a
+   * missing language.
+   */
+  cardLanguage?: CardLanguage | null;
+  canonicalPrintingSha256: string;
+  evidenceSha256: string;
+}
+
+export interface CanonicalDbQcBinding {
+  runId: string;
+  receiptSha256: string;
+  database: "cardz_market_cap";
+  universeCandidateSha256: string;
+}
+
+/** Canonical card *print* language (not UI locale). */
+export type CardLanguage = "en" | "ja" | "ko" | "zhCN" | "zhTW";
+
 export interface PublicCard {
   id: string;
+  /** Legacy display rank. Kept equal to `viewRank` for existing consumers. */
   rank: number;
+  /** Rank in the canonical market-cap universe before view-specific filtering. */
+  marketRank: number;
+  /** Contiguous rank in the current public view. */
+  viewRank: number;
   tcg: Tcg;
-  language: string;
+  /**
+   * Physical print language of this catalog identity (en|ja|ko|zhCN|zhTW).
+   * Distinct from interface locale. Optional only while reading legacy demo
+   * evidence; strict production validation requires it.
+   */
+  cardLanguage?: CardLanguage | null;
   collectorNumber: CollectorNumber;
-  identityStatus: "confirmed" | "demo_observed";
+  /** Required by the production release gate; optional only for legacy demo snapshots. */
+  printingIdentity?: PublicPrintingIdentity;
+  identityStatus: "confirmed" | "provisional" | "demo_observed";
   names: LocalizedText;
   sets: LocalizedText;
   stories: LocalizedText;
   image: PublicImage;
   pricePsa10: MarketMetric;
+  /**
+   * Detail-only ungraded / RAW reference. It never participates in PSA 10
+   * ranking, market-cap, price deltas, tracked sales, or history.
+   * Optional so pre-field snapshots remain valid.
+   */
+  priceUngradedReference?: MarketMetric;
   populationPsa10: PopulationMetric;
   marketCap: MarketMetric;
   windows: Record<MarketWindow, WindowMetrics>;
@@ -123,6 +171,17 @@ export interface SnapshotGeneration {
   generatedAt: string;
   effectiveAt: string;
   contentSha256: string;
+  qcReceiptSha256: string;
+  /** Required for production; omitted by pre-QC/demo candidates. */
+  dbQc?: CanonicalDbQcBinding;
+  /** Required for production; omitted only by retained legacy/demo candidates. */
+  releaseProfile?: ReleaseProfileId;
+  /** SHA-256 of the named policy as generated from config/data-routing.json. */
+  policySha256?: string;
+  /** SHA-256 fingerprint of the canonical CARDZ Market Cap database evaluation. */
+  dbFingerprint?: string;
+  /** Immutable canonical evaluation backing this generation. */
+  evaluationId?: number;
   mode: "demo" | "production";
   productionEligible: boolean;
   blockers: string[];
@@ -139,6 +198,9 @@ export interface PublicMarketSnapshot {
     salesCoverage: "partial";
   };
   coverage: {
+    claim: SnapshotCoverageClaim;
+    requestedCount: 100;
+    verifiedCount: number;
     top100Count: number;
     watchlistCount: number;
     changeReady: Record<MarketWindow, number>;

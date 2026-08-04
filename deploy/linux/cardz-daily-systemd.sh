@@ -6,16 +6,22 @@ repo_root="/opt/cardz-market-cap"
 unit_dir="/etc/systemd/system"
 env_file="/etc/cardz-market-cap/backend.env"
 service_user="cardz"
+enable_units=0
+start_units=0
+confirm_single_writer=0
 
 usage() {
   cat <<'EOF'
 Usage: deploy/linux/cardz-daily-systemd.sh [install|status|uninstall|dry-run]
   [--repo-root PATH] [--unit-dir PATH] [--env-file PATH] [--user NAME]
+  [--enable] [--start] [--confirm-single-writer]
 
-Installs three timers:
-  cardz-market-cap-daily.timer     00:30 UTC (09:30 JST)  full pipeline + outcome gate
+Installs the web runtime, daily stack and two disabled-by-default weekly plans:
+  cardz-market-cap-daily.timer     00:30 UTC (09:30 JST)  new-era active refresh
   cardz-market-cap-watchdog.timer  05:07 UTC (14:07 JST)  verify-only, catches "never ran"
   cardz-gemrate-freeze.timer       Sun 14:23 UTC +-1h     weekly roster + population freeze
+  cardz-market-cap-candidate-refresh.timer  additive universe candidate intake
+  cardz-market-cap-retention.timer          dry-run retention plan only
 
 Deliberately NOT covered -- install these by hand, see deploy/systemd/README.md:
   cardz-market-cap-bootstrap.service  one-shot, run once before enabling any timer
@@ -23,6 +29,9 @@ Deliberately NOT covered -- install these by hand, see deploy/systemd/README.md:
   cardz-image-backfill.service        on-demand, no timer by design
 
 The default action is dry-run and does not alter systemd or the repository.
+`install` writes units and daemon-reloads only. `--enable` and `--start` are
+separate explicit state changes and require `--confirm-single-writer`.
+Candidate refresh and retention are never enabled or started by this installer.
 EOF
 }
 
@@ -33,11 +42,19 @@ while [[ $# -gt 0 ]]; do
     --unit-dir) unit_dir="$2"; shift ;;
     --env-file) env_file="$2"; shift ;;
     --user) service_user="$2"; shift ;;
+    --enable) enable_units=1 ;;
+    --start) start_units=1 ;;
+    --confirm-single-writer) confirm_single_writer=1 ;;
     --help|-h) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
   shift
 done
+
+if ((enable_units || start_units)) && ((confirm_single_writer == 0)); then
+  echo "--enable/--start requires --confirm-single-writer after the legacy Windows writer is disabled" >&2
+  exit 2
+fi
 
 repo_root="$(cd "$repo_root" && pwd)"
 template_dir="$repo_root/deploy/systemd"
@@ -52,6 +69,13 @@ alert_runner="$template_dir/run-cardz-alert.sh"
 freeze_service_template="$template_dir/cardz-gemrate-freeze.service"
 freeze_timer_template="$template_dir/cardz-gemrate-freeze.timer"
 freeze_runner="$template_dir/run-cardz-gemrate-freeze.sh"
+web_service_template="$template_dir/cardz-market-cap-web.service"
+web_refresh_service_template="$template_dir/cardz-market-cap-web-refresh.service"
+web_refresh_runner="$template_dir/run-cardz-web-refresh.sh"
+candidate_service_template="$template_dir/cardz-market-cap-candidate-refresh.service"
+candidate_timer_template="$template_dir/cardz-market-cap-candidate-refresh.timer"
+retention_service_template="$template_dir/cardz-market-cap-retention.service"
+retention_timer_template="$template_dir/cardz-market-cap-retention.timer"
 
 # 缺檔分兩級。分級唔係為咗放水，係因為兩者嘅後果根本唔同級數：
 #
@@ -85,10 +109,21 @@ require() {  # require <core|guard> <path> <why it is needed>
 require core  "$service_template" "the daily unit itself; there is nothing to install without it"
 require core  "$timer_template"   "the 00:30 UTC (09:30 JST) schedule"
 require core  "$runner"           "ExecStart= of the daily unit"
-require core  "$repo_root/scripts/backend.py" \
-  "pipeline entrypoint that run-cardz-daily.sh invokes"
-require core  "$repo_root/scripts/verify_daily_run.py" \
-  "outcome gate. run-cardz-daily.sh:50-54 exits 1 without it, so an installed timer would fail 100% of its runs"
+require core  "$repo_root/pipelines/operator_control.py" \
+  "new-era daily entrypoint that run-cardz-daily.sh invokes"
+require core  "$repo_root/pipelines/collect_control.py" \
+  "fail-closed active-cohort incremental controller"
+require core  "$repo_root/pipelines/pc_cdp_sold_refresh_win.py" \
+  "fresh-page acquisition for PC/eBay and English price references"
+require core  "$web_service_template" "the WSL Node runtime unit"
+require core  "$web_refresh_service_template" "the post-publish restart and health unit"
+require core  "$web_refresh_runner" "ExecStart= of the post-publish health unit"
+require core  "$repo_root/apps/web/scripts/verify-runtime-health.mjs" "verifies the promoted generation after restart"
+require core  "$candidate_service_template" "the disabled-by-default additive candidate service"
+require core  "$candidate_timer_template" "the disabled-by-default additive candidate schedule"
+require core  "$retention_service_template" "the disabled-by-default retention dry-run service"
+require core  "$retention_timer_template" "the disabled-by-default retention schedule"
+require core  "$repo_root/pipelines/db_retention.py" "retention dry-run planner"
 require guard "$alert_service_template" "OnFailure= target of the daily and watchdog units"
 require guard "$alert_runner"           "ExecStart= of the alert unit"
 require guard "$repo_root/scripts/notify_alert.py" "delivers the failure notification"
@@ -201,6 +236,7 @@ fi
 if ((install_freeze)); then
   scan_units+=("$freeze_service_template")
 fi
+scan_units+=("$candidate_service_template" "$retention_service_template")
 
 readwrite_paths() {
   local path
@@ -216,7 +252,10 @@ if [[ "$action" == "status" ]]; then
   systemctl status --no-pager \
     cardz-market-cap-daily.service cardz-market-cap-daily.timer \
     cardz-market-cap-watchdog.service cardz-market-cap-watchdog.timer \
-    cardz-gemrate-freeze.service cardz-gemrate-freeze.timer || true
+    cardz-gemrate-freeze.service cardz-gemrate-freeze.timer \
+    cardz-market-cap-web.service cardz-market-cap-web-refresh.service \
+    cardz-market-cap-candidate-refresh.service cardz-market-cap-candidate-refresh.timer \
+    cardz-market-cap-retention.service cardz-market-cap-retention.timer || true
   exit 0
 fi
 
@@ -225,10 +264,16 @@ if [[ "$action" == "uninstall" ]]; then
   systemctl disable --now cardz-market-cap-daily.timer || true
   systemctl disable --now cardz-market-cap-watchdog.timer || true
   systemctl disable --now cardz-gemrate-freeze.timer || true
+  systemctl disable --now cardz-market-cap-web.service || true
+  systemctl disable --now cardz-market-cap-candidate-refresh.timer || true
+  systemctl disable --now cardz-market-cap-retention.timer || true
   rm -f \
     "$unit_dir/cardz-market-cap-daily.service" "$unit_dir/cardz-market-cap-daily.timer" \
     "$unit_dir/cardz-market-cap-watchdog.service" "$unit_dir/cardz-market-cap-watchdog.timer" \
     "$unit_dir/cardz-gemrate-freeze.service" "$unit_dir/cardz-gemrate-freeze.timer" \
+    "$unit_dir/cardz-market-cap-web.service" "$unit_dir/cardz-market-cap-web-refresh.service" \
+    "$unit_dir/cardz-market-cap-candidate-refresh.service" "$unit_dir/cardz-market-cap-candidate-refresh.timer" \
+    "$unit_dir/cardz-market-cap-retention.service" "$unit_dir/cardz-market-cap-retention.timer" \
     "$unit_dir/cardz-market-cap-alert@.service"
   systemctl daemon-reload
   exit 0
@@ -238,6 +283,13 @@ if [[ ! -f "$env_file" ]]; then
   echo "Missing environment file: $env_file" >&2
   exit 1
 fi
+for private_env in "$env_file" "$(dirname "$env_file")/gemrate.env"; do
+  [[ -f "$private_env" ]] || continue
+  if LC_ALL=C grep -q $'\r$' "$private_env"; then
+    echo "Environment file must use LF line endings: $private_env" >&2
+    exit 1
+  fi
+done
 mode="$(stat -c '%a' "$env_file")"
 owner="$(stat -c '%u' "$env_file")"
 if (( (8#$mode & 8#077) != 0 )); then
@@ -272,8 +324,9 @@ if [[ "$action" == "dry-run" ]]; then
   if grep -qhE '^[[:space:]]*GEMRATE_API_KEY=[^[:space:]]' "$env_file" "$gemrate_env" 2>/dev/null; then
     gemrate_key='set'
   fi
-  printf 'action=dry-run\nrepo_root=%s\nenv_file=%s\nunit_dir=%s\nuser=%s\nschedule=00:30 UTC (09:30 Asia/Tokyo)\nwatchdogSchedule=%s\nfreezeSchedule=%s\nentrypoint=scripts/backend.py daily + scripts/verify_daily_run.py\ntimeoutSeconds=21600\nreadWritePaths=%s\nreadWritePathsMissing=%s\nalertUnit=%s\nfailureNotifier=%s\nalertWebhook=%s\ngemrateApiKey=%s\n' \
+  printf 'action=dry-run\nrepo_root=%s\nenv_file=%s\nunit_dir=%s\nuser=%s\nenableRequested=%s\nstartRequested=%s\nsingleWriterConfirmed=%s\nschedule=00:30 UTC (09:30 Asia/Tokyo)\nwatchdogSchedule=%s\nfreezeSchedule=%s\ncandidateSchedule=Mon 14:17 UTC +-1h (installed disabled)\nretentionSchedule=Tue 17:17 UTC +-30m (installed disabled; no --apply)\nentrypoint=pipelines/operator_control.py daily --refresh\ntimeoutSeconds=21600\nreadWritePaths=%s\nreadWritePathsMissing=%s\nalertUnit=%s\nfailureNotifier=%s\nalertWebhook=%s\ngemrateApiKey=%s\n' \
     "$repo_root" "$env_file" "$unit_dir" "$service_user" \
+    "$enable_units" "$start_units" "$confirm_single_writer" \
     "$( ((install_watchdog)) && echo '05:07 UTC (14:07 Asia/Tokyo)' || echo 'not installed (templates missing)')" \
     "$( ((install_freeze)) && echo 'Sun 14:23 UTC +-1h jitter (Mon 23:23 Asia/Tokyo)' || echo 'not installed (templates missing)')" \
     "$rw_all" "${rw_missing:-none (install 會照樣確保存在)}" \
@@ -324,16 +377,36 @@ if ((install_freeze)); then
   install -m 0644 "$freeze_timer_template" "$unit_dir/cardz-gemrate-freeze.timer"
 fi
 
+render_unit "$web_service_template" > "$unit_dir/cardz-market-cap-web.service"
+render_unit "$web_refresh_service_template" > "$unit_dir/cardz-market-cap-web-refresh.service"
+render_unit "$candidate_service_template" > "$unit_dir/cardz-market-cap-candidate-refresh.service"
+install -m 0644 "$candidate_timer_template" "$unit_dir/cardz-market-cap-candidate-refresh.timer"
+render_unit "$retention_service_template" > "$unit_dir/cardz-market-cap-retention.service"
+install -m 0644 "$retention_timer_template" "$unit_dir/cardz-market-cap-retention.timer"
+
 systemctl daemon-reload
-systemctl enable cardz-market-cap-daily.timer
-systemctl start cardz-market-cap-daily.timer
-if ((install_watchdog)); then
-  systemctl enable cardz-market-cap-watchdog.timer
-  systemctl start cardz-market-cap-watchdog.timer
+
+# install 預設只落 unit + daemon-reload。WSL writer 未通過兩次 soak、Windows task
+# 未停之前，絕對唔可以因為「裝 unit」就自動變成第二個 writer。
+if ((enable_units)); then
+  systemctl enable cardz-market-cap-web.service
+  systemctl enable cardz-market-cap-daily.timer
+  if ((install_watchdog)); then
+    systemctl enable cardz-market-cap-watchdog.timer
+  fi
+  if ((install_freeze)); then
+    systemctl enable cardz-gemrate-freeze.timer
+  fi
 fi
-if ((install_freeze)); then
-  systemctl enable cardz-gemrate-freeze.timer
-  systemctl start cardz-gemrate-freeze.timer
+if ((start_units)); then
+  systemctl start cardz-market-cap-web.service
+  systemctl start cardz-market-cap-daily.timer
+  if ((install_watchdog)); then
+    systemctl start cardz-market-cap-watchdog.timer
+  fi
+  if ((install_freeze)); then
+    systemctl start cardz-gemrate-freeze.timer
+  fi
 fi
 systemctl list-timers --no-pager 'cardz-market-cap-*' || true
 
@@ -341,7 +414,8 @@ systemctl list-timers --no-pager 'cardz-market-cap-*' || true
 # 收工 —— 護欄缺失嘅警告如果淨係喺開頭出過一次，已經被 scroll 走咗。
 if ((notify_ok)); then
   echo
-  echo "OK: timers installed with the failure notifier in place."
+  echo "OK: units installed with the failure notifier in place (enable=$enable_units start=$start_units)."
+  echo "Candidate refresh and retention remain disabled; this installer never starts them."
 else
   echo
   unguarded_banner >&2

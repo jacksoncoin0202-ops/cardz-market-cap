@@ -1,4 +1,5 @@
 import { loadMarketSnapshot } from "@/lib/server-snapshot";
+import { snapshotFreshness, snapshotStaleAfterSeconds } from "@/lib/snapshot-health";
 
 export const dynamic = "force-dynamic";
 
@@ -9,15 +10,26 @@ export const dynamic = "force-dynamic";
 export async function GET(): Promise<Response> {
   try {
     const snapshot = await loadMarketSnapshot();
+    const freshness = snapshotFreshness(
+      snapshot.effectiveAt,
+      Date.now(),
+      snapshotStaleAfterSeconds(process.env.MARKET_DATA_STALE_AFTER_SECONDS),
+    );
     return Response.json(
       {
-        status: "ok",
+        status: freshness.snapshotStale ? "stale" : "ok",
         generation: snapshot.generation,
         effectiveAt: snapshot.effectiveAt,
         mode: snapshot.mode,
         cards: snapshot.top100.length + snapshot.watchlist.length,
+        ...freshness,
       },
-      { headers: { "Cache-Control": "no-store" } },
+      {
+        headers: {
+          "Cache-Control": "no-store",
+          "X-CARDZ-Generation": snapshot.generation,
+        },
+      },
     );
   } catch (error) {
     return Response.json(

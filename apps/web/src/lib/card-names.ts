@@ -2,17 +2,20 @@ import type { Locale } from "./types";
 
 type LocalizedName = Partial<Record<Locale, string>>;
 
-// English names the upstream catalog stores truncated. `canonical_name` cannot be repaired
-// in the database because it feeds `opaque_id`, so editing it would orphan the card's price
-// and population history; the repair belongs here, in the display layer. Each replacement is
-// taken from a local source, never guessed:
-//   Monkey.D.Luff    -> grade10-scraper/data/cards/snkrdunk/287031/summary_en.json
-//   Okuge            -> grade10-scraper/data/cards/snkrdunk/91423/summary_en.json
+// English names the upstream catalog stores truncated or misspelled. `canonical_name` cannot
+// be repaired in the database because it feeds `opaque_id`, so editing it would orphan the
+// card's price and population history; the repair belongs here, in the display layer. Each
+// replacement is backed by an approved local identity receipt, never guessed:
+//   Monkey.D.Luff    -> canonical English identity receipt
+//   Okuge            -> canonical English identity receipt
 //   Ethan's Ho       -> catalog_variant 732/742/746, the English printings of the same card
+//   3th Anniversary  -> "3th" is not an English ordinal; the printing is the 3rd Anniversary
 const EN_DISPLAY: Record<string, string> = {
   "Monkey.D.Luff": "Monkey.D.Luffy",
   "Okuge": "Okuge-sama and Maiko-han Pikachu",
   "Ethan's Ho": "Ethan's Ho-Oh ex",
+  "Monkey.D.Luffy SEC-SPC 3th Anniversary Special Card Booster Pack A Fist of Divine Speed":
+    "Monkey.D.Luffy SEC-SPC 3rd Anniversary Special Card Booster Pack A Fist of Divine Speed",
 };
 
 export function displayCardNameEn(englishName: string): string {
@@ -23,6 +26,55 @@ export function displayCardNameEn(englishName: string): string {
 // special printings. Unlisted names fall back to English upstream until the
 // data pipeline ships full four-locale editorial names.
 const EXACT: Record<string, LocalizedName> = {
+"Monkey D. Luffy": { "zh-TW": "蒙其・D・魯夫", "zh-CN": "蒙奇・D・路飞", ja: "モンキー・D・ルフィ" },
+  "Portgas D. Ace": { "zh-TW": "波特卡斯・D・艾斯", "zh-CN": "波特卡斯・D・艾斯", ja: "ポートガス・D・エース" },
+  "Portgas D. Ace (Error)": { "zh-TW": "波特卡斯・D・艾斯（錯版）", "zh-CN": "波特卡斯・D・艾斯（错版）", ja: "ポートガス・D・エース（エラー）" },
+  "Gol D. Roger": { "zh-TW": "哥爾・D・羅傑", "zh-CN": "哥尔・D・罗杰", ja: "ゴール・D・ロジャー" },
+  "Marshall D. Teach": { "zh-TW": "馬歇爾・D・汀奇", "zh-CN": "马歇尔・D・蒂奇", ja: "マーシャル・D・ティーチ" },
+  "Yamato": { "zh-TW": "大和", "zh-CN": "大和", ja: "ヤマト" },
+  "Buggy": { "zh-TW": "巴基", "zh-CN": "巴基", ja: "バギー" },
+  "Donquixote Doflamingo": { "zh-TW": "唐吉訶德・多佛朗明哥", "zh-CN": "唐吉诃德・多弗拉门戈", ja: "ドンキホーテ・ドフラミンゴ" },
+  "Ms. All Sunday": { "zh-TW": "Miss All Sunday", "zh-CN": "Miss All Sunday", ja: "ミス・オールサンデー" },
+  "O-Nami": { "zh-TW": "小紫", "zh-CN": "小紫", ja: "おナミ" },
+  "Rebecca": { "zh-TW": "蕾貝卡", "zh-CN": "蕾贝卡", ja: "レベッカ" },
+  "Terapagos ex": { "zh-TW": "太樂巴戈斯ex", "zh-CN": "太乐巴戈斯ex", ja: "テラパゴスex" },
+  "Raging Bolt ex": { "zh-TW": "破空焰ex", "zh-CN": "破空焰ex", ja: "ウガツホムラex" },
+  "Iron Crown ex": { "zh-TW": "鐵武者ex", "zh-CN": "铁武者ex", ja: "テツノカシラex" },
+  "Team Rocket's Mewtwo ex": { "zh-TW": "火箭隊的超夢ex", "zh-CN": "火箭队的超梦ex", ja: "ロケット団のミュウツーex" },
+  "Team Rocket's Crobat ex": { "zh-TW": "火箭隊的叉字蝠ex", "zh-CN": "火箭队的叉字蝠ex", ja: "ロケット団のクロバットex" },
+  "Cynthia's Garchomp ex": { "zh-TW": "竹蘭的烈咬陸鯊ex", "zh-CN": "竹兰的烈咬陆鲨ex", ja: "シロナのガブリアスex" },
+  "N's Zoroark ex": { "zh-TW": "N的索羅亞克ex", "zh-CN": "N的索罗亚克ex", ja: "Nのゾロアークex" },
+  "Single Strike Urshifu VMAX": { "zh-TW": "一擊武道熊師VMAX", "zh-CN": "一击武道熊师VMAX", ja: "いちげきウーラオスVMAX" },
+  "Mega Charizard X ex": { "zh-TW": "超級噴火龍X ex", "zh-CN": "超级喷火龙X ex", ja: "メガリザードンX ex" },
+  "Mega Charizard Y ex": { "zh-TW": "超級噴火龍Y ex", "zh-CN": "超级喷火龙Y ex", ja: "メガリザードンY ex" },
+  "Charizard ex": { "zh-TW": "噴火龍ex", "zh-CN": "喷火龙ex", ja: "リザードンex" },
+  "Umbreon ex": { "zh-TW": "月亮伊布ex", "zh-CN": "月亮伊布ex", ja: "ブラッキーex" },
+  "Umbreon VMAX": { "zh-TW": "月亮伊布VMAX", "zh-CN": "月亮伊布VMAX", ja: "ブラッキーVMAX" },
+  "Umbreon VMAX (Alternate Art Secret)": { "zh-TW": "月亮伊布VMAX（異圖秘密）", "zh-CN": "月亮伊布VMAX（异图秘密）", ja: "ブラッキーVMAX（スペシャルアート）" },
+  "Mew ex": { "zh-TW": "夢幻ex", "zh-CN": "梦幻ex", ja: "ミュウex" },
+  "Pikachu ex": { "zh-TW": "皮卡丘ex", "zh-CN": "皮卡丘ex", ja: "ピカチュウex" },
+  "Pikachu VMAX": { "zh-TW": "皮卡丘VMAX", "zh-CN": "皮卡丘VMAX", ja: "ピカチュウVMAX" },
+  "Pikachu V": { "zh-TW": "皮卡丘V", "zh-CN": "皮卡丘V", ja: "ピカチュウV" },
+  "Eevee ex": { "zh-TW": "伊布ex", "zh-CN": "伊布ex", ja: "イーブイex" },
+  "Sylveon ex": { "zh-TW": "仙子伊布ex", "zh-CN": "仙子伊布ex", ja: "ニンフィアex" },
+  "Espeon ex": { "zh-TW": "太陽伊布ex", "zh-CN": "太阳伊布ex", ja: "エーフィex" },
+  "Leafeon ex": { "zh-TW": "葉伊布ex", "zh-CN": "叶伊布ex", ja: "リーフィアex" },
+  "Glaceon ex": { "zh-TW": "冰伊布ex", "zh-CN": "冰伊布ex", ja: "グレイシアex" },
+  "Vaporeon ex": { "zh-TW": "水伊布ex", "zh-CN": "水伊布ex", ja: "シャワーズex" },
+  "Flareon ex": { "zh-TW": "火伊布ex", "zh-CN": "火伊布ex", ja: "ブースターex" },
+  "Jolteon ex": { "zh-TW": "雷伊布ex", "zh-CN": "雷伊布ex", ja: "サンダースex" },
+  "Zapdos ex": { "zh-TW": "閃電鳥ex", "zh-CN": "闪电鸟ex", ja: "サンダーex" },
+  "Zekrom ex": { "zh-TW": "捷克羅姆ex", "zh-CN": "捷克罗姆ex", ja: "ゼクロムex" },
+  "Reshiram ex": { "zh-TW": "萊希拉姆ex", "zh-CN": "莱希拉姆ex", ja: "レシラムex" },
+  "Latias ex": { "zh-TW": "拉帝亞斯ex", "zh-CN": "拉帝亚斯ex", ja: "ラティアスex" },
+  "Blastoise ex": { "zh-TW": "水箭龜ex", "zh-CN": "水箭龟ex", ja: "カメックスex" },
+  "Venusaur ex": { "zh-TW": "妙蛙花ex", "zh-CN": "妙蛙花ex", ja: "フシギバナex" },
+  "Alakazam ex": { "zh-TW": "胡地ex", "zh-CN": "胡地ex", ja: "フーディンex" },
+  "Bulbasaur": { "zh-TW": "妙蛙種子", "zh-CN": "妙蛙种子", ja: "フシギダネ" },
+  "Ivysaur": { "zh-TW": "妙蛙草", "zh-CN": "妙蛙草", ja: "フシギソウ" },
+  "Tangela": { "zh-TW": "蔓藤怪", "zh-CN": "蔓藤怪", ja: "モンジャラ" },
+  "Gengar VMAX": { "zh-TW": "耿鬼VMAX", "zh-CN": "耿鬼VMAX", ja: "ゲンガーVMAX" },
+  "Daisy's Care": { "zh-TW": "小霞的照顧", "zh-CN": "小霞的照顾", ja: "カスミのケア" },
   "Pikachu": { "zh-TW": "皮卡丘", "zh-CN": "皮卡丘", ja: "ピカチュウ" },
   "Poncho": { "zh-TW": "斗篷皮卡丘", "zh-CN": "斗篷皮卡丘", ja: "ポンチョを着たピカチュウ" },
   // 085/SVP 只出過英文版（梵高美術館＋海外 Pokémon Center 限定），冇日文印刷版，
@@ -69,6 +121,23 @@ const EXACT: Record<string, LocalizedName> = {
 
 // Word-level lexicon applied left-to-right, longest match first.
 const LEXICON: Array<[string, LocalizedName]> = [
+  ["Portgas D. Ace", { "zh-TW": "波特卡斯・D・艾斯", "zh-CN": "波特卡斯・D・艾斯", ja: "ポートガス・D・エース" }],
+  ["Portgas D Ace", { "zh-TW": "波特卡斯・D・艾斯", "zh-CN": "波特卡斯・D・艾斯", ja: "ポートガス・D・エース" }],
+  ["Gol D. Roger", { "zh-TW": "哥爾・D・羅傑", "zh-CN": "哥尔・D・罗杰", ja: "ゴール・D・ロジャー" }],
+  ["Marshall D. Teach", { "zh-TW": "馬歇爾・D・汀奇", "zh-CN": "马歇尔・D・蒂奇", ja: "マーシャル・D・ティーチ" }],
+  ["Monkey D. Luffy", { "zh-TW": "蒙其・D・魯夫", "zh-CN": "蒙奇・D・路飞", ja: "モンキー・D・ルフィ" }],
+  ["Yamato", { "zh-TW": "大和", "zh-CN": "大和", ja: "ヤマト" }],
+  ["Buggy", { "zh-TW": "巴基", "zh-CN": "巴基", ja: "バギー" }],
+  ["Donquixote Doflamingo", { "zh-TW": "唐吉訶德・多佛朗明哥", "zh-CN": "唐吉诃德・多弗拉门戈", ja: "ドンキホーテ・ドフラミンゴ" }],
+  ["Terapagos", { "zh-TW": "太樂巴戈斯", "zh-CN": "太乐巴戈斯", ja: "テラパゴス" }],
+  ["Raging Bolt", { "zh-TW": "破空焰", "zh-CN": "破空焰", ja: "ウガツホムラ" }],
+  ["Iron Crown", { "zh-TW": "鐵武者", "zh-CN": "铁武者", ja: "テツノカシラ" }],
+  ["Urshifu", { "zh-TW": "武道熊師", "zh-CN": "武道熊师", ja: "ウーラオス" }],
+  ["Zoroark", { "zh-TW": "索羅亞克", "zh-CN": "索罗亚克", ja: "ゾロアーク" }],
+  ["Crobat", { "zh-TW": "叉字蝠", "zh-CN": "叉字蝠", ja: "クロバット" }],
+  ["Bulbasaur", { "zh-TW": "妙蛙種子", "zh-CN": "妙蛙种子", ja: "フシギダネ" }],
+  ["Ivysaur", { "zh-TW": "妙蛙草", "zh-CN": "妙蛙草", ja: "フシギソウ" }],
+  ["Tangela", { "zh-TW": "蔓藤怪", "zh-CN": "蔓藤怪", ja: "モンジャラ" }],
   ["Team Rocket's", { "zh-TW": "火箭隊的", "zh-CN": "火箭队的", ja: "ロケット団の" }],
   ["Team Skull", { "zh-TW": "骷髏隊", "zh-CN": "骷髅队", ja: "スカル団" }],
   ["Team Aqua's", { "zh-TW": "海洋隊的", "zh-CN": "海洋队的", ja: "アクア団の" }],
@@ -161,7 +230,7 @@ const LEXICON: Array<[string, LocalizedName]> = [
   ["Dracule Mihawk", { "zh-TW": "喬拉可爾・密佛格", "zh-CN": "乔拉可尔・米霍克", ja: "ジュラキュール・ミホーク" }],
   ["Marshall D Teach", { "zh-TW": "馬歇爾・D・汀奇", "zh-CN": "马歇尔・D・蒂奇", ja: "マーシャル・D・ティーチ" }],
   ["Gol D Roger", { "zh-TW": "哥爾・D・羅傑", "zh-CN": "哥尔・D・罗杰", ja: "ゴール・D・ロジャー" }],
-  ["Shanks", { "zh-TW": "傑克", "zh-CN": "香克斯", ja: "シャンクス" }],
+  ["Shanks", { "zh-TW": "香克斯", "zh-CN": "香克斯", ja: "シャンクス" }],
   ["Sabo", { "zh-TW": "薩波", "zh-CN": "萨博", ja: "サボ" }],
   ["Lillie", { "zh-TW": "莉莉艾", "zh-CN": "莉莉艾", ja: "リーリエ" }],
   ["Marnie", { "zh-TW": "瑪俐", "zh-CN": "玛俐", ja: "マリィ" }],
@@ -188,7 +257,7 @@ const SUFFIXES: Array<[RegExp, string]> = [
 // Tokens that keep their exact English form (rarity codes, promo/set jargon).
 const SKIP_TOKENS = new Set([
   "l", "m", "p", "d", "sr", "sr-p", "sr-sp", "sr-spc", "sec", "sec-p", "sec-sp", "sec-spc",
-  "sec-gsp", "r-sp", "sar", "ar", "ur", "sur", "hr", "pr", "rr", "rrr", "s-p", "promo",
+  "sec-gsp", "r-sp", "r-spc", "uc-tr", "sir", "ir", "sar", "ar", "ur", "sur", "hr", "pr", "rr", "rrr", "s-p", "promo",
   "special", "card", "cards", "pack", "booster", "premium", "with", "mark", "no", "years",
   "3th", "3rd", "vol.2", "vol.1", "the", "best", "of", "a", "an", "in", "on", "wearing",
   "album", "set", "to", "commemorate", "release", "movie", "coming!", "one", "piece",
@@ -232,7 +301,7 @@ const COMPOSED_EXACT: Record<string, LocalizedName> = {
   "Roronoa Zoro SEC-SP Booster Pack Wings Of The Captain": { "zh-TW": "羅羅亞・索隆SEC-SP", "zh-CN": "罗罗诺亚・索隆SEC-SP", ja: "ロロノア・ゾロSEC-SP", ko: "롤로노아・조로SEC-SP" },
   "Nami R-SP Premium Booster One Piece Card The Best": { "zh-TW": "娜美R-SP", "zh-CN": "娜美R-SP", ja: "ナミR-SP", ko: "나미R-SP" },
   "Boa Hancock SR-SP Booster Pack The Future After 500 years": { "zh-TW": "波雅・漢考克SR-SP", "zh-CN": "波雅・汉库克SR-SP", ja: "ボア・ハンコックSR-SP", ko: "보아・핸콕SR-SP" },
-  "Shanks SEC-SP Booster Pack ROMANCE DAWN": { "zh-TW": "傑克SEC-SP", "zh-CN": "香克斯SEC-SP", ja: "シャンクスSEC-SP", ko: "샹크스SEC-SP" },
+  "Shanks SEC-SP Booster Pack ROMANCE DAWN": { "zh-TW": "香克斯SEC-SP", "zh-CN": "香克斯SEC-SP", ja: "シャンクスSEC-SP", ko: "샹크스SEC-SP" },
   "Sanji SEC-SP Premium Booster One Piece Card The Best vol.2": { "zh-TW": "香吉士SEC-SP", "zh-CN": "山智SEC-SP", ja: "サンジSEC-SP", ko: "상디SEC-SP" },
   "Marshall.D.Teach SR-SP Booster Pack Emperors In The New World": { "zh-TW": "馬歇爾・D・汀奇SR-SP", "zh-CN": "马歇尔・D・蒂奇SR-SP", ja: "マーシャル・D・ティーチSR-SP", ko: "마샬・D・티치SR-SP" },
   "Trafalgar Law SEC-SP Booster Pack Royal Blood": { "zh-TW": "托拉法爾加・羅SEC-SP", "zh-CN": "特拉法尔加・罗SEC-SP", ja: "トラファルガー・ローSEC-SP", ko: "트라팔가・로SEC-SP" },
@@ -250,6 +319,106 @@ function normalizeKey(name: string): string {
 }
 
 const KO_LEXICON: Array<[string, string]> = [
+// board residual species / trainers / OP names
+  ["Nidoking", "니드킹"],
+  ["Sharpedo", "샤크니아"],
+  ["Bellibolt", "찌리배리"],
+  ["Giovanni", "비주기"],
+  ["Wartortle", "어니부기"],
+  ["Jewelry Bonney", "쥬얼리 보니"],
+  ["Zoro-Juurou", "조로주로"],
+  ["Poliwhirl", "슈륙챙이"],
+  ["Persian", "페르시온"],
+  ["Ceruledge", "파라블레이즈"],
+  ["Machoke", "근육몬"],
+  ["Dragonair", "신뇽"],
+  ["Hydreigon", "삼삼드래"],
+  ["Alolan Exeggutor", "알로라 나시"],
+  ["Alolan", "알로라"],
+  ["Exeggutor", "나시"],
+  ["Enel", "에넬"],
+  ["Bloodmoon Ursaluna", "블러드문 우라오스나"],
+  ["Ursaluna", "우라오스나"],
+  ["Bloodmoon", "블러드문"],
+  ["Giovanni's Charisma", "비주기의 카리스마"],
+  ["Giovanni's", "비주기의"],
+  ["Divine Departure", "신속 이탈"],
+  ["Mr. Mime", "마임맨"],
+  ["Mr Mime", "마임맨"],
+  ["Caterpie", "캐터피"],
+  ["Iron Valiant", "무쇠무인"],
+  ["Valiant", "무인"],
+  ["Nico Robin", "니코 로빈"],
+  ["Gholdengo", "타부자고"],
+  ["Omanyte", "암나이트"],
+  ["Kieran", "카지"],
+  ["Lacey", "타로"],
+  ["Suicune", "스이쿤"],
+  ["Celebi", "세레비"],
+  ["Entei", "앤테이"],
+  ["Aerodactyl", "프테라"],
+  ["Gear Two", "기어 세컨드"],
+  ["Deoxys", "테오키스"],
+  ["Raikou", "라이코"],
+  ["Milotic", "밀로틱"],
+  ["Luffy-Tarou", "루피타로"],
+  ["Silvers Rayleigh", "실버즈 레일리"],
+  ["Rayleigh", "레일리"],
+  ["Silvers", "실버즈"],
+  ["Eustass \"Captain\" Kid", "유스타스 캡틴 키드"],
+  ["Eustass Captain Kid", "유스타스 캡틴 키드"],
+  ["Eustass", "유스타스"],
+  ["Kid", "키드"],
+  ["Salamence", "보만다"],
+  ["Marshadow", "마샤도"],
+  ["Honchkrow", "돈크로우"],
+  ["Lumineon", "네오라이트"],
+  ["Galarian", "가라르"],
+  ["Origin Forme", "오리진폼"],
+  ["Origin", "오리진"],
+  ["Forme", "폼"],
+  ["Rapid Strike", "연격"],
+  ["Single Strike", "일격"],
+  ["Portgas.D.Ace", "포트거스・D・에이스"],
+  ["Portgas D Ace", "포트거스・D・에이스"],
+  ["Monkey.D.Luffy", "몽키・D・루피"],
+  ["Rebecca", "레베카"],
+  ["O-Nami", "오나미"],
+  ["Ms. All Sunday", "미스 올 선데이"],
+  ["Ms All Sunday", "미스 올 선데이"],
+  ["N's", "N의"],
+  ["Daisy's Care", "이슬의 케어"],
+  ["Daisy's", "이슬의"],
+  ["Acerola's Premonition", "에이리카의 예감"],
+  ["Acerola's", "에이리카의"],
+  ["Marnie's Pride", "마리의 긍지"],
+  ["Marnie's", "마리의"],
+  // print descriptors
+  ["Alternate Art Secret", "얼터네이트 아트 시크릿"],
+  ["Alternate Full Art", "얼터네이트 풀아트"],
+  ["Alternate Art", "얼터네이트 아트"],
+  ["Full Art", "풀아트"],
+  ["Secret", "시크릿"],
+  ["Errata", "에라타"],
+  ["Special Art Rare", "스페셜 아트 레어"],
+  ["Manga Alternate Art", "만화 얼터네이트 아트"],
+  ["Comic Parallel", "코믹 패러렐"],
+  ["Portgas D. Ace", "포트거스・D・에이스"],
+  ["Gol D. Roger", "골・D・로저"],
+  ["Marshall D. Teach", "마샬・D・티치"],
+  ["Monkey D. Luffy", "몽키・D・루피"],
+  ["Yamato", "야마토"],
+  ["Buggy", "버기"],
+  ["Donquixote Doflamingo", "돈키호테・도플라밍고"],
+  ["Terapagos", "테라파고스"],
+  ["Raging Bolt", "우가츠호무라"],
+  ["Iron Crown", "테츠노카시라"],
+  ["Urshifu", "우라오스"],
+  ["Zoroark", "조로아크"],
+  ["Crobat", "크로뱃"],
+  ["Bulbasaur", "이상해씨"],
+  ["Ivysaur", "이상해풀"],
+  ["Tangela", "덩구리"],
   ["Team Rocket's", "로켓단의"], ["Team Rocket", "로켓단"], ["Team Skull", "스컬단"],
   ["Team Aqua's", "아쿠아단의"], ["Team Magma's", "마그마단의"], ["Shadow Rider", "흑마 탄"],
   ["Cynthia's", "난천의"], ["Lillie's", "릴리에의"], ["Sabrina's", "초련의"], ["Ethan's", "심향의"],
@@ -284,6 +453,15 @@ const KO_LEXICON: Array<[string, string]> = [
 const koLexicon = new Map(KO_LEXICON.map(([source, target]) => [normalizeKey(source), target]));
 
 const KO_EXACT: Record<string, string> = {
+  "demon aura nine sword style asura blades drawn dead mans game": "아수라 구도류 염라 발도",
+  "don!! card (gold)": "DON!! 카드 (골드)",
+  "don!! card gold": "DON!! 카드 (골드)",
+  "portgas.d.ace sec-sp booster pack carrying on his will": "포트거스・D・에이스 SEC-SP",
+  "silvers rayleigh sec-sp booster pack two legends": "실버즈 레일리 SEC-SP",
+  "monkey.d.luffy uc-tr": "몽키・D・루피 UC-TR",
+  "roronoa zoro r-spc": "롤로노아・조로 R-SPC",
+  "glaceon vstar sir": "글레이시아VSTAR SIR",
+  "meowth ir": "나옹 IR",
   "poncho": "판초를 입은 피카츄",
   "pikachu with grey felt hat": "반 고흐 피카츄",
   "mario pikachu": "마리오 피카츄",
@@ -329,7 +507,7 @@ function isCjk(locale: Locale): boolean {
 }
 
 function translateTokens(name: string, locale: Locale): string | null {
-  const normalized = name.replace(/[\/&]/g, " & ").replace(/(?<=[A-Za-z])\.(?=[A-Za-z])/g, " ");
+  const normalized = name.replace(/[\/&]/g, " & ").replace(/[()]/g, " ").replace(/(?<=[A-Za-z])\.(?=[A-Za-z])/g, " ");
   const tokens = normalized.split(/\s+/).filter(Boolean);
   const out: string[] = [];
   const englishTail: string[] = [];

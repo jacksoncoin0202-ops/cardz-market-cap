@@ -13,6 +13,11 @@ import {
   type PublicMarketSnapshot,
 } from "./schema.js";
 import { isOpaquePublicId } from "./id.js";
+import {
+  RELEASE_POLICY_PROFILES,
+  isReleaseProfileId,
+  type ReleaseProfileId,
+} from "./release-policy.generated.js";
 import { createHash } from "node:crypto";
 
 const FORBIDDEN_PUBLIC_TEXT = [
@@ -54,14 +59,71 @@ function metricAgeHours(metric: MarketMetric, effectiveAt: string): number | nul
   const end = Date.parse(effectiveAt);
   const observed = Date.parse(metric.asOf);
   if (!Number.isFinite(end) || !Number.isFinite(observed)) return null;
-  return Math.max(0, (end - observed) / 3_600_000);
+  return (end - observed) / 3_600_000;
 }
 
-// 出街新鮮度 SLA。POP 揀 168h 係因為：`run_daily.py` 容許 72h 內重播
-// last-good TAG catalog，閘一定要企喺個重播窗之上，唔係正常回退日就會誤報；
-// 而 gemrate 實測真係有 3 日空檔（07-21 → 07-24），收得再緊會喺健康日爆。
-const PRICE_FRESHNESS_HOURS = 48;
-const POPULATION_FRESHNESS_HOURS = 168;
+type ReleasePolicy = (typeof RELEASE_POLICY_PROFILES)[ReleaseProfileId]["policy"];
+
+interface ResolvedReleaseProfile {
+  id: ReleaseProfileId;
+  policy: ReleasePolicy;
+}
+
+/** Missing metadata is a retained legacy/demo contract, never an implicit relaxed release. */
+function resolveReleaseProfile(
+  snapshot: PublicMarketSnapshot,
+  options: ValidationOptions,
+  errors: string[],
+): ResolvedReleaseProfile {
+  const generation = snapshot.generation;
+  const rawProfile = generation.releaseProfile;
+  let id: ReleaseProfileId = "strict-v1";
+  if (rawProfile !== undefined) {
+    assert(isReleaseProfileId(rawProfile), "generation.releaseProfile is invalid", errors);
+    if (isReleaseProfileId(rawProfile)) id = rawProfile;
+  }
+
+  const binding = RELEASE_POLICY_PROFILES[id];
+  const policy = binding.policy;
+  const metadataValues = [
+    generation.policySha256,
+    generation.dbFingerprint,
+    generation.evaluationId,
+  ];
+  const hasAnyMetadata = metadataValues.some((value) => value !== undefined);
+  const hasCompleteMetadata = metadataValues.every((value) => value !== undefined);
+  if (rawProfile === undefined && hasAnyMetadata) {
+    assert(false, "generation profile metadata requires releaseProfile", errors);
+  }
+  if (rawProfile !== undefined && hasAnyMetadata && !hasCompleteMetadata) {
+    assert(false, "generation release profile metadata is incomplete", errors);
+  }
+  if (options.production) {
+    assert(rawProfile !== undefined, "generation.releaseProfile is required for production", errors);
+    assert(hasCompleteMetadata, "generation release profile metadata is required for production", errors);
+  }
+
+  if (generation.policySha256 !== undefined) {
+    assert(/^[0-9a-f]{64}$/.test(generation.policySha256), "generation.policySha256 is invalid", errors);
+    assert(
+      generation.policySha256 === binding.policySha256,
+      "generation.policySha256 does not match releaseProfile",
+      errors,
+    );
+  }
+  if (generation.dbFingerprint !== undefined) {
+    assert(/^[0-9a-f]{64}$/.test(generation.dbFingerprint), "generation.dbFingerprint is invalid", errors);
+  }
+  if (generation.evaluationId !== undefined) {
+    assert(
+      Number.isInteger(generation.evaluationId) && generation.evaluationId > 0,
+      "generation.evaluationId is invalid",
+      errors,
+    );
+  }
+
+  return { id, policy };
+}
 
 // 每個評級行嘅 POP 都要獨立驗新鮮度。原本淨係驗 `card.populationPsa10`，
 // 而嗰個欄位只由 PSA 觀測填，所以 TAG／BGS／CGC／SGC 凍咗幾耐都冇人知——
@@ -70,6 +132,7 @@ function assertGraderPopulationFreshness(
   card: PublicCard,
   path: string,
   effectiveAt: string,
+  maximumAgeHours: number,
   errors: string[],
 ): void {
   for (const grader of GRADERS) {
@@ -98,14 +161,14 @@ function assertGraderPopulationFreshness(
     if (metric.status !== "ready" && metric.status !== "stale") continue;
     const age = metricAgeHours(metric, effectiveAt);
     assert(
-      age !== null && age <= POPULATION_FRESHNESS_HOURS,
-      `${path}.graderPopulations.${grader}.topGradePopulation exceeds ${POPULATION_FRESHNESS_HOURS}h freshness SLA`,
+      age !== null && age >= 0 && age <= maximumAgeHours,
+      `${path}.graderPopulations.${grader}.topGradePopulation exceeds ${maximumAgeHours}h freshness SLA`,
       errors,
     );
   }
 }
 
-function validateMetric(metric: MarketMetric, path: string, errors: string[]): void {
+function validateMetric(metric: MarketMetric, path: string, errors: string[], effectiveAt?: string): void {
   assert(metric !== null && typeof metric === "object", `${path} must be an object`, errors);
   if (metric === null || typeof metric !== "object") return;
   assert(MARKET_STATUSES.includes(metric.status), `${path}.status is invalid`, errors);
@@ -115,11 +178,21 @@ function validateMetric(metric: MarketMetric, path: string, errors: string[]): v
   if (metric.status === "ready" || metric.status === "stale") {
     assert(typeof metric.value === "number" && Number.isFinite(metric.value), `${path}.value must be finite`, errors);
     assert(typeof metric.asOf === "string" && metric.asOf.length > 0, `${path}.asOf is required`, errors);
+    const observedAt = typeof metric.asOf === "string" ? Date.parse(metric.asOf) : Number.NaN;
+    assert(Number.isFinite(observedAt), `${path}.asOf is invalid`, errors);
+    if (effectiveAt !== undefined) {
+      const effective = Date.parse(effectiveAt);
+      assert(
+        Number.isFinite(effective) && Number.isFinite(observedAt) && observedAt <= effective,
+        `${path}.asOf is after generation.effectiveAt`,
+        errors,
+      );
+    }
   }
 }
 
 function validateLocalized(value: LocalizedText, path: string, errors: string[]): void {
-  for (const locale of ["en", "zhTW", "zhCN", "ja"] as const) {
+  for (const locale of ["en", "zhTW", "zhCN", "ja", "ko"] as const) {
     const text = value[locale];
     assert(text === null || (typeof text === "string" && text.trim().length > 0), `${path}.${locale} is invalid`, errors);
   }
@@ -129,8 +202,12 @@ function validateCoverage(value: CoverageStatus, path: string, errors: string[])
   assert(COVERAGE_STATUSES.includes(value), `${path} is invalid`, errors);
 }
 
-function validateHistoryPoint(point: DailyHistoryPoint, path: string, errors: string[]): void {
-  assert(typeof point.at === "string" && Number.isFinite(Date.parse(point.at)), `${path}.at is invalid`, errors);
+function validateHistoryPoint(point: DailyHistoryPoint, path: string, errors: string[], effectiveAt?: string): void {
+  const observedAt = typeof point.at === "string" ? Date.parse(point.at) : Number.NaN;
+  assert(Number.isFinite(observedAt), `${path}.at is invalid`, errors);
+  if (effectiveAt !== undefined) {
+    assert(observedAt <= Date.parse(effectiveAt), `${path}.at is after generation.effectiveAt`, errors);
+  }
   assert(MARKET_STATUSES.includes(point.priceStatus), `${path}.priceStatus is invalid`, errors);
   if (point.priceStatus === "ready" || point.priceStatus === "stale") {
     assert(typeof point.priceUsd === "number" && point.priceUsd > 0, `${path}.priceUsd must be positive`, errors);
@@ -155,25 +232,157 @@ function validateHistoryPoint(point: DailyHistoryPoint, path: string, errors: st
   }
 }
 
-function validateCard(card: PublicCard, path: string, errors: string[]): void {
-  assert(isOpaquePublicId(card.id), `${path}.id is not opaque`, errors);
-  assert(Number.isInteger(card.rank) && card.rank > 0, `${path}.rank is invalid`, errors);
-  assert(card.collectorNumber.complete, `${path} collector number is incomplete`, errors);
-  assert(card.collectorNumber.display.trim().length > 0, `${path} collector number is empty`, errors);
-  if (/\/(?:ADV-P|PCG-P|DP-P|DPT-P|BW-P|XY-P|SM-P|SV-P|S-P)$/i.test(card.collectorNumber.display)) {
-    assert(card.language === "ja", `${path} Japanese promo namespace has conflicting language`, errors);
+function printingPart(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLocaleLowerCase() : "";
+}
+
+/** Match pipelines/card_identity.normalize_language + printing_key7 lang segment (not casefolded). */
+function printingLanguagePart(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const raw = value.trim();
+  if (raw === "en" || raw === "ja" || raw === "ko" || raw === "zhCN" || raw === "zhTW") {
+    return raw;
   }
-  if (/\/(?:SVP|MEP)$/.test(card.collectorNumber.display)) {
-    assert(card.language === "en", `${path} English promo namespace has conflicting language`, errors);
+  const normalized = raw.toLowerCase().replace(/_/g, "-");
+  const aliases: Record<string, string> = {
+    eng: "en",
+    english: "en",
+    jp: "ja",
+    jpn: "ja",
+    japanese: "ja",
+    kr: "ko",
+    korean: "ko",
+    "zh-cn": "zhCN",
+    "zh-hans": "zhCN",
+    zhcn: "zhCN",
+    "zh-tw": "zhTW",
+    "zh-hant": "zhTW",
+    zhtw: "zhTW",
+  };
+  return aliases[normalized] ?? "";
+}
+
+function validatePrintingIdentity(
+  card: PublicCard,
+  path: string,
+  errors: string[],
+  required: boolean,
+): void {
+  const identity = card.printingIdentity;
+  if (identity === undefined) {
+    assert(!required, `${path}.printingIdentity is required for production`, errors);
+    return;
   }
-  const pokemonSetNumber = card.tcg === "pokemon" ? card.collectorNumber.display.match(/^(\d{1,4})\/(\d{1,4})$/) : null;
-  if (pokemonSetNumber && card.language === "ja") {
+  assert(identity !== null && typeof identity === "object", `${path}.printingIdentity is invalid`, errors);
+  if (identity === null || typeof identity !== "object") return;
+  const fields = [
+    "setName",
+    "collectorNumber",
+    "editionCode",
+    "parallelCode",
+    "finishCode",
+  ] as const;
+  for (const field of fields) {
     assert(
-      pokemonSetNumber[1]?.length === 3 && pokemonSetNumber[2]?.length === 3,
-      `${path} Japanese set number must preserve three-digit numerator and denominator`,
+      typeof identity[field] === "string" && identity[field].trim().length > 0,
+      `${path}.printingIdentity.${field} is required`,
       errors,
     );
   }
+  assert(
+    /^[0-9a-f]{64}$/.test(identity.canonicalPrintingSha256),
+    `${path}.printingIdentity.canonicalPrintingSha256 is invalid`,
+    errors,
+  );
+  assert(
+    /^[0-9a-f]{64}$/.test(identity.evidenceSha256),
+    `${path}.printingIdentity.evidenceSha256 is invalid`,
+    errors,
+  );
+  // 7-part: tcg | language | set | collector | edition | parallel | finish
+  // language segment keeps canonical casing (en/ja/ko/zhCN/zhTW), matching Python printing_key7.
+  const identityLanguage = printingLanguagePart(identity.cardLanguage);
+  const cardLanguage = printingLanguagePart(card.cardLanguage);
+  if (identity.cardLanguage !== undefined && identity.cardLanguage !== null) {
+    assert(
+      identityLanguage.length > 0,
+      `${path}.printingIdentity.cardLanguage is invalid`,
+      errors,
+    );
+  }
+  if (required) {
+    assert(
+      cardLanguage.length > 0,
+      `${path}.cardLanguage is required for production`,
+      errors,
+    );
+    assert(
+      identityLanguage.length > 0,
+      `${path}.printingIdentity.cardLanguage is required for production`,
+      errors,
+    );
+  }
+  const language = identityLanguage || cardLanguage;
+  const key = [
+    printingPart(card.tcg),
+    language,
+    printingPart(identity.setName),
+    printingPart(identity.collectorNumber),
+    printingPart(identity.editionCode),
+    printingPart(identity.parallelCode),
+    printingPart(identity.finishCode),
+  ].join("|");
+  const expectedHash = createHash("sha256").update(key).digest("hex");
+  assert(
+    identity.canonicalPrintingSha256 === expectedHash,
+    `${path}.printingIdentity canonical hash is inconsistent`,
+    errors,
+  );
+  assert(
+    printingPart(card.sets.en) === printingPart(identity.setName),
+    `${path}.printingIdentity.setName differs from card set`,
+    errors,
+  );
+  assert(
+    printingPart(card.collectorNumber.normalized) === printingPart(identity.collectorNumber),
+    `${path}.printingIdentity.collectorNumber differs from card collector number`,
+    errors,
+  );
+  if (language && cardLanguage) {
+    assert(
+      language === cardLanguage,
+      `${path}.printingIdentity.cardLanguage differs from card.cardLanguage`,
+      errors,
+    );
+  }
+}
+
+function validateCard(
+  card: PublicCard,
+  path: string,
+  errors: string[],
+  effectiveAt?: string,
+  requirePrintingIdentity = false,
+): void {
+  assert(isOpaquePublicId(card.id), `${path}.id is not opaque`, errors);
+  assert(Number.isInteger(card.rank) && card.rank > 0, `${path}.rank is invalid`, errors);
+  assert(Number.isInteger(card.marketRank) && card.marketRank > 0, `${path}.marketRank is invalid`, errors);
+  assert(Number.isInteger(card.viewRank) && card.viewRank > 0, `${path}.viewRank is invalid`, errors);
+  assert(card.rank === card.viewRank, `${path}.rank must equal viewRank`, errors);
+  if (card.cardLanguage !== undefined && card.cardLanguage !== null) {
+    assert(
+      card.cardLanguage === "en"
+        || card.cardLanguage === "ja"
+        || card.cardLanguage === "ko"
+        || card.cardLanguage === "zhCN"
+        || card.cardLanguage === "zhTW",
+      `${path}.cardLanguage must be en|ja|ko|zhCN|zhTW`,
+      errors,
+    );
+  }
+  validatePrintingIdentity(card, path, errors, requirePrintingIdentity);
+  assert(card.collectorNumber.complete, `${path} collector number is incomplete`, errors);
+  assert(card.collectorNumber.display.trim().length > 0, `${path} collector number is empty`, errors);
   assert(
     !/^(?:GG|SV|TG|RC)\d+$/i.test(card.collectorNumber.display),
     `${path} subset collector number is missing its denominator`,
@@ -208,9 +417,19 @@ function validateCard(card: PublicCard, path: string, errors: string[]): void {
   validateLocalized(card.names, `${path}.names`, errors);
   validateLocalized(card.sets, `${path}.sets`, errors);
   validateLocalized(card.stories, `${path}.stories`, errors);
-  validateMetric(card.pricePsa10, `${path}.pricePsa10`, errors);
-  validateMetric(card.populationPsa10, `${path}.populationPsa10`, errors);
-  validateMetric(card.marketCap, `${path}.marketCap`, errors);
+  validateMetric(card.pricePsa10, `${path}.pricePsa10`, errors, effectiveAt);
+  if (card.priceUngradedReference !== undefined) {
+    validateMetric(card.priceUngradedReference, `${path}.priceUngradedReference`, errors, effectiveAt);
+    if (card.priceUngradedReference.status === "ready" || card.priceUngradedReference.status === "stale") {
+      assert(
+        typeof card.priceUngradedReference.value === "number" && card.priceUngradedReference.value > 0,
+        `${path}.priceUngradedReference.value must be positive while ${card.priceUngradedReference.status}`,
+        errors,
+      );
+    }
+  }
+  validateMetric(card.populationPsa10, `${path}.populationPsa10`, errors, effectiveAt);
+  validateMetric(card.marketCap, `${path}.marketCap`, errors, effectiveAt);
 
   assert(
     Object.keys(card.windows).length === MARKET_WINDOWS.length && MARKET_WINDOWS.every((window) => window in card.windows),
@@ -221,32 +440,31 @@ function validateCard(card: PublicCard, path: string, errors: string[]): void {
     const metrics = card.windows[window];
     assert(metrics !== undefined, `${path}.windows.${window} is missing`, errors);
     if (metrics === undefined) continue;
-    validateMetric(metrics.changePct, `${path}.windows.${window}.changePct`, errors);
+    validateMetric(metrics.changePct, `${path}.windows.${window}.changePct`, errors, effectiveAt);
     // 市值／成交額嘅窗口變動係後加欄位，舊 snapshot 冇 —— 有先驗。
     // 有嘅話唔可以同 `changePct` 一模一樣咁孖住走：市值變動 = 價 × POP 兩截，
     // 除非 ΔPOP 啱啱好係 0，否則同價格變動相等即係又攞價格頂替返市值。
     if (metrics.marketCapChangePct !== undefined) {
-      validateMetric(metrics.marketCapChangePct, `${path}.windows.${window}.marketCapChangePct`, errors);
-      const populationChange = card.graderPopulations?.PSA?.topGradePopulationChangePct?.[window];
-      if (
-        metrics.marketCapChangePct.value !== null
-        && metrics.changePct.value !== null
-        && populationChange?.value != null
-        && populationChange.value !== 0
-      ) {
+      // 2026-08 policy: product no longer maintains ΔPOP; marketCapChangePct may equal price changePct.
+      validateMetric(metrics.marketCapChangePct, `${path}.windows.${window}.marketCapChangePct`, errors, effectiveAt);
+    }
+    if (metrics.trackedSalesChangePct !== undefined) {
+      validateMetric(metrics.trackedSalesChangePct, `${path}.windows.${window}.trackedSalesChangePct`, errors, effectiveAt);
+    }
+    validateMetric(metrics.trackedSales.valueUsd, `${path}.windows.${window}.trackedSales.valueUsd`, errors, effectiveAt);
+    validateMetric(metrics.trackedSales.count, `${path}.windows.${window}.trackedSales.count`, errors, effectiveAt);
+    validateCoverage(metrics.trackedSales.coverage, `${path}.windows.${window}.trackedSales.coverage`, errors);
+    if (metrics.trackedSales.asOf !== null) {
+      const salesAsOf = Date.parse(metrics.trackedSales.asOf);
+      assert(Number.isFinite(salesAsOf), `${path}.windows.${window}.trackedSales.asOf is invalid`, errors);
+      if (effectiveAt !== undefined) {
         assert(
-          Math.abs(metrics.marketCapChangePct.value - metrics.changePct.value) > 1e-9,
-          `${path}.windows.${window}.marketCapChangePct equals changePct while PSA population moved`,
+          Number.isFinite(salesAsOf) && salesAsOf <= Date.parse(effectiveAt),
+          `${path}.windows.${window}.trackedSales.asOf is after generation.effectiveAt`,
           errors,
         );
       }
     }
-    if (metrics.trackedSalesChangePct !== undefined) {
-      validateMetric(metrics.trackedSalesChangePct, `${path}.windows.${window}.trackedSalesChangePct`, errors);
-    }
-    validateMetric(metrics.trackedSales.valueUsd, `${path}.windows.${window}.trackedSales.valueUsd`, errors);
-    validateMetric(metrics.trackedSales.count, `${path}.windows.${window}.trackedSales.count`, errors);
-    validateCoverage(metrics.trackedSales.coverage, `${path}.windows.${window}.trackedSales.coverage`, errors);
     if (metrics.trackedSales.coverage === "unavailable") {
       assert(metrics.trackedSales.valueUsd.status === "unavailable", `${path}.windows.${window} sales value must be unavailable`, errors);
       assert(metrics.trackedSales.count.status === "unavailable", `${path}.windows.${window} sales count must be unavailable`, errors);
@@ -263,8 +481,8 @@ function validateCard(card: PublicCard, path: string, errors: string[]): void {
     assert(population !== undefined, `${path}.graderPopulations.${grader} is missing`, errors);
     if (population === undefined) continue;
     assert(population.topGrade.trim().length > 0, `${path}.graderPopulations.${grader}.topGrade is empty`, errors);
-    validateMetric(population.total, `${path}.graderPopulations.${grader}.total`, errors);
-    validateMetric(population.topGradePopulation, `${path}.graderPopulations.${grader}.topGradePopulation`, errors);
+    validateMetric(population.total, `${path}.graderPopulations.${grader}.total`, errors, effectiveAt);
+    validateMetric(population.topGradePopulation, `${path}.graderPopulations.${grader}.topGradePopulation`, errors, effectiveAt);
     assert(population.total.estimated === false, `${path}.graderPopulations.${grader}.total is estimated`, errors);
     assert(population.topGradePopulation.estimated === false, `${path}.graderPopulations.${grader}.topGradePopulation is estimated`, errors);
     assert(
@@ -278,6 +496,7 @@ function validateCard(card: PublicCard, path: string, errors: string[]): void {
         population.topGradePopulationChangePct[window],
         `${path}.graderPopulations.${grader}.topGradePopulationChangePct.${window}`,
         errors,
+        effectiveAt,
       );
     }
   }
@@ -285,11 +504,54 @@ function validateCard(card: PublicCard, path: string, errors: string[]): void {
   assert(Array.isArray(card.historyDaily), `${path}.historyDaily must be an array`, errors);
   let previous = -Infinity;
   for (const [index, point] of card.historyDaily.entries()) {
-    validateHistoryPoint(point, `${path}.historyDaily[${index}]`, errors);
+    validateHistoryPoint(point, `${path}.historyDaily[${index}]`, errors, effectiveAt);
     const at = Date.parse(point.at);
     assert(at > previous, `${path}.historyDaily must be strictly chronological`, errors);
     previous = at;
   }
+}
+
+function assertProductionEligibility(
+  card: PublicCard,
+  path: string,
+  effectiveAt: string,
+  policy: ReleasePolicy,
+  errors: string[],
+): void {
+  const priceAge = metricAgeHours(card.pricePsa10, effectiveAt);
+  const populationAge = metricAgeHours(card.populationPsa10, effectiveAt);
+  const populationSla = policy.populationFreshnessHoursMaximum === 168
+    ? "7d"
+    : `${policy.populationFreshnessHoursMaximum}h`;
+  assert(
+    priceAge !== null && priceAge >= 0 && priceAge <= policy.priceFreshnessHoursMaximum,
+    `${path} price exceeds ${policy.priceFreshnessHoursMaximum}h freshness SLA`,
+    errors,
+  );
+  assert(
+    populationAge !== null && populationAge >= 0 && populationAge <= policy.populationFreshnessHoursMaximum,
+    `${path} population exceeds ${populationSla} freshness SLA`,
+    errors,
+  );
+  const sales30d = card.windows["30d"].trackedSales;
+  assert(
+    sales30d.coverage !== "unavailable"
+      && (sales30d.count.status === "ready" || sales30d.count.status === "stale")
+      && typeof sales30d.count.value === "number"
+      && sales30d.count.value >= policy.trackedPsa10Sales30dMinimumInclusive
+      && (sales30d.valueUsd.status === "ready" || sales30d.valueUsd.status === "stale")
+      && typeof sales30d.valueUsd.value === "number"
+      && sales30d.valueUsd.value > 0,
+    `${path} requires at least ${policy.trackedPsa10Sales30dMinimumInclusive} pure PSA10 tracked sales in 30d`,
+    errors,
+  );
+  assertGraderPopulationFreshness(
+    card,
+    path,
+    effectiveAt,
+    policy.populationFreshnessHoursMaximum,
+    errors,
+  );
 }
 
 export interface ValidationOptions {
@@ -301,6 +563,12 @@ export function validatePublicSnapshot(
   options: ValidationOptions = {},
 ): string[] {
   const errors: string[] = [];
+  const releaseProfile = resolveReleaseProfile(snapshot, options, errors);
+  const policy = releaseProfile.policy;
+  const allCards = [...snapshot.top100, ...snapshot.watchlist];
+  const generatedAt = Date.parse(snapshot.generation.generatedAt);
+  const effectiveAt = Date.parse(snapshot.generation.effectiveAt);
+  const metricEffectiveAt = options.production ? snapshot.generation.effectiveAt : undefined;
   assert(snapshot.schemaVersion === SNAPSHOT_SCHEMA_VERSION, "schemaVersion is unsupported", errors);
   assert(publicSnapshotContentHashMatches(snapshot), "generation content hash is inconsistent", errors);
   assert(
@@ -308,22 +576,125 @@ export function validatePublicSnapshot(
     "generation id is unsafe",
     errors,
   );
-  assert(snapshot.top100.length === 100, "top100 must contain exactly 100 cards", errors);
-  assert(snapshot.watchlist.length <= 400, "watchlist must contain at most 400 cards", errors);
+  if (options.production) {
+    assert(/^[0-9a-f]{64}$/.test(snapshot.generation.qcReceiptSha256), "generation QC receipt hash is invalid", errors);
+  } else {
+    assert(
+      snapshot.generation.qcReceiptSha256 === ""
+        || snapshot.generation.qcReceiptSha256 === undefined
+        || /^[0-9a-f]{64}$/.test(snapshot.generation.qcReceiptSha256),
+      "generation QC receipt hash is invalid",
+      errors,
+    );
+  }
+  const dbQc = snapshot.generation.dbQc;
+  if (options.production || dbQc !== undefined) {
+    assert(dbQc !== null && typeof dbQc === "object", "generation DB QC binding is invalid", errors);
+    if (dbQc !== null && typeof dbQc === "object") {
+      assert(
+        /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/.test(dbQc.runId),
+        "generation DB QC runId is invalid",
+        errors,
+      );
+      assert(dbQc.database === "cardz_market_cap", "generation DB QC database is invalid", errors);
+      assert(
+        /^[0-9a-f]{64}$/.test(dbQc.receiptSha256),
+        "generation DB QC receipt hash is invalid",
+        errors,
+      );
+      assert(
+        /^[0-9a-f]{64}$/.test(dbQc.universeCandidateSha256),
+        "generation DB QC universe binding is invalid",
+        errors,
+      );
+    }
+  }
+  assert(Number.isFinite(generatedAt), "generation.generatedAt is invalid", errors);
+  assert(Number.isFinite(effectiveAt), "generation.effectiveAt is invalid", errors);
+  assert(
+    Number.isFinite(generatedAt) && Number.isFinite(effectiveAt) && effectiveAt <= generatedAt,
+    "generation.effectiveAt is after generatedAt",
+    errors,
+  );
+  assert(
+    snapshot.top100.length >= 1 && snapshot.top100.length <= policy.requestedCount,
+    `top100 must contain 1 to ${policy.requestedCount} cards`,
+    errors,
+  );
+  assert(
+    snapshot.watchlist.length <= policy.publicCardsMaximum - policy.requestedCount,
+    `watchlist must contain at most ${policy.publicCardsMaximum - policy.requestedCount} cards`,
+    errors,
+  );
+  assert(
+    allCards.length <= policy.publicCardsMaximum,
+    `public snapshot exceeds ${policy.publicCardsMaximum} card capacity`,
+    errors,
+  );
+  assert(
+    snapshot.coverage.requestedCount === policy.requestedCount,
+    `coverage.requestedCount must equal ${policy.requestedCount}`,
+    errors,
+  );
+  const verifiedCardCount = releaseProfile.id === "relaxed-launch-v1"
+    ? allCards.length
+    : snapshot.top100.length;
+  if (options.production) {
+    assert(
+      snapshot.coverage.verifiedCount === verifiedCardCount,
+      releaseProfile.id === "relaxed-launch-v1"
+        ? "coverage.verifiedCount must equal public card count"
+        : "coverage.verifiedCount must equal top100 length",
+      errors,
+    );
+    if (releaseProfile.id === "relaxed-launch-v1") {
+      assert(
+        snapshot.top100.length === policy.requestedCount,
+        `relaxed production top100 must contain exactly ${policy.requestedCount} cards`,
+        errors,
+      );
+      assert(
+        allCards.length >= policy.minimumVerifiedCount,
+        `relaxed production requires at least ${policy.minimumVerifiedCount} eligible cards`,
+        errors,
+      );
+    }
+  } else {
+    assert(
+      Number.isInteger(snapshot.coverage.verifiedCount)
+        && snapshot.coverage.verifiedCount >= 0
+        && snapshot.coverage.verifiedCount <= verifiedCardCount,
+      releaseProfile.id === "relaxed-launch-v1"
+        ? "coverage.verifiedCount must be between 0 and public card count"
+        : "coverage.verifiedCount must be between 0 and top100 length",
+      errors,
+    );
+  }
+  assert(snapshot.coverage.top100Count === snapshot.top100.length, "coverage.top100Count must equal top100 length", errors);
+  assert(snapshot.coverage.watchlistCount === snapshot.watchlist.length, "coverage.watchlistCount must equal watchlist length", errors);
+  const expectedClaim = options.production && snapshot.top100.length === policy.requestedCount
+    ? "verified-top-100"
+    : "verified-top-n";
+  assert(snapshot.coverage.claim === expectedClaim, `coverage.claim must equal ${expectedClaim}`, errors);
   assert(snapshot.universe.windows.join(",") === MARKET_WINDOWS.join(","), "universe.windows is invalid", errors);
   assert(snapshot.currencies.base === "USD", "currencies.base must be USD", errors);
   assert(snapshot.currencies.supported.join(",") === CURRENCIES.join(","), "currencies.supported is invalid", errors);
   for (const currency of CURRENCIES) {
     const rate = snapshot.currencies.rates[currency];
-    validateMetric(rate, `currencies.rates.${currency}`, errors);
+    validateMetric(rate, `currencies.rates.${currency}`, errors, metricEffectiveAt);
     if (rate.status === "ready" || rate.status === "stale") {
       assert(typeof rate.value === "number" && rate.value > 0, `currencies.rates.${currency}.value must be positive`, errors);
     }
   }
-  const allCards = [...snapshot.top100, ...snapshot.watchlist];
   assert(new Set(allCards.map((card) => card.id)).size === allCards.length, "public card IDs must be unique", errors);
-  assert(snapshot.top100.every((card, index) => card.rank === index + 1), "top100 ranks must be contiguous", errors);
-  assert(snapshot.watchlist.every((card, index) => card.rank === index + 101), "watchlist ranks must start at 101 and be contiguous", errors);
+  assert(new Set(allCards.map((card) => card.marketRank)).size === allCards.length, "public market ranks must be unique", errors);
+  assert(snapshot.top100.every((card, index) => card.viewRank === index + 1), "top100 view ranks must be contiguous", errors);
+  assert(snapshot.watchlist.every((card, index) => card.viewRank === index + 101), "watchlist view ranks must start at 101 and be contiguous", errors);
+  assert(
+    allCards.every((card, index, cards) => index === 0 || cards[index - 1]!.marketRank < card.marketRank),
+    "public market ranks must be increasing",
+    errors,
+  );
   assert(
     allCards.every((card, index, cards) => {
       const previous = index > 0 ? cards[index - 1] : undefined;
@@ -332,8 +703,20 @@ export function validatePublicSnapshot(
     "top100 and watchlist are not ordered by market cap",
     errors,
   );
-  snapshot.top100.forEach((card, index) => validateCard(card, `top100[${index}]`, errors));
-  snapshot.watchlist.forEach((card, index) => validateCard(card, `watchlist[${index}]`, errors));
+  snapshot.top100.forEach((card, index) => validateCard(
+    card,
+    `top100[${index}]`,
+    errors,
+    metricEffectiveAt,
+    options.production === true,
+  ));
+  snapshot.watchlist.forEach((card, index) => validateCard(
+    card,
+    `watchlist[${index}]`,
+    errors,
+    metricEffectiveAt,
+    options.production === true,
+  ));
 
   const serialized = JSON.stringify(snapshot);
   for (const pattern of FORBIDDEN_PUBLIC_TEXT) {
@@ -344,29 +727,57 @@ export function validatePublicSnapshot(
     assert(snapshot.generation.mode === "production", "generation mode is not production", errors);
     assert(snapshot.generation.productionEligible, "generation is release blocked", errors);
     assert(snapshot.generation.blockers.length === 0, "production generation has blockers", errors);
+    const allowedIdentityStatuses: readonly string[] = policy.allowedIdentityStatuses;
+    const identityRequirement = allowedIdentityStatuses.join(" or ");
     for (const [index, card] of snapshot.top100.entries()) {
-      assert(card.identityStatus === "confirmed", `top100[${index}] identity is not confirmed`, errors);
+      assert(
+        allowedIdentityStatuses.includes(card.identityStatus),
+        `top100[${index}] identity is not ${identityRequirement}`,
+        errors,
+      );
+    }
+    for (const [index, card] of snapshot.watchlist.entries()) {
+      assert(
+        allowedIdentityStatuses.includes(card.identityStatus),
+        `watchlist[${index}] identity is not ${identityRequirement}`,
+        errors,
+      );
+    }
+    for (const [index, card] of snapshot.top100.entries()) {
       for (const field of [card.names, card.sets, card.stories]) {
         assert(Object.values(field).every((value) => typeof value === "string" && value.length > 0), `top100[${index}] localization is incomplete`, errors);
       }
       const stories = Object.values(card.stories).filter((value): value is string => typeof value === "string");
       assert(stories.every((story) => story.trim().length >= 80), `top100[${index}] story is too short`, errors);
-      assert(new Set(stories.map((story) => story.trim())).size === 4, `top100[${index}] stories are not independently localized`, errors);
+      assert(new Set(stories.map((story) => story.trim())).size === stories.length, `top100[${index}] stories are not independently localized`, errors);
       const genericStory = /(trader market view|炒家市場觀察|受到市場關注，重點不只是單張報價)/i;
       assert(stories.every((story) => !genericStory.test(story)), `top100[${index}] story uses a rejected generic template`, errors);
-      const priceAge = metricAgeHours(card.pricePsa10, snapshot.generation.effectiveAt);
-      const populationAge = metricAgeHours(card.populationPsa10, snapshot.generation.effectiveAt);
-      assert(priceAge !== null && priceAge <= PRICE_FRESHNESS_HOURS, `top100[${index}] price exceeds 48h freshness SLA`, errors);
-      assert(populationAge !== null && populationAge <= POPULATION_FRESHNESS_HOURS, `top100[${index}] population exceeds 7d freshness SLA`, errors);
-      assertGraderPopulationFreshness(card, `top100[${index}]`, snapshot.generation.effectiveAt, errors);
     }
     for (const [index, card] of snapshot.watchlist.entries()) {
-      assert(card.identityStatus === "confirmed", `watchlist[${index}] identity is not confirmed`, errors);
       for (const field of [card.names, card.sets]) {
         assert(Object.values(field).every((value) => typeof value === "string" && value.length > 0), `watchlist[${index}] identity localization is incomplete`, errors);
       }
-      // watchlist 一樣有 graderPopulations 出街，凍咗嘅數喺邊個榜都一樣係錯數。
-      assertGraderPopulationFreshness(card, `watchlist[${index}]`, snapshot.generation.effectiveAt, errors);
+    }
+    const eligibleCards = releaseProfile.id === "relaxed-launch-v1"
+      ? [
+        ...snapshot.top100.map((card, index) => [card, `top100[${index}]`] as const),
+        ...snapshot.watchlist.map((card, index) => [card, `watchlist[${index}]`] as const),
+      ]
+      : snapshot.top100.map((card, index) => [card, `top100[${index}]`] as const);
+    for (const [card, path] of eligibleCards) {
+      assertProductionEligibility(card, path, snapshot.generation.effectiveAt, policy, errors);
+    }
+    if (releaseProfile.id === "strict-v1") {
+      for (const [index, card] of snapshot.watchlist.entries()) {
+        // watchlist 一樣有 graderPopulations 出街，凍咗嘅數喺邊個榜都一樣係錯數。
+        assertGraderPopulationFreshness(
+          card,
+          `watchlist[${index}]`,
+          snapshot.generation.effectiveAt,
+          policy.populationFreshnessHoursMaximum,
+          errors,
+        );
+      }
     }
   }
 

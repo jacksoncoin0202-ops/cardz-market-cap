@@ -11,16 +11,26 @@ import type { Grader, MarketCardView, MarketViewSnapshot } from "@/lib/types";
 export type MarketScope = "all" | "pokemon" | "one-piece" | "watchlist";
 
 export interface CardListPayload {
+  generation: {
+    id: string;
+    qcReceiptSha256: string;
+  };
   generatedAt: string;
   effectiveAt: string;
+  coverage: MarketViewSnapshot["coverage"];
   count: number;
   cards: MarketCardView[];
 }
 
 function listPayload(snapshot: MarketViewSnapshot): CardListPayload {
   return {
+    generation: {
+      id: snapshot.generation,
+      qcReceiptSha256: snapshot.qcReceiptSha256,
+    },
     generatedAt: snapshot.generatedAt,
     effectiveAt: snapshot.effectiveAt,
+    coverage: snapshot.coverage,
     count: snapshot.top100.length,
     cards: snapshot.top100,
   };

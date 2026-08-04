@@ -6,12 +6,12 @@ import { CopyButton } from "./copy-button";
 import { CapTicker } from "./cap-ticker";
 import { HistoryChart } from "./history-chart";
 import { PeriodSelector } from "./period-selector";
+import { DETAIL_PRINT_FIELDS, printIdentityRows } from "./print-badge";
 import { PriceDelta, MetricDelta } from "./rankings";
 import { absolutePublicUrl, StructuredData } from "./structured-data";
-import { copy, localizedCardLanguage } from "@/lib/i18n";
+import { copy } from "@/lib/i18n";
 import { formatDate, formatMetricInteger, formatMetricMoney, formatMoney, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
-import { displayTopGrade } from "@/lib/grade-label";
-import { graders, type MarketViewSnapshot } from "@/lib/types";
+import { type MarketViewSnapshot } from "@/lib/types";
 import { useMarketSettings } from "@/lib/use-market-settings";
 
 export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewSnapshot }) {
@@ -30,8 +30,6 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
 
   const windowMetric = card.windows[period];
   const story = card.story[locale];
-  // Reader-facing label only. `inLanguage` below stays the raw code — schema.org expects one.
-  const languageLabel = localizedCardLanguage(card.language, locale);
   const structuredData = {
     "@context": "https://schema.org",
     "@graph": [
@@ -40,7 +38,6 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
         name: card.name[locale] || t.status.unavailable,
         identifier: card.collectorNumber,
         image: absolutePublicUrl(card.image.url),
-        inLanguage: card.language,
         description: story || undefined,
       },
       {
@@ -61,17 +58,23 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
       </div>
       <article className="detail-grid">
         <section className="detail-art" aria-label={t.labels.imageAlt}>
-          <span className="detail-rank">#{card.rank}</span>
+          <span className="detail-rank">#{card.marketRank}</span>
           <CardImage image={card.image} sizes="(max-width: 680px) 90vw, 560px" loading="eager" alt={card.image.alt[locale] || t.labels.imageAlt} />
         </section>
         <div className="detail-content">
           <header className="detail-header">
-            <p className="section-kicker">{card.tcg} / {languageLabel}</p>
+            <p className="section-kicker">{card.tcg}</p>
             <h1>{card.name[locale] || t.status.unavailable}</h1>
             <p className="detail-set">{card.setName[locale] || t.status.unavailable}</p>
+            {/* 印刷版本逐條併入現有 identity list：冇值嘅欄根本唔會回，
+                所以完全冇資料嗰陣呢個 dl 同以前一模一樣。
+                owner 2026-08-02：語言版本＋卡包來源喺內頁出齊（DETAIL_PRINT_FIELDS 包
+                editionCode），唔再出 badge —— 欄位先係佢要嘅形式。 */}
             <dl className="identity-list">
               <div><dt>{t.labels.number}</dt><dd>{card.collectorNumber}</dd></div>
-              <div><dt>{t.labels.language}</dt><dd>{languageLabel}</dd></div>
+              {printIdentityRows(card, locale, DETAIL_PRINT_FIELDS).map((row) => (
+                <div key={row.key} data-field={row.key}><dt>{row.label}</dt><dd title={row.value}>{row.value}</dd></div>
+              ))}
             </dl>
           </header>
           {story && (
@@ -87,24 +90,7 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
             <div><span>{t.labels.population}</span><strong>{formatMetricInteger(card.populationPsa10, locale)}</strong></div>
             <div><span>{t.periods[period]} {t.labels.change}</span><strong className={`metric-${metricTone(windowMetric.changePct)}`}>{formatPercent(windowMetric.changePct, locale)}</strong></div>
             <div className="wide-metric"><span title={t.labels.salesHelp}>{t.periods[period]} {t.labels.trackedSales}</span><strong className="metric-value-fit">{formatTrackedSales(windowMetric.trackedSales, currency, snapshot.rates, locale)}</strong><MetricDelta metric={windowMetric.trackedSales.valueUsd} changePct={windowMetric.trackedSalesChangePct} currency={currency} rates={snapshot.rates} locale={locale} /></div>
-          </section>
-          <section className="grader-supply-panel" aria-labelledby="grader-supply-heading">
-            <h2 id="grader-supply-heading">{t.nav.graders}</h2>
-            <div className="grader-supply-grid">
-              {graders.map((grader) => {
-                const population = card.graderPopulations[grader];
-                const total = population.total.value;
-                const top = population.topGradePopulation.value;
-                const gemPct = total !== null && total > 0 && top !== null ? (top / total) * 100 : null;
-                return (
-                  <div key={grader}>
-                    <span>{grader} {displayTopGrade(grader, population.topGrade) || t.grader.topGrade}</span>
-                    <strong>{formatMetricInteger(population.topGradePopulation, locale)}</strong>
-                    <small>{formatMetricInteger(population.total, locale)}{gemPct !== null ? ` · ${gemPct.toFixed(1)}%` : ""}</small>
-                  </div>
-                );
-              })}
-            </div>
+            <div><span>{t.labels.ungradedReference}</span><strong>{formatMetricMoney(card.priceUngradedReference, currency, snapshot.rates, locale)}</strong></div>
           </section>
           <p className="data-time">{t.labels.asOf}: {formatDate(snapshot.effectiveAt || card.pricePsa10.asOf, locale)}</p>
           <HistoryChart points={card.historyDaily} locale={locale} currency={currency} rates={snapshot.rates} />
