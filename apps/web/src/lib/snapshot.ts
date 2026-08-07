@@ -1,4 +1,3 @@
-import seedSnapshot from "../../../../data/public/seed-snapshot.json";
 import { type PublicCard as CanonicalCard, type PublicMarketSnapshot as CanonicalSnapshot } from "@cardz/market-data";
 import {
   currencies,
@@ -156,8 +155,4 @@ export function normaliseSnapshot(snapshot: CanonicalSnapshot): MarketViewSnapsh
     top100: snapshot.top100.map(cardView),
     watchlist: snapshot.watchlist.map(cardView),
   };
-}
-
-export function getSeedSnapshot(): MarketViewSnapshot {
-  return normaliseSnapshot(seedSnapshot as unknown as CanonicalSnapshot);
 }
