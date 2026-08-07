@@ -56,3 +56,6 @@ docker compose up --build -d
 The container includes the built frontend, the single snapshot, and its referenced
 market assets. Replace those data files in a new commit when publishing a newer
 generation.
+
+Production GitHub push → AWS pull-deploy setup and the day-to-day release command are
+documented in [`AWS_GITHUB_PULL_DEPLOY.md`](AWS_GITHUB_PULL_DEPLOY.md).
