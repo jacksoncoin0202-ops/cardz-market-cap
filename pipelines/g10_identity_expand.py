@@ -129,6 +129,11 @@ class G10Asset:
     language: str | None
     source_pointer: str
     observed_at: datetime
+    set_code: str | None = None
+    printing_code: str | None = None
+    rarity_code: str | None = None
+    gemrate_source_pointer: str | None = None
+    gemrate_observed_at: datetime | None = None
 
     @property
     def identity_source(self) -> str:
@@ -158,13 +163,20 @@ def scan_g10_root(root: Path) -> list[G10Asset]:
             populations = card_dir / "populations.json"
             gemrate_id = None
             observed_epoch = None
+            gemrate_observed_at = None
             if populations.is_file():
                 match = GEMRATE_ID_PATTERN.search(populations.read_text(encoding="utf-8", errors="replace"))
                 if match:
                     gemrate_id = match.group(1).casefold()
                 observed_epoch = populations.stat().st_mtime
-            info = _read_json(card_dir / "asset_info.json")
+                gemrate_observed_at = datetime.fromtimestamp(
+                    observed_epoch, tz=timezone.utc
+                ).replace(tzinfo=None)
+            asset_info = card_dir / "asset_info.json"
+            info = _read_json(asset_info)
             info = info if isinstance(info, Mapping) else {}
+            if asset_info.is_file():
+                observed_epoch = asset_info.stat().st_mtime
             observed_at = datetime.fromtimestamp(observed_epoch or 0, tz=timezone.utc).replace(tzinfo=None)
             assets.append(
                 G10Asset(
@@ -175,7 +187,20 @@ def scan_g10_root(root: Path) -> list[G10Asset]:
                     set_name=info.get("setName"),
                     collector_number=info.get("cardId"),
                     language=info.get("language"),
-                    source_pointer=f"grade10-scraper/data/cards/{provider}/{card_dir.name}/populations.json",
+                    set_code=info.get("setCode"),
+                    printing_code=info.get("printingCode"),
+                    rarity_code=info.get("rarityCode"),
+                    gemrate_source_pointer=(
+                        f"grade10-scraper/data/cards/{provider}/{card_dir.name}/populations.json"
+                        if populations.is_file()
+                        else None
+                    ),
+                    gemrate_observed_at=gemrate_observed_at,
+                    source_pointer=(
+                        f"grade10-scraper/data/cards/{provider}/{card_dir.name}/asset_info.json"
+                        if asset_info.is_file()
+                        else f"grade10-scraper/data/cards/{provider}/{card_dir.name}/populations.json"
+                    ),
                     observed_at=observed_at,
                 )
             )
@@ -395,6 +420,8 @@ def compute_run_key(assets: Sequence[G10Asset]) -> str:
             "provider": a.provider, "directory": a.directory, "gemrateId": a.gemrate_id,
             "cardName": a.card_name, "setName": a.set_name,
             "cardId": a.collector_number, "language": a.language,
+            "setCode": a.set_code, "printingCode": a.printing_code,
+            "rarityCode": a.rarity_code,
         }
         for a in assets
     ]
@@ -439,13 +466,46 @@ def _insert_identity(cursor: Any, resolution: Resolution) -> bool:
         if int(existing["variant_id"]) != resolution.variant_id:
             raise ValueError(f"source identity ownership changed: {key[0]}:{key[1]}")
         return False
+    provider_claims = {
+        "provider": asset.provider,
+        "externalEntityId": asset.directory,
+        "cardName": asset.card_name,
+        "setName": asset.set_name,
+        "productNumber": asset.collector_number,
+        "language": asset.language,
+        "setCode": asset.set_code,
+        "printingCode": asset.printing_code,
+        "rarityCode": asset.rarity_code,
+        "sourcePointer": asset.source_pointer,
+        "observedAt": asset.observed_at.isoformat(),
+    }
+    bind_evidence = {
+        "schemaVersion": 1,
+        "matchMethod": resolution.method,
+        "providerClaims": provider_claims,
+        "resolutionEvidence": resolution.evidence,
+    }
+    source_product_number = str(asset.collector_number or "")
+    bound_set_code = str(asset.set_code or "")
+    bound_printing_code = str(asset.printing_code or "")
+    if (
+        len(source_product_number) > 191
+        or len(bound_set_code) > 64
+        or len(bound_printing_code) > 64
+    ):
+        raise ValueError(f"provider claim exceeds schema limit: {key[0]}:{key[1]}")
     cursor.execute(
         """
         INSERT INTO catalog_source_identity
-            (source_code, external_entity_id, variant_id, match_status, evidence_sha256)
-        VALUES (%s, %s, %s, %s, %s)
+            (source_code, external_entity_id, variant_id, match_status, evidence_sha256,
+             source_product_number, bound_set_code, bound_printing_code, bind_evidence_json)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
-        (*key, resolution.variant_id, resolution.match_status, resolution.evidence_sha256),
+        (
+            *key, resolution.variant_id, resolution.match_status, resolution.evidence_sha256,
+            source_product_number, bound_set_code, bound_printing_code,
+            canonical_json(bind_evidence).decode("utf-8"),
+        ),
     )
     return True
 
@@ -478,7 +538,9 @@ def _insert_alias(cursor: Any, resolution: Resolution) -> bool:
         """,
         (
             *association, resolution.variant_id, resolution.match_status,
-            resolution.evidence_sha256, asset.source_pointer, asset.observed_at,
+            resolution.evidence_sha256,
+            asset.gemrate_source_pointer or asset.source_pointer,
+            asset.gemrate_observed_at or asset.observed_at,
         ),
     )
     return True

@@ -7,7 +7,9 @@ import argparse
 import hashlib
 import json
 import os
+import subprocess
 import sys
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -17,34 +19,31 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 from qualified_pool_operator import db, load_env  # noqa: E402
 import operator_fe_export as fe  # noqa: E402
-from release_frontend_bundle import (  # noqa: E402
-    FRONTEND_POLICY_ID,
-    bundle_manifest,
-)
 
-EXACT_PRICE_SOURCES = ("snk_psa10", "snk", "snkrdunk", "ebay", "pricecharting", "tcgpricelookup")
+LEGACY_PRICE_COMPOSITION_ORDER = ("snk_psa10", "snk", "snkrdunk", "pricecharting", "ebay")
 BANNED_PRICE_SOURCES = ("g10_kline",)
 FREEZE_KINDS = ("identity", "source", "image")
 OUT_DIR = ROOT / "data" / "runtime" / "operator"
 PROMOTED_PRODUCT_SNAPSHOT = OUT_DIR / "promoted-product-snapshot.json"
 RELAXED_RELEASE_PROFILE = "relaxed-launch-v1"
-RELAXED_POLICY_SHA256 = "5c7c7aa96f5669379d3436ce2d3c04c2dfe1972a5feba70c319ec91e066f4125"
+RELAXED_POLICY_SHA256 = "b316374547268c88616cf1b9220f9797dd11b720fdbe26ff6a77825246d48a95"
 TONIGHT_CARD_COUNT = 762
 TONIGHT_BACKLOG_COUNT = 776
 COLLECT_REGISTRY_PATH = OUT_DIR / "collect" / "collect_registry.jsonl"
-FORMAL_REFRESH_RECEIPT = OUT_DIR / "collect" / "formal_daily_refresh_20260804T110637Z.json"
-TARGETED_REFRESH_RECEIPT = OUT_DIR / "collect" / "last_incr.json"
-SNK_RESUME_RECEIPT = OUT_DIR / "collect" / "snk_price_checkpoint_resume.json"
-SNK_BINDING_DELTA_RECEIPT = OUT_DIR / "collect" / "binding_delta_snk_refresh.json"
 CHECKPOINT_ADAPTERS = (
     "gemrate_pop",
     "snk_trades",
     "snk_price",
     "pc_ebay_sales",
     "en_price_ref",
+    "snk_en_image",
 )
 CHECKPOINT_SLA_HOURS = 36
-TOP100_SNK_IMAGE_POLICY_ID = "displayed-top100-snk-public-exact-first-v1"
+CANONICAL_IMAGE_POLICY_ID = "canonical-026-snk-en-exact-first-v1"
+# Compatibility name for older callers. 026 applies the policy to all 762 cards,
+# never to a rank-dependent Top-100 overlay.
+TOP100_SNK_IMAGE_POLICY_ID = CANONICAL_IMAGE_POLICY_ID
+OPERATOR_E2E_LEASE = "cardz-market-cap:operator-e2e:v1"
 
 
 def utc_now() -> str:
@@ -55,22 +54,68 @@ def utc_now_sql() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
 
 
+@contextmanager
+def operator_e2e_lease(owner: str):
+    """Serialize migration, collection, materialization and pass as one run."""
+    load_env()
+    lease_conn = db()
+    lease_cur = lease_conn.cursor()
+    lease_cur.execute("SELECT GET_LOCK(%s, 0) AS acquired", (OPERATOR_E2E_LEASE,))
+    acquired = int((lease_cur.fetchone() or {}).get("acquired") or 0)
+    if acquired != 1:
+        lease_conn.close()
+        raise RuntimeError(
+            f"{owner} refused: another CARDZ 026 operator run owns {OPERATOR_E2E_LEASE}"
+        )
+    print(
+        json.dumps(
+            {"phase": "operator-e2e-lease-acquired", "owner": owner,
+             "lease": OPERATOR_E2E_LEASE, "at": utc_now()},
+            ensure_ascii=False,
+        ),
+        flush=True,
+    )
+    try:
+        yield
+    finally:
+        try:
+            lease_cur.execute("SELECT RELEASE_LOCK(%s)", (OPERATOR_E2E_LEASE,))
+        finally:
+            lease_conn.close()
+
+
 def sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def canonical_snapshot_sha256(snapshot: dict[str, Any]) -> str:
-    normalized = json.loads(json.dumps(snapshot, ensure_ascii=False, default=str))
-    normalized["generation"]["contentSha256"] = ""
-    return hashlib.sha256(
-        json.dumps(
-            normalized,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            default=str,
-        ).encode("utf-8")
-    ).hexdigest()
+    script = r"""
+const crypto = require("crypto");
+let raw = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", chunk => raw += chunk);
+process.stdin.on("end", () => {
+  const value = JSON.parse(raw);
+  const stable = input => Array.isArray(input)
+    ? input.map(stable)
+    : input && typeof input === "object"
+      ? Object.fromEntries(Object.keys(input).sort().map(key => [key, stable(input[key])]))
+      : input;
+  value.generation.contentSha256 = "";
+  process.stdout.write(crypto.createHash("sha256").update(JSON.stringify(stable(value))).digest("hex"));
+});
+"""
+    result = subprocess.run(
+        ["node", "-e", script],
+        input=json.dumps(snapshot, ensure_ascii=False, separators=(",", ":"), default=str),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    digest = result.stdout.strip()
+    if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+        raise RuntimeError("Node snapshot hash helper returned an invalid digest")
+    return digest
 
 
 def atomic_json(path: Path, value: dict[str, Any]) -> None:
@@ -82,103 +127,6 @@ def atomic_json(path: Path, value: dict[str, Any]) -> None:
     )
     os.replace(temporary, path)
 
-
-
-def derive_set_code(
-    *,
-    tcg: str | None,
-    collector: str | None,
-    set_name: str | None,
-    edition_code: str | None = None,
-    card_language: str | None = None,
-) -> str | None:
-    """Badge setCode from collector prefix / set text. Never use parallel/rarity."""
-    import re
-
-    c = str(collector or "").strip().upper()
-    text = " ".join(x for x in (set_name or "", edition_code or "", c) if x)
-    # One Piece / structured collector: OP06-118, ST10-010
-    m = re.match(r"^((?:OP|ST|EB|PRB)\d{1,2})-", c)
-    if m:
-        return m.group(1)
-    # Gallery / shiny-vault style codes printed as collector
-    if re.match(r"^(?:GG|TG|SV)\d+", c):
-        m = re.match(r"^([A-Z]{1,4}\d{1,3})", c)
-        if m:
-            # SV107 is shiny vault number, not set code; map shining fates separately
-            if m.group(1).startswith("SV") and len(m.group(1)) > 3:
-                pass
-            else:
-                return m.group(1)
-    # Explicit set tokens: SV2a, SWSH09, S12a, OP13
-    for m in re.finditer(
-        r"\b((?:SV|SWSH|SM|XY|BW|OP|ST|EB|PRB|S|M)\d{1,2}[A-Za-z]?)\b",
-        text,
-        re.I,
-    ):
-        tok = m.group(1).upper()
-        m3 = re.match(r"^(OP|ST|EB|PRB)(\d{1,2})$", tok)
-        if m3:
-            return f"{m3.group(1)}{int(m3.group(2)):02d}"
-        return tok
-
-    low = text.lower()
-    lang = str(card_language or "").lower()
-    if re.search(r"card\s*151|\b151\b|sv2a|\bmew\b", low):
-        if lang.startswith("ja") or re.search(r"japanese|sv2a", low):
-            return "SV2A"
-        return "MEW"
-
-    rules = [
-        (r"brilliant\s*stars", "BRS"),
-        (r"evolving\s*skies", "EVS"),
-        (r"crown\s*zenith", "CRZ"),
-        (r"journey\s*together", "JTG"),
-        (r"destined\s*rivals", "DRI"),
-        (r"black\s*bolt", "BLK"),
-        (r"white\s*flare", "WHT"),
-        (r"stellar\s*crown", "SCR"),
-        (r"prismatic\s*evolutions", "PRE"),
-        (r"terastal\s*fest", "SV8A"),
-        (r"paldea[n]?\s*evolved", "PAL"),
-        (r"obsidian\s*flames", "OBF"),
-        (r"temporal\s*forces", "TEF"),
-        (r"twilight\s*masquerade", "TWM"),
-        (r"shrouded\s*fable", "SFA"),
-        (r"surging\s*sparks", "SSP"),
-        (r"paradox\s*rift", "PAR"),
-        (r"paldean\s*fates", "PAF"),
-        (r"silver\s*tempest", "SIT"),
-        (r"lost\s*origin", "LOR"),
-        (r"astral\s*radiance", "ASR"),
-        (r"chilling\s*reign", "CRE"),
-        (r"fusion\s*strike", "FST"),
-        (r"celebrations", "CEL"),
-        (r"pokemon\s*go", "PGO"),
-        (r"dark\s*explorers", "DEX"),
-        (r"vivid\s*voltage", "VIV"),
-        (r"shining\s*fates", "SHF"),
-        (r"champion'?s\s*path", "CPA"),
-        (r"phantasmal\s*flames|inferno\s*x", "PFL"),
-        (r"\bmega\s*evolution\b", "MEG"),
-        (r"paramount war", "OP02"),
-        (r"pillars of strength", "OP03"),
-        (r"kingdoms of intrigue", "OP04"),
-        (r"awakening of the new era", "OP05"),
-        (r"wings of the captain", "OP06"),
-        (r"500 years in the future", "OP07"),
-        (r"two legends", "OP08"),
-        (r"emperors in the new world", "OP09"),
-        (r"royal blood", "OP10"),
-        (r"a fist of divine speed", "OP11"),
-        (r"carrying on his will", "OP13"),
-        (r"azure sea", "OP14"),
-        (r"romance dawn", "OP01"),
-    ]
-    for pat, code in rules:
-        if re.search(pat, low):
-            return code
-    return None
 
 
 def ensure_freeze_table(cur) -> None:
@@ -267,6 +215,7 @@ def identities_by_variant(cur, variant_ids):
         SELECT variant_id, source_code, external_entity_id, match_status
         FROM catalog_source_identity
         WHERE variant_id IN ({ph})
+          AND match_status = 'exact'
         """,
         tuple(variant_ids),
     )
@@ -278,6 +227,32 @@ def identities_by_variant(cur, variant_ids):
 
 def _is_snk_source(source_code: str) -> bool:
     return str(source_code or "") in {"snk_psa10", "snk", "snkrdunk"}
+
+
+def _is_canonical_price_route(
+    card_language: str,
+    source_code: str,
+    selected_route_priority: Any,
+    eligible_pricecharting_exists: Any,
+) -> bool:
+    """Fail closed unless the selected exact source follows the 026 language route."""
+
+    language = str(card_language or "")
+    source = str(source_code or "")
+    try:
+        route_priority = int(selected_route_priority)
+        eligible_pc = int(eligible_pricecharting_exists)
+    except (TypeError, ValueError):
+        return False
+    if eligible_pc not in {0, 1}:
+        return False
+    if language == "en":
+        if eligible_pc == 1:
+            return source == "pricecharting" and route_priority == 10
+        return source == "snkrdunk" and route_priority == 20
+    if language in {"ja", "ko", "zhCN", "zhTW"}:
+        return eligible_pc == 0 and source == "snkrdunk" and route_priority == 10
+    return False
 
 
 def _trim_mean_prices(candidates: list[dict]) -> dict | None:
@@ -292,7 +267,7 @@ def _trim_mean_prices(candidates: list[dict]) -> dict | None:
     """
     if not candidates:
         return None
-    order = {s: i for i, s in enumerate(EXACT_PRICE_SOURCES)}
+    order = {s: i for i, s in enumerate(LEGACY_PRICE_COMPOSITION_ORDER)}
 
     def _vals(pool: list[dict]) -> list[float]:
         out = []
@@ -360,7 +335,7 @@ def _variant_languages(cur, variant_ids) -> dict[int, str]:
         return {}
     ph = ",".join(["%s"] * len(variant_ids))
     cur.execute(
-        f"SELECT id, card_language FROM catalog_variant WHERE id IN ({ph})",
+        f"SELECT variant_id AS id, card_language FROM catalog_printing_identity WHERE variant_id IN ({ph})",
         tuple(variant_ids),
     )
     out: dict[int, str] = {}
@@ -791,7 +766,7 @@ def classify_gaps(members, meta, ids, prices, images, freezes):
         exact_sources = {
             str(r["source_code"])
             for r in identity_list
-            if str(r.get("match_status") or "") in {"exact", "confirmed", "attached"}
+            if str(r.get("match_status") or "") == "exact"
         }
         reasons = []
         if "identity" not in frozen_kinds:
@@ -850,19 +825,42 @@ def cmd_status():
         universe = current_universe(cur)
         vids = universe["variantIds"]
         freezes = freeze_map(cur, vids)
-        ids = identities_by_variant(cur, vids)
-        prices = latest_prices(cur, vids)
-        images = image_rows(cur, vids)
-        meta = variant_meta(cur, vids)
-        gaps = classify_gaps(universe.get("members") or [], meta, ids, prices, images, freezes)
+        products = (fe.load_bulk(cur, vids, include_daily=False).get("product") or {})
+        gaps = [
+            {
+                "variantId": vid,
+                "opaqueId": (products.get(vid) or {}).get("opaque_id"),
+                "marketRank": (products.get(vid) or {}).get("canonical_market_rank"),
+                "reasons": ["026_product_projection_not_ready"],
+            }
+            for vid in vids
+            if int((products.get(vid) or {}).get("product_ready") or 0) != 1
+        ]
         frozen_identity = sum(1 for rows in freezes.values() if any(r["freeze_kind"] == "identity" for r in rows))
         frozen_source = sum(1 for rows in freezes.values() if any(r["freeze_kind"] == "source" for r in rows))
         frozen_image = sum(1 for rows in freezes.values() if any(r["freeze_kind"] == "image" for r in rows))
-        product_ready = 0
-        for vid in vids:
-            kinds = {r["freeze_kind"] for r in freezes.get(vid, [])}
-            if {"identity", "source", "image"} <= kinds and vid in prices and vid in images:
-                product_ready += 1
+        product_ready = sum(
+            int((products.get(vid) or {}).get("product_ready") or 0) == 1
+            for vid in vids
+        )
+        exact_metric = sum(
+            _is_canonical_price_route(
+                str((products.get(vid) or {}).get("card_language") or ""),
+                str((products.get(vid) or {}).get("psa10_price_source_code") or ""),
+                (products.get(vid) or {}).get("selected_price_route_priority"),
+                (products.get(vid) or {}).get("eligible_pricecharting_exists"),
+            )
+            and str((products.get(vid) or {}).get("population_source_code") or "")
+            == "gemrate"
+            and len(str((products.get(vid) or {}).get("metric_lineage_sha256") or ""))
+            == 64
+            for vid in vids
+        )
+        canonical_images = sum(
+            bool((products.get(vid) or {}).get("canonical_image_content_sha256"))
+            and int((products.get(vid) or {}).get("canonical_image_acceptance_id") or 0) > 0
+            for vid in vids
+        )
         payload = {
             "asOf": utc_now(),
             "mode": "operator",
@@ -875,9 +873,9 @@ def cmd_status():
             },
             "counts": {
                 "members": len(vids),
-                "withExactSource": sum(1 for vid in vids if ids.get(vid)),
-                "withPrice": len(prices),
-                "withImage": len(images),
+                "withExactSource": exact_metric,
+                "withPrice": exact_metric,
+                "withImage": canonical_images,
                 "frozenIdentity": frozen_identity,
                 "frozenSource": frozen_source,
                 "frozenImage": frozen_image,
@@ -907,12 +905,35 @@ def cmd_export_gaps(limit=None):
         conn.commit()
         universe = current_universe(cur)
         vids = universe["variantIds"]
-        freezes = freeze_map(cur, vids)
-        ids = identities_by_variant(cur, vids)
-        prices = latest_prices(cur, vids)
-        images = image_rows(cur, vids)
-        meta = variant_meta(cur, vids)
-        gaps = classify_gaps(universe.get("members") or [], meta, ids, prices, images, freezes)
+        products = (fe.load_bulk(cur, vids, include_daily=False).get("product") or {})
+        gaps = []
+        for vid in vids:
+            row = products.get(vid) or {}
+            reasons = []
+            if int(row.get("identity_complete") or 0) != 1:
+                reasons.append("identity_not_ready")
+            if int(row.get("official_name_complete") or 0) != 1:
+                reasons.append("official_name_not_ready")
+            if int(row.get("canonical_metric_complete") or 0) != 1:
+                reasons.append("canonical_metric_not_ready")
+            if int(row.get("canonical_image_complete") or 0) != 1:
+                reasons.append("canonical_image_not_ready")
+            if int(row.get("canonical_rank_complete") or 0) != 1:
+                reasons.append("canonical_rank_not_ready")
+            if int(row.get("product_ready") or 0) != 1 and not reasons:
+                reasons.append("026_product_projection_not_ready")
+            if reasons:
+                gaps.append(
+                    {
+                        "variantId": vid,
+                        "opaqueId": row.get("opaque_id"),
+                        "marketRank": row.get("canonical_market_rank"),
+                        "officialName": row.get("official_full_name"),
+                        "priceSource": row.get("psa10_price_source_code"),
+                        "populationSource": row.get("population_source_code"),
+                        "reasons": reasons,
+                    }
+                )
         if limit is not None:
             gaps = gaps[: max(0, limit)]
         OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -1031,277 +1052,303 @@ def accept_binding(*, variant_id, freeze_kind, source_code="", actor="daddy", no
         conn.close()
 
 
-def _metric(value, status, as_of):
-    return {"value": value, "status": status, "asOf": as_of}
+def _projection_locales(value: Any) -> dict[str, str | None]:
+    raw = value if isinstance(value, dict) else {}
+    out: dict[str, str | None] = {}
+    for locale in ("en", "zhTW", "zhCN", "ja", "ko"):
+        text = raw.get(locale)
+        if isinstance(text, str) and text.strip():
+            out[locale] = text.strip()
+        else:
+            out[locale] = None
+    return out
 
 
-def _localized(text):
-    base = text or "unknown"
-    return {"en": base, "zhTW": None, "zhCN": None, "ja": None}
-
-
-def _window_blank():
-    blank = _metric(None, "unavailable", None)
-    return {
-        "changePct": blank,
-        "marketCapChangePct": blank,
-        "trackedSalesChangePct": blank,
-        "trackedSales": {"valueUsd": blank, "count": blank, "coverage": "unavailable", "asOf": None},
-    }
-
-
-def _grader_blank():
-    blank = _metric(None, "unavailable", None)
-    return {
-        "topGrade": "10",
-        "total": {**blank, "estimated": False},
-        "topGradePopulation": {**blank, "estimated": False},
-        "topGradePopulationChangePct": {"1d": blank, "7d": blank, "30d": blank},
-    }
+def _latest_evidence_at(*values: Any) -> str | None:
+    normalized = [fe.asof_iso(value) for value in values if value is not None]
+    normalized = [value for value in normalized if value]
+    return max(normalized) if normalized else None
 
 
 def build_operator_cards(cur, members, product_subset: bool):
-    vids = [int(m["variant_id"]) for m in members]
-    meta = variant_meta(cur, vids)
-    ids = identities_by_variant(cur, vids)
-    prices = latest_prices(cur, vids)
-    freezes = freeze_map(cur, vids)
+    """Export the public card contract from the two canonical projections only."""
+
+    vids = [int(member["variant_id"]) for member in members]
     bulk = fe.load_bulk(cur, vids)
-
-    # richer latest price with observed_date
-    # SNK-first: latest per source, then source priority (never let newer eBay beat SNK)
-    latest_price_full = latest_prices(cur, vids)
-
-    latest_pop_full = {}
-    for vid, by_g in bulk["pop_rows"].items():
-        series = by_g.get("PSA") or []
-        if series:
-            latest_pop_full[vid] = series[-1]
-
-    def _current_market_cap(variant_id: int) -> float | None:
-        price = latest_price_full.get(variant_id) or prices.get(variant_id)
-        pop = latest_pop_full.get(variant_id)
-        if not price or price.get("price_usd") is None:
-            return None
-        if not pop or pop.get("top_grade_population") is None:
-            return None
-        return float(price["price_usd"]) * int(pop["top_grade_population"])
+    products: dict[int, dict[str, Any]] = bulk.get("product") or {}
+    if product_subset:
+        if len(vids) != TONIGHT_CARD_COUNT:
+            raise RuntimeError(
+                f"active universe is {len(vids)} cards, expected locked {TONIGHT_CARD_COUNT}"
+            )
+        incomplete = [
+            vid
+            for vid in vids
+            if vid not in products or int((products.get(vid) or {}).get("product_ready") or 0) != 1
+        ]
+        if incomplete:
+            raise RuntimeError(
+                "canonical product projection is incomplete for "
+                f"{len(incomplete)} locked cards: {incomplete[:12]}"
+            )
 
     ranked_vids = sorted(
         vids,
-        key=lambda variant_id: (
-            -(
-                _current_market_cap(variant_id)
-                if _current_market_cap(variant_id) is not None
-                else -1.0
-            ),
-            str((meta.get(variant_id) or {}).get("opaque_id") or f"variant_{variant_id}"),
+        key=lambda vid: (
+            int((products.get(vid) or {}).get("canonical_market_rank") or 4294967295),
+            vid,
         ),
     )
-    top100_vids = set(ranked_vids[:100])
-    images = image_rows(
-        cur,
-        vids,
-        prefer_snk_ids=top100_vids if product_subset else (),
-    )
+    projected_ranks = [
+        int((products.get(vid) or {}).get("canonical_market_rank") or 0)
+        for vid in ranked_vids
+    ]
+    if product_subset and projected_ranks != list(range(1, len(ranked_vids) + 1)):
+        raise RuntimeError("026 canonical market ranks are missing, duplicated or non-contiguous")
+    cards: list[dict[str, Any]] = []
+    evidence_times: list[str] = []
 
-    cards = []
-    for member in members:
-        vid = int(member["variant_id"])
-        m = meta.get(vid) or {}
-        freeze_rows = freezes.get(vid) or []
-        frozen_kinds = {str(r["freeze_kind"]) for r in freeze_rows}
-        exact_sources = {
-            str(r["source_code"])
-            for r in (ids.get(vid) or [])
-            if str(r.get("match_status") or "") in {"exact", "confirmed", "attached"}
-        }
-        price = latest_price_full.get(vid) or prices.get(vid)
-        has_price = price is not None and price.get("price_usd") is not None
-        img = images.get(vid)
-        has_image = bool(img)
-        if product_subset:
-            if not ({"identity", "source", "image"} <= frozen_kinds and has_price and has_image):
-                continue
+    for vid in ranked_vids:
+        row = products.get(vid)
+        if not row:
+            if product_subset:
+                raise RuntimeError(f"missing canonical product projection for variant {vid}")
+            continue
 
-        price_usd = float(price["price_usd"]) if has_price else None
-        price_at = fe.asof_iso(price.get("effective_at")) if price else None
-        pop = latest_pop_full.get(vid)
-        pop_val = int(pop["top_grade_population"]) if pop and pop.get("top_grade_population") is not None else None
-        pop_at = fe.asof_iso((pop or {}).get("effective_at") or (pop or {}).get("observed_date")) if pop else None
-        market_cap = price_usd * pop_val if price_usd is not None and pop_val is not None else None
-
-        history, windows, grader_pops = fe.build_history_windows_graders(vid, bulk, price, pop)
-        if pop_val is not None:
-            grader_pops["PSA"]["topGradePopulation"] = {**fe.metric(pop_val, "ready", pop_at), "estimated": False}
-
-        opaque = str(m.get("opaque_id") or f"variant_{vid}")
-        image_sha = str((img or {}).get("content_sha256") or ("0" * 64))
-        image_src = f"/market-assets/{image_sha}.webp" if has_image else "/card-placeholder.svg"
-        rank = int(member.get("market_rank") or 0) or (len(cards) + 1)
-        name = str(m.get("canonical_name") or opaque)
-        set_name = str(m.get("set_name") or "unknown")
-        collector = str(m.get("collector_number") or "unknown")
-        tcg_raw = str(m.get("tcg_code") or "other").lower()
-        if "poke" in tcg_raw:
-            tcg = "pokemon"
-        elif "one" in tcg_raw or tcg_raw in {"op", "one_piece"}:
-            tcg = "one-piece"
-        else:
+        opaque = str(row.get("opaque_id") or f"variant_{vid}")
+        tcg_raw = str(row.get("tcg_code") or "other").lower()
+        if tcg_raw not in {"pokemon", "one-piece"}:
+            if product_subset:
+                raise RuntimeError(
+                    f"unsupported canonical TCG code for variant {vid}: {tcg_raw!r}"
+                )
             tcg = "other"
-        lang = m.get("card_language")
+        else:
+            tcg = tcg_raw
+
+        lang = row.get("card_language")
         if lang not in {"en", "ja", "ko", "zhCN", "zhTW"}:
             lang = None
-
-        loc = bulk["locales"].get(vid) or {}
-        names = {
-            "en": (loc.get("en") or {}).get("localized_name") or name,
-            "zhTW": (loc.get("zhTW") or loc.get("zh-TW") or {}).get("localized_name"),
-            "zhCN": (loc.get("zhCN") or loc.get("zh-CN") or {}).get("localized_name"),
-            "ja": (loc.get("ja") or {}).get("localized_name"),
-            "ko": (loc.get("ko") or {}).get("localized_name"),
-        }
-        sets = {
-            "en": (loc.get("en") or {}).get("localized_set_name") or set_name,
-            "zhTW": (loc.get("zhTW") or loc.get("zh-TW") or {}).get("localized_set_name"),
-            "zhCN": (loc.get("zhCN") or loc.get("zh-CN") or {}).get("localized_set_name"),
-            "ja": (loc.get("ja") or {}).get("localized_set_name"),
-            "ko": (loc.get("ko") or {}).get("localized_set_name"),
-        }
-        # Calm default market note — no hype, same meaning across locales.
-        # Prefer DB locale story when present; otherwise keep a short neutral template.
-        def _story(loc_code: str, template: str):
-            row = loc.get(loc_code) or loc.get(loc_code.replace("zhTW", "zh-TW").replace("zhCN", "zh-CN")) or {}
-            val = row.get("market_story")
-            if isinstance(val, str) and val.strip():
-                return val.strip()
-            return template
-
-        stories = {
-            "en": _story("en", f"{name} is tracked on CARDZ for PSA 10 price, population and market cap."),
-            "zhTW": _story("zhTW", f"{name} 於 CARDZ 追蹤 PSA 10 價格、數量與市值。"),
-            "zhCN": _story("zhCN", f"{name} 在 CARDZ 追踪 PSA 10 价格、数量与市值。"),
-            "ja": _story("ja", f"{name} は CARDZ で PSA 10 価格・枚数・時価総額を追跡しています。"),
-            "ko": _story("ko", f"{name} 는 CARDZ 에서 PSA 10 가격·매수·시가총액을 추적합니다."),
-        }
-
-        pr = bulk["printing"].get(vid)
-        printing_identity = None
-        if pr:
-            printing_identity = {
-                "setName": str(pr.get("set_name") or set_name),
-                "collectorNumber": str(pr.get("collector_number") or collector),
-                "editionCode": str(pr.get("edition_code") or ""),
-                "parallelCode": str(pr.get("parallel_code") or ""),
-                "finishCode": str(pr.get("finish_code") or ""),
-                "cardLanguage": pr.get("card_language") if pr.get("card_language") in {"en", "ja", "ko", "zhCN", "zhTW"} else lang,
-                "canonicalPrintingSha256": str(pr.get("canonical_printing_sha256") or ("0" * 64)),
-                "evidenceSha256": str(pr.get("evidence_sha256") or ("0" * 64)),
-                "setCode": derive_set_code(
-                    tcg=str(pr.get("tcg_code") or tcg),
-                    collector=str(pr.get("collector_number") or collector),
-                    set_name=str(pr.get("set_name") or set_name),
-                    edition_code=str(pr.get("edition_code") or ""),
-                    card_language=str(pr.get("card_language") or lang or ""),
-                ),
-                # Never mirror parallel into rarity; hide until real rarity exists.
-                "rarityCode": None,
-                "printingCode": None,
+        collector = str(row.get("collector_number") or "")
+        official_name = str(row.get("official_full_name") or "").strip()
+        if product_subset and not official_name:
+            raise RuntimeError(f"missing accepted PSA/GemRate official name for variant {vid}")
+        names = _projection_locales(row.get("localized_names_json"))
+        sets = _projection_locales(row.get("localized_set_names_json"))
+        stories = _projection_locales(row.get("localized_stories_json"))
+        image_alt = _projection_locales(row.get("image_alt_json"))
+        if official_name:
+            # Locale evidence remains canonical in MySQL, but public display
+            # names and accessibility text have one authority: the accepted
+            # PSA/GemRate full name. No translated alias can change card identity.
+            names = {
+                locale: official_name for locale in ("en", "zhTW", "zhCN", "ja", "ko")
             }
+            image_alt = dict(names)
 
-        un = bulk["ungraded"].get(vid)
-        if un and un.get("price_usd") is not None:
-            ungraded = fe.metric(float(un["price_usd"]), "ready", fe.asof_iso(un.get("observed_at")))
-        else:
-            ungraded = fe.metric(None, "unavailable", None)
-
-        image_policy_applies = bool(product_subset and vid in top100_vids)
-        snk_eligible = bool(
-            image_policy_applies
-            and (img or {}).get("snk_source")
-            and (img or {}).get("snk_public_qc")
+        price_usd = (
+            float(row["psa10_price_usd"])
+            if row.get("psa10_price_usd") is not None
+            else None
         )
-        selected_source = "snkrdunk" if snk_eligible else "accepted-freeze"
+        pop_value = (
+            int(row["psa10_population"])
+            if row.get("psa10_population") is not None
+            else None
+        )
+        market_cap = (
+            float(row["market_cap_usd"])
+            if row.get("market_cap_usd") is not None
+            else None
+        )
+        canonical_rank = int(row.get("canonical_market_rank") or 0)
+        metric_lineage_sha256 = str(row.get("metric_lineage_sha256") or "")
+        if product_subset:
+            if not _is_canonical_price_route(
+                str(row.get("card_language") or ""),
+                str(row.get("psa10_price_source_code") or ""),
+                row.get("selected_price_route_priority"),
+                row.get("eligible_pricecharting_exists"),
+            ):
+                raise RuntimeError(
+                    f"variant {vid} does not follow the canonical EN PC-to-SNK or non-EN SNK-only price route"
+                )
+            if str(row.get("population_source_code") or "") != "gemrate":
+                raise RuntimeError(f"variant {vid} does not use exact GemRate POP authority")
+            if len(metric_lineage_sha256) != 64:
+                raise RuntimeError(f"variant {vid} has no canonical metric lineage")
+            expected_market_cap = round(float(price_usd or 0) * int(pop_value or 0), 6)
+            if market_cap is None or abs(float(market_cap) - expected_market_cap) > 0.000001:
+                raise RuntimeError(f"variant {vid} market cap is not exact price multiplied by POP")
+        price_at = fe.asof_iso(
+            row.get("psa10_price_observed_date")
+            or row.get("psa10_price_effective_at")
+            or row.get("psa10_price_source_observed_at")
+        )
+        pop_at = fe.asof_iso(row.get("population_effective_at"))
+        cap_at = _latest_evidence_at(price_at, pop_at)
+        history, windows = fe.build_history_windows(vid, bulk)
+
+        ungraded_value = (
+            float(row["ungraded_reference_price_usd"])
+            if row.get("ungraded_reference_price_usd") is not None
+            else None
+        )
+        ungraded_at = fe.asof_iso(row.get("ungraded_reference_observed_at"))
+        image_sha = str(row.get("canonical_image_content_sha256") or "")
+        has_image = bool(image_sha)
+        image_width = int(row.get("canonical_image_width") or 0)
+        image_height = int(row.get("canonical_image_height") or 0)
+        image_qc_at = row.get("canonical_image_qc_at")
+        image_source_path = str(row.get("canonical_image_source_path") or "")
+        image_acceptance_id = int(row.get("canonical_image_acceptance_id") or 0)
+        image_lineage_sha256 = str(row.get("canonical_image_lineage_sha256") or "")
+        selected_snk_en = image_source_path.startswith("snkrdunk-en:")
+        if product_subset and (
+            not has_image
+            or image_width <= 0
+            or image_height <= 0
+            or image_acceptance_id <= 0
+            or len(image_lineage_sha256) != 64
+        ):
+            raise RuntimeError(f"variant {vid} has no accepted canonical 026 image lineage")
+
+        exact_sources = sorted(
+            source.strip()
+            for source in str(row.get("exact_source_codes") or "").split(",")
+            if source.strip()
+        )
+        printing_identity = {
+            "setName": str(row.get("canonical_set_name") or ""),
+            "collectorNumber": collector,
+            "editionCode": str(row.get("edition_code") or ""),
+            "finishCode": str(row.get("finish_code") or ""),
+            "cardLanguage": lang,
+            "canonicalPrintingSha256": str(row.get("canonical_printing_sha256") or ""),
+            "evidenceSha256": str(row.get("printing_evidence_sha256") or ""),
+            # Never derive a display set code from names or collector text.
+            "setCode": str(row.get("set_code") or "") or None,
+        }
 
         card = {
             "id": opaque,
-            "rank": rank,
-            "marketRank": rank,
-            "viewRank": rank,
+            "rank": canonical_rank,
+            "marketRank": canonical_rank,
+            "viewRank": canonical_rank,
             "tcg": tcg,
             "cardLanguage": lang,
             "collectorNumber": {
                 "display": collector,
                 "normalized": collector.lower(),
-                "complete": "/" in collector or collector not in {"", "unknown"},
+                "complete": bool(collector) and ("/" in collector or collector.lower() != "unknown"),
             },
-            "identityStatus": "confirmed" if "identity" in frozen_kinds else "provisional",
+            "identityStatus": (
+                "confirmed"
+                if str(row.get("identity_status") or "") in {"confirmed", "canonical"}
+                and int(row.get("identity_complete") or 0) == 1
+                else "provisional"
+            ),
+            "officialName": official_name,
             "names": names,
             "sets": sets,
             "stories": stories,
             "image": {
-                "src": image_src,
-                "sha256": image_sha if has_image else ("0" * 64),
+                "src": f"/market-assets/{image_sha}.webp" if has_image else "/card-placeholder.svg",
+                "sha256": image_sha if has_image else "0" * 64,
                 "kind": "raw_front",
-                "width": int((img or {}).get("width_px") or 429),
-                "height": int((img or {}).get("height_px") or 600),
-                "alt": {"en": name, "zhTW": None, "zhCN": None, "ja": None, "ko": None},
-                "qcAt": utc_now(),
+                "width": image_width,
+                "height": image_height,
+                "alt": image_alt,
+                "qcAt": fe.asof_iso(image_qc_at),
                 "variants": {
                     "200": f"/market-assets/{image_sha}_200.webp",
                     "600": f"/market-assets/{image_sha}_600.webp",
                 } if has_image else None,
             },
-            "pricePsa10": fe.metric(price_usd, "ready" if price_usd is not None else "unavailable", price_at),
-            "priceUngradedReference": ungraded,
-            "populationPsa10": {**fe.metric(pop_val, "ready" if pop_val is not None else "unavailable", pop_at), "estimated": False},
-            "marketCap": fe.metric(market_cap, "ready" if market_cap is not None else "unavailable", price_at or pop_at),
+            "pricePsa10": fe.metric(
+                price_usd,
+                "ready" if price_usd is not None else "unavailable",
+                price_at,
+            ),
+            "priceUngradedReference": fe.metric(
+                ungraded_value,
+                "ready" if ungraded_value is not None else "unavailable",
+                ungraded_at if ungraded_value is not None else None,
+            ),
+            "populationPsa10": {
+                **fe.metric(
+                    pop_value,
+                    "ready" if pop_value is not None else "unavailable",
+                    pop_at,
+                ),
+                "estimated": False,
+            },
+            "marketCap": fe.metric(
+                market_cap,
+                "ready" if market_cap is not None else "unavailable",
+                cap_at if market_cap is not None else None,
+            ),
             "windows": windows,
-            "graderPopulations": grader_pops,
             "historyDaily": history,
+            "printingIdentity": printing_identity,
             "operator": {
                 "variantId": vid,
-                "frozenKinds": sorted(frozen_kinds),
-                "exactSources": sorted(exact_sources),
-                "hasPrice": has_price,
+                "exactSources": exact_sources,
+                "hasPrice": price_usd is not None,
                 "hasImage": has_image,
-                "productEligible": {"identity", "source", "image"} <= frozen_kinds and has_price and has_image,
+                "productEligible": int(row.get("product_ready") or 0) == 1,
                 "imagePolicy": {
-                    "policyId": TOP100_SNK_IMAGE_POLICY_ID if image_policy_applies else "accepted-freeze-v1",
-                    "applies": image_policy_applies,
-                    "snkEligible": snk_eligible,
-                    "selectedSource": selected_source,
+                    "policyId": CANONICAL_IMAGE_POLICY_ID,
+                    "applies": True,
+                    "snkEnSelected": selected_snk_en,
+                    "selectedSource": "snkrdunk-en" if selected_snk_en else "accepted-freeze",
                     "selectedSha256": image_sha,
+                    "acceptanceId": image_acceptance_id,
+                    "lineageSha256": image_lineage_sha256,
                 },
+                "officialNameAcceptanceId": int(row.get("official_name_acceptance_id") or 0),
+                "officialNameEvidenceSha256": str(row.get("official_name_evidence_sha256") or ""),
+                "metricLineageSha256": metric_lineage_sha256,
             },
         }
-        if printing_identity:
-            card["printingIdentity"] = printing_identity
         cards.append(card)
-
-    cards.sort(
-        key=lambda c: (
-            -(c["marketCap"]["value"] if isinstance(c.get("marketCap"), dict) and c["marketCap"].get("value") is not None else -1),
-            c["id"],
+        daily_evidence = [
+            value
+            for fact in (bulk.get("daily") or {}).get(vid, [])
+            for value in (
+                fact.get("fact_effective_at"),
+                fact.get("price_source_observed_at"),
+                fact.get("sales_evidence_at"),
+            )
+            if value is not None
+        ]
+        card_evidence = _latest_evidence_at(
+            price_at,
+            pop_at,
+            ungraded_at,
+            row.get("identity_accepted_at"),
+            row.get("locale_latest_observed_at"),
+            row.get("canonical_image_qc_at"),
+            row.get("canonical_image_source_observed_at"),
+            row.get("official_name_observed_at"),
+            *daily_evidence,
         )
-    )
-    for i, card in enumerate(cards, start=1):
-        card["rank"] = i
-        card["viewRank"] = i
-        card["marketRank"] = i
-    if product_subset:
-        displayed_top100 = {
-            int((card.get("operator") or {}).get("variantId"))
-            for card in cards[:100]
-        }
-        if displayed_top100 != top100_vids:
-            raise RuntimeError("displayed Top 100 does not match current market-cap ranking")
-    # stash fx for write_snapshot via function attribute
+        if card_evidence:
+            evidence_times.append(card_evidence)
+
+    if product_subset and len(cards) != TONIGHT_CARD_COUNT:
+        raise RuntimeError(
+            f"canonical product export has {len(cards)} cards, expected {TONIGHT_CARD_COUNT}"
+        )
     build_operator_cards._last_fx = bulk.get("fx") or {}
+    build_operator_cards._effective_at = max(evidence_times) if evidence_times else None
     return cards
 
 def write_snapshot(cards, *, generation_prefix, mode, blockers, output: Path):
     now = utc_now()
+    effective_at = getattr(build_operator_cards, "_effective_at", None)
+    if not effective_at:
+        raise RuntimeError("canonical projection did not provide an evidence effective time")
     top = cards[:100]
     watch = cards[100:]
     generation_id = f"{generation_prefix}_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
@@ -1310,7 +1357,7 @@ def write_snapshot(cards, *, generation_prefix, mode, blockers, output: Path):
         "generation": {
             "id": generation_id,
             "generatedAt": now,
-            "effectiveAt": now,
+            "effectiveAt": effective_at,
             "contentSha256": "",
             "qcReceiptSha256": "",
             "mode": mode,
@@ -1325,7 +1372,7 @@ def write_snapshot(cards, *, generation_prefix, mode, blockers, output: Path):
             "salesCoverage": "partial",
         },
         "coverage": fe.coverage_from_cards(cards, top, watch),
-        "currencies": fe.currencies_block(now, getattr(build_operator_cards, "_last_fx", {})),
+        "currencies": fe.currencies_block(effective_at, getattr(build_operator_cards, "_last_fx", {})),
         "top100": top,
         "watchlist": watch,
     }
@@ -1350,10 +1397,8 @@ def cmd_export_operator_snapshot(output=None):
     conn = db()
     try:
         cur = conn.cursor()
-        ensure_freeze_table(cur)
-        conn.commit()
-        universe = current_universe(cur)
-        cards = build_operator_cards(cur, universe.get("members") or [], product_subset=False)
+        members = fe.load_active_members(cur)
+        cards = build_operator_cards(cur, members, product_subset=False)
         out = output or (OUT_DIR / "operator-snapshot.json")
         result = write_snapshot(
             cards,
@@ -1370,20 +1415,15 @@ def cmd_export_operator_snapshot(output=None):
 
 def cmd_export_product_subset(
     output=None,
-    *,
-    frontend_bundle: dict[str, Any] | None = None,
 ):
     load_env()
     conn = db()
     try:
         cur = conn.cursor()
-        ensure_freeze_table(cur)
-        conn.commit()
-        universe = current_universe(cur)
-        cards = build_operator_cards(cur, universe.get("members") or [], product_subset=True)
-        top100_cards = cards[:100]
+        members = fe.load_active_members(cur)
+        cards = build_operator_cards(cur, members, product_subset=True)
         image_decisions = []
-        for card in top100_cards:
+        for card in cards:
             operator_row = card.get("operator") or {}
             decision = operator_row.get("imagePolicy") or {}
             image_decisions.append(
@@ -1391,34 +1431,35 @@ def cmd_export_product_subset(
                     "marketRank": int(card.get("marketRank") or 0),
                     "variantId": int(operator_row.get("variantId") or 0),
                     "opaqueId": card.get("id"),
-                    "snkEligible": decision.get("snkEligible") is True,
+                    "snkEnSelected": decision.get("snkEnSelected") is True,
                     "selectedSource": decision.get("selectedSource"),
                     "selectedSha256": decision.get("selectedSha256"),
+                    "acceptanceId": int(decision.get("acceptanceId") or 0),
+                    "lineageSha256": decision.get("lineageSha256"),
+                    "officialNameAcceptanceId": int(
+                        operator_row.get("officialNameAcceptanceId") or 0
+                    ),
+                    "officialNameEvidenceSha256": operator_row.get(
+                        "officialNameEvidenceSha256"
+                    ),
+                    "metricLineageSha256": operator_row.get("metricLineageSha256"),
                 }
             )
         image_policy = {
-            "policyId": TOP100_SNK_IMAGE_POLICY_ID,
-            "scope": "displayed-top100-by-current-market-cap",
-            "top100Cards": len(image_decisions),
-            "snkEligible": sum(row["snkEligible"] for row in image_decisions),
-            "snkSelected": sum(
-                row["snkEligible"] and row["selectedSource"] == "snkrdunk"
-                for row in image_decisions
-            ),
-            "nonSnkOnlyWithoutEligible": sum(
-                not row["snkEligible"] and row["selectedSource"] != "snkrdunk"
+            "policyId": CANONICAL_IMAGE_POLICY_ID,
+            "scope": "locked-active-cohort-canonical-pointer",
+            "cardCount": len(image_decisions),
+            "snkEnSelected": sum(row["snkEnSelected"] for row in image_decisions),
+            "acceptedFallback": sum(
+                not row["snkEnSelected"] and row["selectedSource"] == "accepted-freeze"
                 for row in image_decisions
             ),
             "decisions": image_decisions,
         }
-        if image_policy["top100Cards"] != 100:
-            raise RuntimeError("SNK image policy requires exactly 100 displayed cards")
-        if image_policy["snkEligible"] != image_policy["snkSelected"]:
-            raise RuntimeError("an eligible displayed Top-100 SNK image was not selected")
-        if image_policy["nonSnkOnlyWithoutEligible"] != 100 - image_policy["snkEligible"]:
-            raise RuntimeError("a non-eligible card selected an unexpected SNK image")
-        if frontend_bundle is None:
-            frontend_bundle = bundle_manifest(ROOT)
+        if image_policy["cardCount"] != TONIGHT_CARD_COUNT:
+            raise RuntimeError("026 canonical image policy requires all 762 active cards")
+        if image_policy["snkEnSelected"] + image_policy["acceptedFallback"] != TONIGHT_CARD_COUNT:
+            raise RuntimeError("one or more cards have no accepted canonical image decision")
         public_cards = []
         for card in cards:
             clean = dict(card)
@@ -1437,7 +1478,6 @@ def cmd_export_product_subset(
         )
         result["productSubsetReady"] = len(public_cards)
         result["imagePolicy"] = image_policy
-        result["frontendBundle"] = frontend_bundle
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return result
     finally:
@@ -1445,7 +1485,7 @@ def cmd_export_product_subset(
 
 
 def cmd_snk_image_priority_status() -> dict[str, Any]:
-    """Report the displayed current-market-cap Top-100 SNK preference without writing."""
+    """Report the 026 cohort-wide canonical SNK EN image selection without writing."""
 
     load_env()
     conn = db()
@@ -1457,42 +1497,34 @@ def cmd_snk_image_priority_status() -> dict[str, Any]:
             universe.get("members") or [],
             product_subset=True,
         )
-        top100_cards = cards[:100]
-        variant_ids = [int((card.get("operator") or {})["variantId"]) for card in top100_cards]
-        baseline = image_rows(cur, variant_ids)
-
-        eligible = []
-        switched = []
-        already_selected = []
-        for card in top100_cards:
+        variant_ids = [int((card.get("operator") or {})["variantId"]) for card in cards]
+        selected = []
+        fallback = []
+        for card in cards:
             operator_row = card.get("operator") or {}
             decision = operator_row.get("imagePolicy") or {}
-            if decision.get("snkEligible") is not True:
-                continue
-            variant_id = int(operator_row["variantId"])
             item = {
                 "marketRank": int(card["marketRank"]),
-                "variantId": variant_id,
+                "variantId": int(operator_row["variantId"]),
                 "opaqueId": card.get("id"),
-                "currentSha256": str((baseline.get(variant_id) or {}).get("content_sha256") or ""),
-                "snkSha256": str((card.get("image") or {}).get("sha256") or ""),
+                "selectedSource": decision.get("selectedSource"),
+                "selectedSha256": str((card.get("image") or {}).get("sha256") or ""),
+                "acceptanceId": int(decision.get("acceptanceId") or 0),
+                "lineageSha256": decision.get("lineageSha256"),
             }
-            eligible.append(item)
-            if item["currentSha256"] == item["snkSha256"]:
-                already_selected.append(item)
+            if decision.get("snkEnSelected") is True:
+                selected.append(item)
             else:
-                switched.append(item)
+                fallback.append(item)
 
         result = {
             "action": "snk-image-priority-status",
-            "policyId": TOP100_SNK_IMAGE_POLICY_ID,
-            "scope": "displayed-top100-by-current-market-cap",
-            "top100Cards": len(variant_ids),
-            "snkEligible": len(eligible),
-            "alreadySnkSelected": len(already_selected),
-            "willSwitchToSnk": len(switched),
-            "withoutEligibleSnk": len(variant_ids) - len(eligible),
-            "switches": sorted(switched, key=lambda row: row["marketRank"]),
+            "policyId": CANONICAL_IMAGE_POLICY_ID,
+            "scope": "locked-active-cohort-canonical-pointer",
+            "cards": len(variant_ids),
+            "snkEnSelected": len(selected),
+            "acceptedFallback": len(fallback),
+            "selected": sorted(selected, key=lambda row: row["marketRank"]),
             "writes": False,
         }
         print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -1512,7 +1544,7 @@ def _read_json_object(path: Path, label: str) -> dict[str, Any]:
 
 
 def _authorized_refresh_report(path: Path) -> dict[str, Any]:
-    """Reuse one completed five-adapter refresh without repeating network work."""
+    """Reuse one completed six-adapter refresh without repeating network work."""
 
     raw_bytes = path.read_bytes()
     source_sha256 = hashlib.sha256(raw_bytes).hexdigest()
@@ -1531,7 +1563,7 @@ def _authorized_refresh_report(path: Path) -> dict[str, Any]:
     if refresh.get("ok") is not True:
         failures.append("refresh report is not successful")
     if set(adapter_results) != required_adapters:
-        failures.append("refresh report does not contain the exact five adapters")
+        failures.append("refresh report does not contain the exact six adapters")
     if any(
         (adapter_results.get(adapter) or {}).get("ok") is not True
         for adapter in required_adapters
@@ -1684,7 +1716,7 @@ def cmd_freeze_active_sources_from_checkpoints(*, actor: str, authorization_note
             SELECT variant_id, external_entity_id, match_status
             FROM catalog_source_identity
             WHERE source_code='gemrate' AND variant_id IN ({placeholders})
-              AND match_status IN ('exact','confirmed','attached')
+              AND match_status = 'exact'
             """,
             tuple(sorted(active_ids)),
         )
@@ -1806,193 +1838,6 @@ def cmd_freeze_active_sources_from_checkpoints(*, actor: str, authorization_note
         conn.close()
 
 
-def cmd_finalize_pass_from_checkpoints(
-    *,
-    formal_receipt_path: Path,
-    targeted_receipt_path: Path,
-    snk_resume_path: Path,
-    snk_binding_delta_path: Path,
-) -> dict[str, Any]:
-    """Finalize tonight's pass without repeating the single formal network refresh."""
-    frontend_bundle = bundle_manifest(ROOT)
-    formal = _read_json_object(formal_receipt_path, "single formal refresh receipt")
-    targeted = _read_json_object(targeted_receipt_path, "targeted PC/EN refresh receipt")
-    snk_resume = _read_json_object(snk_resume_path, "SNK checkpoint resume receipt")
-    snk_binding_delta = _read_json_object(
-        snk_binding_delta_path,
-        "post-binding SNK delta refresh receipt",
-    )
-    formal_results = {
-        str(row.get("adapter")): row
-        for row in (formal.get("results") or [])
-        if isinstance(row, dict)
-    }
-    targeted_results = {
-        str(row.get("adapter")): row
-        for row in (targeted.get("results") or [])
-        if isinstance(row, dict)
-    }
-    snk_delta_results = {
-        str(row.get("adapter")): row
-        for row in (snk_binding_delta.get("results") or [])
-        if isinstance(row, dict)
-    }
-    if formal.get("requestedAdapters") != list(CHECKPOINT_ADAPTERS):
-        raise RuntimeError("formal receipt is not the locked five-adapter run")
-    if any((formal_results.get(adapter) or {}).get("ok") is not True for adapter in ("gemrate_pop", "snk_trades")):
-        raise RuntimeError("formal GemRate or SNK trades adapter did not complete")
-    if set(targeted.get("requestedAdapters") or []) != {"pc_ebay_sales", "en_price_ref"}:
-        raise RuntimeError("targeted receipt is not limited to PC/eBay and EN price reference")
-    if targeted.get("ok") is not True or any(
-        (targeted_results.get(adapter) or {}).get("ok") is not True
-        for adapter in ("pc_ebay_sales", "en_price_ref")
-    ):
-        raise RuntimeError("targeted PC/EN refresh did not complete")
-    if not (
-        int(snk_resume.get("polled") or 0) == int((formal_results.get("snk_price") or {}).get("processed") or -1)
-        and int(snk_resume.get("checkpointed") or 0) == int(snk_resume.get("polled") or -1)
-        and int(snk_resume.get("networkRequests", -1)) == 0
-        and int(snk_resume.get("ingestRuns", -1)) == 0
-        and int(snk_resume.get("runId") or 0) > 0
-    ):
-        raise RuntimeError("SNK price resume receipt contract failed")
-    if set(snk_binding_delta.get("requestedAdapters") or []) != {"snk_trades", "snk_price"}:
-        raise RuntimeError("post-binding SNK receipt is not limited to the two SNK adapters")
-    if snk_binding_delta.get("ok") is not True or any(
-        (snk_delta_results.get(adapter) or {}).get("ok") is not True
-        for adapter in ("snk_trades", "snk_price")
-    ):
-        raise RuntimeError("post-binding SNK delta refresh did not complete")
-    for adapter in ("snk_trades", "snk_price"):
-        delta = snk_delta_results[adapter]
-        if not (
-            int(delta.get("processed") or 0) > 0
-            and int(delta.get("processed") or -1) == int(delta.get("checkpointed") or -2)
-            and int(delta.get("processed") or -1) == int(delta.get("due") or -2)
-        ):
-            raise RuntimeError(f"post-binding {adapter} delta receipt contract failed")
-
-    load_env()
-    conn = db()
-    try:
-        cur = conn.cursor()
-        universe = current_universe(cur)
-        active_ids = set(universe.get("variantIds") or [])
-        if len(active_ids) != TONIGHT_CARD_COUNT:
-            raise RuntimeError("active universe is not the locked 762-card cohort")
-        checkpoint_gate = _active_checkpoint_gate(cur, active_ids=active_ids)
-    finally:
-        conn.close()
-
-    status = cmd_status()
-    candidates = cmd_scan_candidates(min_pop=1000)
-    gaps = cmd_export_gaps()
-    counts = (status or {}).get("counts") or {}
-    candidate_counts = (candidates or {}).get("counts") or {}
-    if any(int(counts.get(field) or -1) != TONIGHT_CARD_COUNT for field in (
-        "members",
-        "withExactSource",
-        "withPrice",
-        "withImage",
-        "frozenIdentity",
-        "frozenSource",
-        "frozenImage",
-        "productSubsetReady",
-    )):
-        raise RuntimeError("current DB readiness counts do not cover all 762 active cards")
-    if int(counts.get("gapCards", -1)) != 0 or int((gaps or {}).get("count", -1)) != 0:
-        raise RuntimeError("active DB gaps remain")
-    if int(candidate_counts.get("activeUniverse") or -1) != TONIGHT_CARD_COUNT:
-        raise RuntimeError("candidate scan active universe count changed")
-    if int(candidate_counts.get("newCandidates") or -1) != TONIGHT_BACKLOG_COUNT:
-        raise RuntimeError("qualified candidate backlog changed from the locked 776")
-
-    export_result = cmd_export_product_subset(frontend_bundle=frontend_bundle)
-    if int(export_result.get("cards") or -1) != TONIGHT_CARD_COUNT:
-        raise RuntimeError("product export does not contain all 762 active cards")
-    snk_trade_delta = snk_delta_results["snk_trades"]
-    snk_price_delta = snk_delta_results["snk_price"]
-    combined_snk_trades = {
-        **formal_results["snk_trades"],
-        "due": int(formal_results["snk_trades"].get("due") or 0) + int(snk_trade_delta["due"]),
-        "processed": int(formal_results["snk_trades"].get("processed") or 0) + int(snk_trade_delta["processed"]),
-        "checkpointed": int(formal_results["snk_trades"].get("checkpointed") or 0) + int(snk_trade_delta["checkpointed"]),
-        "runIds": [
-            int(value)
-            for value in (formal_results["snk_trades"].get("runId"), snk_trade_delta.get("runId"))
-            if int(value or 0) > 0
-        ],
-        "postBindingDelta": True,
-        "ok": True,
-    }
-    combined_snk_price = {
-        "adapter": "snk_price",
-        "mode": "incr",
-        "due": int(snk_resume["polled"]) + int(snk_price_delta["due"]),
-        "processed": int(snk_resume["polled"]) + int(snk_price_delta["processed"]),
-        "checkpointed": int(snk_resume["checkpointed"]) + int(snk_price_delta["checkpointed"]),
-        "accepted": int(snk_resume.get("accepted") or 0) + int(snk_price_delta.get("accepted") or 0),
-        "emptyKline": int(snk_resume.get("emptyKline") or 0) + int(snk_price_delta.get("emptyKline") or 0),
-        "runIds": [
-            int(value)
-            for value in (snk_resume.get("runId"), snk_price_delta.get("runId"))
-            if int(value or 0) > 0
-        ],
-        "ok": True,
-        "resumedFromFormalReceipt": True,
-        "postBindingDelta": True,
-    }
-    combined_results = [
-        formal_results["gemrate_pop"],
-        combined_snk_trades,
-        combined_snk_price,
-        targeted_results["pc_ebay_sales"],
-        targeted_results["en_price_ref"],
-    ]
-    refresh = {
-        "enabled": True,
-        "ok": True,
-        "method": "checkpoint_finalization_after_single_formal_run",
-        "formalReceipt": str(formal_receipt_path),
-        "formalReceiptSha256": hashlib.sha256(formal_receipt_path.read_bytes()).hexdigest(),
-        "targetedReceipt": str(targeted_receipt_path),
-        "targetedReceiptSha256": hashlib.sha256(targeted_receipt_path.read_bytes()).hexdigest(),
-        "snkResumeReceipt": str(snk_resume_path),
-        "snkResumeReceiptSha256": hashlib.sha256(snk_resume_path.read_bytes()).hexdigest(),
-        "snkBindingDeltaReceipt": str(snk_binding_delta_path),
-        "snkBindingDeltaReceiptSha256": hashlib.sha256(snk_binding_delta_path.read_bytes()).hexdigest(),
-        "results": combined_results,
-        "postFreshness": checkpoint_gate,
-    }
-    receipt = {
-        "asOf": utc_now(),
-        "action": "pass",
-        "passMethod": "finalize-from-checkpoints-without-network-retry",
-        "productExport": export_result,
-        "imagePolicy": export_result["imagePolicy"],
-        "frontendBundle": export_result["frontendBundle"],
-        "universe": (status or {}).get("universe"),
-        "refresh": refresh,
-        "promote": {
-            "status": "awaiting_daddy_promote",
-            "snapshotPath": str(OUT_DIR / "product-subset-snapshot.json"),
-        },
-        "statusCounts": counts,
-        "candidateCounts": candidate_counts,
-        "gapCount": int((gaps or {}).get("count") or 0),
-    }
-    atomic_json(OUT_DIR / "pass_receipt.json", receipt)
-    print(json.dumps({
-        "action": "finalize-pass-from-checkpoints",
-        "receipt": str(OUT_DIR / "pass_receipt.json"),
-        "cards": export_result.get("cards"),
-        "gapCards": receipt["gapCount"],
-        "newCandidates": candidate_counts.get("newCandidates"),
-        "refreshOk": True,
-    }, ensure_ascii=False, indent=2))
-    return receipt
-
-
 def cmd_promote_product_subset(
     *,
     snapshot_path: Path,
@@ -2020,8 +1865,6 @@ def cmd_promote_product_subset(
     universe = receipt.get("universe") or {}
     refresh = receipt.get("refresh") or {}
     image_policy = receipt.get("imagePolicy") or {}
-    frontend_bundle = receipt.get("frontendBundle") or {}
-    current_frontend_bundle = bundle_manifest(ROOT)
     cards = list(snapshot.get("top100") or []) + list(snapshot.get("watchlist") or [])
     current_hash = canonical_snapshot_sha256(snapshot)
     required_counts = (
@@ -2039,13 +1882,7 @@ def cmd_promote_product_subset(
         for row in (refresh.get("results") or [])
         if isinstance(row, dict)
     }
-    required_adapters = {
-        "gemrate_pop",
-        "snk_trades",
-        "snk_price",
-        "pc_ebay_sales",
-        "en_price_ref",
-    }
+    required_adapters = set(CHECKPOINT_ADAPTERS)
     freshness = refresh.get("postFreshness") or {}
     polls = freshness.get("polls") or {}
     allowed_staging_blockers = {"product_subset_export", "awaiting_daddy_promote"}
@@ -2057,49 +1894,41 @@ def cmd_promote_product_subset(
         if isinstance(row, dict) and row.get("opaqueId")
     }
     try:
-        image_top100_count = int(image_policy.get("top100Cards"))
-        snk_eligible_count = int(image_policy.get("snkEligible"))
-        snk_selected_count = int(image_policy.get("snkSelected"))
-        non_snk_count = int(image_policy.get("nonSnkOnlyWithoutEligible"))
+        image_card_count = int(image_policy.get("cardCount"))
+        snk_en_count = int(image_policy.get("snkEnSelected"))
+        accepted_fallback_count = int(image_policy.get("acceptedFallback"))
     except (TypeError, ValueError):
-        image_top100_count = -1
-        snk_eligible_count = -1
-        snk_selected_count = -2
-        non_snk_count = -1
+        image_card_count = -1
+        snk_en_count = -1
+        accepted_fallback_count = -1
 
     failures: list[str] = []
     if receipt.get("action") != "pass":
         failures.append("receipt action is not pass")
-    if image_policy.get("policyId") != TOP100_SNK_IMAGE_POLICY_ID:
-        failures.append("receipt does not use the approved Top-100 SNK image policy")
+    if image_policy.get("policyId") != CANONICAL_IMAGE_POLICY_ID:
+        failures.append("receipt does not use the approved 026 canonical image policy")
     if product_export.get("imagePolicy") != image_policy:
         failures.append("product export image policy does not match the pass receipt")
-    if image_top100_count != 100:
-        failures.append("image policy does not cover exactly 100 displayed cards")
-    if snk_eligible_count != snk_selected_count:
-        failures.append("one or more eligible SNK images were not selected")
-    if non_snk_count != 100 - snk_eligible_count:
-        failures.append("non-SNK image count does not equal the no-eligible-SNK count")
-    if len(decisions_by_id) != 100:
-        failures.append("image policy decisions are not unique for all displayed cards")
-    for card in snapshot.get("top100") or []:
+    if image_card_count != expected_cards:
+        failures.append("image policy does not cover the full active cohort")
+    if snk_en_count + accepted_fallback_count != expected_cards:
+        failures.append("canonical image decisions do not resolve every active card")
+    if len(decisions_by_id) != expected_cards:
+        failures.append("image policy decisions are not unique for the full active cohort")
+    for card in cards:
         decision = decisions_by_id.get(str(card.get("id"))) or {}
         if (
             int(decision.get("marketRank") or -1) != int(card.get("marketRank") or -2)
             or decision.get("selectedSha256") != (card.get("image") or {}).get("sha256")
-            or (
-                decision.get("snkEligible") is True
-                and decision.get("selectedSource") != "snkrdunk"
-            )
+            or int(decision.get("acceptanceId") or 0) <= 0
+            or len(str(decision.get("lineageSha256") or "")) != 64
+            or int(decision.get("officialNameAcceptanceId") or 0) <= 0
+            or len(str(decision.get("officialNameEvidenceSha256") or "")) != 64
+            or len(str(decision.get("metricLineageSha256") or "")) != 64
+            or not str(card.get("officialName") or "").strip()
         ):
-            failures.append(f"image decision mismatch for displayed card {card.get('id')}")
+            failures.append(f"026 canonical decision mismatch for card {card.get('id')}")
             break
-    if frontend_bundle != current_frontend_bundle:
-        failures.append("current frontend bundle differs from the pass-bound bundle")
-    if product_export.get("frontendBundle") != frontend_bundle:
-        failures.append("product export frontend bundle does not match the pass receipt")
-    if frontend_bundle.get("policyId") != FRONTEND_POLICY_ID:
-        failures.append("frontend bundle does not use the no-graders product policy")
     if refresh.get("ok") is not True:
         failures.append("active refresh did not complete")
     if set(adapter_results) != required_adapters or any(
@@ -2155,14 +1984,17 @@ def cmd_promote_product_subset(
                 "stagedContentSha256": generation["contentSha256"],
                 "passReceiptSha256": receipt_sha256,
                 "imagePolicy": image_policy,
-                "frontendBundle": frontend_bundle,
                 "cards": [
                     {
                         "id": card.get("id"),
                         "marketRank": card.get("marketRank"),
+                        "officialName": card.get("officialName"),
                         "pricePsa10": card.get("pricePsa10"),
                         "populationPsa10": card.get("populationPsa10"),
                         "imageSha256": (card.get("image") or {}).get("sha256"),
+                        "metricLineageSha256": (
+                            decisions_by_id.get(str(card.get("id"))) or {}
+                        ).get("metricLineageSha256"),
                     }
                     for card in cards
                 ],
@@ -2180,7 +2012,9 @@ def cmd_promote_product_subset(
     promoted_generation = promoted["generation"]
     promoted_generation.update(
         {
-            "qcReceiptSha256": receipt_sha256,
+            # The immutable public QC receipt is created by the one-time
+            # release materializer. The pass receipt remains DB lineage only.
+            "qcReceiptSha256": "",
             "dbQc": {
                 "runId": run_id,
                 "database": "cardz_market_cap",
@@ -2212,7 +2046,6 @@ def cmd_promote_product_subset(
         "passReceiptSha256": receipt_sha256,
         "contentSha256": promoted_generation["contentSha256"],
         "imagePolicy": image_policy,
-        "frontendBundle": frontend_bundle,
         "productionEligible": True,
         "deployed": False,
     }
@@ -2329,30 +2162,13 @@ def cmd_scan_candidates(min_pop: int = 1000):
         }
         path = OUT_DIR / "candidates.json"
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-        # human reminder short file
-        remind = {
-            "asOf": utc_now(),
-            "title": "CARDZ human attention",
-            "newCandidates": len(candidates),
-            "incompleteInPool": len(attention),
-            "next": [
-                "Review data/runtime/operator/candidates.json",
-                "Bind links + full-stock harvest for new candidates",
-                "Freeze identity/source/image when ready",
-                "Daily incremental for frozen cards; pass => export-product-subset + promote",
-            ],
-            "candidateSample": candidates[:20],
-            "incompleteSample": attention[:20],
-        }
-        remind_path = OUT_DIR / "human_attention.json"
-        remind_path.write_text(json.dumps(remind, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-        print(json.dumps({"action": "scan-candidates", "path": str(path), "remindPath": str(remind_path), **payload["counts"]}, ensure_ascii=False, indent=2))
+        print(json.dumps({"action": "scan-candidates", "path": str(path), **payload["counts"]}, ensure_ascii=False, indent=2))
         return payload
     finally:
         conn.close()
 
 
-def cmd_daily(
+def _cmd_daily_unlocked(
     *,
     do_pass: bool = False,
     refresh: bool = False,
@@ -2360,7 +2176,7 @@ def cmd_daily(
 ):
     """Daily operator loop: full active refresh, then candidates, gaps and pass."""
     load_env()
-    pass_frontend_bundle = bundle_manifest(ROOT) if do_pass else None
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
     refresh_report: dict[str, Any] = {
         "enabled": refresh or refresh_report_path is not None,
         "ok": not refresh and refresh_report_path is None,
@@ -2368,10 +2184,102 @@ def cmd_daily(
     }
     if refresh_report_path is not None:
         refresh_report = _authorized_refresh_report(refresh_report_path)
-    elif refresh:
+
+    migration = None
+    # A hash-bound completed refresh receipt is the presentation-only replay
+    # lane.  Re-running migrations and db-tidy here turns a pass regeneration
+    # into the whole 026 writer runtime again and can overwrite the already
+    # committed acceptance generation.  A live --refresh remains the sole
+    # migration/tidy owner; the reused-receipt lane is guarded below by the
+    # current 762-card status and gap checks before export.
+    if refresh:
         import subprocess
 
         py = sys.executable
+        migration = subprocess.run(
+            [
+                py,
+                "-X",
+                "utf8",
+                str(ROOT / "pipelines" / "db_runtime.py"),
+                "migrate",
+                "--only",
+                "031_active_exact_identity_market_repair.mysql.sql",
+            ],
+            cwd=str(ROOT),
+            timeout=900,
+        )
+        if migration.returncode != 0:
+            refresh_report = {
+                "enabled": True,
+                "ok": False,
+                "results": [],
+                "migration": {
+                    "exit": migration.returncode,
+                    "output": "streamed-to-single-operator-stdout",
+                },
+                "error": "023-030 projection migration failed before canonicalization",
+            }
+            print(json.dumps(refresh_report, ensure_ascii=False, indent=2))
+            return 1
+
+    source_identity_preparation: dict[str, Any] | None = None
+    if refresh:
+        prepared = subprocess.run(
+            [
+                py,
+                "-X",
+                "utf8",
+                str(ROOT / "pipelines" / "new_era_db_tidy.py"),
+                "--prepare-source-identities",
+            ],
+            cwd=str(ROOT),
+            timeout=300,
+        )
+        source_identity_preparation = {
+            "exit": prepared.returncode,
+            "output": "streamed-to-single-operator-stdout",
+        }
+        if prepared.returncode != 0:
+            refresh_report = {
+                "enabled": True,
+                "ok": False,
+                "results": [],
+                "migration": {
+                    "exit": migration.returncode,
+                    "output": "streamed-to-single-operator-stdout",
+                },
+                "sourceIdentityPreparation": source_identity_preparation,
+                "error": "026 exact source-owner preparation failed before collection",
+            }
+            print(json.dumps(refresh_report, ensure_ascii=False, indent=2))
+            return 1
+
+        binding_manifest = ROOT / "data" / "editorial" / "snk-en-exact-bindings-026.json"
+        bound = subprocess.run(
+            [
+                py,
+                "-X",
+                "utf8",
+                str(ROOT / "pipelines" / "apply_verified_source_bindings.py"),
+                "--manifest",
+                str(binding_manifest),
+            ],
+            cwd=str(ROOT),
+            timeout=300,
+        )
+        source_identity_preparation["snkEnExactBindingsExit"] = bound.returncode
+        if bound.returncode != 0:
+            refresh_report = {
+                "enabled": True,
+                "ok": False,
+                "results": [],
+                "sourceIdentityPreparation": source_identity_preparation,
+                "error": "026 SNK EN exact bindings failed before collection",
+            }
+            print(json.dumps(refresh_report, ensure_ascii=False, indent=2))
+            return 1
+
         collect = ROOT / "pipelines" / "collect_control.py"
         command = [
             py,
@@ -2381,8 +2289,13 @@ def cmd_daily(
             "incr",
             "--adapter",
             "all",
+            "--ensure-browser",
+            "--pc-sleep",
+            "4.0",
             "--delay",
-            "1.0",
+            "0.0",
+            "--workers",
+            "24",
         ]
         started = datetime.now(timezone.utc)
         runner: dict[str, Any]
@@ -2390,16 +2303,11 @@ def cmd_daily(
             result = subprocess.run(
                 command,
                 cwd=str(ROOT),
-                capture_output=True,
-                text=True,
                 timeout=21600,
-                encoding="utf-8",
-                errors="replace",
             )
             runner = {
                 "exit": result.returncode,
-                "stdoutTail": (result.stdout or "")[-8000:],
-                "stderrTail": (result.stderr or "")[-3000:],
+                "output": "streamed-to-single-operator-stdout",
             }
         except Exception as exc:  # noqa: BLE001
             runner = {"exit": 1, "error": f"{type(exc).__name__}:{exc}"}
@@ -2411,7 +2319,12 @@ def cmd_daily(
             )
             if collected_at < started:
                 raise RuntimeError("incremental refresh report is stale")
-            refresh_report = {**collected, "enabled": True, "runner": runner}
+            refresh_report = {
+                **collected,
+                "enabled": True,
+                "runner": runner,
+                "sourceIdentityPreparation": source_identity_preparation,
+            }
             refresh_report["ok"] = bool(collected.get("ok")) and runner.get("exit") == 0
         except Exception as exc:  # noqa: BLE001
             refresh_report = {
@@ -2421,6 +2334,29 @@ def cmd_daily(
                 "runner": runner,
                 "error": f"refresh_receipt:{type(exc).__name__}:{exc}",
             }
+
+    if refresh and refresh_report.get("ok") is True:
+        tidy = subprocess.run(
+            [
+                py,
+                "-X",
+                "utf8",
+                str(ROOT / "pipelines" / "new_era_db_tidy.py"),
+            ],
+            cwd=str(ROOT),
+            timeout=3600,
+        )
+        refresh_report["migration"] = {
+            "exit": migration.returncode,
+            "output": "streamed-to-single-operator-stdout",
+        }
+        refresh_report["dbTidy026"] = {
+            "exit": tidy.returncode,
+            "output": "streamed-to-single-operator-stdout",
+        }
+        refresh_report["ok"] = tidy.returncode == 0
+        if tidy.returncode != 0:
+            refresh_report["error"] = "026 canonical acceptance/materialization failed"
 
     status = cmd_status()
     candidates = cmd_scan_candidates(min_pop=1000)
@@ -2447,12 +2383,9 @@ def cmd_daily(
                 "gapCount": (gaps or {}).get("count"),
                 "refresh": refresh_report,
             }
-            atomic_json(OUT_DIR / "daily_summary.json", summary)
             print(json.dumps(summary, ensure_ascii=False, indent=2, default=str))
             return 1
-        export_result = cmd_export_product_subset(
-            frontend_bundle=pass_frontend_bundle,
-        )
+        export_result = cmd_export_product_subset()
         if int(export_result.get("cards") or 0) != int(counts.get("members") or -1):
             raise RuntimeError("product export does not contain the full active universe")
         OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -2461,7 +2394,6 @@ def cmd_daily(
             "action": "pass",
             "productExport": export_result,
             "imagePolicy": export_result["imagePolicy"],
-            "frontendBundle": export_result["frontendBundle"],
             "universe": (status or {}).get("universe"),
             "refresh": refresh_report,
             "promote": {
@@ -2489,8 +2421,6 @@ def cmd_daily(
             "refresh": refresh_report,
             "next": "Fix gaps/candidates, then rerun with --pass after DADDY approval to export product subset",
         }
-        OUT_DIR.mkdir(parents=True, exist_ok=True)
-        atomic_json(OUT_DIR / "daily_summary.json", summary)
         print(json.dumps(summary, ensure_ascii=False, indent=2, default=str))
     return 0 if refresh_report.get("ok") is not False else 1
 
@@ -2499,15 +2429,79 @@ def cmd_daily(
 
 
 
-def cmd_db_tidy():
-    """Apply new-era warehouse migration + quarantine banned sources."""
+def cmd_daily(
+    *,
+    do_pass: bool = False,
+    refresh: bool = False,
+    refresh_report_path: Path | None = None,
+):
+    with operator_e2e_lease("daily"):
+        return _cmd_daily_unlocked(
+            do_pass=do_pass,
+            refresh=refresh,
+            refresh_report_path=refresh_report_path,
+        )
+
+
+def cmd_db_tidy(*, snk_history_archive_dir: Path | None, project_ingested_history: bool):
+    """Ingest local history when requested, then rebuild canonical projections."""
     import subprocess
+    load_env()
+    if not project_ingested_history and (
+        snk_history_archive_dir is None or not snk_history_archive_dir.is_dir()
+    ):
+        raise RuntimeError(f"SNK history archive directory missing: {snk_history_archive_dir}")
     py = sys.executable
-    script = ROOT / "pipelines" / "new_era_db_tidy.py"
-    r = subprocess.run([py, "-X", "utf8", str(script)], cwd=str(ROOT))
-    if r.returncode != 0:
-        raise SystemExit(r.returncode)
-    return 0
+    commands = [[
+        py,
+        "-X",
+        "utf8",
+        str(ROOT / "pipelines" / "db_runtime.py"),
+        "migrate",
+        "--only",
+        "032_pricecharting_local_history_merge.mysql.sql",
+    ]]
+    if not project_ingested_history:
+        commands.append([
+            py,
+            "-X",
+            "utf8",
+            str(ROOT / "pipelines" / "snk_market_data.py"),
+            "--ingest-archive-dir",
+            str(snk_history_archive_dir),
+        ])
+    commands.append([py, "-X", "utf8", str(ROOT / "pipelines" / "new_era_db_tidy.py")])
+    with operator_e2e_lease("db-tidy"):
+        for index, command in enumerate(commands, start=1):
+            print(
+                json.dumps(
+                    {
+                        "phase": "db-tidy-child-start",
+                        "step": index,
+                        "steps": len(commands),
+                        "entrypoint": Path(command[3]).name,
+                        "at": utc_now(),
+                    },
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
+            result = subprocess.run(command, cwd=str(ROOT))
+            print(
+                json.dumps(
+                    {
+                        "phase": "db-tidy-child-finish",
+                        "step": index,
+                        "returncode": result.returncode,
+                        "at": utc_now(),
+                    },
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
+            if result.returncode != 0:
+                raise SystemExit(result.returncode)
+        return 0
 
 
 def main() -> int:
@@ -2528,7 +2522,7 @@ def main() -> int:
     p_prod.add_argument("--output", type=Path)
     sub.add_parser(
         "snk-image-priority-status",
-        help="read-only Top-100 SNK image eligibility and switch count",
+        help="read-only 026 cohort-wide canonical SNK EN image status",
     )
     p_promote = sub.add_parser(
         "promote-product-subset",
@@ -2553,29 +2547,27 @@ def main() -> int:
     )
     p_freeze_launch.add_argument("--actor", required=True)
     p_freeze_launch.add_argument("--authorization-note", required=True)
-    p_finalize = sub.add_parser(
-        "finalize-pass-from-checkpoints",
-        help="finalize the one formal run using durable targeted receipts; no network",
-    )
-    p_finalize.add_argument("--formal-receipt", type=Path, default=FORMAL_REFRESH_RECEIPT)
-    p_finalize.add_argument("--targeted-receipt", type=Path, default=TARGETED_REFRESH_RECEIPT)
-    p_finalize.add_argument("--snk-resume-receipt", type=Path, default=SNK_RESUME_RECEIPT)
-    p_finalize.add_argument(
-        "--snk-binding-delta-receipt",
-        type=Path,
-        default=SNK_BINDING_DELTA_RECEIPT,
-    )
     p_cand = sub.add_parser("scan-candidates", help="PSA10 pop>=1000 candidate scan + human attention")
     p_cand.add_argument("--min-pop", type=int, default=1000)
     p_daily = sub.add_parser("daily", help="daily candidates+gaps; --pass exports product subset receipt")
-    sub.add_parser("db-tidy", help="apply new-era warehouse + quarantine banned sources")
+    p_tidy = sub.add_parser("db-tidy", help="replay exact local market history + rebuild current projections")
+    p_tidy.add_argument(
+        "--snk-history-archive-dir",
+        type=Path,
+        help="directory containing complete snk[_price]_harvest*.jsonl source batches",
+    )
+    p_tidy.add_argument(
+        "--project-ingested-history",
+        action="store_true",
+        help="rebuild from a successfully ingested local archive without replaying it",
+    )
     p_daily.add_argument("--pass", dest="do_pass", action="store_true", help="DADDY pass: export product subset + promote receipt")
     refresh_group = p_daily.add_mutually_exclusive_group()
     refresh_group.add_argument("--refresh", action="store_true", help="run collect_control status+incr (real exact-id harvest, not --help)")
     refresh_group.add_argument(
         "--refresh-report",
         type=Path,
-        help="reuse one already-completed five-adapter refresh receipt; performs no network work",
+        help="reuse one already-completed six-adapter refresh receipt; performs no network work",
     )
     args = parser.parse_args()
     if args.cmd == "status":
@@ -2609,13 +2601,6 @@ def main() -> int:
             actor=args.actor,
             authorization_note=args.authorization_note,
         )
-    elif args.cmd == "finalize-pass-from-checkpoints":
-        cmd_finalize_pass_from_checkpoints(
-            formal_receipt_path=args.formal_receipt,
-            targeted_receipt_path=args.targeted_receipt,
-            snk_resume_path=args.snk_resume_receipt,
-            snk_binding_delta_path=args.snk_binding_delta_receipt,
-        )
     elif args.cmd == "scan-candidates":
         cmd_scan_candidates(min_pop=args.min_pop)
     elif args.cmd == "daily":
@@ -2625,7 +2610,10 @@ def main() -> int:
             refresh_report_path=args.refresh_report,
         )
     elif args.cmd == "db-tidy":
-        cmd_db_tidy()
+        cmd_db_tidy(
+            snk_history_archive_dir=args.snk_history_archive_dir,
+            project_ingested_history=args.project_ingested_history,
+        )
     else:
         raise SystemExit(f"unknown command: {args.cmd}")
     return 0

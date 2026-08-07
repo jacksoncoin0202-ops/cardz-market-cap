@@ -1,40 +1,21 @@
-# Build context 係 repo root（apps/web/Dockerfile 要食 npm workspaces + data/public）。
-# data/ 有 6.8 GB、根目錄有 .env.private —— 所以 deny-all 再逐項放行，唔用黑名單。
 *
-
 !package.json
 !package-lock.json
 !.npmrc
 !tsconfig.base.json
-
 !apps
-apps/*
 !apps/web
 apps/web/node_modules
 apps/web/.next
-apps/web/.open-next
-apps/web/.wrangler
-# sync-snapshot.mjs 會喺 build 期重新生成，唔使抄 81 MB 入 context
-apps/web/public/market-assets
-
 !packages
 packages/*/node_modules
 packages/*/dist
-
-# build 期真正要嘅只有四樣（snapshot.ts 三個 static import + sync-snapshot.mjs 嘅圖），
-# 其餘 data/ 6.8 GB 一律唔入 context。
 !data
 data/*
 !data/public
 data/public/*
 !data/public/seed-snapshot.json
 !data/public/market-assets
-!data/editorial
-data/editorial/*
-!data/editorial/top100-stories.json
-!data/editorial/set-names.json
-
 **/node_modules
 **/.git
 **/*.log
-**/.DS_Store

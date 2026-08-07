@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "kind": "cardz-onetime-025-dependency-lock",
+  "immutable": true,
+  "generationId": "product_subset_20260804T151703Z",
+  "baselineSnapshot": {
+    "path": "data/public/generations/product_subset_20260804T151703Z/seed-snapshot.json",
+    "sha256": "4edcf4444b32132894b4f6df09a39b800f14987e8a663cd1eea551ea1291b4d0"
+  },
+  "baselineReleaseLock": {
+    "path": "data/release-locks/product_subset_20260804T151703Z/release-lock.json",
+    "sha256": "86cc3ca348b6c1670e10a393753eaa50ab3ba3de0b94589751082147dec2c17e"
+  },
+  "baselineAssetManifest": {
+    "path": "data/release-locks/product_subset_20260804T151703Z/asset-manifest.json",
+    "sha256": "a5628b0ff1cf75b3cff4cae4b84d07899b377c1f2ca0cf9250b01ed08339f4b9"
+  },
+  "baselineImageLineage": {
+    "path": "data/release-locks/product_subset_20260804T151703Z/baseline-image-lineage.json",
+    "sha256": "54c75671c59c48e7db5fa254b3270d870583120b74203b9c37fdf2a0d3006688",
+    "mappingSha256": "ea366eae887ed849eb296014b41981624dfc4d362c503eb59c5e6d236edd89af",
+    "originalMaterializationReceiptSha256": "f76fd59a892f6cff941a6ab047b6545179c0f6e743c4c8789fcccebb1522935f"
+  },
+  "pythonRequirements": {
+    "path": "pipelines/requirements.txt",
+    "sha256": "234db61d17af2ba44112e65e222c611f7624b4bfca16d2d092d707dd2afcf324"
+  }
+}

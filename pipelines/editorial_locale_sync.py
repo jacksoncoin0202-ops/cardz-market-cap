@@ -89,6 +89,7 @@ class LocaleRow:
     variant_id: int
     locale_code: str
     story: str
+    observed_at: datetime
 
     @property
     def story_sha256(self) -> str:
@@ -144,15 +145,22 @@ def defect(variant_id: int, stories: Mapping[str, Any], english: str | None) -> 
     return None
 
 
-def load_batches(pattern: str) -> tuple[dict[int, dict[str, str]], list[int], list[str]]:
+def load_batches(
+    pattern: str,
+) -> tuple[dict[int, dict[str, str]], dict[int, datetime], list[int], list[str]]:
     """讀曬批次檔，回 (譯文表, 重複 variantId, 讀過嘅檔)。"""
 
     incoming: dict[int, dict[str, str]] = {}
     collisions: list[int] = []
     files: list[str] = []
+    observed_by_variant: dict[int, datetime] = {}
     for path in sorted(glob.glob(pattern)):
-        files.append(Path(path).name)
-        document = json.loads(Path(path).read_text(encoding="utf-8"))
+        source_path = Path(path)
+        files.append(source_path.name)
+        observed_at = datetime.fromtimestamp(
+            source_path.stat().st_mtime, tz=timezone.utc
+        ).replace(tzinfo=None)
+        document = json.loads(source_path.read_text(encoding="utf-8"))
         rows = document.get("cards") if isinstance(document, Mapping) else document
         if not isinstance(rows, list):
             raise TranslationContractError(f"{path}：頂層唔係 list 又冇 `cards`")
@@ -163,7 +171,8 @@ def load_batches(pattern: str) -> tuple[dict[int, dict[str, str]], list[int], li
             if variant_id in incoming:
                 collisions.append(variant_id)
             incoming[variant_id] = read_translations(row)
-    return incoming, collisions, files
+            observed_by_variant[variant_id] = observed_at
+    return incoming, observed_by_variant, collisions, files
 
 
 def load_english(connection: Any, variant_ids: Sequence[int]) -> dict[int, str]:
@@ -194,7 +203,7 @@ def known_variants(connection: Any, variant_ids: Sequence[int]) -> set[int]:
 
 
 def collect(connection: Any, pattern: str) -> tuple[list[LocaleRow], dict[str, Any]]:
-    incoming, collisions, files = load_batches(pattern)
+    incoming, observed_by_variant, collisions, files = load_batches(pattern)
     variant_ids = sorted(incoming)
     english = load_english(connection, variant_ids)
     known = known_variants(connection, variant_ids)
@@ -218,6 +227,7 @@ def collect(connection: Any, pattern: str) -> tuple[list[LocaleRow], dict[str, A
                     variant_id=variant_id,
                     locale_code=locale,
                     story=str(stories[locale]).strip(),
+                    observed_at=observed_by_variant[variant_id],
                 )
             )
 
@@ -266,11 +276,23 @@ def write_all(connection: Any, rows: Sequence[LocaleRow], stats: Mapping[str, An
 
         cursor.executemany(
             """
-            INSERT INTO catalog_variant_locale (variant_id, locale_code, market_story)
-            VALUES (%s, %s, %s)
-            ON DUPLICATE KEY UPDATE market_story=VALUES(market_story)
+            INSERT INTO catalog_variant_locale
+                (variant_id, locale_code, market_story, provenance_source_code,
+                 content_sha256, observed_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                market_story=VALUES(market_story),
+                provenance_source_code=VALUES(provenance_source_code),
+                content_sha256=VALUES(content_sha256),
+                observed_at=VALUES(observed_at)
             """,
-            [(r.variant_id, r.locale_code, r.story) for r in rows],
+            [
+                (
+                    r.variant_id, r.locale_code, r.story, SOURCE_CODE,
+                    r.story_sha256, r.observed_at,
+                )
+                for r in rows
+            ],
         )
         cursor.execute(
             """

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "contract": "canonical-printing-repair-026-v1",
+  "entries": [
+    {
+      "variantId": 910,
+      "opaqueId": "cmc_51dbab1d0cede988c65e5f81",
+      "tcgCode": "pokemon",
+      "collectorNumber": "24",
+      "setNameContains": "Celebrations",
+      "fromCardLanguage": "ja",
+      "toCardLanguage": "en",
+      "requiredExactSources": [
+        "gemrate",
+        "pricecharting"
+      ],
+      "rejectExactSources": [
+        "snkrdunk"
+      ],
+      "pricechartingPathSuffix": "/game/pokemon-celebrations/pikachu-birthday-24",
+      "officialFullName": "2021 Pokemon Celebrations Classic Collection Birthday Pikachu-Holo Base 24",
+      "reason": "Canonical language conflicted with the exact GemRate printing and exact PriceCharting English product; the prior SNK candidate was a different Japanese printing."
+    }
+  ]
+}

@@ -41,9 +41,6 @@ from g10_ingest import (
     sha256_file,
     load_landing_replay,
 )
-from verify_images import referenced_asset_names
-
-
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SOURCE = ROOT / "integrations" / "grade10" / "data"
 DEFAULT_KADO = ROOT / "data" / "private" / "kado"
@@ -57,6 +54,20 @@ QUARANTINE_MANIFEST_NAME = "quarantine-manifest.json"
 WINDOWS = ("1d", "7d", "30d")
 LOCALES = ("en", "zhTW", "zhCN", "ja")
 PRIVATE_TOKENS = ("g10_", "grade10", "gemrate", "snkrdunk", "altxyz", "ebay", "http://", "https://")
+
+
+def referenced_asset_names(snapshot: Mapping[str, Any]) -> set[str]:
+    names: set[str] = set()
+    for card in [*snapshot.get("top100", []), *snapshot.get("watchlist", [])]:
+        image = card.get("image") or {}
+        references = [image.get("src")]
+        variants = image.get("variants")
+        if isinstance(variants, Mapping):
+            references.extend(variants.values())
+        for reference in references:
+            if isinstance(reference, str) and reference:
+                names.add(Path(reference).name)
+    return names
 
 
 @dataclass(frozen=True)

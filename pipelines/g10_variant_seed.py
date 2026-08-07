@@ -73,7 +73,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
@@ -125,6 +125,11 @@ class SeedRow:
     canonical_name: str
     set_name: str
     collector_number: str
+    source_product_number: str
+    set_code: str
+    printing_code: str
+    rarity_code: str
+    provider_claims: Mapping[str, Any]
     evidence_sha256: str
     source_path: str
     # 撞到現有 variant 就填佢個 id，開新卡就 None
@@ -231,6 +236,21 @@ def scan(
         set_name = str(asset.get("setName") or "").strip()
         collector_raw = str(asset.get("cardId") or "").strip()
         raw_language = str(asset.get("language") or "").strip().casefold()
+        set_code = str(asset.get("setCode") or "").strip()
+        printing_code = str(asset.get("printingCode") or "").strip()
+        rarity_code = str(asset.get("rarityCode") or "").strip()
+        provider_claims = {
+            "provider": PROVIDER,
+            "externalEntityId": eid,
+            "cardName": name,
+            "setName": set_name,
+            "productNumber": collector_raw,
+            "language": raw_language,
+            "setCode": set_code or None,
+            "printingCode": printing_code or None,
+            "rarityCode": rarity_code or None,
+            "sourcePath": str(asset_path.relative_to(g10_root.parent.parent)).replace("\\", "/"),
+        }
 
         # `cardId` 唔喺必要欄位入面：實測 18 張 1996–2001 老日版卡（初版 Expansion Pack
         # Charizard / Mewtwo / Blastoise、Rocket Gang Dark Charizard、Mystery of the
@@ -286,6 +306,12 @@ def scan(
         if len(name) > MAX_NAME_CHARS or len(set_name) > MAX_NAME_CHARS:
             stats["quarantined"] += 1
             skipped.append(Skipped(eid, "g10_field_too_long", evidence, "卡名/系列名超過 255 字"))
+            continue
+        if any(len(value) > 64 for value in (set_code, printing_code, rarity_code)):
+            stats["quarantined"] += 1
+            skipped.append(
+                Skipped(eid, "g10_provider_code_too_long", evidence, "provider printing code 超過 64 字")
+            )
             continue
         if len(collector.display) > MAX_COLLECTOR_CHARS:
             stats["quarantined"] += 1
@@ -346,6 +372,11 @@ def scan(
                 canonical_name=name,
                 set_name=set_name,
                 collector_number=collector.display,
+                source_product_number=collector_raw,
+                set_code=set_code,
+                printing_code=printing_code,
+                rarity_code=rarity_code,
+                provider_claims=provider_claims,
                 evidence_sha256=evidence,
                 source_path=str(asset_path.relative_to(g10_root.parent.parent)).replace("\\", "/"),
                 existing_variant_id=existing_id,
@@ -402,8 +433,8 @@ def write_all(connection: Any, rows: list[SeedRow], skipped: list[Skipped], stat
                     """
                     INSERT INTO catalog_variant
                         (opaque_id, tcg_code, card_language, canonical_name, set_name,
-                         collector_number, identity_status)
-                    VALUES (%s, %s, %s, %s, %s, %s, 'confirmed')
+                         set_code, printing_code, rarity_code, collector_number, identity_status)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'confirmed')
                     """,
                     (
                         row.opaque,
@@ -411,6 +442,9 @@ def write_all(connection: Any, rows: list[SeedRow], skipped: list[Skipped], stat
                         row.card_language,
                         row.canonical_name,
                         row.set_name,
+                        row.set_code,
+                        row.printing_code,
+                        row.rarity_code,
                         row.collector_number,
                     ),
                 )
@@ -419,12 +453,38 @@ def write_all(connection: Any, rows: list[SeedRow], skipped: list[Skipped], stat
             cursor.execute(
                 """
                 INSERT INTO catalog_source_identity
-                    (source_code, external_entity_id, variant_id, match_status, evidence_sha256)
-                VALUES (%s, %s, %s, %s, %s)
+                    (source_code, external_entity_id, variant_id, match_status, evidence_sha256,
+                     source_product_number, bound_set_code, bound_printing_code, bind_evidence_json)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
-                    variant_id=VALUES(variant_id), evidence_sha256=VALUES(evidence_sha256)
+                    variant_id=VALUES(variant_id), evidence_sha256=VALUES(evidence_sha256),
+                    source_product_number=CASE
+                        WHEN VALUES(source_product_number)<>'' THEN VALUES(source_product_number)
+                        ELSE source_product_number END,
+                    bound_set_code=CASE
+                        WHEN VALUES(bound_set_code)<>'' THEN VALUES(bound_set_code)
+                        ELSE bound_set_code END,
+                    bound_printing_code=CASE
+                        WHEN VALUES(bound_printing_code)<>'' THEN VALUES(bound_printing_code)
+                        ELSE bound_printing_code END,
+                    bind_evidence_json=VALUES(bind_evidence_json)
                 """,
-                (IDENTITY_SOURCE, row.external_entity_id, variant_id, row.resolution, row.evidence_sha256),
+                (
+                    IDENTITY_SOURCE, row.external_entity_id, variant_id, row.resolution,
+                    row.evidence_sha256, row.source_product_number, row.set_code,
+                    row.printing_code,
+                    json.dumps(
+                        {
+                            "schemaVersion": 1,
+                            "matchMethod": row.resolution,
+                            "providerClaims": row.provider_claims,
+                            "sourcePayloadSha256": row.evidence_sha256,
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                ),
             )
 
         if skipped:

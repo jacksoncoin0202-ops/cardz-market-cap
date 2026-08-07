@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 2,
+  "contract": "active-762-exact-identity-repair-031-v1",
+  "canonicalCorrections": [],
+  "decisions": [
+    {
+      "variantId": 958,
+      "sourceCode": "pricecharting",
+      "externalId": "11018417",
+      "action": "replace",
+      "replacesExternalId": "13256449",
+      "sourceProductNumber": "11018417",
+      "canonical": {
+        "tcgCode": "one-piece",
+        "cardLanguage": "en",
+        "collectorNumber": "opcd-093",
+        "setCode": "OP13",
+        "editionCode": "booster pack carrying on his will",
+        "printingCode": "",
+        "parallelCode": "super parallel",
+        "finishCode": "foil"
+      },
+      "provider": {
+        "tcgCode": "one-piece",
+        "cardLanguage": "en",
+        "collectorNumber": "opcd-093",
+        "setCode": "OP13",
+        "editionCode": "booster pack carrying on his will",
+        "printingCode": "",
+        "parallelCode": "super parallel",
+        "finishCode": "foil"
+      },
+      "evidence": {
+        "type": "pricecharting_product_html",
+        "path": "../cardz-market-cap/data/private/pricecharting_session/html/full900/958_don-card-gold-alternate-art_r.html",
+        "sha256": "4229eec9c59bbfce03ea9892f5ee3f033f88701ee3599e565e88c7c24e15f5db"
+      },
+      "reason": "local exact PriceCharting Gold Alternate Art page replaces the conflicting Dodgers promo product"
+    }
+  ]
+}

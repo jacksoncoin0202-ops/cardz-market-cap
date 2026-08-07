@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
 import time
 from datetime import datetime, timezone
+from html import unescape
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -21,6 +23,7 @@ from playwright.sync_api import sync_playwright
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 from pricecharting_cf_session import _is_cf  # noqa: E402
+from pc_psa10_price_derivation import validate_pc_psa10  # noqa: E402
 
 MAP = ROOT / "data/runtime/private-source-map/c11_pc_ebay_map_full900.jsonl"
 OUT = ROOT / "data/runtime/operator/collect/pc_cdp_refresh_report.json"
@@ -29,6 +32,22 @@ PY_WSL = "wsl.exe"
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def canonical_url_from_html(value: str) -> str:
+    patterns = (
+        r'<link[^>]+rel=["\']canonical["\'][^>]+href=["\']([^"\']+)["\']',
+        r'<link[^>]+href=["\']([^"\']+)["\'][^>]+rel=["\']canonical["\']',
+    )
+    for pattern in patterns:
+        match = re.search(pattern, value, re.I)
+        if match:
+            return unescape(match.group(1)).rstrip("/")
+    return ""
+
+
+def url_key(value: str) -> str:
+    return unescape(str(value or "")).rstrip("/")
 
 
 def ensure_cdp(port: int = 9222) -> None:
@@ -52,6 +71,11 @@ def main() -> int:
     )
     ap.add_argument("--cdp-port", type=int, default=9333)
     ap.add_argument(
+        "--cdp-already-ensured",
+        action="store_true",
+        help="caller already started the singleton CARDZ CDP session while holding its adapter leases",
+    )
+    ap.add_argument(
         "--resume-report",
         type=Path,
         help="reuse only previously successful exact-ID pages from this durable report",
@@ -64,7 +88,8 @@ def main() -> int:
     ap.add_argument("--no-ingest", action="store_true")
     args = ap.parse_args()
 
-    ensure_cdp(args.cdp_port)
+    if not args.cdp_already_ensured:
+        ensure_cdp(args.cdp_port)
     rows = [json.loads(l) for l in MAP.read_text(encoding="utf-8").splitlines() if l.strip()]
     requested_ids: list[int] = []
     if args.variant_ids_file:
@@ -105,12 +130,14 @@ def main() -> int:
             html = html_path.read_text(encoding="utf-8", errors="replace") if html_path.is_file() else ""
             product_match = re.search(r'\bproduct-id=["\'](\d+)["\']', html, re.I)
             actual_product_id = product_match.group(1) if product_match else ""
+            canonical_url = canonical_url_from_html(html)
             title_match = re.search(r"<title>(.*?)</title>", html, re.I | re.S)
             title = (title_match.group(1) if title_match else "").strip()
             if (
                 len(html) <= 5000
                 or _is_cf(title, html)
                 or actual_product_id != expected_product_id
+                or canonical_url != url_key(row.get("pc_url"))
                 or int(prior.get("len") or -1) != len(html)
             ):
                 raise RuntimeError(f"resume artifact no longer matches exact product for variant {variant_id}")
@@ -144,7 +171,12 @@ def main() -> int:
         if page is not None:
             for pending_index, row in enumerate(pending_batch, 1):
                 i = len(reused_results) + pending_index
-                url = row.get("pc_url")
+                # Map URLs originate in HTML and may therefore contain
+                # ``&amp;`` inside a path segment. Playwright needs the decoded
+                # URL; otherwise PriceCharting redirects the exact product to
+                # a search result whose product id happens to be present but
+                # whose canonical URL is not the bound product URL.
+                url = unescape(str(row.get("pc_url") or ""))
                 html_rel = row.get("html_path") or row.get("htmlPath")
                 if not url or not html_rel:
                     fail += 1
@@ -171,6 +203,7 @@ def main() -> int:
                 expected_product_id = str(row.get("pc_product_id") or "").strip()
                 product_match = re.search(r'\bproduct-id=["\'](\d+)["\']', html, re.I)
                 actual_product_id = product_match.group(1) if product_match else ""
+                canonical_url = canonical_url_from_html(html)
                 blocked = _is_cf(title, html) if html else True
                 challenge_resolved = False
                 if code == 403 and blocked and args.challenge_wait > 0:
@@ -181,21 +214,42 @@ def main() -> int:
                         title = page.title().strip()
                         product_match = re.search(r'\bproduct-id=["\'](\d+)["\']', html, re.I)
                         actual_product_id = product_match.group(1) if product_match else ""
+                        canonical_url = canonical_url_from_html(html)
                         blocked = _is_cf(title, html) if html else True
                         if (
                             len(html) > 5000
                             and not blocked
                             and actual_product_id == expected_product_id
+                            and canonical_url == url_key(url)
                             and page.url == url
                         ):
                             challenge_resolved = True
                             break
-                out.write_text(html, encoding="utf-8", errors="replace")
-                identity_ok = bool(expected_product_id) and actual_product_id == expected_product_id
-                if (code == 200 or challenge_resolved) and len(html) > 5000 and not blocked and identity_ok:
+                identity_ok = (
+                    bool(expected_product_id)
+                    and actual_product_id == expected_product_id
+                    and canonical_url == url_key(url)
+                )
+                temporary = out.with_name(f".{out.name}.{os.getpid()}.next")
+                temporary.write_text(html, encoding="utf-8", errors="replace")
+                validation_row = dict(row)
+                validation_row.pop("htmlPath", None)
+                validation_row["html_path"] = str(temporary)
+                validation_row["notes"] = ""
+                exact_price, exact_reason = validate_pc_psa10(validation_row)
+                explicit_psa10_ok = exact_price is not None
+                if (
+                    (code == 200 or challenge_resolved)
+                    and len(html) > 5000
+                    and not blocked
+                    and identity_ok
+                    and explicit_psa10_ok
+                ):
+                    os.replace(temporary, out)
                     ok += 1
                     status = "ok"
                 else:
+                    temporary.unlink(missing_ok=True)
                     if code == 429:
                         rate_limited += 1
                         fail += 1
@@ -203,6 +257,9 @@ def main() -> int:
                     elif blocked:
                         cf += 1
                         status = "cf_or_fail"
+                    elif identity_ok and not explicit_psa10_ok:
+                        fail += 1
+                        status = "explicit_psa10_missing"
                     else:
                         fail += 1
                         status = "product_id_mismatch" if not identity_ok else "http_or_content_fail"
@@ -214,6 +271,9 @@ def main() -> int:
                     "title": title[:80],
                     "expectedProductId": expected_product_id or None,
                     "actualProductId": actual_product_id or None,
+                    "actualCanonicalUrl": canonical_url or None,
+                    "explicitPsa10": explicit_psa10_ok,
+                    "explicitPsa10Reason": exact_reason,
                     "retryAfter": retry_after,
                     "challengeResolved": challenge_resolved,
                 })

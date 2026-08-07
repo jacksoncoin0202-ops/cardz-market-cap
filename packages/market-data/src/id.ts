@@ -6,5 +6,7 @@ export function canonicalPublicId(parts: readonly string[]): string {
 }
 
 export function isOpaquePublicId(value: string): boolean {
-  return /^cmc_[0-9a-f]{24}$/.test(value);
+  // Three locked legacy cards already shipped with the original 80-bit form.
+  // Keep both immutable public-id generations valid; never rewrite a live card id.
+  return /^cmc_(?:[0-9a-f]{20}|[0-9a-f]{24})$/.test(value);
 }

@@ -47,6 +47,15 @@ CANVAS_W = 429
 CANVAS_H = 600
 CANVAS_FILL = 0.985    # 卡佔畫布高度比例（留 ~0.75% 呼吸位，同梵高原圖觀感一致）
 NORMALIZED_MARKER = f"std-{CANVAS_W}x{CANVAS_H}"
+SNK_EN_TRANSFORM = {
+    "contract": "snk-en-default-image-v1",
+    "operation": "normalize_card_canvas",
+    "canvas": [CANVAS_W, CANVAS_H],
+    "fill": CANVAS_FILL,
+    "encoding": {"format": "webp", "lossless": True, "method": 6},
+    "alpha": "preserved",
+    "rawFrontGate": "official-en-product-page-default-v1",
+}
 
 
 @dataclass(frozen=True)
@@ -60,6 +69,18 @@ class NativeCandidate:
 class NativeImageResult:
     image_block: dict[str, Any]
     source: str
+
+
+@dataclass(frozen=True)
+class ProcessedSnkDefaultImage:
+    content: bytes
+    content_sha256: str
+    width: int
+    height: int
+    mime_type: str
+    transform: dict[str, Any]
+    transform_sha256: str
+    qc_version: str
 
 
 def is_native_rounded(raw: bytes) -> bool:
@@ -187,6 +208,46 @@ def store_native_image(raw: bytes, alt: str) -> dict[str, Any]:
     with Image.open(io.BytesIO(raw)) as opened:
         image = opened.copy()
     return _write_image_block(normalize_card_canvas(image), alt)
+
+
+def process_snk_default_image(raw: bytes) -> ProcessedSnkDefaultImage:
+    """Validate and normalize exact SNK default-image bytes without writing files.
+
+    The collector owns the sequential asset/DB write.  Keeping this helper pure
+    lets bounded HTTP readers prepare bytes concurrently without creating a
+    second writer. Exact EN product-page/default-media authority replaces the
+    legacy transparent-corner eligibility gate; decode and canvas
+    normalization remain mandatory.
+    """
+
+    if not raw:
+        raise ValueError("SNK default image is empty")
+    with Image.open(io.BytesIO(raw)) as opened:
+        normalized = normalize_card_canvas(opened.copy())
+    # Exact EN-storefront primary media can legitimately be opaque, square,
+    # irregular, or a card on a wider canvas. Preserve that official source
+    # shape rather than manufacturing or testing transparent corners.
+    content = g10._save_webp(normalized, 92)
+    content_sha256 = hashlib.sha256(content).hexdigest()
+    transform = dict(SNK_EN_TRANSFORM)
+    transform_sha256 = hashlib.sha256(
+        json.dumps(
+            transform,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    return ProcessedSnkDefaultImage(
+        content=content,
+        content_sha256=content_sha256,
+        width=normalized.width,
+        height=normalized.height,
+        mime_type="image/webp",
+        transform=transform,
+        transform_sha256=transform_sha256,
+        qc_version="snk-en-default-v1",
+    )
 
 
 def store_normalized_image(raw: bytes, alt: str) -> dict[str, Any] | None:

@@ -25,10 +25,9 @@ export function Header() {
   return (
     <header className="site-header">
       <div className="header-inner">
-        <Link className="brand" href={href("/")} aria-label="CardZ Marketcap">
-          {/* 淺色 logo 用透明底、深色 logo 已含底色，唔駛靠 CSS filter 切換 */}
-          <img className="brand-logo" src="/brand/logo-horizontal-light-512.png" alt="CardZ Marketcap" />
-          <img className="brand-logo brand-logo-dark" src="/brand/logo-horizontal-dark-512.png" alt="" aria-hidden="true" />
+        <Link className="brand" href={href("/")} aria-label="CardZ Marketcap Beta">
+          <img className="brand-logo brand-logo-fe02" src="/brand/logo-fe02-cardzmarketcap.png" alt="Cardz Marketcap" />
+          <span className="brand-beta" aria-label="Beta">BETA</span>
         </Link>
         <nav className="primary-nav" aria-label="Primary">
           {links.map((link) => (

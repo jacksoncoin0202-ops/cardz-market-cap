@@ -244,8 +244,18 @@ def load_identity_map(connection: Any) -> dict[tuple[str, str], int]:
 
     with connection.cursor() as cursor:
         cursor.execute(
-            "SELECT variant_id, source_code, external_entity_id FROM catalog_source_identity "
-            "WHERE source_code IN ('ebay','snkrdunk')"
+            """
+            SELECT identity.variant_id, identity.source_code, identity.external_entity_id
+            FROM catalog_source_identity AS identity
+            INNER JOIN operator_binding_freeze AS freeze
+              ON freeze.variant_id=identity.variant_id
+             AND freeze.freeze_kind='source'
+             AND freeze.source_code=identity.source_code
+             AND freeze.external_entity_id=identity.external_entity_id
+             AND freeze.acceptance_status='accepted'
+            WHERE identity.source_code='ebay'
+              AND identity.match_status='exact'
+            """
         )
         rows = cursor.fetchall()
     by_source = {source: provider for provider, source in PROVIDER_IDENTITY_SOURCE.items()}
@@ -367,13 +377,35 @@ def daily_price_rows(rows: Iterable[SaleRow]) -> list[dict[str, Any]]:
         grouped[(row.variant_id, row.sold_at.date())].append(row)
     output: list[dict[str, Any]] = []
     for (variant_id, observed_date), bucket in sorted(grouped.items()):
+        external_ids = {row.external_entity_id for row in bucket}
+        if len(external_ids) != 1:
+            raise ValueError(
+                f"ambiguous eBay provider identity for variant {variant_id} on {observed_date}"
+            )
+        external_entity_id = next(iter(external_ids))
+        fingerprints = sorted(row.fingerprint for row in bucket)
+        price_usd = median_usd([row.unit_price_usd for row in bucket])
+        effective_at = max(row.fetched_at for row in bucket)
+        payload = {
+            "source": SOURCE_CODE,
+            "externalEntityId": external_entity_id,
+            "observationKind": "sale_psa10_daily_median",
+            "observedDate": observed_date.isoformat(),
+            "priceUsd": str(price_usd),
+            "transactionFingerprints": fingerprints,
+            "sourcePayloadSha256s": sorted({row.source_payload_sha256 for row in bucket}),
+        }
+        payload_json = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         output.append(
             {
                 "variant_id": variant_id,
+                "external_entity_id": external_entity_id,
                 "observed_date": observed_date,
-                "price_usd": median_usd([row.unit_price_usd for row in bucket]),
-                "effective_at": max(row.fetched_at for row in bucket),
-                "payload_sha256": sha256_text("\n".join(sorted(row.fingerprint for row in bucket))),
+                "price_usd": price_usd,
+                "effective_at": effective_at,
+                "observed_at": effective_at,
+                "payload_json": payload_json,
+                "payload_sha256": sha256_text(payload_json),
             }
         )
     return output
@@ -460,25 +492,73 @@ def write_all(
                 for row in sales
             ],
         )
+        price_values: list[tuple[Any, ...]] = []
+        for row in prices:
+            cursor.execute(
+                """
+                SELECT COUNT(*) AS n
+                FROM catalog_source_identity AS identity
+                INNER JOIN operator_binding_freeze AS freeze
+                  ON freeze.variant_id=identity.variant_id
+                 AND freeze.freeze_kind='source'
+                 AND freeze.source_code=identity.source_code
+                 AND freeze.external_entity_id=identity.external_entity_id
+                 AND freeze.acceptance_status='accepted'
+                WHERE identity.variant_id=%s AND identity.source_code=%s
+                  AND identity.external_entity_id=%s AND identity.match_status='exact'
+                """,
+                (row["variant_id"], SOURCE_CODE, row["external_entity_id"]),
+            )
+            if int(cursor.fetchone()["n"]) != 1:
+                raise ValueError(
+                    "eBay price identity is missing, ambiguous, or not accepted: "
+                    f"variant={row['variant_id']} external={row['external_entity_id']}"
+                )
+            cursor.execute(
+                """
+                INSERT INTO market_source_observation
+                    (run_id, source_code, external_entity_id, observation_kind, effective_at,
+                     observed_date, payload_sha256, payload_json, observed_at)
+                VALUES (%s, %s, %s, 'sale_psa10_daily_median', %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    id=LAST_INSERT_ID(id), run_id=VALUES(run_id),
+                    effective_at=VALUES(effective_at), payload_json=VALUES(payload_json),
+                    observed_at=VALUES(observed_at)
+                """,
+                (
+                    run_id, SOURCE_CODE, row["external_entity_id"], row["effective_at"],
+                    row["observed_date"], row["payload_sha256"], row["payload_json"],
+                    row["observed_at"],
+                ),
+            )
+            source_observation_id = int(cursor.lastrowid)
+            if source_observation_id <= 0:
+                raise RuntimeError("eBay source observation upsert returned no id")
+            price_values.append(
+                (
+                    run_id, row["variant_id"], SOURCE_CODE, row["external_entity_id"],
+                    source_observation_id, row["observed_date"], row["effective_at"],
+                    str(row["price_usd"]), EBAY_PRICE_PRIORITY, row["payload_sha256"],
+                )
+            )
+
         cursor.executemany(
             """
             INSERT INTO market_price_observation
-                (run_id, variant_id, source_code, observed_date, effective_at, price_usd,
+                (run_id, variant_id, source_code, source_external_entity_id,
+                 source_observation_id, observed_date, effective_at, price_usd,
                  native_price, native_currency, source_priority, metric_status, payload_sha256)
-            VALUES (%s, %s, %s, %s, %s, %s, NULL, NULL, %s, 'ready', %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL, NULL, %s, 'ready', %s)
             ON DUPLICATE KEY UPDATE
-                run_id=VALUES(run_id), effective_at=VALUES(effective_at), price_usd=VALUES(price_usd),
+                run_id=VALUES(run_id),
+                source_external_entity_id=VALUES(source_external_entity_id),
+                source_observation_id=VALUES(source_observation_id),
+                effective_at=VALUES(effective_at), price_usd=VALUES(price_usd),
                 native_price=VALUES(native_price), native_currency=VALUES(native_currency),
                 source_priority=VALUES(source_priority), metric_status=VALUES(metric_status),
                 payload_sha256=VALUES(payload_sha256)
             """,
-            [
-                (
-                    run_id, row["variant_id"], SOURCE_CODE, row["observed_date"], row["effective_at"],
-                    str(row["price_usd"]), EBAY_PRICE_PRIORITY, row["payload_sha256"],
-                )
-                for row in prices
-            ],
+            price_values,
         )
         cursor.execute(
             """

@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "verifiedOn": "2026-08-05",
+  "bindings": [
+    {
+      "variantId": 1743,
+      "sourceCode": "snkrdunk",
+      "externalId": "471523",
+      "externalUrl": "https://snkrdunk.com/en/trading-cards/471523",
+      "expectedCollectorNumber": "OP09-118",
+      "expectedCanonicalName": "2024 One Piece OP09-Emperors in the New World Gol D. Roger Alternate Art OP09-118",
+      "expectedSetName": "One Piece Emperors in the New World OP-09",
+      "expectedLanguageBefore": "en",
+      "expectedPrintingParallelCode": "aa",
+      "verificationMethod": "official_snk_en_product_page_and_master_default",
+      "catalogEvidence": {
+        "itemId": "471523",
+        "productNumber": "OP09-118",
+        "name": "Gol.D.Roger SEC-P [OP09-118] [EN](Booster Pack \"Emperors in the New World\")",
+        "language": "en",
+        "setCode": "OP09",
+        "printingCode": "aa",
+        "defaultImageUrl": "https://cdn.snkrdunk.com/upload_bg_removed/OPC-EN-TCG-OP09-118_p1-of.webp",
+        "productPageSha256": "0766d84ac27e2d62158ea74b2ce14f78a3bdac4b485a6a1563f4c82811c84990"
+      }
+    },
+    {
+      "variantId": 1204,
+      "sourceCode": "snkrdunk",
+      "externalId": "198698",
+      "externalUrl": "https://snkrdunk.com/en/trading-cards/198698",
+      "expectedCollectorNumber": "OP05-119",
+      "expectedCanonicalName": "2023 One Piece Awakening of the New Era Monkey D. Luffy Alternate Art OP05-119",
+      "expectedSetName": "One Piece Awakening of the New Era",
+      "expectedLanguageBefore": "en",
+      "expectedPrintingParallelCode": "aa",
+      "verificationMethod": "official_snk_en_product_page_and_master_default",
+      "catalogEvidence": {
+        "itemId": "198698",
+        "productNumber": "OP05-119",
+        "name": "Monkey.D.Luffy SEC-P [OP05-119] [EN](Booster Pack \"Awakening Of The New Era\")",
+        "language": "en",
+        "setCode": "OP05",
+        "printingCode": "aa",
+        "defaultImageUrl": "https://cdn.snkrdunk.com/upload_bg_removed/OPC-EN-TCG-OP05-119_p1-of.webp",
+        "productPageSha256": "03cad3460e624692aada83c2f1380bf25574117d9f865af77e4c03b23989a819"
+      }
+    },
+    {
+      "variantId": 1203,
+      "sourceCode": "snkrdunk",
+      "externalId": "198702",
+      "externalUrl": "https://snkrdunk.com/en/trading-cards/198702",
+      "expectedCollectorNumber": "OP01-016",
+      "expectedCanonicalName": "2023 One Piece Awakening of the New Era Nami Special Alternate Art OP01-016",
+      "expectedSetName": "One Piece Awakening of the New Era",
+      "expectedLanguageBefore": "en",
+      "expectedPrintingParallelCode": "sec-sp",
+      "verificationMethod": "official_snk_en_product_page_and_master_default",
+      "catalogEvidence": {
+        "itemId": "198702",
+        "productNumber": "OP01-016",
+        "name": "Nami R-SPC [OP01-016] [EN](Booster Pack \"Awakening Of The New Era\")",
+        "language": "en",
+        "setCode": "OP01",
+        "printingCode": "sp",
+        "defaultImageUrl": "https://cdn.snkrdunk.com/upload_bg_removed/20240717064735-0.webp",
+        "productPageSha256": "2fe084e616f7e344a96d76423757a3bff17c7effa63d349ae6072b2f3e65fcb2"
+      }
+    }
+  ]
+}

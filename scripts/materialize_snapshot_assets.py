@@ -5,11 +5,14 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import shutil
 import sys
 from pathlib import Path
 from typing import Any
+
+from PIL import Image, UnidentifiedImageError
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +21,12 @@ sys.path.insert(0, str(ROOT / "pipelines"))
 import build_asset_derivatives as derivatives  # noqa: E402
 import operator_control as operator  # noqa: E402
 from qualified_pool_operator import db, load_env  # noqa: E402
+
+
+EXPECTED_DERIVATIVE_DIMENSIONS = {
+    "200": (200, 280),
+    "600": (429, 600),
+}
 
 
 def sha256_file(path: Path) -> str:
@@ -66,6 +75,47 @@ def source_candidates(private_object_key: str, assets: Path) -> list[Path]:
     return candidates
 
 
+def asset_rebase_reasons(assets: Path, content_hash: str) -> set[str]:
+    reasons: set[str] = set()
+    master = assets / f"{content_hash}.webp"
+    if not master.is_file():
+        return {"master-missing"}
+    if sha256_file(master) != content_hash:
+        reasons.add("master-hash")
+    try:
+        with Image.open(master) as decoded:
+            decoded.load()
+            if decoded.format != "WEBP":
+                reasons.add("master-format")
+    except (OSError, UnidentifiedImageError):
+        reasons.add("master-decode")
+    for suffix, expected_dimensions in EXPECTED_DERIVATIVE_DIMENSIONS.items():
+        derivative = assets / f"{content_hash}_{suffix}.webp"
+        if not derivative.is_file():
+            reasons.add(f"derivative-{suffix}-missing")
+            continue
+        try:
+            with Image.open(derivative) as decoded:
+                decoded.load()
+                if decoded.format != "WEBP":
+                    reasons.add(f"derivative-{suffix}-format")
+                if decoded.size != expected_dimensions:
+                    reasons.add(f"derivative-{suffix}-dimensions")
+        except (OSError, UnidentifiedImageError):
+            reasons.add(f"derivative-{suffix}-decode")
+    return reasons
+
+
+def canonical_master(source: Path) -> bytes:
+    with Image.open(source) as opened:
+        image = opened.copy()
+        image.load()
+        image = image.convert("RGBA" if "A" in image.getbands() else "RGB")
+    output = io.BytesIO()
+    image.save(output, format="WEBP", lossless=True, method=0, exact=True)
+    return output.getvalue()
+
+
 def load_asset_rows(content_hashes: set[str]) -> dict[str, list[dict[str, Any]]]:
     load_env()
     connection = db()
@@ -107,6 +157,15 @@ def main() -> int:
     receipt_path = args.receipt.resolve()
     assets.mkdir(parents=True, exist_ok=True)
     payload, cards, wanted = read_snapshot(snapshot)
+    prior_mapping: dict[str, str] = {}
+    if receipt_path.is_file():
+        prior_receipt = json.loads(receipt_path.read_text(encoding="utf-8-sig"))
+        candidate_mapping = prior_receipt.get("mapping") if isinstance(prior_receipt, dict) else None
+        if isinstance(candidate_mapping, dict):
+            prior_mapping = {
+                str(source_hash): str(public_hash)
+                for source_hash, public_hash in candidate_mapping.items()
+            }
 
     mismatched = {
         content_hash
@@ -140,19 +199,70 @@ def main() -> int:
         if sha256_file(target) != content_hash:
             raise RuntimeError(f"materialized master hash mismatch: {content_hash}")
 
+    reusable_public_hashes = {
+        content_hash: public_hash
+        for content_hash, public_hash in prior_mapping.items()
+        if content_hash in wanted
+        and len(public_hash) == 64
+        and all(
+            (assets / f"{public_hash}{suffix}.webp").is_file()
+            for suffix in ("", "_200", "_600")
+        )
+    }
+    reasons_by_db_hash = {
+        content_hash: (
+            {"receipt-mapped-canonical"}
+            if content_hash in reusable_public_hashes
+            else asset_rebase_reasons(assets, content_hash)
+        )
+        for content_hash in sorted(wanted)
+    }
+    canonical_rebases = {
+        content_hash
+        for content_hash, reasons in reasons_by_db_hash.items()
+        if reasons
+    }
+    reason_counts: dict[str, int] = {}
+    for reasons in reasons_by_db_hash.values():
+        for reason in reasons:
+            reason_counts[reason] = reason_counts.get(reason, 0) + 1
+
     public_hash_by_db_hash: dict[str, str] = {}
+    reused_canonical_rebases = 0
+    derivative_sets_written = 0
     for content_hash in sorted(wanted):
         source = assets / f"{content_hash}.webp"
         if not source.is_file():
             raise RuntimeError(f"public master is still missing: {content_hash}")
-        public_hash = sha256_file(source)
+        if content_hash in canonical_rebases:
+            prior_public_hash = reusable_public_hashes.get(content_hash, "")
+            if prior_public_hash:
+                public_hash_by_db_hash[content_hash] = prior_public_hash
+                reused_canonical_rebases += 1
+                continue
+            canonical_bytes = canonical_master(source)
+            public_hash = hashlib.sha256(canonical_bytes).hexdigest()
+            if public_hash == content_hash:
+                raise RuntimeError(
+                    f"canonical master did not create an append-only identity: {content_hash}"
+                )
+            target = assets / f"{public_hash}.webp"
+            if target.is_file():
+                if target.read_bytes() != canonical_bytes:
+                    raise RuntimeError(f"canonical public hash collision: {public_hash}")
+                if asset_rebase_reasons(assets, public_hash):
+                    raise RuntimeError(
+                        f"existing canonical public triplet is invalid: {public_hash}"
+                    )
+            else:
+                temporary = assets / f".{public_hash}.webp.next"
+                temporary.write_bytes(canonical_bytes)
+                temporary.replace(target)
+                derivatives.build(assets, public_hash, True)
+                derivative_sets_written += 1
+        else:
+            public_hash = sha256_file(source)
         public_hash_by_db_hash[content_hash] = public_hash
-        target = assets / f"{public_hash}.webp"
-        if target != source:
-            if target.is_file() and sha256_file(target) != public_hash:
-                raise RuntimeError(f"public hash collision: {public_hash}")
-            if not target.is_file():
-                shutil.copyfile(source, target)
 
     for card in cards:
         image = card.get("image") or {}
@@ -167,15 +277,9 @@ def main() -> int:
 
     public_hashes = set(public_hash_by_db_hash.values())
     derivative_hashes = {
-        public_hash
-        for public_hash in public_hashes
-        if any(
-            not (assets / f"{public_hash}_{suffix}.webp").is_file()
-            for suffix in derivatives.SUFFIXES
-        )
-    } | {public_hash_by_db_hash[content_hash] for content_hash in mismatched | missing}
-    for content_hash in sorted(derivative_hashes):
-        derivatives.build(assets, content_hash, True)
+        public_hash_by_db_hash[content_hash]
+        for content_hash in canonical_rebases
+    }
 
     changed_mapping = {
         db_hash: public_hash
@@ -195,9 +299,12 @@ def main() -> int:
         "publicImages": len(public_hashes),
         "mastersMaterializedFromPrivate": sorted(resolved),
         "rebasedMasters": len(changed_mapping),
+        "canonicalRebases": len(canonical_rebases),
+        "canonicalRebaseReasons": reason_counts,
         "mappingSha256": hashlib.sha256(mapping_bytes).hexdigest(),
         "mapping": changed_mapping,
-        "derivativeSetsWritten": len(derivative_hashes),
+        "reusedCanonicalRebases": reused_canonical_rebases,
+        "derivativeSetsWritten": derivative_sets_written,
     }
     write_json(receipt_path, receipt)
     receipt_sha256 = sha256_file(receipt_path)
@@ -212,7 +319,8 @@ def main() -> int:
         "publicImages": len(public_hashes),
         "mastersMaterialized": len(resolved),
         "rebasedMasters": len(changed_mapping),
-        "derivativeSetsWritten": len(derivative_hashes),
+        "reusedCanonicalRebases": reused_canonical_rebases,
+        "derivativeSetsWritten": derivative_sets_written,
         "assetFilesReady": len(public_hashes) * 3,
         "outputSnapshot": str(output_snapshot),
         "receipt": str(receipt_path),

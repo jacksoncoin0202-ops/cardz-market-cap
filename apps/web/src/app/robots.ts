@@ -1,5 +1,4 @@
 import type { MetadataRoute } from "next";
-import { cloudflareEnv } from "@/lib/cloudflare-env";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://cardzmarketcap.com";
 
@@ -13,7 +12,7 @@ export function createRobotsPolicy(environment?: string): MetadataRoute.Robots {
   const privateDataPath = ["/data", "private", ""].join("/");
   // `/tune` is the internal heatmap tuning lab. It already sends `noindex, nofollow` in its page
   // metadata, but that only lands after a crawler fetches it — this keeps it out of the crawl.
-  const privatePaths = ["/api/", privateDataPath, "/latest.json", "/generations/", "/tune"];
+  const privatePaths = ["/api/", privateDataPath, "/tune"];
   return {
     rules: [
       { userAgent: ["Googlebot", "Bingbot", "OAI-SearchBot"], allow: "/", disallow: privatePaths },
@@ -24,11 +23,6 @@ export function createRobotsPolicy(environment?: string): MetadataRoute.Robots {
   };
 }
 
-async function runtimeEnvironment(): Promise<string | undefined> {
-  const environment = await cloudflareEnv<{ CARDZ_ENVIRONMENT?: string }>();
-  return environment?.CARDZ_ENVIRONMENT ?? process.env.CARDZ_ENVIRONMENT;
-}
-
 export default async function robots(): Promise<MetadataRoute.Robots> {
-  return createRobotsPolicy(await runtimeEnvironment());
+  return createRobotsPolicy(process.env.CARDZ_ENVIRONMENT);
 }

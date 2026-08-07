@@ -1,0 +1,4123 @@
+{
+  "activeExactSnkItems": 742,
+  "archivePath": "data/runtime/operator/collect/recovered-033/snk_price_harvest_20260806T050220Z_recovered033.jsonl",
+  "recoveredCards": 459,
+  "recoveredPricePoints": 118392,
+  "remaining30dExactSnk": [
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 494762,
+      "targetDate": "2026-07-02",
+      "variantId": 31
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486984,
+      "targetDate": "2026-07-02",
+      "variantId": 39
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486959,
+      "targetDate": "2026-07-02",
+      "variantId": 41
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 490342,
+      "targetDate": "2026-07-02",
+      "variantId": 74
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486985,
+      "targetDate": "2026-07-02",
+      "variantId": 101
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 287031,
+      "targetDate": "2026-07-02",
+      "variantId": 111
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 727998,
+      "targetDate": "2026-07-02",
+      "variantId": 131
+    },
+    {
+      "priceAsOf": "2026-08-03",
+      "snkItemId": 198697,
+      "targetDate": "2026-07-04",
+      "variantId": 267
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 488340,
+      "targetDate": "2026-07-02",
+      "variantId": 397
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487836,
+      "targetDate": "2026-07-02",
+      "variantId": 398
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 488353,
+      "targetDate": "2026-07-02",
+      "variantId": 399
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 488366,
+      "targetDate": "2026-07-02",
+      "variantId": 400
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 488372,
+      "targetDate": "2026-07-02",
+      "variantId": 401
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487835,
+      "targetDate": "2026-07-02",
+      "variantId": 402
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 488380,
+      "targetDate": "2026-07-02",
+      "variantId": 403
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 488334,
+      "targetDate": "2026-07-02",
+      "variantId": 404
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 488360,
+      "targetDate": "2026-07-02",
+      "variantId": 405
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 488344,
+      "targetDate": "2026-07-02",
+      "variantId": 406
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 488359,
+      "targetDate": "2026-07-02",
+      "variantId": 409
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 488351,
+      "targetDate": "2026-07-02",
+      "variantId": 410
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 488367,
+      "targetDate": "2026-07-02",
+      "variantId": 411
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 488358,
+      "targetDate": "2026-07-02",
+      "variantId": 412
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 488365,
+      "targetDate": "2026-07-02",
+      "variantId": 413
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 488376,
+      "targetDate": "2026-07-02",
+      "variantId": 414
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 488374,
+      "targetDate": "2026-07-02",
+      "variantId": 415
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 488368,
+      "targetDate": "2026-07-02",
+      "variantId": 418
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 488373,
+      "targetDate": "2026-07-02",
+      "variantId": 422
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 488347,
+      "targetDate": "2026-07-02",
+      "variantId": 423
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 488361,
+      "targetDate": "2026-07-02",
+      "variantId": 424
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 488335,
+      "targetDate": "2026-07-02",
+      "variantId": 425
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 488379,
+      "targetDate": "2026-07-02",
+      "variantId": 426
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 488332,
+      "targetDate": "2026-07-02",
+      "variantId": 427
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 488331,
+      "targetDate": "2026-07-02",
+      "variantId": 428
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 488370,
+      "targetDate": "2026-07-02",
+      "variantId": 430
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487586,
+      "targetDate": "2026-07-02",
+      "variantId": 432
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487554,
+      "targetDate": "2026-07-02",
+      "variantId": 434
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487609,
+      "targetDate": "2026-07-02",
+      "variantId": 437
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487607,
+      "targetDate": "2026-07-02",
+      "variantId": 438
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487558,
+      "targetDate": "2026-07-02",
+      "variantId": 440
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487593,
+      "targetDate": "2026-07-02",
+      "variantId": 441
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487610,
+      "targetDate": "2026-07-02",
+      "variantId": 442
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487597,
+      "targetDate": "2026-07-02",
+      "variantId": 443
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487551,
+      "targetDate": "2026-07-02",
+      "variantId": 444
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487560,
+      "targetDate": "2026-07-02",
+      "variantId": 447
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487559,
+      "targetDate": "2026-07-02",
+      "variantId": 448
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487596,
+      "targetDate": "2026-07-02",
+      "variantId": 449
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486285,
+      "targetDate": "2026-07-02",
+      "variantId": 456
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486299,
+      "targetDate": "2026-07-02",
+      "variantId": 459
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486289,
+      "targetDate": "2026-07-02",
+      "variantId": 460
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486302,
+      "targetDate": "2026-07-02",
+      "variantId": 461
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486297,
+      "targetDate": "2026-07-02",
+      "variantId": 463
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 656389,
+      "targetDate": "2026-07-02",
+      "variantId": 466
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 653121,
+      "targetDate": "2026-07-02",
+      "variantId": 469
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 849741,
+      "targetDate": "2026-07-02",
+      "variantId": 478
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 491761,
+      "targetDate": "2026-07-02",
+      "variantId": 480
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 849564,
+      "targetDate": "2026-07-02",
+      "variantId": 482
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 489468,
+      "targetDate": "2026-07-02",
+      "variantId": 495
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 489452,
+      "targetDate": "2026-07-02",
+      "variantId": 496
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 489447,
+      "targetDate": "2026-07-02",
+      "variantId": 499
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487829,
+      "targetDate": "2026-07-02",
+      "variantId": 500
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 489457,
+      "targetDate": "2026-07-02",
+      "variantId": 502
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487843,
+      "targetDate": "2026-07-02",
+      "variantId": 503
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 489472,
+      "targetDate": "2026-07-02",
+      "variantId": 504
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 489470,
+      "targetDate": "2026-07-02",
+      "variantId": 505
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 489453,
+      "targetDate": "2026-07-02",
+      "variantId": 506
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 489459,
+      "targetDate": "2026-07-02",
+      "variantId": 507
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485841,
+      "targetDate": "2026-07-02",
+      "variantId": 513
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485839,
+      "targetDate": "2026-07-02",
+      "variantId": 514
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485840,
+      "targetDate": "2026-07-02",
+      "variantId": 517
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485827,
+      "targetDate": "2026-07-02",
+      "variantId": 518
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485837,
+      "targetDate": "2026-07-02",
+      "variantId": 519
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485842,
+      "targetDate": "2026-07-02",
+      "variantId": 520
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485838,
+      "targetDate": "2026-07-02",
+      "variantId": 522
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485843,
+      "targetDate": "2026-07-02",
+      "variantId": 523
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485845,
+      "targetDate": "2026-07-02",
+      "variantId": 524
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485811,
+      "targetDate": "2026-07-02",
+      "variantId": 526
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485808,
+      "targetDate": "2026-07-02",
+      "variantId": 527
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485809,
+      "targetDate": "2026-07-02",
+      "variantId": 528
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485806,
+      "targetDate": "2026-07-02",
+      "variantId": 531
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485810,
+      "targetDate": "2026-07-02",
+      "variantId": 532
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485812,
+      "targetDate": "2026-07-02",
+      "variantId": 534
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 841745,
+      "targetDate": "2026-07-02",
+      "variantId": 537
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 841732,
+      "targetDate": "2026-07-02",
+      "variantId": 538
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 705544,
+      "targetDate": "2026-07-02",
+      "variantId": 539
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 841733,
+      "targetDate": "2026-07-02",
+      "variantId": 540
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 705543,
+      "targetDate": "2026-07-02",
+      "variantId": 541
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 705546,
+      "targetDate": "2026-07-02",
+      "variantId": 542
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 705542,
+      "targetDate": "2026-07-02",
+      "variantId": 543
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 488143,
+      "targetDate": "2026-07-02",
+      "variantId": 630
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487717,
+      "targetDate": "2026-07-02",
+      "variantId": 633
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 845615,
+      "targetDate": "2026-07-02",
+      "variantId": 649
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486161,
+      "targetDate": "2026-07-02",
+      "variantId": 650
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486160,
+      "targetDate": "2026-07-02",
+      "variantId": 651
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 845619,
+      "targetDate": "2026-07-02",
+      "variantId": 653
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 845604,
+      "targetDate": "2026-07-02",
+      "variantId": 654
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486159,
+      "targetDate": "2026-07-02",
+      "variantId": 655
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486145,
+      "targetDate": "2026-07-02",
+      "variantId": 658
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 845614,
+      "targetDate": "2026-07-02",
+      "variantId": 659
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 845611,
+      "targetDate": "2026-07-02",
+      "variantId": 660
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 845606,
+      "targetDate": "2026-07-02",
+      "variantId": 661
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486162,
+      "targetDate": "2026-07-02",
+      "variantId": 662
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486163,
+      "targetDate": "2026-07-02",
+      "variantId": 664
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486164,
+      "targetDate": "2026-07-02",
+      "variantId": 665
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486157,
+      "targetDate": "2026-07-02",
+      "variantId": 666
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486144,
+      "targetDate": "2026-07-02",
+      "variantId": 669
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 845608,
+      "targetDate": "2026-07-02",
+      "variantId": 671
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486950,
+      "targetDate": "2026-07-02",
+      "variantId": 672
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486987,
+      "targetDate": "2026-07-02",
+      "variantId": 673
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486976,
+      "targetDate": "2026-07-02",
+      "variantId": 675
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486986,
+      "targetDate": "2026-07-02",
+      "variantId": 676
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486961,
+      "targetDate": "2026-07-02",
+      "variantId": 677
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486952,
+      "targetDate": "2026-07-02",
+      "variantId": 678
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486956,
+      "targetDate": "2026-07-02",
+      "variantId": 679
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486982,
+      "targetDate": "2026-07-02",
+      "variantId": 680
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486971,
+      "targetDate": "2026-07-02",
+      "variantId": 681
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486970,
+      "targetDate": "2026-07-02",
+      "variantId": 682
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486951,
+      "targetDate": "2026-07-02",
+      "variantId": 683
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486975,
+      "targetDate": "2026-07-02",
+      "variantId": 684
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486954,
+      "targetDate": "2026-07-02",
+      "variantId": 685
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486978,
+      "targetDate": "2026-07-02",
+      "variantId": 688
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486966,
+      "targetDate": "2026-07-02",
+      "variantId": 689
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486991,
+      "targetDate": "2026-07-02",
+      "variantId": 690
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486965,
+      "targetDate": "2026-07-02",
+      "variantId": 691
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486962,
+      "targetDate": "2026-07-02",
+      "variantId": 692
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486955,
+      "targetDate": "2026-07-02",
+      "variantId": 693
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486957,
+      "targetDate": "2026-07-02",
+      "variantId": 694
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486958,
+      "targetDate": "2026-07-02",
+      "variantId": 695
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486960,
+      "targetDate": "2026-07-02",
+      "variantId": 697
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486988,
+      "targetDate": "2026-07-02",
+      "variantId": 699
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486968,
+      "targetDate": "2026-07-02",
+      "variantId": 700
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486983,
+      "targetDate": "2026-07-02",
+      "variantId": 703
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486967,
+      "targetDate": "2026-07-02",
+      "variantId": 704
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486963,
+      "targetDate": "2026-07-02",
+      "variantId": 705
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486969,
+      "targetDate": "2026-07-02",
+      "variantId": 706
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486953,
+      "targetDate": "2026-07-02",
+      "variantId": 707
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486945,
+      "targetDate": "2026-07-02",
+      "variantId": 710
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 606032,
+      "targetDate": "2026-07-02",
+      "variantId": 719
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 606029,
+      "targetDate": "2026-07-02",
+      "variantId": 720
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 606044,
+      "targetDate": "2026-07-02",
+      "variantId": 723
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 606045,
+      "targetDate": "2026-07-02",
+      "variantId": 724
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 606019,
+      "targetDate": "2026-07-02",
+      "variantId": 725
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 606020,
+      "targetDate": "2026-07-02",
+      "variantId": 726
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 606021,
+      "targetDate": "2026-07-02",
+      "variantId": 727
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 606035,
+      "targetDate": "2026-07-02",
+      "variantId": 728
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 606036,
+      "targetDate": "2026-07-02",
+      "variantId": 729
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 606037,
+      "targetDate": "2026-07-02",
+      "variantId": 730
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 606012,
+      "targetDate": "2026-07-02",
+      "variantId": 731
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 606013,
+      "targetDate": "2026-07-02",
+      "variantId": 732
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 606038,
+      "targetDate": "2026-07-02",
+      "variantId": 733
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 606039,
+      "targetDate": "2026-07-02",
+      "variantId": 734
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 606040,
+      "targetDate": "2026-07-02",
+      "variantId": 735
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 606023,
+      "targetDate": "2026-07-02",
+      "variantId": 736
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 606046,
+      "targetDate": "2026-07-02",
+      "variantId": 739
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 606041,
+      "targetDate": "2026-07-02",
+      "variantId": 740
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 606042,
+      "targetDate": "2026-07-02",
+      "variantId": 741
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 606043,
+      "targetDate": "2026-07-02",
+      "variantId": 742
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 606033,
+      "targetDate": "2026-07-02",
+      "variantId": 745
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 606034,
+      "targetDate": "2026-07-02",
+      "variantId": 746
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 606017,
+      "targetDate": "2026-07-02",
+      "variantId": 751
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 484857,
+      "targetDate": "2026-07-02",
+      "variantId": 754
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 484854,
+      "targetDate": "2026-07-02",
+      "variantId": 755
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 484849,
+      "targetDate": "2026-07-02",
+      "variantId": 756
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 484858,
+      "targetDate": "2026-07-02",
+      "variantId": 757
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 484850,
+      "targetDate": "2026-07-02",
+      "variantId": 758
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 484851,
+      "targetDate": "2026-07-02",
+      "variantId": 764
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 484852,
+      "targetDate": "2026-07-02",
+      "variantId": 765
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 484835,
+      "targetDate": "2026-07-02",
+      "variantId": 767
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 484859,
+      "targetDate": "2026-07-02",
+      "variantId": 771
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 484848,
+      "targetDate": "2026-07-02",
+      "variantId": 772
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 484832,
+      "targetDate": "2026-07-02",
+      "variantId": 773
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 484831,
+      "targetDate": "2026-07-02",
+      "variantId": 778
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 484860,
+      "targetDate": "2026-07-02",
+      "variantId": 780
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 728089,
+      "targetDate": "2026-07-02",
+      "variantId": 783
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 841947,
+      "targetDate": "2026-07-02",
+      "variantId": 784
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 728085,
+      "targetDate": "2026-07-02",
+      "variantId": 788
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 841955,
+      "targetDate": "2026-07-02",
+      "variantId": 789
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 841956,
+      "targetDate": "2026-07-02",
+      "variantId": 792
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 841944,
+      "targetDate": "2026-07-02",
+      "variantId": 793
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 728069,
+      "targetDate": "2026-07-02",
+      "variantId": 795
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 728078,
+      "targetDate": "2026-07-02",
+      "variantId": 797
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 841951,
+      "targetDate": "2026-07-02",
+      "variantId": 798
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 727322,
+      "targetDate": "2026-07-02",
+      "variantId": 799
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 728086,
+      "targetDate": "2026-07-02",
+      "variantId": 805
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 502822,
+      "targetDate": "2026-07-02",
+      "variantId": 807
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 502813,
+      "targetDate": "2026-07-02",
+      "variantId": 809
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 502835,
+      "targetDate": "2026-07-02",
+      "variantId": 811
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 502833,
+      "targetDate": "2026-07-02",
+      "variantId": 813
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 502836,
+      "targetDate": "2026-07-02",
+      "variantId": 814
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 502824,
+      "targetDate": "2026-07-02",
+      "variantId": 816
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 502826,
+      "targetDate": "2026-07-02",
+      "variantId": 817
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 502825,
+      "targetDate": "2026-07-02",
+      "variantId": 818
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 502815,
+      "targetDate": "2026-07-02",
+      "variantId": 819
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 502819,
+      "targetDate": "2026-07-02",
+      "variantId": 820
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 502848,
+      "targetDate": "2026-07-02",
+      "variantId": 822
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 502816,
+      "targetDate": "2026-07-02",
+      "variantId": 825
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 488002,
+      "targetDate": "2026-07-02",
+      "variantId": 827
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 489746,
+      "targetDate": "2026-07-02",
+      "variantId": 835
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 489791,
+      "targetDate": "2026-07-02",
+      "variantId": 837
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487480,
+      "targetDate": "2026-07-02",
+      "variantId": 843
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487502,
+      "targetDate": "2026-07-02",
+      "variantId": 844
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487505,
+      "targetDate": "2026-07-02",
+      "variantId": 846
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487497,
+      "targetDate": "2026-07-02",
+      "variantId": 847
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487503,
+      "targetDate": "2026-07-02",
+      "variantId": 849
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487493,
+      "targetDate": "2026-07-02",
+      "variantId": 852
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487455,
+      "targetDate": "2026-07-02",
+      "variantId": 853
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487499,
+      "targetDate": "2026-07-02",
+      "variantId": 854
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487474,
+      "targetDate": "2026-07-02",
+      "variantId": 855
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487496,
+      "targetDate": "2026-07-02",
+      "variantId": 856
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487506,
+      "targetDate": "2026-07-02",
+      "variantId": 858
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487470,
+      "targetDate": "2026-07-02",
+      "variantId": 859
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487476,
+      "targetDate": "2026-07-02",
+      "variantId": 860
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487468,
+      "targetDate": "2026-07-02",
+      "variantId": 862
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487467,
+      "targetDate": "2026-07-02",
+      "variantId": 864
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487481,
+      "targetDate": "2026-07-02",
+      "variantId": 865
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487486,
+      "targetDate": "2026-07-02",
+      "variantId": 866
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487477,
+      "targetDate": "2026-07-02",
+      "variantId": 867
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487472,
+      "targetDate": "2026-07-02",
+      "variantId": 869
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487492,
+      "targetDate": "2026-07-02",
+      "variantId": 870
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487484,
+      "targetDate": "2026-07-02",
+      "variantId": 871
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487463,
+      "targetDate": "2026-07-02",
+      "variantId": 874
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487495,
+      "targetDate": "2026-07-02",
+      "variantId": 875
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487508,
+      "targetDate": "2026-07-02",
+      "variantId": 876
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487482,
+      "targetDate": "2026-07-02",
+      "variantId": 877
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 490339,
+      "targetDate": "2026-07-02",
+      "variantId": 879
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 490346,
+      "targetDate": "2026-07-02",
+      "variantId": 880
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 490357,
+      "targetDate": "2026-07-02",
+      "variantId": 881
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 490337,
+      "targetDate": "2026-07-02",
+      "variantId": 885
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 490345,
+      "targetDate": "2026-07-02",
+      "variantId": 886
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487842,
+      "targetDate": "2026-07-02",
+      "variantId": 887
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 490356,
+      "targetDate": "2026-07-02",
+      "variantId": 888
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 490353,
+      "targetDate": "2026-07-02",
+      "variantId": 889
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 490354,
+      "targetDate": "2026-07-02",
+      "variantId": 890
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485461,
+      "targetDate": "2026-07-02",
+      "variantId": 893
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485473,
+      "targetDate": "2026-07-02",
+      "variantId": 894
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485470,
+      "targetDate": "2026-07-02",
+      "variantId": 897
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485471,
+      "targetDate": "2026-07-02",
+      "variantId": 898
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485475,
+      "targetDate": "2026-07-02",
+      "variantId": 899
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485472,
+      "targetDate": "2026-07-02",
+      "variantId": 900
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485476,
+      "targetDate": "2026-07-02",
+      "variantId": 901
+    },
+    {
+      "priceAsOf": "2026-07-31",
+      "snkItemId": 489509,
+      "targetDate": "2026-07-01",
+      "variantId": 906
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 489508,
+      "targetDate": "2026-07-02",
+      "variantId": 907
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 489511,
+      "targetDate": "2026-07-02",
+      "variantId": 908
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 766081,
+      "targetDate": "2026-07-02",
+      "variantId": 917
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 489513,
+      "targetDate": "2026-07-02",
+      "variantId": 918
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 489512,
+      "targetDate": "2026-07-02",
+      "variantId": 920
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 554369,
+      "targetDate": "2026-07-02",
+      "variantId": 924
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 554370,
+      "targetDate": "2026-07-02",
+      "variantId": 925
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 554383,
+      "targetDate": "2026-07-02",
+      "variantId": 927
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 554384,
+      "targetDate": "2026-07-02",
+      "variantId": 928
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 554379,
+      "targetDate": "2026-07-02",
+      "variantId": 934
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 554380,
+      "targetDate": "2026-07-02",
+      "variantId": 936
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 554372,
+      "targetDate": "2026-07-02",
+      "variantId": 938
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 489499,
+      "targetDate": "2026-07-02",
+      "variantId": 959
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487188,
+      "targetDate": "2026-07-02",
+      "variantId": 965
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 487152,
+      "targetDate": "2026-07-02",
+      "variantId": 966
+    },
+    {
+      "priceAsOf": "2026-03-29",
+      "snkItemId": 127768,
+      "targetDate": "2026-02-27",
+      "variantId": 994
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 127808,
+      "targetDate": "2026-07-02",
+      "variantId": 998
+    },
+    {
+      "priceAsOf": "2026-07-20",
+      "snkItemId": 128219,
+      "targetDate": "2026-06-20",
+      "variantId": 1027
+    },
+    {
+      "priceAsOf": "2026-07-29",
+      "snkItemId": 127875,
+      "targetDate": "2026-06-29",
+      "variantId": 1034
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 128104,
+      "targetDate": "2026-07-02",
+      "variantId": 1038
+    },
+    {
+      "priceAsOf": "2026-07-19",
+      "snkItemId": 434896,
+      "targetDate": "2026-06-19",
+      "variantId": 1055
+    },
+    {
+      "priceAsOf": "2026-07-19",
+      "snkItemId": 434886,
+      "targetDate": "2026-06-19",
+      "variantId": 1060
+    },
+    {
+      "priceAsOf": "2026-07-13",
+      "snkItemId": 427228,
+      "targetDate": "2026-06-13",
+      "variantId": 1062
+    },
+    {
+      "priceAsOf": "2026-07-30",
+      "snkItemId": 469627,
+      "targetDate": "2026-06-30",
+      "variantId": 1064
+    },
+    {
+      "priceAsOf": "2026-07-13",
+      "snkItemId": 427217,
+      "targetDate": "2026-06-13",
+      "variantId": 1068
+    },
+    {
+      "priceAsOf": "2026-05-29",
+      "snkItemId": 434891,
+      "targetDate": "2026-04-29",
+      "variantId": 1076
+    },
+    {
+      "priceAsOf": "2026-07-19",
+      "snkItemId": 434883,
+      "targetDate": "2026-06-19",
+      "variantId": 1078
+    },
+    {
+      "priceAsOf": "2026-07-29",
+      "snkItemId": 469629,
+      "targetDate": "2026-06-29",
+      "variantId": 1079
+    },
+    {
+      "priceAsOf": "2026-07-15",
+      "snkItemId": 434894,
+      "targetDate": "2026-06-15",
+      "variantId": 1081
+    },
+    {
+      "priceAsOf": "2026-07-30",
+      "snkItemId": 471673,
+      "targetDate": "2026-06-30",
+      "variantId": 1082
+    },
+    {
+      "priceAsOf": "2026-07-07",
+      "snkItemId": 466506,
+      "targetDate": "2026-06-07",
+      "variantId": 1083
+    },
+    {
+      "priceAsOf": "2026-07-30",
+      "snkItemId": 450720,
+      "targetDate": "2026-06-30",
+      "variantId": 1086
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 656374,
+      "targetDate": "2026-07-02",
+      "variantId": 1088
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 653120,
+      "targetDate": "2026-07-02",
+      "variantId": 1093
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 656373,
+      "targetDate": "2026-07-02",
+      "variantId": 1096
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 656379,
+      "targetDate": "2026-07-02",
+      "variantId": 1098
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485879,
+      "targetDate": "2026-07-02",
+      "variantId": 1099
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485862,
+      "targetDate": "2026-07-02",
+      "variantId": 1106
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485880,
+      "targetDate": "2026-07-02",
+      "variantId": 1107
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485876,
+      "targetDate": "2026-07-02",
+      "variantId": 1109
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485882,
+      "targetDate": "2026-07-02",
+      "variantId": 1110
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 845618,
+      "targetDate": "2026-07-02",
+      "variantId": 1186
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 845617,
+      "targetDate": "2026-07-02",
+      "variantId": 1187
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 845616,
+      "targetDate": "2026-07-02",
+      "variantId": 1188
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 845610,
+      "targetDate": "2026-07-02",
+      "variantId": 1189
+    },
+    {
+      "priceAsOf": "2026-03-27",
+      "snkItemId": 127778,
+      "targetDate": "2026-02-25",
+      "variantId": 1193
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 198702,
+      "targetDate": "2026-07-02",
+      "variantId": 1203
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 198698,
+      "targetDate": "2026-07-02",
+      "variantId": 1204
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 135446,
+      "targetDate": "2026-07-02",
+      "variantId": 1205
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 135402,
+      "targetDate": "2026-07-02",
+      "variantId": 1207
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 385091,
+      "targetDate": "2026-07-02",
+      "variantId": 1209
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 563140,
+      "targetDate": "2026-07-02",
+      "variantId": 1214
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 451394,
+      "targetDate": "2026-07-02",
+      "variantId": 1216
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 588861,
+      "targetDate": "2026-07-02",
+      "variantId": 1217
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 583603,
+      "targetDate": "2026-07-02",
+      "variantId": 1221
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 364046,
+      "targetDate": "2026-07-02",
+      "variantId": 1228
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 502827,
+      "targetDate": "2026-07-02",
+      "variantId": 1233
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 94887,
+      "targetDate": "2026-07-02",
+      "variantId": 1235
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 728152,
+      "targetDate": "2026-07-02",
+      "variantId": 1240
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 486404,
+      "targetDate": "2026-07-02",
+      "variantId": 1260
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 618682,
+      "targetDate": "2026-07-02",
+      "variantId": 1276
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 126177,
+      "targetDate": "2026-07-02",
+      "variantId": 1281
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 126054,
+      "targetDate": "2026-07-02",
+      "variantId": 1282
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 491782,
+      "targetDate": "2026-07-02",
+      "variantId": 1297
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 160727,
+      "targetDate": "2026-07-02",
+      "variantId": 1303
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 158399,
+      "targetDate": "2026-07-02",
+      "variantId": 1304
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 845612,
+      "targetDate": "2026-07-02",
+      "variantId": 1431
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 845609,
+      "targetDate": "2026-07-02",
+      "variantId": 1432
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 845605,
+      "targetDate": "2026-07-02",
+      "variantId": 1433
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 845613,
+      "targetDate": "2026-07-02",
+      "variantId": 1434
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 845607,
+      "targetDate": "2026-07-02",
+      "variantId": 1435
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 676069,
+      "targetDate": "2026-07-02",
+      "variantId": 1464
+    },
+    {
+      "priceAsOf": "2026-07-21",
+      "snkItemId": 128053,
+      "targetDate": "2026-06-21",
+      "variantId": 1476
+    },
+    {
+      "priceAsOf": "2026-08-04",
+      "snkItemId": 93517,
+      "targetDate": "2026-07-05",
+      "variantId": 1716
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 142695,
+      "targetDate": "2026-07-02",
+      "variantId": 1719
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485875,
+      "targetDate": "2026-07-02",
+      "variantId": 1720
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 485877,
+      "targetDate": "2026-07-02",
+      "variantId": 1721
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 563129,
+      "targetDate": "2026-07-02",
+      "variantId": 1723
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 502818,
+      "targetDate": "2026-07-02",
+      "variantId": 1729
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 502830,
+      "targetDate": "2026-07-02",
+      "variantId": 1730
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 751309,
+      "targetDate": "2026-07-02",
+      "variantId": 1736
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 718239,
+      "targetDate": "2026-07-02",
+      "variantId": 1741
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 471523,
+      "targetDate": "2026-07-02",
+      "variantId": 1743
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 349446,
+      "targetDate": "2026-07-02",
+      "variantId": 1744
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 588850,
+      "targetDate": "2026-07-02",
+      "variantId": 1746
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 588859,
+      "targetDate": "2026-07-02",
+      "variantId": 1748
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 727323,
+      "targetDate": "2026-07-02",
+      "variantId": 1761
+    }
+  ],
+  "schema": "one-time-033-local-snk-recovery-v1",
+  "sourceFiles": 179,
+  "sourceReports": [
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-940.jsonl",
+      "pointsRetained": 23076,
+      "rowsRetained": 80,
+      "rowsSeen": 97,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 17
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-liquidity-full.prev97.jsonl",
+      "pointsRetained": 23077,
+      "rowsRetained": 80,
+      "rowsSeen": 97,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 17
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-liquidity-full.jsonl",
+      "pointsRetained": 26085,
+      "rowsRetained": 94,
+      "rowsSeen": 129,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 35
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-bound-20260728T183414Z.jsonl",
+      "pointsRetained": 26399,
+      "rowsRetained": 111,
+      "rowsSeen": 124,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 13
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-liquidity-fill-20260729050550.jsonl",
+      "pointsRetained": 29388,
+      "rowsRetained": 125,
+      "rowsSeen": 161,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 2,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 34
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-fill-20260729051553.jsonl",
+      "pointsRetained": 24064,
+      "rowsRetained": 103,
+      "rowsSeen": 130,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 2,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 25
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-gapfill-20260728T201815Z.jsonl",
+      "pointsRetained": 1785,
+      "rowsRetained": 10,
+      "rowsSeen": 17,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 2,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 5
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-gapfill2-20260728T201915Z.jsonl",
+      "pointsRetained": 2612,
+      "rowsRetained": 13,
+      "rowsSeen": 32,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 2,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 17
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-flood-20260729051949.jsonl",
+      "pointsRetained": 29708,
+      "rowsRetained": 125,
+      "rowsSeen": 171,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 2,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 44
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-flood-wave-20260729_053319.jsonl",
+      "pointsRetained": 27490,
+      "rowsRetained": 120,
+      "rowsSeen": 141,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 2,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 19
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-swarm-a4-partial-snapshot.jsonl",
+      "pointsRetained": 53183,
+      "rowsRetained": 109,
+      "rowsSeen": 267,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 158
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-swarm-a4-202607290648.jsonl",
+      "pointsRetained": 73213,
+      "rowsRetained": 183,
+      "rowsSeen": 423,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 2,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 238
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-w2-trades-202607290658.jsonl",
+      "pointsRetained": 27490,
+      "rowsRetained": 120,
+      "rowsSeen": 141,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 2,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 19
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-c14-trades.jsonl",
+      "pointsRetained": 27490,
+      "rowsRetained": 120,
+      "rowsSeen": 141,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 2,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 19
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/c07_set_alias_candidates.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 24,
+      "skippedCondition": 24,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-h3.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 40,
+      "skippedCondition": 40,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-post-c09-trades.jsonl",
+      "pointsRetained": 34347,
+      "rowsRetained": 153,
+      "rowsSeen": 180,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 2,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 25
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-SCALE-trades.jsonl",
+      "pointsRetained": 34351,
+      "rowsRetained": 159,
+      "rowsSeen": 220,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 3,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 58
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-c01-harvest-b1.jsonl",
+      "pointsRetained": 236,
+      "rowsRetained": 7,
+      "rowsSeen": 404,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 1,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 396
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-c04-batch1.jsonl",
+      "pointsRetained": 12035,
+      "rowsRetained": 56,
+      "rowsSeen": 966,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 910
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-SCALE-H3b.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 120,
+      "skippedCondition": 120,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-SCALE-S2.jsonl",
+      "pointsRetained": 269,
+      "rowsRetained": 13,
+      "rowsSeen": 470,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 12,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 445
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-SCALE-S4.jsonl",
+      "pointsRetained": 4,
+      "rowsRetained": 3,
+      "rowsSeen": 623,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 93,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 527
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-SCALE-S1.jsonl",
+      "pointsRetained": 234,
+      "rowsRetained": 6,
+      "rowsSeen": 452,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 1,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 445
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-SCALE-S5.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 619,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 77,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 542
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-SCALE-S6.jsonl",
+      "pointsRetained": 163,
+      "rowsRetained": 4,
+      "rowsSeen": 607,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 8,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 595
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-SCALE-S3.jsonl",
+      "pointsRetained": 1337,
+      "rowsRetained": 23,
+      "rowsSeen": 621,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 598
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-c01-harvest-b2.jsonl",
+      "pointsRetained": 13,
+      "rowsRetained": 4,
+      "rowsSeen": 270,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 11,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 255
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-factory-trades-20260728222925.jsonl",
+      "pointsRetained": 37525,
+      "rowsRetained": 182,
+      "rowsSeen": 281,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 37,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 62
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-E3-newbinds-trades.jsonl",
+      "pointsRetained": 109,
+      "rowsRetained": 2,
+      "rowsSeen": 16,
+      "skippedCondition": 14,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-factory-trades-20260728223139.jsonl",
+      "pointsRetained": 37981,
+      "rowsRetained": 186,
+      "rowsSeen": 296,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 46,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 64
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-factory-trades-20260728223724.jsonl",
+      "pointsRetained": 38750,
+      "rowsRetained": 204,
+      "rowsSeen": 393,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 124,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 65
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-c01-harvest-b3.jsonl",
+      "pointsRetained": 1572,
+      "rowsRetained": 31,
+      "rowsSeen": 642,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 3,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 608
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-w2-discover-202607282217.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1851,
+      "skippedCondition": 1851,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-bulk-c01-missing-master.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 311,
+      "skippedCondition": 311,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-factory-trades-20260728224624.jsonl",
+      "pointsRetained": 38675,
+      "rowsRetained": 211,
+      "rowsSeen": 504,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 227,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 66
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-post511-trades-20260728224747.jsonl",
+      "pointsRetained": 38675,
+      "rowsRetained": 211,
+      "rowsSeen": 504,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 227,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 66
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-remaining429-leftover.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 38,
+      "skippedCondition": 38,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-remaining429.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 43,
+      "skippedCondition": 43,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-c05-batch2.jsonl",
+      "pointsRetained": 136,
+      "rowsRetained": 8,
+      "rowsSeen": 1850,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 186,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 1656
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-c05-newbinds-trades-20260728230841.jsonl",
+      "pointsRetained": 325,
+      "rowsRetained": 7,
+      "rowsSeen": 26,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 18,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 1
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/private/snkrdunk_brute/snkrdunk_all.jsonl",
+      "pointsRetained": 1697,
+      "rowsRetained": 42,
+      "rowsSeen": 9005,
+      "skippedCondition": 6019,
+      "skippedEmptyKline": 163,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 2781
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-20260729T065937Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-20260729T070022Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 5,
+      "skippedCondition": 5,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-missing-20260729T070355Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 107,
+      "skippedCondition": 107,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-upgrade-20260729T071508Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 365,
+      "skippedCondition": 365,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-prefer-20260729T075738Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 432,
+      "skippedCondition": 432,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-residual-20260729T084833Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 8,
+      "skippedCondition": 8,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-all_bound-one-piece-20260729T092613Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 193,
+      "skippedCondition": 193,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T094844Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 3,
+      "skippedCondition": 3,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-image-review/failed-pilot-evidence-20260729T192156Z/queue.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 34,
+      "skippedCondition": 34,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-prefer-20260729T163131Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 46,
+      "skippedCondition": 46,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T171754Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 4,
+      "skippedCondition": 4,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T171938Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 5,
+      "skippedCondition": 5,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T175402Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 2,
+      "skippedCondition": 2,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-psa10-liquidity-20260729T174612Z.jsonl",
+      "pointsRetained": 109718,
+      "rowsRetained": 405,
+      "rowsSeen": 962,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 266,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 291
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T181654Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 2,
+      "skippedCondition": 2,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T183250Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T183458Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T184944Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T184953Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T190238Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 2,
+      "skippedCondition": 2,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T191632Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T191639Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T193306Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T194756Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T201035Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T201051Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T205104Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T205553Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 4,
+      "skippedCondition": 4,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T205700Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T210722Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T213805Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 6,
+      "skippedCondition": 6,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T214225Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T214226Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T214521Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T214948Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T215104Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T215219Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T215229Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-prefer-20260729T220002Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 2,
+      "skippedCondition": 2,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-prefer-20260729T220010Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 2,
+      "skippedCondition": 2,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T221515Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T221827Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T231732Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T231741Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T231747Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260729T231754Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260730T015557Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-prefer-20260730T015921Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 3,
+      "skippedCondition": 3,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/snk-image-review/queue.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 880,
+      "skippedCondition": 880,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/c11_pc_ebay_map_batch_r2.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 12,
+      "skippedCondition": 12,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/c11_pc_ebay_map.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 125,
+      "skippedCondition": 125,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/c11_pc_ebay_map_batch_r3.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 15,
+      "skippedCondition": 15,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260730T072034Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260730T072050Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/c11_pc_ebay_map_full900_shard_1_fkfix.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 152,
+      "skippedCondition": 152,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/c11_pc_ebay_map_full900_shard_3_fkfix.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 171,
+      "skippedCondition": 171,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-940-identity.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 932,
+      "skippedCondition": 932,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-940-worklist.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 940,
+      "skippedCondition": 940,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/semi-auto-identity-ledger.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1672,
+      "skippedCondition": 1672,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/tpl-slug-map.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 940,
+      "skippedCondition": 940,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-missing-20260730T200020Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 3,
+      "skippedCondition": 3,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-missing-20260730T200100Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 3,
+      "skippedCondition": 3,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260730T235706Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260730T235719Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/c11_pc_ebay_map_full900_shard_5.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 195,
+      "skippedCondition": 195,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/c11_pc_ebay_map_full900_shard_0.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 213,
+      "skippedCondition": 213,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/c11_pc_ebay_map_full900_shard_2.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 236,
+      "skippedCondition": 236,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/c11_pc_ebay_map_full900_shard_4.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 227,
+      "skippedCondition": 227,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/c11_pc_ebay_map_full900_shard_3.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 228,
+      "skippedCondition": 228,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/c11_pc_ebay_map_full900_shard_shard_1.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 0,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/c11_pc_ebay_map_full900_shard_shard_0.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 3,
+      "skippedCondition": 3,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/c11_pc_ebay_map_full900_shard_1.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 212,
+      "skippedCondition": 212,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-prefer-20260803T070650Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 17,
+      "skippedCondition": 17,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-prefer-20260803T070911Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 17,
+      "skippedCondition": 17,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_harvest_stock_20260803T081516Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 5,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 1,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 4
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_harvest_incr_20260803T081709Z.jsonl",
+      "pointsRetained": 5305,
+      "rowsRetained": 8,
+      "rowsSeen": 8,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_harvest_stock_20260803T082212Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 5,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 1,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 4
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_harvest_incr_20260803T082326Z.jsonl",
+      "pointsRetained": 4889,
+      "rowsRetained": 10,
+      "rowsSeen": 10,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_price_harvest_incr_20260803T082413Z.jsonl",
+      "pointsRetained": 3556,
+      "rowsRetained": 5,
+      "rowsSeen": 5,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_harvest_incr_20260803T083039Z.jsonl",
+      "pointsRetained": 38839,
+      "rowsRetained": 80,
+      "rowsSeen": 80,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_price_harvest_incr_20260803T083551Z.jsonl",
+      "pointsRetained": 38422,
+      "rowsRetained": 80,
+      "rowsSeen": 80,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-prefer-one-piece-20260803T083831Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_harvest_incr_20260803T084113Z.jsonl",
+      "pointsRetained": 44142,
+      "rowsRetained": 119,
+      "rowsSeen": 120,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 1
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-all_bound-one-piece-20260803T084147Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 40,
+      "skippedCondition": 40,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_harvest_incr_20260803T084810Z.jsonl",
+      "pointsRetained": 23532,
+      "rowsRetained": 143,
+      "rowsSeen": 157,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 1,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 13
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-all_bound-one-piece-20260803T084817Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 60,
+      "skippedCondition": 60,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-all_bound-one-piece-20260803T083905Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 200,
+      "skippedCondition": 200,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-upgrade-one-piece-20260803T085438Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 3,
+      "skippedCondition": 3,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_harvest_incr_20260803T085549Z.jsonl",
+      "pointsRetained": 13929,
+      "rowsRetained": 107,
+      "rowsSeen": 119,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 1,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 11
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_harvest_incr_20260803T090257Z.jsonl",
+      "pointsRetained": 13617,
+      "rowsRetained": 106,
+      "rowsSeen": 118,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 1,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 11
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260803T090256Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 7,
+      "skippedCondition": 7,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260803T090401Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 7,
+      "skippedCondition": 7,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260803T090852Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 4,
+      "skippedCondition": 4,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-all_bound-one-piece-20260803T085624Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 200,
+      "skippedCondition": 200,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/qualified-pool-reports/snk-image-ingest-ids-20260803T092155Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 6,
+      "skippedCondition": 6,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_harvest_incr_20260803T093008Z.jsonl",
+      "pointsRetained": 8219,
+      "rowsRetained": 39,
+      "rowsSeen": 40,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 1
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_harvest_incr_20260803T093139Z.jsonl",
+      "pointsRetained": 13619,
+      "rowsRetained": 106,
+      "rowsSeen": 118,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 1,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 11
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_harvest_incr_20260803T093302Z.jsonl",
+      "pointsRetained": 13351,
+      "rowsRetained": 105,
+      "rowsSeen": 117,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 1,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 11
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_price_harvest_incr_20260803T093341Z.jsonl",
+      "pointsRetained": 58536,
+      "rowsRetained": 223,
+      "rowsSeen": 237,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 1,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 13
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_harvest_incr_20260803T094947Z.jsonl",
+      "pointsRetained": 13351,
+      "rowsRetained": 105,
+      "rowsSeen": 117,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 1,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 11
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_price_harvest_incr_20260803T094957Z.jsonl",
+      "pointsRetained": 2893,
+      "rowsRetained": 46,
+      "rowsSeen": 54,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 1,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 7
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_harvest_incr_20260803T095446Z.jsonl",
+      "pointsRetained": 13351,
+      "rowsRetained": 105,
+      "rowsSeen": 117,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 1,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 11
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_harvest_stock_20260803T095446Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 5,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 1,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 4
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_price_harvest_incr_20260803T095659Z.jsonl",
+      "pointsRetained": 2893,
+      "rowsRetained": 46,
+      "rowsSeen": 54,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 1,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 7
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_price_harvest_stock_20260803T095659Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 3,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 3
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/c11_pc_ebay_map_en23_ai.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 23,
+      "skippedCondition": 23,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/$Recycle.Bin/S-1-5-21-2804647867-2246361255-856180545-1001/$RM8MH1Q.jsonl",
+      "pointsRetained": 31084,
+      "rowsRetained": 157,
+      "rowsSeen": 168,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 8,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 3
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_trades_harvest_incr_20260804T110339565841Z.jsonl",
+      "pointsRetained": 117905,
+      "rowsRetained": 457,
+      "rowsSeen": 738,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 281,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_price_harvest_incr_20260804T110510413623Z.jsonl",
+      "pointsRetained": 117905,
+      "rowsRetained": 457,
+      "rowsSeen": 738,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 281,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_trades_harvest_incr_20260804T113838884159Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 267,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 267,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_price_harvest_incr_20260804T113920350338Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 251,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 251,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_trades_harvest_incr_20260804T121858763278Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 269,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 267,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 2
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/binding_delta_snk_harvest.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 2,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 2
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_trades_harvest_incr_20260804T182838939253Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 267,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 267,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_price_harvest_incr_20260804T182922846635Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 251,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 251,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_trades_harvest_incr_20260805T063054380005Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 267,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 267,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_price_harvest_incr_20260805T063118180232Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 251,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 251,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_trades_harvest_incr_20260805T065823343638Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 267,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 267,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_price_harvest_incr_20260805T065845624131Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 251,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 251,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_trades_harvest_incr_20260805T071200944385Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 267,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 267,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_price_harvest_incr_20260805T071223791947Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 251,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 251,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_trades_harvest_incr_20260805T071711139680Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 267,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 267,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_price_harvest_incr_20260805T071735668193Z.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 251,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 251,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_trades_harvest_incr_20260805T085907971144Z.jsonl",
+      "pointsRetained": 131,
+      "rowsRetained": 1,
+      "rowsSeen": 1,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_price_harvest_incr_20260805T085909520972Z.jsonl",
+      "pointsRetained": 131,
+      "rowsRetained": 1,
+      "rowsSeen": 1,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/c11_pc_ebay_map_full900.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 921,
+      "skippedCondition": 921,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/pc_map_local-stock_incr.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/pc_map_refresh_incr.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/pc_map_sales_incr.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/pc_map_price_incr.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1,
+      "skippedCondition": 1,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_price_harvest_incr_20260805T101323954454Z.jsonl",
+      "pointsRetained": 7850,
+      "rowsRetained": 80,
+      "rowsSeen": 82,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 2,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_trades_harvest_incr_20260805T125312815501Z.jsonl",
+      "pointsRetained": 2,
+      "rowsRetained": 1,
+      "rowsSeen": 3,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 2,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/collect_registry.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 3852,
+      "skippedCondition": 3852,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/snk_price_harvest_incr_20260805T125314087017Z.jsonl",
+      "pointsRetained": 2,
+      "rowsRetained": 1,
+      "rowsSeen": 3,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 2,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/liquidity-source-registry.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 1361,
+      "skippedCondition": 1361,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/recovered-033/snk_price_harvest_20260806T045933Z_recovered033.jsonl",
+      "pointsRetained": 0,
+      "rowsRetained": 0,
+      "rowsSeen": 459,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 459,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/operator/collect/recovered-033/snk_price_harvest_20260806T050000Z_incremental033.jsonl",
+      "pointsRetained": 1176,
+      "rowsRetained": 55,
+      "rowsSeen": 327,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 272,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    }
+  ],
+  "worklistPath": "data/runtime/operator/collect/recovered-033/remaining-30d-exact-snk-ids.txt"
+}

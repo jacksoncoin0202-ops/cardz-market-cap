@@ -1,43 +1,51 @@
-# PROJECT_STATE — CARDZ Market Cap (New Era pointer)
+# PROJECT_STATE — CARDZ Market Cap
 
-> 舊 QC 時代數字已封存，唔再係日常真相。
-> Archived: [docs/archive/PROJECT_STATE_STALE_QC_20260729.md](docs/archive/PROJECT_STATE_STALE_QC_20260729.md)
+## Runtime authority
 
-## Authority now
+- Canonical MySQL: Windows `127.0.0.1:3308`.
+- Operator runtime: WSL; it connects to the Windows-owned database.
+- Local engineering frontend (`127.0.0.1:3800`): `CARDZ_DATA_MODE=live-db`; server-side direct read from Windows MySQL `127.0.0.1:3308` on every snapshot load. It never reads baked card data and never exposes DB credentials to the browser.
+- AWS/public frontend: baked `data/public/seed-snapshot.json` plus referenced `data/public/market-assets/*.webp` only; it never connects to MySQL.
+- Current operator entrypoints: `pipelines/operator_control.py`, `pipelines/collect_control.py`, `scripts/materialize_snapshot_assets.py`.
 
-Daily truth is **operator live MySQL**, not the old release-gate QC envelope.
+## Locked baseline
 
-```bash
-cd /mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap
-/home/jackson0202/cardz-market-cap/.venv-backend/bin/python -X utf8 pipelines/operator_control.py status
-```
+- Frontend source baseline: `14eb3fe74c19945d4c2cd421653361cb2587451f`.
+- 025 generation: `product_subset_20260804T151703Z`.
+- 025 snapshot SHA-256: `4edcf4444b32132894b4f6df09a39b800f14987e8a663cd1eea551ea1291b4d0`.
+- Active universe: 762 cards. A later generation must not remove cards or historical dates from this baseline.
 
-Core docs:
+## 026
 
-- [docs/MODEL.md](docs/MODEL.md)
-- [docs/OPERATOR_DUAL_MODE.md](docs/OPERATOR_DUAL_MODE.md)
-- [docs/DB_NEW_ERA.md](docs/DB_NEW_ERA.md)
-- [docs/ONE_TIME_0_TO_1_RUNBOOK.md](docs/ONE_TIME_0_TO_1_RUNBOOK.md)
-- `pipelines/operator_control.py`
+- Use the exact SNK EN international product identity and its default primary image when available.
+- Never substitute a rejected, conflicting, JP, search-result, or other SNK image.
+- Current canonical projection: 762 unique cards, with 741 exact SNK EN selections and 21 non-SNK accepted images.
+- One Piece public Top 100: 97 exact SNK EN selections and 3 true fallbacks:
+  - variant 128 (`OP11-118` Manga): no exact SNK EN product identity/page authority exists locally.
+  - variant 958 (`OPCD-093` Gold DON!!): no exact SNK EN product identity/page authority exists locally.
+  - variant 1450 (`OP01-016` AA Errata): SNK EN item 93521 is bound to `aa`, not the canonical `aa-errata` printing, so it must not be substituted.
+- Migration 030 makes `operator_canonical_image_projection` one row per variant by selecting the single canonical `snkrdunk` image freeze for exact SNK EN lineage.
+- All public surfaces reuse the same canonical `card.image` from the snapshot.
+- The immutable 025 generation still contains all 762 cards and every referenced base/200/600 asset; its snapshot SHA-256 remains `4edcf4444b32132894b4f6df09a39b800f14987e8a663cd1eea551ea1291b4d0`.
 
-## Operator UI
+There is no QC/finalizer/audit/runbook release layer. Build and run the direct snapshot artifact shown in `README.md`.
 
-- http://localhost:3800 (`CARDZ_DATA_MODE=operator`)
-- Snapshot export: `data/runtime/operator/operator-snapshot.json`
-- Product subset (after DADDY pass only): `data/runtime/operator/product-subset-snapshot.json`
+## 033 fast incremental baseline
 
-## Do not use
+- 033 fixes the canonical image projection lineage and is applied on Windows MySQL 3308.
+- The retained fast daily lane is `snk_market_data.py` with one exact-ID worklist, 16 HTTP workers and zero delay; it does not open Chrome.
+- Its input is ingested through the same file with `--ingest-jsonl`, then `operator_control.py db-tidy --project-ingested-history` rebuilds canonical price, market-cap and rank projection.
+- `snkrdunk_bulk.py` (SNK API layer) and `collect_control.py` (stock/provider delta controller) remain retained project assets. They are not substitutes for the fast daily lane.
 
-- Old `scripts/render_project_state.py` QC release-gate numbers as daily status
-- Old generation / QC receipt blockers as operator freeze truth
+## Canonical name rule
 
-## Product surface (2026-08-03)
+- One card has one canonical full name: `catalog_variant.canonical_name` is the exact GemRate/PSA title completed with the exact canonical collector number. DB, PSA-facing UI and file identity use this same string; a shorter display-name layer is forbidden.
 
-- Product = **Top 100 Market Cap** + **daily PSA10 POP chase**.
-- Universe update: POP **>= 1000**.
-- Single-card POP growth = derived from daily POP points (not multi-grader history project).
-- Drop multi-grader Grading Pulse as product work.
-- Product frontend policy `product-top100-no-graders-v1`: no Graders nav/route, Grading Pulse, grader share, or card-detail multi-grader panel.
-- Product pass image policy `displayed-top100-snk-public-exact-first-v1`: recompute current market-cap Top 100; every eligible exact/public-approved SNK raw-front must be selected. Rank 101+ keeps its accepted freeze image.
-- Pass receipt binds the complete current frontend bundle hash; clean release is a deterministic mirror of that bundle, not a hand-picked set of files.
-- Daily truth: operator live MySQL via `operator_control.py`.
+## 2026-08-07 release state
+
+- Database projection generation: `db3308_ab0b51aa013eb50b`.
+- Product snapshot generation: `product_subset_20260807T094818Z`.
+- Public snapshot content SHA-256: `8e800a2ac69a03a4de6e8635075e37e75b3c2f42a6095d890af02471839e7ce8`.
+- Active cohort: 762/762 product-ready, 0 gaps, 776 qualified backlog candidates.
+- Migrations are implemented and materialized through 033; the local presentation remains FE02.
+- FE02 health readback: 762 cards from Windows DB 3308 with build ID `fe02`.

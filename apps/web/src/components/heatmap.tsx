@@ -40,7 +40,7 @@ function CardFacts({ card, locale, currency, snapshot }: Omit<HeatmapProps, "car
       <div><dt>{t.labels.price}</dt><dd>{formatMetricMoney(card.pricePsa10, currency, snapshot.rates, locale)}</dd></div>
       <div><dt>{t.labels.population}</dt><dd>{formatMetricInteger(card.populationPsa10, locale)}</dd></div>
       <div><dt>{t.periods[period]} {t.labels.trackedSales}</dt><dd>{formatTrackedSales(windowMetric.trackedSales, currency, snapshot.rates, locale)}</dd></div>
-      <div><dt>{t.periods[period]} {t.labels.change}</dt><dd className={`metric-${metricTone(windowMetric.changePct)}`}>{formatPercent(windowMetric.changePct, locale)}</dd></div>
+      <div><dt>{t.periods[period]} {t.labels.change}</dt><dd className={`metric-${metricTone(windowMetric.changePct)}`} title={windowMetric.changePct.sourceSwitched ? `Historical anchor: ${windowMetric.changePct.priceAnchorSource}` : undefined}>{formatPercent(windowMetric.changePct, locale)}</dd></div>
     </dl>
   );
 }
@@ -74,10 +74,10 @@ function CardDialog({ card, locale, currency, snapshot, href, onClose }: Omit<He
         <div className="sheet-handle" />
         <button ref={closeRef} className="sheet-close" type="button" onClick={onClose}>{t.labels.close}</button>
         <div className="sheet-card-layout">
-          <div className="sheet-image"><CardImage image={card.image} sizes="(max-width: 680px) 80vw, 340px" alt={card.image.alt[locale] || t.labels.imageAlt} /></div>
+          <div className="sheet-image"><CardImage image={card.image} sizes="(max-width: 680px) 80vw, 340px" alt={card.officialName ?? ""} /></div>
           <div>
             <p className="rank-kicker">#{card.viewRank} / {card.tcg}</p>
-            <h3 id="sheet-title">{card.name[locale] || t.status.unavailable}</h3>
+            <h3 id="sheet-title">{card.officialName || t.status.unavailable}</h3>
             <p className="muted-copy">{card.setName[locale] || t.status.unavailable}</p>
             <CardFacts card={card} locale={locale} currency={currency} snapshot={snapshot} />
             <Link className="primary-action" href={href(`/card/${card.id}`)}>{t.labels.viewCard}</Link>
@@ -391,7 +391,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
               type="button"
               data-dir={st.direction}
               style={{ left: tileX, top: tileY, width: tileW, height: tileH, background: st.bg }}
-              aria-label={`#${card.viewRank} ${card.name[locale] || t.status.unavailable}, ${card.collectorNumber}`}
+              aria-label={`#${card.viewRank} ${card.officialName || t.status.unavailable}, ${card.collectorNumber}`}
               aria-haspopup="dialog"
               onMouseEnter={() => {
                 setActive(card);
@@ -426,7 +426,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
                   aria-hidden="true"
                   style={{ width: st.cardW, height: st.cardH, left: (tileW - st.cardW) / 2, top: (tileH - st.cardH) / 2 }}
                 >
-                  <CardImage image={card.image} sizes={`${Math.max(40, Math.round(st.cardW))}px`} loading={card.viewRank <= 8 ? "eager" : "lazy"} />
+                  <CardImage image={card.image} sizes={`${Math.max(40, Math.round(st.cardW))}px`} loading={card.viewRank <= 8 ? "eager" : "lazy"} alt={card.officialName ?? ""} />
                 </span>
               ) : null}
               {st.move ? (
@@ -453,10 +453,10 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
           style={{ left: previewPos.left, top: previewPos.top }}
           aria-live="polite"
         >
-          <div className="preview-image"><CardImage image={active.image} sizes="220px" alt={active.image.alt[locale] || t.labels.imageAlt} /></div>
+          <div className="preview-image"><CardImage image={active.image} sizes="220px" alt={active.officialName ?? ""} /></div>
           <div className="preview-copy">
             <p className="rank-kicker">#{active.viewRank} / {active.tcg}</p>
-            <h3>{active.name[locale] || t.status.unavailable}</h3>
+            <h3>{active.officialName || t.status.unavailable}</h3>
             <p className="muted-copy">{active.setName[locale] || t.status.unavailable}</p>
             <CardFacts card={active} locale={locale} currency={currency} snapshot={snapshot} />
             <p className="preview-time">{t.labels.asOf}: {formatDate(active.windows[period].changePct.asOf ?? active.pricePsa10.asOf, locale)}</p>

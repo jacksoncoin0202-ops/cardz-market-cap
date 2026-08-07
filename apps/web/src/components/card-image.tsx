@@ -21,11 +21,11 @@ export function handleCardImageError(event: SyntheticEvent<HTMLImageElement>): v
   target.src = "/card-placeholder.svg";
 }
 
-export function CardImage({ image, sizes, loading = "lazy", alt = "", className }: {
+export function CardImage({ image, sizes, loading = "lazy", alt, className }: {
   image: CardImageImage;
   sizes: string;
   loading?: "eager" | "lazy";
-  alt?: string;
+  alt: string;
   className?: string;
 }) {
   return (

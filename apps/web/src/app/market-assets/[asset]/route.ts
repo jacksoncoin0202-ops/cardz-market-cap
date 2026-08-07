@@ -1,29 +1,5 @@
-import { cloudflareEnv } from "@/lib/cloudflare-env";
-import { MARKET_ASSET_CACHE_CONTROL, marketAssetHash, marketAssetObjectKey } from "@/lib/market-media";
+import { MARKET_ASSET_CACHE_CONTROL, marketAssetObjectKey } from "@/lib/market-media";
 import { loadNodeMarketAsset } from "@/lib/server-snapshot";
-import { parseSnapshotPointer } from "@/lib/snapshot-pointer";
-
-interface MarketMediaObject {
-  body: ReadableStream;
-  httpEtag?: string;
-  size?: number;
-  text(): Promise<string>;
-}
-
-interface MarketMediaBucket {
-  get(key: string): Promise<MarketMediaObject | null>;
-}
-
-interface StaticAssetsBinding {
-  fetch(request: Request): Promise<Response>;
-}
-
-type MarketMediaEnvironment = {
-  MARKET_DATA?: MarketMediaBucket;
-  ASSETS?: StaticAssetsBinding;
-  CARDZ_ENVIRONMENT?: string;
-  MARKET_DATA_POINTER_KEY?: string;
-};
 
 function notFound(): Response {
   return new Response("Not found", {
@@ -37,64 +13,23 @@ function notFound(): Response {
 }
 
 export async function GET(
-  request: Request,
+  _request: Request,
   { params }: { params: Promise<{ asset: string }> },
 ): Promise<Response> {
   const { asset } = await params;
-  const key = marketAssetObjectKey(asset);
-  const hash = marketAssetHash(asset);
-  if (!key || !hash) return notFound();
+  if (!marketAssetObjectKey(asset)) return notFound();
 
   const localAsset = await loadNodeMarketAsset(asset);
-  if (localAsset) {
-    return new Response(localAsset.body, {
-      headers: {
-        "Cache-Control": MARKET_ASSET_CACHE_CONTROL,
-        "Content-Length": String(localAsset.body.byteLength),
-        "Content-Type": "image/webp",
-        "Cross-Origin-Resource-Policy": "same-origin",
-        "X-CARDZ-Generation": localAsset.generation,
-        "X-Content-Type-Options": "nosniff",
-      },
-    });
-  }
+  if (!localAsset) return notFound();
 
-  try {
-    const environment = await cloudflareEnv<MarketMediaEnvironment>();
-    if (!environment) throw new Error("Cloudflare bindings unavailable");
-    const bucket = environment.MARKET_DATA;
-    if (!bucket) throw new Error("Market data binding unavailable");
-    const pointerKey = environment.MARKET_DATA_POINTER_KEY ?? "latest.json";
-    const pointerObject = await bucket.get(pointerKey);
-    if (!pointerObject) throw new Error("Snapshot pointer unavailable");
-    const pointer = parseSnapshotPointer(JSON.parse(await pointerObject.text()));
-    if (
-      !pointer.media.hashes.includes(hash)
-      || !pointer.media.assets.some((candidate) => candidate.key === key)
-    ) {
-      return notFound();
-    }
-    const object = await bucket.get(key);
-
-    if (object?.body) {
-      const headers = new Headers({
-        "Cache-Control": MARKET_ASSET_CACHE_CONTROL,
-        "Content-Type": "image/webp",
-        "Cross-Origin-Resource-Policy": "same-origin",
-        "X-Content-Type-Options": "nosniff",
-      });
-      if (object.httpEtag) headers.set("ETag", object.httpEtag);
-      if (typeof object.size === "number") headers.set("Content-Length", String(object.size));
-      headers.set("X-CARDZ-Generation", pointer.generationId);
-      return new Response(object.body, { headers });
-    }
-
-    if (environment.CARDZ_ENVIRONMENT === "local" && environment.ASSETS) {
-      return environment.ASSETS.fetch(request);
-    }
-  } catch {
-    // `next dev` serves the same content-addressed files from public/ directly.
-  }
-
-  return notFound();
+  return new Response(localAsset.body, {
+    headers: {
+      "Cache-Control": MARKET_ASSET_CACHE_CONTROL,
+      "Content-Length": String(localAsset.body.byteLength),
+      "Content-Type": "image/webp",
+      "Cross-Origin-Resource-Policy": "same-origin",
+      "X-CARDZ-Generation": localAsset.generation,
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
 }

@@ -1,7 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# CARDZ Market Cap — 標準 Node runtime image（AWS ECS / EC2 / 任何食 container 嘅地方）。
-# 同 Cloudflare Workers 路徑並存：呢個 image 完全唔用 wrangler / OpenNext。
+# CARDZ Market Cap — AWS / Node runtime image。
 #
 # Build context 一定要係 repo root（要 npm workspaces + data/public/），唔係 apps/web：
 #   docker build -f apps/web/Dockerfile -t cardz-web:latest .
@@ -24,27 +23,23 @@ ENV CARDZ_PUBLIC_BUILD_ID=${CARDZ_PUBLIC_BUILD_ID} \
     CARDZ_BUILD_TARGET=node \
     NEXT_TELEMETRY_DISABLED=1
 
-# prebuild 會 tsc build @cardz/market-data，再由 sync-snapshot.mjs 逐張核對
-# data/public/market-assets 嘅 sha256 然後抄入 apps/web/public/market-assets。
-# 圖對唔上 hash 就會喺呢一步 fail，唔會出到一個爛 image。
-WORKDIR /repo/apps/web
+WORKDIR /repo
 RUN npm run build
-
-# apps/web/scripts/prepare-standalone.mjs 已經將 .next/static 同非市場 public
-# assets 放入 standalone 樹；市場圖必須經 generation-aware route。Docker 同
-# WSL 共用同一個可驗證 build contract。
-
 
 FROM node:24-bookworm-slim AS runner
 WORKDIR /app
 
+ARG CARDZ_PUBLIC_BUILD_ID=deploy
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
-    CARDZ_RUNTIME=node \
+    CARDZ_PUBLIC_BUILD_ID=${CARDZ_PUBLIC_BUILD_ID} \
+    MARKET_DATA_SNAPSHOT_PATH=/app/data/public/seed-snapshot.json \
     PORT=3000 \
     HOSTNAME=0.0.0.0
 
 COPY --from=builder --chown=node:node /repo/apps/web/.next/standalone ./
+COPY --from=builder --chown=node:node /repo/data/public/seed-snapshot.json ./data/public/seed-snapshot.json
+COPY --from=builder --chown=node:node /repo/data/public/market-assets ./data/public/market-assets
 
 USER node
 EXPOSE 3000

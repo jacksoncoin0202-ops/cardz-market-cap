@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import html
 import os
 import re
 import time
@@ -25,6 +26,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 import requests
+from urllib.parse import urlparse
 
 try:
     from .failure_ledger import record_failure, record_resolution
@@ -34,6 +36,8 @@ except ImportError:
     from source_crosswalk import canonical_language, complete_collector_number
 
 BASE = "https://snkrdunk.com"
+EN_PRODUCT_URL = "https://snkrdunk.com/en/trading-cards/{item_id}"
+SNK_EN_PRODUCT_PAGE_CONTRACT = "snkrdunk-en-product-page-authority-v1"
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
@@ -102,6 +106,42 @@ class SnkrdunkApi:
     def get_master(self, item_id: int) -> dict:
         """GET /v1/apparels/{itemId} — product master（含 productCatalogId）。"""
         return self._get(f"/v1/apparels/{item_id}")
+
+    def get_bytes(self, url: str) -> bytes:
+        """Download an exact SNK-owned media URL without invoking a browser."""
+
+        validate_snk_media_url(url)
+        return self._request(url).content
+
+    def get_en_product_page_authority(
+        self, item_id: int, default_image_url: str
+    ) -> dict[str, Any]:
+        """GET the exact EN storefront page and bind its raw HTML to master media."""
+
+        product_url = exact_en_product_url(item_id)
+        image_url = validate_snk_media_url(default_image_url)
+        response = self._request(product_url)
+        if response.status_code != 200 or str(response.url) != product_url:
+            raise RuntimeError(
+                "SNK EN storefront did not resolve exactly: "
+                f"requested={product_url} final={response.url} status={response.status_code}"
+            )
+        document = html.unescape(response.text).replace(r"\/", "/")
+        if re.search(rf"(?<!\d){int(item_id)}(?!\d)", document) is None:
+            raise RuntimeError(f"SNK EN storefront lacks exact item id: {item_id}")
+        if image_url not in document:
+            raise RuntimeError(
+                f"SNK EN storefront default image differs from API master: {item_id}"
+            )
+        return {
+            "contract": SNK_EN_PRODUCT_PAGE_CONTRACT,
+            "itemId": int(item_id),
+            "productUrl": product_url,
+            "finalUrl": str(response.url),
+            "httpStatus": int(response.status_code),
+            "productPagePayloadSha256": hashlib.sha256(response.content).hexdigest(),
+            "defaultImageUrl": image_url,
+        }
 
     def get_size_chips(self, item_id: int) -> list[dict]:
         """GET /v2/products/{itemId}/size-chips — 16 condition 即時最低價。"""
@@ -191,6 +231,42 @@ class SnkrdunkApi:
             "chart_points": (history.get("chart", {}).get("lines", [{}])[0].get("points", [])),
             "recent_trades": history.get("trades", []),
         }
+
+
+def exact_en_product_url(item_id: int) -> str:
+    """Return the only storefront URL accepted as SNK EN provenance."""
+
+    value = int(item_id)
+    if value <= 0:
+        raise ValueError("SNK item ID must be positive")
+    return EN_PRODUCT_URL.format(item_id=value)
+
+
+def validate_snk_media_url(url: str) -> str:
+    """Reject non-HTTPS or non-SNK media returned by a malformed master."""
+
+    value = str(url or "").strip()
+    parsed = urlparse(value)
+    host = str(parsed.hostname or "").casefold()
+    if (
+        parsed.scheme != "https"
+        or (host != "snkrdunk.com" and not host.endswith(".snkrdunk.com"))
+        or not parsed.path
+    ):
+        raise ValueError(f"SNK master default image URL is not SNK-owned HTTPS: {value}")
+    return value
+
+
+def master_default_image(master: Mapping[str, Any], item_id: int) -> str:
+    """Extract the default image from the exact master and bind it to its ID."""
+
+    master_id = master.get("id")
+    if master_id is None or int(master_id) != int(item_id):
+        raise ValueError(f"SNK master ID mismatch: expected {item_id}, got {master_id}")
+    primary = master.get("primaryMedia")
+    if not isinstance(primary, Mapping):
+        raise ValueError(f"SNK master has no primaryMedia: {item_id}")
+    return validate_snk_media_url(str(primary.get("imageUrl") or ""))
 
 
 def bfs_discover(api: SnkrdunkApi, seeds: list[int], max_ids: int = 2000) -> list[int]:
@@ -722,3 +798,16 @@ class SnkrdunkApiPool:
     def pull_one(self, item_id: int, condition_code: str | None = None) -> dict:
         # pull_market_data lives in snk_market_data; pool exposes raw client pull_card-like
         return self._client().pull_card(item_id, condition_code=condition_code)
+
+    def get_master(self, item_id: int) -> dict:
+        return self._client().get_master(item_id)
+
+    def get_bytes(self, url: str) -> bytes:
+        return self._client().get_bytes(url)
+
+    def get_en_product_page_authority(
+        self, item_id: int, default_image_url: str
+    ) -> dict[str, Any]:
+        return self._client().get_en_product_page_authority(
+            item_id, default_image_url
+        )

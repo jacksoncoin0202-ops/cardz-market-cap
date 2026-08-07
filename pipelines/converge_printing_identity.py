@@ -94,7 +94,7 @@ def load_variants(cursor: Any) -> list[dict[str, Any]]:
     cursor.execute(
         """
         SELECT id, opaque_id, tcg_code, card_language, canonical_name, set_name,
-               collector_number, identity_status
+               set_code, printing_code, rarity_code, collector_number, identity_status
         FROM catalog_variant
         ORDER BY id
         """
@@ -219,6 +219,9 @@ def build_rows(groups: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
                 "variantId": variant_id,
                 "opaqueId": str(member["opaque_id"] or ""),
                 "canonicalName": str(member["canonical_name"] or ""),
+                "setCode": str(member.get("set_code") or ""),
+                "printingCode": str(member.get("printing_code") or ""),
+                "rarityCode": str(member.get("rarity_code") or ""),
                 "variantIdentityStatus": str(member["identity_status"] or ""),
                 "weights": member["weights"],
                 "printingKeySha256": group["printingKeySha256"],
@@ -229,6 +232,9 @@ def build_rows(groups: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
                     "variantId": variant_id,
                     "tcgCode": str(member["tcg_code"] or "").strip().casefold(),
                     "setName": str(member["set_name"] or ""),
+                    "setCode": str(member.get("set_code") or ""),
+                    "printingCode": str(member.get("printing_code") or ""),
+                    "rarityCode": str(member.get("rarity_code") or ""),
                     "collectorNumber": str(member["collector_number"] or ""),
                     "cardLanguage": str(member["card_language"] or ""),
                     "editionCode": "",
@@ -267,19 +273,23 @@ def apply_rows(connection: Any, rows: Sequence[Mapping[str, Any]], *, commit: bo
             cursor.execute(
                 """
                 INSERT INTO catalog_printing_identity
-                    (variant_id, tcg_code, set_name, collector_number, card_language,
-                     edition_code, parallel_code, finish_code, canonical_printing_sha256,
-                     identity_status, evidence_sha256)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    (variant_id, tcg_code, set_name, set_code, printing_code, rarity_code,
+                     collector_number, card_language, edition_code, parallel_code, finish_code,
+                     canonical_printing_sha256, identity_status, evidence_sha256)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
                     tcg_code=VALUES(tcg_code), set_name=VALUES(set_name),
+                    set_code=CASE WHEN VALUES(set_code)<>'' THEN VALUES(set_code) ELSE set_code END,
+                    printing_code=CASE WHEN VALUES(printing_code)<>'' THEN VALUES(printing_code) ELSE printing_code END,
+                    rarity_code=CASE WHEN VALUES(rarity_code)<>'' THEN VALUES(rarity_code) ELSE rarity_code END,
                     collector_number=VALUES(collector_number), card_language=VALUES(card_language),
                     edition_code=VALUES(edition_code), parallel_code=VALUES(parallel_code),
                     finish_code=VALUES(finish_code), identity_status=VALUES(identity_status),
                     evidence_sha256=VALUES(evidence_sha256)
                 """,
                 (
-                    row["variantId"], row["tcgCode"], row["setName"], row["collectorNumber"],
+                    row["variantId"], row["tcgCode"], row["setName"], row["setCode"],
+                    row["printingCode"], row["rarityCode"], row["collectorNumber"],
                     row["cardLanguage"], row["editionCode"], row["parallelCode"], row["finishCode"],
                     row["canonicalPrintingSha256"], row["identityStatus"], row["evidenceSha256"],
                 ),

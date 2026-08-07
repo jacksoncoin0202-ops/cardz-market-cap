@@ -52,7 +52,7 @@ export function HeatmapTilesBoard({ cards, period, params, dark, onPick }: {
             type="button"
             data-dir={st.direction}
             style={{ left: tileX, top: tileY, width: tileW, height: tileH, background: st.bg }}
-            aria-label={`#${card.viewRank} ${card.collectorNumber}`}
+            aria-label={`#${card.viewRank} ${card.officialName ?? ""} ${card.collectorNumber}`.trim()}
             onClick={() => onPick?.(card)}
           >
             {st.showCard ? (
@@ -61,7 +61,7 @@ export function HeatmapTilesBoard({ cards, period, params, dark, onPick }: {
                 aria-hidden="true"
                 style={{ width: st.cardW, height: st.cardH, left: (tileW - st.cardW) / 2, top: (tileH - st.cardH) / 2 }}
               >
-                <CardImage image={card.image} sizes={`${Math.max(40, Math.round(st.cardW))}px`} loading={card.viewRank <= 8 ? "eager" : "lazy"} />
+                <CardImage image={card.image} sizes={`${Math.max(40, Math.round(st.cardW))}px`} loading={card.viewRank <= 8 ? "eager" : "lazy"} alt={card.officialName ?? ""} />
               </span>
             ) : null}
             {st.move ? (

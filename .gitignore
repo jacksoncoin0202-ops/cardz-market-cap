@@ -1,83 +1,17 @@
-# Secrets and local environment
 .env
 .env.*
 !.env.example
-.dev.vars
-.dev.vars.*
-*.pem
-*.key
-*.p12
-*.pfx
-
-# Dependencies and build output
 node_modules/
-.codegraph/
-.venv-backend/
+**/node_modules/
 .next/
-.open-next/
+**/.next/
 dist/
+**/dist/
 coverage/
-.wrangler/
-out/
-apps/web/public/market-assets/
-
-# Runtime and temporary data
 data/runtime/
-apps/web/data/runtime/
-data/private/daily/
-data/private/g10/
-data/private/gemrate/
-data/private/kado/
-data/private/snk/
-data/tag/*.jsonl
-data/tag/*.jsonl.state
-data/tag/daily/
-data/private/logs/
-data/private/publish-staging/
-data/public/publish-staging/
-data/private/*.sqlite
-data/private/*.sqlite-wal
-data/private/*.sqlite-shm
-data/private/tmp/
-# 上面逐個子目錄咁擋，擋唔到 data/private/ 頂層新出嘅檔。2026-07-26 就係咁
-# 俾一個 12.8 MB 嘅 cardz-active-bootstrap.tar.gz 溜咗入 index —— 入面係
-# active-gemrate-ids / active-snk-ids / active-universe，即係我哋追蹤邊啲卡、
-# 由邊個源攞，一 commit 就永久留喺 history。改成預設全擋、要出貨先逐個開白名單。
-data/private/*
-!data/private/.gitkeep
-integrations/grade10/data/
 *.log
 *.tmp
 *.bak
-*.mask-work.*
-pipelines/gemrate_ids.txt
-pipelines/snk_ids.txt
-.pytest_cache/
-__pycache__/
-*.pyc
-
-# Editors and operating systems
 .DS_Store
 Thumbs.db
-.claude/
-.idea/
-.vscode/
-
-# Playwright artifacts
-playwright-report/
-test-results/
-
-# Agent scratch and preview builds. 2026-07-27 打包前實測：呢六個從未被 ignore，
-# 加埋 1.8 GB / 3,300+ 檔，全部係 agent 中途產物（.err/.json probe、__pycache__、
-# 截圖、backdated fixture）。冇一個係交付物，但一 commit 就永久留喺 history。
-.agent/
-temp/
-verification/
-tempseed-committed.json
-temptestdata_win.txt
-apps/web/.preview/
-
-# 大體積衍生物：mockup 自己複製一份卡圖（102 MB，data/public/market-assets/ 已經有
-# canonical 版），同一個冇任何 consumer 嘅 6.3 MB pack（grep 全 repo 零引用）。
-docs/mockups/market-assets/
-data/public/presentation-pack.json
+.venv-backend-windows/

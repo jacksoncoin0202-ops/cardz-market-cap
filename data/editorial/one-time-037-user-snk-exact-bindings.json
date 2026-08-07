@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 2,
+  "contract": "active-762-exact-identity-repair-031-v1",
+  "verifiedOn": "2026-08-07",
+  "activeUniverseCards": 762,
+  "candidatePolicy": "report-only-no-mutation",
+  "canonicalCorrections": [],
+  "decisions": [
+    {
+      "variantId": 34,
+      "sourceCode": "snkrdunk",
+      "externalId": "494757",
+      "action": "confirm",
+      "sourceProductNumber": "pkmn-tcg-274",
+      "canonical": {
+        "tcgCode": "pokemon",
+        "cardLanguage": "en",
+        "collectorNumber": "SM191",
+        "setCode": "SM-P",
+        "editionCode": "unknown",
+        "printingCode": "base",
+        "parallelCode": "",
+        "finishCode": "unknown"
+      },
+      "provider": {
+        "tcgCode": "pokemon",
+        "cardLanguage": "en",
+        "collectorNumber": "SM191",
+        "setCode": "SM-P",
+        "editionCode": "unknown",
+        "printingCode": "base",
+        "parallelCode": "",
+        "finishCode": "unknown"
+      },
+      "evidence": {
+        "path": "data/runtime/operator/collect/snk_price_harvest_cardzmc_20260807_user_links.jsonl",
+        "sha256": "4aeeadbb61bb0092d221dc91d4a50ef3728afcf9576d4c22a6aacf83dfac03f4"
+      },
+      "reason": "User-supplied SNK EN link fetched through the retained HTTP lane; returned English SM191 product identity and default image."
+    },
+    {
+      "variantId": 75,
+      "sourceCode": "snkrdunk",
+      "externalId": "494755",
+      "action": "confirm",
+      "sourceProductNumber": "pkmn-tcg-284",
+      "canonical": {
+        "tcgCode": "pokemon",
+        "cardLanguage": "en",
+        "collectorNumber": "SM168",
+        "setCode": "SM-P",
+        "editionCode": "unknown",
+        "printingCode": "base",
+        "parallelCode": "",
+        "finishCode": "unknown"
+      },
+      "provider": {
+        "tcgCode": "pokemon",
+        "cardLanguage": "en",
+        "collectorNumber": "SM168",
+        "setCode": "SM-P",
+        "editionCode": "unknown",
+        "printingCode": "base",
+        "parallelCode": "",
+        "finishCode": "unknown"
+      },
+      "evidence": {
+        "path": "data/runtime/operator/collect/snk_price_harvest_cardzmc_20260807_user_links.jsonl",
+        "sha256": "4aeeadbb61bb0092d221dc91d4a50ef3728afcf9576d4c22a6aacf83dfac03f4"
+      },
+      "reason": "User-supplied SNK EN link fetched through the retained HTTP lane; returned English SM168 product identity and default image."
+    }
+  ]
+}

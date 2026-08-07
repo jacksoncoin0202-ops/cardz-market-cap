@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "contract": "canonical-gemrate-identity-repair-026-v1",
+  "entries": [
+    {
+      "variantId": 98,
+      "tcgCode": "one-piece",
+      "cardLanguage": "en",
+      "collectorNumber": "OP01-120",
+      "setCode": "OP01",
+      "printingCode": "manga",
+      "selectedGemrateId": "9f43a12e61b3bb70761e5a3d3197cef9b9d81224",
+      "officialNameEvidenceGemrateId": "9f43a12e61b3bb70761e5a3d3197cef9b9d81224",
+      "officialFullName": "2022 One Piece Romance Dawn Shanks Manga Alternate Art 120",
+      "providerSet": "One Piece OP01-Romance Dawn",
+      "providerParallel": "Manga Alternate Art",
+      "rejectedGemrateIds": [
+        "0fdd826d76d0115f8d40e07eb7df34682a409de9"
+      ],
+      "reason": "Canonical language is English/international; the rejected exact identity is the separate Japanese printing."
+    },
+    {
+      "variantId": 1720,
+      "tcgCode": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "232",
+      "setCode": "PAF",
+      "printingCode": "base",
+      "selectedGemrateId": "6eeea13927f8b7be973a8d7e96104e11e5dbcfab",
+      "officialNameEvidenceGemrateId": "6eeea13927f8b7be973a8d7e96104e11e5dbcfab",
+      "officialFullName": "2024 Paldean Fates - PAF EN - English Mew ex 232/091",
+      "providerSet": "Pokemon Paf EN-Paldean Fates",
+      "providerParallel": "Special Illustration Rare",
+      "rejectedGemrateIds": [
+        "3458a55caca222af5a42d3b9d05b49560f61858f"
+      ],
+      "reason": "Selected identity has raw GemRate set and parallel evidence; rejected duplicate has no provider set/parallel claim."
+    },
+    {
+      "variantId": 1721,
+      "tcgCode": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "234",
+      "setCode": "PAF",
+      "printingCode": "",
+      "selectedGemrateId": "aa857e422d26809e569bd95ac11132267bb68367",
+      "officialNameEvidenceGemrateId": "2e1cf031a5c4fa6aa93084b44d40a69675e27c3a",
+      "officialFullName": "2024 Paldean Fates - PAF EN - English Charizard ex 234/091",
+      "providerSet": "Pokemon Paf EN-Paldean Fates",
+      "providerParallel": "Special Illustration Rare",
+      "rejectedGemrateIds": [
+        "2e1cf031a5c4fa6aa93084b44d40a69675e27c3a"
+      ],
+      "reason": "Selected primary identity owns the current exact checkpoint; the rejected same-printing alias supplies the raw PSA full-name evidence only."
+    },
+    {
+      "variantId": 1728,
+      "tcgCode": "pokemon",
+      "cardLanguage": "en",
+      "collectorNumber": "148",
+      "setCode": "SCR",
+      "printingCode": "",
+      "selectedGemrateId": "4bc4284b1a5a62e6349d86db7eafddcbd407424d",
+      "officialNameEvidenceGemrateId": "49477849c726339ed8a0662a971720dd23c35223",
+      "officialFullName": "2024 Stellar Crown - SCR EN - English Squirtle 148/142",
+      "providerSet": "Pokemon Scr EN-Stellar Crown",
+      "providerParallel": "Illustration Rare",
+      "rejectedGemrateIds": [
+        "49477849c726339ed8a0662a971720dd23c35223"
+      ],
+      "reason": "Selected primary identity owns the current exact checkpoint; the rejected same-printing alias supplies the raw PSA full-name evidence only."
+    }
+  ]
+}

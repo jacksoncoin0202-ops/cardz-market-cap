@@ -2,8 +2,7 @@
 # Server deploy path: git pull → docker compose up --build
 #
 # Build context MUST be repo root (npm workspaces + data/public).
-# Data is baked at build time from data/public/seed-snapshot.json + market-assets.
-# For demo/non-productionEligible snapshots, set MARKET_DATA_ALLOW_DEMO=true.
+# Data is baked directly into seed-snapshot.json plus market-assets.
 
 name: cardz-market-cap-web
 
@@ -18,12 +17,11 @@ services:
     ports:
       - "${CARDZ_WEB_PORT:-3000}:3000"
     environment:
-      CARDZ_RUNTIME: node
+      CARDZ_PUBLIC_BUILD_ID: ${CARDZ_PUBLIC_BUILD_ID:-deploy}
       NODE_ENV: production
       PORT: "3000"
       HOSTNAME: "0.0.0.0"
-      # Required until generation.productionEligible === true
-      MARKET_DATA_ALLOW_DEMO: ${MARKET_DATA_ALLOW_DEMO:-true}
+      MARKET_DATA_SNAPSHOT_PATH: /app/data/public/seed-snapshot.json
     restart: unless-stopped
     healthcheck:
       test:

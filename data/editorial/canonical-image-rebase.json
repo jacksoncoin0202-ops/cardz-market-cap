@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "contract": "canonical-accepted-image-byte-rebase-v1",
+  "authority": "Windows 127.0.0.1:3308 accepted image freeze plus existing human-confirmed asset/QC/pointer lineage",
+  "entries": {
+    "cmc_113e9cad03556282f439a115": {
+      "variantId": 83,
+      "acceptedSourceSha256": "944633dbab0f3978af563ae698e0a9e6cba4ba8dd084a4c186e0dd5fecfca482",
+      "freezeEvidenceSha256": "05d510073fe6f695d4f3517622f17fb78726357e1984c25785cc56cb38822fe1",
+      "sourceVersionSha256": "b26b8f23c5bf08d5fab3a9c48a9c4a51fb0445b435263a0bce277b9554d08d31",
+      "providerSourceCode": "tcgplayer",
+      "providerExternalEntityId": "566370",
+      "providerFreezeEvidenceSha256": "a234795c63d985ae9cfbbf810d5fc1f0bed5595f656228a6437e687ba4f8785a",
+      "exactIdentityEvidenceSha256": "e8208e134edadc339d225cb90562b477fa7dd406ddfe3b831f11971b23a5e2c4",
+      "publicContentSha256": "958e3bd0fc11b82f8fc304f1be8b7617fd784e46aef7502a3dc05083ab25471c",
+      "width": 716,
+      "height": 1000,
+      "derivatives": {
+        "200": "5eb4578d6d314cb5dbdb4ce314c4ca7a9983c9ba69b0031b2c661c66bed2627e",
+        "600": "855fda54138ce3724f949e5b189881fbc945ef988a13584bf71c78b34a313043"
+      }
+    },
+    "cmc_79579a6d522f2e49f0e54949": {
+      "variantId": 134,
+      "acceptedSourceSha256": "58186752cc3e5a7557f37afcf5a2044d062436072a84c0dd8a58039e9d1cfd5f",
+      "freezeEvidenceSha256": "5a0757f995a75a983113ac8bfc17ea313e85000a7608c7781ef6a8c3474a8fcf",
+      "sourceVersionSha256": "73b65a051307eb098aa29c748acd9f4c80faa0ad3e3cbef85e2030307a039449",
+      "providerSourceCode": "tcgplayer",
+      "providerExternalEntityId": "657401",
+      "providerFreezeEvidenceSha256": "bdde7e83774e63d8ea5797d6ea8248648b4106b97efc6baf0185b23a0bee83ca",
+      "exactIdentityEvidenceSha256": "bdde7e83774e63d8ea5797d6ea8248648b4106b97efc6baf0185b23a0bee83ca",
+      "publicContentSha256": "428d3d879a47d9ca58ed05a7d0ef1f21cc31e242232015a0b3eb30760335b7ca",
+      "width": 600,
+      "height": 838,
+      "derivatives": {
+        "200": "cf07615177700a65de260849c681cb753ae4b7ac906b9626df5fa5fab9df6540",
+        "600": "33234bf479146a69db7d88c30cf55628730e0fde62ae0b62e8456a8498ce1a62"
+      }
+    },
+    "cmc_275b3b50e1d9029462cccdb9": {
+      "variantId": 1743,
+      "acceptedSourceSha256": "cb081c58a4bcdd5ec94d6316e3c0f17d75435f3c4be859cd855575d7d1bba05b",
+      "freezeEvidenceSha256": "b57cccc60b5486118e1d52b990f6db645357baa436e405685e152cc4767c5075",
+      "sourceVersionSha256": "0441df16a57dee61fd8fa4bbcd88905eb0a9937c44b30e95a44c4c67509db71e",
+      "providerSourceCode": "tcgplayer",
+      "providerExternalEntityId": "597066",
+      "providerFreezeEvidenceSha256": "5969ba4a01adea841a64887619a1fd76b5e5b4293027fc33ef9c7674cbf2d593",
+      "exactIdentityEvidenceSha256": "5969ba4a01adea841a64887619a1fd76b5e5b4293027fc33ef9c7674cbf2d593",
+      "publicContentSha256": "f9a0ea62e69cc6d9bc1333eaf71b55ce099fb4d48336c109303b5250b552be68",
+      "width": 600,
+      "height": 838,
+      "derivatives": {
+        "200": "cdf6c03f330725cfa5dbd456702247c8a9ee971d42a78631ef2983213fa3557c",
+        "600": "03a6021bcfb49fb64b88bc979453965ebe8abb427f9a4e7ea467591289a338f9"
+      }
+    }
+  }
+}

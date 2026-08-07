@@ -13,6 +13,7 @@ import argparse
 import hashlib
 import json
 import sys
+from collections import Counter
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -34,9 +35,19 @@ from pc_psa10_price_derivation import (
     sha256,
     validate_pc_psa10,
 )
+from pc_ungraded_reference_ingest import (
+    _url_key,
+    canonical_url_from_html,
+    partition_exact_bindings,
+    source_observed_at,
+)
+from pricecharting_page_parse import parse_product_html
 
 CONTRACT = "pc_psa10_current_price_v1"
 DEFAULT_PLAN = ROOT / "data/runtime/private-source-map/pc-psa10-current-price-plan-20260731T0630Z.json"
+LOCAL_HISTORY_CONTRACT = "pc_psa10_local_history_v1"
+DEFAULT_HISTORY_HTML_ROOT = ROOT / "data/private/pricecharting_session/html"
+DEFAULT_HISTORY_REPORT = ROOT / "data/editorial/one-time-034-all-local-market-merge.json"
 
 
 def _parse_stamp(value: Any) -> datetime:
@@ -91,6 +102,11 @@ def validate_plan_rows(
             or not isinstance(payload, Mapping)
         ):
             raise ValueError("only exact PriceCharting or PC-bound eBay PSA10 rows are materializable")
+        if source == SOURCE_EBAY:
+            raise ValueError(
+                "PC-bound eBay medians have no exact eBay provider entity identity; "
+                "refuse to materialize synthetic pc:<id> lineage"
+            )
         if (variant_id, source) in seen:
             raise ValueError("ambiguous duplicate variant/source plan row")
         seen.add((variant_id, source))
@@ -308,11 +324,17 @@ def changed_rows(connection: Any, rows: list[dict[str, Any]]) -> list[dict[str, 
     sources = sorted({str(row["sourceCode"]).casefold() for row in rows})
     with connection.cursor() as cursor:
         cursor.execute(
-            "SELECT variant_id, source_code, observed_date, effective_at, price_usd, "
-            "source_priority, metric_status, payload_sha256 "
-            "FROM market_price_observation WHERE source_code IN ("
+            "SELECT price.variant_id, price.source_code, price.observed_date, "
+            "price.effective_at, price.price_usd, price.source_priority, "
+            "price.metric_status, price.payload_sha256, price.source_external_entity_id, "
+            "price.source_observation_id, source.source_code AS observation_source_code, "
+            "source.external_entity_id AS observation_external_entity_id, "
+            "source.payload_sha256 AS observation_payload_sha256 "
+            "FROM market_price_observation AS price "
+            "LEFT JOIN market_source_observation AS source "
+            "ON source.id=price.source_observation_id WHERE price.source_code IN ("
             + ",".join(["%s"] * len(sources))
-            + ") AND variant_id IN ("
+            + ") AND price.variant_id IN ("
             + ",".join(["%s"] * len(ids))
             + ")",
             [*sources, *ids],
@@ -337,9 +359,20 @@ def changed_rows(connection: Any, rows: list[dict[str, Any]]) -> list[dict[str, 
             int(row["sourcePriority"]),
             "ready",
             str(row["payloadSha256"]),
+            pc_product_id(row),
+            True,
         )
         actual = None if current is None else (
-            str(current["price_usd"]), current["effective_at"], int(current["source_priority"]), str(current["metric_status"]), str(current["payload_sha256"]),
+            str(current["price_usd"]), current["effective_at"], int(current["source_priority"]),
+            str(current["metric_status"]), str(current["payload_sha256"]),
+            str(current.get("source_external_entity_id") or ""),
+            (
+                current.get("source_observation_id") is not None
+                and str(current.get("observation_source_code") or "").casefold() == source
+                and str(current.get("observation_external_entity_id") or "") == pc_product_id(row)
+                and str(current.get("observation_payload_sha256") or "")
+                == str(row["payloadSha256"])
+            ),
         )
         if actual != expected:
             changed.append(row)
@@ -371,37 +404,377 @@ def materialize(connection: Any, rows: list[dict[str, Any]], *, plan_sha256: str
             (run_key, SOURCE_PC, now, plan_sha256, plan_sha256, len(change), now),
         )
         run_id = int(cursor.lastrowid)
-        cursor.executemany(
-            """INSERT INTO market_price_observation (run_id,variant_id,source_code,observed_date,effective_at,price_usd,native_price,native_currency,source_priority,metric_status,payload_sha256)
-               VALUES (%s,%s,%s,%s,%s,%s,NULL,NULL,%s,%s,%s)
-               ON DUPLICATE KEY UPDATE run_id=VALUES(run_id),effective_at=VALUES(effective_at),price_usd=VALUES(price_usd),source_priority=VALUES(source_priority),metric_status=VALUES(metric_status),payload_sha256=VALUES(payload_sha256)""",
-            [
+        price_values: list[tuple[Any, ...]] = []
+        for row in change:
+            variant_id = int(row["variantId"])
+            source_code = str(row["sourceCode"]).casefold()
+            external_entity_id = pc_product_id(row)
+            cursor.execute(
+                """
+                SELECT COUNT(*) AS n
+                FROM catalog_source_identity AS identity
+                WHERE identity.variant_id=%s AND identity.source_code=%s
+                  AND identity.external_entity_id=%s AND identity.match_status='exact'
+                """,
+                (variant_id, source_code, external_entity_id),
+            )
+            if int(cursor.fetchone()["n"]) != 1:
+                raise ValueError(
+                    "PriceCharting exact identity is missing or ambiguous: "
+                    f"variant={variant_id} external={external_entity_id}"
+                )
+            effective_at = _parse_stamp(row["effectiveAt"])
+            payload_json = canonical_bytes(row["payload"]).decode("utf-8")
+            cursor.execute(
+                """
+                INSERT INTO market_source_observation
+                    (run_id, source_code, external_entity_id, observation_kind, effective_at,
+                     observed_date, payload_sha256, payload_json, observed_at)
+                VALUES (%s, %s, %s, 'psa10_price_guide', %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    id=LAST_INSERT_ID(id), run_id=VALUES(run_id),
+                    effective_at=VALUES(effective_at), payload_json=VALUES(payload_json),
+                    observed_at=VALUES(observed_at)
+                """,
                 (
-                    run_id,
-                    int(row["variantId"]),
-                    str(row["sourceCode"]).casefold(),
-                    row["observedDate"],
-                    _parse_stamp(row["effectiveAt"]),
-                    row["priceUsd"],
-                    int(row["sourcePriority"]),
-                    "ready",
+                    run_id, source_code, external_entity_id, effective_at,
+                    row["observedDate"], row["payloadSha256"], payload_json, effective_at,
+                ),
+            )
+            source_observation_id = int(cursor.lastrowid)
+            if source_observation_id <= 0:
+                raise RuntimeError("PriceCharting source observation upsert returned no id")
+            price_values.append(
+                (
+                    run_id, variant_id, source_code, external_entity_id,
+                    source_observation_id, row["observedDate"], effective_at,
+                    row["priceUsd"], int(row["sourcePriority"]), "ready",
                     row["payloadSha256"],
                 )
-                for row in change
-            ],
+            )
+        cursor.executemany(
+            """INSERT INTO market_price_observation
+                 (run_id,variant_id,source_code,source_external_entity_id,
+                  source_observation_id,observed_date,effective_at,price_usd,
+                  native_price,native_currency,source_priority,metric_status,payload_sha256)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NULL,NULL,%s,%s,%s)
+               ON DUPLICATE KEY UPDATE
+                 run_id=VALUES(run_id),
+                 source_external_entity_id=VALUES(source_external_entity_id),
+                 source_observation_id=VALUES(source_observation_id),
+                 effective_at=VALUES(effective_at),price_usd=VALUES(price_usd),
+                 source_priority=VALUES(source_priority),metric_status=VALUES(metric_status),
+                 payload_sha256=VALUES(payload_sha256)""",
+            price_values,
         )
         cursor.execute("UPDATE market_ingest_run SET status='completed',accepted_count=%s,completed_at=%s WHERE id=%s", (len(change), now, run_id))
     connection.commit()
     return len(change)
 
 
+def _active_exact_pc_rows(connection: Any, map_path: Path) -> tuple[list[dict[str, Any]], int]:
+    """Return only current-universe, exact, one-owner PriceCharting bindings."""
+
+    candidates = load_candidate_rows(map_path)
+    with connection.cursor() as cursor:
+        exact, _rejected = partition_exact_bindings(cursor, candidates)
+        cursor.execute(
+            """
+            SELECT member.variant_id
+            FROM market_universe_member AS member
+            INNER JOIN market_universe_lock AS lock_row
+              ON lock_row.id=member.universe_lock_id AND lock_row.is_current=1
+            """
+        )
+        active_ids = {int(row["variant_id"]) for row in cursor.fetchall()}
+    active = [row for row in exact if int(row["variant_id"]) in active_ids]
+    ownership_rows = [
+        {
+            "variantId": int(row["variant_id"]),
+            "payload": {"externalEntityId": str(row["pc_product_id"])},
+        }
+        for row in active
+    ]
+    recheck_exact_bindings(connection, ownership_rows)
+    return active, len(candidates)
+
+
+def _history_point(
+    *,
+    row: Mapping[str, Any],
+    point: Any,
+    artifact_sha256: str,
+    artifact_path: Path,
+) -> dict[str, Any] | None:
+    observed_at = source_observed_at(point)
+    if observed_at is None:
+        return None
+    try:
+        cents = Decimal(str(point[1]))
+        price = cents / Decimal(100)
+    except Exception:
+        return None
+    if price <= 0:
+        return None
+    source_url = str(row["pc_url"])
+    payload = {
+        "contract": LOCAL_HISTORY_CONTRACT,
+        "source": SOURCE_PC,
+        "variantId": int(row["variant_id"]),
+        "externalEntityId": str(row["pc_product_id"]),
+        "method": "pricecharting_explicit_psa10_history_v1",
+        "field": "VGPC.chart_data.manualonly.series",
+        "sourceUrl": source_url,
+        "artifactSha256": artifact_sha256,
+        "artifactPath": str(artifact_path),
+        "chartPoint": [int(point[0]), str(point[1])],
+    }
+    return {
+        "variantId": int(row["variant_id"]),
+        "externalEntityId": str(row["pc_product_id"]),
+        "observedDate": observed_at.date().isoformat(),
+        "effectiveAt": observed_at,
+        "priceUsd": str(price.quantize(Decimal("0.000001"))),
+        "payloadSha256": sha256(payload),
+        "payload": payload,
+    }
+
+
+def collect_local_history(
+    connection: Any,
+    *,
+    map_path: Path,
+    html_roots: list[Path],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Merge every local PC page that proves the active exact provider identity.
+
+    The old repository is deliberately just another evidence root.  A page is
+    accepted only when both its canonical URL and embedded PC product id agree
+    with the live exact binding; path names never decide identity.
+    """
+
+    active_rows, map_rows = _active_exact_pc_rows(connection, map_path)
+    expected = {
+        (str(row["pc_product_id"]), _url_key(str(row["pc_url"]))): row
+        for row in active_rows
+    }
+    selected: dict[tuple[int, str], tuple[tuple[int, int, str], dict[str, Any]]] = {}
+    root_reports: list[dict[str, Any]] = []
+    for root_rank, root in enumerate(html_roots):
+        report = {
+            "root": str(root),
+            "exists": root.is_dir(),
+            "htmlFiles": 0,
+            "matchedExactArtifacts": 0,
+            "acceptedPricePoints": 0,
+        }
+        if not root.is_dir():
+            root_reports.append(report)
+            continue
+        for artifact_path in sorted(root.rglob("*.html")):
+            report["htmlFiles"] += 1
+            try:
+                artifact = artifact_path.read_bytes()
+                html = artifact.decode("utf-8", errors="replace")
+                canonical_url = canonical_url_from_html(html)
+                if canonical_url is None:
+                    continue
+                parsed = parse_product_html(html, source_url=canonical_url)
+                product = parsed.get("product") if isinstance(parsed.get("product"), Mapping) else {}
+                product_id = str(product.get("id") or "")
+                row = expected.get((product_id, _url_key(canonical_url)))
+                if row is None or not parsed.get("ok"):
+                    continue
+                history = (
+                    parsed.get("psa10", {}).get("history")
+                    if isinstance(parsed.get("psa10"), Mapping)
+                    else None
+                )
+                if not isinstance(history, Mapping) or history.get("label") != "PSA 10":
+                    continue
+                series = history.get("series")
+                if not isinstance(series, list):
+                    continue
+            except (OSError, ValueError, TypeError):
+                continue
+            report["matchedExactArtifacts"] += 1
+            artifact_sha256 = hashlib.sha256(artifact).hexdigest()
+            precedence = (root_rank, artifact_path.stat().st_mtime_ns, str(artifact_path))
+            for point in series:
+                item = _history_point(
+                    row=row,
+                    point=point,
+                    artifact_sha256=artifact_sha256,
+                    artifact_path=artifact_path,
+                )
+                if item is None:
+                    continue
+                report["acceptedPricePoints"] += 1
+                key = (int(item["variantId"]), str(item["observedDate"]))
+                prior = selected.get(key)
+                if prior is None or precedence > prior[0]:
+                    selected[key] = (precedence, item)
+        root_reports.append(report)
+    rows = [item for _order, item in selected.values()]
+    rows.sort(key=lambda item: (int(item["variantId"]), str(item["observedDate"])))
+    report = {
+        "contract": LOCAL_HISTORY_CONTRACT,
+        "map": str(map_path),
+        "mapRows": map_rows,
+        "activeExactPriceChartingRows": len(active_rows),
+        "roots": root_reports,
+        "mergedHistoricalPriceRows": len(rows),
+        "variantsWithHistoricalPrice": len({int(row["variantId"]) for row in rows}),
+        "rejectedReason": "non-exact provider identity, no explicit PSA 10 series, malformed local artifact, or empty price point",
+    }
+    return rows, report
+
+
+def materialize_local_history(connection: Any, rows: list[dict[str, Any]]) -> int:
+    """Fast one-transaction overlay of local exact PriceCharting daily history."""
+
+    if not rows:
+        return 0
+    manifest_sha256 = hashlib.sha256(
+        "\n".join(str(row["payloadSha256"]) for row in rows).encode("utf-8")
+    ).hexdigest()
+    run_key = hashlib.sha256(f"pc_local_history|{manifest_sha256}".encode("utf-8")).hexdigest()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO market_ingest_run
+              (run_key,source_code,ingest_mode,effective_at,payload_sha256,manifest_sha256,status,observed_count,started_at)
+            VALUES (%s,%s,'backfill',%s,%s,%s,'running',%s,%s)
+            ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id),status='running',observed_count=VALUES(observed_count),started_at=VALUES(started_at)
+            """,
+            (run_key, SOURCE_PC, now, manifest_sha256, manifest_sha256, len(rows), now),
+        )
+        run_id = int(cursor.lastrowid)
+        cursor.execute("DROP TEMPORARY TABLE IF EXISTS pc_local_history_stage")
+        cursor.execute(
+            """
+            CREATE TEMPORARY TABLE pc_local_history_stage (
+              variant_id BIGINT UNSIGNED NOT NULL,
+              external_entity_id VARCHAR(191) NOT NULL,
+              observed_date DATE NOT NULL,
+              effective_at DATETIME(6) NOT NULL,
+              price_usd DECIMAL(18,6) NOT NULL,
+              payload_sha256 CHAR(64) NOT NULL,
+              payload_json JSON NOT NULL,
+              PRIMARY KEY (variant_id, observed_date)
+            ) ENGINE=InnoDB
+            """
+        )
+        values = [
+            (
+                int(row["variantId"]),
+                str(row["externalEntityId"]),
+                str(row["observedDate"]),
+                row["effectiveAt"],
+                str(row["priceUsd"]),
+                str(row["payloadSha256"]),
+                canonical_bytes(row["payload"]).decode("utf-8"),
+            )
+            for row in rows
+        ]
+        cursor.executemany(
+            """
+            INSERT INTO pc_local_history_stage
+              (variant_id,external_entity_id,observed_date,effective_at,price_usd,payload_sha256,payload_json)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)
+            """,
+            values,
+        )
+        cursor.execute(
+            """
+            INSERT INTO market_source_observation
+              (run_id,source_code,external_entity_id,observation_kind,effective_at,observed_date,payload_sha256,payload_json,observed_at)
+            SELECT %s,%s,stage.external_entity_id,'psa10_price_guide',stage.effective_at,
+                   stage.observed_date,stage.payload_sha256,stage.payload_json,stage.effective_at
+            FROM pc_local_history_stage AS stage
+            ON DUPLICATE KEY UPDATE run_id=VALUES(run_id),effective_at=VALUES(effective_at),payload_json=VALUES(payload_json),observed_at=VALUES(observed_at)
+            """,
+            (run_id, SOURCE_PC),
+        )
+        cursor.execute(
+            """
+            INSERT INTO market_price_observation
+              (run_id,variant_id,source_code,source_external_entity_id,source_observation_id,observed_date,effective_at,price_usd,native_price,native_currency,source_priority,metric_status,payload_sha256)
+            SELECT %s,stage.variant_id,%s,stage.external_entity_id,source.id,stage.observed_date,
+                   stage.effective_at,stage.price_usd,NULL,NULL,95,'ready',stage.payload_sha256
+            FROM pc_local_history_stage AS stage
+            INNER JOIN market_source_observation AS source
+              ON source.source_code=%s AND source.external_entity_id=stage.external_entity_id
+             AND source.observation_kind='psa10_price_guide'
+             AND source.observed_date=stage.observed_date
+             AND source.payload_sha256=stage.payload_sha256
+            ON DUPLICATE KEY UPDATE run_id=VALUES(run_id),source_external_entity_id=VALUES(source_external_entity_id),
+              source_observation_id=VALUES(source_observation_id),effective_at=VALUES(effective_at),
+              price_usd=VALUES(price_usd),source_priority=VALUES(source_priority),
+              metric_status=VALUES(metric_status),payload_sha256=VALUES(payload_sha256)
+            """,
+            (run_id, SOURCE_PC, SOURCE_PC),
+        )
+        cursor.execute(
+            "UPDATE market_ingest_run SET status='completed',accepted_count=%s,completed_at=%s WHERE id=%s",
+            (len(rows), now, run_id),
+        )
+    connection.commit()
+    return len(rows)
+
+
+def run_local_history(
+    *,
+    map_path: Path,
+    html_roots: list[Path],
+    report_path: Path,
+    write: bool,
+) -> int:
+    connection = db()
+    try:
+        rows, report = collect_local_history(connection, map_path=map_path, html_roots=html_roots)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        written = materialize_local_history(connection, rows) if write else 0
+        if not write:
+            connection.rollback()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+    print(json.dumps({"contract": LOCAL_HISTORY_CONTRACT, "write": write, "report": str(report_path), "mergedHistoricalPriceRows": len(rows), "changed": written, "roots": report["roots"]}, ensure_ascii=False, sort_keys=True))
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Materialize reviewed explicit PriceCharting PSA10 prices")
     parser.add_argument("--plan", type=Path, default=DEFAULT_PLAN)
-    parser.add_argument("--plan-sha256", required=True)
+    parser.add_argument("--plan-sha256")
     parser.add_argument("--map", type=Path, default=MAP_DEFAULT)
     parser.add_argument("--write", action="store_true")
+    parser.add_argument("--local-history", action="store_true", help="merge every local exact PriceCharting PSA10 chart point")
+    parser.add_argument("--html-root", type=Path, action="append", default=[], help="additional local PriceCharting HTML root; later roots overlay earlier evidence")
+    parser.add_argument("--history-report", type=Path, default=DEFAULT_HISTORY_REPORT)
     args = parser.parse_args()
+    if args.local_history:
+        roots = [*args.html_root, DEFAULT_HISTORY_HTML_ROOT]
+        unique_roots: list[Path] = []
+        seen_roots: set[Path] = set()
+        for root in roots:
+            resolved = root.resolve()
+            if resolved not in seen_roots:
+                seen_roots.add(resolved)
+                unique_roots.append(resolved)
+        return run_local_history(
+            map_path=args.map.resolve(),
+            html_roots=unique_roots,
+            report_path=args.history_report.resolve(),
+            write=bool(args.write),
+        )
+    if not args.plan_sha256:
+        parser.error("--plan-sha256 is required unless --local-history is used")
     doc = read_plan(args.plan, args.plan_sha256)
     rows = validate_plan_rows(doc)
     recheck_artifacts(rows, args.map)

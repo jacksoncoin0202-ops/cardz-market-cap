@@ -42,7 +42,7 @@ export function MarketPage({ kind, snapshot }: { kind: MarketPageKind; snapshot:
         itemListElement: cards.map((card) => ({
           "@type": "ListItem",
           position: card.viewRank,
-          name: card.name[locale] || t.status.unavailable,
+          name: card.officialName || t.status.unavailable,
           url: absolutePublicUrl(href(`/card/${card.id}`)),
         })),
       },

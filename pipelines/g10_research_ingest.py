@@ -349,15 +349,22 @@ def write_all(connection: Any, rows: Sequence[StoryRow], stats: Mapping[str, int
         cursor.executemany(
             """
             INSERT INTO catalog_variant_locale
-                (variant_id, locale_code, localized_name, localized_set_name, market_story)
-            VALUES (%s, %s, %s, %s, %s)
+                (variant_id, locale_code, localized_name, localized_set_name, market_story,
+                 provenance_source_code, content_sha256, observed_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 localized_name=VALUES(localized_name),
                 localized_set_name=VALUES(localized_set_name),
-                market_story=VALUES(market_story)
+                market_story=VALUES(market_story),
+                provenance_source_code=VALUES(provenance_source_code),
+                content_sha256=VALUES(content_sha256),
+                observed_at=VALUES(observed_at)
             """,
             [
-                (row.variant_id, LOCALE_CODE, row.localized_name, row.localized_set_name, row.story)
+                (
+                    row.variant_id, LOCALE_CODE, row.localized_name, row.localized_set_name,
+                    row.story, SOURCE_CODE, row.story_sha256, row.observed_at,
+                )
                 for row in rows
             ],
         )

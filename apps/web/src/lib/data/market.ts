@@ -1,11 +1,11 @@
-import { graderSnapshot, loadMarketSnapshot, scopeSnapshot, singleCardSnapshot } from "@/lib/server-snapshot";
-import type { Grader, MarketCardView, MarketViewSnapshot } from "@/lib/types";
+import { loadMarketSnapshot, scopeSnapshot, singleCardSnapshot } from "@/lib/server-snapshot";
+import type { MarketCardView, MarketViewSnapshot } from "@/lib/types";
 
 /*
  * 前端統一數據入口。
- * 所有頁面同 API route 一律經呢度攞數據 — 後端接駁（R2 / D1 / 外部 API）
- * 只需要改 server-snapshot.ts 嘅 loadMarketSnapshot，上層契約不變。
- * 契約詳情見 docs/data-contract.md。
+ * 所有頁面同 API route 一律經呢度攞 immutable product snapshot。
+ * Node / R2 transport 只由 server-snapshot.ts 嘅 loadMarketSnapshot 負責。
+ * Public market data is read from the baked snapshot only.
  */
 
 export type MarketScope = "all" | "pokemon" | "one-piece" | "watchlist";
@@ -13,7 +13,6 @@ export type MarketScope = "all" | "pokemon" | "one-piece" | "watchlist";
 export interface CardListPayload {
   generation: {
     id: string;
-    qcReceiptSha256: string;
   };
   generatedAt: string;
   effectiveAt: string;
@@ -26,7 +25,6 @@ function listPayload(snapshot: MarketViewSnapshot): CardListPayload {
   return {
     generation: {
       id: snapshot.generation,
-      qcReceiptSha256: snapshot.qcReceiptSha256,
     },
     generatedAt: snapshot.generatedAt,
     effectiveAt: snapshot.effectiveAt,
@@ -43,8 +41,4 @@ export async function getMarketData(scope: MarketScope): Promise<CardListPayload
 export async function getCardData(id: string): Promise<MarketCardView | null> {
   const snapshot = singleCardSnapshot(await loadMarketSnapshot(), id);
   return snapshot.top100[0] ?? null;
-}
-
-export async function getGraderData(grader: Grader): Promise<CardListPayload> {
-  return listPayload(graderSnapshot(await loadMarketSnapshot(), grader));
 }

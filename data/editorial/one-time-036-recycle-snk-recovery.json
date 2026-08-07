@@ -1,0 +1,187 @@
+{
+  "activeExactSnkItems": 742,
+  "archivePath": "data/runtime/operator/collect/recovered-033/snk_price_harvest_20260806T055051Z_recovered033.jsonl",
+  "recoveredCards": 459,
+  "recoveredPricePoints": 118442,
+  "remaining30dExactSnk": [
+    {
+      "priceAsOf": "2026-08-03",
+      "snkItemId": 198697,
+      "targetDate": "2026-07-04",
+      "variantId": 267
+    },
+    {
+      "priceAsOf": "2026-07-31",
+      "snkItemId": 489509,
+      "targetDate": "2026-07-01",
+      "variantId": 906
+    },
+    {
+      "priceAsOf": "2026-03-29",
+      "snkItemId": 127768,
+      "targetDate": "2026-02-27",
+      "variantId": 994
+    },
+    {
+      "priceAsOf": "2026-08-05",
+      "snkItemId": 127808,
+      "targetDate": "2026-07-06",
+      "variantId": 998
+    },
+    {
+      "priceAsOf": "2026-07-20",
+      "snkItemId": 128219,
+      "targetDate": "2026-06-20",
+      "variantId": 1027
+    },
+    {
+      "priceAsOf": "2026-07-29",
+      "snkItemId": 127875,
+      "targetDate": "2026-06-29",
+      "variantId": 1034
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 128104,
+      "targetDate": "2026-07-02",
+      "variantId": 1038
+    },
+    {
+      "priceAsOf": "2026-07-19",
+      "snkItemId": 434896,
+      "targetDate": "2026-06-19",
+      "variantId": 1055
+    },
+    {
+      "priceAsOf": "2026-07-19",
+      "snkItemId": 434886,
+      "targetDate": "2026-06-19",
+      "variantId": 1060
+    },
+    {
+      "priceAsOf": "2026-07-13",
+      "snkItemId": 427228,
+      "targetDate": "2026-06-13",
+      "variantId": 1062
+    },
+    {
+      "priceAsOf": "2026-07-30",
+      "snkItemId": 469627,
+      "targetDate": "2026-06-30",
+      "variantId": 1064
+    },
+    {
+      "priceAsOf": "2026-07-13",
+      "snkItemId": 427217,
+      "targetDate": "2026-06-13",
+      "variantId": 1068
+    },
+    {
+      "priceAsOf": "2026-05-29",
+      "snkItemId": 434891,
+      "targetDate": "2026-04-29",
+      "variantId": 1076
+    },
+    {
+      "priceAsOf": "2026-07-19",
+      "snkItemId": 434883,
+      "targetDate": "2026-06-19",
+      "variantId": 1078
+    },
+    {
+      "priceAsOf": "2026-07-29",
+      "snkItemId": 469629,
+      "targetDate": "2026-06-29",
+      "variantId": 1079
+    },
+    {
+      "priceAsOf": "2026-07-15",
+      "snkItemId": 434894,
+      "targetDate": "2026-06-15",
+      "variantId": 1081
+    },
+    {
+      "priceAsOf": "2026-07-30",
+      "snkItemId": 471673,
+      "targetDate": "2026-06-30",
+      "variantId": 1082
+    },
+    {
+      "priceAsOf": "2026-07-07",
+      "snkItemId": 466506,
+      "targetDate": "2026-06-07",
+      "variantId": 1083
+    },
+    {
+      "priceAsOf": "2026-03-27",
+      "snkItemId": 127778,
+      "targetDate": "2026-02-25",
+      "variantId": 1193
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 364046,
+      "targetDate": "2026-07-02",
+      "variantId": 1228
+    },
+    {
+      "priceAsOf": "2026-07-21",
+      "snkItemId": 128053,
+      "targetDate": "2026-06-21",
+      "variantId": 1476
+    },
+    {
+      "priceAsOf": "2026-08-04",
+      "snkItemId": 93517,
+      "targetDate": "2026-07-05",
+      "variantId": 1716
+    },
+    {
+      "priceAsOf": "2026-08-01",
+      "snkItemId": 727323,
+      "targetDate": "2026-07-02",
+      "variantId": 1761
+    }
+  ],
+  "schema": "one-time-033-local-snk-recovery-v1",
+  "sourceFiles": 3,
+  "sourceReports": [
+    {
+      "path": "data/runtime/operator/collect/recovered-033/snk_price_harvest_20260804T000000Z_recycle.jsonl",
+      "pointsRetained": 31084,
+      "rowsRetained": 157,
+      "rowsSeen": 168,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 8,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 3
+    },
+    {
+      "path": "data/runtime/operator/collect/recovered-033/snk_price_harvest_20260806T050000Z_incremental033.jsonl",
+      "pointsRetained": 1176,
+      "rowsRetained": 55,
+      "rowsSeen": 327,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 272,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    },
+    {
+      "path": "data/runtime/operator/collect/recovered-033/snk_price_harvest_20260806T054800Z_recovered033.jsonl",
+      "pointsRetained": 118442,
+      "rowsRetained": 459,
+      "rowsSeen": 459,
+      "skippedCondition": 0,
+      "skippedEmptyKline": 0,
+      "skippedError": 0,
+      "skippedInvalidJson": 0,
+      "skippedMissingFetchedAt": 0,
+      "skippedNoExactIdentity": 0
+    }
+  ],
+  "worklistPath": "data/runtime/operator/collect/recovered-033/remaining-30d-exact-snk-ids.txt"
+}

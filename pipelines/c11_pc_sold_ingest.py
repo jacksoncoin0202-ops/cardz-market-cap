@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""C11 PriceCharting HTML → market_sale_observation (eBay PSA10 sold).
+"""C11 PriceCharting HTML → exact-bound PSA10 sale observations.
 
 Reads data/runtime/private-source-map/c11_pc_ebay_map.jsonl (ready_for_c12 rows),
 parses saved PC product HTML, verifies PSA10 sold rows against card metadata,
-and writes market_sale_observation with source_code='ebay'.
+and writes market_sale_observation under the exact PriceCharting product identity.
 
 Identity policy (hard):
-  - catalog_source_identity source_code='ebay' expects G10 altxyz UUID.
-  - C11 map only has eBay listing item ids — NOT altxyz UUIDs.
-  - Do NOT invent UUID; do NOT write item_id as ebay identity.
-  - Sales attach directly to variant_id via verified PC product map.
+  - catalog_source_identity source_code='pricecharting' owns the exact product id.
+  - eBay listing item ids remain transaction metadata, never provider identity.
+  - Sales attach only through the accepted exact PriceCharting product binding.
 
-external_entity_id for sales: pc:{pc_product_id}  (product-level, stable, no invent)
+external_entity_id for sales: {pc_product_id}  (the accepted provider entity id)
 
 Usage:
   python -X utf8 pipelines/c11_pc_sold_ingest.py --dry-run
@@ -41,7 +40,7 @@ from pricecharting_page_parse import parse_product_html  # noqa: E402
 MAP_DEFAULT = ROOT / "data/runtime/private-source-map/c11_pc_ebay_map.jsonl"
 REGISTRY = ROOT / "data/runtime/private-source-map/liquidity-source-registry.jsonl"
 REPORT_DIR = ROOT / "data/runtime/private-source-map/qualified-pool-reports"
-SOURCE_CODE = "ebay"
+SOURCE_CODE = "pricecharting"
 GRADER = "psa"
 GRADE = "10"
 ACCEPTED = "partial"
@@ -315,7 +314,7 @@ def verify_sale(
     if product_id is None:
         stats["reject_no_product"] += 1
         return None
-    external = f"pc:{int(product_id)}"
+    external = str(int(product_id))
     fp = sha256_text(
         f"pc|{product_id}|{GRADER}|{GRADE}|{date_text}|{money(unit)}|{itm}"
     )
@@ -378,17 +377,17 @@ def save_registry(by: dict[int, dict[str, Any]]) -> None:
 
 def before_counts(cur, vids: list[int]) -> dict[str, Any]:
     if not vids:
-        return {"ebay_identity_n": 0, "ebay_identity_v": 0, "ebay_sale_n": 0, "ebay_sale_v": 0, "any_sale_n": 0, "any_sale_v": 0}
+        return {"pricecharting_identity_n": 0, "pricecharting_identity_v": 0, "pricecharting_sale_n": 0, "pricecharting_sale_v": 0, "any_sale_n": 0, "any_sale_v": 0}
     ph = ",".join(["%s"] * len(vids))
     cur.execute(
         f"SELECT COUNT(*) n, COUNT(DISTINCT variant_id) v FROM catalog_source_identity "
-        f"WHERE source_code='ebay' AND variant_id IN ({ph})",
+        f"WHERE source_code='pricecharting' AND variant_id IN ({ph})",
         vids,
     )
     id_row = cur.fetchone()
     cur.execute(
         f"SELECT COUNT(*) n, COUNT(DISTINCT variant_id) v FROM market_sale_observation "
-        f"WHERE source_code='ebay' AND grader_code='psa' AND grade_label='10' "
+        f"WHERE source_code='pricecharting' AND grader_code='psa' AND grade_label='10' "
         f"AND variant_id IN ({ph})",
         vids,
     )
@@ -400,10 +399,10 @@ def before_counts(cur, vids: list[int]) -> dict[str, Any]:
     )
     any_row = cur.fetchone()
     return {
-        "ebay_identity_n": int(id_row["n"]),
-        "ebay_identity_v": int(id_row["v"]),
-        "ebay_sale_n": int(sale_row["n"]),
-        "ebay_sale_v": int(sale_row["v"]),
+        "pricecharting_identity_n": int(id_row["n"]),
+        "pricecharting_identity_v": int(id_row["v"]),
+        "pricecharting_sale_n": int(sale_row["n"]),
+        "pricecharting_sale_v": int(sale_row["v"]),
         "any_sale_n": int(any_row["n"]),
         "any_sale_v": int(any_row["v"]),
     }
@@ -490,7 +489,7 @@ def collect_sales(map_rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]],
                     "raw": len(raw_rows),
                     "pc_product_id": work.get("pc_product_id"),
                     "external_entity_id": (
-                        f"pc:{int(work['pc_product_id'])}" if work.get("pc_product_id") else None
+                        str(int(work["pc_product_id"])) if work.get("pc_product_id") else None
                     ),
                     "html": html_rel,
                 }
@@ -794,9 +793,15 @@ def main() -> int:
         "before": before,
         "after": after,
         "delta": {
-            "ebay_identity_v": after["ebay_identity_v"] - before["ebay_identity_v"],
-            "ebay_sale_n": after["ebay_sale_n"] - before["ebay_sale_n"],
-            "ebay_sale_v": after["ebay_sale_v"] - before["ebay_sale_v"],
+            "pricecharting_identity_v": (
+                after["pricecharting_identity_v"] - before["pricecharting_identity_v"]
+            ),
+            "pricecharting_sale_n": (
+                after["pricecharting_sale_n"] - before["pricecharting_sale_n"]
+            ),
+            "pricecharting_sale_v": (
+                after["pricecharting_sale_v"] - before["pricecharting_sale_v"]
+            ),
         },
         "writeInfo": write_info,
         "registryUpdated": reg_n,

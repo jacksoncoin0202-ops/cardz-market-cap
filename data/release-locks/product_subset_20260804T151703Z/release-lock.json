@@ -1,0 +1,61 @@
+{
+  "assets": {
+    "appendOnly": true,
+    "fileCount": 2217,
+    "manifestPath": "data/release-locks/product_subset_20260804T151703Z/asset-manifest.json",
+    "manifestSha256": "a5628b0ff1cf75b3cff4cae4b84d07899b377c1f2ca0cf9250b01ed08339f4b9"
+  },
+  "capsuleSha256": "2cb326db7581e5bdfa1c40e9c24eab6e71c9d43ceb1b20309189bbe4db7c187a",
+  "frontend": {
+    "fileCount": null,
+    "policyId": "product-top100-no-graders-v1",
+    "receiptStatus": "notRecorded",
+    "sha256": "69ec2f4cfc8d65ebd2d420d4b4d004ea8dd485e1e2a61329c5e5b5e8c5718bc9"
+  },
+  "generation": {
+    "cards": 762,
+    "contentSha256": "2796bc3f0824135680f5a7294b5ce8203f885280114278c61210b4f763ceaf7f",
+    "effectiveAt": "2026-08-04T15:17:03.083664Z",
+    "id": "product_subset_20260804T151703Z"
+  },
+  "immutable": true,
+  "kind": "cardz-immutable-product-generation",
+  "lineage": {
+    "kimiFrontendBundleSha256": "5814fb52d9317fd2edf0a1f9fdaf5b96623e89c3ea9feac10293ff3b651143bd",
+    "kimiFrontendCommit": "bbff9f66ee1eadda0034308ce1d20bdcef457769",
+    "lockedFrontendBundleSha256": "69ec2f4cfc8d65ebd2d420d4b4d004ea8dd485e1e2a61329c5e5b5e8c5718bc9",
+    "lockedFrontendCommit": "14eb3fe74c19945d4c2cd421653361cb2587451f"
+  },
+  "receipts": {
+    "assetMaterialization": {
+      "status": "notRecorded"
+    },
+    "frontendSync": {
+      "status": "notRecorded"
+    },
+    "historicBuildValidation": {
+      "status": "notRecorded"
+    },
+    "historicLiveValidation": {
+      "status": "notRecorded"
+    },
+    "pass": {
+      "status": "notRecorded"
+    }
+  },
+  "schemaVersion": 1,
+  "snapshot": {
+    "path": "data/public/generations/product_subset_20260804T151703Z/seed-snapshot.json",
+    "sha256": "4edcf4444b32132894b4f6df09a39b800f14987e8a663cd1eea551ea1291b4d0"
+  },
+  "sourceControl": {
+    "commit": "14eb3fe74c19945d4c2cd421653361cb2587451f",
+    "tree": "3e0ea0f1b06550a0dc92de955bcd16bfaf12b148"
+  },
+  "surfaceCounts": {
+    "onePieceTop100": 100,
+    "pokemonTop100": 100,
+    "tcg101To300": 200,
+    "tcgTop100": 100
+  }
+}

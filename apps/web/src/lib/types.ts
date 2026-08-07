@@ -1,16 +1,14 @@
 export const locales = ["en", "zh-TW", "zh-CN", "ja", "ko"] as const;
 export const currencies = ["USD", "HKD", "CNY", "GBP", "TWD", "JPY", "KRW"] as const;
 export const marketWindows = ["1d", "7d", "30d"] as const;
-export const graders = ["PSA", "BGS", "CGC", "SGC", "TAG"] as const;
 export const themes = ["light", "dark"] as const;
 
 export type Locale = (typeof locales)[number];
 export type Currency = (typeof currencies)[number];
 export type MarketWindow = (typeof marketWindows)[number];
-export type Grader = (typeof graders)[number];
 export type Theme = (typeof themes)[number];
 export type MetricStatus = "ready" | "accumulating" | "stale" | "unavailable";
-export type CoverageStatus = "partial" | "stale" | "unavailable";
+export type CoverageStatus = "complete" | "partial" | "stale" | "unavailable";
 export type SnapshotCoverageClaim = "verified-top-n" | "verified-top-100";
 
 /*
@@ -25,6 +23,8 @@ export interface MarketMetric<T> {
   status: MetricStatus;
   asOf: string | null;
   anchorAt?: string | null;
+  priceAnchorSource?: string | null;
+  sourceSwitched?: boolean;
 }
 
 export interface PricePoint {
@@ -34,6 +34,7 @@ export interface PricePoint {
   trackedSalesValueUsd: number | null;
   trackedSalesCount: number | null;
   salesCoverage: CoverageStatus;
+  salesVerifiedZero: boolean;
 }
 
 export interface TrackedSalesMetric {
@@ -46,18 +47,11 @@ export interface TrackedSalesMetric {
 export interface WindowMetrics {
   /** 參考價（PSA10）嘅窗口變動。淨係價，唔包 POP —— 唔好攞嚟當市值或成交額用。 */
   changePct: MarketMetric<number>;
-  /** 市值窗口變動 = (1+Δ價)(1+ΔPOP)−1。view mapper 保證三個窗口都有。 */
+  /** Producer 計算並發布嘅 canonical 市值窗口變動。 */
   marketCapChangePct: MarketMetric<number>;
   /** 窗口成交金額 vs 前一個同長度窗口。 */
   trackedSalesChangePct: MarketMetric<number>;
   trackedSales: TrackedSalesMetric;
-}
-
-export interface GraderPopulationView {
-  topGrade: string;
-  total: MarketMetric<number> & { estimated?: boolean };
-  topGradePopulation: MarketMetric<number> & { estimated?: boolean };
-  topGradePopulationChangePct: Record<MarketWindow, MarketMetric<number>>;
 }
 
 /** Physical card print language (not UI locale). Canonical: en|ja|ko|zhCN|zhTW. */
@@ -78,29 +72,28 @@ export interface MarketCardView {
    * sub-field is `null` when the producer wrote an empty string for it.
    * Deliberately NOT the canonical `PublicPrintingIdentity`: that type carries
    * `canonicalPrintingSha256` / `evidenceSha256`, which must never reach the DOM.
-   * `printingCode` is threaded for completeness but has no public vocabulary —
-   * do not render it. `editionCode`（卡包名）was previously withheld entirely
-   * (owner red line, 36/433 已出街卡錯對); owner 2026-08-02 reversed for the
-   * detail page / heatmap popup only — never in the Top 100 table. Optional
-   * because older published snapshots predate the projection.
+   * `rarityCode` / `parallelCode` / `printingCode` deliberately stop at the
+   * canonical snapshot and are not copied into this DOM-facing view type.
+   * `editionCode`（卡包名）只用於 detail page / heatmap popup，唔入 Top 100 table。
    */
   printingIdentity: {
     setName: string;
     setCode: string | null;
     collectorNumber: string;
     editionCode?: string | null;
-    rarityCode: string | null;
-    parallelCode: string | null;
     finishCode: string | null;
-    printingCode: string | null;
   } | null;
   collectorNumber: string;
+  /** Canonical PSA/GemRate official English full name used by every public title surface. */
+  officialName: string | null;
+  /** Optional locale aliases retained for non-title supporting uses. */
   name: LocalizedText;
   setName: LocalizedText;
   story: LocalizedText;
   image: {
     url: string;
-    alt: LocalizedText;
+    /** Canonical image alternative text; always the same official name as the card title. */
+    alt: string | null;
     kind: "raw_front" | "placeholder";
     variants?: Partial<Record<"200" | "600", string>>;
   };
@@ -110,7 +103,6 @@ export interface MarketCardView {
   populationPsa10: MarketMetric<number>;
   marketCap: MarketMetric<number>;
   windows: Record<MarketWindow, WindowMetrics>;
-  graderPopulations: Record<Grader, GraderPopulationView>;
   historyDaily: PricePoint[];
 }
 
@@ -120,10 +112,9 @@ export interface MarketViewSnapshot {
   generatedAt: string;
   effectiveAt: string;
   mode: "canonical" | "preview";
-  qcReceiptSha256: string;
   coverage: {
     claim: SnapshotCoverageClaim;
-    requestedCount: 100;
+    requestedCount: number;
     verifiedCount: number;
   };
   ratesAsOf: string | null;

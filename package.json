@@ -9,17 +9,6 @@
   ],
   "scripts": {
     "dev": "npm --workspace @cardz/web run dev",
-    "lint": "npm run lint --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
-    "build": "npm run build --workspace @cardz/market-data && npm run build --workspace @cardz/web",
-    "operator:status": "python -X utf8 pipelines/operator_control.py status",
-    "operator:gaps": "python -X utf8 pipelines/operator_control.py export-gaps",
-    "operator:export-product": "python -X utf8 pipelines/operator_control.py export-product-subset"
-  },
-  "devDependencies": {
-    "@colbymchenry/codegraph": "^1.5.0",
-    "@types/node": "^24.0.0",
-    "typescript": "^5.9.0"
+    "build": "npm run build --workspace @cardz/web"
   }
 }

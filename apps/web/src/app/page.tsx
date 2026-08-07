@@ -3,6 +3,8 @@ import { MarketPage } from "@/components/market-page";
 import { defaultMarketMetadata, localeFromSearchParams, type PageSearchParams } from "@/lib/route-metadata";
 import { loadMarketSnapshot, scopeSnapshot } from "@/lib/server-snapshot";
 
+export const dynamic = "force-dynamic";
+
 export async function generateMetadata({ searchParams }: { searchParams: PageSearchParams }): Promise<Metadata> {
   return defaultMarketMetadata(await localeFromSearchParams(searchParams));
 }

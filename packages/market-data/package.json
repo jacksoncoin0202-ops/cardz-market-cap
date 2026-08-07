@@ -12,10 +12,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test ../../tests/data/*.test.mjs",
-    "lint": "tsc -p tsconfig.json --noEmit"
+    "build": "tsc -p tsconfig.json"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

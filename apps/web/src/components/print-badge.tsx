@@ -8,27 +8,28 @@ import type { Locale, MarketCardView } from "@/lib/types";
  * 三條硬規矩：
  *  1. 冇值就乜都唔畫 —— 唔准出 `t.status.unavailable`，唔准出空 chip。
  *     snapshot mapper 已經幫手將 `""` 正規化成 `null`，呢度淨係認 null。
- *  2. `printingCode` 唔准出街：佢嘅公開詞彙（base / sp / mb / pb）未定義。
+ *  2. `rarityCode`、`parallelCode`、`printingCode` 唔屬於 frontend field type，
+ *     所以 component 冇可能意外將佢哋放入 DOM。
  *  3. `editionCode`（卡包名）曾係 owner 紅線（433 張入面 36 張已出街嘅行係錯對）。
  *     2026-08-02 owner 改決定：淨准出喺內頁同熱力圖彈卡（DETAIL_PRINT_FIELDS），
- *     Top 100 表同 grader chips 照舊唔出；DB 錯對由另一條線修緊。
+ *     Top 100 表照舊唔出；DB 錯對由另一條線修緊。
  */
 
-export type PrintIdentityField = "editionCode" | "setCode" | "rarityCode" | "parallelCode" | "finishCode";
+export type PrintIdentityField = "editionCode" | "setCode" | "finishCode";
 
-const DEFAULT_FIELDS: PrintIdentityField[] = ["setCode", "rarityCode", "parallelCode", "finishCode"];
+const DEFAULT_FIELDS: PrintIdentityField[] = ["setCode", "finishCode"];
 
 /*
  * 真係出街嗰批欄位。
  * - `parallelCode` 剔走：DB 孖卡 parallel 有反轉，未修好之前唔准畫。
  * - `rarityCode` 剔走：operator 曾把 parallel 誤當 rarity；冇真 rarity 來源前唔准畫。
- * 所有 surface（rankings / card-detail / heatmap / grader）一律傳呢條白名單。
+ * 所有 surface（rankings / card-detail / heatmap）一律傳呢條白名單。
  */
 export const PUBLIC_PRINT_FIELDS: PrintIdentityField[] = ["setCode", "finishCode"];
 
 /*
  * 內頁專用白名單（card-detail identity list ＋ heatmap CardFacts）：公開欄位之上
- * 加埋卡包名（editionCode，owner 2026-08-02 批准）。唔准用喺 Top 100 表 / grader chips。
+ * 加埋卡包名（editionCode，owner 2026-08-02 批准）。唔准用喺 Top 100 表。
  */
 export const DETAIL_PRINT_FIELDS: PrintIdentityField[] = ["editionCode", "setCode", "finishCode"];
 
@@ -36,8 +37,6 @@ function fieldLabel(field: PrintIdentityField, locale: Locale): string {
   const labels = copy[locale].labels;
   if (field === "editionCode") return labels.packSource;
   if (field === "setCode") return labels.setCode;
-  if (field === "rarityCode") return labels.rarity;
-  if (field === "parallelCode") return labels.parallel;
   return labels.finish;
 }
 

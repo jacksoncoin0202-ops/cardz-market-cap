@@ -68,11 +68,11 @@ function DeltaChip({ delta }: { delta: string }) {
   );
 }
 
-function CardIdentity({ card, locale, unavailable }: { card: MarketCardView; locale: Locale; unavailable: string }) {
-  const name = card.name[locale] || unavailable;
+function CardIdentity({ card, unavailable }: { card: MarketCardView; unavailable: string }) {
+  const name = card.officialName || unavailable;
   return (
     <div className="ranking-card-identity">
-      <div className="ranking-thumb"><CardImage image={card.image} sizes="56px" /></div>
+      <div className="ranking-thumb"><CardImage image={card.image} sizes="56px" alt={card.officialName ?? ""} /></div>
       <div className="ranking-name"><strong>{name}</strong></div>
     </div>
   );
@@ -83,7 +83,7 @@ function ChangeBadge({ card, period, locale }: { card: MarketCardView; period: "
   const tone = metricTone(change);
   const Icon = tone === "positive" ? TrendingUp : tone === "negative" ? TrendingDown : null;
   return (
-    <span className={`mobile-change-badge metric-${tone}`}>
+    <span className={`mobile-change-badge metric-${tone}`} title={change.sourceSwitched ? `Historical anchor: ${change.priceAnchorSource}` : undefined}>
       {Icon && <Icon aria-hidden="true" size={13} strokeWidth={2} />}
       {formatPercent(change, locale)}
     </span>
@@ -160,7 +160,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                     className="ranking-row-link"
                     role="link"
                     tabIndex={0}
-                    aria-label={`#${card.viewRank} ${card.name[locale] || t.status.unavailable}`}
+                    aria-label={`#${card.viewRank} ${card.officialName || t.status.unavailable}`}
                     onClick={(event) => {
                       // 入面嘅 <a>/<button>（卡名、tooltip）自己處理，唔好 double navigate
                       if ((event.target as HTMLElement).closest("a,button")) return;
@@ -174,7 +174,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                     }}
                   >
                     <td className="rank-cell">{card.viewRank}</td>
-                    <td><Link href={cardUrl}><CardIdentity card={card} locale={locale} unavailable={t.status.unavailable} /></Link></td>
+                    <td><Link href={cardUrl}><CardIdentity card={card} unavailable={t.status.unavailable} /></Link></td>
                     <td className="collector-cell">{card.collectorNumber}</td>
                     <td className="numeric price-cell">
                       <span className="price-now">{formatMetricMoney(card.pricePsa10, currency, snapshot.rates, locale)}</span>
@@ -191,7 +191,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                       <span className="price-now">{formatTrackedSales(metrics.trackedSales, currency, snapshot.rates, locale)}</span>
                       <SalesDelta sales={metrics.trackedSales} changePct={metrics.trackedSalesChangePct} currency={currency} rates={snapshot.rates} locale={locale} />
                     </td>
-                    <td className={`numeric metric-${metricTone(metrics.changePct)}`}>{formatPercent(metrics.changePct, locale)}</td>
+                    <td className={`numeric metric-${metricTone(metrics.changePct)}`} title={metrics.changePct.sourceSwitched ? `Historical anchor: ${metrics.changePct.priceAnchorSource}` : undefined}>{formatPercent(metrics.changePct, locale)}</td>
                     <td className="numeric spark-cell"><Sparkline points={card.historyDaily} label={t.labels.salesTrend} /></td>
                   </tr>
                 );
@@ -207,12 +207,12 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
             {visibleCards.map((card) => (
               <Link className="mobile-rank-card" href={href(`/card/${card.id}`)} key={card.id}>
                 <span className="mobile-rank-index">{card.viewRank}</span>
-                <div className="ranking-thumb"><CardImage image={card.image} sizes="56px" /></div>
+                <div className="ranking-thumb"><CardImage image={card.image} sizes="56px" alt={card.officialName ?? ""} /></div>
                 <div className="mobile-card-info">
                   <span className="mobile-card-sub">
                     <span className="mobile-card-number">{card.collectorNumber}</span>
                   </span>
-                  <strong className="mobile-card-name">{card.name[locale] || t.status.unavailable}</strong>
+                  <strong className="mobile-card-name">{card.officialName || t.status.unavailable}</strong>
                   {card.marketCap.value !== null && (card.marketCap.status === "ready" || card.marketCap.status === "stale") && (
                     <span className="mobile-card-sub">
                       <span className="mobile-card-cap">{formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true)}</span>

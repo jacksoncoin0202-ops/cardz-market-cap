@@ -360,7 +360,24 @@ def ensure_migration_ledger(cursor: Any) -> None:
     )
 
 
+def load_runtime_db_env() -> None:
+    """Load the local Windows-3308 connection without importing CRLF bytes."""
+
+    env_path = ROOT / "data" / "runtime" / "config" / "backend.env"
+    if not env_path.is_file():
+        return
+    for raw in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if key.startswith("CARDZ_DB_") and key not in os.environ:
+            os.environ[key] = value.strip()
+
+
 def connection_from_args(args: argparse.Namespace, *, database: bool = True) -> Connection:
+    load_runtime_db_env()
     password = args.password or os.environ.get("CARDZ_DB_PASSWORD")
     if not password:
         raise RuntimeError("CARDZ_DB_PASSWORD is required")
@@ -371,6 +388,7 @@ def connection_from_args(args: argparse.Namespace, *, database: bool = True) -> 
         if not ca_path.is_file():
             raise RuntimeError(f"CARDZ_DB_SSL_CA does not exist: {ca_path}")
         ssl_options = {"ca": str(ca_path), "check_hostname": True}
+    io_timeout = int(os.environ.get("CARDZ_DB_IO_TIMEOUT_SECONDS", "1800"))
     return pymysql.connect(
         host=args.host,
         port=args.port,
@@ -381,20 +399,32 @@ def connection_from_args(args: argparse.Namespace, *, database: bool = True) -> 
         autocommit=False,
         cursorclass=pymysql.cursors.DictCursor,
         connect_timeout=10,
-        read_timeout=120,
-        write_timeout=120,
+        read_timeout=io_timeout,
+        write_timeout=io_timeout,
         ssl=ssl_options,
     )
 
 
-def migrate(connection: Connection, migrations: Path) -> dict[str, int]:
+def migrate(
+    connection: Connection,
+    migrations: Path,
+    *,
+    only: set[str] | None = None,
+) -> dict[str, int]:
     applied = 0
     skipped = 0
     statements = 0
+    available = {path.name for path in migrations.glob("*.mysql.sql")}
+    if only:
+        missing = sorted(only - available)
+        if missing:
+            raise RuntimeError(f"requested migration files are missing: {missing}")
     with connection.cursor() as cursor:
         ensure_migration_ledger(cursor)
         for path in sorted(migrations.glob("*.mysql.sql")):
             migration_file = path.name
+            if only and migration_file not in only:
+                continue
             content_sha256 = migration_digest(path)
             cursor.execute(
                 "SELECT content_sha256 FROM cardz_migration_ledger WHERE migration_file = %s",
@@ -428,9 +458,31 @@ def _upsert_source_identity(
     source_code: str,
     external_id: str,
     opaque_id: str,
+    provider_claims: Mapping[str, Any] | None = None,
 ) -> None:
     """Persist an exact provider identity without ever moving it to another variant."""
-    evidence = sha256(canonical_json({"source": source_code, "id": external_id, "opaque": opaque_id}))
+    claims = dict(provider_claims or {})
+    has_provider_claims = bool(claims)
+    claims.setdefault("externalEntityId", external_id)
+    evidence_payload = {
+        "schemaVersion": 1,
+        "sourceCode": source_code,
+        "externalEntityId": external_id,
+        "canonicalOpaqueId": opaque_id,
+        "providerClaims": claims,
+    }
+    evidence = sha256(canonical_json(evidence_payload))
+    source_product_number = str(
+        claims.get("sourceProductNumber") or claims.get("productNumber") or ""
+    ).strip()
+    # Only explicit provider code fields belong here.  setName/collector display
+    # values are canonical presentation fields and must never masquerade as a
+    # provider's set/printing code.
+    bound_set_code = str(claims.get("setCode") or "").strip()
+    bound_printing_code = str(claims.get("printingCode") or "").strip()
+    if len(source_product_number) > 191 or len(bound_set_code) > 64 or len(bound_printing_code) > 64:
+        raise ValueError(f"provider identity claim exceeds schema limit: {source_code}:{external_id}")
+    bind_evidence_json = canonical_json(evidence_payload).decode("utf-8")
     cursor.execute(
         """
         SELECT variant_id
@@ -445,17 +497,40 @@ def _upsert_source_identity(
         if int(existing_source["variant_id"]) != variant_id:
             raise ValueError(f"source identity ownership changed: {source_code}:{external_id}")
         cursor.execute(
-            "UPDATE catalog_source_identity SET match_status = 'exact', evidence_sha256 = %s WHERE source_code = %s AND external_entity_id = %s",
-            (evidence, source_code, external_id),
+            """
+            UPDATE catalog_source_identity
+            SET match_status='exact',
+                evidence_sha256=CASE WHEN %s=1 OR bind_evidence_json IS NULL THEN %s ELSE evidence_sha256 END,
+                source_product_number=CASE WHEN %s<>'' THEN %s ELSE source_product_number END,
+                bound_set_code=CASE WHEN %s<>'' THEN %s ELSE bound_set_code END,
+                bound_printing_code=CASE WHEN %s<>'' THEN %s ELSE bound_printing_code END,
+                bind_evidence_json=CASE
+                    WHEN %s=1 THEN %s
+                    ELSE COALESCE(bind_evidence_json, %s)
+                END
+            WHERE source_code=%s AND external_entity_id=%s
+            """,
+            (
+                int(has_provider_claims), evidence,
+                source_product_number, source_product_number,
+                bound_set_code, bound_set_code,
+                bound_printing_code, bound_printing_code,
+                int(has_provider_claims), bind_evidence_json, bind_evidence_json,
+                source_code, external_id,
+            ),
         )
         return
     cursor.execute(
         """
         INSERT INTO catalog_source_identity
-            (source_code, external_entity_id, variant_id, match_status, evidence_sha256)
-        VALUES (%s, %s, %s, 'exact', %s)
+            (source_code, external_entity_id, variant_id, match_status, evidence_sha256,
+             source_product_number, bound_set_code, bound_printing_code, bind_evidence_json)
+        VALUES (%s, %s, %s, 'exact', %s, %s, %s, %s, %s)
         """,
-        (source_code, external_id, variant_id, evidence),
+        (
+            source_code, external_id, variant_id, evidence, source_product_number,
+            bound_set_code, bound_printing_code, bind_evidence_json,
+        ),
     )
 
 
@@ -639,6 +714,11 @@ def import_gemrate_identity_aliases(
 
 def upsert_variant(cursor: Any, card: Mapping[str, Any]) -> int:
     opaque_id = str(card["pokedexId"])
+    set_code = str(card.get("setCode") or "").strip()
+    printing_code = str(card.get("printingCode") or "").strip()
+    rarity_code = str(card.get("rarityCode") or "").strip()
+    if any(len(value) > 64 for value in (set_code, printing_code, rarity_code)):
+        raise ValueError(f"printing evidence code exceeds schema limit: {opaque_id}")
     identity = (
         str(card["tcg"]),
         str(card["language"]),
@@ -647,7 +727,8 @@ def upsert_variant(cursor: Any, card: Mapping[str, Any]) -> int:
     )
     cursor.execute(
         """
-        SELECT id, tcg_code, card_language, set_name, collector_number
+        SELECT id, tcg_code, card_language, set_name, collector_number,
+               set_code, printing_code, rarity_code
         FROM catalog_variant
         WHERE opaque_id = %s
         FOR UPDATE
@@ -664,19 +745,41 @@ def upsert_variant(cursor: Any, card: Mapping[str, Any]) -> int:
         )
         if existing_identity != identity:
             raise ValueError(f"opaque_id canonical identity changed: {opaque_id}")
+        for column, incoming in (
+            ("set_code", set_code),
+            ("printing_code", printing_code),
+            ("rarity_code", rarity_code),
+        ):
+            existing_value = str(existing_variant.get(column) or "").strip()
+            if incoming and existing_value and incoming != existing_value:
+                raise ValueError(f"opaque_id {column} changed: {opaque_id}")
         variant_id = int(existing_variant["id"])
         cursor.execute(
-            "UPDATE catalog_variant SET canonical_name = %s, identity_status = 'confirmed' WHERE id = %s",
-            (str(card["name"]), variant_id),
+            """
+            UPDATE catalog_variant
+            SET canonical_name=%s, identity_status='confirmed',
+                set_code=CASE WHEN %s<>'' THEN %s ELSE set_code END,
+                printing_code=CASE WHEN %s<>'' THEN %s ELSE printing_code END,
+                rarity_code=CASE WHEN %s<>'' THEN %s ELSE rarity_code END
+            WHERE id=%s
+            """,
+            (
+                str(card["name"]), set_code, set_code, printing_code, printing_code,
+                rarity_code, rarity_code, variant_id,
+            ),
         )
     else:
         cursor.execute(
             """
             INSERT INTO catalog_variant
-                (opaque_id, tcg_code, card_language, canonical_name, set_name, collector_number, identity_status)
-            VALUES (%s, %s, %s, %s, %s, %s, 'confirmed')
+                (opaque_id, tcg_code, card_language, canonical_name, set_name, set_code,
+                 printing_code, rarity_code, collector_number, identity_status)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'confirmed')
             """,
-            (opaque_id, *identity[:2], str(card["name"]), *identity[2:]),
+            (
+                opaque_id, *identity[:2], str(card["name"]), identity[2], set_code,
+                printing_code, rarity_code, identity[3],
+            ),
         )
         variant_id = int(cursor.lastrowid)
     source_code = str(card["canonicalSourceCode"]).casefold()
@@ -694,12 +797,19 @@ def upsert_variant(cursor: Any, card: Mapping[str, Any]) -> int:
     ):
         source_identities.append(("snkrdunk", str(snk_item_id)))
     for identity_source, identity_external_id in source_identities:
+        claims_by_source = card.get("providerClaims")
+        provider_claims: Mapping[str, Any] | None = None
+        if isinstance(claims_by_source, Mapping):
+            candidate = claims_by_source.get(identity_source)
+            if isinstance(candidate, Mapping):
+                provider_claims = candidate
         _upsert_source_identity(
             cursor,
             variant_id=variant_id,
             source_code=identity_source,
             external_id=identity_external_id,
             opaque_id=opaque_id,
+            provider_claims=provider_claims,
         )
     return variant_id
 
@@ -793,6 +903,72 @@ def promote_lock(connection: Connection, lock_id: int, expected_members: int, *,
         connection.commit()
 
 
+def _assert_accepted_source_identity(
+    cursor: Any,
+    *,
+    variant_id: int,
+    source_code: str,
+    external_entity_id: str,
+) -> None:
+    cursor.execute(
+        """
+        SELECT COUNT(*) AS n
+        FROM catalog_source_identity AS identity
+        INNER JOIN operator_binding_freeze AS freeze
+          ON freeze.variant_id=identity.variant_id
+         AND freeze.freeze_kind='source'
+         AND freeze.source_code=identity.source_code
+         AND freeze.external_entity_id=identity.external_entity_id
+         AND freeze.acceptance_status='accepted'
+        WHERE identity.variant_id=%s
+          AND identity.source_code=%s
+          AND identity.external_entity_id=%s
+          AND identity.match_status='exact'
+        """,
+        (variant_id, source_code, external_entity_id),
+    )
+    count = int(cursor.fetchone()["n"])
+    if count != 1:
+        raise ValueError(
+            "price source identity is missing, ambiguous, or not accepted: "
+            f"{source_code}:{external_entity_id}:variant={variant_id}"
+        )
+
+
+def _upsert_source_observation(
+    cursor: Any,
+    *,
+    run_id: int,
+    source_code: str,
+    external_entity_id: str,
+    observation_kind: str,
+    effective_at: datetime,
+    observed_date: str,
+    payload_sha256: str,
+    payload_json: str,
+    observed_at: datetime,
+) -> int:
+    cursor.execute(
+        """
+        INSERT INTO market_source_observation
+            (run_id, source_code, external_entity_id, observation_kind, effective_at,
+             observed_date, payload_sha256, payload_json, observed_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            id=LAST_INSERT_ID(id), run_id=VALUES(run_id), effective_at=VALUES(effective_at),
+            payload_json=VALUES(payload_json), observed_at=VALUES(observed_at)
+        """,
+        (
+            run_id, source_code, external_entity_id, observation_kind, effective_at,
+            observed_date, payload_sha256, payload_json, observed_at,
+        ),
+    )
+    observation_id = int(cursor.lastrowid)
+    if observation_id <= 0:
+        raise RuntimeError("market_source_observation upsert returned no id")
+    return observation_id
+
+
 def iter_batches(landing_root: Path) -> Iterable[tuple[Path, Mapping[str, Any]]]:
     materialized: list[tuple[datetime, str, Path, Mapping[str, Any]]] = []
     for path in landing_root.rglob("canonical-batch.json"):
@@ -869,20 +1045,19 @@ def import_batch(
                 raise ValueError(f"observation payload is invalid: {path}")
             payload_hash = str(row.get("payloadHash") or sha256(canonical_json(payload)))
             observed_at = parse_datetime(batch.get("fetchedAt") or batch.get("effectiveAt"), observed_date)
-            external_key = f"{source_ref[0]}:{source_ref[1]}"
-            cursor.execute(
-                """
-                INSERT IGNORE INTO market_source_observation
-                    (run_id, source_code, external_entity_id, observation_kind, effective_at, observed_date,
-                     payload_sha256, payload_json, observed_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    run_id, provider, external_key, kind, effective, observed_date, payload_hash,
-                    canonical_json(payload).decode("utf-8"), observed_at,
-                ),
+            source_observation_id = _upsert_source_observation(
+                cursor,
+                run_id=run_id,
+                source_code=source_ref[0],
+                external_entity_id=source_ref[1],
+                observation_kind=kind,
+                effective_at=effective,
+                observed_date=observed_date,
+                payload_sha256=payload_hash,
+                payload_json=canonical_json(payload).decode("utf-8"),
+                observed_at=observed_at,
             )
-            inserted += int(cursor.rowcount > 0)
+            inserted += 1
             # Keep the original row as replay evidence, but do not manufacture
             # a daily market point from a batch fetch timestamp. A corrected
             # dated batch must supply the canonical price/population history.
@@ -894,20 +1069,31 @@ def import_batch(
                 native_price = payload.get("priceJpy")
                 if not isinstance(price_usd, (int, float)) or price_usd <= 0:
                     continue
+                _assert_accepted_source_identity(
+                    cursor,
+                    variant_id=variant_id,
+                    source_code=source_ref[0],
+                    external_entity_id=source_ref[1],
+                )
                 cursor.execute(
                     """
                     INSERT INTO market_price_observation
-                        (run_id, variant_id, source_code, observed_date, effective_at, price_usd,
+                        (run_id, variant_id, source_code, source_external_entity_id,
+                         source_observation_id, observed_date, effective_at, price_usd,
                          native_price, native_currency, source_priority, metric_status, payload_sha256)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'ready', %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'ready', %s)
                     ON DUPLICATE KEY UPDATE
-                        run_id=VALUES(run_id), effective_at=VALUES(effective_at), price_usd=VALUES(price_usd),
+                        run_id=VALUES(run_id),
+                        source_external_entity_id=VALUES(source_external_entity_id),
+                        source_observation_id=VALUES(source_observation_id),
+                        effective_at=VALUES(effective_at), price_usd=VALUES(price_usd),
                         native_price=VALUES(native_price), native_currency=VALUES(native_currency),
                         source_priority=VALUES(source_priority), metric_status=VALUES(metric_status),
                         payload_sha256=VALUES(payload_sha256)
                     """,
                     (
-                        run_id, variant_id, provider, observed_date, effective, float(price_usd),
+                        run_id, variant_id, source_ref[0], source_ref[1], source_observation_id,
+                        observed_date, effective, float(price_usd),
                         float(native_price) if isinstance(native_price, (int, float)) else None,
                         "JPY" if isinstance(native_price, (int, float)) else None, priority, payload_hash,
                     ),
@@ -930,7 +1116,10 @@ def import_batch(
                         estimated=VALUES(estimated), effective_at=VALUES(effective_at),
                         payload_sha256=VALUES(payload_sha256)
                     """,
-                    (run_id, variant_id, provider, external_key, grader, total, top, effective, observed_date, payload_hash),
+                    (
+                        run_id, variant_id, source_ref[0], source_ref[1], grader,
+                        total, top, effective, observed_date, payload_hash,
+                    ),
                 )
                 authority = str(payload.get("authority") or "gemrate")[:32]
                 transport = str(row.get("transportCode") or payload.get("transport") or "legacy")[:48]
@@ -994,22 +1183,31 @@ def import_batch(
                     str(payload.get("finish") or "").strip().casefold(),
                 ]
                 printing_hash = sha256("|".join(printing_parts).encode("utf-8"))
+                set_code = str(payload.get("setCode") or "").strip()
+                printing_code = str(payload.get("printingCode") or "").strip()
+                rarity_code = str(payload.get("rarityCode") or "").strip()
+                if any(len(value) > 64 for value in (set_code, printing_code, rarity_code)):
+                    raise ValueError("identity candidate printing code exceeds schema limit")
                 cursor.execute(
                     """
                     INSERT INTO catalog_printing_identity
-                        (variant_id, tcg_code, set_name, collector_number, card_language,
-                         edition_code, parallel_code, finish_code, canonical_printing_sha256,
-                         identity_status, evidence_sha256)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'candidate', %s)
+                        (variant_id, tcg_code, set_name, set_code, printing_code, rarity_code,
+                         collector_number, card_language, edition_code, parallel_code, finish_code,
+                         canonical_printing_sha256, identity_status, evidence_sha256)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'candidate', %s)
                     ON DUPLICATE KEY UPDATE
                         tcg_code=VALUES(tcg_code), set_name=VALUES(set_name),
+                        set_code=CASE WHEN VALUES(set_code)<>'' THEN VALUES(set_code) ELSE set_code END,
+                        printing_code=CASE WHEN VALUES(printing_code)<>'' THEN VALUES(printing_code) ELSE printing_code END,
+                        rarity_code=CASE WHEN VALUES(rarity_code)<>'' THEN VALUES(rarity_code) ELSE rarity_code END,
                         collector_number=VALUES(collector_number), card_language=VALUES(card_language),
                         edition_code=VALUES(edition_code), parallel_code=VALUES(parallel_code),
                         finish_code=VALUES(finish_code), identity_status=VALUES(identity_status),
                         evidence_sha256=VALUES(evidence_sha256)
                     """,
                     (
-                        variant_id, printing_parts[0], str(payload["set"]), str(payload["collectorNumber"]),
+                        variant_id, printing_parts[0], str(payload["set"]), set_code,
+                        printing_code, rarity_code, str(payload["collectorNumber"]),
                         str(payload["language"]), str(payload.get("edition") or ""),
                         str(payload.get("parallel") or ""), str(payload.get("finish") or ""),
                         printing_hash, payload_hash,
@@ -1067,7 +1265,7 @@ def import_batch(
                                 %s, %s, %s, %s, 'partial')
                         """,
                         (
-                            run_id, variant_id, provider, external_key, fingerprint,
+                            run_id, variant_id, source_ref[0], source_ref[1], fingerprint,
                             parse_datetime(payload.get("soldAt"), observed_date),
                             str(payload.get("sourceDateText") or "")[:100], observed_at,
                             str(payload.get("timestampQuality") or "exact")[:24],
@@ -1313,6 +1511,13 @@ def main() -> int:
     migrate_parser = sub.add_parser("migrate")
     add_connection_args(migrate_parser)
     migrate_parser.add_argument("--migrations", type=Path, default=DEFAULT_MIGRATIONS)
+    migrate_parser.add_argument(
+        "--only",
+        action="append",
+        default=[],
+        metavar="MIGRATION_FILE",
+        help="apply/check only the named ledgered migration file (repeatable)",
+    )
     import_parser = sub.add_parser("import")
     add_connection_args(import_parser)
     import_parser.add_argument("--active-universe", type=Path, default=DEFAULT_ACTIVE)
@@ -1333,7 +1538,11 @@ def main() -> int:
     connection = connection_from_args(args)
     try:
         if args.command == "migrate":
-            report = migrate(connection, args.migrations.resolve())
+            report = migrate(
+                connection,
+                args.migrations.resolve(),
+                only=set(args.only) if args.only else None,
+            )
         elif args.command == "import":
             report = import_all(
                 connection,

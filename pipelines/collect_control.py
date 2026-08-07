@@ -13,18 +13,30 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+import re
 import subprocess
 import sys
 import time
+import urllib.request
+from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
 from qualified_pool_operator import db, load_env  # noqa: E402
 from operator_control import current_universe  # noqa: E402
+from native_image_resolver import ProcessedSnkDefaultImage, process_snk_default_image  # noqa: E402
+from snkrdunk_bulk import (  # noqa: E402
+    SNK_EN_PRODUCT_PAGE_CONTRACT,
+    SnkrdunkApiPool,
+    exact_en_product_url,
+    master_default_image,
+)
 
 OUT_DIR = ROOT / "data" / "runtime" / "operator" / "collect"
 REGISTRY_PATH = OUT_DIR / "collect_registry.jsonl"
@@ -38,11 +50,38 @@ CHECKPOINT_ADAPTERS = (
     "gemrate_pop",
     "snk_trades",
     "snk_price",
+    "snk_en_image",
     "pc_ebay_sales",
     "en_price_ref",
 )
+COLLECT_LEASE_CONTRACT = "mysql_advisory_adapter_lease_v1"
 PY = sys.executable
 SLA_HOURS = 36
+CARDZ_CDP_PORT = int(os.environ.get("CARDZ_CDP_PORT", "9333"))
+SNK_EN_ASSET_DIR = ROOT / "data" / "runtime" / "operator" / "snk-en-assets"
+SNK_EN_SOURCE_CODE = "snkrdunk"
+SNK_EN_FREEZE_SOURCE_CODE = "snkrdunk_en"
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+@dataclass(frozen=True)
+class SnkEnPrepared:
+    variant_id: int
+    external_id: str
+    product_url: str
+    product_page_payload_sha256: str
+    product_page_observed_at: datetime
+    master_payload_sha256: str
+    default_image_url: str
+    default_image_url_sha256: str
+    downloaded_bytes_sha256: str
+    image: ProcessedSnkDefaultImage
+    identity_evidence_sha256: str
+    source_observed_at: datetime
+    captured_at: datetime
+    master_reused: bool
+    bytes_reused: bool
+    downloaded: bool
 
 
 def utc_now() -> str:
@@ -63,6 +102,14 @@ def _sha256(value: Any) -> str:
     return hashlib.sha256(_canonical_bytes(value)).hexdigest()
 
 
+def _text_sha256(value: str) -> str:
+    return hashlib.sha256(str(value).encode("utf-8")).hexdigest()
+
+
+def _bytes_sha256(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
 def _parse_datetime(value: Any) -> datetime | None:
     if value is None or value == "":
         return None
@@ -73,6 +120,13 @@ def _parse_datetime(value: Any) -> datetime | None:
         return datetime.fromisoformat(text)
     except ValueError:
         return None
+
+
+def _utc_naive(value: datetime | None = None) -> datetime:
+    current = value or datetime.now(timezone.utc)
+    if current.tzinfo is not None:
+        current = current.astimezone(timezone.utc).replace(tzinfo=None)
+    return current
 
 
 def _stream_key(variant_id: int, external_id: Any) -> str:
@@ -207,9 +261,13 @@ def _poll_mode(
     has_stock: bool,
     observed_at: datetime | None,
     checkpoint: dict[str, Any] | None,
+    empty_poll_is_complete: bool = False,
 ) -> str:
     if not has_stock:
-        return "stock"
+        if not empty_poll_is_complete or checkpoint is None:
+            return "stock"
+        age = _age_hours(_parse_datetime(checkpoint.get("last_effective_at")))
+        return "incr" if age is None or age > SLA_HOURS else "ok"
     if checkpoint is None:
         return "incr"
     last_success = checkpoint.get("last_effective_at")
@@ -359,14 +417,32 @@ def record_successful_poll(
         conn.close()
 
 
-def ensure_cdp(port: int = 9222) -> dict[str, Any]:
-    """Best-effort CDP ensure on Windows host script; non-fatal if unavailable."""
+def ensure_cdp(port: int = 9333) -> dict[str, Any]:
+    """Ensure the one dedicated CARDZ CDP session before the leased PC run."""
+    try:
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/json/version", timeout=2
+        ) as response:
+            payload = json.load(response)
+        if response.status == 200 and payload.get("webSocketDebuggerUrl"):
+            return {"ok": True, "port": port, "reused": True}
+    except Exception:  # noqa: BLE001
+        pass
     ps1 = ROOT / "scripts" / "ensure_chrome_cdp.ps1"
     if not ps1.exists():
         return {"ok": False, "reason": "ensure_chrome_cdp.ps1 missing"}
     # From WSL, call powershell.exe if present
     pwsh = "powershell.exe"
-    cmd = [pwsh, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(ps1), "-Port", str(port)]
+    cmd = [
+        pwsh,
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        _windows_path(ps1),
+        "-Port",
+        str(port),
+    ]
     try:
         r = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True, timeout=90)
         return {
@@ -377,6 +453,21 @@ def ensure_cdp(port: int = 9222) -> dict[str, Any]:
         }
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"{type(exc).__name__}:{exc}"}
+
+
+def _migration_029_ready(cur) -> bool:
+    cur.execute(
+        "SELECT COUNT(*) AS n FROM cardz_schema_version WHERE version_code='029'"
+    )
+    row = cur.fetchone()
+    return int((row.get("n") if isinstance(row, dict) else row[0]) or 0) == 1
+
+
+def _require_migration_029(cur) -> None:
+    if not _migration_029_ready(cur):
+        raise RuntimeError(
+            "snk_en_image requires completed migration 029; table existence alone is not readiness"
+        )
 
 
 def load_universe_rows(cur) -> list[dict[str, Any]]:
@@ -397,16 +488,58 @@ def load_universe_rows(cur) -> list[dict[str, Any]]:
 
     cur.execute(
         f"""
-        SELECT variant_id, source_code, external_entity_id, match_status
+        SELECT variant_id, source_code, external_entity_id, match_status,
+               evidence_sha256, bind_evidence_json
         FROM catalog_source_identity
         WHERE variant_id IN ({ph})
-          AND match_status IN ('exact','confirmed','attached')
+          AND match_status = 'exact'
         """,
         vids,
     )
     binds: dict[int, dict[str, str]] = {}
+    snk_en_identity: dict[int, dict[str, Any]] = {}
+    exact_snk_ids_by_variant: dict[int, set[str]] = {}
     for r in cur.fetchall():
-        binds.setdefault(int(r["variant_id"]), {})[str(r["source_code"])] = str(r["external_entity_id"])
+        variant_id = int(r["variant_id"])
+        source_code = str(r["source_code"])
+        external_id = str(r["external_entity_id"])
+        binds.setdefault(variant_id, {})[source_code] = external_id
+        if source_code in {"snk", "snkrdunk", "snkrdunk_en"}:
+            exact_snk_ids_by_variant.setdefault(variant_id, set()).add(external_id)
+        if source_code == SNK_EN_SOURCE_CODE:
+            previous = snk_en_identity.get(variant_id)
+            if previous and str(previous["externalId"]) != external_id:
+                raise RuntimeError(
+                    f"multiple exact snkrdunk IDs for active variant {variant_id}"
+                )
+            snk_en_identity[variant_id] = {
+                "externalId": external_id,
+                "evidenceSha256": str(r.get("evidence_sha256") or ""),
+            }
+    multiple_exact_snk = {
+        variant_id: sorted(external_ids)
+        for variant_id, external_ids in exact_snk_ids_by_variant.items()
+        if len(external_ids) > 1
+    }
+    if multiple_exact_snk:
+        raise RuntimeError(f"multiple exact SNK IDs in active universe: {multiple_exact_snk}")
+
+    snk_en_accepted: dict[int, dict[str, Any]] = {}
+    if _migration_029_ready(cur):
+        cur.execute(
+            f"""
+            SELECT variant_id, canonical_image_snk_item_id,
+                   canonical_image_source_observed_at
+            FROM operator_canonical_image_projection
+            WHERE variant_id IN ({ph})
+            """,
+            vids,
+        )
+        for r in cur.fetchall():
+            snk_en_accepted[int(r["variant_id"])] = {
+                "externalId": str(r["canonical_image_snk_item_id"]),
+                "observedAt": r["canonical_image_source_observed_at"],
+            }
 
     cur.execute(
         f"""
@@ -440,6 +573,42 @@ def load_universe_rows(cur) -> list[dict[str, Any]]:
             "n": int(r["n"] or 0),
         }
 
+    # An arbitrary legacy PriceCharting/eBay row is not proof that the current
+    # EN PSA10 reference contract has been materialized.  Registry readiness
+    # must use the same explicit PriceCharting field and exact identity gate as
+    # the canonical projections; otherwise a fresh checkpoint can hide a
+    # missing ``pc_psa10_current_price_v1`` observation indefinitely.
+    cur.execute(
+        f"""
+        SELECT p.variant_id, MAX(p.effective_at) AS max_eff
+        FROM market_price_observation p
+        INNER JOIN market_source_observation so ON so.id=p.source_observation_id
+          AND so.source_code='pricecharting'
+          AND so.external_entity_id=p.source_external_entity_id
+          AND so.payload_sha256=p.payload_sha256
+          AND so.observed_date=p.observed_date
+        INNER JOIN catalog_source_identity si ON si.variant_id=p.variant_id
+          AND si.source_code='pricecharting'
+          AND si.external_entity_id=p.source_external_entity_id
+          AND LOWER(si.match_status)='exact'
+        WHERE p.variant_id IN ({ph})
+          AND p.source_code='pricecharting'
+          AND p.metric_status='ready' AND p.price_usd>0 AND p.source_priority=95
+          AND so.observation_kind='psa10_price_guide'
+          AND JSON_UNQUOTE(JSON_EXTRACT(so.payload_json,'$.contract'))='pc_psa10_current_price_v1'
+          AND JSON_UNQUOTE(JSON_EXTRACT(so.payload_json,'$.source'))='pricecharting'
+          AND JSON_UNQUOTE(JSON_EXTRACT(so.payload_json,'$.method'))='pricecharting_explicit_psa10_field_v1'
+          AND JSON_UNQUOTE(JSON_EXTRACT(so.payload_json,'$.field'))='VGPC.chart_data.manualonly.last'
+          AND JSON_UNQUOTE(JSON_EXTRACT(so.payload_json,'$.sourceUrl')) LIKE 'https://www.pricecharting.com/%%'
+          AND p.source_external_entity_id REGEXP '^[0-9]+$'
+        GROUP BY p.variant_id
+        """,
+        vids,
+    )
+    explicit_pc_prices = {
+        int(r["variant_id"]): r["max_eff"] for r in cur.fetchall()
+    }
+
     cur.execute(
         f"""
         SELECT variant_id, MAX(effective_at) AS max_eff
@@ -451,6 +620,9 @@ def load_universe_rows(cur) -> list[dict[str, Any]]:
     )
     pop = {int(r["variant_id"]): r["max_eff"] for r in cur.fetchall()}
 
+    member_by_variant = {
+        int(member["variant_id"]): dict(member) for member in u.get("members", [])
+    }
     rows = []
     for vid, meta in base.items():
         lang = str(meta.get("card_language") or "").lower()
@@ -482,10 +654,18 @@ def load_universe_rows(cur) -> list[dict[str, Any]]:
             "collector": meta.get("collector_number"),
             "ids": {
                 "snkrdunk": b.get("snkrdunk") or b.get("snk"),
+                "snkrdunkEn": (snk_en_identity.get(vid) or {}).get("externalId"),
                 "pricecharting": b.get("pricecharting"),
                 "ebay": b.get("ebay"),
                 "gemrate": b.get("gemrate"),
             },
+            "snkEnIdentityEvidenceSha256": (
+                snk_en_identity.get(vid) or {}
+            ).get("evidenceSha256"),
+            "snkEnAccepted": snk_en_accepted.get(vid),
+            "activeRank": (member_by_variant.get(vid) or {}).get("market_rank"),
+            "activeRole": (member_by_variant.get(vid) or {}).get("member_role"),
+            "activeSegment": (member_by_variant.get(vid) or {}).get("segment_code"),
             "sales": {
                 "snkMax": snk_sale_max.isoformat(sep=" ") if hasattr(snk_sale_max, "isoformat") else snk_sale_max,
                 "ebayMax": ebay_sale_max.isoformat(sep=" ") if hasattr(ebay_sale_max, "isoformat") else ebay_sale_max,
@@ -497,15 +677,23 @@ def load_universe_rows(cur) -> list[dict[str, Any]]:
                 "enMax": en_price_max.isoformat(sep=" ") if hasattr(en_price_max, "isoformat") else en_price_max,
                 "snkAny": snk_price_max is not None,
                 "enAny": en_price_max is not None,
+                "enExplicitPc": explicit_pc_prices.get(vid) is not None,
             },
             "popMax": pop.get(vid).isoformat(sep=" ") if hasattr(pop.get(vid), "isoformat") else pop.get(vid),
             "_snkSaleMax": snk_sale_max,
             "_ebaySaleMax": ebay_sale_max,
             "_snkPriceMax": snk_price_max,
             "_enPriceMax": en_price_max,
+            "_enExplicitPcMax": explicit_pc_prices.get(vid),
             "_popMax": pop.get(vid),
         }
         rows.append(row)
+    rows.sort(
+        key=lambda row: (
+            int(row.get("activeRank") or 4294967295),
+            int(row["variantId"]),
+        )
+    )
     return rows
 
 
@@ -537,6 +725,7 @@ def classify_needs(
             has_stock=bool(row["sales"]["snkAny"]),
             observed_at=row.get("_snkSaleMax"),
             checkpoint=_checkpoint_for(checkpoints, "snk_trades", vid, ids["snkrdunk"]),
+            empty_poll_is_complete=True,
         )
         needs.append({
             "adapter": "snk_trades",
@@ -549,6 +738,7 @@ def classify_needs(
             has_stock=bool(row["prices"]["snkAny"]),
             observed_at=row.get("_snkPriceMax"),
             checkpoint=_checkpoint_for(checkpoints, "snk_price", vid, ids["snkrdunk"]),
+            empty_poll_is_complete=True,
         )
         needs.append({
             "adapter": "snk_price",
@@ -559,6 +749,36 @@ def classify_needs(
         })
     elif lang != "en":
         needs.append({"adapter": "bind_snk", "modeNeeded": "bind", "externalId": None, "transport": None, "polarRole": "ja_identity"})
+
+    # SNK EN default-image authority is independent of card language.  It is
+    # admitted only from the exact `snkrdunk` catalog binding; legacy `snk`
+    # aliases and generic CDN pointers are deliberately ineligible.
+    snk_en_external = str(ids.get("snkrdunkEn") or "").strip()
+    if snk_en_external:
+        accepted = row.get("snkEnAccepted") or {}
+        has_stock = str(accepted.get("externalId") or "") == snk_en_external
+        mode = _poll_mode(
+            has_stock=has_stock,
+            observed_at=accepted.get("observedAt") if has_stock else None,
+            checkpoint=_checkpoint_for(
+                checkpoints,
+                "snk_en_image",
+                vid,
+                snk_en_external,
+            ),
+        )
+        needs.append(
+            {
+                "adapter": "snk_en_image",
+                "modeNeeded": mode,
+                "externalId": snk_en_external,
+                "identityEvidenceSha256": row.get(
+                    "snkEnIdentityEvidenceSha256"
+                ),
+                "transport": "http_requests_no_browser",
+                "polarRole": "canonical_en_default_image",
+            }
+        )
 
     if lang == "en":
         pc_external = str(ids.get("pricecharting") or "").strip()
@@ -571,6 +791,7 @@ def classify_needs(
                 has_stock=bool(row["sales"]["ebayAny"]),
                 observed_at=row.get("_ebaySaleMax"),
                 checkpoint=_checkpoint_for(checkpoints, "pc_ebay_sales", vid, external),
+                empty_poll_is_complete=True,
             )
             needs.append({
                 "adapter": "pc_ebay_sales",
@@ -580,8 +801,8 @@ def classify_needs(
                 "polarRole": "en_sales_primary",
             })
             pmode = _poll_mode(
-                has_stock=bool(row["prices"]["enAny"]),
-                observed_at=row.get("_enPriceMax"),
+                has_stock=bool(row["prices"]["enExplicitPc"]),
+                observed_at=row.get("_enExplicitPcMax"),
                 checkpoint=_checkpoint_for(checkpoints, "en_price_ref", vid, external),
             )
             needs.append({
@@ -632,6 +853,14 @@ def freshness_summary(
         ("pc_price", "SELECT MAX(effective_at) m, COUNT(*) n FROM market_price_observation WHERE source_code='pricecharting'"),
         ("gemrate_pop", "SELECT MAX(effective_at) m, COUNT(*) n FROM market_grader_population_observation WHERE source_code='gemrate'"),
     ]
+    if _migration_029_ready(cur):
+        queries.append(
+            (
+                "snk_en_image",
+                "SELECT MAX(canonical_image_source_observed_at) m, COUNT(*) n "
+                "FROM operator_canonical_image_projection",
+            )
+        )
     for name, sql in queries:
         cur.execute(sql)
         r = cur.fetchone()
@@ -1155,6 +1384,953 @@ def _run_snk_adapter(
     return report
 
 
+def _snk_en_harvest_files() -> list[Path]:
+    candidates = [
+        *OUT_DIR.glob("snk_*harvest*.jsonl"),
+        *OUT_DIR.glob("binding_delta_snk_harvest.jsonl"),
+        *(ROOT / "data" / "runtime" / "operator").glob(
+            "snk-global-market*.jsonl"
+        ),
+    ]
+    return sorted(
+        {path.resolve() for path in candidates if path.is_file()},
+        key=lambda path: path.stat().st_mtime_ns,
+        reverse=True,
+    )
+
+
+def _local_snk_master_cache(
+    external_ids: set[str],
+) -> dict[str, tuple[dict[str, Any], datetime, Path]]:
+    """Index already-landed exact masters, newest immutable payload first."""
+
+    found: dict[str, tuple[dict[str, Any], datetime, Path]] = {}
+    for path in _snk_en_harvest_files():
+        with path.open(encoding="utf-8-sig") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(row, dict):
+                    continue
+                external_id = str(row.get("item_id") or "").strip()
+                if (
+                    external_id not in external_ids
+                    or row.get("error")
+                ):
+                    continue
+                source_payload = row.get("source_payload")
+                master = (
+                    source_payload.get("master")
+                    if isinstance(source_payload, Mapping)
+                    else None
+                )
+                if not isinstance(master, Mapping):
+                    continue
+                try:
+                    master_default_image(master, int(external_id))
+                except (TypeError, ValueError):
+                    continue
+                observed_at = _parse_datetime(row.get("fetched_at"))
+                if observed_at is None:
+                    continue
+                observed_at = _utc_naive(observed_at)
+                previous = found.get(external_id)
+                if previous is not None and previous[1] >= observed_at:
+                    continue
+                found[external_id] = (
+                    dict(master),
+                    observed_at,
+                    path,
+                )
+    return found
+
+
+def _local_snk_default_bytes(
+    external_ids: set[str],
+) -> dict[tuple[str, str], Path]:
+    """Index exact URL-bound G10 bytes; a filename or SNK ID alone is not proof."""
+
+    root = ROOT / "data" / "runtime" / "private-landing" / "g10"
+    if not root.is_dir():
+        return {}
+    provider_roots = sorted(
+        (path for path in root.rglob("snkrdunk") if path.parent.name == "cards"),
+        key=lambda path: path.stat().st_mtime_ns,
+        reverse=True,
+    )
+    found: dict[tuple[str, str], Path] = {}
+    for provider_root in provider_roots:
+        payload_root = provider_root.parents[1]
+        image_root = payload_root / "images"
+        for external_id in external_ids:
+            asset_info = provider_root / external_id / "asset_info.json"
+            if not asset_info.is_file():
+                continue
+            try:
+                payload = json.loads(asset_info.read_text(encoding="utf-8-sig"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            query = payload.get("assetQueryId")
+            if (
+                not isinstance(query, Mapping)
+                or str(query.get("source") or "") != "snkrdunk"
+                or str(query.get("id") or "") != external_id
+            ):
+                continue
+            url = str(payload.get("image") or "").strip()
+            if not url or (external_id, url) in found:
+                continue
+            paths = sorted(image_root.glob(f"snkrdunk_{external_id}.*"))
+            if paths:
+                found[(external_id, url)] = paths[0]
+    return found
+
+
+def _resolve_object_path(value: Any) -> Path:
+    path = Path(str(value or ""))
+    return path if path.is_absolute() else ROOT / path
+
+
+def _load_existing_snk_en_acceptances(
+    cur, items: list[dict[str, Any]]
+) -> dict[int, dict[str, Any]]:
+    if not items:
+        return {}
+    variant_ids = [int(item["variantId"]) for item in items]
+    placeholders = ",".join(["%s"] * len(variant_ids))
+    cur.execute(
+        f"""
+        SELECT ca.variant_id,ca.id AS acceptance_id,ca.evidence_sha256,
+               l.id AS lineage_id,l.exact_item_id,l.product_url,
+               l.master_payload_sha256,l.default_image_url,
+               l.default_image_url_sha256,l.downloaded_bytes_sha256,
+               l.processed_content_sha256,l.transform_sha256,
+               l.identity_evidence_sha256,l.lineage_sha256,
+               l.source_observed_at,
+               page.product_page_payload_sha256,
+               page.product_page_observed_at,page.authority_sha256,
+               a.id AS image_asset_id,
+               a.private_object_key,a.content_sha256,a.mime_type,
+               q.semantic_match_status,q.card_number_match,q.language_match,
+               q.tcg_match,q.raw_front_confirmed,q.public_allowed
+        FROM market_canonical_image_acceptance ca
+        INNER JOIN market_snk_en_storefront_lineage l
+          ON l.id=ca.storefront_lineage_id AND l.variant_id=ca.variant_id
+         AND l.lineage_sha256=ca.lineage_sha256
+        INNER JOIN market_snk_en_product_page_authority page
+          ON page.storefront_lineage_id=l.id
+         AND page.variant_id=l.variant_id
+         AND page.exact_item_id=l.exact_item_id
+         AND page.product_url=l.product_url
+         AND page.default_image_url=l.default_image_url
+         AND page.master_payload_sha256=l.master_payload_sha256
+         AND page.identity_evidence_sha256=l.identity_evidence_sha256
+        INNER JOIN market_image_asset a
+          ON a.id=ca.image_asset_id AND a.id=l.processed_image_asset_id
+         AND a.variant_id=ca.variant_id
+         AND a.content_sha256=l.processed_content_sha256
+        INNER JOIN market_image_qc q
+          ON q.image_asset_id=a.id
+         AND q.id=(SELECT q2.id FROM market_image_qc q2
+                   WHERE q2.image_asset_id=a.id
+                   ORDER BY q2.checked_at DESC,q2.id DESC LIMIT 1)
+        WHERE ca.variant_id IN ({placeholders})
+          AND l.source_code='snkrdunk' AND l.storefront_code='en'
+          AND NOT EXISTS (
+            SELECT 1 FROM market_canonical_image_acceptance newer
+            WHERE newer.supersedes_acceptance_id=ca.id
+          )
+        """,
+        variant_ids,
+    )
+    return {int(row["variant_id"]): dict(row) for row in cur.fetchall()}
+
+
+def _existing_snk_en_is_reusable(
+    item: Mapping[str, Any], row: Mapping[str, Any]
+) -> bool:
+    external_id = str(item.get("externalId") or "").strip()
+    product_url = exact_en_product_url(int(external_id))
+    content_sha = str(row.get("content_sha256") or "")
+    object_path = _resolve_object_path(row.get("private_object_key"))
+    if (
+        str(row.get("exact_item_id") or "") != external_id
+        or str(row.get("product_url") or "") != product_url
+        or str(row.get("default_image_url_sha256") or "")
+        != _text_sha256(str(row.get("default_image_url") or ""))
+        or str(row.get("processed_content_sha256") or "") != content_sha
+        or str(row.get("mime_type") or "") != "image/webp"
+        or str(row.get("identity_evidence_sha256") or "")
+        != str(item.get("identityEvidenceSha256") or "")
+        or str(row.get("semantic_match_status") or "")
+        not in {"accepted_freeze", "human_or_vision_confirmed"}
+        or not all(
+            int(row.get(field) or 0) == 1
+            for field in (
+                "card_number_match",
+                "language_match",
+                "tcg_match",
+                "raw_front_confirmed",
+                "public_allowed",
+            )
+        )
+        or not all(
+            SHA256_RE.fullmatch(str(row.get(field) or ""))
+            for field in (
+                "master_payload_sha256",
+                "downloaded_bytes_sha256",
+                "processed_content_sha256",
+                "transform_sha256",
+                "identity_evidence_sha256",
+                "lineage_sha256",
+                "evidence_sha256",
+                "product_page_payload_sha256",
+                "authority_sha256",
+            )
+        )
+        or row.get("product_page_observed_at") is None
+        or not object_path.is_file()
+    ):
+        return False
+    try:
+        return _bytes_sha256(object_path.read_bytes()) == content_sha
+    except OSError:
+        return False
+
+
+def _prepare_snk_en_target(
+    item: Mapping[str, Any],
+    *,
+    api_pool: SnkrdunkApiPool,
+    master_cache: Mapping[str, tuple[dict[str, Any], datetime, Path]],
+    bytes_cache: Mapping[tuple[str, str], Path],
+) -> SnkEnPrepared:
+    variant_id = int(item["variantId"])
+    external_id = str(item.get("externalId") or "").strip()
+    if not external_id.isdigit() or int(external_id) <= 0:
+        raise ValueError(f"invalid exact SNK external ID: {external_id}")
+    identity_evidence = str(item.get("identityEvidenceSha256") or "")
+    if not SHA256_RE.fullmatch(identity_evidence):
+        raise ValueError(
+            f"exact snkrdunk binding lacks hash-bound identity evidence: {external_id}"
+        )
+
+    cached = master_cache.get(external_id)
+    if cached is None:
+        master = api_pool.get_master(int(external_id))
+        source_observed_at = _utc_naive()
+        master_reused = False
+    else:
+        master, source_observed_at, _ = cached
+        master_reused = True
+    default_url = master_default_image(master, int(external_id))
+    page_authority = api_pool.get_en_product_page_authority(
+        int(external_id), default_url
+    )
+    if (
+        page_authority.get("contract") != SNK_EN_PRODUCT_PAGE_CONTRACT
+        or page_authority.get("productUrl")
+        != exact_en_product_url(int(external_id))
+        or page_authority.get("finalUrl") != page_authority.get("productUrl")
+        or int(page_authority.get("httpStatus") or 0) != 200
+        or page_authority.get("defaultImageUrl") != default_url
+        or not SHA256_RE.fullmatch(
+            str(page_authority.get("productPagePayloadSha256") or "")
+        )
+    ):
+        raise RuntimeError(f"incomplete SNK EN product-page authority: {external_id}")
+    product_page_observed_at = _utc_naive()
+    local_bytes_path = bytes_cache.get((external_id, default_url))
+    if local_bytes_path is not None:
+        raw = local_bytes_path.read_bytes()
+        captured_at = _utc_naive(source_observed_at)
+        bytes_reused = True
+        downloaded = False
+    else:
+        raw = api_pool.get_bytes(default_url)
+        captured_at = _utc_naive()
+        bytes_reused = False
+        downloaded = True
+    processed = process_snk_default_image(raw)
+    return SnkEnPrepared(
+        variant_id=variant_id,
+        external_id=external_id,
+        product_url=exact_en_product_url(int(external_id)),
+        product_page_payload_sha256=str(
+            page_authority["productPagePayloadSha256"]
+        ),
+        product_page_observed_at=product_page_observed_at,
+        master_payload_sha256=_sha256(master),
+        default_image_url=default_url,
+        default_image_url_sha256=_text_sha256(default_url),
+        downloaded_bytes_sha256=_bytes_sha256(raw),
+        image=processed,
+        identity_evidence_sha256=identity_evidence,
+        source_observed_at=max(
+            _utc_naive(source_observed_at), captured_at, product_page_observed_at
+        ),
+        captured_at=captured_at,
+        master_reused=master_reused,
+        bytes_reused=bytes_reused,
+        downloaded=downloaded,
+    )
+
+
+def _write_snk_en_asset(image: ProcessedSnkDefaultImage) -> tuple[Path, str]:
+    SNK_EN_ASSET_DIR.mkdir(parents=True, exist_ok=True)
+    path = SNK_EN_ASSET_DIR / f"{image.content_sha256}.webp"
+    relative = path.relative_to(ROOT).as_posix()
+    if path.is_file():
+        if _bytes_sha256(path.read_bytes()) != image.content_sha256:
+            raise RuntimeError(f"content-addressed SNK EN asset hash mismatch: {path}")
+        return path, relative
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.next")
+    temporary.write_bytes(image.content)
+    if _bytes_sha256(temporary.read_bytes()) != image.content_sha256:
+        temporary.unlink(missing_ok=True)
+        raise RuntimeError(f"SNK EN asset write hash mismatch: {path}")
+    os.replace(temporary, path)
+    return path, relative
+
+
+def _upsert_snk_en_freeze(
+    cur,
+    *,
+    variant_id: int,
+    external_id: str,
+    content_sha256: str,
+    acceptance_id: int,
+    lineage_sha256: str,
+    evidence_sha256: str,
+    accepted_at: datetime,
+) -> None:
+    cur.execute(
+        """
+        INSERT INTO operator_binding_freeze
+          (variant_id,freeze_kind,source_code,external_entity_id,
+           content_sha256,canonical_image_acceptance_id,
+           accepted_lineage_sha256,acceptance_status,actor,
+           evidence_sha256,note,accepted_at)
+        VALUES (%s,'image',%s,%s,%s,%s,%s,'accepted',%s,%s,%s,%s)
+        ON DUPLICATE KEY UPDATE
+          external_entity_id=VALUES(external_entity_id),
+          content_sha256=VALUES(content_sha256),
+          canonical_image_acceptance_id=VALUES(canonical_image_acceptance_id),
+          accepted_lineage_sha256=VALUES(accepted_lineage_sha256),
+          acceptance_status='accepted',actor=VALUES(actor),
+          evidence_sha256=VALUES(evidence_sha256),note=VALUES(note),
+          accepted_at=VALUES(accepted_at)
+        """,
+        (
+            variant_id,
+            SNK_EN_FREEZE_SOURCE_CODE,
+            external_id,
+            content_sha256,
+            acceptance_id,
+            lineage_sha256,
+            "collect_control:snk_en_image",
+            evidence_sha256,
+            "exact SNK EN storefront default image",
+            accepted_at,
+        ),
+    )
+
+
+def _assert_exact_snk_en_binding(cur, item: Mapping[str, Any]) -> str:
+    variant_id = int(item["variantId"])
+    external_id = str(item.get("externalId") or "").strip()
+    cur.execute(
+        """
+        SELECT external_entity_id
+        FROM catalog_source_identity
+        WHERE variant_id=%s
+          AND source_code IN ('snk','snkrdunk','snkrdunk_en')
+          AND LOWER(match_status)='exact'
+        LOCK IN SHARE MODE
+        """,
+        (variant_id,),
+    )
+    exact_ids = {
+        str(binding.get("external_entity_id") or "").strip()
+        for binding in cur.fetchall()
+    }
+    if exact_ids != {external_id}:
+        raise RuntimeError(
+            f"multiple or changed exact SNK IDs before commit: {variant_id}:{sorted(exact_ids)}"
+        )
+    cur.execute(
+        """
+        SELECT evidence_sha256
+        FROM catalog_source_identity
+        WHERE variant_id=%s AND source_code='snkrdunk'
+          AND external_entity_id=%s AND LOWER(match_status)='exact'
+        LIMIT 1
+        LOCK IN SHARE MODE
+        """,
+        (variant_id, external_id),
+    )
+    row = cur.fetchone()
+    evidence_sha = str((row or {}).get("evidence_sha256") or "")
+    if (
+        not SHA256_RE.fullmatch(evidence_sha)
+        or evidence_sha != str(item.get("identityEvidenceSha256") or "")
+    ):
+        raise RuntimeError(
+            f"exact snkrdunk binding changed before commit: {variant_id}:{external_id}"
+        )
+    return evidence_sha
+
+
+def _checkpoint_snk_en_item(
+    cur,
+    *,
+    item: dict[str, Any],
+    mode: str,
+    started_at: datetime,
+    completed_at: datetime,
+    lineage_sha256: str,
+    payload: Mapping[str, Any],
+) -> int:
+    run_id = _insert_control_run(
+        cur,
+        adapter="snk_en_image",
+        mode=mode,
+        items=[item],
+        payload=dict(payload),
+        started_at=started_at,
+        completed_at=completed_at,
+    )
+    checkpointed = _upsert_checkpoints(
+        cur,
+        adapter="snk_en_image",
+        items=[item],
+        run_id=run_id,
+        completed_at=completed_at,
+        payload_sha_by_external={str(item["externalId"]): lineage_sha256},
+    )
+    if checkpointed != 1:
+        raise RuntimeError(f"SNK EN checkpoint did not advance exactly once: {item['externalId']}")
+    return run_id
+
+
+def _persist_reused_snk_en(
+    cur,
+    *,
+    item: dict[str, Any],
+    row: Mapping[str, Any],
+    mode: str,
+    started_at: datetime,
+    completed_at: datetime,
+) -> dict[str, Any]:
+    _assert_exact_snk_en_binding(cur, item)
+    lineage_sha = str(row["lineage_sha256"])
+    evidence_sha = str(row["evidence_sha256"])
+    _upsert_snk_en_freeze(
+        cur,
+        variant_id=int(item["variantId"]),
+        external_id=str(item["externalId"]),
+        content_sha256=str(row["content_sha256"]),
+        acceptance_id=int(row["acceptance_id"]),
+        lineage_sha256=lineage_sha,
+        evidence_sha256=evidence_sha,
+        accepted_at=completed_at,
+    )
+    run_id = _checkpoint_snk_en_item(
+        cur,
+        item=item,
+        mode=mode,
+        started_at=started_at,
+        completed_at=completed_at,
+        lineage_sha256=lineage_sha,
+        payload={
+            "contract": "snk-en-storefront-lineage-v1",
+            "reusedAcceptanceId": int(row["acceptance_id"]),
+            "lineageSha256": lineage_sha,
+        },
+    )
+    return {"inserted": 0, "runId": run_id, "lineageSha256": lineage_sha}
+
+
+def _persist_prepared_snk_en(
+    cur,
+    *,
+    item: dict[str, Any],
+    prepared: SnkEnPrepared,
+    mode: str,
+    started_at: datetime,
+    completed_at: datetime,
+) -> dict[str, Any]:
+    _assert_exact_snk_en_binding(cur, item)
+    _, private_object_key = _write_snk_en_asset(prepared.image)
+    asset_source_version = _sha256(
+        {
+            "masterPayloadSha256": prepared.master_payload_sha256,
+            "downloadedBytesSha256": prepared.downloaded_bytes_sha256,
+            "transformSha256": prepared.image.transform_sha256,
+        }
+    )
+    cur.execute(
+        """
+        INSERT INTO market_image_asset
+          (variant_id,image_kind,content_sha256,private_object_key,mime_type,
+           width_px,height_px,source_version_sha256,captured_at)
+        VALUES (%s,'raw_front',%s,%s,%s,%s,%s,%s,%s)
+        ON DUPLICATE KEY UPDATE
+          private_object_key=VALUES(private_object_key),mime_type=VALUES(mime_type),
+          width_px=VALUES(width_px),height_px=VALUES(height_px),
+          source_version_sha256=VALUES(source_version_sha256),
+          captured_at=GREATEST(captured_at,VALUES(captured_at))
+        """,
+        (
+            prepared.variant_id,
+            prepared.image.content_sha256,
+            private_object_key,
+            prepared.image.mime_type,
+            prepared.image.width,
+            prepared.image.height,
+            asset_source_version,
+            prepared.captured_at,
+        ),
+    )
+    cur.execute(
+        """
+        SELECT id FROM market_image_asset
+        WHERE variant_id=%s AND image_kind='raw_front' AND content_sha256=%s
+        LIMIT 1
+        """,
+        (prepared.variant_id, prepared.image.content_sha256),
+    )
+    asset = cur.fetchone()
+    if not asset:
+        raise RuntimeError(f"SNK EN asset row missing: {prepared.external_id}")
+    asset_id = int(asset["id"])
+    cur.execute(
+        """
+        INSERT INTO market_image_source_pointer
+          (variant_id,image_kind,remote_url_sha256,source_path,
+           source_version_sha256,public_allowed,observed_at)
+        VALUES (%s,'raw_front',%s,%s,%s,1,%s)
+        ON DUPLICATE KEY UPDATE
+          remote_url_sha256=VALUES(remote_url_sha256),
+          source_path=VALUES(source_path),public_allowed=1,
+          observed_at=GREATEST(observed_at,VALUES(observed_at))
+        """,
+        (
+            prepared.variant_id,
+            prepared.default_image_url_sha256,
+            prepared.default_image_url,
+            asset_source_version,
+            prepared.source_observed_at,
+        ),
+    )
+    cur.execute(
+        """
+        INSERT INTO market_image_qc
+          (image_asset_id,semantic_match_status,card_number_match,language_match,
+           tcg_match,raw_front_confirmed,public_allowed,rejection_reason,
+           checked_at,qc_version)
+        VALUES (%s,'accepted_freeze',1,1,1,1,1,NULL,%s,%s)
+        ON DUPLICATE KEY UPDATE
+          semantic_match_status='accepted_freeze',card_number_match=1,
+          language_match=1,tcg_match=1,raw_front_confirmed=1,
+          public_allowed=1,rejection_reason=NULL,checked_at=VALUES(checked_at)
+        """,
+        (asset_id, completed_at, prepared.image.qc_version),
+    )
+    lineage_payload = {
+        "contract": "snk-en-storefront-lineage-v1",
+        "variantId": prepared.variant_id,
+        "sourceCode": SNK_EN_SOURCE_CODE,
+        "storefront": "en",
+        "exactItemId": prepared.external_id,
+        "productUrl": prepared.product_url,
+        "productPagePayloadSha256": prepared.product_page_payload_sha256,
+        "productPageObservedAt": prepared.product_page_observed_at.isoformat(
+            timespec="microseconds"
+        ),
+        "masterPayloadSha256": prepared.master_payload_sha256,
+        "defaultImageUrl": prepared.default_image_url,
+        "defaultImageUrlSha256": prepared.default_image_url_sha256,
+        "downloadedBytesSha256": prepared.downloaded_bytes_sha256,
+        "processedContentSha256": prepared.image.content_sha256,
+        "transformSha256": prepared.image.transform_sha256,
+        "identityEvidenceSha256": prepared.identity_evidence_sha256,
+        "sourceObservedAt": prepared.source_observed_at.isoformat(timespec="microseconds"),
+    }
+    lineage_sha = _sha256(lineage_payload)
+    cur.execute(
+        """
+        INSERT IGNORE INTO market_snk_en_storefront_lineage
+          (variant_id,source_code,storefront_code,exact_item_id,product_url,
+           master_payload_sha256,default_image_url,default_image_url_sha256,
+           downloaded_bytes_sha256,processed_image_asset_id,
+           processed_content_sha256,transform_sha256,transform_json,
+           identity_evidence_sha256,lineage_sha256,source_observed_at)
+        VALUES (%s,'snkrdunk','en',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """,
+        (
+            prepared.variant_id,
+            prepared.external_id,
+            prepared.product_url,
+            prepared.master_payload_sha256,
+            prepared.default_image_url,
+            prepared.default_image_url_sha256,
+            prepared.downloaded_bytes_sha256,
+            asset_id,
+            prepared.image.content_sha256,
+            prepared.image.transform_sha256,
+            json.dumps(
+                prepared.image.transform,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            prepared.identity_evidence_sha256,
+            lineage_sha,
+            prepared.source_observed_at,
+        ),
+    )
+    lineage_inserted = int(cur.rowcount or 0) == 1
+    cur.execute(
+        "SELECT id FROM market_snk_en_storefront_lineage WHERE lineage_sha256=%s",
+        (lineage_sha,),
+    )
+    lineage = cur.fetchone()
+    if not lineage:
+        raise RuntimeError(f"SNK EN lineage row missing: {prepared.external_id}")
+    lineage_id = int(lineage["id"])
+    authority_payload = {
+        "contract": SNK_EN_PRODUCT_PAGE_CONTRACT,
+        "variantId": prepared.variant_id,
+        "exactItemId": prepared.external_id,
+        "productUrl": prepared.product_url,
+        "finalUrl": prepared.product_url,
+        "httpStatus": 200,
+        "productPagePayloadSha256": prepared.product_page_payload_sha256,
+        "productPageObservedAt": prepared.product_page_observed_at.isoformat(
+            timespec="microseconds"
+        ),
+        "defaultImageUrl": prepared.default_image_url,
+        "masterPayloadSha256": prepared.master_payload_sha256,
+        "identityEvidenceSha256": prepared.identity_evidence_sha256,
+        "storefrontLineageSha256": lineage_sha,
+    }
+    authority_sha = _sha256(authority_payload)
+    cur.execute(
+        """
+        INSERT IGNORE INTO market_snk_en_product_page_authority
+          (storefront_lineage_id,variant_id,exact_item_id,product_url,final_url,
+           http_status,product_page_payload_sha256,product_page_observed_at,
+           default_image_url,master_payload_sha256,identity_evidence_sha256,
+           authority_sha256)
+        VALUES (%s,%s,%s,%s,%s,200,%s,%s,%s,%s,%s,%s)
+        """,
+        (
+            lineage_id,
+            prepared.variant_id,
+            prepared.external_id,
+            prepared.product_url,
+            prepared.product_url,
+            prepared.product_page_payload_sha256,
+            prepared.product_page_observed_at,
+            prepared.default_image_url,
+            prepared.master_payload_sha256,
+            prepared.identity_evidence_sha256,
+            authority_sha,
+        ),
+    )
+    cur.execute(
+        """
+        SELECT id FROM market_snk_en_product_page_authority
+        WHERE storefront_lineage_id=%s AND authority_sha256=%s
+        """,
+        (lineage_id, authority_sha),
+    )
+    if cur.fetchone() is None:
+        raise RuntimeError(
+            f"SNK EN product-page authority row missing: {prepared.external_id}"
+        )
+    acceptance_evidence = _sha256(
+        {
+            "contract": "canonical-snk-en-image-acceptance-v1",
+            "lineageSha256": lineage_sha,
+            "imageContentSha256": prepared.image.content_sha256,
+            "qcVersion": prepared.image.qc_version,
+        }
+    )
+    cur.execute(
+        """
+        SELECT ca.id,ca.lineage_sha256
+        FROM market_canonical_image_acceptance ca
+        WHERE ca.variant_id=%s
+          AND NOT EXISTS (SELECT 1 FROM market_canonical_image_acceptance newer
+                          WHERE newer.supersedes_acceptance_id=ca.id)
+        ORDER BY ca.accepted_at DESC,ca.id DESC LIMIT 1
+        """,
+        (prepared.variant_id,),
+    )
+    current = cur.fetchone()
+    if current and str(current["lineage_sha256"]) == lineage_sha:
+        acceptance_id = int(current["id"])
+        acceptance_inserted = False
+    else:
+        cur.execute(
+            """
+            INSERT INTO market_canonical_image_acceptance
+              (variant_id,storefront_lineage_id,image_asset_id,lineage_sha256,
+               evidence_sha256,accepted_by,accepted_at,supersedes_acceptance_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                prepared.variant_id,
+                lineage_id,
+                asset_id,
+                lineage_sha,
+                acceptance_evidence,
+                "collect_control:snk_en_image",
+                completed_at,
+                int(current["id"]) if current else None,
+            ),
+        )
+        acceptance_id = int(cur.lastrowid)
+        acceptance_inserted = True
+    _upsert_snk_en_freeze(
+        cur,
+        variant_id=prepared.variant_id,
+        external_id=prepared.external_id,
+        content_sha256=prepared.image.content_sha256,
+        acceptance_id=acceptance_id,
+        lineage_sha256=lineage_sha,
+        evidence_sha256=acceptance_evidence,
+        accepted_at=completed_at,
+    )
+    run_id = _checkpoint_snk_en_item(
+        cur,
+        item=item,
+        mode=mode,
+        started_at=started_at,
+        completed_at=completed_at,
+        lineage_sha256=lineage_sha,
+        payload={
+            **lineage_payload,
+            "lineageSha256": lineage_sha,
+            "productPageAuthoritySha256": authority_sha,
+            "acceptanceId": acceptance_id,
+            "acceptanceEvidenceSha256": acceptance_evidence,
+        },
+    )
+    return {
+        "inserted": int(lineage_inserted or acceptance_inserted),
+        "runId": run_id,
+        "lineageSha256": lineage_sha,
+    }
+
+
+def run_snk_en_image(
+    items: list[dict[str, Any]],
+    *,
+    mode: str,
+    limit: int | None,
+    dry_run: bool,
+    delay: float,
+    workers: int,
+) -> dict[str, Any]:
+    try:
+        selected, _ = _snk_selection(items, limit)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "adapter": "snk_en_image",
+            "mode": mode,
+            "due": len(items),
+            "processed": 0,
+            "inserted": 0,
+            "checkpoint": 0,
+            "checkpointed": 0,
+            "reused": 0,
+            "downloaded": 0,
+            "failed": len(items),
+            "ok": False,
+            "error": f"snk_en_selection:{type(exc).__name__}:{exc}",
+        }
+    report: dict[str, Any] = {
+        "adapter": "snk_en_image",
+        "mode": mode,
+        "due": len(items),
+        "processed": len(selected),
+        "inserted": 0,
+        "checkpoint": 0,
+        "checkpointed": 0,
+        "reused": 0,
+        "reusedAccepted": 0,
+        "reusedMaster": 0,
+        "reusedBytes": 0,
+        "downloaded": 0,
+        "downloadedMaster": 0,
+        "failed": 0,
+        "failedItems": [],
+        "ok": True,
+        "targetScope": "current_active_universe_all_exact_snkrdunk",
+        "storefront": "en",
+        "browserUsed": False,
+    }
+    if not selected:
+        report["freshness"] = {
+            "slaHours": SLA_HOURS,
+            "oldestSuccessAt": None,
+            "newestSuccessAt": None,
+            "slaOk": True,
+        }
+        return report
+    if dry_run:
+        report.update(
+            {
+                "dryRun": True,
+                "note": "exact active SNK IDs selected; network, asset and DB writes not executed",
+                "freshness": {
+                    "slaHours": SLA_HOURS,
+                    "oldestSuccessAt": None,
+                    "newestSuccessAt": None,
+                    "slaOk": False,
+                },
+            }
+        )
+        return report
+
+    load_env()
+    writer = db()
+    success_times: list[datetime] = []
+    completed_variants: set[int] = set()
+    try:
+        cur = writer.cursor()
+        _require_migration_029(cur)
+        # A due SNK EN image poll always performs the exact product-page GET.
+        # Existing accepted lineage is used by classify_needs while fresh, not
+        # as a substitute for a newly due storefront observation.
+        reusable: dict[int, dict[str, Any]] = {}
+        writer.commit()
+        missing = [
+            item for item in selected if int(item["variantId"]) not in reusable
+        ]
+        external_ids = {str(item["externalId"]) for item in missing}
+        master_cache = _local_snk_master_cache(external_ids)
+        bytes_cache = _local_snk_default_bytes(external_ids)
+        http_workers = max(1, min(int(workers), len(missing) or 1, 12))
+        report["httpWorkers"] = http_workers
+        api_pool = SnkrdunkApiPool(
+            workers=http_workers,
+            delay=max(0.0, float(delay)),
+            retries=1,
+        )
+        futures: dict[int, Future[SnkEnPrepared]] = {}
+        executor = ThreadPoolExecutor(
+            max_workers=http_workers,
+            thread_name_prefix="snk-en-image",
+        )
+        try:
+            for item in missing:
+                futures[int(item["variantId"])] = executor.submit(
+                    _prepare_snk_en_target,
+                    item,
+                    api_pool=api_pool,
+                    master_cache=master_cache,
+                    bytes_cache=bytes_cache,
+                )
+            for item in selected:
+                variant_id = int(item["variantId"])
+                started_at = _utc_naive()
+                try:
+                    if variant_id in reusable:
+                        completed_at = _utc_naive()
+                        report["reusedAccepted"] += 1
+                        report["reused"] += 1
+                        write = _persist_reused_snk_en(
+                            cur,
+                            item=item,
+                            row=reusable[variant_id],
+                            mode=mode,
+                            started_at=started_at,
+                            completed_at=completed_at,
+                        )
+                    else:
+                        prepared = futures[variant_id].result()
+                        completed_at = _utc_naive()
+                        report["reusedMaster"] += int(prepared.master_reused)
+                        report["reusedBytes"] += int(prepared.bytes_reused)
+                        report["reused"] += int(
+                            prepared.master_reused or prepared.bytes_reused
+                        )
+                        report["downloaded"] += int(prepared.downloaded)
+                        report["downloadedMaster"] += int(
+                            not prepared.master_reused
+                        )
+                        write = _persist_prepared_snk_en(
+                            cur,
+                            item=item,
+                            prepared=prepared,
+                            mode=mode,
+                            started_at=started_at,
+                            completed_at=completed_at,
+                        )
+                    writer.commit()
+                    report["inserted"] += int(write["inserted"])
+                    report["checkpointed"] += 1
+                    success_times.append(completed_at)
+                    completed_variants.add(variant_id)
+                except Exception as exc:  # noqa: BLE001
+                    writer.rollback()
+                    report["failedItems"].append(
+                        {
+                            "variantId": variant_id,
+                            "externalId": str(item.get("externalId") or ""),
+                            "error": f"{type(exc).__name__}:{exc}",
+                        }
+                    )
+        finally:
+            executor.shutdown(wait=True, cancel_futures=False)
+    except Exception as exc:  # noqa: BLE001
+        writer.rollback()
+        already_failed = {
+            int(row["variantId"]) for row in report["failedItems"]
+        }
+        for item in selected:
+            variant_id = int(item["variantId"])
+            if variant_id in completed_variants or variant_id in already_failed:
+                continue
+            report["failedItems"].append(
+                {
+                    "variantId": variant_id,
+                    "externalId": str(item.get("externalId") or ""),
+                    "error": f"{type(exc).__name__}:{exc}",
+                }
+            )
+    finally:
+        writer.close()
+
+    report["failed"] = len(report["failedItems"])
+    report["checkpoint"] = report["checkpointed"]
+    report["ok"] = (
+        report["failed"] == 0
+        and report["checkpointed"] == report["processed"]
+    )
+    report["freshness"] = {
+        "slaHours": SLA_HOURS,
+        "oldestSuccessAt": (
+            min(success_times).isoformat(sep=" ") if success_times else None
+        ),
+        "newestSuccessAt": (
+            max(success_times).isoformat(sep=" ") if success_times else None
+        ),
+        "slaOk": bool(report["ok"] and success_times),
+    }
+    if not report["ok"]:
+        report["error"] = "one_or_more_exact_snk_en_targets_failed"
+    return report
+
+
 def _command_arg_path(command: list[Any], flag: str) -> Path:
     values = [str(value) for value in command]
     try:
@@ -1460,10 +2636,32 @@ def _pc_subset_map(
         for row in _jsonl_rows(PC_MAP)
         if int(row.get("variant_id") or 0) in requested
     ]
-    by_variant = {int(row.get("variant_id") or 0): row for row in rows}
+    rows_by_variant: dict[int, list[dict[str, Any]]] = {}
+    for row in rows:
+        rows_by_variant.setdefault(int(row.get("variant_id") or 0), []).append(row)
+    duplicates = sorted(
+        variant_id for variant_id, matches in rows_by_variant.items() if len(matches) != 1
+    )
+    if duplicates:
+        raise RuntimeError(f"canonical PC map has duplicate active variants: {duplicates[:20]}")
+    by_variant = {
+        variant_id: matches[0] for variant_id, matches in rows_by_variant.items()
+    }
     missing = sorted(requested - set(by_variant))
     if missing or len(by_variant) != len(requested):
         raise RuntimeError(f"canonical PC map missing active variants: {missing[:20]}")
+    external_id_mismatches = []
+    for item in items:
+        variant_id = int(item["variantId"])
+        requested_external_id = str(item.get("externalId") or "").strip()
+        mapped_external_id = str(by_variant[variant_id].get("pc_product_id") or "").strip()
+        if not requested_external_id or requested_external_id != mapped_external_id:
+            external_id_mismatches.append(variant_id)
+    if external_id_mismatches:
+        raise RuntimeError(
+            "canonical PC map external ID mismatch for active variants: "
+            f"{external_id_mismatches[:20]}"
+        )
     ordered = [by_variant[int(item["variantId"])] for item in items]
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     path = OUT_DIR / f"pc_map_{label}_{mode}.jsonl"
@@ -1474,6 +2672,94 @@ def _pc_subset_map(
     return path, ordered
 
 
+def partition_local_pc_stock_pages(
+    items: list[dict[str, Any]], *, mode: str, dry_run: bool
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    """Use exact saved PC evidence as the primary missing-contract input.
+
+    Only ``stock`` rows are eligible. Incremental rows still require a real
+    source refresh. The saved page must match the canonical URL, product id and
+    explicit PSA10 field before Chrome can be skipped.
+    """
+
+    selected = _unique_items(items, None)
+    empty_report = {
+        "adapter": "pc_local_stock_replay",
+        "mode": mode,
+        "processed": 0,
+        "ok": True,
+        "cursorAdvanced": False,
+        "payloadShaByVariant": {},
+        "rows": [],
+        "networkReasons": {},
+    }
+    if dry_run or not selected:
+        return [], selected, empty_report
+    _, map_rows = _pc_subset_map(selected, mode=mode, label="local-stock")
+    from pc_psa10_price_derivation import validate_pc_psa10
+
+    map_by_variant = {int(row["variant_id"]): row for row in map_rows}
+    replayed: list[dict[str, Any]] = []
+    network: list[dict[str, Any]] = []
+    payload_sha_by_variant: dict[str, str] = {}
+    evidence_times: list[datetime] = []
+    evidence_rows: list[dict[str, Any]] = []
+    network_reasons: dict[str, str] = {}
+    for item in selected:
+        variant_id = int(item["variantId"])
+        if str(item.get("modeNeeded") or "") != "stock":
+            network.append(item)
+            network_reasons[str(variant_id)] = "incremental_refresh_due"
+            continue
+        row = map_by_variant[variant_id]
+        exact_price, reason = validate_pc_psa10(row)
+        if exact_price is None:
+            network.append(item)
+            network_reasons[str(variant_id)] = reason
+            continue
+        html_path = ROOT / str(row.get("html_path") or row.get("htmlPath") or "")
+        modified_at = datetime.fromtimestamp(html_path.stat().st_mtime, timezone.utc)
+        if (_age_hours(modified_at) or 0) > SLA_HOURS:
+            network.append(item)
+            network_reasons[str(variant_id)] = "local_exact_html_exceeds_36h_sla"
+            continue
+        html_bytes = html_path.read_bytes()
+        replayed.append(item)
+        payload_sha_by_variant[str(variant_id)] = hashlib.sha256(html_bytes).hexdigest()
+        evidence_times.append(modified_at)
+        evidence_rows.append(
+            {
+                "variantId": variant_id,
+                "externalId": str(row.get("pc_product_id") or ""),
+                "sourceUrl": str(row.get("pc_url") or ""),
+                "htmlPath": str(html_path),
+                "htmlSha256": payload_sha_by_variant[str(variant_id)],
+                "explicitField": exact_price.get("field"),
+                "sourceObservedDate": exact_price.get("observed_date"),
+                "localArtifactModifiedAt": modified_at.isoformat().replace(
+                    "+00:00", "Z"
+                ),
+                "reason": reason,
+            }
+        )
+    report = {
+        "adapter": "pc_local_stock_replay",
+        "mode": mode,
+        "processed": len(replayed),
+        "ok": True,
+        "cursorAdvanced": False,
+        "payloadShaByVariant": payload_sha_by_variant,
+        "evidenceAsOf": (
+            max(evidence_times).isoformat().replace("+00:00", "Z")
+            if evidence_times
+            else None
+        ),
+        "rows": evidence_rows,
+        "networkReasons": network_reasons,
+    }
+    return replayed, network, report
+
+
 def refresh_pc_pages(
     items: list[dict[str, Any]],
     *,
@@ -1481,6 +2767,7 @@ def refresh_pc_pages(
     dry_run: bool,
     resume_report: Path | None,
     sleep_seconds: float,
+    cdp_already_ensured: bool,
 ) -> dict[str, Any]:
     selected = _unique_items(items, None)
     report: dict[str, Any] = {
@@ -1525,7 +2812,11 @@ def refresh_pc_pages(
             "--no-ingest",
             "--sleep",
             str(max(0.0, float(sleep_seconds))),
+            "--cdp-port",
+            str(CARDZ_CDP_PORT),
         ]
+        if cdp_already_ensured:
+            cmd.append("--cdp-already-ensured")
         if resume_report is not None:
             cmd.extend(["--resume-report", _windows_path(resume_report)])
     except Exception as exc:  # noqa: BLE001
@@ -1639,14 +2930,32 @@ def run_pc_ebay_sales(
             and int(stats.get("cards_parse_fail") or 0) == 0
         ):
             raise RuntimeError("PC/eBay ingest report is incomplete")
-        checkpoint = record_successful_poll(
-            adapter="pc_ebay_sales",
-            mode=mode,
-            items=selected,
-            payload=ingest,
-            started_at=started_at,
-            payload_sha_by_external=_pc_checkpoint_hashes(selected, refresh),
-        )
+        local_replay_ids = {
+            int(value) for value in (refresh.get("localReplayVariantIds") or [])
+        }
+        checkpoint_items = [
+            item
+            for item in selected
+            if int(item["variantId"]) not in local_replay_ids
+        ]
+        if checkpoint_items:
+            checkpoint = record_successful_poll(
+                adapter="pc_ebay_sales",
+                mode=mode,
+                items=checkpoint_items,
+                payload=ingest,
+                started_at=started_at,
+                payload_sha_by_external=_pc_checkpoint_hashes(checkpoint_items, refresh),
+            )
+            checkpoint["cursorAdvanced"] = True
+            checkpoint["reused"] = len(selected) - len(checkpoint_items)
+        else:
+            checkpoint = {
+                "runId": None,
+                "checkpointed": 0,
+                "cursorAdvanced": False,
+                "reused": len(selected),
+            }
     except Exception as exc:  # noqa: BLE001
         report.update({"ok": False, "error": f"pc_ebay_contract:{type(exc).__name__}:{exc}"})
         return report
@@ -1696,6 +3005,8 @@ def run_en_price_ref(
         str(map_path),
         "--out",
         str(plan_path),
+        "--sources",
+        "pricecharting",
     ]
     report["derive"] = _run(derive_cmd, timeout=max(1200, 10 * len(selected)), dry_run=False)
     if report["derive"].get("exit") != 0 or not plan_path.is_file():
@@ -1739,14 +3050,32 @@ def run_en_price_ref(
         report.update({"ok": False, "error": "en_price_materialize_failed"})
         return report
     try:
-        checkpoint = record_successful_poll(
-            adapter="en_price_ref",
-            mode=mode,
-            items=selected,
-            payload=plan,
-            started_at=started_at,
-            payload_sha_by_external=_pc_checkpoint_hashes(selected, refresh),
-        )
+        local_replay_ids = {
+            int(value) for value in (refresh.get("localReplayVariantIds") or [])
+        }
+        checkpoint_items = [
+            item
+            for item in selected
+            if int(item["variantId"]) not in local_replay_ids
+        ]
+        if checkpoint_items:
+            checkpoint = record_successful_poll(
+                adapter="en_price_ref",
+                mode=mode,
+                items=checkpoint_items,
+                payload=plan,
+                started_at=started_at,
+                payload_sha_by_external=_pc_checkpoint_hashes(checkpoint_items, refresh),
+            )
+            checkpoint["cursorAdvanced"] = True
+            checkpoint["reused"] = len(selected) - len(checkpoint_items)
+        else:
+            checkpoint = {
+                "runId": None,
+                "checkpointed": 0,
+                "cursorAdvanced": False,
+                "reused": len(selected),
+            }
     except Exception as exc:  # noqa: BLE001
         report.update({"ok": False, "error": f"checkpoint:{type(exc).__name__}:{exc}"})
         return report
@@ -1763,7 +3092,44 @@ def _requested_adapters(adapters: list[str]) -> list[str]:
     return allowed if "all" in wanted else [adapter for adapter in allowed if adapter in wanted]
 
 
-def _collect_mode(
+def _acquire_adapter_leases(adapters: list[str]):
+    """Hold one MySQL advisory lease per adapter for the complete collection run."""
+    load_env()
+    conn = db()
+    cur = conn.cursor()
+    acquired: list[str] = []
+    try:
+        lease_roles = set(adapters)
+        if lease_roles.intersection({"pc_ebay_sales", "en_price_ref"}):
+            lease_roles.add("pc_cdp")
+        for adapter in sorted(lease_roles):
+            lock_name = f"cardz:collect:{adapter}"[:64]
+            cur.execute("SELECT GET_LOCK(%s, 0) AS acquired", (lock_name,))
+            row = cur.fetchone()
+            value = row.get("acquired") if isinstance(row, dict) else row[0]
+            if int(value or 0) != 1:
+                raise RuntimeError(
+                    f"adapter lease already held: {adapter}; stop the duplicate collector/Chrome runner"
+                )
+            acquired.append(lock_name)
+        return conn, acquired
+    except Exception:
+        for lock_name in reversed(acquired):
+            cur.execute("SELECT RELEASE_LOCK(%s)", (lock_name,))
+        conn.close()
+        raise
+
+
+def _release_adapter_leases(conn, lock_names: list[str]) -> None:
+    try:
+        cur = conn.cursor()
+        for lock_name in reversed(lock_names):
+            cur.execute("SELECT RELEASE_LOCK(%s)", (lock_name,))
+    finally:
+        conn.close()
+
+
+def _collect_mode_impl(
     *,
     mode: str,
     adapters: list[str],
@@ -1841,18 +3207,97 @@ def _collect_mode(
                 workers=workers,
             )
         )
+    if "snk_en_image" in requested:
+        results.append(
+            run_snk_en_image(
+                due_by_adapter["snk_en_image"],
+                mode=mode,
+                limit=limit,
+                dry_run=dry_run,
+                delay=delay,
+                workers=workers,
+            )
+        )
 
     pc_items_by_variant: dict[int, dict[str, Any]] = {}
     for adapter in ("pc_ebay_sales", "en_price_ref"):
         for item in selected_by_adapter.get(adapter, []):
-            pc_items_by_variant.setdefault(int(item["variantId"]), item)
-    pc_refresh = refresh_pc_pages(
-        list(pc_items_by_variant.values()),
-        mode=mode,
-        dry_run=dry_run,
-        resume_report=pc_resume_report,
-        sleep_seconds=pc_sleep,
+            variant_id = int(item["variantId"])
+            current = pc_items_by_variant.get(variant_id)
+            if current is None:
+                pc_items_by_variant[variant_id] = dict(item)
+            elif item.get("modeNeeded") == "incr":
+                # One fresh page serves both PC consumers. If either consumer
+                # is incremental, this variant must take the network lane.
+                pc_items_by_variant[variant_id] = {
+                    **current,
+                    "modeNeeded": "incr",
+                }
+    browser_bootstrap: dict[str, Any] = {
+        "requested": bool(ensure_browser),
+        "needed": bool(pc_items_by_variant),
+        "ok": True,
+    }
+    cdp_already_ensured = False
+    all_pc_items = list(pc_items_by_variant.values())
+    local_pc_items, network_pc_items, local_pc_report = partition_local_pc_stock_pages(
+        all_pc_items, mode=mode, dry_run=dry_run
     )
+    if local_pc_items and not network_pc_items:
+        browser_bootstrap = {
+            "requested": bool(ensure_browser),
+            "needed": False,
+            "ok": True,
+            "reason": "all exact missing contracts replayed from local immutable HTML",
+        }
+    if network_pc_items:
+        if ensure_browser and not dry_run:
+            browser_bootstrap = {
+                "requested": True,
+                "needed": True,
+                **ensure_cdp(CARDZ_CDP_PORT),
+            }
+            if not bool(browser_bootstrap.get("ok")):
+                raise RuntimeError(
+                    "the singleton CARDZ CDP session could not be started; no PC adapter ran"
+                )
+            cdp_already_ensured = True
+        network_pc_refresh = refresh_pc_pages(
+            network_pc_items,
+            mode=mode,
+            dry_run=dry_run,
+            resume_report=pc_resume_report,
+            sleep_seconds=pc_sleep,
+            cdp_already_ensured=cdp_already_ensured,
+        )
+    else:
+        network_pc_refresh = {
+            "adapter": "pc_cdp_fresh_pages",
+            "mode": mode,
+            "processed": 0,
+            "ok": True,
+            "payloadShaByVariant": {},
+            "note": "no exact PC variants require network refresh",
+        }
+    pc_refresh = {
+        "adapter": "pc_page_acquisition",
+        "mode": mode,
+        "processed": len(all_pc_items),
+        "ok": bool(local_pc_report.get("ok")) and bool(network_pc_refresh.get("ok")),
+        "localReplay": bool(all_pc_items) and not network_pc_items,
+        "localReplayVariantIds": sorted(
+            int(item["variantId"]) for item in local_pc_items
+        ),
+        "networkVariantIds": sorted(
+            int(item["variantId"]) for item in network_pc_items
+        ),
+        "payloadShaByVariant": {
+            **(local_pc_report.get("payloadShaByVariant") or {}),
+            **(network_pc_refresh.get("payloadShaByVariant") or {}),
+        },
+        "localStockReplay": local_pc_report,
+        "networkRefresh": network_pc_refresh,
+    }
     if "pc_ebay_sales" in requested:
         results.append(
             run_pc_ebay_sales(
@@ -1885,6 +3330,19 @@ def _collect_mode(
         != len(due_by_adapter[adapter])
     ]
     ok = not failed and not truncated
+    processed_count = sum(int(result.get("processed") or 0) for result in results)
+    inserted_count = sum(int(result.get("inserted") or 0) for result in results)
+    checkpointed_count = sum(
+        int(result.get("checkpointed") or 0) for result in results
+    )
+    reused_count = sum(int(result.get("reused") or 0) for result in results)
+    downloaded_count = sum(
+        int(result.get("downloaded") or 0) for result in results
+    )
+    failed_count = sum(
+        int(result.get("failed") or (0 if result.get("ok") else 1))
+        for result in results
+    )
     report = {
         "action": mode,
         "asOf": utc_now(),
@@ -1894,14 +3352,24 @@ def _collect_mode(
         "requestedAdapters": requested,
         "failedAdapters": failed,
         "truncatedAdapters": truncated,
+        "processed": processed_count,
+        "inserted": inserted_count,
+        "checkpoint": checkpointed_count,
+        "checkpointed": checkpointed_count,
+        "reused": reused_count,
+        "downloaded": downloaded_count,
+        "failed": failed_count,
         "preStatusCounts": status.get("counts"),
         "pcRefresh": pc_refresh,
+        "browserBootstrap": browser_bootstrap,
         "results": results,
         "browserBootstrapRequested": bool(ensure_browser),
+        "leaseContract": COLLECT_LEASE_CONTRACT,
         "notes": [
             "All requested active exact-ID adapters are fail-closed.",
             "A successful source poll advances only that adapter and stream checkpoint.",
-            "PC/eBay and EN price reference share one fresh CDP page acquisition.",
+            "SNK EN image collection is exact-ID HTTP only and never opens Chrome.",
+            "Missing PC contracts replay strict local HTML first; incremental PC/eBay and EN price reference share one fresh CDP page acquisition.",
         ],
     }
     load_env()
@@ -1909,12 +3377,45 @@ def _collect_mode(
     cur = conn.cursor()
     try:
         report["postFreshness"] = freshness_summary(cur, reg)
+        report["freshness"] = report["postFreshness"]
     finally:
         conn.close()
     output = LAST_STOCK if mode == "stock" else LAST_INCR
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
     return report
+
+
+def _collect_mode(
+    *,
+    mode: str,
+    adapters: list[str],
+    limit: int | None,
+    dry_run: bool,
+    delay: float,
+    workers: int,
+    ensure_browser: bool,
+    pc_resume_report: Path | None,
+    pc_sleep: float,
+    variant_ids: list[int] | None = None,
+) -> dict[str, Any]:
+    requested = _requested_adapters(adapters)
+    lease_conn, lock_names = _acquire_adapter_leases(requested)
+    try:
+        return _collect_mode_impl(
+            mode=mode,
+            adapters=adapters,
+            limit=limit,
+            dry_run=dry_run,
+            delay=delay,
+            workers=workers,
+            ensure_browser=ensure_browser,
+            pc_resume_report=pc_resume_report,
+            pc_sleep=pc_sleep,
+            variant_ids=variant_ids,
+        )
+    finally:
+        _release_adapter_leases(lease_conn, lock_names)
 
 
 def cmd_stock(
@@ -1977,7 +3478,7 @@ def main() -> int:
     p_status.add_argument("--no-rebuild", action="store_true")
 
     def add_common(p):
-        p.add_argument("--adapter", action="append", default=[], help="all|gemrate_pop|snk_trades|snk_price|pc_ebay_sales|en_price_ref (repeatable)")
+        p.add_argument("--adapter", action="append", default=[], help="all|gemrate_pop|snk_trades|snk_price|snk_en_image|pc_ebay_sales|en_price_ref (repeatable)")
         p.add_argument("--limit", type=int, default=None, help="max exact ids per network adapter")
         p.add_argument("--dry-run", action="store_true")
         p.add_argument("--delay", type=float, default=0.0, help="SNK per-worker delay; 0 = max concurrent")

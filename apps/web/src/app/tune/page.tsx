@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { TuneLab } from "@/components/tune-lab";
 import { loadMarketSnapshot, scopeSnapshot } from "@/lib/server-snapshot";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Heatmap Tuning Lab",
   robots: { index: false, follow: false },

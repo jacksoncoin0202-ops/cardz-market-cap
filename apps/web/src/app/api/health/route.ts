@@ -1,39 +1,45 @@
-import { loadMarketSnapshot } from "@/lib/server-snapshot";
-import { snapshotFreshness, snapshotStaleAfterSeconds } from "@/lib/snapshot-health";
+import { loadMarketSnapshot, scopeSnapshot } from "@/lib/server-snapshot";
 
 export const dynamic = "force-dynamic";
 
-/*
- * Load balancer / container health check。
- * 200 = 進程起到而且真係載到 snapshot；503 = 載唔到數據，唔好收流量。
- */
+const emptySurfaces = {
+  tcgTop100: 0,
+  pokemonTop100: 0,
+  onePieceTop100: 0,
+  tcg101To300: 0,
+};
+
 export async function GET(): Promise<Response> {
+  const build = process.env.CARDZ_PUBLIC_BUILD_ID?.trim() || "unknown";
   try {
     const snapshot = await loadMarketSnapshot();
-    const freshness = snapshotFreshness(
-      snapshot.effectiveAt,
-      Date.now(),
-      snapshotStaleAfterSeconds(process.env.MARKET_DATA_STALE_AFTER_SECONDS),
-    );
+    const surfaces = {
+      tcgTop100: scopeSnapshot(snapshot, "all").top100.length,
+      pokemonTop100: scopeSnapshot(snapshot, "pokemon").top100.length,
+      onePieceTop100: scopeSnapshot(snapshot, "one-piece").top100.length,
+      tcg101To300: scopeSnapshot(snapshot, "watchlist").top100.length,
+    };
     return Response.json(
       {
-        status: freshness.snapshotStale ? "stale" : "ok",
+        status: "ok",
         generation: snapshot.generation,
-        effectiveAt: snapshot.effectiveAt,
-        mode: snapshot.mode,
         cards: snapshot.top100.length + snapshot.watchlist.length,
-        ...freshness,
+        surfaces,
+        build,
+        dataMode: process.env.CARDZ_DATA_MODE?.trim() === "live-db" ? "windows-db-3308" : "baked-snapshot",
+        databasePort: process.env.CARDZ_DATA_MODE?.trim() === "live-db" ? 3308 : null,
       },
-      {
-        headers: {
-          "Cache-Control": "no-store",
-          "X-CARDZ-Generation": snapshot.generation,
-        },
-      },
+      { headers: { "Cache-Control": "no-store" } },
     );
-  } catch (error) {
+  } catch {
     return Response.json(
-      { status: "error", reason: error instanceof Error ? error.message : "snapshot unavailable" },
+      {
+        status: "error",
+        generation: null,
+        cards: 0,
+        surfaces: emptySurfaces,
+        build,
+      },
       { status: 503, headers: { "Cache-Control": "no-store" } },
     );
   }

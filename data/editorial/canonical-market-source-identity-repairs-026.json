@@ -1,0 +1,191 @@
+{
+  "schemaVersion": 1,
+  "contract": "canonical-market-source-identity-repair-026-v1",
+  "verifiedOn": "2026-08-05",
+  "entries": [
+    {
+      "targetVariantId": 430,
+      "sourceCode": "pricecharting",
+      "externalEntityId": "4513778",
+      "expectedPreviousOwnerVariantId": 426,
+      "expectedPrinting": {
+        "tcgCode": "pokemon",
+        "cardLanguage": "en",
+        "collectorNumber": "tg19",
+        "setCode": "BRS",
+        "printingCode": "base"
+      },
+      "providerUrl": "https://www.pricecharting.com/game/pokemon-brilliant-stars/single-strike-urshifu-vmax-tg19",
+      "providerProductNumber": "TG19",
+      "providerClaims": {
+        "set": "Pokemon Brilliant Stars",
+        "printing": "Single Strike Urshifu VMAX TG19"
+      },
+      "evidence": {
+        "type": "pricecharting_product_html",
+        "path": "../cardz-market-cap/data/private/pricecharting_session/html/full900/430_single-strike-urshifu-vmax-tg19.html",
+        "sha256": "a986298d02e3e617402c0f62947ad0d2891676c02d2025143af8ab5116e51c0a",
+        "explicitField": "VGPC.chart_data.manualonly.last",
+        "observedDate": "2026-07-01",
+        "priceUsd": "59.990000"
+      },
+      "canonicalMap": {
+        "cardName": "Single Strike Urshifu VMAX",
+        "setName": "Pokemon Sword and Shield Brilliant Stars",
+        "collectorNumber": "TG19",
+        "htmlPath": "data/private/pricecharting_session/html/026/430_single-strike-urshifu-vmax-tg19.html"
+      },
+      "reason": "PC4513778 is the exact English TG19 product; the prior TG29 owner is a different printing."
+    },
+    {
+      "targetVariantId": 660,
+      "sourceCode": "pricecharting",
+      "externalEntityId": "5809554",
+      "expectedPreviousOwnerVariantId": 176,
+      "expectedPrinting": {
+        "tcgCode": "pokemon",
+        "cardLanguage": "en",
+        "collectorNumber": "173/165",
+        "setCode": "MEW",
+        "printingCode": "base"
+      },
+      "providerUrl": "https://www.pricecharting.com/game/pokemon-scarlet-&-violet-151/pikachu-173",
+      "providerProductNumber": "173/165",
+      "providerClaims": {
+        "set": "Pokemon Scarlet & Violet 151",
+        "printing": "Pikachu 173"
+      },
+      "evidence": {
+        "type": "pricecharting_product_html",
+        "path": "../cardz-market-cap/data/private/pricecharting_session/html/full900/660_pikachu-173.html",
+        "sha256": "6ee12b7eaa3184dff66be1ccddd004962f0af80bd3284cc98e0dc51b37ab9110",
+        "explicitField": "VGPC.chart_data.manualonly.last",
+        "observedDate": "2026-07-01",
+        "priceUsd": "616.500000"
+      },
+      "canonicalMap": {
+        "cardName": "Pikachu",
+        "setName": "Pokemon Scarlet and Violet 151",
+        "collectorNumber": "173/165",
+        "htmlPath": "data/private/pricecharting_session/html/026/660_pikachu-173.html"
+      },
+      "reason": "PC5809554 is the English 151 product; the prior Japanese SV2a owner is a separate language printing."
+    },
+    {
+      "targetVariantId": 1204,
+      "sourceCode": "pricecharting",
+      "externalEntityId": "6236060",
+      "expectedPreviousOwnerVariantId": null,
+      "expectedPrinting": {
+        "tcgCode": "one-piece",
+        "cardLanguage": "en",
+        "collectorNumber": "OP05-119",
+        "setCode": "OP05",
+        "printingCode": "aa"
+      },
+      "providerUrl": "https://www.pricecharting.com/game/one-piece-awakening-of-the-new-era/monkeydluffy-alternate-art-op05-119",
+      "providerProductNumber": "OP05-119",
+      "providerClaims": {
+        "set": "One Piece Awakening of the New Era",
+        "printing": "Alternate Art"
+      },
+      "evidence": {
+        "type": "pricecharting_product_html",
+        "path": "../cardz-market-cap/data/private/pricecharting_session/html/full_identity/24_x_monkeydluffy-alternate-art-op05-119.html",
+        "sha256": "c525a6493fe97a1b5072298bde3efcae5b2f7272a8b695524d51c5fe18c2a967",
+        "explicitField": "VGPC.chart_data.manualonly.last",
+        "observedDate": "2026-08-01",
+        "priceUsd": "696.330000"
+      },
+      "canonicalMap": {
+        "cardName": "Monkey D. Luffy",
+        "setName": "One Piece Awakening of the New Era",
+        "collectorNumber": "OP05-119",
+        "htmlPath": "data/private/pricecharting_session/html/026/1204_monkeydluffy-alternate-art-op05-119.html"
+      },
+      "reason": "PC6236060 is the exact English OP05-119 Alternate Art page; the legacy promo and Japanese pages are ineligible."
+    },
+    {
+      "targetVariantId": 426,
+      "sourceCode": "pricecharting",
+      "externalEntityId": "3216328",
+      "expectedPreviousOwnerVariantId": null,
+      "expectedPrinting": {
+        "tcgCode": "pokemon",
+        "cardLanguage": "en",
+        "collectorNumber": "tg29",
+        "setCode": "BRS",
+        "printingCode": "base"
+      },
+      "providerUrl": "https://www.pricecharting.com/game/pokemon-brilliant-stars/urshifu-vmax-tg29",
+      "providerProductNumber": "TG29",
+      "providerClaims": {
+        "set": "Pokemon Brilliant Stars",
+        "printing": "Urshifu VMAX TG29"
+      },
+      "evidence": {
+        "type": "pricecharting_product_html",
+        "path": "data/private/pricecharting_session/html/026/426_urshifu-vmax-tg29.html",
+      "sha256": "65f1fd2b123f28183465619bc6c67d1c683bf840673617146203ff9fa044eb83",
+        "explicitField": "VGPC.chart_data.manualonly.last",
+        "observedDate": "2026-08-01",
+        "priceUsd": "47.900000"
+      },
+      "canonicalMap": {
+        "cardName": "Single Strike Urshifu VMAX",
+        "setName": "Pokemon Sword and Shield Brilliant Stars",
+        "collectorNumber": "TG29",
+        "htmlPath": "data/private/pricecharting_session/html/026/426_urshifu-vmax-tg29.html"
+      },
+      "reason": "PC3216328 is the exact English Brilliant Stars TG29 product; SNK488379 has no PSA10 kline."
+    },
+    {
+      "targetVariantId": 1466,
+      "sourceCode": "snkrdunk",
+      "externalEntityId": "676024",
+      "expectedPreviousOwnerVariantId": 1627,
+      "expectedPrinting": {
+        "tcgCode": "one-piece",
+        "cardLanguage": "ja",
+        "collectorNumber": "OP13-118",
+        "setCode": "OP13",
+        "printingCode": "aa"
+      },
+      "providerUrl": "https://snkrdunk.com/en/trading-cards/676024",
+      "providerProductNumber": "OP13-118",
+      "providerClaims": {
+        "set": "Booster Pack CARRYING ON HIS WILL",
+        "printing": "SEC-P",
+        "language": "jp"
+      },
+      "evidence": {
+        "type": "snkrdunk_psa10_local_evidence",
+        "assetInfoPath": "data/runtime/private-landing/g10/incremental/2026-07-28/b077197181e50b1eeb9ab2903be40ee14d8c6c09abe3dd44a11aacb9e4218aea/payload/cards/snkrdunk/676024/asset_info.json",
+        "assetInfoSha256": "cef0f1a1be6e759459fc08006de525bbf04d942e2f993d8400392662f0dc1b25",
+        "psa10TradesPath": "data/runtime/private-landing/g10/incremental/2026-07-28/b077197181e50b1eeb9ab2903be40ee14d8c6c09abe3dd44a11aacb9e4218aea/payload/cards/snkrdunk/676024/apparel_grade_22.json",
+        "psa10TradesSha256": "87a4809104a06eb13c17190a5b22db254bba4e81dc196ab8308f80420a7831b6",
+        "klinePath": "data/runtime/private-source-map/snk-psa10-liquidity-20260729T174612Z.jsonl",
+        "klineFileSha256": "1b0681cb6803d09ee211d11c5c8d07dfcc50a21e61b09dae6c0085f6d42f1fff",
+        "latestKlineDate": "2026-07-29",
+        "latestKlineJpy": "45555"
+      },
+      "reason": "SNK676024 is the Japanese OP13-118 SEC-P Alternate Art; the prior candidate owner is the duplicate candidate record."
+    }
+  ],
+  "rejects": [
+    {
+      "variantId": 1204,
+      "sourceCode": "snkrdunk",
+      "externalEntityId": "135439",
+      "reasonCode": "provider_manga_vs_canonical_aa",
+      "reason": "SNK135439 is the Comic/Manga Parallel and cannot price or image the English Alternate Art printing."
+    },
+    {
+      "variantId": 1466,
+      "sourceCode": "snkrdunk",
+      "externalEntityId": "676002",
+      "reasonCode": "provider_manga_vs_canonical_aa",
+      "reason": "SNK676002 is the Comic/Manga Parallel and cannot price or image the Japanese Alternate Art printing."
+    }
+  ]
+}

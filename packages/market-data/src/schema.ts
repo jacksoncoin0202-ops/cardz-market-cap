@@ -1,5 +1,3 @@
-import type { ReleaseProfileId } from "./release-policy.generated.js";
-
 export const SNAPSHOT_SCHEMA_VERSION = "2.0.0" as const;
 
 export const MARKET_STATUSES = [
@@ -10,13 +8,11 @@ export const MARKET_STATUSES = [
 ] as const;
 
 export const MARKET_WINDOWS = ["1d", "7d", "30d"] as const;
-export const GRADERS = ["PSA", "BGS", "CGC", "SGC", "TAG"] as const;
-export const COVERAGE_STATUSES = ["partial", "stale", "unavailable"] as const;
+export const COVERAGE_STATUSES = ["complete", "partial", "stale", "unavailable"] as const;
 export const CURRENCIES = ["USD", "HKD", "CNY", "GBP", "TWD", "JPY", "KRW"] as const;
 
 export type MarketStatus = (typeof MARKET_STATUSES)[number];
 export type MarketWindow = (typeof MARKET_WINDOWS)[number];
-export type Grader = (typeof GRADERS)[number];
 export type CoverageStatus = (typeof COVERAGE_STATUSES)[number];
 export type Locale = "en" | "zhTW" | "zhCN" | "ja" | "ko";
 export type Currency = (typeof CURRENCIES)[number];
@@ -28,6 +24,10 @@ export interface MarketMetric {
   value: number | null;
   status: MarketStatus;
   asOf: string | null;
+  /** Exact provider used for the historical price anchor of a window delta. */
+  priceAnchorSource?: string | null;
+  /** True when the current price and its historical anchor use different exact providers. */
+  sourceSwitched?: boolean;
 }
 
 export interface PopulationMetric extends MarketMetric {
@@ -75,13 +75,6 @@ export interface WindowMetrics {
   trackedSales: TrackedSalesMetric;
 }
 
-export interface GraderPopulation {
-  topGrade: string;
-  total: PopulationMetric;
-  topGradePopulation: PopulationMetric;
-  topGradePopulationChangePct: Record<MarketWindow, MarketMetric>;
-}
-
 /**
  * One truthful daily close plus the tracked-sale aggregate discovered for that
  * date. This is deliberately not OHLC: no candle is emitted until source
@@ -94,20 +87,16 @@ export interface DailyHistoryPoint {
   trackedSalesValueUsd: number | null;
   trackedSalesCount: number | null;
   salesCoverage: CoverageStatus;
+  salesVerifiedZero: boolean;
 }
 
 export interface PublicPrintingIdentity {
   setName: string;
   collectorNumber: string;
   editionCode: string;
-  parallelCode: string;
   finishCode: string;
   /** Short set code（例如 "EVS"）；唔係每個 producer 都有，所以 optional。 */
   setCode?: string | null;
-  /** 稀有度 code；producer 未供應時係 null。 */
-  rarityCode?: string | null;
-  /** 印刷版本 code；暫時冇公開 vocabulary，display 唔會用。 */
-  printingCode?: string | null;
   /**
    * Physical print language in the 7-part canonicalPrintingSha256 key
    * (`tcg|lang|set|collector|edition|parallel|finish`). The nullable type can
@@ -117,13 +106,6 @@ export interface PublicPrintingIdentity {
   cardLanguage?: CardLanguage | null;
   canonicalPrintingSha256: string;
   evidenceSha256: string;
-}
-
-export interface CanonicalDbQcBinding {
-  runId: string;
-  receiptSha256: string;
-  database: "cardz_market_cap";
-  universeCandidateSha256: string;
 }
 
 /** Canonical card *print* language (not UI locale). */
@@ -148,7 +130,14 @@ export interface PublicCard {
   /** Required by the production release gate; optional only for legacy demo snapshots. */
   printingIdentity?: PublicPrintingIdentity;
   identityStatus: "confirmed" | "provisional" | "demo_observed";
-  names: LocalizedText;
+  /**
+   * PSA/GemRate official English full name. This is the canonical public title;
+   * locale aliases must never replace it. Optional only while reading retained
+   * pre-026 snapshots; production validation requires a non-empty value.
+   */
+  officialName?: string;
+  /** Optional locale aliases / translations. They are never title authority. */
+  names?: LocalizedText;
   sets: LocalizedText;
   stories: LocalizedText;
   image: PublicImage;
@@ -162,7 +151,6 @@ export interface PublicCard {
   populationPsa10: PopulationMetric;
   marketCap: MarketMetric;
   windows: Record<MarketWindow, WindowMetrics>;
-  graderPopulations: Record<Grader, GraderPopulation>;
   historyDaily: DailyHistoryPoint[];
 }
 
@@ -170,21 +158,6 @@ export interface SnapshotGeneration {
   id: string;
   generatedAt: string;
   effectiveAt: string;
-  contentSha256: string;
-  qcReceiptSha256: string;
-  /** Required for production; omitted by pre-QC/demo candidates. */
-  dbQc?: CanonicalDbQcBinding;
-  /** Required for production; omitted only by retained legacy/demo candidates. */
-  releaseProfile?: ReleaseProfileId;
-  /** SHA-256 of the named policy as generated from config/data-routing.json. */
-  policySha256?: string;
-  /** SHA-256 fingerprint of the canonical CARDZ Market Cap database evaluation. */
-  dbFingerprint?: string;
-  /** Immutable canonical evaluation backing this generation. */
-  evaluationId?: number;
-  mode: "demo" | "production";
-  productionEligible: boolean;
-  blockers: string[];
 }
 
 export interface PublicMarketSnapshot {
@@ -199,14 +172,12 @@ export interface PublicMarketSnapshot {
   };
   coverage: {
     claim: SnapshotCoverageClaim;
-    requestedCount: 100;
+    requestedCount: number;
     verifiedCount: number;
     top100Count: number;
     watchlistCount: number;
     changeReady: Record<MarketWindow, number>;
     salesReady: Record<MarketWindow, number>;
-    graderPopulationReady: Record<Grader, number>;
-    graderPopulationChangeReady: Record<Grader, Record<MarketWindow, number>>;
     completeIdentityCount: number;
     localizedStoryCount: Record<Locale, number>;
   };

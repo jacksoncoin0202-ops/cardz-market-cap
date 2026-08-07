@@ -14,7 +14,7 @@ const ACCENT = "#b85416";
  * 冇卡圖：卡圖係 content-addressed `<sha256>.webp`，而 `next/og` 底下嘅 resvg
  * 解唔到 WebP（實測：同一段 markup 餵 PNG 畫得出、餵 WebP 出 0 px，靜靜地留白）。
  * 所以呢張 OG 走純排版，用卡本身嘅數據砌，唔會出空白卡。
- * 要真係放到卡圖，見 docs/DATA_GAPS.md「OG image card art」。
+ * This route intentionally renders market text without loading card art.
  */
 
 function usd(value: number | null): string {
@@ -66,7 +66,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
           <span style={{ fontSize: 24, color: ACCENT, letterSpacing: 4 }}>
             {card.tcg.toUpperCase()} · #{card.collectorNumber}
           </span>
-          <span style={{ fontSize: 78, color: INK, fontWeight: 700, lineHeight: 1.1 }}>{card.name.en}</span>
+          <span style={{ fontSize: 78, color: INK, fontWeight: 700, lineHeight: 1.1 }}>{card.officialName}</span>
           <span style={{ fontSize: 30, color: MUTED, lineHeight: 1.3 }}>{card.setName.en}</span>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 26 }}>
