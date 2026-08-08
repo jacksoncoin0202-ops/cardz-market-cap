@@ -5611,12 +5611,14 @@ def _activation_bridge_population(cur, generation: str, now_str: str) -> dict[st
     generation's rows for bound qualified members, keyed to a dedicated ingest
     run. payload_sha256 = psa_row_sha256 (ties back to the raw capture)."""
 
+    # ingest_mode is varchar(16) vocab (incremental/full/backfill/rebuild/stock);
+    # the run_key alone identifies this as the 036 pop bridge.
     run_key = f"rebuild036-pop-bridge-{generation}"
     cur.execute(
         "INSERT INTO market_ingest_run (run_key, source_code, ingest_mode,"
         " effective_at, status, observed_count, accepted_count, quarantined_count,"
         " rejected_count, started_at, completed_at)"
-        " VALUES (%s,'gemrate','rebuild036_pop_bridge',%s,'complete',0,0,0,0,%s,%s)"
+        " VALUES (%s,'gemrate','rebuild',%s,'complete',0,0,0,0,%s,%s)"
         " ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id), completed_at=VALUES(completed_at)",
         (run_key, now_str, now_str, now_str),
     )
