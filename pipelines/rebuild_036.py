@@ -148,25 +148,54 @@ def stage_preflight(ctx: SimpleNamespace) -> dict[str, Any]:
             raise SystemExit(f"S0 ABORT: {name} must be deleteMode never")
     counts["allowlist_tables"] = len(tables)
 
-    # Verbose CSV and whole-row matching: four known tasks run cardz scripts
-    # without "cardz" in the task name (PC-FULL-900 shard cmds, pc_s2_keepalive).
-    schtasks = subprocess.run(
-        ["schtasks", "/query", "/v", "/fo", "CSV"], capture_output=True, text=True,
+    # Whole-task matching (name + path + actions): four known tasks run cardz
+    # scripts without "cardz" in the task name (PC-FULL-900 shard cmds,
+    # pc_s2_keepalive). schtasks CSV is unusable here: detached it emits the
+    # OEM codepage AND localizes its column headers with the codepage, so any
+    # header-keyed parse silently matches nothing. Get-ScheduledTask instead:
+    # State is a .NET enum whose names are invariant English, and the console
+    # output encoding is forced to UTF-8 explicitly.
+    ps_script = (
+        "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;"
+        " Get-ScheduledTask | ForEach-Object { [pscustomobject]@{"
+        " name=$_.TaskName; path=$_.TaskPath; state=[string]$_.State;"
+        " actions=(($_.Actions | ForEach-Object {"
+        " \"$($_.Execute) $($_.Arguments) $($_.WorkingDirectory)\" }) -join ' ')"
+        " } } | ConvertTo-Json -Compress"
     )
-    if schtasks.returncode != 0:
-        raise SystemExit("S0 ABORT: schtasks query failed")
+    tasks_query = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+        capture_output=True,
+    )
+    if tasks_query.returncode != 0:
+        raise SystemExit("S0 ABORT: Get-ScheduledTask query failed")
+    try:
+        task_rows = json.loads((tasks_query.stdout or b"").decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise SystemExit(f"S0 ABORT: scheduled-task JSON unreadable: {error}")
+    if isinstance(task_rows, dict):
+        task_rows = [task_rows]
     enabled = []
     matched_names: set[str] = set()
-    for row in csv.DictReader(io.StringIO(schtasks.stdout)):
-        if not any("cardz" in str(value).lower() for value in row.values()):
+    for row in task_rows:
+        blob = " ".join(str(row.get(key) or "") for key in ("name", "path", "actions"))
+        if "cardz" not in blob.lower():
             continue
-        name = row.get("TaskName", "?")
+        name = f"{row.get('path') or ''}{row.get('name') or '?'}"
         matched_names.add(name)
-        state = (row.get("Scheduled Task State") or row.get("Status") or "").strip().lower()
+        state = str(row.get("state") or "").strip().lower()
         if state != "disabled":
             enabled.append(f"{name}={state or 'unknown'}")
     if enabled:
         raise SystemExit(f"S0 ABORT: cardz-linked scheduled tasks not Disabled: {sorted(set(enabled))}")
+    # Fail closed on the match count too: Gate 0.3 receipt proved exactly 14
+    # cardz-linked tasks exist, so seeing fewer means the scan itself is broken
+    # (encoding, output shape), not that the tasks disappeared.
+    if len(matched_names) < 14:
+        raise SystemExit(
+            f"S0 ABORT: cardz task scan matched only {len(matched_names)} tasks"
+            " (Gate 0.3 baseline is 14); scheduler proof is not trustworthy"
+        )
     counts["cardz_tasks_all_disabled"] = len(matched_names)
 
     proof = json.loads(RESTORE_PROOF.read_text(encoding="utf-8"))
