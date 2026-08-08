@@ -2488,6 +2488,19 @@ def stage_snk_refresh(ctx: SimpleNamespace) -> dict[str, Any]:
             "setName": f"{master_name} {localized}",
         }
         conflicts = _fingerprint_variant_conflicts(pseudo_fp, row)
+        # The bracket designation carries the provider's own set assertion
+        # ("[S-P 227]" -> set "S-P"). When it equals the variant's set code,
+        # that claim supersedes the noisy product-title-vs-set-name token
+        # comparison (which can never contain era names like "SWSH").
+        claim_set = " ".join(claim.split()[:-1])
+        if claim_set and claim_set.casefold() in {
+            str(row["v_set_code"] or "").casefold(),
+            str(row["p_set_code"] or "").casefold(),
+        }:
+            conflicts = [
+                c for c in conflicts
+                if not c.startswith("set:") and not c.startswith("set_code:")
+            ]
         if tcg and str(row["tcg_code"] or "") and tcg != str(row["tcg_code"]):
             conflicts.append(f"tcg:{tcg}!={row['tcg_code']}")
         if not claim:
