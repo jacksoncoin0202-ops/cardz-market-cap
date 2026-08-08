@@ -15,6 +15,7 @@ Requires: pip install curl_cffi
 
 import argparse
 import json
+import os
 import re
 import sys
 import time
@@ -34,6 +35,7 @@ USER_AGENT = (
 )
 HEADERS = {"User-Agent": USER_AGENT}
 SET_DELAY = 1.0  # 每個 set 之間嘅 delay（秒）
+RETRY_SLEEP = 10.0  # transient set failure 重試前等幾耐（秒）
 
 
 def log(msg: str) -> None:
@@ -99,12 +101,37 @@ def extract_row_data(set_link: str) -> list[dict]:
 
 
 def save_jsonl(data: list[dict], path: Path) -> None:
-    with open(path, "w", encoding="utf-8") as f:
+    # atomic：先寫 sibling .tmp 再 os.replace，crash 唔會爛咗舊檔
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
         for row in data:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    os.replace(tmp, path)
 
 
-def harvest_all_sets(limit: Optional[int] = None) -> None:
+def load_jsonl(path: Path) -> list[dict]:
+    with open(path, "r", encoding="utf-8") as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
+def fetch_set_with_retry(set_link: str) -> list[dict]:
+    """拎一個 set 嘅 rowData；transient failure（exception 或空結果）重試一次。"""
+    err = "unknown"
+    for attempt in (1, 2):
+        try:
+            cards = extract_row_data(set_link)
+            if cards:
+                return cards
+            err = "empty rowData"
+        except Exception as e:
+            err = str(e)
+        if attempt == 1:
+            log(f"    retry in {RETRY_SLEEP:.0f}s ({err})")
+            time.sleep(RETRY_SLEEP)
+    raise RuntimeError(err)
+
+
+def harvest_all_sets(limit: Optional[int] = None, resume: bool = False) -> None:
     sets_data = extract_sets_data()
 
     def _is_tcg(s): return (s.get("category") or "").strip().lower() == "tcg"
@@ -124,16 +151,22 @@ def harvest_all_sets(limit: Optional[int] = None) -> None:
     for i, s in enumerate(tcg_sets, 1):
         set_id, set_link = s.get("set_id"), s.get("set_link")
         set_name = s.get("set_name", "unknown")
+        safe = re.sub(r"[^\w\-]+", "_", set_name)[:60]
+        set_path = DATA_DIR / f"set_{set_id}_{safe}.jsonl"
+        if resume and set_path.exists() and set_path.stat().st_size > 0:
+            cards = load_jsonl(set_path)
+            all_cards.extend(cards)
+            log(f"[{i}/{len(tcg_sets)}] {set_name} — resume: {len(cards)} cards from {set_path.name}")
+            continue
         log(f"[{i}/{len(tcg_sets)}] {set_name}")
         try:
-            cards = extract_row_data(set_link)
+            cards = fetch_set_with_retry(set_link)
             for card in cards:
                 card["_set_id"] = set_id
                 card["_set_name"] = set_name
                 card["_set_link"] = set_link
             all_cards.extend(cards)
-            safe = re.sub(r"[^\w\-]+", "_", set_name)[:60]
-            save_jsonl(cards, DATA_DIR / f"set_{set_id}_{safe}.jsonl")
+            save_jsonl(cards, set_path)
             log(f"    -> {len(cards)} cards")
             time.sleep(SET_DELAY)
         except Exception as e:
@@ -183,6 +216,8 @@ def main() -> None:
     ap.add_argument("--set-id", type=str)
     ap.add_argument("--query", type=str)
     ap.add_argument("--limit", type=int)
+    ap.add_argument("--resume", action="store_true",
+                    help="skip sets whose per-set jsonl already exists (non-empty), reuse its rows")
     args = ap.parse_args()
 
     if not any([args.all_sets, args.set_id, args.query]):
@@ -190,7 +225,7 @@ def main() -> None:
         sys.exit(1)
 
     if args.all_sets:
-        harvest_all_sets(limit=args.limit)
+        harvest_all_sets(limit=args.limit, resume=args.resume)
     elif args.set_id:
         harvest_single_set(args.set_id)
     elif args.query:

@@ -305,7 +305,7 @@ def pick_resolve_url(links: list[str], name: str, number: str, set_name: str) ->
     return scored[0][1]
 
 
-def ensure_cdp_or_raise(port: int = 9222) -> None:
+def ensure_cdp_or_raise(port: int = 9333) -> None:
     """Never fetch without live CDP; revive through the registered helper."""
 
     import urllib.request
@@ -346,7 +346,7 @@ def ensure_cdp_or_raise(port: int = 9222) -> None:
 
 
 def fetch_locked(url: str, html_path: Path, timeout_s: int = 90) -> int:
-    ensure_cdp_or_raise(9222)
+    ensure_cdp_or_raise(9333)
     with FileLock(LOCK, timeout_s=600, stale_s=90):
         return cmd_fetch(
             url,

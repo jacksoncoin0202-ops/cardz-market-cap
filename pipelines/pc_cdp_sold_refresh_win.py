@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """Windows-host CDP refresh for PriceCharting sold HTML (serial, stable).
 
-Runs on Windows Python so Playwright talks to local Chrome :9222 without WSL networking weirdness.
+Runs on Windows Python so Playwright talks to local Chrome :9333 without WSL networking weirdness.
 Then optionally runs C11 sold ingest via WSL venv.
 """
 from __future__ import annotations
@@ -28,6 +28,7 @@ from pc_psa10_price_derivation import validate_pc_psa10  # noqa: E402
 MAP = ROOT / "data/runtime/private-source-map/c11_pc_ebay_map_full900.jsonl"
 OUT = ROOT / "data/runtime/operator/collect/pc_cdp_refresh_report.json"
 PY_WSL = "wsl.exe"
+BACKOFF_LADDER = (30.0, 60.0, 120.0)
 
 
 def utc_now() -> str:
@@ -50,7 +51,7 @@ def url_key(value: str) -> str:
     return unescape(str(value or "")).rstrip("/")
 
 
-def ensure_cdp(port: int = 9222) -> None:
+def ensure_cdp(port: int = 9333) -> None:
     ps1 = ROOT / "scripts" / "ensure_chrome_cdp.ps1"
     subprocess.run(
         ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(ps1), "-Port", str(port)],
@@ -169,6 +170,7 @@ def main() -> int:
             page = None
 
         if page is not None:
+            backoff_level = 0
             for pending_index, row in enumerate(pending_batch, 1):
                 i = len(reused_results) + pending_index
                 # Map URLs originate in HTML and may therefore contain
@@ -181,7 +183,7 @@ def main() -> int:
                 if not url or not html_rel:
                     fail += 1
                     results.append({"variant_id": row.get("variant_id"), "status": "missing"})
-                    break
+                    continue
                 out = ROOT / html_rel
                 out.parent.mkdir(parents=True, exist_ok=True)
                 try:
@@ -199,7 +201,7 @@ def main() -> int:
                             "error": f"{type(exc).__name__}:{exc}",
                         }
                     )
-                    break
+                    continue
                 expected_product_id = str(row.get("pc_product_id") or "").strip()
                 product_match = re.search(r'\bproduct-id=["\'](\d+)["\']', html, re.I)
                 actual_product_id = product_match.group(1) if product_match else ""
@@ -278,16 +280,26 @@ def main() -> int:
                     "challengeResolved": challenge_resolved,
                 })
                 print(f"[{i}/{len(batch)}] {status} vid={row.get('variant_id')} len={len(html)} code={code}", flush=True)
+                if status in ("rate_limited", "cf_or_fail"):
+                    # 429 / Cloudflare challenge: bounded backoff, then move on.
+                    delay = BACKOFF_LADDER[min(backoff_level, len(BACKOFF_LADDER) - 1)]
+                    backoff_level += 1
+                    print(f"backoff {delay:.0f}s after {status} vid={row.get('variant_id')}", flush=True)
+                    time.sleep(delay)
+                    continue
                 if status != "ok":
-                    break
+                    continue
+                backoff_level = 0
                 time.sleep(args.sleep)
 
     ingest = None
     if not args.no_ingest and ok == len(batch) and fail == 0 and cf == 0:
-        # C11 via WSL backend venv (MySQL path lives there)
+        # C11 via WSL backend venv (MySQL path lives there); ingest must run in
+        # THIS checkout (ROOT), never a hardcoded sibling tree.
+        root_wsl = "/mnt/" + ROOT.drive[0].lower() + ROOT.as_posix()[len(ROOT.drive):]
         cmd = [
             PY_WSL, "-d", "Ubuntu", "--", "bash", "-lc",
-            "cd /mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap && "
+            f"cd '{root_wsl}' && "
             "/home/jackson0202/cardz-market-cap/.venv-backend/bin/python -X utf8 "
             "pipelines/c11_pc_sold_ingest.py --map data/runtime/private-source-map/c11_pc_ebay_map_full900.jsonl --write"
         ]

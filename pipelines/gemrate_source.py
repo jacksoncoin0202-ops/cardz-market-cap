@@ -1198,49 +1198,57 @@ def cmd_daily(args) -> int:
                     )
                     break
             time.sleep(delay)
-    website_ids = [gid for gid in selected_ids if gid not in direct_payloads]
+    website_ids = list(dict.fromkeys(gid for gid in selected_ids if gid not in direct_payloads))
     if website_ids:
-        # The browser pass is the slowest transport (~4.4s/card measured
-        # 2026-07-26) and the caller wraps this process in a hard
-        # --pipeline-timeout-seconds. Overrunning it kills the process and
-        # discards every result already written this run, which is strictly
-        # worse than returning a partial run: a partial run at least leaves its
-        # staged payloads on disk and lets the rest of the daily chain proceed.
-        # So walk the ids in chunks and stop starting new ones once the budget
-        # is gone.
+        # The browser pass is the slowest transport and the caller wraps this
+        # process in a hard --pipeline-timeout-seconds. Overrunning it kills
+        # the process and discards every result already written this run, which
+        # is strictly worse than returning a partial run: a partial run at
+        # least leaves its staged payloads on disk and lets the rest of the
+        # daily chain proceed. collect_public_card_details enforces the budget
+        # as a monotonic deadline and turns undispatched cards into
+        # budget_exhausted receipts instead of silently dropping them.
         budget = getattr(args, "website_budget_seconds", None) or DEFAULT_WEBSITE_BUDGET_SECONDS
         deadline = time.monotonic() + budget
         website_attempted.update(website_ids)
+        workers = max(1, int(getattr(args, "workers", 0) or 4))
         pending = list(website_ids)
-        for pass_delay, label in ((max(0.3, delay), "first"), (SPEEDS["slow"], "slow retry")):
-            if not pending:
+        for pass_workers, pass_delay, label in (
+            (workers, max(0.3, delay), "first"),
+            (1, SPEEDS["slow"], "slow retry"),
+        ):
+            if not pending or time.monotonic() >= deadline:
                 break
             if label != "first":
                 print(
                     f"[daily] public card page {label} for {len(pending)} cards",
                     file=sys.stderr,
                 )
-            for start in range(0, len(pending), WEBSITE_CHUNK):
-                if time.monotonic() >= deadline:
-                    print(
-                        f"[daily] public card page budget spent; "
-                        f"{len(pending) - start} cards left unattempted on this pass",
-                        file=sys.stderr,
-                    )
-                    break
-                chunk = pending[start:start + WEBSITE_CHUNK]
-                try:
-                    chunk_payloads = _chrome_card_details(chunk, delay=pass_delay)
-                except RuntimeError as error:
-                    print(f"[daily] public card page unavailable: {error}", file=sys.stderr)
-                    break
-                for gid, payload in chunk_payloads.items():
-                    website_payloads[gid] = payload
-                    _persist_public_card_capture(run_cards, gid, payload)
+            outcome = collect_public_card_details(
+                pending,
+                cards_dir=run_cards,
+                delay=pass_delay,
+                resume=False,
+                chunk_size=WEBSITE_CHUNK,
+                workers=pass_workers,
+                deadline=deadline,
+                payload_sink=website_payloads,
+            )
+            if outcome["error"]:
+                print(
+                    f"[daily] public card page unavailable: {outcome['error']}",
+                    file=sys.stderr,
+                )
+                break
             # A per-page failure (CF challenge timing, browser evaluation) usually
             # clears on one slower retry, so whatever the fast pass missed gets a
             # second, gentler attempt inside the same budget.
             pending = [gid for gid in pending if gid not in website_payloads]
+        if pending and time.monotonic() >= deadline:
+            print(
+                f"[daily] public card page budget spent; {len(pending)} cards unresolved",
+                file=sys.stderr,
+            )
     if mirror_root.is_dir():
         for card in cards:
             gid = str(card["gemrateId"])
@@ -1442,6 +1450,7 @@ def _chrome_eval(js: str, timeout: int = 90):
         browser = _launch_chromium(pw)
         ctx = browser.new_context(user_agent=UA, viewport={"width": 1366, "height": 900})
         ctx.add_init_script(_STEALTH)
+        ctx.route("**/*", _abort_heavy_resources)
         page = ctx.new_page()
         # warm up on a real page to acquire the CF clearance cookie
         page.goto(WEB + "/universal-pop-report", wait_until="domcontentloaded", timeout=60000)
@@ -1464,6 +1473,7 @@ def _chrome_pages_eval(paths_and_js: list[tuple[str, str]], timeout: int = 120) 
         browser = _launch_chromium(pw)
         ctx = browser.new_context(user_agent=UA, viewport={"width": 1366, "height": 900})
         ctx.add_init_script(_STEALTH)
+        ctx.route("**/*", _abort_heavy_resources)
         page = ctx.new_page()
         page.goto(WEB + "/universal-pop-report", wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(3000)  # acquire CF clearance once
@@ -1533,9 +1543,20 @@ def _fetch_card_once(
         response = page.goto(
             f"{WEB}/card/{gid}", wait_until="domcontentloaded", timeout=60000,
         )
-        if response is not None and int(response.status) == 429:
-            # Rate-limited before render; skip the DOM poll entirely.
-            return None, None, True
+        if response is not None:
+            status = int(response.status)
+            if status == 429:
+                # Rate-limited before render; skip the DOM poll entirely.
+                return None, None, True
+            if status in (404, 410):
+                # Dead/retired card page: the SPA shell renders with no table
+                # and no /card-details JSON ever fires. Waiting the JSON + DOM
+                # windows burned ~25s per dead id for a verdict already decided
+                # by the document status. 403/5xx stay on the slow path — a CF
+                # challenge page self-resolves and the JSON can still arrive.
+                return None, _public_failure_receipt(
+                    gid, http_status=status, reason=f"page_http_{status}",
+                ), False
         # Primary transport first: the page-initiated /card-details JSON
         # usually settles within seconds. Only when it never arrives do we pay
         # for the DOM-table poll (fail-closed fallback, unchanged semantics).
@@ -1694,6 +1715,7 @@ def _abort_heavy_resources(route: Any) -> None:
 
 def _chrome_card_pages_with_receipts(
     ids: list[str], delay: float = 0.3, label: str = "",
+    deadline: float | None = None,
 ) -> tuple[dict[str, Mapping[str, Any]], list[dict[str, Any]]]:
     """Fetch exact public GemRate card pages with per-ID failure receipts.
 
@@ -1704,6 +1726,9 @@ def _chrome_card_pages_with_receipts(
     attempted. The labelled PSA/`GEM MINT` DOM parser is a fail-closed fallback.
     A 429 on the page or its JSON climbs RATE_LIMIT_LADDER before retrying the
     same card; exhausting the ladder records ``rate_limited_429_exhausted``.
+    ``deadline`` is a ``time.monotonic()`` cutoff: cards not started before it
+    get ``budget_exhausted`` receipts, and a ladder rung that cannot finish
+    before it records ``rate_limited_429_exhausted`` instead of sleeping.
     """
 
     try:
@@ -1721,6 +1746,12 @@ def _chrome_card_pages_with_receipts(
         page.goto(WEB + "/universal-pop-report", wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(3000)
         for index, gid in enumerate(ids, start=1):
+            if deadline is not None and time.monotonic() >= deadline:
+                receipts.extend(
+                    _public_failure_receipt(left, http_status=None, reason="budget_exhausted")
+                    for left in ids[index - 1:]
+                )
+                break
             ladder_step = 0
             while True:
                 payload, failure, rate_limited = _fetch_card_once(page, gid)
@@ -1731,6 +1762,14 @@ def _chrome_card_pages_with_receipts(
                         ))
                         break
                     wait_seconds = RATE_LIMIT_LADDER[ladder_step]
+                    if deadline is not None and time.monotonic() + wait_seconds >= deadline:
+                        # The rung would sleep straight through the budget; the
+                        # card is honestly unresolved-because-rate-limited, not
+                        # unattempted, so it keeps the 429 receipt.
+                        receipts.append(_public_failure_receipt(
+                            gid, http_status=429, reason="rate_limited_429_exhausted",
+                        ))
+                        break
                     ladder_step += 1
                     print(
                         f"  {label}429 on {gid}; waiting {wait_seconds}s "
@@ -1754,13 +1793,6 @@ def _chrome_card_pages_with_receipts(
     return results, receipts
 
 
-def _chrome_card_details(ids: list[str], delay: float = 0.3) -> dict[str, Mapping[str, Any]]:
-    """Compatibility wrapper for daily collection callers that need payloads only."""
-
-    payloads, _ = _chrome_card_pages_with_receipts(ids, delay=delay)
-    return payloads
-
-
 def _safe_browser_error(error: Exception) -> str:
     """Classify a browser failure without storing exception text or secrets."""
 
@@ -1777,6 +1809,8 @@ def collect_public_card_details(
     resume: bool = False,
     chunk_size: int = 25,
     workers: int = 1,
+    deadline: float | None = None,
+    payload_sink: dict[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Collect exact public card-page receipts into a private cache.
 
@@ -1787,6 +1821,11 @@ def collect_public_card_details(
     ``workers`` > 1 shards the pending list round-robin across that many
     threads, each with its own browser and its own 429 ladder; captures still
     persist per chunk, so a crash or kill never loses completed shards.
+
+    ``deadline`` (``time.monotonic()`` cutoff) turns undispatched work into
+    ``budget_exhausted`` receipts instead of silent ``missing_response`` fill.
+    ``payload_sink`` receives the captured payloads keyed by GemRate ID; the
+    return value stays counts-only because callers spread it into manifests.
     """
 
     unique_ids = list(dict.fromkeys(str(gid) for gid in ids if str(gid)))
@@ -1810,11 +1849,17 @@ def collect_public_card_details(
         if stagger > 0:
             time.sleep(stagger)
         for start in range(0, len(shard), chunk_size):
+            if deadline is not None and time.monotonic() >= deadline:
+                shard_receipts.extend(
+                    _public_failure_receipt(gid, http_status=None, reason="budget_exhausted")
+                    for gid in shard[start:]
+                )
+                break
             chunk = shard[start:start + chunk_size]
             shard_attempted += len(chunk)
             try:
                 chunk_payloads, chunk_receipts = _chrome_card_pages_with_receipts(
-                    chunk, delay=delay, label=label,
+                    chunk, delay=delay, label=label, deadline=deadline,
                 )
             except Exception as caught:
                 shard_error = _safe_browser_error(caught)
@@ -1863,6 +1908,8 @@ def collect_public_card_details(
             failure_receipts.append(_public_failure_receipt(
                 gid, http_status=None, reason="missing_response",
             ))
+    if payload_sink is not None:
+        payload_sink.update(payloads)
     failed = len(pending) - len(payloads)
     failure_receipts.sort(key=lambda row: str(row["gemrateId"]))
     return {
@@ -1901,6 +1948,7 @@ def cmd_public_card_dump(args) -> int:
         delay=args.delay,
         resume=args.resume,
         chunk_size=args.chunk_size,
+        workers=max(1, int(getattr(args, "workers", 1) or 1)),
     )
     print(f"[public-card-dump] requested={result['requested']} pending={result['attempted']}", file=sys.stderr)
     if result["error"]:
@@ -2260,6 +2308,9 @@ def main(argv=None) -> int:
     d.add_argument("--website-budget-seconds", type=int, default=DEFAULT_WEBSITE_BUDGET_SECONDS,
                    help="wall-clock cap for the public-card-page pass; it stops starting new "
                         "batches past this so the run returns partial instead of being killed")
+    d.add_argument("--workers", type=int, default=4,
+                   help="parallel browsers for the public-card-page pass; the slow retry "
+                        "pass always runs single-worker")
     d.add_argument("--volume-slug", help="monthly recap slug for grader volume, e.g. june-2026-recap")
     d.set_defaults(fn=cmd_daily)
 
@@ -2291,6 +2342,9 @@ def main(argv=None) -> int:
     pc.add_argument("--delay", type=float, default=0.3)
     pc.add_argument("--chunk-size", type=int, default=WEBSITE_CHUNK,
                     help="cards per browser batch (browser restarts between batches)")
+    pc.add_argument("--workers", type=int, default=1,
+                    help="parallel browsers, each with its own 429 ladder; captures "
+                         "persist per chunk so kills stay cheap")
     pc.add_argument("--manifest-out", help="immutable private run manifest output path")
     pc.set_defaults(fn=cmd_public_card_dump)
 

@@ -784,7 +784,7 @@ def classify_needs(
         pc_external = str(ids.get("pricecharting") or "").strip()
         pc_exact_product = pc_external if pc_external.isdigit() else None
         if not pc_exact_product and not ids.get("snkrdunk"):
-            needs.append({"adapter": "bind_pc_or_ebay", "modeNeeded": "bind", "externalId": None, "transport": "cdp_9222", "polarRole": "en_identity"})
+            needs.append({"adapter": "bind_pc_or_ebay", "modeNeeded": "bind", "externalId": None, "transport": "cdp_9333", "polarRole": "en_identity"})
         elif pc_exact_product:
             external = pc_exact_product
             smode = _poll_mode(
@@ -797,7 +797,7 @@ def classify_needs(
                 "adapter": "pc_ebay_sales",
                 "modeNeeded": smode,
                 "externalId": external,
-                "transport": "cdp_9222",
+                "transport": "cdp_9333",
                 "polarRole": "en_sales_primary",
             })
             pmode = _poll_mode(
@@ -809,7 +809,7 @@ def classify_needs(
                 "adapter": "en_price_ref",
                 "modeNeeded": pmode,
                 "externalId": external,
-                "transport": "cdp_9222",
+                "transport": "cdp_9333",
                 "polarRole": "en_price_fallback",
             })
     return needs
@@ -1149,7 +1149,11 @@ def run_gemrate_pop(
         "--website-budget-seconds",
         "5400",
     ]
-    report["run"] = _run(command, timeout=max(5400, 10 * len(selected)), dry_run=False)
+    # The kill timer must leave headroom above the child's website budget
+    # (5400s): the child also runs the direct-API leg, the mirror pass and two
+    # grader-volume browser launches. Aliasing the two guaranteed a SIGKILL
+    # exactly when the website budget was actually needed.
+    report["run"] = _run(command, timeout=max(2 * 5400, 10 * len(selected)), dry_run=False)
     if report["run"].get("exit") != 0:
         report.update({"ok": False, "error": "gemrate_daily_failed", "checkpointed": 0})
         return report

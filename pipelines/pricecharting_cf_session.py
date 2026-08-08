@@ -139,7 +139,7 @@ def cmd_connect(port: int, url: str, timeout_s: int) -> int:
             out = HTML_DIR / "capture_connect.html"
             out.write_text(html, encoding="utf-8", errors="replace")
             print(f"WROTE {out} bytes={len(html)}", flush=True)
-        return 0 if ok and meta.get("has_cf_clearance") or ok else 2
+        return 0 if ok and meta.get("has_cf_clearance") else 2
 
 
 def cmd_launch(url: str, timeout_s: int) -> int:
@@ -220,68 +220,33 @@ def _cmd_fetch_once(
                 title = page.title()
                 cf = _is_cf(title, html)
                 print(f"fetch CDP title={title!r} len={len(html)} cf={cf} ok={ok}", flush=True)
-                out.write_text(html, encoding="utf-8", errors="replace")
-                print(f"WROTE {out}", flush=True)
                 if ok and not cf:
+                    out.write_text(html, encoding="utf-8", errors="replace")
+                    print(f"WROTE {out}", flush=True)
                     _save_state(context, page, note=f"fetch cdp port={port} ok url={url}")
                     try:
                         page.close()
                     except Exception:
                         pass
                     return 0
+                # Unverified / CF-blocked HTML never lands on the final cache
+                # path — keep it beside it for diagnosis only.
+                reject = out.with_name(out.name + ".rejected")
+                reject.write_text(html, encoding="utf-8", errors="replace")
                 try:
                     page.close()
                 except Exception:
                     pass
-                print(f"fetch: CDP {port} still CF — try next", flush=True)
+                print(f"fetch: CDP {port} still CF (snapshot {reject}) — try next", flush=True)
 
-    # 2) Fallback: persistent profile / storage_state
-    profile = STATE_DIR / "browser_profile"
-    if not profile.exists() and not STORAGE.exists():
-        print("No browser_profile/storage_state and CDP failed — run connect --port 9222", flush=True)
-        return 2
-    with sync_playwright() as p:
-        if profile.exists():
-            context = p.chromium.launch_persistent_context(
-                user_data_dir=str(profile),
-                channel="chrome",
-                headless=headless,
-                viewport={"width": 1400, "height": 900},
-                args=["--disable-blink-features=AutomationControlled"],
-            )
-            page = context.pages[0] if context.pages else context.new_page()
-            own_browser = False
-        else:
-            browser = p.chromium.launch(channel="chrome", headless=headless)
-            context = browser.new_context(storage_state=str(STORAGE))
-            page = context.new_page()
-            own_browser = True
-
-        response = page.goto(url, wait_until="domcontentloaded", timeout=120000)
-        initial_html = page.content()
-        status_code = response.status if response is not None else None
-        if _is_terminal_not_found(status_code, page.title(), initial_html):
-            out.write_text(initial_html, encoding="utf-8", errors="replace")
-            print(f"WROTE terminal 404 {out}", flush=True)
-            if own_browser:
-                browser.close()
-            else:
-                context.close()
-            return 4
-        ok = _wait_clear(page, timeout_s=timeout_s)
-        html = page.content()
-        title = page.title()
-        cf = _is_cf(title, html)
-        print(f"fetch title={title!r} len={len(html)} cf={cf} ok={ok}", flush=True)
-        out.write_text(html, encoding="utf-8", errors="replace")
-        print(f"WROTE {out}", flush=True)
-        if ok:
-            _save_state(context, page, note=f"fetch ok url={url}")
-        if own_browser:
-            browser.close()
-        else:
-            context.close()
-        return 0 if ok and not cf else 2
+    # 2) No launch fallback: Chrome launched here (headless especially) is the
+    # known Cloudflare-blocked mode and only produces junk CF snapshots.
+    print(
+        "fetch: CDP unavailable — start the headed Chrome CDP session first "
+        "(scripts/ensure_chrome_cdp.ps1 -Port 9333), then retry",
+        flush=True,
+    )
+    return 2
 
 
 def cmd_fetch(

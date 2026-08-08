@@ -18,6 +18,7 @@ import hashlib
 import html
 import os
 import re
+import sys
 import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -73,7 +74,8 @@ class SnkrdunkApi:
                     except ValueError:
                         retry_wait = self.delay * (2 ** attempt)
                     if attempt + 1 < self.retries:
-                        time.sleep(retry_wait)
+                        # delay=0 嘅 client 都要有 backoff 底線，唔可以零等重打
+                        time.sleep(max(retry_wait, 2.0 * (attempt + 1)))
                         continue
                 response.raise_for_status()
                 return response
@@ -94,8 +96,17 @@ class SnkrdunkApi:
 
     # ---- x-version auto-discovery ---------------------------------------
     def fetch_x_version(self) -> str | None:
-        """由 /apparels 頁面 HTML scrape 最新 build tag。搵唔到就唔送 header。"""
-        r = self._request(f"{BASE}/apparels/116069")
+        """由 /apparels 頁面 HTML scrape 最新 build tag。搵唔到就唔送 header。
+
+        header 係 optional：呢頁死咗唔可以拖冧成個 run，任何失敗一律回 None。
+        """
+        try:
+            r = self._request(f"{BASE}/apparels/116069")
+            if r.status_code != 200:
+                raise RuntimeError(f"HTTP {r.status_code}")
+        except Exception as error:
+            print(f"[snk] x-version fetch failed, continuing without header: {error}", file=sys.stderr)
+            return None
         m = X_VERSION_RE.search(r.text)
         version = m.group(1) if m else None
         if version:

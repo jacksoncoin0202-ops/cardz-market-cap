@@ -18,6 +18,7 @@ import json
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Mapping
@@ -4321,7 +4322,12 @@ def stage_discover(ctx: SimpleNamespace) -> dict[str, Any]:
     #    re-crawl the whole set list.
     brute_dir = ROOT / "data" / "private" / "gemrate_brute"
     brute_all = brute_dir / "all_cards.jsonl"
-    brute_reused = brute_all.is_file()
+    # Reuse is a crash-retry convenience, not a freshness policy: a catalog
+    # older than 7 days misses newly listed sets, so it must be re-harvested.
+    brute_reused = (
+        brute_all.is_file()
+        and (time.time() - brute_all.stat().st_mtime) < 7 * 24 * 3600
+    )
     if not brute_reused:
         harvest = subprocess.run(
             [sys.executable, "-X", "utf8", str(ROOT / "pipelines" / "gemrate_brute_harvest.py"),
