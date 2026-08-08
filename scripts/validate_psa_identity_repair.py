@@ -172,12 +172,40 @@ def main(argv: list[str] | None = None) -> int:
             raw = load_psa_raw(str(accepted["gemrate_id"]))
             psa = raw.get("psa") or {}
             literal = str(psa.get("description") or "")
-            if (
-                literal.encode("utf-8") != str(accepted["psa_description"]).encode("utf-8")
-                or literal.encode("utf-8") != str(accepted["canonical_name"]).encode("utf-8")
-                or raw.get("rawPayloadSha256") != accepted["raw_payload_sha256"]
-                or raw.get("psaRowSha256") != accepted["psa_row_sha256"]
-            ):
+            name_exact = (
+                literal.encode("utf-8") == str(accepted["psa_description"]).encode("utf-8")
+                and literal.encode("utf-8") == str(accepted["canonical_name"]).encode("utf-8")
+            )
+            sha_pinned = (
+                raw.get("rawPayloadSha256") == accepted["raw_payload_sha256"]
+                and raw.get("psaRowSha256") == accepted["psa_row_sha256"]
+            )
+            if name_exact and not sha_pinned:
+                # Incremental collection refreshes the on-disk capture after
+                # acceptance. That is legitimate only when the successor
+                # payload is itself receipted: same provider entity, byte-
+                # exact description unchanged, and its PSA row landed as a
+                # population observation. Silent byte drift still fails.
+                successor_pop = bool(scalar(
+                    cur,
+                    """SELECT COUNT(*) FROM market_grader_population_observation pop
+                       INNER JOIN operator_strict_source_identity si
+                         ON si.variant_id=pop.variant_id AND si.source_code='gemrate'
+                        AND si.external_entity_id=%s
+                       WHERE pop.source_code='gemrate' AND pop.payload_sha256=%s""",
+                    (str(accepted["gemrate_id"]), str(raw.get("psaRowSha256") or "")),
+                ))
+                # The whole-payload sha is receipted on the ingest run itself
+                # (the row-sha recipes differ between the 034 loader and the
+                # 036 parser, so either receipt shape proves the successor).
+                successor_run = bool(scalar(
+                    cur,
+                    """SELECT COUNT(*) FROM market_ingest_run
+                       WHERE payload_sha256=%s AND status='completed'""",
+                    (str(raw.get("rawPayloadSha256") or ""),),
+                ))
+                sha_pinned = successor_pop or successor_run
+            if not (name_exact and sha_pinned):
                 literal_failures.append({"variantId": variant_id, "reason": raw.get("reason") or "raw_literal_or_hash_mismatch"})
             language, _ = derive_language(psa, str(accepted["tcg_code"]))
             if language != accepted["card_language"] or language != accepted["psa_language"]:

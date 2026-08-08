@@ -1021,6 +1021,27 @@ def _print_phrases(text: str) -> frozenset[str]:
     return frozenset(p for p in _PRINT_PHRASES if f" {p} " in blob)
 
 
+def _snk_treatment_mirror(master_name: str, localized: str) -> bool:
+    """SNK titles carry the print treatment after the name colon
+    ("Pikachu: Mirror [s8a 001/028]"). Only that slot may claim mirror —
+    a card NAMED Mirror (e.g. "Mirror Energy") never triggers it.
+
+    Only a BARE mirror slot counts: qualified treatments like
+    "マスターボール ミラー" (151 Master Ball reverse) name a pattern parallel
+    whose variant-side vocabulary never says mirror, so they must not
+    hard-conflict on this axis."""
+
+    for text in (master_name, localized):
+        head = re.split(r"[\[（(]", text, 1)[0]
+        parts = re.split(r"[:：]", head, 1)
+        if len(parts) != 2:
+            continue
+        slot = parts[1].strip().strip("・･ 　")
+        if slot == "ミラー" or re.fullmatch(r"(?i)mirror", slot):
+            return True
+    return False
+
+
 def _same_listing(fp_a: Mapping[str, Any], fp_b: Mapping[str, Any]) -> bool:
     """Two provider listings describing the same physical card (dup ids).
 
@@ -2348,6 +2369,7 @@ def stage_snk_refresh(ctx: SimpleNamespace) -> dict[str, Any]:
         cursor.execute(
             "SELECT si.external_entity_id AS iid, si.variant_id, si.match_status,"
             " v.tcg_code, v.card_language, v.set_name, v.collector_number,"
+            " v.canonical_name,"
             " v.set_code AS v_set_code, v.printing_code AS v_printing_code,"
             " p.parallel_code, p.printing_code, p.canonical_printing_sha256,"
             " p.tcg_code AS p_tcg_code, p.card_language AS p_card_language,"
@@ -2505,6 +2527,21 @@ def stage_snk_refresh(ctx: SimpleNamespace) -> dict[str, Any]:
             conflicts.append(f"tcg:{tcg}!={row['tcg_code']}")
         if not claim:
             conflicts.append("product_number_missing")
+        # Mirror is a distinct print: the provider's treatment slot and the
+        # variant's own wording must agree, in both directions. Variant side
+        # reads the print codes only — a canonical name can legitimately
+        # contain the word Mirror without being the mirror parallel.
+        snk_mirror = _snk_treatment_mirror(master_name, localized)
+        variant_blob = " ".join((
+            str(row["parallel_code"] or ""),
+            str(row["printing_code"] or ""),
+            str(row["v_printing_code"] or ""),
+        ))
+        variant_mirror = "ミラー" in variant_blob or bool(
+            re.search(r"(?i)mirror", variant_blob)
+        )
+        if snk_mirror != variant_mirror:
+            conflicts.append(f"parallel:mirror {snk_mirror}!={variant_mirror}")
         if conflicts:
             counts["hardConflicts"] += 1
             if status == "exact":
@@ -6263,5 +6300,51 @@ def cmd_unfreeze(args: argparse.Namespace) -> int:
         raise SystemExit(f"unfreeze verification failed: cardz grant not ALL. Output:\n{stdout}")
     if not re.search(r"rebuild_users\n0\b", stdout.replace("\r", "")):
         raise SystemExit(f"unfreeze verification failed: cardz_rebuild still exists. Output:\n{stdout}")
-    print(json.dumps({"unfrozen": True, "cardzGrant": "ALL", "rebuildUserDropped": True}))
+    # Views created while the rebuild user existed carry it as DEFINER and
+    # break with error 1449 once the user is dropped. Recreate each orphan
+    # from its own definition under the root definer.
+    repaired: list[str] = []
+    probe = subprocess.run(
+        [
+            "docker", "exec", "-i", MYSQL_CONTAINER,
+            "sh", "-lc", 'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" --batch -N cardz_market_cap',
+        ],
+        input=(
+            "SELECT TABLE_NAME FROM information_schema.VIEWS"
+            " WHERE TABLE_SCHEMA='cardz_market_cap' AND DEFINER LIKE 'cardz_rebuild%';\n"
+        ),
+        capture_output=True, text=True,
+    )
+    orphans = [v.strip() for v in (probe.stdout or "").splitlines() if v.strip()]
+    for view in orphans:
+        if not re.fullmatch(r"[A-Za-z0-9_]+", view):
+            raise SystemExit(f"unfreeze: refusing suspicious view name {view!r}")
+        show = subprocess.run(
+            [
+                "docker", "exec", "-i", MYSQL_CONTAINER,
+                "sh", "-lc", 'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" --batch -N -r cardz_market_cap',
+            ],
+            input=f"SHOW CREATE VIEW `{view}`;\n", capture_output=True, text=True,
+        )
+        line = (show.stdout or "").strip().split("\t")
+        if len(line) < 2:
+            raise SystemExit(f"unfreeze: SHOW CREATE VIEW failed for {view}")
+        ddl = re.sub(r"DEFINER=`[^`]+`@`[^`]+`\s*", "", line[1])
+        ddl = ddl.replace("CREATE ", "CREATE OR REPLACE ", 1)
+        redo = subprocess.run(
+            [
+                "docker", "exec", "-i", MYSQL_CONTAINER,
+                "sh", "-lc", 'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" cardz_market_cap',
+            ],
+            input=ddl + ";\n", capture_output=True, text=True,
+        )
+        if redo.returncode != 0:
+            raise SystemExit(
+                f"unfreeze: definer repair failed for {view}: {redo.stderr.strip()[:300]}"
+            )
+        repaired.append(view)
+    print(json.dumps({
+        "unfrozen": True, "cardzGrant": "ALL", "rebuildUserDropped": True,
+        "definerRepairedViews": repaired,
+    }))
     return 0
