@@ -2224,6 +2224,668 @@ def _snk_refresh_input_sha(ctx: SimpleNamespace) -> str:
     ]))
 
 
+def _strict_price_bindings(conn) -> tuple[
+    dict[int, list[str]], dict[int, list[int]], dict[int, str]
+]:
+    """Strict-view PC/SNK bindings plus each variant's card language (D4 key).
+
+    Only operator_strict_source_identity rows may feed current price/sales
+    (§3.6): everything outside the projection simply has no price evidence
+    here, honestly."""
+
+    pc: dict[int, list[str]] = {}
+    snk: dict[int, list[int]] = {}
+    lang: dict[int, str] = {}
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT si.source_code, si.external_entity_id AS eid, si.variant_id,"
+            " LOWER(COALESCE(NULLIF(TRIM(p.card_language),''),"
+            "       NULLIF(TRIM(v.card_language),''), '')) AS lang"
+            " FROM operator_strict_source_identity si"
+            " JOIN catalog_variant v ON v.id=si.variant_id"
+            " JOIN catalog_printing_identity p ON p.variant_id=si.variant_id"
+            " WHERE si.source_code IN ('pricecharting','snkrdunk')"
+        )
+        for row in cursor.fetchall():
+            vid = int(row["variant_id"])
+            lang.setdefault(vid, str(row["lang"] or ""))
+            if row["source_code"] == "pricecharting":
+                bucket = pc.setdefault(vid, [])
+                if str(row["eid"]) not in bucket:
+                    bucket.append(str(row["eid"]))
+            elif str(row["eid"]).isdigit():
+                bucket_snk = snk.setdefault(vid, [])
+                if int(row["eid"]) not in bucket_snk:
+                    bucket_snk.append(int(row["eid"]))
+    return pc, snk, lang
+
+
+def _snk_harvest_path(generation: str) -> Path:
+    """S7's harvest file (complete or honest .partial), fail if neither."""
+
+    out_path = _snk_dir(generation) / f"snk_harvest_{generation}.jsonl"
+    if out_path.is_file():
+        return out_path
+    partial = out_path.with_suffix(out_path.suffix + ".partial")
+    if partial.is_file():
+        return partial
+    raise SystemExit(f"S8 ABORT: snk harvest missing: {out_path}")
+
+
+def _jpy_per_usd(conn) -> float:
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT rate FROM market_fx_rate_observation"
+            " WHERE base_currency='USD' AND quote_currency='JPY'"
+            " ORDER BY effective_date DESC, id DESC LIMIT 1"
+        )
+        row = cursor.fetchone()
+    rate = float(row["rate"]) if row and row.get("rate") is not None else 0.0
+    if rate <= 0:
+        raise SystemExit("S8 ABORT: USD/JPY FX rate missing; refuse to invent conversion")
+    return rate
+
+
+def stage_price_materialize(ctx: SimpleNamespace) -> dict[str, Any]:
+    """S8 (§6.6 + D4): land strict-scoped PC/SNK price + sales observations
+    and decide, per variant, which provider owns the current price.
+
+    Landing only — the acceptance chains the FE reads (metric history /
+    canonical metric) are S12's projection rebuild. Current-price candidates
+    exist only on the exact PC page (manualonly guide, replayed + sha-gated)
+    or the exact SNK PSA10 kline. D4 is language primacy: en → PC, everything
+    else → SNK, fallback only when the primary side has zero data, never an
+    average. Volumes stay per-source and are never summed. The per-variant
+    decision lands as data/runtime/rebuild-036/price-route-<generation>.json
+    (there is deliberately no bookkeeping table for it)."""
+
+    from datetime import date as dt_date, datetime, time as dt_time, timezone
+    from decimal import Decimal, ROUND_HALF_UP
+
+    import ingest_snk_trades_sales as snk_sales
+    import snk_market_data
+    from pc_psa10_price_materialize import (
+        LOCAL_HISTORY_CONTRACT,
+        materialize_local_history,
+    )
+    from pc_ungraded_reference_ingest import canonical_url_from_html, source_observed_at
+    from pricecharting_page_parse import parse_product_html
+
+    conn = ctx.conn
+    conn.rollback()
+    generation = ctx.generation
+    counts: dict[str, Any] = {
+        "pcVariants": 0, "pcPagesParsed": 0, "pcParseFailures": 0,
+        "pcBindingsWithoutPage": 0, "pcHistoryRows": 0,
+        "pcVariantsWithHistory": 0, "pcSaleRowsSeen": 0, "pcSaleRowsNew": 0,
+        "snkVariants": 0, "snkKlineCards": 0, "snkKlinePoints": 0,
+        "snkSaleRowsSeen": 0, "snkSaleRowsNew": 0, "snkTradesNotPsa10": 0,
+        "routePc": 0, "routeSnk": 0, "routeNone": 0, "routeFallback": 0,
+    }
+
+    pc_bind, snk_bind, lang_by_vid = _strict_price_bindings(conn)
+    counts["pcVariants"] = len(pc_bind)
+    counts["snkVariants"] = len(snk_bind)
+    if not pc_bind and not snk_bind:
+        raise SystemExit("S8 ABORT: strict view projects no PC/SNK bindings")
+
+    # --- PC leg: replayed pages -> daily guide history + completed sales ----
+    replay_dir = _pc_replay_dir(generation)
+    sidecars_by_pid: dict[str, Path] = {}
+    for sidecar_path in sorted(replay_dir.glob("*.json")):
+        if sidecar_path.name.startswith("replay-"):
+            continue
+        try:
+            pid_value = str(json.loads(
+                sidecar_path.read_text(encoding="utf-8")
+            )["pcProductId"])
+        except (json.JSONDecodeError, KeyError):
+            continue
+        sidecars_by_pid[pid_value] = sidecar_path
+    parsed_pages: dict[str, dict[str, Any]] = {}  # pid -> {parsed, sha, ...}
+    failures: list[str] = []
+    wanted_pids = sorted({pid for pids in pc_bind.values() for pid in pids})
+    for pid in wanted_pids:
+        sidecar_path = sidecars_by_pid.get(pid)
+        html_path = sidecar_path.with_suffix(".html") if sidecar_path else None
+        if sidecar_path is None or not html_path.is_file():
+            counts["pcBindingsWithoutPage"] += 1
+            continue
+        sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+        digest = sha256_file(html_path)
+        if digest != sidecar["captureSha256"]:
+            raise AssertionError(f"replay file drifted from sidecar: {html_path.name}")
+        html = html_path.read_text(encoding="utf-8", errors="replace")
+        parsed = parse_product_html(html)
+        if not parsed.get("ok"):
+            counts["pcParseFailures"] += 1
+            failures.append(pid)
+            continue
+        parsed_pages[pid] = {
+            "parsed": parsed,
+            "sha256": digest,
+            "capturePath": str(sidecar["capturePath"]),
+            "capturedAt": datetime.strptime(
+                str(sidecar["capturedAtUtc"]), "%Y-%m-%dT%H:%M:%SZ"
+            ),
+            "sourceUrl": canonical_url_from_html(html) or "",
+        }
+        counts["pcPagesParsed"] += 1
+    if wanted_pids and not parsed_pages:
+        raise SystemExit(f"S8 ABORT: no PC replay page parsed under {replay_dir}")
+    if counts["pcParseFailures"] > max(5, len(wanted_pids) // 10):
+        raise SystemExit(
+            f"S8 ABORT: systemic PC parse failure ({counts['pcParseFailures']}"
+            f"/{len(wanted_pids)}): {failures[:10]}"
+        )
+    counts["pcParseFailurePids"] = failures[:20]
+
+    def _series_points(pid: str) -> list[Any]:
+        history = (parsed_pages[pid]["parsed"].get("psa10") or {}).get("history") or {}
+        return [
+            point for point in (history.get("series") or [])
+            if isinstance(point, list) and len(point) >= 2
+            and source_observed_at(point) is not None
+            and isinstance(point[1], (int, float)) and point[1] > 0
+        ]
+
+    # One owner pid per variant: richest guide history wins, then lowest pid.
+    pc_choice: dict[int, str] = {}
+    pc_current: dict[int, dict[str, Any]] = {}
+    history_rows: list[dict[str, Any]] = []
+    pc_sale_candidates: list[dict[str, Any]] = []
+    for vid in sorted(pc_bind):
+        candidates = [pid for pid in pc_bind[vid] if pid in parsed_pages]
+        if not candidates:
+            continue
+        chosen = sorted(
+            candidates, key=lambda pid: (-len(_series_points(pid)), int(pid))
+        )[0]
+        pc_choice[vid] = chosen
+        page = parsed_pages[chosen]
+        by_day: dict[str, dict[str, Any]] = {}
+        for point in _series_points(chosen):
+            observed_at = source_observed_at(point)
+            price = (Decimal(str(point[1])) / Decimal(100)).quantize(
+                Decimal("0.000001")
+            )
+            payload = {
+                "contract": LOCAL_HISTORY_CONTRACT,
+                "source": "pricecharting",
+                "variantId": vid,
+                "externalEntityId": chosen,
+                "method": "pricecharting_explicit_psa10_history_v1",
+                "field": "VGPC.chart_data.manualonly.series",
+                "sourceUrl": page["sourceUrl"],
+                "artifactSha256": page["sha256"],
+                "artifactPath": page["capturePath"],
+                "chartPoint": [int(point[0]), str(point[1])],
+            }
+            by_day[observed_at.date().isoformat()] = {
+                "variantId": vid,
+                "externalEntityId": chosen,
+                "observedDate": observed_at.date().isoformat(),
+                "effectiveAt": observed_at,
+                "priceUsd": str(price),
+                "payloadSha256": sha256_bytes(canonical_json(payload)),
+                "payload": payload,
+            }
+        rows = [by_day[day] for day in sorted(by_day)]
+        history_rows.extend(rows)
+        if rows:
+            counts["pcVariantsWithHistory"] += 1
+            pc_current[vid] = {
+                "observedDate": rows[-1]["observedDate"],
+                "priceUsd": rows[-1]["priceUsd"],
+                "points": len(rows),
+            }
+        sales = (parsed_pages[chosen]["parsed"].get("psa10") or {}).get(
+            "completed_sales"
+        ) or {}
+        for sale in sales.get("rows") or []:
+            date_text = str(sale.get("date") or "")
+            itm = str(sale.get("ebay_itm") or "")
+            price_usd = sale.get("price_usd")
+            if not date_text or not itm or not isinstance(price_usd, (int, float)):
+                continue
+            if price_usd <= 0:
+                continue
+            unit = Decimal(str(price_usd)).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            fingerprint = sha256_bytes(
+                f"pc|{chosen}|psa|10|{date_text}|{unit}|{itm}".encode("utf-8")
+            )
+            payload = {
+                "transport": "pricecharting_replay_036",
+                "pc_product_id": int(chosen),
+                "ebay_itm": itm,
+                "title": str(sale.get("title") or "")[:200],
+                "date": date_text,
+                "price_usd": float(unit),
+                "variant_id": vid,
+                "artifact_sha256": page["sha256"],
+            }
+            pc_sale_candidates.append({
+                "variantId": vid,
+                "externalEntityId": chosen,
+                "fingerprint": fingerprint,
+                "soldAt": datetime.combine(
+                    dt_date.fromisoformat(date_text), dt_time.min
+                ),
+                "sourceDateText": date_text[:100],
+                "fetchedAt": page["capturedAt"],
+                "unitPriceUsd": str(unit),
+                "payloadSha256": sha256_bytes(canonical_json(payload)),
+            })
+    counts["pcHistoryRows"] = len(history_rows)
+    counts["pcSaleRowsSeen"] = len(pc_sale_candidates)
+    materialize_local_history(conn, history_rows)  # commits internally
+
+    # --- PC completed sales (c11 shape: fingerprint-deduped, quantity=1) ----
+    try:
+        with conn.cursor() as cursor:
+            existing: set[tuple[str, str]] = set()
+            pairs = [
+                (row["externalEntityId"], row["fingerprint"])
+                for row in pc_sale_candidates
+            ]
+            for offset in range(0, len(pairs), 400):
+                chunk = pairs[offset:offset + 400]
+                placeholders = ",".join(["(%s,%s)"] * len(chunk))
+                params: list[str] = []
+                for pair in chunk:
+                    params.extend(pair)
+                cursor.execute(
+                    "SELECT external_entity_id, transaction_fingerprint"
+                    " FROM market_sale_observation"
+                    " WHERE source_code='pricecharting'"
+                    f" AND (external_entity_id, transaction_fingerprint) IN ({placeholders})",
+                    params,
+                )
+                existing.update(
+                    (str(row["external_entity_id"]), str(row["transaction_fingerprint"]))
+                    for row in cursor.fetchall()
+                )
+            new_sales = [
+                row for row in pc_sale_candidates
+                if (row["externalEntityId"], row["fingerprint"]) not in existing
+            ]
+            counts["pcSaleRowsNew"] = len(new_sales)
+            if new_sales:
+                manifest = sha256_bytes("\n".join(
+                    sorted(row["fingerprint"] for row in pc_sale_candidates)
+                ).encode("utf-8"))
+                now = datetime.now(timezone.utc).replace(tzinfo=None)
+                cursor.execute(
+                    "INSERT INTO market_ingest_run"
+                    " (run_key, source_code, ingest_mode, effective_at,"
+                    "  payload_sha256, manifest_sha256, status, observed_count,"
+                    "  started_at)"
+                    " VALUES (%s, 'pricecharting', 'backfill', %s, %s, %s,"
+                    "  'running', %s, %s)"
+                    " ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id),"
+                    "  status='running', started_at=VALUES(started_at)",
+                    (
+                        sha256_bytes(f"rebuild036_pc_sales|{generation}|{manifest}".encode("utf-8")),
+                        now, manifest, manifest, len(new_sales), now,
+                    ),
+                )
+                run_id = int(cursor.lastrowid)
+                rows = [
+                    (
+                        run_id, row["variantId"], "pricecharting",
+                        row["externalEntityId"], row["fingerprint"], "psa", "10",
+                        row["soldAt"], row["sourceDateText"], row["fetchedAt"],
+                        "exact_date", row["unitPriceUsd"], row["unitPriceUsd"],
+                        row["payloadSha256"], "partial",
+                    )
+                    for row in new_sales
+                ]
+                for offset in range(0, len(rows), 400):
+                    cursor.executemany(
+                        "INSERT INTO market_sale_observation"
+                        " (run_id, variant_id, source_code, external_entity_id,"
+                        "  transaction_fingerprint, grader_code, grade_label,"
+                        "  sold_at, source_date_text, fetched_at,"
+                        "  timestamp_quality, unit_price_usd, quantity,"
+                        "  transaction_value_usd, source_payload_sha256,"
+                        "  coverage_status)"
+                        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
+                        "  %s, 1, %s, %s, %s)",
+                        rows[offset:offset + 400],
+                    )
+                cursor.execute(
+                    "UPDATE market_ingest_run SET status='completed',"
+                    " accepted_count=%s, completed_at=%s WHERE id=%s",
+                    (len(new_sales), datetime.now(timezone.utc).replace(tzinfo=None), run_id),
+                )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+    # S12 accepts sale rows by fingerprint from this manifest — never by
+    # run_id. Pre-freeze writers landed the same physical sales under other
+    # fingerprint recipes; those rows stay unaccepted (invisible to the FE)
+    # instead of double-counting.
+    runtime_dir = ROOT / "data" / "runtime" / "rebuild-036"
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    pc_manifest_path = runtime_dir / f"sales-manifest-pc-{generation}.jsonl"
+    pc_manifest_blob = b"".join(
+        canonical_json({
+            "fingerprint": row["fingerprint"],
+            "variantId": row["variantId"],
+            "externalEntityId": row["externalEntityId"],
+            "soldDate": row["sourceDateText"],
+            "unitPriceUsd": row["unitPriceUsd"],
+        }) + b"\n"
+        for row in sorted(pc_sale_candidates, key=lambda row: row["fingerprint"])
+    )
+    pc_manifest_path.write_bytes(pc_manifest_blob)
+    counts["pcSalesManifest"] = pc_manifest_path.relative_to(ROOT).as_posix()
+
+    # --- SNK leg: kline prices via the shared ingester, strict-scoped -------
+    harvest_path = _snk_harvest_path(generation)
+    strict_item_map = {
+        item: vid for vid, items in snk_bind.items() for item in items
+    }
+    kline_stats = snk_market_data.ingest_kline_jsonls(
+        [harvest_path],
+        run_key=f"rebuild036_snk_kline|{generation}",
+        ingest_mode="backfill",
+        conn=conn,
+        item_to_variant=strict_item_map,
+    )
+    counts["snkKlineCards"] = int(kline_stats.get("cardsAccepted") or 0)
+    counts["snkKlinePoints"] = int(kline_stats.get("pricePoints") or 0)
+
+    rows_by_item: dict[int, dict[str, Any]] = {}
+    with harvest_path.open(encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            item_id = row.get("item_id")
+            if isinstance(item_id, int) and not row.get("error"):
+                rows_by_item[item_id] = row
+
+    fx = _jpy_per_usd(conn)
+    snk_current: dict[int, dict[str, Any]] = {}
+    for vid in sorted(snk_bind):
+        best: tuple[int, int, list[tuple[str, float]]] | None = None
+        for item in snk_bind[vid]:
+            row = rows_by_item.get(item)
+            if row is None:
+                continue
+            points = snk_market_data._valid_kline_points(row)
+            if not points:
+                continue
+            key = (-len(points), item)
+            if best is None or key < (-len(best[2]), best[1]):
+                best = (vid, item, points)
+        if best is None:
+            continue
+        _, item, points = best
+        day, price_jpy = max(points, key=lambda pt: pt[0])
+        snk_current[vid] = {
+            "observedDate": day,
+            "priceUsd": str(round(price_jpy / fx, 6)),
+            "priceJpy": price_jpy,
+            "points": len(points),
+            "itemId": item,
+        }
+
+    # --- SNK unitized PSA10 trades -> sale observations ---------------------
+    snk_sale_rows: list[tuple[Any, ...]] = []
+    seen_fingerprints: set[str] = set()
+    for item, vid in sorted(strict_item_map.items()):
+        row = rows_by_item.get(item)
+        if row is None:
+            continue
+        fetched_raw = str(row.get("fetched_at") or "")
+        try:
+            fetched_at = datetime.strptime(
+                fetched_raw, "%Y-%m-%dT%H:%M:%S%z"
+            ).astimezone(timezone.utc).replace(tzinfo=None)
+        except ValueError:
+            fetched_at = None
+        for trade in row.get("recent_trades") or []:
+            if not isinstance(trade, dict):
+                continue
+            title = str(trade.get("title") or "")
+            if not snk_sales.is_psa10(title):
+                counts["snkTradesNotPsa10"] += 1
+                continue
+            price_jpy = trade.get("price")
+            if not isinstance(price_jpy, (int, float)) or price_jpy <= 0:
+                continue
+            qty = snk_sales.parse_qty(str(trade.get("label") or "1枚"))
+            sold_raw = str(trade.get("soldAt") or trade.get("sold_at") or "")
+            try:
+                sold_at = datetime.fromisoformat(
+                    sold_raw.replace("Z", "+00:00")
+                ).replace(tzinfo=None)
+            except ValueError:
+                continue
+            fingerprint = snk_sales.fingerprint(
+                item, sold_raw, float(price_jpy), qty, title
+            )
+            if fingerprint in seen_fingerprints:
+                continue
+            seen_fingerprints.add(fingerprint)
+            unit_usd = round(float(price_jpy) / qty / fx, 6)
+            payload = {
+                "itemId": item, "priceJpy": price_jpy, "qty": qty,
+                "title": title, "soldAt": sold_raw,
+            }
+            snk_sale_rows.append(
+                (
+                    vid, "snkrdunk", str(item), fingerprint, "psa", "10",
+                    sold_at, sold_raw[:100],
+                    fetched_at or sold_at, "exact_date", unit_usd, qty,
+                    round(unit_usd * qty, 6),
+                    hashlib.sha256(
+                        json.dumps(payload, sort_keys=True).encode("utf-8")
+                    ).hexdigest(),
+                    "partial",
+                )
+            )
+    counts["snkSaleRowsSeen"] = len(snk_sale_rows)
+    try:
+        with conn.cursor() as cursor:
+            existing_snk: set[str] = set()
+            fingerprints = [str(row[3]) for row in snk_sale_rows]
+            for offset in range(0, len(fingerprints), 400):
+                chunk = fingerprints[offset:offset + 400]
+                placeholders = ",".join(["%s"] * len(chunk))
+                cursor.execute(
+                    "SELECT transaction_fingerprint FROM market_sale_observation"
+                    " WHERE source_code='snkrdunk'"
+                    f" AND transaction_fingerprint IN ({placeholders})",
+                    chunk,
+                )
+                existing_snk.update(
+                    str(row["transaction_fingerprint"]) for row in cursor.fetchall()
+                )
+            counts["snkSaleRowsNew"] = sum(
+                1 for row in snk_sale_rows if str(row[3]) not in existing_snk
+            )
+            if snk_sale_rows:
+                manifest = sha256_bytes("\n".join(sorted(fingerprints)).encode("utf-8"))
+                now = datetime.now(timezone.utc).replace(tzinfo=None)
+                cursor.execute(
+                    "INSERT INTO market_ingest_run"
+                    " (run_key, source_code, ingest_mode, effective_at,"
+                    "  payload_sha256, manifest_sha256, status, observed_count,"
+                    "  started_at)"
+                    " VALUES (%s, 'snkrdunk', 'full', %s, %s, %s, 'running',"
+                    "  %s, %s)"
+                    " ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id),"
+                    "  status='running', started_at=VALUES(started_at)",
+                    (
+                        sha256_bytes(f"rebuild036_snk_trades|{generation}|{manifest}".encode("utf-8")),
+                        now, manifest, manifest, len(snk_sale_rows), now,
+                    ),
+                )
+                run_id = int(cursor.lastrowid)
+                rows = [(run_id, *row) for row in snk_sale_rows]
+                for offset in range(0, len(rows), 400):
+                    cursor.executemany(
+                        "INSERT INTO market_sale_observation"
+                        " (run_id, variant_id, source_code, external_entity_id,"
+                        "  transaction_fingerprint, grader_code, grade_label,"
+                        "  sold_at, source_date_text, fetched_at,"
+                        "  timestamp_quality, unit_price_usd, quantity,"
+                        "  transaction_value_usd, source_payload_sha256,"
+                        "  coverage_status)"
+                        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
+                        "  %s, %s, %s, %s, %s)"
+                        " ON DUPLICATE KEY UPDATE run_id=VALUES(run_id),"
+                        "  variant_id=VALUES(variant_id),"
+                        "  unit_price_usd=VALUES(unit_price_usd),"
+                        "  quantity=VALUES(quantity),"
+                        "  transaction_value_usd=VALUES(transaction_value_usd),"
+                        "  sold_at=VALUES(sold_at), fetched_at=VALUES(fetched_at),"
+                        "  source_payload_sha256=VALUES(source_payload_sha256),"
+                        "  coverage_status=VALUES(coverage_status)",
+                        rows[offset:offset + 400],
+                    )
+                cursor.execute(
+                    "UPDATE market_ingest_run SET status='completed',"
+                    " observed_count=%s, accepted_count=%s, completed_at=%s"
+                    " WHERE id=%s",
+                    (
+                        len(snk_sale_rows), len(snk_sale_rows),
+                        datetime.now(timezone.utc).replace(tzinfo=None), run_id,
+                    ),
+                )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+    snk_manifest_path = runtime_dir / f"sales-manifest-snk-{generation}.jsonl"
+    snk_manifest_blob = b"".join(
+        canonical_json({
+            "fingerprint": str(row[3]),
+            "variantId": int(row[0]),
+            "itemId": str(row[2]),
+            "soldAt": str(row[7]),
+            "unitPriceUsd": row[10],
+            "quantity": row[11],
+        }) + b"\n"
+        for row in sorted(snk_sale_rows, key=lambda row: str(row[3]))
+    )
+    snk_manifest_path.write_bytes(snk_manifest_blob)
+    counts["snkSalesManifest"] = snk_manifest_path.relative_to(ROOT).as_posix()
+
+    # --- D4 route decision, per variant -------------------------------------
+    pc_sale_count: dict[int, int] = {}
+    for row in pc_sale_candidates:
+        pc_sale_count[row["variantId"]] = pc_sale_count.get(row["variantId"], 0) + 1
+    snk_sale_count: dict[int, int] = {}
+    for row in snk_sale_rows:
+        snk_sale_count[int(row[0])] = snk_sale_count.get(int(row[0]), 0) + 1
+
+    routes: list[dict[str, Any]] = []
+    for vid in sorted(set(pc_bind) | set(snk_bind)):
+        language = lang_by_vid.get(vid, "")
+        pc_side = pc_current.get(vid)
+        snk_side = snk_current.get(vid)
+        primary = "pricecharting" if language == "en" else "snkrdunk"
+        fallback_used = False
+        if primary == "pricecharting":
+            winner, loser = pc_side, snk_side
+            winner_code, loser_code = "pricecharting", "snkrdunk"
+        else:
+            winner, loser = snk_side, pc_side
+            winner_code, loser_code = "snkrdunk", "pricecharting"
+        if winner is not None:
+            route = winner_code
+            current = winner
+            reason = f"language_{language or 'unknown'}_primary"
+        elif loser is not None:
+            route = loser_code
+            current = loser
+            fallback_used = True
+            reason = "primary_zero_data"
+        else:
+            route = "none"
+            current = None
+            reason = "no_current_price_evidence"
+        routes.append({
+            "variantId": vid,
+            "cardLanguage": language,
+            "route": route,
+            "fallbackUsed": fallback_used,
+            "reason": reason,
+            "current": current,
+            "pcExternalIds": pc_bind.get(vid, []),
+            "pcChosenExternalId": pc_choice.get(vid),
+            "pcHistoryPoints": (pc_side or {}).get("points", 0),
+            "pcSaleRows": pc_sale_count.get(vid, 0),
+            "snkItemIds": snk_bind.get(vid, []),
+            "snkChosenItemId": (snk_side or {}).get("itemId"),
+            "snkKlinePoints": (snk_side or {}).get("points", 0),
+            "snkSaleRows": snk_sale_count.get(vid, 0),
+        })
+        if route == "pricecharting":
+            counts["routePc"] += 1
+        elif route == "snkrdunk":
+            counts["routeSnk"] += 1
+        else:
+            counts["routeNone"] += 1
+        if fallback_used:
+            counts["routeFallback"] += 1
+
+    artifact = {
+        "contract": "price_route_d4_v1",
+        "generation": generation,
+        "fxJpyPerUsd": fx,
+        "rules": {
+            "primary": "en->pricecharting, else->snkrdunk",
+            "fallback": "only when primary has zero current-price evidence",
+            "never": ["averaging", "summed volumes", "non-strict identities"],
+        },
+        "pcSalesManifestSha256": sha256_bytes(pc_manifest_blob),
+        "snkSalesManifestSha256": sha256_bytes(snk_manifest_blob),
+        "routes": routes,
+    }
+    artifact_blob = canonical_json(artifact)
+    artifact_path = ROOT / "data" / "runtime" / "rebuild-036" / (
+        f"price-route-{generation}.json"
+    )
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact_path.write_bytes(artifact_blob)
+    counts["routeArtifact"] = artifact_path.relative_to(ROOT).as_posix()
+    counts["routeArtifactSha256"] = sha256_bytes(artifact_blob)
+
+    return {
+        "input_sha256": _price_materialize_input_sha(ctx),
+        "output_sha256": sha256_bytes(canonical_json([
+            "price-materialize-output", sha256_bytes(artifact_blob),
+        ])),
+        "counts": counts,
+    }
+
+
+def _price_materialize_input_sha(ctx: SimpleNamespace) -> str:
+    """S8's input: S7's recorded output. Never the tables/files S8 mutates."""
+
+    with ctx.conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT output_sha256 FROM cardz_rebuild_checkpoint"
+            " WHERE generation_id=%s AND stage='snk-refresh'",
+            (ctx.generation,),
+        )
+        row = cursor.fetchone()
+    return sha256_bytes(canonical_json([
+        "price-materialize-input", (row or {}).get("output_sha256"),
+    ]))
+
+
 def _jsonl_psa_ids(path: Path) -> set[str]:
     """Extract the GemRate id space from brute-harvest rowData (field: psa_id)."""
 
@@ -2439,7 +3101,7 @@ LINEAR_STAGES: list[tuple[str, Callable | None, Callable | None, bool]] = [
     ("bind", stage_bind, _bind_input_sha, False),
     ("pc-replay", stage_pc_replay, _pc_replay_input_sha, False),
     ("snk-refresh", stage_snk_refresh, _snk_refresh_input_sha, False),
-    ("price-materialize", None, None, False),
+    ("price-materialize", stage_price_materialize, _price_materialize_input_sha, False),
     ("image-bind", None, None, False),
     ("prune-plan", None, None, False),
     ("validate", None, None, False),

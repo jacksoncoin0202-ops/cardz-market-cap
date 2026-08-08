@@ -948,6 +948,8 @@ def ingest_kline_jsonls(
     variant_allowlist: set[int] | None = None,
     dry_run: bool = False,
     ingest_mode: str = "incremental",
+    conn: Any | None = None,
+    item_to_variant: dict[int, int] | None = None,
 ) -> dict[str, Any]:
     """Write PSA10 kline points into market_price_observation.
 
@@ -957,6 +959,12 @@ def ingest_kline_jsonls(
     - never invent prices; empty kline → skipped (missing stays missing)
     - every effective_at is the observed-day EOD; fetch time remains provenance only
     - multiple inputs are processed in source-run order, so later same-key evidence wins
+
+    A caller that already holds a writer connection (e.g. rebuild orchestrator
+    under writer freeze) passes it via `conn` — it is committed but never
+    closed here. `item_to_variant` overrides the exact-identity map for callers
+    that scope it more strictly than catalog-wide (per-row exact ownership is
+    still re-asserted against catalog_source_identity).
     """
 
     if condition_code != PSA10_CONDITION:
@@ -967,7 +975,8 @@ def ingest_kline_jsonls(
         if not jsonl_path.is_file():
             raise RuntimeError(f"ingest jsonl missing: {jsonl_path}")
 
-    item_to_variant = load_exact_snk_item_to_variant(variant_allowlist=variant_allowlist)
+    if item_to_variant is None:
+        item_to_variant = load_exact_snk_item_to_variant(variant_allowlist=variant_allowlist)
     rows: list[dict[str, Any]] = []
     for jsonl_path in jsonl_paths:
         with jsonl_path.open(encoding="utf-8") as source:
@@ -982,7 +991,9 @@ def ingest_kline_jsonls(
                     raise RuntimeError(f"SNK jsonl row is not an object: {jsonl_path}:{line_number}")
                 rows.append(row)
 
-    conn = _db_connect()
+    owns_conn = conn is None
+    if owns_conn:
+        conn = _db_connect()
     cur = conn.cursor()
     cur.execute(
         """
@@ -995,7 +1006,8 @@ def ingest_kline_jsonls(
     fx_row = cur.fetchone()
     jpy_per_usd = float(fx_row["rate"]) if fx_row and fx_row.get("rate") is not None else None
     if jpy_per_usd is None or jpy_per_usd <= 0:
-        conn.close()
+        if owns_conn:
+            conn.close()
         raise RuntimeError("USD/JPY FX rate missing; refuse to invent conversion")
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -1053,7 +1065,8 @@ def ingest_kline_jsonls(
             stats["cardsAccepted"] += 1
             stats["pricePoints"] += len(valid)
             stats["acceptedItemIds"].append(item_id)
-        conn.close()
+        if owns_conn:
+            conn.close()
         print(json.dumps(stats, ensure_ascii=False, sort_keys=True))
         return stats
 
@@ -1063,6 +1076,8 @@ def ingest_kline_jsonls(
             (run_key, source_code, ingest_mode, effective_at, payload_sha256, manifest_sha256,
              status, observed_count, accepted_count, quarantined_count, rejected_count, started_at)
         VALUES (%s, 'snk_psa10', %s, %s, %s, %s, 'running', 0, 0, 0, 0, %s)
+        ON DUPLICATE KEY UPDATE
+            id=LAST_INSERT_ID(id), status='running', started_at=VALUES(started_at)
         """,
         (key, ingest_mode, now, seed, seed, now),
     )
@@ -1200,7 +1215,8 @@ def ingest_kline_jsonls(
              native_price, native_currency, source_priority, metric_status, payload_sha256)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE
-            run_id=VALUES(run_id),
+            last_run_id=VALUES(run_id),
+            restamp_count=restamp_count+1,
             source_external_entity_id=VALUES(source_external_entity_id),
             source_observation_id=VALUES(source_observation_id),
             effective_at=VALUES(effective_at),
@@ -1208,7 +1224,8 @@ def ingest_kline_jsonls(
             native_price=VALUES(native_price),
             native_currency=VALUES(native_currency),
             source_priority=VALUES(source_priority),
-            metric_status=VALUES(metric_status),
+            metric_status=CASE WHEN market_price_observation.metric_status='quarantined'
+                               THEN 'quarantined' ELSE VALUES(metric_status) END,
             payload_sha256=VALUES(payload_sha256)
     """
     for offset in range(0, len(price_rows_to_write), 1000):
@@ -1226,7 +1243,8 @@ def ingest_kline_jsonls(
         (stats["pricePoints"], stats["pricePoints"], now, run_id),
     )
     conn.commit()
-    conn.close()
+    if owns_conn:
+        conn.close()
     for item_id, variant_id, point_count in resolved_cards:
         record_resolution(
             source="snkrdunk",

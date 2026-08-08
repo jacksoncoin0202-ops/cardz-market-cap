@@ -1090,12 +1090,15 @@ def import_batch(
                          native_price, native_currency, source_priority, metric_status, payload_sha256)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'ready', %s)
                     ON DUPLICATE KEY UPDATE
-                        run_id=VALUES(run_id),
+                        last_run_id=VALUES(run_id),
+                        restamp_count=restamp_count+1,
                         source_external_entity_id=VALUES(source_external_entity_id),
                         source_observation_id=VALUES(source_observation_id),
                         effective_at=VALUES(effective_at), price_usd=VALUES(price_usd),
                         native_price=VALUES(native_price), native_currency=VALUES(native_currency),
-                        source_priority=VALUES(source_priority), metric_status=VALUES(metric_status),
+                        source_priority=VALUES(source_priority),
+                        metric_status=CASE WHEN market_price_observation.metric_status='quarantined'
+                                           THEN 'quarantined' ELSE VALUES(metric_status) END,
                         payload_sha256=VALUES(payload_sha256)
                     """,
                     (

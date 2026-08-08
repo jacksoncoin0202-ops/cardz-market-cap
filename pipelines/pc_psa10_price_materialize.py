@@ -459,11 +459,14 @@ def materialize(connection: Any, rows: list[dict[str, Any]], *, plan_sha256: str
                   native_price,native_currency,source_priority,metric_status,payload_sha256)
                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NULL,NULL,%s,%s,%s)
                ON DUPLICATE KEY UPDATE
-                 run_id=VALUES(run_id),
+                 last_run_id=VALUES(run_id),
+                 restamp_count=restamp_count+1,
                  source_external_entity_id=VALUES(source_external_entity_id),
                  source_observation_id=VALUES(source_observation_id),
                  effective_at=VALUES(effective_at),price_usd=VALUES(price_usd),
-                 source_priority=VALUES(source_priority),metric_status=VALUES(metric_status),
+                 source_priority=VALUES(source_priority),
+                 metric_status=CASE WHEN market_price_observation.metric_status='quarantined'
+                                    THEN 'quarantined' ELSE VALUES(metric_status) END,
                  payload_sha256=VALUES(payload_sha256)""",
             price_values,
         )
@@ -709,10 +712,13 @@ def materialize_local_history(connection: Any, rows: list[dict[str, Any]]) -> in
              AND source.observation_kind='psa10_price_guide'
              AND source.observed_date=stage.observed_date
              AND source.payload_sha256=stage.payload_sha256
-            ON DUPLICATE KEY UPDATE run_id=VALUES(run_id),source_external_entity_id=VALUES(source_external_entity_id),
+            ON DUPLICATE KEY UPDATE last_run_id=VALUES(run_id),restamp_count=restamp_count+1,
+              source_external_entity_id=VALUES(source_external_entity_id),
               source_observation_id=VALUES(source_observation_id),effective_at=VALUES(effective_at),
               price_usd=VALUES(price_usd),source_priority=VALUES(source_priority),
-              metric_status=VALUES(metric_status),payload_sha256=VALUES(payload_sha256)
+              metric_status=CASE WHEN market_price_observation.metric_status='quarantined'
+                                 THEN 'quarantined' ELSE VALUES(metric_status) END,
+              payload_sha256=VALUES(payload_sha256)
             """,
             (run_id, SOURCE_PC, SOURCE_PC),
         )
