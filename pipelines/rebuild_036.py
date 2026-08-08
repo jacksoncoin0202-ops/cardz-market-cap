@@ -16,6 +16,7 @@ import hashlib
 import io
 import json
 import re
+import socket
 import subprocess
 import sys
 import time
@@ -95,7 +96,7 @@ def load_env_file(path: Path) -> dict[str, str]:
 
 def connect(credentials_env: Path) -> pymysql.connections.Connection:
     env = load_env_file(credentials_env)
-    return pymysql.connect(
+    conn = pymysql.connect(
         host=env.get("CARDZ_DB_HOST", "127.0.0.1"),
         port=int(env.get("CARDZ_DB_PORT", "3308")),
         user=env["CARDZ_DB_USER"],
@@ -106,6 +107,15 @@ def connect(credentials_env: Path) -> pymysql.connections.Connection:
         cursorclass=pymysql.cursors.DictCursor,
         connect_timeout=10,
     )
+    # Docker Desktop's NAT proxy drops TCP mappings that stay silent for
+    # minutes (long COUNT(*) on heavy views) — the client then hangs forever
+    # in recv() on a half-open socket. Keepalive every 30s holds the mapping.
+    sock = getattr(conn, "_sock", None)
+    if sock is not None:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        if hasattr(socket, "SIO_KEEPALIVE_VALS"):  # Windows
+            sock.ioctl(socket.SIO_KEEPALIVE_VALS, (1, 30_000, 10_000))
+    return conn
 
 
 # ---------------------------------------------------------------------------
