@@ -6001,6 +6001,25 @@ def _activation_rank_and_accept(
     }
 
 
+# Receipt fields that move without any DB write: freshness ages are wall-clock
+# readings rounded to 2dp hours (36-second buckets) and cohortUpdates counts the
+# work applied during that particular validate run, not a state property.
+_RECEIPT_VOLATILE_FIELDS = (
+    ("freshness72h", "popAgeHours"),
+    ("freshness72h", "priceAgeHours"),
+    ("cohortEquation", "cohortUpdates"),
+)
+
+
+def _receipt_state_sha(report: dict[str, Any]) -> str:
+    clone = json.loads(canonical_json(report))
+    for check_name, field in _RECEIPT_VOLATILE_FIELDS:
+        entry = (clone.get("checks") or {}).get(check_name)
+        if isinstance(entry, dict):
+            entry.pop(field, None)
+    return sha256_bytes(canonical_json(clone))
+
+
 def cmd_activate(args: argparse.Namespace) -> int:
     from datetime import datetime, timezone
 
@@ -6020,7 +6039,7 @@ def cmd_activate(args: argparse.Namespace) -> int:
             raise SystemExit(f"ABORT: stages not complete: {incomplete}")
         with conn.cursor() as cursor:
             cursor.execute(
-                "SELECT passed FROM cardz_rebuild_validation_receipt"
+                "SELECT passed, report_json FROM cardz_rebuild_validation_receipt"
                 " WHERE generation_id=%s AND receipt_sha256=%s",
                 (generation, args.receipt_sha256),
             )
@@ -6028,9 +6047,10 @@ def cmd_activate(args: argparse.Namespace) -> int:
         if receipt is None or int(receipt["passed"]) != 1:
             raise SystemExit("ABORT: validation receipt missing or not passed for that sha")
 
-        # §6.7: re-run the validator in-process; the operator-supplied sha must
-        # equal the freshly recomputed receipt, proving they read a receipt that
-        # still describes the database being activated.
+        # §6.7: re-run the validator in-process; the operator-supplied receipt
+        # must describe the database being activated. Equality is checked on
+        # the volatile-field-normalized reports — raw sha equality can never
+        # hold because the receipt embeds wall-clock freshness ages.
         ctx = SimpleNamespace(conn=conn, root=ROOT, generation=generation, args=args)
         validation = stage_validate(ctx)
         recomputed = validation["counts"]["receiptSha256"]
@@ -6039,10 +6059,20 @@ def cmd_activate(args: argparse.Namespace) -> int:
                 f"ABORT: validator fails now: {validation['counts']['failedChecks']}"
             )
         if recomputed != args.receipt_sha256:
-            raise SystemExit(
-                "ABORT: recomputed receipt"
-                f" {recomputed[:16]}.. != supplied {args.receipt_sha256[:16]}..;"
-                " state moved since that receipt — re-read validate output"
+            supplied_report = json.loads(receipt["report_json"])
+            recomputed_report = json.loads(
+                (ROOT / validation["counts"]["reportPath"]).read_bytes()
+            )
+            if _receipt_state_sha(supplied_report) != _receipt_state_sha(recomputed_report):
+                raise SystemExit(
+                    "ABORT: recomputed receipt"
+                    f" {recomputed[:16]}.. != supplied {args.receipt_sha256[:16]}.."
+                    " beyond volatile fields; state moved since that receipt"
+                    " — re-read validate output"
+                )
+            print(
+                f"receipt {args.receipt_sha256[:16]}.. matches recomputed"
+                f" {recomputed[:16]}.. after volatile-field normalization"
             )
 
         fingerprints = _load_sales_fingerprints(generation)
