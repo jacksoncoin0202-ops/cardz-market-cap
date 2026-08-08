@@ -55,6 +55,14 @@ CHECKPOINT_ADAPTERS = (
     "en_price_ref",
 )
 COLLECT_LEASE_CONTRACT = "mysql_advisory_adapter_lease_v1"
+# Per-item failure streaks and per-item success receipts live beside the other
+# collect runtime state. The MySQL stream checkpoint remains the resume
+# authority; these files carry the per-item evidence between daily runs.
+QUARANTINE_PATH = OUT_DIR / "collect_quarantine.json"
+ITEM_CHECKPOINT_PATH = OUT_DIR / "collect_item_checkpoints.json"
+QUARANTINE_CONTRACT = "collect_item_quarantine_v1"
+ITEM_CHECKPOINT_CONTRACT = "collect_item_checkpoint_v1"
+QUARANTINE_THRESHOLD = 3  # consecutive failed runs before an item is skipped
 PY = sys.executable
 SLA_HOURS = 36
 CARDZ_CDP_PORT = int(os.environ.get("CARDZ_CDP_PORT", "9333"))
@@ -415,6 +423,129 @@ def record_successful_poll(
         raise
     finally:
         conn.close()
+
+
+def _write_json_atomic(path: Path, payload: Mapping[str, Any]) -> None:
+    """House pattern: durable tmp write + os.replace, never a partial file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.next")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
+    os.replace(temporary, path)
+
+
+def _load_runtime_state(path: Path, contract: str) -> dict[str, Any]:
+    if not path.is_file():
+        return {"contract": contract, "updatedAt": None, "adapters": {}}
+    try:
+        state = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        state = None
+    if not isinstance(state, dict) or state.get("contract") != contract:
+        # A corrupt or foreign state file must not silently veto collection.
+        return {"contract": contract, "updatedAt": None, "adapters": {}}
+    state.setdefault("adapters", {})
+    return state
+
+
+def _quarantined_streams(adapter: str) -> dict[str, dict[str, Any]]:
+    state = _load_runtime_state(QUARANTINE_PATH, QUARANTINE_CONTRACT)
+    entries = state["adapters"].get(adapter) or {}
+    return {
+        stream: entry
+        for stream, entry in entries.items()
+        if int(entry.get("consecutiveFailures") or 0) >= QUARANTINE_THRESHOLD
+    }
+
+
+def _partition_quarantined(
+    adapter: str, items: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split due items into pollable and quarantined; quarantined are reported, never dropped."""
+    quarantined_streams = _quarantined_streams(adapter)
+    active: list[dict[str, Any]] = []
+    quarantined: list[dict[str, Any]] = []
+    for item in items:
+        stream = _stream_key(int(item["variantId"]), item.get("externalId"))
+        entry = quarantined_streams.get(stream)
+        if entry is None:
+            active.append(item)
+            continue
+        quarantined.append(
+            {
+                "variantId": int(item["variantId"]),
+                "externalId": str(item.get("externalId") or ""),
+                "reason": entry.get("reason"),
+                "consecutiveFailures": int(entry.get("consecutiveFailures") or 0),
+                "lastAttempt": entry.get("lastAttempt"),
+            }
+        )
+    return active, quarantined
+
+
+def _record_item_outcomes(
+    adapter: str,
+    *,
+    succeeded: list[dict[str, Any]],
+    failed: list[dict[str, Any]],
+) -> None:
+    """Advance per-item failure streaks; one success clears the item's entry."""
+    if not succeeded and not failed:
+        return
+    now = utc_now()
+    state = _load_runtime_state(QUARANTINE_PATH, QUARANTINE_CONTRACT)
+    entries = dict(state["adapters"].get(adapter) or {})
+    for item in succeeded:
+        entries.pop(_stream_key(int(item["variantId"]), item.get("externalId")), None)
+    for row in failed:
+        stream = _stream_key(int(row["variantId"]), row.get("externalId"))
+        previous = entries.get(stream) or {}
+        entries[stream] = {
+            "variantId": int(row["variantId"]),
+            "externalId": str(row.get("externalId") or ""),
+            "reason": str(row.get("error") or row.get("reason") or "unknown"),
+            "consecutiveFailures": int(previous.get("consecutiveFailures") or 0) + 1,
+            "lastAttempt": now,
+        }
+    state["adapters"][adapter] = entries
+    state["updatedAt"] = now
+    _write_json_atomic(QUARANTINE_PATH, state)
+
+
+def _persist_item_checkpoints(
+    adapter: str,
+    *,
+    mode: str,
+    items: list[dict[str, Any]],
+    payload_sha_by_external: Mapping[str, str] | None = None,
+    run_id: int | None = None,
+) -> None:
+    """Mirror per-item success into the runtime checkpoint JSON as it lands.
+
+    The DB stream checkpoint stays the resume authority; this file is the
+    incrementally-updated per-item receipt that survives a later lane abort.
+    """
+    if not items:
+        return
+    now = utc_now()
+    payload_sha_by_external = payload_sha_by_external or {}
+    state = _load_runtime_state(ITEM_CHECKPOINT_PATH, ITEM_CHECKPOINT_CONTRACT)
+    entries = dict(state["adapters"].get(adapter) or {})
+    for item in items:
+        external = str(item.get("externalId") or "")
+        entries[_stream_key(int(item["variantId"]), external)] = {
+            "variantId": int(item["variantId"]),
+            "externalId": external,
+            "mode": mode,
+            "lastSuccessAt": now,
+            "payloadSha256": payload_sha_by_external.get(external),
+            "runId": run_id,
+        }
+    state["adapters"][adapter] = entries
+    state["updatedAt"] = now
+    _write_json_atomic(ITEM_CHECKPOINT_PATH, state)
 
 
 def ensure_cdp(port: int = 9333) -> dict[str, Any]:
@@ -1101,7 +1232,12 @@ def _ingest_gemrate_manifest(
             payload_sha_by_external=payload_sha_by_external,
         )
         conn.commit()
-        return {"runId": run_id, "inserted": len(resolved), "checkpointed": checkpointed}
+        return {
+            "runId": run_id,
+            "inserted": len(resolved),
+            "checkpointed": checkpointed,
+            "payloadShaByExternal": payload_sha_by_external,
+        }
     except Exception:
         conn.rollback()
         raise
@@ -1116,16 +1252,23 @@ def run_gemrate_pop(
     limit: int | None,
     dry_run: bool,
 ) -> dict[str, Any]:
-    selected = _unique_items(items, limit)
+    active, quarantined = _partition_quarantined("gemrate_pop", items)
+    selected = _unique_items(active, limit)
     report: dict[str, Any] = {
         "adapter": "gemrate_pop",
         "mode": mode,
         "due": len(items),
         "processed": len(selected),
+        "quarantined": len(quarantined),
+        "quarantinedItems": quarantined,
+        "failed": 0,
+        "failedItems": [],
         "ok": True,
     }
     if not selected:
-        report["note"] = "no exact GemRate IDs due"
+        report["note"] = (
+            "all due GemRate IDs are quarantined" if quarantined else "no exact GemRate IDs due"
+        )
         return report
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     ids_path = OUT_DIR / f"gemrate_ids_{mode}.txt"
@@ -1154,7 +1297,10 @@ def run_gemrate_pop(
     # grader-volume browser launches. Aliasing the two guaranteed a SIGKILL
     # exactly when the website budget was actually needed.
     report["run"] = _run(command, timeout=max(2 * 5400, 10 * len(selected)), dry_run=False)
-    if report["run"].get("exit") != 0:
+    # Exit 1 is the child's declared-partial signal (some IDs unresolved); the
+    # manifest still carries every resolved row, so per-item ingest continues.
+    exit_code = report["run"].get("exit")
+    if exit_code not in (0, 1):
         report.update({"ok": False, "error": "gemrate_daily_failed", "checkpointed": 0})
         return report
     after = set((ROOT / "data/private/gemrate/runs").glob("daily_*/manifest.json"))
@@ -1166,15 +1312,72 @@ def run_gemrate_pop(
         return report
     manifest_path = candidates[0]
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if not manifest.get("promoted") or not manifest.get("promotable"):
+    if manifest.get("mismatches"):
+        # Direct/mirror disagreement is a source-integrity failure, never a
+        # per-item one; nothing may advance from a mismatched manifest.
+        report.update({"ok": False, "error": "gemrate_manifest_mismatch", "manifest": str(manifest_path), "checkpointed": 0})
+        return report
+    if exit_code != 0 and not manifest.get("partial"):
+        # A non-zero exit without a declared partial manifest is an infra
+        # failure; per-item streaks must not advance on it.
+        report.update({"ok": False, "error": "gemrate_daily_failed", "manifest": str(manifest_path), "checkpointed": 0})
+        return report
+    if exit_code == 0 and not (manifest.get("promoted") and manifest.get("promotable")):
         report.update({"ok": False, "error": "gemrate_manifest_not_promotable", "manifest": str(manifest_path), "checkpointed": 0})
         return report
-    try:
-        write = _ingest_gemrate_manifest(manifest, selected)
-    except Exception as exc:  # noqa: BLE001
-        report.update({"ok": False, "error": f"gemrate_ingest:{type(exc).__name__}:{exc}", "checkpointed": 0})
-        return report
+
+    # Per-item split: only manifest-resolved IDs advance; unresolved IDs fail
+    # individually and feed the quarantine streak instead of the whole lane.
+    resolved_ids = {str(row.get("gemrateId") or "") for row in (manifest.get("resolved") or [])}
+    identity_failed = {
+        str(row.get("gemrateId") or ""): str(row.get("reason") or "identity_receipt_failed")
+        for row in (manifest.get("directIdentityReceiptFailures") or [])
+    }
+    unresolved_reasons = {
+        str(row.get("gemrateId") or ""): str(row.get("reason") or "unresolved")
+        for row in (manifest.get("unresolved") or [])
+    }
+    ok_items: list[dict[str, Any]] = []
+    failed_items: list[dict[str, Any]] = []
+    for item in selected:
+        external = str(item.get("externalId") or "")
+        if external in resolved_ids and external not in identity_failed:
+            ok_items.append(item)
+            continue
+        failed_items.append(
+            {
+                "variantId": int(item["variantId"]),
+                "externalId": external,
+                "error": identity_failed.get(external)
+                or unresolved_reasons.get(external)
+                or "gemrate_manifest_missing_id",
+            }
+        )
+    if failed_items:
+        # Per-item source failures advance the quarantine streak immediately so
+        # they persist even if the ingest step below fails for other reasons.
+        _record_item_outcomes("gemrate_pop", succeeded=[], failed=failed_items)
+    write: dict[str, Any] = {"runId": None, "inserted": 0, "checkpointed": 0}
+    if ok_items:
+        try:
+            write = _ingest_gemrate_manifest(manifest, ok_items)
+        except Exception as exc:  # noqa: BLE001
+            report.update({"ok": False, "error": f"gemrate_ingest:{type(exc).__name__}:{exc}", "checkpointed": 0})
+            return report
+        payload_sha_by_external = write.pop("payloadShaByExternal", None) or {}
+        _persist_item_checkpoints(
+            "gemrate_pop",
+            mode=mode,
+            items=ok_items,
+            payload_sha_by_external=payload_sha_by_external,
+            run_id=write.get("runId"),
+        )
+        _record_item_outcomes("gemrate_pop", succeeded=ok_items, failed=[])
     report.update({"manifest": str(manifest_path), **write})
+    report["failed"] = len(failed_items)
+    report["failedItems"] = failed_items
+    if failed_items:
+        report.update({"ok": False, "error": "gemrate_partial_items_failed"})
     return report
 
 
@@ -1211,6 +1414,80 @@ def _validate_snk_harvest(
         extra = sorted(set(by_id) - set(requested_ids))
         raise RuntimeError(f"SNK harvest exact-ID mismatch missing={missing[:10]} extra={extra[:10]}")
     return rows, {str(item_id): _sha256(by_id[item_id]) for item_id in requested_ids}
+
+
+def _partition_snk_harvest(
+    harvest_path: Path, requested_ids: list[int]
+) -> tuple[dict[int, dict[str, Any]], dict[int, str]]:
+    """Split one harvest into per-item rows and per-item failure reasons.
+
+    A duplicate or foreign row is still a whole-harvest contract violation; a
+    per-row source error or a missing row only fails that one item.
+    """
+    requested = set(requested_ids)
+    rows_by_id: dict[int, dict[str, Any]] = {}
+    failed_by_id: dict[int, str] = {}
+    for row in _jsonl_rows(harvest_path):
+        item_id = row.get("item_id")
+        if not isinstance(item_id, int) or item_id not in requested:
+            raise RuntimeError(f"SNK harvest contains an invalid or foreign row: {item_id!r}")
+        if item_id in rows_by_id or item_id in failed_by_id:
+            raise RuntimeError(f"SNK harvest contains a duplicate row: {item_id}")
+        error = row.get("error")
+        if error:
+            failed_by_id[item_id] = f"snk_harvest_row_error:{str(error)[:200]}"
+        else:
+            rows_by_id[item_id] = row
+    for item_id in requested - set(rows_by_id) - set(failed_by_id):
+        failed_by_id[item_id] = "snk_harvest_row_missing"
+    return rows_by_id, failed_by_id
+
+
+def _snk_harvest_once(
+    ids: list[int],
+    *,
+    label: str,
+    mode: str,
+    delay: float,
+    workers: int,
+) -> dict[str, Any]:
+    """Run the SNKRDUNK harvest child exactly once for one exact-ID list."""
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    ids_path = OUT_DIR / f"{label}_ids_{mode}_{stamp}.txt"
+    harvest_path = OUT_DIR / f"{label}_harvest_{mode}_{stamp}.jsonl"
+    ids_path.write_text("\n".join(str(value) for value in ids) + "\n", encoding="ascii")
+    harvest_cmd = [
+        PY,
+        "-X",
+        "utf8",
+        "pipelines/snk_market_data.py",
+        "--ids-file",
+        str(ids_path),
+        "--out",
+        str(harvest_path),
+        "--delay",
+        str(delay),
+        "--workers",
+        str(max(1, int(workers))),
+        "--condition",
+        "trading_card_single_psa10",
+    ]
+    result: dict[str, Any] = {
+        "ok": True,
+        "idsPath": str(ids_path),
+        "harvestPath": str(harvest_path),
+        "requestedIds": list(ids),
+        "run": _run(harvest_cmd, timeout=max(180, 8 * len(ids)), dry_run=False),
+    }
+    if result["run"].get("exit") != 0 or not harvest_path.is_file():
+        result.update({"ok": False, "error": "snk_harvest_failed"})
+        return result
+    try:
+        result["rowsById"], result["failedById"] = _partition_snk_harvest(harvest_path, ids)
+    except Exception as exc:  # noqa: BLE001
+        result.update({"ok": False, "error": f"snk_harvest_contract:{type(exc).__name__}:{exc}"})
+    return result
 
 
 def _validate_snk_price_ingest(
@@ -1268,9 +1545,11 @@ def _run_snk_adapter(
     dry_run: bool,
     delay: float,
     workers: int,
+    shared_harvest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    active, quarantined = _partition_quarantined(adapter, items)
     try:
-        selected, ids = _snk_selection(items, limit)
+        selected, ids = _snk_selection(active, limit)
     except Exception as exc:  # noqa: BLE001
         return {
             "adapter": adapter,
@@ -1278,6 +1557,8 @@ def _run_snk_adapter(
             "due": len(items),
             "processed": 0,
             "checkpointed": 0,
+            "quarantined": len(quarantined),
+            "quarantinedItems": quarantined,
             "ok": False,
             "error": f"snk_selection:{type(exc).__name__}:{exc}",
         }
@@ -1287,48 +1568,110 @@ def _run_snk_adapter(
         "due": len(items),
         "processed": len(selected),
         "checkpointed": 0,
+        "quarantined": len(quarantined),
+        "quarantinedItems": quarantined,
+        "failed": 0,
+        "failedItems": [],
         "ok": True,
     }
     if not selected:
-        report["note"] = "no exact SNK IDs due"
+        report["note"] = (
+            "all due SNK IDs are quarantined" if quarantined else "no exact SNK IDs due"
+        )
         return report
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     ids_path = OUT_DIR / f"{adapter}_ids_{mode}_{stamp}.txt"
     harvest_path = OUT_DIR / f"{adapter}_harvest_{mode}_{stamp}.jsonl"
-    ids_path.write_text("\n".join(str(value) for value in ids) + "\n", encoding="ascii")
-    report.update({"idsPath": str(ids_path), "harvestPath": str(harvest_path)})
     if dry_run:
+        ids_path.write_text("\n".join(str(value) for value in ids) + "\n", encoding="ascii")
+        report.update({"idsPath": str(ids_path), "harvestPath": str(harvest_path)})
         report.update({"dryRun": True, "note": "exact IDs selected; network and DB writes not executed"})
         return report
 
     started_at = datetime.now(timezone.utc).replace(tzinfo=None)
-    harvest_cmd = [
-        PY,
-        "-X",
-        "utf8",
-        "pipelines/snk_market_data.py",
-        "--ids-file",
-        str(ids_path),
-        "--out",
-        str(harvest_path),
-        "--delay",
-        str(delay),
-        "--workers",
-        str(max(1, int(workers))),
-        "--condition",
-        "trading_card_single_psa10",
-    ]
-    report["harvest"] = _run(
-        harvest_cmd,
-        timeout=max(180, 8 * len(ids)),
-        dry_run=False,
-    )
-    if report["harvest"].get("exit") != 0 or not harvest_path.is_file():
-        report.update({"ok": False, "error": "snk_harvest_failed"})
+    if shared_harvest is not None and set(ids) <= set(shared_harvest.get("requestedIds") or []):
+        # One collect run performs one SNKRDUNK harvest; both ingest consumers
+        # (trades and price) read the same immutable rows instead of refetching.
+        if not shared_harvest.get("ok"):
+            report.update(
+                {
+                    "harvest": shared_harvest.get("run"),
+                    "ok": False,
+                    "error": str(shared_harvest.get("error") or "snk_harvest_failed"),
+                }
+            )
+            return report
+        rows_by_id = {
+            item_id: shared_harvest["rowsById"][item_id]
+            for item_id in ids
+            if item_id in shared_harvest["rowsById"]
+        }
+        failed_by_id = {
+            item_id: shared_harvest["failedById"][item_id]
+            for item_id in ids
+            if item_id in shared_harvest["failedById"]
+        }
+        shared_run = shared_harvest.get("run") or {}
+        report["harvest"] = {
+            "exit": 0,
+            "reusedSharedHarvest": True,
+            "sharedHarvestPath": shared_harvest.get("harvestPath"),
+            "startedAt": shared_run.get("startedAt"),
+            "finishedAt": shared_run.get("finishedAt"),
+        }
+        shared_started = _parse_datetime(shared_run.get("startedAt"))
+        if shared_started is not None:
+            started_at = _utc_naive(shared_started)
+    else:
+        harvest = _snk_harvest_once(
+            ids, label=f"{adapter}_raw", mode=mode, delay=delay, workers=workers
+        )
+        report["harvest"] = harvest.get("run")
+        if not harvest.get("ok"):
+            report.update({"ok": False, "error": str(harvest.get("error") or "snk_harvest_failed")})
+            return report
+        rows_by_id = harvest["rowsById"]
+        failed_by_id = harvest["failedById"]
+
+    ok_items: list[dict[str, Any]] = []
+    ok_ids: list[int] = []
+    failed_items: list[dict[str, Any]] = []
+    for item, external_id in zip(selected, ids):
+        if external_id in rows_by_id:
+            ok_items.append(item)
+            ok_ids.append(external_id)
+            continue
+        failed_items.append(
+            {
+                "variantId": int(item["variantId"]),
+                "externalId": str(item.get("externalId") or ""),
+                "error": failed_by_id.get(external_id, "snk_harvest_row_missing"),
+            }
+        )
+    report["failed"] = len(failed_items)
+    report["failedItems"] = failed_items
+    if failed_items:
+        # Per-item source failures advance the quarantine streak immediately so
+        # they persist even if the ingest step below fails for other reasons.
+        _record_item_outcomes(adapter, succeeded=[], failed=failed_items)
+    if not ok_items:
+        report.update({"ok": False, "error": f"{adapter}_all_items_failed"})
         return report
+
+    # The ingest consumer only ever sees the validated exact-ID subset; the raw
+    # harvest (including error rows) stays immutable at its own path.
+    ids_path.write_text("\n".join(str(value) for value in ok_ids) + "\n", encoding="ascii")
+    harvest_path.write_text(
+        "".join(
+            json.dumps(rows_by_id[item_id], ensure_ascii=False, sort_keys=True) + "\n"
+            for item_id in ok_ids
+        ),
+        encoding="utf-8",
+    )
+    report.update({"idsPath": str(ids_path), "harvestPath": str(harvest_path)})
     try:
-        raw_rows, payload_sha = _validate_snk_harvest(harvest_path, ids)
+        raw_rows, payload_sha = _validate_snk_harvest(harvest_path, ok_ids)
     except Exception as exc:  # noqa: BLE001
         report.update({"ok": False, "error": f"snk_harvest_contract:{type(exc).__name__}:{exc}"})
         return report
@@ -1358,7 +1701,7 @@ def _run_snk_adapter(
         ]
     report["ingest"] = _run(
         ingest_cmd,
-        timeout=max(180, 5 * len(ids)),
+        timeout=max(180, 5 * len(ok_ids)),
         dry_run=False,
     )
     if report["ingest"].get("exit") != 0:
@@ -1367,7 +1710,7 @@ def _run_snk_adapter(
     if adapter == "snk_price":
         try:
             ingest_summary = json.loads(ingest_report_path.read_text(encoding="utf-8-sig"))
-            ingest_contract = _validate_snk_price_ingest(ingest_summary, ids)
+            ingest_contract = _validate_snk_price_ingest(ingest_summary, ok_ids)
         except Exception as exc:  # noqa: BLE001
             report.update({"ok": False, "error": f"snk_price_ingest_contract:{type(exc).__name__}:{exc}"})
             return report
@@ -1376,7 +1719,7 @@ def _run_snk_adapter(
         checkpoint = record_successful_poll(
             adapter=adapter,
             mode=mode,
-            items=selected,
+            items=ok_items,
             payload={"harvest": raw_rows, "ingest": report["ingest"]},
             started_at=started_at,
             payload_sha_by_external=payload_sha,
@@ -1384,7 +1727,17 @@ def _run_snk_adapter(
     except Exception as exc:  # noqa: BLE001
         report.update({"ok": False, "error": f"checkpoint:{type(exc).__name__}:{exc}"})
         return report
+    _persist_item_checkpoints(
+        adapter,
+        mode=mode,
+        items=ok_items,
+        payload_sha_by_external=payload_sha,
+        run_id=checkpoint.get("runId"),
+    )
+    _record_item_outcomes(adapter, succeeded=ok_items, failed=[])
     report.update(checkpoint)
+    if failed_items:
+        report.update({"ok": False, "error": f"{adapter}_partial_items_failed"})
     return report
 
 
@@ -2597,6 +2950,7 @@ def run_snk_trades(
     dry_run: bool,
     delay: float,
     workers: int = 24,
+    shared_harvest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return _run_snk_adapter(
         items,
@@ -2606,6 +2960,7 @@ def run_snk_trades(
         dry_run=dry_run,
         delay=delay,
         workers=workers,
+        shared_harvest=shared_harvest,
     )
 
 
@@ -2617,6 +2972,7 @@ def run_snk_price(
     dry_run: bool,
     delay: float,
     workers: int = 24,
+    shared_harvest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return _run_snk_adapter(
         items,
@@ -2626,6 +2982,7 @@ def run_snk_price(
         dry_run=dry_run,
         delay=delay,
         workers=workers,
+        shared_harvest=shared_harvest,
     )
 
 
@@ -3189,6 +3546,34 @@ def _collect_mode_impl(
                 dry_run=dry_run,
             )
         )
+    # One SNKRDUNK harvest per collect run: when both SNK ingest consumers are
+    # requested, the union of their due exact IDs is fetched once and each lane
+    # ingests from the same immutable rows (previously each lane refetched).
+    snk_shared_harvest: dict[str, Any] | None = None
+    if not dry_run and "snk_trades" in requested and "snk_price" in requested:
+        union_ids: list[int] = []
+        seen_ids: set[int] = set()
+        for adapter in ("snk_trades", "snk_price"):
+            lane_active, _ = _partition_quarantined(adapter, due_by_adapter[adapter])
+            try:
+                _, lane_ids = _snk_selection(lane_active, limit)
+            except Exception:  # noqa: BLE001
+                # Selection errors belong to the lane report; fall back to
+                # per-lane harvesting so the lane fails with its own error.
+                union_ids = []
+                break
+            for external_id in lane_ids:
+                if external_id not in seen_ids:
+                    seen_ids.add(external_id)
+                    union_ids.append(external_id)
+        if union_ids:
+            snk_shared_harvest = _snk_harvest_once(
+                union_ids,
+                label="snk_shared",
+                mode=mode,
+                delay=delay,
+                workers=workers,
+            )
     if "snk_trades" in requested:
         results.append(
             run_snk_trades(
@@ -3198,6 +3583,7 @@ def _collect_mode_impl(
                 dry_run=dry_run,
                 delay=delay,
                 workers=workers,
+                shared_harvest=snk_shared_harvest,
             )
         )
     if "snk_price" in requested:
@@ -3209,6 +3595,7 @@ def _collect_mode_impl(
                 dry_run=dry_run,
                 delay=delay,
                 workers=workers,
+                shared_harvest=snk_shared_harvest,
             )
         )
     if "snk_en_image" in requested:
@@ -3330,7 +3717,9 @@ def _collect_mode_impl(
     truncated = [
         adapter
         for adapter in requested
+        # Quarantined items are known-partial skips, not truncation.
         if int(by_adapter.get(adapter, {}).get("processed") or 0)
+        + int(by_adapter.get(adapter, {}).get("quarantined") or 0)
         != len(due_by_adapter[adapter])
     ]
     ok = not failed and not truncated
@@ -3347,6 +3736,20 @@ def _collect_mode_impl(
         int(result.get("failed") or (0 if result.get("ok") else 1))
         for result in results
     )
+    quarantined_count = sum(
+        int(result.get("quarantined") or 0) for result in results
+    )
+    snk_shared_summary = None
+    if snk_shared_harvest is not None:
+        snk_shared_summary = {
+            "ok": bool(snk_shared_harvest.get("ok")),
+            "idsPath": snk_shared_harvest.get("idsPath"),
+            "harvestPath": snk_shared_harvest.get("harvestPath"),
+            "requestedIds": len(snk_shared_harvest.get("requestedIds") or []),
+            "rows": len(snk_shared_harvest.get("rowsById") or {}),
+            "failedRows": len(snk_shared_harvest.get("failedById") or {}),
+            "error": snk_shared_harvest.get("error"),
+        }
     report = {
         "action": mode,
         "asOf": utc_now(),
@@ -3363,6 +3766,8 @@ def _collect_mode_impl(
         "reused": reused_count,
         "downloaded": downloaded_count,
         "failed": failed_count,
+        "quarantined": quarantined_count,
+        "snkSharedHarvest": snk_shared_summary,
         "preStatusCounts": status.get("counts"),
         "pcRefresh": pc_refresh,
         "browserBootstrap": browser_bootstrap,
@@ -3374,6 +3779,8 @@ def _collect_mode_impl(
             "A successful source poll advances only that adapter and stream checkpoint.",
             "SNK EN image collection is exact-ID HTTP only and never opens Chrome.",
             "Missing PC contracts replay strict local HTML first; incremental PC/eBay and EN price reference share one fresh CDP page acquisition.",
+            "SNK trades and price ingest one shared exact-ID harvest per run; the remote source is fetched once.",
+            "Quarantined items (3+ consecutive failed runs) are skipped, reported per lane, and count as known-partial, never lane failure.",
         ],
     }
     load_env()
