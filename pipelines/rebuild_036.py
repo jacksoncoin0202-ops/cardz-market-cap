@@ -4373,7 +4373,8 @@ def stage_discover(ctx: SimpleNamespace) -> dict[str, Any]:
 
     # 5) The long leg: exact public card pages, strict resume, 429 ladder.
     result = gemrate_source.collect_public_card_details(
-        worklist, cards_dir=cards_dir, delay=0.3, resume=True, chunk_size=200,
+        worklist, cards_dir=cards_dir, delay=0.2, resume=True, chunk_size=200,
+        workers=6,
     )
     reasons: dict[str, int] = {}
     for receipt in result.get("failureReceipts") or []:

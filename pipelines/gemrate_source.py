@@ -1534,32 +1534,68 @@ def _fetch_card_once(
             f"{WEB}/card/{gid}", wait_until="domcontentloaded", timeout=60000,
         )
         if response is not None and int(response.status) == 429:
-            # Rate-limited before render; skip the 30s DOM poll entirely.
+            # Rate-limited before render; skip the DOM poll entirely.
             return None, None, True
-        page.wait_for_timeout(800)
+        # Primary transport first: the page-initiated /card-details JSON
+        # usually settles within seconds. Only when it never arrives do we pay
+        # for the DOM-table poll (fail-closed fallback, unchanged semantics).
+        json_deadline = time.monotonic() + 10.0
+        while time.monotonic() < json_deadline:
+            if any(
+                entry.get("status") == 200 and isinstance(entry.get("body"), Mapping)
+                for entry in initiated_json
+            ) or any(entry.get("status") == 429 for entry in initiated_json):
+                break
+            page.wait_for_timeout(200)
+        has_page_json = any(
+            entry.get("status") == 200 and isinstance(entry.get("body"), Mapping)
+            for entry in initiated_json
+        )
+        if not has_page_json and any(
+            entry.get("status") == 429 for entry in initiated_json
+        ):
+            # Rate-limited JSON and nothing usable; climb the ladder now
+            # instead of paying for a DOM poll whose verdict would be a lie.
+            return None, None, True
         page_data = page.evaluate(
-            """async (gemrateId) => {
+            """async (args) => {
                 const norm = (value) => String(value || "")
                   .replace(/\\s+/g, " ").trim().toUpperCase();
-                const deadline = Date.now() + 30000;
-                let table = null;
-                // The population table can render well after domcontentloaded
-                // (page-initiated JSON resolves later). Poll briefly before
-                // declaring it missing so slow cards are not misclassified.
-                while (Date.now() < deadline) {
-                  table = Array.from(document.querySelectorAll("table")).find((candidate) => {
-                    const headers = Array.from(candidate.querySelectorAll("thead th"))
-                      .map((cell) => norm(cell.textContent));
-                    return headers.includes("POP") && headers.includes("GEM MINT");
-                  });
-                  const ready = table && Array.from(table.querySelectorAll("tbody tr")).some((row) => {
-                    const cells = Array.from(row.querySelectorAll("th,td"));
-                    return norm(cells[0] && cells[0].textContent) === "PSA";
-                  });
-                  if (ready) break;
+                const findTable = () => Array.from(document.querySelectorAll("table")).find((candidate) => {
+                  const headers = Array.from(candidate.querySelectorAll("thead th"))
+                    .map((cell) => norm(cell.textContent));
+                  return headers.includes("POP") && headers.includes("GEM MINT");
+                });
+                const hasPsaRow = (table) => table && Array.from(table.querySelectorAll("tbody tr")).some((row) => {
+                  const cells = Array.from(row.querySelectorAll("th,td"));
+                  return norm(cells[0] && cells[0].textContent) === "PSA";
+                });
+                const deadline = Date.now() + args.waitMs;
+                // The population table can render well after domcontentloaded.
+                // Poll (bounded) before declaring it missing so slow cards are
+                // not misclassified; with page JSON in hand one attempt is enough.
+                let table = findTable();
+                while (!hasPsaRow(table) && Date.now() < deadline) {
                   await new Promise((resolve) => setTimeout(resolve, 500));
+                  table = findTable();
                 }
-                if (!table) return {__failureReason: "population_table_missing"};
+                const html = document.documentElement.outerHTML;
+                const digest = await crypto.subtle.digest(
+                  "SHA-256", new TextEncoder().encode(html)
+                );
+                const htmlSha256 = Array.from(new Uint8Array(digest))
+                  .map((byte) => byte.toString(16).padStart(2, "0")).join("");
+                const h1 = document.querySelector("h1");
+                const routeVerified = location.origin === "https://www.gemrate.com"
+                  && location.pathname.startsWith("/card/") && !!h1;
+                const meta = {
+                  canonicalUrl: location.href,
+                  title: h1 ? String(h1.textContent || "").trim() : "",
+                  domSha256: htmlSha256,
+                  routeVerified,
+                };
+                if (!routeVerified) return {__failureReason: "canonical_route_unverified", ...meta};
+                if (!table) return {__failureReason: "population_table_missing", ...meta};
                 const headers = Array.from(table.querySelectorAll("thead th"))
                   .map((cell) => norm(cell.textContent));
                 const gemMintIndex = headers.indexOf("GEM MINT");
@@ -1567,27 +1603,15 @@ def _fetch_card_once(
                   const cells = Array.from(row.querySelectorAll("th,td"));
                   return norm(cells[0] && cells[0].textContent) === "PSA";
                 });
-                if (!psaRow || gemMintIndex < 0) return {__failureReason: "psa_gem_mint_missing"};
+                if (!psaRow || gemMintIndex < 0) return {__failureReason: "psa_gem_mint_missing", ...meta};
                 const cells = Array.from(psaRow.querySelectorAll("th,td"));
-                const html = document.documentElement.outerHTML;
-                const digest = await crypto.subtle.digest(
-                  "SHA-256", new TextEncoder().encode(html)
-                );
-                const htmlSha256 = Array.from(new Uint8Array(digest))
-                  .map((byte) => byte.toString(16).padStart(2, "0")).join("");
-                const routeVerified = location.origin === "https://www.gemrate.com"
-                  && location.pathname.startsWith("/card/") && !!document.querySelector("h1");
-                if (!routeVerified) return {__failureReason: "canonical_route_unverified"};
                 return {
+                  ...meta,
                   headers,
                   psaRow: cells.map((cell) => String(cell.textContent || "").trim()),
-                  canonicalUrl: location.href,
-                  title: String(document.querySelector("h1").textContent || "").trim(),
-                  domSha256: htmlSha256,
-                  routeVerified: true
                 };
             }""",
-            gid,
+            {"gemrateId": gid, "waitMs": 0 if has_page_json else 15000},
         )
         dom_payload: dict[str, Any] | None = None
         dom_reason: str | None = None
@@ -1656,8 +1680,20 @@ def _fetch_card_once(
         _remove_page_listener(page, "response", capture_page_json)
 
 
+_BLOCKED_RESOURCE_TYPES = {"image", "media", "font"}
+
+
+def _abort_heavy_resources(route: Any) -> None:
+    """Skip bytes that never influence the DOM markup we hash or parse."""
+
+    if route.request.resource_type in _BLOCKED_RESOURCE_TYPES:
+        route.abort()
+    else:
+        route.continue_()
+
+
 def _chrome_card_pages_with_receipts(
-    ids: list[str], delay: float = 0.3,
+    ids: list[str], delay: float = 0.3, label: str = "",
 ) -> tuple[dict[str, Mapping[str, Any]], list[dict[str, Any]]]:
     """Fetch exact public GemRate card pages with per-ID failure receipts.
 
@@ -1680,6 +1716,7 @@ def _chrome_card_pages_with_receipts(
         browser = _launch_chromium(pw)
         ctx = browser.new_context(user_agent=UA, viewport={"width": 1366, "height": 900})
         ctx.add_init_script(_STEALTH)
+        ctx.route("**/*", _abort_heavy_resources)
         page = ctx.new_page()
         page.goto(WEB + "/universal-pop-report", wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(3000)
@@ -1696,7 +1733,7 @@ def _chrome_card_pages_with_receipts(
                     wait_seconds = RATE_LIMIT_LADDER[ladder_step]
                     ladder_step += 1
                     print(
-                        f"  429 on {gid}; waiting {wait_seconds}s "
+                        f"  {label}429 on {gid}; waiting {wait_seconds}s "
                         f"(ladder {ladder_step}/{len(RATE_LIMIT_LADDER)})",
                         file=sys.stderr,
                     )
@@ -1708,7 +1745,10 @@ def _chrome_card_pages_with_receipts(
                     receipts.append(failure)
                 break
             if index % 25 == 0:
-                print(f"  public card pages {index}/{len(ids)} ok={len(results)}", file=sys.stderr)
+                print(
+                    f"  {label}public card pages {index}/{len(ids)} ok={len(results)}",
+                    file=sys.stderr,
+                )
             page.wait_for_timeout(max(0, int(delay * 1000)))
         browser.close()
     return results, receipts
@@ -1736,12 +1776,17 @@ def collect_public_card_details(
     delay: float = 0.3,
     resume: bool = False,
     chunk_size: int = 25,
+    workers: int = 1,
 ) -> dict[str, Any]:
     """Collect exact public card-page receipts into a private cache.
 
     This helper deliberately accepts GemRate IDs only.  It is shared by the
     standalone command and candidate backfill so neither path can accidentally
     promote a search-result population into canonical data.
+
+    ``workers`` > 1 shards the pending list round-robin across that many
+    threads, each with its own browser and its own 429 ladder; captures still
+    persist per chunk, so a crash or kill never loses completed shards.
     """
 
     unique_ids = list(dict.fromkeys(str(gid) for gid in ids if str(gid)))
@@ -1754,30 +1799,63 @@ def collect_public_card_details(
     error: str | None = None
     failure_receipts: list[dict[str, Any]] = []
     attempted = 0
-    if pending:
-        for start in range(0, len(pending), chunk_size):
-            chunk = pending[start:start + chunk_size]
-            attempted += len(chunk)
+
+    def _run_shard(shard: list[str], label: str, stagger: float) -> tuple[
+        dict[str, Mapping[str, Any]], list[dict[str, Any]], int, str | None,
+    ]:
+        shard_payloads: dict[str, Mapping[str, Any]] = {}
+        shard_receipts: list[dict[str, Any]] = []
+        shard_attempted = 0
+        shard_error: str | None = None
+        if stagger > 0:
+            time.sleep(stagger)
+        for start in range(0, len(shard), chunk_size):
+            chunk = shard[start:start + chunk_size]
+            shard_attempted += len(chunk)
             try:
-                chunk_payloads, chunk_receipts = _chrome_card_pages_with_receipts(chunk, delay=delay)
+                chunk_payloads, chunk_receipts = _chrome_card_pages_with_receipts(
+                    chunk, delay=delay, label=label,
+                )
             except Exception as caught:
-                error = _safe_browser_error(caught)
-                failure_receipts.extend(
-                    _public_failure_receipt(gid, http_status=None, reason=error)
-                    for gid in pending[start:]
+                shard_error = _safe_browser_error(caught)
+                shard_receipts.extend(
+                    _public_failure_receipt(gid, http_status=None, reason=shard_error)
+                    for gid in shard[start:]
                 )
                 break
             for gid, payload in chunk_payloads.items():
                 _persist_public_card_capture(cards_dir, gid, payload)
-                payloads[gid] = payload
-            failure_receipts.extend(chunk_receipts)
+                shard_payloads[gid] = payload
+            shard_receipts.extend(chunk_receipts)
             resolved_chunk_ids = set(chunk_payloads)
             receipt_chunk_ids = {str(row.get("gemrateId")) for row in chunk_receipts}
             for gid in chunk:
                 if gid not in resolved_chunk_ids and gid not in receipt_chunk_ids:
-                    failure_receipts.append(_public_failure_receipt(
+                    shard_receipts.append(_public_failure_receipt(
                         gid, http_status=None, reason="missing_response",
                     ))
+        return shard_payloads, shard_receipts, shard_attempted, shard_error
+
+    if pending:
+        worker_count = max(1, min(int(workers), len(pending)))
+        if worker_count == 1:
+            payloads, failure_receipts, attempted, error = _run_shard(pending, "", 0.0)
+        else:
+            from concurrent.futures import ThreadPoolExecutor
+
+            shards = [pending[offset::worker_count] for offset in range(worker_count)]
+            with ThreadPoolExecutor(max_workers=worker_count) as pool:
+                futures = [
+                    pool.submit(_run_shard, shard, f"w{offset + 1} ", offset * 1.5)
+                    for offset, shard in enumerate(shards)
+                ]
+                for future in futures:
+                    shard_payloads, shard_receipts, shard_attempted, shard_error = future.result()
+                    payloads.update(shard_payloads)
+                    failure_receipts.extend(shard_receipts)
+                    attempted += shard_attempted
+                    if shard_error and error is None:
+                        error = shard_error
     resolved_ids = set(payloads)
     receipt_ids = {str(row.get("gemrateId")) for row in failure_receipts}
     for gid in pending:
