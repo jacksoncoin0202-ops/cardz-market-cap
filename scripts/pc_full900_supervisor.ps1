@@ -16,7 +16,7 @@
 param(
   [switch]$Once,
   [int]$PollSeconds = 45,
-  [int]$Port = 9222
+  [int]$Port = 9333
 )
 
 $ErrorActionPreference = "Continue"

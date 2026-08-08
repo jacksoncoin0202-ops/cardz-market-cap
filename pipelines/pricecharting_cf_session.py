@@ -166,10 +166,12 @@ def cmd_launch(url: str, timeout_s: int) -> int:
 
 
 def _try_cdp_ports() -> list[int]:
-    """Prefer real Chrome with remote debugging (proven CF path 2026-07-30)."""
-    # 9333 is the dedicated CARDZ profile. 9222 may be owned by the Codex
-    # browser profile and can be on a different Cloudflare clearance state.
-    return [9333, 9222, 9223]
+    """Real Chrome with remote debugging is the proven CF path (2026-07-30)."""
+    # 9333 is the dedicated CARDZ profile (scripts/ensure_chrome_cdp.ps1 -Port
+    # 9333). 9222 belongs to the Codex browser profile: touching it interferes
+    # with that tooling and its Cloudflare clearance differs, so failing fast
+    # here beats silently fetching through the wrong profile.
+    return [9333]
 
 
 def _cmd_fetch_once(
@@ -183,7 +185,7 @@ def _cmd_fetch_once(
     """Fetch product HTML.
 
     Success experience (2026-07-30 Magikarp #203):
-    - CDP connect to real Chrome (:9222) clears CF reliably.
+    - CDP connect to real Chrome (:9333) clears CF reliably.
     - Headless + storage_state / persistent profile alone often stays on CF challenge.
     """
     if out is None:
