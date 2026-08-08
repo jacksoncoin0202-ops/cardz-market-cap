@@ -2886,6 +2886,1324 @@ def _price_materialize_input_sha(ctx: SimpleNamespace) -> str:
     ]))
 
 
+# ---------------------------------------------------------------------------
+# Stage 9: image-bind (§6.6)
+# ---------------------------------------------------------------------------
+
+_HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
+_PC_IMAGE_URL_RE = re.compile(
+    r"https://storage\.googleapis\.com/images\.pricecharting\.com/([A-Za-z0-9]+)/1600\.jpg"
+)
+# product_details cover block = the product front; tolerant of attribute noise
+# between the class anchor and the img src.
+_PC_COVER_IMAGE_RE = re.compile(
+    r'class="cover"[\s\S]{0,400}?'
+    r"https://storage\.googleapis\.com/images\.pricecharting\.com/([A-Za-z0-9]+)/240\.jpg"
+)
+_PC_IMAGE_TRANSFORM = {
+    "contract": "pc-product-image-transform-v1",
+    "canvas": {"width": 429, "height": 600},
+    "alphaPreserved": True,
+    "roundedCorners": False,
+    "encoder": {"format": "webp", "quality": 92},
+}
+
+
+def _market_assets_dir() -> Path:
+    return ROOT / "data" / "public" / "market-assets"
+
+
+def _pc_image_asset_dir() -> Path:
+    return ROOT / "data" / "runtime" / "rebuild-036" / "pc-image-assets"
+
+
+def _fe_image_state(conn, variant_ids: list[int]) -> dict[int, dict[str, Any]]:
+    """FE 兩條 image query 原樣鏡射（live-db-snapshot.ts）。S9 gate 以 FE 為準。"""
+
+    if not variant_ids:
+        return {}
+    ph = ",".join(["%s"] * len(variant_ids))
+    state: dict[int, dict[str, Any]] = {}
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT variant_id, canonical_image_content_sha256 AS sha"
+            f" FROM operator_canonical_image_projection WHERE variant_id IN ({ph})",
+            variant_ids,
+        )
+        for row in cursor.fetchall():
+            state[int(row["variant_id"])] = {
+                "via": "projection", "contentSha256": str(row["sha"] or ""),
+            }
+        cursor.execute(
+            "SELECT f.variant_id, a.content_sha256 AS sha"
+            " FROM operator_binding_freeze f"
+            " INNER JOIN market_canonical_image_acceptance ca"
+            "   ON ca.id=f.canonical_image_acceptance_id AND ca.variant_id=f.variant_id"
+            " INNER JOIN market_image_asset a"
+            "   ON a.id=ca.image_asset_id AND a.variant_id=ca.variant_id"
+            "  AND a.image_kind='raw_front' AND a.content_sha256=f.content_sha256"
+            " INNER JOIN market_image_qc q"
+            "   ON q.image_asset_id=a.id"
+            "  AND q.id=(SELECT q2.id FROM market_image_qc q2"
+            "            WHERE q2.image_asset_id=a.id"
+            "            ORDER BY q2.checked_at DESC,q2.id DESC LIMIT 1)"
+            "  AND q.public_allowed=1 AND q.raw_front_confirmed=1 AND q.card_number_match=1"
+            "  AND q.language_match=1 AND q.tcg_match=1"
+            "  AND q.semantic_match_status IN ('human_or_vision_confirmed','accepted_freeze')"
+            f" WHERE f.variant_id IN ({ph})"
+            "   AND f.freeze_kind='image' AND f.acceptance_status='accepted'"
+            "   AND f.canonical_image_acceptance_id IS NOT NULL"
+            "   AND f.content_sha256 REGEXP '^[0-9a-f]{64}$'"
+            "   AND NOT EXISTS (SELECT 1 FROM market_canonical_image_acceptance newer"
+            "                   WHERE newer.supersedes_acceptance_id=ca.id)",
+            variant_ids,
+        )
+        for row in cursor.fetchall():
+            state.setdefault(int(row["variant_id"]), {
+                "via": "freeze_fallback", "contentSha256": str(row["sha"] or ""),
+            })
+    return state
+
+
+def _image_rejections(conn, variant_ids: list[int]) -> dict[int, set[str]]:
+    """人手 reject 過嘅 (variant, content) 永不復活。"""
+
+    if not variant_ids:
+        return {}
+    ph = ",".join(["%s"] * len(variant_ids))
+    rejected: dict[int, set[str]] = {}
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT variant_id, content_sha256 FROM market_image_rejection_registry"
+            f" WHERE variant_id IN ({ph})",
+            variant_ids,
+        )
+        for row in cursor.fetchall():
+            rejected.setdefault(int(row["variant_id"]), set()).add(
+                str(row["content_sha256"])
+            )
+    return rejected
+
+
+def _exact_identity_evidence(conn, source_code: str, variant_ids: list[int],
+                             ) -> dict[tuple[int, str], str]:
+    """(variant, external) -> catalog evidence sha（exact rows only）。"""
+
+    if not variant_ids:
+        return {}
+    ph = ",".join(["%s"] * len(variant_ids))
+    evidence: dict[tuple[int, str], str] = {}
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT variant_id, external_entity_id, evidence_sha256"
+            " FROM catalog_source_identity"
+            " WHERE source_code=%s AND LOWER(match_status)='exact'"
+            f"  AND variant_id IN ({ph})",
+            [source_code, *variant_ids],
+        )
+        for row in cursor.fetchall():
+            sha = str(row["evidence_sha256"] or "")
+            if _HEX64_RE.fullmatch(sha):
+                evidence[(int(row["variant_id"]), str(row["external_entity_id"]))] = sha
+    return evidence
+
+
+def _trio_missing(sha: str) -> list[str]:
+    assets = _market_assets_dir()
+    return [
+        name for name in (f"{sha}.webp", f"{sha}_200.webp", f"{sha}_600.webp")
+        if not (assets / name).is_file()
+    ]
+
+
+def _materialize_trio(sha: str, base_bytes: bytes | None) -> str | None:
+    """確保 public webp 三件套存在。回 None=OK，否則 fail reason。
+
+    base 來源優先序：public 已有 → runtime snk-en-assets → rebuild pc-image-assets
+    → 傳入 bytes。任何 bytes 必須 sha 相符——唔准靜默改內容（self-heal 教訓）。
+    衍生圖只做純 resize（encode_derivatives），唔 normalize 唔補圓角。
+    """
+
+    import g10_public_snapshot as g10
+    from PIL import Image
+
+    assets = _market_assets_dir()
+    assets.mkdir(parents=True, exist_ok=True)
+    base_path = assets / f"{sha}.webp"
+    if base_path.is_file():
+        data = base_path.read_bytes()
+        if sha256_bytes(data) != sha:
+            return "public_base_sha_mismatch"
+    else:
+        data = None
+        for candidate in (
+            ROOT / "data" / "runtime" / "operator" / "snk-en-assets" / f"{sha}.webp",
+            _pc_image_asset_dir() / f"{sha}.webp",
+        ):
+            if candidate.is_file():
+                blob = candidate.read_bytes()
+                if sha256_bytes(blob) == sha:
+                    data = blob
+                    break
+        if data is None and base_bytes is not None and sha256_bytes(base_bytes) == sha:
+            data = base_bytes
+        if data is None:
+            return "no_base_bytes"
+        base_path.write_bytes(data)
+    if not _trio_missing(sha):
+        return None
+    with Image.open(io.BytesIO(data)) as opened:
+        image = opened.copy()
+    for suffix, blob in g10.encode_derivatives(image).items():
+        path = assets / f"{sha}_{suffix}.webp"
+        if not path.is_file():
+            path.write_bytes(blob)
+    return None
+
+
+def _download_pc_image(url: str) -> bytes:
+    import time
+    import urllib.request
+
+    request = urllib.request.Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    })
+    last: Exception | None = None
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                data = response.read()
+            if data:
+                return data
+            last = ValueError("empty body")
+        except Exception as exc:  # noqa: BLE001
+            last = exc
+        time.sleep(1.0 + attempt)
+    raise RuntimeError(f"pc image download failed: {url}: {last}")
+
+
+def _process_pc_product_image(raw: bytes) -> dict[str, Any]:
+    """PC 1600.jpg → 統一畫布 webp。鏡 process_snk_default_image，換 PC provenance 標籤。"""
+
+    import g10_public_snapshot as g10
+    from PIL import Image
+    from native_image_resolver import normalize_card_canvas
+
+    if not raw:
+        raise ValueError("PC product image is empty")
+    with Image.open(io.BytesIO(raw)) as opened:
+        normalized = normalize_card_canvas(opened.copy())
+    content = g10._save_webp(normalized, 92)
+    return {
+        "content": content,
+        "contentSha256": sha256_bytes(content),
+        "width": normalized.width,
+        "height": normalized.height,
+        "transformSha256": sha256_bytes(canonical_json(_PC_IMAGE_TRANSFORM)),
+        "qcVersion": "pc-product-v1",
+    }
+
+
+def _write_pc_image_asset(processed: Mapping[str, Any]) -> str:
+    """Content-addressed 私有 asset 檔（atomic，鏡 _write_snk_en_asset）。"""
+
+    asset_dir = _pc_image_asset_dir()
+    asset_dir.mkdir(parents=True, exist_ok=True)
+    path = asset_dir / f"{processed['contentSha256']}.webp"
+    if path.is_file():
+        if sha256_bytes(path.read_bytes()) != processed["contentSha256"]:
+            raise RuntimeError(f"pc asset hash mismatch: {path}")
+        return path.relative_to(ROOT).as_posix()
+    temporary = path.with_name(f".{path.name}.next")
+    temporary.write_bytes(processed["content"])
+    if sha256_bytes(temporary.read_bytes()) != processed["contentSha256"]:
+        temporary.unlink(missing_ok=True)
+        raise RuntimeError(f"pc asset write hash mismatch: {path}")
+    temporary.replace(path)
+    return path.relative_to(ROOT).as_posix()
+
+
+def _persist_pc_product_image(cursor, *, variant_id: int, pid: str, image_url: str,
+                              page_sha: str, canonical_url: str, downloaded_sha: str,
+                              identity_evidence: str, processed: Mapping[str, Any],
+                              observed_at, completed_at) -> None:
+    """PC 圖四表鏈：asset → pointer → qc → acceptance(fallback 分支) → freeze。
+
+    Projection view fallback 分支要求：storefront_lineage_id NULL、
+    fallback_source_path 非空且唔含 'snkrdunk'、lineage==fallback_version(64-hex)、
+    observed_at 非空、freeze source_code 唔係 snk 系。
+    """
+
+    content_sha = str(processed["contentSha256"])
+    private_key = _write_pc_image_asset(processed)
+    source_version = sha256_bytes(canonical_json({
+        "pageCaptureSha256": page_sha,
+        "downloadedBytesSha256": downloaded_sha,
+        "transformSha256": processed["transformSha256"],
+    }))
+    cursor.execute(
+        "INSERT INTO market_image_asset"
+        " (variant_id,image_kind,content_sha256,private_object_key,mime_type,"
+        "  width_px,height_px,source_version_sha256,captured_at)"
+        " VALUES (%s,'raw_front',%s,%s,'image/webp',%s,%s,%s,%s)"
+        " ON DUPLICATE KEY UPDATE"
+        "  private_object_key=VALUES(private_object_key),mime_type=VALUES(mime_type),"
+        "  width_px=VALUES(width_px),height_px=VALUES(height_px),"
+        "  source_version_sha256=VALUES(source_version_sha256),"
+        "  captured_at=GREATEST(captured_at,VALUES(captured_at))",
+        (variant_id, content_sha, private_key, processed["width"],
+         processed["height"], source_version, completed_at),
+    )
+    cursor.execute(
+        "SELECT id FROM market_image_asset"
+        " WHERE variant_id=%s AND image_kind='raw_front' AND content_sha256=%s"
+        " LIMIT 1",
+        (variant_id, content_sha),
+    )
+    asset = cursor.fetchone()
+    if not asset:
+        raise RuntimeError(f"pc asset row missing: {variant_id}:{pid}")
+    asset_id = int(asset["id"])
+    cursor.execute(
+        "INSERT INTO market_image_source_pointer"
+        " (variant_id,image_kind,remote_url_sha256,source_path,"
+        "  source_version_sha256,public_allowed,observed_at)"
+        " VALUES (%s,'raw_front',%s,%s,%s,1,%s)"
+        " ON DUPLICATE KEY UPDATE"
+        "  remote_url_sha256=VALUES(remote_url_sha256),"
+        "  source_path=VALUES(source_path),public_allowed=1,"
+        "  observed_at=GREATEST(observed_at,VALUES(observed_at))",
+        (variant_id, sha256_bytes(image_url.encode("utf-8")), image_url,
+         source_version, observed_at),
+    )
+    cursor.execute(
+        "INSERT INTO market_image_qc"
+        " (image_asset_id,semantic_match_status,card_number_match,language_match,"
+        "  tcg_match,raw_front_confirmed,public_allowed,rejection_reason,"
+        "  checked_at,qc_version)"
+        " VALUES (%s,'accepted_freeze',1,1,1,1,1,NULL,%s,%s)"
+        " ON DUPLICATE KEY UPDATE"
+        "  semantic_match_status='accepted_freeze',card_number_match=1,"
+        "  language_match=1,tcg_match=1,raw_front_confirmed=1,"
+        "  public_allowed=1,rejection_reason=NULL,checked_at=VALUES(checked_at)",
+        (asset_id, completed_at, processed["qcVersion"]),
+    )
+    lineage_payload = {
+        "contract": "pc-product-image-lineage-v1",
+        "variantId": variant_id,
+        "sourceCode": "pricecharting",
+        "pcProductId": pid,
+        "productUrl": canonical_url,
+        "pageCaptureSha256": page_sha,
+        "imageUrl": image_url,
+        "downloadedBytesSha256": downloaded_sha,
+        "processedContentSha256": content_sha,
+        "transformSha256": processed["transformSha256"],
+        "identityEvidenceSha256": identity_evidence,
+        "sourceObservedAt": observed_at.isoformat(timespec="microseconds"),
+    }
+    lineage_sha = sha256_bytes(canonical_json(lineage_payload))
+    acceptance_evidence = sha256_bytes(canonical_json({
+        "contract": "canonical-pc-image-acceptance-v1",
+        "lineageSha256": lineage_sha,
+        "imageContentSha256": content_sha,
+        "qcVersion": processed["qcVersion"],
+    }))
+    cursor.execute(
+        "SELECT ca.id, ca.lineage_sha256 FROM market_canonical_image_acceptance ca"
+        " WHERE ca.variant_id=%s"
+        "  AND NOT EXISTS (SELECT 1 FROM market_canonical_image_acceptance newer"
+        "                  WHERE newer.supersedes_acceptance_id=ca.id)"
+        " ORDER BY ca.accepted_at DESC, ca.id DESC LIMIT 1",
+        (variant_id,),
+    )
+    current = cursor.fetchone()
+    if current and str(current["lineage_sha256"]) == lineage_sha:
+        acceptance_id = int(current["id"])
+    else:
+        cursor.execute(
+            "INSERT INTO market_canonical_image_acceptance"
+            " (variant_id,storefront_lineage_id,image_asset_id,"
+            "  fallback_source_path,fallback_source_version_sha256,"
+            "  fallback_source_observed_at,lineage_sha256,evidence_sha256,"
+            "  accepted_by,accepted_at,supersedes_acceptance_id)"
+            " VALUES (%s,NULL,%s,%s,%s,%s,%s,%s,'rebuild_036:image_bind',%s,%s)",
+            (variant_id, asset_id, f"pricecharting:{pid}:{image_url}",
+             lineage_sha, observed_at, lineage_sha, acceptance_evidence,
+             completed_at, int(current["id"]) if current else None),
+        )
+        acceptance_id = int(cursor.lastrowid)
+    cursor.execute(
+        "INSERT INTO operator_binding_freeze"
+        " (variant_id,freeze_kind,source_code,external_entity_id,content_sha256,"
+        "  canonical_image_acceptance_id,accepted_lineage_sha256,acceptance_status,"
+        "  actor,evidence_sha256,note,accepted_at)"
+        " VALUES (%s,'image','pricecharting',%s,%s,%s,%s,'accepted',"
+        "  'rebuild_036:image_bind',%s,'exact PC product page image',%s)"
+        " ON DUPLICATE KEY UPDATE"
+        "  external_entity_id=VALUES(external_entity_id),"
+        "  content_sha256=VALUES(content_sha256),"
+        "  canonical_image_acceptance_id=VALUES(canonical_image_acceptance_id),"
+        "  accepted_lineage_sha256=VALUES(accepted_lineage_sha256),"
+        "  acceptance_status='accepted',actor=VALUES(actor),"
+        "  evidence_sha256=VALUES(evidence_sha256),note=VALUES(note),"
+        "  accepted_at=VALUES(accepted_at)",
+        (variant_id, pid, content_sha, acceptance_id, lineage_sha,
+         acceptance_evidence, completed_at),
+    )
+
+
+def stage_image_bind(ctx: SimpleNamespace) -> dict[str, Any]:
+    """S9 §6.6: SNK EN primaryMedia 優先，PC 產品圖次之，兩者都冇 = 誠實唔 product-ready.
+
+    Gate = FE 自己兩條 query（projection + freeze fallback）+ public webp 三件套。
+    禁 Kado/TCGplayer/AI/無來源圖；rejection registry 內容永不復活。
+    """
+
+    from datetime import datetime, timezone
+
+    conn = ctx.conn
+    generation = ctx.generation
+    from concurrent.futures import ThreadPoolExecutor
+
+    from collect_control import (
+        _local_snk_default_bytes,
+        _local_snk_master_cache,
+        _persist_prepared_snk_en,
+        _prepare_snk_en_target,
+        _require_migration_029,
+    )
+    from pc_ungraded_reference_ingest import canonical_url_from_html
+    from snkrdunk_bulk import SnkrdunkApiPool
+
+    counts: dict[str, Any] = {
+        "alreadyOk": 0, "trioFilled": 0, "trioFillFailed": 0,
+        "snkAttempted": 0, "snkBound": 0, "snkFailed": 0, "snkRejected": 0,
+        "pcAttempted": 0, "pcBound": 0, "pcFailed": 0, "pcRejected": 0,
+    }
+    pc_bind, snk_bind, _lang = _strict_price_bindings(conn)
+    universe = sorted(set(pc_bind) | set(snk_bind))
+    counts["universe"] = len(universe)
+    if not universe:
+        raise SystemExit("S9 ABORT: strict view projects no variants")
+    with conn.cursor() as cursor:
+        _require_migration_029(cursor)
+
+    rejections = _image_rejections(conn, universe)
+    state = _fe_image_state(conn, universe)
+    reasons: dict[int, str] = {}
+
+    # --- Pass 1: FE 已通過嘅 variant → 補齊 public 三件套（純本地 resize） ----
+    for vid in universe:
+        entry = state.get(vid)
+        if not entry:
+            continue
+        sha = entry["contentSha256"]
+        if not _HEX64_RE.fullmatch(sha):
+            reasons[vid] = "fe_state_bad_sha"
+            continue
+        if not _trio_missing(sha):
+            counts["alreadyOk"] += 1
+            continue
+        failure = _materialize_trio(sha, None)
+        if failure:
+            counts["trioFillFailed"] += 1
+            reasons[vid] = f"trio:{failure}"
+        else:
+            counts["trioFilled"] += 1
+
+    # --- Pass 2: SNK EN 綁定（primaryMedia 優先；collect_control 證實鏈） --------
+    todo_snk = [vid for vid in universe if vid not in state and vid in snk_bind]
+    snk_evidence = _exact_identity_evidence(conn, "snkrdunk", todo_snk)
+    snk_items: list[dict[str, Any]] = []
+    for vid in todo_snk:
+        items = snk_bind[vid]
+        if len(items) != 1:
+            reasons[vid] = "snk_multiple_exact_ids"
+            continue
+        external_id = str(items[0])
+        evidence = snk_evidence.get((vid, external_id))
+        if not evidence:
+            reasons[vid] = "snk_no_exact_evidence"
+            continue
+        snk_items.append({
+            "variantId": vid,
+            "externalId": external_id,
+            "identityEvidenceSha256": evidence,
+        })
+    counts["snkAttempted"] = len(snk_items)
+    bound_by_snk: set[int] = set()
+    if snk_items:
+        external_ids = {item["externalId"] for item in snk_items}
+        master_cache = _local_snk_master_cache(external_ids)
+        bytes_cache = _local_snk_default_bytes(external_ids)
+        counts["snkMasterCacheHits"] = len(master_cache)
+        counts["snkBytesCacheHits"] = len(bytes_cache)
+        api_pool = SnkrdunkApiPool(workers=4, delay=0.6, retries=1)
+        executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="s9-snk")
+        consecutive = 0
+        try:
+            futures = {
+                int(item["variantId"]): executor.submit(
+                    _prepare_snk_en_target, item, api_pool=api_pool,
+                    master_cache=master_cache, bytes_cache=bytes_cache,
+                )
+                for item in snk_items
+            }
+            for item in snk_items:
+                vid = int(item["variantId"])
+                started_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                try:
+                    prepared = futures[vid].result()
+                except Exception as exc:  # noqa: BLE001
+                    reasons[vid] = f"snk_prepare:{type(exc).__name__}"
+                    counts["snkFailed"] += 1
+                    consecutive += 1
+                    if consecutive >= 20:
+                        raise SystemExit(
+                            "S9 ABORT: 20 consecutive SNK prepare failures"
+                            f" (systemic); last={exc}"
+                        )
+                    continue
+                consecutive = 0
+                if prepared.image.content_sha256 in rejections.get(vid, set()):
+                    reasons[vid] = "rejected_content"
+                    counts["snkRejected"] += 1
+                    continue
+                completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                try:
+                    with conn.cursor() as cursor:
+                        _persist_prepared_snk_en(
+                            cursor, item=item, prepared=prepared,
+                            mode="rebuild036", started_at=started_at,
+                            completed_at=completed_at,
+                        )
+                    conn.commit()
+                except Exception as exc:  # noqa: BLE001
+                    conn.rollback()
+                    reasons[vid] = f"snk_persist:{type(exc).__name__}:{exc}"[:200]
+                    counts["snkFailed"] += 1
+                    continue
+                failure = _materialize_trio(
+                    prepared.image.content_sha256, prepared.image.content,
+                )
+                if failure:
+                    reasons[vid] = f"trio:{failure}"
+                    counts["trioFillFailed"] += 1
+                else:
+                    counts["snkBound"] += 1
+                    bound_by_snk.add(vid)
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+
+    # --- Pass 3: PC 產品圖（replay 頁抽 1600.jpg，fallback 分支四表鏈） --------
+    todo_pc = [
+        vid for vid in universe
+        if vid in pc_bind and vid not in state and vid not in bound_by_snk
+        and reasons.get(vid) != "rejected_content"
+    ]
+    pc_evidence = _exact_identity_evidence(conn, "pricecharting", todo_pc)
+    sidecars_by_pid: dict[str, Path] = {}
+    replay_dir = _pc_replay_dir(generation)
+    for sidecar_path in sorted(replay_dir.glob("*.json")):
+        if sidecar_path.name.startswith("replay-"):
+            continue
+        try:
+            pid_value = str(json.loads(
+                sidecar_path.read_text(encoding="utf-8")
+            )["pcProductId"])
+        except (json.JSONDecodeError, KeyError):
+            continue
+        sidecars_by_pid.setdefault(pid_value, sidecar_path)
+    counts["pcAttempted"] = len(todo_pc)
+    download_failures = 0
+    import time as _time
+    for vid in todo_pc:
+        outcome: str | None = None
+        for pid in sorted(pc_bind[vid], key=lambda value: int(value)):
+            sidecar_path = sidecars_by_pid.get(pid)
+            if sidecar_path is None:
+                outcome = outcome or "pc_no_page"
+                continue
+            html_path = sidecar_path.with_suffix(".html")
+            if not html_path.is_file():
+                outcome = outcome or "pc_no_page"
+                continue
+            sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+            digest = sha256_file(html_path)
+            if digest != sidecar.get("captureSha256"):
+                outcome = "pc_page_sha_mismatch"
+                continue
+            html = html_path.read_text(encoding="utf-8", errors="replace")
+            image_ids = sorted(set(_PC_IMAGE_URL_RE.findall(html)))
+            # "More Photos" user uploads (card backs etc.) add extra ids; the
+            # product front is anchored by the product_details cover block.
+            cover_ids = sorted(set(_PC_COVER_IMAGE_RE.findall(html)))
+            if len(image_ids) == 1:
+                chosen_id = image_ids[0]
+            elif len(cover_ids) == 1:
+                chosen_id = cover_ids[0]
+            elif not image_ids:
+                outcome = outcome or "pc_no_image"
+                continue
+            else:
+                outcome = "pc_image_ambiguous"
+                continue
+            image_url = (
+                "https://storage.googleapis.com/images.pricecharting.com/"
+                f"{chosen_id}/1600.jpg"
+            )
+            evidence = pc_evidence.get((vid, pid))
+            if not evidence:
+                outcome = "pc_no_exact_evidence"
+                continue
+            try:
+                raw = _download_pc_image(image_url)
+                download_failures = 0
+            except Exception:  # noqa: BLE001
+                outcome = "pc_image_download_failed"
+                download_failures += 1
+                if download_failures >= 15:
+                    raise SystemExit(
+                        "S9 ABORT: 15 consecutive PC image download failures"
+                    )
+                continue
+            try:
+                processed = _process_pc_product_image(raw)
+            except Exception:  # noqa: BLE001
+                outcome = "pc_image_decode_failed"
+                continue
+            if processed["contentSha256"] in rejections.get(vid, set()):
+                outcome = "rejected_content"
+                counts["pcRejected"] += 1
+                break
+            observed_at = datetime.strptime(
+                str(sidecar["capturedAtUtc"]), "%Y-%m-%dT%H:%M:%SZ"
+            )
+            completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            canonical_url = canonical_url_from_html(html) or image_url
+            try:
+                with conn.cursor() as cursor:
+                    _persist_pc_product_image(
+                        cursor, variant_id=vid, pid=pid, image_url=image_url,
+                        page_sha=digest, canonical_url=canonical_url,
+                        downloaded_sha=sha256_bytes(raw),
+                        identity_evidence=evidence, processed=processed,
+                        observed_at=observed_at, completed_at=completed_at,
+                    )
+                conn.commit()
+            except Exception as exc:  # noqa: BLE001
+                conn.rollback()
+                outcome = f"pc_persist:{type(exc).__name__}:{exc}"[:200]
+                continue
+            failure = _materialize_trio(processed["contentSha256"], processed["content"])
+            if failure:
+                outcome = f"trio:{failure}"
+                counts["trioFillFailed"] += 1
+            else:
+                counts["pcBound"] += 1
+                outcome = None
+            _time.sleep(0.35)
+            break
+        if outcome is not None:
+            reasons[vid] = outcome
+            if outcome != "rejected_content":
+                counts["pcFailed"] += 1
+
+    # --- Final gate: FE 兩條 query + 三件套，逐 variant 判定 -------------------
+    final_state = _fe_image_state(conn, universe)
+    routes: list[dict[str, Any]] = []
+    reason_histogram: dict[str, int] = {}
+    for vid in universe:
+        entry = final_state.get(vid)
+        if entry and _HEX64_RE.fullmatch(entry["contentSha256"]):
+            missing = _trio_missing(entry["contentSha256"])
+            if not missing:
+                routes.append({
+                    "variantId": vid, "status": "product_ready",
+                    "via": entry["via"], "contentSha256": entry["contentSha256"],
+                })
+                continue
+            reason = "trio_missing:" + ",".join(sorted(missing))
+        else:
+            reason = reasons.get(vid, "no_strict_image_source")
+        reason_key = reason.split(":", 1)[0]
+        reason_histogram[reason_key] = reason_histogram.get(reason_key, 0) + 1
+        routes.append({
+            "variantId": vid, "status": "not_product_ready", "reason": reason,
+            "snkCandidates": [str(item) for item in snk_bind.get(vid, [])],
+            "pcCandidates": list(pc_bind.get(vid, [])),
+        })
+    counts["productReady"] = sum(
+        1 for row in routes if row["status"] == "product_ready"
+    )
+    counts["notProductReady"] = len(routes) - counts["productReady"]
+    counts["notReadyReasons"] = dict(sorted(reason_histogram.items()))
+
+    artifact = {
+        "contract": "image_bind_v1",
+        "generation": generation,
+        "policy": {
+            "priority": ["snkrdunk_en_primary_media", "pricecharting_product_image"],
+            "forbidden": ["kado", "tcgplayer", "ai_generated", "unsourced"],
+            "rejectionRegistryConsulted": True,
+            "gate": "fe_live_db_snapshot_image_queries + public webp trio",
+        },
+        "routes": routes,
+    }
+    artifact_blob = canonical_json(artifact)
+    artifact_path = ROOT / "data" / "runtime" / "rebuild-036" / (
+        f"image-bind-{generation}.json"
+    )
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact_path.write_bytes(artifact_blob)
+    counts["imageArtifact"] = artifact_path.relative_to(ROOT).as_posix()
+    counts["imageArtifactSha256"] = sha256_bytes(artifact_blob)
+
+    return {
+        "input_sha256": _image_bind_input_sha(ctx),
+        "output_sha256": sha256_bytes(canonical_json([
+            "image-bind-output", sha256_bytes(artifact_blob),
+        ])),
+        "counts": counts,
+    }
+
+
+def _image_bind_input_sha(ctx: SimpleNamespace) -> str:
+    """S9's input: S8's recorded output. Never the tables/files S9 mutates."""
+
+    with ctx.conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT output_sha256 FROM cardz_rebuild_checkpoint"
+            " WHERE generation_id=%s AND stage='price-materialize'",
+            (ctx.generation,),
+        )
+        row = cursor.fetchone()
+    return sha256_bytes(canonical_json([
+        "image-bind-input", (row or {}).get("output_sha256"),
+    ]))
+
+
+# ---------------------------------------------------------------------------
+# Stage 10: prune-plan (§6.7 — 算刪除集 + 順序，唔刪嘢)
+# ---------------------------------------------------------------------------
+
+def _fk_edges(conn) -> list[dict[str, str]]:
+    """Schema-wide FK edges: child table/column -> parent table."""
+
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT TABLE_NAME AS child_table, COLUMN_NAME AS child_column,"
+            "       REFERENCED_TABLE_NAME AS parent_table"
+            " FROM information_schema.KEY_COLUMN_USAGE"
+            " WHERE TABLE_SCHEMA=DATABASE() AND REFERENCED_TABLE_NAME IS NOT NULL"
+        )
+        return [
+            {
+                "child_table": str(row["child_table"]),
+                "child_column": str(row["child_column"]),
+                "parent_table": str(row["parent_table"]),
+            }
+            for row in cursor.fetchall()
+        ]
+
+
+def _table_columns(conn, table: str) -> dict[str, str]:
+    """column -> IS_NULLABLE for one base table."""
+
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT COLUMN_NAME AS name, IS_NULLABLE AS nullable"
+            " FROM information_schema.COLUMNS"
+            " WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=%s",
+            (table,),
+        )
+        return {str(row["name"]): str(row["nullable"]) for row in cursor.fetchall()}
+
+
+def _chunked_in_count(conn, sql_template: str, ids: list[int], chunk: int = 800) -> int:
+    """SUM of COUNT(*) over id chunks; sql_template has one {ph} placeholder slot."""
+
+    total = 0
+    for start in range(0, len(ids), chunk):
+        batch = ids[start:start + chunk]
+        ph = ",".join(["%s"] * len(batch))
+        with conn.cursor() as cursor:
+            cursor.execute(sql_template.format(ph=ph), batch)
+            total += int(cursor.fetchone()["n"] or 0)
+    return total
+
+
+def stage_prune_plan(ctx: SimpleNamespace) -> dict[str, Any]:
+    """S10 §6.7: derive the delete set + leaf-first order. ZERO deletes here.
+
+    雙向對數：FK closure ∪ MANUAL_NO_FK_TABLES ∪ NEVER_DELETE_TABLES 必須同
+    allowlist keys 完全相等，唔准自動刪未知表。nullify 欄必須可以 NULL。
+    """
+
+    conn = ctx.conn
+    generation = ctx.generation
+    counts: dict[str, Any] = {}
+
+    allowlist_blob = PRUNE_ALLOWLIST.read_bytes()
+    allowlist = json.loads(allowlist_blob.decode("utf-8"))["tables"]
+
+    # --- candidate closure vs allowlist, both directions ----------------------
+    edges = _fk_edges(conn)
+    children_of: dict[str, set[str]] = {}
+    for edge in edges:
+        children_of.setdefault(edge["parent_table"], set()).add(edge["child_table"])
+    closure: set[str] = set()
+    frontier = ["catalog_variant"]
+    while frontier:
+        parent = frontier.pop()
+        for child in children_of.get(parent, ()):
+            if child != "catalog_variant" and child not in closure:
+                closure.add(child)
+                frontier.append(child)
+    candidates = closure | set(MANUAL_NO_FK_TABLES) | set(NEVER_DELETE_TABLES)
+    unknown = sorted(candidates - set(allowlist))
+    if unknown:
+        raise SystemExit(f"S10 ABORT: tables not in prune allowlist: {unknown}")
+    stale = sorted(set(allowlist) - candidates)
+    if stale:
+        raise SystemExit(f"S10 ABORT: allowlist entries missing from schema closure: {stale}")
+    counts["closureTables"] = len(closure)
+    counts["candidateTables"] = len(candidates)
+
+    # --- allowlist column existence + nullify nullability ---------------------
+    for table, entry in allowlist.items():
+        mode = entry["deleteMode"]
+        columns = list(entry.get("columns") or [])
+        if mode in {"delete", "nullify"} and not columns:
+            raise SystemExit(f"S10 ABORT: {table} deleteMode={mode} without columns")
+        schema_cols = _table_columns(conn, table)
+        for column in columns:
+            if column not in schema_cols:
+                raise SystemExit(f"S10 ABORT: allowlist column missing: {table}.{column}")
+            if mode == "nullify" and schema_cols[column] != "YES":
+                raise SystemExit(
+                    f"S10 ABORT: nullify column NOT NULL: {table}.{column}"
+                )
+
+    # --- victims: catalog_variant rows outside this generation's cohort ------
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT DISTINCT variant_id FROM catalog_rebuild_member"
+            " WHERE generation_id=%s AND variant_id IS NOT NULL"
+            "  AND cohort <> 'non_qualified'",
+            (generation,),
+        )
+        protected = {int(row["variant_id"]) for row in cursor.fetchall()}
+        cursor.execute("SELECT id FROM catalog_variant")
+        all_variants = {int(row["id"]) for row in cursor.fetchall()}
+    if not protected:
+        raise SystemExit(
+            "S10 ABORT: zero protected members for generation — refuse full-wipe plan"
+        )
+    orphan_protected = sorted(protected - all_variants)
+    if orphan_protected:
+        raise SystemExit(
+            f"S10 ABORT: member rows point at missing variants: {orphan_protected[:5]}"
+        )
+    victims = sorted(all_variants - protected)
+    counts["variantsTotal"] = len(all_variants)
+    counts["variantsProtected"] = len(protected)
+    counts["variantsToPrune"] = len(victims)
+
+    # --- leaf-first topological order over candidate delete tables ------------
+    delete_tables = {t for t, e in allowlist.items() if e["deleteMode"] == "delete"}
+    internal_edges = [
+        (edge["child_table"], edge["parent_table"]) for edge in edges
+        if edge["child_table"] in delete_tables
+        and edge["parent_table"] in delete_tables
+        and edge["child_table"] != edge["parent_table"]
+    ]
+    parents_pending: dict[str, set[str]] = {t: set() for t in delete_tables}
+    dependents: dict[str, set[str]] = {t: set() for t in delete_tables}
+    for child, parent in internal_edges:
+        parents_pending[parent].add(child)   # parent waits until child deleted
+        dependents[child].add(parent)
+    ordered: list[str] = []
+    ready = sorted(t for t, blockers in parents_pending.items() if not blockers)
+    while ready:
+        table = ready.pop(0)
+        ordered.append(table)
+        for parent in sorted(dependents[table]):
+            parents_pending[parent].discard(table)
+            if not parents_pending[parent] and parent not in ordered and parent not in ready:
+                ready.append(parent)
+        ready.sort()
+    if len(ordered) != len(delete_tables):
+        cyclic = sorted(delete_tables - set(ordered))
+        raise SystemExit(f"S10 ABORT: FK cycle among delete tables: {cyclic}")
+
+    # --- per-table victim row counts (read-only) ------------------------------
+    plan_tables: list[dict[str, Any]] = []
+    position = 0
+    nullify_tables = sorted(
+        t for t, e in allowlist.items() if e["deleteMode"] == "nullify"
+    )
+    for table in nullify_tables:
+        entry = allowlist[table]
+        column_counts: dict[str, int] = {}
+        for column in entry["columns"]:
+            column_counts[column] = _chunked_in_count(
+                conn,
+                f"SELECT COUNT(*) AS n FROM {table}"
+                f" WHERE {column} IN ({{ph}})",
+                victims,
+            ) if victims else 0
+        position += 1
+        plan_tables.append({
+            "position": position, "table": table, "deleteMode": "nullify",
+            "columns": entry["columns"], "victimRows": column_counts,
+            "note": entry.get("note"),
+        })
+    for table in ordered:
+        entry = allowlist[table]
+        column_counts = {}
+        via = entry.get("via")
+        if via:
+            link_column = entry["columns"][0]
+            column_counts[f"via:{via}"] = _chunked_in_count(
+                conn,
+                f"SELECT COUNT(*) AS n FROM {table} c"
+                f" JOIN {via} p ON c.{link_column}=p.id"
+                f" WHERE p.variant_id IN ({{ph}})",
+                victims,
+            ) if victims else 0
+        else:
+            for column in entry["columns"]:
+                column_counts[column] = _chunked_in_count(
+                    conn,
+                    f"SELECT COUNT(*) AS n FROM {table}"
+                    f" WHERE {column} IN ({{ph}})",
+                    victims,
+                ) if victims else 0
+        position += 1
+        plan_tables.append({
+            "position": position, "table": table, "deleteMode": "delete",
+            "columns": entry["columns"], "via": via, "victimRows": column_counts,
+            "note": entry.get("note"),
+        })
+    for table in sorted(NEVER_DELETE_TABLES | {
+        t for t, e in allowlist.items() if e["deleteMode"] == "never"
+    }):
+        plan_tables.append({
+            "position": None, "table": table, "deleteMode": "never",
+            "columns": allowlist[table].get("columns") or [],
+            "victimRows": {}, "note": allowlist[table].get("note"),
+        })
+    position += 1
+    plan_tables.append({
+        "position": position, "table": "catalog_variant", "deleteMode": "delete",
+        "columns": ["id"], "victimRows": {"id": len(victims)},
+        "note": "root — deleted last, after every child table",
+    })
+
+    # --- 17 variant_id views: name + current row count baseline ---------------
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT DISTINCT c.TABLE_NAME AS view_name"
+            " FROM information_schema.COLUMNS c"
+            " JOIN information_schema.VIEWS v"
+            "   ON v.TABLE_SCHEMA=c.TABLE_SCHEMA AND v.TABLE_NAME=c.TABLE_NAME"
+            " WHERE c.TABLE_SCHEMA=DATABASE() AND c.COLUMN_NAME='variant_id'"
+        )
+        view_names = sorted(str(row["view_name"]) for row in cursor.fetchall())
+    views: list[dict[str, Any]] = []
+    for view in view_names:
+        with conn.cursor() as cursor:
+            cursor.execute(f"SELECT COUNT(*) AS n FROM {view}")
+            views.append({"view": view, "rows": int(cursor.fetchone()["n"] or 0)})
+    counts["viewsTracked"] = len(views)
+
+    artifact = {
+        "contract": "prune_plan_v1",
+        "generation": generation,
+        "policy": {
+            "noDeletesInThisStage": True,
+            "foreignKeyChecksStayOn": True,
+            "batch": {"idsPerBatch": 500, "deleteLimit": 5000},
+            "qualifiedMarketPendingProtected": True,
+        },
+        "victimVariantIds": victims,
+        "tables": plan_tables,
+        "views": views,
+        "allowlistSha256": sha256_bytes(allowlist_blob),
+    }
+    artifact_blob = canonical_json(artifact)
+    artifact_path = ROOT / "data" / "runtime" / "rebuild-036" / (
+        f"prune-plan-{generation}.json"
+    )
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact_path.write_bytes(artifact_blob)
+    counts["pruneArtifact"] = artifact_path.relative_to(ROOT).as_posix()
+    counts["pruneArtifactSha256"] = sha256_bytes(artifact_blob)
+    counts["deleteTables"] = len(ordered) + 1
+    counts["nullifyTables"] = len(nullify_tables)
+
+    return {
+        "input_sha256": _prune_plan_input_sha(ctx),
+        "output_sha256": sha256_bytes(canonical_json([
+            "prune-plan-output", sha256_bytes(artifact_blob),
+        ])),
+        "counts": counts,
+    }
+
+
+def _prune_plan_input_sha(ctx: SimpleNamespace) -> str:
+    """S10's input: S9's recorded output. Never the plan file S10 writes."""
+
+    with ctx.conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT output_sha256 FROM cardz_rebuild_checkpoint"
+            " WHERE generation_id=%s AND stage='image-bind'",
+            (ctx.generation,),
+        )
+        row = cursor.fetchone()
+    return sha256_bytes(canonical_json([
+        "prune-plan-input", (row or {}).get("output_sha256"),
+    ]))
+
+
+# ---------------------------------------------------------------------------
+# Stage 11: validate (034–036 validator → receipt 表；永遠重跑)
+# ---------------------------------------------------------------------------
+
+RAW_PAYLOAD_BASELINE = 317_169  # §6.7 [KNOWN] 2026-08-08; prune 前只准增唔准減
+
+
+def stage_validate(ctx: SimpleNamespace) -> dict[str, Any]:
+    """S11: cohort split + 全部 pre-activation invariant → validation receipt.
+
+    product_ready = POP 合格 + exact 身份 + S8 有 current price route + S9 圖 gate 過。
+    其餘 POP 合格者 = qualified_market_pending（唔公開、唔准刪）。
+    receipt.passed=1 係 S12 activation 嘅先決條件。
+    """
+
+    from datetime import datetime, timezone
+
+    conn = ctx.conn
+    generation = ctx.generation
+    checks: dict[str, dict[str, Any]] = {}
+
+    def _artifact(name: str) -> Any | None:
+        path = ROOT / "data" / "runtime" / "rebuild-036" / f"{name}-{generation}.json"
+        if not path.is_file():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    price_artifact = _artifact("price-route")
+    image_artifact = _artifact("image-bind")
+    prune_artifact = _artifact("prune-plan")
+    checks["artifactsPresent"] = {
+        "pass": all([price_artifact, image_artifact, prune_artifact]),
+        "priceRoute": bool(price_artifact),
+        "imageBind": bool(image_artifact),
+        "prunePlan": bool(prune_artifact),
+    }
+
+    price_ready: set[int] = set()
+    if price_artifact:
+        price_ready = {
+            int(row["variantId"]) for row in price_artifact["routes"]
+            if row.get("route") in ("pricecharting", "snkrdunk")
+        }
+    image_ready: set[int] = set()
+    if image_artifact:
+        image_ready = {
+            int(row["variantId"]) for row in image_artifact["routes"]
+            if row.get("status") == "product_ready"
+        }
+
+    # --- A. cohort split (product_ready / qualified_market_pending) -----------
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT gemrate_id, variant_id, cohort, identity_pending"
+            " FROM catalog_rebuild_member"
+            " WHERE generation_id=%s AND cohort <> 'non_qualified'",
+            (generation,),
+        )
+        qualified_rows = [dict(row) for row in cursor.fetchall()]
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
+    product_ready_n = market_pending_n = pending_n = unbound_n = updates = 0
+    try:
+        with conn.cursor() as cursor:
+            for row in qualified_rows:
+                if int(row["identity_pending"] or 0):
+                    pending_n += 1
+                    continue
+                if row["variant_id"] is None:
+                    unbound_n += 1
+                    continue
+                vid = int(row["variant_id"])
+                new_cohort = (
+                    "product_ready"
+                    if vid in price_ready and vid in image_ready
+                    else "qualified_market_pending"
+                )
+                if new_cohort == "product_ready":
+                    product_ready_n += 1
+                else:
+                    market_pending_n += 1
+                if new_cohort != str(row["cohort"]):
+                    cursor.execute(
+                        "UPDATE catalog_rebuild_member SET cohort=%s, computed_at=%s"
+                        " WHERE generation_id=%s AND gemrate_id=%s",
+                        (new_cohort, now_str, generation, row["gemrate_id"]),
+                    )
+                    updates += 1
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    qualified_total = len(qualified_rows)
+    checks["cohortEquation"] = {
+        "pass": product_ready_n + market_pending_n == qualified_total
+        and pending_n == 0 and unbound_n == 0,
+        "productReady": product_ready_n,
+        "qualifiedMarketPending": market_pending_n,
+        "qualifiedTotal": qualified_total,
+        "identityPending": pending_n,
+        "unbound": unbound_n,
+        "cohortUpdates": updates,
+    }
+
+    # --- B. incidents unresolved == 0 ----------------------------------------
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT COUNT(*) AS n FROM catalog_population_identity_incident"
+            " WHERE generation_id=%s AND resolved_at IS NULL",
+            (generation,),
+        )
+        unresolved = int(cursor.fetchone()["n"] or 0)
+    checks["incidentsResolved"] = {"pass": unresolved == 0, "unresolved": unresolved}
+
+    # --- C. strictDatabaseLineageZero ----------------------------------------
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT COUNT(*) AS n FROM operator_strict_source_identity s"
+            " JOIN catalog_source_identity si"
+            "   ON si.source_code=s.source_code"
+            "  AND si.external_entity_id=s.external_entity_id"
+            "  AND si.variant_id=s.variant_id"
+            " WHERE JSON_UNQUOTE(JSON_EXTRACT(si.bind_evidence_json,"
+            "   '$.evidence.type')) IN ('manual_review','database_lineage')",
+        )
+        lineage_rows = int(cursor.fetchone()["n"] or 0)
+    checks["strictDatabaseLineageZero"] = {
+        "pass": lineage_rows == 0, "rows": lineage_rows,
+    }
+
+    # --- D. FE image gate == S9 admitted + trio 全齊 --------------------------
+    pc_bind, snk_bind, _ = _strict_price_bindings(conn)
+    universe = sorted(set(pc_bind) | set(snk_bind))
+    fe_state = _fe_image_state(conn, universe)
+    fe_pass_ids = {
+        vid for vid, entry in fe_state.items()
+        if _HEX64_RE.fullmatch(entry["contentSha256"])
+        and not _trio_missing(entry["contentSha256"])
+    }
+    admitted_ids = {
+        int(row["variantId"]) for row in (image_artifact or {"routes": []})["routes"]
+        if row.get("status") == "product_ready"
+    }
+    checks["feRenderedImageEqualsAdmitted"] = {
+        "pass": image_artifact is not None and fe_pass_ids == admitted_ids,
+        "feRendered": len(fe_pass_ids),
+        "admitted": len(admitted_ids),
+        "feOnly": sorted(fe_pass_ids - admitted_ids)[:20],
+        "admittedOnly": sorted(admitted_ids - fe_pass_ids)[:20],
+    }
+
+    # --- E. 人手 reject 內容冇復活 --------------------------------------------
+    rejections = _image_rejections(conn, universe)
+    resurrected = sorted(
+        vid for vid, shas in rejections.items()
+        if fe_state.get(vid, {}).get("contentSha256") in shas
+    )
+    checks["rejectedContentStaysDead"] = {
+        "pass": not resurrected, "resurrectedVariantIds": resurrected,
+    }
+
+    # --- F. prune manifest 完整互斥 -------------------------------------------
+    if prune_artifact:
+        victims = set(prune_artifact["victimVariantIds"])
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT DISTINCT variant_id FROM catalog_rebuild_member"
+                " WHERE generation_id=%s AND variant_id IS NOT NULL"
+                "  AND cohort <> 'non_qualified'",
+                (generation,),
+            )
+            protected = {int(row["variant_id"]) for row in cursor.fetchall()}
+            cursor.execute("SELECT id FROM catalog_variant")
+            all_variants = {int(row["id"]) for row in cursor.fetchall()}
+        checks["pruneManifestExact"] = {
+            "pass": victims == all_variants - protected
+            and not (victims & protected),
+            "victims": len(victims),
+            "protected": len(protected),
+            "variants": len(all_variants),
+        }
+    else:
+        checks["pruneManifestExact"] = {"pass": False, "reason": "no prune artifact"}
+
+    # --- G. raw evidence 只准增 -----------------------------------------------
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT COUNT(*) AS n FROM market_raw_payload_object")
+        raw_count = int(cursor.fetchone()["n"] or 0)
+    checks["rawPayloadRetained"] = {
+        "pass": raw_count >= RAW_PAYLOAD_BASELINE,
+        "rows": raw_count, "baseline": RAW_PAYLOAD_BASELINE,
+    }
+
+    # --- H. freshness (報數；72h 窗口 S12 會再 gate) ---------------------------
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT MAX(effective_at) AS latest"
+            " FROM market_gemrate_psa10_observation_v2 WHERE generation_id=%s",
+            (generation,),
+        )
+        pop_latest = cursor.fetchone()["latest"]
+        cursor.execute(
+            "SELECT MAX(effective_at) AS latest FROM market_price_observation"
+            " WHERE source_code IN ('pricecharting','snkrdunk')",
+        )
+        price_latest = cursor.fetchone()["latest"]
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    def _age_hours(value: Any) -> float | None:
+        if value is None:
+            return None
+        return round((now_utc - value).total_seconds() / 3600.0, 2)
+    pop_age = _age_hours(pop_latest)
+    price_age = _age_hours(price_latest)
+    checks["freshness72h"] = {
+        "pass": pop_age is not None and price_age is not None
+        and pop_age <= 72.0 and price_age <= 72.0,
+        "popAgeHours": pop_age, "priceAgeHours": price_age,
+    }
+
+    # --- I2. D8 故事: 762 條 canonical_locale_merge_v1 ko 模板故事非 current ----
+    # 兩款模板（「…는 CARDZ 에서 PSA 10…」/「…CARDZ 보드의…」）全部係填充
+    # boilerplate；名/set 名（576 條真韓文）保留，story 回 NULL 行 FE 英文邏輯。
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "UPDATE catalog_variant_locale SET market_story=NULL"
+                " WHERE locale_code='ko'"
+                "  AND provenance_source_code='canonical_locale_merge_v1'"
+                "  AND market_story IS NOT NULL",
+            )
+            ko_nullified = cursor.rowcount
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT COUNT(*) AS n FROM catalog_variant_locale"
+            " WHERE locale_code='ko'"
+            "  AND provenance_source_code='canonical_locale_merge_v1'"
+            "  AND market_story IS NOT NULL",
+        )
+        ko_left = int(cursor.fetchone()["n"] or 0)
+    checks["koTemplateStoriesZero"] = {
+        "pass": ko_left == 0, "nullifiedThisRun": ko_nullified, "remaining": ko_left,
+    }
+
+    # --- I. 034 validator (subprocess, SELECT-only, prints json) --------------
+    validator_script = ROOT / "scripts" / "validate_psa_identity_repair.py"
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-X", "utf8", str(validator_script)],
+            cwd=str(ROOT), capture_output=True, text=True, timeout=900,
+            encoding="utf-8", errors="replace",
+        )
+        report_line = (proc.stdout or "").strip().splitlines()[-1] if proc.stdout.strip() else "{}"
+        legacy = json.loads(report_line)
+        checks["validator034"] = {
+            "pass": bool(legacy.get("pass")) and proc.returncode == 0,
+            "returncode": proc.returncode,
+            "invariants": legacy.get("invariants"),
+            "stderrTail": (proc.stderr or "")[-400:] if proc.returncode else "",
+        }
+    except Exception as exc:  # noqa: BLE001
+        checks["validator034"] = {
+            "pass": False, "error": f"{type(exc).__name__}: {exc}"[:400],
+        }
+
+    passed = all(bool(entry.get("pass")) for entry in checks.values())
+    report = {
+        "contract": "rebuild_036_validation_v1",
+        "generation": generation,
+        "validatorVersion": "036-v1",
+        "passed": passed,
+        "checks": checks,
+    }
+    report_blob = canonical_json(report)
+    receipt_sha = sha256_bytes(report_blob)
+    report_path = ROOT / "data" / "runtime" / "rebuild-036" / (
+        f"validate-{generation}.json"
+    )
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_bytes(report_blob)
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO cardz_rebuild_validation_receipt"
+                " (generation_id, receipt_sha256, passed, validator_version,"
+                "  report_json, created_at)"
+                " VALUES (%s,%s,%s,'036-v1',%s,%s)"
+                " ON DUPLICATE KEY UPDATE passed=VALUES(passed),"
+                "  report_json=VALUES(report_json), created_at=VALUES(created_at)",
+                (
+                    generation, receipt_sha, 1 if passed else 0,
+                    report_blob.decode("utf-8"),
+                    datetime.now(timezone.utc).replace(tzinfo=None),
+                ),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+    counts: dict[str, Any] = {
+        "passed": passed,
+        "receiptSha256": receipt_sha,
+        "reportPath": report_path.relative_to(ROOT).as_posix(),
+        "failedChecks": sorted(
+            name for name, entry in checks.items() if not entry.get("pass")
+        ),
+        "productReady": product_ready_n,
+        "qualifiedMarketPending": market_pending_n,
+    }
+    return {
+        "input_sha256": _validate_input_sha(ctx),
+        "output_sha256": sha256_bytes(canonical_json([
+            "validate-output", receipt_sha, passed,
+        ])),
+        "counts": counts,
+    }
+
+
+def _validate_input_sha(ctx: SimpleNamespace) -> str:
+    """S11's input: S10's recorded output. The receipt S11 writes is excluded."""
+
+    with ctx.conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT output_sha256 FROM cardz_rebuild_checkpoint"
+            " WHERE generation_id=%s AND stage='prune-plan'",
+            (ctx.generation,),
+        )
+        row = cursor.fetchone()
+    return sha256_bytes(canonical_json([
+        "validate-input", (row or {}).get("output_sha256"),
+    ]))
+
+
 def _jsonl_psa_ids(path: Path) -> set[str]:
     """Extract the GemRate id space from brute-harvest rowData (field: psa_id)."""
 
@@ -3090,6 +4408,438 @@ def stage_discover(ctx: SimpleNamespace) -> dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------------------
+# Stage 13: prune-apply (post-activation only; batched, FK checks stay ON)
+# ---------------------------------------------------------------------------
+
+def _next_batch_index(cur, generation: str, table: str) -> int:
+    cur.execute(
+        "SELECT COALESCE(MAX(batch_index),0) AS n FROM cardz_rebuild_prune_progress"
+        " WHERE generation_id=%s AND table_name=%s",
+        (generation, table),
+    )
+    return int(cur.fetchone()["n"]) + 1
+
+
+def stage_prune_apply(ctx: SimpleNamespace) -> dict[str, Any]:
+    """S13 §6.7: physically delete non-qualified variants per the S10 plan.
+
+    Batches of ≤500 ids, DELETE ... LIMIT 5000 loops, commit per batch,
+    progress in cardz_rebuild_prune_progress (idempotent rerun: victims are
+    fixed, emptied batches count 0). FOREIGN_KEY_CHECKS stays ON — the 76
+    NO ACTION FKs are the proof the order is right, never the obstacle."""
+
+    from datetime import datetime, timezone
+
+    conn = ctx.conn
+    generation = ctx.generation
+    plan_path = ROOT / "data" / "runtime" / "rebuild-036" / (
+        f"prune-plan-{generation}.json"
+    )
+    if not plan_path.is_file():
+        raise SystemExit(f"S13 ABORT: prune plan missing: {plan_path}")
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    allowlist_sha = sha256_bytes(PRUNE_ALLOWLIST.read_bytes())
+    if plan.get("allowlistSha256") != allowlist_sha:
+        raise SystemExit(
+            "S13 ABORT: allowlist changed since prune-plan; rerun prune-plan first"
+        )
+    victims = [int(v) for v in plan["victimVariantIds"]]
+
+    # Victims must still be disjoint from the live protected set.
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT DISTINCT variant_id FROM catalog_rebuild_member"
+            " WHERE generation_id=%s AND variant_id IS NOT NULL"
+            "  AND cohort <> 'non_qualified'",
+            (generation,),
+        )
+        protected = {int(row["variant_id"]) for row in cursor.fetchall()}
+        cursor.execute("SELECT COUNT(*) AS n FROM market_raw_payload_object")
+        raw_before = int(cursor.fetchone()["n"] or 0)
+    overlap = sorted(set(victims) & protected)
+    if overlap:
+        raise SystemExit(f"S13 ABORT: victims overlap protected set: {overlap[:20]}")
+
+    table_stats: dict[str, dict[str, int]] = {}
+
+    def _record_batch(table: str, deleted: int) -> None:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO cardz_rebuild_prune_progress"
+                " (generation_id, table_name, batch_index, rows_deleted, finished_at)"
+                " VALUES (%s,%s,%s,%s,%s)",
+                (
+                    generation, table, _next_batch_index(cursor, generation, table),
+                    deleted, datetime.now(timezone.utc).replace(tzinfo=None),
+                ),
+            )
+        conn.commit()
+
+    def _delete_loop(table: str, sql: str, params: tuple) -> int:
+        total = 0
+        while True:
+            try:
+                with conn.cursor() as cursor:
+                    cursor.execute(sql, params)
+                    deleted = cursor.rowcount
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            _record_batch(table, deleted)
+            total += deleted
+            if deleted < 5000:
+                return total
+
+    ordered_entries = sorted(
+        (entry for entry in plan["tables"] if entry.get("position") is not None),
+        key=lambda entry: entry["position"],
+    )
+    for entry in ordered_entries:
+        table = entry["table"]
+        mode = entry["deleteMode"]
+        columns = list(entry.get("columns") or [])
+        via = entry.get("via")
+        stats = table_stats.setdefault(table, {"deleted": 0, "nullified": 0})
+        for start in range(0, len(victims), 500):
+            chunk = victims[start:start + 500]
+            ph = ",".join(["%s"] * len(chunk))
+            if mode == "nullify":
+                for column in columns:
+                    try:
+                        with conn.cursor() as cursor:
+                            cursor.execute(
+                                f"UPDATE {table} SET {column}=NULL"
+                                f" WHERE {column} IN ({ph})",
+                                tuple(chunk),
+                            )
+                            stats["nullified"] += cursor.rowcount
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
+                        raise
+            elif mode == "delete" and via:
+                stats["deleted"] += _delete_loop(
+                    table,
+                    f"DELETE FROM {table} WHERE {columns[0]} IN"
+                    f" (SELECT id FROM {via} WHERE variant_id IN ({ph}))"
+                    " LIMIT 5000",
+                    tuple(chunk),
+                )
+            elif mode == "delete":
+                column = columns[0] if table != "catalog_variant" else "id"
+                stats["deleted"] += _delete_loop(
+                    table,
+                    f"DELETE FROM {table} WHERE {column} IN ({ph}) LIMIT 5000",
+                    tuple(chunk),
+                )
+
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT COUNT(*) AS n FROM market_raw_payload_object")
+        raw_after = int(cursor.fetchone()["n"] or 0)
+        views_after = []
+        for view in plan.get("views", []):
+            cursor.execute(f"SELECT COUNT(*) AS n FROM {view['view']}")
+            views_after.append({
+                "view": view["view"],
+                "before": view["rows"],
+                "after": int(cursor.fetchone()["n"] or 0),
+            })
+        cursor.execute("SELECT COUNT(*) AS n FROM catalog_variant")
+        variants_left = int(cursor.fetchone()["n"] or 0)
+    if raw_after != raw_before:
+        raise SystemExit(
+            f"S13 ABORT: market_raw_payload_object moved {raw_before}->{raw_after};"
+            " raw evidence must never change during prune"
+        )
+    if variants_left != len(protected):
+        raise SystemExit(
+            f"S13 ABORT: catalog_variant left {variants_left} != protected {len(protected)}"
+        )
+
+    artifact = {
+        "contract": "prune_apply_v1",
+        "generation": generation,
+        "victims": len(victims),
+        "tables": table_stats,
+        "views": views_after,
+        "rawPayloadRows": {"before": raw_before, "after": raw_after},
+        "variantsRemaining": variants_left,
+    }
+    artifact_blob = canonical_json(artifact)
+    artifact_sha = sha256_bytes(artifact_blob)
+    artifact_path = ROOT / "data" / "runtime" / "rebuild-036" / (
+        f"prune-apply-{generation}.json"
+    )
+    artifact_path.write_bytes(artifact_blob)
+    return {
+        "input_sha256": _prune_apply_input_sha(ctx),
+        "output_sha256": sha256_bytes(canonical_json(["prune-apply-output", artifact_sha])),
+        "counts": {
+            "victims": len(victims),
+            "variantsRemaining": variants_left,
+            "deletedTotal": sum(s["deleted"] for s in table_stats.values()),
+            "nullifiedTotal": sum(s["nullified"] for s in table_stats.values()),
+            "artifact": artifact_path.relative_to(ROOT).as_posix(),
+        },
+    }
+
+
+def _prune_apply_input_sha(ctx: SimpleNamespace) -> str:
+    with ctx.conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT activation_receipt_sha256 FROM cardz_rebuild_generation"
+            " WHERE generation_id=%s",
+            (ctx.generation,),
+        )
+        row = cursor.fetchone()
+    plan_path = ROOT / "data" / "runtime" / "rebuild-036" / (
+        f"prune-plan-{ctx.generation}.json"
+    )
+    plan_sha = sha256_file(plan_path) if plan_path.is_file() else None
+    return sha256_bytes(canonical_json([
+        "prune-apply-input", (row or {}).get("activation_receipt_sha256"), plan_sha,
+    ]))
+
+
+# ---------------------------------------------------------------------------
+# Stage 14: canary — one fresh provider capture through the V2 incremental lane
+# ---------------------------------------------------------------------------
+
+def stage_canary(ctx: SimpleNamespace) -> dict[str, Any]:
+    """S14 §6.7: land ONE new GemRate capture for a known qualified printing and
+    prove the incremental lane: append-only history, POP monotonicity,
+    generation mapping, FE invalidation, no duplicate current row.
+
+    The capture comes from the operator-supplied file (produced by the
+    sanctioned browser+mirror script) at
+    data/runtime/rebuild-036/canary-capture-{generation}.json:
+      {"gemrateId": <40-hex>, "psa10Population": int, "totalPopulation": int|null,
+       "effectiveDate": "YYYY-MM-DD", "capturePath": str, "rawPayloadSha256": 64-hex,
+       "psaRowSha256": 64-hex}
+    Schedulers stay Disabled — this stage proves the lane, it does not enable it."""
+
+    from datetime import datetime, timezone
+
+    conn = ctx.conn
+    generation = ctx.generation
+    capture_path = ROOT / "data" / "runtime" / "rebuild-036" / (
+        f"canary-capture-{generation}.json"
+    )
+    if not capture_path.is_file():
+        raise SystemExit(
+            f"S14 ABORT: canary capture missing: {capture_path};"
+            " produce it with the sanctioned GemRate mirror script first"
+        )
+    capture = json.loads(capture_path.read_text(encoding="utf-8"))
+    gemrate_id = str(capture["gemrateId"]).strip().casefold()
+    if not re.fullmatch(r"[0-9a-f]{40}", gemrate_id):
+        raise SystemExit("S14 ABORT: canary gemrateId must be 40-hex")
+    for key in ("rawPayloadSha256", "psaRowSha256"):
+        if not _HEX64_RE.fullmatch(str(capture.get(key) or "")):
+            raise SystemExit(f"S14 ABORT: canary {key} must be 64-hex")
+    new_pop = int(capture["psa10Population"])
+    effective_date = str(capture["effectiveDate"])[:10]
+
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT variant_id, cohort FROM catalog_rebuild_member"
+            " WHERE generation_id=%s AND gemrate_id=%s",
+            (generation, gemrate_id),
+        )
+        member = cursor.fetchone()
+    if not member or member["cohort"] != "product_ready" or member["variant_id"] is None:
+        raise SystemExit("S14 ABORT: canary card is not a product_ready member")
+    variant_id = int(member["variant_id"])
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now_str = now.strftime("%Y-%m-%d %H:%M:%S.%f")
+    checks: dict[str, Any] = {}
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) AS n, COALESCE(MAX(id),0) AS max_id"
+                " FROM market_metric_history_acceptance WHERE variant_id=%s",
+                (variant_id,),
+            )
+            history_before = dict(cur.fetchone())
+            cur.execute(
+                "SELECT top_grade_population FROM market_grader_population_observation"
+                " WHERE variant_id=%s AND source_code='gemrate' AND grader_code='PSA'"
+                " ORDER BY observed_date DESC LIMIT 1",
+                (variant_id,),
+            )
+            pop_before = int((cur.fetchone() or {}).get("top_grade_population") or 0)
+            cur.execute(
+                "SELECT ranking_generation_sha256, accepted_at"
+                " FROM market_canonical_metric_acceptance metric"
+                " WHERE variant_id=%s AND NOT EXISTS ("
+                "   SELECT 1 FROM market_canonical_metric_acceptance newer"
+                "   WHERE newer.supersedes_acceptance_id=metric.id)"
+                " ORDER BY accepted_at DESC, id DESC LIMIT 1",
+                (variant_id,),
+            )
+            fe_before = dict(cur.fetchone() or {})
+
+            # V2 incremental landing (same shapes as S3 + activation bridge).
+            cur.execute(
+                "INSERT INTO market_ingest_run (run_key, source_code, ingest_mode,"
+                " effective_at, status, observed_count, accepted_count,"
+                " quarantined_count, rejected_count, started_at, completed_at)"
+                " VALUES (%s,'gemrate','rebuild036_canary_v2',%s,'complete',1,1,0,0,%s,%s)"
+                " ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id), completed_at=VALUES(completed_at)",
+                (f"rebuild036-canary-{generation}", now_str, now_str, now_str),
+            )
+            run_id = int(cur.lastrowid)
+            cur.execute(
+                "INSERT INTO market_gemrate_psa10_observation_v2 (run_id, gemrate_id,"
+                " variant_id, psa10_population, total_population, effective_at,"
+                " observed_date, capture_path, raw_payload_sha256, psa_row_sha256,"
+                " generation_id)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+                " ON DUPLICATE KEY UPDATE run_id=VALUES(run_id),"
+                " psa10_population=VALUES(psa10_population),"
+                " total_population=VALUES(total_population),"
+                " effective_at=VALUES(effective_at),"
+                " capture_path=VALUES(capture_path),"
+                " raw_payload_sha256=VALUES(raw_payload_sha256),"
+                " psa_row_sha256=VALUES(psa_row_sha256)",
+                (
+                    run_id, gemrate_id, variant_id, new_pop,
+                    capture.get("totalPopulation"),
+                    f"{effective_date} 00:00:00", effective_date,
+                    str(capture.get("capturePath") or ""),
+                    capture["rawPayloadSha256"], capture["psaRowSha256"],
+                    generation,
+                ),
+            )
+            cur.execute(
+                "INSERT INTO market_grader_population_observation"
+                " (run_id, variant_id, source_code, external_entity_id, grader_code,"
+                "  top_grade_label, total_population, top_grade_population, estimated,"
+                "  effective_at, observed_date, payload_sha256)"
+                " VALUES (%s,%s,'gemrate',%s,'PSA','10',%s,%s,0,%s,%s,%s)"
+                " ON DUPLICATE KEY UPDATE run_id=VALUES(run_id),"
+                "  top_grade_population=GREATEST(top_grade_population,VALUES(top_grade_population)),"
+                "  total_population=VALUES(total_population),"
+                "  effective_at=VALUES(effective_at), payload_sha256=VALUES(payload_sha256)",
+                (
+                    run_id, variant_id, gemrate_id, capture.get("totalPopulation"),
+                    new_pop, f"{effective_date} 00:00:00", effective_date,
+                    capture["psaRowSha256"],
+                ),
+            )
+            history = _activation_accept_history(cur, now_str, set())
+            cur.execute(
+                "SELECT variant_id FROM catalog_rebuild_member"
+                " WHERE generation_id=%s AND cohort='product_ready'"
+                "  AND variant_id IS NOT NULL",
+                (generation,),
+            )
+            ready_ids = [int(row["variant_id"]) for row in cur.fetchall()]
+            canonical = _activation_rank_and_accept(cur, ready_ids, now_str)
+
+            # -- assertions ---------------------------------------------------
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM market_metric_history_acceptance"
+                " WHERE variant_id=%s AND id <= %s",
+                (variant_id, int(history_before["max_id"])),
+            )
+            checks["appendOnly"] = {
+                "pass": int(cur.fetchone()["n"]) == int(history_before["n"]),
+                "priorRows": int(history_before["n"]),
+            }
+            cur.execute(
+                "SELECT top_grade_population FROM market_grader_population_observation"
+                " WHERE variant_id=%s AND source_code='gemrate' AND grader_code='PSA'"
+                " ORDER BY observed_date DESC LIMIT 1",
+                (variant_id,),
+            )
+            pop_now = int(cur.fetchone()["top_grade_population"])
+            checks["popMonotonic"] = {
+                "pass": pop_now >= pop_before,
+                "before": pop_before, "after": pop_now, "captured": new_pop,
+            }
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM market_gemrate_psa10_observation_v2"
+                " WHERE gemrate_id=%s AND generation_id=%s",
+                (gemrate_id, generation),
+            )
+            checks["generationMapping"] = {
+                "pass": int(cur.fetchone()["n"]) >= 1, "generation": generation,
+            }
+            cur.execute(
+                "SELECT ranking_generation_sha256, accepted_at"
+                " FROM market_canonical_metric_acceptance metric"
+                " WHERE variant_id=%s AND NOT EXISTS ("
+                "   SELECT 1 FROM market_canonical_metric_acceptance newer"
+                "   WHERE newer.supersedes_acceptance_id=metric.id)"
+                " ORDER BY accepted_at DESC, id DESC LIMIT 1",
+                (variant_id,),
+            )
+            fe_after = dict(cur.fetchone() or {})
+            checks["feInvalidation"] = {
+                "pass": bool(fe_after) and (
+                    fe_after.get("ranking_generation_sha256")
+                    != fe_before.get("ranking_generation_sha256")
+                    or fe_after.get("accepted_at") != fe_before.get("accepted_at")
+                ),
+                "before": {k: str(v) for k, v in fe_before.items()},
+                "after": {k: str(v) for k, v in fe_after.items()},
+            }
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM market_canonical_metric_acceptance metric"
+                " WHERE variant_id=%s AND NOT EXISTS ("
+                "   SELECT 1 FROM market_canonical_metric_acceptance newer"
+                "   WHERE newer.supersedes_acceptance_id=metric.id)",
+                (variant_id,),
+            )
+            checks["singleCurrentRow"] = {
+                "pass": int(cur.fetchone()["n"]) == 1,
+            }
+        passed = all(entry["pass"] for entry in checks.values())
+        if not passed:
+            conn.rollback()
+            raise SystemExit(
+                "S14 ABORT: canary checks failed:"
+                f" {[k for k, v in checks.items() if not v['pass']]}"
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+    artifact = {
+        "contract": "canary_v1",
+        "generation": generation,
+        "gemrateId": gemrate_id,
+        "variantId": variant_id,
+        "checks": checks,
+        "historyInserted": history,
+        "rankingGenerationSha256": canonical["rankingGenerationSha256"],
+    }
+    artifact_blob = canonical_json(artifact)
+    artifact_path = ROOT / "data" / "runtime" / "rebuild-036" / (
+        f"canary-{generation}.json"
+    )
+    artifact_path.write_bytes(artifact_blob)
+    return {
+        "input_sha256": sha256_bytes(canonical_json([
+            "canary-input", sha256_file(capture_path),
+        ])),
+        "output_sha256": sha256_bytes(canonical_json([
+            "canary-output", sha256_bytes(artifact_blob),
+        ])),
+        "counts": {
+            "variantId": variant_id,
+            "checksPassed": all(entry["pass"] for entry in checks.values()),
+            "rankingGenerationSha256": canonical["rankingGenerationSha256"],
+            "artifact": artifact_path.relative_to(ROOT).as_posix(),
+        },
+    }
+
+
 # name -> (fn, input_fn, always_run). fn None = designed but not yet built in
 # this working copy; the runner stops there instead of faking progress.
 LINEAR_STAGES: list[tuple[str, Callable | None, Callable | None, bool]] = [
@@ -3102,13 +4852,13 @@ LINEAR_STAGES: list[tuple[str, Callable | None, Callable | None, bool]] = [
     ("pc-replay", stage_pc_replay, _pc_replay_input_sha, False),
     ("snk-refresh", stage_snk_refresh, _snk_refresh_input_sha, False),
     ("price-materialize", stage_price_materialize, _price_materialize_input_sha, False),
-    ("image-bind", None, None, False),
-    ("prune-plan", None, None, False),
-    ("validate", None, None, False),
+    ("image-bind", stage_image_bind, _image_bind_input_sha, False),
+    ("prune-plan", stage_prune_plan, _prune_plan_input_sha, False),
+    ("validate", stage_validate, _validate_input_sha, True),
 ]
 POST_ACTIVATION_STAGES: list[tuple[str, Callable | None, Callable | None, bool]] = [
-    ("prune-apply", None, None, False),
-    ("canary", None, None, False),
+    ("prune-apply", stage_prune_apply, _prune_apply_input_sha, False),
+    ("canary", stage_canary, None, True),
 ]
 ALL_STAGES = LINEAR_STAGES + POST_ACTIVATION_STAGES
 STAGE_NAMES = [name for name, _, _, _ in ALL_STAGES]
@@ -3362,7 +5112,430 @@ def _assert_activated(ctx: SimpleNamespace) -> None:
             raise SystemExit("ABORT: activation receipt row missing or not passed")
 
 
+ACTIVATION_ACTOR = "rebuild_036:activate"
+
+
+def _load_sales_fingerprints(generation: str) -> set[str]:
+    """§6.7 doctrine: sale rows enter acceptance ONLY via the S8 manifests."""
+
+    fingerprints: set[str] = set()
+    for leg in ("pc", "snk"):
+        path = ROOT / "data" / "runtime" / "rebuild-036" / (
+            f"sales-manifest-{leg}-{generation}.jsonl"
+        )
+        if not path.is_file():
+            raise SystemExit(f"S12 ABORT: sales manifest missing: {path}")
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            value = str(json.loads(line).get("fingerprint") or "")
+            if value:
+                fingerprints.add(value)
+    return fingerprints
+
+
+def _activation_bridge_population(cur, generation: str, now_str: str) -> dict[str, int]:
+    """v2 landing → canonical market_grader_population_observation (FE join target).
+
+    S3 lands generation POP evidence in market_gemrate_psa10_observation_v2 only;
+    the FE core query reads market_grader_population_observation. Bridge the
+    generation's rows for bound qualified members, keyed to a dedicated ingest
+    run. payload_sha256 = psa_row_sha256 (ties back to the raw capture)."""
+
+    run_key = f"rebuild036-pop-bridge-{generation}"
+    cur.execute(
+        "INSERT INTO market_ingest_run (run_key, source_code, ingest_mode,"
+        " effective_at, status, observed_count, accepted_count, quarantined_count,"
+        " rejected_count, started_at, completed_at)"
+        " VALUES (%s,'gemrate','rebuild036_pop_bridge',%s,'complete',0,0,0,0,%s,%s)"
+        " ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id), completed_at=VALUES(completed_at)",
+        (run_key, now_str, now_str, now_str),
+    )
+    run_id = int(cur.lastrowid)
+    cur.execute(
+        "INSERT INTO market_grader_population_observation"
+        " (run_id, variant_id, source_code, external_entity_id, grader_code,"
+        "  top_grade_label, total_population, top_grade_population, estimated,"
+        "  effective_at, observed_date, payload_sha256)"
+        " SELECT %s, m.variant_id, 'gemrate', v2.gemrate_id, 'PSA', '10',"
+        "  v2.total_population, v2.psa10_population, 0,"
+        "  v2.effective_at, v2.observed_date, v2.psa_row_sha256"
+        " FROM market_gemrate_psa10_observation_v2 v2"
+        " JOIN catalog_rebuild_member m"
+        "   ON m.generation_id=v2.generation_id AND m.gemrate_id=v2.gemrate_id"
+        " WHERE v2.generation_id=%s AND m.variant_id IS NOT NULL"
+        "  AND m.cohort IN ('product_ready','qualified_market_pending')"
+        "  AND v2.psa_row_sha256 REGEXP '^[0-9a-f]{64}$'"
+        " ON DUPLICATE KEY UPDATE"
+        "  run_id=VALUES(run_id), external_entity_id=VALUES(external_entity_id),"
+        "  top_grade_population=GREATEST(top_grade_population,VALUES(top_grade_population)),"
+        "  total_population=VALUES(total_population),"
+        "  effective_at=VALUES(effective_at), payload_sha256=VALUES(payload_sha256)",
+        (run_id, generation),
+    )
+    bridged = int(cur.rowcount)
+    cur.execute(
+        "UPDATE market_ingest_run SET observed_count=%s, accepted_count=%s WHERE id=%s",
+        (bridged, bridged, run_id),
+    )
+    return {"runId": run_id, "bridgedRows": bridged}
+
+
+def _activation_accept_history(
+    cur, now_str: str, fingerprints: set[str],
+) -> dict[str, int]:
+    """036 versions of the four 026 history-acceptance lanes (scoped to the
+    freshly promoted is_current=1 lock). Sales differ from 026: only manifest
+    fingerprints may enter."""
+
+    inserted: dict[str, int] = {}
+    cur.execute(
+        """
+        INSERT INTO market_metric_history_acceptance
+          (variant_id,metric_kind,source_record_type,source_record_id,source_code,
+           external_entity_id,observed_date,source_effective_at,source_payload_sha256,
+           identity_evidence_sha256,acceptance_evidence_sha256,lineage_sha256,
+           accepted_by,accepted_at)
+        SELECT p.variant_id,'psa10_price','market_price_observation',p.id,
+               CASE WHEN p.source_code IN ('snk','snk_psa10') THEN 'snkrdunk'
+                    ELSE p.source_code END,
+               p.source_external_entity_id,p.observed_date,p.effective_at,p.payload_sha256,
+               si.evidence_sha256,
+               SHA2(CONCAT_WS('|','accept-language-routed-exact-psa10-price-v1',p.id,p.variant_id,
+                 CASE WHEN p.source_code IN ('snk','snk_psa10') THEN 'snkrdunk'
+                      ELSE p.source_code END,
+                 p.source_external_entity_id,p.payload_sha256,si.evidence_sha256),256),
+               SHA2(CONCAT_WS('|','metric-history-v1','psa10_price',p.id,p.variant_id,
+                 CASE WHEN p.source_code IN ('snk','snk_psa10') THEN 'snkrdunk'
+                      ELSE p.source_code END,
+                 p.source_external_entity_id,p.payload_sha256,si.evidence_sha256),256),
+               %s,%s
+        FROM market_price_observation p
+        INNER JOIN market_universe_member am ON am.variant_id=p.variant_id
+        INNER JOIN market_universe_lock ul ON ul.id=am.universe_lock_id AND ul.is_current=1
+        INNER JOIN catalog_printing_identity pi ON pi.variant_id=p.variant_id
+        INNER JOIN operator_strict_source_identity si ON si.variant_id=p.variant_id
+          AND si.source_code=CASE WHEN p.source_code IN ('snk','snk_psa10')
+                                  THEN 'snkrdunk' ELSE p.source_code END
+          AND si.external_entity_id=p.source_external_entity_id
+        INNER JOIN market_source_observation so ON so.id=p.source_observation_id
+          AND so.source_code=p.source_code AND so.external_entity_id=p.source_external_entity_id
+          AND so.payload_sha256=p.payload_sha256 AND so.observed_date=p.observed_date
+        WHERE p.source_code IN ('snkrdunk','snk_psa10','snk','pricecharting')
+          AND (pi.card_language='en' OR p.source_code IN ('snkrdunk','snk_psa10','snk'))
+          AND (
+            (p.source_code IN ('snkrdunk','snk_psa10','snk')
+             AND so.observation_kind='psa10_reference_price')
+            OR
+            (p.source_code='pricecharting'
+             AND p.source_priority=95
+             AND so.observation_kind='psa10_price_guide'
+             AND JSON_UNQUOTE(JSON_EXTRACT(so.payload_json,'$.source'))='pricecharting'
+             AND JSON_UNQUOTE(JSON_EXTRACT(so.payload_json,'$.sourceUrl')) LIKE 'https://www.pricecharting.com/%%'
+             AND p.source_external_entity_id REGEXP '^[0-9]+$'
+             AND (
+               (JSON_UNQUOTE(JSON_EXTRACT(so.payload_json,'$.contract'))='pc_psa10_current_price_v1'
+                AND JSON_UNQUOTE(JSON_EXTRACT(so.payload_json,'$.method'))='pricecharting_explicit_psa10_field_v1'
+                AND JSON_UNQUOTE(JSON_EXTRACT(so.payload_json,'$.field'))='VGPC.chart_data.manualonly.last')
+               OR
+               (JSON_UNQUOTE(JSON_EXTRACT(so.payload_json,'$.contract'))='pc_psa10_local_history_v1'
+                AND JSON_UNQUOTE(JSON_EXTRACT(so.payload_json,'$.method'))='pricecharting_explicit_psa10_history_v1'
+                AND JSON_UNQUOTE(JSON_EXTRACT(so.payload_json,'$.field'))='VGPC.chart_data.manualonly.series')
+             ))
+          )
+          AND p.metric_status='ready' AND p.price_usd>0
+          AND p.payload_sha256 REGEXP '^[0-9a-f]{64}$'
+          AND si.evidence_sha256 REGEXP '^[0-9a-f]{64}$'
+        ON DUPLICATE KEY UPDATE
+          source_code=VALUES(source_code),external_entity_id=VALUES(external_entity_id),
+          observed_date=VALUES(observed_date),source_effective_at=VALUES(source_effective_at),
+          source_payload_sha256=VALUES(source_payload_sha256),
+          identity_evidence_sha256=VALUES(identity_evidence_sha256),
+          acceptance_evidence_sha256=VALUES(acceptance_evidence_sha256),
+          lineage_sha256=VALUES(lineage_sha256),accepted_by=VALUES(accepted_by),
+          accepted_at=VALUES(accepted_at)
+        """,
+        (ACTIVATION_ACTOR, now_str),
+    )
+    inserted["psa10Price"] = int(cur.rowcount)
+
+    cur.execute(
+        """
+        INSERT IGNORE INTO market_metric_history_acceptance
+          (variant_id,metric_kind,source_record_type,source_record_id,source_code,
+           external_entity_id,observed_date,source_effective_at,source_payload_sha256,
+           identity_evidence_sha256,acceptance_evidence_sha256,lineage_sha256,
+           accepted_by,accepted_at)
+        SELECT pop.variant_id,'psa10_population','market_grader_population_observation',
+               pop.id,'gemrate',pop.external_entity_id,pop.observed_date,pop.effective_at,
+               pop.payload_sha256,si.evidence_sha256,
+               SHA2(CONCAT_WS('|','accept-exact-gemrate-psa10-pop-v1',pop.id,pop.variant_id,
+                 pop.external_entity_id,pop.payload_sha256,si.evidence_sha256),256),
+               SHA2(CONCAT_WS('|','metric-history-v1','psa10_population',pop.id,pop.variant_id,
+                 pop.external_entity_id,pop.payload_sha256,si.evidence_sha256),256),
+               %s,%s
+        FROM market_grader_population_observation pop
+        INNER JOIN market_universe_member am ON am.variant_id=pop.variant_id
+        INNER JOIN market_universe_lock ul ON ul.id=am.universe_lock_id AND ul.is_current=1
+        INNER JOIN operator_strict_source_identity si ON si.variant_id=pop.variant_id
+          AND si.source_code='gemrate' AND si.external_entity_id=pop.external_entity_id
+        WHERE pop.source_code='gemrate' AND UPPER(pop.grader_code)='PSA'
+          AND UPPER(REPLACE(pop.top_grade_label,' ','')) IN ('10','10.0','PSA10','GEMMINT10')
+          AND pop.estimated=0 AND pop.top_grade_population>=0
+          AND pop.payload_sha256 REGEXP '^[0-9a-f]{64}$'
+          AND si.evidence_sha256 REGEXP '^[0-9a-f]{64}$'
+        """,
+        (ACTIVATION_ACTOR, now_str),
+    )
+    inserted["psa10Population"] = int(cur.rowcount)
+
+    inserted["psa10Sales"] = 0
+    ordered = sorted(fingerprints)
+    for start in range(0, len(ordered), 500):
+        chunk = ordered[start:start + 500]
+        ph = ",".join(["%s"] * len(chunk))
+        cur.execute(
+            f"""
+            INSERT IGNORE INTO market_metric_history_acceptance
+              (variant_id,metric_kind,source_record_type,source_record_id,source_code,
+               external_entity_id,observed_date,source_effective_at,source_payload_sha256,
+               identity_evidence_sha256,acceptance_evidence_sha256,lineage_sha256,
+               accepted_by,accepted_at)
+            SELECT s.variant_id,'psa10_sale','market_sale_observation',s.id,
+                   CASE WHEN s.source_code IN ('snk','snk_psa10') THEN 'snkrdunk' ELSE s.source_code END,
+                   s.external_entity_id,DATE(s.sold_at),s.sold_at,s.source_payload_sha256,
+                   si.evidence_sha256,
+                   SHA2(CONCAT_WS('|','accept-exact-psa10-sale-v1',s.id,s.variant_id,
+                     s.source_code,s.external_entity_id,s.source_payload_sha256,si.evidence_sha256),256),
+                   SHA2(CONCAT_WS('|','metric-history-v1','psa10_sale',s.id,s.variant_id,
+                     s.source_code,s.external_entity_id,s.source_payload_sha256,si.evidence_sha256),256),
+                   %s,%s
+            FROM market_sale_observation s
+            INNER JOIN market_universe_member am ON am.variant_id=s.variant_id
+            INNER JOIN market_universe_lock ul ON ul.id=am.universe_lock_id AND ul.is_current=1
+            INNER JOIN operator_strict_source_identity si ON si.variant_id=s.variant_id
+              AND si.source_code=CASE WHEN s.source_code IN ('snk','snk_psa10') THEN 'snkrdunk' ELSE s.source_code END
+              AND si.external_entity_id=s.external_entity_id
+            WHERE s.sold_at IS NOT NULL AND s.quantity>0 AND s.transaction_value_usd>0
+              AND UPPER(s.grader_code)='PSA'
+              AND UPPER(REPLACE(s.grade_label,' ','')) IN ('10','10.0','PSA10','GEMMINT10')
+              AND s.timestamp_quality IN ('exact','date','timestamp','exact_date','relative_resolved','relative_subday')
+              AND s.source_payload_sha256 REGEXP '^[0-9a-f]{{64}}$'
+              AND si.evidence_sha256 REGEXP '^[0-9a-f]{{64}}$'
+              AND s.transaction_fingerprint IN ({ph})
+            """,
+            (ACTIVATION_ACTOR, now_str, *chunk),
+        )
+        inserted["psa10Sales"] += int(cur.rowcount)
+
+    cur.execute(
+        """
+        INSERT IGNORE INTO market_metric_history_acceptance
+          (variant_id,metric_kind,source_record_type,source_record_id,source_code,
+           external_entity_id,observed_date,source_effective_at,source_payload_sha256,
+           identity_evidence_sha256,acceptance_evidence_sha256,lineage_sha256,
+           accepted_by,accepted_at)
+        SELECT a.variant_id,'verified_zero_sales','market_daily_sales_aggregate',a.id,
+               exact.source_code,exact.external_entity_id,a.observed_date,r.completed_at,
+               a.payload_sha256,exact.evidence_sha256,
+               SHA2(CONCAT_WS('|','accept-verified-zero-sales-v1',a.id,a.variant_id,
+                 exact.source_code,exact.external_entity_id,a.payload_sha256,exact.evidence_sha256),256),
+               SHA2(CONCAT_WS('|','metric-history-v1','verified_zero_sales',a.id,a.variant_id,
+                 exact.source_code,exact.external_entity_id,a.payload_sha256,exact.evidence_sha256),256),
+               %s,%s
+        FROM market_daily_sales_aggregate a
+        INNER JOIN market_ingest_run r ON r.id=a.run_id AND r.status IN ('complete','completed')
+        INNER JOIN market_universe_member am ON am.variant_id=a.variant_id
+        INNER JOIN market_universe_lock ul ON ul.id=am.universe_lock_id AND ul.is_current=1
+        INNER JOIN (
+          SELECT si.variant_id,si.source_code,MIN(si.external_entity_id) AS external_entity_id,
+                 MIN(si.evidence_sha256) AS evidence_sha256
+          FROM operator_strict_source_identity si
+          GROUP BY si.variant_id,si.source_code HAVING COUNT(*)=1
+        ) exact ON exact.variant_id=a.variant_id
+          AND exact.source_code=CASE WHEN a.source_code IN ('snk','snk_psa10') THEN 'snkrdunk' ELSE a.source_code END
+        WHERE a.sales_count=0 AND a.coverage_status='complete'
+          AND a.payload_sha256 REGEXP '^[0-9a-f]{64}$'
+          AND exact.evidence_sha256 REGEXP '^[0-9a-f]{64}$'
+        """,
+        (ACTIVATION_ACTOR, now_str),
+    )
+    inserted["verifiedZeroSales"] = int(cur.rowcount)
+    return inserted
+
+
+def _activation_rank_and_accept(
+    cur, ready_ids: list[int], now_str: str,
+) -> dict[str, Any]:
+    """Winner selection + market cap ranking + canonical acceptance rows.
+
+    Mirrors the proven 026 selector but with dynamic coverage (== product_ready
+    set, not 762) and §3.11b: identical content still bumps accepted_at."""
+
+    from decimal import Decimal
+
+    ready = set(ready_ids)
+    cur.execute(
+        """
+        SELECT p.variant_id,p.price_history_acceptance_id,p.price_usd,
+               p.price_effective_at,p.price_source_observed_at,
+               p.observed_date AS price_observed_date,
+               p.price_source_code,p.price_route_priority,p.price_lineage_sha256
+        FROM operator_eligible_accepted_psa10_price_history p
+        INNER JOIN market_universe_member am ON am.variant_id=p.variant_id
+        INNER JOIN market_universe_lock ul ON ul.id=am.universe_lock_id AND ul.is_current=1
+        """
+    )
+    latest_price: dict[int, dict] = {}
+    latest_price_keys: dict[int, tuple] = {}
+    for raw in cur.fetchall():
+        row = dict(raw)
+        variant_id = int(row["variant_id"])
+        winner_key = (
+            -int(row["price_route_priority"]),
+            row["price_observed_date"],
+            row["price_effective_at"],
+            row["price_source_observed_at"],
+            int(row["price_history_acceptance_id"]),
+        )
+        if variant_id not in latest_price_keys or winner_key > latest_price_keys[variant_id]:
+            latest_price_keys[variant_id] = winner_key
+            latest_price[variant_id] = row
+
+    cur.execute(
+        """
+        SELECT h.id AS population_history_acceptance_id,
+               pop.variant_id,pop.observed_date AS population_observed_date,
+               pop.top_grade_population AS psa10_population,
+               pop.effective_at AS population_effective_at,
+               h.lineage_sha256 AS population_lineage_sha256
+        FROM market_metric_history_acceptance h
+        INNER JOIN market_grader_population_observation pop
+          ON h.source_record_type='market_grader_population_observation'
+         AND h.source_record_id=pop.id
+         AND h.variant_id=pop.variant_id
+         AND h.source_code=pop.source_code
+         AND h.external_entity_id=pop.external_entity_id
+        INNER JOIN market_universe_member am ON am.variant_id=pop.variant_id
+        INNER JOIN market_universe_lock ul ON ul.id=am.universe_lock_id AND ul.is_current=1
+        WHERE h.metric_kind='psa10_population'
+          AND h.source_code='gemrate' AND pop.source_code='gemrate'
+          AND UPPER(pop.grader_code)='PSA'
+          AND UPPER(REPLACE(pop.top_grade_label,' ','')) IN ('10','10.0','PSA10','GEMMINT10')
+          AND pop.estimated=0
+          AND h.lineage_sha256 REGEXP '^[0-9a-f]{64}$'
+        """
+    )
+    latest_population: dict[int, dict] = {}
+    latest_population_keys: dict[int, tuple] = {}
+    for raw in cur.fetchall():
+        row = dict(raw)
+        variant_id = int(row["variant_id"])
+        winner_key = (
+            row["population_observed_date"],
+            row["population_effective_at"],
+            int(row["population_history_acceptance_id"]),
+        )
+        if (
+            variant_id not in latest_population_keys
+            or winner_key > latest_population_keys[variant_id]
+        ):
+            latest_population_keys[variant_id] = winner_key
+            latest_population[variant_id] = row
+
+    missing_price = sorted(v for v in ready if v not in latest_price)
+    missing_pop = sorted(v for v in ready if v not in latest_population)
+    if missing_price or missing_pop:
+        raise SystemExit(
+            "S12 ABORT: product_ready coverage incomplete:"
+            f" missingPrice={missing_price[:20]} missingPop={missing_pop[:20]}"
+        )
+
+    ranked: list[tuple[int, dict, Any]] = []
+    for variant_id in sorted(ready):
+        row = {**latest_price[variant_id], **latest_population[variant_id]}
+        cap = Decimal(str(row["price_usd"])) * Decimal(int(row["psa10_population"]))
+        ranked.append((variant_id, row, cap))
+    ranked.sort(key=lambda item: (-item[2], item[0]))
+    ranking_generation_sha = sha256_bytes(canonical_json(
+        [
+            {
+                "variantId": variant_id,
+                "priceAcceptanceId": int(row["price_history_acceptance_id"]),
+                "populationAcceptanceId": int(row["population_history_acceptance_id"]),
+                "marketCapUsd": format(cap, "f"),
+            }
+            for variant_id, row, cap in ranked
+        ]
+    ))
+    for rank, (variant_id, row, cap) in enumerate(ranked, start=1):
+        metric_lineage_sha = sha256_bytes(canonical_json(
+            {
+                "kind": "canonical-current-metric-v1",
+                "variantId": variant_id,
+                "priceHistoryAcceptanceId": int(row["price_history_acceptance_id"]),
+                "populationHistoryAcceptanceId": int(row["population_history_acceptance_id"]),
+                "marketCapUsd": format(cap, "f"),
+                "canonicalMarketRank": rank,
+                "rankingGenerationSha256": ranking_generation_sha,
+            }
+        ))
+        evidence_sha = sha256_bytes(canonical_json(
+            {
+                "policy": "language-routed-exact-price-times-exact-gemrate-pop-v1",
+                "priceLineageSha256": row["price_lineage_sha256"],
+                "populationLineageSha256": row["population_lineage_sha256"],
+                "metricLineageSha256": metric_lineage_sha,
+            }
+        ))
+        cur.execute(
+            """
+            SELECT id,metric_lineage_sha256 FROM market_canonical_metric_acceptance
+            WHERE variant_id=%s AND NOT EXISTS (
+              SELECT 1 FROM market_canonical_metric_acceptance newer
+              WHERE newer.supersedes_acceptance_id=market_canonical_metric_acceptance.id
+            ) ORDER BY accepted_at DESC,id DESC LIMIT 1
+            """,
+            (variant_id,),
+        )
+        current = cur.fetchone()
+        supersedes = (
+            None
+            if not current or current.get("metric_lineage_sha256") == metric_lineage_sha
+            else int(current["id"])
+        )
+        # §3.11b: identical lineage hits uq_canonical_metric_lineage and MUST
+        # still move accepted_at, or a same-content re-activation silently
+        # never flips the FE.
+        cur.execute(
+            """
+            INSERT INTO market_canonical_metric_acceptance
+              (variant_id,price_history_acceptance_id,population_history_acceptance_id,
+               market_cap_usd,canonical_market_rank,ranking_generation_sha256,
+               metric_lineage_sha256,evidence_sha256,accepted_by,accepted_at,
+               supersedes_acceptance_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id),
+              accepted_by=VALUES(accepted_by),accepted_at=VALUES(accepted_at)
+            """,
+            (
+                variant_id, int(row["price_history_acceptance_id"]),
+                int(row["population_history_acceptance_id"]), cap, rank,
+                ranking_generation_sha, metric_lineage_sha, evidence_sha,
+                ACTIVATION_ACTOR, now_str, supersedes,
+            ),
+        )
+    return {
+        "accepted": len(ranked),
+        "rankingGenerationSha256": ranking_generation_sha,
+        "ranks": {variant_id: rank for rank, (variant_id, _, _) in enumerate(ranked, start=1)},
+    }
+
+
 def cmd_activate(args: argparse.Namespace) -> int:
+    from datetime import datetime, timezone
+
     generation = args.generation
     if not GENERATION_RE.match(generation):
         raise SystemExit(f"--generation must match {GENERATION_RE.pattern}")
@@ -3386,9 +5559,140 @@ def cmd_activate(args: argparse.Namespace) -> int:
             receipt = cursor.fetchone()
         if receipt is None or int(receipt["passed"]) != 1:
             raise SystemExit("ABORT: validation receipt missing or not passed for that sha")
-        # §6.7: re-run the validator in-process and refuse unless the recomputed
-        # receipt sha equals the CLI sha. The validator lands with S11.
-        raise SystemExit("ABORT: S12 validator re-run is not implemented in this build; activation refused")
+
+        # §6.7: re-run the validator in-process; the operator-supplied sha must
+        # equal the freshly recomputed receipt, proving they read a receipt that
+        # still describes the database being activated.
+        ctx = SimpleNamespace(conn=conn, root=ROOT, generation=generation, args=args)
+        validation = stage_validate(ctx)
+        recomputed = validation["counts"]["receiptSha256"]
+        if not validation["counts"]["passed"]:
+            raise SystemExit(
+                f"ABORT: validator fails now: {validation['counts']['failedChecks']}"
+            )
+        if recomputed != args.receipt_sha256:
+            raise SystemExit(
+                "ABORT: recomputed receipt"
+                f" {recomputed[:16]}.. != supplied {args.receipt_sha256[:16]}..;"
+                " state moved since that receipt — re-read validate output"
+            )
+
+        fingerprints = _load_sales_fingerprints(generation)
+        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
+
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT variant_id FROM catalog_rebuild_member"
+                " WHERE generation_id=%s AND cohort='product_ready'"
+                "  AND variant_id IS NOT NULL ORDER BY variant_id",
+                (generation,),
+            )
+            ready_ids = [int(row["variant_id"]) for row in cur.fetchall()]
+        if not ready_ids:
+            raise SystemExit("S12 ABORT: zero product_ready variants; refusing empty universe")
+
+        try:
+            with conn.cursor() as cur:
+                # -- universe lock (is_current stays 0 until members verify) --
+                lock_doc = {
+                    "contract": "rebuild-036-universe-lock-v1",
+                    "generation": generation,
+                    "memberVariantIds": ready_ids,
+                    "policy": POLICY,
+                }
+                lock_sha = sha256_bytes(canonical_json(lock_doc))
+                cur.execute(
+                    "INSERT INTO market_universe_lock"
+                    " (lock_sha256, effective_at, policy_json, member_count, is_current)"
+                    " VALUES (%s,%s,%s,%s,0)"
+                    " ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id),"
+                    "  member_count=VALUES(member_count)",
+                    (
+                        lock_sha, now_str,
+                        canonical_json(POLICY).decode("utf-8"), len(ready_ids),
+                    ),
+                )
+                lock_id = int(cur.lastrowid)
+                signals = canonical_json({
+                    "origin": "rebuild_036_product_ready", "generation": generation,
+                }).decode("utf-8")
+                for variant_id in ready_ids:
+                    cur.execute(
+                        "INSERT INTO market_universe_member"
+                        " (universe_lock_id, variant_id, segment_code, member_role,"
+                        "  market_rank, selection_signals_json)"
+                        " VALUES (%s,%s,'tracked','candidate',NULL,%s)"
+                        " ON DUPLICATE KEY UPDATE segment_code=VALUES(segment_code),"
+                        "  member_role=VALUES(member_role),"
+                        "  selection_signals_json=VALUES(selection_signals_json)",
+                        (lock_id, variant_id, signals),
+                    )
+                cur.execute(
+                    "SELECT COUNT(*) AS members, COUNT(DISTINCT variant_id) AS variants"
+                    " FROM market_universe_member WHERE universe_lock_id=%s",
+                    (lock_id,),
+                )
+                counts_row = cur.fetchone()
+                if (
+                    int(counts_row["members"]) != len(ready_ids)
+                    or int(counts_row["variants"]) != len(ready_ids)
+                ):
+                    raise SystemExit("S12 ABORT: lock membership drifted while writing")
+                cur.execute(
+                    "UPDATE market_universe_lock SET is_current=0"
+                    " WHERE is_current=1 AND id <> %s",
+                    (lock_id,),
+                )
+                cur.execute(
+                    "UPDATE market_universe_lock SET is_current=1 WHERE id=%s",
+                    (lock_id,),
+                )
+
+                bridge = _activation_bridge_population(cur, generation, now_str)
+                history = _activation_accept_history(cur, now_str, fingerprints)
+                canonical = _activation_rank_and_accept(cur, ready_ids, now_str)
+
+                for variant_id, rank in canonical["ranks"].items():
+                    cur.execute(
+                        "UPDATE market_universe_member SET market_rank=%s"
+                        " WHERE universe_lock_id=%s AND variant_id=%s",
+                        (rank, lock_id, variant_id),
+                    )
+                cur.execute(
+                    "UPDATE cardz_rebuild_generation"
+                    " SET activated_at=%s, activation_receipt_sha256=%s"
+                    " WHERE generation_id=%s",
+                    (now_str, args.receipt_sha256, generation),
+                )
+                if cur.rowcount == 0:
+                    raise SystemExit("S12 ABORT: generation row vanished")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+        report = {
+            "activated": True,
+            "generation": generation,
+            "receiptSha256": args.receipt_sha256,
+            "universeLockId": lock_id,
+            "universeLockSha256": lock_sha,
+            "members": len(ready_ids),
+            "populationBridge": bridge,
+            "historyAcceptance": history,
+            "canonical": {
+                "accepted": canonical["accepted"],
+                "rankingGenerationSha256": canonical["rankingGenerationSha256"],
+            },
+            "activatedAt": now_str,
+        }
+        artifact_path = ROOT / "data" / "runtime" / "rebuild-036" / (
+            f"activation-{generation}.json"
+        )
+        artifact_path.parent.mkdir(parents=True, exist_ok=True)
+        artifact_path.write_bytes(canonical_json(report))
+        print(json.dumps(report, ensure_ascii=False, indent=1, default=str))
+        return 0
     finally:
         conn.close()
 
