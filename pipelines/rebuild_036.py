@@ -5612,15 +5612,19 @@ def _activation_bridge_population(cur, generation: str, now_str: str) -> dict[st
     run. payload_sha256 = psa_row_sha256 (ties back to the raw capture)."""
 
     # ingest_mode is varchar(16) vocab (incremental/full/backfill/rebuild/stock);
-    # the run_key alone identifies this as the 036 pop bridge.
+    # the run_key alone identifies this as the 036 pop bridge. payload/manifest
+    # sha are NOT NULL char(64) — stamp the bridge contract doc.
     run_key = f"rebuild036-pop-bridge-{generation}"
+    bridge_sha = sha256_bytes(canonical_json({
+        "contract": "rebuild036-pop-bridge-v1", "generation": generation,
+    }))
     cur.execute(
         "INSERT INTO market_ingest_run (run_key, source_code, ingest_mode,"
-        " effective_at, status, observed_count, accepted_count, quarantined_count,"
-        " rejected_count, started_at, completed_at)"
-        " VALUES (%s,'gemrate','rebuild',%s,'complete',0,0,0,0,%s,%s)"
+        " effective_at, payload_sha256, manifest_sha256, status, observed_count,"
+        " accepted_count, quarantined_count, rejected_count, started_at, completed_at)"
+        " VALUES (%s,'gemrate','rebuild',%s,%s,%s,'completed',0,0,0,0,%s,%s)"
         " ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id), completed_at=VALUES(completed_at)",
-        (run_key, now_str, now_str, now_str),
+        (run_key, now_str, bridge_sha, bridge_sha, now_str, now_str),
     )
     run_id = int(cur.lastrowid)
     cur.execute(
