@@ -40,7 +40,7 @@ import re
 import sys
 import time
 from collections import defaultdict
-from datetime import date, datetime, time as dt_time, timezone
+from datetime import date, datetime, time as dt_time, timedelta, timezone
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
@@ -54,6 +54,9 @@ from failure_ledger import record_failure, record_resolution  # noqa: E402
 from snkrdunk_bulk import SnkrdunkApiPool, SnkrdunkApi, bfs_discover  # noqa: E402
 
 PSA10_CONDITION = "trading_card_single_psa10"
+# Incremental kline ingest re-writes only this many days behind the last
+# persisted day so a revised recent candle still replaces its old value.
+KLINE_TAIL_REWRITE_DAYS = 3
 SNK_KLINE_ARCHIVE_PATTERN = re.compile(r"^snk(?:_price)?_harvest.*\.jsonl$", re.IGNORECASE)
 SNK_SOURCE_TIMESTAMP_PATTERN = re.compile(r"_(\d{8}T\d{6}(?:\d{6})?Z)")
 
@@ -727,6 +730,33 @@ def _load_existing_price_dates(active_variant_ids: set[int]) -> dict[int, set[da
         conn.close()
 
 
+def _load_last_persisted_kline_day(cur: Any, item_ids: set[int]) -> dict[int, date]:
+    """Last persisted SNK kline day per exact item; the DB is the append index."""
+
+    if not item_ids:
+        return {}
+    placeholders = ",".join(["%s"] * len(item_ids))
+    cur.execute(
+        f"""
+        SELECT external_entity_id, MAX(observed_date) AS last_observed
+        FROM market_source_observation
+        WHERE source_code='snkrdunk' AND observation_kind='psa10_reference_price'
+          AND external_entity_id IN ({placeholders})
+        GROUP BY external_entity_id
+        """,
+        tuple(str(item_id) for item_id in sorted(item_ids)),
+    )
+    result: dict[int, date] = {}
+    for row in cur.fetchall():
+        observed = row.get("last_observed")
+        if observed is None:
+            continue
+        result[int(str(row["external_entity_id"]).strip())] = (
+            observed if isinstance(observed, date) else date.fromisoformat(str(observed))
+        )
+    return result
+
+
 def recover_local_history(
     *,
     sources: list[Path],
@@ -959,6 +989,10 @@ def ingest_kline_jsonls(
     - never invent prices; empty kline → skipped (missing stays missing)
     - every effective_at is the observed-day EOD; fetch time remains provenance only
     - multiple inputs are processed in source-run order, so later same-key evidence wins
+    - incremental mode appends: only days newer than the last persisted SNK
+      observation minus KLINE_TAIL_REWRITE_DAYS are written (the tail window
+      lets a revised recent candle replace its old value via
+      uq_market_price_daily); backfill mode still writes full history
 
     A caller that already holds a writer connection (e.g. rebuild orchestrator
     under writer freeze) passes it via `conn` — it is committed but never
@@ -1023,6 +1057,7 @@ def ingest_kline_jsonls(
         "rowsSeen": len(rows),
         "cardsAccepted": 0,
         "pricePoints": 0,
+        "pricePointsAlreadyPersisted": 0,
         "skippedNoExactIdentity": 0,
         "skippedCondition": 0,
         "skippedEmptyKline": 0,
@@ -1083,7 +1118,19 @@ def ingest_kline_jsonls(
     )
     run_id = cur.lastrowid
     stats["runId"] = run_id
-    price_rows_to_write: list[tuple[Any, ...]] = []
+    incremental = ingest_mode == "incremental"
+    last_day_by_item: dict[int, date] = {}
+    if incremental:
+        last_day_by_item = _load_last_persisted_kline_day(
+            cur,
+            {
+                row["item_id"]
+                for row in rows
+                if isinstance(row.get("item_id"), int) and row["item_id"] in item_to_variant
+            },
+        )
+    source_rows_to_write: list[tuple[Any, ...]] = []
+    pending_price_rows: list[tuple[tuple[str, str, str], tuple[Any, ...], tuple[Any, ...]]] = []
     resolved_cards: list[tuple[int, int, int]] = []
 
     for row in rows:
@@ -1148,10 +1195,21 @@ def ingest_kline_jsonls(
 
         stats["cardsAccepted"] += 1
         stats["acceptedItemIds"].append(item_id)
+        to_write = valid
+        if incremental:
+            last_day = last_day_by_item.get(item_id)
+            if last_day is not None:
+                # Append-only with a small tail-rewrite window: days newer than
+                # the last persisted day are new candles; days inside the window
+                # are re-upserted so a revised recent candle still replaces its
+                # old value. Older days are already persisted and stay untouched.
+                cutoff = (last_day - timedelta(days=KLINE_TAIL_REWRITE_DAYS)).isoformat()
+                to_write = [(day, price_jpy) for day, price_jpy in valid if day >= cutoff]
+                stats["pricePointsAlreadyPersisted"] += len(valid) - len(to_write)
         source_row_sha256 = hashlib.sha256(
             json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
-        for day, price_jpy in valid:
+        for day, price_jpy in to_write:
             price_usd = round(price_jpy / jpy_per_usd, 6)
             # The market date is authoritative for chart anchors and public as-of.
             observed = date.fromisoformat(day)
@@ -1168,45 +1226,70 @@ def ingest_kline_jsonls(
             }
             payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
             payload_hash = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
-            cur.execute(
-                """
-                INSERT INTO market_source_observation
-                    (run_id, source_code, external_entity_id, observation_kind, effective_at,
-                     observed_date, payload_sha256, payload_json, observed_at)
-                VALUES (%s, 'snkrdunk', %s, 'psa10_reference_price', %s, %s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE
-                    id=LAST_INSERT_ID(id), run_id=VALUES(run_id),
-                    effective_at=VALUES(effective_at), payload_sha256=VALUES(payload_sha256),
-                    payload_json=VALUES(payload_json),
-                    observed_at=VALUES(observed_at)
-                """,
+            source_rows_to_write.append(
                 (
                     run_id, str(item_id), effective, day, payload_hash, payload_json,
                     observed_at,
-                ),
+                )
             )
-            source_observation_id = int(cur.lastrowid)
-            if source_observation_id <= 0:
-                raise RuntimeError("SNK source observation upsert returned no id")
-            price_rows_to_write.append(
+            pending_price_rows.append(
                 (
-                    run_id,
-                    variant_id,
-                    "snkrdunk",
-                    str(item_id),
-                    source_observation_id,
-                    day,
-                    effective,
-                    price_usd,
-                    price_jpy,
-                    "JPY",
-                    50,
-                    "ready",
-                    payload_hash,
+                    (str(item_id), day, payload_hash),
+                    (run_id, variant_id, "snkrdunk", str(item_id)),
+                    (day, effective, price_usd, price_jpy, "JPY", 50, "ready", payload_hash),
                 )
             )
             stats["pricePoints"] += 1
-        resolved_cards.append((item_id, variant_id, len(valid)))
+        resolved_cards.append((item_id, variant_id, len(to_write)))
+
+    source_upsert = """
+        INSERT INTO market_source_observation
+            (run_id, source_code, external_entity_id, observation_kind, effective_at,
+             observed_date, payload_sha256, payload_json, observed_at)
+        VALUES (%s, 'snkrdunk', %s, 'psa10_reference_price', %s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            run_id=VALUES(run_id),
+            effective_at=VALUES(effective_at), payload_sha256=VALUES(payload_sha256),
+            payload_json=VALUES(payload_json),
+            observed_at=VALUES(observed_at)
+    """
+    for offset in range(0, len(source_rows_to_write), 500):
+        cur.executemany(
+            source_upsert,
+            source_rows_to_write[offset : offset + 500],
+        )
+
+    # Resolve batched observation ids through the same unique key the upsert
+    # deduplicates on; every pending price row must find exactly one owner.
+    source_observation_ids: dict[tuple[str, str, str], int] = {}
+    lookup_keys = list(dict.fromkeys(key for key, _, _ in pending_price_rows))
+    for offset in range(0, len(lookup_keys), 500):
+        chunk = lookup_keys[offset : offset + 500]
+        predicate = " OR ".join(
+            ["(external_entity_id=%s AND observed_date=%s AND payload_sha256=%s)"] * len(chunk)
+        )
+        cur.execute(
+            f"""
+            SELECT id, external_entity_id, observed_date, payload_sha256
+            FROM market_source_observation
+            WHERE source_code='snkrdunk' AND observation_kind='psa10_reference_price'
+              AND ({predicate})
+            """,
+            tuple(value for lookup_key in chunk for value in lookup_key),
+        )
+        for found in cur.fetchall():
+            observed = found["observed_date"]
+            day_text = observed.isoformat() if isinstance(observed, date) else str(observed)
+            source_observation_ids[
+                (str(found["external_entity_id"]), day_text, str(found["payload_sha256"]))
+            ] = int(found["id"])
+
+    price_rows_to_write: list[tuple[Any, ...]] = []
+    for lookup_key, head, tail in pending_price_rows:
+        source_observation_id = int(source_observation_ids.get(lookup_key) or 0)
+        if source_observation_id <= 0:
+            raise RuntimeError("SNK source observation upsert returned no id")
+        price_rows_to_write.append((*head, source_observation_id, *tail))
 
     price_upsert = """
         INSERT INTO market_price_observation
