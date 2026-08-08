@@ -421,6 +421,7 @@ def migrate(
             raise RuntimeError(f"requested migration files are missing: {missing}")
     with connection.cursor() as cursor:
         ensure_migration_ledger(cursor)
+        connection.commit()
         for path in sorted(migrations.glob("*.mysql.sql")):
             migration_file = path.name
             if only and migration_file not in only:
@@ -439,6 +440,11 @@ def migrate(
             for statement in split_sql(path.read_text(encoding="utf-8")):
                 cursor.execute(statement)
                 statements += 1
+            # The ledger row is written last and committed per file. MySQL DDL
+            # implicit commits make ledger-first unsafe: a mid-file crash would
+            # leave the ledger row committed and the next run would skip the
+            # half-applied file. DDL-first instead relies on 036+ files being
+            # idempotent, so replaying a half-applied file is safe.
             cursor.execute(
                 """
                 INSERT INTO cardz_migration_ledger (migration_file, content_sha256, applied_at)
@@ -447,6 +453,7 @@ def migrate(
                 (migration_file, content_sha256),
             )
             applied += 1
+            connection.commit()
     connection.commit()
     return {"files": applied, "skipped": skipped, "statements": statements}
 

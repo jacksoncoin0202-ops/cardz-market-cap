@@ -234,6 +234,31 @@ def migration_hashes() -> dict[str, str]:
     }
 
 
+def assert_ledger_matches_repository(connection: Any, *, allow_unledgered: bool = False) -> None:
+    # 036 Gate 0.7: this script must never act as a second migration authority.
+    # A seed built while the DB ledger and the repository migration files
+    # disagree would silently bake the disagreement into the seed.
+    repository = migration_hashes()
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT migration_file, content_sha256 FROM cardz_migration_ledger")
+        ledger = {row["migration_file"]: row["content_sha256"] for row in cursor.fetchall()}
+    problems = []
+    for name in sorted(set(repository) | set(ledger)):
+        if name not in ledger:
+            problems.append(f"unapplied repository migration: {name}")
+        elif name not in repository:
+            problems.append(f"unledgered DB migration (no repository file): {name}")
+        elif ledger[name] != repository[name]:
+            problems.append(f"content drift: {name}")
+    if problems and not allow_unledgered:
+        raise SeedError(
+            "migration ledger does not match repository (pass --allow-unledgered-migrations to override): "
+            + "; ".join(problems)
+        )
+    if problems:
+        print(f"canonical seed warning: proceeding despite ledger drift: {'; '.join(problems)}", file=sys.stderr)
+
+
 def build_seed(connection: Any, output: Path, *, manifest_path: Path | None = None, overwrite: bool = False) -> Mapping[str, Any]:
     output = output.resolve()
     manifest_path = (manifest_path or default_manifest_path(output)).resolve()
@@ -347,6 +372,7 @@ def main() -> int:
     build.add_argument("--output", type=Path, required=True)
     build.add_argument("--manifest", type=Path)
     build.add_argument("--overwrite", action="store_true")
+    build.add_argument("--allow-unledgered-migrations", action="store_true")
     verify = subparsers.add_parser("verify")
     verify.add_argument("--seed", type=Path, required=True)
     verify.add_argument("--manifest", type=Path)
@@ -354,6 +380,7 @@ def main() -> int:
     if args.action == "build":
         connection = connect_from_environment()
         try:
+            assert_ledger_matches_repository(connection, allow_unledgered=args.allow_unledgered_migrations)
             manifest = build_seed(connection, args.output, manifest_path=args.manifest, overwrite=args.overwrite)
         finally:
             connection.close()
