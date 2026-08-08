@@ -966,6 +966,8 @@ Shared ingest run 只喺完全冇剩餘 reference 時清理；raw landing 永遠
 
 驗收：`GET /` 快過今日 5.151s（要記數）；generation flip 後下一個 request 載到新 snapshot（配合 §3.11b `accepted_at` 修正）；watchlist 去到最後一張 product-ready 卡冇 300 截斷。
 
+**→ 已交付（2026-08-08，commit `2b13f526`，行喺 3800 standalone）**：items 1–3 落地（4 按規格唔加、5 不變）。實測：`GET /` cold 5.8s（一次性 build）→ **warm 0.28s**（舊基線 5.151s 每 request）；watchlist 662 張全部可達，`?page=` 1–4（200/頁，p1=#101–300 同今日兼容，p4=#701–762 62 張，超界 clamp）；`/api/v1/market?scope=watchlist&page=N` 同步支援，coverage.requestedCount 報全量 662。
+
 ---
 
 ## 7. Migration 036 規格
@@ -1302,7 +1304,11 @@ Trigger 0 個、Event 0 個、`foreign_key_checks=1`。
 > 呢節係俾下一輪紅隊（Fable 5 / Codex）優先攻嘅位。
 
 1. `[COMPUTED]` **Stage 排序可能倒轉咗。** §3.3 話 Stage 4 嘅 exact-binding 升級（~1,096 條）係 Stage 3 qualification 嘅**前置**（冇 strict identity → 冇 eligible price → 冇 market cap → 冇 rank），但 §6 而家仍然把佢排喺 Stage 3 之後。呢個要拍板。**→ 已解決（036b，D10）**：qualification 只睇 POP；exact binding 只決定 product_ready，唔擋 activation。
-2. `[COMPUTED]` **~1,096 條 manual_review 逐張升 exact，工作量未估過。** 有幾多可以自動由 provider payload 派生？有幾多要人手？呢個數決定 036 係幾日定幾星期。
+2. `[COMPUTED]` **~1,096 條 manual_review 逐張升 exact，工作量未估過。** 有幾多可以自動由 provider payload 派生？有幾多要人手？呢個數決定 036 係幾日定幾星期。**→ 已量度（2026-08-08，唯讀 100 條 stratified sample：50 PC + 50 SNK，deterministic `MD5(variant_id:source)` 排序）**：
+   - DB 已存 `bind_evidence_json` **0/100 可用**——全部 `evidence.type=database_lineage`，providerClaims 係由 DB 迴圈派生，冇任何 provider-native number（同 §3.4 死因一致，034 降級係啱嘅）。
+   - **PC（50）**：本 checkout `data/private/pricecharting_session/html/` 有 cache **44/50（88%）**，其中 34/44 slug 尾直接等於 bound collector number；10 個 mismatch 睇樣本全部係格式差異（`85` vs `085/SVP`、`132` vs `177/132`、純數字 PC id 檔名），唔係身份衝突 → 用 HTML 頁面 title 解析＋號碼 normalize，估計 **~85%+ 可自動升**，剩低 ~12% 要補爬。
+   - **SNK（50）**：本地 jsonl harvest 只覆蓋 **2/50（4%）**——613 條 SNK 要真爬（SNK API product payload 有原生 `product_number`，証實可派生）。
+   - **結論：PC 483 條係「日」級（離線解析為主）；SNK 613 條係「爬蟲吞吐」級（~613 個 product page/API 抓取）。036 工期主宰項係 SNK 爬。**
 3. `[INFERRED]` **1,582 / 1,583 accepted id POP 較大**，同「Master Ball reverse holo 應該較稀有」相反。DB 冇證據。discovery 之後如果證實 accepted 嗰個係普通 Reverse Holo，即係現時排行榜有兩張卡嘅 POP 係錯嘅（7,305 / 5,882 vs 967 / 884）—— 呢個係 **live 錯數**，唔止係 036 問題。
 4. `[COMPUTED]` **`scopeSnapshot` rank 101..300 窗口**：1,146 張之後 846 張唔會出現喺任何 list surface，但 sitemap 出全部 URL。要唔要改？改嘅話係 FE 改動，超出 036 backend 範圍。**→ 已拍板（036b，§6.8）**：分頁到最後一張 product-ready 卡。
 5. `[COMPUTED]` **FE 每 request 5.15s → 7–8s**。要唔要喺 036 順手拎走 `populationRows`（43,414 行攞完唔用）同加 price 日期窗？定係另開 FE03？**→ 已拍板（036b，§6.8）**：入 FE02 — generation-keyed cache＋拆 populationRows；日期窗只喺證實無行為改變先加。
