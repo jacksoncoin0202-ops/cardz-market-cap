@@ -495,19 +495,7 @@ def _capture_fingerprint(cards_dir: Path, gid: str) -> tuple[dict[str, Any] | No
         if isinstance(row, dict) and str(row.get("grader") or "").lower() == "psa"
     ]
     set_name = str(raw.get("set_name") or "")
-    lowered = set_name.lower()
-    if "simplified chinese" in lowered:
-        language = "zhCN"
-    elif "traditional chinese" in lowered:
-        language = "zhTW"
-    elif "japanese" in lowered:
-        language = "ja"
-    elif "chinese" in lowered:
-        language = "zh"  # wording names no script: stays ambiguous, fails closed
-    elif "korean" in lowered:
-        language = "ko"
-    else:
-        language = "en"
+    language = _language_from_set_name(set_name) or "en"
     return {
         "gemrateId": gid,
         "description": str(raw.get("description") or ""),
@@ -524,6 +512,26 @@ def _capture_fingerprint(cards_dir: Path, gid: str) -> tuple[dict[str, Any] | No
         "psaRowCount": len(psa_rows),
         "rawSha256": str(receipt.get("contentSha256") or ""),
     }, ""
+
+
+def _language_from_set_name(set_name: str) -> str:
+    """Explicit language wording in a set name; '' when the name says nothing.
+
+    "chinese" without a script stays "zh": ambiguous, downstream fails closed.
+    """
+
+    lowered = str(set_name or "").lower()
+    if "simplified chinese" in lowered:
+        return "zhCN"
+    if "traditional chinese" in lowered:
+        return "zhTW"
+    if "japanese" in lowered:
+        return "ja"
+    if "chinese" in lowered:
+        return "zh"
+    if "korean" in lowered:
+        return "ko"
+    return ""
 
 
 def _norm_text(value: str) -> str:
@@ -596,6 +604,11 @@ def _fingerprint_variant_conflicts(
     if v_number and f_number and v_number != f_number:
         conflicts.append(f"collector_number:{f_number}!={v_number}")
     v_lang = str(variant.get("card_language") or "")
+    if not v_lang:
+        # Catalog rows minted before the language column was enforced carry
+        # the language only in the set name ("One Piece Japanese OP11-…");
+        # without this an en fingerprint sails into a ja variant unopposed.
+        v_lang = _language_from_set_name(variant.get("set_name") or "")
     f_lang = str(fp.get("derivedLanguage") or "")
     if v_lang and f_lang:
         same = v_lang == f_lang or (v_lang.startswith("zh") and f_lang.startswith("zh"))
@@ -942,6 +955,21 @@ def _parallel_agrees(fp_parallel: str, variant_parallel: str) -> bool:
     return {fpp, vpp} == {"", "base"} or (vpp == "" and fpp == "base")
 
 
+def _print_signature_agrees(fp_parallel: str, variant: Mapping[str, Any]) -> bool:
+    """Does the fingerprint's print wording describe this variant's print?
+
+    printing_code is the stronger catalog evidence when present (a 1st Edition
+    print is stored as printing_code='1st' with parallel_code left ''), so it
+    takes precedence and the ""≡Base default-print collapse must not apply.
+    """
+
+    printing = _norm_text(variant.get("printing_code") or "")
+    if printing:
+        fpp = _norm_text(fp_parallel)
+        return fpp == printing or fpp == f"{printing} edition"
+    return _parallel_agrees(fp_parallel, variant.get("parallel_code") or "")
+
+
 def _gemrate_bind_evidence(fp: Mapping[str, Any], generation: str) -> tuple[dict[str, Any], str]:
     """Contract shape for operator_strict_source_identity (037): providerClaims
     carry what the provider itself said; evidence ties the bind to a
@@ -1013,7 +1041,7 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
         bindings = {row["gid"]: row for row in cursor.fetchall()}
         cursor.execute(
             "SELECT v.id, v.opaque_id, v.tcg_code, v.card_language, v.canonical_name,"
-            " v.set_name, v.collector_number, v.identity_status,"
+            " v.set_name, v.collector_number, v.identity_status, v.created_at,"
             " p.parallel_code, p.printing_code, p.canonical_printing_sha256,"
             " p.tcg_code AS p_tcg_code, p.card_language AS p_card_language,"
             " p.set_code AS p_set_code, p.collector_number AS p_collector_number,"
@@ -1036,16 +1064,30 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
         if row["resolved_at"] is None:
             open_incidents.setdefault(row["gemrate_id"], []).append(row["incident_kind"])
 
+    # Variants minted by this rebuild (vs the pre-rebuild catalog). A mint that
+    # duplicated a pre-existing card — the adoption key used to compare raw
+    # collector text, so "085" never matched the catalog's "085/SVP" — must not
+    # act as an adoption target or a settled home; re-homing below migrates its
+    # binding back to the original variant and retires the empty shell.
+    gen_start = datetime.strptime(
+        generation.split("_", 1)[1], "%Y%m%dT%H%M%SZ"
+    ).replace(tzinfo=timezone.utc)
+    rebuild_minted = {
+        vid for vid, variant in variants.items()
+        if variant.get("created_at") is not None
+        and variant["created_at"].replace(tzinfo=timezone.utc) >= gen_start
+    }
+
     printing_sha_owner: dict[str, int] = {}
     adoption_index: dict[tuple[str, str], list[int]] = {}
     for vid, variant in variants.items():
         sha = variant.get("canonical_printing_sha256")
         if sha:
             printing_sha_owner[sha] = vid
-        key = (
-            str(variant.get("tcg_code") or "").casefold(),
-            _norm_text(variant.get("collector_number") or ""),
-        )
+        core = _collector_core(variant.get("collector_number") or "")
+        if not core or vid in rebuild_minted:
+            continue  # no comparable number / rebuild shell: never an adoption target
+        key = (str(variant.get("tcg_code") or "").casefold(), core)
         adoption_index.setdefault(key, []).append(vid)
 
     # Current exact gemrate owners per variant; maintained as decisions land so
@@ -1061,11 +1103,13 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
     variant_mints: dict[str, dict[str, Any]] = {}  # printing_sha -> mint spec
     member_updates: dict[str, dict[str, Any]] = {}
     pending_extra: dict[str, list[str]] = {}
+    demoted: dict[str, str] = {}  # gid -> recorded non_qualified demotion reason
     counts = {
         "variantsCreated": 0, "variantsAdopted": 0, "bindingsUpgradedExact": 0,
         "bindingsRebound": 0, "bindingsRejected": 0, "aliasesClosed": 0,
         "incidentsClosed": 0, "incidentsStillOpen": 0, "newIncidents": 0,
-        "ownershipUnresolved": 0,
+        "ownershipUnresolved": 0, "duplicateMintsRebound": 0,
+        "duplicateShellsRetired": 0,
     }
 
     def member_pop(gid: str) -> int:
@@ -1157,12 +1201,44 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
 
         fields, reason = _derive_print_fields(fp)
         if fields is None:
+            if reason == "collector_unknown":
+                # The provider page carries no printed collector number and the
+                # product contract (product_ready) requires one, so this id can
+                # never hold a real printing identity. The 034 world parked the
+                # same cards as g10_* review placeholders outside the universe;
+                # 036 records that parking as an explicit cohort demotion.
+                demoted[gid] = "provider_carries_no_collector_number"
+                if gid in bindings and bindings[gid]["match_status"] != "rejected":
+                    binding_updates[gid] = {"action": "reject"}
+                for kind in open_incidents.get(gid, []):
+                    closures.append((gid, kind, "non_qualified_collector_unknown"))
+                return
             pending_extra.setdefault(gid, []).append(f"mint:{reason}")
             return
         sha = _gemrate_printing_sha(fields)
         target = printing_sha_owner.get(sha)
+        if target is not None and target in rebuild_minted:
+            # The sha lands on a variant this rebuild minted. If the mint
+            # duplicated a pre-existing catalog card, that original is the home
+            # (its sales/image/name lineage lives there); only a mint with no
+            # pre-rebuild counterpart may keep the binding.
+            key = (fields["tcg_code"], _collector_core(fields["collector_number"]))
+            older = [
+                vid for vid in adoption_index.get(key, [])
+                if not _fingerprint_variant_conflicts(fp, variants[vid])
+                and _parallel_agrees(fp["parallel"], variants[vid].get("parallel_code") or "")
+            ]
+            if len(older) > 1:
+                anchored = [
+                    vid for vid in older
+                    if variants[vid].get("canonical_printing_sha256")
+                ]
+                if len(anchored) == 1:
+                    older = anchored
+            if len(older) == 1:
+                target = older[0]
         if target is None:
-            key = (fields["tcg_code"], _norm_text(fields["collector_number"]))
+            key = (fields["tcg_code"], _collector_core(fields["collector_number"]))
             candidates = []
             for vid in adoption_index.get(key, []):
                 variant = variants[vid]
@@ -1171,6 +1247,17 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
                 if not _parallel_agrees(fp["parallel"], variant.get("parallel_code") or ""):
                     continue
                 candidates.append(vid)
+            if len(candidates) > 1:
+                # A variant with no canonical_printing_sha256 can never become
+                # product_ready — it is a parked placeholder (g10_* review
+                # rows), not an identity anchor; a unique anchored candidate
+                # outranks placeholders instead of tying with them.
+                anchored = [
+                    vid for vid in candidates
+                    if variants[vid].get("canonical_printing_sha256")
+                ]
+                if len(anchored) == 1:
+                    candidates = anchored
             if len(candidates) > 1:
                 pending_extra.setdefault(gid, []).append("adoption_ambiguous")
                 return
@@ -1210,6 +1297,26 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
         variant = variants.get(vid)
         if variant is None:
             continue
+        if vid in rebuild_minted:
+            continue  # not a settled home; re-evaluated wholesale below
+        contenders = []
+        for gid in gids:
+            if fingerprints.get(gid) is None and not qualified(gid):
+                # Unverifiable non-qualified binding (no capture exists): give
+                # it the same ruling the loser path would, instead of letting
+                # it hold the whole contest open forever.
+                binding_updates[gid] = {"action": "reject"}
+                closures.append((gid, "accepted_binding_moved",
+                                 "unverifiable_non_qualified_binding_rejected"))
+                closures.append((gid, "variant_mixed_printings",
+                                 "unverifiable_non_qualified_binding_rejected"))
+                if variant_exact_owner.get(vid) == gid:
+                    del variant_exact_owner[vid]
+                continue
+            contenders.append(gid)
+        gids = contenders
+        if not gids:
+            continue
         with_fp = [gid for gid in gids if fingerprints.get(gid) is not None]
         if len(with_fp) < len(gids):
             counts["ownershipUnresolved"] += len(gids) > 1
@@ -1224,8 +1331,7 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
         elif len(zero) > 1:
             para = [
                 gid for gid in zero
-                if _norm_text(fingerprints[gid]["parallel"])
-                == _norm_text(variant.get("parallel_code") or "")
+                if _print_signature_agrees(fingerprints[gid]["parallel"], variant)
             ]
             if len(para) == 1:
                 owner = para[0]
@@ -1233,6 +1339,19 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
             # Sole binding whose fingerprint moved away: evict and re-home it.
             owner = ""
         if owner is None:
+            if len(gids) > 1 and all(not qualified(gid) for gid in gids):
+                # No owner is derivable and no contender can ever enter the
+                # universe: each gets the loser-path ruling and the variant is
+                # left unbound, exactly as piecemeal resolution would end up.
+                for gid in gids:
+                    binding_updates[gid] = {"action": "reject"}
+                    closures.append((gid, "accepted_binding_moved",
+                                     "non_qualified_binding_rejected"))
+                    closures.append((gid, "variant_mixed_printings",
+                                     "non_qualified_binding_rejected"))
+                if variant_exact_owner.get(vid) in gids:
+                    del variant_exact_owner[vid]
+                continue
             if len(gids) > 1:
                 counts["ownershipUnresolved"] += 1
             continue
@@ -1262,6 +1381,25 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
                                  "non_qualified_binding_rejected"))
                 closures.append((gid, "variant_mixed_printings",
                                  "non_qualified_binding_rejected"))
+
+    # --- bindings living on rebuild-minted variants ------------------------
+    # Every such binding re-resolves from provider evidence: a legit mint
+    # re-finds itself via its printing sha (no-op rebind), while a mint that
+    # duplicated a pre-existing catalog card migrates back to the original the
+    # fixed collector-core adoption key now reaches.
+    for vid in sorted(variant_bound):
+        if vid not in rebuild_minted:
+            continue
+        for gid in variant_bound[vid]:
+            fp = fingerprints.get(gid)
+            if fp is None or not qualified(gid):
+                continue  # unverifiable / out of universe: binding left as-is
+            resolve_home(gid, fp)
+            intent = binding_updates.get(gid)
+            if intent and intent.get("action") == "bind" and intent.get("variant_id") != vid:
+                counts["duplicateMintsRebound"] += 1
+                if variant_exact_owner.get(vid) == gid:
+                    del variant_exact_owner[vid]
 
     # --- unbound or rejected-bound qualified members -----------------------
     for gid, member in sorted(members.items()):
@@ -1438,6 +1576,34 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
                 if intent.get("adopted"):
                     counts["variantsAdopted"] += 1
 
+            # Rebuild-minted variants left with no live binding are duplicate
+            # shells: strip the printing identity (so no future sha lookup or
+            # product-shape query can land on them) and park the row as
+            # 'review', the same shape the catalog uses for other non-entities.
+            if rebuild_minted:
+                placeholders = ",".join(["%s"] * len(rebuild_minted))
+                cursor.execute(
+                    "SELECT DISTINCT variant_id FROM catalog_source_identity"
+                    f" WHERE variant_id IN ({placeholders})"
+                    " AND match_status <> 'rejected'",
+                    tuple(sorted(rebuild_minted)),
+                )
+                still_referenced = {int(row["variant_id"]) for row in cursor.fetchall()}
+                shells = sorted(
+                    rebuild_minted - still_referenced - set(minted_ids.values())
+                )
+                for shell_vid in shells:
+                    cursor.execute(
+                        "DELETE FROM catalog_printing_identity WHERE variant_id=%s",
+                        (shell_vid,),
+                    )
+                    cursor.execute(
+                        "UPDATE catalog_variant SET identity_status='review'"
+                        " WHERE id=%s",
+                        (shell_vid,),
+                    )
+                counts["duplicateShellsRetired"] = len(shells)
+
             closed_keys = set()
             for gid, kind, resolution in closures:
                 if (gid, kind) in closed_keys:
@@ -1492,6 +1658,9 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
                 if gid in alias_of:
                     cohort = "non_qualified"
                     detail["aliasOf"] = alias_of[gid]
+                elif gid in demoted:
+                    cohort = "non_qualified"
+                    detail["demotedReason"] = demoted[gid]
                 intent = binding_updates.get(gid)
                 if intent and intent["action"] == "bind":
                     variant_id = intent["variant_id"]
@@ -1517,6 +1686,7 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
                     ),
                 )
             counts["identityPendingAfter"] = pending_after
+            counts["demotedCollectorUnknown"] = len(demoted)
         conn.commit()
     except Exception:
         conn.rollback()
