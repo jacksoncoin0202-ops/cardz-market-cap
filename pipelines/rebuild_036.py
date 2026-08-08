@@ -515,18 +515,69 @@ def _norm_text(value: str) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip().lower()
 
 
+def _collector_core(value: str) -> str:
+    """Comparable core of a collector number across vocabularies.
+
+    GemRate stores the bare printed number ("016", "236"); the catalog stores
+    display forms with a set prefix and/or denominator ("OP01-016", "236/187").
+    Core = last dash segment, denominator dropped, numeric leading zeros folded.
+    """
+
+    text = _norm_text(value).replace(" ", "")
+    if not text:
+        return ""
+    text = text.split("/", 1)[0]
+    if "-" in text:
+        text = text.rsplit("-", 1)[1]
+    return str(int(text)) if text.isdigit() else text
+
+
+_SET_CODE_RE = re.compile(r"\b(op\d{2}|eb\d{2}|st\d{2}|prb\d{2}|sv\d+[a-z]?|s\d+[a-z]?|swsh\d+|sm\d+[a-z]?|xy\d+[a-z]?)\b")
+_ERA_PHRASES = (
+    "scarlet and violet", "sword and shield", "sun and moon", "mega evolution",
+    "black and white", "diamond and pearl", "heartgold and soulsilver",
+)
+_NOISE_TOKENS = {
+    "pokemon", "one", "piece", "japanese", "japan", "english", "en", "jp", "ja",
+    "booster", "pack", "the", "of", "and", "a", "an",
+}
+
+
+def _set_signals(set_name: str, collector: str = "") -> tuple[set[str], set[str]]:
+    """(set codes, meaningful name tokens) a side exposes for set comparison."""
+
+    text = _norm_text(str(set_name or "").replace("&", " and "))
+    codes = set(_SET_CODE_RE.findall(text)) | set(
+        _SET_CODE_RE.findall(_norm_text(collector))
+    )
+    # GemRate's "<franchise> <CODE> <LANG>-<Name>" prefix: code is already
+    # harvested above; strip it so the code token never pollutes name tokens.
+    text = re.sub(r"\b([a-z0-9]{2,6})\s+(en|jp|ja)-", " ", text)
+    for phrase in _ERA_PHRASES:
+        text = text.replace(phrase, " ")
+    tokens = {
+        "promo" if token == "p" else token
+        for token in re.split(r"[^a-z0-9]+", text)
+        if token and token not in _NOISE_TOKENS and token not in codes
+    }
+    return codes, tokens
+
+
 def _fingerprint_variant_conflicts(
     fp: Mapping[str, Any], variant: Mapping[str, Any],
 ) -> list[str]:
     """Hard identity conflicts between a discovery fingerprint and a variant.
 
-    Only signals both vocabularies can express are compared; parallel/printing
-    wording differences are soft evidence and stay in detail_json instead.
+    Signal-level comparison, not string equality: the two vocabularies spell
+    the same identity differently (era names vs set codes, bare vs prefixed
+    collector numbers), so each signal is normalised to what both sides can
+    express before being allowed to conflict. Parallel/printing wording stays
+    soft evidence in detail_json.
     """
 
     conflicts: list[str] = []
-    v_number = _norm_text(variant.get("collector_number") or "")
-    f_number = _norm_text(fp.get("cardNumber") or "")
+    v_number = _collector_core(variant.get("collector_number") or "")
+    f_number = _collector_core(fp.get("cardNumber") or "")
     if v_number and f_number and v_number != f_number:
         conflicts.append(f"collector_number:{f_number}!={v_number}")
     v_lang = str(variant.get("card_language") or "")
@@ -535,14 +586,29 @@ def _fingerprint_variant_conflicts(
         same = v_lang == f_lang or (v_lang.startswith("zh") and f_lang.startswith("zh"))
         if not same:
             conflicts.append(f"language:{f_lang}!={v_lang}")
-    v_set = _norm_text(variant.get("set_name") or "")
-    f_set = _norm_text(fp.get("setName") or "")
-    if v_set and f_set:
-        # GemRate prefixes franchise ("Pokemon Sword and Shield Crown Zenith");
-        # catalog names can be shorter ("Crown Zenith"). Containment either way
-        # is agreement; disjoint names are a conflict.
-        if v_set not in f_set and f_set not in v_set:
-            conflicts.append(f"set:{f_set!r}!={v_set!r}")
+    f_codes, f_tokens = _set_signals(fp.get("setName") or "", fp.get("cardNumber") or "")
+    v_codes, v_tokens = _set_signals(
+        variant.get("set_name") or "", variant.get("collector_number") or ""
+    )
+    if f_codes and v_codes and not (f_codes & v_codes):
+        conflicts.append(f"set_code:{sorted(f_codes)}!={sorted(v_codes)}")
+
+    def covered(small: set[str], large: set[str]) -> bool:
+        # Prefix-tolerant token match absorbs catalog spelling drift
+        # ("paldea" vs "paldean") without merging genuinely different words.
+        return all(
+            any(
+                a == b or (min(len(a), len(b)) >= 4
+                           and (a.startswith(b) or b.startswith(a)))
+                for b in large
+            )
+            for a in small
+        )
+
+    if f_tokens and v_tokens and not (
+        covered(f_tokens, v_tokens) or covered(v_tokens, f_tokens)
+    ):
+        conflicts.append(f"set:{sorted(f_tokens)}!={sorted(v_tokens)}")
     return conflicts
 
 
@@ -708,13 +774,33 @@ def stage_identity_resolve(ctx: SimpleNamespace) -> dict[str, Any]:
                     " resolved_at, resolution)"
                     " VALUES (%s, %s, %s, %s, %s, %s, NULL, NULL)"
                     " ON DUPLICATE KEY UPDATE detail_json=VALUES(detail_json),"
-                    " variant_id=VALUES(variant_id)",
+                    " variant_id=VALUES(variant_id), resolved_at=NULL, resolution=NULL",
                     (
                         ctx.generation, incident["gemrate_id"], incident["variant_id"],
                         incident["incident_kind"],
                         json.dumps(incident["detail"], ensure_ascii=False, sort_keys=True),
                         now,
                     ),
+                )
+            # Reconcile: an open incident this recompute no longer detects is
+            # closed (not deleted) so the audit trail keeps the false alarm.
+            detected = {(i["gemrate_id"], i["incident_kind"]) for i in incidents}
+            cursor.execute(
+                "SELECT gemrate_id, incident_kind FROM catalog_population_identity_incident"
+                " WHERE generation_id=%s AND resolved_at IS NULL",
+                (ctx.generation,),
+            )
+            stale = [
+                (row["gemrate_id"], row["incident_kind"]) for row in cursor.fetchall()
+                if (row["gemrate_id"], row["incident_kind"]) not in detected
+            ]
+            for gid, kind in stale:
+                cursor.execute(
+                    "UPDATE catalog_population_identity_incident SET resolved_at=%s,"
+                    " resolution='condition_cleared_on_recompute'"
+                    " WHERE generation_id=%s AND gemrate_id=%s AND incident_kind=%s"
+                    " AND resolved_at IS NULL",
+                    (now, ctx.generation, gid, kind),
                 )
         conn.commit()
     except Exception:
@@ -752,6 +838,602 @@ def _identity_input_sha(ctx: SimpleNamespace) -> str:
             for row in cursor.fetchall()
         ]
     return sha256_bytes(canonical_json(rows))
+
+
+# §6.4: strict provider-native evidence token for gemrate bindings. Deliberately
+# NOT the legacy "provider_payload" (psa_identity_repair.py:426) so the two
+# branches stay distinguishable.
+EVIDENCE_TYPE_GEMRATE = "provider_native_psa_identity_and_population"
+
+
+def _gemrate_printing_sha(fields: Mapping[str, str]) -> str:
+    """Same 10-field recipe as resolve_active_psa_identity.printing_sha (§3.5).
+
+    Kept in lockstep by value, not import, so this module stays standalone."""
+
+    identity = {
+        key: str(fields.get(key) or "").strip().casefold()
+        for key in (
+            "tcg_code", "card_language", "set_name", "set_code", "collector_number",
+            "printing_code", "rarity_code", "edition_code", "parallel_code", "finish_code",
+        )
+    }
+    return sha256_bytes(canonical_json(identity))
+
+
+def _derive_print_fields(fp: Mapping[str, Any]) -> tuple[dict[str, str] | None, str]:
+    """Provider-native printing tuple for minting a new variant (D7).
+
+    Fails closed: any underivable piece returns (None, reason) so the member
+    stays identity_pending instead of minting a guessed identity."""
+
+    from g10_public_snapshot import normalize_collector
+
+    set_name = str(fp.get("setName") or "")
+    lowered = set_name.casefold()
+    if lowered.startswith("one piece"):
+        tcg = "one-piece"
+    elif lowered.startswith("pokemon"):
+        tcg = "pokemon"
+    else:
+        return None, "tcg_underivable"
+    language = str(fp.get("derivedLanguage") or "")
+    if language == "zh":
+        # Catalog vocabulary needs zhCN/zhTW; GemRate set names only say Chinese.
+        return None, "language_ambiguous_zh"
+    if not str(fp.get("description") or ""):
+        return None, "description_missing"
+    collector = normalize_collector(fp.get("cardNumber"))
+    if not collector.display or collector.display == "Unknown":
+        return None, "collector_unknown"
+    return {
+        "tcg_code": tcg,
+        "card_language": language,
+        "set_name": set_name,
+        "set_code": "",
+        "collector_number": collector.display,
+        "printing_code": "",
+        "rarity_code": "",
+        "edition_code": "",
+        "parallel_code": _norm_text(fp.get("parallel") or ""),
+        "finish_code": "",
+    }, ""
+
+
+def _tcg_from_set(set_name: Any) -> str:
+    lowered = str(set_name or "").casefold()
+    if lowered.startswith("one piece"):
+        return "one-piece"
+    if lowered.startswith("pokemon"):
+        return "pokemon"
+    return ""  # honest unknown; column default is '' too
+
+
+def _parallel_agrees(fp_parallel: str, variant_parallel: str) -> bool:
+    fpp = _norm_text(fp_parallel)
+    vpp = _norm_text(variant_parallel)
+    if fpp == vpp:
+        return True
+    # A variant with no printing evidence + a Base fingerprint is the default
+    # print of the same card; alt-art wordings never collapse into "".
+    return {fpp, vpp} == {"", "base"} or (vpp == "" and fpp == "base")
+
+
+def _gemrate_bind_evidence(fp: Mapping[str, Any], generation: str) -> tuple[dict[str, Any], str]:
+    evidence = {
+        "type": EVIDENCE_TYPE_GEMRATE,
+        "gemrateId": fp["gemrateId"],
+        "capturePath": f"data/private/gemrate/cards/{fp['gemrateId']}/card_details.json",
+        "rawSha256": fp["rawSha256"],
+        "canonicalUrl": fp["canonicalUrl"],
+        "settledId": fp["settledId"],
+        "generation": generation,
+    }
+    return evidence, sha256_bytes(canonical_json(evidence))
+
+
+def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
+    """S5: the single execution/closure point for S4's identity decisions.
+
+    Closure rules (all data-decided, never interactive):
+    - alias: a resettled id whose settled entity is itself a member closes as
+      alias_of_settled_entity and drops to non_qualified (rule 8: one owner).
+    - pop_decrease closes as provider_correction_verified only when both the
+      peak and latest raw payloads re-verify on disk and describe the same
+      identity tuple and the entity did not resettle.
+    - multi-bound variants: the owner is the unique zero-hard-conflict
+      fingerprint (parallel wording breaks ties); losers re-home to their own
+      printing-sha variant when qualified. No unique owner -> stays open.
+    Anything un-rulable stays an open incident -> identity_pending -> the
+    generation cannot activate (§6.3), which is the honest outcome.
+    """
+
+    from datetime import datetime, timezone
+
+    import gemrate_source
+
+    conn = ctx.conn
+    conn.rollback()
+    generation = ctx.generation
+    min_pop = int(POLICY["minPop"])
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT gemrate_id, variant_id, latest_psa10_population, cohort,"
+            " identity_pending, detail_json FROM catalog_rebuild_member"
+            " WHERE generation_id=%s", (generation,),
+        )
+        members = {row["gemrate_id"]: row for row in cursor.fetchall()}
+        cursor.execute(
+            "SELECT gemrate_id, variant_id, incident_kind, resolved_at"
+            " FROM catalog_population_identity_incident WHERE generation_id=%s",
+            (generation,),
+        )
+        incident_rows = cursor.fetchall()
+        cursor.execute(
+            "SELECT external_entity_id AS gid, variant_id, match_status"
+            " FROM catalog_source_identity WHERE source_code='gemrate'"
+        )
+        bindings = {row["gid"]: row for row in cursor.fetchall()}
+        cursor.execute(
+            "SELECT v.id, v.opaque_id, v.tcg_code, v.card_language, v.canonical_name,"
+            " v.set_name, v.collector_number, v.identity_status,"
+            " p.parallel_code, p.printing_code, p.canonical_printing_sha256"
+            " FROM catalog_variant v"
+            " LEFT JOIN catalog_printing_identity p ON p.variant_id = v.id"
+        )
+        variants = {int(row["id"]): dict(row) for row in cursor.fetchall()}
+
+    fingerprints: dict[str, Mapping[str, Any] | None] = {}
+    fp_reasons: dict[str, str] = {}
+    for gid in members:
+        fp, reason = _capture_fingerprint(gemrate_source.CARDS_DIR, gid)
+        fingerprints[gid] = fp
+        if fp is None:
+            fp_reasons[gid] = reason
+
+    open_incidents: dict[str, list[str]] = {}
+    for row in incident_rows:
+        if row["resolved_at"] is None:
+            open_incidents.setdefault(row["gemrate_id"], []).append(row["incident_kind"])
+
+    printing_sha_owner: dict[str, int] = {}
+    adoption_index: dict[tuple[str, str], list[int]] = {}
+    for vid, variant in variants.items():
+        sha = variant.get("canonical_printing_sha256")
+        if sha:
+            printing_sha_owner[sha] = vid
+        key = (
+            str(variant.get("tcg_code") or "").casefold(),
+            _norm_text(variant.get("collector_number") or ""),
+        )
+        adoption_index.setdefault(key, []).append(vid)
+
+    # Current exact gemrate owners per variant; maintained as decisions land so
+    # later adoptions see the post-decision world.
+    variant_exact_owner: dict[int, str] = {}
+    for gid, row in bindings.items():
+        if row["match_status"] == "exact":
+            variant_exact_owner.setdefault(int(row["variant_id"]), gid)
+
+    closures: list[tuple[str, str, str]] = []  # (gid, kind, resolution)
+    new_incidents: list[dict[str, Any]] = []
+    binding_updates: dict[str, dict[str, Any]] = {}  # gid -> final binding row intent
+    variant_mints: dict[str, dict[str, Any]] = {}  # printing_sha -> mint spec
+    member_updates: dict[str, dict[str, Any]] = {}
+    pending_extra: dict[str, list[str]] = {}
+    counts = {
+        "variantsCreated": 0, "variantsAdopted": 0, "bindingsUpgradedExact": 0,
+        "bindingsRebound": 0, "bindingsRejected": 0, "aliasesClosed": 0,
+        "incidentsClosed": 0, "incidentsStillOpen": 0, "newIncidents": 0,
+        "ownershipUnresolved": 0,
+    }
+
+    def member_pop(gid: str) -> int:
+        row = members.get(gid)
+        return int(row["latest_psa10_population"]) if row else 0
+
+    def qualified(gid: str) -> bool:
+        return member_pop(gid) >= min_pop
+
+    # --- alias closure (rule 8) -------------------------------------------
+    alias_of: dict[str, str] = {}
+    for gid, fp in fingerprints.items():
+        if fp is None:
+            continue
+        settled = fp["settledId"]
+        if settled and settled != gid:
+            if settled in members:
+                alias_of[gid] = settled
+                closures.append((gid, "requested_id_resettled", "alias_of_settled_entity"))
+                counts["aliasesClosed"] += 1
+                if gid in bindings and bindings[gid]["match_status"] != "rejected":
+                    binding_updates[gid] = {"action": "reject"}
+            # settled entity missing from members: incident stays open.
+
+    # --- pop_decrease closure ---------------------------------------------
+    popdec_gids = [
+        gid for gid, kinds in open_incidents.items() if "pop_decrease_same_entity" in kinds
+    ]
+    if popdec_gids:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT gemrate_id, observed_date, psa10_population, capture_path,"
+                " raw_payload_sha256 FROM market_gemrate_psa10_observation_v2"
+                f" WHERE gemrate_id IN ({','.join(['%s'] * len(popdec_gids))})",
+                tuple(popdec_gids),
+            )
+            series: dict[str, list[dict[str, Any]]] = {}
+            for row in cursor.fetchall():
+                series.setdefault(row["gemrate_id"], []).append(row)
+
+    def _raw_identity_tuple(capture_path: str, expect_sha: str) -> tuple[str, ...] | None:
+        path = ROOT / capture_path
+        try:
+            data = path.read_bytes()
+        except OSError:
+            return None
+        if sha256_bytes(data) != expect_sha:
+            return None
+        try:
+            raw = json.loads(data.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return None
+        return tuple(
+            _norm_text(str(raw.get(field) or ""))
+            for field in ("description", "set_name", "card_number", "parallel")
+        )
+
+    for gid in popdec_gids:
+        if gid in alias_of:
+            continue  # entity swapped; decrease is not a same-entity correction
+        fp = fingerprints.get(gid)
+        rows = sorted(series.get(gid, []), key=lambda r: str(r["observed_date"]))
+        if fp is None or not rows or fp["settledId"] != gid:
+            continue
+        peak = max(rows, key=lambda r: (int(r["psa10_population"]), str(r["observed_date"])))
+        latest = rows[-1]
+        if int(latest["psa10_population"]) >= int(peak["psa10_population"]):
+            closures.append((gid, "pop_decrease_same_entity", "series_recovered"))
+            continue
+        peak_identity = _raw_identity_tuple(peak["capture_path"], peak["raw_payload_sha256"])
+        latest_identity = _raw_identity_tuple(latest["capture_path"], latest["raw_payload_sha256"])
+        if peak_identity is not None and peak_identity == latest_identity:
+            closures.append((gid, "pop_decrease_same_entity", "provider_correction_verified"))
+
+    # --- ownership over multi-bound / conflicted variants ------------------
+    variant_bound: dict[int, list[str]] = {}
+    for gid, row in bindings.items():
+        if row["match_status"] != "rejected" and gid not in alias_of:
+            variant_bound.setdefault(int(row["variant_id"]), []).append(gid)
+
+    def resolve_home(gid: str, fp: Mapping[str, Any]) -> None:
+        """Re-home a qualified, evidence-complete gid to its printing variant."""
+
+        fields, reason = _derive_print_fields(fp)
+        if fields is None:
+            pending_extra.setdefault(gid, []).append(f"mint:{reason}")
+            return
+        sha = _gemrate_printing_sha(fields)
+        target = printing_sha_owner.get(sha)
+        if target is None:
+            key = (fields["tcg_code"], _norm_text(fields["collector_number"]))
+            candidates = []
+            for vid in adoption_index.get(key, []):
+                variant = variants[vid]
+                if _fingerprint_variant_conflicts(fp, variant):
+                    continue
+                if not _parallel_agrees(fp["parallel"], variant.get("parallel_code") or ""):
+                    continue
+                candidates.append(vid)
+            if len(candidates) > 1:
+                pending_extra.setdefault(gid, []).append("adoption_ambiguous")
+                return
+            if candidates:
+                target = candidates[0]
+        if target is not None:
+            owner = variant_exact_owner.get(target)
+            if owner and owner != gid:
+                new_incidents.append({
+                    "gemrate_id": gid, "variant_id": target,
+                    "incident_kind": "variant_mixed_printings",
+                    "detail": {"reason": "printing_already_owned", "owner": owner},
+                })
+                pending_extra.setdefault(gid, []).append("printing_already_owned")
+                return
+            binding_updates[gid] = {
+                "action": "bind", "variant_id": target, "fp": fp, "fields": fields,
+                "adopted": True,
+            }
+            variant_exact_owner[target] = gid
+            return
+        spec = variant_mints.get(sha)
+        if spec is not None:
+            # Two live ids minting the same print in one run = rule 8 conflict.
+            new_incidents.append({
+                "gemrate_id": gid, "variant_id": None,
+                "incident_kind": "variant_mixed_printings",
+                "detail": {"reason": "same_print_two_entities", "peer": spec["gid"]},
+            })
+            pending_extra.setdefault(gid, []).append("same_print_two_entities")
+            return
+        variant_mints[sha] = {"gid": gid, "fields": fields, "fp": fp, "printing_sha": sha}
+        binding_updates[gid] = {"action": "bind", "variant_id": None, "fp": fp,
+                                "fields": fields, "mint_sha": sha, "adopted": False}
+
+    for vid, gids in sorted(variant_bound.items()):
+        variant = variants.get(vid)
+        if variant is None:
+            continue
+        with_fp = [gid for gid in gids if fingerprints.get(gid) is not None]
+        if len(with_fp) < len(gids):
+            counts["ownershipUnresolved"] += len(gids) > 1
+            continue  # un-rulable without every fingerprint; incidents stay open
+        zero = [
+            gid for gid in with_fp
+            if not _fingerprint_variant_conflicts(fingerprints[gid], variant)
+        ]
+        owner: str | None = None
+        if len(zero) == 1:
+            owner = zero[0]
+        elif len(zero) > 1:
+            para = [
+                gid for gid in zero
+                if _norm_text(fingerprints[gid]["parallel"])
+                == _norm_text(variant.get("parallel_code") or "")
+            ]
+            if len(para) == 1:
+                owner = para[0]
+        if owner is None and len(gids) == 1 and not zero:
+            # Sole binding whose fingerprint moved away: evict and re-home it.
+            owner = ""
+        if owner is None:
+            if len(gids) > 1:
+                counts["ownershipUnresolved"] += 1
+            continue
+        if owner:
+            binding_updates.setdefault(owner, {
+                "action": "bind", "variant_id": vid, "fp": fingerprints[owner],
+                "fields": None, "adopted": False, "confirm": True,
+            })
+            variant_exact_owner[vid] = owner
+            closures.append((owner, "variant_mixed_printings",
+                             "confirmed_owner_by_provider_fingerprint"))
+        for gid in gids:
+            if gid == owner:
+                continue
+            if variant_exact_owner.get(vid) == gid:
+                del variant_exact_owner[vid]
+            if qualified(gid):
+                resolve_home(gid, fingerprints[gid])
+                if binding_updates.get(gid, {}).get("action") == "bind":
+                    closures.append((gid, "accepted_binding_moved",
+                                     "rebound_to_provider_native_variant"))
+                    closures.append((gid, "variant_mixed_printings",
+                                     "split_to_new_variant"))
+            else:
+                binding_updates[gid] = {"action": "reject"}
+                closures.append((gid, "accepted_binding_moved",
+                                 "non_qualified_binding_rejected"))
+                closures.append((gid, "variant_mixed_printings",
+                                 "non_qualified_binding_rejected"))
+
+    # --- unbound or rejected-bound qualified members -----------------------
+    for gid, member in sorted(members.items()):
+        if gid in alias_of or gid in binding_updates:
+            continue
+        binding = bindings.get(gid)
+        if binding is not None and binding["match_status"] != "rejected":
+            continue  # handled by ownership loop (or clean: confirmed below)
+        if not qualified(gid):
+            continue
+        fp = fingerprints.get(gid)
+        if fp is None or fp["psaRowCount"] != 1:
+            continue  # already pending via fingerprint reasons
+        resolve_home(gid, fp)
+        if binding_updates.get(gid, {}).get("action") == "bind":
+            # A successful re-home settles this id's moved/mixed incidents too.
+            closures.append((gid, "accepted_binding_moved",
+                             "rebound_to_provider_native_variant"))
+            closures.append((gid, "variant_mixed_printings", "split_to_new_variant"))
+
+    # --- write everything in one transaction -------------------------------
+    now = datetime.now(timezone.utc)
+    now_str = now.strftime("%Y-%m-%d %H:%M:%S.%f")
+    minted_ids: dict[str, int] = {}
+    try:
+        with conn.cursor() as cursor:
+            for sha, spec in sorted(variant_mints.items()):
+                fields, fp = spec["fields"], spec["fp"]
+                opaque = f"cmc_{sha[:24]}"  # D7: derived from the printing sha
+                evidence, evidence_sha = _gemrate_bind_evidence(fp, generation)
+                cursor.execute(
+                    "INSERT INTO catalog_variant (opaque_id, tcg_code, card_language,"
+                    " canonical_name, set_name, set_code, printing_code, rarity_code,"
+                    " collector_number, identity_status)"
+                    " VALUES (%s, %s, %s, %s, %s, '', '', '', %s, 'confirmed')"
+                    " ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)",
+                    (
+                        opaque, fields["tcg_code"], fields["card_language"],
+                        fp["description"], fields["set_name"], fields["collector_number"],
+                    ),
+                )
+                vid = cursor.lastrowid
+                cursor.execute(
+                    "INSERT INTO catalog_printing_identity (variant_id, tcg_code,"
+                    " card_language, set_name, set_code, printing_code, rarity_code,"
+                    " collector_number, edition_code, parallel_code, finish_code,"
+                    " canonical_printing_sha256, identity_status, evidence_sha256,"
+                    " provenance_json, observed_at)"
+                    " VALUES (%s, %s, %s, %s, '', '', '', %s, '', %s, '', %s,"
+                    " 'confirmed', %s, %s, %s)"
+                    " ON DUPLICATE KEY UPDATE evidence_sha256=VALUES(evidence_sha256),"
+                    " provenance_json=VALUES(provenance_json)",
+                    (
+                        vid, fields["tcg_code"], fields["card_language"],
+                        fields["set_name"], fields["collector_number"],
+                        fields["parallel_code"], sha, evidence_sha,
+                        json.dumps(evidence, ensure_ascii=False, sort_keys=True), now,
+                    ),
+                )
+                minted_ids[sha] = vid
+                counts["variantsCreated"] += 1
+
+            for gid, intent in sorted(binding_updates.items()):
+                if intent["action"] == "reject":
+                    cursor.execute(
+                        "UPDATE catalog_source_identity SET match_status='rejected'"
+                        " WHERE source_code='gemrate' AND external_entity_id=%s"
+                        " AND match_status<>'rejected'",
+                        (gid,),
+                    )
+                    counts["bindingsRejected"] += cursor.rowcount
+                    continue
+                vid = intent["variant_id"]
+                if vid is None:
+                    vid = minted_ids[intent["mint_sha"]]
+                    intent["variant_id"] = vid
+                fp = intent["fp"]
+                evidence, evidence_sha = _gemrate_bind_evidence(fp, generation)
+                collector = str((intent.get("fields") or {}).get("collector_number")
+                                or fp["cardNumber"] or "")
+                cursor.execute(
+                    "INSERT INTO catalog_source_identity (source_code,"
+                    " external_entity_id, variant_id, match_status, evidence_sha256,"
+                    " source_product_number, bound_set_code, bound_printing_code,"
+                    " bind_evidence_json, bound_tcg_code, bound_card_language,"
+                    " bound_collector_number, bound_edition_code, bound_parallel_code,"
+                    " bound_finish_code)"
+                    " VALUES ('gemrate', %s, %s, 'exact', %s, %s, '', '', %s, %s, %s,"
+                    " %s, '', %s, '')"
+                    " ON DUPLICATE KEY UPDATE variant_id=VALUES(variant_id),"
+                    " match_status=VALUES(match_status),"
+                    " evidence_sha256=VALUES(evidence_sha256),"
+                    " source_product_number=VALUES(source_product_number),"
+                    " bind_evidence_json=VALUES(bind_evidence_json),"
+                    " bound_tcg_code=VALUES(bound_tcg_code),"
+                    " bound_card_language=VALUES(bound_card_language),"
+                    " bound_collector_number=VALUES(bound_collector_number),"
+                    " bound_parallel_code=VALUES(bound_parallel_code)",
+                    (
+                        gid, vid, evidence_sha,
+                        str(fp["cardNumber"] or "")[:64],
+                        json.dumps(evidence, ensure_ascii=False, sort_keys=True),
+                        _tcg_from_set(fp["setName"]),
+                        "" if fp["derivedLanguage"] == "zh" else fp["derivedLanguage"],
+                        collector[:96], _norm_text(fp["parallel"])[:64],
+                    ),
+                )
+                if intent.get("confirm"):
+                    counts["bindingsUpgradedExact"] += 1
+                else:
+                    counts["bindingsRebound"] += 1
+                if intent.get("adopted"):
+                    counts["variantsAdopted"] += 1
+
+            closed_keys = set()
+            for gid, kind, resolution in closures:
+                if (gid, kind) in closed_keys:
+                    continue
+                closed_keys.add((gid, kind))
+                cursor.execute(
+                    "UPDATE catalog_population_identity_incident"
+                    " SET resolved_at=%s, resolution=%s"
+                    " WHERE generation_id=%s AND gemrate_id=%s AND incident_kind=%s"
+                    " AND resolved_at IS NULL",
+                    (now_str, resolution, generation, gid, kind),
+                )
+                counts["incidentsClosed"] += cursor.rowcount
+            for incident in new_incidents:
+                cursor.execute(
+                    "INSERT INTO catalog_population_identity_incident (generation_id,"
+                    " gemrate_id, variant_id, incident_kind, detail_json, opened_at,"
+                    " resolved_at, resolution)"
+                    " VALUES (%s, %s, %s, %s, %s, %s, NULL, NULL)"
+                    " ON DUPLICATE KEY UPDATE detail_json=VALUES(detail_json)",
+                    (
+                        generation, incident["gemrate_id"], incident["variant_id"],
+                        incident["incident_kind"],
+                        json.dumps(incident["detail"], ensure_ascii=False, sort_keys=True),
+                        now_str,
+                    ),
+                )
+                counts["newIncidents"] += 1
+
+            cursor.execute(
+                "SELECT gemrate_id, incident_kind FROM catalog_population_identity_incident"
+                " WHERE generation_id=%s AND resolved_at IS NULL", (generation,),
+            )
+            still_open: dict[str, list[str]] = {}
+            for row in cursor.fetchall():
+                still_open.setdefault(row["gemrate_id"], []).append(row["incident_kind"])
+            counts["incidentsStillOpen"] = sum(len(v) for v in still_open.values())
+
+            pending_after = 0
+            for gid, member in sorted(members.items()):
+                detail = json.loads(member["detail_json"]) if member["detail_json"] else {}
+                reasons: list[str] = []
+                fp = fingerprints.get(gid)
+                if fp is None:
+                    reasons.append(f"fingerprint:{fp_reasons.get(gid, 'unknown')}")
+                elif fp["psaRowCount"] != 1:
+                    reasons.append(f"psa_rows:{fp['psaRowCount']}")
+                reasons.extend(pending_extra.get(gid, []))
+                reasons.extend(f"incident_open:{kind}" for kind in still_open.get(gid, []))
+                cohort = member["cohort"]
+                variant_id = member["variant_id"]
+                if gid in alias_of:
+                    cohort = "non_qualified"
+                    detail["aliasOf"] = alias_of[gid]
+                intent = binding_updates.get(gid)
+                if intent and intent["action"] == "bind":
+                    variant_id = intent["variant_id"]
+                elif intent and intent["action"] == "reject":
+                    variant_id = None
+                identity_pending = 1 if (reasons and cohort != "non_qualified") else 0
+                pending_after += identity_pending
+                detail["s5"] = {
+                    "pendingReasons": reasons,
+                    "action": (intent or {}).get("action", "none"),
+                    "adopted": bool((intent or {}).get("adopted")),
+                }
+                member_updates[gid] = {"variant_id": variant_id, "cohort": cohort,
+                                       "identity_pending": identity_pending}
+                cursor.execute(
+                    "UPDATE catalog_rebuild_member SET variant_id=%s, cohort=%s,"
+                    " identity_pending=%s, detail_json=%s, computed_at=%s"
+                    " WHERE generation_id=%s AND gemrate_id=%s",
+                    (
+                        variant_id, cohort, identity_pending,
+                        json.dumps(detail, ensure_ascii=False, sort_keys=True),
+                        now_str, generation, gid,
+                    ),
+                )
+            counts["identityPendingAfter"] = pending_after
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+    output = sha256_bytes(canonical_json([
+        [gid, member_updates[gid]["variant_id"], member_updates[gid]["cohort"],
+         member_updates[gid]["identity_pending"]]
+        for gid in sorted(member_updates)
+    ]))
+    return {"input_sha256": _bind_input_sha(ctx), "output_sha256": output, "counts": counts}
+
+
+def _bind_input_sha(ctx: SimpleNamespace) -> str:
+    """S5's input is S4's recorded output — never the tables S5 itself mutates,
+    so a completed bind stage cannot self-invalidate on the next linear pass."""
+
+    with ctx.conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT output_sha256 FROM cardz_rebuild_checkpoint"
+            " WHERE generation_id=%s AND stage='identity-resolve'",
+            (ctx.generation,),
+        )
+        row = cursor.fetchone()
+    return sha256_bytes(canonical_json(["bind-input", (row or {}).get("output_sha256")]))
 
 
 def _jsonl_psa_ids(path: Path) -> set[str]:
@@ -966,7 +1648,7 @@ LINEAR_STAGES: list[tuple[str, Callable | None, Callable | None, bool]] = [
     ("discover", stage_discover, None, False),
     ("pop-land", stage_popland, _popland_input_sha, False),
     ("identity-resolve", stage_identity_resolve, _identity_input_sha, False),
-    ("bind", None, None, False),
+    ("bind", stage_bind, _bind_input_sha, False),
     ("pc-replay", None, None, False),
     ("snk-refresh", None, None, False),
     ("price-materialize", None, None, False),
