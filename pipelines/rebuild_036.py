@@ -920,14 +920,28 @@ def _parallel_agrees(fp_parallel: str, variant_parallel: str) -> bool:
 
 
 def _gemrate_bind_evidence(fp: Mapping[str, Any], generation: str) -> tuple[dict[str, Any], str]:
+    """Contract shape for operator_strict_source_identity (037): providerClaims
+    carry what the provider itself said; evidence ties the bind to a
+    raw-verified v2 observation via rawPayloadSha256."""
+
+    codes, _ = _set_signals(fp.get("setName") or "", fp.get("cardNumber") or "")
     evidence = {
-        "type": EVIDENCE_TYPE_GEMRATE,
-        "gemrateId": fp["gemrateId"],
-        "capturePath": f"data/private/gemrate/cards/{fp['gemrateId']}/card_details.json",
-        "rawSha256": fp["rawSha256"],
-        "canonicalUrl": fp["canonicalUrl"],
-        "settledId": fp["settledId"],
-        "generation": generation,
+        "providerClaims": {
+            "tcgCode": _tcg_from_set(fp.get("setName")),
+            "cardLanguage": str(fp.get("derivedLanguage") or ""),
+            "collectorNumber": str(fp.get("cardNumber") or ""),
+            "setCode": sorted(codes)[0] if codes else "",
+            "printingCode": "",
+            "parallelCode": str(fp.get("parallel") or ""),
+        },
+        "evidence": {
+            "type": EVIDENCE_TYPE_GEMRATE,
+            "rawPayloadSha256": fp["rawSha256"],
+            "path": f"data/private/gemrate/cards/{fp['gemrateId']}/card_details.json",
+            "canonicalUrl": fp["canonicalUrl"],
+            "settledId": fp["settledId"],
+            "generation": generation,
+        },
     }
     return evidence, sha256_bytes(canonical_json(evidence))
 
@@ -977,7 +991,10 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
         cursor.execute(
             "SELECT v.id, v.opaque_id, v.tcg_code, v.card_language, v.canonical_name,"
             " v.set_name, v.collector_number, v.identity_status,"
-            " p.parallel_code, p.printing_code, p.canonical_printing_sha256"
+            " p.parallel_code, p.printing_code, p.canonical_printing_sha256,"
+            " p.tcg_code AS p_tcg_code, p.card_language AS p_card_language,"
+            " p.set_code AS p_set_code, p.collector_number AS p_collector_number,"
+            " p.edition_code AS p_edition_code, p.finish_code AS p_finish_code"
             " FROM catalog_variant v"
             " LEFT JOIN catalog_printing_identity p ON p.variant_id = v.id"
         )
@@ -1294,8 +1311,65 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
                     intent["variant_id"] = vid
                 fp = intent["fp"]
                 evidence, evidence_sha = _gemrate_bind_evidence(fp, generation)
-                collector = str((intent.get("fields") or {}).get("collector_number")
-                                or fp["cardNumber"] or "")
+                variant_row = variants.get(vid) or {}
+                fields = intent.get("fields")
+                # bound_* mirror the printing identity the bind was validated
+                # against (that is the strict view's equality contract); the
+                # provider's own wording lives in providerClaims instead.
+                if variant_row.get("canonical_printing_sha256"):
+                    mirror = {
+                        "tcg": variant_row.get("p_tcg_code") or "",
+                        "language": variant_row.get("p_card_language") or "",
+                        "set_code": variant_row.get("p_set_code") or "",
+                        "collector": variant_row.get("p_collector_number") or "",
+                        "printing": variant_row.get("printing_code") or "",
+                        "parallel": variant_row.get("parallel_code") or "",
+                        "edition": variant_row.get("p_edition_code") or "",
+                        "finish": variant_row.get("p_finish_code") or "",
+                    }
+                else:
+                    if fields is None:
+                        fields, _reason = _derive_print_fields(fp)
+                    if fields is not None and vid not in minted_ids.values():
+                        # Existing variant with no printing identity: land a
+                        # provider-native printing row so the bind can ever
+                        # reach the strict projection.
+                        cursor.execute(
+                            "INSERT INTO catalog_printing_identity (variant_id,"
+                            " tcg_code, card_language, set_name, set_code,"
+                            " printing_code, rarity_code, collector_number,"
+                            " edition_code, parallel_code, finish_code,"
+                            " canonical_printing_sha256, identity_status,"
+                            " evidence_sha256, provenance_json, observed_at)"
+                            " VALUES (%s, %s, %s, %s, '', '', '', %s, '', %s, '',"
+                            " %s, 'confirmed', %s, %s, %s)"
+                            " ON DUPLICATE KEY UPDATE"
+                            " evidence_sha256=VALUES(evidence_sha256),"
+                            " provenance_json=VALUES(provenance_json)",
+                            (
+                                vid, fields["tcg_code"], fields["card_language"],
+                                fields["set_name"], fields["collector_number"],
+                                fields["parallel_code"],
+                                _gemrate_printing_sha(fields), evidence_sha,
+                                json.dumps(evidence, ensure_ascii=False, sort_keys=True),
+                                now,
+                            ),
+                        )
+                    if fields is None:
+                        mirror = {"tcg": "", "language": "", "set_code": "",
+                                  "collector": "", "printing": "", "parallel": "",
+                                  "edition": "", "finish": ""}
+                    else:
+                        mirror = {
+                            "tcg": fields["tcg_code"],
+                            "language": fields["card_language"],
+                            "set_code": fields["set_code"],
+                            "collector": fields["collector_number"],
+                            "printing": fields["printing_code"],
+                            "parallel": fields["parallel_code"],
+                            "edition": fields["edition_code"],
+                            "finish": fields["finish_code"],
+                        }
                 cursor.execute(
                     "INSERT INTO catalog_source_identity (source_code,"
                     " external_entity_id, variant_id, match_status, evidence_sha256,"
@@ -1303,24 +1377,29 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
                     " bind_evidence_json, bound_tcg_code, bound_card_language,"
                     " bound_collector_number, bound_edition_code, bound_parallel_code,"
                     " bound_finish_code)"
-                    " VALUES ('gemrate', %s, %s, 'exact', %s, %s, '', '', %s, %s, %s,"
-                    " %s, '', %s, '')"
+                    " VALUES ('gemrate', %s, %s, 'exact', %s, %s, %s, %s, %s, %s, %s,"
+                    " %s, %s, %s, %s)"
                     " ON DUPLICATE KEY UPDATE variant_id=VALUES(variant_id),"
                     " match_status=VALUES(match_status),"
                     " evidence_sha256=VALUES(evidence_sha256),"
                     " source_product_number=VALUES(source_product_number),"
+                    " bound_set_code=VALUES(bound_set_code),"
+                    " bound_printing_code=VALUES(bound_printing_code),"
                     " bind_evidence_json=VALUES(bind_evidence_json),"
                     " bound_tcg_code=VALUES(bound_tcg_code),"
                     " bound_card_language=VALUES(bound_card_language),"
                     " bound_collector_number=VALUES(bound_collector_number),"
-                    " bound_parallel_code=VALUES(bound_parallel_code)",
+                    " bound_edition_code=VALUES(bound_edition_code),"
+                    " bound_parallel_code=VALUES(bound_parallel_code),"
+                    " bound_finish_code=VALUES(bound_finish_code)",
                     (
                         gid, vid, evidence_sha,
                         str(fp["cardNumber"] or "")[:64],
+                        mirror["set_code"][:24], mirror["printing"][:24],
                         json.dumps(evidence, ensure_ascii=False, sort_keys=True),
-                        _tcg_from_set(fp["setName"]),
-                        "" if fp["derivedLanguage"] == "zh" else fp["derivedLanguage"],
-                        collector[:96], _norm_text(fp["parallel"])[:64],
+                        mirror["tcg"][:32], mirror["language"][:8],
+                        mirror["collector"][:96], mirror["edition"][:191],
+                        mirror["parallel"][:64], mirror["finish"][:64],
                     ),
                 )
                 if intent.get("confirm"):

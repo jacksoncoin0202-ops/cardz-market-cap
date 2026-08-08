@@ -1,10 +1,14 @@
--- CARDZ 037: strict source identity, provider-native evidence for non-gemrate.
+-- CARDZ 037: strict source identity, provider-native evidence on both branches.
 -- STAGED: this file lives in staged/ (invisible to the migration glob) until the
 -- 036 orchestrator moves it into migrations/ after S6 replay has landed capture
 -- receipts. Applying it earlier would empty the PC/SNK branch (receipts absent).
--- Gemrate branch below is byte-identical to 035; ONLY the non-gemrate branch
--- changed: evidence.type 'provider_payload' -> 'provider_native_product_page',
--- plus evidence.path and a catalog_provider_capture_receipt existence proof.
+--
+-- Gemrate branch is NOT 035's: 036 moved the population authority to
+-- market_gemrate_psa10_observation_v2 (PLAN §7.3) and forbids writing the old
+-- market_grader_population_observation (§3.2), so the legacy projections the
+-- 035 view proved lineage through can never cover 036-minted variants. Lineage
+-- is now: binding evidence rawPayloadSha256 must be a raw-verified v2
+-- observation of the same gemrate id.
 
 CREATE OR REPLACE VIEW operator_strict_source_identity AS
 SELECT si.*
@@ -13,7 +17,9 @@ INNER JOIN catalog_printing_identity p ON p.variant_id=si.variant_id
 WHERE LOWER(si.match_status)='exact'
   AND TRIM(si.source_product_number)<>''
   AND LOWER(TRIM(si.bound_tcg_code))=LOWER(TRIM(p.tcg_code))
-  AND LOWER(TRIM(si.bound_card_language))=LOWER(TRIM(p.card_language))
+  -- p.card_language is the one nullable identity column: NULL means the same
+  -- as empty (not established) and must not NULL-poison the equality.
+  AND LOWER(TRIM(si.bound_card_language))=LOWER(TRIM(COALESCE(p.card_language,'')))
   AND LOWER(TRIM(si.bound_collector_number))=LOWER(TRIM(p.collector_number))
   AND LOWER(TRIM(si.bound_set_code))=LOWER(TRIM(p.set_code))
   AND LOWER(TRIM(si.bound_printing_code))=LOWER(TRIM(p.printing_code))
@@ -35,18 +41,10 @@ WHERE LOWER(si.match_status)='exact'
       si.source_code='gemrate'
       AND JSON_UNQUOTE(JSON_EXTRACT(si.bind_evidence_json,'$.evidence.type'))='provider_native_psa_identity_and_population'
       AND JSON_UNQUOTE(JSON_EXTRACT(si.bind_evidence_json,'$.evidence.rawPayloadSha256')) REGEXP '^[0-9a-f]{64}$'
-      AND JSON_UNQUOTE(JSON_EXTRACT(si.bind_evidence_json,'$.evidence.populationPayloadSha256')) REGEXP '^[0-9a-f]{64}$'
       AND EXISTS (
-        SELECT 1 FROM operator_psa_identity_projection psa
-        WHERE psa.variant_id=si.variant_id
-          AND psa.gemrate_id=si.external_entity_id
-          AND psa.raw_payload_sha256=JSON_UNQUOTE(JSON_EXTRACT(si.bind_evidence_json,'$.evidence.rawPayloadSha256'))
-      )
-      AND EXISTS (
-        SELECT 1 FROM operator_gemrate_provenance_projection gp
-        WHERE gp.variant_id=si.variant_id
-          AND gp.gemrate_id=si.external_entity_id
-          AND gp.population_payload_sha256=JSON_UNQUOTE(JSON_EXTRACT(si.bind_evidence_json,'$.evidence.populationPayloadSha256'))
+        SELECT 1 FROM market_gemrate_psa10_observation_v2 v2
+        WHERE v2.gemrate_id=si.external_entity_id
+          AND v2.raw_payload_sha256=JSON_UNQUOTE(JSON_EXTRACT(si.bind_evidence_json,'$.evidence.rawPayloadSha256'))
       )
     )
     OR
