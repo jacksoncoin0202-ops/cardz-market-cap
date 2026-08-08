@@ -576,13 +576,24 @@ def _set_signals(set_name: str, collector: str = "") -> tuple[set[str], set[str]
     # GemRate's "<franchise> <CODE> <LANG>-<Name>" prefix: code is already
     # harvested above; strip it so the code token never pollutes name tokens.
     text = re.sub(r"\b([a-z0-9]{2,6})\s+(en|jp|ja)-", " ", text)
+    base_text = text
+
+    def _tok(value: str) -> set[str]:
+        return {
+            "promo" if token == "p" else token
+            for token in re.split(r"[^a-z0-9]+", value)
+            if token and token not in _NOISE_TOKENS and token not in codes
+        }
+
     for phrase in _ERA_PHRASES:
         text = text.replace(phrase, " ")
-    tokens = {
-        "promo" if token == "p" else token
-        for token in re.split(r"[^a-z0-9]+", text)
-        if token and token not in _NOISE_TOKENS and token not in codes
-    }
+    tokens = _tok(text)
+    if not tokens:
+        # A set name that is nothing but an era phrase ("Mega Evolution")
+        # must still expose its words: emptying the signal here lets any
+        # fingerprint sail through the set comparison unopposed — a Classic
+        # deck Venusaur was adopted into the Mega Evolution set this way.
+        tokens = _tok(base_text)
     return codes, tokens
 
 
@@ -685,6 +696,12 @@ def stage_identity_resolve(ctx: SimpleNamespace) -> dict[str, Any]:
         variants = {int(row["id"]): row for row in cursor.fetchall()}
     variant_gids: dict[int, list[str]] = {}
     for gid, row in bindings.items():
+        # A rejected binding is a recorded decision, not a live claim on the
+        # variant: counting it here manufactures phantom mixed-printings
+        # incidents that S5 (which only rules over live bindings) can never
+        # close, so they stay open across every recompute.
+        if row["match_status"] == "rejected":
+            continue
         variant_gids.setdefault(int(row["variant_id"]), []).append(gid)
 
     min_pop = int(POLICY["minPop"])
