@@ -244,6 +244,208 @@ def stage_migrate(ctx: SimpleNamespace) -> dict[str, Any]:
     }
 
 
+def _parse_capture_observation(
+    cards_dir: Path, gid: str, generation: str,
+) -> tuple[dict[str, Any] | None, str]:
+    """Deterministically re-parse one captured card page into a v2 row.
+
+    Returns (row, "") or (None, skip_reason). Only rawStatus=='captured' with a
+    sha-verified raw payload may land (§3.11f); dom_evidence_only has no
+    replayable raw file and is skipped as still-pending.
+    """
+
+    card_dir = cards_dir / gid
+    normalized_path = card_dir / "card_details.json"
+    receipt_path = card_dir / "card_details.raw.receipt.json"
+    if not normalized_path.is_file() or not receipt_path.is_file():
+        return None, "no_capture"
+    try:
+        normalized = json.loads(normalized_path.read_text(encoding="utf-8"))
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None, "unreadable_capture"
+    if normalized.get("privateSourceReceipt") != receipt:
+        return None, "receipt_mismatch"
+    if receipt.get("rawStatus") != "captured":
+        return None, "dom_evidence_only"
+    pointer = receipt.get("sourcePointer")
+    digest = str(receipt.get("contentSha256") or "")
+    if not isinstance(pointer, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        return None, "receipt_incomplete"
+    raw_path = (card_dir / pointer).resolve()
+    try:
+        if card_dir.resolve() not in raw_path.parents:
+            return None, "raw_path_escape"
+        if sha256_file(raw_path) != digest:
+            return None, "raw_sha_mismatch"
+    except OSError:
+        return None, "raw_unreadable"
+    if normalized.get("gemrate_id") != gid:
+        return None, "gid_mismatch"
+    psa_row = next(
+        (
+            row for row in normalized.get("population_data") or []
+            if isinstance(row, dict) and row.get("grader") == "psa"
+        ),
+        None,
+    )
+    if psa_row is None:
+        return None, "no_psa_row"
+    grades = psa_row.get("grades")
+    g10 = grades.get("g10") if isinstance(grades, dict) else None
+    if not isinstance(g10, int) or g10 < 0:
+        return None, "no_psa10_population"
+    total = None
+    if isinstance(grades, dict):
+        candidate_total = sum(
+            value for value in grades.values() if isinstance(value, int) and value >= 0
+        )
+        total = candidate_total if len(grades) > 1 else None
+    fetched_at = str(receipt.get("fetchedAt") or "")
+    if not fetched_at:
+        return None, "no_fetched_at"
+    page = normalized.get("publicCardPage") or {}
+    observed = str(
+        normalized.get("date") or page.get("sourceDate") or fetched_at[:10]
+    )[:10]
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", observed):
+        return None, "bad_observed_date"
+    return {
+        "gemrate_id": gid,
+        "psa10_population": g10,
+        "total_population": total,
+        "effective_at": fetched_at.replace("T", " ").replace("Z", ""),
+        "observed_date": observed,
+        "capture_path": f"data/private/gemrate/cards/{gid}/{pointer}",
+        "raw_payload_sha256": digest,
+        "psa_row_sha256": sha256_bytes(canonical_json(psa_row)),
+        "generation_id": generation,
+    }, ""
+
+
+def stage_popland(ctx: SimpleNamespace) -> dict[str, Any]:
+    """S3 (§6.1/§7.2): deterministic re-parse of captures into the v2 table.
+
+    One transaction end to end: the market_ingest_run row, every observation
+    upsert, and the run completion update commit together, so a crash leaves
+    neither a stale 'running' run (S0 gate) nor half a landing.
+    """
+
+    from datetime import datetime, timezone
+
+    import gemrate_source
+
+    run_dir = gemrate_source.OUT_DIR / "runs" / ctx.generation
+    worklist_path = run_dir / "worklist.txt"
+    if not worklist_path.is_file():
+        raise SystemExit(f"S3 ABORT: worklist missing: {worklist_path}")
+    worklist = [
+        line.strip() for line in worklist_path.read_text(encoding="utf-8").splitlines()
+        if re.fullmatch(r"[0-9a-f]{40}", line.strip())
+    ]
+    if not worklist:
+        raise SystemExit("S3 ABORT: worklist empty")
+
+    rows: list[dict[str, Any]] = []
+    skip_reasons: dict[str, int] = {}
+    for gid in worklist:
+        row, reason = _parse_capture_observation(
+            gemrate_source.CARDS_DIR, gid, ctx.generation,
+        )
+        if row is None:
+            skip_reasons[reason] = skip_reasons.get(reason, 0) + 1
+            continue
+        rows.append(row)
+    if not rows:
+        raise SystemExit("S3 ABORT: zero landable captures")
+
+    landed_digest = sha256_bytes(canonical_json([
+        [row["gemrate_id"], row["observed_date"], row["psa10_population"],
+         row["raw_payload_sha256"], row["psa_row_sha256"]]
+        for row in sorted(rows, key=lambda r: (r["gemrate_id"], r["observed_date"]))
+    ]))
+    now = datetime.now(timezone.utc)
+    run_key = sha256_bytes(canonical_json(
+        ["rebuild036-pop-land", ctx.generation, now.strftime("%Y%m%dT%H%M%S%fZ")]
+    ))
+    conn = ctx.conn
+    conn.rollback()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO market_ingest_run (run_key, source_code, ingest_mode,"
+                " effective_at, payload_sha256, manifest_sha256, status,"
+                " observed_count, started_at)"
+                " VALUES (%s, 'gemrate', 'rebuild', UTC_TIMESTAMP(6), %s, %s,"
+                " 'running', %s, UTC_TIMESTAMP(6))",
+                (run_key, landed_digest, sha256_file(worklist_path), len(rows)),
+            )
+            run_id = cursor.lastrowid
+            insert_sql = (
+                "INSERT INTO market_gemrate_psa10_observation_v2 (run_id, gemrate_id,"
+                " variant_id, psa10_population, total_population, effective_at,"
+                " observed_date, capture_path, raw_payload_sha256, psa_row_sha256,"
+                " generation_id)"
+                " VALUES (%s, %s, NULL, %s, %s, %s, %s, %s, %s, %s, %s)"
+                " ON DUPLICATE KEY UPDATE"
+                " run_id=VALUES(run_id), psa10_population=VALUES(psa10_population),"
+                " total_population=VALUES(total_population),"
+                " effective_at=VALUES(effective_at), capture_path=VALUES(capture_path),"
+                " raw_payload_sha256=VALUES(raw_payload_sha256),"
+                " psa_row_sha256=VALUES(psa_row_sha256),"
+                " generation_id=VALUES(generation_id)"
+            )
+            for start in range(0, len(rows), 1000):
+                batch = rows[start:start + 1000]
+                cursor.executemany(insert_sql, [
+                    (
+                        run_id, row["gemrate_id"], row["psa10_population"],
+                        row["total_population"], row["effective_at"],
+                        row["observed_date"], row["capture_path"],
+                        row["raw_payload_sha256"], row["psa_row_sha256"],
+                        row["generation_id"],
+                    )
+                    for row in batch
+                ])
+            cursor.execute(
+                "UPDATE market_ingest_run SET status='complete',"
+                " accepted_count=%s, completed_at=UTC_TIMESTAMP(6) WHERE id=%s",
+                (len(rows), run_id),
+            )
+            cursor.execute(
+                "SELECT COUNT(*) AS n, COUNT(DISTINCT gemrate_id) AS g"
+                " FROM market_gemrate_psa10_observation_v2 WHERE generation_id=%s",
+                (ctx.generation,),
+            )
+            after = cursor.fetchone()
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    counts = {
+        "worklist": len(worklist),
+        "landed": len(rows),
+        "skipped": skip_reasons,
+        "runId": run_id,
+        "tableRowsThisGeneration": int(after["n"]),
+        "tableDistinctIdsThisGeneration": int(after["g"]),
+    }
+    return {
+        "input_sha256": sha256_file(worklist_path),
+        "output_sha256": landed_digest,
+        "counts": counts,
+    }
+
+
+def _popland_input_sha(ctx: SimpleNamespace) -> str:
+    import gemrate_source
+
+    worklist_path = gemrate_source.OUT_DIR / "runs" / ctx.generation / "worklist.txt"
+    if not worklist_path.is_file():
+        return "worklist-missing"
+    return sha256_file(worklist_path)
+
+
 def _jsonl_psa_ids(path: Path) -> set[str]:
     """Extract the GemRate id space from brute-harvest rowData (field: psa_id)."""
 
@@ -454,7 +656,7 @@ LINEAR_STAGES: list[tuple[str, Callable | None, Callable | None, bool]] = [
     ("preflight", stage_preflight, None, True),
     ("migrate", stage_migrate, _migration_input_sha, False),
     ("discover", stage_discover, None, False),
-    ("pop-land", None, None, False),
+    ("pop-land", stage_popland, _popland_input_sha, False),
     ("identity-resolve", None, None, False),
     ("bind", None, None, False),
     ("pc-replay", None, None, False),
