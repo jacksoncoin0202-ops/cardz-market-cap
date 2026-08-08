@@ -2561,6 +2561,30 @@ def main() -> int:
         action="store_true",
         help="rebuild from a successfully ingested local archive without replaying it",
     )
+    p_rebuild = sub.add_parser(
+        "rebuild-036",
+        help="036 identity-first rebuild orchestrator (S0..S11; activation is a separate subcommand)",
+    )
+    p_rebuild.add_argument("--generation", required=True, help="036_<UTC>, e.g. 036_20260808T120000Z")
+    p_rebuild.add_argument("--resume", action="store_true", help="explicit alias; linear runs always resume from checkpoints")
+    p_rebuild.add_argument("--stage", help="run exactly one stage (post-activation stages require this)")
+    p_rebuild.add_argument("--invalidate-from", dest="invalidate_from", help="reset this stage and all downstream to pending, then exit")
+    p_rebuild.add_argument("--force-stage", dest="force_stage", action="store_true", help="required to rerun a failed or complete stage")
+    p_rebuild.add_argument("--dry-run", dest="dry_run", action="store_true")
+    p_rebuild.add_argument("--credentials-env", dest="credentials_env", type=Path, help="default data/runtime/config/rebuild.env")
+    p_rebuild.add_argument("--freshness-hours", dest="freshness_hours", type=float, default=72.0)
+    p_activate = sub.add_parser(
+        "rebuild-036-activate",
+        help="S12: switch current generation; refuses unless the recomputed receipt sha matches",
+    )
+    p_activate.add_argument("--generation", required=True)
+    p_activate.add_argument("--receipt-sha256", dest="receipt_sha256", required=True)
+    p_activate.add_argument("--credentials-env", dest="credentials_env", type=Path)
+    p_unfreeze = sub.add_parser(
+        "rebuild-036-unfreeze",
+        help="teardown: restore cardz DML grant, drop cardz_rebuild (success AND failure paths)",
+    )
+    p_unfreeze.add_argument("--confirm", action="store_true")
     p_daily.add_argument("--pass", dest="do_pass", action="store_true", help="DADDY pass: export product subset + promote receipt")
     refresh_group = p_daily.add_mutually_exclusive_group()
     refresh_group.add_argument("--refresh", action="store_true", help="run collect_control status+incr (real exact-id harvest, not --help)")
@@ -2614,6 +2638,18 @@ def main() -> int:
             snk_history_archive_dir=args.snk_history_archive_dir,
             project_ingested_history=args.project_ingested_history,
         )
+    elif args.cmd == "rebuild-036":
+        import rebuild_036
+
+        return rebuild_036.cmd_rebuild(args)
+    elif args.cmd == "rebuild-036-activate":
+        import rebuild_036
+
+        return rebuild_036.cmd_activate(args)
+    elif args.cmd == "rebuild-036-unfreeze":
+        import rebuild_036
+
+        return rebuild_036.cmd_unfreeze(args)
     else:
         raise SystemExit(f"unknown command: {args.cmd}")
     return 0
