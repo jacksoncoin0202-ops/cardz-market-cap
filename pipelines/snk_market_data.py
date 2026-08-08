@@ -757,6 +757,45 @@ def _load_last_persisted_kline_day(cur: Any, item_ids: set[int]) -> dict[int, da
     return result
 
 
+def _load_latest_persisted_kline(
+    cur: Any, item_id: int
+) -> dict[str, tuple[int, str, float | None]]:
+    """Latest persisted kline row per day for one item: day -> (id, sha, priceJpy).
+
+    The unique key ends in payload_sha256 (which embeds fetchedAt), so a
+    re-capture of an unchanged candle would always insert a fresh row. This
+    map is what lets the ingester tell "new evidence" from "same candle,
+    new fetch" — group-wise newest row per observed day.
+    """
+
+    cur.execute(
+        """
+        SELECT s.id, s.observed_date, s.payload_sha256,
+               CAST(JSON_UNQUOTE(JSON_EXTRACT(s.payload_json, '$.priceJpy')) AS DOUBLE) AS price_jpy
+        FROM market_source_observation s
+        INNER JOIN (
+            SELECT observed_date, MAX(id) AS id
+            FROM market_source_observation
+            WHERE source_code='snkrdunk' AND observation_kind='psa10_reference_price'
+              AND external_entity_id=%s
+            GROUP BY observed_date
+        ) latest ON latest.id = s.id
+        """,
+        (str(item_id),),
+    )
+    result: dict[str, tuple[int, str, float | None]] = {}
+    for row in cur.fetchall():
+        observed = row["observed_date"]
+        day = observed.isoformat() if isinstance(observed, date) else str(observed)
+        price = row.get("price_jpy")
+        result[day] = (
+            int(row["id"]),
+            str(row["payload_sha256"]),
+            float(price) if price is not None else None,
+        )
+    return result
+
+
 def recover_local_history(
     *,
     sources: list[Path],
@@ -992,7 +1031,18 @@ def ingest_kline_jsonls(
     - incremental mode appends: only days newer than the last persisted SNK
       observation minus KLINE_TAIL_REWRITE_DAYS are written (the tail window
       lets a revised recent candle replace its old value via
-      uq_market_price_daily); backfill mode still writes full history
+      uq_market_price_daily); backfill mode still covers full history
+    - a candle only mints a new source row when its (card, day) value is new
+      or changed. The unique key ends in payload_sha256, which embeds
+      fetchedAt, so it cannot stop a re-fetch of an unchanged candle from
+      inserting a duplicate — pre-fix collector polls bloated the table to
+      ~790k redundant rows, and the rebuild backfill path kept replaying
+      full histories after the incremental fix (2026-08-08 S8 rerun: 2,850
+      duplicate rows for 7 re-fetched items, 92% already-persisted days).
+      An unchanged re-capture reuses the persisted row id so the price
+      upsert still lands on the current variant binding.
+    - within one run the last evidence for a (card, day) wins; multi-file
+      archive replays update in place instead of stacking one row per file
 
     A caller that already holds a writer connection (e.g. rebuild orchestrator
     under writer freeze) passes it via `conn` — it is committed but never
@@ -1058,6 +1108,7 @@ def ingest_kline_jsonls(
         "cardsAccepted": 0,
         "pricePoints": 0,
         "pricePointsAlreadyPersisted": 0,
+        "sourceRowsDeduped": 0,
         "skippedNoExactIdentity": 0,
         "skippedCondition": 0,
         "skippedEmptyKline": 0,
@@ -1129,8 +1180,14 @@ def ingest_kline_jsonls(
                 if isinstance(row.get("item_id"), int) and row["item_id"] in item_to_variant
             },
         )
-    source_rows_to_write: list[tuple[Any, ...]] = []
-    pending_price_rows: list[tuple[tuple[str, str, str], tuple[Any, ...], tuple[Any, ...]]] = []
+    # Keyed by (card, day): the last evidence in source-run order wins, so a
+    # multi-file archive replay updates in place instead of stacking rows.
+    source_rows_by_key: dict[tuple[str, str], tuple[Any, ...]] = {}
+    pending_price_by_key: dict[
+        tuple[str, str],
+        tuple[tuple[str, str, str] | None, int | None, tuple[Any, ...], tuple[Any, ...]],
+    ] = {}
+    persisted_kline_cache: dict[int, dict[str, tuple[int, str, float | None]]] = {}
     resolved_cards: list[tuple[int, int, int]] = []
 
     for row in rows:
@@ -1209,11 +1266,32 @@ def ingest_kline_jsonls(
         source_row_sha256 = hashlib.sha256(
             json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
+        persisted_latest = persisted_kline_cache.get(item_id)
+        if persisted_latest is None:
+            persisted_latest = _load_latest_persisted_kline(cur, item_id)
+            persisted_kline_cache[item_id] = persisted_latest
         for day, price_jpy in to_write:
             price_usd = round(price_jpy / jpy_per_usd, 6)
             # The market date is authoritative for chart anchors and public as-of.
             observed = date.fromisoformat(day)
             effective = datetime.combine(observed, dt_time(23, 59, 59))
+            dedup_key = (str(item_id), day)
+            persisted = persisted_latest.get(day)
+            if persisted is not None and persisted[2] is not None and persisted[2] == price_jpy:
+                # Unchanged candle: the persisted row already carries this
+                # evidence, and a fresh fetch differs only in provenance.
+                # Reuse the persisted row id so the price upsert still lands
+                # on the current variant binding.
+                stats["sourceRowsDeduped"] += 1
+                source_rows_by_key.pop(dedup_key, None)
+                pending_price_by_key[dedup_key] = (
+                    None,
+                    persisted[0],
+                    (run_id, variant_id, "snkrdunk", str(item_id)),
+                    (day, effective, price_usd, price_jpy, "JPY", 50, "ready", persisted[1]),
+                )
+                stats["pricePoints"] += 1
+                continue
             payload = {
                 "source": "snk_market_data_kline",
                 "itemId": item_id,
@@ -1226,18 +1304,15 @@ def ingest_kline_jsonls(
             }
             payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
             payload_hash = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
-            source_rows_to_write.append(
-                (
-                    run_id, str(item_id), effective, day, payload_hash, payload_json,
-                    observed_at,
-                )
+            source_rows_by_key[dedup_key] = (
+                run_id, str(item_id), effective, day, payload_hash, payload_json,
+                observed_at,
             )
-            pending_price_rows.append(
-                (
-                    (str(item_id), day, payload_hash),
-                    (run_id, variant_id, "snkrdunk", str(item_id)),
-                    (day, effective, price_usd, price_jpy, "JPY", 50, "ready", payload_hash),
-                )
+            pending_price_by_key[dedup_key] = (
+                (str(item_id), day, payload_hash),
+                None,
+                (run_id, variant_id, "snkrdunk", str(item_id)),
+                (day, effective, price_usd, price_jpy, "JPY", 50, "ready", payload_hash),
             )
             stats["pricePoints"] += 1
         resolved_cards.append((item_id, variant_id, len(to_write)))
@@ -1253,6 +1328,7 @@ def ingest_kline_jsonls(
             payload_json=VALUES(payload_json),
             observed_at=VALUES(observed_at)
     """
+    source_rows_to_write = list(source_rows_by_key.values())
     for offset in range(0, len(source_rows_to_write), 500):
         cur.executemany(
             source_upsert,
@@ -1261,8 +1337,12 @@ def ingest_kline_jsonls(
 
     # Resolve batched observation ids through the same unique key the upsert
     # deduplicates on; every pending price row must find exactly one owner.
+    # Deduped rows already carry the persisted id and skip the lookup.
+    pending_price_rows = list(pending_price_by_key.values())
     source_observation_ids: dict[tuple[str, str, str], int] = {}
-    lookup_keys = list(dict.fromkeys(key for key, _, _ in pending_price_rows))
+    lookup_keys = list(dict.fromkeys(
+        key for key, _direct_id, _, _ in pending_price_rows if key is not None
+    ))
     for offset in range(0, len(lookup_keys), 500):
         chunk = lookup_keys[offset : offset + 500]
         predicate = " OR ".join(
@@ -1285,8 +1365,11 @@ def ingest_kline_jsonls(
             ] = int(found["id"])
 
     price_rows_to_write: list[tuple[Any, ...]] = []
-    for lookup_key, head, tail in pending_price_rows:
-        source_observation_id = int(source_observation_ids.get(lookup_key) or 0)
+    for lookup_key, direct_id, head, tail in pending_price_rows:
+        if lookup_key is None:
+            source_observation_id = int(direct_id or 0)
+        else:
+            source_observation_id = int(source_observation_ids.get(lookup_key) or 0)
         if source_observation_id <= 0:
             raise RuntimeError("SNK source observation upsert returned no id")
         price_rows_to_write.append((*head, source_observation_id, *tail))
