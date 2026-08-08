@@ -30,6 +30,11 @@ ROOT = Path(__file__).resolve().parents[1]
 GENERATION_RE = re.compile(r"^036_\d{8}T\d{6}Z$")
 REBUILD_STAGE_COMPLETE = "complete"
 DEFAULT_CREDENTIALS_ENV = ROOT / "data" / "runtime" / "config" / "rebuild.env"
+# Nightly ops run as the long-lived runtime account: cardz_rebuild only exists
+# inside a rebuild freeze window, so rebuild.env would fail at connect on any
+# normal night. During a freeze the cardz account keeps SELECT but loses DML,
+# which is exactly the inert-rollback behaviour cmd_daily_accept documents.
+DAILY_CREDENTIALS_ENV = ROOT / "data" / "runtime" / "config" / "backend.env"
 RESTORE_PROOF = ROOT / "data" / "runtime" / "rebuild-036" / "restore-proof-rowcounts-20260808.json"
 PRUNE_ALLOWLIST = ROOT / "data" / "policy" / "prune-order-allowlist.json"
 FREEZE_PROOF_SCRIPT = ROOT / "scripts" / "prove_writer_freeze.py"
@@ -6260,6 +6265,120 @@ def cmd_activate(args: argparse.Namespace) -> int:
         }
         artifact_path = ROOT / "data" / "runtime" / "rebuild-036" / (
             f"activation-{generation}.json"
+        )
+        artifact_path.parent.mkdir(parents=True, exist_ok=True)
+        artifact_path.write_bytes(canonical_json(report))
+        print(json.dumps(report, ensure_ascii=False, indent=1, default=str))
+        return 0
+    finally:
+        conn.close()
+
+
+def cmd_daily_accept(args: argparse.Namespace) -> int:
+    """Nightly acceptance + re-rank for the CURRENT activated universe.
+
+    Reuses the S12 acceptance lanes without rewriting the universe lock:
+    fresh collector evidence (price/pop/sales) becomes accepted history,
+    the market-cap ranking recomputes over the same members, and §3.11b
+    bumps accepted_at even when content is identical so the FE generation
+    always flips to "accepted tonight". Sales stay manifest-gated: the
+    activation manifests plus fingerprints landed by ingest runs completed
+    after activation — rows from pre-freeze recipe writers can never enter.
+    During a writer freeze the first INSERT fails and everything rolls
+    back, so this command is naturally inert mid-rebuild.
+    """
+
+    from datetime import datetime, timezone
+
+    credentials = args.credentials_env or DAILY_CREDENTIALS_ENV
+    conn = connect(credentials)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, lock_sha256, member_count FROM market_universe_lock"
+                " WHERE is_current=1"
+            )
+            locks = cur.fetchall()
+            if len(locks) != 1:
+                raise SystemExit(
+                    f"daily-accept ABORT: expected exactly one current universe lock, found {len(locks)}"
+                )
+            lock_id = int(locks[0]["id"])
+            lock_sha = str(locks[0]["lock_sha256"])
+            cur.execute(
+                "SELECT variant_id FROM market_universe_member"
+                " WHERE universe_lock_id=%s ORDER BY variant_id",
+                (lock_id,),
+            )
+            ready_ids = [int(row["variant_id"]) for row in cur.fetchall()]
+            if not ready_ids:
+                raise SystemExit("daily-accept ABORT: current lock has zero members")
+            cur.execute(
+                "SELECT generation_id, activated_at FROM cardz_rebuild_generation"
+                " WHERE activated_at IS NOT NULL ORDER BY activated_at DESC LIMIT 1"
+            )
+            generation_row = cur.fetchone()
+            if not generation_row:
+                raise SystemExit("daily-accept ABORT: no activated generation on record")
+            generation = str(generation_row["generation_id"])
+            activated_at = generation_row["activated_at"]
+
+        fingerprints = _load_sales_fingerprints(generation)
+        manifest_count = len(fingerprints)
+        with conn.cursor() as cur:
+            # Post-activation sale rows carry the current recipes by
+            # construction: the freeze stopped every legacy writer, and the
+            # only sale writers since are the receipted collector ingests.
+            cur.execute(
+                """
+                SELECT DISTINCT s.transaction_fingerprint
+                FROM market_sale_observation s
+                INNER JOIN market_ingest_run r ON r.id=s.run_id
+                WHERE r.status IN ('complete','completed') AND r.started_at >= %s
+                """,
+                (activated_at,),
+            )
+            for row in cur.fetchall():
+                value = str(row["transaction_fingerprint"] or "")
+                if value:
+                    fingerprints.add(value)
+
+        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
+        try:
+            with conn.cursor() as cur:
+                history = _activation_accept_history(cur, now_str, fingerprints)
+                canonical = _activation_rank_and_accept(cur, ready_ids, now_str)
+                for variant_id, rank in canonical["ranks"].items():
+                    cur.execute(
+                        "UPDATE market_universe_member SET market_rank=%s"
+                        " WHERE universe_lock_id=%s AND variant_id=%s",
+                        (rank, lock_id, variant_id),
+                    )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+        report = {
+            "dailyAccept": True,
+            "generation": generation,
+            "universeLockId": lock_id,
+            "universeLockSha256": lock_sha,
+            "members": len(ready_ids),
+            "salesFingerprints": {
+                "manifest": manifest_count,
+                "postActivation": len(fingerprints) - manifest_count,
+            },
+            "historyAcceptance": history,
+            "canonical": {
+                "accepted": canonical["accepted"],
+                "rankingGenerationSha256": canonical["rankingGenerationSha256"],
+            },
+            "acceptedAt": now_str,
+        }
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        artifact_path = ROOT / "data" / "runtime" / "rebuild-036" / (
+            f"daily-accept-{stamp}.json"
         )
         artifact_path.parent.mkdir(parents=True, exist_ok=True)
         artifact_path.write_bytes(canonical_json(report))

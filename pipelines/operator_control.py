@@ -2585,6 +2585,11 @@ def main() -> int:
         help="teardown: restore cardz DML grant, drop cardz_rebuild (success AND failure paths)",
     )
     p_unfreeze.add_argument("--confirm", action="store_true")
+    p_daily_accept = sub.add_parser(
+        "daily-accept",
+        help="nightly: accept fresh evidence + re-rank the current universe (no lock rewrite)",
+    )
+    p_daily_accept.add_argument("--credentials-env", dest="credentials_env", type=Path)
     p_daily.add_argument("--pass", dest="do_pass", action="store_true", help="DADDY pass: export product subset + promote receipt")
     refresh_group = p_daily.add_mutually_exclusive_group()
     refresh_group.add_argument("--refresh", action="store_true", help="run collect_control status+incr (real exact-id harvest, not --help)")
@@ -2650,6 +2655,10 @@ def main() -> int:
         import rebuild_036
 
         return rebuild_036.cmd_unfreeze(args)
+    elif args.cmd == "daily-accept":
+        import rebuild_036
+
+        return rebuild_036.cmd_daily_accept(args)
     else:
         raise SystemExit(f"unknown command: {args.cmd}")
     return 0
