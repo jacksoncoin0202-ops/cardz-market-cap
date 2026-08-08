@@ -17,7 +17,8 @@ sys.path.insert(0, str(ROOT / "pipelines"))
 from qualified_pool_operator import db, load_env  # noqa: E402
 
 REQUIRED_SCHEMA_VERSIONS = (
-    "022", "023", "024", "025", "026", "027", "028", "029", "030"
+    "022", "023", "024", "025", "026", "027", "028", "029", "030",
+    "031", "032", "033", "034", "035"
 )
 OUT = ROOT / "data" / "runtime" / "operator"
 BANNED_PRICE_SOURCES = ("g10_kline",)
@@ -1182,29 +1183,35 @@ def _evidence_datetime(value, fallback_path: Path) -> datetime:
 
 
 def _gemrate_page_official_name(gemrate_id: str) -> tuple[str, str, datetime] | None:
+    """Return only the literal description from the unique raw PSA row."""
+
     for cards_root in GEMRATE_CARD_ROOT_CANDIDATES:
-        path = cards_root / gemrate_id / "card_details.json"
-        if not path.is_file():
+        receipt_path = cards_root / gemrate_id / "card_details.raw.receipt.json"
+        if not receipt_path.is_file():
             continue
-        payload = _read_json(path)
-        page = payload.get("publicCardPage") if isinstance(payload.get("publicCardPage"), dict) else {}
-        identity = page.get("identity") if isinstance(page.get("identity"), dict) else {}
-        title = re.sub(r"\s+Copied link\s*$", "", str(page.get("title") or "").strip(), flags=re.I)
-        parts = [
-            str(identity.get("year") or "").strip(),
-            str(identity.get("set_name") or "").strip(),
-            title,
-            str(identity.get("parallel") or "").strip(),
-            str(identity.get("card_number") or "").strip(),
+        receipt = _read_json(receipt_path)
+        raw_path = (receipt_path.parent / str(receipt.get("sourcePointer") or "")).resolve()
+        try:
+            raw_path.relative_to(receipt_path.parent.resolve())
+        except ValueError as exc:
+            raise RuntimeError(f"GemRate raw pointer escapes card directory: {gemrate_id}") from exc
+        if not raw_path.is_file():
+            continue
+        raw_bytes = raw_path.read_bytes()
+        source_sha = hashlib.sha256(raw_bytes).hexdigest()
+        if source_sha != str(receipt.get("contentSha256") or ""):
+            raise RuntimeError(f"GemRate raw payload hash drifted: {gemrate_id}")
+        payload = json.loads(raw_bytes.decode("utf-8-sig"))
+        psa_rows = [
+            row for row in (payload.get("population_data") or [])
+            if isinstance(row, dict) and str(row.get("grader") or "").casefold() == "psa"
         ]
-        official_name = " ".join(part for part in parts if part)
-        receipt = payload.get("privateSourceReceipt") if isinstance(payload.get("privateSourceReceipt"), dict) else {}
-        source_sha = str(receipt.get("contentSha256") or "")
-        if not re.fullmatch(r"[0-9a-f]{64}", source_sha):
-            source_sha = hashlib.sha256(path.read_bytes()).hexdigest()
-        observed_at = _evidence_datetime(receipt.get("fetchedAt"), path)
-        if title and identity.get("year") and identity.get("set_name") and identity.get("card_number"):
-            return official_name, source_sha, observed_at
+        if len(psa_rows) != 1:
+            raise RuntimeError(f"GemRate raw PSA row is not unique: {gemrate_id}:{len(psa_rows)}")
+        description = psa_rows[0].get("description")
+        if not isinstance(description, str) or not description:
+            raise RuntimeError(f"GemRate raw PSA description is missing: {gemrate_id}")
+        return description, source_sha, _evidence_datetime(receipt.get("fetchedAt"), receipt_path)
     return None
 
 
@@ -1232,41 +1239,10 @@ def _normalize_official_name(value: object) -> str:
 
 
 def _canonical_full_name(value: object, collector_number: object) -> str:
-    """Return the one public identity name: exact GemRate title plus full card number.
+    """Preserve the provider description byte-for-byte; collector is structured."""
 
-    GemRate is the PSA-name source, but its title may shorten a collector number
-    (for example ``215`` while the exact printing is ``215/203``).  The
-    canonical name is therefore a single complete string, shared by the DB,
-    PSA-facing surface and file identity; it is never a display-name fallback.
-    """
-
-    title = _normalize_official_name(value)
-    collector = _normalize_official_name(collector_number)
-    if not title or not collector:
-        return title
-    folded_title = title.casefold()
-    folded_collector = collector.casefold()
-    if folded_title.endswith(folded_collector):
-        return title
-
-    # Replace a terminal short form only when it is the unambiguous tail of
-    # the exact collector identity: 215 -> 215/203, or 119 -> OP05-119.
-    tail_candidates = [collector]
-    if "/" in collector:
-        tail_candidates.append(collector.split("/", 1)[0])
-    if "-" in collector:
-        tail_candidates.append(collector.rsplit("-", 1)[-1])
-    for tail in sorted({part for part in tail_candidates if part}, key=len, reverse=True):
-        pattern = re.compile(rf"(?i)(?:\s|/){re.escape(tail)}$")
-        if pattern.search(title):
-            return pattern.sub(f" {collector}", title)
-
-    # Some exact GemRate names already contain a fuller provider number while
-    # the current local collector field is shorter (for example 232/091 vs
-    # 232).  Preserve the source title rather than duplicate a number.
-    if re.search(rf"(?i)(?:^|\s){re.escape(collector)}(?:/|\s|$)", title):
-        return title
-    return f"{title} {collector}"
+    del collector_number
+    return str(value or "")
 
 
 def sync_026_canonical_identity_repairs(cur) -> dict:
@@ -2056,7 +2032,47 @@ def sync_026_canonical_identity_freezes(cur) -> dict:
 
 
 def sync_official_names(cur) -> dict:
-    """Accept one exact GemRate/PSA full display name for every active variant."""
+    """Materialize names only from the migration-034 PSA acceptance authority."""
+
+    cur.execute(
+        """
+        SELECT COUNT(*) AS active_count
+        FROM market_universe_member m
+        INNER JOIN market_universe_lock u ON u.id=m.universe_lock_id AND u.is_current=1
+        """
+    )
+    active_count = int((cur.fetchone() or {}).get("active_count") or 0)
+    cur.execute(
+        """
+        SELECT COUNT(*) AS accepted_count
+        FROM market_universe_member m
+        INNER JOIN market_universe_lock u ON u.id=m.universe_lock_id AND u.is_current=1
+        INNER JOIN operator_psa_identity_projection psa ON psa.variant_id=m.variant_id
+        """
+    )
+    accepted_count = int((cur.fetchone() or {}).get("accepted_count") or 0)
+    if accepted_count != active_count:
+        raise RuntimeError(
+            f"034 literal PSA identity acceptance incomplete: {accepted_count}/{active_count}"
+        )
+    cur.execute(
+        """
+        UPDATE catalog_variant v
+        INNER JOIN operator_psa_identity_projection psa ON psa.variant_id=v.id
+        SET v.canonical_name=psa.psa_description,v.card_language=psa.psa_language
+        WHERE BINARY v.canonical_name<>BINARY psa.psa_description
+           OR v.card_language<>psa.psa_language
+        """
+    )
+    return {
+        "accepted": accepted_count,
+        "updated": int(cur.rowcount),
+        "authority": "catalog_psa_identity_acceptance",
+        "contract": "active-psa-identity-resolution-035-v1",
+    }
+
+    # Historical 026/031 import implementation retained below for code-lineage
+    # reference only; execution returns above and it is no longer an authority.
 
     map_path = _first_existing(OFFICIAL_NAME_MAP_CANDIDATES, "PSA official-name map")
     apply_path = _first_existing(OFFICIAL_NAME_APPLY_CANDIDATES, "PSA official-name apply receipt")

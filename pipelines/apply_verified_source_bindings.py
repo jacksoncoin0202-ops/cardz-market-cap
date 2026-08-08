@@ -690,9 +690,7 @@ def _verify_decision_evidence(decision: dict[str, Any]) -> dict[str, Any]:
     evidence = dict(decision.get("evidence") or {})
     evidence_type = str(evidence.get("type") or "").strip()
     if evidence_type == "database_lineage":
-        if not re.fullmatch(r"[0-9a-f]{64}", str(evidence.get("sha256") or "")):
-            raise ValueError("decision_database_lineage_invalid")
-        return evidence
+        raise ValueError("decision_database_lineage_is_not_provider_native")
     raw_path = str(evidence.get("path") or "").strip()
     expected_sha = str(evidence.get("sha256") or "").strip().lower()
     if not raw_path or not re.fullmatch(r"[0-9a-f]{64}", expected_sha):

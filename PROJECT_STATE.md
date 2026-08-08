@@ -39,7 +39,27 @@ There is no QC/finalizer/audit/runbook release layer. Build and run the direct s
 
 ## Canonical name rule
 
-- One card has one canonical full name: `catalog_variant.canonical_name` is the exact GemRate/PSA title completed with the exact canonical collector number. DB, PSA-facing UI and file identity use this same string; a shorter display-name layer is forbidden.
+- One card has one PSA canonical name: `catalog_variant.canonical_name` is byte-for-byte the `description` of the unique GemRate raw `population_data` row whose `grader="psa"`. Never use GemRate's top-level `description`, never append/replace a collector number, and never reconstruct the string. Full collector number, language, set, printing and parallel remain structured fields.
+- `catalog_psa_identity_acceptance` is current name authority. `catalog_official_name_acceptance` is retained history only.
+- `operator_strict_source_identity` accepts only provider-native payload evidence; `evidence.type="database_lineage"` is never a current strict binding.
+
+## 034 local PSA identity repair
+
+- Migration `034_psa_source_identity_repair.mysql.sql` is applied only to local Windows MySQL `127.0.0.1:3308`; no AWS/public snapshot was rebuilt or published.
+- The one full-catalog audit was completed from the read-only 70-card Sheet and 762 local GemRate raw receipts. Its initial inner join exposed 53 variants with no `catalog_printing_identity`; apply-time manifest completion records those variants as unresolved rather than omitting them.
+- The repair transaction created 637 current literal-description acceptances and left 1,145 variants outside that new acceptance projection (`review`/`incomplete`). This does **not** mean those cards lack GemRate provenance: 1,100/1,145 already have a positive GemRate PSA10 POP observation and GemRate external ID. The missing item is the new gate's literal PSA-row-description material or a resolved printing/language comparison, not the upstream portfolio source.
+- All 125 active variants outside the new acceptance projection have positive GemRate PSA10 POP, a GemRate binding and historical official-name acceptance. Their GemRate/portfolio lineage is confirmed; they must not be described as source-unknown or evidence-free.
+- The transaction changed 375 stored canonical names, demoted 1,095 remaining exact `database_lineage` bindings, rejected 450 conflicting downstream bindings, and quarantined 46,939 price rows, 30,575 sale rows, 668 public image pointers and 753 freezes.
+- Product readiness is intentionally fail-closed until provider-native identities and the unresolved printing/language conflicts are established. Do not restore the 033 product projection or publish a new snapshot from historical bindings.
+- The one permitted integrated validator run is FAIL: 637/762 active variants have new literal-description acceptance. The remaining 125/762 are still confirmed GemRate portfolio members with positive PSA10 POP; they failed the newly introduced literal-name/printing comparison gate and are not missing GemRate provenance. Passed invariants include 70/70 Sheet mapping, all six green controls, literal PSA description/hash equality for accepted rows, zero top-level authority, one current name per payload, 1,782 unique classifications, zero strict `database_lineage`, and migration ledger 034. The validator's original red-product query counted catalog-shell rows rather than `product_ready=1`; its source is corrected but was not rerun. The same run proved the 13 red variants have zero ready prices, non-quarantined sales, public image pointers and accepted freezes.
+
+## 035 active identity and GemRate provenance resolution
+
+- Migration `035_gemrate_provenance_psa_identity_resolution.mysql.sql` is ledgered on local Windows MySQL `127.0.0.1:3308`. It creates a distinct immutable GemRate POP provenance acceptance; a raw-capture receipt is not counted as source coverage.
+- All 762 active variants now have a literal PSA raw acceptance, positive native GemRate PSA10 POP provenance, one exact GemRate binding and a complete structured printing hash. The former 125 active blockers were resolved as concrete identity work: 63 name changes, 22 language changes, 38 set-name changes, 168 parallel completions and 14 superseded GemRate bindings.
+- Redirected GemRate IDs retain both roles explicitly: the current ID owns POP provenance/binding while the settled provider entity ID identifies the raw `/card-details` payload. PSA's unnumbered Gold DON!! row retains an empty PSA card number; `OPCD-093` remains the structured collector number and is not appended to its canonical name.
+- Non-GemRate prices, sales, images and freezes quarantined by 034 remain fail-closed. Migration 035 does not infer their identities from GemRate. No AWS/public snapshot was rebuilt or published; the published 033 artifact remains unchanged.
+- The first 035 validator run exposed an omitted `parallel_code` UPDATE for 168 rows and an incorrect expectation that all 1,782 variants had printing rows despite 53 known non-active unresolved variants lacking one. The same immutable manifest amended exactly 168 parallel rows and the catalog invariant was corrected. DADDY then explicitly removed the one-validation restriction; the rerun returned PASS: 762/762 literal PSA names, 762/762 positive POP provenance, 762/762 strict GemRate bindings, zero name/language/collector/set/parallel/hash conflicts, zero ambiguous exact GemRate bindings, zero strict `database_lineage`, 70/70 Sheet mapping, all six green controls and full 13-red-card quarantine.
 
 ## 2026-08-07 release state
 
@@ -48,4 +68,5 @@ There is no QC/finalizer/audit/runbook release layer. Build and run the direct s
 - Public snapshot content SHA-256: `8e800a2ac69a03a4de6e8635075e37e75b3c2f42a6095d890af02471839e7ce8`.
 - Active cohort: 762/762 product-ready, 0 gaps, 776 qualified backlog candidates.
 - Migrations are implemented and materialized through 033; the local presentation remains FE02.
+- The 2026-08-07 release snapshot above remains the last public artifact. Local DB schema is now through 035, but 034/035 have not been published.
 - FE02 health readback: 762 cards from Windows DB 3308 with build ID `fe02`.

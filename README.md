@@ -31,6 +31,7 @@ exact SNK ID worklist
 
 - `snkrdunk_bulk.py` 是 SNK API 共用層，供 `snk_market_data.py` 使用，保留。
 - `snk_market_data.py` 是日常 exact PSA10 價格、成交及本機 harvest 疊加入口。
+- PSA 身份修正入口係 `pipelines/psa_identity_repair.py`；active 762 resolution 入口係 `pipelines/resolve_active_psa_identity.py`。`canonical_name` 只可係 GemRate raw `population_data` 唯一 PSA row 嘅原文 `description`；完整卡號只保留喺 structured field。GemRate source coverage 必須來自獨立正數 PSA10 POP observation acceptance，receipt coverage 唔係 source coverage；任何 `database_lineage` binding 都唔可以進 `operator_strict_source_identity`。
 - `collect_control.py` 保留作 stock／provider binding 的增量控制；不混入以上快速日常路徑。
 - `operator_control.py` 保留作 canonical projection rebuild 和產品 snapshot 操作。
 

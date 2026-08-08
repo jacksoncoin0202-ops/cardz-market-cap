@@ -316,6 +316,10 @@ def _persist_public_card_capture(cards_dir: Path, gemrate_id: str, payload: Mapp
         "populationMode": mode,
         "fetchedAt": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
     }
+    if isinstance(page_meta, Mapping):
+        provider_entity_id = str(page_meta.get("providerEntityGemrateId") or "")
+        if HEX40.fullmatch(provider_entity_id):
+            receipt["providerEntityGemrateId"] = provider_entity_id
     if isinstance(raw, Mapping):
         raw_bytes = _canonical_json_bytes(raw)
         content_hash = hashlib.sha256(raw_bytes).hexdigest()
@@ -631,21 +635,26 @@ def build_public_card_page_json_payload(
 
     parsed = urlparse(str(response_url or ""))
     request_ids = parse_qs(parsed.query).get("gemrate_id", [])
+    provider_entity_id = request_ids[0] if len(request_ids) == 1 else ""
+    canonical_parts = str(canonical_url or "").split("/")
     if (
         parsed.scheme != "https"
         or parsed.netloc != "www.gemrate.com"
         or parsed.path != "/card-details"
-        or request_ids != [gemrate_id]
+        or not HEX40.fullmatch(provider_entity_id)
+        or provider_entity_id not in canonical_parts
     ):
         return None, "page_initiated_json_route_unverified"
     if response_status != 200:
         return None, f"page_initiated_json_http_{response_status}"
-    if not isinstance(payload, Mapping) or str(payload.get("gemrate_id") or "") != gemrate_id:
+    if not isinstance(payload, Mapping) or str(payload.get("gemrate_id") or "") != provider_entity_id:
         return None, "page_initiated_json_identity_unverified"
 
     identity_fields = ("year", "set_name", "card_number")
     identity = {field: str(payload.get(field) or "").strip() for field in identity_fields}
-    if not all(identity.values()):
+    # Some PSA DON!! entries are deliberately unnumbered. Preserve that empty
+    # provider value; year and set namespace remain mandatory.
+    if not identity["year"] or not identity["set_name"] or "card_number" not in payload:
         return None, "page_initiated_json_identity_incomplete"
     source_date = payload.get("date")
     if not isinstance(source_date, str) or not source_date.strip():
@@ -714,6 +723,7 @@ def build_public_card_page_json_payload(
             "domSha256": content_hash,
             "routeVerified": True,
             "populationMode": "page_initiated_json",
+            "providerEntityGemrateId": provider_entity_id,
             "jsonStatus": 200,
             "sourceDate": source_date.strip(),
             "lastPopulationChange": last_change.strip() if isinstance(last_change, str) and last_change.strip() else None,
@@ -1514,7 +1524,11 @@ def _chrome_card_pages_with_receipts(
 
                 parsed = urlparse(response.url)
                 request_ids = parse_qs(parsed.query).get("gemrate_id", [])
-                if parsed.path != "/card-details" or request_ids != [gid]:
+                if (
+                    parsed.path != "/card-details"
+                    or len(request_ids) != 1
+                    or not HEX40.fullmatch(request_ids[0])
+                ):
                     return
                 try:
                     body = response.json() if response.status == 200 else None
