@@ -27,6 +27,14 @@ def sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+# §3.4/§6.4: the only evidence types the 037 strict view accepts. The legacy
+# gemrate token 'provider_payload' (psa_identity_repair.py) is deliberately not
+# reused so the population branch and the product-page branch stay separable.
+EVIDENCE_TYPE_GEMRATE = "provider_native_psa_identity_and_population"
+EVIDENCE_TYPE_PROVIDER_PAGE = "provider_native_product_page"
+EVIDENCE_TYPES_STRICT = {EVIDENCE_TYPE_GEMRATE, EVIDENCE_TYPE_PROVIDER_PAGE}
+
+
 def upsert_evidence(
     cur,
     *,
@@ -344,11 +352,25 @@ def apply_manifest(path: Path) -> dict[str, Any]:
                     # heading by load_manifest; it is not copied from catalog_variant.
                     "productNumber": raw.get("expectedCollectorNumber"),
                 }
-            source_product_number = str(
-                provider_claims.get("productNumber")
-                or provider_claims.get("cardNumber")
-                or ""
-            ).strip()
+            if source_code == "pricecharting":
+                # §6.4: derive from the replayed page's own heading, so
+                # TRIM(source_product_number)<>'' holds by construction for
+                # every exact bind (load_manifest already proved the heading
+                # contains the expected collector).
+                heading_number = re.search(
+                    r"#\s*([A-Za-z0-9/-]+)", str(raw.get("pageHeading") or "")
+                )
+                source_product_number = (
+                    heading_number.group(1) if heading_number else ""
+                ).strip()
+            else:
+                source_product_number = str(
+                    provider_claims.get("productNumber")
+                    or provider_claims.get("cardNumber")
+                    or ""
+                ).strip()
+            if not source_product_number:
+                raise ValueError(f"binding_source_product_number_missing:{variant_id}")
             bound_set_code = str(provider_claims.get("setCode") or "").strip()
             bound_printing_code = str(provider_claims.get("printingCode") or "").strip()
             if (
@@ -357,6 +379,35 @@ def apply_manifest(path: Path) -> dict[str, Any]:
                 or len(bound_printing_code) > 64
             ):
                 raise ValueError(f"binding_provider_claim_too_long:{variant_id}")
+            # §6.4: every bind must carry a typed, hash-verified local capture,
+            # aligned with the v2 decision path (_verify_decision_evidence).
+            local_evidence_rel = str(raw.get("localEvidencePath") or "").strip()
+            if not local_evidence_rel:
+                raise ValueError(f"binding_local_evidence_required:{variant_id}")
+            local_evidence_abs = (ROOT / local_evidence_rel).resolve()
+            try:
+                local_evidence_sha = hashlib.sha256(
+                    local_evidence_abs.read_bytes()
+                ).hexdigest()
+            except OSError as exc:
+                raise ValueError(
+                    f"binding_local_evidence_unreadable:{variant_id}"
+                ) from exc
+            evidence_object = {
+                "type": (
+                    EVIDENCE_TYPE_GEMRATE
+                    if source_code == "gemrate"
+                    else EVIDENCE_TYPE_PROVIDER_PAGE
+                ),
+                "path": local_evidence_rel,
+                "sha256": local_evidence_sha,
+                "capturedAt": manifest["verifiedOn"],
+                "productNumberSelector": {
+                    "pricecharting": "h1#product_name",
+                    "snkrdunk": "item.cardNumber",
+                    "gemrate": "searchEvidence.cardNumber",
+                }[source_code],
+            }
             evidence_claim = {
                 "externalUrl": raw["externalUrl"],
                 "expectedCollectorNumber": raw["expectedCollectorNumber"],
@@ -364,6 +415,7 @@ def apply_manifest(path: Path) -> dict[str, Any]:
                 "pageHeading": raw.get("pageHeading"),
                 "pageTitle": raw.get("pageTitle"),
                 "localEvidencePath": raw.get("localEvidencePath"),
+                "evidence": evidence_object,
                 "searchEvidence": raw.get("searchEvidence"),
                 "catalogEvidence": raw.get("catalogEvidence"),
                 "languageCorrection": (
@@ -689,8 +741,10 @@ def _apply_canonical_corrections(
 def _verify_decision_evidence(decision: dict[str, Any]) -> dict[str, Any]:
     evidence = dict(decision.get("evidence") or {})
     evidence_type = str(evidence.get("type") or "").strip()
-    if evidence_type == "database_lineage":
-        raise ValueError("decision_database_lineage_is_not_provider_native")
+    if evidence_type not in EVIDENCE_TYPES_STRICT:
+        raise ValueError(
+            f"decision_evidence_type_not_strict:{evidence_type or 'missing'}"
+        )
     raw_path = str(evidence.get("path") or "").strip()
     expected_sha = str(evidence.get("sha256") or "").strip().lower()
     if not raw_path or not re.fullmatch(r"[0-9a-f]{64}", expected_sha):

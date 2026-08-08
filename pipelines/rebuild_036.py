@@ -844,6 +844,7 @@ def _identity_input_sha(ctx: SimpleNamespace) -> str:
 # NOT the legacy "provider_payload" (psa_identity_repair.py:426) so the two
 # branches stay distinguishable.
 EVIDENCE_TYPE_GEMRATE = "provider_native_psa_identity_and_population"
+EVIDENCE_TYPE_PROVIDER_PAGE = "provider_native_product_page"
 
 
 def _gemrate_printing_sha(fields: Mapping[str, str]) -> str:
@@ -1515,6 +1516,372 @@ def _bind_input_sha(ctx: SimpleNamespace) -> str:
     return sha256_bytes(canonical_json(["bind-input", (row or {}).get("output_sha256")]))
 
 
+STAGED_037_NAME = "037_strict_source_identity_provider_native.mysql.sql"
+
+
+def _pc_replay_dir(generation: str) -> Path:
+    return (ROOT / "data" / "private" / "pricecharting_session" / "html"
+            / f"replay-{generation}")
+
+
+def _pc_page_identity(html: str) -> tuple[dict[str, Any] | None, str]:
+    """Provider-native identity signals from a replayed PC product page.
+
+    Reads only what the page itself asserts: canonical URL (console slug ->
+    tcg/language/set tokens, product slug -> collector fallback) and the h1
+    heading (card number, parallel bracket, set text). Fails closed."""
+
+    canonical = re.search(
+        r'<link[^>]*rel="canonical"[^>]*href="([^"]+)"', html
+    ) or re.search(r'<link[^>]*href="([^"]+)"[^>]*rel="canonical"', html)
+    if not canonical:
+        return None, "canonical_missing"
+    url = canonical.group(1)
+    parts = [part for part in url.split("/") if part]
+    if "game" not in parts or len(parts) < parts.index("game") + 3:
+        return None, "canonical_not_product"
+    console_slug = parts[parts.index("game") + 1]
+    product_slug = parts[parts.index("game") + 2]
+    h1_match = re.search(
+        r'<h1[^>]*id="product_name"[^>]*>(.*?)</h1>', html, re.DOTALL
+    )
+    if not h1_match:
+        return None, "h1_missing"
+    heading = " ".join(re.sub(r"<[^>]+>", " ", h1_match.group(1)).split())
+    number_match = re.search(r"#\s*([A-Za-z0-9/.-]+)", heading)
+    slug_tail = product_slug.rsplit("-", 1)[-1]
+    collector = number_match.group(1) if number_match else ""
+    if not collector and re.fullmatch(r"[0-9]+[a-z]?", slug_tail):
+        collector = slug_tail
+    if not collector:
+        return None, "collector_missing"
+    bracket = re.search(r"\[([^\]]+)\]", heading)
+    console_tokens = console_slug.replace("-", " ")
+    if console_slug.startswith("pokemon"):
+        tcg = "pokemon"
+    elif console_slug.startswith("one-piece"):
+        tcg = "one-piece"
+    else:
+        tcg = ""
+    language = "ja" if "japanese" in console_tokens.split() else "en"
+    set_text = heading
+    if number_match:
+        set_text = heading[number_match.end():]
+    set_text = re.sub(r"\[[^\]]*\]", " ", set_text).strip()
+    if not set_text:
+        set_text = console_tokens
+    return {
+        "canonicalUrl": url,
+        "consoleSlug": console_slug,
+        "productSlug": product_slug,
+        "heading": heading,
+        "collector": collector,
+        "parallel": (bracket.group(1).strip() if bracket else ""),
+        "tcg": tcg,
+        "language": language,
+        "setText": set_text,
+    }, ""
+
+
+# Tokens that mark a true within-number parallel (base and special share the
+# collector number, so wording is the only discriminator). Catalog values
+# WITHOUT any of these are rarity vocabulary (sir/ur/l/sr-…), which the PC
+# page already encodes in the collector number itself.
+_TRUE_PARALLEL_TOKENS = frozenset({
+    "reverse", "holo", "holofoil", "foil", "ball", "1st", "first", "edition",
+    "shadowless", "unlimited", "manga", "anniversary", "wanted", "alternate",
+    "alt", "aa", "sp", "spc", "parallel", "p", "v2", "v3",
+})
+
+
+def _pc_rarity_only_parallel(value: str) -> bool:
+    """True when a catalog parallel_code is rarity vocab, not a real parallel."""
+
+    tokens = set(re.split(r"[^a-z0-9]+", value.casefold())) - {""}
+    return bool(tokens) and not (tokens & _TRUE_PARALLEL_TOKENS)
+
+
+def stage_pc_replay(ctx: SimpleNamespace) -> dict[str, Any]:
+    """S6 (§6.4/§6.5): replay artifact -> receipts -> 037 -> PC rebind.
+
+    The replay directory is an input artifact produced once by
+    pc_cache_replay.py (copy-first, content-gated); this stage re-verifies
+    every winner file against its sidecar sha, lands the capture receipts the
+    037 view's EXISTS demands, promotes the staged 037 migration, and then
+    re-derives PC bindings from what the replayed pages themselves assert.
+    Bindings without a page (or with soft mismatches) keep their status and
+    simply never reach the strict projection — honest, not silent."""
+
+    from datetime import datetime, timezone
+
+    conn = ctx.conn
+    conn.rollback()
+    generation = ctx.generation
+    replay_dir = _pc_replay_dir(generation)
+    manifest_path = replay_dir / "replay-manifest.json"
+    if not manifest_path.is_file():
+        raise SystemExit(
+            f"replay artifact missing: {manifest_path} — run"
+            f" pipelines/pc_cache_replay.py --generation {generation} first"
+        )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    counts = {
+        "pagesVerified": 0, "receiptsUpserted": 0, "migration037Applied": 0,
+        "bindingsSeen": 0, "bindingsWithPage": 0, "restampedExact": 0,
+        "upgradedFromReview": 0, "downgradedToReview": 0, "hardConflicts": 0,
+        "parallelSoftMismatch": 0, "pageParseFailures": 0,
+        "bindingsWithoutPage": 0, "pagesWithoutBinding": 0,
+        "replayRejects": int(manifest.get("rejects") or 0),
+    }
+
+    # --- Phase A: re-verify every winner file against its sidecar ----------
+    pages: dict[str, dict[str, Any]] = {}
+    for sidecar_path in sorted(replay_dir.glob("*.json")):
+        if sidecar_path.name.startswith("replay-"):
+            continue
+        sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+        html_path = sidecar_path.with_suffix(".html")
+        digest = sha256_file(html_path)
+        if digest != sidecar["captureSha256"]:
+            raise AssertionError(
+                f"replay file drifted from sidecar: {html_path.name}"
+            )
+        pages[str(sidecar["pcProductId"])] = {
+            "htmlPath": html_path,
+            "sha256": digest,
+            "capturePath": str(sidecar["capturePath"]),
+            "capturedAtUtc": str(sidecar["capturedAtUtc"]),
+            "parserVersion": str(sidecar["parserVersion"]),
+        }
+        counts["pagesVerified"] += 1
+
+    # --- Phase B: capture receipts (the strict view's EXISTS target) -------
+    try:
+        with conn.cursor() as cursor:
+            for pid, page in sorted(pages.items()):
+                captured_at = datetime.strptime(
+                    page["capturedAtUtc"], "%Y-%m-%dT%H:%M:%SZ"
+                ).replace(tzinfo=timezone.utc)
+                cursor.execute(
+                    "INSERT INTO catalog_provider_capture_receipt (source_code,"
+                    " external_entity_id, capture_sha256, capture_path,"
+                    " captured_at, generation_id, parser_version)"
+                    " VALUES ('pricecharting', %s, %s, %s, %s, %s, %s)"
+                    " ON DUPLICATE KEY UPDATE capture_path=VALUES(capture_path),"
+                    " captured_at=VALUES(captured_at),"
+                    " generation_id=VALUES(generation_id),"
+                    " parser_version=VALUES(parser_version)",
+                    (
+                        pid, page["sha256"], page["capturePath"][:500],
+                        captured_at, generation, page["parserVersion"][:64],
+                    ),
+                )
+                counts["receiptsUpserted"] += 1
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+    # --- Phase C: promote + apply the staged 037 view ----------------------
+    staged = ROOT / "pipelines" / "migrations" / "staged" / STAGED_037_NAME
+    live = ROOT / "pipelines" / "migrations" / STAGED_037_NAME
+    if not live.exists():
+        if not staged.exists():
+            raise SystemExit(f"037 migration missing from both {live} and {staged}")
+        staged.rename(live)
+    from db_runtime import migrate
+
+    migrate(conn, ROOT / "pipelines" / "migrations", only={STAGED_037_NAME})
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT 1 FROM cardz_schema_version WHERE version_code='037'"
+        )
+        if cursor.fetchone() is None:
+            raise AssertionError("037 applied but schema version row missing")
+    counts["migration037Applied"] = 1
+
+    # --- Phase D: re-derive PC bindings from the replayed pages ------------
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT si.external_entity_id AS pid, si.variant_id, si.match_status,"
+            " v.tcg_code, v.card_language, v.set_name, v.collector_number,"
+            " v.set_code AS v_set_code, v.printing_code AS v_printing_code,"
+            " p.parallel_code, p.printing_code, p.canonical_printing_sha256,"
+            " p.tcg_code AS p_tcg_code, p.card_language AS p_card_language,"
+            " p.set_code AS p_set_code, p.collector_number AS p_collector_number,"
+            " p.edition_code AS p_edition_code, p.finish_code AS p_finish_code"
+            " FROM catalog_source_identity si"
+            " JOIN catalog_variant v ON v.id=si.variant_id"
+            " LEFT JOIN catalog_printing_identity p ON p.variant_id=v.id"
+            " WHERE si.source_code='pricecharting'"
+        )
+        pc_bindings = cursor.fetchall()
+
+    results: list[tuple[str, str, str]] = []  # (pid, final_status, evidence_sha)
+    updates: list[tuple[str, str, str | None, str | None, dict | None]] = []
+    seen_pids: set[str] = set()
+    for row in pc_bindings:
+        counts["bindingsSeen"] += 1
+        pid = str(row["pid"])
+        seen_pids.add(pid)
+        status = row["match_status"]
+        page = pages.get(pid)
+        if page is None:
+            counts["bindingsWithoutPage"] += 1
+            results.append((pid, status, ""))
+            continue
+        if status == "rejected":
+            results.append((pid, status, ""))
+            continue
+        counts["bindingsWithPage"] += 1
+        html = page["htmlPath"].read_text(encoding="utf-8", errors="replace")
+        identity, reason = _pc_page_identity(html)
+        if identity is None:
+            counts["pageParseFailures"] += 1
+            results.append((pid, status, ""))
+            continue
+        pseudo_fp = {
+            "cardNumber": identity["collector"],
+            "derivedLanguage": identity["language"],
+            "setName": identity["setText"],
+        }
+        conflicts = _fingerprint_variant_conflicts(pseudo_fp, row)
+        if identity["tcg"] and str(row["tcg_code"] or "") and \
+                identity["tcg"] != str(row["tcg_code"]):
+            conflicts.append(f"tcg:{identity['tcg']}!={row['tcg_code']}")
+        if conflicts:
+            counts["hardConflicts"] += 1
+            if status == "exact":
+                counts["downgradedToReview"] += 1
+                updates.append((pid, "manual_review", None, None, None))
+                results.append((pid, "manual_review", ""))
+            else:
+                results.append((pid, status, ""))
+            continue
+        variant_parallel = str(row["parallel_code"] or "")
+        parallel_ok = _parallel_agrees(identity["parallel"], variant_parallel)
+        if not parallel_ok and not identity["parallel"]:
+            # Bracket-less page + rarity-vocab catalog value: set and collector
+            # already matched, and rarity is number-encoded on PC — vocabulary
+            # noise, not identity. Real parallels (reverse/master ball/manga…)
+            # never take this path.
+            parallel_ok = _pc_rarity_only_parallel(variant_parallel)
+        if not parallel_ok:
+            counts["parallelSoftMismatch"] += 1
+            results.append((pid, status, ""))
+            continue
+        evidence = {
+            "providerClaims": {
+                "tcgCode": identity["tcg"],
+                "cardLanguage": identity["language"],
+                "collectorNumber": identity["collector"],
+                "setCode": "",
+                "printingCode": "",
+                "parallelCode": identity["parallel"],
+            },
+            "evidence": {
+                "type": EVIDENCE_TYPE_PROVIDER_PAGE,
+                "sha256": page["sha256"],
+                "path": page["capturePath"],
+                "canonicalUrl": identity["canonicalUrl"],
+                "pageHeading": identity["heading"],
+                "capturedAt": page["capturedAtUtc"],
+                "generation": generation,
+            },
+        }
+        evidence_sha = sha256_bytes(canonical_json(evidence))
+        if row["canonical_printing_sha256"]:
+            mirror = (
+                str(row["p_tcg_code"] or ""), str(row["p_card_language"] or ""),
+                str(row["p_set_code"] or ""), str(row["p_collector_number"] or ""),
+                str(row["printing_code"] or ""), str(row["parallel_code"] or ""),
+                str(row["p_edition_code"] or ""), str(row["p_finish_code"] or ""),
+            )
+        else:
+            # No printing identity row: the strict view's INNER JOIN excludes
+            # this bind regardless; mirror the variant's own claim honestly.
+            mirror = (
+                str(row["tcg_code"] or ""), str(row["card_language"] or ""),
+                str(row["v_set_code"] or ""), str(row["collector_number"] or ""),
+                str(row["v_printing_code"] or ""), "", "", "",
+            )
+        if status == "manual_review":
+            counts["upgradedFromReview"] += 1
+        counts["restampedExact"] += 1
+        updates.append((pid, "exact", evidence_sha, identity["collector"],
+                        {"evidence": evidence, "mirror": mirror}))
+        results.append((pid, "exact", evidence_sha))
+
+    for pid in sorted(set(pages) - seen_pids):
+        counts["pagesWithoutBinding"] += 1
+
+    try:
+        with conn.cursor() as cursor:
+            for pid, new_status, evidence_sha, product_number, extra in updates:
+                if extra is None:
+                    cursor.execute(
+                        "UPDATE catalog_source_identity SET match_status=%s"
+                        " WHERE source_code='pricecharting'"
+                        " AND external_entity_id=%s",
+                        (new_status, pid),
+                    )
+                    continue
+                mirror = extra["mirror"]
+                cursor.execute(
+                    "UPDATE catalog_source_identity SET match_status='exact',"
+                    " evidence_sha256=%s, source_product_number=%s,"
+                    " bind_evidence_json=%s, bound_tcg_code=%s,"
+                    " bound_card_language=%s, bound_set_code=%s,"
+                    " bound_collector_number=%s, bound_printing_code=%s,"
+                    " bound_parallel_code=%s, bound_edition_code=%s,"
+                    " bound_finish_code=%s"
+                    " WHERE source_code='pricecharting' AND external_entity_id=%s",
+                    (
+                        evidence_sha,
+                        str(product_number or "")[:64],
+                        json.dumps(extra["evidence"], ensure_ascii=False,
+                                   sort_keys=True),
+                        mirror[0][:32], mirror[1][:8], mirror[2][:24],
+                        mirror[3][:96], mirror[4][:24], mirror[5][:64],
+                        mirror[6][:191], mirror[7][:64], pid,
+                    ),
+                )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+    output = sha256_bytes(canonical_json(sorted(results)))
+    return {"input_sha256": _pc_replay_input_sha(ctx), "output_sha256": output,
+            "counts": counts}
+
+
+def _pc_replay_input_sha(ctx: SimpleNamespace) -> str:
+    """S6's input: S5's recorded output + the replay manifest artifact.
+
+    Never reads the tables S6 mutates (bindings, receipts), so a completed
+    stage cannot self-invalidate on the next linear pass."""
+
+    manifest_path = _pc_replay_dir(ctx.generation) / "replay-manifest.json"
+    if not manifest_path.is_file():
+        raise SystemExit(
+            f"replay artifact missing: {manifest_path} — run"
+            f" pipelines/pc_cache_replay.py --generation {ctx.generation} first"
+        )
+    with ctx.conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT output_sha256 FROM cardz_rebuild_checkpoint"
+            " WHERE generation_id=%s AND stage='bind'",
+            (ctx.generation,),
+        )
+        row = cursor.fetchone()
+    return sha256_bytes(canonical_json([
+        "pc-replay-input", (row or {}).get("output_sha256"),
+        sha256_file(manifest_path),
+    ]))
+
+
 def _jsonl_psa_ids(path: Path) -> set[str]:
     """Extract the GemRate id space from brute-harvest rowData (field: psa_id)."""
 
@@ -1728,7 +2095,7 @@ LINEAR_STAGES: list[tuple[str, Callable | None, Callable | None, bool]] = [
     ("pop-land", stage_popland, _popland_input_sha, False),
     ("identity-resolve", stage_identity_resolve, _identity_input_sha, False),
     ("bind", stage_bind, _bind_input_sha, False),
-    ("pc-replay", None, None, False),
+    ("pc-replay", stage_pc_replay, _pc_replay_input_sha, False),
     ("snk-refresh", None, None, False),
     ("price-materialize", None, None, False),
     ("image-bind", None, None, False),
