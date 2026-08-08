@@ -945,6 +945,77 @@ def _tcg_from_set(set_name: Any) -> str:
     return ""  # honest unknown; column default is '' too
 
 
+def _sig_tokens(value: str) -> set[str]:
+    # Single-character tokens ("Monkey D. Luffy" → "d", possessive "s") carry
+    # no discriminating power and punish spelling drift; drop them.
+    return {
+        token for token in re.split(r"[^a-z0-9]+", _norm_text(value))
+        if len(token) > 1 and token not in _NOISE_TOKENS
+    }
+
+
+def _token_covered(small: set[str], large: set[str]) -> bool:
+    # Prefix-tolerant coverage, same tolerance as the set-signal comparison.
+    return all(
+        any(
+            a == b or (min(len(a), len(b)) >= 4 and (a.startswith(b) or b.startswith(a)))
+            for b in large
+        )
+        for a in small
+    )
+
+
+def _name_agrees(fp_name: str, variant_name: str) -> bool:
+    """Does the provider's card name appear in the variant's canonical name?
+
+    Set + collector number + parallel do NOT pin a card: one-piece numbers
+    several distinct alt-arts 118, so adoption must never place a Luffy on a
+    Rayleigh variant. Empty either side: no signal, leave to other checks.
+    """
+
+    f_tokens = _sig_tokens(fp_name)
+    v_tokens = _sig_tokens(variant_name)
+    if not f_tokens or not v_tokens:
+        return True
+    return _token_covered(f_tokens, v_tokens)
+
+
+_PRINT_PHRASES = (
+    "red manga alternate art", "manga alternate art", "special alternate art",
+    "wanted alternate art", "alternate art", "full art", "reverse foil",
+    "reverse holo", "master ball", "1st edition", "sec",
+)
+
+
+def _print_phrases(text: str) -> frozenset[str]:
+    """Print-treatment wording present in a name/parallel blob.
+
+    GemRate's parallel field often says just "Base" while the treatment lives
+    in the name ("Full Art/Pikachu-Reverse Foil"), and catalog rows may carry
+    it only in canonical_name ("… Manga Alternate Art 061" with an empty
+    parallel_code). Comparing extracted phrase sets keeps a Base fingerprint
+    from adopting a phrase-marked variant and vice versa. Token-bounded so
+    "sec" never matches inside "second".
+    """
+
+    blob = " " + " ".join(
+        t for t in re.split(r"[^a-z0-9]+", _norm_text(text)) if t
+    ) + " "
+    return frozenset(p for p in _PRINT_PHRASES if f" {p} " in blob)
+
+
+def _same_listing(fp_a: Mapping[str, Any], fp_b: Mapping[str, Any]) -> bool:
+    """Two provider listings describing the same physical card (dup ids).
+
+    Mutual description coverage is required — one-way coverage would fold a
+    "Pikachu-Reverse" listing into a "Pikachu Base" one.
+    """
+
+    a = _sig_tokens(str(fp_a.get("description") or ""))
+    b = _sig_tokens(str(fp_b.get("description") or ""))
+    return bool(a) and bool(b) and _token_covered(a, b) and _token_covered(b, a)
+
+
 def _parallel_agrees(fp_parallel: str, variant_parallel: str) -> bool:
     fpp = _norm_text(fp_parallel)
     vpp = _norm_text(variant_parallel)
@@ -1078,6 +1149,21 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
         and variant["created_at"].replace(tzinfo=timezone.utc) >= gen_start
     }
 
+    # Bindings the 034 world formally accepted before this rebuild started:
+    # authoritative reunion evidence. Set and parallel wording drift between
+    # provider and catalog is tolerated for these — the acceptance itself is
+    # the identity evidence; collector core, language and card name must still
+    # agree so a re-settled listing cannot ride an old acceptance.
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT gemrate_id, variant_id FROM catalog_gemrate_provenance_acceptance"
+            " WHERE accepted_at < %s ORDER BY accepted_at",
+            (gen_start.replace(tzinfo=None),),
+        )
+        prior_home = {
+            row["gemrate_id"]: int(row["variant_id"]) for row in cursor.fetchall()
+        }
+
     printing_sha_owner: dict[str, int] = {}
     adoption_index: dict[tuple[str, str], list[int]] = {}
     for vid, variant in variants.items():
@@ -1109,7 +1195,8 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
         "bindingsRebound": 0, "bindingsRejected": 0, "aliasesClosed": 0,
         "incidentsClosed": 0, "incidentsStillOpen": 0, "newIncidents": 0,
         "ownershipUnresolved": 0, "duplicateMintsRebound": 0,
-        "duplicateShellsRetired": 0,
+        "duplicateShellsRetired": 0, "priorAcceptanceRebound": 0,
+        "duplicateListingsDemoted": 0, "printShaNameClashDemoted": 0,
     }
 
     def member_pop(gid: str) -> int:
@@ -1215,6 +1302,34 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
                 return
             pending_extra.setdefault(gid, []).append(f"mint:{reason}")
             return
+        # Rule R1: a binding the 034 world formally accepted is reunion
+        # evidence stronger than wording comparison — set names and parallel
+        # vocabularies drift between provider and catalog ("Special Alternate
+        # Art" vs "sr-spc"), but the acceptance was made against this exact
+        # provider identity. Collector core, language and card name must still
+        # agree so a re-settled listing cannot ride an old acceptance.
+        prior = prior_home.get(gid)
+        if (
+            prior is not None
+            and prior in variants
+            and prior not in rebuild_minted
+            and variant_exact_owner.get(prior) in (None, gid)
+        ):
+            prior_variant = variants[prior]
+            hard = [
+                c for c in _fingerprint_variant_conflicts(fp, prior_variant)
+                if not c.startswith("set:") and not c.startswith("set_code:")
+            ]
+            if not hard and _name_agrees(
+                fp.get("name") or "", prior_variant.get("canonical_name") or ""
+            ):
+                binding_updates[gid] = {
+                    "action": "bind", "variant_id": prior, "fp": fp,
+                    "fields": fields, "adopted": True,
+                }
+                variant_exact_owner[prior] = gid
+                counts["priorAcceptanceRebound"] += 1
+                return
         sha = _gemrate_printing_sha(fields)
         target = printing_sha_owner.get(sha)
         if target is not None and target in rebuild_minted:
@@ -1227,6 +1342,15 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
                 vid for vid in adoption_index.get(key, [])
                 if not _fingerprint_variant_conflicts(fp, variants[vid])
                 and _parallel_agrees(fp["parallel"], variants[vid].get("parallel_code") or "")
+                and _name_agrees(fp.get("name") or "",
+                                 variants[vid].get("canonical_name") or "")
+                and _print_phrases(
+                    f"{fp.get('name') or ''} {fp.get('parallel') or ''}"
+                ) == _print_phrases(
+                    f"{variants[vid].get('canonical_name') or ''}"
+                    f" {variants[vid].get('parallel_code') or ''}"
+                    f" {variants[vid].get('printing_code') or ''}"
+                )
             ]
             if len(older) > 1:
                 anchored = [
@@ -1237,6 +1361,22 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
                     older = anchored
             if len(older) == 1:
                 target = older[0]
+        if target is not None and not _name_agrees(
+            fp.get("name") or "", variants[target].get("canonical_name") or ""
+        ):
+            # Same set/number/parallel but a different card name (one-piece
+            # numbers several distinct alt-arts 118): §3.5's printing sha
+            # cannot host both identities, so binding or minting here would
+            # collide two cards into one variant. The incumbent keeps the
+            # print; the newcomer is parked outside the universe with an
+            # explicit, revisitable demotion instead of a dishonest merge.
+            demoted[gid] = f"print_identity_unrepresentable_vs_variant_{target}"
+            if gid in bindings and bindings[gid]["match_status"] != "rejected":
+                binding_updates[gid] = {"action": "reject"}
+            for kind in open_incidents.get(gid, []):
+                closures.append((gid, kind, "print_identity_unrepresentable"))
+            counts["printShaNameClashDemoted"] += 1
+            return
         if target is None:
             key = (fields["tcg_code"], _collector_core(fields["collector_number"]))
             candidates = []
@@ -1245,6 +1385,24 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
                 if _fingerprint_variant_conflicts(fp, variant):
                     continue
                 if not _parallel_agrees(fp["parallel"], variant.get("parallel_code") or ""):
+                    continue
+                # Set + number + parallel do not pin a card (one-piece numbers
+                # several distinct alt-arts 118): the provider's card name must
+                # appear in the canonical name or this is a different card.
+                if not _name_agrees(fp.get("name") or "",
+                                    variant.get("canonical_name") or ""):
+                    continue
+                # Rule R5: print-treatment wording must agree. A "Base 061"
+                # fingerprint must not adopt the "Manga Alternate Art 061"
+                # variant (same number, different print), and a Full Art
+                # fingerprint must not tie with the plain print of the number.
+                if _print_phrases(
+                    f"{fp.get('name') or ''} {fp.get('parallel') or ''}"
+                ) != _print_phrases(
+                    f"{variant.get('canonical_name') or ''}"
+                    f" {variant.get('parallel_code') or ''}"
+                    f" {variant.get('printing_code') or ''}"
+                ):
                     continue
                 candidates.append(vid)
             if len(candidates) > 1:
@@ -1266,6 +1424,21 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
         if target is not None:
             owner = variant_exact_owner.get(target)
             if owner and owner != gid:
+                owner_fp = fingerprints.get(owner)
+                if owner_fp is not None and _same_listing(fp, owner_fp):
+                    # Rule R4: two live provider listings describing the same
+                    # physical card (provider has not merged the ids yet).
+                    # Mutual description coverage is required so a "Reverse"
+                    # listing never folds into a "Base" one. The incumbent
+                    # keeps the variant; the duplicate is parked outside the
+                    # universe so the card is never double-counted.
+                    demoted[gid] = f"duplicate_provider_listing_of_{owner}"
+                    if gid in bindings and bindings[gid]["match_status"] != "rejected":
+                        binding_updates[gid] = {"action": "reject"}
+                    for kind in open_incidents.get(gid, []):
+                        closures.append((gid, kind, "duplicate_provider_listing"))
+                    counts["duplicateListingsDemoted"] += 1
+                    return
                 new_incidents.append({
                     "gemrate_id": gid, "variant_id": target,
                     "incident_kind": "variant_mixed_printings",
