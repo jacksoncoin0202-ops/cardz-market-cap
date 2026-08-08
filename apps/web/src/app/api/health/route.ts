@@ -25,6 +25,12 @@ export async function GET(): Promise<Response> {
         generation: snapshot.generation,
         cards: snapshot.top100.length + snapshot.watchlist.length,
         surfaces,
+        coverage: {
+          changeReady: snapshot.coverage?.changeReady ?? null,
+          salesReady: snapshot.coverage?.salesReady ?? null,
+          completeIdentity: snapshot.coverage?.completeIdentityCount ?? null,
+          localizedStories: snapshot.coverage?.localizedStoryCount ?? null,
+        },
         build,
         dataMode: process.env.CARDZ_DATA_MODE?.trim() === "live-db" ? "windows-db-3308" : "baked-snapshot",
         databasePort: process.env.CARDZ_DATA_MODE?.trim() === "live-db" ? 3308 : null,

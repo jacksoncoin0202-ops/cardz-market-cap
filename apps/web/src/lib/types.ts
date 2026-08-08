@@ -116,6 +116,11 @@ export interface MarketViewSnapshot {
     claim: SnapshotCoverageClaim;
     requestedCount: number;
     verifiedCount: number;
+    /** live-db 模式先有；baked snapshot / scoped view 冇（optional）。 */
+    changeReady?: Record<MarketWindow, number>;
+    salesReady?: Record<MarketWindow, number>;
+    completeIdentityCount?: number;
+    localizedStoryCount?: Record<Locale, number>;
   };
   ratesAsOf: string | null;
   rates: Record<Currency, number>;
