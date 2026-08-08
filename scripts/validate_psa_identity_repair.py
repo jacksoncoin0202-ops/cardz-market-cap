@@ -3,6 +3,7 @@
 """The single integrated validation entry point for PSA identity repair 034-035."""
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -33,6 +34,36 @@ def scalar(cur: Any, sql: str, params: tuple[Any, ...] = ()) -> int:
     return int(next(iter(row.values())) or 0)
 
 
+# operator_card_product_projection's product_ready flag depends only on the
+# printing-identity / identity-freeze / current-metric / image / official-name
+# joins — never on the latest-daily-fact or ungraded-reference legs that make
+# the full view quadratic (a single COUNT measured 34min+). These fragments
+# inline exactly that predicate over exactly those joins (all keyed one row
+# per variant_id) so the same counts finish in seconds.
+PRODUCT_READY_FROM = """
+ FROM catalog_variant v
+ JOIN catalog_printing_identity p ON p.variant_id = v.id
+ JOIN operator_canonical_identity_freeze_projection ifz ON ifz.variant_id = v.id
+ JOIN operator_canonical_current_metric_projection m ON m.variant_id = v.id
+ JOIN operator_canonical_image_projection img ON img.variant_id = v.id
+ JOIN operator_official_name_projection n ON n.variant_id = v.id
+"""
+PRODUCT_READY_WHERE = """
+ p.identity_status IN ('confirmed','canonical')
+ AND p.tcg_code <> ''
+ AND p.card_language IN ('en','zhTW','zhCN','ja','ko')
+ AND p.collector_number <> ''
+ AND p.set_code <> ''
+ AND REGEXP_LIKE(p.canonical_printing_sha256,'^[0-9a-f]{64}$')
+ AND REGEXP_LIKE(p.evidence_sha256,'^[0-9a-f]{64}$')
+ AND p.provenance_json IS NOT NULL
+ AND p.observed_at IS NOT NULL
+ AND m.canonical_metric_acceptance_id IS NOT NULL
+ AND img.canonical_image_acceptance_id IS NOT NULL
+ AND n.official_name_acceptance_id IS NOT NULL
+"""
+
+
 def unnumbered_don_compatible(psa: dict[str, Any], row: dict[str, Any]) -> bool:
     return (
         str(row.get("tcg_code")) == "one-piece"
@@ -44,7 +75,26 @@ def unnumbered_don_compatible(psa: dict[str, Any], row: dict[str, Any]) -> bool:
     )
 
 
-def main() -> int:
+# PLAN §8 (validator parameterization): invariants about evidence shape and
+# recorded human decisions must hold in every phase; invariants that pin the
+# 034-era queue sizes / world snapshot (catalog row counts, the pre-rebuild
+# active-762 universe, its binding uniqueness) are phase-scoped — during the
+# 036 rebuild the catalog legitimately grows and bindings legitimately move,
+# so these report their values without gating. The 036 orchestrator's own
+# gates (cohortEquation, incidentsResolved) own that end-state instead.
+PHASE_WAIVED_036 = (
+    "catalogExactly1782",
+    "fullCatalogCategorized",
+    "active762IdentityAndProvenanceResolved",
+    "activeGemrateExactBindingUnique",
+    "unresolvedExplicitAndExcluded",
+)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--phase", choices=("034", "036"), default="034")
+    args = parser.parse_args(argv)
     audit = load_audit(OUT_034 / "audit.json")
     sheet = load_sheet_manifest()
     plan = json.loads((OUT_035 / "resolution-plan.json").read_text(encoding="utf-8-sig"))
@@ -222,9 +272,9 @@ def main() -> int:
         unresolved_count = catalog_count - len(accepted_ids)
         unresolved_projected = scalar(
             cur,
-            """SELECT COUNT(*) FROM operator_card_product_projection p
-               LEFT JOIN operator_psa_identity_projection a ON a.variant_id=p.variant_id
-               WHERE a.variant_id IS NULL AND p.product_ready=1""",
+            f"""SELECT COUNT(*) {PRODUCT_READY_FROM}
+               LEFT JOIN operator_psa_identity_projection a ON a.variant_id=v.id
+               WHERE a.variant_id IS NULL AND {PRODUCT_READY_WHERE}""",
         )
         unresolved_bad_status = scalar(
             cur,
@@ -232,7 +282,7 @@ def main() -> int:
                LEFT JOIN operator_psa_identity_projection a ON a.variant_id=v.id
                WHERE a.variant_id IS NULL AND v.identity_status NOT IN ('review','incomplete')""",
         )
-        product_ready = scalar(cur, "SELECT COUNT(*) FROM operator_card_product_projection WHERE product_ready=1")
+        product_ready = scalar(cur, f"SELECT COUNT(*) {PRODUCT_READY_FROM} WHERE {PRODUCT_READY_WHERE}")
         migration_034 = scalar(cur, "SELECT COUNT(*) FROM cardz_schema_version WHERE version_code='034'")
         migration_035 = scalar(cur, "SELECT COUNT(*) FROM cardz_schema_version WHERE version_code='035'")
         ledger_034 = scalar(cur, "SELECT COUNT(*) FROM cardz_migration_ledger WHERE migration_file='034_psa_source_identity_repair.mysql.sql'")
@@ -250,7 +300,11 @@ def main() -> int:
                   AND (freeze_kind='image' OR (freeze_kind='source' AND source_code<>'gemrate'))""",
             red_params,
         )
-        red_product_projection = scalar(cur, f"SELECT COUNT(*) FROM operator_card_product_projection WHERE variant_id IN ({placeholders}) AND product_ready=1", red_params)
+        red_product_projection = scalar(
+            cur,
+            f"SELECT COUNT(*) {PRODUCT_READY_FROM} WHERE v.id IN ({placeholders}) AND {PRODUCT_READY_WHERE}",
+            red_params,
+        )
         red_hash_placeholders = ",".join(["%s"] * len(red_old_printing_hashes))
         red_old_printing_current = scalar(
             cur,
@@ -287,14 +341,18 @@ def main() -> int:
         "planExactly762Unique": len(plan["rows"]) == 762 and len(plan_ids) == 762,
         "fullCatalogCategorized": len(accepted_ids) + unresolved_count == 1782,
         "unresolvedExplicitAndExcluded": unresolved_bad_status == 0 and unresolved_projected == 0,
+        "unresolvedNeverProductReady": unresolved_projected == 0,
         "migrationsLedgered": migration_034 == ledger_034 == migration_035 == ledger_035 == 1,
         "active762IdentityAndProvenanceResolved": active_count == active_accepted == active_provenance == active_strict_gemrate == 762,
     }
+    waived = PHASE_WAIVED_036 if args.phase == "036" else ()
     report = {
         "schemaVersion": 2,
         "contract": CONTRACT,
-        "pass": all(invariants.values()),
+        "phase": args.phase,
+        "pass": all(value for key, value in invariants.items() if key not in waived),
         "invariants": invariants,
+        "phaseWaived": {key: invariants[key] for key in waived},
         "fixtures": fixture,
         "sheet70": {"mapped": len(sheet_ids), "green": len(green_ids), "red": len(red_ids)},
         "catalog": {

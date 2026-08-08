@@ -496,10 +496,14 @@ def _capture_fingerprint(cards_dir: Path, gid: str) -> tuple[dict[str, Any] | No
     ]
     set_name = str(raw.get("set_name") or "")
     lowered = set_name.lower()
-    if "japanese" in lowered:
+    if "simplified chinese" in lowered:
+        language = "zhCN"
+    elif "traditional chinese" in lowered:
+        language = "zhTW"
+    elif "japanese" in lowered:
         language = "ja"
     elif "chinese" in lowered:
-        language = "zh"
+        language = "zh"  # wording names no script: stays ambiguous, fails closed
     elif "korean" in lowered:
         language = "ko"
     else:
@@ -708,7 +712,10 @@ def stage_identity_resolve(ctx: SimpleNamespace) -> dict[str, Any]:
         if binding and fp is not None:
             variant = variants.get(variant_id) or {}
             conflicts = _fingerprint_variant_conflicts(fp, variant)
-            if conflicts:
+            # A rejected binding is a recorded decision, not an accepted
+            # binding that moved — flagging it every recompute opens an
+            # incident with no closure path anywhere in S5.
+            if conflicts and binding["match_status"] != "rejected":
                 pending_reasons.append("binding_conflict")
                 incidents.append({
                     "gemrate_id": gid, "variant_id": variant_id,
@@ -1082,6 +1089,12 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
                 if gid in bindings and bindings[gid]["match_status"] != "rejected":
                     binding_updates[gid] = {"action": "reject"}
             # settled entity missing from members: incident stays open.
+    # A rejected alias can no longer hold printing ownership; without this
+    # purge the settled successor re-homing to its own print sees a ghost
+    # "printing_already_owned" conflict from its retired predecessor.
+    variant_exact_owner = {
+        vid: gid for vid, gid in variant_exact_owner.items() if gid not in alias_of
+    }
 
     # --- pop_decrease closure ---------------------------------------------
     popdec_gids = [
@@ -4151,7 +4164,7 @@ def stage_validate(ctx: SimpleNamespace) -> dict[str, Any]:
     validator_script = ROOT / "scripts" / "validate_psa_identity_repair.py"
     try:
         proc = subprocess.run(
-            [sys.executable, "-X", "utf8", str(validator_script)],
+            [sys.executable, "-X", "utf8", str(validator_script), "--phase", "036"],
             cwd=str(ROOT), capture_output=True, text=True, timeout=900,
             encoding="utf-8", errors="replace",
         )
@@ -4395,16 +4408,6 @@ def stage_discover(ctx: SimpleNamespace) -> dict[str, Any]:
         raise SystemExit(f"S2 ABORT: worklist implausibly small ({len(worklist)})")
     worklist_path = run_dir / "worklist.txt"
     worklist_path.write_text("\n".join(worklist) + "\n", encoding="utf-8")
-    gemrate_source._save(run_dir / "worklist-provenance.json", {
-        "generation": ctx.generation,
-        "builtAt": stamp,
-        "bruteReused": brute_reused,
-        "dbGemrateIdColumns": db_columns,
-        "cacheMerge": {"copied": merged, "skippedExisting": skipped_existing},
-        "sourceCounts": {name: len(values) for name, values in sorted(sources.items())},
-        "worklistCount": len(worklist),
-        "worklistSha256": sha256_file(worklist_path),
-    })
 
     # 4) Keep pipelines/gemrate_ids.txt the running union (append-only).
     added_to_ids_file = gemrate_source.append_ids(worklist)
@@ -4414,6 +4417,72 @@ def stage_discover(ctx: SimpleNamespace) -> dict[str, Any]:
         worklist, cards_dir=cards_dir, delay=0.2, resume=True, chunk_size=200,
         workers=6,
     )
+    if result.get("error"):
+        raise SystemExit(f"S2 ABORT: browser-level failure: {result['error']}")
+
+    # 6) Settled-id chase (D5 fetch-all): a captured page whose canonical URL
+    #    settles on a different id names the successor entity of a retired
+    #    slug. Without the successor's own capture it can never become a
+    #    member, so S5 can never close the requested_id_resettled incident as
+    #    an alias. Chase successors to fixpoint (chains are short; 5 rounds is
+    #    a hard stop against a pathological cycle, not an expected depth).
+    def _settled_ids(ids: list[str]) -> set[str]:
+        found: set[str] = set()
+        for gid in ids:
+            try:
+                page = json.loads(
+                    (cards_dir / gid / "card_details.json").read_text(encoding="utf-8")
+                ).get("publicCardPage") or {}
+            except (OSError, json.JSONDecodeError):
+                continue
+            parts = [part for part in str(page.get("canonicalUrl") or "").split("/") if part]
+            if "card" in parts:
+                idx = parts.index("card")
+                if len(parts) > idx + 1 and re.fullmatch(r"[0-9a-f]{40}", parts[idx + 1]):
+                    found.add(parts[idx + 1])
+        return found
+
+    chase_rounds: list[dict[str, int]] = []
+    seen = set(worklist)
+    frontier = list(worklist)
+    while len(chase_rounds) < 5:
+        new_ids = sorted(_settled_ids(frontier) - seen)
+        if not new_ids:
+            break
+        chase = gemrate_source.collect_public_card_details(
+            new_ids, cards_dir=cards_dir, delay=0.2, resume=True, chunk_size=200,
+            workers=6,
+        )
+        if chase.get("error"):
+            raise SystemExit(f"S2 ABORT: settled-chase browser failure: {chase['error']}")
+        for key in ("cached", "attempted", "succeeded", "failed"):
+            result[key] += chase[key]
+        result["promotable"] = result["promotable"] and chase["promotable"]
+        result["failureReceipts"] = (
+            (result.get("failureReceipts") or []) + (chase.get("failureReceipts") or [])
+        )
+        seen.update(new_ids)
+        frontier = new_ids
+        chase_rounds.append(
+            {"added": len(new_ids), "succeeded": chase["succeeded"], "failed": chase["failed"]}
+        )
+        added_to_ids_file += gemrate_source.append_ids(new_ids)
+    if len(seen) > len(worklist):
+        worklist = sorted(seen)
+        worklist_path.write_text("\n".join(worklist) + "\n", encoding="utf-8")
+
+    gemrate_source._save(run_dir / "worklist-provenance.json", {
+        "generation": ctx.generation,
+        "builtAt": stamp,
+        "bruteReused": brute_reused,
+        "dbGemrateIdColumns": db_columns,
+        "cacheMerge": {"copied": merged, "skippedExisting": skipped_existing},
+        "sourceCounts": {name: len(values) for name, values in sorted(sources.items())},
+        "settledChaseRounds": chase_rounds,
+        "worklistCount": len(worklist),
+        "worklistSha256": sha256_file(worklist_path),
+    })
+
     reasons: dict[str, int] = {}
     for receipt in result.get("failureReceipts") or []:
         key = str(receipt.get("reason") or "unknown")
@@ -4426,13 +4495,12 @@ def stage_discover(ctx: SimpleNamespace) -> dict[str, Any]:
         "runStatus": "complete" if result["promotable"] else "partial",
         **result,
     })
-    if result.get("error"):
-        raise SystemExit(f"S2 ABORT: browser-level failure: {result['error']}")
 
     counts = {
         "worklist": len(worklist),
         "cacheMergedFromOldCheckout": merged,
         "idsFileAppended": added_to_ids_file,
+        "settledChase": chase_rounds,
         "cached": result["cached"],
         "attempted": result["attempted"],
         "succeeded": result["succeeded"],
