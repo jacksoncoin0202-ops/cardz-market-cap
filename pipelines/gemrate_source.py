@@ -79,8 +79,13 @@ IDS_FILE = ROOT / "pipelines" / "gemrate_ids.txt"
 DEFAULT_TRACKED_IDENTITIES = ROOT / "data" / "runtime" / "private-source-map" / "tracked-universe.json"
 DEFAULT_G10_MIRROR_ROOT = ROOT / "integrations" / "grade10" / "data"
 
-# Delay between API calls (seconds). 429 backoff = 5x delay, doubling.
+# Delay between API calls (seconds).
 SPEEDS = {"slow": 3.0, "medium": 1.0, "fast": 0.15}
+
+# Public card-page 429 backoff ladder (seconds). Each 429 on the same card waits
+# the next rung and retries; running past the last rung records a
+# rate_limited_429_exhausted failure receipt for that card.
+RATE_LIMIT_LADDER = (30, 60, 120, 300, 600)
 
 # Cards per browser batch on the public-card-page pass. Small enough that the
 # wall-clock budget is checked often, large enough to amortise browser startup.
@@ -385,10 +390,8 @@ def _has_complete_public_card_capture(cards_dir: Path, gemrate_id: str) -> bool:
             return hashlib.sha256(raw_path.read_bytes()).hexdigest() == digest
         except OSError:
             return False
-    return (
-        receipt.get("rawStatus") == "dom_evidence_only"
-        and HEX64.match(str(receipt.get("contentSha256") or "")) is not None
-    )
+    # dom_evidence_only has no replayable raw payload, so resume must refetch it.
+    return False
 
 
 # --------------------------------------------------------------------------
@@ -1491,6 +1494,168 @@ def _remove_page_listener(page: Any, event: str, callback: Any) -> None:
     page.remove_listener(event, callback)
 
 
+def _fetch_card_once(
+    page: Any, gid: str,
+) -> tuple[Mapping[str, Any] | None, dict[str, Any] | None, bool]:
+    """One capture attempt for one card page.
+
+    Returns ``(payload, failure_receipt, rate_limited)``. ``rate_limited`` is
+    True when the page itself or its ``/card-details`` JSON came back 429 and
+    no valid payload was captured, so the caller can climb the backoff ladder
+    instead of recording a misleading DOM failure.
+    """
+
+    initiated_json: list[dict[str, Any]] = []
+
+    def capture_page_json(response: Any) -> None:
+        """Capture only the response requested by this exact card page."""
+
+        parsed = urlparse(response.url)
+        request_ids = parse_qs(parsed.query).get("gemrate_id", [])
+        if (
+            parsed.path != "/card-details"
+            or len(request_ids) != 1
+            or not HEX40.fullmatch(request_ids[0])
+        ):
+            return
+        try:
+            body = response.json() if response.status == 200 else None
+        except Exception:
+            body = None
+        initiated_json.append({
+            "url": response.url,
+            "status": response.status,
+            "body": body,
+        })
+
+    page.on("response", capture_page_json)
+    try:
+        response = page.goto(
+            f"{WEB}/card/{gid}", wait_until="domcontentloaded", timeout=60000,
+        )
+        if response is not None and int(response.status) == 429:
+            # Rate-limited before render; skip the 30s DOM poll entirely.
+            return None, None, True
+        page.wait_for_timeout(800)
+        page_data = page.evaluate(
+            """async (gemrateId) => {
+                const norm = (value) => String(value || "")
+                  .replace(/\\s+/g, " ").trim().toUpperCase();
+                const deadline = Date.now() + 30000;
+                let table = null;
+                // The population table can render well after domcontentloaded
+                // (page-initiated JSON resolves later). Poll briefly before
+                // declaring it missing so slow cards are not misclassified.
+                while (Date.now() < deadline) {
+                  table = Array.from(document.querySelectorAll("table")).find((candidate) => {
+                    const headers = Array.from(candidate.querySelectorAll("thead th"))
+                      .map((cell) => norm(cell.textContent));
+                    return headers.includes("POP") && headers.includes("GEM MINT");
+                  });
+                  const ready = table && Array.from(table.querySelectorAll("tbody tr")).some((row) => {
+                    const cells = Array.from(row.querySelectorAll("th,td"));
+                    return norm(cells[0] && cells[0].textContent) === "PSA";
+                  });
+                  if (ready) break;
+                  await new Promise((resolve) => setTimeout(resolve, 500));
+                }
+                if (!table) return {__failureReason: "population_table_missing"};
+                const headers = Array.from(table.querySelectorAll("thead th"))
+                  .map((cell) => norm(cell.textContent));
+                const gemMintIndex = headers.indexOf("GEM MINT");
+                const psaRow = Array.from(table.querySelectorAll("tbody tr")).find((row) => {
+                  const cells = Array.from(row.querySelectorAll("th,td"));
+                  return norm(cells[0] && cells[0].textContent) === "PSA";
+                });
+                if (!psaRow || gemMintIndex < 0) return {__failureReason: "psa_gem_mint_missing"};
+                const cells = Array.from(psaRow.querySelectorAll("th,td"));
+                const html = document.documentElement.outerHTML;
+                const digest = await crypto.subtle.digest(
+                  "SHA-256", new TextEncoder().encode(html)
+                );
+                const htmlSha256 = Array.from(new Uint8Array(digest))
+                  .map((byte) => byte.toString(16).padStart(2, "0")).join("");
+                const routeVerified = location.origin === "https://www.gemrate.com"
+                  && location.pathname.startsWith("/card/") && !!document.querySelector("h1");
+                if (!routeVerified) return {__failureReason: "canonical_route_unverified"};
+                return {
+                  headers,
+                  psaRow: cells.map((cell) => String(cell.textContent || "").trim()),
+                  canonicalUrl: location.href,
+                  title: String(document.querySelector("h1").textContent || "").trim(),
+                  domSha256: htmlSha256,
+                  routeVerified: true
+                };
+            }""",
+            gid,
+        )
+        dom_payload: dict[str, Any] | None = None
+        dom_reason: str | None = None
+        if isinstance(page_data, Mapping) and not page_data.get("__failureReason"):
+            headers = page_data.get("headers")
+            psa_row = page_data.get("psaRow")
+            dom_payload, dom_reason = build_public_card_page_payload(
+                gid,
+                headers=list(headers) if isinstance(headers, list) else [],
+                psa_row=list(psa_row) if isinstance(psa_row, list) else [],
+                canonical_url=page_data.get("canonicalUrl"),
+                title=page_data.get("title"),
+                dom_sha256=page_data.get("domSha256"),
+                route_verified=page_data.get("routeVerified"),
+            )
+        page_json = next(
+            (entry for entry in initiated_json if entry.get("status") == 200 and isinstance(entry.get("body"), Mapping)),
+            None,
+        )
+        if page_json is None and any(
+            entry.get("status") == 429 for entry in initiated_json
+        ):
+            # The page-initiated JSON was rate-limited and nothing usable
+            # arrived; a DOM "table missing" verdict here would be a lie.
+            return None, None, True
+        if isinstance(page_json, Mapping) and isinstance(page_data, Mapping):
+            payload, reason = build_public_card_page_json_payload(
+                gid,
+                response_url=page_json.get("url"),
+                response_status=page_json.get("status"),
+                payload=page_json.get("body"),
+                canonical_url=page_data.get("canonicalUrl"),
+                title=page_data.get("title"),
+                dom_sha256=page_data.get("domSha256"),
+                route_verified=page_data.get("routeVerified"),
+            )
+            page_data = payload or dom_payload or {
+                "__failureReason": reason or dom_reason or "page_initiated_json_invalid",
+            }
+        else:
+            page_data = dom_payload or {
+                "__failureReason": dom_reason or (
+                    page_data.get("__failureReason") if isinstance(page_data, Mapping) else "invalid_payload"
+                ) or "invalid_payload",
+            }
+        if (
+            isinstance(page_data, Mapping)
+            and page_data.get("gemrate_id") == gid
+            and _website_population(page_data, datetime.now(timezone.utc).isoformat()) is not None
+        ):
+            return page_data, None, False
+        if isinstance(page_data, Mapping):
+            return None, _public_failure_receipt(
+                gid,
+                http_status=int(response.status) if response is not None else None,
+                reason=str(page_data.get("__failureReason") or "invalid_payload"),
+            ), False
+        return None, _public_failure_receipt(
+            gid, http_status=None, reason="invalid_payload",
+        ), False
+    except Exception:
+        return None, _public_failure_receipt(
+            gid, http_status=None, reason="browser_evaluation_failed",
+        ), False
+    finally:
+        _remove_page_listener(page, "response", capture_page_json)
+
+
 def _chrome_card_pages_with_receipts(
     ids: list[str], delay: float = 0.3,
 ) -> tuple[dict[str, Mapping[str, Any]], list[dict[str, Any]]]:
@@ -1501,6 +1666,8 @@ def _chrome_card_pages_with_receipts(
     a DOM hash. The primary transport is the ``/card-details`` JSON response
     initiated by that exact page; a direct JSON fetch is intentionally never
     attempted. The labelled PSA/`GEM MINT` DOM parser is a fail-closed fallback.
+    A 429 on the page or its JSON climbs RATE_LIMIT_LADDER before retrying the
+    same card; exhausting the ladder records ``rate_limited_429_exhausted``.
     """
 
     try:
@@ -1517,147 +1684,29 @@ def _chrome_card_pages_with_receipts(
         page.goto(WEB + "/universal-pop-report", wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(3000)
         for index, gid in enumerate(ids, start=1):
-            initiated_json: list[dict[str, Any]] = []
-
-            def capture_page_json(response: Any) -> None:
-                """Capture only the response requested by this exact card page."""
-
-                parsed = urlparse(response.url)
-                request_ids = parse_qs(parsed.query).get("gemrate_id", [])
-                if (
-                    parsed.path != "/card-details"
-                    or len(request_ids) != 1
-                    or not HEX40.fullmatch(request_ids[0])
-                ):
-                    return
-                try:
-                    body = response.json() if response.status == 200 else None
-                except Exception:
-                    body = None
-                initiated_json.append({
-                    "url": response.url,
-                    "status": response.status,
-                    "body": body,
-                })
-
-            page.on("response", capture_page_json)
-            try:
-                response = page.goto(
-                    f"{WEB}/card/{gid}", wait_until="domcontentloaded", timeout=60000,
-                )
-                page.wait_for_timeout(800)
-                page_data = page.evaluate(
-                    """async (gemrateId) => {
-                        const norm = (value) => String(value || "")
-                          .replace(/\\s+/g, " ").trim().toUpperCase();
-                        const deadline = Date.now() + 30000;
-                        let table = null;
-                        // The population table can render well after domcontentloaded
-                        // (page-initiated JSON resolves later). Poll briefly before
-                        // declaring it missing so slow cards are not misclassified.
-                        while (Date.now() < deadline) {
-                          table = Array.from(document.querySelectorAll("table")).find((candidate) => {
-                            const headers = Array.from(candidate.querySelectorAll("thead th"))
-                              .map((cell) => norm(cell.textContent));
-                            return headers.includes("POP") && headers.includes("GEM MINT");
-                          });
-                          const ready = table && Array.from(table.querySelectorAll("tbody tr")).some((row) => {
-                            const cells = Array.from(row.querySelectorAll("th,td"));
-                            return norm(cells[0] && cells[0].textContent) === "PSA";
-                          });
-                          if (ready) break;
-                          await new Promise((resolve) => setTimeout(resolve, 500));
-                        }
-                        if (!table) return {__failureReason: "population_table_missing"};
-                        const headers = Array.from(table.querySelectorAll("thead th"))
-                          .map((cell) => norm(cell.textContent));
-                        const gemMintIndex = headers.indexOf("GEM MINT");
-                        const psaRow = Array.from(table.querySelectorAll("tbody tr")).find((row) => {
-                          const cells = Array.from(row.querySelectorAll("th,td"));
-                          return norm(cells[0] && cells[0].textContent) === "PSA";
-                        });
-                        if (!psaRow || gemMintIndex < 0) return {__failureReason: "psa_gem_mint_missing"};
-                        const cells = Array.from(psaRow.querySelectorAll("th,td"));
-                        const html = document.documentElement.outerHTML;
-                        const digest = await crypto.subtle.digest(
-                          "SHA-256", new TextEncoder().encode(html)
-                        );
-                        const htmlSha256 = Array.from(new Uint8Array(digest))
-                          .map((byte) => byte.toString(16).padStart(2, "0")).join("");
-                        const routeVerified = location.origin === "https://www.gemrate.com"
-                          && location.pathname.startsWith("/card/") && !!document.querySelector("h1");
-                        if (!routeVerified) return {__failureReason: "canonical_route_unverified"};
-                        return {
-                          headers,
-                          psaRow: cells.map((cell) => String(cell.textContent || "").trim()),
-                          canonicalUrl: location.href,
-                          title: String(document.querySelector("h1").textContent || "").trim(),
-                          domSha256: htmlSha256,
-                          routeVerified: true
-                        };
-                    }""",
-                    gid,
-                )
-                dom_payload: dict[str, Any] | None = None
-                dom_reason: str | None = None
-                if isinstance(page_data, Mapping) and not page_data.get("__failureReason"):
-                    headers = page_data.get("headers")
-                    psa_row = page_data.get("psaRow")
-                    dom_payload, dom_reason = build_public_card_page_payload(
-                        gid,
-                        headers=list(headers) if isinstance(headers, list) else [],
-                        psa_row=list(psa_row) if isinstance(psa_row, list) else [],
-                        canonical_url=page_data.get("canonicalUrl"),
-                        title=page_data.get("title"),
-                        dom_sha256=page_data.get("domSha256"),
-                        route_verified=page_data.get("routeVerified"),
+            ladder_step = 0
+            while True:
+                payload, failure, rate_limited = _fetch_card_once(page, gid)
+                if rate_limited:
+                    if ladder_step >= len(RATE_LIMIT_LADDER):
+                        receipts.append(_public_failure_receipt(
+                            gid, http_status=429, reason="rate_limited_429_exhausted",
+                        ))
+                        break
+                    wait_seconds = RATE_LIMIT_LADDER[ladder_step]
+                    ladder_step += 1
+                    print(
+                        f"  429 on {gid}; waiting {wait_seconds}s "
+                        f"(ladder {ladder_step}/{len(RATE_LIMIT_LADDER)})",
+                        file=sys.stderr,
                     )
-                page_json = next(
-                    (entry for entry in initiated_json if entry.get("status") == 200 and isinstance(entry.get("body"), Mapping)),
-                    None,
-                )
-                if isinstance(page_json, Mapping) and isinstance(page_data, Mapping):
-                    payload, reason = build_public_card_page_json_payload(
-                        gid,
-                        response_url=page_json.get("url"),
-                        response_status=page_json.get("status"),
-                        payload=page_json.get("body"),
-                        canonical_url=page_data.get("canonicalUrl"),
-                        title=page_data.get("title"),
-                        dom_sha256=page_data.get("domSha256"),
-                        route_verified=page_data.get("routeVerified"),
-                    )
-                    page_data = payload or dom_payload or {
-                        "__failureReason": reason or dom_reason or "page_initiated_json_invalid",
-                    }
-                else:
-                    page_data = dom_payload or {
-                        "__failureReason": dom_reason or (
-                            page_data.get("__failureReason") if isinstance(page_data, Mapping) else "invalid_payload"
-                        ) or "invalid_payload",
-                    }
-                if (
-                    isinstance(page_data, Mapping)
-                    and page_data.get("gemrate_id") == gid
-                    and _website_population(page_data, datetime.now(timezone.utc).isoformat()) is not None
-                ):
-                    results[gid] = page_data
-                elif isinstance(page_data, Mapping):
-                    receipts.append(_public_failure_receipt(
-                        gid,
-                        http_status=int(response.status) if response is not None else None,
-                        reason=str(page_data.get("__failureReason") or "invalid_payload"),
-                    ))
-                else:
-                    receipts.append(_public_failure_receipt(
-                        gid, http_status=None, reason="invalid_payload",
-                    ))
-            except Exception:
-                receipts.append(_public_failure_receipt(
-                    gid, http_status=None, reason="browser_evaluation_failed",
-                ))
-            finally:
-                _remove_page_listener(page, "response", capture_page_json)
+                    page.wait_for_timeout(wait_seconds * 1000)
+                    continue
+                if payload is not None:
+                    results[gid] = payload
+                elif failure is not None:
+                    receipts.append(failure)
+                break
             if index % 25 == 0:
                 print(f"  public card pages {index}/{len(ids)} ok={len(results)}", file=sys.stderr)
             page.wait_for_timeout(max(0, int(delay * 1000)))
@@ -1773,6 +1822,7 @@ def cmd_public_card_dump(args) -> int:
         cards_dir=cards_dir,
         delay=args.delay,
         resume=args.resume,
+        chunk_size=args.chunk_size,
     )
     print(f"[public-card-dump] requested={result['requested']} pending={result['attempted']}", file=sys.stderr)
     if result["error"]:
@@ -2161,6 +2211,8 @@ def main(argv=None) -> int:
     pc.add_argument("--resume", action="store_true")
     pc.add_argument("--limit", type=int)
     pc.add_argument("--delay", type=float, default=0.3)
+    pc.add_argument("--chunk-size", type=int, default=WEBSITE_CHUNK,
+                    help="cards per browser batch (browser restarts between batches)")
     pc.add_argument("--manifest-out", help="immutable private run manifest output path")
     pc.set_defaults(fn=cmd_public_card_dump)
 

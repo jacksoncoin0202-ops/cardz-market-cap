@@ -59,6 +59,11 @@ MANUAL_NO_FK_TABLES = frozenset({
 
 NEVER_DELETE_TABLES = frozenset({"market_raw_payload_object", "market_source_observation"})
 
+# PLAN §6.1 input source 3: the old checkout's raw caches feed the worklist and
+# the card capture cache is merged copy-if-absent. That folder also owns the
+# MySQL compose file, so it must exist; treat absence as an environment fault.
+OLD_CHECKOUT_ROOT = Path("C:/Users/jackson0202/Documents/Playground/cardz-market-cap")
+
 
 def canonical_json(value: Any) -> bytes:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -210,12 +215,216 @@ def stage_migrate(ctx: SimpleNamespace) -> dict[str, Any]:
     }
 
 
+def _jsonl_psa_ids(path: Path) -> set[str]:
+    """Extract the GemRate id space from brute-harvest rowData (field: psa_id)."""
+
+    ids: set[str] = set()
+    if not path.is_file():
+        return ids
+    with path.open(encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            value = row.get("psa_id")
+            if isinstance(value, str) and re.fullmatch(r"[0-9a-f]{40}", value):
+                ids.add(value)
+    return ids
+
+
+def _db_gemrate_ids(conn) -> tuple[set[str], int]:
+    """Sweep every base-table column that can hold a GemRate id (§6.1 source 2).
+
+    Covers current / rejected / historical ids and the 625 zero-observation
+    variants' candidates: all of those live in gemrate-id columns or in
+    catalog_source_identity(source_code='gemrate').
+    """
+
+    ids: set[str] = set()
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT c.table_name, c.column_name FROM information_schema.columns c"
+            " JOIN information_schema.tables t ON t.table_schema=c.table_schema"
+            "  AND t.table_name=c.table_name AND t.table_type='BASE TABLE'"
+            " WHERE c.table_schema=DATABASE() AND c.column_name LIKE '%%gemrate%%id%%'"
+        )
+        columns = [(row["TABLE_NAME"], row["COLUMN_NAME"]) for row in cursor.fetchall()]
+        for table, column in columns:
+            cursor.execute(
+                f"SELECT DISTINCT `{column}` AS gid FROM `{table}`"
+                f" WHERE `{column}` REGEXP '^[0-9a-f]{{40}}$'"
+            )
+            ids.update(row["gid"] for row in cursor.fetchall())
+        cursor.execute(
+            "SELECT DISTINCT external_entity_id AS gid FROM catalog_source_identity"
+            " WHERE source_code='gemrate' AND external_entity_id REGEXP '^[0-9a-f]{40}$'"
+        )
+        ids.update(row["gid"] for row in cursor.fetchall())
+    return ids, len(columns)
+
+
+def _manifest_ids(runs_root: Path) -> set[str]:
+    ids: set[str] = set()
+    if not runs_root.is_dir():
+        return ids
+    for manifest in runs_root.glob("*/manifest.json"):
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for receipt in data.get("failureReceipts") or []:
+            value = str(receipt.get("gemrateId") or "")
+            if re.fullmatch(r"[0-9a-f]{40}", value):
+                ids.add(value)
+    return ids
+
+
+def _card_dir_ids(cards_dir: Path) -> set[str]:
+    if not cards_dir.is_dir():
+        return set()
+    return {
+        entry.name for entry in cards_dir.iterdir()
+        if entry.is_dir() and re.fullmatch(r"[0-9a-f]{40}", entry.name)
+    }
+
+
+def stage_discover(ctx: SimpleNamespace) -> dict[str, Any]:
+    """S2 (§6.1): full GemRate landing. Files only — zero DB writes by design.
+
+    No filtering by POP / language / printing / existing variant (D5). Raw
+    payloads land in the sha-deduplicated private cache, so old raw files are
+    never overwritten; completion means every worklist id has a capture or an
+    honest failure receipt. Browser-level crashes fail the stage instead.
+    """
+
+    import shutil
+    from datetime import datetime, timezone
+
+    import gemrate_source
+
+    if not OLD_CHECKOUT_ROOT.is_dir():
+        raise SystemExit(f"S2 ABORT: old checkout missing: {OLD_CHECKOUT_ROOT}")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    run_dir = gemrate_source.OUT_DIR / "runs" / ctx.generation
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1) Merge the old checkout's capture cache, copy-if-absent (source 3).
+    old_cards = OLD_CHECKOUT_ROOT / "data" / "private" / "gemrate" / "cards"
+    cards_dir = gemrate_source.CARDS_DIR
+    cards_dir.mkdir(parents=True, exist_ok=True)
+    merged = skipped_existing = 0
+    for entry in sorted(old_cards.iterdir()) if old_cards.is_dir() else []:
+        if not entry.is_dir() or not re.fullmatch(r"[0-9a-f]{40}", entry.name):
+            continue
+        target = cards_dir / entry.name
+        if target.exists():
+            skipped_existing += 1
+            continue
+        shutil.copytree(entry, target)
+        merged += 1
+
+    # 2) Fresh provider catalog via brute harvest (source 1). Reuse the output
+    #    already on disk when retrying so a crash in the dump leg does not
+    #    re-crawl the whole set list.
+    brute_dir = ROOT / "data" / "private" / "gemrate_brute"
+    brute_all = brute_dir / "all_cards.jsonl"
+    brute_reused = brute_all.is_file()
+    if not brute_reused:
+        harvest = subprocess.run(
+            [sys.executable, "-X", "utf8", str(ROOT / "pipelines" / "gemrate_brute_harvest.py"),
+             "--all-sets"],
+            cwd=str(ROOT), capture_output=True, text=True,
+        )
+        (run_dir / f"brute-harvest-{stamp}.log").write_text(
+            (harvest.stdout or "") + "\n--- stderr ---\n" + (harvest.stderr or ""),
+            encoding="utf-8",
+        )
+        if harvest.returncode != 0 or not brute_all.is_file():
+            raise SystemExit(f"S2 ABORT: brute harvest failed rc={harvest.returncode}")
+
+    # 3) Worklist = union of every id source; no filtering (D5).
+    sources: dict[str, set[str]] = {}
+    sources["brute_fresh"] = _jsonl_psa_ids(brute_all)
+    sources["brute_old_checkout"] = _jsonl_psa_ids(
+        OLD_CHECKOUT_ROOT / "data" / "private" / "gemrate_brute" / "all_cards.jsonl"
+    )
+    sources["ids_file"] = {
+        gid for gid in gemrate_source.load_ids(None)
+        if re.fullmatch(r"[0-9a-f]{40}", gid)
+    }
+    sources["db"], db_columns = _db_gemrate_ids(ctx.conn)
+    sources["cards_cache_new"] = _card_dir_ids(cards_dir)
+    sources["cards_cache_old"] = _card_dir_ids(old_cards)
+    sources["manifests_new"] = _manifest_ids(gemrate_source.OUT_DIR / "runs")
+    sources["manifests_old"] = _manifest_ids(
+        OLD_CHECKOUT_ROOT / "data" / "private" / "gemrate" / "runs"
+    )
+    worklist = sorted(set().union(*sources.values()))
+    if len(worklist) < 3000:
+        raise SystemExit(f"S2 ABORT: worklist implausibly small ({len(worklist)})")
+    worklist_path = run_dir / "worklist.txt"
+    worklist_path.write_text("\n".join(worklist) + "\n", encoding="utf-8")
+    gemrate_source._save(run_dir / "worklist-provenance.json", {
+        "generation": ctx.generation,
+        "builtAt": stamp,
+        "bruteReused": brute_reused,
+        "dbGemrateIdColumns": db_columns,
+        "cacheMerge": {"copied": merged, "skippedExisting": skipped_existing},
+        "sourceCounts": {name: len(values) for name, values in sorted(sources.items())},
+        "worklistCount": len(worklist),
+        "worklistSha256": sha256_file(worklist_path),
+    })
+
+    # 4) Keep pipelines/gemrate_ids.txt the running union (append-only).
+    added_to_ids_file = gemrate_source.append_ids(worklist)
+
+    # 5) The long leg: exact public card pages, strict resume, 429 ladder.
+    result = gemrate_source.collect_public_card_details(
+        worklist, cards_dir=cards_dir, delay=0.3, resume=True, chunk_size=200,
+    )
+    reasons: dict[str, int] = {}
+    for receipt in result.get("failureReceipts") or []:
+        key = str(receipt.get("reason") or "unknown")
+        reasons[key] = reasons.get(key, 0) + 1
+    manifest_path = run_dir / f"public-card-dump-manifest-{stamp}.json"
+    gemrate_source._save(manifest_path, {
+        "schemaVersion": "1.1.0",
+        "runId": f"public_{stamp}",
+        "generation": ctx.generation,
+        "runStatus": "complete" if result["promotable"] else "partial",
+        **result,
+    })
+    if result.get("error"):
+        raise SystemExit(f"S2 ABORT: browser-level failure: {result['error']}")
+
+    counts = {
+        "worklist": len(worklist),
+        "cacheMergedFromOldCheckout": merged,
+        "idsFileAppended": added_to_ids_file,
+        "cached": result["cached"],
+        "attempted": result["attempted"],
+        "succeeded": result["succeeded"],
+        "failed": result["failed"],
+        "failureReasons": reasons,
+        "bruteReused": brute_reused,
+    }
+    return {
+        "input_sha256": None,
+        "output_sha256": sha256_file(manifest_path),
+        "counts": counts,
+    }
+
+
 # name -> (fn, input_fn, always_run). fn None = designed but not yet built in
 # this working copy; the runner stops there instead of faking progress.
 LINEAR_STAGES: list[tuple[str, Callable | None, Callable | None, bool]] = [
     ("preflight", stage_preflight, None, True),
     ("migrate", stage_migrate, _migration_input_sha, False),
-    ("discover", None, None, False),
+    ("discover", stage_discover, None, False),
     ("pop-land", None, None, False),
     ("identity-resolve", None, None, False),
     ("bind", None, None, False),
