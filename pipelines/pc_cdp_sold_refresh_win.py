@@ -13,6 +13,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from html import unescape
@@ -57,6 +58,46 @@ def ensure_cdp(port: int = 9333) -> None:
         ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(ps1), "-Port", str(port)],
         check=False,
     )
+
+
+def arm_stall_watchdog(state: dict) -> None:
+    """Turn a wedged CDP session into a bounded, visible failure.
+
+    Playwright protocol calls such as page.content()/page.title() accept no
+    timeout, so one dropped CDP response can park the run forever while the
+    caller's subprocess timeout scales with batch size (hours). If the page
+    loop stops beating for state["limit"] seconds, persist a partial report
+    for forensics and hard-exit 3 so collect_control records a failed lane
+    and the next incr run resumes from checkpoints.
+    """
+
+    def _watch() -> None:
+        while not state.get("done"):
+            time.sleep(15.0)
+            limit = float(state.get("limit") or 0.0)
+            if limit and (time.monotonic() - float(state["beat"])) > limit:
+                try:
+                    OUT.parent.mkdir(parents=True, exist_ok=True)
+                    OUT.write_text(
+                        json.dumps(
+                            {
+                                "asOf": utc_now(),
+                                "watchdogStall": True,
+                                "stallLimitSeconds": limit,
+                                "batch": state.get("batch"),
+                                "results": state.get("results"),
+                            },
+                            ensure_ascii=False,
+                            indent=2,
+                        ),
+                        encoding="utf-8",
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+                print(f"WATCHDOG_STALL no page-loop progress for {limit:.0f}s; exit 3", flush=True)
+                os._exit(3)
+
+    threading.Thread(target=_watch, daemon=True, name="stall-watchdog").start()
 
 
 def main() -> int:
@@ -150,6 +191,17 @@ def main() -> int:
     fail = cf = rate_limited = 0
     results = list(reused_results)
     session_error = None
+    watchdog = {
+        "beat": time.monotonic(),
+        # Worst legitimate iteration: goto 120s + challenge wait (default
+        # 120s, beaten every 5s inside) + backoff 120s + politeness sleep.
+        # 600s of silence therefore means a lost CDP reply, not a slow page.
+        "limit": 600.0,
+        "done": False,
+        "batch": len(batch),
+        "results": results,
+    }
+    arm_stall_watchdog(watchdog)
     with sync_playwright() as playwright:
         try:
             if pending_batch:
@@ -172,6 +224,7 @@ def main() -> int:
         if page is not None:
             backoff_level = 0
             for pending_index, row in enumerate(pending_batch, 1):
+                watchdog["beat"] = time.monotonic()
                 i = len(reused_results) + pending_index
                 # Map URLs originate in HTML and may therefore contain
                 # ``&amp;`` inside a path segment. Playwright needs the decoded
@@ -212,6 +265,7 @@ def main() -> int:
                     deadline = time.monotonic() + args.challenge_wait
                     while time.monotonic() < deadline:
                         page.wait_for_timeout(5000)
+                        watchdog["beat"] = time.monotonic()
                         html = page.content()
                         title = page.title().strip()
                         product_match = re.search(r'\bproduct-id=["\'](\d+)["\']', html, re.I)
@@ -296,6 +350,8 @@ def main() -> int:
     if not args.no_ingest and ok == len(batch) and fail == 0 and cf == 0:
         # C11 via WSL backend venv (MySQL path lives there); ingest must run in
         # THIS checkout (ROOT), never a hardcoded sibling tree.
+        watchdog["beat"] = time.monotonic()
+        watchdog["limit"] = 1500.0  # WSL ingest is bounded by its own timeout=1200
         root_wsl = "/mnt/" + ROOT.drive[0].lower() + ROOT.as_posix()[len(ROOT.drive):]
         cmd = [
             PY_WSL, "-d", "Ubuntu", "--", "bash", "-lc",
@@ -330,6 +386,7 @@ def main() -> int:
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    watchdog["done"] = True
     print(json.dumps({k: report[k] for k in ["asOf", "batch", "ok", "cf", "fail"]}, ensure_ascii=False, indent=2))
     print(f"REPORT {OUT}")
     complete = (
