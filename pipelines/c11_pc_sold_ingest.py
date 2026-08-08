@@ -589,16 +589,12 @@ def write_sales(conn, sales: list[dict[str, Any]]) -> dict[str, Any]:
             for sale in sales
             if (str(sale["external_entity_id"]), str(sale["fingerprint"])) not in existing
         ]
-        if not new_sales:
-            return {
-                "run_id": None,
-                "inserted_or_updated": 0,
-                "skipped_existing": len(sales),
-                "inserted_variant_ids": [],
-            }
+        # The run row lands even when every sale deduped: observed_count carries
+        # what the pages evidenced tonight, and the daily sales manifest below
+        # needs a completed run as its trust anchor for daily-accept.
         started = datetime.now(timezone.utc).replace(tzinfo=None)
         run_key = sha256_text(f"c11_pc_sold|{started.isoformat()}|{len(new_sales)}")
-        payload_sha = sha256_text("\n".join(sorted(s["fingerprint"] for s in new_sales)))
+        payload_sha = sha256_text("\n".join(sorted(s["fingerprint"] for s in sales)))
         manifest_sha = sha256_text("c11_pc_ebay_map.jsonl")
         fetched_at = started
         cur.execute(
@@ -608,7 +604,7 @@ def write_sales(conn, sales: list[dict[str, Any]]) -> dict[str, Any]:
                  status, observed_count, started_at)
             VALUES (%s, %s, 'backfill', %s, %s, %s, 'running', %s, %s)
             """,
-            (run_key, SOURCE_CODE, started, payload_sha, manifest_sha, len(new_sales), started),
+            (run_key, SOURCE_CODE, started, payload_sha, manifest_sha, len(sales), started),
         )
         run_id = int(cur.lastrowid)
         payload = [
@@ -650,16 +646,49 @@ def write_sales(conn, sales: list[dict[str, Any]]) -> dict[str, Any]:
             SET status='completed', accepted_count=%s, observed_count=%s, completed_at=%s
             WHERE id=%s
             """,
-            (len(new_sales), len(new_sales), datetime.now(timezone.utc).replace(tzinfo=None), run_id),
+            (len(new_sales), len(sales), datetime.now(timezone.utc).replace(tzinfo=None), run_id),
         )
     conn.commit()
+    manifest_path = write_daily_sales_manifest(run_key, sales)
     return {
         "run_id": run_id,
         "run_key": run_key,
         "inserted_or_updated": len(new_sales),
         "skipped_existing": len(sales) - len(new_sales),
         "inserted_variant_ids": sorted({int(sale["variant_id"]) for sale in new_sales}),
+        "daily_sales_manifest": str(manifest_path),
     }
+
+
+def write_daily_sales_manifest(run_key: str, sales: list[dict[str, Any]]) -> Path:
+    """Every page-evidenced fingerprint of this run, whether or not its sale
+    row already existed.
+
+    Row-level dedup keeps the FIRST observer's run_id forever, so daily-accept
+    cannot see a re-observation through market_sale_observation alone. This
+    manifest is the §6.7 mechanism extended to daily runs: fingerprints enter
+    acceptance only via a manifest whose run_key resolves to a completed
+    post-activation ingest run (daily-accept enforces that)."""
+
+    manifest_dir = ROOT / "data" / "runtime" / "rebuild-036" / "daily-sales-manifests"
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = manifest_dir / f"pc-{run_key[:16]}.jsonl"
+    lines = [json.dumps({
+        "contract": "daily-sales-manifest-v1",
+        "runKey": run_key,
+        "sourceCode": SOURCE_CODE,
+        "generatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "entries": len(sales),
+    }, sort_keys=True)]
+    lines.extend(
+        json.dumps({
+            "variantId": int(sale["variant_id"]),
+            "fingerprint": str(sale["fingerprint"]),
+        }, sort_keys=True)
+        for sale in sales
+    )
+    manifest_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return manifest_path
 
 
 def update_registry(vids_with_sales: set[int], card_meta: dict[int, dict[str, Any]]) -> int:

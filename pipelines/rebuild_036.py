@@ -5676,6 +5676,55 @@ def _load_sales_fingerprints(generation: str) -> set[str]:
     return fingerprints
 
 
+def _load_daily_sales_manifests(
+    cur, activated_at, fingerprints: set[str],
+) -> dict[str, int]:
+    """§6.7 extended to daily collector runs (see c11 write_daily_sales_manifest).
+
+    A manifest lists every fingerprint a run's pages evidenced — including
+    re-observations whose sale rows keep an older run_id through the unique
+    constraint. Trust chain: the embedded runKey must resolve to a completed
+    ingest run started after the current activation; anything else is counted
+    stale and skipped, so files from a previous universe retire themselves at
+    the next activation."""
+
+    manifest_dir = ROOT / "data" / "runtime" / "rebuild-036" / "daily-sales-manifests"
+    stats = {"files": 0, "accepted": 0, "stale": 0, "added": 0}
+    if not manifest_dir.is_dir():
+        return stats
+    before = len(fingerprints)
+    for path in sorted(manifest_dir.glob("*.jsonl")):
+        stats["files"] += 1
+        lines = path.read_text(encoding="utf-8").splitlines()
+        if not lines:
+            stats["stale"] += 1
+            continue
+        header = json.loads(lines[0])
+        run_key = str(header.get("runKey") or "")
+        if header.get("contract") != "daily-sales-manifest-v1" or not run_key:
+            stats["stale"] += 1
+            continue
+        cur.execute(
+            "SELECT 1 FROM market_ingest_run"
+            " WHERE run_key=%s AND status IN ('complete','completed')"
+            "   AND started_at >= %s",
+            (run_key, activated_at),
+        )
+        if cur.fetchone() is None:
+            stats["stale"] += 1
+            continue
+        stats["accepted"] += 1
+        for line in lines[1:]:
+            line = line.strip()
+            if not line:
+                continue
+            value = str(json.loads(line).get("fingerprint") or "")
+            if value:
+                fingerprints.add(value)
+    stats["added"] = len(fingerprints) - before
+    return stats
+
+
 def _activation_bridge_population(cur, generation: str, now_str: str) -> dict[str, int]:
     """v2 landing → canonical market_grader_population_observation (FE join target).
 
@@ -6342,6 +6391,9 @@ def cmd_daily_accept(args: argparse.Namespace) -> int:
                 value = str(row["transaction_fingerprint"] or "")
                 if value:
                     fingerprints.add(value)
+            daily_manifest_stats = _load_daily_sales_manifests(
+                cur, activated_at, fingerprints
+            )
 
         now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
         try:
@@ -6368,6 +6420,7 @@ def cmd_daily_accept(args: argparse.Namespace) -> int:
             "salesFingerprints": {
                 "manifest": manifest_count,
                 "postActivation": len(fingerprints) - manifest_count,
+                "dailyManifests": daily_manifest_stats,
             },
             "historyAcceptance": history,
             "canonical": {
@@ -6381,6 +6434,598 @@ def cmd_daily_accept(args: argparse.Namespace) -> int:
             f"daily-accept-{stamp}.json"
         )
         artifact_path.parent.mkdir(parents=True, exist_ok=True)
+        artifact_path.write_bytes(canonical_json(report))
+        print(json.dumps(report, ensure_ascii=False, indent=1, default=str))
+        return 0
+    finally:
+        conn.close()
+
+
+# PC page brackets spell prints in full ("Treasure Rare") while the catalog
+# stores the abbreviated print codes ("tr"). Explicit, defensible pairs only —
+# anything not listed stays manual_review and lands in the report instead.
+_PC_BRACKET_SYNONYMS: dict[str, frozenset[str]] = {
+    "aa": frozenset({"alternate art", "alt art", "alternative art"}),
+    "tr": frozenset({"treasure rare"}),
+    "mr": frozenset({"manga rare", "manga"}),
+    "1st": frozenset({"1st edition", "first edition"}),
+    "wanted": frozenset({"wanted", "wanted poster"}),
+}
+
+
+def _pc_page_product_id(html: str) -> str:
+    """The page's own numeric product id; empty when the page doesn't say.
+
+    Redirect captures ("…_r.html") land on whatever product PC now serves, so
+    the binding's external id must be re-proved from the page body itself."""
+
+    for pattern in (
+        r"VGPC\.product\s*=\s*\{[^{}]*?\bid\b\s*[:=]\s*(\d+)",
+        r'data-product-id="(\d+)"',
+    ):
+        match = re.search(pattern, html)
+        if match:
+            return match.group(1)
+    return ""
+
+
+def _pc_print_signature_ok(page_parallel: str, row: Mapping[str, Any]) -> bool:
+    """Phase-D parallel agreement plus the abbreviation vocabulary.
+
+    printing_code is the stronger catalog evidence when present (mirrors
+    _print_signature_agrees); the synonym table only ever maps a page bracket
+    onto that code, never loosens the no-bracket path."""
+
+    variant_parallel = str(row.get("parallel_code") or "")
+    if _parallel_agrees(page_parallel, variant_parallel):
+        return True
+    if not page_parallel:
+        return _pc_rarity_only_parallel(variant_parallel)
+    bracket = _norm_text(page_parallel)
+    printing = _norm_text(str(row.get("printing_code") or ""))
+    if printing and bracket:
+        if bracket == printing or bracket == f"{printing} edition":
+            return True
+        if bracket in _PC_BRACKET_SYNONYMS.get(printing, frozenset()):
+            return True
+        # Compound codes ("aa-errata"): collapse the long-forms inside the
+        # bracket to their codes, then still demand exact equality.
+        collapsed = bracket
+        for code, longforms in _PC_BRACKET_SYNONYMS.items():
+            for longform in longforms:
+                collapsed = collapsed.replace(longform, code)
+        collapsed = " ".join(collapsed.split())
+        if collapsed == printing:
+            return True
+    return False
+
+
+def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
+    """Re-verify manual_review PC bindings against freshly captured pages.
+
+    S6 Phase D re-derived bindings from the replay archive; sweeps since then
+    capture newer pages under data/private/pricecharting_session/html/full900.
+    This command applies the same fail-closed contract to those captures and
+    promotes a binding to exact ONLY when the page itself proves it:
+    page product id == bound external id == map product id, no hard identity
+    conflicts, and an agreeing print signature. Everything else keeps its
+    status and is listed in the report for a human ruling. Never touches
+    exact/rejected/conflict rows."""
+
+    from datetime import datetime, timezone
+
+    credentials = args.credentials_env or DAILY_CREDENTIALS_ENV
+    pages_dir = args.pages_dir or (
+        ROOT / "data" / "private" / "pricecharting_session" / "html" / "full900"
+    )
+    if not pages_dir.is_dir():
+        raise SystemExit(f"pc-identity-reverify ABORT: pages dir missing: {pages_dir}")
+
+    map_product_by_variant: dict[int, str] = {}
+    map_html_by_variant: dict[int, str] = {}
+    map_path = args.map or (
+        ROOT / "data" / "runtime" / "private-source-map" / "c11_pc_ebay_map_full900.jsonl"
+    )
+    if map_path.is_file():
+        for line in map_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            entry = json.loads(line)
+            variant_id = int(entry.get("variant_id") or 0)
+            if variant_id:
+                map_product_by_variant[variant_id] = str(entry.get("pc_product_id") or "")
+                map_html_by_variant[variant_id] = str(
+                    entry.get("html_path") or entry.get("htmlPath") or ""
+                )
+
+    conn = connect(credentials)
+    counts = {
+        "reviewBindings": 0, "pageMissing": 0, "pageParseFailures": 0,
+        "pageProductMismatch": 0, "mapProductMismatch": 0, "hardConflicts": 0,
+        "printSignatureMismatch": 0, "promoted": 0,
+    }
+    promoted: list[dict[str, Any]] = []
+    held: list[dict[str, Any]] = []
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT si.external_entity_id AS pid, si.variant_id,"
+                " si.match_status,"
+                " v.tcg_code, v.card_language, v.set_name, v.collector_number,"
+                " v.set_code AS v_set_code, v.printing_code AS v_printing_code,"
+                " p.parallel_code, p.printing_code, p.canonical_printing_sha256,"
+                " p.tcg_code AS p_tcg_code, p.card_language AS p_card_language,"
+                " p.set_code AS p_set_code, p.collector_number AS p_collector_number,"
+                " p.edition_code AS p_edition_code, p.finish_code AS p_finish_code"
+                " FROM catalog_source_identity si"
+                " JOIN catalog_variant v ON v.id=si.variant_id"
+                " LEFT JOIN catalog_printing_identity p ON p.variant_id=v.id"
+                " WHERE si.source_code='pricecharting'"
+                "   AND si.match_status='manual_review'"
+            )
+            bindings = cursor.fetchall()
+
+        updates: list[tuple[str, str, str, dict[str, Any], tuple[str, ...], Path]] = []
+        for row in bindings:
+            counts["reviewBindings"] += 1
+            pid = str(row["pid"])
+            variant_id = int(row["variant_id"])
+
+            def hold(reason: str, detail: str = "") -> None:
+                held.append({
+                    "variant_id": variant_id, "pid": pid,
+                    "reason": reason, "detail": detail,
+                })
+
+            map_product = map_product_by_variant.get(variant_id, "")
+            if map_product and map_product != pid:
+                counts["mapProductMismatch"] += 1
+                hold("map_product_mismatch", f"map={map_product}")
+                continue
+            html_path = None
+            mapped_html = map_html_by_variant.get(variant_id, "")
+            if mapped_html and (ROOT / mapped_html).is_file():
+                html_path = ROOT / mapped_html
+            else:
+                hits = sorted(pages_dir.glob(f"{variant_id}_*.html"))
+                if hits:
+                    html_path = hits[0]
+            if html_path is None:
+                counts["pageMissing"] += 1
+                hold("page_missing")
+                continue
+            html = html_path.read_text(encoding="utf-8", errors="replace")
+            page_product = _pc_page_product_id(html)
+            if page_product != pid:
+                counts["pageProductMismatch"] += 1
+                hold("page_product_mismatch", f"page={page_product or '?'}")
+                continue
+            identity, reason = _pc_page_identity(html)
+            if identity is None:
+                counts["pageParseFailures"] += 1
+                hold("page_parse_failed", reason)
+                continue
+            pseudo_fp = {
+                "cardNumber": identity["collector"],
+                "derivedLanguage": identity["language"],
+                "setName": identity["setText"],
+            }
+            conflicts = _fingerprint_variant_conflicts(pseudo_fp, row)
+            if identity["tcg"] and str(row["tcg_code"] or "") and \
+                    identity["tcg"] != str(row["tcg_code"]):
+                conflicts.append(f"tcg:{identity['tcg']}!={row['tcg_code']}")
+            if conflicts:
+                counts["hardConflicts"] += 1
+                hold("hard_conflict", ";".join(conflicts))
+                continue
+            if not _pc_print_signature_ok(identity["parallel"], row):
+                counts["printSignatureMismatch"] += 1
+                hold(
+                    "print_signature_mismatch",
+                    f"page=[{identity['parallel']}] printing={row['printing_code']}"
+                    f" parallel={row['parallel_code']}",
+                )
+                continue
+            digest = sha256_file(html_path)
+            evidence = {
+                "providerClaims": {
+                    "tcgCode": identity["tcg"],
+                    "cardLanguage": identity["language"],
+                    "collectorNumber": identity["collector"],
+                    "setCode": "",
+                    "printingCode": "",
+                    "parallelCode": identity["parallel"],
+                },
+                "evidence": {
+                    "type": EVIDENCE_TYPE_PROVIDER_PAGE,
+                    "sha256": digest,
+                    "path": html_path.relative_to(ROOT).as_posix(),
+                    "canonicalUrl": identity["canonicalUrl"],
+                    "pageHeading": identity["heading"],
+                    "capturedAt": datetime.fromtimestamp(
+                        html_path.stat().st_mtime, tz=timezone.utc
+                    ).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "generation": "pc_reverify_full900",
+                },
+            }
+            evidence_sha = sha256_bytes(canonical_json(evidence))
+            if row["canonical_printing_sha256"]:
+                mirror = (
+                    str(row["p_tcg_code"] or ""), str(row["p_card_language"] or ""),
+                    str(row["p_set_code"] or ""), str(row["p_collector_number"] or ""),
+                    str(row["printing_code"] or ""), str(row["parallel_code"] or ""),
+                    str(row["p_edition_code"] or ""), str(row["p_finish_code"] or ""),
+                )
+            else:
+                mirror = (
+                    str(row["tcg_code"] or ""), str(row["card_language"] or ""),
+                    str(row["v_set_code"] or ""), str(row["collector_number"] or ""),
+                    str(row["v_printing_code"] or ""), "", "", "",
+                )
+            updates.append(
+                (pid, evidence_sha, identity["collector"],
+                 {"evidence": evidence}, mirror, html_path)
+            )
+            promoted.append({
+                "variant_id": variant_id, "pid": pid,
+                "bracket": identity["parallel"],
+                "printing_code": str(row["printing_code"] or ""),
+                "evidence_sha256": evidence_sha,
+            })
+
+        if args.write and updates:
+            try:
+                with conn.cursor() as cursor:
+                    for pid, evidence_sha, collector, extra, mirror, html_path in updates:
+                        evidence = extra["evidence"]
+                        cursor.execute(
+                            "INSERT INTO catalog_provider_capture_receipt (source_code,"
+                            " external_entity_id, capture_sha256, capture_path,"
+                            " captured_at, generation_id, parser_version)"
+                            " VALUES ('pricecharting', %s, %s, %s, %s, %s, %s)"
+                            " ON DUPLICATE KEY UPDATE"
+                            " capture_sha256=VALUES(capture_sha256),"
+                            " capture_path=VALUES(capture_path),"
+                            " captured_at=VALUES(captured_at),"
+                            " generation_id=VALUES(generation_id),"
+                            " parser_version=VALUES(parser_version)",
+                            (
+                                pid, evidence["evidence"]["sha256"],
+                                evidence["evidence"]["path"][:500],
+                                datetime.strptime(
+                                    evidence["evidence"]["capturedAt"],
+                                    "%Y-%m-%dT%H:%M:%SZ",
+                                ).replace(tzinfo=timezone.utc),
+                                "pc_reverify_full900", "pc_reverify_v1",
+                            ),
+                        )
+                        cursor.execute(
+                            "UPDATE catalog_source_identity SET match_status='exact',"
+                            " evidence_sha256=%s, source_product_number=%s,"
+                            " bind_evidence_json=%s, bound_tcg_code=%s,"
+                            " bound_card_language=%s, bound_set_code=%s,"
+                            " bound_collector_number=%s, bound_printing_code=%s,"
+                            " bound_parallel_code=%s, bound_edition_code=%s,"
+                            " bound_finish_code=%s"
+                            " WHERE source_code='pricecharting'"
+                            " AND external_entity_id=%s AND match_status='manual_review'",
+                            (
+                                evidence_sha, str(collector or "")[:64],
+                                json.dumps(evidence, ensure_ascii=False, sort_keys=True),
+                                mirror[0][:32], mirror[1][:8], mirror[2][:24],
+                                mirror[3][:96], mirror[4][:24], mirror[5][:64],
+                                mirror[6][:191], mirror[7][:64], pid,
+                            ),
+                        )
+                conn.commit()
+                counts["promoted"] = len(updates)
+            except Exception:
+                conn.rollback()
+                raise
+        elif updates:
+            counts["promoted"] = 0
+
+        report = {
+            "pcIdentityReverify": True,
+            "write": bool(args.write),
+            "pagesDir": pages_dir.relative_to(ROOT).as_posix()
+            if pages_dir.is_relative_to(ROOT) else str(pages_dir),
+            "counts": counts,
+            "promotable": len(updates),
+            "promotedSample": promoted[:40],
+            "held": held,
+        }
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        artifact_path = ROOT / "data" / "runtime" / "rebuild-036" / (
+            f"pc-identity-reverify-{stamp}.json"
+        )
+        artifact_path.parent.mkdir(parents=True, exist_ok=True)
+        artifact_path.write_bytes(canonical_json(report))
+        print(json.dumps(report, ensure_ascii=False, indent=1, default=str))
+        return 0
+    finally:
+        conn.close()
+
+
+def cmd_snk_identity_reverify(args: argparse.Namespace) -> int:
+    """Re-verify manual_review SNK bindings against freshly fetched masters.
+
+    Same acceptance contract as S7 (stage_snk_refresh): the provider master
+    itself must resolve a 1-card PSA10 variant, assert no hard identity
+    conflict, and agree on the print signature. Promotions write the same
+    receipt + bind evidence shape S7 writes, guarded to manual_review rows
+    only — exact/rejected/conflict rows are never touched. Everything held
+    is listed with a reason for a human ruling."""
+
+    from datetime import datetime, timezone
+
+    import snk_market_data
+
+    credentials = args.credentials_env or DAILY_CREDENTIALS_ENV
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    base_dir = ROOT / "data" / "runtime" / "rebuild-036" / "snk-identity-reverify" / stamp
+    items_dir = base_dir / "items"
+    items_dir.mkdir(parents=True, exist_ok=True)
+    parser_version = "snkmd_" + sha256_file(
+        ROOT / "pipelines" / "snk_market_data.py"
+    )[:12]
+
+    conn = connect(credentials)
+    counts = {
+        "reviewBindings": 0, "pageMissing": 0, "noPsa10OneCard": 0,
+        "hardConflicts": 0, "parallelSoftMismatch": 0, "promoted": 0,
+    }
+    promoted: list[dict[str, Any]] = []
+    held: list[dict[str, Any]] = []
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT si.external_entity_id AS iid, si.variant_id,"
+                " si.match_status,"
+                " v.tcg_code, v.card_language, v.set_name, v.collector_number,"
+                " v.canonical_name,"
+                " v.set_code AS v_set_code, v.printing_code AS v_printing_code,"
+                " p.parallel_code, p.printing_code, p.canonical_printing_sha256,"
+                " p.tcg_code AS p_tcg_code, p.card_language AS p_card_language,"
+                " p.set_code AS p_set_code, p.collector_number AS p_collector_number,"
+                " p.edition_code AS p_edition_code, p.finish_code AS p_finish_code"
+                " FROM catalog_source_identity si"
+                " JOIN catalog_variant v ON v.id=si.variant_id"
+                " LEFT JOIN catalog_printing_identity p ON p.variant_id=v.id"
+                " WHERE si.source_code='snkrdunk'"
+                "   AND si.match_status='manual_review'"
+            )
+            bindings = cursor.fetchall()
+
+        worklist = sorted({
+            int(row["iid"]) for row in bindings if str(row["iid"]).isdigit()
+        })
+        harvest_path = base_dir / "snk_reverify_harvest.jsonl"
+        snk_market_data.run(
+            worklist, harvest_path, delay=0.0,
+            condition_code=snk_market_data.PSA10_CONDITION,
+            run_id=f"snk_reverify_{stamp}", workers=8,
+        )
+        if not harvest_path.is_file():
+            partial = harvest_path.with_suffix(harvest_path.suffix + ".partial")
+            if not partial.is_file():
+                raise SystemExit(f"snk reverify harvest produced no file: {harvest_path}")
+            harvest_path = partial
+        rows_by_id: dict[int, dict[str, Any]] = {}
+        with harvest_path.open(encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                payload = json.loads(line)
+                item_id = payload.get("item_id")
+                if isinstance(item_id, int):
+                    rows_by_id[item_id] = payload
+
+        updates: list[tuple[str, int, str, str, dict[str, Any], tuple[str, ...]]] = []
+        for row in bindings:
+            counts["reviewBindings"] += 1
+            iid_str = str(row["iid"])
+            variant_id = int(row["variant_id"])
+
+            def hold(reason: str, detail: str = "") -> None:
+                held.append({
+                    "variant_id": variant_id, "iid": iid_str,
+                    "reason": reason, "detail": detail,
+                })
+
+            if not iid_str.isdigit():
+                counts["pageMissing"] += 1
+                hold("non_numeric_id")
+                continue
+            payload = rows_by_id.get(int(iid_str))
+            if payload is None or payload.get("error"):
+                counts["pageMissing"] += 1
+                hold("page_missing", str((payload or {}).get("error") or ""))
+                continue
+            if not payload.get("quantity_variant_id"):
+                counts["noPsa10OneCard"] += 1
+                hold("no_psa10_1card_variant")
+                continue
+            master = (payload.get("source_payload") or {}).get("master") or {}
+            master_name = str(master.get("name") or "")
+            localized = str(master.get("localizedName") or "")
+            product_number = str(payload.get("product_number") or "").strip()
+            language = _snk_language(master_name, localized)
+            tcg = _snk_tcg(master_name, localized)
+            claim = _snk_collector_claim(master_name, localized, product_number)
+            pseudo_fp = {
+                "cardNumber": _snk_claim_number(claim),
+                "derivedLanguage": language,
+                "setName": f"{master_name} {localized}",
+            }
+            conflicts = _fingerprint_variant_conflicts(pseudo_fp, row)
+            # Same supersede rule as S7: the bracket designation's own set
+            # claim beats the noisy title-vs-set-name token comparison.
+            claim_set = " ".join(claim.split()[:-1])
+            if claim_set and claim_set.casefold() in {
+                str(row["v_set_code"] or "").casefold(),
+                str(row["p_set_code"] or "").casefold(),
+            }:
+                conflicts = [
+                    c for c in conflicts
+                    if not c.startswith("set:") and not c.startswith("set_code:")
+                ]
+            if tcg and str(row["tcg_code"] or "") and tcg != str(row["tcg_code"]):
+                conflicts.append(f"tcg:{tcg}!={row['tcg_code']}")
+            if not claim:
+                conflicts.append("product_number_missing")
+            snk_mirror = _snk_treatment_mirror(master_name, localized)
+            variant_blob = " ".join((
+                str(row["parallel_code"] or ""),
+                str(row["printing_code"] or ""),
+                str(row["v_printing_code"] or ""),
+            ))
+            variant_mirror = "ミラー" in variant_blob or bool(
+                re.search(r"(?i)mirror", variant_blob)
+            )
+            if snk_mirror != variant_mirror:
+                conflicts.append(f"parallel:mirror {snk_mirror}!={variant_mirror}")
+            if conflicts:
+                counts["hardConflicts"] += 1
+                hold("hard_conflict", ";".join(conflicts))
+                continue
+            snk_parallel = "parallel" if (
+                "パラレル" in master_name or "parallel" in localized.casefold()
+            ) else ""
+            variant_parallel = str(row["parallel_code"] or "")
+            parallel_ok = _parallel_agrees(snk_parallel, variant_parallel)
+            if not parallel_ok and not snk_parallel:
+                parallel_ok = _pc_rarity_only_parallel(variant_parallel)
+            if not parallel_ok:
+                counts["parallelSoftMismatch"] += 1
+                hold(
+                    "parallel_soft_mismatch",
+                    f"snk=[{snk_parallel}] parallel={variant_parallel}",
+                )
+                continue
+
+            item_id = int(iid_str)
+            evidence_doc = {
+                "itemId": item_id,
+                "master": master,
+                "conditionFilter": payload.get("condition_filter"),
+                "quantityVariantId": payload.get("quantity_variant_id"),
+                "productNumber": payload.get("product_number"),
+                "imageUrl": payload.get("image_url"),
+                "fetchedAt": payload.get("fetched_at"),
+            }
+            blob = canonical_json(evidence_doc)
+            item_path = items_dir / f"{item_id}.json"
+            item_path.write_bytes(blob)
+            digest = sha256_bytes(blob)
+            rel = item_path.relative_to(ROOT).as_posix()
+            fetched = str(payload.get("fetched_at") or "")
+            evidence = {
+                "providerClaims": {
+                    "tcgCode": tcg,
+                    "cardLanguage": language,
+                    "collectorNumber": claim,
+                    "setCode": "",
+                    "printingCode": "",
+                    "parallelCode": snk_parallel,
+                },
+                "evidence": {
+                    "type": EVIDENCE_TYPE_PROVIDER_PAGE,
+                    "sha256": digest,
+                    "path": rel,
+                    "canonicalUrl": f"https://snkrdunk.com/en/trading-cards/{item_id}",
+                    "capturedAt": fetched,
+                    "generation": "snk_reverify",
+                },
+            }
+            evidence_sha = sha256_bytes(canonical_json(evidence))
+            if row["canonical_printing_sha256"]:
+                mirror = (
+                    str(row["p_tcg_code"] or ""), str(row["p_card_language"] or ""),
+                    str(row["p_set_code"] or ""), str(row["p_collector_number"] or ""),
+                    str(row["printing_code"] or ""), str(row["parallel_code"] or ""),
+                    str(row["p_edition_code"] or ""), str(row["p_finish_code"] or ""),
+                )
+            else:
+                mirror = (
+                    str(row["tcg_code"] or ""), str(row["card_language"] or ""),
+                    str(row["v_set_code"] or ""), str(row["collector_number"] or ""),
+                    str(row["v_printing_code"] or ""), "", "", "",
+                )
+            updates.append(
+                (iid_str, variant_id, evidence_sha, claim,
+                 {"evidence": evidence, "fetched": fetched}, mirror)
+            )
+            promoted.append({
+                "variant_id": variant_id, "iid": iid_str,
+                "claim": claim, "evidence_sha256": evidence_sha,
+            })
+
+        if args.write and updates:
+            try:
+                with conn.cursor() as cursor:
+                    for iid, variant_id, evidence_sha, claim, extra, mirror in updates:
+                        evidence = extra["evidence"]
+                        fetched = extra["fetched"]
+                        captured_at = datetime.strptime(
+                            fetched, "%Y-%m-%dT%H:%M:%S%z"
+                        ) if fetched else datetime.now(timezone.utc)
+                        cursor.execute(
+                            "INSERT INTO catalog_provider_capture_receipt (source_code,"
+                            " external_entity_id, capture_sha256, capture_path,"
+                            " captured_at, generation_id, parser_version)"
+                            " VALUES ('snkrdunk', %s, %s, %s, %s, %s, %s)"
+                            " ON DUPLICATE KEY UPDATE"
+                            " capture_sha256=VALUES(capture_sha256),"
+                            " capture_path=VALUES(capture_path),"
+                            " captured_at=VALUES(captured_at),"
+                            " generation_id=VALUES(generation_id),"
+                            " parser_version=VALUES(parser_version)",
+                            (
+                                iid, evidence["evidence"]["sha256"],
+                                evidence["evidence"]["path"][:500],
+                                captured_at, "snk_reverify", parser_version[:64],
+                            ),
+                        )
+                        cursor.execute(
+                            "UPDATE catalog_source_identity SET match_status='exact',"
+                            " evidence_sha256=%s, source_product_number=%s,"
+                            " bind_evidence_json=%s, bound_tcg_code=%s,"
+                            " bound_card_language=%s, bound_set_code=%s,"
+                            " bound_collector_number=%s, bound_printing_code=%s,"
+                            " bound_parallel_code=%s, bound_edition_code=%s,"
+                            " bound_finish_code=%s"
+                            " WHERE source_code='snkrdunk'"
+                            " AND external_entity_id=%s AND variant_id=%s"
+                            " AND match_status='manual_review'",
+                            (
+                                evidence_sha, str(claim or "")[:64],
+                                json.dumps(evidence, ensure_ascii=False, sort_keys=True),
+                                mirror[0][:32], mirror[1][:8], mirror[2][:24],
+                                mirror[3][:96], mirror[4][:24], mirror[5][:64],
+                                mirror[6][:191], mirror[7][:64], iid, variant_id,
+                            ),
+                        )
+                conn.commit()
+                counts["promoted"] = len(updates)
+            except Exception:
+                conn.rollback()
+                raise
+
+        report = {
+            "snkIdentityReverify": True,
+            "write": bool(args.write),
+            "harvest": harvest_path.relative_to(ROOT).as_posix(),
+            "counts": counts,
+            "promotable": len(updates),
+            "promotedSample": promoted[:40],
+            "held": held,
+        }
+        artifact_path = ROOT / "data" / "runtime" / "rebuild-036" / (
+            f"snk-identity-reverify-{stamp}.json"
+        )
         artifact_path.write_bytes(canonical_json(report))
         print(json.dumps(report, ensure_ascii=False, indent=1, default=str))
         return 0

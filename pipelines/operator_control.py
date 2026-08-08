@@ -2590,6 +2590,20 @@ def main() -> int:
         help="nightly: accept fresh evidence + re-rank the current universe (no lock rewrite)",
     )
     p_daily_accept.add_argument("--credentials-env", dest="credentials_env", type=Path)
+    p_pc_reverify = sub.add_parser(
+        "pc-identity-reverify",
+        help="promote manual_review PC bindings the fresh full900 pages can prove (dry-run without --write)",
+    )
+    p_pc_reverify.add_argument("--write", action="store_true")
+    p_pc_reverify.add_argument("--pages-dir", dest="pages_dir", type=Path)
+    p_snk_reverify = sub.add_parser(
+        "snk-identity-reverify",
+        help="promote manual_review SNK bindings a fresh master fetch can prove (dry-run without --write)",
+    )
+    p_snk_reverify.add_argument("--write", action="store_true")
+    p_snk_reverify.add_argument("--credentials-env", dest="credentials_env", type=Path)
+    p_pc_reverify.add_argument("--map", type=Path)
+    p_pc_reverify.add_argument("--credentials-env", dest="credentials_env", type=Path)
     p_daily.add_argument("--pass", dest="do_pass", action="store_true", help="DADDY pass: export product subset + promote receipt")
     refresh_group = p_daily.add_mutually_exclusive_group()
     refresh_group.add_argument("--refresh", action="store_true", help="run collect_control status+incr (real exact-id harvest, not --help)")
@@ -2659,6 +2673,14 @@ def main() -> int:
         import rebuild_036
 
         return rebuild_036.cmd_daily_accept(args)
+    elif args.cmd == "pc-identity-reverify":
+        import rebuild_036
+
+        return rebuild_036.cmd_pc_identity_reverify(args)
+    elif args.cmd == "snk-identity-reverify":
+        import rebuild_036
+
+        return rebuild_036.cmd_snk_identity_reverify(args)
     else:
         raise SystemExit(f"unknown command: {args.cmd}")
     return 0
