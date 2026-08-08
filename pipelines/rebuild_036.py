@@ -20,7 +20,7 @@ import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 import pymysql
 
@@ -446,6 +446,314 @@ def _popland_input_sha(ctx: SimpleNamespace) -> str:
     return sha256_file(worklist_path)
 
 
+def _capture_fingerprint(cards_dir: Path, gid: str) -> tuple[dict[str, Any] | None, str]:
+    """§6.2 identity fingerprint from the settled capture (raw payload + slug).
+
+    Fails closed: any missing/unverifiable piece returns (None, reason) and the
+    id becomes identity_pending instead of being guessed at.
+    """
+
+    card_dir = cards_dir / gid
+    try:
+        normalized = json.loads((card_dir / "card_details.json").read_text(encoding="utf-8"))
+        receipt = json.loads((card_dir / "card_details.raw.receipt.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None, "no_capture"
+    if receipt.get("rawStatus") != "captured":
+        return None, "dom_evidence_only"
+    pointer = receipt.get("sourcePointer")
+    if not isinstance(pointer, str):
+        return None, "receipt_incomplete"
+    try:
+        raw = json.loads((card_dir / pointer).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None, "raw_unreadable"
+    page = normalized.get("publicCardPage") or {}
+    canonical_url = str(page.get("canonicalUrl") or "")
+    url_parts = [part for part in canonical_url.split("/") if part]
+    settled_id = ""
+    slug = ""
+    if "card" in url_parts:
+        card_index = url_parts.index("card")
+        if len(url_parts) > card_index + 1:
+            settled_id = url_parts[card_index + 1]
+        if len(url_parts) > card_index + 2:
+            slug = url_parts[card_index + 2]
+    psa_rows = [
+        row for row in raw.get("population_data") or []
+        if isinstance(row, dict) and str(row.get("grader") or "").lower() == "psa"
+    ]
+    set_name = str(raw.get("set_name") or "")
+    lowered = set_name.lower()
+    if "japanese" in lowered:
+        language = "ja"
+    elif "chinese" in lowered:
+        language = "zh"
+    elif "korean" in lowered:
+        language = "ko"
+    else:
+        language = "en"
+    return {
+        "gemrateId": gid,
+        "description": str(raw.get("description") or ""),
+        "name": str(raw.get("name") or ""),
+        "year": str(raw.get("year") or ""),
+        "setName": set_name,
+        "cardNumber": str(raw.get("card_number") or ""),
+        "parallel": str(raw.get("parallel") or ""),
+        "category": str(raw.get("category") or ""),
+        "derivedLanguage": language,
+        "canonicalUrl": canonical_url,
+        "settledId": settled_id,
+        "slug": slug,
+        "psaRowCount": len(psa_rows),
+        "rawSha256": str(receipt.get("contentSha256") or ""),
+    }, ""
+
+
+def _norm_text(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip().lower()
+
+
+def _fingerprint_variant_conflicts(
+    fp: Mapping[str, Any], variant: Mapping[str, Any],
+) -> list[str]:
+    """Hard identity conflicts between a discovery fingerprint and a variant.
+
+    Only signals both vocabularies can express are compared; parallel/printing
+    wording differences are soft evidence and stay in detail_json instead.
+    """
+
+    conflicts: list[str] = []
+    v_number = _norm_text(variant.get("collector_number") or "")
+    f_number = _norm_text(fp.get("cardNumber") or "")
+    if v_number and f_number and v_number != f_number:
+        conflicts.append(f"collector_number:{f_number}!={v_number}")
+    v_lang = str(variant.get("card_language") or "")
+    f_lang = str(fp.get("derivedLanguage") or "")
+    if v_lang and f_lang:
+        same = v_lang == f_lang or (v_lang.startswith("zh") and f_lang.startswith("zh"))
+        if not same:
+            conflicts.append(f"language:{f_lang}!={v_lang}")
+    v_set = _norm_text(variant.get("set_name") or "")
+    f_set = _norm_text(fp.get("setName") or "")
+    if v_set and f_set:
+        # GemRate prefixes franchise ("Pokemon Sword and Shield Crown Zenith");
+        # catalog names can be shorter ("Crown Zenith"). Containment either way
+        # is agreement; disjoint names are a conflict.
+        if v_set not in f_set and f_set not in v_set:
+            conflicts.append(f"set:{f_set!r}!={v_set!r}")
+    return conflicts
+
+
+def stage_identity_resolve(ctx: SimpleNamespace) -> dict[str, Any]:
+    """S4 (§6.2/§6.3): decide cohorts and incidents; write bookkeeping only.
+
+    This stage never writes catalog_variant / bindings — S5 executes decisions.
+    Unresolvable ambiguity fails closed as identity_pending (blocks activation)
+    instead of stopping to ask; every automated ruling lands as a closed
+    incident row so the audit trail survives.
+    """
+
+    from datetime import datetime, timezone
+
+    import gemrate_source
+
+    conn = ctx.conn
+    conn.rollback()
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT gemrate_id, psa10_population, observed_date, effective_at"
+            " FROM operator_latest_gemrate_psa10"
+        )
+        latest = {row["gemrate_id"]: row for row in cursor.fetchall()}
+        cursor.execute(
+            "SELECT gemrate_id, MAX(psa10_population) AS peak"
+            " FROM market_gemrate_psa10_observation_v2 GROUP BY gemrate_id"
+        )
+        peaks = {row["gemrate_id"]: int(row["peak"]) for row in cursor.fetchall()}
+        cursor.execute(
+            "SELECT external_entity_id AS gemrate_id, variant_id, match_status"
+            " FROM catalog_source_identity WHERE source_code='gemrate'"
+        )
+        bindings = {row["gemrate_id"]: row for row in cursor.fetchall()}
+        cursor.execute(
+            "SELECT v.id, v.opaque_id, v.tcg_code, v.card_language, v.canonical_name,"
+            " v.set_name, v.collector_number, v.identity_status,"
+            " p.parallel_code, p.printing_code, p.canonical_printing_sha256"
+            " FROM catalog_variant v"
+            " LEFT JOIN catalog_printing_identity p ON p.variant_id = v.id"
+        )
+        variants = {int(row["id"]): row for row in cursor.fetchall()}
+    variant_gids: dict[int, list[str]] = {}
+    for gid, row in bindings.items():
+        variant_gids.setdefault(int(row["variant_id"]), []).append(gid)
+
+    min_pop = int(POLICY["minPop"])
+    members: list[dict[str, Any]] = []
+    incidents: list[dict[str, Any]] = []
+    fingerprint_failures: dict[str, int] = {}
+    for gid, obs in sorted(latest.items()):
+        pop = int(obs["psa10_population"])
+        fp, fp_reason = _capture_fingerprint(gemrate_source.CARDS_DIR, gid)
+        pending_reasons: list[str] = []
+        detail: dict[str, Any] = {"latestPop": pop, "observedDate": str(obs["observed_date"])}
+        if fp is None:
+            pending_reasons.append(f"fingerprint:{fp_reason}")
+            fingerprint_failures[fp_reason] = fingerprint_failures.get(fp_reason, 0) + 1
+        else:
+            detail["fingerprint"] = fp
+            if fp["psaRowCount"] != 1:
+                pending_reasons.append(f"psa_rows:{fp['psaRowCount']}")
+            if fp["settledId"] and fp["settledId"] != gid:
+                pending_reasons.append("resettled")
+                incidents.append({
+                    "gemrate_id": gid, "variant_id": None,
+                    "incident_kind": "requested_id_resettled",
+                    "detail": {"settledId": fp["settledId"], "canonicalUrl": fp["canonicalUrl"]},
+                    "resolution": None,
+                })
+        peak = peaks.get(gid, pop)
+        if pop < peak:
+            pending_reasons.append(f"pop_decrease:{peak}->{pop}")
+            incidents.append({
+                "gemrate_id": gid, "variant_id": None,
+                "incident_kind": "pop_decrease_same_entity",
+                "detail": {"peak": peak, "latest": pop},
+                "resolution": None,
+            })
+        binding = bindings.get(gid)
+        variant_id = int(binding["variant_id"]) if binding else None
+        if binding and fp is not None:
+            variant = variants.get(variant_id) or {}
+            conflicts = _fingerprint_variant_conflicts(fp, variant)
+            if conflicts:
+                pending_reasons.append("binding_conflict")
+                incidents.append({
+                    "gemrate_id": gid, "variant_id": variant_id,
+                    "incident_kind": "accepted_binding_moved",
+                    "detail": {"conflicts": conflicts, "matchStatus": binding["match_status"]},
+                    "resolution": None,
+                })
+            detail["binding"] = {
+                "variantId": variant_id,
+                "matchStatus": binding["match_status"],
+                "conflicts": conflicts,
+            }
+        cohort = "qualified_identity" if pop >= min_pop else "non_qualified"
+        members.append({
+            "gemrate_id": gid,
+            "variant_id": variant_id,
+            "pop": pop,
+            "cohort": cohort,
+            "identity_pending": 1 if (pending_reasons and cohort != "non_qualified") else 0,
+            "detail": {**detail, "pendingReasons": pending_reasons},
+        })
+
+    # Variants carrying multiple current gemrate bindings (the 17 collapsed
+    # cases): mixed printings unless every bound fingerprint agrees.
+    for variant_id, gids in sorted(variant_gids.items()):
+        if len(gids) < 2:
+            continue
+        prints = set()
+        for gid in gids:
+            fp, _ = _capture_fingerprint(gemrate_source.CARDS_DIR, gid)
+            if fp is None:
+                prints.add(f"unknown:{gid}")
+            else:
+                prints.add(_norm_text(
+                    f"{fp['setName']}|{fp['cardNumber']}|{fp['parallel']}|{fp['derivedLanguage']}"
+                ))
+        if len(prints) > 1:
+            for gid in gids:
+                incidents.append({
+                    "gemrate_id": gid, "variant_id": variant_id,
+                    "incident_kind": "variant_mixed_printings",
+                    "detail": {"boundIds": sorted(gids), "distinctPrints": sorted(prints)},
+                    "resolution": None,
+                })
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
+    member_digest = sha256_bytes(canonical_json([
+        [m["gemrate_id"], m["cohort"], m["identity_pending"], m["pop"], m["variant_id"]]
+        for m in members
+    ]))
+    try:
+        with conn.cursor() as cursor:
+            for start in range(0, len(members), 500):
+                batch = members[start:start + 500]
+                cursor.executemany(
+                    "INSERT INTO catalog_rebuild_member (generation_id, gemrate_id,"
+                    " variant_id, latest_psa10_population, cohort, identity_pending,"
+                    " detail_json, computed_at)"
+                    " VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
+                    " ON DUPLICATE KEY UPDATE variant_id=VALUES(variant_id),"
+                    " latest_psa10_population=VALUES(latest_psa10_population),"
+                    " cohort=VALUES(cohort), identity_pending=VALUES(identity_pending),"
+                    " detail_json=VALUES(detail_json), computed_at=VALUES(computed_at)",
+                    [
+                        (
+                            ctx.generation, m["gemrate_id"], m["variant_id"], m["pop"],
+                            m["cohort"], m["identity_pending"],
+                            json.dumps(m["detail"], ensure_ascii=False, sort_keys=True),
+                            now,
+                        )
+                        for m in batch
+                    ],
+                )
+            for incident in incidents:
+                cursor.execute(
+                    "INSERT INTO catalog_population_identity_incident (generation_id,"
+                    " gemrate_id, variant_id, incident_kind, detail_json, opened_at,"
+                    " resolved_at, resolution)"
+                    " VALUES (%s, %s, %s, %s, %s, %s, NULL, NULL)"
+                    " ON DUPLICATE KEY UPDATE detail_json=VALUES(detail_json),"
+                    " variant_id=VALUES(variant_id)",
+                    (
+                        ctx.generation, incident["gemrate_id"], incident["variant_id"],
+                        incident["incident_kind"],
+                        json.dumps(incident["detail"], ensure_ascii=False, sort_keys=True),
+                        now,
+                    ),
+                )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    cohorts: dict[str, int] = {}
+    pending_count = 0
+    for m in members:
+        cohorts[m["cohort"]] = cohorts.get(m["cohort"], 0) + 1
+        pending_count += m["identity_pending"]
+    counts = {
+        "identities": len(members),
+        "cohorts": cohorts,
+        "identityPending": pending_count,
+        "incidents": len(incidents),
+        "fingerprintFailures": fingerprint_failures,
+        "boundVariantsWithMultipleIds": sum(1 for g in variant_gids.values() if len(g) > 1),
+    }
+    return {
+        "input_sha256": _identity_input_sha(ctx),
+        "output_sha256": member_digest,
+        "counts": counts,
+    }
+
+
+def _identity_input_sha(ctx: SimpleNamespace) -> str:
+    with ctx.conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT gemrate_id, observed_date, psa10_population, raw_payload_sha256"
+            " FROM market_gemrate_psa10_observation_v2 ORDER BY gemrate_id, observed_date"
+        )
+        rows = [
+            [row["gemrate_id"], str(row["observed_date"]), int(row["psa10_population"]),
+             row["raw_payload_sha256"]]
+            for row in cursor.fetchall()
+        ]
+    return sha256_bytes(canonical_json(rows))
+
+
 def _jsonl_psa_ids(path: Path) -> set[str]:
     """Extract the GemRate id space from brute-harvest rowData (field: psa_id)."""
 
@@ -657,7 +965,7 @@ LINEAR_STAGES: list[tuple[str, Callable | None, Callable | None, bool]] = [
     ("migrate", stage_migrate, _migration_input_sha, False),
     ("discover", stage_discover, None, False),
     ("pop-land", stage_popland, _popland_input_sha, False),
-    ("identity-resolve", None, None, False),
+    ("identity-resolve", stage_identity_resolve, _identity_input_sha, False),
     ("bind", None, None, False),
     ("pc-replay", None, None, False),
     ("snk-refresh", None, None, False),
