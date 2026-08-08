@@ -4937,6 +4937,13 @@ def stage_prune_apply(ctx: SimpleNamespace) -> dict[str, Any]:
         protected = {int(row["variant_id"]) for row in cursor.fetchall()}
         cursor.execute("SELECT COUNT(*) AS n FROM market_raw_payload_object")
         raw_before = int(cursor.fetchone()["n"] or 0)
+        # Self-referencing FKs (supersedes chains): rows must die newest-first,
+        # else deleting a superseded parent while its successor lives hits 1451.
+        cursor.execute(
+            "SELECT DISTINCT TABLE_NAME FROM information_schema.KEY_COLUMN_USAGE"
+            " WHERE TABLE_SCHEMA=DATABASE() AND REFERENCED_TABLE_NAME=TABLE_NAME"
+        )
+        self_ref_tables = {str(row["TABLE_NAME"]) for row in cursor.fetchall()}
     overlap = sorted(set(victims) & protected)
     if overlap:
         raise SystemExit(f"S13 ABORT: victims overlap protected set: {overlap[:20]}")
@@ -5000,18 +5007,20 @@ def stage_prune_apply(ctx: SimpleNamespace) -> dict[str, Any]:
                         conn.rollback()
                         raise
             elif mode == "delete" and via:
+                order = " ORDER BY id DESC" if table in self_ref_tables else ""
                 stats["deleted"] += _delete_loop(
                     table,
                     f"DELETE FROM {table} WHERE {columns[0]} IN"
                     f" (SELECT id FROM {via} WHERE variant_id IN ({ph}))"
-                    " LIMIT 5000",
+                    f"{order} LIMIT 5000",
                     tuple(chunk),
                 )
             elif mode == "delete":
                 column = columns[0] if table != "catalog_variant" else "id"
+                order = " ORDER BY id DESC" if table in self_ref_tables else ""
                 stats["deleted"] += _delete_loop(
                     table,
-                    f"DELETE FROM {table} WHERE {column} IN ({ph}) LIMIT 5000",
+                    f"DELETE FROM {table} WHERE {column} IN ({ph}){order} LIMIT 5000",
                     tuple(chunk),
                 )
 
@@ -5164,13 +5173,22 @@ def stage_canary(ctx: SimpleNamespace) -> dict[str, Any]:
             fe_before = dict(cur.fetchone() or {})
 
             # V2 incremental landing (same shapes as S3 + activation bridge).
+            canary_manifest_sha = sha256_bytes(canonical_json({
+                "contract": "rebuild036-canary-v1",
+                "generation": generation,
+                "gemrateId": gemrate_id,
+            }))
             cur.execute(
                 "INSERT INTO market_ingest_run (run_key, source_code, ingest_mode,"
                 " effective_at, status, observed_count, accepted_count,"
-                " quarantined_count, rejected_count, started_at, completed_at)"
-                " VALUES (%s,'gemrate','rebuild036_canary_v2',%s,'complete',1,1,0,0,%s,%s)"
+                " quarantined_count, rejected_count, started_at, completed_at,"
+                " payload_sha256, manifest_sha256)"
+                " VALUES (%s,'gemrate','incremental',%s,'completed',1,1,0,0,%s,%s,%s,%s)"
                 " ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id), completed_at=VALUES(completed_at)",
-                (f"rebuild036-canary-{generation}", now_str, now_str, now_str),
+                (
+                    f"rebuild036-canary-{generation}", now_str, now_str, now_str,
+                    capture["rawPayloadSha256"], canary_manifest_sha,
+                ),
             )
             run_id = int(cur.lastrowid)
             cur.execute(
@@ -6239,7 +6257,9 @@ def cmd_unfreeze(args: argparse.Namespace) -> int:
     stdout = result.stdout.strip()
     if result.returncode != 0:
         raise SystemExit(f"unfreeze failed (exit {result.returncode}): {result.stderr.strip()[:500]}")
-    if "GRANT ALL PRIVILEGES ON `cardz\\_market\\_cap`.* TO `cardz`@`%`" not in stdout.replace('"', "`"):
+    # mysql --batch escapes backslashes in output (\_ prints as \\_): undo it.
+    normalized = stdout.replace('"', "`").replace("\\\\", "\\")
+    if "GRANT ALL PRIVILEGES ON `cardz\\_market\\_cap`.* TO `cardz`@`%`" not in normalized:
         raise SystemExit(f"unfreeze verification failed: cardz grant not ALL. Output:\n{stdout}")
     if not re.search(r"rebuild_users\n0\b", stdout.replace("\r", "")):
         raise SystemExit(f"unfreeze verification failed: cardz_rebuild still exists. Output:\n{stdout}")
