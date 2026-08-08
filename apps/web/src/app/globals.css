@@ -1780,3 +1780,34 @@ html.theme-transitions .brand-logo-dark {
 .ranking-heading .lang-filter { margin-top: 10px; }
 /* 編號 cell：chips 另起一行，set code 唔可以睇落似 collector number 嘅一部分 */
 .collector-cell .print-chips { display: flex; margin-top: 4px; }
+.watchlist-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 16px 0 40px;
+  color: var(--control-idle);
+  font-size: 13px;
+  font-weight: 600;
+}
+.watchlist-pager a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--soft);
+  color: var(--ink);
+  text-decoration: none;
+}
+.watchlist-pager a:hover { background: var(--surface); }
+.watchlist-pager > span[aria-hidden="true"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  min-height: 36px;
+  opacity: 0.35;
+}

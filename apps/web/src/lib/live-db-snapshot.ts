@@ -166,9 +166,9 @@ function windowMetrics(
   })) as Record<keyof typeof WINDOWS, WindowMetrics>;
 }
 
-export async function loadLiveDbSnapshot(): Promise<MarketViewSnapshot> {
+async function openConnection(): Promise<mysql.Connection> {
   loadDbEnvironment();
-  const connection = await mysql.createConnection({
+  return mysql.createConnection({
     host: process.env.CARDZ_DB_HOST?.trim() || "127.0.0.1",
     port: Number(process.env.CARDZ_DB_PORT || 3308),
     user: process.env.CARDZ_DB_USER,
@@ -178,7 +178,10 @@ export async function loadLiveDbSnapshot(): Promise<MarketViewSnapshot> {
     decimalNumbers: true,
     connectTimeout: 5_000,
   });
+}
 
+async function currentGenerationHash(): Promise<string> {
+  const connection = await openConnection();
   try {
     const [generationRows] = await connection.query<DbRow[]>(`
       SELECT ranking_generation_sha256,MAX(accepted_at) AS accepted_at
@@ -189,7 +192,37 @@ export async function loadLiveDbSnapshot(): Promise<MarketViewSnapshot> {
     `);
     const generationHash = String(generationRows[0]?.ranking_generation_sha256 ?? "");
     if (!/^[0-9a-f]{64}$/.test(generationHash)) throw new Error("3308 has no current canonical ranking generation");
+    return generationHash;
+  } finally {
+    await connection.end();
+  }
+}
 
+// Rebuilding the full snapshot costs seconds; every request pays only the
+// one-row generation probe and the snapshot is rebuilt when the current
+// ranking generation flips.
+let cachedSnapshot: { generationHash: string; snapshot: MarketViewSnapshot } | null = null;
+let inflightBuild: { generationHash: string; promise: Promise<MarketViewSnapshot> } | null = null;
+
+export async function loadLiveDbSnapshot(): Promise<MarketViewSnapshot> {
+  const generationHash = await currentGenerationHash();
+  if (cachedSnapshot?.generationHash === generationHash) return cachedSnapshot.snapshot;
+  if (inflightBuild?.generationHash === generationHash) return inflightBuild.promise;
+  const promise = buildLiveDbSnapshot(generationHash)
+    .then((snapshot) => {
+      cachedSnapshot = { generationHash, snapshot };
+      return snapshot;
+    })
+    .finally(() => {
+      if (inflightBuild?.promise === promise) inflightBuild = null;
+    });
+  inflightBuild = { generationHash, promise };
+  return promise;
+}
+
+async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSnapshot> {
+  const connection = await openConnection();
+  try {
     const [coreRows] = await connection.query<DbRow[]>(`
       SELECT
         metric.variant_id,variant.opaque_id,variant.canonical_name,metric.canonical_market_rank,
@@ -219,7 +252,7 @@ export async function loadLiveDbSnapshot(): Promise<MarketViewSnapshot> {
     const variantIds = coreRows.map((row) => Number(row.variant_id));
     const placeholders = variantIds.map(() => "?").join(",");
 
-  const [localeRows, imageRows, fallbackImageRows, rawRows, priceRows, populationRows, salesRows, fxRows] = await Promise.all([
+  const [localeRows, imageRows, fallbackImageRows, rawRows, priceRows, salesRows, fxRows] = await Promise.all([
       connection.query<DbRow[]>(`
         SELECT variant_id,locale_code,localized_name,localized_set_name,market_story,observed_at
         FROM catalog_variant_locale WHERE variant_id IN (${placeholders})
@@ -277,17 +310,6 @@ export async function loadLiveDbSnapshot(): Promise<MarketViewSnapshot> {
         ORDER BY price.variant_id,price.observed_date,price.effective_at,history.id
       `, variantIds),
       connection.query<DbRow[]>(`
-        SELECT history.id,population.variant_id,population.observed_date,
-          population.top_grade_population AS psa10_population,population.effective_at
-        FROM market_metric_history_acceptance history
-        INNER JOIN market_grader_population_observation population
-          ON history.source_record_type='market_grader_population_observation'
-          AND history.source_record_id=population.id AND history.variant_id=population.variant_id
-        WHERE history.metric_kind='psa10_population' AND history.source_code='gemrate'
-          AND history.variant_id IN (${placeholders})
-        ORDER BY population.variant_id,population.observed_date,population.effective_at,history.id
-      `, variantIds),
-      connection.query<DbRow[]>(`
         SELECT variant_id,observed_date,sales_count,sales_value_usd,sales_coverage_status,
           sales_verified_zero,sales_source_codes,sales_evidence_at
         FROM operator_accepted_psa10_sales_history
@@ -331,7 +353,6 @@ export async function loadLiveDbSnapshot(): Promise<MarketViewSnapshot> {
     const rawPrices = byVariant(rawRows[0]);
 
     type HistoryDraft = DailyHistoryPoint & {
-      population: number | null;
       priceSourceCode: string | null;
       priceSourcePriority: number;
     };
@@ -342,7 +363,7 @@ export async function loadLiveDbSnapshot(): Promise<MarketViewSnapshot> {
       const point = variant.get(date) ?? {
         at: `${date}T00:00:00Z`, priceUsd: null, priceStatus: "unavailable",
         trackedSalesValueUsd: null, trackedSalesCount: null, salesCoverage: "unavailable",
-        salesVerifiedZero: false, population: null, priceSourceCode: null, priceSourcePriority: Number.POSITIVE_INFINITY,
+        salesVerifiedZero: false, priceSourceCode: null, priceSourcePriority: Number.POSITIVE_INFINITY,
       };
       variant.set(date, point);
       return point;
@@ -366,10 +387,6 @@ export async function loadLiveDbSnapshot(): Promise<MarketViewSnapshot> {
       point.priceStatus = point.priceUsd === null ? "unavailable" : "ready";
       point.priceSourceCode = sourceCode;
       point.priceSourcePriority = sourcePriority;
-    }
-    for (const row of populationRows[0]) {
-      const observedDate = day(row.observed_date);
-      if (observedDate) getPoint(Number(row.variant_id), observedDate).population = numberValue(row.psa10_population);
     }
     for (const row of salesRows[0]) {
       const observedDate = day(row.observed_date);
@@ -426,7 +443,7 @@ export async function loadLiveDbSnapshot(): Promise<MarketViewSnapshot> {
       const historyDrafts = [...(histories.get(variantId)?.values() ?? [])]
         .sort((a, b) => a.at.localeCompare(b.at));
       const history = historyDrafts
-        .map(({ population: _population, priceSourceCode: _priceSourceCode, priceSourcePriority: _priceSourcePriority, ...point }) => point);
+        .map(({ priceSourceCode: _priceSourceCode, priceSourcePriority: _priceSourcePriority, ...point }) => point);
       const raw = rawPrices.get(variantId);
       const setName = String(row.set_name ?? "");
       for (const code of LOCALES) if (!locale.sets[code]) locale.sets[code] = setName || null;

@@ -95,9 +95,15 @@ export async function loadNodeMarketAsset(asset: string): Promise<NodeMarketAsse
   }
 }
 
+export interface ScopeOptions {
+  page?: number;
+  pageSize?: number;
+}
+
 export function scopeSnapshot(
   snapshot: MarketViewSnapshot,
   scope: "all" | "pokemon" | "one-piece" | "watchlist",
+  options?: ScopeOptions,
 ): MarketViewSnapshot {
   const canonical = canonicalCards(snapshot);
   if (scope === "all") {
@@ -108,11 +114,15 @@ export function scopeSnapshot(
     return { ...snapshot, coverage: scopedCoverage(cards.length), top100: cards, watchlist: [] };
   }
   if (scope === "watchlist") {
-    const cards = canonical
-      .filter((card) => card.marketRank >= 101 && card.marketRank <= 300)
+    const all = canonical.filter((card) => card.marketRank >= 101);
+    const pageSize = Math.min(Math.max(Math.trunc(options?.pageSize ?? 200), 1), 500);
+    const pageCount = Math.max(Math.ceil(all.length / pageSize), 1);
+    const page = Math.min(Math.max(Math.trunc(options?.page ?? 1), 1), pageCount);
+    const cards = all
+      .slice((page - 1) * pageSize, page * pageSize)
       .map((card) => ({ ...card, rank: card.marketRank, viewRank: card.marketRank }))
       .map(listCard);
-    return { ...snapshot, coverage: scopedCoverage(cards.length, 200), top100: cards, watchlist: [] };
+    return { ...snapshot, coverage: scopedCoverage(cards.length, all.length), top100: cards, watchlist: [] };
   }
   const expected = scope === "pokemon" ? "Pokémon" : "One Piece";
   const cards = gameView(canonical, expected).map(listCard);

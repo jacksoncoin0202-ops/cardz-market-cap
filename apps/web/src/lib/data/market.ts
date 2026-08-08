@@ -1,4 +1,4 @@
-import { loadMarketSnapshot, scopeSnapshot, singleCardSnapshot } from "@/lib/server-snapshot";
+import { loadMarketSnapshot, scopeSnapshot, singleCardSnapshot, type ScopeOptions } from "@/lib/server-snapshot";
 import type { MarketCardView, MarketViewSnapshot } from "@/lib/types";
 
 /*
@@ -34,8 +34,8 @@ function listPayload(snapshot: MarketViewSnapshot): CardListPayload {
   };
 }
 
-export async function getMarketData(scope: MarketScope): Promise<CardListPayload> {
-  return listPayload(scopeSnapshot(await loadMarketSnapshot(), scope));
+export async function getMarketData(scope: MarketScope, options?: ScopeOptions): Promise<CardListPayload> {
+  return listPayload(scopeSnapshot(await loadMarketSnapshot(), scope, options));
 }
 
 export async function getCardData(id: string): Promise<MarketCardView | null> {
