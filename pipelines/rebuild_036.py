@@ -524,7 +524,7 @@ def _collector_core(value: str) -> str:
     """
 
     text = _norm_text(value).replace(" ", "")
-    if not text:
+    if not text or text == "unknown":  # catalog placeholder, not a number
         return ""
     text = text.split("/", 1)[0]
     if "-" in text:
@@ -605,6 +605,10 @@ def _fingerprint_variant_conflicts(
             for a in small
         )
 
+    # An agreeing set code is the vocabulary-free signal; token drift on top
+    # of it (card titles, transliteration) is noise, not a different set.
+    if f_codes and v_codes and (f_codes & v_codes):
+        return conflicts
     if f_tokens and v_tokens and not (
         covered(f_tokens, v_tokens) or covered(v_tokens, f_tokens)
     ):
@@ -1882,6 +1886,344 @@ def _pc_replay_input_sha(ctx: SimpleNamespace) -> str:
     ]))
 
 
+def _snk_dir(generation: str) -> Path:
+    return ROOT / "data" / "private" / "snk" / f"rebuild-{generation}"
+
+
+def _snk_language(master_name: str, localized: str) -> str:
+    text = f"{master_name} {localized}"
+    return "en" if ("【英語版】" in text or "english" in text.casefold()) else "ja"
+
+
+def _snk_tcg(master_name: str, localized: str) -> str:
+    text = f"{master_name} {localized}".casefold()
+    if "ワンピース" in text or "one piece" in text:
+        return "one-piece"
+    if "ポケモン" in text or "pokemon" in text or "pokémon" in text:
+        return "pokemon"
+    return ""
+
+
+_SNK_INTERNAL_PN_RE = re.compile(r"pkmn-tcg-\d+")
+
+
+def _snk_collector_claim(master_name: str, localized: str, product_number: str) -> str:
+    """The provider's printed-number designation for an SNK item.
+
+    SNK titles carry the real designation in brackets ("Rayquaza AR[S3a
+    056/076]"); the product_number slug is an internal enumeration for older
+    Pokemon items ("pkmn-tcg-1740") and must never be read as a collector
+    number. Digit-less brackets ("[EN]") are markers, not designations.
+    """
+
+    for text in (master_name, localized):
+        for found in re.findall(r"\[([^\]]+)\]", text or ""):
+            if any(ch.isdigit() for ch in found):
+                return " ".join(found.split())
+    if _SNK_INTERNAL_PN_RE.fullmatch(product_number or ""):
+        return ""
+    return product_number or ""
+
+
+def _snk_claim_number(claim: str) -> str:
+    """Comparable number token of a designation ("S3a 056/076" -> "056/076")."""
+
+    parts = claim.split()
+    token = parts[-1] if parts else ""
+    if token.casefold().startswith("no."):
+        token = token[3:]
+    return token
+
+
+def stage_snk_refresh(ctx: SimpleNamespace) -> dict[str, Any]:
+    """S7 (§6.4 SNK): land fresh SNK payloads for bound items, write capture
+    receipts, and re-derive SNK bindings from the provider master record.
+
+    Landing accepts every candidate payload; acceptance for the exact stamp is
+    fixed to trading_card_single_psa10 with the 1-card variant resolved, and
+    the identity comparison runs on what the master itself asserts
+    (productNumber, 【英語版】 marker, set tokens in the name). primaryMedia
+    travels inside the evidence file for S9. New-variant SNK discovery is not
+    this stage — unbound variants stay market_pending, honestly."""
+
+    from datetime import datetime, timezone
+
+    import snk_market_data
+
+    conn = ctx.conn
+    conn.rollback()
+    generation = ctx.generation
+    snk_dir = _snk_dir(generation)
+    items_dir = snk_dir / "items"
+    items_dir.mkdir(parents=True, exist_ok=True)
+    parser_version = "snkmd_" + sha256_file(
+        ROOT / "pipelines" / "snk_market_data.py"
+    )[:12]
+
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT si.external_entity_id AS iid, si.variant_id, si.match_status,"
+            " v.tcg_code, v.card_language, v.set_name, v.collector_number,"
+            " v.set_code AS v_set_code, v.printing_code AS v_printing_code,"
+            " p.parallel_code, p.printing_code, p.canonical_printing_sha256,"
+            " p.tcg_code AS p_tcg_code, p.card_language AS p_card_language,"
+            " p.set_code AS p_set_code, p.collector_number AS p_collector_number,"
+            " p.edition_code AS p_edition_code, p.finish_code AS p_finish_code"
+            " FROM catalog_source_identity si"
+            " JOIN catalog_variant v ON v.id=si.variant_id"
+            " LEFT JOIN catalog_printing_identity p ON p.variant_id=v.id"
+            " WHERE si.source_code='snkrdunk'"
+        )
+        snk_bindings = cursor.fetchall()
+
+    worklist = sorted({
+        int(row["iid"]) for row in snk_bindings
+        if str(row["iid"]).isdigit() and row["match_status"] != "rejected"
+    })
+    counts = {
+        "worklist": len(worklist), "bindingsSeen": len(snk_bindings),
+        "landedOk": 0, "landedError": 0, "receiptsUpserted": 0,
+        "restampedExact": 0, "upgradedFromReview": 0, "downgradedToReview": 0,
+        "hardConflicts": 0, "parallelSoftMismatch": 0, "notAcceptable": 0,
+        "bindingsWithoutPayload": 0,
+    }
+
+    out_path = snk_dir / f"snk_harvest_{generation}.jsonl"
+    report = snk_market_data.run(
+        worklist, out_path, delay=0.0,
+        condition_code=snk_market_data.PSA10_CONDITION,
+        run_id=generation, workers=8,
+    )
+    # run() renames .partial -> out_path only on a 100% harvest. Items whose
+    # PSA10 history has no unique 1-card variant fail permanently, so a small
+    # remainder is a data condition, not an error: read the partial and let
+    # those bindings fall through bindingsWithoutPayload (strict-view
+    # excluded). A large remainder means the session died mid-run — abort.
+    harvest_path = out_path
+    if not harvest_path.is_file():
+        partial_path = out_path.with_suffix(out_path.suffix + ".partial")
+        missing_n = int(report.get("remaining") or 0)
+        if not partial_path.is_file():
+            raise SystemExit(f"snk harvest produced no file: {out_path}")
+        if missing_n > 25:
+            raise SystemExit(
+                f"snk harvest missing {missing_n} items (systemic failure): {partial_path}"
+            )
+        harvest_path = partial_path
+    rows_by_id: dict[int, dict[str, Any]] = {}
+    with harvest_path.open(encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            item_id = row.get("item_id")
+            if isinstance(item_id, int):
+                rows_by_id[item_id] = row
+    counts["landedError"] = sum(1 for row in rows_by_id.values() if row.get("error"))
+    counts["landedOk"] = len(rows_by_id) - counts["landedError"]
+    counts["harvestMissingItems"] = sorted(set(worklist) - set(rows_by_id))[:25]
+
+    # --- evidence files + receipts ----------------------------------------
+    receipts: dict[int, tuple[str, str, str]] = {}  # iid -> (sha, relpath, fetched)
+    try:
+        with conn.cursor() as cursor:
+            for item_id in worklist:
+                row = rows_by_id.get(item_id)
+                if row is None or row.get("error"):
+                    continue
+                evidence_doc = {
+                    "itemId": item_id,
+                    "master": (row.get("source_payload") or {}).get("master"),
+                    "conditionFilter": row.get("condition_filter"),
+                    "quantityVariantId": row.get("quantity_variant_id"),
+                    "productNumber": row.get("product_number"),
+                    "imageUrl": row.get("image_url"),
+                    "fetchedAt": row.get("fetched_at"),
+                }
+                blob = canonical_json(evidence_doc)
+                item_path = items_dir / f"{item_id}.json"
+                item_path.write_bytes(blob)
+                digest = sha256_bytes(blob)
+                rel = item_path.relative_to(ROOT).as_posix()
+                fetched = str(row.get("fetched_at") or "")
+                captured_at = datetime.strptime(
+                    fetched, "%Y-%m-%dT%H:%M:%S%z"
+                ) if fetched else datetime.now(timezone.utc)
+                cursor.execute(
+                    "INSERT INTO catalog_provider_capture_receipt (source_code,"
+                    " external_entity_id, capture_sha256, capture_path,"
+                    " captured_at, generation_id, parser_version)"
+                    " VALUES ('snkrdunk', %s, %s, %s, %s, %s, %s)"
+                    " ON DUPLICATE KEY UPDATE capture_path=VALUES(capture_path),"
+                    " captured_at=VALUES(captured_at),"
+                    " generation_id=VALUES(generation_id),"
+                    " parser_version=VALUES(parser_version)",
+                    (
+                        str(item_id), digest, rel[:500], captured_at,
+                        generation, parser_version[:64],
+                    ),
+                )
+                counts["receiptsUpserted"] += 1
+                receipts[item_id] = (digest, rel, fetched)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+    # --- rebind from the provider master ----------------------------------
+    results: list[tuple[str, str, str]] = []
+    updates: list[tuple[str, str, str | None, str | None, dict | None]] = []
+    for row in snk_bindings:
+        iid_str = str(row["iid"])
+        status = row["match_status"]
+        if not iid_str.isdigit() or status == "rejected":
+            results.append((iid_str, status, ""))
+            continue
+        item_id = int(iid_str)
+        payload = rows_by_id.get(item_id)
+        receipt = receipts.get(item_id)
+        if payload is None or payload.get("error") or receipt is None:
+            counts["bindingsWithoutPayload"] += 1
+            results.append((iid_str, status, ""))
+            continue
+        if not payload.get("quantity_variant_id"):
+            counts["notAcceptable"] += 1  # no 1-card PSA10 variant resolved
+            results.append((iid_str, status, ""))
+            continue
+        master = (payload.get("source_payload") or {}).get("master") or {}
+        master_name = str(master.get("name") or "")
+        localized = str(master.get("localizedName") or "")
+        product_number = str(payload.get("product_number") or "").strip()
+        language = _snk_language(master_name, localized)
+        tcg = _snk_tcg(master_name, localized)
+        claim = _snk_collector_claim(master_name, localized, product_number)
+        pseudo_fp = {
+            "cardNumber": _snk_claim_number(claim),
+            "derivedLanguage": language,
+            "setName": f"{master_name} {localized}",
+        }
+        conflicts = _fingerprint_variant_conflicts(pseudo_fp, row)
+        if tcg and str(row["tcg_code"] or "") and tcg != str(row["tcg_code"]):
+            conflicts.append(f"tcg:{tcg}!={row['tcg_code']}")
+        if not claim:
+            conflicts.append("product_number_missing")
+        if conflicts:
+            counts["hardConflicts"] += 1
+            if status == "exact":
+                counts["downgradedToReview"] += 1
+                updates.append((iid_str, "manual_review", None, None, None))
+                results.append((iid_str, "manual_review", ""))
+            else:
+                results.append((iid_str, status, ""))
+            continue
+        snk_parallel = "parallel" if (
+            "パラレル" in master_name or "parallel" in localized.casefold()
+        ) else ""
+        variant_parallel = str(row["parallel_code"] or "")
+        parallel_ok = _parallel_agrees(snk_parallel, variant_parallel)
+        if not parallel_ok and not snk_parallel:
+            parallel_ok = _pc_rarity_only_parallel(variant_parallel)
+        if not parallel_ok:
+            counts["parallelSoftMismatch"] += 1
+            results.append((iid_str, status, ""))
+            continue
+        digest, rel, fetched = receipt
+        evidence = {
+            "providerClaims": {
+                "tcgCode": tcg,
+                "cardLanguage": language,
+                "collectorNumber": claim,
+                "setCode": "",
+                "printingCode": "",
+                "parallelCode": snk_parallel,
+            },
+            "evidence": {
+                "type": EVIDENCE_TYPE_PROVIDER_PAGE,
+                "sha256": digest,
+                "path": rel,
+                "canonicalUrl": f"https://snkrdunk.com/en/trading-cards/{item_id}",
+                "capturedAt": fetched,
+                "generation": generation,
+            },
+        }
+        evidence_sha = sha256_bytes(canonical_json(evidence))
+        if row["canonical_printing_sha256"]:
+            mirror = (
+                str(row["p_tcg_code"] or ""), str(row["p_card_language"] or ""),
+                str(row["p_set_code"] or ""), str(row["p_collector_number"] or ""),
+                str(row["printing_code"] or ""), str(row["parallel_code"] or ""),
+                str(row["p_edition_code"] or ""), str(row["p_finish_code"] or ""),
+            )
+        else:
+            mirror = (
+                str(row["tcg_code"] or ""), str(row["card_language"] or ""),
+                str(row["v_set_code"] or ""), str(row["collector_number"] or ""),
+                str(row["v_printing_code"] or ""), "", "", "",
+            )
+        if status == "manual_review":
+            counts["upgradedFromReview"] += 1
+        counts["restampedExact"] += 1
+        updates.append((iid_str, "exact", evidence_sha, claim,
+                        {"evidence": evidence, "mirror": mirror}))
+        results.append((iid_str, "exact", evidence_sha))
+
+    try:
+        with conn.cursor() as cursor:
+            for iid, new_status, evidence_sha, claim, extra in updates:
+                if extra is None:
+                    cursor.execute(
+                        "UPDATE catalog_source_identity SET match_status=%s"
+                        " WHERE source_code='snkrdunk' AND external_entity_id=%s",
+                        (new_status, iid),
+                    )
+                    continue
+                mirror = extra["mirror"]
+                cursor.execute(
+                    "UPDATE catalog_source_identity SET match_status='exact',"
+                    " evidence_sha256=%s, source_product_number=%s,"
+                    " bind_evidence_json=%s, bound_tcg_code=%s,"
+                    " bound_card_language=%s, bound_set_code=%s,"
+                    " bound_collector_number=%s, bound_printing_code=%s,"
+                    " bound_parallel_code=%s, bound_edition_code=%s,"
+                    " bound_finish_code=%s"
+                    " WHERE source_code='snkrdunk' AND external_entity_id=%s",
+                    (
+                        evidence_sha,
+                        str(claim or "")[:64],
+                        json.dumps(extra["evidence"], ensure_ascii=False,
+                                   sort_keys=True),
+                        mirror[0][:32], mirror[1][:8], mirror[2][:24],
+                        mirror[3][:96], mirror[4][:24], mirror[5][:64],
+                        mirror[6][:191], mirror[7][:64], iid,
+                    ),
+                )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+    counts["runReplayed"] = bool(report.get("replayed"))
+    output = sha256_bytes(canonical_json(sorted(results)))
+    return {"input_sha256": _snk_refresh_input_sha(ctx), "output_sha256": output,
+            "counts": counts}
+
+
+def _snk_refresh_input_sha(ctx: SimpleNamespace) -> str:
+    """S7's input: S6's recorded output. Never the tables/files S7 mutates."""
+
+    with ctx.conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT output_sha256 FROM cardz_rebuild_checkpoint"
+            " WHERE generation_id=%s AND stage='pc-replay'",
+            (ctx.generation,),
+        )
+        row = cursor.fetchone()
+    return sha256_bytes(canonical_json([
+        "snk-refresh-input", (row or {}).get("output_sha256"),
+    ]))
+
+
 def _jsonl_psa_ids(path: Path) -> set[str]:
     """Extract the GemRate id space from brute-harvest rowData (field: psa_id)."""
 
@@ -2096,7 +2438,7 @@ LINEAR_STAGES: list[tuple[str, Callable | None, Callable | None, bool]] = [
     ("identity-resolve", stage_identity_resolve, _identity_input_sha, False),
     ("bind", stage_bind, _bind_input_sha, False),
     ("pc-replay", stage_pc_replay, _pc_replay_input_sha, False),
-    ("snk-refresh", None, None, False),
+    ("snk-refresh", stage_snk_refresh, _snk_refresh_input_sha, False),
     ("price-materialize", None, None, False),
     ("image-bind", None, None, False),
     ("prune-plan", None, None, False),
