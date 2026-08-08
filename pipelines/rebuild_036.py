@@ -3632,6 +3632,28 @@ def _table_columns(conn, table: str) -> dict[str, str]:
         return {str(row["name"]): str(row["nullable"]) for row in cursor.fetchall()}
 
 
+def _view_count_bounded(conn, view: str, budget_ms: int = 60_000) -> int | None:
+    """COUNT(*) with a server-side time budget; None = timed out.
+
+    呢啲 operator_* view 有 correlated-EXISTS，個別會行 30 分鐘以上
+    （operator_latest_accepted_daily_fact_projection 實測 34min 未完）。
+    S10/S13 只攞嚟做 before/after telemetry，唔係 gate — 超時記 null，
+    唔准擋住主線。
+    """
+
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                f"SELECT /*+ MAX_EXECUTION_TIME({budget_ms}) */ COUNT(*) AS n FROM {view}"
+            )
+            return int(cursor.fetchone()["n"] or 0)
+    except pymysql.err.OperationalError as err:
+        if err.args and err.args[0] == 3024:  # ER_QUERY_TIMEOUT
+            conn.rollback()
+            return None
+        raise
+
+
 def _chunked_in_count(conn, sql_template: str, ids: list[int], chunk: int = 800) -> int:
     """SUM of COUNT(*) over id chunks; sql_template has one {ph} placeholder slot."""
 
@@ -3825,10 +3847,10 @@ def stage_prune_plan(ctx: SimpleNamespace) -> dict[str, Any]:
         view_names = sorted(str(row["view_name"]) for row in cursor.fetchall())
     views: list[dict[str, Any]] = []
     for view in view_names:
-        with conn.cursor() as cursor:
-            cursor.execute(f"SELECT COUNT(*) AS n FROM {view}")
-            views.append({"view": view, "rows": int(cursor.fetchone()["n"] or 0)})
+        rows = _view_count_bounded(conn, view)
+        views.append({"view": view, "rows": rows, "countTimedOut": rows is None})
     counts["viewsTracked"] = len(views)
+    counts["viewCountTimeouts"] = sum(1 for v in views if v["rows"] is None)
 
     artifact = {
         "contract": "prune_plan_v1",
@@ -4555,16 +4577,17 @@ def stage_prune_apply(ctx: SimpleNamespace) -> dict[str, Any]:
     with conn.cursor() as cursor:
         cursor.execute("SELECT COUNT(*) AS n FROM market_raw_payload_object")
         raw_after = int(cursor.fetchone()["n"] or 0)
-        views_after = []
-        for view in plan.get("views", []):
-            cursor.execute(f"SELECT COUNT(*) AS n FROM {view['view']}")
-            views_after.append({
-                "view": view["view"],
-                "before": view["rows"],
-                "after": int(cursor.fetchone()["n"] or 0),
-            })
         cursor.execute("SELECT COUNT(*) AS n FROM catalog_variant")
         variants_left = int(cursor.fetchone()["n"] or 0)
+    views_after = []
+    for view in plan.get("views", []):
+        after = _view_count_bounded(conn, view["view"])
+        views_after.append({
+            "view": view["view"],
+            "before": view["rows"],
+            "after": after,
+            "countTimedOut": after is None,
+        })
     if raw_after != raw_before:
         raise SystemExit(
             f"S13 ABORT: market_raw_payload_object moved {raw_before}->{raw_after};"
