@@ -4,7 +4,7 @@
 
 ## 硬規矩（違反 = 事故）
 
-1. **唔准 `git add -A` / `git add .`** — `data/private/**` 冇被 gitignore，會 commit 咗私有數據。逐個檔 add。
+1. **唔准 `git add -A` / `git add .`** — 逐個檔 add。`data/private/` 同 `data/runtime/` 已 gitignore（2026-08-08 起），但呢條規矩照守：working tree 隨時有唔應該入 repo 嘅嘢。
 2. **`backend.env` 一個 byte 都唔准改**（讀可以）。任何 rebuild DDL/DML 用 `data/runtime/config/rebuild.env`（`--credentials-env`）。writer freeze 期間 `cardz@%` 只有 SELECT。
 3. **PriceCharting 只用 CDP port 9333**（headed Chrome，`scripts/ensure_chrome_cdp.ps1 -Port 9333`）。9222 係 Codex 嘅 browser profile：唔准掂，唔准 fallback。headless 必被 Cloudflare 擋，唔好試。
 4. **唔准同時起兩個 `rebuild-036` orchestrator**（冇 process mutex 保護你）。有 background run 行緊時，要跑 stage 就直接 call stage function，唔好再入 orchestrator。
