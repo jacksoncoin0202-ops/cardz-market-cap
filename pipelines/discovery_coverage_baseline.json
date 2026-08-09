@@ -2,9 +2,9 @@
  "note": "Cards with PSA10 population >= `population` that hold NO exact provider binding, and therefore cannot enter the universe however many generations run. daily-accept ABORTS when a count here goes UP. When discovery lowers one, lower it here in the same commit -- the git history is the record of the gap closing. Never raise a number to make a run pass: a rise means cards stopped being reachable and the run is telling you so.",
  "population": 1000,
  "measuredAt": "2026-08-09",
- "measuredAfter": "snk-identity-discover, after four rule fixes, bound 9 more One Piece cards (162 -> 153)",
+ "measuredAfter": "pc-identity-reverify reconsidered 101 bindings that psa_identity_repair had rejected as collateral without examining them, and 49 proved on their own captured page; snk-identity-discover bound 1 more (one-piece 153 -> 137, pokemon 447 -> 413)",
  "noCandidateAtPop": {
-  "one-piece": 153,
-  "pokemon": 447
+  "one-piece": 137,
+  "pokemon": 413
  }
 }

@@ -747,9 +747,13 @@ def stage_identity_resolve(ctx: SimpleNamespace) -> dict[str, Any]:
         if binding and fp is not None:
             variant = variants.get(variant_id) or {}
             conflicts = _fingerprint_variant_conflicts(fp, variant)
-            # A rejected binding is a recorded decision, not an accepted
-            # binding that moved — flagging it every recompute opens an
-            # incident with no closure path anywhere in S5.
+            # 'accepted_binding_moved' is an incident about a LIVE binding
+            # drifting. A rejected row is not live, and S5 has no path that
+            # closes such an incident, so raising one every recompute would
+            # accumulate noise nobody can clear. This is a statement about the
+            # incident's meaning, not about the rejection being trustworthy --
+            # most rejected rows are collateral quarantine that examined
+            # nothing (see REJECTION_VERDICT_ACTIONS).
             if conflicts and binding["match_status"] != "rejected":
                 pending_reasons.append("binding_conflict")
                 incidents.append({
@@ -902,6 +906,66 @@ def _identity_input_sha(ctx: SimpleNamespace) -> str:
 # branches stay distinguishable.
 EVIDENCE_TYPE_GEMRATE = "provider_native_psa_identity_and_population"
 EVIDENCE_TYPE_PROVIDER_PAGE = "provider_native_product_page"
+
+
+# match_status='rejected' means two different things, and only one of them is a
+# ruling about the binding it sits on.
+#
+# A VERDICT is written by a decision contract that looked at this provider row
+# and said no: apply_verified_source_bindings writes action='reject', and
+# new_era_db_tidy writes action='reject-wrong-printing-source'. Both stamp their
+# reasoning into bind_evidence_json. Those must never be overturned by a lane
+# that simply likes the card better.
+#
+# A QUARANTINE is collateral. psa_identity_repair.py rejects EVERY non-gemrate
+# binding on a variant whose GEMRATE identity would not resolve, and leaves the
+# old evidence untouched -- so the row keeps whatever it said before, usually
+# action='confirm'. Nothing examined the provider binding at all. On 2026-08-07
+# 14:08 one such pass rejected 226 price-lane rows in a single minute; the
+# gemrate identities were repaired the next morning and the collateral was
+# never revisited, leaving 121 cards at PSA10 population >= 1000 looking
+# permanently ruled out when no one had ever looked at them.
+#
+# The distinction has to be readable from the row, because a lane that cannot
+# tell them apart must choose between overturning real verdicts and honouring
+# fake ones. It gets both wrong.
+REJECTION_VERDICT_ACTIONS = frozenset({"reject", "reject-wrong-printing-source"})
+
+if any(not re.fullmatch(r"[a-z-]+", action) for action in REJECTION_VERDICT_ACTIONS):
+    # These are interpolated into SQL below. Keeping them to letters and hyphens
+    # is what makes that safe, so the constraint is enforced, not assumed.
+    raise AssertionError("rejection verdict actions must be lowercase and hyphens")
+
+# Drop into a WHERE to mean "this row is not a rejection anyone reasoned about".
+# Built from the set above so the two can never drift apart.
+NOT_A_REJECTION_VERDICT_SQL = (
+    "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(bind_evidence_json,'$.action')),'') NOT IN ("
+    + ",".join(f"'{action}'" for action in sorted(REJECTION_VERDICT_ACTIONS))
+    + ")"
+)
+
+
+def rejection_is_verdict(bind_evidence_json: Any) -> bool:
+    """Did something actually rule against this binding, or is it collateral?
+
+    Unreadable evidence counts as a verdict. A row whose reasoning cannot be
+    parsed is not thereby proved harmless, and the cost of the two mistakes is
+    not symmetric: honouring a stale quarantine leaves a card off the front end
+    until someone re-runs discovery, while overturning a real rejection binds a
+    card to the wrong product and prices it wrong.
+    """
+
+    if bind_evidence_json is None:
+        return False
+    claim = bind_evidence_json
+    if isinstance(claim, (str, bytes)):
+        try:
+            claim = json.loads(claim)
+        except (ValueError, TypeError):
+            return True
+    if not isinstance(claim, Mapping):
+        return True
+    return str(claim.get("action") or "") in REJECTION_VERDICT_ACTIONS
 
 
 def _gemrate_printing_sha(fields: Mapping[str, str]) -> str:
@@ -6618,6 +6682,13 @@ _PC_BRACKET_SYNONYMS: dict[str, frozenset[str]] = {
     "aa": frozenset({"alternate art", "alt art", "alternative art"}),
     "tr": frozenset({"treasure rare"}),
     "mr": frozenset({"manga rare", "manga"}),
+    # The manga PARALLEL, which is not the "manga rare" rarity above. GemRate
+    # writes "Manga Alternate Art" and PC writes the same two words the other
+    # way round; both name the comic-art parallel of an existing card. A bare
+    # "[Manga]" is deliberately NOT here -- it belongs to "mr", and pages
+    # carrying it were seen against cards whose own treatment is plain
+    # Alternate Art, which is a different card and must keep holding.
+    "manga": frozenset({"alternate art manga", "manga alternate art"}),
     "1st": frozenset({"1st edition", "first edition"}),
     "wanted": frozenset({"wanted", "wanted poster"}),
     # "SP" is One Piece's own abbreviation of "Special"; both spellings appear
@@ -6693,7 +6764,16 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
     page product id == bound external id == map product id, no hard identity
     conflicts, and an agreeing print signature. Everything else keeps its
     status and is listed in the report for a human ruling. Never touches
-    exact/rejected/conflict rows."""
+    exact or conflict rows, and never overturns a rejection anybody reasoned
+    about.
+
+    It DOES reconsider a rejection nobody reasoned about. psa_identity_repair
+    rejects every non-gemrate binding on a card whose gemrate identity would not
+    resolve, without examining those bindings; skipping the whole status meant
+    those cards could never come back even after the gemrate side was repaired.
+    REJECTION_VERDICT_ACTIONS draws the line, and the page still has to prove the
+    binding on its own -- reconsidering costs a card nothing, because the
+    fail-closed contract below is the same one every other row faces."""
 
     from datetime import datetime, timezone
 
@@ -6728,7 +6808,8 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
 
     conn = connect(credentials)
     counts = {
-        "reviewBindings": 0, "pageMissing": 0, "pageParseFailures": 0,
+        "reviewBindings": 0, "quarantineReconsidered": 0,
+        "pageMissing": 0, "pageParseFailures": 0,
         "pageProductMismatch": 0, "mapProductMismatch": 0, "hardConflicts": 0,
         "productMismatch": 0, "printSignatureMismatch": 0, "promoted": 0,
     }
@@ -6756,13 +6837,16 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
                 " JOIN catalog_variant v ON v.id=si.variant_id"
                 " LEFT JOIN catalog_printing_identity p ON p.variant_id=v.id"
                 " WHERE si.source_code='pricecharting'"
-                "   AND si.match_status='manual_review'"
+                "   AND si.match_status IN ('manual_review','rejected')"
+                f"   AND {NOT_A_REJECTION_VERDICT_SQL}"
             )
             bindings = cursor.fetchall()
 
         updates: list[tuple[str, str, str, dict[str, Any], tuple[str, ...], Path]] = []
         for row in bindings:
             counts["reviewBindings"] += 1
+            if str(row["match_status"]) == "rejected":
+                counts["quarantineReconsidered"] += 1
             pid = str(row["pid"])
             variant_id = int(row["variant_id"])
 
@@ -6919,7 +7003,14 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
                             " bound_parallel_code=%s, bound_edition_code=%s,"
                             " bound_finish_code=%s"
                             " WHERE source_code='pricecharting'"
-                            " AND external_entity_id=%s AND match_status='manual_review'",
+                            " AND external_entity_id=%s"
+                            # Re-checked against the stored row, so a status that
+                            # moved since the read above changes zero rows rather
+                            # than overwriting whatever it moved to. 'exact' and
+                            # 'conflict' are excluded by naming the two statuses
+                            # this command is allowed to promote.
+                            " AND match_status IN ('manual_review','rejected')"
+                            f" AND {NOT_A_REJECTION_VERDICT_SQL}",
                             (
                                 evidence_sha, str(collector or "")[:64],
                                 json.dumps(evidence, ensure_ascii=False, sort_keys=True),

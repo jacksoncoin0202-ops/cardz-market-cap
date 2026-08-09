@@ -571,9 +571,35 @@ def apply_audit(connection: Any, audit: dict[str, Any]) -> dict[str, Any]:
             if variant_id in red_ids or classification in {
                 "language_mismatch", "printing_mismatch", "source_mismatch", "ambiguous"
             }:
+                # This rejects every non-gemrate binding on the card because the
+                # card's own GEMRATE identity would not resolve -- nothing here
+                # examined SNKRDUNK or PriceCharting at all. Say so in the row.
+                #
+                # Left unstamped, these are indistinguishable from a contract
+                # that read a binding and refused it, and the difference decides
+                # whether a later discovery run may reconsider. On 2026-08-07 an
+                # unstamped pass put 226 price-lane rows into this state; the
+                # gemrate identities were repaired the next morning and 121 cards
+                # at PSA10 population >= 1000 stayed off the front end looking
+                # permanently ruled out. bind_evidence_json is assigned first so
+                # it captures match_status before this statement overwrites it,
+                # and it keeps the prior claim rather than erasing it.
                 cur.execute(
-                    "UPDATE catalog_source_identity SET match_status='rejected' WHERE variant_id=%s AND source_code<>'gemrate' AND match_status<>'rejected'",
-                    (variant_id,),
+                    """UPDATE catalog_source_identity
+                          SET bind_evidence_json=JSON_OBJECT(
+                                'contract', %s,
+                                'action', 'quarantine-unresolved-variant-identity',
+                                'reasonCode', %s,
+                                'redListed', %s,
+                                'reason', 'gemrate identity unresolved for this'
+                                  ' variant; this provider binding was not examined',
+                                'quarantinedAt', UTC_TIMESTAMP(),
+                                'previousMatchStatus', match_status,
+                                'previousEvidence', bind_evidence_json),
+                              match_status='rejected'
+                        WHERE variant_id=%s AND source_code<>'gemrate'
+                          AND match_status<>'rejected'""",
+                    (CONTRACT, classification, variant_id in red_ids, variant_id),
                 )
                 affected["bindingsRejected"] += int(cur.rowcount)
                 affected.update(_quarantine_variant(cur, variant_id, f"034 PSA identity quarantine: {classification}"))

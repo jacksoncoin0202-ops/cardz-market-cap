@@ -179,10 +179,15 @@ def existing_owners(conn: Any, item_ids: list[int]) -> dict[str, dict[str, Any]]
     SNKRDUNK item belongs to exactly one variant and a candidate cannot simply
     be copied onto a second card. But the status on that row decides what the
     row MEANS. An 'exact' row is a proven binding and is untouchable. A
-    'manual_review' or 'rejected' row is an unproven proposal, and treating it
-    as ownership is how the Japanese listing for OP01-016 Nami ended up parked
-    on the English card while the Japanese card -- PSA10 population 8,414 --
-    stayed off the front end with no candidate at all.
+    'manual_review' row is an unproven proposal, and treating it as ownership is
+    how the Japanese listing for OP01-016 Nami ended up parked on the English
+    card while the Japanese card -- PSA10 population 8,414 -- stayed off the
+    front end with no candidate at all.
+
+    'rejected' is the one status that cannot be read off the status alone. It
+    covers both a contract that examined this row and refused it, and a
+    variant-wide quarantine that never looked at it; R.rejection_is_verdict
+    tells them apart by the evidence each leaves behind.
     """
 
     if not item_ids:
@@ -190,7 +195,7 @@ def existing_owners(conn: Any, item_ids: list[int]) -> dict[str, dict[str, Any]]
     marks = ",".join(["%s"] * len(item_ids))
     with conn.cursor() as cursor:
         cursor.execute(
-            "SELECT external_entity_id, variant_id, match_status"
+            "SELECT external_entity_id, variant_id, match_status, bind_evidence_json"
             " FROM catalog_source_identity"
             f" WHERE source_code='snkrdunk' AND external_entity_id IN ({marks})",
             tuple(str(i) for i in item_ids),
@@ -199,6 +204,10 @@ def existing_owners(conn: Any, item_ids: list[int]) -> dict[str, dict[str, Any]]
             str(row["external_entity_id"]): {
                 "variant_id": int(row["variant_id"]),
                 "match_status": str(row["match_status"]),
+                "verdict": (
+                    str(row["match_status"]) == "rejected"
+                    and R.rejection_is_verdict(row["bind_evidence_json"])
+                ),
             }
             for row in cursor.fetchall()
         }
@@ -297,14 +306,30 @@ def rule_candidate(row: dict[str, Any], payload: dict[str, Any]) -> tuple[bool, 
     if not same_character:
         return False, why, facts
 
+    # Exactly one check judges our parallel field -- never both, never neither.
+    #
+    # GEMRATE_TREATMENT decides which. A wording it can name is a TREATMENT
+    # ("Alternate Art"), judged by the treatment comparison below. A wording it
+    # cannot name is a PRODUCT ("Illustration Box Vol.1", "PSA Magazine
+    # Exclusive"), judged by product_agrees, which folds those words in as
+    # required evidence. product_agrees was written knowing this; the treatment
+    # check was not, and rejected every promo for the crime of having a
+    # parallel that names a product -- seven cards here, each already proved by
+    # the very words its rejection quoted back.
+    ours = gemrate_treatment(row.get("fp_parallel") or "")
+
     # The product-name comparison stands in for a set code we do not have.
-    # When both sides print the same code it has nothing left to decide, and
-    # it starts doing harm: GemRate calls OP09 "Emperors in the New World"
-    # while SNKRDUNK words its own English set name differently, so demanding
-    # those words appear rejected the only listings that could ever be this
-    # card. Codes that DISAGREE never reach here -- they are a hard conflict
-    # above -- so this skips a tie-breaker, not a check.
-    if not set_codes_agree:
+    # When both sides print the same code it has nothing left to decide, and it
+    # starts doing harm: GemRate calls OP09 "Emperors in the New World" while
+    # SNKRDUNK words its own English set name differently, so demanding those
+    # words appear rejected the only listings that could ever be this card.
+    # Codes that DISAGREE never reach here -- they are a hard conflict above --
+    # so this skips a tie-breaker, not a check.
+    #
+    # A promo gets no such shortcut. GemRate files every promo under one
+    # bucket, so an agreeing code discriminates nothing and the product words
+    # are the only evidence there is.
+    if not set_codes_agree or not ours:
         same_product, why = product_agrees(
             row.get("set_name") or "", row.get("fp_parallel") or "",
             master_name, localized,
@@ -312,14 +337,11 @@ def rule_candidate(row: dict[str, Any], payload: dict[str, Any]) -> tuple[bool, 
         if not same_product:
             return False, why, facts
 
-    # Treatment is compared on the shared vocabulary, not on the word
-    # "parallel": SNKRDUNK spells it as a rarity suffix (R-P, SEC-SPC, SR-TR)
-    # and GemRate spells it in words ("Alternate Art"). Either side saying
-    # something this table cannot name is a hold, never a pass.
-    ours = gemrate_treatment(row.get("fp_parallel") or "")
-    theirs = snk_treatment(master_name, localized)
     if not ours:
-        return False, f"treatment_unmapped_ours:{row.get('fp_parallel') or ''}", facts
+        facts["parallelJudgedAs"] = "product"
+        return True, "", facts
+
+    theirs = snk_treatment(master_name, localized)
     if not theirs:
         return False, f"treatment_unmapped_snk:{master_name[:60]}", facts
     if ours != theirs:
@@ -452,14 +474,21 @@ def cmd_snk_identity_discover(args: argparse.Namespace) -> int:
 
         owners = existing_owners(conn, sorted(every_id))
         proven = {iid for iid, own in owners.items() if own["match_status"] == "exact"}
-        contested = {iid: own for iid, own in owners.items() if iid not in proven}
+        refused = {iid for iid, own in owners.items() if own["verdict"]}
+        # Both are settled, for opposite reasons: one is somebody's proven card,
+        # the other is a candidate a decision contract already threw out. Fetching
+        # either costs a request and can only produce a rejection.
+        untouchable = proven | refused
+        contested = {iid: own for iid, own in owners.items() if iid not in untouchable}
         counts["candidatesTaken"] = len(proven)
+        counts["candidatesRefused"] = len(refused)
         counts["candidatesContested"] = len(contested)
         progress(f"[harvest] candidates={len(every_id)} proven_elsewhere={len(proven)}"
-                 f" contested={len(contested)} to_fetch={len(every_id) - len(proven)}")
+                 f" refused_by_verdict={len(refused)} contested={len(contested)}"
+                 f" to_fetch={len(every_id) - len(untouchable)}")
 
         harvest_path = base_dir / "snk_discover_harvest.jsonl"
-        worklist = sorted(i for i in every_id if str(i) not in proven)
+        worklist = sorted(i for i in every_id if str(i) not in untouchable)
         if worklist:
             snk_market_data.run(
                 worklist, harvest_path, delay=0.0,
@@ -491,6 +520,12 @@ def cmd_snk_identity_discover(args: argparse.Namespace) -> int:
                 held_by = owners.get(str(item_id))
                 if held_by and held_by["match_status"] == "exact":
                     rejections.append(f"{item_id}:proven_binding_elsewhere")
+                    continue
+                if held_by and held_by["verdict"]:
+                    # Somebody read this pairing and refused it. These rules are
+                    # not evidence that the refusal was wrong, so the item is out
+                    # of the running until that decision is revisited on purpose.
+                    rejections.append(f"{item_id}:refused_by_decision_contract")
                     continue
                 ok, reason, facts = rule_candidate(row, rows_by_id.get(item_id))
                 if ok:
@@ -600,10 +635,13 @@ def cmd_snk_identity_discover(args: argparse.Namespace) -> int:
                             written += 1
                             continue
                         # The row exists on another card as an unproven claim.
-                        # match_status<>'exact' in the WHERE is the guard, not a
-                        # formality: if anything promoted that row between the
-                        # read above and here, zero rows change and the run
-                        # aborts rather than quietly taking a proven binding.
+                        # The two conditions in the WHERE are the guard, not a
+                        # formality. They are checked against the stored row, so
+                        # anything that promoted or refused it between the read
+                        # above and here changes zero rows and aborts the run
+                        # instead of quietly overwriting a settled decision --
+                        # 'exact' for a proven binding, a rejection verdict for
+                        # one a contract examined and threw out.
                         cursor.execute(
                             "UPDATE catalog_source_identity SET variant_id=%s,"
                             " match_status='exact', evidence_sha256=%s,"
@@ -613,14 +651,16 @@ def cmd_snk_identity_discover(args: argparse.Namespace) -> int:
                             " bound_printing_code=%s, bound_parallel_code=%s,"
                             " bound_edition_code=%s, bound_finish_code=%s"
                             " WHERE source_code='snkrdunk' AND external_entity_id=%s"
-                            "   AND match_status <> 'exact'",
+                            "   AND match_status <> 'exact'"
+                            f"   AND {R.NOT_A_REJECTION_VERDICT_SQL}",
                             (w["variant_id"],) + payload + (str(w["item_id"]),),
                         )
                         if cursor.rowcount != 1:
                             raise SystemExit(
                                 f"repoint of item {w['item_id']} changed"
-                                f" {cursor.rowcount} rows, not 1: the row moved"
-                                " or was proven while this run was thinking"
+                                f" {cursor.rowcount} rows, not 1: the row moved,"
+                                " was proven, or was refused while this run was"
+                                " thinking"
                             )
                         counts["repointed"] += 1
                         written += 1

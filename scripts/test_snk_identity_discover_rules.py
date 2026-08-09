@@ -21,6 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
+import rebuild_036 as R  # noqa: E402
 from snk_identity_discover import (  # noqa: E402
     gemrate_treatment,
     character_agrees,
@@ -199,6 +200,84 @@ check(
     "a card with no name of ours stands aside",
     character_agrees("", "Nami L-P [OP03-040]")[0], True,
 )
+
+
+# --- 6. exactly one check judges the parallel --------------------------------
+# GEMRATE_TREATMENT is the arbiter. What it can name is a treatment and belongs
+# to the treatment comparison; what it cannot name is a product and belongs to
+# product_agrees. These assert the split itself, because when both checks
+# claimed the field the promos lost: product_agrees proved them and the
+# treatment check rejected them anyway.
+for product_parallel in (
+    "Illustration Box Vol.1", "PSA Magazine Exclusive",
+    "Official Event Top Prize", "Box Topper",
+):
+    check(
+        f"'{product_parallel}' is a product, not a treatment",
+        gemrate_treatment(product_parallel), "",
+    )
+for treatment_parallel in ("Alternate Art", "Manga Alternate Art", "Treasure Rare"):
+    check(
+        f"'{treatment_parallel}' is a treatment",
+        bool(gemrate_treatment(treatment_parallel)), True,
+    )
+
+# A promo is proved by its product words appearing on the listing...
+promo_ok, _ = product_agrees(
+    "One Piece Japanese Promos", "Illustration Box Vol.1",
+    "O-Nami R-P [OP05-062] (Illustration Box Vol. 1)", "",
+)
+check("promo proved by its own product words", promo_ok, True)
+# ...and by nothing weaker. Same box, different volume, is a different card.
+promo_bad, _ = product_agrees(
+    "One Piece Japanese Promos", "Illustration Box Vol.1",
+    "O-Nami R-P [OP05-062] (Illustration Box Vol. 3)", "",
+)
+check("wrong volume is still rejected", promo_bad, False)
+
+
+# --- 7. which rejections may be reconsidered -------------------------------
+# match_status='rejected' carries two meanings and only one is a ruling. Every
+# blob below was read off a real row on 2026-08-09, when the database held 379
+# rejected bindings: 2 verdicts and 377 collateral.
+check(
+    "an examined rejection is a verdict",
+    R.rejection_is_verdict('{"action": "reject", "reason": "wrong product"}'), True,
+)
+check(
+    "a wrong-printing rejection is a verdict",
+    R.rejection_is_verdict('{"action": "reject-wrong-printing-source"}'), True,
+)
+# The shape psa_identity_repair left behind: the row still carries the evidence
+# of the bind it was quarantining, so it literally says "confirm".
+check(
+    "collateral quarantine keeping stale confirm evidence is not a verdict",
+    R.rejection_is_verdict(
+        '{"action": "confirm", "contract": "active-762-exact-identity-repair-031-v1"}'
+    ),
+    False,
+)
+check(
+    "the stamped quarantine is not a verdict either",
+    R.rejection_is_verdict('{"action": "quarantine-unresolved-variant-identity"}'),
+    False,
+)
+check("no evidence at all is not a verdict", R.rejection_is_verdict(None), False)
+check(
+    "an already-decoded blob is read the same way",
+    R.rejection_is_verdict({"action": "reject"}), True,
+)
+# Unreadable evidence must NOT be reconsidered. Binding a card to the wrong
+# product prices it wrong; leaving a card off the front end does not.
+check("unparseable evidence holds", R.rejection_is_verdict("{not json"), True)
+check("a JSON scalar holds", R.rejection_is_verdict('"reject"'), True)
+
+# The SQL predicate is generated from the same set, so the two cannot drift.
+for action in R.REJECTION_VERDICT_ACTIONS:
+    check(
+        f"SQL predicate names '{action}'",
+        f"'{action}'" in R.NOT_A_REJECTION_VERDICT_SQL, True,
+    )
 
 print()
 if failures:
