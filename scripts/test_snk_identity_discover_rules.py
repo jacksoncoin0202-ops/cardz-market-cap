@@ -15,6 +15,7 @@ Both were written after a dry run tried to bind the wrong card:
 
 Run: python -X utf8 scripts/test_snk_identity_discover_rules.py
 """
+import json
 import sys
 from pathlib import Path
 
@@ -271,6 +272,30 @@ check(
 # product prices it wrong; leaving a card off the front end does not.
 check("unparseable evidence holds", R.rejection_is_verdict("{not json"), True)
 check("a JSON scalar holds", R.rejection_is_verdict('"reject"'), True)
+
+# The 034 audit sheet's thirteen red rows are a human ruling about the CARD.
+# It reaches a binding only by being copied onto it, and until it was, a
+# reverify pass that reconsiders collateral promoted seven of the thirteen.
+check(
+    "a red-sheet quarantine is a verdict",
+    R.rejection_is_verdict(json.dumps({
+        "action": "quarantine-unresolved-variant-identity",
+        "redListed": True, "reasonCode": "red_sheet_row",
+    })),
+    True,
+)
+check(
+    "a quarantine that is NOT red-listed stays reconsiderable",
+    R.rejection_is_verdict(json.dumps({
+        "action": "quarantine-unresolved-variant-identity",
+        "redListed": False, "reasonCode": "printing_mismatch",
+    })),
+    False,
+)
+check(
+    "SQL predicate reads the same key",
+    f"$.{R.REJECTION_RED_LIST_KEY}" in R.NOT_A_REJECTION_VERDICT_SQL, True,
+)
 
 # The SQL predicate is generated from the same set, so the two cannot drift.
 for action in R.REJECTION_VERDICT_ACTIONS:

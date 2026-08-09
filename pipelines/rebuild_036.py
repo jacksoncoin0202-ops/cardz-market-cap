@@ -936,12 +936,26 @@ if any(not re.fullmatch(r"[a-z-]+", action) for action in REJECTION_VERDICT_ACTI
     # is what makes that safe, so the constraint is enforced, not assumed.
     raise AssertionError("rejection verdict actions must be lowercase and hyphens")
 
+# The third verdict is a ruling about the CARD, not about any one binding.
+#
+# The 034 audit sheet has thirteen red rows: cards a human read and refused, so
+# every non-gemrate binding on them stays quarantined and their market data
+# stays out of the world. psa_identity_repair enforces it via `red_ids`, and
+# nothing about that reached the row -- the ruling lived in a spreadsheet and a
+# set literal. Reconsidering quarantined rows promoted seven of the thirteen
+# before validator034's red13 invariant caught it, which is exactly one gate
+# more than should have been needed. So the ruling is copied onto every row it
+# governs, under this key, and every lane reads it off the row like any other.
+REJECTION_RED_LIST_KEY = "redListed"
+
 # Drop into a WHERE to mean "this row is not a rejection anyone reasoned about".
-# Built from the set above so the two can never drift apart.
+# Built from the constants above so the SQL and the Python cannot drift apart.
 NOT_A_REJECTION_VERDICT_SQL = (
     "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(bind_evidence_json,'$.action')),'') NOT IN ("
     + ",".join(f"'{action}'" for action in sorted(REJECTION_VERDICT_ACTIONS))
     + ")"
+    + " AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(bind_evidence_json,"
+    + f"'$.{REJECTION_RED_LIST_KEY}')),'false') <> 'true'"
 )
 
 
@@ -965,7 +979,9 @@ def rejection_is_verdict(bind_evidence_json: Any) -> bool:
             return True
     if not isinstance(claim, Mapping):
         return True
-    return str(claim.get("action") or "") in REJECTION_VERDICT_ACTIONS
+    if str(claim.get("action") or "") in REJECTION_VERDICT_ACTIONS:
+        return True
+    return bool(claim.get(REJECTION_RED_LIST_KEY))
 
 
 def _gemrate_printing_sha(fields: Mapping[str, str]) -> str:

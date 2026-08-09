@@ -75,9 +75,47 @@ OP03-112：set code、號碼、語言、treatment **全部一致**，而我哋�
 **角色名** 先係 One Piece 嘅身份組合。共用 rule + 一個 `op_identity_rules.py`
 詞彙表，好過兩支會慢慢分叉嘅腳本。
 
+## 第八個缺陷：一個狀態撈埋兩個意思（2026-08-09 夜補）
+
+`match_status='rejected'` 一直有兩個來源，而全部 lane 都當佢係強嗰個：
+
+- **判決**——decision contract 睇過呢個 binding 之後否決，evidence 寫住
+  `action='reject'` 或 `'reject-wrong-printing-source'`。
+- **連坐**——`psa_identity_repair.py` 見到一張卡嘅 **GemRate** 身份解唔掂，就將
+  嗰張卡**所有非 gemrate binding 一次過撳 rejected**，完全冇睇過嗰啲 binding，
+  亦冇改 evidence，所以行入面照樣寫住 `"action": "confirm"`。
+
+2026-08-07 14:08 一分鐘內連坐咗 226 個價源行。第二朝 GemRate 身份修好咗，
+連坐嗰批冇人翻返轉頭。全 DB 379 個 rejected 入面，**2 個係判決，377 個係連坐**——
+但 `pc-identity-reverify` 個 docstring 明寫「Never touches exact/rejected/conflict
+rows」，所以嗰 121 張 pop≥1000 嘅卡，永遠冇機會再被審。
+
+**呢個係「乾淨嘅零」嘅另一個樣。** 唔係腳本搵唔到，係腳本被叫咗唔准搵。
+
+修法：`REJECTION_VERDICT_ACTIONS` 由 evidence 分辨兩者，SQL predicate 由同一個 set
+生成（唔會分叉）。PC reverify 重審連坐嗰批——**用返一模一樣嗰條 fail-closed 契約，
+零 gate 放鬆**；SNK discovery 拒絕覆寫真判決，記憶體檢查同 UPDATE 個 WHERE 各做一次。
+`psa_identity_repair` 之後自己 stamp 連坐 evidence，原本嗰份 nest 住唔刪。
+
+重審 101 行 → 49 行喺自己嗰版捕獲頁面上證到身份。one-piece 153→137、pokemon 447→413。
+
+**教訓：一個狀態如果有兩個寫入者、兩個意思，佢就唔係狀態，係一個等緊爆嘅假設。**
+狀態要自述——邊個寫、點解寫——唔係靠讀 code 嘅人記住。
+
 ## 仲未修（欠單，唔係已修）
 
-- **PriceCharting lane 有同一個 quarantine 陷阱。** 今次只修咗 SNK 邊。
-- **英文嗰 112 張 OP 缺口**要行 PC lane（要 headed Chrome CDP :9333）。
-- **Pokémon 缺口 447 張**未掂過。
-- **catalog identity 缺陷**：54 張入面 50 張 `set_code` 空、`collector_number` 得個裸號碼。而家靠 rule 由 `set_name` 補讀——治標。
+- **`print_signature_mismatch` 唔係規則問題，係 map 指錯頁。** 實測 v1582 捕獲到嘅
+  係「Sylveon #68 Terastal Festival」基本卡，唔係 Master Ball Reverse Holo 平行卡；
+  v849（pop 21,380）捕獲到嘅係基本 Umbreon VMAX。攔截係啱嘅，要修係重掃搵返平行卡
+  自己嗰個 PC product id。**唔准為咗過數放鬆 print signature。**
+- **剩返嘅缺口**（都要 headed Chrome CDP :9333 重掃）：one-piece en
+  `product_mismatch` 21 張、`print_signature_mismatch` 19 張、`hard_conflict` 19 張；
+  pokemon ja `hard_conflict` 37 張、`page_missing` 10 張。`hard_conflict` 大部分係
+  正確攔截（綁緊嘅 PC 產品真係另一隻），佢哋要嘅係 **discovery**，唔係 reverify。
+- **PC 搜尋結果頁做 discovery 唔掂**：35 張有 search capture，規則只能唯一解析 2 張。
+  唔值得起呢條 lane。
+- **catalog identity 缺陷**：54 張入面 50 張 `set_code` 空、`collector_number` 得個裸
+  號碼。而家靠 rule 由 `set_name` 補讀——治標。
+- **`stage_identity_resolve` 仲有一個 `match_status != 'rejected'` 分支**。行為係啱嘅
+  （incident 講嘅係 live binding 漂移，rejected 行唔 live，而且 S5 冇 closure path），
+  註釋已經改返講真原因，但呢個位提我哋：`rejected` 呢個字散落幾多處要定期查。
