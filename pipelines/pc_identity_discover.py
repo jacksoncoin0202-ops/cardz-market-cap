@@ -348,6 +348,25 @@ def judge_listing(row: dict[str, Any], listing: dict[str, str]) -> tuple[bool, s
 # Targets
 # ---------------------------------------------------------------------------
 
+def red_listed_variants() -> list[int]:
+    """The thirteen cards a human read on the 034 audit sheet and refused.
+
+    Derived, never copied: the sheet is the authority and a correction to it has
+    to reach this lane without anybody remembering this lane exists.
+
+    Fail-closed on purpose. A lane that proposes bindings and cannot see the
+    human ruling has no business proposing: on 2026-08-09 this lane bound three
+    red cards because it had never heard of the list, prices and sales went live
+    for two of them, and validator034's red13 invariant was the thing that
+    noticed -- one gate later than it should have been.
+    """
+
+    sys.path.insert(0, str(R.ROOT / "scripts"))
+    import stamp_red_sheet_quarantine as RED
+
+    return RED.red_variant_ids()
+
+
 def select_targets(
     conn: Any, generation: str, min_pop: int, tcg: str, limit: int, language: str,
 ) -> list[dict[str, Any]]:
@@ -356,6 +375,9 @@ def select_targets(
     Mirrors snk_identity_discover.select_targets, with the language filter
     inverted: that lane is the non-English one because English cards route to
     PriceCharting under D4 language primacy, and this is where they route to.
+
+    Red-listed cards are removed here rather than refused later, so they never
+    reach a page fetch or a proposal record at all.
     """
 
     sql = """
@@ -384,6 +406,9 @@ def select_targets(
                )
     """
     params: list[Any] = [generation, min_pop, language]
+    red = red_listed_variants()
+    sql += f" AND v.id NOT IN ({','.join(['%s'] * len(red))})"
+    params.extend(red)
     if tcg:
         sql += " AND v.tcg_code = %s"
         params.append(tcg)

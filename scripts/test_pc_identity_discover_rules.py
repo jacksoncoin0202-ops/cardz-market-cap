@@ -240,6 +240,38 @@ if hody:
     truthy("and the reason names the character", "character" in why)
 
 
+# --- 3c. the human red ruling reaches target selection ---------------------
+# Three of these were proposed and two went live before validator034 caught it,
+# so the check belongs where targets are chosen, not where evidence is written.
+RED = D.red_listed_variants()
+check("the sheet still rules on thirteen cards", len(RED), 13)
+for vid in (1717, 1741, 1464):
+    truthy(f"v{vid} is on the red list", vid in RED)
+
+
+class _Cursor:
+    """Records the statement instead of running it."""
+
+    def __init__(self, sink): self.sink = sink
+    def __enter__(self): return self
+    def __exit__(self, *exc): return False
+    def execute(self, sql, params=()): self.sink.append((sql, params))
+    def fetchall(self): return []
+
+
+class _Conn:
+    def __init__(self): self.calls = []
+    def cursor(self): return _Cursor(self.calls)
+
+
+conn = _Conn()
+D.select_targets(conn, "036_x", 1000, "one-piece", 0, "en")
+sql, params = conn.calls[-1]
+truthy("target selection excludes ids by list", "v.id NOT IN (" in sql)
+missing = [vid for vid in RED if vid not in params]
+check(f"every red card is excluded ({len(RED) - len(missing)}/{len(RED)})", missing, [])
+
+
 # --- 4. the page-size constant is the page's, not ours ---------------------
 check("console page size matches what the form asks for", D.CONSOLE_PAGE_SIZE, 150)
 if PAGE.is_file():
