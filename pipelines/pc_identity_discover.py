@@ -356,33 +356,7 @@ def judge_listing(
 # Targets
 # ---------------------------------------------------------------------------
 
-NUMBER_SET_CODE_RE = re.compile(r"^([A-Z]{2,4}\d{2})-")
-
-
-def set_name_by_code(conn: Any, tcg: str, language: str) -> dict[str, str]:
-    """What each set code is called, taken from the catalog by majority.
-
-    Derived rather than written down because a hard-coded OP01..OP14 table
-    would be wrong the week a new set ships and nobody would notice until a
-    card silently stopped resolving. The majority is what makes it safe: a
-    handful of rows carry a set_name belonging to the product the card was
-    pulled from, and those are exactly the rows this map exists to repair, so
-    reading any single row would be circular.
-    """
-
-    sql = ("SELECT set_code, set_name, COUNT(*) AS c FROM catalog_variant"
-           " WHERE tcg_code = %s AND set_code <> '' AND set_name <> ''")
-    params: list[Any] = [tcg]
-    if language:
-        sql += " AND card_language = %s"
-        params.append(language)
-    sql += " GROUP BY set_code, set_name ORDER BY set_code, c DESC"
-    best: dict[str, str] = {}
-    with conn.cursor() as cursor:
-        cursor.execute(sql, tuple(params))
-        for row in cursor.fetchall():
-            best.setdefault(str(row["set_code"]), str(row["set_name"]))
-    return best
+set_name_by_code = R.set_name_by_code
 
 
 def console_candidates(
@@ -418,8 +392,8 @@ def console_candidates(
         seen.add(slug)
     first_why = why
 
-    match = NUMBER_SET_CODE_RE.match(str(row.get("collector_number") or "").upper())
-    number_set = code_to_set.get(match.group(1)) if match else ""
+    names = R.set_names_a_card_could_carry(row, code_to_set)
+    number_set = names[1] if len(names) > 1 else ""
     if number_set and number_set != catalog_set:
         slug2, why2 = match_console(number_set, language, index)
         if slug2 and slug2 not in seen:
@@ -823,7 +797,11 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "--no-fetch", dest="no_fetch", action="store_true",
         help="use only console pages already cached; never touch the network",
     )
-    parser.add_argument("--credentials-env", dest="credentials_env", default="")
+    # A Path, not a str: R.connect reads the file. Declared as a bare string
+    # the flag parsed fine and then died inside connect(), which is the worst
+    # place to find out -- the freeze was already up and the run had started.
+    parser.add_argument("--credentials-env", dest="credentials_env", type=Path,
+                        default=None)
 
 
 def main() -> int:

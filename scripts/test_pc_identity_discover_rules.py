@@ -360,6 +360,19 @@ check("and [SP Foil] is still a different product",
       False)
 
 
+# --- 3f. the promoting gate reads the number's set too ---------------------
+# Both readings have to reach whoever judges the product, not just the lane
+# that finds the page: on 2026-08-09 reverify refused three cards this lane had
+# just proposed, for saying "Awakening of the New Era" where the page said the
+# set the card's own number names.
+check("both readings are offered to whoever judges the product",
+      RB.set_names_a_card_could_carry(reprint, CODE_TO_SET),
+      ["One Piece Emperors in the New World", "One Piece Two Legends"])
+check("a card whose number names its own set offers one",
+      RB.set_names_a_card_could_carry(same, CODE_TO_SET),
+      ["One Piece Emperors in the New World"])
+
+
 # --- 4. the page-size constant is the page's, not ours ---------------------
 check("console page size matches what the form asks for", D.CONSOLE_PAGE_SIZE, 150)
 if PAGE.is_file():

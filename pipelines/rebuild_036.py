@@ -959,6 +959,54 @@ NOT_A_REJECTION_VERDICT_SQL = (
 )
 
 
+NUMBER_SET_CODE_RE = re.compile(r"^([A-Z]{2,4}\d{2})-")
+
+
+def set_name_by_code(conn: Any, tcg: str, language: str) -> dict[str, str]:
+    """What each set code is called, taken from the catalog by majority.
+
+    Derived rather than written down: a hard-coded OP01..OP14 table would be
+    wrong the week a new set ships. The majority is what makes it safe -- a
+    handful of rows carry the set_name of the product the card was PULLED FROM
+    rather than the one its number names, and those rows are exactly what this
+    map exists to see past, so reading any single row would be circular.
+    """
+
+    sql = ("SELECT set_code, set_name, COUNT(*) AS c FROM catalog_variant"
+           " WHERE tcg_code = %s AND set_code <> '' AND set_name <> ''")
+    params: list[Any] = [tcg]
+    if language:
+        sql += " AND card_language = %s"
+        params.append(language)
+    sql += " GROUP BY set_code, set_name ORDER BY set_code, c DESC"
+    best: dict[str, str] = {}
+    with conn.cursor() as cursor:
+        cursor.execute(sql, tuple(params))
+        for row in cursor.fetchall():
+            best.setdefault(str(row["set_code"]), str(row["set_name"]))
+    return best
+
+
+def set_names_a_card_could_carry(
+    row: Mapping[str, Any], code_to_set: Mapping[str, str],
+) -> list[str]:
+    """The catalog's set name, plus the one this card's NUMBER names.
+
+    One Piece reprints a card into a later product without renumbering it, so
+    "OP09-Emperors in the New World Nami ... 106" and OP08-106 are the same
+    card described from two ends. PriceCharting files it under the number's
+    set, and a product check that only knows the catalog's set_name refuses its
+    page for saying "Two Legends" where we said "Emperors".
+    """
+
+    names = [str(row.get("set_name") or "")]
+    match = NUMBER_SET_CODE_RE.match(str(row.get("collector_number") or "").upper())
+    alt = code_to_set.get(match.group(1), "") if match else ""
+    if alt and alt not in names:
+        names.append(alt)
+    return [name for name in names if name]
+
+
 def red_listed_variants() -> list[int]:
     """The thirteen cards a human read on the 034 audit sheet and refused.
 
@@ -7011,6 +7059,9 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
     }
     promoted: list[dict[str, Any]] = []
     held: list[dict[str, Any]] = []
+    # (tcg, language) -> set code -> set name. Built on first use per language
+    # because most runs touch one.
+    set_name_maps: dict[tuple[str, str], dict[str, str]] = {}
     try:
         with conn.cursor() as cursor:
             cursor.execute(
@@ -7100,11 +7151,20 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
             # Art, and every check up to here agreed. The rule is applied only
             # where its vocabulary was derived.
             if str(row["tcg_code"] or "") == "one-piece":
-                same_product, why = op_identity_rules.product_agrees(
-                    str(row["set_name"] or ""), str(row["fp_parallel"] or ""),
-                    identity["setText"], identity["canonicalUrl"],
-                    identity["heading"],
-                )
+                key = (str(row["tcg_code"] or ""), str(row["card_language"] or ""))
+                if key not in set_name_maps:
+                    set_name_maps[key] = set_name_by_code(conn, key[0], key[1])
+                same_product, why = False, "product_mismatch:no_set_name"
+                for candidate_set in set_names_a_card_could_carry(
+                    row, set_name_maps[key]
+                ):
+                    same_product, why = op_identity_rules.product_agrees(
+                        candidate_set, str(row["fp_parallel"] or ""),
+                        identity["setText"], identity["canonicalUrl"],
+                        identity["heading"],
+                    )
+                    if same_product:
+                        break
                 if not same_product:
                     counts["productMismatch"] += 1
                     hold("product_mismatch", why)
