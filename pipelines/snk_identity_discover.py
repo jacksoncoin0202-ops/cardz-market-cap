@@ -44,135 +44,34 @@ import requests
 
 import rebuild_036 as R
 import snk_market_data
+# The One Piece vocabulary and the product-agreement rule are shared with the
+# PriceCharting lane -- both providers reprint a card under its original
+# number, so both need the same proof.
+from op_identity_rules import (
+    GEMRATE_TREATMENT,
+    RARITY_TOKEN_RE,
+    SET_CODE_RE,
+    SNK_SUFFIX_TREATMENT,
+    gemrate_treatment,
+    product_agrees,
+    snk_treatment,
+)
 from snkrdunk_bulk import UA
 
-ITEM_RE = re.compile(r"/apparels/(\d+)")
-# "One Piece Japanese OP05-Awakening of the New Era" -> OP05; "...PRB01-..." -> PRB01
-SET_CODE_RE = re.compile(r"\b([A-Z]{2,4}\d{2})\b")
-SEARCH_URL = "https://snkrdunk.com/search?keywords={}&page=1"
 
-# SNKRDUNK writes the treatment as a suffix on the rarity code, right before
-# the bracketed product number: "Nami R-P [OP01-016]". Every pair below was
-# read off a One Piece binding this database already accepted, not guessed:
-#
-#   SEC     [OP10-118]  <-> printing base   (item 563129)
-#   R-P     [OP13-051]  <-> printing aa     "Alternate Art"        (718301)
-#   SEC-P   [OP05-119]  <-> printing aa     "Alternate Art"        (198698)
-#   R-SPC   [OP01-016]  <-> printing sp     "Special Alternate Art" (198702)
-#   SEC-SPC [OP05-119]  <-> printing sp     "Wanted Alternate Art"  (471531)
-#   SR-TR   [OP07-109]  <-> printing tr     "Treasure Rare"        (385091)
-#   SEC-GSP [OP09-118]  <-> "Gold"                                  (349472)
-#
-# A bare "-SP" is deliberately absent: the only -SP listings seen so far spell
-# a gloss next to it ("(Comic Parallel)" / "(コミパラ)"), and without that gloss
-# there is nothing proving which treatment it is. Unmapped holds, never guesses.
-SNK_SUFFIX_TREATMENT = {
-    "": "base",
-    "P": "aa",
-    "SPC": "sp",
-    "TR": "tr",
-    "GSP": "gsp",
-}
-# GemRate's own wording for the same treatments (fingerprint.parallel).
-GEMRATE_TREATMENT = {
-    "": "base",
-    "base": "base",
-    "alternate art": "aa",
-    "manga alternate art": "manga",
-    "special alternate art": "sp",
-    "wanted alternate art": "sp",
-    "treasure rare": "tr",
-    "gold": "gsp",
-}
-RARITY_TOKEN_RE = re.compile(r"^(?P<rarity>[A-Z]{1,4})(?:-(?P<suffix>[A-Z]{1,4}))?$")
+def progress(message: str) -> None:
+    """Say what is happening while it happens.
 
-
-def snk_treatment(master_name: str, localized: str) -> str:
-    """Canonical treatment token SNKRDUNK claims, '' when it claims nothing
-    this vocabulary can name."""
-
-    text = f"{master_name} {localized}"
-    head = master_name.split("[")[0].split("(")[0].strip()
-    tokens = head.replace("　", " ").split()
-    if not tokens:
-        return ""
-    match = RARITY_TOKEN_RE.match(tokens[-1])
-    if not match:
-        return ""
-    suffix = (match.group("suffix") or "").upper()
-    if suffix == "SP":
-        # Only the spelled-out comic gloss makes an -SP readable.
-        lowered = text.casefold()
-        if "comic parallel" in lowered or "コミパラ" in text:
-            return "manga"
-        return ""
-    return SNK_SUFFIX_TREATMENT.get(suffix, "")
-
-
-def gemrate_treatment(parallel_words: str) -> str:
-    return GEMRATE_TREATMENT.get(R._norm_text(parallel_words), "")
-
-
-# Words that appear on nearly every One Piece listing and therefore prove
-# nothing about WHICH product a card came from.
-_PRODUCT_STOPWORDS = frozenset({
-    "one", "piece", "japanese", "english", "version", "card", "cards", "the",
-    "of", "in", "a", "an", "and", "for", "booster", "pack", "set", "edition",
-    "collection", "deck", "vol", "no", "op", "st", "prb", "eb", "p",
-    # "One Piece Japanese Promos" is GemRate's bucket for every promo ever
-    # printed, so it names no product at all. Treating it as distinctive would
-    # let any listing with the word "Promotional" in it look like a match.
-    "promo", "promos", "promotional",
-})
-
-
-def _product_tokens(text: str) -> set[str]:
-    words = re.split(r"[^0-9a-z]+", R._norm_text(text))
-    return {w for w in words if w and w not in _PRODUCT_STOPWORDS and not SET_CODE_RE.match(w.upper())}
-
-
-def product_agrees(
-    our_set_name: str, our_parallel: str, master_name: str, localized: str,
-) -> tuple[bool, str]:
-    """Does SNKRDUNK's listing name the same product our catalog does?
-
-    One Piece reprints a card under its ORIGINAL number in many later
-    products: OP01-016 Nami exists as the Romance Dawn booster parallel, the
-    25th Anniversary premium collection, the Girls Edition, a promo set and
-    more. The shared conflict check stops as soon as the set CODES agree
-    ("an agreeing set code is the vocabulary-free signal"), which is true for
-    Pokemon but lets every one of those OP01-016 products look identical. So
-    this lane additionally demands that our distinctive product words actually
-    appear in the provider's listing.
-
-    Which field holds those words depends on the row. A booster card names its
-    product in set_name and its treatment in parallel ("Alternate Art"). A
-    promo names nothing in set_name -- GemRate files every promo ever printed
-    under one bucket -- and names the product in parallel instead ("Ichiban
-    Kuji Purchase Bonus", "PSA Magazine Exclusive"). The GEMRATE_TREATMENT
-    table already decides which of those two a parallel is: a wording it can
-    name is a treatment and says nothing about the product, and a wording it
-    cannot name is a product and has to be proved like one.
+    The report is a single JSON blob at the end, so without this a run that
+    searches a hundred cards looks identical to a run that hung on the first
+    one. stderr keeps stdout parseable.
     """
 
-    ours = _product_tokens(our_set_name)
-    if not gemrate_treatment(our_parallel):
-        ours |= _product_tokens(our_parallel)
-    if not ours:
-        return False, "our_set_name_has_no_distinctive_token"
-    theirs = _product_tokens(f"{master_name} {localized}")
-    missing = sorted(
-        token for token in ours
-        if not any(
-            token == other
-            or (min(len(token), len(other)) >= 4
-                and (token.startswith(other) or other.startswith(token)))
-            for other in theirs
-        )
-    )
-    if missing:
-        return False, f"product_mismatch:missing={missing}"
-    return True, ""
+    print(message, file=sys.stderr, flush=True)
+
+
+ITEM_RE = re.compile(r"/apparels/(\d+)")
+SEARCH_URL = "https://snkrdunk.com/search?keywords={}&page=1"
 
 
 def product_number(set_name: str, collector_number: str, set_code: str = "") -> str:
@@ -257,6 +156,7 @@ def select_targets(
                  SELECT 1 FROM catalog_source_identity si
                   WHERE si.variant_id = v.id
                     AND si.source_code IN ('snkrdunk', 'snk_psa10', 'pricecharting')
+                    AND si.match_status = 'exact'
                )
     """
     params: list[Any] = [generation, min_pop]
@@ -455,11 +355,13 @@ def cmd_snk_identity_discover(args: argparse.Namespace) -> int:
             print(json.dumps({"snkIdentityDiscover": True, "targets": 0}, ensure_ascii=False))
             return 0
 
+        progress(f"[discover] generation={generation} targets={len(targets)}"
+                 f" write={bool(args.write)}")
         session = requests.Session()
         session.headers["User-Agent"] = UA
         per_target: dict[int, tuple[str, list[int]]] = {}
         every_id: set[int] = set()
-        for row in targets:
+        for index, row in enumerate(targets, 1):
             vid = int(row["variant_id"])
             queries = search_queries(row)
             if not queries:
@@ -474,6 +376,8 @@ def cmd_snk_identity_discover(args: argparse.Namespace) -> int:
                         ids.append(item_id)
                 time.sleep(args.delay)
             ids = ids[: args.per_card]
+            progress(f"[search {index}/{len(targets)}] v{vid} pop={row['pop']}"
+                     f" hits={len(ids)} :: {queries[0][:60]}")
             if not ids:
                 counts["searchEmpty"] += 1
                 held.append({"variant_id": vid, "reason": "search_empty",
@@ -485,6 +389,8 @@ def cmd_snk_identity_discover(args: argparse.Namespace) -> int:
 
         taken = taken_item_ids(conn, sorted(every_id))
         counts["candidatesTaken"] = len(taken)
+        progress(f"[harvest] candidates={len(every_id)} already_bound={len(taken)}"
+                 f" to_fetch={len(every_id) - len(taken)}")
 
         harvest_path = base_dir / "snk_discover_harvest.jsonl"
         worklist = sorted(i for i in every_id if str(i) not in taken)
@@ -555,6 +461,10 @@ def cmd_snk_identity_discover(args: argparse.Namespace) -> int:
                     "card": str(row["canonical_name"])[:120],
                     "rejections": rejections[:12],
                 })
+            verdict = ("ACCEPT" if len(survivors) == 1 else
+                       "ambiguous" if survivors else "hold")
+            progress(f"[rule] v{vid} pop={row['pop']} {verdict}"
+                     f" candidates={len(ids)} :: {str(row['canonical_name'])[:60]}")
 
         if args.write and writes:
             try:
@@ -607,6 +517,7 @@ def cmd_snk_identity_discover(args: argparse.Namespace) -> int:
                         )
                 conn.commit()
                 counts["bound"] = len(writes)
+                progress(f"[bind] committed {len(writes)} new snkrdunk identities")
             except Exception:
                 conn.rollback()
                 raise

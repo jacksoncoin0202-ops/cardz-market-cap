@@ -6349,6 +6349,96 @@ def cmd_activate(args: argparse.Namespace) -> int:
         conn.close()
 
 
+DISCOVERY_BASELINE = ROOT / "pipelines" / "discovery_coverage_baseline.json"
+DISCOVERY_GAP_POP = 1000
+
+
+def _discovery_gap_census(cur: Any) -> dict[str, int]:
+    """Qualified, heavily-graded cards that no provider candidate reaches.
+
+    A card in this census cannot enter the universe no matter how many
+    generations run, because every downstream stage draws its working set from
+    the cards that already hold a source identity. That is invisible from the
+    inside: coverage over the working set stays at 100% while the working set
+    itself is missing cards. It has to be counted against the CATALOG.
+
+    Only an EXACT binding counts. A manual_review row means a candidate was
+    proposed and not proven, and proposing candidates is cheap -- if unproven
+    rows counted, seeding a batch of them would close this census while the
+    cards stayed exactly as missing from the front end as before.
+    """
+
+    cur.execute(
+        """
+        SELECT v.tcg_code AS tcg, COUNT(*) AS gap
+          FROM catalog_rebuild_member rm
+          JOIN catalog_variant v ON v.id = rm.variant_id
+         WHERE rm.generation_id = (
+                 SELECT generation_id FROM catalog_rebuild_member
+                  ORDER BY computed_at DESC LIMIT 1)
+           AND rm.cohort <> 'non_qualified'
+           AND rm.latest_psa10_population >= %s
+           AND NOT EXISTS (
+                 SELECT 1 FROM catalog_source_identity si
+                  WHERE si.variant_id = v.id
+                    AND si.source_code IN ('snkrdunk', 'snk_psa10', 'pricecharting')
+                    AND si.match_status = 'exact')
+         GROUP BY v.tcg_code
+        """,
+        (DISCOVERY_GAP_POP,),
+    )
+    return {str(row["tcg"]): int(row["gap"]) for row in cur.fetchall()}
+
+
+def _assert_discovery_gap_not_worse(cur: Any) -> dict[str, Any]:
+    """Ratchet: the no-candidate gap may shrink, never grow.
+
+    297 One Piece cards had PSA10 population >= 1000 and 129 of them had no
+    provider candidate at all, so they were absent from the front end for
+    months while every acceptance gate reported healthy -- the gates only ever
+    looked at cards that already had a candidate. The baseline lives in the
+    repo rather than in a table or an artifact directory precisely so that
+    lowering it is a commit somebody can see, and so a deleted file fails the
+    run instead of silently passing it.
+    """
+
+    census = _discovery_gap_census(cur)
+    if not DISCOVERY_BASELINE.is_file():
+        raise SystemExit(
+            f"daily-accept ABORT: discovery baseline missing at {DISCOVERY_BASELINE}."
+            " Restore it from git; an absent baseline is not a passing check."
+        )
+    baseline = json.loads(DISCOVERY_BASELINE.read_text(encoding="utf-8"))
+    allowed = {str(k): int(v) for k, v in (baseline.get("noCandidateAtPop") or {}).items()}
+    if int(baseline.get("population", 0)) != DISCOVERY_GAP_POP:
+        raise SystemExit(
+            "daily-accept ABORT: discovery baseline was written for population"
+            f" {baseline.get('population')}, this build ratchets at {DISCOVERY_GAP_POP}"
+        )
+    worse = {
+        tcg: {"now": count, "allowed": allowed.get(tcg, 0)}
+        for tcg, count in census.items()
+        if count > allowed.get(tcg, 0)
+    }
+    if worse:
+        raise SystemExit(
+            "daily-accept ABORT: cards with PSA10 population >="
+            f" {DISCOVERY_GAP_POP} and no provider candidate grew past the"
+            f" baseline: {json.dumps(worse, sort_keys=True)}."
+            " Run snk-identity-discover / build_pc_gap_shard before accepting."
+        )
+    return {
+        "population": DISCOVERY_GAP_POP,
+        "census": census,
+        "baseline": allowed,
+        "improved": {
+            tcg: {"was": allowed[tcg], "now": census.get(tcg, 0)}
+            for tcg in allowed
+            if census.get(tcg, 0) < allowed[tcg]
+        },
+    }
+
+
 def cmd_daily_accept(args: argparse.Namespace) -> int:
     """Nightly acceptance + re-rank for the CURRENT activated universe.
 
@@ -6397,6 +6487,11 @@ def cmd_daily_accept(args: argparse.Namespace) -> int:
                 raise SystemExit("daily-accept ABORT: no activated generation on record")
             generation = str(generation_row["generation_id"])
             activated_at = generation_row["activated_at"]
+            # Before accepting anything, prove the catalog is not quietly
+            # losing cards that no provider candidate reaches. Accepting a
+            # healthy-looking universe that is missing its biggest cards is
+            # the failure this command exists to stop repeating.
+            discovery_gap = _assert_discovery_gap_not_worse(cur)
 
         fingerprints = _load_sales_fingerprints(generation)
         manifest_count = len(fingerprints)
@@ -6449,6 +6544,7 @@ def cmd_daily_accept(args: argparse.Namespace) -> int:
                 "dailyManifests": daily_manifest_stats,
             },
             "historyAcceptance": history,
+            "discoveryGap": discovery_gap,
             "canonical": {
                 "accepted": canonical["accepted"],
                 "rankingGenerationSha256": canonical["rankingGenerationSha256"],
@@ -6553,6 +6649,10 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
 
     from datetime import datetime, timezone
 
+    # Imported here, not at module scope: op_identity_rules imports this
+    # module for its text normaliser, so a top-level import would be circular.
+    import op_identity_rules
+
     credentials = args.credentials_env or DAILY_CREDENTIALS_ENV
     pages_dir = args.pages_dir or (
         ROOT / "data" / "private" / "pricecharting_session" / "html" / "full900"
@@ -6582,7 +6682,7 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
     counts = {
         "reviewBindings": 0, "pageMissing": 0, "pageParseFailures": 0,
         "pageProductMismatch": 0, "mapProductMismatch": 0, "hardConflicts": 0,
-        "printSignatureMismatch": 0, "promoted": 0,
+        "productMismatch": 0, "printSignatureMismatch": 0, "promoted": 0,
     }
     promoted: list[dict[str, Any]] = []
     held: list[dict[str, Any]] = []
@@ -6591,6 +6691,13 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
             cursor.execute(
                 "SELECT si.external_entity_id AS pid, si.variant_id,"
                 " si.match_status,"
+                # GemRate's own wording for the printing. For a booster card it
+                # names the treatment; for a promo it names the product, and
+                # the product-agreement rule below needs to tell them apart.
+                " (SELECT JSON_UNQUOTE(JSON_EXTRACT(rm.detail_json,"
+                "         '$.fingerprint.parallel'))"
+                "    FROM catalog_rebuild_member rm WHERE rm.variant_id=v.id"
+                "   ORDER BY rm.computed_at DESC LIMIT 1) AS fp_parallel,"
                 " v.tcg_code, v.card_language, v.set_name, v.collector_number,"
                 " v.set_code AS v_set_code, v.printing_code AS v_printing_code,"
                 " p.parallel_code, p.printing_code, p.canonical_printing_sha256,"
@@ -6658,6 +6765,22 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
                 counts["hardConflicts"] += 1
                 hold("hard_conflict", ";".join(conflicts))
                 continue
+            # A One Piece card keeps its ORIGINAL number when reprinted, so
+            # the conflict check above passing on an agreeing collector number
+            # is not proof of the same product: a search for "Boa Hancock 038"
+            # resolved the PSA Magazine promo onto the OP07 booster Alternate
+            # Art, and every check up to here agreed. The rule is applied only
+            # where its vocabulary was derived.
+            if str(row["tcg_code"] or "") == "one-piece":
+                same_product, why = op_identity_rules.product_agrees(
+                    str(row["set_name"] or ""), str(row["fp_parallel"] or ""),
+                    identity["setText"], identity["canonicalUrl"],
+                    identity["heading"],
+                )
+                if not same_product:
+                    counts["productMismatch"] += 1
+                    hold("product_mismatch", why)
+                    continue
             if not _pc_print_signature_ok(identity["parallel"], row):
                 counts["printSignatureMismatch"] += 1
                 hold(

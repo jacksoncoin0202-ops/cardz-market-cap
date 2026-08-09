@@ -122,6 +122,40 @@ blind_ok, blind_why = product_agrees(
 check("promo with no parallel holds", blind_ok, False)
 check("blind promo says why", blind_why, "our_set_name_has_no_distinctive_token")
 
+# --- 4. tokenisation: what is NOT a product word ----------------------------
+# GemRate stamps the grading year on the set name; no provider prints it.
+year_ok, year_why = product_agrees(
+    "2025 Carrying On His Will Alternate Art", "Base",
+    "Monkey.D.Luffy [Alternate Art] OP13-118 Prices | One Piece Carrying On His Will",
+    "",
+)
+check("grading year is not a product word", year_ok, True)
+check("year case says nothing missing", year_why, "")
+
+# "OP-13" and "OP13" are the same set code written two ways. Left split, one
+# spelling leaves a bare "13" the other spelling can never match.
+hyphen_ok, _ = product_agrees(
+    "One Piece Carrying On His Will OP-13", "Wanted Alternate Art",
+    "Monkey.D.Luffy [Wanted Poster] OP13-121 Prices | One Piece Carrying On His Will",
+    "",
+)
+check("hyphenated set code still agrees", hyphen_ok, True)
+
+# Volume numbers are NOT year-like and must keep discriminating.
+vol_ok, vol_why = product_agrees(
+    "One Piece Promos", "Illustration Box Vol.1",
+    "O-Nami [Illustration Box Vol. 3] OP05-062 Prices | One Piece Promos", "",
+)
+check("Vol.1 does not match Vol.3", vol_ok, False)
+check("volume rejection names the number", "'1'" in vol_why, True)
+
+# A real difference in product words still holds, year fix or not.
+word_ok, _ = product_agrees(
+    "2025 3rd Anniversary! One Piece Card Treasure Campaign Pack", "Base",
+    "Monkey.D.Luffy [3rd Anniversary] ST21-014 Prices | One Piece Starter Deck", "",
+)
+check("missing product words still hold", word_ok, False)
+
 print()
 if failures:
     print(f"{len(failures)} FAILURE(S)")
