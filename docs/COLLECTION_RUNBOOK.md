@@ -569,11 +569,18 @@ no_console 11、ambiguous 8。三種 hold 各自嘅意思：
 呢個唔係放鬆閘：同一版真係有一行 `P-062` 而佢係 Hody & Hyouzou —— 尾號自己從來唔決定任何嘢，
 角色/產品/印刷簽名三關照跑。Pokémon 促銷寫法係 `085/SVP`，唔准套呢條規矩。
 
-### 已知效能債
+### 已知效能債（全部係欠單，未修）
 
-`stage_validate` 而家要行 ~5 分鐘。`EXPLAIN` 顯示佢會 materialize
-`market_price_daily`（358,164 行）做兩次 full table scan（`derived15`、`derived40`）。
-未修；唔好因為佢慢就以為 hang 咗。
+1. **`stage_validate` ~5 分鐘。** `EXPLAIN` 顯示佢會 materialize `market_price_daily`
+   （358,164 行）做兩次 full table scan（`derived15`、`derived40`）。唔好因為佢慢就以為
+   hang 咗。
+2. **`price-materialize` 會將成個 `skipped` array 噴落 stdout。**（2026-08-09 實測一次
+   ~430 個 item，單行 30k+ 字）用 `| tail` 收唔窄，因為佢係一行 JSON。要睇 counts 就睇
+   最尾嗰行 `stage-complete`；要睇 skipped 就應該落 artifact 唔係落 log。
+3. **`freshness72h` 嘅 `priceAgeHours` 會係負數**（2026-08-09 實測 `-9.42`）。SNK kline
+   日 bar 嘅 `effective_at` 蓋章喺**當日 23:59:59**，所以未夠鐘之前佢喺未來。個 gate 係
+   `<= 72.0`，負數照過，但代價係**個 feed 死咗都仲可以扮新鮮多 24 個鐘**。改之前要先答
+   「日 bar 應該蓋幾點」，唔好淨係改個不等式。
 
 ---
 
@@ -652,6 +659,28 @@ seed-snapshot）。手抄落去嘅 generation 圖每次 build 完要再抄一次
 12. **統計拋棄咗 = 個 hold 講唔出自己點解 hold。** 為咗唔想 log 太長而靜靜 drop 大多數
    rejection，結果 artifact 出 `"rejections": []` —— operator 分唔到「冇一行接近」同
    「個 filter 根本冇行過」。要 drop 就留低分佈（要嗰個號碼、嗰版實際載住咩、幾多行過到關）。
+13. **一條規則有第二個實現 = 你只會修到其中一個。**（2026-08-09，一晚撞兩次）
+   (a) `stage_pc_replay` 自己抄咗一份 bracket 比對，所以收緊咗共用嗰個
+   `_pc_print_signature_ok` 之後，**真正 stamp `exact` 嗰個 stage 仲用緊鬆嗰個讀法**。
+   (b) discovery lane 學識咗一張卡有兩個 set 名之後，promoting gate（`pc-identity-reverify`）
+   仲淨係識 catalog 嗰個 → **拒絕咗 lane 頭先啱啱提案嘅 3 張卡**。
+   修法：規則只可以有一個定義處，其他人 import 佢，唔准抄。搵新 bug 之前先
+   `grep` 個規則個名，數吓有幾多個 call site 同幾多份 copy。
+14. **一張卡上面有兩個都啱嘅「set」。**（2026-08-09，22/59 個 EN hold）
+   One Piece 會將一張卡再刷入後期產品但**唔換號碼**。GemRate 用「由邊個產品抽出嚟」歸檔
+   （`set_name` = Emperors in the New World），卡面印住嘅號碼照舊 `OP08-106`
+   （`set_code`/`collector_number`）。PriceCharting 用**號碼嗰個 set** 歸檔。兩邊都冇錯，
+   佢哋答緊兩條唔同嘅問題。淨係讀一邊 = 靜靜咁搵錯版，log 只會話「嗰版冇呢個號碼」。
+   修法：`rebuild_036.set_names_a_card_could_carry()` 一次過交出兩個讀法，
+   **兩個都要交俾判產品嗰個人**（見 shape 13b）。放寬嘅係「去邊度搵」，唔係「收咩」——
+   號碼、角色、print signature 三關一關都冇鬆。
+15. **只讀咗 catalog 證據嘅一半。**（2026-08-09，928 條 exact PC binding 入面 7 條）
+   `_pc_print_signature_ok` 淨係讀 `parallel_code`，冇讀 `printing_code`。一張
+   Special Alternate Art（`printing_code='sp'`）因為 `parallel_code` 得個裸 rarity（`sr`），
+   就過到一版**完全冇 bracket** 嘅 base print——出咗平嗰張卡嘅價，仲霸住個 product
+   令真正嘅 base 卡搵唔到自己嗰版。catalog 由頭到尾都講咗，我哋冇問佢。
+   修法：`_PC_BASE_PRINTINGS`（只有 `''` / `'base'` 可以配冇 bracket 嘅頁）。
+   量度過先改：919 條唔受影響、7 條拒絕、全部係 parallel 坐喺 base print 上面。
 
 ### 相關嘅 MySQL / shell 陷阱
 

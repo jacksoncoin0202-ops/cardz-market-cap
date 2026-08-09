@@ -300,6 +300,53 @@ price + 60 條 sale + 2 個 public image pointer。
 **教訓（同「有檢查但零 call site」係同一族）**：一個裁決如果冇寫落佢管轄嗰行度，
 下一條 lane 一定會繞過佢。要問嘅唔係「呢條 lane 記唔記得」，而係「呢個裁決寫咗落邊行」。
 
+## 第十六個缺陷：一張卡上面有兩個都啱嘅 set（2026-08-09 夜補）
+
+`OP08-106` 呢張 Nami，我哋 catalog 寫住 `set_name = "One Piece Emperors in the New World"`
+（OP09），`collector_number = "OP08-106"`。第一個直覺係「set_code 錯咗」——**錯**。去睇
+真嗰版：OP09-106 係 Nico Olvia，唔係我哋張 Nami。即係話卡面印住嘅號碼冇錯，`set_name` 講
+嘅係**由邊個產品抽出嚟**。One Piece 會將一張卡再刷入後期產品而唔換號碼；GemRate 用「抽出
+嚟嗰個」歸檔，PriceCharting 用「號碼嗰個」歸檔。**兩邊都冇錯，佢哋答緊兩條唔同嘅問題。**
+
+實測（2026-08-09）：Emperors 個 console 版有 189 行，冇一行係 OP08-106；Two Legends 個版
+有 `Nami [SP Foil] OP08-106`。淨係讀 catalog 嗰版，59 個英文 hold 入面有 **22 個**係搵錯地方。
+
+修法：`rebuild_036.set_names_a_card_could_carry()` 一次過交出兩個讀法，
+`pc_identity_discover.console_candidates()` 兩版都試，而且**每版用佢自己嗰個 set 名去判**
+（唔係咁樣嘅話 `product_agrees` 會因為個版寫「Two Legends」而我哋寫「Emperors」拒絕晒成版）。
+放寬嘅係「去邊度搵」，唔係「收咩」：號碼要全中（`OP08-106` 自己講咗佢邊個 set）、角色要中、
+print signature 要中。守門人：`scripts/test_pc_identity_discover_rules.py` 3d/3f 段。
+
+## 第十七個缺陷：搵到嘅 lane 學識咗，批准嘅 gate 唔知（2026-08-09 夜補）
+
+上面條 rule 落咗 discovery lane 之後，pass 3 寫咗 11 個新提案。跟住行
+`pc-identity-reverify`——**佢拒絕咗其中 3 張**，理由係
+`product_mismatch:missing=['awakening','era']` / `['captain','wings']`：reverify 淨係識
+catalog 嗰個 set 名，唔識號碼嗰個。即係「搵嘅人」同「批嘅人」對同一個字有兩種理解。
+
+同一晚同一個形狀撞咗第二次：`stage_pc_replay` 自己抄咗一份 bracket 比對，所以收緊咗共用
+嗰個 `_pc_print_signature_ok` 之後，**真正將 binding stamp 做 `exact` 嗰個 stage 仲用緊鬆
+嗰個讀法**（修完實測一次過 downgrade 9 條）。
+
+**根因係同一個：一條規則有第二個實現。** 修法唔係「記得兩邊一齊改」，係得一個定義處，
+其他人 import。`set_name_by_code` / `set_names_a_card_could_carry` 而家住喺 `rebuild_036`，
+`pc_identity_discover` 用 `R.` 前綴叫佢；`stage_pc_replay` 刪走自己嗰份，直接叫
+`_pc_print_signature_ok`。
+
+## 第十八個缺陷：只讀咗 catalog 證據嘅一半（2026-08-09 夜補）
+
+`_pc_print_signature_ok` 由頭到尾淨係讀 `parallel_code`，冇讀 `printing_code`。後果：
+v1199（OP05 Yamato **Special Alternate Art**，`printing_code='sp'`）因為 `parallel_code`
+得個裸 rarity，就過咗一版**完全冇 bracket** 嘅 base print「Yamato OP01-121」，長期出緊平
+嗰張卡嘅價；而佢霸住個 product 嘅期間，**真正嘅 base 卡 v1251 搵唔到自己嗰版**。
+
+量度過先改（AGENTS.md rule 9 嘅前置）：928 條 live exact PC binding 入面 919 條唔受影響、
+7 條被拒，7 條全部係 parallel 坐咗喺 base print 上面。修完之後 pass 3 分返正：v1251 攞返
+base 版、v1716 攞「Yamato [Alternate Art] OP01-121」。
+
+**教訓**：catalog 由頭到尾都講咗（`printing_code='sp'`），係我哋冇問佢。查「明明有證據但
+判錯」嘅時候，先數吓手上有幾多個欄位，再數吓個判斷讀咗幾多個。
+
 ## 仲未修（欠單，唔係已修）
 
 - **`print_signature_mismatch` 唔係規則問題，係 map 指錯頁。** 實測 v1582 捕獲到嘅
@@ -325,6 +372,15 @@ price + 60 條 sale + 2 個 public image pointer。
 - **全量 224 張入面仲有 159 張 `no_survivor` + 29 張 `search_empty`。** 拒絕理由分佈：
   hard_conflict 816、product_mismatch 150、proven_binding_elsewhere 50、page_missing 37、
   character_mismatch 29。大部分係正確攔截（搵返嚟嘅根本係第二張卡）。
+- **036 activate 之後嘅實數（2026-08-09 14:35 UTC，universe lock 58）**：product_ready
+  1235（原本 851）、qualified_market_pending 370（原本 754）。One Piece en 102 ready /
+  79 pending、ja 70 ready / 43 pending。即係 OP 仲欠 **122 張**。
+- **SNK ja lane 撞緊同一個 cross-set reprint 形狀，但未修。** 全量 44 個目標，bound 0，
+  40 個 `no_survivor`，286 個 `hard_conflict`。**唔准照抄 PC 嗰條 fix**：SNK 側嘅
+  「bracket」係由字面「パラレル／parallel」推出嚟，幾乎每個 SNK binding 嘅
+  `snk_parallel` 都係空字串，照套會一次過 demote 晒。要先量度，再決定。
+- **`_pc_rarity_only_parallel` 仲有兩個 call site 冇收緊**：`rebuild_036.py` S7
+  snk-refresh 同 snk reverify（原因同上——SNK 側）。已記帳，唔准盲改。
 - **`stage_identity_resolve` 仲有一個 `match_status != 'rejected'` 分支**。行為係啱嘅
   （incident 講嘅係 live binding 漂移，rejected 行唔 live，而且 S5 冇 closure path），
   註釋已經改返講真原因，但呢個位提我哋：`rejected` 呢個字散落幾多處要定期查。
