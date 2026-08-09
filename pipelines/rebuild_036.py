@@ -5987,6 +5987,53 @@ def _activation_accept_history(
     return inserted
 
 
+def _coverage_diagnosis(cur, variant_ids: list[int]) -> str:
+    """Name the reason a product_ready card has no price, not just its id.
+
+    The bare id list cost an evening of archaeology once: the answer turned out
+    to be a metric_status flag set by a superseded binding repair, four joins
+    away from anything the abort mentioned. Every clause the eligibility view
+    can fail on is counted here so the next abort reads as an instruction."""
+    if not variant_ids:
+        return "[]"
+    marks = ",".join(["%s"] * len(variant_ids[:20]))
+    cur.execute(
+        f"""
+        SELECT v.id, v.card_language, v.collector_number,
+               (SELECT COUNT(*) FROM operator_strict_source_identity si
+                 WHERE si.variant_id=v.id) AS strict_identities,
+               (SELECT COUNT(*) FROM market_price_observation p
+                 WHERE p.variant_id=v.id AND p.price_usd>0) AS price_rows,
+               (SELECT COUNT(*) FROM market_price_observation p
+                 WHERE p.variant_id=v.id AND p.price_usd>0
+                   AND p.metric_status='ready') AS ready_rows,
+               (SELECT COUNT(*) FROM market_metric_history_acceptance h
+                 WHERE h.variant_id=v.id AND h.metric_kind='psa10_price')
+                 AS accepted_rows
+        FROM catalog_variant v WHERE v.id IN ({marks})
+        """,
+        tuple(variant_ids[:20]),
+    )
+    lines = []
+    for row in cur.fetchall():
+        if not int(row["price_rows"]):
+            why = "never_harvested"
+        elif not int(row["strict_identities"]):
+            why = "no_strict_identity"
+        elif not int(row["ready_rows"]):
+            why = "all_price_rows_quarantined"
+        elif not int(row["accepted_rows"]):
+            why = "no_acceptance_row"
+        else:
+            why = "acceptance_present_but_view_rejected"
+        lines.append(
+            f"{row['id']}({row['collector_number']}/{row['card_language']}:{why}"
+            f",priceRows={row['price_rows']},ready={row['ready_rows']})"
+        )
+    extra = "" if len(variant_ids) <= 20 else f" +{len(variant_ids) - 20} more"
+    return "[" + " ".join(lines) + "]" + extra
+
+
 def _activation_rank_and_accept(
     cur, ready_ids: list[int], now_str: str,
 ) -> dict[str, Any]:
@@ -6071,7 +6118,8 @@ def _activation_rank_and_accept(
     if missing_price or missing_pop:
         raise SystemExit(
             "S12 ABORT: product_ready coverage incomplete:"
-            f" missingPrice={missing_price[:20]} missingPop={missing_pop[:20]}"
+            f" missingPrice={_coverage_diagnosis(cur, missing_price)}"
+            f" missingPop={missing_pop[:20]}"
         )
 
     ranked: list[tuple[int, dict, Any]] = []

@@ -171,24 +171,36 @@ def select_targets(
         return [dict(row) for row in cursor.fetchall()]
 
 
-def taken_item_ids(conn: Any, item_ids: list[int]) -> set[str]:
-    """Item ids already bound to some variant.
+def existing_owners(conn: Any, item_ids: list[int]) -> dict[str, dict[str, Any]]:
+    """Who already holds each candidate item, and how firmly.
 
-    catalog_source_identity is keyed (source_code, external_entity_id): one
-    SNKRDUNK item belongs to exactly one variant, so a candidate that is
-    already spoken for must be dropped rather than stolen.
+    catalog_source_identity is keyed (source_code, external_entity_id), so one
+    SNKRDUNK item belongs to exactly one variant and a candidate cannot simply
+    be copied onto a second card. But the status on that row decides what the
+    row MEANS. An 'exact' row is a proven binding and is untouchable. A
+    'manual_review' or 'rejected' row is an unproven proposal, and treating it
+    as ownership is how the Japanese listing for OP01-016 Nami ended up parked
+    on the English card while the Japanese card -- PSA10 population 8,414 --
+    stayed off the front end with no candidate at all.
     """
 
     if not item_ids:
-        return set()
+        return {}
     marks = ",".join(["%s"] * len(item_ids))
     with conn.cursor() as cursor:
         cursor.execute(
-            "SELECT external_entity_id FROM catalog_source_identity"
+            "SELECT external_entity_id, variant_id, match_status"
+            " FROM catalog_source_identity"
             f" WHERE source_code='snkrdunk' AND external_entity_id IN ({marks})",
             tuple(str(i) for i in item_ids),
         )
-        return {str(row["external_entity_id"]) for row in cursor.fetchall()}
+        return {
+            str(row["external_entity_id"]): {
+                "variant_id": int(row["variant_id"]),
+                "match_status": str(row["match_status"]),
+            }
+            for row in cursor.fetchall()
+        }
 
 
 def search_item_ids(session: requests.Session, query: str, cap: int) -> list[int]:
@@ -342,8 +354,9 @@ def cmd_snk_identity_discover(args: argparse.Namespace) -> int:
     conn = R.connect(credentials)
     counts = {
         "targets": 0, "noProductNumber": 0, "searchEmpty": 0, "candidates": 0,
-        "candidatesTaken": 0, "accepted": 0, "ambiguous": 0, "noSurvivor": 0,
-        "bound": 0,
+        "candidatesTaken": 0, "candidatesContested": 0,
+        "accepted": 0, "ambiguous": 0, "noSurvivor": 0,
+        "bound": 0, "repointProposed": 0, "repointed": 0, "repointSkipped": 0,
     }
     proposals: list[dict[str, Any]] = []
     held: list[dict[str, Any]] = []
@@ -387,13 +400,16 @@ def cmd_snk_identity_discover(args: argparse.Namespace) -> int:
             every_id.update(ids)
         counts["candidates"] = len(every_id)
 
-        taken = taken_item_ids(conn, sorted(every_id))
-        counts["candidatesTaken"] = len(taken)
-        progress(f"[harvest] candidates={len(every_id)} already_bound={len(taken)}"
-                 f" to_fetch={len(every_id) - len(taken)}")
+        owners = existing_owners(conn, sorted(every_id))
+        proven = {iid for iid, own in owners.items() if own["match_status"] == "exact"}
+        contested = {iid: own for iid, own in owners.items() if iid not in proven}
+        counts["candidatesTaken"] = len(proven)
+        counts["candidatesContested"] = len(contested)
+        progress(f"[harvest] candidates={len(every_id)} proven_elsewhere={len(proven)}"
+                 f" contested={len(contested)} to_fetch={len(every_id) - len(proven)}")
 
         harvest_path = base_dir / "snk_discover_harvest.jsonl"
-        worklist = sorted(i for i in every_id if str(i) not in taken)
+        worklist = sorted(i for i in every_id if str(i) not in proven)
         if worklist:
             snk_market_data.run(
                 worklist, harvest_path, delay=0.0,
@@ -422,8 +438,9 @@ def cmd_snk_identity_discover(args: argparse.Namespace) -> int:
             survivors: list[tuple[int, dict[str, Any]]] = []
             rejections: list[str] = []
             for item_id in ids:
-                if str(item_id) in taken:
-                    rejections.append(f"{item_id}:already_bound_elsewhere")
+                held_by = owners.get(str(item_id))
+                if held_by and held_by["match_status"] == "exact":
+                    rejections.append(f"{item_id}:proven_binding_elsewhere")
                     continue
                 ok, reason, facts = rule_candidate(row, rows_by_id.get(item_id))
                 if ok:
@@ -434,17 +451,27 @@ def cmd_snk_identity_discover(args: argparse.Namespace) -> int:
                 item_id, facts = survivors[0]
                 evidence, evidence_sha = build_evidence(item_id, facts, items_dir)
                 counts["accepted"] += 1
+                # An unproven row on another card is not ownership, but taking
+                # the item away from it IS a change to that card, so it is
+                # named in the proposal and gated behind its own flag.
+                current = contested.get(str(item_id))
+                repoint = current is not None and current["variant_id"] != vid
+                if repoint:
+                    counts["repointProposed"] += 1
                 record = {
                     "variant_id": vid, "query": query, "item_id": item_id,
                     "claim": facts["claim"], "evidence_sha256": evidence_sha,
                     "masterName": facts["masterName"][:120],
                     "pop": int(row["pop"]), "card": str(row["canonical_name"])[:120],
                 }
+                if current is not None:
+                    record["currentlyHeldBy"] = current
                 proposals.append(record)
                 writes.append({
                     "item_id": item_id, "variant_id": vid, "evidence": evidence,
                     "evidence_sha": evidence_sha, "claim": facts["claim"],
                     "fetched": str(facts["fetchedAt"] or ""), "mirror": mirror_tuple(row),
+                    "current": current,
                 })
             elif len(survivors) > 1:
                 counts["ambiguous"] += 1
@@ -467,9 +494,13 @@ def cmd_snk_identity_discover(args: argparse.Namespace) -> int:
                      f" candidates={len(ids)} :: {str(row['canonical_name'])[:60]}")
 
         if args.write and writes:
+            written = 0
             try:
                 with conn.cursor() as cursor:
                     for w in writes:
+                        if w["current"] is not None and not args.allow_repoint:
+                            counts["repointSkipped"] += 1
+                            continue
                         captured_at = (
                             datetime.strptime(w["fetched"], "%Y-%m-%dT%H:%M:%S%z")
                             if w["fetched"] else datetime.now(timezone.utc)
@@ -492,32 +523,63 @@ def cmd_snk_identity_discover(args: argparse.Namespace) -> int:
                             ),
                         )
                         mirror = w["mirror"]
-                        # No ON DUPLICATE KEY: the id was proven unbound above,
-                        # so a duplicate here means the world changed under us
-                        # and the run must fail loudly instead of overwriting
-                        # somebody else's binding.
-                        cursor.execute(
-                            "INSERT INTO catalog_source_identity (source_code,"
-                            " external_entity_id, variant_id, match_status,"
-                            " evidence_sha256, source_product_number,"
-                            " bind_evidence_json, bound_tcg_code, bound_card_language,"
-                            " bound_set_code, bound_collector_number,"
-                            " bound_printing_code, bound_parallel_code,"
-                            " bound_edition_code, bound_finish_code)"
-                            " VALUES ('snkrdunk', %s, %s, 'exact', %s, %s, %s,"
-                            " %s, %s, %s, %s, %s, %s, %s, %s)",
-                            (
-                                str(w["item_id"]), w["variant_id"], w["evidence_sha"],
-                                str(w["claim"] or "")[:64],
-                                json.dumps(w["evidence"], ensure_ascii=False, sort_keys=True),
-                                mirror[0][:32], mirror[1][:8], mirror[2][:24],
-                                mirror[3][:96], mirror[4][:24], mirror[5][:64],
-                                mirror[6][:191], mirror[7][:64],
-                            ),
+                        payload = (
+                            w["evidence_sha"], str(w["claim"] or "")[:64],
+                            json.dumps(w["evidence"], ensure_ascii=False, sort_keys=True),
+                            mirror[0][:32], mirror[1][:8], mirror[2][:24],
+                            mirror[3][:96], mirror[4][:24], mirror[5][:64],
+                            mirror[6][:191], mirror[7][:64],
                         )
+                        if w["current"] is None:
+                            # No ON DUPLICATE KEY: the id was proven unbound
+                            # above, so a duplicate here means the world changed
+                            # under us and the run must fail loudly instead of
+                            # overwriting somebody else's binding.
+                            cursor.execute(
+                                "INSERT INTO catalog_source_identity (source_code,"
+                                " external_entity_id, variant_id, match_status,"
+                                " evidence_sha256, source_product_number,"
+                                " bind_evidence_json, bound_tcg_code, bound_card_language,"
+                                " bound_set_code, bound_collector_number,"
+                                " bound_printing_code, bound_parallel_code,"
+                                " bound_edition_code, bound_finish_code)"
+                                " VALUES ('snkrdunk', %s, %s, 'exact', %s, %s, %s,"
+                                " %s, %s, %s, %s, %s, %s, %s, %s)",
+                                (str(w["item_id"]), w["variant_id"]) + payload,
+                            )
+                            written += 1
+                            continue
+                        # The row exists on another card as an unproven claim.
+                        # match_status<>'exact' in the WHERE is the guard, not a
+                        # formality: if anything promoted that row between the
+                        # read above and here, zero rows change and the run
+                        # aborts rather than quietly taking a proven binding.
+                        cursor.execute(
+                            "UPDATE catalog_source_identity SET variant_id=%s,"
+                            " match_status='exact', evidence_sha256=%s,"
+                            " source_product_number=%s, bind_evidence_json=%s,"
+                            " bound_tcg_code=%s, bound_card_language=%s,"
+                            " bound_set_code=%s, bound_collector_number=%s,"
+                            " bound_printing_code=%s, bound_parallel_code=%s,"
+                            " bound_edition_code=%s, bound_finish_code=%s"
+                            " WHERE source_code='snkrdunk' AND external_entity_id=%s"
+                            "   AND match_status <> 'exact'",
+                            (w["variant_id"],) + payload + (str(w["item_id"]),),
+                        )
+                        if cursor.rowcount != 1:
+                            raise SystemExit(
+                                f"repoint of item {w['item_id']} changed"
+                                f" {cursor.rowcount} rows, not 1: the row moved"
+                                " or was proven while this run was thinking"
+                            )
+                        counts["repointed"] += 1
+                        written += 1
                 conn.commit()
-                counts["bound"] = len(writes)
-                progress(f"[bind] committed {len(writes)} new snkrdunk identities")
+                counts["bound"] = written
+                progress(f"[bind] committed {written} snkrdunk identities"
+                         f" ({counts['repointed']} taken from unproven claims,"
+                         f" {counts['repointSkipped']} left alone without"
+                         " --allow-repoint)")
             except Exception:
                 conn.rollback()
                 raise
@@ -540,6 +602,12 @@ def cmd_snk_identity_discover(args: argparse.Namespace) -> int:
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--write", action="store_true")
+    parser.add_argument(
+        "--allow-repoint", dest="allow_repoint", action="store_true",
+        help="also take items whose only claim is another card's unproven"
+             " (manual_review/rejected) row; without this they are reported"
+             " and left alone",
+    )
     parser.add_argument("--generation")
     parser.add_argument("--tcg", default="")
     parser.add_argument("--min-pop", dest="min_pop", type=int, default=int(R.POLICY["minPop"]))

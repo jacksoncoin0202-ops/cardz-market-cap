@@ -1114,6 +1114,7 @@ def ingest_kline_jsonls(
         "skippedEmptyKline": 0,
         "skippedErrorRow": 0,
         "skippedAllowlist": 0,
+        "quarantineReleased": 0,
         "dryRun": dry_run,
         "acceptedItemIds": [],
         "skipped": [],
@@ -1399,6 +1400,38 @@ def ingest_kline_jsonls(
             price_upsert,
             price_rows_to_write[offset : offset + 1000],
         )
+
+    # Release stale quarantines this run just re-verified.
+    #
+    # A binding repair quarantines a card's price rows because rows captured
+    # under a doubtful binding must not be laundered by a later fetch of the
+    # same days -- hence the sticky CASE in the upsert above. But nothing ever
+    # wrote the status back, so a card whose binding was LATER proven by a
+    # provider page stayed unpriceable forever: S12 refuses to rank a
+    # product_ready card it cannot price, and two Japanese One Piece cards
+    # (PSA10 populations 2,363 and 1,589) aborted activation with 834 rows of
+    # perfectly good evidence frozen behind a flag from a superseded guess.
+    #
+    # The proof is the release. operator_strict_source_identity holds only
+    # bindings proven exact, so a row qualifies when this run's fresh capture
+    # landed on it AND it carries the very provider item that binding names.
+    # Rows this run did not touch, and rows whose external id does not match
+    # the proven binding, keep their quarantine.
+    cur.execute(
+        """
+        UPDATE market_price_observation p
+        INNER JOIN operator_strict_source_identity si
+           ON si.variant_id=p.variant_id
+          AND si.source_code='snkrdunk'
+          AND si.external_entity_id=p.source_external_entity_id
+        SET p.metric_status='ready'
+        WHERE p.last_run_id=%s
+          AND p.metric_status='quarantined'
+          AND p.source_code IN ('snkrdunk','snk','snk_psa10')
+        """,
+        (run_id,),
+    )
+    stats["quarantineReleased"] = int(cur.rowcount)
 
     cur.execute(
         """
