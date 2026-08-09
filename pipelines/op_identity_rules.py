@@ -169,3 +169,44 @@ def product_agrees(
     if missing:
         return False, f"product_mismatch:missing={missing}"
     return True, ""
+
+
+# A One Piece character's given name is the last word both sources print:
+# "Monkey D. Luffy" and "Portgas D Ace" put the family name and the initial in
+# front, and every provider keeps that order. The initial is one letter, so
+# requiring two drops it without a special case.
+_NAME_WORD_RE = re.compile(r"[a-z]{2,}")
+
+
+def character_agrees(our_name: str, *listing_text: str) -> tuple[bool, str]:
+    """Is the provider's listing even the same CHARACTER as our card?
+
+    Nothing else in the rules asks. Set code, number, language and treatment
+    can all agree while the card is somebody else entirely: OP03-112 came back
+    as "Charlotte Cracker" for a catalog row that reads "Charlotte Pudding",
+    and every other check passed it. Two Charlottes share a family name, so the
+    comparison has to be the given name -- the last word -- not any word.
+
+    A disagreement is a rejection; an unreadable listing is not. When a master
+    name carries no Latin word at all there is nothing to compare and this must
+    not invent a verdict, so it returns to the caller exactly as it would have
+    before this check existed. Only a name that IS printed and IS different
+    stops a binding.
+    """
+
+    ours = _NAME_WORD_RE.findall(R._norm_text(our_name))
+    if not ours:
+        return True, ""
+    given = ours[-1]
+    theirs = set(_NAME_WORD_RE.findall(R._norm_text(" ".join(listing_text))))
+    if not theirs:
+        return True, ""
+    # Romanisation drifts in the tail ("Kaidou"/"Kaido"), never in the stem.
+    if any(
+        given == other
+        or (min(len(given), len(other)) >= 4
+            and (given.startswith(other) or other.startswith(given)))
+        for other in theirs
+    ):
+        return True, ""
+    return False, f"character_mismatch:ours={given}"

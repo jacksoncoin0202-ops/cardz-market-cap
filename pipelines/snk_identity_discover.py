@@ -53,6 +53,7 @@ from op_identity_rules import (
     SET_CODE_RE,
     SNK_SUFFIX_TREATMENT,
     gemrate_treatment,
+    character_agrees,
     product_agrees,
     snk_treatment,
 )
@@ -237,11 +238,29 @@ def rule_candidate(row: dict[str, Any], payload: dict[str, Any]) -> tuple[bool, 
         "setName": f"{master_name} {localized}",
     }
     conflicts = R._fingerprint_variant_conflicts(pseudo_fp, row)
-    claim_set = " ".join(claim.split()[:-1])
-    if claim_set and claim_set.casefold() in {
+    # Which set does OUR side say this card is in?
+    #
+    # The set_code column is empty on 50 of the 54 One Piece cards still in the
+    # gap, but the code is spelled inside set_name -- "One Piece Japanese
+    # OP09-Emperors in the New World" -- which is the very place
+    # product_number() reads it to build the search key. Reading it in one
+    # place and not the other is why a card could be searched for by a code
+    # the rules then behaved as though it did not have.
+    # The claim's own set code. One Piece prints it joined to the number
+    # ("OP09-106"), so the leading-tokens reading below -- written for the
+    # bracketed Pokemon form ("S3a 056/076") -- returned an empty string for
+    # every One Piece card ever tested, and this whole escape has never once
+    # fired for the game it now has to serve.
+    in_claim = SET_CODE_RE.search(claim.upper())
+    claim_set = in_claim.group(1) if in_claim else " ".join(claim.split()[:-1])
+    named = SET_CODE_RE.search(str(row.get("set_name") or "").upper())
+    our_set_codes = {
         str(row["v_set_code"] or "").casefold(),
         str(row["p_set_code"] or "").casefold(),
-    }:
+        named.group(1).casefold() if named else "",
+    } - {""}
+    set_codes_agree = bool(claim_set) and claim_set.casefold() in our_set_codes
+    if set_codes_agree:
         conflicts = [
             c for c in conflicts
             if not c.startswith("set:") and not c.startswith("set_code:")
@@ -269,11 +288,29 @@ def rule_candidate(row: dict[str, Any], payload: dict[str, Any]) -> tuple[bool, 
     if conflicts:
         return False, "hard_conflict:" + ";".join(conflicts), facts
 
-    same_product, why = product_agrees(
-        row.get("set_name") or "", row.get("fp_parallel") or "", master_name, localized,
+    # Who is on the card? Asked first, because it is the one question a human
+    # reviewer asks first and the rules never did: OP03-112 matched on set,
+    # number, language and treatment while being a different Charlotte.
+    same_character, why = character_agrees(
+        row.get("fp_name") or "", master_name, localized,
     )
-    if not same_product:
+    if not same_character:
         return False, why, facts
+
+    # The product-name comparison stands in for a set code we do not have.
+    # When both sides print the same code it has nothing left to decide, and
+    # it starts doing harm: GemRate calls OP09 "Emperors in the New World"
+    # while SNKRDUNK words its own English set name differently, so demanding
+    # those words appear rejected the only listings that could ever be this
+    # card. Codes that DISAGREE never reach here -- they are a hard conflict
+    # above -- so this skips a tie-breaker, not a check.
+    if not set_codes_agree:
+        same_product, why = product_agrees(
+            row.get("set_name") or "", row.get("fp_parallel") or "",
+            master_name, localized,
+        )
+        if not same_product:
+            return False, why, facts
 
     # Treatment is compared on the shared vocabulary, not on the word
     # "parallel": SNKRDUNK spells it as a rarity suffix (R-P, SEC-SPC, SR-TR)
@@ -382,12 +419,25 @@ def cmd_snk_identity_discover(args: argparse.Namespace) -> int:
                 held.append({"variant_id": vid, "reason": "no_search_key",
                              "detail": str(row["set_name"] or "")})
                 continue
-            ids: list[int] = []
+            # Every query gets a share of the cap.
+            #
+            # Concatenating then truncating let the broad query starve the
+            # precise one: "Nami 106" alone fills 20 slots, so the 7 items
+            # SNKRDUNK returns for "OP09-106" -- the only ones that could
+            # possibly be this card -- were fetched and then thrown away
+            # before the rules ever saw them. Every OP09 card in the gap was
+            # judged against OP08 listings and correctly rejected, which is
+            # how a hole reads as a wall. Round-robin instead, so a query with
+            # few hits contributes all of them.
+            hits = []
             for query in queries:
-                for item_id in search_item_ids(session, query, args.per_card):
-                    if item_id not in ids:
-                        ids.append(item_id)
+                hits.append(search_item_ids(session, query, args.per_card))
                 time.sleep(args.delay)
+            ids = []
+            for rank in range(args.per_card):
+                for found in hits:
+                    if rank < len(found) and found[rank] not in ids:
+                        ids.append(found[rank])
             ids = ids[: args.per_card]
             progress(f"[search {index}/{len(targets)}] v{vid} pop={row['pop']}"
                      f" hits={len(ids)} :: {queries[0][:60]}")

@@ -23,6 +23,7 @@ sys.path.insert(0, str(ROOT / "pipelines"))
 
 from snk_identity_discover import (  # noqa: E402
     gemrate_treatment,
+    character_agrees,
     product_agrees,
     snk_treatment,
 )
@@ -155,6 +156,49 @@ word_ok, _ = product_agrees(
     "Monkey.D.Luffy [3rd Anniversary] ST21-014 Prices | One Piece Starter Deck", "",
 )
 check("missing product words still hold", word_ok, False)
+
+
+# --- 5. the character on the card -------------------------------------------
+# Every case below is a proposal this lane actually produced on 2026-08-09.
+# The first one is why the check exists: set code, number, language and
+# treatment all agreed, and the card was a different Charlotte.
+cracker_ok, cracker_why = character_agrees(
+    "Charlotte Pudding",
+    "Charlotte Cracker R-P [OP03-112]", "(Booster Pack Formidable Enemy)",
+)
+check("a different Charlotte is rejected", cracker_ok, False)
+check("rejection names our character", "pudding" in cracker_why, True)
+
+# Romanisation drifts between GemRate and SNKRDUNK. It must not read as a
+# different person -- these two ARE the same proposal, twice accepted.
+for ours, theirs in (
+    ("Nefeltari Vivi", "Nefertari Vivi L-P [OP04-001]"),
+    ("Nefeltari Vivi", "Nefertari Vivi SEC-P [OP04-118]"),
+    ("Monkey D. Luffy", "Monkey D Luffy SR-P [OP07-109]"),
+    ("Portgas D. Ace", "Portgas D Ace SR-P [OP02-013]"),
+    ("Jewelry Bonney", "Jewelry Bonney SEC-SP (Comic Parallel) [OP12-118]"),
+    ("Rebecca", "Rebecca L-P [OP04-039]"),
+    ("Uta", "Uta SEC-P [OP02-120]"),
+):
+    same, why = character_agrees(ours, theirs, "")
+    check(f"{ours} matches its own listing", same, True)
+
+# A tail that differs only in romanisation is the same name; a stem that
+# differs is not, however close the spelling looks.
+check("Kaidou matches Kaido", character_agrees("Kaidou", "Kaido SR [OP01-001]")[0], True)
+check("Nami is not Nojiko", character_agrees("Nami", "Nojiko R [OP01-020]")[0], False)
+
+# An unreadable listing must not invent a verdict. A master name written only
+# in Japanese leaves nothing to compare, and this check has to stand aside
+# rather than hold a binding the other rules would have accepted.
+check(
+    "a listing with no Latin name stands aside",
+    character_agrees("Nami", "ナミ", "")[0], True,
+)
+check(
+    "a card with no name of ours stands aside",
+    character_agrees("", "Nami L-P [OP03-040]")[0], True,
+)
 
 print()
 if failures:
