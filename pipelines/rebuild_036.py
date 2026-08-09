@@ -6505,6 +6505,11 @@ def _pc_print_signature_ok(page_parallel: str, row: Mapping[str, Any]) -> bool:
         collapsed = " ".join(collapsed.split())
         if collapsed == printing:
             return True
+        # Compound codes are written "aa-errata" in the catalog and "Alternate
+        # Art Errata" on the page: same tokens, different separator. Equality
+        # is still demanded, only the separator is normalised.
+        if collapsed.replace("-", " ") == printing.replace("-", " "):
+            return True
     return False
 
 
