@@ -3245,7 +3245,12 @@ def stage_price_materialize(ctx: SimpleNamespace) -> dict[str, Any]:
             route = winner_code
             current = winner
             reason = f"language_{language or 'unknown'}_primary"
-        elif loser is not None:
+        elif loser is not None and not (loser_code == "pricecharting" and language != "en"):
+            # A PriceCharting price is only ever accepted for an English card
+            # (_activation_accept_history gates on pi.card_language='en'), so
+            # falling a non-English card back onto PC would route it to a price
+            # S12 can never accept and abort activation on missing coverage.
+            # SNKRDUNK is accepted for every language, so that fallback stands.
             route = loser_code
             current = loser
             fallback_used = True
@@ -3285,7 +3290,8 @@ def stage_price_materialize(ctx: SimpleNamespace) -> dict[str, Any]:
         "fxJpyPerUsd": fx,
         "rules": {
             "primary": "en->pricecharting, else->snkrdunk",
-            "fallback": "only when primary has zero current-price evidence",
+            "fallback": "only when primary has zero current-price evidence,"
+                        " and never onto pricecharting for a non-en card",
             "never": ["averaging", "summed volumes", "non-strict identities"],
         },
         "pcSalesManifestSha256": sha256_bytes(pc_manifest_blob),
