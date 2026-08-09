@@ -6450,6 +6450,14 @@ _PC_BRACKET_SYNONYMS: dict[str, frozenset[str]] = {
     "mr": frozenset({"manga rare", "manga"}),
     "1st": frozenset({"1st edition", "first edition"}),
     "wanted": frozenset({"wanted", "wanted poster"}),
+    # "SP" is One Piece's own abbreviation of "Special"; both spellings appear
+    # on PC pages for the same treatment. Deliberately excluded: [SP Foil] and
+    # [SP Gold] are separate PC products, and the catalog only carries the
+    # coarse "sp" code, so accepting them could bind the wrong physical card.
+    "sp": frozenset({"sp alternate art", "special alternate art"}),
+    # Pokemon Master Ball is a 1:1 pairing; the catalog spells out the finish
+    # ("master ball reverse holo") where the page bracket says just the seal.
+    "mb": frozenset({"master ball"}),
 }
 
 
