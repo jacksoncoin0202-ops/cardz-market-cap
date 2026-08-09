@@ -1208,8 +1208,14 @@ def _ingest_gemrate_manifest(
                      top_grade_label, total_population, top_grade_population, estimated,
                      effective_at, observed_date, payload_sha256)
                 VALUES (%s,%s,'gemrate',%s,'PSA','10',NULL,%s,0,%s,%s,%s)
+                -- top_grade_label and estimated sit outside uq_market_grader_population
+                -- (variant_id, grader_code, source_code, observed_date), so a row an
+                -- undecomposed 'top' lane landed first for the same day keeps that label
+                -- unless we restate it here -- and the population acceptance lane reads
+                -- the label, not the number. Restating is what makes this row mean PSA 10.
                 ON DUPLICATE KEY UPDATE
                     run_id=VALUES(run_id), external_entity_id=VALUES(external_entity_id),
+                    top_grade_label=VALUES(top_grade_label), estimated=VALUES(estimated),
                     top_grade_population=GREATEST(top_grade_population,VALUES(top_grade_population)),
                     effective_at=VALUES(effective_at), payload_sha256=VALUES(payload_sha256)
                 """,

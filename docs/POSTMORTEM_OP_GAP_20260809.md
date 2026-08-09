@@ -190,6 +190,36 @@ dry-run 同 write 行同一條有洞嘅檢查。
 「一個欄／一個狀態裝兩樣嘢」，呢個係「檢查嘅視野窄過寫入嘅視野」。同一形狀嘅位
 仲有幾多：任何「查 DB 之後 batch insert」嘅腳本都要問返呢句。
 
+## 第十二個缺陷：upsert 插入時講清楚，更新時唔講（2026-08-09 夜補）
+
+`market_grader_population_observation` 嘅 unique key 係
+`(variant_id, grader_code, source_code, observed_date)`——**`top_grade_label` 唔喺入面**。
+但成條 population acceptance lane 就係睇 `top_grade_label`：`'10'` 先算 PSA 10 人口，
+`'top'` 係未拆等級嘅「最高分持有量」，join 唔上。
+
+兩條 lane 會落同一日嘅 GemRate 觀察：`db_runtime` 寫 `'top'`，
+S12 個 bridge 同 nightly `collect_control` 寫 `'10'`。邊條先插就邊條擁有嗰行——
+而 bridge 個 `ON DUPLICATE KEY UPDATE` 更新咗 run_id、人口、total、effective_at、
+payload_sha，就係**冇更新 `top_grade_label`**。
+
+結果：131 張 product_ready 卡嘅真實 PSA 10 人口寫咗入去，
+但個 label 仍然係 `'top'`，acceptance lane 照 label 拒收，
+S12 報 `missingPop`（`missingPrice` 係空嘅）成批 rollback。
+數字一直喺張枱度——`v1116` 個 row 寫住 5282，同 v2 landing 一模一樣。
+睇個報錯會以為「GemRate 冇俾人口」，去爬多一次都冇用。
+
+修法係三條寫 `'10'` 嘅 lane 全部喺 update list restate
+`top_grade_label` 同 `estimated`；寫 `'top'` 嗰條**唔准** restate——
+佢係精度低嗰個形狀，唔可以反手蓋走 `'10'` 行嘅意思。
+`scripts/test_pop_upsert_restates_label.py` 靜態掃三個檔釘死呢條規矩，
+並且要求至少搵到 4 條 insert，唔係「搵唔到嘢查」都算過。
+
+**教訓：唔喺 unique key 入面、但決定行意義嘅欄，upsert 一定要喺 update list restate。**
+呢個又係另一個形狀：唔係欄裝兩樣嘢（第八個），唔係檢查視野太窄（第十一個），
+而係**同一句 SQL 喺 INSERT 路徑同 UPDATE 路徑講唔同嘅嘢**。
+同型位：任何 `ON DUPLICATE KEY UPDATE` 都要對住 unique key 逐欄問一次
+「呢欄唔更新嘅話，行嘅意思會唔會變成第二樣」。
+
 ## 仲未修（欠單，唔係已修）
 
 - **`print_signature_mismatch` 唔係規則問題，係 map 指錯頁。** 實測 v1582 捕獲到嘅

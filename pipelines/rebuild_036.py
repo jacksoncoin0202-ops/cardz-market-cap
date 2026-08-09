@@ -5484,7 +5484,13 @@ def stage_canary(ctx: SimpleNamespace) -> dict[str, Any]:
                 "  top_grade_label, total_population, top_grade_population, estimated,"
                 "  effective_at, observed_date, payload_sha256)"
                 " VALUES (%s,%s,'gemrate',%s,'PSA','10',%s,%s,0,%s,%s,%s)"
+                # top_grade_label and estimated are NOT in uq_market_grader_population
+                # (variant_id, grader_code, source_code, observed_date) but they decide
+                # what the row MEANS, so the update list must restate them: a row left
+                # saying 'top' carries a PSA-10 number under a label no acceptance lane
+                # reads. See _activation_bridge_population for the same rule.
                 " ON DUPLICATE KEY UPDATE run_id=VALUES(run_id),"
+                "  top_grade_label=VALUES(top_grade_label), estimated=VALUES(estimated),"
                 "  top_grade_population=GREATEST(top_grade_population,VALUES(top_grade_population)),"
                 "  total_population=VALUES(total_population),"
                 "  effective_at=VALUES(effective_at), payload_sha256=VALUES(payload_sha256)",
@@ -5954,7 +5960,15 @@ def _activation_bridge_population(cur, generation: str, now_str: str) -> dict[st
     S3 lands generation POP evidence in market_gemrate_psa10_observation_v2 only;
     the FE core query reads market_grader_population_observation. Bridge the
     generation's rows for bound qualified members, keyed to a dedicated ingest
-    run. payload_sha256 = psa_row_sha256 (ties back to the raw capture)."""
+    run. payload_sha256 = psa_row_sha256 (ties back to the raw capture).
+
+    The unique key is (variant_id, grader_code, source_code, observed_date) --
+    top_grade_label is not in it, so an older lane that landed the same day's
+    GemRate observation as the undecomposed 'top' grade owns that row. The update
+    list therefore restates top_grade_label and estimated: without them the bridge
+    writes a correct PSA-10 number into a row still labelled 'top', which the
+    population acceptance lane refuses by label, and 131 product_ready cards
+    aborted S12 for missing a population they in fact had (2026-08-09)."""
 
     # ingest_mode is varchar(16) vocab (incremental/full/backfill/rebuild/stock);
     # the run_key alone identifies this as the 036 pop bridge. payload/manifest
@@ -5988,6 +6002,7 @@ def _activation_bridge_population(cur, generation: str, now_str: str) -> dict[st
         "  AND v2.psa_row_sha256 REGEXP '^[0-9a-f]{64}$'"
         " ON DUPLICATE KEY UPDATE"
         "  run_id=VALUES(run_id), external_entity_id=VALUES(external_entity_id),"
+        "  top_grade_label=VALUES(top_grade_label), estimated=VALUES(estimated),"
         "  top_grade_population=GREATEST(top_grade_population,VALUES(top_grade_population)),"
         "  total_population=VALUES(total_population),"
         "  effective_at=VALUES(effective_at), payload_sha256=VALUES(payload_sha256)",
