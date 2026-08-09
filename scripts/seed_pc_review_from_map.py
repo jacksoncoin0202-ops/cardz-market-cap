@@ -13,9 +13,26 @@ which no acceptance lane reads and the strict source view excludes, so seeding
 cannot put a card on the front end. Only pc-identity-reverify can, and only
 when the page proves it.
 
-Run:  python -X utf8 scripts/seed_pc_review_from_map.py --map <map.jsonl>
-      python -X utf8 pipelines/operator_control.py pc-identity-reverify \
-             --map <map.jsonl> --write
+Seeding and promoting are only the first half. A card that reaches 'exact' and
+stops there is bound and priceless: S8 reads its prices from the REPLAY
+directory, not from the capture directory the sweep wrote into, and S11 only
+calls a card product_ready when S8 gave it a price route and S9 gave it an
+image. Skip steps 3-4 and the work looks done while the front end never moves.
+
+Run (2026-08-09, proven end to end on the 206-card pokemon gap batch):
+  1. python -X utf8 scripts/seed_pc_review_from_map.py --map <map.jsonl> --write
+  2. python -X utf8 pipelines/operator_control.py pc-identity-reverify \
+            --map <map.jsonl> --write
+  3. python -X utf8 pipelines/pc_cache_replay.py --generation <036_...>
+  4. operator_control.py rebuild-036-freeze
+     operator_control.py rebuild-036 --generation <036_...> \
+            --invalidate-from pc-replay
+     operator_control.py rebuild-036 --generation <036_...>
+     operator_control.py rebuild-036-activate --generation <036_...> \
+            --receipt-sha256 <sha from the S11 receipt>
+     operator_control.py rebuild-036-unfreeze --confirm
+Preflight refuses to start while any cardz-linked scheduled task is enabled,
+so disable them for step 4 and enable them again after the unfreeze.
 """
 from __future__ import annotations
 
