@@ -1,0 +1,254 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""What pc_identity_discover may and may not conclude, checked against real HTML.
+
+The console-page parsing is checked against a page PriceCharting actually
+served (one-piece-wings-of-the-captain, captured 2026-08-09), not a hand-written
+fixture, because the thing most likely to break is PriceCharting's markup and a
+fixture I wrote would keep passing after it changed.
+
+Run: python -X utf8 scripts/test_pc_identity_discover_rules.py
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "pipelines"))
+
+import pc_identity_discover as D
+
+FAILED: list[str] = []
+CHECKS = 0
+
+
+def check(label: str, got, want) -> None:
+    global CHECKS
+    CHECKS += 1
+    if got != want:
+        FAILED.append(f"FAIL {label}: got {got!r}, want {want!r}")
+
+
+def truthy(label: str, got) -> None:
+    global CHECKS
+    CHECKS += 1
+    if not got:
+        FAILED.append(f"FAIL {label}: got {got!r}, want truthy")
+
+
+# --- 1. console index: our set name -> the right set page ------------------
+INDEX = {
+    "one-piece-wings-of-the-captain": "one piece wings of the captain",
+    "one-piece-japanese-wings-of-the-captain": "one piece japanese wings of the captain",
+    "one-piece-pillars-of-strength": "one piece pillars of strength",
+    "one-piece-promo": "one piece promo",
+    "one-piece-japanese-promo": "one piece japanese promo",
+    "one-piece-romance-dawn": "one piece romance dawn",
+    "one-piece-japanese-romance-dawn": "one piece japanese romance dawn",
+    "one-piece-carrying-on-his-will": "one piece carrying on his will",
+    "one-piece-500-years-in-the-future": "one piece 500 years in the future",
+}
+
+check("plain set name resolves",
+      D.match_console("One Piece Wings of the Captain", "en", INDEX)[0],
+      "one-piece-wings-of-the-captain")
+# The English card must not land on the Japanese set page: those two slugs
+# share every distinctive token, so only the language filter separates them.
+check("English card does not take the Japanese set page",
+      D.match_console("One Piece Romance Dawn", "en", INDEX)[0],
+      "one-piece-romance-dawn")
+check("Japanese card takes the Japanese set page",
+      D.match_console("One Piece Romance Dawn", "ja", INDEX)[0],
+      "one-piece-japanese-romance-dawn")
+# GemRate spells the same set four ways across the gap list.
+for spelling in (
+    "One Piece Carrying On His Will",
+    "One Piece Carrying On His Will OP-13",
+    "2025 Carrying On His Will (Op13) - English Manga Alt. Art Parallel",
+    "2025 Carrying On His Will Alternate Art",
+):
+    check(f"spelling resolves: {spelling[:38]}",
+          D.match_console(spelling, "en", INDEX)[0],
+          "one-piece-carrying-on-his-will")
+check("plural promos reaches the singular promo page",
+      D.match_console("One Piece Promos", "en", INDEX)[0], "one-piece-promo")
+# A set page that says LESS than our set name is a different product.
+slug, why = D.match_console("One Piece Wings of the Captain", "en",
+                            {"one-piece-promo": "one piece promo"})
+check("a broader page is not accepted as our set", slug, "")
+truthy("and it says why", why.startswith("no_console_for_set"))
+# Digits carry meaning in a set name and must not be dropped as noise.
+check("numeric set name resolves",
+      D.match_console("One Piece 500 Years in the Future", "en", INDEX)[0],
+      "one-piece-500-years-in-the-future")
+
+
+# --- 2. console page parsing, against HTML PriceCharting served ------------
+PAGE = (ROOT / "data" / "private" / "pricecharting_session" / "html" / "console"
+        / "one-piece-wings-of-the-captain.html")
+if not PAGE.is_file():
+    FAILED.append(f"FAIL fixture missing: {PAGE} (fetch it before running this test)")
+else:
+    rows = D.parse_console_rows(PAGE.read_text(encoding="utf-8", errors="replace"))
+    # A parser that finds nothing passes every assertion about what it found.
+    truthy("the real page yields a full page of rows", len(rows) >= D.CONSOLE_PAGE_SIZE)
+    by_pid = {row["pid"]: row for row in rows}
+    zoro = by_pid.get("6578585")
+    truthy("a known product id is present", zoro is not None)
+    if zoro:
+        check("title is read whole", zoro["title"],
+              "Roronoa Zoro [Alternate Art Manga] OP06-118")
+        check("slug is read", zoro["slug"], "roronoa-zoro-alternate-art-manga-op06-118")
+        truthy("url is absolute", zoro["url"].startswith("https://www.pricecharting.com/game/"))
+        check("number comes off the title", D.listing_number(zoro), "OP06-118")
+    truthy("every row has a product id", all(row["pid"].isdigit() for row in rows))
+    truthy("every row has a title", all(row["title"] for row in rows))
+
+# The number falls back to the slug when the title omits it.
+check("number falls back to the slug",
+      D.listing_number({"title": "Roronoa Zoro [Alternate Art]",
+                        "slug": "roronoa-zoro-alternate-art-op06-118"}), "OP06-118")
+check("no number anywhere reads as empty",
+      D.listing_number({"title": "Booster Box", "slug": "booster-box"}), "")
+
+
+# --- 3. judging a listing row ---------------------------------------------
+def variant(**over):
+    row = {
+        "collector_number": "OP06-118", "fp_name": "Roronoa Zoro",
+        "canonical_name": "2024 One Piece OP06-Wings of the Captain Roronoa Zoro"
+                          " Manga Alternate Art 118",
+        "set_name": "One Piece Wings of the Captain",
+        "fp_parallel": "Manga Alternate Art",
+        "parallel_code": "aa", "printing_code": "manga",
+    }
+    row.update(over)
+    return row
+
+
+def listing(**over):
+    row = {
+        "pid": "6578585",
+        "title": "Roronoa Zoro [Alternate Art Manga] OP06-118",
+        "slug": "roronoa-zoro-alternate-art-manga-op06-118",
+        "url": "https://www.pricecharting.com/game/one-piece-wings-of-the-captain/"
+               "roronoa-zoro-alternate-art-manga-op06-118",
+    }
+    row.update(over)
+    return row
+
+
+ok, why = D.judge_listing(variant(), listing())
+check(f"the matching listing is accepted ({why})", ok, True)
+
+# The number is the coarse filter and has to actually filter.
+ok, why = D.judge_listing(variant(), listing(
+    title="Roronoa Zoro [Alternate Art Manga] OP06-119",
+    slug="roronoa-zoro-alternate-art-manga-op06-119"))
+check("a different number is refused", ok, False)
+truthy("and the reason names the number", why.startswith("number:"))
+
+# Same number, different character: the exact failure that put Charlotte
+# Cracker on Charlotte Pudding's card before character_agrees existed.
+ok, why = D.judge_listing(variant(), listing(
+    title="Nami [Alternate Art Manga] OP06-118",
+    slug="nami-alternate-art-manga-op06-118"))
+check("a different character is refused", ok, False)
+truthy("and the reason names the character", "character" in why)
+
+# Same number and character, wrong treatment: base and parallel share a number,
+# so the bracket is the only thing that can tell them apart.
+ok, why = D.judge_listing(variant(), listing(
+    title="Roronoa Zoro OP06-118", slug="roronoa-zoro-op06-118"))
+check("the base print is refused for a parallel card", ok, False)
+truthy("and the reason names the print signature", why.startswith("print_signature:"))
+
+# A card whose own number we do not have cannot be matched on one.
+ok, why = D.judge_listing(variant(collector_number=""), listing())
+check("no collector number of ours means no match", ok, False)
+check("and it says so", why, "our_collector_number_missing")
+
+# The set has to agree even when number, character and treatment do. This is
+# the One Piece reprint trap: OP03-008 exists in OP03 and in OP06.
+ok, why = D.judge_listing(variant(set_name="One Piece Pillars of Strength"), listing())
+check("a listing from another set is refused", ok, False)
+truthy("and the reason names the product", "product_mismatch" in why)
+
+
+# --- 3b. promo numbers: ours is the tail of theirs -------------------------
+# GemRate files these cards under "One Piece Promos" with a bare number and no
+# set code; PriceCharting keeps the full number. Checked against the served
+# promo pages rather than described, because the whole question is what the
+# provider actually prints.
+PROMO_PAGES = sorted(
+    (ROOT / "data" / "private" / "pricecharting_session" / "html" / "console").glob(
+        "one-piece-promo*.html")
+)
+truthy("promo console pages are captured", PROMO_PAGES)
+promo_rows: dict[str, dict[str, str]] = {}
+for page in PROMO_PAGES:
+    for row in D.parse_console_rows(page.read_text(encoding="utf-8", errors="replace")):
+        promo_rows[row["pid"]] = row
+
+luffy = promo_rows.get("10956514")
+truthy("the promo page has the card we are looking for", luffy is not None)
+if luffy:
+    check("its number is the full one", D.listing_number(luffy), "OP07-109")
+    check("bare 109 is that number", D.numbers_agree("109", "OP07-109", "one-piece"), True)
+    check("leading zeros do not matter",
+          D.numbers_agree("007", "OP01-007", "one-piece"), True)
+
+# Entities are markup, not part of anybody's name.
+hody = promo_rows.get("11235848")
+truthy("the entity-bearing row is present", hody is not None)
+if hody:
+    check("HTML entities are decoded", hody["title"], "Hody & Hyouzou P-062")
+
+# The tail rule is a reading of their notation, not a licence to bind: the
+# promo page's P-062 really is a different card from our 062.
+check("a different tail is still refused",
+      D.numbers_agree("109", "OP07-190", "one-piece"), False)
+check("Pokemon is not judged by One Piece notation",
+      D.numbers_agree("109", "OP07-109", "pokemon"), False)
+check("a bare number does not match a bare number of another card",
+      D.numbers_agree("109", "", "one-piece"), False)
+
+
+def promo_variant(**over):
+    row = {
+        "tcg_code": "one-piece", "collector_number": "109",
+        "fp_name": "Monkey D. Luffy",
+        "canonical_name": "2024 One Piece Promo Monkey D. Luffy Illustration Box Vol.3 109",
+        "set_name": "One Piece Promos", "fp_parallel": "Illustration Box Vol.3",
+        "parallel_code": "illustration box vol.3", "printing_code": "",
+    }
+    row.update(over)
+    return row
+
+
+if luffy:
+    ok, why = D.judge_listing(promo_variant(), luffy)
+    check(f"the promo card is accepted on its tail ({why})", ok, True)
+if hody:
+    # Same tail, different card: 062 is our O-Nami, P-062 is theirs.
+    ok, why = D.judge_listing(
+        promo_variant(collector_number="062", fp_name="O-Nami",
+                      fp_parallel="Illustration Box Vol.1",
+                      parallel_code="illustration box vol.1"), hody)
+    check("a same-tail row of another character is refused", ok, False)
+    truthy("and the reason names the character", "character" in why)
+
+
+# --- 4. the page-size constant is the page's, not ours ---------------------
+check("console page size matches what the form asks for", D.CONSOLE_PAGE_SIZE, 150)
+if PAGE.is_file():
+    html = PAGE.read_text(encoding="utf-8", errors="replace")
+    truthy("the served page really does hand back that cursor",
+           f'name="cursor" value="{D.CONSOLE_PAGE_SIZE}"' in html)
+
+
+for line in FAILED:
+    print(line)
+print(f"{CHECKS - len(FAILED)}/{CHECKS} checks passed")
+raise SystemExit(1 if FAILED else 0)

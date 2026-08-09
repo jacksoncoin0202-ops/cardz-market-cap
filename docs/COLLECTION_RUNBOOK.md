@@ -518,6 +518,57 @@ SELECT crm.cohort, COUNT(DISTINCT si.variant_id)
 `pc-identity-reverify` → `pc_cache_replay` → 由 `pc-replay` 起 linear 重跑。S8 讀嘅係 **replay
 目錄**，唔係 capture 目錄 —— 抄漏咗就係「爬咗嘢但入唔到庫」。
 
+### 缺價卡搵返正確 PC 產品 —— `pipelines/pc_identity_discover.py`
+
+**幾時用**：張卡有 pop、有 GemRate 身份，但 `catalog_source_identity` 冇任何 `exact` 價源。
+`pc-identity-reverify` **幫唔到手** —— 佢只係重新審張卡**已經有**嘅 binding，而呢批卡嘅
+binding 本身就指錯產品（One Piece 復刻卡保留原始編號，舊 binding 就係照個號綁落原本嗰套）。
+
+**點解唔用搜尋**：逐張搜 PriceCharting 實測 35 張只有 2 張唯一解
+（[POSTMORTEM](POSTMORTEM_OP_GAP_20260809.md)）。呢條線唔搜尋，佢**枚舉**：
+`/category/one-piece-cards` → 137 個 console slug；`/console/<slug>` → 成套卡連 product id
+（每頁 150 行，之後跟佢自己個 `cursor`）。「PriceCharting 幾百萬件貨邊件係佢」變成
+「呢 233 行邊行係佢」。
+
+```bash
+# 睇清楚先（唔寫 DB；console 頁會 cache，第二次行好快）
+python -X utf8 -u pipelines/pc_identity_discover.py --tcg one-piece --language en --delay 1.2
+# 落提案
+python -X utf8 -u pipelines/pc_identity_discover.py --tcg one-piece --language en --delay 1.2 --write
+```
+
+**佢只提案，唔提升。** 生還者寫 `manual_review` + 抓產品頁 + 補 map 行，之後照行
+`pc-identity-reverify` 由現有 fail-closed 合約判 `exact`。一個判官 = 由呢條線入嘅卡同世界上
+其他卡係同一把尺；呢度有 bug 最多令我哋少一個 binding，唔會多一個錯 binding。
+
+**點睇 hold 記錄**（artifact：`data/runtime/rebuild-036/pc-identity-discover-*.json`）：
+
+| 欄 | 意思 |
+|---|---|
+| `askedNumber` | 我哋要嘅編號 |
+| `pageCarries` | 嗰版真係載住咩前綴（`OP06x224` = 224 行 OP06） |
+| `reachedIdentityChecks` | 幾多行過到號碼呢關、再入身份檢查 |
+| `refusedBy` | 拒絕理由分佈（`number` / `character_mismatch` / `product_mismatch` / `print_signature`） |
+
+`reachedIdentityChecks: 0` = 成版都冇我哋個號 → 多數係**我哋 catalog 個號錯**（見下）。
+`>0` = 有行同號但身份對唔上 → 睇 `rejections`。
+
+**2026-08-09 實測（One Piece en，pop≥1000，100 張）**：proposed 30、no_survivor 51、
+no_console 11、ambiguous 8。三種 hold 各自嘅意思：
+
+1. **`no_survivor` 且 `reachedIdentityChecks: 0`（23 張）** —— catalog 身份缺陷，唔係比對缺陷。
+   例：v1300 `set_code='ST01'`、`collector_number='ST01-007'`，但 `set_name` 係 Wings of the
+   Captain。實測嗰版 224/224 行全部 OP06 前綴，而 OP06-007 係 **Shanks 唔係 Nami**。
+   **唔准為咗夾到而放鬆前綴比較** —— 放鬆咗就會將 Nami 綁落 Shanks。
+2. **`no_console`（11 張）** —— GemRate 個 set name 喺 PriceCharting 根本唔係一套
+   （例：`3rd Anniversary Brothers Tournament`）。
+3. **`ambiguous_survivors`（8 張）** —— 幾行同時過晒閘，照 hold，唔猜。
+
+**促銷卡（promo）嘅號碼寫法**：GemRate 掉咗前綴（`062`），PriceCharting 保留（`OP05-062`）。
+`numbers_agree()` 因此容許「我哋個 bare number = 佢個尾號」，**只限 One Piece**。
+呢個唔係放鬆閘：同一版真係有一行 `P-062` 而佢係 Hody & Hyouzou —— 尾號自己從來唔決定任何嘢，
+角色/產品/印刷簽名三關照跑。Pokémon 促銷寫法係 `085/SVP`，唔准套呢條規矩。
+
 ### 已知效能債
 
 `stage_validate` 而家要行 ~5 分鐘。`EXPLAIN` 顯示佢會 materialize
@@ -585,6 +636,17 @@ seed-snapshot）。手抄落去嘅 generation 圖每次 build 完要再抄一次
    （`Full Art/Pikachu Vmax`），攞成串去搵 SNKRDUNK = 搵一張冇人賣嘅卡。搵之前用
    `rebuild_036.card_name_without_treatment()` 剝走，treatment 交返俾 print-signature 規則證。
 
+9. **同一個號碼，兩邊兩種寫法。**（2026-08-09，PC promo）GemRate 促銷卡掉咗前綴寫 `062`，
+   PriceCharting 寫 `OP05-062`。淨係字串比 = 靜靜 refuse 晒成批促銷卡，而 log 只會話
+   「number 對唔上」，睇落好合理。修法：將兩種寫法嘅關係寫成一個有名有姓嘅函數
+   （`pc_identity_discover.numbers_agree()`）+ test + **限死邊款遊戲**，唔好散喺比對邏輯度。
+   注意呢個唔等於放鬆：同一版真係有一行 `P-062` 但佢係另一張卡，所以尾號永遠唔單獨決定。
+10. **HTML entity 當咗名嘅一部分。** `<a>Hody &amp; Hyouzou</a>` 唔 unescape 就會多咗個
+   `amp` token，之後所有名字比對都同佢比。parse 完即刻 `html.unescape`。
+11. **統計拋棄咗 = 個 hold 講唔出自己點解 hold。** 為咗唔想 log 太長而靜靜 drop 大多數
+   rejection，結果 artifact 出 `"rejections": []` —— operator 分唔到「冇一行接近」同
+   「個 filter 根本冇行過」。要 drop 就留低分佈（要嗰個號碼、嗰版實際載住咩、幾多行過到關）。
+
 ### 相關嘅 MySQL / shell 陷阱
 
 - 一條 statement 入面 reference 同一張 TEMPORARY table 兩次 → `ERROR 1137 Can't reopen table`。
@@ -599,8 +661,9 @@ seed-snapshot）。手抄落去嘅 generation 圖每次 build 完要再抄一次
 
 ## Hard rules
 
-1. **No `git add -A` in this repo.** `data/private/**` is **not** gitignored (verified against
-   `.gitignore`; also stated in `PLAN_036_FE02.md:521`). Stage files one by one.
+1. **No `git add -A` in this repo.** `data/private/` 同 `data/runtime/` 由 2026-08-08 起已經喺
+   `.gitignore`（`PLAN_036_FE02.md:521` 講「未 ignore」係舊嘢，已過時），但呢條規矩照守：
+   working tree 隨時有唔應該入 repo 嘅嘢。逐個檔 add。
 2. **`backend.env` is read-only** — "一個 byte 都唔准改" (`PLAN_036_FE02.md` §0.4). The writer
    freeze is proven by `scripts/prove_writer_freeze.py` against the unmodified `backend.env`
    (expects MySQL error 1142).
