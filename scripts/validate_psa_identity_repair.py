@@ -169,7 +169,10 @@ def main(argv: list[str] | None = None) -> int:
         top_level_authority_violations: list[int] = []
         for accepted in accepted_rows:
             variant_id = int(accepted["variant_id"])
-            raw = load_psa_raw(str(accepted["gemrate_id"]))
+            raw = load_psa_raw(
+                str(accepted["gemrate_id"]),
+                pinned_sha=str(accepted["raw_payload_sha256"] or ""),
+            )
             psa = raw.get("psa") or {}
             literal = str(psa.get("description") or "")
             name_exact = (

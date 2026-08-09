@@ -175,7 +175,15 @@ def parallel_compatible(psa_row: dict[str, Any], printing: dict[str, Any]) -> bo
     return True
 
 
-def load_psa_raw(gemrate_id: str) -> dict[str, Any]:
+def load_psa_raw(gemrate_id: str, pinned_sha: str | None = None) -> dict[str, Any]:
+    """Resolve one card's raw GemRate capture.
+
+    ``raw/`` is an append-only content-addressed store: an incremental refresh
+    adds a new payload and re-points the receipt, it never rewrites or deletes
+    the old one. Callers that already accepted a specific payload must pass its
+    sha as ``pinned_sha`` so they keep reading the bytes they accepted; the
+    receipt pointer only names the newest capture.
+    """
     receipt_path = RAW_ROOT / gemrate_id / "card_details.raw.receipt.json"
     if not receipt_path.is_file():
         return {"error": "missing_psa_raw", "reason": "receipt_missing"}
@@ -183,7 +191,16 @@ def load_psa_raw(gemrate_id: str) -> dict[str, Any]:
         receipt = json.loads(receipt_path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError):
         return {"error": "missing_psa_raw", "reason": "receipt_invalid"}
+    pinned = str(pinned_sha or "").strip().lower()
+    resolved_by = "receipt_pointer"
+    expected_sha = str(receipt.get("contentSha256") or "").lower()
     source_pointer = str(receipt.get("sourcePointer") or "")
+    if pinned and HEX64.match(pinned) and pinned != expected_sha:
+        candidate = receipt_path.parent / "raw" / f"{pinned}.json"
+        if candidate.is_file():
+            source_pointer = f"raw/{pinned}.json"
+            expected_sha = pinned
+            resolved_by = "pinned_sha"
     raw_path = (receipt_path.parent / source_pointer).resolve()
     try:
         raw_path.relative_to(receipt_path.parent.resolve())
@@ -193,7 +210,7 @@ def load_psa_raw(gemrate_id: str) -> dict[str, Any]:
         return {"error": "missing_psa_raw", "reason": "raw_missing"}
     raw_bytes = raw_path.read_bytes()
     raw_sha = sha256_bytes(raw_bytes)
-    if raw_sha != str(receipt.get("contentSha256") or "").lower():
+    if raw_sha != expected_sha:
         return {"error": "source_mismatch", "reason": "raw_hash_mismatch"}
     try:
         payload = json.loads(raw_bytes.decode("utf-8-sig"))
@@ -218,6 +235,7 @@ def load_psa_raw(gemrate_id: str) -> dict[str, Any]:
         "receiptPath": str(receipt_path.relative_to(ROOT)).replace("\\", "/"),
         "rawPath": str(raw_path.relative_to(ROOT)).replace("\\", "/"),
         "rawPayloadSha256": raw_sha,
+        "resolvedBy": resolved_by,
         "psaRowSha256": sha256_json(row),
         "fetchedAt": receipt.get("fetchedAt"),
         "psa": row,
