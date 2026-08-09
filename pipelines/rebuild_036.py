@@ -1106,6 +1106,32 @@ def _print_phrases(text: str) -> frozenset[str]:
     return frozenset(p for p in _PRINT_PHRASES if f" {p} " in blob)
 
 
+def card_name_without_treatment(name: str) -> str:
+    """The character's name, with a treatment GemRate glued to the front removed.
+
+    GemRate fingerprints arrive as "Full Art/Charizard GX" -- the parallel and
+    the name in a single field. Read whole, that string is not a name, and
+    everything downstream that treated it as one was wrong in both directions:
+    it put "Full Art/" into PriceCharting search queries (which answered a
+    Pokemon query with a One Piece product), it refused 43 correct product
+    pages whose titles say "Charizard GX" and never say "Full Art", and it
+    admitted "Double Full Heal #105" for "Full Art/M Pidgeot EX" because the
+    similarity check found the word "full" in both.
+
+    The treatment still has to be proven -- it just cannot be proven against a
+    page title that never spells it out. That job belongs to the print-signature
+    rules, which read _PRINT_PHRASES from the same vocabulary as this function.
+
+    Only a known print phrase is dropped, so a card whose name genuinely
+    contains a slash keeps it.
+    """
+
+    head, separator, tail = (name or "").partition("/")
+    if separator and _norm_text(head).strip() in _PRINT_PHRASES:
+        return tail.strip()
+    return name
+
+
 def _snk_treatment_mirror(master_name: str, localized: str) -> bool:
     """SNK titles carry the print treatment after the name colon
     ("Pikachu: Mirror [s8a 001/028]"). Only that slot may claim mirror —

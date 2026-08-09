@@ -38,6 +38,7 @@ sys.path.insert(0, str(ROOT / "pipelines"))
 from failure_ledger import record_failure, record_resolution  # noqa: E402
 from pricecharting_cf_session import _is_cf, cmd_fetch  # noqa: E402
 from qualified_pool_operator import db  # noqa: E402
+from rebuild_036 import card_name_without_treatment  # noqa: E402
 
 OUT_ROOT = ROOT / "data/runtime/private-reports/fill/PC-FULL-900"
 HTML_DIR = ROOT / "data/private/pricecharting_session/html/full900"
@@ -134,6 +135,50 @@ def name_ok(expected: str, title: str) -> bool:
     return SequenceMatcher(None, expected_norm, title_norm).ratio() >= 0.42
 
 
+def _number_parts(text: str) -> tuple[str, int] | None:
+    """A collector number as (set prefix, value): "SWSH050" -> ("swsh", 50)."""
+
+    match = re.search(r"([a-z]*)0*(\d+)", re.sub(r"[^a-z0-9]", "", (text or "").casefold()))
+    return (match.group(1), int(match.group(2))) if match else None
+
+
+def _page_numbers(title: str, url: str) -> list[tuple[str, int]]:
+    """Every collector number PriceCharting itself prints for this product."""
+
+    printed = []
+    match = re.search(r"#\s*([A-Za-z]*\d+[A-Za-z]*)", title or "")
+    if match:
+        printed.append(match.group(1))
+    match = re.search(r"([a-z]*\d+[a-z]*)/?$", (url or "").casefold())
+    if match:
+        printed.append(match.group(1))
+    return [parts for parts in (_number_parts(t) for t in printed) if parts]
+
+
+def _pokemon_number_proven(collector: str, title: str, url: str) -> bool:
+    """Does the page carry the number the card asked for?
+
+    Fail closed: a number neither side prints legibly is not an agreement.
+    Measured over the 147 pages the 2026-08-09 gap sweep resolved, no page
+    failed to print one, so closing here costs nothing real.
+    """
+
+    mine = _number_parts(collector)
+    if not mine:
+        return False
+    prefix_mine, value_mine = mine
+    return any(
+        value == value_mine
+        and (
+            not prefix
+            or not prefix_mine
+            or prefix.endswith(prefix_mine)
+            or prefix_mine.endswith(prefix)
+        )
+        for prefix, value in _page_numbers(title, url)
+    )
+
+
 def page_identity_ok(work: dict[str, Any], title: str, url: str) -> bool:
     """Fail closed when a PC page cannot prove the requested printing."""
 
@@ -146,6 +191,17 @@ def page_identity_ok(work: dict[str, Any], title: str, url: str) -> bool:
     )
     tcg = str(work.get("tcg") or "").strip().casefold()
     if tcg == "one-piece" and (not collector or collector not in page_flat):
+        return False
+
+    # Until 2026-08-09 only One Piece had to prove its number, so a pokemon
+    # card could attach to any product whose title merely resembled its name:
+    # English "Pikachu V" #001 attached to "Pikachu [Full Art] #708, Chinese
+    # Gem Pack", and "M Pidgeot EX" #105 to a Trainer card called "Double Full
+    # Heal". The two games need different readings of a number -- One Piece
+    # arrives as one token ("OP09-106") while pokemon numbers are bare or
+    # set-prefixed ("050" on a page that says "SWSH050") -- so this is a second
+    # rule beside the first, not a widening of it.
+    if tcg == "pokemon" and not _pokemon_number_proven(collector, title, url):
         return False
 
     language = str(work.get("language") or "").strip().casefold()
@@ -826,6 +882,12 @@ def main() -> int:
         shard_id = str(args.shard)
 
     work = json.loads(shard_path.read_text(encoding="utf-8"))
+    # One place, so every later reader -- search query, name_ok, pick_resolve_url
+    # -- sees the card's name and not the print treatment welded to its front.
+    # Shards written before this fix carry the glued form and are corrected here
+    # on load rather than being rebuilt.
+    for row in work:
+        row["name"] = card_name_without_treatment(str(row.get("name") or ""))
     work = select_target_work(
         work,
         variant_id=args.variant_id,

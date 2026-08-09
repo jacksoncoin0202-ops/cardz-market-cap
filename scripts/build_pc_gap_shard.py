@@ -69,9 +69,12 @@ def targets(conn, generation: str, tcg: str, min_pop: int, language: str) -> lis
 
 
 def search_url(row: dict) -> str:
+    # The treatment GemRate glues to the front of the name ("Full Art/Charizard
+    # GX") is not a search term. Left in, PriceCharting answered a Pokemon query
+    # with a One Piece product, because "full art" is what it had to match on.
     words = [
         TCG_SEARCH_WORD.get(str(row["tcg"]), str(row["tcg"]).replace("-", " ")),
-        str(row["name"] or ""),
+        R.card_name_without_treatment(str(row["name"] or "")),
         str(row["num"] or ""),
     ]
     query = " ".join(word for word in words if word).strip()
@@ -106,7 +109,8 @@ def main() -> int:
         {
             "vid": int(row["vid"]),
             "rank": index,
-            "name": str(row["name"] or ""),
+            "name": R.card_name_without_treatment(str(row["name"] or "")),
+            "treatment": str(row["treatment"] or ""),
             "set": str(row["set"] or ""),
             "num": str(row["num"] or ""),
             "tcg": str(row["tcg"] or ""),
