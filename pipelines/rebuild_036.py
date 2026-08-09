@@ -2301,8 +2301,28 @@ def _snk_dir(generation: str) -> Path:
 
 
 def _snk_language(master_name: str, localized: str) -> str:
+    """The language SNKRDUNK itself stamps on the listing.
+
+    Untagged means Japanese, but "not English" did NOT mean Japanese: SNK also
+    lists Chinese and Korean printings of the same product number, and reading
+    those as ja let them sail into a ja variant with no language conflict at
+    all. Chinese stays the bare "zh" when the listing does not say which
+    script, matching _language_from_set_name -- ambiguous fails closed.
+    """
+
     text = f"{master_name} {localized}"
-    return "en" if ("【英語版】" in text or "english" in text.casefold()) else "ja"
+    lowered = text.casefold()
+    if "【英語版】" in text or "english" in lowered:
+        return "en"
+    if "【韓国語版】" in text or "[kr]" in lowered or "korean" in lowered:
+        return "ko"
+    if "簡体" in text or "简体" in text:
+        return "zhCN"
+    if "繁体" in text or "繁體" in text:
+        return "zhTW"
+    if "中国語版" in text or "中國語版" in text or "[chn]" in lowered or "chinese" in lowered:
+        return "zh"
+    return "ja"
 
 
 def _snk_tcg(master_name: str, localized: str) -> str:

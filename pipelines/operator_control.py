@@ -2607,6 +2607,13 @@ def main() -> int:
     )
     p_snk_reverify.add_argument("--write", action="store_true")
     p_snk_reverify.add_argument("--credentials-env", dest="credentials_env", type=Path)
+    p_snk_discover = sub.add_parser(
+        "snk-identity-discover",
+        help="propose a first SNK binding for qualified variants that have no price source at all (dry-run without --write)",
+    )
+    import snk_identity_discover as _snk_discover_mod
+
+    _snk_discover_mod.add_arguments(p_snk_discover)
     p_pc_reverify.add_argument("--map", type=Path)
     p_pc_reverify.add_argument("--credentials-env", dest="credentials_env", type=Path)
     p_daily.add_argument("--pass", dest="do_pass", action="store_true", help="DADDY pass: export product subset + promote receipt")
@@ -2690,6 +2697,10 @@ def main() -> int:
         import rebuild_036
 
         return rebuild_036.cmd_snk_identity_reverify(args)
+    elif args.cmd == "snk-identity-discover":
+        import snk_identity_discover
+
+        return snk_identity_discover.cmd_snk_identity_discover(args)
     else:
         raise SystemExit(f"unknown command: {args.cmd}")
     return 0
