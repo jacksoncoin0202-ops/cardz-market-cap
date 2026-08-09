@@ -271,6 +271,94 @@ truthy("target selection excludes ids by list", "v.id NOT IN (" in sql)
 missing = [vid for vid in RED if vid not in params]
 check(f"every red card is excluded ({len(RED) - len(missing)}/{len(RED)})", missing, [])
 
+# Every lane, not this one. The SNK lane's `card_language <> 'en'` filter hides
+# all thirteen today only because all thirteen happen to be English -- an
+# accident of the data, which is not a ruling and would not survive somebody
+# widening that filter.
+import snk_identity_discover as S  # noqa: E402
+
+snk_conn = _Conn()
+S.select_targets(snk_conn, "036_x", 1000, "one-piece", 0)
+snk_sql, snk_params = snk_conn.calls[-1]
+truthy("the SNK lane also excludes ids by list", "v.id NOT IN (" in snk_sql)
+snk_missing = [vid for vid in RED if vid not in snk_params]
+check(f"the SNK lane excludes every red card ({len(RED) - len(snk_missing)}/{len(RED)})",
+      snk_missing, [])
+check("both lanes read the same derivation", S.R.red_listed_variants(), RED)
+
+
+# --- 3d. the card's number names a set, and that set has a page too --------
+# One Piece reprints a card into a later product without renumbering it, so the
+# set the card was pulled from and the set its number names are two different
+# pages. Measured 2026-08-09: reading only the first cost 22 of 59 holds.
+CODE_TO_SET = {"OP08": "One Piece Two Legends",
+               "OP09": "One Piece Emperors in the New World"}
+INDEX2 = dict(INDEX)
+INDEX2["one-piece-two-legends"] = "one piece two legends"
+INDEX2["one-piece-emperors-in-the-new-world"] = "one piece emperors in the new world"
+
+reprint = {"set_name": "One Piece Emperors in the New World", "card_language": "en",
+           "collector_number": "OP08-106"}
+cands = D.console_candidates(reprint, INDEX2, CODE_TO_SET)
+check("a reprint is looked for on two pages", len(cands), 2)
+# Indexed defensively: a regression here should print its own failure line, not
+# take the other sixty checks down with an IndexError.
+first = cands[0] if cands else ("", "", "")
+second = cands[1] if len(cands) > 1 else ("", "", "")
+check("the set it was pulled from comes first", first[0],
+      "one-piece-emperors-in-the-new-world")
+check("the set its number names comes second", second[0], "one-piece-two-legends")
+# Judged against the set whose page it is, or product_agrees refuses every row
+# on that page for saying "Two Legends" where our catalog said "Emperors".
+check("and it is judged against that page's own set", second[1],
+      "One Piece Two Legends")
+check("the record says which reading found it", second[2], "collector_number")
+
+# A card whose number names the set it is already filed under is looked for once.
+same = dict(reprint, collector_number="OP09-050")
+check("no second page when both readings agree",
+      [c[0] for c in D.console_candidates(same, INDEX2, CODE_TO_SET)],
+      ["one-piece-emperors-in-the-new-world"])
+# Widening where we look must not widen what we accept: OP08-106 is Nami and
+# the OP08 page's OP08-052 is Portgas D. Ace, on the same page, still refused.
+ok, why = D.judge_listing(
+    {"tcg_code": "one-piece", "collector_number": "OP08-106", "fp_name": "Nami",
+     "canonical_name": "2024 One Piece OP09-Emperors in the New World Nami"
+                       " Special Alternate Art 106",
+     "set_name": "One Piece Emperors in the New World", "fp_parallel": "Alternate Art",
+     "parallel_code": "aa", "printing_code": "aa"},
+    listing(title="Portgas.D.Ace [Alternate Art] OP08-052",
+            slug="portgas-d-ace-alternate-art-op08-052",
+            url="https://www.pricecharting.com/game/one-piece-two-legends/"
+                "portgas-d-ace-alternate-art-op08-052"),
+    "One Piece Two Legends")
+check("another card on the number's own page is still refused", ok, False)
+
+
+# --- 3e. a page with no bracket is the base print --------------------------
+# Measured 2026-08-09 across all 928 exact PriceCharting bindings: seven were a
+# parallel card sitting on the base print's page, priced as the cheap card, and
+# one of them (OP05 Yamato Special Alternate Art on "Yamato OP01-121") was also
+# holding that page against the base card's own variant. The catalog said so
+# the whole time in printing_code; only parallel_code was being read.
+import rebuild_036 as RB  # noqa: E402
+
+check("a bare heading cannot be a Special Alternate Art card",
+      RB._pc_print_signature_ok("", {"parallel_code": "sec", "printing_code": "sp"}), False)
+check("a bare heading cannot be an Alternate Art card",
+      RB._pc_print_signature_ok("", {"parallel_code": "sr", "printing_code": "aa"}), False)
+check("a bare heading is still the base card",
+      RB._pc_print_signature_ok("", {"parallel_code": "sec", "printing_code": "base"}), True)
+# A catalog that claims no treatment keeps the old behaviour: rarity-only
+# parallel vocabulary on a bracket-less page stays acceptable.
+check("no claim in the catalog leaves the page unchallenged",
+      RB._pc_print_signature_ok("", {"parallel_code": "sec", "printing_code": ""}), True)
+check("the bracket path is untouched",
+      RB._pc_print_signature_ok("SP", {"parallel_code": "sr-spc", "printing_code": "sp"}), True)
+check("and [SP Foil] is still a different product",
+      RB._pc_print_signature_ok("SP Foil", {"parallel_code": "sr-spc", "printing_code": "sp"}),
+      False)
+
 
 # --- 4. the page-size constant is the page's, not ours ---------------------
 check("console page size matches what the form asks for", D.CONSOLE_PAGE_SIZE, 150)

@@ -301,7 +301,9 @@ def numbers_agree(ours: str, theirs: str, tcg: str) -> bool:
     return tail.isdigit() and int(tail) == int(ours)
 
 
-def judge_listing(row: dict[str, Any], listing: dict[str, str]) -> tuple[bool, str]:
+def judge_listing(
+    row: dict[str, Any], listing: dict[str, str], set_name: str = "",
+) -> tuple[bool, str]:
     """Cheap pre-checks, in the same vocabulary the promoting gate will use.
 
     Deliberately not the whole contract: the product page has evidence a
@@ -310,6 +312,11 @@ def judge_listing(row: dict[str, Any], listing: dict[str, str]) -> tuple[bool, s
     exact. What these checks buy is that we only spend a page fetch -- and only
     write a manual_review row -- on candidates that already agree on the three
     things a listing row CAN state.
+
+    `set_name` names the product this listing is being judged against. It
+    defaults to the catalog's set_name -- the set the card was PULLED FROM --
+    and the caller passes the set the card's NUMBER names when it is reading
+    that set's page instead. See `console_candidates`.
     """
 
     ours_number = str(row.get("collector_number") or "").strip().upper()
@@ -328,7 +335,8 @@ def judge_listing(row: dict[str, Any], listing: dict[str, str]) -> tuple[bool, s
         return False, why
 
     same_product, why = product_agrees(
-        str(row.get("set_name") or ""), str(row.get("fp_parallel") or ""),
+        set_name or str(row.get("set_name") or ""),
+        str(row.get("fp_parallel") or ""),
         listing["title"], urllib.parse.unquote(listing["url"]),
     )
     if not same_product:
@@ -348,23 +356,86 @@ def judge_listing(row: dict[str, Any], listing: dict[str, str]) -> tuple[bool, s
 # Targets
 # ---------------------------------------------------------------------------
 
-def red_listed_variants() -> list[int]:
-    """The thirteen cards a human read on the 034 audit sheet and refused.
+NUMBER_SET_CODE_RE = re.compile(r"^([A-Z]{2,4}\d{2})-")
 
-    Derived, never copied: the sheet is the authority and a correction to it has
-    to reach this lane without anybody remembering this lane exists.
 
-    Fail-closed on purpose. A lane that proposes bindings and cannot see the
-    human ruling has no business proposing: on 2026-08-09 this lane bound three
-    red cards because it had never heard of the list, prices and sales went live
-    for two of them, and validator034's red13 invariant was the thing that
-    noticed -- one gate later than it should have been.
+def set_name_by_code(conn: Any, tcg: str, language: str) -> dict[str, str]:
+    """What each set code is called, taken from the catalog by majority.
+
+    Derived rather than written down because a hard-coded OP01..OP14 table
+    would be wrong the week a new set ships and nobody would notice until a
+    card silently stopped resolving. The majority is what makes it safe: a
+    handful of rows carry a set_name belonging to the product the card was
+    pulled from, and those are exactly the rows this map exists to repair, so
+    reading any single row would be circular.
     """
 
-    sys.path.insert(0, str(R.ROOT / "scripts"))
-    import stamp_red_sheet_quarantine as RED
+    sql = ("SELECT set_code, set_name, COUNT(*) AS c FROM catalog_variant"
+           " WHERE tcg_code = %s AND set_code <> '' AND set_name <> ''")
+    params: list[Any] = [tcg]
+    if language:
+        sql += " AND card_language = %s"
+        params.append(language)
+    sql += " GROUP BY set_code, set_name ORDER BY set_code, c DESC"
+    best: dict[str, str] = {}
+    with conn.cursor() as cursor:
+        cursor.execute(sql, tuple(params))
+        for row in cursor.fetchall():
+            best.setdefault(str(row["set_code"]), str(row["set_name"]))
+    return best
 
-    return RED.red_variant_ids()
+
+def console_candidates(
+    row: dict[str, Any], index: dict[str, str], code_to_set: dict[str, str],
+) -> list[tuple[str, str, str]]:
+    """The set pages this card could be on, best first: (slug, set name, why).
+
+    Two, because One Piece reprints a card into a later product without
+    renumbering it. GemRate files such a card under the product it was pulled
+    from -- "OP09-Emperors in the New World Nami Special Alternate Art 106" --
+    while the number printed on the card stays OP08-106. PriceCharting files it
+    the other way: measured 2026-08-09, the Emperors page carries 189 rows and
+    not one of them is OP08-106, while the Two Legends page carries
+    "Nami [SP Foil] OP08-106".
+
+    Reading only the set_name page cost 22 of 59 English holds. So the number's
+    own set is tried too, and the set name that page is judged against is that
+    set's, not the pulled-from set's -- otherwise product_agrees would refuse
+    every row on it for saying "Two Legends" when we said "Emperors".
+
+    This widens where we look; it does not widen what we accept. The number
+    still has to match in full (OP08-106 names its own set), the character
+    still has to match, and the print signature still has to match.
+    """
+
+    out: list[tuple[str, str, str]] = []
+    seen: set[str] = set()
+    language = str(row["card_language"] or "")
+    catalog_set = str(row["set_name"] or "")
+    slug, why = match_console(catalog_set, language, index)
+    if slug:
+        out.append((slug, catalog_set, "set_name"))
+        seen.add(slug)
+    first_why = why
+
+    match = NUMBER_SET_CODE_RE.match(str(row.get("collector_number") or "").upper())
+    number_set = code_to_set.get(match.group(1)) if match else ""
+    if number_set and number_set != catalog_set:
+        slug2, why2 = match_console(number_set, language, index)
+        if slug2 and slug2 not in seen:
+            out.append((slug2, number_set, "collector_number"))
+        elif not slug2 and not out:
+            first_why = f"{first_why}; number_set:{why2}"
+    return out or [("", "", first_why)]
+
+
+def red_listed_variants() -> list[int]:
+    """The human refusals, read off the sheet by the shared derivation.
+
+    This lane is the reason `R.red_listed_variants` exists; see its docstring.
+    """
+
+    return R.red_listed_variants()
 
 
 def select_targets(
@@ -473,28 +544,18 @@ def cmd_pc_identity_discover(args: argparse.Namespace) -> int:
         rows_cache: dict[str, list[dict[str, str]]] = {}
         writes: list[dict[str, Any]] = []
 
+        code_to_set = set_name_by_code(conn, args.tcg or "one-piece", args.language)
+        progress(f"[sets] {len(code_to_set)} set code(s) named by the catalog")
+
         for row in targets:
             vid = int(row["variant_id"])
-            slug, why = match_console(
-                str(row["set_name"] or ""), str(row["card_language"] or ""), index,
-            )
-            if not slug:
+            candidates = console_candidates(row, index, code_to_set)
+            if not candidates[0][0]:
                 counts["noConsole"] += 1
+                why = candidates[0][2]
                 held.append({"variant_id": vid, "reason": "no_console", "detail": why,
                              "card": str(row["canonical_name"])[:120]})
                 progress(f"[rule] v{vid} no_console :: {why}")
-                continue
-            if slug not in rows_cache:
-                rows_cache[slug] = console_rows(
-                    slug, allow_fetch=not args.no_fetch,
-                    timeout_s=args.timeout, delay=args.delay,
-                )
-                progress(f"[console] {slug} -> {len(rows_cache[slug])} products")
-            listings = rows_cache[slug]
-            if not listings:
-                counts["consoleEmpty"] += 1
-                held.append({"variant_id": vid, "reason": "console_empty", "detail": slug,
-                             "card": str(row["canonical_name"])[:120]})
                 continue
 
             survivors: list[dict[str, str]] = []
@@ -502,23 +563,52 @@ def cmd_pc_identity_discover(args: argparse.Namespace) -> int:
             refused_by: Counter[str] = Counter()
             page_numbers: Counter[str] = Counter()
             reached_identity = 0
-            for listing in listings:
-                ok, reason = judge_listing(row, listing)
-                if ok:
-                    survivors.append(listing)
+            slug = ""
+            console_empty = False
+            tried: list[str] = []
+            for slug, judged_set, via in candidates:
+                if slug not in rows_cache:
+                    rows_cache[slug] = console_rows(
+                        slug, allow_fetch=not args.no_fetch,
+                        timeout_s=args.timeout, delay=args.delay,
+                    )
+                    progress(f"[console] {slug} -> {len(rows_cache[slug])} products")
+                listings = rows_cache[slug]
+                tried.append(f"{slug}({via})")
+                if not listings:
+                    console_empty = True
                     continue
-                refused_by[reason.split(":", 1)[0]] += 1
-                if reason.startswith("number:") or reason.startswith("listing_number_"):
-                    # Listing the ~200 rows that are simply a different card
-                    # says nothing, but dropping them silently was worse: a hold
-                    # then printed `"rejections": []` and the operator could not
-                    # tell "nothing came close" from "the filter never ran".
-                    # Count the shapes instead, so the record explains itself.
-                    theirs = listing_number(listing)
-                    page_numbers[theirs.split("-", 1)[0] if "-" in theirs else "?"] += 1
-                    continue
-                reached_identity += 1
-                rejections.append(f"{listing['pid']}:{reason}")
+                console_empty = False
+                # Each page is judged on its own: a page that refuses every row
+                # must not leave its counters behind to describe the next one.
+                survivors, rejections = [], []
+                refused_by, page_numbers, reached_identity = Counter(), Counter(), 0
+                for listing in listings:
+                    ok, reason = judge_listing(row, listing, judged_set)
+                    if ok:
+                        survivors.append(listing)
+                        continue
+                    refused_by[reason.split(":", 1)[0]] += 1
+                    if reason.startswith("number:") or reason.startswith("listing_number_"):
+                        # Listing the ~200 rows that are simply a different card
+                        # says nothing, but dropping them silently was worse: a
+                        # hold then printed `"rejections": []` and the operator
+                        # could not tell "nothing came close" from "the filter
+                        # never ran". Count the shapes instead, so the record
+                        # explains itself.
+                        theirs = listing_number(listing)
+                        page_numbers[theirs.split("-", 1)[0] if "-" in theirs else "?"] += 1
+                        continue
+                    reached_identity += 1
+                    rejections.append(f"{listing['pid']}:{reason}")
+                if len(survivors) == 1:
+                    break
+            if console_empty and not survivors:
+                counts["consoleEmpty"] += 1
+                held.append({"variant_id": vid, "reason": "console_empty",
+                             "detail": ",".join(tried),
+                             "card": str(row["canonical_name"])[:120]})
+                continue
             counts["candidates"] += len(survivors)
 
             if len(survivors) != 1:
@@ -526,7 +616,8 @@ def cmd_pc_identity_discover(args: argparse.Namespace) -> int:
                     counts["ambiguous"] += 1
                     held.append({
                         "variant_id": vid, "reason": "ambiguous_survivors",
-                        "detail": slug, "card": str(row["canonical_name"])[:120],
+                        "detail": slug, "consolesTried": tried,
+                        "card": str(row["canonical_name"])[:120],
                         "survivors": [
                             {"pid": s["pid"], "title": s["title"][:100]} for s in survivors
                         ],
@@ -537,6 +628,7 @@ def cmd_pc_identity_discover(args: argparse.Namespace) -> int:
                         "variant_id": vid, "reason": "no_survivor", "detail": slug,
                         "card": str(row["canonical_name"])[:120],
                         "askedNumber": str(row.get("collector_number") or ""),
+                        "consolesTried": tried,
                         "reachedIdentityChecks": reached_identity,
                         "pageCarries": page_numbers.most_common(6),
                         "refusedBy": dict(refused_by),
@@ -558,10 +650,10 @@ def cmd_pc_identity_discover(args: argparse.Namespace) -> int:
                 continue
 
             winner = survivors[0]
-            writes.append({"row": row, "listing": winner, "console": slug})
+            writes.append({"row": row, "listing": winner, "console": slug, "via": via})
             counts["proposed"] += 1
             proposals.append({
-                "variant_id": vid, "pid": winner["pid"], "console": slug,
+                "variant_id": vid, "pid": winner["pid"], "console": slug, "via": via,
                 "title": winner["title"][:120], "pop": int(row["pop"]),
                 "card": str(row["canonical_name"])[:120],
             })
@@ -631,6 +723,7 @@ def cmd_pc_identity_discover(args: argparse.Namespace) -> int:
                         evidence = {
                             "action": "pc-identity-discover",
                             "console": item["console"],
+                            "consoleFoundVia": item.get("via") or "set_name",
                             "listingTitle": listing["title"][:200],
                             "canonicalUrl": listing["url"],
                             "capturePath": page_path.relative_to(R.ROOT).as_posix(),

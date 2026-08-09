@@ -161,6 +161,14 @@ def select_targets(
                )
     """
     params: list[Any] = [generation, min_pop]
+    # The 034 sheet's thirteen human refusals happen to all be English, so the
+    # language filter above already hides them -- today. That is an accident of
+    # the data, not a ruling this lane can see, and the PC lane learned on
+    # 2026-08-09 what it costs when a lane cannot see one (AGENTS.md rule 11).
+    # Derived, never copied: if the sheet stops parsing, this raises.
+    red = R.red_listed_variants()
+    sql += f" AND v.id NOT IN ({','.join(['%s'] * len(red))})"
+    params.extend(red)
     if tcg:
         sql += " AND v.tcg_code = %s"
         params.append(tcg)

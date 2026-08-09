@@ -959,6 +959,28 @@ NOT_A_REJECTION_VERDICT_SQL = (
 )
 
 
+def red_listed_variants() -> list[int]:
+    """The thirteen cards a human read on the 034 audit sheet and refused.
+
+    Derived, never copied: the sheet is the authority, and a correction to it
+    has to reach every lane without anybody remembering which lanes exist. It
+    lives here rather than in one lane because the failure it prevents is a
+    NEW lane -- one that never heard of the list -- and a new lane imports this
+    module before it imports any other.
+
+    Fail-closed on purpose: this raises rather than returning a short list. On
+    2026-08-09 the PriceCharting discovery lane proposed three red cards
+    because it could not see the ruling, prices and sales went live for two of
+    them, and validator034's red13 invariant was what noticed -- one gate later
+    than it should have been. AGENTS.md rule 11.
+    """
+
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import stamp_red_sheet_quarantine as RED
+
+    return RED.red_variant_ids()
+
+
 def rejection_is_verdict(bind_evidence_json: Any) -> bool:
     """Did something actually rule against this binding, or is it collateral?
 
@@ -2279,17 +2301,22 @@ def stage_pc_replay(ctx: SimpleNamespace) -> dict[str, Any]:
             else:
                 results.append((pid, status, ""))
             continue
-        variant_parallel = str(row["parallel_code"] or "")
-        parallel_ok = _parallel_agrees(identity["parallel"], variant_parallel)
-        if not parallel_ok and not identity["parallel"]:
-            # Bracket-less page + rarity-vocab catalog value: set and collector
-            # already matched, and rarity is number-encoded on PC — vocabulary
-            # noise, not identity. Real parallels (reverse/master ball/manga…)
-            # never take this path.
-            parallel_ok = _pc_rarity_only_parallel(variant_parallel)
-        if not parallel_ok:
+        # One rule, one implementation. This stage used to carry its own copy
+        # of the bracket comparison, so tightening the shared one (2026-08-09,
+        # bracket-less page vs a treated printing_code) left the stage that
+        # STAMPS bindings exact still using the loose reading.
+        if not _pc_print_signature_ok(identity["parallel"], row):
             counts["parallelSoftMismatch"] += 1
-            results.append((pid, status, ""))
+            if status == "exact":
+                # The page is the authority for an exact binding. When it stops
+                # proving one, leaving the row exact keeps publishing a price
+                # nothing stands behind -- and keeps the product held against
+                # the variant that could prove it.
+                counts["downgradedToReview"] += 1
+                updates.append((pid, "manual_review", None, None, None))
+                results.append((pid, "manual_review", ""))
+            else:
+                results.append((pid, status, ""))
             continue
         evidence = {
             "providerClaims": {
@@ -6856,6 +6883,11 @@ _PC_BRACKET_SYNONYMS: dict[str, frozenset[str]] = {
     "mb": frozenset({"master ball"}),
 }
 
+# printing_code values that claim no treatment, so a bracket-less page heading
+# is allowed to be the card. Anything else names a treatment the page would
+# have to spell out.
+_PC_BASE_PRINTINGS = frozenset({"", "base"})
+
 
 def _pc_page_product_id(html: str) -> str:
     """The page's own numeric product id; empty when the page doesn't say.
@@ -6884,6 +6916,15 @@ def _pc_print_signature_ok(page_parallel: str, row: Mapping[str, Any]) -> bool:
     if _parallel_agrees(page_parallel, variant_parallel):
         return True
     if not page_parallel:
+        # A heading with no bracket is PriceCharting's base print. Letting it
+        # satisfy a variant whose printing_code names a treatment is how seven
+        # live bindings ended up on the cheap card: "Yamato OP01-121" (base)
+        # was bound exact to OP05 Yamato Special Alternate Art, and while it
+        # sat there the base card's own variant could not claim its page.
+        # Measured 2026-08-09 over all 928 exact PC bindings: 919 unaffected,
+        # 7 refused, and all 7 were parallels bound to a base print.
+        if _norm_text(str(row.get("printing_code") or "")) not in _PC_BASE_PRINTINGS:
+            return False
         return _pc_rarity_only_parallel(variant_parallel)
     bracket = _norm_text(page_parallel)
     printing = _norm_text(str(row.get("printing_code") or ""))
