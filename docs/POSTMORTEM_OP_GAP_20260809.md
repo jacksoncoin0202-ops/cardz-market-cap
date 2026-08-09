@@ -131,6 +131,45 @@ binding 同 payload sha。放鬆嘅係一個過期 flag，唔係一個閘。
 **教訓同第八個一樣，換咗個欄位。** 一個 flag 由 A 設、只有 B 拆得到，而 B 嘅條件
 包含「同一個 run」——即係只要真相遲過捕獲到達，就永遠冇人拆得返。
 
+## 第十個缺陷：印刷處理當咗做卡名（2026-08-09 夜補）
+
+睇住 pokemon gap sweep 跑，頭 26 個拒絕入面 **25 個嘅卡名都係 `Full Art/XXX`**。
+GemRate 送過嚟嘅 fingerprint name 係「parallel + 名」焊埋一齊一個欄，
+而下游全部人都當佢係一個名。
+
+**兩邊都錯，唔止一邊：**
+
+- **錯拒**：`Full Art/Charizard GX` 被佢自己嘅產品頁拒絕——個頁 title 寫
+  「Charizard GX」，由頭到尾冇寫過「Full Art」。
+- **錯收**：`Full Art/M Pidgeot EX` **收咗**一張叫「Double Full Heal」嘅 Trainer 卡，
+  因為 `name_ok` 撞第一個字就短路，兩邊都有 "full"。
+- **搜尋被污染**：`Full Art/` 照塞入 PriceCharting query，所以一條 pokemon query
+  會回一個 One Piece 產品（Nico Olvia OP09-106）。
+
+**淨係拆走個 treatment 會開窿。** `page_identity_ok` 個 docstring 寫住
+「Fail closed when a PC page cannot prove the requested printing」，但
+**號碼呢一項一直只對 one-piece 兌現**。所以英文 `Pikachu V` #001 綁咗
+「Pikachu [Full Art] #708, Pokemon Chinese Gem Pack」，仲當咗成功收貨。
+
+修法：兩條一齊落。名照拆（只拆認得嘅 print phrase，用返 `_PRINT_PHRASES`
+同一份詞彙表，唔會分叉），pokemon 同時要證號碼。
+
+**點解係兩條規則唔係一條？** 因為兩隻遊戲寫號碼嘅方式唔同——
+One Piece 係單 token（`OP09-106`），pokemon 係裸號或者 set 前綴
+（我哋 `050` 對頁面 `SWSH050`）。用 pokemon 嗰套拆 `OP09-106` 會讀出 **9106**。
+呢個就係「格式唔同要唔要另開腳本」嘅答案：**唔使另開腳本，但規則要識分**。
+
+實測（重播 sweep 已解析嘅 147 版頁）：**43 個拒絕變收貨、2 個收貨變拒絕
+（兩個都證到係第二張卡）、95 個不變**，冇一版頁係印唔出號碼。
+閘係**收緊咗**——pokemon 之前根本冇號碼證明。
+
+名喺 shard 載入嗰一刻改一次（單一執行點），舊 shard 唔使重建都啱。
+`scripts/test_pc_shard_identity_rules.py` 18 條，兩個方向都有 case。
+
+**教訓：一個欄裝住兩樣嘢，同「一個狀態兩個意思」係同一個病。**
+第八、九個缺陷係 `match_status` / `metric_status` 兩個寫入者；呢個係一個
+字串欄兩個概念。分別只在於前者要讀 evidence 先分得開，後者一睇個 `/` 就知。
+
 ## 仲未修（欠單，唔係已修）
 
 - **`print_signature_mismatch` 唔係規則問題，係 map 指錯頁。** 實測 v1582 捕獲到嘅
