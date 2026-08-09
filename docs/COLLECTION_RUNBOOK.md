@@ -643,7 +643,13 @@ seed-snapshot）。手抄落去嘅 generation 圖每次 build 完要再抄一次
    注意呢個唔等於放鬆：同一版真係有一行 `P-062` 但佢係另一張卡，所以尾號永遠唔單獨決定。
 10. **HTML entity 當咗名嘅一部分。** `<a>Hody &amp; Hyouzou</a>` 唔 unescape 就會多咗個
    `amp` token，之後所有名字比對都同佢比。parse 完即刻 `html.unescape`。
-11. **統計拋棄咗 = 個 hold 講唔出自己點解 hold。** 為咗唔想 log 太長而靜靜 drop 大多數
+11. **人手裁決冇寫落佢管轄嗰行 = 下一條 lane 一定繞過佢。**（2026-08-09，紅名單 13 張）
+   034 audit sheet 上面 13 張人手拒絕嘅卡，個裁決淨係活喺某幾條 lane 嘅記憶入面。新開嘅
+   discovery lane 從來冇聽過佢，照樣提案 3 張，最後 activation 前一關（validator034
+   `red13`）先攔到，而且係同月第二次。修法唔係叫 lane 記得，係將裁決**推導**成一個
+   set 俾每條 lane 用（`scripts/stamp_red_sheet_quarantine.py: red_variant_ids()`），
+   而且 fail-closed：睇唔到裁決就唔准提案。復原行同一個 script `--write`（idempotent）。
+12. **統計拋棄咗 = 個 hold 講唔出自己點解 hold。** 為咗唔想 log 太長而靜靜 drop 大多數
    rejection，結果 artifact 出 `"rejections": []` —— operator 分唔到「冇一行接近」同
    「個 filter 根本冇行過」。要 drop 就留低分佈（要嗰個號碼、嗰版實際載住咩、幾多行過到關）。
 

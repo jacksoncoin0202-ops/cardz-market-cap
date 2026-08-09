@@ -18,6 +18,10 @@
 9. **加咗檢查要即場證明佢會 fire。** 新 assert / hook / test 寫完之後，臨時將個 bug 種返落去，
    睇住佢紅，再還原。冇做過呢步唔准講「已修」——「有檢查但零 call site」當冇檢查。
 10. **唔准放鬆任何 acceptance gate 嚟令個數靚。** 數唔夠就修根因或者照報缺口。
+11. **開新 lane 寫 binding 之前，先問「有冇人手裁決管住呢批卡」。** 034 audit sheet 紅名單
+    13 張係人手拒絕嘅；紅名單要**推導**（`scripts/stamp_red_sheet_quarantine.py:
+    red_variant_ids()`），唔准抄。睇唔到裁決嘅 lane 唔准提案（fail-closed）。做爆咗就行
+    `python -X utf8 scripts/stamp_red_sheet_quarantine.py --write` 收返（idempotent）。
 
 ## 查 bug 之前
 

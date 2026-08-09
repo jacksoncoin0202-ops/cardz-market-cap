@@ -249,6 +249,57 @@ S12 報 `missingPop`（`missingPrice` 係空嘅）成批 rollback。
 `*_rules.py` / `*_vocab.py`，加第二個 tenant（遊戲 / 語言 / provider）之前先問「呢套字彙係邊個
 寫嘅、為邊個寫」。
 
+## 第十四個缺陷：新開一條 lane，四個 bug 都係「對方唔係照我哋嘅寫法寫」（2026-08-09 夜補）
+
+背景：104 張英文 One Piece 卡冇價源，`pc-identity-reverify` 幫唔到手（佢只重審已有嘅
+binding，而呢批 binding 本身指錯產品）。搜尋實測 35 張只解到 2 張。所以開咗
+`pipelines/pc_identity_discover.py`：唔搜尋，**枚舉 set 版面**。
+
+第一次跑出嚟四個 bug，四個都係同一個形狀 —— 我哋假設對方跟我哋嘅寫法：
+
+1. **set 比對方向搞反。** 原本要求「我哋 set name 嘅字要出現喺對方版面」。但 GemRate 會將
+   treatment 焊死入 set name（`2025 Carrying On His Will (Op13) - English Manga Alt. Art
+   Parallel`），而 PriceCharting 個 set 版面冇理由講 "manga" / "parallel"。方向要反過嚟：
+   **對方嘅字要出現喺我哋度**。改完 4 個測試由紅變綠。
+2. **同一個號碼，兩種寫法。** GemRate 促銷卡掉咗前綴寫 `062`，PriceCharting 寫 `OP05-062`。
+   實測：`062 → OP05-062 O-Nami`、`109 → OP07-109 Luffy`、`113 → OP07-113 Zoro`。
+   `numbers_agree()` 因此容許「我哋 bare number = 佢個尾號」，**只限 One Piece**。
+   同一版真係有一行 `P-062` 而佢係 Hody & Hyouzou —— 所以尾號從來唔單獨決定，角色／產品／
+   印刷簽名三關照跑。
+3. **HTML entity 當咗名嘅一部分。** `Hody &amp; Hyouzou` 唔 unescape，`amp` 就變成一個
+   token，之後所有名字比對都同佢比。
+4. **個 hold 講唔出自己點解 hold。** 為咗唔想 log 太長而靜靜 drop 咗號碼類 rejection，
+   artifact 出 `"rejections": []` —— 分唔到「冇一行接近」同「個 filter 根本冇行過」。
+   而家每個 hold 都記住：要嗰個號碼、嗰版實際載住咩前綴、幾多行過到號碼呢關。
+
+守門人：`scripts/test_pc_identity_discover_rules.py`（53 checks，對住 PriceCharting 真係
+serve 過嘅 HTML 跑，唔係手寫 fixture）。已即場證明會 fire：抽走尾號規則 → 4 條紅；
+抽走 unescape → 1 條紅；還原 → 全綠。
+
+**實測（One Piece en，pop≥1000，100 張）**：proposed 30、written 18（5 個 pid 屬於第二張卡、
+7 個已經有 rejection verdict）、全部 18 張過到 reverify 未改動嘅閘。
+hold：no_survivor 51、no_console 11、ambiguous 8。
+
+## 第十五個缺陷：新 lane 唔識人手裁決，於是靜靜咁繞過咗佢（2026-08-09 夜補）
+
+034 audit sheet 上面有 13 張卡係**人手讀過之後拒絕**嘅。呢個裁決本身寫得好清楚，但
+discovery lane 由零寫起，佢**從來冇聽過呢個 list**：佢照樣為其中 3 張提案，reverify 用佢
+自己一套（完全冇改過嘅）合約提升咗，跟住 price-materialize 為其中 2 張寫咗 39 條 ready
+price + 60 條 sale + 2 個 public image pointer。
+
+**攔截佢嘅係 validator034 嘅 `red13OldIdentityAndMarketQuarantined`** —— activation 前
+最後一關。即係話：閘係有嘅，但響得太遲，而且呢個月已經係第二次有 lane 由一道冇蓋過印嘅門
+行入去（上次係 reverify 學識「重新考慮連坐 quarantine」之後升咗 7 張）。
+
+**根因唔係 reverify 太寬，係「人手裁決淨係存在於某啲 lane 嘅記憶入面」。**
+修法：`select_targets` 用返 validator034 同 `stamp_red_sheet_quarantine` 同一個**推導**出嚟
+嘅 id set（唔係抄一份），而且 fail-closed —— 睇唔到裁決嘅 lane 唔准提案。
+復原：`python -X utf8 scripts/stamp_red_sheet_quarantine.py --write`（idempotent，
+實測收返 2 個 binding、39 prices、60 sales、2 image pointers、2 freezes）。
+
+**教訓（同「有檢查但零 call site」係同一族）**：一個裁決如果冇寫落佢管轄嗰行度，
+下一條 lane 一定會繞過佢。要問嘅唔係「呢條 lane 記唔記得」，而係「呢個裁決寫咗落邊行」。
+
 ## 仲未修（欠單，唔係已修）
 
 - **`print_signature_mismatch` 唔係規則問題，係 map 指錯頁。** 實測 v1582 捕獲到嘅
