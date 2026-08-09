@@ -330,6 +330,31 @@ def run(
                 if row is not None:
                     destination.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
 
+    # A worklist that CHANGED is a superseded capture, not an accident.
+    #
+    # The guard below is right that rows fetched for one universe must never be
+    # laundered into another. Its answer was to stop and wait for a human to
+    # move three files aside, and that has now been the answer twice for the
+    # same cause both times: identity discovery bound more cards, so the
+    # request hash moved. Nothing about that needs a decision. Retire the old
+    # capture -- moved, never deleted, so its rows stay auditable -- and let
+    # this one start clean. A differing CONDITION still raises: that is a
+    # caller asking for something else, not a universe that grew.
+    if state_path.is_file():
+        prior = json.loads(state_path.read_text(encoding="utf-8"))
+        if (
+            prior.get("condition") == condition_code
+            and prior.get("requestSha256") != request_hash
+        ):
+            attic = out_path.parent / (
+                f"superseded-{str(prior.get('runId') or 'unknown')}"
+                f"-{str(prior.get('requestSha256') or 'unknown')[:12]}"
+            )
+            attic.mkdir(parents=True, exist_ok=True)
+            for stale in (partial, state_path, *legacy_candidates):
+                if stale.exists():
+                    stale.replace(attic / stale.name)
+
     existing = load_partial_rows(partial, requested, condition_code)
     if state_path.is_file():
         state = json.loads(state_path.read_text(encoding="utf-8"))
