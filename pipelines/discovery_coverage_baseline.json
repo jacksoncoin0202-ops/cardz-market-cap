@@ -2,9 +2,22 @@
  "note": "Cards with PSA10 population >= `population` that hold NO exact provider binding, and therefore cannot enter the universe however many generations run. daily-accept ABORTS when a count here goes UP. When discovery lowers one, lower it here in the same commit -- the git history is the record of the gap closing. Never raise a number to make a run pass: a rise means cards stopped being reachable and the run is telling you so.",
  "population": 1000,
  "measuredAt": "2026-08-09",
- "measuredAfter": "pc-identity-reverify reconsidered 101 bindings that psa_identity_repair had rejected as collateral without examining them, and 49 proved on their own captured page; snk-identity-discover bound 1 more (one-piece 153 -> 137, pokemon 447 -> 413)",
+ "measuredAfter": "pc-identity-reverify reconsidered 101 bindings that psa_identity_repair had rejected as collateral without examining them, and 49 proved on their own captured page; snk-identity-discover bound 1 more; then stamp_red_sheet_quarantine.py revoked the 7 of those promotions that landed on 034 audit sheet red rows (one-piece 153 -> 144, pokemon 447 -> 413)",
+ "raiseHistory": [
+  {
+   "at": "2026-08-09",
+   "tcg": "one-piece",
+   "from": 137,
+   "to": 144,
+   "why": "137 was measured while seven red-sheet cards held bindings they were never entitled to. validator034 refused the generation, the promotions were revoked, and 144 is what the census reads once the human ruling is honoured. This raise records a measurement that was wrong, not a gap that grew -- no card became less reachable and no gate moved."
+  }
+ ],
+ "irreducible": {
+  "note": "Part of the one-piece count can never be closed by discovery. Thirteen cards on the 034 audit sheet were read by a human and refused; every non-gemrate binding on them is quarantined by ruling, so they hold no exact binding by design and will sit in this census until someone re-rules them. Subtract them before reading the count as work outstanding.",
+  "one-piece": 13
+ },
  "noCandidateAtPop": {
-  "one-piece": 137,
+  "one-piece": 144,
   "pokemon": 413
  }
 }

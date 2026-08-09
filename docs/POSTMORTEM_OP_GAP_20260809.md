@@ -102,6 +102,35 @@ rows」，所以嗰 121 張 pop≥1000 嘅卡，永遠冇機會再被審。
 **教訓：一個狀態如果有兩個寫入者、兩個意思，佢就唔係狀態，係一個等緊爆嘅假設。**
 狀態要自述——邊個寫、點解寫——唔係靠讀 code 嘅人記住。
 
+## 第九個缺陷：解封條件寫死咗「今 run 抽到」（2026-08-09 夜補）
+
+身份修好之後 S12 照樣 ABORT，29 張卡 `all_price_rows_quarantined`——
+變體 60 有 **1,135 行價**，ready **0**。
+
+`market_price_observation.metric_status` 同 `match_status` 一模一樣，有兩個寫入者：
+
+- **判決**——`apply_verified_source_bindings` 否決一個 (variant, external id)，
+  只 quarantine 嗰一對嘅行。
+- **連坐**——`psa_identity_repair._quarantine_variant` 見 GemRate 身份解唔掂，
+  將**成張卡所有價行**一次過 quarantine，唔理邊個源、邊個 item。
+
+而全 repo 唯一嘅解封 lane（`snk_market_data.py:1445`，834 行證據嗰次加）寫住
+`p.last_run_id = <今個 run>`：**一行只可以由捕獲佢嗰個 run 解封**。
+但修復嘅本質就係「身份遲過捕獲先證到」——08-07 封、08-09 證，永遠對唔上。
+
+修法：解封條件係身份，唔係新鮮度。行嘅 (variant, source, external id) 今日係
+`catalog_source_identity` exact **而且** 喺 `operator_strict_source_identity`
+入面，先解封。44,007 行入面解 **2,183 行 / 44 張卡**；其餘 91 張卡身份未證或者
+被判決，一行都冇動，紅名單 13 張零命中。落喺 `stage_price_materialize` 同
+`daily-accept` 兩處，共用同一條 predicate（count 同 update 由同一個 join 砌出嚟，
+唔會分叉；兩邊數唔同即刻 abort）。
+
+解封唔等於證明：FE eligibility view（migration 024）之後仍然自己再驗一次 exact
+binding 同 payload sha。放鬆嘅係一個過期 flag，唔係一個閘。
+
+**教訓同第八個一樣，換咗個欄位。** 一個 flag 由 A 設、只有 B 拆得到，而 B 嘅條件
+包含「同一個 run」——即係只要真相遲過捕獲到達，就永遠冇人拆得返。
+
 ## 仲未修（欠單，唔係已修）
 
 - **`print_signature_mismatch` 唔係規則問題，係 map 指錯頁。** 實測 v1582 捕獲到嘅

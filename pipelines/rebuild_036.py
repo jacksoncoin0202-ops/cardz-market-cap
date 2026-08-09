@@ -2825,6 +2825,93 @@ def _jpy_per_usd(conn) -> float:
     return rate
 
 
+# A quarantined price row is released only when the provider item it was
+# captured from is, today, the item this card is PROVEN to be. Two writers set
+# this flag and they mean different things, exactly as with match_status:
+#
+#   apply_verified_source_bindings  refuses one (variant, external id) pair and
+#                                   quarantines that pair's rows -- a verdict.
+#   psa_identity_repair             cannot resolve a card's GemRate identity and
+#                                   quarantines EVERY price row on the card,
+#                                   whatever provider or item it came from --
+#                                   collateral, and nobody looked at these rows.
+#
+# The join below can only ever free the second kind. A pair a contract refused
+# carries match_status='rejected' with a verdict action, rejection_is_verdict
+# keeps it there, and a row whose pair is not exact never meets the ON clause.
+#
+# The SNK ingester has had this lane since the 834-rows-of-good-evidence
+# incident, but with `p.last_run_id = <this run>` attached: a row could only be
+# freed by the same run that captured it. Identity is usually proven LATER than
+# capture -- that is the whole shape of a repair -- so rows quarantined on
+# 2026-08-07 and proven on 2026-08-09 could never qualify, and 29 cards reached
+# S12 holding thousands of price rows and zero ready ones. Freshness was never
+# the safety property; the identity match is. Dropping the run clause frees
+# 2,183 of 44,007 quarantined rows -- the other 91 cards stay exactly as they
+# were, because their identity is still unproven or refused.
+#
+# operator_strict_source_identity is required on top of an exact binding so this
+# can only reach pairs the operator layer has already blessed, and the FE
+# eligibility view (migration 024) re-proves the exact binding and the payload
+# sha independently afterwards. Releasing the flag proves nothing on its own and
+# is not asked to.
+_RELEASABLE_PRICE_ROWS_JOIN = """
+    market_price_observation p
+    INNER JOIN catalog_source_identity si
+       ON si.variant_id = p.variant_id
+      AND si.source_code = CASE WHEN p.source_code IN ('snk','snk_psa10')
+                                THEN 'snkrdunk' ELSE p.source_code END
+      AND si.external_entity_id = p.source_external_entity_id
+      AND LOWER(si.match_status) = 'exact'
+    INNER JOIN operator_strict_source_identity osi
+       ON osi.variant_id = p.variant_id
+      AND osi.source_code = si.source_code
+      AND osi.external_entity_id = si.external_entity_id
+"""
+_RELEASABLE_PRICE_ROWS_WHERE = (
+    " WHERE p.metric_status = 'quarantined' AND p.price_usd > 0"
+)
+# Counting and updating share one predicate so they can never answer differently.
+COUNT_RELEASABLE_PRICE_ROWS_SQL = (
+    "SELECT COUNT(*) AS rows_n, COUNT(DISTINCT p.variant_id) AS variants_n FROM"
+    + _RELEASABLE_PRICE_ROWS_JOIN + _RELEASABLE_PRICE_ROWS_WHERE
+)
+RELEASE_COLLATERAL_PRICE_QUARANTINE_SQL = (
+    "UPDATE" + _RELEASABLE_PRICE_ROWS_JOIN
+    + " SET p.metric_status = 'ready'" + _RELEASABLE_PRICE_ROWS_WHERE
+)
+
+
+def release_collateral_price_quarantine(conn: Any) -> dict[str, int]:
+    """Free price rows whose card has since been proven to be their item."""
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute(COUNT_RELEASABLE_PRICE_ROWS_SQL)
+            row = cur.fetchone()
+            before = {
+                "rows": int(row["rows_n"]), "variants": int(row["variants_n"]),
+            }
+            cur.execute(RELEASE_COLLATERAL_PRICE_QUARANTINE_SQL)
+            updated = int(cur.rowcount)
+        if updated != before["rows"]:
+            # The count and the UPDATE run the same predicate back to back. If
+            # they disagree, something is writing prices underneath this stage
+            # and the receipt would describe a database that never existed. The
+            # decision has to be made before the commit -- aborting after it
+            # keeps the half-known write and only stops the reporting.
+            raise SystemExit(
+                "price quarantine release counted"
+                f" {before['rows']} rows but updated {updated};"
+                " another writer is active -- re-run with the freeze in place"
+            )
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    return {"rows": updated, "variants": before["variants"]}
+
+
 def stage_price_materialize(ctx: SimpleNamespace) -> dict[str, Any]:
     """S8 (§6.6 + D4): land strict-scoped PC/SNK price + sales observations
     and decide, per variant, which provider owns the current price.
@@ -3319,6 +3406,10 @@ def stage_price_materialize(ctx: SimpleNamespace) -> dict[str, Any]:
     )
     snk_manifest_path.write_bytes(snk_manifest_blob)
     counts["snkSalesManifest"] = snk_manifest_path.relative_to(ROOT).as_posix()
+
+    released = release_collateral_price_quarantine(conn)
+    counts["priceQuarantineReleased"] = released["rows"]
+    counts["priceQuarantineReleasedVariants"] = released["variants"]
 
     # --- D4 route decision, per variant -------------------------------------
     pc_sale_count: dict[int, int] = {}
@@ -6621,6 +6712,12 @@ def cmd_daily_accept(args: argparse.Namespace) -> int:
             # the failure this command exists to stop repeating.
             discovery_gap = _assert_discovery_gap_not_worse(cur)
 
+        # Tonight's discovery proves identities for cards whose price rows were
+        # collateral-quarantined months ago. Nothing else would ever look at
+        # those rows again, so the card would keep its new binding and still
+        # have no price. Same predicate the rebuild stage uses.
+        released = release_collateral_price_quarantine(conn)
+
         fingerprints = _load_sales_fingerprints(generation)
         manifest_count = len(fingerprints)
         with conn.cursor() as cur:
@@ -6672,6 +6769,7 @@ def cmd_daily_accept(args: argparse.Namespace) -> int:
                 "dailyManifests": daily_manifest_stats,
             },
             "historyAcceptance": history,
+            "priceQuarantineReleased": released,
             "discoveryGap": discovery_gap,
             "canonical": {
                 "accepted": canonical["accepted"],
