@@ -95,9 +95,52 @@ def gemrate_treatment(parallel_words: str) -> str:
     return GEMRATE_TREATMENT.get(R._norm_text(parallel_words), "")
 
 
+# Japanese pokemon rarities that carry their OWN collector number: an SAR, AR,
+# SR, UR, HR or IR print is numbered above the set size, so the number already
+# says which print this is and no provider has to repeat the words. Demanding
+# them as product evidence refused cards on their rarity -- "Special Art Rare"
+# asked a Japanese storefront to print "special", "art" and "rare".
+#
+# Finishes are deliberately absent. "Master Ball Reverse Holo", "Reverse Holo",
+# "Holo", "Reverse Foil" and "1st Edition" share a number with the base print,
+# so the number cannot tell them apart and the words are the only evidence
+# there is. They stay required.
+_NUMBERED_RARITY_WORDINGS = frozenset({
+    "special illustration rare", "illustration rare", "special art rare",
+    "art rare", "ultra rare", "super rare", "hyper rare", "secret",
+    "mega ultra rare", "mega hyper rare", "mega attack rare",
+    "black white rare", "shiny rare", "shiny super rare", "character rare",
+    "trainer rare", "amazing rare", "radiant rare",
+})
+
+
+def names_a_treatment(parallel_words: str) -> bool:
+    """Is this parallel field a treatment rather than a product name?
+
+    Broader than gemrate_treatment(), and only for deciding whether the words
+    are product evidence. gemrate_treatment() answers a second, narrower
+    question -- can this treatment be COMPARED against the provider's own
+    vocabulary -- and a wording can be a treatment we recognise without being
+    one SNKRDUNK's One Piece rarity suffixes can speak about.
+    """
+
+    return bool(gemrate_treatment(parallel_words)) or (
+        R._norm_text(parallel_words) in _NUMBERED_RARITY_WORDINGS
+    )
+
+
 # Words that appear on nearly every One Piece listing and therefore prove
 # nothing about WHICH product a card came from.
 _PRODUCT_STOPWORDS = frozenset({
+    # The game's own name. "one" and "piece" were here from the start; "pokemon"
+    # was not, because these rules were written for One Piece and then asked to
+    # serve a second game. GemRate opens every pokemon set_name with it
+    # ("2022 Pokemon Japanese Sword & Shield Vstar Universe") and SNKRDUNK's
+    # Japanese product titles do not repeat it, so it refused cards on a word
+    # that names no product. Which game a listing belongs to is proved
+    # separately and hard: judge() raises tcg:<theirs>!=<ours> as a conflict
+    # before product agreement is ever consulted.
+    "pokemon",
     "one", "piece", "japanese", "english", "version", "card", "cards", "the",
     "of", "in", "a", "an", "and", "for", "booster", "pack", "set", "edition",
     "collection", "deck", "vol", "no", "op", "st", "prb", "eb", "p",
@@ -152,7 +195,7 @@ def product_agrees(
     """
 
     ours = _product_tokens(our_set_name)
-    if not gemrate_treatment(our_parallel):
+    if not names_a_treatment(our_parallel):
         ours |= _product_tokens(our_parallel)
     if not ours:
         return False, "our_set_name_has_no_distinctive_token"

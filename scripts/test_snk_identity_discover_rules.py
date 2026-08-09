@@ -29,6 +29,7 @@ from snk_identity_discover import (  # noqa: E402
     product_agrees,
     snk_treatment,
 )
+from op_identity_rules import names_a_treatment  # noqa: E402
 
 failures: list[str] = []
 
@@ -303,6 +304,78 @@ for action in R.REJECTION_VERDICT_ACTIONS:
         f"SQL predicate names '{action}'",
         f"'{action}'" in R.NOT_A_REJECTION_VERDICT_SQL, True,
     )
+
+# --- 6. the rules were One Piece's; pokemon is a second game, not a subset ---
+# GemRate opens every pokemon set_name with the game's own name and SNKRDUNK's
+# Japanese titles do not repeat it, so requiring it refused cards on a word that
+# names no product. "one" and "piece" were stopwords from the first day; the
+# second game's name simply was not.
+poke_ok, poke_why = product_agrees(
+    "2022 Pokemon Japanese Sword & Shield Vstar Universe",
+    "Base",
+    "ポケモンカードゲーム ソード&シールド VSTAR Universe",
+    "",
+)
+check("the game's own name is not product evidence",
+      "pokemon" in poke_why, False)
+
+# A rarity that comes with its own collector number is proven by the number.
+# Asking a Japanese storefront to print "special", "art" and "rare" is asking
+# it to speak GemRate's English.
+sar_ok, sar_why = product_agrees(
+    "2023 Pokemon Japanese Sv1v-Violet EX",
+    "Special Art Rare",
+    "Pokemon Card Game SV1V Violet ex",
+    "ポケモンカードゲーム 強化拡張パック バイオレットex",
+)
+check("Special Art Rare is not demanded as product words", sar_ok, True)
+# Proof it is the rarity being excused and not the set going unchecked: the
+# same listing for a DIFFERENT set is still refused.
+wrong_set_ok, _ = product_agrees(
+    "2023 Pokemon Japanese Sv2a-Pokemon Card 151",
+    "Special Art Rare",
+    "Pokemon Card Game SV1V Violet ex",
+    "",
+)
+check("excusing the rarity does not excuse the set", wrong_set_ok, False)
+check("Special Art Rare names a treatment",
+      names_a_treatment("Special Art Rare"), True)
+check("Illustration Rare names a treatment",
+      names_a_treatment("Illustration Rare"), True)
+
+# Finishes share a number with the base print, so the number cannot tell them
+# apart and the words stay the only evidence there is. This must NOT relax.
+mb_ok, mb_why = product_agrees(
+    "2023 Pokemon Japanese Sv2a-Pokemon Card 151",
+    "Master Ball Reverse Holo",
+    "ポケモンカードゲーム SV2a ポケモンカード151 ピカチュウ",
+    "",
+)
+check("Master Ball Reverse Holo is still required", mb_ok, False)
+check("and the refusal names the missing finish", "master" in mb_why, True)
+check("Master Ball Reverse Holo is NOT a treatment",
+      names_a_treatment("Master Ball Reverse Holo"), False)
+check("Reverse Holo is NOT a treatment", names_a_treatment("Reverse Holo"), False)
+check("1st Edition is NOT a treatment", names_a_treatment("1st Edition"), False)
+
+# A promo's product words still have to be proved: the parallel is the only
+# thing naming the product, and no rarity table may swallow it.
+promo_ok, promo_why = product_agrees(
+    "2024 Pokemon Japanese SV-P Promo",
+    "Gym Event Campaign",
+    "ポケモンカードゲーム SV-P プロモ ピカチュウ",
+    "",
+)
+check("a promo's own product words are still required", promo_ok, False)
+check("'Gym Event Campaign' is not a treatment",
+      names_a_treatment("Gym Event Campaign"), False)
+
+# The treatment welded onto the name made this lane search for a card nobody
+# sells, and three of the first 25 gap cards came back with zero hits.
+check("the search name drops the welded treatment",
+      R.card_name_without_treatment("Full Art/Pikachu Vmax"), "Pikachu Vmax")
+check("a genuine slash in a name survives",
+      R.card_name_without_treatment("Sabo/Koala"), "Sabo/Koala")
 
 print()
 if failures:

@@ -169,7 +169,18 @@ def select_targets(
         sql += f" LIMIT {int(limit)}"
     with conn.cursor() as cursor:
         cursor.execute(sql, tuple(params))
-        return [dict(row) for row in cursor.fetchall()]
+        rows = [dict(row) for row in cursor.fetchall()]
+    # GemRate welds the treatment onto the name ("Full Art/Pikachu Vmax"), and
+    # this lane asks SNKRDUNK for that whole string: three of the first 25 gap
+    # cards came back with zero search hits, not because SNKRDUNK lacks them but
+    # because nobody sells a card called "Full Art/Pikachu Vmax". The PC lane
+    # already corrects this where its shard is loaded; correcting it here, once,
+    # at the same place, keeps both lanes asking for the card that exists. The
+    # treatment is still proven separately -- by the print-signature rules, not
+    # by a storefront title that never spells it out.
+    for row in rows:
+        row["fp_name"] = R.card_name_without_treatment(row.get("fp_name") or "")
+    return rows
 
 
 def existing_owners(conn: Any, item_ids: list[int]) -> dict[str, dict[str, Any]]:
