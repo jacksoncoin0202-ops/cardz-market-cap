@@ -2580,6 +2580,11 @@ def main() -> int:
     p_activate.add_argument("--generation", required=True)
     p_activate.add_argument("--receipt-sha256", dest="receipt_sha256", required=True)
     p_activate.add_argument("--credentials-env", dest="credentials_env", type=Path)
+    p_freeze = sub.add_parser(
+        "rebuild-036-freeze",
+        help="setup: revoke cardz DML, create cardz_rebuild, prove the freeze (1142) before returning",
+    )
+    p_freeze.add_argument("--credentials-env", dest="credentials_env", type=Path)
     p_unfreeze = sub.add_parser(
         "rebuild-036-unfreeze",
         help="teardown: restore cardz DML grant, drop cardz_rebuild (success AND failure paths)",
@@ -2665,6 +2670,10 @@ def main() -> int:
         import rebuild_036
 
         return rebuild_036.cmd_activate(args)
+    elif args.cmd == "rebuild-036-freeze":
+        import rebuild_036
+
+        return rebuild_036.cmd_freeze(args)
     elif args.cmd == "rebuild-036-unfreeze":
         import rebuild_036
 

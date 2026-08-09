@@ -433,8 +433,16 @@ python -X utf8 pipelines/operator_control.py rebuild-036 \
 `rebuild-036-activate` requires `--receipt-sha256` (`pipelines/operator_control.py`).
 `prune-apply` and `canary` run **only** via an explicit `--stage`, and `_run_single_stage`
 first calls `_assert_activated` and `_run_freeze_proof` (`pipelines/rebuild_036.py`) — they can
-never fire from a linear run. `rebuild-036-unfreeze --confirm` exists for the deliberate
-unfreeze step.
+never fire from a linear run. `rebuild-036-freeze` and `rebuild-036-unfreeze --confirm` exist for
+the deliberate freeze / unfreeze steps.
+
+**Freeze:** `python -X utf8 pipelines/operator_control.py rebuild-036-freeze`. It reads the
+rebuild account out of `rebuild.env`, pipes the SQL into the container client on stdin (the
+password never reaches a command line or a log), and runs the 1142 proof before returning — a
+freeze that did not actually apply cannot report success. Do **not** hand-write this SQL: MySQL
+reads `_` in a grant db name as a wildcard, so `REVOKE ... ON \`cardz_market_cap\`.*` fails with
+error 1141, mysql stops at the first error, the `GRANT SELECT` after it never runs, and the
+freeze silently does not happen. The command spells the escaped name once so this cannot recur.
 
 ### Resume / checkpoint semantics (`pipelines/rebuild_036.py`)
 

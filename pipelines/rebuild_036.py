@@ -7052,6 +7052,57 @@ def cmd_snk_identity_reverify(args: argparse.Namespace) -> int:
         conn.close()
 
 
+FREEZE_REVOKE = "INSERT,UPDATE,DELETE,CREATE,DROP,ALTER,INDEX,REFERENCES"
+
+
+def _freeze_sql(user: str, password: str) -> str:
+    """§0.4 writer freeze, built here so the db name is only spelled once.
+
+    MySQL reads "_" in a grant db name as a wildcard, so the grant that exists
+    for cardz is stored escaped. REVOKE has to name it exactly the same way or
+    it fails with error 1141 -- and because mysql stops at the first error, the
+    GRANT SELECT after it never runs and the freeze silently does not happen."""
+
+    literal = password.replace("\\", "\\\\").replace("'", "\\'")
+    return (
+        f"CREATE USER IF NOT EXISTS '{user}'@'%' IDENTIFIED BY '{literal}';\n"
+        f"ALTER USER '{user}'@'%' IDENTIFIED BY '{literal}';\n"
+        f"GRANT ALL PRIVILEGES ON `cardz\\_market\\_cap`.* TO '{user}'@'%';\n"
+        f"REVOKE {FREEZE_REVOKE} ON `cardz\\_market\\_cap`.* FROM 'cardz'@'%';\n"
+        "GRANT SELECT ON `cardz\\_market\\_cap`.* TO 'cardz'@'%';\n"
+        "FLUSH PRIVILEGES;\n"
+    )
+
+
+def cmd_freeze(args: argparse.Namespace) -> int:
+    """Put the §0.4 writer freeze in force and prove it before returning.
+
+    The rebuild password is read from rebuild.env and handed to the container's
+    client on stdin: it never reaches a command line, a log, or this output."""
+
+    credentials = Path(args.credentials_env) if args.credentials_env else DEFAULT_CREDENTIALS_ENV
+    env = load_env_file(credentials)
+    user = str(env.get("CARDZ_DB_USER") or "")
+    password = str(env.get("CARDZ_DB_PASSWORD") or "")
+    if user != "cardz_rebuild":
+        raise SystemExit(f"refusing to freeze: {credentials} names user {user!r}, expected 'cardz_rebuild'")
+    if not password:
+        raise SystemExit(f"refusing to freeze: {credentials} has no CARDZ_DB_PASSWORD")
+    result = subprocess.run(
+        [
+            "docker", "exec", "-i", MYSQL_CONTAINER,
+            "sh", "-lc", 'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" --batch cardz_market_cap',
+        ],
+        input=_freeze_sql(user, password), capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise SystemExit(f"freeze failed (exit {result.returncode}): {result.stderr.strip()[:500]}")
+    _run_freeze_proof()
+    print(json.dumps({"frozen": True, "rebuildUser": user, "proof": "INSERT as cardz denied (1142)"},
+                     ensure_ascii=False))
+    return 0
+
+
 UNFREEZE_SQL = (
     "GRANT ALL PRIVILEGES ON `cardz\\_market\\_cap`.* TO 'cardz'@'%';\n"
     "DROP USER IF EXISTS 'cardz_rebuild'@'%';\n"
