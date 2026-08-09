@@ -170,6 +170,26 @@ One Piece 係單 token（`OP09-106`），pokemon 係裸號或者 set 前綴
 第八、九個缺陷係 `match_status` / `metric_status` 兩個寫入者；呢個係一個
 字串欄兩個概念。分別只在於前者要讀 evidence 先分得開，後者一睇個 `/` 就知。
 
+## 第十一個缺陷：查得啱，查錯範圍（2026-08-09 夜補）
+
+`seed_pc_review_from_map.py` 每一行都問過 DB「呢個 PC product 係咪已經有人認咗」，
+問題問得啱——但佢見唔到自己**手上嗰批**。兩張 pokemon 缺口卡（v1194、v2237）雙雙
+resolve 到同一版 Jungle「Pikachu #60」（product 643327），兩行都過咗 DB 檢查，
+去到 INSERT 先撞 primary key 1062。
+
+**代價唔係嗰兩行。** seeding 行喺一個 transaction 入面，所以 rollback 掃埋成批
+206 行——整批缺口卡一行都冇寫入。跑之前個 dry-run 亦都報「seeded 210」，因為
+dry-run 同 write 行同一條有洞嘅檢查。
+
+修法唔係「第一個佔咗就贏」：到達次序唔係證據。同一批入面兩張卡爭一版，
+**兩張都唔 seed**，而且兩行都要出報告——resolver 將一版派俾兩張卡，呢件事本身
+就係要睇嘅發現，唔係一行可以靜靜咁減半。規則抽咗做 `drop_contested()`，
+`scripts/test_seed_pc_review_batch.py` 九個 case 釘死佢。
+
+**教訓：一個檢查嘅範圍要覆蓋佢自己製造緊嘅嘢。** 呢個同前面十個唔同——前面係
+「一個欄／一個狀態裝兩樣嘢」，呢個係「檢查嘅視野窄過寫入嘅視野」。同一形狀嘅位
+仲有幾多：任何「查 DB 之後 batch insert」嘅腳本都要問返呢句。
+
 ## 仲未修（欠單，唔係已修）
 
 - **`print_signature_mismatch` 唔係規則問題，係 map 指錯頁。** 實測 v1582 捕獲到嘅
