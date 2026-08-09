@@ -32,6 +32,32 @@ import rebuild_036 as R  # noqa: E402
 CONTRACT = "pc-gap-discovery-036-v1"
 
 
+def drop_contested(seeded: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Split a seed batch into (keep, drop) on the one-product-one-variant rule.
+
+    The DB checks in main() ask whether a product is already spoken for; they
+    cannot see the batch being built, so two cards that resolved to the SAME
+    product page both passed and the INSERT died on the primary key. The rule
+    does not weaken inside a batch: when two variants claim one product neither
+    has proven it owns it, so both are dropped rather than the first one winning
+    by arrival order. The resolver handing one page to two cards is itself the
+    finding, so the dropped rows are reported rather than silently halved.
+    """
+
+    claims: dict[str, list[dict]] = {}
+    for entry in seeded:
+        claims.setdefault(entry["product_id"], []).append(entry)
+    contested = {pid for pid, rows in claims.items() if len(rows) > 1}
+    dropped = [
+        {
+            **entry, "reason": "product_claimed_twice_in_batch",
+            "claimedBy": sorted(row["variant_id"] for row in claims[entry["product_id"]]),
+        }
+        for pid in sorted(contested) for entry in claims[pid]
+    ]
+    return [e for e in seeded if e["product_id"] not in contested], dropped
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--map", type=Path, required=True)
@@ -86,6 +112,11 @@ def main() -> int:
                     skipped.append({**entry, "reason": "variant_already_has_pc"})
                     continue
                 seeded.append(entry)
+
+        seeded, contested = drop_contested(seeded)
+        skipped.extend(contested)
+
+        with conn.cursor() as cursor:
 
             if args.write and seeded:
                 try:
