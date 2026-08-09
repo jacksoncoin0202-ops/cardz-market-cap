@@ -464,6 +464,137 @@ freeze silently does not happen. The command spells the escaped name once so thi
 - Backup dump sha256 verifies.
 - Zero `market_ingest_run` rows with `status='running'`.
 
+### Freeze / unfreeze 生命週期（每次補跑 stage 都會撞到）
+
+`rebuild-036-unfreeze --confirm` 會 **DROP 咗 `cardz_rebuild` 呢個 user**。所以「跑完一次 036
+之後想補跑一兩個 stage」嘅時候，`--credentials-env rebuild.env` 一定連唔到 —— 唔係 env 壞咗，
+係個 user 真係唔喺度。次序永遠係：
+
+```bash
+# 1. 兩條現役 task 先 Disable（S0 gate 要求；就算行 --stage 跳過 S0 都要做，
+#    因為 freeze 期間 backend 只剩 SELECT，夜鏈 03:30 撞正就靜靜失敗）
+powershell -NoProfile -Command "Disable-ScheduledTask -TaskName 'CARDZ-036-Nightly-Collect-Accept'; Disable-ScheduledTask -TaskName 'CARDZ-036-Morning-Browser-Lanes'"
+
+# 2. 重新 freeze（會重建 cardz_rebuild + 即場行 1142 proof）
+python -X utf8 pipelines/operator_control.py rebuild-036-freeze
+
+# 3. …跑 stage / activate…
+
+# 4. unfreeze + Enable 返兩條 task —— 呢步唔做 = 夜鏈死
+python -X utf8 pipelines/operator_control.py rebuild-036-unfreeze --confirm
+powershell -NoProfile -Command "Enable-ScheduledTask -TaskName 'CARDZ-036-Nightly-Collect-Accept'; Enable-ScheduledTask -TaskName 'CARDZ-036-Morning-Browser-Lanes'"
+```
+
+`--stage <name> --force-stage` **唔行 S0 preflight**（`_run_single_stage` 只對
+`prune-apply` / `canary` 叫 `_assert_activated` + `_run_freeze_proof`）。方便，但代價係
+上面第 1、4 步冇人幫你做，要自己記。
+
+### 補數據入現役 generation（gap intake，唔開新 generation）
+
+新綁定嘅卡（SNK 或 PC）落咗 `catalog_source_identity` 之後**唔會自己上 FE**。cohort 係喺 S11
+`stage_validate` 每次重算嘅，所以要行足下游鏈：
+
+```bash
+G=036_20260808T084217Z
+for S in snk-refresh price-materialize image-bind; do
+  python -X utf8 -u pipelines/operator_control.py rebuild-036 --generation $G --stage $S --force-stage
+done
+python -X utf8 -u pipelines/operator_control.py rebuild-036 --generation $G --stage validate
+python -X utf8 -u pipelines/operator_control.py rebuild-036-activate --generation $G --receipt-sha256 <新 receipt>
+```
+
+查新綁定嘅卡而家喺邊個 cohort（`qualified_market_pending` = 未夠料上 FE）：
+
+```sql
+SELECT crm.cohort, COUNT(DISTINCT si.variant_id)
+  FROM catalog_source_identity si
+  JOIN catalog_rebuild_member crm ON crm.variant_id = si.variant_id
+ WHERE si.source_code='snkrdunk' AND si.match_status='exact'
+   AND si.updated_at >= NOW() - INTERVAL 3 HOUR
+ GROUP BY crm.cohort;
+```
+
+**PriceCharting gap intake 係四步，唔係一步**：seed →
+`pc-identity-reverify` → `pc_cache_replay` → 由 `pc-replay` 起 linear 重跑。S8 讀嘅係 **replay
+目錄**，唔係 capture 目錄 —— 抄漏咗就係「爬咗嘢但入唔到庫」。
+
+### 已知效能債
+
+`stage_validate` 而家要行 ~5 分鐘。`EXPLAIN` 顯示佢會 materialize
+`market_price_daily`（358,164 行）做兩次 full table scan（`derived15`、`derived40`）。
+未修；唔好因為佢慢就以為 hang 咗。
+
+---
+
+## 6. FE 對數 —— 點解 activation 咗 FE 都唔郁
+
+**行過一次先，唔好靠估。** FE 有兩個 data mode，睇 `CARDZ_DATA_MODE`：
+
+| mode | 讀邊度 | 用途 |
+|---|---|---|
+| `live-db` | MySQL 3308 直讀，即刻反映最新 accepted ranking generation | 開發 / 對數 |
+| `baked-snapshot` | `MARKET_DATA_POINTER_PATH` 指住嘅 `latest.json` | 貼近 LIVE 嘅預覽 |
+
+2026-08-09 真事：036 activate 咗，1190 張卡入咗 universe，但 `:3800` 一直得 762 張。原因係
+`fe03-server.ps1` 設緊 `MARKET_DATA_POINTER_PATH=publish-staging\latest.json` —— 個 pointer
+係 **7 月 28 號**焗出嚟嘅。睇落好似「採集唔夠數據」，其實 FE 根本冇讀個 DB。**任何「FE 數
+唔夠」嘅投訴，第一步係分清 mode，唔係去查採集。**
+
+診斷（一句分勝負）：
+
+```bash
+curl -s http://127.0.0.1:3800/api/health | python -X utf8 -c "import sys,json; d=json.load(sys.stdin); print(d.get('dataMode'), d.get('generation'), d.get('universeSize'))"
+```
+
+`dataMode` 係 `baked-snapshot` 而個 generation hash 對唔上現役 lock → 就係呢個陷阱。改
+`live-db` 要順手 `Remove-Item Env:\MARKET_DATA_POINTER_PATH`：個 pointer 留喺 env 度會贏。
+
+要留喺 `baked-snapshot` 就一定要由**現役 generation 重焗** `latest.json`，唔係改 mode 算數。
+
+另：`npm run build` 會 `rmSync` 掉 `apps/web` 底下啲卡圖（`sync-snapshot.mjs` 只認
+seed-snapshot）。手抄落去嘅 generation 圖每次 build 完要再抄一次，而且要連 `_200` / `_600`。
+
+---
+
+## 缺陷形狀清單（每次事故沉澱一條；查新 bug 之前先對呢張單）
+
+呢度唔係 bug 列表，係**形狀**列表。每條都係喺呢個 repo 真係炸過一次，而且大機會有第二個
+未搵到嘅實例。查一個「數據明明有但用唔到」嘅問題時，由上到下逐條試。
+
+1. **一個欄位擔起兩個意思。** 例：`market_grader_population_observation.top_grade_label`
+   有陣時係 `'top'`（未拆解），有陣時係 `'10'`。acceptance lane 認 label 唔認數字，所以
+   同一個數字喺唔同 label 下面，一個收一個唔收。
+2. **檢查窄過佢守嗰個寫入。** 寫入用 `(a,b,c,d)` 做 unique key，檢查只睇 `(a,b)` →
+   個檢查以為自己攔到嘢，實情永遠 pass。
+3. **upsert 淨係喺 INSERT 講清楚意思，UPDATE 唔講。**（2026-08-09，131 張卡）
+   `ON DUPLICATE KEY UPDATE` 冇 restate `top_grade_label`，所以早一條 lane 用 `'top'`
+   佔咗嗰行之後，新 lane 寫入正確嘅 PSA-10 數字但個 label 冇變 → acceptance 按 label 拒收。
+   **規矩：唔喺 unique key 入面、但決定行意義嘅欄，upsert 一定要喺 update list restate。**
+   守門人：`scripts/test_pop_upsert_restates_label.py`。
+4. **為一款遊戲寫嘅規則，靜靜咁套落第二款。**（2026-08-09，SNK matcher）
+   `op_identity_rules.py` 成套字彙係為 One Piece 寫，之後直接拎去判 pokemon：GemRate 每個
+   pokemon set name 開頭都有 "Pokemon" 呢個字，SNKRDUNK 日文標題唔會重複佢 → 大批卡被一個
+   「唔指向任何產品」嘅字拒絕。同一個 25 張樣本：4 → 15 ACCEPT，原本嗰 4 張冇一張變拒絕。
+5. **有檢查但零 call site = 冇檢查。** 加完 assert / hook / test 要**即場證明佢會 fire**：
+   臨時將個 bug 種返落去，睇住佢紅，再還原。冇做過呢步就唔准講「已修」。
+6. **搵唔到嘢驗嘅 checker 會永遠 pass。** static scan 類 test 一定要 assert 一個最低命中數
+   （`if found < 4: FAIL`），否則有日 refactor 改咗 SQL 寫法，個 test 靜靜咁變咗綠色壁紙。
+7. **參數靜靜咁減半個結果集。** `daily.py` 漏 `--view all_eligible` 會少收一半卡，而 QC
+   report 一模一樣 —— 兩次 report 一樣就去對參數，唔好再查 QC。（已落 hook 擋住）
+8. **provider 標題唔係按你嘅 schema 砌。** GemRate 將 treatment 焊死喺卡名度
+   （`Full Art/Pikachu Vmax`），攞成串去搵 SNKRDUNK = 搵一張冇人賣嘅卡。搵之前用
+   `rebuild_036.card_name_without_treatment()` 剝走，treatment 交返俾 print-signature 規則證。
+
+### 相關嘅 MySQL / shell 陷阱
+
+- 一條 statement 入面 reference 同一張 TEMPORARY table 兩次 → `ERROR 1137 Can't reopen table`。
+  拆做兩條。
+- `JSON_EXTRACT(..., "$.x")` 經 `docker exec` 傳會俾 shell 食咗個 `$`。寫落 `.sql` 檔再
+  `docker exec -i ... < file.sql`。
+- `catalog_rebuild_member` 嘅 PK 係 `(generation_id, gemrate_id)`，**唔係 variant_id**。
+  數卡永遠 `COUNT(DISTINCT variant_id)`，唔係 `COUNT(*)`。
+- 密碼永遠留喺容器入面：`docker exec cardz-market-cap-db-1 sh -c 'mysql -u root -p"$MYSQL_ROOT_PASSWORD" ...'`。
+
 ---
 
 ## Hard rules

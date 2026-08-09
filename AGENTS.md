@@ -11,6 +11,19 @@
 5. **舊 checkout `C:\Users\jackson0202\Documents\Playground\cardz-market-cap` 只准讀** — 佢擁有 MySQL 3308 嘅 docker compose 同 14GB volume，刪/搬 = 斷 DB。
 6. **秘密**：唔准將任何 env 密碼/token 印落 log 或 commit。
 7. **採集唔准 filter** — fetch-all 落 landing，入 DB 先揀（政策，見 runbook）。
+8. **`rebuild-036-unfreeze --confirm` 會 DROP `cardz_rebuild`。** 之後想再跑任何 stage，一定要
+   先 `rebuild-036-freeze` 重建佢；同時兩條現役 Task Scheduler 要 Disable，跑完 unfreeze 再
+   Enable 返。冇 Enable 返 = 夜鏈 03:30 靜靜死。（步驟見
+   [runbook §5「Freeze / unfreeze 生命週期」](docs/COLLECTION_RUNBOOK.md)）
+9. **加咗檢查要即場證明佢會 fire。** 新 assert / hook / test 寫完之後，臨時將個 bug 種返落去，
+   睇住佢紅，再還原。冇做過呢步唔准講「已修」——「有檢查但零 call site」當冇檢查。
+10. **唔准放鬆任何 acceptance gate 嚟令個數靚。** 數唔夠就修根因或者照報缺口。
+
+## 查 bug 之前
+
+先對 [runbook「缺陷形狀清單」](docs/COLLECTION_RUNBOOK.md)。呢個 repo 出過嘅事故有固定形狀
+（一欄兩意思、檢查窄過寫入、upsert 淨係 INSERT 講清楚、為 A 遊戲寫嘅規則套落 B 遊戲……），
+逐條試快過由零查起。
 
 ## 狀態檔位置（唔好自己發明新位）
 
@@ -23,7 +36,8 @@
 
 | 文件 | 內容 |
 |---|---|
-| [docs/COLLECTION_RUNBOOK.md](docs/COLLECTION_RUNBOOK.md) | 五條採集線嘅全量/增量命令、resume 語義、failure receipts、exit codes、port doctrine |
+| [docs/COLLECTION_RUNBOOK.md](docs/COLLECTION_RUNBOOK.md) | 五條採集線嘅全量/增量命令、resume 語義、failure receipts、exit codes、port doctrine、freeze 生命週期、FE 對數、**缺陷形狀清單** |
+| [docs/POSTMORTEM_OP_GAP_20260809.md](docs/POSTMORTEM_OP_GAP_20260809.md) | 「pop≥1000 但上唔到 FE」十二個缺陷嘅逐個根因同修法 |
 | [PLAN_036_FE02.md](PLAN_036_FE02.md) | 036 rebuild 總計劃（stage 定義、gate 條件） |
 | `pipelines/rebuild_036.py` docstrings | 每個 stage 嘅實際行為（code 係權威） |
 

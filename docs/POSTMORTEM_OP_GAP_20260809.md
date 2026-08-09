@@ -220,6 +220,35 @@ S12 報 `missingPop`（`missingPrice` 係空嘅）成批 rollback。
 同型位：任何 `ON DUPLICATE KEY UPDATE` 都要對住 unique key 逐欄問一次
 「呢欄唔更新嘅話，行嘅意思會唔會變成第二樣」。
 
+## 第十三個缺陷：為 One Piece 寫嘅字彙，靜靜咁攞去判 Pokémon（2026-08-09 夜補）
+
+`pipelines/op_identity_rules.py` 個檔名已經講明係 One Piece 嘅字彙表，但兩條 discovery lane
+（SNKRDUNK、PriceCharting）都直接 import 佢去判**所有**遊戲。三個具體傷害：
+
+1. **遊戲自己個名當咗產品證據。** GemRate 每個 pokemon set name 開頭都係
+   "2022 Pokemon Japanese …"，SNKRDUNK 嘅日文商品名唔會重複「Pokemon」呢個字 → `product_agrees`
+   要求對方印一個唔指向任何產品嘅字。修法：`"pokemon"` 加入 `_PRODUCT_STOPWORDS`。
+   遊戲身份唔會因此失守——`judge()` 喺睇 product 之前已經用 `tcg:<theirs>!=<ours>` 硬擋。
+2. **稀有度當咗產品名。** 日文 SAR / AR / SR / UR / HR / IR 呢類卡有**自己嘅收藏編號**（號碼大過
+   set size），號碼本身已經講晒係邊個印刷，冇 provider 需要再串一次
+   "Special Art Rare"。修法：新 `names_a_treatment()` + `_NUMBERED_RARITY_WORDINGS`。
+   **Finish 故意唔喺入面**：Master Ball Reverse Holo / Reverse Holo / Holo / 1st Edition 同
+   base 印刷**共用同一個號碼**，號碼分唔到，啲字就係唯一證據 —— 佢哋照舊要求。
+3. **攞住焊死咗 treatment 嘅卡名去搵嘢。** GemRate 寫 `Full Art/Pikachu Vmax`，
+   `snk_identity_discover` 攞成串去 search → 冇人賣一張叫「Full Art/Pikachu Vmax」嘅卡。
+   修法：load row 嗰陣行 `rebuild_036.card_name_without_treatment()` 剝走
+   （PC lane 一早咁做，而家兩條 lane 喺同一個位做同一件事）。
+
+**實測（同一批 25 張缺口卡）**：ACCEPT 4 → 13 → 15；`searchEmpty` 3 → 1；原本嗰 4 張冇一張
+變返拒絕。全量 224 張：accepted 32、實綁 20（其餘 12 張已經指住第二個 master，`repointSkipped`）。
+
+守門人：`scripts/test_snk_identity_discover_rules.py`（39 條 check），入面刻意有反證——
+同一個 listing 換一個 set 仍然拒絕，證明豁免嘅係稀有度唔係「set 冇查」。
+
+形狀：**一個模組嘅名已經講咗佢嘅適用範圍，但 import 佢嘅人冇讀。** 同型位：任何
+`*_rules.py` / `*_vocab.py`，加第二個 tenant（遊戲 / 語言 / provider）之前先問「呢套字彙係邊個
+寫嘅、為邊個寫」。
+
 ## 仲未修（欠單，唔係已修）
 
 - **`print_signature_mismatch` 唔係規則問題，係 map 指錯頁。** 實測 v1582 捕獲到嘅
@@ -234,6 +263,17 @@ S12 報 `missingPop`（`missingPrice` 係空嘅）成批 rollback。
   唔值得起呢條 lane。
 - **catalog identity 缺陷**：54 張入面 50 張 `set_code` 空、`collector_number` 得個裸
   號碼。而家靠 rule 由 `set_name` 補讀——治標。
+- **日文 promo 嘅「活動名」缺口（14 張，2026-08-09 實測）。** 全量 SNK discovery 之後，仲有
+  14 張日文卡係**淨係**因為 `product_mismatch` 被拒，而缺嘅字全部係 GemRate 用英文寫嘅活動／
+  通路名：v1878 `['center','cracked','ice','skytree','town']`、v1938 `['pokeca']`、
+  v2073 `['campaign','dragon']`、v1892 `['archdjinni','giveaway','rings']` 等等。日文商品名
+  唔會有呢啲英文字。**故意唔放寬**：日文 promo 嘅編號雖然多數係唯一，但一放寬就冇嘢分得到
+  同號嘅 finish 變體，而錯綁係靜默錯誤。要修就要為 promo 起一套日文活動名對照，唔係拆閘。
+  （另外 v109「1st Edition」同 v1582「Master Ball Reverse Holo」喺呢 14 張入面，佢哋
+  **本來就應該**被拒——共用號碼，啲字係唯一證據。）
+- **全量 224 張入面仲有 159 張 `no_survivor` + 29 張 `search_empty`。** 拒絕理由分佈：
+  hard_conflict 816、product_mismatch 150、proven_binding_elsewhere 50、page_missing 37、
+  character_mismatch 29。大部分係正確攔截（搵返嚟嘅根本係第二張卡）。
 - **`stage_identity_resolve` 仲有一個 `match_status != 'rejected'` 分支**。行為係啱嘅
   （incident 講嘅係 live binding 漂移，rejected 行唔 live，而且 S5 冇 closure path），
   註釋已經改返講真原因，但呢個位提我哋：`rejected` 呢個字散落幾多處要定期查。
