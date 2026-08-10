@@ -286,6 +286,41 @@ Chain: `pc_full900_supervisor.ps1` → `pc_full_serial_driver.py` → `pc_full_s
 - All PC collectors record into the failure ledger; check it plus the shard summaries and
   `pc_cdp_refresh_report.json` before rerunning anything.
 
+### Gap lane（張卡有 pop 但冇 PC 價）—— canonical 三步
+
+唔使爬全站，唔使搜尋。`pc_identity_discover.py` 係列舉：`/category/one-piece-cards`
+→ 137 個 console slug → `/console/<slug>` 一次過攞晒成套嘅產品，
+再用 collector number 收窄，最後行返同一套 identity 規矩。console 靠
+`set_names_a_card_could_carry(row, code_to_set)[1]` 揀，所以個 reprint 名一錯，
+成條 lane 就去錯 console（形狀 25）。
+
+```bash
+python -X utf8 pipelines/pc_identity_discover.py --tcg one-piece --language en --generation <gen> --credentials-env data/runtime/config/rebuild.env
+```
+
+先淨跑一次（**唔加 `--write`**）睇 `counts`。見到 `alreadyOwned > 0` 而
+holder 全部 `manual_review` → 逐個開 `held` 對卡名同 PC title：
+正主嗰張要**套 code 同 treatment 兩樣都夾**（例：pid 6235454 係
+`Portgas.D.Ace [Manga] OP02-013`，正主係 v188「OP02-Paramount War … Manga
+Alternate Art 013」，唔係當時 hold 住嘅 v1427「OP08 … Special Alternate Art」）。
+再對 `stamp_red_sheet_quarantine.red_variant_ids()` 確認零重疊，先加 flag：
+
+```bash
+python -X utf8 pipelines/pc_identity_discover.py --write --allow-repoint --tcg one-piece --language en --generation <gen> --credentials-env data/runtime/config/rebuild.env
+```
+
+`--allow-repoint` 只搶 `manual_review`（守衛喺 SQL：`match_status <> 'exact'` +
+無拒絕裁決 + rowcount 必須 1）。呢個 lane 只提案；升格永遠係下一步：
+
+```bash
+python -X utf8 pipelines/operator_control.py pc-identity-reverify --write --credentials-env data/runtime/config/rebuild.env
+```
+
+`operator_strict_source_identity` 係 **view**，所以升格咗嘅 exact 即刻見到 ——
+重跑鏈由 `--invalidate-from pc-replay` 開始就夠，唔使返去 identity-resolve。
+`--invalidate-from` 係**獨立一步**，佢清完 checkpoint 就 exit；要再 call 一次
+唔帶 flag 嘅 `rebuild-036` 先會真係行 stage。
+
 ---
 
 ## 4. SNKRDUNK — `pipelines/snkrdunk_bulk.py` + `pipelines/snk_market_data.py`
@@ -886,6 +921,30 @@ seed-snapshot）。手抄落去嘅 generation 圖每次 build 完要再抄一次
     確認 target 同 holder 兩邊都唔喺紅名單。兩步都過先加 `--allow-repoint`。
     **形狀**：一個 hold 理由連續大量出現同一個值，多數係「配錯對」而唔係「真係唔啱」。
     睇個 provider 本身係邊個市場，再問「咁邊張卡先係佢嘅正主」。
+25. **同一個「套名」問題喺呢個 repo 有第三條軸：PriceCharting 用「印刷來源套」做 console。**
+    （2026-08-10）GemRate 講「喺邊個產品賣」、卡面印「邊套出世」（形狀 21 嗰兩條軸），
+    而 PC 第三樣：佢將 `ST02-007` 嘅 SP alt art 擺喺
+    `/game/one-piece-starter-deck-2-worst-generation/jewelry-bonney-sp-foil-st02-007`，
+    即係跟**號碼嘅來源套**開 console，但張卡實際係 OP08 Two Legends 出。
+    所以 `product_agrees` 攞我哋個 `set_name`（OP08）對 PC console（ST02）一定唔夾。
+    `data/policy/op-printed-codes.json` 得 16 個 code 有 product slug（OP01–OP14、PRB01、PRB02），
+    **冇 ST 系**，所以呢批補唔到名。唔准攞 PC 自己個 console 名倒返轉頭做候選 ——
+    咁等於攞佢自己對自己，個 check 乜都收。
+    **落手前先量**：`pc-identity-reverify` 個 held list 撈出嚟，
+    同 `cohort='qualified_market_pending'` 交叉，先知邊啲 hold 真係令張卡跌出 FE。
+    2026-08-10 實測：235 個 held 入面得 48 個係 OP pending
+    （print_signature 25、product 12、hard_conflict 8、page_product 3），
+    其餘 hold 郁咗都唔會多一張卡。
+26. **`map_product_mismatch` 係「兩個獨立來源唔同意」，唔准手改個 map 去砌返啱。**
+    （2026-08-10）`pc-identity-reverify` 要 page id == bound id == **map id** 三方同意，
+    個 map 係 `data/runtime/private-source-map/c11_pc_ebay_map_full900.jsonl`，
+    由 `consolidate_pc_map.py` 從**現役 exact** row 砌出嚟。
+    做完 repoint 之後 5 張卡卡喺呢度（v107/188/1212/1251/1427），
+    因為個 map 仲記住舊嗰個 pid。手改個 map = 攞掉個 gate 唯一嘅第二意見，
+    而且個 map 同時係 PC sales sweep 嘅入口清單，改錯會影響全部 900+ 張。
+    正路係行返一轉 PC sweep 再 consolidate（朝早 browser lane，CDP 9333 headed），
+    唔係喺呢度改檔。**形狀**：一個 gate 要「兩個來源同意」嘅時候，
+    唔夾嘅正解永遠係去修落後嗰個來源，唔係改個比較。
 
 ### 相關嘅 MySQL / shell 陷阱
 
