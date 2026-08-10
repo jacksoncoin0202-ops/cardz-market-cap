@@ -121,6 +121,13 @@ git lfs pull
 
 export CARDZ_PUBLIC_BUILD_ID="$(git rev-parse --short=8 HEAD)"
 
+# 卡數由 checkout 出嚟嘅 snapshot 自己講，唔再寫死。呢個數本來 hardcode 咗 762，
+# 由 762 張嗰個 generation 一直冇改過；036 出 1259 張嘅時候，一個完全正確嘅
+# release 會喺容器已經起咗、public 已經換咗世界之後先撞爆呢句 assert，之後
+# 仲會按 §5 封住下一次 deploy。要 assert 嘅係「容器讀緊嘅就係 checkout 嗰份
+# snapshot」，唔係「卡數等於某個歷史數字」。
+EXPECTED_CARDS="$(python3 -c 'import json; d = json.load(open("data/public/seed-snapshot.json")); print(len(d["top100"]) + len(d["watchlist"]))')"
+
 docker compose up \
   --build \
   --detach \
@@ -133,18 +140,19 @@ INTERNAL_HEALTH="$(curl --fail --silent --show-error \
 PUBLIC_HEALTH="$(curl --fail --silent --show-error \
   "$PUBLIC_HEALTH_URL")"
 
-python3 - "$CARDZ_PUBLIC_BUILD_ID" "$INTERNAL_HEALTH" "$PUBLIC_HEALTH" <<'PY'
+python3 - "$CARDZ_PUBLIC_BUILD_ID" "$INTERNAL_HEALTH" "$PUBLIC_HEALTH" "$EXPECTED_CARDS" <<'PY'
 import json
 import sys
 
 expected_build = sys.argv[1]
 internal = json.loads(sys.argv[2])
 public = json.loads(sys.argv[3])
+expected_cards = int(sys.argv[4])
 
 for name, result in (("internal", internal), ("public", public)):
     assert result["status"] == "ok", (name, result)
     assert result["build"] == expected_build, (name, result)
-    assert result["cards"] == 762, (name, result)
+    assert result["cards"] == expected_cards, (name, result)
 
 assert public["generation"] == internal["generation"], (internal, public)
 print(json.dumps({"internal": internal, "public": public}, ensure_ascii=False))
@@ -159,6 +167,8 @@ PY
 - `git lfs pull` 必須在 Docker build 前完成，否則圖片只會係 LFS pointer。
 - build ID 直接用 production commit SHA 前八位。
 - Docker health、內部 health、公開 health 必須同一次 deploy 對得上。
+- 卡數期望值由 checkout 嗰份 `data/public/seed-snapshot.json` 計，唔可以寫死；寫死嘅
+  數字每次換 generation 都要人手同步，而漏改嘅代價係一個好嘅 release 報 fail。
 
 ## 3. 一次性：開放 GitHub webhook
 
@@ -194,9 +204,20 @@ AWS Security Group 不應直接公開 Docker port `3000`。公開流量由現有
 
 ## 4. 每次出 Live：Jackson 只做這段
 
-先在 Windows/WSL 完成 refresh、snapshot materialization 和 FE build。production commit 只可包含
-公開 snapshot、公開 market assets、前端及 deployment source；禁止加入 `.env`、cookies、tokens、
-`data/runtime/private-source-map/` 或其他 private collector material。
+先在 Windows/WSL 完成 refresh 同 activation，然後由現役 generation 焗出公開 snapshot：
+
+```bash
+node scripts/bake-public-snapshot.mjs
+```
+
+呢一步之前係手做嘅，所以 `main` 上面嗰份 snapshot 帶住一個冇人再焗得返嘅 generation。
+腳本行嘅係 FE `live-db` 同一條 code path，出嚟嘅 `generation.id` 一定等於現役 ranking
+generation 頭 16 位；佢最後會列出 `referencedAssets`，嗰批 `data/public/market-assets/*.webp`
+必須同 snapshot 一齊入 commit，否則出 Live 會見到一版爛圖。
+
+production commit 只可包含公開 snapshot、公開 market assets、前端及 deployment source；
+禁止加入 `.env`、cookies、tokens、`data/runtime/private-source-map/` 或其他 private
+collector material。
 
 部署只在 release commit 成為 `main` HEAD 時觸發：
 
@@ -230,24 +251,29 @@ AWS docker compose service == healthy
 internal /api/health.status == ok
 public /api/health.status == ok
 internal build == public build == main HEAD short SHA
-internal cards == public cards == 762
+internal cards == public cards == checkout 嗰份 seed-snapshot.json 嘅 top100+watchlist
 internal generation == public generation
 ```
 
 GitHub webhook 顯示 `2xx` 但 AWS job 無成功紀錄，或公開 `/api/health` 對唔上 build／generation，
 都不算完成。未查清原 job 前不可 redeliver、不可再推第二個 `[deploy]` commit。
 
-## 6. 今次 release 應見到的值
+## 6. 今次 release（036 / FE03）應見到的值
 
 ```text
-GitHub main commit: 78848067a8ad1f4a5fac5d2ab380ae49512099cf
-CARDZ_PUBLIC_BUILD_ID: 78848067
-DB projection generation: db3308_ab0b51aa013eb50b
-Product snapshot generation: product_subset_20260807T094818Z
-Public snapshot SHA-256: 8e800a2ac69a03a4de6e8635075e37e75b3c2f42a6095d890af02471839e7ce8
-Expected cards: 762
-Presentation: FE02
+DB projection generation: db3308_92cfe930e6c1f139
+Ranking generation lock:  92cfe930e6c1f13928ade8c43d2f511e1b267046b1783bf2ade7450b5739ec2a
+Public snapshot SHA-256:  60b4ee01a068d0baf9126abf2c2ca546556e8108cd2608d90fd39c4e03969eae
+Expected cards: 1259   (top100 100 + watchlist 1159；pokemon 1061 / one-piece 198)
+Referenced market assets: 3777
+Presentation: FE03
+CARDZ_PUBLIC_BUILD_ID: 呢個 [deploy] commit 喺 main 上面嘅短 SHA
 ```
 
-AWS receiver 恢復後，應處理現有 `78848067` delivery，而不是再製造一個 release。公開
-`/api/health` 必須回 `build=78848067`、`cards=762`，並與容器內 generation 一致。
+上一次 release 係 `033 / FE02`、generation `db3308_ab0b51aa013eb50b`、762 張，snapshot
+SHA-256 `8e800a2ac69a03a4de6e8635075e37e75b3c2f42a6095d890af02471839e7ce8`。
+
+**AWS host 前置動作（今次一定要做）**：`/usr/local/libexec/cardz-market-cap-deploy` 舊版
+寫死 `assert result["cards"] == 762`。1259 張嘅 release 會喺容器已經起咗、公開站已經換咗
+世界之後先撞爆呢句，然後按 §5 封住下一次 deploy。推 `[deploy]` 之前，先按 §2 更新嗰個檔
+（`EXPECTED_CARDS` + `sys.argv[4]` 兩處）。
