@@ -644,11 +644,18 @@ def _fingerprint_variant_conflicts(
     # cards a resolver could prove one for -- "" for everything else.
     import op_identity_rules  # deferred: it imports this module at its top
 
-    printed = op_identity_rules.printed_set_code(
-        variant.get("variant_id") or variant.get("id")
-    )
-    if printed:
-        v_codes = v_codes | {printed.casefold()}
+    # Both directions, because a reprint has two true answers and the catalog
+    # carries exactly one of them: 48 rows had a blank set_code that the printed
+    # code filled, and 21 already carried the printed code and needed the other
+    # one -- GemRate said op10, catalog said op08, adding OP08 again changed
+    # nothing (variants 19, 1214, 1228, measured 2026-08-10).
+    vid = variant.get("variant_id") or variant.get("id")
+    for code in (
+        op_identity_rules.printed_set_code(vid),
+        op_identity_rules.sold_in_set_code(vid),
+    ):
+        if code:
+            v_codes = v_codes | {code.casefold()}
     if f_codes and v_codes and not (f_codes & v_codes):
         conflicts.append(f"set_code:{sorted(f_codes)}!={sorted(v_codes)}")
 
@@ -2610,6 +2617,7 @@ def snk_claim_set_agrees(claim: str, row: Mapping[str, Any]) -> bool:
         str(row.get("p_set_code") or "").casefold(),
         named.group(1).casefold() if named else "",
         op_identity_rules.printed_set_code(row.get("variant_id")).casefold(),
+        op_identity_rules.sold_in_set_code(row.get("variant_id")).casefold(),
     } - {""}
     return bool(claim_set) and claim_set.casefold() in ours
 

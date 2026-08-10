@@ -837,6 +837,17 @@ seed-snapshot）。手抄落去嘅 generation 圖每次 build 完要再抄一次
     `advisory`（走勻 80 個 promo 產品掃出嚟）只係俾人睇嘅線索。
     原因喺 `snk_identity_discover.py:351` —— set code 一夾啱，promo 就會**跳過** `product_agrees`，
     而 product_agrees 係 promo 僅餘嗰道檢查。`printed_set_code()` 只讀 `codes`，唔讀 `advisory`。
+    **補完（同日，再測一次先發現）：呢個形狀有兩個方向，第一次只修到一半。**
+    復刻卡有兩個都啱嘅答案，而 catalog 一行**淨係載到其中一個**：48 行 `set_code` 係空嘅，
+    `printed_set_code` 填返個印刷 code 就通；但另外 21 行 catalog 本身已經載住印刷 code，
+    差嗰個係「賣佢嗰個產品」—— GemRate 講 `op10`、catalog 講 `op08`，再加多次 OP08 完全冇用。
+    實測 v19 / v1214 / v1228 三張，加完 `printed_set_code` 之後照樣 `STILL CONFLICTS`。
+    所以要有 `sold_in_set_code()`：讀 policy 個 `product` 欄（resolver 喺 Limitless 邊一版
+    **搵到**張卡），加埋落 `v_codes`。
+    **唔准改成讀 catalog 自己個 `set_name`** —— 個 set_name 本身由 GemRate 嚟，
+    咁樣等於攞 GemRate 同 GemRate 比，成條 set 檢查會變到永遠唔會拒絕任何嘢。
+    教訓：一個 gate 修完之後，要**分開數返兩邊**（幾多張係缺 A、幾多張係缺 B），
+    唔好見到總數郁咗就當修完 —— 第一次個修法喺 48 張度啱，喺 21 張度一格都冇郁。
 22. **同一條問題，四個地方各有各答法。**（2026-08-10，同上嗰批卡）
     「SNK 講嗰個 set 同我哋夾唔夾？」呢條問題喺 S7、`snk-identity-reverify`、
     `snk-identity-discover` 三處各寫一次，`_fingerprint_variant_conflicts` 再獨立算多一次。

@@ -260,6 +260,7 @@ def character_agrees(our_name: str, *listing_text: str) -> tuple[bool, str]:
 # printed set codes
 # --------------------------------------------------------------------------
 _PRINTED_CODES: dict[int, str] | None = None
+_SOLD_IN_CODES: dict[int, str] | None = None
 PRINTED_CODE_POLICY = R.ROOT / "data" / "policy" / "op-printed-codes.json"
 
 
@@ -299,3 +300,35 @@ def printed_set_code(variant_id: int | None) -> str:
     if variant_id is None:
         return ""
     return _PRINTED_CODES.get(int(variant_id), "")
+
+
+def sold_in_set_code(variant_id: int | None) -> str:
+    """The set code of the product Limitless lists this card IN, or "".
+
+    The other half of printed_set_code. A reprint answers to two codes and the
+    catalog only ever carries one of them: 48 of these cards had a blank
+    set_code and printed_set_code filled it, but 21 already carried the printed
+    code and were failing the other way -- GemRate said `op10`, the catalog said
+    `op08`, and adding the printed code again changed nothing (measured
+    2026-08-10 against variants 19, 1214, 1228).
+
+    Not the same as trusting the catalog's set_name back. This code is the
+    Limitless product page the resolver FOUND the card on, by name or by sole
+    number -- a source independent of GemRate. Reading the catalog's own
+    set_name instead would compare GemRate against GemRate and the set check
+    would stop refusing anything.
+    """
+
+    global _SOLD_IN_CODES
+    if _SOLD_IN_CODES is None:
+        _SOLD_IN_CODES = {}
+        if PRINTED_CODE_POLICY.is_file():
+            payload = json.loads(PRINTED_CODE_POLICY.read_text(encoding="utf-8"))
+            for key, record in (payload.get("codes") or {}).items():
+                product = str((record or {}).get("product") or "")
+                match = SET_CODE_RE.match(product.upper())
+                if match:
+                    _SOLD_IN_CODES[int(key)] = match.group(1).upper()
+    if variant_id is None:
+        return ""
+    return _SOLD_IN_CODES.get(int(variant_id), "")
