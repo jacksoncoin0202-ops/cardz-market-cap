@@ -1038,11 +1038,18 @@ def set_names_a_card_could_carry(
     codes = [match.group(1)] if match else []
     import op_identity_rules  # deferred: it imports this module at its top
 
-    printed = op_identity_rules.printed_set_code(row.get("variant_id"))
-    if printed and printed not in codes:
-        codes.append(printed)
+    for extra in (
+        op_identity_rules.printed_set_code(row.get("variant_id")),
+        op_identity_rules.sold_in_set_code(row.get("variant_id")),
+    ):
+        if extra and extra not in codes:
+            codes.append(extra)
     for code in codes:
-        alt = code_to_set.get(code, "")
+        # Limitless first, because code_to_set is built from catalog rows whose
+        # set_code and set_name name different products on exactly the reprints
+        # this function exists for: it answered OP02 with "Two Legends" and
+        # ST01 with "Awakening of the New Era" (2026-08-10, variants 1427/19).
+        alt = op_identity_rules.limitless_product_name(code) or code_to_set.get(code, "")
         if alt and alt not in names:
             names.append(alt)
     return [name for name in names if name]

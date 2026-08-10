@@ -261,6 +261,7 @@ def character_agrees(our_name: str, *listing_text: str) -> tuple[bool, str]:
 # --------------------------------------------------------------------------
 _PRINTED_CODES: dict[int, str] | None = None
 _SOLD_IN_CODES: dict[int, str] | None = None
+_PRODUCT_NAMES: dict[str, str] | None = None
 PRINTED_CODE_POLICY = R.ROOT / "data" / "policy" / "op-printed-codes.json"
 
 
@@ -332,3 +333,37 @@ def sold_in_set_code(variant_id: int | None) -> str:
     if variant_id is None:
         return ""
     return _SOLD_IN_CODES.get(int(variant_id), "")
+
+
+def limitless_product_name(code: str) -> str:
+    """The product name Limitless gives a One Piece set code, or "".
+
+    `set_name_by_code` builds its map out of catalog rows -- set_code from one
+    row, set_name from the same row -- and on a reprint those two columns
+    describe different products. Measured 2026-08-10: it answered OP02 with
+    "One Piece Two Legends" (that is OP08) off variant 1427, and ST01 with
+    "One Piece Awakening of the New Era" (that is OP05) off variant 19. So the
+    map both LOSES the name the product check needed and OFFERS a name from an
+    unrelated set, which is a way to accept the wrong page, not just refuse the
+    right one.
+
+    The slugs in the policy file are the fix: `op02-paramount-war` is one
+    string carrying both halves, written by Limitless, and a slug says nothing
+    about any particular card. Read from the `codes` tier only, same as
+    printed_set_code -- the `advisory` tier is promo guesswork and must not
+    reach a gate by any route, including through a name.
+    """
+
+    global _PRODUCT_NAMES
+    if _PRODUCT_NAMES is None:
+        _PRODUCT_NAMES = {}
+        if PRINTED_CODE_POLICY.is_file():
+            payload = json.loads(PRINTED_CODE_POLICY.read_text(encoding="utf-8"))
+            for record in (payload.get("codes") or {}).values():
+                slug = str((record or {}).get("product") or "")
+                match = re.match(r"^([a-z]{2,4}\d{2})-(.+)$", slug)
+                if match:
+                    _PRODUCT_NAMES[match.group(1).upper()] = (
+                        match.group(2).replace("-", " ")
+                    )
+    return _PRODUCT_NAMES.get(str(code or "").upper(), "")
