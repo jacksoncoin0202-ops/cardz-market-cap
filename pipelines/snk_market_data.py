@@ -239,12 +239,20 @@ def pull_market_data(
         variant_id=single_variant_id,
     )
     points = history.get("chart", {}).get("lines", [{}])[0].get("points", [])
-    # The single-variant response intentionally excludes bundles. Use the
-    # condition-scoped probe's labelled completed trades and normalize their
-    # total values back to a per-card price.
-    trades = variant_probe.get("trades", [])
+    # Both responses carry a trades list, and they are not interchangeable.
+    # The probe is the all-quantity CONTAINER: on the 809-item harvest it holds
+    # 9,684 trades of which 61 are bundles (2枚 x42 up to 9枚), and dividing a
+    # lot total by its count invents a unit price the market never paid --
+    # item 91396's 2026-07-03 came out at 233,333 JPY from one 9枚 lot. Both
+    # responses also cap at 20 rows (472 items sit at the cap), so the bundles
+    # push out 60 genuine 1枚 trades across 43 items. Price therefore reads the
+    # per-variant list, which is all 1枚 and a strict superset of the
+    # container's singles. Volume stays on the container: counting every
+    # completed sale is exactly what it is for.
+    container_trades = variant_probe.get("trades", [])
+    single_card_trades = history.get("trades", [])
 
-    daily_activity = aggregate_daily_trades(trades)
+    daily_activity = aggregate_daily_trades(container_trades)
 
     kline_by_day: dict[str, float] = {}
     for point in points:
@@ -254,7 +262,7 @@ def pull_market_data(
             continue
         day = datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
         kline_by_day[day] = float(price)
-    kline_by_day.update(normalized_trade_unit_prices(trades))
+    kline_by_day.update(normalized_trade_unit_prices(single_card_trades))
 
     return {
         "item_id": item_id,
@@ -270,7 +278,7 @@ def pull_market_data(
         "quantity_filter": "per_card_normalized",
         "quantity_variant_id": single_variant_id,
         "kline": [{"date": day, "price_jpy": price} for day, price in sorted(kline_by_day.items())],
-        "recent_trades": trades,
+        "recent_trades": single_card_trades,
         "daily_activity": daily_activity,
         "source_payload": {
             "master": master,
