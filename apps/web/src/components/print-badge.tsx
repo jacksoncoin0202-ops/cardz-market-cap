@@ -11,11 +11,25 @@ import type { Locale, MarketCardView } from "@/lib/types";
  *  2. `rarityCode`、`parallelCode`、`printingCode` 唔屬於 frontend field type，
  *     所以 component 冇可能意外將佢哋放入 DOM。
  *  3. `editionCode`（卡包名）曾係 owner 紅線（433 張入面 36 張已出街嘅行係錯對）。
- *     2026-08-02 owner 改決定：淨准出喺內頁同熱力圖彈卡（DETAIL_PRINT_FIELDS），
- *     Top 100 表照舊唔出；DB 錯對由另一條線修緊。
+ *     2026-08-02 owner 改決定：淨准出喺內頁同熱力圖彈卡，Top 100 表照舊唔出，
+ *     **前提係「DB 錯對由另一條線修緊」**。
+ *
+ *     2026-08-11 查實嗰條線唔可能存在，所以呢欄收返。`catalog_printing_identity`
+ *     唔係顯示表，係指紋表：佢十個欄（含 edition_code）係 printing_sha() 嘅
+ *     casefold 前像，validate_psa_identity_repair.py 由 live 行重算再對
+ *     canonical_printing_sha256。即係
+ *       (a) 冇得由權威重述 —— 一改就郁 606 行已鎖死嘅 hash，同今朝
+ *           set_name 撞嘅係同一堵牆（見 docs/POSTMORTEM_PSA_AUTHORITY_20260811.md）；
+ *       (b) 亦都冇權威可跟 —— 全 repo 冇一個 writer 寫過真值：g10_ingest 派
+ *           `"edition": None`、converge_printing_identity 派 `""`、rebuild_036
+ *           mint 陣派 `''`、new_era_db_tidy 補 `'unknown'`。剩低嗰批「似層層」
+ *           嘅值係一次性貼落去、冇 lineage 嘅。
+ *     實測 1286 張出街卡：606 張畫到呢行，其中 136 張畫「Unknown」，130 張只係
+ *     將上一行已經畫咗嘅 set 名細階重講一次。所以呢個唔係「等 DB 修好」，係
+ *     display 由頭到尾綁錯咗去指紋欄。指紋自己嗰套用字留返畀 hash 用。
  */
 
-export type PrintIdentityField = "editionCode" | "setCode" | "finishCode";
+export type PrintIdentityField = "setCode" | "finishCode";
 
 const DEFAULT_FIELDS: PrintIdentityField[] = ["setCode", "finishCode"];
 
@@ -28,29 +42,15 @@ const DEFAULT_FIELDS: PrintIdentityField[] = ["setCode", "finishCode"];
 export const PUBLIC_PRINT_FIELDS: PrintIdentityField[] = ["setCode", "finishCode"];
 
 /*
- * 內頁專用白名單（card-detail identity list ＋ heatmap CardFacts）：公開欄位之上
- * 加埋卡包名（editionCode，owner 2026-08-02 批准）。唔准用喺 Top 100 表。
+ * 內頁專用白名單（card-detail identity list ＋ heatmap CardFacts）。
+ * 卡包名（editionCode）2026-08-11 收返，理由見上面第 3 條。
  */
-export const DETAIL_PRINT_FIELDS: PrintIdentityField[] = ["editionCode", "setCode", "finishCode"];
+export const DETAIL_PRINT_FIELDS: PrintIdentityField[] = ["setCode", "finishCode"];
 
 function fieldLabel(field: PrintIdentityField, locale: Locale): string {
   const labels = copy[locale].labels;
-  if (field === "editionCode") return labels.packSource;
   if (field === "setCode") return labels.setCode;
   return labels.finish;
-}
-
-/* 卡包名喺 DB 係全細階英文（"booster pack awakening of the new era"），出街前 title-case。
-   停用詞（of / the / and 等）除句首外維持細階；"ex" 跟官方 Pokémon ex 寫法唔大階。 */
-const PACK_LOWERCASE_WORDS = new Set(["of", "the", "and", "or", "in", "ex"]);
-
-function displayPackName(editionCode: string): string {
-  return editionCode
-    .split(/\s+/)
-    .map((word, index) =>
-      index > 0 && PACK_LOWERCASE_WORDS.has(word) ? word : word.charAt(0).toUpperCase() + word.slice(1),
-    )
-    .join(" ");
 }
 
 function displayableIdentityValue(field: PrintIdentityField, value: string): string | null {
@@ -58,7 +58,6 @@ function displayableIdentityValue(field: PrintIdentityField, value: string): str
   if (!trimmed) return null;
   // producer placeholder — do not show as if it were a real finish.
   if (field === "finishCode" && trimmed.toLowerCase() === "unknown") return null;
-  if (field === "editionCode") return displayPackName(trimmed);
   return trimmed;
 }
 

@@ -226,6 +226,7 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
     const [coreRows] = await connection.query<DbRow[]>(`
       SELECT
         metric.variant_id,variant.opaque_id,variant.canonical_name,metric.canonical_market_rank,
+        variant.set_name AS variant_set_name,
         printing.tcg_code,printing.card_language,printing.collector_number,
         printing.set_name,printing.set_code,printing.edition_code,printing.finish_code,
         printing.identity_status,printing.canonical_printing_sha256,
@@ -445,8 +446,22 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       const history = historyDrafts
         .map(({ priceSourceCode: _priceSourceCode, priceSourcePriority: _priceSourcePriority, ...point }) => point);
       const raw = rawPrices.get(variantId);
-      const setName = String(row.set_name ?? "");
-      for (const code of LOCALES) if (!locale.sets[code]) locale.sets[code] = setName || null;
+      const printingSetName = String(row.set_name ?? "");
+      /*
+       * 1286 張出街卡入面 624 張根本冇 `en` 嘅 catalog_variant_locale 行（非英文
+       * locale 有 680 張），所以 2026-08-11 喺 stage_bind 加嘅 locale 重述
+       * （UPDATE ... INNER JOIN）根本 match 唔到佢哋。呢條 fallback 本來就喺度補
+       * 空位，但佢補嘅係 `printing.set_name` —— 指紋欄，即係 postmortem 明文寫
+       * 「永遠唔准跟 PSA 重述」嗰個 hash 前像。結果一半卡（680 張，3344 個 locale
+       * 位）畫緊指紋自己嗰套用字，其中 456 張同 catalog_variant.set_name 已經有
+       * 嘅 PSA 標籤直接矛盾。
+       *
+       * 補空位補返判斷欄（catalog_variant.set_name）—— 佢就係今朝由 PSA 行重述
+       * 嗰個，locale 行有譯名時照樣優先。指紋欄留返做 printingIdentity 自己嗰
+       * 條記錄，唔再洩去顯示。
+       */
+      const displaySetName = String(row.variant_set_name ?? "");
+      for (const code of LOCALES) if (!locale.sets[code]) locale.sets[code] = displaySetName || null;
       const imageAlt = Object.fromEntries(LOCALES.map((code) => [code, canonicalName || locale.names[code]])) as unknown as LocalizedText;
       return {
         id: String(row.opaque_id),
@@ -461,7 +476,7 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
           complete: Boolean(row.collector_number),
         },
         printingIdentity: {
-          setName,
+          setName: printingSetName,
           setCode: String(row.set_code ?? "") || null,
           collectorNumber: String(row.collector_number ?? ""),
           editionCode: String(row.edition_code ?? ""),

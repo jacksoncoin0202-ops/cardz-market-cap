@@ -132,6 +132,7 @@ pricecharting exact 綁定總數: 1004 -> 1005（淨加 v1）
 | `catalog_variant.set_name` | 判斷輸入（`_fingerprint_variant_conflicts`）| ✅ 1213 行 |
 | `catalog_variant_locale.localized_set_name` | 網站 `sets` map | ✅ en 812 行 + 未譯 copy 549 行 |
 | `catalog_printing_identity.set_name` | **指紋 hash 輸入** | ❌ **禁止** |
+| `live-db-snapshot.ts` locale fallback | 補 locale 空位 | ⚠️ 見下面「同日第二次踩同一個窿」|
 
 ### 點解 printing_identity 唔准跟（實試過，紅咗）
 
@@ -175,7 +176,86 @@ vocabulary）。全部覆蓋成英文 PSA 名 = 用「修正」包裝嘅倒退�
 
 ---
 
+## 同日第二次踩同一個窿（第一次修完之後 4 個鐘）
+
+上面個修正跑完、推咗 live 之後，開隊反查「仲有邊度中同一形狀」，即刻捉返兩單。
+**兩單都係我自己頭先嗰個修正冇跟到尾**，唔係新問題。
+
+### (1) locale 重述用 UPDATE，補唔到冇行嘅卡 —— 一半出街卡繼續畫指紋
+
+`stage_bind` 嗰兩條 locale 重述係 `UPDATE catalog_variant_locale t INNER JOIN …`。
+**冇行就 match 唔到。** 1286 張出街卡入面 **624 張根本冇 `en` 行**，非英文 locale
+有 680 張。所以 `localeEnSetNamesRestated 812` 呢個數係真嘅——真嘅只覆蓋到「本來就
+有行」嗰批（en 662/662 全中，0 個唔一致），但**冇行嗰 624 張一個都冇掂**。
+
+而 `apps/web/src/lib/live-db-snapshot.ts` 補空位嗰行係：
+
+```ts
+const setName = String(row.set_name ?? "");                 // ← printing.set_name，指紋欄
+for (const code of LOCALES) if (!locale.sets[code]) locale.sets[code] = setName || null;
+```
+
+即係：**上面成篇文寫住「永遠唔准跟」嗰個 hash 前像，喺呢度靜靜地變咗顯示文字**，
+覆蓋 **680 張卡 / 3344 個 locale 位**，其中 456 張同 `catalog_variant.set_name` 已經
+有嘅 PSA 標籤直接矛盾。
+
+**修法**：SELECT 加 `variant.set_name AS variant_set_name`，fallback 補返判斷欄。
+零 DB 寫入、零 hash 郁。重 bake 之後驗證：1286 張嘅 `sets.en` **逐個等於**
+`catalog_variant.set_name`（multiset 相等），516 張真譯名原封不動。
+
+> `pipelines/operator_fe_export.py` 嗰個 producer 唔中招——佢 `_projection_locales()`
+> 冇 fallback，冇行就出 `t.status.unavailable`。中招嘅係 baked snapshot 嗰條路，
+> 而 baked snapshot 就係 production 讀嗰份。
+
+### (2) 內頁「卡包名」由頭到尾就係畫緊指紋表
+
+`print-badge.tsx` 嘅 `DETAIL_PRINT_FIELDS` 包住 `editionCode`，值出自
+`catalog_printing_identity.edition_code`——**同一張指紋表、同一個十欄 hash 前像**。
+
+呢欄同 `set_name` 唔同嘅係：`set_name` 起碼有權威可以跟（只不過唔准寫落指紋表），
+`edition_code` **連權威都冇**。全 repo 冇一個 writer 寫過真值：
+
+| writer | 寫乜 |
+|---|---|
+| `g10_ingest.py:313` | `"edition": None` |
+| `converge_printing_identity.py:240` | `""` |
+| `rebuild_036.py:2244 / :2304`（mint） | `''` |
+| `new_era_db_tidy.py:1657` | `'unknown'` |
+| migrations | 淨係 007 個 DDL default，冇一條 UPDATE 掂過佢 |
+
+剩低嗰 470 個「似層層」嘅值係一次性貼落去、`provenance_json` 已經被 migration 024
+洗走（024 個 SET list 根本冇 `edition_code`）——**冇 lineage 嘅字串坐喺 hash 前像度，
+再由內頁當「卡包來源」publish 出街**。
+
+實測 1286 張：606 張畫到呢行，**136 張畫「Unknown」**，130 張只係將上一行已經畫咗
+嘅 set 名細階重講一次，得 163 張真係有 pack 字眼。而 rank 1 畫嘅就係
+`SVP EN “Van Gogh Exhibition”`——owner 當初嗌嗰句字。
+
+**修法**：`DETAIL_PRINT_FIELDS` 攞走 `editionCode`。冇得重述（改 = 郁 606 行已鎖死
+嘅 hash，同 §「點解 printing_identity 唔准跟」一模一樣），亦都冇嘢可以跟。
+
+> 呢個推翻咗 owner 2026-08-02 嗰個批准。但嗰次批准嘅前提寫得好清楚：
+> 「DB 錯對由另一條線修緊」。查實嗰條線**唔可能存在**——冇權威 + hash 鎖死。
+> 前提唔成立，批准就跟住失效。
+
+### 三單嘅共同形狀，寫死喺呢度
+
+> **一個權威攤開幾個載體。搵齊所有載體，逐個問「邊個 writer 重述佢」。**
+> - 冇 writer 又餵去裁決 → 就係第一單（`catalog_variant.set_name`）
+> - 冇 writer 又畫出街 → 就係第二三單（locale fallback、`edition_code`）
+> - `UPDATE … INNER JOIN` 只係「重述已存在嘅行」，**唔等於覆蓋到成個 cohort**。
+>   寫完要對返 cohort 總數，唔好淨係睇 `rowcount` 個靚數。
+
+---
+
 ## 相關
 
 - 上一手：`canonical_name` 由 Universal rollup 改讀 PSA 行（同一個權威、同一個 transaction）
 - 同形未修：published 價冇日期下限，6 張卡 34–137 日舊仍然出街
+- 同形未修：`collectorNumber.display` 讀 `printing.collector_number`（指紋欄），
+  1049/1286 張冇分母（rank 16 出 `170`，GemRate 同一份 capture 嘅 CGC 行寫住 `170/181`），
+  而 `complete` 喺 `live-db-snapshot.ts:461` 係 `Boolean(row.collector_number)` ——
+  **全 app 零 call site 嘅永真旗**。修法唔可以寫落 `catalog_variant.collector_number`：
+  嗰欄係 `opaque_id` 嘅 hash 前像（`g10_public_snapshot.py:230`）兼
+  `db_runtime.py:722-754` 嘅身份 assert，一改就換晒 911 個 `/card/{id}` URL。
+  要第三個載體（新 nullable 顯示欄）先做得。

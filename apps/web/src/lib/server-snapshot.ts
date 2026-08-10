@@ -1,7 +1,7 @@
 import type { PublicMarketSnapshot } from "@cardz/market-data";
 import { marketAssetObjectKey } from "./market-media";
 import { normaliseSnapshot } from "./snapshot";
-import type { MarketCardView, MarketViewSnapshot } from "./types";
+import type { LocalizedText, MarketCardView, MarketViewSnapshot } from "./types";
 
 const DEFAULT_SNAPSHOT_PATH = "data/public/seed-snapshot.json";
 const MARKET_ASSETS_PATH = "data/public/market-assets";
@@ -36,13 +36,29 @@ function scopedCoverage(count: number, requestedCount = 100): MarketViewSnapshot
 /*
  * 榜頁投影。榜頁冇任何組件讀 `historyDaily`（唯一嘅圖 <Sparkline> 讀
  * `salesSparkline`），但佢實測佔榜頁 card bytes 約 89%（seed snapshot：頭 100 張
- * 7.27MB 入面 6.53MB 係佢），所以榜頁一律清空。詳情頁行 `singleCardSnapshot`，
- * 唔會經呢度，仍然攞到完整歷史。
+ * 7.27MB 入面 6.53MB 係佢），所以榜頁一律清空。
+ *
+ * `story` 同一道理，2026-08-11 一齊清：live `/api/v1/market?scope=all` 753,285
+ * bytes 入面佢佔 222,959（29.6%），watchlist 1,427,488 入面佔 397,846（27.9%），
+ * 而榜頁一個讀者都冇 —— 全 app 得兩處讀 `card.story`（app/card/[id]/page.tsx:27、
+ * components/card-detail.tsx:32），兩處都喺詳情頁。詳情頁行 `singleCardSnapshot`，
+ * 唔會經呢度，仍然攞到完整歷史同故事。
+ *
+ * 注意 `story` 喺 types.ts 係必填 `LocalizedText`，所以要清空唔係刪 key——
+ * 出一個共用 frozen 空值，contract 唔郁，client 讀 `card.story[locale]` 唔會炸。
  */
+const EMPTY_STORY: LocalizedText = Object.freeze({
+  en: "",
+  "zh-TW": "",
+  "zh-CN": "",
+  ja: "",
+  ko: "",
+});
+
 function listCard(card: MarketCardView): MarketCardView {
   return {
     ...card,
-    story: { ...card.story },
+    story: EMPTY_STORY,
     historyDaily: [],
   };
 }
