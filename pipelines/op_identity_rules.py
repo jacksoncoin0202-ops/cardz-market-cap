@@ -265,6 +265,26 @@ _PRODUCT_NAMES: dict[str, str] | None = None
 PRINTED_CODE_POLICY = R.ROOT / "data" / "policy" / "op-printed-codes.json"
 
 
+def _policy_codes() -> dict[str, dict]:
+    """The `codes` tier of the printed-code policy. Raises if the file is gone.
+
+    All three readers below used to guard with `if PRINTED_CODE_POLICY.is_file()`
+    and leave their map empty otherwise. A missing policy file then looked
+    identical to "no card in this run has a proven printed code": every gate
+    that consults these went quiet and the binder fell back to comparing
+    GemRate against GemRate. Absent evidence and absent file are not the same
+    answer, so only one of them is returned as data.
+    """
+
+    if not PRINTED_CODE_POLICY.is_file():
+        raise RuntimeError(
+            f"printed-code policy missing: {PRINTED_CODE_POLICY}. "
+            "Rebuild it before binding; an empty map silently disables the set-code gate."
+        )
+    payload = json.loads(PRINTED_CODE_POLICY.read_text(encoding="utf-8"))
+    return payload.get("codes") or {}
+
+
 def printed_set_code(variant_id: int | None) -> str:
     """The set code this One Piece card actually PRINTS, or "".
 
@@ -291,13 +311,11 @@ def printed_set_code(variant_id: int | None) -> str:
     global _PRINTED_CODES
     if _PRINTED_CODES is None:
         _PRINTED_CODES = {}
-        if PRINTED_CODE_POLICY.is_file():
-            payload = json.loads(PRINTED_CODE_POLICY.read_text(encoding="utf-8"))
-            for key, record in (payload.get("codes") or {}).items():
-                code = str((record or {}).get("printedCode") or "")
-                prefix = code.rpartition("-")[0]
-                if prefix:
-                    _PRINTED_CODES[int(key)] = prefix.upper()
+        for key, record in _policy_codes().items():
+            code = str((record or {}).get("printedCode") or "")
+            prefix = code.rpartition("-")[0]
+            if prefix:
+                _PRINTED_CODES[int(key)] = prefix.upper()
     if variant_id is None:
         return ""
     return _PRINTED_CODES.get(int(variant_id), "")
@@ -323,13 +341,11 @@ def sold_in_set_code(variant_id: int | None) -> str:
     global _SOLD_IN_CODES
     if _SOLD_IN_CODES is None:
         _SOLD_IN_CODES = {}
-        if PRINTED_CODE_POLICY.is_file():
-            payload = json.loads(PRINTED_CODE_POLICY.read_text(encoding="utf-8"))
-            for key, record in (payload.get("codes") or {}).items():
-                product = str((record or {}).get("product") or "")
-                match = SET_CODE_RE.match(product.upper())
-                if match:
-                    _SOLD_IN_CODES[int(key)] = match.group(1).upper()
+        for key, record in _policy_codes().items():
+            product = str((record or {}).get("product") or "")
+            match = SET_CODE_RE.match(product.upper())
+            if match:
+                _SOLD_IN_CODES[int(key)] = match.group(1).upper()
     if variant_id is None:
         return ""
     return _SOLD_IN_CODES.get(int(variant_id), "")
@@ -357,13 +373,9 @@ def limitless_product_name(code: str) -> str:
     global _PRODUCT_NAMES
     if _PRODUCT_NAMES is None:
         _PRODUCT_NAMES = {}
-        if PRINTED_CODE_POLICY.is_file():
-            payload = json.loads(PRINTED_CODE_POLICY.read_text(encoding="utf-8"))
-            for record in (payload.get("codes") or {}).values():
-                slug = str((record or {}).get("product") or "")
-                match = re.match(r"^([a-z]{2,4}\d{2})-(.+)$", slug)
-                if match:
-                    _PRODUCT_NAMES[match.group(1).upper()] = (
-                        match.group(2).replace("-", " ")
-                    )
+        for record in _policy_codes().values():
+            slug = str((record or {}).get("product") or "")
+            match = re.match(r"^([a-z]{2,4}\d{2})-(.+)$", slug)
+            if match:
+                _PRODUCT_NAMES[match.group(1).upper()] = match.group(2).replace("-", " ")
     return _PRODUCT_NAMES.get(str(code or "").upper(), "")

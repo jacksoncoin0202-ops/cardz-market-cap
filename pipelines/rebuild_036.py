@@ -213,7 +213,32 @@ def connect(credentials_env: Path) -> pymysql.connections.Connection:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
         if hasattr(socket, "SIO_KEEPALIVE_VALS"):  # Windows
             sock.ioctl(socket.SIO_KEEPALIVE_VALS, (1, 30_000, 10_000))
+    # qualified_pool_operator.db() has asked this since the two-database episode;
+    # the heaviest writer in the repo did not. A port number proves nothing --
+    # the retired 3310 instance answered with the same schema name and the same
+    # container-internal @@port -- so the marker tables are the identity test.
+    _assert_canonical_db(conn, int(env.get("CARDZ_DB_PORT", "3308")))
     return conn
+
+
+CANONICAL_DB_MARKER_TABLES = ("market_source_warehouse", "market_banned_source_policy")
+
+
+def _assert_canonical_db(conn: pymysql.connections.Connection, port: int) -> None:
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT table_name FROM information_schema.tables"
+            " WHERE table_schema = DATABASE() AND table_name IN (%s, %s)",
+            CANONICAL_DB_MARKER_TABLES,
+        )
+        found = {str(next(iter(row.values()))) for row in cursor.fetchall()}
+    missing = [name for name in CANONICAL_DB_MARKER_TABLES if name not in found]
+    if missing:
+        conn.close()
+        raise SystemExit(
+            f"ABORT: CARDZ_DB_PORT={port} is not the canonical New-Era database"
+            f" (missing {', '.join(missing)}). Canonical is 3308."
+        )
 
 
 # ---------------------------------------------------------------------------

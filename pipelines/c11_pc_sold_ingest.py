@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """C11 PriceCharting HTML → exact-bound PSA10 sale observations.
 
-Reads data/runtime/private-source-map/c11_pc_ebay_map.jsonl (ready_for_c12 rows),
+Reads data/runtime/private-source-map/c11_pc_ebay_map_full900.jsonl (ready_for_c12 rows),
 parses saved PC product HTML, verifies PSA10 sold rows against card metadata,
 and writes market_sale_observation under the exact PriceCharting product identity.
 
@@ -37,7 +37,13 @@ sys.path.insert(0, str(ROOT / "pipelines"))
 from failure_ledger import record_failure, record_resolution  # noqa: E402
 from pricecharting_page_parse import parse_product_html  # noqa: E402
 
-MAP_DEFAULT = ROOT / "data/runtime/private-source-map/c11_pc_ebay_map.jsonl"
+# The consolidated map every other reader uses (collect_control, pc_cdp_sold_refresh_win,
+# pc_ungraded_reference_ingest, new_era_db_tidy, rebuild_036). This script used to default
+# to the pre-consolidation c11_pc_ebay_map.jsonl shard -- 166 KB against 1.1 MB -- so a run
+# without --map ingested a fraction of the roster and reported success. The runbook carried
+# "always pass it explicitly" as a bold sentence, which is a step that works exactly as long
+# as somebody remembers it.
+MAP_DEFAULT = ROOT / "data/runtime/private-source-map/c11_pc_ebay_map_full900.jsonl"
 REGISTRY = ROOT / "data/runtime/private-source-map/liquidity-source-registry.jsonl"
 REPORT_DIR = ROOT / "data/runtime/private-source-map/qualified-pool-reports"
 SOURCE_CODE = "pricecharting"
@@ -574,7 +580,7 @@ def existing_sale_keys(cur, sales: list[dict[str, Any]]) -> set[tuple[str, str]]
     return existing
 
 
-def write_sales(conn, sales: list[dict[str, Any]]) -> dict[str, Any]:
+def write_sales(conn, sales: list[dict[str, Any]], map_path: Path) -> dict[str, Any]:
     if not sales:
         return {
             "run_id": None,
@@ -595,7 +601,11 @@ def write_sales(conn, sales: list[dict[str, Any]]) -> dict[str, Any]:
         started = datetime.now(timezone.utc).replace(tzinfo=None)
         run_key = sha256_text(f"c11_pc_sold|{started.isoformat()}|{len(new_sales)}")
         payload_sha = sha256_text("\n".join(sorted(s["fingerprint"] for s in sales)))
-        manifest_sha = sha256_text("c11_pc_ebay_map.jsonl")
+        # The bytes actually read, not a constant. This used to hash the literal
+        # string "c11_pc_ebay_map.jsonl", so every run in this script's history
+        # carries the same manifest_sha256 -- it identified neither which map was
+        # passed nor what was in it, while looking in the ledger like it did.
+        manifest_sha = hashlib.sha256(map_path.read_bytes()).hexdigest()
         fetched_at = started
         cur.execute(
             """
@@ -770,7 +780,7 @@ def main() -> int:
     dry_run_existing_sales = 0
     if write and sales:
         try:
-            write_info = write_sales(conn, sales)
+            write_info = write_sales(conn, sales, args.map)
         except Exception as error:
             conn.rollback()
             record_failure(

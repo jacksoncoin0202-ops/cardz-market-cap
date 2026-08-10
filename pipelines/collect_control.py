@@ -66,6 +66,14 @@ QUARANTINE_THRESHOLD = 3  # consecutive failed runs before an item is skipped
 PY = sys.executable
 SLA_HOURS = 36
 CARDZ_CDP_PORT = int(os.environ.get("CARDZ_CDP_PORT", "9333"))
+# 9222 is the Codex browser profile. Attaching there drives somebody else's
+# logged-in Chrome, and the ban on it lived only in AGENTS.md while this knob
+# sat here happily accepting it from the environment.
+if CARDZ_CDP_PORT == 9222:
+    raise RuntimeError(
+        "CARDZ_CDP_PORT=9222 is the Codex browser profile and must never be driven. "
+        "PriceCharting uses 9333 (headed Chrome)."
+    )
 SNK_EN_ASSET_DIR = ROOT / "data" / "runtime" / "operator" / "snk-en-assets"
 SNK_EN_SOURCE_CODE = "snkrdunk"
 SNK_EN_FREEZE_SOURCE_CODE = "snkrdunk_en"
