@@ -807,12 +807,24 @@ def _capture_fingerprint(cards_dir: Path, gid: str) -> tuple[dict[str, Any] | No
     # the name for a quarter of the shelf. No PSA row means no PSA name, and
     # psaRowCount already sends that id to identity_pending.
     description = str((psa_rows[0]["description"] if psa_rows else "") or "").strip()
+    # The same argument as `description`, for the set. `setName` above is the
+    # rollup's wording and stays the fingerprint's own claim; this is the label
+    # PSA prints, and it is what the catalog's set_name is restated from in S5.
+    # 1213 of the 1605 bound variants carry a set_name the PSA row disagrees
+    # with -- hand-typed strings ('SVP EN "Van gogh exhibition"'), all-lowercase
+    # rows, and rollup spellings ('Sword and Shield' for 'Sword & Shield') --
+    # and _fingerprint_variant_conflicts compares provider set text against
+    # that column, so the junk read as a set conflict. Measured 2026-08-11:
+    # restating clears variant 1's PriceCharting hold and newly conflicts none
+    # of the 997 replayable exact PC bindings.
+    psa_set_name = str((psa_rows[0]["set_name"] if psa_rows else "") or "").strip()
     return {
         "gemrateId": gid,
         "description": description,
         "name": str(raw.get("name") or ""),
         "year": str(raw.get("year") or ""),
         "setName": set_name,
+        "psaSetName": psa_set_name,
         "cardNumber": str(raw.get("card_number") or ""),
         "parallel": str(raw.get("parallel") or ""),
         "category": str(raw.get("category") or ""),
@@ -1672,6 +1684,7 @@ _PSA_FULL_NAME_SQL = "JSON_UNQUOTE(JSON_EXTRACT(m.detail_json,'$.fingerprint.des
 _PSA_LANGUAGE_SQL = (
     "JSON_UNQUOTE(JSON_EXTRACT(m.detail_json,'$.fingerprint.derivedLanguage'))"
 )
+_PSA_SET_NAME_SQL = "JSON_UNQUOTE(JSON_EXTRACT(m.detail_json,'$.fingerprint.psaSetName'))"
 
 
 def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
@@ -1803,6 +1816,7 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
         "ownershipUnresolved": 0, "duplicateMintsRebound": 0,
         "duplicateShellsRetired": 0, "priorAcceptanceRebound": 0,
         "duplicateListingsDemoted": 0, "printShaNameClashDemoted": 0,
+        "localeSetNamesFollowed": 0, "localeEnSetNamesRestated": 0,
     }
 
     def member_pop(gid: str) -> int:
@@ -2485,6 +2499,33 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
             )
             counts["psaNamesRestated"] = cursor.rowcount
 
+            # And the set name off the same PSA row, for a reason the display
+            # only half explains: set_name is not decoration, it is an INPUT to
+            # _fingerprint_variant_conflicts, which refuses a provider binding
+            # whose set text shares no token with this column. 1213 of the 1605
+            # bound variants carried something the PSA row disagreed with, so
+            # the comparison was run against seed wording rather than against
+            # the label PSA prints -- variant 1's PriceCharting page says
+            # 'Pokemon Promo' and the column said 'SVP EN "Van gogh exhibition"',
+            # zero overlap, and the Van Gogh Pikachu published SNKRDUNK's $969
+            # instead of PriceCharting's $2,900. Restated 2026-08-11 over every
+            # exact binding: that hold clears and none of the 997 replayable
+            # exact PC bindings newly conflicts. It runs AFTER the adjudication
+            # above on purpose -- restating first would cement the set name of
+            # a binding that same transaction is about to reject.
+            cursor.execute(
+                "UPDATE catalog_variant v"
+                " INNER JOIN catalog_source_identity s ON s.variant_id=v.id"
+                "   AND s.source_code='gemrate' AND s.match_status='exact'"
+                " INNER JOIN catalog_rebuild_member m ON m.generation_id=%s"
+                "   AND m.variant_id=v.id AND m.gemrate_id=s.external_entity_id"
+                f" SET v.set_name={_PSA_SET_NAME_SQL}"
+                f" WHERE COALESCE({_PSA_SET_NAME_SQL},'')<>''"
+                f"   AND BINARY v.set_name<>BINARY {_PSA_SET_NAME_SQL}",
+                (generation,),
+            )
+            counts["psaSetNamesRestated"] = cursor.rowcount
+
             # Same authority, same transaction, for the same reason. A NULL
             # card_language is the ABSENCE of a claim, and _fingerprint_variant_
             # conflicts gates the whole language comparison on `v_lang and
@@ -2515,6 +2556,67 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
                 (generation,),
             )
             counts["psaLanguagesRestated"] = cursor.rowcount
+
+            # The set name again, this time for the column the SITE reads.
+            # catalog_variant.set_name above is the judgment input;
+            # catalog_variant_locale.localized_set_name is what fills a card's
+            # `sets` map, and restating only the judgment column left the Van
+            # Gogh card ranked #1 on a PriceCharting binding the PSA set name
+            # had just unblocked while still printing 'SVP EN "Van gogh
+            # exhibition"' underneath it. 1285 of the 1286 published cards
+            # carried an en locale row that disagreed with the PSA label.
+            #
+            # catalog_printing_identity.set_name is deliberately NOT restated
+            # with it, though it disagrees on 1241 rows. That column is not
+            # display text -- it is one of the ten casefolded inputs to
+            # printing_sha(), and scripts/validate_psa_identity_repair.py
+            # recomputes the hash from the live row and compares it to the
+            # stored canonical_printing_sha256. Mirroring the PSA label into it
+            # on 2026-08-11 turned completePrintingHashExact red and the table
+            # had to be restored from the pre-run dump. Recomputing the sha
+            # instead is not available either: it is UNIQUE, it is the owner
+            # key bind uses to detect print collisions, and validator034's
+            # red13 invariant pins specific historical hashes. Nothing renders
+            # printingIdentity.setName -- the detail page shows editionCode,
+            # setCode and finishCode -- so the fingerprint keeps its own
+            # wording and the display reads the locale row.
+            #
+            # Non-English locales first, and only the ones that were never
+            # translated. 568 of the 1286 published cards carry a real zhTW/ja
+            # set translation from data/editorial/set-names.json; overwriting
+            # those with an English label would be a regression dressed as a
+            # fix. A locale row that still equals the English row verbatim is
+            # a copy, not a translation, and follows the canonical label. This
+            # must run BEFORE the 'en' restatement below, which is what makes
+            # the copy detectable.
+            cursor.execute(
+                "UPDATE catalog_variant_locale t"
+                " INNER JOIN catalog_variant_locale en ON en.variant_id=t.variant_id"
+                "   AND en.locale_code='en'"
+                " INNER JOIN catalog_variant v ON v.id=t.variant_id"
+                " INNER JOIN catalog_rebuild_member m ON m.generation_id=%s"
+                "   AND m.variant_id=v.id"
+                " SET t.localized_set_name=v.set_name"
+                " WHERE t.locale_code<>'en'"
+                "   AND BINARY t.localized_set_name=BINARY en.localized_set_name"
+                "   AND BINARY t.localized_set_name<>BINARY v.set_name",
+                (generation,),
+            )
+            counts["localeSetNamesFollowed"] = cursor.rowcount
+
+            # 'en' is not a translation -- it is the canonical English label,
+            # and its authority is the column restated above.
+            cursor.execute(
+                "UPDATE catalog_variant_locale t"
+                " INNER JOIN catalog_variant v ON v.id=t.variant_id"
+                " INNER JOIN catalog_rebuild_member m ON m.generation_id=%s"
+                "   AND m.variant_id=v.id"
+                " SET t.localized_set_name=v.set_name"
+                " WHERE t.locale_code='en'"
+                "   AND BINARY COALESCE(t.localized_set_name,'')<>BINARY v.set_name",
+                (generation,),
+            )
+            counts["localeEnSetNamesRestated"] = cursor.rowcount
         conn.commit()
     except Exception:
         conn.rollback()
