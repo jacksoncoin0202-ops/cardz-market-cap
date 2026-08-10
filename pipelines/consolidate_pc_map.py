@@ -200,6 +200,32 @@ def main() -> int:
             }
         )
 
+    # A PriceCharting product names exactly one card, so when a repoint hands a
+    # product to another variant the loser's row is left naming a product it no
+    # longer owns. Nothing above retires it -- the loop only ever visits active
+    # variants -- and because pc-identity-reverify reads this file as the second
+    # opinion its gate needs, that dead row vetoes the loser's next proposal for
+    # good. Two owners for one product cannot both be right and the active
+    # registry is what this map is defined to project, so the dead row goes.
+    # Rows whose product nobody actively holds are left alone: those are cards
+    # awaiting a decision, not a contradiction.
+    owner_by_product = {product_id: variant_id for variant_id, product_id in pc_exact.items()}
+    retired: list[dict[str, Any]] = []
+    for variant_id, row in sorted(canonical_by_variant.items()):
+        if variant_id in pc_exact:
+            continue
+        holder = owner_by_product.get(str(row.get("pc_product_id") or ""))
+        if holder is None or holder == variant_id:
+            continue
+        canonical_rows.remove(row)
+        retired.append({
+            "variantId": variant_id,
+            "productId": str(row.get("pc_product_id") or ""),
+            "nowOwnedBy": holder,
+        })
+    for entry in retired:
+        canonical_by_variant.pop(int(entry["variantId"]), None)
+
     active_missing = sorted(set(pc_exact) - set(canonical_by_variant))
     active_mismatch = sorted(
         variant_id
@@ -240,6 +266,7 @@ def main() -> int:
         "manifestUsed": manifest_used,
         "manifestStale": manifest_stale,
         "supplementalUsed": supplemental_used,
+        "retiredStolenProducts": retired,
         "activeMissing": active_missing,
         "activeProductMismatch": active_mismatch,
         "canonicalSha256": canonical_sha256,
