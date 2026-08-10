@@ -860,6 +860,17 @@ seed-snapshot）。手抄落去嘅 generation 圖每次 build 完要再抄一次
     印刷 code 就直接落 `_fingerprint_variant_conflicts` 嘅 `v_codes`（第四處，亦即真正共用嗰處）。
     **形狀**：「修好咗」嘅規矩只修咗一份 copy。改 identity 規矩之前
     `grep` 個概念（唔係個 function 名）睇下有幾多個地方獨立實現緊。
+23. **`--invalidate-from` 要 reset 去「寫嗰個欄位」嗰個 stage，唔係「用嗰個欄位」嗰個。**
+    （2026-08-10，白行咗成轉 15 分鐘）修完 `_fingerprint_variant_conflicts` 之後
+    `--invalidate-from bind` 重跑全鏈，`productReady` 一格都冇郁。原因：
+    `catalog_rebuild_member.detail_json` 入面個 `binding.conflicts` 係
+    **`stage_identity_resolve` 寫嘅**（rebuild_036.py:771）；`stage_bind`
+    只係 `json.loads` 返舊 detail、換走 `detail["s5"]` 就寫返落去（:2080-2113），
+    由頭到尾**冇重算過** conflicts。所以 bind 跑一百次，個欄位都仲係舊嗰版邏輯嘅答案。
+    而且 `computed_at` 會更新到最新時間，睇落好似「啱啱重算過」，
+    最容易呃到自己。**查法**：改完一條規矩，`grep` 個欄位名睇邊個 stage 真係
+    *產生*佢（有 `_fingerprint_...(...)` 嗰句），唔好靠 stage 順序估。
+    要 reset 去嗰個 stage 為止。
 
 ### 相關嘅 MySQL / shell 陷阱
 
