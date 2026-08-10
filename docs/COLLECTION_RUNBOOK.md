@@ -591,12 +591,16 @@ no_console 11、ambiguous 8。三種 hold 各自嘅意思：
 | mode | 讀邊度 | 用途 |
 |---|---|---|
 | `live-db` | MySQL 3308 直讀，即刻反映最新 accepted ranking generation | 開發 / 對數 |
-| `baked-snapshot` | `MARKET_DATA_POINTER_PATH` 指住嘅 `latest.json` | 貼近 LIVE 嘅預覽 |
+| `baked-snapshot` | `MARKET_DATA_SNAPSHOT_PATH` 指住嘅 `latest.json` | 貼近 LIVE 嘅預覽 |
 
 2026-08-09 真事：036 activate 咗，1190 張卡入咗 universe，但 `:3800` 一直得 762 張。原因係
-`fe03-server.ps1` 設緊 `MARKET_DATA_POINTER_PATH=publish-staging\latest.json` —— 個 pointer
+`fe03-server.ps1` 個 snapshot path 指住 `publish-staging\latest.json` —— 個 pointer
 係 **7 月 28 號**焗出嚟嘅。睇落好似「採集唔夠數據」，其實 FE 根本冇讀個 DB。**任何「FE 數
 唔夠」嘅投訴，第一步係分清 mode，唔係去查採集。**
+
+**個 env var 真名係 `MARKET_DATA_SNAPSHOT_PATH`**（`apps/web/src/lib/server-snapshot.ts:58`）。
+呢份文同 `fe03-server.ps1` 寫咗一年 `MARKET_DATA_POINTER_PATH`，冇任何 code 讀呢個名 ——
+即係「順手清 pointer」呢步一直係空氣，真嗰個變數照留喺 env 度贏（2026-08-10 修正）。
 
 診斷（一句分勝負）：
 
@@ -605,9 +609,15 @@ curl -s http://127.0.0.1:3800/api/health | python -X utf8 -c "import sys,json; d
 ```
 
 `dataMode` 係 `baked-snapshot` 而個 generation hash 對唔上現役 lock → 就係呢個陷阱。改
-`live-db` 要順手 `Remove-Item Env:\MARKET_DATA_POINTER_PATH`：個 pointer 留喺 env 度會贏。
+`live-db` 要順手 `Remove-Item Env:\MARKET_DATA_SNAPSHOT_PATH`（真名，見上）。
 
 要留喺 `baked-snapshot` 就一定要由**現役 generation 重焗** `latest.json`，唔係改 mode 算數。
+
+**改 `fe03-server.ps1` 唔會郁到跑緊嗰個 process。** `server-snapshot.ts` 係
+`snapshotPromise ??= readSnapshot()` —— baked snapshot 喺 process 一世只讀一次，所以重焗
+`latest.json` 都唔會令跑緊嗰個 `:3800` 變數。要換世界＝要 restart。2026-08-10 實測：
+`:3800` 報 `baked-snapshot` / 762，同一時間 `fe03-server.ps1` 檔案裡面已經係 `live-db` ——
+個 process 係腳本修好之前開嘅。**睇 health 睇到嘅係 process 嘅過去，唔係個腳本嘅現在。**
 
 另：`npm run build` 會 `rmSync` 掉 `apps/web` 底下啲卡圖（`sync-snapshot.mjs` 只認
 seed-snapshot）。手抄落去嘅 generation 圖每次 build 完要再抄一次，而且要連 `_200` / `_600`。
@@ -681,6 +691,35 @@ seed-snapshot）。手抄落去嘅 generation 圖每次 build 完要再抄一次
    令真正嘅 base 卡搵唔到自己嗰版。catalog 由頭到尾都講咗，我哋冇問佢。
    修法：`_PC_BASE_PRINTINGS`（只有 `''` / `'base'` 可以配冇 bracket 嘅頁）。
    量度過先改：919 條唔受影響、7 條拒絕、全部係 parallel 坐喺 base print 上面。
+
+16. **一個 fact 兩個 writer，只有一個有 key。**（2026-08-10，26 張卡 / 朝早 lane 死咗一日）
+    `pc_identity_discover` 一邊用 `ON DUPLICATE KEY UPDATE` 寫 DB，一邊用
+    `MAP_PATH.open("a")` 直接 append 落 canonical map。**個表有 key 所以乾淨，個檔冇 key
+    所以每 run 一次多一行。** 26 張卡有兩行活住，`collect_control._pc_subset_map` 一 raise
+    `canonical PC map has duplicate active variants`，成條朝早 browser lane 就死，而
+    `daily-accept` 照跑照出 `accept=0` —— 個 chain 尾聲睇落一切正常。
+    修法唔係「記得同步」，係**一個檔只可以有一個 writer**：proposal 寫去自己嗰個 shard
+    ledger（`c11_pc_ebay_map_full900_shard_identity_discover.jsonl`），
+    `consolidate_pc_map.py` 係 canonical map 唯一寫得嘅人，佢會 glob 嗰個 ledger 攞 transport。
+    守門人：`scripts/test_pc_identity_discover_rules.py`（proposal path ≠ canonical path
+    ＋ 個檔真係一行一 variant）。
+17. **reader 用字母序揀證據。**（2026-08-10，5 張卡）`pc-identity-reverify` 用
+    `sorted(pages_dir.glob(f"{variant_id}_*.html"))[0]` 揀頁。同一個 variant 底下除咗產品頁，
+    仲有 lane 搵嘢時順手存低嘅 search-results 頁 ——
+    `2026_search-products-….html` 喺個 `e` 度贏咗 `2026_shanks-magazine-op09-001_r.html`，
+    於是五張卡被判 `page_parse_failed: canonical_not_product`，而佢哋嘅產品頁就喺隔籬。
+    **證據要按「係咪嗰件事」揀，唔係按檔名排序揀。**修法：`rebuild_036.pc_capture_for_product()`
+    —— product id 對得上 **而且** parse 到係產品頁先算數。收嘅條件一格都冇鬆。
+18. **receipt 嘅 sha 唔係個檔嘅 sha。**（2026-08-10，`consolidate_pc_map.py`）
+    `Path.write_text()` 喺 Windows 會將 `\n` 變 `\r\n`，但 sha256 係喺轉換之前計。
+    份 receipt 由頭到尾描述緊一份**從來冇存在過**嘅 bytes，任何人攞去對都會唔啱。
+    修法：寫 bytes，寫完再讀返個檔對一次 sha 先出 receipt。
+    **凡係「artifact + 佢個 hash」，個 hash 一定要由落咗地嗰份 bytes 計。**
+19. **文檔／腳本叫一個 env var 名，code 讀另一個名。**（2026-08-10，FE03）
+    `fe03-server.ps1` 同 runbook 寫 `MARKET_DATA_POINTER_PATH`，`server-snapshot.ts:58`
+    讀 `MARKET_DATA_SNAPSHOT_PATH`。即係「切 live-db 記得順手清 pointer」呢步**一直係空氣**，
+    真嗰個變數留喺 env 度照贏。同 shape 5 一樣：冇 call site 嘅安全步驟＝冇安全步驟。
+    改 env var 名之前 `grep` 個名喺 code 入面有冇人讀。
 
 ### 相關嘅 MySQL / shell 陷阱
 
