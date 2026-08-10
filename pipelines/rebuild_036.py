@@ -6406,7 +6406,7 @@ def _run_single_stage(ctx: SimpleNamespace) -> int:
         _assert_activated(ctx)
     record = _checkpoints(ctx.conn, ctx.generation).get(name)
     status = record["status"] if record else "pending"
-    if status == "failed" and not args.force_stage:
+    if status == "failed" and not always_run and not args.force_stage:
         raise SystemExit(f"stage '{name}' previously failed ({record.get('error_code')}); rerun needs --force-stage")
     if status == REBUILD_STAGE_COMPLETE and not always_run and not args.force_stage:
         raise SystemExit(f"stage '{name}' is already complete; rerun needs --force-stage")
@@ -6431,7 +6431,15 @@ def _run_linear(ctx: SimpleNamespace) -> int:
                     )
             print(json.dumps({"phase": "stage-skip", "stage": name, "status": "complete"}), flush=True)
             continue
-        if status == "failed" and not args.force_stage:
+        # A stage marked always_run re-judges from scratch every pass, so a
+        # failed row describes the pass that wrote it and nothing else. Blocking
+        # on it demanded --force-stage, and --force-stage is one flag for the
+        # whole walk: clearing a harmless preflight row would also unblock a
+        # stage that failed half-written. Measured 2026-08-10T17:13Z -- a
+        # preflight that aborted on "writer freeze is not in force" stopped the
+        # next run, which was itself holding the freeze, after it had already
+        # paid for a 1.37 GB dump.
+        if status == "failed" and not always_run and not args.force_stage:
             raise SystemExit(
                 f"ABORT: stage '{name}' previously failed ({record.get('error_code')});"
                 " rerun needs --force-stage"

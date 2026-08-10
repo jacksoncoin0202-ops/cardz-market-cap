@@ -158,6 +158,46 @@ finally:
     R.RESTORE_PROOF = saved_proof
     DUMP.unlink(missing_ok=True)
 
+# --- 3. yesterday's refusal must not refuse today's run --------------------
+# S0 is re-judged on every pass, so its recorded failure describes the pass that
+# wrote it. Blocking on it demanded --force-stage, which is one flag for the
+# whole walk: the only way past a harmless preflight row also cleared the way
+# for a stage that failed half-written.
+def _walk(checkpoints: dict, force: bool = False) -> object:
+    ran: list[str] = []
+    saved = {name: getattr(R, name) for name in ("_checkpoints", "_run_stage")}
+    R._checkpoints = lambda conn, generation: checkpoints
+    R._run_stage = lambda ctx, name, fn, forced: ran.append(name)
+    try:
+        R._run_linear(SimpleNamespace(
+            args=SimpleNamespace(force_stage=force), conn=None, generation="036_x",
+        ))
+        return ran
+    except SystemExit as error:
+        return str(error)
+    finally:
+        for name, value in saved.items():
+            setattr(R, name, value)
+
+
+_done = {name: {"status": R.REBUILD_STAGE_COMPLETE, "input_sha256": None}
+         for name, _, _, _ in R.LINEAR_STAGES}
+_s0_failed = dict(_done, preflight={
+    "status": "failed", "error_code": "S0 ABORT: writer freeze is not in force.",
+    "input_sha256": None,
+})
+check("a run is not stopped by the gate that stopped the last run",
+      _walk(_s0_failed), ["preflight", "validate"])
+# The same walk, one stage over: bind writes, so its failure is a half-written
+# table and a human still has to look before it runs again.
+_bind_failed = dict(_done, bind={"status": "failed", "error_code": "boom",
+                                 "input_sha256": None})
+check("but a stage that failed part-way through writing still stops it",
+      "previously failed" in str(_walk(_bind_failed)), True)
+check("and --force-stage is still the way past that one",
+      _walk(_bind_failed, force=True), ["preflight", "bind", "validate"])
+
+
 print()
 if failures:
     print(f"{len(failures)} FAILURE(S)")
