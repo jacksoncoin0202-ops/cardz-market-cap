@@ -136,14 +136,28 @@ def extract_vgpc(html: str) -> dict[str, Any]:
     return out
 
 
-def extract_sales_for_class(html: str, cls: str) -> list[dict[str, Any]]:
-    # Prefer content div (not tab button)
-    pat = rf'<div[^>]+class="(?![^"]*\btab\b)[^"]*\b{re.escape(cls)}\b[^"]*"[^>]*>'
-    dm = re.search(pat, html, flags=re.I)
-    if dm:
-        start = dm.start()
-    else:
-        start = None
+_DIV_CLASS_RE = re.compile(r'<div[^>]+class="([^"]*)"[^>]*>', flags=re.I)
+# Bounding needs the whole tab family, not just SALES_LABELS: the 2,821 replay pages that
+# carry these tabs each expose 19 completed-auctions-* content divs, and the six SALES_LABELS
+# does not name (loose-and-box, loose-and-manual, box-and-manual, grade-twenty/-one/-two) are
+# exactly the ones sitting right after manual-only in the document.
+_TAB_FAMILY_RE = re.compile(r"\bcompleted-auctions-[a-z0-9-]+", flags=re.I)
+_TAB_CLASS_RE = re.compile(r"\btab\b", flags=re.I)
+
+
+def sales_div_starts(html: str) -> dict[str, int]:
+    """Offset of every completed-auctions-* content div, keyed by class (tab buttons out)."""
+
+    starts: dict[str, int] = {}
+    for dm in _DIV_CLASS_RE.finditer(html):
+        attr = dm.group(1)
+        if _TAB_CLASS_RE.search(attr):
+            continue
+        for cm in _TAB_FAMILY_RE.finditer(attr):
+            starts.setdefault(cm.group(0).lower(), dm.start())
+    for cls in SALES_LABELS:
+        if cls in starts:
+            continue
         idx = 0
         while True:
             i = html.find(cls, idx)
@@ -154,12 +168,32 @@ def extract_sales_for_class(html: str, cls: str) -> list[dict[str, Any]]:
                 idx = i + 1
                 continue
             div_start = html.rfind("<div", max(0, i - 200), i)
-            start = div_start if div_start >= 0 else i
+            starts[cls] = div_start if div_start >= 0 else i
             break
+    return starts
+
+
+def extract_sales_for_class(
+    html: str, cls: str, starts: dict[str, int] | None = None
+) -> list[dict[str, Any]]:
+    if starts is None:
+        starts = sales_div_starts(html)
+    start = starts.get(cls)
     if start is None:
         return []
 
-    rest = html[start : start + 150000]
+    # A grade's rows stop where the next grade's content div begins. Empty sibling divs sit
+    # only ~500 bytes apart, so the previous fixed 150k window read straight through them: on
+    # replay page 5326155 the empty PSA 10 div at 193,734 (region ends 194,237) reached the
+    # table at 199,181 inside the BGS 10 div at 198,903 and returned its CGC 10 eBay row
+    # (item 186909804168, $10.07, 2025-01-28) as a PSA 10 sale. 14 of the 2,821 replay pages
+    # carrying a PSA 10 div bled this way, 44 rows; rebuild_036 stamps them grader_code='psa',
+    # grade_label='10'.
+    next_start = min(
+        (off for other, off in starts.items() if other != cls and off > start),
+        default=len(html),
+    )
+    rest = html[start:next_start]
     tm = re.search(
         r'<table[^>]*class="[^"]*hoverable-rows[^"]*sortable[^"]*"[\s\S]*?</table>',
         rest,
@@ -242,8 +276,9 @@ def parse_product_html(html: str, source_url: str | None = None) -> dict[str, An
         }
 
     sales: dict[str, Any] = {}
+    starts = sales_div_starts(html)
     for cls, label in SALES_LABELS.items():
-        rows = extract_sales_for_class(html, cls)
+        rows = extract_sales_for_class(html, cls, starts)
         sales[cls] = {"label": label, "count": len(rows), "rows": rows}
 
     product = vgpc.get("product") if isinstance(vgpc.get("product"), dict) else {}
