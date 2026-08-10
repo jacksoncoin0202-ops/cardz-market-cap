@@ -520,7 +520,7 @@ def cmd_pc_identity_discover(args: argparse.Namespace) -> int:
             "targets": len(targets), "noConsole": 0, "consoleEmpty": 0,
             "candidates": 0, "accepted": 0, "ambiguous": 0, "noSurvivor": 0,
             "pageFetchFailed": 0, "alreadyOwned": 0, "alreadyRejected": 0,
-            "proposed": 0, "written": 0,
+            "proposed": 0, "written": 0, "repointed": 0,
         }
         proposals: list[dict[str, Any]] = []
         held: list[dict[str, Any]] = []
@@ -662,17 +662,27 @@ def cmd_pc_identity_discover(args: argparse.Namespace) -> int:
                                 "detail": f"pid={pid} rejected on v{owner['variant_id']}",
                             })
                             continue
+                        repoint_from = None
                         if owner is not None and int(owner["variant_id"] or 0) != vid:
                             # Somebody else's product. Proposing is free; taking
                             # is not, and this lane has no authority to move a
-                            # binding off another card.
-                            counts["alreadyOwned"] += 1
-                            held.append({
-                                "variant_id": vid, "reason": "pid_owned_elsewhere",
-                                "detail": f"pid={pid} held by v{owner['variant_id']}"
-                                          f" ({owner['match_status']})",
-                            })
-                            continue
+                            # binding off another card -- unless the operator
+                            # says so AND what is being taken is an unproven
+                            # claim. A promoted binding is never taken: the
+                            # reprints this lane exists for are exactly where
+                            # two cards share a collector number, so the card
+                            # already holding the page is the likeliest wrong
+                            # one, and the likeliest right one too.
+                            if (not args.allow_repoint
+                                    or str(owner["match_status"]) == "exact"):
+                                counts["alreadyOwned"] += 1
+                                held.append({
+                                    "variant_id": vid, "reason": "pid_owned_elsewhere",
+                                    "detail": f"pid={pid} held by v{owner['variant_id']}"
+                                              f" ({owner['match_status']})",
+                                })
+                                continue
+                            repoint_from = int(owner["variant_id"] or 0)
                         page_path = PAGES_DIR / f"{vid}_{pid}.html"
                         if not page_path.is_file():
                             code = CF.cmd_fetch(
@@ -719,21 +729,57 @@ def cmd_pc_identity_discover(args: argparse.Namespace) -> int:
                         # able to say what it was built from. Reverify replaces
                         # this with the product-page digest when it promotes.
                         evidence_sha = R.sha256_bytes(R.canonical_json(evidence))
-                        cursor.execute(
-                            "INSERT INTO catalog_source_identity (source_code,"
-                            " external_entity_id, variant_id, match_status,"
-                            " evidence_sha256, source_product_number, bind_evidence_json)"
-                            " VALUES ('pricecharting', %s, %s, 'manual_review', %s, %s, %s)"
-                            " ON DUPLICATE KEY UPDATE variant_id=VALUES(variant_id),"
-                            "  evidence_sha256=VALUES(evidence_sha256),"
-                            "  source_product_number=VALUES(source_product_number),"
-                            "  bind_evidence_json=VALUES(bind_evidence_json)",
-                            (
-                                pid, vid, evidence_sha,
-                                str(row["collector_number"] or "")[:96],
-                                json.dumps(evidence, ensure_ascii=False, sort_keys=True),
-                            ),
-                        )
+                        if repoint_from is not None:
+                            evidence["repointedFrom"] = repoint_from
+                            evidence_sha = R.sha256_bytes(R.canonical_json(evidence))
+                            # The two extra conditions are re-checked against the
+                            # stored row, not against what was read minutes ago:
+                            # anything that promoted or refused this pairing in
+                            # between changes zero rows and stops the run rather
+                            # than quietly overwriting a settled decision.
+                            cursor.execute(
+                                "UPDATE catalog_source_identity SET variant_id=%s,"
+                                " match_status='manual_review', evidence_sha256=%s,"
+                                " source_product_number=%s, bind_evidence_json=%s"
+                                " WHERE source_code='pricecharting'"
+                                "   AND external_entity_id=%s"
+                                "   AND match_status <> 'exact'"
+                                f"   AND {R.NOT_A_REJECTION_VERDICT_SQL}",
+                                (
+                                    vid, evidence_sha,
+                                    str(row["collector_number"] or "")[:96],
+                                    json.dumps(evidence, ensure_ascii=False,
+                                               sort_keys=True),
+                                    pid,
+                                ),
+                            )
+                            if cursor.rowcount != 1:
+                                raise SystemExit(
+                                    f"repoint of product {pid} changed"
+                                    f" {cursor.rowcount} rows, not 1: the row moved,"
+                                    " was proven, or was refused while this run was"
+                                    " thinking"
+                                )
+                            counts["repointed"] += 1
+                        else:
+                            cursor.execute(
+                                "INSERT INTO catalog_source_identity (source_code,"
+                                " external_entity_id, variant_id, match_status,"
+                                " evidence_sha256, source_product_number,"
+                                " bind_evidence_json)"
+                                " VALUES ('pricecharting', %s, %s, 'manual_review',"
+                                " %s, %s, %s)"
+                                " ON DUPLICATE KEY UPDATE variant_id=VALUES(variant_id),"
+                                "  evidence_sha256=VALUES(evidence_sha256),"
+                                "  source_product_number=VALUES(source_product_number),"
+                                "  bind_evidence_json=VALUES(bind_evidence_json)",
+                                (
+                                    pid, vid, evidence_sha,
+                                    str(row["collector_number"] or "")[:96],
+                                    json.dumps(evidence, ensure_ascii=False,
+                                               sort_keys=True),
+                                ),
+                            )
                         map_rows.append({
                             "card_name": str(row["canonical_name"] or "")[:200],
                             "collector_number": str(row["collector_number"] or ""),
@@ -777,7 +823,8 @@ def cmd_pc_identity_discover(args: argparse.Namespace) -> int:
                         handle.write("\n".join(
                             json.dumps(row, ensure_ascii=False, sort_keys=True)
                             for row in fresh) + "\n")
-            progress(f"[bind] {counts['written']} manual_review proposal(s) written;"
+            progress(f"[bind] {counts['written']} manual_review proposal(s) written"
+                     f" ({counts['repointed']} taken from unproven claims);"
                      f" run pc-identity-reverify to promote")
 
         report = {
@@ -817,6 +864,12 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--min-pop", dest="min_pop", type=int, default=1000)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--delay", type=float, default=1.5)
+    parser.add_argument(
+        "--allow-repoint", dest="allow_repoint", action="store_true",
+        help="move a product off a card that only CLAIMS it (manual_review) onto"
+             " the card this lane proved. Never touches an 'exact' binding or a"
+             " row a rejection verdict already settled.",
+    )
     parser.add_argument("--timeout", type=int, default=90)
     parser.add_argument(
         "--no-fetch", dest="no_fetch", action="store_true",
