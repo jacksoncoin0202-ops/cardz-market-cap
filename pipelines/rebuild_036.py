@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import inspect
 import io
 import json
 import re
@@ -20,6 +21,7 @@ import socket
 import subprocess
 import sys
 import time
+from html import unescape as html_unescape
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Mapping
@@ -86,6 +88,97 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _stable_repr(value: Any) -> str:
+    """repr() with the iteration order taken out.
+
+    Plain repr() of a set or dict is hash-order dependent, and string hashing
+    is seeded per process, so the same constant would fingerprint differently
+    on every run and every stage would look drifted.
+    """
+    if isinstance(value, (set, frozenset)):
+        return "{" + ", ".join(sorted(_stable_repr(item) for item in value)) + "}"
+    if isinstance(value, dict):
+        return "{" + ", ".join(
+            f"{_stable_repr(key)}: {_stable_repr(val)}"
+            for key, val in sorted(value.items(), key=lambda kv: repr(kv[0]))
+        ) + "}"
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(_stable_repr(item) for item in value) + "]"
+    if isinstance(value, re.Pattern):
+        return f"re:{value.pattern}"
+    if isinstance(value, Path):
+        return f"path:{value.as_posix()}"
+    return repr(value)
+
+
+def _referenced_globals(code: Any) -> set[str]:
+    names = set(code.co_names)
+    for const in code.co_consts:
+        if isinstance(const, type(code)):
+            names |= _referenced_globals(const)
+    return names
+
+
+_CODE_SHA_CACHE: dict[str, str] = {}
+
+
+def _code_sha(*roots: Callable | None) -> str:
+    """Fingerprint the code a stage actually runs.
+
+    A checkpoint promises "same input, same result, so skip". Code is input.
+    Both 2026-08-10 corrections -- reading the PSA population row instead of
+    the cross-grader rollup, and dropping the printed collector code as a set
+    signal -- landed as edits to helpers that identity-resolve and bind call.
+    Because only table rows were hashed, the very next run printed stage-skip
+    and shipped the old answer; the fix only landed because it was forced
+    through by hand with --invalidate-from. That is a step that works exactly
+    as long as somebody remembers it, so the hash learns about code instead.
+
+    Scoped, not whole-file: walks the module-level names each root reaches,
+    transitively, and hashes their source (functions, classes) or normalized
+    repr (constants). Editing one lane must not demand a re-crawl of another.
+    """
+    key = "|".join(sorted(root.__name__ for root in roots if root is not None))
+    cached = _CODE_SHA_CACHE.get(key)
+    if cached is not None:
+        return cached
+    module = sys.modules[__name__]
+    seen: set[str] = set()
+    parts: list[str] = []
+    queue = [root.__name__ for root in roots if root is not None]
+    while queue:
+        name = queue.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        obj = getattr(module, name, None)
+        if obj is None:
+            continue
+        if (inspect.isfunction(obj) or inspect.isclass(obj)) and getattr(obj, "__module__", None) == __name__:
+            parts.append(f"{name}\n{inspect.getsource(obj)}")
+            if inspect.isfunction(obj):
+                queue.extend(_referenced_globals(obj.__code__))
+        elif isinstance(obj, (str, bytes, bool, int, float, tuple, list, dict, set, frozenset, re.Pattern, Path)):
+            parts.append(f"{name}={_stable_repr(obj)}")
+    parts.sort()
+    digest = sha256_bytes("\n".join(parts).encode("utf-8"))
+    _CODE_SHA_CACHE[key] = digest
+    return digest
+
+
+def _stage_input_sha(name: str, ctx: SimpleNamespace) -> str | None:
+    entry = next((item for item in ALL_STAGES if item[0] == name), None)
+    if entry is None:
+        return None
+    _name, fn, input_fn, _always_run = entry
+    if fn is None:
+        return None
+    return sha256_bytes(canonical_json({
+        "data": input_fn(ctx) if input_fn is not None else None,
+        "code": _code_sha(fn, input_fn),
+    }))
 
 
 def load_env_file(path: Path) -> dict[str, str]:
@@ -501,9 +594,20 @@ def _capture_fingerprint(cards_dir: Path, gid: str) -> tuple[dict[str, Any] | No
     ]
     set_name = str(raw.get("set_name") or "")
     language = _language_from_set_name(set_name) or "en"
+    # The top-level payload is GemRate's cross-grader "Universal" rollup, and its
+    # description is generated from the merged view rather than copied from any
+    # one grader: it renders "Sword & Shield" as "Sword and Shield", drops the
+    # set code ("One Piece OP05-Awakening of the New Era" arrives as "One Piece
+    # Awakening of the New Era"), and contradicts the payload's own parallel
+    # field. The PSA row inside population_data carries the label PSA prints.
+    # It reproduces all 751 rows of the 034 PSA acceptance authority; the rollup
+    # reproduces 588. The two disagree on 4,459 of 16,834 captures, so this is
+    # the name for a quarter of the shelf. No PSA row means no PSA name, and
+    # psaRowCount already sends that id to identity_pending.
+    description = str((psa_rows[0]["description"] if psa_rows else "") or "").strip()
     return {
         "gemrateId": gid,
-        "description": str(raw.get("description") or ""),
+        "description": description,
         "name": str(raw.get("name") or ""),
         "year": str(raw.get("year") or ""),
         "setName": set_name,
@@ -568,6 +672,14 @@ _ERA_PHRASES = (
 _NOISE_TOKENS = {
     "pokemon", "one", "piece", "japanese", "japan", "english", "en", "jp", "ja",
     "booster", "pack", "the", "of", "and", "a", "an",
+    # The abbreviation half of _ERA_PHRASES. GemRate writes the era short
+    # ("Pokemon SM Black Star Promo") where the catalog writes it long ("2019
+    # Sun and Moon Black Star Promo Power Partnership Tins"); the phrases above
+    # already erase the long form, so leaving the short one as a signal made an
+    # era the two sides spell differently look like two different sets. Only
+    # the bare series marker -- _SET_CODE_RE keeps every numbered form (sm12a,
+    # sv8a) as a code, and codes are compared separately.
+    "sm", "swsh", "sv", "xy", "bw", "dp", "hgss",
 }
 
 
@@ -630,10 +742,18 @@ def _fingerprint_variant_conflicts(
         same = v_lang == f_lang or (v_lang.startswith("zh") and f_lang.startswith("zh"))
         if not same:
             conflicts.append(f"language:{f_lang}!={v_lang}")
-    f_codes, f_tokens = _set_signals(fp.get("setName") or "", fp.get("cardNumber") or "")
-    v_codes, v_tokens = _set_signals(
-        variant.get("set_name") or "", variant.get("collector_number") or ""
-    )
+    # Set names only. A collector number's prefix is the code PRINTED on the
+    # card, which names the set the card first appeared in -- not the set the
+    # entity is in. Reading it as a set signal is what bound the OP07 booster
+    # Luffy #109 (pop 1919) onto the Promos serialized lottery prize (pop 301):
+    # the variant's own set_name was the junk string 'Opened', its collector
+    # number said OP07-109, the codes agreed, and the short-circuit below meant
+    # the set names 'Promos' and '500 Years in the Future' were never compared.
+    # op_identity_rules below is the proved path for a printed code and stays.
+    # Replayed over all 1605 exact bindings: 32 stale conflicts clear, and the
+    # only two that newly conflict are the two whose set_name is not a set name.
+    f_codes, f_tokens = _set_signals(fp.get("setName") or "")
+    v_codes, v_tokens = _set_signals(variant.get("set_name") or "")
     # Both codes a One Piece card can honestly answer with. _set_signals reads
     # the set GemRate SOLD it in; the card prints the set it FIRST appeared in,
     # and 88 of the 121 cards in the 2026-08-10 gap differ. A provider page for
@@ -1333,6 +1453,14 @@ def _gemrate_bind_evidence(fp: Mapping[str, Any], generation: str) -> tuple[dict
         },
     }
     return evidence, sha256_bytes(canonical_json(evidence))
+
+
+# _capture_fingerprint reads this straight off the PSA population row, so it is
+# the PSA label verbatim -- the same string line 1900 already writes as the
+# canonical_name of a newly created variant. Variants created before that read
+# was corrected still carry the Universal rollup wording, so the binding
+# transaction restates it for every variant it settles.
+_PSA_FULL_NAME_SQL = "JSON_UNQUOTE(JSON_EXTRACT(m.detail_json,'$.fingerprint.description'))"
 
 
 def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
@@ -2127,6 +2255,24 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
                 )
             counts["identityPendingAfter"] = pending_after
             counts["demotedCollectorUnknown"] = len(demoted)
+
+            # A variant's display name is the PSA label of the entity bound to
+            # it, so it is settled here, in the transaction that settles the
+            # binding -- not left to whatever wording seeded the row. Every
+            # qualified variant holds exactly one exact gemrate binding, so the
+            # join names one row per variant.
+            cursor.execute(
+                "UPDATE catalog_variant v"
+                " INNER JOIN catalog_source_identity s ON s.variant_id=v.id"
+                "   AND s.source_code='gemrate' AND s.match_status='exact'"
+                " INNER JOIN catalog_rebuild_member m ON m.generation_id=%s"
+                "   AND m.variant_id=v.id AND m.gemrate_id=s.external_entity_id"
+                f" SET v.canonical_name={_PSA_FULL_NAME_SQL}"
+                f" WHERE COALESCE({_PSA_FULL_NAME_SQL},'')<>''"
+                f"   AND BINARY v.canonical_name<>BINARY {_PSA_FULL_NAME_SQL}",
+                (generation,),
+            )
+            counts["psaNamesRestated"] = cursor.rowcount
         conn.commit()
     except Exception:
         conn.rollback()
@@ -2185,7 +2331,17 @@ def _pc_page_identity(html: str) -> tuple[dict[str, Any] | None, str]:
     )
     if not h1_match:
         return None, "h1_missing"
-    heading = " ".join(re.sub(r"<[^>]+>", " ", h1_match.group(1)).split())
+    # Entities, then tags: the h1 of every "Scarlet &amp; Violet" set spells its
+    # ampersand as an entity, and stripping tags alone leaves the word `amp` in
+    # the heading. _set_signals turns "&" into the noise word "and" precisely
+    # because an ampersand names no set, so `amp` is not a signal -- it is the
+    # markup showing through, and it read as a token the catalog could never
+    # match. 109 of the 143 hard_conflict refusals on 2026-08-10 carried it.
+    # Unescape after the tags are gone so an entity-encoded angle bracket
+    # cannot become a tag that the strip already walked past.
+    heading = " ".join(
+        html_unescape(re.sub(r"<[^>]+>", " ", h1_match.group(1))).split()
+    )
     number_match = re.search(r"#\s*([A-Za-z0-9/.-]+)", heading)
     slug_tail = product_slug.rsplit("-", 1)[-1]
     collector = number_match.group(1) if number_match else ""
@@ -5890,6 +6046,10 @@ def printable_counts(counts: Mapping[str, Any], *, keep: int = 3) -> dict[str, A
 
 def _run_stage(ctx: SimpleNamespace, name: str, fn: Callable, *, forced: bool) -> None:
     print(json.dumps({"phase": "stage-start", "stage": name, "forced": forced}, ensure_ascii=False), flush=True)
+    # Taken before the stage runs, and written over whatever the stage itself
+    # returned: recording and comparison must come from one function, or the
+    # skip decision is made against a number nothing else computes.
+    input_sha = _stage_input_sha(name, ctx)
     _stage_begin(ctx.conn, ctx.generation, name)
     try:
         result = fn(ctx)
@@ -5899,6 +6059,7 @@ def _run_stage(ctx: SimpleNamespace, name: str, fn: Callable, *, forced: bool) -
     except Exception as error:  # noqa: BLE001 - checkpoint then surface
         _stage_failed(ctx.conn, ctx.generation, name, f"{type(error).__name__}: {error}"[:64])
         raise
+    result["input_sha256"] = input_sha
     _stage_finish(ctx.conn, ctx.generation, name, result)
     print(
         json.dumps(
@@ -5926,8 +6087,8 @@ def _dry_run(ctx: SimpleNamespace) -> int:
             decision = "run (always)"
         elif status == REBUILD_STAGE_COMPLETE:
             drift = ""
-            if input_fn is not None and record and record.get("input_sha256"):
-                current = input_fn(ctx)
+            if record and record.get("input_sha256"):
+                current = _stage_input_sha(name, ctx)
                 if current != record["input_sha256"]:
                     drift = " INPUT DRIFT -> needs --invalidate-from"
                     blocked = True
@@ -6012,8 +6173,8 @@ def _run_linear(ctx: SimpleNamespace) -> int:
         record = checkpoints.get(name)
         status = record["status"] if record else "pending"
         if status == REBUILD_STAGE_COMPLETE and not always_run:
-            if input_fn is not None and record.get("input_sha256"):
-                current = input_fn(ctx)
+            if record.get("input_sha256"):
+                current = _stage_input_sha(name, ctx)
                 if current != record["input_sha256"]:
                     raise SystemExit(
                         f"ABORT: stage '{name}' input drifted (recorded"
@@ -6629,15 +6790,33 @@ def cmd_activate(args: argparse.Namespace) -> int:
         ]
         if incomplete:
             raise SystemExit(f"ABORT: stages not complete: {incomplete}")
+        receipt_sha = getattr(args, "receipt_sha256", None)
         with conn.cursor() as cursor:
-            cursor.execute(
-                "SELECT passed, report_json FROM cardz_rebuild_validation_receipt"
-                " WHERE generation_id=%s AND receipt_sha256=%s",
-                (generation, args.receipt_sha256),
-            )
+            if receipt_sha:
+                cursor.execute(
+                    "SELECT receipt_sha256, passed, report_json"
+                    " FROM cardz_rebuild_validation_receipt"
+                    " WHERE generation_id=%s AND receipt_sha256=%s",
+                    (generation, receipt_sha),
+                )
+            else:
+                # The sha used to be copied by hand out of the validate stage's
+                # stdout into the next command line. A human retyping a hash
+                # proves nothing -- the gate is the in-process revalidation
+                # below, which recomputes the receipt against the database
+                # actually being activated and refuses on any difference beyond
+                # volatile fields. So read the stage's own receipt back.
+                cursor.execute(
+                    "SELECT receipt_sha256, passed, report_json"
+                    " FROM cardz_rebuild_validation_receipt"
+                    " WHERE generation_id=%s AND passed=1"
+                    " ORDER BY created_at DESC LIMIT 1",
+                    (generation,),
+                )
             receipt = cursor.fetchone()
         if receipt is None or int(receipt["passed"]) != 1:
             raise SystemExit("ABORT: validation receipt missing or not passed for that sha")
+        receipt_sha = receipt["receipt_sha256"]
 
         # §6.7: re-run the validator in-process; the operator-supplied receipt
         # must describe the database being activated. Equality is checked on
@@ -6650,7 +6829,7 @@ def cmd_activate(args: argparse.Namespace) -> int:
             raise SystemExit(
                 f"ABORT: validator fails now: {validation['counts']['failedChecks']}"
             )
-        if recomputed != args.receipt_sha256:
+        if recomputed != receipt_sha:
             supplied_report = json.loads(receipt["report_json"])
             recomputed_report = json.loads(
                 (ROOT / validation["counts"]["reportPath"]).read_bytes()
@@ -6658,12 +6837,12 @@ def cmd_activate(args: argparse.Namespace) -> int:
             if _receipt_state_sha(supplied_report) != _receipt_state_sha(recomputed_report):
                 raise SystemExit(
                     "ABORT: recomputed receipt"
-                    f" {recomputed[:16]}.. != supplied {args.receipt_sha256[:16]}.."
+                    f" {recomputed[:16]}.. != supplied {receipt_sha[:16]}.."
                     " beyond volatile fields; state moved since that receipt"
                     " — re-read validate output"
                 )
             print(
-                f"receipt {args.receipt_sha256[:16]}.. matches recomputed"
+                f"receipt {receipt_sha[:16]}.. matches recomputed"
                 f" {recomputed[:16]}.. after volatile-field normalization"
             )
 
@@ -6752,7 +6931,7 @@ def cmd_activate(args: argparse.Namespace) -> int:
                     "UPDATE cardz_rebuild_generation"
                     " SET activated_at=%s, activation_receipt_sha256=%s"
                     " WHERE generation_id=%s",
-                    (now_str, args.receipt_sha256, generation),
+                    (now_str, receipt_sha, generation),
                 )
                 if cur.rowcount == 0:
                     raise SystemExit("S12 ABORT: generation row vanished")
@@ -6764,7 +6943,7 @@ def cmd_activate(args: argparse.Namespace) -> int:
         report = {
             "activated": True,
             "generation": generation,
-            "receiptSha256": args.receipt_sha256,
+            "receiptSha256": receipt_sha,
             "universeLockId": lock_id,
             "universeLockSha256": lock_sha,
             "members": len(ready_ids),
@@ -7853,4 +8032,131 @@ def cmd_unfreeze(args: argparse.Namespace) -> int:
         "unfrozen": True, "cardzGrant": "ALL", "rebuildUserDropped": True,
         "definerRepairedViews": repaired,
     }))
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# End to end
+# ---------------------------------------------------------------------------
+
+_SCHEDULER_QUERY = (
+    "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;"
+    " Get-ScheduledTask | ForEach-Object { [pscustomobject]@{"
+    " name=$_.TaskName; path=$_.TaskPath; state=[string]$_.State;"
+    " actions=(($_.Actions | ForEach-Object {"
+    " \"$($_.Execute) $($_.Arguments) $($_.WorkingDirectory)\" }) -join ' ')"
+    " } } | ConvertTo-Json -Compress"
+)
+
+
+def _cardz_scheduled_tasks() -> list[dict[str, str]]:
+    """The same whole-task match S0 preflight uses, so the two never disagree."""
+    query = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", _SCHEDULER_QUERY],
+        capture_output=True,
+    )
+    if query.returncode != 0:
+        raise SystemExit("scheduled-task query failed")
+    rows = json.loads((query.stdout or b"").decode("utf-8"))
+    if isinstance(rows, dict):
+        rows = [rows]
+    matched = []
+    for row in rows:
+        blob = " ".join(str(row.get(key) or "") for key in ("name", "path", "actions"))
+        if "cardz" in blob.lower():
+            matched.append({
+                "name": str(row.get("name") or ""),
+                "path": str(row.get("path") or "\\"),
+                "state": str(row.get("state") or "").strip().lower(),
+            })
+    return matched
+
+
+def _scheduler_set(tasks: list[dict[str, str]], *, enable: bool) -> list[str]:
+    if not tasks:
+        return []
+    verb = "Enable-ScheduledTask" if enable else "Disable-ScheduledTask"
+    script = "; ".join(
+        f"{verb} -TaskName '{task['name']}' -TaskPath '{task['path']}' | Out-Null"
+        for task in tasks
+    )
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise SystemExit(f"{verb} failed: {result.stderr.strip()[:400]}")
+    return [f"{task['path']}{task['name']}" for task in tasks]
+
+
+def cmd_e2e(args: argparse.Namespace) -> int:
+    """One command from code change to baked snapshot.
+
+    Every step here was run by hand on 2026-08-10 and every one of them was a
+    step that only worked while somebody remembered it: disable the schedulers
+    before S0 would pass, freeze, run the stages, copy the receipt sha out of
+    validate's stdout into activate's command line, remember that prune-apply
+    and canary are --stage only, unfreeze, re-enable exactly the schedulers
+    that had been on, re-bake. Forgetting the unfreeze leaves the nightly
+    lanes writing into a database whose writer grant is revoked, which is why
+    teardown runs from finally and not from the happy path.
+    """
+    steps: list[dict[str, Any]] = []
+
+    def record(step: str, **fields: Any) -> None:
+        entry = {"step": step, **fields}
+        steps.append(entry)
+        print(json.dumps({"phase": "e2e", **entry}, ensure_ascii=False, default=str), flush=True)
+
+    stage_args = SimpleNamespace(
+        generation=args.generation, resume=True, stage=None, invalidate_from=None,
+        force_stage=False, dry_run=False, credentials_env=args.credentials_env,
+        freshness_hours=args.freshness_hours,
+    )
+
+    tasks = _cardz_scheduled_tasks()
+    to_restore = [task for task in tasks if task["state"] != "disabled"]
+    disabled = _scheduler_set(to_restore, enable=False)
+    record("scheduler-disable", tasks=disabled, alreadyDisabled=len(tasks) - len(to_restore))
+    try:
+        if args.invalidate_from:
+            cmd_rebuild(SimpleNamespace(**{**vars(stage_args), "invalidate_from": args.invalidate_from}))
+            record("invalidate", fromStage=args.invalidate_from)
+
+        cmd_freeze(SimpleNamespace(credentials_env=args.credentials_env))
+        record("freeze")
+
+        code = cmd_rebuild(stage_args)
+        if code != 0:
+            raise SystemExit(f"linear stages stopped with exit {code}")
+        record("linear", through=LINEAR_STAGES[-1][0])
+
+        cmd_activate(SimpleNamespace(
+            generation=args.generation, receipt_sha256=None,
+            credentials_env=args.credentials_env,
+        ))
+        record("activate", receipt="read from cardz_rebuild_validation_receipt")
+
+        for stage in (name for name, _, _, _ in POST_ACTIVATION_STAGES):
+            cmd_rebuild(SimpleNamespace(**{
+                **vars(stage_args), "stage": stage, "force_stage": True,
+            }))
+            record("post-activation", stage=stage)
+    finally:
+        cmd_unfreeze(SimpleNamespace(confirm=True))
+        record("unfreeze")
+        restored = _scheduler_set(to_restore, enable=True)
+        record("scheduler-restore", tasks=restored)
+
+    if not args.skip_bake:
+        bake = subprocess.run(
+            ["node", str(ROOT / "scripts" / "bake-public-snapshot.mjs")],
+            cwd=str(ROOT), capture_output=True, text=True, shell=True,
+        )
+        if bake.returncode != 0:
+            raise SystemExit(f"bake failed (exit {bake.returncode}): {bake.stderr.strip()[:600]}")
+        record("bake", tail=(bake.stdout or "").strip().splitlines()[-1:])
+
+    print(json.dumps({"phase": "e2e-complete", "generation": args.generation,
+                      "steps": [entry["step"] for entry in steps]}, ensure_ascii=False))
     return 0

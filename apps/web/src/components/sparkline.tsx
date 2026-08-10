@@ -1,16 +1,13 @@
 import { useId } from "react";
-import type { PricePoint } from "@/lib/types";
 
 interface SparklineProps {
-  points: PricePoint[];
+  /* 已經去晒 null / 非有限值嘅 trackedSalesValueUsd 序列（`card.salesSparkline`）。 */
+  values: number[];
   label: string;
 }
 
-export function Sparkline({ points, label }: SparklineProps) {
+export function Sparkline({ values, label }: SparklineProps) {
   const gradientId = useId();
-  const values = points
-    .map((point) => point.trackedSalesValueUsd)
-    .filter((value): value is number => value !== null && Number.isFinite(value));
   if (values.length < 3) return null;
   const width = 72;
   const height = 22;

@@ -103,7 +103,18 @@ export interface MarketCardView {
   populationPsa10: MarketMetric<number>;
   marketCap: MarketMetric<number>;
   windows: Record<MarketWindow, WindowMetrics>;
+  /*
+   * 完整每日歷史。只有 `/card/[id]` 用得着（HistoryChart）。
+   * 榜頁（`scopeSnapshot` → `listCard`）會清空佢：實測佔榜頁 card bytes 約 89%，
+   * 而榜頁根本冇組件讀佢，唯一嘅圖係 <Sparkline>，佢淨係要 `salesSparkline`。
+   */
   historyDaily: PricePoint[];
+  /*
+   * `historyDaily` 入面非空且有限嘅 `trackedSalesValueUsd` 序列 —— <Sparkline>
+   * 唯一會畫嘅數。喺 `normaliseSnapshot` 一次抽好，所以清空 historyDaily 之後
+   * 榜頁嘅 sparkline 仍然逐點一樣。
+   */
+  salesSparkline: number[];
 }
 
 export interface MarketViewSnapshot {

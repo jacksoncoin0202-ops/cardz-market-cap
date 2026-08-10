@@ -2578,8 +2578,22 @@ def main() -> int:
         help="S12: switch current generation; refuses unless the recomputed receipt sha matches",
     )
     p_activate.add_argument("--generation", required=True)
-    p_activate.add_argument("--receipt-sha256", dest="receipt_sha256", required=True)
+    p_activate.add_argument(
+        "--receipt-sha256", dest="receipt_sha256",
+        help="optional; default is the generation's latest passed receipt, which"
+             " activate revalidates in-process either way",
+    )
     p_activate.add_argument("--credentials-env", dest="credentials_env", type=Path)
+    p_e2e = sub.add_parser(
+        "rebuild-036-e2e",
+        help="scheduler off -> freeze -> S0..S11 -> activate -> S13/S14 -> unfreeze"
+             " -> scheduler back -> bake, with teardown on any failure",
+    )
+    p_e2e.add_argument("--generation", required=True)
+    p_e2e.add_argument("--invalidate-from", dest="invalidate_from", help="reset this stage and downstream first")
+    p_e2e.add_argument("--credentials-env", dest="credentials_env", type=Path)
+    p_e2e.add_argument("--freshness-hours", dest="freshness_hours", type=float, default=72.0)
+    p_e2e.add_argument("--skip-bake", dest="skip_bake", action="store_true")
     p_freeze = sub.add_parser(
         "rebuild-036-freeze",
         help="setup: revoke cardz DML, create cardz_rebuild, prove the freeze (1142) before returning",
@@ -2677,6 +2691,10 @@ def main() -> int:
         import rebuild_036
 
         return rebuild_036.cmd_activate(args)
+    elif args.cmd == "rebuild-036-e2e":
+        import rebuild_036
+
+        return rebuild_036.cmd_e2e(args)
     elif args.cmd == "rebuild-036-freeze":
         import rebuild_036
 

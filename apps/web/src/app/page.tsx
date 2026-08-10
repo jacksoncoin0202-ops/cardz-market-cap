@@ -3,7 +3,8 @@ import { MarketPage } from "@/components/market-page";
 import { defaultMarketMetadata, localeFromSearchParams, type PageSearchParams } from "@/lib/route-metadata";
 import { loadMarketSnapshot, scopeSnapshot } from "@/lib/server-snapshot";
 
-export const dynamic = "force-dynamic";
+/* 榜單資料一日只翻一次（夜鏈 03:30 出新 ranking generation），所以唔需要逐個 request 重出。 */
+export const revalidate = 300;
 
 export async function generateMetadata({ searchParams }: { searchParams: PageSearchParams }): Promise<Metadata> {
   return defaultMarketMetadata(await localeFromSearchParams(searchParams));

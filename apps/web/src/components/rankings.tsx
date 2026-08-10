@@ -192,7 +192,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                       <SalesDelta sales={metrics.trackedSales} changePct={metrics.trackedSalesChangePct} currency={currency} rates={snapshot.rates} locale={locale} />
                     </td>
                     <td className={`numeric metric-${metricTone(metrics.changePct)}`} title={metrics.changePct.sourceSwitched ? `Historical anchor: ${metrics.changePct.priceAnchorSource}` : undefined}>{formatPercent(metrics.changePct, locale)}</td>
-                    <td className="numeric spark-cell"><Sparkline points={card.historyDaily} label={t.labels.salesTrend} /></td>
+                    <td className="numeric spark-cell"><Sparkline values={card.salesSparkline} label={t.labels.salesTrend} /></td>
                   </tr>
                 );
               })}</tbody>
@@ -223,7 +223,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                   <span className="mobile-card-price">{formatMetricMoney(card.pricePsa10, currency, snapshot.rates, locale)}</span>
                   <ChangeBadge card={card} period={period} locale={locale} />
                 </div>
-                <Sparkline points={card.historyDaily} label={t.labels.salesTrend} />
+                <Sparkline values={card.salesSparkline} label={t.labels.salesTrend} />
               </Link>
             ))}
           </div>

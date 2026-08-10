@@ -33,11 +33,17 @@ function scopedCoverage(count: number, requestedCount = 100): MarketViewSnapshot
   };
 }
 
+/*
+ * 榜頁投影。榜頁冇任何組件讀 `historyDaily`（唯一嘅圖 <Sparkline> 讀
+ * `salesSparkline`），但佢實測佔榜頁 card bytes 約 89%（seed snapshot：頭 100 張
+ * 7.27MB 入面 6.53MB 係佢），所以榜頁一律清空。詳情頁行 `singleCardSnapshot`，
+ * 唔會經呢度，仍然攞到完整歷史。
+ */
 function listCard(card: MarketCardView): MarketCardView {
   return {
     ...card,
     story: { ...card.story },
-    historyDaily: card.historyDaily.map((point) => ({ ...point })),
+    historyDaily: [],
   };
 }
 

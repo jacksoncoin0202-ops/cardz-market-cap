@@ -131,6 +131,9 @@ function cardView(card: CanonicalCard): MarketCardView {
     marketCap: metric(card.marketCap),
     windows,
     historyDaily: card.historyDaily.map((point) => ({ ...point })),
+    salesSparkline: card.historyDaily
+      .map((point) => point.trackedSalesValueUsd)
+      .filter((value): value is number => value !== null && Number.isFinite(value)),
   };
 }
 

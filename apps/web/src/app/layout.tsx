@@ -12,7 +12,13 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", colorScheme: "light dark" };
-export const dynamic = "force-dynamic";
+/*
+ * layout 嘅 `force-dynamic` 會蓋過每一版自己嘅 revalidate，所以要一齊解除。
+ * 但下面個 `headers()` 仍然令成棵樹 dynamic render（實測：拆走佢 `/tune` 即刻變
+ * `○ Static · Revalidate 5m`，唔拆就 `ƒ Dynamic` + `Cache-Control: no-store`），
+ * 所以呢個 revalidate 現階段未生效。
+ */
+export const revalidate = 300;
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const htmlLanguage = (await headers()).get("x-cardz-html-lang") ?? "en";

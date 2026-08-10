@@ -4,7 +4,7 @@ import { copy } from "@/lib/i18n";
 import { localeFromSearchParams, marketMetadata, type PageSearchParams } from "@/lib/route-metadata";
 import { loadMarketSnapshot, scopeSnapshot } from "@/lib/server-snapshot";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
 
 const PAGE_SIZE = 200;
 

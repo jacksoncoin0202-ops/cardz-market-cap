@@ -4,7 +4,7 @@ import { copy, localizedCardLanguage } from "@/lib/i18n";
 import { localeFromSearchParams, marketMetadata, type PageSearchParams } from "@/lib/route-metadata";
 import { loadMarketSnapshot, singleCardSnapshot } from "@/lib/server-snapshot";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
 
 interface CardRouteProps {
   params: Promise<{ id: string }>;
