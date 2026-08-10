@@ -22,6 +22,7 @@ a product against the words a listing uses, whoever wrote the listing.
 """
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -253,3 +254,48 @@ def character_agrees(our_name: str, *listing_text: str) -> tuple[bool, str]:
     ):
         return True, ""
     return False, f"character_mismatch:ours={given}"
+
+
+# --------------------------------------------------------------------------
+# printed set codes
+# --------------------------------------------------------------------------
+_PRINTED_CODES: dict[int, str] | None = None
+PRINTED_CODE_POLICY = R.ROOT / "data" / "policy" / "op-printed-codes.json"
+
+
+def printed_set_code(variant_id: int | None) -> str:
+    """The set code this One Piece card actually PRINTS, or "".
+
+    GemRate names the product a card was sold in; the card prints the code of
+    the set it first appeared in. Measured 2026-08-10: of the 121 One Piece
+    cards with no price source, 88 print a code different from the product
+    GemRate filed them under -- an alternate-art Kaido from the OP05 booster
+    prints OP04-044 -- and both discovery lanes were throwing away the correct
+    provider listing with `hard_conflict:set_code` because of it.
+
+    This is an INPUT correction, not a relaxed gate. The lanes still have to
+    agree on character, number, language, treatment, tcg and mirror. All this
+    changes is which code counts as "ours", and it changes it only where a
+    Limitless product page -- the page for the product GemRate itself named --
+    lists that number under that code. The file's `advisory` block, filled by
+    scanning every promo product for a number and a name, is deliberately NOT
+    read here: for a promo an agreeing set code makes the binder skip the
+    product-name comparison, which is the only check a promo has left.
+
+    Empty string, never a guess: a card this cannot prove is left exactly as
+    the catalog has it.
+    """
+
+    global _PRINTED_CODES
+    if _PRINTED_CODES is None:
+        _PRINTED_CODES = {}
+        if PRINTED_CODE_POLICY.is_file():
+            payload = json.loads(PRINTED_CODE_POLICY.read_text(encoding="utf-8"))
+            for key, record in (payload.get("codes") or {}).items():
+                code = str((record or {}).get("printedCode") or "")
+                prefix = code.rpartition("-")[0]
+                if prefix:
+                    _PRINTED_CODES[int(key)] = prefix.upper()
+    if variant_id is None:
+        return ""
+    return _PRINTED_CODES.get(int(variant_id), "")

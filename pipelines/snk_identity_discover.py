@@ -54,6 +54,7 @@ from op_identity_rules import (
     SNK_SUFFIX_TREATMENT,
     gemrate_treatment,
     character_agrees,
+    printed_set_code,
     product_agrees,
     snk_treatment,
 )
@@ -266,28 +267,12 @@ def rule_candidate(row: dict[str, Any], payload: dict[str, Any]) -> tuple[bool, 
         "setName": f"{master_name} {localized}",
     }
     conflicts = R._fingerprint_variant_conflicts(pseudo_fp, row)
-    # Which set does OUR side say this card is in?
-    #
-    # The set_code column is empty on 50 of the 54 One Piece cards still in the
-    # gap, but the code is spelled inside set_name -- "One Piece Japanese
-    # OP09-Emperors in the New World" -- which is the very place
-    # product_number() reads it to build the search key. Reading it in one
-    # place and not the other is why a card could be searched for by a code
-    # the rules then behaved as though it did not have.
-    # The claim's own set code. One Piece prints it joined to the number
-    # ("OP09-106"), so the leading-tokens reading below -- written for the
-    # bracketed Pokemon form ("S3a 056/076") -- returned an empty string for
-    # every One Piece card ever tested, and this whole escape has never once
-    # fired for the game it now has to serve.
-    in_claim = SET_CODE_RE.search(claim.upper())
-    claim_set = in_claim.group(1) if in_claim else " ".join(claim.split()[:-1])
-    named = SET_CODE_RE.search(str(row.get("set_name") or "").upper())
-    our_set_codes = {
-        str(row["v_set_code"] or "").casefold(),
-        str(row["p_set_code"] or "").casefold(),
-        named.group(1).casefold() if named else "",
-    } - {""}
-    set_codes_agree = bool(claim_set) and claim_set.casefold() in our_set_codes
+    # Does the provider's own set claim agree with ours? Shared with S7 and
+    # snk-identity-reverify: this lane learned to read a One Piece set code
+    # from the claim, the set name and the printed-code policy while the other
+    # two still read the bracketed Pokemon form, and three readings of one
+    # question is how the same card passes here and is refused there.
+    set_codes_agree = R.snk_claim_set_agrees(claim, row)
     if set_codes_agree:
         conflicts = [
             c for c in conflicts

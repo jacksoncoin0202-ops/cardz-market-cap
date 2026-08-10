@@ -634,6 +634,21 @@ def _fingerprint_variant_conflicts(
     v_codes, v_tokens = _set_signals(
         variant.get("set_name") or "", variant.get("collector_number") or ""
     )
+    # Both codes a One Piece card can honestly answer with. _set_signals reads
+    # the set GemRate SOLD it in; the card prints the set it FIRST appeared in,
+    # and 88 of the 121 cards in the 2026-08-10 gap differ. A provider page for
+    # the alternate-art Kaido out of the OP05 booster says op04 because the
+    # card says op04, and every lane refused it here for printing the truth.
+    # Only ever additive: printed_set_code returns a code proved off the
+    # Limitless page for the product GemRate itself named, and only for the
+    # cards a resolver could prove one for -- "" for everything else.
+    import op_identity_rules  # deferred: it imports this module at its top
+
+    printed = op_identity_rules.printed_set_code(
+        variant.get("variant_id") or variant.get("id")
+    )
+    if printed:
+        v_codes = v_codes | {printed.casefold()}
     if f_codes and v_codes and not (f_codes & v_codes):
         conflicts.append(f"set_code:{sorted(f_codes)}!={sorted(v_codes)}")
 
@@ -997,13 +1012,32 @@ def set_names_a_card_could_carry(
     card described from two ends. PriceCharting files it under the number's
     set, and a product check that only knows the catalog's set_name refuses its
     page for saying "Two Legends" where we said "Emperors".
+
+    Two ways to learn the number's set, and the second exists because the first
+    only works when the code is written INTO the number. Measured 2026-08-10:
+    of the 121 One Piece cards with no price source, all but a handful carry a
+    bare "044" and NUMBER_SET_CODE_RE matches none of them, so this returned
+    one name and the reprint page was never read. `printed_set_code` reads the
+    code off the Limitless page for the product GemRate itself named, which is
+    where the bare number's prefix was recorded in the first place.
+
+    Widening where we look, not what we accept: every name returned here is
+    still put to `product_agrees`, and the number, character and print
+    signature still have to match on whichever page answers.
     """
 
     names = [str(row.get("set_name") or "")]
     match = NUMBER_SET_CODE_RE.match(str(row.get("collector_number") or "").upper())
-    alt = code_to_set.get(match.group(1), "") if match else ""
-    if alt and alt not in names:
-        names.append(alt)
+    codes = [match.group(1)] if match else []
+    import op_identity_rules  # deferred: it imports this module at its top
+
+    printed = op_identity_rules.printed_set_code(row.get("variant_id"))
+    if printed and printed not in codes:
+        codes.append(printed)
+    for code in codes:
+        alt = code_to_set.get(code, "")
+        if alt and alt not in names:
+            names.append(alt)
     return [name for name in names if name]
 
 
@@ -2546,6 +2580,40 @@ def _snk_claim_number(claim: str) -> str:
     return token
 
 
+def snk_claim_set_agrees(claim: str, row: Mapping[str, Any]) -> bool:
+    """Does the SNKRDUNK designation's own set claim agree with ours?
+
+    One function because three lanes ask it -- S7, snk-identity-reverify and
+    snk-identity-discover -- and until 2026-08-10 they asked it differently.
+    The reverify lane read the claim by taking every token but the last, which
+    is the bracketed Pokemon form ("S3a 056/076"); One Piece joins the code to
+    the number ("OP09-106"), so that reading returned "" for every One Piece
+    card ever put to it, the supersede below never fired once, and 16 cards sat
+    in manual_review behind a set conflict nothing could clear.
+
+    Our side is read from four places rather than two for the same reason. The
+    set_code column is empty on 48 of the cards in the gap while the code is
+    spelled inside set_name, and where the catalog knows neither,
+    `printed_set_code` proves it off the Limitless page for the product GemRate
+    itself named -- GemRate names the product a card was SOLD in, the card
+    prints the set it FIRST appeared in, and refusing that difference is what
+    was rejecting correct listings as `set_code:['op04']!=['op05']`.
+    """
+
+    import op_identity_rules  # deferred: it imports this module at its top
+
+    in_claim = op_identity_rules.SET_CODE_RE.search(claim.upper())
+    claim_set = in_claim.group(1) if in_claim else " ".join(claim.split()[:-1])
+    named = op_identity_rules.SET_CODE_RE.search(str(row.get("set_name") or "").upper())
+    ours = {
+        str(row.get("v_set_code") or "").casefold(),
+        str(row.get("p_set_code") or "").casefold(),
+        named.group(1).casefold() if named else "",
+        op_identity_rules.printed_set_code(row.get("variant_id")).casefold(),
+    } - {""}
+    return bool(claim_set) and claim_set.casefold() in ours
+
+
 def stage_snk_refresh(ctx: SimpleNamespace) -> dict[str, Any]:
     """S7 (§6.4 SNK): land fresh SNK payloads for bound items, write capture
     receipts, and re-derive SNK bindings from the provider master record.
@@ -2720,11 +2788,7 @@ def stage_snk_refresh(ctx: SimpleNamespace) -> dict[str, Any]:
         # ("[S-P 227]" -> set "S-P"). When it equals the variant's set code,
         # that claim supersedes the noisy product-title-vs-set-name token
         # comparison (which can never contain era names like "SWSH").
-        claim_set = " ".join(claim.split()[:-1])
-        if claim_set and claim_set.casefold() in {
-            str(row["v_set_code"] or "").casefold(),
-            str(row["p_set_code"] or "").casefold(),
-        }:
+        if snk_claim_set_agrees(claim, row):
             conflicts = [
                 c for c in conflicts
                 if not c.startswith("set:") and not c.startswith("set_code:")
@@ -7479,11 +7543,7 @@ def cmd_snk_identity_reverify(args: argparse.Namespace) -> int:
             conflicts = _fingerprint_variant_conflicts(pseudo_fp, row)
             # Same supersede rule as S7: the bracket designation's own set
             # claim beats the noisy title-vs-set-name token comparison.
-            claim_set = " ".join(claim.split()[:-1])
-            if claim_set and claim_set.casefold() in {
-                str(row["v_set_code"] or "").casefold(),
-                str(row["p_set_code"] or "").casefold(),
-            }:
+            if snk_claim_set_agrees(claim, row):
                 conflicts = [
                     c for c in conflicts
                     if not c.startswith("set:") and not c.startswith("set_code:")

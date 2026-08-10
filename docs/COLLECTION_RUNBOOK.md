@@ -518,6 +518,35 @@ SELECT crm.cohort, COUNT(DISTINCT si.variant_id)
 `pc-identity-reverify` → `pc_cache_replay` → 由 `pc-replay` 起 linear 重跑。S8 讀嘅係 **replay
 目錄**，唔係 capture 目錄 —— 抄漏咗就係「爬咗嘢但入唔到庫」。
 
+### 【行 discovery 之前先做】One Piece 印刷 set code —— `pipelines/op_limitless_printed_code.py`
+
+**幾時用**：任何 One Piece 補數據之前，一定行呢步先。唔行嘅話 SNK 同 PC 兩條 lane 都會
+搵到正確 listing 再用 `set_code:` 掉咗佢（缺陷形狀 21）。
+
+```bash
+# 睇清楚先（唔寫檔；Limitless 頁會 cache 落 data/private/limitless/）
+python -X utf8 pipelines/op_limitless_printed_code.py
+# 落 policy 檔
+python -X utf8 pipelines/op_limitless_printed_code.py --write
+```
+
+出 `data/policy/op-printed-codes.json`（contract `op-printed-code-v1`）。
+**2026-08-10 實測**：121 張目標 → 證到 116（88 張係復刻）、hold 5。
+`provenBy` 三種：`sole_number_in_product` 33、`card_name` 60 入 `codes`（可以入 gate）；
+`promo_scan` 23 入 `advisory`（**唔准**入 gate，原因見形狀 21）。
+
+讀佢嘅係 `op_identity_rules.printed_set_code()`，四處 call site 全部經
+`rebuild_036.snk_claim_set_agrees()` / `_fingerprint_variant_conflicts()`。
+Policy 檔冇咗 = 全部返回 `""` = 行為同未修一樣（唔會爆，但會靜靜咁少一半卡）。
+
+政策檔只填**空白**，永遠唔會推翻 catalog 已經講咗嘅 `set_code`（2026-08-10 實測：
+93 條 gate 條目入面 48 條填空白、45 條同 catalog 一致、**0 條矛盾**）。
+`scripts/test_op_printed_codes.py` 守住呢條同兩層證據分家。
+
+**5 張 hold（要人手睇）**：v2040 `ambiguous_promo:P-001,ST01-001,ST21-001`、
+v2135 `ambiguous_promo:OP07-113,OP10-113,OP15-113`、v2027 `product_not_on_limitless`、
+v1445 `ambiguous:OP04-119/OP05-119/OP09-119`、v2235 `language_not_on_limitless:zhCN`。
+
 ### 缺價卡搵返正確 PC 產品 —— `pipelines/pc_identity_discover.py`
 
 **幾時用**：張卡有 pop、有 GemRate 身份，但 `catalog_source_identity` 冇任何 `exact` 價源。
@@ -789,6 +818,37 @@ seed-snapshot）。手抄落去嘅 generation 圖每次 build 完要再抄一次
     **點查**：`SELECT` 對一對兩張表個差；差幾多就係幾多張卡永遠唔會綠。
     Guard 落咗 `scripts/test_snk_identity_discover_rules.py`（poll list 必須係
     `load_exact_snk_item_to_variant()` 嘅子集）。
+21. **GemRate 講「喺邊度賣」，卡面印「邊度出世」。**（2026-08-10，123 張 OPTCG 卡）
+    123 張 One Piece `qualified_market_pending` 卡，全部同一個死因：兩條 discovery lane
+    都**搵到**正確嘅 provider listing，跟住用 `set_code:['op04']!=['op05']` 掉咗佢。
+    One Piece 復刻卡入後期產品**唔會重新編號**：OP05 booster 抽到嘅 alt-art Kaido，
+    GemRate 記做「OP05-…044」（賣佢嗰個產品），但張卡面印住 `OP04-044`（佢首度登場嗰套）。
+    provider 跟卡面，我哋跟 GemRate，於是每次都係**因為佢講真話而拒絕佢**。
+    實測：`https://onepiece.limitlesstcg.com/cards/jp/OP05` 出 154 條 card link，
+    入面有 `OP04-044` 同 `OP02-120`，而 OP05 原生最大號係 119。
+    **修法唔係放鬆閘，係修 input。** `pipelines/op_limitless_printed_code.py` 由
+    **GemRate 自己指名嗰個產品**嘅 Limitless 頁證返個印刷 code，寫落
+    `data/policy/op-printed-codes.json`；121 張目標證到 116 張（88 張真係復刻）。
+    人物／號碼／語言／treatment／tcg／mirror 一格都冇鬆，淨係「邊個 code 算係我哋嘅」多咗一個答案。
+    實測差異：SNK discover proposals **0 → 17**；PC reverify promoted **0 → 8**。
+    **形狀**：identity gate 冇錯，錯喺入面其中一個 input 答緊另一條問題。
+    一條 gate 100% 拒絕率、而且拒絕理由永遠同一個 field —— 查嗰個 field 嘅來源，唔好查 gate。
+    **兩層證據唔准撈埋**：`codes`（產品頁 sole-number 或者對到卡名）先可以入 gate；
+    `advisory`（走勻 80 個 promo 產品掃出嚟）只係俾人睇嘅線索。
+    原因喺 `snk_identity_discover.py:351` —— set code 一夾啱，promo 就會**跳過** `product_agrees`，
+    而 product_agrees 係 promo 僅餘嗰道檢查。`printed_set_code()` 只讀 `codes`，唔讀 `advisory`。
+22. **同一條問題，四個地方各有各答法。**（2026-08-10，同上嗰批卡）
+    「SNK 講嗰個 set 同我哋夾唔夾？」呢條問題喺 S7、`snk-identity-reverify`、
+    `snk-identity-discover` 三處各寫一次，`_fingerprint_variant_conflicts` 再獨立算多一次。
+    discover 嗰版學識咗由 claim／set_name／policy 三處讀 One Piece code，
+    另外三版仲用緊 Pokemon 嘅「除最後一個 token 之外全部」讀法 —— One Piece 個 code
+    黐住個號碼（`OP09-106`），所以嗰個讀法**由頭到尾**回空字串，
+    個 supersede escape 為咗佢要服務嗰隻 game 一次都冇 fire 過。
+    結果：同一張卡喺 discover 過到，喺 reverify 過唔到，永遠卡喺 `manual_review`。
+    修法：`rebuild_036.snk_claim_set_agrees()` 一個執行點，三處 call；
+    印刷 code 就直接落 `_fingerprint_variant_conflicts` 嘅 `v_codes`（第四處，亦即真正共用嗰處）。
+    **形狀**：「修好咗」嘅規矩只修咗一份 copy。改 identity 規矩之前
+    `grep` 個概念（唔係個 function 名）睇下有幾多個地方獨立實現緊。
 
 ### 相關嘅 MySQL / shell 陷阱
 

@@ -23,6 +23,13 @@
     red_variant_ids()`），唔准抄。睇唔到裁決嘅 lane 唔准提案（fail-closed）。做爆咗就行
     `python -X utf8 scripts/stamp_red_sheet_quarantine.py --write` 收返（idempotent）。
 
+12. **一條 gate 100% 拒絕、而且理由永遠同一個 field → 查嗰個 field 嘅來源，唔好查 gate。**
+    2026-08-10：123 張 OPTCG 卡全部死喺 `set_code:` 衝突，gate 冇錯，錯喺 GemRate 講「喺邊個
+    產品賣」而卡面印「邊套出世」（runbook 形狀 21）。修 input，唔准放鬆 gate。
+13. **改 identity 規矩之前，`grep` 個「概念」睇有幾多處獨立實現緊。** 同一條問題喺呢個 repo
+    出現過四份 copy（runbook 形狀 22），修一份 = 同一張卡喺 A lane 過到、B lane 過唔到。
+    收埋做一個 function 再三處 call，唔好逐處補。
+
 ## 查 bug 之前
 
 先對 [runbook「缺陷形狀清單」](docs/COLLECTION_RUNBOOK.md)。呢個 repo 出過嘅事故有固定形狀

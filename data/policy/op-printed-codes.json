@@ -1,0 +1,1169 @@
+{
+ "contract": "op-printed-code-v1",
+ "source": "onepiece.limitlesstcg.com",
+ "updatedAt": "2026-08-10T06:00:21Z",
+ "codes": {
+  "19": {
+   "printedCode": "ST01-012",
+   "product": "op05-awakening-of-the-new-era",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP05?display=list",
+   "setName": "2023 Awakening of the New Era Special Art",
+   "collectorNumber": "012",
+   "canonicalName": "2023 One Piece OP05-Awakening of the New Era Monkey D. Luffy 1st Anniversary-Signature 012"
+  },
+  "24": {
+   "printedCode": "OP05-119",
+   "product": "op05-awakening-of-the-new-era",
+   "provenBy": "sole_number_in_product",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP05?display=list",
+   "setName": "2023 Awakening of the New Era Manga Alternate Art",
+   "collectorNumber": "119",
+   "canonicalName": "2023 One Piece OP05-Awakening of the New Era Monkey D. Luffy Manga Alternate Art 119"
+  },
+  "36": {
+   "printedCode": "OP05-119",
+   "product": "op11-a-fist-of-divine-speed",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/OP11?display=list",
+   "setName": "One Piece Japanese OP11-A Fist of Divine Speed",
+   "collectorNumber": "119",
+   "canonicalName": "2025 One Piece Japanese OP11-A Fist of Divine Speed Monkey D. Luffy 3rd Anniversary-Gold 119"
+  },
+  "90": {
+   "printedCode": "ST10-010",
+   "product": "op07-500-years-in-the-future",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP07?display=list",
+   "setName": "One Piece OP07-500 Years in the Future",
+   "collectorNumber": "010",
+   "canonicalName": "2024 One Piece OP07-500 Years in the Future Trafalgar Law Treasure Rare 010"
+  },
+  "98": {
+   "printedCode": "OP01-120",
+   "product": "op01-romance-dawn",
+   "provenBy": "sole_number_in_product",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP01?display=list",
+   "setName": "One Piece OP01-Romance Dawn",
+   "collectorNumber": "120",
+   "canonicalName": "2022 One Piece OP01-Romance Dawn Shanks Manga Alternate Art 120"
+  },
+  "107": {
+   "printedCode": "OP07-051",
+   "product": "op07-500-years-in-the-future",
+   "provenBy": "sole_number_in_product",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP07?display=list",
+   "setName": "2024 500 Years In the Future Manga Art",
+   "collectorNumber": "051",
+   "canonicalName": "2024 One Piece OP07-500 Years in the Future Boa Hancock Manga Alternate Art 051"
+  },
+  "112": {
+   "printedCode": "OP05-119",
+   "product": "op11-a-fist-of-divine-speed",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/OP11?display=list",
+   "setName": "One Piece Japanese OP11-A Fist of Divine Speed",
+   "collectorNumber": "119",
+   "canonicalName": "2025 One Piece Japanese OP11-A Fist of Divine Speed Monkey D. Luffy 3rd Anniversary-Silver 119"
+  },
+  "134": {
+   "printedCode": "OP13-118",
+   "product": "op13-carrying-on-his-will",
+   "provenBy": "card_name",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP13?display=list",
+   "setName": "2025 Carrying On His Will (Op13) - English Manga Alt. Art Parallel",
+   "collectorNumber": "118",
+   "canonicalName": "2025 One Piece OP13-Carrying on His Will Monkey D. Luffy Manga Alternate Art 118"
+  },
+  "188": {
+   "printedCode": "OP02-013",
+   "product": "op02-paramount-war",
+   "provenBy": "sole_number_in_product",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP02?display=list",
+   "setName": "One Piece OP02-Paramount War",
+   "collectorNumber": "013",
+   "canonicalName": "2023 One Piece OP02-Paramount War Portgas D. Ace Manga Alternate Art 013"
+  },
+  "315": {
+   "printedCode": "OP13-118",
+   "product": "op13-carrying-on-his-will",
+   "provenBy": "card_name",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP13?display=list",
+   "setName": "2025 Carrying On His Will Alternate Art",
+   "collectorNumber": "118",
+   "canonicalName": "Monkey D. Luffy"
+  },
+  "1197": {
+   "printedCode": "ST01-012",
+   "product": "op03-pillars-of-strength",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP03?display=list",
+   "setName": "One Piece Pillars of Strength",
+   "collectorNumber": "012",
+   "canonicalName": "2023 One Piece OP03-Pillars of Strength Monkey D. Luffy Wanted Alternate Art 012"
+  },
+  "1201": {
+   "printedCode": "OP05-074",
+   "product": "op05-awakening-of-the-new-era",
+   "provenBy": "sole_number_in_product",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP05?display=list",
+   "setName": "One Piece Awakening of the New Era",
+   "collectorNumber": "074",
+   "canonicalName": "2023 One Piece OP05-Awakening of the New Era Eustass \"Captain\" Kid Manga Alternate Art 074"
+  },
+  "1212": {
+   "printedCode": "OP10-118",
+   "product": "op10-royal-blood",
+   "provenBy": "sole_number_in_product",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP10?display=list",
+   "setName": "One Piece Royal Blood",
+   "collectorNumber": "118",
+   "canonicalName": "2025 One Piece OP10-Royal Blood Monkey D. Luffy Alternate Art 118"
+  },
+  "1214": {
+   "printedCode": "OP08-052",
+   "product": "op10-royal-blood",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP10?display=list",
+   "setName": "One Piece Royal Blood",
+   "collectorNumber": "052",
+   "canonicalName": "2025 One Piece OP10-Royal Blood Portgas D. Ace Treasure Rare 052"
+  },
+  "1216": {
+   "printedCode": "OP10-063",
+   "product": "op12-legacy-of-the-master",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP12?display=list",
+   "setName": "One Piece Legacy of the Master",
+   "collectorNumber": "063",
+   "canonicalName": "2025 One Piece OP12-Legacy of the Master Vinsmoke Sanji Treasure Rare 063"
+  },
+  "1225": {
+   "printedCode": "OP07-085",
+   "product": "op11-a-fist-of-divine-speed",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP11?display=list",
+   "setName": "One Piece A Fist of Divine Speed",
+   "collectorNumber": "085",
+   "canonicalName": "2025 One Piece OP11-A Fist of Divine Speed Stussy Special Alternate Art 085"
+  },
+  "1226": {
+   "printedCode": "OP11-114",
+   "product": "op11-a-fist-of-divine-speed",
+   "provenBy": "sole_number_in_product",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP11?display=list",
+   "setName": "One Piece A Fist of Divine Speed",
+   "collectorNumber": "114",
+   "canonicalName": "2025 One Piece OP11-A Fist of Divine Speed Gum-Gum Fire-Fist Pistol Red Hawk Alternate Art 114"
+  },
+  "1228": {
+   "printedCode": "OP09-015",
+   "product": "op11-a-fist-of-divine-speed",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP11?display=list",
+   "setName": "One Piece A Fist of Divine Speed",
+   "collectorNumber": "015",
+   "canonicalName": "2025 One Piece OP11-A Fist of Divine Speed Lucky Roux Treasure Rare 015"
+  },
+  "1229": {
+   "printedCode": "OP09-005",
+   "product": "op11-a-fist-of-divine-speed",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP11?display=list",
+   "setName": "One Piece A Fist of Divine Speed",
+   "collectorNumber": "005",
+   "canonicalName": "2025 One Piece OP11-A Fist of Divine Speed Silvers Rayleigh Special Alternate Art 005"
+  },
+  "1236": {
+   "printedCode": "OP14-031",
+   "product": "op14-the-azure-seas-seven",
+   "provenBy": "card_name",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP14?display=list",
+   "setName": "One Piece the Azure Sea's Seven",
+   "collectorNumber": "031",
+   "canonicalName": "2026 One Piece OP14-EB04-the Azure Sea's Seven Nami Alternate Art 031"
+  },
+  "1244": {
+   "printedCode": "OP05-067",
+   "product": "op09-emperors-in-the-new-world",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP09?display=list",
+   "setName": "One Piece Emperors in the New World",
+   "collectorNumber": "067",
+   "canonicalName": "2024 One Piece OP09-Emperors in the New World Zoro-Juurou Special Alternate Art 067"
+  },
+  "1249": {
+   "printedCode": "OP07-015",
+   "product": "op09-emperors-in-the-new-world",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP09?display=list",
+   "setName": "One Piece Emperors in the New World",
+   "collectorNumber": "015",
+   "canonicalName": "2024 One Piece OP09-Emperors in the New World Monkey D. Dragon Special Alternate Art 015"
+  },
+  "1251": {
+   "printedCode": "OP01-121",
+   "product": "op01-romance-dawn",
+   "provenBy": "sole_number_in_product",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP01?display=list",
+   "setName": "One Piece Romance Dawn",
+   "collectorNumber": "121",
+   "canonicalName": "2022 One Piece OP01-Romance Dawn Yamato Base 121"
+  },
+  "1254": {
+   "printedCode": "OP01-003",
+   "product": "op01-romance-dawn",
+   "provenBy": "sole_number_in_product",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP01?display=list",
+   "setName": "One Piece Romance Dawn",
+   "collectorNumber": "003",
+   "canonicalName": "2022 One Piece OP01-Romance Dawn Monkey D. Luffy Alternate Art-Errata 003"
+  },
+  "1274": {
+   "printedCode": "EB02-028",
+   "product": "op13-carrying-on-his-will",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP13?display=list",
+   "setName": "One Piece Carrying On His Will",
+   "collectorNumber": "028",
+   "canonicalName": "2025 One Piece OP13-Carrying on His Will Portgas D. Ace Special Alternate Art 028"
+  },
+  "1300": {
+   "printedCode": "ST01-007",
+   "product": "op06-wings-of-the-captain",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP06?display=list",
+   "setName": "One Piece Wings of the Captain",
+   "collectorNumber": "007",
+   "canonicalName": "2024 One Piece OP06-Wings of the Captain Nami Treasure Rare 007"
+  },
+  "1424": {
+   "printedCode": "ST01-012",
+   "product": "op05-awakening-of-the-new-era",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP05?display=list",
+   "setName": "One Piece Awakening of the New Era",
+   "collectorNumber": "012",
+   "canonicalName": "2023 One Piece OP05-Awakening of the New Era Monkey D. Luffy 1st Anniversary 012"
+  },
+  "1426": {
+   "printedCode": "OP08-106",
+   "product": "op08-two-legends",
+   "provenBy": "sole_number_in_product",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP08?display=list",
+   "setName": "One Piece Two Legends",
+   "collectorNumber": "106",
+   "canonicalName": "2024 One Piece OP08-Two Legends Nami Alternate Art 106"
+  },
+  "1427": {
+   "printedCode": "OP02-013",
+   "product": "op08-two-legends",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP08?display=list",
+   "setName": "One Piece Two Legends",
+   "collectorNumber": "013",
+   "canonicalName": "2024 One Piece OP08-Two Legends Portgas D. Ace Special Alternate Art 013"
+  },
+  "1438": {
+   "printedCode": "EB01-057",
+   "product": "op11-a-fist-of-divine-speed",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP11?display=list",
+   "setName": "One Piece A Fist of Divine Speed",
+   "collectorNumber": "057",
+   "canonicalName": "2025 One Piece OP11-A Fist of Divine Speed Shirahoshi Special Alternate Art 057"
+  },
+  "1446": {
+   "printedCode": "OP09-051",
+   "product": "op09-emperors-in-the-new-world",
+   "provenBy": "card_name",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP09?display=list",
+   "setName": "One Piece Emperors in the New World",
+   "collectorNumber": "051",
+   "canonicalName": "2024 One Piece OP09-Emperors in the New World Buggy Wanted Alternate Art 051"
+  },
+  "1447": {
+   "printedCode": "OP07-051",
+   "product": "op09-emperors-in-the-new-world",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP09?display=list",
+   "setName": "One Piece Emperors in the New World",
+   "collectorNumber": "051",
+   "canonicalName": "2024 One Piece OP09-Emperors in the New World Boa Hancock Special Alternate Art 051"
+  },
+  "1448": {
+   "printedCode": "OP08-106",
+   "product": "op09-emperors-in-the-new-world",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP09?display=list",
+   "setName": "One Piece Emperors in the New World",
+   "collectorNumber": "106",
+   "canonicalName": "2024 One Piece OP09-Emperors in the New World Nami Special Alternate Art 106"
+  },
+  "1464": {
+   "printedCode": "OP13-119",
+   "product": "op13-carrying-on-his-will",
+   "provenBy": "card_name",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP13?display=list",
+   "setName": "One Piece Carrying On His Will",
+   "collectorNumber": "119",
+   "canonicalName": "2025 One Piece OP13-Carrying on His Will Portgas D. Ace Wanted Alternate Art 119"
+  },
+  "1466": {
+   "printedCode": "OP13-118",
+   "product": "op13-carrying-on-his-will",
+   "provenBy": "card_name",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP13?display=list",
+   "setName": "One Piece Carrying On His Will",
+   "collectorNumber": "118",
+   "canonicalName": "2025 One Piece OP13-Carrying on His Will Monkey D. Luffy Alternate Art 118"
+  },
+  "1467": {
+   "printedCode": "OP13-119",
+   "product": "op13-carrying-on-his-will",
+   "provenBy": "card_name",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP13?display=list",
+   "setName": "One Piece Carrying On His Will",
+   "collectorNumber": "119",
+   "canonicalName": "2025 One Piece OP13-Carrying on His Will Portgas D. Ace Alternate Art 119"
+  },
+  "1717": {
+   "printedCode": "OP01-078",
+   "product": "op01-romance-dawn",
+   "provenBy": "sole_number_in_product",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP01?display=list",
+   "setName": "One Piece Romance Dawn OP-01",
+   "collectorNumber": "078",
+   "canonicalName": "2022 One Piece OP01-Romance Dawn Boa Hancock Alternate Art 078"
+  },
+  "1722": {
+   "printedCode": "ST14-003",
+   "product": "op10-royal-blood",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP10?display=list",
+   "setName": "One Piece Royal Blood OP-10",
+   "collectorNumber": "003",
+   "canonicalName": "2025 One Piece OP10-Royal Blood Sanji Special Alternate Art 003"
+  },
+  "1731": {
+   "printedCode": "OP02-036",
+   "product": "op02-paramount-war",
+   "provenBy": "sole_number_in_product",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP02?display=list",
+   "setName": "One Piece Paramount War OP-02",
+   "collectorNumber": "036",
+   "canonicalName": "2023 One Piece OP02-Paramount War Nami Alternate Art 036"
+  },
+  "1733": {
+   "printedCode": "OP04-044",
+   "product": "op05-awakening-of-the-new-era",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP05?display=list",
+   "setName": "One Piece Awakening of the New Era OP-05",
+   "collectorNumber": "044",
+   "canonicalName": "2023 One Piece OP05-Awakening of the New Era Kaido Special Alternate Art 044"
+  },
+  "1738": {
+   "printedCode": "OP09-118",
+   "product": "op13-carrying-on-his-will",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP13?display=list",
+   "setName": "One Piece Carrying On His Will OP-13",
+   "collectorNumber": "118",
+   "canonicalName": "2025 One Piece OP13-Carrying on His Will Gol D. Roger Wanted Alternate Art 118"
+  },
+  "1741": {
+   "printedCode": "OP11-058",
+   "product": "op13-carrying-on-his-will",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP13?display=list",
+   "setName": "One Piece Carrying On His Will OP-13",
+   "collectorNumber": "058",
+   "canonicalName": "2025 One Piece OP13-Carrying on His Will Monkey D. Luffy Treasure Rare 058"
+  },
+  "1745": {
+   "printedCode": "OP03-112",
+   "product": "op08-two-legends",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP08?display=list",
+   "setName": "One Piece Two Legends OP-08",
+   "collectorNumber": "112",
+   "canonicalName": "2024 One Piece OP08-Two Legends Charlotte Pudding Special Alternate Art 112"
+  },
+  "1757": {
+   "printedCode": "OP13-118",
+   "product": "op13-carrying-on-his-will",
+   "provenBy": "card_name",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP13?display=list",
+   "setName": "One Piece Carrying On His Will",
+   "collectorNumber": "118",
+   "canonicalName": "2025 One Piece OP13-Carrying on His Will Monkey D. Luffy Wanted Alternate Art 118"
+  },
+  "1760": {
+   "printedCode": "OP09-118",
+   "product": "op09-emperors-in-the-new-world",
+   "provenBy": "sole_number_in_product",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP09?display=list",
+   "setName": "One Piece Emperors in the New World OP-09",
+   "collectorNumber": "118",
+   "canonicalName": "2024 One Piece OP09-Emperors in the New World Gol D. Roger Base 118"
+  },
+  "1872": {
+   "printedCode": "OP08-106",
+   "product": "op09-emperors-in-the-new-world",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/OP09?display=list",
+   "setName": "One Piece Japanese OP09-Emperors in the New World",
+   "collectorNumber": "106",
+   "canonicalName": "2024 One Piece Japanese Emperors in the New World Nami Special Alternate Art 106"
+  },
+  "1875": {
+   "printedCode": "OP07-085",
+   "product": "op11-a-fist-of-divine-speed",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/OP11?display=list",
+   "setName": "One Piece Japanese OP11-A Fist of Divine Speed",
+   "collectorNumber": "085",
+   "canonicalName": "2025 One Piece Japanese OP11-A Fist of Divine Speed Stussy Special Alternate Art 085"
+  },
+  "1876": {
+   "printedCode": "OP02-059",
+   "product": "gift-collection-01",
+   "provenBy": "sole_number_in_product",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/gift-collection-01?display=list",
+   "setName": "One Piece Gift Collection 2023",
+   "collectorNumber": "059",
+   "canonicalName": "2023 One Piece Gift Collection 2023 Boa Hancock Base 059"
+  },
+  "1890": {
+   "printedCode": "OP01-078",
+   "product": "op04-kingdoms-of-intrigue",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/OP04?display=list",
+   "setName": "One Piece Japanese OP04-Kingdoms of Intrigue",
+   "collectorNumber": "078",
+   "canonicalName": "2023 One Piece Japanese OP04-Kingdoms of Intrigue Boa Hancock Special Alternate Art 078"
+  },
+  "1898": {
+   "printedCode": "OP09-093",
+   "product": "op09-emperors-in-the-new-world",
+   "provenBy": "card_name",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP09?display=list",
+   "setName": "One Piece OP09-Emperors in the New World",
+   "collectorNumber": "093",
+   "canonicalName": "2024 One Piece OP09-Emperors in the New World Marshall D. Teach Wanted Alternate Art 093"
+  },
+  "1906": {
+   "printedCode": "OP03-112",
+   "product": "op03-pillars-of-strength",
+   "provenBy": "sole_number_in_product",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/OP03?display=list",
+   "setName": "One Piece Japanese OP03-Pillars of Strength",
+   "collectorNumber": "112",
+   "canonicalName": "2023 One Piece Japanese OP03-Pillars of Strength Charlotte Pudding Alternate Art 112"
+  },
+  "1907": {
+   "printedCode": "OP01-016",
+   "product": "prb01-premium-booster-one-piece-the-best",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/PRB01?display=list",
+   "setName": "One Piece PRB01-Premium Booster -One Piece Card the Best-",
+   "collectorNumber": "016",
+   "canonicalName": "2024 One Piece PRB01-Premium Booster -One Piece Card the Best- Nami Manga Alternate Art 016"
+  },
+  "1913": {
+   "printedCode": "ST02-007",
+   "product": "op08-two-legends",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/OP08?display=list",
+   "setName": "One Piece Japanese OP08-Two Legends",
+   "collectorNumber": "007",
+   "canonicalName": "2024 One Piece Japanese OP08-Two Legends Jewelry Bonney Special Alternate Art 007"
+  },
+  "1915": {
+   "printedCode": "OP09-001",
+   "product": "english-version-2nd-anniversary-set",
+   "provenBy": "sole_number_in_product",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/english-version-2nd-anniversary-set?display=list",
+   "setName": "One Piece English Version 2nd Anniversary Set",
+   "collectorNumber": "001",
+   "canonicalName": "2025 One Piece English Version 2nd Anniversary Set Shanks Base 001"
+  },
+  "1931": {
+   "printedCode": "OP12-079",
+   "product": "japanese-3rd-anniversary-set",
+   "provenBy": "sole_number_in_product",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/japanese-3rd-anniversary-set?display=list",
+   "setName": "One Piece Japanese 3rd Anniversary Set",
+   "collectorNumber": "079",
+   "canonicalName": "2025 One Piece Japanese 3rd Anniversary Set Luffy Is the Man Who Will Be the King of Pirates!!! Base 079"
+  },
+  "1943": {
+   "printedCode": "OP04-112",
+   "product": "op04-kingdoms-of-intrigue",
+   "provenBy": "sole_number_in_product",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/OP04?display=list",
+   "setName": "One Piece Japanese OP04-Kingdoms of Intrigue",
+   "collectorNumber": "112",
+   "canonicalName": "2023 One Piece Japanese OP04-Kingdoms of Intrigue Yamato Alternate Art 112"
+  },
+  "1959": {
+   "printedCode": "OP05-119",
+   "product": "english-version-2nd-anniversary-set",
+   "provenBy": "sole_number_in_product",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/english-version-2nd-anniversary-set?display=list",
+   "setName": "One Piece English Version 2nd Anniversary Set",
+   "collectorNumber": "119",
+   "canonicalName": "2025 One Piece English Version 2nd Anniversary Set Monkey D. Luffy Base 119"
+  },
+  "1962": {
+   "printedCode": "OP01-013",
+   "product": "english-version-1st-anniversary-set",
+   "provenBy": "sole_number_in_product",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/english-version-1st-anniversary-set?display=list",
+   "setName": "One Piece English Version 1st Anniversary Set",
+   "collectorNumber": "013",
+   "canonicalName": "2024 One Piece English Version 1st Anniversary Set Sanji Base 013"
+  },
+  "1967": {
+   "printedCode": "ST16-004",
+   "product": "op11-a-fist-of-divine-speed",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/OP11?display=list",
+   "setName": "One Piece Japanese OP11-A Fist of Divine Speed",
+   "collectorNumber": "004",
+   "canonicalName": "2025 One Piece Japanese OP11-A Fist of Divine Speed Shanks Special Alternate Art 004"
+  },
+  "1972": {
+   "printedCode": "OP01-016",
+   "product": "op05-awakening-of-the-new-era",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/OP05?display=list",
+   "setName": "One Piece Japanese OP05-Awakening of the New Era",
+   "collectorNumber": "016",
+   "canonicalName": "2023 One Piece Japanese Awakening of the New Era Nami Special Alternate Art 016"
+  },
+  "1974": {
+   "printedCode": "OP09-070",
+   "product": "premium-card-collection-best-selection-04",
+   "provenBy": "sole_number_in_product",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/premium-card-collection-best-selection-04?display=list",
+   "setName": "One Piece Premium Card Collection -Best Selection Vol.4 -",
+   "collectorNumber": "070",
+   "canonicalName": "2025 One Piece Premium Card Collection -Best Selection Vol.4 - Nami Base 070"
+  },
+  "1986": {
+   "printedCode": "OP02-120",
+   "product": "op02-paramount-war",
+   "provenBy": "sole_number_in_product",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/OP02?display=list",
+   "setName": "One Piece Japanese OP02-Paramount War",
+   "collectorNumber": "120",
+   "canonicalName": "2022 One Piece Japanese OP02-Paramount War Uta 120"
+  },
+  "1993": {
+   "printedCode": "OP06-119",
+   "product": "prb02-one-piece-card-the-best-vol2",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/PRB02?display=list",
+   "setName": "One Piece PRB02-Premium Booster -One Piece Card the Best- Vol.2",
+   "collectorNumber": "119",
+   "canonicalName": "2025 One Piece PRB02-Premium Booster -One Piece Card the Best- Vol.2 Sanji Manga Alternate Art 119"
+  },
+  "2008": {
+   "printedCode": "OP03-112",
+   "product": "op08-two-legends",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/OP08?display=list",
+   "setName": "One Piece Japanese OP08-Two Legends",
+   "collectorNumber": "112",
+   "canonicalName": "2024 One Piece Japanese OP08-Two Legends Charlotte Pudding Special Alternate Art 112"
+  },
+  "2010": {
+   "printedCode": "OP06-101",
+   "product": "op07-500-years-in-the-future",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/OP07?display=list",
+   "setName": "One Piece Japanese OP07-500 Years in the Future",
+   "collectorNumber": "101",
+   "canonicalName": "2024 One Piece Japanese OP07-500 Years in the Future O-Nami Special Alternate Art 101"
+  },
+  "2024": {
+   "printedCode": "OP02-013",
+   "product": "op08-two-legends",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/OP08?display=list",
+   "setName": "One Piece Japanese OP08-Two Legends",
+   "collectorNumber": "013",
+   "canonicalName": "2024 One Piece Japanese OP08-Two Legends Portgas D. Ace Special Alternate Art 013"
+  },
+  "2029": {
+   "printedCode": "OP06-119",
+   "product": "op11-a-fist-of-divine-speed",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/OP11?display=list",
+   "setName": "One Piece Japanese OP11-A Fist of Divine Speed",
+   "collectorNumber": "119",
+   "canonicalName": "2025 One Piece Japanese OP11-A Fist of Divine Speed Sanji Special Alternate Art 119"
+  },
+  "2030": {
+   "printedCode": "OP09-061",
+   "product": "english-version-2nd-anniversary-set",
+   "provenBy": "sole_number_in_product",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/english-version-2nd-anniversary-set?display=list",
+   "setName": "One Piece Japanese English Version 2nd Anniversary Set",
+   "collectorNumber": "061",
+   "canonicalName": "2025 One Piece Japanese English Version 2nd Anniversary Set Monkey D. Luffy Base 061"
+  },
+  "2032": {
+   "printedCode": "ST18-001",
+   "product": "op10-royal-blood",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP10?display=list",
+   "setName": "One Piece OP10-Royal Blood",
+   "collectorNumber": "001",
+   "canonicalName": "2025 One Piece OP10-Royal Blood Uso-Hachi Special Alternate Art 001"
+  },
+  "2033": {
+   "printedCode": "OP05-119",
+   "product": "prb01-premium-booster-one-piece-the-best",
+   "provenBy": "sole_number_in_product",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/PRB01?display=list",
+   "setName": "One Piece Japanese PRB01-Premium Booster -One Piece Card the Best-",
+   "collectorNumber": "119",
+   "canonicalName": "2024 One Piece Japanese PRB01-Premium Booster -One Piece Card the Best- Monkey D. Luffy Base 119"
+  },
+  "2034": {
+   "printedCode": "OP09-061",
+   "product": "english-version-2nd-anniversary-set",
+   "provenBy": "sole_number_in_product",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/english-version-2nd-anniversary-set?display=list",
+   "setName": "One Piece English Version 2nd Anniversary Set",
+   "collectorNumber": "061",
+   "canonicalName": "2025 One Piece English Version 2nd Anniversary Set Monkey D. Luffy Base 061"
+  },
+  "2045": {
+   "printedCode": "ST01-012",
+   "product": "op05-awakening-of-the-new-era",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/OP05?display=list",
+   "setName": "One Piece Japanese OP05-Awakening of the New Era",
+   "collectorNumber": "012",
+   "canonicalName": "2023 One Piece Japanese OP05-Awakening of the New Era Monkey D. Luffy 1st Anniversary 012"
+  },
+  "2054": {
+   "printedCode": "OP05-119",
+   "product": "prb01-premium-booster-one-piece-the-best",
+   "provenBy": "sole_number_in_product",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/PRB01?display=list",
+   "setName": "One Piece Japanese PRB01-Premium Booster -One Piece Card the Best-",
+   "collectorNumber": "119",
+   "canonicalName": "2024 One Piece Japanese PRB01-Premium Booster -One Piece Card the Best- Monkey D. Luffy Alternate Art 119"
+  },
+  "2074": {
+   "printedCode": "OP12-039",
+   "product": "japanese-3rd-anniversary-set",
+   "provenBy": "sole_number_in_product",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/japanese-3rd-anniversary-set?display=list",
+   "setName": "One Piece Japanese 3rd Anniversary Set",
+   "collectorNumber": "039",
+   "canonicalName": "2025 One Piece Japanese 3rd Anniversary Set Luffy Is the Man Who Will Become the King of Pirates!!! Base 039"
+  },
+  "2077": {
+   "printedCode": "OP01-016",
+   "product": "gift-collection-01",
+   "provenBy": "sole_number_in_product",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/gift-collection-01?display=list",
+   "setName": "One Piece Gift Collection 2023",
+   "collectorNumber": "016",
+   "canonicalName": "2023 One Piece Gift Collection 2023 Nami Base 016"
+  },
+  "2081": {
+   "printedCode": "ST18-004",
+   "product": "op09-emperors-in-the-new-world",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP09?display=list",
+   "setName": "One Piece OP09-Emperors in the New World",
+   "collectorNumber": "004",
+   "canonicalName": "2024 One Piece OP09-Emperors in the New World Zoro-Juurou Treasure Rare 004"
+  },
+  "2096": {
+   "printedCode": "OP09-004",
+   "product": "op09-emperors-in-the-new-world",
+   "provenBy": "card_name",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP09?display=list",
+   "setName": "One Piece OP09-Emperors in the New World",
+   "collectorNumber": "004",
+   "canonicalName": "2024 One Piece OP09-Emperors in the New World Shanks Wanted Alternate Art 004"
+  },
+  "2097": {
+   "printedCode": "ST18-005",
+   "product": "op11-a-fist-of-divine-speed",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/OP11?display=list",
+   "setName": "One Piece Japanese OP11-A Fist of Divine Speed",
+   "collectorNumber": "005",
+   "canonicalName": "2025 One Piece Japanese OP11-A Fist of Divine Speed Luffy-Tarou Special Alternate Art 005"
+  },
+  "2099": {
+   "printedCode": "ST06-006",
+   "product": "op08-two-legends",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/OP08?display=list",
+   "setName": "One Piece Japanese OP08-Two Legends",
+   "collectorNumber": "006",
+   "canonicalName": "2024 One Piece Japanese OP08-Two Legends Tashigi Special Alternate Art 006"
+  },
+  "2130": {
+   "printedCode": "OP02-059",
+   "product": "op02-paramount-war",
+   "provenBy": "sole_number_in_product",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/OP02?display=list",
+   "setName": "One Piece Japanese OP02-Paramount War",
+   "collectorNumber": "059",
+   "canonicalName": "2022 One Piece Japanese OP02-Paramount War Boa Hancock Box Topper 059"
+  },
+  "2131": {
+   "printedCode": "OP14-112",
+   "product": "op14-the-azure-seas-seven",
+   "provenBy": "sole_number_in_product",
+   "reprint": false,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/OP14?display=list",
+   "setName": "One Piece Japanese OP14-the Azure Sea's Seven",
+   "collectorNumber": "112",
+   "canonicalName": "2025 One Piece Japanese OP14-the Azure Sea's Seven Boa Hancock Special Alternate Art 112"
+  },
+  "2133": {
+   "printedCode": "ST15-002",
+   "product": "op10-royal-blood",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP10?display=list",
+   "setName": "One Piece OP10-Royal Blood",
+   "collectorNumber": "002",
+   "canonicalName": "2025 One Piece OP10-Royal Blood Edward Newgate Special Alternate Art 002"
+  },
+  "2134": {
+   "printedCode": "ST06-006",
+   "product": "op08-two-legends",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP08?display=list",
+   "setName": "One Piece OP08-Two Legends",
+   "collectorNumber": "006",
+   "canonicalName": "2024 One Piece OP08-Two Legends Tashigi Special Alternate Art 006"
+  },
+  "2139": {
+   "printedCode": "OP07-051",
+   "product": "op09-emperors-in-the-new-world",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/OP09?display=list",
+   "setName": "One Piece Japanese OP09-Emperors in the New World",
+   "collectorNumber": "051",
+   "canonicalName": "2024 One Piece Japanese Emperors in the New World Boa Hancock Special Alternate Art 051"
+  },
+  "2146": {
+   "printedCode": "OP01-017",
+   "product": "english-version-1st-anniversary-set",
+   "provenBy": "sole_number_in_product",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/english-version-1st-anniversary-set?display=list",
+   "setName": "One Piece English Version 1st Anniversary Set",
+   "collectorNumber": "017",
+   "canonicalName": "2024 One Piece English Version 1st Anniversary Set Nico Robin Base 017"
+  },
+  "2153": {
+   "printedCode": "OP01-004",
+   "product": "english-version-1st-anniversary-set",
+   "provenBy": "sole_number_in_product",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/english-version-1st-anniversary-set?display=list",
+   "setName": "One Piece English Version 1st Anniversary Set",
+   "collectorNumber": "004",
+   "canonicalName": "2024 One Piece English Version 1st Anniversary Set Usopp Base 004"
+  },
+  "2156": {
+   "printedCode": "OP01-016",
+   "product": "prb01-premium-booster-one-piece-the-best",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/PRB01?display=list",
+   "setName": "One Piece Japanese PRB01-Premium Booster -One Piece Card the Best-",
+   "collectorNumber": "016",
+   "canonicalName": "2024 One Piece Japanese Premium Booster -One Piece Card the Best- Nami Manga Alternate Art 016"
+  },
+  "2167": {
+   "printedCode": "EB01-057",
+   "product": "op11-a-fist-of-divine-speed",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/OP11?display=list",
+   "setName": "One Piece Japanese OP11-A Fist of Divine Speed",
+   "collectorNumber": "057",
+   "canonicalName": "2025 One Piece Japanese OP11-A Fist of Divine Speed Shirahoshi Special Alternate Art 057"
+  },
+  "2168": {
+   "printedCode": "ST02-007",
+   "product": "op08-two-legends",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP08?display=list",
+   "setName": "One Piece OP08-Two Legends",
+   "collectorNumber": "007",
+   "canonicalName": "2024 One Piece OP08-Two Legends Jewelry Bonney Special Alternate Art 007"
+  },
+  "2172": {
+   "printedCode": "OP01-001",
+   "product": "premium-card-collection-25th-edition",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/premium-card-collection-25th-edition?display=list",
+   "setName": "One Piece Premium Card Collection 25th Edition",
+   "collectorNumber": "001",
+   "canonicalName": "2023 One Piece Premium Bandai Premium Card Collection 25th Edition Roronoa Zoro Base 001"
+  },
+  "2174": {
+   "printedCode": "OP06-119",
+   "product": "prb02-one-piece-card-the-best-vol2",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/PRB02?display=list",
+   "setName": "One Piece Japanese PRB02-Premium Booster -One Piece Card the Best- Vol.2",
+   "collectorNumber": "119",
+   "canonicalName": "2025 One Piece Japanese PRB02-Premium Booster -One Piece Card the Best- Vol.2 Sanji Manga Alternate Art 119"
+  },
+  "2184": {
+   "printedCode": "OP04-044",
+   "product": "op05-awakening-of-the-new-era",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/OP05?display=list",
+   "setName": "One Piece Japanese OP05-Awakening of the New Era",
+   "collectorNumber": "044",
+   "canonicalName": "2023 One Piece Japanese OP05-Awakening of the New Era Kaido Special Alternate Art 044"
+  },
+  "2227": {
+   "printedCode": "OP02-120",
+   "product": "op05-awakening-of-the-new-era",
+   "provenBy": "sole_number_in_product",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/jp/OP05?display=list",
+   "setName": "One Piece Japanese OP05-Awakening of the New Era",
+   "collectorNumber": "120",
+   "canonicalName": "2023 One Piece Japanese OP05-Awakening of the New Era Uta Special Alternate Art 120"
+  }
+ },
+ "advisory": {
+  "8": {
+   "printedCode": "EB02-010",
+   "product": "misc-promos",
+   "provenBy": "promo_scan",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/misc-promos?display=list",
+   "setName": "One Piece Promos",
+   "collectorNumber": "010",
+   "canonicalName": "2025 One Piece Promos Monkey D. Luffy Dodgers X One Piece Night  010"
+  },
+  "42": {
+   "printedCode": "ST13-003",
+   "product": "misc-promos",
+   "provenBy": "promo_scan",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/misc-promos?display=list",
+   "setName": "One Piece Promos",
+   "collectorNumber": "003",
+   "canonicalName": "2025 One Piece Promos Monkey D. Luffy Bvb X One Piece Match Day 2025 003"
+  },
+  "54": {
+   "printedCode": "ST21-014",
+   "product": "3rd-anniversary-treasure-campaign-pack",
+   "provenBy": "promo_scan",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/3rd-anniversary-treasure-campaign-pack?display=list",
+   "setName": "One Piece Japanese Promos",
+   "collectorNumber": "014",
+   "canonicalName": "2025 One Piece Japanese Promos Monkey D. Luffy One Piece Magazine Vol.20 014"
+  },
+  "64": {
+   "printedCode": "OP06-118",
+   "product": "japanese-2nd-anniversary-set",
+   "provenBy": "promo_scan",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/japanese-2nd-anniversary-set?display=list",
+   "setName": "Comic Parallel",
+   "collectorNumber": "118",
+   "canonicalName": "2023 One Piece Japanese Wings of the Captain Roronoa Zoro Manga Alternate Art 118"
+  },
+  "157": {
+   "printedCode": "OP01-025",
+   "product": "english-version-1st-anniversary-set",
+   "provenBy": "promo_scan",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/english-version-1st-anniversary-set?display=list",
+   "setName": "One Piece Japanese Promos",
+   "collectorNumber": "025",
+   "canonicalName": "2023 One Piece Japanese Promos Roronoa Zoro Official Event Top Prize 025"
+  },
+  "163": {
+   "printedCode": "ST21-014",
+   "product": "3rd-anniversary-treasure-campaign-pack",
+   "provenBy": "promo_scan",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/3rd-anniversary-treasure-campaign-pack?display=list",
+   "setName": "2025 3rd Anniversary! One Piece Card Treasure Campaign Pack",
+   "collectorNumber": "014",
+   "canonicalName": "2025 One Piece 3rd Anniversary! One Piece Card Treasure Campaign Pack Monkey D. Luffy Base 014"
+  },
+  "197": {
+   "printedCode": "OP09-050",
+   "product": "prize-cards",
+   "provenBy": "promo_scan",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/prize-cards?display=list",
+   "setName": "2025 Card Game Promo Championship Offline Regionals Top  Prize",
+   "collectorNumber": "050",
+   "canonicalName": "2025 One Piece Promos Nami Championship 25-26-Top 64 050"
+  },
+  "240": {
+   "printedCode": "ST21-014",
+   "product": "3rd-anniversary-treasure-campaign-pack",
+   "provenBy": "promo_scan",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/3rd-anniversary-treasure-campaign-pack?display=list",
+   "setName": "One Piece Japanese Promos",
+   "collectorNumber": "014",
+   "canonicalName": "2025 One Piece Japanese Promos Monkey D. Luffy Official Event Top Prize 014"
+  },
+  "1902": {
+   "printedCode": "OP06-093",
+   "product": "prize-cards",
+   "provenBy": "promo_scan",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/prize-cards?display=list",
+   "setName": "One Piece Japanese Promos",
+   "collectorNumber": "093",
+   "canonicalName": "2024 One Piece Japanese Promos Perona Official Event Prize-Asia 093"
+  },
+  "1917": {
+   "printedCode": "OP05-062",
+   "product": "misc-promos",
+   "provenBy": "promo_scan",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/misc-promos?display=list",
+   "setName": "One Piece Promos",
+   "collectorNumber": "062",
+   "canonicalName": "2025 One Piece Promos O-Nami Illustration Box Vol.1 062"
+  },
+  "1921": {
+   "printedCode": "OP07-053",
+   "product": "3rd-anniversary-treasure-campaign-pack",
+   "provenBy": "promo_scan",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/3rd-anniversary-treasure-campaign-pack?display=list",
+   "setName": "One Piece 3rd Anniversary Tournament 3 Brothers Pack",
+   "collectorNumber": "053",
+   "canonicalName": "2025 One Piece 3rd Anniversary Tournament 3 Brothers Pack Portgas D. Ace Winner 053"
+  },
+  "1925": {
+   "printedCode": "OP06-093",
+   "product": "prize-cards",
+   "provenBy": "promo_scan",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/prize-cards?display=list",
+   "setName": "One Piece Japanese Promos",
+   "collectorNumber": "093",
+   "canonicalName": "2024 One Piece Japanese Promos Perona Official Event Prize 093"
+  },
+  "2016": {
+   "printedCode": "OP07-073",
+   "product": "misc-promos",
+   "provenBy": "promo_scan",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/misc-promos?display=list",
+   "setName": "One Piece Promos",
+   "collectorNumber": "073",
+   "canonicalName": "2025 One Piece Promos Monkey D. Luffy Bandai Card Games Fest 073"
+  },
+  "2026": {
+   "printedCode": "OP09-001",
+   "product": "english-version-2nd-anniversary-set",
+   "provenBy": "promo_scan",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/english-version-2nd-anniversary-set?display=list",
+   "setName": "One Piece Promos",
+   "collectorNumber": "001",
+   "canonicalName": "2025 One Piece Promos Shanks PSA Magazine Exclusive 001"
+  },
+  "2063": {
+   "printedCode": "OP07-038",
+   "product": "misc-promos",
+   "provenBy": "promo_scan",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/misc-promos?display=list",
+   "setName": "One Piece Promos",
+   "collectorNumber": "038",
+   "canonicalName": "2025 One Piece Promos Boa Hancock PSA Magazine Exclusive 038"
+  },
+  "2072": {
+   "printedCode": "OP07-073",
+   "product": "misc-promos",
+   "provenBy": "promo_scan",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/misc-promos?display=list",
+   "setName": "One Piece Japanese Promos",
+   "collectorNumber": "073",
+   "canonicalName": "2025 One Piece Japanese Promos Monkey D. Luffy Bandai Card Games Fest 073"
+  },
+  "2090": {
+   "printedCode": "OP04-083",
+   "product": "japanese-2nd-anniversary-set",
+   "provenBy": "promo_scan",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/japanese-2nd-anniversary-set?display=list",
+   "setName": "One Piece Japanese Promos",
+   "collectorNumber": "083",
+   "canonicalName": "2023 One Piece Japanese Promos Sabo 8 Packs Battle-Winner 083"
+  },
+  "2106": {
+   "printedCode": "OP05-060",
+   "product": "misc-promos",
+   "provenBy": "promo_scan",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/misc-promos?display=list",
+   "setName": "One Piece Promos",
+   "collectorNumber": "060",
+   "canonicalName": "2024 One Piece Promos Monkey D. Luffy PSA Magazine Exclusive 060"
+  },
+  "2117": {
+   "printedCode": "OP05-060",
+   "product": "misc-promos",
+   "provenBy": "promo_scan",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/misc-promos?display=list",
+   "setName": "One Piece Promos",
+   "collectorNumber": "060",
+   "canonicalName": "2024 One Piece Promos Monkey D. Luffy Sound Loader Volume.1 060"
+  },
+  "2126": {
+   "printedCode": "OP01-017",
+   "product": "english-version-1st-anniversary-set",
+   "provenBy": "promo_scan",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/english-version-1st-anniversary-set?display=list",
+   "setName": "One Piece Premium Card Collection -One Piece Film Red-",
+   "collectorNumber": "017",
+   "canonicalName": "2023 One Piece Premium Card Collection -One Piece Film Red- Nico Robin Base 017"
+  },
+  "2157": {
+   "printedCode": "OP01-013",
+   "product": "english-version-1st-anniversary-set",
+   "provenBy": "promo_scan",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/english-version-1st-anniversary-set?display=list",
+   "setName": "One Piece Japanese 25th Anniversary Premium Card Collection",
+   "collectorNumber": "013",
+   "canonicalName": "2022 One Piece Japanese 25th Anniversary Premium Card Collection Sanji Base 013"
+  },
+  "2159": {
+   "printedCode": "OP01-077",
+   "product": "championship-2024-top-players-pack",
+   "provenBy": "promo_scan",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/championship-2024-top-players-pack?display=list",
+   "setName": "One Piece Japanese Premium Card Collection -Girls Edition-",
+   "collectorNumber": "077",
+   "canonicalName": "2023 One Piece Japanese Premium Card Collection -Girls Edition- Perona Base 077"
+  },
+  "2177": {
+   "printedCode": "OP08-074",
+   "product": "misc-promos",
+   "provenBy": "promo_scan",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/misc-promos?display=list",
+   "setName": "One Piece Promos",
+   "collectorNumber": "074",
+   "canonicalName": "2025 One Piece Promos Black Maria Illustration Box Vol.2 074"
+  }
+ }
+}
