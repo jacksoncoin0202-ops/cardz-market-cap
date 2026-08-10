@@ -38,7 +38,17 @@ DEFAULT_CREDENTIALS_ENV = ROOT / "data" / "runtime" / "config" / "rebuild.env"
 # normal night. During a freeze the cardz account keeps SELECT but loses DML,
 # which is exactly the inert-rollback behaviour cmd_daily_accept documents.
 DAILY_CREDENTIALS_ENV = ROOT / "data" / "runtime" / "config" / "backend.env"
-RESTORE_PROOF = ROOT / "data" / "runtime" / "rebuild-036" / "restore-proof-rowcounts-20260808.json"
+# Undated on purpose. This used to name the 2026-08-08 dump, so re-proving the
+# backup meant writing a NEW file and leaving the gate reading the old one. The
+# proof is a current fact about the database, not an archive entry; the dated
+# 2026-08-08 file stays where it is as the Gate 0.2 receipt.
+#
+# To re-prove, take the dump and rewrite this file with its sha and its own
+# `-- Dump completed on` line:
+#   docker exec cardz-market-cap-db-1 sh -c 'mysqldump -u root
+#     -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines --triggers
+#     cardz_market_cap' > <dump>
+RESTORE_PROOF = ROOT / "data" / "runtime" / "rebuild-036" / "restore-proof.json"
 PRUNE_ALLOWLIST = ROOT / "data" / "policy" / "prune-order-allowlist.json"
 FREEZE_PROOF_SCRIPT = ROOT / "scripts" / "prove_writer_freeze.py"
 MYSQL_CONTAINER = "cardz-market-cap-db-1"
@@ -293,6 +303,38 @@ def _run_freeze_proof() -> None:
         )
 
 
+def _dump_taken_at(proof: dict[str, Any], dump_file: Path) -> datetime:
+    """When the backup was taken, read off the backup rather than the proof.
+
+    The proof is a hand-written file and the time it claims decides whether a
+    destructive stage may run, so the claim is checked against the bytes whose
+    sha was just verified: mysqldump signs off with its own
+    `-- Dump completed on ...` line and that line has to be in the file.
+
+    Naive UTC. mysqldump writes the marker in the server's local time and the
+    server runs UTC (`@@system_time_zone`, measured 2026-08-10), which is the
+    same clock `UTC_TIMESTAMP(6)` stamps the checkpoint ledger with.
+    """
+
+    from datetime import datetime
+
+    marker = str(proof.get("dumpCompletedMarker") or "")
+    if not marker.startswith("-- Dump completed on "):
+        raise SystemExit("S0 ABORT: restore proof has no dumpCompletedMarker")
+    with dump_file.open("rb") as handle:
+        handle.seek(max(0, dump_file.stat().st_size - 4096))
+        tail = handle.read().decode("utf-8", "replace")
+    if marker not in tail:
+        raise SystemExit(
+            f"S0 ABORT: the dump does not end with the proof's marker: {marker!r}"
+        )
+    stamp = " ".join(marker[len("-- Dump completed on "):].split())
+    try:
+        return datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        raise SystemExit(f"S0 ABORT: unreadable dump completion time: {stamp!r}")
+
+
 def stage_preflight(ctx: SimpleNamespace) -> dict[str, Any]:
     counts: dict[str, Any] = {}
 
@@ -374,6 +416,36 @@ def stage_preflight(ctx: SimpleNamespace) -> dict[str, Any]:
     if actual != proof["dumpSha256"]:
         raise SystemExit("S0 ABORT: backup dump sha mismatch against restore proof")
     counts["backup_sha_verified"] = True
+
+    # A matching sha proves the file has not been modified, which is not the
+    # same fact as it being a restore point. Measured 2026-08-10: the dump this
+    # gate was protecting completed 2026-08-08 07:58 UTC while the newest row
+    # in the checkpoint ledger was 15:26 UTC two days later -- restoring it
+    # would have discarded every binding, every prune and two days of
+    # collection, and the gate still answered `backup_sha_verified`. What has
+    # to hold is that nothing the database records postdates the backup of it.
+    taken_at = _dump_taken_at(proof, dump_file)
+    newest = None
+    with ctx.conn.cursor() as cursor:
+        for sql in (
+            "SELECT MAX(GREATEST(started_at, COALESCE(finished_at, started_at))) AS t"
+            " FROM cardz_rebuild_checkpoint",
+            "SELECT MAX(GREATEST(started_at, COALESCE(completed_at, started_at))) AS t"
+            " FROM market_ingest_run",
+        ):
+            cursor.execute(sql)
+            value = cursor.fetchone()["t"]
+            if value is not None and (newest is None or value > newest):
+                newest = value
+    if newest is not None and newest > taken_at:
+        raise SystemExit(
+            f"S0 ABORT: the backup predates the database it is protecting."
+            f" Dump completed {taken_at.isoformat()}Z, newest ledgered write"
+            f" {newest.isoformat()}Z. Take a fresh dump and rewrite"
+            f" {RESTORE_PROOF.name}; see the RESTORE_PROOF comment for the"
+            f" command."
+        )
+    counts["backup_taken_at"] = f"{taken_at.isoformat()}Z"
 
     with ctx.conn.cursor() as cursor:
         cursor.execute("SELECT COUNT(*) AS n FROM market_ingest_run WHERE status='running'")
@@ -6315,9 +6387,16 @@ def _run_single_stage(ctx: SimpleNamespace) -> int:
     name, fn, _input_fn, always_run = entry
     if fn is None:
         raise SystemExit(f"stage '{name}' is not implemented in this build")
+    # S0 lives in stage_preflight, and only the linear path walked through it.
+    # `--stage prune-apply` is the command that DELETES rows and it reached
+    # them having proven no backup, no stopped scheduler and no drained ingest
+    # run -- it checked the freeze and the activation and nothing else. Every
+    # stage pays it here: preflight is always_run, so this is a re-check rather
+    # than a re-do, and _run_freeze_proof is its first act.
+    if name != "preflight":
+        stage_preflight(ctx)
     if entry in POST_ACTIVATION_STAGES:
         _assert_activated(ctx)
-        _run_freeze_proof()
     record = _checkpoints(ctx.conn, ctx.generation).get(name)
     status = record["status"] if record else "pending"
     if status == "failed" and not args.force_stage:
