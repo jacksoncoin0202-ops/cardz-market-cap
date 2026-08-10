@@ -446,7 +446,8 @@ def _parse_capture_observation(
             return None, "raw_path_escape"
         if sha256_file(raw_path) != digest:
             return None, "raw_sha_mismatch"
-    except OSError:
+        raw = json.loads(raw_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
         return None, "raw_unreadable"
     if normalized.get("gemrate_id") != gid:
         return None, "gid_mismatch"
@@ -463,12 +464,27 @@ def _parse_capture_observation(
     g10 = grades.get("g10") if isinstance(grades, dict) else None
     if not isinstance(g10, int) or g10 < 0:
         return None, "no_psa10_population"
-    total = None
-    if isinstance(grades, dict):
-        candidate_total = sum(
-            value for value in grades.values() if isinstance(value, int) and value >= 0
-        )
-        total = candidate_total if len(grades) > 1 else None
+    # PSA's own total for this card, read from the raw row rather than added up
+    # from the normalized grade dict. That dict is not a breakdown: both live
+    # normalizers reduce the PSA row to {"g10": N}, so the old
+    # `sum(grades.values()) if len(grades) > 1` wrote NULL for 16,754 of the
+    # 16,834 captures, and for the 80 written by an older normalizer that kept
+    # a full breakdown it understated 59 of them by up to 189 -- half grades,
+    # qualifiers and the auto_/non_auto_ buckets are sibling fields on the PSA
+    # row, not keys in the dict. card_total_grades is present on all 16,834 raw
+    # PSA rows and is PSA-scoped, so it does not reintroduce the cross-grader
+    # rollup (gid 0d446fc8…: sum 27,356, card_total_grades 27,545, Universal
+    # rollup 33,683).
+    raw_psa_row = next(
+        (
+            row for row in raw.get("population_data") or []
+            if isinstance(row, dict) and str(row.get("grader") or "").lower() == "psa"
+        ),
+        None,
+    )
+    total = (raw_psa_row or {}).get("card_total_grades")
+    if not isinstance(total, int) or total < 0:
+        total = None
     fetched_at = str(receipt.get("fetchedAt") or "")
     if not fetched_at:
         return None, "no_fetched_at"
