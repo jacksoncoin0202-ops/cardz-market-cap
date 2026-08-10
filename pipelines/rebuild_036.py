@@ -7318,6 +7318,90 @@ def _pc_print_signature_ok(page_parallel: str, row: Mapping[str, Any]) -> bool:
     return False
 
 
+def _pc_map_url_by_product() -> dict[str, str]:
+    """product id -> PriceCharting URL, from every private source map on disk.
+
+    The map rows were built out of page HTML without unescaping, so a console
+    slug arrives as "pokemon-scarlet-&amp;-violet-151" while the real URL
+    carries a literal ampersand -- the same entity leak the heading parser
+    had. Fetching the escaped form gets a 404, the page is recorded missing,
+    and the card drops out of product_ready for a reason that has nothing to
+    do with the card."""
+
+    urls: dict[str, str] = {}
+    for path in sorted(ROOT.glob("data/runtime/private-source-map/*.jsonl")):
+        for line in path.read_text(encoding="utf-8-sig").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            product_id = str(row.get("pc_product_id") or "")
+            raw = row.get("pc_url")
+            if product_id and raw and product_id not in urls:
+                urls[product_id] = html_unescape(str(raw))
+    return urls
+
+
+def _pc_fetch_missing_pages(conn, pages_dir: Path, map_html_by_variant: dict[int, str]) -> dict[str, Any]:
+    """Capture the pages pc-identity-reverify would hold as missing or unparseable.
+
+    Run by hand on 2026-08-10 for 25 bindings; 20 came back and stopped being
+    held. The command holds a binding when the page is not on disk, which is a
+    statement about the folder rather than about the binding, so the fetch
+    belongs next to the check that needs it. Same capture contract as
+    pc_identity_discover: fetch, prove the page's own product id is the one
+    asked for, keep it or delete it."""
+
+    import pricecharting_cf_session as cf_session
+
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT si.external_entity_id AS pid, si.variant_id"
+            "  FROM catalog_source_identity si"
+            " WHERE si.source_code='pricecharting'"
+            "   AND si.match_status IN ('manual_review','rejected')"
+            f"   AND {NOT_A_REJECTION_VERDICT_SQL}"
+        )
+        candidates = cursor.fetchall()
+
+    urls = _pc_map_url_by_product()
+    counts = {"considered": len(candidates), "alreadyGood": 0, "noUrl": 0,
+              "fetched": 0, "fetchFailed": 0, "pageSaysOther": 0}
+    for row in candidates:
+        pid = str(row["pid"])
+        variant_id = int(row["variant_id"])
+        mapped = map_html_by_variant.get(variant_id, "")
+        existing = pc_capture_for_product(
+            pages_dir, variant_id, pid, (ROOT / mapped) if mapped else None
+        )
+        if existing is not None:
+            body = existing.read_text(encoding="utf-8", errors="replace")
+            if _pc_page_product_id(body) == pid and _pc_page_identity(body)[0] is not None:
+                counts["alreadyGood"] += 1
+                continue
+        url = urls.get(pid)
+        if not url:
+            counts["noUrl"] += 1
+            continue
+        out = pages_dir / f"{variant_id}_{pid}.html"
+        code = cf_session.cmd_fetch(url, out, timeout_s=90)
+        if code != 0 or not out.is_file():
+            counts["fetchFailed"] += 1
+            continue
+        body = out.read_text(encoding="utf-8", errors="replace")
+        if _pc_page_product_id(body) != pid:
+            out.unlink(missing_ok=True)
+            counts["pageSaysOther"] += 1
+            continue
+        counts["fetched"] += 1
+        time.sleep(2.0)
+    print(json.dumps({"phase": "pc-fetch-missing", "counts": counts}, ensure_ascii=False), flush=True)
+    return counts
+
+
 def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
     """Re-verify manual_review PC bindings against freshly captured pages.
 
@@ -7371,6 +7455,8 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
                 )
 
     conn = connect(credentials)
+    if getattr(args, "fetch_missing", False):
+        _pc_fetch_missing_pages(conn, pages_dir, map_html_by_variant)
     counts = {
         "reviewBindings": 0, "quarantineReconsidered": 0,
         "pageMissing": 0, "pageParseFailures": 0,

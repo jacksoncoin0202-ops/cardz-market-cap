@@ -7,7 +7,7 @@
 1. **唔准 `git add -A` / `git add .`** — 逐個檔 add。`data/private/` 同 `data/runtime/` 已 gitignore（2026-08-08 起），但呢條規矩照守：working tree 隨時有唔應該入 repo 嘅嘢。
 2. **`backend.env` 一個 byte 都唔准改**（讀可以）。任何 rebuild DDL/DML 用 `data/runtime/config/rebuild.env`（`--credentials-env`）。writer freeze 期間 `cardz@%` 只有 SELECT。
 3. **PriceCharting 只用 CDP port 9333**（headed Chrome，`scripts/ensure_chrome_cdp.ps1 -Port 9333`）。9222 係 Codex 嘅 browser profile：唔准掂，唔准 fallback。headless 必被 Cloudflare 擋，唔好試。
-4. **唔准同時起兩個 `rebuild-036` orchestrator**（冇 process mutex 保護你）。有 background run 行緊時，要跑 stage 就直接 call stage function，唔好再入 orchestrator。
+4. **同時起兩個 orchestrator 而家係 code 擋，唔再靠自律。** `operator_control.py` `main()` 除 `READ_ONLY_COMMANDS` 之外每條 subcommand 都攞 `operator_e2e_lease`（MySQL `GET_LOCK`），第二個會即刻 `refused: another CARDZ 026 operator run owns …`。所以唔好再「直接 call stage function 繞過 orchestrator」——嗰個係舊時冇閘先要嘅做法，繞過即係繞過個閘。
 5. **舊 checkout `C:\Users\jackson0202\Documents\Playground\cardz-market-cap` 只准讀** — 佢擁有 MySQL 3308 嘅 docker compose 同 14GB volume，刪/搬 = 斷 DB。
 6. **秘密**：唔准將任何 env 密碼/token 印落 log 或 commit。
 7. **採集唔准 filter** — fetch-all 落 landing，入 DB 先揀（政策，見 runbook）。

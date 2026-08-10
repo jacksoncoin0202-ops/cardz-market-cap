@@ -9,7 +9,7 @@ import json
 import os
 import subprocess
 import sys
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -54,9 +54,31 @@ def utc_now_sql() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
 
 
+# Commands that only read. Everything else takes the lease, so a subcommand
+# added later cannot reach the database unprotected without someone deleting
+# its way out of this set. The opposite shape -- opt in per command -- is what
+# left rebuild-036 unleased: two orchestrators ran on one generation and the
+# second re-ran discover, because _run_linear reads a 'running' checkpoint as
+# runnable. The runbook carried the rule as a bold sentence instead.
+READ_ONLY_COMMANDS = frozenset({
+    "status", "export-gaps", "export-operator-snapshot", "export-product-subset",
+    "snk-image-priority-status", "scan-candidates",
+})
+
+_LEASE_DEPTH = 0
+
+
 @contextmanager
 def operator_e2e_lease(owner: str):
     """Serialize migration, collection, materialization and pass as one run."""
+    global _LEASE_DEPTH
+    if _LEASE_DEPTH:
+        # Held already by this process. main() takes it for the whole mutating
+        # dispatch; cmd_daily and cmd_db_tidy keep asking because they are also
+        # imported and called directly. GET_LOCK is per session, and the nested
+        # call would open a second connection and be refused by the first.
+        yield
+        return
     load_env()
     lease_conn = db()
     lease_cur = lease_conn.cursor()
@@ -75,9 +97,11 @@ def operator_e2e_lease(owner: str):
         ),
         flush=True,
     )
+    _LEASE_DEPTH += 1
     try:
         yield
     finally:
+        _LEASE_DEPTH -= 1
         try:
             lease_cur.execute("SELECT RELEASE_LOCK(%s)", (OPERATOR_E2E_LEASE,))
         finally:
@@ -2615,6 +2639,11 @@ def main() -> int:
     )
     p_pc_reverify.add_argument("--write", action="store_true")
     p_pc_reverify.add_argument("--pages-dir", dest="pages_dir", type=Path)
+    p_pc_reverify.add_argument(
+        "--fetch-missing", dest="fetch_missing", action="store_true",
+        help="capture the pages this command would otherwise hold as missing or"
+             " unparseable, before ruling on them",
+    )
     p_snk_reverify = sub.add_parser(
         "snk-identity-reverify",
         help="promote manual_review SNK bindings a fresh master fetch can prove (dry-run without --write)",
@@ -2639,89 +2668,94 @@ def main() -> int:
         help="reuse one already-completed six-adapter refresh receipt; performs no network work",
     )
     args = parser.parse_args()
-    if args.cmd == "status":
-        cmd_status()
-    elif args.cmd == "export-gaps":
-        cmd_export_gaps(limit=args.limit)
-    elif args.cmd == "accept-binding":
-        accept_binding(
-            variant_id=args.variant_id,
-            freeze_kind=args.kind,
-            source_code=args.source_code,
-            actor=args.actor,
-            note=args.note,
-        )
-    elif args.cmd == "export-operator-snapshot":
-        cmd_export_operator_snapshot(output=args.output)
-    elif args.cmd == "export-product-subset":
-        cmd_export_product_subset(output=args.output)
-    elif args.cmd == "snk-image-priority-status":
-        cmd_snk_image_priority_status()
-    elif args.cmd == "promote-product-subset":
-        cmd_promote_product_subset(
-            snapshot_path=args.snapshot,
-            receipt_path=args.receipt,
-            output_path=args.output,
-            expected_cards=args.expected_cards,
-            expected_backlog=args.expected_backlog,
-        )
-    elif args.cmd == "freeze-active-sources-from-checkpoints":
-        cmd_freeze_active_sources_from_checkpoints(
-            actor=args.actor,
-            authorization_note=args.authorization_note,
-        )
-    elif args.cmd == "scan-candidates":
-        cmd_scan_candidates(min_pop=args.min_pop)
-    elif args.cmd == "daily":
-        return cmd_daily(
-            do_pass=args.do_pass,
-            refresh=args.refresh,
-            refresh_report_path=args.refresh_report,
-        )
-    elif args.cmd == "db-tidy":
-        cmd_db_tidy(
-            snk_history_archive_dir=args.snk_history_archive_dir,
-            project_ingested_history=args.project_ingested_history,
-        )
-    elif args.cmd == "rebuild-036":
-        import rebuild_036
+    # Default-on: only READ_ONLY_COMMANDS opt out, so a subcommand added
+    # later is serialized against every other operator run by existing.
+    with ExitStack() as lease:
+        if args.cmd not in READ_ONLY_COMMANDS:
+            lease.enter_context(operator_e2e_lease(args.cmd))
+        if args.cmd == "status":
+            cmd_status()
+        elif args.cmd == "export-gaps":
+            cmd_export_gaps(limit=args.limit)
+        elif args.cmd == "accept-binding":
+            accept_binding(
+                variant_id=args.variant_id,
+                freeze_kind=args.kind,
+                source_code=args.source_code,
+                actor=args.actor,
+                note=args.note,
+            )
+        elif args.cmd == "export-operator-snapshot":
+            cmd_export_operator_snapshot(output=args.output)
+        elif args.cmd == "export-product-subset":
+            cmd_export_product_subset(output=args.output)
+        elif args.cmd == "snk-image-priority-status":
+            cmd_snk_image_priority_status()
+        elif args.cmd == "promote-product-subset":
+            cmd_promote_product_subset(
+                snapshot_path=args.snapshot,
+                receipt_path=args.receipt,
+                output_path=args.output,
+                expected_cards=args.expected_cards,
+                expected_backlog=args.expected_backlog,
+            )
+        elif args.cmd == "freeze-active-sources-from-checkpoints":
+            cmd_freeze_active_sources_from_checkpoints(
+                actor=args.actor,
+                authorization_note=args.authorization_note,
+            )
+        elif args.cmd == "scan-candidates":
+            cmd_scan_candidates(min_pop=args.min_pop)
+        elif args.cmd == "daily":
+            return cmd_daily(
+                do_pass=args.do_pass,
+                refresh=args.refresh,
+                refresh_report_path=args.refresh_report,
+            )
+        elif args.cmd == "db-tidy":
+            cmd_db_tidy(
+                snk_history_archive_dir=args.snk_history_archive_dir,
+                project_ingested_history=args.project_ingested_history,
+            )
+        elif args.cmd == "rebuild-036":
+            import rebuild_036
 
-        return rebuild_036.cmd_rebuild(args)
-    elif args.cmd == "rebuild-036-activate":
-        import rebuild_036
+            return rebuild_036.cmd_rebuild(args)
+        elif args.cmd == "rebuild-036-activate":
+            import rebuild_036
 
-        return rebuild_036.cmd_activate(args)
-    elif args.cmd == "rebuild-036-e2e":
-        import rebuild_036
+            return rebuild_036.cmd_activate(args)
+        elif args.cmd == "rebuild-036-e2e":
+            import rebuild_036
 
-        return rebuild_036.cmd_e2e(args)
-    elif args.cmd == "rebuild-036-freeze":
-        import rebuild_036
+            return rebuild_036.cmd_e2e(args)
+        elif args.cmd == "rebuild-036-freeze":
+            import rebuild_036
 
-        return rebuild_036.cmd_freeze(args)
-    elif args.cmd == "rebuild-036-unfreeze":
-        import rebuild_036
+            return rebuild_036.cmd_freeze(args)
+        elif args.cmd == "rebuild-036-unfreeze":
+            import rebuild_036
 
-        return rebuild_036.cmd_unfreeze(args)
-    elif args.cmd == "daily-accept":
-        import rebuild_036
+            return rebuild_036.cmd_unfreeze(args)
+        elif args.cmd == "daily-accept":
+            import rebuild_036
 
-        return rebuild_036.cmd_daily_accept(args)
-    elif args.cmd == "pc-identity-reverify":
-        import rebuild_036
+            return rebuild_036.cmd_daily_accept(args)
+        elif args.cmd == "pc-identity-reverify":
+            import rebuild_036
 
-        return rebuild_036.cmd_pc_identity_reverify(args)
-    elif args.cmd == "snk-identity-reverify":
-        import rebuild_036
+            return rebuild_036.cmd_pc_identity_reverify(args)
+        elif args.cmd == "snk-identity-reverify":
+            import rebuild_036
 
-        return rebuild_036.cmd_snk_identity_reverify(args)
-    elif args.cmd == "snk-identity-discover":
-        import snk_identity_discover
+            return rebuild_036.cmd_snk_identity_reverify(args)
+        elif args.cmd == "snk-identity-discover":
+            import snk_identity_discover
 
-        return snk_identity_discover.cmd_snk_identity_discover(args)
-    else:
-        raise SystemExit(f"unknown command: {args.cmd}")
-    return 0
+            return snk_identity_discover.cmd_snk_identity_discover(args)
+        else:
+            raise SystemExit(f"unknown command: {args.cmd}")
+        return 0
 
 
 if __name__ == "__main__":

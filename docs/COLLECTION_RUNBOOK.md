@@ -430,6 +430,23 @@ through `operator_control.py` (module docstring, `pipelines/rebuild_036.py`).
 | S13 | `prune-apply` | post-activation, explicit `--stage` only |
 | S14 | `canary` | post-activation, explicit `--stage` only, always_run |
 
+### 一句過（預設用呢個）
+
+```bash
+python -X utf8 pipelines/operator_control.py rebuild-036-e2e \
+  --generation 036_<YYYYMMDD>T<HHMMSS>Z
+```
+
+`cmd_e2e`（`pipelines/rebuild_036.py`）行齊成條鏈：關 cardz scheduled tasks → freeze →
+S0..S11 → activate → prune-apply → canary → unfreeze → 開返啱啱關咗嗰幾條 task → bake
+snapshot。Unfreeze 同開返 task 喺 `finally`，中途炸都會行。Flags：`--invalidate-from`、
+`--credentials-env`、`--freshness-hours`、`--skip-bake`。
+
+改完 code 唔使自己記住 `--invalidate-from`：checkpoint 而家連 stage 行到嘅 code 一齊
+hash（`_stage_input_sha` / `_code_sha`），改咗邊條 lane 就邊條 lane 報 INPUT DRIFT，
+唔會靜靜 `stage-skip` 出返舊答案。範圍係 transitive 但 scoped —— 改 `_capture_fingerprint`
+只郁 `identity-resolve` 同 `bind`，唔會迫你重爬 `discover`。
+
 ### Full run (linear S0..S11)
 
 ```bash
@@ -442,9 +459,12 @@ Flags (argparse in `pipelines/operator_control.py`): `--generation` (required, m
 checkpoints anyway), `--stage`, `--invalidate-from`, `--force-stage`, `--dry-run`,
 `--credentials-env`, `--freshness-hours` (default **72.0**).
 
-**Never start a second orchestrator while one is running.** Note this is doctrine: there is no
-process-level mutex in the code — only per-stage checkpoint rows (`running` status + attempt
-counter) and S0's stale-run abort stand between you and a corrupted run.
+**A second orchestrator is refused by the code.** `main()` takes `operator_e2e_lease`
+(MySQL `GET_LOCK`) for every subcommand outside `READ_ONLY_COMMANDS`, so the second process
+dies with `refused: another CARDZ 026 operator run owns cardz-market-cap:operator-e2e:v1`
+before it touches a checkpoint. This used to be doctrine only, and doctrine lost: two
+orchestrators ran on one generation and the second silently re-ran `discover`, because
+`_run_linear` reads a `running` checkpoint as runnable.
 
 ### Incremental / single stage
 
@@ -465,7 +485,9 @@ python -X utf8 pipelines/operator_control.py rebuild-036 \
   --generation 036_<...>Z --stage canary
 ```
 
-`rebuild-036-activate` requires `--receipt-sha256` (`pipelines/operator_control.py`).
+`rebuild-036-activate` 嘅 `--receipt-sha256` 而家係 optional：唔畀就自己讀返嗰個 generation
+最新一張 `passed=1` 嘅 receipt。閘從來都唔係人手抄嗰串 hash，而係 activate 自己 in-process
+重跑 validator 同正要 activate 嗰個 DB 對數（`cmd_activate`，`pipelines/rebuild_036.py`）。
 `prune-apply` and `canary` run **only** via an explicit `--stage`, and `_run_single_stage`
 first calls `_assert_activated` and `_run_freeze_proof` (`pipelines/rebuild_036.py`) — they can
 never fire from a linear run. `rebuild-036-freeze` and `rebuild-036-unfreeze --confirm` exist for
@@ -969,8 +991,9 @@ seed-snapshot）。手抄落去嘅 generation 圖每次 build 完要再抄一次
 3. **Writer freeze:** all rebuild DDL/DML goes through the credentials in
    `data/runtime/config/rebuild.env` via `--credentials-env`
    (`pipelines/rebuild_036.py` `DEFAULT_CREDENTIALS_ENV`). Never widen the backend account.
-4. **Never start a second `rebuild-036` orchestrator while one is running** (doctrine — not
-   enforced by a process mutex; see section 5).
+4. **A second `rebuild-036` orchestrator is refused in code** — `main()` takes
+   `operator_e2e_lease` (MySQL `GET_LOCK`) for every subcommand outside
+   `READ_ONLY_COMMANDS` (`pipelines/operator_control.py`); see section 5.
 5. **`prune-apply` / `canary` only via explicit `--stage` after activation is proven** —
    enforced in code by `_assert_activated` + `_run_freeze_proof`
    (`pipelines/rebuild_036.py`).
