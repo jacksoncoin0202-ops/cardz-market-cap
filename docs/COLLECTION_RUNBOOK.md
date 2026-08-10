@@ -722,6 +722,24 @@ seed-snapshot）。手抄落去嘅 generation 圖每次 build 完要再抄一次
     讀 `MARKET_DATA_SNAPSHOT_PATH`。即係「切 live-db 記得順手清 pointer」呢步**一直係空氣**，
     真嗰個變數留喺 env 度照贏。同 shape 5 一樣：冇 call site 嘅安全步驟＝冇安全步驟。
     改 env var 名之前 `grep` 個名喺 code 入面有冇人讀。
+20. **工作清單由寬嗰張表出，執行嗰陣用嚴嗰張表判。**（2026-08-10，86 張卡）
+    `collect_control` 由 `catalog_source_identity.match_status='exact'` 砌 `snk_price`
+    poll list，但 `snk_market_data` 落庫係認 `operator_strict_source_identity`（037 view，
+    仲要驗 036 provider-native evidence + capture receipt）。v1203/v1204 係 pre-036 binding，
+    S7 因為 soft parallel mismatch 冇 restamp，status 照舊 `exact` → 入到 poll list →
+    ingest 當 `no_exact_identity` skip。
+    **真正殺傷力唔係嗰 2 張，係 contract 喺 `record_successful_poll` 之前 return**：
+    同一批入咗庫嘅 86 張卡一個 checkpoint 都攞唔到，下次照樣全部重跑，永遠唔會綠。
+    由 08-09 開始每晚都係咁，`snk_price:incr 88` 個數一日都冇郁過 —— 睇個數字以為冇進度，
+    其實係每晚做完再擦乾淨。
+    **形狀**：一個 all-or-nothing gate 架喺 batch 層，而 batch 成員資格由另一張表決定。
+    2 個 poison row 就可以永久鎖住成條 lane。
+    **點修**：唔好放鬆個 contract（有 kline 但綁唔到 = 真係蝕數據，一定要嘈）。
+    要改嘅係 **poll list 同 ingest 認同一張表**。攔起嘅卡要喺 status 出返個數
+    （`snkPriceIdentityNotStrict`），唔可以靠「佢唔喺個 list 度」嚟表達。
+    **點查**：`SELECT` 對一對兩張表個差；差幾多就係幾多張卡永遠唔會綠。
+    Guard 落咗 `scripts/test_snk_identity_discover_rules.py`（poll list 必須係
+    `load_exact_snk_item_to_variant()` 嘅子集）。
 
 ### 相關嘅 MySQL / shell 陷阱
 
