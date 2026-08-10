@@ -574,9 +574,11 @@ no_console 11、ambiguous 8。三種 hold 各自嘅意思：
 1. **`stage_validate` ~5 分鐘。** `EXPLAIN` 顯示佢會 materialize `market_price_daily`
    （358,164 行）做兩次 full table scan（`derived15`、`derived40`）。唔好因為佢慢就以為
    hang 咗。
-2. **`price-materialize` 會將成個 `skipped` array 噴落 stdout。**（2026-08-09 實測一次
-   ~430 個 item，單行 30k+ 字）用 `| tail` 收唔窄，因為佢係一行 JSON。要睇 counts 就睇
-   最尾嗰行 `stage-complete`；要睇 skipped 就應該落 artifact 唔係落 log。
+2. ~~**`price-materialize` 會將成個 `skipped` array 噴落 stdout。**~~（2026-08-10 修好）
+   `stage-complete` 個 counts 而家過 `rebuild_036.printable_counts()`：超過 3 個 item 嘅
+   list 變成 `{count, sample, omitted, seeAlso}`，**唔會靜靜咁截短**。
+   全份仍然喺 `cardz_rebuild_checkpoint.counts_json`（DB 嗰邊冇改過）。
+   實測：5,538 字 → 184 字。
 3. **`freshness72h` 嘅 `priceAgeHours` 會係負數**（2026-08-09 實測 `-9.42`）。SNK kline
    日 bar 嘅 `effective_at` 蓋章喺**當日 23:59:59**，所以未夠鐘之前佢喺未來。個 gate 係
    `<= 72.0`，負數照過，但代價係**個 feed 死咗都仲可以扮新鮮多 24 個鐘**。改之前要先答

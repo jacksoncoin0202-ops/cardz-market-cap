@@ -5786,6 +5786,29 @@ def _stage_failed(conn, generation: str, stage: str, error_code: str) -> None:
     conn.commit()
 
 
+def printable_counts(counts: Mapping[str, Any], *, keep: int = 3) -> dict[str, Any]:
+    """The checkpoint keeps the whole receipt; stdout gets a readable copy.
+
+    A stage that skipped ~430 items printed all of them as one 30k-character
+    line, which `| tail` cannot narrow because it is one line -- so the counts
+    that matter scrolled away. Long lists are replaced by their length, a
+    sample, and how many were left out, so nothing is quietly truncated: the
+    full list is still in cardz_rebuild_checkpoint.counts_json."""
+
+    printable: dict[str, Any] = {}
+    for key, value in counts.items():
+        if isinstance(value, (list, tuple)) and len(value) > keep:
+            printable[key] = {
+                "count": len(value),
+                "sample": list(value[:keep]),
+                "omitted": len(value) - keep,
+                "seeAlso": "cardz_rebuild_checkpoint.counts_json",
+            }
+        else:
+            printable[key] = value
+    return printable
+
+
 def _run_stage(ctx: SimpleNamespace, name: str, fn: Callable, *, forced: bool) -> None:
     print(json.dumps({"phase": "stage-start", "stage": name, "forced": forced}, ensure_ascii=False), flush=True)
     _stage_begin(ctx.conn, ctx.generation, name)
@@ -5800,7 +5823,8 @@ def _run_stage(ctx: SimpleNamespace, name: str, fn: Callable, *, forced: bool) -
     _stage_finish(ctx.conn, ctx.generation, name, result)
     print(
         json.dumps(
-            {"phase": "stage-complete", "stage": name, "counts": result.get("counts") or {}},
+            {"phase": "stage-complete", "stage": name,
+             "counts": printable_counts(result.get("counts") or {})},
             ensure_ascii=False, default=str,
         ),
         flush=True,
