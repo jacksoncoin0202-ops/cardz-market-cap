@@ -23,7 +23,13 @@ export function MarketPage({ kind, snapshot }: { kind: MarketPageKind; snapshot:
   const t = copy[locale];
   const hero = kind === "pokemon" ? t.pokemonHero : kind === "one-piece" ? t.onePieceHero : kind === "watchlist" ? t.watchlistHero : t.hero;
   const cards = snapshot.top100;
-  const heatmapTitle = marketHeatmapTitle(kind, cards.length, t);
+  /* 傳 raw title（保留 {count}）俾 Heatmap 自己按 visibleCards.length replace，
+     咁 Tiles slider 改咗數量，標題同 Share image 都會跟住變。 */
+  const heatmapTitle = kind === "pokemon"
+    ? t.heatmap.pokemonTitle
+    : kind === "one-piece"
+      ? t.heatmap.onePieceTitle
+      : t.heatmap.title;
   const marketLabel = kind === "pokemon" ? t.nav.pokemon : kind === "one-piece" ? t.nav.onePiece : t.nav.all;
   const structuredData = {
     "@context": "https://schema.org",
@@ -37,7 +43,8 @@ export function MarketPage({ kind, snapshot }: { kind: MarketPageKind; snapshot:
       },
       {
         "@type": "ItemList",
-        name: heatmapTitle,
+        /* structured data 用 full count（100），唔係 slider 嘅 visible count */
+        name: marketHeatmapTitle(kind, cards.length, t),
         numberOfItems: cards.length,
         itemListElement: cards.map((card) => ({
           "@type": "ListItem",

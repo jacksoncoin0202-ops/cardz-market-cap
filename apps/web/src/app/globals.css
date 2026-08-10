@@ -426,6 +426,8 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
 }
 
 .heatmap-section {
+  /* 用 svh 唔係 vh：Line in-app browser 嘅 dynamic toolbar 會令 100vh 不斷縮，
+     heatmap 跟住郁。svh 係最小 viewport，toolbar 伸縮都唔會影響 layout。 */
   height: calc(100vh - var(--header-height));
   height: calc(100svh - var(--header-height));
   min-height: 0;
@@ -639,6 +641,21 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
 .heatmap-frame:focus-within .heatmap-tile:not(:hover):not(:focus-visible) {
   opacity: 0.5;
   filter: saturate(0.6) brightness(0.9);
+}
+/* 手機 / touch device：hover 會 stick，掃過嘅卡會被「揀死」做高亮、其他變暗。
+   hover: none 之下唔好做呢個 dim，等所有 tile 保持原色。 */
+@media (hover: none) {
+  .heatmap-frame:hover .heatmap-tile:not(:hover),
+  .heatmap-frame:focus-within .heatmap-tile:not(:hover):not(:focus-visible) {
+    opacity: 1;
+    filter: none;
+  }
+  /* touch 嘅 sticky hover 會俾個 tile 留下白框 + 陰影，取消埋 */
+  .heatmap-tile:hover {
+    box-shadow: none;
+    filter: none;
+    z-index: auto;
+  }
 }
 .heatmap-tile:hover,
 .heatmap-tile:focus-visible {
@@ -1191,10 +1208,12 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   }
   .mobile-card-right {
     flex: none;
+    flex-shrink: 0;
     display: flex;
     flex-direction: column;
     align-items: flex-end;
     gap: 4px;
+    white-space: nowrap;
   }
   .mobile-card-price {
     color: var(--ink);
@@ -1302,7 +1321,8 @@ html.theme-transitions .brand-logo-dark {
 }
 
 /* ── Detail actions / share ────────────────────────────────── */
-.detail-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+/* fixed 卡圖 z-index 40，detail-actions 要高過佢先唔會被遮住 */
+.detail-actions { position: relative; z-index: 50; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
 .share-button {
   min-height: 44px;
   display: inline-flex;
@@ -1386,7 +1406,6 @@ html.theme-transitions .brand-logo-dark {
   .sheet-image { min-height: 270px; padding: 10px; border-radius: 18px; background: var(--sheet-image-bg); }
   .sheet-image img { max-height: 370px; }
   .detail-grid { display: block; grid-template-columns: none; }
-  .detail-art { position: relative; top: auto; height: 400px; min-height: 0; margin-bottom: 26px; }
   .detail-header { padding-top: 0; }
   .story-panel { padding: 26px; }
   .grader-page { padding-top: 30px; }
@@ -1446,8 +1465,8 @@ html.theme-transitions .brand-logo-dark {
 
 /* ── Detail / chart / footer base styles ───────────────────── */
 .detail-art {
-  position: sticky;
-  top: calc(var(--header-height) + 20px);
+  /* 內頁圖放喺頁面頂部，唔再浮；scroll 嗰陣跟埋內容一齊走。 */
+  position: relative;
   height: min(520px, calc(100vh - var(--header-height) - 80px));
   height: min(520px, calc(100svh - var(--header-height) - 80px));
   display: flex;
@@ -1578,10 +1597,10 @@ html.theme-transitions .brand-logo-dark {
     gap: 0 8px;
     padding: 4px 14px;
   }
-  .brand { grid-column: 1; grid-row: 1; justify-self: start; }
+  .brand { grid-column: 1; grid-row: 1; justify-self: start; display: inline-flex; align-items: center; gap: 6px; }
   .brand-logo { height: 24px; }
   .brand-logo-fe02 { height: 34px; }
-  .brand-beta { padding: 2px 4px; font-size: 8px; }
+  .brand-beta { flex: none; padding: 2px 4px; font-size: 8px; }
   .market-controls { grid-column: 2; grid-row: 1; justify-content: flex-end; justify-self: end; }
   .market-controls .select-control { flex: none; padding-inline: 7px; }
   .primary-nav {
