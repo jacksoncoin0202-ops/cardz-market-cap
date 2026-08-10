@@ -92,7 +92,16 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
             <div className="wide-metric"><span title={t.labels.salesHelp}>{t.periods[period]} {t.labels.trackedSales}</span><strong className="metric-value-fit">{formatTrackedSales(windowMetric.trackedSales, currency, snapshot.rates, locale)}</strong><MetricDelta metric={windowMetric.trackedSales.valueUsd} changePct={windowMetric.trackedSalesChangePct} currency={currency} rates={snapshot.rates} locale={locale} /></div>
             <div><span>{t.labels.ungradedReference}</span><strong>{formatMetricMoney(card.priceUngradedReference, currency, snapshot.rates, locale)}</strong></div>
           </section>
-          <p className="data-time">{t.labels.asOf}: {formatDate(snapshot.effectiveAt || card.pricePsa10.asOf, locale)}</p>
+          {/*
+            「資料時間」講嘅係上面嗰堆數幾時嘅，唔係個 snapshot 幾時 bake。
+            原本行 `snapshot.effectiveAt || card.pricePsa10.asOf`，而 effectiveAt 永遠有值，
+            所以第二項係死 code，逐張卡都畫緊 generation 時間。實測 1286 張出街卡入面
+            949 張（73.8%）個真實價格日期比 generation 早 8 日以上，最誇張嗰張
+            （rk1231）價格係 2026-03-27，個頁面照寫「Data time: Aug 10, 2026」——
+            差 136 日。市值 = 價 × POP，所以呢個日期一錯，成塊 metrics 都報錯時間。
+            改用卡自己嗰個價格觀察日；冇價先跌返 snapshot 時間。
+          */}
+          <p className="data-time">{t.labels.asOf}: {formatDate(card.pricePsa10.asOf || snapshot.effectiveAt, locale)}</p>
           <HistoryChart points={card.historyDaily} locale={locale} currency={currency} rates={snapshot.rates} />
         </div>
       </article>
