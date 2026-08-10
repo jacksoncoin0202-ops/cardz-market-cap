@@ -1562,6 +1562,9 @@ def _gemrate_bind_evidence(fp: Mapping[str, Any], generation: str) -> tuple[dict
 # was corrected still carry the Universal rollup wording, so the binding
 # transaction restates it for every variant it settles.
 _PSA_FULL_NAME_SQL = "JSON_UNQUOTE(JSON_EXTRACT(m.detail_json,'$.fingerprint.description'))"
+_PSA_LANGUAGE_SQL = (
+    "JSON_UNQUOTE(JSON_EXTRACT(m.detail_json,'$.fingerprint.derivedLanguage'))"
+)
 
 
 def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
@@ -2374,6 +2377,37 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
                 (generation,),
             )
             counts["psaNamesRestated"] = cursor.rowcount
+
+            # Same authority, same transaction, for the same reason. A NULL
+            # card_language is the ABSENCE of a claim, and _fingerprint_variant_
+            # conflicts gates the whole language comparison on `v_lang and
+            # f_lang` -- so a blank column did not mean "unknown, refuse", it
+            # meant a fingerprint of any language passed unopposed. Variant 1813
+            # ('2024 One Piece English Version 1st Anniversary Set Nami Base
+            # 016', card_language NULL) was bound exact to SNKRDUNK item 254304,
+            # 'ナミ R (赤ナミ) [OP01-016]【中国語版】', and published that Chinese
+            # printing's price as the English card's on 2026-08-10. Four of the
+            # 1605 bound variants held a blank language. Replayed 2026-08-11:
+            # those four fill (1813/1814 en, 1865/1866 ja), v1813 then raises
+            # language:zh!=en and snk-refresh demotes it to manual_review, and
+            # v1814 -- bound to SNK 287032, the 【英語版】 listing of the same
+            # anniversary set -- stays clean. Nothing else in the 1605 moves.
+            #
+            # The keyword fallback on set_name stays: it covers UNBOUND
+            # candidates, which identity-resolve also compares and which this
+            # restatement by definition cannot reach.
+            cursor.execute(
+                "UPDATE catalog_variant v"
+                " INNER JOIN catalog_source_identity s ON s.variant_id=v.id"
+                "   AND s.source_code='gemrate' AND s.match_status='exact'"
+                " INNER JOIN catalog_rebuild_member m ON m.generation_id=%s"
+                "   AND m.variant_id=v.id AND m.gemrate_id=s.external_entity_id"
+                f" SET v.card_language={_PSA_LANGUAGE_SQL}"
+                f" WHERE COALESCE({_PSA_LANGUAGE_SQL},'')<>''"
+                f"   AND COALESCE(v.card_language,'')<>{_PSA_LANGUAGE_SQL}",
+                (generation,),
+            )
+            counts["psaLanguagesRestated"] = cursor.rowcount
         conn.commit()
     except Exception:
         conn.rollback()
