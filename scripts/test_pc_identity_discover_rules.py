@@ -11,6 +11,7 @@ Run: python -X utf8 scripts/test_pc_identity_discover_rules.py
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -371,6 +372,53 @@ check("both readings are offered to whoever judges the product",
 check("a card whose number names its own set offers one",
       RB.set_names_a_card_could_carry(same, CODE_TO_SET),
       ["One Piece Emperors in the New World"])
+
+
+# --- 3g. the canonical map has exactly one writer --------------------------
+# This lane used to append its proposals straight onto the canonical map. The
+# DB write beside it is an upsert on a key, so the DB stayed clean while the
+# file grew a second live row for 26 cards; the morning collect lane died on
+# "canonical PC map has duplicate active variants" and nobody saw it for a day.
+# Two facts keep it dead: the lane writes somewhere else, and the file itself
+# still holds one row per variant.
+import consolidate_pc_map as CM  # noqa: E402
+
+check("proposals do not go where approved bindings live",
+      D.PROPOSAL_MAP_PATH == CM.CANONICAL, False)
+truthy("proposals go somewhere the consolidator will look for transport",
+       D.PROPOSAL_MAP_PATH in set(
+           ROOT.glob("data/runtime/private-source-map/c11_pc_ebay_map_full900_shard*.jsonl")))
+if CM.CANONICAL.is_file():
+    seen: dict[int, int] = {}
+    for line in CM.CANONICAL.read_text(encoding="utf-8-sig").splitlines():
+        if line.strip():
+            variant_id = int(json.loads(line).get("variant_id") or 0)
+            seen[variant_id] = seen.get(variant_id, 0) + 1
+    check("the canonical map holds one row per variant",
+          sorted(v for v, n in seen.items() if n != 1), [])
+    check("and no row without a variant", 0 in seen, False)
+
+
+# --- 3h. the gate reads the product's page, not the folder's first file ----
+# v2026 keeps both captures a lane can leave behind: the product page, and the
+# search-results page saved while looking for it. Alphabetical order picks the
+# search page, whose canonical URL is a query -- which is why reverify called
+# five cards `page_parse_failed: canonical_not_product` on 2026-08-10 while
+# their product pages sat beside them.
+PAGES_DIR = ROOT / "data" / "private" / "pricecharting_session" / "html" / "full900"
+_product_page = PAGES_DIR / "2026_shanks-magazine-op09-001_r.html"
+_search_page = PAGES_DIR / "2026_search-products-q-one-piece-Shanks-001-type-prices.html"
+if _product_page.is_file() and _search_page.is_file():
+    check("the folder's first file really is the search page",
+          sorted(PAGES_DIR.glob("2026_*.html"))[0], _search_page)
+    check("but the product's own page is what gets judged",
+          RB.pc_capture_for_product(PAGES_DIR, 2026, "10032135"), _product_page)
+    # No capture is this product's page: hand back a real one anyway so the
+    # caller can say WHICH product it found instead of "page=?".
+    truthy("an uncaptured product still names what was on disk",
+           RB.pc_capture_for_product(PAGES_DIR, 2026, "999999999") is not None)
+    check("a variant with no captures at all is missing",
+          RB.pc_capture_for_product(PAGES_DIR, 99999999, "10032135"), None)
 
 
 # --- 4. the page-size constant is the page's, not ours ---------------------

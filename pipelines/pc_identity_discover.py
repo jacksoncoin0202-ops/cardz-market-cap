@@ -25,7 +25,8 @@ then picks a handful and the shared identity rules judge those.
 WHAT THIS LANE MAY DECIDE, AND WHAT IT MAY NOT
 ----------------------------------------------
 It proposes; it does not promote. A survivor is written as `manual_review` with
-its page captured and its map line appended, and `pc-identity-reverify` applies
+its page captured and a row in the proposal ledger (NOT the canonical map --
+that file's rows are approved bindings), and `pc-identity-reverify` applies
 the existing fail-closed contract to promote it to `exact` -- page product id ==
 bound id == map id, no fingerprint conflict, product agreement, print signature.
 Keeping one judge means a card admitted through this lane was admitted by the
@@ -55,7 +56,15 @@ from op_identity_rules import character_agrees, product_agrees
 
 CONSOLE_DIR = R.ROOT / "data" / "private" / "pricecharting_session" / "html" / "console"
 PAGES_DIR = R.ROOT / "data" / "private" / "pricecharting_session" / "html" / "full900"
-MAP_PATH = R.ROOT / "data" / "runtime" / "private-source-map" / "c11_pc_ebay_map_full900.jsonl"
+# A proposal is not a binding, so it does not go in the canonical map.
+# consolidate_pc_map.py is that file's only writer and it globs
+# c11_pc_ebay_map_full900_shard*.jsonl for transport rows, so a proposal here
+# turns into a map row exactly when reverify promotes it into the registry.
+# Appending straight to the canonical map (what this lane did until
+# 2026-08-10) left two live rows for 26 cards and broke every reader that
+# trusts one-row-per-variant, including the morning collect lane.
+PROPOSAL_MAP_PATH = (R.ROOT / "data" / "runtime" / "private-source-map"
+                     / "c11_pc_ebay_map_full900_shard_identity_discover.jsonl")
 
 # A console listing page serves at most this many rows and then hands back a
 # cursor. Read off the form PriceCharting itself renders
@@ -636,7 +645,7 @@ def cmd_pc_identity_discover(args: argparse.Namespace) -> int:
 
         if args.write and writes:
             owners = existing_pc_owner(conn, [w["listing"]["pid"] for w in writes])
-            map_lines: list[str] = []
+            map_rows: list[dict[str, Any]] = []
             try:
                 with conn.cursor() as cursor:
                     for item in writes:
@@ -725,7 +734,7 @@ def cmd_pc_identity_discover(args: argparse.Namespace) -> int:
                                 json.dumps(evidence, ensure_ascii=False, sort_keys=True),
                             ),
                         )
-                        map_lines.append(json.dumps({
+                        map_rows.append({
                             "card_name": str(row["canonical_name"] or "")[:200],
                             "collector_number": str(row["collector_number"] or ""),
                             "confidence": "high",
@@ -740,18 +749,34 @@ def cmd_pc_identity_discover(args: argparse.Namespace) -> int:
                             "source": "pc_identity_discover",
                             "status": "mapped",
                             "variant_id": vid,
-                        }, ensure_ascii=False, sort_keys=True))
+                        })
                         counts["written"] += 1
                 conn.commit()
             except Exception:
                 conn.rollback()
                 raise
-            if map_lines:
-                # Appended only after the commit: a map line pointing at a
+            if map_rows:
+                # Appended only after the commit: a ledger row pointing at a
                 # binding that never landed is the one inconsistency the
-                # reverify lane cannot see, because it reads the map as truth.
-                with MAP_PATH.open("a", encoding="utf-8") as handle:
-                    handle.write("\n".join(map_lines) + "\n")
+                # reverify lane cannot see, because it reads the row as truth.
+                # Keyed by (variant, product) so re-running the lane restates a
+                # proposal instead of stacking another copy of it.
+                seen: set[tuple[int, int]] = set()
+                if PROPOSAL_MAP_PATH.is_file():
+                    for line in PROPOSAL_MAP_PATH.read_text(
+                            encoding="utf-8-sig").splitlines():
+                        if line.strip():
+                            old = json.loads(line)
+                            seen.add((int(old.get("variant_id") or 0),
+                                      int(old.get("pc_product_id") or 0)))
+                fresh = [row for row in map_rows
+                         if (int(row["variant_id"]),
+                             int(row["pc_product_id"])) not in seen]
+                if fresh:
+                    with PROPOSAL_MAP_PATH.open("a", encoding="utf-8") as handle:
+                        handle.write("\n".join(
+                            json.dumps(row, ensure_ascii=False, sort_keys=True)
+                            for row in fresh) + "\n")
             progress(f"[bind] {counts['written']} manual_review proposal(s) written;"
                      f" run pc-identity-reverify to promote")
 

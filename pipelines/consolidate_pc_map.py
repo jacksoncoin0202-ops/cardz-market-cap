@@ -76,17 +76,27 @@ def main() -> int:
             raise RuntimeError(f"canonical map has invalid or duplicate variant: {variant_id}")
         canonical_by_variant[variant_id] = row
 
-    manifest_payload = json.loads(MANIFEST.read_text(encoding="utf-8-sig"))
-    manifest_by_variant = {
-        int(row["variantId"]): row
-        for row in (manifest_payload.get("rows") or [])
-    }
-    if len(manifest_by_variant) != len(manifest_payload.get("rows") or []):
-        raise RuntimeError("launch manifest contains duplicate variants")
-    for variant_id, row in manifest_by_variant.items():
-        if str(row.get("productId") or "") != pc_exact.get(variant_id):
-            raise RuntimeError(f"launch manifest product ID differs from active registry: {variant_id}")
-        valid_pc_url(row.get("pcUrl"))
+    # The launch manifest is one day's hand-verified transport rows, not a
+    # standing statement about the world: reverify re-binds cards after it, and
+    # a human refusal retires others. So a manifest row is usable transport only
+    # while it still names the active product -- the rest are history and get
+    # reported, never silently used. It is also absent from checkouts that were
+    # not the launch, which is not an error; the shard files still have to carry
+    # every active product or the "no verified transport row" gate below fires.
+    manifest_by_variant: dict[int, dict[str, Any]] = {}
+    manifest_stale: list[int] = []
+    if MANIFEST.is_file():
+        manifest_payload = json.loads(MANIFEST.read_text(encoding="utf-8-sig"))
+        manifest_rows = manifest_payload.get("rows") or []
+        manifest_by_variant = {int(row["variantId"]): row for row in manifest_rows}
+        if len(manifest_by_variant) != len(manifest_rows):
+            raise RuntimeError("launch manifest contains duplicate variants")
+        for variant_id, row in sorted(manifest_by_variant.items()):
+            valid_pc_url(row.get("pcUrl"))
+            if str(row.get("productId") or "") != pc_exact.get(variant_id):
+                manifest_stale.append(variant_id)
+        for variant_id in manifest_stale:
+            manifest_by_variant.pop(variant_id)
 
     source_paths = list(SUPPLEMENTAL) + sorted(
         ROOT.glob("data/runtime/private-source-map/c11_pc_ebay_map_full900_shard*.jsonl")
@@ -204,9 +214,20 @@ def main() -> int:
         json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
         for row in canonical_rows
     )
+    # Bytes, not text: write_text() turns every \n into \r\n on Windows, so the
+    # sha256 below described a file that was never on disk -- a receipt you
+    # cannot check against the artifact is not a receipt. Re-read and compare
+    # after the swap so that stays true the next time someone edits this.
+    payload = serialized.encode("utf-8")
+    canonical_sha256 = hashlib.sha256(payload).hexdigest()
     temporary = CANONICAL.with_name(f".{CANONICAL.name}.{os.getpid()}.next")
-    temporary.write_text(serialized, encoding="utf-8")
+    temporary.write_bytes(payload)
     os.replace(temporary, CANONICAL)
+    written_sha256 = hashlib.sha256(CANONICAL.read_bytes()).hexdigest()
+    if written_sha256 != canonical_sha256:
+        raise RuntimeError(
+            f"canonical map on disk {written_sha256} is not what was hashed {canonical_sha256}"
+        )
     report = {
         "action": "consolidate-pc-map",
         "asOf": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
@@ -215,11 +236,13 @@ def main() -> int:
         "retained": retained,
         "added": added,
         "replaced": replaced,
+        "manifestPresent": MANIFEST.is_file(),
         "manifestUsed": manifest_used,
+        "manifestStale": manifest_stale,
         "supplementalUsed": supplemental_used,
         "activeMissing": active_missing,
         "activeProductMismatch": active_mismatch,
-        "canonicalSha256": hashlib.sha256(serialized.encode("utf-8")).hexdigest(),
+        "canonicalSha256": canonical_sha256,
         "sources": source_evidence,
     }
     REPORT.parent.mkdir(parents=True, exist_ok=True)

@@ -6953,6 +6953,44 @@ def _pc_page_product_id(html: str) -> str:
     return ""
 
 
+def pc_capture_for_product(
+    pages_dir: Path, variant_id: int, product_id: str, mapped: Path | None = None
+) -> Path | None:
+    """The capture that IS this product's page, not whichever sorts first.
+
+    A variant collects several files under `{variant}_*.html`: product pages,
+    and the search-results pages a lane saved while looking for one. Picking
+    sorted()[0] let "2026_search-products-q-one-piece-Shanks-001….html" win on
+    the letter 'e' over "2026_shanks-magazine-op09-001_r.html", and on
+    2026-08-10 five cards were held `page_parse_failed: canonical_not_product`
+    with their own product page sitting in the same folder.
+
+    Nothing here decides whether a binding is right -- the caller still demands
+    page id == bound id == map id and the whole contract after it. This only
+    stops an arbitrary file from answering a question it is not about."""
+
+    candidates: list[Path] = []
+    if mapped is not None and mapped.is_file():
+        candidates.append(mapped)
+    candidates.extend(
+        path for path in sorted(pages_dir.glob(f"{variant_id}_*.html"))
+        if path not in candidates
+    )
+    fallback: Path | None = None
+    for path in candidates:
+        html = path.read_text(encoding="utf-8", errors="replace")
+        if _pc_page_product_id(html) != str(product_id):
+            continue
+        # A search-results page can carry a product id too, so agreeing on the
+        # id is not enough: it has to parse as that product's own page.
+        identity, _ = _pc_page_identity(html)
+        if identity is not None:
+            return path
+        if fallback is None:
+            fallback = path
+    return fallback or (candidates[0] if candidates else None)
+
+
 def _pc_print_signature_ok(page_parallel: str, row: Mapping[str, Any]) -> bool:
     """Phase-D parallel agreement plus the abbreviation vocabulary.
 
@@ -7108,14 +7146,11 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
                 counts["mapProductMismatch"] += 1
                 hold("map_product_mismatch", f"map={map_product}")
                 continue
-            html_path = None
             mapped_html = map_html_by_variant.get(variant_id, "")
-            if mapped_html and (ROOT / mapped_html).is_file():
-                html_path = ROOT / mapped_html
-            else:
-                hits = sorted(pages_dir.glob(f"{variant_id}_*.html"))
-                if hits:
-                    html_path = hits[0]
+            html_path = pc_capture_for_product(
+                pages_dir, variant_id, pid,
+                (ROOT / mapped_html) if mapped_html else None,
+            )
             if html_path is None:
                 counts["pageMissing"] += 1
                 hold("page_missing")
