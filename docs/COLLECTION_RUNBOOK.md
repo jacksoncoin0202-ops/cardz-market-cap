@@ -571,18 +571,67 @@ no_console 11、ambiguous 8。三種 hold 各自嘅意思：
 
 ### 已知效能債（全部係欠單，未修）
 
-1. **`stage_validate` ~5 分鐘。** `EXPLAIN` 顯示佢會 materialize `market_price_daily`
-   （358,164 行）做兩次 full table scan（`derived15`、`derived40`）。唔好因為佢慢就以為
-   hang 咗。
+1. **`stage_validate` ~5 分鐘。**（2026-08-10 重新診斷，**之前寫錯咗**）
+   舊版寫「materialize `market_price_daily` 358,164 行做兩次 full table scan」。三處都唔啱：
+   - **冇一張叫 `market_price_daily` 嘅 table 或 view。** 真名係 `market_price_observation`
+     （345,236 行）。個舊名係佢張 `UNIQUE KEY uq_market_price_daily` —— 睇 index 名當 table 名。
+   - 嗰兩個 full scan 實測 **66.2 + 82.3 = 148.5 ms，佔 67,343 ms 嘅 0.22%**。就算刪清都慳唔到。
+   - **真兇係 `operator_canonical_current_metric_projection` 入面驗 `canonical_market_rank`
+     嗰個 correlated subquery：38,091 ms / 67,343 ms = 56.6%，行咗 44,919 次。**
+     `market_canonical_metric_acceptance` 兩個 unique key 都冇帶 `market_cap_usd`，所以每 loop
+     都要掃 ~941 個 index entry 再撠 PK。A/B 實測同一個答案（兩邊都 19,675 行）：
+     correlated `1 + (SELECT COUNT(0) … market_cap_usd > …)` 20,205 ms，
+     `RANK() OVER (PARTITION BY … ORDER BY market_cap_usd DESC, variant_id ASC)` 488 ms（41.4×）。
+   **點修（未做，要 maintenance window）**：先試 (a) 加 covering index
+   `(ranking_generation_sha256, market_cap_usd, variant_id, canonical_market_rank)` —— 純 DDL，
+   零語意面；唔夠先考慮 (b) 改寫 view 做 window function（改 view = 改 activation gate，
+   要證明 row set 完全一樣，A/B 相同只係證據唔係證明）。
+   **教訓**：`EXPLAIN` 讀到個名之前，先 `information_schema` 對一對佢係 table 定 index 名；
+   同埋唔好淨係數 scan 咗幾多行，要睇 `EXPLAIN ANALYZE` 嗰個 **ms**——行多唔等於慢。
 2. ~~**`price-materialize` 會將成個 `skipped` array 噴落 stdout。**~~（2026-08-10 修好）
    `stage-complete` 個 counts 而家過 `rebuild_036.printable_counts()`：超過 3 個 item 嘅
    list 變成 `{count, sample, omitted, seeAlso}`，**唔會靜靜咁截短**。
    全份仍然喺 `cardz_rebuild_checkpoint.counts_json`（DB 嗰邊冇改過）。
    實測：5,538 字 → 184 字。
-3. **`freshness72h` 嘅 `priceAgeHours` 會係負數**（2026-08-09 實測 `-9.42`）。SNK kline
-   日 bar 嘅 `effective_at` 蓋章喺**當日 23:59:59**，所以未夠鐘之前佢喺未來。個 gate 係
-   `<= 72.0`，負數照過，但代價係**個 feed 死咗都仲可以扮新鮮多 24 個鐘**。改之前要先答
-   「日 bar 應該蓋幾點」，唔好淨係改個不等式。
+3. **`freshness72h` 嘅 `priceAgeHours` 會係負數**（2026-08-09 `-9.42`；**2026-08-10 重測 `-19.36`，
+   仲差咗**）。SNK kline 日 bar 嘅 `effective_at` 蓋章喺**當日 23:59:59**（`snk_market_data.py:1303`
+   `datetime.combine(observed, dt_time(23,59,59))`，naive，**冇做過任何時區轉換**；
+   `g10_kline_price_bridge.py:102` 同一寫法）。實測 157,429 / 157,610 行 snkrdunk（99.89%）
+   `TIME(effective_at)='23:59:59'`；605 條 variant stream 有 17 條蓋喺未來 19.35 小時。
+   個 gate（`rebuild_036.py:4843-4844`）係 `<= 72.0`，負數照過。
+
+   **兩個窿，唔止一個：**
+   - **負數窿**：feed 死咗都可以扮新鮮多一日。
+   - **單一 MAX 窿**（更大）：`rebuild_036.py:4830-4834` 係
+     `MAX(effective_at) … WHERE source_code IN ('pricecharting','snkrdunk')` —— **一個 MAX、一個數、
+     一次比較**。pricecharting 死足一個月，個 gate 都可以靠 snkrdunk 個章過。今日實測就係咁：
+     combined MAX 完全由 snkrdunk 個未來章決定，pricecharting（+0.30h）對個 gate 零貢獻。
+     仲有 `snk_psa10`（138,037 行，+136.12h 舊）餵得到 price route，但**唔喺 gate 個 source list 度**。
+
+   **「日 bar 應該蓋幾點」—— 四個選項，實測指住 D：**
+   | | 做法 | 代價 |
+   |---|---|---|
+   | A | 保留 23:59:59，改成 `0 <= age <= 72` | 今日嗰條 bar 永遠喺未來 → **日日全日 false-fail**。單獨用唔得 |
+   | B | 改用 fetch 時間蓋 `effective_at` | `effective_at` 係 accepted-price 嘅 tie-break（`operator_accepted_psa10_price_history`）同 join key（`market_metric_history_acceptance.source_effective_at`）→ 會**改當日贏家次序**，仲要 backfill 157k+ 行 |
+   | C | 蓋真收市時刻（23:59:59 JST = 14:59:59Z）並且未到唔准寫 | age 唔會負，但**15:00 UTC 之前冇今日價** |
+   | **D** | **`effective_at` 唔郁，個 freshness gate 改讀 ingest 鐘 `market_source_observation.observed_at`** | 實測今日 **+0.30** 而唔係 -19.36；四個 price source `observed_at` **零未來行**；價格身份／排序／157k 行全部唔郁 |
+
+   **D 嘅新失效模式（要自己一個 check）**：`observed_at` 答「幾時 fetch」，唔答「fetch 到嘅嘢有幾舊」——
+   source 一直派同一條殭屍 bar 都會睇落好新鮮。要另外 alert `MAX(observed_date)` 停咗前進。
+   改埋要記住 `priceAgeHours` 喺 `_RECEIPT_VOLATILE_FIELDS`（`rebuild_036.py:6519-6522`），改名要一齊改。
+
+   **次序好緊要**：**先答完個鐘，先至收緊個不等式。** 掉轉做 = 由「靜靜地假 pass」變成「日日假 fail」。
+   收緊之後預咗第一次會 fail（snk_psa10 今日 +136.12h）—— 嗰個係 gate 做緊嘢，但係要排期，唔好突然射。
+4. **七個「age vs 門檻」比較收得低負數。**（2026-08-10 盤點）
+   `rebuild_036.py:4843-4844`、`collect_control.py:278`／`:283`／`:1035`／`:1075`／`:3130`、
+   `operator_control.py:1670`／`:1772`。repo 入面已經有三處寫啱咗，照抄就得：
+   `gemrate_candidate_backfill.py:803` `0 <= age <= max_age_days`、
+   `gemrate_candidate_backfill.py:822`、`market_alerts.py:691` `age < timedelta(0) or …`。
+   **但唔准一刀切**，三種 site 意思唔同：
+   - `_poll_mode`（`:278`/`:283`）—— 對日 bar 嚟講 age 負數係「今日條 bar 已經喺手」，**當佢新鮮係啱嘅**。
+     要改嘅係寫明白，唔係改行為。
+   - `slaOk`（`:1035`）—— 呢個係**匯報**，負數即係有未來章，係數據質素信號，唔可以扮 ok。（2026-08-10 已修）
+   - `:3130` 比較嘅係 file mtime，負數 = 機器時鐘歪咗，**應該嘈**，同 effective_at 嗰種唔同 response。
 
 ---
 

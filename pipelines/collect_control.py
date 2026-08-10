@@ -1028,11 +1028,19 @@ def freshness_summary(
         m = r["m"] if isinstance(r, dict) else r[0]
         n = int((r["n"] if isinstance(r, dict) else r[1]) or 0)
         age = _age_hours(m)
+        # A negative age means the newest row is stamped in the FUTURE, which is
+        # not freshness -- it is a stamping defect. SNK daily bars carry
+        # effective_at = observed_date 23:59:59 (snk_market_data.py:1303), so
+        # this stream reads -19.33 h right now and used to report slaOk=1. A
+        # dead feed can hide behind that for a whole extra day. Say what is true:
+        # ok requires the stamp to be in the past AND inside the SLA.
+        future = age is not None and age < 0
         out["streams"][name] = {
             "maxAt": m.isoformat(sep=" ") if hasattr(m, "isoformat") else m,
             "rows": n,
             "ageHours": None if age is None else round(age, 2),
-            "slaOk": age is not None and age <= SLA_HOURS,
+            "futureStamped": future,
+            "slaOk": age is not None and 0 <= age <= SLA_HOURS,
         }
     checkpoints = load_checkpoints(cur)
     for adapter in CHECKPOINT_ADAPTERS:
