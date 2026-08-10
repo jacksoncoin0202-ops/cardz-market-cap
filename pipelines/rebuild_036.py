@@ -8498,12 +8498,17 @@ def cmd_e2e(args: argparse.Namespace) -> int:
     disabled = _scheduler_set(to_restore, enable=False)
     record("scheduler-disable", tasks=disabled, alreadyDisabled=len(tasks) - len(to_restore))
     try:
+        cmd_freeze(SimpleNamespace(credentials_env=args.credentials_env))
+        record("freeze")
+
+        # After the freeze, not before it. Invalidating goes through
+        # cmd_rebuild, which connects as cardz_rebuild -- and cardz_rebuild
+        # only exists inside the freeze window, so this step could only ever
+        # end in 1045 Access denied (measured 2026-08-10T17:07Z, the first run
+        # that passed --invalidate-from at all).
         if args.invalidate_from:
             cmd_rebuild(SimpleNamespace(**{**vars(stage_args), "invalidate_from": args.invalidate_from}))
             record("invalidate", fromStage=args.invalidate_from)
-
-        cmd_freeze(SimpleNamespace(credentials_env=args.credentials_env))
-        record("freeze")
 
         # After the freeze, before the stages: the freeze is what makes the
         # dump a restore point that stays one, and S0 is the next thing to
