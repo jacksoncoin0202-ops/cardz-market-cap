@@ -126,6 +126,26 @@ export function formatDate(value: string | null, locale: Locale): string {
   }).format(date);
 }
 
+/*
+ * 觀察日期（價格／POP 嘅 asOf）。同 formatDate 分開，兩個原因：
+ *  1. 來源本身係 DATE（market_price_observation.observed_date），冇時分秒。
+ *     行 formatDate 會補返個 `00:00Z`，再按 runtime 時區譯，出「Mar 27, 2026,
+ *     12:00 AM」（server UTC）／「8:00 AM」（香港）—— 造個唔存在嘅精度出嚟。
+ *  2. 讀呢個值嘅 card-detail / heatmap 都係 "use client"，即係 SSR 出一次、
+ *     hydrate 再出一次。Intl 唔指定 timeZone 就跟 runtime 時區，AWS 係 UTC 而
+ *     用戶多數 UTC+8/+9，兩邊文字唔同 = hydration mismatch。
+ * 所以鎖死 UTC 兼只出日期：邊度 render 都係同一串字。
+ */
+export function formatObservationDate(value: string | null, locale: Locale): string {
+  if (!value) return copy[locale].status.unavailable;
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return copy[locale].status.unavailable;
+  return new Intl.DateTimeFormat(intlLocale[locale], {
+    dateStyle: "medium",
+    timeZone: "UTC",
+  }).format(date);
+}
+
 export function metricTone(metric: MarketMetric<number>): "positive" | "negative" | "neutral" {
   if (
     (metric.status !== "ready" && metric.status !== "stale") ||

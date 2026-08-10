@@ -10,7 +10,7 @@ import { DETAIL_PRINT_FIELDS, printIdentityRows } from "./print-badge";
 import { PriceDelta, MetricDelta } from "./rankings";
 import { absolutePublicUrl, StructuredData } from "./structured-data";
 import { copy } from "@/lib/i18n";
-import { formatDate, formatMetricInteger, formatMetricMoney, formatMoney, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
+import { formatMetricInteger, formatMetricMoney, formatMoney, formatObservationDate, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
 import { type MarketViewSnapshot } from "@/lib/types";
 import { useMarketSettings } from "@/lib/use-market-settings";
 
@@ -101,7 +101,7 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
             差 136 日。市值 = 價 × POP，所以呢個日期一錯，成塊 metrics 都報錯時間。
             改用卡自己嗰個價格觀察日；冇價先跌返 snapshot 時間。
           */}
-          <p className="data-time">{t.labels.asOf}: {formatDate(card.pricePsa10.asOf || snapshot.effectiveAt, locale)}</p>
+          <p className="data-time">{t.labels.asOf}: {formatObservationDate(card.pricePsa10.asOf || snapshot.effectiveAt, locale)}</p>
           <HistoryChart points={card.historyDaily} locale={locale} currency={currency} rates={snapshot.rates} />
         </div>
       </article>

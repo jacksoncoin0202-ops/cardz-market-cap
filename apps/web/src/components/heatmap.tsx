@@ -8,7 +8,7 @@ import { CopyButton } from "./copy-button";
 import { PeriodSelector } from "./period-selector";
 import { DETAIL_PRINT_FIELDS, printIdentityRows } from "./print-badge";
 import { copy } from "@/lib/i18n";
-import { formatDate, formatMetricInteger, formatMetricMoney, formatMoney, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
+import { formatDate, formatMetricInteger, formatMetricMoney, formatMoney, formatObservationDate, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
 import { heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
 import { drawQr } from "@/lib/qr";
 import { changeValue, DEFAULT_TILE, tileColors, tileStyle, type TileParams } from "@/lib/tile-style";
@@ -459,7 +459,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
             <h3>{active.officialName || t.status.unavailable}</h3>
             <p className="muted-copy">{active.setName[locale] || t.status.unavailable}</p>
             <CardFacts card={active} locale={locale} currency={currency} snapshot={snapshot} />
-            <p className="preview-time">{t.labels.asOf}: {formatDate(active.windows[period].changePct.asOf ?? active.pricePsa10.asOf, locale)}</p>
+            <p className="preview-time">{t.labels.asOf}: {formatObservationDate(active.windows[period].changePct.asOf ?? active.pricePsa10.asOf, locale)}</p>
           </div>
         </aside>,
         document.body,
