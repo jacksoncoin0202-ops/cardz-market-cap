@@ -54,16 +54,21 @@ function metric(value: CanonicalCard["pricePsa10"]): MarketMetric<number> {
  *     呢兩條唔准出 DOM，所以逐條白名單抄，唔用 spread。
  * 冇 `printingIdentity` 嘅 snapshot（seed / legacy evidence）一律出 `null`，
  * 顯示層乜都唔應該畫。
+ *
+ * 白名單 2026-08-11 收窄到 `setCode` / `finishCode` —— 即係 print-badge 真正讀嗰
+ * 兩條。原本仲抄住 `setName` / `collectorNumber` / `editionCode`，三條都係
+ * `catalog_printing_identity` 嘅 printing_sha() 前像（指紋用字，唔跟 PSA 標籤），
+ * 而三條喺 apps/web 一個讀者都冇。收返 editionCode 個 render 之後佢哋仍然照樣
+ * 序列化落 RSC flight payload 同 `/api/v1/market`，實測 rank 1 出
+ * `"editionCode":"SVP EN “Van gogh exhibition”"`。冇人畫 ≠ 冇出街，所以喺投影度斬。
+ * 完整記錄仍然留喺 canonical snapshot（`packages/market-data` 嘅
+ * PublicPrintingIdentity），呢度淨係唔再轉發。
  */
 function printingIdentityView(card: CanonicalCard): MarketCardView["printingIdentity"] {
   const identity = card.printingIdentity;
   if (!identity) return null;
   return {
-    setName: identity.setName || "",
     setCode: identity.setCode || null,
-    collectorNumber: identity.collectorNumber || "",
-    // 卡包名：owner 2026-08-02 批准出喺內頁／熱力圖彈卡（唔准入 Top 100 表）。
-    editionCode: identity.editionCode || null,
     finishCode: identity.finishCode || null,
   };
 }

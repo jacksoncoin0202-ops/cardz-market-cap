@@ -74,13 +74,12 @@ export interface MarketCardView {
    * `canonicalPrintingSha256` / `evidenceSha256`, which must never reach the DOM.
    * `rarityCode` / `parallelCode` / `printingCode` deliberately stop at the
    * canonical snapshot and are not copied into this DOM-facing view type.
-   * `editionCode`（卡包名）只用於 detail page / heatmap popup，唔入 Top 100 table。
+   * 2026-08-11 起 `setName` / `collectorNumber` / `editionCode` 一樣停喺 canonical
+   * snapshot：三條都係 printing_sha() 前像（指紋用字），而 apps/web 零讀者。
+   * 顯示用嘅 set 名喺 `setName: LocalizedText`，編號喺頂層 `collectorNumber`。
    */
   printingIdentity: {
-    setName: string;
     setCode: string | null;
-    collectorNumber: string;
-    editionCode?: string | null;
     finishCode: string | null;
   } | null;
   collectorNumber: string;

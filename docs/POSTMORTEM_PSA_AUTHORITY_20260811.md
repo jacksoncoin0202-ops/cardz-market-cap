@@ -248,6 +248,38 @@ for (const code of LOCALES) if (!locale.sets[code]) locale.sets[code] = setName 
 
 ---
 
+## 同日第三次：「唔畫」唔等於「唔出街」
+
+第二次嘅修法係喺 `print-badge.tsx` 將 `editionCode` 由 `DETAIL_PRINT_FIELDS` 剔走。
+推上 live 之後行 curl 驗，rank 1 個頁面**仲係**搵到 `Van gogh exhibition`：
+
+```
+"printingIdentity":{"setName":"SVP EN “Van gogh exhibition”","setCode":"SVP",
+ "collectorNumber":"085/SVP","editionCode":"SVP EN “Van gogh exhibition”",
+ "finishCode":"unknown"}
+```
+
+出現喺 RSC flight payload（`self.__next_f`）同 `/api/v1/market` 個 JSON 度，唔係 DOM。
+即係：**component 唔畫，但 props 照樣序列化出街。** 靜態 grep 只會見到「零 render
+call site」，見唔到「序列化 call site」——後者係 framework 自動做，冇 call site 可 grep。
+
+根因同上面兩單一樣（顯示層綁咗指紋欄），但**斬嘅位唔同**：要斬喺投影
+`printingIdentityView()`（`apps/web/src/lib/snapshot.ts:58`），唔係斬喺 component。
+呢個投影本身個 doc comment 已經寫住佢存在嘅理由係「sha 唔准出 DOM，逐條白名單抄」——
+即係當初已經知道呢度先係閘，只不過白名單開得太闊。
+
+實測 apps/web 入面 `printingIdentity` 得兩個讀者（`print-badge.tsx:109`／`:148`），
+兩個都淨係 index `setCode` 同 `finishCode`。所以白名單收窄到嗰兩條，
+`setName` / `collectorNumber` / `editionCode` 三條指紋欄一次過停喺 canonical snapshot。
+完整記錄仍然喺 `packages/market-data` 嘅 `PublicPrintingIdentity` 度，冇丟。
+
+> **規矩：** 判斷「呢條欄仲有冇出街」唔准淨係 grep render；要拉真實 HTTP response
+> 落嚟搵條字串。SSR framework 會將成個 props tree 序列化，`grep` 搵唔到嗰啲
+> serialization 係隱形 call site。今次就係 curl 到先知未修完。
+>
+> 同一形狀嘅閘只可以有一個：**投影層（whitelist）先係閘，component 唔係。**
+> component 嘅 field list 係「畫唔畫」，投影層先係「出唔出街」。
+
 ## 相關
 
 - 上一手：`canonical_name` 由 Universal rollup 改讀 PSA 行（同一個權威、同一個 transaction）
