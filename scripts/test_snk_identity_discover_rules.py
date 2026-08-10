@@ -377,6 +377,42 @@ check("the search name drops the welded treatment",
 check("a genuine slash in a name survives",
       R.card_name_without_treatment("Sabo/Koala"), "Sabo/Koala")
 
+
+# --- 3. the price poll list may only contain what the ingest can resolve ----
+# The kline ingest resolves identity through operator_strict_source_identity
+# (snk_market_data.load_exact_snk_item_to_variant), which is stricter than
+# catalog_source_identity.match_status='exact': the 037 view also demands 036
+# provider-native evidence and a matching capture receipt. On 2026-08-10 the
+# registry was built from the looser table, so two pre-036 bindings that S7
+# had declined to restamp (soft parallel mismatch, variants 1203/1204) sat in
+# the snk_price poll list; the ingest skipped them as no_exact_identity, that
+# single skip failed the adapter contract, and the contract fires BEFORE
+# record_successful_poll -- so all 86 cards that HAD ingested lost their
+# checkpoints and were re-harvested every run, forever.
+REGISTRY = ROOT / "data" / "runtime" / "operator" / "collect" / "collect_registry.jsonl"
+if REGISTRY.is_file():
+    polled = {
+        int(row["externalId"])
+        for row in (
+            json.loads(line)
+            for line in REGISTRY.read_text(encoding="utf-8-sig").splitlines()
+            if line.strip()
+        )
+        if row.get("adapter") == "snk_price" and str(row.get("externalId") or "").isdigit()
+    }
+    try:
+        from snk_market_data import load_exact_snk_item_to_variant  # noqa: E402
+
+        ingestible = set(load_exact_snk_item_to_variant())
+    except Exception as error:  # noqa: BLE001 -- no DB here is not a failure
+        print(f"skip  strict-identity subset check (no database: {error})")
+    else:
+        check("every polled snk_price item is one the ingest can resolve",
+              sorted(polled - ingestible), [])
+        truthy_polled = bool(polled)
+        check("and the poll list is not empty (an empty list proves nothing)",
+              truthy_polled, True)
+
 print()
 if failures:
     print(f"{len(failures)} FAILURE(S)")

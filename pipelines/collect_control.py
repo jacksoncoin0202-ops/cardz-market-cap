@@ -655,6 +655,27 @@ def load_universe_rows(cur) -> list[dict[str, Any]]:
     if multiple_exact_snk:
         raise RuntimeError(f"multiple exact SNK IDs in active universe: {multiple_exact_snk}")
 
+    # snk_market_data ingests kline only for pairs in operator_strict_source_identity
+    # (load_exact_snk_item_to_variant), which is stricter than match_status='exact'
+    # above: the 037 view also demands 036 provider-native evidence and a matching
+    # capture receipt. A pre-036 binding that S7 declined to restamp (soft parallel
+    # mismatch) keeps status 'exact' and so used to land in the snk_price poll list,
+    # where the ingest then skipped it as no_exact_identity -- and that one skip
+    # failed the adapter contract, throwing away the checkpoints of every card that
+    # HAD been ingested in the same batch. Poll what the ingest can accept.
+    cur.execute(
+        f"""
+        SELECT variant_id, external_entity_id
+        FROM operator_strict_source_identity
+        WHERE variant_id IN ({ph})
+          AND source_code = 'snkrdunk'
+        """,
+        vids,
+    )
+    strict_snk_by_variant: dict[int, str] = {}
+    for r in cur.fetchall():
+        strict_snk_by_variant[int(r["variant_id"])] = str(r["external_entity_id"])
+
     snk_en_accepted: dict[int, dict[str, Any]] = {}
     if _migration_029_ready(cur):
         cur.execute(
@@ -785,6 +806,7 @@ def load_universe_rows(cur) -> list[dict[str, Any]]:
             "collector": meta.get("collector_number"),
             "ids": {
                 "snkrdunk": b.get("snkrdunk") or b.get("snk"),
+                "snkrdunkStrict": strict_snk_by_variant.get(vid),
                 "snkrdunkEn": (snk_en_identity.get(vid) or {}).get("externalId"),
                 "pricecharting": b.get("pricecharting"),
                 "ebay": b.get("ebay"),
@@ -865,19 +887,27 @@ def classify_needs(
             "transport": "http_curl",
             "polarRole": "ja_sales_primary" if lang == "ja" else "cross_market_sales",
         })
-        pmode = _poll_mode(
-            has_stock=bool(row["prices"]["snkAny"]),
-            observed_at=row.get("_snkPriceMax"),
-            checkpoint=_checkpoint_for(checkpoints, "snk_price", vid, ids["snkrdunk"]),
-            empty_poll_is_complete=True,
-        )
-        needs.append({
-            "adapter": "snk_price",
-            "modeNeeded": pmode,
-            "externalId": ids["snkrdunk"],
-            "transport": "http_curl",
-            "polarRole": "ja_price_primary" if lang == "ja" else "cross_market_price",
-        })
+        # Only the strict pair is pollable for price: the kline ingest resolves
+        # identity through operator_strict_source_identity and skips anything
+        # else, and one such skip fails the whole adapter contract. Cards held
+        # back here are counted in status as snkPriceIdentityNotStrict, never
+        # dropped quietly.
+        if ids.get("snkrdunkStrict"):
+            pmode = _poll_mode(
+                has_stock=bool(row["prices"]["snkAny"]),
+                observed_at=row.get("_snkPriceMax"),
+                checkpoint=_checkpoint_for(
+                    checkpoints, "snk_price", vid, ids["snkrdunkStrict"]
+                ),
+                empty_poll_is_complete=True,
+            )
+            needs.append({
+                "adapter": "snk_price",
+                "modeNeeded": pmode,
+                "externalId": ids["snkrdunkStrict"],
+                "transport": "http_curl",
+                "polarRole": "ja_price_primary" if lang == "ja" else "cross_market_price",
+            })
     elif lang != "en":
         needs.append({"adapter": "bind_snk", "modeNeeded": "bind", "externalId": None, "transport": None, "polarRole": "ja_identity"})
 
@@ -1079,6 +1109,16 @@ def cmd_status(*, rebuild_registry: bool = True) -> dict[str, Any]:
                 counts["bindDue"] += 1
             elif mode == "ok":
                 counts["ok"] += 1
+        # A card with an exact SNK binding whose pair is not in the strict view
+        # cannot be kline-ingested, so it is not in the poll list above. Say so
+        # here: a gap that only shows up as an absence is a gap nobody reads.
+        not_strict = sorted(
+            int(row["variantId"])
+            for row in rows
+            if (row.get("ids") or {}).get("snkrdunk")
+            and not (row.get("ids") or {}).get("snkrdunkStrict")
+        )
+        counts["snkPriceIdentityNotStrict"] = len(not_strict)
         fresh = freshness_summary(cur, reg)
         report = {
             "action": "status",
@@ -1086,6 +1126,7 @@ def cmd_status(*, rebuild_registry: bool = True) -> dict[str, Any]:
             "counts": counts,
             "freshness": fresh,
             "registryPath": str(REGISTRY_PATH) if rebuild_registry else None,
+            "snkPriceIdentityNotStrict": not_strict,
             "notes": [
                 "stockDue = residual full pulls",
                 "incrDue = stale beyond SLA",
