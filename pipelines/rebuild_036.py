@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import importlib
 import inspect
 import io
 import json
@@ -124,6 +125,22 @@ def _referenced_globals(code: Any) -> set[str]:
 _CODE_SHA_CACHE: dict[str, str] = {}
 
 
+def _data_file_sha(path: Path) -> str | None:
+    """A policy file's bytes are input, not decoration.
+
+    data/policy/op-printed-codes.json decides which set codes a card may claim.
+    Regenerating it for a new OP set changes the answer identity-resolve and
+    bind produce without changing one byte of code, and hashing the Path
+    recorded the name of the input instead of the input.
+    """
+    try:
+        if path.is_file() and (ROOT / "data") in path.parents:
+            return sha256_bytes(path.read_bytes())
+    except OSError:
+        return None
+    return None
+
+
 def _code_sha(*roots: Callable | None) -> str:
     """Fingerprint the code a stage actually runs.
 
@@ -155,12 +172,29 @@ def _code_sha(*roots: Callable | None) -> str:
         seen.add(name)
         obj = getattr(module, name, None)
         if obj is None:
+            # A sibling pipelines module the stage reaches by a function-local
+            # import. op_identity_rules imports this module at its top, so that
+            # import cannot be hoisted, and getattr therefore answers None --
+            # the entire One Piece rules module used to fingerprint as absent.
+            # Editing printed_set_code moved nothing, and identity-resolve,
+            # bind, pc-replay and snk-refresh all stage-skipped on the next run.
+            sibling = ROOT / "pipelines" / f"{name}.py"
+            if sibling.is_file():
+                parts.append(f"{name}\n{sibling.read_text(encoding='utf-8')}")
+                for attr, value in vars(importlib.import_module(name)).items():
+                    if isinstance(value, Path):
+                        digest = _data_file_sha(value)
+                        if digest:
+                            parts.append(f"{name}.{attr}#{digest}")
             continue
         if (inspect.isfunction(obj) or inspect.isclass(obj)) and getattr(obj, "__module__", None) == __name__:
             parts.append(f"{name}\n{inspect.getsource(obj)}")
             if inspect.isfunction(obj):
                 queue.extend(_referenced_globals(obj.__code__))
-        elif isinstance(obj, (str, bytes, bool, int, float, tuple, list, dict, set, frozenset, re.Pattern, Path)):
+        elif isinstance(obj, Path):
+            digest = _data_file_sha(obj)
+            parts.append(f"{name}={_stable_repr(obj)}" + (f"#{digest}" if digest else ""))
+        elif isinstance(obj, (str, bytes, bool, int, float, tuple, list, dict, set, frozenset, re.Pattern)):
             parts.append(f"{name}={_stable_repr(obj)}")
     parts.sort()
     digest = sha256_bytes("\n".join(parts).encode("utf-8"))
@@ -572,12 +606,46 @@ def stage_popland(ctx: SimpleNamespace) -> dict[str, Any]:
 
 
 def _popland_input_sha(ctx: SimpleNamespace) -> str:
+    """The captures the stage parses, not the ids it iterates over.
+
+    This used to hash runs/<generation>/worklist.txt, a file of 40-hex ids
+    written once by discover. The capture store those ids name is shared and
+    generation-independent: `gemrate_source.py daily` promotes fresh
+    card_details.json and receipts into the same CARDS_DIR, and a `daily_*` run
+    can never become a generation (GENERATION_RE), so the runbook's gap-intake
+    path reuses the active one. Populations moved and dom_evidence_only ids
+    became captured while the recorded sha sat still, and pop-land printed
+    stage-skip over the new data.
+
+    rawStatus and contentSha256 are what the parse branches on. fetchedAt is
+    deliberately left out: a refetch that returns the same page is not new
+    input, and hashing it would re-run every downstream lane nightly.
+    """
+
     import gemrate_source
 
     worklist_path = gemrate_source.OUT_DIR / "runs" / ctx.generation / "worklist.txt"
     if not worklist_path.is_file():
         return "worklist-missing"
-    return sha256_file(worklist_path)
+    gids = [
+        line.strip()
+        for line in worklist_path.read_text(encoding="utf-8").splitlines()
+        if re.fullmatch(r"[0-9a-f]{40}", line.strip())
+    ]
+    captures: list[list[str]] = []
+    for gid in gids:
+        receipt_path = gemrate_source.CARDS_DIR / gid / "card_details.raw.receipt.json"
+        try:
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            captures.append([gid, "", ""])
+            continue
+        captures.append([
+            gid,
+            str(receipt.get("rawStatus") or ""),
+            str(receipt.get("contentSha256") or ""),
+        ])
+    return sha256_bytes(canonical_json(sorted(captures)))
 
 
 def _capture_fingerprint(cards_dir: Path, gid: str) -> tuple[dict[str, Any] | None, str]:
@@ -816,10 +884,18 @@ def _fingerprint_variant_conflicts(
             for a in small
         )
 
-    # An agreeing set code is the vocabulary-free signal; token drift on top
-    # of it (card titles, transliteration) is noise, not a different set.
-    if f_codes and v_codes and (f_codes & v_codes):
-        return conflicts
+    # The set-code agreement above used to end the comparison here. That was
+    # the same short-circuit that bound the OP07 booster Luffy onto the Promos
+    # lottery prize, and dropping collector_number as a code source did not
+    # retire it -- op_identity_rules re-supplies the printed code from the
+    # policy file, and for a promo the printed code names the BOOSTER the card
+    # first appeared in, not the product the entity is. Replayed 2026-08-11 over
+    # every exact binding rebuilt from its own capture: 0 of 1605 gemrate change,
+    # and 10 of 984 PriceCharting newly conflict -- 9 promo/collection variants
+    # bound to a booster's page (1876, 1915, 1962, 1974, 2034, 2077, 2146, 2153,
+    # 2172; v2077 was publishing a Gift Collection promo at the Romance Dawn
+    # booster's price) plus v1427, the one genuine OP08/OP02 reprint whose second
+    # true code belongs in its own set_code column.
     if f_tokens and v_tokens and not (
         covered(f_tokens, v_tokens) or covered(v_tokens, f_tokens)
     ):
@@ -2383,10 +2459,23 @@ def _pc_page_identity(html: str) -> tuple[dict[str, Any] | None, str]:
     else:
         tcg = ""
     language = "ja" if "japanese" in console_tokens.split() else "en"
-    set_text = heading
-    if number_match:
-        set_text = heading[number_match.end():]
-    set_text = re.sub(r"\[[^\]]*\]", " ", set_text).strip()
+    # The h1 states the set inside its own /console/ anchor. Carving it out of
+    # the heading text instead needed a '#' before the card number to know where
+    # the card's name ended, and One Piece headings have no '#' -- so the name
+    # and the printed code stayed in setText ("Monkey.D.Luffy   OP05-119 One
+    # Piece Awakening of the New Era") and conflicted with a catalog set name
+    # that says the same set. Measured 2026-08-11: variants 24 and 107, the only
+    # two of 984 exact PC bindings that conflicted for a reason that was ours.
+    anchor = re.search(
+        r'<a[^>]*href="/console/[^"]*"[^>]*>(.*?)</a>', h1_match.group(1), re.DOTALL
+    )
+    if anchor:
+        set_text = " ".join(
+            html_unescape(re.sub(r"<[^>]+>", " ", anchor.group(1))).split()
+        )
+    else:
+        set_text = heading[number_match.end():] if number_match else heading
+        set_text = re.sub(r"\[[^\]]*\]", " ", set_text).strip()
     if not set_text:
         set_text = console_tokens
     return {
