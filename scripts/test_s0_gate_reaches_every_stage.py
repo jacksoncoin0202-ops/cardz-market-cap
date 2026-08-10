@@ -19,6 +19,14 @@ Two defects, both found by re-reading the orchestrator on 2026-08-10.
    was 2026-08-10 15:26 UTC, so restoring it would have thrown away every
    binding, every prune and two days of collection -- and the gate passed.
 
+   The first fix compared the dump against the ledger, and that comparison is
+   unsatisfiable: a run's own stages write, so at 17:34Z it stopped prune-apply
+   and offered the activation prune-apply exists to follow as the reason. What
+   a dump is, is a restore point for the freeze window it was taken in -- after
+   the window closes the collectors run again and those bytes stop being a
+   place it is safe to go back to. So the freeze stamps the window it opened
+   and the dump names the window it was taken in.
+
 Run: python -X utf8 scripts/test_s0_gate_reaches_every_stage.py
 """
 import json
@@ -44,11 +52,7 @@ def check(label: str, got: object, want: object) -> None:
 
 
 class _Cursor:
-    """Answers the two ledger queries with one timestamp and records the SQL."""
-
-    def __init__(self, newest: datetime | None, seen: list[str]) -> None:
-        self._newest = newest
-        self._seen = seen
+    """S0's only query is the drained-ingest-run count; answer it with zero."""
 
     def __enter__(self):
         return self
@@ -57,23 +61,15 @@ class _Cursor:
         return False
 
     def execute(self, sql, params=None):
-        self._seen.append(" ".join(sql.split()))
+        pass
 
     def fetchone(self):
-        if "cardz_rebuild_checkpoint" in self._seen[-1]:
-            return {"t": self._newest}
-        if "market_ingest_run" in self._seen[-1] and "MAX(" in self._seen[-1]:
-            return {"t": None}
         return {"n": 0}
 
 
 class _Conn:
-    def __init__(self, newest: datetime | None) -> None:
-        self.newest = newest
-        self.seen: list[str] = []
-
     def cursor(self):
-        return _Cursor(self.newest, self.seen)
+        return _Cursor()
 
 
 # --- 1. every single-stage run pays S0 -------------------------------------
@@ -127,9 +123,13 @@ except SystemExit as error:
     check("a completion time the dump does not carry is refused",
           "does not end with" in str(error), True)
 
-saved_proof = R.RESTORE_PROOF
+OPENED = "2026-08-09 11:30:00.000000"
+proof["freezeOpenedAt"] = OPENED
+saved_proof, saved_window = R.RESTORE_PROOF, R.FREEZE_WINDOW
 R.RESTORE_PROOF = DUMP.with_suffix(".json")
 R.RESTORE_PROOF.write_text(json.dumps(proof), encoding="utf-8")
+R.FREEZE_WINDOW = DUMP.with_name("_s0_gate_probe_window.json")
+R.FREEZE_WINDOW.write_text(json.dumps({"openedAt": OPENED}), encoding="utf-8")
 saved_freeze, saved_sub = R._run_freeze_proof, R.subprocess
 R._run_freeze_proof = lambda: None
 tasks = json.dumps([{"name": f"cardz-t{i}", "path": "\\", "state": "Disabled",
@@ -137,25 +137,38 @@ tasks = json.dumps([{"name": f"cardz-t{i}", "path": "\\", "state": "Disabled",
 R.subprocess = SimpleNamespace(run=lambda *a, **k: SimpleNamespace(
     returncode=0, stdout=tasks.encode("utf-8"), stderr=b""))
 try:
-    for label, newest, want in (
-        ("a database written after the backup stops the run",
-         datetime(2026, 8, 10, 15, 26, 7), "abort"),
-        ("a backup taken after the last write is a restore point",
-         datetime(2026, 8, 9, 11, 0, 0), "pass"),
-    ):
-        try:
-            result = R.stage_preflight(SimpleNamespace(conn=_Conn(newest)))
-            check(label, "pass", want)
-            if want == "pass":
-                check("and the run records when that backup was taken",
-                      result["counts"]["backup_taken_at"], "2026-08-09T12:00:00Z")
-        except SystemExit as error:
-            check(label, "abort" if "predates the database" in str(error)
-                  else f"other:{error}", want)
+    # A dump is a restore point for the window it was taken in and no other:
+    # once the window closes the collectors run again, and going back to those
+    # bytes means throwing that away. Nothing here compares the dump against
+    # the ledger -- the run's own stages write, so that comparison stopped
+    # prune-apply on 2026-08-10T17:34Z citing the activation it was following.
+    result = R.stage_preflight(SimpleNamespace(conn=_Conn()))
+    check("a dump taken inside the open window is a restore point",
+          result["counts"]["freeze_opened_at"], f"{OPENED}Z")
+    check("and the run records when that backup was taken",
+          result["counts"]["backup_taken_at"], "2026-08-09T12:00:00Z")
+
+    R.FREEZE_WINDOW.write_text(
+        json.dumps({"openedAt": "2026-08-10 09:00:00.000000"}), encoding="utf-8")
+    try:
+        R.stage_preflight(SimpleNamespace(conn=_Conn()))
+        check("a dump from an earlier freeze window is refused", "accepted", "abort")
+    except SystemExit as error:
+        check("a dump from an earlier freeze window is refused",
+              "taken in the freeze window opened" in str(error), True)
+    R.FREEZE_WINDOW.unlink()
+    try:
+        R.stage_preflight(SimpleNamespace(conn=_Conn()))
+        check("and with no freeze open there is no restore point at all",
+              "accepted", "abort")
+    except SystemExit as error:
+        check("and with no freeze open there is no restore point at all",
+              "no freeze window is open" in str(error), True)
 finally:
     R._run_freeze_proof, R.subprocess = saved_freeze, saved_sub
     R.RESTORE_PROOF.unlink(missing_ok=True)
-    R.RESTORE_PROOF = saved_proof
+    R.FREEZE_WINDOW.unlink(missing_ok=True)
+    R.RESTORE_PROOF, R.FREEZE_WINDOW = saved_proof, saved_window
     DUMP.unlink(missing_ok=True)
 
 # --- 3. yesterday's refusal must not refuse today's run --------------------

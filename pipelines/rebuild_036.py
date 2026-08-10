@@ -52,6 +52,13 @@ RESTORE_PROOF = ROOT / "data" / "runtime" / "rebuild-036" / "restore-proof.json"
 # Outside the repo: the dump is 1.5 GB and git has no business with it. Same
 # directory the 2026-08-08 backup was taken into by hand.
 BACKUP_DIR = Path.home() / "cardz-036-foundation-backup"
+# Written by cmd_freeze, removed by cmd_unfreeze: which freeze window is open,
+# stamped off the server's own clock. The restore proof names the window it was
+# taken in, so S0 can tell "this dump covers the state you froze" from "this
+# dump is from some earlier freeze". Without it the gate had only one question
+# available -- is anything in the ledger newer than the dump -- and the answer
+# is yes the moment the run's own first stage writes.
+FREEZE_WINDOW = ROOT / "data" / "runtime" / "rebuild-036" / "freeze-window.json"
 PRUNE_ALLOWLIST = ROOT / "data" / "policy" / "prune-order-allowlist.json"
 FREEZE_PROOF_SCRIPT = ROOT / "scripts" / "prove_writer_freeze.py"
 MYSQL_CONTAINER = "cardz-market-cap-db-1"
@@ -427,32 +434,39 @@ def stage_preflight(ctx: SimpleNamespace) -> dict[str, Any]:
     # would have discarded every binding, every prune and two days of
     # collection, and the gate still answered `backup_sha_verified`. What has
     # to hold is that nothing the database records postdates the backup of it.
+    # mysqldump writes this line last, so a proof can only quote it off a dump
+    # that finished. A truncated file with a matching sha is still not a place
+    # to go back to.
     taken_at = _dump_taken_at(proof, dump_file)
-    newest = None
-    with ctx.conn.cursor() as cursor:
-        for sql in (
-            # S0 does not count itself. `_stage_start` stamps started_at before
-            # calling the stage, so a preflight row is always newer than any
-            # backup taken before the run and the gate would refuse every run
-            # forever. Preflight is also the one stage that only reads.
-            "SELECT MAX(COALESCE(finished_at, started_at)) AS t"
-            " FROM cardz_rebuild_checkpoint WHERE stage <> 'preflight'",
-            "SELECT MAX(COALESCE(completed_at, started_at)) AS t"
-            " FROM market_ingest_run",
-        ):
-            cursor.execute(sql)
-            value = cursor.fetchone()["t"]
-            if value is not None and (newest is None or value > newest):
-                newest = value
-    if newest is not None and newest > taken_at:
+
+    # And the dump has to belong to the freeze that is open right now. A full
+    # dump contains everything up to the moment it completed, so the only
+    # question a restore point raises is what restoring it would throw away:
+    # taken inside this window, the answer is this run's own work, which is
+    # exactly what you would be undoing.
+    #
+    # Measured 2026-08-10: the dump this gate was protecting completed
+    # 2026-08-08 07:58 UTC, two days and a full night of collection before the
+    # freeze it was offered against, and the gate answered backup_sha_verified.
+    # Asking instead whether the ledger held anything newer than the dump was
+    # the first fix and it was unsatisfiable: a run's own stages write, so at
+    # 17:34Z it stopped prune-apply and cited the activation prune-apply was
+    # there to follow.
+    window = json.loads(FREEZE_WINDOW.read_text(encoding="utf-8")) if FREEZE_WINDOW.is_file() else {}
+    if not window.get("openedAt"):
         raise SystemExit(
-            f"S0 ABORT: the backup predates the database it is protecting."
-            f" Dump completed {taken_at.isoformat()}Z, newest ledgered write"
-            f" {newest.isoformat()}Z. Take a fresh dump and rewrite"
-            f" {RESTORE_PROOF.name}; see the RESTORE_PROOF comment for the"
-            f" command."
+            "S0 ABORT: no freeze window is open, so nothing here is a restore"
+            f" point. Freeze first; {FREEZE_WINDOW.name} is written by the freeze."
+        )
+    if proof.get("freezeOpenedAt") != window["openedAt"]:
+        raise SystemExit(
+            f"S0 ABORT: the restore proof was taken in the freeze window opened"
+            f" {proof.get('freezeOpenedAt')}, and the window open now was opened"
+            f" {window['openedAt']}. Whatever ran between them would be lost."
+            f" Take a fresh dump inside this window."
         )
     counts["backup_taken_at"] = f"{taken_at.isoformat()}Z"
+    counts["freeze_opened_at"] = f"{window['openedAt']}Z"
 
     with ctx.conn.cursor() as cursor:
         cursor.execute("SELECT COUNT(*) AS n FROM market_ingest_run WHERE status='running'")
@@ -8283,8 +8297,23 @@ def cmd_freeze(args: argparse.Namespace) -> int:
     if result.returncode != 0:
         raise SystemExit(f"freeze failed (exit {result.returncode}): {result.stderr.strip()[:500]}")
     _run_freeze_proof()
-    print(json.dumps({"frozen": True, "rebuildUser": user, "proof": "INSERT as cardz denied (1142)"},
-                     ensure_ascii=False))
+    # Off the server's clock, not the box's: the ledger timestamps this is
+    # compared against are written by MySQL, and this machine runs UTC+9.
+    stamp = subprocess.run(
+        [
+            "docker", "exec", MYSQL_CONTAINER, "sh", "-lc",
+            'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" --batch --skip-column-names'
+            ' -e "SELECT UTC_TIMESTAMP(6)"',
+        ],
+        capture_output=True, text=True,
+    )
+    opened = (stamp.stdout or "").strip()
+    if stamp.returncode != 0 or not re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{6}", opened):
+        raise SystemExit(f"freeze: could not read the server clock, got {opened!r}")
+    FREEZE_WINDOW.parent.mkdir(parents=True, exist_ok=True)
+    FREEZE_WINDOW.write_text(json.dumps({"openedAt": opened}, indent=1) + "\n", encoding="utf-8")
+    print(json.dumps({"frozen": True, "rebuildUser": user, "openedAt": opened,
+                      "proof": "INSERT as cardz denied (1142)"}, ensure_ascii=False))
     return 0
 
 
@@ -8362,6 +8391,10 @@ def cmd_unfreeze(args: argparse.Namespace) -> int:
                 f"unfreeze: definer repair failed for {view}: {redo.stderr.strip()[:300]}"
             )
         repaired.append(view)
+    # The window is closed, so the restore point taken inside it no longer
+    # describes a database nobody else may write to. Leaving the file behind
+    # would let the next freeze inherit a proof it did not earn.
+    FREEZE_WINDOW.unlink(missing_ok=True)
     print(json.dumps({
         "unfrozen": True, "cardzGrant": "ALL", "rebuildUserDropped": True,
         "definerRepairedViews": repaired,
@@ -8469,6 +8502,12 @@ def _take_backup(generation: str) -> dict[str, Any]:
         "dumpSha256": sha256_file(dump),
         "dumpCompletedMarker": marker,
         "generation": generation,
+        # Which freeze this covers. A dump is a restore point only for the
+        # window it was taken in; once the window closes, collection resumes
+        # and the same bytes stop being a place it is safe to go back to.
+        "freezeOpenedAt": json.loads(
+            FREEZE_WINDOW.read_text(encoding="utf-8")
+        )["openedAt"],
     }
     RESTORE_PROOF.parent.mkdir(parents=True, exist_ok=True)
     RESTORE_PROOF.write_text(json.dumps(proof, indent=1) + "\n", encoding="utf-8")
