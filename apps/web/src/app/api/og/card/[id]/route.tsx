@@ -38,16 +38,21 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const origin = new URL(request.url).origin;
   const snapshot = await loadMarketSnapshot().catch(() => null);
   const card = snapshot
     ? [...snapshot.top100, ...snapshot.watchlist].find((candidate) => candidate.id === id) ?? null
     : null;
 
-  // 揾唔到卡都唔准留白 —— 出返品牌預設圖。
-  if (!card) return fetch(new URL("/brand/og-light.png", origin));
+  /*
+   * 揾唔到 id 就同 `api/v1/cards/[id]` 一樣回 404 —— 個 id 唔存在，張圖亦唔存在。
+   * 原本呢句寫 `fetch(new URL("/brand/og-light.png", origin))`：容器 fetch 返自己
+   * 個 public origin 攞一個坐喺本機硬碟嘅檔（server → Cloudflare → server）。
+   * 實測 `/api/og/card/does-not-exist` 回 500 空 body，而 `/brand/og-light.png`
+   * 自己 200 —— 即係 fallback 由第一日就冇成功過，只係冇人拉過條 URL。
+   */
+  if (!card) return new Response("Card not found", { status: 404 });
 
   return new ImageResponse(
     (

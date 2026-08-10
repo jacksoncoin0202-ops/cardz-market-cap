@@ -280,6 +280,54 @@ call site」，見唔到「序列化 call site」——後者係 framework 自�
 > 同一形狀嘅閘只可以有一個：**投影層（whitelist）先係閘，component 唔係。**
 > component 嘅 field list 係「畫唔畫」，投影層先係「出唔出街」。
 
+## 同日第四次：一個 root convention 檔，靜靜地決定咗全 app 嘅 HTTP status
+
+`/card/does-not-exist` 回 **200**，body 係一版「No eligible cards are available in
+this view」，`<title>` 係「Open card profile」。即係任何舊 link、任何被 prune 走嘅卡、
+任何亂打嘅 id，對 crawler 嚟講都係一版可索引嘅正常頁。
+
+第一層根因同前三單同形：**判斷擺錯層**。「揾唔到卡」個 `if (!card)` 淨係活喺 client
+component（`components/card-detail.tsx`）入面，route 由頭到尾唔知道張卡唔存在，
+所以 Next 冇理由唔回 200。對照組：同一個 lookup 喺 API 側
+（`app/api/v1/cards/[id]/route.ts:10`）一直做啱咗回 404 —— 錯嘅係頁面呢邊冇閘，
+唔係 lookup 有問題。
+
+補返 `notFound()` 之後**仲係 200**。逐個位置試（全部 production build，唔係 dev）：
+
+| 試法 | status | 出到嘅 body |
+|---|---|---|
+| `notFound()` 喺 page component | 200 | not-found UI |
+| `notFound()` 搬去 `generateMetadata` | 200 | not-found UI |
+| 加 `generateStaticParams` + `dynamicParams = false` | 200 | not-found UI |
+| Googlebot UA（Next 會 block metadata streaming） | 200 | not-found UI |
+| **移走 `app/loading.tsx`** | **404** | not-found UI |
+
+第二層根因：`app/loading.tsx` 係 **root-level** convention 檔。Next 見到佢就會喺 root
+layout 下面包一個 Suspense，令每一條 route 都變成「即刻沖 shell，內容之後 stream」。
+Shell 一離開 server，HTTP status 已經寫死 200 —— 之後 render 期內冇任何位置改得返。
+即係話：**全 app 任何 `notFound()` 都係無效嘅**，唔止 `/card/[id]`。
+對照組 `/no-such-page` 一直回 404，因為佢喺 routing 階段就判咗，未 render 過。
+
+順帶一提，嗰個骨架本身係榜頁形狀（rank / 縮圖 / 卡名 / 數值 一行行），本來就唔應該
+喺卡詳情頁出。
+
+修法：`app/loading.tsx` → `app/(market)/loading.tsx`，同時將 `/` `/pokemon`
+`/one-piece` `/watchlist` `/tune` 五條榜頁搬入同一個 route group。URL 一條都冇變
+（route group 唔入 path），榜頁骨架照舊，`card/[id]` 唔再喺 Suspense 下面。
+
+同場修埋：`/api/og/card/<唔存在嘅 id>` 一直回 **500 空 body**。嗰句 fallback 寫住
+`fetch(new URL("/brand/og-light.png", origin))` —— 容器 fetch 返自己個 public origin，
+去攞一個坐喺本機硬碟嘅檔（server → Cloudflare → server）。`/brand/og-light.png`
+自己 200，所以呢條 fallback 由第一日就冇成功過，只係冇人拉過條 URL。改成同
+`api/v1/cards/[id]` 一樣回 404。
+
+> **規矩：** convention 檔（`loading.tsx` / `error.tsx` / `template.tsx`）擺喺邊一層，
+> 就係喺嗰一層改寫晒所有 descendant route 嘅 render 同 status 行為，而且**零
+> call site**、grep 唔到。加呢類檔之前要問：呢個 boundary 應該罩住邊幾條 route。
+>
+> 同一形狀：**「body 啱」唔等於「status 啱」**。驗 404 要睇 status code，
+> 唔准睇個頁面畫咗乜。
+
 ## 相關
 
 - 上一手：`canonical_name` 由 Universal rollup 改讀 PSA 行（同一個權威、同一個 transaction）
