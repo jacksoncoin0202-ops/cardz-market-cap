@@ -871,6 +871,21 @@ seed-snapshot）。手抄落去嘅 generation 圖每次 build 完要再抄一次
     最容易呃到自己。**查法**：改完一條規矩，`grep` 個欄位名睇邊個 stage 真係
     *產生*佢（有 `_fingerprint_...(...)` 嗰句），唔好靠 stage 順序估。
     要 reset 去嗰個 stage 為止。
+24. **一大堆 `language:ja!=en` 唔係「拒絕得啱」，係「隻 listing 掛錯咗喺 en 卡度」。**
+    （2026-08-10，SNK reverify 80 個 OP hold 入面 73 個係呢個）
+    SNKRDUNK 係日本市場，佢啲 listing 由定義上就係**日文卡**。所以一張 en variant
+    hold 住個 SNK item、然後年年被 `language:ja!=en` 拒絕，正常結論唔係「呢張卡冇 SNK 價」，
+    係「呢個 item 嘅正主係隔離嗰張 ja variant」。實測九對：
+    v1225(en, OP07-085) 霸住 item 520534，而 masterName 係
+    `Stussy SR-SPC [OP07-085](Booster Pack "A Fist of Divine Speed")` ——
+    正主係 v1875(ja, OP11 SPC 085)。九個現任 holder 全部 `manual_review`／`rejected`
+    而且 `verdict:false`（冇人手裁決），所以 `snk-identity-discover --allow-repoint`
+    正正就係為呢個情況而設，唔係鬆閘。
+    **落手之前一定要做嘅兩步**：(a) 打開 `currentlyHeldBy` 睇實 `match_status` 同
+    `verdict` —— 有人手 verdict 就唔准搶；(b) 對 `stamp_red_sheet_quarantine.red_variant_ids()`
+    確認 target 同 holder 兩邊都唔喺紅名單。兩步都過先加 `--allow-repoint`。
+    **形狀**：一個 hold 理由連續大量出現同一個值，多數係「配錯對」而唔係「真係唔啱」。
+    睇個 provider 本身係邊個市場，再問「咁邊張卡先係佢嘅正主」。
 
 ### 相關嘅 MySQL / shell 陷阱
 
