@@ -776,13 +776,23 @@ _NOISE_TOKENS = {
 }
 
 
-def _set_signals(set_name: str, collector: str = "") -> tuple[set[str], set[str]]:
-    """(set codes, meaningful name tokens) a side exposes for set comparison."""
+def _set_signals(set_name: str) -> tuple[set[str], set[str]]:
+    """(set codes, meaningful name tokens) a SET NAME exposes for comparison.
+
+    A collector number used to be a second source of codes here. It is not a
+    set signal: the number is printed on the card and names the set the card
+    first appeared in, which for a promo or a reprint is a different product
+    from the one the entity is -- the OP07 booster Luffy #109 bound onto the
+    Promos lottery prize exactly that way. The conflict check stopped passing
+    one in, but the parameter survived and _gemrate_bind_evidence still did,
+    so 197 of 16,835 captures minted providerClaims.setCode out of a card
+    number ('Pokemon Sword & Shield Shining Fates' + 'SV007' -> 'sv007', a
+    code no provider ever claimed). Removing the parameter is what makes the
+    inference unrepresentable rather than merely unused.
+    """
 
     text = _norm_text(str(set_name or "").replace("&", " and "))
-    codes = set(_SET_CODE_RE.findall(text)) | set(
-        _SET_CODE_RE.findall(_norm_text(collector))
-    )
+    codes = set(_SET_CODE_RE.findall(text))
     # GemRate's "<franchise> <CODE> <LANG>-<Name>" prefix: code is already
     # harvested above; strip it so the code token never pollutes name tokens.
     text = re.sub(r"\b([a-z0-9]{2,6})\s+(en|jp|ja)-", " ", text)
@@ -1534,7 +1544,7 @@ def _gemrate_bind_evidence(fp: Mapping[str, Any], generation: str) -> tuple[dict
     carry what the provider itself said; evidence ties the bind to a
     raw-verified v2 observation via rawPayloadSha256."""
 
-    codes, _ = _set_signals(fp.get("setName") or "", fp.get("cardNumber") or "")
+    codes, _ = _set_signals(fp.get("setName") or "")
     evidence = {
         "providerClaims": {
             "tcgCode": _tcg_from_set(fp.get("setName")),
