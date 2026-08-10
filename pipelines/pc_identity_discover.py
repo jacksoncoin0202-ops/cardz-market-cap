@@ -365,11 +365,8 @@ def judge_listing(
 # Targets
 # ---------------------------------------------------------------------------
 
-set_name_by_code = R.set_name_by_code
-
-
 def console_candidates(
-    row: dict[str, Any], index: dict[str, str], code_to_set: dict[str, str],
+    row: dict[str, Any], index: dict[str, str],
 ) -> list[tuple[str, str, str]]:
     """The set pages this card could be on, best first: (slug, set name, why).
 
@@ -401,7 +398,7 @@ def console_candidates(
         seen.add(slug)
     first_why = why
 
-    names = R.set_names_a_card_could_carry(row, code_to_set)
+    names = R.set_names_a_card_could_carry(row)
     number_set = names[1] if len(names) > 1 else ""
     if number_set and number_set != catalog_set:
         slug2, why2 = match_console(number_set, language, index)
@@ -527,12 +524,9 @@ def cmd_pc_identity_discover(args: argparse.Namespace) -> int:
         rows_cache: dict[str, list[dict[str, str]]] = {}
         writes: list[dict[str, Any]] = []
 
-        code_to_set = set_name_by_code(conn, args.tcg or "one-piece", args.language)
-        progress(f"[sets] {len(code_to_set)} set code(s) named by the catalog")
-
         for row in targets:
             vid = int(row["variant_id"])
-            candidates = console_candidates(row, index, code_to_set)
+            candidates = console_candidates(row, index)
             if not candidates[0][0]:
                 counts["noConsole"] += 1
                 why = candidates[0][2]

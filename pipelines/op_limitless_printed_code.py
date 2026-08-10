@@ -418,6 +418,21 @@ def select_targets(conn: Any, generation: str, only_gap: bool) -> list[dict[str,
         return [dict(row) for row in cursor.fetchall()]
 
 
+def live_variant_ids(conn: Any, keys: Any) -> set[str]:
+    """Which of these policy keys still name a row in catalog_variant."""
+
+    ids = sorted({int(key) for key in keys})
+    if not ids:
+        return set()
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT id FROM catalog_variant WHERE id IN (%s)"
+            % ",".join(["%s"] * len(ids)),
+            tuple(ids),
+        )
+        return {str(int(row["id"])) for row in cursor.fetchall()}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--write", action="store_true")
@@ -498,6 +513,19 @@ def main() -> None:
             }
             target = advisory if entry["provenBy"] == "promo_scan" else codes
             target[str(entry["variantId"])] = record
+        # Every key here is a variant id, and prune-apply deletes variant ids.
+        # This merge only ever added, so a pruned card's entry outlived the row
+        # it describes: measured 2026-08-11, v64 (Zoro Manga Alternate Art 118)
+        # was gone from catalog_variant while its advisory entry survived. An
+        # entry that names no row can no longer be checked against the catalog
+        # it exists to correct, and the id is free to be handed to a different
+        # card, so it is dropped here rather than carried forward.
+        live = live_variant_ids(conn, [*codes, *advisory])
+        dropped = sorted(
+            (int(key) for key in [*codes, *advisory] if key not in live)
+        )
+        codes = {key: value for key, value in codes.items() if key in live}
+        advisory = {key: value for key, value in advisory.items() if key in live}
         payload = {
             "contract": "op-printed-code-v1",
             "source": "onepiece.limitlesstcg.com",
@@ -511,6 +539,7 @@ def main() -> None:
         report["policyPath"] = POLICY_PATH.relative_to(ROOT).as_posix()
         report["policyEntries"] = len(payload["codes"])
         report["policyAdvisoryEntries"] = len(payload["advisory"])
+        report["policyDroppedVariants"] = dropped
 
     print(json.dumps(report, ensure_ascii=False, indent=1))
 

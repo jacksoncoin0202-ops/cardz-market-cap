@@ -292,15 +292,22 @@ check("both lanes read the same derivation", S.R.red_listed_variants(), RED)
 # One Piece reprints a card into a later product without renumbering it, so the
 # set the card was pulled from and the set its number names are two different
 # pages. Measured 2026-08-09: reading only the first cost 22 of 59 holds.
-CODE_TO_SET = {"OP08": "One Piece Two Legends",
-               "OP09": "One Piece Emperors in the New World"}
+#
+# The number's set is named by Limitless -- `op02-paramount-war` is one string
+# carrying both halves, written by the people who publish the product. A map
+# built by majority over catalog rows used to answer here instead, and on a
+# reprint set_code and set_name in the same row describe different products:
+# measured 2026-08-10 it answered ST01 with "Awakening of the New Era" (that is
+# OP05) and OP02 with "Two Legends" (that is OP08). Limitless spells a product
+# without the "One Piece" prefix, so this is also the check that match_console
+# recognises the page from that shorter spelling.
 INDEX2 = dict(INDEX)
 INDEX2["one-piece-two-legends"] = "one piece two legends"
 INDEX2["one-piece-emperors-in-the-new-world"] = "one piece emperors in the new world"
 
 reprint = {"set_name": "One Piece Emperors in the New World", "card_language": "en",
            "collector_number": "OP08-106"}
-cands = D.console_candidates(reprint, INDEX2, CODE_TO_SET)
+cands = D.console_candidates(reprint, INDEX2)
 check("a reprint is looked for on two pages", len(cands), 2)
 # Indexed defensively: a regression here should print its own failure line, not
 # take the other sixty checks down with an IndexError.
@@ -311,14 +318,16 @@ check("the set it was pulled from comes first", first[0],
 check("the set its number names comes second", second[0], "one-piece-two-legends")
 # Judged against the set whose page it is, or product_agrees refuses every row
 # on that page for saying "Two Legends" where our catalog said "Emperors".
-check("and it is judged against that page's own set", second[1],
-      "One Piece Two Legends")
+check("and it is judged against that page's own set", second[1], "two legends")
 check("the record says which reading found it", second[2], "collector_number")
 
-# A card whose number names the set it is already filed under is looked for once.
+# A card whose number names the set it is already filed under is looked for
+# once. The two spellings of that set do not compare equal -- Limitless drops
+# the "One Piece" -- so it is the SLUG they both resolve to that collapses
+# them, which is the only place they can be known to be the same page.
 same = dict(reprint, collector_number="OP09-050")
 check("no second page when both readings agree",
-      [c[0] for c in D.console_candidates(same, INDEX2, CODE_TO_SET)],
+      [c[0] for c in D.console_candidates(same, INDEX2)],
       ["one-piece-emperors-in-the-new-world"])
 # Widening where we look must not widen what we accept: OP08-106 is Nami and
 # the OP08 page's OP08-052 is Portgas D. Ace, on the same page, still refused.
@@ -367,11 +376,14 @@ check("and [SP Foil] is still a different product",
 # just proposed, for saying "Awakening of the New Era" where the page said the
 # set the card's own number names.
 check("both readings are offered to whoever judges the product",
-      RB.set_names_a_card_could_carry(reprint, CODE_TO_SET),
-      ["One Piece Emperors in the New World", "One Piece Two Legends"])
-check("a card whose number names its own set offers one",
-      RB.set_names_a_card_could_carry(same, CODE_TO_SET),
-      ["One Piece Emperors in the New World"])
+      RB.set_names_a_card_could_carry(reprint),
+      ["One Piece Emperors in the New World", "two legends"])
+# Naming the set the card is already filed under is not a second page: this
+# offers Limitless's spelling of the same product, and product_agrees judges a
+# page against both. The page count is settled a step later, by the slug.
+check("a card whose number names its own set offers that set again",
+      RB.set_names_a_card_could_carry(same),
+      ["One Piece Emperors in the New World", "emperors in the new world"])
 
 
 # --- 3g. the canonical map has exactly one writer --------------------------
@@ -409,10 +421,21 @@ PAGES_DIR = ROOT / "data" / "private" / "pricecharting_session" / "html" / "full
 _product_page = PAGES_DIR / "2026_shanks-magazine-op09-001_r.html"
 _search_page = PAGES_DIR / "2026_search-products-q-one-piece-Shanks-001-type-prices.html"
 if _product_page.is_file() and _search_page.is_file():
-    check("the folder's first file really is the search page",
-          sorted(PAGES_DIR.glob("2026_*.html"))[0], _search_page)
+    _order = sorted(PAGES_DIR.glob("2026_*.html"))
+    check("order still puts the search page ahead of the product's page",
+          _order.index(_search_page) < _order.index(_product_page), True)
+    # Asserted on what the capture SAYS, not on its filename: a lane may save
+    # the same page under the product id (2026_10032135.html appeared on
+    # 2026-08-10 beside the slug-named one) and both are the right answer,
+    # while the search page -- the one alphabetical order hands over -- parses
+    # to `canonical_not_product` and never is.
+    _chosen = RB.pc_capture_for_product(PAGES_DIR, 2026, "10032135")
+    _identity, _why = RB._pc_page_identity(
+        _chosen.read_text(encoding="utf-8", errors="replace") if _chosen else ""
+    )
     check("but the product's own page is what gets judged",
-          RB.pc_capture_for_product(PAGES_DIR, 2026, "10032135"), _product_page)
+          (_identity or {}).get("canonicalUrl", _why),
+          "https://www.pricecharting.com/game/one-piece-promo/shanks-magazine-op09-001")
     # No capture is this product's page: hand back a real one anyway so the
     # caller can say WHICH product it found instead of "page=?".
     truthy("an uncaptured product still names what was on disk",

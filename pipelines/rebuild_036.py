@@ -1231,34 +1231,26 @@ NOT_A_REJECTION_VERDICT_SQL = (
 NUMBER_SET_CODE_RE = re.compile(r"^([A-Z]{2,4}\d{2})-")
 
 
-def set_name_by_code(conn: Any, tcg: str, language: str) -> dict[str, str]:
-    """What each set code is called, taken from the catalog by majority.
-
-    Derived rather than written down: a hard-coded OP01..OP14 table would be
-    wrong the week a new set ships. The majority is what makes it safe -- a
-    handful of rows carry the set_name of the product the card was PULLED FROM
-    rather than the one its number names, and those rows are exactly what this
-    map exists to see past, so reading any single row would be circular.
-    """
-
-    sql = ("SELECT set_code, set_name, COUNT(*) AS c FROM catalog_variant"
-           " WHERE tcg_code = %s AND set_code <> '' AND set_name <> ''")
-    params: list[Any] = [tcg]
-    if language:
-        sql += " AND card_language = %s"
-        params.append(language)
-    sql += " GROUP BY set_code, set_name ORDER BY set_code, c DESC"
-    best: dict[str, str] = {}
-    with conn.cursor() as cursor:
-        cursor.execute(sql, tuple(params))
-        for row in cursor.fetchall():
-            best.setdefault(str(row["set_code"]), str(row["set_name"]))
-    return best
-
-
-def set_names_a_card_could_carry(
-    row: Mapping[str, Any], code_to_set: Mapping[str, str],
-) -> list[str]:
+# A catalog-majority map from set code to set name used to live here, and
+# `set_names_a_card_could_carry` took it as a second source for the name a
+# printed code carries. It could not be one. catalog_variant.set_name asserts
+# which product a particular card was PULLED FROM; no count over such rows
+# converts that into what a set code is NAMED, and the docstring's claim that
+# the majority made it safe did not survive the data: of 156 (tcg, language,
+# code) keys, 80 were decided by three rows or fewer and 12 had a top-two tie
+# at one row each, so the winner was whatever the execution plan emitted.
+#
+# Measured 2026-08-11 on the live catalog: of the 24 one-piece/en codes, the 9
+# that `limitless_product_name` does not cover -- EB01, EB02, ST01, ST10, ST13,
+# ST14, ST16, ST18, ST21 -- fell through to this map, and all 9 answered with
+# ANOTHER set's name (ST01 -> 'Awakening of the New Era', which is OP05;
+# ST13 -> OP12; ST14 -> OP10; EB01/ST16/ST18 -> OP11's 'A Fist of Divine
+# Speed'; EB02 -> 'One Piece Promos'). Not one was right. That name is handed
+# to `product_agrees`, the only check separating a reprint from a different
+# product once the number agrees, so it made an OP11 page acceptable for an
+# ST18 card. A code with no proved product name now simply yields no extra
+# name -- the honest state.
+def set_names_a_card_could_carry(row: Mapping[str, Any]) -> list[str]:
     """The catalog's set name, plus the one this card's NUMBER names.
 
     One Piece reprints a card into a later product without renumbering it, so
@@ -1292,11 +1284,7 @@ def set_names_a_card_could_carry(
         if extra and extra not in codes:
             codes.append(extra)
     for code in codes:
-        # Limitless first, because code_to_set is built from catalog rows whose
-        # set_code and set_name name different products on exactly the reprints
-        # this function exists for: it answered OP02 with "Two Legends" and
-        # ST01 with "Awakening of the New Era" (2026-08-10, variants 1427/19).
-        alt = op_identity_rules.limitless_product_name(code) or code_to_set.get(code, "")
+        alt = op_identity_rules.limitless_product_name(code)
         if alt and alt not in names:
             names.append(alt)
     return [name for name in names if name]
@@ -7639,9 +7627,6 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
     }
     promoted: list[dict[str, Any]] = []
     held: list[dict[str, Any]] = []
-    # (tcg, language) -> set code -> set name. Built on first use per language
-    # because most runs touch one.
-    set_name_maps: dict[tuple[str, str], dict[str, str]] = {}
     try:
         with conn.cursor() as cursor:
             cursor.execute(
@@ -7728,13 +7713,8 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
             # Art, and every check up to here agreed. The rule is applied only
             # where its vocabulary was derived.
             if str(row["tcg_code"] or "") == "one-piece":
-                key = (str(row["tcg_code"] or ""), str(row["card_language"] or ""))
-                if key not in set_name_maps:
-                    set_name_maps[key] = set_name_by_code(conn, key[0], key[1])
                 same_product, why = False, "product_mismatch:no_set_name"
-                for candidate_set in set_names_a_card_could_carry(
-                    row, set_name_maps[key]
-                ):
+                for candidate_set in set_names_a_card_could_carry(row):
                     same_product, why = op_identity_rules.product_agrees(
                         candidate_set, str(row["fp_parallel"] or ""),
                         identity["setText"], identity["canonicalUrl"],

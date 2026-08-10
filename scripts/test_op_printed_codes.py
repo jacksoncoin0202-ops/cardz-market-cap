@@ -98,11 +98,22 @@ check("a missing variant id resolves to nothing", printed_set_code(None), "")
 # printed code differs from the code spelled in its own GemRate set name,
 # because that difference IS the defect, and a hard-coded id would rot the
 # week the policy is regenerated.
+#
+# It also has to be one Limitless can NAME. `limitless_product_name` is built
+# out of the `product` slug each record carries -- the product GemRate filed
+# the card under -- so it knows the sold-in code and only knows a printed code
+# when some other card was sold in that product too. Measured 2026-08-11 over
+# the 93 gate-usable entries: 46 printed codes are nameable and differ from
+# the sold-in name, 19 are not nameable at all (v19 prints ST01, and no
+# starter deck is anybody's GemRate product). For those 19 the printed code
+# reaches the SNKRDUNK lane and contributes nothing to the PriceCharting one,
+# so driving 3b with one of them proves nothing about either.
 reprint = next(
     (
         (int(key), rec) for key, rec in codes.items()
         if (found := op_identity_rules.SET_CODE_RE.search(str(rec["canonicalName"]).upper()))
         and found.group(1) != rec["printedCode"].rpartition("-")[0]
+        and op_identity_rules.limitless_product_name(rec["printedCode"].rpartition("-")[0])
     ),
     None,
 )
@@ -164,16 +175,32 @@ if reprint is not None and not failures:
     # could only read a code written INTO the collector number. These cards
     # carry a bare "044", so it returned one name and the reprint's own set
     # page -- the only page PriceCharting files the card on -- was never read.
-    code_to_set = {product: f"{product} product set", printed: f"{printed} printed set"}
     reload_policy()
-    names_with = R.set_names_a_card_could_carry(row, code_to_set)
+    printed_product = op_identity_rules.limitless_product_name(printed)
+    sold_product = op_identity_rules.limitless_product_name(
+        op_identity_rules.sold_in_set_code(variant_id)
+    )
+    names_with = R.set_names_a_card_could_carry(row)
     op_identity_rules._PRINTED_CODES = {}
-    names_without = R.set_names_a_card_could_carry(row, code_to_set)
+    names_without = R.set_names_a_card_could_carry(row)
     reload_policy()
-    check("pc lane reads only the pulled-from set when the policy is unread",
-          names_without, [record["canonicalName"]])
+    # Only the printed map is cleared; the sold-in map is a separate read and
+    # keeps answering. So whatever the toggle costs the lane IS the printed
+    # code's contribution, with nothing else moving underneath it.
+    check("pc lane reads the pulled-from set when the policy is unread",
+          names_without, [n for n in (record["canonicalName"], sold_product) if n])
     check("pc lane also reads the printed set's page once it reads it",
-          names_with, [record["canonicalName"], f"{printed} printed set"])
+          names_with,
+          [n for n in (record["canonicalName"], printed_product, sold_product) if n])
+    check("clearing the policy costs the pc lane exactly the printed set's name",
+          [n for n in names_with if n not in names_without], [printed_product])
+    # Every name here now comes from a Limitless product slug -- one string
+    # written by Limitless carrying both the code and the name. A catalog
+    # majority map used to stand behind it and answered 9 of 9 uncovered
+    # one-piece/en codes with ANOTHER set's name; removing the parameter is
+    # what makes that inference unrepresentable rather than merely unused.
+    check("set_names_a_card_could_carry takes the row and nothing else",
+          R.set_names_a_card_could_carry.__code__.co_argcount, 1)
     check("a bare collector number is what makes that widening necessary",
           bool(R.NUMBER_SET_CODE_RE.match(str(record["collectorNumber"]).upper())), False)
 
