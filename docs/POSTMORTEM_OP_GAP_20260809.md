@@ -375,10 +375,33 @@ base 版、v1716 攞「Yamato [Alternate Art] OP01-121」。
 - **036 activate 之後嘅實數（2026-08-09 14:35 UTC，universe lock 58）**：product_ready
   1235（原本 851）、qualified_market_pending 370（原本 754）。One Piece en 102 ready /
   79 pending、ja 70 ready / 43 pending。即係 OP 仲欠 **122 張**。
+- **剩返 122 張 OP 逐張查過（2026-08-09 深夜，dry-run artifact
+  `data/runtime/operator/{pc_reverify,snk_discover_op}_dryrun.log`）——結論係
+  「大部分係啱嘅攔截同真係冇料」，唔係一個未修嘅 bug。** 唔好再由頭查一次，睇呢張表：
+
+  | 邊度 | 幾多 | 係咩 | 可唔可以修 |
+  |---|---|---|---|
+  | ja | 18 | `hard_conflict` —— 個 SNK item 真係第二張卡 | 唔係 bug |
+  | ja | 13 | `proven_binding_elsewhere` —— **逐個核對過，在位嗰個係啱嘅**（例：v2139 Boa Hancock 051 爭嘅 item 屬於 Buggy 051；v1872 Emperors Nami *Special* AA 爭嘅 item 屬於 Two Legends Nami *AA*）。呢 13 張要嘅係搵返自己嗰件貨，唔係搶 | 要 discovery，唔係 reverify |
+  | ja | 9 | `product_mismatch` —— 缺嘅字係 GemRate 用英文寫嘅活動名（`official event prize`、`magazine vol.20`、`ichiban kuji purchase bonus`、`3rd anniversary gold`），日文商品名唔會有 | 要日文活動名對照表；**唔准拆閘** |
+  | ja | 4 | `ambiguous_survivors` —— 兩件貨都過晒閘 | 3 張可以用 set 名分（`Wings of the Captain` ↔ `Booster Pack Wings of Captain`、`Kingdoms of Intrigue` ↔ `The Kingdom Of Conspiracy`、`Paramount War` ↔ `Final Battle`）；**但要一張 SNK 英文 set 名對照表，`data/editorial/set-names.json` 得 ja 譯名，接唔到**。v2159（Girls Edition vs Girls Edition For Asia）真係分唔到，照 hold |
+  | en | 16 | `print_signature_mismatch` —— **逐張睇過，全部係啱嘅攔截**，其中 5 張（v1212/v1225/v1228/v1229/v1438）就係新規則 `page=[]` + 有 treatment 嘅 printing_code 攔到嘅 | 唔係 bug |
+  | en | 15 | `hard_conflict` | 要 discovery |
+  | en | 7 | `product_mismatch` | 同 ja 一樣 |
+  | en | 11 | `page_missing` 4 / `page_parse_failed` 4 / `map_product_mismatch` 2 / `page_product_mismatch` 1 | **呢 11 張係機械可修**：要 headed Chrome :9333 重抓頁 |
+  | en+ja | 50 | 連 binding row 都冇（en 12 / ja 38） | 見上面 discovery 條數 |
+
+  **要留意嘅副作用**：收緊 print signature 之後，有 5–9 張卡由「出緊錯價」變成「冇價」。
+  帳面卡數少咗，但嗰啲數本來就係錯——唔准為咗湊返個數而還原。
+
 - **SNK ja lane 撞緊同一個 cross-set reprint 形狀，但未修。** 全量 44 個目標，bound 0，
   40 個 `no_survivor`，286 個 `hard_conflict`。**唔准照抄 PC 嗰條 fix**：SNK 側嘅
   「bracket」係由字面「パラレル／parallel」推出嚟，幾乎每個 SNK binding 嘅
   `snk_parallel` 都係空字串，照套會一次過 demote 晒。要先量度，再決定。
+- **自動化窿：朝早 browser lane 冇包 PC 身份頁重抓。**
+  `scripts/morning_browser_lanes.ps1` 只行 `en_price_ref` + `pc_ebay_sales` + `daily-accept`，
+  所以上面 11 張 `page_missing` / `map_product_mismatch` **永遠唔會自己好返**。要人手行
+  `ensure_chrome_cdp.ps1 -Port 9333` 再重抓，或者將呢步加入朝早鏈。
 - **`_pc_rarity_only_parallel` 仲有兩個 call site 冇收緊**：`rebuild_036.py` S7
   snk-refresh 同 snk reverify（原因同上——SNK 側）。已記帳，唔准盲改。
 - **`stage_identity_resolve` 仲有一個 `match_status != 'rejected'` 分支**。行為係啱嘅
