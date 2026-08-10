@@ -1,5 +1,25 @@
 # CARDZ Market Cap：GitHub Push → AWS Pull Deploy
 
+> **§1–§3 係提案，唔係現況。** 呢三節描述一個加固版 receiver（專用 deploy key、
+> `flock`、SHA 比對、health assert）。實際裝喺主機嗰個唔係佢。真正生效嘅契約係
+> WSL `~/cardz-aws/docs/DEPLOY_WEBHOOK_SMOKE.md`（2026-07-29 IT 確認）：
+>
+> | 項目 | 現況 |
+> |---|---|
+> | 分支 | `main` only |
+> | 觸發 | commit message 含 `[deploy]` |
+> | Webhook | `https://spwebhook.funtoken.me/hooks/deploy-cardzmarketcap`（**唔帶** `.com` 尾） |
+> | 伺服器動作 | `git pull` → `docker compose up --build` |
+> | 卡數／build 檢查 | **冇** |
+>
+> 認得出嘅方法：§2 個腳本會將 `CARDZ_PUBLIC_BUILD_ID` 設成 8 位短 SHA，compose 預設
+> 係 `deploy`。2026-08-10 公開站回 `x-cardz-build: local` —— 兩個都唔係，即係現役容器
+> 唔係由呢個腳本起。§0 啲固定值到今日仲係未填嘅 placeholder，本身已經係「冇裝過」嘅
+> 憑據。2026-08-10 曾經有人（我）當咗 §2 嗰句 `cards == 762` 係實裝閘，因此攔住咗一個
+> 完全正確嘅 release —— 唔好再重蹈。
+>
+> 要真係裝 §1–§3 嘅時候，先更新呢段，唔好留住兩份互相矛盾嘅「權威」。
+
 本文件只描述 **AWS/Node production**。Cloudflare 如有使用，只是 DNS／HTTPS／Tunnel
 入口，不是應用程式部署目標。真正部署動作必須在 AWS server 發生：
 
@@ -273,7 +293,6 @@ CARDZ_PUBLIC_BUILD_ID: 呢個 [deploy] commit 喺 main 上面嘅短 SHA
 上一次 release 係 `033 / FE02`、generation `db3308_ab0b51aa013eb50b`、762 張，snapshot
 SHA-256 `8e800a2ac69a03a4de6e8635075e37e75b3c2f42a6095d890af02471839e7ce8`。
 
-**AWS host 前置動作（今次一定要做）**：`/usr/local/libexec/cardz-market-cap-deploy` 舊版
-寫死 `assert result["cards"] == 762`。1259 張嘅 release 會喺容器已經起咗、公開站已經換咗
-世界之後先撞爆呢句，然後按 §5 封住下一次 deploy。推 `[deploy]` 之前，先按 §2 更新嗰個檔
-（`EXPECTED_CARDS` + `sys.argv[4]` 兩處）。
+**關於 `cards == 762`**：呢個寫死值只存在於本文件 §2 嗰個**未實裝**嘅提案腳本（見文首）。
+真正生效嘅 deploy 冇卡數閘，所以 1259 張唔需要任何主機前置動作。真係要裝 §1–§3 嘅日子，
+§2 已經改成由 checkout 嗰份 snapshot 計 `EXPECTED_CARDS`，唔會再有同樣嘅過期常數。
