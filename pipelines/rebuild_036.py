@@ -49,6 +49,9 @@ DAILY_CREDENTIALS_ENV = ROOT / "data" / "runtime" / "config" / "backend.env"
 #     -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines --triggers
 #     cardz_market_cap' > <dump>
 RESTORE_PROOF = ROOT / "data" / "runtime" / "rebuild-036" / "restore-proof.json"
+# Outside the repo: the dump is 1.5 GB and git has no business with it. Same
+# directory the 2026-08-08 backup was taken into by hand.
+BACKUP_DIR = Path.home() / "cardz-036-foundation-backup"
 PRUNE_ALLOWLIST = ROOT / "data" / "policy" / "prune-order-allowlist.json"
 FREEZE_PROOF_SCRIPT = ROOT / "scripts" / "prove_writer_freeze.py"
 MYSQL_CONTAINER = "cardz-market-cap-db-1"
@@ -428,9 +431,13 @@ def stage_preflight(ctx: SimpleNamespace) -> dict[str, Any]:
     newest = None
     with ctx.conn.cursor() as cursor:
         for sql in (
-            "SELECT MAX(GREATEST(started_at, COALESCE(finished_at, started_at))) AS t"
-            " FROM cardz_rebuild_checkpoint",
-            "SELECT MAX(GREATEST(started_at, COALESCE(completed_at, started_at))) AS t"
+            # S0 does not count itself. `_stage_start` stamps started_at before
+            # calling the stage, so a preflight row is always newer than any
+            # backup taken before the run and the gate would refuse every run
+            # forever. Preflight is also the one stage that only reads.
+            "SELECT MAX(COALESCE(finished_at, started_at)) AS t"
+            " FROM cardz_rebuild_checkpoint WHERE stage <> 'preflight'",
+            "SELECT MAX(COALESCE(completed_at, started_at)) AS t"
             " FROM market_ingest_run",
         ):
             cursor.execute(sql)
@@ -8408,6 +8415,59 @@ def _scheduler_set(tasks: list[dict[str, str]], *, enable: bool) -> list[str]:
     return [f"{task['path']}{task['name']}" for task in tasks]
 
 
+def _take_backup(generation: str) -> dict[str, Any]:
+    """Dump the frozen database and write the restore proof S0 reads.
+
+    The password expands inside the container shell, the way cmd_freeze does
+    it: it never reaches a command line, this output, or the proof file.
+
+    Written to `.part` and renamed on success, so a dump that dies halfway
+    does not overwrite the last one that finished. That matters here more than
+    usual: this file is the only way back from the stages about to run.
+    """
+
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    dump = BACKUP_DIR / f"cardz-{generation}-pre.sql"
+    part = dump.with_suffix(".part")
+    with part.open("wb") as handle:
+        result = subprocess.run(
+            [
+                "docker", "exec", MYSQL_CONTAINER, "sh", "-lc",
+                'exec mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction'
+                " --routines --triggers cardz_market_cap",
+            ],
+            stdout=handle, stderr=subprocess.PIPE,
+        )
+    if result.returncode != 0:
+        part.unlink(missing_ok=True)
+        raise SystemExit(
+            f"backup failed (exit {result.returncode}):"
+            f" {(result.stderr or b'').decode('utf-8', 'replace').strip()[:400]}"
+        )
+    with part.open("rb") as handle:
+        handle.seek(max(0, part.stat().st_size - 4096))
+        tail = handle.read().decode("utf-8", "replace")
+    marker = next(
+        (line.strip() for line in reversed(tail.splitlines())
+         if line.startswith("-- Dump completed on ")),
+        "",
+    )
+    if not marker:
+        part.unlink(missing_ok=True)
+        raise SystemExit("backup failed: mysqldump wrote no completion marker")
+    part.replace(dump)
+    proof = {
+        "dumpFile": dump.as_posix(),
+        "dumpSha256": sha256_file(dump),
+        "dumpCompletedMarker": marker,
+        "generation": generation,
+    }
+    RESTORE_PROOF.parent.mkdir(parents=True, exist_ok=True)
+    RESTORE_PROOF.write_text(json.dumps(proof, indent=1) + "\n", encoding="utf-8")
+    return {"dumpFile": proof["dumpFile"], "bytes": dump.stat().st_size,
+            "completed": marker[len("-- Dump completed on "):].strip()}
+
+
 def cmd_e2e(args: argparse.Namespace) -> int:
     """One command from code change to baked snapshot.
 
@@ -8444,6 +8504,12 @@ def cmd_e2e(args: argparse.Namespace) -> int:
 
         cmd_freeze(SimpleNamespace(credentials_env=args.credentials_env))
         record("freeze")
+
+        # After the freeze, before the stages: the freeze is what makes the
+        # dump a restore point that stays one, and S0 is the next thing to
+        # run. Taking it by hand was the step nobody remembered -- the gate
+        # spent 55 hours passing on a 2026-08-08 dump while the chain wrote.
+        record("backup", **_take_backup(args.generation))
 
         code = cmd_rebuild(stage_args)
         if code != 0:
