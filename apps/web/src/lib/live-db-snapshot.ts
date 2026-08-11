@@ -227,6 +227,18 @@ export async function loadLiveDbSnapshot(): Promise<MarketViewSnapshot> {
 async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSnapshot> {
   const connection = await openConnection();
   try {
+    const [universeRows] = await connection.query<DbRow[]>(`
+      SELECT member_count
+      FROM market_universe_lock
+      WHERE is_current=1
+    `);
+    if (universeRows.length !== 1) {
+      throw new Error(`3308 must have exactly one current universe lock, found ${universeRows.length}`);
+    }
+    const memberCount = Number(universeRows[0].member_count);
+    if (!Number.isSafeInteger(memberCount) || memberCount < 1) {
+      throw new Error(`3308 current universe member_count is invalid: ${universeRows[0].member_count}`);
+    }
     const [coreRows] = await connection.query<DbRow[]>(`
       SELECT
         metric.variant_id,
@@ -262,6 +274,9 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
                metric.canonical_market_rank,metric.variant_id
     `, [generationHash]);
     if (coreRows.length === 0) throw new Error("3308 current ranking generation is empty");
+    if (coreRows.length !== memberCount) {
+      throw new Error(`3308 ranking rows=${coreRows.length}, universe members=${memberCount}`);
+    }
     const variantIds = coreRows.map((row) => Number(row.variant_id));
     const placeholders = variantIds.map(() => "?").join(",");
 
@@ -575,6 +590,7 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
         effectiveAt,
       },
       universe: {
+        memberCount,
         populationMin: 1000,
         grade: "PSA 10",
         rankingMetric: "psa10_market_cap_usd",

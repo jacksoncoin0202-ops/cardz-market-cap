@@ -23,16 +23,22 @@ PRICE_MAX_AGE_DAYS = max(
     int(days) for days in GUARDRAILS["priceMaxAgeDaysBySource"].values()
 )
 AWAITING_FRESH_PRICE_MAX_RATIO = float(GUARDRAILS["awaitingFreshPriceMaxRatio"])
-EXPECTED_CARDS = 1322
-EXPECTED_COMPLETE = int(GUARDRAILS["minimumCompleteCollectorNumbers"])
+MINIMUM_COMPLETE_COLLECTOR_NUMBERS = int(
+    GUARDRAILS["minimumCompleteCollectorNumbers"]
+)
+SELF_TEST_CARDS = 1322
+SELF_TEST_COMPLETE = MINIMUM_COMPLETE_COLLECTOR_NUMBERS
 TARGET_ID = "cmc_f698284d7bc333408782e4c6"
 TARGET_NUMBER = "170/181"
 
 
 def validate(snapshot: dict[str, Any], asset_root: Path, now: datetime) -> dict[str, Any]:
     cards = [*(snapshot.get("top100") or []), *(snapshot.get("watchlist") or [])]
-    if len(cards) != EXPECTED_CARDS:
-        raise AssertionError(f"cards={len(cards)}, expected={EXPECTED_CARDS}")
+    expected_cards = int((snapshot.get("universe") or {}).get("memberCount") or 0)
+    if expected_cards < 1:
+        raise AssertionError("snapshot universe.memberCount is missing or invalid")
+    if len(cards) != expected_cards:
+        raise AssertionError(f"cards={len(cards)}, universe members={expected_cards}")
     ids = [str(card.get("id") or "") for card in cards]
     if len(set(ids)) != len(ids) or any(not value for value in ids):
         raise AssertionError("card ids are missing or duplicated")
@@ -79,10 +85,11 @@ def validate(snapshot: dict[str, Any], asset_root: Path, now: datetime) -> dict[
                 if not (asset_root / name_part).is_file():
                     missing_assets.append(name_part)
 
-    if len(complete) != EXPECTED_COMPLETE:
-        raise AssertionError(f"complete collector numbers={len(complete)}, expected={EXPECTED_COMPLETE}")
-    if len(incomplete) != EXPECTED_CARDS - EXPECTED_COMPLETE:
-        raise AssertionError(f"genuine no-denominator cards={len(incomplete)}, expected=33")
+    if len(complete) < MINIMUM_COMPLETE_COLLECTOR_NUMBERS:
+        raise AssertionError(
+            f"complete collector numbers regressed: {len(complete)}"
+            f" < {MINIMUM_COMPLETE_COLLECTOR_NUMBERS}"
+        )
     if stale:
         raise AssertionError(
             f"ranked prices older than {PRICE_MAX_AGE_DAYS} days: {stale[:10]}"
@@ -107,6 +114,7 @@ def validate(snapshot: dict[str, Any], asset_root: Path, now: datetime) -> dict[
     return {
         "generation": (snapshot.get("generation") or {}).get("id"),
         "cards": len(cards),
+        "universeMemberCount": expected_cards,
         "uniqueIds": len(set(ids)),
         "completeCollectorNumbers": len(complete),
         "genuineNoDenominator": len(incomplete),
@@ -134,7 +142,7 @@ def self_test() -> None:
             "pricePsa10": {"asOf": now.isoformat()},
             "image": {},
         }
-        for index in range(1, EXPECTED_COMPLETE)
+        for index in range(1, SELF_TEST_COMPLETE)
     ] + [
         {
             "id": f"promo-{index}",
@@ -143,10 +151,27 @@ def self_test() -> None:
             "pricePsa10": {"asOf": now.isoformat()},
             "image": {},
         }
-        for index in range(EXPECTED_CARDS - EXPECTED_COMPLETE)
+        for index in range(SELF_TEST_CARDS - SELF_TEST_COMPLETE)
     ]
-    document = {"generation": {"id": "self-test"}, "top100": cards[:100], "watchlist": cards[100:]}
+    document = {
+        "generation": {"id": "self-test"},
+        "universe": {"memberCount": SELF_TEST_CARDS},
+        "top100": cards[:100],
+        "watchlist": cards[100:],
+    }
     validate(document, Path("."), now)
+
+    growth = json.loads(json.dumps(document))
+    growth["watchlist"].append({
+        "id": "growth-card",
+        "officialName": "Growth Card NEW-001",
+        "collectorNumber": {"display": "NEW-001", "complete": True},
+        "pricePsa10": {"asOf": now.isoformat()},
+        "image": {},
+    })
+    growth["universe"]["memberCount"] += 1
+    validate(growth, Path("."), now)
+    print("POSITIVE_OK universe growth is accepted when snapshot membership agrees")
 
     waiting = document["watchlist"][-1]
     waiting["pricePsa10"] = {
@@ -160,6 +185,9 @@ def self_test() -> None:
     validate(document, Path("."), now)
 
     cases = []
+    membership_drop = json.loads(json.dumps(document))
+    membership_drop["watchlist"].pop()
+    cases.append(("membership", membership_drop))
     broken_name = json.loads(json.dumps(document))
     broken_name["top100"][0]["officialName"] = "Example 170"
     cases.append(("name", broken_name))
@@ -179,7 +207,7 @@ def self_test() -> None:
     too_many_waiting = json.loads(json.dumps(document))
     waiting_limit = max(
         1,
-        math.floor(EXPECTED_CARDS * AWAITING_FRESH_PRICE_MAX_RATIO),
+        math.floor(SELF_TEST_CARDS * AWAITING_FRESH_PRICE_MAX_RATIO),
     )
     waiting_cards = [
         *too_many_waiting["top100"],
@@ -203,6 +231,7 @@ def self_test() -> None:
         try:
             validate(broken, Path("."), now)
         except AssertionError:
+            print(f"NEGATIVE_OK {label} fixture was rejected")
             continue
         raise AssertionError(f"negative self-test did not fire: {label}")
 

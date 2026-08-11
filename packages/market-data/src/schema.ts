@@ -167,6 +167,7 @@ export interface PublicMarketSnapshot {
   schemaVersion: typeof SNAPSHOT_SCHEMA_VERSION;
   generation: SnapshotGeneration;
   universe: {
+    memberCount: number;
     populationMin: 1000;
     grade: "PSA 10";
     rankingMetric: "psa10_market_cap_usd";
