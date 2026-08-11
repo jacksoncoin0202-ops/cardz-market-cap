@@ -84,6 +84,16 @@ SLA_HOURS = CHECKPOINT_SLA_HOURS
 # before one more lane interval can carry a stream past the gate.
 LANE_INTERVAL_HOURS = 24
 REFRESH_DUE_HOURS = SLA_HOURS - LANE_INTERVAL_HOURS
+# REFRESH_DUE_HOURS 答嘅係「幾時**一定要**重收」（由 acceptance gate 倒推），但
+# 佢一路兼任咗「幾時**先至准**重收」——兩條唔同嘅問題。lane 一日行一次、又喺
+# 00:30 UTC 開跑，於是前一晚 12 個鐘內掂過嘅 stream 全部俾當日嗰轉跳過。
+# 實測 2026-08-11 09:30 JST 嗰轉只打 208/993，因為 08-10 夜晚另一轉收咗其餘 785 條。
+# HTTP 嗰邊咁樣冇問題：佢哋要嘅只係唔好過 SLA，而 SLA_HOURS - LANE_INTERVAL_HOURS
+# 正正保證得到。PC 兩條 lane 唔同——PriceCharting 個 sold 表硬上限 30 行，燒得
+# 最快嗰批卡 2 日就滿，跳一日就真係少咗成交筆數，而歷史只有靠每日抄低嗰 30 行
+# 先儲得返。所以呢兩條 lane 冇 cooldown：每轉掃齊 993。兩條 lane 共用同一次
+# CDP 取頁（refresh_pc_pages），所以一齊全量唔會多開一個 request。
+PC_REFRESH_DUE_HOURS = 0.0
 CARDZ_CDP_PORT = int(os.environ.get("CARDZ_CDP_PORT", "9333"))
 # 9222 is the Codex browser profile. Attaching there drives somebody else's
 # logged-in Chrome, and the ban on it lived only in AGENTS.md while this knob
@@ -298,17 +308,18 @@ def _poll_mode(
     observed_at: datetime | None,
     checkpoint: dict[str, Any] | None,
     empty_poll_is_complete: bool = False,
+    refresh_due_hours: float = REFRESH_DUE_HOURS,
 ) -> str:
     if not has_stock:
         if not empty_poll_is_complete or checkpoint is None:
             return "stock"
         age = _age_hours(_parse_datetime(checkpoint.get("last_effective_at")))
-        return "incr" if age is None or age > REFRESH_DUE_HOURS else "ok"
+        return "incr" if age is None or age > refresh_due_hours else "ok"
     if checkpoint is None:
         return "incr"
     last_success = checkpoint.get("last_effective_at")
     age = _age_hours(_parse_datetime(last_success))
-    return "incr" if age is None or age > REFRESH_DUE_HOURS else "ok"
+    return "incr" if age is None or age > refresh_due_hours else "ok"
 
 
 def _insert_control_run(
@@ -985,6 +996,7 @@ def classify_needs(
             observed_at=row.get("_ebaySaleMax"),
             checkpoint=_checkpoint_for(checkpoints, "pc_ebay_sales", vid, external),
             empty_poll_is_complete=True,
+            refresh_due_hours=PC_REFRESH_DUE_HOURS,
         )
         needs.append({
             "adapter": "pc_ebay_sales",
@@ -997,6 +1009,7 @@ def classify_needs(
             has_stock=bool(row["prices"]["enExplicitPc"]),
             observed_at=row.get("_enExplicitPcMax"),
             checkpoint=_checkpoint_for(checkpoints, "en_price_ref", vid, external),
+            refresh_due_hours=PC_REFRESH_DUE_HOURS,
         )
         needs.append({
             "adapter": "en_price_ref",
@@ -1116,6 +1129,71 @@ def freshness_summary(
             ),
         }
     return out
+
+
+def cmd_prune_checkpoints(*, apply: bool) -> dict[str, Any]:
+    """刪走對唔返任何 active exact stream 嘅 checkpoint 行。
+
+    卡一旦解綁／換咗 external id／跌出 active universe，佢原本嗰條
+    `market_ingest_checkpoint` 行仲會留喺度，永遠唔會再有人寫。呢啲行會令
+    `SELECT COUNT(*)` 同 lane 實際掃嘅張數對唔上（實測 1,077 vs 993），查 lane
+    覆蓋率嗰陣要人手扣返，係一個永遠會再中伏嘅落差。expected 由同一個
+    `build_registry` 出，唔會有第二套判斷。
+    """
+    load_env()
+    conn = db()
+    cur = conn.cursor()
+    try:
+        rows = load_universe_rows(cur)
+        checkpoints = load_checkpoints(cur)
+        reg = build_registry(rows, checkpoints)
+        expected: dict[str, set[str]] = {adapter: set() for adapter in CHECKPOINT_ADAPTERS}
+        for item in reg:
+            adapter = str(item.get("adapter") or "")
+            if adapter in expected and item.get("externalId") is not None:
+                expected[adapter].add(_stream_key(int(item["variantId"]), item.get("externalId")))
+        orphans = [
+            dict(row)
+            for (source, stream_key), row in sorted(checkpoints.items())
+            if source in expected and stream_key not in expected[source]
+        ]
+        OUT_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        artifact = OUT_DIR / f"checkpoint_orphans_{stamp}.jsonl"
+        with artifact.open("w", encoding="utf-8") as handle:
+            for row in orphans:
+                handle.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+        deleted = 0
+        if apply and orphans:
+            for row in orphans:
+                cur.execute(
+                    "DELETE FROM market_ingest_checkpoint WHERE source_code=%s AND stream_key=%s",
+                    (row["source_code"], row["stream_key"]),
+                )
+                deleted += cur.rowcount
+            conn.commit()
+        by_adapter: dict[str, int] = {}
+        for row in orphans:
+            key = str(row["source_code"])
+            by_adapter[key] = by_adapter.get(key, 0) + 1
+        report = {
+            "action": "prune-checkpoints",
+            "asOf": utc_now(),
+            "applied": bool(apply),
+            "expectedStreams": {adapter: len(keys) for adapter, keys in expected.items()},
+            "checkpointRows": {
+                adapter: sum(1 for (source, _) in checkpoints if source == adapter)
+                for adapter in CHECKPOINT_ADAPTERS
+            },
+            "orphans": len(orphans),
+            "orphansByAdapter": by_adapter,
+            "deleted": deleted,
+            "artifact": str(artifact),
+        }
+        print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
+        return report
+    finally:
+        conn.close()
 
 
 def cmd_status(*, rebuild_registry: bool = True) -> dict[str, Any]:
@@ -4005,6 +4083,12 @@ def main() -> int:
     p_status = sub.add_parser("status", help="freshness + due registry")
     p_status.add_argument("--no-rebuild", action="store_true")
 
+    p_prune = sub.add_parser(
+        "prune-checkpoints",
+        help="drop market_ingest_checkpoint rows that map to no active exact stream",
+    )
+    p_prune.add_argument("--apply", action="store_true")
+
     def add_common(p):
         p.add_argument("--adapter", action="append", default=[], help="all|http|browser|manual|gemrate_pop|snk_trades|snk_price|snk_en_image|pc_ebay_sales|en_price_ref (repeatable)")
         p.add_argument("--limit", type=int, default=None, help="max exact ids per network adapter")
@@ -4040,6 +4124,8 @@ def main() -> int:
     report = None
     if args.cmd == "status":
         cmd_status(rebuild_registry=not args.no_rebuild)
+    elif args.cmd == "prune-checkpoints":
+        cmd_prune_checkpoints(apply=args.apply)
     elif args.cmd == "stock":
         report = cmd_stock(adapters=adapters, limit=args.limit, dry_run=args.dry_run, delay=args.delay, workers=args.workers, ensure_browser=args.ensure_browser, pc_resume_report=args.pc_resume_report, pc_sleep=args.pc_sleep, variant_ids=args.variant_id)
     elif args.cmd == "incr":
