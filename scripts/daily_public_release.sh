@@ -13,7 +13,11 @@ flock -n 9
 test -e "$RELEASE_REPO/.git"
 test -z "$(git -C "$RELEASE_REPO" status --porcelain)"
 git -C "$RELEASE_REPO" fetch origin main
-test "$(git -C "$RELEASE_REPO" rev-parse HEAD)" = "$(git -C "$RELEASE_REPO" rev-parse origin/main)"
+# 比 FETCH_HEAD，唔好比 refs/remotes/origin/main：release repo 個
+# remote.origin.fetch 曾經係空（冇 refspec），origin/main 永遠停喺 clone 嗰刻，
+# 呢個 guard 就變咗恆真，鏈照跑落一個落後幾個 commit 嘅 tree 上面。
+# `git fetch origin main` 無論有冇 refspec 都一定寫 FETCH_HEAD。
+test "$(git -C "$RELEASE_REPO" rev-parse HEAD)" = "$(git -C "$RELEASE_REPO" rev-parse FETCH_HEAD)"
 test -f "$RELEASE_REPO/node_modules/typescript/bin/tsc"
 
 CARDZ_REPO_ROOT="$SOURCE_REPO" node "$RELEASE_REPO/scripts/bake-public-snapshot.mjs" \

@@ -50,7 +50,11 @@ def main() -> int:
         source_path = source / name
         destination_path = destination / name
         if not destination_path.is_file() or not filecmp.cmp(source_path, destination_path, shallow=False):
-            shutil.copy2(source_path, destination_path)
+            # copyfile + 固定 0644，唔用 copy2：source 喺 /mnt/c（drvfs）上面永遠
+            # 報 0777，copy2 會照抄，於是每個 webp 都由 100644 變 100755，
+            # 每次 release 都出一個 3966 檔嘅純 mode diff，真正嘅內容改動被淹冇。
+            shutil.copyfile(source_path, destination_path)
+            destination_path.chmod(0o644)
             copied += 1
 
     removed = 0

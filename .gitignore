@@ -24,3 +24,5 @@ Thumbs.db
 # 一定會再犯，所以喺呢度封死。
 fe03-server.ps1
 scripts/fe03-verify.cjs
+# .claude/launch.json 都係本機 dev server 設定，同上面一齊漏入過 commit。
+.claude/
