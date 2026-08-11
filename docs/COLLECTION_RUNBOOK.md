@@ -194,19 +194,54 @@ python -X utf8 pipelines\pricecharting_cf_session.py connect --port 9333 --timeo
 ### Incremental refresh (Windows Python)
 
 ```powershell
-python -X utf8 pipelines\pc_cdp_sold_refresh_win.py --sleep 4.0
+python -X utf8 pipelines\pc_cdp_sold_refresh_win.py
 ```
 
 Flags (argparse in `pipelines/pc_cdp_sold_refresh_win.py`): `--limit` (default **0** = all),
-`--offset` (**0**), `--sleep` (**4.0** s between items), `--challenge-wait` (**120.0** s — waits
+`--offset` (**0**), `--workers` (**`PC_TABS` = 2** concurrent tabs), `--sleep`
+(**`PC_SLEEP_SECONDS` = 3.0** s per tab between items), `--challenge-wait` (**120.0** s — waits
 on the same 403 page, never reloads), `--cdp-port` (**9333**), `--cdp-already-ensured`,
 `--resume-report`, `--variant-ids-file`, `--no-ingest`.
+
+#### Pacing calibration — 2026-08-12 (量返嚟嘅，唔准靠估改)
+
+單 tab + `--sleep 4.0` 嗰陣：5.2 s/頁，其中 **4.0 s 淨係喺度瞓**，全量 993 張 = **95 分鐘**。
+嗰 4 秒冇任何量度撐住，本文件當時只寫住 "politeness"。而家改成 N 條 tab 共用同一個
+CDP session + 一條共用 backoff。同一批 40 張逐個設定實測：
+
+| 分頁 / sleep | 每頁 | 429 | 推算 993 張 |
+|---|---|---|---|
+| 4 / 1.0s | 2.78s | 3 | 46 分鐘 |
+| 3 / 1.0s | 2.18s | 2 | 36 分鐘 |
+| 2 / 1.5s | 1.99s | 1 | 33 分鐘 |
+| **2 / 3.0s** | **2.03s** | **0** | **34 分鐘** ← 預設 |
+| 6 / 8.0s | 2.19s | 1 | 36 分鐘 |
+| 4 / 4.8s | 2.16s | 1 | 36 分鐘 |
+| 8 / 0.5s | 2.60s | 4 | 43 分鐘 |
+
+兩個反直覺結論，唔好再試多次：
+
+1. **加分頁唔會快，反而慢。** 4 分頁 2.78 s/頁，慢過 2 分頁嘅 2.03 s/頁 —— 每食一次 429
+   就要全部分頁一齊停 30/60/120 秒。乾淨上限大約 **0.5 goto/s**，即係 993 張 ≈ 34 分鐘。
+   呢個係 Cloudflare 個閘，唔係腳本慢。
+2. **唔准 `page.route` 擋走圖／css 嚟慳額度。** 一版產品頁向 `www.pricecharting.com` 打
+   31 個 request（15 圖 / 6 script / 4 css / 2 manifest / 2 xhr / 1 fetch / 1 document），
+   睇落擋走 21 個就可以行快三倍。實際 A/B（同一設定、隔 3 分鐘背對背）：唔擋 **40/40
+   全清 2.05 s/頁**，擋咗 **38/40、兩次 429、3.69 s/頁**。Cloudflare 見到「瀏覽器」淨係
+   攞 HTML 唔攞 css／圖就當你係 bot。要扮足全套。
+
+`collect_control.py` 個 `--pc-sleep` / `--pc-workers` **冇 default**：唔傳就用返上面兩個常數。
+（舊版喺嗰邊硬寫 `default=4.0`，所以 refresher 點改都冇用 —— 真正決定 993 張跑幾耐嘅係
+CLI 嗰一行。`scripts/test_pc_lane_full_sweep.py` 守住呢件事。）
 
 Behaviour (`pipelines/pc_cdp_sold_refresh_win.py`):
 
 - Reads the map `data/runtime/private-source-map/c11_pc_ebay_map_full900.jsonl`; writes its
   report to `data/runtime/operator/collect/pc_cdp_refresh_report.json`.
-- One CDP tab. Verified-only atomic cache writes: temp `.next` → `os.replace` only when status
+- `--workers` CDP tabs inside the one session (same cookie jar / CF clearance), sharing one
+  backoff: any tab hitting 429/CF pauses **every** tab. `validate_pc_psa10` runs in a thread so
+  the ~100 ms HTML parse never blocks the other tabs.
+  Verified-only atomic cache writes: temp `.next` → `os.replace` only when status
   is 200/`challenge_resolved` **and** HTML length > **5000** **and** not a CF page **and**
   product-id + canonical-URL identity match **and** an explicit PSA10 figure is present.
 - Rate-limit backoff ladder `BACKOFF_LADDER = (30.0, 60.0, 120.0)` s.

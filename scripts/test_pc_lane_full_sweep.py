@@ -94,6 +94,25 @@ check(
     2,
 )
 
+# --- 4. 節奏參數只准住喺 refresher，唔准喺 CLI 寫死 ------------------------
+# 舊版 refresher 寫住 politeness sleep，但 collect_control 個 CLI 硬塞
+# `--pc-sleep` default=4.0，所以真正決定 993 張跑幾耐嘅係 CLI 嗰一行 —— refresher
+# 改幾多次都冇用。實測後果：5.2 s/頁 × 993 = 95 分鐘，入面 66 分鐘淨係喺度瞓。
+# 兩個 flag 一旦有 default，calibration 就會再次被繞過。
+for flag in ("--pc-sleep", "--pc-workers"):
+    line = next(
+        (row for row in source.splitlines() if f'"{flag}"' in row),
+        "",
+    )
+    check(f"{flag} 存在", bool(line), True)
+    check(f"{flag} 冇寫死 default（節奏由 refresher 話事）", "default=" in line, False)
+
+check(
+    "refresh_pc_pages 有將 tab 數傳落去",
+    source.count('cmd.extend(["--workers"'),
+    1,
+)
+
 for line in FAILED:
     print(line)
 print(f"{CHECKS - len(FAILED)}/{CHECKS} checks passed")

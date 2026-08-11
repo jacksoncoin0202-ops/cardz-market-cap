@@ -3330,7 +3330,8 @@ def refresh_pc_pages(
     mode: str,
     dry_run: bool,
     resume_report: Path | None,
-    sleep_seconds: float,
+    sleep_seconds: float | None,
+    tabs: int | None,
     cdp_already_ensured: bool,
 ) -> dict[str, Any]:
     selected = _unique_items(items, None)
@@ -3374,11 +3375,16 @@ def refresh_pc_pages(
             "--limit",
             "0",
             "--no-ingest",
-            "--sleep",
-            str(max(0.0, float(sleep_seconds))),
             "--cdp-port",
             str(CARDZ_CDP_PORT),
         ]
+        # 唔傳就用 pc_cdp_sold_refresh_win.py 自己嗰兩個量返嚟嘅常數。呢度一旦寫死
+        # 一個 default，嗰邊改幾多次都冇用 —— 舊版就係咁：refresher 寫住 politeness
+        # sleep，但呢度硬塞 `--pc-sleep 4.0`，所以真正決定 993 張要跑幾耐嘅係呢一行。
+        if sleep_seconds is not None:
+            cmd.extend(["--sleep", str(max(0.0, float(sleep_seconds)))])
+        if tabs is not None:
+            cmd.extend(["--workers", str(max(1, int(tabs)))])
         if cdp_already_ensured:
             cmd.append("--cdp-already-ensured")
         if resume_report is not None:
@@ -3695,7 +3701,8 @@ def _collect_mode_impl(
     workers: int,
     ensure_browser: bool,
     pc_resume_report: Path | None,
-    pc_sleep: float,
+    pc_sleep: float | None,
+    pc_workers: int | None,
     variant_ids: list[int] | None = None,
 ) -> dict[str, Any]:
     status = cmd_status(rebuild_registry=True)
@@ -3854,6 +3861,7 @@ def _collect_mode_impl(
             dry_run=dry_run,
             resume_report=pc_resume_report,
             sleep_seconds=pc_sleep,
+            tabs=pc_workers,
             cdp_already_ensured=cdp_already_ensured,
         )
     else:
@@ -4002,7 +4010,8 @@ def _collect_mode(
     workers: int,
     ensure_browser: bool,
     pc_resume_report: Path | None,
-    pc_sleep: float,
+    pc_sleep: float | None,
+    pc_workers: int | None,
     variant_ids: list[int] | None = None,
 ) -> dict[str, Any]:
     requested = _requested_adapters(adapters)
@@ -4018,6 +4027,7 @@ def _collect_mode(
             ensure_browser=ensure_browser,
             pc_resume_report=pc_resume_report,
             pc_sleep=pc_sleep,
+            pc_workers=pc_workers,
             variant_ids=variant_ids,
         )
     finally:
@@ -4033,7 +4043,8 @@ def cmd_stock(
     workers: int,
     ensure_browser: bool,
     pc_resume_report: Path | None,
-    pc_sleep: float,
+    pc_sleep: float | None,
+    pc_workers: int | None,
     variant_ids: list[int] | None = None,
 ) -> dict[str, Any]:
     return _collect_mode(
@@ -4046,6 +4057,7 @@ def cmd_stock(
         ensure_browser=ensure_browser,
         pc_resume_report=pc_resume_report,
         pc_sleep=pc_sleep,
+        pc_workers=pc_workers,
         variant_ids=variant_ids,
     )
 
@@ -4059,7 +4071,8 @@ def cmd_incr(
     workers: int,
     ensure_browser: bool,
     pc_resume_report: Path | None,
-    pc_sleep: float,
+    pc_sleep: float | None,
+    pc_workers: int | None,
     variant_ids: list[int] | None = None,
 ) -> dict[str, Any]:
     return _collect_mode(
@@ -4072,6 +4085,7 @@ def cmd_incr(
         ensure_browser=ensure_browser,
         pc_resume_report=pc_resume_report,
         pc_sleep=pc_sleep,
+        pc_workers=pc_workers,
         variant_ids=variant_ids,
     )
 
@@ -4097,7 +4111,8 @@ def main() -> int:
         p.add_argument("--workers", type=int, default=24, help="SNK concurrent workers (API, not CDP)")
         p.add_argument("--ensure-browser", action="store_true", help="ensure the dedicated single CARDZ CDP session before PC path")
         p.add_argument("--pc-resume-report", type=Path, help="reuse successful exact-ID pages from one strict PC receipt")
-        p.add_argument("--pc-sleep", type=float, default=4.0, help="seconds between serial PC page loads")
+        p.add_argument("--pc-sleep", type=float, help="override the refresher's calibrated per-tab pause")
+        p.add_argument("--pc-workers", type=int, help="override the refresher's calibrated tab count")
         p.add_argument("--variant-id", action="append", type=int, default=[], help="force exact active variant only (repeatable)")
 
     p_stock = sub.add_parser("stock", help="residual full pulls only")
@@ -4127,9 +4142,9 @@ def main() -> int:
     elif args.cmd == "prune-checkpoints":
         cmd_prune_checkpoints(apply=args.apply)
     elif args.cmd == "stock":
-        report = cmd_stock(adapters=adapters, limit=args.limit, dry_run=args.dry_run, delay=args.delay, workers=args.workers, ensure_browser=args.ensure_browser, pc_resume_report=args.pc_resume_report, pc_sleep=args.pc_sleep, variant_ids=args.variant_id)
+        report = cmd_stock(adapters=adapters, limit=args.limit, dry_run=args.dry_run, delay=args.delay, workers=args.workers, ensure_browser=args.ensure_browser, pc_resume_report=args.pc_resume_report, pc_sleep=args.pc_sleep, pc_workers=args.pc_workers, variant_ids=args.variant_id)
     elif args.cmd == "incr":
-        report = cmd_incr(adapters=adapters, limit=args.limit, dry_run=args.dry_run, delay=args.delay, workers=args.workers, ensure_browser=args.ensure_browser, pc_resume_report=args.pc_resume_report, pc_sleep=args.pc_sleep, variant_ids=args.variant_id)
+        report = cmd_incr(adapters=adapters, limit=args.limit, dry_run=args.dry_run, delay=args.delay, workers=args.workers, ensure_browser=args.ensure_browser, pc_resume_report=args.pc_resume_report, pc_sleep=args.pc_sleep, pc_workers=args.pc_workers, variant_ids=args.variant_id)
     elif args.cmd == "commit-snk-price-receipt":
         report = cmd_commit_snk_price_receipt(receipt_path=args.receipt)
     elif args.cmd == "commit-snk-binding-delta":
