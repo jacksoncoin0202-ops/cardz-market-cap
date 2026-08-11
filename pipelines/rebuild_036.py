@@ -7613,8 +7613,8 @@ DISCOVERY_BASELINE = ROOT / "pipelines" / "discovery_coverage_baseline.json"
 DISCOVERY_GAP_POP = 1000
 
 
-def _discovery_gap_census(cur: Any) -> dict[str, int]:
-    """Qualified, heavily-graded cards that no provider candidate reaches.
+def _discovery_gap_rows(cur: Any) -> list[dict[str, Any]]:
+    """Qualified, heavily-graded cards that no exact provider binding reaches.
 
     A card in this census cannot enter the universe no matter how many
     generations run, because every downstream stage draws its working set from
@@ -7630,7 +7630,9 @@ def _discovery_gap_census(cur: Any) -> dict[str, int]:
 
     cur.execute(
         """
-        SELECT v.tcg_code AS tcg, COUNT(*) AS gap
+        SELECT rm.generation_id, rm.variant_id, v.tcg_code AS tcg,
+               v.card_language AS language,
+               rm.latest_psa10_population AS population
           FROM catalog_rebuild_member rm
           JOIN catalog_variant v ON v.id = rm.variant_id
          WHERE rm.generation_id = (
@@ -7643,11 +7645,21 @@ def _discovery_gap_census(cur: Any) -> dict[str, int]:
                   WHERE si.variant_id = v.id
                     AND si.source_code IN ('snkrdunk', 'snk_psa10', 'pricecharting')
                     AND si.match_status = 'exact')
-         GROUP BY v.tcg_code
+         ORDER BY rm.latest_psa10_population DESC, rm.variant_id
         """,
         (DISCOVERY_GAP_POP,),
     )
-    return {str(row["tcg"]): int(row["gap"]) for row in cur.fetchall()}
+    return [dict(row) for row in cur.fetchall()]
+
+
+def _discovery_gap_census(cur: Any) -> dict[str, int]:
+    """Count the exact rows used by daily discovery and its acceptance ratchet."""
+
+    census: dict[str, int] = {}
+    for row in _discovery_gap_rows(cur):
+        tcg = str(row["tcg"])
+        census[tcg] = census.get(tcg, 0) + 1
+    return census
 
 
 def _assert_discovery_gap_not_worse(cur: Any) -> dict[str, Any]:
@@ -8137,7 +8149,7 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
     held: list[dict[str, Any]] = []
     try:
         with conn.cursor() as cursor:
-            cursor.execute(
+            binding_sql = (
                 "SELECT si.external_entity_id AS pid, si.variant_id,"
                 " si.match_status,"
                 # GemRate's own wording for the printing. For a booster card it
@@ -8160,7 +8172,22 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
                 "   AND si.match_status IN ('manual_review','rejected')"
                 f"   AND {NOT_A_REJECTION_VERDICT_SQL}"
             )
-            bindings = cursor.fetchall()
+            binding_params: list[Any] = []
+            variant_ids = getattr(args, "variant_ids", None)
+            if variant_ids is not None:
+                scoped = sorted({int(variant_id) for variant_id in variant_ids})
+                if not scoped:
+                    bindings = []
+                else:
+                    binding_sql += (
+                        f" AND si.variant_id IN ({','.join(['%s'] * len(scoped))})"
+                    )
+                    binding_params.extend(scoped)
+                    cursor.execute(binding_sql, tuple(binding_params))
+                    bindings = cursor.fetchall()
+            else:
+                cursor.execute(binding_sql, tuple(binding_params))
+                bindings = cursor.fetchall()
 
         updates: list[tuple[str, str, str, dict[str, Any], tuple[str, ...], Path]] = []
         for row in bindings:

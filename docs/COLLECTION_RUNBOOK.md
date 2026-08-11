@@ -756,6 +756,47 @@ no_console 11、ambiguous 8。三種 hold 各自嘅意思：
 
 ---
 
+### Daily gap → 036 universe → FE03 接線
+
+`daily-accept` 只會重排 current universe，刻意唔改 membership。即係新卡就算已經有
+GemRate row，如果冇人做 identity discovery 同重新 activation，舊 universe 仍然會日日綠，
+但新卡永遠去唔到 FE03。
+
+第一次啟用要由 operator 明確記住**現時** gap 嘅 exact variant ID set（state 放喺 shared
+`data/runtime` junction，唔入 git）：
+
+```powershell
+python -X utf8 pipelines/operator_control.py daily-discover-activate --initialize
+```
+
+首次 seed（2026-08-12）係 generation `036_20260808T084217Z`、**268 個 exact gap ID**。
+呢個數細過 committed count baseline 557，因為中間已有身份缺口被證實收窄；兩者唔係互相
+取代：runtime cursor 用嚟精準揀新 ID，baseline 仍然係 daily-accept 嘅 count ceiling。
+
+正常排程唔掃歷史 gap；佢只計 `currentGapIds - knownGapIds`：
+
+```text
+nightly: HTTP collect → daily-discover-activate --lane http → daily-accept
+morning: CDP 9333 → browser collect → daily-discover-activate --lane browser
+         → daily-accept → bake/push [deploy]
+```
+
+- `card_language='en'` 只送 PC/browser；其他語言只送 SNK/HTTP。
+- 兩個 discoverer 同 PC reverify 都收 exact `--variant-id` scope；唔會重審舊 gap 或順手
+  promote 另一批 manual-review row。
+- 唯一 survivor 證成 exact 後，coordinator 將 ID 先寫入
+  `pendingActivationIds`，再沿用現有 `rebuild-036-e2e --invalidate-from identity-resolve
+  --skip-bake`。036 validator + activation transaction 仍然係唯一 universe writer。
+- process 喺 exact bind 同 activate 中間死咗，下次由 `pendingActivationIds` 接續；唔會將
+  半截工作當 complete。
+- ambiguous／無 survivor／另一 transport lane 未處理嘅新 gap 一律保持**未 acknowledged**，
+  command 非零，排程唔准落 `daily-accept`。唔猜身份、唔靠提高 baseline 開綠燈。
+- E2E 自己會 disable／restore `CARDZ-036-*` tasks；外層 operator lease 保證同一時間只有
+  一個 DB mutator。FE03/GEO code 完全唔參與呢段，佢只讀 activation 後焗出嚟嘅 snapshot。
+
+狀態：`data/runtime/rebuild-036/daily-discovery-state.json`。刪咗／壞咗會 fail closed；
+唔准正常排程自動重建 cursor，因為咁會將一個真正新 gap 靜靜當成歷史已知。
+
 ## 6. FE 對數 —— 點解 activation 咗 FE 都唔郁
 
 **行過一次先，唔好靠估。** FE 有兩個 data mode，睇 `CARDZ_DATA_MODE`：

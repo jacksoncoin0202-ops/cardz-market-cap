@@ -17,8 +17,9 @@ guards automatically before bake, and keep the 036 / FE03 public contract.
 - [x] #6 Assert the runtime junction target and writability at process startup.
 - [x] #8 Use one checkpoint-adapter authority in collector and acceptance code.
 - [x] #5 Derive release membership from the current universe and allow growth.
-- [ ] #7 Put discovery ahead of nightly acceptance.
-- [ ] Run the required negative/positive guard evidence and the complete suite.
+- [x] #7 Put exact-ID discovery and existing 036 atomic activation ahead of
+  nightly/morning acceptance; explicit runtime cursor seeded with 268 current gaps.
+- [x] Run the required negative/positive guard evidence and the complete suite.
 - [ ] Run one full morning E2E, publish through the existing `[deploy]` path, and
   read back the resulting generation.
 
@@ -33,6 +34,18 @@ guards automatically before bake, and keep the 036 / FE03 public contract.
   leave 953 of 1,322 members unranked.
 - Keep policy in a committed, secret-free contract read by both activation and the
   baked-release validator; do not duplicate thresholds in separate executables.
+- 2026-08-12: owner clarified that FE03's GEO presentation is already finished.
+  `apps/web/**` is read-only for this work. "Connect it back" means closing the
+  data edge from a newly qualified catalog card through discovery, the existing
+  036 product gates, atomic universe activation, daily bake, and the unchanged
+  GEO FE03.
+- 2026-08-12: do not call discovery over the historic 557-card gap every slot.
+  Persist the exact acknowledged gap IDs under the shared runtime junction,
+  target only set difference IDs by transport lane, and keep ambiguous IDs
+  unacknowledged so acceptance fails closed.
+- 2026-08-12: do not add an incremental universe writer. When discovery proves
+  an exact binding, resume the sole existing 036 E2E at `identity-resolve`; its
+  validator and activation transaction remain the only membership authority.
 
 ## Surprises & discoveries
 
@@ -42,6 +55,13 @@ guards automatically before bake, and keep the 036 / FE03 public contract.
   still has no unattended clean-run proof.
 - The workspace does not contain `.agent/PLANS.md`; this file follows the existing
   ExecPlan layout used in `.agent/` and records the missing implementation work.
+- GEO commit `7731b8ad` is already an ancestor of `origin/main`, production SSR
+  contains the provenance panel, and production reads the 036 baked snapshot.
+  The missing connection is incremental membership, not frontend rendering.
+- The count-only baseline still says 557 historical gaps; the exact live cursor
+  seeded on 2026-08-12 contains 268. The cursor is intentionally runtime state:
+  it tracks exact IDs for delta routing, while the committed count baseline stays
+  a separate acceptance ceiling and is not raised by automation.
 
 ## Validation
 
@@ -51,3 +71,7 @@ guards automatically before bake, and keep the 036 / FE03 public contract.
 - Project suite: `python -X utf8 scripts/run_all_tests.py`.
 - Final E2E: `scripts/morning_browser_lanes.ps1` exactly once after all code is in
   place, followed by the existing release readback.
+- 2026-08-12 deterministic evidence: `34/34 passed, 0 failed, 1 skipped`; the
+  skip is the absent legacy `integrations/grade10/data` tree. PowerShell AST
+  parsing passed and the production Next build compiled, type-checked and emitted
+  all 12 static pages.

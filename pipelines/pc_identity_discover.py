@@ -420,6 +420,7 @@ def red_listed_variants() -> list[int]:
 
 def select_targets(
     conn: Any, generation: str, min_pop: int, tcg: str, limit: int, language: str,
+    variant_ids: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     """Qualified, bound to a variant, and with no exact price source yet.
 
@@ -460,6 +461,12 @@ def select_targets(
     red = red_listed_variants()
     sql += f" AND v.id NOT IN ({','.join(['%s'] * len(red))})"
     params.extend(red)
+    if variant_ids is not None:
+        scoped = sorted({int(variant_id) for variant_id in variant_ids})
+        if not scoped:
+            return []
+        sql += f" AND v.id IN ({','.join(['%s'] * len(scoped))})"
+        params.extend(scoped)
     if tcg:
         sql += " AND v.tcg_code = %s"
         params.append(tcg)
@@ -504,6 +511,7 @@ def cmd_pc_identity_discover(args: argparse.Namespace) -> int:
         generation = args.generation or _latest_generation(conn)
         targets = select_targets(
             conn, generation, args.min_pop, args.tcg, args.limit, args.language,
+            getattr(args, "variant_ids", None),
         )
         progress(f"[targets] {len(targets)} card(s) generation={generation}"
                  f" tcg={args.tcg or '*'} language={args.language}")
@@ -853,6 +861,10 @@ def _latest_generation(conn: Any) -> str:
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--write", action="store_true")
     parser.add_argument("--generation", default="")
+    parser.add_argument(
+        "--variant-id", dest="variant_ids", type=int, action="append",
+        help="limit discovery to this catalog variant; repeat for a batch",
+    )
     parser.add_argument("--tcg", default="one-piece")
     parser.add_argument("--language", default="en")
     parser.add_argument("--min-pop", dest="min_pop", type=int, default=1000)

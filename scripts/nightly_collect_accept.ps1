@@ -22,12 +22,23 @@ Set-Location $repo
 & $py -X utf8 -u "pipelines\collect_control.py" incr --adapter http *>> $log
 $collectExit = $LASTEXITCODE
 
-# 一條 lane 收唔到貨唔應該連 re-rank 都跳過 —— DB 入面舊 observation 仍然行得，
-# daily-accept 自己有 gate。收集紅照樣喺 exit code 報返出嚟，唔會當成功。
-& $py -X utf8 -u "pipelines\operator_control.py" daily-accept *>> $log
-$acceptExit = $LASTEXITCODE
+# 新卡唔可以淨係有 catalog row：先精準 discover 新 gap，再沿用 036 E2E 將
+# product-ready member 原子換入 current universe。身份未證成就唔准 daily-accept
+# 繼續，否則舊 1,322 張會照綠、新卡就永遠同 FE03 斷線。
+& $py -X utf8 -u "pipelines\operator_control.py" daily-discover-activate --lane http *>> $log
+$discoverExit = $LASTEXITCODE
+
+if ($discoverExit -eq 0) {
+    # 一條 collector lane 收唔到貨唔應該連 re-rank 都跳過 —— DB 入面舊
+    # observation 仍然行得，daily-accept 自己有 freshness gate。
+    & $py -X utf8 -u "pipelines\operator_control.py" daily-accept *>> $log
+    $acceptExit = $LASTEXITCODE
+} else {
+    "[$stamp] discovery failed exit=$discoverExit; daily-accept skipped" | Tee-Object -FilePath $log -Append
+    $acceptExit = -1
+}
 
 $done = (Get-Date).ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'")
-"[$done] nightly chain done collect=$collectExit accept=$acceptExit" | Tee-Object -FilePath $log -Append
-if ($collectExit -ne 0 -or $acceptExit -ne 0) { exit 1 }
+"[$done] nightly chain done collect=$collectExit discover=$discoverExit accept=$acceptExit" | Tee-Object -FilePath $log -Append
+if ($collectExit -ne 0 -or $discoverExit -ne 0 -or $acceptExit -ne 0) { exit 1 }
 exit 0

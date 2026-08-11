@@ -2628,11 +2628,27 @@ def main() -> int:
         help="nightly: accept fresh evidence + re-rank the current universe (no lock rewrite)",
     )
     p_daily_accept.add_argument("--credentials-env", dest="credentials_env", type=Path)
+    p_daily_discover = sub.add_parser(
+        "daily-discover-activate",
+        help="discover only new no-binding cards and reuse 036 E2E to activate them",
+    )
+    p_daily_discover.add_argument("--lane", choices=("http", "browser"))
+    p_daily_discover.add_argument(
+        "--initialize", action="store_true",
+        help="one-time explicit seed of the exact current gap IDs",
+    )
+    p_daily_discover.add_argument(
+        "--credentials-env", dest="credentials_env", type=Path,
+    )
     p_pc_reverify = sub.add_parser(
         "pc-identity-reverify",
         help="promote manual_review PC bindings the fresh full900 pages can prove (dry-run without --write)",
     )
     p_pc_reverify.add_argument("--write", action="store_true")
+    p_pc_reverify.add_argument(
+        "--variant-id", dest="variant_ids", type=int, action="append",
+        help="limit re-verification to this catalog variant; repeat for a batch",
+    )
     p_pc_reverify.add_argument("--pages-dir", dest="pages_dir", type=Path)
     p_pc_reverify.add_argument(
         "--fetch-missing", dest="fetch_missing", action="store_true",
@@ -2736,6 +2752,10 @@ def main() -> int:
             import rebuild_036
 
             return rebuild_036.cmd_daily_accept(args)
+        elif args.cmd == "daily-discover-activate":
+            import daily_discovery_activation
+
+            return daily_discovery_activation.cmd_daily_discover_activate(args)
         elif args.cmd == "pc-identity-reverify":
             import rebuild_036
 

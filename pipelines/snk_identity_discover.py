@@ -128,6 +128,7 @@ def latest_generation(conn: Any) -> str:
 
 def select_targets(
     conn: Any, generation: str, min_pop: int, tcg: str, limit: int,
+    variant_ids: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     """Qualified, bound-to-a-variant, non-English, and with no price source.
 
@@ -170,6 +171,12 @@ def select_targets(
     red = R.red_listed_variants()
     sql += f" AND v.id NOT IN ({','.join(['%s'] * len(red))})"
     params.extend(red)
+    if variant_ids is not None:
+        scoped = sorted({int(variant_id) for variant_id in variant_ids})
+        if not scoped:
+            return []
+        sql += f" AND v.id IN ({','.join(['%s'] * len(scoped))})"
+        params.extend(scoped)
     if tcg:
         sql += " AND v.tcg_code = %s"
         params.append(tcg)
@@ -425,7 +432,10 @@ def cmd_snk_identity_discover(args: argparse.Namespace) -> int:
     held: list[dict[str, Any]] = []
     try:
         generation = args.generation or latest_generation(conn)
-        targets = select_targets(conn, generation, args.min_pop, args.tcg, args.limit)
+        targets = select_targets(
+            conn, generation, args.min_pop, args.tcg, args.limit,
+            getattr(args, "variant_ids", None),
+        )
         counts["targets"] = len(targets)
         if not targets:
             print(json.dumps({"snkIdentityDiscover": True, "targets": 0}, ensure_ascii=False))
@@ -703,6 +713,10 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
              " and left alone",
     )
     parser.add_argument("--generation")
+    parser.add_argument(
+        "--variant-id", dest="variant_ids", type=int, action="append",
+        help="limit discovery to this catalog variant; repeat for a batch",
+    )
     parser.add_argument("--tcg", default="")
     parser.add_argument("--min-pop", dest="min_pop", type=int, default=int(R.POLICY["minPop"]))
     parser.add_argument("--limit", type=int, default=0)

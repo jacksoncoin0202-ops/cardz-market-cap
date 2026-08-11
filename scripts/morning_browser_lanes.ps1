@@ -35,8 +35,21 @@ if ($cdpExit -eq 0) {
     $collectExit = -1
 }
 
-& $py -X utf8 -u "pipelines\operator_control.py" daily-accept *>> $log
-$acceptExit = $LASTEXITCODE
+if ($cdpExit -eq 0) {
+    & $py -X utf8 -u "pipelines\operator_control.py" daily-discover-activate --lane browser *>> $log
+    $discoverExit = $LASTEXITCODE
+} else {
+    "[$stamp] browser discovery skipped because CDP is unavailable" | Tee-Object -FilePath $log -Append
+    $discoverExit = -1
+}
+
+if ($discoverExit -eq 0) {
+    & $py -X utf8 -u "pipelines\operator_control.py" daily-accept *>> $log
+    $acceptExit = $LASTEXITCODE
+} else {
+    "[$stamp] discovery failed exit=$discoverExit; daily-accept skipped" | Tee-Object -FilePath $log -Append
+    $acceptExit = -1
+}
 
 # daily-accept 紅就唔發佈：個 ranking generation 可能寫到一半，發出去就係出錯數。
 # 收集紅唔擋發佈，接受紅先擋。
@@ -49,6 +62,6 @@ if ($acceptExit -eq 0) {
 }
 
 $done = (Get-Date).ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'")
-"[$done] morning browser chain done cdp=$cdpExit collect=$collectExit accept=$acceptExit publish=$publishExit" | Tee-Object -FilePath $log -Append
-if ($cdpExit -ne 0 -or $collectExit -ne 0 -or $acceptExit -ne 0 -or $publishExit -ne 0) { exit 1 }
+"[$done] morning browser chain done cdp=$cdpExit collect=$collectExit discover=$discoverExit accept=$acceptExit publish=$publishExit" | Tee-Object -FilePath $log -Append
+if ($cdpExit -ne 0 -or $collectExit -ne 0 -or $discoverExit -ne 0 -or $acceptExit -ne 0 -or $publishExit -ne 0) { exit 1 }
 exit 0
