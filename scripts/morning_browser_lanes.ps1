@@ -24,7 +24,7 @@ if ($cdpExit -ne 0) {
     exit 1
 }
 
-# `--adapter browser` = ADAPTER_NEEDS_BROWSER 入面 True 嗰批。同夜鏈嗰邊
+# `--adapter browser` = ADAPTER_LANE 入面標住 "browser" 嗰批。同夜鏈嗰邊
 # `--adapter http` 合埋一定覆蓋晒 CHECKPOINT_ADAPTERS，新 adapter 唔會再漏喺
 # 兩張硬編名單之間。
 & $py -X utf8 -u "pipelines\collect_control.py" incr --adapter browser --ensure-browser *>> $log

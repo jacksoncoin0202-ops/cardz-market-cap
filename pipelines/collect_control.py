@@ -51,20 +51,13 @@ WINDOWS_PY = ROOT / ".venv-backend-windows/Scripts/python.exe"
 # `--adapter browser`，兩組加埋一定係 CHECKPOINT_ADAPTERS 全部，新 adapter 冇得
 # 跌喺兩張名單中間。
 #
-# `manual` = 唔入任何自動鏈，要人手 `--adapter <名>` 先行到。
-# snk_en_image 屬呢類，唔係因為佢慢，係因為佢寫入形狀未 production-ready：
-# 佢每次接受都插一行新 market_canonical_image_acceptance 去 supersede 舊行，
-# 但 operator_binding_freeze 個 PK 係 (variant_id, freeze_kind, source_code)，
-# 佢個 ON DUPLICATE KEY 只掂得到自己 'snkrdunk_en' 嗰行。同一張卡由
-# pricecharting / human / g10 擁有嘅 freeze 行唔會跟住行，即刻變成指住一行已被
-# supersede 嘅 acceptance。2026-08-11 12:27 行咗一次，即場整出 642 行孤兒 freeze、
-# 53 張出街卡跌返 placeholder（發佈鏈嘅 asset gate 擋咗，冇出到街）。
-# 修好個 freeze ownership 之前，唔准放返落自動鏈。
+# `manual` = 唔入任何自動鏈，要人手 `--adapter <名>` 先行到。而家冇 adapter 喺
+# 呢類，個 group 留住係因為將來會有寫入形狀未 production-ready 嘅 lane。
 ADAPTER_LANE = {
     "gemrate_pop": "http",
     "snk_trades": "http",
     "snk_price": "http",
-    "snk_en_image": "manual",
+    "snk_en_image": "http",
     "pc_ebay_sales": "browser",
     "en_price_ref": "browser",
 }
@@ -103,6 +96,7 @@ if CARDZ_CDP_PORT == 9222:
 SNK_EN_ASSET_DIR = ROOT / "data" / "runtime" / "operator" / "snk-en-assets"
 SNK_EN_SOURCE_CODE = "snkrdunk"
 SNK_EN_FREEZE_SOURCE_CODE = "snkrdunk_en"
+SNK_EN_ACCEPTED_BY = "collect_control:snk_en_image"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -2200,7 +2194,7 @@ def _upsert_snk_en_freeze(
             acceptance_id,
             lineage_sha256,
             status,
-            "collect_control:snk_en_image",
+            SNK_EN_ACCEPTED_BY,
             evidence_sha256,
             note,
             accepted_at,
@@ -2532,7 +2526,7 @@ def _persist_prepared_snk_en(
     )
     cur.execute(
         """
-        SELECT ca.id,ca.lineage_sha256
+        SELECT ca.id,ca.lineage_sha256,ca.accepted_by
         FROM market_canonical_image_acceptance ca
         WHERE ca.variant_id=%s
           AND NOT EXISTS (SELECT 1 FROM market_canonical_image_acceptance newer
@@ -2542,8 +2536,22 @@ def _persist_prepared_snk_en(
         (prepared.variant_id,),
     )
     current = cur.fetchone()
+    # 一張卡嘅 canonical image 有三個 writer：呢條 lane、rebuild_036 image-bind、
+    # 同人手。三個都無條件插一行 supersede 上一行，所以邊個最後跑就邊個贏。
+    # 2026-08-11 12:27 呢條 lane 一次過搶咗 677 張：52 張由 image-bind 揀嘅 PC 圖
+    # 跌返做未發佈嘅 SNK 圖（bytes 只喺 data/runtime/operator/snk-en-assets/，
+    # public/market-assets 冇），rank 18 Dodgers Luffy 更加蓋咗 1 個鐘之前人手
+    # 揀嗰張。
+    #
+    # 規矩：只可以 supersede 自己寫嘅嗰行。當前 canonical 唔係自己嘅，照收貨
+    # （asset / lineage / product-page authority 照寫，checkpoint 照過，SLA 照綠），
+    # 但唔郁 canonical，亦唔郁 freeze —— 唔會再靜靜換走人手或者 image-bind 嘅決定。
+    owned = current is None or str(current["accepted_by"]) == SNK_EN_ACCEPTED_BY
     if current and str(current["lineage_sha256"]) == lineage_sha:
         acceptance_id = int(current["id"])
+        acceptance_inserted = False
+    elif not owned:
+        acceptance_id = None
         acceptance_inserted = False
     else:
         cur.execute(
@@ -2559,23 +2567,24 @@ def _persist_prepared_snk_en(
                 asset_id,
                 lineage_sha,
                 acceptance_evidence,
-                "collect_control:snk_en_image",
+                SNK_EN_ACCEPTED_BY,
                 completed_at,
                 int(current["id"]) if current else None,
             ),
         )
         acceptance_id = int(cur.lastrowid)
         acceptance_inserted = True
-    _upsert_snk_en_freeze(
-        cur,
-        variant_id=prepared.variant_id,
-        external_id=prepared.external_id,
-        content_sha256=prepared.image.content_sha256,
-        acceptance_id=acceptance_id,
-        lineage_sha256=lineage_sha,
-        evidence_sha256=acceptance_evidence,
-        accepted_at=completed_at,
-    )
+    if acceptance_id is not None:
+        _upsert_snk_en_freeze(
+            cur,
+            variant_id=prepared.variant_id,
+            external_id=prepared.external_id,
+            content_sha256=prepared.image.content_sha256,
+            acceptance_id=acceptance_id,
+            lineage_sha256=lineage_sha,
+            evidence_sha256=acceptance_evidence,
+            accepted_at=completed_at,
+        )
     run_id = _checkpoint_snk_en_item(
         cur,
         item=item,
