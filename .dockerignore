@@ -14,8 +14,13 @@ packages/*/dist
 data/*
 !data/public
 data/public/*
+# seed-snapshot.json 一定要留喺 context：5 個 page 有 revalidate=300（ISR），
+# sitemap.ts 亦一樣，next build 期間就會 loadMarketSnapshot() 讀佢。
 !data/public/seed-snapshot.json
-!data/public/market-assets
+# data/public/market-assets（1.4GB）刻意唔入 context：build 期冇任何一步讀佢
+# （prepare-standalone.mjs 仲主動刪走 standalone 入面嘅 public/market-assets），
+# runtime 先由 compose 嘅 :ro volume 掛入 /app/data/public/market-assets。
+# 入返 context 嘅話每次 build 會多食約 4.3GB build cache（實測）。
 **/node_modules
 **/.git
 **/*.log

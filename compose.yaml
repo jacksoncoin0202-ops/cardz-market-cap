@@ -2,7 +2,11 @@
 # Server deploy path: git pull → docker compose up --build
 #
 # Build context MUST be repo root (npm workspaces + data/public).
-# Data is baked directly into seed-snapshot.json plus market-assets.
+#
+# seed-snapshot.json 係烘焙入 image（next build 期間 ISR 預渲染就要讀佢）。
+# market-assets（1.4GB 卡圖）唔烘焙，由下面個 :ro volume 掛入嚟 —— 少咗佢，
+# 每次 build 嘅 build cache 由 4.55GB 跌到約 0.3GB（實測）。
+# 換咗圖唔使 rebuild，但換咗 seed-snapshot.json 就一定要 rebuild。
 
 name: cardz-market-cap-web
 
@@ -22,6 +26,10 @@ services:
       PORT: "3000"
       HOSTNAME: "0.0.0.0"
       MARKET_DATA_SNAPSHOT_PATH: /app/data/public/seed-snapshot.json
+    volumes:
+      # 卡圖唔喺 image 入面，一定要掛。冇咗佢 /market-assets/* 會 404
+      # （/api/health 唔會察覺 —— 佢淨係驗 snapshot 讀唔讀到）。
+      - ./data/public/market-assets:/app/data/public/market-assets:ro
     restart: unless-stopped
     healthcheck:
       test:

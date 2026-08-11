@@ -4,6 +4,10 @@
 #
 # Build context 一定要係 repo root（要 npm workspaces + data/public/），唔係 apps/web：
 #   docker build -f apps/web/Dockerfile -t cardz-web:latest .
+#
+# 卡圖（data/public/market-assets，1.4GB）唔喺 image 入面，要靠 compose 掛 volume。
+# 淨用 docker build / docker run 而唔經 compose 嘅話，記住自己加：
+#   -v "$PWD/data/public/market-assets:/app/data/public/market-assets:ro"
 
 FROM node:24-bookworm-slim AS deps
 WORKDIR /repo
@@ -39,7 +43,11 @@ ENV NODE_ENV=production \
 
 COPY --from=builder --chown=node:node /repo/apps/web/.next/standalone ./
 COPY --from=builder --chown=node:node /repo/data/public/seed-snapshot.json ./data/public/seed-snapshot.json
-COPY --from=builder --chown=node:node /repo/data/public/market-assets ./data/public/market-assets
+
+# data/public/market-assets 唔會烘焙入 image —— 由 compose 掛 :ro volume 入
+# /app/data/public/market-assets。詳細原因見 .dockerignore。
+# ⚠ 冇掛 volume 嘅話卡圖會 404（loadNodeMarketAsset readFile 失敗回 null），
+#   但 /api/health 照樣 200，因為 snapshot 係烘焙入 image 嘅。
 
 USER node
 EXPOSE 3000
