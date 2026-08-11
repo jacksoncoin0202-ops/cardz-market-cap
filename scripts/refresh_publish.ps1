@@ -1,11 +1,14 @@
 ﻿# CARDZ 036 refresh+publish slot: daily-accept -> public release.
 # Registered as Task Scheduler job CARDZ-036-Refresh-Publish (repeats through the day).
 #
-# 冇 collector 喺呢度。呢個 slot 唔係補收貨，係補「將已經收到嘅嘢推出街」：
-# 夜鏈 03:30 同朝鏈 09:30 各自收完貨就 re-rank + 發佈，但兩個 slot 之間收到嘅
-# SNK 成交 / PC 銷售一路等到第二日先出到街，而任何一個 slot 死咗就成日冇更新。
-# daily-accept 同 daily_public_release 兩個都係冪等（冇新嘢就 no-change 收工，
-# 大約 50 秒），所以呢個 slot 可以一日行幾次，同時做重試同做加密更新。
+# 冇 collector 喺呢度 —— 呢個 slot 淨係重試，唔係第二次更新。
+# owner 要一日更新一次：09:30 朝鏈（收貨 → re-rank → 發佈）就係嗰一次。
+# 呢個 slot 11:30 / 16:30 再行一次 accept + publish，用嚟救朝鏈死咗嗰日：
+#   - 朝鏈 accept 死咗 → 呢度 accept 返，個站當日仍然更新到
+#   - 朝鏈 publish 死咗 → 呢度推返
+# 兩個 slot 之間冇 collector 行過，所以 DB 冇新嘢，accept 出返同一個 ranking sha，
+# daily_public_release 個 no-change 閘就會 fire，零 commit 零部署（實測 106 秒收工）。
+# 即係朝鏈正常嗰日，呢兩個 slot 唔會令個站更新多過一次。
 $ErrorActionPreference = "Continue"
 $PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
 $repo = Split-Path -Parent $PSScriptRoot
