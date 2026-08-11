@@ -13,11 +13,13 @@ flock -n 9
 test -e "$RELEASE_REPO/.git"
 test -z "$(git -C "$RELEASE_REPO" status --porcelain)"
 git -C "$RELEASE_REPO" fetch origin main
-# 比 FETCH_HEAD，唔好比 refs/remotes/origin/main：release repo 個
-# remote.origin.fetch 曾經係空（冇 refspec），origin/main 永遠停喺 clone 嗰刻，
-# 呢個 guard 就變咗恆真，鏈照跑落一個落後幾個 commit 嘅 tree 上面。
-# `git fetch origin main` 無論有冇 refspec 都一定寫 FETCH_HEAD。
-test "$(git -C "$RELEASE_REPO" rev-parse HEAD)" = "$(git -C "$RELEASE_REPO" rev-parse FETCH_HEAD)"
+# 對 FETCH_HEAD 快進，唔好淨係 assert 相等。原意係「一定要由 main 嗰個 tree
+# bake」，但 assert 版本嘅副作用係：source repo 每次推一個 code commit 上 main，
+# release repo 就即刻落後，之後每一次自動發佈都會死喺呢一行，要人手入去 pull。
+# --ff-only 保住原意（唔會接受分叉），同時令條鏈自己追返 main。
+# 比 FETCH_HEAD 唔好比 refs/remotes/origin/main：release repo 個
+# remote.origin.fetch 曾經係空（冇 refspec），origin/main 永遠停喺 clone 嗰刻。
+git -C "$RELEASE_REPO" merge --ff-only FETCH_HEAD
 test -f "$RELEASE_REPO/node_modules/typescript/bin/tsc"
 
 CARDZ_REPO_ROOT="$SOURCE_REPO" node "$RELEASE_REPO/scripts/bake-public-snapshot.mjs" \
