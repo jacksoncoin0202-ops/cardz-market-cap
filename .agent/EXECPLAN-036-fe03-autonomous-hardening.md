@@ -11,8 +11,8 @@ guards automatically before bake, and keep the 036 / FE03 public contract.
 
 - [x] Read `AGENTS.md`, the handoff, collection runbook, and `CLAUDE.md` in order.
 - [x] Measure the 2026-08-31 failure against the live read-only DB state.
-- [ ] #9 Run the no-DB guard suite automatically before every public bake.
-- [ ] #3 Persist ranked and awaiting-fresh-price counts in daily receipts.
+- [x] #9 Run the no-DB guard suite automatically before every public bake.
+- [x] #3 Persist ranked and awaiting-fresh-price counts in daily receipts.
 - [ ] #1, #2, #4 Repair source-cycle freshness and add ranking/awaiting hard stops.
 - [ ] #6 Assert the runtime junction target and writability at process startup.
 - [ ] #8 Use one checkpoint-adapter authority in collector and acceptance code.
@@ -51,4 +51,3 @@ guards automatically before bake, and keep the 036 / FE03 public contract.
 - Project suite: `python -X utf8 scripts/run_all_tests.py`.
 - Final E2E: `scripts/morning_browser_lanes.ps1` exactly once after all code is in
   place, followed by the existing release readback.
-

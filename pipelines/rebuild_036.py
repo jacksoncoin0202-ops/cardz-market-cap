@@ -7594,6 +7594,25 @@ def _assert_discovery_gap_not_worse(cur: Any) -> dict[str, Any]:
     }
 
 
+DAILY_ACCEPT_CANONICAL_FIELDS = (
+    "accepted",
+    "ranked",
+    "awaitingFreshPrice",
+    "rankingGenerationSha256",
+)
+
+
+def _daily_accept_canonical_receipt(canonical: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep every count needed to judge a daily ranking generation.
+
+    Direct indexing is deliberate: adding a new acceptance result without one
+    of these decision fields must stop the run instead of emitting a plausible
+    but incomplete receipt.
+    """
+
+    return {field: canonical[field] for field in DAILY_ACCEPT_CANONICAL_FIELDS}
+
+
 def cmd_daily_accept(args: argparse.Namespace) -> int:
     """Nightly acceptance + re-rank for the CURRENT activated universe.
 
@@ -7717,10 +7736,7 @@ def cmd_daily_accept(args: argparse.Namespace) -> int:
             "priceQuarantineReleased": released,
             "discoveryGap": discovery_gap,
             "freshness36h": freshness,
-            "canonical": {
-                "accepted": canonical["accepted"],
-                "rankingGenerationSha256": canonical["rankingGenerationSha256"],
-            },
+            "canonical": _daily_accept_canonical_receipt(canonical),
             "acceptedAt": now_str,
         }
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
