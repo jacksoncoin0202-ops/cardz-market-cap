@@ -960,38 +960,42 @@ def classify_needs(
             }
         )
 
-    if lang == "en":
-        pc_external = str(ids.get("pricecharting") or "").strip()
-        pc_exact_product = pc_external if pc_external.isdigit() else None
-        if not pc_exact_product and not ids.get("snkrdunk"):
-            needs.append({"adapter": "bind_pc_or_ebay", "modeNeeded": "bind", "externalId": None, "transport": "cdp_9333", "polarRole": "en_identity"})
-        elif pc_exact_product:
-            external = pc_exact_product
-            smode = _poll_mode(
-                has_stock=bool(row["sales"]["ebayAny"]),
-                observed_at=row.get("_ebaySaleMax"),
-                checkpoint=_checkpoint_for(checkpoints, "pc_ebay_sales", vid, external),
-                empty_poll_is_complete=True,
-            )
-            needs.append({
-                "adapter": "pc_ebay_sales",
-                "modeNeeded": smode,
-                "externalId": external,
-                "transport": "cdp_9333",
-                "polarRole": "en_sales_primary",
-            })
-            pmode = _poll_mode(
-                has_stock=bool(row["prices"]["enExplicitPc"]),
-                observed_at=row.get("_enExplicitPcMax"),
-                checkpoint=_checkpoint_for(checkpoints, "en_price_ref", vid, external),
-            )
-            needs.append({
-                "adapter": "en_price_ref",
-                "modeNeeded": pmode,
-                "externalId": external,
-                "transport": "cdp_9333",
-                "polarRole": "en_price_fallback",
-            })
+    # PriceCharting 唔係「英文卡專用源」。呢個 block 本來成段包喺 `if lang == "en"`
+    # 入面，於是 79 張日文卡明明已經有 exact 數字 PC product id，由第一日起就冇入過
+    # 增量隊列 —— PC 同 SNK 對同一張卡係可以並行採，唔應該由卡language 決定。
+    # 內層條件本身已經夠嚴：冇 exact product id 就唔會 poll，有 snkrdunk 就唔會走
+    # discovery，所以拆走呢層 language 閘唔會放寬任何 acceptance。
+    pc_external = str(ids.get("pricecharting") or "").strip()
+    pc_exact_product = pc_external if pc_external.isdigit() else None
+    if not pc_exact_product and not ids.get("snkrdunk"):
+        needs.append({"adapter": "bind_pc_or_ebay", "modeNeeded": "bind", "externalId": None, "transport": "cdp_9333", "polarRole": "en_identity"})
+    elif pc_exact_product:
+        external = pc_exact_product
+        smode = _poll_mode(
+            has_stock=bool(row["sales"]["ebayAny"]),
+            observed_at=row.get("_ebaySaleMax"),
+            checkpoint=_checkpoint_for(checkpoints, "pc_ebay_sales", vid, external),
+            empty_poll_is_complete=True,
+        )
+        needs.append({
+            "adapter": "pc_ebay_sales",
+            "modeNeeded": smode,
+            "externalId": external,
+            "transport": "cdp_9333",
+            "polarRole": "en_sales_primary",
+        })
+        pmode = _poll_mode(
+            has_stock=bool(row["prices"]["enExplicitPc"]),
+            observed_at=row.get("_enExplicitPcMax"),
+            checkpoint=_checkpoint_for(checkpoints, "en_price_ref", vid, external),
+        )
+        needs.append({
+            "adapter": "en_price_ref",
+            "modeNeeded": pmode,
+            "externalId": external,
+            "transport": "cdp_9333",
+            "polarRole": "en_price_fallback",
+        })
     return needs
 
 

@@ -49,12 +49,17 @@ for path in "${changed[@]}"; do
 done
 
 generation="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["generation"]["id"])' "$RELEASE_REPO/data/public/seed-snapshot.json")"
+generated_at="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["generation"]["generatedAt"])' "$RELEASE_REPO/data/public/seed-snapshot.json")"
 git -C "$RELEASE_REPO" commit -m "release: daily CARDZ 036 FE03 $generation [deploy]"
 git -C "$RELEASE_REPO" push origin HEAD:main
 
 for _ in $(seq 1 60); do
   if body="$(curl --fail --silent --show-error https://app.cardzmarketcap.com/api/health)"; then
-    if PUBLIC_HEALTH="$body" python3 -c 'import json,os,sys; h=json.loads(os.environ["PUBLIC_HEALTH"]); sys.exit(0 if h.get("status")=="ok" and h.get("generation")==sys.argv[1] and h.get("build") not in (None,"","local","unknown") else 1)' "$generation"; then
+    # 判「新 bundle 上到未」睇 generatedAt（每次 bake 都變，由 snapshot 自己帶），
+    # 唔再睇 build。build 要部署方 set CARDZ_PUBLIC_BUILD_ID，而實際 deploy 路徑
+    # 由頭到尾冇 set 過，永遠係 "local"，所以舊 gate 恆假：每次都白等足 10 分鐘
+    # 然後報 fail，明明個站已經更新咗。
+    if PUBLIC_HEALTH="$body" python3 -c 'import json,os,sys; h=json.loads(os.environ["PUBLIC_HEALTH"]); sys.exit(0 if h.get("status")=="ok" and h.get("generation")==sys.argv[1] and h.get("generatedAt")==sys.argv[2] else 1)' "$generation" "$generated_at"; then
       printf '%s\n' "$body"
       exit 0
     fi
@@ -62,5 +67,5 @@ for _ in $(seq 1 60); do
   sleep 10
 done
 
-printf 'public release did not reach generation %s within 10 minutes\n' "$generation" >&2
+printf 'public release did not reach generation %s (generatedAt %s) within 10 minutes\n' "$generation" "$generated_at" >&2
 exit 1

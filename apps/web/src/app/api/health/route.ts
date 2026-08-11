@@ -23,6 +23,11 @@ export async function GET(): Promise<Response> {
       {
         status: "ok",
         generation: snapshot.generation,
+        // 每次 bake 都會變嘅值。`build` 靠部署方 set CARDZ_PUBLIC_BUILD_ID，
+        // 而實際跑緊嘅部署根本冇 set（永遠回 "local"），所以發佈鏈用佢做
+        // 「新 bundle 上到未」嘅判斷永遠等唔到，白等 10 分鐘再 fail。
+        // generatedAt 由 snapshot 本身帶出嚟，冇人需要記得 set。
+        generatedAt: snapshot.generatedAt,
         cards: snapshot.top100.length + snapshot.watchlist.length,
         surfaces,
         coverage: {
