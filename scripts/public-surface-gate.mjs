@@ -13,23 +13,23 @@
 // 從來冇 /card/*。所以呢個版本唔係翻譯佢，係搬去 producer 側重寫。
 //
 // 兩條 ratchet，只准跌唔准升：
-//   1. 公開 card id 必須喺 cmc_ 命名空間。catalog_variant 有 4 行仲帶住舊供應商
-//      前綴（2026-08-11 查 DB 實測），其中 3 行上到榜、已經出咗街，列咗喺
-//      LEGACY_PUBLIC_IDS。第 4 行（variant 1813）未上榜，所以冇列 —— 佢一上榜就
-//      應該炸，逼人去修，而唔係靜靜多一條泄漏 URL。
+//   1. 公開 card id 必須喺 cmc_ 命名空間，一個例外都冇。
 //   2. 結構欄位入面唔准出現供應商代號。編輯故事（story）係市場評論，會提到交易
 //      平台，另外計數 baseline。
 //
 // 任何一個 baseline 升 => bake 失敗。跌 => 出提示叫人收緊個數，唔好留住張過期
 // 嘅免死金牌。
+//
+// LEGACY_PUBLIC_IDS 嘅短命史：2026-08-11 早上開呢個閘嗰陣，catalog_variant 有 4
+// 行 opaque_id 帶住供應商前綴，其中 3 行已經上榜出咗街，所以要暫時放行。同日
+// migration 041 + pipelines/public_card_alias.py 起咗 alias 層，重 bake 之後個閘
+// 自己出提示話 0/3 仲喺度，於是收到零。舊 URL 由 apps/web/src/lib/legacy-card-ids.ts
+// 出 308。保留呢個空 Set 唔係裝飾：佢係下一次「唯讀放行一個舊 id」嘅唯一入口，
+// 而一放行就會喺呢度睇得見。
 
 export const ID_SHAPE = /^cmc_[0-9a-f]{20,24}$/;
 
-export const LEGACY_PUBLIC_IDS = new Set([
-  "g10_036812c0a409b0fef6ba5dff",
-  "g10_356a7d75453fba4d71586411",
-  "g10_c43dd6aa54b7671068938692",
-]);
+export const LEGACY_PUBLIC_IDS = new Set([]);
 
 export const FORBIDDEN_TOKENS = [
   "g10",
@@ -48,6 +48,12 @@ export const TOKEN_PATTERN = new RegExp(
   `(?<![A-Za-z0-9])(?:${FORBIDDEN_TOKENS.join("|")})(?![A-Za-z0-9])`,
   "i",
 );
+
+// 編輯故事嗰個 bucket 認 path segment。canonical snapshot 叫 `stories`（複數），
+// view model 叫 `story`（單數）—— 兩個都要認。用 `/story/i` 掃成條 path 係唔夠嘅：
+// "stories" 入面根本冇 "story" 呢六個字母，實測會將真出街嗰兩句市場評論當成結構
+// 泄漏，一 bake 就炸。
+export const STORY_PATH = /(?:^|\.)stor(?:y|ies)(?:\.|\[|$)/i;
 
 export const STORY_TOKEN_BASELINE = 2;
 
@@ -77,7 +83,7 @@ export function assertPublicSurface(snapshot, options = {}) {
     if (typeof node === "string") {
       if (!TOKEN_PATTERN.test(node)) return;
       if (LEGACY_PUBLIC_IDS.has(node)) return;
-      if (/story/i.test(path)) storyHits += 1;
+      if (STORY_PATH.test(path)) storyHits += 1;
       else structuralHits.push(`${path} = ${JSON.stringify(node.slice(0, 120))}`);
       return;
     }

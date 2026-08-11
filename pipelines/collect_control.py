@@ -29,7 +29,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
 from qualified_pool_operator import db, load_env  # noqa: E402
-from operator_control import current_universe  # noqa: E402
+from operator_control import CHECKPOINT_SLA_HOURS, current_universe  # noqa: E402
 from native_image_resolver import ProcessedSnkDefaultImage, process_snk_default_image  # noqa: E402
 from snkrdunk_bulk import (  # noqa: E402
     SNK_EN_PRODUCT_PAGE_CONTRACT,
@@ -64,7 +64,18 @@ QUARANTINE_CONTRACT = "collect_item_quarantine_v1"
 ITEM_CHECKPOINT_CONTRACT = "collect_item_checkpoint_v1"
 QUARANTINE_THRESHOLD = 3  # consecutive failed runs before an item is skipped
 PY = sys.executable
-SLA_HOURS = 36
+# Reporting freshness and the acceptance gate must quote the same number, so
+# take it from the gate rather than keeping a second copy that can drift.
+SLA_HOURS = CHECKPOINT_SLA_HOURS
+# "fresh enough to publish" and "old enough to re-collect" are different
+# questions, and answering both with SLA_HOURS is what broke the chain: the
+# browser lane runs 09:30 JST, the acceptance gate runs again 03:30 JST, 18h
+# later. A stream skipped at 09:30 for being "only" 24h old is 42h old at that
+# night's gate -- past SLA -- so daily-accept raises and the board stops
+# updating. Every stream failed on its second night. Refresh has to come due
+# before one more lane interval can carry a stream past the gate.
+LANE_INTERVAL_HOURS = 24
+REFRESH_DUE_HOURS = SLA_HOURS - LANE_INTERVAL_HOURS
 CARDZ_CDP_PORT = int(os.environ.get("CARDZ_CDP_PORT", "9333"))
 # 9222 is the Codex browser profile. Attaching there drives somebody else's
 # logged-in Chrome, and the ban on it lived only in AGENTS.md while this knob
@@ -283,12 +294,12 @@ def _poll_mode(
         if not empty_poll_is_complete or checkpoint is None:
             return "stock"
         age = _age_hours(_parse_datetime(checkpoint.get("last_effective_at")))
-        return "incr" if age is None or age > SLA_HOURS else "ok"
+        return "incr" if age is None or age > REFRESH_DUE_HOURS else "ok"
     if checkpoint is None:
         return "incr"
     last_success = checkpoint.get("last_effective_at")
     age = _age_hours(_parse_datetime(last_success))
-    return "incr" if age is None or age > SLA_HOURS else "ok"
+    return "incr" if age is None or age > REFRESH_DUE_HOURS else "ok"
 
 
 def _insert_control_run(

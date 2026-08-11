@@ -226,7 +226,12 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
   try {
     const [coreRows] = await connection.query<DbRow[]>(`
       SELECT
-        metric.variant_id,variant.opaque_id,variant.canonical_name,metric.canonical_market_rank,
+        metric.variant_id,
+        -- 公開 id ≠ 內部 opaque_id。有 4 行 opaque_id 帶住供應商前綴（D7 凍結，
+        -- 改唔到），public_card_alias 幫佢哋鑄咗個乾淨嘅公開 id。冇 alias 嘅卡
+        -- 行為完全不變。理由喺 migration 041。
+        COALESCE(alias.public_id,variant.opaque_id) AS opaque_id,
+        variant.canonical_name,metric.canonical_market_rank,
         variant.set_name AS variant_set_name,
         variant.collector_number AS variant_collector_number,
         printing.tcg_code,printing.card_language,printing.collector_number,
@@ -242,6 +247,7 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
         metric.market_cap_usd,metric.accepted_at AS metric_accepted_at
       FROM market_canonical_metric_acceptance metric
       INNER JOIN catalog_variant variant ON variant.id=metric.variant_id
+      LEFT JOIN public_card_alias alias ON alias.variant_id=metric.variant_id
       INNER JOIN catalog_printing_identity printing ON printing.variant_id=metric.variant_id
       INNER JOIN market_metric_history_acceptance price_history ON price_history.id=metric.price_history_acceptance_id
       INNER JOIN market_price_observation price ON price.id=price_history.source_record_id

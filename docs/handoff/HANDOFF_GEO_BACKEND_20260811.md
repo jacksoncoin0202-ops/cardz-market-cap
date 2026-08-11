@@ -2,7 +2,31 @@
 
 > **內部文件，唔准出街。**
 > 接手人：**Codex**（後端／pipeline／infra）。前端嗰份見 [HANDOFF_GEO_FE_20260811.md](HANDOFF_GEO_FE_20260811.md)。
-> 呢份文件**唔列供應商名**——要知邊幾個字串，自己喺 DB 或者 `data/public/seed-snapshot.json` 查 `priceAnchorSource` 嘅 distinct values。呢份文件本身將來可能會俾唔應該睇到嘅人睇到，所以唔寫死。
+> 呢份文件**唔列供應商名**——要知邊幾個字串，自己喺 DB 查。呢份文件本身將來可能會俾唔應該睇到嘅人睇到，所以唔寫死。
+
+---
+
+## 執行紀錄 — 2026-08-11（Wave 0/1/2 已做，本機驗完，未 commit 未 deploy）
+
+Owner 2026-08-11 改咗指派：呢份嘢由寫文件嗰個人自己做。以下係實際做咗嘅嘢，全部本機驗過。
+
+| 波 | 做咗咩 | 證據 |
+|---|---|---|
+| 0 | 量度（零寫入） | 生產 sitemap／首頁／`/api/v1/market` 三個前綴 id 真係出咗街；供應商字串喺生產全部係 `null`（所以第 3 項係死 field，唔係泄漏）；DB 1605 行 variant，4 行帶前綴 |
+| 1 | 刪 `priceAnchorSource`（3 個發射點 + 2 個 type）→ 重 bake | 重 bake 前後逐張卡 hash 一樣，唯一分別係少咗嗰條 key 同 `generatedAt`；出街 artifact 由 7,932 個 key 跌到 0 |
+| 1 | `db_runtime.upsert_variant` INSERT 前擋非 `cmc_` id（只擋新 row，舊 4 行照 UPDATE） | `scripts/test_opaque_id_shape.py` 15 checks |
+| 1 | 出街閘搬去 `scripts/public-surface-gate.mjs`，bake 一定行 | `scripts/test-public-surface-gate.mjs` 20 checks |
+| 2 | migration 041 `public_card_alias` + `pipelines/public_card_alias.py` 鑄 4 個乾淨公開 id；投影層 `COALESCE(alias.public_id, variant.opaque_id)` | DB CHECK / FK 兩條都即場證過會炸 |
+| 2 | 舊 URL 308（`/card/*` + `/api/v1/cards/*`）喺 `next.config.ts` | 本機實測 308 + Location 正確；`scripts/test-legacy-card-redirects.mjs` 22 checks |
+| 3 | `compose.yaml` 加 `CARDZ_ENVIRONMENT`；robots 政策補 test；刪死配置 `public/_headers` | `scripts/test-robots-policy.mjs` 15 checks |
+
+**本機實測（localhost:3800，live-db 模式）**：sitemap 1326 條 `<loc>`、首頁、`/api/v1/market`、卡頁四個面，供應商 token 同前綴 id 全部 **0**。
+
+**閘嘅 ratchet 真係郁過**：alias 落咗之後重 bake，個閘自己出提示話「0/3 舊 id 仲喺度」，於是 allowlist 收到零 —— 呢個就係佢應該有嘅行為。
+
+**未做（要 owner 決定或者唔屬工程題）**：第 5 節嘅文案門檻（5 筆／3 筆／0 筆點講）、robots blocklist 補唔補、canonical host 揀 apex 定 `app.`、ISR/`no-store`、OG 圖搬出 `/api/`。
+
+**未 commit、未 deploy。** `data/public/seed-snapshot.json`（68MB）已經重 bake，asset prune 冇跑（`--no-prune`）。
 
 ---
 
@@ -10,11 +34,11 @@
 
 | # | 事 | 嚴重度 | 狀態 |
 |---|---|---|---|
-| 1 | **3 個公開卡片 URL 嘅 id 帶住供應商代號前綴**，其中 1 個已經入咗 sitemap（連 6 個 hreflang alternate） | 🔴 已經出街 | 未修 |
-| 2 | **公開面泄漏 gate 冇咗** —— `scripts/canary-public.mjs` 2026-08-07 被刪，今日零自動檢查 | 🔴 冇防護 | 未修 |
-| 3 | **`data/public/seed-snapshot.json` 仲有 ~7,576 個供應商字串**；前端而家硬 null 走佢——即係「前端幫後端擋」 | 🟠 未出街但一改就爆 | 前端已擋 |
-| 4 | **出街文案講嘅門檻同 code 唔一樣**：文案 5 筆／30 日，code 3 筆，而每日跑嗰條線係 **0 筆**（走指引價） | 🟠 事實準確度 | 未決 |
-| 5 | robots / sitemap / cache 幾個 infra 缺口（staging 會被索引、ISR 失效、canonical host 未定） | 🟡 | 未修 |
+| 1 | **3 個公開卡片 URL 嘅 id 帶住供應商代號前綴**，其中 1 個已經入咗 sitemap（連 6 個 hreflang alternate） | 🔴 已經出街 | ✅ 修咗（alias + 308，未 deploy） |
+| 2 | **公開面泄漏 gate 冇咗** —— `scripts/canary-public.mjs` 2026-08-07 被刪，今日零自動檢查 | 🔴 冇防護 | ✅ 修咗（producer 側 ratchet + test） |
+| 3 | **`data/public/seed-snapshot.json` 仲有 ~7,576 個供應商字串**；前端而家硬 null 走佢——即係「前端幫後端擋」 | 🟠 實測全部 `null`，係死 field | ✅ 刪咗 + 重 bake |
+| 4 | **出街文案講嘅門檻同 code 唔一樣**：文案 5 筆／30 日，code 3 筆，而每日跑嗰條線係 **0 筆**（走指引價） | 🟠 事實準確度 | ⏸ 等 owner 決定 |
+| 5 | robots / sitemap / cache 幾個 infra 缺口（staging 會被索引、ISR 失效、canonical host 未定） | 🟡 | 🟡 做咗 3 件，其餘要決定 |
 
 **冇一件係前端可以自己修。** 前端今次做嘅嘢係喺投影層擋住 1 同 3 嘅可見部分，唔係修根因。
 

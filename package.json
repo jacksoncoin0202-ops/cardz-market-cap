@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "dev": "npm --workspace @cardz/web run dev",
-    "build": "npm run build --workspace @cardz/web"
+    "build": "npm run build --workspace @cardz/web",
+    "test": "node scripts/run-python.mjs -X utf8 scripts/run_all_tests.py"
   }
 }

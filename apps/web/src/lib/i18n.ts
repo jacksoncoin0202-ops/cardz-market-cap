@@ -183,7 +183,16 @@ export const copy: Record<Locale, Copy> = {
     theme: { dark: "Dark mode", light: "Light mode" },
     methodology: {
       title: "How CardZ Marketcap ranks the market",
-      body: "A place in this index is earned, never assumed. Every card carries a verified population of at least 1,000 PSA 10 examples — and a Top 100 seat holds only while the market itself keeps confirming it, with no fewer than five verified PSA 10 sales inside every rolling 30-day window. Real supply, real demand, and nothing else.",
+      /*
+       * 2026-08-11：呢段本身寫住「每個 rolling 30 日窗口不少於五宗經核實成交」。
+       * 對住當日出街嗰份 snapshot 實測：1,322 張入面有 115 張喺 30 日窗口錄得少過
+       * 五宗（其中 33 張根本冇成交數）而價格狀態仍然係 ready，Top 100 入面就有 8
+       * 張。即係話嗰個門檻唔存在，而且狀態亦冇標示出嚟。
+       *
+       * Owner 決定（同日）：唔講死數字，講機制 —— 數字一改，文案就會再一次變假；
+       * 講機制就唔會。所以呢度亦唔准寫「不足就會標示」，因為實測就係唔會標示。
+       */
+      body: "A place in this index is earned, never assumed. Every card carries a verified population of at least 1,000 PSA 10 examples, and its market cap is that population multiplied by a PSA 10 reference price. The reference price is rebuilt from verified PSA 10 sales captured inside our tracked coverage; where a window records too few of them, the figure stands as a reference level rather than a traded average. Real supply, real demand, and nothing invented.",
     },
     provenance: {
       kicker: "METHOD & DATA",
@@ -253,7 +262,8 @@ export const copy: Record<Locale, Copy> = {
     theme: { dark: "深色模式", light: "淺色模式" },
     methodology: {
       title: "CardZ Marketcap 如何排列市場",
-      body: "入選，從來不是理所當然。本指數收錄的每一張卡，均至少有 1,000 張經核實的 PSA 10；而百大席位，只在市場持續確認下得以保留——每 30 日內須有不少於五宗經核實的 PSA 10 成交。真實供應、真實需求，除此以外別無其他。",
+      // 改動理由見上面英文版嗰段註解（實測數字 + owner 決定）。
+      body: "入選，從來不是理所當然。本指數收錄的每一張卡，均至少有 1,000 張經核實的 PSA 10；市值即為該存量乘以 PSA 10 參考價。參考價取自追蹤範圍內經核實的 PSA 10 成交；若窗口內的成交紀錄不足，該數字即為參考水平，而非成交均價。真實供應、真實需求，絕不虛構。",
     },
     provenance: {
       kicker: "METHOD & DATA",
@@ -316,7 +326,7 @@ export const copy: Record<Locale, Copy> = {
     theme: { dark: "深色模式", light: "浅色模式" },
     methodology: {
       title: "CardZ Marketcap 如何排列市场",
-      body: "入选，从来不是理所当然。本指数收录的每一张卡都至少有 1,000 张经核实的 PSA 10；而百大席位，只在市场持续确认下得以保留——每 30 天内须有不少于五笔经核实的 PSA 10 成交。真实供应、真实需求，除此以外别无其他。",
+      body: "入选，从来不是理所当然。本指数收录的每一张卡都至少有 1,000 张经核实的 PSA 10；市值即为该存量乘以 PSA 10 参考价。参考价取自追踪范围内经核实的 PSA 10 成交；若窗口内的成交纪录不足，该数字即为参考水平，而非成交均价。真实供应、真实需求，绝不虚构。",
     },
     provenance: {
       kicker: "METHOD & DATA",
@@ -379,7 +389,7 @@ export const copy: Record<Locale, Copy> = {
     theme: { dark: "ダークモード", light: "ライトモード" },
     methodology: {
       title: "CardZ Marketcap の市場ランキング方法",
-      body: "掲載は、与えられるものではなく獲得するもの。この指数のカードはすべて確認済み PSA 10 が 1,000 枚以上。さらにトップ100の座は、30日ごとに5件以上の確認済み PSA 10 取引という形で、市場自身が認め続けた場合にのみ維持されます。実在する供給と需要、それ以外は数えません。",
+      body: "掲載は、与えられるものではなく獲得するもの。この指数のカードはすべて確認済み PSA 10 が 1,000 枚以上あり、時価総額はその流通量に PSA 10 参考価格を掛けた値です。参考価格は、当社の追跡範囲内で確認された PSA 10 取引から算出します。対象期間の取引記録が十分でない場合、その数値は取引平均ではなく参考水準として示されます。実在する供給と需要、それ以外は作りません。",
     },
     provenance: {
       kicker: "METHOD & DATA",
@@ -449,7 +459,7 @@ export const copy: Record<Locale, Copy> = {
     theme: { dark: "다크 모드", light: "라이트 모드" },
     methodology: {
       title: "CardZ Marketcap의 시장 순위 방식",
-      body: "수록은 주어지는 것이 아니라 얻어내는 것입니다. 이 지수의 모든 카드는 검증된 PSA 10이 1,000장 이상이며, 톱 100 자리는 매 30일마다 5건 이상의 검증된 PSA 10 거래로 시장 스스로 계속 확인할 때만 유지됩니다. 실제 공급과 실제 수요, 그 외에는 없습니다.",
+      body: "수록은 주어지는 것이 아니라 얻어내는 것입니다. 이 지수의 모든 카드는 검증된 PSA 10이 1,000장 이상이며, 시가총액은 그 물량에 PSA 10 기준가를 곱한 값입니다. 기준가는 저희 추적 범위 안에서 검증된 PSA 10 거래로 산출합니다. 해당 기간의 거래 기록이 충분하지 않을 경우 그 수치는 거래 평균이 아니라 참고 수준으로 제시됩니다. 실제 공급과 실제 수요, 그 밖의 것은 만들지 않습니다.",
     },
     provenance: {
       kicker: "METHOD & DATA",

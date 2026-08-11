@@ -22,6 +22,10 @@ services:
       - "${CARDZ_WEB_PORT:-3000}:3000"
     environment:
       CARDZ_PUBLIC_BUILD_ID: ${CARDZ_PUBLIC_BUILD_ID:-deploy}
+      # robots.ts 讀呢個掣決定開唔開放俾人爬。之前呢度冇傳、亦冇 env_file，所以
+      # runtime 永遠係 undefined，即係任何一個用呢份 compose 起嘅環境（包括
+      # staging / canary）都行返 production 全開放嗰條分支。
+      CARDZ_ENVIRONMENT: ${CARDZ_ENVIRONMENT:-production}
       NODE_ENV: production
       PORT: "3000"
       HOSTNAME: "0.0.0.0"

@@ -1,6 +1,29 @@
 import type { NextConfig } from "next";
 import { resolve } from "node:path";
 
+/*
+ * 已經出咗街、而家改咗嘅公開 card id。
+ *
+ * 呢幾張卡嘅 `catalog_variant.opaque_id` 帶住供應商前綴，而 opaque_id 就係公開
+ * URL —— 三條已經入咗生產 sitemap，爬蟲同任何人 share 過嘅 link 都指住佢哋。
+ * DB 側嘅修法係 public_card_alias（migration 041）：opaque_id 唔郁，投影層改出
+ * 一個 cmc_ 公開 id。所以舊 URL 由嗰日起冇卡對得上，硬 404。呢張表就係補償。
+ *
+ * 放喺呢個檔入面唔係求其：呢張表唯一嘅消費者就係下面個 redirects()，而
+ * pipelines/public_card_alias.py 鑄 alias 嗰陣會讀返呢個檔對數，鑄咗但冇寫落嚟
+ * 就當今次冇做完。多開一個 module 只係多一個可以靜靜過期嘅位。
+ */
+const LEGACY_CARD_IDS: Record<string, string> = {
+  // variant 1813 — One Piece 1st Anniversary Nami OP01-016（未上榜，補齊）
+  g10_e4e84430353855ea95c1263e: "cmc_cc42023d0dfe45a89e9a7d34",
+  // variant 1814 — One Piece 1st Anniversary Roronoa Zoro OP01-025
+  g10_036812c0a409b0fef6ba5dff: "cmc_da97db523a08ba2b01132e2f",
+  // variant 1865 — Pokemon Japanese McDonald's Charmander 004/018
+  g10_c43dd6aa54b7671068938692: "cmc_4078d2704951804758fe7ca3",
+  // variant 1866 — Pokemon Japanese McDonald's Squirtle 007/018
+  g10_356a7d75453fba4d71586411: "cmc_909295e09fbe7e1f3c7b44f4",
+};
+
 const repositoryRoot = resolve(process.cwd(), "..", "..");
 const isDevelopment = process.env.NODE_ENV === "development";
 const requestedBuildId = process.env.CARDZ_PUBLIC_BUILD_ID?.trim() ?? "local";
@@ -68,6 +91,15 @@ const nextConfig: NextConfig = {
     optimizePackageImports: ["d3-hierarchy"],
   },
   generateBuildId: async () => publicBuildId,
+  /* 改過公開 id 嘅卡：舊 URL 已經入咗生產 sitemap，冇呢啲就硬 404。
+     308 唔係 301：Next 嘅 `permanent` 出 308，搜尋引擎當佢一樣係永久轉向，
+     但唔准 client 將 POST 改寫做 GET —— 對 /api/v1/cards/* 嚟講先啱。 */
+  async redirects() {
+    return Object.entries(LEGACY_CARD_IDS).flatMap(([oldId, newId]) => [
+      { source: `/card/${oldId}`, destination: `/card/${newId}`, permanent: true },
+      { source: `/api/v1/cards/${oldId}`, destination: `/api/v1/cards/${newId}`, permanent: true },
+    ]);
+  },
   async headers() {
     return [
       {
