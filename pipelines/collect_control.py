@@ -28,8 +28,10 @@ from typing import Any, Mapping
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
+from collection_contract import ADAPTER_LANE, CHECKPOINT_ADAPTERS  # noqa: E402
 from qualified_pool_operator import db, load_env  # noqa: E402
 from operator_control import CHECKPOINT_SLA_HOURS, current_universe  # noqa: E402
+from runtime_paths import assert_runtime_root  # noqa: E402
 from native_image_resolver import ProcessedSnkDefaultImage, process_snk_default_image  # noqa: E402
 from snkrdunk_bulk import (  # noqa: E402
     SNK_EN_PRODUCT_PAGE_CONTRACT,
@@ -53,15 +55,6 @@ WINDOWS_PY = ROOT / ".venv-backend-windows/Scripts/python.exe"
 #
 # `manual` = 唔入任何自動鏈，要人手 `--adapter <名>` 先行到。而家冇 adapter 喺
 # 呢類，個 group 留住係因為將來會有寫入形狀未 production-ready 嘅 lane。
-ADAPTER_LANE = {
-    "gemrate_pop": "http",
-    "snk_trades": "http",
-    "snk_price": "http",
-    "snk_en_image": "http",
-    "pc_ebay_sales": "browser",
-    "en_price_ref": "browser",
-}
-CHECKPOINT_ADAPTERS = tuple(ADAPTER_LANE)
 COLLECT_LEASE_CONTRACT = "mysql_advisory_adapter_lease_v1"
 # Per-item failure streaks and per-item success receipts live beside the other
 # collect runtime state. The MySQL stream checkpoint remains the resume
@@ -4091,6 +4084,7 @@ def cmd_incr(
 
 
 def main() -> int:
+    assert_runtime_root(ROOT)
     parser = argparse.ArgumentParser(description="CARDZ stock/incr collect control plane")
     sub = parser.add_subparsers(dest="cmd", required=True)
 

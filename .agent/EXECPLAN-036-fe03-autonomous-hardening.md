@@ -14,8 +14,8 @@ guards automatically before bake, and keep the 036 / FE03 public contract.
 - [x] #9 Run the no-DB guard suite automatically before every public bake.
 - [x] #3 Persist ranked and awaiting-fresh-price counts in daily receipts.
 - [x] #1, #2, #4 Repair source-cycle freshness and add ranking/awaiting hard stops.
-- [ ] #6 Assert the runtime junction target and writability at process startup.
-- [ ] #8 Use one checkpoint-adapter authority in collector and acceptance code.
+- [x] #6 Assert the runtime junction target and writability at process startup.
+- [x] #8 Use one checkpoint-adapter authority in collector and acceptance code.
 - [ ] #5 Derive release membership from the current universe and allow growth.
 - [ ] #7 Put discovery ahead of nightly acceptance.
 - [ ] Run the required negative/positive guard evidence and the complete suite.

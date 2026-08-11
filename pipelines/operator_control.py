@@ -17,7 +17,9 @@ import statistics
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
+from collection_contract import CHECKPOINT_ADAPTERS  # noqa: E402
 from qualified_pool_operator import db, load_env  # noqa: E402
+from runtime_paths import assert_runtime_root  # noqa: E402
 import operator_fe_export as fe  # noqa: E402
 
 LEGACY_PRICE_COMPOSITION_ORDER = ("snk_psa10", "snk", "snkrdunk", "pricecharting", "ebay")
@@ -30,13 +32,6 @@ RELAXED_POLICY_SHA256 = "b316374547268c88616cf1b9220f9797dd11b720fdbe26ff6a77825
 TONIGHT_CARD_COUNT = 762
 TONIGHT_BACKLOG_COUNT = 776
 COLLECT_REGISTRY_PATH = OUT_DIR / "collect" / "collect_registry.jsonl"
-CHECKPOINT_ADAPTERS = (
-    "gemrate_pop",
-    "snk_trades",
-    "snk_price",
-    "pc_ebay_sales",
-    "en_price_ref",
-)
 CHECKPOINT_SLA_HOURS = 36
 CANONICAL_IMAGE_POLICY_ID = "canonical-026-snk-en-exact-first-v1"
 # Compatibility name for older callers. 026 applies the policy to all 762 cards,
@@ -2528,6 +2523,7 @@ def cmd_db_tidy(*, snk_history_archive_dir: Path | None, project_ingested_histor
 
 
 def main() -> int:
+    assert_runtime_root(ROOT)
     parser = argparse.ArgumentParser(description="CARDZ operator dual-mode control plane")
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("status")
