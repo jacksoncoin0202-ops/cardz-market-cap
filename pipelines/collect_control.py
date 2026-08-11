@@ -2139,6 +2139,23 @@ def _upsert_snk_en_freeze(
     evidence_sha256: str,
     accepted_at: datetime,
 ) -> None:
+    # 人手 reject 過嘅 (variant, content) 唔可以由 collector 再 accept。呢張表
+    # (market_image_rejection_registry) 一直只有 rebuild_036 image-bind 讀，
+    # 呢條 lane 由頭到尾冇讀過 —— 所以人手換走一張圖之後，下一次 SNK EN lane
+    # 會將舊 sha 寫返 'accepted'，同人手釘落嘅 freeze 變成兩行 accepted。
+    # 照跑照 checkpoint，但個 status 要講真話。
+    cur.execute(
+        "SELECT 1 FROM market_image_rejection_registry"
+        " WHERE variant_id=%s AND content_sha256=%s",
+        (variant_id, content_sha256),
+    )
+    human_rejected = cur.fetchone() is not None
+    status = "rejected" if human_rejected else "accepted"
+    note = (
+        "human-rejected content; SNK EN storefront default not published"
+        if human_rejected
+        else "exact SNK EN storefront default image"
+    )
     cur.execute(
         """
         INSERT INTO operator_binding_freeze
@@ -2146,13 +2163,13 @@ def _upsert_snk_en_freeze(
            content_sha256,canonical_image_acceptance_id,
            accepted_lineage_sha256,acceptance_status,actor,
            evidence_sha256,note,accepted_at)
-        VALUES (%s,'image',%s,%s,%s,%s,%s,'accepted',%s,%s,%s,%s)
+        VALUES (%s,'image',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         ON DUPLICATE KEY UPDATE
           external_entity_id=VALUES(external_entity_id),
           content_sha256=VALUES(content_sha256),
           canonical_image_acceptance_id=VALUES(canonical_image_acceptance_id),
           accepted_lineage_sha256=VALUES(accepted_lineage_sha256),
-          acceptance_status='accepted',actor=VALUES(actor),
+          acceptance_status=VALUES(acceptance_status),actor=VALUES(actor),
           evidence_sha256=VALUES(evidence_sha256),note=VALUES(note),
           accepted_at=VALUES(accepted_at)
         """,
@@ -2163,9 +2180,10 @@ def _upsert_snk_en_freeze(
             content_sha256,
             acceptance_id,
             lineage_sha256,
+            status,
             "collect_control:snk_en_image",
             evidence_sha256,
-            "exact SNK EN storefront default image",
+            note,
             accepted_at,
         ),
     )
