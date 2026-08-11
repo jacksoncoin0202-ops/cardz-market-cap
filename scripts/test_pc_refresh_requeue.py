@@ -60,6 +60,7 @@ class FakePage:
         self.seen = seen
         self.url = URL
         self._current = ""
+        self._content_races = 0
 
     async def goto(self, url, **_kwargs):
         self._current = url
@@ -68,11 +69,20 @@ class FakePage:
         self.seen.append(vid)
         codes = self.script.get(vid) or [200]
         token = codes.pop(0) if len(codes) > 1 else codes[0]
+        if token == "race":
+            self._content_races = 1
+            token = 200
         # "cf" = 頁面回 200 但係 Cloudflare 攔截頁，同 429 / 5xx 唔同 counter。
         self._cf = token == "cf"
         return FakeResponse(200 if self._cf else token)
 
     async def content(self):
+        if self._content_races:
+            self._content_races -= 1
+            raise RuntimeError(
+                "Page.content: Unable to retrieve content because the page is"
+                " navigating and changing the content."
+            )
         return html_for(self._current) + ("CFBLOCK" if self._cf else "")
 
     async def title(self):
@@ -121,7 +131,9 @@ def main() -> int:
     mod.validate_pc_psa10 = lambda _row: (1.0, "ok")
     mod._is_cf = lambda _title, html: "CFBLOCK" in html
 
-    tmpdir = Path(tempfile.mkdtemp(prefix="pc_requeue_", dir=str(ROOT / "temp")))
+    test_tmp_root = ROOT / "data" / "runtime" / "test-tmp"
+    test_tmp_root.mkdir(parents=True, exist_ok=True)
+    tmpdir = Path(tempfile.mkdtemp(prefix="pc_requeue_", dir=str(test_tmp_root)))
     try:
         vids = ["a", "b", "c", "d"]
         rows = rows_for(vids, tmpdir)
@@ -147,6 +159,12 @@ def main() -> int:
         check("上游 5xx 唔算 fail", out5["fail"], 0)
         check("上游 5xx 真係再行過", seen5.count("s"), 2)
         check("5xx 有入重試紀錄", [r["status"] for r in out5["retries"]], ["server_error"])
+
+        # 真實 2026-08-12 failure：goto 已回，但同一 tab 正做 redirect，第一下
+        # page.content() 拒絕。呢個係同一頁嘅讀取 race，唔應該當一張卡收集失敗。
+        outr, seenr, _ = asyncio.run(drive(rows_for(["r"], tmpdir), {"r": ["race"]}))
+        check("頁面 redirect 中仍會等到穩定 HTML", outr["ok"], 1)
+        check("content race 唔需要重抓成頁", seenr.count("r"), 1)
 
         # CF 撤銷判死只准減 cf，唔准掂 fail —— 加嘅時候只加咗 cf。舊版兩個都減，
         # 令 fail 少報一個（實測 10 個 product_id_mismatch 報咗 9）。

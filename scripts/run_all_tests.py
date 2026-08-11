@@ -60,6 +60,25 @@ REQUIRES_PATH: dict[str, Path] = {
     "g10_public_snapshot.py": ROOT / "integrations" / "grade10" / "data",
 }
 
+# These are valid local evidence tests, but their fixtures intentionally live
+# under ignored private/runtime roots and are absent from the clean WSL release
+# checkout. A public bake must report that absence as SKIP, not reinterpret it
+# as a code failure. Portable guards remain mandatory.
+SCRIPT_REQUIRES_PATH: dict[str, Path] = {
+    "test_identity_name.py": (
+        ROOT / "data" / "private" / "gemrate" / "cards"
+        / "80a8b349acb400cc08fe55617c3ff152256d371d"
+        / "card_details.raw.receipt.json"
+    ),
+    "test_pc_identity_discover_rules.py": (
+        ROOT / "data" / "private" / "pricecharting_session" / "html" / "full900"
+    ),
+    "test_pc_sale_identity.py": (
+        ROOT / "data" / "private" / "pricecharting_session" / "html" / "full900"
+        / "1_pikachu-with-grey-felt-hat-85_r.html"
+    ),
+}
+
 SELF_TEST_PATTERN = re.compile(
     r'add_argument\(\s*"--self-test"|add_parser\(\s*"self-test"'
 )
@@ -149,6 +168,10 @@ def main() -> int:
 
     for path in sorted((ROOT / "scripts").glob("test_*.py")):
         label = f"scripts/{path.name}"
+        required = SCRIPT_REQUIRES_PATH.get(path.name)
+        if required is not None and not required.exists():
+            results.append((label, "SKIP", 0.0, f"欠 machine-private fixture: {required}"))
+            continue
         argv = [PY, "-X", "utf8", str(path)]
         results.append((label, *_run(label, argv, args.timeout)))
 

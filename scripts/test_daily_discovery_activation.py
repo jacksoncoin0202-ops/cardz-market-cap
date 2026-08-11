@@ -92,15 +92,20 @@ class _Conn:
         return _Cursor(self.calls)
 
 
-for label, selector, args in (
-    ("snk", SNK.select_targets, (GENERATION, 1000, "", 0, [901, 902])),
-    ("pc", PC.select_targets, (GENERATION, 1000, "pokemon", 0, "en", [901, 902])),
-):
-    conn = _Conn()
-    selector(conn, *args)
-    sql, params = conn.calls[-1]
-    assert "v.id IN (" in sql, label
-    assert 901 in params and 902 in params, label
+original_red_list = SNK.R.red_listed_variants
+SNK.R.red_listed_variants = lambda: [1717, 1741]
+try:
+    for label, selector, args in (
+        ("snk", SNK.select_targets, (GENERATION, 1000, "", 0, [901, 902])),
+        ("pc", PC.select_targets, (GENERATION, 1000, "pokemon", 0, "en", [901, 902])),
+    ):
+        conn = _Conn()
+        selector(conn, *args)
+        sql, params = conn.calls[-1]
+        assert "v.id IN (" in sql, label
+        assert 901 in params and 902 in params, label
+finally:
+    SNK.R.red_listed_variants = original_red_list
 
 rebuild_source = (ROOT / "pipelines" / "rebuild_036.py").read_text(encoding="utf-8")
 assert "si.variant_id IN" in rebuild_source
@@ -114,4 +119,3 @@ for script_name in ("nightly_collect_accept.ps1", "morning_browser_lanes.ps1"):
     assert discover_at < accept_at, script_name
     assert "$discoverExit -eq 0" in source, script_name
 print("POSITIVE_OK both scheduled chains gate daily-accept behind discovery")
-

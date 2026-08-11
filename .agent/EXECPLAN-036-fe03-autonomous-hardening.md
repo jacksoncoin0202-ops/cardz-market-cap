@@ -62,6 +62,12 @@ guards automatically before bake, and keep the 036 / FE03 public contract.
   seeded on 2026-08-12 contains 268. The cursor is intentionally runtime state:
   it tracks exact IDs for delta routing, while the committed count baseline stays
   a separate acceptance ceiling and is not raised by automation.
+- The first real morning run exposed two unrelated release blockers after
+  discovery and acceptance had passed: Playwright can reject `page.content()`
+  during a same-tab redirect, and a clean WSL release checkout cannot run tests
+  whose fixtures intentionally live under ignored machine-private roots. The
+  collector now waits for the same page to settle; the runner reports only the
+  three named fixture tests as SKIP when their exact fixtures are absent.
 
 ## Validation
 
@@ -75,3 +81,7 @@ guards automatically before bake, and keep the 036 / FE03 public contract.
   skip is the absent legacy `integrations/grade10/data` tree. PowerShell AST
   parsing passed and the production Next build compiled, type-checked and emitted
   all 12 static pages.
+- After the real-run repairs, the release-equivalent local command
+  `scripts/run_all_tests.py --no-db` reports `33/33 passed, 0 failed, 2 skipped`.
+  The same runner owns the redirect-content race fixture and the portable/private
+  fixture classification used by the WSL bake gate.

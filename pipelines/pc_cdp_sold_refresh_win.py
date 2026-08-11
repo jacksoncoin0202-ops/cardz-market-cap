@@ -68,6 +68,8 @@ FAILURE_COUNTERS = {
 }
 DEFAULT_FAILURE_COUNTERS = ("fail",)
 RETRYABLE_STATUSES = ("rate_limited", "cf_or_fail", "server_error")
+CONTENT_RACE_TEXT = "page is navigating and changing the content"
+CONTENT_RACE_ATTEMPTS = 5
 
 
 def utc_now() -> str:
@@ -88,6 +90,30 @@ def canonical_url_from_html(value: str) -> str:
 
 def url_key(value: str) -> str:
     return unescape(str(value or "")).rstrip("/")
+
+
+async def stable_page_content(page, watchdog: dict[str, float]) -> str:
+    """Read the current document after a same-tab redirect finishes.
+
+    ``goto(..., wait_until='domcontentloaded')`` can return for the first
+    document immediately before PriceCharting replaces it. Playwright refuses
+    ``page.content()`` during that tiny navigation window. That is not a bad
+    card or a provider failure, so wait on the same tab and read the same
+    response instead of discarding the whole 993-page batch.
+    """
+
+    for attempt in range(CONTENT_RACE_ATTEMPTS):
+        try:
+            return await page.content()
+        except Exception as exc:  # noqa: BLE001
+            if (
+                CONTENT_RACE_TEXT not in str(exc).lower()
+                or attempt + 1 >= CONTENT_RACE_ATTEMPTS
+            ):
+                raise
+            watchdog["beat"] = time.monotonic()
+            await page.wait_for_timeout(250)
+    raise AssertionError("stable_page_content exhausted without returning")
 
 
 def ensure_cdp(port: int = 9333) -> None:
@@ -204,7 +230,7 @@ async def run_fetch_pool_with_pages(
                 response = await page.goto(url, wait_until="domcontentloaded", timeout=120000)
                 code = response.status if response is not None else None
                 retry_after = response.headers.get("retry-after") if response is not None else None
-                html = await page.content()
+                html = await stable_page_content(page, watchdog)
                 title = (await page.title()).strip()
             except Exception as exc:  # noqa: BLE001
                 out["fail"] += 1
@@ -227,7 +253,7 @@ async def run_fetch_pool_with_pages(
                 while time.monotonic() < deadline:
                     await page.wait_for_timeout(5000)
                     watchdog["beat"] = time.monotonic()
-                    html = await page.content()
+                    html = await stable_page_content(page, watchdog)
                     title = (await page.title()).strip()
                     product_match = re.search(r'\bproduct-id=["\'](\d+)["\']', html, re.I)
                     actual_product_id = product_match.group(1) if product_match else ""
