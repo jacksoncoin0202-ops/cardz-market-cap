@@ -1,4 +1,4 @@
-# CARDZ 036 morning chain: browser-dependent collectors -> daily-accept re-rank.
+﻿# CARDZ 036 morning chain: browser-dependent collectors -> daily-accept re-rank.
 # Registered as Task Scheduler job CARDZ-036-Morning-Browser-Lanes.
 # These lanes (pc_ebay_sales, en_price_ref) need a headed Chrome CDP session,
 # so they run in the morning slot where ensure_chrome_cdp can own the desktop;

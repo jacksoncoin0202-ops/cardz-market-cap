@@ -1,4 +1,4 @@
-# CARDZ 036 / FE03 daily public release entrypoint.
+﻿# CARDZ 036 / FE03 daily public release entrypoint.
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 $script = Join-Path $PSScriptRoot "daily_public_release.sh"

@@ -1,4 +1,4 @@
-# CARDZ 036 nightly chain: HTTP collectors -> daily-accept re-rank.
+﻿# CARDZ 036 nightly chain: HTTP collectors -> daily-accept re-rank.
 # Registered as Task Scheduler job CARDZ-036-Nightly-Collect-Accept.
 # Browser-dependent lanes (pc_ebay_sales, en_price_ref) are deliberately
 # NOT here: they need a headed Chrome session and run in the morning slot.

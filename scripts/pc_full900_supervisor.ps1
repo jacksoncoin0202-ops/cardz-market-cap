@@ -1,4 +1,4 @@
-# PC-FULL-900 HARD SUPERVISOR — multi-worker rules so the job cannot silently die.
+﻿# PC-FULL-900 HARD SUPERVISOR — multi-worker rules so the job cannot silently die.
 #
 # RULES (non-negotiable):
 # R1 CDP live before any worker runs (ensure_chrome_cdp.ps1).
