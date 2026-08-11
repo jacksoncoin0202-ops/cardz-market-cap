@@ -141,16 +141,15 @@ function windowMetrics(
         value: priceChange,
         status: priceChange === null ? accumulating : "ready",
         asOf: priceChange === null ? null : currentAsOf,
-        // 供應商代號唔出街：呢個 snapshot 會原封不動 ship 落 client payload，
-        // 睇 view-source 就見到。UI 只需要「換咗錨點」呢個 boolean。
-        priceAnchorSource: null,
+        // 供應商代號唔出街，連 field 都唔要：呢個 snapshot 會原封不動 ship 落
+        // client payload，睇 view-source 就見到。UI 只需要 sourceSwitched 呢個
+        // boolean（下面），佢由 anchorSource 計出嚟但唔帶住個名。
         sourceSwitched: priceChange === null ? false : sourceSwitched,
       },
       marketCapChangePct: {
         value: capChange,
         status: capChange === null ? accumulating : "ready",
         asOf: capChange === null ? null : currentAsOf,
-        priceAnchorSource: null,
         sourceSwitched: capChange === null ? false : sourceSwitched,
       },
       trackedSalesChangePct: {

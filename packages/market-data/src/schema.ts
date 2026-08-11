@@ -24,9 +24,12 @@ export interface MarketMetric {
   value: number | null;
   status: MarketStatus;
   asOf: string | null;
-  /** Exact provider used for the historical price anchor of a window delta. */
-  priceAnchorSource?: string | null;
-  /** True when the current price and its historical anchor use different exact providers. */
+  /**
+   * True when the current price and its historical anchor use different exact
+   * providers. The provider names themselves are deliberately absent from this
+   * type: the canonical snapshot is shipped to the browser verbatim, so a field
+   * that carries one is a published field. Only the boolean survives.
+   */
   sourceSwitched?: boolean;
 }
 

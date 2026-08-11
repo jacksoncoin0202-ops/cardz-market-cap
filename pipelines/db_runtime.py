@@ -39,6 +39,9 @@ SUPPORTED_CARD_LANGUAGES = {"en", "ja", "ko", "zhCN", "zhTW"}
 GEMRATE_ALIAS_TYPES = {"entity", "universal", "grader_member", "spec"}
 GEMRATE_HEX_ID = re.compile(r"[0-9a-f]{40}")
 SHA256_HEX = re.compile(r"[0-9a-f]{64}")
+# 公開 card id 嘅命名空間。20 hex 係七張早期卡嘅舊式(80-bit)mint,24 hex 係現行
+# 規則,兩個都要收。同 packages/market-data/src/id.ts 個 isOpaquePublicId 同源。
+OPAQUE_ID_SHAPE = re.compile(r"cmc_(?:[0-9a-f]{20}|[0-9a-f]{24})")
 
 
 def canonical_json(value: Any) -> bytes:
@@ -779,6 +782,21 @@ def upsert_variant(cursor: Any, card: Mapping[str, Any]) -> int:
             ),
         )
     else:
+        # opaque_id 就係公開 URL(/card/<opaque_id>)同 sitemap entry,而呢個係全個
+        # repo 唯一一個收 caller 自己俾 id 嘅 INSERT —— 另外兩個(rebuild_036、
+        # g10_variant_seed)自己計 cmc_+sha。呢道窿放咗四行帶供應商前綴嘅 id 入
+        # DB(2026-08-11 查實),而 opaque_id 一寫落去就俾 D7 凍結,冇得改。所以要
+        # 喺 INSERT 之前擋,唔係事後補鑊。
+        #
+        # 只擋新 row:上面條 UPDATE 路唔查形狀,舊嗰四行照樣更新得,唔會即刻炸咗
+        # 每日採集。佢哋出唔出街由 scripts/bake-public-snapshot.mjs 個閘決定。
+        if not OPAQUE_ID_SHAPE.fullmatch(opaque_id):
+            raise ValueError(
+                f"refusing to mint public id outside the cmc_ namespace: {opaque_id!r}. "
+                "opaque_id is the public card URL and is frozen once written (D7); "
+                "mint it with the cmc_+sha256[:24] rule instead of passing a "
+                "provider-scoped identifier through pokedexId."
+            )
         cursor.execute(
             """
             INSERT INTO catalog_variant

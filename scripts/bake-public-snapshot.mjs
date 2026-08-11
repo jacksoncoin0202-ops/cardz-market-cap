@@ -39,6 +39,7 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { assertPublicSurface } from "./public-surface-gate.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const WEB = join(ROOT, "apps", "web");
@@ -116,6 +117,12 @@ process.env.CARDZ_REPO_ROOT ??= ROOT;
 const { loadLiveDbSnapshot } = createRequire(join(BUILD, "bake.cjs"))(compiled);
 const snapshot = await loadLiveDbSnapshot();
 
+// 出街閘。呢度係 producer:兩種 serving mode(baked file / live-db)都經同一條
+// code path,所以檢查放喺呢度先至蓋得晒兩邊。規則同兩條 ratchet 嘅解釋喺
+// scripts/public-surface-gate.mjs;分開係為咗 scripts/test-public-surface-gate.mjs
+// 唔使開 DB 都證得到佢真係會炸。
+const gate = assertPublicSurface(snapshot);
+
 const cards = snapshot.top100.length + snapshot.watchlist.length;
 const body = Buffer.from(`${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
 mkdirSync(dirname(OUTPUT), { recursive: true });
@@ -160,5 +167,6 @@ process.stdout.write(`${JSON.stringify({
   bytes: body.length,
   sha256: createHash("sha256").update(body).digest("hex"),
   referencedAssets: assets.size,
+  gate,
   prune,
 }, null, 2)}\n`);

@@ -23,7 +23,6 @@ export interface MarketMetric<T> {
   status: MetricStatus;
   asOf: string | null;
   anchorAt?: string | null;
-  priceAnchorSource?: string | null;
   sourceSwitched?: boolean;
 }
 

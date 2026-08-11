@@ -1,0 +1,127 @@
+// 出街閘：canonical snapshot 入面唔准帶供應商代號，公開 card id 唔准出 cmc_
+// 命名空間。呢個 document 會原封不動 ship 落 client payload，所以「snapshot 有」
+// 等於「view-source 有」。
+//
+// 點解獨立一個檔而唔係寫喺 bake 入面：bake 要開 MySQL 3308、要 tsc、要幾分鐘。
+// 一個淨係喺嗰個情況下先行得到嘅檢查，冇人證得到佢真係會炸。呢度分開之後
+// scripts/test-public-surface-gate.mjs 可以兩個方向都行一次（乾淨 → 過、污糟 →
+// 炸），一秒有答案。
+//
+// 以前有個 scripts/canary-public.mjs 喺 deploy 之後掃 HTML，2026-08-07 連同兩個
+// caller 一齊刪咗。就算佢仲喺度都攔唔到今日呢批嘢：個 pattern 用 \b 做邊界，而
+// `_` 係 word character，所以 `g10_356a…` 一世都 match 唔到；佢個 path list 亦
+// 從來冇 /card/*。所以呢個版本唔係翻譯佢，係搬去 producer 側重寫。
+//
+// 兩條 ratchet，只准跌唔准升：
+//   1. 公開 card id 必須喺 cmc_ 命名空間。catalog_variant 有 4 行仲帶住舊供應商
+//      前綴（2026-08-11 查 DB 實測），其中 3 行上到榜、已經出咗街，列咗喺
+//      LEGACY_PUBLIC_IDS。第 4 行（variant 1813）未上榜，所以冇列 —— 佢一上榜就
+//      應該炸，逼人去修，而唔係靜靜多一條泄漏 URL。
+//   2. 結構欄位入面唔准出現供應商代號。編輯故事（story）係市場評論，會提到交易
+//      平台，另外計數 baseline。
+//
+// 任何一個 baseline 升 => bake 失敗。跌 => 出提示叫人收緊個數，唔好留住張過期
+// 嘅免死金牌。
+
+export const ID_SHAPE = /^cmc_[0-9a-f]{20,24}$/;
+
+export const LEGACY_PUBLIC_IDS = new Set([
+  "g10_036812c0a409b0fef6ba5dff",
+  "g10_356a7d75453fba4d71586411",
+  "g10_c43dd6aa54b7671068938692",
+]);
+
+export const FORBIDDEN_TOKENS = [
+  "g10",
+  "grade10",
+  "gemrate",
+  "snkrdunk",
+  "sneakerdunk",
+  "altxyz",
+  "ebay",
+  "pricecharting",
+];
+
+// 前後都要係非 [A-Za-z0-9]：咁 `ebay_sales`、`g10_356a…` 呢類 underscore 接落去
+// 嘅 token 一樣攔得到，正正係舊 canary 個 \b 漏咗嗰種。
+export const TOKEN_PATTERN = new RegExp(
+  `(?<![A-Za-z0-9])(?:${FORBIDDEN_TOKENS.join("|")})(?![A-Za-z0-9])`,
+  "i",
+);
+
+export const STORY_TOKEN_BASELINE = 2;
+
+/**
+ * 掃一份 canonical PublicMarketSnapshot。過 => return 個 gate 統計；唔過 => throw。
+ *
+ * @param {{top100: any[], watchlist: any[]}} snapshot
+ * @param {{warn?: (message: string) => void}} [options]
+ */
+export function assertPublicSurface(snapshot, options = {}) {
+  const warn = options.warn ?? ((message) => process.stderr.write(message));
+
+  const publicIds = [...snapshot.top100, ...snapshot.watchlist].map((card) => card.id);
+  const badIds = publicIds.filter((id) => !ID_SHAPE.test(id) && !LEGACY_PUBLIC_IDS.has(id));
+  if (badIds.length) {
+    throw new Error(
+      `bake failed: ${badIds.length} public card id(s) outside the cmc_ namespace: `
+      + `${badIds.slice(0, 10).join(", ")}${badIds.length > 10 ? " …" : ""}. `
+      + "A public id is a public URL and a sitemap entry -- fix the mint "
+      + "(pipelines/db_runtime.py upsert_variant) rather than widening this gate.",
+    );
+  }
+
+  const structuralHits = [];
+  let storyHits = 0;
+  const walk = (node, path) => {
+    if (typeof node === "string") {
+      if (!TOKEN_PATTERN.test(node)) return;
+      if (LEGACY_PUBLIC_IDS.has(node)) return;
+      if (/story/i.test(path)) storyHits += 1;
+      else structuralHits.push(`${path} = ${JSON.stringify(node.slice(0, 120))}`);
+      return;
+    }
+    if (Array.isArray(node)) {
+      node.forEach((item, index) => walk(item, `${path}[${index}]`));
+      return;
+    }
+    if (node && typeof node === "object") {
+      for (const [key, value] of Object.entries(node)) walk(value, path ? `${path}.${key}` : key);
+    }
+  };
+  walk(snapshot, "");
+
+  if (structuralHits.length) {
+    throw new Error(
+      `bake failed: provider token in ${structuralHits.length} structural field(s):\n`
+      + `${structuralHits.slice(0, 10).map((hit) => `  ${hit}`).join("\n")}`
+      + `${structuralHits.length > 10 ? "\n  …" : ""}\n`
+      + "This document is shipped to the browser verbatim. Drop the field at the "
+      + "projection, do not add it to FORBIDDEN_TOKENS' exceptions.",
+    );
+  }
+  if (storyHits > STORY_TOKEN_BASELINE) {
+    throw new Error(
+      `bake failed: editorial stories name a provider ${storyHits} time(s), baseline is `
+      + `${STORY_TOKEN_BASELINE}. A new one appeared -- either rewrite the story, or raise `
+      + "the baseline deliberately with the owner's call on the record.",
+    );
+  }
+
+  const gate = {
+    publicIds: publicIds.length,
+    legacyIdsStillPublished: publicIds.filter((id) => LEGACY_PUBLIC_IDS.has(id)).length,
+    storyTokenHits: storyHits,
+    storyTokenBaseline: STORY_TOKEN_BASELINE,
+  };
+  if (gate.legacyIdsStillPublished < LEGACY_PUBLIC_IDS.size) {
+    warn(
+      `note: only ${gate.legacyIdsStillPublished}/${LEGACY_PUBLIC_IDS.size} legacy ids are still `
+      + "published -- shrink LEGACY_PUBLIC_IDS so the gate stays honest.\n",
+    );
+  }
+  if (storyHits < STORY_TOKEN_BASELINE) {
+    warn(`note: story token hits dropped to ${storyHits} -- lower STORY_TOKEN_BASELINE.\n`);
+  }
+  return gate;
+}
