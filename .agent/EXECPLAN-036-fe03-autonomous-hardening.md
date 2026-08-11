@@ -20,7 +20,7 @@ guards automatically before bake, and keep the 036 / FE03 public contract.
 - [x] #7 Put exact-ID discovery and existing 036 atomic activation ahead of
   nightly/morning acceptance; explicit runtime cursor seeded with 268 current gaps.
 - [x] Run the required negative/positive guard evidence and the complete suite.
-- [ ] Run one full morning E2E, publish through the existing `[deploy]` path, and
+- [x] Run one full morning E2E, publish through the existing `[deploy]` path, and
   read back the resulting generation.
 
 ## Decision log
@@ -51,8 +51,10 @@ guards automatically before bake, and keep the 036 / FE03 public contract.
 
 - The old handoff estimate of 925 affected cards is stale. Current live evidence
   is worse: 914 PriceCharting winners and 31 SNKRDUNK winners would lose rank.
-- The latest morning log ends `collect=1 accept=0 publish=0`; the new 5xx retry code
-  still has no unattended clean-run proof.
+- The first morning log ended `collect=1 accept=0 publish=0`; the completed rerun
+  superseded it with 993/993 collected pages and successful acceptance. Its
+  publish tail failed only on the clean-release fixture declaration documented
+  below, then the publish-only continuation completed without another crawl.
 - The workspace does not contain `.agent/PLANS.md`; this file follows the existing
   ExecPlan layout used in `.agent/` and records the missing implementation work.
 - GEO commit `7731b8ad` is already an ancestor of `origin/main`, production SSR
@@ -91,3 +93,9 @@ guards automatically before bake, and keep the 036 / FE03 public contract.
   `scripts/run_all_tests.py --no-db` reports `33/33 passed, 0 failed, 2 skipped`.
   The same runner owns the redirect-content race fixture and the portable/private
   fixture classification used by the WSL bake gate.
+- Final E2E evidence: PriceCharting `993/993`, collection exit `0`, discovery exit
+  `0`, acceptance exit `0`, 1,322 accepted, 1,314 ranked, and 8 awaiting fresh
+  price. The publish-only continuation ran the clean WSL gate at `30/30 passed,
+  0 failed, 5 skipped`, baked 1,322 cards with 0 stale prices, pushed deploy
+  commit `58232f2a`, and read back live generation
+  `db3308_5e9917ebc6287b31` in baked-snapshot mode.
