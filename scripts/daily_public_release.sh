@@ -48,16 +48,29 @@ python3 -X utf8 "$RELEASE_REPO/scripts/validate_daily_release.py" \
 
 mapfile -t changed < <(git -C "$RELEASE_REPO" status --porcelain=v1 | sed 's/^...//')
 
-# `generation.generatedAt` 係 wall clock（live-db-snapshot.ts:564），所以每次 bake
-# 出嚟嘅 JSON 一定唔同 byte —— 下面個 `no-change` 出口由第一日起就係死 code，
-# 條鏈一日行多過一次就會推一個內容一模一樣嘅 commit 上 main 兼觸發一次部署。
-# 除咗 generatedAt 之外完全一樣就當冇變，還原個檔，咁條鏈先可以一日行幾次做重試。
+# snapshot 有三個 run-stamp —— 唔係數據，係「我幾時跑咗」：
+#   generation.generatedAt      bake 嘅 wall clock（live-db-snapshot.ts:564）
+#   generation.effectiveAt      max(metric_accepted_at, price_observed_date,
+#                               population_effective_at)（:552-553），而
+#                               metric_accepted_at 係 daily-accept 每次 run 嘅 now()
+#   currencies.rates.USD.asOf   USD 恆等於 1，佢個 asOf 直接借 effectiveAt（:556）
+# 三個喺零數據改動嘅情況下一樣會郁，所以「淨係 pop generatedAt」嘅舊版 fire 唔到：
+# 任何行過 daily-accept 嘅 slot 都會推一個內容一模一樣嘅 commit 上 main 兼觸發一次
+# 部署（實測 2026-08-11 13:29 commit 61f1ad3b，3 行 diff 全部係呢三個 stamp）。
+# 真數據郁嗰陣卡本身嗰啲欄一定跟住郁，個 diff 唔會空，所以 pop 呢三個唔會食咗真更新。
+# 將來多一個 run-stamp，個閘只會停止 fire（照推一個多餘 commit），唔會漏推。
 if [[ ${#changed[@]} -eq 1 && ${changed[0]} == data/public/seed-snapshot.json ]] \
    && git -C "$RELEASE_REPO" show HEAD:data/public/seed-snapshot.json \
       | python3 -c 'import json,sys
-old=json.load(sys.stdin); new=json.load(open(sys.argv[1]))
-old["generation"].pop("generatedAt",None); new["generation"].pop("generatedAt",None)
-sys.exit(0 if old==new else 1)' "$RELEASE_REPO/data/public/seed-snapshot.json"; then
+RUN_STAMPS=(("generation","generatedAt"),("generation","effectiveAt"),("currencies","rates","USD","asOf"))
+def strip(doc):
+    for path in RUN_STAMPS:
+        node=doc
+        for key in path[:-1]:
+            node=node.get(key) if isinstance(node,dict) else None
+        if isinstance(node,dict): node.pop(path[-1],None)
+    return doc
+sys.exit(0 if strip(json.load(sys.stdin))==strip(json.load(open(sys.argv[1]))) else 1)' "$RELEASE_REPO/data/public/seed-snapshot.json"; then
   git -C "$RELEASE_REPO" checkout -- data/public/seed-snapshot.json
   changed=()
 fi
