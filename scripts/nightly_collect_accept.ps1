@@ -21,18 +21,13 @@ Set-Location $repo
 # 由註冊嗰日起冇任何 scheduled task 收過，實測 stale 99 小時。
 & $py -X utf8 -u "pipelines\collect_control.py" incr --adapter http *>> $log
 $collectExit = $LASTEXITCODE
-if ($collectExit -ne 0) {
-    "[$stamp] nightly collect failed exit=$collectExit; daily-accept not run" | Tee-Object -FilePath $log -Append
-    exit 1
-}
 
+# 一條 lane 收唔到貨唔應該連 re-rank 都跳過 —— DB 入面舊 observation 仍然行得，
+# daily-accept 自己有 gate。收集紅照樣喺 exit code 報返出嚟，唔會當成功。
 & $py -X utf8 -u "pipelines\operator_control.py" daily-accept *>> $log
 $acceptExit = $LASTEXITCODE
-if ($acceptExit -ne 0) {
-    "[$stamp] nightly daily-accept failed exit=$acceptExit" | Tee-Object -FilePath $log -Append
-    exit 1
-}
 
 $done = (Get-Date).ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'")
 "[$done] nightly chain done collect=$collectExit accept=$acceptExit" | Tee-Object -FilePath $log -Append
+if ($collectExit -ne 0 -or $acceptExit -ne 0) { exit 1 }
 exit 0

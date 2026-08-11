@@ -11,7 +11,19 @@ exec 9>"$LOCK_FILE"
 flock -n 9
 
 test -e "$RELEASE_REPO/.git"
-test -z "$(git -C "$RELEASE_REPO" status --porcelain)"
+# 條鏈自己每次都會重新生成 data/public/seed-snapshot.json 同
+# data/public/market-assets/*.webp，所以嗰條路徑下面嘅殘留冇保留價值。
+# 舊版係 `test -z "$(git status --porcelain)"`：只要有一次 run 死喺後面
+# （2026-08-11 個 asset gate 就係咁），prune 掉嘅 159 個 sha 會留低 160 行未
+# commit 嘅刪除，之後每一日 09:30 都會死喺呢一行，要人手入去 checkout 先郁得返。
+# 自己 reset 返自己嘅輸出；data/public 以外有任何未 commit 嘅嘢就照樣硬死，
+# 唔會靜靜蓋走人手改動。
+if [[ -n "$(git -C "$RELEASE_REPO" status --porcelain -- ':!data/public')" ]]; then
+  printf 'daily release refused: uncommitted changes outside data/public\n' >&2
+  git -C "$RELEASE_REPO" status --porcelain -- ':!data/public' >&2
+  exit 1
+fi
+git -C "$RELEASE_REPO" checkout -- data/public
 git -C "$RELEASE_REPO" fetch origin main
 # 對 FETCH_HEAD 快進，唔好淨係 assert 相等。原意係「一定要由 main 嗰個 tree
 # bake」，但 assert 版本嘅副作用係：source repo 每次推一個 code commit 上 main，
@@ -35,9 +47,34 @@ python3 -X utf8 "$RELEASE_REPO/scripts/validate_daily_release.py" \
   --assets "$RELEASE_REPO/data/public/market-assets"
 
 mapfile -t changed < <(git -C "$RELEASE_REPO" status --porcelain=v1 | sed 's/^...//')
+
+# `generation.generatedAt` 係 wall clock（live-db-snapshot.ts:564），所以每次 bake
+# 出嚟嘅 JSON 一定唔同 byte —— 下面個 `no-change` 出口由第一日起就係死 code，
+# 條鏈一日行多過一次就會推一個內容一模一樣嘅 commit 上 main 兼觸發一次部署。
+# 除咗 generatedAt 之外完全一樣就當冇變，還原個檔，咁條鏈先可以一日行幾次做重試。
+if [[ ${#changed[@]} -eq 1 && ${changed[0]} == data/public/seed-snapshot.json ]] \
+   && git -C "$RELEASE_REPO" show HEAD:data/public/seed-snapshot.json \
+      | python3 -c 'import json,sys
+old=json.load(sys.stdin); new=json.load(open(sys.argv[1]))
+old["generation"].pop("generatedAt",None); new["generation"].pop("generatedAt",None)
+sys.exit(0 if old==new else 1)' "$RELEASE_REPO/data/public/seed-snapshot.json"; then
+  git -C "$RELEASE_REPO" checkout -- data/public/seed-snapshot.json
+  changed=()
+fi
+
 if ((${#changed[@]} == 0)); then
-  printf '%s\n' '{"dailyRelease":"no-change"}'
-  exit 0
+  # 冇嘢要推唔等於出咗街。條鏈試過推咗 commit 但公開站冇跟上（見 docs 嘅 deploy
+  # postmortem），嗰陣每一日都會report「no-change」然後大家以為正常。
+  # 所以冇變都要對一次 live，唔啱就大聲死，等下一個 retry slot 再試。
+  generation="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["generation"]["id"])' "$RELEASE_REPO/data/public/seed-snapshot.json")"
+  live="$(curl --fail --silent --show-error --max-time 20 https://app.cardzmarketcap.com/api/health || true)"
+  live_generation="$(PUBLIC_HEALTH="$live" python3 -c 'import json,os; print(json.loads(os.environ["PUBLIC_HEALTH"]).get("generation",""))' 2>/dev/null || true)"
+  if [[ "$live_generation" == "$generation" ]]; then
+    printf '{"dailyRelease":"no-change","generation":"%s"}\n' "$generation"
+    exit 0
+  fi
+  printf 'release repo already carries %s but live serves %s\n' "$generation" "${live_generation:-<unreachable>}" >&2
+  exit 1
 fi
 
 for path in "${changed[@]}"; do

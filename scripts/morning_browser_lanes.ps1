@@ -17,37 +17,38 @@ $log = Join-Path $logDir "morning-$stamp.log"
 Set-Location $repo
 "[$stamp] morning browser chain start" | Tee-Object -FilePath $log -Append
 
+# 收唔到貨 ≠ 出街數據壞。舊版一係 CDP 起唔到、一係 PC lane 俾 Cloudflare 擋，
+# 就 `exit 1` 收工，連 daily-accept 同發佈都唔行 —— 明明 DB 入面上一版 accepted
+# generation 完全有效，個站就咁停一日唔更新。而家 browser lane 死咗照落去，
+# 最後用 exit code 報返邊一步紅，唔會靜靜當成功。
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "ensure_chrome_cdp.ps1") -Port 9333 *>> $log
 $cdpExit = $LASTEXITCODE
-if ($cdpExit -ne 0) {
-    "[$stamp] ensure_chrome_cdp failed exit=$cdpExit; aborting browser lanes" | Tee-Object -FilePath $log -Append
-    exit 1
-}
 
 # `--adapter browser` = ADAPTER_LANE 入面標住 "browser" 嗰批。同夜鏈嗰邊
 # `--adapter http` 合埋一定覆蓋晒 CHECKPOINT_ADAPTERS，新 adapter 唔會再漏喺
 # 兩張硬編名單之間。
-& $py -X utf8 -u "pipelines\collect_control.py" incr --adapter browser --ensure-browser *>> $log
-$collectExit = $LASTEXITCODE
-if ($collectExit -ne 0) {
-    "[$stamp] morning collect failed exit=$collectExit; daily-accept not run" | Tee-Object -FilePath $log -Append
-    exit 1
+if ($cdpExit -eq 0) {
+    & $py -X utf8 -u "pipelines\collect_control.py" incr --adapter browser --ensure-browser *>> $log
+    $collectExit = $LASTEXITCODE
+} else {
+    "[$stamp] ensure_chrome_cdp failed exit=$cdpExit; browser lanes skipped, chain continues" | Tee-Object -FilePath $log -Append
+    $collectExit = -1
 }
 
 & $py -X utf8 -u "pipelines\operator_control.py" daily-accept *>> $log
 $acceptExit = $LASTEXITCODE
-if ($acceptExit -ne 0) {
-    "[$stamp] morning daily-accept failed exit=$acceptExit; public release not run" | Tee-Object -FilePath $log -Append
-    exit 1
-}
 
-& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "daily_public_release.ps1") *>> $log
-$publishExit = $LASTEXITCODE
-if ($publishExit -ne 0) {
-    "[$stamp] morning public release failed exit=$publishExit" | Tee-Object -FilePath $log -Append
-    exit 1
+# daily-accept 紅就唔發佈：個 ranking generation 可能寫到一半，發出去就係出錯數。
+# 收集紅唔擋發佈，接受紅先擋。
+if ($acceptExit -eq 0) {
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "daily_public_release.ps1") *>> $log
+    $publishExit = $LASTEXITCODE
+} else {
+    "[$stamp] daily-accept failed exit=$acceptExit; public release skipped" | Tee-Object -FilePath $log -Append
+    $publishExit = -1
 }
 
 $done = (Get-Date).ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'")
 "[$done] morning browser chain done cdp=$cdpExit collect=$collectExit accept=$acceptExit publish=$publishExit" | Tee-Object -FilePath $log -Append
+if ($cdpExit -ne 0 -or $collectExit -ne 0 -or $acceptExit -ne 0 -or $publishExit -ne 0) { exit 1 }
 exit 0
