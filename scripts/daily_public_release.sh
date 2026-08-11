@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export GIT_TERMINAL_PROMPT=0
+export GCM_INTERACTIVE=Never
 
 SOURCE_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RELEASE_REPO="/home/jackson0202/cardz-market-cap-release-daily"
