@@ -1,0 +1,353 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 60162582..708d4791 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -381,6 +381,66 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
+   font-size: 12px;
+   line-height: 1.7;
+ }
++.footer-byline {
++  max-width: 68ch;
++  margin: 10px 0 0;
++  color: var(--footer-methodology-text);
++  font-size: 11px;
++  line-height: 1.6;
++  opacity: 0.85;
++}
++/* 方法區：首頁排名下面同卡頁圖表下面共用（components/provenance.tsx）。 */
++.provenance-panel {
++  margin-top: 40px;
++  padding: 26px 28px;
++  max-width: 76ch;
++  border-radius: 18px;
++  background: var(--soft);
++}
++.provenance-panel h2 {
++  margin: 6px 0 10px;
++  font-size: 15px;
++  line-height: 1.35;
++}
++.provenance-body {
++  margin: 0;
++  color: var(--muted);
++  font-size: 13px;
++  line-height: 1.7;
++}
++.provenance-steps {
++  display: grid;
++  gap: 10px;
++  margin: 16px 0 0;
++}
++.provenance-steps dt {
++  margin: 0;
++  color: var(--fg);
++  font-size: 12px;
++  font-weight: 600;
++}
++.provenance-steps dd {
++  margin: 3px 0 0;
++  color: var(--muted);
++  font-size: 12.5px;
++  line-height: 1.65;
++}
++.provenance-updated {
++  margin: 14px 0 0;
++  color: var(--muted);
++  font-size: 12px;
++  font-variant-numeric: tabular-nums;
++}
++.provenance-byline {
++  margin: 6px 0 0;
++  color: var(--muted);
++  font-size: 12px;
++  opacity: 0.85;
++}
++@media (max-width: 900px) {
++  .provenance-panel { margin-top: 28px; padding: 20px 18px; border-radius: 14px; }
++  .provenance-panel h2 { font-size: 14px; }
++}
+ @media (max-width: 900px) {
+   .site-footer { padding: 24px 18px 48px; }
+   .footer-inner { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+@@ -849,8 +909,8 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
+   gap: 24px;
+   padding: 10px 2px 0;
+ }
+-.heatmap-legend { display: flex; align-items: center; gap: 16px; color: var(--muted); font-size: 10px; }
+-.heatmap-legend > div { display: flex; align-items: center; gap: 5px; }
++.heatmap-legend { display: flex; align-items: center; gap: 16px; margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: 10px; }
++.heatmap-legend > li { display: flex; align-items: center; gap: 5px; }
+ .legend-swatch { width: 22px; height: 5px; border-radius: 99px; }
+ .legend-swatch.down { background: var(--negative); }
+ .legend-swatch.pending { background: var(--legend-pending); }
+diff --git a/apps/web/src/components/card-detail.tsx b/apps/web/src/components/card-detail.tsx
+index d55c6f55..6fd8b8ff 100644
+--- a/apps/web/src/components/card-detail.tsx
++++ b/apps/web/src/components/card-detail.tsx
+@@ -7,6 +7,7 @@ import { CapTicker } from "./cap-ticker";
+ import { HistoryChart } from "./history-chart";
+ import { PeriodSelector } from "./period-selector";
+ import { DETAIL_PRINT_FIELDS, printIdentityRows } from "./print-badge";
++import { Provenance } from "./provenance";
+ import { PriceDelta, MetricDelta } from "./rankings";
+ import { absolutePublicUrl, StructuredData } from "./structured-data";
+ import { copy } from "@/lib/i18n";
+@@ -45,6 +46,8 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
+          * 唯獨走另一條路出街 —— 漏咗呢句就得 schema.org 嗰邊仲係生 markdown。
+          */
+         description: plainDescription(story ?? "") || undefined,
++        dateModified: card.pricePsa10.asOf || snapshot.effectiveAt || undefined,
++        publisher: { "@type": "Organization", name: "CardZ Marketcap", url: absolutePublicUrl(href("/")) },
+       },
+       {
+         "@type": "BreadcrumbList",
+@@ -94,7 +97,7 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
+             <div><span>{t.labels.marketCap}</span><strong className="metric-value-fit">{card.marketCap.value === null ? formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true) : <CapTicker key={card.marketCap.value} value={card.marketCap.value} format={(n) => formatMoney(n, currency, snapshot.rates, locale, true)} />}</strong><MetricDelta metric={card.marketCap} changePct={windowMetric.marketCapChangePct} currency={currency} rates={snapshot.rates} locale={locale} /></div>
+             <div><span>{t.labels.price}</span><strong className="detail-price-now">{formatMetricMoney(card.pricePsa10, currency, snapshot.rates, locale)}</strong><PriceDelta card={card} period={period} currency={currency} rates={snapshot.rates} locale={locale} /></div>
+             <div><span>{t.labels.population}</span><strong>{formatMetricInteger(card.populationPsa10, locale)}</strong></div>
+-            <div><span>{t.periods[period]} {t.labels.change}</span><strong className={`metric-${metricTone(windowMetric.changePct)}`}>{formatPercent(windowMetric.changePct, locale)}</strong>{windowMetric.changePct.sourceSwitched && <small className="muted-copy">Historical anchor: {windowMetric.changePct.priceAnchorSource}</small>}</div>
++            <div><span>{t.periods[period]} {t.labels.change}</span><strong className={`metric-${metricTone(windowMetric.changePct)}`}>{formatPercent(windowMetric.changePct, locale)}</strong>{windowMetric.changePct.sourceSwitched && <small className="muted-copy">{t.provenance.anchorSwitched}</small>}</div>
+             <div className="wide-metric"><span title={t.labels.salesHelp}>{t.periods[period]} {t.labels.trackedSales}</span><strong className="metric-value-fit">{formatTrackedSales(windowMetric.trackedSales, currency, snapshot.rates, locale)}</strong><MetricDelta metric={windowMetric.trackedSales.valueUsd} changePct={windowMetric.trackedSalesChangePct} currency={currency} rates={snapshot.rates} locale={locale} /></div>
+             <div><span>{t.labels.ungradedReference}</span><strong>{formatMetricMoney(card.priceUngradedReference, currency, snapshot.rates, locale)}</strong></div>
+           </section>
+@@ -109,6 +112,7 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
+           */}
+           <p className="data-time">{t.labels.asOf}: {formatObservationDate(card.pricePsa10.asOf || snapshot.effectiveAt, locale)}</p>
+           <HistoryChart points={card.historyDaily} locale={locale} currency={currency} rates={snapshot.rates} />
++          <Provenance updatedAt={card.pricePsa10.asOf || snapshot.effectiveAt} />
+         </div>
+       </article>
+     </div>
+diff --git a/apps/web/src/components/header.tsx b/apps/web/src/components/header.tsx
+index 3d56bf0e..9c494a36 100644
+--- a/apps/web/src/components/header.tsx
++++ b/apps/web/src/components/header.tsx
+@@ -80,6 +80,7 @@ export function Footer() {
+         <div className="footer-methodology">
+           <p className="footer-methodology-title">{t.methodology.title}</p>
+           <p className="footer-methodology-body">{t.methodology.body}</p>
++          <p className="footer-byline">{t.provenance.byline}</p>
+         </div>
+       </div>
+     </footer>
+diff --git a/apps/web/src/components/heatmap.tsx b/apps/web/src/components/heatmap.tsx
+index bd170ebf..5e97c70e 100644
+--- a/apps/web/src/components/heatmap.tsx
++++ b/apps/web/src/components/heatmap.tsx
+@@ -40,7 +40,7 @@ function CardFacts({ card, locale, currency, snapshot }: Omit<HeatmapProps, "car
+       <div><dt>{t.labels.price}</dt><dd>{formatMetricMoney(card.pricePsa10, currency, snapshot.rates, locale)}</dd></div>
+       <div><dt>{t.labels.population}</dt><dd>{formatMetricInteger(card.populationPsa10, locale)}</dd></div>
+       <div><dt>{t.periods[period]} {t.labels.trackedSales}</dt><dd>{formatTrackedSales(windowMetric.trackedSales, currency, snapshot.rates, locale)}</dd></div>
+-      <div><dt>{t.periods[period]} {t.labels.change}</dt><dd className={`metric-${metricTone(windowMetric.changePct)}`} title={windowMetric.changePct.sourceSwitched ? `Historical anchor: ${windowMetric.changePct.priceAnchorSource}` : undefined}>{formatPercent(windowMetric.changePct, locale)}</dd></div>
++      <div><dt>{t.periods[period]} {t.labels.change}</dt><dd className={`metric-${metricTone(windowMetric.changePct)}`} title={windowMetric.changePct.sourceSwitched ? t.provenance.anchorSwitched : undefined}>{formatPercent(windowMetric.changePct, locale)}</dd></div>
+     </dl>
+   );
+ }
+@@ -437,12 +437,13 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
+         })}
+       </div>
+       <div className="heatmap-footer">
+-        <div className="heatmap-legend" aria-label={t.heatmap.body}>
+-          <div><span className="legend-swatch down" />{t.heatmap.negative}</div>
+-          <div><span className="legend-swatch pending" />{t.heatmap.neutral}</div>
+-          <div><span className="legend-swatch up" />{t.heatmap.positive}</div>
+-          <div className="legend-count">{visibleCards.length} / {cards.length} {t.heatmap.count}</div>
+-        </div>
++        {/* 本來就係一組並列項目，用 ul/li 出返語意，抽取器同讀屏都攞得到。 */}
++        <ul className="heatmap-legend" aria-label={t.heatmap.body}>
++          <li><span className="legend-swatch down" />{t.heatmap.negative}</li>
++          <li><span className="legend-swatch pending" />{t.heatmap.neutral}</li>
++          <li><span className="legend-swatch up" />{t.heatmap.positive}</li>
++          <li className="legend-count">{visibleCards.length} / {cards.length} {t.heatmap.count}</li>
++        </ul>
+         <p className="methodology-note">{t.methodology.body}</p>
+         <a className="ranking-jump" href="#market-ranking">{t.heatmap.viewRanking.replace("{count}", String(visibleCards.length))}</a>
+       </div>
+diff --git a/apps/web/src/components/market-page.tsx b/apps/web/src/components/market-page.tsx
+index 78efd354..42225f06 100644
+--- a/apps/web/src/components/market-page.tsx
++++ b/apps/web/src/components/market-page.tsx
+@@ -1,6 +1,7 @@
+ "use client";
+ 
+ import { Heatmap } from "./heatmap";
++import { Provenance } from "./provenance";
+ import { Rankings } from "./rankings";
+ import { absolutePublicUrl, StructuredData } from "./structured-data";
+ import { copy, type Copy } from "@/lib/i18n";
+@@ -40,6 +41,7 @@ export function MarketPage({ kind, snapshot }: { kind: MarketPageKind; snapshot:
+         description: hero.body,
+         dateModified: snapshot.effectiveAt,
+         measurementTechnique: "PSA 10 reference price multiplied by verified PSA 10 population",
++        publisher: { "@type": "Organization", name: "CardZ Marketcap", url: absolutePublicUrl(href("/")) },
+       },
+       {
+         "@type": "ItemList",
+@@ -72,6 +74,7 @@ export function MarketPage({ kind, snapshot }: { kind: MarketPageKind; snapshot:
+         <Heatmap cards={cards} locale={locale} currency={currency} snapshot={snapshot} href={href} title={heatmapTitle} />
+       )}
+       <Rankings cards={cards} locale={locale} currency={currency} snapshot={snapshot} href={href} watchlist={kind === "watchlist"} marketLabel={marketLabel} />
++      <Provenance updatedAt={snapshot.effectiveAt} />
+     </div>
+   );
+ }
+diff --git a/apps/web/src/components/rankings.tsx b/apps/web/src/components/rankings.tsx
+index f56b0fbe..f760c2c9 100644
+--- a/apps/web/src/components/rankings.tsx
++++ b/apps/web/src/components/rankings.tsx
+@@ -83,7 +83,7 @@ function ChangeBadge({ card, period, locale }: { card: MarketCardView; period: "
+   const tone = metricTone(change);
+   const Icon = tone === "positive" ? TrendingUp : tone === "negative" ? TrendingDown : null;
+   return (
+-    <span className={`mobile-change-badge metric-${tone}`} title={change.sourceSwitched ? `Historical anchor: ${change.priceAnchorSource}` : undefined}>
++    <span className={`mobile-change-badge metric-${tone}`} title={change.sourceSwitched ? copy[locale].provenance.anchorSwitched : undefined}>
+       {Icon && <Icon aria-hidden="true" size={13} strokeWidth={2} />}
+       {formatPercent(change, locale)}
+     </span>
+@@ -191,7 +191,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist =
+                       <span className="price-now">{formatTrackedSales(metrics.trackedSales, currency, snapshot.rates, locale)}</span>
+                       <SalesDelta sales={metrics.trackedSales} changePct={metrics.trackedSalesChangePct} currency={currency} rates={snapshot.rates} locale={locale} />
+                     </td>
+-                    <td className={`numeric metric-${metricTone(metrics.changePct)}`} title={metrics.changePct.sourceSwitched ? `Historical anchor: ${metrics.changePct.priceAnchorSource}` : undefined}>{formatPercent(metrics.changePct, locale)}</td>
++                    <td className={`numeric metric-${metricTone(metrics.changePct)}`} title={metrics.changePct.sourceSwitched ? t.provenance.anchorSwitched : undefined}>{formatPercent(metrics.changePct, locale)}</td>
+                     <td className="numeric spark-cell"><Sparkline values={card.salesSparkline} label={t.labels.salesTrend} /></td>
+                   </tr>
+                 );
+diff --git a/apps/web/src/lib/i18n.ts b/apps/web/src/lib/i18n.ts
+index b3bf32c2..fb27552a 100644
+--- a/apps/web/src/lib/i18n.ts
++++ b/apps/web/src/lib/i18n.ts
+@@ -96,6 +96,19 @@ export interface Copy {
+   };
+   theme: { dark: string; light: string };
+   methodology: { title: string; body: string };
++  /*
++   * 出街頁面淨係講「點計」，唔講由邊度攞數 —— 供應商代號唔准曝光。
++   * ⚠️ 呢條線目前冇自動 gate（canary-public.mjs 已刪），全靠人手守。
++   */
++  provenance: {
++    kicker: string;
++    title: string;
++    body: string;
++    steps: { term: string; detail: string }[];
++    updated: string;
++    byline: string;
++    anchorSwitched: string;
++  };
+   status: Record<"accumulating" | "stale" | "unavailable", string>;
+   footer: string;
+ }
+@@ -172,6 +185,19 @@ export const copy: Record<Locale, Copy> = {
+       title: "How CardZ Marketcap ranks the market",
+       body: "A place in this index is earned, never assumed. Every card carries a verified population of at least 1,000 PSA 10 examples — and a Top 100 seat holds only while the market itself keeps confirming it, with no fewer than five verified PSA 10 sales inside every rolling 30-day window. Real supply, real demand, and nothing else.",
+     },
++    provenance: {
++      kicker: "METHOD & DATA",
++      title: "How the market cap number is built",
++      body: "Market cap is the current PSA 10 reference price multiplied by the verified PSA 10 population, recalculated on every daily update.",
++      steps: [
++        { term: "Reference price", detail: "Completed PSA 10 sales captured inside CardZ Marketcap tracked coverage. Lots are unitised down to a single card, extreme outliers are dropped, and what remains is reduced to a median." },
++        { term: "Population", detail: "The verified PSA 10 population for that exact printing — language, set, collector number and parallel are never merged across printings." },
++        { term: "Gaps", detail: "A card with insufficient data coverage in the window is marked as accumulating rather than being given a filled-in number. A missing value stays missing, never zero." },
++      ],
++      updated: "Updated",
++      byline: "Compiled and reviewed by the CardZ Marketcap Editorial desk.",
++      anchorSwitched: "Historical anchor: earlier reference series",
++    },
+     status: { accumulating: "Accumulating", stale: "Stale", unavailable: "Not available" },
+     footer: "CardZ Marketcap. Art market intelligence for collectible cards.",
+   },
+@@ -229,6 +255,19 @@ export const copy: Record<Locale, Copy> = {
+       title: "CardZ Marketcap 如何排列市場",
+       body: "入選，從來不是理所當然。本指數收錄的每一張卡，均至少有 1,000 張經核實的 PSA 10；而百大席位，只在市場持續確認下得以保留——每 30 日內須有不少於五宗經核實的 PSA 10 成交。真實供應、真實需求，除此以外別無其他。",
+     },
++    provenance: {
++      kicker: "METHOD & DATA",
++      title: "市值數字的計算方法",
++      body: "市值＝現時 PSA 10 參考價 × 經核實的 PSA 10 存世數量，每日更新時重新計算。",
++      steps: [
++        { term: "參考價", detail: "取自 CardZ Marketcap 追蹤範圍內已完成的 PSA 10 成交：先按張數還原單價，剔除極端值，再取中位數。" },
++        { term: "存世數量", detail: "該一個印刷版本經核實的 PSA 10 數量。語言、系列、卡號與平行版本不會混為一談。" },
++        { term: "缺口", detail: "期間內資料覆蓋不足的卡會標示為資料累積中，而不是填一個數上去；缺失的數值永遠保持缺失，不會當作零。" },
++      ],
++      updated: "更新",
++      byline: "由 CardZ Marketcap Editorial 編算及覆核。",
++      anchorSwitched: "歷史錨點：另一組參考序列",
++    },
+     status: { accumulating: "資料累積中", stale: "資料已逾時", unavailable: "暫無資料" },
+     footer: "CardZ Marketcap，收藏卡牌藝術市場情報。",
+   },
+@@ -279,6 +318,19 @@ export const copy: Record<Locale, Copy> = {
+       title: "CardZ Marketcap 如何排列市场",
+       body: "入选，从来不是理所当然。本指数收录的每一张卡都至少有 1,000 张经核实的 PSA 10；而百大席位，只在市场持续确认下得以保留——每 30 天内须有不少于五笔经核实的 PSA 10 成交。真实供应、真实需求，除此以外别无其他。",
+     },
++    provenance: {
++      kicker: "METHOD & DATA",
++      title: "市值数字的计算方法",
++      body: "市值＝当前 PSA 10 参考价 × 经核实的 PSA 10 存世数量，每日更新时重新计算。",
++      steps: [
++        { term: "参考价", detail: "取自 CardZ Marketcap 追踪范围内已完成的 PSA 10 成交：先按张数还原单价，剔除极端值，再取中位数。" },
++        { term: "存世数量", detail: "该一个印刷版本经核实的 PSA 10 数量。语言、系列、卡号与平行版本不会混为一谈。" },
++        { term: "缺口", detail: "期间内数据覆盖不足的卡会标示为数据累积中，而不是填一个数上去；缺失的数值永远保持缺失，不会当作零。" },
++      ],
++      updated: "更新",
++      byline: "由 CardZ Marketcap Editorial 编算及复核。",
++      anchorSwitched: "历史锚点：另一组参考序列",
++    },
+     status: { accumulating: "数据累积中", stale: "数据已过期", unavailable: "暂无数据" },
+     footer: "CardZ Marketcap，收藏卡牌艺术市场情报。",
+   },
+@@ -329,6 +381,19 @@ export const copy: Record<Locale, Copy> = {
+       title: "CardZ Marketcap の市場ランキング方法",
+       body: "掲載は、与えられるものではなく獲得するもの。この指数のカードはすべて確認済み PSA 10 が 1,000 枚以上。さらにトップ100の座は、30日ごとに5件以上の確認済み PSA 10 取引という形で、市場自身が認め続けた場合にのみ維持されます。実在する供給と需要、それ以外は数えません。",
+     },
++    provenance: {
++      kicker: "METHOD & DATA",
++      title: "マーケットキャップの算出方法",
++      body: "マーケットキャップは、現在の PSA 10 参考価格に確認済み PSA 10 の現存枚数を掛けた値で、毎日の更新ごとに再計算されます。",
++      steps: [
++        { term: "参考価格", detail: "CardZ Marketcap の追跡範囲で確認できた PSA 10 の成約から取得します。まとめ売りは1枚あたりに換算し、極端な外れ値を除いたうえで中央値を用います。" },
++        { term: "現存枚数", detail: "その印刷版に対する確認済み PSA 10 の枚数です。言語・セット・カード番号・パラレルを混在させることはありません。" },
++        { term: "欠損", detail: "対象期間のデータカバレッジが不足しているカードは、数値を埋めずに集計中と表示します。欠損値は常に欠損のままで、ゼロとしては扱いません。" },
++      ],
++      updated: "更新",
++      byline: "CardZ Marketcap Editorial が集計・確認しています。",
++      anchorSwitched: "履歴の基準：別の参照系列",
++    },
+     status: { accumulating: "集計中", stale: "更新待ち", unavailable: "データなし" },
+     footer: "CardZ Marketcap。コレクティブルカードのアート市場情報。",
+   },
+@@ -386,6 +451,19 @@ export const copy: Record<Locale, Copy> = {
+       title: "CardZ Marketcap의 시장 순위 방식",
+       body: "수록은 주어지는 것이 아니라 얻어내는 것입니다. 이 지수의 모든 카드는 검증된 PSA 10이 1,000장 이상이며, 톱 100 자리는 매 30일마다 5건 이상의 검증된 PSA 10 거래로 시장 스스로 계속 확인할 때만 유지됩니다. 실제 공급과 실제 수요, 그 외에는 없습니다.",
+     },
++    provenance: {
++      kicker: "METHOD & DATA",
++      title: "시가총액 산출 방식",
++      body: "시가총액은 현재 PSA 10 기준가에 검증된 PSA 10 현존 수량을 곱한 값이며, 매일 갱신할 때마다 다시 계산합니다.",
++      steps: [
++        { term: "기준가", detail: "CardZ Marketcap 추적 범위에서 확인된 PSA 10 완료 거래에서 가져옵니다. 묶음 거래는 카드 한 장 기준으로 환산하고 극단값을 제거한 뒤 중앙값을 사용합니다." },
++        { term: "현존 수량", detail: "해당 인쇄본에 대해 검증된 PSA 10 수량입니다. 언어, 세트, 카드 번호, 패러렐을 섞지 않습니다." },
++        { term: "결측", detail: "해당 기간의 데이터 커버리지가 부족한 카드는 숫자를 채우지 않고 집계 중으로 표시합니다. 결측값은 언제나 결측으로 남으며 0으로 처리하지 않습니다." },
++      ],
++      updated: "업데이트",
++      byline: "CardZ Marketcap Editorial이 집계하고 검토합니다.",
++      anchorSwitched: "과거 기준: 다른 참조 계열",
++    },
+     status: { accumulating: "집계 중", stale: "오래된 데이터", unavailable: "데이터 없음" },
+     footer: "CardZ Marketcap. 컬렉터블 카드 아트 마켓 인텔리전스.",
+   },
+diff --git a/apps/web/src/lib/snapshot.ts b/apps/web/src/lib/snapshot.ts
+index 07da7c18..d59d6ed8 100644
+--- a/apps/web/src/lib/snapshot.ts
++++ b/apps/web/src/lib/snapshot.ts
+@@ -40,7 +40,8 @@ function metric(value: CanonicalCard["pricePsa10"]): MarketMetric<number> {
+     value: value.value,
+     status: value.status,
+     asOf: value.asOf,
+-    priceAnchorSource: value.priceAnchorSource ?? null,
++    // 同 live-db-snapshot 一樣：供應商代號唔投影出去（client payload 睇得到）。
++    priceAnchorSource: null,
+     sourceSwitched: value.sourceSwitched ?? false,
+   };
+ }

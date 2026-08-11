@@ -80,6 +80,7 @@ export function Footer() {
         <div className="footer-methodology">
           <p className="footer-methodology-title">{t.methodology.title}</p>
           <p className="footer-methodology-body">{t.methodology.body}</p>
+          <p className="footer-byline">{t.provenance.byline}</p>
         </div>
       </div>
     </footer>

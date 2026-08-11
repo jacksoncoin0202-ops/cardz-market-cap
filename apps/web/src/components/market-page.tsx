@@ -1,6 +1,7 @@
 "use client";
 
 import { Heatmap } from "./heatmap";
+import { Provenance } from "./provenance";
 import { Rankings } from "./rankings";
 import { absolutePublicUrl, StructuredData } from "./structured-data";
 import { copy, type Copy } from "@/lib/i18n";
@@ -40,6 +41,7 @@ export function MarketPage({ kind, snapshot }: { kind: MarketPageKind; snapshot:
         description: hero.body,
         dateModified: snapshot.effectiveAt,
         measurementTechnique: "PSA 10 reference price multiplied by verified PSA 10 population",
+        publisher: { "@type": "Organization", name: "CardZ Marketcap", url: absolutePublicUrl(href("/")) },
       },
       {
         "@type": "ItemList",
@@ -72,6 +74,7 @@ export function MarketPage({ kind, snapshot }: { kind: MarketPageKind; snapshot:
         <Heatmap cards={cards} locale={locale} currency={currency} snapshot={snapshot} href={href} title={heatmapTitle} />
       )}
       <Rankings cards={cards} locale={locale} currency={currency} snapshot={snapshot} href={href} watchlist={kind === "watchlist"} marketLabel={marketLabel} />
+      <Provenance updatedAt={snapshot.effectiveAt} />
     </div>
   );
 }

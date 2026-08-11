@@ -381,6 +381,66 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   font-size: 12px;
   line-height: 1.7;
 }
+.footer-byline {
+  max-width: 68ch;
+  margin: 10px 0 0;
+  color: var(--footer-methodology-text);
+  font-size: 11px;
+  line-height: 1.6;
+  opacity: 0.85;
+}
+/* 方法區：首頁排名下面同卡頁圖表下面共用（components/provenance.tsx）。 */
+.provenance-panel {
+  margin-top: 40px;
+  padding: 26px 28px;
+  max-width: 76ch;
+  border-radius: 18px;
+  background: var(--soft);
+}
+.provenance-panel h2 {
+  margin: 6px 0 10px;
+  font-size: 15px;
+  line-height: 1.35;
+}
+.provenance-body {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.provenance-steps {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0 0;
+}
+.provenance-steps dt {
+  margin: 0;
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 600;
+}
+.provenance-steps dd {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+.provenance-updated {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.provenance-byline {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  opacity: 0.85;
+}
+@media (max-width: 900px) {
+  .provenance-panel { margin-top: 28px; padding: 20px 18px; border-radius: 14px; }
+  .provenance-panel h2 { font-size: 14px; }
+}
 @media (max-width: 900px) {
   .site-footer { padding: 24px 18px 48px; }
   .footer-inner { grid-template-columns: minmax(0, 1fr); gap: 16px; }
@@ -849,8 +909,8 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   gap: 24px;
   padding: 10px 2px 0;
 }
-.heatmap-legend { display: flex; align-items: center; gap: 16px; color: var(--muted); font-size: 10px; }
-.heatmap-legend > div { display: flex; align-items: center; gap: 5px; }
+.heatmap-legend { display: flex; align-items: center; gap: 16px; margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: 10px; }
+.heatmap-legend > li { display: flex; align-items: center; gap: 5px; }
 .legend-swatch { width: 22px; height: 5px; border-radius: 99px; }
 .legend-swatch.down { background: var(--negative); }
 .legend-swatch.pending { background: var(--legend-pending); }

@@ -40,7 +40,7 @@ function CardFacts({ card, locale, currency, snapshot }: Omit<HeatmapProps, "car
       <div><dt>{t.labels.price}</dt><dd>{formatMetricMoney(card.pricePsa10, currency, snapshot.rates, locale)}</dd></div>
       <div><dt>{t.labels.population}</dt><dd>{formatMetricInteger(card.populationPsa10, locale)}</dd></div>
       <div><dt>{t.periods[period]} {t.labels.trackedSales}</dt><dd>{formatTrackedSales(windowMetric.trackedSales, currency, snapshot.rates, locale)}</dd></div>
-      <div><dt>{t.periods[period]} {t.labels.change}</dt><dd className={`metric-${metricTone(windowMetric.changePct)}`} title={windowMetric.changePct.sourceSwitched ? `Historical anchor: ${windowMetric.changePct.priceAnchorSource}` : undefined}>{formatPercent(windowMetric.changePct, locale)}</dd></div>
+      <div><dt>{t.periods[period]} {t.labels.change}</dt><dd className={`metric-${metricTone(windowMetric.changePct)}`} title={windowMetric.changePct.sourceSwitched ? t.provenance.anchorSwitched : undefined}>{formatPercent(windowMetric.changePct, locale)}</dd></div>
     </dl>
   );
 }
@@ -437,12 +437,13 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
         })}
       </div>
       <div className="heatmap-footer">
-        <div className="heatmap-legend" aria-label={t.heatmap.body}>
-          <div><span className="legend-swatch down" />{t.heatmap.negative}</div>
-          <div><span className="legend-swatch pending" />{t.heatmap.neutral}</div>
-          <div><span className="legend-swatch up" />{t.heatmap.positive}</div>
-          <div className="legend-count">{visibleCards.length} / {cards.length} {t.heatmap.count}</div>
-        </div>
+        {/* 本來就係一組並列項目，用 ul/li 出返語意，抽取器同讀屏都攞得到。 */}
+        <ul className="heatmap-legend" aria-label={t.heatmap.body}>
+          <li><span className="legend-swatch down" />{t.heatmap.negative}</li>
+          <li><span className="legend-swatch pending" />{t.heatmap.neutral}</li>
+          <li><span className="legend-swatch up" />{t.heatmap.positive}</li>
+          <li className="legend-count">{visibleCards.length} / {cards.length} {t.heatmap.count}</li>
+        </ul>
         <p className="methodology-note">{t.methodology.body}</p>
         <a className="ranking-jump" href="#market-ranking">{t.heatmap.viewRanking.replace("{count}", String(visibleCards.length))}</a>
       </div>

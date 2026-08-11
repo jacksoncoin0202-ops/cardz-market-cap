@@ -83,7 +83,7 @@ function ChangeBadge({ card, period, locale }: { card: MarketCardView; period: "
   const tone = metricTone(change);
   const Icon = tone === "positive" ? TrendingUp : tone === "negative" ? TrendingDown : null;
   return (
-    <span className={`mobile-change-badge metric-${tone}`} title={change.sourceSwitched ? `Historical anchor: ${change.priceAnchorSource}` : undefined}>
+    <span className={`mobile-change-badge metric-${tone}`} title={change.sourceSwitched ? copy[locale].provenance.anchorSwitched : undefined}>
       {Icon && <Icon aria-hidden="true" size={13} strokeWidth={2} />}
       {formatPercent(change, locale)}
     </span>
@@ -191,7 +191,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                       <span className="price-now">{formatTrackedSales(metrics.trackedSales, currency, snapshot.rates, locale)}</span>
                       <SalesDelta sales={metrics.trackedSales} changePct={metrics.trackedSalesChangePct} currency={currency} rates={snapshot.rates} locale={locale} />
                     </td>
-                    <td className={`numeric metric-${metricTone(metrics.changePct)}`} title={metrics.changePct.sourceSwitched ? `Historical anchor: ${metrics.changePct.priceAnchorSource}` : undefined}>{formatPercent(metrics.changePct, locale)}</td>
+                    <td className={`numeric metric-${metricTone(metrics.changePct)}`} title={metrics.changePct.sourceSwitched ? t.provenance.anchorSwitched : undefined}>{formatPercent(metrics.changePct, locale)}</td>
                     <td className="numeric spark-cell"><Sparkline values={card.salesSparkline} label={t.labels.salesTrend} /></td>
                   </tr>
                 );
