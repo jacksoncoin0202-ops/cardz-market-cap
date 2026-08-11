@@ -46,20 +46,29 @@ LAST_STATUS = OUT_DIR / "last_status.json"
 PC_REFRESH_REPORT = OUT_DIR / "pc_cdp_refresh_report.json"
 PC_MAP = ROOT / "data/runtime/private-source-map/c11_pc_ebay_map_full900.jsonl"
 WINDOWS_PY = ROOT / ".venv-backend-windows/Scripts/python.exe"
-# 邊個 adapter 要 headed Chrome，係 adapter 自己嘅屬性，唔應該由兩個 .ps1
-# 各自抄一張名單。snk_en_image 就係咁漏咗：佢 transport 係
-# http_requests_no_browser，但夜鏈同朝鏈兩張硬編名單都冇佢，於是由註冊嗰日
-# 起冇任何 scheduled task 收過佢（實測 stale 99 小時、全場唯一 slaOk=false）。
-# 加新 adapter 只需要喺呢度填一個 bool，兩條鏈自動收得到。
-ADAPTER_NEEDS_BROWSER = {
-    "gemrate_pop": False,
-    "snk_trades": False,
-    "snk_price": False,
-    "snk_en_image": False,
-    "pc_ebay_sales": True,
-    "en_price_ref": True,
+# 每個 adapter 由邊條自動鏈收，係 adapter 自己嘅屬性，唔應該由兩個 .ps1 各自
+# 抄一張名單 —— 抄名單就一定有漏。夜鏈叫 `--adapter http`、朝鏈叫
+# `--adapter browser`，兩組加埋一定係 CHECKPOINT_ADAPTERS 全部，新 adapter 冇得
+# 跌喺兩張名單中間。
+#
+# `manual` = 唔入任何自動鏈，要人手 `--adapter <名>` 先行到。
+# snk_en_image 屬呢類，唔係因為佢慢，係因為佢寫入形狀未 production-ready：
+# 佢每次接受都插一行新 market_canonical_image_acceptance 去 supersede 舊行，
+# 但 operator_binding_freeze 個 PK 係 (variant_id, freeze_kind, source_code)，
+# 佢個 ON DUPLICATE KEY 只掂得到自己 'snkrdunk_en' 嗰行。同一張卡由
+# pricecharting / human / g10 擁有嘅 freeze 行唔會跟住行，即刻變成指住一行已被
+# supersede 嘅 acceptance。2026-08-11 12:27 行咗一次，即場整出 642 行孤兒 freeze、
+# 53 張出街卡跌返 placeholder（發佈鏈嘅 asset gate 擋咗，冇出到街）。
+# 修好個 freeze ownership 之前，唔准放返落自動鏈。
+ADAPTER_LANE = {
+    "gemrate_pop": "http",
+    "snk_trades": "http",
+    "snk_price": "http",
+    "snk_en_image": "manual",
+    "pc_ebay_sales": "browser",
+    "en_price_ref": "browser",
 }
-CHECKPOINT_ADAPTERS = tuple(ADAPTER_NEEDS_BROWSER)
+CHECKPOINT_ADAPTERS = tuple(ADAPTER_LANE)
 COLLECT_LEASE_CONTRACT = "mysql_advisory_adapter_lease_v1"
 # Per-item failure streaks and per-item success receipts live beside the other
 # collect runtime state. The MySQL stream checkpoint remains the resume
@@ -3540,8 +3549,9 @@ def _requested_adapters(adapters: list[str]) -> list[str]:
     allowed = list(CHECKPOINT_ADAPTERS)
     groups = {
         "all": set(allowed),
-        "http": {a for a in allowed if not ADAPTER_NEEDS_BROWSER[a]},
-        "browser": {a for a in allowed if ADAPTER_NEEDS_BROWSER[a]},
+        "http": {a for a in allowed if ADAPTER_LANE[a] == "http"},
+        "browser": {a for a in allowed if ADAPTER_LANE[a] == "browser"},
+        "manual": {a for a in allowed if ADAPTER_LANE[a] == "manual"},
     }
     wanted = set(adapters)
     unknown = wanted - set(allowed) - set(groups)
@@ -3987,7 +3997,7 @@ def main() -> int:
     p_status.add_argument("--no-rebuild", action="store_true")
 
     def add_common(p):
-        p.add_argument("--adapter", action="append", default=[], help="all|http|browser|gemrate_pop|snk_trades|snk_price|snk_en_image|pc_ebay_sales|en_price_ref (repeatable)")
+        p.add_argument("--adapter", action="append", default=[], help="all|http|browser|manual|gemrate_pop|snk_trades|snk_price|snk_en_image|pc_ebay_sales|en_price_ref (repeatable)")
         p.add_argument("--limit", type=int, default=None, help="max exact ids per network adapter")
         p.add_argument("--dry-run", action="store_true")
         p.add_argument("--delay", type=float, default=0.0, help="SNK per-worker delay; 0 = max concurrent")
