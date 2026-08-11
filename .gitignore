@@ -18,3 +18,9 @@ __pycache__/
 .DS_Store
 Thumbs.db
 .venv-backend-windows/
+
+# 本機 fe03 開發工具（3800 live-db 預覽）。呢兩個檔一路都唔係 gitignore，
+# 所以每次 git add 都要人手記得避開 —— 已經漏過一次入咗 commit。靠記性 =
+# 一定會再犯，所以喺呢度封死。
+fe03-server.ps1
+scripts/fe03-verify.cjs
