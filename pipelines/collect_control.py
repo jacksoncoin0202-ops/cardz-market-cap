@@ -3178,6 +3178,11 @@ def partition_local_pc_stock_pages(
             if evidence_times
             else None
         ),
+        "evidenceFreshnessFloor": (
+            min(evidence_times).isoformat().replace("+00:00", "Z")
+            if evidence_times
+            else None
+        ),
         "rows": evidence_rows,
         "networkReasons": network_reasons,
     }
@@ -3357,29 +3362,23 @@ def run_pc_ebay_sales(
         local_replay_ids = {
             int(value) for value in (refresh.get("localReplayVariantIds") or [])
         }
-        checkpoint_items = [
-            item
-            for item in selected
-            if int(item["variantId"]) not in local_replay_ids
-        ]
-        if checkpoint_items:
-            checkpoint = record_successful_poll(
-                adapter="pc_ebay_sales",
-                mode=mode,
-                items=checkpoint_items,
-                payload=ingest,
-                started_at=started_at,
-                payload_sha_by_external=_pc_checkpoint_hashes(checkpoint_items, refresh),
-            )
-            checkpoint["cursorAdvanced"] = True
-            checkpoint["reused"] = len(selected) - len(checkpoint_items)
-        else:
-            checkpoint = {
-                "runId": None,
-                "checkpointed": 0,
-                "cursorAdvanced": False,
-                "reused": len(selected),
-            }
+        replay_floor = _parse_datetime(
+            (refresh.get("localStockReplay") or {}).get("evidenceFreshnessFloor")
+        )
+        checkpoint = record_successful_poll(
+            adapter="pc_ebay_sales",
+            mode=mode,
+            items=selected,
+            payload=ingest,
+            started_at=started_at,
+            payload_sha_by_external=_pc_checkpoint_hashes(selected, refresh),
+            # A stock replay is valid source evidence, but its checkpoint must
+            # retain the artifact's real age instead of pretending it was
+            # fetched at the time of this control-plane run.
+            completed_at=replay_floor if local_replay_ids else None,
+        )
+        checkpoint["cursorAdvanced"] = True
+        checkpoint["reused"] = len(local_replay_ids)
     except Exception as exc:  # noqa: BLE001
         report.update({"ok": False, "error": f"pc_ebay_contract:{type(exc).__name__}:{exc}"})
         return report
@@ -3477,29 +3476,20 @@ def run_en_price_ref(
         local_replay_ids = {
             int(value) for value in (refresh.get("localReplayVariantIds") or [])
         }
-        checkpoint_items = [
-            item
-            for item in selected
-            if int(item["variantId"]) not in local_replay_ids
-        ]
-        if checkpoint_items:
-            checkpoint = record_successful_poll(
-                adapter="en_price_ref",
-                mode=mode,
-                items=checkpoint_items,
-                payload=plan,
-                started_at=started_at,
-                payload_sha_by_external=_pc_checkpoint_hashes(checkpoint_items, refresh),
-            )
-            checkpoint["cursorAdvanced"] = True
-            checkpoint["reused"] = len(selected) - len(checkpoint_items)
-        else:
-            checkpoint = {
-                "runId": None,
-                "checkpointed": 0,
-                "cursorAdvanced": False,
-                "reused": len(selected),
-            }
+        replay_floor = _parse_datetime(
+            (refresh.get("localStockReplay") or {}).get("evidenceFreshnessFloor")
+        )
+        checkpoint = record_successful_poll(
+            adapter="en_price_ref",
+            mode=mode,
+            items=selected,
+            payload=plan,
+            started_at=started_at,
+            payload_sha_by_external=_pc_checkpoint_hashes(selected, refresh),
+            completed_at=replay_floor if local_replay_ids else None,
+        )
+        checkpoint["cursorAdvanced"] = True
+        checkpoint["reused"] = len(local_replay_ids)
     except Exception as exc:  # noqa: BLE001
         report.update({"ok": False, "error": f"checkpoint:{type(exc).__name__}:{exc}"})
         return report

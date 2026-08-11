@@ -25,6 +25,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
+from identity_name import complete_collector_tail  # noqa: E402
 from qualified_pool_operator import db, load_env  # noqa: E402
 
 RAW_ROOT = ROOT / "data" / "private" / "gemrate" / "cards"
@@ -249,6 +250,7 @@ def fetch_catalog(cur: Any) -> tuple[list[dict[str, Any]], dict[int, list[dict[s
         """
         SELECT v.id AS variant_id,v.opaque_id,v.canonical_name,v.card_language AS variant_language,
                v.identity_status AS variant_identity_status,
+               v.collector_number AS variant_collector_number,
                p.tcg_code,p.card_language,p.set_name,p.set_code,p.printing_code,p.rarity_code,
                p.collector_number,p.edition_code,p.parallel_code,p.finish_code,
                p.canonical_printing_sha256,p.identity_status AS printing_identity_status
@@ -288,6 +290,11 @@ def classify_variant(variant: dict[str, Any], bindings: list[dict[str, Any]], ac
         "opaqueId": variant["opaque_id"],
         "active": active,
         "oldCanonicalName": variant["canonical_name"],
+        # The DISPLAY collector number, off catalog_variant. Kept apart from
+        # printing.collector_number below because that one is a printing_sha
+        # input and therefore frozen on the bare PSA numerator; this one is what
+        # the site prints and what the display name's tail has to agree with.
+        "variantCollectorNumber": variant.get("variant_collector_number"),
         "printing": {key: variant.get(key) for key in (
             "tcg_code", "card_language", "set_name", "set_code", "printing_code",
             "rarity_code", "collector_number", "edition_code", "parallel_code",
@@ -326,7 +333,9 @@ def classify_variant(variant: dict[str, Any], bindings: list[dict[str, Any]], ac
         result.update(classification="printing_mismatch", reason="set_namespace_conflict")
     elif not parallel_compatible(psa, variant):
         result.update(classification="printing_mismatch", reason="parallel_conflict")
-    elif str(variant.get("canonical_name") or "").encode("utf-8") != str(psa["description"]).encode("utf-8"):
+    elif str(variant.get("canonical_name") or "").encode("utf-8") != complete_collector_tail(
+        psa["description"], variant.get("variant_collector_number")
+    ).encode("utf-8"):
         result.update(classification="name_mismatch", reason="canonical_name_not_literal_psa_description")
     else:
         result.update(classification="exact", reason="literal_psa_identity_matches")
@@ -387,7 +396,9 @@ def _reclassify_from_captured_evidence(row: dict[str, Any]) -> None:
         row.update(classification="printing_mismatch", reason="set_namespace_conflict")
     elif not parallel_compatible(psa, printing):
         row.update(classification="printing_mismatch", reason="parallel_conflict")
-    elif str(row.get("oldCanonicalName") or "").encode("utf-8") != str(psa["description"]).encode("utf-8"):
+    elif str(row.get("oldCanonicalName") or "").encode("utf-8") != complete_collector_tail(
+        psa["description"], row.get("variantCollectorNumber")
+    ).encode("utf-8"):
         row.update(classification="name_mismatch", reason="canonical_name_not_literal_psa_description")
     else:
         row.update(classification="exact", reason="literal_psa_identity_matches")
@@ -548,7 +559,15 @@ def apply_audit(connection: Any, audit: dict[str, Any]) -> dict[str, Any]:
                 )
                 cur.execute(
                     "UPDATE catalog_variant SET canonical_name=%s,card_language=%s,identity_status='confirmed' WHERE id=%s",
-                    (psa["description"], row["derivedLanguage"], variant_id),
+                    (
+                        # psa_description above stays the literal; this column is
+                        # the display name, so only here does the truncated
+                        # collector tail get completed. See identity_name.
+                        complete_collector_tail(
+                            psa["description"], row.get("variantCollectorNumber")
+                        ),
+                        row["derivedLanguage"], variant_id,
+                    ),
                 )
                 affected["canonicalNames"] += int(cur.rowcount)
                 binding_json, binding_sha = _binding_evidence(row)

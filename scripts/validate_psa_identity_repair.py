@@ -12,6 +12,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 from qualified_pool_operator import db, load_env  # noqa: E402
+from identity_name import complete_collector_tail  # noqa: E402
 from psa_identity_repair import (  # noqa: E402
     OUT_ROOT as OUT_034,
     collector_compatible,
@@ -150,6 +151,7 @@ def main(argv: list[str] | None = None) -> int:
             """SELECT a.variant_id,a.gemrate_id,a.psa_description,a.raw_payload_sha256,
                       a.psa_row_sha256,a.psa_language,a.psa_set_name,a.psa_card_number,
                       a.psa_parallel,v.canonical_name,v.identity_status,
+                      v.collector_number AS variant_collector_number,
                       p.tcg_code,p.card_language,p.set_name,p.set_code,p.collector_number,
                       p.printing_code,p.rarity_code,p.edition_code,p.parallel_code,p.finish_code,
                       p.canonical_printing_sha256,p.identity_status AS printing_identity_status
@@ -175,9 +177,22 @@ def main(argv: list[str] | None = None) -> int:
             )
             psa = raw.get("psa") or {}
             literal = str(psa.get("description") or "")
+            # Two byte-exact claims, not one, because the column that records
+            # provenance and the column that ships to the site stopped being the
+            # same column. psa_description is still the PSA label verbatim --
+            # that half is untouched and is what makes this a provenance check.
+            # canonical_name is the display name, which differs from the label in
+            # exactly one way: the label ends at the bare numerator and the
+            # display carries the collector number we already hold. Asserting the
+            # display equals the literal is what kept forcing the site back to
+            # truncated names; asserting it equals complete_collector_tail(literal)
+            # pins BOTH the provenance and the completion, so an invented name,
+            # a rollup name and a hand-edit all still fail here.
             name_exact = (
                 literal.encode("utf-8") == str(accepted["psa_description"]).encode("utf-8")
-                and literal.encode("utf-8") == str(accepted["canonical_name"]).encode("utf-8")
+                and complete_collector_tail(
+                    literal, accepted["variant_collector_number"]
+                ).encode("utf-8") == str(accepted["canonical_name"]).encode("utf-8")
             )
             sha_pinned = (
                 raw.get("rawPayloadSha256") == accepted["raw_payload_sha256"]

@@ -29,6 +29,8 @@ from typing import Any, Callable, Mapping
 
 import pymysql
 
+from identity_name import complete_collector_number, complete_collector_tail
+
 ROOT = Path(__file__).resolve().parents[1]
 GENERATION_RE = re.compile(r"^036_\d{8}T\d{6}Z$")
 REBUILD_STAGE_COMPLETE = "complete"
@@ -63,6 +65,7 @@ PRUNE_ALLOWLIST = ROOT / "data" / "policy" / "prune-order-allowlist.json"
 FREEZE_PROOF_SCRIPT = ROOT / "scripts" / "prove_writer_freeze.py"
 MYSQL_CONTAINER = "cardz-market-cap-db-1"
 POLICY = {"minPop": 1000, "planVersion": "036"}
+MAX_CURRENT_PRICE_AGE_DAYS = 30
 
 MIGRATION_036_FILES = frozenset({
     "036_catalog_provider_capture_receipt.mysql.sql",
@@ -818,6 +821,23 @@ def _capture_fingerprint(cards_dir: Path, gid: str) -> tuple[dict[str, Any] | No
     # restating clears variant 1's PriceCharting hold and newly conflicts none
     # of the 997 replayable exact PC bindings.
     psa_set_name = str((psa_rows[0]["set_name"] if psa_rows else "") or "").strip()
+    # The number PSA prints is the bare numerator ("110"), and the rollup copies
+    # it, so `cardNumber` alone can never render "110/80". The denominator is
+    # already sitting in the same payload: CGC/SGC/Beckett rows for the same
+    # physical card carry the full form. Measured 2026-08-11: 1169 of 1605 bound
+    # variants have no denominator, and 1108 of those are recoverable from a
+    # sibling grader row with zero new scraping.
+    #
+    # This is a second, wider field on purpose. `cardNumber` feeds
+    # _derive_print_fields -> _gemrate_printing_sha, and every printing_sha input
+    # is frozen (see the S5 comment at the set_name restate). `cardNumberFull` is
+    # display-only: it lands in catalog_variant.collector_number, which is not in
+    # the hash, and _collector_core() strips the denominator before any identity
+    # comparison, so widening it moves no match.
+    psa_number = str((psa_rows[0].get("card_number") if psa_rows else "") or "")
+    card_number_full = complete_collector_number(
+        psa_number or raw.get("card_number"), raw.get("population_data")
+    )
     return {
         "gemrateId": gid,
         "description": description,
@@ -826,6 +846,7 @@ def _capture_fingerprint(cards_dir: Path, gid: str) -> tuple[dict[str, Any] | No
         "setName": set_name,
         "psaSetName": psa_set_name,
         "cardNumber": str(raw.get("card_number") or ""),
+        "cardNumberFull": card_number_full,
         "parallel": str(raw.get("parallel") or ""),
         "category": str(raw.get("category") or ""),
         "derivedLanguage": language,
@@ -1303,7 +1324,19 @@ EVIDENCE_TYPE_PROVIDER_PAGE = "provider_native_product_page"
 # The distinction has to be readable from the row, because a lane that cannot
 # tell them apart must choose between overturning real verdicts and honouring
 # fake ones. It gets both wrong.
-REJECTION_VERDICT_ACTIONS = frozenset({"reject", "reject-wrong-printing-source"})
+REJECTION_VERDICT_ACTIONS = frozenset({
+    "reject",
+    "reject-wrong-printing-source",
+    # A supersession is a ruling about which of two gemrate ids owns the
+    # variant, not a doubt about the loser's page. Resurrecting one would put
+    # two exact gemrate bindings on one variant, which is the invariant
+    # validate counts (strictGemrateBindings == universe), so no reverify lane
+    # may reconsider it. resolve_active_psa_identity used to leave these rows
+    # carrying whatever they said before -- v1729 and v1730 sat at 'rejected'
+    # still reading action='confirm', indistinguishable from the collateral
+    # this constant exists to separate.
+    "supersede-losing-gemrate-binding",
+})
 
 if any(not re.fullmatch(r"[a-z-]+", action) for action in REJECTION_VERDICT_ACTIONS):
     # These are interpolated into SQL below. Keeping them to letters and hyphens
@@ -1685,6 +1718,11 @@ _PSA_LANGUAGE_SQL = (
     "JSON_UNQUOTE(JSON_EXTRACT(m.detail_json,'$.fingerprint.derivedLanguage'))"
 )
 _PSA_SET_NAME_SQL = "JSON_UNQUOTE(JSON_EXTRACT(m.detail_json,'$.fingerprint.psaSetName'))"
+# The PSA numerator widened with a denominator borrowed from a sibling grader row
+# in the same capture -- see _capture_fingerprint. Display only; never a sha input.
+_PSA_NUMBER_FULL_SQL = (
+    "JSON_UNQUOTE(JSON_EXTRACT(m.detail_json,'$.fingerprint.cardNumberFull'))"
+)
 
 
 def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
@@ -1838,7 +1876,9 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
                 closures.append((gid, "requested_id_resettled", "alias_of_settled_entity"))
                 counts["aliasesClosed"] += 1
                 if gid in bindings and bindings[gid]["match_status"] != "rejected":
-                    binding_updates[gid] = {"action": "reject"}
+                    binding_updates[gid] = {
+                        "action": "reject", "reason": "alias_of_settled_entity",
+                    }
             # settled entity missing from members: incident stays open.
     # A rejected alias can no longer hold printing ownership; without this
     # purge the settled successor re-homing to its own print sees a ghost
@@ -1916,7 +1956,7 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
                 # 036 records that parking as an explicit cohort demotion.
                 demoted[gid] = "provider_carries_no_collector_number"
                 if gid in bindings and bindings[gid]["match_status"] != "rejected":
-                    binding_updates[gid] = {"action": "reject"}
+                    binding_updates[gid] = {"action": "reject", "reason": demoted[gid]}
                 for kind in open_incidents.get(gid, []):
                     closures.append((gid, kind, "non_qualified_collector_unknown"))
                 return
@@ -1992,7 +2032,7 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
             # explicit, revisitable demotion instead of a dishonest merge.
             demoted[gid] = f"print_identity_unrepresentable_vs_variant_{target}"
             if gid in bindings and bindings[gid]["match_status"] != "rejected":
-                binding_updates[gid] = {"action": "reject"}
+                binding_updates[gid] = {"action": "reject", "reason": demoted[gid]}
             for kind in open_incidents.get(gid, []):
                 closures.append((gid, kind, "print_identity_unrepresentable"))
             counts["printShaNameClashDemoted"] += 1
@@ -2054,7 +2094,7 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
                     # universe so the card is never double-counted.
                     demoted[gid] = f"duplicate_provider_listing_of_{owner}"
                     if gid in bindings and bindings[gid]["match_status"] != "rejected":
-                        binding_updates[gid] = {"action": "reject"}
+                        binding_updates[gid] = {"action": "reject", "reason": demoted[gid]}
                     for kind in open_incidents.get(gid, []):
                         closures.append((gid, kind, "duplicate_provider_listing"))
                     counts["duplicateListingsDemoted"] += 1
@@ -2258,10 +2298,22 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
             for gid, intent in sorted(binding_updates.items()):
                 if intent["action"] == "reject":
                     cursor.execute(
-                        "UPDATE catalog_source_identity SET match_status='rejected'"
+                        # S4 reasoned about this id; the row has to say so.
+                        # Moving the status alone left the old evidence in
+                        # place, so a decided rejection was unreadable next to
+                        # collateral -- the exact confusion
+                        # REJECTION_VERDICT_ACTIONS exists to end.
+                        "UPDATE catalog_source_identity SET match_status='rejected',"
+                        " bind_evidence_json=JSON_SET("
+                        "   COALESCE(bind_evidence_json, JSON_OBJECT()),"
+                        "   '$.previousAction',"
+                        "     JSON_UNQUOTE(JSON_EXTRACT(bind_evidence_json,'$.action')),"
+                        "   '$.action', 'reject',"
+                        "   '$.reason', %s,"
+                        "   '$.rejectedAt', UTC_TIMESTAMP())"
                         " WHERE source_code='gemrate' AND external_entity_id=%s"
                         " AND match_status<>'rejected'",
-                        (gid,),
+                        (str(intent.get("reason") or "identity_resolve_rejection"), gid),
                     )
                     counts["bindingsRejected"] += cursor.rowcount
                     continue
@@ -2486,18 +2538,60 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
             # binding -- not left to whatever wording seeded the row. Every
             # qualified variant holds exactly one exact gemrate binding, so the
             # join names one row per variant.
+            #
+            # It used to be one pure-SQL UPDATE copying the PSA description
+            # verbatim, and that is exactly why the truncated names kept coming
+            # back: the label PSA prints ENDS at the bare numerator ("... Special
+            # Art Rare 110"), so every run of this transaction restored the short
+            # form over whatever had been repaired since. Measured 2026-08-11: 71
+            # of the published top 100 and 436 of the 1605 bound variants were
+            # sitting on a truncated tail. The completion is Python because it
+            # needs leading-zero folding -- `079` has to recognise `79/73` -- and
+            # the version that tried it in SQL/regex appended instead, producing
+            # "... Secret 079 79/73" on 79 rows and getting the whole function
+            # deleted. identity_name.complete_collector_tail is the single
+            # implementation, covered by scripts/test_identity_name.py.
+            #
+            # The number is restated first, in the same pass, because the name's
+            # tail is built from it. It lands on catalog_variant.collector_number
+            # only -- catalog_printing_identity.collector_number is a printing_sha
+            # input and is frozen for the reason spelled out at the set_name
+            # restate below. _collector_core() folds the denominator away before
+            # any identity comparison, so widening the display column moves no
+            # match.
             cursor.execute(
-                "UPDATE catalog_variant v"
+                "SELECT v.id AS variant_id, v.canonical_name, v.collector_number,"
+                f" {_PSA_FULL_NAME_SQL} AS psa_description,"
+                f" {_PSA_NUMBER_FULL_SQL} AS psa_number_full,"
+                " p.collector_number AS printed_collector_number"
+                " FROM catalog_variant v"
                 " INNER JOIN catalog_source_identity s ON s.variant_id=v.id"
                 "   AND s.source_code='gemrate' AND s.match_status='exact'"
                 " INNER JOIN catalog_rebuild_member m ON m.generation_id=%s"
                 "   AND m.variant_id=v.id AND m.gemrate_id=s.external_entity_id"
-                f" SET v.canonical_name={_PSA_FULL_NAME_SQL}"
-                f" WHERE COALESCE({_PSA_FULL_NAME_SQL},'')<>''"
-                f"   AND BINARY v.canonical_name<>BINARY {_PSA_FULL_NAME_SQL}",
+                " LEFT JOIN catalog_printing_identity p ON p.variant_id=v.id",
                 (generation,),
             )
-            counts["psaNamesRestated"] = cursor.rowcount
+            counts["psaNamesRestated"] = 0
+            counts["psaCollectorNumbersRestated"] = 0
+            for row in cursor.fetchall():
+                variant_id = int(row["variant_id"])
+                collector = complete_collector_number(
+                    row["psa_number_full"], (), row["printed_collector_number"]
+                ) or str(row["collector_number"] or "")
+                if collector and collector != str(row["collector_number"] or ""):
+                    cursor.execute(
+                        "UPDATE catalog_variant SET collector_number=%s WHERE id=%s",
+                        (collector, variant_id),
+                    )
+                    counts["psaCollectorNumbersRestated"] += 1
+                full_name = complete_collector_tail(row["psa_description"], collector)
+                if full_name and full_name != str(row["canonical_name"] or ""):
+                    cursor.execute(
+                        "UPDATE catalog_variant SET canonical_name=%s WHERE id=%s",
+                        (full_name, variant_id),
+                    )
+                    counts["psaNamesRestated"] += 1
 
             # And the set name off the same PSA row, for a reason the display
             # only half explains: set_name is not decoration, it is an INPUT to
@@ -6965,9 +7059,11 @@ def _activation_rank_and_accept(
     Mirrors the proven 026 selector but with dynamic coverage (== product_ready
     set, not 762) and §3.11b: identical content still bumps accepted_at."""
 
+    from datetime import datetime, timedelta
     from decimal import Decimal
 
     ready = set(ready_ids)
+    price_cutoff = datetime.fromisoformat(now_str) - timedelta(days=MAX_CURRENT_PRICE_AGE_DAYS)
     cur.execute(
         """
         SELECT p.variant_id,p.price_history_acceptance_id,p.price_usd,
@@ -6981,6 +7077,9 @@ def _activation_rank_and_accept(
     )
     latest_price: dict[int, dict] = {}
     latest_price_keys: dict[int, tuple] = {}
+    latest_eligible_price: dict[int, dict] = {}
+    latest_eligible_price_keys: dict[int, tuple] = {}
+    stale_price: dict[int, str] = {}
     for raw in cur.fetchall():
         row = dict(raw)
         variant_id = int(row["variant_id"])
@@ -6991,6 +7090,29 @@ def _activation_rank_and_accept(
             row["price_source_observed_at"],
             int(row["price_history_acceptance_id"]),
         )
+        if (
+            variant_id not in latest_eligible_price_keys
+            or winner_key > latest_eligible_price_keys[variant_id]
+        ):
+            latest_eligible_price_keys[variant_id] = winner_key
+            latest_eligible_price[variant_id] = row
+        observed_at = (
+            # Price age is the market observation date. A successful poll can
+            # refresh the source-page receipt without producing a new trade or
+            # quote; using that page timestamp would relabel an old price as
+            # current merely because the collector looked again today.
+            row.get("price_observed_date")
+            or row.get("price_effective_at")
+            or row.get("price_source_observed_at")
+        )
+        if observed_at is None:
+            stale_price[variant_id] = "missing timestamp"
+            continue
+        if not isinstance(observed_at, datetime):
+            observed_at = datetime.fromisoformat(str(observed_at))
+        if observed_at < price_cutoff:
+            stale_price[variant_id] = observed_at.isoformat(sep=" ")
+            continue
         if variant_id not in latest_price_keys or winner_key > latest_price_keys[variant_id]:
             latest_price_keys[variant_id] = winner_key
             latest_price[variant_id] = row
@@ -7037,20 +7159,27 @@ def _activation_rank_and_accept(
             latest_population[variant_id] = row
 
     missing_price = sorted(v for v in ready if v not in latest_price)
+    missing_price_entirely = sorted(v for v in ready if v not in latest_eligible_price)
     missing_pop = sorted(v for v in ready if v not in latest_population)
-    if missing_price or missing_pop:
+    if missing_price_entirely or missing_pop:
         raise SystemExit(
             "S12 ABORT: product_ready coverage incomplete:"
-            f" missingPrice={_coverage_diagnosis(cur, missing_price)}"
+            f" missingPrice={_coverage_diagnosis(cur, missing_price_entirely)}"
+            f" stalePriceOver{MAX_CURRENT_PRICE_AGE_DAYS}d="
+            f"{[(variant_id, stale_price[variant_id]) for variant_id in missing_price if variant_id in stale_price][:20]}"
             f" missingPop={missing_pop[:20]}"
         )
 
     ranked: list[tuple[int, dict, Any]] = []
-    for variant_id in sorted(ready):
+    for variant_id in sorted(ready - set(missing_price)):
         row = {**latest_price[variant_id], **latest_population[variant_id]}
         cap = Decimal(str(row["price_usd"])) * Decimal(int(row["psa10_population"]))
         ranked.append((variant_id, row, cap))
     ranked.sort(key=lambda item: (-item[2], item[0]))
+    awaiting_price: list[tuple[int, dict, Any]] = []
+    for variant_id in missing_price:
+        row = {**latest_eligible_price[variant_id], **latest_population[variant_id]}
+        awaiting_price.append((variant_id, row, Decimal("0")))
     ranking_generation_sha = sha256_bytes(canonical_json(
         [
             {
@@ -7060,23 +7189,48 @@ def _activation_rank_and_accept(
                 "marketCapUsd": format(cap, "f"),
             }
             for variant_id, row, cap in ranked
+        ] + [
+            {
+                "variantId": variant_id,
+                "priceAcceptanceId": int(row["price_history_acceptance_id"]),
+                "populationAcceptanceId": int(row["population_history_acceptance_id"]),
+                "marketCapUsd": None,
+                "canonicalMarketRank": None,
+                "priceStatus": "awaiting_fresh_price",
+            }
+            for variant_id, row, _ in awaiting_price
         ]
     ))
-    for rank, (variant_id, row, cap) in enumerate(ranked, start=1):
+    accepted_rows = [
+        (variant_id, row, cap, rank, False)
+        for rank, (variant_id, row, cap) in enumerate(ranked, start=1)
+    ] + [
+        (variant_id, row, cap, None, True)
+        for variant_id, row, cap in awaiting_price
+    ]
+    for variant_id, row, cap, rank, price_pending in accepted_rows:
         metric_lineage_sha = sha256_bytes(canonical_json(
             {
-                "kind": "canonical-current-metric-v1",
+                "kind": (
+                    "canonical-current-metric-awaiting-price-v1"
+                    if price_pending
+                    else "canonical-current-metric-v1"
+                ),
                 "variantId": variant_id,
                 "priceHistoryAcceptanceId": int(row["price_history_acceptance_id"]),
                 "populationHistoryAcceptanceId": int(row["population_history_acceptance_id"]),
-                "marketCapUsd": format(cap, "f"),
+                "marketCapUsd": None if price_pending else format(cap, "f"),
                 "canonicalMarketRank": rank,
                 "rankingGenerationSha256": ranking_generation_sha,
             }
         ))
         evidence_sha = sha256_bytes(canonical_json(
             {
-                "policy": "language-routed-exact-price-times-exact-gemrate-pop-v1",
+                "policy": (
+                    f"language-routed-price-over-{MAX_CURRENT_PRICE_AGE_DAYS}d-awaiting-refresh-v1"
+                    if price_pending
+                    else "language-routed-exact-price-times-exact-gemrate-pop-v1"
+                ),
                 "priceLineageSha256": row["price_lineage_sha256"],
                 "populationLineageSha256": row["population_lineage_sha256"],
                 "metricLineageSha256": metric_lineage_sha,
@@ -7120,9 +7274,14 @@ def _activation_rank_and_accept(
             ),
         )
     return {
-        "accepted": len(ranked),
+        "accepted": len(accepted_rows),
+        "ranked": len(ranked),
+        "awaitingFreshPrice": len(awaiting_price),
         "rankingGenerationSha256": ranking_generation_sha,
-        "ranks": {variant_id: rank for rank, (variant_id, _, _) in enumerate(ranked, start=1)},
+        "ranks": {
+            variant_id: rank
+            for variant_id, _, _, rank, _ in accepted_rows
+        },
     }
 
 
@@ -7467,6 +7626,15 @@ def cmd_daily_accept(args: argparse.Namespace) -> int:
             ready_ids = [int(row["variant_id"]) for row in cur.fetchall()]
             if not ready_ids:
                 raise SystemExit("daily-accept ABORT: current lock has zero members")
+            # The gate existed in operator_control.py but nothing called it, so
+            # accepted_at could move while every collector checkpoint was old.
+            # Importing here keeps the gate in its existing owner and runs it
+            # before the first write of the daily transaction.
+            import operator_control
+
+            freshness = operator_control._active_checkpoint_gate(
+                cur, active_ids=set(ready_ids)
+            )
             cur.execute(
                 "SELECT generation_id, activated_at FROM cardz_rebuild_generation"
                 " WHERE activated_at IS NOT NULL ORDER BY activated_at DESC LIMIT 1"
@@ -7541,6 +7709,7 @@ def cmd_daily_accept(args: argparse.Namespace) -> int:
             "historyAcceptance": history,
             "priceQuarantineReleased": released,
             "discoveryGap": discovery_gap,
+            "freshness36h": freshness,
             "canonical": {
                 "accepted": canonical["accepted"],
                 "rankingGenerationSha256": canonical["rankingGenerationSha256"],
@@ -8073,14 +8242,25 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
 
 
 def cmd_snk_identity_reverify(args: argparse.Namespace) -> int:
-    """Re-verify manual_review SNK bindings against freshly fetched masters.
+    """Re-verify held SNK bindings against freshly fetched masters.
 
     Same acceptance contract as S7 (stage_snk_refresh): the provider master
     itself must resolve a 1-card PSA10 variant, assert no hard identity
     conflict, and agree on the print signature. Promotions write the same
-    receipt + bind evidence shape S7 writes, guarded to manual_review rows
-    only — exact/rejected/conflict rows are never touched. Everything held
-    is listed with a reason for a human ruling."""
+    receipt + bind evidence shape S7 writes. Everything held is listed with a
+    reason for a human ruling.
+
+    Like cmd_pc_identity_reverify, this reconsiders a rejection nobody
+    reasoned about. This lane used to read manual_review only, which is what
+    it was born with -- REJECTION_VERDICT_ACTIONS arrived later and the PC
+    lane learned it while this one did not. The consequence was measurable:
+    82 snkrdunk rows sat at match_status='rejected' with their own
+    bind_evidence_json still reading action='confirm', collateral from
+    psa_identity_repair's blanket non-gemrate reject, and no lane in the repo
+    could ever look at them again. Real verdicts and the 034 red list are
+    still excluded by NOT_A_REJECTION_VERDICT_SQL, and reconsidering costs a
+    card nothing because the fail-closed contract below is the same one every
+    other row faces."""
 
     from datetime import datetime, timezone
 
@@ -8097,7 +8277,8 @@ def cmd_snk_identity_reverify(args: argparse.Namespace) -> int:
 
     conn = connect(credentials)
     counts = {
-        "reviewBindings": 0, "pageMissing": 0, "noPsa10OneCard": 0,
+        "reviewBindings": 0, "quarantineReconsidered": 0,
+        "pageMissing": 0, "noPsa10OneCard": 0,
         "hardConflicts": 0, "parallelSoftMismatch": 0, "promoted": 0,
     }
     promoted: list[dict[str, Any]] = []
@@ -8118,7 +8299,8 @@ def cmd_snk_identity_reverify(args: argparse.Namespace) -> int:
                 " JOIN catalog_variant v ON v.id=si.variant_id"
                 " LEFT JOIN catalog_printing_identity p ON p.variant_id=v.id"
                 " WHERE si.source_code='snkrdunk'"
-                "   AND si.match_status='manual_review'"
+                "   AND si.match_status IN ('manual_review','rejected')"
+                f"   AND {NOT_A_REJECTION_VERDICT_SQL}"
             )
             bindings = cursor.fetchall()
 
@@ -8150,6 +8332,8 @@ def cmd_snk_identity_reverify(args: argparse.Namespace) -> int:
         updates: list[tuple[str, int, str, str, dict[str, Any], tuple[str, ...]]] = []
         for row in bindings:
             counts["reviewBindings"] += 1
+            if str(row["match_status"]) == "rejected":
+                counts["quarantineReconsidered"] += 1
             iid_str = str(row["iid"])
             variant_id = int(row["variant_id"])
 
@@ -8319,7 +8503,11 @@ def cmd_snk_identity_reverify(args: argparse.Namespace) -> int:
                             " bound_finish_code=%s"
                             " WHERE source_code='snkrdunk'"
                             " AND external_entity_id=%s AND variant_id=%s"
-                            " AND match_status='manual_review'",
+                            # Re-checked against the stored row so a status that
+                            # moved since the read above changes zero rows rather
+                            # than overwriting whatever it moved to.
+                            " AND match_status IN ('manual_review','rejected')"
+                            f" AND {NOT_A_REJECTION_VERDICT_SQL}",
                             (
                                 evidence_sha, str(claim or "")[:64],
                                 json.dumps(evidence, ensure_ascii=False, sort_keys=True),

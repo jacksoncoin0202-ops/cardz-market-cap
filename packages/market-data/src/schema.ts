@@ -115,9 +115,9 @@ export interface PublicCard {
   id: string;
   /** Legacy display rank. Kept equal to `viewRank` for existing consumers. */
   rank: number;
-  /** Rank in the canonical market-cap universe before view-specific filtering. */
+  /** Rank in the canonical market-cap universe; 0 means awaiting a fresh price and unranked. */
   marketRank: number;
-  /** Contiguous rank in the current public view. */
+  /** Contiguous rank in the current public view; 0 preserves the unranked state. */
   viewRank: number;
   tcg: Tcg;
   /**

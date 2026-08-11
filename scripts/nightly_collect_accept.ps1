@@ -18,14 +18,18 @@ Set-Location $repo
 
 & $py -X utf8 -u "pipelines\collect_control.py" incr --adapter snk_trades --adapter snk_price --adapter gemrate_pop *>> $log
 $collectExit = $LASTEXITCODE
+if ($collectExit -ne 0) {
+    "[$stamp] nightly collect failed exit=$collectExit; daily-accept not run" | Tee-Object -FilePath $log -Append
+    exit 1
+}
 
-# Accept whatever evidence landed even when a collector lane failed:
-# §3.11b bumps accepted_at on identical content, so the FE generation
-# still flips and the failure stays visible in this log + exit code.
 & $py -X utf8 -u "pipelines\operator_control.py" daily-accept *>> $log
 $acceptExit = $LASTEXITCODE
+if ($acceptExit -ne 0) {
+    "[$stamp] nightly daily-accept failed exit=$acceptExit" | Tee-Object -FilePath $log -Append
+    exit 1
+}
 
 $done = (Get-Date).ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'")
 "[$done] nightly chain done collect=$collectExit accept=$acceptExit" | Tee-Object -FilePath $log -Append
-if (($collectExit -ne 0) -or ($acceptExit -ne 0)) { exit 1 }
 exit 0

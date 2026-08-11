@@ -36,7 +36,6 @@ CHECKPOINT_ADAPTERS = (
     "snk_price",
     "pc_ebay_sales",
     "en_price_ref",
-    "snk_en_image",
 )
 CHECKPOINT_SLA_HOURS = 36
 CANONICAL_IMAGE_POLICY_ID = "canonical-026-snk-en-exact-first-v1"
@@ -2646,7 +2645,7 @@ def main() -> int:
     )
     p_snk_reverify = sub.add_parser(
         "snk-identity-reverify",
-        help="promote manual_review SNK bindings a fresh master fetch can prove (dry-run without --write)",
+        help="promote held SNK bindings a fresh master fetch can prove, incl. rejections nobody reasoned about (dry-run without --write)",
     )
     p_snk_reverify.add_argument("--write", action="store_true")
     p_snk_reverify.add_argument("--credentials-env", dest="credentials_env", type=Path)

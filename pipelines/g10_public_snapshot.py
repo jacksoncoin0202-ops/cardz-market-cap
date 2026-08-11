@@ -1481,38 +1481,50 @@ def build_snapshot(
     return snapshot, manifest, summary
 
 
-def quarantine_unreferenced_assets(assets_out: Path, snapshot: Mapping[str, Any], quarantine_root: Path) -> int:
+def quarantine_unreferenced_assets(
+    assets_out: Path, snapshot: Mapping[str, Any], quarantine_root: Path
+) -> dict[str, Any]:
+    # 回傳 bytes 唔止 count：實測 repo 入面 4,535 個 sha / 1.82 GB，snapshot 只引用
+    # 1,286 個 / 0.52 GB。淨報「搬走 3,249 個檔」睇唔出止咗幾多血，而「幾多 GB」
+    # 先係 push 唔郁嗰個數。
     if not assets_out.is_dir():
-        return 0
+        return {"count": 0, "bytes": 0, "manifest": None}
     # 必須連 image["variants"] 一齊當「有人引用」。淨數 src 嘅話，每張卡兩個生效中
     # 嘅衍生尺寸（_200 / _600）會被當成孤兒搬入 quarantine，全站細尺寸卡圖即刻爛。
     expected = referenced_asset_names(snapshot)
     stale = [path for path in assets_out.iterdir() if path.is_file() and path.name not in expected]
     if not stale:
-        return 0
+        return {"count": 0, "bytes": 0, "manifest": None}
     resolved_assets = assets_out.resolve()
     if resolved_assets.name != "market-assets" or resolved_assets.parent.name != "public":
         raise RuntimeError(f"refusing to quarantine unexpected asset directory: {resolved_assets}")
     quarantine_root.mkdir(parents=True, exist_ok=True)
     stale.sort(key=lambda path: path.name)
+    sizes = {path.name: path.stat().st_size for path in stale}
+    total_bytes = sum(sizes.values())
     # Manifest 喺搬檔之前寫：實測一次 run 搬走 3667 個檔，凈回傳一個數字係查唔返
     # 「邊個 run 搬走咗邊啲檔」，亦搬唔返。寫喺前面係為咗容錯方向——中途死機
     # 會令 manifest 多列咗未搬走嘅檔（對住目錄一 diff 就對得返），寫喺後面死機
     # 就一個記錄都冇，檔已經唔見咗但查無可查。
+    manifest_path = quarantine_root / QUARANTINE_MANIFEST_NAME
     write_json(
-        quarantine_root / QUARANTINE_MANIFEST_NAME,
+        manifest_path,
         {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "quarantinedAt": iso_utc(datetime.now(timezone.utc)),
             "run": quarantine_root.name,
             "sourceDirectory": str(resolved_assets),
             "count": len(stale),
-            "files": [{"name": path.name, "originalPath": str(path)} for path in stale],
+            "bytes": total_bytes,
+            "files": [
+                {"name": path.name, "originalPath": str(path), "bytes": sizes[path.name]}
+                for path in stale
+            ],
         },
     )
     for path in stale:
         shutil.move(str(path), str(quarantine_root / path.name))
-    return len(stale)
+    return {"count": len(stale), "bytes": total_bytes, "manifest": str(manifest_path)}
 
 
 def write_json(path: Path, value: Any) -> None:
@@ -1572,11 +1584,19 @@ def main() -> None:
         if runtime_root not in gap_output.parents:
             raise RuntimeError(f"private gap report must stay under {runtime_root}")
         write_json(gap_output, private_gap_report or {})
-    quarantined = 0
+    quarantined: dict[str, Any] = {"count": 0, "bytes": 0, "manifest": None}
     if args.clean_assets:
         quarantine = ROOT / "data" / "runtime" / "private-quarantine" / "legacy-public-assets" / snapshot["generation"]["id"]
         quarantined = quarantine_unreferenced_assets(args.assets_out.resolve(), snapshot, quarantine)
-    print(json.dumps({**summary, "output": str(args.output.resolve()), "quarantinedAssets": quarantined}, sort_keys=True))
+    print(json.dumps(
+        {
+            **summary,
+            "output": str(args.output.resolve()),
+            "quarantinedAssets": quarantined["count"],
+            "quarantinedBytes": quarantined["bytes"],
+        },
+        sort_keys=True,
+    ))
 
 
 if __name__ == "__main__":

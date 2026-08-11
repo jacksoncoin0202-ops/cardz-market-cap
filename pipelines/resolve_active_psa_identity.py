@@ -21,6 +21,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
+from identity_name import complete_collector_tail  # noqa: E402
 from psa_identity_repair import (  # noqa: E402
     canonical_json,
     collector_compatible,
@@ -70,6 +71,7 @@ def fetch_active(cur: Any) -> list[dict[str, Any]]:
         SELECT v.id AS variant_id,v.opaque_id,v.canonical_name,
                v.card_language AS variant_language,v.set_name AS variant_set_name,
                v.identity_status AS variant_identity_status,
+               v.collector_number AS variant_collector_number,
                p.tcg_code,p.card_language,p.set_name,p.set_code,p.printing_code,
                p.rarity_code,p.collector_number,p.edition_code,p.parallel_code,
                p.finish_code,p.canonical_printing_sha256,p.identity_status AS printing_identity_status
@@ -224,7 +226,20 @@ def build_plan(connection: Any) -> dict[str, Any]:
             "edition_code", "parallel_code", "finish_code", "canonical_printing_sha256",
         )}
         after = dict(before)
-        after["canonical_name"] = psa["description"]
+        # canonical_name is the DISPLAY name; catalog_psa_identity_acceptance
+        # .psa_description below keeps the PSA literal byte-for-byte and stays
+        # the provenance authority validator034 re-derives from the raw payload.
+        # They differ in exactly one place: the PSA label stops at the bare
+        # numerator ("... Special Art Rare 110") and the display carries the
+        # collector number we already hold ("110/80"). Splitting the two is the
+        # point -- one column was doing both jobs, so every provenance check
+        # forced the display back to truncated. canonical_name is not a
+        # printing_sha input, so nothing here moves a hash.
+        # variant_collector_number, NOT after["collector_number"]: the latter is
+        # the printing tuple's frozen bare numerator that feeds printing_sha().
+        after["canonical_name"] = complete_collector_tail(
+            psa["description"], variant.get("variant_collector_number")
+        )
         after["variant_language"] = selected["derivedLanguage"]
         after["card_language"] = selected["derivedLanguage"]
         if not set_compatible(psa, variant):
@@ -489,10 +504,26 @@ def apply_plan(connection: Any, plan: dict[str, Any]) -> dict[str, Any]:
 
             binding_json, binding_sha = binding_payload(row, identity_sha, provenance_sha)
             cur.execute(
-                """UPDATE catalog_source_identity SET match_status='rejected'
-                   WHERE variant_id=%s AND source_code='gemrate' AND external_entity_id<>%s
-                     AND match_status<>'rejected'""",
-                (variant_id, row["gemrateId"]),
+                # The label is the point, not decoration: this used to move the
+                # status and leave bind_evidence_json alone, so a superseded
+                # binding kept reading action='confirm' and was
+                # indistinguishable from psa_identity_repair's un-examined
+                # collateral. JSON_SET rather than JSON_OBJECT because the
+                # losing row's own evidence is still the record of what it
+                # claimed.
+                """UPDATE catalog_source_identity
+                      SET match_status='rejected',
+                          bind_evidence_json=JSON_SET(
+                            COALESCE(bind_evidence_json, JSON_OBJECT()),
+                            '$.previousAction',
+                              JSON_UNQUOTE(JSON_EXTRACT(bind_evidence_json,'$.action')),
+                            '$.action', 'supersede-losing-gemrate-binding',
+                            '$.reason', 'another gemrate id won the active PSA identity for this variant',
+                            '$.supersededBy', %s,
+                            '$.supersededAt', UTC_TIMESTAMP())
+                    WHERE variant_id=%s AND source_code='gemrate' AND external_entity_id<>%s
+                      AND match_status<>'rejected'""",
+                (row["gemrateId"], variant_id, row["gemrateId"]),
             )
             affected["supersededGemrateBindings"] += int(cur.rowcount)
             cur.execute(

@@ -23,6 +23,8 @@ from typing import Any, Iterable, Mapping
 import pymysql
 from pymysql.connections import Connection
 
+from identity_name import complete_collector_tail
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MIGRATIONS = ROOT / "pipelines" / "migrations"
@@ -732,6 +734,7 @@ def upsert_variant(cursor: Any, card: Mapping[str, Any]) -> int:
         str(card["setName"]),
         str(card["collectorNumber"]),
     )
+    display_name = complete_collector_tail(card["name"], identity[3])
     cursor.execute(
         """
         SELECT id, tcg_code, card_language, set_name, collector_number,
@@ -771,7 +774,7 @@ def upsert_variant(cursor: Any, card: Mapping[str, Any]) -> int:
             WHERE id=%s
             """,
             (
-                str(card["name"]), set_code, set_code, printing_code, printing_code,
+                display_name, set_code, set_code, printing_code, printing_code,
                 rarity_code, rarity_code, variant_id,
             ),
         )
@@ -784,7 +787,7 @@ def upsert_variant(cursor: Any, card: Mapping[str, Any]) -> int:
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'confirmed')
             """,
             (
-                opaque_id, *identity[:2], str(card["name"]), identity[2], set_code,
+                opaque_id, *identity[:2], display_name, identity[2], set_code,
                 printing_code, rarity_code, identity[3],
             ),
         )

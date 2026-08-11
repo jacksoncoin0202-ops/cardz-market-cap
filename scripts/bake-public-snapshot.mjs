@@ -15,7 +15,15 @@
 // is what the FE renders, the canonical document is what gets written to disk
 // and re-normalised on read.
 //
-//   node scripts/bake-public-snapshot.mjs [--output <path>] [--keep-build]
+// Baking also prunes: every market-asset the fresh snapshot does not name is
+// moved out of data/public (into gitignored data/runtime, with a manifest, not
+// deleted) before the release commit is built. That step used to live behind
+// g10_public_snapshot.py --clean-assets, which the 036 chain never ran, so the
+// public asset tree only ever grew -- 4,535 sha / 1.82 GB against 1,286 sha /
+// 0.52 GB actually referenced. A prune nobody remembers to ask for is not a
+// prune, so it is on by default here; --no-prune opts out.
+//
+//   node scripts/bake-public-snapshot.mjs [--output <path>] [--keep-build] [--no-prune]
 
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
@@ -126,6 +134,23 @@ for (const card of [...snapshot.top100, ...snapshot.watchlist]) {
   }
 }
 
+let prune = { skipped: true };
+if (!process.argv.includes("--no-prune")) {
+  // CARDZ_PYTHON is the same name scripts/run-python.mjs, scripts/backend.sh and
+  // pipelines/run_daily.ps1 already use.
+  const python = process.env.CARDZ_PYTHON ?? (process.platform === "win32" ? "python" : "python3");
+  const moved = spawnSync(python, ["-X", "utf8", join(ROOT, "scripts", "prune_public_assets.py"), "--snapshot", OUTPUT], {
+    cwd: ROOT,
+    stdio: ["ignore", "pipe", "pipe"],
+    encoding: "utf8",
+  });
+  if (moved.status !== 0) {
+    process.stderr.write(`${moved.stdout ?? ""}${moved.stderr ?? ""}`);
+    throw new Error("bake failed: asset prune did not run -- the release tree would carry unreferenced images");
+  }
+  prune = JSON.parse(moved.stdout);
+}
+
 process.stdout.write(`${JSON.stringify({
   output: OUTPUT,
   generation: snapshot.generation,
@@ -135,4 +160,5 @@ process.stdout.write(`${JSON.stringify({
   bytes: body.length,
   sha256: createHash("sha256").update(body).digest("hex"),
   referencedAssets: assets.size,
+  prune,
 }, null, 2)}\n`);

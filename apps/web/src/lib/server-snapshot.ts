@@ -15,12 +15,16 @@ let snapshotPromise: Promise<MarketViewSnapshot> | null = null;
 
 function canonicalCards(snapshot: MarketViewSnapshot): MarketCardView[] {
   return [...snapshot.top100, ...snapshot.watchlist]
-    .sort((a, b) => a.marketRank - b.marketRank);
+    .sort((a, b) => {
+      const rankA = a.marketRank > 0 ? a.marketRank : Number.MAX_SAFE_INTEGER;
+      const rankB = b.marketRank > 0 ? b.marketRank : Number.MAX_SAFE_INTEGER;
+      return rankA - rankB || a.id.localeCompare(b.id);
+    });
 }
 
 function gameView(cards: MarketCardView[], tcg: "Pokémon" | "One Piece"): MarketCardView[] {
   return cards
-    .filter((card) => card.tcg === tcg)
+    .filter((card) => card.tcg === tcg && card.marketRank > 0)
     .slice(0, 100)
     .map((card, index) => ({ ...card, rank: index + 1, viewRank: index + 1 }));
 }
@@ -136,7 +140,7 @@ export function scopeSnapshot(
     return { ...snapshot, coverage: scopedCoverage(cards.length), top100: cards, watchlist: [] };
   }
   if (scope === "watchlist") {
-    const all = canonical.filter((card) => card.marketRank >= 101);
+    const all = canonical.filter((card) => card.marketRank >= 101 || card.marketRank === 0);
     const pageSize = Math.min(Math.max(Math.trunc(options?.pageSize ?? 200), 1), 500);
     const pageCount = Math.max(Math.ceil(all.length / pageSize), 1);
     const page = Math.min(Math.max(Math.trunc(options?.page ?? 1), 1), pageCount);

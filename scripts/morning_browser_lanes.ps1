@@ -26,14 +26,25 @@ if ($cdpExit -ne 0) {
 
 & $py -X utf8 -u "pipelines\collect_control.py" incr --adapter en_price_ref --adapter pc_ebay_sales --ensure-browser *>> $log
 $collectExit = $LASTEXITCODE
+if ($collectExit -ne 0) {
+    "[$stamp] morning collect failed exit=$collectExit; daily-accept not run" | Tee-Object -FilePath $log -Append
+    exit 1
+}
 
-# Accept whatever evidence landed even when a collector lane failed:
-# §3.11b bumps accepted_at on identical content, so the FE generation
-# still flips and the failure stays visible in this log + exit code.
 & $py -X utf8 -u "pipelines\operator_control.py" daily-accept *>> $log
 $acceptExit = $LASTEXITCODE
+if ($acceptExit -ne 0) {
+    "[$stamp] morning daily-accept failed exit=$acceptExit; public release not run" | Tee-Object -FilePath $log -Append
+    exit 1
+}
+
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "daily_public_release.ps1") *>> $log
+$publishExit = $LASTEXITCODE
+if ($publishExit -ne 0) {
+    "[$stamp] morning public release failed exit=$publishExit" | Tee-Object -FilePath $log -Append
+    exit 1
+}
 
 $done = (Get-Date).ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'")
-"[$done] morning browser chain done cdp=$cdpExit collect=$collectExit accept=$acceptExit" | Tee-Object -FilePath $log -Append
-if (($collectExit -ne 0) -or ($acceptExit -ne 0)) { exit 1 }
+"[$done] morning browser chain done cdp=$cdpExit collect=$collectExit accept=$acceptExit publish=$publishExit" | Tee-Object -FilePath $log -Append
 exit 0

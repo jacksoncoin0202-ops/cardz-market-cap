@@ -141,14 +141,16 @@ function windowMetrics(
         value: priceChange,
         status: priceChange === null ? accumulating : "ready",
         asOf: priceChange === null ? null : currentAsOf,
-        priceAnchorSource: priceChange === null ? null : anchorSource,
+        // 供應商代號唔出街：呢個 snapshot 會原封不動 ship 落 client payload，
+        // 睇 view-source 就見到。UI 只需要「換咗錨點」呢個 boolean。
+        priceAnchorSource: null,
         sourceSwitched: priceChange === null ? false : sourceSwitched,
       },
       marketCapChangePct: {
         value: capChange,
         status: capChange === null ? accumulating : "ready",
         asOf: capChange === null ? null : currentAsOf,
-        priceAnchorSource: capChange === null ? null : anchorSource,
+        priceAnchorSource: null,
         sourceSwitched: capChange === null ? false : sourceSwitched,
       },
       trackedSalesChangePct: {
@@ -227,6 +229,7 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       SELECT
         metric.variant_id,variant.opaque_id,variant.canonical_name,metric.canonical_market_rank,
         variant.set_name AS variant_set_name,
+        variant.collector_number AS variant_collector_number,
         printing.tcg_code,printing.card_language,printing.collector_number,
         printing.set_name,printing.set_code,printing.edition_code,printing.finish_code,
         printing.identity_status,printing.canonical_printing_sha256,
@@ -247,7 +250,8 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       INNER JOIN market_metric_history_acceptance population_history ON population_history.id=metric.population_history_acceptance_id
       INNER JOIN market_grader_population_observation population ON population.id=population_history.source_record_id
       WHERE metric.ranking_generation_sha256=?
-      ORDER BY metric.canonical_market_rank
+      ORDER BY metric.canonical_market_rank IS NULL,
+               metric.canonical_market_rank,metric.variant_id
     `, [generationHash]);
     if (coreRows.length === 0) throw new Error("3308 current ranking generation is empty");
     const variantIds = coreRows.map((row) => Number(row.variant_id));
@@ -438,6 +442,8 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       } : undefined;
       const currentPrice = numberValue(row.psa10_price_usd);
       const currentPopulation = numberValue(row.psa10_population);
+      const canonicalRank = numberValue(row.canonical_market_rank) ?? 0;
+      const awaitingFreshPrice = canonicalRank === 0;
       const priceAsOf = iso(row.price_observed_date) ?? iso(row.price_effective_at);
       const populationAsOf = iso(row.population_effective_at);
       const effectiveAt = [priceAsOf, populationAsOf].filter(Boolean).sort().at(-1) ?? null;
@@ -465,16 +471,33 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       const imageAlt = Object.fromEntries(LOCALES.map((code) => [code, canonicalName || locale.names[code]])) as unknown as LocalizedText;
       return {
         id: String(row.opaque_id),
-        rank: Number(row.canonical_market_rank),
-        marketRank: Number(row.canonical_market_rank),
-        viewRank: Number(row.canonical_market_rank),
+        // Rank 0 is the explicit unranked state: the card remains addressable
+        // while its last eligible market price is older than 30 days.
+        rank: canonicalRank,
+        marketRank: canonicalRank,
+        viewRank: canonicalRank,
         tcg: String(row.tcg_code) === "one-piece" ? "one-piece" : String(row.tcg_code) === "pokemon" ? "pokemon" : "other",
         cardLanguage: row.card_language as PublicCard["cardLanguage"],
-        collectorNumber: {
-          display: String(row.collector_number ?? ""),
-          normalized: String(row.collector_number ?? "").toLowerCase(),
-          complete: Boolean(row.collector_number),
-        },
+        /*
+         * 編號嘅顯示值由 catalog_variant 出，唔再由 catalog_printing_identity 出。
+         * printing 嗰欄係 printing_sha() 十個 casefold 前像之一，凍死咗（同 set_name
+         * 撞嗰堵牆一樣，見 rebuild_036 S5 嘅註）—— 佢永遠只會係 PSA 印嘅裸號。
+         * variant 嗰欄唔喺 hash 入面，S5 bind 會用同一份 GemRate payload 其他 grader
+         * 行嘅分母補完佢（`110` → `110/080`），所以要出街嘅完整號喺呢邊。
+         *
+         * `complete` 以前係 `Boolean(row.collector_number)` —— 只要有字就當完整，
+         * 實測出街 top 100 有 29 張根本冇分母都標住 true。完整 = 有分母（`110/80`）
+         * 或者有 set 前綴（`EB02-010`）；補唔到嗰批（實測全 universe 61 張邊個
+         * grader 都冇分母）照出短號，但唔准扮完整。
+         */
+        collectorNumber: (() => {
+          const display = String(row.variant_collector_number ?? row.collector_number ?? "");
+          return {
+            display,
+            normalized: display.toLowerCase(),
+            complete: display.includes("/") || display.includes("-"),
+          };
+        })(),
         printingIdentity: {
           setName: printingSetName,
           setCode: String(row.set_code ?? "") || null,
@@ -502,11 +525,21 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
             ? imageVariants
             : undefined,
         },
-        pricePsa10: readyMetric(currentPrice, priceAsOf),
+        pricePsa10: awaitingFreshPrice
+          ? { value: null, status: "accumulating", asOf: priceAsOf }
+          : readyMetric(currentPrice, priceAsOf),
         priceUngradedReference: readyMetric(numberValue(raw?.price_usd), iso(raw?.observed_at)),
         populationPsa10: { ...readyMetric(currentPopulation, populationAsOf), estimated: false },
-        marketCap: readyMetric(numberValue(row.market_cap_usd), effectiveAt),
-        windows: windowMetrics(historyDrafts, currentPrice, currentPopulation, priceAsOf, String(row.price_source_code)),
+        marketCap: awaitingFreshPrice
+          ? { value: null, status: "accumulating", asOf: priceAsOf }
+          : readyMetric(numberValue(row.market_cap_usd), effectiveAt),
+        windows: windowMetrics(
+          historyDrafts,
+          awaitingFreshPrice ? null : currentPrice,
+          currentPopulation,
+          priceAsOf,
+          String(row.price_source_code),
+        ),
         historyDaily: history,
       };
     });

@@ -14,6 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
+from identity_name import complete_collector_tail  # noqa: E402
 from qualified_pool_operator import db, load_env  # noqa: E402
 
 REQUIRED_SCHEMA_VERSIONS = (
@@ -1239,10 +1240,21 @@ def _normalize_official_name(value: object) -> str:
 
 
 def _canonical_full_name(value: object, collector_number: object) -> str:
-    """Preserve the provider description byte-for-byte; collector is structured."""
+    """The provider description with its truncated collector tail completed.
 
-    del collector_number
-    return str(value or "")
+    This function has been here twice. The first version did the completion with
+    a literal regex, could not fold a leading zero (`079` against `79/73`), fell
+    through to append and wrote "... Secret 079 79/73" on 79 rows -- so commit
+    f24b2447 replaced the whole body with a passthrough. Passthrough is not
+    neutral: the PSA description ends at the bare numerator, so byte-for-byte
+    means every accepted official name ships truncated.
+
+    The completion lives in identity_name now, shared with rebuild_036's bind
+    transaction, so the two writers cannot drift again, and
+    scripts/test_identity_name.py pins the `079` case that killed version one.
+    """
+
+    return complete_collector_tail(value, collector_number)
 
 
 def sync_026_canonical_identity_repairs(cur) -> dict:
@@ -2055,18 +2067,42 @@ def sync_official_names(cur) -> dict:
         raise RuntimeError(
             f"034 literal PSA identity acceptance incomplete: {accepted_count}/{active_count}"
         )
+    # This used to be one SQL UPDATE setting canonical_name=psa_description. It
+    # could never have fired for the name: until migration 039 the projection
+    # itself joined on BINARY v.canonical_name=BINARY psa.psa_description, so the
+    # WHERE clause it carried was unsatisfiable by construction -- the language
+    # half was the only live branch. Now that the view no longer pins the name,
+    # the same statement WOULD fire, and it would re-truncate every completed
+    # name on the next tidy run. That is mechanism A1 in one line of SQL.
+    #
+    # So it runs in Python, through the one completion function, exactly like the
+    # bind transaction: psa_description stays the PSA literal, the display name
+    # is that literal with its collector tail completed.
     cur.execute(
         """
-        UPDATE catalog_variant v
+        SELECT v.id,v.canonical_name,v.card_language,v.collector_number,
+               psa.psa_description,psa.psa_language
+        FROM catalog_variant v
         INNER JOIN operator_psa_identity_projection psa ON psa.variant_id=v.id
-        SET v.canonical_name=psa.psa_description,v.card_language=psa.psa_language
-        WHERE BINARY v.canonical_name<>BINARY psa.psa_description
-           OR v.card_language<>psa.psa_language
         """
     )
+    updated = 0
+    for row in cur.fetchall():
+        want_name = _canonical_full_name(row["psa_description"], row["collector_number"])
+        want_language = row["psa_language"]
+        if (
+            str(row["canonical_name"] or "").encode("utf-8") == want_name.encode("utf-8")
+            and str(row["card_language"] or "") == str(want_language or "")
+        ):
+            continue
+        cur.execute(
+            "UPDATE catalog_variant SET canonical_name=%s,card_language=%s WHERE id=%s",
+            (want_name, want_language, int(row["id"])),
+        )
+        updated += 1
     return {
         "accepted": accepted_count,
-        "updated": int(cur.rowcount),
+        "updated": updated,
         "authority": "catalog_psa_identity_acceptance",
         "contract": "active-psa-identity-resolution-035-v1",
     }
