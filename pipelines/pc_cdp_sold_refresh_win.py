@@ -129,11 +129,10 @@ def arm_stall_watchdog(state: dict) -> None:
     threading.Thread(target=_watch, daemon=True, name="stall-watchdog").start()
 
 
-async def run_fetch_pool(
+async def run_fetch_pool_with_pages(
     pending: list[dict],
     *,
-    cdp_port: int,
-    tabs: int,
+    pages: list,
     sleep_seconds: float,
     challenge_wait: float,
     watchdog: dict,
@@ -146,18 +145,26 @@ async def run_fetch_pool(
     `throttle` 係共用嘅：一條 tab 食到 429 / CF，`until` 一推，全部 tab 落到
     下一頁之前都會等。舊版嗰個 `backoff_level` 係單線程獨有嘅，照搬落多 tab
     就變成「其餘 N-1 條照衝」—— 即係越撞越快，一定會俾人封。
+
+    429 / CF 會**擺返落隊尾重試**，唔係當場判死。呢個唔係「容錯」，係做完件事：
+    上游一 lane fail-closed，991 張成功嘅頁一齊唔入庫、checkpoint 一步都唔郁。
+    實測 2026-08-11 全量 993 張：ok 991、429 兩張 → `inserted 0, checkpointed 0`。
+    993 張入面撞到一兩次 429 幾乎係必然（實測率 0.2%），即係無人睇住嘅話呢條
+    lane 日日都會咁死。而個共用 backoff 本來就已經等咗 30/60/120 秒 —— 等完之後
+    唔重試返嗰張卡，等於白等。擺落隊尾係最疏嘅間隔（成隊行晒先輪到佢）。
     """
     out: dict = {"ok": 0, "fail": 0, "cf": 0, "rateLimited": 0, "sessionError": None}
     queue: asyncio.Queue = asyncio.Queue()
     for index, row in enumerate(pending):
-        queue.put_nowait((index, row))
+        queue.put_nowait((index, row, 0))
     throttle = {"level": 0, "until": 0.0}
     counter = {"done": 0}
+    retried: list[dict] = []
 
     async def worker(page, tab_index: int) -> None:
         while True:
             try:
-                index, row = queue.get_nowait()
+                index, row, attempt = queue.get_nowait()
             except asyncio.QueueEmpty:
                 return
             watchdog["beat"] = time.monotonic()
@@ -288,8 +295,21 @@ async def run_fetch_pool(
                 delay = BACKOFF_LADDER[min(throttle["level"], len(BACKOFF_LADDER) - 1)]
                 throttle["level"] += 1
                 throttle["until"] = max(throttle["until"], time.monotonic() + delay)
+                requeued = attempt + 1 <= len(BACKOFF_LADDER)
+                if requeued:
+                    # 呢一筆唔算數：撤返啱先加落 out 同 results 嗰個判死，擺返落隊尾。
+                    results.pop()
+                    out["fail"] -= 1
+                    if status == "rate_limited":
+                        out["rateLimited"] -= 1
+                    else:
+                        out["cf"] -= 1
+                    counter["done"] -= 1
+                    retried.append({"variant_id": row.get("variant_id"), "attempt": attempt + 1, "status": status})
+                    queue.put_nowait((index, row, attempt + 1))
                 print(
-                    f"backoff {delay:.0f}s (all tabs) after {status} vid={row.get('variant_id')}",
+                    f"backoff {delay:.0f}s (all tabs) after {status} vid={row.get('variant_id')}"
+                    f"{f'; requeued attempt {attempt + 2}' if requeued else '; giving up'}",
                     flush=True,
                 )
                 continue
@@ -299,6 +319,24 @@ async def run_fetch_pool(
             if sleep_seconds > 0:
                 await asyncio.sleep(sleep_seconds)
 
+    await asyncio.gather(*(worker(page, index) for index, page in enumerate(pages)))
+    out["retries"] = retried
+    return out
+
+
+async def run_fetch_pool(
+    pending: list[dict],
+    *,
+    cdp_port: int,
+    tabs: int,
+    **kwargs,
+) -> dict:
+    """開 CDP、備妥 `tabs` 條 tab，然後交俾上面條 pool 行。
+
+    分開兩層淨係為咗一件事：上面條 pool 入面嘅 queue／backoff／requeue 算術，可以
+    用假 page 直接測（見 scripts/test_pc_refresh_requeue.py）。呢層有 Playwright，
+    測唔到；嗰層冇，測得到。
+    """
     async with async_playwright() as playwright:
         try:
             browser = await playwright.chromium.connect_over_cdp(f"http://127.0.0.1:{cdp_port}")
@@ -320,9 +358,15 @@ async def run_fetch_pool(
             # 唔擋 40/40 全清 2.05 s/頁，擋咗 38/40 兩次 429 3.69 s/頁。Cloudflare
             # 見到「瀏覽器」淨係攞 HTML 唔攞 css／圖，直接當你係 bot。要扮足全套。
         except Exception as exc:  # noqa: BLE001
-            out["sessionError"] = f"single_cdp_connect:{type(exc).__name__}:{exc}"
-            return out
-        await asyncio.gather(*(worker(page, index) for index, page in enumerate(pool)))
+            return {
+                "ok": 0,
+                "fail": 0,
+                "cf": 0,
+                "rateLimited": 0,
+                "retries": [],
+                "sessionError": f"single_cdp_connect:{type(exc).__name__}:{exc}",
+            }
+        out = await run_fetch_pool_with_pages(pending, pages=pool, **kwargs)
         # 收工剩返一條 tab，同單 tab 年代嘅 session 狀態一模一樣。
         for extra in pool[1:]:
             try:
@@ -430,6 +474,7 @@ def main() -> int:
     fail = cf = rate_limited = 0
     results = list(reused_results)
     session_error = None
+    retries: list[dict] = []
     watchdog = {
         "beat": time.monotonic(),
         # Worst legitimate iteration: goto 120s + challenge wait (default
@@ -460,6 +505,7 @@ def main() -> int:
         cf += pool["cf"]
         rate_limited += pool["rateLimited"]
         session_error = pool["sessionError"]
+        retries = pool["retries"]
 
 
     ingest = None
@@ -488,6 +534,7 @@ def main() -> int:
         "tabs": max(1, int(args.workers)),
         "sleepSeconds": max(0.0, float(args.sleep)),
         "elapsedSeconds": round(time.monotonic() - started_monotonic, 1),
+        "retries": retries,
         "sessionError": session_error,
         "resumeReport": str(args.resume_report) if args.resume_report else None,
         "reused": len(reused_results),

@@ -19,6 +19,7 @@ Run: python -X utf8 scripts/test_pc_lane_full_sweep.py
 """
 from __future__ import annotations
 
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -112,6 +113,31 @@ check(
     source.count('cmd.extend(["--workers"'),
     1,
 )
+
+# --- 5. 唔准 route interception 擋走 subresource -------------------------
+# 呢個係反直覺、而且量過先知嘅嘢，所以一定要有閘 —— 淨係寫一段 comment，下一個人
+# （或者下一個 agent）睇見「一版打 31 個 request，我只要 1 個 document」一定會覺得
+# 擋走圖同 css 可以快三倍，然後親手做返一次。
+#
+# 實測 A/B（2026-08-12，同一批 40 張、同一設定 2 分頁 / 3.0s、隔 3 分鐘背對背）：
+#     唔擋：40/40 全清，2.05 s/頁
+#     擋咗：38/40，兩次 429，3.69 s/頁
+# Cloudflare 見到「瀏覽器」淨係攞 HTML 唔攞 css／圖，直接當你係 bot。要扮足全套。
+refresher = (ROOT / "pipelines" / "pc_cdp_sold_refresh_win.py").read_text(encoding="utf-8")
+for banned in ("page.route(", "context.route(", "route.abort("):
+    check(f"refresher 冇用 {banned} 擋 subresource", banned in refresher, False)
+
+# 分頁唔係越多越好：4 分頁 2.78 s/頁，慢過 2 分頁嘅 2.03 s/頁 —— 每食一次 429 就要
+# 全部分頁一齊停 30/60/120 秒。乾淨上限約 0.5 goto/s。改大過呢度就係冇量過就改。
+# 用 regex 唔用 import：refresher module-level 就 import playwright，唔應該因為跑
+# 一條 test 就要成套 browser stack 裝齊。
+def constant(name: str) -> float:
+    match = re.search(rf"^{name} = ([0-9.]+)$", refresher, re.M)
+    return float(match.group(1)) if match else float("nan")
+
+
+check("PC_TABS 冇超出量過嘅範圍", constant("PC_TABS") <= 4, True)
+check("PC_SLEEP_SECONDS 冇低過量過嘅乾淨值", constant("PC_SLEEP_SECONDS") >= 3.0, True)
 
 for line in FAILED:
     print(line)
