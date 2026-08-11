@@ -5,13 +5,26 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 
+ROOT = Path(__file__).resolve().parents[1]
+GUARDRAILS = json.loads(
+    (ROOT / "data" / "policy" / "daily-release-guardrails.json").read_text(
+        encoding="utf-8"
+    )
+)
+if GUARDRAILS.get("contract") != "cardz-daily-release-guardrails-v1":
+    raise RuntimeError("daily release guardrail contract is missing or unsupported")
+PRICE_MAX_AGE_DAYS = max(
+    int(days) for days in GUARDRAILS["priceMaxAgeDaysBySource"].values()
+)
+AWAITING_FRESH_PRICE_MAX_RATIO = float(GUARDRAILS["awaitingFreshPriceMaxRatio"])
 EXPECTED_CARDS = 1322
-EXPECTED_COMPLETE = 1289
+EXPECTED_COMPLETE = int(GUARDRAILS["minimumCompleteCollectorNumbers"])
 TARGET_ID = "cmc_f698284d7bc333408782e4c6"
 TARGET_NUMBER = "170/181"
 
@@ -29,7 +42,7 @@ def validate(snapshot: dict[str, Any], asset_root: Path, now: datetime) -> dict[
     stale = []
     awaiting_price = []
     missing_assets = []
-    cutoff = now - timedelta(days=30)
+    cutoff = now - timedelta(days=PRICE_MAX_AGE_DAYS)
     for card in cards:
         number = card.get("collectorNumber") or {}
         display = str(number.get("display") or "").strip()
@@ -41,24 +54,23 @@ def validate(snapshot: dict[str, Any], asset_root: Path, now: datetime) -> dict[
         else:
             incomplete.append(card)
 
-        as_of = ((card.get("pricePsa10") or {}).get("asOf"))
-        if as_of:
+        price = card.get("pricePsa10") or {}
+        market_cap = card.get("marketCap") or {}
+        as_of = price.get("asOf")
+        safely_unranked = (
+            price.get("value") is None
+            and price.get("status") in {"accumulating", "unavailable"}
+            and int(card.get("marketRank") or 0) == 0
+            and int(card.get("viewRank") or 0) == 0
+            and market_cap.get("value") is None
+            and market_cap.get("status") in {"accumulating", "unavailable"}
+        )
+        if safely_unranked:
+            awaiting_price.append({"id": card.get("id"), "asOf": as_of})
+        elif as_of:
             observed = datetime.fromisoformat(str(as_of).replace("Z", "+00:00"))
             if observed < cutoff:
-                price = card.get("pricePsa10") or {}
-                market_cap = card.get("marketCap") or {}
-                safely_unranked = (
-                    price.get("value") is None
-                    and price.get("status") in {"accumulating", "unavailable"}
-                    and int(card.get("marketRank") or 0) == 0
-                    and int(card.get("viewRank") or 0) == 0
-                    and market_cap.get("value") is None
-                    and market_cap.get("status") in {"accumulating", "unavailable"}
-                )
-                if safely_unranked:
-                    awaiting_price.append({"id": card.get("id"), "asOf": as_of})
-                else:
-                    stale.append({"id": card.get("id"), "asOf": as_of})
+                stale.append({"id": card.get("id"), "asOf": as_of})
 
         image = card.get("image") or {}
         for value in [image.get("src"), *((image.get("variants") or {}).values())]:
@@ -72,7 +84,15 @@ def validate(snapshot: dict[str, Any], asset_root: Path, now: datetime) -> dict[
     if len(incomplete) != EXPECTED_CARDS - EXPECTED_COMPLETE:
         raise AssertionError(f"genuine no-denominator cards={len(incomplete)}, expected=33")
     if stale:
-        raise AssertionError(f"prices older than 30 days: {stale[:10]}")
+        raise AssertionError(
+            f"ranked prices older than {PRICE_MAX_AGE_DAYS} days: {stale[:10]}"
+        )
+    max_awaiting = max(1, math.floor(len(cards) * AWAITING_FRESH_PRICE_MAX_RATIO))
+    if len(awaiting_price) > max_awaiting:
+        raise AssertionError(
+            "awaiting-fresh-price cards exceed committed limit:"
+            f" {len(awaiting_price)} > {max_awaiting}"
+        )
     if missing_assets:
         raise AssertionError(f"missing public assets: {sorted(set(missing_assets))[:10]}")
 
@@ -90,8 +110,9 @@ def validate(snapshot: dict[str, Any], asset_root: Path, now: datetime) -> dict[
         "uniqueIds": len(set(ids)),
         "completeCollectorNumbers": len(complete),
         "genuineNoDenominator": len(incomplete),
-        "stalePricesOver30d": 0,
+        "stalePricesOverPolicy": 0,
         "awaitingFreshPrice": len(awaiting_price),
+        "maximumAwaitingFreshPrice": max_awaiting,
         "target": TARGET_NUMBER,
     }
 
@@ -149,12 +170,35 @@ def self_test() -> None:
     stale_price["top100"][0]["pricePsa10"] = {
         "value": 10,
         "status": "ready",
-        "asOf": (now - timedelta(days=31)).isoformat(),
+        "asOf": (now - timedelta(days=PRICE_MAX_AGE_DAYS + 1)).isoformat(),
     }
     stale_price["top100"][0]["marketCap"] = {"value": 10000, "status": "ready", "asOf": None}
     stale_price["top100"][0]["marketRank"] = 1
     stale_price["top100"][0]["viewRank"] = 1
     cases.append(("stale", stale_price))
+    too_many_waiting = json.loads(json.dumps(document))
+    waiting_limit = max(
+        1,
+        math.floor(EXPECTED_CARDS * AWAITING_FRESH_PRICE_MAX_RATIO),
+    )
+    waiting_cards = [
+        *too_many_waiting["top100"],
+        *too_many_waiting["watchlist"],
+    ][-(waiting_limit + 1):]
+    for waiting_card in waiting_cards:
+        waiting_card["pricePsa10"] = {
+            "value": None,
+            "status": "accumulating",
+            "asOf": (now - timedelta(days=PRICE_MAX_AGE_DAYS + 1)).isoformat(),
+        }
+        waiting_card["marketCap"] = {
+            "value": None,
+            "status": "accumulating",
+            "asOf": None,
+        }
+        waiting_card["marketRank"] = 0
+        waiting_card["viewRank"] = 0
+    cases.append(("awaiting-limit", too_many_waiting))
     for label, broken in cases:
         try:
             validate(broken, Path("."), now)

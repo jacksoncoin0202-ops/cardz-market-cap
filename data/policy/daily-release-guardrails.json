@@ -1,0 +1,10 @@
+{
+  "contract": "cardz-daily-release-guardrails-v1",
+  "priceMaxAgeDaysBySource": {
+    "default": 30,
+    "pricecharting": 40
+  },
+  "rankedDropMaxRatio": 0.02,
+  "awaitingFreshPriceMaxRatio": 0.02,
+  "minimumCompleteCollectorNumbers": 1289
+}

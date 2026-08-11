@@ -17,6 +17,7 @@ import importlib
 import inspect
 import io
 import json
+import math
 import re
 import socket
 import subprocess
@@ -66,7 +67,40 @@ PRUNE_ALLOWLIST = ROOT / "data" / "policy" / "prune-order-allowlist.json"
 FREEZE_PROOF_SCRIPT = ROOT / "scripts" / "prove_writer_freeze.py"
 MYSQL_CONTAINER = "cardz-market-cap-db-1"
 POLICY = {"minPop": 1000, "planVersion": "036"}
-MAX_CURRENT_PRICE_AGE_DAYS = 30
+DAILY_GUARDRAILS_PATH = ROOT / "data" / "policy" / "daily-release-guardrails.json"
+
+
+def _load_daily_guardrails() -> dict[str, Any]:
+    policy = json.loads(DAILY_GUARDRAILS_PATH.read_text(encoding="utf-8"))
+    if policy.get("contract") != "cardz-daily-release-guardrails-v1":
+        raise RuntimeError("daily release guardrail contract is missing or unsupported")
+    ages = policy.get("priceMaxAgeDaysBySource") or {}
+    if int(ages.get("default", 0)) < 1 or int(ages.get("pricecharting", 0)) < 1:
+        raise RuntimeError("daily release guardrail price ages are invalid")
+    for field in ("rankedDropMaxRatio", "awaitingFreshPriceMaxRatio"):
+        value = float(policy.get(field, -1))
+        if not 0 <= value < 1:
+            raise RuntimeError(f"daily release guardrail {field} is invalid")
+    return policy
+
+
+DAILY_GUARDRAILS = _load_daily_guardrails()
+PRICE_MAX_AGE_DAYS_BY_SOURCE = {
+    str(source): int(days)
+    for source, days in DAILY_GUARDRAILS["priceMaxAgeDaysBySource"].items()
+}
+MAX_CURRENT_PRICE_AGE_DAYS = max(PRICE_MAX_AGE_DAYS_BY_SOURCE.values())
+RANKED_DROP_MAX_RATIO = float(DAILY_GUARDRAILS["rankedDropMaxRatio"])
+AWAITING_FRESH_PRICE_MAX_RATIO = float(
+    DAILY_GUARDRAILS["awaitingFreshPriceMaxRatio"]
+)
+
+
+def _price_max_age_days(source_code: Any) -> int:
+    return PRICE_MAX_AGE_DAYS_BY_SOURCE.get(
+        str(source_code or "").strip().lower(),
+        PRICE_MAX_AGE_DAYS_BY_SOURCE["default"],
+    )
 
 MIGRATION_036_FILES = frozenset({
     "036_catalog_provider_capture_receipt.mysql.sql",
@@ -7058,6 +7092,68 @@ def _coverage_diagnosis(cur, variant_ids: list[int]) -> str:
     return "[" + " ".join(lines) + "]" + extra
 
 
+def _previous_ranking_counts(cur: Any) -> dict[str, Any] | None:
+    cur.execute(
+        """
+        SELECT ranking_generation_sha256,
+               COUNT(*) AS accepted,
+               SUM(canonical_market_rank IS NOT NULL) AS ranked
+          FROM market_canonical_metric_acceptance
+         GROUP BY ranking_generation_sha256
+         ORDER BY MAX(accepted_at) DESC
+         LIMIT 1
+        """
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    return {
+        "rankingGenerationSha256": str(row["ranking_generation_sha256"]),
+        "accepted": int(row["accepted"]),
+        "ranked": int(row["ranked"] or 0),
+    }
+
+
+def _assert_ranking_guardrail(
+    *, previous: Mapping[str, Any] | None, ranked: int, accepted: int,
+) -> dict[str, Any]:
+    awaiting = accepted - ranked
+    max_awaiting = max(1, math.floor(accepted * AWAITING_FRESH_PRICE_MAX_RATIO))
+    previous_ranked = None if previous is None else int(previous["ranked"])
+    max_ranked_drop = (
+        None
+        if previous_ranked is None
+        else max(1, math.floor(previous_ranked * RANKED_DROP_MAX_RATIO))
+    )
+    minimum_ranked = (
+        None
+        if previous_ranked is None or max_ranked_drop is None
+        else previous_ranked - max_ranked_drop
+    )
+    if minimum_ranked is not None and ranked < minimum_ranked:
+        raise SystemExit(
+            "daily ranking ABORT: ranked cards fell beyond the committed ratchet:"
+            f" previous={previous_ranked} now={ranked} minimum={minimum_ranked}"
+            f" maxDropRatio={RANKED_DROP_MAX_RATIO:.4f}"
+        )
+    if awaiting > max_awaiting:
+        raise SystemExit(
+            "daily ranking ABORT: awaiting-fresh-price cards exceed the committed limit:"
+            f" awaiting={awaiting} maximum={max_awaiting} accepted={accepted}"
+            f" maxRatio={AWAITING_FRESH_PRICE_MAX_RATIO:.4f}"
+        )
+    return {
+        "previousRanked": previous_ranked,
+        "ranked": ranked,
+        "accepted": accepted,
+        "awaitingFreshPrice": awaiting,
+        "minimumRanked": minimum_ranked,
+        "maximumAwaitingFreshPrice": max_awaiting,
+        "rankedDropMaxRatio": RANKED_DROP_MAX_RATIO,
+        "awaitingFreshPriceMaxRatio": AWAITING_FRESH_PRICE_MAX_RATIO,
+    }
+
+
 def _activation_rank_and_accept(
     cur, ready_ids: list[int], now_str: str,
 ) -> dict[str, Any]:
@@ -7070,7 +7166,8 @@ def _activation_rank_and_accept(
     from decimal import Decimal
 
     ready = set(ready_ids)
-    price_cutoff = datetime.fromisoformat(now_str) - timedelta(days=MAX_CURRENT_PRICE_AGE_DAYS)
+    now_at = datetime.fromisoformat(now_str)
+    previous_ranking = _previous_ranking_counts(cur)
     cur.execute(
         """
         SELECT p.variant_id,p.price_history_acceptance_id,p.price_usd,
@@ -7086,7 +7183,7 @@ def _activation_rank_and_accept(
     latest_price_keys: dict[int, tuple] = {}
     latest_eligible_price: dict[int, dict] = {}
     latest_eligible_price_keys: dict[int, tuple] = {}
-    stale_price: dict[int, str] = {}
+    stale_price: dict[int, dict[str, Any]] = {}
     for raw in cur.fetchall():
         row = dict(raw)
         variant_id = int(row["variant_id"])
@@ -7113,12 +7210,17 @@ def _activation_rank_and_accept(
             or row.get("price_source_observed_at")
         )
         if observed_at is None:
-            stale_price[variant_id] = "missing timestamp"
+            stale_price[variant_id] = {"observedAt": None, "reason": "missing timestamp"}
             continue
         if not isinstance(observed_at, datetime):
             observed_at = datetime.fromisoformat(str(observed_at))
-        if observed_at < price_cutoff:
-            stale_price[variant_id] = observed_at.isoformat(sep=" ")
+        max_age_days = _price_max_age_days(row.get("price_source_code"))
+        if observed_at < now_at - timedelta(days=max_age_days):
+            stale_price[variant_id] = {
+                "source": row.get("price_source_code"),
+                "observedAt": observed_at.isoformat(sep=" "),
+                "maxAgeDays": max_age_days,
+            }
             continue
         if variant_id not in latest_price_keys or winner_key > latest_price_keys[variant_id]:
             latest_price_keys[variant_id] = winner_key
@@ -7172,7 +7274,7 @@ def _activation_rank_and_accept(
         raise SystemExit(
             "S12 ABORT: product_ready coverage incomplete:"
             f" missingPrice={_coverage_diagnosis(cur, missing_price_entirely)}"
-            f" stalePriceOver{MAX_CURRENT_PRICE_AGE_DAYS}d="
+            " stalePriceOverSourcePolicy="
             f"{[(variant_id, stale_price[variant_id]) for variant_id in missing_price if variant_id in stale_price][:20]}"
             f" missingPop={missing_pop[:20]}"
         )
@@ -7215,6 +7317,11 @@ def _activation_rank_and_accept(
         (variant_id, row, cap, None, True)
         for variant_id, row, cap in awaiting_price
     ]
+    ranking_guard = _assert_ranking_guardrail(
+        previous=previous_ranking,
+        ranked=len(ranked),
+        accepted=len(accepted_rows),
+    )
     for variant_id, row, cap, rank, price_pending in accepted_rows:
         metric_lineage_sha = sha256_bytes(canonical_json(
             {
@@ -7234,7 +7341,7 @@ def _activation_rank_and_accept(
         evidence_sha = sha256_bytes(canonical_json(
             {
                 "policy": (
-                    f"language-routed-price-over-{MAX_CURRENT_PRICE_AGE_DAYS}d-awaiting-refresh-v1"
+                    "language-routed-price-over-source-cycle-awaiting-refresh-v2"
                     if price_pending
                     else "language-routed-exact-price-times-exact-gemrate-pop-v1"
                 ),
@@ -7285,6 +7392,7 @@ def _activation_rank_and_accept(
         "ranked": len(ranked),
         "awaitingFreshPrice": len(awaiting_price),
         "rankingGenerationSha256": ranking_generation_sha,
+        "rankedGuard": ranking_guard,
         "ranks": {
             variant_id: rank
             for variant_id, _, _, rank, _ in accepted_rows
@@ -7487,10 +7595,7 @@ def cmd_activate(args: argparse.Namespace) -> int:
             "members": len(ready_ids),
             "populationBridge": bridge,
             "historyAcceptance": history,
-            "canonical": {
-                "accepted": canonical["accepted"],
-                "rankingGenerationSha256": canonical["rankingGenerationSha256"],
-            },
+            "canonical": _canonical_ranking_receipt(canonical),
             "activatedAt": now_str,
         }
         artifact_path = ROOT / "data" / "runtime" / "rebuild-036" / (
@@ -7599,10 +7704,11 @@ DAILY_ACCEPT_CANONICAL_FIELDS = (
     "ranked",
     "awaitingFreshPrice",
     "rankingGenerationSha256",
+    "rankedGuard",
 )
 
 
-def _daily_accept_canonical_receipt(canonical: Mapping[str, Any]) -> dict[str, Any]:
+def _canonical_ranking_receipt(canonical: Mapping[str, Any]) -> dict[str, Any]:
     """Keep every count needed to judge a daily ranking generation.
 
     Direct indexing is deliberate: adding a new acceptance result without one
@@ -7736,7 +7842,7 @@ def cmd_daily_accept(args: argparse.Namespace) -> int:
             "priceQuarantineReleased": released,
             "discoveryGap": discovery_gap,
             "freshness36h": freshness,
-            "canonical": _daily_accept_canonical_receipt(canonical),
+            "canonical": _canonical_ranking_receipt(canonical),
             "acceptedAt": now_str,
         }
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
