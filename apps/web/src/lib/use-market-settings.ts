@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { normaliseCurrency, normaliseLocale, normaliseTheme } from "./format";
 import { cardLanguages } from "./i18n";
 import { marketWindows, type Currency, type Locale, type MarketWindow, type PrintLanguage, type Theme } from "./types";
@@ -17,12 +17,48 @@ export function normalisePrintLang(value: string | null | undefined): PrintLangF
   return cardLanguages.includes(value as PrintLanguage) ? value as PrintLanguage : "all";
 }
 
-function readStoredTheme(): Theme | null {
+/*
+ * 主題係一件 client-only 事實（localStorage + OS 偏好），但 header 係 server render 嘅。
+ *
+ * 原本個寫法喺 `useState` initializer 度讀 localStorage、喺 render body 度讀
+ * `matchMedia`。呢兩句喺 **hydration render** 一樣會行，所以 server 出
+ * `<Moon aria-label="Dark mode">`，而一個 dark 偏好嘅瀏覽器第一次 render 就出
+ * `<Sun aria-label="Light mode">` —— 唔同 element、唔同 aria-label，係 hydration
+ * mismatch，React 會掉咗成個 Header subtree 重畫。
+ *
+ * `useSyncExternalStore` 就係為呢件事而設：hydration render 一定行
+ * `getServerSnapshot`（固定 "light"，同 server 出嗰份 HTML 一致），hydrate 完先
+ * sync 去真實值。同 heatmap.tsx 個 `isMobileTiles` 一模一樣嘅寫法。
+ *
+ * `storage` event 唔會喺自己嗰個 tab 度 fire，所以 same-tab 嘅寫入要自己叫返
+ * subscriber —— 冇呢個 set，撳完 toggle 個 icon 唔會郁。
+ */
+const THEME_KEY = "cardz-theme";
+const darkQuery = "(prefers-color-scheme: dark)";
+const themeListeners = new Set<() => void>();
+
+function subscribeTheme(onChange: () => void): () => void {
+  const media = window.matchMedia(darkQuery);
+  media.addEventListener("change", onChange);
+  window.addEventListener("storage", onChange);
+  themeListeners.add(onChange);
+  return () => {
+    media.removeEventListener("change", onChange);
+    window.removeEventListener("storage", onChange);
+    themeListeners.delete(onChange);
+  };
+}
+
+function readTheme(): Theme {
   try {
-    const stored = window.localStorage.getItem("cardz-theme");
+    const stored = window.localStorage.getItem(THEME_KEY);
     if (stored === "dark" || stored === "light") return stored;
   } catch { /* ignore */ }
-  return null;
+  return window.matchMedia(darkQuery).matches ? "dark" : "light";
+}
+
+function serverTheme(): Theme {
+  return "light";
 }
 
 export function useMarketSettings() {
@@ -34,21 +70,17 @@ export function useMarketSettings() {
   const period = normaliseMarketWindow(params.get("period"));
   const printLang = normalisePrintLang(params.get("printLang"));
   const urlTheme = params.get("theme");
-  const [overrideTheme, setOverrideTheme] = useState<Theme | null>(() =>
-    typeof window === "undefined" ? null : readStoredTheme(),
-  );
-  const theme: Theme = urlTheme ? normaliseTheme(urlTheme)
-    : (overrideTheme
-      ?? (typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
+  const storedTheme = useSyncExternalStore(subscribeTheme, readTheme, serverTheme);
+  const theme: Theme = urlTheme ? normaliseTheme(urlTheme) : storedTheme;
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
   const setTheme = useCallback((nextTheme: Theme) => {
-    try { window.localStorage.setItem("cardz-theme", nextTheme); } catch { /* ignore */ }
-    setOverrideTheme(nextTheme);
-  }, [setOverrideTheme]);
+    try { window.localStorage.setItem(THEME_KEY, nextTheme); } catch { /* ignore */ }
+    for (const notify of themeListeners) notify();
+  }, []);
 
   const update = useCallback((next: { locale?: Locale; currency?: Currency; period?: MarketWindow; theme?: Theme; printLang?: PrintLangFilter }) => {
     if (next.theme) setTheme(next.theme);

@@ -146,6 +146,27 @@ export function formatObservationDate(value: string | null, locale: Locale): str
   }).format(date);
 }
 
+/*
+ * 同一批觀察日期，喺價格圖個軸上面淨係要「月 日」。行返上面同一組規矩（pin UTC +
+ * 經 intlLocale），因為佢讀緊同一批 DATE 值。
+ *
+ * 原本 history-chart.tsx 自己 new 一個 `Intl.DateTimeFormat(locale, …)`，兩樣都做漏：
+ *  1. 冇 timeZone —— AWS（UTC）SSR 出「Jul 10」，America/* 嘅瀏覽器 hydrate 出
+ *     「Jul 9」。軸標籤差一日，兼多兩個 hydration mismatch 節點。
+ *  2. 直接傳 app 嘅 Locale（"en" / "zh-TW"）落 Intl，冇轉做 BCP-47（"en-US" /
+ *     "zh-Hant"）。
+ * 軸標籤揾唔到日期就出空字串（唔係 status.unavailable），因為個位淨係一個刻度。
+ */
+export function formatObservationDayMonth(value: string, locale: Locale): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return "";
+  return new Intl.DateTimeFormat(intlLocale[locale], {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  }).format(date);
+}
+
 export function metricTone(metric: MarketMetric<number>): "positive" | "negative" | "neutral" {
   if (
     (metric.status !== "ready" && metric.status !== "stale") ||

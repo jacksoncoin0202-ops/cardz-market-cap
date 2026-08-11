@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { copy } from "./i18n";
 import { normaliseLocale } from "./format";
+import { plainDescription } from "./plain-text";
 import type { Locale } from "./types";
 
 export type PageSearchParams = Promise<Record<string, string | string[] | undefined>>;
@@ -33,9 +34,17 @@ export function marketMetadata(
   imageAlt = "CardZ Marketcap",
 ): Metadata {
   const images = [{ url: image, width: 1200, height: 630, alt: imageAlt }];
+  /*
+   * description 喺呢度正規化一次，唔喺叫方度做。
+   * 傳入嚟嘅可以係 hero 文案（本身已經係純文字，行完一樣），亦可以係 card 頁嗰篇
+   * markdown 小故事（`/card/[id]/page.tsx:50` 直接遞 `card.story[locale]`）。三個
+   * 出口（`description`、`og:description`、`twitter:description`）用同一個值，所以
+   * 得呢一句就冚到晒；喺叫方逐個做就實有日漏一個。
+   */
+  const summary = plainDescription(description);
   return {
     title,
-    description,
+    description: summary,
     alternates: {
       canonical: localizedPath(path, locale),
       languages: {
@@ -47,8 +56,8 @@ export function marketMetadata(
         "x-default": localizedPath(path, "en"),
       },
     },
-    openGraph: { title, description, siteName: "CardZ Marketcap", type: "website", locale, images },
-    twitter: { card: "summary_large_image", title, description, images },
+    openGraph: { title, description: summary, siteName: "CardZ Marketcap", type: "website", locale, images },
+    twitter: { card: "summary_large_image", title, description: summary, images },
   };
 }
 

@@ -6,10 +6,15 @@
  * stream 內容。後果唔止係詳情頁閃一版榜頁骨架，而係 HTTP status 喺 shell 沖出街
  * 嗰刻就鎖死 200 —— 全 app 任何 `notFound()` 都改唔到 status，實測
  * `/card/does-not-exist` 出 200 配 not-found body。搬入 `(market)` route group
- * 之後，榜頁（`/` `/pokemon` `/one-piece` `/watchlist` `/tune`）骨架照舊，
+ * 之後，榜頁（`/` `/pokemon` `/one-piece` `/tune`）骨架照舊，
  * `/card/[id]` 唔再被包住，`notFound()` 先回到真 404。
  *
+ * `/watchlist` 之後亦都因為同一個理由搬咗出去（`?page=` 出範圍要回 404），
+ * 所以佢已經冇咗骨架。
+ *
  * 加新 route 嗰陣：要骨架就放入 `(market)/`，要控制 status 就放喺外面。
+ * 反過嚟：唔准喺 `app/card/` 或者 `app/watchlist/` 加返 `loading.tsx` —— 加咗
+ * 就靜靜地打返轉頭，兩邊嘅 404 一齊變返 200，而且冇任何嘢會紅。
  */
 export default function Loading() {
   return (

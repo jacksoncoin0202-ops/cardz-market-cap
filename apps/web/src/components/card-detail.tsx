@@ -11,6 +11,7 @@ import { PriceDelta, MetricDelta } from "./rankings";
 import { absolutePublicUrl, StructuredData } from "./structured-data";
 import { copy } from "@/lib/i18n";
 import { formatMetricInteger, formatMetricMoney, formatMoney, formatObservationDate, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
+import { plainDescription } from "@/lib/plain-text";
 import { type MarketViewSnapshot } from "@/lib/types";
 import { useMarketSettings } from "@/lib/use-market-settings";
 
@@ -38,7 +39,12 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
         name: card.officialName || t.status.unavailable,
         identifier: card.collectorNumber,
         image: absolutePublicUrl(card.image.url),
-        description: story || undefined,
+        /*
+         * JSON-LD 唔經 `marketMetadata`，所以要喺呢度自己 normalise 多一次。
+         * 呢個 `description` 同 `<meta>` 嗰個係同一篇故事、同一個消毒規矩，
+         * 唯獨走另一條路出街 —— 漏咗呢句就得 schema.org 嗰邊仲係生 markdown。
+         */
+        description: plainDescription(story ?? "") || undefined,
       },
       {
         "@type": "BreadcrumbList",

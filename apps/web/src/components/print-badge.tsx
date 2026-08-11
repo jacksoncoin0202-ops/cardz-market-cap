@@ -2,8 +2,9 @@ import { copy, localizedCardLanguage } from "@/lib/i18n";
 import type { Locale, MarketCardView } from "@/lib/types";
 
 /*
- * 印刷版本（printing identity）嘅共用顯示件。三個 surface（rankings / card-detail /
- * heatmap facts）全部行呢度，唔准各自砌一套。
+ * 印刷版本（printing identity）嘅共用顯示件。兩個 surface（card-detail 個
+ * identity list、heatmap 彈卡個 CardFacts）全部行呢度，唔准各自砌一套。
+ * 榜頁（rankings）唔畫呢啲欄。
  *
  * 三條硬規矩：
  *  1. 冇值就乜都唔畫 —— 唔准出 `t.status.unavailable`，唔准出空 chip。
@@ -31,19 +32,14 @@ import type { Locale, MarketCardView } from "@/lib/types";
 
 export type PrintIdentityField = "setCode" | "finishCode";
 
-const DEFAULT_FIELDS: PrintIdentityField[] = ["setCode", "finishCode"];
-
-/*
- * 真係出街嗰批欄位。
- * - `parallelCode` 剔走：DB 孖卡 parallel 有反轉，未修好之前唔准畫。
- * - `rarityCode` 剔走：operator 曾把 parallel 誤當 rarity；冇真 rarity 來源前唔准畫。
- * 所有 surface（rankings / card-detail / heatmap）一律傳呢條白名單。
- */
-export const PUBLIC_PRINT_FIELDS: PrintIdentityField[] = ["setCode", "finishCode"];
-
 /*
  * 內頁專用白名單（card-detail identity list ＋ heatmap CardFacts）。
  * 卡包名（editionCode）2026-08-11 收返，理由見上面第 3 條。
+ *
+ * 呢度得一條 list，係特登嘅。之前有三條（`DEFAULT_FIELDS`、`PUBLIC_PRINT_FIELDS`、
+ * `DETAIL_PRINT_FIELDS`），三條嘅內容一模一樣，前兩條零叫方 —— 即係三個名扮住
+ * 「三種 surface 各有各政策」，實情零政策。所以下面 `fields` 冇 default value：
+ * 唔准再有一個「唔傳就自動有」嘅隱形白名單。
  */
 export const DETAIL_PRINT_FIELDS: PrintIdentityField[] = ["setCode", "finishCode"];
 
@@ -62,83 +58,13 @@ function displayableIdentityValue(field: PrintIdentityField, value: string): str
 }
 
 /**
- * 版本 pill（日文版 / 英文版）。`card.cardLanguage` 係 null 就回 `null`。
- * `Copy.languages` 只出裸字（「日文」），所以用 `labels.printLanguage` template 夾。
- */
-export function PrintLanguageBadge({
-  card,
-  locale,
-  compact,
-}: {
-  card: MarketCardView;
-  locale: Locale;
-  compact?: boolean;
-}) {
-  const language = card.cardLanguage;
-  if (!language) return null;
-  const text = copy[locale].labels.printLanguage.replace(
-    "{language}",
-    localizedCardLanguage(language, locale),
-  );
-  const tone = language === "ja" ? "print-badge--ja" : language === "en" ? "print-badge--en" : "";
-  return (
-    <span className={`print-badge${tone ? ` ${tone}` : ""}${compact ? " print-badge--compact" : ""}`}>
-      {text}
-    </span>
-  );
-}
-
-/**
- * 行內 chips（set code / rarity / parallel / finish）。淨係畫有值嘅欄；
- * 一條都冇就回 `null`，唔會留低一個空 `.print-chips` 容器。
- *
- * set code 一定係獨立一粒 chip，唔准同 collector number 串埋一齊出
- * （已出街嘅 One Piece 有 4 張 set_code 同編號前綴唔一致，串埋會似 bug）。
- */
-export function PrintAttributeChips({
-  card,
-  locale,
-  fields = DEFAULT_FIELDS,
-  className,
-}: {
-  card: MarketCardView;
-  locale: Locale;
-  fields?: PrintIdentityField[];
-  className?: string;
-}) {
-  const identity = card.printingIdentity;
-  if (!identity) return null;
-  const chips = fields
-    .map((field) => {
-      const raw = identity[field];
-      if (!raw) return null;
-      const value = displayableIdentityValue(field, raw);
-      return value ? { field, value } : null;
-    })
-    .filter((chip): chip is { field: PrintIdentityField; value: string } => Boolean(chip));
-  if (chips.length === 0) return null;
-  return (
-    <span className={className ? `print-chips ${className}` : "print-chips"}>
-      {chips.map((chip) => {
-        const label = fieldLabel(chip.field, locale);
-        return (
-          <span key={chip.field} className="print-chip" title={label} aria-label={`${label}: ${chip.value}`}>
-            {chip.value}
-          </span>
-        );
-      })}
-    </span>
-  );
-}
-
-/**
  * 畀 `<dl>` 版面（card-detail、heatmap CardFacts）用嘅純數據版。
  * 完全冇資料就回 `[]`，叫方直接唔好畫個 section。
  */
 export function printIdentityRows(
   card: MarketCardView,
   locale: Locale,
-  fields: PrintIdentityField[] = DEFAULT_FIELDS,
+  fields: PrintIdentityField[],
 ): Array<{ key: string; label: string; value: string }> {
   const labels = copy[locale].labels;
   const rows: Array<{ key: string; label: string; value: string }> = [];

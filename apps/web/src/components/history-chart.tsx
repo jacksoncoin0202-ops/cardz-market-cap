@@ -1,7 +1,7 @@
 "use client";
 
 import { copy } from "@/lib/i18n";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, formatObservationDayMonth } from "@/lib/format";
 import { useMarketSettings } from "@/lib/use-market-settings";
 import type { Currency, Locale, PricePoint } from "@/lib/types";
 
@@ -67,10 +67,7 @@ export function HistoryChart({ points, locale, currency, rates }: HistoryChartPr
   const yTicks = Array.from({ length: 4 }, (_, index) => yMin + (yMax - yMin) * index / 3);
   const maxSales = Math.max(1, ...sales.map((point) => point.trackedSalesValueUsd ?? 0));
   const barBand = Math.max(2, Math.min(16, plotWidth / Math.max(1, selected.length) * 0.58));
-  const date = (value: string) => {
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.valueOf()) ? "" : new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }).format(parsed);
-  };
+  const date = (value: string) => formatObservationDayMonth(value, locale);
 
   return (
     <section className="history-panel" aria-labelledby="history-heading">
