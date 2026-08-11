@@ -1,5 +1,10 @@
 # PROJECT_STATE — CARDZ Market Cap
 
+> ⚠️ **2026-08-12：由「Locked baseline」到「2026-08-07 release state」之間全部係歷史記錄，唔係現狀。**
+> 嗰啲章節講 762 卡 / FE02 / generation 033，實際係 **1322 卡 / FE03 / generation 036**。
+> **現狀、每日鏈、閘分級、未完成清單一律睇 [docs/HANDOFF_036_20260812.md](docs/HANDOFF_036_20260812.md)。**
+> 下面保留 025–035 嘅逐代決定，因為佢哋仍然係嗰啲決定嘅唯一記錄。
+
 ## Runtime authority
 
 - Canonical MySQL: Windows `127.0.0.1:3308`.
@@ -70,3 +75,16 @@ There is no QC/finalizer/audit/runbook release layer. Build and run the direct s
 - Migrations are implemented and materialized through 033; the local presentation remains FE02.
 - The 2026-08-07 release snapshot above remains the last public artifact. Local DB schema is now through 035, but 034/035 have not been published.
 - FE02 health readback: 762 cards from Windows DB 3308 with build ID `fe02`.
+
+## 036 / FE03 — 現狀（2026-08-12）
+
+- Generation **036**，presentation **FE03**。**唔准開 037。**
+- Active universe **1322** 張（唔再係 762）。有 PriceCharting 身份 993 張；英文 919/919 = 100%；322 張日文卡 PC 冇貨。
+- Migration 落到 **042**（`042_sale_observation_listing_evidence.mysql.sql`）。
+- 每日三個自動 slot（JST）：03:30 夜鏈 HTTP lanes → 09:30 朝鏈 browser lanes + bake + push `[deploy]` → 11:30 / 16:30 純重試。
+- 真身 tree 係 `cardz-market-cap-fe-db-20260805`；release 由 WSL `~/cardz-market-cap-release-daily` 行，**只睇得到 `origin/main`**。
+- 🔴 **2026-08-31 有一個已知失效**：`MAX_CURRENT_PRICE_AGE_DAYS = 30` 細過 PriceCharting 月線週期，
+  嗰日約 70% 卡會一齊失去排名，而四層閘全部接唔住、receipt 照寫正常。詳情同修法見 handoff §7。
+
+**其餘一切（演化史、六個食過嘅虧、閘 tier 分級、未完成清單、硬規矩）一律以
+[docs/HANDOFF_036_20260812.md](docs/HANDOFF_036_20260812.md) 為準。**
