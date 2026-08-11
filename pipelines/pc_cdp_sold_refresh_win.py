@@ -59,6 +59,15 @@ BACKOFF_LADDER = (30.0, 60.0, 120.0)
 # 429 就要全部分頁一齊停 30/60/120 秒，賺嘅嘢蝕晒。
 PC_TABS = 2
 PC_SLEEP_SECONDS = 3.0
+# 邊個 status 由邊個 counter 記住。撤銷一個判死嗰陣要減返啱嗰幾個 —— 呢個表存在
+# 嘅原因就係曾經「加嘅時候加兩個、減嘅時候減錯一個」，令 fail 少報咗一個。
+FAILURE_COUNTERS = {
+    "rate_limited": ("fail", "rateLimited"),
+    "cf_or_fail": ("cf",),
+    "server_error": ("fail",),
+}
+DEFAULT_FAILURE_COUNTERS = ("fail",)
+RETRYABLE_STATUSES = ("rate_limited", "cf_or_fail", "server_error")
 
 
 def utc_now() -> str:
@@ -152,6 +161,13 @@ async def run_fetch_pool_with_pages(
     993 張入面撞到一兩次 429 幾乎係必然（實測率 0.2%），即係無人睇住嘅話呢條
     lane 日日都會咁死。而個共用 backoff 本來就已經等咗 30/60/120 秒 —— 等完之後
     唔重試返嗰張卡，等於白等。擺落隊尾係最疏嘅間隔（成隊行晒先輪到佢）。
+
+    上游 5xx 一樣要重試。2026-08-12 第二轉全量：429 全部重試成功（rateLimited 0），
+    但 **10 版一次過回 HTTP 500**（同一個 5189 bytes error page，vid 1009–1093），
+    而嗰 10 條 URL 40 分鐘之前先啱啱成功過 —— 純粹上游一陣間唔得。舊版將佢跌落
+    `product_id_mismatch`（500 個頁冇 product-id，identity 梗係唔過），而個 status
+    係終局判決，於是 983 版好頁又一次全部作廢。5xx 唔用共用 backoff：佢係單版嘢壞，
+    唔係成個 IP 俾人限速。
     """
     out: dict = {"ok": 0, "fail": 0, "cf": 0, "rateLimited": 0, "sessionError": None}
     queue: asyncio.Queue = asyncio.Queue()
@@ -260,18 +276,21 @@ async def run_fetch_pool_with_pages(
             else:
                 temporary.unlink(missing_ok=True)
                 if code == 429:
-                    out["rateLimited"] += 1
-                    out["fail"] += 1
                     status = "rate_limited"
                 elif blocked:
-                    out["cf"] += 1
                     status = "cf_or_fail"
+                elif code is not None and code >= 500:
+                    # 上游 5xx 唔係「我哋張 map 錯」，係佢哋伺服器嗰陣唔得。分開一個
+                    # status 嚟講，係因為舊版將佢跌落 product_id_mismatch（500 個頁
+                    # 冇 product-id，identity 一定唔過），而 product_id_mismatch 係
+                    # 終局判決 —— 即係上游打個乞嚏就報「我哋認錯咗卡」。
+                    status = "server_error"
                 elif identity_ok and not explicit_psa10_ok:
-                    out["fail"] += 1
                     status = "explicit_psa10_missing"
                 else:
-                    out["fail"] += 1
                     status = "product_id_mismatch" if not identity_ok else "http_or_content_fail"
+                for key in FAILURE_COUNTERS.get(status, DEFAULT_FAILURE_COUNTERS):
+                    out[key] += 1
             results.append({
                 "variant_id": row.get("variant_id"),
                 "status": status,
@@ -291,24 +310,28 @@ async def run_fetch_pool_with_pages(
                 f"len={len(html)} code={code} tab={tab_index}",
                 flush=True,
             )
-            if status in ("rate_limited", "cf_or_fail"):
-                delay = BACKOFF_LADDER[min(throttle["level"], len(BACKOFF_LADDER) - 1)]
-                throttle["level"] += 1
-                throttle["until"] = max(throttle["until"], time.monotonic() + delay)
+            if status in RETRYABLE_STATUSES:
+                if status == "server_error":
+                    # 5xx 係單版嘢壞，唔係成個 IP 俾人限速 —— 停晒全部分頁冇意思，
+                    # 而且 10 版 500 × 3 次重試 × 30/60/120s 會白白蝕半個鐘。擺落
+                    # 隊尾等成隊行完先再試，本身已經係最疏嘅間隔。
+                    delay = 0.0
+                else:
+                    delay = BACKOFF_LADDER[min(throttle["level"], len(BACKOFF_LADDER) - 1)]
+                    throttle["level"] += 1
+                    throttle["until"] = max(throttle["until"], time.monotonic() + delay)
                 requeued = attempt + 1 <= len(BACKOFF_LADDER)
                 if requeued:
                     # 呢一筆唔算數：撤返啱先加落 out 同 results 嗰個判死，擺返落隊尾。
                     results.pop()
-                    out["fail"] -= 1
-                    if status == "rate_limited":
-                        out["rateLimited"] -= 1
-                    else:
-                        out["cf"] -= 1
+                    for key in FAILURE_COUNTERS.get(status, DEFAULT_FAILURE_COUNTERS):
+                        out[key] -= 1
                     counter["done"] -= 1
                     retried.append({"variant_id": row.get("variant_id"), "attempt": attempt + 1, "status": status})
                     queue.put_nowait((index, row, attempt + 1))
                 print(
-                    f"backoff {delay:.0f}s (all tabs) after {status} vid={row.get('variant_id')}"
+                    f"{f'backoff {delay:.0f}s (all tabs)' if delay else 'no backoff (upstream 5xx)'}"
+                    f" after {status} vid={row.get('variant_id')}"
                     f"{f'; requeued attempt {attempt + 2}' if requeued else '; giving up'}",
                     flush=True,
                 )

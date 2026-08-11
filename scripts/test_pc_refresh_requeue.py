@@ -67,10 +67,13 @@ class FakePage:
         vid = url.rsplit("/", 1)[-1]
         self.seen.append(vid)
         codes = self.script.get(vid) or [200]
-        return FakeResponse(codes.pop(0) if len(codes) > 1 else codes[0])
+        token = codes.pop(0) if len(codes) > 1 else codes[0]
+        # "cf" = 頁面回 200 但係 Cloudflare 攔截頁，同 429 / 5xx 唔同 counter。
+        self._cf = token == "cf"
+        return FakeResponse(200 if self._cf else token)
 
     async def content(self):
-        return html_for(self._current)
+        return html_for(self._current) + ("CFBLOCK" if self._cf else "")
 
     async def title(self):
         return "Test Card PSA 10 Prices"
@@ -116,7 +119,7 @@ def rows_for(vids, tmpdir: Path):
 def main() -> int:
     mod.BACKOFF_LADDER = (0.01, 0.02, 0.03)
     mod.validate_pc_psa10 = lambda _row: (1.0, "ok")
-    mod._is_cf = lambda _title, _html: False
+    mod._is_cf = lambda _title, html: "CFBLOCK" in html
 
     tmpdir = Path(tempfile.mkdtemp(prefix="pc_requeue_", dir=str(ROOT / "temp")))
     try:
@@ -135,6 +138,22 @@ def main() -> int:
         check("報告有留低重試紀錄", len(out["retries"]), 1)
         check("results 冇留低撤咗嗰筆判死", len(results), len(vids))
         check("results 全部 ok", sorted(r["status"] for r in results), ["ok"] * len(vids))
+
+        # 上游 5xx：同一形狀，一樣要重試。2026-08-12 實測 10 版一次過回 500，
+        # 而嗰 10 條 URL 40 分鐘前先成功過 —— 純粹上游一陣間唔得。舊版將佢當
+        # product_id_mismatch（終局判決），983 版好頁一齊作廢。
+        out5, seen5, _ = asyncio.run(drive(rows_for(["s"], tmpdir), {"s": [500, 200]}))
+        check("上游 5xx 重試之後全清", out5["ok"], 1)
+        check("上游 5xx 唔算 fail", out5["fail"], 0)
+        check("上游 5xx 真係再行過", seen5.count("s"), 2)
+        check("5xx 有入重試紀錄", [r["status"] for r in out5["retries"]], ["server_error"])
+
+        # CF 撤銷判死只准減 cf，唔准掂 fail —— 加嘅時候只加咗 cf。舊版兩個都減，
+        # 令 fail 少報一個（實測 10 個 product_id_mismatch 報咗 9）。
+        outc, _, _ = asyncio.run(drive(rows_for(["k"], tmpdir), {"k": ["cf", 200]}))
+        check("CF 重試之後全清", outc["ok"], 1)
+        check("CF 重試唔准掂 fail counter", outc["fail"], 0)
+        check("CF 重試撤返 cf counter", outc["cf"], 0)
 
         # 一路 429 就要停：唔准無限重試。ladder 3 級 = 最多 3 次重試。
         out2, seen2, _ = asyncio.run(drive(rows_for(["z"], tmpdir), {"z": [429]}))
