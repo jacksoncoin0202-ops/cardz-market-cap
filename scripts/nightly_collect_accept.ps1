@@ -16,7 +16,10 @@ $log = Join-Path $logDir "nightly-$stamp.log"
 Set-Location $repo
 "[$stamp] nightly chain start" | Tee-Object -FilePath $log -Append
 
-& $py -X utf8 -u "pipelines\collect_control.py" incr --adapter snk_trades --adapter snk_price --adapter gemrate_pop *>> $log
+# `--adapter http` = ADAPTER_NEEDS_BROWSER 入面 False 嗰批，唔再喺呢度抄名單。
+# 舊版逐個名寫死，漏咗 snk_en_image：佢一樣係純 HTTP，但夜鏈朝鏈都冇佢，
+# 由註冊嗰日起冇任何 scheduled task 收過，實測 stale 99 小時。
+& $py -X utf8 -u "pipelines\collect_control.py" incr --adapter http *>> $log
 $collectExit = $LASTEXITCODE
 if ($collectExit -ne 0) {
     "[$stamp] nightly collect failed exit=$collectExit; daily-accept not run" | Tee-Object -FilePath $log -Append

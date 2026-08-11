@@ -24,7 +24,10 @@ if ($cdpExit -ne 0) {
     exit 1
 }
 
-& $py -X utf8 -u "pipelines\collect_control.py" incr --adapter en_price_ref --adapter pc_ebay_sales --ensure-browser *>> $log
+# `--adapter browser` = ADAPTER_NEEDS_BROWSER 入面 True 嗰批。同夜鏈嗰邊
+# `--adapter http` 合埋一定覆蓋晒 CHECKPOINT_ADAPTERS，新 adapter 唔會再漏喺
+# 兩張硬編名單之間。
+& $py -X utf8 -u "pipelines\collect_control.py" incr --adapter browser --ensure-browser *>> $log
 $collectExit = $LASTEXITCODE
 if ($collectExit -ne 0) {
     "[$stamp] morning collect failed exit=$collectExit; daily-accept not run" | Tee-Object -FilePath $log -Append
