@@ -141,11 +141,30 @@ for (const card of [...snapshot.top100, ...snapshot.watchlist]) {
   }
 }
 
+// CARDZ_PYTHON is the same name scripts/run-python.mjs, scripts/backend.sh and
+// pipelines/run_daily.ps1 already use.
+const python = process.env.CARDZ_PYTHON ?? (process.platform === "win32" ? "python" : "python3");
+
+// Prune is only half the job: assets also have to arrive. A newly accepted
+// canonical image lands private-only (market_image_asset.private_object_key),
+// and nothing in the release chain ever copied it into data/public -- which is
+// why 2026-08-11's 677 fresh SNK EN images took 28 ranked cards off the board.
+// Runs against CARDZ_REPO_ROOT, not ROOT: in the daily chain this script is the
+// release checkout's copy, but the DB, the private bytes and the market-assets
+// that sync_public_release_assets.py reads all live in the source repo.
+const SOURCE_ROOT = process.env.CARDZ_REPO_ROOT;
+const materialized = spawnSync(python, [
+  "-X", "utf8", join(SOURCE_ROOT, "scripts", "materialize_public_assets.py"),
+  "--snapshot", OUTPUT,
+  "--assets", join(SOURCE_ROOT, "data", "public", "market-assets"),
+], { cwd: SOURCE_ROOT, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" });
+if (materialized.status !== 0) {
+  process.stderr.write(`${materialized.stdout ?? ""}${materialized.stderr ?? ""}`);
+  throw new Error("bake failed: snapshot names images that are not on the public path");
+}
+
 let prune = { skipped: true };
 if (!process.argv.includes("--no-prune")) {
-  // CARDZ_PYTHON is the same name scripts/run-python.mjs, scripts/backend.sh and
-  // pipelines/run_daily.ps1 already use.
-  const python = process.env.CARDZ_PYTHON ?? (process.platform === "win32" ? "python" : "python3");
   const moved = spawnSync(python, ["-X", "utf8", join(ROOT, "scripts", "prune_public_assets.py"), "--snapshot", OUTPUT], {
     cwd: ROOT,
     stdio: ["ignore", "pipe", "pipe"],
@@ -168,5 +187,6 @@ process.stdout.write(`${JSON.stringify({
   sha256: createHash("sha256").update(body).digest("hex"),
   referencedAssets: assets.size,
   gate,
+  materialize: JSON.parse(materialized.stdout),
   prune,
 }, null, 2)}\n`);

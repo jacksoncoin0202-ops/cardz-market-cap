@@ -28,12 +28,6 @@ function repoRoot(): string {
     : cwd;
 }
 
-function marketAssetExists(filename: string): boolean {
-  const { existsSync } = require("node:fs") as typeof import("node:fs");
-  const { resolve } = require("node:path") as typeof import("node:path");
-  return existsSync(resolve(repoRoot(), "data/public/market-assets", filename));
-}
-
 function loadDbEnvironment(): void {
   if (process.env.CARDZ_DB_PASSWORD && process.env.CARDZ_DB_USER && process.env.CARDZ_DB_NAME) return;
   const { readFileSync } = require("node:fs") as typeof import("node:fs");
@@ -442,17 +436,17 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       const locale = locales.get(variantId) ?? { names: localized(), sets: localized(), stories: localized(), observedAt: null };
       if (canonicalName) for (const code of LOCALES) locale.names[code] = canonicalName;
       const image = images.get(variantId);
-      const canonicalImageHash = String(image?.canonical_image_content_sha256 ?? "");
-      const imageHash = canonicalImageHash && marketAssetExists(`${canonicalImageHash}.webp`)
-        ? canonicalImageHash
-        : "";
+      // 出 DB 講嘅 canonical sha，唔好去 data/public/market-assets 度摸有冇檔。
+      // 新收嘅圖一定係 private-only（2026-08-11 collect_control:snk_en_image 一次過
+      // accept 咗 677 張，bytes 喺 data/runtime/operator/snk-en-assets/），要靠
+      // scripts/materialize_snapshot_assets.py 抄過去再 rebase 做 public hash。
+      // 舊寫法喺呢度摸唔到檔就靜靜寫 "" —— 即係「啱啱收到嘅新圖」變成「冇圖」，
+      // 榜面出 placeholder，materialize 連機會都冇。實測跌咗 28 張出街卡
+      // （rank 14/55/58…）。摸唔到檔要 materialize 嗰度嗌，唔係喺呢度靜靜降級。
+      const imageHash = String(image?.canonical_image_content_sha256 ?? "");
       const imageVariants = imageHash ? {
-        ...(marketAssetExists(`${imageHash}_200.webp`)
-          ? { "200": `/market-assets/${imageHash}_200.webp` }
-          : {}),
-        ...(marketAssetExists(`${imageHash}_600.webp`)
-          ? { "600": `/market-assets/${imageHash}_600.webp` }
-          : {}),
+        "200": `/market-assets/${imageHash}_200.webp`,
+        "600": `/market-assets/${imageHash}_600.webp`,
       } : undefined;
       const currentPrice = numberValue(row.psa10_price_usd);
       const currentPopulation = numberValue(row.psa10_population);

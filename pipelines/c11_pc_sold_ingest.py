@@ -27,7 +27,7 @@ import re
 import sys
 from collections import Counter, defaultdict
 from datetime import date, datetime, time, timezone
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -35,6 +35,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
 from failure_ledger import record_failure, record_resolution  # noqa: E402
+from pc_sale_identity import pc_sale_fingerprint, pc_sale_price_text  # noqa: E402
 from pricecharting_page_parse import parse_product_html  # noqa: E402
 
 # The consolidated map every other reader uses (collect_control, pc_cdp_sold_refresh_win,
@@ -50,8 +51,6 @@ SOURCE_CODE = "pricecharting"
 GRADER = "psa"
 GRADE = "10"
 ACCEPTED = "partial"
-CENT = Decimal("0.000001")
-PSA10_RE = re.compile(r"\bPSA\s*10\b", re.IGNORECASE)
 OTHER_GRADE_RE = re.compile(r"\b(?:BGS|CGC|SGC|TAG)\s*10\b", re.IGNORECASE)
 RAW_RE = re.compile(r"\b(?:raw|ungraded|proxy|orica|reprint)\b", re.IGNORECASE)
 BUNDLE_RE = re.compile(r"\b(?:lot|bundle|set of|x\s*\d+)\b", re.IGNORECASE)
@@ -93,10 +92,6 @@ def db():
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def money(value: Decimal) -> str:
-    return str(value.quantize(CENT, rounding=ROUND_HALF_UP))
 
 
 def sha256_text(value: str) -> str:
@@ -272,6 +267,7 @@ def verify_sale(
 ) -> dict[str, Any] | None:
     title = str(sale.get("title") or "").strip()
     itm = str(sale.get("ebay_itm") or "").strip()
+    url = str(sale.get("ebay_url") or "").strip()
     price = sale.get("price_usd")
     date_text = str(sale.get("date") or "").strip()
     if not title or not itm or not re.fullmatch(r"\d{9,15}", itm):
@@ -287,9 +283,17 @@ def verify_sale(
     if OTHER_GRADE_RE.search(title) or RAW_RE.search(title):
         stats["reject_grade_conflict"] += 1
         return None
-    if not PSA10_RE.search(title):
-        stats["reject_not_psa10"] += 1
-        return None
+    # No `PSA 10` check on the title. These rows come out of PriceCharting's own
+    # completed-auctions-manual-only div -- that div IS the PSA 10 tab, so the
+    # source has already decided the grade, and re-deriving it from free-text
+    # seller copy can only lose rows. Measured over the 1,936 saved product
+    # pages in data/private/pricecharting_session/html/full900: 439 of the
+    # 41,450 rows that survive the checks below carry no literal "PSA 10" in
+    # their title (1.06%). They are not other grades -- they are sellers who
+    # wrote "PSA GEM MINT 10", "PSA GRADE 10", or no grade at all
+    # ("Electrode 101/165 | SV - MEW en: 151 | Holo - English | Pokemon NM").
+    # OTHER_GRADE_RE / RAW_RE / BUNDLE_RE stay: those catch titles that
+    # contradict the tab (a BGS 10, a raw copy, a lot), which is a real signal.
     if BUNDLE_RE.search(title):
         stats["reject_bundle"] += 1
         return None
@@ -321,9 +325,7 @@ def verify_sale(
         stats["reject_no_product"] += 1
         return None
     external = str(int(product_id))
-    fp = sha256_text(
-        f"pc|{product_id}|{GRADER}|{GRADE}|{date_text}|{money(unit)}|{itm}"
-    )
+    fp = pc_sale_fingerprint(product_id, date_text, unit, itm)
     payload = {
         "transport": "pricecharting_c11",
         "pc_product_id": int(product_id),
@@ -342,6 +344,7 @@ def verify_sale(
         "unit_price_usd": unit,
         "payload_sha256": sha256_text(json.dumps(payload, sort_keys=True)),
         "ebay_itm": itm,
+        "ebay_url": url,
         "title": title,
     }
 
@@ -630,10 +633,13 @@ def write_sales(conn, sales: list[dict[str, Any]], map_path: Path) -> dict[str, 
                 s["source_date_text"],
                 fetched_at,
                 "exact_date",
-                money(s["unit_price_usd"]),
-                money(s["unit_price_usd"]),
+                pc_sale_price_text(s["unit_price_usd"]),
+                pc_sale_price_text(s["unit_price_usd"]),
                 s["payload_sha256"],
                 ACCEPTED,
+                s["ebay_itm"][:32],
+                s["ebay_url"][:512],
+                s["title"][:255],
             )
             for s in new_sales
         ]
@@ -645,8 +651,9 @@ def write_sales(conn, sales: list[dict[str, Any]], map_path: Path) -> dict[str, 
                 INSERT INTO market_sale_observation
                     (run_id, variant_id, source_code, external_entity_id, transaction_fingerprint,
                      grader_code, grade_label, sold_at, source_date_text, fetched_at, timestamp_quality,
-                     unit_price_usd, quantity, transaction_value_usd, source_payload_sha256, coverage_status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s, %s)
+                     unit_price_usd, quantity, transaction_value_usd, source_payload_sha256, coverage_status,
+                     listing_item_id, listing_url, listing_title)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s, %s, %s, %s, %s)
                 """,
                 payload[i : i + chunk],
             )

@@ -30,6 +30,7 @@ from typing import Any, Callable, Mapping
 import pymysql
 
 from identity_name import complete_collector_number, complete_collector_tail
+from pc_sale_identity import pc_sale_fingerprint, pc_sale_price_text
 
 ROOT = Path(__file__).resolve().parents[1]
 GENERATION_RE = re.compile(r"^036_\d{8}T\d{6}Z$")
@@ -3713,7 +3714,7 @@ def stage_price_materialize(ctx: SimpleNamespace) -> dict[str, Any]:
     (there is deliberately no bookkeeping table for it)."""
 
     from datetime import date as dt_date, datetime, time as dt_time, timezone
-    from decimal import Decimal, ROUND_HALF_UP
+    from decimal import Decimal
 
     import ingest_snk_trades_sales as snk_sales
     import snk_market_data
@@ -3863,12 +3864,13 @@ def stage_price_materialize(ctx: SimpleNamespace) -> dict[str, Any]:
                 continue
             if price_usd <= 0:
                 continue
-            unit = Decimal(str(price_usd)).quantize(
-                Decimal("0.01"), rounding=ROUND_HALF_UP
-            )
-            fingerprint = sha256_bytes(
-                f"pc|{chosen}|psa|10|{date_text}|{unit}|{itm}".encode("utf-8")
-            )
+            # Both this leg and the daily c11 lane land the same physical sales,
+            # so the fingerprint recipe lives in exactly one module. This used to
+            # quantize to Decimal("0.01") while c11 quantized to six places, and
+            # the two spellings of the same $65.00 produced two fingerprints and
+            # two rows for one eBay item id.
+            unit = pc_sale_price_text(price_usd)
+            fingerprint = pc_sale_fingerprint(chosen, date_text, price_usd, itm)
             payload = {
                 "transport": "pricecharting_replay_036",
                 "pc_product_id": int(chosen),
@@ -3888,8 +3890,11 @@ def stage_price_materialize(ctx: SimpleNamespace) -> dict[str, Any]:
                 ),
                 "sourceDateText": date_text[:100],
                 "fetchedAt": page["capturedAt"],
-                "unitPriceUsd": str(unit),
+                "unitPriceUsd": unit,
                 "payloadSha256": sha256_bytes(canonical_json(payload)),
+                "listingItemId": itm[:32],
+                "listingUrl": str(sale.get("ebay_url") or "")[:512],
+                "listingTitle": str(sale.get("title") or "")[:255],
             })
     counts["pcHistoryRows"] = len(history_rows)
     counts["pcSaleRowsSeen"] = len(pc_sale_candidates)
@@ -3952,6 +3957,7 @@ def stage_price_materialize(ctx: SimpleNamespace) -> dict[str, Any]:
                         row["soldAt"], row["sourceDateText"], row["fetchedAt"],
                         "exact_date", row["unitPriceUsd"], row["unitPriceUsd"],
                         row["payloadSha256"], "partial",
+                        row["listingItemId"], row["listingUrl"], row["listingTitle"],
                     )
                     for row in new_sales
                 ]
@@ -3963,9 +3969,10 @@ def stage_price_materialize(ctx: SimpleNamespace) -> dict[str, Any]:
                         "  sold_at, source_date_text, fetched_at,"
                         "  timestamp_quality, unit_price_usd, quantity,"
                         "  transaction_value_usd, source_payload_sha256,"
-                        "  coverage_status)"
+                        "  coverage_status, listing_item_id, listing_url,"
+                        "  listing_title)"
                         " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
-                        "  %s, 1, %s, %s, %s)",
+                        "  %s, 1, %s, %s, %s, %s, %s, %s)",
                         rows[offset:offset + 400],
                     )
                 cursor.execute(
