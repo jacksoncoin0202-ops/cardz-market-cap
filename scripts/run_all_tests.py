@@ -43,6 +43,13 @@ SELF_TEST_ENTRIES: dict[str, list[str]] = {
     "tag_daily_capture.py": ["--self-test"],
 }
 
+# Script-side self-tests do not match either test_*.py or pipeline discovery.
+# Keep them explicit for the same reason as SELF_TEST_ENTRIES: an uncalled
+# negative self-test is not a guard.
+SCRIPT_SELF_TEST_ENTRIES: dict[str, list[str]] = {
+    "validate_daily_release.py": ["--self-test"],
+}
+
 # 要連 3308 先跑得嘅入口。--no-db 淨係跳過呢啲，其餘照跑。
 NEEDS_DB = {"db_runtime.py"}
 
@@ -132,6 +139,12 @@ def main() -> int:
             continue
         argv = [PY, "-X", "utf8", str(ROOT / "pipelines" / module)]
         argv += SELF_TEST_ENTRIES[module]
+        results.append((label, *_run(label, argv, args.timeout)))
+
+    for script in sorted(SCRIPT_SELF_TEST_ENTRIES):
+        label = f"scripts/{script}:self-test"
+        argv = [PY, "-X", "utf8", str(ROOT / "scripts" / script)]
+        argv += SCRIPT_SELF_TEST_ENTRIES[script]
         results.append((label, *_run(label, argv, args.timeout)))
 
     for path in sorted((ROOT / "scripts").glob("test_*.py")):
