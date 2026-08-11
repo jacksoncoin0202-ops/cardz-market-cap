@@ -68,6 +68,12 @@ guards automatically before bake, and keep the 036 / FE03 public contract.
   whose fixtures intentionally live under ignored machine-private roots. The
   collector now waits for the same page to settle; the runner reports only the
   three named fixture tests as SKIP when their exact fixtures are absent.
+- The completed second morning run collected all 993 PriceCharting pages and
+  accepted all 1,322 universe members (1,314 ranked, 8 awaiting fresh price).
+  Its publish-only tail exposed one narrower fixture declaration: the identity
+  discovery test derives the red quarantine from ignored
+  `psa-identity-repair-034/audit.json`, so that exact file—not a broader HTML
+  directory—is its clean-release prerequisite.
 
 ## Validation
 

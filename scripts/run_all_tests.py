@@ -71,7 +71,8 @@ SCRIPT_REQUIRES_PATH: dict[str, Path] = {
         / "card_details.raw.receipt.json"
     ),
     "test_pc_identity_discover_rules.py": (
-        ROOT / "data" / "private" / "pricecharting_session" / "html" / "full900"
+        ROOT / "data" / "runtime" / "operator" / "psa-identity-repair-034"
+        / "audit.json"
     ),
     "test_pc_sale_identity.py": (
         ROOT / "data" / "private" / "pricecharting_session" / "html" / "full900"
