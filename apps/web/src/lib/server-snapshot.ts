@@ -140,7 +140,12 @@ export function scopeSnapshot(
     return { ...snapshot, coverage: scopedCoverage(cards.length), top100: cards, watchlist: [] };
   }
   if (scope === "watchlist") {
-    const all = canonical.filter((card) => card.marketRank >= 101 || card.marketRank === 0);
+    /*
+     * Owner 政策（2026-08-11）：watchlist 只擺 rank 101–300，多過 300 嘅唔處理。
+     * Rank 0（awaiting fresh price 嘅 unranked 卡）一齊唔出——佢哋冇市值席位，
+     * 唔屬於 101–300 呢個範圍；卡頁照舊經 /card/<id> 直接到達。
+     */
+    const all = canonical.filter((card) => card.marketRank >= 101 && card.marketRank <= 300);
     const pageSize = Math.min(Math.max(Math.trunc(options?.pageSize ?? 200), 1), 500);
     const pageCount = Math.max(Math.ceil(all.length / pageSize), 1);
     const page = Math.min(Math.max(Math.trunc(options?.page ?? 1), 1), pageCount);
