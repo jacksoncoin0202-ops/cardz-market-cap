@@ -79,12 +79,21 @@ function nearestPrice(
   history: DailyHistoryPoint[],
   targetMs: number,
   toleranceDays: number,
+  beforeMs: number,
 ): DailyHistoryPoint | null {
   let winner: DailyHistoryPoint | null = null;
   let winnerDelta = Number.POSITIVE_INFINITY;
   for (const point of history) {
     if (point.priceUsd === null) continue;
-    const delta = Math.abs(new Date(point.at).valueOf() - targetMs) / 86_400_000;
+    const at = new Date(point.at).valueOf();
+    // 錨必須嚴格舊過而家嗰個 as-of。1d 個 tolerance 係 2 日（下面 :126）而
+    // daysBack 得 1 日，所以卡自己嗰個 current price point 落喺錨嘅容忍窗入面
+    // （delta 啱啱好 1.0）—— 冇更近嘅舊點嗰陣佢就贏，變成攞自己同自己比，
+    // 出一個 status:"ready" 嘅 0.00%。實測 393 張卡（372 pricecharting + 21
+    // snkrdunk）就係咁，錨價同頭條價 byte 相同。我哋冇嗰 24 小時嘅證據，就唔應該
+    // 出嗰個數。
+    if (at >= beforeMs) continue;
+    const delta = Math.abs(at - targetMs) / 86_400_000;
     if (delta <= toleranceDays && delta < winnerDelta) {
       winner = point;
       winnerDelta = delta;
@@ -124,7 +133,7 @@ function windowMetrics(
   const currentCap = currentPrice === null || currentPopulation === null ? null : currentPrice * currentPopulation;
   return Object.fromEntries(Object.entries(WINDOWS).map(([code, daysBack]) => {
     const tolerance = code === "1d" ? 2 : code === "7d" ? 3 : 5;
-    const anchor = nearestPrice(history, currentMs - daysBack * 86_400_000, tolerance);
+    const anchor = nearestPrice(history, currentMs - daysBack * 86_400_000, tolerance, currentMs);
     const priceChange = percentage(currentPrice, anchor?.priceUsd ?? null);
     const anchorSource = (anchor as (DailyHistoryPoint & { priceSourceCode?: string | null }) | null)?.priceSourceCode ?? null;
     const sourceSwitched = Boolean(anchorSource && currentSource && anchorSource !== currentSource);
@@ -451,7 +460,11 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       const awaitingFreshPrice = canonicalRank === 0;
       const priceAsOf = iso(row.price_observed_date) ?? iso(row.price_effective_at);
       const populationAsOf = iso(row.population_effective_at);
-      const effectiveAt = [priceAsOf, populationAsOf].filter(Boolean).sort().at(-1) ?? null;
+      // 市值 = 價 × POP（rebuild_036.py:7176），所以佢只可以同兩個輸入入面**舊**
+      // 嗰個一樣新。舊版攞 .at(-1)（max），即係用 POP 嘅新鮮度去標一個食緊 08-01
+      // 價嘅市值：1100/1322 張卡（914 PC + 186 SNK）POP 係 08-10/08-11，價係 08-01，
+      // 個市值就掛住 08-11 出街。改做 .at(0)。
+      const effectiveAt = [priceAsOf, populationAsOf].filter(Boolean).sort().at(0) ?? null;
       const historyDrafts = [...(histories.get(variantId)?.values() ?? [])]
         .sort((a, b) => a.at.localeCompare(b.at));
       const history = historyDrafts
@@ -549,7 +562,10 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       };
     });
 
-    const evidenceTimes = coreRows.flatMap((row) => [iso(row.metric_accepted_at), iso(row.price_observed_date), iso(row.population_effective_at)]).filter((value): value is string => Boolean(value));
+    // metric_accepted_at 係 daily-accept 落筆嗰刻嘅 wall clock，唔係證據時間 ——
+    // 佢一路都係三個入面最大嗰個，所以 snapshot 個 effectiveAt 實質等於「我幾時
+    // 跑咗 accept」，同數據幾新冇關。剩返兩個先係真證據時間。
+    const evidenceTimes = coreRows.flatMap((row) => [iso(row.price_observed_date), iso(row.population_effective_at)]).filter((value): value is string => Boolean(value));
     const effectiveAt = evidenceTimes.sort().at(-1) ?? new Date().toISOString();
     const fx = new Map(fxRows[0].map((row) => [String(row.quote_currency).toUpperCase(), row]));
     const rate = (code: string): MarketMetric => {
