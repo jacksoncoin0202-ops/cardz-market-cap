@@ -410,6 +410,11 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
         INNER JOIN market_price_observation price ON history.source_record_type='market_price_observation'
           AND history.source_record_id=price.id AND history.variant_id=price.variant_id
         WHERE history.metric_kind='psa10_price' AND history.variant_id IN (${placeholders})
+          -- acceptance 行係 append-only，可以指住事後被隔離嘅觀測（quarantined /
+          -- quarantined_lane / banned_g10_kline）。SQL 讀模全部（023/026/028/032）
+          -- 都係 metric_status='ready' 先出街；呢條 TS 讀路一直冇跟，2026-08-12
+          -- ad-hoc lane 事故先發現。等值 filter：新隔離字自動 fail-closed。
+          AND price.metric_status='ready'
         ORDER BY price.variant_id,price.observed_date,price.effective_at,history.id
       `, variantIds),
       connection.query<DbRow[]>(`

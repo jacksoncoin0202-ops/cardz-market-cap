@@ -479,7 +479,10 @@ def _latest_price_rows(cur, variant_ids, source_codes: tuple[str, ...]) -> dict[
             WHERE p.variant_id IN ({ph})
               AND p.source_code IN ({sources})
               AND p.source_code NOT IN ({banned})
-              AND p.metric_status NOT IN ('banned_g10_kline')
+              -- 等值 filter（fail-closed）：quarantined / quarantined_lane /
+              -- banned_g10_kline 以及將來任何新隔離字都自動出局。SQL 讀模
+              --（023/026/028/032）全部係 ready-only，呢度係最後一條追齊嘅讀路。
+              AND p.metric_status = 'ready'
               AND p.price_usd IS NOT NULL
               AND p.price_usd > 0
         ) t
