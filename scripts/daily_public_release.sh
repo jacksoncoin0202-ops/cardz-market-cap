@@ -43,6 +43,12 @@ TEST_PY="/home/jackson0202/cardz-market-cap/.venv-backend/bin/python"
 test -x "$TEST_PY"
 "$TEST_PY" -X utf8 "$RELEASE_REPO/scripts/run_all_tests.py" --no-db
 
+# PC 成交 title↔卡號矛盾隔離 receipt（runbook 形狀 29）：bake 之前一定要由判別器
+# 重新生成，唔准食舊檔。讀者（live-db-snapshot.ts loadSaleQuarantine）fail-closed：
+# 冇 receipt 就 bake 死；呢一步負責「有而且唔過期」。用 SOURCE repo 嘅腳本係因為
+# receipt 寫入 SOURCE 嘅 data/runtime（bake 個 CARDZ_REPO_ROOT 都係指 SOURCE）。
+"$TEST_PY" -X utf8 "$SOURCE_REPO/pipelines/pc_sale_title_quarantine.py"
+
 CARDZ_REPO_ROOT="$SOURCE_REPO" node "$RELEASE_REPO/scripts/bake-public-snapshot.mjs" \
   --output "$RELEASE_REPO/data/public/seed-snapshot.json"
 

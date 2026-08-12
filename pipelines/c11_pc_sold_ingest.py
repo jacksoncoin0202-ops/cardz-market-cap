@@ -102,6 +102,55 @@ def norm_col(value: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", (value or "").upper())
 
 
+# Listing 自己認身份嘅兩種寫法：
+#   pair：060/095、101/SV-P。斜線兩邊唔准有空格（「PSA 10 / Lost Origins」嘅
+#         分隔符斜線唔係卡號，回掃 v433 誤中）；分母要有數字或者係 XY-P 形
+#         promo 尾（「PSA 10/POP 3」個「10/POP」唔係卡號，回掃 v852 誤中）。
+#   bare：#086（# 開頭、後面唔係 /）。限 1-3 位：賣家成日寫「#2024」年份 tag
+#         （回掃 v2228/v1096 誤中），現代卡號冇 4 位數。
+COLLECTOR_PAIR_RE = re.compile(r"#?\b0*(\d{1,4})/([A-Za-z0-9][A-Za-z0-9-]{0,7})\b")
+COLLECTOR_PROMO_DENOM_RE = re.compile(r"^[A-Za-z]{1,3}-P$", re.IGNORECASE)
+COLLECTOR_BARE_RE = re.compile(r"#\s*0*(\d{1,3})\b(?!\s*/|\d)")
+
+
+def _collector_claims(title: str) -> set[int]:
+    claims = {
+        int(m.group(1))
+        for m in COLLECTOR_PAIR_RE.finditer(title or "")
+        if any(ch.isdigit() for ch in m.group(2)) or COLLECTOR_PROMO_DENOM_RE.match(m.group(2))
+    }
+    claims |= {int(m.group(1)) for m in COLLECTOR_BARE_RE.finditer(title or "")}
+    return claims
+
+
+def title_collector_contradiction(title: str, collector_number: str) -> bool:
+    """PC exact 產品頁都會被 PC 自己嘅 fuzzy match 塞入第二張卡嘅成交。
+
+    2026-07-14 v1326 Latias 事故：Team Up #113 產品頁（binding exact，冇綁錯）
+    嘅 completed-sales 入面混咗一條 Tag Bolt「#060/095」嘅 $91 成交，接受咗
+    之後 30d 窗出 +556%。產品身份 exact 唔代表逐條 listing 都係嗰張卡 ——
+    title 印住第二張卡嘅卡號，就係 listing 自己認咗第二張卡。
+
+    比較用卡號數字部分嘅整數值：catalog 通常淨存 number（"113"），title 會
+    零墊（"060/095"）；int 比較兩邊都免疫。賣家成日 JP/EN 兩個號一齊印
+    （"#091/071 #086"），所以係「全部 claim 都對唔上」先算矛盾；title 冇
+    任何 claim → 唔算矛盾（exact gate 原意：唔逼賣家寫卡號）。
+    """
+    m = re.match(r"^\s*#?\s*0*(\d{1,4})\s*(?:/|$)", (collector_number or "").strip())
+    if not m:
+        return False
+    wanted = int(m.group(1))
+    claims = _collector_claims(title)
+    if not claims or wanted in claims:
+        return False
+    # 赦免：wanted 以裸數字出現喺 title（「Jasmine's Gaze 245 … 231/182」——
+    # 賣家報咗我哋張卡個號，旁邊個 pair 只係 set 大小/JP 對應）。裸數字唔做
+    # fire 信號（太嘈），但做 pass 信號係安全方向：只會少殺，唔會多殺。
+    if re.search(rf"(?<![\d/.])0*{wanted}(?![\d/])", title or ""):
+        return False
+    return True
+
+
 def name_tokens(value: str) -> set[str]:
     return {
         t
@@ -300,7 +349,14 @@ def verify_sale(
     # A current exact PC product identity already proves product ↔ canonical card.
     # Its completed-sale listing titles are transport metadata, not a second
     # identity authority.  Ungated callers retain the legacy title checks.
-    if not row.get("_pc_exact_product_gate"):
+    if row.get("_pc_exact_product_gate"):
+        # 一個例外：listing title 明確印住第二張卡嘅 NNN/NNN 卡號 = PC 自己
+        # fuzzy match 塞錯咗（v1326 Latias +556% 事故）。呢條唔係第二個身份
+        # 權威，係矛盾偵測 —— 冇卡號照放行。
+        if title_collector_contradiction(title, str(row.get("collector_number") or "")):
+            stats["reject_collector_contradiction"] += 1
+            return None
+    else:
         collector = str(row.get("collector_number") or "")
         wanted = norm_col(collector)
         if wanted and wanted not in norm_col(title):

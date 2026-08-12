@@ -1127,6 +1127,29 @@ seed-snapshot）。手抄落去嘅 generation 圖每次 build 完要再抄一次
     守門人：`scripts/test_price_identity_conflict_audit.py`（偵測器種毒會紅）；
     `scripts/test_price_lane_contracts.py`（monitor：新矛盾 variant 即紅）。
     Audit receipts：`data/runtime/operator/audit/`。
+29. **Binding exact 唔等於逐條 listing 都係嗰張卡：PC 產品頁自己都會收錯卡嘅成交。**
+    （2026-08-12，50 條 sales / 21 個 variant）v1326 Latias Team Up #113 產品頁
+    （binding 冇綁錯）嘅 completed-sales 混咗一條 Tag Bolt「#060/095」$91 成交 ——
+    PriceCharting 自己嘅 fuzzy match 塞埋嚟。條 sale 一路行：landing →
+    `psa10_sale` acceptance → sales-history VIEW → FE 喺冇價點嗰日攞
+    value/count 做窗口 anchor → 30d 出 +556%。同款：JP/KR 版數字掛喺 EN 產品頁
+    （v1909 五條）、鄰號 SIR（v17 #199 賣咗當 #201）。
+    修法分兩截，因為 sales landing 冇 status 欄、acceptance append-only、
+    history 係 VIEW（三個位都冇得郁）：
+    (a) 未來：`c11_pc_sold_ingest.verify_sale` exact-gate 內加
+        `title_collector_contradiction` —— title 印住**第二張卡**嘅
+        NNN/NNN 卡號先拒（冇卡號照放行，唔逼賣家寫號）。
+    (b) 現在：`pipelines/pc_sale_title_quarantine.py` 用同一個判別器（import，
+        唔准抄）重掃全部 PC sales 出 receipt
+        （`data/runtime/operator/audit/pc_sale_title_quarantine_current.json`），
+        `live-db-snapshot.ts loadSaleQuarantine()` bake 時讀 receipt 扣除毒貢獻，
+        冇 receipt 就 bake 死（fail-closed）；`daily_public_release.sh` 每次
+        bake 前重新生成，receipt 過期由 `test_price_lane_contracts.py` check 3 兜。
+    判別器誤中形狀（全部有 regression test）：賣家 JP/EN 兩個號一齊印、
+    bare `#NNN`、`#2024` 年份 tag、`PSA 10 / Lost Origins` 分隔符斜線、
+    `PSA 10/POP 3`、`101/SV-P` promo 分母、裸卡號冇 #（v754）——
+    所以規則係「有 claim 而且**全部**對唔上先算矛盾」＋裸 wanted 數字赦免。
+    守門人：`scripts/test_c11_title_contract.py`（真毒 title 種毒會紅）。
 
 ### 相關嘅 MySQL / shell 陷阱
 

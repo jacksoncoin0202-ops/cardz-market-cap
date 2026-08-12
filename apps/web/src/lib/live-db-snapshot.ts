@@ -44,6 +44,31 @@ function loadDbEnvironment(): void {
   }
 }
 
+// PC 成交 title↔卡號矛盾隔離 receipt（runbook 形狀 29，v1326 Latias +556% 事故）。
+// sales landing 冇 status 欄、acceptance append-only、sales history 係 VIEW，
+// 所以隔離用 ledger 形式：pipelines/pc_sale_title_quarantine.py 用判別器
+// （c11_pc_sold_ingest.title_collector_contradiction，一個概念一份實現）重新
+// 生成，呢度淨係讀 receipt 扣數，唔准喺 TS 再抄一次判別邏輯。
+// 檔案唔存在就 throw：靜靜咁 fail-open 出街 = 毒數照出，寧願 bake 死。
+// receipt 過期就由 scripts/test_price_lane_contracts.py 嘅 DB gate 兜住。
+function loadSaleQuarantine(): Map<string, { valueUsd: number; count: number }> {
+  const { readFileSync } = require("node:fs") as typeof import("node:fs");
+  const { resolve } = require("node:path") as typeof import("node:path");
+  const receiptPath = resolve(repoRoot(), "data/runtime/operator/audit/pc_sale_title_quarantine_current.json");
+  const doc = JSON.parse(readFileSync(receiptPath, "utf8")) as {
+    entries: Array<{ variantId: number; observedDate: string; transactionValueUsd: number | null; quantity: number | null }>;
+  };
+  const excluded = new Map<string, { valueUsd: number; count: number }>();
+  for (const entry of doc.entries) {
+    const key = `${entry.variantId}|${entry.observedDate}`;
+    const slot = excluded.get(key) ?? { valueUsd: 0, count: 0 };
+    slot.valueUsd += entry.transactionValueUsd ?? 0;
+    slot.count += entry.quantity ?? 0;
+    excluded.set(key, slot);
+  }
+  return excluded;
+}
+
 function iso(value: unknown): string | null {
   if (value === null || value === undefined || value === "") return null;
   const date = value instanceof Date ? value : new Date(String(value));
@@ -496,12 +521,26 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       point.priceSourceCode = sourceCode;
       point.priceSourcePriority = sourcePriority;
     }
+    const saleQuarantine = loadSaleQuarantine();
     for (const row of salesRows[0]) {
       const observedDate = day(row.observed_date);
       if (!observedDate) continue;
       const point = getPoint(Number(row.variant_id), observedDate);
-      point.trackedSalesValueUsd = numberValue(row.sales_value_usd);
-      point.trackedSalesCount = numberValue(row.sales_count);
+      // 扣除 title↔卡號矛盾隔離 receipt 嘅貢獻（PC fuzzy match 塞錯卡嘅成交）。
+      // 淨低仲有真成交就照出真嗰部分；扣到零就當嗰日冇 tracked sales。
+      const quarantined = saleQuarantine.get(`${Number(row.variant_id)}|${observedDate}`);
+      let dayValue = numberValue(row.sales_value_usd);
+      let dayCount = numberValue(row.sales_count);
+      if (quarantined && dayValue !== null && dayCount !== null) {
+        dayValue = Math.max(0, dayValue - quarantined.valueUsd);
+        dayCount = Math.max(0, dayCount - quarantined.count);
+        if (dayValue <= 0 || dayCount <= 0) {
+          dayValue = null;
+          dayCount = null;
+        }
+      }
+      point.trackedSalesValueUsd = dayValue;
+      point.trackedSalesCount = dayCount;
       point.salesCoverage = String(row.sales_coverage_status || "unavailable") as DailyHistoryPoint["salesCoverage"];
       point.salesVerifiedZero = Boolean(row.sales_verified_zero);
 
@@ -511,8 +550,8 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       // PSA10 transaction average is a valid historical price anchor.  This
       // is deliberately history-only: it never replaces the accepted current
       // price or changes the market-cap ranking.
-      const salesCount = numberValue(row.sales_count);
-      const salesValue = numberValue(row.sales_value_usd);
+      const salesCount = dayCount;
+      const salesValue = dayValue;
       if (point.priceUsd === null && salesCount !== null && salesCount > 0 && salesValue !== null && salesValue > 0) {
         const sources = String(row.sales_source_codes || "")
           .split(",")
