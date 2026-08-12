@@ -1095,6 +1095,38 @@ seed-snapshot）。手抄落去嘅 generation 圖每次 build 完要再抄一次
     正路係行返一轉 PC sweep 再 consolidate（朝早 browser lane，CDP 9333 headed），
     唔係喺呢度改檔。**形狀**：一個 gate 要「兩個來源同意」嘅時候，
     唔夾嘅正解永遠係去修落後嗰個來源，唔係改個比較。
+27. **Ad-hoc「補數」lane 寫嘅唔係數，係掛價冒充成交＋捏造日；而 TS 讀路一直冇跟 ready filter。**
+    （2026-08-12，17,243 行 suspect / 6,176 行隔離）搶救缺口嗰陣開過一批一次性 lane
+    （`gap_snk_fallback` / `snk_kline_sparse` / `snk_harvest_chip` / `snk_flood_chip` /
+    `snk_kline_940` / `snk_price_full_sales` / `a06_*` / `sales_cache_*` / `pm_sales_gap_price`…），
+    佢哋將「最低掛價」「carry-forward 舊價」「JST 錯日」寫入 `market_price_observation`
+    當 psa10 成交參考價。SNKRDUNK trading chart（成交履歷）先係唯一權威 ——
+    canonical lane 只有 `snk_kline_ingest_*` / `rebuild036_snk_kline*`。
+    仲要 SQL 讀模（023/026/028/032）全部 `metric_status='ready'` 先出街，
+    但 **FE 條 TS 讀路（`live-db-snapshot.ts` history query）同 legacy composition
+    （`operator_control._latest_price_rows`）一直冇跟**，所以隔離印對佢哋係空氣。
+    修法：兩條讀路轉**等值 filter**（`= 'ready'`，新隔離字自動 fail-closed）；
+    `pipelines/snk_price_lane_audit.py` 逐行同 provider chart 對數
+    （fabricated_day / value_mismatch / shifted_day_dup → `quarantined_lane`，終審；
+    identity 未證實 → `quarantined`，binding 證到 exact+strict 後 release lane 放返）。
+    `quarantined_lane` 唔准借用 `quarantined`：後者係身份隔離字會被 release 放行，
+    捏造行冇得「證實返」（一欄兩義＝形狀 1）。
+    守門人：`scripts/test_snk_price_lane_audit.py`（裁決器種毒會紅＋兩條讀路 ready-only）；
+    `scripts/test_price_lane_contracts.py`（DB gate：freeze 之後任何新非 canonical
+    SNK 價格行即紅）。
+28. **同一個 variant 兩個 source 家族嘅價梅花間竹 = 至少一邊綁錯產品，唔係窗口算式問題。**
+    （2026-08-12，22 個 variant / 8,551 行）FE 見到 +407% / +1566% 嗰啲極端 30d，
+    條日線史係兩條 lane 嘅價interleave（例：ST10-006 Luffy，SNK exact 綁一週年紀念版
+    $5,900 級，PC `manual_review` 綁咗普通版 $80 級，兩邊夾埋出「暴跌九成再暴升」）。
+    判別器：180 日內兩個家族 ready 中位數比 ≥3x（`price_identity_conflict_audit.py`）。
+    裁決規則 fail-closed：**非 strict 嗰邊全歷史隔離 `quarantined`**（可釋放）；
+    兩邊都 exact+strict → 唔郁，出 `both_strict_conflict` 報告俾人手重裁
+    （機器唔准自己揀「邊邊睇落啱」＝唔准為靚數放鬆）。
+    snk 家族（`snkrdunk`/`snk`/`snk_psa10`）嘅身份全部掛喺 `snkrdunk` 名下 ——
+    直接攞 `p.source_code` join strict view 會 100% 誤中（形狀 22 嘅 source_code 版）。
+    守門人：`scripts/test_price_identity_conflict_audit.py`（偵測器種毒會紅）；
+    `scripts/test_price_lane_contracts.py`（monitor：新矛盾 variant 即紅）。
+    Audit receipts：`data/runtime/operator/audit/`。
 
 ### 相關嘅 MySQL / shell 陷阱
 

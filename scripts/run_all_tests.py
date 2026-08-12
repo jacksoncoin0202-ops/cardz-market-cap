@@ -54,7 +54,8 @@ SCRIPT_SELF_TEST_ENTRIES: dict[str, list[str]] = {
 }
 
 # 要連 3308 先跑得嘅入口。--no-db 淨係跳過呢啲，其餘照跑。
-NEEDS_DB = {"db_runtime.py", "proof_historical_quote_resolver.py"}
+# test_price_lane_contracts 係 scripts/test_*.py glob 嗰邊；glob loop 都會查呢個 set。
+NEEDS_DB = {"db_runtime.py", "proof_historical_quote_resolver.py", "test_price_lane_contracts.py"}
 
 # g10_public_snapshot 個 `--self-test` 唔係 unit test，係「照砌 snapshot 但唔寫
 # asset、容許舊價」，所以要成棵 G10 source tree。呢棵 tree 唔喺呢個 repo 入面。
@@ -175,6 +176,9 @@ def main() -> int:
 
     for path in sorted((ROOT / "scripts").glob("test_*.py")):
         label = f"scripts/{path.name}"
+        if args.no_db and path.name in NEEDS_DB:
+            results.append((label, "SKIP", 0.0, "--no-db"))
+            continue
         required = SCRIPT_REQUIRES_PATH.get(path.name)
         if required is not None and not required.exists():
             results.append((label, "SKIP", 0.0, f"欠 machine-private fixture: {required}"))
