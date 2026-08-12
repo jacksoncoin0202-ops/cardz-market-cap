@@ -69,17 +69,51 @@ function localized(): LocalizedText {
   return { en: null, zhTW: null, zhCN: null, ja: null, ko: null };
 }
 
+type AnchorCandidate = { at: string; priceUsd: number; sourceCode: string | null };
+
+// 錨同現價要同一個基準先至叫「變化」。實測 variant 1（梵高）：現價係
+// pricecharting 指導價 $2,836，而 08-09/08-10 嘅 snkrdunk 日線係 ¥156,000
+// （$969，PSA10 賣晒之後最低掛價變咗第二樣嘢），nearest 政策揀咗佢做 1d 錨，
+// 熱力圖出咗個 +192.6% 嘅假暴升；7d/30d 嘅 PC-vs-SNK 數同樣係兩間市場嘅基差，
+// 唔係市場變動。所以跨 marketplace 嘅參考價點唔准做錨。但唔可以就咁 skip 咗
+// 嗰日：SNK 日線好密，佢霸住咗個 day point，當日真實 PSA10 成交（sales lane
+// 一直喺 point 度）會被遮蔽——冇咗佢，梵高連有 3 單成交嘅 7d 都會冤枉變灰。
+// 於是每日出一個候選：參考點同源（或本身係 *_sales 升格點）就用佢；唔同源
+// 就退去當日成交均價（同 :444 升格邏輯同一份證據、同一個條件）；兩樣都冇
+// 先至冇候選。真成交 vs 指導價係本來就接受嘅比較，sourceSwitched 照 flag
+// 俾 UI 提示。
+function anchorCandidate(
+  point: DailyHistoryPoint,
+  currentSource: string | null,
+): AnchorCandidate | null {
+  const source = (point as DailyHistoryPoint & { priceSourceCode?: string | null }).priceSourceCode ?? null;
+  if (
+    point.priceUsd !== null
+    && (!source || !currentSource || source === currentSource || source.endsWith("_sales"))
+  ) {
+    return { at: point.at, priceUsd: point.priceUsd, sourceCode: source };
+  }
+  const count = point.trackedSalesCount;
+  const value = point.trackedSalesValueUsd;
+  if (count !== null && count > 0 && value !== null && value > 0) {
+    return { at: point.at, priceUsd: value / count, sourceCode: "exact_psa10_sales" };
+  }
+  return null;
+}
+
 function nearestPrice(
   history: DailyHistoryPoint[],
   targetMs: number,
   toleranceDays: number,
   beforeMs: number,
-): DailyHistoryPoint | null {
-  let winner: DailyHistoryPoint | null = null;
+  currentSource: string | null,
+): AnchorCandidate | null {
+  let winner: AnchorCandidate | null = null;
   let winnerDelta = Number.POSITIVE_INFINITY;
   for (const point of history) {
-    if (point.priceUsd === null) continue;
-    const at = new Date(point.at).valueOf();
+    const candidate = anchorCandidate(point, currentSource);
+    if (candidate === null) continue;
+    const at = new Date(candidate.at).valueOf();
     // 錨必須嚴格舊過而家嗰個 as-of。1d 個 tolerance 係 2 日（下面 :126）而
     // daysBack 得 1 日，所以卡自己嗰個 current price point 落喺錨嘅容忍窗入面
     // （delta 啱啱好 1.0）—— 冇更近嘅舊點嗰陣佢就贏，變成攞自己同自己比，
@@ -89,7 +123,7 @@ function nearestPrice(
     if (at >= beforeMs) continue;
     const delta = Math.abs(at - targetMs) / 86_400_000;
     if (delta <= toleranceDays && delta < winnerDelta) {
-      winner = point;
+      winner = candidate;
       winnerDelta = delta;
     }
   }
@@ -127,11 +161,11 @@ function windowMetrics(
   const currentCap = currentPrice === null || currentPopulation === null ? null : currentPrice * currentPopulation;
   return Object.fromEntries(Object.entries(WINDOWS).map(([code, daysBack]) => {
     const tolerance = code === "1d" ? 2 : code === "7d" ? 3 : 5;
-    const anchor = nearestPrice(history, currentMs - daysBack * 86_400_000, tolerance, currentMs);
+    const anchor = nearestPrice(history, currentMs - daysBack * 86_400_000, tolerance, currentMs, currentSource);
     const priceChange = percentage(currentPrice, anchor?.priceUsd ?? null);
-    const anchorSource = (anchor as (DailyHistoryPoint & { priceSourceCode?: string | null }) | null)?.priceSourceCode ?? null;
+    const anchorSource = anchor?.sourceCode ?? null;
     const sourceSwitched = Boolean(anchorSource && currentSource && anchorSource !== currentSource);
-    const anchorCap = anchor?.priceUsd === null || anchor?.priceUsd === undefined || currentPopulation === null
+    const anchorCap = anchor === null || currentPopulation === null
       ? null
       : anchor.priceUsd * currentPopulation;
     const capChange = percentage(currentCap, anchorCap);
