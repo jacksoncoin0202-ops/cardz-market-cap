@@ -148,11 +148,33 @@ def fetch_bindings(cur: Any, active_ids: list[int]) -> dict[int, set[str]]:
     return result
 
 
+def fetch_strict_gemrate_raw(cur: Any, active_ids: list[int]) -> dict[tuple[int, str], str]:
+    """Return the exact raw capture that currently proves each strict GemRate bind."""
+
+    placeholders = ",".join(["%s"] * len(active_ids))
+    cur.execute(
+        f"""SELECT variant_id,external_entity_id,
+                   JSON_UNQUOTE(JSON_EXTRACT(
+                     bind_evidence_json,'$.evidence.rawPayloadSha256')) AS raw_payload_sha256
+            FROM operator_strict_source_identity
+            WHERE variant_id IN ({placeholders}) AND source_code='gemrate'""",
+        active_ids,
+    )
+    result: dict[tuple[int, str], str] = {}
+    for row in cur.fetchall():
+        gemrate_id = canonical_gemrate_id(row["external_entity_id"])
+        raw_sha = str(row.get("raw_payload_sha256") or "").casefold()
+        if gemrate_id and re.fullmatch(r"[0-9a-f]{64}", raw_sha):
+            result[(int(row["variant_id"]), gemrate_id)] = raw_sha
+    return result
+
+
 def select_candidate(
     variant: dict[str, Any],
     current: dict[str, Any] | None,
     populations: list[dict[str, Any]],
     binding_ids: set[str],
+    strict_raw_by_id: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     observations: dict[str, dict[str, Any]] = {}
     for observation in populations:
@@ -174,7 +196,8 @@ def select_candidate(
         if not observation:
             considered.append({"gemrateId": gemrate_id, "reason": "positive_psa10_population_missing"})
             continue
-        raw = load_psa_raw(gemrate_id)
+        pinned_raw = (strict_raw_by_id or {}).get(gemrate_id)
+        raw = load_psa_raw(gemrate_id, pinned_sha=pinned_raw)
         if raw.get("error"):
             considered.append({"gemrateId": gemrate_id, "reason": raw.get("reason")})
             continue
@@ -200,7 +223,11 @@ def select_candidate(
             "psa": {key: psa.get(key) for key in ("description", "year", "set_name", "card_number", "parallel", "set_url")},
             "derivedLanguage": language,
             "languageMarkers": markers,
-            "selection": "existing_literal_acceptance" if gemrate_id == current_id else "latest_positive_population_with_exact_raw",
+            "selection": (
+                "existing_literal_acceptance" if gemrate_id == current_id
+                else "strict_binding_pinned_raw" if pinned_raw
+                else "latest_positive_population_with_exact_raw"
+            ),
         }
     raise RuntimeError(
         f"active variant {variant['variant_id']} has no resolvable GemRate PSA identity: "
@@ -225,10 +252,21 @@ def build_plan(connection: Any, *, scope: str = "active-universe") -> dict[str, 
     current = fetch_current_psa(cur, active_ids)
     populations = fetch_population(cur, active_ids)
     bindings = fetch_bindings(cur, active_ids)
+    strict_raw = fetch_strict_gemrate_raw(cur, active_ids)
     rows: list[dict[str, Any]] = []
     for variant in active:
         variant_id = int(variant["variant_id"])
-        selected = select_candidate(variant, current.get(variant_id), populations.get(variant_id, []), bindings.get(variant_id, set()))
+        selected = select_candidate(
+            variant,
+            current.get(variant_id),
+            populations.get(variant_id, []),
+            bindings.get(variant_id, set()),
+            {
+                gemrate_id: raw_sha
+                for (bound_variant_id, gemrate_id), raw_sha in strict_raw.items()
+                if bound_variant_id == variant_id
+            },
+        )
         psa = selected["psa"]
         before = {key: variant.get(key) for key in (
             "canonical_name", "variant_language", "variant_set_name", "tcg_code", "card_language",
