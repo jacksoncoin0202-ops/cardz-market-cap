@@ -654,6 +654,27 @@ def write_sales(conn, sales: list[dict[str, Any]], map_path: Path) -> dict[str, 
             for sale in sales
             if (str(sale["external_entity_id"]), str(sale["fingerprint"])) not in existing
         ]
+        # Rebind 遺物自動歸位（形狀 29 rebind 變種，2026-08-13 v188 事故）：
+        # dedupe key 係 (ext, fingerprint)，variant 唔喺 key 入面，所以 product
+        # 改綁之後歷史行仍然 stamp 住舊主——新主 FE 永遠零成交，舊主靠 strict
+        # join 先冇出毒。map 行嘅 variant 就係 ext 嘅現任 exact 主人（上游
+        # recheck_exact_bindings 已證），存在行歸屬唔同就跟現任主人走。
+        # daily-accept 嘅 psa10_sale ON DUP 會跟住將 acceptance 一齊re-point。
+        restamped = 0
+        by_ext_variant: dict[tuple[str, int], int] = {}
+        for sale in sales:
+            key = (str(sale["external_entity_id"]), int(sale["variant_id"]))
+            by_ext_variant[key] = by_ext_variant.get(key, 0) + 1
+        for (ext, variant_id) in sorted(by_ext_variant):
+            cur.execute(
+                """
+                UPDATE market_sale_observation
+                SET variant_id=%s
+                WHERE source_code=%s AND external_entity_id=%s AND variant_id<>%s
+                """,
+                (variant_id, SOURCE_CODE, ext, variant_id),
+            )
+            restamped += int(cur.rowcount)
         # The run row lands even when every sale deduped: observed_count carries
         # what the pages evidenced tonight, and the daily sales manifest below
         # needs a completed run as its trust anchor for daily-accept.
@@ -728,6 +749,7 @@ def write_sales(conn, sales: list[dict[str, Any]], map_path: Path) -> dict[str, 
         "run_key": run_key,
         "inserted_or_updated": len(new_sales),
         "skipped_existing": len(sales) - len(new_sales),
+        "restamped_to_current_owner": restamped,
         "inserted_variant_ids": sorted({int(sale["variant_id"]) for sale in new_sales}),
         "daily_sales_manifest": str(manifest_path),
     }

@@ -2986,6 +2986,7 @@ def stage_pc_replay(ctx: SimpleNamespace) -> dict[str, Any]:
         cursor.execute(
             "SELECT si.external_entity_id AS pid, si.variant_id, si.match_status,"
             " v.tcg_code, v.card_language, v.set_name, v.collector_number,"
+            " v.canonical_name,"
             " v.set_code AS v_set_code, v.printing_code AS v_printing_code,"
             " p.parallel_code, p.printing_code, p.canonical_printing_sha256,"
             " p.tcg_code AS p_tcg_code, p.card_language AS p_card_language,"
@@ -7032,9 +7033,17 @@ def _activation_accept_history(
     for start in range(0, len(ordered), 500):
         chunk = ordered[start:start + 500]
         ph = ",".join(["%s"] * len(chunk))
+        # ON DUPLICATE KEY UPDATE（唔係 IGNORE）：uq_metric_history_source 係
+        # (source_record_type, source_record_id) —— 一個 sale record 永遠一行
+        # acceptance。product rebind 之後 sale row 會 re-stamp 歸現任 exact 主人
+        # （restamp_rebound_pc_sales_20260813.py，形狀 29 rebind 遺物），舊
+        # acceptance 嘅 variant_id 指住舊主：IGNORE 會靜靜吞掉新歸屬，張卡
+        # 喺 FE 永遠零成交（2026-08-13 v188 Ace OP02-013 Manga 就係咁）。
+        # acceptance 跟 record 現任歸屬走，同上面 psa10Price 嘅 ON DUP 先例
+        # 一致；variant 冇變嗰陣全部 VALUES 相同 = no-op。
         cur.execute(
             f"""
-            INSERT IGNORE INTO market_metric_history_acceptance
+            INSERT INTO market_metric_history_acceptance
               (variant_id,metric_kind,source_record_type,source_record_id,source_code,
                external_entity_id,observed_date,source_effective_at,source_payload_sha256,
                identity_evidence_sha256,acceptance_evidence_sha256,lineage_sha256,
@@ -7061,6 +7070,15 @@ def _activation_accept_history(
               AND s.source_payload_sha256 REGEXP '^[0-9a-f]{{64}}$'
               AND si.evidence_sha256 REGEXP '^[0-9a-f]{{64}}$'
               AND s.transaction_fingerprint IN ({ph})
+            ON DUPLICATE KEY UPDATE
+              variant_id=VALUES(variant_id),source_code=VALUES(source_code),
+              external_entity_id=VALUES(external_entity_id),
+              observed_date=VALUES(observed_date),source_effective_at=VALUES(source_effective_at),
+              source_payload_sha256=VALUES(source_payload_sha256),
+              identity_evidence_sha256=VALUES(identity_evidence_sha256),
+              acceptance_evidence_sha256=VALUES(acceptance_evidence_sha256),
+              lineage_sha256=VALUES(lineage_sha256),accepted_by=VALUES(accepted_by),
+              accepted_at=VALUES(accepted_at)
             """,
             (ACTIVATION_ACTOR, now_str, *chunk),
         )
@@ -7099,6 +7117,17 @@ def _activation_accept_history(
         (ACTIVATION_ACTOR, now_str),
     )
     inserted["verifiedZeroSales"] = int(cur.rowcount)
+
+    # 上面兩條 psa10_price ON DUP upsert 會重寫 acceptance 行嘅 lineage_sha256
+    # （si.evidence_sha256 換代嗰陣）。049 嘅 resolver 印
+    # （market_legacy_quote_resolution.resolver_evidence_sha256）釘住舊 lineage，
+    # 唔重蓋嘅話 operator_resolved_canonical_metric_quote 嘅 legacy 分支即刻
+    # 斷曬（proof_historical_quote_resolver 今晚就係咁紅：S12 改印之後冇人
+    # 重行 projection）。resolver 係冪等 projection，逐 metric fail-closed，
+    # 所以喺兩個 caller（activate 同 daily-accept）尾一齊行係啱位。
+    from current_quote_revision import reconstruct_legacy_generation_quotes
+
+    inserted["legacyQuoteResolutions"] = reconstruct_legacy_generation_quotes(cur)
     return inserted
 
 
@@ -8054,6 +8083,18 @@ def _pc_print_signature_ok(page_parallel: str, row: Mapping[str, Any]) -> bool:
         # is still demanded, only the separator is normalised.
         if collapsed.replace("-", " ") == printing.replace("-", " "):
             return True
+    # Dated event promos: PC brackets the event year ("[Battle Festa 2015]")
+    # while PSA/GemRate's parallel label omits it ("Battle Festa"), so the
+    # catalog cannot carry it either. The year is not noise to strip -- the
+    # 2014/2015 Battle Festa Pikachu twins differ ONLY by collector number and
+    # year -- so it must CORROBORATE: accept exactly "<parallel> <year>" where
+    # <year> is the variant's own leading canonical year. The other twin's
+    # year differs, so this page keeps refusing it (proven both directions in
+    # scripts/test_pc_print_signature_dated_event.py).
+    vpp = _norm_text(variant_parallel)
+    year = re.match(r"(19|20)\d{2}\b", str(row.get("canonical_name") or ""))
+    if vpp and year and bracket == f"{vpp} {year.group(0)}":
+        return True
     return False
 
 
@@ -8217,6 +8258,7 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
                 "    FROM catalog_rebuild_member rm WHERE rm.variant_id=v.id"
                 "   ORDER BY rm.computed_at DESC LIMIT 1) AS fp_parallel,"
                 " v.tcg_code, v.card_language, v.set_name, v.collector_number,"
+                " v.canonical_name,"
                 " v.set_code AS v_set_code, v.printing_code AS v_printing_code,"
                 " p.parallel_code, p.printing_code, p.canonical_printing_sha256,"
                 " p.tcg_code AS p_tcg_code, p.card_language AS p_card_language,"

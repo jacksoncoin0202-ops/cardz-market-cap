@@ -1151,6 +1151,52 @@ seed-snapshot）。手抄落去嘅 generation 圖每次 build 完要再抄一次
     所以規則係「有 claim 而且**全部**對唔上先算矛盾」＋裸 wanted 數字赦免。
     守門人：`scripts/test_c11_title_contract.py`（真毒 title 種毒會紅）。
 
+30. **Rebind 遺物：product 改綁之後，歷史成交仍然 stamp 住舊 variant，新主人 FE 永遠零成交。**
+    （2026-08-13，5 組 149 行；v188 Ace OP02-013 Manga 就係用戶見到嘅灰卡）兩個
+    互鎖缺陷，缺一都唔會好返：
+    (a) `market_sale_observation` 嘅 dedupe key 係 (source, ext, fingerprint)，
+        **variant 唔喺 key 入面** —— identity 修正改綁 product 之後，舊行歸屬唔會跟。
+        修法：`c11_pc_sold_ingest.write_sales` 而家每次 run 都將「ext 現任 exact
+        主人 ≠ 行上 variant」嘅行 UPDATE 歸位（map 行經 exact gate 證明係現任主人），
+        report 出 `restamped_to_current_owner`。
+    (b) `market_metric_history_acceptance` 有 UNIQUE (source_record_type,
+        source_record_id) —— 一個 sale record 一世一行 acceptance。舊 acceptance
+        寫住舊 variant，`INSERT IGNORE` 會靜靜吞掉 re-stamp 後嘅新歸屬。
+        修法：`rebuild_036._activation_accept_history` psa10_sale 嗰條 INSERT 改
+        `ON DUPLICATE KEY UPDATE`（同隔籬 psa10Price 先例一致）—— acceptance
+        跟 record 現任歸屬走；variant 冇變時全部 VALUES 相同 = no-op。
+    兩邊都即場種毒證明過 fire（sale #1614749 擰返舊主 → ingest 自動歸位；
+    v188 acceptance 由 v1427 re-point 返嚟，FE 0→7 日成交）。
+    孤兒組（ext 已經無 exact 主人）唔郁：eligible view 本身已隔離佢哋。
+
+31. **新卡 activation 前冇人 consolidate canonical PC map → S8 出唔到價 → S12 卡死。**
+    （2026-08-13，v134/v315 OP13-118 孖生）discovery 落咗 binding、shard ledger
+    有 transport row，但 canonical map（`c11_pc_ebay_map_full900.jsonl`）得
+    `consolidate_pc_map.py` 一個 writer，冇人行過 → S8 price-materialize 讀 stale
+    map 搵唔到新卡 → S12 product_ready gap（missingPrice）abort 成條鏈。
+    修法：`daily_discovery_activation._prime_new_actives`（activation 之前自動行）：
+    registry rebuild → 由 registry 推導每個 adapter 邊啲新卡有份 → 逐 adapter
+    scoped `collect incr`（攞頁+ingest+checkpoint，PC adapter 先開 CDP 9333）→
+    `consolidate_pc_map --write`。任一步死 → abort，pendingActivationIds 留喺
+    state，下輪 recovery 重試。注意 `cmd_incr` 對 explicit variant 係 fail-closed
+    （張卡喺嗰個 adapter 冇 exact binding 就 raise），所以一定要按 registry 分組，
+    唔可以 `--adapter all` 一次過。
+
+32. **SNK「Event Organizer Version」係另一張卡；而普通版 listing 唔會寫 event 名，
+    自動 discovery 兩邊都會判錯。**（2026-08-13，v1874 Pikachu Battle Festa 175/XY-P）
+    毒嗰邊：SNK 413361 標題有齊「Battle Festa 175/XY-P」但係「イベントオーガナイザー版」
+    （出貨量極少，JPY 6.3M vs 普通版 154K，41x）——字面全中，卡係另一張。
+    `exact` 綁定令 cross-family conflict audit 爆 8.57x。裁決：
+    `pipelines/reject_snk_organizer_binding_20260813.py`（match_status→rejected，
+    留 audit receipt）。
+    正貨嗰邊：普通版 91412 標題**淨係**「ピカチュウ プロモ 175/XY-P」——SNK 慣例
+    唔寫 event 名，`snk_identity_discover.product_agrees` 嘅 event-word 要求
+    fire 唔到，自動 lane 永遠唔會提案。呢類要人手裁決綁：
+    `pipelines/bind_snk_regular_battlefesta_20260813.py`。
+    教訓：(a) parallel 判別唔可以淨靠「標題包唔包 event 字」，要對埋價量級；
+    (b) 人手 bind 一定要跟足 S7 evidence 協議（items 檔 + capture receipt +
+    `$.evidence.path`/`sha256`），唔係 strict view 唔認（fail-closed by design）。
+
 ### 相關嘅 MySQL / shell 陷阱
 
 - 一條 statement 入面 reference 同一張 TEMPORARY table 兩次 → `ERROR 1137 Can't reopen table`。

@@ -158,10 +158,18 @@ def select_targets(
            AND NOT EXISTS (
                  SELECT 1 FROM catalog_source_identity si
                   WHERE si.variant_id = v.id
-                    AND si.source_code IN ('snkrdunk', 'snk_psa10', 'pricecharting')
+                    AND si.source_code IN ('snkrdunk', 'snk_psa10')
                     AND si.match_status = 'exact'
                )
     """
+    # 'pricecharting' 一度都喺上面嗰個 NOT EXISTS 入面 —— 即係「有 PC binding =
+    # 有價源，唔使搵 SNK」。但 D4 語言路由（activate 嘅 psa10_price 接受面：
+    # pi.card_language='en' OR source IN (snk…)）之下，非 EN 卡嘅 PC binding
+    # 只供 sales/reference，計 market cap 嘅價一定要 SNK。2026-08-13 v1874
+    # Battle Festa：組織者版 SNK 錯綁被裁決 reject 之後，佢淨低 PC exact，
+    # 呢度就當佢「有價源」永遠唔再搵 —— 於是 S12 product_ready gap 卡死成條
+    # 夜鏈。selector 嘅「價源」定義而家同路由政策一致：非 EN 卡只有 SNK
+    # exact 先算。
     params: list[Any] = [generation, min_pop]
     # The 034 sheet's thirteen human refusals happen to all be English, so the
     # language filter above already hides them -- today. That is an accident of

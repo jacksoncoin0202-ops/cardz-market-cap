@@ -393,6 +393,72 @@ def _run_browser_discovery(
     return reports
 
 
+def _prime_new_actives(variant_ids: Iterable[int]) -> None:
+    """新 exact binding 落地之後、activation 之前，先集齊價/成交/pop 同 canonical map。
+
+    2026-08-13 v134/v315 事故：discovery 落咗 binding，但 canonical PC map
+    （c11_pc_ebay_map_full900.jsonl）冇人 consolidate，S8 price-materialize 讀
+    stale map 出唔到 quote，S12 product_ready gap 卡死（missingPrice），成條
+    夜鏈 abort。當晚人手橋接嘅次序就係呢度固化嘅次序：
+      1. scoped collect incr（cmd_incr 自己會 rebuild registry —— registry 係
+         由 DB 現任 exact binding 投影出嚟，包埋新卡；跟住攞 full900 頁、
+         ingest 價/成交、寫 checkpoint —— daily-accept 嘅 checkpoint gate
+         都係嗰晚缺呢啲先紅）；
+      2. consolidate_pc_map --write（fail-closed：registry 有活躍 PC binding
+         而搵唔到 verified transport row 會 raise）。
+    兩步任一死 → SystemExit → state keep 住 pendingActivationIds，下一輪
+    coordinator 由 recovery_ids 重試，唔會靜靜跳過。
+    """
+    ids = {int(value) for value in variant_ids}
+    if not ids:
+        return
+    import collect_control as CC
+
+    # cmd_incr 對 explicit variant 係 fail-closed：張卡喺請求嘅 adapter 冇
+    # exact binding 就 raise。新卡好少五條 lane 齊（PC-only / SNK-only 好常見），
+    # 所以先 rebuild registry（DB 現任 exact binding 嘅投影），再由 registry
+    # 推導每個 adapter 實際有邊啲目標卡，逐 adapter 開 scoped run。
+    CC.cmd_status(rebuild_registry=True)
+    variants_by_adapter: dict[str, list[int]] = {}
+    for row in CC._jsonl_rows(CC.REGISTRY_PATH):
+        vid = int(row.get("variantId") or 0)
+        if vid in ids:
+            variants_by_adapter.setdefault(str(row["adapter"]), []).append(vid)
+    for adapter in sorted(variants_by_adapter):
+        report = CC.cmd_incr(
+            adapters=[adapter],
+            limit=None,
+            dry_run=False,
+            delay=1.0,
+            workers=1,
+            # PC 頁一定要 CDP 9333 headed Chrome；SNK/GemRate 係 http，
+            # 唔開瀏覽器。
+            ensure_browser=adapter in {"pc_ebay_sales", "en_price_ref"},
+            pc_resume_report=None,
+            pc_sleep=None,
+            pc_workers=None,
+            variant_ids=sorted(variants_by_adapter[adapter]),
+        )
+        if not report.get("ok"):
+            raise SystemExit(
+                "daily-discover ABORT: scoped collect"
+                f" adapter={adapter} variants={sorted(variants_by_adapter[adapter])} failed"
+            )
+    import subprocess
+    import sys
+
+    consolidate = subprocess.run(
+        [sys.executable, "-X", "utf8",
+         str(R.ROOT / "pipelines" / "consolidate_pc_map.py"), "--write"],
+        cwd=str(R.ROOT), capture_output=True, text=True, encoding="utf-8",
+    )
+    if consolidate.returncode != 0:
+        raise SystemExit(
+            "daily-discover ABORT: consolidate_pc_map failed before activation:\n"
+            + (consolidate.stderr or consolidate.stdout or "")[-2000:]
+        )
+
+
 def _run_activation(generation: str) -> None:
     # Discovery uses the long-lived backend account. Rebuild stages must not:
     # cmd_freeze creates the short-lived rebuild account described by
@@ -692,6 +758,7 @@ def cmd_daily_discover_activate(args: Any) -> int:
             pending_ids,
             f"{lane}-awaiting-atomic-activation",
         )
+        _prime_new_actives(pending_ids)
         _run_activation(generation)
         snapshot = _runtime_snapshot(credentials_env)
     else:
