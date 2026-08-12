@@ -6870,6 +6870,63 @@ def _activation_accept_history(
     fingerprints may enter."""
 
     inserted: dict[str, int] = {}
+    # Ranking lineage: accept immutable current quote revisions (043).
+    # History charts still use market_price_observation acceptances below.
+    cur.execute(
+        """
+        INSERT INTO market_metric_history_acceptance
+          (variant_id,metric_kind,source_record_type,source_record_id,source_code,
+           external_entity_id,observed_date,source_effective_at,source_payload_sha256,
+           identity_evidence_sha256,acceptance_evidence_sha256,lineage_sha256,
+           accepted_by,accepted_at)
+        SELECT q.variant_id,'psa10_price','market_current_quote_revision',q.id,
+               CASE WHEN q.source_code IN ('snk','snk_psa10') THEN 'snkrdunk'
+                    ELSE q.source_code END,
+               q.source_external_entity_id,q.source_period_at,q.checked_at,q.payload_sha256,
+               si.evidence_sha256,
+               SHA2(CONCAT_WS('|','accept-current-quote-revision-v1',q.id,q.variant_id,
+                 CASE WHEN q.source_code IN ('snk','snk_psa10') THEN 'snkrdunk'
+                      ELSE q.source_code END,
+                 q.source_external_entity_id,q.payload_sha256,q.quote_lineage_sha256,
+                 si.evidence_sha256),256),
+               SHA2(CONCAT_WS('|','metric-history-v1','psa10_price','quote-revision',q.id,
+                 q.variant_id,
+                 CASE WHEN q.source_code IN ('snk','snk_psa10') THEN 'snkrdunk'
+                      ELSE q.source_code END,
+                 q.source_external_entity_id,q.payload_sha256,q.quote_lineage_sha256,
+                 si.evidence_sha256),256),
+               %s,%s
+        FROM market_current_quote_revision q
+        INNER JOIN market_universe_member am ON am.variant_id=q.variant_id
+        INNER JOIN market_universe_lock ul ON ul.id=am.universe_lock_id AND ul.is_current=1
+        INNER JOIN catalog_printing_identity pi ON pi.variant_id=q.variant_id
+        INNER JOIN operator_strict_source_identity si ON si.variant_id=q.variant_id
+          AND si.source_code=CASE WHEN q.source_code IN ('snk','snk_psa10')
+                                  THEN 'snkrdunk' ELSE q.source_code END
+          AND si.external_entity_id=q.source_external_entity_id
+        WHERE q.source_code IN ('snkrdunk','snk_psa10','snk','pricecharting')
+          AND (pi.card_language='en' OR q.source_code IN ('snkrdunk','snk_psa10','snk'))
+          AND q.price_usd>0
+          AND q.payload_sha256 REGEXP '^[0-9a-f]{64}$'
+          AND q.quote_lineage_sha256 REGEXP '^[0-9a-f]{64}$'
+          AND si.evidence_sha256 REGEXP '^[0-9a-f]{64}$'
+          AND (q.reconstruction_kind IS NULL
+               OR q.reconstruction_kind IN ('bootstrap_from_observation',''))
+        ON DUPLICATE KEY UPDATE
+          source_code=VALUES(source_code),external_entity_id=VALUES(external_entity_id),
+          observed_date=VALUES(observed_date),source_effective_at=VALUES(source_effective_at),
+          source_payload_sha256=VALUES(source_payload_sha256),
+          identity_evidence_sha256=VALUES(identity_evidence_sha256),
+          acceptance_evidence_sha256=VALUES(acceptance_evidence_sha256),
+          lineage_sha256=VALUES(lineage_sha256),accepted_by=VALUES(accepted_by),
+          accepted_at=VALUES(accepted_at)
+        """,
+        (ACTIVATION_ACTOR, now_str),
+    )
+    inserted["psa10PriceQuoteRevisions"] = int(cur.rowcount)
+
+    # Keep observation acceptances for monthly/history chart lineage only.
+    # Ranking no longer selects from these mutable rows.
     cur.execute(
         """
         INSERT INTO market_metric_history_acceptance
@@ -7168,13 +7225,17 @@ def _activation_rank_and_accept(
     ready = set(ready_ids)
     now_at = datetime.fromisoformat(now_str)
     previous_ranking = _previous_ranking_counts(cur)
+    # Ranking selects immutable quote revisions (043). Freshness uses
+    # checked_at (actual capture), not source_period_at (PC month head).
     cur.execute(
         """
         SELECT p.variant_id,p.price_history_acceptance_id,p.price_usd,
                p.price_effective_at,p.price_source_observed_at,
                p.observed_date AS price_observed_date,
+               p.source_period_at AS price_source_period_at,
+               p.checked_at AS price_checked_at,
                p.price_source_code,p.price_route_priority,p.price_lineage_sha256
-        FROM operator_eligible_accepted_psa10_price_history p
+        FROM operator_eligible_current_quote_revision p
         INNER JOIN market_universe_member am ON am.variant_id=p.variant_id
         INNER JOIN market_universe_lock ul ON ul.id=am.universe_lock_id AND ul.is_current=1
         """
@@ -7189,8 +7250,7 @@ def _activation_rank_and_accept(
         variant_id = int(row["variant_id"])
         winner_key = (
             -int(row["price_route_priority"]),
-            row["price_observed_date"],
-            row["price_effective_at"],
+            row.get("price_checked_at") or row["price_effective_at"],
             row["price_source_observed_at"],
             int(row["price_history_acceptance_id"]),
         )
@@ -7200,25 +7260,22 @@ def _activation_rank_and_accept(
         ):
             latest_eligible_price_keys[variant_id] = winner_key
             latest_eligible_price[variant_id] = row
-        observed_at = (
-            # Price age is the market observation date. A successful poll can
-            # refresh the source-page receipt without producing a new trade or
-            # quote; using that page timestamp would relabel an old price as
-            # current merely because the collector looked again today.
-            row.get("price_observed_date")
-            or row.get("price_effective_at")
+        checked_at = (
+            row.get("price_checked_at")
             or row.get("price_source_observed_at")
+            or row.get("price_effective_at")
         )
-        if observed_at is None:
-            stale_price[variant_id] = {"observedAt": None, "reason": "missing timestamp"}
+        if checked_at is None:
+            stale_price[variant_id] = {"checkedAt": None, "reason": "missing timestamp"}
             continue
-        if not isinstance(observed_at, datetime):
-            observed_at = datetime.fromisoformat(str(observed_at))
+        if not isinstance(checked_at, datetime):
+            checked_at = datetime.fromisoformat(str(checked_at))
         max_age_days = _price_max_age_days(row.get("price_source_code"))
-        if observed_at < now_at - timedelta(days=max_age_days):
+        if checked_at < now_at - timedelta(days=max_age_days):
             stale_price[variant_id] = {
                 "source": row.get("price_source_code"),
-                "observedAt": observed_at.isoformat(sep=" "),
+                "checkedAt": checked_at.isoformat(sep=" "),
+                "sourcePeriodAt": str(row.get("price_source_period_at") or row.get("price_observed_date") or ""),
                 "maxAgeDays": max_age_days,
             }
             continue

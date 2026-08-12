@@ -61,6 +61,9 @@ export interface Copy {
     change: string;
     changeShort: string;
     asOf: string;
+    pricePeriod: string;
+    checkedAt: string;
+    awaitingFreshPrice: string;
     viewCard: string;
     close: string;
     story: string;
@@ -169,6 +172,8 @@ export const copy: Record<Locale, Copy> = {
       marketCap: "Market cap", marketCapShort: "Mkt Cap", trackedSales: "Tracked sales",
       trackedSalesShort: "Sales",
       salesHelp: "Only completed PSA 10 sales captured within CardZ Marketcap tracked coverage.", change: "Change", changeShort: "Chg", asOf: "Data time",
+      pricePeriod: "Price period", checkedAt: "Last checked",
+      awaitingFreshPrice: "Awaiting fresh price",
       viewCard: "Open card profile", close: "Close", story: "Why the market cares", history: "Daily market history",
       dailyPrice: "Reference price", trackedSalesBars: "Tracked sales", salesTrend: "Tracked sales trend", salesTrendShort: "Sales trend", imageAlt: "Card artwork",
       noHistory: "Daily price history is still accumulating.", noCards: "No eligible cards are available in this view.", noSales: "No sales recorded", watchStatus: "Watchlist status",
@@ -248,6 +253,8 @@ export const copy: Record<Locale, Copy> = {
       marketCap: "市值", marketCapShort: "市值", trackedSales: "已追蹤成交額",
       trackedSalesShort: "成交",
       salesHelp: "只包括 CardZ Marketcap 追蹤範圍內捕捉到的 PSA 10 完成成交。", change: "升跌", changeShort: "升跌", asOf: "資料時間",
+      pricePeriod: "價格期數", checkedAt: "最近檢查",
+      awaitingFreshPrice: "等待新鮮價格",
       viewCard: "查看卡牌詳情", close: "關閉", story: "市場為何追捧", history: "每日市場走勢",
       dailyPrice: "參考價格", trackedSalesBars: "已追蹤成交額", salesTrend: "已追蹤成交額走勢", salesTrendShort: "成交走勢", imageAlt: "卡牌圖像",
       noHistory: "每日價格歷史仍在累積。", noCards: "此分類暫時沒有合資格卡牌。", noSales: "無成交紀錄", watchStatus: "觀察狀態",
@@ -312,6 +319,8 @@ export const copy: Record<Locale, Copy> = {
       marketCap: "市值", marketCapShort: "市值", trackedSales: "已追踪成交额",
       trackedSalesShort: "成交",
       salesHelp: "只包括 CardZ Marketcap 追踪范围内捕捉到的 PSA 10 完成成交。", change: "涨跌", changeShort: "涨跌", asOf: "数据时间",
+      pricePeriod: "价格期数", checkedAt: "最近检查",
+      awaitingFreshPrice: "等待新鲜价格",
       viewCard: "查看卡牌详情", close: "关闭", story: "市场为何追捧", history: "每日市场走势",
       dailyPrice: "参考价格", trackedSalesBars: "已追踪成交额", salesTrend: "已追踪成交额走势", salesTrendShort: "成交走势", imageAlt: "卡牌图像",
       noHistory: "每日价格历史仍在累积。", noCards: "此分类暂时没有合资格卡牌。", noSales: "无成交纪录", watchStatus: "观察状态",
@@ -375,6 +384,8 @@ export const copy: Record<Locale, Copy> = {
       marketCap: "時価総額", marketCapShort: "時価総額", trackedSales: "追跡成約額",
       trackedSalesShort: "成約",
       salesHelp: "CardZ Marketcap の追跡範囲で確認できた PSA 10 の成約のみを含みます。", change: "変動", changeShort: "変動", asOf: "データ時刻",
+      pricePeriod: "価格期", checkedAt: "最終確認",
+      awaitingFreshPrice: "新しい価格を待機中",
       viewCard: "カード詳細を見る", close: "閉じる", story: "市場で支持される理由", history: "日次市場推移",
       dailyPrice: "参考価格", trackedSalesBars: "追跡成約額", salesTrend: "追跡成約額の推移", salesTrendShort: "成約推移", imageAlt: "カード画像",
       noHistory: "日次価格履歴を蓄積しています。", noCards: "この表示には適格カードがありません。", noSales: "成約記録なし", watchStatus: "観察ステータス",
@@ -445,6 +456,8 @@ export const copy: Record<Locale, Copy> = {
       marketCap: "시가총액", marketCapShort: "시총", trackedSales: "추적 거래액",
       trackedSalesShort: "거래",
       salesHelp: "CardZ Marketcap 추적 범위에서 확인된 PSA 10 완료 거래만 포함합니다.", change: "등락", changeShort: "등락", asOf: "데이터 시각",
+      pricePeriod: "가격 기간", checkedAt: "최근 확인",
+      awaitingFreshPrice: "신선한 가격 대기",
       viewCard: "카드 상세 보기", close: "닫기", story: "시장이 주목하는 이유", history: "일별 시장 추이",
       dailyPrice: "기준 가격", trackedSalesBars: "추적 거래액", salesTrend: "추적 거래액 추이", salesTrendShort: "거래 추이", imageAlt: "카드 이미지",
       noHistory: "일별 가격 이력을 축적하고 있습니다.", noCards: "이 보기에 적격 카드가 없습니다.", noSales: "거래 기록 없음", watchStatus: "관찰 상태",

@@ -141,17 +141,25 @@ export function scopeSnapshot(
   }
   if (scope === "watchlist") {
     /*
-     * Owner 政策（2026-08-11）：watchlist 只擺 rank 101–300，多過 300 嘅唔處理。
-     * Rank 0（awaiting fresh price 嘅 unranked 卡）一齊唔出——佢哋冇市值席位，
-     * 唔屬於 101–300 呢個範圍；卡頁照舊經 /card/<id> 直接到達。
+     * Owner 政策（2026-08-12 覆蓋 8/11 上限）：watchlist 放 rank 101+，
+     * 沿用現有 pagination；rank 0（awaiting fresh price）放最後一頁之後的
+     * 獨立區段，唔顯示假排名。卡頁 URL / FE03 layout / GEO 不變。
      */
-    const all = canonical.filter((card) => card.marketRank >= 101 && card.marketRank <= 300);
+    const ranked = canonical
+      .filter((card) => card.marketRank >= 101)
+      .sort((a, b) => a.marketRank - b.marketRank);
+    const awaiting = canonical
+      .filter((card) => !(card.marketRank >= 1))
+      .sort((a, b) => a.id.localeCompare(b.id));
+    const all = [
+      ...ranked.map((card) => ({ ...card, rank: card.marketRank, viewRank: card.marketRank })),
+      ...awaiting.map((card) => ({ ...card, rank: 0, viewRank: 0 })),
+    ];
     const pageSize = Math.min(Math.max(Math.trunc(options?.pageSize ?? 200), 1), 500);
     const pageCount = Math.max(Math.ceil(all.length / pageSize), 1);
     const page = Math.min(Math.max(Math.trunc(options?.page ?? 1), 1), pageCount);
     const cards = all
       .slice((page - 1) * pageSize, page * pageSize)
-      .map((card) => ({ ...card, rank: card.marketRank, viewRank: card.marketRank }))
       .map(listCard);
     return { ...snapshot, coverage: scopedCoverage(cards.length, all.length), top100: cards, watchlist: [] };
   }

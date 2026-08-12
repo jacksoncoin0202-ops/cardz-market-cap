@@ -1198,11 +1198,20 @@ def build_operator_cards(cur, members, product_subset: bool):
             expected_market_cap = round(float(price_usd or 0) * int(pop_value or 0), 6)
             if market_cap is None or abs(float(market_cap) - expected_market_cap) > 0.000001:
                 raise RuntimeError(f"variant {vid} market cap is not exact price multiplied by POP")
-        price_at = fe.asof_iso(
-            row.get("psa10_price_observed_date")
-            or row.get("psa10_price_effective_at")
-            or row.get("psa10_price_source_observed_at")
+        # Three time semantics (043):
+        #   sourcePeriodAt = source chart/period date (PC month head, SNK day)
+        #   checkedAt      = actual capture/check time used for freshness
+        #   asOf           = checkedAt for public "last updated" surfaces
+        price_period_at = fe.asof_iso(
+            row.get("psa10_price_source_period_at")
+            or row.get("psa10_price_observed_date")
         )
+        price_checked_at = fe.asof_iso(
+            row.get("psa10_price_checked_at")
+            or row.get("psa10_price_source_observed_at")
+            or row.get("psa10_price_effective_at")
+        )
+        price_at = price_checked_at or price_period_at
         pop_at = fe.asof_iso(row.get("population_effective_at"))
         cap_at = _latest_evidence_at(price_at, pop_at)
         history, windows = fe.build_history_windows(vid, bulk)
@@ -1287,6 +1296,8 @@ def build_operator_cards(cur, members, product_subset: bool):
                 price_usd,
                 "ready" if price_usd is not None else "unavailable",
                 price_at,
+                sourcePeriodAt=price_period_at,
+                checkedAt=price_checked_at,
             ),
             "priceUngradedReference": fe.metric(
                 ungraded_value,

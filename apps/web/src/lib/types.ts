@@ -22,6 +22,10 @@ export interface MarketMetric<T> {
   value: T | null;
   status: MetricStatus;
   asOf: string | null;
+  /** Source chart/period date (e.g. PriceCharting month head 2026-08-01). */
+  sourcePeriodAt?: string | null;
+  /** Actual capture/check time used for daily freshness. */
+  checkedAt?: string | null;
   anchorAt?: string | null;
   sourceSwitched?: boolean;
 }

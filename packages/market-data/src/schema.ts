@@ -23,7 +23,12 @@ export type SnapshotCoverageClaim = "verified-top-n" | "verified-top-100";
 export interface MarketMetric {
   value: number | null;
   status: MarketStatus;
+  /** Public "last updated" time. For PSA10 price this is checkedAt (043). */
   asOf: string | null;
+  /** Source chart/period date (e.g. PriceCharting month head). Optional. */
+  sourcePeriodAt?: string | null;
+  /** Actual capture/check time used for freshness. Optional. */
+  checkedAt?: string | null;
   /**
    * True when the current price and its historical anchor use different exact
    * providers. The provider names themselves are deliberately absent from this

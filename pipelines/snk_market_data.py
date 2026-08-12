@@ -1434,6 +1434,47 @@ def ingest_kline_jsonls(
             price_rows_to_write[offset : offset + 1000],
         )
 
+    # Append-only current quote revisions for ranking lineage. SNK daily bars
+    # still land in market_price_observation; ranking freshness uses checked_at.
+    if price_rows_to_write:
+        from current_quote_revision import insert_quote_revision
+
+        for price_row in price_rows_to_write:
+            # head: run_id, variant_id, source_code, external_entity_id
+            # then source_observation_id
+            # tail: day, effective, price_usd, price_jpy, currency, priority, status, payload_hash
+            run_id_i = int(price_row[0])
+            variant_id_i = int(price_row[1])
+            source_code_i = str(price_row[2])
+            external_i = str(price_row[3])
+            source_obs_i = int(price_row[4])
+            day_i = price_row[5]
+            effective_i = price_row[6]
+            price_usd_i = price_row[7]
+            payload_i = str(price_row[12])
+            cur.execute(
+                """
+                SELECT id FROM market_price_observation
+                WHERE variant_id=%s AND source_code=%s AND observed_date=%s
+                LIMIT 1
+                """,
+                (variant_id_i, source_code_i, day_i),
+            )
+            obs = cur.fetchone() or {}
+            insert_quote_revision(
+                cur,
+                variant_id=variant_id_i,
+                source_code=source_code_i,
+                source_external_entity_id=external_i,
+                price_usd=price_usd_i,
+                source_period_at=day_i,
+                checked_at=effective_i,
+                payload_sha256=payload_i,
+                source_observation_id=source_obs_i,
+                market_price_observation_id=int(obs["id"]) if obs.get("id") else None,
+                run_id=run_id_i,
+            )
+
     # Release stale quarantines this run just re-verified.
     #
     # A binding repair quarantines a card's price rows because rows captured

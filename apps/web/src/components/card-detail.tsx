@@ -110,9 +110,14 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
             差 136 日。市值 = 價 × POP，所以呢個日期一錯，成塊 metrics 都報錯時間。
             改用卡自己嗰個價格觀察日；冇價先跌返 snapshot 時間。
           */}
-          <p className="data-time">{t.labels.asOf}: {formatObservationDate(card.pricePsa10.asOf || snapshot.effectiveAt, locale)}</p>
+          <p className="data-time">
+            {card.pricePsa10.sourcePeriodAt
+              ? `${t.labels.pricePeriod}: ${formatObservationDate(card.pricePsa10.sourcePeriodAt, locale)} · `
+              : null}
+            {t.labels.checkedAt}: {formatObservationDate(card.pricePsa10.checkedAt || card.pricePsa10.asOf || snapshot.effectiveAt, locale)}
+          </p>
           <HistoryChart points={card.historyDaily} locale={locale} currency={currency} rates={snapshot.rates} />
-          <Provenance updatedAt={card.pricePsa10.asOf || snapshot.effectiveAt} />
+          <Provenance updatedAt={card.pricePsa10.checkedAt || card.pricePsa10.asOf || snapshot.effectiveAt} />
         </div>
       </article>
     </div>

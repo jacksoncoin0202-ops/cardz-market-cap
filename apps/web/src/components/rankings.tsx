@@ -173,7 +173,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                       router.push(cardUrl);
                     }}
                   >
-                    <td className="rank-cell">{card.viewRank}</td>
+                    <td className="rank-cell">{card.viewRank > 0 ? card.viewRank : t.labels.awaitingFreshPrice}</td>
                     <td><Link href={cardUrl}><CardIdentity card={card} unavailable={t.status.unavailable} /></Link></td>
                     <td className="collector-cell">{card.collectorNumber}</td>
                     <td className="numeric price-cell">
@@ -206,7 +206,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
             </div>
             {visibleCards.map((card) => (
               <Link className="mobile-rank-card" href={href(`/card/${card.id}`)} key={card.id}>
-                <span className="mobile-rank-index">{card.viewRank}</span>
+                <span className="mobile-rank-index">{card.viewRank > 0 ? card.viewRank : t.labels.awaitingFreshPrice}</span>
                 <div className="ranking-thumb"><CardImage image={card.image} sizes="56px" alt={card.officialName ?? ""} /></div>
                 <div className="mobile-card-info">
                   <span className="mobile-card-sub">

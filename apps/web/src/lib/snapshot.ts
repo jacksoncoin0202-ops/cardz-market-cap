@@ -40,6 +40,8 @@ function metric(value: CanonicalCard["pricePsa10"]): MarketMetric<number> {
     value: value.value,
     status: value.status,
     asOf: value.asOf,
+    sourcePeriodAt: value.sourcePeriodAt ?? null,
+    checkedAt: value.checkedAt ?? null,
     sourceSwitched: value.sourceSwitched ?? false,
   };
 }

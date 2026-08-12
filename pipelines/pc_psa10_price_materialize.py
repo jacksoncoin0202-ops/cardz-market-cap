@@ -42,6 +42,7 @@ from pc_ungraded_reference_ingest import (
     source_observed_at,
 )
 from pricecharting_page_parse import parse_product_html
+from current_quote_revision import insert_quote_revision
 
 CONTRACT = "pc_psa10_current_price_v1"
 DEFAULT_PLAN = ROOT / "data/runtime/private-source-map/pc-psa10-current-price-plan-20260731T0630Z.json"
@@ -387,90 +388,128 @@ def run_key_for_plan(plan_sha256: str) -> str:
 
 def materialize(connection: Any, rows: list[dict[str, Any]], *, plan_sha256: str) -> int:
     change = changed_rows(connection, rows)
-    if not change:
-        return 0
     # market_ingest_run.run_key is CHAR(64). Keep the plan lineage while
     # satisfying the schema instead of prefixing the already-64-byte digest.
     run_key = run_key_for_plan(plan_sha256)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     with connection.cursor() as cursor:
-        cursor.execute("SELECT status FROM market_ingest_run WHERE run_key=%s", (run_key,))
-        prior = cursor.fetchone()
-        if prior is not None:
-            raise ValueError("plan run already exists but materialized rows differ")
-        cursor.execute(
-            """INSERT INTO market_ingest_run (run_key, source_code, ingest_mode, effective_at, payload_sha256, manifest_sha256, status, observed_count, started_at)
-               VALUES (%s,%s,'backfill',%s,%s,%s,'running',%s,%s)""",
-            (run_key, SOURCE_PC, now, plan_sha256, plan_sha256, len(change), now),
-        )
-        run_id = int(cursor.lastrowid)
-        price_values: list[tuple[Any, ...]] = []
-        for row in change:
+        run_id: int | None = None
+        if change:
+            cursor.execute("SELECT status FROM market_ingest_run WHERE run_key=%s", (run_key,))
+            prior = cursor.fetchone()
+            if prior is not None:
+                raise ValueError("plan run already exists but materialized rows differ")
+            cursor.execute(
+                """INSERT INTO market_ingest_run (run_key, source_code, ingest_mode, effective_at, payload_sha256, manifest_sha256, status, observed_count, started_at)
+                   VALUES (%s,%s,'backfill',%s,%s,%s,'running',%s,%s)""",
+                (run_key, SOURCE_PC, now, plan_sha256, plan_sha256, len(change), now),
+            )
+            run_id = int(cursor.lastrowid)
+            price_values: list[tuple[Any, ...]] = []
+            for row in change:
+                variant_id = int(row["variantId"])
+                source_code = str(row["sourceCode"]).casefold()
+                external_entity_id = pc_product_id(row)
+                cursor.execute(
+                    """
+                    SELECT COUNT(*) AS n
+                    FROM catalog_source_identity AS identity
+                    WHERE identity.variant_id=%s AND identity.source_code=%s
+                      AND identity.external_entity_id=%s AND identity.match_status='exact'
+                    """,
+                    (variant_id, source_code, external_entity_id),
+                )
+                if int(cursor.fetchone()["n"]) != 1:
+                    raise ValueError(
+                        "PriceCharting exact identity is missing or ambiguous: "
+                        f"variant={variant_id} external={external_entity_id}"
+                    )
+                effective_at = _parse_stamp(row["effectiveAt"])
+                payload_json = canonical_bytes(row["payload"]).decode("utf-8")
+                cursor.execute(
+                    """
+                    INSERT INTO market_source_observation
+                        (run_id, source_code, external_entity_id, observation_kind, effective_at,
+                         observed_date, payload_sha256, payload_json, observed_at)
+                    VALUES (%s, %s, %s, 'psa10_price_guide', %s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        id=LAST_INSERT_ID(id), run_id=VALUES(run_id),
+                        effective_at=VALUES(effective_at), payload_json=VALUES(payload_json),
+                        observed_at=VALUES(observed_at)
+                    """,
+                    (
+                        run_id, source_code, external_entity_id, effective_at,
+                        row["observedDate"], row["payloadSha256"], payload_json, effective_at,
+                    ),
+                )
+                source_observation_id = int(cursor.lastrowid)
+                if source_observation_id <= 0:
+                    raise RuntimeError("PriceCharting source observation upsert returned no id")
+                price_values.append(
+                    (
+                        run_id, variant_id, source_code, external_entity_id,
+                        source_observation_id, row["observedDate"], effective_at,
+                        row["priceUsd"], int(row["sourcePriority"]), "ready",
+                        row["payloadSha256"],
+                    )
+                )
+            cursor.executemany(
+                """INSERT INTO market_price_observation
+                     (run_id,variant_id,source_code,source_external_entity_id,
+                      source_observation_id,observed_date,effective_at,price_usd,
+                      native_price,native_currency,source_priority,metric_status,payload_sha256)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NULL,NULL,%s,%s,%s)
+                   ON DUPLICATE KEY UPDATE
+                     last_run_id=VALUES(run_id),
+                     restamp_count=restamp_count+1,
+                     source_external_entity_id=VALUES(source_external_entity_id),
+                     source_observation_id=VALUES(source_observation_id),
+                     effective_at=VALUES(effective_at),price_usd=VALUES(price_usd),
+                     source_priority=VALUES(source_priority),
+                     metric_status=CASE WHEN market_price_observation.metric_status='quarantined'
+                                        THEN 'quarantined' ELSE VALUES(metric_status) END,
+                     payload_sha256=VALUES(payload_sha256)""",
+                price_values,
+            )
+            cursor.execute(
+                "UPDATE market_ingest_run SET status='completed',accepted_count=%s,completed_at=%s WHERE id=%s",
+                (len(change), now, run_id),
+            )
+
+        # Append-only daily quote revisions for every planned current quote.
+        # Even when the monthly observation row is unchanged, checked_at advances.
+        for row in rows:
+            if str(row["sourceCode"]).casefold() != SOURCE_PC:
+                continue
             variant_id = int(row["variantId"])
-            source_code = str(row["sourceCode"]).casefold()
             external_entity_id = pc_product_id(row)
             cursor.execute(
                 """
-                SELECT COUNT(*) AS n
-                FROM catalog_source_identity AS identity
-                WHERE identity.variant_id=%s AND identity.source_code=%s
-                  AND identity.external_entity_id=%s AND identity.match_status='exact'
+                SELECT id, source_observation_id
+                FROM market_price_observation
+                WHERE variant_id=%s AND source_code=%s AND observed_date=%s
+                LIMIT 1
                 """,
-                (variant_id, source_code, external_entity_id),
+                (variant_id, SOURCE_PC, row["observedDate"]),
             )
-            if int(cursor.fetchone()["n"]) != 1:
-                raise ValueError(
-                    "PriceCharting exact identity is missing or ambiguous: "
-                    f"variant={variant_id} external={external_entity_id}"
-                )
-            effective_at = _parse_stamp(row["effectiveAt"])
-            payload_json = canonical_bytes(row["payload"]).decode("utf-8")
-            cursor.execute(
-                """
-                INSERT INTO market_source_observation
-                    (run_id, source_code, external_entity_id, observation_kind, effective_at,
-                     observed_date, payload_sha256, payload_json, observed_at)
-                VALUES (%s, %s, %s, 'psa10_price_guide', %s, %s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE
-                    id=LAST_INSERT_ID(id), run_id=VALUES(run_id),
-                    effective_at=VALUES(effective_at), payload_json=VALUES(payload_json),
-                    observed_at=VALUES(observed_at)
-                """,
-                (
-                    run_id, source_code, external_entity_id, effective_at,
-                    row["observedDate"], row["payloadSha256"], payload_json, effective_at,
-                ),
+            price_row = cursor.fetchone() or {}
+            insert_quote_revision(
+                cursor,
+                variant_id=variant_id,
+                source_code=SOURCE_PC,
+                source_external_entity_id=external_entity_id,
+                price_usd=row["priceUsd"],
+                source_period_at=row["observedDate"],
+                checked_at=now,
+                payload_sha256=str(row["payloadSha256"]),
+                source_observation_id=int(price_row["source_observation_id"])
+                if price_row.get("source_observation_id")
+                else None,
+                market_price_observation_id=int(price_row["id"])
+                if price_row.get("id")
+                else None,
+                run_id=run_id,
             )
-            source_observation_id = int(cursor.lastrowid)
-            if source_observation_id <= 0:
-                raise RuntimeError("PriceCharting source observation upsert returned no id")
-            price_values.append(
-                (
-                    run_id, variant_id, source_code, external_entity_id,
-                    source_observation_id, row["observedDate"], effective_at,
-                    row["priceUsd"], int(row["sourcePriority"]), "ready",
-                    row["payloadSha256"],
-                )
-            )
-        cursor.executemany(
-            """INSERT INTO market_price_observation
-                 (run_id,variant_id,source_code,source_external_entity_id,
-                  source_observation_id,observed_date,effective_at,price_usd,
-                  native_price,native_currency,source_priority,metric_status,payload_sha256)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NULL,NULL,%s,%s,%s)
-               ON DUPLICATE KEY UPDATE
-                 last_run_id=VALUES(run_id),
-                 restamp_count=restamp_count+1,
-                 source_external_entity_id=VALUES(source_external_entity_id),
-                 source_observation_id=VALUES(source_observation_id),
-                 effective_at=VALUES(effective_at),price_usd=VALUES(price_usd),
-                 source_priority=VALUES(source_priority),
-                 metric_status=CASE WHEN market_price_observation.metric_status='quarantined'
-                                    THEN 'quarantined' ELSE VALUES(metric_status) END,
-                 payload_sha256=VALUES(payload_sha256)""",
-            price_values,
-        )
-        cursor.execute("UPDATE market_ingest_run SET status='completed',accepted_count=%s,completed_at=%s WHERE id=%s", (len(change), now, run_id))
     connection.commit()
     return len(change)
 

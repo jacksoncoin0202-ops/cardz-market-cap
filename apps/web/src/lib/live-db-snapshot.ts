@@ -253,10 +253,18 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
         printing.set_name,printing.set_code,printing.edition_code,printing.finish_code,
         printing.identity_status,printing.canonical_printing_sha256,
         printing.evidence_sha256 AS printing_evidence_sha256,
-        price.price_usd AS psa10_price_usd,price.observed_date AS price_observed_date,
-        price.effective_at AS price_effective_at,
-        source_observation.observed_at AS price_observed_at,
-        CASE WHEN price.source_code IN ('snk','snk_psa10') THEN 'snkrdunk' ELSE price.source_code END AS price_source_code,
+        COALESCE(quote.price_usd, price.price_usd) AS psa10_price_usd,
+        COALESCE(quote.source_period_at, price.observed_date) AS price_observed_date,
+        COALESCE(quote.source_period_at, price.observed_date) AS price_source_period_at,
+        COALESCE(quote.checked_at, source_observation.observed_at, price.effective_at) AS price_checked_at,
+        COALESCE(quote.checked_at, price.effective_at) AS price_effective_at,
+        COALESCE(quote.checked_at, source_observation.observed_at) AS price_observed_at,
+        CASE
+          WHEN quote.source_code IN ('snk','snk_psa10') THEN 'snkrdunk'
+          WHEN quote.source_code IS NOT NULL THEN quote.source_code
+          WHEN price.source_code IN ('snk','snk_psa10') THEN 'snkrdunk'
+          ELSE price.source_code
+        END AS price_source_code,
         population.top_grade_population AS psa10_population,
         population.effective_at AS population_effective_at,
         metric.market_cap_usd,metric.accepted_at AS metric_accepted_at
@@ -265,11 +273,18 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       LEFT JOIN public_card_alias alias ON alias.variant_id=metric.variant_id
       INNER JOIN catalog_printing_identity printing ON printing.variant_id=metric.variant_id
       INNER JOIN market_metric_history_acceptance price_history ON price_history.id=metric.price_history_acceptance_id
-      INNER JOIN market_price_observation price ON price.id=price_history.source_record_id
-      INNER JOIN market_source_observation source_observation ON source_observation.id=price.source_observation_id
+      LEFT JOIN market_current_quote_revision quote
+        ON price_history.source_record_type='market_current_quote_revision'
+       AND price_history.source_record_id=quote.id
+      LEFT JOIN market_price_observation price
+        ON price_history.source_record_type='market_price_observation'
+       AND price_history.source_record_id=price.id
+      LEFT JOIN market_source_observation source_observation
+        ON source_observation.id=COALESCE(quote.source_observation_id, price.source_observation_id)
       INNER JOIN market_metric_history_acceptance population_history ON population_history.id=metric.population_history_acceptance_id
       INNER JOIN market_grader_population_observation population ON population.id=population_history.source_record_id
       WHERE metric.ranking_generation_sha256=?
+        AND COALESCE(quote.price_usd, price.price_usd) IS NOT NULL
       ORDER BY metric.canonical_market_rank IS NULL,
                metric.canonical_market_rank,metric.variant_id
     `, [generationHash]);
@@ -467,7 +482,10 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       const currentPopulation = numberValue(row.psa10_population);
       const canonicalRank = numberValue(row.canonical_market_rank) ?? 0;
       const awaitingFreshPrice = canonicalRank === 0;
-      const priceAsOf = iso(row.price_observed_date) ?? iso(row.price_effective_at);
+      const pricePeriodAt = iso(row.price_source_period_at) ?? iso(row.price_observed_date);
+      const priceCheckedAt = iso(row.price_checked_at) ?? iso(row.price_observed_at) ?? iso(row.price_effective_at);
+      // Public asOf / freshness clock is checkedAt (043), not the PC month head.
+      const priceAsOf = priceCheckedAt ?? pricePeriodAt;
       const populationAsOf = iso(row.population_effective_at);
       // 市值 = 價 × POP（rebuild_036.py:7176），所以佢只可以同兩個輸入入面**舊**
       // 嗰個一樣新。舊版攞 .at(-1)（max），即係用 POP 嘅新鮮度去標一個食緊 08-01
@@ -553,8 +571,18 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
             : undefined,
         },
         pricePsa10: awaitingFreshPrice
-          ? { value: null, status: "accumulating", asOf: priceAsOf }
-          : readyMetric(currentPrice, priceAsOf),
+          ? {
+              value: null,
+              status: "accumulating",
+              asOf: priceAsOf,
+              sourcePeriodAt: pricePeriodAt,
+              checkedAt: priceCheckedAt,
+            }
+          : {
+              ...readyMetric(currentPrice, priceAsOf),
+              sourcePeriodAt: pricePeriodAt,
+              checkedAt: priceCheckedAt,
+            },
         priceUngradedReference: readyMetric(numberValue(raw?.price_usd), iso(raw?.observed_at)),
         populationPsa10: { ...readyMetric(currentPopulation, populationAsOf), estimated: false },
         marketCap: awaitingFreshPrice
