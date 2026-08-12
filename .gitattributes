@@ -23,6 +23,14 @@ data/private/images/**/* filter=lfs diff=lfs merge=lfs -text
 *.timer text eol=lf
 *.py text eol=lf
 *.sql text eol=lf
+
+# 退役 migration 係 byte-frozen 事故證據：migration_policy.py 用 sha256(disk bytes)
+# 驗佢哋，cardz_migration_ledger 亦記住同一個 hash。上面 *.sql 嘅 eol 正規化會令
+# fresh checkout 攞到 LF 版、同 pin 對唔上，assert_retired_hashes 喺 migrate() 第一步
+# 就會炸。呢三個檔案豁免 eol 政策，blob 儲 exact bytes，邊度 checkout 都同 pin 一致。
+pipelines/migrations/046_legacy_quote_unique_owner.mysql.sql -text
+pipelines/migrations/047_legacy_quote_nondestructive_recovery.mysql.sql -text
+pipelines/migrations/047_restore_legacy_quote_append_only.mysql.sql -text
 *.yml text eol=lf
 *.yaml text eol=lf
 *.toml text eol=lf
