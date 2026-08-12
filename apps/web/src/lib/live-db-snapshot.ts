@@ -130,6 +130,34 @@ function nearestPrice(
   return winner;
 }
 
+// 30d 帶內（25–35 日前）搵唔到錨，唔代表「唔知 30 日前價錢係幾多」——價格
+// 係 step function：30 日前嘅價 = 嗰一刻嘅最後已知價（股票圖星期一計 1d 變化
+// 用星期五收市價，同一個道理）。PC 月線每月 1 號先郁一次，所以每個月嘅尾段
+// 「啱啱好 30±5 日前」永遠冇點落喺帶內——帶內政策同月線源頭嘅週期天生相沖
+//（同 40 日 freshness cutoff 要遷就月線係同一個理由）。所以 30d 帶內落空時，
+// 准退去帶前最後一個同基準點：梵高喺 08-12 會攞 07-01 月線 $2,850 對現價
+// $2,836 出 −0.5%，係真·月對月變化，唔係發明數。1d 唔跟（:117 嘅 24 小時
+// 證據原則照企），7d 都唔跟（周對周退到月線會出假 0.0%，週期唔匹配）。
+// 乜舊點都冇（上市未夠一個月）嘅卡照灰——嗰個先至係真「資料累積中」。
+function latestBefore(
+  history: DailyHistoryPoint[],
+  beforeMs: number,
+  currentSource: string | null,
+): AnchorCandidate | null {
+  let winner: AnchorCandidate | null = null;
+  let winnerMs = Number.NEGATIVE_INFINITY;
+  for (const point of history) {
+    const candidate = anchorCandidate(point, currentSource);
+    if (candidate === null) continue;
+    const at = new Date(candidate.at).valueOf();
+    if (at < beforeMs && at > winnerMs) {
+      winner = candidate;
+      winnerMs = at;
+    }
+  }
+  return winner;
+}
+
 function percentage(current: number | null, previous: number | null): number | null {
   return current === null || previous === null || previous === 0
     ? null
@@ -161,7 +189,12 @@ function windowMetrics(
   const currentCap = currentPrice === null || currentPopulation === null ? null : currentPrice * currentPopulation;
   return Object.fromEntries(Object.entries(WINDOWS).map(([code, daysBack]) => {
     const tolerance = code === "1d" ? 2 : code === "7d" ? 3 : 5;
-    const anchor = nearestPrice(history, currentMs - daysBack * 86_400_000, tolerance, currentMs, currentSource);
+    const targetMs = currentMs - daysBack * 86_400_000;
+    // 帶內空咗先輪到 step-function 後備（見 latestBefore 註釋）。帶內冇點
+    // ⇒ (target−5d, target+5d) 全空 ⇒「最後一個 < target−5d 嘅點」就係
+    //「最後一個 ≤ target 嘅點」，即係標準 as-of 語義，冇偷步。
+    const anchor = nearestPrice(history, targetMs, tolerance, currentMs, currentSource)
+      ?? (code === "30d" ? latestBefore(history, targetMs - tolerance * 86_400_000, currentSource) : null);
     const priceChange = percentage(currentPrice, anchor?.priceUsd ?? null);
     const anchorSource = anchor?.sourceCode ?? null;
     const sourceSwitched = Boolean(anchorSource && currentSource && anchorSource !== currentSource);
