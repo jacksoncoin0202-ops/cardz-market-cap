@@ -246,7 +246,17 @@ Behaviour (`pipelines/pc_cdp_sold_refresh_win.py`):
   product-id + canonical-URL identity match **and** an explicit PSA10 figure is present.
 - Rate-limit backoff ladder `BACKOFF_LADDER = (30.0, 60.0, 120.0)` s.
 - Per-item statuses: `ok`, `missing`, `navigation_error`, `rate_limited`, `cf_or_fail`,
-  `explicit_psa10_missing`, `product_id_mismatch`, `http_or_content_fail`.
+  `server_error`, `explicit_psa10_missing`, `product_id_mismatch`, `http_or_content_fail`.
+- **重試（2026-08-12 加）：** `rate_limited` / `cf_or_fail` / `server_error` **唔係**當場判死，
+  而係擺返落隊尾，最多重試 `len(BACKOFF_LADDER)` 次。撤銷嗰筆判死同加判死行同一張
+  `FAILURE_COUNTERS` 表，所以 `fail`/`cf`/`rateLimited` 三個數加減一定對稱。
+  重試明細寫喺 report 個 `retries` array（`{variant_id, attempt, status}`）。
+  - `rate_limited` / `cf_or_fail` 會拖住**全部分頁**一齊停 30/60/120 s —— 呢兩隻係整個 IP 俾人限速。
+  - `server_error`（上游 5xx）**唔會**engage backoff，只係排返隊尾。5xx 係佢哋單版嘢壞，
+    停晒全部分頁冇意思；10 版 500 × 3 次 × 30/60/120 s 會白白蝕半個鐘。
+  - 🔴 **上游 5xx 唔准同 `product_id_mismatch` 共用一個 status。** 500 錯誤頁冇 `product-id`，
+    舊版就當「我哋認錯咗卡」判死。2026-08-12 實測 10 版 500，嗰 10 條 URL 40 分鐘前先成功過。
+    「上游一陣間唔得」同「我哋認錯咗卡」係兩件事。守呢件事嘅係 `scripts/test_pc_refresh_requeue.py`。
 - Auto-ingest fires only when every item is `ok` (no failures, no CF): it shells into WSL —
   `wsl.exe -d Ubuntu -- bash -lc "cd '<root_wsl>' && /home/jackson0202/cardz-market-cap/.venv-backend/bin/python -X utf8 pipelines/c11_pc_sold_ingest.py --map data/runtime/private-source-map/c11_pc_ebay_map_full900.jsonl --write"`.
 - Exit **0** only if fully complete including ingest exit 0; otherwise **1**.
@@ -266,6 +276,48 @@ it explicitly), `--write`, `--dry-run`, `--limit`, `--report`. Effective write =
 `--write and not --dry-run`. Summary JSON goes to
 `qualified-pool-reports/c11_pc_sold_{write|dry}.json`; the process returns **0** and raises
 (after rollback + failure-ledger record) on DB write failure.
+
+### 掃完但 auto-ingest 冇 fire —— 唔准重爬，直接補數上街
+
+`ok == len(batch) and fail == 0 and cf == 0` 係 all-or-nothing：**993 張入面死一張，
+另外 992 張已經落咗地嘅 HTML 都唔會入庫**（`pipelines/pc_cdp_sold_refresh_win.py:561`）。
+呢個閘至今未改（欠單見 [HANDOFF_036_20260812.md](HANDOFF_036_20260812.md) §5.6）。
+
+**撞到嗰陣唔好重跑成個 sweep。** HTML 已經喺 cache，重爬只係嘥半個鐘同一次額外 CF 風險。
+照下面四步補數，全部要行齊先為之出咗街：
+
+```bash
+# 1. ingest 已經落咗地嘅 HTML（WSL backend venv；--report 一定要傳，唔好靠 default 檔名蓋走舊 report）
+wsl.exe -d Ubuntu -- bash -lc "cd '<root_wsl>' && /home/jackson0202/cardz-market-cap/.venv-backend/bin/python -X utf8 \
+  pipelines/c11_pc_sold_ingest.py \
+  --map data/runtime/private-source-map/c11_pc_ebay_map_full900.jsonl \
+  --report data/runtime/operator/collect/pc_ebay_sales_ingest_manual_<YYYYMMDD>.json --write"
+```
+
+```powershell
+# 2. 重排 universe（Windows Python）
+python -X utf8 pipelines\operator_control.py daily-accept
+
+# 3. bake + push [deploy]（入面 shell 落 WSL release repo）
+powershell -NoProfile -File scripts\daily_public_release.ps1
+```
+
+```bash
+# 4. 驗返出咗街先算完 —— generatedAt 要同啱先 bake 嗰個對得返
+curl -s https://app.cardzmarketcap.com/api/health
+```
+
+逐步要睇嘅數（2026-08-12 實跑做參考）：
+
+| 步 | 睇邊個數 | 08-12 實跑 |
+|---|---|---|
+| 1 | `inserted_or_updated` > 0；`skipped_existing` 應該佔絕大多數（指紋去重生效） | 339 新 / 29,415 skip / 157 張卡 |
+| 2 | `accepted` 同 generation id | `accepted 1322`，`c09d521cd740c31d` |
+| 3 | snapshot diff 行數、commit 有冇 `[deploy]`、push 有冇真係上到 main | `+1923/−582`、`b7e0ea8e [deploy]` |
+| 4 | `generatedAt` 對唔對得返第 3 步嗰個 bake | `2026-08-11T20:14:11.934Z` ✅ |
+
+⚠️ 第 4 步唔好用 `curl -o` 落 Windows 路徑（出 HTTP 000），亦唔好用 urllib（食 Cloudflare 403）。
+PowerShell `Invoke-RestMethod` 最穩陣。
 
 ### Full run (900-card rebuild of the map)
 
