@@ -208,9 +208,19 @@ def select_candidate(
     )
 
 
-def build_plan(connection: Any) -> dict[str, Any]:
+def build_plan(connection: Any, *, scope: str = "active-universe") -> dict[str, Any]:
     cur = connection.cursor()
     active = fetch_active(cur)
+    if scope == "incomplete-printing-identity":
+        active = [
+            row for row in active
+            if str(row.get("printing_identity_status") or "").casefold()
+            not in {"canonical", "confirmed"}
+        ]
+    elif scope != "active-universe":
+        raise RuntimeError(f"unsupported active PSA resolution scope: {scope}")
+    if not active:
+        raise RuntimeError(f"active PSA resolution scope is empty: {scope}")
     active_ids = [int(row["variant_id"]) for row in active]
     current = fetch_current_psa(cur, active_ids)
     populations = fetch_population(cur, active_ids)
@@ -245,7 +255,17 @@ def build_plan(connection: Any) -> dict[str, Any]:
         if not set_compatible(psa, variant):
             after["set_name"] = psa["set_name"]
             after["variant_set_name"] = psa["set_name"]
-        if psa.get("parallel") and str(before.get("parallel_code") or "").casefold() in {"", "unknown"}:
+        # A partial completion pass must not enrich an existing printing tuple
+        # from blank parallel to the PSA label.  Doing that before every
+        # already-exact PC/SNK binding has independently asserted the same
+        # parallel would remove those bindings from operator_strict_source_identity.
+        # The literal PSA row is still accepted below; the frozen printing
+        # tuple remains the source-compatible identity already in production.
+        if (
+            scope == "active-universe"
+            and psa.get("parallel")
+            and str(before.get("parallel_code") or "").casefold() in {"", "unknown"}
+        ):
             after["parallel_code"] = psa["parallel"]
         after["canonical_printing_sha256"] = printing_sha(after)
         row = {
@@ -289,6 +309,7 @@ def build_plan(connection: Any) -> dict[str, Any]:
     plan = {
         "schemaVersion": 1,
         "contract": CONTRACT,
+        "scope": scope,
         "generatedAt": utc_now(),
         "activeCount": len(rows),
         "counts": dict(sorted(counters.items())),
@@ -308,9 +329,51 @@ def load_plan(path: Path) -> dict[str, Any]:
     expected = sha256_json({k: v for k, v in payload.items() if k not in {"generatedAt", "manifestSha256"}})
     if payload.get("contract") != CONTRACT or payload.get("manifestSha256") != expected:
         raise RuntimeError("active PSA resolution manifest is invalid")
-    if len(payload.get("rows") or []) != 762 or int(payload.get("activeCount") or 0) != 762:
-        raise RuntimeError("active PSA resolution must contain exactly 762 variants")
+    if payload.get("scope", "active-universe") not in {
+        "active-universe", "incomplete-printing-identity",
+    }:
+        raise RuntimeError("active PSA resolution manifest scope is invalid")
+    rows = payload.get("rows") or []
+    variant_ids = [int(row.get("variantId") or 0) for row in rows]
+    if (
+        not variant_ids
+        or any(variant_id <= 0 for variant_id in variant_ids)
+        or len(set(variant_ids)) != len(variant_ids)
+        or int(payload.get("activeCount") or 0) != len(variant_ids)
+    ):
+        raise RuntimeError("active PSA resolution manifest variant membership is invalid")
     return payload
+
+
+def assert_current_universe_membership(cur: Any, plan: dict[str, Any]) -> None:
+    """Refuse a signed plan if its live universe selection has moved at all."""
+
+    scope = plan.get("scope", "active-universe")
+    predicate = ""
+    if scope == "incomplete-printing-identity":
+        predicate = "AND LOWER(printing.identity_status) NOT IN ('canonical','confirmed')"
+    cur.execute(
+        f"""
+        SELECT member.variant_id
+        FROM market_universe_member member
+        INNER JOIN market_universe_lock universe
+          ON universe.id=member.universe_lock_id AND universe.is_current=1
+        INNER JOIN catalog_printing_identity printing
+          ON printing.variant_id=member.variant_id
+        WHERE 1=1 {predicate}
+        ORDER BY member.variant_id
+        """
+    )
+    current_ids = [int(row["variant_id"]) for row in cur.fetchall()]
+    plan_ids = sorted(int(row["variantId"]) for row in plan["rows"])
+    if plan_ids != current_ids:
+        missing = sorted(set(current_ids) - set(plan_ids))
+        extra = sorted(set(plan_ids) - set(current_ids))
+        raise RuntimeError(
+            "active PSA resolution universe membership drifted: "
+            f"current={len(current_ids)} plan={len(plan_ids)} "
+            f"missing={missing[:10]} extra={extra[:10]}"
+        )
 
 
 def acceptance_payload(row: dict[str, Any]) -> tuple[dict[str, Any], str, str]:
@@ -395,6 +458,19 @@ def apply_plan(connection: Any, plan: dict[str, Any]) -> dict[str, Any]:
         cur.execute("SELECT COUNT(*) AS n FROM cardz_schema_version WHERE version_code='035'")
         if int((cur.fetchone() or {}).get("n") or 0) != 1:
             raise RuntimeError("migration 035 is not applied")
+        assert_current_universe_membership(cur, plan)
+        plan_ids = [int(row["variantId"]) for row in plan["rows"]]
+        placeholders = ",".join(["%s"] * len(plan_ids))
+        cur.execute(
+            f"""SELECT variant_id,source_code,external_entity_id
+                FROM operator_strict_source_identity
+                WHERE variant_id IN ({placeholders})""",
+            plan_ids,
+        )
+        strict_before = {
+            (int(row["variant_id"]), str(row["source_code"]), str(row["external_entity_id"]))
+            for row in cur.fetchall()
+        }
 
         for row in plan["rows"]:
             variant_id = int(row["variantId"])
@@ -542,6 +618,28 @@ def apply_plan(connection: Any, plan: dict[str, Any]) -> dict[str, Any]:
             )
             affected["gemrateBindings"] += int(cur.rowcount)
 
+            # A provider may already have asserted the language while the old
+            # normalized printing/binding pair was still blank.  When this
+            # plan is the transaction that resolves that blank, carry only
+            # that already-present provider claim into the non-GemRate bound
+            # field.  This keeps the existing exact source route connected;
+            # no claim is inferred and no other binding field is broadened.
+            if before.get("card_language") != after.get("card_language"):
+                cur.execute(
+                    """UPDATE catalog_source_identity
+                       SET bound_card_language=%s
+                       WHERE variant_id=%s AND source_code<>'gemrate'
+                         AND match_status='exact' AND bound_card_language=%s
+                         AND LOWER(TRIM(JSON_UNQUOTE(JSON_EXTRACT(
+                               bind_evidence_json,'$.providerClaims.cardLanguage'))))
+                             =LOWER(TRIM(%s))""",
+                    (
+                        after["card_language"], variant_id,
+                        before.get("card_language") or "", after["card_language"],
+                    ),
+                )
+                affected["sourceLanguageBindings"] += int(cur.rowcount)
+
             cur.execute(
                 """INSERT INTO operator_binding_freeze
                    (variant_id,freeze_kind,source_code,external_entity_id,content_sha256,
@@ -577,6 +675,22 @@ def apply_plan(connection: Any, plan: dict[str, Any]) -> dict[str, Any]:
             )
             affected["gemrateSourceFreezes"] += int(cur.rowcount)
 
+        cur.execute(
+            f"""SELECT variant_id,source_code,external_entity_id
+                FROM operator_strict_source_identity
+                WHERE variant_id IN ({placeholders})""",
+            plan_ids,
+        )
+        strict_after = {
+            (int(row["variant_id"]), str(row["source_code"]), str(row["external_entity_id"]))
+            for row in cur.fetchall()
+        }
+        lost_strict = sorted(strict_before - strict_after)
+        if lost_strict:
+            raise RuntimeError(
+                "active PSA resolution would disconnect strict source bindings: "
+                + canonical_json(lost_strict[:20])
+            )
         connection.commit()
     except Exception:
         connection.rollback()
@@ -646,6 +760,10 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     prepare = sub.add_parser("prepare")
     prepare.add_argument("--output", type=Path, default=OUT_ROOT / "resolution-plan.json")
+    prepare.add_argument(
+        "--only-incomplete", action="store_true",
+        help="plan only current-universe printing identities that are not canonical/confirmed",
+    )
     apply = sub.add_parser("apply")
     apply.add_argument("--plan", type=Path, default=OUT_ROOT / "resolution-plan.json")
     apply.add_argument("--receipt", type=Path, default=OUT_ROOT / "apply-receipt.json")
@@ -657,7 +775,10 @@ def main() -> int:
     connection = db()
     try:
         if args.command == "prepare":
-            payload = build_plan(connection)
+            payload = build_plan(
+                connection,
+                scope="incomplete-printing-identity" if args.only_incomplete else "active-universe",
+            )
             write_json(args.output, payload)
             print(json.dumps({k: v for k, v in payload.items() if k != "rows"}, ensure_ascii=False, sort_keys=True))
         elif args.command == "apply":
