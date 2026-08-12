@@ -17,6 +17,7 @@ from typing import Any, Mapping, Sequence
 
 
 CONTRACT = "market_current_quote_revision_v1"
+LEGACY_RESOLUTION_CONTRACT = "market_legacy_quote_resolution_v2"
 SOURCE_RECORD_TYPE = "market_current_quote_revision"
 LIVE_KINDS = {None, "", "bootstrap_from_observation"}
 LEGACY_KIND = "legacy_generation_reconstructed"
@@ -139,15 +140,35 @@ def insert_quote_revision(
         ),
     )
     revision_id = int(cursor.lastrowid or 0)
-    if revision_id <= 0:
-        cursor.execute(
-            "SELECT id FROM market_current_quote_revision WHERE quote_lineage_sha256=%s",
-            (lineage,),
-        )
-        found = cursor.fetchone() or {}
-        revision_id = int(found.get("id") or 0)
+    cursor.execute(
+        """
+        SELECT id, variant_id, source_code, source_external_entity_id,
+               price_usd, source_period_at, checked_at, payload_sha256,
+               reconstruction_kind, reconstructed_from_acceptance_id
+        FROM market_current_quote_revision
+        WHERE quote_lineage_sha256=%s
+        """,
+        (lineage,),
+    )
+    found = cursor.fetchone() or {}
+    revision_id = int(found.get("id") or revision_id or 0)
     if revision_id <= 0:
         raise RuntimeError("quote revision insert returned no id")
+    expected_owner = (
+        int(reconstructed_from_acceptance_id)
+        if reconstructed_from_acceptance_id
+        else None
+    )
+    actual_owner = (
+        int(found["reconstructed_from_acceptance_id"])
+        if found.get("reconstructed_from_acceptance_id") is not None
+        else None
+    )
+    if actual_owner != expected_owner:
+        raise RuntimeError(
+            "quote lineage collision across reconstruction owners: "
+            f"lineage={lineage} expected={expected_owner} actual={actual_owner}"
+        )
     return revision_id
 
 
@@ -274,11 +295,94 @@ def bootstrap_from_eligible_observations(cursor: Any, *, actor: str = "043-boots
     return {"eligibleObservations": len(rows), "revisionsWritten": inserted, "actor": actor}
 
 
-def reconstruct_legacy_generation_quotes(cursor: Any) -> dict[str, int]:
-    """Freeze accepted generation prices that no longer match the mutable observation.
+def _legacy_quote_spec(raw: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Derive one historical quote exclusively from immutable acceptances."""
 
-    price_usd is reconstructed from accepted market_cap_usd / population so
-    historical generation re-reads keep the originally accepted values.
+    population = int(raw.get("psa10_population") or 0)
+    market_cap = Decimal(str(raw.get("market_cap_usd") or 0))
+    if population <= 0 or market_cap <= 0:
+        return None
+    accepted_price = (market_cap / Decimal(population)).quantize(Decimal("0.000001"))
+    if accepted_price <= 0:
+        return None
+    return {
+        "variant_id": int(raw["variant_id"]),
+        "source_code": str(raw["source_code"]),
+        "source_external_entity_id": str(raw["source_external_entity_id"]),
+        "price_usd": accepted_price,
+        "source_period_at": raw["source_period_at"],
+        "checked_at": raw["accepted_at"],
+        "payload_sha256": str(raw["source_payload_sha256"]),
+        "source_observation_id": None,
+        "market_price_observation_id": int(raw["source_record_id"]),
+        "reconstruction_kind": LEGACY_KIND,
+        "reconstructed_from_acceptance_id": int(raw["acceptance_id"]),
+    }
+
+
+def legacy_resolution_evidence_sha256(
+    raw: Mapping[str, Any], quote_lineage_sha256_value: str,
+) -> str:
+    """Bind a resolver row to both immutable metric inputs and its quote."""
+
+    spec = _legacy_quote_spec(raw)
+    if spec is None:
+        raise ValueError("invalid metric acceptance cannot be resolved")
+    # Keep this exact order aligned with migration 049's SQL expression.  The
+    # reader recomputes it, so a row merely labelled ``resolved`` is not trusted.
+    evidence = (
+        LEGACY_RESOLUTION_CONTRACT,
+        int(raw["acceptance_id"]),
+        int(raw["price_history_acceptance_id"]),
+        int(raw["population_history_acceptance_id"]),
+        str(raw["metric_lineage_sha256"]),
+        str(raw["price_history_lineage_sha256"]),
+        str(raw["population_history_lineage_sha256"]),
+        _price_text(spec["price_usd"]),
+        int(raw["psa10_population"]),
+        str(quote_lineage_sha256_value),
+    )
+    encoded = "|".join(str(value) for value in evidence)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def select_verified_legacy_candidate(
+    raw: Mapping[str, Any], candidates: Sequence[Mapping[str, Any]],
+) -> Mapping[str, Any] | None:
+    """Select only an exact immutable-payload match; ambiguity fails closed."""
+
+    spec = _legacy_quote_spec(raw)
+    if spec is None:
+        return None
+    matches = [
+        candidate for candidate in candidates
+        if int(candidate.get("variant_id") or 0) == int(spec["variant_id"])
+        and str(candidate.get("source_code") or "").casefold()
+            == str(spec["source_code"]).casefold()
+        and str(candidate.get("source_external_entity_id") or "")
+            == str(spec["source_external_entity_id"])
+        and _price_text(candidate.get("price_usd")) == _price_text(spec["price_usd"])
+        and _as_date(candidate.get("source_period_at"))
+            == _as_date(spec["source_period_at"])
+        and _as_utc_naive(candidate.get("checked_at"))
+            == _as_utc_naive(spec["checked_at"])
+        and str(candidate.get("payload_sha256") or "").casefold()
+            == str(spec["payload_sha256"]).casefold()
+        and int(candidate.get("reconstructed_from_acceptance_id") or 0)
+            == int(spec["reconstructed_from_acceptance_id"])
+    ]
+    if len(matches) != 1:
+        return None
+    return matches[0]
+
+
+def reconstruct_legacy_generation_quotes(cursor: Any) -> dict[str, int]:
+    """Resolve every observation-pointed metric without mutating history.
+
+    The immutable acceptance payload, identity, period, accepted market cap and
+    accepted population mint the only permitted quote.  Mutable observation
+    columns never decide the historical value.  Existing semantic candidates
+    remain append-only; the explicit resolution map selects the canonical one.
     """
 
     cursor.execute(
@@ -289,21 +393,20 @@ def reconstruct_legacy_generation_quotes(cursor: Any) -> dict[str, int]:
                metric.price_history_acceptance_id,
                metric.population_history_acceptance_id,
                metric.accepted_at,
+               metric.metric_lineage_sha256,
                pop.top_grade_population AS psa10_population,
-               price.source_code,
-               price.source_external_entity_id,
-               price.observed_date,
-               price.payload_sha256,
-               price.id AS market_price_observation_id,
-               price.source_observation_id,
-               price.price_usd AS live_price_usd
+               price_history.source_code,
+               price_history.external_entity_id AS source_external_entity_id,
+               price_history.observed_date AS source_period_at,
+               price_history.source_payload_sha256,
+               price_history.source_record_id,
+               price_history.lineage_sha256 AS price_history_lineage_sha256,
+               pop_history.lineage_sha256 AS population_history_lineage_sha256
         FROM market_canonical_metric_acceptance metric
         INNER JOIN market_metric_history_acceptance price_history
           ON price_history.id=metric.price_history_acceptance_id
          AND price_history.metric_kind='psa10_price'
          AND price_history.source_record_type='market_price_observation'
-        INNER JOIN market_price_observation price
-          ON price.id=price_history.source_record_id
         INNER JOIN market_metric_history_acceptance pop_history
           ON pop_history.id=metric.population_history_acceptance_id
          AND pop_history.metric_kind='psa10_population'
@@ -313,37 +416,152 @@ def reconstruct_legacy_generation_quotes(cursor: Any) -> dict[str, int]:
           AND pop.top_grade_population > 0
         """
     )
-    written = 0
-    mismatched = 0
-    for raw in cursor.fetchall():
-        pop = int(raw["psa10_population"])
-        if pop <= 0:
+    rows = list(cursor.fetchall())
+    cursor.execute("SELECT COUNT(*) AS n FROM market_current_quote_revision")
+    before = int((cursor.fetchone() or {}).get("n") or 0)
+    resolved = 0
+    invalid = 0
+    scanned = 0
+    for raw in rows:
+        scanned += 1
+        spec = _legacy_quote_spec(raw)
+        if spec is None:
+            mark_legacy_resolution_invalid(
+                cursor, int(raw["acceptance_id"]), "non_positive_accepted_metric",
+            )
+            invalid += 1
             continue
-        accepted_price = (
-            Decimal(str(raw["market_cap_usd"])) / Decimal(pop)
-        ).quantize(Decimal("0.000001"))
-        live = Decimal(str(raw["live_price_usd"] or 0)).quantize(Decimal("0.000001"))
-        if accepted_price <= 0:
-            continue
-        if abs(accepted_price - live) <= Decimal("0.000001"):
-            continue
-        mismatched += 1
-        insert_quote_revision(
-            cursor,
-            variant_id=int(raw["variant_id"]),
-            source_code=str(raw["source_code"]),
-            source_external_entity_id=str(raw["source_external_entity_id"]),
-            price_usd=accepted_price,
-            source_period_at=raw["observed_date"],
-            checked_at=raw["accepted_at"],
-            payload_sha256=str(raw["payload_sha256"]),
-            source_observation_id=int(raw["source_observation_id"] or 0) or None,
-            market_price_observation_id=int(raw["market_price_observation_id"] or 0) or None,
-            reconstruction_kind=LEGACY_KIND,
-            reconstructed_from_acceptance_id=int(raw["acceptance_id"]),
+        cursor.execute(
+            """
+            SELECT id, variant_id, source_code, source_external_entity_id,
+                   price_usd, source_period_at, checked_at, payload_sha256,
+                   quote_lineage_sha256, reconstructed_from_acceptance_id
+            FROM market_current_quote_revision
+            WHERE reconstructed_from_acceptance_id=%s
+            """,
+            (int(raw["acceptance_id"]),),
         )
-        written += 1
-    return {"mismatchedGenerations": mismatched, "revisionsWritten": written}
+        existing_candidates = list(cursor.fetchall())
+        candidate = select_verified_legacy_candidate(raw, existing_candidates)
+        if candidate is None:
+            revision_id = insert_quote_revision(cursor, **spec)
+            cursor.execute(
+                """
+                SELECT id, variant_id, source_code, source_external_entity_id,
+                       price_usd, source_period_at, checked_at, payload_sha256,
+                       quote_lineage_sha256, reconstructed_from_acceptance_id
+                FROM market_current_quote_revision
+                WHERE reconstructed_from_acceptance_id=%s
+                """,
+                (int(raw["acceptance_id"]),),
+            )
+            candidate = select_verified_legacy_candidate(raw, list(cursor.fetchall()))
+            if candidate is None:
+                mark_legacy_resolution_invalid(
+                    cursor, int(raw["acceptance_id"]),
+                    "ambiguous_or_missing_exact_quote_candidate",
+                )
+                invalid += 1
+                continue
+            revision_id = int(candidate["id"])
+        else:
+            revision_id = int(candidate["id"])
+        cursor.execute(
+            "SELECT quote_lineage_sha256 FROM market_current_quote_revision WHERE id=%s",
+            (revision_id,),
+        )
+        quote = cursor.fetchone() or {}
+        evidence = legacy_resolution_evidence_sha256(
+            raw, str(quote.get("quote_lineage_sha256") or ""),
+        )
+        upsert_legacy_resolution(
+            cursor, int(raw["acceptance_id"]), revision_id, evidence,
+        )
+        resolved += 1
+    cursor.execute("SELECT COUNT(*) AS n FROM market_current_quote_revision")
+    after = int((cursor.fetchone() or {}).get("n") or 0)
+    return {
+        "scannedObservationPointers": scanned,
+        "resolvedObservationPointers": resolved,
+        "invalidObservationPointers": invalid,
+        "revisionsWritten": after - before,
+        "canonicalRepointed": 0,
+    }
+
+
+def resolve_legacy_quote_for_metric(cursor: Any, metric_acceptance_id: int) -> dict[str, Any] | None:
+    """Resolve through the verified map view; missing evidence fails closed."""
+    cursor.execute(
+        """
+        SELECT quote_revision_id AS id, variant_id, price_usd, source_period_at,
+               checked_at, source_code, source_external_entity_id, payload_sha256,
+               quote_lineage_sha256, reconstruction_kind,
+               resolver_evidence_sha256
+        FROM operator_resolved_canonical_metric_quote
+        WHERE metric_acceptance_id=%s AND resolution_kind='legacy'
+        LIMIT 1
+        """,
+        (int(metric_acceptance_id),),
+    )
+    row = cursor.fetchone()
+    return dict(row) if row else None
+
+
+def upsert_legacy_resolution(
+    cursor: Any,
+    metric_acceptance_id: int,
+    quote_revision_id: int,
+    resolver_evidence_sha256: str,
+) -> None:
+    """Write/refresh the 045 1:1 historical resolver evidence row."""
+    evidence = str(resolver_evidence_sha256).casefold()
+    if len(evidence) != 64 or any(ch not in "0123456789abcdef" for ch in evidence):
+        raise ValueError("resolver evidence SHA256 invalid")
+    cursor.execute(
+        """
+        INSERT INTO market_legacy_quote_resolution
+          (metric_acceptance_id, quote_revision_id, price_usd, source_period_at, checked_at,
+           quote_lineage_sha256, resolved_at, resolution_status,
+           resolver_evidence_sha256, blocker_code, resolved_by)
+        SELECT %s, q.id, q.price_usd, q.source_period_at, q.checked_at,
+               q.quote_lineage_sha256, UTC_TIMESTAMP(6), 'resolved', %s, NULL,
+               'legacy-quote-resolver-v2'
+        FROM market_current_quote_revision q
+        WHERE q.id=%s
+        ON DUPLICATE KEY UPDATE
+          quote_revision_id=VALUES(quote_revision_id),
+          price_usd=VALUES(price_usd),
+          source_period_at=VALUES(source_period_at),
+          checked_at=VALUES(checked_at),
+          quote_lineage_sha256=VALUES(quote_lineage_sha256),
+          resolved_at=VALUES(resolved_at),
+          resolution_status=VALUES(resolution_status),
+          resolver_evidence_sha256=VALUES(resolver_evidence_sha256),
+          blocker_code=NULL,
+          resolved_by=VALUES(resolved_by)
+        """,
+        (int(metric_acceptance_id), evidence, int(quote_revision_id)),
+    )
+
+
+def mark_legacy_resolution_invalid(
+    cursor: Any, metric_acceptance_id: int, blocker_code: str,
+) -> None:
+    """Invalidate an existing projection row without deleting any quote."""
+
+    cursor.execute(
+        """
+        UPDATE market_legacy_quote_resolution
+        SET resolution_status='invalid_acceptance',
+            resolver_evidence_sha256=NULL,
+            blocker_code=%s,
+            resolved_by='legacy-quote-resolver-v2',
+            resolved_at=UTC_TIMESTAMP(6)
+        WHERE metric_acceptance_id=%s
+        """,
+        (str(blocker_code), int(metric_acceptance_id)),
+    )
+
 
 
 def self_test() -> dict[str, Any]:

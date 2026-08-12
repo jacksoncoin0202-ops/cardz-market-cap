@@ -837,6 +837,9 @@ def cmd_pc_identity_discover(args: argparse.Namespace) -> int:
             "proposals": proposals,
             "held": held,
         }
+        report_sink = getattr(args, "report_sink", None)
+        if report_sink is not None:
+            report_sink.append(report)
         artifact = (R.ROOT / "data" / "runtime" / "rebuild-036"
                     / f"pc-identity-discover-{stamp}.json")
         artifact.write_bytes(R.canonical_json(report))

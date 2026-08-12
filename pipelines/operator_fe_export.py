@@ -597,21 +597,19 @@ def load_bulk(
           metric.ranking_generation_sha256,
           metric.metric_lineage_sha256,
           metric.evidence_sha256 AS metric_evidence_sha256,
-          COALESCE(quote.price_usd, price.price_usd) AS psa10_price_usd,
-          COALESCE(quote.source_period_at, price.observed_date) AS psa10_price_observed_date,
-          COALESCE(quote.source_period_at, price.observed_date) AS psa10_price_source_period_at,
-          COALESCE(quote.checked_at, source_observation.observed_at, price.effective_at)
+          quote.price_usd AS psa10_price_usd,
+          quote.source_period_at AS psa10_price_observed_date,
+          quote.source_period_at AS psa10_price_source_period_at,
+          COALESCE(quote.checked_at, source_observation.observed_at)
             AS psa10_price_checked_at,
-          COALESCE(quote.checked_at, price.effective_at) AS psa10_price_effective_at,
+          quote.checked_at AS psa10_price_effective_at,
           COALESCE(quote.checked_at, source_observation.observed_at)
             AS psa10_price_source_observed_at,
           CASE
             WHEN quote.source_code IN ('snk','snk_psa10') THEN 'snkrdunk'
-            WHEN quote.source_code IS NOT NULL THEN quote.source_code
-            WHEN price.source_code IN ('snk','snk_psa10') THEN 'snkrdunk'
-            ELSE price.source_code
+            ELSE quote.source_code
           END AS psa10_price_source_code,
-          COALESCE(quote.source_external_entity_id, price.source_external_entity_id)
+          quote.source_external_entity_id
             AS psa10_price_external_entity_id,
           population.top_grade_population AS psa10_population,
           population.effective_at AS population_effective_at,
@@ -622,24 +620,10 @@ def load_bulk(
           ON price_history.id=metric.price_history_acceptance_id
          AND price_history.variant_id=metric.variant_id
          AND price_history.metric_kind='psa10_price'
-        LEFT JOIN market_current_quote_revision quote
-          ON price_history.source_record_type='market_current_quote_revision'
-         AND price_history.source_record_id=quote.id
-         AND price_history.variant_id=quote.variant_id
-         AND price_history.observed_date=quote.source_period_at
-         AND price_history.source_effective_at=quote.checked_at
-         AND price_history.external_entity_id=quote.source_external_entity_id
-         AND price_history.source_payload_sha256=quote.payload_sha256
-        LEFT JOIN market_price_observation price
-          ON price_history.source_record_type='market_price_observation'
-         AND price_history.source_record_id=price.id
-         AND price_history.variant_id=price.variant_id
-         AND price_history.observed_date=price.observed_date
-         AND price_history.source_effective_at=price.effective_at
-         AND price_history.external_entity_id=price.source_external_entity_id
-         AND price_history.source_payload_sha256=price.payload_sha256
+        INNER JOIN operator_resolved_canonical_metric_quote quote
+          ON quote.metric_acceptance_id=metric.id
         LEFT JOIN market_source_observation source_observation
-          ON source_observation.id=COALESCE(quote.source_observation_id, price.source_observation_id)
+          ON source_observation.id=quote.source_observation_id
         INNER JOIN market_metric_history_acceptance population_history
           ON population_history.id=metric.population_history_acceptance_id
          AND population_history.variant_id=metric.variant_id
@@ -655,9 +639,9 @@ def load_bulk(
          AND population_history.source_payload_sha256=population.payload_sha256
         WHERE metric.variant_id IN ({ph})
           AND metric.ranking_generation_sha256=%s
-          AND COALESCE(quote.price_usd, price.price_usd) IS NOT NULL
+          AND quote.price_usd IS NOT NULL
           AND metric.market_cap_usd=
-              COALESCE(quote.price_usd, price.price_usd)*population.top_grade_population
+              quote.price_usd*population.top_grade_population
         """,
         (*vids, ranking_generation),
     )

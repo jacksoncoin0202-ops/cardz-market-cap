@@ -438,7 +438,18 @@ def cmd_snk_identity_discover(args: argparse.Namespace) -> int:
         )
         counts["targets"] = len(targets)
         if not targets:
-            print(json.dumps({"snkIdentityDiscover": True, "targets": 0}, ensure_ascii=False))
+            report = {
+                "snkIdentityDiscover": True,
+                "write": bool(args.write),
+                "generation": generation,
+                "counts": counts,
+                "proposals": [],
+                "held": [],
+            }
+            report_sink = getattr(args, "report_sink", None)
+            if report_sink is not None:
+                report_sink.append(report)
+            print(json.dumps(report, ensure_ascii=False))
             return 0
 
         progress(f"[discover] generation={generation} targets={len(targets)}"
@@ -696,6 +707,9 @@ def cmd_snk_identity_discover(args: argparse.Namespace) -> int:
             "proposals": proposals,
             "held": held,
         }
+        report_sink = getattr(args, "report_sink", None)
+        if report_sink is not None:
+            report_sink.append(report)
         artifact = R.ROOT / "data" / "runtime" / "rebuild-036" / f"snk-identity-discover-{stamp}.json"
         artifact.write_bytes(R.canonical_json(report))
         print(json.dumps(report, ensure_ascii=False, indent=1, default=str))

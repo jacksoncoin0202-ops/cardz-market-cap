@@ -112,6 +112,29 @@ assert "si.variant_id IN" in rebuild_source
 print("POSITIVE_OK both discoverers and PC reverify enforce the variant-ID scope")
 
 
+
+
+# Ledger rotation fills residual capacity with oldest unresolved cards; new gaps still win.
+ledger_rows = [
+    {"variant_id": 50, "discovery_status": "source_not_found", "last_reviewed_at": "2026-08-01 00:00:00", "language": "ja", "tcg": "pokemon"},
+    {"variant_id": 60, "discovery_status": "inactive_unresolved", "last_reviewed_at": "2026-07-01 00:00:00", "language": "en", "tcg": "pokemon"},
+    {"variant_id": 70, "discovery_status": "active_exact", "last_reviewed_at": "2026-08-01 00:00:00", "language": "ja", "tcg": "pokemon"},
+]
+retry_http = D.plan_ledger_retry_targets(rows, ledger_rows, "http", limit=10)
+assert retry_http["targetIds"] == [50]
+retry_browser = D.plan_ledger_retry_targets(rows, ledger_rows, "browser", limit=10)
+assert retry_browser["targetIds"] == [60]
+print("POSITIVE_OK unresolved ledger cards rotate into residual daily capacity")
+
+# Ordinary misses are durable outcomes, not a fatal gate for the other 1,322
+# members. The command owns only fatal transport/DB exceptions; its normal tail
+# always returns zero after writing the cursor and attempt receipt.
+source = (ROOT / "pipelines" / "daily_discovery_activation.py").read_text(encoding="utf-8")
+assert '"dailyDiscovery": "blocked"' not in source
+assert "return 1" not in source[source.index("def cmd_daily_discover_activate"):]
+assert '"dailyDiscovery": "complete"' in source
+print("POSITIVE_OK ordinary unresolved discovery no longer blocks daily-accept")
+
 for script_name in ("nightly_collect_accept.ps1", "morning_browser_lanes.ps1"):
     source = (ROOT / "scripts" / script_name).read_text(encoding="utf-8-sig")
     discover_at = source.index("daily-discover-activate")
@@ -119,3 +142,59 @@ for script_name in ("nightly_collect_accept.ps1", "morning_browser_lanes.ps1"):
     assert discover_at < accept_at, script_name
     assert "$discoverExit -eq 0" in source, script_name
 print("POSITIVE_OK both scheduled chains gate daily-accept behind discovery")
+
+
+# last_reviewed_at must not reset on unchanged rebuild, or rotation is fake (always lowest ids)
+from discovery_ledger import rebuild_ledger  # noqa: E402
+class _LedgerCursor:
+    def __init__(self):
+        self.rows = {}
+        self._last = None
+        self.queries = []
+    def execute(self, sql, params=()):
+        self.queries.append((sql, params))
+        sql_l = " ".join(sql.split()).lower()
+        if sql_l.startswith("select v.id as variant_id"):
+            self._last = "select_variants"
+        elif "insert into market_identity_discovery_ledger" in sql_l:
+            variant_id = int(params[0])
+            discovery = params[2]
+            blocker = params[5]
+            now = params[7]
+            existing = self.rows.get(variant_id)
+            if existing is None:
+                self.rows[variant_id] = {"discovery_status": discovery, "blocker_code": blocker, "last_reviewed_at": now}
+            else:
+                # emulate IF status changed
+                if discovery != existing["discovery_status"] or (blocker or "") != (existing["blocker_code"] or ""):
+                    existing["discovery_status"] = discovery
+                    existing["blocker_code"] = blocker
+                    existing["last_reviewed_at"] = now
+                # else keep last_reviewed_at
+            self._last = "insert"
+        elif "select count(*) as n from market_identity_discovery_ledger" in sql_l:
+            self._last = "count_ledger"
+        elif "select count(*) as n from catalog_variant" in sql_l:
+            self._last = "count_catalog"
+        else:
+            self._last = "other"
+    def fetchall(self):
+        if self._last == "select_variants":
+            return [
+                {"variant_id": 1, "catalog_status": "active", "card_language": "ja", "pc_exact_n": 0, "pc_nonexact_n": 0, "pc_exact": None, "snk_exact_n": 0, "snk_nonexact_n": 0, "snk_exact": None},
+                {"variant_id": 2, "catalog_status": "active", "card_language": "en", "pc_exact_n": 0, "pc_nonexact_n": 0, "pc_exact": None, "snk_exact_n": 0, "snk_nonexact_n": 0, "snk_exact": None},
+            ]
+        return []
+    def fetchone(self):
+        if self._last == "count_ledger":
+            return {"n": len(self.rows)}
+        if self._last == "count_catalog":
+            return {"n": len(self.rows) or 2}
+        return {"n": 0}
+
+# lightweight: ensure ON DUPLICATE SQL preserves last_reviewed_at when status unchanged
+src = (ROOT / "pipelines" / "discovery_ledger.py").read_text(encoding="utf-8")
+assert "last_reviewed_at=IF(" in src
+assert "VALUES(discovery_status)<>market_identity_discovery_ledger.discovery_status" in src
+print("POSITIVE_OK discovery ledger keeps last_reviewed_at unless status changes")
+

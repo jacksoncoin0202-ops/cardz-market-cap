@@ -29,8 +29,9 @@ def main() -> int:
         else DEFAULT_CREDENTIALS_ENV,
     )
     parser.add_argument("--self-test-only", action="store_true")
+    parser.add_argument("--self-test", action="store_true", help="alias of --self-test-only")
     args = parser.parse_args()
-    if args.self_test_only:
+    if args.self_test_only or args.self_test:
         print(json.dumps(self_test(), sort_keys=True))
         return 0
     unit = self_test()

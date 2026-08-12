@@ -1223,6 +1223,7 @@ def ingest_kline_jsonls(
     ] = {}
     persisted_kline_cache: dict[int, dict[str, tuple[int, str, float | None]]] = {}
     resolved_cards: list[tuple[int, int, int]] = []
+    fetch_by_item: dict[str, Any] = {}
 
     for row in rows:
         item_id = row.get("item_id")
@@ -1241,6 +1242,9 @@ def ingest_kline_jsonls(
             stats["skippedAllowlist"] += 1
             continue
         observed_at = source_observed_at(row)
+        previous_fetch = fetch_by_item.get(str(item_id))
+        if previous_fetch is None or observed_at > previous_fetch:
+            fetch_by_item[str(item_id)] = observed_at
         cur.execute(
             """
             SELECT COUNT(*) AS n
@@ -1434,15 +1438,23 @@ def ingest_kline_jsonls(
             price_rows_to_write[offset : offset + 1000],
         )
 
-    # Append-only current quote revisions for ranking lineage. SNK daily bars
-    # still land in market_price_observation; ranking freshness uses checked_at.
+    # Ranking quote = latest bar only (head). Full SNK daily bars still land in
+    # market_price_observation for charts; do not mint one quote per tail candle.
+    # checked_at must be this run's fetch time (resolved_cards provenance), never
+    # a reused historical source observation clock — otherwise daily re-check of
+    # an unchanged head bar does not advance freshness.
     if price_rows_to_write:
         from current_quote_revision import insert_quote_revision
 
+        head_by_variant: dict[int, tuple[Any, ...]] = {}
         for price_row in price_rows_to_write:
-            # head: run_id, variant_id, source_code, external_entity_id
-            # then source_observation_id
-            # tail: day, effective, price_usd, price_jpy, currency, priority, status, payload_hash
+            variant_id_i = int(price_row[1])
+            day_i = str(price_row[5])
+            prev = head_by_variant.get(variant_id_i)
+            if prev is None or str(prev[5]) < day_i:
+                head_by_variant[variant_id_i] = price_row
+
+        for price_row in head_by_variant.values():
             run_id_i = int(price_row[0])
             variant_id_i = int(price_row[1])
             source_code_i = str(price_row[2])
@@ -1461,6 +1473,14 @@ def ingest_kline_jsonls(
                 (variant_id_i, source_code_i, day_i),
             )
             obs = cur.fetchone() or {}
+            checked_i = fetch_by_item.get(str(external_i))
+            if checked_i is None:
+                cur.execute(
+                    "SELECT observed_at FROM market_source_observation WHERE id=%s LIMIT 1",
+                    (source_obs_i,),
+                )
+                src = cur.fetchone() or {}
+                checked_i = src.get("observed_at") or effective_i
             insert_quote_revision(
                 cur,
                 variant_id=variant_id_i,
@@ -1468,7 +1488,7 @@ def ingest_kline_jsonls(
                 source_external_entity_id=external_i,
                 price_usd=price_usd_i,
                 source_period_at=day_i,
-                checked_at=effective_i,
+                checked_at=checked_i,
                 payload_sha256=payload_i,
                 source_observation_id=source_obs_i,
                 market_price_observation_id=int(obs["id"]) if obs.get("id") else None,

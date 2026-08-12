@@ -51,7 +51,12 @@ def rebuild_ledger(cursor: Any) -> dict[str, Any]:
           SELECT variant_id,
                  SUM(match_status='exact') AS exact_n,
                  SUM(match_status<>'exact') AS nonexact_n,
-                 MAX(CASE WHEN match_status='exact' THEN external_entity_id END) AS exact_id
+                 MAX(CASE WHEN match_status='exact' THEN external_entity_id END) AS exact_id,
+                 MAX(CASE WHEN match_status='exact' THEN evidence_sha256 END) AS exact_evidence,
+                 GROUP_CONCAT(CASE WHEN match_status='exact' THEN external_entity_id END
+                              ORDER BY external_entity_id SEPARATOR '|') AS exact_ids,
+                 GROUP_CONCAT(CASE WHEN match_status='exact' THEN evidence_sha256 END
+                              ORDER BY external_entity_id SEPARATOR '|') AS exact_evidences
           FROM catalog_source_identity
           WHERE source_code='pricecharting'
           GROUP BY variant_id
@@ -60,7 +65,12 @@ def rebuild_ledger(cursor: Any) -> dict[str, Any]:
           SELECT variant_id,
                  SUM(match_status='exact') AS exact_n,
                  SUM(match_status<>'exact') AS nonexact_n,
-                 MAX(CASE WHEN match_status='exact' THEN external_entity_id END) AS exact_id
+                 MAX(CASE WHEN match_status='exact' THEN external_entity_id END) AS exact_id,
+                 MAX(CASE WHEN match_status='exact' THEN evidence_sha256 END) AS exact_evidence,
+                 GROUP_CONCAT(CASE WHEN match_status='exact' THEN external_entity_id END
+                              ORDER BY external_entity_id SEPARATOR '|') AS exact_ids,
+                 GROUP_CONCAT(CASE WHEN match_status='exact' THEN evidence_sha256 END
+                              ORDER BY external_entity_id SEPARATOR '|') AS exact_evidences
           FROM catalog_source_identity
           WHERE source_code IN ('snkrdunk','snk','snk_psa10')
           GROUP BY variant_id
@@ -88,8 +98,12 @@ def rebuild_ledger(cursor: Any) -> dict[str, Any]:
                 "ambiguous" if snk_exact_n > 1 else ("exact" if snk_exact_n == 1 else "missing")
             )
         elif pc_exact_n == 1 or snk_exact_n == 1:
-            discovery = "active_exact"
-            blocker = None if catalog_status == "active" else "inactive_with_exact_binding"
+            if catalog_status == "active":
+                discovery = "active_exact"
+                blocker = None
+            else:
+                discovery = "inactive_exact"
+                blocker = "inactive_with_exact_binding"
             pc_status = "exact" if pc_exact_n == 1 else ("nonexact" if pc_nonexact_n else "missing")
             snk_status = (
                 "exact" if snk_exact_n == 1 else ("nonexact" if snk_nonexact_n else "missing")
@@ -117,7 +131,17 @@ def rebuild_ledger(cursor: Any) -> dict[str, Any]:
         detail = {
             "cardLanguage": language or None,
             "pcExactId": raw.get("pc_exact"),
+            "pcExactEvidenceSha256": raw.get("pc_exact_evidence"),
+            "pcExactIds": str(raw.get("pc_exact_ids") or "").split("|")
+            if raw.get("pc_exact_ids") else [],
+            "pcExactEvidenceSha256s": str(raw.get("pc_exact_evidences") or "").split("|")
+            if raw.get("pc_exact_evidences") else [],
             "snkExactId": raw.get("snk_exact"),
+            "snkExactEvidenceSha256": raw.get("snk_exact_evidence"),
+            "snkExactIds": str(raw.get("snk_exact_ids") or "").split("|")
+            if raw.get("snk_exact_ids") else [],
+            "snkExactEvidenceSha256s": str(raw.get("snk_exact_evidences") or "").split("|")
+            if raw.get("snk_exact_evidences") else [],
             "pcExactCount": pc_exact_n,
             "snkExactCount": snk_exact_n,
         }
@@ -134,8 +158,17 @@ def rebuild_ledger(cursor: Any) -> dict[str, Any]:
               snk_status=VALUES(snk_status),
               blocker_code=VALUES(blocker_code),
               detail_json=VALUES(detail_json),
-              last_reviewed_at=VALUES(last_reviewed_at),
+              -- only advance last_reviewed_at when status actually changes;
+              -- otherwise daily rebuilds would always reset rotation order to id ASC
+              last_reviewed_at=IF(
+                VALUES(discovery_status)<>market_identity_discovery_ledger.discovery_status
+                OR IFNULL(VALUES(blocker_code),'')<>IFNULL(market_identity_discovery_ledger.blocker_code,''),
+                VALUES(last_reviewed_at),
+                market_identity_discovery_ledger.last_reviewed_at
+              ),
               updated_at=VALUES(updated_at)
+              -- attempt_count/last_attempt_at/last_outcome/next_due_at/quarantine_until are
+              -- owned by daily discovery attempts, never rebuilt here
             """,
             (
                 variant_id,

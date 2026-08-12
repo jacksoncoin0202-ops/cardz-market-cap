@@ -19,19 +19,24 @@ after it was already in the previous cursor.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Iterable, Mapping
 
 import rebuild_036 as R
+import discovery_ledger as DL
 
 
 STATE_CONTRACT = "cardz-036-daily-discovery-state-v1"
 STATE_PATH = R.ROOT / "data" / "runtime" / "rebuild-036" / "daily-discovery-state.json"
 LANES = frozenset({"http", "browser"})
+DAILY_PROVIDER_LIMIT = 40
+SAME_EVIDENCE_QUARANTINE_AFTER = 3
+DISCOVERY_REPORT_DIR = R.ROOT / "data" / "runtime" / "operator" / "collect"
 
 
 def _utc_now() -> str:
@@ -47,6 +52,47 @@ def _normalise_ids(values: Iterable[Any], field: str) -> list[int]:
 
 def _lane_for_language(language: Any) -> str:
     return "browser" if str(language or "").strip().lower() == "en" else "http"
+
+
+def evidence_sha256(document: Mapping[str, Any]) -> str:
+    return hashlib.sha256(R.canonical_json(document)).hexdigest()
+
+
+def attempt_lifecycle(
+    previous_evidence: str | None,
+    previous_consecutive: int,
+    current_evidence: str,
+    *,
+    success: bool = False,
+    terminal: bool = False,
+) -> dict[str, Any]:
+    """Pure scheduling rule for one real provider/activation attempt."""
+
+    if len(current_evidence) != 64:
+        raise ValueError("discovery evidence digest must be sha256")
+    if success:
+        return {
+            "consecutive": 0,
+            "nextDueHours": 168,
+            "quarantineHours": None,
+        }
+    consecutive = (
+        max(0, int(previous_consecutive)) + 1
+        if previous_evidence == current_evidence
+        else 1
+    )
+    if terminal:
+        return {
+            "consecutive": consecutive,
+            "nextDueHours": None,
+            "quarantineHours": 24 * 3650,
+        }
+    quarantined = consecutive >= SAME_EVIDENCE_QUARANTINE_AFTER
+    return {
+        "consecutive": consecutive,
+        "nextDueHours": 168 if quarantined else 24,
+        "quarantineHours": 168 if quarantined else None,
+    }
 
 
 def plan_gap_delta(
@@ -80,6 +126,105 @@ def plan_gap_delta(
         "currentIds": sorted(current),
     }
 
+
+
+
+def plan_ledger_retry_targets(
+    gap_rows: Iterable[Mapping[str, Any]],
+    ledger_rows: Iterable[Mapping[str, Any]],
+    lane: str,
+    *,
+    limit: int = 40,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Rotate unresolved ledger cards into the daily discovery targets.
+
+    Old known gaps and inactive unresolved cards must not sit outside the cursor
+    forever. New gaps still win; this only fills residual capacity up to limit.
+    Respects quarantine_until and next_due_at when present (044).
+    """
+    if lane not in LANES:
+        raise ValueError(f"unsupported discovery lane: {lane}")
+    if limit < 0:
+        raise ValueError("limit must be non-negative")
+    clock = now or datetime.now(timezone.utc).replace(tzinfo=None)
+    gap_by_id = {int(row["variant_id"]): row for row in gap_rows}
+    retry_statuses = {
+        "source_not_found",
+        "identity_ambiguous",
+        "inactive_unresolved",
+    }
+    candidates: list[tuple[str, str, int, Mapping[str, Any]]] = []
+    for raw in ledger_rows:
+        variant_id = int(raw["variant_id"])
+        status = str(raw.get("discovery_status") or "")
+        if status not in retry_statuses:
+            continue
+        if str(raw.get("blocker_code") or "") == "multiple_exact_bindings":
+            # More provider calls cannot safely choose between two exact owners.
+            continue
+        quarantine_until = raw.get("quarantine_until")
+        if quarantine_until is not None and str(quarantine_until) > str(clock):
+            continue
+        next_due = raw.get("next_due_at")
+        if next_due is not None and str(next_due) > str(clock):
+            continue
+        if variant_id in gap_by_id:
+            row = gap_by_id[variant_id]
+        else:
+            language = str(raw.get("card_language") or raw.get("language") or "")
+            row = {
+                "variant_id": variant_id,
+                "language": language,
+                "tcg": str(raw.get("tcg") or "pokemon"),
+            }
+        if _lane_for_language(row.get("language")) != lane:
+            continue
+        due_key = str(next_due or raw.get("last_reviewed_at") or "")
+        reviewed = str(raw.get("last_reviewed_at") or "")
+        candidates.append((due_key, reviewed, variant_id, row))
+    candidates.sort(key=lambda item: (item[0], item[1], item[2]))
+    selected = candidates[:limit]
+    target_ids = [variant_id for _, _, variant_id, _ in selected]
+    return {
+        "targetIds": target_ids,
+        "targetRows": [row for _, _, _, row in selected],
+        "candidateCount": len(candidates),
+        "limit": limit,
+    }
+
+
+def _load_ledger_rows(credentials_env: Path | None) -> list[dict[str, Any]]:
+    conn = R.connect(credentials_env or R.DAILY_CREDENTIALS_ENV)
+    try:
+        with conn.cursor() as cur:
+            DL.rebuild_ledger(cur)
+            cur.execute(
+                """
+                SELECT l.variant_id, l.catalog_status, l.discovery_status,
+                       l.detail_json, l.last_reviewed_at,
+                       l.attempt_count, l.last_attempt_at, l.last_outcome,
+                       l.next_due_at, l.quarantine_until, l.blocker_code,
+                       l.last_evidence_sha256, l.consecutive_same_evidence_count,
+                       pi.card_language AS language, pi.tcg_code AS tcg
+                FROM market_identity_discovery_ledger l
+                LEFT JOIN catalog_printing_identity pi ON pi.variant_id=l.variant_id
+                INNER JOIN catalog_rebuild_member rm
+                  ON rm.variant_id=l.variant_id
+                 AND rm.generation_id=(
+                   SELECT generation_id FROM catalog_rebuild_member
+                   ORDER BY computed_at DESC LIMIT 1)
+                WHERE rm.cohort<>'non_qualified'
+                  AND rm.latest_psa10_population>=%s
+                ORDER BY COALESCE(l.next_due_at, l.last_reviewed_at) ASC, l.variant_id ASC
+                """,
+                (R.DISCOVERY_GAP_POP,),
+            )
+            rows = [dict(row) for row in cur.fetchall()]
+        conn.commit()
+        return rows
+    finally:
+        conn.close()
 
 def _runtime_snapshot(credentials_env: Path | None) -> dict[str, Any]:
     conn = R.connect(credentials_env or R.DAILY_CREDENTIALS_ENV)
@@ -179,9 +324,10 @@ def _write_state(
 
 def _run_http_discovery(
     generation: str, variant_ids: list[int], credentials_env: Path | None,
-) -> None:
+) -> list[dict[str, Any]]:
     import snk_identity_discover as snk
 
+    reports: list[dict[str, Any]] = []
     code = snk.cmd_snk_identity_discover(SimpleNamespace(
         write=True,
         allow_repoint=False,
@@ -194,17 +340,20 @@ def _run_http_discovery(
         workers=8,
         credentials_env=credentials_env,
         variant_ids=variant_ids,
+        report_sink=reports,
     ))
     if code != 0:
         raise SystemExit(f"daily-discover ABORT: HTTP discovery exited {code}")
+    return reports
 
 
 def _run_browser_discovery(
     generation: str, rows: list[Mapping[str, Any]],
     credentials_env: Path | None,
-) -> None:
+) -> list[dict[str, Any]]:
     import pc_identity_discover as pc
 
+    reports: list[dict[str, Any]] = []
     by_tcg: dict[str, list[int]] = {}
     for row in rows:
         tcg = str(row["tcg"])
@@ -225,6 +374,7 @@ def _run_browser_discovery(
             no_fetch=False,
             credentials_env=credentials_env,
             variant_ids=variant_ids,
+            report_sink=reports,
         ))
         if code != 0:
             raise SystemExit(f"daily-discover ABORT: PC discovery exited {code}")
@@ -240,6 +390,7 @@ def _run_browser_discovery(
     ))
     if code != 0:
         raise SystemExit(f"daily-discover ABORT: PC reverify exited {code}")
+    return reports
 
 
 def _run_activation(generation: str) -> None:
@@ -256,6 +407,179 @@ def _run_activation(generation: str) -> None:
     ))
     if code != 0:
         raise SystemExit(f"daily-discover ABORT: 036 activation exited {code}")
+
+
+
+
+def _datetime_value(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None)
+    text = str(value).strip().replace("T", " ").removesuffix("Z")
+    return datetime.fromisoformat(text).replace(tzinfo=None)
+
+
+def _row_due(row: Mapping[str, Any], now: datetime) -> bool:
+    quarantine = _datetime_value(row.get("quarantine_until"))
+    next_due = _datetime_value(row.get("next_due_at"))
+    return (quarantine is None or quarantine <= now) and (
+        next_due is None or next_due <= now
+    )
+
+
+def _json_value(value: Any) -> Any:
+    if isinstance(value, (dict, list)):
+        return value
+    if value is None:
+        return None
+    try:
+        return json.loads(str(value))
+    except json.JSONDecodeError:
+        return str(value)
+
+
+def _attempt_evidence(
+    *,
+    variant_id: int,
+    lane: str,
+    provider_reports: list[Mapping[str, Any]],
+    ledger_row: Mapping[str, Any],
+    activation_attempted: bool,
+    active: bool,
+) -> dict[str, Any]:
+    provider_entries: list[dict[str, Any]] = []
+    for report in provider_reports:
+        proposals = [
+            item for item in report.get("proposals", [])
+            if int(item.get("variant_id") or 0) == variant_id
+        ]
+        held = [
+            item for item in report.get("held", [])
+            if int(item.get("variant_id") or 0) == variant_id
+        ]
+        if proposals or held:
+            provider_entries.append({
+                "provider": "pricecharting"
+                if report.get("pcIdentityDiscover") else "snkrdunk",
+                "proposals": proposals,
+                "held": held,
+            })
+    return {
+        "contract": "cardz-discovery-attempt-evidence-v1",
+        "variantId": variant_id,
+        "lane": lane,
+        "providerEvidence": provider_entries,
+        "postState": {
+            "catalogStatus": ledger_row.get("catalog_status"),
+            "discoveryStatus": ledger_row.get("discovery_status"),
+            "blockerCode": ledger_row.get("blocker_code"),
+            "detail": _json_value(ledger_row.get("detail_json")),
+            "active": active,
+        },
+        "activationAttempted": activation_attempted,
+    }
+
+
+def merge_provider_targets(
+    new_ids: Iterable[int], retry_ids: Iterable[int], *, limit: int,
+) -> list[int]:
+    """New gaps win, but no lane may exceed its provider request budget."""
+
+    if limit < 0:
+        raise ValueError("limit must be non-negative")
+    merged: list[int] = []
+    for raw in (*list(new_ids), *list(retry_ids)):
+        variant_id = int(raw)
+        if variant_id > 0 and variant_id not in merged:
+            merged.append(variant_id)
+        if len(merged) >= limit:
+            break
+    return merged
+
+
+def _record_ledger_attempts(
+    credentials_env: Path | None,
+    records: list[Mapping[str, Any]],
+    previous_rows: Mapping[int, Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Persist actual evidence and advance retry/quarantine deterministically."""
+
+    if not records:
+        return []
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    receipts: list[dict[str, Any]] = []
+    conn = R.connect(credentials_env or R.DAILY_CREDENTIALS_ENV)
+    try:
+        with conn.cursor() as cur:
+            for record in records:
+                variant_id = int(record["variant_id"])
+                digest = str(record["evidence_sha256"])
+                previous = previous_rows.get(variant_id) or {}
+                lifecycle = attempt_lifecycle(
+                    str(previous.get("last_evidence_sha256") or "") or None,
+                    int(previous.get("consecutive_same_evidence_count") or 0),
+                    digest,
+                    success=bool(record.get("success")),
+                    terminal=bool(record.get("terminal")),
+                )
+                next_due = (
+                    now + timedelta(hours=int(lifecycle["nextDueHours"]))
+                    if lifecycle["nextDueHours"] is not None else None
+                )
+                quarantine = (
+                    now + timedelta(hours=int(lifecycle["quarantineHours"]))
+                    if lifecycle["quarantineHours"] is not None else None
+                )
+                cur.execute(
+                    """
+                    UPDATE market_identity_discovery_ledger
+                    SET attempt_count=attempt_count+1,
+                        last_attempt_at=%s,
+                        last_outcome=%s,
+                        last_evidence_sha256=%s,
+                        consecutive_same_evidence_count=%s,
+                        next_due_at=%s,
+                        quarantine_until=%s,
+                        last_reviewed_at=%s,
+                        updated_at=%s
+                    WHERE variant_id=%s
+                    """,
+                    (
+                        now, str(record["outcome"]), digest,
+                        int(lifecycle["consecutive"]), next_due, quarantine,
+                        now, now, variant_id,
+                    ),
+                )
+                if cur.rowcount != 1:
+                    raise RuntimeError(
+                        f"discovery attempt ledger row missing for variant {variant_id}"
+                    )
+                receipts.append({
+                    "variantId": variant_id,
+                    "outcome": str(record["outcome"]),
+                    "evidenceSha256": digest,
+                    "consecutiveSameEvidence": int(lifecycle["consecutive"]),
+                    "nextDueAt": next_due.isoformat(sep=" ") if next_due else None,
+                    "quarantineUntil": quarantine.isoformat(sep=" ") if quarantine else None,
+                })
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return receipts
+
+
+def _write_attempt_report(document: Mapping[str, Any]) -> Path:
+    DISCOVERY_REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    path = DISCOVERY_REPORT_DIR / f"daily-discovery-{document['lane']}-{stamp}.json"
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_bytes(R.canonical_json(document) + b"\n")
+    os.replace(temporary, path)
+    return path
 
 
 def cmd_daily_discover_activate(args: Any) -> int:
@@ -298,88 +622,158 @@ def cmd_daily_discover_activate(args: Any) -> int:
         raise SystemExit("daily-discover ABORT: --lane http|browser is required")
     state = _load_state(state_path, generation)
     known = set(state["knownGapIds"])
-    pending = set(state["pendingActivationIds"])
-
-    recovered: dict[str, list[int]] | None = None
-    if pending:
-        still_pending = sorted(pending - set(snapshot["universeIds"]))
-        if still_pending:
-            _run_activation(generation)
-            snapshot = _runtime_snapshot(credentials_env)
-        recovered = {
-            "requested": sorted(pending),
-            "activated": sorted(pending & set(snapshot["universeIds"])),
-            "qualifiedPending": sorted(pending - set(snapshot["universeIds"])),
-        }
-        known &= {int(row["variant_id"]) for row in snapshot["gapRows"]}
-        _write_state(state_path, generation, known, [], "recovered-pending-activation")
+    recovery_ids = set(state["pendingActivationIds"])
 
     plan = plan_gap_delta(known, snapshot["gapRows"], lane)
-    target_ids = plan["targetIds"]
+    ledger_rows = _load_ledger_rows(credentials_env)
+    ledger_by_id = {int(row["variant_id"]): row for row in ledger_rows}
+    ledger_plan = plan_ledger_retry_targets(
+        snapshot["gapRows"], ledger_rows, lane, limit=DAILY_PROVIDER_LIMIT,
+    )
+    target_ids = merge_provider_targets(
+        plan["targetIds"], ledger_plan["targetIds"],
+        limit=DAILY_PROVIDER_LIMIT,
+    )
+
+    clock = datetime.now(timezone.utc).replace(tzinfo=None)
+    inactive_exact_ids = {
+        int(row["variant_id"]) for row in ledger_rows
+        if str(row.get("discovery_status") or "") == "inactive_exact"
+        and _lane_for_language(row.get("language")) == lane
+        and _row_due(row, clock)
+    }
+    multiple_exact_ids = {
+        int(row["variant_id"]) for row in ledger_rows
+        if str(row.get("blocker_code") or "") == "multiple_exact_bindings"
+        and _lane_for_language(row.get("language")) == lane
+        and _row_due(row, clock)
+    }
+
     target_set = set(target_ids)
+    provider_reports: list[dict[str, Any]] = []
     if target_ids:
-        rows = [
-            row for row in snapshot["gapRows"]
-            if int(row["variant_id"]) in target_set
-        ]
+        gap_rows_by_id = {
+            int(row["variant_id"]): row for row in snapshot["gapRows"]
+        }
+        ledger_rows_by_id = {
+            int(row["variant_id"]): row for row in ledger_plan["targetRows"]
+        }
+        rows = []
+        for variant_id in target_ids:
+            row = gap_rows_by_id.get(variant_id) or ledger_rows_by_id.get(variant_id)
+            if row is None:
+                raise SystemExit(
+                    f"daily-discover ABORT: missing discovery row for variant {variant_id}"
+                )
+            rows.append(row)
         if lane == "http":
-            _run_http_discovery(generation, target_ids, credentials_env)
+            provider_reports = _run_http_discovery(
+                generation, target_ids, credentials_env,
+            )
         else:
-            _run_browser_discovery(generation, rows, credentials_env)
+            provider_reports = _run_browser_discovery(
+                generation, rows, credentials_env,
+            )
 
-        after_discovery = _runtime_snapshot(credentials_env)
-        after_gap_ids = {int(row["variant_id"]) for row in after_discovery["gapRows"]}
-        resolved = sorted(target_set - after_gap_ids)
-        if resolved:
-            known &= after_gap_ids
-            _write_state(
-                state_path, generation, known, resolved,
-                f"{lane}-binding-landed-awaiting-activation",
-            )
-            _run_activation(generation)
-            snapshot = _runtime_snapshot(credentials_env)
-            universe_ids = set(snapshot["universeIds"])
-            activation = {
-                "requested": resolved,
-                "activated": sorted(set(resolved) & universe_ids),
-                "qualifiedPending": sorted(set(resolved) - universe_ids),
-            }
-            known &= {int(row["variant_id"]) for row in snapshot["gapRows"]}
-            _write_state(
-                state_path, generation, known, [], f"{lane}-activation-complete"
-            )
-        else:
-            snapshot = after_discovery
-            activation = {"requested": [], "activated": [], "qualifiedPending": []}
+    after_discovery = _runtime_snapshot(credentials_env)
+    after_gap_ids = {
+        int(row["variant_id"]) for row in after_discovery["gapRows"]
+    }
+    binding_landed = target_set - after_gap_ids
+    activation_ids = (
+        inactive_exact_ids | binding_landed | recovery_ids
+    ) - set(after_discovery["universeIds"])
+    activation_attempted = bool(activation_ids)
+    if activation_attempted:
+        pending_ids = sorted(activation_ids)
+        _write_state(
+            state_path, generation,
+            known & after_gap_ids,
+            pending_ids,
+            f"{lane}-awaiting-atomic-activation",
+        )
+        _run_activation(generation)
+        snapshot = _runtime_snapshot(credentials_env)
     else:
-        activation = {"requested": [], "activated": [], "qualifiedPending": []}
+        snapshot = after_discovery
 
-    final_plan = plan_gap_delta(known, snapshot["gapRows"], lane)
-    unresolved = final_plan["newIds"]
-    if unresolved:
-        known &= set(final_plan["currentIds"])
-        _write_state(state_path, generation, known, [], f"{lane}-unresolved")
-        print(json.dumps({
-            "dailyDiscovery": "blocked",
-            "generation": generation,
-            "lane": lane,
-            "targeted": target_ids,
-            "unresolved": unresolved,
-            "deferredToOtherLane": final_plan["deferredIds"],
-            "activation": activation,
-            "recovered": recovered,
-        }, ensure_ascii=False))
-        return 1
+    universe_ids = set(snapshot["universeIds"])
+    ledger_after = _load_ledger_rows(credentials_env)
+    ledger_after_by_id = {int(row["variant_id"]): row for row in ledger_after}
+    attempted_ids = target_set | inactive_exact_ids | multiple_exact_ids | recovery_ids
+    records: list[dict[str, Any]] = []
+    evidence_documents: dict[int, dict[str, Any]] = {}
+    for variant_id in sorted(attempted_ids):
+        row = ledger_after_by_id.get(variant_id)
+        if row is None:
+            raise RuntimeError(f"discovery ledger lost variant {variant_id}")
+        active = variant_id in universe_ids
+        terminal = variant_id in multiple_exact_ids
+        if terminal:
+            outcome = "quarantined_multiple_exact"
+        elif active:
+            outcome = "activated"
+        elif str(row.get("discovery_status") or "") == "inactive_exact":
+            outcome = "activation_pending"
+        else:
+            outcome = "still_unresolved"
+        document = _attempt_evidence(
+            variant_id=variant_id,
+            lane=lane,
+            provider_reports=provider_reports if variant_id in target_set else [],
+            ledger_row=row,
+            activation_attempted=activation_attempted and variant_id in activation_ids,
+            active=active,
+        )
+        digest = evidence_sha256(document)
+        evidence_documents[variant_id] = document
+        records.append({
+            "variant_id": variant_id,
+            "outcome": outcome,
+            "evidence_sha256": digest,
+            "success": active,
+            "terminal": terminal,
+        })
+    attempts = _record_ledger_attempts(
+        credentials_env, records, ledger_by_id,
+    )
 
-    current_ids = final_plan["currentIds"]
-    _write_state(state_path, generation, current_ids, [], f"{lane}-complete")
-    print(json.dumps({
+    final_gap_ids = {
+        int(row["variant_id"]) for row in snapshot["gapRows"]
+    }
+    _write_state(
+        state_path, generation, final_gap_ids, [], f"{lane}-complete",
+    )
+    activated = sorted(attempted_ids & universe_ids)
+    pending_activation = sorted(
+        variant_id for variant_id in attempted_ids - universe_ids
+        if str((ledger_after_by_id.get(variant_id) or {}).get("discovery_status") or "")
+        == "inactive_exact"
+    )
+    report = {
         "dailyDiscovery": "complete",
         "generation": generation,
         "lane": lane,
-        "knownGaps": len(current_ids),
+        "knownGaps": len(final_gap_ids),
+        "providerLimit": DAILY_PROVIDER_LIMIT,
         "targeted": target_ids,
-        "activation": activation,
-        "recovered": recovered,
-    }, ensure_ascii=False))
+        "ledgerRetry": ledger_plan,
+        "remainingNewForLane": plan["targetIds"][len(target_ids):],
+        "deferredToOtherLane": plan["deferredIds"],
+        "multipleExactQuarantined": sorted(multiple_exact_ids),
+        "activation": {
+            "requested": sorted(activation_ids),
+            "activated": activated,
+            "qualifiedPending": pending_activation,
+            "recovered": sorted(recovery_ids),
+        },
+        "attempts": attempts,
+        "evidence": {
+            str(variant_id): evidence_documents[variant_id]
+            for variant_id in sorted(evidence_documents)
+        },
+    }
+    report_path = _write_attempt_report(report)
+    report["reportPath"] = report_path.relative_to(R.ROOT).as_posix()
+    print(json.dumps(report, ensure_ascii=False, default=str))
     return 0

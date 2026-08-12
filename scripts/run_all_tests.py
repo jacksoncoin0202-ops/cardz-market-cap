@@ -39,8 +39,10 @@ SELF_TEST_ENTRIES: dict[str, list[str]] = {
     "market_alerts.py": ["--self-test"],
     "market_discovery.py": ["--self-test"],
     "market_source_sync.py": ["--self-test"],
+    "pc_psa10_price_materialize.py": ["--self-test"],
     "source_crosswalk.py": ["--self-test"],
     "tag_daily_capture.py": ["--self-test"],
+    "bootstrap_quote_revisions.py": ["--self-test"],
 }
 
 # Script-side self-tests do not match either test_*.py or pipeline discovery.
@@ -48,10 +50,11 @@ SELF_TEST_ENTRIES: dict[str, list[str]] = {
 # negative self-test is not a guard.
 SCRIPT_SELF_TEST_ENTRIES: dict[str, list[str]] = {
     "validate_daily_release.py": ["--self-test"],
+    "proof_historical_quote_resolver.py": [],
 }
 
 # 要連 3308 先跑得嘅入口。--no-db 淨係跳過呢啲，其餘照跑。
-NEEDS_DB = {"db_runtime.py"}
+NEEDS_DB = {"db_runtime.py", "proof_historical_quote_resolver.py"}
 
 # g10_public_snapshot 個 `--self-test` 唔係 unit test，係「照砌 snapshot 但唔寫
 # asset、容許舊價」，所以要成棵 G10 source tree。呢棵 tree 唔喺呢個 repo 入面。
@@ -163,6 +166,9 @@ def main() -> int:
 
     for script in sorted(SCRIPT_SELF_TEST_ENTRIES):
         label = f"scripts/{script}:self-test"
+        if args.no_db and script in NEEDS_DB:
+            results.append((label, "SKIP", 0.0, "--no-db"))
+            continue
         argv = [PY, "-X", "utf8", str(ROOT / "scripts" / script)]
         argv += SCRIPT_SELF_TEST_ENTRIES[script]
         results.append((label, *_run(label, argv, args.timeout)))

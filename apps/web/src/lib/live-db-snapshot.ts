@@ -253,17 +253,15 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
         printing.set_name,printing.set_code,printing.edition_code,printing.finish_code,
         printing.identity_status,printing.canonical_printing_sha256,
         printing.evidence_sha256 AS printing_evidence_sha256,
-        COALESCE(quote.price_usd, price.price_usd) AS psa10_price_usd,
-        COALESCE(quote.source_period_at, price.observed_date) AS price_observed_date,
-        COALESCE(quote.source_period_at, price.observed_date) AS price_source_period_at,
-        COALESCE(quote.checked_at, source_observation.observed_at, price.effective_at) AS price_checked_at,
-        COALESCE(quote.checked_at, price.effective_at) AS price_effective_at,
+        quote.price_usd AS psa10_price_usd,
+        quote.source_period_at AS price_observed_date,
+        quote.source_period_at AS price_source_period_at,
+        COALESCE(quote.checked_at, source_observation.observed_at) AS price_checked_at,
+        quote.checked_at AS price_effective_at,
         COALESCE(quote.checked_at, source_observation.observed_at) AS price_observed_at,
         CASE
           WHEN quote.source_code IN ('snk','snk_psa10') THEN 'snkrdunk'
-          WHEN quote.source_code IS NOT NULL THEN quote.source_code
-          WHEN price.source_code IN ('snk','snk_psa10') THEN 'snkrdunk'
-          ELSE price.source_code
+          ELSE quote.source_code
         END AS price_source_code,
         population.top_grade_population AS psa10_population,
         population.effective_at AS population_effective_at,
@@ -272,19 +270,14 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       INNER JOIN catalog_variant variant ON variant.id=metric.variant_id
       LEFT JOIN public_card_alias alias ON alias.variant_id=metric.variant_id
       INNER JOIN catalog_printing_identity printing ON printing.variant_id=metric.variant_id
-      INNER JOIN market_metric_history_acceptance price_history ON price_history.id=metric.price_history_acceptance_id
-      LEFT JOIN market_current_quote_revision quote
-        ON price_history.source_record_type='market_current_quote_revision'
-       AND price_history.source_record_id=quote.id
-      LEFT JOIN market_price_observation price
-        ON price_history.source_record_type='market_price_observation'
-       AND price_history.source_record_id=price.id
+      INNER JOIN operator_resolved_canonical_metric_quote quote
+        ON quote.metric_acceptance_id=metric.id
       LEFT JOIN market_source_observation source_observation
-        ON source_observation.id=COALESCE(quote.source_observation_id, price.source_observation_id)
+        ON source_observation.id=quote.source_observation_id
       INNER JOIN market_metric_history_acceptance population_history ON population_history.id=metric.population_history_acceptance_id
       INNER JOIN market_grader_population_observation population ON population.id=population_history.source_record_id
       WHERE metric.ranking_generation_sha256=?
-        AND COALESCE(quote.price_usd, price.price_usd) IS NOT NULL
+        AND quote.price_usd IS NOT NULL
       ORDER BY metric.canonical_market_rank IS NULL,
                metric.canonical_market_rank,metric.variant_id
     `, [generationHash]);

@@ -477,12 +477,14 @@ def materialize(connection: Any, rows: list[dict[str, Any]], *, plan_sha256: str
             )
 
         # Append-only daily quote revisions for every planned current quote.
-        # Even when the monthly observation row is unchanged, checked_at advances.
+        # checked_at must be the capture/evidence clock (row effectiveAt), never
+        # materialize wall-clock: replaying the same capture is idempotent.
         for row in rows:
             if str(row["sourceCode"]).casefold() != SOURCE_PC:
                 continue
             variant_id = int(row["variantId"])
             external_entity_id = pc_product_id(row)
+            checked_at = _parse_stamp(row["effectiveAt"])
             cursor.execute(
                 """
                 SELECT id, source_observation_id
@@ -500,7 +502,7 @@ def materialize(connection: Any, rows: list[dict[str, Any]], *, plan_sha256: str
                 source_external_entity_id=external_entity_id,
                 price_usd=row["priceUsd"],
                 source_period_at=row["observedDate"],
-                checked_at=now,
+                checked_at=checked_at,
                 payload_sha256=str(row["payloadSha256"]),
                 source_observation_id=int(price_row["source_observation_id"])
                 if price_row.get("source_observation_id")
@@ -799,10 +801,14 @@ def main() -> int:
     parser.add_argument("--plan-sha256")
     parser.add_argument("--map", type=Path, default=MAP_DEFAULT)
     parser.add_argument("--write", action="store_true")
+    parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--local-history", action="store_true", help="merge every local exact PriceCharting PSA10 chart point")
     parser.add_argument("--html-root", type=Path, action="append", default=[], help="additional local PriceCharting HTML root; later roots overlay earlier evidence")
     parser.add_argument("--history-report", type=Path, default=DEFAULT_HISTORY_REPORT)
     args = parser.parse_args()
+    if args.self_test:
+        print(json.dumps(self_test_checked_at_lineage(), sort_keys=True))
+        return 0
     if args.local_history:
         roots = [*args.html_root, DEFAULT_HISTORY_HTML_ROOT]
         unique_roots: list[Path] = []
@@ -839,6 +845,49 @@ def main() -> int:
         connection.close()
     print(json.dumps({"contract": CONTRACT, "write": bool(args.write), "planSha256": args.plan_sha256, "planned": len(rows), "wouldChange": len(changed), "changed": written}, sort_keys=True))
     return 0
+
+
+
+def self_test_checked_at_lineage() -> dict[str, Any]:
+    """checked_at must follow capture effectiveAt, never materialize wall-clock."""
+    from current_quote_revision import quote_lineage_sha256
+
+    capture_at = "2026-08-12T06:15:00+00:00"
+    period = "2026-08-01"
+    payload = "c" * 64
+    lineage_a = quote_lineage_sha256(
+        variant_id=42,
+        source_code=SOURCE_PC,
+        source_external_entity_id="999",
+        price_usd="2925.000000",
+        source_period_at=period,
+        checked_at=_parse_stamp(capture_at),
+        payload_sha256=payload,
+    )
+    lineage_b = quote_lineage_sha256(
+        variant_id=42,
+        source_code=SOURCE_PC,
+        source_external_entity_id="999",
+        price_usd="2925.000000",
+        source_period_at=period,
+        checked_at=_parse_stamp(capture_at),
+        payload_sha256=payload,
+    )
+    wall = quote_lineage_sha256(
+        variant_id=42,
+        source_code=SOURCE_PC,
+        source_external_entity_id="999",
+        price_usd="2925.000000",
+        source_period_at=period,
+        checked_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        payload_sha256=payload,
+    )
+    if lineage_a != lineage_b:
+        raise AssertionError("identical capture must produce identical quote lineage")
+    if lineage_a == wall:
+        raise AssertionError("wall-clock checked_at must not collide with capture lineage")
+    return {"ok": True, "idempotentCaptureLineage": True}
+
 
 
 if __name__ == "__main__":

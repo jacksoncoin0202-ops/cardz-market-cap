@@ -24,6 +24,13 @@ from typing import Any, Iterable, Mapping, Sequence
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "pipelines"))
+
+from migration_policy import (  # noqa: E402
+    RETIRED_APPLIED_ONLY_MIGRATIONS,
+    assert_retired_hashes,
+)
+
 SEED_SCHEMA_VERSION = "1.0.0"
 
 # Keep FK parents before their children.  A seed restores only these normalized
@@ -228,10 +235,12 @@ def default_manifest_path(seed_path: Path) -> Path:
 
 def migration_hashes() -> dict[str, str]:
     migrations = ROOT / "pipelines" / "migrations"
-    return {
+    hashes = {
         path.name: sha256_file(path)
         for path in sorted(migrations.glob("*.mysql.sql"))
     }
+    assert_retired_hashes(hashes)
+    return hashes
 
 
 def assert_ledger_matches_repository(connection: Any, *, allow_unledgered: bool = False) -> None:
@@ -244,6 +253,9 @@ def assert_ledger_matches_repository(connection: Any, *, allow_unledgered: bool 
         ledger = {row["migration_file"]: row["content_sha256"] for row in cursor.fetchall()}
     problems = []
     for name in sorted(set(repository) | set(ledger)):
+        if name not in ledger and name in RETIRED_APPLIED_ONLY_MIGRATIONS:
+            # A clean restore correctly never executes retired incident files.
+            continue
         if name not in ledger:
             problems.append(f"unapplied repository migration: {name}")
         elif name not in repository:

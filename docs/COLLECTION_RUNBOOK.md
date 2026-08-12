@@ -1130,3 +1130,22 @@ seed-snapshot）。手抄落去嘅 generation 圖每次 build 完要再抄一次
    the known Cloudflare-blocked mode (`pipelines/pricecharting_cf_session.py`).
 7. **Never print or commit env secret values.** `.gitignore` excludes `backend.env`,
    `gemrate.env`, `rebuild.env`, `.env*`, and `data/runtime/` — keep it that way.
+
+## Dead price path (no re-crawl)
+
+When PC/SNK captures already exist on disk but ranking still shows stale/`awaiting`, **do not re-crawl 993/676**.
+
+1. Materialize / ingest from existing cache only:
+   - PC: `python -X utf8 pipelines/pc_psa10_price_materialize.py --plan <plan> --plan-sha256 <sha> --write`
+   - SNK: existing collect incr / snk market path already writes quote revisions from fetch provenance
+2. Quote lineage checks:
+   - `python -X utf8 pipelines/pc_psa10_price_materialize.py --self-test`
+   - `python -X utf8 pipelines/bootstrap_quote_revisions.py --self-test-only`
+3. Historical generation prices: use append-only `legacy_generation_reconstructed` rows resolved via `reconstructed_from_acceptance_id`. **Never UPDATE** `market_canonical_metric_acceptance.price_history_acceptance_id` for history repair.
+4. Freshness clocks:
+   - `sourcePeriodAt` = source bar/month date (may be month head for PC)
+   - `checkedAt` = capture/fetch time (PC plan `effectiveAt` / SNK `market_source_observation.observed_at`)
+5. If auto-ingest failed after a successful crawl, replay ingest from HTML cache; see “掃完但 auto-ingest 冇 fire” above.
+
+Ports: use CDP **9333** only. **9222 is forbidden** for CARDZ collection.
+

@@ -24,6 +24,11 @@ import pymysql
 from pymysql.connections import Connection
 
 from identity_name import complete_collector_tail
+from migration_policy import (
+    RETIRED_APPLIED_ONLY_MIGRATIONS,
+    assert_retired_hashes,
+    migration_action,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -418,8 +423,12 @@ def migrate(
 ) -> dict[str, int]:
     applied = 0
     skipped = 0
+    retired_skipped = 0
     statements = 0
-    available = {path.name for path in migrations.glob("*.mysql.sql")}
+    paths = sorted(migrations.glob("*.mysql.sql"))
+    repository_hashes = {path.name: migration_digest(path) for path in paths}
+    assert_retired_hashes(repository_hashes)
+    available = set(repository_hashes)
     if only:
         missing = sorted(only - available)
         if missing:
@@ -427,7 +436,7 @@ def migrate(
     with connection.cursor() as cursor:
         ensure_migration_ledger(cursor)
         connection.commit()
-        for path in sorted(migrations.glob("*.mysql.sql")):
+        for path in paths:
             migration_file = path.name
             if only and migration_file not in only:
                 continue
@@ -437,10 +446,18 @@ def migrate(
                 (migration_file,),
             )
             recorded = cursor.fetchone()
-            if recorded:
-                if str(recorded["content_sha256"]) != content_sha256:
-                    raise RuntimeError(f"applied migration content changed: {migration_file}")
+            action = migration_action(
+                migration_file,
+                content_sha256,
+                str(recorded["content_sha256"]) if recorded else None,
+            )
+            if action == "verified":
                 skipped += 1
+                continue
+            if action == "retired-skip":
+                # Incident evidence stays in-repo and byte-verifiable, but a
+                # database which never saw it must not replay its DDL/DML.
+                retired_skipped += 1
                 continue
             for statement in split_sql(path.read_text(encoding="utf-8")):
                 cursor.execute(statement)
@@ -460,7 +477,12 @@ def migrate(
             applied += 1
             connection.commit()
     connection.commit()
-    return {"files": applied, "skipped": skipped, "statements": statements}
+    return {
+        "files": applied,
+        "skipped": skipped,
+        "retiredSkipped": retired_skipped,
+        "statements": statements,
+    }
 
 
 def _upsert_source_identity(
@@ -1525,7 +1547,23 @@ def self_test() -> dict[str, Any]:
     }
     validated = validate_active_universe(document)
     statements = split_sql("-- comment\nCREATE TABLE a (id INT);\nINSERT INTO a VALUES (1);")
-    return {"active": len(validated), "statements": len(statements), "hashValid": True}
+    retired = set(RETIRED_APPLIED_ONLY_MIGRATIONS)
+    if len(retired) != 3 or not all(name.startswith(("046_", "047_")) for name in retired):
+        raise AssertionError("retired migration policy changed unexpectedly")
+    retired_name = "046_legacy_quote_unique_owner.mysql.sql"
+    retired_hash = RETIRED_APPLIED_ONLY_MIGRATIONS[retired_name]
+    if migration_action(retired_name, retired_hash, None) != "retired-skip":
+        raise AssertionError("unapplied retired migration was not skipped")
+    if migration_action(retired_name, retired_hash, retired_hash) != "verified":
+        raise AssertionError("applied retired migration was not hash-verified")
+    if migration_action("999_fixture.mysql.sql", "a" * 64, None) != "execute":
+        raise AssertionError("normal unapplied migration was not executable")
+    return {
+        "active": len(validated),
+        "statements": len(statements),
+        "hashValid": True,
+        "retiredAppliedOnly": len(retired),
+    }
 
 
 def add_connection_args(parser: argparse.ArgumentParser) -> None:
