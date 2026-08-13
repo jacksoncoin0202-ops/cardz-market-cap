@@ -35,7 +35,7 @@ Production stays on the existing site until the new data generation, scheduler c
 
 Verify metadata only:
 
-```powershell
+```bash
 node --version
 npm --version
 python --version
@@ -68,7 +68,7 @@ writes `data/runtime/private-reports/data-coverage-audit.json`.
 
 Run the coverage audit before any public-market promotion:
 
-```powershell
+```bash
 python pipelines/fx_rates.py
 python scripts/backend.py audit
 ```
@@ -123,20 +123,21 @@ CARDZ_FX_ENDPOINT=https://api.frankfurter.dev/v2/rates
 
 Example:
 
-```powershell
-op run --env-file=.env.private -- powershell -NoProfile -File pipelines/run_daily.ps1
+```bash
+op run --env-file=.env.private -- bash deploy/systemd/run-cardz-daily.sh
 ```
 
-For the unattended staging task, persist the non-secret hook commands and canary origin in the Task Scheduler action instead of relying on an interactive shell environment:
+For the unattended staging timer, persist the non-secret hook commands and canary origin in the systemd environment file instead of relying on an interactive shell environment. The WSL/Linux deployment uses the units in `deploy/systemd/` (see `deploy/systemd/README.md`):
 
-```powershell
-powershell -NoProfile -File deploy/windows/install_daily_task.ps1 `
-  -Mode staging `
-  -R2Bucket cardz-market-cap-staging-data `
-  -CanaryOrigin https://<approved-canary-worker>.workers.dev
+```bash
+# /etc/cardz-market-cap/backend.env (root-owned, 0600)
+CARDZ_STAGING_R2_BUCKET=cardz-market-cap-staging-data
+CARDZ_CANARY_ORIGIN=https://<approved-canary-worker>.workers.dev
+CARDZ_GENERATION_CANARY_COMMAND_JSON=["node", "pipelines/run-generation-canary.mjs"]
+CARDZ_POINTER_PROMOTE_COMMAND_JSON=["node", "pipelines/promote-staging-pointer.mjs"]
 ```
 
-The installer resolves absolute Python, Node, canary-hook, and staging-promoter paths and embeds their JSON command arrays plus the HTTPS canary origin in the S4U task action. Use `-WhatIf` to inspect that action before registration. Production must pass an external atomic `-PointerPromoteCommandJson`; the installer refuses to default to the bundled staging promoter in production mode.
+Production must supply an external atomic pointer-promote command; the staging promoter is never reused in production mode. The Windows Task Scheduler installation is retired (2026-07-31): do not install or run any task under Windows.
 
 ## First full backfill: current facts, then target history
 
@@ -152,7 +153,7 @@ Do not treat the existing derived K-lines as exchange-quality OHLC. Do not use a
 
 ## Daily incremental job
 
-Windows Task Scheduler or a Linux systemd timer runs the same backend command once daily at **09:30 JST (00:30 UTC)**. The scheduler invokes `python scripts/backend.py daily` (or `python3 ... daily --external-db`); all collection logic remains in Python. A singleton lock prevents concurrent writers, while every invocation receives a unique immutable attempt ID tied to one logical UTC date. Windows currently stops after steps 1–11; the shipped Linux unit opts into local publication and also runs steps 12–13.
+A Linux systemd timer (WSL today, EC2 later) runs the backend command once daily at **09:30 JST (00:30 UTC)**. The Windows Task Scheduler entry is retired and disabled as of 2026-07-31. The scheduler invokes `python scripts/backend.py daily` (or `python3 ... daily --external-db`); all collection logic remains in Python. A singleton lock prevents concurrent writers, while every invocation receives a unique immutable attempt ID tied to one logical UTC date. The shipped Linux (WSL/systemd) unit runs the full chain, opting into local publication for steps 12–13.
 
 On Linux the timer carries `RandomizedDelaySec=1800`, so the actual start floats within **09:30–10:00 JST**. The daily chain is the only outbound crawl on a fixed daily cadence, and a to-the-second start time is itself a fingerprint; the active scheduling rule therefore forbids reproducing a fixed schedule. The `cardz-grade10-discovery.timer` pre-warm carries its own jitter for the same reason, so the interval between the two also floats rather than sitting at a constant offset. The jitter cannot simply be raised: the latest start must stay inside the same UTC day (see the paragraph below) and the latest finish must stay clear of the 05:07 UTC watchdog. `deploy/systemd/README.md` documents both bounds and `tests/test_daily_scheduler_contract.py` enforces them.
 
@@ -193,7 +194,7 @@ cutover.
 
 `--local-only` writes the local public tree and skips only the remote leg: no R2 bucket is passed to `pipelines/publish-snapshot.mjs`, and `CARDZ_GENERATION_CANARY_COMMAND_JSON` / `CARDZ_POINTER_PROMOTE_COMMAND_JSON` are not required. Set `CARDZ_DAILY_PUBLISH=remote` to enable the full remote path, or `off` to stop after the backend stage. See the *Publish mode* table in `deploy/systemd/README.md`.
 
-**On Windows the default is `off`,** deliberately — the dev machine should not publish. A backend-only run proves canonical collection and replay only, and must not be reported as a live website update.
+**Backend-only (`off`) is the deliberate default for any ad-hoc/manual run** — it proves canonical collection and replay only, and must not be reported as a live website update. Publication happens only from the scheduled WSL systemd path.
 
 The job must return nonzero on any failed stage. One singleton parent task runs all collectors and publishes one generation, preventing mixed-date price/population state. Its bounded private log contains run ID, generation ID, step status, counts, hashes, and redacted error categories only.
 
@@ -347,7 +348,7 @@ If any step before pointer replacement fails, users remain on the last-good gene
 
 From the repository root:
 
-```powershell
+```bash
 npm ci
 npm run lint
 npm run typecheck
@@ -361,7 +362,7 @@ npm run verify:deployment
 
 `--allow-demo` is for honest local/staging structure only. A production candidate must pass:
 
-```powershell
+```bash
 npm run verify:release
 ```
 
@@ -371,13 +372,13 @@ Staging uses Worker `cardz-market-cap-staging` and bucket `cardz-market-cap-stag
 
 Validate without mutation:
 
-```powershell
+```bash
 npm run cf:dry-run:staging
 ```
 
 Before an approved staging deployment, verify the active account and set a safe build ID such as the Git commit SHA:
 
-```powershell
+```bash
 npm run cf:whoami
 $env:CARDZ_PUBLIC_BUILD_ID = (git rev-parse --short=12 HEAD)
 npm run cf:deploy:staging
@@ -389,7 +390,7 @@ This runbook does not authorize a production route change. Production intentiona
 
 The live server-rendered pages must expose `X-CARDZ-Build`. Data-backed pages expose their safe opaque generation through `X-CARDZ-Generation` when available, with the exact `data-cardz-generation` page-root attribute as the server-rendered fallback. Neither value may contain a provider-native value.
 
-```powershell
+```bash
 $env:CARDZ_CANARY_ORIGIN = 'https://<approved-staging-host>'
 $env:CARDZ_EXPECTED_BUILD_ID = '<expected-build-id>'
 $env:CARDZ_EXPECTED_GENERATION = '<expected-generation-id>'
@@ -398,7 +399,7 @@ npm run canary:public
 
 The persistent candidate Worker reads `candidate.json` and uses private discovery. Verify it separately before advancing the staging pointer:
 
-```powershell
+```bash
 node scripts/canary-public.mjs --origin 'https://<approved-canary-host>' --expect-generation '<candidate-generation-id>' --discovery private
 ```
 
@@ -436,7 +437,7 @@ Code rollback switches the route to the prior verified Worker version or the ret
 The single operator entrypoint for the qualifying-card stock load and all later
 incremental maintenance is:
 
-```powershell
+```bash
 .\.venv-backend-windows\Scripts\python.exe -X utf8 scripts\backend.py qualified-sync
 ```
 
@@ -453,7 +454,7 @@ must never share an image, source identity, or shortened collector number.
 First inspect the routing registry, then collect broad current facts, derive
 complete rankings, and backfill history only for the deduplicated target ranges:
 
-```powershell
+```bash
 .\.venv-backend\Scripts\python.exe -X utf8 scripts\backend.py registry --json
 .\.venv-backend\Scripts\python.exe -X utf8 scripts\backend.py explain market_cap
 .\.venv-backend\Scripts\python.exe -X utf8 scripts\backend.py graph --format html
@@ -488,7 +489,7 @@ The public-card GemRate collector is deliberately opt-in because it is a long,
 resumable acquisition job. Do not run it while another collector owns the same
 worklist:
 
-```powershell
+```bash
 .\.venv-backend\Scripts\python.exe -X utf8 scripts\backend.py full-backfill --collect-public-candidates
 ```
 
@@ -500,14 +501,14 @@ placed in a public snapshot.
 
 GemRate backfill uses the generated exact worklist. Inject the API key through the process environment or an external secret manager; never place it in the repository:
 
-```powershell
+```bash
 .\.venv-backend\Scripts\python.exe -X utf8 pipelines\gemrate_source.py api-dump `
   --ids-file data\runtime\private-source-map\tracked-gemrate-ids.txt --resume
 ```
 
 Run the unattended incremental path with the same Python entrypoint on Windows or Linux:
 
-```powershell
+```bash
 .\.venv-backend\Scripts\python.exe -X utf8 scripts\backend.py daily --mode staging
 ```
 

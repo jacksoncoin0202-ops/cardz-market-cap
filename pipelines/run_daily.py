@@ -720,7 +720,9 @@ def run_market_source_refresh(
     ebay_status = "disabled"
     # eBay PSA10 sold evidence: repository-owned file OR PriceCharting export
     # (eBay-derived). Direct eBay sold search remains PerimeterX-blocked.
-    if os.environ.get("CARDZ_EBAY_SOLD_ENABLED", "").casefold() == "true":
+    # 預設開；CARDZ_EBAY_SOLD_ENABLED=false 先至關。PC export 係獨立 job 產生,
+    # 佢一停 daily 就會靜靜雞日日食舊檔 — 所以食之前一定要驗鮮度。
+    if os.environ.get("CARDZ_EBAY_SOLD_ENABLED", "true").casefold() != "false":
         ebay_env = dict(os.environ)
         ebay_input = Path(ebay_env.get("CARDZ_EBAY_SOLD_INPUT", "") or "")
         default_pc_export = ROOT / "data/runtime/private-source-map/ebay-sold-from-pricecharting.json"
@@ -733,6 +735,17 @@ def run_market_source_refresh(
                     "eBay sold enabled but no CARDZ_EBAY_SOLD_INPUT / "
                     "pricecharting export present"
                 )
+            ebay_input_age = datetime.now(timezone.utc) - datetime.fromtimestamp(
+                ebay_input.stat().st_mtime, tz=timezone.utc
+            )
+            if ebay_input_age > timedelta(hours=48):
+                ebay_status = "stale_input"
+                print(
+                    f"eBay sold input is stale ({ebay_input_age.total_seconds() / 3600:.1f}h > 48h): "
+                    f"{ebay_input}; skipping eBay normalize for this run",
+                    file=sys.stderr,
+                )
+                raise RuntimeError("stale eBay sold input")
             run_checked(
                 [
                     sys.executable,
@@ -746,7 +759,8 @@ def run_market_source_refresh(
                 env=ebay_env,
             )
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, RuntimeError):
-            ebay_status = "unavailable"
+            if ebay_status != "stale_input":
+                ebay_status = "unavailable"
             ebay_run.unlink(missing_ok=True)
         else:
             ebay_status = "ready"

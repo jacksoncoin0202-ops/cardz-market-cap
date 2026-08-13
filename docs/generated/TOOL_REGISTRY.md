@@ -188,6 +188,9 @@ This file is generated from `config/data-routing.json`. Do not edit it by hand.
 | P0-OFFICIAL-PUBLISHER | P0 | validator.public-qc<br>publisher.official<br>state.last-good | P0-GENERATION-QC | `pipelines/publish-snapshot.mjs`<br>`pipelines/ensure_std_card_images.py`<br>`pipelines/native_image_refetch.py`<br>`pipelines/canvas_normalize_backfill.py`<br>`scripts/bake_publish_pack.py`<br>`scripts/db_fill_until_green.py`<br>`tests/test_legacy_image_backfill_containment.py` |
 | P1-TRUTHFUL-FRONTEND | P1 | export.sanitized-snapshot | P0-GENERATION-QC | `packages/market-data/src`<br>`apps/web/src` |
 | P1-MACHINE-PROJECT-STATE | P1 | status.machine | P0-REGISTRY-SCHEMA | `scripts/render_project_state.py`<br>`PROJECT_STATE.md`<br>`docs/archive/PROJECT_STATE_PRE_QC_20260729.md`<br>`tests/test_project_state_renderer.py` |
+| W1-OBSERVATION-KIND-EXPANSION | P2 | collector.snk-exact<br>database.canonical | — | `pipelines/g10_snkrdunk_grades_ingest.py`<br>`pipelines/c11_pc_sold_ingest.py`<br>`pipelines/ebay_sold_data.py` |
+| W2-IDENTITY-STRENGTHENING-FIELDS | P2 | normalizer.identity<br>database.canonical | W1-OBSERVATION-KIND-EXPANSION | `pipelines/migrations`<br>`pipelines/db_runtime.py`<br>`config/data-routing.json` |
+| W3-CARD-CERT-REGISTRY | P2 | normalizer.identity<br>database.canonical | W2-IDENTITY-STRENGTHENING-FIELDS | `pipelines/migrations`<br>`docs/DATA_CONTRACT.md`<br>`config/data-routing.json` |
 ## Route lineage
 
 | Snapshot field | Metric | DB target | Importer | Collector | Authority / transport | Manuals | Tests |

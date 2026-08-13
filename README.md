@@ -47,7 +47,7 @@ tests/                    Unit, data, and acceptance tests
 
 Prerequisites: Node.js 24, npm 11, Python 3.10 or newer, Git LFS, Wrangler, and 1Password CLI for private collection jobs.
 
-```powershell
+```bash
 npm install
 node scripts/verify-public.mjs --allow-demo
 npm run dev
@@ -62,7 +62,7 @@ data authority, transport, importer, canonical storage, ranking, presentation
 views, operator tools, and tests. It separates one canonical fact set from its
 derived rankings and from the Top 100/300/350 projections used by a consumer.
 
-```powershell
+```bash
 python scripts/backend.py registry --json
 python scripts/backend.py explain psa10_population
 python scripts/backend.py explain market_cap
@@ -81,10 +81,10 @@ CodeGraph provides a local AST call/import index backed by SQLite/WAL. It is a
 read-only engineering aid, not a data authority or a second architecture
 registry:
 
-```powershell
+```bash
 npm run graph:sync
 npm run graph:status
-.\node_modules\.bin\codegraph.cmd explore "GemRate candidate backfill canonical DB"
+./node_modules/.bin/codegraph explore "GemRate candidate backfill canonical DB"
 ```
 
 Before changing backend code, locate the affected registry node or work item
@@ -95,7 +95,7 @@ hand-edited.
 
 ## Portable backend
 
-The operational database uses one Python entrypoint on Windows and Linux. A local or EC2-hosted MySQL container needs Docker Compose:
+The operational database uses one Python entrypoint, and all work runs inside WSL (Linux) — the Windows runtime is retired (see AGENTS.md). A local or EC2-hosted MySQL container needs Docker Compose:
 
 ```text
 git lfs pull
@@ -147,7 +147,7 @@ historical backfill when it enters a configured presentation range.
 
 ## Release gates
 
-```powershell
+```bash
 npm run lint
 npm run typecheck
 npm run test

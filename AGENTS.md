@@ -1,5 +1,12 @@
 # CARDZ Market Cap — Agent Entry
 
+> **HARD RULE (2026-07-31, owner directive): 禁止喺 Windows 環境做
+> cardzMarketCap 任何嘢。All builds, tests, pipeline runs, database work, and
+> publishing MUST run inside WSL (Linux). Windows checkouts are read-only
+> legacy evidence; the Windows scheduler is retired. Do not create, edit, or
+> execute anything under `C:\` / `/mnt/c` for this project — work in
+> `~/cardz-market-cap` (and deploy worktrees such as `~/cardz-aws`) only.**
+
 This is the stable entrypoint for every Agent. It contains no live counts,
 dated handoff state, or copied script map.
 
