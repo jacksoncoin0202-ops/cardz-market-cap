@@ -1,142 +1,106 @@
-# CARDZ Market Cap — Agent Entry
+# CARDZ Market Cap — Operator Entry（New Era 2026-08-04）
 
-> **HARD RULE (2026-07-31, owner directive): 禁止喺 Windows 環境做
-> cardzMarketCap 任何嘢。All builds, tests, pipeline runs, database work, and
-> publishing MUST run inside WSL (Linux). Windows checkouts are read-only
-> legacy evidence; the Windows scheduler is retired. Do not create, edit, or
-> execute anything under `C:\` / `/mnt/c` for this project — work in
-> `~/cardz-market-cap` (and deploy worktrees such as `~/cardz-aws`) only.**
+Runtime：**WSL Ubuntu only**。
 
-This is the stable entrypoint for every Agent. It contains no live counts,
-dated handoff state, or copied script map.
+Daily authority only：
 
-## Progressive-disclosure funnel
+1. `AGENTS.md`
+2. `docs/MODEL.md`
+3. `docs/OPERATOR_DUAL_MODE.md`
+4. `pipelines/operator_control.py`
 
-Never preload the whole repository, docs tree, role catalogue, or skill
-catalogue.
+舊 SOP／funnel／policy 文件唔係 daily authority。
 
-Dispatcher / MAIN:
+## Product split
 
-1. Read [`docs/generated/DOCUMENT_AUTHORITY.md`](docs/generated/DOCUMENT_AUTHORITY.md).
-2. Read [`docs/generated/AGENT_EXECUTION_FUNNEL.md`](docs/generated/AGENT_EXECUTION_FUNNEL.md).
-3. Assign one `AGENT_ID`, one registered `WORK_ITEM_ID`, one immutable baseline,
-   and one exact role-pack path.
+| Surface | Mode | Data | Goal |
+|---|---|---|---|
+| Engineering | `CARDZ_DATA_MODE=operator` | live MySQL | instant agent feedback |
+| Product | `CARDZ_DATA_MODE=product` | freeze-qualified baked snapshot | after DADDY pass |
 
-Worker A01–A12:
+## Core model（locked）
 
-1. Read this file and
-   [`docs/generated/DOCUMENT_AUTHORITY.md`](docs/generated/DOCUMENT_AUTHORITY.md).
-2. Read exactly `docs/generated/roles/<AGENT_ID>.md`; do not read the other
-   eleven role packs.
-3. Run `python -X utf8 scripts/backend.py explain <AGENT_ID>`.
-4. Run `python -X utf8 scripts/backend.py explain <WORK_ITEM_ID>`.
-5. Run `python -X utf8 scripts/backend.py explain document:<DOCUMENT_ID>`, then
-   load only the role pack's one active manual needed for the current decision.
-6. Load the named baseline, relevant [`PROJECT_STATE.md`](PROJECT_STATE.md)
-   slice, current values, receipts, or skill only after the work item requires
-   them.
+- Product = Top 100 Market Cap + watchlist 101+；daily chase current PSA10 POP level。
+- GemRate PSA10 POP 係 universe gate；POP >= 1000 進 candidate path，唔做跌穿 1000 delist。
+- Maintain qualified pool；每張卡一次 full stock，freeze-complete 後 daily incremental。
+- Multi-grader Grading Pulse／grader routes 唔係 product surface；frontend 禁止 Graders nav/route/pulse。
+- G10 可供 identity clues、images、price、sales、market-cap facts；只禁 `g10_kline`。
+- Identity 必須分 language、set/box、collector、edition/parallel/finish；唔同 TCG 唔混。
+- Accepted links/freeze 唔 batch reopen；錯 link 要有原因先 unbind/rebind。
+- Price/sales pull exact-bound data、unitize lots、drop extreme outliers；SNK history用 deep API。
+- Accepted freeze discovery image priority：G10 > SNK > TCGplayer language-aware。RAW only，human accept once。
+- Product-pass exception：用 pass 當刻 price × current PSA10 POP 重排實際 Top 100；每張有 exact/public-approved SNK raw-front 就必須用 SNK，冇 eligible SNK 先保留 accepted freeze；101+ 不 override。
+- Frontend release authority：先由修改時間辨認包含最新意圖嘅 source tree，再由 pass 綁完整 managed frontend bundle hash。Bake deterministic mirror，唔准手揀舊/新檔混合。
 
-If the generated files are missing or drifted, stop implementation and ask MAIN
-to run:
+## Daily commands
 
-```powershell
-python -X utf8 scripts/backend.py generate-docs
-python -X utf8 scripts/backend.py generate-docs --check
+```bash
+cd /mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap
+PY=/home/jackson0202/cardz-market-cap/.venv-backend/bin/python
+
+$PY -X utf8 pipelines/operator_control.py status
+$PY -X utf8 pipelines/operator_control.py export-gaps
+$PY -X utf8 pipelines/operator_control.py scan-candidates
+$PY -X utf8 pipelines/operator_control.py daily --refresh --pass
+$PY -X utf8 pipelines/operator_control.py promote-product-subset
 ```
 
-## Information classes and authority order
+只在 DADDY 明示批准 presentation-only pass regeneration、已有 completed five-adapter receipt 時：
 
-1. Timeless invariants define identity, authority, dependency order, write
-   ownership, stop conditions, delegation, and feedback routing. They contain
-   no live counts, prices, completion claims, or installed-plugin state.
-2. `config/data-routing.json` is the only handwritten architecture, document
-   authority, Agent assignment, and write-scope registry.
-3. Versioned contracts—schema, migrations, formulae, CLI contracts, and QC
-   predicates—remain exact for their declared version or hash.
-4. Fresh read-only runtime evidence describes volatile current state and is raw
-   material only; a changing number never becomes architecture.
-5. Applied migration ledger, migration SQL, and `information_schema` define DB shape.
-6. `packages/market-data/src/schema.ts` and `validate.ts` define public property shape.
-7. Current source and tests define implementation behavior.
-8. `docs/generated/*` are generated views; never hand-edit.
-9. Every other Markdown file is reference-only unless the generated authority
-   view explicitly marks it active.
-
-No dated report, handoff, old map, chat summary, temp script, evidence script,
-or archive file may override this order.
-
-## Hard boundaries
-
-- The sole CARDZ Market Cap business DB is MySQL schema `cardz_market_cap`.
-- Exclude JLP, Kado legacy SQLite, CodeGraph/Miniflare caches, and unrelated
-  project databases from merge, migration, and completeness claims.
-- Deployment/runtime work targets WSL Ubuntu. Do not substitute a Windows
-  production runtime.
-- `temp/**`, `docs/evidence/**`, `docs/archive/**`, and `docs/mockups/**` are
-  non-executable.
-- A registered tool is necessary but not sufficient. It may execute only when
-  it is in the assigned work-item nodes, matches the exact role stage and
-  baseline, and its declared side-effect envelope fits the dispatch write set.
-- A role may write only paths in its generated exclusive claim.
-- A01–A12 do not edit `config/data-routing.json`, `docs/generated/**`, or
-  `PROJECT_STATE.md`; MAIN integrates the registry and runs generators.
-- DB apply, shared public assets, snapshot assembly, pointer promotion, timers,
-  deploy, commit, push, and public send remain separate serialized approval gates.
-- Never expose or commit secrets, tokens, cookies, identity/banking values, or
-  sensitive document contents.
-
-## Before editing
-
-1. Confirm `WAVE_ID`, `ROLE_STAGE`, `AGENT_ID`, exact role mode, registered
-   `WORK_ITEM_ID`, work-item status, write-claim ID/mode, allowed tool IDs,
-   baseline manifest/hash, cohort hash, routing hash, DB fingerprint,
-   dependencies, and acceptance.
-2. Return exact `read_set`, `write_set`, and `generated_set`.
-3. Stop on an overlapping write set or an unowned path; MAIN must repartition it.
-4. For architecture work, use `backend.py explain` before scoped repository
-   search.
-5. Load a capability/skill only when the exact role pack `loadWhen` trigger is
-   true. Installed or downloadable does not mean loaded, connected, or
-   authorized.
-6. For implementation impact, CodeGraph is read-only evidence, never authority.
-
-## Delegation and feedback
-
-- A child Agent inherits the same role, baseline, blocked actions, and no extra
-  authority. Default child mode is read-only within the same role.
-- A child may write only after MAIN assigns an explicit non-overlapping
-  subclaim, output root, and acceptance command. The parent owns integration.
-- Cross-role work returns a structured dependency request to MAIN; a worker
-  does not silently spawn another department's writer.
-- A soft fact such as a count, price, status, source response, or adapter
-  availability may change only through its registered writer/read path with
-  provenance, freshness, and read-back evidence.
-- A contract gap pauses the affected decision and becomes a versioned proposal.
-  An invariant conflict stops the affected work and requires DADDY + MAIN
-  approval, registry versioning, regeneration, and reverse tests.
-- Continue independent read-only work where possible; never bypass a blocked
-  rule with a guessed fallback.
-
-## Data/QC truth
-
-- Report separately: harvest has data, DB written, QC green.
-- Missing is not zero. Unknown is not complete. Asset present is not semantic image approval.
-- Every DB/public write needs the registered ingestor, applicable QC gate,
-  immutable evidence, explicit apply/write authority, and read-back validation.
-- Full and incremental modes must share collectors, normalizers, ingestors, QC,
-  and publisher; only selector, cursor, range, and freshness differ.
-- Canonical writes are serialized even when harvest and read-only audit are parallel.
-
-## Validation and handoff
-
-Run the narrow tests for the owned change, plus:
-
-```powershell
-python -X utf8 scripts/backend.py generate-docs --check
-python -X utf8 -m unittest tests.test_registry_lineage tests.test_data_routing -v
-git diff --check
+```bash
+$PY -X utf8 pipelines/operator_control.py daily \
+  --refresh-report <completed-receipt.json> --pass
 ```
 
-Never claim a test passed without its exact command output. Finish with the
-handoff fields required by `docs/generated/AGENT_EXECUTION_FUNNEL.md`, including
-risks, blockers, next owner, `intent_fidelity`, and `yagni`.
+## Freeze
+
+```bash
+$PY -X utf8 pipelines/operator_control.py accept-binding --variant-id <ID> --kind identity
+$PY -X utf8 pipelines/operator_control.py accept-binding --variant-id <ID> --kind source --source-code snkrdunk
+$PY -X utf8 pipelines/operator_control.py accept-binding --variant-id <ID> --kind image
+```
+
+## Keep / kill
+
+Keep：
+
+- MySQL `cardz_market_cap`
+- migrations
+- harvest/bind/ingest collectors under `pipelines/`
+- `operator_control.py`
+- dual-mode web loader
+
+Kill from daily path：
+
+- A01–A12 funnel
+- generate-docs control plane
+- old policy/runbook mountains
+- image VLM factory as daily SOP
+- any batch reopening of accepted freezes
+
+Non-daily recoverables：`pipelines/_archived_non_daily/`、`config/_archived/`。
+
+## Artifacts
+
+- `data/runtime/operator/candidates.json`
+- `data/runtime/operator/human_attention.json`
+- `data/runtime/operator/daily_summary.json`
+- `data/runtime/operator/pass_receipt.json`
+- `data/runtime/operator/product-subset-snapshot.json`
+- `data/runtime/operator/frontend-bundle-receipt.json`
+
+## DB tidy
+
+```bash
+$PY -X utf8 pipelines/operator_control.py db-tidy
+```
+
+Writes warehouse schema + quarantines banned `g10_kline` price authority。Details：`docs/DB_NEW_ERA.md`。
+
+## Pull-first warehouse write
+
+```bash
+$PY -X utf8 pipelines/warehouse_write.py --variant-id ID --source-code snkrdunk --kind listing --payload-json @payload.json
+```
+
+Exact-bound only。Banned：`g10_kline`。
