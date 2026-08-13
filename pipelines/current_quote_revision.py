@@ -21,6 +21,132 @@ LEGACY_RESOLUTION_CONTRACT = "market_legacy_quote_resolution_v2"
 SOURCE_RECORD_TYPE = "market_current_quote_revision"
 LIVE_KINDS = {None, "", "bootstrap_from_observation"}
 LEGACY_KIND = "legacy_generation_reconstructed"
+PC_CURRENT_PRICE_CONTRACT = "pc_psa10_current_price_v1"
+PC_LOCAL_HISTORY_CONTRACT = "pc_psa10_local_history_v1"
+# DADDY 2026-08-13: Chinese cards may use PriceCharting or SNK. Compare
+# case-insensitively — S8 lowercases card_language to `zhtw` before the
+# route decision, and a set that only lists `zhTW` silently routes Chinese
+# to SNK-primary (v35: 19 PC history points, route=none).
+PC_PRICE_LANGUAGES = frozenset({
+    "en", "zh", "zhtw", "zh-tw", "zhcn", "zh-cn",
+})
+
+
+def _pc_price_language_key(language: str | None) -> str:
+    return (language or "").strip().casefold().replace("_", "-")
+
+
+def pc_price_language_ok(language: str | None) -> bool:
+    return _pc_price_language_key(language) in PC_PRICE_LANGUAGES
+
+
+def pc_price_language_sql(alias: str = "pi") -> str:
+    langs = ",".join(f"'{item}'" for item in sorted(PC_PRICE_LANGUAGES))
+    return f"LOWER(REPLACE({alias}.card_language, '_', '-')) IN ({langs})"
+
+
+def pc_price_route_priority_sql(alias: str = "pi", source_expr: str = "q.source_code") -> str:
+    """EN and Chinese prefer PriceCharting; Japanese stays SNK-primary."""
+
+    lang = pc_price_language_sql(alias)
+    return (
+        f"CASE WHEN {lang} THEN "
+        f"CASE WHEN {source_expr}='pricecharting' THEN 10 "
+        f"WHEN {source_expr} IN ('snkrdunk','snk_psa10','snk') THEN 20 ELSE 90 END "
+        f"ELSE CASE WHEN {source_expr} IN ('snkrdunk','snk_psa10','snk') THEN 10 "
+        f"WHEN {source_expr}='pricecharting' THEN 20 ELSE 90 END END"
+    )
+
+
+def pc_guide_observation_predicate_sql(p_alias: str, so_alias: str) -> str:
+    """PSA10 PC guide rows: current `last` field OR local history series.
+
+    Ranking used to bootstrap only `pc_psa10_current_price_v1`. S8 writes
+    `pc_psa10_local_history_v1` series points. Exact binds with a chart and
+    no `last` contract then had observations but zero live quote revisions,
+    so S12 aborted `acceptance_present_but_view_rejected` (leftover-5 2026-08-13).
+    """
+
+    return (
+        f"{p_alias}.source_code='pricecharting'"
+        f" AND {p_alias}.source_priority=95"
+        f" AND {so_alias}.observation_kind='psa10_price_guide'"
+        f" AND ("
+        f"(JSON_UNQUOTE(JSON_EXTRACT({so_alias}.payload_json,'$.contract'))"
+        f"='{PC_CURRENT_PRICE_CONTRACT}'"
+        f" AND JSON_UNQUOTE(JSON_EXTRACT({so_alias}.payload_json,'$.method'))"
+        f"='pricecharting_explicit_psa10_field_v1'"
+        f" AND JSON_UNQUOTE(JSON_EXTRACT({so_alias}.payload_json,'$.field'))"
+        f"='VGPC.chart_data.manualonly.last')"
+        f" OR "
+        f"(JSON_UNQUOTE(JSON_EXTRACT({so_alias}.payload_json,'$.contract'))"
+        f"='{PC_LOCAL_HISTORY_CONTRACT}'"
+        f" AND JSON_UNQUOTE(JSON_EXTRACT({so_alias}.payload_json,'$.method'))"
+        f"='pricecharting_explicit_psa10_history_v1'"
+        f" AND JSON_UNQUOTE(JSON_EXTRACT({so_alias}.payload_json,'$.field'))"
+        f"='VGPC.chart_data.manualonly.series')"
+        f")"
+    )
+
+
+def eligible_current_quote_revision_ddl() -> str:
+    """CREATE OR REPLACE the ranking view. Code is the authority (shape 22)."""
+
+    lang = pc_price_language_sql("pi")
+    prio = pc_price_route_priority_sql("pi", "q.source_code")
+    return f"""
+CREATE OR REPLACE VIEW operator_eligible_current_quote_revision AS
+SELECT
+  h.id AS price_history_acceptance_id,
+  q.id AS quote_revision_id,
+  q.variant_id,
+  q.source_period_at AS observed_date,
+  q.price_usd,
+  q.checked_at,
+  q.source_period_at,
+  CASE WHEN q.source_code IN ('snk','snk_psa10') THEN 'snkrdunk'
+       ELSE q.source_code END AS price_source_code,
+  q.source_code AS price_storage_source_code,
+  q.source_external_entity_id AS price_source_external_entity_id,
+  q.source_observation_id AS price_source_observation_id,
+  q.payload_sha256 AS price_payload_sha256,
+  q.checked_at AS price_effective_at,
+  q.checked_at AS price_source_observed_at,
+  h.lineage_sha256 AS price_lineage_sha256,
+  q.quote_lineage_sha256,
+  q.reconstruction_kind,
+  {prio} AS price_route_priority
+FROM market_metric_history_acceptance h
+INNER JOIN market_current_quote_revision q
+  ON h.source_record_type='market_current_quote_revision'
+ AND h.source_record_id=q.id
+ AND h.variant_id=q.variant_id
+ AND h.observed_date=q.source_period_at
+ AND h.source_effective_at=q.checked_at
+ AND h.external_entity_id=q.source_external_entity_id
+ AND h.source_payload_sha256=q.payload_sha256
+INNER JOIN catalog_printing_identity pi ON pi.variant_id=q.variant_id
+INNER JOIN operator_strict_source_identity si
+  ON si.variant_id=q.variant_id
+ AND si.source_code=CASE WHEN q.source_code IN ('snk','snk_psa10') THEN 'snkrdunk' ELSE q.source_code END
+ AND si.external_entity_id=q.source_external_entity_id
+WHERE h.metric_kind='psa10_price'
+  AND h.source_code=si.source_code
+  AND q.source_code IN ('snkrdunk','snk_psa10','snk','pricecharting')
+  AND ({lang} OR q.source_code IN ('snkrdunk','snk_psa10','snk'))
+  AND q.price_usd>0
+  AND q.payload_sha256 REGEXP '^[0-9a-f]{{64}}$'
+  AND q.quote_lineage_sha256 REGEXP '^[0-9a-f]{{64}}$'
+  AND h.identity_evidence_sha256 REGEXP '^[0-9a-f]{{64}}$'
+  AND h.acceptance_evidence_sha256 REGEXP '^[0-9a-f]{{64}}$'
+  AND h.lineage_sha256 REGEXP '^[0-9a-f]{{64}}$'
+  AND (q.reconstruction_kind IS NULL
+       OR q.reconstruction_kind IN ('bootstrap_from_observation',''))
+""".strip()
+
+
+def apply_eligible_current_quote_revision_view(cursor: Any) -> None:
+    cursor.execute(eligible_current_quote_revision_ddl())
 
 
 def _as_utc_naive(value: Any) -> datetime:
@@ -234,16 +360,7 @@ def bootstrap_from_eligible_observations(cursor: Any, *, actor: str = "043-boots
             AND (
               (p2.source_code IN ('snkrdunk','snk_psa10','snk')
                AND so2.observation_kind='psa10_reference_price')
-              OR
-              (p2.source_code='pricecharting'
-               AND p2.source_priority=95
-               AND so2.observation_kind='psa10_price_guide'
-               AND JSON_UNQUOTE(JSON_EXTRACT(so2.payload_json,'$.contract'))
-                   ='pc_psa10_current_price_v1'
-               AND JSON_UNQUOTE(JSON_EXTRACT(so2.payload_json,'$.method'))
-                   ='pricecharting_explicit_psa10_field_v1'
-               AND JSON_UNQUOTE(JSON_EXTRACT(so2.payload_json,'$.field'))
-                   ='VGPC.chart_data.manualonly.last')
+              OR (""" + pc_guide_observation_predicate_sql("p2", "so2") + """)
             )
           GROUP BY p2.variant_id, p2.source_code
         ) latest
@@ -266,7 +383,7 @@ def bootstrap_from_eligible_observations(cursor: Any, *, actor: str = "043-boots
          AND so.payload_sha256=p.payload_sha256
          AND so.observed_date=p.observed_date
         WHERE p.metric_status='ready' AND p.price_usd>0
-          AND (pi.card_language IN ('en','zh','zhTW','zh-TW','zhCN','zh-CN')
+          AND (""" + pc_price_language_sql("pi") + """
                OR p.source_code IN ('snkrdunk','snk_psa10','snk'))
         """
     )
@@ -596,4 +713,21 @@ def self_test() -> dict[str, Any]:
     assert lineage_a != lineage_b
     assert lineage_a == same
     assert len(lineage_a) == 64
-    return {"ok": True, "distinctLineages": True}
+    assert pc_price_language_ok("zhtw")
+    assert pc_price_language_ok("zhTW")
+    assert pc_price_language_ok("zh-TW")
+    assert pc_price_language_ok("en")
+    assert not pc_price_language_ok("ja")
+    lang_sql = pc_price_language_sql("pi")
+    assert "LOWER(REPLACE(pi.card_language" in lang_sql
+    assert "zhtw" in lang_sql
+    ddl = eligible_current_quote_revision_ddl()
+    assert "CREATE OR REPLACE VIEW operator_eligible_current_quote_revision" in ddl
+    assert "zhtw" in ddl
+    assert "pc_psa10_local_history_v1" in pc_guide_observation_predicate_sql("p2", "so2")
+    return {
+        "ok": True,
+        "distinctLineages": True,
+        "pcPriceLanguageCasefold": True,
+        "localHistoryGuidePredicate": True,
+    }

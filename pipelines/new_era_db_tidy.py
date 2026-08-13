@@ -14,6 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
+from current_quote_revision import pc_price_language_sql  # noqa: E402
 from identity_name import complete_collector_tail  # noqa: E402
 from qualified_pool_operator import db, load_env  # noqa: E402
 
@@ -2991,7 +2992,7 @@ def sync_026_metric_history_acceptances(cur) -> dict:
           AND so.source_code=p.source_code AND so.external_entity_id=p.source_external_entity_id
           AND so.payload_sha256=p.payload_sha256 AND so.observed_date=p.observed_date
         WHERE p.source_code IN ('snkrdunk','snk_psa10','snk','pricecharting')
-          AND (pi.card_language IN ('en','zh','zhTW','zh-TW','zhCN','zh-CN')
+          AND (""" + pc_price_language_sql("pi") + """
                OR p.source_code IN ('snkrdunk','snk_psa10','snk'))
           AND (
             (p.source_code IN ('snkrdunk','snk_psa10','snk')

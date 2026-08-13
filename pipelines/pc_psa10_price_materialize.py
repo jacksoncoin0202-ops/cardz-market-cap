@@ -767,6 +767,47 @@ def materialize_local_history(connection: Any, rows: list[dict[str, Any]]) -> in
             "UPDATE market_ingest_run SET status='completed',accepted_count=%s,completed_at=%s WHERE id=%s",
             (len(rows), now, run_id),
         )
+        # Ranking reads live quote revisions, not observations. SNK kline
+        # already mints the head bar; local-history used to stop at
+        # market_price_observation, so leftover-5 had a chart and still
+        # aborted S12 (acceptance_present_but_view_rejected).
+        latest_by_variant: dict[int, dict[str, Any]] = {}
+        for row in rows:
+            variant_id = int(row["variantId"])
+            day = str(row["observedDate"])
+            prev = latest_by_variant.get(variant_id)
+            if prev is None or str(prev["observedDate"]) < day:
+                latest_by_variant[variant_id] = row
+        for row in latest_by_variant.values():
+            variant_id = int(row["variantId"])
+            external_entity_id = str(row["externalEntityId"])
+            cursor.execute(
+                """
+                SELECT id, source_observation_id
+                FROM market_price_observation
+                WHERE variant_id=%s AND source_code=%s AND observed_date=%s
+                LIMIT 1
+                """,
+                (variant_id, SOURCE_PC, row["observedDate"]),
+            )
+            price_row = cursor.fetchone() or {}
+            insert_quote_revision(
+                cursor,
+                variant_id=variant_id,
+                source_code=SOURCE_PC,
+                source_external_entity_id=external_entity_id,
+                price_usd=row["priceUsd"],
+                source_period_at=row["observedDate"],
+                checked_at=_parse_stamp(row["effectiveAt"]),
+                payload_sha256=str(row["payloadSha256"]),
+                source_observation_id=int(price_row["source_observation_id"])
+                if price_row.get("source_observation_id")
+                else None,
+                market_price_observation_id=int(price_row["id"])
+                if price_row.get("id")
+                else None,
+                run_id=run_id,
+            )
     connection.commit()
     return len(rows)
 

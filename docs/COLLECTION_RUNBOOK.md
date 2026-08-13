@@ -1251,6 +1251,20 @@ seed-snapshot）。手抄落去嘅 generation 圖每次 build 完要再抄一次
     `leftover5_go.hold_exact_against_refresh`（`pc-replay` / `snk-refresh` 兩處 call）。
     TCGPlayer exact 清 leftover 顯示但唔出價。紀錄：[LEFTOVER5_IDENTITY_20260813.md](LEFTOVER5_IDENTITY_20260813.md)。
 
+34. **Observation 有價 ≠ ranking 有 quote；Python 閘 ≠ SQL view。**
+    （2026-08-13，leftover-5 S12 abort `acceptance_present_but_view_rejected`）
+    S8 `materialize_local_history` 寫 `pc_psa10_local_history_v1` series 入
+    `market_price_observation`。S12 排名只讀 `operator_eligible_current_quote_revision`，
+    而且排除 `legacy_generation_reconstructed`。bootstrap 以前只收
+    `VGPC.chart_data.manualonly.last`。結果：exact + chart + observation ready，
+    activate 仍然 ABORT。同期 S8 將 `zhTW` `LOWER()` 成 `zhtw`，語言 set 寫 `zhTW`
+    → v35 19 個 PC 點 `route=none`。修法（一個 function，三處 call）：
+    `current_quote_revision.pc_price_language_ok` / `pc_guide_observation_predicate_sql`
+    / `eligible_current_quote_revision_ddl`；`materialize_local_history` 鑄最新一點
+    quote；`_activation_accept_history` 喺新 lock `is_current=1` 之後 bootstrap。
+    **唔准**為咗上 FE 放寬 `_pc_print_signature_ok`。守門人：
+    `scripts/test_pc_quote_language_and_local_history.py`。
+
 ### 相關嘅 MySQL / shell 陷阱
 
 - 一條 statement 入面 reference 同一張 TEMPORARY table 兩次 → `ERROR 1137 Can't reopen table`。

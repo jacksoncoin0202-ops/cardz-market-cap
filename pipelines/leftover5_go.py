@@ -12,6 +12,10 @@ docs/LEFTOVER5_IDENTITY_20260813.md
 
 呢啲 pin **唔係**放鬆 `_pc_print_signature_ok`。unbracketed heading 對
 treated printing 仍然拒絕（Yamato 2026-08-09）。例外只係呢五對 (vid, pid)。
+
+S12 另外要 live quote revision（`pc_psa10_local_history_v1` 頭點）同
+case-insensitive `PC_PRICE_LANGUAGES`（`zhtw` ≠ `zhTW` 曾經令 v35 route=none）。
+見 runbook 形狀 34。
 """
 from __future__ import annotations
 

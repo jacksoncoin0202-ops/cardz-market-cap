@@ -76,8 +76,8 @@ image-bind 忽略佢。Exact TCG ≠ 現役 PSA10 價 ≠ FE。
 
 DADDY：中文卡兩邊都得，冇偏好。S8/S12 以前只接受 `card_language='en'` 嘅 PC
 quote，所以 zhTW exact 仍然 `qualified_market_pending`。而家
-`PC_PRICE_LANGUAGES` = `en` / `zh` / `zhTW` / `zh-TW` / `zhCN` / `zh-CN`
-（`rebuild_036.pc_price_language_ok`）。日文仍然 SNK-primary（v1874 Battle
+`PC_PRICE_LANGUAGES`（`current_quote_revision.pc_price_language_ok`，casefold；
+`zhtw` 同 `zhTW` 都得）。日文仍然 SNK-primary（v1874 Battle
 Festa 教訓：PC EN/JP console 係唔同產品）。
 
 ### 7. Yellow Cheeks 家族：PSA 拆版本，catalog 得 unlimited
@@ -149,6 +149,14 @@ acceptance row 唔阻 identity GO。
 9. **activate 喺 `identity-resolve` / `bind` / `pc-replay` / `prune-plan` pending
    時照跑。** 會 ABORT。`--invalidate-from` 之後一定要行完 LINEAR_STAGES。
 10. **未 Enable 返 freeze 前 Ready 嘅 Task Scheduler。** 夜鏈 03:30 靜靜死。
+11. **S8 寫咗 local-history observation ≠ 有 live quote revision。** ranking view
+    排除 `legacy_generation_reconstructed`；bootstrap 以前只收 `manualonly.last`。
+    leftover-5 有 10–67 個 series 點仍然 S12 `acceptance_present_but_view_rejected`。
+12. **`LOWER(card_language)` 之後用大小寫敏感 set 去 route。** S8 將 zhTW 變成
+    `zhtw`，`PC_PRICE_LANGUAGES` 淨係寫 `zhTW` → v35 有 19 個 PC 點仍然
+    `route=none`。`pc_price_language_ok` 一定要 casefold。
+13. **Python writer 改咗語言閘、043 ranking view 冇改（形狀 22）。** S12 讀 view。
+    而家 `eligible_current_quote_revision_ddl()` 係權威，activate 每次 re-apply。
 
 ---
 

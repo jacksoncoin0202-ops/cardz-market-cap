@@ -32,6 +32,7 @@ import pymysql
 
 from identity_name import complete_collector_number, complete_collector_tail
 import leftover5_go
+from current_quote_revision import pc_price_language_ok, pc_price_language_sql
 from pc_sale_identity import pc_sale_fingerprint, pc_sale_price_text
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -69,22 +70,6 @@ FREEZE_PROOF_SCRIPT = ROOT / "scripts" / "prove_writer_freeze.py"
 MYSQL_CONTAINER = "cardz-market-cap-db-1"
 POLICY = {"minPop": 1000, "planVersion": "036"}
 DAILY_GUARDRAILS_PATH = ROOT / "data" / "policy" / "daily-release-guardrails.json"
-# DADDY 2026-08-13: Chinese cards may use PriceCharting or SNK; no preference.
-# Activation used to accept PC quotes only when card_language='en', so a zhTW
-# exact PC bind still routed to none. Japanese stays SNK-primary — JP twins
-# exist and PC EN/JP consoles are different products.
-PC_PRICE_LANGUAGES = frozenset({"en", "zh", "zhTW", "zh-TW", "zhCN", "zh-CN"})
-
-
-def pc_price_language_ok(language: str | None) -> bool:
-    return (language or "") in PC_PRICE_LANGUAGES
-
-
-def pc_price_language_sql(alias: str = "pi") -> str:
-    langs = ",".join(f"'{item}'" for item in sorted(PC_PRICE_LANGUAGES))
-    return f"{alias}.card_language IN ({langs})"
-
-
 def _load_daily_guardrails() -> dict[str, Any]:
     policy = json.loads(DAILY_GUARDRAILS_PATH.read_text(encoding="utf-8"))
     if policy.get("contract") != "cardz-daily-release-guardrails-v1":
@@ -6908,7 +6893,20 @@ def _activation_accept_history(
     freshly promoted is_current=1 lock). Sales differ from 026: only manifest
     fingerprints may enter."""
 
-    inserted: dict[str, int] = {}
+    inserted: dict[str, Any] = {}
+    from current_quote_revision import (
+        apply_eligible_current_quote_revision_view,
+        bootstrap_from_eligible_observations,
+        reconstruct_legacy_generation_quotes,
+    )
+
+    # Ranking view used to keep `card_language='en'` after Python writers
+    # already accepted Chinese PC (shape 22). Re-apply from code every
+    # accept so 043 cannot drift. Then mint live quotes from the latest
+    # local-history / last-field observation now that this lock is current.
+    apply_eligible_current_quote_revision_view(cur)
+    inserted["quoteBootstrap"] = bootstrap_from_eligible_observations(cur)
+
     # Ranking lineage: accept immutable current quote revisions (043).
     # History charts still use market_price_observation acceptances below.
     cur.execute(
@@ -7165,8 +7163,6 @@ def _activation_accept_history(
     # 斷曬（proof_historical_quote_resolver 今晚就係咁紅：S12 改印之後冇人
     # 重行 projection）。resolver 係冪等 projection，逐 metric fail-closed，
     # 所以喺兩個 caller（activate 同 daily-accept）尾一齊行係啱位。
-    from current_quote_revision import reconstruct_legacy_generation_quotes
-
     inserted["legacyQuoteResolutions"] = reconstruct_legacy_generation_quotes(cur)
     return inserted
 
