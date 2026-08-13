@@ -138,9 +138,18 @@ def main(argv: list[str] | None = None) -> int:
     sheet_ids = {int(row["variantId"]) for row in sheet_rows if row["variantId"] is not None}
     green_ids = {int(row["variantId"]) for row in sheet_rows if row["status"] == "green" and row["variantId"] is not None}
     red_ids = {int(row["variantId"]) for row in sheet_rows if row["status"] == "red" and row["variantId"] is not None}
+    remaining_red_ids = set(red_ids)
+    if args.phase == "036":
+        release_path = ROOT / "data" / "editorial" / "red-sheet-036-release.json"
+        if release_path.is_file():
+            release = json.loads(release_path.read_text(encoding="utf-8-sig"))
+            if release.get("contract") != "red-sheet-036-release-v1":
+                raise RuntimeError("red-sheet-036-release contract invalid")
+            remaining_red_ids -= {int(x) for x in release.get("releasedVariantIds") or []}
     red_old_printing_hashes = [
         str(audit_by_old_name[row["oldCanonicalName"]][0]["printing"]["canonical_printing_sha256"])
-        for row in sheet_rows if row["status"] == "red"
+        for row in sheet_rows
+        if row["status"] == "red" and int(row["variantId"] or 0) in remaining_red_ids
     ]
 
     load_env()
@@ -334,29 +343,36 @@ def main(argv: list[str] | None = None) -> int:
         ledger_034 = scalar(cur, "SELECT COUNT(*) FROM cardz_migration_ledger WHERE migration_file='034_psa_source_identity_repair.mysql.sql'")
         ledger_035 = scalar(cur, "SELECT COUNT(*) FROM cardz_migration_ledger WHERE migration_file='035_gemrate_provenance_psa_identity_resolution.mysql.sql'")
 
-        placeholders = ",".join(["%s"] * len(red_ids))
-        red_params = tuple(sorted(red_ids))
-        red_ready_prices = scalar(cur, f"SELECT COUNT(*) FROM market_price_observation WHERE variant_id IN ({placeholders}) AND metric_status='ready'", red_params)
-        red_current_sales = scalar(cur, f"SELECT COUNT(*) FROM market_sale_observation WHERE variant_id IN ({placeholders}) AND coverage_status<>'quarantined'", red_params)
-        red_public_images = scalar(cur, f"SELECT COUNT(*) FROM market_image_source_pointer WHERE variant_id IN ({placeholders}) AND public_allowed=1", red_params)
-        red_non_identity_freezes = scalar(
-            cur,
-            f"""SELECT COUNT(*) FROM operator_binding_freeze
-                WHERE variant_id IN ({placeholders}) AND acceptance_status='accepted'
-                  AND (freeze_kind='image' OR (freeze_kind='source' AND source_code<>'gemrate'))""",
-            red_params,
-        )
-        red_product_projection = scalar(
-            cur,
-            f"SELECT COUNT(*) {PRODUCT_READY_FROM} WHERE v.id IN ({placeholders}) AND {PRODUCT_READY_WHERE}",
-            red_params,
-        )
-        red_hash_placeholders = ",".join(["%s"] * len(red_old_printing_hashes))
-        red_old_printing_current = scalar(
-            cur,
-            f"SELECT COUNT(*) FROM catalog_printing_identity WHERE canonical_printing_sha256 IN ({red_hash_placeholders})",
-            tuple(red_old_printing_hashes),
-        )
+        placeholders = ",".join(["%s"] * len(remaining_red_ids)) if remaining_red_ids else ""
+        red_params = tuple(sorted(remaining_red_ids))
+        if remaining_red_ids:
+            red_ready_prices = scalar(cur, f"SELECT COUNT(*) FROM market_price_observation WHERE variant_id IN ({placeholders}) AND metric_status='ready'", red_params)
+            red_current_sales = scalar(cur, f"SELECT COUNT(*) FROM market_sale_observation WHERE variant_id IN ({placeholders}) AND coverage_status<>'quarantined'", red_params)
+            red_public_images = scalar(cur, f"SELECT COUNT(*) FROM market_image_source_pointer WHERE variant_id IN ({placeholders}) AND public_allowed=1", red_params)
+            red_non_identity_freezes = scalar(
+                cur,
+                f"""SELECT COUNT(*) FROM operator_binding_freeze
+                    WHERE variant_id IN ({placeholders}) AND acceptance_status='accepted'
+                      AND (freeze_kind='image' OR (freeze_kind='source' AND source_code<>'gemrate'))""",
+                red_params,
+            )
+            red_product_projection = scalar(
+                cur,
+                f"SELECT COUNT(*) {PRODUCT_READY_FROM} WHERE v.id IN ({placeholders}) AND {PRODUCT_READY_WHERE}",
+                red_params,
+            )
+        else:
+            red_ready_prices = red_current_sales = red_public_images = 0
+            red_non_identity_freezes = red_product_projection = 0
+        if red_old_printing_hashes:
+            red_hash_placeholders = ",".join(["%s"] * len(red_old_printing_hashes))
+            red_old_printing_current = scalar(
+                cur,
+                f"SELECT COUNT(*) FROM catalog_printing_identity WHERE canonical_printing_sha256 IN ({red_hash_placeholders})",
+                tuple(red_old_printing_hashes),
+            )
+        else:
+            red_old_printing_current = 0
     finally:
         connection.close()
 

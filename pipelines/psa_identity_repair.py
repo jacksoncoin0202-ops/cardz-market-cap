@@ -25,6 +25,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
+sys.path.insert(0, str(ROOT / "scripts"))
 from identity_name import complete_collector_tail  # noqa: E402
 from qualified_pool_operator import db, load_env  # noqa: E402
 
@@ -503,6 +504,8 @@ def apply_audit(connection: Any, audit: dict[str, Any]) -> dict[str, Any]:
         int(audit_by_old_name[sheet["oldCanonicalNames"][sheet_row - 5]]["variantId"])
         for sheet_row in sheet["redSheetRows"]
     }
+    from stamp_red_sheet_quarantine import released_red_variant_ids
+    red_ids -= released_red_variant_ids()
     acceptable = {"exact", "name_mismatch"}
     affected = Counter()
     accepted = 0

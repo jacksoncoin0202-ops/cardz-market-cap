@@ -1,0 +1,21 @@
+{
+ "contract": "red-sheet-036-release-v1",
+ "releasedAt": "2026-08-12T21:51:25Z",
+ "reason": "034 red sheet was a human 'I don't know this card' hold. 2026-08-13 operator identified shape-21 TR/SP/AA (GemRate names the pack set; the face keeps the original number) and exact AA pages. Released ids are the red_variant_ids() members that this run bound exact.",
+ "releasedVariantIds": [
+  1214,
+  1216,
+  1226,
+  1236,
+  1274,
+  1300,
+  1426,
+  1464,
+  1717,
+  1722,
+  1731,
+  1733,
+  1741
+ ],
+ "stillRedVariantIds": []
+}

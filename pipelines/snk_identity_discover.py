@@ -161,15 +161,20 @@ def select_targets(
                     AND si.source_code IN ('snkrdunk', 'snk_psa10')
                     AND si.match_status = 'exact'
                )
+           AND NOT (
+                 v.card_language IN ('zh','zhTW','zh-TW','zhCN','zh-CN')
+                 AND EXISTS (
+                   SELECT 1 FROM catalog_source_identity pc
+                    WHERE pc.variant_id = v.id
+                      AND pc.source_code = 'pricecharting'
+                      AND pc.match_status = 'exact'
+                 )
+               )
     """
-    # 'pricecharting' 一度都喺上面嗰個 NOT EXISTS 入面 —— 即係「有 PC binding =
-    # 有價源，唔使搵 SNK」。但 D4 語言路由（activate 嘅 psa10_price 接受面：
-    # pi.card_language='en' OR source IN (snk…)）之下，非 EN 卡嘅 PC binding
-    # 只供 sales/reference，計 market cap 嘅價一定要 SNK。2026-08-13 v1874
-    # Battle Festa：組織者版 SNK 錯綁被裁決 reject 之後，佢淨低 PC exact，
-    # 呢度就當佢「有價源」永遠唔再搵 —— 於是 S12 product_ready gap 卡死成條
-    # 夜鏈。selector 嘅「價源」定義而家同路由政策一致：非 EN 卡只有 SNK
-    # exact 先算。
+    # Japanese still needs SNK even when PC is exact (v1874 Battle Festa:
+    # PC-only left the night chain stuck because S12 would not accept JP PC).
+    # Chinese may use PC as the price source (DADDY 2026-08-13), so a zh/zhTW
+    # exact PC bind counts as a price source and this lane leaves it alone.
     params: list[Any] = [generation, min_pop]
     # The 034 sheet's thirteen human refusals happen to all be English, so the
     # language filter above already hides them -- today. That is an accident of
@@ -419,6 +424,26 @@ def mirror_tuple(row: dict[str, Any]) -> tuple[str, ...]:
         str(row["v_set_code"] or ""), str(row["collector_number"] or ""),
         str(row["v_printing_code"] or ""), "", "", "",
     )
+
+
+def bound_ident(row: dict[str, Any]) -> dict[str, str]:
+    """bound_* columns the strict view compares to catalog_printing_identity.
+
+    When a printing-identity row exists, copy it as-is — including empty
+    set_code / printing_code. Filling those from catalog_variant makes
+    bound_set_code='SIT' against p.set_code='' and the view returns 0 rows.
+    """
+    tcg, lang, set_code, collector, printing, parallel, edition, finish = mirror_tuple(row)
+    return {
+        "tcg": tcg,
+        "lang": lang,
+        "set_code": set_code,
+        "collector": collector,
+        "printing": printing,
+        "parallel": parallel,
+        "edition": edition,
+        "finish": finish,
+    }
 
 
 def cmd_snk_identity_discover(args: argparse.Namespace) -> int:

@@ -2991,7 +2991,8 @@ def sync_026_metric_history_acceptances(cur) -> dict:
           AND so.source_code=p.source_code AND so.external_entity_id=p.source_external_entity_id
           AND so.payload_sha256=p.payload_sha256 AND so.observed_date=p.observed_date
         WHERE p.source_code IN ('snkrdunk','snk_psa10','snk','pricecharting')
-          AND (pi.card_language='en' OR p.source_code IN ('snkrdunk','snk_psa10','snk'))
+          AND (pi.card_language IN ('en','zh','zhTW','zh-TW','zhCN','zh-CN')
+               OR p.source_code IN ('snkrdunk','snk_psa10','snk'))
           AND (
             (p.source_code IN ('snkrdunk','snk_psa10','snk')
              AND so.observation_kind='psa10_reference_price')

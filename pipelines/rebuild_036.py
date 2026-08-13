@@ -31,6 +31,7 @@ from typing import Any, Callable, Mapping
 import pymysql
 
 from identity_name import complete_collector_number, complete_collector_tail
+import leftover5_go
 from pc_sale_identity import pc_sale_fingerprint, pc_sale_price_text
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -68,6 +69,20 @@ FREEZE_PROOF_SCRIPT = ROOT / "scripts" / "prove_writer_freeze.py"
 MYSQL_CONTAINER = "cardz-market-cap-db-1"
 POLICY = {"minPop": 1000, "planVersion": "036"}
 DAILY_GUARDRAILS_PATH = ROOT / "data" / "policy" / "daily-release-guardrails.json"
+# DADDY 2026-08-13: Chinese cards may use PriceCharting or SNK; no preference.
+# Activation used to accept PC quotes only when card_language='en', so a zhTW
+# exact PC bind still routed to none. Japanese stays SNK-primary — JP twins
+# exist and PC EN/JP consoles are different products.
+PC_PRICE_LANGUAGES = frozenset({"en", "zh", "zhTW", "zh-TW", "zhCN", "zh-CN"})
+
+
+def pc_price_language_ok(language: str | None) -> bool:
+    return (language or "") in PC_PRICE_LANGUAGES
+
+
+def pc_price_language_sql(alias: str = "pi") -> str:
+    langs = ",".join(f"'{item}'" for item in sorted(PC_PRICE_LANGUAGES))
+    return f"{alias}.card_language IN ({langs})"
 
 
 def _load_daily_guardrails() -> dict[str, Any]:
@@ -2912,6 +2927,7 @@ def stage_pc_replay(ctx: SimpleNamespace) -> dict[str, Any]:
         "upgradedFromReview": 0, "downgradedToReview": 0, "hardConflicts": 0,
         "parallelSoftMismatch": 0, "pageParseFailures": 0,
         "bindingsWithoutPage": 0, "pagesWithoutBinding": 0,
+        "leftover5GoProtected": 0,
         "replayRejects": int(manifest.get("rejects") or 0),
     }
 
@@ -3031,9 +3047,18 @@ def stage_pc_replay(ctx: SimpleNamespace) -> dict[str, Any]:
         if identity["tcg"] and str(row["tcg_code"] or "") and \
                 identity["tcg"] != str(row["tcg_code"]):
             conflicts.append(f"tcg:{identity['tcg']}!={row['tcg_code']}")
+        hold_go = leftover5_go.hold_exact_against_refresh(
+            "pricecharting", int(row["variant_id"]), pid,
+        )
         if conflicts:
             counts["hardConflicts"] += 1
-            if status == "exact":
+            if status == "exact" and hold_go:
+                # leftover-5: page language/heading can conflict with catalog
+                # (v35 parser says en vs zhTW) after POP already identified the
+                # product. Pin holds exact; do not restamp from the conflict.
+                counts["leftover5GoProtected"] += 1
+                results.append((pid, status, ""))
+            elif status == "exact":
                 counts["downgradedToReview"] += 1
                 updates.append((pid, "manual_review", None, None, None))
                 results.append((pid, "manual_review", ""))
@@ -3046,7 +3071,13 @@ def stage_pc_replay(ctx: SimpleNamespace) -> dict[str, Any]:
         # STAMPS bindings exact still using the loose reading.
         if not _pc_print_signature_ok(identity["parallel"], row):
             counts["parallelSoftMismatch"] += 1
-            if status == "exact":
+            if status == "exact" and hold_go:
+                # leftover-5 EN OP11 reprints omit [SP]/[TR] in the heading.
+                # TCGPlayer ID + sales already identified the product. Do not
+                # reopen the Yamato hole by relaxing _pc_print_signature_ok.
+                counts["leftover5GoProtected"] += 1
+                results.append((pid, status, ""))
+            elif status == "exact":
                 # The page is the authority for an exact binding. When it stops
                 # proving one, leaving the row exact keeps publishing a price
                 # nothing stands behind -- and keeps the product held against
@@ -3323,7 +3354,7 @@ def stage_snk_refresh(ctx: SimpleNamespace) -> dict[str, Any]:
         "landedOk": 0, "landedError": 0, "receiptsUpserted": 0,
         "restampedExact": 0, "upgradedFromReview": 0, "downgradedToReview": 0,
         "hardConflicts": 0, "parallelSoftMismatch": 0, "notAcceptable": 0,
-        "bindingsWithoutPayload": 0,
+        "bindingsWithoutPayload": 0, "leftover5GoProtected": 0,
     }
 
     out_path = snk_dir / f"snk_harvest_{generation}.jsonl"
@@ -3472,7 +3503,14 @@ def stage_snk_refresh(ctx: SimpleNamespace) -> dict[str, Any]:
             conflicts.append(f"parallel:mirror {snk_mirror}!={variant_mirror}")
         if conflicts:
             counts["hardConflicts"] += 1
-            if status == "exact":
+            if status == "exact" and leftover5_go.hold_exact_against_refresh(
+                "snkrdunk", int(row["variant_id"]), iid_str,
+            ):
+                # leftover-5 v1900: SNK SKU says 1st, card is unlimited Yellow
+                # Cheeks. Fingerprint would downgrade; the pin holds exact.
+                counts["leftover5GoProtected"] += 1
+                results.append((iid_str, status, ""))
+            elif status == "exact":
                 counts["downgradedToReview"] += 1
                 updates.append((iid_str, "manual_review", None, None, None))
                 results.append((iid_str, "manual_review", ""))
@@ -4253,7 +4291,8 @@ def stage_price_materialize(ctx: SimpleNamespace) -> dict[str, Any]:
         language = lang_by_vid.get(vid, "")
         pc_side = pc_current.get(vid)
         snk_side = snk_current.get(vid)
-        primary = "pricecharting" if language == "en" else "snkrdunk"
+        pc_ok = pc_price_language_ok(language)
+        primary = "pricecharting" if pc_ok else "snkrdunk"
         fallback_used = False
         if primary == "pricecharting":
             winner, loser = pc_side, snk_side
@@ -4265,12 +4304,11 @@ def stage_price_materialize(ctx: SimpleNamespace) -> dict[str, Any]:
             route = winner_code
             current = winner
             reason = f"language_{language or 'unknown'}_primary"
-        elif loser is not None and not (loser_code == "pricecharting" and language != "en"):
-            # A PriceCharting price is only ever accepted for an English card
-            # (_activation_accept_history gates on pi.card_language='en'), so
-            # falling a non-English card back onto PC would route it to a price
-            # S12 can never accept and abort activation on missing coverage.
-            # SNKRDUNK is accepted for every language, so that fallback stands.
+        elif loser is not None and not (loser_code == "pricecharting" and not pc_ok):
+            # PC quotes are accepted for English and Chinese (DADDY 2026-08-13).
+            # Japanese still cannot fall back onto PC: S12 would reject it and
+            # the EN/JP consoles are different products. SNK is accepted for
+            # every language, so that fallback stands.
             route = loser_code
             current = loser
             fallback_used = True
@@ -6906,7 +6944,8 @@ def _activation_accept_history(
                                   THEN 'snkrdunk' ELSE q.source_code END
           AND si.external_entity_id=q.source_external_entity_id
         WHERE q.source_code IN ('snkrdunk','snk_psa10','snk','pricecharting')
-          AND (pi.card_language='en' OR q.source_code IN ('snkrdunk','snk_psa10','snk'))
+          AND (""" + pc_price_language_sql("pi") + """
+               OR q.source_code IN ('snkrdunk','snk_psa10','snk'))
           AND q.price_usd>0
           AND q.payload_sha256 REGEXP '^[0-9a-f]{64}$'
           AND q.quote_lineage_sha256 REGEXP '^[0-9a-f]{64}$'
@@ -6961,7 +7000,8 @@ def _activation_accept_history(
           AND so.source_code=p.source_code AND so.external_entity_id=p.source_external_entity_id
           AND so.payload_sha256=p.payload_sha256 AND so.observed_date=p.observed_date
         WHERE p.source_code IN ('snkrdunk','snk_psa10','snk','pricecharting')
-          AND (pi.card_language='en' OR p.source_code IN ('snkrdunk','snk_psa10','snk'))
+          AND (""" + pc_price_language_sql("pi") + """
+               OR p.source_code IN ('snkrdunk','snk_psa10','snk'))
           AND (
             (p.source_code IN ('snkrdunk','snk_psa10','snk')
              AND so.observation_kind='psa10_reference_price')
@@ -8057,6 +8097,8 @@ def _pc_print_signature_ok(page_parallel: str, row: Mapping[str, Any]) -> bool:
         # live bindings ended up on the cheap card: "Yamato OP01-121" (base)
         # was bound exact to OP05 Yamato Special Alternate Art, and while it
         # sat there the base card's own variant could not claim its page.
+        # leftover-5 EN OP11 reprints also omit [SP]/[TR]; that exception is
+        # leftover5_go.hold_exact_against_refresh, not a relaxation here.
         # Measured 2026-08-09 over all 928 exact PC bindings: 919 unaffected,
         # 7 refused, and all 7 were parallels bound to a base print.
         if _norm_text(str(row.get("printing_code") or "")) not in _PC_BASE_PRINTINGS:

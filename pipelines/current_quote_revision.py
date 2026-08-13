@@ -266,7 +266,8 @@ def bootstrap_from_eligible_observations(cursor: Any, *, actor: str = "043-boots
          AND so.payload_sha256=p.payload_sha256
          AND so.observed_date=p.observed_date
         WHERE p.metric_status='ready' AND p.price_usd>0
-          AND (pi.card_language='en' OR p.source_code IN ('snkrdunk','snk_psa10','snk'))
+          AND (pi.card_language IN ('en','zh','zhTW','zh-TW','zhCN','zh-CN')
+               OR p.source_code IN ('snkrdunk','snk_psa10','snk'))
         """
     )
     rows = list(cursor.fetchall())

@@ -43,6 +43,9 @@ REASON = (
 )
 
 
+RELEASE_036 = ROOT / "data" / "editorial" / "red-sheet-036-release.json"
+
+
 def red_variant_ids() -> list[int]:
     """The same thirteen ids validator034 and psa_identity_repair derive.
 
@@ -64,20 +67,51 @@ def red_variant_ids() -> list[int]:
     return sorted(ids)
 
 
+def released_red_variant_ids() -> set[int]:
+    """036 operator release: subset of red_variant_ids() that a later ruling unbound.
+
+    The 034 sheet still derives thirteen. Cards a 036 operator identified
+    (shape 21 TR/SP/AA) are subtracted here so stamp/repair/validator only
+    quarantine what is still refused.
+    """
+
+    if not RELEASE_036.is_file():
+        return set()
+    payload = json.loads(RELEASE_036.read_text(encoding="utf-8-sig"))
+    if payload.get("contract") != "red-sheet-036-release-v1":
+        raise SystemExit(f"red-sheet-036-release contract invalid: {RELEASE_036}")
+    allowed = set(red_variant_ids())
+    released = {int(x) for x in payload.get("releasedVariantIds") or []}
+    return released & allowed
+
+
+def active_red_variant_ids() -> list[int]:
+    return sorted(set(red_variant_ids()) - released_red_variant_ids())
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--write", action="store_true")
     parser.add_argument("--credentials-env", dest="credentials_env", default="")
     args = parser.parse_args(argv)
 
-    red_ids = red_variant_ids()
+    historical = red_variant_ids()
+    red_ids = active_red_variant_ids()
     credentials = (
         Path(args.credentials_env) if args.credentials_env
         else (R.DEFAULT_CREDENTIALS_ENV if args.write else R.DAILY_CREDENTIALS_ENV)
     )
+    report: dict[str, object] = {
+        "historicalRedVariantIds": historical,
+        "redVariantIds": red_ids,
+        "releasedRedVariantIds": sorted(released_red_variant_ids()),
+        "write": bool(args.write),
+    }
+    if not red_ids:
+        print(json.dumps(report, ensure_ascii=False, indent=1, default=str))
+        return 0
     marks = ",".join(["%s"] * len(red_ids))
     conn = R.connect(credentials)
-    report: dict[str, object] = {"redVariantIds": red_ids, "write": bool(args.write)}
     try:
         with conn.cursor() as cur:
             cur.execute(
