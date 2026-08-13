@@ -58,6 +58,16 @@ def _parse_stamp(value: Any) -> datetime:
     return parsed.astimezone(timezone.utc).replace(tzinfo=None)
 
 
+def _quote_checked_at(value: Any) -> datetime:
+    """S8 series points are naive UTC datetimes; plan rows are TZ-aware ISO."""
+
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return _parse_stamp(value)
+
+
 def _price(value: Any) -> Decimal:
     parsed = Decimal(str(value))
     if parsed <= 0:
@@ -798,7 +808,7 @@ def materialize_local_history(connection: Any, rows: list[dict[str, Any]]) -> in
                 source_external_entity_id=external_entity_id,
                 price_usd=row["priceUsd"],
                 source_period_at=row["observedDate"],
-                checked_at=_parse_stamp(row["effectiveAt"]),
+                checked_at=_quote_checked_at(row["effectiveAt"]),
                 payload_sha256=str(row["payloadSha256"]),
                 source_observation_id=int(price_row["source_observation_id"])
                 if price_row.get("source_observation_id")

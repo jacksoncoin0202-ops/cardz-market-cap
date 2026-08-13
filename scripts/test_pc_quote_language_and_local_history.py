@@ -15,6 +15,7 @@ Do not relax _pc_print_signature_ok. Do not copy the language set (shape 22).
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import inspect
 import sys
 from pathlib import Path
@@ -30,7 +31,10 @@ from current_quote_revision import (  # noqa: E402
     pc_price_language_sql,
     self_test,
 )
-from pc_psa10_price_materialize import materialize_local_history  # noqa: E402
+from pc_psa10_price_materialize import (  # noqa: E402
+    _quote_checked_at,
+    materialize_local_history,
+)
 import rebuild_036  # noqa: E402
 
 FAILURES: list[str] = []
@@ -90,6 +94,23 @@ check(
     "local-history materialize mints the latest quote revision",
     "insert_quote_revision" in hist_src,
     True,
+)
+check(
+    "local-history quote clock accepts S8 naive UTC datetimes",
+    "_quote_checked_at" in hist_src,
+    True,
+)
+naive = datetime(2026, 8, 1, 0, 0, 0)
+check(
+    "naive UTC series stamp is kept",
+    _quote_checked_at(naive),
+    naive,
+)
+aware = datetime(2026, 8, 1, 0, 0, 0, tzinfo=timezone.utc)
+check(
+    "aware stamp becomes naive UTC",
+    _quote_checked_at(aware),
+    naive,
 )
 
 if FAILURES:
