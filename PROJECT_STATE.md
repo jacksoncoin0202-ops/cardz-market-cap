@@ -10,6 +10,7 @@
 - Live：`https://app.cardzmarketcap.com`
 - 真身：`../cardz-market-cap-fe-db-20260805`
 - 開代：**037 / FE04** = 036 PSA10 + BOX sidecar（`/box`）
+- Live 已確認（2026-08-14）：health `product=037` · `presentation=FE04` · `/box` 200
 - Fallback：036 / FE03
 - 契約：`../cardz-market-cap-fe-db-20260805/docs/HANDOFF_037_FE04.md`
 
