@@ -1929,6 +1929,10 @@ html.theme-transitions .brand-logo-dark {
   background: var(--surface);
   border-color: var(--accent);
 }
+.box-show-more:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
 .box-price-native { display: block; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .box-detail-art img { padding: 32px; }
 html.theme-transitions .box-thumb { transition: background-color 240ms cubic-bezier(0.33, 1, 0.68, 1); }

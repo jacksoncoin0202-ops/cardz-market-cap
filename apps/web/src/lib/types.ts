@@ -120,6 +120,12 @@ export interface MarketCardView {
   salesSparkline: number[];
 }
 
+export interface MarketCatalogItem {
+  id: string;
+  officialName: string | null;
+  viewRank: number;
+}
+
 export interface MarketViewSnapshot {
   schemaVersion: string;
   generation: string;
