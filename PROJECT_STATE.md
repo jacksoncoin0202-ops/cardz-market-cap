@@ -93,7 +93,7 @@ There is no QC/finalizer/audit/runbook release layer. Build and run the direct s
 - 內頁：跟主站 `.detail-art`（桌面 sticky／手機 relative、無 lightbox）；askFloor `wide-metric`；`/box/[id]` Product + BreadcrumbList。
 - Daily：`sync_public_release_assets.py` 要保留 sidecar 圖；commit 訊息 `release: daily CARDZ 037 FE04 $generation [deploy]`。
 - Fallback：拎走 overlay／nav／`/box` 即返 036／FE03；seed 唔使改。
-- Live 未確認前 `data/public/037-fe04-receipt.json` 保持 `deployed: false`。契約：[docs/HANDOFF_037_FE04.md](docs/HANDOFF_037_FE04.md)。
+- **Live 已確認（2026-08-14）**：`3aef760a` · health `product=037` · `/box` 200 · `/sealed` 308。Receipt：`data/public/037-fe04-receipt.json`。契約：[docs/HANDOFF_037_FE04.md](docs/HANDOFF_037_FE04.md)。
 
 **其餘一切（演化史、六個食過嘅虧、閘 tier 分級、未完成清單、硬規矩）一律以
 [docs/HANDOFF_036_20260812.md](docs/HANDOFF_036_20260812.md) 為準。**

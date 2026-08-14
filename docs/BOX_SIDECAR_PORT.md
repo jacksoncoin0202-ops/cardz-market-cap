@@ -4,7 +4,7 @@
 
 契約：HANDOFF_037_FE04.md。
 
-## 已落地（2026-08-14，DADDY 批准推 live）
+## 已落地（2026-08-14，live 已確認）
 
 - Sidecar：data/public/box-subset.json（307／275／307）
 - Loader：讀完 PSA10 seed 再掛 box block

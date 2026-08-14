@@ -48,7 +48,7 @@ DADDY 2026-08-14 開代。呢份係 037 契約。036 交接仍睇 docs/HANDOFF_0
 4. **唔** commit `seed-snapshot.json`（已經係 live `db3308_b0cb6e76228b4a99`）
 5. commit `release: CARDZ 037 FE04 add BOX sidecar [deploy]` 再 `git push origin HEAD:main`
 
-Live 未確認前 `data/public/037-fe04-receipt.json` 保持 `deployed: false`。確認要睇 `https://app.cardzmarketcap.com/api/health`：`product=037`、`presentation=FE04`、`box.path=/box`、PSA10 `generation` 仍然 `db3308_b0cb6e76228b4a99`、`cards=1368`。
+**2026-08-14 live 已確認。** commit `3aef760a`。`https://app.cardzmarketcap.com/api/health`：`product=037`、`presentation=FE04`、`box.path=/box` · 307／275／307、PSA10 `generation` 仍然 `db3308_b0cb6e76228b4a99`、`cards=1368`。`/` 200、`/box` 200、`/box/ptcg-en-lc-booster-box-std` 200、`/sealed` 308 → `/box`。Receipt：`data/public/037-fe04-receipt.json`。
 
 ## 不准
 
