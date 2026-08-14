@@ -14,17 +14,38 @@ from pathlib import Path
 ASSET_NAME = re.compile(r"^[0-9a-f]{64}(?:_(?:200|600))?\.webp$")
 
 
+def add_asset_name(names: set[str], value: object) -> None:
+    if not isinstance(value, str) or not value:
+        return
+    name = value.rsplit("/", 1)[-1]
+    if not ASSET_NAME.fullmatch(name):
+        raise RuntimeError(f"invalid public asset reference: {value}")
+    names.add(name)
+
+
 def referenced_assets(snapshot: dict) -> set[str]:
     names: set[str] = set()
     for card in [*(snapshot.get("top100") or []), *(snapshot.get("watchlist") or [])]:
         image = card.get("image") or {}
-        for value in [image.get("src"), *((image.get("variants") or {}).values())]:
-            if not isinstance(value, str) or not value:
-                continue
-            name = value.rsplit("/", 1)[-1]
-            if not ASSET_NAME.fullmatch(name):
-                raise RuntimeError(f"invalid public asset reference: {value}")
-            names.add(name)
+        add_asset_name(names, image.get("src"))
+        for value in (image.get("variants") or {}).values():
+            add_asset_name(names, value)
+    return names
+
+
+def referenced_box_assets(box_path: Path) -> set[str]:
+    """037 BOX sidecar images. Daily prune must keep these or /box 圖會消失。"""
+    if not box_path.is_file():
+        return set()
+    block = json.loads(box_path.read_text(encoding="utf-8"))
+    names: set[str] = set()
+    for product in block.get("products") or []:
+        image = (product or {}).get("image") or {}
+        add_asset_name(names, image.get("src"))
+        src = image.get("src")
+        if isinstance(src, str) and src.endswith(".webp"):
+            add_asset_name(names, src.replace(".webp", "_200.webp"))
+            add_asset_name(names, src.replace(".webp", "_600.webp"))
     return names
 
 
@@ -37,6 +58,7 @@ def main() -> int:
 
     snapshot = json.loads(args.snapshot.read_text(encoding="utf-8"))
     wanted = referenced_assets(snapshot)
+    wanted |= referenced_box_assets(args.snapshot.parent / "box-subset.json")
     source = args.source.resolve()
     destination = args.destination.resolve()
     destination.mkdir(parents=True, exist_ok=True)

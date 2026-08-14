@@ -1,0 +1,137 @@
+"use client";
+
+import Link from "next/link";
+import { CapTicker } from "./cap-ticker";
+import { CopyButton } from "./copy-button";
+import { HistoryChart } from "./history-chart";
+import { PeriodSelector } from "./period-selector";
+import { Provenance } from "./provenance";
+import { MetricDelta } from "./rankings";
+import { BoxImage } from "./box-image";
+import { absolutePublicUrl, StructuredData } from "./structured-data";
+import { copy } from "@/lib/i18n";
+import { formatDate, formatInteger, formatMetricMoney, formatMoney, formatPercent, metricTone } from "@/lib/format";
+import type { Currency, MarketViewSnapshot, SealedProductView } from "@/lib/types";
+import { useMarketSettings } from "@/lib/use-market-settings";
+
+export function BoxDetail({ product, snapshot }: {
+  product: SealedProductView | null;
+  snapshot: MarketViewSnapshot;
+}) {
+  const { locale, currency, period, href } = useMarketSettings();
+  const t = copy[locale];
+
+  if (!product) {
+    return (
+      <div className="page-shell"><section className="empty-detail">
+        <p>{t.box.empty}</p>
+        <Link className="primary-action" href={href("/box")}>{t.nav.box}</Link>
+      </section></div>
+    );
+  }
+
+  const rates: Record<Currency, number> = snapshot.rates;
+  const metrics = product.windows[period];
+  const story = product.story ? (product.story[locale] || product.story.en) : null;
+  const gameLabel = product.game === "optcg" ? "One Piece" : "Pokémon";
+  const kicker = `${t.nav.box} · ${gameLabel} ${product.lang.toUpperCase()}`;
+  const priceLabel = product.priceKind ? t.box.priceKind[product.priceKind] : t.labels.priceShort;
+  const native = product.priceNative && product.priceNative.currency === "JPY"
+    ? `¥${Math.round(product.priceNative.amount).toLocaleString(locale === "en" ? "en-US" : "ja-JP")}`
+    : null;
+  const askNative = product.askFloorNative && product.askFloorNative.currency === "JPY"
+    ? `¥${Math.round(product.askFloorNative.amount).toLocaleString(locale === "en" ? "en-US" : "ja-JP")}`
+    : null;
+  const structuredData = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Product",
+        name: product.name[locale] || product.name.en,
+        identifier: product.setCode,
+        image: absolutePublicUrl(product.image.url),
+        description: story || undefined,
+        releaseDate: product.release || undefined,
+      },
+      {
+        "@type": "BreadcrumbList",
+        itemListElement: [
+          { "@type": "ListItem", position: 1, name: t.nav.box, item: absolutePublicUrl(href("/box")) },
+          { "@type": "ListItem", position: 2, name: product.name[locale] || product.name.en },
+        ],
+      },
+    ],
+  };
+
+  return (
+    <div className="page-shell detail-page">
+      <StructuredData value={structuredData} />
+      <div className="detail-actions fade-up">
+        <Link className="back-link" href={href("/box")}>← {t.nav.box}</Link>
+        <CopyButton getText={() => `${window.location.origin}/box/${product.id}`} label={t.labels.share} doneLabel={t.labels.shareDone} errorLabel={t.labels.shareError} preferNativeShare />
+      </div>
+      <article className="detail-grid fade-up">
+        <section className="detail-art box-detail-art" aria-label={product.name.en}>
+          <span className="detail-rank">#{product.rank}</span>
+          <BoxImage image={product.image} sizes="(max-width: 680px) 90vw, 560px" loading="eager" alt={product.name[locale] || product.name.en} />
+        </section>
+        <div className="detail-content">
+          <header className="detail-header">
+            <p className="section-kicker">{kicker}</p>
+            <h1>{product.name[locale] || product.name.en}</h1>
+            {product.name.ja && product.name.ja !== product.name.en && (
+              <p className="detail-set">{product.name.ja}</p>
+            )}
+            <dl className="identity-list">
+              {product.fullName && (
+                <div><dt>{t.box.fullName}</dt><dd>{product.fullName[locale] || product.fullName.en}</dd></div>
+              )}
+              <div><dt>{t.box.setCode}</dt><dd>{product.setCode}</dd></div>
+              {product.release && <div><dt>{t.box.release}</dt><dd>{product.release}</dd></div>}
+              {product.packsPerBox > 0 && <div><dt>{t.box.packs}</dt><dd>{formatInteger(product.packsPerBox, locale)}</dd></div>}
+              {product.printWave !== "std" && <div><dt>{t.box.print}</dt><dd>{product.printWave}</dd></div>}
+              {product.status === "unreleased" && <div><dt>{t.labels.asOf}</dt><dd>{t.box.unreleased}</dd></div>}
+            </dl>
+          </header>
+          {story && (
+            <section className="story-panel">
+              <h2>{t.labels.story}</h2>
+              <p>{story}</p>
+            </section>
+          )}
+          <div className="detail-period-row"><PeriodSelector compact /></div>
+          <section className="detail-metrics box-detail-metrics" aria-label={priceLabel}>
+            <div>
+              <span>{priceLabel}</span>
+              <strong className="metric-value-fit">
+                {product.priceUsd.value === null
+                  ? formatMetricMoney(product.priceUsd, currency, rates, locale)
+                  : <CapTicker key={product.priceUsd.value} value={product.priceUsd.value} format={(n) => formatMoney(n, currency, rates, locale)} />}
+              </strong>
+              {native && <span className="box-price-native">{native}</span>}
+              <MetricDelta metric={product.priceUsd} changePct={metrics.changePct} currency={currency} rates={rates} locale={locale} />
+            </div>
+            <div>
+              <span>{t.periods[period]} {t.labels.change}</span>
+              <strong className={`metric-${metricTone(metrics.changePct)}`}>{formatPercent(metrics.changePct, locale)}</strong>
+            </div>
+            <div>
+              <span>{t.periods[period]} {t.box.soldCountShort}</span>
+              <strong>{metrics.soldCount > 0 ? formatInteger(metrics.soldCount, locale) : "—"}</strong>
+            </div>
+            {product.askFloorUsd.value !== null && (
+              <div className="wide-metric">
+                <span>{t.box.askFloor}</span>
+                <strong>{formatMetricMoney(product.askFloorUsd, currency, rates, locale)}</strong>
+                {askNative && <span className="box-price-native">{askNative}</span>}
+              </div>
+            )}
+          </section>
+          <p className="data-time">{t.labels.asOf}: {formatDate(product.priceUsd.asOf ?? snapshot.effectiveAt, locale)}</p>
+          <HistoryChart points={product.historyDaily} locale={locale} currency={currency} rates={rates} />
+        </div>
+      </article>
+      <Provenance updatedAt={product.priceUsd.asOf ?? snapshot.sealed?.asOf ?? snapshot.effectiveAt} kind="box" />
+    </div>
+  );
+}

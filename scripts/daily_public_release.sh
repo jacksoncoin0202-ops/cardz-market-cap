@@ -107,7 +107,7 @@ fi
 
 for path in "${changed[@]}"; do
   case "$path" in
-    data/public/seed-snapshot.json|data/public/market-assets/*.webp) ;;
+    data/public/seed-snapshot.json|data/public/box-subset.json|data/public/market-assets/*.webp) ;;
     *) printf 'daily release refused unexpected path: %s\n' "$path" >&2; exit 1 ;;
   esac
 done
@@ -117,7 +117,7 @@ done
 
 generation="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["generation"]["id"])' "$RELEASE_REPO/data/public/seed-snapshot.json")"
 generated_at="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["generation"]["generatedAt"])' "$RELEASE_REPO/data/public/seed-snapshot.json")"
-git -C "$RELEASE_REPO" commit -m "release: daily CARDZ 036 FE03 $generation [deploy]"
+git -C "$RELEASE_REPO" commit -m "release: daily CARDZ 037 FE04 $generation [deploy]"
 git -C "$RELEASE_REPO" push origin HEAD:main
 
 for _ in $(seq 1 60); do

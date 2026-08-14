@@ -139,6 +139,52 @@ export interface MarketViewSnapshot {
   rates: Record<Currency, number>;
   top100: MarketCardView[];
   watchlist: MarketCardView[];
+  /** BOX sidecar overlay. Absent when box-subset.json is missing. Never part of PSA10 seed. */
+  sealed?: SealedViewBlock;
+}
+
+export const sealedGroups = ["optcg-en", "optcg-jp", "ptcg-en", "ptcg-jp"] as const;
+export type SealedGroup = (typeof sealedGroups)[number];
+export type SealedPriceKind = "sold" | "market" | "ask";
+
+export interface SealedNative {
+  amount: number;
+  currency: string;
+}
+
+export interface SealedProductView {
+  id: string;
+  rank: number;
+  game: "ptcg" | "optcg";
+  lang: "en" | "jp";
+  group: SealedGroup;
+  setCode: string;
+  name: LocalizedText;
+  fullName: LocalizedText | null;
+  release: string | null;
+  packsPerBox: number;
+  productKind: string;
+  printWave: string;
+  status: "active" | "unreleased";
+  image: {
+    url: string;
+    kind: "box_front" | "placeholder";
+    variants?: Partial<Record<"200" | "600", string>>;
+  };
+  story: LocalizedText | null;
+  priceUsd: MarketMetric<number>;
+  priceKind: SealedPriceKind | null;
+  priceNative: SealedNative | null;
+  askFloorUsd: MarketMetric<number>;
+  askFloorNative: SealedNative | null;
+  windows: Record<MarketWindow, { changePct: MarketMetric<number>; soldCount: number }>;
+  historyDaily: PricePoint[];
+}
+
+export interface SealedViewBlock {
+  asOf: string;
+  coverage: { total: number; priced: number; imaged: number };
+  products: SealedProductView[];
 }
 import type {
   PublicCard as CanonicalPublicCard,

@@ -43,6 +43,7 @@ ENV NODE_ENV=production \
 
 COPY --from=builder --chown=node:node /repo/apps/web/.next/standalone ./
 COPY --from=builder --chown=node:node /repo/data/public/seed-snapshot.json ./data/public/seed-snapshot.json
+COPY --from=builder --chown=node:node /repo/data/public/box-subset.json ./data/public/box-subset.json
 
 # data/public/market-assets 唔會烘焙入 image —— 由 compose 掛 :ro volume 入
 # /app/data/public/market-assets。詳細原因見 .dockerignore。

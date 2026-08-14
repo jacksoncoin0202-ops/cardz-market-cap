@@ -1,3 +1,10 @@
+import {
+  FALLBACK_GENERATION,
+  FALLBACK_PRESENTATION,
+  PRESENTATION,
+  PRODUCT_GENERATION,
+  PRODUCT_GENERATION_ALIAS,
+} from "@/lib/product-generation";
 import { loadMarketSnapshot, scopeSnapshot } from "@/lib/server-snapshot";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +53,13 @@ export async function GET(): Promise<Response> {
           localizedStories: snapshot.coverage?.localizedStoryCount ?? null,
         },
         build,
+        product: PRODUCT_GENERATION,
+        alias: PRODUCT_GENERATION_ALIAS,
+        presentation: PRESENTATION,
+        fallback: { product: FALLBACK_GENERATION, presentation: FALLBACK_PRESENTATION },
+        box: snapshot.sealed
+          ? { path: "/box", ...snapshot.sealed.coverage }
+          : null,
         dataMode: process.env.CARDZ_DATA_MODE?.trim() === "live-db" ? "windows-db-3308" : "baked-snapshot",
         databasePort: process.env.CARDZ_DATA_MODE?.trim() === "live-db" ? 3308 : null,
       },

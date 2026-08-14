@@ -4,6 +4,7 @@
 # Build context MUST be repo root (npm workspaces + data/public).
 #
 # seed-snapshot.json 係烘焙入 image（next build 期間 ISR 預渲染就要讀佢）。
+# 037 / FE04：box-subset.json 一齊 COPY 入 image，唔寫入 seed。
 # market-assets（1.4GB 卡圖）唔烘焙，由下面個 :ro volume 掛入嚟 —— 少咗佢，
 # 每次 build 嘅 build cache 由 4.55GB 跌到約 0.3GB（實測）。
 # 換咗圖唔使 rebuild，但換咗 seed-snapshot.json 就一定要 rebuild。

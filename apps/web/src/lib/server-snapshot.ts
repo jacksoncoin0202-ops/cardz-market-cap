@@ -1,9 +1,11 @@
 import type { PublicMarketSnapshot } from "@cardz/market-data";
+import { boxBlockView, type BoxSidecarBlock } from "./box-view";
 import { marketAssetObjectKey } from "./market-media";
 import { normaliseSnapshot } from "./snapshot";
-import type { LocalizedText, MarketCardView, MarketViewSnapshot } from "./types";
+import type { LocalizedText, MarketCardView, MarketViewSnapshot, SealedViewBlock } from "./types";
 
 const DEFAULT_SNAPSHOT_PATH = "data/public/seed-snapshot.json";
+const BOX_SIDECAR_PATH = "data/public/box-subset.json";
 const MARKET_ASSETS_PATH = "data/public/market-assets";
 
 export interface NodeMarketAsset {
@@ -78,6 +80,29 @@ async function repoDataPath(relativePath: string): Promise<string> {
   return resolve(repoRoot, relativePath);
 }
 
+let boxSidecarPromise: Promise<SealedViewBlock | undefined> | null = null;
+
+async function readBoxSidecar(): Promise<SealedViewBlock | undefined> {
+  const { readFile } = await import("node:fs/promises");
+  try {
+    const raw = JSON.parse(await readFile(await repoDataPath(BOX_SIDECAR_PATH), "utf8")) as BoxSidecarBlock;
+    return boxBlockView(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+function loadBoxSidecar(): Promise<SealedViewBlock | undefined> {
+  boxSidecarPromise ??= readBoxSidecar();
+  return boxSidecarPromise;
+}
+
+async function attachBoxSidecar(snapshot: MarketViewSnapshot): Promise<MarketViewSnapshot> {
+  const sealed = await loadBoxSidecar();
+  if (!sealed) return snapshot;
+  return { ...snapshot, sealed };
+}
+
 async function readSnapshot(): Promise<MarketViewSnapshot> {
   const { readFile } = await import("node:fs/promises");
   const { resolve } = await import("node:path");
@@ -88,12 +113,14 @@ async function readSnapshot(): Promise<MarketViewSnapshot> {
   const canonical = JSON.parse(
     await readFile(snapshotPath, "utf8"),
   ) as PublicMarketSnapshot;
-  return normaliseSnapshot(canonical);
+  return attachBoxSidecar(normaliseSnapshot(canonical));
 }
 
 export function loadMarketSnapshot(): Promise<MarketViewSnapshot> {
   if (process.env.CARDZ_DATA_MODE?.trim() === "live-db") {
-    return import("./live-db-snapshot").then(({ loadLiveDbSnapshot }) => loadLiveDbSnapshot());
+    return import("./live-db-snapshot").then(({ loadLiveDbSnapshot }) =>
+      loadLiveDbSnapshot().then(attachBoxSidecar),
+    );
   }
   snapshotPromise ??= readSnapshot();
   return snapshotPromise;

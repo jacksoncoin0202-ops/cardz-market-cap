@@ -8,7 +8,7 @@
 2. **`backend.env` 一個 byte 都唔准改**（讀可以）。任何 rebuild DDL/DML 用 `data/runtime/config/rebuild.env`（`--credentials-env`）。writer freeze 期間 `cardz@%` 只有 SELECT。
 3. **PriceCharting 只用 CDP port 9333**（headed Chrome，`scripts/ensure_chrome_cdp.ps1 -Port 9333`）。9222 係 Codex 嘅 browser profile：唔准掂，唔准 fallback。headless 必被 Cloudflare 擋，唔好試。
 4. **同時起兩個 orchestrator 而家係 code 擋，唔再靠自律。** `operator_control.py` `main()` 除 `READ_ONLY_COMMANDS` 之外每條 subcommand 都攞 `operator_e2e_lease`（MySQL `GET_LOCK`），第二個會即刻 `refused: another CARDZ 026 operator run owns …`。所以唔好再「直接 call stage function 繞過 orchestrator」——嗰個係舊時冇閘先要嘅做法，繞過即係繞過個閘。
-5. **舊 checkout `C:\Users\jackson0202\Documents\Playground\cardz-market-cap` 只准讀** — 佢擁有 MySQL 3308 嘅 docker compose 同 14GB volume，刪/搬 = 斷 DB。
+5. **舊 checkout C:\\Users\\jackson0202\\Documents\\Playground\\cardz-market-cap 只准讀** — 佢擁有 MySQL 3308 嘅 docker compose 同 14GB volume，刪/搬 = 斷 DB。**唔准**用嗰棵當 live 做 pass／bake／[deploy]。
 6. **秘密**：唔准將任何 env 密碼/token 印落 log 或 commit。
 7. **採集唔准 filter** — fetch-all 落 landing，入 DB 先揀（政策，見 runbook）。
 8. **`rebuild-036-unfreeze --confirm` 會 DROP `cardz_rebuild`。** 之後想再跑任何 stage，一定要
@@ -33,6 +33,7 @@
     缺陷有兩個方向，第一版修法喺 48 張「catalog 空白」度啱，喺 21 張「catalog 載住另一邊」
     度一格都冇郁；總數升咗 9 張，睇落似做完（runbook 形狀 21 補完）。剩低嗰批要逐個
     再跑一次修完嘅邏輯，見到佢由 refuse 變 pass 先算數。
+15. **036 係靚仔 PSA10，隨時 fallback。037／FE04 只加 BOX。** 唔開 rebuild_037。BOX 公開路徑 /box，sidecar overlay，唔准寫入 PSA10 seed-snapshot.json。契約：docs/HANDOFF_037_FE04.md。Live 認 https://app.cardzmarketcap.com/api/health。
 
 ## 查 bug 之前
 
@@ -51,6 +52,7 @@
 
 | 文件 | 內容 |
 |---|---|
+| [docs/HANDOFF_037_FE04.md](docs/HANDOFF_037_FE04.md) | **而家開代**：037／FE04 = 036 PSA10 + BOX；036／FE03 隨時 fallback |
 | [docs/COLLECTION_RUNBOOK.md](docs/COLLECTION_RUNBOOK.md) | 五條採集線嘅全量/增量命令、resume 語義、failure receipts、exit codes、port doctrine、freeze 生命週期、FE 對數、**缺陷形狀清單** |
 | [docs/POSTMORTEM_OP_GAP_20260809.md](docs/POSTMORTEM_OP_GAP_20260809.md) | 「pop≥1000 但上唔到 FE」十二個缺陷嘅逐個根因同修法 |
 | [PLAN_036_FE02.md](PLAN_036_FE02.md) | 036 rebuild 總計劃（stage 定義、gate 條件） |

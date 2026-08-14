@@ -20,18 +20,22 @@ function isoDay(value: string | null | undefined): string | null {
   return date.toISOString().slice(0, 10);
 }
 
-export function Provenance({ updatedAt }: { updatedAt: string | null | undefined }) {
+export function Provenance({ updatedAt, kind = "cards" }: {
+  updatedAt: string | null | undefined;
+  kind?: "cards" | "box";
+}) {
   const { locale } = useMarketSettings();
   const t = copy[locale];
+  const block = kind === "box" ? t.boxProvenance : t.provenance;
   const iso = isoDay(updatedAt);
 
   return (
     <section className="provenance-panel" aria-labelledby="provenance-heading">
-      <p className="section-kicker">{t.provenance.kicker}</p>
-      <h2 id="provenance-heading">{t.provenance.title}</h2>
-      <p className="provenance-body">{t.provenance.body}</p>
+      <p className="section-kicker">{block.kicker}</p>
+      <h2 id="provenance-heading">{block.title}</h2>
+      <p className="provenance-body">{block.body}</p>
       <dl className="provenance-steps">
-        {t.provenance.steps.map((step) => (
+        {block.steps.map((step) => (
           <div key={step.term}>
             <dt>{step.term}</dt>
             <dd>{step.detail}</dd>
@@ -40,10 +44,10 @@ export function Provenance({ updatedAt }: { updatedAt: string | null | undefined
       </dl>
       {iso && (
         <p className="provenance-updated">
-          <time dateTime={iso}>{`${t.provenance.updated} ${iso}`}</time>
+          <time dateTime={iso}>{`${block.updated} ${iso}`}</time>
         </p>
       )}
-      <p className="provenance-byline">{t.provenance.byline}</p>
+      <p className="provenance-byline">{block.byline}</p>
     </section>
   );
 }

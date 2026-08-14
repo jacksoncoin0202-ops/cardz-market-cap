@@ -20,6 +20,7 @@ export function Header() {
     { path: "/pokemon", label: t.nav.pokemon },
     { path: "/one-piece", label: t.nav.onePiece },
     { path: "/watchlist", label: t.nav.watchlist },
+    { path: "/box", label: t.nav.box },
   ];
 
   return (
@@ -31,7 +32,15 @@ export function Header() {
         </Link>
         <nav className="primary-nav" aria-label="Primary">
           {links.map((link) => (
-            <Link key={link.path} href={href(link.path)} data-active={pathname === link.path ? "true" : "false"}>
+            <Link
+              key={link.path}
+              href={href(link.path)}
+              data-active={
+                link.path === "/box"
+                  ? (pathname === "/box" || pathname.startsWith("/box/") ? "true" : "false")
+                  : pathname === link.path ? "true" : "false"
+              }
+            >
               {link.label}
             </Link>
           ))}

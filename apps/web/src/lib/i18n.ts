@@ -12,6 +12,34 @@ export interface Copy {
     pokemon: string;
     onePiece: string;
     watchlist: string;
+    box: string;
+  };
+  boxHero: { eyebrow: string; title: string; body: string };
+  box: {
+    groupAll: string;
+    groups: Record<"optcg-en" | "optcg-jp" | "ptcg-en" | "ptcg-jp", string>;
+    boardTitle: string;
+    box: string;
+    release: string;
+    packs: string;
+    packsShort: string;
+    soldCountShort: string;
+    priceKind: Record<"sold" | "market" | "ask", string>;
+    askFloor: string;
+    unreleased: string;
+    setCode: string;
+    fullName: string;
+    print: string;
+    coverage: string;
+    empty: string;
+  };
+  boxProvenance: {
+    kicker: string;
+    title: string;
+    body: string;
+    steps: { term: string; detail: string }[];
+    updated: string;
+    byline: string;
   };
   hero: { eyebrow: string; title: string; body: string };
   pokemonHero: { eyebrow: string; title: string; body: string };
@@ -118,7 +146,42 @@ export interface Copy {
 
 export const copy: Record<Locale, Copy> = {
   en: {
-    nav: { all: "TCG Market", pokemon: "Pokémon", onePiece: "One Piece", watchlist: "Watchlist" },
+    nav: { all: "TCG Market", pokemon: "Pokémon", onePiece: "One Piece", watchlist: "Watchlist", box: "BOX" },
+    boxHero: {
+      eyebrow: "BOX MARKET",
+      title: "Unopened booster boxes, ranked by price",
+      body: "We track unopened booster boxes. Sold prices come first. Asking prices are only a reference.",
+    },
+    box: {
+      groupAll: "All",
+      groups: { "optcg-en": "One Piece EN", "optcg-jp": "One Piece JP", "ptcg-en": "Pokémon EN", "ptcg-jp": "Pokémon JP" },
+      boardTitle: "BOX ({count})",
+      box: "Box",
+      release: "Release",
+      packs: "Packs per box",
+      packsShort: "Packs",
+      soldCountShort: "Sold",
+      priceKind: { sold: "Last sold", market: "Market price", ask: "Ask floor" },
+      askFloor: "Ask floor",
+      unreleased: "Unreleased",
+      setCode: "Set code",
+      fullName: "Full name",
+      print: "Print",
+      coverage: "{priced} of {total} priced",
+      empty: "BOX data is being prepared.",
+    },
+    boxProvenance: {
+      kicker: "METHOD & DATA",
+      title: "How the BOX reference price is built",
+      body: "Each BOX rank uses a reference price. The method prefers completed sales. A market reference is used when sold evidence is thin. An ask floor is only a fallback, never treated as a completed sale.",
+      steps: [
+        { term: "Sold", detail: "Completed box sales captured inside CardZ Marketcap tracked coverage. Lots are unitised to one box, extreme outliers are dropped, and what remains is reduced to a median." },
+        { term: "Market reference", detail: "A published market reference for that exact set, language and print wave when sold coverage is insufficient." },
+        { term: "Ask floor", detail: "The current ask floor is shown only as a secondary reference. It does not replace a sold or market figure. A missing value stays missing, never zero." },
+      ],
+      updated: "Updated",
+      byline: "Compiled and reviewed by the CardZ Marketcap Editorial desk.",
+    },
     hero: {
       eyebrow: "CARDZ MARKET INDEX",
       title: "The market view for collectible cards",
@@ -216,7 +279,42 @@ export const copy: Record<Locale, Copy> = {
     footer: "CardZ Marketcap. Art market intelligence for collectible cards.",
   },
   "zh-TW": {
-    nav: { all: "TCG 市場", pokemon: "寶可夢", onePiece: "海賊王", watchlist: "觀察名單" },
+    nav: { all: "TCG 市場", pokemon: "寶可夢", onePiece: "海賊王", watchlist: "觀察名單", box: "原盒" },
+    boxHero: {
+      eyebrow: "BOX MARKET",
+      title: "以市場視角追蹤未開封原盒",
+      body: "以實際成交為先追蹤未開封補充包原盒，掛牌價永不冒充成交價。",
+    },
+    box: {
+      groupAll: "全部",
+      groups: { "optcg-en": "海賊王 英文", "optcg-jp": "海賊王 日文", "ptcg-en": "寶可夢 英文", "ptcg-jp": "寶可夢 日文" },
+      boardTitle: "原盒排行（{count}）",
+      box: "原盒",
+      release: "發售",
+      packs: "每盒包數",
+      packsShort: "包數",
+      soldCountShort: "成交",
+      priceKind: { sold: "最近成交", market: "市場價", ask: "最低掛牌" },
+      askFloor: "最低掛牌",
+      unreleased: "未發售",
+      setCode: "系列編號",
+      fullName: "全名",
+      print: "印刷版",
+      coverage: "{total} 盒中 {priced} 盒有價",
+      empty: "原盒市場數據準備中。",
+    },
+    boxProvenance: {
+      kicker: "METHOD & DATA",
+      title: "原盒參考價的計算方法",
+      body: "每個原盒排名用參考價。方法以已完成成交為先；成交證據不足時才用市場參考；掛牌底價只作後備，永不當作成交。",
+      steps: [
+        { term: "成交", detail: "取自 CardZ Marketcap 追蹤範圍內已完成的原盒成交：先還原單盒單價，剔除極端值，再取中位數。" },
+        { term: "市場參考", detail: "成交覆蓋不足時，用該系列、語言與印刷版的市場參考價。" },
+        { term: "掛牌底價", detail: "現時最低掛牌只作次要參考，不會取代成交或市場參考。缺失的數值永遠保持缺失，不會當作零。" },
+      ],
+      updated: "更新",
+      byline: "Compiled and reviewed by the CardZ Marketcap Editorial desk.",
+    },
     hero: {
       eyebrow: "CARDZ MARKET INDEX",
       title: "收藏卡牌的市場全景",
@@ -289,7 +387,42 @@ export const copy: Record<Locale, Copy> = {
     footer: "CardZ Marketcap，收藏卡牌藝術市場情報。",
   },
   "zh-CN": {
-    nav: { all: "TCG 市场", pokemon: "宝可梦", onePiece: "海贼王", watchlist: "观察名单" },
+    nav: { all: "TCG 市场", pokemon: "宝可梦", onePiece: "海贼王", watchlist: "观察名单", box: "原盒" },
+    boxHero: {
+      eyebrow: "BOX MARKET",
+      title: "以市场视角追踪未开封原盒",
+      body: "以实际成交为先追踪未开封补充包原盒，挂牌价永不冒充成交价。",
+    },
+    box: {
+      groupAll: "全部",
+      groups: { "optcg-en": "海贼王 英文", "optcg-jp": "海贼王 日文", "ptcg-en": "宝可梦 英文", "ptcg-jp": "宝可梦 日文" },
+      boardTitle: "原盒排行（{count}）",
+      box: "原盒",
+      release: "发售",
+      packs: "每盒包数",
+      packsShort: "包数",
+      soldCountShort: "成交",
+      priceKind: { sold: "最近成交", market: "市场价", ask: "最低挂牌" },
+      askFloor: "最低挂牌",
+      unreleased: "未发售",
+      setCode: "系列编号",
+      fullName: "全名",
+      print: "印刷版",
+      coverage: "{total} 盒中 {priced} 盒有价",
+      empty: "原盒市场数据准备中。",
+    },
+    boxProvenance: {
+      kicker: "METHOD & DATA",
+      title: "原盒参考价的计算方法",
+      body: "每个原盒排名用参考价。方法以已完成成交为先；成交证据不足时才用市场参考；挂牌底价只作后备，永不当作成交。",
+      steps: [
+        { term: "成交", detail: "取自 CardZ Marketcap 追踪范围内已完成的原盒成交：先还原单盒单价，剔除极端值，再取中位数。" },
+        { term: "市场参考", detail: "成交覆盖不足时，用该系列、语言与印刷版的市场参考价。" },
+        { term: "挂牌底价", detail: "现时最低挂牌只作次要参考，不会取代成交或市场参考。缺失的数值永远保持缺失，不会当作零。" },
+      ],
+      updated: "更新",
+      byline: "Compiled and reviewed by the CardZ Marketcap Editorial desk.",
+    },
     hero: {
       eyebrow: "CARDZ MARKET INDEX", title: "收藏卡牌的市场全景",
       body: "以艺术价值为起点，通过经核实的身份、可流通供应及当前价格理解市场。",
@@ -354,7 +487,42 @@ export const copy: Record<Locale, Copy> = {
     footer: "CardZ Marketcap，收藏卡牌艺术市场情报。",
   },
   ja: {
-    nav: { all: "TCG 市場", pokemon: "ポケモン", onePiece: "ワンピース", watchlist: "ウォッチリスト" },
+    nav: { all: "TCG 市場", pokemon: "ポケモン", onePiece: "ワンピース", watchlist: "ウォッチリスト", box: "BOX" },
+    boxHero: {
+      eyebrow: "BOX市場",
+      title: "未開封BOXを市場として見る",
+      body: "未開封ボックスを実際の成約ベースで追跡します。出品価格を成約価格として扱いません。",
+    },
+    box: {
+      groupAll: "すべて",
+      groups: { "optcg-en": "ワンピース 英語", "optcg-jp": "ワンピース 日本語", "ptcg-en": "ポケモン 英語", "ptcg-jp": "ポケモン 日本語" },
+      boardTitle: "BOXランキング（{count}）",
+      box: "BOX",
+      release: "発売",
+      packs: "1BOXのパック数",
+      packsShort: "パック",
+      soldCountShort: "成約",
+      priceKind: { sold: "直近成約", market: "市場価格", ask: "最安出品" },
+      askFloor: "最安出品",
+      unreleased: "未発売",
+      setCode: "セットコード",
+      fullName: "正式名称",
+      print: "版",
+      coverage: "{total} 中 {priced} BOXに価格",
+      empty: "BOX市場データを準備中です。",
+    },
+    boxProvenance: {
+      kicker: "METHOD & DATA",
+      title: "BOX参考価格の算出方法",
+      body: "各BOX順位は参考価格を使います。方法は確定成約を優先し、成約証拠が薄いときだけ市場参考を使い、出品下限は予備であり成約としては扱いません。",
+      steps: [
+        { term: "成約", detail: "CardZ Marketcap の追跡範囲で確認できたBOX成約から取得します。まとめ売りは1BOXあたりに換算し、極端な外れ値を除いたうえで中央値を用います。" },
+        { term: "市場参考", detail: "成約カバレッジが不足している場合、そのセット・言語・印刷版の市場参考価格を用います。" },
+        { term: "出品下限", detail: "現在の最安出品は二次的な参考であり、成約や市場参考の代わりにはなりません。欠損値は常に欠損のままで、ゼロとしては扱いません。" },
+      ],
+      updated: "更新",
+      byline: "Compiled and reviewed by the CardZ Marketcap Editorial desk.",
+    },
     hero: {
       eyebrow: "CARDZ MARKET INDEX", title: "コレクティブルカード市場を一望する",
       body: "アートの価値を起点に、確認済みのカード情報、流通供給、現在価格から市場を読み解きます。",
@@ -419,7 +587,42 @@ export const copy: Record<Locale, Copy> = {
     footer: "CardZ Marketcap。コレクティブルカードのアート市場情報。",
   },
   ko: {
-    nav: { all: "TCG 마켓", pokemon: "포켓몬", onePiece: "원피스", watchlist: "관심 목록" },
+    nav: { all: "TCG 마켓", pokemon: "포켓몬", onePiece: "원피스", watchlist: "관심 목록", box: "BOX" },
+    boxHero: {
+      eyebrow: "BOX MARKET",
+      title: "미개봉 박스를 시장으로 보다",
+      body: "미개봉 부스터 박스를 실제 체결 기준으로 추적합니다. 호가는 체결가로 취급하지 않습니다.",
+    },
+    box: {
+      groupAll: "전체",
+      groups: { "optcg-en": "원피스 영문", "optcg-jp": "원피스 일문", "ptcg-en": "포켓몬 영문", "ptcg-jp": "포켓몬 일문" },
+      boardTitle: "BOX 랭킹 ({count})",
+      box: "BOX",
+      release: "발매",
+      packs: "박스당 팩 수",
+      packsShort: "팩",
+      soldCountShort: "체결",
+      priceKind: { sold: "최근 체결", market: "시장 가격", ask: "최저 호가" },
+      askFloor: "최저 호가",
+      unreleased: "미발매",
+      setCode: "세트 코드",
+      fullName: "정식 명칭",
+      print: "판",
+      coverage: "{total}개 중 {priced}개 가격 확보",
+      empty: "BOX 시장 데이터를 준비 중입니다.",
+    },
+    boxProvenance: {
+      kicker: "METHOD & DATA",
+      title: "BOX 기준가 산출 방법",
+      body: "각 BOX 순위는 기준가를 씁니다. 방법은 완료 체결을 우선하고, 체결 증거가 부족할 때만 시장 참고를 쓰며, 호가 하한은 예비일 뿐 체결로 취급하지 않습니다.",
+      steps: [
+        { term: "체결", detail: "CardZ Marketcap 추적 범위에서 확인된 BOX 완료 거래에서 가져옵니다. 묶음은 박스 하나로 환산하고 극단값을 제거한 뒤 중앙값을 사용합니다." },
+        { term: "시장 참고", detail: "체결 커버리지가 부족할 때는 해당 세트, 언어, 인쇄판의 시장 참고가를 사용합니다." },
+        { term: "호가 하한", detail: "현재 최저 호가는 이차 참고일 뿐이며 체결이나 시장 참고를 대체하지 않습니다. 결측값은 언제나 결측으로 남으며 0으로 처리하지 않습니다." },
+      ],
+      updated: "업데이트",
+      byline: "Compiled and reviewed by the CardZ Marketcap Editorial desk.",
+    },
     hero: {
       eyebrow: "CARDZ MARKET INDEX",
       title: "컬렉터블 카드 시장을 한눈에",

@@ -43,6 +43,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       index === 0 ? "/watchlist" : `/watchlist?page=${index + 1}`,
     ),
   ];
+  if (snapshot.sealed?.products.length) core.push("/box");
   const cardPaths = [...snapshot.top100, ...snapshot.watchlist].map((card) => `/card/${card.id}`);
-  return [...core, ...cardPaths].map((path) => entry(path, snapshot.effectiveAt));
+  const boxPaths = (snapshot.sealed?.products ?? []).map((product) => `/box/${product.id}`);
+  return [...core, ...cardPaths, ...boxPaths].map((path) => entry(path, snapshot.effectiveAt));
 }

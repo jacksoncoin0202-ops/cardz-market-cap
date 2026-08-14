@@ -1,0 +1,27 @@
+{
+  "product": "037",
+  "alias": "037db",
+  "presentation": "FE04",
+  "fallback": {
+    "product": "036",
+    "presentation": "FE03",
+    "note": "036 is the clean PSA10 live version and can be restored at any time. 037 only adds BOX."
+  },
+  "psa10": {
+    "source": "live",
+    "health": "https://app.cardzmarketcap.com/api/health",
+    "generation": "db3308_b0cb6e76228b4a99",
+    "generatedAt": "2026-08-13T14:06:55.448Z",
+    "cards": 1368,
+    "seedPath": "data/public/seed-snapshot.json",
+    "sealedInSeed": false
+  },
+  "box": {
+    "path": "/box",
+    "sidecar": "data/public/box-subset.json",
+    "coverage": { "total": 307, "priced": 275, "imaged": 307 },
+    "mergedIntoSeed": false
+  },
+  "openedAt": "2026-08-14",
+  "deployed": false
+}

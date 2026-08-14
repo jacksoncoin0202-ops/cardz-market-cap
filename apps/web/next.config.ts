@@ -95,10 +95,14 @@ const nextConfig: NextConfig = {
      308 唔係 301：Next 嘅 `permanent` 出 308，搜尋引擎當佢一樣係永久轉向，
      但唔准 client 將 POST 改寫做 GET —— 對 /api/v1/cards/* 嚟講先啱。 */
   async redirects() {
-    return Object.entries(LEGACY_CARD_IDS).flatMap(([oldId, newId]) => [
-      { source: `/card/${oldId}`, destination: `/card/${newId}`, permanent: true },
-      { source: `/api/v1/cards/${oldId}`, destination: `/api/v1/cards/${newId}`, permanent: true },
-    ]);
+    return [
+      { source: "/sealed", destination: "/box", permanent: true },
+      { source: "/sealed/:id", destination: "/box/:id", permanent: true },
+      ...Object.entries(LEGACY_CARD_IDS).flatMap(([oldId, newId]) => [
+        { source: `/card/${oldId}`, destination: `/card/${newId}`, permanent: true },
+        { source: `/api/v1/cards/${oldId}`, destination: `/api/v1/cards/${newId}`, permanent: true },
+      ]),
+    ];
   },
   async headers() {
     return [
