@@ -21,12 +21,17 @@ sleep**，真正 goto + content + parse 得 1.2 s。全量 993 張就係 86 分�
     4 / 1.0s     2.78s     3     46 分鐘
     3 / 1.0s     2.18s     2     36 分鐘
     2 / 1.5s     1.99s     1     33 分鐘
-    2 / 3.0s     2.03s     0     34 分鐘   ← 用呢個
+    2 / 3.0s     2.03s     0     34 分鐘   ← 2026-08-12 用呢個
     6 / 8.0s     2.19s     1     36 分鐘
     4 / 4.8s     2.16s     1     36 分鐘
 
 加分頁反而慢：食一次 429 就全部分頁一齊停 30/60/120 秒，賺嘅嘢蝕晒。乾淨上限
 大約 0.5 goto/s，即係 993 張 ≈ 34 分鐘 —— 呢個係 Cloudflare 個閘，唔係腳本慢。
+
+2026-08-15：incr 唔再為新鮮 HTML 開 Chrome（見 collect_control partition）。
+剩低過期頁用 in-page `fetch()`（1 個 document，唔係 `page.route` 擋資源）。
+9333 小樣本：fetch 12/12 @3s、8/8 @1.5s、8/8 @1.0s、12/12 兩張並行，sold≈30、
+PSA10 過、0 次 429。預設改 2 tab + fetch + 1.5s。CF/短頁先 fallback `goto`。
 """
 from __future__ import annotations
 
@@ -58,7 +63,17 @@ BACKOFF_LADDER = (30.0, 60.0, 120.0)
 # 唔好淨係睇住「加分頁 = 快」就改大 —— 實測 4 分頁比 2 分頁**慢**，因為每食一次
 # 429 就要全部分頁一齊停 30/60/120 秒，賺嘅嘢蝕晒。
 PC_TABS = 2
-PC_SLEEP_SECONDS = 3.0
+PC_SLEEP_SECONDS = 1.5
+PC_TRANSPORT = "fetch"
+IN_PAGE_FETCH_JS = """async (target) => {
+    const response = await fetch(target, { credentials: "include" });
+    const text = await response.text();
+    return {
+        status: response.status,
+        text,
+        retryAfter: response.headers.get("retry-after"),
+    };
+}"""
 # 邊個 status 由邊個 counter 記住。撤銷一個判死嗰陣要減返啱嗰幾個 —— 呢個表存在
 # 嘅原因就係曾經「加嘅時候加兩個、減嘅時候減錯一個」，令 fail 少報咗一個。
 FAILURE_COUNTERS = {
@@ -114,6 +129,35 @@ async def stable_page_content(page, watchdog: dict[str, float]) -> str:
             watchdog["beat"] = time.monotonic()
             await page.wait_for_timeout(250)
     raise AssertionError("stable_page_content exhausted without returning")
+
+
+def title_from_html(html: str) -> str:
+    match = re.search(r"<title>(.*?)</title>", html, re.I | re.S)
+    return unescape((match.group(1) if match else "")).strip()
+
+
+async def load_via_fetch(page, url: str) -> tuple[int | None, str, str, str | None]:
+    payload = await page.evaluate(IN_PAGE_FETCH_JS, url)
+    html = str((payload or {}).get("text") or "")
+    code = (payload or {}).get("status")
+    retry_after = (payload or {}).get("retryAfter")
+    return (
+        int(code) if code is not None else None,
+        html,
+        title_from_html(html),
+        str(retry_after) if retry_after else None,
+    )
+
+
+async def load_via_goto(
+    page, url: str, watchdog: dict[str, float]
+) -> tuple[int | None, str, str, str | None]:
+    response = await page.goto(url, wait_until="domcontentloaded", timeout=120000)
+    code = response.status if response is not None else None
+    retry_after = response.headers.get("retry-after") if response is not None else None
+    html = await stable_page_content(page, watchdog)
+    title = (await page.title()).strip()
+    return code, html, title, retry_after
 
 
 def ensure_cdp(port: int = 9333) -> None:
@@ -174,6 +218,7 @@ async def run_fetch_pool_with_pages(
     results: list[dict],
     start_index: int,
     batch_size: int,
+    transport: str = PC_TRANSPORT,
 ) -> dict:
     """揸 `tabs` 條 tab 同時抽，共用一條 backoff。
 
@@ -227,11 +272,19 @@ async def run_fetch_pool_with_pages(
                 watchdog["beat"] = time.monotonic()
                 await asyncio.sleep(min(remaining, 5.0))
             try:
-                response = await page.goto(url, wait_until="domcontentloaded", timeout=120000)
-                code = response.status if response is not None else None
-                retry_after = response.headers.get("retry-after") if response is not None else None
-                html = await stable_page_content(page, watchdog)
-                title = (await page.title()).strip()
+                if transport == "fetch":
+                    code, html, title, retry_after = await load_via_fetch(page, url)
+                    blocked_preview = _is_cf(title, html) if html else True
+                    fetch_ok = code == 200 and len(html) > 5000 and not blocked_preview
+                    retryable = code == 429 or (code is not None and code >= 500)
+                    if not fetch_ok and not retryable:
+                        code, html, title, retry_after = await load_via_goto(
+                            page, url, watchdog
+                        )
+                else:
+                    code, html, title, retry_after = await load_via_goto(
+                        page, url, watchdog
+                    )
             except Exception as exc:  # noqa: BLE001
                 out["fail"] += 1
                 results.append(
@@ -400,6 +453,13 @@ async def run_fetch_pool(
                 await extra.close()
             while len(pool) < tabs:
                 pool.append(await context.new_page())
+            for page in pool:
+                if "pricecharting.com" not in (page.url or ""):
+                    await page.goto(
+                        "https://www.pricecharting.com/",
+                        wait_until="domcontentloaded",
+                        timeout=120000,
+                    )
             # 唔好諗住 `page.route` 擋走圖／css 嚟慳額度：試過，會反效果。一版產品頁
             # 向 www.pricecharting.com 打 31 個 request（15 圖 / 6 script / 4 css /
             # 2 manifest / 2 xhr / 1 fetch / 1 document），睇落擋走 21 個就可以行快
@@ -415,6 +475,7 @@ async def run_fetch_pool(
                 "retries": [],
                 "sessionError": f"single_cdp_connect:{type(exc).__name__}:{exc}",
             }
+        kwargs.setdefault("transport", PC_TRANSPORT)
         out = await run_fetch_pool_with_pages(pending, pages=pool, **kwargs)
         # 收工剩返一條 tab，同單 tab 年代嘅 session 狀態一模一樣。
         for extra in pool[1:]:
@@ -582,6 +643,7 @@ def main() -> int:
         "fallbackBrowsers": 0,
         "tabs": max(1, int(args.workers)),
         "sleepSeconds": max(0.0, float(args.sleep)),
+        "transport": PC_TRANSPORT,
         "elapsedSeconds": round(time.monotonic() - started_monotonic, 1),
         "retries": retries,
         "sessionError": session_error,

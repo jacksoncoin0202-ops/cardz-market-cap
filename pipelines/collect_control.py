@@ -82,10 +82,13 @@ REFRESH_DUE_HOURS = SLA_HOURS - LANE_INTERVAL_HOURS
 # 00:30 UTC 開跑，於是前一晚 12 個鐘內掂過嘅 stream 全部俾當日嗰轉跳過。
 # 實測 2026-08-11 09:30 JST 嗰轉只打 208/993，因為 08-10 夜晚另一轉收咗其餘 785 條。
 # HTTP 嗰邊咁樣冇問題：佢哋要嘅只係唔好過 SLA，而 SLA_HOURS - LANE_INTERVAL_HOURS
-# 正正保證得到。PC 兩條 lane 唔同——PriceCharting 個 sold 表硬上限 30 行，燒得
-# 最快嗰批卡 2 日就滿，跳一日就真係少咗成交筆數，而歷史只有靠每日抄低嗰 30 行
-# 先儲得返。所以呢兩條 lane 冇 cooldown：每轉掃齊 993。兩條 lane 共用同一次
-# CDP 取頁（refresh_pc_pages），所以一齊全量唔會多開一個 request。
+# 正正保證得到。
+#
+# 2026-08-15 DADDY 放開「每轉一定 CDP 掃齊 993」：classify 仍然用 0 個鐘
+# （全部 due，唔准再靜靜少 785 條），但 `partition_local_pc_stock_pages` 對
+# incr 同 stock 一視同仁——本地 HTML 未過 36h SLA 而且 exact PSA10 過關就
+# replay，Chrome 只打過期／壞頁。sold 表 30 行／2 日燒滿嘅代價：極熱卡可能
+# 少抄幾行新成交，直到 HTML 過 SLA。
 PC_REFRESH_DUE_HOURS = 0.0
 CARDZ_CDP_PORT = int(os.environ.get("CARDZ_CDP_PORT", "9333"))
 # 9222 is the Codex browser profile. Attaching there drives somebody else's
@@ -3227,11 +3230,11 @@ def _pc_subset_map(
 def partition_local_pc_stock_pages(
     items: list[dict[str, Any]], *, mode: str, dry_run: bool
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
-    """Use exact saved PC evidence as the primary missing-contract input.
+    """Use exact saved PC evidence when the artifact is still inside the SLA.
 
-    Only ``stock`` rows are eligible. Incremental rows still require a real
-    source refresh. The saved page must match the canonical URL, product id and
-    explicit PSA10 field before Chrome can be skipped.
+    Stock and incr both replay. Chrome only runs for missing / invalid /
+    older-than-36h HTML. Classify still marks every PC stream due
+    (``PC_REFRESH_DUE_HOURS = 0``); this function is the skip, not poll-mode.
     """
 
     selected = _unique_items(items, None)
@@ -3259,10 +3262,6 @@ def partition_local_pc_stock_pages(
     network_reasons: dict[str, str] = {}
     for item in selected:
         variant_id = int(item["variantId"])
-        if str(item.get("modeNeeded") or "") != "stock":
-            network.append(item)
-            network_reasons[str(variant_id)] = "incremental_refresh_due"
-            continue
         row = map_by_variant[variant_id]
         exact_price, reason = validate_pc_psa10(row)
         if exact_price is None:

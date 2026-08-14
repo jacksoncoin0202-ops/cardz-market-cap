@@ -91,6 +91,11 @@ class FakePage:
     async def wait_for_timeout(self, _ms):
         return None
 
+    async def evaluate(self, _script, url):
+        response = await self.goto(url)
+        html = html_for(self._current) + ("CFBLOCK" if getattr(self, "_cf", False) else "")
+        return {"status": response.status, "text": html, "retryAfter": None}
+
 
 async def drive(rows, script, *, tabs=2):
     seen: list[str] = []
@@ -109,6 +114,7 @@ async def drive(rows, script, *, tabs=2):
         results=results,
         start_index=0,
         batch_size=len(rows),
+        transport="goto",
     ), seen, results
 
 
@@ -177,6 +183,23 @@ def main() -> int:
         out2, seen2, _ = asyncio.run(drive(rows_for(["z"], tmpdir), {"z": [429]}))
         check("一路 429 最終仍然判死", out2["fail"], 1)
         check("重試次數受 ladder 封頂", seen2.count("z"), len(mod.BACKOFF_LADDER) + 1)
+
+        fetch_seen: list[str] = []
+        fetch_out = asyncio.run(
+            mod.run_fetch_pool_with_pages(
+                rows_for(["f"], tmpdir),
+                pages=[FakePage({"f": [429, 200]}, fetch_seen)],
+                sleep_seconds=0.0,
+                challenge_wait=0.0,
+                watchdog={"beat": 0.0},
+                results=[],
+                start_index=0,
+                batch_size=1,
+                transport="fetch",
+            )
+        )
+        check("fetch transport 429 之後全清", fetch_out["ok"], 1)
+        check("fetch transport 429 重試過", fetch_seen.count("f"), 2)
     finally:
         for path in tmpdir.glob("*"):
             path.unlink(missing_ok=True)

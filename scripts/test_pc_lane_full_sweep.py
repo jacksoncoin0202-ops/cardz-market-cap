@@ -137,7 +137,9 @@ def constant(name: str) -> float:
 
 
 check("PC_TABS 冇超出量過嘅範圍", constant("PC_TABS") <= 4, True)
-check("PC_SLEEP_SECONDS 冇低過量過嘅乾淨值", constant("PC_SLEEP_SECONDS") >= 3.0, True)
+check("PC_SLEEP_SECONDS 冇低過 2026-08-15 fetch 乾淨值", constant("PC_SLEEP_SECONDS") >= 1.5, True)
+check("PC 預設用 in-page fetch", 'PC_TRANSPORT = "fetch"' in refresher, True)
+check("incr 唔再因為 mode 就強制 CDP", "incremental_refresh_due" in source, False)
 
 for line in FAILED:
     print(line)

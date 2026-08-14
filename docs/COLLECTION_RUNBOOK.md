@@ -1,5 +1,8 @@
 # COLLECTION RUNBOOK — cardz-market-cap-fe-db-20260805
 
+> **2026-08-15：** 採集權威喺**呢棵 fe-db**。Live 1449／037／FE04。日更 `incr` 唔拉 residual stock。
+> FE 出街車 = `../cardz-market-cap-037-fe04-live`。037 若有副本，以呢份＋code 為準。
+
 > **The code in this repo is the authority.** Every command, flag, default, and number below was
 > verified against the argparse definitions and constants in the scripts of this checkout
 > (branch `rebuild/036-foundation`). Where older runbooks in other checkouts disagree, this
@@ -199,7 +202,7 @@ python -X utf8 pipelines\pc_cdp_sold_refresh_win.py
 
 Flags (argparse in `pipelines/pc_cdp_sold_refresh_win.py`): `--limit` (default **0** = all),
 `--offset` (**0**), `--workers` (**`PC_TABS` = 2** concurrent tabs), `--sleep`
-(**`PC_SLEEP_SECONDS` = 3.0** s per tab between items), `--challenge-wait` (**120.0** s — waits
+(**`PC_SLEEP_SECONDS` = 1.5** s per tab between items), `--challenge-wait` (**120.0** s — waits
 on the same 403 page, never reloads), `--cdp-port` (**9333**), `--cdp-already-ensured`,
 `--resume-report`, `--variant-ids-file`, `--no-ingest`.
 
@@ -214,7 +217,7 @@ CDP session + 一條共用 backoff。同一批 40 張逐個設定實測：
 | 4 / 1.0s | 2.78s | 3 | 46 分鐘 |
 | 3 / 1.0s | 2.18s | 2 | 36 分鐘 |
 | 2 / 1.5s | 1.99s | 1 | 33 分鐘 |
-| **2 / 3.0s** | **2.03s** | **0** | **34 分鐘** ← 預設 |
+| **2 / 3.0s** | **2.03s** | **0** | **34 分鐘** ← 2026-08-12 `goto` 預設 |
 | 6 / 8.0s | 2.19s | 1 | 36 分鐘 |
 | 4 / 4.8s | 2.16s | 1 | 36 分鐘 |
 | 8 / 0.5s | 2.60s | 4 | 43 分鐘 |
@@ -230,7 +233,14 @@ CDP session + 一條共用 backoff。同一批 40 張逐個設定實測：
    全清 2.05 s/頁**，擋咗 **38/40、兩次 429、3.69 s/頁**。Cloudflare 見到「瀏覽器」淨係
    攞 HTML 唔攞 css／圖就當你係 bot。要扮足全套。
 
-`collect_control.py` 個 `--pc-sleep` / `--pc-workers` **冇 default**：唔傳就用返上面兩個常數。
+**2026-08-15（DADDY 放開每轉掃齊）：** classify 仍然 `PC_REFRESH_DUE_HOURS = 0`（全部
+due，唔准再靜靜少 785 條）。`partition_local_pc_stock_pages` 對 incr／stock 一視同仁：
+本地 HTML ≤36h SLA 而且 exact PSA10 過關就 replay，Chrome 只打過期／壞頁。過期頁預設
+`PC_TRANSPORT = fetch` + `PC_SLEEP_SECONDS = 1.5`（in-page `fetch()`，唔係 `page.route`
+擋資源）。9333 小樣本 fetch 全清、0 次 429。代價：極熱卡可能少抄幾行新成交，直到 HTML
+過 SLA。
+
+`collect_control.py` 個 `--pc-sleep` / `--pc-workers` **冇 default**：唔傳就用返 refresher 常數。
 （舊版喺嗰邊硬寫 `default=4.0`，所以 refresher 點改都冇用 —— 真正決定 993 張跑幾耐嘅係
 CLI 嗰一行。`scripts/test_pc_lane_full_sweep.py` 守住呢件事。）
 
