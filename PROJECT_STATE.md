@@ -11,6 +11,7 @@
 - 真身：`../cardz-market-cap-fe-db-20260805`
 - 開代：**037 / FE04** = 036 PSA10 + BOX sidecar（`/box`）
 - Live 已確認（2026-08-14）：health `product=037` · `presentation=FE04` · `/box` 200
+- PSA10 每日自動成功閘：連續兩個 JST 日排程自己對到 live 先算。人手唔計。`proven` 見 fe-db `data/runtime/operator/daily_chain_autonomy.json`。
 - Fallback：036 / FE03
 - 契約：`../cardz-market-cap-fe-db-20260805/docs/HANDOFF_037_FE04.md`
 
