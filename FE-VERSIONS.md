@@ -2,12 +2,14 @@
 
 前端品牌／界面版本登記。每次換標或大改外觀要喺度留底，因為 logo 一出就會同步到 OG 分享圖、favicon、heatmap 分享卡等好多 surface。
 
-## fe04 — 2026-08-13（current）
+產品世代（036／FE03、037／FE04 BOX）唔寫呢度。037／FE04 契約喺 `cardz-market-cap-fe-db-20260805/docs/HANDOFF_037_FE04.md`。呢份 `fe04` 只係 2026-08-13 logo 換標。
+
+## fe04 — 2026-08-13（logo current）
 
 新 pixel 風格 logo 全量替換（light + dark 雙版本）。
 
 來源：
-- Light：`LogoSwitch (3).png`（黑字 + 橙 CAP，透明底）
+- Light：`LogoSwitch (3).png`（黑字 +  橙 CAP，透明底）
 - Dark：`CardzMarketCapDarkMode (2).png`（白字 + 橙 CAP，透明底）
 
 替換 surface：
