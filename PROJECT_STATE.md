@@ -81,6 +81,7 @@ There is no QC/finalizer/audit/runbook release layer. Build and run the direct s
 - Active universe **1322** 張（唔再係 762）。有 PriceCharting 身份 993 張；英文 919/919 = 100%；322 張日文卡 PC 冇貨。
 - Migration 落到 **042**（`042_sale_observation_listing_evidence.mysql.sql`）。
 - 每日三個自動 slot（JST）：03:30 夜鏈 HTTP lanes → 09:30 朝鏈 browser lanes + bake + push `[deploy]` → 11:30 / 16:30 純重試。
+- **自動成功閘（2026-08-14 寫死）：** 連續兩個 JST 日排程自己令 live 對得上，先算成功。人手 catch-up 唔計。Receipt：`data/runtime/operator/daily_chain_autonomy.json`。而家 `proven=false`。詳情 handoff §2.2.3。
 - 真身 tree 係 `cardz-market-cap-fe-db-20260805`；release 由 WSL `~/cardz-market-cap-release-daily` 行，**只睇得到 `origin/main`**。
 - 🔴 **2026-08-31 有一個已知失效**：`MAX_CURRENT_PRICE_AGE_DAYS = 30` 細過 PriceCharting 月線週期，
   嗰日約 70% 卡會一齊失去排名，而四層閘全部接唔住、receipt 照寫正常。詳情同修法見 handoff §7。

@@ -604,8 +604,8 @@ freeze silently does not happen. The command spells the escaped name once so thi
 - Writer-freeze proof: the frozen backend account must fail DDL/DML with MySQL error **1142**
   (`scripts/prove_writer_freeze.py`, run with the **unmodified** `backend.env`).
 - Prune allowlist checks pass.
-- ≥ **14** cardz scheduled tasks exist and all are Disabled.
-- Backup dump sha256 verifies.
+- ≥ **14** cardz scheduled tasks exist and all are Disabled（2026-08-13 掃描命中 **17** 條；少過 14 = 掃描壞咗，唔係 task 真係少咗）。
+- Backup dump sha256 verifies，**而且** `restore-proof.json` 嘅 `freezeOpenedAt` 等於而家 `freeze-window.json` 嘅 `openedAt`。舊 window 嘅 dump 唔算 restore point（2026-08-13：proof `20:08:36` vs 新 window `21:47:09` → S0 ABORT）。
 - Zero `market_ingest_run` rows with `status='running'`.
 
 ### Freeze / unfreeze 生命週期（每次補跑 stage 都會撞到）
@@ -615,36 +615,59 @@ freeze silently does not happen. The command spells the escaped name once so thi
 係個 user 真係唔喺度。次序永遠係：
 
 ```bash
-# 1. 兩條現役 task 先 Disable（S0 gate 要求；就算行 --stage 跳過 S0 都要做，
-#    因為 freeze 期間 backend 只剩 SELECT，夜鏈 03:30 撞正就靜靜失敗）
-powershell -NoProfile -Command "Disable-ScheduledTask -TaskName 'CARDZ-036-Nightly-Collect-Accept'; Disable-ScheduledTask -TaskName 'CARDZ-036-Morning-Browser-Lanes'"
+# 1. Disable 全部而家 Ready 嘅 cardz-linked task（S0 數 ≥14，2026-08-13 命中 17）。
+#    現役日鏈最少三條：Nightly / Morning / Refresh-Publish。freeze 期間 cardz 只剩 SELECT。
+#    用 rebuild_036._cardz_scheduled_tasks + _scheduler_set；唔好淨手打兩條名。
 
 # 2. 重新 freeze（會重建 cardz_rebuild + 即場行 1142 proof）
 python -X utf8 pipelines/operator_control.py rebuild-036-freeze
 
-# 3. …跑 stage / activate…
+# 3. 喺呢個 freeze window 入面 dump（S0 要 restore-proof.freezeOpenedAt == window.openedAt）
+#    helper：rebuild_036._take_backup(generation) —— cmd_e2e 就係咁做。
+#    沿用上一個 window 嘅 dump = S0 ABORT。
 
-# 4. unfreeze + Enable 返兩條 task —— 呢步唔做 = 夜鏈死
+# 4. …跑 stage / activate… 全部 --credentials-env data/runtime/config/rebuild.env
+
+# 5. unfreeze + Enable 返 freeze 前 Ready 嗰啲 —— 呢步唔做 = 夜鏈死
 python -X utf8 pipelines/operator_control.py rebuild-036-unfreeze --confirm
-powershell -NoProfile -Command "Enable-ScheduledTask -TaskName 'CARDZ-036-Nightly-Collect-Accept'; Enable-ScheduledTask -TaskName 'CARDZ-036-Morning-Browser-Lanes'"
 ```
 
-`--stage <name> --force-stage` **唔行 S0 preflight**（`_run_single_stage` 只對
-`prune-apply` / `canary` 叫 `_assert_activated` + `_run_freeze_proof`）。方便，但代價係
-上面第 1、4 步冇人幫你做，要自己記。
+`--stage <name> --force-stage` **仍然行 S0 `stage_preflight`**（`_run_single_stage`，
+2026-08-13 量過：`snk-refresh --force-stage` 喺 freeze 之後照 S0 ABORT）。`--force-stage`
+只跳過「呢個 stage 已經 complete / failed」嘅 checkpoint 閘，**唔跳 S0**。
+`prune-apply` / `canary` 另外再叫 `_assert_activated`。
 
 ### 補數據入現役 generation（gap intake，唔開新 generation）
 
 新綁定嘅卡（SNK 或 PC）落咗 `catalog_source_identity` 之後**唔會自己上 FE**。cohort 係喺 S11
-`stage_validate` 每次重算嘅，所以要行足下游鏈：
+`stage_validate` 每次重算嘅，所以要行足下游鏈。
+
+三件分開報，唔好合成一句「做完」：
+
+1. **identity exact**（`catalog_source_identity`）
+2. **PSA10 價源**（price-route 只讀 `pricecharting` / `snkrdunk`；`tcgplayer` exact 清 leftover，**唔出價**）
+3. **FE 畫面**（activate + universe/health 證據；未見到就未上）
+
+`snk-refresh` 會將 rule_candidate 衝突嘅 exact **downgrade 做 `manual_review`**
+（2026-08-13：38 張）。operator-knowledge 特例要喺 refresh **之後**再 `--write`。
+leftover-5 GO pin（v35/1225/1228/1438/1900）由 `leftover5_go.hold_exact_against_refresh`
+喺 `pc-replay` / `snk-refresh` 擋降級 —— 唔好再抄一份 set。其餘 operator 卡仍然
+要 refresh 後再 `--write`。個案同方法論：[LEFTOVER5_IDENTITY_20260813.md](LEFTOVER5_IDENTITY_20260813.md)。
+註解：`pipelines/adjudicate_operator_knowledge_20260813.py`（搜 `leftover-5`）。
+
+unfreeze 之後 `cardz_rebuild` 已被 DROP，下面一定要先做上一節 freeze 生命週期 1–3
+（Disable 全部 cardz task → freeze → `_take_backup`），再用
+`--credentials-env data/runtime/config/rebuild.env`（2026-08-13 未 freeze 就 1045）。
 
 ```bash
 G=036_20260808T084217Z
 for S in snk-refresh price-materialize image-bind; do
-  python -X utf8 -u pipelines/operator_control.py rebuild-036 --generation $G --stage $S --force-stage
+  python -X utf8 -u pipelines/operator_control.py rebuild-036 --generation $G --stage $S --force-stage --credentials-env data/runtime/config/rebuild.env
 done
-python -X utf8 -u pipelines/operator_control.py rebuild-036 --generation $G --stage validate
-python -X utf8 -u pipelines/operator_control.py rebuild-036-activate --generation $G --receipt-sha256 <新 receipt>
+python -X utf8 pipelines/adjudicate_operator_knowledge_20260813.py --write --credentials-env data/runtime/config/rebuild.env
+python -X utf8 -u pipelines/operator_control.py rebuild-036 --generation $G --stage validate --credentials-env data/runtime/config/rebuild.env
+python -X utf8 -u pipelines/operator_control.py rebuild-036-activate --generation $G --credentials-env data/runtime/config/rebuild.env
+# 然後 unfreeze --confirm + Enable 返 freeze 前 Ready 嗰啲 task
 ```
 
 查新綁定嘅卡而家喺邊個 cohort（`qualified_market_pending` = 未夠料上 FE）：
@@ -661,6 +684,26 @@ SELECT crm.cohort, COUNT(DISTINCT si.variant_id)
 **PriceCharting gap intake 係四步，唔係一步**：seed →
 `pc-identity-reverify` → `pc_cache_replay` → 由 `pc-replay` 起 linear 重跑。S8 讀嘅係 **replay
 目錄**，唔係 capture 目錄 —— 抄漏咗就係「爬咗嘢但入唔到庫」。
+
+### Leftover-5 方法論（2026-08-13）
+
+完整個案、五張卡記錄、曾經犯錯：[LEFTOVER5_IDENTITY_20260813.md](LEFTOVER5_IDENTITY_20260813.md)。
+Pin：`pipelines/leftover5_go.py`。尺：`scripts/test_leftover5_go_protect.py`。
+
+下一張「有 pop、身份對唔上」跟呢條，唔好再問 DADDY 重裁決：
+
+1. **POP 先，名第二。** GemRate PSA10 pop 係入池理由。候選 POP 對唔上 = 另一張卡。
+   PC `VGPC.pop_data` 可以壞／空白；空白 ≠ mismatch。去 PSA/eBay/GemRate 搵 POP 認版本。
+2. **Catalog unique + 外部 POP ≈ GemRate → GO**（即使 PC census 空）。
+3. **EN/JP twin 係兩張卡**（唔同 pop）。綁 EN 去 EN PC；唔偷 JP twin 嘅 SNK。
+4. **PC 英文 OP11 reprint 標題可以冇 `[SP]`/`[TR]`。** 身份睇 TCGPlayer ID + 成交標題。
+   SAMPLE 圖經常錯。EN slug redirect 去另一個 PC id = 另一個 console。
+   唔好為咗呢五張放寬 `_pc_print_signature_ok`（Yamato 洞）。
+5. **TCGPlayer exact ≠ PSA10 價 ≠ FE。** price-route 唔讀 `tcgplayer`。
+6. **中文可用 PC 或 SNK**（`PC_PRICE_LANGUAGES`）；日文仍然 SNK-primary。
+7. **Yellow Cheeks：** catalog 得 unlimited（pop 3104）。1st 係 549。PC census=5 係欄位壞；
+   SNK SKU「1st」可以係店舖講大話。
+8. **三件分開報：** identity exact / 現役 PSA10 價 / activate+bake 上 FE。
 
 ### 【行 discovery 之前先做】One Piece 印刷 set code —— `pipelines/op_limitless_printed_code.py`
 
@@ -836,15 +879,18 @@ morning: CDP 9333 → browser collect → daily-discover-activate --lane browser
 - `card_language='en'` 只送 PC/browser；其他語言只送 SNK/HTTP。
 - 兩個 discoverer 同 PC reverify 都收 exact `--variant-id` scope；唔會重審舊 gap 或順手
   promote 另一批 manual-review row。
-- 唯一 survivor 證成 exact 後，coordinator 將 ID 先寫入
-  `pendingActivationIds`，再沿用現有 `rebuild-036-e2e --invalidate-from identity-resolve
-  --skip-bake`。036 validator + activation transaction 仍然係唯一 universe writer。
-- process 喺 exact bind 同 activate 中間死咗，下次由 `pendingActivationIds` 接續；唔會將
+- 唯一 survivor 證成 exact 後，coordinator 將 ID 寫入 pendingActivationIds。
+  **排程唔跑** rebuild-036-e2e。036 validator + activation transaction 仍然係
+  唯一 universe writer，但要人手／獨立 e2e（先 Disable 三條 CARDZ-036-*）。
+- process 喺 exact bind 同 activate 中間死咗，下次由 pendingActivationIds 接續；唔會將
   半截工作當 complete。
-- ambiguous／無 survivor／另一 transport lane 未處理嘅新 gap 一律保持**未 acknowledged**，
-  command 非零，排程唔准落 `daily-accept`。唔猜身份、唔靠提高 baseline 開綠燈。
-- E2E 自己會 disable／restore `CARDZ-036-*` tasks；外層 operator lease 保證同一時間只有
-  一個 DB mutator。FE03/GEO code 完全唔參與呢段，佢只讀 activation 後焗出嚟嘅 snapshot。
+- ambiguous／無 survivor／另一 transport lane 未處理嘅新 gap 保持未 acknowledged，
+  **但排程唔准再因此跳過 daily-accept**（2026-08-13／14 死結：discover/e2e S0
+  abort 連價錢都唔出街）。身份唔猜；membership 要獨立 e2e。
+- 排程（CARDZ_DAILY_CHAIN=1）**不准**呼叫 rebuild-036-e2e。S0 要求
+  CARDZ-036-* Disabled，朝／夜鏈自己 Running，e2e 必 S0 abort。
+- FE03/GEO code 完全唔參與呢段，佢只讀 activation 後焗出嚟嘅 snapshot。
+
 
 狀態：`data/runtime/rebuild-036/daily-discovery-state.json`。刪咗／壞咗會 fail closed；
 唔准正常排程自動重建 cursor，因為咁會將一個真正新 gap 靜靜當成歷史已知。
@@ -1196,6 +1242,31 @@ seed-snapshot）。手抄落去嘅 generation 圖每次 build 完要再抄一次
     教訓：(a) parallel 判別唔可以淨靠「標題包唔包 event 字」，要對埋價量級；
     (b) 人手 bind 一定要跟足 S7 evidence 協議（items 檔 + capture receipt +
     `$.evidence.path`/`sha256`），唔係 strict view 唔認（fail-closed by design）。
+
+33. **清 leftover / exact binding 唔等於有 PSA10 價，更加唔等於上咗 FE。**
+    （2026-08-13，leftover-5）POP 先、名第二。Unique + 外部 POP ≈ GemRate → GO。
+    EN/JP twin 分 pop 綁，唔偷 twin SNK。PC 英文 OP11 reprint 標題可以冇 `[SP]`/`[TR]`：
+    身份睇 TCGPlayer ID + 成交，唔睇 SAMPLE 圖。Unbracketed EN 頁 9362363 / 9362360 /
+    9967271 **就係** SP/TR（TCG 632506 / 632502 / 632773）；JP `[SP]` 8843990 係
+    v1875 另一個 console，唔係 EN Stussy。`[Foil]` 8091560 係原套 OP09，唔係 v1228 TR。
+    Yellow Cheeks PC census=5 係欄位壞；外部 PSA ~3079 ≈ GemRate 3104；1st 係 549。
+    中文可走 PC。**唔准**放寬 `_pc_print_signature_ok` 去遷就 unbracketed SP —— 用
+    `leftover5_go.hold_exact_against_refresh`（`pc-replay` / `snk-refresh` 兩處 call）。
+    TCGPlayer exact 清 leftover 顯示但唔出價。紀錄：[LEFTOVER5_IDENTITY_20260813.md](LEFTOVER5_IDENTITY_20260813.md)。
+
+34. **Observation 有價 ≠ ranking 有 quote；Python 閘 ≠ SQL view。**
+    （2026-08-13，leftover-5 S12 abort `acceptance_present_but_view_rejected`）
+    S8 `materialize_local_history` 寫 `pc_psa10_local_history_v1` series 入
+    `market_price_observation`。S12 排名只讀 `operator_eligible_current_quote_revision`，
+    而且排除 `legacy_generation_reconstructed`。bootstrap 以前只收
+    `VGPC.chart_data.manualonly.last`。結果：exact + chart + observation ready，
+    activate 仍然 ABORT。同期 S8 將 `zhTW` `LOWER()` 成 `zhtw`，語言 set 寫 `zhTW`
+    → v35 19 個 PC 點 `route=none`。修法（一個 function，三處 call）：
+    `current_quote_revision.pc_price_language_ok` / `pc_guide_observation_predicate_sql`
+    / `eligible_current_quote_revision_ddl`；`materialize_local_history` 鑄最新一點
+    quote；`_activation_accept_history` 喺新 lock `is_current=1` 之後 bootstrap。
+    **唔准**為咗上 FE 放寬 `_pc_print_signature_ok`。守門人：
+    `scripts/test_pc_quote_language_and_local_history.py`。
 
 ### 相關嘅 MySQL / shell 陷阱
 

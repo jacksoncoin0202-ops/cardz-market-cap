@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -140,8 +141,19 @@ for script_name in ("nightly_collect_accept.ps1", "morning_browser_lanes.ps1"):
     discover_at = source.index("daily-discover-activate")
     accept_at = source.index('operator_control.py" daily-accept')
     assert discover_at < accept_at, script_name
-    assert "$discoverExit -eq 0" in source, script_name
-print("POSITIVE_OK both scheduled chains gate daily-accept behind discovery")
+    assert "CARDZ_DAILY_CHAIN" in source, script_name
+    assert "$discoverExit -eq 0" not in source, script_name
+    assert "daily-accept still runs" in source, script_name
+print("POSITIVE_OK scheduled chains keep daily-accept after discovery failure")
+
+os.environ["CARDZ_DAILY_CHAIN"] = "1"
+try:
+    assert D.scheduled_daily_chain() is True
+    assert D._run_activation("036_fixture") == "deferred"
+finally:
+    os.environ.pop("CARDZ_DAILY_CHAIN", None)
+assert D.scheduled_daily_chain() is False
+print("POSITIVE_OK scheduled daily chain defers 036 e2e instead of S0-aborting")
 
 
 # last_reviewed_at must not reset on unchanged rebuild, or rotation is fake (always lowest ids)
