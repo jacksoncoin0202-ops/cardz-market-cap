@@ -1,5 +1,4 @@
-export const WATCHLIST_PAGE_SIZE = 50;
-export const MARKET_INITIAL_VISIBLE = 30;
+export const WATCHLIST_PAGE_SIZE = 200;
 
 /*
  * `?page=` 嘅唯一解析點。頁面同 API 都行呢度，唔准各自寫一套。

@@ -334,7 +334,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
     <section className="heatmap-section" aria-labelledby="heatmap-heading">
       <div className="heatmap-heading">
         <div>
-          <h1 id="heatmap-heading">{title.replace("{count}", String(visibleCards.length))}</h1>
+          <h1 id="heatmap-heading">{title.replace("{count}", String(cards.length))}</h1>
           <p className="heatmap-total-cap">{t.labels.marketCap} · {formatMoney(totalCap, currency, snapshot.rates, locale, true)}</p>
           <p>{t.heatmap.body}</p>
         </div>

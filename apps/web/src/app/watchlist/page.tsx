@@ -15,7 +15,7 @@ export const revalidate = 300;
  * 唔准喺呢個 folder 加 `loading.tsx`：加咗就靜靜地打返轉頭，測試唔會紅。
  *
  * `?page=` 必須喺 clamp 前驗證，否則 `/watchlist?page=99` 會扮第 1 頁出 200。
- * PAGE_SIZE 同 sitemap 共用，令 watchlist 頁數唔會各自漂移。
+ * PAGE_SIZE 同 sitemap 共用。第一頁係 rank 101–300，之後先係 301+。
  */
 async function requireWatchlistPage(params: Record<string, string | string[] | undefined>) {
   const requestedPage = parseRequestedPage(params.page);

@@ -109,7 +109,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
     () => (activeLang === "all" ? cards : cards.filter((card) => card.cardLanguage === activeLang)),
     [cards, activeLang],
   );
-  const rankingTitle = t.heatmap.rankingTitle.replace("{count}", String(visibleCards.length));
+  const rankingTitle = t.heatmap.rankingTitle.replace("{count}", String(cards.length));
   return (
     <section className="rankings-section" id="market-ranking" aria-labelledby="ranking-heading">
       <div className="ranking-heading">

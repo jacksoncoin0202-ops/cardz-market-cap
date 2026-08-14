@@ -2,8 +2,7 @@ import type { PublicMarketSnapshot } from "@cardz/market-data";
 import { boxBlockView, type BoxSidecarBlock } from "./box-view";
 import { marketAssetObjectKey } from "./market-media";
 import { normaliseSnapshot } from "./snapshot";
-import { MARKET_INITIAL_VISIBLE } from "./pagination";
-import type { MarketCardView, MarketCatalogItem, MarketMetric, MarketViewSnapshot, SealedProductView, SealedViewBlock } from "./types";
+import type { MarketCardView, MarketMetric, MarketViewSnapshot, SealedProductView, SealedViewBlock } from "./types";
 
 const DEFAULT_SNAPSHOT_PATH = "data/public/seed-snapshot.json";
 const BOX_SIDECAR_PATH = "data/public/box-subset.json";
@@ -256,24 +255,6 @@ export function scopeSnapshot(
   const expected = scope === "pokemon" ? "Pokémon" : "One Piece";
   const cards = gameView(canonical, expected).map(listCard);
   return { ...withoutSealed(snapshot), coverage: scopedCoverage(cards.length), top100: cards, watchlist: [] };
-}
-
-export function firstPaintScope(snapshot: MarketViewSnapshot): {
-  snapshot: MarketViewSnapshot;
-  catalog: MarketCatalogItem[];
-} {
-  const catalog = snapshot.top100.map((card) => ({
-    id: card.id,
-    officialName: card.officialName,
-    viewRank: card.viewRank,
-  }));
-  if (snapshot.top100.length <= MARKET_INITIAL_VISIBLE) {
-    return { snapshot, catalog };
-  }
-  return {
-    snapshot: { ...snapshot, top100: snapshot.top100.slice(0, MARKET_INITIAL_VISIBLE) },
-    catalog,
-  };
 }
 
 export function singleCardSnapshot(snapshot: MarketViewSnapshot, id: string): MarketViewSnapshot {
