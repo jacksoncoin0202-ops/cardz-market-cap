@@ -879,15 +879,18 @@ morning: CDP 9333 → browser collect → daily-discover-activate --lane browser
 - `card_language='en'` 只送 PC/browser；其他語言只送 SNK/HTTP。
 - 兩個 discoverer 同 PC reverify 都收 exact `--variant-id` scope；唔會重審舊 gap 或順手
   promote 另一批 manual-review row。
-- 唯一 survivor 證成 exact 後，coordinator 將 ID 先寫入
-  `pendingActivationIds`，再沿用現有 `rebuild-036-e2e --invalidate-from identity-resolve
-  --skip-bake`。036 validator + activation transaction 仍然係唯一 universe writer。
-- process 喺 exact bind 同 activate 中間死咗，下次由 `pendingActivationIds` 接續；唔會將
+- 唯一 survivor 證成 exact 後，coordinator 將 ID 寫入 pendingActivationIds。
+  **排程唔跑** rebuild-036-e2e。036 validator + activation transaction 仍然係
+  唯一 universe writer，但要人手／獨立 e2e（先 Disable 三條 CARDZ-036-*）。
+- process 喺 exact bind 同 activate 中間死咗，下次由 pendingActivationIds 接續；唔會將
   半截工作當 complete。
-- ambiguous／無 survivor／另一 transport lane 未處理嘅新 gap 一律保持**未 acknowledged**，
-  command 非零，排程唔准落 `daily-accept`。唔猜身份、唔靠提高 baseline 開綠燈。
-- E2E 自己會 disable／restore `CARDZ-036-*` tasks；外層 operator lease 保證同一時間只有
-  一個 DB mutator。FE03/GEO code 完全唔參與呢段，佢只讀 activation 後焗出嚟嘅 snapshot。
+- ambiguous／無 survivor／另一 transport lane 未處理嘅新 gap 保持未 acknowledged，
+  **但排程唔准再因此跳過 daily-accept**（2026-08-13／14 死結：discover/e2e S0
+  abort 連價錢都唔出街）。身份唔猜；membership 要獨立 e2e。
+- 排程（CARDZ_DAILY_CHAIN=1）**不准**呼叫 rebuild-036-e2e。S0 要求
+  CARDZ-036-* Disabled，朝／夜鏈自己 Running，e2e 必 S0 abort。
+- FE03/GEO code 完全唔參與呢段，佢只讀 activation 後焗出嚟嘅 snapshot。
+
 
 狀態：`data/runtime/rebuild-036/daily-discovery-state.json`。刪咗／壞咗會 fail closed；
 唔准正常排程自動重建 cursor，因為咁會將一個真正新 gap 靜靜當成歷史已知。

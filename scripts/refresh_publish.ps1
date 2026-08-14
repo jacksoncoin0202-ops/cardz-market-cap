@@ -11,6 +11,7 @@
 # 即係朝鏈正常嗰日，呢兩個 slot 唔會令個站更新多過一次。
 $ErrorActionPreference = "Continue"
 $PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
+$env:CARDZ_DAILY_CHAIN = "1"
 $repo = Split-Path -Parent $PSScriptRoot
 $py = "C:\Users\jackson0202\AppData\Local\Programs\Python\Python310\python.exe"
 $logDir = Join-Path $repo "data\runtime\logs"

@@ -1,9 +1,8 @@
 # PROJECT_STATE — CARDZ Market Cap
 
-> ⚠️ **2026-08-12：由「Locked baseline」到「2026-08-07 release state」之間全部係歷史記錄，唔係現狀。**
-> 嗰啲章節講 762 卡 / FE02 / generation 033，實際係 **1322 卡 / FE03 / generation 036**。
-> **現狀、每日鏈、閘分級、未完成清單一律睇 [docs/HANDOFF_036_20260812.md](docs/HANDOFF_036_20260812.md)。**
-> 下面保留 025–035 嘅逐代決定，因為佢哋仍然係嗰啲決定嘅唯一記錄。
+> **2026-08-14：而家開代係 037 / FE04**（036 live PSA10 + BOX sidecar）。036 / FE03 係靚仔 fallback。契約：[docs/HANDOFF_037_FE04.md](docs/HANDOFF_037_FE04.md)。
+> 036 每日鏈同閘仍然睇 [docs/HANDOFF_036_20260812.md](docs/HANDOFF_036_20260812.md)。
+> 下面 025–035 係歷史記錄。
 
 ## Runtime authority
 
@@ -78,13 +77,24 @@ There is no QC/finalizer/audit/runbook release layer. Build and run the direct s
 
 ## 036 / FE03 — 現狀（2026-08-12）
 
-- Generation **036**，presentation **FE03**。**唔准開 037。**
+- Generation **036**，presentation **FE03**。2026-08-14 起 036 係 fallback；開代係 **037 / FE04**（只加 BOX）。
 - Active universe **1322** 張（唔再係 762）。有 PriceCharting 身份 993 張；英文 919/919 = 100%；322 張日文卡 PC 冇貨。
 - Migration 落到 **042**（`042_sale_observation_listing_evidence.mysql.sql`）。
 - 每日三個自動 slot（JST）：03:30 夜鏈 HTTP lanes → 09:30 朝鏈 browser lanes + bake + push `[deploy]` → 11:30 / 16:30 純重試。
+- **自動成功閘（2026-08-14 寫死）：** 連續兩個 JST 日排程自己令 live 對得上，先算成功。人手 catch-up 唔計。Receipt：`data/runtime/operator/daily_chain_autonomy.json`。而家 `proven=false`。詳情 handoff §2.2.3。
 - 真身 tree 係 `cardz-market-cap-fe-db-20260805`；release 由 WSL `~/cardz-market-cap-release-daily` 行，**只睇得到 `origin/main`**。
 - 🔴 **2026-08-31 有一個已知失效**：`MAX_CURRENT_PRICE_AGE_DAYS = 30` 細過 PriceCharting 月線週期，
   嗰日約 70% 卡會一齊失去排名，而四層閘全部接唔住、receipt 照寫正常。詳情同修法見 handoff §7。
+
+## 037 / FE04 — 現狀（2026-08-14）
+
+- 開代：**037 / FE04** = live 036 PSA10 + BOX sidecar。唔開 `rebuild_037`。
+- PSA10：`generation=db3308_b0cb6e76228b4a99` · 1368 張 · `sealedInSeed=false`。
+- BOX：`data/public/box-subset.json` · 307／275／307 · 公開路徑 `/box`（`/sealed` 只 308）。
+- 內頁：跟主站 `.detail-art`（桌面 sticky／手機 relative、無 lightbox）；askFloor `wide-metric`；`/box/[id]` Product + BreadcrumbList。
+- Daily：`sync_public_release_assets.py` 要保留 sidecar 圖；commit 訊息 `release: daily CARDZ 037 FE04 $generation [deploy]`。
+- Fallback：拎走 overlay／nav／`/box` 即返 036／FE03；seed 唔使改。
+- **Live 已確認（2026-08-14）**：`3aef760a` · health `product=037` · `/box` 200 · `/sealed` 308。Receipt：`data/public/037-fe04-receipt.json`。契約：[docs/HANDOFF_037_FE04.md](docs/HANDOFF_037_FE04.md)。
 
 **其餘一切（演化史、六個食過嘅虧、閘 tier 分級、未完成清單、硬規矩）一律以
 [docs/HANDOFF_036_20260812.md](docs/HANDOFF_036_20260812.md) 為準。**

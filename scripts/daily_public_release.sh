@@ -98,6 +98,9 @@ if ((${#changed[@]} == 0)); then
   live="$(curl --fail --silent --show-error --max-time 20 https://app.cardzmarketcap.com/api/health || true)"
   live_generation="$(PUBLIC_HEALTH="$live" python3 -c 'import json,os; print(json.loads(os.environ["PUBLIC_HEALTH"]).get("generation",""))' 2>/dev/null || true)"
   if [[ "$live_generation" == "$generation" ]]; then
+    generated_at="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["generation"]["generatedAt"])' "$RELEASE_REPO/data/public/seed-snapshot.json")"
+    python3 -X utf8 "$SOURCE_REPO/scripts/stamp_daily_chain_autonomy.py" \
+      --generation "$generation" --generated-at "$generated_at" --outcome no-change || true
     printf '{"dailyRelease":"no-change","generation":"%s"}\n' "$generation"
     exit 0
   fi
@@ -107,7 +110,7 @@ fi
 
 for path in "${changed[@]}"; do
   case "$path" in
-    data/public/seed-snapshot.json|data/public/market-assets/*.webp) ;;
+    data/public/seed-snapshot.json|data/public/box-subset.json|data/public/market-assets/*.webp) ;;
     *) printf 'daily release refused unexpected path: %s\n' "$path" >&2; exit 1 ;;
   esac
 done
@@ -117,7 +120,7 @@ done
 
 generation="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["generation"]["id"])' "$RELEASE_REPO/data/public/seed-snapshot.json")"
 generated_at="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["generation"]["generatedAt"])' "$RELEASE_REPO/data/public/seed-snapshot.json")"
-git -C "$RELEASE_REPO" commit -m "release: daily CARDZ 036 FE03 $generation [deploy]"
+git -C "$RELEASE_REPO" commit -m "release: daily CARDZ 037 FE04 $generation [deploy]"
 git -C "$RELEASE_REPO" push origin HEAD:main
 
 for _ in $(seq 1 60); do
@@ -127,6 +130,8 @@ for _ in $(seq 1 60); do
     # 由頭到尾冇 set 過，永遠係 "local"，所以舊 gate 恆假：每次都白等足 10 分鐘
     # 然後報 fail，明明個站已經更新咗。
     if PUBLIC_HEALTH="$body" python3 -c 'import json,os,sys; h=json.loads(os.environ["PUBLIC_HEALTH"]); sys.exit(0 if h.get("status")=="ok" and h.get("generation")==sys.argv[1] and h.get("generatedAt")==sys.argv[2] else 1)' "$generation" "$generated_at"; then
+      python3 -X utf8 "$SOURCE_REPO/scripts/stamp_daily_chain_autonomy.py" \
+        --generation "$generation" --generated-at "$generated_at" --outcome published || true
       printf '%s\n' "$body"
       exit 0
     fi

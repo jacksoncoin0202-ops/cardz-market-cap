@@ -459,11 +459,31 @@ def _prime_new_actives(variant_ids: Iterable[int]) -> None:
         )
 
 
-def _run_activation(generation: str) -> None:
+DAILY_CHAIN_ENV = "CARDZ_DAILY_CHAIN"
+
+
+def scheduled_daily_chain() -> bool:
+    return os.environ.get(DAILY_CHAIN_ENV, "").strip() == "1"
+
+
+def _run_activation(generation: str) -> str:
     # Discovery uses the long-lived backend account. Rebuild stages must not:
     # cmd_freeze creates the short-lived rebuild account described by
     # rebuild.env, and passing backend.env through would make the frozen writer
     # try to run S2-S11 with credentials that intentionally lost DML.
+    #
+    # Scheduled morning/nightly MUST NOT call cmd_e2e. S0 requires every
+    # CARDZ-036-* task Disabled; the job that invoked us stays State=Running,
+    # so e2e always S0-aborts. 2026-08-13 morning then skipped daily-accept
+    # and left pendingActivationIds, so every later slot retried the same
+    # freeze. Membership changes stay operator-gated.
+    if scheduled_daily_chain():
+        print(json.dumps({
+            "dailyDiscovery": "activation-deferred",
+            "reason": "scheduled-daily-chain-cannot-run-036-e2e",
+            "generation": generation,
+        }, ensure_ascii=False))
+        return "deferred"
     code = R.cmd_e2e(SimpleNamespace(
         generation=generation,
         invalidate_from="identity-resolve",
@@ -473,6 +493,7 @@ def _run_activation(generation: str) -> None:
     ))
     if code != 0:
         raise SystemExit(f"daily-discover ABORT: 036 activation exited {code}")
+    return "activated"
 
 
 
@@ -750,6 +771,7 @@ def cmd_daily_discover_activate(args: Any) -> int:
         inactive_exact_ids | binding_landed | recovery_ids
     ) - set(after_discovery["universeIds"])
     activation_attempted = bool(activation_ids)
+    activation_status = "skipped"
     if activation_attempted:
         pending_ids = sorted(activation_ids)
         _write_state(
@@ -758,9 +780,13 @@ def cmd_daily_discover_activate(args: Any) -> int:
             pending_ids,
             f"{lane}-awaiting-atomic-activation",
         )
-        _prime_new_actives(pending_ids)
-        _run_activation(generation)
-        snapshot = _runtime_snapshot(credentials_env)
+        if scheduled_daily_chain():
+            activation_status = _run_activation(generation)
+            snapshot = after_discovery
+        else:
+            _prime_new_actives(pending_ids)
+            activation_status = _run_activation(generation)
+            snapshot = _runtime_snapshot(credentials_env)
     else:
         snapshot = after_discovery
 
@@ -808,9 +834,15 @@ def cmd_daily_discover_activate(args: Any) -> int:
     final_gap_ids = {
         int(row["variant_id"]) for row in snapshot["gapRows"]
     }
-    _write_state(
-        state_path, generation, final_gap_ids, [], f"{lane}-complete",
-    )
+    if activation_status == "deferred":
+        _write_state(
+            state_path, generation, final_gap_ids, sorted(activation_ids),
+            f"{lane}-awaiting-atomic-activation",
+        )
+    else:
+        _write_state(
+            state_path, generation, final_gap_ids, [], f"{lane}-complete",
+        )
     activated = sorted(attempted_ids & universe_ids)
     pending_activation = sorted(
         variant_id for variant_id in attempted_ids - universe_ids
@@ -833,6 +865,7 @@ def cmd_daily_discover_activate(args: Any) -> int:
             "activated": activated,
             "qualifiedPending": pending_activation,
             "recovered": sorted(recovery_ids),
+            "status": activation_status,
         },
         "attempts": attempts,
         "evidence": {

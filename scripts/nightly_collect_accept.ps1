@@ -3,42 +3,42 @@
 # Browser-dependent lanes (pc_ebay_sales, en_price_ref) are deliberately
 # NOT here: they need a headed Chrome session and run in the morning slot.
 $ErrorActionPreference = "Continue"
-# Windows PowerShell 5.1 redirects as UTF-16LE by default; force UTF-8 so the
-# nightly log stays greppable from every tool on the box.
 $PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
+$env:CARDZ_DAILY_CHAIN = "1"
 $repo = Split-Path -Parent $PSScriptRoot
 $py = "C:\Users\jackson0202\AppData\Local\Programs\Python\Python310\python.exe"
 $logDir = Join-Path $repo "data\runtime\logs"
 New-Item -ItemType Directory -Force $logDir | Out-Null
 $stamp = (Get-Date).ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'")
 $log = Join-Path $logDir "nightly-$stamp.log"
+$crashLog = Join-Path $env:TEMP "cardz-036-nightly-last.log"
 
 Set-Location $repo
-"[$stamp] nightly chain start" | Tee-Object -FilePath $log -Append
+try {
+    "[$stamp] nightly chain start" | Tee-Object -FilePath $log -Append
+    Copy-Item -Force $log $crashLog -ErrorAction SilentlyContinue
 
-# `--adapter http` = ADAPTER_LANE 入面標住 "http" 嗰批，唔再喺呢度抄名單。
-# 舊版逐個名寫死，漏咗 snk_en_image：佢一樣係純 HTTP，但夜鏈朝鏈都冇佢，
-# 由註冊嗰日起冇任何 scheduled task 收過，實測 stale 99 小時。
-& $py -X utf8 -u "pipelines\collect_control.py" incr --adapter http *>> $log
-$collectExit = $LASTEXITCODE
+    & $py -X utf8 -u "pipelines\collect_control.py" incr --adapter http *>> $log
+    $collectExit = $LASTEXITCODE
 
-# 新卡唔可以淨係有 catalog row：先精準 discover 新 gap，再沿用 036 E2E 將
-# product-ready member 原子換入 current universe。身份未證成就唔准 daily-accept
-# 繼續，否則舊 1,322 張會照綠、新卡就永遠同 FE03 斷線。
-& $py -X utf8 -u "pipelines\operator_control.py" daily-discover-activate --lane http *>> $log
-$discoverExit = $LASTEXITCODE
+    & $py -X utf8 -u "pipelines\operator_control.py" daily-discover-activate --lane http *>> $log
+    $discoverExit = $LASTEXITCODE
 
-if ($discoverExit -eq 0) {
-    # 一條 collector lane 收唔到貨唔應該連 re-rank 都跳過 —— DB 入面舊
-    # observation 仍然行得，daily-accept 自己有 freshness gate。
+    if ($discoverExit -ne 0) {
+        "[$stamp] discovery failed exit=$discoverExit; daily-accept still runs on the current universe" | Tee-Object -FilePath $log -Append
+    }
+
     & $py -X utf8 -u "pipelines\operator_control.py" daily-accept *>> $log
     $acceptExit = $LASTEXITCODE
-} else {
-    "[$stamp] discovery failed exit=$discoverExit; daily-accept skipped" | Tee-Object -FilePath $log -Append
-    $acceptExit = -1
-}
 
-$done = (Get-Date).ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'")
-"[$done] nightly chain done collect=$collectExit discover=$discoverExit accept=$acceptExit" | Tee-Object -FilePath $log -Append
-if ($collectExit -ne 0 -or $discoverExit -ne 0 -or $acceptExit -ne 0) { exit 1 }
-exit 0
+    $done = (Get-Date).ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'")
+    "[$done] nightly chain done collect=$collectExit discover=$discoverExit accept=$acceptExit" | Tee-Object -FilePath $log -Append
+    Copy-Item -Force $log $crashLog -ErrorAction SilentlyContinue
+    if ($collectExit -ne 0 -or $discoverExit -ne 0 -or $acceptExit -ne 0) { exit 1 }
+    exit 0
+} catch {
+    $msg = "[$stamp] nightly chain CRASH: $($_.Exception.Message)"
+    $msg | Tee-Object -FilePath $log -Append
+    $msg | Out-File -FilePath $crashLog -Append
+    exit 1
+}
