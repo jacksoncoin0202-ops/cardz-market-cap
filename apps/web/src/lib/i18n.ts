@@ -149,8 +149,8 @@ export const copy: Record<Locale, Copy> = {
     nav: { all: "TCG Market", pokemon: "Pokémon", onePiece: "One Piece", watchlist: "Watchlist", box: "BOX" },
     boxHero: {
       eyebrow: "BOX MARKET",
-      title: "Unopened booster boxes, ranked by price",
-      body: "We track unopened booster boxes. Sold prices come first. Asking prices are only a reference.",
+      title: "Sold-first prices for sealed booster boxes",
+      body: "Completed sales set the reference price; asking prices never stand in for them.",
     },
     box: {
       groupAll: "All",
@@ -199,8 +199,8 @@ export const copy: Record<Locale, Copy> = {
     },
     watchlistHero: {
       eyebrow: "MARKET WATCH",
-      title: "Cards approaching the leading market",
-      body: "Ranks 101 and beyond, monitored for identity, price freshness, supply and demand.",
+      title: "Ranks 101 and beyond, under watch",
+      body: "Cards just outside the top 100, tracked for price freshness, supply and demand.",
     },
     heatmap: {
       title: "Top {count} market heatmap",
@@ -282,8 +282,8 @@ export const copy: Record<Locale, Copy> = {
     nav: { all: "TCG 市場", pokemon: "寶可夢", onePiece: "海賊王", watchlist: "觀察名單", box: "原盒" },
     boxHero: {
       eyebrow: "BOX MARKET",
-      title: "以市場視角追蹤未開封原盒",
-      body: "以實際成交為先追蹤未開封補充包原盒，掛牌價永不冒充成交價。",
+      title: "未開封原盒 · 成交價優先",
+      body: "原盒參考價以實際成交為準，掛牌價只作參考。",
     },
     box: {
       groupAll: "全部",
@@ -332,8 +332,8 @@ export const copy: Record<Locale, Copy> = {
     },
     watchlistHero: {
       eyebrow: "市場觀察",
-      title: "正在接近領先市場的卡牌",
-      body: "持續觀察第 101 位起所有卡牌的身份、價格時效、供應及需求。",
+  title: "第 101 位起 · 持續觀察",
+      body: "緊貼前百名之外嘅卡牌，追蹤價格時效、供應同需求。",
     },
     heatmap: {
       title: "市值前 {count} 熱力圖", rankingTitle: "市值前 {count} 排行", pokemonTitle: "寶可夢市場熱力圖", onePieceTitle: "海賊王市場熱力圖",
@@ -390,8 +390,8 @@ export const copy: Record<Locale, Copy> = {
     nav: { all: "TCG 市场", pokemon: "宝可梦", onePiece: "海贼王", watchlist: "观察名单", box: "原盒" },
     boxHero: {
       eyebrow: "BOX MARKET",
-      title: "以市场视角追踪未开封原盒",
-      body: "以实际成交为先追踪未开封补充包原盒，挂牌价永不冒充成交价。",
+      title: "未开封原盒 · 成交价优先",
+      body: "原盒参考价以实际成交为准，挂牌价仅作参考。",
     },
     box: {
       groupAll: "全部",
@@ -434,7 +434,7 @@ export const copy: Record<Locale, Copy> = {
       eyebrow: "海贼王市场", title: "以流动市场视角理解海贼王卡牌", body: "按已核实印刷版本、PSA 10 供应及当前价格排列。",
     },
     watchlistHero: {
-      eyebrow: "市场观察", title: "正在接近领先市场的卡牌", body: "持续观察第 101 位起所有卡牌的身份、价格时效、供应及需求。",
+      eyebrow: "市场观察", title: "第 101 位起 · 持续观察", body: "紧随前百名之外的卡牌，追踪价格时效、供应与需求。",
     },
     heatmap: {
       title: "市值前 {count} 热力图", rankingTitle: "市值前 {count} 排行", pokemonTitle: "宝可梦市场热力图", onePieceTitle: "海贼王市场热力图",
@@ -490,8 +490,8 @@ export const copy: Record<Locale, Copy> = {
     nav: { all: "TCG 市場", pokemon: "ポケモン", onePiece: "ワンピース", watchlist: "ウォッチリスト", box: "BOX" },
     boxHero: {
       eyebrow: "BOX市場",
-      title: "未開封BOXを市場として見る",
-      body: "未開封ボックスを実際の成約ベースで追跡します。出品価格を成約価格として扱いません。",
+      title: "未開封BOX · 成約価格を優先",
+      body: "BOX参考価格は実際の成約が基準。出品価格は参考値です。",
     },
     box: {
       groupAll: "すべて",
@@ -534,7 +534,7 @@ export const copy: Record<Locale, Copy> = {
       eyebrow: "ワンピース市場", title: "動く市場として見るワンピースカード", body: "確認済みの印刷版、PSA 10 供給、現在価格で順位付けします。",
     },
     watchlistHero: {
-      eyebrow: "マーケットウォッチ", title: "主要市場に近づくカード", body: "101 位以降のカードの識別情報、価格鮮度、供給、需要を観察します。",
+      eyebrow: "マーケットウォッチ", title: "101位以降 · 継続ウォッチ", body: "トップ100圏外のカードの価格鮮度・供給・需要を追跡。",
     },
     heatmap: {
       title: "時価総額トップ {count} ヒートマップ", rankingTitle: "時価総額トップ {count}", pokemonTitle: "ポケモン市場ヒートマップ", onePieceTitle: "ワンピース市場ヒートマップ",
@@ -590,8 +590,8 @@ export const copy: Record<Locale, Copy> = {
     nav: { all: "TCG 마켓", pokemon: "포켓몬", onePiece: "원피스", watchlist: "관심 목록", box: "BOX" },
     boxHero: {
       eyebrow: "BOX MARKET",
-      title: "미개봉 박스를 시장으로 보다",
-      body: "미개봉 부스터 박스를 실제 체결 기준으로 추적합니다. 호가는 체결가로 취급하지 않습니다.",
+      title: "미개봉 박스 · 체결가 우선",
+      body: "박스 기준 가격은 실제 체결이 기준. 호가는 참고값입니다.",
     },
     box: {
       groupAll: "전체",
@@ -640,8 +640,8 @@ export const copy: Record<Locale, Copy> = {
     },
     watchlistHero: {
       eyebrow: "마켓 워치",
-      title: "주요 시장에 근접한 카드",
-      body: "101위 이후 카드의 식별 정보, 가격 신선도, 공급, 수요를 관찰합니다.",
+      title: "101위 이후 · 지속 관찰",
+      body: "상위 100 밖 카드의 가격 신선도·공급·수요를 추적합니다.",
     },
     heatmap: {
       title: "시가총액 상위 {count} 히트맵", rankingTitle: "시가총액 상위 {count}", pokemonTitle: "포켓몬 시장 히트맵", onePieceTitle: "원피스 시장 히트맵",

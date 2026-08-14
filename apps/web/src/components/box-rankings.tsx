@@ -116,10 +116,12 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
             </table>
           </div>
           <div className="mobile-ranking-list">
-            <div className="mobile-list-header" aria-hidden="true">
+            {/* 原盒手機 list：同主站卡片一樣用五欄 grid，趨勢 header 位交俾
+                Sparkline 自己 render（數據夠先出），唔會再出「Sal tre」半行字。 */}
+            <div className="mobile-list-header box-mobile-list-header" aria-hidden="true">
               <span className="mobile-col-info">{t.box.box}</span>
               <span className="mobile-col-right">{t.labels.priceShort}</span>
-              <span className="mobile-col-spark">{t.labels.salesTrendShort}</span>
+              <Sparkline values={[]} label={t.labels.salesTrendShort} />
             </div>
             {products.map((product) => {
               const metrics = product.windows[period];

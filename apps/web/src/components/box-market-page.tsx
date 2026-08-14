@@ -64,7 +64,9 @@ export function BoxMarketPage({ snapshot }: { snapshot: MarketViewSnapshot }) {
           </p>
         )}
       </section>
-      <div className="box-controls fade-up">
+      {/* 原盒 group filter：裝飾性浮現喺手機會拖慢表單出現，
+          手機係主軸，所以浮現限定 ≥981px（同主站 controls 一致）。 */}
+      <div className="box-controls fade-up fade-up-desktop">
         <BoxGroupSelector locale={locale} />
       </div>
       {!block ? (
