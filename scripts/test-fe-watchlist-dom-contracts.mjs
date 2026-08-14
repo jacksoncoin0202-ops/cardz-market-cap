@@ -25,6 +25,7 @@ const onePiece = read("apps/web/src/app/(market)/one-piece/page.tsx");
 check("shared page size", /export const WATCHLIST_PAGE_SIZE = 200/.test(pagination));
 check("watchlist imports page size", /WATCHLIST_PAGE_SIZE/.test(watchlist));
 check("sitemap covers every page", /watchlistPageCount/.test(sitemap) && /WATCHLIST_PAGE_SIZE/.test(sitemap));
+check("sitemap reads seed at runtime", /export const dynamic = "force-dynamic"/.test(sitemap));
 check("query alternates keep page", /path\.includes\("\?"\).*&/.test(sitemap.replace(/\s+/g, " ")));
 check("health counts full beyond-top100", /rankedBeyondTop100/.test(health) && /awaitingFreshPrice/.test(health));
 check("scope includes every rank101+", /card\.marketRank >= 101/.test(serverSnapshot) && !/marketRank <= 300/.test(serverSnapshot));
@@ -42,4 +43,4 @@ if (failed.length) {
   console.error("FAIL FE03 data wiring:\n" + failed.map((item) => ` - ${item}`).join("\n"));
   process.exit(1);
 }
-console.log("PASS FE03 full-catalog data wiring (15 contracts)");
+console.log("PASS FE03 full-catalog data wiring (16 contracts)");
