@@ -1911,6 +1911,24 @@ html.theme-transitions .brand-logo-dark {
 .box-set-chip { color: var(--muted); font-family: "SF Mono", "Roboto Mono", ui-monospace, monospace; font-size: 10px; letter-spacing: 0.02em; white-space: nowrap; }
 .box-status-chip { padding: 2px 7px; border-radius: 999px; background: var(--print-badge-neutral-bg); color: var(--print-badge-neutral-text); font-size: 10px; font-weight: 600; line-height: 1; white-space: nowrap; }
 .box-muted-row { opacity: 0.55; }
+.box-show-more {
+  display: block;
+  width: 100%;
+  margin: 16px 0;
+  padding: 14px 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--control-radius);
+  background: var(--surface-translucent);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 200ms ease, border-color 200ms ease;
+}
+.box-show-more:hover {
+  background: var(--surface);
+  border-color: var(--accent);
+}
 .box-price-native { display: block; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .box-detail-art img { padding: 32px; }
 html.theme-transitions .box-thumb { transition: background-color 240ms cubic-bezier(0.33, 1, 0.68, 1); }

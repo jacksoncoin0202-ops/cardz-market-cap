@@ -32,6 +32,8 @@ export interface Copy {
     print: string;
     coverage: string;
     empty: string;
+    showMore: string;
+    showAll: string;
   };
   boxProvenance: {
     kicker: string;
@@ -169,6 +171,8 @@ export const copy: Record<Locale, Copy> = {
       print: "Print",
       coverage: "{priced} of {total} priced",
       empty: "BOX data is being prepared.",
+      showMore: "Show more ({count} remaining)",
+      showAll: "Show all",
     },
     boxProvenance: {
       kicker: "METHOD & DATA",
@@ -302,6 +306,8 @@ export const copy: Record<Locale, Copy> = {
       print: "印刷版",
       coverage: "{total} 盒中 {priced} 盒有價",
       empty: "原盒市場數據準備中。",
+      showMore: "顯示更多（仲有 {count} 個）",
+      showAll: "顯示全部",
     },
     boxProvenance: {
       kicker: "METHOD & DATA",
@@ -410,6 +416,8 @@ export const copy: Record<Locale, Copy> = {
       print: "印刷版",
       coverage: "{total} 盒中 {priced} 盒有价",
       empty: "原盒市场数据准备中。",
+      showMore: "显示更多（还有 {count} 个）",
+      showAll: "显示全部",
     },
     boxProvenance: {
       kicker: "METHOD & DATA",
@@ -510,6 +518,8 @@ export const copy: Record<Locale, Copy> = {
       print: "版",
       coverage: "{total} 中 {priced} BOXに価格",
       empty: "BOX市場データを準備中です。",
+      showMore: "もっと見る（残り {count} 件）",
+      showAll: "すべて表示",
     },
     boxProvenance: {
       kicker: "METHOD & DATA",
@@ -610,6 +620,8 @@ export const copy: Record<Locale, Copy> = {
       print: "판",
       coverage: "{total}개 중 {priced}개 가격 확보",
       empty: "BOX 시장 데이터를 준비 중입니다.",
+      showMore: "더 보기 ({count}개 남음)",
+      showAll: "모두 보기",
     },
     boxProvenance: {
       kicker: "METHOD & DATA",

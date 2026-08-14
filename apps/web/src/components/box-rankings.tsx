@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BoxImage } from "./box-image";
@@ -10,6 +11,8 @@ import { copy } from "@/lib/i18n";
 import { formatInteger, formatMetricMoney, formatPercent, metricTone } from "@/lib/format";
 import type { Currency, Locale, SealedProductView } from "@/lib/types";
 import { useMarketSettings } from "@/lib/use-market-settings";
+
+const INITIAL_ROWS = 50;
 
 function langBadge(product: SealedProductView): { className: string; label: string } {
   return product.lang === "jp"
@@ -33,6 +36,8 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
   const { period } = useMarketSettings();
   const t = copy[locale];
   const router = useRouter();
+  const [showAll, setShowAll] = useState(false);
+  const visibleProducts = showAll ? products : products.slice(0, INITIAL_ROWS);
   const title = t.box.boardTitle.replace("{count}", String(products.length));
 
   return (
@@ -61,7 +66,7 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
                 <th className="numeric">{t.periods[period]} {t.labels.changeShort}</th>
                 <th className="numeric">{t.labels.salesTrendShort}</th>
               </tr></thead>
-              <tbody>{products.map((product) => {
+            <tbody>{visibleProducts.map((product) => {
                 const metrics = product.windows[period];
                 const productUrl = href(`/box/${product.id}`);
                 const badge = langBadge(product);
@@ -123,7 +128,7 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
               <span className="mobile-col-right">{t.labels.priceShort}</span>
               <Sparkline values={[]} label={t.labels.salesTrendShort} />
             </div>
-            {products.map((product) => {
+            {visibleProducts.map((product) => {
               const metrics = product.windows[period];
               const tone = metricTone(metrics.changePct);
               return (
@@ -139,10 +144,19 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
                     <span className={`mobile-change-badge metric-${tone}`}>{formatPercent(metrics.changePct, locale)}</span>
                   </div>
                   <Sparkline values={product.historyDaily.map((point) => point.trackedSalesValueUsd).filter((value): value is number => typeof value === "number" && Number.isFinite(value))} label={t.labels.salesTrend} />
-                </Link>
-              );
-            })}
+              </Link>
+            );
+          })}
           </div>
+          {!showAll && products.length > INITIAL_ROWS && (
+            <button
+              type="button"
+              className="box-show-more"
+              onClick={() => setShowAll(true)}
+            >
+              {t.box.showMore.replace("{count}", String(products.length - INITIAL_ROWS))}
+            </button>
+          )}
         </>
       )}
     </section>
