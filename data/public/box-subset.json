@@ -1,5 +1,5 @@
 {
- "asOf": "2026-08-14T11:24:13.366192Z",
+ "asOf": "2026-08-14T16:37:42.487548Z",
  "coverage": {
   "total": 307,
   "priced": 275,
@@ -31513,7 +31513,7 @@
      "changePct": -17.5
     },
     "30d": {
-     "soldCount": 5,
+     "soldCount": 4,
      "changeUsd": -251.29,
      "changePct": -9.34
     }
@@ -32016,12 +32016,6 @@
      "priceUsd": 2600.0,
      "soldCount": 1,
      "soldValueUsd": 2600.0
-    },
-    {
-     "date": "2026-07-31",
-     "priceUsd": 850.0,
-     "soldCount": 1,
-     "soldValueUsd": 850.0
     },
     {
      "date": "2026-08-01",
@@ -35357,16 +35351,16 @@
    "windows": {
     "1d": {
      "soldCount": 0,
-     "changeUsd": 1828.3,
-     "changePct": 414.38
+     "changeUsd": 436.3,
+     "changePct": 23.8
     },
     "7d": {
-     "soldCount": 2,
+     "soldCount": 1,
      "changeUsd": 0.0,
      "changePct": 0.0
     },
     "30d": {
-     "soldCount": 3,
+     "soldCount": 1,
      "changeUsd": -629.49,
      "changePct": -21.71
     }
@@ -35583,12 +35577,6 @@
      "soldValueUsd": null
     },
     {
-     "date": "2026-07-24",
-     "priceUsd": 186.43,
-     "soldCount": 1,
-     "soldValueUsd": 186.43
-    },
-    {
      "date": "2026-08-01",
      "priceUsd": 2269.51,
      "soldCount": 0,
@@ -35596,15 +35584,9 @@
     },
     {
      "date": "2026-08-08",
-     "priceUsd": 313.82,
+     "priceUsd": 1833.21,
      "soldCount": 1,
-     "soldValueUsd": 313.82
-    },
-    {
-     "date": "2026-08-11",
-     "priceUsd": 441.21,
-     "soldCount": 1,
-     "soldValueUsd": 441.21
+     "soldValueUsd": 1833.21
     },
     {
      "date": "2026-08-14",
@@ -42074,18 +42056,12 @@
      "changePct": -28.16
     },
     "30d": {
-     "soldCount": 5,
+     "soldCount": 2,
      "changeUsd": -645.35,
      "changePct": -34.05
     }
    },
    "historyDaily": [
-    {
-     "date": "2024-07-15",
-     "priceUsd": 324.28,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
     {
      "date": "2024-07-25",
      "priceUsd": 304.5,
@@ -44386,9 +44362,9 @@
     },
     {
      "date": "2026-07-19",
-     "priceUsd": 141.38,
-     "soldCount": 2,
-     "soldValueUsd": 282.75
+     "priceUsd": 1882.92,
+     "soldCount": 0,
+     "soldValueUsd": null
     },
     {
      "date": "2026-07-20",
@@ -44398,15 +44374,21 @@
     },
     {
      "date": "2026-07-21",
-     "priceUsd": 1895.35,
-     "soldCount": 0,
-     "soldValueUsd": null
+     "priceUsd": 1553.57,
+     "soldCount": 1,
+     "soldValueUsd": 1553.57
+    },
+    {
+     "date": "2026-07-22",
+     "priceUsd": 1305.0,
+     "soldCount": 1,
+     "soldValueUsd": 1305.0
     },
     {
      "date": "2026-07-23",
-     "priceUsd": 96.32,
-     "soldCount": 1,
-     "soldValueUsd": 96.32
+     "priceUsd": 1864.27,
+     "soldCount": 0,
+     "soldValueUsd": null
     },
     {
      "date": "2026-07-28",
@@ -44428,9 +44410,9 @@
     },
     {
      "date": "2026-08-01",
-     "priceUsd": 63.7,
-     "soldCount": 2,
-     "soldValueUsd": 127.4
+     "priceUsd": 1764.85,
+     "soldCount": 0,
+     "soldValueUsd": null
     },
     {
      "date": "2026-08-02",
@@ -50177,7 +50159,7 @@
      "changePct": -22.73
     },
     "30d": {
-     "soldCount": 4,
+     "soldCount": 3,
      "changeUsd": -276.8,
      "changePct": -24.88
     }
@@ -52518,16 +52500,22 @@
      "soldValueUsd": null
     },
     {
+     "date": "2026-07-16",
+     "priceUsd": 1019.14,
+     "soldCount": 1,
+     "soldValueUsd": 1019.14
+    },
+    {
      "date": "2026-07-21",
      "priceUsd": 1135.97,
      "soldCount": 0,
      "soldValueUsd": null
     },
     {
-     "date": "2026-07-26",
-     "priceUsd": 181.77,
-     "soldCount": 3,
-     "soldValueUsd": 518.9
+     "date": "2026-07-27",
+     "priceUsd": 925.93,
+     "soldCount": 1,
+     "soldValueUsd": 925.93
     },
     {
      "date": "2026-07-28",
@@ -52554,12 +52542,6 @@
      "soldValueUsd": null
     },
     {
-     "date": "2026-08-09",
-     "priceUsd": 139.82,
-     "soldCount": 1,
-     "soldValueUsd": 139.82
-    },
-    {
      "date": "2026-08-10",
      "priceUsd": 1039.16,
      "soldCount": 0,
@@ -52567,9 +52549,9 @@
     },
     {
      "date": "2026-08-11",
-     "priceUsd": 1044.0,
-     "soldCount": 0,
-     "soldValueUsd": null
+     "priceUsd": 895.48,
+     "soldCount": 1,
+     "soldValueUsd": 895.48
     },
     {
      "date": "2026-08-13",
@@ -60336,18 +60318,18 @@
    "windows": {
     "1d": {
      "soldCount": 0,
-     "changeUsd": 669.7,
-     "changePct": 695.21
+     "changeUsd": -180.09,
+     "changePct": -19.03
     },
     "7d": {
-     "soldCount": 5,
+     "soldCount": 3,
      "changeUsd": -162.69,
      "changePct": -17.52
     },
     "30d": {
-     "soldCount": 11,
-     "changeUsd": -193.93,
-     "changePct": -20.2
+     "soldCount": 5,
+     "changeUsd": 14.1,
+     "changePct": 1.88
     }
    },
    "historyDaily": [
@@ -62591,9 +62573,9 @@
     },
     {
      "date": "2026-07-15",
-     "priceUsd": 959.96,
-     "soldCount": 0,
-     "soldValueUsd": null
+     "priceUsd": 751.93,
+     "soldCount": 1,
+     "soldValueUsd": 751.93
     },
     {
      "date": "2026-07-16",
@@ -62639,15 +62621,15 @@
     },
     {
      "date": "2026-07-26",
-     "priceUsd": 93.21,
-     "soldCount": 2,
-     "soldValueUsd": 186.42
+     "priceUsd": 938.49,
+     "soldCount": 0,
+     "soldValueUsd": null
     },
     {
      "date": "2026-07-27",
-     "priceUsd": 102.54,
-     "soldCount": 1,
-     "soldValueUsd": 102.54
+     "priceUsd": 938.35,
+     "soldCount": 0,
+     "soldValueUsd": null
     },
     {
      "date": "2026-07-28",
@@ -62657,9 +62639,9 @@
     },
     {
      "date": "2026-07-29",
-     "priceUsd": 124.29,
-     "soldCount": 2,
-     "soldValueUsd": 248.58
+     "priceUsd": 826.5,
+     "soldCount": 1,
+     "soldValueUsd": 826.5
     },
     {
      "date": "2026-07-30",
@@ -62675,9 +62657,9 @@
     },
     {
      "date": "2026-08-01",
-     "priceUsd": 766.03,
-     "soldCount": 0,
-     "soldValueUsd": null
+     "priceUsd": 627.64,
+     "soldCount": 1,
+     "soldValueUsd": 627.64
     },
     {
      "date": "2026-08-02",
@@ -62699,9 +62681,9 @@
     },
     {
      "date": "2026-08-05",
-     "priceUsd": 159.09,
-     "soldCount": 1,
-     "soldValueUsd": 159.09
+     "priceUsd": 921.51,
+     "soldCount": 0,
+     "soldValueUsd": null
     },
     {
      "date": "2026-08-06",
@@ -62717,9 +62699,9 @@
     },
     {
      "date": "2026-08-08",
-     "priceUsd": 189.54,
+     "priceUsd": 786.1,
      "soldCount": 1,
-     "soldValueUsd": 189.54
+     "soldValueUsd": 786.1
     },
     {
      "date": "2026-08-09",
@@ -62735,15 +62717,15 @@
     },
     {
      "date": "2026-08-11",
-     "priceUsd": 254.78,
-     "soldCount": 2,
-     "soldValueUsd": 509.56
+     "priceUsd": 838.93,
+     "soldCount": 1,
+     "soldValueUsd": 838.93
     },
     {
      "date": "2026-08-13",
-     "priceUsd": 96.33,
-     "soldCount": 1,
-     "soldValueUsd": 96.33
+     "priceUsd": 946.12,
+     "soldCount": 0,
+     "soldValueUsd": null
     },
     {
      "date": "2026-08-14",
@@ -71316,16 +71298,16 @@
    "windows": {
     "1d": {
      "soldCount": 0,
-     "changeUsd": 53.41,
-     "changePct": 9.49
+     "changeUsd": 49.95,
+     "changePct": 8.82
     },
     "7d": {
-     "soldCount": 32,
+     "soldCount": 8,
      "changeUsd": 52.82,
      "changePct": 9.37
     },
     "30d": {
-     "soldCount": 53,
+     "soldCount": 28,
      "changeUsd": 64.14,
      "changePct": 11.61
     }
@@ -71441,9 +71423,9 @@
     },
     {
      "date": "2026-07-25",
-     "priceUsd": 420.93,
-     "soldCount": 2,
-     "soldValueUsd": 841.85
+     "priceUsd": 620.0,
+     "soldCount": 1,
+     "soldValueUsd": 620.0
     },
     {
      "date": "2026-07-26",
@@ -71507,9 +71489,9 @@
     },
     {
      "date": "2026-08-13",
-     "priceUsd": 563.09,
-     "soldCount": 26,
-     "soldValueUsd": 1723.01
+     "priceUsd": 566.55,
+     "soldCount": 2,
+     "soldValueUsd": 1133.09
     },
     {
      "date": "2026-08-14",
@@ -74718,7 +74700,7 @@
      "changePct": -3.34
     },
     "30d": {
-     "soldCount": 40,
+     "soldCount": 16,
      "changeUsd": -30.0,
      "changePct": -5.45
     }
@@ -74987,12 +74969,6 @@
      "priceUsd": 510.0,
      "soldCount": 1,
      "soldValueUsd": 510.0
-    },
-    {
-     "date": "2026-07-21",
-     "priceUsd": 25.0,
-     "soldCount": 24,
-     "soldValueUsd": 600.0
     },
     {
      "date": "2026-07-24",
@@ -108473,7 +108449,7 @@
      "changePct": 2.71
     },
     "30d": {
-     "soldCount": 53,
+     "soldCount": 29,
      "changeUsd": -1.22,
      "changePct": -0.45
     }
@@ -108562,12 +108538,6 @@
      "priceUsd": 285.0,
      "soldCount": 1,
      "soldValueUsd": 285.0
-    },
-    {
-     "date": "2026-07-21",
-     "priceUsd": 6.2,
-     "soldCount": 24,
-     "soldValueUsd": 148.8
     },
     {
      "date": "2026-07-22",
@@ -116821,7 +116791,7 @@
      "changePct": -39.5
     },
     "30d": {
-     "soldCount": 20,
+     "soldCount": 19,
      "changeUsd": -93.84,
      "changePct": -38.72
     }
@@ -118872,12 +118842,6 @@
      "priceUsd": 236.14,
      "soldCount": 1,
      "soldValueUsd": 236.14
-    },
-    {
-     "date": "2026-07-20",
-     "priceUsd": 413.25,
-     "soldCount": 1,
-     "soldValueUsd": 413.25
     },
     {
      "date": "2026-07-21",
@@ -121492,16 +121456,16 @@
    "windows": {
     "1d": {
      "soldCount": 0,
-     "changeUsd": 85.06,
-     "changePct": 91.26
+     "changeUsd": 97.48,
+     "changePct": 120.66
     },
     "7d": {
-     "soldCount": 0,
+     "soldCount": 1,
      "changeUsd": 85.06,
      "changePct": 91.26
     },
     "30d": {
-     "soldCount": 3,
+     "soldCount": 4,
      "changeUsd": 11.08,
      "changePct": 6.63
     }
@@ -121800,6 +121764,12 @@
      "priceUsd": 93.21,
      "soldCount": 1,
      "soldValueUsd": 93.21
+    },
+    {
+     "date": "2026-08-12",
+     "priceUsd": 80.79,
+     "soldCount": 1,
+     "soldValueUsd": 80.79
     },
     {
      "date": "2026-08-14",
@@ -147216,12 +147186,6 @@
    },
    "historyDaily": [
     {
-     "date": "2023-09-15",
-     "priceUsd": 98.31,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
      "date": "2023-09-16",
      "priceUsd": 50.34,
      "soldCount": 0,
@@ -149544,16 +149508,16 @@
      "soldValueUsd": null
     },
     {
-     "date": "2026-07-23",
-     "priceUsd": 12.3,
-     "soldCount": 1,
-     "soldValueUsd": 12.3
+     "date": "2026-07-28",
+     "priceUsd": 136.58,
+     "soldCount": 0,
+     "soldValueUsd": null
     },
     {
-     "date": "2026-07-28",
-     "priceUsd": 4.97,
+     "date": "2026-07-29",
+     "priceUsd": 118.07,
      "soldCount": 1,
-     "soldValueUsd": 4.97
+     "soldValueUsd": 118.07
     },
     {
      "date": "2026-07-31",
@@ -149566,6 +149530,12 @@
      "priceUsd": 138.17,
      "soldCount": 0,
      "soldValueUsd": null
+    },
+    {
+     "date": "2026-08-02",
+     "priceUsd": 149.14,
+     "soldCount": 1,
+     "soldValueUsd": 149.14
     },
     {
      "date": "2026-08-03",
@@ -150629,12 +150599,18 @@
      "changePct": -9.88
     },
     "30d": {
-     "soldCount": 103,
+     "soldCount": 102,
      "changeUsd": -43.81,
      "changePct": -26.74
     }
    },
    "historyDaily": [
+    {
+     "date": "2025-04-29",
+     "priceUsd": 93.18,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
     {
      "date": "2025-05-01",
      "priceUsd": 59.63,
@@ -152968,12 +152944,6 @@
      "priceUsd": 120.0,
      "soldCount": 0,
      "soldValueUsd": null
-    },
-    {
-     "date": "2026-08-02",
-     "priceUsd": 264.11,
-     "soldCount": 1,
-     "soldValueUsd": 264.11
     },
     {
      "date": "2026-08-03",
@@ -165686,7 +165656,7 @@
      "changePct": 55.03
     },
     "30d": {
-     "soldCount": 35,
+     "soldCount": 36,
      "changeUsd": -298.57,
      "changePct": -61.99
     }
@@ -165796,9 +165766,9 @@
     },
     {
      "date": "2026-08-01",
-     "priceUsd": 139.82,
-     "soldCount": 2,
-     "soldValueUsd": 279.64
+     "priceUsd": 142.93,
+     "soldCount": 3,
+     "soldValueUsd": 552.45
     },
     {
      "date": "2026-08-02",
@@ -210807,18 +210777,12 @@
      "changePct": -23.8
     },
     "30d": {
-     "soldCount": 2,
+     "soldCount": 3,
      "changeUsd": -18.35,
      "changePct": -12.59
     }
    },
    "historyDaily": [
-    {
-     "date": "2024-02-14",
-     "priceUsd": 39.98,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
     {
      "date": "2024-02-15",
      "priceUsd": 106.68,
@@ -213188,6 +213152,12 @@
      "priceUsd": 172.14,
      "soldCount": 0,
      "soldValueUsd": null
+    },
+    {
+     "date": "2026-08-06",
+     "priceUsd": 292.07,
+     "soldCount": 1,
+     "soldValueUsd": 292.07
     },
     {
      "date": "2026-08-07",
@@ -238846,12 +238816,12 @@
      "changePct": -16.58
     },
     "7d": {
-     "soldCount": 26,
+     "soldCount": 27,
      "changeUsd": -85.9,
      "changePct": -61.1
     },
     "30d": {
-     "soldCount": 26,
+     "soldCount": 27,
      "changeUsd": -248.06,
      "changePct": -81.94
     }
@@ -241151,9 +241121,9 @@
     },
     {
      "date": "2026-08-10",
-     "priceUsd": 69.91,
-     "soldCount": 4,
-     "soldValueUsd": 279.95
+     "priceUsd": 70.22,
+     "soldCount": 5,
+     "soldValueUsd": 413.56
     },
     {
      "date": "2026-08-11",
@@ -252478,12 +252448,12 @@
      "changePct": 32.42
     },
     "7d": {
-     "soldCount": 26,
+     "soldCount": 27,
      "changeUsd": -45.29,
      "changePct": -36.44
     },
     "30d": {
-     "soldCount": 26,
+     "soldCount": 27,
      "changeUsd": -18.43,
      "changePct": -18.92
     }
@@ -254783,9 +254753,9 @@
     },
     {
      "date": "2026-08-09",
-     "priceUsd": 52.98,
-     "soldCount": 3,
-     "soldValueUsd": 153.65
+     "priceUsd": 54.45,
+     "soldCount": 4,
+     "soldValueUsd": 281.04
     },
     {
      "date": "2026-08-10",
@@ -256224,16 +256194,16 @@
    "windows": {
     "1d": {
      "soldCount": 8,
-     "changeUsd": 5.97,
-     "changePct": 12.48
+     "changeUsd": 4.41,
+     "changePct": 8.93
     },
     "7d": {
-     "soldCount": 46,
+     "soldCount": 47,
      "changeUsd": -167.49,
      "changePct": -75.68
     },
     "30d": {
-     "soldCount": 46,
+     "soldCount": 47,
      "changeUsd": -124.6,
      "changePct": -69.84
     }
@@ -256799,9 +256769,9 @@
     },
     {
      "date": "2026-08-13",
-     "priceUsd": 47.85,
-     "soldCount": 29,
-     "soldValueUsd": 1428.87
+     "priceUsd": 49.41,
+     "soldCount": 30,
+     "soldValueUsd": 1540.73
     },
     {
      "date": "2026-08-14",
