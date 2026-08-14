@@ -3,7 +3,9 @@ import { Suspense } from "react";
 import { BoxMarketPage } from "@/components/box-market-page";
 import { copy } from "@/lib/i18n";
 import { localeFromSearchParams, marketMetadata, type PageSearchParams } from "@/lib/route-metadata";
-import { loadMarketSnapshot } from "@/lib/server-snapshot";
+import { boxListSnapshot, loadMarketSnapshot } from "@/lib/server-snapshot";
+
+export const revalidate = 300;
 
 export async function generateMetadata({ searchParams }: { searchParams: PageSearchParams }): Promise<Metadata> {
   const locale = await localeFromSearchParams(searchParams);
@@ -11,7 +13,7 @@ export async function generateMetadata({ searchParams }: { searchParams: PageSea
 }
 
 export default async function BoxPage() {
-  const snapshot = await loadMarketSnapshot();
+  const snapshot = boxListSnapshot(await loadMarketSnapshot());
   return (
     <Suspense>
       <BoxMarketPage snapshot={snapshot} />

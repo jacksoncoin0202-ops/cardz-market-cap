@@ -2,7 +2,7 @@ import type { PublicMarketSnapshot } from "@cardz/market-data";
 import { boxBlockView, type BoxSidecarBlock } from "./box-view";
 import { marketAssetObjectKey } from "./market-media";
 import { normaliseSnapshot } from "./snapshot";
-import type { LocalizedText, MarketCardView, MarketViewSnapshot, SealedViewBlock } from "./types";
+import type { LocalizedText, MarketCardView, MarketMetric, MarketViewSnapshot, SealedProductView, SealedViewBlock } from "./types";
 
 const DEFAULT_SNAPSHOT_PATH = "data/public/seed-snapshot.json";
 const BOX_SIDECAR_PATH = "data/public/box-subset.json";
@@ -61,12 +61,57 @@ const EMPTY_STORY: LocalizedText = Object.freeze({
   ko: "",
 });
 
+const EMPTY_METRIC: MarketMetric<number> = Object.freeze({
+  value: null,
+  status: "unavailable",
+  asOf: null,
+});
+
+const LIST_SPARKLINE_POINTS = 60;
+
+function downsampleSparkline(values: number[] | undefined, maxPoints = LIST_SPARKLINE_POINTS): number[] {
+  if (!values?.length) return [];
+  if (values.length <= maxPoints) return values;
+  const last = maxPoints - 1;
+  return Array.from({ length: maxPoints }, (_, index) => {
+    const source = index === last
+      ? values.length - 1
+      : Math.round((index * (values.length - 1)) / last);
+    return values[source];
+  });
+}
+
 function listCard(card: MarketCardView): MarketCardView {
   return {
     ...card,
     story: EMPTY_STORY,
     historyDaily: [],
+    priceUngradedReference: EMPTY_METRIC,
+    salesSparkline: downsampleSparkline(card.salesSparkline),
   };
+}
+
+function listBox(product: SealedProductView): SealedProductView {
+  return {
+    ...product,
+    story: null,
+    historyDaily: [],
+    salesSparkline: downsampleSparkline(product.salesSparkline),
+  };
+}
+
+function withoutCards(snapshot: MarketViewSnapshot, sealed?: SealedViewBlock): MarketViewSnapshot {
+  return {
+    ...snapshot,
+    top100: [],
+    watchlist: [],
+    sealed,
+  };
+}
+
+function withoutSealed(snapshot: MarketViewSnapshot): MarketViewSnapshot {
+  const { sealed: _sealed, ...rest } = snapshot;
+  return rest;
 }
 
 async function repoDataPath(relativePath: string): Promise<string> {
@@ -164,7 +209,7 @@ export function scopeSnapshot(
       .filter((card) => card.marketRank >= 1 && card.marketRank <= 100)
       .map((card) => ({ ...card, rank: card.marketRank, viewRank: card.marketRank }))
       .map(listCard);
-    return { ...snapshot, coverage: scopedCoverage(cards.length), top100: cards, watchlist: [] };
+    return { ...withoutSealed(snapshot), coverage: scopedCoverage(cards.length), top100: cards, watchlist: [] };
   }
   if (scope === "watchlist") {
     /*
@@ -188,16 +233,35 @@ export function scopeSnapshot(
     const cards = all
       .slice((page - 1) * pageSize, page * pageSize)
       .map(listCard);
-    return { ...snapshot, coverage: scopedCoverage(cards.length, all.length), top100: cards, watchlist: [] };
+    return { ...withoutSealed(snapshot), coverage: scopedCoverage(cards.length, all.length), top100: cards, watchlist: [] };
   }
   const expected = scope === "pokemon" ? "Pokémon" : "One Piece";
   const cards = gameView(canonical, expected).map(listCard);
-  return { ...snapshot, coverage: scopedCoverage(cards.length), top100: cards, watchlist: [] };
+  return { ...withoutSealed(snapshot), coverage: scopedCoverage(cards.length), top100: cards, watchlist: [] };
 }
 
 export function singleCardSnapshot(snapshot: MarketViewSnapshot, id: string): MarketViewSnapshot {
   const card = [...snapshot.top100, ...snapshot.watchlist]
     .find((candidate) => candidate.id === id);
   const cards = card ? [card] : [];
-  return { ...snapshot, coverage: scopedCoverage(cards.length), top100: cards, watchlist: [] };
+  return { ...withoutSealed(snapshot), coverage: scopedCoverage(cards.length), top100: cards, watchlist: [] };
+}
+
+export function boxListSnapshot(snapshot: MarketViewSnapshot): MarketViewSnapshot {
+  return withoutCards(
+    snapshot,
+    snapshot.sealed
+      ? { ...snapshot.sealed, products: snapshot.sealed.products.map(listBox) }
+      : undefined,
+  );
+}
+
+export function boxDetailSnapshot(snapshot: MarketViewSnapshot, id: string): MarketViewSnapshot {
+  const product = snapshot.sealed?.products.find((candidate) => candidate.id === id);
+  return withoutCards(
+    snapshot,
+    snapshot.sealed
+      ? { ...snapshot.sealed, products: product ? [product] : [] }
+      : undefined,
+  );
 }

@@ -114,7 +114,7 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
                     </td>
                     <td className="numeric">{metrics.soldCount > 0 ? formatInteger(metrics.soldCount, locale) : "—"}</td>
                     <td className={`numeric metric-${metricTone(metrics.changePct)}`}>{formatPercent(metrics.changePct, locale)}</td>
-                    <td className="numeric spark-cell"><Sparkline values={product.historyDaily.map((point) => point.trackedSalesValueUsd).filter((value): value is number => typeof value === "number" && Number.isFinite(value))} label={t.labels.salesTrend} /></td>
+                    <td className="numeric spark-cell"><Sparkline values={product.salesSparkline} label={t.labels.salesTrend} /></td>
                   </tr>
                 );
               })}</tbody>
@@ -143,7 +143,7 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
                     <span className="mobile-card-price">{formatMetricMoney(product.priceUsd, currency, rates, locale)}</span>
                     <span className={`mobile-change-badge metric-${tone}`}>{formatPercent(metrics.changePct, locale)}</span>
                   </div>
-                  <Sparkline values={product.historyDaily.map((point) => point.trackedSalesValueUsd).filter((value): value is number => typeof value === "number" && Number.isFinite(value))} label={t.labels.salesTrend} />
+                  <Sparkline values={product.salesSparkline} label={t.labels.salesTrend} />
               </Link>
             );
           })}

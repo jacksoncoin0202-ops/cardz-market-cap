@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
-import { headers } from "next/headers";
 import { Suspense } from "react";
-import { DocumentLanguage, ThemeScript } from "@/components/document-language";
+import { DocumentLanguage, LangScript, ThemeScript } from "@/components/document-language";
 import { Footer, Header } from "@/components/header";
 import "./globals.css";
 
@@ -13,19 +12,18 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", colorScheme: "light dark" };
 /*
- * layout 嘅 `force-dynamic` 會蓋過每一版自己嘅 revalidate，所以要一齊解除。
- * 但下面個 `headers()` 仍然令成棵樹 dynamic render（實測：拆走佢 `/tune` 即刻變
- * `○ Static · Revalidate 5m`，唔拆就 `ƒ Dynamic` + `Cache-Control: no-store`），
- * 所以呢個 revalidate 現階段未生效。
+ * 唔喺 layout 讀 `headers()`：一讀成棵樹變 `ƒ Dynamic` + `Cache-Control: no-store`，
+ * 下面嘅 `revalidate = 300` 同各頁自己嘅 ISR 全部失效。
+ * `<html lang>` SSR 預設 `en`；`?lang=` 由 LangScript 喺 paint 前改，之後 DocumentLanguage 跟 client locale。
  */
 export const revalidate = 300;
 
-export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const htmlLanguage = (await headers()).get("x-cardz-html-lang") ?? "en";
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang={htmlLanguage} data-theme="light">
+    <html lang="en" data-theme="light">
       <head>
         <ThemeScript />
+        <LangScript />
       </head>
       <body>
         <Suspense fallback={null}><DocumentLanguage /></Suspense>

@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { BoxDetail } from "@/components/box-detail";
 import { copy } from "@/lib/i18n";
 import { localeFromSearchParams, marketMetadata, type PageSearchParams } from "@/lib/route-metadata";
-import { loadMarketSnapshot } from "@/lib/server-snapshot";
+import { boxDetailSnapshot, loadMarketSnapshot } from "@/lib/server-snapshot";
+
+export const revalidate = 300;
 
 interface BoxRouteProps {
   params: Promise<{ id: string }>;
@@ -10,12 +12,12 @@ interface BoxRouteProps {
 }
 
 export async function generateMetadata({ params, searchParams }: BoxRouteProps): Promise<Metadata> {
-  const [{ id }, locale, snapshot] = await Promise.all([
+  const [{ id }, locale] = await Promise.all([
     params,
     localeFromSearchParams(searchParams),
-    loadMarketSnapshot(),
   ]);
-  const product = snapshot.sealed?.products.find((candidate) => candidate.id === id);
+  const snapshot = boxDetailSnapshot(await loadMarketSnapshot(), id);
+  const product = snapshot.sealed?.products[0];
   const t = copy[locale];
   const title = product ? `${product.name[locale] || product.name.en} · ${t.nav.box}` : t.boxHero.title;
   const description = product?.story?.[locale] || product?.story?.en || t.boxHero.body;
@@ -24,7 +26,7 @@ export async function generateMetadata({ params, searchParams }: BoxRouteProps):
 
 export default async function BoxProductPage({ params }: BoxRouteProps) {
   const { id } = await params;
-  const snapshot = await loadMarketSnapshot();
-  const product = snapshot.sealed?.products.find((candidate) => candidate.id === id) ?? null;
+  const snapshot = boxDetailSnapshot(await loadMarketSnapshot(), id);
+  const product = snapshot.sealed?.products[0] ?? null;
   return <BoxDetail product={product} snapshot={snapshot} />;
 }

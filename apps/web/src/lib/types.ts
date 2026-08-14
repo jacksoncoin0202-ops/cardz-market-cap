@@ -179,6 +179,7 @@ export interface SealedProductView {
   askFloorNative: SealedNative | null;
   windows: Record<MarketWindow, { changePct: MarketMetric<number>; soldCount: number }>;
   historyDaily: PricePoint[];
+  salesSparkline: number[];
 }
 
 export interface SealedViewBlock {

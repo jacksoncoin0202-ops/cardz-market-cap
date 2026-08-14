@@ -134,6 +134,9 @@ function boxProductView(product: BoxSidecarProduct): SealedProductView | null {
       salesCoverage: "partial" as const,
       salesVerifiedZero: point.soldCount === 0,
     })),
+    salesSparkline: (product.historyDaily || [])
+      .map((point) => point.soldValueUsd)
+      .filter((value): value is number => typeof value === "number" && Number.isFinite(value)),
   };
 }
 

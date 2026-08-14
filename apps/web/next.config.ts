@@ -105,11 +105,28 @@ const nextConfig: NextConfig = {
     ];
   },
   async headers() {
+    const htmlCacheControl = {
+      key: "Cache-Control",
+      value: "public, s-maxage=300, stale-while-revalidate=300",
+    };
+    const htmlCacheSources = [
+      "/",
+      "/pokemon",
+      "/one-piece",
+      "/watchlist",
+      "/card/:id",
+      "/box",
+      "/box/:id",
+    ];
     return [
       {
         source: "/:path*",
         headers: securityHeaders,
       },
+      ...htmlCacheSources.map((source) => ({
+        source,
+        headers: [htmlCacheControl],
+      })),
       {
         source: "/api/:path*",
         headers: [
