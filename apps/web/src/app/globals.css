@@ -1209,7 +1209,7 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
     transition: background 170ms ease;
     /* ~500+ 卡列表：off-screen 行唔洗 layout/paint，跌入嚟先計。 */
     content-visibility: auto;
-    contain-intrinsic-size: auto 72px;
+    contain-intrinsic-size: auto 96px;
   }
   .mobile-rank-card:last-child { border-bottom: 0; }
   .mobile-rank-card:hover,
@@ -1223,7 +1223,7 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
     font-variant-numeric: tabular-nums;
     text-align: left;
   }
-  .mobile-rank-card .ranking-thumb { width: 34px; height: 48px; flex: none; margin-left: 4px; }
+  .mobile-rank-card .ranking-thumb { width: 52px; height: 72px; flex: none; margin-left: 0; }
   .mobile-card-info {
     min-width: 0;
     flex: 1;
@@ -1298,7 +1298,7 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
         自己 render，唔會再出「Sal tre」半行字。
      2) group selector 繼承 .period-selector 嘅 stretch/full-width 手機規則，
         五個選項平均攤分，唔會撐爆細屏。 */
-  .box-mobile-list-header { display: grid; grid-template-columns: 26px 34px minmax(0, 1fr) auto 48px; gap: 10px; align-items: center; padding: 6px 12px; }
+  .box-mobile-list-header { display: grid; grid-template-columns: 26px 52px minmax(0, 1fr) auto 48px; gap: 10px; align-items: center; padding: 6px 12px; }
   .box-mobile-list-header .mobile-col-info { grid-column: 1 / 4; }
   .box-mobile-list-header .mobile-col-right { grid-column: 4; }
   .box-mobile-list-header .sparkline { grid-column: 5; justify-self: end; width: 48px; height: 16px; }
@@ -1691,7 +1691,7 @@ html.theme-transitions .brand-logo-dark {
   .detail-art { height: 280px; }
   .history-heading { padding-inline: 16px; }
   .chart-legend { padding-inline: 16px; }
-  .mobile-rank-card { display: grid; grid-template-columns: 26px 34px minmax(0, 1fr) auto 48px; gap: 8px; padding-inline: 12px; }
+  .mobile-rank-card { display: grid; grid-template-columns: 26px 52px minmax(0, 1fr) auto 48px; gap: 8px; padding-inline: 12px; }
   /* 5 欄：rank / thumb / 卡名(中間) / 價錢+升跌 / 成交圖(最右) */
   .mobile-rank-card .sparkline { grid-column: 5; align-self: center; justify-self: end; width: 48px; height: 16px; }
 }
