@@ -122,6 +122,9 @@ def _run(label: str, argv: list[str], timeout: int) -> tuple[str, float, str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="跑晒 23 個 test 入口")
     parser.add_argument("--no-db", action="store_true", help="跳過要連 3308 嗰啲")
+    parser.add_argument("--skip-fe", action="store_true", help="跳過 scripts/test-*.mjs")
+    parser.add_argument("--skip-pipelines", action="store_true", help="跳過 pipelines/* --self-test")
+    parser.add_argument("--skip-script-tests", action="store_true", help="跳過 scripts/test_*.py")
     parser.add_argument("--timeout", type=int, default=300)
     args = parser.parse_args()
 
@@ -154,6 +157,9 @@ def main() -> int:
 
     for module in sorted(SELF_TEST_ENTRIES):
         label = f"pipelines/{module}"
+        if args.skip_pipelines:
+            results.append((label, "SKIP", 0.0, "--skip-pipelines"))
+            continue
         if args.no_db and module in NEEDS_DB:
             results.append((label, "SKIP", 0.0, "--no-db"))
             continue
@@ -176,6 +182,9 @@ def main() -> int:
 
     for path in sorted((ROOT / "scripts").glob("test_*.py")):
         label = f"scripts/{path.name}"
+        if args.skip_script_tests:
+            results.append((label, "SKIP", 0.0, "--skip-script-tests"))
+            continue
         if args.no_db and path.name in NEEDS_DB:
             results.append((label, "SKIP", 0.0, "--no-db"))
             continue
@@ -192,6 +201,9 @@ def main() -> int:
     node = "node.exe" if sys.platform == "win32" else "node"
     for path in sorted((ROOT / "scripts").glob("test-*.mjs")):
         label = f"scripts/{path.name}"
+        if args.skip_fe:
+            results.append((label, "SKIP", 0.0, "--skip-fe"))
+            continue
         results.append((label, *_run(label, [node, str(path)], args.timeout)))
 
     width = max(len(row[0]) for row in results)

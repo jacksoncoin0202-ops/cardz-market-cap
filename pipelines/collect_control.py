@@ -3701,7 +3701,8 @@ def _collect_mode_impl(
     status = cmd_status(rebuild_registry=True)
     reg = _jsonl_rows(REGISTRY_PATH)
     requested = _requested_adapters(adapters)
-    modes = {"stock"} if mode == "stock" else {"incr", "stock"}
+    # incr 只拉 cursor/due incremental。residual / 未完成 first stock 用 `stock`。
+    modes = {"stock"} if mode == "stock" else {"incr"}
     explicit_variants = set(int(value) for value in (variant_ids or []))
     due_by_adapter = {
         adapter: sorted(
