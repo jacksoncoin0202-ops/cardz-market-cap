@@ -2,7 +2,7 @@ import type { PublicMarketSnapshot } from "@cardz/market-data";
 import { boxBlockView, type BoxSidecarBlock } from "./box-view";
 import { marketAssetObjectKey } from "./market-media";
 import { normaliseSnapshot } from "./snapshot";
-import type { LocalizedText, MarketCardView, MarketMetric, MarketViewSnapshot, SealedProductView, SealedViewBlock } from "./types";
+import type { MarketCardView, MarketMetric, MarketViewSnapshot, SealedProductView, SealedViewBlock } from "./types";
 
 const DEFAULT_SNAPSHOT_PATH = "data/public/seed-snapshot.json";
 const BOX_SIDECAR_PATH = "data/public/box-subset.json";
@@ -50,23 +50,9 @@ function scopedCoverage(count: number, requestedCount = 100): MarketViewSnapshot
  * components/card-detail.tsx:32），兩處都喺詳情頁。詳情頁行 `singleCardSnapshot`，
  * 唔會經呢度，仍然攞到完整歷史同故事。
  *
- * 注意 `story` 喺 types.ts 係必填 `LocalizedText`，所以要清空唔係刪 key——
- * 出一個共用 frozen 空值，contract 唔郁，client 讀 `card.story[locale]` 唔會炸。
+ * 榜頁再削：唔傳 `name` / `story` / `priceUngradedReference`；window／價 metric
+ * 只留顯示要用嘅 `value` / `status` / `asOf` / `sourceSwitched`。
  */
-const EMPTY_STORY: LocalizedText = Object.freeze({
-  en: "",
-  "zh-TW": "",
-  "zh-CN": "",
-  ja: "",
-  ko: "",
-});
-
-const EMPTY_METRIC: MarketMetric<number> = Object.freeze({
-  value: null,
-  status: "unavailable",
-  asOf: null,
-});
-
 const LIST_SPARKLINE_POINTS = 60;
 
 function downsampleSparkline(values: number[] | undefined, maxPoints = LIST_SPARKLINE_POINTS): number[] {
@@ -81,22 +67,53 @@ function downsampleSparkline(values: number[] | undefined, maxPoints = LIST_SPAR
   });
 }
 
+function slimMetric(metric: MarketMetric<number>): MarketMetric<number> {
+  const slim: MarketMetric<number> = {
+    value: metric.value,
+    status: metric.status,
+    asOf: metric.asOf,
+  };
+  if (metric.sourceSwitched) slim.sourceSwitched = true;
+  return slim;
+}
+
+function slimWindows(windows: MarketCardView["windows"]): MarketCardView["windows"] {
+  return Object.fromEntries(Object.entries(windows).map(([period, metrics]) => [period, {
+    changePct: slimMetric(metrics.changePct),
+    marketCapChangePct: slimMetric(metrics.marketCapChangePct),
+    trackedSalesChangePct: slimMetric(metrics.trackedSalesChangePct),
+    trackedSales: {
+      valueUsd: slimMetric(metrics.trackedSales.valueUsd),
+      count: slimMetric(metrics.trackedSales.count),
+      coverage: metrics.trackedSales.coverage,
+      asOf: metrics.trackedSales.asOf,
+    },
+  }])) as MarketCardView["windows"];
+}
+
 function listCard(card: MarketCardView): MarketCardView {
+  const { name: _name, story: _story, priceUngradedReference: _ungraded, ...rest } = card;
   return {
-    ...card,
-    story: EMPTY_STORY,
+    ...rest,
     historyDaily: [],
-    priceUngradedReference: EMPTY_METRIC,
     salesSparkline: downsampleSparkline(card.salesSparkline),
+    windows: slimWindows(card.windows),
+    pricePsa10: slimMetric(card.pricePsa10),
+    populationPsa10: slimMetric(card.populationPsa10),
+    marketCap: slimMetric(card.marketCap),
   };
 }
 
 function listBox(product: SealedProductView): SealedProductView {
+  const { story: _story, ...rest } = product;
   return {
-    ...product,
-    story: null,
+    ...rest,
     historyDaily: [],
     salesSparkline: downsampleSparkline(product.salesSparkline),
+    windows: Object.fromEntries(Object.entries(product.windows).map(([period, metrics]) => [
+      period,
+      { changePct: slimMetric(metrics.changePct), soldCount: metrics.soldCount },
+    ])) as SealedProductView["windows"],
   };
 }
 

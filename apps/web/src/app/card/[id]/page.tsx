@@ -47,7 +47,7 @@ export async function generateMetadata({ params, searchParams }: CardRouteProps)
     : null;
   const baseTitle = card.officialName || labels.viewCard;
   const title = printLanguage ? `${baseTitle} · ${printLanguage}` : baseTitle;
-  const description = card.story[locale] || labels.viewCard;
+  const description = card.story?.[locale] || labels.viewCard;
   // 每張卡出自己嗰張 OG（卡名 / set / 市值 / PSA 10 價同 POP）。
   return marketMetadata(
     locale,

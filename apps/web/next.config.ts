@@ -87,9 +87,6 @@ const nextConfig: NextConfig = {
   ...(standaloneOutput ? { output: "standalone" as const } : {}),
   outputFileTracingRoot: repositoryRoot,
   turbopack: { root: repositoryRoot },
-  experimental: {
-    optimizePackageImports: ["d3-hierarchy"],
-  },
   generateBuildId: async () => publicBuildId,
   /* 改過公開 id 嘅卡：舊 URL 已經入咗生產 sitemap，冇呢啲就硬 404。
      308 唔係 301：Next 嘅 `permanent` 出 308，搜尋引擎當佢一樣係永久轉向，

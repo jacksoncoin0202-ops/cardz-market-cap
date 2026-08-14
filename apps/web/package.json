@@ -9,7 +9,6 @@
   },
   "dependencies": {
     "@cardz/market-data": "0.1.0",
-    "d3-hierarchy": "^3.1.2",
     "framer-motion": "^12.42.2",
     "lucide-react": "^1.25.0",
     "mysql2": "^3.23.2",
@@ -18,7 +17,6 @@
     "react-dom": "^19.2.4"
   },
   "devDependencies": {
-    "@types/d3-hierarchy": "^3.1.7",
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",

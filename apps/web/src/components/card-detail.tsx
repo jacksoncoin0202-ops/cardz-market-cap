@@ -31,7 +31,7 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
   }
 
   const windowMetric = card.windows[period];
-  const story = card.story[locale];
+  const story = card.story?.[locale];
   const structuredData = {
     "@context": "https://schema.org",
     "@graph": [
@@ -99,7 +99,7 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
             <div><span>{t.labels.population}</span><strong>{formatMetricInteger(card.populationPsa10, locale)}</strong></div>
             <div><span>{t.periods[period]} {t.labels.change}</span><strong className={`metric-${metricTone(windowMetric.changePct)}`}>{formatPercent(windowMetric.changePct, locale)}</strong>{windowMetric.changePct.sourceSwitched && <small className="muted-copy">{t.provenance.anchorSwitched}</small>}</div>
             <div className="wide-metric"><span title={t.labels.salesHelp}>{t.periods[period]} {t.labels.trackedSales}</span><strong className="metric-value-fit">{formatTrackedSales(windowMetric.trackedSales, currency, snapshot.rates, locale)}</strong><MetricDelta metric={windowMetric.trackedSales.valueUsd} changePct={windowMetric.trackedSalesChangePct} currency={currency} rates={snapshot.rates} locale={locale} /></div>
-            <div><span>{t.labels.ungradedReference}</span><strong>{formatMetricMoney(card.priceUngradedReference, currency, snapshot.rates, locale)}</strong></div>
+            <div><span>{t.labels.ungradedReference}</span><strong>{formatMetricMoney(card.priceUngradedReference ?? { value: null, status: "unavailable", asOf: null }, currency, snapshot.rates, locale)}</strong></div>
           </section>
           {/*
             「資料時間」講嘅係上面嗰堆數幾時嘅，唔係個 snapshot 幾時 bake。

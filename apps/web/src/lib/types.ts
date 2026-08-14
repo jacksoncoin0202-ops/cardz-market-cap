@@ -88,10 +88,11 @@ export interface MarketCardView {
   collectorNumber: string;
   /** Canonical PSA/GemRate official English full name used by every public title surface. */
   officialName: string | null;
-  /** Optional locale aliases retained for non-title supporting uses. */
-  name: LocalizedText;
+  /** Locale aliases. List projection omits this; titles use `officialName`. */
+  name?: LocalizedText;
   setName: LocalizedText;
-  story: LocalizedText;
+  /** Detail-only. List projection omits this. */
+  story?: LocalizedText;
   image: {
     url: string;
     /** Canonical image alternative text; always the same official name as the card title. */
@@ -100,8 +101,8 @@ export interface MarketCardView {
     variants?: Partial<Record<"200" | "600", string>>;
   };
   pricePsa10: MarketMetric<number>;
-  /** Detail-only RAW / ungraded reference; never used by rank, market cap, or deltas. */
-  priceUngradedReference: MarketMetric<number>;
+  /** Detail-only RAW / ungraded reference. List projection omits this. */
+  priceUngradedReference?: MarketMetric<number>;
   populationPsa10: MarketMetric<number>;
   marketCap: MarketMetric<number>;
   windows: Record<MarketWindow, WindowMetrics>;
@@ -171,7 +172,7 @@ export interface SealedProductView {
     kind: "box_front" | "placeholder";
     variants?: Partial<Record<"200" | "600", string>>;
   };
-  story: LocalizedText | null;
+  story?: LocalizedText | null;
   priceUsd: MarketMetric<number>;
   priceKind: SealedPriceKind | null;
   priceNative: SealedNative | null;
