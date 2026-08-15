@@ -6,6 +6,15 @@ import type { Locale, MarketWindow } from "./types";
 export const cardLanguages = ["en", "ja", "ko", "zhCN", "zhTW"] as const;
 export type CardLanguage = (typeof cardLanguages)[number];
 
+// Short codes shared by every locale: keeps filter chips to a single line on mobile.
+export const cardLanguageShort: Record<CardLanguage, string> = {
+  en: "EN",
+  ja: "JP",
+  ko: "KR",
+  zhCN: "SC",
+  zhTW: "TC",
+};
+
 export interface Copy {
   nav: {
     all: string;
@@ -123,6 +132,7 @@ export interface Copy {
     finish: string;
     packSource: string;
     languageFilterAll: string;
+    languageFilterAllShort: string;
     searchPlaceholder: string;
     searchPlaceholderBox: string;
     searchLabel: string;
@@ -254,6 +264,7 @@ export const copy: Record<Locale, Copy> = {
       expandImage: "View full-size card",
       printLanguage: "{language} print", setCode: "Set code", rarity: "Rarity", parallel: "Parallel", finish: "Surface", packSource: "Pack source",
       languageFilterAll: "All languages",
+      languageFilterAllShort: "All",
       searchPlaceholder: "Search name, number, or set",
       searchPlaceholderBox: "Search box name or set code",
       searchLabel: "Search this list",
@@ -378,6 +389,7 @@ export const copy: Record<Locale, Copy> = {
       expandImage: "放大檢視卡牌",
       printLanguage: "{language}版", setCode: "系列代碼", rarity: "稀有度", parallel: "平行卡", finish: "卡面", packSource: "卡包來源",
       languageFilterAll: "全部語言",
+      languageFilterAllShort: "全部",
       searchPlaceholder: "搜尋卡名、編號或系列",
       searchPlaceholderBox: "搜尋盒名或系列代碼",
       searchLabel: "搜尋此列表",
@@ -487,6 +499,7 @@ export const copy: Record<Locale, Copy> = {
       expandImage: "放大查看卡牌",
       printLanguage: "{language}版", setCode: "系列代码", rarity: "稀有度", parallel: "平行卡", finish: "卡面", packSource: "卡包来源",
       languageFilterAll: "全部语言",
+      languageFilterAllShort: "全部",
       searchPlaceholder: "搜索卡名、编号或系列",
       searchPlaceholderBox: "搜索盒名或系列代码",
       searchLabel: "搜索此列表",
@@ -595,6 +608,7 @@ export const copy: Record<Locale, Copy> = {
       expandImage: "カードを拡大表示",
       printLanguage: "{language}版", setCode: "セットコード", rarity: "レアリティ", parallel: "パラレル", finish: "表面", packSource: "収録パック",
       languageFilterAll: "すべての言語",
+      languageFilterAllShort: "すべて",
       searchPlaceholder: "名前・番号・セットで検索",
       searchPlaceholderBox: "ボックス名またはセットコードで検索",
       searchLabel: "このリストを検索",
@@ -710,6 +724,7 @@ export const copy: Record<Locale, Copy> = {
       expandImage: "카드 크게 보기",
       printLanguage: "{language}판", setCode: "세트 코드", rarity: "레어도", parallel: "패러렐", finish: "표면", packSource: "수록 팩",
       languageFilterAll: "모든 언어",
+      languageFilterAllShort: "전체",
       searchPlaceholder: "이름, 번호, 세트로 검색",
       searchPlaceholderBox: "박스 이름 또는 세트 코드로 검색",
       searchLabel: "이 목록 검색",
@@ -757,4 +772,11 @@ export function localizedCardLanguage(language: string, locale: Locale): string 
   const raw = (language ?? "").trim();
   const canonical = CARD_LANGUAGE_ALIASES[raw.toLowerCase().replace(/[-_\s]/g, "")];
   return canonical ? copy[locale].languages[canonical] : raw;
+}
+
+// Locale-independent short label for filter chips; unknown codes keep the raw value.
+export function localizedCardLanguageShort(language: string): string {
+  const raw = (language ?? "").trim();
+  const canonical = CARD_LANGUAGE_ALIASES[raw.toLowerCase().replace(/[-_\s]/g, "")];
+  return canonical ? cardLanguageShort[canonical] : raw;
 }

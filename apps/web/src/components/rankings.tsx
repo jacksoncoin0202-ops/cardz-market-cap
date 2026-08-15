@@ -8,7 +8,7 @@ import { CardImage } from "./card-image";
 import { ExploreBar, SortHeader } from "./explore-bar";
 import { PeriodSelector } from "./period-selector";
 import { Sparkline } from "./sparkline";
-import { cardLanguages, copy, localizedCardLanguage } from "@/lib/i18n";
+import { cardLanguages, copy, localizedCardLanguage, localizedCardLanguageShort } from "@/lib/i18n";
 import { formatDeltaMoney, formatInteger, formatMetricInteger, formatMetricMoney, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
 import { cardMatchesQuery, nextExploreSort, normaliseCardSort, sortCards } from "@/lib/list-explore";
 import { useMarketSettings, type PrintLangFilter } from "@/lib/use-market-settings";
@@ -137,10 +137,11 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                   key={lang}
                   type="button"
                   aria-pressed={activeLang === lang}
+                  aria-label={lang === "all" ? t.labels.languageFilterAll : localizedCardLanguage(lang, locale)}
                   onClick={() => update({ printLang: lang })}
                 >
                   {activeLang === lang && <span className="lang-filter-pill" aria-hidden="true" />}
-                  <span>{lang === "all" ? t.labels.languageFilterAll : localizedCardLanguage(lang, locale)}</span>
+                  <span>{lang === "all" ? t.labels.languageFilterAllShort : localizedCardLanguageShort(lang)}</span>
                 </button>
               ))}
             </div>

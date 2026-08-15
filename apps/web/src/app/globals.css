@@ -1529,7 +1529,7 @@ html.theme-transitions .site-footer {
   .ranking-heading .period-selector,
   .detail-period-row .period-selector { align-self: stretch; }
   .ranking-heading .period-selector button,
-  .detail-period-row .period-selector button { flex: 1 1 calc(33.33% - 4px); min-width: 0; padding-inline: 8px; white-space: nowrap; }
+  .detail-period-row .period-selector button { flex: 1 1 0; min-width: 0; padding-inline: 8px; white-space: nowrap; }
   .heatmap-frame { border-radius: 18px; }
   .heatmap-footer { align-items: flex-start; flex-direction: column; gap: 3px; }
   .heatmap-legend { flex-wrap: wrap; gap: 7px 12px; }
@@ -1538,6 +1538,15 @@ html.theme-transitions .site-footer {
   .ranking-heading h2 { font-size: 24px; }
   .ranking-heading .period-selector,
   .detail-period-row .period-selector { width: 100%; max-width: none; }
+  /* Ranking controls: one compact spec so every chip row shares the same size. */
+  .ranking-heading .period-selector { flex-wrap: nowrap; padding: 3px; border-radius: 12px; gap: 2px; }
+  .ranking-heading .period-selector button { min-height: 32px; font-size: 11px; padding-inline: 4px; }
+  .ranking-heading .lang-filter { width: 100%; flex-wrap: nowrap; padding: 3px; border-radius: 12px; gap: 2px; }
+  .ranking-heading .lang-filter button { flex: 1 1 0; min-width: 0; min-height: 32px; font-size: 11px; padding-inline: 4px; white-space: nowrap; }
+  .explore-sort-chips { flex-wrap: nowrap; gap: 4px; }
+  .explore-sort-chips button { min-height: 32px; font-size: 11px; padding-inline: 10px; }
+  .explore-search { min-height: 40px; }
+  .explore-search input { font-size: 13px; }
   .rankings-section { min-height: 0; padding-top: 24px; }
   .sheet-card-layout { display: block; }
   .sheet-image { height: 280px; min-height: 0; margin-bottom: 18px; }
