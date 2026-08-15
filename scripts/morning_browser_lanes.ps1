@@ -76,11 +76,15 @@ try {
     $done = (Get-Date).ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'")
     "[$done] morning browser chain done cdp=$cdpExit http=$httpExit collect=$collectExit discover=$discoverExit accept=$acceptExit publish=$publishExit" | Tee-Object -FilePath $log -Append
     Copy-Item -Force $log $crashLog -ErrorAction SilentlyContinue
-    if ($cdpExit -ne 0 -or $collectExit -ne 0 -or $discoverExit -ne 0 -or $acceptExit -ne 0 -or $publishExit -ne 0) { exit 1 }
-    exit 0
+    $chainExit = 0
+    if ($cdpExit -ne 0 -or $collectExit -ne 0 -or $discoverExit -ne 0 -or $acceptExit -ne 0 -or $publishExit -ne 0) { $chainExit = 1 }
+    & $py -X utf8 -u "scripts\notify_hermes.py" chain --chain morning --status "cdp=$cdpExit http=$httpExit browser=$browserExit discover=$discoverExit accept=$acceptExit publish=$publishExit" --exit-code $chainExit --log $log --notify-on always *>> $log
+    & $py -X utf8 -u "scripts\notify_hermes.py" digest *>> $log
+    exit $chainExit
 } catch {
     $msg = "[$stamp] morning chain CRASH: $($_.Exception.Message)"
     $msg | Tee-Object -FilePath $log -Append
     $msg | Out-File -FilePath $crashLog -Append
+    & $py -X utf8 -u "scripts\notify_hermes.py" chain --chain morning --status "CRASH (see log)" --exit-code 1 --log $log --notify-on always *>> $log
     exit 1
 }

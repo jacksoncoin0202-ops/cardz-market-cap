@@ -50,5 +50,7 @@ if ($acceptExit -eq 0) {
 
 $done = (Get-Date).ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'")
 "[$done] refresh+publish slot done accept=$acceptExit publish=$publishExit" | Tee-Object -FilePath $log -Append
-if ($acceptExit -ne 0 -or $publishExit -ne 0) { exit 1 }
-exit 0
+$chainExit = 0
+if ($acceptExit -ne 0 -or $publishExit -ne 0) { $chainExit = 1 }
+& $py -X utf8 -u "scripts\notify_hermes.py" chain --chain refresh --status "accept=$acceptExit publish=$publishExit" --exit-code $chainExit --log $log --notify-on failure *>> $log
+exit $chainExit
