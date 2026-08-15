@@ -9,6 +9,7 @@
 # 兩個 slot 之間冇 collector 行過，所以 DB 冇新嘢，accept 出返同一個 ranking sha，
 # daily_public_release 個 no-change 閘就會 fire，零 commit 零部署（實測 106 秒收工）。
 # 即係朝鏈正常嗰日，呢兩個 slot 唔會令個站更新多過一次。
+param([switch]$Scheduled)
 $ErrorActionPreference = "Continue"
 $PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
 $env:CARDZ_DAILY_CHAIN = "1"
@@ -21,13 +22,26 @@ $log = Join-Path $logDir "refresh-$stamp.log"
 
 Set-Location $repo
 "[$stamp] refresh+publish slot start" | Tee-Object -FilePath $log -Append
+function Test-LaunchedByTaskScheduler {
+    try {
+        $schedulePid = [int](Get-CimInstance Win32_Service -Filter "Name='Schedule'" -ErrorAction Stop).ProcessId
+        if ($schedulePid -le 0) { return $false }
+        $me = Get-CimInstance Win32_Process -Filter "ProcessId=$PID" -ErrorAction Stop
+        return ([int]$me.ParentProcessId -eq $schedulePid)
+    } catch { return $false }
+}
+$launchedByTS = Test-LaunchedByTaskScheduler
+$isScheduled = $Scheduled.IsPresent -or $launchedByTS
+$launcher = if ($launchedByTS) { "task-scheduler" } elseif ($Scheduled) { "switch-override" } else { "manual" }
+"[$stamp] launcher=$launcher scheduled=$isScheduled" | Tee-Object -FilePath $log -Append
+$releaseArgs = @(); if ($isScheduled) { $releaseArgs += "-Scheduled" }
 
 & $py -X utf8 -u "pipelines\operator_control.py" daily-accept *>> $log
 $acceptExit = $LASTEXITCODE
 
 # daily-accept 紅就唔發佈：ranking generation 可能寫到一半。
 if ($acceptExit -eq 0) {
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "daily_public_release.ps1") *>> $log
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "daily_public_release.ps1") @releaseArgs *>> $log
     $publishExit = $LASTEXITCODE
 } else {
     "[$stamp] daily-accept failed exit=$acceptExit; public release skipped" | Tee-Object -FilePath $log -Append

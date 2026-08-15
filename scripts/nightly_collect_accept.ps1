@@ -2,6 +2,7 @@
 # Registered as Task Scheduler job CARDZ-036-Nightly-Collect-Accept.
 # Browser-dependent lanes (pc_ebay_sales, en_price_ref) are deliberately
 # NOT here: they need a headed Chrome session and run in the morning slot.
+param([switch]$Scheduled)
 $ErrorActionPreference = "Continue"
 $PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
 $env:CARDZ_DAILY_CHAIN = "1"
@@ -17,6 +18,18 @@ Set-Location $repo
 try {
     "[$stamp] nightly chain start" | Tee-Object -FilePath $log -Append
     Copy-Item -Force $log $crashLog -ErrorAction SilentlyContinue
+    function Test-LaunchedByTaskScheduler {
+        try {
+            $schedulePid = [int](Get-CimInstance Win32_Service -Filter "Name='Schedule'" -ErrorAction Stop).ProcessId
+            if ($schedulePid -le 0) { return $false }
+            $me = Get-CimInstance Win32_Process -Filter "ProcessId=$PID" -ErrorAction Stop
+            return ([int]$me.ParentProcessId -eq $schedulePid)
+        } catch { return $false }
+    }
+    $launchedByTS = Test-LaunchedByTaskScheduler
+    $isScheduled = $Scheduled.IsPresent -or $launchedByTS
+    $launcher = if ($launchedByTS) { "task-scheduler" } elseif ($Scheduled) { "switch-override" } else { "manual" }
+    "[$stamp] launcher=$launcher scheduled=$isScheduled" | Tee-Object -FilePath $log -Append
 
     & $py -X utf8 -u "pipelines\collect_control.py" incr --adapter http *>> $log
     $collectExit = $LASTEXITCODE

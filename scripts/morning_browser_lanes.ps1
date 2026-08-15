@@ -5,6 +5,7 @@
 # (12h). A 19:00 JST catch-up is still "ok" at 03:30, then due at 09:30 with
 # nobody collecting until the next night. 2026-08-15: GemRate 1368 + SNK
 # 701/700 sat due all day. HTTP incr runs even if CDP is down.
+param([switch]$Scheduled)
 $ErrorActionPreference = "Continue"
 $PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
 $env:CARDZ_DAILY_CHAIN = "1"
@@ -20,6 +21,19 @@ Set-Location $repo
 try {
     "[$stamp] morning browser chain start" | Tee-Object -FilePath $log -Append
     Copy-Item -Force $log $crashLog -ErrorAction SilentlyContinue
+    function Test-LaunchedByTaskScheduler {
+        try {
+            $schedulePid = [int](Get-CimInstance Win32_Service -Filter "Name='Schedule'" -ErrorAction Stop).ProcessId
+            if ($schedulePid -le 0) { return $false }
+            $me = Get-CimInstance Win32_Process -Filter "ProcessId=$PID" -ErrorAction Stop
+            return ([int]$me.ParentProcessId -eq $schedulePid)
+        } catch { return $false }
+    }
+    $launchedByTS = Test-LaunchedByTaskScheduler
+    $isScheduled = $Scheduled.IsPresent -or $launchedByTS
+    $launcher = if ($launchedByTS) { "task-scheduler" } elseif ($Scheduled) { "switch-override" } else { "manual" }
+    "[$stamp] launcher=$launcher scheduled=$isScheduled" | Tee-Object -FilePath $log -Append
+    $releaseArgs = @(); if ($isScheduled) { $releaseArgs += "-Scheduled" }
 
     # 收唔到貨 ≠ 出街數據壞。舊版一係 CDP 起唔到、一係 discover/e2e S0 abort，
     # 就連 daily-accept 同發佈都唔行。2026-08-13 朝鏈就係咁：pending activation
@@ -52,7 +66,7 @@ try {
     $acceptExit = $LASTEXITCODE
 
     if ($acceptExit -eq 0) {
-        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "daily_public_release.ps1") *>> $log
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "daily_public_release.ps1") @releaseArgs *>> $log
         $publishExit = $LASTEXITCODE
     } else {
         "[$stamp] daily-accept failed exit=$acceptExit; public release skipped" | Tee-Object -FilePath $log -Append

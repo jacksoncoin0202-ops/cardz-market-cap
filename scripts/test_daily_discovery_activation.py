@@ -153,6 +153,20 @@ assert http_at < cdp_if_at
 assert "incr --adapter browser --ensure-browser" in morning
 print("POSITIVE_OK morning HTTP incr runs even if CDP is down")
 
+sh = (ROOT / "scripts" / "daily_public_release.sh").read_text(encoding="utf-8")
+ps1 = (ROOT / "scripts" / "daily_public_release.ps1").read_text(encoding="utf-8-sig")
+assert "--scheduled) STAMP_ARGS+=(--scheduled)" in sh
+assert "stamp_autonomy" in sh
+assert 'env "CARDZ_DAILY_CHAIN=' in ps1
+for wrapper_name in (
+    "morning_browser_lanes.ps1",
+    "refresh_publish.ps1",
+    "nightly_collect_accept.ps1",
+):
+    wrapper = (ROOT / "scripts" / wrapper_name).read_text(encoding="utf-8-sig")
+    assert "Test-LaunchedByTaskScheduler" in wrapper, wrapper_name
+print("POSITIVE_OK autonomy plumbing: --scheduled + env prefix + TS parent detect")
+
 os.environ["CARDZ_DAILY_CHAIN"] = "1"
 try:
     assert D.scheduled_daily_chain() is True

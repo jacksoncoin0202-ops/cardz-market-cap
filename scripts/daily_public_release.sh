@@ -3,6 +3,25 @@ set -euo pipefail
 export GIT_TERMINAL_PROMPT=0
 export GCM_INTERACTIVE=Never
 
+# --scheduled：由 daily_public_release.ps1 -Scheduled 帶落嚟。argv token 先係
+# 自動成功憑證；env CARDZ_DAILY_CHAIN 只係陪跑（stamp 對數）。
+STAMP_ARGS=()
+for arg in "$@"; do
+  case "$arg" in
+    --scheduled) STAMP_ARGS+=(--scheduled) ;;
+    *) printf 'daily_public_release.sh: unknown arg %s\n' "$arg" >&2; exit 2 ;;
+  esac
+done
+stamp_autonomy() {
+  local rc=0
+  python3 -X utf8 "$SOURCE_REPO/scripts/stamp_daily_chain_autonomy.py" \
+    --generation "$1" --generated-at "$2" --outcome "$3" "${STAMP_ARGS[@]}" || rc=$?
+  if ((rc != 0)); then
+    printf 'daily release: autonomy stamp FAILED rc=%s outcome=%s generation=%s (publish itself succeeded)\n' "$rc" "$3" "$1" >&2
+  fi
+  return "$rc"
+}
+
 SOURCE_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RELEASE_REPO="/home/jackson0202/cardz-market-cap-release-daily"
 LOCK_FILE="/tmp/cardz-market-cap-daily-release.lock"
@@ -141,9 +160,13 @@ if ((${#changed[@]} == 0)); then
   live_generation="$(PUBLIC_HEALTH="$live" python3 -c 'import json,os; print(json.loads(os.environ["PUBLIC_HEALTH"]).get("generation",""))' 2>/dev/null || true)"
   if [[ "$live_generation" == "$generation" ]]; then
     generated_at="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["generation"]["generatedAt"])' "$RELEASE_REPO/data/public/seed-snapshot.json")"
-    python3 -X utf8 "$SOURCE_REPO/scripts/stamp_daily_chain_autonomy.py" \
-      --generation "$generation" --generated-at "$generated_at" --outcome no-change || true
+    stamp_rc=0
+    stamp_autonomy "$generation" "$generated_at" no-change || stamp_rc=$?
     printf '{"dailyRelease":"no-change","generation":"%s"}\n' "$generation"
+    if ((stamp_rc != 0)); then
+      printf 'autonomy stamp failed rc=%s (release itself succeeded)\n' "$stamp_rc" >&2
+      exit 3
+    fi
     exit 0
   fi
   printf 'release repo already carries %s but live serves %s\n' "$generation" "${live_generation:-<unreachable>}" >&2
@@ -181,9 +204,13 @@ for _ in $(seq 1 60); do
     # 由頭到尾冇 set 過，永遠係 "local"，所以舊 gate 恆假：每次都白等足 10 分鐘
     # 然後報 fail，明明個站已經更新咗。
     if PUBLIC_HEALTH="$body" python3 -c 'import json,os,sys; h=json.loads(os.environ["PUBLIC_HEALTH"]); sys.exit(0 if h.get("status")=="ok" and h.get("generation")==sys.argv[1] and h.get("generatedAt")==sys.argv[2] else 1)' "$generation" "$generated_at"; then
-      python3 -X utf8 "$SOURCE_REPO/scripts/stamp_daily_chain_autonomy.py" \
-        --generation "$generation" --generated-at "$generated_at" --outcome published || true
+      stamp_rc=0
+      stamp_autonomy "$generation" "$generated_at" published || stamp_rc=$?
       printf '%s\n' "$body"
+      if ((stamp_rc != 0)); then
+        printf 'autonomy stamp failed rc=%s (release itself succeeded)\n' "$stamp_rc" >&2
+        exit 3
+      fi
       exit 0
     fi
   fi
