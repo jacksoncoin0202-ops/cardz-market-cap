@@ -33,11 +33,13 @@ services:
       HOSTNAME: "0.0.0.0"
       MARKET_DATA_SNAPSHOT_PATH: /app/data/public/seed-snapshot.json
     volumes:
-      # 卡圖／seed／BOX sidecar 唔靠 image 內嗰份。冇掛卡圖 /market-assets/* 會 404
+      # 卡圖／seed／BOX sidecar／editorial overlay 唔靠 image 內嗰份。冇掛卡圖 /market-assets/* 會 404
       # （/api/health 唔會察覺 —— 佢淨係驗 snapshot 讀唔讀到）。
       - ./data/public/market-assets:/app/data/public/market-assets:ro
       - ./data/public/seed-snapshot.json:/app/data/public/seed-snapshot.json:ro
       - ./data/public/box-subset.json:/app/data/public/box-subset.json:ro
+      - ./data/editorial/card-names-by-id.json:/app/data/editorial/card-names-by-id.json:ro
+      - ./data/editorial/sealed-stories.json:/app/data/editorial/sealed-stories.json:ro
     restart: unless-stopped
     healthcheck:
       test:

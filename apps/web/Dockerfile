@@ -44,6 +44,8 @@ ENV NODE_ENV=production \
 COPY --from=builder --chown=node:node /repo/apps/web/.next/standalone ./
 COPY --from=builder --chown=node:node /repo/data/public/seed-snapshot.json ./data/public/seed-snapshot.json
 COPY --from=builder --chown=node:node /repo/data/public/box-subset.json ./data/public/box-subset.json
+COPY --from=builder --chown=node:node /repo/data/editorial/card-names-by-id.json ./data/editorial/card-names-by-id.json
+COPY --from=builder --chown=node:node /repo/data/editorial/sealed-stories.json ./data/editorial/sealed-stories.json
 
 # data/public/market-assets / seed / box-subset 由 compose :ro volume 蓋過 image
 # 內後備檔。詳細原因見 .dockerignore 同 compose.yaml。

@@ -94,7 +94,7 @@ function slimWindows(windows: MarketCardView["windows"]): MarketCardView["window
 }
 
 function listCard(card: MarketCardView): MarketCardView {
-  const { name: _name, story: _story, priceUngradedReference: _ungraded, ...rest } = card;
+  const { story: _story, priceUngradedReference: _ungraded, ...rest } = card;
   return {
     ...rest,
     historyDaily: [],

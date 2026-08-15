@@ -41,6 +41,7 @@ export function cardMatchesQuery(card: MarketCardView, query: string, locale: Lo
   const needle = normaliseQuery(query);
   if (!needle) return true;
   return textHas(needle, card.officialName)
+    || textHas(needle, card.name?.[locale])
     || textHas(needle, card.collectorNumber)
     || textHas(needle, card.setName[locale])
     || textHas(needle, card.setName.en);

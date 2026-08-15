@@ -69,11 +69,16 @@ function DeltaChip({ delta }: { delta: string }) {
   );
 }
 
-function CardIdentity({ card, unavailable }: { card: MarketCardView; unavailable: string }) {
-  const name = card.officialName || unavailable;
+function displayCardName(card: MarketCardView, locale: Locale, fallback: string): string {
+  if (locale === "en") return card.officialName || fallback;
+  return card.name?.[locale] || card.officialName || fallback;
+}
+
+function CardIdentity({ card, locale, unavailable }: { card: MarketCardView; locale: Locale; unavailable: string }) {
+  const name = displayCardName(card, locale, unavailable);
   return (
     <div className="ranking-card-identity">
-      <div className="ranking-thumb"><CardImage image={card.image} sizes="56px" alt={card.officialName ?? ""} /></div>
+      <div className="ranking-thumb"><CardImage image={card.image} sizes="56px" alt={name} /></div>
       <div className="ranking-name"><strong>{name}</strong></div>
     </div>
   );
@@ -189,7 +194,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                     className="ranking-row-link"
                     role="link"
                     tabIndex={0}
-                    aria-label={`#${card.viewRank} ${card.officialName || t.status.unavailable}`}
+                    aria-label={`#${card.viewRank} ${displayCardName(card, locale, t.status.unavailable)}`}
                     onClick={(event) => {
                       // 入面嘅 <a>/<button>（卡名）自己處理，唔好 double navigate
                       if ((event.target as HTMLElement).closest("a,button")) return;
@@ -203,7 +208,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                     }}
                   >
                     <td className="rank-cell" data-rank={card.viewRank > 0 ? String(card.viewRank) : undefined}>{card.viewRank > 0 ? card.viewRank : t.labels.awaitingFreshPrice}</td>
-                    <td><Link href={cardUrl}><CardIdentity card={card} unavailable={t.status.unavailable} /></Link></td>
+                    <td><Link href={cardUrl}><CardIdentity card={card} locale={locale} unavailable={t.status.unavailable} /></Link></td>
                     <td className="collector-cell">{card.collectorNumber}</td>
                     <td className="numeric price-cell">
                       <span className="price-now">{formatMetricMoney(card.pricePsa10, currency, snapshot.rates, locale)}</span>
@@ -236,12 +241,12 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
             {visibleCards.map((card) => (
               <Link className="mobile-rank-card" href={href(`/card/${card.id}`)} key={card.id}>
                 <span className="mobile-rank-index">{card.viewRank > 0 ? card.viewRank : t.labels.awaitingFreshPrice}</span>
-                <div className="ranking-thumb"><CardImage image={card.image} sizes="56px" alt={card.officialName ?? ""} /></div>
+                <div className="ranking-thumb"><CardImage image={card.image} sizes="56px" alt={displayCardName(card, locale, t.status.unavailable)} /></div>
                 <div className="mobile-card-info">
                   <span className="mobile-card-sub">
                     <span className="mobile-card-number">{card.collectorNumber}</span>
                   </span>
-                  <strong className="mobile-card-name">{card.officialName || t.status.unavailable}</strong>
+                  <strong className="mobile-card-name">{displayCardName(card, locale, t.status.unavailable)}</strong>
                   {card.marketCap.value !== null && (card.marketCap.status === "ready" || card.marketCap.status === "stale") && (
                     <span className="mobile-card-sub">
                       <span className="mobile-card-cap">{formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true)}</span>
