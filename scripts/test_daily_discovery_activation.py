@@ -166,6 +166,18 @@ for wrapper_name in (
     wrapper = (ROOT / "scripts" / wrapper_name).read_text(encoding="utf-8-sig")
     assert "Test-LaunchedByTaskScheduler" in wrapper, wrapper_name
 print("POSITIVE_OK autonomy plumbing: --scheduled + env prefix + TS parent detect")
+assert (ROOT / "scripts" / "notify_hermes.py").is_file()
+nightly = (ROOT / "scripts" / "nightly_collect_accept.ps1").read_text(encoding="utf-8-sig")
+refresh = (ROOT / "scripts" / "refresh_publish.ps1").read_text(encoding="utf-8-sig")
+assert 'notify_hermes.py" chain --chain nightly' in nightly
+assert "--notify-on failure" in nightly
+assert 'notify_hermes.py" chain --chain morning' in morning
+assert "--notify-on always" in morning
+assert 'notify_hermes.py" digest' in morning
+assert 'notify_hermes.py" chain --chain refresh' in refresh
+assert "CRASH (see log)" in nightly and "CRASH (see log)" in morning
+assert "notify_release" in sh
+print("POSITIVE_OK Hermes notify call sites present")
 
 os.environ["CARDZ_DAILY_CHAIN"] = "1"
 try:

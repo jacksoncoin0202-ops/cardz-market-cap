@@ -47,11 +47,14 @@ try {
     $done = (Get-Date).ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'")
     "[$done] nightly chain done collect=$collectExit discover=$discoverExit accept=$acceptExit" | Tee-Object -FilePath $log -Append
     Copy-Item -Force $log $crashLog -ErrorAction SilentlyContinue
-    if ($collectExit -ne 0 -or $discoverExit -ne 0 -or $acceptExit -ne 0) { exit 1 }
-    exit 0
+    $chainExit = 0
+    if ($collectExit -ne 0 -or $discoverExit -ne 0 -or $acceptExit -ne 0) { $chainExit = 1 }
+    & $py -X utf8 -u "scripts\notify_hermes.py" chain --chain nightly --status "collect=$collectExit discover=$discoverExit accept=$acceptExit" --exit-code $chainExit --log $log --notify-on failure *>> $log
+    exit $chainExit
 } catch {
     $msg = "[$stamp] nightly chain CRASH: $($_.Exception.Message)"
     $msg | Tee-Object -FilePath $log -Append
     $msg | Out-File -FilePath $crashLog -Append
+    & $py -X utf8 -u "scripts\notify_hermes.py" chain --chain nightly --status "CRASH (see log)" --exit-code 1 --log $log --notify-on failure *>> $log
     exit 1
 }

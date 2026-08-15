@@ -29,6 +29,21 @@ LOCK_FILE="/tmp/cardz-market-cap-daily-release.lock"
 exec 9>"$LOCK_FILE"
 flock -n 9
 
+NOTIFY_PY="$SOURCE_REPO/scripts/notify_hermes.py"
+RELEASE_STAGE="preflight"
+notify_release() {
+  if [[ -f "$NOTIFY_PY" ]]; then
+    python3 -X utf8 "$NOTIFY_PY" release "$@" || true
+  fi
+}
+on_release_exit() {
+  local rc=$?
+  if (( rc != 0 )); then
+    notify_release --outcome failed --stage "$RELEASE_STAGE" --exit-code "$rc" --generation "${generation:-}"
+  fi
+}
+trap on_release_exit EXIT
+
 test -e "$RELEASE_REPO/.git"
 # 條鏈自己每次都會重新生成 data/public/seed-snapshot.json 同
 # data/public/market-assets/*.webp，所以嗰條路徑下面嘅殘留冇保留價值。
@@ -162,6 +177,7 @@ if ((${#changed[@]} == 0)); then
     generated_at="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["generation"]["generatedAt"])' "$RELEASE_REPO/data/public/seed-snapshot.json")"
     stamp_rc=0
     stamp_autonomy "$generation" "$generated_at" no-change || stamp_rc=$?
+    notify_release --outcome no-change --generation "$generation"
     printf '{"dailyRelease":"no-change","generation":"%s"}\n' "$generation"
     if ((stamp_rc != 0)); then
       printf 'autonomy stamp failed rc=%s (release itself succeeded)\n' "$stamp_rc" >&2
@@ -206,6 +222,7 @@ for _ in $(seq 1 60); do
     if PUBLIC_HEALTH="$body" python3 -c 'import json,os,sys; h=json.loads(os.environ["PUBLIC_HEALTH"]); sys.exit(0 if h.get("status")=="ok" and h.get("generation")==sys.argv[1] and h.get("generatedAt")==sys.argv[2] else 1)' "$generation" "$generated_at"; then
       stamp_rc=0
       stamp_autonomy "$generation" "$generated_at" published || stamp_rc=$?
+      notify_release --outcome published --generation "$generation"
       printf '%s\n' "$body"
       if ((stamp_rc != 0)); then
         printf 'autonomy stamp failed rc=%s (release itself succeeded)\n' "$stamp_rc" >&2
