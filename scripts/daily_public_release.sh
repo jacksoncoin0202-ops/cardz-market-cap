@@ -76,7 +76,8 @@ TEST_PY="/home/jackson0202/cardz-market-cap/.venv-backend/bin/python"
 test -x "$TEST_PY"
 # Diff against the last tree that PASSED the guards, not this run's ff.
 # A dead slot after ff used to leave CHANGED empty → every later slot skipped tests.
-TESTED_MARK="$RELEASE_REPO/.git/cardz-last-tested-head"
+# RELEASE_REPO 係 git worktree：.git 係 file，唔係目錄。
+TESTED_MARK="$(git -C "$RELEASE_REPO" rev-parse --absolute-git-dir)/cardz-last-tested-head"
 BASE="$(cat "$TESTED_MARK" 2>/dev/null || true)"
 git -C "$RELEASE_REPO" cat-file -e "${BASE:-nonexistent}^{commit}" 2>/dev/null || BASE="$BEFORE"
 CHANGED="$(git -C "$RELEASE_REPO" diff --name-only "$BASE" HEAD || true)"
@@ -103,6 +104,19 @@ git -C "$RELEASE_REPO" rev-parse HEAD > "$TESTED_MARK"
 # receipt 寫入 SOURCE 嘅 data/runtime（bake 個 CARDZ_REPO_ROOT 都係指 SOURCE）。
 "$TEST_PY" -X utf8 "$SOURCE_REPO/pipelines/pc_sale_title_quarantine.py"
 
+# BOX sidecar: SOURCE (fe-db) data/public/box-subset.json is the producer output.
+# No SOURCE file → keep whatever release git already carries (never publish empty /box).
+BOX_SRC="$SOURCE_REPO/data/public/box-subset.json"
+BOX_DST="$RELEASE_REPO/data/public/box-subset.json"
+BOX_PREV="$(mktemp /tmp/cardz-box-prev.XXXXXX.json)"
+git -C "$RELEASE_REPO" show HEAD:data/public/box-subset.json > "$BOX_PREV" 2>/dev/null || : > "$BOX_PREV"
+if [[ -s "$BOX_SRC" ]]; then
+  python3 -c 'import json,sys; json.load(open(sys.argv[1], encoding="utf-8"))' "$BOX_SRC"
+  cp "$BOX_SRC" "$BOX_DST"
+else
+  printf 'BOX sidecar missing in SOURCE; publishing previous sidecar\n' >&2
+fi
+
 # Bake 喺 release checkout 跑。佢內建 prune 只識 PSA10 seed，會當 BOX sidecar
 # 897 張圖係 stale 搬走。037 sync 跟住又要 SOURCE（fe-db）有呢 897 張——
 # BOX 圖只活喺 release git，從來冇入 PSA10 source。2026-08-15 朝鏈／11:30
@@ -119,7 +133,9 @@ publish_assets() {
     --destination "$RELEASE_REPO/data/public/market-assets"
   python3 -X utf8 "$RELEASE_REPO/scripts/validate_daily_release.py" \
     --snapshot "$RELEASE_REPO/data/public/seed-snapshot.json" \
-    --assets "$RELEASE_REPO/data/public/market-assets"
+    --assets "$RELEASE_REPO/data/public/market-assets" \
+    --box "$BOX_DST" \
+    --box-previous "$BOX_PREV"
 }
 
 asset_attempt=1

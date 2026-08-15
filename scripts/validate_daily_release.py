@@ -30,6 +30,76 @@ SELF_TEST_CARDS = 1322
 SELF_TEST_COMPLETE = MINIMUM_COMPLETE_COLLECTOR_NUMBERS
 TARGET_ID = "cmc_f698284d7bc333408782e4c6"
 TARGET_NUMBER = "170/181"
+BOX_MAX_ASOF_AGE_HOURS = 36.0
+BOX_COLLISION_BASELINE = ROOT / "data" / "policy" / "box-image-collision-baseline.json"
+
+
+def validate_box(
+    box: dict[str, Any],
+    previous: dict[str, Any] | None,
+    asset_root: Path,
+    now: datetime,
+) -> dict[str, Any]:
+    products = box.get("products")
+    if not isinstance(products, list) or not products:
+        raise AssertionError("box sidecar has no products")
+    ids = [str(p.get("id") or "") for p in products]
+    if any(not i for i in ids) or len(set(ids)) != len(ids):
+        raise AssertionError("box ids missing or duplicated")
+    prev_count = len((previous or {}).get("products") or []) if previous else 0
+    if len(products) < prev_count:
+        raise AssertionError(f"box product count regressed: {len(products)} < {prev_count}")
+    as_of = str(box.get("asOf") or "")
+    if not as_of:
+        raise AssertionError("box asOf missing")
+    age_h = (now - datetime.fromisoformat(as_of.replace("Z", "+00:00"))).total_seconds() / 3600.0
+    if age_h < -1 or age_h > BOX_MAX_ASOF_AGE_HOURS:
+        raise AssertionError(f"box asOf {as_of} is {age_h:.1f}h old (> {BOX_MAX_ASOF_AGE_HOURS}h)")
+    missing: list[str] = []
+    by_sha: dict[str, list[str]] = {}
+    imaged = priced = 0
+    for p in products:
+        image = p.get("image") or {}
+        src = image.get("src")
+        if isinstance(src, str) and src.startswith("/market-assets/"):
+            imaged += 1
+            name = src.rsplit("/", 1)[-1]
+            by_sha.setdefault(str(image.get("sha256") or name.split(".")[0]), []).append(str(p["id"]))
+            for candidate in (name, name.replace(".webp", "_200.webp"), name.replace(".webp", "_600.webp")):
+                if not (asset_root / candidate).is_file():
+                    missing.append(candidate)
+        if (p.get("price") or {}).get("usd") is not None:
+            priced += 1
+    if missing:
+        raise AssertionError(f"missing box assets: {sorted(set(missing))[:10]}")
+    coverage = box.get("coverage") or {}
+    if coverage and (
+        int(coverage.get("total") or -1) != len(products)
+        or int(coverage.get("imaged") or -1) != imaged
+        or int(coverage.get("priced") or -1) != priced
+    ):
+        raise AssertionError(
+            f"box coverage {coverage} != counted total={len(products)} priced={priced} imaged={imaged}"
+        )
+    collisions = {s: sorted(v) for s, v in by_sha.items() if len(v) > 1}
+    baseline: dict[str, list[str]] = {}
+    if BOX_COLLISION_BASELINE.is_file():
+        baseline = {
+            k: sorted(v)
+            for k, v in (json.loads(BOX_COLLISION_BASELINE.read_text(encoding="utf-8")).get("collisions") or {}).items()
+        }
+    unknown = {s: v for s, v in collisions.items() if baseline.get(s) != v}
+    if unknown or len(collisions) > len(baseline):
+        raise AssertionError(f"box image sha shared by multiple ids beyond baseline: {list(unknown.items())[:5]}")
+    return {
+        "boxProducts": len(products),
+        "boxPriced": priced,
+        "boxImaged": imaged,
+        "boxAsOf": as_of,
+        "boxAgeHours": round(age_h, 1),
+        "boxPreviousProducts": prev_count,
+        "boxShaCollisions": len(collisions),
+    }
 
 
 def validate(snapshot: dict[str, Any], asset_root: Path, now: datetime) -> dict[str, Any]:
@@ -235,11 +305,54 @@ def self_test() -> None:
             continue
         raise AssertionError(f"negative self-test did not fire: {label}")
 
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as folder:
+        assets = Path(folder)
+        sha = "a" * 64
+        for suffix in ("", "_200", "_600"):
+            (assets / f"{sha}{suffix}.webp").write_bytes(b"webp")
+        box = {
+            "asOf": now.isoformat().replace("+00:00", "Z"),
+            "coverage": {"total": 1, "priced": 1, "imaged": 1},
+            "products": [
+                {
+                    "id": "optcg-en-op-01-booster-box-std",
+                    "price": {"usd": 1.0},
+                    "image": {"src": f"/market-assets/{sha}.webp", "sha256": sha},
+                }
+            ],
+        }
+        validate_box(box, None, assets, now)
+        print("POSITIVE_OK box sidecar validates")
+        stale = json.loads(json.dumps(box))
+        stale["asOf"] = (now - timedelta(hours=48)).isoformat().replace("+00:00", "Z")
+        box_cases = [
+            ("box-stale-asof", stale, None),
+            (
+                "box-count-regression",
+                box,
+                {"products": [{"id": "a"}, {"id": "b"}]},
+            ),
+        ]
+        missing_600 = json.loads(json.dumps(box))
+        (assets / f"{sha}_600.webp").unlink()
+        box_cases.append(("box-missing-asset", missing_600, None))
+        for label, current, previous in box_cases:
+            try:
+                validate_box(current, previous, assets, now)
+            except AssertionError:
+                print(f"NEGATIVE_OK {label} fixture was rejected")
+                continue
+            raise AssertionError(f"negative self-test did not fire: {label}")
+
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--snapshot", type=Path)
     parser.add_argument("--assets", type=Path)
+    parser.add_argument("--box", type=Path, help="data/public/box-subset.json in the release tree")
+    parser.add_argument("--box-previous", type=Path, help="HEAD copy of box-subset.json (may be empty)")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
@@ -248,7 +361,14 @@ def main() -> int:
         if args.assets is None:
             parser.error("--assets is required with --snapshot")
         snapshot = json.loads(args.snapshot.read_text(encoding="utf-8"))
-        print(json.dumps(validate(snapshot, args.assets, datetime.now(timezone.utc)), indent=2))
+        report = validate(snapshot, args.assets, datetime.now(timezone.utc))
+        if args.box:
+            box = json.loads(args.box.read_text(encoding="utf-8"))
+            previous = None
+            if args.box_previous and args.box_previous.is_file() and args.box_previous.stat().st_size > 0:
+                previous = json.loads(args.box_previous.read_text(encoding="utf-8"))
+            report.update(validate_box(box, previous, args.assets, datetime.now(timezone.utc)))
+        print(json.dumps(report, indent=2))
     return 0
 
 

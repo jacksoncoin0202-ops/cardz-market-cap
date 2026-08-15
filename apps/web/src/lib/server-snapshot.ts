@@ -142,14 +142,42 @@ async function repoDataPath(relativePath: string): Promise<string> {
   return resolve(repoRoot, relativePath);
 }
 
+export interface BoxSidecarHealth {
+  status: "ok" | "missing" | "degraded";
+  asOf: string | null;
+  ageHours: number | null;
+  error: string | null;
+}
+
 let boxSidecarPromise: Promise<SealedViewBlock | undefined> | null = null;
+let boxSidecarState: BoxSidecarHealth = { status: "missing", asOf: null, ageHours: null, error: null };
+
+export function boxSidecarHealth(): BoxSidecarHealth {
+  const asOf = boxSidecarState.asOf;
+  const parsed = asOf ? Date.parse(asOf) : Number.NaN;
+  const ageHours = Number.isFinite(parsed) ? Math.round(((Date.now() - parsed) / 36e5) * 10) / 10 : null;
+  return { ...boxSidecarState, ageHours };
+}
 
 async function readBoxSidecar(): Promise<SealedViewBlock | undefined> {
   const { readFile } = await import("node:fs/promises");
   try {
     const raw = JSON.parse(await readFile(await repoDataPath(BOX_SIDECAR_PATH), "utf8")) as BoxSidecarBlock;
-    return boxBlockView(raw);
-  } catch {
+    const view = boxBlockView(raw);
+    if (!view) {
+      boxSidecarState = { status: "degraded", asOf: raw?.asOf ?? null, ageHours: null, error: "sidecar has no products" };
+      return undefined;
+    }
+    boxSidecarState = { status: "ok", asOf: view.asOf, ageHours: null, error: null };
+    return view;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException)?.code;
+    boxSidecarState = {
+      status: code === "ENOENT" ? "missing" : "degraded",
+      asOf: null,
+      ageHours: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
     return undefined;
   }
 }

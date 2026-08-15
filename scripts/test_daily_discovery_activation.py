@@ -184,6 +184,14 @@ assert "preflight_daily_chain.ps1" in nightly
 assert "preflight_daily_chain.ps1" in morning
 assert "preflight_daily_chain.ps1" in refresh
 print("POSITIVE_OK preflight wired into three wrappers")
+assert "sealed_daily.py" in nightly
+assert "sealed_snk" in nightly
+assert "sealed_yahoo" in nightly
+assert "sealed_daily.py" in morning
+assert "sealed_pc" in morning
+assert "rev-parse --absolute-git-dir" in sh
+assert "--box" in sh
+print("POSITIVE_OK BOX daily wiring + TESTED_MARK uses git-dir")
 
 os.environ["CARDZ_DAILY_CHAIN"] = "1"
 try:
