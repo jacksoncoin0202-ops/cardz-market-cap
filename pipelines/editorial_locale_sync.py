@@ -13,11 +13,12 @@ id，寫好嘅故事即刻孤立。實測 100 條故事得 50 條仲對得返現
 內容係做咗嘢但接唔返。`catalog_variant_locale` 用 `variant_id` 做 key，
 唔會隨 catalog 世代漂。
 
-## 呢個檔淨係灌翻譯，唔灌英文
+## 舊路徑淨係灌翻譯；rewrite 路徑可以灌 en + ko
 
-`locale_code='en'` 由 `pipelines/g10_research_ingest.py` 負責，內容係 G10
-`summary_en.json` 原文（中位數 2,544 字）。呢度只寫 zhTW / zhCN / ja，
-內容係嗰篇原文開場段嘅譯文。
+舊 `temp/translate-out-*.json` 仍然只寫 zhTW / zhCN / ja。
+`temp/i18n-rewrite/out/*.json`（五語 `stories`）連 `en` / `ko` 一齊灌。
+`locale_code='en'` 嘅 G10 研究原文仍由 `g10_research_ingest.py` 負責首次入庫；
+rewrite 係覆寫出街導言，唔係再跑研究 ingest。
 
 英文長、譯文短，係故意嘅：`packages/market-data/src/validate.ts:284` 要四語
 互不相同，而前端詳情頁食嘅係一段可讀嘅導言唔係成篇研究。出 snapshot 嗰陣
@@ -63,6 +64,7 @@ DEFAULT_REPORT_OUT = ROOT / "temp" / "editorial-locale-sync-report.json"
 
 SOURCE_CODE = "editorial_locale"
 TRANSLATED_LOCALES = ("zhTW", "zhCN", "ja")
+FIVE_LOCALES = ("en", "zhTW", "zhCN", "ja", "ko")
 MIN_CHARS = 80
 # `catalog_variant_locale.market_story` 係 MySQL TEXT
 MAX_STORY_BYTES = 65535
@@ -100,18 +102,26 @@ def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def read_translations(row: Mapping[str, Any]) -> dict[str, str]:
+def row_locales(row: Mapping[str, Any]) -> tuple[str, ...]:
+    nested = row.get("stories") if isinstance(row.get("stories"), Mapping) else None
+    if nested and any(nested.get(locale) for locale in ("en", "ko")):
+        return FIVE_LOCALES
+    return TRANSLATED_LOCALES
+
+
+def read_translations(row: Mapping[str, Any], locales: Sequence[str] | None = None) -> dict[str, str]:
     """容忍三種寫法，但唔容忍缺語言。
 
     分批派工出去，回嚟嘅 key 有機會係 `translations`、`stories`，或者三個
     locale 直接攤平喺頂層。三種都收，之後統一驗。
     """
 
+    wanted = tuple(locales) if locales else row_locales(row)
     for key in ("translations", "stories"):
         nested = row.get(key)
         if isinstance(nested, Mapping):
-            return {locale: nested.get(locale) for locale in TRANSLATED_LOCALES}  # type: ignore[misc]
-    return {locale: row.get(locale) for locale in TRANSLATED_LOCALES}  # type: ignore[misc]
+            return {locale: nested.get(locale) for locale in wanted}  # type: ignore[misc]
+    return {locale: row.get(locale) for locale in wanted}  # type: ignore[misc]
 
 
 def defect(variant_id: int, stories: Mapping[str, Any], english: str | None) -> str | None:
@@ -136,6 +146,33 @@ def defect(variant_id: int, stories: Mapping[str, Any], english: str | None) -> 
     if english is not None and english.strip() in set(trimmed.values()):
         return "有一語同英文原文完全一樣"
 
+    for locale in ("zhTW", "zhCN"):
+        hit = COLLOQUIAL_ZH.search(trimmed[locale])
+        if hit:
+            return f"{locale} 有口語字「{hit.group(0)}」，違反書面中文規矩"
+    if not KANA.search(trimmed["ja"]):
+        return "ja 冇任何假名，疑似中文貼錯格"
+    return None
+
+
+def defect_five(variant_id: int, stories: Mapping[str, Any]) -> str | None:
+    """五語 rewrite 閘。`variant_id` 只為錯誤訊息保留。"""
+
+    del variant_id
+    for locale in FIVE_LOCALES:
+        value = stories.get(locale)
+        if not isinstance(value, str) or not value.strip():
+            return f"{locale} 空白"
+        text = value.strip()
+        if len(text) < MIN_CHARS:
+            return f"{locale} 得 {len(text)} 字，短過 {MIN_CHARS}"
+        if len(text.encode("utf-8")) > MAX_STORY_BYTES:
+            return f"{locale} {len(text.encode('utf-8'))} bytes，爆 TEXT 上限"
+        if BANNED.search(text):
+            return f"{locale} 命中 validate.ts 禁詞"
+    trimmed = {locale: str(stories[locale]).strip() for locale in FIVE_LOCALES}
+    if len(set(trimmed.values())) != len(FIVE_LOCALES):
+        return "五語有重複"
     for locale in ("zhTW", "zhCN"):
         hit = COLLOQUIAL_ZH.search(trimmed[locale])
         if hit:
@@ -173,6 +210,12 @@ def load_batches(
             incoming[variant_id] = read_translations(row)
             observed_by_variant[variant_id] = observed_at
     return incoming, observed_by_variant, collisions, files
+
+
+def incoming_locales(stories: Mapping[str, Any]) -> tuple[str, ...]:
+    if any(stories.get(locale) for locale in ("en", "ko")):
+        return FIVE_LOCALES
+    return TRANSLATED_LOCALES
 
 
 def load_english(connection: Any, variant_ids: Sequence[int]) -> dict[int, str]:
@@ -216,12 +259,17 @@ def collect(connection: Any, pattern: str) -> tuple[list[LocaleRow], dict[str, A
             rejected.append((variant_id, "catalog_variant 冇呢個 id"))
             continue
         stories = incoming[variant_id]
-        reason = defect(variant_id, stories, english.get(variant_id))
+        locales = incoming_locales(stories)
+        reason = (
+            defect_five(variant_id, stories)
+            if locales == FIVE_LOCALES
+            else defect(variant_id, stories, english.get(variant_id))
+        )
         if reason:
             rejected.append((variant_id, reason))
             continue
         accepted_cards += 1
-        for locale in TRANSLATED_LOCALES:
+        for locale in locales:
             rows.append(
                 LocaleRow(
                     variant_id=variant_id,
@@ -329,21 +377,30 @@ def print_report(rows: Sequence[LocaleRow], stats: Mapping[str, Any], written: M
     if written:
         before, after = written["before"], written["after"]
         print(f"✅ run_id {written['run_id']}｜catalog_variant_locale 逐 locale：")
-        for locale in ("en", *TRANSLATED_LOCALES):
+        for locale in FIVE_LOCALES:
             print(f"   {locale:<6} {before.get(locale, 0):>4} → {after.get(locale, 0):>4}")
 
 
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-glob", default=DEFAULT_INPUT_GLOB)
+    parser.add_argument(
+        "--rewrite-glob",
+        action="store_true",
+        help="讀 temp/i18n-rewrite/out/batch-*.json（五語，連 en/ko）",
+    )
     parser.add_argument("--write", action="store_true", help="真係寫入 DB（預設 dry-run）")
     parser.add_argument("--json-out", type=Path, default=DEFAULT_REPORT_OUT)
     add_connection_args(parser)
     args = parser.parse_args(list(argv) if argv is not None else None)
 
+    input_glob = args.input_glob
+    if args.rewrite_glob and args.input_glob == DEFAULT_INPUT_GLOB:
+        input_glob = str(ROOT / "temp" / "i18n-rewrite" / "out" / "batch-*.json")
+
     connection = connection_from_args(args)
     try:
-        rows, stats = collect(connection, args.input_glob)
+        rows, stats = collect(connection, input_glob)
         written = None
         if args.write:
             if not rows:

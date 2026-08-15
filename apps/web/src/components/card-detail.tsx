@@ -13,6 +13,7 @@ import { absolutePublicUrl, StructuredData } from "./structured-data";
 import { copy } from "@/lib/i18n";
 import { formatMetricInteger, formatMetricMoney, formatMoney, formatObservationDate, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
 import { plainDescription } from "@/lib/plain-text";
+import { StoryPanel } from "./story-panel";
 import { type MarketViewSnapshot } from "@/lib/types";
 import { useMarketSettings } from "@/lib/use-market-settings";
 
@@ -31,13 +32,14 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
   }
 
   const windowMetric = card.windows[period];
-  const story = card.story?.[locale];
+  const title = (locale === "en" ? card.officialName : card.name?.[locale]) || card.officialName;
+  const story = card.story?.[locale] || null;
   const structuredData = {
     "@context": "https://schema.org",
     "@graph": [
       {
         "@type": "VisualArtwork",
-        name: card.officialName || t.status.unavailable,
+        name: title || t.status.unavailable,
         identifier: card.collectorNumber,
         image: absolutePublicUrl(card.image.url),
         /*
@@ -53,7 +55,7 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
         "@type": "BreadcrumbList",
         itemListElement: [
           { "@type": "ListItem", position: 1, name: t.nav.all, item: absolutePublicUrl(href("/")) },
-          { "@type": "ListItem", position: 2, name: card.officialName || t.status.unavailable },
+          { "@type": "ListItem", position: 2, name: title || t.status.unavailable },
         ],
       },
     ],
@@ -73,7 +75,7 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
         <div className="detail-content">
           <header className="detail-header">
             <p className="section-kicker">{card.tcg}</p>
-            <h1>{card.officialName || t.status.unavailable}</h1>
+            <h1>{title || t.status.unavailable}</h1>
             <p className="detail-set">{card.setName[locale] || t.status.unavailable}</p>
             {/* 印刷版本逐條併入現有 identity list：冇值嘅欄根本唔會回，
                 所以完全冇資料嗰陣呢個 dl 同以前一模一樣。
@@ -86,12 +88,7 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
               ))}
             </dl>
           </header>
-          {story && (
-            <section className="story-panel">
-              <h2>{t.labels.story}</h2>
-              <p>{story}</p>
-            </section>
-          )}
+          <StoryPanel title={t.labels.story} story={story} />
           <div className="detail-period-row"><PeriodSelector compact /></div>
           <section className="detail-metrics" aria-label={t.labels.marketCap}>
             <div><span>{t.labels.marketCap}</span><strong className="metric-value-fit">{card.marketCap.value === null ? formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true) : <CapTicker key={card.marketCap.value} value={card.marketCap.value} format={(n) => formatMoney(n, currency, snapshot.rates, locale, true)} />}</strong><MetricDelta metric={card.marketCap} changePct={windowMetric.marketCapChangePct} currency={currency} rates={snapshot.rates} locale={locale} /></div>

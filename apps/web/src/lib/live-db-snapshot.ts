@@ -11,6 +11,7 @@ import type {
 import type { RowDataPacket } from "mysql2";
 import mysql from "mysql2/promise";
 import { normaliseSnapshot } from "./snapshot";
+import { formatStoryForDisplay } from "./story-display";
 import type { MarketViewSnapshot } from "./types";
 
 const LOCALES = ["en", "zhTW", "zhCN", "ja", "ko"] as const;
@@ -472,7 +473,7 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       if (LOCALES.includes(locale)) {
         target.names[locale] = String(row.localized_name ?? "").trim() || null;
         target.sets[locale] = String(row.localized_set_name ?? "").trim() || null;
-        target.stories[locale] = String(row.market_story ?? "").trim() || null;
+        target.stories[locale] = formatStoryForDisplay(String(row.market_story ?? "")) ;
       }
       const observedAt = iso(row.observed_at);
       if (observedAt && (!target.observedAt || observedAt > target.observedAt)) target.observedAt = observedAt;

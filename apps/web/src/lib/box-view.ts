@@ -53,14 +53,27 @@ function boxLocalized(names: BoxSidecarProduct["names"]) {
   };
 }
 
-function boxStory(story: BoxSidecarProduct["story"]): SealedProductView["story"] {
-  if (!story || typeof story !== "object" || !story.en) return null;
+function cleanStory(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+export function boxStory(story: BoxSidecarProduct["story"] | Record<string, string | null> | undefined): SealedProductView["story"] {
+  if (!story || typeof story !== "object") return null;
+  const record = story as Record<string, string | null | undefined>;
+  const en = cleanStory(record.en);
+  const zhTW = cleanStory(record["zh-TW"] ?? record.zhTW);
+  const zhCN = cleanStory(record["zh-CN"] ?? record.zhCN);
+  const ja = cleanStory(record.ja);
+  const ko = cleanStory(record.ko);
+  if (!en && !zhTW && !zhCN && !ja && !ko) return null;
   return {
-    en: story.en,
-    "zh-TW": story["zh-TW"] || null,
-    "zh-CN": story["zh-CN"] || story["zh-TW"] || null,
-    ja: story.ja || null,
-    ko: story.ko || null,
+    en: en ?? "",
+    "zh-TW": zhTW,
+    "zh-CN": zhCN,
+    ja,
+    ko,
   };
 }
 

@@ -13,6 +13,7 @@ import { copy } from "@/lib/i18n";
 import { formatDate, formatInteger, formatMetricMoney, formatMoney, formatPercent, metricTone } from "@/lib/format";
 import type { Currency, MarketViewSnapshot, SealedProductView } from "@/lib/types";
 import { useMarketSettings } from "@/lib/use-market-settings";
+import { StoryPanel } from "./story-panel";
 
 export function BoxDetail({ product, snapshot }: {
   product: SealedProductView | null;
@@ -32,7 +33,7 @@ export function BoxDetail({ product, snapshot }: {
 
   const rates: Record<Currency, number> = snapshot.rates;
   const metrics = product.windows[period];
-  const story = product.story ? (product.story[locale] || product.story.en) : null;
+  const story = product.story?.[locale] || null;
   const gameLabel = product.game === "optcg" ? "One Piece" : "Pokémon";
   const kicker = `${t.nav.box} · ${gameLabel} ${product.lang.toUpperCase()}`;
   const priceLabel = product.priceKind ? t.box.priceKind[product.priceKind] : t.labels.priceShort;
@@ -93,12 +94,7 @@ export function BoxDetail({ product, snapshot }: {
               {product.status === "unreleased" && <div><dt>{t.labels.asOf}</dt><dd>{t.box.unreleased}</dd></div>}
             </dl>
           </header>
-          {story && (
-            <section className="story-panel">
-              <h2>{t.labels.story}</h2>
-              <p>{story}</p>
-            </section>
-          )}
+          <StoryPanel title={t.labels.story} story={story} />
           <div className="detail-period-row"><PeriodSelector compact /></div>
           <section className="detail-metrics box-detail-metrics" aria-label={priceLabel}>
             <div>

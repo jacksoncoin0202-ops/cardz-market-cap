@@ -1,11 +1,13 @@
 import type { PublicMarketSnapshot } from "@cardz/market-data";
-import { boxBlockView, type BoxSidecarBlock } from "./box-view";
+import { boxBlockView, boxStory, type BoxSidecarBlock } from "./box-view";
 import { marketAssetObjectKey } from "./market-media";
 import { normaliseSnapshot } from "./snapshot";
 import type { MarketCardView, MarketMetric, MarketViewSnapshot, SealedProductView, SealedViewBlock } from "./types";
 
 const DEFAULT_SNAPSHOT_PATH = "data/public/seed-snapshot.json";
 const BOX_SIDECAR_PATH = "data/public/box-subset.json";
+const SEALED_STORIES_PATH = "data/editorial/sealed-stories.json";
+const CARD_NAMES_BY_ID_PATH = "data/editorial/card-names-by-id.json";
 const MARKET_ASSETS_PATH = "data/public/market-assets";
 
 export interface NodeMarketAsset {
@@ -159,11 +161,74 @@ export function boxSidecarHealth(): BoxSidecarHealth {
   return { ...boxSidecarState, ageHours };
 }
 
+type NameOverlay = Partial<Record<"zhTW" | "zhCN" | "ja" | "ko", string>>;
+
+async function readJsonFile<T>(relativePath: string): Promise<T | null> {
+  const { readFile } = await import("node:fs/promises");
+  try {
+    return JSON.parse(await readFile(await repoDataPath(relativePath), "utf8")) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function readSealedStories(): Promise<Record<string, Record<string, string | null>>> {
+  const document = await readJsonFile<Record<string, unknown>>(SEALED_STORIES_PATH);
+  if (!document) return {};
+  return Object.fromEntries(
+    Object.entries(document).filter(([key, value]) => key !== "_meta" && value && typeof value === "object"),
+  ) as Record<string, Record<string, string | null>>;
+}
+
+function overlayBoxStories(
+  view: SealedViewBlock | undefined,
+  extra: Record<string, Record<string, string | null>>,
+): SealedViewBlock | undefined {
+  if (!view) return undefined;
+  return {
+    ...view,
+    products: view.products.map((product) => {
+      const overlay = boxStory(extra[product.id]);
+      if (!overlay) return product;
+      const current = product.story;
+      return {
+        ...product,
+        story: {
+          en: overlay.en || current?.en || "",
+          "zh-TW": overlay["zh-TW"] ?? current?.["zh-TW"] ?? null,
+          "zh-CN": overlay["zh-CN"] ?? current?.["zh-CN"] ?? null,
+          ja: overlay.ja ?? current?.ja ?? null,
+          ko: overlay.ko ?? current?.ko ?? null,
+        },
+      };
+    }),
+  };
+}
+
+function applyCardNameOverlays(snapshot: MarketViewSnapshot, entries: Record<string, NameOverlay>): MarketViewSnapshot {
+  if (!Object.keys(entries).length) return snapshot;
+  const paint = (card: MarketCardView): MarketCardView => {
+    const entry = entries[card.id];
+    if (!entry) return card;
+    return {
+      ...card,
+      name: {
+        en: card.officialName ?? card.name?.en ?? "",
+        "zh-TW": entry.zhTW?.trim() || null,
+        "zh-CN": entry.zhCN?.trim() || null,
+        ja: entry.ja?.trim() || null,
+        ko: entry.ko?.trim() || null,
+      },
+    };
+  };
+  return { ...snapshot, top100: snapshot.top100.map(paint), watchlist: snapshot.watchlist.map(paint) };
+}
+
 async function readBoxSidecar(): Promise<SealedViewBlock | undefined> {
   const { readFile } = await import("node:fs/promises");
   try {
     const raw = JSON.parse(await readFile(await repoDataPath(BOX_SIDECAR_PATH), "utf8")) as BoxSidecarBlock;
-    const view = boxBlockView(raw);
+    const view = overlayBoxStories(boxBlockView(raw), await readSealedStories());
     if (!view) {
       boxSidecarState = { status: "degraded", asOf: raw?.asOf ?? null, ageHours: null, error: "sidecar has no products" };
       return undefined;
@@ -203,13 +268,17 @@ async function readSnapshot(): Promise<MarketViewSnapshot> {
   const canonical = JSON.parse(
     await readFile(snapshotPath, "utf8"),
   ) as PublicMarketSnapshot;
-  return attachBoxSidecar(normaliseSnapshot(canonical));
+  const names = await readJsonFile<{ entries?: Record<string, NameOverlay> }>(CARD_NAMES_BY_ID_PATH);
+  return applyCardNameOverlays(await attachBoxSidecar(normaliseSnapshot(canonical)), names?.entries ?? {});
 }
 
 export function loadMarketSnapshot(): Promise<MarketViewSnapshot> {
   if (process.env.CARDZ_DATA_MODE?.trim() === "live-db") {
     return import("./live-db-snapshot").then(({ loadLiveDbSnapshot }) =>
-      loadLiveDbSnapshot().then(attachBoxSidecar),
+      loadLiveDbSnapshot().then(async (snapshot) => {
+        const names = await readJsonFile<{ entries?: Record<string, NameOverlay> }>(CARD_NAMES_BY_ID_PATH);
+        return applyCardNameOverlays(await attachBoxSidecar(snapshot), names?.entries ?? {});
+      }),
     );
   }
   snapshotPromise ??= readSnapshot();

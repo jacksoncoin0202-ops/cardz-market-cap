@@ -331,7 +331,7 @@ export const copy: Record<Locale, Copy> = {
         { term: "掛牌底價", detail: "現時最低掛牌只作次要參考，不會取代成交或市場參考。缺失的數值永遠保持缺失，不會當作零。" },
       ],
       updated: "更新",
-      byline: "Compiled and reviewed by the CardZ Marketcap Editorial desk.",
+      byline: "由 CardZ Marketcap Editorial 編算及覆核。",
     },
     hero: {
       eyebrow: "CARDZ MARKET INDEX",
@@ -447,7 +447,7 @@ export const copy: Record<Locale, Copy> = {
         { term: "挂牌底价", detail: "现时最低挂牌只作次要参考，不会取代成交或市场参考。缺失的数值永远保持缺失，不会当作零。" },
       ],
       updated: "更新",
-      byline: "Compiled and reviewed by the CardZ Marketcap Editorial desk.",
+      byline: "由 CardZ Marketcap Editorial 编算及复核。",
     },
     hero: {
       eyebrow: "CARDZ MARKET INDEX", title: "收藏卡牌的市场全景",
@@ -555,7 +555,7 @@ export const copy: Record<Locale, Copy> = {
         { term: "出品下限", detail: "現在の最安出品は二次的な参考であり、成約や市場参考の代わりにはなりません。欠損値は常に欠損のままで、ゼロとしては扱いません。" },
       ],
       updated: "更新",
-      byline: "Compiled and reviewed by the CardZ Marketcap Editorial desk.",
+      byline: "CardZ Marketcap Editorial が集計・確認しています。",
     },
     hero: {
       eyebrow: "CARDZ MARKET INDEX", title: "コレクティブルカード市場を一望する",
@@ -663,7 +663,7 @@ export const copy: Record<Locale, Copy> = {
         { term: "호가 하한", detail: "현재 최저 호가는 이차 참고일 뿐이며 체결이나 시장 참고를 대체하지 않습니다. 결측값은 언제나 결측으로 남으며 0으로 처리하지 않습니다." },
       ],
       updated: "업데이트",
-      byline: "Compiled and reviewed by the CardZ Marketcap Editorial desk.",
+      byline: "CardZ Marketcap Editorial이 집계하고 검토합니다.",
     },
     hero: {
       eyebrow: "CARDZ MARKET INDEX",

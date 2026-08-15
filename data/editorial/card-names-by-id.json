@@ -1,0 +1,5 @@
+{
+  "schemaVersion": "card-names-by-id-v1",
+  "note": "Key is public card id. Locales other than en are overlay only; missing stays null.",
+  "entries": {}
+}

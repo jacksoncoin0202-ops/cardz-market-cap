@@ -1,5 +1,6 @@
 import { type PublicCard as CanonicalCard, type PublicMarketSnapshot as CanonicalSnapshot } from "@cardz/market-data";
 import { deriveLongWindows, longWindows } from "./derive-windows";
+import { formatStoryForDisplay } from "./story-display";
 import {
   currencies,
   marketWindows,
@@ -141,7 +142,13 @@ function cardView(card: CanonicalCard): MarketCardView {
     officialName: canonicalName,
     name,
     setName: localised(card.sets),
-    story: localised(card.stories),
+    story: {
+      en: formatStoryForDisplay(card.stories?.en) ?? "",
+      "zh-TW": formatStoryForDisplay(card.stories?.zhTW),
+      "zh-CN": formatStoryForDisplay(card.stories?.zhCN),
+      ja: formatStoryForDisplay(card.stories?.ja),
+      ko: formatStoryForDisplay(card.stories?.ko),
+    },
     image: {
       url: imageIsSafe ? card.image.src : "/card-placeholder.svg",
       alt: canonicalName,
