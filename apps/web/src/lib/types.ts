@@ -15,6 +15,7 @@ export const themes = ["light", "dark"] as const;
 export type Locale = (typeof locales)[number];
 export type Currency = (typeof currencies)[number];
 export type MarketWindow = (typeof marketWindows)[number];
+export const defaultMarketWindow: MarketWindow = "180d";
 export type Theme = (typeof themes)[number];
 export type MetricStatus = "ready" | "accumulating" | "stale" | "unavailable";
 export type CoverageStatus = "complete" | "partial" | "stale" | "unavailable";
