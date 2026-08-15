@@ -24,6 +24,6 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  /* robots / sitemap 跟 host 301；/api/* 刻意唔入 matcher，ALB 同日鏈 health 保持 200。 */
+  /* S / www 跟 host 301 去 cardzmarketcap.com；/api/* 刻意唔入 matcher，health 保持 200。 */
   matcher: ["/((?!api|_next/static|_next/image|market-assets|favicon.ico).*)"],
 };

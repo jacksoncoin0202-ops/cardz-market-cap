@@ -42,7 +42,7 @@ const production = createRobotsPolicy("production");
 const wildcard = agents(production, "*");
 check("生產：* 開放", wildcard.allow, "/");
 check("生產：* 擋住 /api/、私密資料同 /tune", wildcard.disallow, ["/api/", "/data/private/", "/tune"]);
-check("生產：有 sitemap", production.sitemap, "https://cardsmarketcap.com/sitemap.xml");
+check("生產：有 sitemap", production.sitemap, "https://cardzmarketcap.com/sitemap.xml");
 
 // 冇傳 environment（今日生產 container 嘅實況）同 "production" 行同一條路。
 check("undefined 環境 = 生產分支", JSON.stringify(createRobotsPolicy()), JSON.stringify(production));

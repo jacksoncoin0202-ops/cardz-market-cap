@@ -304,7 +304,7 @@ powershell -NoProfile -File scripts\daily_public_release.ps1
 
 ```bash
 # 4. 驗返出咗街先算完 —— generatedAt 要同啱先 bake 嗰個對得返
-curl -s https://cardsmarketcap.com/api/health
+curl -s https://app.cardzmarketcap.com/api/health
 ```
 
 逐步要睇嘅數（2026-08-12 實跑做參考）：

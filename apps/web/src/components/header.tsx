@@ -26,8 +26,8 @@ export function Header() {
   return (
     <header className="site-header">
       <div className="header-inner">
-        <Link className="brand" href={href("/")} aria-label="Cards Marketcap Beta">
-          <img className="brand-logo" src="/brand/logo-cardz-marketcap.png" alt="Cards Marketcap" />
+        <Link className="brand" href={href("/")} aria-label="CardZ Marketcap Beta">
+          <img className="brand-logo" src="/brand/logo-cardz-marketcap.png" alt="CardZ Marketcap" />
           <img className="brand-logo brand-logo-dark" src="/brand/logo-cardz-marketcap-dark.png" alt="" />
           <span className="brand-beta" aria-label="Beta">BETA</span>
         </Link>

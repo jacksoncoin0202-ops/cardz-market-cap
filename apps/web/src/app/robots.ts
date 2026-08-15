@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 
 /* 同 `lib/public-site.ts` 預設同一個 origin。呢個檔俾 node test 直接 import，唔可以 `@/`。 */
-const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://cardsmarketcap.com").replace(/\/$/, "");
+const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://cardzmarketcap.com").replace(/\/$/, "");
 
 export const dynamic = "force-dynamic";
 

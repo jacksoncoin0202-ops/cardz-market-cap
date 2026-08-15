@@ -90,7 +90,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
             <Stat label="PSA 10 PRICE" value={usd(card.pricePsa10.value)} />
             <Stat label="PSA 10 POP" value={integer(card.populationPsa10.value)} />
           </div>
-          <img src={logoSrc} alt="Cards Marketcap" width={280} height={121} />
+          <img src={logoSrc} alt="CardZ Marketcap" width={280} height={121} />
         </div>
       </div>
     ),

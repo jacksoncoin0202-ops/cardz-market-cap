@@ -11,7 +11,7 @@
 # Dry run:        ... -NoNotify -StateDir $env:TEMP -LogDir $env:TEMP
 # Reset ratchet:  ... -ResetRatchet   (after an intentional universe/box shrink)
 param(
-  [string]$HealthUrl = "https://cardsmarketcap.com/api/health",
+  [string]$HealthUrl = "https://app.cardzmarketcap.com/api/health",
   [string]$RepoRoot = "",
   [string]$StateDir = "",
   [string]$LogDir = "",

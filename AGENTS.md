@@ -33,7 +33,7 @@
     缺陷有兩個方向，第一版修法喺 48 張「catalog 空白」度啱，喺 21 張「catalog 載住另一邊」
     度一格都冇郁；總數升咗 9 張，睇落似做完（runbook 形狀 21 補完）。剩低嗰批要逐個
     再跑一次修完嘅邏輯，見到佢由 refuse 變 pass 先算數。
-15. **036 係靚仔 PSA10，隨時 fallback。037／FE04 只加 BOX。** 唔開 rebuild_037。BOX 公開路徑 /box，sidecar overlay，唔准寫入 PSA10 seed-snapshot.json。契約：docs/HANDOFF_037_FE04.md。Live 認 https://cardsmarketcap.com/api/health（`app.cardzmarketcap.com/api/health` 仍然 200，只係 ops alias）。
+15. **036 係靚仔 PSA10，隨時 fallback。037／FE04 只加 BOX。** 唔開 rebuild_037。BOX 公開路徑 /box，sidecar overlay，唔准寫入 PSA10 seed-snapshot.json。契約：docs/HANDOFF_037_FE04.md。Live 認 https://app.cardzmarketcap.com/api/health。
 
 ## 查 bug 之前
 

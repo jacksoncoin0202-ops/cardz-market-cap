@@ -31,7 +31,7 @@ export function marketMetadata(
   description: string,
   path = "/",
   image: string = DEFAULT_OG_IMAGE,
-  imageAlt = "Cards Marketcap",
+  imageAlt = "CardZ Marketcap",
 ): Metadata {
   const images = [{ url: image, width: 1200, height: 630, alt: imageAlt }];
   /*
@@ -56,7 +56,7 @@ export function marketMetadata(
         "x-default": localizedPath(path, "en"),
       },
     },
-    openGraph: { title, description: summary, siteName: "Cards Marketcap", type: "website", locale, images },
+    openGraph: { title, description: summary, siteName: "CardZ Marketcap", type: "website", locale, images },
     twitter: { card: "summary_large_image", title, description: summary, images },
   };
 }

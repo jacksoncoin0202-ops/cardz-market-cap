@@ -1,7 +1,7 @@
 # CARDZ 網站部署 Webhook 改動說明（給技術）
 
 日期：2026-08-15  
-站點：https://cardsmarketcap.com  
+站點：https://app.cardzmarketcap.com  
 
 倉庫：`jacksoncoin0202-ops/cardz-market-cap`  
 分支：只處理 `main`  
@@ -115,7 +115,7 @@ docker compose up --build
    ```
 
    唔應該再見到成段 `next build`。
-3. 開 https://cardsmarketcap.com/api/health  
+3. 開 https://app.cardzmarketcap.com/api/health  
    要 `status=ok`，`product=037`，`presentation=FE04`，`box.path=/box`。  
    `generation` / `generatedAt` 要跟到嗰次 bake。  
    **唔好**用 `build` 欄判斷成功（而家永遠係 `local`）。

@@ -1,4 +1,4 @@
-# Production web (public canonical: cardsmarketcap.com; app.cardzmarketcap.com still serves /api/health)
+# Production web (public canonical: cardzmarketcap.com; app.cardzmarketcap.com still serves /api/health)
 # Server deploy path: git pull → docker compose up --build
 #
 # Build context MUST be repo root (npm workspaces + data/public).
@@ -19,7 +19,7 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         CARDZ_PUBLIC_BUILD_ID: ${CARDZ_PUBLIC_BUILD_ID:-deploy}
-        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://cardsmarketcap.com}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://cardzmarketcap.com}
     image: cardz-web:latest
     ports:
       - "${CARDZ_WEB_PORT:-3000}:3000"

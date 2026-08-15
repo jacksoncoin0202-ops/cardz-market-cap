@@ -1,4 +1,4 @@
-export const PUBLIC_SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://cardsmarketcap.com").replace(
+export const PUBLIC_SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://cardzmarketcap.com").replace(
   /\/$/,
   "",
 );
@@ -6,16 +6,15 @@ export const PUBLIC_SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://car
 export const PUBLIC_CANONICAL_HOST = new URL(PUBLIC_SITE_URL).hostname;
 
 export const PUBLIC_SITE_ALIAS_HOSTS = [
-  "cardzmarketcap.com",
-  "www.cardzmarketcap.com",
-  "app.cardzmarketcap.com",
+  "cardsmarketcap.com",
   "www.cardsmarketcap.com",
   "app.cardsmarketcap.com",
+  "www.cardzmarketcap.com",
 ] as const;
 
 export const PUBLIC_SITE_SAME_AS = [
-  "https://cardzmarketcap.com",
-  "https://www.cardzmarketcap.com",
+  "https://cardsmarketcap.com",
+  "https://www.cardsmarketcap.com",
   "https://app.cardzmarketcap.com",
 ] as const;
 
@@ -36,7 +35,7 @@ export function siteOrganization(url: string) {
   const canonical = url.replace(/\/$/, "");
   return {
     "@type": "Organization" as const,
-    name: "Cards Marketcap",
+    name: "CardZ Marketcap",
     url,
     sameAs: PUBLIC_SITE_SAME_AS.filter((alias) => alias !== canonical),
   };

@@ -7,7 +7,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL(PUBLIC_SITE_URL),
-  title: { default: "Cards Marketcap", template: "%s | Cards Marketcap" },
+  title: { default: "CardZ Marketcap", template: "%s | CardZ Marketcap" },
   description: "Art market intelligence for collectible cards.",
 };
 
