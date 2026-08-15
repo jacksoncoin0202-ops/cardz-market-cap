@@ -1525,20 +1525,30 @@ html.theme-transitions .brand-logo-dark {
   .primary-nav { grid-column: 1 / -1; grid-row: 2; gap: 0 8px; }
   .market-controls { grid-column: 2; grid-row: 1; }
   .page-shell { padding-inline: 16px; }
-  .heatmap-section { grid-template-rows: auto minmax(0, 1fr) auto; padding: 16px 0 12px; }
-  .heatmap-heading { align-items: flex-start; flex-direction: column; gap: 12px; padding-bottom: 12px; }
-  .heatmap-heading h1 { font-size: clamp(28px, 8.2vw, 36px); line-height: 1.1; }
-  .period-selector { align-self: stretch; gap: 2px; padding: 3px; }
-  .period-selector button { min-width: 0; min-height: 36px; flex: 1; font-size: 12px; }
-  .heatmap-controls { align-self: stretch; flex-wrap: wrap; }
-  .heatmap-controls .period-selector { flex: 1 1 100%; min-width: 0; max-width: none; justify-content: stretch; }
-  .heatmap-controls .period-selector button,
+  /* Mobile first viewport: small heading -> compact controls row (slider as hero) -> big heatmap. */
+  .heatmap-section { grid-template-rows: auto minmax(0, 1fr) auto; padding: 8px 0 12px; }
+  .heatmap-heading { align-items: flex-start; flex-direction: column; gap: 4px; padding-bottom: 8px; }
+  .heatmap-heading h1 { margin-bottom: 4px; font-size: 20px; line-height: 1.15; }
+  .heatmap-total-cap { margin: 0; font-size: 12px; }
+  .heatmap-controls { align-self: stretch; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 4px; }
+  /* Row 1: tune toggle + Tiles slider stretched wide. */
+  .heatmap-tune-toggle { order: 1; width: 36px; height: 36px; border-radius: 12px; }
+  .tile-slider { order: 2; flex: 1 1 calc(100% - 44px); min-width: 0; min-height: 40px; padding: 4px 12px; border-radius: 12px; }
+  .tile-slider-label { white-space: nowrap; }
+  .tile-slider input[type="range"] { flex: 1; width: auto; min-width: 0; height: 24px; }
+  .tile-slider input[type="range"]::-webkit-slider-thumb { width: 20px; height: 20px; margin-top: -7px; border: 0; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 4px rgba(22, 22, 20, 0.35); -webkit-appearance: none; appearance: none; }
+  .tile-slider input[type="range"]::-webkit-slider-runnable-track { height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 32%, var(--line)); }
+  .tile-slider input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; border: 0; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 4px rgba(22, 22, 20, 0.35); }
+  .tile-slider input[type="range"]::-moz-range-track { height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 32%, var(--line)); }
+  /* Row 2: compact period buttons + small Share. */
+  .heatmap-controls .period-selector { order: 3; flex: 1 1 auto; align-self: auto; justify-content: flex-start; gap: 2px; padding: 3px; border-radius: 12px; }
+  .heatmap-controls .period-selector button { flex: 1 1 auto; min-width: 0; min-height: 30px; padding: 0 6px; font-size: 11px; }
+  .heatmap-export { order: 4; flex: none; min-height: 36px; padding: 4px 12px; font-size: 12px; }
+  /* Period selectors in the ranking/detail area keep the stretch treatment. */
+  .ranking-heading .period-selector,
+  .detail-period-row .period-selector { align-self: stretch; }
   .ranking-heading .period-selector button,
   .detail-period-row .period-selector button { flex: 1 1 calc(33.33% - 4px); min-width: 0; padding-inline: 8px; white-space: nowrap; }
-  .heatmap-export { order: 3; flex: none; width: auto; white-space: nowrap; }
-  .tile-slider { flex: 1 1 100%; }
-  .tile-slider-label { white-space: nowrap; }
-  .tile-slider input[type="range"] { flex: 1; width: auto; }
   .heatmap-frame { border-radius: 18px; }
   .heatmap-footer { align-items: flex-start; flex-direction: column; gap: 3px; }
   .heatmap-legend { flex-wrap: wrap; gap: 7px 12px; }

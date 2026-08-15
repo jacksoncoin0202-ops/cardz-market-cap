@@ -14,7 +14,7 @@ import { drawQr } from "@/lib/qr";
 import { changeValue, DEFAULT_TILE, tileColors, tileStyle, type TileParams } from "@/lib/tile-style";
 import { PUBLIC_CANONICAL_HOST, PUBLIC_SITE_URL } from "@/lib/public-site";
 import { useMarketSettings } from "@/lib/use-market-settings";
-import type { Currency, Locale, MarketCardView, MarketViewSnapshot } from "@/lib/types";
+import { defaultMarketWindow, type Currency, type Locale, type MarketCardView, type MarketViewSnapshot, type MarketWindow } from "@/lib/types";
 
 interface HeatmapProps {
   cards: MarketCardView[];
@@ -25,8 +25,7 @@ interface HeatmapProps {
   title: string;
 }
 
-function CardFacts({ card, locale, currency, snapshot }: Omit<HeatmapProps, "cards" | "href" | "title"> & { card: MarketCardView }) {
-  const { period } = useMarketSettings();
+function CardFacts({ card, locale, currency, snapshot, period }: Omit<HeatmapProps, "cards" | "href" | "title"> & { card: MarketCardView; period: MarketWindow }) {
   const t = copy[locale];
   const windowMetric = card.windows[period];
   return (
@@ -46,7 +45,7 @@ function CardFacts({ card, locale, currency, snapshot }: Omit<HeatmapProps, "car
   );
 }
 
-function CardDialog({ card, locale, currency, snapshot, href, onClose }: Omit<HeatmapProps, "cards" | "title"> & { card: MarketCardView; onClose: () => void }) {
+function CardDialog({ card, locale, currency, snapshot, href, onClose, period }: Omit<HeatmapProps, "cards" | "title"> & { card: MarketCardView; onClose: () => void; period: MarketWindow }) {
   const t = copy[locale];
   const closeRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -80,7 +79,7 @@ function CardDialog({ card, locale, currency, snapshot, href, onClose }: Omit<He
             <p className="rank-kicker">#{card.viewRank} / {card.tcg}</p>
             <h3 id="sheet-title">{card.officialName || t.status.unavailable}</h3>
             <p className="muted-copy">{card.setName[locale] || t.status.unavailable}</p>
-            <CardFacts card={card} locale={locale} currency={currency} snapshot={snapshot} />
+            <CardFacts card={card} locale={locale} currency={currency} snapshot={snapshot} period={period} />
             <Link className="primary-action" href={href(`/card/${card.id}`)}>{t.labels.viewCard}</Link>
           </div>
         </div>
@@ -114,6 +113,11 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
   const isMobileTiles = useSyncExternalStore(subscribeMobileTiles, () => window.matchMedia(mobileTilesQuery).matches, () => false);
   const dark = theme === "dark";
 
+  // Mobile heatmap keeps its own period state instead of the URL-driven one:
+  // changing period must not push the router, otherwise the page jumps back up
+  // right after the share-image jump to the ranking table.
+  const [mobilePeriod, setMobilePeriod] = useState<MarketWindow>(defaultMarketWindow);
+
   /* localStorage persistence：用戶調色即時 save，refresh 都 keep 住 */
   const [params, setParamsState] = useState<TileParams>(() => {
     if (typeof window === "undefined") return DEFAULT_TILE;
@@ -136,6 +140,8 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
     : Math.min(Math.max(minimumVisibleCount, pickedCount), cards.length);
   const lastTriggerRef = useRef<HTMLElement | null>(null);
   const colors = tileColors(dark, params);
+
+  const activePeriod = isMobileTiles ? mobilePeriod : period;
 
   useEffect(() => {
     const frame = frameRef.current;
@@ -191,7 +197,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
     });
     const logo = await loadImage(dark ? "/brand/logo-cardz-marketcap-dark.png" : "/brand/logo-cardz-marketcap.png");
     const stamp = formatDate(new Date().toISOString(), locale);
-    const periodLabel = t.periods[period];
+    const periodLabel = t.periods[activePeriod];
     const shareTitle = `${title.replace("{count}", String(visibleCards.length))} · ${periodLabel} ${t.labels.change}`;
     const shareTitleNarrow = `${title.replace("{count}", String(visibleCards.length))} · ${periodLabel}`;
     const logoH = Math.round(56 * scale);
@@ -241,7 +247,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
       const ty = oy + (y + gap / 2) * scale;
       const tw = (width - gap) * scale;
       const th = (height - gap) * scale;
-      const st = tileStyle(changeValue(card, period), tw, th, colors, params);
+      const st = tileStyle(changeValue(card, activePeriod), tw, th, colors, params);
       ctx.fillStyle = st.bg;
       ctx.fillRect(tx, ty, tw, th);
       const img = images[index];
@@ -308,8 +314,53 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
       anchor.click();
       URL.revokeObjectURL(url);
       navigator.clipboard?.writeText(window.location.href).catch(() => undefined);
+      // 手機：share 完張圖直落排名表。
+      if (isMobileTiles) {
+        document.getElementById("market-ranking")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
     }, "image/png");
-  }, [size, tiles, visibleCards, title, locale, period, params, colors, dark, t.methodology.body, t.periods, t.labels.change]);
+  }, [size, tiles, visibleCards, title, locale, activePeriod, isMobileTiles, params, colors, dark, t.methodology.body, t.periods, t.labels.change]);
+
+  // Controls 抽返出嚟：desktop 同標題並排，手機由 CSS 將佢哋排喺標題下面、
+  // 圖上面（Tiles slider 做主角），結構保持一致。
+  const controls = (
+    <div className="heatmap-controls">
+      <label className="tile-slider">
+        <span className="tile-slider-label">{t.heatmap.tilesLabel}</span>
+        <input
+          type="range"
+          min={minimumVisibleCount}
+          max={cards.length}
+          step={1}
+          value={visibleCount}
+          onChange={(event) => setPickedCount(Number(event.target.value))}
+          aria-label={t.heatmap.tilesLabel}
+        />
+        <span className="tile-slider-value" aria-hidden="true">{visibleCount}</span>
+      </label>
+      <button
+        type="button"
+        className="heatmap-tune-toggle"
+        onClick={() => setShowTune(!showTune)}
+        aria-label={t.heatmap.customize}
+        aria-expanded={showTune}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M12 1v6m0 6v6M5.6 5.6l4.2 4.2m4.2 4.2l4.2 4.2M1 12h6m6 0h6M5.6 18.4l4.2-4.2m4.2-4.2l4.2-4.2" />
+        </svg>
+      </button>
+      <PeriodSelector period={activePeriod} onChange={isMobileTiles ? setMobilePeriod : undefined} />
+      <CopyButton
+        className="heatmap-export"
+        getText={() => window.location.href}
+        label={t.heatmap.shareImage}
+        doneLabel={t.labels.shareDone}
+        errorLabel={t.labels.shareError}
+        onCopy={exportHeatmap}
+      />
+    </div>
+  );
 
   return (
     <section className="heatmap-section" aria-labelledby="heatmap-heading">
@@ -319,42 +370,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
           <p className="heatmap-total-cap">{t.labels.marketCap} · {formatMoney(totalCap, currency, snapshot.rates, locale, true)}</p>
           <p>{t.heatmap.body}</p>
         </div>
-        <div className="heatmap-controls">
-          <label className="tile-slider">
-            <span className="tile-slider-label">{t.heatmap.tilesLabel}</span>
-            <input
-              type="range"
-              min={minimumVisibleCount}
-              max={cards.length}
-              step={1}
-              value={visibleCount}
-              onChange={(event) => setPickedCount(Number(event.target.value))}
-              aria-label={t.heatmap.tilesLabel}
-            />
-            <span className="tile-slider-value" aria-hidden="true">{visibleCount}</span>
-          </label>
-          <button
-            type="button"
-            className="heatmap-tune-toggle"
-            onClick={() => setShowTune(!showTune)}
-            aria-label={t.heatmap.customize}
-            aria-expanded={showTune}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M12 1v6m0 6v6M5.6 5.6l4.2 4.2m4.2 4.2l4.2 4.2M1 12h6m6 0h6M5.6 18.4l4.2-4.2m4.2-4.2l4.2-4.2" />
-            </svg>
-          </button>
-          <PeriodSelector />
-          <CopyButton
-            className="heatmap-export"
-            getText={() => window.location.href}
-            label={t.heatmap.shareImage}
-            doneLabel={t.labels.shareDone}
-            errorLabel={t.labels.shareError}
-            onCopy={exportHeatmap}
-          />
-        </div>
+        {controls}
       </div>
       <div className="heatmap-frame" ref={frameRef} onMouseLeave={() => { setActive(null); setPreviewPos(null); }}>
         {tiles.map(({ item, x, y, width, height }) => {
@@ -364,7 +380,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
           const tileY = y + gap / 2;
           const tileW = width - gap;
           const tileH = height - gap;
-          const st = tileStyle(changeValue(card, period), tileW, tileH, colors, params);
+          const st = tileStyle(changeValue(card, activePeriod), tileW, tileH, colors, params);
           return (
             <button
               className="heatmap-tile"
@@ -428,7 +444,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
         <p className="methodology-note">{t.methodology.body}</p>
         <a className="ranking-jump" href="#market-ranking">{t.heatmap.viewRanking.replace("{count}", String(visibleCards.length))}</a>
       </div>
-      {sheetCard && <CardDialog card={sheetCard} locale={locale} currency={currency} snapshot={snapshot} href={href} onClose={closeSheet} />}
+      {sheetCard && <CardDialog card={sheetCard} locale={locale} currency={currency} snapshot={snapshot} href={href} onClose={closeSheet} period={activePeriod} />}
       {active && previewPos && createPortal(
         <aside
           className={`heatmap-preview heatmap-preview-fixed${previewCorner.right ? "" : " preview-left"}${previewCorner.bottom ? "" : " preview-top"}`}
@@ -440,8 +456,8 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
             <p className="rank-kicker">#{active.viewRank} / {active.tcg}</p>
             <h3>{active.officialName || t.status.unavailable}</h3>
             <p className="muted-copy">{active.setName[locale] || t.status.unavailable}</p>
-            <CardFacts card={active} locale={locale} currency={currency} snapshot={snapshot} />
-            <p className="preview-time">{t.labels.asOf}: {formatObservationDate(active.windows[period].changePct.asOf ?? active.pricePsa10.asOf, locale)}</p>
+            <CardFacts card={active} locale={locale} currency={currency} snapshot={snapshot} period={activePeriod} />
+            <p className="preview-time">{t.labels.asOf}: {formatObservationDate(active.windows[activePeriod].changePct.asOf ?? active.pricePsa10.asOf, locale)}</p>
           </div>
         </aside>,
         document.body,

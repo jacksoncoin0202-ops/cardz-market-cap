@@ -6,23 +6,29 @@
 import { motion } from "framer-motion";
 import { useId } from "react";
 import { copy } from "@/lib/i18n";
-import { marketWindows } from "@/lib/types";
+import { marketWindows, type MarketWindow } from "@/lib/types";
 import { useMarketSettings } from "@/lib/use-market-settings";
 
-export function PeriodSelector({ compact = false }: { compact?: boolean }) {
+export function PeriodSelector({ compact = false, period: periodOverride, onChange }: {
+  compact?: boolean;
+  /* 手機 heatmap 用自己嘅 local period（唔寫 URL），所以俾 caller 直接控制。 */
+  period?: MarketWindow;
+  onChange?: (period: MarketWindow) => void;
+}) {
   const { locale, period, update } = useMarketSettings();
   const t = copy[locale];
   const pillId = `period-pill-${useId()}`;
+  const activePeriod = periodOverride ?? period;
   return (
     <div className={`period-selector${compact ? " period-selector-compact" : ""}`} role="group" aria-label={t.labels.change}>
       {marketWindows.map((item) => (
         <button
           key={item}
           type="button"
-          aria-pressed={period === item}
-          onClick={() => update({ period: item })}
+          aria-pressed={activePeriod === item}
+          onClick={() => (onChange ? onChange(item) : update({ period: item }))}
         >
-          {period === item && (
+          {activePeriod === item && (
             <motion.span
               layoutId={pillId}
               className="period-pill"
