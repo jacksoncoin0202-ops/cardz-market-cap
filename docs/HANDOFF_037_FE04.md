@@ -1,5 +1,9 @@
 # CARDZ 037 / FE04 — 加入 BOX
 
+> **2026-08-15：** live 已係 **1449** 張 · `product=037` · `FE04` · BOX `/box`。
+> FE 出街車 = 呢棵 `cardz-market-cap-037-fe04-live`。資料／日更真身 = `../cardz-market-cap-fe-db-20260805`。
+> BOX 由 `sealed_daily.py` 產出、唔再人手搬（P6）。下面 1368／`db3308_b0cb6e76228b4a99` 係 08-14 當日數。
+
 DADDY 2026-08-14 開代。呢份係 037 契約。036 交接仍睇 docs/HANDOFF_036_20260812.md。
 
 ## 一句話

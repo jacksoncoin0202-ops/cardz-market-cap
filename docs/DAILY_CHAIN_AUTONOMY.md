@@ -1,5 +1,7 @@
 # 每日鏈自動成功閘
 
+> **2026-08-15：** 呢份係資料 bake 成功閘。FE 出街車 = `../cardz-market-cap-037-fe04-live`。Live 卡數而家 1449，唔係 1368／1322。
+
 DADDY 2026-08-14 寫死。
 
 ## 一句話
@@ -26,7 +28,7 @@ scripts/stamp_daily_chain_autonomy.py 先會記嗰個 JST 日。
 
 - 人手跑 `daily-accept` / `daily_public_release.ps1`（冇 `CARDZ_DAILY_CHAIN=1`）
 - 只係 Task Scheduler LastRun 郁咗但冇 live 對數
-- BOX sidecar 價（仍然唔喺呢條 PSA10 日鏈）
+- BOX sidecar 價（計；P6 起由 `sealed_daily.py` 入日鏈，唔再人手搬）
 
 ## 2026-08-14 狀態
 
