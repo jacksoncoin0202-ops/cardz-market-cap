@@ -202,7 +202,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                       router.push(cardUrl);
                     }}
                   >
-                    <td className="rank-cell">{card.viewRank > 0 ? card.viewRank : t.labels.awaitingFreshPrice}</td>
+                    <td className="rank-cell" data-rank={card.viewRank > 0 ? String(card.viewRank) : undefined}>{card.viewRank > 0 ? card.viewRank : t.labels.awaitingFreshPrice}</td>
                     <td><Link href={cardUrl}><CardIdentity card={card} unavailable={t.status.unavailable} /></Link></td>
                     <td className="collector-cell">{card.collectorNumber}</td>
                     <td className="numeric price-cell">
