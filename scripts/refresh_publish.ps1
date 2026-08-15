@@ -35,6 +35,12 @@ $isScheduled = $Scheduled.IsPresent -or $launchedByTS
 $launcher = if ($launchedByTS) { "task-scheduler" } elseif ($Scheduled) { "switch-override" } else { "manual" }
 "[$stamp] launcher=$launcher scheduled=$isScheduled" | Tee-Object -FilePath $log -Append
 $releaseArgs = @(); if ($isScheduled) { $releaseArgs += "-Scheduled" }
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "preflight_daily_chain.ps1") -Mode refresh *>> $log
+$preflightExit = $LASTEXITCODE
+if ($preflightExit -eq 1) {
+    "[$stamp] preflight HARD fail; refresh slot aborted" | Tee-Object -FilePath $log -Append
+    exit 1
+}
 
 & $py -X utf8 -u "pipelines\operator_control.py" daily-accept *>> $log
 $acceptExit = $LASTEXITCODE

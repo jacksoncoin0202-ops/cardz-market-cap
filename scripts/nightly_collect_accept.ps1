@@ -30,6 +30,13 @@ try {
     $isScheduled = $Scheduled.IsPresent -or $launchedByTS
     $launcher = if ($launchedByTS) { "task-scheduler" } elseif ($Scheduled) { "switch-override" } else { "manual" }
     "[$stamp] launcher=$launcher scheduled=$isScheduled" | Tee-Object -FilePath $log -Append
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "preflight_daily_chain.ps1") -Mode nightly *>> $log
+    $preflightExit = $LASTEXITCODE
+    if ($preflightExit -eq 1) {
+        "[$stamp] preflight HARD fail; nightly chain aborted" | Tee-Object -FilePath $log -Append
+        Copy-Item -Force $log $crashLog -ErrorAction SilentlyContinue
+        exit 1
+    }
 
     & $py -X utf8 -u "pipelines\collect_control.py" incr --adapter http *>> $log
     $collectExit = $LASTEXITCODE
