@@ -34,6 +34,13 @@ try {
     $launcher = if ($launchedByTS) { "task-scheduler" } elseif ($Scheduled) { "switch-override" } else { "manual" }
     "[$stamp] launcher=$launcher scheduled=$isScheduled" | Tee-Object -FilePath $log -Append
     $releaseArgs = @(); if ($isScheduled) { $releaseArgs += "-Scheduled" }
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "preflight_daily_chain.ps1") -Mode morning *>> $log
+    $preflightExit = $LASTEXITCODE
+    if ($preflightExit -eq 1) {
+        "[$stamp] preflight HARD fail; morning chain aborted" | Tee-Object -FilePath $log -Append
+        Copy-Item -Force $log $crashLog -ErrorAction SilentlyContinue
+        exit 1
+    }
 
     # 收唔到貨 ≠ 出街數據壞。舊版一係 CDP 起唔到、一係 discover/e2e S0 abort，
     # 就連 daily-accept 同發佈都唔行。2026-08-13 朝鏈就係咁：pending activation

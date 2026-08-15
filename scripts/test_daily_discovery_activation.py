@@ -178,6 +178,12 @@ assert 'notify_hermes.py" chain --chain refresh' in refresh
 assert "CRASH (see log)" in nightly and "CRASH (see log)" in morning
 assert "notify_release" in sh
 print("POSITIVE_OK Hermes notify call sites present")
+assert (ROOT / "scripts" / "preflight_daily_chain.ps1").is_file()
+assert (ROOT / "scripts" / "watchdog_live_release.ps1").is_file()
+assert "preflight_daily_chain.ps1" in nightly
+assert "preflight_daily_chain.ps1" in morning
+assert "preflight_daily_chain.ps1" in refresh
+print("POSITIVE_OK preflight wired into three wrappers")
 
 os.environ["CARDZ_DAILY_CHAIN"] = "1"
 try:
