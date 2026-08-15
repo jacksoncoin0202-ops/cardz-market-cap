@@ -8,7 +8,6 @@ import { CardImage } from "./card-image";
 import { ExploreBar, SortHeader } from "./explore-bar";
 import { PeriodSelector } from "./period-selector";
 import { Sparkline } from "./sparkline";
-import { Tooltip } from "./tooltip";
 import { cardLanguages, copy, localizedCardLanguage } from "@/lib/i18n";
 import { formatDeltaMoney, formatInteger, formatMetricInteger, formatMetricMoney, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
 import { cardMatchesQuery, nextExploreSort, normaliseCardSort, sortCards } from "@/lib/list-explore";
@@ -174,18 +173,12 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
               <thead><tr>
                 <SortHeader label={t.labels.rank} sortKey="rank" activeKey={cardSort} dir={dir} onSort={applySort} />
                 <th>{t.labels.card}</th><th>{t.labels.number}</th>
-                <SortHeader label={t.labels.priceShort} sortKey="price" activeKey={cardSort} dir={dir} onSort={applySort} className="numeric">
-                  <Tooltip label={t.labels.price} text={t.labels.priceHelp} />
-                </SortHeader>
-                <SortHeader label={t.labels.populationShort} sortKey="pop" activeKey={cardSort} dir={dir} onSort={applySort} className="numeric">
-                  <Tooltip label={t.labels.population} text={t.labels.populationHelp} />
-                </SortHeader>
-                <SortHeader label={t.labels.marketCapShort} sortKey="cap" activeKey={cardSort} dir={dir} onSort={applySort} className="numeric">
-                  <Tooltip label={t.labels.marketCap} text={t.labels.marketCapHelp} />
-                </SortHeader>
-                <th className="numeric"><span title={t.labels.salesHelp}>{t.periods[period]} {t.labels.trackedSalesShort}</span></th>
+                <SortHeader label={t.labels.priceShort} sortKey="price" activeKey={cardSort} dir={dir} onSort={applySort} className="numeric" />
+                <SortHeader label={t.labels.populationShort} sortKey="pop" activeKey={cardSort} dir={dir} onSort={applySort} className="numeric" />
+                <SortHeader label={t.labels.marketCapShort} sortKey="cap" activeKey={cardSort} dir={dir} onSort={applySort} className="numeric" />
+                <th className="numeric">{t.periods[period]} {t.labels.trackedSalesShort}</th>
                 <th className="numeric">{t.periods[period]} {t.labels.changeShort}</th>
-                <th className="numeric"><span title={t.labels.salesHelp}>{t.labels.salesTrendShort}</span></th>
+                <th className="numeric">{t.labels.salesTrendShort}</th>
               </tr></thead>
               <tbody>{visibleCards.map((card) => {
                 const metrics = card.windows[period];
@@ -198,7 +191,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                     tabIndex={0}
                     aria-label={`#${card.viewRank} ${card.officialName || t.status.unavailable}`}
                     onClick={(event) => {
-                      // 入面嘅 <a>/<button>（卡名、tooltip）自己處理，唔好 double navigate
+                      // 入面嘅 <a>/<button>（卡名）自己處理，唔好 double navigate
                       if ((event.target as HTMLElement).closest("a,button")) return;
                       router.push(cardUrl);
                     }}
@@ -223,7 +216,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                       <span className="price-now">{formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true)}</span>
                       <MetricDelta metric={card.marketCap} changePct={metrics.marketCapChangePct} currency={currency} rates={snapshot.rates} locale={locale} />
                     </td>
-                    <td className="numeric sales-cell" title={t.labels.salesHelp}>
+                    <td className="numeric sales-cell">
                       <span className="price-now">{formatTrackedSales(metrics.trackedSales, currency, snapshot.rates, locale)}</span>
                       <SalesDelta sales={metrics.trackedSales} changePct={metrics.trackedSalesChangePct} currency={currency} rates={snapshot.rates} locale={locale} />
                     </td>

@@ -1724,46 +1724,6 @@ html.theme-transitions .brand-logo-dark {
 .share-button:active,
 .ranking-jump:active { transform: scale(0.94); }
 
-/* interactionkit tooltip 移植：hover 開、80ms delay 收，bubble fixed 對準 trigger（表頭 overflow hidden） */
-.tooltip { position: relative; display: inline-flex; margin-left: 4px; vertical-align: middle; }
-.tooltip-trigger {
-  width: 16px;
-  height: 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 1px solid var(--line-strong);
-  border-radius: 50%;
-  background: transparent;
-  color: var(--dt-color);
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 1;
-}
-.tooltip-trigger:hover,
-.tooltip-trigger[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
-.tooltip-bubble {
-  position: fixed;
-  z-index: 60;
-  width: 210px;
-  padding: 10px 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: 12px;
-  background: var(--preview-bg);
-  box-shadow: var(--shadow);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
-  color: var(--ink);
-  font-size: 11px;
-  font-weight: 400;
-  letter-spacing: 0;
-  line-height: 1.5;
-  text-align: left;
-  text-transform: none;
-  white-space: normal;
-}
-
 /* moumen ticket ticker：卡詳情頁市值數字 0 滾到目標值 */
 .cap-ticker { display: inline-block; font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) {

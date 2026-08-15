@@ -111,9 +111,6 @@ export interface Copy {
     shareDone: string;
     shareError: string;
     expandImage: string;
-    marketCapHelp: string;
-    populationHelp: string;
-    priceHelp: string;
     /*
      * 印刷版本相關。`printLanguage` 係 template：`languages` 只出裸字（「日文」），
      * 但 badge 要出「日文版」，所以用 {language} 佔位符夾 localizedCardLanguage() 嘅輸出。
@@ -255,9 +252,6 @@ export const copy: Record<Locale, Copy> = {
       noHistory: "Daily price history is still accumulating.", noCards: "No eligible cards are available in this view.", noSales: "No sales recorded", watchStatus: "Watchlist status",
       share: "Share card", shareDone: "Link copied", shareError: "Copy failed — select the address bar",
       expandImage: "View full-size card",
-      marketCapHelp: "PSA 10 price × PSA 10 population — the tradable value of the top-grade supply.",
-      populationHelp: "Verified PSA 10 graded copies counted in the registry.",
-      priceHelp: "Latest verified PSA 10 sale price in the tracked window.",
       printLanguage: "{language} print", setCode: "Set code", rarity: "Rarity", parallel: "Parallel", finish: "Surface", packSource: "Pack source",
       languageFilterAll: "All languages",
       searchPlaceholder: "Search name, number, or set",
@@ -382,9 +376,6 @@ export const copy: Record<Locale, Copy> = {
       noHistory: "每日價格歷史仍在累積。", noCards: "此分類暫時沒有合資格卡牌。", noSales: "無成交紀錄", watchStatus: "觀察狀態",
       share: "分享卡牌", shareDone: "已複製連結", shareError: "複製失敗，請手動複製網址",
       expandImage: "放大檢視卡牌",
-      marketCapHelp: "PSA 10 價格乘以已核實的 PSA 10 數量——頂級評分存量的可流通價值。",
-      populationHelp: "登記在冊、經核實的 PSA 10 存世數量。",
-      priceHelp: "追蹤期內最近一筆經核實的 PSA 10 成交價。",
       printLanguage: "{language}版", setCode: "系列代碼", rarity: "稀有度", parallel: "平行卡", finish: "卡面", packSource: "卡包來源",
       languageFilterAll: "全部語言",
       searchPlaceholder: "搜尋卡名、編號或系列",
@@ -494,9 +485,6 @@ export const copy: Record<Locale, Copy> = {
       noHistory: "每日价格历史仍在累积。", noCards: "此分类暂时没有合资格卡牌。", noSales: "无成交纪录", watchStatus: "观察状态",
       share: "分享卡牌", shareDone: "已复制链接", shareError: "复制失败，请手动复制网址",
       expandImage: "放大查看卡牌",
-      marketCapHelp: "PSA 10 价格乘以已核实的 PSA 10 数量——顶级评级存量的可流通价值。",
-      populationHelp: "登记在册、经核实的 PSA 10 存世数量。",
-      priceHelp: "追踪期内最近一笔经核实的 PSA 10 成交价。",
       printLanguage: "{language}版", setCode: "系列代码", rarity: "稀有度", parallel: "平行卡", finish: "卡面", packSource: "卡包来源",
       languageFilterAll: "全部语言",
       searchPlaceholder: "搜索卡名、编号或系列",
@@ -605,9 +593,6 @@ export const copy: Record<Locale, Copy> = {
       noHistory: "日次価格履歴を蓄積しています。", noCards: "この表示には適格カードがありません。", noSales: "成約記録なし", watchStatus: "観察ステータス",
       share: "カードを共有", shareDone: "リンクをコピーしました", shareError: "コピーに失敗しました。URL を手動でコピーしてください",
       expandImage: "カードを拡大表示",
-      marketCapHelp: "PSA 10 価格 × 確認済み PSA 10 枚数——最高評価の流通可能な価値。",
-      populationHelp: "レジストリに記録された、確認済みの PSA 10 現存枚数。",
-      priceHelp: "追跡期間内で確認できた直近の PSA 10 成約価格。",
       printLanguage: "{language}版", setCode: "セットコード", rarity: "レアリティ", parallel: "パラレル", finish: "表面", packSource: "収録パック",
       languageFilterAll: "すべての言語",
       searchPlaceholder: "名前・番号・セットで検索",
@@ -723,9 +708,6 @@ export const copy: Record<Locale, Copy> = {
       noHistory: "일별 가격 이력을 축적하고 있습니다.", noCards: "이 보기에 적격 카드가 없습니다.", noSales: "거래 기록 없음", watchStatus: "관찰 상태",
       share: "카드 공유", shareDone: "링크 복사됨", shareError: "복사 실패 — 주소창에서 직접 복사하세요",
       expandImage: "카드 크게 보기",
-      marketCapHelp: "PSA 10 가격 × 검증된 PSA 10 매수 — 최고 등급 공급의 거래 가능 가치.",
-      populationHelp: "레지스트리에 기록된 검증된 PSA 10 현존 매수.",
-      priceHelp: "추적 기간 내 가장 최근에 검증된 PSA 10 거래 가격.",
       printLanguage: "{language}판", setCode: "세트 코드", rarity: "레어도", parallel: "패러렐", finish: "표면", packSource: "수록 팩",
       languageFilterAll: "모든 언어",
       searchPlaceholder: "이름, 번호, 세트로 검색",
