@@ -35,7 +35,7 @@ const heatmap = readFileSync(HEATMAP, "utf8");
 const settings = readFileSync(SETTINGS, "utf8");
 const rankings = readFileSync(RANKINGS, "utf8");
 check("heatmap has no list-explore", !heatmap.includes("list-explore") && !heatmap.includes("ExploreBar"));
-check("href omits explore query", /if \(period !== "30d"\) query\.set\("period", period\);/.test(settings) && !/query\.set\("q"/.test(settings.split("const href")[1] ?? ""));
+check("href omits explore query", /if \(period !== (?:defaultMarketWindow|"30d")\) query\.set\("period", period\);/.test(settings) && !/query\.set\("q"/.test(settings.split("const href")[1] ?? ""));
 check("ranking title uses full catalog", /rankingTitle\.replace\("\{count\}", String\(cards\.length\)\)/.test(rankings));
 check("box keys omit pop and cap", JSON.stringify(explore.boxSortKeys) === JSON.stringify(["rank", "price", "sold", "release"]));
 check("card keys are rank price pop cap", JSON.stringify(explore.cardSortKeys) === JSON.stringify(["rank", "price", "pop", "cap"]));
