@@ -872,7 +872,7 @@ python -X utf8 pipelines/operator_control.py daily-discover-activate --initializ
 
 ```text
 nightly: HTTP collect → daily-discover-activate --lane http → daily-accept
-morning: CDP 9333 → browser collect → daily-discover-activate --lane browser
+morning: HTTP incr（補夜鏈 12h skip 缺口）→ CDP 9333 → browser collect → daily-discover-activate --lane browser
          → daily-accept → bake/push [deploy]
 ```
 
@@ -1267,6 +1267,14 @@ seed-snapshot）。手抄落去嘅 generation 圖每次 build 完要再抄一次
     quote；`_activation_accept_history` 喺新 lock `is_current=1` 之後 bootstrap。
     **唔准**為咗上 FE 放寬 `_pc_print_signature_ok`。守門人：
     `scripts/test_pc_quote_language_and_local_history.py`。
+35. **PSA10 prune/sync 當 BOX sidecar 圖係 orphan。**（2026-08-15，朝鏈／11:30
+    publish 死，`source tree is missing 897`）037 sync 要留 `box-subset.json`
+    897 張盒圖，bake prune 只識 seed top100+watchlist，checkout 還原完就搬走。
+    跟住 sync 又要 fe-db `data/public/market-assets` 有呢 897 張——BOX 只活喺
+    release git，從來冇入 PSA10 source。11:30／16:30 retry 撞同一個洞，當日
+    `[deploy]` 出唔到。修法：`daily_public_release.sh` bake `--no-prune`，改行
+    SOURCE `sync_public_release_assets.py`：PSA10 由 source 抄，BOX 留 dest，
+    兩邊都冇先硬死。守門人：`scripts/test_public_release_box_assets.py`。
 
 ### 相關嘅 MySQL / shell 陷阱
 

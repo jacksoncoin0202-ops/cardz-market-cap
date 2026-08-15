@@ -116,11 +116,25 @@ if PAGE.is_file():
         pc_sale_fingerprint(product_id, row["date"], row["price_usd"], row["ebay_itm"])
         for row in ((reparsed.get("psa10") or {}).get("completed_sales") or {}).get("rows") or []
     ])
+    # fixture 係 PC lane 會刷新嘅真頁，最新一行日日變；pin 靠 eBay item id，唔靠 rows[0]。
+    PINNED_ITM = "287495389764"
+    PINNED_SHA = "130be8a2cc0c8ad78a76cbc9d564bd53b126166b100bc15bb0e9dc885f4f49ba"
     check(
-        "最新嗰筆（2026-08-09 $2751.00 item 287495389764）",
-        fps[0],
-        "130be8a2cc0c8ad78a76cbc9d564bd53b126166b100bc15bb0e9dc885f4f49ba",
+        "演算法 pin（常數，唔靠 fixture）：5834844 / 2026-08-09 / 2751.00 / 287495389764",
+        pc_sale_fingerprint(5834844, "2026-08-09", 2751.0, PINNED_ITM),
+        PINNED_SHA,
     )
+    pinned_rows = [row for row in rows if str(row.get("ebay_itm") or "").strip() == PINNED_ITM]
+    if pinned_rows:
+        pinned = pinned_rows[0]
+        check("parser 對 pinned 成交出嘅日期/價", (pinned["date"], float(pinned["price_usd"])), ("2026-08-09", 2751.0))
+        check(
+            "parser 餵入去嘅 pinned 成交 sha 唔漂（item 287495389764，唔理佢排第幾）",
+            pc_sale_fingerprint(product_id, pinned["date"], pinned["price_usd"], pinned["ebay_itm"]),
+            PINNED_SHA,
+        )
+    else:
+        print(f"NOTE pinned item {PINNED_ITM} no longer on the 30-row page (fixture aged); re-pin with a current row")
     check(
         "逐筆 eBay 證據齊：日期 + link + 價",
         all(

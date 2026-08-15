@@ -40,15 +40,20 @@ test -f "$RELEASE_REPO/node_modules/typescript/bin/tsc"
 # Snapshot-only ff 跳過 FE／pipelines／script tests；validate self-test 仍然跑。
 TEST_PY="/home/jackson0202/cardz-market-cap/.venv-backend/bin/python"
 test -x "$TEST_PY"
-CHANGED="$(git -C "$RELEASE_REPO" diff --name-only "$BEFORE" HEAD || true)"
+# Diff against the last tree that PASSED the guards, not this run's ff.
+# A dead slot after ff used to leave CHANGED empty → every later slot skipped tests.
+TESTED_MARK="$RELEASE_REPO/.git/cardz-last-tested-head"
+BASE="$(cat "$TESTED_MARK" 2>/dev/null || true)"
+git -C "$RELEASE_REPO" cat-file -e "${BASE:-nonexistent}^{commit}" 2>/dev/null || BASE="$BEFORE"
+CHANGED="$(git -C "$RELEASE_REPO" diff --name-only "$BASE" HEAD || true)"
 TEST_ARGS=(--no-db)
 if ! echo "$CHANGED" | grep -Eq '^(apps/web/|packages/|scripts/test-)'; then
   TEST_ARGS+=(--skip-fe)
 fi
-if ! echo "$CHANGED" | grep -Eq '^(pipelines/|scripts/test_|scripts/run_all_tests\.py)'; then
+if ! echo "$CHANGED" | grep -Eq '^(pipelines/|scripts/)'; then
   TEST_ARGS+=(--skip-pipelines)
 fi
-if ! echo "$CHANGED" | grep -Eq '^(pipelines/|scripts/test_|apps/web/|packages/)'; then
+if ! echo "$CHANGED" | grep -Eq '^(pipelines/|scripts/|apps/web/|packages/)'; then
   TEST_ARGS+=(--skip-script-tests)
 fi
 if "$TEST_PY" -X utf8 "$RELEASE_REPO/scripts/run_all_tests.py" --help 2>/dev/null | grep -q -- '--skip-fe'; then
@@ -56,6 +61,7 @@ if "$TEST_PY" -X utf8 "$RELEASE_REPO/scripts/run_all_tests.py" --help 2>/dev/nul
 else
   "$TEST_PY" -X utf8 "$RELEASE_REPO/scripts/run_all_tests.py" --no-db
 fi
+git -C "$RELEASE_REPO" rev-parse HEAD > "$TESTED_MARK"
 
 # PC 成交 title↔卡號矛盾隔離 receipt（runbook 形狀 29）：bake 之前一定要由判別器
 # 重新生成，唔准食舊檔。讀者（live-db-snapshot.ts loadSaleQuarantine）fail-closed：
@@ -63,17 +69,39 @@ fi
 # receipt 寫入 SOURCE 嘅 data/runtime（bake 個 CARDZ_REPO_ROOT 都係指 SOURCE）。
 "$TEST_PY" -X utf8 "$SOURCE_REPO/pipelines/pc_sale_title_quarantine.py"
 
-CARDZ_REPO_ROOT="$SOURCE_REPO" node "$RELEASE_REPO/scripts/bake-public-snapshot.mjs" \
-  --output "$RELEASE_REPO/data/public/seed-snapshot.json"
+# Bake 喺 release checkout 跑。佢內建 prune 只識 PSA10 seed，會當 BOX sidecar
+# 897 張圖係 stale 搬走。037 sync 跟住又要 SOURCE（fe-db）有呢 897 張——
+# BOX 圖只活喺 release git，從來冇入 PSA10 source。2026-08-15 朝鏈／11:30
+# 就係咁：prune movedFiles=897，sync「source tree is missing 897」，retry
+# 位（11:30／16:30）撞同一個洞，當日 [deploy] 出唔到。
+# --no-prune 交俾下面 SOURCE sync：PSA10 由 source 抄，BOX 留 dest，多餘先刪。
+publish_assets() {
+  CARDZ_REPO_ROOT="$SOURCE_REPO" node "$RELEASE_REPO/scripts/bake-public-snapshot.mjs" \
+    --output "$RELEASE_REPO/data/public/seed-snapshot.json" \
+    --no-prune
+  python3 -X utf8 "$SOURCE_REPO/scripts/sync_public_release_assets.py" \
+    --snapshot "$RELEASE_REPO/data/public/seed-snapshot.json" \
+    --source "$SOURCE_REPO/data/public/market-assets" \
+    --destination "$RELEASE_REPO/data/public/market-assets"
+  python3 -X utf8 "$RELEASE_REPO/scripts/validate_daily_release.py" \
+    --snapshot "$RELEASE_REPO/data/public/seed-snapshot.json" \
+    --assets "$RELEASE_REPO/data/public/market-assets"
+}
 
-python3 -X utf8 "$RELEASE_REPO/scripts/sync_public_release_assets.py" \
-  --snapshot "$RELEASE_REPO/data/public/seed-snapshot.json" \
-  --source "$SOURCE_REPO/data/public/market-assets" \
-  --destination "$RELEASE_REPO/data/public/market-assets"
-
-python3 -X utf8 "$RELEASE_REPO/scripts/validate_daily_release.py" \
-  --snapshot "$RELEASE_REPO/data/public/seed-snapshot.json" \
-  --assets "$RELEASE_REPO/data/public/market-assets"
+asset_attempt=1
+while true; do
+  if publish_assets; then
+    break
+  fi
+  if ((asset_attempt >= 3)); then
+    printf 'daily release bake/sync/validate failed after %s attempts\n' "$asset_attempt" >&2
+    exit 1
+  fi
+  asset_attempt=$((asset_attempt + 1))
+  printf 'daily release bake/sync/validate retry %s/3\n' "$asset_attempt" >&2
+  git -C "$RELEASE_REPO" checkout -- data/public
+  sleep 15
+done
 
 mapfile -t changed < <(git -C "$RELEASE_REPO" status --porcelain=v1 | sed 's/^...//')
 
@@ -135,7 +163,16 @@ done
 generation="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["generation"]["id"])' "$RELEASE_REPO/data/public/seed-snapshot.json")"
 generated_at="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["generation"]["generatedAt"])' "$RELEASE_REPO/data/public/seed-snapshot.json")"
 git -C "$RELEASE_REPO" commit -m "release: daily CARDZ 037 FE04 $generation [deploy]"
-git -C "$RELEASE_REPO" push origin HEAD:main
+push_attempt=1
+until git -C "$RELEASE_REPO" push origin HEAD:main; do
+  if ((push_attempt >= 3)); then
+    printf 'daily release push failed after %s attempts\n' "$push_attempt" >&2
+    exit 1
+  fi
+  push_attempt=$((push_attempt + 1))
+  printf 'daily release push retry %s/3\n' "$push_attempt" >&2
+  sleep 15
+done
 
 for _ in $(seq 1 60); do
   if body="$(curl --fail --silent --show-error https://app.cardzmarketcap.com/api/health)"; then

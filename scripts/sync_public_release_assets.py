@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Mirror exactly the snapshot-referenced public assets into a release tree."""
+"""Mirror snapshot + BOX sidecar assets into a release tree.
+
+PSA10 images come from source (fe-db materialize). BOX images live only in
+the release git tree. Missing from source but present in destination: keep
+dest. Missing from both: fail closed.
+"""
 
 from __future__ import annotations
 
@@ -34,7 +39,7 @@ def referenced_assets(snapshot: dict) -> set[str]:
 
 
 def referenced_box_assets(box_path: Path) -> set[str]:
-    """037 BOX sidecar images. Daily prune must keep these or /box 圖會消失。"""
+    """037 BOX sidecar images. Daily prune/sync must keep these or /box images vanish."""
     if not box_path.is_file():
         return set()
     block = json.loads(box_path.read_text(encoding="utf-8"))
@@ -49,6 +54,56 @@ def referenced_box_assets(box_path: Path) -> set[str]:
     return names
 
 
+def wanted_release_assets(snapshot: dict, box_path: Path) -> set[str]:
+    return referenced_assets(snapshot) | referenced_box_assets(box_path)
+
+
+def sync_release_assets(snapshot: dict, source: Path, destination: Path, box_path: Path) -> dict:
+    wanted = wanted_release_assets(snapshot, box_path)
+    source = source.resolve()
+    destination = destination.resolve()
+    destination.mkdir(parents=True, exist_ok=True)
+
+    missing_both = sorted(
+        name
+        for name in wanted
+        if not (source / name).is_file() and not (destination / name).is_file()
+    )
+    if missing_both:
+        raise RuntimeError(
+            f"source and destination are missing {len(missing_both)} referenced assets: {missing_both[:10]}"
+        )
+
+    copied = 0
+    kept_from_destination = 0
+    for name in sorted(wanted):
+        source_path = source / name
+        destination_path = destination / name
+        if source_path.is_file():
+            if not destination_path.is_file() or not filecmp.cmp(source_path, destination_path, shallow=False):
+                # copyfile + mode 0644, not copy2: source on /mnt/c (drvfs) always
+                # reports 0777. copy2 would turn every webp 100644 -> 100755 and
+                # drown the real content diff in a 3966-file mode-only commit.
+                shutil.copyfile(source_path, destination_path)
+                destination_path.chmod(0o644)
+                copied += 1
+        else:
+            kept_from_destination += 1
+
+    removed = 0
+    for path in destination.glob("*.webp"):
+        if path.name not in wanted:
+            path.unlink()
+            removed += 1
+
+    return {
+        "referenced": len(wanted),
+        "copied": copied,
+        "removed": removed,
+        "keptFromDestination": kept_from_destination,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--snapshot", type=Path, required=True)
@@ -57,35 +112,13 @@ def main() -> int:
     args = parser.parse_args()
 
     snapshot = json.loads(args.snapshot.read_text(encoding="utf-8"))
-    wanted = referenced_assets(snapshot)
-    wanted |= referenced_box_assets(args.snapshot.parent / "box-subset.json")
-    source = args.source.resolve()
-    destination = args.destination.resolve()
-    destination.mkdir(parents=True, exist_ok=True)
-
-    missing = sorted(name for name in wanted if not (source / name).is_file())
-    if missing:
-        raise RuntimeError(f"source tree is missing {len(missing)} referenced assets: {missing[:10]}")
-
-    copied = 0
-    for name in sorted(wanted):
-        source_path = source / name
-        destination_path = destination / name
-        if not destination_path.is_file() or not filecmp.cmp(source_path, destination_path, shallow=False):
-            # copyfile + 固定 0644，唔用 copy2：source 喺 /mnt/c（drvfs）上面永遠
-            # 報 0777，copy2 會照抄，於是每個 webp 都由 100644 變 100755，
-            # 每次 release 都出一個 3966 檔嘅純 mode diff，真正嘅內容改動被淹冇。
-            shutil.copyfile(source_path, destination_path)
-            destination_path.chmod(0o644)
-            copied += 1
-
-    removed = 0
-    for path in destination.glob("*.webp"):
-        if path.name not in wanted:
-            path.unlink()
-            removed += 1
-
-    print(json.dumps({"referenced": len(wanted), "copied": copied, "removed": removed}))
+    report = sync_release_assets(
+        snapshot,
+        args.source,
+        args.destination,
+        args.snapshot.parent / "box-subset.json",
+    )
+    print(json.dumps(report))
     return 0
 
 

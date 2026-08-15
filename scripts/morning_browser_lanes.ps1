@@ -1,8 +1,10 @@
-﻿# CARDZ 036 morning chain: browser-dependent collectors -> daily-accept re-rank.
-# Registered as Task Scheduler job CARDZ-036-Morning-Browser-Lanes.
-# These lanes (pc_ebay_sales, en_price_ref) need a headed Chrome CDP session,
-# so they run in the morning slot where ensure_chrome_cdp can own the desktop;
-# the HTTP-only lanes live in nightly_collect_accept.ps1.
+﻿# CARDZ 037 morning chain: due collectors -> daily-accept re-rank.
+# Registered as Task Scheduler job CARDZ-037-Morning-Browser-Lanes.
+# Browser lanes need headed Chrome :9333. HTTP lanes do not — but they still
+# have to run here. Nightly 03:30 skips anything younger than REFRESH_DUE_HOURS
+# (12h). A 19:00 JST catch-up is still "ok" at 03:30, then due at 09:30 with
+# nobody collecting until the next night. 2026-08-15: GemRate 1368 + SNK
+# 701/700 sat due all day. HTTP incr runs even if CDP is down.
 $ErrorActionPreference = "Continue"
 $PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
 $env:CARDZ_DAILY_CHAIN = "1"
@@ -23,19 +25,24 @@ try {
     # 就連 daily-accept 同發佈都唔行。2026-08-13 朝鏈就係咁：pending activation
     # 觸發 036 e2e，S0 見到呢條 task 自己 Running，然後跳過出街。
     # collect / discover 紅照記，accept + publish 仍然要行。
+    & $py -X utf8 -u "pipelines\collect_control.py" incr --adapter http *>> $log
+    $httpExit = $LASTEXITCODE
+
     & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "ensure_chrome_cdp.ps1") -Port 9333 *>> $log
     $cdpExit = $LASTEXITCODE
 
     if ($cdpExit -eq 0) {
         & $py -X utf8 -u "pipelines\collect_control.py" incr --adapter browser --ensure-browser *>> $log
-        $collectExit = $LASTEXITCODE
+        $browserExit = $LASTEXITCODE
         & $py -X utf8 -u "pipelines\operator_control.py" daily-discover-activate --lane browser *>> $log
         $discoverExit = $LASTEXITCODE
     } else {
-        "[$stamp] ensure_chrome_cdp failed exit=$cdpExit; browser lanes skipped, accept still runs" | Tee-Object -FilePath $log -Append
-        $collectExit = -1
+        "[$stamp] ensure_chrome_cdp failed exit=$cdpExit; browser lanes skipped, HTTP already ran, accept still runs" | Tee-Object -FilePath $log -Append
+        $browserExit = -1
         $discoverExit = -1
     }
+    $collectExit = 0
+    if ($httpExit -ne 0 -or $browserExit -ne 0) { $collectExit = 1 }
 
     if ($discoverExit -ne 0) {
         "[$stamp] discovery exit=$discoverExit; daily-accept still runs on the current universe" | Tee-Object -FilePath $log -Append
@@ -53,7 +60,7 @@ try {
     }
 
     $done = (Get-Date).ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'")
-    "[$done] morning browser chain done cdp=$cdpExit collect=$collectExit discover=$discoverExit accept=$acceptExit publish=$publishExit" | Tee-Object -FilePath $log -Append
+    "[$done] morning browser chain done cdp=$cdpExit http=$httpExit collect=$collectExit discover=$discoverExit accept=$acceptExit publish=$publishExit" | Tee-Object -FilePath $log -Append
     Copy-Item -Force $log $crashLog -ErrorAction SilentlyContinue
     if ($cdpExit -ne 0 -or $collectExit -ne 0 -or $discoverExit -ne 0 -or $acceptExit -ne 0 -or $publishExit -ne 0) { exit 1 }
     exit 0

@@ -11,5 +11,17 @@ if ($script -notmatch '^[A-Za-z]:\\') {
 }
 $wslScript = "/mnt/" + $script.Substring(0, 1).ToLowerInvariant() + ($script.Substring(2) -replace '\\', '/')
 
-& wsl.exe -d Ubuntu -- bash $wslScript
-exit $LASTEXITCODE
+# 朝鏈／refresh 都經呢度。bake／sync／push 死一次唔等於當日 [deploy] 完。
+# 11:30／16:30 係另一個 slot；呢度係同一轉入面重試 3 次。
+$maxAttempts = 3
+$code = 1
+for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+    Write-Host "daily_public_release attempt $attempt/$maxAttempts"
+    & wsl.exe -d Ubuntu -- bash $wslScript
+    $code = $LASTEXITCODE
+    if ($code -eq 0) { exit 0 }
+    if ($attempt -lt $maxAttempts) {
+        Start-Sleep -Seconds 20
+    }
+}
+exit $code

@@ -1482,7 +1482,10 @@ def build_snapshot(
 
 
 def quarantine_unreferenced_assets(
-    assets_out: Path, snapshot: Mapping[str, Any], quarantine_root: Path
+    assets_out: Path,
+    snapshot: Mapping[str, Any],
+    quarantine_root: Path,
+    extra_expected: set[str] | None = None,
 ) -> dict[str, Any]:
     # 回傳 bytes 唔止 count：實測 repo 入面 4,535 個 sha / 1.82 GB，snapshot 只引用
     # 1,286 個 / 0.52 GB。淨報「搬走 3,249 個檔」睇唔出止咗幾多血，而「幾多 GB」
@@ -1492,6 +1495,8 @@ def quarantine_unreferenced_assets(
     # 必須連 image["variants"] 一齊當「有人引用」。淨數 src 嘅話，每張卡兩個生效中
     # 嘅衍生尺寸（_200 / _600）會被當成孤兒搬入 quarantine，全站細尺寸卡圖即刻爛。
     expected = referenced_asset_names(snapshot)
+    if extra_expected:
+        expected = expected | set(extra_expected)
     stale = [path for path in assets_out.iterdir() if path.is_file() and path.name not in expected]
     if not stale:
         return {"count": 0, "bytes": 0, "manifest": None}

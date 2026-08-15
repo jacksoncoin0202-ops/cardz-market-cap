@@ -146,6 +146,13 @@ for script_name in ("nightly_collect_accept.ps1", "morning_browser_lanes.ps1"):
     assert "daily-accept still runs" in source, script_name
 print("POSITIVE_OK scheduled chains keep daily-accept after discovery failure")
 
+morning = (ROOT / "scripts" / "morning_browser_lanes.ps1").read_text(encoding="utf-8-sig")
+http_at = morning.index('incr --adapter http')
+cdp_if_at = morning.index("if ($cdpExit -eq 0)")
+assert http_at < cdp_if_at
+assert "incr --adapter browser --ensure-browser" in morning
+print("POSITIVE_OK morning HTTP incr runs even if CDP is down")
+
 os.environ["CARDZ_DAILY_CHAIN"] = "1"
 try:
     assert D.scheduled_daily_chain() is True

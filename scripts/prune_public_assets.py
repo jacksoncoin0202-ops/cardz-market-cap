@@ -24,6 +24,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
+sys.path.insert(0, str(ROOT / "scripts"))
 
 from g10_public_snapshot import (  # noqa: E402
     DEFAULT_ASSETS,
@@ -31,6 +32,7 @@ from g10_public_snapshot import (  # noqa: E402
     quarantine_unreferenced_assets,
     referenced_asset_names,
 )
+from sync_public_release_assets import referenced_box_assets  # noqa: E402
 
 
 def main() -> None:
@@ -44,7 +46,8 @@ def main() -> None:
     snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
     assets = args.assets.resolve()
 
-    expected = referenced_asset_names(snapshot)
+    box_names = referenced_box_assets(snapshot_path.parent / "box-subset.json")
+    expected = referenced_asset_names(snapshot) | box_names
     present = [path for path in assets.iterdir() if path.is_file()] if assets.is_dir() else []
     stale = [path for path in present if path.name not in expected]
     kept = [path for path in present if path.name in expected]
@@ -69,7 +72,9 @@ def main() -> None:
     else:
         generation = str(snapshot.get("generation", {}).get("id") or "unknown")
         quarantine = ROOT / "data" / "runtime" / "private-quarantine" / "legacy-public-assets" / generation
-        moved = quarantine_unreferenced_assets(assets, snapshot, quarantine)
+        moved = quarantine_unreferenced_assets(
+            assets, snapshot, quarantine, extra_expected=box_names
+        )
         report["movedFiles"] = moved["count"]
         report["movedBytes"] = moved["bytes"]
         report["manifest"] = moved["manifest"]
