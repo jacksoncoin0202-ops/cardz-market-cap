@@ -69,6 +69,9 @@ export function useMarketSettings() {
   const currency = normaliseCurrency(params.get("currency"));
   const period = normaliseMarketWindow(params.get("period"));
   const printLang = normalisePrintLang(params.get("printLang"));
+  const query = params.get("q") ?? "";
+  const sort = params.get("sort") ?? "rank";
+  const dir = params.get("dir") === "asc" ? "asc" as const : "desc" as const;
   const urlTheme = params.get("theme");
   const storedTheme = useSyncExternalStore(subscribeTheme, readTheme, serverTheme);
   const theme: Theme = urlTheme ? normaliseTheme(urlTheme) : storedTheme;
@@ -82,24 +85,46 @@ export function useMarketSettings() {
     for (const notify of themeListeners) notify();
   }, []);
 
-  const update = useCallback((next: { locale?: Locale; currency?: Currency; period?: MarketWindow; theme?: Theme; printLang?: PrintLangFilter }) => {
+  const update = useCallback((next: {
+    locale?: Locale;
+    currency?: Currency;
+    period?: MarketWindow;
+    theme?: Theme;
+    printLang?: PrintLangFilter;
+    query?: string;
+    sort?: string;
+    dir?: "asc" | "desc";
+  }) => {
     if (next.theme) setTheme(next.theme);
-    const query = new URLSearchParams(params.toString());
+    const nextParams = new URLSearchParams(params.toString());
     const nextLocale = next.locale ?? locale;
     const nextCurrency = next.currency ?? currency;
     const nextPeriod = next.period ?? period;
     const nextPrintLang = next.printLang ?? printLang;
-    if (nextLocale === "en") query.delete("lang");
-    else query.set("lang", nextLocale);
-    if (nextCurrency === "USD") query.delete("currency");
-    else query.set("currency", nextCurrency);
-    if (nextPeriod === "30d") query.delete("period");
-    else query.set("period", nextPeriod);
-    if (nextPrintLang === "all") query.delete("printLang");
-    else query.set("printLang", nextPrintLang);
-    const suffix = query.toString();
+    const nextQuery = next.query !== undefined ? next.query : query;
+    const nextSort = next.sort !== undefined ? next.sort : sort;
+    const nextDir = next.dir !== undefined ? next.dir : dir;
+    if (nextLocale === "en") nextParams.delete("lang");
+    else nextParams.set("lang", nextLocale);
+    if (nextCurrency === "USD") nextParams.delete("currency");
+    else nextParams.set("currency", nextCurrency);
+    if (nextPeriod === "30d") nextParams.delete("period");
+    else nextParams.set("period", nextPeriod);
+    if (nextPrintLang === "all") nextParams.delete("printLang");
+    else nextParams.set("printLang", nextPrintLang);
+    if (!nextQuery.trim()) nextParams.delete("q");
+    else nextParams.set("q", nextQuery);
+    if (!nextSort || nextSort === "rank") {
+      nextParams.delete("sort");
+      nextParams.delete("dir");
+    } else {
+      nextParams.set("sort", nextSort);
+      if (nextDir === "desc") nextParams.delete("dir");
+      else nextParams.set("dir", nextDir);
+    }
+    const suffix = nextParams.toString();
     router.replace(suffix ? `${pathname}?${suffix}` : pathname, { scroll: false });
-  }, [currency, locale, params, pathname, period, printLang, router, setTheme]);
+  }, [currency, dir, locale, params, pathname, period, printLang, query, router, setTheme, sort]);
 
   const href = useCallback((path: string) => {
     const query = new URLSearchParams();
@@ -110,5 +135,5 @@ export function useMarketSettings() {
     return suffix ? `${path}?${suffix}` : path;
   }, [currency, locale, period]);
 
-  return { locale, currency, period, printLang, theme, update, href };
+  return { locale, currency, period, printLang, query, sort, dir, theme, update, href };
 }

@@ -5,13 +5,15 @@ import { useRouter } from "next/navigation";
 import { useMemo } from "react";
 import { ArrowDown, ArrowUp, TrendingDown, TrendingUp } from "lucide-react";
 import { CardImage } from "./card-image";
+import { ExploreBar, SortHeader } from "./explore-bar";
 import { PeriodSelector } from "./period-selector";
 import { Sparkline } from "./sparkline";
 import { Tooltip } from "./tooltip";
 import { cardLanguages, copy, localizedCardLanguage } from "@/lib/i18n";
 import { formatDeltaMoney, formatInteger, formatMetricInteger, formatMetricMoney, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
+import { cardMatchesQuery, nextExploreSort, normaliseCardSort, sortCards } from "@/lib/list-explore";
 import { useMarketSettings, type PrintLangFilter } from "@/lib/use-market-settings";
-import type { Currency, Locale, MarketCardView, MarketMetric, MarketViewSnapshot, TrackedSalesMetric } from "@/lib/types";
+import type { Currency, Locale, MarketCardView, MarketMetric, MarketViewSnapshot, MarketWindow, TrackedSalesMetric } from "@/lib/types";
 
 interface RankingsProps {
   cards: MarketCardView[];
@@ -37,7 +39,7 @@ export function MetricDelta({ metric, changePct, currency, rates, locale }: {
 
 export function PriceDelta({ card, period, currency, rates, locale }: {
   card: MarketCardView;
-  period: "1d" | "7d" | "30d";
+  period: MarketWindow;
   currency: Currency;
   rates: Record<Currency, number>;
   locale: Locale;
@@ -78,7 +80,7 @@ function CardIdentity({ card, unavailable }: { card: MarketCardView; unavailable
   );
 }
 
-function ChangeBadge({ card, period, locale }: { card: MarketCardView; period: "1d" | "7d" | "30d"; locale: Locale }) {
+function ChangeBadge({ card, period, locale }: { card: MarketCardView; period: MarketWindow; locale: Locale }) {
   const change = card.windows[period].changePct;
   const tone = metricTone(change);
   const Icon = tone === "positive" ? TrendingUp : tone === "negative" ? TrendingDown : null;
@@ -91,9 +93,10 @@ function ChangeBadge({ card, period, locale }: { card: MarketCardView; period: "
 }
 
 export function Rankings({ cards, locale, currency, snapshot, href, watchlist = false, marketLabel }: RankingsProps) {
-  const { period, printLang, update } = useMarketSettings();
+  const { period, printLang, query, sort, dir, update } = useMarketSettings();
   const t = copy[locale];
   const router = useRouter();
+  const cardSort = normaliseCardSort(sort);
   /* 篩選只列出榜上真係有嘅印刷語言。dev seed 帶 legacy key `language`，
      mapper 出 null，所以 dev 冇語言、冇 filter —— 呢個係正確行為。 */
   const availableLanguages = useMemo(() => {
@@ -105,11 +108,18 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
   const activeLang: PrintLangFilter =
     printLang !== "all" && availableLanguages.includes(printLang) ? printLang : "all";
   /* 篩選淨係隱藏行：viewRank / marketRank 照原樣出，唔准重新編號。 */
-  const visibleCards = useMemo(
-    () => (activeLang === "all" ? cards : cards.filter((card) => card.cardLanguage === activeLang)),
-    [cards, activeLang],
-  );
+  const visibleCards = useMemo(() => {
+    const langCards = activeLang === "all" ? cards : cards.filter((card) => card.cardLanguage === activeLang);
+    return sortCards(langCards.filter((card) => cardMatchesQuery(card, query, locale)), cardSort, dir);
+  }, [activeLang, cardSort, cards, dir, locale, query]);
+  const applySort = (key: string) => {
+    const next = nextExploreSort(cardSort, dir, key);
+    update({ sort: next.sort, dir: next.dir });
+  };
   const rankingTitle = t.heatmap.rankingTitle.replace("{count}", String(cards.length));
+  const resultLabel = (query.trim() || visibleCards.length !== cards.length)
+    ? t.labels.resultCount.replace("{shown}", String(visibleCards.length)).replace("{total}", String(cards.length))
+    : null;
   return (
     <section className="rankings-section" id="market-ranking" aria-labelledby="ranking-heading">
       <div className="ranking-heading">
@@ -134,7 +144,26 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
         </div>
         <PeriodSelector compact />
       </div>
-      {!visibleCards.length ? <p className="empty-state">{t.labels.noCards}</p> : (
+      <ExploreBar
+        query={query}
+        onQueryChange={(value) => update({ query: value })}
+        placeholder={t.labels.searchPlaceholder}
+        searchLabel={t.labels.searchLabel}
+        clearLabel={t.labels.searchClear}
+        resultLabel={resultLabel}
+        sortKeys={[
+          { key: "rank", label: t.labels.rank },
+          { key: "cap", label: t.labels.marketCapShort },
+          { key: "price", label: t.labels.priceShort },
+          { key: "pop", label: t.labels.populationShort },
+        ]}
+        sort={cardSort}
+        dir={dir}
+        onSort={applySort}
+        highToLow={t.labels.sortHighToLow}
+        lowToHigh={t.labels.sortLowToHigh}
+      />
+      {!visibleCards.length ? <p className="empty-state">{query.trim() ? t.labels.noSearchResults : t.labels.noCards}</p> : (
         <>
           <div className="desktop-ranking-table">
             <table>
@@ -143,10 +172,17 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                 <col className="col-pop" /><col className="col-cap" /><col className="col-sales" /><col className="col-change" /><col className="col-spark" />
               </colgroup>
               <thead><tr>
-                <th>{t.labels.rank}</th><th>{t.labels.card}</th><th>{t.labels.number}</th>
-                <th className="numeric">{t.labels.priceShort}<Tooltip label={t.labels.price} text={t.labels.priceHelp} /></th>
-                <th className="numeric">{t.labels.populationShort}<Tooltip label={t.labels.population} text={t.labels.populationHelp} /></th>
-                <th className="numeric">{t.labels.marketCapShort}<Tooltip label={t.labels.marketCap} text={t.labels.marketCapHelp} /></th>
+                <SortHeader label={t.labels.rank} sortKey="rank" activeKey={cardSort} dir={dir} onSort={applySort} />
+                <th>{t.labels.card}</th><th>{t.labels.number}</th>
+                <SortHeader label={t.labels.priceShort} sortKey="price" activeKey={cardSort} dir={dir} onSort={applySort} className="numeric">
+                  <Tooltip label={t.labels.price} text={t.labels.priceHelp} />
+                </SortHeader>
+                <SortHeader label={t.labels.populationShort} sortKey="pop" activeKey={cardSort} dir={dir} onSort={applySort} className="numeric">
+                  <Tooltip label={t.labels.population} text={t.labels.populationHelp} />
+                </SortHeader>
+                <SortHeader label={t.labels.marketCapShort} sortKey="cap" activeKey={cardSort} dir={dir} onSort={applySort} className="numeric">
+                  <Tooltip label={t.labels.marketCap} text={t.labels.marketCapHelp} />
+                </SortHeader>
                 <th className="numeric"><span title={t.labels.salesHelp}>{t.periods[period]} {t.labels.trackedSalesShort}</span></th>
                 <th className="numeric">{t.periods[period]} {t.labels.changeShort}</th>
                 <th className="numeric"><span title={t.labels.salesHelp}>{t.labels.salesTrendShort}</span></th>

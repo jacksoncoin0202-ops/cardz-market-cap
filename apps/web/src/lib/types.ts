@@ -1,6 +1,15 @@
 export const locales = ["en", "zh-TW", "zh-CN", "ja", "ko"] as const;
 export const currencies = ["USD", "HKD", "CNY", "GBP", "TWD", "JPY", "KRW"] as const;
-export const marketWindows = ["1d", "7d", "30d"] as const;
+export const marketWindows = ["1d", "7d", "30d", "90d", "180d", "365d"] as const;
+export const producerWindows = ["1d", "7d", "30d"] as const;
+export const marketWindowDays = {
+  "1d": 1,
+  "7d": 7,
+  "30d": 30,
+  "90d": 90,
+  "180d": 180,
+  "365d": 365,
+} as const;
 export const themes = ["light", "dark"] as const;
 
 export type Locale = (typeof locales)[number];

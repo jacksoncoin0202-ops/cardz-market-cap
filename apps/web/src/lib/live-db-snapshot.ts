@@ -14,7 +14,9 @@ import { normaliseSnapshot } from "./snapshot";
 import type { MarketViewSnapshot } from "./types";
 
 const LOCALES = ["en", "zhTW", "zhCN", "ja", "ko"] as const;
-const WINDOWS = { "1d": 1, "7d": 7, "30d": 30 } as const;
+const WINDOWS = { "1d": 1, "7d": 7, "30d": 30, "90d": 90, "180d": 180, "365d": 365 } as const;
+const LONG_WINDOWS = new Set(["90d", "180d", "365d"]);
+// 長窗寫入 bake 檔。1d/7d/30d 仍然 nearest-day；90/180/365 用 as-of，市值%唔作。
 
 type DbRow = RowDataPacket & Record<string, unknown>;
 
@@ -218,15 +220,18 @@ function windowMetrics(
     // 帶內空咗先輪到 step-function 後備（見 latestBefore 註釋）。帶內冇點
     // ⇒ (target−5d, target+5d) 全空 ⇒「最後一個 < target−5d 嘅點」就係
     //「最後一個 ≤ target 嘅點」，即係標準 as-of 語義，冇偷步。
-    const anchor = nearestPrice(history, targetMs, tolerance, currentMs, currentSource)
-      ?? (code === "30d" ? latestBefore(history, targetMs - tolerance * 86_400_000, currentSource) : null);
+    const anchor = LONG_WINDOWS.has(code)
+      ? latestBefore(history, targetMs + 1, currentSource)
+      : nearestPrice(history, targetMs, tolerance, currentMs, currentSource)
+        ?? (code === "30d" ? latestBefore(history, targetMs - tolerance * 86_400_000, currentSource) : null);
     const priceChange = percentage(currentPrice, anchor?.priceUsd ?? null);
     const anchorSource = anchor?.sourceCode ?? null;
     const sourceSwitched = Boolean(anchorSource && currentSource && anchorSource !== currentSource);
-    const anchorCap = anchor === null || currentPopulation === null
+    const inventCap = !LONG_WINDOWS.has(code);
+    const anchorCap = !inventCap || anchor === null || currentPopulation === null
       ? null
       : anchor.priceUsd * currentPopulation;
-    const capChange = percentage(currentCap, anchorCap);
+    const capChange = inventCap ? percentage(currentCap, anchorCap) : null;
     const currentSales = salesTotal(history, currentMs, daysBack);
     const previousSales = salesTotal(history, currentMs - daysBack * 86_400_000, daysBack);
     const salesChange = percentage(currentSales?.value ?? null, previousSales?.value ?? null);
@@ -726,7 +731,7 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
         populationMin: 1000,
         grade: "PSA 10",
         rankingMetric: "psa10_market_cap_usd",
-        windows: ["1d", "7d", "30d"],
+        windows: ["1d", "7d", "30d", "90d", "180d", "365d"] as unknown as PublicMarketSnapshot["universe"]["windows"],
         salesCoverage: "partial",
       },
       coverage: {
@@ -735,8 +740,8 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
         verifiedCount: Math.min(100, cards.length),
         top100Count: Math.min(100, cards.length),
         watchlistCount: Math.max(0, cards.length - 100),
-        changeReady: Object.fromEntries(Object.keys(WINDOWS).map((code) => [code, cards.filter((card) => card.windows[code as keyof typeof WINDOWS].changePct.value !== null).length])) as Record<keyof typeof WINDOWS, number>,
-        salesReady: Object.fromEntries(Object.keys(WINDOWS).map((code) => [code, cards.filter((card) => card.windows[code as keyof typeof WINDOWS].trackedSales.valueUsd.value !== null).length])) as Record<keyof typeof WINDOWS, number>,
+        changeReady: Object.fromEntries(Object.keys(WINDOWS).map((code) => [code, cards.filter((card) => (card.windows as Record<string, WindowMetrics>)[code].changePct.value !== null).length])) as Record<keyof typeof WINDOWS, number>,
+        salesReady: Object.fromEntries(Object.keys(WINDOWS).map((code) => [code, cards.filter((card) => (card.windows as Record<string, WindowMetrics>)[code].trackedSales.valueUsd.value !== null).length])) as Record<keyof typeof WINDOWS, number>,
         completeIdentityCount: cards.filter((card) => card.identityStatus === "confirmed").length,
         localizedStoryCount: Object.fromEntries(LOCALES.map((code) => [code, cards.filter((card) => Boolean(card.stories[code])).length])) as Record<(typeof LOCALES)[number], number>,
       },

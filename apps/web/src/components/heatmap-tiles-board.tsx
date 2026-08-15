@@ -4,12 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CardImage } from "./card-image";
 import { heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
 import { changeValue, tileColors, tileStyle, type TileParams } from "@/lib/tile-style";
-import type { MarketCardView } from "@/lib/types";
+import type { MarketCardView, MarketWindow } from "@/lib/types";
 
 /* 純 tiles board：填滿父容器（100%×100%），冇 heading/controls，俾 tune lab 重用 */
 export function HeatmapTilesBoard({ cards, period, params, dark, onPick }: {
   cards: MarketCardView[];
-  period: "1d" | "7d" | "30d";
+  period: MarketWindow;
   params: TileParams;
   dark: boolean;
   onPick?: (card: MarketCardView) => void;

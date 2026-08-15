@@ -1,12 +1,15 @@
 import { type PublicCard as CanonicalCard, type PublicMarketSnapshot as CanonicalSnapshot } from "@cardz/market-data";
+import { deriveLongWindows, longWindows } from "./derive-windows";
 import {
   currencies,
   marketWindows,
+  producerWindows,
   type Currency,
   type LocalizedText,
   type MarketCardView,
   type MarketMetric,
   type MarketViewSnapshot,
+  type MarketWindow,
 } from "./types";
 
 /*
@@ -82,22 +85,40 @@ function cardView(card: CanonicalCard): MarketCardView {
   const imageIsSafe = card.image.kind === "raw_front"
     && /^\/market-assets\/[a-f0-9]{64}\.webp$/.test(card.image.src);
 
-  const windows = Object.fromEntries(marketWindows.map((window) => [window, {
-    changePct: metric(card.windows[window].changePct),
+  const windowView = (raw: CanonicalCard["windows"]["1d"], inventCap: boolean) => ({
+    changePct: metric(raw.changePct),
     // Product no longer consumes multi-grader POP deltas. The producer emits
     // canonical marketCapChangePct; retained snapshots fall back to price only.
-    marketCapChangePct: metric(card.windows[window].marketCapChangePct ?? card.windows[window].changePct),
+    // 長窗唔准借價%當市值%：出街歷史冇每日 pop，舊價×今日 pop = 作數。
+    marketCapChangePct: metric(
+      inventCap
+        ? (raw.marketCapChangePct ?? raw.changePct)
+        : (raw.marketCapChangePct ?? { value: null, status: "accumulating" as const, asOf: null }),
+    ),
     // 成交額環比要 producer 出真數；冇就係計唔到，一樣唔准借價格變動。
     trackedSalesChangePct: metric(
-      card.windows[window].trackedSalesChangePct ?? { value: null, status: "accumulating", asOf: null },
+      raw.trackedSalesChangePct ?? { value: null, status: "accumulating", asOf: null },
     ),
     trackedSales: {
-      valueUsd: metric(card.windows[window].trackedSales.valueUsd),
-      count: metric(card.windows[window].trackedSales.count),
-      coverage: card.windows[window].trackedSales.coverage,
-      asOf: card.windows[window].trackedSales.asOf,
+      valueUsd: metric(raw.trackedSales.valueUsd),
+      count: metric(raw.trackedSales.count),
+      coverage: raw.trackedSales.coverage,
+      asOf: raw.trackedSales.asOf,
     },
-  }])) as MarketCardView["windows"];
+  });
+  const producer = Object.fromEntries(producerWindows.map((window) => [
+    window,
+    windowView(card.windows[window], true),
+  ]));
+  const baked = card.windows as Record<string, CanonicalCard["windows"]["1d"] | undefined>;
+  const derived = deriveLongWindows(card.historyDaily, card.pricePsa10.value, card.pricePsa10.asOf);
+  const windows = {
+    ...producer,
+    ...Object.fromEntries(longWindows.map((window) => [
+      window,
+      baked[window] ? windowView(baked[window], false) : derived[window],
+    ])),
+  } as MarketCardView["windows"];
 
   // `cardLanguage` 已經係 schema 正式欄位（packages/market-data/src/schema.ts），唔使再 cast。
   // 但仍然逐個值核一次：snapshot 係 runtime JSON，type 唔會幫你擋走樣嘅 code。
@@ -148,6 +169,17 @@ export function normaliseSnapshot(snapshot: CanonicalSnapshot): MarketViewSnapsh
     currency,
     snapshot.currencies.rates[currency].value ?? Number.NaN,
   ])) as Record<Currency, number>;
+  const top100 = snapshot.top100.map(cardView);
+  const watchlist = snapshot.watchlist.map(cardView);
+  const cards = [...top100, ...watchlist];
+  const windowReady = (field: "changePct" | "sales"): Record<MarketWindow, number> => (
+    Object.fromEntries(marketWindows.map((window) => [
+      window,
+      cards.filter((card) => field === "changePct"
+        ? card.windows[window].changePct.value !== null
+        : card.windows[window].trackedSales.valueUsd.value !== null).length,
+    ])) as Record<MarketWindow, number>
+  );
   return {
     schemaVersion: snapshot.schemaVersion,
     generation: snapshot.generation.id,
@@ -158,8 +190,8 @@ export function normaliseSnapshot(snapshot: CanonicalSnapshot): MarketViewSnapsh
       claim: snapshot.coverage.claim,
       requestedCount: snapshot.coverage.requestedCount,
       verifiedCount: snapshot.coverage.verifiedCount,
-      changeReady: snapshot.coverage.changeReady,
-      salesReady: snapshot.coverage.salesReady,
+      changeReady: windowReady("changePct"),
+      salesReady: windowReady("sales"),
       completeIdentityCount: snapshot.coverage.completeIdentityCount,
       localizedStoryCount: {
         en: snapshot.coverage.localizedStoryCount.en,
@@ -171,7 +203,7 @@ export function normaliseSnapshot(snapshot: CanonicalSnapshot): MarketViewSnapsh
     },
     ratesAsOf: snapshot.currencies.asOf,
     rates,
-    top100: snapshot.top100.map(cardView),
-    watchlist: snapshot.watchlist.map(cardView),
+    top100,
+    watchlist,
   };
 }

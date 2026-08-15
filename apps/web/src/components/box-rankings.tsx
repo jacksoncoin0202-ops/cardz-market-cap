@@ -1,13 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BoxImage } from "./box-image";
+import { ExploreBar, SortHeader } from "./explore-bar";
 import { PeriodSelector } from "./period-selector";
 import { Sparkline } from "./sparkline";
 import { MetricDelta } from "./rankings";
 import { copy } from "@/lib/i18n";
+import { boxMatchesQuery, nextExploreSort, normaliseBoxSort, sortBoxes } from "@/lib/list-explore";
 import { formatInteger, formatMetricMoney, formatPercent, metricTone } from "@/lib/format";
 import type { Currency, Locale, SealedProductView } from "@/lib/types";
 import { useMarketSettings } from "@/lib/use-market-settings";
@@ -33,12 +35,24 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
   currency: Currency;
   href: (path: string) => string;
 }) {
-  const { period } = useMarketSettings();
+  const { period, query, sort, dir, update } = useMarketSettings();
   const t = copy[locale];
   const router = useRouter();
   const [showAll, setShowAll] = useState(false);
-  const visibleProducts = showAll ? products : products.slice(0, INITIAL_ROWS);
+  const boxSort = normaliseBoxSort(sort);
+  const explored = useMemo(
+    () => sortBoxes(products.filter((product) => boxMatchesQuery(product, query, locale)), boxSort, dir, period),
+    [boxSort, dir, locale, period, products, query],
+  );
+  const visibleProducts = showAll ? explored : explored.slice(0, INITIAL_ROWS);
+  const applySort = (key: string) => {
+    const next = nextExploreSort(boxSort, dir, key);
+    update({ sort: next.sort, dir: next.dir });
+  };
   const title = t.box.boardTitle.replace("{count}", String(products.length));
+  const resultLabel = (query.trim() || explored.length !== products.length)
+    ? t.labels.resultCount.replace("{shown}", String(explored.length)).replace("{total}", String(products.length))
+    : null;
 
   return (
     <section className="rankings-section" id="box-ranking" aria-labelledby="box-ranking-heading">
@@ -51,6 +65,27 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
       </div>
       {!products.length ? <p className="empty-state">{t.box.empty}</p> : (
         <>
+          <ExploreBar
+            query={query}
+            onQueryChange={(value) => update({ query: value })}
+            placeholder={t.labels.searchPlaceholderBox}
+            searchLabel={t.labels.searchLabel}
+            clearLabel={t.labels.searchClear}
+            resultLabel={resultLabel}
+            sortKeys={[
+              { key: "rank", label: t.labels.rank },
+              { key: "price", label: t.labels.priceShort },
+              { key: "sold", label: t.box.soldCountShort },
+              { key: "release", label: t.box.release },
+            ]}
+            sort={boxSort}
+            dir={dir}
+            onSort={applySort}
+            highToLow={t.labels.sortHighToLow}
+            lowToHigh={t.labels.sortLowToHigh}
+          />
+          {!explored.length ? <p className="empty-state">{t.labels.noSearchResultsBox}</p> : (
+          <>
           <div className="desktop-ranking-table">
             <table>
               <colgroup>
@@ -58,11 +93,11 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
                 <col className="col-price" /><col className="col-sales" /><col className="col-change" /><col className="col-spark" />
               </colgroup>
               <thead><tr>
-                <th>{t.labels.rank}</th>
+                <SortHeader label={t.labels.rank} sortKey="rank" activeKey={boxSort} dir={dir} onSort={applySort} />
                 <th>{t.box.box}</th>
-                <th>{t.box.release}</th>
-                <th className="numeric">{t.labels.priceShort}</th>
-                <th className="numeric">{t.periods[period]} {t.box.soldCountShort}</th>
+                <SortHeader label={t.box.release} sortKey="release" activeKey={boxSort} dir={dir} onSort={applySort} />
+                <SortHeader label={t.labels.priceShort} sortKey="price" activeKey={boxSort} dir={dir} onSort={applySort} className="numeric" />
+                <SortHeader label={`${t.periods[period]} ${t.box.soldCountShort}`} sortKey="sold" activeKey={boxSort} dir={dir} onSort={applySort} className="numeric" />
                 <th className="numeric">{t.periods[period]} {t.labels.changeShort}</th>
                 <th className="numeric">{t.labels.salesTrendShort}</th>
               </tr></thead>
@@ -148,14 +183,16 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
             );
           })}
           </div>
-          {!showAll && products.length > INITIAL_ROWS && (
+          {!showAll && explored.length > INITIAL_ROWS && (
             <button
               type="button"
               className="box-show-more"
               onClick={() => setShowAll(true)}
             >
-              {t.box.showMore.replace("{count}", String(products.length - INITIAL_ROWS))}
+              {t.box.showMore.replace("{count}", String(explored.length - INITIAL_ROWS))}
             </button>
+          )}
+          </>
           )}
         </>
       )}

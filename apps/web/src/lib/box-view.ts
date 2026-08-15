@@ -1,3 +1,4 @@
+import { deriveBoxWindow, longWindows } from "./derive-windows";
 import { marketWindows, sealedGroups, type MarketMetric, type SealedProductView, type SealedViewBlock } from "./types";
 
 /*
@@ -32,7 +33,7 @@ export interface BoxSidecarProduct {
     asOf: string;
     native?: { amount: number; currency: string };
   };
-  windows?: Partial<Record<"1d" | "7d" | "30d", { changePct?: number; soldCount?: number }>>;
+  windows?: Partial<Record<"1d" | "7d" | "30d" | "90d" | "180d" | "365d", { changePct?: number; soldCount?: number }>>;
   historyDaily?: Array<{ date: string; priceUsd?: number | null; soldCount?: number; soldValueUsd?: number | null }>;
 }
 
@@ -78,7 +79,18 @@ function boxProductView(product: BoxSidecarProduct): SealedProductView | null {
   const askMetric: MarketMetric<number> = product.askFloor
     ? { value: product.askFloor.usd, status: "ready", asOf: product.askFloor.asOf }
     : { value: null, status: "unavailable", asOf: null };
+  const history = product.historyDaily || [];
   const windows = Object.fromEntries(marketWindows.map((window) => {
+    if ((longWindows as readonly string[]).includes(window)) {
+      const baked = product.windows?.[window];
+      if (baked && typeof baked.changePct === "number") {
+        return [window, {
+          changePct: { value: baked.changePct, status: "ready" as const, asOf: price?.asOf ?? null },
+          soldCount: baked.soldCount ?? 0,
+        }];
+      }
+      return [window, deriveBoxWindow(history, price?.usd ?? null, price?.asOf ?? null, window as typeof longWindows[number])];
+    }
     const metrics = product.windows?.[window];
     const changePct: MarketMetric<number> =
       metrics && typeof metrics.changePct === "number"

@@ -126,6 +126,15 @@ export interface Copy {
     finish: string;
     packSource: string;
     languageFilterAll: string;
+    searchPlaceholder: string;
+    searchPlaceholderBox: string;
+    searchLabel: string;
+    searchClear: string;
+    sortHighToLow: string;
+    sortLowToHigh: string;
+    resultCount: string;
+    noSearchResults: string;
+    noSearchResultsBox: string;
   };
   theme: { dark: string; light: string };
   methodology: { title: string; body: string };
@@ -230,7 +239,7 @@ export const copy: Record<Locale, Copy> = {
       cardSize: "Card size",
       saved: "Saved",
     },
-    periods: { "1d": "1d", "7d": "7d", "30d": "30d" },
+    periods: { "1d": "1D", "7d": "7D", "30d": "30D", "90d": "3M", "180d": "6M", "365d": "1Y" },
     languages: { en: "English", ja: "Japanese", ko: "Korean", zhCN: "Simplified Chinese", zhTW: "Traditional Chinese" },
     labels: {
       rank: "Rank", card: "Card", number: "Full number", language: "Language", price: "PSA 10 price", ungradedReference: "Ungraded / RAW reference",
@@ -251,6 +260,15 @@ export const copy: Record<Locale, Copy> = {
       priceHelp: "Latest verified PSA 10 sale price in the tracked window.",
       printLanguage: "{language} print", setCode: "Set code", rarity: "Rarity", parallel: "Parallel", finish: "Surface", packSource: "Pack source",
       languageFilterAll: "All languages",
+      searchPlaceholder: "Search name, number, or set",
+      searchPlaceholderBox: "Search box name or set code",
+      searchLabel: "Search this list",
+      searchClear: "Clear",
+      sortHighToLow: "High to low",
+      sortLowToHigh: "Low to high",
+      resultCount: "{shown} / {total}",
+      noSearchResults: "No cards match this search.",
+      noSearchResultsBox: "No boxes match this search.",
     },
     theme: { dark: "Dark mode", light: "Light mode" },
     methodology: {
@@ -348,7 +366,7 @@ export const copy: Record<Locale, Copy> = {
       customize: "自訂色彩", customizeTitle: "熱力圖色彩", resetDefault: "恢復預設",
       upColor: "上升顏色", downColor: "下跌顏色", intensity: "色彩強度", neutralZone: "中立區", gap: "格子間距", cardSize: "卡牌大小", saved: "已儲存",
     },
-    periods: { "1d": "1 日", "7d": "7 日", "30d": "30 日" },
+    periods: { "1d": "1D", "7d": "7D", "30d": "30D", "90d": "3M", "180d": "6M", "365d": "1Y" },
     languages: { en: "英文", ja: "日文", ko: "韓文", zhCN: "簡體中文", zhTW: "繁體中文" },
     labels: {
       rank: "排名", card: "卡牌", number: "完整編號", language: "語言", price: "PSA 10 價格", ungradedReference: "未評級／RAW 參考價",
@@ -369,6 +387,15 @@ export const copy: Record<Locale, Copy> = {
       priceHelp: "追蹤期內最近一筆經核實的 PSA 10 成交價。",
       printLanguage: "{language}版", setCode: "系列代碼", rarity: "稀有度", parallel: "平行卡", finish: "卡面", packSource: "卡包來源",
       languageFilterAll: "全部語言",
+      searchPlaceholder: "搜尋卡名、編號或系列",
+      searchPlaceholderBox: "搜尋盒名或系列代碼",
+      searchLabel: "搜尋此列表",
+      searchClear: "清除",
+      sortHighToLow: "由高到低",
+      sortLowToHigh: "由低到高",
+      resultCount: "{shown} / {total}",
+      noSearchResults: "沒有符合此搜尋的卡牌。",
+      noSearchResultsBox: "沒有符合此搜尋的原盒。",
     },
     theme: { dark: "深色模式", light: "淺色模式" },
     methodology: {
@@ -451,7 +478,7 @@ export const copy: Record<Locale, Copy> = {
       customize: "自定义色彩", customizeTitle: "热力图色彩", resetDefault: "恢复默认",
       upColor: "上涨颜色", downColor: "下跌颜色", intensity: "色彩强度", neutralZone: "中立区", gap: "格子间距", cardSize: "卡牌大小", saved: "已保存",
     },
-    periods: { "1d": "1 日", "7d": "7 日", "30d": "30 日" },
+    periods: { "1d": "1D", "7d": "7D", "30d": "30D", "90d": "3M", "180d": "6M", "365d": "1Y" },
     languages: { en: "英文", ja: "日文", ko: "韩文", zhCN: "简体中文", zhTW: "繁体中文" },
     labels: {
       rank: "排名", card: "卡牌", number: "完整编号", language: "语言", price: "PSA 10 价格", ungradedReference: "未评级／RAW 参考价",
@@ -472,6 +499,15 @@ export const copy: Record<Locale, Copy> = {
       priceHelp: "追踪期内最近一笔经核实的 PSA 10 成交价。",
       printLanguage: "{language}版", setCode: "系列代码", rarity: "稀有度", parallel: "平行卡", finish: "卡面", packSource: "卡包来源",
       languageFilterAll: "全部语言",
+      searchPlaceholder: "搜索卡名、编号或系列",
+      searchPlaceholderBox: "搜索盒名或系列代码",
+      searchLabel: "搜索此列表",
+      searchClear: "清除",
+      sortHighToLow: "由高到低",
+      sortLowToHigh: "由低到高",
+      resultCount: "{shown} / {total}",
+      noSearchResults: "没有符合此搜索的卡牌。",
+      noSearchResultsBox: "没有符合此搜索的原盒。",
     },
     theme: { dark: "深色模式", light: "浅色模式" },
     methodology: {
@@ -553,7 +589,7 @@ export const copy: Record<Locale, Copy> = {
       customize: "色をカスタマイズ", customizeTitle: "ヒートマップの色", resetDefault: "デフォルトに戻す",
       upColor: "上昇カラー", downColor: "下落カラー", intensity: "色の強度", neutralZone: "ニュートラルゾーン", gap: "タイル間隔", cardSize: "カードサイズ", saved: "保存済み",
     },
-    periods: { "1d": "1 日", "7d": "7 日", "30d": "30 日" },
+    periods: { "1d": "1D", "7d": "7D", "30d": "30D", "90d": "3M", "180d": "6M", "365d": "1Y" },
     languages: { en: "英語", ja: "日本語", ko: "韓国語", zhCN: "簡体中国語", zhTW: "繁体中国語" },
     labels: {
       rank: "順位", card: "カード", number: "完全な番号", language: "言語", price: "PSA 10 価格", ungradedReference: "未鑑定／RAW 参考価格",
@@ -574,6 +610,15 @@ export const copy: Record<Locale, Copy> = {
       priceHelp: "追跡期間内で確認できた直近の PSA 10 成約価格。",
       printLanguage: "{language}版", setCode: "セットコード", rarity: "レアリティ", parallel: "パラレル", finish: "表面", packSource: "収録パック",
       languageFilterAll: "すべての言語",
+      searchPlaceholder: "名前・番号・セットで検索",
+      searchPlaceholderBox: "ボックス名またはセットコードで検索",
+      searchLabel: "このリストを検索",
+      searchClear: "クリア",
+      sortHighToLow: "高い順",
+      sortLowToHigh: "低い順",
+      resultCount: "{shown} / {total}",
+      noSearchResults: "この検索に一致するカードはありません。",
+      noSearchResultsBox: "この検索に一致するボックスはありません。",
     },
     theme: { dark: "ダークモード", light: "ライトモード" },
     methodology: {
@@ -662,7 +707,7 @@ export const copy: Record<Locale, Copy> = {
       customize: "색상 사용자 정의", customizeTitle: "히트맵 색상", resetDefault: "기본값으로 재설정",
       upColor: "상승 색상", downColor: "하락 색상", intensity: "색상 강도", neutralZone: "중립 구간", gap: "타일 간격", cardSize: "카드 크기", saved: "저장됨",
     },
-    periods: { "1d": "1일", "7d": "7일", "30d": "30일" },
+    periods: { "1d": "1D", "7d": "7D", "30d": "30D", "90d": "3M", "180d": "6M", "365d": "1Y" },
     languages: { en: "영어", ja: "일본어", ko: "한국어", zhCN: "중국어 간체", zhTW: "중국어 번체" },
     labels: {
       rank: "순위", card: "카드", number: "전체 번호", language: "언어", price: "PSA 10 가격", ungradedReference: "미감정／RAW 참고가",
@@ -683,6 +728,15 @@ export const copy: Record<Locale, Copy> = {
       priceHelp: "추적 기간 내 가장 최근에 검증된 PSA 10 거래 가격.",
       printLanguage: "{language}판", setCode: "세트 코드", rarity: "레어도", parallel: "패러렐", finish: "표면", packSource: "수록 팩",
       languageFilterAll: "모든 언어",
+      searchPlaceholder: "이름, 번호, 세트로 검색",
+      searchPlaceholderBox: "박스 이름 또는 세트 코드로 검색",
+      searchLabel: "이 목록 검색",
+      searchClear: "지우기",
+      sortHighToLow: "높은 순",
+      sortLowToHigh: "낮은 순",
+      resultCount: "{shown} / {total}",
+      noSearchResults: "이 검색과 일치하는 카드가 없습니다.",
+      noSearchResultsBox: "이 검색과 일치하는 박스가 없습니다.",
     },
     theme: { dark: "다크 모드", light: "라이트 모드" },
     methodology: {

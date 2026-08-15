@@ -45,7 +45,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const WEB = join(ROOT, "apps", "web");
 const LIB = join(WEB, "src", "lib");
 const BUILD = join(WEB, ".next", "cache", "cardz-bake");
-const SOURCES = ["live-db-snapshot.ts", "snapshot.ts", "types.ts"];
+const SOURCES = ["live-db-snapshot.ts", "snapshot.ts", "types.ts", "derive-windows.ts"];
 
 function arg(name, fallback = null) {
   const at = process.argv.indexOf(name);

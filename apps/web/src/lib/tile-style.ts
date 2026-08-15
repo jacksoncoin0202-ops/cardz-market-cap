@@ -93,7 +93,7 @@ export function tileStyle(value: number | null, w: number, h: number, colors: Ti
   return { direction, bg, cardW, cardH, showCard, move, fontSize };
 }
 
-export function changeValue(card: { windows: Record<string, { changePct: { status: string; value: number | null } }> }, period: "1d" | "7d" | "30d"): number | null {
+export function changeValue(card: { windows: Record<string, { changePct: { status: string; value: number | null } }> }, period: string): number | null {
   const metric = card.windows[period].changePct;
   const ready = (metric.status === "ready" || metric.status === "stale") && metric.value !== null && Number.isFinite(metric.value);
   return ready ? metric.value : null;
