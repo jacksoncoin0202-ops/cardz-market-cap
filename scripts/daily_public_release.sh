@@ -187,7 +187,7 @@ if ((${#changed[@]} == 0)); then
   # postmortem），嗰陣每一日都會report「no-change」然後大家以為正常。
   # 所以冇變都要對一次 live，唔啱就大聲死，等下一個 retry slot 再試。
   generation="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["generation"]["id"])' "$RELEASE_REPO/data/public/seed-snapshot.json")"
-  live="$(curl --fail --silent --show-error --max-time 20 https://app.cardzmarketcap.com/api/health || true)"
+  live="$(curl --fail --silent --show-error --max-time 20 https://cardsmarketcap.com/api/health || true)"
   live_generation="$(PUBLIC_HEALTH="$live" python3 -c 'import json,os; print(json.loads(os.environ["PUBLIC_HEALTH"]).get("generation",""))' 2>/dev/null || true)"
   if [[ "$live_generation" == "$generation" ]]; then
     generated_at="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["generation"]["generatedAt"])' "$RELEASE_REPO/data/public/seed-snapshot.json")"
@@ -230,7 +230,7 @@ until git -C "$RELEASE_REPO" push origin HEAD:main; do
 done
 
 for _ in $(seq 1 60); do
-  if body="$(curl --fail --silent --show-error https://app.cardzmarketcap.com/api/health)"; then
+  if body="$(curl --fail --silent --show-error https://cardsmarketcap.com/api/health)"; then
     # 判「新 bundle 上到未」睇 generatedAt（每次 bake 都變，由 snapshot 自己帶），
     # 唔再睇 build。build 要部署方 set CARDZ_PUBLIC_BUILD_ID，而實際 deploy 路徑
     # 由頭到尾冇 set 過，永遠係 "local"，所以舊 gate 恆假：每次都白等足 10 分鐘

@@ -1,11 +1,12 @@
 import type { MetadataRoute } from "next";
 import { WATCHLIST_PAGE_SIZE } from "@/lib/pagination";
+import { PUBLIC_SITE_URL } from "@/lib/public-site";
 import { loadMarketSnapshot } from "@/lib/server-snapshot";
 
 /* volume 換咗 seed 之後要跟 runtime 讀，唔可以 bake 死喺 next build。 */
 export const dynamic = "force-dynamic";
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://cardzmarketcap.com";
+const siteUrl = PUBLIC_SITE_URL;
 const locales = {
   en: "",
   "zh-Hant": "lang=zh-TW",

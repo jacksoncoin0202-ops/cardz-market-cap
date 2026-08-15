@@ -23,8 +23,10 @@ COPY --from=deps /repo/node_modules ./node_modules
 COPY . .
 
 ARG CARDZ_PUBLIC_BUILD_ID=docker
+ARG NEXT_PUBLIC_SITE_URL=https://cardsmarketcap.com
 ENV CARDZ_PUBLIC_BUILD_ID=${CARDZ_PUBLIC_BUILD_ID} \
     CARDZ_BUILD_TARGET=node \
+    NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL} \
     NEXT_TELEMETRY_DISABLED=1
 
 WORKDIR /repo

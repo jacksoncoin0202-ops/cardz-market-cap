@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { ImageResponse } from "next/og";
 import { loadMarketSnapshot } from "@/lib/server-snapshot";
 
@@ -54,6 +56,14 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
    */
   if (!card) return new Response("Card not found", { status: 404 });
 
+  const { existsSync } = await import("node:fs");
+  const logoFile = [
+    resolve(process.cwd(), "public/brand/logo-cardz-marketcap.png"),
+    resolve(process.cwd(), "apps/web/public/brand/logo-cardz-marketcap.png"),
+  ].find((path) => existsSync(path));
+  if (!logoFile) return new Response("Brand mark missing", { status: 500 });
+  const logoSrc = `data:image/png;base64,${(await readFile(logoFile)).toString("base64")}`;
+
   return new ImageResponse(
     (
       <div
@@ -80,7 +90,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
             <Stat label="PSA 10 PRICE" value={usd(card.pricePsa10.value)} />
             <Stat label="PSA 10 POP" value={integer(card.populationPsa10.value)} />
           </div>
-          <span style={{ fontSize: 25, color: MUTED, letterSpacing: 3 }}>CARDZ MARKETCAP</span>
+          <img src={logoSrc} alt="Cards Marketcap" width={280} height={121} />
         </div>
       </div>
     ),

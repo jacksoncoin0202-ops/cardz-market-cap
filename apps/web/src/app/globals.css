@@ -229,13 +229,11 @@ h1, h2, h3 { font-weight: 500; letter-spacing: -0.035em; line-height: 1.04; }
   gap: 7px;
   white-space: nowrap;
 }
-.brand-logo { display: block; width: auto; height: 30px; grid-area: 1 / 1; }
+.brand-logo { display: block; width: auto; height: 46px; grid-area: 1 / 1; }
 /* 用 opacity 交叉淡換而唔係 display，等明暗 logo 同 theme transition 一齊轉 */
 .brand-logo-dark { opacity: 0; }
 [data-theme="dark"] .brand-logo { opacity: 0; }
 [data-theme="dark"] .brand-logo-dark { opacity: 1; }
-.brand-logo-fe02 { height: 46px; opacity: 1; }
-[data-theme="dark"] .brand-logo-fe02 { opacity: 1; }
 .brand-beta {
   grid-column: 2;
   grid-row: 1;
@@ -1705,8 +1703,7 @@ html.theme-transitions .brand-logo-dark {
     padding: 4px 14px;
   }
   .brand { grid-column: 1; grid-row: 1; justify-self: start; display: inline-flex; align-items: center; gap: 6px; }
-  .brand-logo { height: 24px; }
-  .brand-logo-fe02 { height: 34px; }
+  .brand-logo { height: 34px; }
   .brand-beta { flex: none; padding: 2px 4px; font-size: 8px; }
   .market-controls { grid-column: 2; grid-row: 1; justify-content: flex-end; justify-self: end; }
   .market-controls .select-control { flex: none; padding-inline: 7px; }

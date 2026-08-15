@@ -55,7 +55,7 @@ export async function generateMetadata({ params, searchParams }: CardRouteProps)
     description,
     `/card/${id}`,
     `/api/og/card/${encodeURIComponent(id)}`,
-    card.officialName || "CardZ Marketcap",
+    card.officialName || "Cards Marketcap",
   );
 }
 

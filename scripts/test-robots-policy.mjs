@@ -42,7 +42,7 @@ const production = createRobotsPolicy("production");
 const wildcard = agents(production, "*");
 check("生產：* 開放", wildcard.allow, "/");
 check("生產：* 擋住 /api/、私密資料同 /tune", wildcard.disallow, ["/api/", "/data/private/", "/tune"]);
-check("生產：有 sitemap", typeof production.sitemap === "string" && production.sitemap.endsWith("/sitemap.xml"), true);
+check("生產：有 sitemap", production.sitemap, "https://cardsmarketcap.com/sitemap.xml");
 
 // 冇傳 environment（今日生產 container 嘅實況）同 "production" 行同一條路。
 check("undefined 環境 = 生產分支", JSON.stringify(createRobotsPolicy()), JSON.stringify(production));
@@ -51,9 +51,22 @@ check("undefined 環境 = 生產分支", JSON.stringify(createRobotsPolicy()), J
 // 2026-08-11 實測生產 /robots.txt 就係呢個名單。要改名單就要改呢幾行，改咗即係
 // 有人拎過個決定，唔會靜靜滑走。
 const blocked = production.rules.filter((rule) => rule.disallow === "/").flatMap((rule) => [rule.userAgent].flat());
-check("今日全擋名單", blocked.sort(), ["CCBot", "GPTBot"]);
+check(
+  "今日全擋名單",
+  blocked.sort(),
+  [
+    "Amazonbot",
+    "Applebot-Extended",
+    "Bytespider",
+    "CCBot",
+    "ClaudeBot",
+    "GPTBot",
+    "Google-Extended",
+    "meta-externalagent",
+  ],
+);
 
-for (const name of ["ClaudeBot", "Google-Extended", "PerplexityBot", "Applebot-Extended", "Bytespider"]) {
+for (const name of ["PerplexityBot"]) {
   checks += 1;
   if (blocked.includes(name)) failed.push(`FAIL ${name} 應該喺 * 條 rule 入面（今日冇單獨擋佢）`);
 }

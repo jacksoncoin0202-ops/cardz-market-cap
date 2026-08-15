@@ -32,7 +32,7 @@ Windows 3308 + WSL operator
   → AWS checkout fast-forward + Git LFS pull
   → docker compose up --build
   → container /api/health
-  → https://app.cardzmarketcap.com/api/health
+  → https://cardsmarketcap.com/api/health
 ```
 
 AWS production **不連接 Windows MySQL 3308**。容器只讀：
@@ -48,7 +48,7 @@ IT 開工前只需填好以下值；其餘命令不應自行改路徑：
 DEPLOY_USER=<AWS Linux deploy user，例如 cardzdeploy>
 REPO_DIR=<AWS checkout 絕對路徑，例如 /opt/cardz-market-cap>
 REPO_SSH_URL=git@github.com:jacksoncoin0202-ops/cardz-market-cap.git
-PUBLIC_HEALTH_URL=https://app.cardzmarketcap.com/api/health
+PUBLIC_HEALTH_URL=https://cardsmarketcap.com/api/health
 WEBHOOK_PUBLIC_URL=<AWS webhook 的 HTTPS URL>
 ```
 
@@ -116,7 +116,7 @@ deploy command 必須由 AWS host 擁有，不由 webhook payload 拼 shell comm
 set -euo pipefail
 
 REPO_DIR=<AWS checkout 絕對路徑>
-PUBLIC_HEALTH_URL=https://app.cardzmarketcap.com/api/health
+PUBLIC_HEALTH_URL=https://cardsmarketcap.com/api/health
 EXPECTED_SHA="${1:?GitHub after SHA is required}"
 
 [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]

@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://cardzmarketcap.com";
+/* 同 `lib/public-site.ts` 預設同一個 origin。呢個檔俾 node test 直接 import，唔可以 `@/`。 */
+const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://cardsmarketcap.com").replace(/\/$/, "");
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,19 @@ export function createRobotsPolicy(environment?: string): MetadataRoute.Robots {
   return {
     rules: [
       { userAgent: ["Googlebot", "Bingbot", "OAI-SearchBot"], allow: "/", disallow: privatePaths },
-      { userAgent: ["GPTBot", "CCBot"], disallow: "/" },
+      {
+        userAgent: [
+          "GPTBot",
+          "CCBot",
+          "ClaudeBot",
+          "Google-Extended",
+          "Amazonbot",
+          "Applebot-Extended",
+          "Bytespider",
+          "meta-externalagent",
+        ],
+        disallow: "/",
+      },
       { userAgent: "*", allow: "/", disallow: privatePaths },
     ],
     sitemap: `${siteUrl}/sitemap.xml`,

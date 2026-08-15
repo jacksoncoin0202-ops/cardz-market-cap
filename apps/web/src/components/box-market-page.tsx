@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { BoxGroupSelector, normaliseBoxScope } from "./box-group-selector";
 import { BoxRankings } from "./box-rankings";
 import { Provenance } from "./provenance";
-import { absolutePublicUrl, StructuredData } from "./structured-data";
+import { absolutePublicUrl, siteOrganization, StructuredData } from "./structured-data";
 import { copy } from "@/lib/i18n";
 import { formatDate } from "@/lib/format";
 import type { MarketViewSnapshot } from "@/lib/types";
@@ -35,7 +35,7 @@ export function BoxMarketPage({ snapshot }: { snapshot: MarketViewSnapshot }) {
         description: t.boxHero.body,
         dateModified: block?.asOf ?? snapshot.effectiveAt,
         measurementTechnique: "BOX reference price: completed sales first, market reference second, ask floor only as fallback",
-        publisher: { "@type": "Organization", name: "CardZ Marketcap", url: absolutePublicUrl(href("/")) },
+        publisher: siteOrganization(absolutePublicUrl(href("/"))),
       },
       {
         "@type": "ItemList",

@@ -2,11 +2,12 @@ import type { Metadata, Viewport } from "next";
 import { Suspense } from "react";
 import { DocumentLanguage, LangScript, ThemeScript } from "@/components/document-language";
 import { Footer, Header } from "@/components/header";
+import { PUBLIC_SITE_URL } from "@/lib/public-site";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://cardzmarketcap.com"),
-  title: { default: "CardZ Marketcap", template: "%s | CardZ Marketcap" },
+  metadataBase: new URL(PUBLIC_SITE_URL),
+  title: { default: "Cards Marketcap", template: "%s | Cards Marketcap" },
   description: "Art market intelligence for collectible cards.",
 };
 

@@ -9,7 +9,7 @@ import { PeriodSelector } from "./period-selector";
 import { DETAIL_PRINT_FIELDS, printIdentityRows } from "./print-badge";
 import { Provenance } from "./provenance";
 import { PriceDelta, MetricDelta } from "./rankings";
-import { absolutePublicUrl, StructuredData } from "./structured-data";
+import { absolutePublicUrl, siteOrganization, StructuredData } from "./structured-data";
 import { copy } from "@/lib/i18n";
 import { formatMetricInteger, formatMetricMoney, formatMoney, formatObservationDate, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
 import { plainDescription } from "@/lib/plain-text";
@@ -49,7 +49,7 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
          */
         description: plainDescription(story ?? "") || undefined,
         dateModified: card.pricePsa10.asOf || snapshot.effectiveAt || undefined,
-        publisher: { "@type": "Organization", name: "CardZ Marketcap", url: absolutePublicUrl(href("/")) },
+        publisher: siteOrganization(absolutePublicUrl(href("/"))),
       },
       {
         "@type": "BreadcrumbList",

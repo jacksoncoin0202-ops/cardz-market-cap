@@ -1,7 +1,9 @@
-const siteBase = process.env.NEXT_PUBLIC_SITE_URL ?? "https://cardzmarketcap.com";
+import { PUBLIC_SITE_URL } from "@/lib/public-site";
+
+export { siteOrganization } from "@/lib/public-site";
 
 export function absolutePublicUrl(path: string): string {
-  return new URL(path, siteBase).toString();
+  return new URL(path, PUBLIC_SITE_URL).toString();
 }
 
 export function StructuredData({ value }: { value: object }) {

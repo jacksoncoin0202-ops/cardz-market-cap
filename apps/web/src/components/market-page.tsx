@@ -3,7 +3,7 @@
 import { Heatmap } from "./heatmap";
 import { Provenance } from "./provenance";
 import { Rankings } from "./rankings";
-import { absolutePublicUrl, StructuredData } from "./structured-data";
+import { absolutePublicUrl, siteOrganization, StructuredData } from "./structured-data";
 import { copy, type Copy } from "@/lib/i18n";
 import { useMarketSettings } from "@/lib/use-market-settings";
 import type { MarketViewSnapshot } from "@/lib/types";
@@ -41,7 +41,7 @@ export function MarketPage({ kind, snapshot }: { kind: MarketPageKind; snapshot:
         description: hero.body,
         dateModified: snapshot.effectiveAt,
         measurementTechnique: "PSA 10 reference price multiplied by verified PSA 10 population",
-        publisher: { "@type": "Organization", name: "CardZ Marketcap", url: absolutePublicUrl(href("/")) },
+        publisher: siteOrganization(absolutePublicUrl(href("/"))),
       },
       {
         "@type": "ItemList",

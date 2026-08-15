@@ -12,6 +12,7 @@ import { formatDate, formatMetricInteger, formatMetricMoney, formatMoney, format
 import { heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
 import { drawQr } from "@/lib/qr";
 import { changeValue, DEFAULT_TILE, tileColors, tileStyle, type TileParams } from "@/lib/tile-style";
+import { PUBLIC_CANONICAL_HOST, PUBLIC_SITE_URL } from "@/lib/public-site";
 import { useMarketSettings } from "@/lib/use-market-settings";
 import type { Currency, Locale, MarketCardView, MarketViewSnapshot } from "@/lib/types";
 
@@ -160,13 +161,13 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
     requestAnimationFrame(() => lastTriggerRef.current?.focus());
   }, []);
 
-  /* 富士菲林式分享：heatmap 逐格畫上 canvas，品牌框 + 真實數量標題 + QR
+  /* 富士菲林式分享：heatmap 逐格畫上 canvas，pixel wordmark + 真實數量標題 + QR
      mobile-first：點料用 brand 色，唔好淨係白底黑字 */
   const exportHeatmap = useCallback(async () => {
     if (!size.width || !size.height || !tiles.length) return;
     const scale = Math.min(2, 2400 / size.width);
     const pad = Math.round(28 * scale);
-    const headerH = Math.round(96 * scale);
+    const headerH = Math.round(120 * scale);
     const footerH = Math.round(160 * scale);
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(size.width * scale) + pad * 2;
@@ -188,24 +189,19 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
       img.onerror = () => resolve(null);
       img.src = src;
     });
-    const logo = await loadImage(dark ? "/brand/logo-horizontal-dark-512.png" : "/brand/logo-horizontal-light-512.png");
-    const icon = await loadImage("/brand/icon-transparent.png");
+    const logo = await loadImage(dark ? "/brand/logo-cardz-marketcap-dark.png" : "/brand/logo-cardz-marketcap.png");
     const stamp = formatDate(new Date().toISOString(), locale);
     const periodLabel = t.periods[period];
     const shareTitle = `${title.replace("{count}", String(visibleCards.length))} · ${periodLabel} ${t.labels.change}`;
     const shareTitleNarrow = `${title.replace("{count}", String(visibleCards.length))} · ${periodLabel}`;
-    const logoH = Math.round(30 * scale);
+    const logoH = Math.round(56 * scale);
+    const logoW = logo ? Math.round(logoH * (logo.width / logo.height)) : 0;
     const stampFont = Math.round(12 * scale);
-    /* 單行 header 實測闊度，擺唔落先用三行 narrow 排版
-       （手機 430pt 出 908px 畫布，固定 900 門檻會誤判做闊屏令成個 header 疊埋） */
-    ctx.font = `700 ${Math.round(24 * scale)}px system-ui, sans-serif`;
-    const brandW = ctx.measureText("CardZMarketcap").width;
     ctx.font = `600 ${Math.round(22 * scale)}px system-ui, sans-serif`;
     const titleW = ctx.measureText(shareTitle).width;
     ctx.font = `500 ${stampFont}px system-ui, sans-serif`;
     const stampW = ctx.measureText(stamp).width;
-    const oneLineW = pad + logoH + Math.round(10 * scale) + brandW + Math.round(18 * scale)
-      + titleW + Math.round(24 * scale) + stampW + pad;
+    const oneLineW = pad + logoW + Math.round(18 * scale) + titleW + Math.round(24 * scale) + stampW + pad;
     const narrow = oneLineW > canvas.width;
     const fitText = (text: string, maxW: number) => {
       if (ctx.measureText(text).width <= maxW) return text;
@@ -214,38 +210,23 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
       return `${cut}…`;
     };
     ctx.textBaseline = "middle";
+    if (logo) {
+      const logoY = narrow ? pad + Math.round(8 * scale) : headerMidY - logoH / 2;
+      ctx.drawImage(logo, pad, logoY, logoW, logoH);
+    }
+    ctx.font = `500 ${stampFont}px system-ui, sans-serif`;
+    ctx.fillStyle = subColor;
     if (narrow) {
-      /* 窄畫布三行：上行 icon + 日期、中行品牌字、下行標題，全部唔准重疊 */
-      const topY = pad + Math.round(22 * scale);
-      const iconH = Math.round(26 * scale);
-      if (icon) ctx.drawImage(icon, pad, topY - iconH / 2, iconH, iconH);
-      ctx.font = `500 ${stampFont}px system-ui, sans-serif`;
-      ctx.fillStyle = subColor;
-      ctx.fillText(stamp, canvas.width - pad - ctx.measureText(stamp).width, topY);
-      ctx.font = `700 ${Math.round(22 * scale)}px system-ui, sans-serif`;
-      ctx.fillStyle = textColor;
-      ctx.fillText("CardZMarketcap", pad, pad + Math.round(56 * scale));
+      ctx.fillText(stamp, canvas.width - pad - stampW, pad + Math.round(36 * scale));
       ctx.font = `600 ${Math.round(15 * scale)}px system-ui, sans-serif`;
-      ctx.fillStyle = subColor;
-      ctx.fillText(fitText(shareTitleNarrow, canvas.width - pad * 2), pad, pad + Math.round(82 * scale));
+      ctx.fillText(fitText(shareTitleNarrow, canvas.width - pad * 2), pad, pad + Math.round(100 * scale));
     } else {
-      let titleX = pad;
-      if (logo) {
-        /* 品牌字逐筆重寫（logo 圖係細寫 z，品牌係 CardZ）：圖只畫 icon 部分（前 74/512） */
-        const iconCropW = Math.min(logo.width, Math.round(74 * (logo.width / 512)));
-        ctx.drawImage(logo, 0, 0, iconCropW, logo.height, pad, headerMidY - logoH / 2, logoH * (iconCropW / logo.height), logoH);
-        ctx.font = `700 ${Math.round(24 * scale)}px system-ui, sans-serif`;
-        ctx.fillStyle = textColor;
-        const brand = "CardZMarketcap";
-        ctx.fillText(brand, pad + logoH + Math.round(10 * scale), headerMidY);
-        titleX = pad + logoH + Math.round(10 * scale) + ctx.measureText(brand).width + Math.round(18 * scale);
-      }
-      ctx.fillStyle = textColor;
       ctx.font = `600 ${Math.round(22 * scale)}px system-ui, sans-serif`;
-      ctx.fillText(shareTitle, titleX, headerMidY);
+      ctx.fillStyle = textColor;
+      ctx.fillText(shareTitle, pad + logoW + Math.round(18 * scale), headerMidY);
       ctx.font = `500 ${stampFont}px system-ui, sans-serif`;
       ctx.fillStyle = subColor;
-      ctx.fillText(stamp, canvas.width - pad - ctx.measureText(stamp).width, headerMidY);
+      ctx.fillText(stamp, canvas.width - pad - stampW, headerMidY);
     }
 
     const ox = pad;
@@ -312,10 +293,10 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
       const startY = qrCy - ((lines.length - 1) * lineHeight) / 2;
       lines.forEach((text, i) => ctx.fillText(text, pad, startY + i * lineHeight));
     }
-    drawQr(ctx, "https://cardzmarketcap.com", qrCx, qrCy, qrBox, dark ? "#f1f1ee" : "#191917", bgColor);
+    drawQr(ctx, PUBLIC_SITE_URL, qrCx, qrCy, qrBox, dark ? "#f1f1ee" : "#191917", bgColor);
     ctx.font = `500 ${Math.round(10 * scale)}px system-ui, sans-serif`;
     ctx.fillStyle = subColor;
-    const qrLabel = "cardzmarketcap.com";
+    const qrLabel = PUBLIC_CANONICAL_HOST;
     ctx.fillText(qrLabel, qrCx - ctx.measureText(qrLabel).width / 2, qrCy + qrBox / 2 + Math.round(10 * scale));
 
     canvas.toBlob((blob) => {
