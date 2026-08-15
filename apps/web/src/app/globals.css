@@ -223,30 +223,16 @@ h1, h2, h3 { font-weight: 500; letter-spacing: -0.035em; line-height: 1.04; }
 }
 .brand {
   min-height: 44px;
-  display: inline-grid;
-  grid-template-columns: auto auto;
+  display: inline-flex;
   align-items: center;
-  gap: 7px;
   white-space: nowrap;
 }
-.brand-logo { display: block; width: auto; height: 46px; grid-area: 1 / 1; }
-/* 用 opacity 交叉淡換而唔係 display，等明暗 logo 同 theme transition 一齊轉 */
-.brand-logo-dark { opacity: 0; }
-[data-theme="dark"] .brand-logo { opacity: 0; }
-[data-theme="dark"] .brand-logo-dark { opacity: 1; }
-.brand-beta {
-  grid-column: 2;
-  grid-row: 1;
-  align-self: center;
-  padding: 3px 5px 2px;
-  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--line));
-  border-radius: 4px;
-  color: var(--accent);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: .09em;
-  line-height: 1;
-}
+/* 明 logo 預設顯示，暗 logo 收起；dark theme 反轉。用 display 切換，
+   唔再 grid-area 疊兩張圖（雙圖疊埋會令 logo 走位/重影）。 */
+.brand-logo { display: block; width: auto; height: 46px; }
+.brand-logo-dark { display: none; }
+[data-theme="dark"] .brand-logo { display: none; }
+[data-theme="dark"] .brand-logo-dark { display: block; }
 .primary-nav {
   min-width: 0;
   display: flex;
@@ -1372,11 +1358,6 @@ html.theme-transitions .site-footer {
   transition: background 240ms cubic-bezier(0.4, 0, 0.2, 1), background-color 240ms cubic-bezier(0.4, 0, 0.2, 1), border-color 240ms cubic-bezier(0.4, 0, 0.2, 1), color 240ms cubic-bezier(0.4, 0, 0.2, 1), fill 240ms cubic-bezier(0.4, 0, 0.2, 1), stroke 240ms cubic-bezier(0.4, 0, 0.2, 1), background-image 240ms cubic-bezier(0.4, 0, 0.2, 1), opacity 240ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* brand logo 明/暗切換：同其他部件同一時長同一 easing 交叉淡入淡出 */
-html.theme-transitions .brand-logo,
-html.theme-transitions .brand-logo-dark {
-  transition: opacity 240ms cubic-bezier(0.4, 0, 0.2, 1);
-}
 
 /* ── Skeleton loading ──────────────────────────────────────── */
 .skeleton-block {
@@ -1714,7 +1695,6 @@ html.theme-transitions .brand-logo-dark {
   }
   .brand { grid-column: 1; grid-row: 1; justify-self: start; display: inline-flex; align-items: center; gap: 6px; }
   .brand-logo { height: 34px; }
-  .brand-beta { flex: none; padding: 2px 4px; font-size: 8px; }
   .market-controls { grid-column: 2; grid-row: 1; justify-content: flex-end; justify-self: end; }
   .market-controls .select-control { flex: none; padding-inline: 7px; }
   .primary-nav {
