@@ -1,0 +1,38 @@
+{
+ "contract": "cardz-box-image-collision-baseline-v1",
+ "note": "known frozen-image sha shared by >1 sealed slug (2026-08-15). Ratchet: may only shrink. Re-freeze image per slug to remove.",
+ "collisions": {
+  "b6f89bd58bb9d3cb971665942b6ce9c861740b05de1ff319444ff46e3f87ecb5": [
+   "optcg-en-eb-02-booster-box-std",
+   "optcg-jp-eb-02-booster-box-std"
+  ],
+  "f3cd05a904e03da9ab093276c755b3dbca93e6578367d7a6cbb0686a0da5931e": [
+   "optcg-en-eb-03-booster-box-std",
+   "optcg-en-eb-05-booster-box-std"
+  ],
+  "f3e77867425bb6f35a8b25dda06a20c54eb041d6a83850961511aa33609a18e2": [
+   "optcg-en-op-01-booster-box-wave1",
+   "optcg-jp-op-01-booster-box-wave1"
+  ],
+  "e43b21979347d0b0f4018683681027c926398e1f5bd07911de34e13b8d84a76a": [
+   "optcg-en-op-06-booster-box-std",
+   "optcg-jp-op-06-booster-box-std"
+  ],
+  "bbcfe31c965c248a1fa24882748757cc408953a2f97c7954bebca3dd1c1af8ec": [
+   "optcg-en-op-07-booster-box-std",
+   "optcg-jp-op-07-booster-box-std"
+  ],
+  "a4bfbf95eaf7c82db99dd3149032f79ec5443b0c3178a3ba2ee2bf7594732648": [
+   "optcg-en-op-08-booster-box-std",
+   "optcg-jp-op-08-booster-box-std"
+  ],
+  "d86e2eb916b95313199a9bc6cb9db8c396b73993ea81e8bbdf65fbe4095e677e": [
+   "optcg-en-prb-01-booster-box-std",
+   "optcg-jp-prb-02-booster-box-std"
+  ],
+  "dc8d6b89643eb9bfce0a60864c5f735956fe87f915395d0f227079459ff3c116": [
+   "optcg-en-prb-02-booster-box-std",
+   "optcg-jp-prb-01-booster-box-std"
+  ]
+ }
+}

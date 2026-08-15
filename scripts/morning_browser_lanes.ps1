@@ -57,10 +57,13 @@ try {
         $browserExit = $LASTEXITCODE
         & $py -X utf8 -u "pipelines\operator_control.py" daily-discover-activate --lane browser *>> $log
         $discoverExit = $LASTEXITCODE
+        & $py -X utf8 -u "pipelines\sealed_daily.py" collect --adapter sealed_pc *>> $log
+        $boxPcExit = $LASTEXITCODE
     } else {
         "[$stamp] ensure_chrome_cdp failed exit=$cdpExit; browser lanes skipped, HTTP already ran, accept still runs" | Tee-Object -FilePath $log -Append
         $browserExit = -1
         $discoverExit = -1
+        $boxPcExit = -1
     }
     $collectExit = 0
     if ($httpExit -ne 0 -or $browserExit -ne 0) { $collectExit = 1 }
@@ -72,6 +75,14 @@ try {
     & $py -X utf8 -u "pipelines\operator_control.py" daily-accept *>> $log
     $acceptExit = $LASTEXITCODE
 
+    & $py -X utf8 -u "pipelines\sealed_daily.py" compose *>> $log
+    $boxComposeExit = $LASTEXITCODE
+    & $py -X utf8 -u "pipelines\sealed_daily.py" export --output "data\public\box-subset.json" *>> $log
+    $boxExportExit = $LASTEXITCODE
+    if ($boxExportExit -ne 0) {
+        "[$stamp] BOX export failed exit=$boxExportExit; release will publish the previous sidecar" | Tee-Object -FilePath $log -Append
+    }
+
     if ($acceptExit -eq 0) {
         & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "daily_public_release.ps1") @releaseArgs *>> $log
         $publishExit = $LASTEXITCODE
@@ -81,7 +92,7 @@ try {
     }
 
     $done = (Get-Date).ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'")
-    "[$done] morning browser chain done cdp=$cdpExit http=$httpExit collect=$collectExit discover=$discoverExit accept=$acceptExit publish=$publishExit" | Tee-Object -FilePath $log -Append
+    "[$done] morning browser chain done cdp=$cdpExit http=$httpExit collect=$collectExit discover=$discoverExit accept=$acceptExit publish=$publishExit boxPc=$boxPcExit boxCompose=$boxComposeExit boxExport=$boxExportExit" | Tee-Object -FilePath $log -Append
     Copy-Item -Force $log $crashLog -ErrorAction SilentlyContinue
     $chainExit = 0
     if ($cdpExit -ne 0 -or $collectExit -ne 0 -or $discoverExit -ne 0 -or $acceptExit -ne 0 -or $publishExit -ne 0) { $chainExit = 1 }

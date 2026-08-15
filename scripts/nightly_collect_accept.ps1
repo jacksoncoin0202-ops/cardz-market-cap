@@ -41,6 +41,11 @@ try {
     & $py -X utf8 -u "pipelines\collect_control.py" incr --adapter http *>> $log
     $collectExit = $LASTEXITCODE
 
+    & $py -X utf8 -u "pipelines\sealed_daily.py" collect --adapter sealed_snk *>> $log
+    $boxSnkExit = $LASTEXITCODE
+    & $py -X utf8 -u "pipelines\sealed_daily.py" collect --adapter sealed_yahoo *>> $log
+    $boxYahooExit = $LASTEXITCODE
+
     & $py -X utf8 -u "pipelines\operator_control.py" daily-discover-activate --lane http *>> $log
     $discoverExit = $LASTEXITCODE
 
@@ -52,7 +57,7 @@ try {
     $acceptExit = $LASTEXITCODE
 
     $done = (Get-Date).ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'")
-    "[$done] nightly chain done collect=$collectExit discover=$discoverExit accept=$acceptExit" | Tee-Object -FilePath $log -Append
+    "[$done] nightly chain done collect=$collectExit discover=$discoverExit accept=$acceptExit boxSnk=$boxSnkExit boxYahoo=$boxYahooExit" | Tee-Object -FilePath $log -Append
     Copy-Item -Force $log $crashLog -ErrorAction SilentlyContinue
     $chainExit = 0
     if ($collectExit -ne 0 -or $discoverExit -ne 0 -or $acceptExit -ne 0) { $chainExit = 1 }
