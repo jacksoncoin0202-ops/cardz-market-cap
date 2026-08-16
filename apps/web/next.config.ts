@@ -86,6 +86,19 @@ const nextConfig: NextConfig = {
   productionBrowserSourceMaps: false,
   ...(standaloneOutput ? { output: "standalone" as const } : {}),
   outputFileTracingRoot: repositoryRoot,
+  /*
+   * OG 卡圖要喺 request 時用 `sharp` 解 WebP（api/og/card/[id]/route.tsx）。nft
+   * 對 sharp 有 special case，理論上自己會連 `@img/sharp-*` 平台包一齊 emit，但
+   * 呢個推論冇喺真 Docker build 驗證過，而漏咗嘅表現係「200 + 靜靜退返純文字版」
+   * ——冇 500、冇 log，冇人會發現。所以照明寫一次，零成本保險。
+   *
+   * key 一定要係 normalizeAppPath 之後嘅 route（`/api/og/card/[id]`，唔係
+   * entry name）；glob 相對 apps/web 行（collect-build-traces.js:430 cwd = dir），
+   * 而 node_modules hoist 咗上 repo root，所以要 `../../`。
+   */
+  outputFileTracingIncludes: {
+    "/api/og/card/[id]": ["../../node_modules/sharp/**/*", "../../node_modules/@img/**/*"],
+  },
   turbopack: { root: repositoryRoot },
   generateBuildId: async () => publicBuildId,
   /* 改過公開 id 嘅卡：舊 URL 已經入咗生產 sitemap，冇呢啲就硬 404。
