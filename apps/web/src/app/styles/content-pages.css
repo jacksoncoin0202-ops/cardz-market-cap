@@ -12,14 +12,17 @@
 .content-hero {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
   margin-bottom: 28px;
 }
 
+/* FE05：字階 / 字距換 token。--step-4 **就係本來嗰條 clamp 原式**（`clamp(28px, 5vw, 42px)`，
+   逐字照抄，唔係重新畫一條 390→1280 直線）、--tracking-tight 就係 -0.02em。
+   量過 13 個闊度（390…1280）computed font-size 逐個相等、rect delta 0.00px。 */
 .content-hero h1 {
-  font-size: clamp(28px, 5vw, 42px);
+  font-size: var(--step-4);
   line-height: 1.18;
-  letter-spacing: -0.02em;
+  letter-spacing: var(--tracking-tight);
   margin: 0;
   text-wrap: balance;
 }
@@ -80,8 +83,11 @@
   border-left: 3px solid var(--accent);
   background: var(--surface);
   border-radius: var(--control-radius);
-  padding: 16px 18px;
-  margin: 0 0 24px;
+  padding: var(--space-4) 18px;
+  margin: 0 0 var(--space-6);
+  /* FE05 欠單：呢度係**斷點階梯**（17px / ≤720px 16px），唔係流體曲線。--step-1 條 ramp
+     掃過 720–765px，量到 methodology@721 成頁位移 33.44px、about@721 6.25px，爆 WS1
+     「五個驗收闊度 ≤2px」契約。連續 clamp 夾唔到階梯，所以留硬數，要 owner 拍板先轉 fluid。 */
   font-size: 17px;
   line-height: 1.6;
 }
@@ -122,7 +128,7 @@
 }
 
 .content-body h2 {
-  font-size: clamp(20px, 3vw, 26px);
+  font-size: var(--step-2);
   line-height: 1.3;
   margin: 0 0 12px;
   letter-spacing: -0.01em;
@@ -195,7 +201,7 @@
 
 .content-table thead th {
   font-size: 12px;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
   color: var(--muted);
   font-weight: 600;
@@ -307,7 +313,7 @@
 @media (max-width: 720px) {
   .content-answer {
     font-size: 16px;
-    padding: 14px 16px;
+    padding: 14px var(--space-4);
   }
 
   .content-body section {

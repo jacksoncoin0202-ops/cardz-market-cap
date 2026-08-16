@@ -66,11 +66,17 @@
   padding-bottom: 30px;
 }
 
+/* FE05：--step-3 **就係本來嗰條 clamp 原式**（`clamp(26px, 3.4vw, 42px)`，逐字照抄）。
+   第一版改咗做 390→1280 直線，兩端啱但 @768 差 +6.68px，所以而家一律照抄唔重寫。 */
 .hub-hero h1 {
-  font-size: clamp(26px, 3.4vw, 42px);
+  font-size: var(--step-3);
 }
 
-/* 第一段係畀 AI 引用嗰句（entity + 計法 + 日期）：襯線邊框標示佢係獨立事實塊。 */
+/* 第一段係畀 AI 引用嗰句（entity + 計法 + 日期）：襯線邊框標示佢係獨立事實塊。
+   FE05 欠單：呢塊同 .content-answer 係同一個角色，但字級係 14→17px vs 16→17px，
+   兩套數。試過統一落 --step-1，390px 量到成頁跌 49.7px（段落多咗行），爆 WS1
+   「390/768/900/1024/1280 五個闊度逐個 ≤2px」契約，所以留返原本個 clamp。
+   要統一 = 要 owner 接受 hub 頁手機面變大一級（同 .content-answer 一齊拍板）。 */
 .hub-answer {
   max-width: 72ch;
   padding-left: 14px;
@@ -78,6 +84,7 @@
   font-size: clamp(14px, 1.4vw, 17px);
 }
 
+/* 12px / ≥981px 12.5px：--step--1 上限係 13px，1280 度量到累積 22.9px 位移，同樣留硬數。 */
 .hub-note {
   max-width: 78ch;
   margin: 10px 0 0;
@@ -144,6 +151,9 @@
   max-width: 78ch;
   margin: 0 0 14px;
   color: var(--ink);
+  /* FE05 欠單：斷點階梯（14px / ≥981px 15px），同 .content-answer 一樣夾唔到流體 clamp。
+     --step-0 條 ramp 掃過 933–1000px，量到 /market-report@981 位移 13.58px、@940 4.69px。
+     呢個 selector 唯一 call site 係 `/market-report`（seo-table.tsx:110，block.intro 存在先出）。 */
   font-size: 14px;
   line-height: 1.6;
 }

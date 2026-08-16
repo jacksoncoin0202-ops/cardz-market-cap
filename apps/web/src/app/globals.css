@@ -27,6 +27,52 @@
   --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 
+  /* ── 字體 stack（FE05）──
+     --font-sans = body 一直用嗰條，只係抽咗做 token；一個新字體都冇加（/ 嘅 H1 係 LCP）。
+     --font-mono 之前喺四處逐字複製（collector-cell / mobile-card-number /
+     identity-list dd / box-set-chip），改一次要改四處，所以收埋一份。 */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", "PingFang TC", "PingFang SC", "Hiragino Sans", "Yu Gothic", Arial, sans-serif;
+  --font-mono: "SF Mono", "Roboto Mono", ui-monospace, monospace;
+
+  /* ── 流體字階（FE05）──
+     **step-2/3/4 原封照抄 FE04 嗰條 vw 曲線，唔係自己畫一條新嘅。**
+     第一版 FE05 寫成 390→1280 直線，兩端啱但中段唔同：量到 768/900/1024 度
+     `.content-hero h1` 差到 −5.97px、`.hub-hero h1` +6.68px、成頁最多位移 57.74px。
+     教訓：**端點相同 ≠ 曲線相同**，換 clamp 一定要至少量 390/768/900/1024/1280 五個闊度。
+     --step--1/0/1 **未落任何現有 selector**：佢哋對應嗰幾個位（.provenance-body、
+     .hub-lead、.provenance-panel h2、.content-answer）喺 FE04 係**斷點階梯**唔係曲線，
+     連續 clamp 夾唔到階梯（量到 methodology@721 33.44px、/market-report@981 13.58px），
+     所以三個階梯落點一律留硬數 + 註解，等 owner 一次過拍板；呢三級 token 留畀 WS2–5 新 CSS。
+       step  值                        ramp 窗口     落點
+       --1   clamp(12px,1.3vw,13px)    923–1000px    （未落用）
+        0    clamp(14px,1.5vw,15px)    933–1000px    （未落用）
+        1    clamp(16px,2.222vw,17px)  720–765px     （未落用）
+        2    clamp(20px,3vw,26px)      667–867px     .content-body h2（= FE04 原式，逐字照抄）
+        3    clamp(26px,3.4vw,42px)    765–1236px    .hub-hero h1（= FE04 原式）
+        4    clamp(28px,5vw,42px)      560–840px     .content-hero h1（= FE04 原式）
+     用 px + vw（唔用 rem）係跟返成個 codebase 嘅寫法，唔喺呢個 commit 換單位。 */
+  --step--1: clamp(12px, 1.3vw, 13px);
+  --step-0: clamp(14px, 1.5vw, 15px);
+  --step-1: clamp(16px, 2.222vw, 17px);
+  --step-2: clamp(20px, 3vw, 26px);
+  --step-3: clamp(26px, 3.4vw, 42px);
+  --step-4: clamp(28px, 5vw, 42px);
+  /* 字距：tight 畀大標題（現況 .content-hero h1 -0.02em），wide 畀大寫細標籤（0.08em）。
+     全局 h1/h2/h3 嘅 -0.035em 唔喺呢度改，佢係首頁聲線嘅一部分。 */
+  --tracking-tight: -0.02em;
+  --tracking-wide: 0.08em;
+
+  /* ── 間距階（FE05）── 4px 基準；只係俾新 CSS 用同埋逐步收編現有硬數，
+     現有版面數值一個都冇改（用邊個 step 就一定係同一個 px 值）。 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+
   --header-bg: rgba(247, 247, 245, 0.92);
   --header-border: rgba(206, 206, 200, 0.88);
   --surface-translucent: rgba(255, 255, 255, 0.8);
@@ -202,7 +248,7 @@ body {
   overflow-x: clip;
   background: var(--paper);
   color: var(--ink);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", "PingFang TC", "PingFang SC", "Hiragino Sans", "Yu Gothic", Arial, sans-serif;
+  font-family: var(--font-sans);
   font-size: 15px;
   font-feature-settings: "kern" 1, "tnum" 1;
   line-height: 1.5;
@@ -511,11 +557,16 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   border-radius: 18px;
   background: var(--soft);
 }
+/* FE05 欠單：斷點階梯（15px / ≤900px 14px），同 .hub-lead / .content-answer 同一形狀。
+   --step-0 條 ramp 掃過 933–1000px，量到 / 同 /card/[id] @940 位移 1.24px（未爆 2px，
+   但同一 token 喺 /market-report 爆到 13.58px）。三個階梯落點一齊留硬數，等 owner 一次過拍板。 */
 .provenance-panel h2 {
   margin: 6px 0 10px;
   font-size: 15px;
   line-height: 1.35;
 }
+/* 13px 平頭，冇一個 step 兩端都夾得返（--step--1 喺 390 係 12px，量到成頁跌 5.1px）。
+   WS1 契約係零 reflow，所以呢行留硬數；要收編就要 owner 接受 hub/內容頁細字統一改細一級。 */
 .provenance-body {
   margin: 0;
   color: var(--muted);
@@ -552,7 +603,7 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   opacity: 0.85;
 }
 @media (max-width: 900px) {
-  .provenance-panel { margin-top: 28px; padding: 20px 18px; border-radius: 14px; }
+  .provenance-panel { margin-top: 28px; padding: var(--space-5) 18px; border-radius: 14px; }
   .provenance-panel h2 { font-size: 14px; }
 }
 @media (max-width: 900px) {
@@ -1458,7 +1509,7 @@ html { scrollbar-gutter: stable; }
 .ranking-thumb img { width: 100%; height: 100%; vertical-align: middle; object-fit: contain; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 .ranking-name { min-width: 0; }
 .ranking-name strong { display: block; overflow: hidden; color: var(--ink); font-size: 13px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
-.collector-cell { color: var(--mobile-number) !important; font-family: "SF Mono", "Roboto Mono", ui-monospace, monospace; font-size: 10px !important; }
+.collector-cell { color: var(--mobile-number) !important; font-family: var(--font-mono); font-size: 10px !important; }
 .market-cap-cell { color: var(--accent) !important; font-weight: 650; }
 .metric-positive { color: var(--positive) !important; }
 .metric-negative { color: var(--negative) !important; }
@@ -1610,7 +1661,7 @@ html { scrollbar-gutter: stable; }
     align-self: flex-start;
     overflow: hidden;
     color: var(--mobile-number);
-    font-family: "SF Mono", "Roboto Mono", ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 9px;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2096,7 +2147,7 @@ html.theme-transitions .card-dialog {
 .data-time { margin-top: 10px; color: var(--muted); font-size: 10px; }
 .identity-list { display: flex; flex-wrap: wrap; gap: 10px 26px; margin: 10px 0 0; }
 .identity-list dt { color: var(--dt-color); font-size: 10px; }
-.identity-list dd { margin: 0; font-family: "SF Mono", "Roboto Mono", ui-monospace, monospace; font-size: 11px; }
+.identity-list dd { margin: 0; font-family: var(--font-mono); font-size: 11px; }
 .detail-page { padding-top: 40px; }
 .back-link { display: inline-flex; align-items: center; min-height: 44px; color: var(--muted); font-size: 12px; transition: color 170ms ease, transform 180ms var(--ease-standard); }
 @media (hover: hover) {
@@ -2742,7 +2793,7 @@ button.primary-action { border: 0; }
 .box-thumb { padding: 3px; border-radius: 8px; background: var(--soft); box-shadow: var(--elev-1); }
 .box-thumb img { border: 0; object-fit: contain; filter: none; }
 .box-sub-row { display: flex; align-items: center; gap: 6px; min-width: 0; margin-top: 3px; }
-.box-set-chip { color: var(--muted); font-family: "SF Mono", "Roboto Mono", ui-monospace, monospace; font-size: 10px; letter-spacing: 0.02em; white-space: nowrap; }
+.box-set-chip { color: var(--muted); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.02em; white-space: nowrap; }
 .box-status-chip { padding: 2px 7px; border-radius: 999px; background: var(--print-badge-neutral-bg); color: var(--print-badge-neutral-text); font-size: 10px; font-weight: 600; line-height: 1; white-space: nowrap; }
 .box-muted-row { opacity: 0.55; }
 .box-show-more {
