@@ -298,8 +298,9 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
             </div>
           )}
         </div>
-        {/* 手機時段搬咗落榜表頭嘅 PeriodMenu：同頁熱力圖已經有一個一模一樣嘅 PeriodSelector */}
-        {isMobileBar ? null : <PeriodSelector compact />}
+        {/* 手機收埋做 PeriodMenu popover，但一定要留喺呢一行（h2 右邊）：獨立一行嘅
+            .mobile-list-toolbar 睇落似浮咗出嚟，owner 2026-08-17 叫拆走。 */}
+        {isMobileBar ? <PeriodMenu /> : <PeriodSelector compact />}
       </div>
       <ExploreBar
         query={query}
@@ -430,9 +431,6 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
           )}
           {isMobileList ? (
           <>
-          {/* 表頭上面一行細 toolbar：時段收埋做「6M ▾」popover。唔擺入 .mobile-list-header
-              係因為嗰個 header 係 aria-hidden，入面唔可以擺真掣。 */}
-          {isMobileBar ? <div className="mobile-list-toolbar"><PeriodMenu /></div> : null}
           <div className="mobile-ranking-list">
             <div className="mobile-list-header" aria-hidden="true">
               <span className="mobile-col-info">{t.labels.card}</span>

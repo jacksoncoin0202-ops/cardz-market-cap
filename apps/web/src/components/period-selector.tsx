@@ -4,7 +4,7 @@
    選中項底下 layoutId 滑動膠囊。每個 instance 用 useId 做 layoutId 後綴，
    避免同頁多個 selector 嘅 pill 互相飛越。 */
 import { motion } from "framer-motion";
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { tap } from "@/lib/haptic";
 import { copy } from "@/lib/i18n";
@@ -44,23 +44,35 @@ export function PeriodSelector({ compact = false }: { compact?: boolean }) {
 }
 
 /*
- * 手機榜表頭用嘅時段 popover。同頁熱力圖已經有一個 PeriodSelector 揸住同一條 URL period，
+ * 手機榜標題行用嘅時段 popover。同頁熱力圖已經有一個 PeriodSelector 揸住同一條 URL period，
  * 榜上再排六個掣係同一個控件出兩次、又食走一行高度；收埋做「6M ▾」。
  * markup 跟 explore-bar 個 scope menu：<ul role="listbox"> + <button role="option">。
+ *
+ * 掣**唔准**自己霸一行（owner 2026-08-17）：由 rankings.tsx 擺入 .ranking-heading，
+ * 同 h2 同一行右邊。六個選項行 3×2 等闊格（.period-menu-list），唔再係長短不一嘅直行。
  */
 export function PeriodMenu() {
   const { locale, period, update } = useMarketSettings();
   const t = copy[locale];
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  /* Escape／揀完一律還 focus 落 trigger，唔好掉咗落 <body>（鍵盤同讀屏會迷路）。
+     撳出面收嗰個唔搶 focus——用戶手指已經落咗第二個掣度。 */
+  const close = useCallback((refocus: boolean) => {
+    setOpen(false);
+    if (refocus) triggerRef.current?.focus();
+  }, []);
   useEffect(() => {
     if (!open) return;
     const onPointer = (event: PointerEvent) => {
       if (rootRef.current?.contains(event.target as Node)) return;
-      setOpen(false);
+      close(false);
     };
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      close(true);
     };
     document.addEventListener("pointerdown", onPointer);
     document.addEventListener("keydown", onKey);
@@ -68,10 +80,11 @@ export function PeriodMenu() {
       document.removeEventListener("pointerdown", onPointer);
       document.removeEventListener("keydown", onKey);
     };
-  }, [open]);
+  }, [close, open]);
   return (
     <div className="period-menu" ref={rootRef}>
       <button
+        ref={triggerRef}
         type="button"
         className="period-menu-trigger"
         aria-expanded={open}
@@ -88,14 +101,13 @@ export function PeriodMenu() {
             <li key={item} role="presentation">
               <button
                 type="button"
-                className="select-option"
+                className="period-option"
                 role="option"
                 aria-selected={item === period}
-                data-active={item === period ? "true" : "false"}
                 onClick={() => {
                   if (item !== period) tap.select();
                   update({ period: item });
-                  setOpen(false);
+                  close(true);
                 }}
               >
                 {t.periods[item]}

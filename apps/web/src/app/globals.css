@@ -404,6 +404,9 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   font-size: 12px;
   cursor: pointer;
   color: var(--control-idle);
+  /* <li> 本身透明，但呢個 class 一旦落喺 <button> 上面，冇呢句就會跌返 UA
+     `buttonface`（跟 OS color-scheme，唔跟站內 data-theme）→ 主題倒轉。 */
+  background: transparent;
 }
 @media (hover: hover) {
   .select-option:hover { background: color-mix(in srgb, var(--control-bg) 32%, transparent); }
@@ -2506,9 +2509,8 @@ button.primary-action { border: 0; }
   white-space: nowrap;
   cursor: pointer;
 }
-/* 手機榜表頭 toolbar：得一個時段 popover，右對齊貼住價格欄 */
-.mobile-list-toolbar { display: flex; justify-content: flex-end; margin-bottom: 6px; }
-.period-menu { position: relative; }
+/* 時段 popover：住喺 .ranking-heading 右邊（同 h2 同一行），唔再自己霸一行 */
+.period-menu { position: relative; flex: none; }
 .period-menu-trigger {
   position: relative;
   display: inline-flex;
@@ -2524,7 +2526,53 @@ button.primary-action { border: 0; }
   font-weight: 600;
   cursor: pointer;
 }
-.period-menu-list { min-width: 118px; }
+/*
+ * 六個時段行 3×2 等闊格（以前係一條直行，每粒跟字寬，長短不一睇落似壞咗）。
+ * 外殼照用 .select-menu（surface / border / elev / right:0 對齊 trigger 右邊 /
+ * prefers-reduced-motion 收動畫都喺嗰度），呢度只改格局。
+ */
+.period-menu-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  width: max-content;
+  min-width: 180px;
+  /* 360px 都要留喺畫面內：page-shell 手機 gutter 16px ×2 */
+  max-width: calc(100vw - 32px);
+  padding: 5px;
+}
+/*
+ * 選項底色一定要明寫。<button> 冇 background 就跌返 UA `buttonface`，而 buttonface
+ * 跟 OS color-scheme（layout 出 <meta name="color-scheme" content="light dark">），
+ * **唔跟**站內 data-theme —— 淺色主題配深色系統就變咗黑底深灰字（owner 2026-08-17 截圖）。
+ * 選中態同桌面 .period-pill 同一套語言：--surface 底 + --ink 字。
+ */
+.period-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--control-radius);
+  background: transparent;
+  color: var(--period-idle);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: color 170ms ease, border-color 170ms ease, background 170ms ease;
+}
+.period-option[aria-selected="true"] {
+  border-color: var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+.period-option:focus-visible { border-color: var(--accent); }
+@media (hover: hover) {
+  .period-option:hover { border-color: var(--line-strong); color: var(--ink); }
+}
 .explore-sort-chips {
   display: none;
   flex-wrap: wrap;
@@ -2578,8 +2626,21 @@ button.primary-action { border: 0; }
      319px、得返 1px 餘裕 —— 再收窄搜尋列／toolbar／表頭之間嘅留白，留返 9px（311px）
      俾之後嘅字體同 translation 變化，唔使每次改文案都重新度過。 */
   .explore-bar { margin-bottom: 10px; }
-  .mobile-list-toolbar { margin-bottom: 4px; }
   .mobile-list-header { padding-block: 5px; }
+  /*
+   * 標題行返返一行（owner 2026-08-17）：h2 左、時段掣右，垂直置中。
+   * ≤980 嗰段將 .ranking-heading 拆咗做直行（嗰陣右邊仲係六粒掣嘅 PeriodSelector，
+   * 一行擺唔落）；≤680 收埋咗做一粒 popover trigger，就唔使再食多一行。
+   * 同 specificity，靠 source order 蓋返 ≤980 嗰段。
+   */
+  .ranking-heading { flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; }
+  /* ≤980 嗰段寫嘅 `.ranking-heading > div{align-self:stretch}` 而家會夾埋 .period-menu 一齊中
+     （佢都係 <div>，而且 selector 0,1,1 高過 .period-menu 0,1,0，唔係 source order 可以蓋）：
+     結果個掣被拉高到行頂、又跟住 flex-grow 離開咗右邊 10px。所以兩個細佬要分開寫。 */
+  .ranking-heading > div:first-child { flex: 1 1 auto; min-width: 0; align-self: auto; }
+  /* 貼住 h2 個底行（同桌面 .ranking-heading{align-items:end} 一樣）：跟成舊 heading 置中
+     會高過 h2 文字 12px（kicker 拉高咗個 block），貼底之後同 h2 中線只差 4px。 */
+  .ranking-heading > .period-menu { flex: none; align-self: flex-end; }
   /* 搜尋模式釘住 toolbar：site-header 係 sticky，佢嘅實高 = --header-height + safe-area */
   .explore-bar-sticky {
     position: sticky;

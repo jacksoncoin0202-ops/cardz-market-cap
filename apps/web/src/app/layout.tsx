@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { DocumentLanguage, LangScript, SkipLink, ThemeScript } from "@/components/document-language";
 import { Footer, Header } from "@/components/header";
 import { AppMotionConfig } from "@/components/motion-config";
+import { ScrollRestoration } from "@/components/scroll-restoration";
 import { organizationId, siteOrganization, StructuredData } from "@/components/structured-data";
 import { PUBLIC_SITE_URL, SITE_DESCRIPTOR_EN } from "@/lib/public-site";
 import "./globals.css";
@@ -78,6 +79,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       </head>
       <body>
         <AppMotionConfig>
+          {/* 逐個 history entry 記／還原 scroll 位。要喺 layout（唔係榜頁）：由卡頁撳返上一頁，
+              卡頁自己嗰個位一樣要記得住。 */}
+          <ScrollRestoration />
           <Suspense fallback={<a className="skip-link" href="#main">Skip to content</a>}><SkipLink /></Suspense>
           <Suspense fallback={null}><DocumentLanguage /></Suspense>
           <Suspense fallback={<div className="header-fallback" />}><Header /></Suspense>
