@@ -9,7 +9,7 @@ import type { MarketCardView } from "@/lib/types";
 
 /* 調參 lab：左邊全幅 heatmap、右邊固定 panel，專畀 testers 校完貼 JSON 返嚟 */
 function TuneLabInner({ cards }: { cards: MarketCardView[] }) {
-  const { period, theme } = useMarketSettings();
+  const { locale, period, theme } = useMarketSettings();
   const [params, setParams] = useState<TileParams>(DEFAULT_TILE);
   return (
     <div className="tune-lab">
@@ -17,7 +17,7 @@ function TuneLabInner({ cards }: { cards: MarketCardView[] }) {
         <HeatmapTilesBoard cards={cards} period={period} params={params} dark={theme === "dark"} />
       </div>
       <div className="tune-lab-side">
-        <TunePanel params={params} onChange={setParams} dark={theme === "dark"} />
+        <TunePanel params={params} onChange={setParams} dark={theme === "dark"} locale={locale} />
       </div>
     </div>
   );

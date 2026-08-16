@@ -3,7 +3,8 @@
 import { Heatmap } from "./heatmap";
 import { Provenance } from "./provenance";
 import { Rankings } from "./rankings";
-import { absolutePublicUrl, siteOrganization, StructuredData } from "./structured-data";
+import { canonicalPublicUrl, siteOrganization, StructuredData } from "./structured-data";
+import { displayCardName } from "@/lib/card-name";
 import { copy, type Copy } from "@/lib/i18n";
 import { useMarketSettings } from "@/lib/use-market-settings";
 import type { MarketViewSnapshot } from "@/lib/types";
@@ -32,6 +33,14 @@ export function MarketPage({ kind, snapshot }: { kind: MarketPageKind; snapshot:
       ? t.heatmap.onePieceTitle
       : t.heatmap.title;
   const marketLabel = kind === "pokemon" ? t.nav.pokemon : kind === "one-piece" ? t.nav.onePiece : t.nav.all;
+  /* JSON-LD 只出 canonical URL（冇 ?lang/currency/period），唔行 href()。
+     watchlist 每頁自己一個 ItemList：名帶 rank 範圍，position 由 1 起，rank 0（等緊新價）唔入。 */
+  const listedCards = cards.filter((card) => card.viewRank > 0);
+  const firstRank = listedCards[0]?.viewRank;
+  const lastRank = listedCards.at(-1)?.viewRank;
+  const itemListName = kind === "watchlist" && firstRank !== undefined && lastRank !== undefined
+    ? `${t.nav.watchlist} #${firstRank}–#${lastRank}`
+    : marketHeatmapTitle(kind, cards.length, t);
   const structuredData = {
     "@context": "https://schema.org",
     "@graph": [
@@ -41,18 +50,18 @@ export function MarketPage({ kind, snapshot }: { kind: MarketPageKind; snapshot:
         description: hero.body,
         dateModified: snapshot.effectiveAt,
         measurementTechnique: "PSA 10 reference price multiplied by verified PSA 10 population",
-        publisher: siteOrganization(absolutePublicUrl(href("/"))),
+        publisher: siteOrganization(),
       },
       {
         "@type": "ItemList",
         /* structured data 用 full count（100），唔係 slider 嘅 visible count */
-        name: marketHeatmapTitle(kind, cards.length, t),
-        numberOfItems: cards.length,
-        itemListElement: cards.map((card) => ({
+        name: itemListName,
+        numberOfItems: listedCards.length,
+        itemListElement: listedCards.map((card, index) => ({
           "@type": "ListItem",
-          position: card.viewRank,
-          name: card.officialName || t.status.unavailable,
-          url: absolutePublicUrl(href(`/card/${card.id}`)),
+          position: index + 1,
+          name: displayCardName(card, locale, t.status.unavailable),
+          url: canonicalPublicUrl(`/card/${card.id}`),
         })),
       },
     ],

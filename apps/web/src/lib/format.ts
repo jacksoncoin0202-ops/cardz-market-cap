@@ -9,6 +9,30 @@ const intlLocale: Record<Locale, string> = {
   ko: "ko-KR",
 };
 
+/* Intl formatter 快取（module-level）：new Intl.NumberFormat 每次要 load locale data，
+   一格 tile / 一個 ticker frame 都 new 一個係浪費；key = locale|options JSON，
+   同一組參數永遠攞返同一個 formatter。輸出同直接 new 一模一樣。 */
+const numberFormatCache = new Map<string, Intl.NumberFormat>();
+const dateFormatCache = new Map<string, Intl.DateTimeFormat>();
+function numberFormat(locale: Locale, options: Intl.NumberFormatOptions): Intl.NumberFormat {
+  const key = `${locale}|${JSON.stringify(options)}`;
+  let formatter = numberFormatCache.get(key);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(intlLocale[locale], options);
+    numberFormatCache.set(key, formatter);
+  }
+  return formatter;
+}
+function dateFormat(locale: Locale, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = `${locale}|${JSON.stringify(options)}`;
+  let formatter = dateFormatCache.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(intlLocale[locale], options);
+    dateFormatCache.set(key, formatter);
+  }
+  return formatter;
+}
+
 export function normaliseLocale(value: string | null | undefined): Locale {
   return locales.includes(value as Locale) ? (value as Locale) : "en";
 }
@@ -33,7 +57,7 @@ export function formatMoney(
   // 匯率 0 或負數只可能來自壞 FX feed —— fail-closed 出「暫無資料」，唔准出假零價。
   if (!Number.isFinite(rate) || rate <= 0) return copy[locale].status.unavailable;
   const converted = valueUsd * rate;
-  return new Intl.NumberFormat(intlLocale[locale], {
+  return numberFormat(locale, {
     style: "currency",
     currency,
     maximumFractionDigits: compact ? 2 : converted < 100 ? 2 : 0,
@@ -43,7 +67,7 @@ export function formatMoney(
 
 export function formatInteger(value: number | null, locale: Locale): string {
   if (value === null || !Number.isFinite(value)) return copy[locale].status.unavailable;
-  return new Intl.NumberFormat(intlLocale[locale], { maximumFractionDigits: 0 }).format(value);
+  return numberFormat(locale, { maximumFractionDigits: 0 }).format(value);
 }
 
 export function formatMetricMoney(
@@ -120,7 +144,7 @@ export function formatDate(value: string | null, locale: Locale): string {
   if (!value) return copy[locale].status.unavailable;
   const date = new Date(value);
   if (Number.isNaN(date.valueOf())) return copy[locale].status.unavailable;
-  return new Intl.DateTimeFormat(intlLocale[locale], {
+  return dateFormat(locale, {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
@@ -140,7 +164,7 @@ export function formatObservationDate(value: string | null, locale: Locale): str
   if (!value) return copy[locale].status.unavailable;
   const date = new Date(value);
   if (Number.isNaN(date.valueOf())) return copy[locale].status.unavailable;
-  return new Intl.DateTimeFormat(intlLocale[locale], {
+  return dateFormat(locale, {
     dateStyle: "medium",
     timeZone: "UTC",
   }).format(date);
@@ -160,7 +184,7 @@ export function formatObservationDate(value: string | null, locale: Locale): str
 export function formatObservationDayMonth(value: string, locale: Locale): string {
   const date = new Date(value);
   if (Number.isNaN(date.valueOf())) return "";
-  return new Intl.DateTimeFormat(intlLocale[locale], {
+  return dateFormat(locale, {
     month: "short",
     day: "numeric",
     timeZone: "UTC",

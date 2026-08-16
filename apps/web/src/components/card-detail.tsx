@@ -8,8 +8,9 @@ import { HistoryChart } from "./history-chart";
 import { PeriodSelector } from "./period-selector";
 import { DETAIL_PRINT_FIELDS, printIdentityRows } from "./print-badge";
 import { Provenance } from "./provenance";
-import { PriceDelta, MetricDelta } from "./rankings";
-import { absolutePublicUrl, siteOrganization, StructuredData } from "./structured-data";
+import { PriceDelta, MetricDelta, staleClass, staleTitle } from "./rankings";
+import { absolutePublicUrl, canonicalPublicUrl, siteOrganization, StructuredData } from "./structured-data";
+import { displayCardName } from "@/lib/card-name";
 import { copy } from "@/lib/i18n";
 import { formatMetricInteger, formatMetricMoney, formatMoney, formatObservationDate, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
 import { plainDescription } from "@/lib/plain-text";
@@ -32,7 +33,7 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
   }
 
   const windowMetric = card.windows[period];
-  const title = (locale === "en" ? card.officialName : card.name?.[locale]) || card.officialName;
+  const title = displayCardName(card, locale, card.officialName ?? "");
   const story = card.story?.[locale] || null;
   const structuredData = {
     "@context": "https://schema.org",
@@ -49,12 +50,12 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
          */
         description: plainDescription(story ?? "") || undefined,
         dateModified: card.pricePsa10.asOf || snapshot.effectiveAt || undefined,
-        publisher: siteOrganization(absolutePublicUrl(href("/"))),
+        publisher: siteOrganization(),
       },
       {
         "@type": "BreadcrumbList",
         itemListElement: [
-          { "@type": "ListItem", position: 1, name: t.nav.all, item: absolutePublicUrl(href("/")) },
+          { "@type": "ListItem", position: 1, name: t.nav.all, item: canonicalPublicUrl("/") },
           { "@type": "ListItem", position: 2, name: title || t.status.unavailable },
         ],
       },
@@ -91,12 +92,15 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
           <StoryPanel title={t.labels.story} story={story} />
           <div className="detail-period-row"><PeriodSelector compact /></div>
           <section className="detail-metrics" aria-label={t.labels.marketCap}>
-            <div><span>{t.labels.marketCap}</span><strong className="metric-value-fit">{card.marketCap.value === null ? formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true) : <CapTicker key={card.marketCap.value} value={card.marketCap.value} format={(n) => formatMoney(n, currency, snapshot.rates, locale, true)} />}</strong><MetricDelta metric={card.marketCap} changePct={windowMetric.marketCapChangePct} currency={currency} rates={snapshot.rates} locale={locale} /></div>
-            <div><span>{t.labels.price}</span><strong className="detail-price-now">{formatMetricMoney(card.pricePsa10, currency, snapshot.rates, locale)}</strong><PriceDelta card={card} period={period} currency={currency} rates={snapshot.rates} locale={locale} /></div>
-            <div><span>{t.labels.population}</span><strong>{formatMetricInteger(card.populationPsa10, locale)}</strong></div>
+            <div><span>{t.labels.marketCap}</span><strong className={staleClass(card.marketCap, "metric-value-fit")} title={staleTitle(card.marketCap, locale)}>{card.marketCap.value === null ? formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true) : <CapTicker key={card.marketCap.value} value={card.marketCap.value} format={(n) => formatMoney(n, currency, snapshot.rates, locale, true)} />}</strong><MetricDelta metric={card.marketCap} changePct={windowMetric.marketCapChangePct} currency={currency} rates={snapshot.rates} locale={locale} /></div>
+            <div><span>{t.labels.price}</span><strong className={staleClass(card.pricePsa10, "detail-price-now")} title={staleTitle(card.pricePsa10, locale)}>{formatMetricMoney(card.pricePsa10, currency, snapshot.rates, locale)}</strong><PriceDelta card={card} period={period} currency={currency} rates={snapshot.rates} locale={locale} /></div>
+            <div><span>{t.labels.population}</span><strong className={staleClass(card.populationPsa10, "")} title={staleTitle(card.populationPsa10, locale)}>{formatMetricInteger(card.populationPsa10, locale)}</strong></div>
             <div><span>{t.periods[period]} {t.labels.change}</span><strong className={`metric-${metricTone(windowMetric.changePct)}`}>{formatPercent(windowMetric.changePct, locale)}</strong>{windowMetric.changePct.sourceSwitched && <small className="muted-copy">{t.provenance.anchorSwitched}</small>}</div>
             <div className="wide-metric"><span>{t.periods[period]} {t.labels.trackedSales}</span><strong className="metric-value-fit">{formatTrackedSales(windowMetric.trackedSales, currency, snapshot.rates, locale)}</strong><MetricDelta metric={windowMetric.trackedSales.valueUsd} changePct={windowMetric.trackedSalesChangePct} currency={currency} rates={snapshot.rates} locale={locale} /></div>
-            <div><span>{t.labels.ungradedReference}</span><strong>{formatMetricMoney(card.priceUngradedReference ?? { value: null, status: "unavailable", asOf: null }, currency, snapshot.rates, locale)}</strong></div>
+            {/* 冇 RAW 參考價就成格唔出，唔好畫住「暫無資料」霸位 */}
+            {card.priceUngradedReference && card.priceUngradedReference.value !== null && (
+              <div><span>{t.labels.ungradedReference}</span><strong className={staleClass(card.priceUngradedReference, "")} title={staleTitle(card.priceUngradedReference, locale)}>{formatMetricMoney(card.priceUngradedReference, currency, snapshot.rates, locale)}</strong></div>
+            )}
           </section>
           {/*
             「資料時間」講嘅係上面嗰堆數幾時嘅，唔係個 snapshot 幾時 bake。

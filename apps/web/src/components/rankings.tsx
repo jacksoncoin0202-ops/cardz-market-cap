@@ -1,15 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useMemo } from "react";
 import { ArrowDown, ArrowUp, TrendingDown, TrendingUp } from "lucide-react";
 import { CardImage } from "./card-image";
+import { displayCardName } from "@/lib/card-name";
 import { ExploreBar, SortHeader } from "./explore-bar";
 import { PeriodSelector } from "./period-selector";
 import { Sparkline } from "./sparkline";
 import { cardLanguages, copy, localizedCardLanguage, localizedCardLanguageShort } from "@/lib/i18n";
 import { formatDeltaMoney, formatInteger, formatMetricInteger, formatMetricMoney, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
+import { tap } from "@/lib/haptic";
 import { cardMatchesQuery, nextExploreSort, normaliseCardSort, sortCards } from "@/lib/list-explore";
 import { useMarketSettings, type PrintLangFilter } from "@/lib/use-market-settings";
 import type { Currency, Locale, MarketCardView, MarketMetric, MarketViewSnapshot, MarketWindow, TrackedSalesMetric } from "@/lib/types";
@@ -69,9 +70,13 @@ function DeltaChip({ delta }: { delta: string }) {
   );
 }
 
-function displayCardName(card: MarketCardView, locale: Locale, fallback: string): string {
-  if (locale === "en") return card.officialName || fallback;
-  return card.name?.[locale] || card.officialName || fallback;
+/* status.stale 唔再係死 key：數值仍出（ready 一樣計法），但加虛線底 + title 話畀人知係舊價。 */
+export function staleClass(metric: MarketMetric<unknown>, base = ""): string | undefined {
+  if (metric.status !== "stale") return base || undefined;
+  return base ? `${base} metric-stale` : "metric-stale";
+}
+export function staleTitle(metric: MarketMetric<unknown>, locale: Locale): string | undefined {
+  return metric.status === "stale" ? copy[locale].status.stale : undefined;
 }
 
 function CardIdentity({ card, locale, unavailable }: { card: MarketCardView; locale: Locale; unavailable: string }) {
@@ -99,7 +104,6 @@ function ChangeBadge({ card, period, locale }: { card: MarketCardView; period: M
 export function Rankings({ cards, locale, currency, snapshot, href, watchlist = false, marketLabel }: RankingsProps) {
   const { period, printLang, query, sort, dir, update } = useMarketSettings();
   const t = copy[locale];
-  const router = useRouter();
   const cardSort = normaliseCardSort(sort);
   /* 篩選只列出榜上真係有嘅印刷語言。dev seed 帶 legacy key `language`，
      mapper 出 null，所以 dev 冇語言、冇 filter —— 呢個係正確行為。 */
@@ -117,6 +121,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
     return sortCards(langCards.filter((card) => cardMatchesQuery(card, query, locale)), cardSort, dir);
   }, [activeLang, cardSort, cards, dir, locale, query]);
   const applySort = (key: string) => {
+    tap.select();
     const next = nextExploreSort(cardSort, dir, key);
     update({ sort: next.sort, dir: next.dir });
   };
@@ -138,7 +143,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                   type="button"
                   aria-pressed={activeLang === lang}
                   aria-label={lang === "all" ? t.labels.languageFilterAll : localizedCardLanguage(lang, locale)}
-                  onClick={() => update({ printLang: lang })}
+                  onClick={() => { tap.select(); update({ printLang: lang }); }}
                 >
                   {activeLang === lang && <span className="lang-filter-pill" aria-hidden="true" />}
                   <span>{lang === "all" ? t.labels.languageFilterAllShort : localizedCardLanguageShort(lang)}</span>
@@ -172,54 +177,40 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
         <>
           <div className="desktop-ranking-table">
             <table>
+              <caption className="sr-only">{watchlist ? t.nav.watchlist : rankingTitle}</caption>
               <colgroup>
                 <col className="col-rank" /><col className="col-card" /><col className="col-number" /><col className="col-price" />
                 <col className="col-pop" /><col className="col-cap" /><col className="col-sales" /><col className="col-change" /><col className="col-spark" />
               </colgroup>
               <thead><tr>
                 <SortHeader label={t.labels.rank} sortKey="rank" activeKey={cardSort} dir={dir} onSort={applySort} />
-                <th>{t.labels.card}</th><th>{t.labels.number}</th>
+                <th scope="col">{t.labels.card}</th><th scope="col">{t.labels.number}</th>
                 <SortHeader label={t.labels.priceShort} sortKey="price" activeKey={cardSort} dir={dir} onSort={applySort} className="numeric" />
                 <SortHeader label={t.labels.populationShort} sortKey="pop" activeKey={cardSort} dir={dir} onSort={applySort} className="numeric" />
                 <SortHeader label={t.labels.marketCapShort} sortKey="cap" activeKey={cardSort} dir={dir} onSort={applySort} className="numeric" />
-                <th className="numeric">{t.periods[period]} {t.labels.trackedSalesShort}</th>
-                <th className="numeric">{t.periods[period]} {t.labels.changeShort}</th>
-                <th className="numeric">{t.labels.salesTrendShort}</th>
+                <th scope="col" className="numeric">{t.periods[period]} {t.labels.trackedSalesShort}</th>
+                <th scope="col" className="numeric">{t.periods[period]} {t.labels.changeShort}</th>
+                <th scope="col" className="numeric">{t.labels.salesTrendShort}</th>
               </tr></thead>
               <tbody>{visibleCards.map((card) => {
                 const metrics = card.windows[period];
                 const cardUrl = href(`/card/${card.id}`);
+                /* 成行係一條真 <a>（卡名 .row-link 用 ::after 鋪滿 .rank-row）：
+                   中鍵／Cmd-click／右鍵複製連結全部返嚟，table 語意亦唔會被 role="link" 蓋走。 */
                 return (
-                  <tr
-                    key={card.id}
-                    className="ranking-row-link"
-                    role="link"
-                    tabIndex={0}
-                    aria-label={`#${card.viewRank} ${displayCardName(card, locale, t.status.unavailable)}`}
-                    onClick={(event) => {
-                      // 入面嘅 <a>/<button>（卡名）自己處理，唔好 double navigate
-                      if ((event.target as HTMLElement).closest("a,button")) return;
-                      router.push(cardUrl);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key !== "Enter" && event.key !== " ") return;
-                      if ((event.target as HTMLElement).closest("a,button")) return;
-                      event.preventDefault();
-                      router.push(cardUrl);
-                    }}
-                  >
+                  <tr key={card.id} className="rank-row">
                     <td className="rank-cell" data-rank={card.viewRank > 0 ? String(card.viewRank) : undefined}>{card.viewRank > 0 ? card.viewRank : t.labels.awaitingFreshPrice}</td>
-                    <td><Link href={cardUrl}><CardIdentity card={card} locale={locale} unavailable={t.status.unavailable} /></Link></td>
+                    <td><Link href={cardUrl} className="row-link"><CardIdentity card={card} locale={locale} unavailable={t.status.unavailable} /></Link></td>
                     <td className="collector-cell">{card.collectorNumber}</td>
                     <td className="numeric price-cell">
-                      <span className="price-now">{formatMetricMoney(card.pricePsa10, currency, snapshot.rates, locale)}</span>
+                      <span className={staleClass(card.pricePsa10, "price-now")} title={staleTitle(card.pricePsa10, locale)}>{formatMetricMoney(card.pricePsa10, currency, snapshot.rates, locale)}</span>
                       <PriceDelta card={card} period={period} currency={currency} rates={snapshot.rates} locale={locale} />
                     </td>
                     <td className="numeric">
-                      <span className="pop-now">{formatMetricInteger(card.populationPsa10, locale)}</span>
+                      <span className={staleClass(card.populationPsa10, "pop-now")} title={staleTitle(card.populationPsa10, locale)}>{formatMetricInteger(card.populationPsa10, locale)}</span>
                     </td>
                     <td className="numeric market-cap-cell">
-                      <span className="price-now">{formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true)}</span>
+                      <span className={staleClass(card.marketCap, "price-now")} title={staleTitle(card.marketCap, locale)}>{formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true)}</span>
                       <MetricDelta metric={card.marketCap} changePct={metrics.marketCapChangePct} currency={currency} rates={snapshot.rates} locale={locale} />
                     </td>
                     <td className="numeric sales-cell">
@@ -250,7 +241,15 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                   <strong className="mobile-card-name">{displayCardName(card, locale, t.status.unavailable)}</strong>
                   {card.marketCap.value !== null && (card.marketCap.status === "ready" || card.marketCap.status === "stale") && (
                     <span className="mobile-card-sub">
-                      <span className="mobile-card-cap">{formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true)}</span>
+                      <span className={staleClass(card.marketCap, "mobile-card-cap")} title={staleTitle(card.marketCap, locale)}>{formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true)}</span>
+                    </span>
+                  )}
+                  {/* 第三行出 PSA10 POP：手機都睇到「價 × POP = 市值」條數點嚟 */}
+                  {card.populationPsa10.value !== null && (card.populationPsa10.status === "ready" || card.populationPsa10.status === "stale") && (
+                    <span className="mobile-card-sub">
+                      <span className={staleClass(card.populationPsa10, "mobile-card-pop")} title={staleTitle(card.populationPsa10, locale)}>
+                        {t.labels.populationShort} {formatMetricInteger(card.populationPsa10, locale)}
+                      </span>
                     </span>
                   )}
                 </div>

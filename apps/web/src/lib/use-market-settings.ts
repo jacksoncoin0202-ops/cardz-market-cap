@@ -61,6 +61,35 @@ function serverTheme(): Theme {
   return "light";
 }
 
+/*
+ * 主題過渡只喺「用戶撳 toggle」嗰 260ms 內開：`<html class="theme-transitions">`
+ * 加上去、計時拆走。以前係 pre-paint script 永久加住，結果任何 hover / 頁面切換
+ * 都拖住 240ms 過渡。連撳兩下就重置計時，唔會中途拆走。
+ */
+const THEME_TRANSITION_MS = 260;
+let themeTransitionTimer: ReturnType<typeof setTimeout> | null = null;
+
+function armThemeTransitions(): void {
+  const root = document.documentElement;
+  root.classList.add("theme-transitions");
+  if (themeTransitionTimer) clearTimeout(themeTransitionTimer);
+  themeTransitionTimer = setTimeout(() => {
+    root.classList.remove("theme-transitions");
+    themeTransitionTimer = null;
+  }, THEME_TRANSITION_MS);
+}
+
+/*
+ * GEO 預設（owner 2026-08-16）：用戶明確揀過語言／貨幣就寫 cookie，middleware 讀
+ * `cardz-lang` / `cardz-currency` + CF-IPCountry 決定首訪預設。返去 en / USD 都要寫，
+ * 唔係 middleware 會以為用戶未揀過、再用地區推一次。
+ */
+function writePrefCookie(name: string, value: string): void {
+  try {
+    document.cookie = `${name}=${encodeURIComponent(value)}; Max-Age=31536000; Path=/; SameSite=Lax`;
+  } catch { /* ignore */ }
+}
+
 export function useMarketSettings() {
   const router = useRouter();
   const pathname = usePathname();
@@ -82,6 +111,7 @@ export function useMarketSettings() {
 
   const setTheme = useCallback((nextTheme: Theme) => {
     try { window.localStorage.setItem(THEME_KEY, nextTheme); } catch { /* ignore */ }
+    armThemeTransitions();
     for (const notify of themeListeners) notify();
   }, []);
 
@@ -96,7 +126,14 @@ export function useMarketSettings() {
     dir?: "asc" | "desc";
   }) => {
     if (next.theme) setTheme(next.theme);
+    /* 淨係轉 theme（localStorage 事實）就唔准 router.replace —— 以前每撳一下 toggle
+       都行一次 RSC navigation。例外：URL 帶住 ?theme= 覆蓋緊，就要落埋個 param 先轉得到。 */
+    const onlyTheme = Object.entries(next).every(([key, value]) => key === "theme" || value === undefined);
+    if (onlyTheme && !(next.theme && urlTheme)) return;
+    if (next.locale) writePrefCookie("cardz-lang", next.locale);
+    if (next.currency) writePrefCookie("cardz-currency", next.currency);
     const nextParams = new URLSearchParams(params.toString());
+    if (next.theme) nextParams.delete("theme");
     const nextLocale = next.locale ?? locale;
     const nextCurrency = next.currency ?? currency;
     const nextPeriod = next.period ?? period;
@@ -124,7 +161,7 @@ export function useMarketSettings() {
     }
     const suffix = nextParams.toString();
     router.replace(suffix ? `${pathname}?${suffix}` : pathname, { scroll: false });
-  }, [currency, dir, locale, params, pathname, period, printLang, query, router, setTheme, sort]);
+  }, [currency, dir, locale, params, pathname, period, printLang, query, router, setTheme, sort, urlTheme]);
 
   const href = useCallback((path: string) => {
     const query = new URLSearchParams();

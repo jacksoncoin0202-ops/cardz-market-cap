@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { CardDetail } from "@/components/card-detail";
+import { displayCardName } from "@/lib/card-name";
 import { copy, localizedCardLanguage } from "@/lib/i18n";
 import { localeFromSearchParams, marketMetadata, type PageSearchParams } from "@/lib/route-metadata";
 import { loadMarketSnapshot, singleCardSnapshot } from "@/lib/server-snapshot";
@@ -39,13 +40,15 @@ export async function generateMetadata({ params, searchParams }: CardRouteProps)
   const { card } = await requireCard(id);
   const labels = copy[locale].labels;
   /*
-   * canonical title 永遠用 PSA/GemRate officialName；印刷語言只係 disambiguation
-   * suffix，locale alias 唔可以改寫搜尋／OG title。
+   * owner 2026-08-16：<title> 跟 UI 語言出當地官方譯名（displayCardName，同 H1／sheet／熱力圖一致）；
+   * 非英文 locale 而譯名同英文唔同時，英文 officialName 跟喺後面做搜尋／辨識 anchor。
+   * 印刷語言只係 disambiguation suffix。
    */
   const printLanguage = card.cardLanguage
     ? labels.printLanguage.replace("{language}", localizedCardLanguage(card.cardLanguage, locale))
     : null;
-  const baseTitle = card.officialName || labels.viewCard;
+  const localName = displayCardName(card, locale, card.officialName || labels.viewCard);
+  const baseTitle = card.officialName && localName !== card.officialName ? `${localName}（${card.officialName}）` : localName;
   const title = printLanguage ? `${baseTitle} · ${printLanguage}` : baseTitle;
   const description = card.story?.[locale] || labels.viewCard;
   // 每張卡出自己嗰張 OG（卡名 / set / 市值 / PSA 10 價同 POP）。
@@ -55,7 +58,7 @@ export async function generateMetadata({ params, searchParams }: CardRouteProps)
     description,
     `/card/${id}`,
     `/api/og/card/${encodeURIComponent(id)}`,
-    card.officialName || "CardZ Marketcap",
+    localName || "CardZ Marketcap",
   );
 }
 

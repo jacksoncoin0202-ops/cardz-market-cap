@@ -6,11 +6,11 @@ import { CopyButton } from "./copy-button";
 import { HistoryChart } from "./history-chart";
 import { PeriodSelector } from "./period-selector";
 import { Provenance } from "./provenance";
-import { MetricDelta } from "./rankings";
+import { MetricDelta, staleClass, staleTitle } from "./rankings";
 import { BoxImage } from "./box-image";
-import { absolutePublicUrl, StructuredData } from "./structured-data";
+import { absolutePublicUrl, canonicalPublicUrl, StructuredData } from "./structured-data";
 import { copy } from "@/lib/i18n";
-import { formatDate, formatInteger, formatMetricMoney, formatMoney, formatPercent, metricTone } from "@/lib/format";
+import { formatDate, formatInteger, formatMetricMoney, formatMoney, formatObservationDate, formatPercent, metricTone } from "@/lib/format";
 import type { Currency, MarketViewSnapshot, SealedProductView } from "@/lib/types";
 import { useMarketSettings } from "@/lib/use-market-settings";
 import { StoryPanel } from "./story-panel";
@@ -34,8 +34,10 @@ export function BoxDetail({ product, snapshot }: {
   const rates: Record<Currency, number> = snapshot.rates;
   const metrics = product.windows[period];
   const story = product.story?.[locale] || null;
-  const gameLabel = product.game === "optcg" ? "One Piece" : "Pokémon";
+  const gameLabel = product.game === "optcg" ? t.nav.onePiece : t.nav.pokemon;
   const kicker = `${t.nav.box} · ${gameLabel} ${product.lang.toUpperCase()}`;
+  /* print_wave 代號出 label；冇對應（新代號）就照出 raw，唔好靜靜地食咗 */
+  const printWaveLabel = (t.box.printWaves as Record<string, string>)[product.printWave] ?? product.printWave;
   const priceLabel = product.priceKind ? t.box.priceKind[product.priceKind] : t.labels.priceShort;
   const native = product.priceNative && product.priceNative.currency === "JPY"
     ? `¥${Math.round(product.priceNative.amount).toLocaleString(locale === "en" ? "en-US" : "ja-JP")}`
@@ -57,7 +59,7 @@ export function BoxDetail({ product, snapshot }: {
       {
         "@type": "BreadcrumbList",
         itemListElement: [
-          { "@type": "ListItem", position: 1, name: t.nav.box, item: absolutePublicUrl(href("/box")) },
+          { "@type": "ListItem", position: 1, name: t.nav.box, item: canonicalPublicUrl("/box") },
           { "@type": "ListItem", position: 2, name: product.name[locale] || product.name.en },
         ],
       },
@@ -88,9 +90,10 @@ export function BoxDetail({ product, snapshot }: {
                 <div><dt>{t.box.fullName}</dt><dd>{product.fullName[locale] || product.fullName.en}</dd></div>
               )}
               <div><dt>{t.box.setCode}</dt><dd>{product.setCode}</dd></div>
-              {product.release && <div><dt>{t.box.release}</dt><dd>{product.release}</dd></div>}
+              {/* release 係 DATE 字串：同卡頁一樣 pin UTC 淨出日期，唔出 raw ISO */}
+              {product.release && <div><dt>{t.box.release}</dt><dd>{formatObservationDate(product.release, locale)}</dd></div>}
               {product.packsPerBox > 0 && <div><dt>{t.box.packs}</dt><dd>{formatInteger(product.packsPerBox, locale)}</dd></div>}
-              {product.printWave !== "std" && <div><dt>{t.box.print}</dt><dd>{product.printWave}</dd></div>}
+              {product.printWave !== "std" && <div><dt>{t.box.print}</dt><dd>{printWaveLabel}</dd></div>}
               {product.status === "unreleased" && <div><dt>{t.labels.asOf}</dt><dd>{t.box.unreleased}</dd></div>}
             </dl>
           </header>
@@ -99,7 +102,7 @@ export function BoxDetail({ product, snapshot }: {
           <section className="detail-metrics box-detail-metrics" aria-label={priceLabel}>
             <div>
               <span>{priceLabel}</span>
-              <strong className="metric-value-fit">
+              <strong className={staleClass(product.priceUsd, "metric-value-fit")} title={staleTitle(product.priceUsd, locale)}>
                 {product.priceUsd.value === null
                   ? formatMetricMoney(product.priceUsd, currency, rates, locale)
                   : <CapTicker key={product.priceUsd.value} value={product.priceUsd.value} format={(n) => formatMoney(n, currency, rates, locale)} />}

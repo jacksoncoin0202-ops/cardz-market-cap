@@ -1,5 +1,10 @@
 export const WATCHLIST_PAGE_SIZE = 200;
 
+/* 頁數唯一計法：watchlist 頁面同 sitemap 都行呢度，兩邊唔准各自 ceil。空榜都當 1 頁。 */
+export function watchlistPageCount(cardCount: number): number {
+  return Math.max(Math.ceil(cardCount / WATCHLIST_PAGE_SIZE), 1);
+}
+
 /*
  * `?page=` 嘅唯一解析點。頁面同 API 都行呢度，唔准各自寫一套。
  *

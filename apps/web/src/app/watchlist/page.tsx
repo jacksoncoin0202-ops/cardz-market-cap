@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MarketPage } from "@/components/market-page";
 import { copy } from "@/lib/i18n";
-import { parseRequestedPage, WATCHLIST_PAGE_SIZE } from "@/lib/pagination";
+import { parseRequestedPage, WATCHLIST_PAGE_SIZE, watchlistPageCount } from "@/lib/pagination";
 import { localeFromSearchParams, marketMetadata, type PageSearchParams } from "@/lib/route-metadata";
 import { loadMarketSnapshot, scopeSnapshot } from "@/lib/server-snapshot";
 
@@ -24,7 +25,7 @@ async function requireWatchlistPage(params: Record<string, string | string[] | u
     page: requestedPage,
     pageSize: WATCHLIST_PAGE_SIZE,
   });
-  const pageCount = Math.max(Math.ceil(snapshot.coverage.requestedCount / WATCHLIST_PAGE_SIZE), 1);
+  const pageCount = watchlistPageCount(snapshot.coverage.requestedCount);
   if (requestedPage > pageCount) notFound();
   return {
     snapshot,
@@ -46,8 +47,9 @@ export async function generateMetadata({ searchParams }: { searchParams: PageSea
 }
 
 export default async function WatchlistPage({ searchParams }: { searchParams: PageSearchParams }) {
-  const params = await searchParams;
+  const [params, locale] = await Promise.all([searchParams, localeFromSearchParams(searchParams)]);
   const { snapshot, page, pageCount, firstRank, lastRank } = await requireWatchlistPage(params);
+  const nav = copy[locale].nav;
 
   const baseQuery = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -64,13 +66,19 @@ export default async function WatchlistPage({ searchParams }: { searchParams: Pa
   return (
     <>
       <MarketPage kind="watchlist" snapshot={snapshot} />
+      {/* <Link> 唔係 <a>：全頁 reload 會跌咗 client 側 currency/period 狀態；
+          pageHref 已經帶齊 lang/currency 等 query。 */}
       {pageCount > 1 ? (
-        <nav className="watchlist-pager" aria-label="Watchlist pages">
-          {page > 1 ? <a href={pageHref(page - 1)}>‹</a> : <span aria-hidden="true">‹</span>}
-          <span>
+        <nav className="watchlist-pager" aria-label={nav.watchlist}>
+          {page > 1
+            ? <Link href={pageHref(page - 1)} rel="prev" aria-label={nav.previousPage}>‹</Link>
+            : <span aria-hidden="true">‹</span>}
+          <span aria-current="page">
             #{firstRank}–#{lastRank} · {page}/{pageCount}
           </span>
-          {page < pageCount ? <a href={pageHref(page + 1)}>›</a> : <span aria-hidden="true">›</span>}
+          {page < pageCount
+            ? <Link href={pageHref(page + 1)} rel="next" aria-label={nav.nextPage}>›</Link>
+            : <span aria-hidden="true">›</span>}
         </nav>
       ) : null}
     </>

@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { WATCHLIST_PAGE_SIZE } from "@/lib/pagination";
+import { watchlistPageCount } from "@/lib/pagination";
 import { PUBLIC_SITE_URL } from "@/lib/public-site";
 import { loadMarketSnapshot } from "@/lib/server-snapshot";
 
@@ -35,15 +35,12 @@ function entry(path: string, lastModified: string): MetadataRoute.Sitemap[number
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const snapshot = await loadMarketSnapshot();
-  const watchlistPageCount = Math.max(
-    Math.ceil(snapshot.watchlist.length / WATCHLIST_PAGE_SIZE),
-    1,
-  );
+  const pageCount = watchlistPageCount(snapshot.watchlist.length);
   const core = [
     "/",
     "/pokemon",
     "/one-piece",
-    ...Array.from({ length: watchlistPageCount }, (_, index) =>
+    ...Array.from({ length: pageCount }, (_, index) =>
       index === 0 ? "/watchlist" : `/watchlist?page=${index + 1}`,
     ),
   ];

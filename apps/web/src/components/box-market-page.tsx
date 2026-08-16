@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { BoxGroupSelector, normaliseBoxScope } from "./box-group-selector";
 import { BoxRankings } from "./box-rankings";
 import { Provenance } from "./provenance";
-import { absolutePublicUrl, siteOrganization, StructuredData } from "./structured-data";
+import { canonicalPublicUrl, siteOrganization, StructuredData } from "./structured-data";
 import { copy } from "@/lib/i18n";
 import { formatDate } from "@/lib/format";
 import type { MarketViewSnapshot } from "@/lib/types";
@@ -35,17 +35,18 @@ export function BoxMarketPage({ snapshot }: { snapshot: MarketViewSnapshot }) {
         description: t.boxHero.body,
         dateModified: block?.asOf ?? snapshot.effectiveAt,
         measurementTechnique: "BOX reference price: completed sales first, market reference second, ask floor only as fallback",
-        publisher: siteOrganization(absolutePublicUrl(href("/"))),
+        publisher: siteOrganization(),
       },
       {
         "@type": "ItemList",
         name: t.box.boardTitle.replace("{count}", String(products.length)),
         numberOfItems: products.length,
-        itemListElement: products.slice(0, 100).map((product) => ({
+        /* canonical URL，唔帶 ?lang/currency/period；position 順序 1 起，唔用 rank（group 篩完會跳號） */
+        itemListElement: products.slice(0, 100).map((product, index) => ({
           "@type": "ListItem",
-          position: product.rank,
+          position: index + 1,
           name: product.name.en,
-          url: absolutePublicUrl(href(`/box/${product.id}`)),
+          url: canonicalPublicUrl(`/box/${product.id}`),
         })),
       },
     ],

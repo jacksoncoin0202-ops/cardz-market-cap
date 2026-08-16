@@ -11,8 +11,16 @@ export type SortDir = (typeof sortDirs)[number];
 export const DEFAULT_SORT = "rank";
 export const DEFAULT_DIR: SortDir = "desc";
 
+/*
+ * 搜尋文字折疊：NFKC（全形／半形假名、全形英數同一）→ 小寫 → NFD 拆音標 → 掉 \p{Diacritic}，
+ * 所以 "pokemon" 搵到 "Pokémon"、"ﾋﾟｶﾁｭｳ" 搵到 "ピカチュウ"。needle 同 haystack 行同一條規矩。
+ */
+export function foldSearchText(value: string): string {
+  return value.normalize("NFKC").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
+}
+
 export function normaliseQuery(value: string | null | undefined): string {
-  return (value ?? "").trim().toLowerCase();
+  return foldSearchText((value ?? "").trim());
 }
 
 export function normaliseCardSort(value: string | null | undefined): CardSortKey {
@@ -33,28 +41,48 @@ export function nextExploreSort(currentKey: string, currentDir: SortDir, clicked
   return { sort: clicked, dir: DEFAULT_DIR };
 }
 
-function textHas(query: string, value: string | null | undefined): boolean {
-  return Boolean(value && value.toLowerCase().includes(query));
+/*
+ * 每張卡／每個原盒嘅 haystack 只砌一次（按 object identity + locale 記住）：
+ * 逐粒字打搜尋會對成千行重跑 normalize，WeakMap 跟住 snapshot object 一齊回收。
+ */
+const haystackCache = new WeakMap<object, Partial<Record<Locale, string>>>();
+
+function cachedHaystack(item: object, locale: Locale, build: () => Array<string | null | undefined>): string {
+  let byLocale = haystackCache.get(item);
+  if (!byLocale) {
+    byLocale = {};
+    haystackCache.set(item, byLocale);
+  }
+  let haystack = byLocale[locale];
+  if (haystack === undefined) {
+    haystack = foldSearchText(build().filter(Boolean).join(" "));
+    byLocale[locale] = haystack;
+  }
+  return haystack;
 }
 
 export function cardMatchesQuery(card: MarketCardView, query: string, locale: Locale): boolean {
   const needle = normaliseQuery(query);
   if (!needle) return true;
-  return textHas(needle, card.officialName)
-    || textHas(needle, card.name?.[locale])
-    || textHas(needle, card.collectorNumber)
-    || textHas(needle, card.setName[locale])
-    || textHas(needle, card.setName.en);
+  return cachedHaystack(card, locale, () => [
+    card.officialName,
+    card.name?.[locale],
+    card.collectorNumber,
+    card.setName[locale],
+    card.setName.en,
+  ]).includes(needle);
 }
 
 export function boxMatchesQuery(product: SealedProductView, query: string, locale: Locale): boolean {
   const needle = normaliseQuery(query);
   if (!needle) return true;
-  return textHas(needle, product.name[locale])
-    || textHas(needle, product.name.en)
-    || textHas(needle, product.fullName?.[locale])
-    || textHas(needle, product.fullName?.en)
-    || textHas(needle, product.setCode);
+  return cachedHaystack(product, locale, () => [
+    product.name[locale],
+    product.name.en,
+    product.fullName?.[locale],
+    product.fullName?.en,
+    product.setCode,
+  ]).includes(needle);
 }
 
 function metricValue(metric: { value: number | null } | undefined): number | null {

@@ -22,6 +22,9 @@ export interface Copy {
     onePiece: string;
     watchlist: string;
     box: string;
+    /* watchlist pager 嘅 aria-label（‹ ›）*/
+    previousPage: string;
+    nextPage: string;
   };
   boxHero: { eyebrow: string; title: string; body: string };
   box: {
@@ -42,7 +45,8 @@ export interface Copy {
     coverage: string;
     empty: string;
     showMore: string;
-    showAll: string;
+    /* print_wave 代號 → 顯示字；DB 詞彙 std/1st/wave1/wave2/unlimited/reprint，std 唔出行 */
+    printWaves: Record<"1st" | "wave1" | "wave2" | "unlimited" | "reprint", string>;
   };
   boxProvenance: {
     kicker: string;
@@ -78,7 +82,14 @@ export interface Copy {
     neutralZone: string;
     gap: string;
     cardSize: string;
-    saved: string;
+    /* /tune lab 專用（clamp / alpha / aspect + 複製 JSON），heatmap tune panel 唔出 */
+    clamp: string;
+    alphaMin: string;
+    alphaMax: string;
+    cardAspect: string;
+    copyParams: string;
+    paramsCopied: string;
+    copyFailed: string;
   };
   periods: Record<MarketWindow, string>;
   languages: Record<CardLanguage, string>;
@@ -119,7 +130,6 @@ export interface Copy {
     share: string;
     shareDone: string;
     shareError: string;
-    expandImage: string;
     /*
      * 印刷版本相關。`printLanguage` 係 template：`languages` 只出裸字（「日文」），
      * 但 badge 要出「日文版」，所以用 {language} 佔位符夾 localizedCardLanguage() 嘅輸出。
@@ -127,10 +137,7 @@ export interface Copy {
      */
     printLanguage: string;
     setCode: string;
-    rarity: string;
-    parallel: string;
     finish: string;
-    packSource: string;
     languageFilterAll: string;
     languageFilterAllShort: string;
     searchPlaceholder: string;
@@ -142,6 +149,11 @@ export interface Copy {
     resultCount: string;
     noSearchResults: string;
     noSearchResultsBox: string;
+    sortBy: string;
+    currency: string;
+    /* 升跌顏色慣例切換：按鈕 aria-label / title 出「而家係邊個慣例」 */
+    upDownGreen: string;
+    upDownRed: string;
   };
   theme: { dark: string; light: string };
   methodology: { title: string; body: string };
@@ -160,11 +172,14 @@ export interface Copy {
   };
   status: Record<"accumulating" | "stale" | "unavailable", string>;
   footer: string;
+  skipToContent: string;
+  notFound: { title: string; body: string; back: string };
+  errorPage: { title: string; body: string; retry: string };
 }
 
 export const copy: Record<Locale, Copy> = {
   en: {
-    nav: { all: "TCG Market", pokemon: "Pokémon", onePiece: "One Piece", watchlist: "Watchlist", box: "BOX" },
+    nav: { all: "TCG Market", pokemon: "Pokémon", onePiece: "One Piece", watchlist: "Watchlist", box: "BOX", previousPage: "Previous page", nextPage: "Next page" },
     boxHero: {
       eyebrow: "BOX MARKET",
       title: "Sold-first prices for sealed booster boxes",
@@ -188,7 +203,7 @@ export const copy: Record<Locale, Copy> = {
       coverage: "{priced} of {total} priced",
       empty: "BOX data is being prepared.",
       showMore: "Show more ({count} remaining)",
-      showAll: "Show all",
+      printWaves: { "1st": "1st Edition", wave1: "1st Edition", wave2: "Reprint", unlimited: "Unlimited", reprint: "Reprint" },
     },
     boxProvenance: {
       kicker: "METHOD & DATA",
@@ -244,7 +259,8 @@ export const copy: Record<Locale, Copy> = {
       neutralZone: "Neutral zone",
       gap: "Tile spacing",
       cardSize: "Card size",
-      saved: "Saved",
+      clamp: "Saturation point (% change)", alphaMin: "Lightest opacity", alphaMax: "Deepest opacity", cardAspect: "Card aspect ratio",
+      copyParams: "Copy parameters", paramsCopied: "Parameters copied", copyFailed: "Copy failed",
     },
     periods: { "1d": "1D", "7d": "7D", "30d": "30D", "90d": "3M", "180d": "6M", "365d": "1Y" },
     languages: { en: "English", ja: "Japanese", ko: "Korean", zhCN: "Simplified Chinese", zhTW: "Traditional Chinese" },
@@ -261,8 +277,7 @@ export const copy: Record<Locale, Copy> = {
       dailyPrice: "Reference price", trackedSalesBars: "Tracked sales", salesTrend: "Tracked sales trend", salesTrendShort: "Sales trend", imageAlt: "Card artwork",
       noHistory: "Daily price history is still accumulating.", noCards: "No eligible cards are available in this view.", noSales: "No sales recorded", watchStatus: "Watchlist status",
       share: "Share card", shareDone: "Link copied", shareError: "Copy failed — select the address bar",
-      expandImage: "View full-size card",
-      printLanguage: "{language} print", setCode: "Set code", rarity: "Rarity", parallel: "Parallel", finish: "Surface", packSource: "Pack source",
+      printLanguage: "{language} print", setCode: "Set code", finish: "Surface",
       languageFilterAll: "All languages",
       languageFilterAllShort: "All",
       searchPlaceholder: "Search name, number, or set",
@@ -274,6 +289,10 @@ export const copy: Record<Locale, Copy> = {
       resultCount: "{shown} / {total}",
       noSearchResults: "No cards match this search.",
       noSearchResultsBox: "No boxes match this search.",
+      sortBy: "Sort by",
+      currency: "Currency",
+      upDownGreen: "Gains shown in green",
+      upDownRed: "Gains shown in red",
     },
     theme: { dark: "Dark mode", light: "Light mode" },
     methodology: {
@@ -304,9 +323,12 @@ export const copy: Record<Locale, Copy> = {
     },
     status: { accumulating: "Accumulating", stale: "Stale", unavailable: "Not available" },
     footer: "CardZ Marketcap. Art market intelligence for collectible cards.",
+    skipToContent: "Skip to content",
+    notFound: { title: "Page not found", body: "This card, box or page is not on the board.", back: "Back to the market" },
+    errorPage: { title: "Something went wrong", body: "The board could not be drawn. Try again or head back to the market.", retry: "Try again" },
   },
   "zh-TW": {
-    nav: { all: "TCG 市場", pokemon: "寶可夢", onePiece: "海賊王", watchlist: "觀察名單", box: "原盒" },
+    nav: { all: "TCG 市場", pokemon: "寶可夢", onePiece: "海賊王", watchlist: "觀察名單", box: "原盒", previousPage: "上一頁", nextPage: "下一頁" },
     boxHero: {
       eyebrow: "BOX MARKET",
       title: "未開封原盒 · 成交價優先",
@@ -330,7 +352,7 @@ export const copy: Record<Locale, Copy> = {
       coverage: "{total} 盒中 {priced} 盒有價",
       empty: "原盒市場數據準備中。",
       showMore: "顯示更多（仲有 {count} 個）",
-      showAll: "顯示全部",
+      printWaves: { "1st": "初版", wave1: "初版", wave2: "再版", unlimited: "無限版", reprint: "再版" },
     },
     boxProvenance: {
       kicker: "METHOD & DATA",
@@ -369,7 +391,9 @@ export const copy: Record<Locale, Copy> = {
       body: "面積代表現時 PSA 10 市值，色彩反映所選期間的價格變化。",
       negative: "下跌", neutral: "資料累積中", positive: "上升", count: "張合資格卡牌", tilesLabel: "顯示格數", viewRanking: "查看前 {count}", shareImage: "分享圖片",
       customize: "自訂色彩", customizeTitle: "熱力圖色彩", resetDefault: "恢復預設",
-      upColor: "上升顏色", downColor: "下跌顏色", intensity: "色彩強度", neutralZone: "中立區", gap: "格子間距", cardSize: "卡牌大小", saved: "已儲存",
+      upColor: "上升顏色", downColor: "下跌顏色", intensity: "色彩強度", neutralZone: "中立區", gap: "格子間距", cardSize: "卡牌大小",
+      clamp: "飽和點（漲跌 %）", alphaMin: "最淺透明度", alphaMax: "最深透明度", cardAspect: "卡牌長寬比",
+      copyParams: "複製參數", paramsCopied: "已複製參數", copyFailed: "複製失敗",
     },
     periods: { "1d": "1D", "7d": "7D", "30d": "30D", "90d": "3M", "180d": "6M", "365d": "1Y" },
     languages: { en: "英文", ja: "日文", ko: "韓文", zhCN: "簡體中文", zhTW: "繁體中文" },
@@ -386,8 +410,7 @@ export const copy: Record<Locale, Copy> = {
       dailyPrice: "參考價格", trackedSalesBars: "已追蹤成交額", salesTrend: "已追蹤成交額走勢", salesTrendShort: "成交走勢", imageAlt: "卡牌圖像",
       noHistory: "每日價格歷史仍在累積。", noCards: "此分類暫時沒有合資格卡牌。", noSales: "無成交紀錄", watchStatus: "觀察狀態",
       share: "分享卡牌", shareDone: "已複製連結", shareError: "複製失敗，請手動複製網址",
-      expandImage: "放大檢視卡牌",
-      printLanguage: "{language}版", setCode: "系列代碼", rarity: "稀有度", parallel: "平行卡", finish: "卡面", packSource: "卡包來源",
+      printLanguage: "{language}版", setCode: "系列代碼", finish: "卡面",
       languageFilterAll: "全部語言",
       languageFilterAllShort: "全部",
       searchPlaceholder: "搜尋卡名、編號或系列",
@@ -399,6 +422,10 @@ export const copy: Record<Locale, Copy> = {
       resultCount: "{shown} / {total}",
       noSearchResults: "沒有符合此搜尋的卡牌。",
       noSearchResultsBox: "沒有符合此搜尋的原盒。",
+      sortBy: "排序方式",
+      currency: "貨幣",
+      upDownGreen: "紅跌綠升",
+      upDownRed: "紅升綠跌",
     },
     theme: { dark: "深色模式", light: "淺色模式" },
     methodology: {
@@ -421,9 +448,12 @@ export const copy: Record<Locale, Copy> = {
     },
     status: { accumulating: "資料累積中", stale: "資料已逾時", unavailable: "暫無資料" },
     footer: "CardZ Marketcap，收藏卡牌藝術市場情報。",
+    skipToContent: "跳至主要內容",
+    notFound: { title: "找不到頁面", body: "這張卡牌、原盒或頁面不在榜上。", back: "返回市場" },
+    errorPage: { title: "發生錯誤", body: "榜單暫時無法載入。請再試一次，或返回市場。", retry: "再試一次" },
   },
   "zh-CN": {
-    nav: { all: "TCG 市场", pokemon: "宝可梦", onePiece: "海贼王", watchlist: "观察名单", box: "原盒" },
+    nav: { all: "TCG 市场", pokemon: "宝可梦", onePiece: "海贼王", watchlist: "观察名单", box: "原盒", previousPage: "上一页", nextPage: "下一页" },
     boxHero: {
       eyebrow: "BOX MARKET",
       title: "未开封原盒 · 成交价优先",
@@ -447,7 +477,7 @@ export const copy: Record<Locale, Copy> = {
       coverage: "{total} 盒中 {priced} 盒有价",
       empty: "原盒市场数据准备中。",
       showMore: "显示更多（还有 {count} 个）",
-      showAll: "显示全部",
+      printWaves: { "1st": "初版", wave1: "初版", wave2: "再版", unlimited: "无限版", reprint: "再版" },
     },
     boxProvenance: {
       kicker: "METHOD & DATA",
@@ -479,7 +509,9 @@ export const copy: Record<Locale, Copy> = {
       body: "面积代表当前 PSA 10 市值，色彩反映所选期间的价格变化。",
       negative: "下跌", neutral: "数据累积中", positive: "上涨", count: "张合资格卡牌", tilesLabel: "显示格数", viewRanking: "查看前 {count}", shareImage: "分享图片",
       customize: "自定义色彩", customizeTitle: "热力图色彩", resetDefault: "恢复默认",
-      upColor: "上涨颜色", downColor: "下跌颜色", intensity: "色彩强度", neutralZone: "中立区", gap: "格子间距", cardSize: "卡牌大小", saved: "已保存",
+      upColor: "上涨颜色", downColor: "下跌颜色", intensity: "色彩强度", neutralZone: "中立区", gap: "格子间距", cardSize: "卡牌大小",
+      clamp: "饱和点（涨跌 %）", alphaMin: "最浅透明度", alphaMax: "最深透明度", cardAspect: "卡牌长宽比",
+      copyParams: "复制参数", paramsCopied: "已复制参数", copyFailed: "复制失败",
     },
     periods: { "1d": "1D", "7d": "7D", "30d": "30D", "90d": "3M", "180d": "6M", "365d": "1Y" },
     languages: { en: "英文", ja: "日文", ko: "韩文", zhCN: "简体中文", zhTW: "繁体中文" },
@@ -496,8 +528,7 @@ export const copy: Record<Locale, Copy> = {
       dailyPrice: "参考价格", trackedSalesBars: "已追踪成交额", salesTrend: "已追踪成交额走势", salesTrendShort: "成交走势", imageAlt: "卡牌图像",
       noHistory: "每日价格历史仍在累积。", noCards: "此分类暂时没有合资格卡牌。", noSales: "无成交纪录", watchStatus: "观察状态",
       share: "分享卡牌", shareDone: "已复制链接", shareError: "复制失败，请手动复制网址",
-      expandImage: "放大查看卡牌",
-      printLanguage: "{language}版", setCode: "系列代码", rarity: "稀有度", parallel: "平行卡", finish: "卡面", packSource: "卡包来源",
+      printLanguage: "{language}版", setCode: "系列代码", finish: "卡面",
       languageFilterAll: "全部语言",
       languageFilterAllShort: "全部",
       searchPlaceholder: "搜索卡名、编号或系列",
@@ -509,6 +540,10 @@ export const copy: Record<Locale, Copy> = {
       resultCount: "{shown} / {total}",
       noSearchResults: "没有符合此搜索的卡牌。",
       noSearchResultsBox: "没有符合此搜索的原盒。",
+      sortBy: "排序方式",
+      currency: "货币",
+      upDownGreen: "红跌绿升",
+      upDownRed: "红升绿跌",
     },
     theme: { dark: "深色模式", light: "浅色模式" },
     methodology: {
@@ -530,9 +565,12 @@ export const copy: Record<Locale, Copy> = {
     },
     status: { accumulating: "数据累积中", stale: "数据已过期", unavailable: "暂无数据" },
     footer: "CardZ Marketcap，收藏卡牌艺术市场情报。",
+    skipToContent: "跳至主要内容",
+    notFound: { title: "找不到页面", body: "这张卡牌、原盒或页面不在榜上。", back: "返回市场" },
+    errorPage: { title: "发生错误", body: "榜单暂时无法加载。请再试一次，或返回市场。", retry: "再试一次" },
   },
   ja: {
-    nav: { all: "TCG 市場", pokemon: "ポケモン", onePiece: "ワンピース", watchlist: "ウォッチリスト", box: "BOX" },
+    nav: { all: "TCG 市場", pokemon: "ポケモン", onePiece: "ワンピース", watchlist: "ウォッチリスト", box: "BOX", previousPage: "前のページ", nextPage: "次のページ" },
     boxHero: {
       eyebrow: "BOX市場",
       title: "未開封BOX · 成約価格を優先",
@@ -556,7 +594,7 @@ export const copy: Record<Locale, Copy> = {
       coverage: "{total} 中 {priced} BOXに価格",
       empty: "BOX市場データを準備中です。",
       showMore: "もっと見る（残り {count} 件）",
-      showAll: "すべて表示",
+      printWaves: { "1st": "初版", wave1: "初版", wave2: "再販", unlimited: "アンリミテッド", reprint: "再販" },
     },
     boxProvenance: {
       kicker: "METHOD & DATA",
@@ -588,7 +626,9 @@ export const copy: Record<Locale, Copy> = {
       body: "面積は現在の PSA 10 時価総額、色は選択期間の価格変化を表します。",
       negative: "下落", neutral: "集計中", positive: "上昇", count: "枚の適格カード", tilesLabel: "表示数", viewRanking: "トップ {count} を見る", shareImage: "画像をシェア",
       customize: "色をカスタマイズ", customizeTitle: "ヒートマップの色", resetDefault: "デフォルトに戻す",
-      upColor: "上昇カラー", downColor: "下落カラー", intensity: "色の強度", neutralZone: "ニュートラルゾーン", gap: "タイル間隔", cardSize: "カードサイズ", saved: "保存済み",
+      upColor: "上昇カラー", downColor: "下落カラー", intensity: "色の強度", neutralZone: "ニュートラルゾーン", gap: "タイル間隔", cardSize: "カードサイズ",
+      clamp: "飽和点（変動率 %）", alphaMin: "最も薄い不透明度", alphaMax: "最も濃い不透明度", cardAspect: "カードの縦横比",
+      copyParams: "パラメータをコピー", paramsCopied: "パラメータをコピーしました", copyFailed: "コピーに失敗しました",
     },
     periods: { "1d": "1D", "7d": "7D", "30d": "30D", "90d": "3M", "180d": "6M", "365d": "1Y" },
     languages: { en: "英語", ja: "日本語", ko: "韓国語", zhCN: "簡体中国語", zhTW: "繁体中国語" },
@@ -605,8 +645,7 @@ export const copy: Record<Locale, Copy> = {
       dailyPrice: "参考価格", trackedSalesBars: "追跡成約額", salesTrend: "追跡成約額の推移", salesTrendShort: "成約推移", imageAlt: "カード画像",
       noHistory: "日次価格履歴を蓄積しています。", noCards: "この表示には適格カードがありません。", noSales: "成約記録なし", watchStatus: "観察ステータス",
       share: "カードを共有", shareDone: "リンクをコピーしました", shareError: "コピーに失敗しました。URL を手動でコピーしてください",
-      expandImage: "カードを拡大表示",
-      printLanguage: "{language}版", setCode: "セットコード", rarity: "レアリティ", parallel: "パラレル", finish: "表面", packSource: "収録パック",
+      printLanguage: "{language}版", setCode: "セットコード", finish: "表面",
       languageFilterAll: "すべての言語",
       languageFilterAllShort: "すべて",
       searchPlaceholder: "名前・番号・セットで検索",
@@ -618,6 +657,10 @@ export const copy: Record<Locale, Copy> = {
       resultCount: "{shown} / {total}",
       noSearchResults: "この検索に一致するカードはありません。",
       noSearchResultsBox: "この検索に一致するボックスはありません。",
+      sortBy: "並べ替え",
+      currency: "通貨",
+      upDownGreen: "上昇＝緑",
+      upDownRed: "上昇＝赤",
     },
     theme: { dark: "ダークモード", light: "ライトモード" },
     methodology: {
@@ -639,9 +682,12 @@ export const copy: Record<Locale, Copy> = {
     },
     status: { accumulating: "集計中", stale: "更新待ち", unavailable: "データなし" },
     footer: "CardZ Marketcap。コレクティブルカードのアート市場情報。",
+    skipToContent: "本文へスキップ",
+    notFound: { title: "ページが見つかりません", body: "このカード、BOX、またはページはボードにありません。", back: "マーケットに戻る" },
+    errorPage: { title: "エラーが発生しました", body: "ボードを表示できませんでした。もう一度お試しいただくか、マーケットに戻ってください。", retry: "もう一度試す" },
   },
   ko: {
-    nav: { all: "TCG 마켓", pokemon: "포켓몬", onePiece: "원피스", watchlist: "관심 목록", box: "BOX" },
+    nav: { all: "TCG 마켓", pokemon: "포켓몬", onePiece: "원피스", watchlist: "관심 목록", box: "BOX", previousPage: "이전 페이지", nextPage: "다음 페이지" },
     boxHero: {
       eyebrow: "BOX MARKET",
       title: "미개봉 박스 · 체결가 우선",
@@ -665,7 +711,7 @@ export const copy: Record<Locale, Copy> = {
       coverage: "{total}개 중 {priced}개 가격 확보",
       empty: "BOX 시장 데이터를 준비 중입니다.",
       showMore: "더 보기 ({count}개 남음)",
-      showAll: "모두 보기",
+      printWaves: { "1st": "초판", wave1: "초판", wave2: "재판", unlimited: "언리미티드", reprint: "재판" },
     },
     boxProvenance: {
       kicker: "METHOD & DATA",
@@ -704,7 +750,9 @@ export const copy: Record<Locale, Copy> = {
       body: "면적은 현재 PSA 10 시가총액, 색상은 선택 기간의 가격 변동을 나타냅니다.",
       negative: "하락", neutral: "집계 중", positive: "상승", count: "장의 적격 카드", tilesLabel: "표시 수", viewRanking: "상위 {count} 보기", shareImage: "이미지 공유",
       customize: "색상 사용자 정의", customizeTitle: "히트맵 색상", resetDefault: "기본값으로 재설정",
-      upColor: "상승 색상", downColor: "하락 색상", intensity: "색상 강도", neutralZone: "중립 구간", gap: "타일 간격", cardSize: "카드 크기", saved: "저장됨",
+      upColor: "상승 색상", downColor: "하락 색상", intensity: "색상 강도", neutralZone: "중립 구간", gap: "타일 간격", cardSize: "카드 크기",
+      clamp: "포화 지점(변동률 %)", alphaMin: "가장 옅은 불투명도", alphaMax: "가장 짙은 불투명도", cardAspect: "카드 가로세로 비율",
+      copyParams: "파라미터 복사", paramsCopied: "파라미터를 복사했습니다", copyFailed: "복사 실패",
     },
     periods: { "1d": "1D", "7d": "7D", "30d": "30D", "90d": "3M", "180d": "6M", "365d": "1Y" },
     languages: { en: "영어", ja: "일본어", ko: "한국어", zhCN: "중국어 간체", zhTW: "중국어 번체" },
@@ -721,8 +769,7 @@ export const copy: Record<Locale, Copy> = {
       dailyPrice: "기준 가격", trackedSalesBars: "추적 거래액", salesTrend: "추적 거래액 추이", salesTrendShort: "거래 추이", imageAlt: "카드 이미지",
       noHistory: "일별 가격 이력을 축적하고 있습니다.", noCards: "이 보기에 적격 카드가 없습니다.", noSales: "거래 기록 없음", watchStatus: "관찰 상태",
       share: "카드 공유", shareDone: "링크 복사됨", shareError: "복사 실패 — 주소창에서 직접 복사하세요",
-      expandImage: "카드 크게 보기",
-      printLanguage: "{language}판", setCode: "세트 코드", rarity: "레어도", parallel: "패러렐", finish: "표면", packSource: "수록 팩",
+      printLanguage: "{language}판", setCode: "세트 코드", finish: "표면",
       languageFilterAll: "모든 언어",
       languageFilterAllShort: "전체",
       searchPlaceholder: "이름, 번호, 세트로 검색",
@@ -734,6 +781,10 @@ export const copy: Record<Locale, Copy> = {
       resultCount: "{shown} / {total}",
       noSearchResults: "이 검색과 일치하는 카드가 없습니다.",
       noSearchResultsBox: "이 검색과 일치하는 박스가 없습니다.",
+      sortBy: "정렬 기준",
+      currency: "통화",
+      upDownGreen: "상승=녹색",
+      upDownRed: "상승=빨강",
     },
     theme: { dark: "다크 모드", light: "라이트 모드" },
     methodology: {
@@ -755,6 +806,9 @@ export const copy: Record<Locale, Copy> = {
     },
     status: { accumulating: "집계 중", stale: "오래된 데이터", unavailable: "데이터 없음" },
     footer: "CardZ Marketcap. 컬렉터블 카드 아트 마켓 인텔리전스.",
+    skipToContent: "본문으로 건너뛰기",
+    notFound: { title: "페이지를 찾을 수 없습니다", body: "이 카드, 박스 또는 페이지는 보드에 없습니다.", back: "마켓으로 돌아가기" },
+    errorPage: { title: "문제가 발생했습니다", body: "보드를 표시할 수 없습니다. 다시 시도하거나 마켓으로 돌아가세요.", retry: "다시 시도" },
   },
 };
 

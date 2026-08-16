@@ -1,20 +1,22 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { BoxImage } from "./box-image";
 import { ExploreBar, SortHeader } from "./explore-bar";
 import { PeriodSelector } from "./period-selector";
 import { Sparkline } from "./sparkline";
-import { MetricDelta } from "./rankings";
+import { MetricDelta, staleClass, staleTitle } from "./rankings";
 import { copy } from "@/lib/i18n";
+import { tap } from "@/lib/haptic";
 import { boxMatchesQuery, nextExploreSort, normaliseBoxSort, sortBoxes } from "@/lib/list-explore";
 import { formatInteger, formatMetricMoney, formatPercent, metricTone } from "@/lib/format";
 import type { Currency, Locale, SealedProductView } from "@/lib/types";
 import { useMarketSettings } from "@/lib/use-market-settings";
 
 const INITIAL_ROWS = 50;
+/* 「顯示更多」每次 +50，唔係一下 mount 幾百行 */
+const PAGE_STEP = 50;
 
 function langBadge(product: SealedProductView): { className: string; label: string } {
   return product.lang === "jp"
@@ -37,15 +39,24 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
 }) {
   const { period, query, sort, dir, update } = useMarketSettings();
   const t = copy[locale];
-  const router = useRouter();
-  const [showAll, setShowAll] = useState(false);
   const boxSort = normaliseBoxSort(sort);
   const explored = useMemo(
     () => sortBoxes(products.filter((product) => boxMatchesQuery(product, query, locale)), boxSort, dir, period),
     [boxSort, dir, locale, period, products, query],
   );
-  const visibleProducts = showAll ? explored : explored.slice(0, INITIAL_ROWS);
+  const [visibleCount, setVisibleCount] = useState(INITIAL_ROWS);
+  const [isPending, startShowMore] = useTransition();
+  /* query / sort / dir / period / group（products）一變，explored 就係新 array —— render 期直接
+     reset 返 50 行（React「adjust state on prop change」寫法），唔用 effect 免得先 mount 晒成千行再縮。 */
+  const [seenExplored, setSeenExplored] = useState(explored);
+  if (seenExplored !== explored) {
+    setSeenExplored(explored);
+    setVisibleCount(INITIAL_ROWS);
+  }
+  const visibleProducts = explored.length > visibleCount ? explored.slice(0, visibleCount) : explored;
+  const remaining = explored.length - visibleProducts.length;
   const applySort = (key: string) => {
+    tap.select();
     const next = nextExploreSort(boxSort, dir, key);
     update({ sort: next.sort, dir: next.dir });
   };
@@ -88,18 +99,19 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
           <>
           <div className="desktop-ranking-table">
             <table>
+              <caption className="sr-only">{title}</caption>
               <colgroup>
                 <col className="col-rank" /><col className="col-card" /><col className="col-number" />
                 <col className="col-price" /><col className="col-sales" /><col className="col-change" /><col className="col-spark" />
               </colgroup>
               <thead><tr>
                 <SortHeader label={t.labels.rank} sortKey="rank" activeKey={boxSort} dir={dir} onSort={applySort} />
-                <th>{t.box.box}</th>
+                <th scope="col">{t.box.box}</th>
                 <SortHeader label={t.box.release} sortKey="release" activeKey={boxSort} dir={dir} onSort={applySort} />
                 <SortHeader label={t.labels.priceShort} sortKey="price" activeKey={boxSort} dir={dir} onSort={applySort} className="numeric" />
                 <SortHeader label={`${t.periods[period]} ${t.box.soldCountShort}`} sortKey="sold" activeKey={boxSort} dir={dir} onSort={applySort} className="numeric" />
-                <th className="numeric">{t.periods[period]} {t.labels.changeShort}</th>
-                <th className="numeric">{t.labels.salesTrendShort}</th>
+                <th scope="col" className="numeric">{t.periods[period]} {t.labels.changeShort}</th>
+                <th scope="col" className="numeric">{t.labels.salesTrendShort}</th>
               </tr></thead>
             <tbody>{visibleProducts.map((product) => {
                 const metrics = product.windows[period];
@@ -107,27 +119,12 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
                 const badge = langBadge(product);
                 const native = nativeLine(product, locale);
                 const unpriced = product.priceUsd.value === null;
+                /* 同 rankings.tsx 一樣：真 <a>（.row-link）用 ::after 鋪滿 .rank-row，唔再 role="link" + router.push */
                 return (
-                  <tr
-                    key={product.id}
-                    className={`ranking-row-link hover-lift${unpriced ? " box-muted-row" : ""}`}
-                    role="link"
-                    tabIndex={0}
-                    aria-label={`#${product.rank} ${product.name[locale] || product.name.en}`}
-                    onClick={(event) => {
-                      if ((event.target as HTMLElement).closest("a,button")) return;
-                      router.push(productUrl);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key !== "Enter" && event.key !== " ") return;
-                      if ((event.target as HTMLElement).closest("a,button")) return;
-                      event.preventDefault();
-                      router.push(productUrl);
-                    }}
-                  >
+                  <tr key={product.id} className={`rank-row hover-lift${unpriced ? " box-muted-row" : ""}`}>
                     <td className="rank-cell">{product.rank}</td>
                     <td>
-                      <Link href={productUrl}>
+                      <Link href={productUrl} className="row-link">
                         <div className="ranking-card-identity">
                           <div className="ranking-thumb box-thumb"><BoxImage image={product.image} sizes="56px" alt="" /></div>
                           <div className="ranking-name">
@@ -143,7 +140,7 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
                     </td>
                     <td className="collector-cell">{product.release ?? "—"}</td>
                     <td className="numeric price-cell">
-                      <span className="price-now">{formatMetricMoney(product.priceUsd, currency, rates, locale)}</span>
+                      <span className={staleClass(product.priceUsd, "price-now")} title={staleTitle(product.priceUsd, locale)}>{formatMetricMoney(product.priceUsd, currency, rates, locale)}</span>
                       {native && <span className="box-price-native">{native}</span>}
                       <MetricDelta metric={product.priceUsd} changePct={metrics.changePct} currency={currency} rates={rates} locale={locale} />
                     </td>
@@ -183,13 +180,15 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
             );
           })}
           </div>
-          {!showAll && explored.length > INITIAL_ROWS && (
+          {remaining > 0 && (
             <button
               type="button"
               className="box-show-more"
-              onClick={() => setShowAll(true)}
+              disabled={isPending}
+              aria-busy={isPending}
+              onClick={() => startShowMore(() => setVisibleCount((count) => count + PAGE_STEP))}
             >
-              {t.box.showMore.replace("{count}", String(explored.length - INITIAL_ROWS))}
+              {t.box.showMore.replace("{count}", String(remaining))}
             </button>
           )}
           </>

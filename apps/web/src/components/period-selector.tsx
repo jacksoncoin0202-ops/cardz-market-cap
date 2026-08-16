@@ -5,6 +5,7 @@
    避免同頁多個 selector 嘅 pill 互相飛越。 */
 import { motion } from "framer-motion";
 import { useId } from "react";
+import { tap } from "@/lib/haptic";
 import { copy } from "@/lib/i18n";
 import { marketWindows, type MarketWindow } from "@/lib/types";
 import { useMarketSettings } from "@/lib/use-market-settings";
@@ -26,7 +27,12 @@ export function PeriodSelector({ compact = false, period: periodOverride, onChan
           key={item}
           type="button"
           aria-pressed={activePeriod === item}
-          onClick={() => (onChange ? onChange(item) : update({ period: item }))}
+          onClick={() => {
+            /* 已選中嗰個再撳唔震：冇嘢變就唔好扮有回饋 */
+            if (item !== activePeriod) tap.select();
+            if (onChange) onChange(item);
+            else update({ period: item });
+          }}
         >
           {activePeriod === item && (
             <motion.span
