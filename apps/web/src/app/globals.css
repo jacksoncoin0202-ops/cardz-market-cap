@@ -1214,6 +1214,78 @@ html { scrollbar-gutter: stable; }
     color: var(--sheet-close);
     font-size: 11px;
   }
+  /* 排序 sheet 個 trigger 只喺 ≤680 出，但開住嗰陣轉橫／resize 上桌面唔可以變裸 panel */
+  .sort-sheet {
+    width: min(420px, 100%);
+    max-height: min(86vh, 640px);
+    overflow-y: auto;
+    padding: 16px 24px 24px;
+    border-radius: 24px;
+    background: var(--sheet-bg);
+    box-shadow: var(--elev-3);
+  }
+  .sort-sheet .sheet-handle { display: none; }
+  .sort-sheet .sheet-close {
+    min-width: 44px;
+    min-height: 44px;
+    display: block;
+    margin: 0 0 6px auto;
+    padding: 0 10px;
+    border: 0;
+    background: transparent;
+    color: var(--sheet-close);
+    font-size: 11px;
+  }
+}
+/* 排序／篩選 sheet 內容（modal 機制喺 ui/sheet.tsx，呢度淨係外觀） */
+.sort-sheet .sort-sheet-title { margin: 0 0 16px; font-size: 18px; }
+.sort-sheet-group { margin-bottom: 18px; }
+.sort-sheet-group h4 {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.sort-sheet-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.sort-sheet-options button {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--soft);
+  color: var(--control-idle);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 170ms ease, border-color 170ms ease, background 170ms ease;
+}
+.sort-sheet-options button[aria-pressed="true"] {
+  border-color: var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+.sort-sheet-actions { display: flex; gap: 10px; padding-top: 4px; }
+.sort-sheet-actions button {
+  min-height: 48px;
+  border-radius: var(--control-radius);
+  font-size: 14px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.sort-sheet-apply {
+  flex: 1 1 auto;
+  border: 0;
+  background: var(--primary-action-bg);
+  color: var(--primary-action-text);
+}
+.sort-sheet-reset {
+  flex: none;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--control-idle);
 }
 .rankings-section {
   min-height: 100vh;
@@ -1471,7 +1543,13 @@ html { scrollbar-gutter: stable; }
     font-size: 9px;
     font-weight: 600;
     letter-spacing: 0.04em;
+    /* 表頭高度唔准跟翻譯長度變：英文欄名摺兩行就由 27px 變 40px，成張榜俾佢推低 13px
+       （第一張卡直接跌出設計稿嘅 320px）。一律一行，過長切走尾巴。 */
+    white-space: nowrap;
   }
+  .mobile-list-header .mobile-col-info,
+  .mobile-list-header .mobile-col-right,
+  .mobile-list-header .mobile-col-spark { overflow: hidden; text-overflow: ellipsis; }
   .mobile-list-header .mobile-col-info { grid-column: 1 / 4; min-width: 0; }
   .mobile-list-header .mobile-col-right { grid-column: 4; }
   .mobile-list-header .mobile-col-spark,
@@ -1926,6 +2004,26 @@ html.theme-transitions .card-dialog {
 .empty-state p + p,
 .site-search-empty p + p { margin-top: 8px; }
 .empty-state-hint { font-size: 11px; line-height: 1.55; color: var(--dt-color); }
+/* 空狀態嘅唯一出路掣（分榜搜唔到 → 全站搜）：44px 命中區，唔靠 ::after 補 */
+.empty-state-action {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin-top: 8px;
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--control-radius);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: border-color 170ms ease, background 170ms ease;
+}
+.empty-state-action:focus-visible { border-color: var(--accent); }
+@media (hover: hover) {
+  .empty-state-action:hover { border-color: var(--accent); background: var(--soft); }
+}
 .site-search-hit {
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr);
@@ -2124,6 +2222,8 @@ html.theme-transitions .card-dialog {
   .heatmap-tune-toggle,
   .explore-clear { position: relative; }
   .explore-sort-chips button::after,
+  .explore-active-chips button::after,
+  .period-menu-trigger::after,
   .lang-filter button::after,
   .period-selector button::after { content: ""; position: absolute; inset: -6px 0; }
   .heatmap-controls .period-selector button::after { inset: -7px 0; }
@@ -2286,23 +2386,6 @@ button.primary-action { border: 0; }
   background: var(--control-bg);
   transition: border-color 170ms ease;
 }
-.explore-scope { position: relative; flex: none; }
-.explore-scope-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  min-height: 32px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--soft);
-  color: var(--ink);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.explore-scope-menu { left: 0; right: auto; min-width: 148px; }
-.explore-scope-menu .select-option { width: 100%; text-decoration: none; }
 .explore-search:focus-within { border-color: var(--line-strong); }
 .explore-search-field {
   flex: 1;
@@ -2363,31 +2446,85 @@ button.primary-action { border: 0; }
   }
   .explore-search:focus-within .explore-kbd { display: none; }
 }
-.explore-count {
-  margin: 0;
+/* 計數入框（.explore-search 內、✕ 左邊）：唔准做高度來源，個框固定 44px。
+   Phase C 起桌面都行呢個 slot —— 獨立一行 `.explore-count` 同「清除搜尋」掣已拆走。 */
+.explore-inline-count {
+  flex: none;
   color: var(--muted);
   font-size: 12px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
-/* role=status 個 <p> 長駐；空嘅時候唔好食多一格 column-gap（explore-bar 係 14px） */
-.explore-count:empty { margin-inline-start: -14px; }
-.explore-reset {
+/* 手機排序掣：同搜尋框同一行、同一高度（44px border-box） */
+.explore-sort-trigger {
+  position: relative;
+  flex: none;
   display: inline-flex;
   align-items: center;
-  min-height: 36px;
-  padding: 0 12px;
+  gap: 5px;
+  height: 44px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--control-bg);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 170ms ease;
+}
+.explore-sort-trigger:focus-visible { border-color: var(--line-strong); }
+/* 非預設篩選嘅紅點：掣個 label 唔夠位講晒（「排序 · 價格」已經係全長） */
+.explore-sort-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.explore-active-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.explore-active-chips button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--control-radius);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+/* 手機榜表頭 toolbar：得一個時段 popover，右對齊貼住價格欄 */
+.mobile-list-toolbar { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+.period-menu { position: relative; }
+.period-menu-trigger {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 0 10px;
   border: 1px solid var(--line);
   border-radius: var(--control-radius);
   background: var(--soft);
-  color: var(--control-idle);
+  color: var(--ink);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: color 170ms ease, border-color 170ms ease, background 170ms ease;
 }
-@media (hover: hover) {
-  .explore-reset:hover { color: var(--ink); border-color: var(--line-strong); background: var(--surface); }
-}
+.period-menu-list { min-width: 118px; }
 .explore-sort-chips {
   display: none;
   flex-wrap: wrap;
@@ -2429,7 +2566,33 @@ button.primary-action { border: 0; }
   /* 方向掣個 label 唔准摺行：摺咗就縮到細過 min-content，scroll 都救唔返 */
   .explore-dir span { white-space: nowrap; }
   .explore-search input { font-size: 16px; }
-  .explore-scope-trigger { min-height: 28px; font-size: 11px; padding-inline: 7px; }
+  /*
+   * Phase B 一行版：搜尋框 + 排序掣同一行。
+   * `.explore-search` 要覆蓋 @media(max-width:980px) 嗰句 `flex-basis: 100%`（specificity
+   * 0,2,0 > 0,1,0，唔靠 source order），唔係喺 360px 排序掣會被逼落第二行。
+   */
+  .explore-bar-lean { gap: 8px; }
+  .explore-bar-lean .explore-search { flex: 1 1 0; min-width: 0; }
+  .explore-bar-lean .explore-active-chips { flex-basis: 100%; }
+  /* 第一張卡要喺 320px 內入畫（設計稿驗收 a）。淨係改英文表頭嘅話五個 locale 都啱啱好
+     319px、得返 1px 餘裕 —— 再收窄搜尋列／toolbar／表頭之間嘅留白，留返 9px（311px）
+     俾之後嘅字體同 translation 變化，唔使每次改文案都重新度過。 */
+  .explore-bar { margin-bottom: 10px; }
+  .mobile-list-toolbar { margin-bottom: 4px; }
+  .mobile-list-header { padding-block: 5px; }
+  /* 搜尋模式釘住 toolbar：site-header 係 sticky，佢嘅實高 = --header-height + safe-area */
+  .explore-bar-sticky {
+    position: sticky;
+    top: calc(var(--header-height) + env(safe-area-inset-top));
+    z-index: 30;
+    padding-block: 8px;
+    margin-bottom: 6px;
+    background: var(--paper);
+  }
+  /* 搜尋模式：kicker 收起、h2 縮成一行，張榜早啲入畫 */
+  .ranking-heading[data-searching="true"] { gap: 6px; }
+  .ranking-heading[data-searching="true"] .section-kicker { display: none; }
+  .ranking-heading[data-searching="true"] h2 { font-size: 15px; }
 }
 .explore-dir { display: inline-flex; align-items: center; gap: 5px; }
 .sort-th {

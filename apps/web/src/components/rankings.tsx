@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { ArrowDown, ArrowUp, TrendingDown, TrendingUp } from "lucide-react";
 import { CardImage } from "./card-image";
 import { displayCardName } from "@/lib/card-name";
 import { ExploreBar, SortHeader } from "./explore-bar";
-import { PeriodSelector } from "./period-selector";
+import { PeriodMenu, PeriodSelector } from "./period-selector";
+import { SortFilterSheet } from "./sort-filter-sheet";
 import { Sparkline } from "./sparkline";
 import { loadCatalog, prefetchCatalog } from "@/lib/catalog-client";
 import { CATALOG_LIST_CAP, catalogToCard, searchCatalog } from "@/lib/catalog-search";
@@ -22,6 +24,9 @@ import type { CatalogEntry, Currency, Locale, MarketCardView, MarketMetric, Mark
 /* globals.css `@media (max-width: 980px)` 度 .desktop-ranking-table 收起、.mobile-ranking-list
    出場。兩邊要係同一個斷點，唔係就會兩個都出／兩個都唔出。 */
 const MOBILE_LIST_QUERY = "(max-width: 980px)";
+/* 手機瘦身斷點（同 explore-bar.tsx / globals.css 手機 explore 段一致）：≤680 先收起
+   語言列、時段選擇器同排序 chips，改行「搜尋框 + 排序 sheet」。 */
+const MOBILE_BAR_QUERY = "(max-width: 680px)";
 
 interface RankingsProps {
   cards: MarketCardView[];
@@ -112,6 +117,7 @@ function ChangeBadge({ card, period, locale }: { card: MarketCardView; period: M
 
 export function Rankings({ cards, locale, currency, snapshot, href, watchlist = false, marketLabel, searchScope = "all" }: RankingsProps) {
   const { period, printLang, query, sort, dir, update } = useMarketSettings();
+  const router = useRouter();
   const t = copy[locale];
   const cardSort = normaliseCardSort(sort);
   const [catalog, setCatalog] = useState<CatalogEntry[] | null>(null);
@@ -120,10 +126,8 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
      「全部卡未合資格」，係講大話。 */
   const [catalogError, setCatalogError] = useState(false);
   const isMobileList = useMediaQuery(MOBILE_LIST_QUERY);
-  /* 搜尋範圍只係 client 狀態：轉寶可夢／海賊王唔准 router 跳頁，熱力圖唔好重畫。
-     header nav 先至係真換榜。 */
-  const [liveScope, setLiveScope] = useState(searchScope);
-  useEffect(() => { setLiveScope(searchScope); }, [searchScope]);
+  const isMobileBar = useMediaQuery(MOBILE_BAR_QUERY);
+  const [sortSheetOpen, setSortSheetOpen] = useState(false);
   const searching = Boolean(query.trim());
   useEffect(() => {
     if (!searching) return;
@@ -141,7 +145,9 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
       cancelled = true;
     };
   }, [searching]);
-  const searchTcg = liveScope === "pokemon" ? "Pokémon" : liveScope === "one-piece" ? "One Piece" : undefined;
+  /* 範圍 = route（設計稿 §設計（手機）3）：/pokemon 只搜寶可夢、/ 搜全站。
+     以前有個 client-only `liveScope`，冇 q 嗰陣係死掣、清完搜尋唔還原、kicker 又講錯範圍。 */
+  const searchTcg = searchScope === "pokemon" ? "Pokémon" : searchScope === "one-piece" ? "One Piece" : undefined;
   const scopedCatalog = useMemo(() => {
     if (!catalog?.length) return [];
     return catalog.filter((entry) => entry.kind === "card" && (!searchTcg || entry.tcg === searchTcg));
@@ -231,13 +237,51 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
   const resultLabel = (searching || visibleCards.length !== cards.length)
     ? t.labels.resultCount.replace("{shown}", String(resultShown)).replace("{total}", String(resultTotal))
     : null;
+  const sortKeys = [
+    { key: "rank", label: t.labels.rank },
+    { key: "price", label: t.labels.priceShort },
+    { key: "pop", label: t.labels.populationShort },
+    { key: "sales", label: t.labels.trackedSalesShort },
+    { key: "change", label: t.labels.changeShort },
+  ];
+  const sortLabel = sortKeys.find((item) => item.key === cardSort)?.label ?? t.labels.rank;
+  /* 全站搜尋連結：href() 已經帶住 lang / currency / period（唔帶 q），所以喺佢後面補返 q。
+     範圍 = route，所以係真 navigate 去 `/`，唔係改一個 client state。 */
+  const siteWideSearchHref = () => {
+    const [path, search] = href("/").split("?");
+    const params = new URLSearchParams(search);
+    params.set("q", query.trim());
+    return `${path}?${params.toString()}`;
+  };
+  /* 非預設先出 chip 行；冇非預設就一行都唔 render（設計稿 §設計（手機）5）。
+     排序 chip 嘅 × 一次過還原 sort + dir（dir 冇 sort 就冇意思）。 */
+  const filterChips: Array<{ key: string; label: string; removeLabel: string; onRemove: () => void }> = [];
+  if (cardSort !== "rank") {
+    filterChips.push({
+      key: "sort",
+      label: `${sortLabel} ${dir === "asc" ? "↑" : "↓"}`,
+      removeLabel: t.labels.removeFilter.replace("{filter}", sortLabel),
+      onRemove: () => update({ sort: "rank", dir: "desc" }),
+    });
+  }
+  if (activeLang !== "all") {
+    const langLabel = localizedCardLanguageShort(activeLang);
+    filterChips.push({
+      key: "lang",
+      label: langLabel,
+      removeLabel: t.labels.removeFilter.replace("{filter}", localizedCardLanguage(activeLang, locale)),
+      onRemove: () => update({ printLang: "all" }),
+    });
+  }
   return (
     <section className="rankings-section" id="market-ranking" aria-labelledby="ranking-heading">
-      <div className="ranking-heading">
+      {/* 搜尋模式手機收起 kicker、h2 縮成一行（h2 要留住，section 嘅 aria-labelledby 指住佢） */}
+      <div className="ranking-heading" data-searching={searching ? "true" : "false"}>
         <div>
           <p className="section-kicker">{watchlist ? t.labels.watchStatus : marketLabel ?? t.nav.all}</p>
           <h2 id="ranking-heading">{heading}</h2>
-          {availableLanguages.length > 1 && (
+          {/* 語言列手機搬咗入排序 sheet */}
+          {!isMobileBar && availableLanguages.length > 1 && (
             <div className="lang-filter" role="group" aria-label={t.labels.language}>
               {(["all", ...availableLanguages] as PrintLangFilter[]).map((lang) => (
                 <button
@@ -254,47 +298,55 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
             </div>
           )}
         </div>
-        <PeriodSelector compact />
+        {/* 手機時段搬咗落榜表頭嘅 PeriodMenu：同頁熱力圖已經有一個一模一樣嘅 PeriodSelector */}
+        {isMobileBar ? null : <PeriodSelector compact />}
       </div>
       <ExploreBar
         query={query}
         onQueryChange={(value) => update({ query: value })}
         placeholder={
-          liveScope === "pokemon"
+          searchScope === "pokemon"
             ? t.labels.searchPlaceholderPokemon
-            : liveScope === "one-piece"
+            : searchScope === "one-piece"
               ? t.labels.searchPlaceholderOnePiece
               : t.labels.searchPlaceholder
         }
         searchLabel={
-          liveScope === "pokemon"
+          searchScope === "pokemon"
             ? t.labels.searchLabelPokemon
-            : liveScope === "one-piece"
+            : searchScope === "one-piece"
               ? t.labels.searchLabelOnePiece
               : t.labels.searchLabel
         }
         clearLabel={t.labels.searchClear}
         resultLabel={resultLabel}
-        sortKeys={[
-          { key: "rank", label: t.labels.rank },
-          { key: "price", label: t.labels.priceShort },
-          { key: "pop", label: t.labels.populationShort },
-          { key: "sales", label: t.labels.trackedSalesShort },
-          { key: "change", label: t.labels.changeShort },
-        ]}
+        sortKeys={sortKeys}
         sort={cardSort}
         dir={dir}
         onSort={applySort}
         highToLow={t.labels.sortHighToLow}
         lowToHigh={t.labels.sortLowToHigh}
         onSearchFocus={() => prefetchCatalog()}
-        onClearSearch={searching ? () => update({ query: "", sort: "rank", dir: "desc", page: 1, size: 100 }) : undefined}
-        clearSearchLabel={t.labels.clearSearch}
-        searchScope={liveScope}
-        onSearchScopeChange={(next) => {
-          setLiveScope(next);
-          if (query.trim()) prefetchCatalog();
-        }}
+        onOpenSortSheet={() => setSortSheetOpen(true)}
+        sortSheetLabel={cardSort === "rank"
+          ? t.labels.sortSheetTrigger
+          : t.labels.sortSheetTriggerActive.replace("{label}", sortLabel)}
+        sortSheetActive={filterChips.length > 0}
+        inlineCountLabel={resultLabel ? t.labels.resultCountShort.replace("{count}", String(resultShown)) : null}
+        announceLabel={resultLabel ? t.labels.resultCountAnnounce.replace("{count}", String(resultShown)) : null}
+        filterChips={filterChips}
+        sticky={searching}
+      />
+      <SortFilterSheet
+        open={sortSheetOpen}
+        onClose={() => setSortSheetOpen(false)}
+        locale={locale}
+        sortKeys={sortKeys}
+        value={{ sort: cardSort, dir, printLang: activeLang }}
+        availableLanguages={availableLanguages}
+        /* 一個手勢一次寫入：三樣嘢一次過落 URL，唔會三次 router.replace 互相覆蓋 */
+        onApply={(next) => update({ sort: next.sort, dir: next.dir, printLang: next.printLang, page: 1 })}
+        onReset={() => update({ sort: "rank", dir: "desc", printLang: "all", page: 1 })}
       />
       {/* 索引載唔到就唔准扮全站搜過：有結果都要講明剩返當頁（冇結果嗰個 case 出喺 empty-state 入面） */}
       {searching && catalogError && visibleCards.length ? (
@@ -305,15 +357,17 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
           <p>{searching ? t.labels.noSearchResults : t.labels.noCards}</p>
           {searching && catalogError ? (
             <p className="empty-state-hint">{t.labels.catalogUnavailable}</p>
+          ) : searching && searchScope !== "all" ? (
+            /* 分榜搜唔到就一粒掣去全站（範圍 = route），唔再叫人揀返個已經拆走嘅 dropdown */
+            <button
+              type="button"
+              className="empty-state-action"
+              onClick={() => { tap.select(); router.push(siteWideSearchHref()); }}
+            >
+              {t.labels.searchAllSite.replace("{query}", query.trim())}
+            </button>
           ) : searching ? (
-            <p className="empty-state-hint">
-              {liveScope === "all"
-                ? t.labels.searchUnqualified
-                : t.labels.searchUnqualifiedScoped.replace(
-                  "{scope}",
-                  liveScope === "pokemon" ? t.nav.pokemon : t.nav.onePiece,
-                )}
-            </p>
+            <p className="empty-state-hint">{t.labels.searchUnqualified}</p>
           ) : null}
         </div>
       ) : null}
@@ -375,11 +429,17 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
           </div>
           )}
           {isMobileList ? (
+          <>
+          {/* 表頭上面一行細 toolbar：時段收埋做「6M ▾」popover。唔擺入 .mobile-list-header
+              係因為嗰個 header 係 aria-hidden，入面唔可以擺真掣。 */}
+          {isMobileBar ? <div className="mobile-list-toolbar"><PeriodMenu /></div> : null}
           <div className="mobile-ranking-list">
             <div className="mobile-list-header" aria-hidden="true">
               <span className="mobile-col-info">{t.labels.card}</span>
               <span className="mobile-col-right">{t.labels.priceShort}</span>
-              <span className="mobile-col-spark">{t.labels.salesTrendShort}</span>
+              {/* 呢欄闊 48px：用短過 salesTrendShort 嘅 salesTrendColumn，唔係英文摺兩行、
+                  成個 header 由 27px 變 40px，第一張卡就跌出設計稿嘅 320px 外 */}
+              <span className="mobile-col-spark">{t.labels.salesTrendColumn}</span>
             </div>
             {visibleCards.map((card) => (
               <Link className="mobile-rank-card" href={href(`/card/${card.id}`)} key={card.id}>
@@ -412,6 +472,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
               </Link>
             ))}
           </div>
+          </>
           ) : null}
           {remaining > 0 ? (
             <button

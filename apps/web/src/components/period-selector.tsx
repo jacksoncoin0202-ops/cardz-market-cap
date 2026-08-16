@@ -4,22 +4,18 @@
    選中項底下 layoutId 滑動膠囊。每個 instance 用 useId 做 layoutId 後綴，
    避免同頁多個 selector 嘅 pill 互相飛越。 */
 import { motion } from "framer-motion";
-import { useId } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { tap } from "@/lib/haptic";
 import { copy } from "@/lib/i18n";
-import { marketWindows, type MarketWindow } from "@/lib/types";
+import { marketWindows } from "@/lib/types";
 import { useMarketSettings } from "@/lib/use-market-settings";
 
-export function PeriodSelector({ compact = false, period: periodOverride, onChange }: {
-  compact?: boolean;
-  /* 手機 heatmap 用自己嘅 local period（唔寫 URL），所以俾 caller 直接控制。 */
-  period?: MarketWindow;
-  onChange?: (period: MarketWindow) => void;
-}) {
+export function PeriodSelector({ compact = false }: { compact?: boolean }) {
   const { locale, period, update } = useMarketSettings();
   const t = copy[locale];
   const pillId = `period-pill-${useId()}`;
-  const activePeriod = periodOverride ?? period;
+  const activePeriod = period;
   return (
     <div className={`period-selector${compact ? " period-selector-compact" : ""}`} role="group" aria-label={t.labels.change}>
       {marketWindows.map((item) => (
@@ -30,8 +26,7 @@ export function PeriodSelector({ compact = false, period: periodOverride, onChan
           onClick={() => {
             /* 已選中嗰個再撳唔震：冇嘢變就唔好扮有回饋 */
             if (item !== activePeriod) tap.select();
-            if (onChange) onChange(item);
-            else update({ period: item });
+            update({ period: item });
           }}
         >
           {activePeriod === item && (
@@ -44,6 +39,71 @@ export function PeriodSelector({ compact = false, period: periodOverride, onChan
           <span className="period-label">{t.periods[item]}</span>
         </button>
       ))}
+    </div>
+  );
+}
+
+/*
+ * 手機榜表頭用嘅時段 popover。同頁熱力圖已經有一個 PeriodSelector 揸住同一條 URL period，
+ * 榜上再排六個掣係同一個控件出兩次、又食走一行高度；收埋做「6M ▾」。
+ * markup 跟 explore-bar 個 scope menu：<ul role="listbox"> + <button role="option">。
+ */
+export function PeriodMenu() {
+  const { locale, period, update } = useMarketSettings();
+  const t = copy[locale];
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (event: PointerEvent) => {
+      if (rootRef.current?.contains(event.target as Node)) return;
+      setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  return (
+    <div className="period-menu" ref={rootRef}>
+      <button
+        type="button"
+        className="period-menu-trigger"
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-label={t.labels.pricePeriod}
+        onClick={() => { tap.select(); setOpen((value) => !value); }}
+      >
+        <span>{t.periods[period]}</span>
+        <ChevronDown aria-hidden="true" size={12} strokeWidth={2.2} />
+      </button>
+      {open ? (
+        <ul className="select-menu period-menu-list" role="listbox" aria-label={t.labels.pricePeriod}>
+          {marketWindows.map((item) => (
+            <li key={item} role="presentation">
+              <button
+                type="button"
+                className="select-option"
+                role="option"
+                aria-selected={item === period}
+                data-active={item === period ? "true" : "false"}
+                onClick={() => {
+                  if (item !== period) tap.select();
+                  update({ period: item });
+                  setOpen(false);
+                }}
+              >
+                {t.periods[item]}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }

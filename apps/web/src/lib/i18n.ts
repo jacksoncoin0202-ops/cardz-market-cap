@@ -192,6 +192,9 @@ export interface Copy {
     trackedSalesBars: string;
     salesTrend: string;
     salesTrendShort: string;
+    /* 手機榜表頭嗰個 48px 成交圖欄專用（`salesTrendShort` 英文係 "Sales trend"，
+       48px 塞唔落就摺兩行，成個 header 由 27px 變 40px，第一張卡跌出 320px 外）。 */
+    salesTrendColumn: string;
     imageAlt: string;
     noHistory: string;
     noCards: string;
@@ -237,6 +240,24 @@ export interface Copy {
     /* 全站索引載唔到時嘅退化提示（rankings.tsx 只剩當頁過濾，唔係「冇結果」） */
     catalogUnavailable: string;
     pageSizeLabel: string;
+    /*
+     * Phase B 手機瘦身（設計稿 UX_MOBILE_SEARCH_DESIGN_20260816 §設計（手機））：
+     * 計數搬入搜尋框內（`resultCountShort`），讀屏另一份獨立 debounce 播
+     * （`resultCountAnnounce`）；排序／方向／印刷語言收埋落 bottom sheet。
+     */
+    resultCountShort: string;
+    resultCountAnnounce: string;
+    sortSheetTitle: string;
+    sortSheetTrigger: string;
+    /* 非預設排序時個掣出「排序 · {label}」 */
+    sortSheetTriggerActive: string;
+    sortDirection: string;
+    applyFilters: string;
+    resetFilters: string;
+    removeFilter: string;
+    /* Phase C（設計稿 §設計（電腦））：分榜搜唔到嘅空狀態掣，真 navigate 去 `/?q=…`。
+       常駐嘅搜尋範圍 dropdown 已拆走 —— 範圍 = route。 */
+    searchAllSite: string;
     sortBy: string;
     currency: string;
     /* 升跌顏色慣例切換：按鈕 aria-label / title 出「而家係邊個慣例」 */
@@ -411,7 +432,7 @@ export const copy: Record<Locale, Copy> = {
       pricePeriod: "Price period", checkedAt: "Last checked",
       awaitingFreshPrice: "Awaiting fresh price",
       viewCard: "Open card profile", close: "Close", story: "Why the market cares", history: "Daily market history",
-      dailyPrice: "Reference price", trackedSalesBars: "Tracked sales", salesTrend: "Tracked sales trend", salesTrendShort: "Sales trend", imageAlt: "Card artwork",
+      dailyPrice: "Reference price", trackedSalesBars: "Tracked sales", salesTrend: "Tracked sales trend", salesTrendShort: "Sales trend", salesTrendColumn: "Trend", imageAlt: "Card artwork",
       noHistory: "Daily price history is still accumulating.", noCards: "No eligible cards are available in this view.", noSales: "No sales recorded", watchStatus: "Watchlist status",
       share: "Share card", shareDone: "Link copied", shareError: "Copy failed — select the address bar",
       printLanguage: "{language} print", setCode: "Set code", finish: "Surface",
@@ -442,6 +463,16 @@ export const copy: Record<Locale, Copy> = {
       showMoreResults: "Show {count} more ({total} total)",
       catalogUnavailable: "Site-wide index unavailable right now — showing matches from this page only.",
       pageSizeLabel: "Per page",
+      resultCountShort: "{count} cards",
+      resultCountAnnounce: "{count} cards found",
+      sortSheetTitle: "Sort & filter",
+      sortSheetTrigger: "Sort",
+      sortSheetTriggerActive: "Sort · {label}",
+      sortDirection: "Direction",
+      applyFilters: "Apply",
+      resetFilters: "Reset",
+      removeFilter: "Remove {filter}",
+      searchAllSite: "Search all of CARDZ for “{query}” →",
       sortBy: "Sort by",
       currency: "Currency",
       upDownGreen: "Gains shown in green",
@@ -609,7 +640,7 @@ export const copy: Record<Locale, Copy> = {
       pricePeriod: "價格期數", checkedAt: "最近檢查",
       awaitingFreshPrice: "等待新鮮價格",
       viewCard: "查看卡牌詳情", close: "關閉", story: "市場為何追捧", history: "每日市場走勢",
-      dailyPrice: "參考價格", trackedSalesBars: "已追蹤成交額", salesTrend: "已追蹤成交額走勢", salesTrendShort: "成交走勢", imageAlt: "卡牌圖像",
+      dailyPrice: "參考價格", trackedSalesBars: "已追蹤成交額", salesTrend: "已追蹤成交額走勢", salesTrendShort: "成交走勢", salesTrendColumn: "走勢", imageAlt: "卡牌圖像",
       noHistory: "每日價格歷史仍在累積。", noCards: "此分類暫時沒有合資格卡牌。", noSales: "無成交紀錄", watchStatus: "觀察狀態",
       share: "分享卡牌", shareDone: "已複製連結", shareError: "複製失敗，請手動複製網址",
       printLanguage: "{language}版", setCode: "系列代碼", finish: "卡面",
@@ -640,6 +671,16 @@ export const copy: Record<Locale, Copy> = {
       showMoreResults: "再顯示 {count} 張（共 {total} 張）",
       catalogUnavailable: "全站索引暫時載不到，只顯示本頁結果。",
       pageSizeLabel: "每頁",
+      resultCountShort: "{count} 張",
+      resultCountAnnounce: "{count} 張卡牌",
+      sortSheetTitle: "排序與篩選",
+      sortSheetTrigger: "排序",
+      sortSheetTriggerActive: "排序 · {label}",
+      sortDirection: "方向",
+      applyFilters: "套用",
+      resetFilters: "重設",
+      removeFilter: "移除 {filter}",
+      searchAllSite: "在全站搜尋「{query}」→",
       sortBy: "排序方式",
       currency: "貨幣",
       upDownGreen: "紅跌綠升",
@@ -792,7 +833,7 @@ export const copy: Record<Locale, Copy> = {
       pricePeriod: "价格期数", checkedAt: "最近检查",
       awaitingFreshPrice: "等待新鲜价格",
       viewCard: "查看卡牌详情", close: "关闭", story: "市场为何追捧", history: "每日市场走势",
-      dailyPrice: "参考价格", trackedSalesBars: "已追踪成交额", salesTrend: "已追踪成交额走势", salesTrendShort: "成交走势", imageAlt: "卡牌图像",
+      dailyPrice: "参考价格", trackedSalesBars: "已追踪成交额", salesTrend: "已追踪成交额走势", salesTrendShort: "成交走势", salesTrendColumn: "走势", imageAlt: "卡牌图像",
       noHistory: "每日价格历史仍在累积。", noCards: "此分类暂时没有合资格卡牌。", noSales: "无成交纪录", watchStatus: "观察状态",
       share: "分享卡牌", shareDone: "已复制链接", shareError: "复制失败，请手动复制网址",
       printLanguage: "{language}版", setCode: "系列代码", finish: "卡面",
@@ -823,6 +864,16 @@ export const copy: Record<Locale, Copy> = {
       showMoreResults: "再显示 {count} 张（共 {total} 张）",
       catalogUnavailable: "全站索引暂时加载不到，只显示本页结果。",
       pageSizeLabel: "每页",
+      resultCountShort: "{count} 张",
+      resultCountAnnounce: "{count} 张卡牌",
+      sortSheetTitle: "排序与筛选",
+      sortSheetTrigger: "排序",
+      sortSheetTriggerActive: "排序 · {label}",
+      sortDirection: "方向",
+      applyFilters: "应用",
+      resetFilters: "重置",
+      removeFilter: "移除 {filter}",
+      searchAllSite: "在全站搜索「{query}」→",
       sortBy: "排序方式",
       currency: "货币",
       upDownGreen: "红跌绿升",
@@ -974,7 +1025,7 @@ export const copy: Record<Locale, Copy> = {
       pricePeriod: "価格期", checkedAt: "最終確認",
       awaitingFreshPrice: "新しい価格を待機中",
       viewCard: "カード詳細を見る", close: "閉じる", story: "市場で支持される理由", history: "日次市場推移",
-      dailyPrice: "参考価格", trackedSalesBars: "追跡成約額", salesTrend: "追跡成約額の推移", salesTrendShort: "成約推移", imageAlt: "カード画像",
+      dailyPrice: "参考価格", trackedSalesBars: "追跡成約額", salesTrend: "追跡成約額の推移", salesTrendShort: "成約推移", salesTrendColumn: "推移", imageAlt: "カード画像",
       noHistory: "日次価格履歴を蓄積しています。", noCards: "この表示には適格カードがありません。", noSales: "成約記録なし", watchStatus: "観察ステータス",
       share: "カードを共有", shareDone: "リンクをコピーしました", shareError: "コピーに失敗しました。URL を手動でコピーしてください",
       printLanguage: "{language}版", setCode: "セットコード", finish: "表面",
@@ -1005,6 +1056,16 @@ export const copy: Record<Locale, Copy> = {
       showMoreResults: "さらに {count} 件表示（全 {total} 件）",
       catalogUnavailable: "サイト全体の索引を読み込めません。このページ内の該当分のみ表示しています。",
       pageSizeLabel: "表示件数",
+      resultCountShort: "{count} 件",
+      resultCountAnnounce: "カード {count} 件",
+      sortSheetTitle: "並べ替えと絞り込み",
+      sortSheetTrigger: "並べ替え",
+      sortSheetTriggerActive: "並べ替え · {label}",
+      sortDirection: "並び順",
+      applyFilters: "適用",
+      resetFilters: "リセット",
+      removeFilter: "{filter} を解除",
+      searchAllSite: "サイト全体で「{query}」を検索 →",
       sortBy: "並べ替え",
       currency: "通貨",
       upDownGreen: "上昇＝緑",
@@ -1163,7 +1224,7 @@ export const copy: Record<Locale, Copy> = {
       pricePeriod: "가격 기간", checkedAt: "최근 확인",
       awaitingFreshPrice: "신선한 가격 대기",
       viewCard: "카드 상세 보기", close: "닫기", story: "시장이 주목하는 이유", history: "일별 시장 추이",
-      dailyPrice: "기준 가격", trackedSalesBars: "추적 거래액", salesTrend: "추적 거래액 추이", salesTrendShort: "거래 추이", imageAlt: "카드 이미지",
+      dailyPrice: "기준 가격", trackedSalesBars: "추적 거래액", salesTrend: "추적 거래액 추이", salesTrendShort: "거래 추이", salesTrendColumn: "추이", imageAlt: "카드 이미지",
       noHistory: "일별 가격 이력을 축적하고 있습니다.", noCards: "이 보기에 적격 카드가 없습니다.", noSales: "거래 기록 없음", watchStatus: "관찰 상태",
       share: "카드 공유", shareDone: "링크 복사됨", shareError: "복사 실패 — 주소창에서 직접 복사하세요",
       printLanguage: "{language}판", setCode: "세트 코드", finish: "표면",
@@ -1194,6 +1255,16 @@ export const copy: Record<Locale, Copy> = {
       showMoreResults: "{count}개 더 보기 (총 {total}개)",
       catalogUnavailable: "전체 색인을 지금 불러올 수 없어 이 페이지의 결과만 표시합니다.",
       pageSizeLabel: "페이지당",
+      resultCountShort: "{count}장",
+      resultCountAnnounce: "카드 {count}장",
+      sortSheetTitle: "정렬 및 필터",
+      sortSheetTrigger: "정렬",
+      sortSheetTriggerActive: "정렬 · {label}",
+      sortDirection: "정렬 방향",
+      applyFilters: "적용",
+      resetFilters: "초기화",
+      removeFilter: "{filter} 해제",
+      searchAllSite: "전체에서 “{query}” 검색 →",
       sortBy: "정렬 기준",
       currency: "통화",
       upDownGreen: "상승=녹색",

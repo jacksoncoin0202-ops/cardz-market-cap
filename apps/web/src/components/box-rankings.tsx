@@ -5,6 +5,7 @@ import Link from "next/link";
 import { BoxImage } from "./box-image";
 import { ExploreBar, SortHeader } from "./explore-bar";
 import { PeriodSelector } from "./period-selector";
+import { SortFilterSheet } from "./sort-filter-sheet";
 import { Sparkline } from "./sparkline";
 import { MetricDelta, staleClass, staleTitle } from "./rankings";
 import { copy } from "@/lib/i18n";
@@ -64,6 +65,22 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
   const resultLabel = (query.trim() || explored.length !== products.length)
     ? t.labels.resultCount.replace("{shown}", String(explored.length)).replace("{total}", String(products.length))
     : null;
+  /* BOX 冇範圍（route 已經係 /box）、冇印刷語言，所以個 sheet 得排序 + 方向兩段。
+     `availableLanguages: []` 就係 SortFilterSheet 唔出語言嗰段嘅條件。 */
+  const sortKeys = [
+    { key: "rank", label: t.labels.rank },
+    { key: "price", label: t.labels.priceShort },
+    { key: "sold", label: t.box.soldCountShort },
+    { key: "release", label: t.box.release },
+  ];
+  const sortLabel = sortKeys.find((item) => item.key === boxSort)?.label ?? t.labels.rank;
+  const [sortSheetOpen, setSortSheetOpen] = useState(false);
+  const filterChips = boxSort === "rank" ? [] : [{
+    key: "sort",
+    label: `${sortLabel} ${dir === "asc" ? "↑" : "↓"}`,
+    removeLabel: t.labels.removeFilter.replace("{filter}", sortLabel),
+    onRemove: () => update({ sort: "rank", dir: "desc" }),
+  }];
 
   return (
     <section className="rankings-section" id="box-ranking" aria-labelledby="box-ranking-heading">
@@ -83,17 +100,29 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
             searchLabel={t.labels.searchLabel}
             clearLabel={t.labels.searchClear}
             resultLabel={resultLabel}
-            sortKeys={[
-              { key: "rank", label: t.labels.rank },
-              { key: "price", label: t.labels.priceShort },
-              { key: "sold", label: t.box.soldCountShort },
-              { key: "release", label: t.box.release },
-            ]}
+            sortKeys={sortKeys}
             sort={boxSort}
             dir={dir}
             onSort={applySort}
             highToLow={t.labels.sortHighToLow}
             lowToHigh={t.labels.sortLowToHigh}
+            onOpenSortSheet={() => setSortSheetOpen(true)}
+            sortSheetLabel={boxSort === "rank"
+              ? t.labels.sortSheetTrigger
+              : t.labels.sortSheetTriggerActive.replace("{label}", sortLabel)}
+            sortSheetActive={filterChips.length > 0}
+            filterChips={filterChips}
+          />
+          <SortFilterSheet
+            open={sortSheetOpen}
+            onClose={() => setSortSheetOpen(false)}
+            locale={locale}
+            sortKeys={sortKeys}
+            value={{ sort: boxSort, dir, printLang: "all" }}
+            availableLanguages={[]}
+            /* printLang 喺 /box 冇意思：sheet 唔會出嗰段，所以呢度都唔寫入 URL */
+            onApply={(next) => update({ sort: next.sort, dir: next.dir })}
+            onReset={() => update({ sort: "rank", dir: "desc" })}
           />
           {!explored.length ? <p className="empty-state">{t.labels.noSearchResultsBox}</p> : (
           <>

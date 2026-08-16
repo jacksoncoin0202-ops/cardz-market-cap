@@ -91,6 +91,30 @@ function writePrefCookie(name: string, value: string): void {
   } catch { /* ignore */ }
 }
 
+/*
+ * `router.replace` 唔係即時：由 call 到 `window.location.search` 真係變，實測 211/253/266ms
+ * （一次 RSC round trip）。搜尋框 debounce 係 220ms，即係「打字 → 220ms 後寫 q」同
+ * 「用戶喺 300ms 內撳排序」兩次寫入之間 location 根本仲未郁 —— 所以「call 嗰刻先讀 live
+ * `window.location.search`」修唔到呢個 race（location 本身滯後過 debounce），兩次寫入照樣
+ * 互相洗走（最終剩 `?q=char` 冇咗 sort，或者反方向剩 `?sort=price` 冇咗 q）。
+ *
+ * 修法：自己揸多一份「已寫出、未 commit」嘅權威。每次寫出去記低條鏈
+ * `[寫之前嗰個 URL, 我寫過嘅每個值…]`：
+ * - 下次 `update()` 見到 live URL 仲喺鏈入面 = 我哋嘅寫入未落地，就由鏈尾接落去 merge；
+ * - live URL 唔喺鏈入面 = 有人另外改過 URL（back/forward、`<Link>`、外部 push），棄鏈跟 live。
+ * 條鏈一定要 module-level：heatmap / rankings / header 各自 call 一次 `useMarketSettings()`，
+ * per-hook 嘅 ref 擋唔到跨組件嗰半邊 race。SSR 唔准掂佢（只喺有 `window` 嗰條路行）。
+ */
+type PendingWrites = { path: string; chain: string[] };
+let pendingWrites: PendingWrites | null = null;
+/* 一條鏈最多記 12 個未 commit 值（實際最多兩三個）；爆咗就跌返「讀 live URL」嘅舊行為。 */
+const MAX_PENDING_WRITES = 12;
+
+function liveSearch(): string {
+  const search = window.location.search;
+  return search.startsWith("?") ? search.slice(1) : search;
+}
+
 export function useMarketSettings() {
   const router = useRouter();
   const pathname = usePathname();
@@ -116,16 +140,24 @@ export function useMarketSettings() {
     for (const notify of themeListeners) notify();
   }, []);
 
-  /* SSR／未 hydrate 冇 `window`，`update()` 就用 render 嗰份 params 兜底；客戶端永遠讀 live URL。 */
+  /* SSR／未 hydrate 冇 `window`，`update()` 就用 render 嗰份 params 兜底；客戶端讀 live URL。 */
   const paramsFallback = useRef(params);
   useEffect(() => { paramsFallback.current = params; }, [params]);
 
+  /* 寫出去嘅嘢一 commit（`params` 追上鏈尾）就收返條鏈，唔好積住；pathname 一變（真
+     navigate）亦即刻棄鏈 —— 新 route 嘅 query 同舊鏈冇關係。 */
+  useEffect(() => {
+    const pending = pendingWrites;
+    if (!pending) return;
+    if (pending.path !== pathname || params.toString() === pending.chain[pending.chain.length - 1]) {
+      pendingWrites = null;
+    }
+  }, [params, pathname]);
+
   /*
-   * `update()` 一定要喺 **call 嗰刻** 讀 `window.location.search` 再 derive 每個 field 嘅
-   * current 值，唔准 close over render 時嘅 `params`（stale-closure race）：搜尋框
-   * debounce 220ms 之間，用戶撳排序 chip／時段嗰個 handler 仲揸住打字前嗰份 params，
-   * 攞佢砌新 query 就會將啱啱寫入嘅 `q` 洗返走（反方向亦然，兩次寫入互相覆蓋）。
-   * URL 係唯一真相，所以每次都由 live URL 重新讀。
+   * `update()` 唔准 close over render 時嘅 `params`（stale-closure race），要喺 **call 嗰刻**
+   * 讀返「而家真正生效嘅 query」再 derive 每個 field。呢個「而家」= 未 commit 嘅寫入優先，
+   * 冇先至係 live `window.location.search`（點解要多呢層，見上面 `pendingWrites`）。
    */
   const update = useCallback((next: {
     locale?: Locale;
@@ -140,9 +172,16 @@ export function useMarketSettings() {
     size?: number;
   }) => {
     if (next.theme) setTheme(next.theme);
-    const liveParams = typeof window === "undefined"
-      ? new URLSearchParams(paramsFallback.current.toString())
-      : new URLSearchParams(window.location.search);
+    const live = typeof window === "undefined" ? null : liveSearch();
+    /* live URL 仲喺條鏈入面 = 我哋自己嗰啲 replace 未 commit，由鏈尾接落去，唔好由舊 URL 重新砌 */
+    const pending = live !== null && pendingWrites?.path === pathname && pendingWrites.chain.includes(live)
+      ? pendingWrites
+      : null;
+    const liveParams = new URLSearchParams(
+      live === null
+        ? paramsFallback.current.toString()
+        : pending ? pending.chain[pending.chain.length - 1] : live,
+    );
     const liveUrlTheme = liveParams.get("theme");
     /* 淨係轉 theme（localStorage 事實）就唔准 router.replace —— 以前每撳一下 toggle
        都行一次 RSC navigation。例外：URL 帶住 ?theme= 覆蓋緊，就要落埋個 param 先轉得到。 */
@@ -188,6 +227,12 @@ export function useMarketSettings() {
       else nextParams.set("dir", nextDir);
     }
     const suffix = nextParams.toString();
+    /* 先記低「我寫咗咩」再 replace：下一個手勢（可能係另一個組件）要即刻睇得到呢次寫入，
+       等唔到 router commit。 */
+    if (live !== null) {
+      const chain = pending ? pending.chain : [live];
+      pendingWrites = { path: pathname, chain: [...chain, suffix].slice(-MAX_PENDING_WRITES) };
+    }
     router.replace(suffix ? `${pathname}?${suffix}` : pathname, { scroll: false });
   }, [pathname, router, setTheme]);
 

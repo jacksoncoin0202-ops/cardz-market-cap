@@ -1,12 +1,12 @@
 "use client";
 
 import { startTransition, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, ChevronDown, ChevronsUpDown, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, X } from "lucide-react";
 import { tap } from "@/lib/haptic";
 import { copy } from "@/lib/i18n";
 import type { SortDir } from "@/lib/list-explore";
 import { useMarketSettings } from "@/lib/use-market-settings";
-import type { RankingScope } from "@/lib/pagination";
+import { useMediaQuery } from "@/lib/use-media-query";
 
 export function SortHeader({
   label,
@@ -48,6 +48,14 @@ export function SortHeader({
    會令 caret 卡頓（每次都係一次 RSC navigation）。 */
 const QUERY_DEBOUNCE_MS = 220;
 
+/* globals.css 嘅手機 explore 段係 `@media (max-width: 680px)`；兩邊要同一個斷點，
+   唔係就會出現「JS 當手機、CSS 當桌面」嘅半截版面。 */
+const MOBILE_BAR_QUERY = "(max-width: 680px)";
+
+/* 讀屏播報獨立 debounce：q 每 220ms 寫一次 URL，跟住播就變成打字期間連珠炮發。
+   ~1s 靜咗先播一次，而且播嘅係人話（「148 張卡牌」）唔係「148 / 1599」。 */
+const ANNOUNCE_DEBOUNCE_MS = 1000;
+
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   const tag = target.tagName;
@@ -68,10 +76,13 @@ export function ExploreBar({
   highToLow,
   lowToHigh,
   onSearchFocus,
-  onClearSearch,
-  clearSearchLabel,
-  searchScope,
-  onSearchScopeChange,
+  onOpenSortSheet,
+  sortSheetLabel,
+  sortSheetActive = false,
+  inlineCountLabel,
+  announceLabel,
+  filterChips,
+  sticky = false,
 }: {
   query: string;
   onQueryChange: (value: string) => void;
@@ -86,23 +97,32 @@ export function ExploreBar({
   highToLow: string;
   lowToHigh: string;
   onSearchFocus?: () => void;
-  onClearSearch?: () => void;
-  clearSearchLabel?: string;
-  searchScope?: RankingScope;
-  onSearchScopeChange?: (scope: RankingScope) => void;
+  /*
+   * 手機瘦身（設計稿 §設計（手機）1）：caller 傳咗 `onOpenSortSheet` 先切去
+   * 「搜尋框 ＋ 排序掣」一行版 —— chips／方向掣全部唔 render。
+   * 冇傳嘅 caller 照出返 chips 版（拆走 chips 而又冇 sheet 就冇得排序）。
+   */
+  onOpenSortSheet?: () => void;
+  sortSheetLabel?: string;
+  /* 非預設排序／語言：掣右邊出一粒 --accent 點 */
+  sortSheetActive?: boolean;
+  /* 手機框內計數（「148 張」）。桌面唔傳就跌返 `resultLabel`（「148 / 1599」）——
+     Phase C 拆走咗獨立一行 `.explore-count`，兩邊而家同一個 slot。 */
+  inlineCountLabel?: string | null;
+  /* 讀屏文案，同視覺計數分開（見 ANNOUNCE_DEBOUNCE_MS） */
+  announceLabel?: string | null;
+  /* 非預設篩選 chip：撳 × 即刻寫返 URL（一粒 chip 一次 update） */
+  filterChips?: Array<{ key: string; label: string; removeLabel: string; onRemove: () => void }>;
+  /* 搜尋模式先釘住 toolbar */
+  sticky?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const scopeRef = useRef<HTMLDivElement>(null);
   const { locale } = useMarketSettings();
   const t = copy[locale];
-  const [scopeOpen, setScopeOpen] = useState(false);
-  const scopes: Array<{ key: RankingScope; label: string }> = [
-    { key: "all", label: t.labels.searchScopeAll },
-    { key: "pokemon", label: t.nav.pokemon },
-    { key: "one-piece", label: t.nav.onePiece },
-  ];
-  const activeScope = searchScope ?? "all";
-  const activeScopeLabel = scopes.find((item) => item.key === activeScope)?.label ?? t.labels.searchScopeAll;
+  const isMobileBar = useMediaQuery(MOBILE_BAR_QUERY);
+  const lean = isMobileBar && Boolean(onOpenSortSheet);
+  /* 計數永遠喺框內（設計稿 §設計（電腦））：手機用短文案，桌面用「{shown} / {total}」。 */
+  const inlineCount = lean ? inlineCountLabel ?? resultLabel : resultLabel;
 
   /* input 值行 local state；URL q 只係 debounce 之後嘅副本。
      lastCommitted 記住「我自己寫出去嘅值」——URL 彈返嚟同佢一樣就唔好覆蓋緊打嘅字；
@@ -131,15 +151,13 @@ export function ExploreBar({
 
   useEffect(() => cancelPending, [cancelPending]);
 
+  /* 播報值滯後一拍：文字未定就唔好入 live region（入咗即刻播）。 */
+  const liveText = announceLabel ?? resultLabel ?? null;
+  const [announced, setAnnounced] = useState<string | null>(null);
   useEffect(() => {
-    if (!scopeOpen) return;
-    const onPointer = (event: PointerEvent) => {
-      if (scopeRef.current?.contains(event.target as Node)) return;
-      setScopeOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointer);
-    return () => document.removeEventListener("pointerdown", onPointer);
-  }, [scopeOpen]);
+    const id = setTimeout(() => setAnnounced(liveText), ANNOUNCE_DEBOUNCE_MS);
+    return () => clearTimeout(id);
+  }, [liveText]);
 
   const onInput = (value: string) => {
     setText(value);
@@ -164,45 +182,8 @@ export function ExploreBar({
   }, []);
 
   return (
-    <div className="explore-bar">
+    <div className={`explore-bar${lean ? " explore-bar-lean" : ""}${lean && sticky ? " explore-bar-sticky" : ""}`}>
       <div className="explore-search">
-        {searchScope ? (
-          <div className="explore-scope" ref={scopeRef}>
-            <button
-              type="button"
-              className="explore-scope-trigger"
-              aria-expanded={scopeOpen}
-              aria-haspopup="listbox"
-              aria-label={t.labels.searchScope}
-              onClick={() => { tap.select(); setScopeOpen((open) => !open); }}
-            >
-              <span>{activeScopeLabel}</span>
-              <ChevronDown aria-hidden="true" size={12} strokeWidth={2.2} />
-            </button>
-            {scopeOpen ? (
-              <ul className="select-menu explore-scope-menu" role="listbox">
-                {scopes.map((item) => (
-                  <li key={item.key} role="presentation">
-                    <button
-                      type="button"
-                      className="select-option"
-                      role="option"
-                      aria-selected={item.key === activeScope}
-                      data-active={item.key === activeScope ? "true" : "false"}
-                      onClick={() => {
-                        tap.select();
-                        onSearchScopeChange?.(item.key);
-                        setScopeOpen(false);
-                      }}
-                    >
-                      {item.label}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </div>
-        ) : null}
         <label className="explore-search-field">
         <span className="sr-only">{searchLabel}</span>
         <input
@@ -226,6 +207,8 @@ export function ExploreBar({
           }}
         />
         </label>
+        {/* 計數入框（設計稿 #8）——以前佔獨立一行，出現／消失令列表跳 52px */}
+        {inlineCount ? <span className="explore-inline-count">{inlineCount}</span> : null}
         {text ? (
           <button type="button" className="explore-clear" aria-label={clearLabel} onClick={clear}>
             <X aria-hidden="true" size={14} strokeWidth={2.2} />
@@ -235,13 +218,37 @@ export function ExploreBar({
           <kbd className="explore-kbd" aria-hidden="true">/</kbd>
         )}
       </div>
-      {/* 常駐 live region：篩選數字改變會被讀屏播報；空時靠 CSS :empty 收埋個 gap */}
-      <p className="explore-count" role="status" aria-live="polite">{resultLabel ?? null}</p>
-      {onClearSearch && clearSearchLabel ? (
-        <button type="button" className="explore-reset" onClick={() => { tap.select(); onClearSearch(); }}>
-          {clearSearchLabel}
+      {lean && onOpenSortSheet ? (
+        <button
+          type="button"
+          className="explore-sort-trigger"
+          aria-haspopup="dialog"
+          onClick={() => { tap.select(); onOpenSortSheet(); }}
+        >
+          <ChevronsUpDown aria-hidden="true" size={13} strokeWidth={2.2} />
+          <span>{sortSheetLabel ?? t.labels.sortBy}</span>
+          {sortSheetActive ? <span className="explore-sort-dot" aria-hidden="true" /> : null}
         </button>
       ) : null}
+      {/* chips 冇 role="group"：每粒自己個 aria-label 已經係「移除 X」，再加個組名只會讀多一次 */}
+      {lean && filterChips?.length ? (
+        <div className="explore-active-chips">
+          {filterChips.map((chip) => (
+            <button
+              key={chip.key}
+              type="button"
+              aria-label={chip.removeLabel}
+              onClick={() => { tap.select(); chip.onRemove(); }}
+            >
+              <span>{chip.label}</span>
+              <X aria-hidden="true" size={12} strokeWidth={2.4} />
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {/* 讀屏播報同視覺計數分開：呢個 region 唔會跟 debounce 每次寫 URL 就播（見 ANNOUNCE_DEBOUNCE_MS） */}
+      <p className="sr-only" role="status" aria-live="polite">{announced}</p>
+      {!lean ? (
       <div className="explore-sort-chips" role="group" aria-label={t.labels.sortBy}>
         {sortKeys.map((item) => {
           const active = sort === item.key;
@@ -272,6 +279,7 @@ export function ExploreBar({
           </button>
         )}
       </div>
+      ) : null}
     </div>
   );
 }
