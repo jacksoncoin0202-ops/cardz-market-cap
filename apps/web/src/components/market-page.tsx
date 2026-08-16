@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { Heatmap } from "./heatmap";
 import { Provenance } from "./provenance";
 import { Rankings } from "./rankings";
@@ -11,6 +12,7 @@ import { copy, type Copy } from "@/lib/i18n";
 import { cardSubject, fillTemplate } from "@/lib/related-cards";
 import { useMarketSettings } from "@/lib/use-market-settings";
 import type { Locale, MarketCardView, MarketViewSnapshot } from "@/lib/types";
+import "@/app/styles/market-foot.css";
 
 type MarketPageKind = "all" | "pokemon" | "one-piece" | "watchlist";
 
@@ -36,7 +38,7 @@ export function marketHeatmapTitle(kind: MarketPageKind, cardCount: number, t: C
   return marketTitle.replace("{count}", String(cardCount));
 }
 
-export function MarketPage({ kind, snapshot }: { kind: MarketPageKind; snapshot: MarketViewSnapshot }) {
+export function MarketPage({ kind, snapshot, pager }: { kind: MarketPageKind; snapshot: MarketViewSnapshot; pager?: ReactNode }) {
   const { locale, currency, href } = useMarketSettings();
   const t = copy[locale];
   const hero = kind === "pokemon" ? t.pokemonHero : kind === "one-piece" ? t.onePieceHero : kind === "watchlist" ? t.watchlistHero : t.hero;
@@ -138,34 +140,19 @@ export function MarketPage({ kind, snapshot }: { kind: MarketPageKind; snapshot:
     >
       <StructuredData value={structuredData} />
       {/*
-        * hero 以前淨係 watchlist 出，即係 /、/pokemon、/one-piece 三版嘅 H1 係熱力圖標題
-        * （「Top 100 market heatmap」）——搜尋／AI 睇落成個網站冇講過自己係咩。而家四個
-        * kind 都出返 hero 做唯一 H1（熱力圖降做 h2），下面貼一段 3–5 行嘅可引用定義。
-        * 首頁聲線係 art first，所以 intro-block 刻意細字、淡色，唔准搶熱力圖。
+        * 首屏規矩（owner 2026-08-16 晚，hard）：市場頁一入到去就係熱力圖——只准一個標題
+        * （熱力圖標題 = 唯一 H1）+ 總市值一行細字。GEO 嗰堆 hero 標題／定義／as-of／市況／
+        * 消歧義**唔准喺首屏出**，但要留喺 HTML 俾搜尋同 AI 引擎讀，所以整段搬落頁尾
+        * （Rankings 之後、Provenance 之前）做 h2 + 摺埋嘅 <details>。唔用 sr-only／display:none
+        * 收埋——嗰種係「hidden text」，引擎會當垃圾；頁尾細字係正常內容。
+        * watchlist 版冇熱力圖，hero 照舊喺頂做 H1（呢條 route 已經 308 走咗，純保底）。
         */}
-      <section className="hero-section">
-        <h1>{hero.title}</h1>
-        <p className="hero-copy">{hero.body}</p>
-        {/*
-          * <details> 默認摺埋（所有 viewport，SSR 同 client 一樣，冇 CLS）：實測 390 寬展開版
-          * 令熱力圖跌到 ~1240px 先出現，違反「藝術先行／熱力圖第一屏」。摺埋後段字仍然
-          * 喺 HTML 入面——Google 同 AI 引擎讀 raw HTML，唔理 open 與否；summary 行本身
-          * 已帶 as-of 日期。日期用 formatObservationDate：鎖 UTC，SSR 同 hydrate 出同一串字。
-          */}
-        <details className="intro-block">
-          <summary>{fillTemplate(t.intro.about, { date: formatObservationDate(snapshot.effectiveAt, locale) })}</summary>
-          <div className="intro-body">
-            <p>{t.intro.definition}</p>
-            <p>{fillTemplate(t.intro.asOf, { date: formatObservationDate(snapshot.effectiveAt, locale) })}</p>
-            {introSummary && <p>{introSummary}</p>}
-            <p>{t.intro.disambiguation}</p>
-            <p className="intro-links">
-              <Link href={href("/methodology")}>{t.footerNav.methodology}</Link>
-              <Link href={href("/faq")}>{t.footerNav.faq}</Link>
-            </p>
-          </div>
-        </details>
-      </section>
+      {kind === "watchlist" && (
+        <section className="hero-section">
+          <h1>{hero.title}</h1>
+          <p className="hero-copy">{hero.body}</p>
+        </section>
+      )}
       {kind !== "watchlist" && (
         <Heatmap cards={heatmapCards} locale={locale} currency={currency} snapshot={snapshot} href={href} title={heatmapTitle} />
       )}
@@ -179,6 +166,33 @@ export function MarketPage({ kind, snapshot }: { kind: MarketPageKind; snapshot:
         marketLabel={marketLabel}
         searchScope={kind === "pokemon" || kind === "one-piece" ? kind : "all"}
       />
+      {/* 每頁 100／200／300／500 + 上下頁：緊貼榜尾，唔准跌落頁尾說明之後 */}
+      {pager}
+      {kind !== "watchlist" && (
+        /*
+         * 頁尾「關於呢個指數」：hero 標題（keyword-first，5 語）做 h2 + 一句 body，
+         * 下面 <details> 摺埋定義／as-of／市況／消歧義。SSR 同 client 一樣閉合（冇 CLS）。
+         * 日期用 formatObservationDate：鎖 UTC，SSR 同 hydrate 出同一串字。
+         */
+        <section className="index-about" aria-labelledby="index-about-heading">
+          {/* 顯示上只得一行細字（summary）；標題／定義全部摺埋喺入面，engine 讀 raw HTML 照見。 */}
+          <details className="intro-block">
+            <summary>{fillTemplate(t.intro.about, { date: formatObservationDate(snapshot.effectiveAt, locale) })}</summary>
+            <div className="intro-body">
+              <h2 id="index-about-heading">{hero.title}</h2>
+              <p className="index-about-body">{hero.body}</p>
+              <p>{t.intro.definition}</p>
+              <p>{fillTemplate(t.intro.asOf, { date: formatObservationDate(snapshot.effectiveAt, locale) })}</p>
+              {introSummary && <p>{introSummary}</p>}
+              <p>{t.intro.disambiguation}</p>
+              <p className="intro-links">
+                <Link href={href("/methodology")}>{t.footerNav.methodology}</Link>
+                <Link href={href("/faq")}>{t.footerNav.faq}</Link>
+              </p>
+            </div>
+          </details>
+        </section>
+      )}
       <Provenance updatedAt={snapshot.effectiveAt} />
     </div>
   );

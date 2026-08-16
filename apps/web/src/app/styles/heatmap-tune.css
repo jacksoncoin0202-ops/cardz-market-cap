@@ -1,0 +1,12 @@
+/*
+ * 熱力圖 tune panel 入面嘅升跌慣例切換（owner 2026-08-16 晚）。
+ * 由 heatmap.tsx 自己 import（repo 慣例）；主體 .tune-panel 樣式仍然喺 globals.css。
+ */
+.tune-updown-actions { display: flex; gap: 6px; grid-column: 1 / -1; }
+.tune-updown-actions button { flex: 1; }
+.tune-panel-actions button[data-active="true"] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--surface);
+  font-weight: 650;
+}

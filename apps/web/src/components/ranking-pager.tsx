@@ -40,8 +40,9 @@ export function RankingPager({
           </Link>
         ))}
       </span>
+      {/* 翻頁一組自己一個容器：同「每頁幾多」分開排，手機唔會亂 wrap（owner 2026-08-16 晚 review） */}
       {pageCount > 1 ? (
-        <>
+        <span className="ranking-pager-nav">
           {page > 1
             ? <Link href={hrefFor({ page: page - 1, size: pageSize })} rel="prev" aria-label={previousLabel}>‹</Link>
             : <span aria-hidden="true">‹</span>}
@@ -51,12 +52,12 @@ export function RankingPager({
           {page < pageCount
             ? <Link href={hrefFor({ page: page + 1, size: pageSize })} rel="next" aria-label={nextLabel}>›</Link>
             : <span aria-hidden="true">›</span>}
-        </>
-      ) : null}
-      {page < pageCount ? (
-        <Link className="ranking-show-more" href={hrefFor({ page: page + 1, size: pageSize })}>
-          {showMoreLabel}
-        </Link>
+          {page < pageCount ? (
+            <Link className="ranking-show-more" href={hrefFor({ page: page + 1, size: pageSize })}>
+              {showMoreLabel}
+            </Link>
+          ) : null}
+        </span>
       ) : null}
     </nav>
   );

@@ -23,6 +23,7 @@ import { PUBLIC_CANONICAL_HOST, PUBLIC_SITE_URL } from "@/lib/public-site";
 import { useMarketSettings } from "@/lib/use-market-settings";
 import { useUpDown } from "@/lib/use-updown";
 import type { Currency, Locale, MarketCardView, MarketViewSnapshot, MarketWindow } from "@/lib/types";
+import "@/app/styles/heatmap-tune.css";
 
 interface HeatmapProps {
   cards: MarketCardView[];
@@ -211,7 +212,7 @@ const ENTRY_WAVE_MS = 240;
 export function Heatmap({ cards, locale, currency, snapshot, href, title }: HeatmapProps) {
   const { period, theme } = useMarketSettings();
   /* 升跌色慣例（F13）：red-up 就將 up/down 兩組色對調——tune 參數意義不變（「升色」永遠係用戶心目中嘅升色）。 */
-  const { resolved: upDown } = useUpDown(locale);
+  const { resolved: upDown, setPref: setUpDownPref } = useUpDown(locale);
   const t = copy[locale];
   const frameRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -316,6 +317,9 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
     const base = tileColors(dark, params);
     return upDown === "red-up" ? { ...base, up: base.down, down: base.up } : base;
   }, [dark, params, upDown]);
+  /* tune panel 嘅「升色／跌色」picker 要綁住*實際畫升／畫跌*嘅參數（red-up 對調），同上面 colors 一致 */
+  const upParamKey = upDown === "red-up" ? (dark ? "downDark" : "downLight") : (dark ? "upDark" : "upLight");
+  const downParamKey = upDown === "red-up" ? (dark ? "upDark" : "upLight") : (dark ? "downDark" : "downLight");
 
   /* 暖圖要同 tile 揀同一張 variant：tile 係 srcset(200w/600w)+sizes 俾瀏覽器揀，
      DPR 3 手機 72px 格會揀 600w；如果淨係預拉 200w，去到真機係 cache miss，
@@ -757,20 +761,45 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
     const qrLabel = PUBLIC_CANONICAL_HOST;
     ctx.fillText(qrLabel, qrCx - ctx.measureText(qrLabel).width / 2, qrCy + qrBox / 2 + Math.round(10 * scale));
 
-    canvas.toBlob((blob) => {
-      if (!blob) return;
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+    if (!blob) throw new Error("heatmap export: toBlob returned null");
+    const filename = `cardz-heatmap-top${visibleCards.length}-${new Date().toISOString().slice(0, 10)}.png`;
+    const pageUrl = window.location.href;
+    /*
+     * 分享（owner 2026-08-16 晚）：唔准夾硬要人 save 個 file。
+     * 1) 有 Web Share Level 2（Android Chrome / iOS Safari / Chrome）就出**系統 share sheet**：
+     *    WhatsApp、IG、Threads、Facebook、「儲存到相簿」全部由 OS 俾人揀，張圖 + 標題 + 連結一齊落。
+     * 2) 用戶自己撳走 share sheet（AbortError）= 唔係錯，靜靜完成。
+     * 3) 冇 share（桌面 Firefox 等）或者 share 本身失敗先 fallback 落 download —— 呢個係最後一步，唔係第一步。
+     * navigator.share 一定要喺 user activation 內叫：卡圖全部已經喺 tile 度顯示緊（cache hit），
+     * await 圖 + toBlob 都係毫秒級，仲喺 activation 窗口入面。
+     */
+    const file = new File([blob], filename, { type: "image/png" });
+    const nav = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
+    const shareData: ShareData = { files: [file], title: shareTitleNarrow, text: `${shareTitleNarrow}\n${pageUrl}` };
+    let shared = false;
+    if (typeof nav.share === "function" && nav.canShare?.(shareData)) {
+      try {
+        await nav.share(shareData);
+        shared = true;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return; // 用戶自己收埋 share sheet
+        // NotAllowedError（activation 過期）／其他：落 download fallback
+      }
+    }
+    if (!shared) {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `cardz-heatmap-top${visibleCards.length}-${new Date().toISOString().slice(0, 10)}.png`;
+      anchor.download = filename;
       anchor.click();
       URL.revokeObjectURL(url);
-      navigator.clipboard?.writeText(window.location.href).catch(() => undefined);
-      // 手機：share 完張圖直落排名表。
-      if (isMobileTiles) {
-        document.getElementById("market-ranking")?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    }, "image/png");
+      navigator.clipboard?.writeText(pageUrl).catch(() => undefined);
+    }
+    // 手機：share 完張圖直落排名表。
+    if (isMobileTiles) {
+      document.getElementById("market-ranking")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   }, [size, tiles, visibleCards, title, locale, activePeriod, isMobileTiles, params, colors, dark, t.methodology.body, t.periods, t.labels.change]);
 
   // Controls 抽返出嚟：desktop 同標題並排，手機由 CSS 將佢哋排喺標題下面、
@@ -823,9 +852,9 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
     <section className="heatmap-section" aria-labelledby="heatmap-heading">
       <div className="heatmap-heading">
         <div>
-          {/* h2 唔係 h1（GEO，owner 2026-08-16）：H1 已經由 market-page 個 hero 出，
-              一版一個 H1。id / aria-labelledby 照舊，CSS `.heatmap-heading h1, h2` 一齊食。 */}
-          <h2 id="heatmap-heading">{title.replace("{count}", String(cards.length))}</h2>
+          {/* 呢個係市場頁唯一嘅 H1（owner 2026-08-16 晚：「一入到去就係成個熱力圖」——
+              hero 文案搬咗落頁尾做 h2，首屏只留呢個標題 + 總市值一行）。 */}
+          <h1 id="heatmap-heading">{title.replace("{count}", String(cards.length))}</h1>
           {/* 總市值用 CapTicker：載入 / 期間切換 / 拉 slider 都係由上一個顯示值滾去新值，唔會跳字 */}
           <p className="heatmap-total-cap">{t.labels.marketCap} · <CapTicker value={totalCap} format={formatTotalCap} /></p>
           <p>{t.heatmap.body}</p>
@@ -926,9 +955,21 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
               <button type="button" onClick={closeTune}>{t.labels.close}</button>
             </div>
           </div>
-          <div key={`${tuneResetKey}-${dark ? "d" : "l"}`}>
-            <TuneColor label={`${t.heatmap.upColor}${dark ? "（Dark）" : "（Light）"}`} value={dark ? params.upDark : params.upLight} onInput={(v) => setParam(dark ? "upDark" : "upLight", v)} />
-            <TuneColor label={`${t.heatmap.downColor}${dark ? "（Dark）" : "（Light）"}`} value={dark ? params.downDark : params.downLight} onInput={(v) => setParam(dark ? "downDark" : "downLight", v)} />
+          {/*
+            * 升跌慣例（owner 2026-08-16 晚）：header 個 ↕ 反轉咗色，呢度嘅「升色／跌色」都要跟住反轉，
+            * 而且喺 panel 入面都俾人揀。red-up 時 tile 用 params.down* 畫升、params.up* 畫跌
+            * （見上面 colors useMemo），所以「升色」picker 要綁住 down*，改落去先真係改到升色。
+            * key 帶 upDown：uncontrolled color input 換綁定要 remount 先出正確 defaultValue。
+            */}
+          <div className="tune-field" role="group" aria-label={upDown === "red-up" ? t.labels.upDownRed : t.labels.upDownGreen}>
+            <div className="tune-panel-actions tune-updown-actions">
+              <button type="button" aria-pressed={upDown === "green-up"} data-active={upDown === "green-up" ? "true" : "false"} onClick={() => setUpDownPref("green-up")}>{t.labels.upDownGreen}</button>
+              <button type="button" aria-pressed={upDown === "red-up"} data-active={upDown === "red-up" ? "true" : "false"} onClick={() => setUpDownPref("red-up")}>{t.labels.upDownRed}</button>
+            </div>
+          </div>
+          <div key={`${tuneResetKey}-${dark ? "d" : "l"}-${upDown}`}>
+            <TuneColor label={`${t.heatmap.upColor}${dark ? "（Dark）" : "（Light）"}`} value={params[upParamKey]} onInput={(v) => setParam(upParamKey, v)} />
+            <TuneColor label={`${t.heatmap.downColor}${dark ? "（Dark）" : "（Light）"}`} value={params[downParamKey]} onInput={(v) => setParam(downParamKey, v)} />
             <TuneRange label={t.heatmap.intensity} value={params.gamma} min={0.5} max={4} step={0.1} format={(v) => v.toFixed(1)} onInput={(v) => setParam("gamma", v)} />
             <TuneRange label={t.heatmap.neutralZone} value={params.deadzone} min={0} max={5} step={0.5} format={(v) => `±${v}%`} onInput={(v) => setParam("deadzone", v)} />
             <TuneRange label={t.heatmap.gap} value={params.gap} min={0} max={12} step={1} format={(v) => `${v}px`} onInput={(v) => setParam("gap", v)} />
