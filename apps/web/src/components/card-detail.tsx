@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { FileSearch } from "lucide-react";
 import { Breadcrumbs } from "./breadcrumbs";
+import { EmptyState } from "./empty-state";
 import { CardArt, SpotlightScope } from "./card-art";
 import { CardImage } from "./card-image";
 import { CopyButton } from "./copy-button";
@@ -39,12 +41,18 @@ export function CardDetail({ id, snapshot, related }: {
   const t = copy[locale];
   const card = snapshot.top100.find((item) => item.id === id);
 
+  /* 呢度只係 client 側嘅保險：route（`card/[id]/page.tsx` 個 `requireCard`）已經 `notFound()` 咗，
+     所以正常情況入唔到呢條路。文案／出路掣同以前一樣，只係換咗共用 EmptyState。 */
   if (!card) {
     return (
-      <div className="page-shell"><section className="empty-detail">
-        <p>{t.labels.noCards}</p>
-        <Link className="primary-action" href={href("/")}>{t.nav.all}</Link>
-      </section></div>
+      <div className="page-shell">
+        <EmptyState
+          className="empty-detail"
+          icon={FileSearch}
+          title={t.labels.noCards}
+          action={<Link className="primary-action" href={href("/")}>{t.nav.all}</Link>}
+        />
+      </div>
     );
   }
 

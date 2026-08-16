@@ -1,0 +1,41 @@
+/* 空狀態（FE05 WS4）——擁有者係 `components/empty-state.tsx`。
+   `.empty-state` 個盒本身（虛線框 / margin / padding / 字色）留喺 globals.css:2053，
+   因為 `site-search` 側都食緊嗰條同 `.empty-state-hint` / `.empty-state-action`。
+   呢個檔只加 `.empty-state-block` 呢個共用 component 嘅內部排版。 */
+
+.empty-state-block {
+  display: grid;
+  justify-items: start;
+  /* 唔用 gap：globals 嘅 `.empty-state p + p { margin-top: 8px }` 已經係間距真身，
+     兩樣一齊落就會變 16px。 */
+}
+.empty-state-block .empty-state-icon {
+  margin-bottom: var(--space-2);
+  color: var(--dt-color);
+}
+/* 標題比提示深一級，睇得出邊句係主句（個盒本身係 --muted 12px） */
+.empty-state-block .empty-state-title {
+  color: var(--ink);
+  /* WS1 字階（globals.css:54），唔硬寫 13px */
+  font-size: var(--step--1);
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+/* 圖表冇歷史：借返 `.history-empty` 嘅 margin-top，唔另開一套。 */
+.empty-state-block.history-empty { margin-top: var(--space-6); }
+
+/* 卡頁「揾唔到卡」：`.empty-detail` 原本 padding 60px 0 冇框；改用共用盒之後
+   居中一版，唔好孤零零一句貼住左邊。 */
+.empty-state-block.empty-detail {
+  justify-items: center;
+  margin: var(--space-8) auto;
+  padding: var(--space-8) var(--space-5);
+  max-width: 460px;
+  text-align: center;
+}
+.empty-state-block.empty-detail .primary-action { margin-top: var(--space-3); }
+
+@media (max-width: 680px) {
+  .empty-state-block.empty-detail { margin: var(--space-6) auto; padding: var(--space-6) var(--space-4); }
+}

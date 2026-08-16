@@ -2,7 +2,9 @@
 
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
+import { PackageOpen, SearchX } from "lucide-react";
 import { BoxImage } from "./box-image";
+import { EmptyState } from "./empty-state";
 import { ExploreBar, SortHeader } from "./explore-bar";
 import { PeriodSelector } from "./period-selector";
 import { SortFilterSheet } from "./sort-filter-sheet";
@@ -82,8 +84,11 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
     onRemove: () => update({ sort: "rank", dir: "desc" }),
   }];
 
+  /* 同 rankings.tsx 一樣（FE05 WS4）：打緊字／「顯示更多」transition 期間，
+     見到嘅唔係最終結果。BOX 冇全站索引，所以少咗 catalog 嗰一項。 */
+  const [queryPending, setQueryPending] = useState(false);
   return (
-    <section className="rankings-section" id="box-ranking" aria-labelledby="box-ranking-heading">
+    <section className="rankings-section" id="box-ranking" aria-labelledby="box-ranking-heading" aria-busy={queryPending || isPending}>
       <div className="ranking-heading">
         <div>
           <p className="section-kicker">{t.nav.box}</p>
@@ -91,7 +96,7 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
         </div>
         <PeriodSelector compact />
       </div>
-      {!products.length ? <p className="empty-state">{t.box.empty}</p> : (
+      {!products.length ? <EmptyState icon={PackageOpen} title={t.box.empty} /> : (
         <>
           <ExploreBar
             query={query}
@@ -111,6 +116,7 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
               ? t.labels.sortSheetTrigger
               : t.labels.sortSheetTriggerActive.replace("{label}", sortLabel)}
             sortSheetActive={filterChips.length > 0}
+            onPendingChange={setQueryPending}
             filterChips={filterChips}
           />
           <SortFilterSheet

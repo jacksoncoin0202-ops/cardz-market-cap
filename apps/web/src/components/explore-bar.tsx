@@ -81,6 +81,7 @@ export function ExploreBar({
   sortSheetActive = false,
   inlineCountLabel,
   announceLabel,
+  onPendingChange,
   filterChips,
   sticky = false,
 }: {
@@ -111,6 +112,12 @@ export function ExploreBar({
   inlineCountLabel?: string | null;
   /* 讀屏文案，同視覺計數分開（見 ANNOUNCE_DEBOUNCE_MS） */
   announceLabel?: string | null;
+  /*
+   * 「打緊字、榜未追到」報返俾 caller（FE05 WS4，用嚟開 `aria-busy`）。
+   * 呢個 state 只有 ExploreBar 知：input 行 local `text`，URL `q` 係 debounce +
+   * transition 之後嘅副本，所以 rankings 側單睇 `query` 係睇唔到「載緊」嗰段。
+   */
+  onPendingChange?: (pending: boolean) => void;
   /* 非預設篩選 chip：撳 × 即刻寫返 URL（一粒 chip 一次 update） */
   filterChips?: Array<{ key: string; label: string; removeLabel: string; onRemove: () => void }>;
   /* 搜尋模式先釘住 toolbar */
@@ -150,6 +157,13 @@ export function ExploreBar({
   }, [query]);
 
   useEffect(() => cancelPending, [cancelPending]);
+
+  /* input 同 URL 兩個值唔一樣 = 由撳落第一粒鍵開始、去到 transition render 完新結果
+     為止都當 busy。effect 而唔係 render 期直接 call：唔可以喺 render 入面改 parent state。 */
+  const queryPending = text.trim() !== query.trim();
+  useEffect(() => {
+    onPendingChange?.(queryPending);
+  }, [onPendingChange, queryPending]);
 
   /* 播報值滯後一拍：文字未定就唔好入 live region（入咗即刻播）。 */
   const liveText = announceLabel ?? resultLabel ?? null;

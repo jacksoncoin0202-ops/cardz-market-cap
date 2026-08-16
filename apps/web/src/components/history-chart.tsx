@@ -1,5 +1,7 @@
 "use client";
 
+import { ChartLine } from "lucide-react";
+import { EmptyState } from "./empty-state";
 import { copy } from "@/lib/i18n";
 import { formatMoney, formatObservationDayMonth } from "@/lib/format";
 import { useMarketSettings } from "@/lib/use-market-settings";
@@ -40,7 +42,10 @@ export function HistoryChart({ points, locale, currency, rates }: HistoryChartPr
     point.trackedSalesCount > 0 &&
     Number.isFinite(point.trackedSalesValueUsd),
   );
-  if (prices.length < 2 && sales.length === 0) return <div className="history-empty"><p>{t.labels.noHistory}</p></div>;
+  /* `.history-empty` 個 class 留住（margin-top 24px 由佢出），只係內容換咗共用 EmptyState */
+  if (prices.length < 2 && sales.length === 0) {
+    return <EmptyState className="history-empty" icon={ChartLine} title={t.labels.noHistory} />;
+  }
 
   const width = 720;
   const height = 300;

@@ -285,6 +285,8 @@ tilt / spotlight 類仲要再加 `@media (hover: hover) and (pointer: fine)`。
 | `styles/hubs.css` | `seo-table.tsx:6` |
 | `styles/heatmap-tune.css` | `heatmap.tsx:26` |
 | `styles/market-foot.css` | `market-page.tsx:15` |
+| `styles/skeleton.css` | `skeletons.tsx:1`（WS4） |
+| `styles/empty-state.css` | `empty-state.tsx:3`（WS4） |
 | `styles/card-art.css` | `card-detail.tsx`（WS2；holo / tilt / spotlight + 相關卡 spotlight） |
 | `styles/glow-badges.css` | `provenance.tsx`、`card-detail.tsx`、`market-page.tsx`（WS2；`#1` / top mover / live 徽章） |
 
@@ -315,7 +317,7 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
 | **WS1** | token（`--font-sans/mono`、`--step--1…4`、`--tracking-*`、`--space-1…8`）、mono stack 四處收一、字階落三個流體點（`.content-hero h1` / `.content-body h2` / `.hub-hero h1`）、呢份 DESIGN.md、`PRESENTATION` 升 FE05 + fallback 037/FE04 | ✅ 已落 |
 | **WS2** | 卡圖 holo / tilt / spotlight（`card-art.tsx` wrapper + `styles/card-art.css`）、`#1` chip、7d top mover chip、live 徽章 border beam（`styles/glow-badges.css`）、相關卡 hover spotlight | ✅ 已落 |
 | WS3 | Motion 系統：共用 IntersectionObserver reveal、history chart 線條 draw-in、count-up 擴到卡頁 | TODO |
-| WS4 | Loading / empty / status：共用 skeleton、empty-state、`aria-busy`；**唔准加 `app/card/loading.tsx`** | TODO |
+| **WS4** | Loading / empty / status：共用 `skeletons.tsx`（`MarketHeroSkeleton` / `RankingRowsSkeleton`）+ `styles/skeleton.css`、`empty-state.tsx` + `styles/empty-state.css`（4 個 call site）、`aria-busy` 落 `#market-ranking` / `#box-ranking`。**`/card/[id]` 冇骨架**：`app/card/loading.tsx` 同 route 內 `<Suspense>` 兩條路都試過、兩條都要唔起（見下面 WS4 實數第 2 點） | ✅ 已落（1 條 plan gate 未過，見欠單 ⑤） |
 | WS5 | OG 圖 v2（卡圖入圖，satori 讀唔到 WebP → 要解碼），fail-open 退返純文字版 | TODO |
 | WS6 | HyperFrames 每日市場 recap 片（`apps/web` 以外，獨立 folder） | TODO（可選） |
 
@@ -387,6 +389,91 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
 7. ESLint 喺呢棵 tree **行唔到**（`apps/web/package.json` 冇 lint script，`node_modules` 冇
    `eslint`，`npx` 會去拉一個唔同 major 嘅版本再 `ERR_MODULE_NOT_FOUND`）。WS2 只跑咗
    `npx tsc --noEmit -p apps/web`（**0 error**）。
+
+**WS4 量到嘅實數**（`temp/fe05/ws4/`，dev server :3901）：
+
+- **404 契約前後一樣**：`/card/does-not-exist` **404**、`/watchlist` **308**、
+  `/card/cmc_fc229f7ae1b256b2119fa79b` **200**、`/`、`/box`、`/pokemon` **200** ——
+  改 `page.tsx` 之前同之後逐個對，六個 code 一模一樣。
+  關鍵係 `await requireCard(id)` 喺 `<Suspense>` **外面**（`card/[id]/page.tsx` 有註）：
+  boundary 一 suspend 就沖 shell、status 鎖 200，次序調轉即刻變返 soft-404。
+- **`/card/[id]` 冇骨架，兩條路都封死（review 2026-08-17 收返）**——原因唔同，要分開記：
+  1. `app/card/loading.tsx`：segment loading 鎖 HTTP 200，`notFound()` 變 soft-404（上面已述）。
+  2. route 入面自己包 `<Suspense>`：404 契約守得住（`requireCard` await 喺 boundary 外面），
+     但 **crawler shell 炸咗**。`CardDetail` 個 client subtree 喺 SSR 期間會 suspend
+     （`useMarketSettings` → `useSearchParams()`，use-market-settings.ts:121），一 suspend
+     就係成個 boundary 內容跌入 `<div hidden id="S:1">`，要行 `$RC` script 先 reveal。
+     **同一部機、同一張卡、同一 dev server 度前後對量**（`temp/fe05/ws4-fix/scan.json`）：
+
+     | | `<h1>` byte | 第一個 `<div hidden id="S:*">` byte | h1 喺 shell？ |
+     |---|---|---|---|
+     | 有 `<Suspense>` | 16963 | 12486 | ❌ |
+     | 拆走（現況） | 13112（GPTBot UA 量：10057） | 54164（51140） | ✅ |
+     | 控制組 `/box/[id]`（一直冇 boundary） | 9059 | 15301 | ✅ |
+
+     卡頁係 GEO 主力頁（`docs/CLOUDFLARE_AI_CRAWLER_UNBLOCK_20260816.md`），唔行 JS 嘅
+     AI crawler 淨係讀 shell。換返嚟嗰個骨架又證實從來冇出現過（CDP 限速 40KB/s，
+     每 400ms 抽 DOM，`.skeleton-detail-h1` 一次都冇出現）。零收益 + 實質代價 → 拆，
+     連 `CardDetailSkeleton` 同 `.skeleton-detail-*` CSS 一齊刪（死 code 唔留）。
+     順手修埋：`related` 用返 `requireCard` 已經 load 咗嗰份 snapshot，唔再 `await
+     loadMarketSnapshot()` 第二次（live-db mode 本來一個 request 打兩次 DB）。
+- **plan 嗰條「骨架同真實版面 390px 差 ≤4px」：`/card` 呢邊做唔到，缺口 234.95px。**
+  唔係全條線都爆 —— h1 及以上（`.detail-actions` / `.detail-art` / `.detail-content` /
+  `.detail-header` / h1）top 同闊度 delta **0.00px**（390 同 1280 都係，`rects-real.json`
+  vs `rects-skeleton.json`），爆嘅係 `.detail-metrics` 同佢下面。根因係內容長度唔係 CSS：
+  metrics 坐喺三個長度隨卡變嘅 block（h1 行數 158.4 / 197.97 / 237.56px 三檔、`.card-fact`、
+  `.story-panel` @390 實測 226.08–486.23px）下面。8 張卡 @390 實測 metrics top vs 當時
+  骨架嘅 1491.39px：`+125.83 / +64.80 / −67.64 / +20.27 / −22.61 / −234.95 / +106.74 / −85.30`
+  → |max| **234.95px**、|中位數| **76.47px**（`h1-sample.json`）。
+  **呢條 gate 未過（見欠單 ⑤）**；冇 owner 明文拍板之前，唔准將驗收面改寫成「淨計 h1 以上」。
+  現況係整個卡頁骨架已經拆走，所以 SSR 路徑上冇 swap、冇 shift，但條 gate 一樣係未達成。
+- **reduced-motion sibling 真係 fire**（`temp/fe05/ws4-fix/verify.json`，量緊 `/tune` 度生嘅
+  `.skeleton-block`，即 `(market)/loading.tsx` 出嗰個）：`no-preference` →
+  `animationName: "loading-sheen"` / `1.4s`；`reduce` → **`"none"`**。
+  （早一版 probe 喺 `/` 度注個 `.skeleton-block` div 去量 —— `/` 根本冇 load `skeleton.css`，
+  兩邊都出 `none`，**假 pass**。要量就要量真骨架。）
+- **`aria-busy` 會翻**（`shots.json`）：`#market-ranking`
+  `false → true（debounce 中）→ true → false（settle）`；`#box-ranking` `false → true → false`。
+  debounce state 本來只活喺 `explore-bar.tsx`（local `text` vs URL `query`），加咗一個
+  optional `onPendingChange` callback 抽返出嚟；`aria-busy` 掛喺原本嗰個 `<section>`（已經係
+  `aria-labelledby` 嘅結果區），**冇加新 wrapper div** = 零 layout 改動。
+  第一版仲有個 SSR bug：`catalog === null` 喺 server render 一定成立，深鏈 `/?q=…` 出嘅
+  HTML 寫死 `aria-busy="true"`，冇 JS 就永遠 busy。加咗粒 mount 旗（`hydrated`）之後
+  server HTML 一律 `false`（`curl /?q=zzzqqqnotacard | grep market-ranking` 實測）。
+- **空狀態截圖** 390 / 1280 × light / dark 四張，`themeAttr` 對、icon 數 **1**、文字齊
+  （`empty-390|1280-{light,dark}.png` + `empty-close-*.png` 近拍）。
+- 五頁（`/`、`/box`、`/card/[id]`、`/?q=<冇結果>`、`/pokemon`）console error / warning / pageerror **0**。
+- `npx tsc --noEmit -p apps/web` **0 error**（ESLint 同 WS2 一樣行唔到，見 WS2 欠單 ⑦）。
+
+**WS4 嘅決定同欠單：**
+
+1. **`.skeleton-*` 由 `globals.css` 搬去 `styles/skeleton.css`**，原位留咗三行指路註。
+   `@keyframes loading-sheen`（`globals.css:620`）**冇搬** —— `.page-loading` 都用緊佢，
+   搬咗就係 `/` 冇咗個 keyframe。
+2. **冇加任何 i18n key**：四個 empty-state call site 全部重用現有 key，所以 5 個 locale 自動齊。
+3. **骨架量度要落臨時 delay 先睇得到**（Suspense fallback 一 resolve 就冇）。用完即刪，
+   `grep -rn "WS4-MEASURE-ONLY" apps/web/src` → **0**。卡頁骨架而家已經整個拆走，
+   `grep -rn "CardDetailSkeleton\|skeleton-detail" apps/web/src` 淨返兩行指路註。
+4. `box-rankings.tsx:133`（搜尋冇結果）同 `box-detail.tsx:31`（`.empty-detail`）兩個空狀態
+   **未轉** `EmptyState` —— plan 只點名咗四個 call site，唔想順手擴大範圍。轉唔轉由 owner 講。
+   即係話 `empty-state.tsx` 個 rationale 講「收埋做一個」而家仲有 2 處各寫各。
+5. **卡頁骨架要重開，先過呢兩關**：(a) `.detail-metrics` 個 ±235px 要真正收窄 —— 唯一正路
+   係 bake 側出「story / h1 長度分級」寫入 payload，骨架按級揀高度，喺 CSS 度再猜冇用；
+   (b) 要搞掂「一 suspend 就冇咗 crawler shell」—— 要嘛等 PPR（shell 靜態、只有動態
+   洞先 stream），要嘛將 `useSearchParams()` 由 `CardDetail` 主體推去葉節點再喺嗰度包
+   細 boundary。**兩關未過之前唔准再加 `<Suspense>`／`loading.tsx`。**
+6. **`EmptyState` 統一咗兩個位嘅外觀**（唔係 bug，係要 owner 知嘅視覺改動）：
+   `.history-empty`（原本淨係 `margin-top`，冇框）同 `.empty-detail`（原本 `padding: 60px 0`，
+   冇框）而家都食 `globals.css` `.empty-state` 個虛線盒；`.empty-detail` 另外居中咗兼
+   `max-width: 460px`，DOM 由 `<section>` 變 `<div>`。要還原就喺 `styles/empty-state.css`
+   加 `border: 0`。
+7. `/card/[id]` 兩條約定（`notFound()` 唔准俾任何 Suspense 蓋住、`<h1>` 要留喺 shell）
+   而家淨係靠 `page.tsx` 嗰段註解守——冇 test、冇 hook。最平嘅 ratchet 係喺 `cardz-verify`
+   加兩步：打 `/card/does-not-exist` assert **404**，同埋抓 `/card/<id>` raw HTML assert
+   `<h1>` 個 byte offset 細過第一個 `<div hidden id="S:`。**未做，欠單。**
+8. `.empty-state-title` 由硬寫 13px 換咗 `var(--step--1)`（WS1 字階）：@390 出 **12px**、
+   @1280 出 **13px**（`verify.json`）。即係手機嗰邊標題同提示同字級，靠 `--ink` + 600
+   分主次。
 
 ### 明確非目標
 

@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { ArrowDown, ArrowUp, TrendingDown, TrendingUp } from "lucide-react";
+import { ArrowDown, ArrowUp, Inbox, SearchX, TrendingDown, TrendingUp } from "lucide-react";
 import { CardImage } from "./card-image";
 import { displayCardName } from "@/lib/card-name";
+import { EmptyState } from "./empty-state";
 import { ExploreBar, SortHeader } from "./explore-bar";
 import { PeriodMenu, PeriodSelector } from "./period-selector";
 import { SortFilterSheet } from "./sort-filter-sheet";
@@ -125,6 +126,15 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
      旗只係用嚟出提示。以前寫 setCatalog([]) —— 空索引 = 零命中，斷網一搜就變成
      「全部卡未合資格」，係講大話。 */
   const [catalogError, setCatalogError] = useState(false);
+  /* 打字中（input 值 ≠ URL q）由 ExploreBar 報返上嚟——搜尋 debounce 嗰 220ms 加
+     transition 嗰段，畫面仲係舊結果，讀屏唔應該當佢係最終答案。 */
+  const [queryPending, setQueryPending] = useState(false);
+  /* SSR 一定係 `catalog === null`（索引係 useEffect 先攞），所以直接拎佢做
+     `aria-busy` 會令 server HTML 喺深鏈 `/?q=…` 永遠寫住 busy=true —— 有 JS
+     嗰邊 3 秒後會翻返 false，冇 JS／靜態抓取嗰邊就永遠 busy。加呢粒 mount 旗，
+     `aria-busy` 只喺 client 真係載緊索引嗰陣先 true。 */
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
   const isMobileList = useMediaQuery(MOBILE_LIST_QUERY);
   const isMobileBar = useMediaQuery(MOBILE_BAR_QUERY);
   const [sortSheetOpen, setSortSheetOpen] = useState(false);
@@ -273,8 +283,15 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
       onRemove: () => update({ printLang: "all" }),
     });
   }
+  /*
+   * `aria-busy`（FE05 WS4）：三種「而家見到嘅唔係最終結果」都要報——打緊字／
+   * 全站索引仲載緊（`catalog === null` 而又冇 error，嗰陣只係當頁過濾）／
+   * 「顯示更多」個 transition。落喺成個 section（佢就係 `aria-labelledby` 嗰個
+   * 結果區）而唔係另包一層 div：加 wrapper 會改到現有 flow 版面。
+   */
+  const resultsBusy = queryPending || isPending || (hydrated && searching && catalog === null && !catalogError);
   return (
-    <section className="rankings-section" id="market-ranking" aria-labelledby="ranking-heading">
+    <section className="rankings-section" id="market-ranking" aria-labelledby="ranking-heading" aria-busy={resultsBusy}>
       {/* 搜尋模式手機收起 kicker、h2 縮成一行（h2 要留住，section 嘅 aria-labelledby 指住佢） */}
       <div className="ranking-heading" data-searching={searching ? "true" : "false"}>
         <div>
@@ -335,6 +352,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
         sortSheetActive={filterChips.length > 0}
         inlineCountLabel={resultLabel ? t.labels.resultCountShort.replace("{count}", String(resultShown)) : null}
         announceLabel={resultLabel ? t.labels.resultCountAnnounce.replace("{count}", String(resultShown)) : null}
+        onPendingChange={setQueryPending}
         filterChips={filterChips}
         sticky={searching}
       />
@@ -354,12 +372,18 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
         <p className="empty-state-hint">{t.labels.catalogUnavailable}</p>
       ) : null}
       {!visibleCards.length ? (
-        <div className="empty-state">
-          <p>{searching ? t.labels.noSearchResults : t.labels.noCards}</p>
-          {searching && catalogError ? (
-            <p className="empty-state-hint">{t.labels.catalogUnavailable}</p>
-          ) : searching && searchScope !== "all" ? (
-            /* 分榜搜唔到就一粒掣去全站（範圍 = route），唔再叫人揀返個已經拆走嘅 dropdown */
+        <EmptyState
+          icon={searching ? SearchX : Inbox}
+          title={searching ? t.labels.noSearchResults : t.labels.noCards}
+          /* 索引載唔到 → 講「而家只有當頁」；索引 OK 但零命中 → 講「未合資格」。
+             兩句都係原本嗰兩個 key，一個字都冇改。 */
+          hint={searching && catalogError
+            ? t.labels.catalogUnavailable
+            : searching && searchScope === "all"
+              ? t.labels.searchUnqualified
+              : null}
+          /* 分榜搜唔到就一粒掣去全站（範圍 = route），唔再叫人揀返個已經拆走嘅 dropdown */
+          action={searching && !catalogError && searchScope !== "all" ? (
             <button
               type="button"
               className="empty-state-action"
@@ -367,10 +391,8 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
             >
               {t.labels.searchAllSite.replace("{query}", query.trim())}
             </button>
-          ) : searching ? (
-            <p className="empty-state-hint">{t.labels.searchUnqualified}</p>
           ) : null}
-        </div>
+        />
       ) : null}
       {visibleCards.length ? (
         <>

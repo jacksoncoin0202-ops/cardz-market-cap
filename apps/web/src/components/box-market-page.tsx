@@ -2,9 +2,11 @@
 
 import { useMemo } from "react";
 import { useSearchParams } from "next/navigation";
+import { PackageOpen } from "lucide-react";
 import { BoxGroupSelector, normaliseBoxScope } from "./box-group-selector";
 import { BoxRankings } from "./box-rankings";
 import { Breadcrumbs } from "./breadcrumbs";
+import { EmptyState } from "./empty-state";
 import { Provenance } from "./provenance";
 import { canonicalPublicUrl, siteOrganization, StructuredData } from "./structured-data";
 import { copy } from "@/lib/i18n";
@@ -81,7 +83,7 @@ export function BoxMarketPage({ snapshot }: { snapshot: MarketViewSnapshot }) {
         <BoxGroupSelector locale={locale} />
       </div>
       {!block ? (
-        <p className="empty-state fade-up">{t.box.empty}</p>
+        <EmptyState className="fade-up" icon={PackageOpen} title={t.box.empty} />
       ) : (
         <div className="fade-up">
           <BoxRankings products={products} rates={snapshot.rates} locale={locale} currency={currency} href={href} />

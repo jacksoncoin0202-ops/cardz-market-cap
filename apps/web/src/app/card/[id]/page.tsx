@@ -29,12 +29,18 @@ interface CardRouteProps {
   searchParams: PageSearchParams;
 }
 
-/* 兩個 export 都行呢個 helper，所以「有冇呢張卡」全 route 得一個判準。 */
+/*
+ * 兩個 export 都行呢個 helper，所以「有冇呢張卡」全 route 得一個判準。
+ * `full` 一齊回：`related` 要完整 snapshot 先計到，而呢度已經 load 咗一次 ——
+ * 唔回出去嘅話 page 就要再 `await loadMarketSnapshot()` 多一次，live-db mode
+ * （`server-snapshot.ts:275-285` 冇 memo）即係同一個 request 打兩次 DB。
+ */
 async function requireCard(id: string) {
-  const snapshot = singleCardSnapshot(await loadMarketSnapshot(), id);
+  const full = await loadMarketSnapshot();
+  const snapshot = singleCardSnapshot(full, id);
   const card = snapshot.top100[0];
   if (!card) notFound();
-  return { snapshot, card };
+  return { full, snapshot, card };
 }
 
 export async function generateMetadata({ params, searchParams }: CardRouteProps): Promise<Metadata> {
@@ -106,13 +112,30 @@ export async function generateMetadata({ params, searchParams }: CardRouteProps)
 
 export default async function CardPage({ params }: CardRouteProps) {
   const { id } = await params;
-  const { snapshot } = await requireCard(id);
   /*
-   * `related` 一定要喺呢度（server）計：卡頁行嘅 `singleCardSnapshot` 只得一張卡，
-   * 同 set / 同 TCG 嘅鄰居同「共 N 張」個總數都要完整 snapshot 先數得到。
-   * 冇傳呢個 prop 嘅話 card-detail 會靜靜跳過成條 related strip 同總數字句 ——
-   * 唔會報錯，所以要喺 route 度睇先知（verify pass 2026-08-16 補返）。
+   * 呢一版**冇** `<Suspense>`，亦**冇** `app/card/loading.tsx` —— 兩樣都試過，兩樣都
+   * 唔可以要（FE05 WS4，review 2026-08-17 收返）：
+   *
+   * 1. `app/card/loading.tsx`：segment loading 喺 layout 下面包 Suspense，shell 一沖
+   *    出街 HTTP status 就鎖死 200，`notFound()` 變 soft-404（見上面 :13-26）。
+   * 2. route 入面自己包 `<Suspense fallback={<CardDetailSkeleton/>}>`：`notFound()`
+   *    contract 守得住（`requireCard` await 喺 boundary 外面就得），但 **crawler shell
+   *    炸咗**。`CardDetail` 個 client subtree 有嘢喺 SSR 期間 suspend（`useMarketSettings`
+   *    → `useSearchParams()`，use-market-settings.ts:121），一 suspend 就係成個
+   *    boundary 嘅內容跌入 `<div hidden id="S:1">`，要行 `$RC` script 先 reveal。
+   *    實測（temp/fe05/ws4-fix/scan.json）：有 boundary → h1 @byte 16963、第一個 hidden
+   *    @byte 12486（h1 唔喺 shell）；拆走 boundary → h1 @byte 10057、第一個 hidden
+   *    @byte 51140（h1 喺 shell）。唔行 JS 嘅 AI crawler 淨係讀 shell，而卡頁係 GEO
+   *    主力頁（docs/CLOUDFLARE_AI_CRAWLER_UNBLOCK_20260816.md）。
+   *    換返嚟嗰個骨架又證實冇出現過：CDP 限到 40KB/s 每 400ms 抽 DOM，fallback 一次
+   *    都冇畫出嚟。零收益、有代價，所以拆。
+   *
+   * `related` 用返 `requireCard` 已經 load 咗嗰份完整 snapshot（`singleCardSnapshot`
+   * 只得一張卡，砌唔到同 set 鄰居同「共 N 張」）。以前喺呢度再 `await
+   * loadMarketSnapshot()` 一次，live-db mode（server-snapshot.ts:275-285 冇 memo）
+   * 即係同一個 request 打兩次 DB。
    */
-  const related = relatedCards(await loadMarketSnapshot(), id);
+  const { full, snapshot } = await requireCard(id);
+  const related = relatedCards(full, id);
   return <CardDetail id={id} snapshot={snapshot} related={related} />;
 }
