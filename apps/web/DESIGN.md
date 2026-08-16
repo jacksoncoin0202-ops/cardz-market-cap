@@ -188,7 +188,7 @@ owner 2026-08-16 決定：**全部 locale 默認綠升紅跌**；用戶自己揀
 > `@media (prefers-reduced-motion: reduce)` sibling，明寫佢喺 reduced 之下係咩樣。**
 > 冇 sibling 嘅 keyframe = `fe-design-review` 紅一粒。
 
-### 3.2 現有 keyframes（10 個 + WS2 `live-beam`）
+### 3.2 現有 keyframes（10 個 + WS2 `live-beam` + WS3 三個 chart keyframe）
 
 | Keyframe | 行 | 用途 | reduced-motion sibling |
 |---|---|---|---|
@@ -199,11 +199,23 @@ owner 2026-08-16 決定：**全部 locale 默認綠升紅跌**；用戶自己揀
 | `tile-pop` | :954 | 拖 slider 後新 tile 彈出 | 同上 + :2784 拆 `will-change` |
 | `delta-rise` / `delta-fall` | :1477 / :1481 | 升跌箭嘴微動 | :1485 `.price-delta svg { animation: none }` |
 | `copy-pop` | :1819 | 複製成功 | 全局 block |
-| `fade-up` | :2761 | box / watchlist hero 浮現（桌面 only :2773–2776） | :2778 `.fade-up, .fade-up-desktop { animation: none }` |
+| `fade-up` | :2761 | box / watchlist hero 浮現（桌面 only :2773–2776）**＋ WS3 scroll reveal 重用同一條** | :2778 `.fade-up, .fade-up-desktop { animation: none }`；reveal 側喺 `styles/reveal.css` 自己再有一個 |
 | `live-beam` | `styles/glow-badges.css` | live 徽章 border beam，**`2.6s × 3` 之後停返 0deg**（冇 `fill-mode`），而且只喺 `.detail-page` 出 | 同檔 `@media (prefers-reduced-motion: reduce) { .detail-page .live-badge { animation: none } }` |
+| `chart-draw` | `styles/history-chart.css` | `.price-line` 由頭畫到尾（`pathLength="1"` + dashoffset 1→0，900ms） | 同檔 `@media (prefers-reduced-motion: reduce)`：`animation: none` + `stroke-dasharray: none` |
+| `chart-bar-rise` | 同上 | `.sales-bar` 由 baseline `scaleY(0→1)`，stagger 30ms、序號封頂 20 | 同上 |
+| `chart-dot-in` | 同上 | `.price-point` 喺線畫完（760ms）先淡入 | 同上 |
 
 其他 transition 類 reduced-motion block：`:2186`（grader tabs）、`:2289`（cap-ticker）、
-`:2669`（explore search / sort）、`:2778`（hover-lift / skip-link / detail-metrics / back-link）。
+`:2669`（explore search / sort）、`:2778`（hover-lift / skip-link / detail-metrics / back-link /
+**WS3 `.primary-action:active` + `.explore-dir-icon`**）。
+
+WS3 三個 chart keyframe **全部收喺 `.history-panel[data-draw="in"]` 底下**：SSR 出嘅 HTML 冇
+呢個 attribute，即係 view-source 見到嘅係畫好晒嘅圖（實測 `stroke-dashoffset` 出現 0 次）。
+
+`data-draw` 有三個值：冇（SSR / 未入場）→ `"in"`（播緊）→ **`"done"`（播完，1200ms 後由
+`history-chart.tsx` 落）**。三條 rule 只掛 `"in"`，所以入場係一次性 —— 之後撳 period
+（bar / dot 嘅 React key 帶住 `point.at`，換窗即係全新 DOM 節點）唔會再播一次。
+同 §4.4 `data-settled` 一樣係「動畫完咗要清場」嘅形狀。
 
 ### 3.3 手機唔等於桌面
 
@@ -224,6 +236,19 @@ tilt / spotlight 類仲要再加 `@media (hover: hover) and (pointer: fine)`。
    加動畫 = 100 條同時跑。呢條寫死喺檔入面，唔准「試下」。
 3. **一個共用 IntersectionObserver。** 要 scroll reveal 就 module 級開**一個** observer 派畀所有
    subscriber，唔准每個 component 自己 `new IntersectionObserver`。每頁 reveal target ≤ 8 個、section 級。
+   **WS3 落實：`components/reveal.tsx` 係唯一入口**（`<Reveal>` 同 `revealOnce()`），
+   `rootMargin: "-10% 0px -10% 0px"`、once（一 intersect 就 `unobserve`）。
+   **IO 一個人守唔住**：IO 淨係喺 threshold 跨界先派 entry，一下 fling 由「元素喺視窗
+   下面（ratio 0）」跳到「喺上面（ratio 0）」ratio 冇變過 → 一個 callback 都冇 →
+   個 section 永遠 opacity 0（審核 4/4 重現）。所以 `reveal.tsx` 另外有**一個共用**、
+   rAF 節流嘅 `scroll` / `resize` sweep 兜底：`top < innerHeight * 0.9` 就播，
+   `pendingTargets` 一空即刻 `removeEventListener`。呢個唔算多咗一個 observer，
+   但「加 listener 要識自己拆」同 §4.4 `will-change` 同一條規矩。
+   （試過只喺 IO callback 加「已經捲過咗頭」條件 —— **冇用**，實測一樣 opacity 0。）
+   量法：`add_init_script` 包住 `window.IntersectionObserver` 數 construction ——
+   `/card/[id]` 同 `/market-report` 各自量到 **2 個 construction，其中 `-10%` 嗰個 = 1**；
+   另一個 `{rootMargin:"200px"}` 係 `next/link` 自己嘅 prefetch observer，唔屬於呢條預算。
+   `<Reveal>` **唔准包 ranking row / heatmap tile / sparkline**，亦唔准喺 `/` 首屏出現。
 4. **`will-change` 用完一定要拆。** 樣板 = `data-settled`（:949）：
    `.heatmap-tile[data-late]` 播 pop 期間先 `will-change: transform, opacity`（:947），
    `animationend` 由 `heatmap-tile.tsx:57` 落 `data-settled`，CSS 即刻 `will-change: auto`。
@@ -289,6 +314,8 @@ tilt / spotlight 類仲要再加 `@media (hover: hover) and (pointer: fine)`。
 | `styles/empty-state.css` | `empty-state.tsx:3`（WS4） |
 | `styles/card-art.css` | `card-detail.tsx`（WS2；holo / tilt / spotlight + 相關卡 spotlight） |
 | `styles/glow-badges.css` | `provenance.tsx`、`card-detail.tsx`、`market-page.tsx`（WS2；`#1` / top mover / live 徽章） |
+| `styles/reveal.css` | `reveal.tsx:4`（WS3；`.reveal-pending` / `.reveal-in`，keyframe 借 globals 個 `fade-up`） |
+| `styles/history-chart.css` | `history-chart.tsx`（WS3；線 draw-in、bar scaleY、點淡入） |
 
 **新功能 → 新 `styles/<feature>.css` + 喺擁有者度 import。**
 `globals.css` 只收 token 加減，同埋 plan 明文點名嘅改動。呢個檔已經 2,838 行，
@@ -316,7 +343,7 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
 |---|---|---|
 | **WS1** | token（`--font-sans/mono`、`--step--1…4`、`--tracking-*`、`--space-1…8`）、mono stack 四處收一、字階落三個流體點（`.content-hero h1` / `.content-body h2` / `.hub-hero h1`）、呢份 DESIGN.md、`PRESENTATION` 升 FE05 + fallback 037/FE04 | ✅ 已落 |
 | **WS2** | 卡圖 holo / tilt / spotlight（`card-art.tsx` wrapper + `styles/card-art.css`）、`#1` chip、7d top mover chip、live 徽章 border beam（`styles/glow-badges.css`）、相關卡 hover spotlight | ✅ 已落 |
-| WS3 | Motion 系統：共用 IntersectionObserver reveal、history chart 線條 draw-in、count-up 擴到卡頁 | TODO |
+| **WS3** | Motion 系統：共用 IntersectionObserver reveal（`reveal.tsx` + `styles/reveal.css`）、history chart 線條 draw-in / bar scaleY / 點淡入（`styles/history-chart.css`）、count-up 擴到 PSA 10 價 + 鑑定數量 + hub stat、桌面 dialog spring overshoot、`.primary-action` press 陰影、排序方向掣 180° 翻轉 | ✅ 已落 |
 | **WS4** | Loading / empty / status：共用 `skeletons.tsx`（`MarketHeroSkeleton` / `RankingRowsSkeleton`）+ `styles/skeleton.css`、`empty-state.tsx` + `styles/empty-state.css`（4 個 call site）、`aria-busy` 落 `#market-ranking` / `#box-ranking`。**`/card/[id]` 冇骨架**：`app/card/loading.tsx` 同 route 內 `<Suspense>` 兩條路都試過、兩條都要唔起（見下面 WS4 實數第 2 點） | ✅ 已落（1 條 plan gate 未過，見欠單 ⑤） |
 | WS5 | OG 圖 v2（卡圖入圖，satori 讀唔到 WebP → 要解碼），fail-open 退返純文字版 | TODO |
 | WS6 | HyperFrames 每日市場 recap 片（`apps/web` 以外，獨立 folder） | TODO（可選） |
@@ -474,6 +501,113 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
 8. `.empty-state-title` 由硬寫 13px 換咗 `var(--step--1)`（WS1 字階）：@390 出 **12px**、
    @1280 出 **13px**（`verify.json`）。即係手機嗰邊標題同提示同字級，靠 `--ink` + 600
    分主次。
+
+**WS3 量到嘅實數**（`temp/fe05/ws3/`，dev server :3901，卡 `cmc_fc229f7ae1b256b2119fa79b`）：
+
+- **crawler shell 零隱藏**（`crawler.json`，GPTBot UA、唔行 JS）：`/market-report`、`/card/[id]`、
+  `/methodology`、`/rankings/most-valuable-pokemon-cards` 四頁 —— `reveal-pending` **0**、
+  inline `opacity: 0` **0**、`data-draw` **0**、`stroke-dashoffset` **0**。
+  hub 8 個 `<h2>` 逐句喺 shell（Concentration / 4 條 gainers-losers / populations / sets / More rankings）；
+  卡頁 `<h1>` byte **10057** < 第一個 `<div hidden id="S:` **51556**（WS4 條 crawler-shell 約定冇被打爛）。
+- **observer 數 = 1**（`verify.json`）：`/card/[id]` 同 `/market-report` 各量到 2 個
+  `new IntersectionObserver`，`{"rootMargin":"200px"}`（`next/link` prefetch）＋
+  `{"rootMargin":"-10% 0px -10% 0px"}`（WS3）—— **WS3 嗰個係 1 個**，唔係一個 component 一個。
+- **成頁 scroll：CLS 0.0000、layout-shift entry 0 個、>200ms longtask 0 個**
+  （390 最長 77ms、1280 最長 88ms，全部係 dev hydration；dev 未 minify，呢個數只證「唔係我加嘅」）。
+- **chart draw-in 真係播**（`chart_draw`）：入視窗前 `data-draw: null` / `dasharray: none` /
+  `dashoffset: 0px`（= SSR 嗰個最終狀態）；入視窗之後 150ms `0.504` → 300ms `0.172` →
+  600ms `0.0056` → 1400ms `0`，bar `scaleY` 由 `0.805` 升到 `1`。
+  截圖 `chart-draw-300ms.png`（線畫到約 83%、點未出）vs `chart-draw-end.png`（線齊、點齊）。
+  播完 4 秒後 183 個 animation **全部 `finished`**、`will-change: auto`。
+- **reduced-motion**：`/card/[id]` 同 `/market-report` 嘅 WS3 observer **0 個**、`.reveal-pending` **0 個**、
+  `.history-panel` 冇 `data-draw`，probe 到嘅 section 逐個 `opacity: 1` 兼 `getAnimations()` 空
+  （`reduced-card-1280.png` / `reduced-hub-1280.png`）。
+- **390 完全靜態**（`shot_390_*`）：`reveal-pending` / `reveal-in` **0 個**、`metrics_opacity` `1`、
+  `documentElement.scrollWidth` **375**（冇橫向溢出），light + dark 都係。
+  1280 mid-scroll 影到動畫進行中（`pending: 2` / `revealed: 1` / `metrics_opacity` `0.9974`）——
+  `card-{390,1280}-{light,dark}-mid.png` 四張。
+- **桌面 dialog overshoot**（`verify3.json`）：`0.98712 → 峰值 1.00193 → 1`；
+  reduced-motion 之下 `0.98 → 1`、峰值 1（同 FE04 一模一樣）。
+- **排序方向掣**（`verify2.json`）：`data-dir="desc"` → icon `matrix(-1,0,0,-1,0,0)`（180°）、
+  `asc` → `none`，`transition: transform 0.17s`，`aria-label` 照跟 `High to low` / `Low to high` 翻。
+- **`.primary-action` press**：idle `boxShadow: none` / `transform: none`；撳住
+  `scale(0.98)` + `--elev-1`，`transition-duration: 0.12s`（鬆手行返上面 0.22s spring）。
+- 五個 context（卡頁 ×4、hub、`/`、404 頁）console error / pageerror **0**。
+- `npx tsc --noEmit -p apps/web` **0 error**（ESLint 同 WS2 一樣行唔到，見 WS2 欠單 ⑦）。
+
+**WS3 嘅決定同欠單：**
+
+1. **Reveal 有三個閘，全部喺 mount 之後行：reduced-motion / `<981px` / 元素已經喺視窗入面。**
+   三個任何一個中就**完全唔做嘢**（唔加 class、唔 observe）。第三個閘唔止係「首屏唔准動」——
+   已經睇到嘅嘢事後先由 opacity 0 播返起，個效果係「跳返轉頭」，比冇動畫更差。
+   結果：SSR HTML 一個隱藏 class 都冇，crawler / 無 JS 訪客同以前一模一樣。
+2. **手機（<981px）完全靜態**，跟 `.fade-up-desktop` 同一個斷點（§3.3）。
+   唔止 CSS 唔播 —— JS 側都唔 arm，所以 390px 一個 observer subscription 都冇。
+3. **`box-detail.tsx` 冇加 `<Reveal>`**（plan 有點名）。佢個 `.detail-actions` / `.detail-grid`
+   已經係 `fade-up`，成塊嘢入場已經浮現過一次；喺一個播緊 fade-up 嘅 parent 入面再套一層
+   reveal = 同一舊嘢動兩次。`/box/[id]` 一樣食到 chart draw-in（`HistoryChart` 共用）。
+4. **chart 唔另外包 `<Reveal>`**：draw-in 本身就係佢個入場，再加 fade-up 就係兩層。
+   所以 `/card/[id]` 一共 3 個動效 target（story / metrics / related）＋ 1 個 chart draw。
+   `/market-report` 係全站最多：**8 個 `.hub-section`**（7 個表 + 1 個 link group）＝ 啱啱到上限。
+   再加 hub 表就會爆 §4.3 條「≤ 8」，要嘛分頁要嘛揀住 reveal。
+5. **`sparkline.tsx` 明文唔動**，檔內第 9 行寫死原因（rankings 100+ 實例）。
+6. **count-up 落 `card-detail` 三個數 + hub 四個 stat，ranking row 一律唔掂。**
+   順手修咗一個舊 bug：市值嗰格本來只睇 `value === null` 就決定滾唔滾，但
+   `formatMetric*` 喺 `accumulating` / `unavailable` 回嘅係一句**狀態字**（唔係數）——
+   value 有數但 status 係 accumulating 嗰啲卡，舊 code 會由 0 滾去一個唔應該顯示嘅數字。
+   而家三個 metric 行同一個 `tickerValue()`。
+7. **hub stat 嘅 count-up 要過 server→client 邊界**：`HubShell` 係 server component，
+   傳唔到 `format` function 落 `<CapTicker>`，所以 `HubStat` 加咗一個**可序列化**嘅
+   `tick`（值 + `money|integer` + locale + rates），client 側 `hub-stat-ticker.tsx` 砌返
+   同一條 formatter。`stat.value` 依然係權威文字：冇 `tick` 就照出佢，有 `tick` 都要同
+   `value` 逐個字一樣（`money()` 一定係 USD compact），否則 hydrate 就會對唔到數。
+   而家只有 `/market-report` 有 stats，其餘三條 hub 係 `stats: []`。
+8. **桌面 dialog 只換 easing / 時間，`initial` 個 scale 唔郁。** 試過 `0.96` 起手（overshoot
+   峰值 1.0039，靚啲），但 `reducedMotion="user"` 之下 framer 一樣會 render 一 frame `initial`：
+   即係為咗桌面靚 2%，令 reduced-motion 用戶嗰下跳幅由 2% 變 4%。改返 `0.98` + `--ease-spring`，
+   一樣量到 overshoot（1.00193）。手機 drag sheet 嘅 timing 一格都冇郁。
+9. **`.primary-action:active` 個 `scale(0.98)` 本來就有**（globals.css :2238，2026-07-25 嗰批
+   UI experiments）。WS3 加嘅只係陰影 + 120ms press 時間，唔係由零做一個 press 態 ——
+   plan 寫「加 press state」係同現況有出入，記返落嚟。
+10. **`.explore-dir` 只喺 681–980px 見得到**（`.explore-sort-chips` ≥981 由表頭排序取代、
+    ≤680 轉 lean 模式唔 render chips）。即係話呢個 180° 翻轉喺手機同大螢幕都見唔到，
+    量度要用 900px。要唔要喺 lean 模式都有個方向掣，係設計題，唔喺 WS3 範圍。
+11. **dev server 量到嘅 longtask 唔算數**（WS1 欠單 ④ 同一條）：`/card/[id]` 同 `/` 嘅
+    longtask 預算要 production build 先判。CLS / rect / observer 數呢啲同 build mode 無關嘅
+    先當數。
+
+**WS3 審核之後嘅修正**（證據 `temp/fe05/ws3-fix/`）：
+
+12. **「一下大 wheel 令個 section 永遠 opacity 0」已修（major）。** 根因唔係 IO 冇睇到，
+    係 **IO 淨係 threshold 跨界先派 entry**：ratio 由 0（喺下面）跳去 0（喺上面），
+    冇跨界 = 零 callback。第一版照審核建議喺 callback 加 `bottom <= rootBounds.top`，
+    重量之後**一樣 opacity 0**（`fixverify.json` 第一輪）—— 因為根本冇 callback 行到。
+    正解係加共用 rAF scroll sweep（§4.3）。修完：`wheel1400` / `wheel2000` 之下
+    `.detail-metrics` `opacity "1"`、`.reveal-pending` 0 個、`hidden: []`；
+    `wheel600x1` 對照組照舊正常。
+13. **chart 換 period 唔會再播一次（major）。** `data-draw` 加咗 `"done"` 終態。
+    修前：撳一下 period，333 個價點 opacity 0 足 760ms、15 條 bar 塌返再升，條線仲喺度。
+    修後（`draw.json` / `fixverify.json`）：`after_period_switch_120ms` →
+    `barAnims: []`、`dotOpacity: "1"`、`lineAnims: []`、`draw: "done"`。
+    入場本身照播（`draw.json`：dashoffset `0.9996 → 0.358 → 0.068 → 0.0002 → 0`、
+    bar `scaleY 0.0008 → 0.915 → 1`、dot `0 → 0.597 → 1`，之後 state 升 `"done"`）。
+14. **reveal 播完拆晒 class，唔留 transform。** `fade-up ... both` 本來會永遠留一個
+    `matrix(1,0,0,1,0,0)`：非 `none` 嘅 transform = 成個 section 變咗
+    `position: fixed` 後代嘅 containing block + stacking context，將來喺入面擺 popover
+    會由零查起。而家 `animationend`（認 target + keyframe 名，因為佢會冒泡）之後
+    `remove("reveal-pending", "reveal-in")`。實測 `/market-report` 8 個 `.hub-section`
+    播完：`transform` 全部 `none`、`opacity 1`、`will-change auto`、殘留 class 0、
+    `getAnimations()` 0。
+15. **CLS @390 重量五次全部 `0.0000` / 0 個 shift**（`cls_390_x5`）—— 審核見到嗰次
+    `0.0261` 五次重量都撞唔返；WS3 喺 390 由頭到尾冇 arm（observer 0、pending 0），
+    所以就算間中有，都唔係 WS3 嚟。longtask 最大 66–99ms（dev build，同欠單 ⑪）。
+16. **`box-detail.tsx` 嘅 `<Reveal>` 仍然冇加**（審核 minor，未修）。理由同上面第 3 點，
+    要 owner 拍板先郁；`/box/[id]` 照食到 chart draw-in。
+17. **reduced-motion sibling 逐條即場證明過會 fire**（AGENTS.md 規矩 9，`rule9.json`）：
+    喺 `reduce` context 手動種返 `.reveal-pending` / `.reveal-in` / `data-draw="in"` →
+    `opacity "1"`、`animation-name "none"`、`stroke-dasharray "none"`、bar / dot 都 `none`；
+    同一段 forcing 喺 `no-preference` → `opacity 0` + `fade-up 0.7s` + `chart-draw` /
+    `chart-bar-rise` / `chart-dot-in` 全部起。
 
 ### 明確非目標
 

@@ -285,10 +285,14 @@ export function ExploreBar({
           <button
             type="button"
             className="explore-dir"
+            data-dir={dir}
             onClick={() => { tap.select(); onSort(sort); }}
             aria-label={dir === "asc" ? lowToHigh : highToLow}
           >
-            {dir === "asc" ? <ArrowUp aria-hidden="true" size={13} strokeWidth={2.2} /> : <ArrowDown aria-hidden="true" size={13} strokeWidth={2.2} />}
+            {/* FE05 WS3：方向掣永遠 render ArrowUp，desc 由 CSS 轉 180°（見 globals.css
+                .explore-dir-icon）。換 icon component 會令 React 換走成個節點，
+                冇得 transition —— 文案同 aria-label 一樣照跟方向。 */}
+            <ArrowUp aria-hidden="true" className="explore-dir-icon" size={13} strokeWidth={2.2} />
             <span>{dir === "asc" ? lowToHigh : highToLow}</span>
           </button>
         )}

@@ -1,0 +1,15 @@
+/* FE05 WS3 —— scroll reveal。
+   keyframe **重用 globals.css:2752 個 `fade-up`**，唔開第二條做同一件事。
+
+   呢個檔冇任何「預設隱藏」規則：`.reveal-pending` 只會由 reveal.tsx 喺 mount 之後
+   （桌面 + 冇 reduced-motion + 元素仲喺視窗下面）加，所以 SSR 出嘅 HTML 同
+   唔行 JS 嘅 crawler 永遠見到 opacity 1。 */
+.reveal-pending { opacity: 0; }
+.reveal-pending.reveal-in { animation: fade-up 700ms var(--ease-standard) both; }
+
+/* reduced-motion sibling（DESIGN.md §3.1）：JS 嗰邊已經唔會 arm，呢度再兜一次底 ——
+   萬一 class 用其他途徑落咗嚟，內容一樣要即刻喺最終 opacity。 */
+@media (prefers-reduced-motion: reduce) {
+  .reveal-pending,
+  .reveal-pending.reveal-in { opacity: 1; animation: none; }
+}

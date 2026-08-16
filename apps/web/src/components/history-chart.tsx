@@ -1,11 +1,14 @@
 "use client";
 
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { ChartLine } from "lucide-react";
 import { EmptyState } from "./empty-state";
+import { revealOnce } from "./reveal";
 import { copy } from "@/lib/i18n";
 import { formatMoney, formatObservationDayMonth } from "@/lib/format";
 import { useMarketSettings } from "@/lib/use-market-settings";
 import { marketWindowDays, type Currency, type Locale, type PricePoint } from "@/lib/types";
+import "@/app/styles/history-chart.css";
 
 interface HistoryChartProps {
   points: PricePoint[];
@@ -13,6 +16,10 @@ interface HistoryChartProps {
   currency: Currency;
   rates: Record<Currency, number>;
 }
+
+/* 入場最長嗰條：bar 最尾一條 delay 20×30ms + 420ms = 1020ms（線 900ms、點 760+240ms）。
+   加 180ms buffer 先收 state，唔好喺 keyframe 未完就抽走條 rule。 */
+const DRAW_TOTAL_MS = 1200;
 
 export function pointsForWindow(points: PricePoint[], days: number): PricePoint[] {
   const sorted = points
@@ -28,9 +35,43 @@ export function pointsForWindow(points: PricePoint[], days: number): PricePoint[
   return anchor ? [anchor, ...inside] : inside;
 }
 
+/* bar 出唔出嘅條件抽咗做一個 predicate：render 嗰陣同計 stagger 序號嗰陣要同一句，
+   兩處各寫一次就一定有一日行開（AGENTS.md 規矩 13）。 */
+function hasSalesBar(point: PricePoint): point is PricePoint & { trackedSalesValueUsd: number; trackedSalesCount: number } {
+  return point.salesCoverage !== "unavailable" &&
+    point.trackedSalesValueUsd !== null &&
+    point.trackedSalesValueUsd > 0 &&
+    point.trackedSalesCount !== null &&
+    point.trackedSalesCount > 0;
+}
+
 export function HistoryChart({ points, locale, currency, rates }: HistoryChartProps) {
   const { period } = useMarketSettings();
   const t = copy[locale];
+  /*
+   * draw-in state（FE05 WS3）：JSX 預設**冇** data-draw，即係 SSR 出嘅係畫好嘅圖。
+   * revealOnce 自己揸三個閘（reduced-motion / <981px / 已經喺視窗），唔夠條件就
+   * 由頭到尾冇 state，亦冇 observer subscription。hook 要喺下面 early return 之前 call。
+   */
+  const panelRef = useRef<HTMLElement>(null);
+  const [draw, setDraw] = useState<"in" | "done" | null>(null);
+  useEffect(() => {
+    const el = panelRef.current;
+    if (!el) return;
+    return revealOnce(el, () => setDraw("in"));
+  }, []);
+  /*
+   * 入場播一次就升做 "done"。三條 draw rule 全部掛喺 [data-draw="in"]，所以 "done"
+   * 之後換 period（bar / dot 嘅 React key 帶住 point.at，換窗即係全新節點）唔會再播。
+   * 唔改就變成：畫好晒之後撳一下 7D，333 個價點靜音 760ms、15 條 bar 塌返落去再升，
+   * 而條線仲喺度 —— 一次 routine 操作生 ~348 個 animation（審核 major #2）。
+   * 清 state 唔會跳格：三條 rule 嘅終態同 base 樣（冇 dasharray / 冇 transform / opacity 1）。
+   */
+  useEffect(() => {
+    if (draw !== "in") return;
+    const timer = window.setTimeout(() => setDraw("done"), DRAW_TOTAL_MS);
+    return () => window.clearTimeout(timer);
+  }, [draw]);
   const days = marketWindowDays[period];
   const selected = pointsForWindow(points, days);
   const prices = selected.filter((point) => point.priceUsd !== null && Number.isFinite(point.priceUsd));
@@ -73,9 +114,15 @@ export function HistoryChart({ points, locale, currency, rates }: HistoryChartPr
   const maxSales = Math.max(1, ...sales.map((point) => point.trackedSalesValueUsd ?? 0));
   const barBand = Math.max(2, Math.min(16, plotWidth / Math.max(1, selected.length) * 0.58));
   const date = (value: string) => formatObservationDayMonth(value, locale);
+  /* stagger 序號按「真係畫得出嘅 bar」數：直接用 selected 個 index 會因為中間好多日
+     冇成交而出現一格格空窗（延遲跳格），睇落似卡格。 */
+  const barOrder = new Map<number, number>();
+  selected.forEach((point, index) => {
+    if (hasSalesBar(point)) barOrder.set(index, barOrder.size);
+  });
 
   return (
-    <section className="history-panel" aria-labelledby="history-heading">
+    <section className="history-panel" aria-labelledby="history-heading" ref={panelRef} data-draw={draw ?? undefined}>
       <div className="history-heading">
         <h2 id="history-heading">{t.labels.history}</h2>
         <span>{t.periods[period]}</span>
@@ -95,13 +142,7 @@ export function HistoryChart({ points, locale, currency, rates }: HistoryChartPr
             </g>
           ))}
           {selected.map((point, index) => {
-            if (
-              point.salesCoverage === "unavailable" ||
-              point.trackedSalesValueUsd === null ||
-              point.trackedSalesValueUsd <= 0 ||
-              point.trackedSalesCount === null ||
-              point.trackedSalesCount <= 0
-            ) return null;
+            if (!hasSalesBar(point)) return null;
             const barHeight = Math.max(1, (point.trackedSalesValueUsd / maxSales) * plotHeight * 0.28);
             return (
               <rect
@@ -112,12 +153,15 @@ export function HistoryChart({ points, locale, currency, rates }: HistoryChartPr
                 height={barHeight}
                 rx="1.5"
                 className="sales-bar"
+                style={{ "--bar-i": Math.min(barOrder.get(index) ?? 0, 20) } as CSSProperties}
               >
                 <title>{`${point.at}: ${formatMoney(point.trackedSalesValueUsd, currency, rates, locale)}`}</title>
               </rect>
             );
           })}
-          {line && <path d={line} className="price-line" />}
+          {/* pathLength="1" 只係換咗 dasharray / dashoffset 嘅單位（變 0–1 比例），
+              視覺上冇分別；draw-in 冇播嗰陣條線一樣係完整嘅。 */}
+          {line && <path d={line} className="price-line" pathLength="1" />}
           {selected.map((point, index) => point.priceUsd === null ? null : (
             <circle key={`price-${point.at}-${index}`} cx={x(point)} cy={y(point.priceUsd)} r="3" className="price-point">
               <title>{`${point.at}: ${formatMoney(point.priceUsd, currency, rates, locale)}`}</title>

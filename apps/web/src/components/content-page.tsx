@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import { Reveal } from "@/components/reveal";
 import { StructuredData, canonicalPublicUrl } from "@/components/structured-data";
 import { displayCardName } from "@/lib/card-name";
 import { formatInteger, formatMoney } from "@/lib/format";
@@ -124,13 +125,15 @@ export function FilledSection({
 }) {
   const body = fillAll(prose.body, vars);
   if (body.length === 0) return null;
+  /* FE05 WS3：內容頁一版最多 5 個 section（/about、/methodology），全部行同一個共用
+     observer。<Reveal as="section"> 出返同一個 <section id>，錨點 / TOC 唔受影響。 */
   return (
-    <section id={id}>
+    <Reveal as="section" id={id}>
       <h2>{prose.heading}</h2>
       {body.map((paragraph) => (
         <p key={paragraph}>{paragraph}</p>
       ))}
-    </section>
+    </Reveal>
   );
 }
 
@@ -164,12 +167,12 @@ export function ContentTable({ table }: { table: TableCopy }) {
 
 export function ProseSection({ id, prose }: { id: string; prose: Prose }) {
   return (
-    <section id={id}>
+    <Reveal as="section" id={id}>
       <h2>{prose.heading}</h2>
       {prose.body.map((paragraph) => (
         <p key={paragraph}>{paragraph}</p>
       ))}
-    </section>
+    </Reveal>
   );
 }
 

@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { HubStatTicker } from "./hub-stat-ticker";
+import { Reveal } from "./reveal";
 import { StructuredData } from "./structured-data";
 import type { HubStat, HubView, SeoTableColumn, SeoTableRow } from "@/lib/seo-routes";
 /* CSS 跟 repo 慣例由用佢嘅 component 自己 import（同 card-links.css 一樣），
@@ -67,7 +69,8 @@ function HubStats({ stats }: { stats: HubStat[] }) {
       {stats.map((stat) => (
         <div className="hub-stat" key={stat.label}>
           <dt>{stat.label}</dt>
-          <dd>{stat.value}</dd>
+          {/* `stat.value` 永遠係權威文字（SSR / crawler 見到嗰句）；有 tick 先接 count-up。 */}
+          <dd>{stat.tick ? <HubStatTicker tick={stat.tick} /> : stat.value}</dd>
         </div>
       ))}
     </dl>
@@ -104,19 +107,27 @@ export function HubShell({ view }: { view: HubView }) {
 
       {view.stats.length > 0 && <HubStats stats={view.stats} />}
 
+      {/*
+        FE05 WS3 scroll reveal：/market-report 實測 7 個 table section + 1 個 link group
+        = 8 個 target，**啱啱好用晒**§4.3 個 ≤8 上限。再加一個 hub table 就爆 budget，
+        要嘛分頁、要嘛揀住邊幾個 section 先 reveal。
+        用 <Reveal as="section"> 由原本個 <section> 自己做 target，
+        DOM 一個節點都冇多；隱藏 class 只喺 mount 之後、桌面、元素仲喺視窗下面先加，
+        所以 hub 頁嘅 crawler shell（GEO 主力）永遠係完整文字。
+      */}
       {view.tables.map((block) => (
-        <section className="hub-section" id={block.id} key={block.id}>
+        <Reveal as="section" className="hub-section" id={block.id} key={block.id}>
           {block.heading ? <h2>{block.heading}</h2> : null}
           {block.intro ? <p className="hub-lead">{block.intro}</p> : null}
           <SeoTable columns={block.columns} rows={block.rows} caption={block.caption} />
           {block.note ? <p className="hub-note hub-table-note">{block.note}</p> : null}
-        </section>
+        </Reveal>
       ))}
 
       {view.emptyNote ? <p className="hub-note">{view.emptyNote}</p> : null}
 
       {view.linkGroups.map((group) => (
-        <section className="hub-section hub-links" key={group.heading}>
+        <Reveal as="section" className="hub-section hub-links" key={group.heading}>
           <h2>{group.heading}</h2>
           <ul>
             {group.links.map((link) => (
@@ -125,7 +136,7 @@ export function HubShell({ view }: { view: HubView }) {
               </li>
             ))}
           </ul>
-        </section>
+        </Reveal>
       ))}
     </div>
   );

@@ -2242,6 +2242,11 @@ html.theme-transitions .card-dialog {
 .heatmap-export:active,
 .share-button:active,
 .ranking-jump:active { transform: scale(0.98); }
+/* FE05 WS3（Interaction Kit）：scale(.98) 上面已經有，撳落嗰下再收埋一層陰影，
+   而且 press 用 120ms（快過回彈嗰 220ms spring）—— 落手要即刻應，鬆手先慢慢彈返。
+   只落 .primary-action：另外三個係細 chip，加陰影會喺熱力圖頂搶眼。 */
+.primary-action { transition-property: background, border-color, color, transform, box-shadow; }
+.primary-action:active { box-shadow: var(--elev-1); transition-duration: 120ms; }
 /* 共用 pressed feel（touch 冇 hover，靠呢下俾反應）：控件輕縮，行用 background 閃 */
 .heatmap-tile:active,
 .period-selector button:active,
@@ -2298,6 +2303,9 @@ html.theme-transitions .card-dialog {
   .mobile-rank-card:focus-visible,
   .primary-action:hover,
   .primary-action:focus-visible { transform: none; }
+  /* FE05 WS3 sibling：press 態嘅縮同陰影一齊收（全局 block 只壓時間，唔會取消個 transform） */
+  .primary-action:active { transform: none; box-shadow: none; }
+  .explore-dir-icon { transition: none; }
 }
 
 /* ── 404 + prestige tagline（ui-experiments-20260725 移植）───── */
@@ -2709,6 +2717,10 @@ button.primary-action { border: 0; }
   .ranking-heading[data-searching="true"] h2 { font-size: 15px; }
 }
 .explore-dir { display: inline-flex; align-items: center; gap: 5px; }
+/* FE05 WS3（Interaction Kit）：排序方向唔再換一個 icon component，永遠出 ArrowUp，
+   由 CSS 轉 180° —— 換 icon 係「消失＋出現」，轉係「同一支箭調轉頭」，睇得明啲。 */
+.explore-dir-icon { flex: none; transition: transform var(--control-transition); }
+.explore-dir[data-dir="desc"] .explore-dir-icon { transform: rotate(180deg); }
 .sort-th {
   display: inline-flex;
   align-items: center;

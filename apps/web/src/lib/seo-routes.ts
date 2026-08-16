@@ -12,7 +12,7 @@ import {
 import { fill, hubCopy, monthYearLabel, withLang, type HubCopy } from "./hub-copy";
 import { copy } from "./i18n";
 import { slugify } from "./related-cards";
-import type { Locale, MarketCardView, MarketMetric, MarketViewSnapshot, MarketWindow } from "./types";
+import type { Currency, Locale, MarketCardView, MarketMetric, MarketViewSnapshot, MarketWindow } from "./types";
 
 /*
  * SEO hub 嘅共用 server library（owner 2026-08-16）：一個檔管晒「邊啲 hub 路徑存在」、
@@ -261,9 +261,23 @@ export interface HubTableBlock {
   rows: SeoTableRow[];
 }
 
+/*
+ * FE05 WS3：hub 頁係 server component，傳唔到 format function 落 <CapTicker>，
+ * 所以 count-up 要嘅嘢用**可序列化**嘅描述帶落去（數 + 種類 + locale + rates），
+ * client 側再砌返同一條 format。`value` 依然係權威文字：冇 `tick` 就照出佢，
+ * 有 `tick` 都要同 `value` 逐個字一樣（見 statTick），否則 hydrate 會對唔到數。
+ */
+export interface HubStatTick {
+  value: number;
+  kind: "money" | "integer";
+  locale: Locale;
+  rates: Record<Currency, number>;
+}
+
 export interface HubStat {
   label: string;
   value: string;
+  tick?: HubStatTick;
 }
 
 export interface HubView {
@@ -292,6 +306,12 @@ function isoDate(snapshot: MarketViewSnapshot): string {
 
 function money(value: number, snapshot: MarketViewSnapshot, locale: Locale): string {
   return formatMoney(value, "USD", snapshot.rates, locale, true);
+}
+
+/* count-up 描述（FE05 WS3）。`money()` 永遠係 USD compact，所以 client 側個
+   formatter 都要係 USD compact —— 兩邊一個 flag 唔同就即刻 hydration mismatch。 */
+function statTick(value: number, kind: HubStatTick["kind"], snapshot: MarketViewSnapshot, locale: Locale): HubStatTick {
+  return { value, kind, locale, rates: snapshot.rates };
 }
 
 function metricMoney(metric: MarketMetric<number>, snapshot: MarketViewSnapshot, locale: Locale): string {
@@ -930,11 +950,12 @@ export function marketReportView(snapshot: MarketViewSnapshot, locale: Locale): 
     methodLabel: t.common.methodLink,
     methodHref: withLang("/methodology", locale),
     crumbs,
+    /* 四個數字型 stat 行 count-up；`statTop10` 係一句百分比字串，冇 count-up。 */
     stats: [
-      { label: t.report.statCards, value: formatInteger(cards.length, locale) },
-      { label: t.report.statTotal, value: money(totalCap, snapshot, locale) },
-      { label: t.report.statPokemon, value: money(pokemonCap, snapshot, locale) },
-      { label: t.report.statOnePiece, value: money(onePieceCap, snapshot, locale) },
+      { label: t.report.statCards, value: formatInteger(cards.length, locale), tick: statTick(cards.length, "integer", snapshot, locale) },
+      { label: t.report.statTotal, value: money(totalCap, snapshot, locale), tick: statTick(totalCap, "money", snapshot, locale) },
+      { label: t.report.statPokemon, value: money(pokemonCap, snapshot, locale), tick: statTick(pokemonCap, "money", snapshot, locale) },
+      { label: t.report.statOnePiece, value: money(onePieceCap, snapshot, locale), tick: statTick(onePieceCap, "money", snapshot, locale) },
       { label: t.report.statTop10, value: sharePct },
     ],
     tables,

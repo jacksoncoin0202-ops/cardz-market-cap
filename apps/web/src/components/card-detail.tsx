@@ -14,6 +14,7 @@ import { DETAIL_PRINT_FIELDS, printIdentityRows } from "./print-badge";
 import { Provenance } from "./provenance";
 import { PriceDelta, MetricDelta, staleClass, staleTitle } from "./rankings";
 import { RelatedCards } from "./related-cards";
+import { Reveal } from "./reveal";
 import { absolutePublicUrl, canonicalPublicUrl, datasetId, siteOrganization, StructuredData } from "./structured-data";
 import { displayCardName } from "@/lib/card-name";
 import { copy } from "@/lib/i18n";
@@ -21,11 +22,23 @@ import { formatInteger, formatMetricInteger, formatMetricMoney, formatMoney, for
 import { plainDescription } from "@/lib/plain-text";
 import { cardFactSentence, cardSubject, geoCopy, setHubPath, setSlug, tcgHubPath, type RelatedCardsPayload } from "@/lib/related-cards";
 import { StoryPanel } from "./story-panel";
-import { type MarketViewSnapshot } from "@/lib/types";
+import { type MarketMetric, type MarketViewSnapshot } from "@/lib/types";
 import { useMarketSettings } from "@/lib/use-market-settings";
 import "@/app/styles/card-links.css";
 import "@/app/styles/card-art.css";
 import "@/app/styles/glow-badges.css";
+
+/*
+ * FE05 WS3：邊個數准 count-up。
+ * `formatMetric*` 喺 accumulating / unavailable 嗰陣回嘅係一句狀態字（唔係數），
+ * 所以唔可以淨係睇 `value !== null` —— 睇漏就會由 0 滾去「暫無資料」。
+ * 三個 metric（市值 / PSA 10 價 / 鑑定數量）行同一句判斷，唔准逐個位各寫一次。
+ */
+function tickerValue(metric: MarketMetric<number>): number | null {
+  if (metric.value === null) return null;
+  if (metric.status === "accumulating" || metric.status === "unavailable") return null;
+  return metric.value;
+}
 
 /*
  * `related` 由 route（server）計，因為卡頁行嘅係 `singleCardSnapshot`——client 側
@@ -72,6 +85,10 @@ export function CardDetail({ id, snapshot, related }: {
   const capValue = card.marketCap.value;
   const priceValue = card.pricePsa10.value;
   const popValue = card.populationPsa10.value;
+  /* count-up 只做呢三個「頁面主角」數字；ranking row 一律唔掂（100 行 × rAF）。 */
+  const capTick = tickerValue(card.marketCap);
+  const priceTick = tickerValue(card.pricePsa10);
+  const popTick = tickerValue(card.populationPsa10);
   /*
    * GEO（owner 2026-08-16）：卡頁 H1 下面出一句自己站得住嘅事實——實體名、計法
    * （PSA 10 價 × PSA 10 鑑定數量）、日期、排名齊集，唔使睇圖表都答到問題。
@@ -197,19 +214,28 @@ export function CardDetail({ id, snapshot, related }: {
               ))}
             </dl>
           </header>
-          <StoryPanel title={t.labels.story} story={story} />
+          {/*
+            FE05 WS3 scroll reveal：呢頁一共三個 <Reveal>（story / metrics / related）
+            加 history chart 自己個 draw-in，四個 —— 每頁上限 8 個 section 級 target。
+            metrics 直接由原本嗰個 <section> 做 target（零多餘 DOM）；story 因為
+            <StoryPanel> 自己出 <section>，所以退返一個 wrapper <div>（block layout，
+            margin 照樣穿過去，實測 rect 零位移）。
+          */}
+          <Reveal><StoryPanel title={t.labels.story} story={story} /></Reveal>
           <div className="detail-period-row"><PeriodSelector compact /></div>
-          <section className="detail-metrics" aria-label={t.labels.marketCap}>
-            <div><span>{t.labels.marketCap}</span><strong className={staleClass(card.marketCap, "metric-value-fit")} title={staleTitle(card.marketCap, locale)}>{card.marketCap.value === null ? formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true) : <CapTicker key={card.marketCap.value} value={card.marketCap.value} format={(n) => formatMoney(n, currency, snapshot.rates, locale, true)} />}</strong><MetricDelta metric={card.marketCap} changePct={windowMetric.marketCapChangePct} currency={currency} rates={snapshot.rates} locale={locale} /></div>
-            <div><span>{t.labels.price}</span><strong className={staleClass(card.pricePsa10, "detail-price-now")} title={staleTitle(card.pricePsa10, locale)}>{formatMetricMoney(card.pricePsa10, currency, snapshot.rates, locale)}</strong><PriceDelta card={card} period={period} currency={currency} rates={snapshot.rates} locale={locale} /></div>
-            <div><span>{t.labels.population}</span><strong className={staleClass(card.populationPsa10, "")} title={staleTitle(card.populationPsa10, locale)}>{formatMetricInteger(card.populationPsa10, locale)}</strong></div>
+          <Reveal as="section" className="detail-metrics" aria-label={t.labels.marketCap}>
+            <div><span>{t.labels.marketCap}</span><strong className={staleClass(card.marketCap, "metric-value-fit")} title={staleTitle(card.marketCap, locale)}>{capTick === null ? formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true) : <CapTicker key={capTick} value={capTick} format={(n) => formatMoney(n, currency, snapshot.rates, locale, true)} />}</strong><MetricDelta metric={card.marketCap} changePct={windowMetric.marketCapChangePct} currency={currency} rates={snapshot.rates} locale={locale} /></div>
+            {/* FE05 WS3：PSA 10 價同鑑定數量跟返市值行同一個 ticker（JSX 出真實值，
+                滾動只喺 hydrate 之後）。數量要 Math.round —— 中途嗰啲小數唔可以見街。 */}
+            <div><span>{t.labels.price}</span><strong className={staleClass(card.pricePsa10, "detail-price-now")} title={staleTitle(card.pricePsa10, locale)}>{priceTick === null ? formatMetricMoney(card.pricePsa10, currency, snapshot.rates, locale) : <CapTicker key={priceTick} value={priceTick} format={(n) => formatMoney(n, currency, snapshot.rates, locale)} />}</strong><PriceDelta card={card} period={period} currency={currency} rates={snapshot.rates} locale={locale} /></div>
+            <div><span>{t.labels.population}</span><strong className={staleClass(card.populationPsa10, "")} title={staleTitle(card.populationPsa10, locale)}>{popTick === null ? formatMetricInteger(card.populationPsa10, locale) : <CapTicker key={popTick} value={popTick} format={(n) => formatInteger(Math.round(n), locale)} />}</strong></div>
             <div><span>{t.periods[period]} {t.labels.change}</span><strong className={`metric-${metricTone(windowMetric.changePct)}`}>{formatPercent(windowMetric.changePct, locale)}</strong>{windowMetric.changePct.sourceSwitched && <small className="muted-copy">{t.provenance.anchorSwitched}</small>}</div>
             <div className="wide-metric"><span>{t.periods[period]} {t.labels.trackedSales}</span><strong className="metric-value-fit">{formatTrackedSales(windowMetric.trackedSales, currency, snapshot.rates, locale)}</strong><MetricDelta metric={windowMetric.trackedSales.valueUsd} changePct={windowMetric.trackedSalesChangePct} currency={currency} rates={snapshot.rates} locale={locale} /></div>
             {/* 冇 RAW 參考價就成格唔出，唔好畫住「暫無資料」霸位 */}
             {card.priceUngradedReference && card.priceUngradedReference.value !== null && (
               <div><span>{t.labels.ungradedReference}</span><strong className={staleClass(card.priceUngradedReference, "")} title={staleTitle(card.priceUngradedReference, locale)}>{formatMetricMoney(card.priceUngradedReference, currency, snapshot.rates, locale)}</strong></div>
             )}
-          </section>
+          </Reveal>
           {/*
             「資料時間」講嘅係上面嗰堆數幾時嘅，唔係個 snapshot 幾時 bake。
             原本行 `snapshot.effectiveAt || card.pricePsa10.asOf`，而 effectiveAt 永遠有值，
@@ -232,9 +258,11 @@ export function CardDetail({ id, snapshot, related }: {
       {related && (
         /* SpotlightScope 只出一個冇樣式嘅 div + 一個 delegated pointermove（桌面 only），
            所以 related-cards.tsx 一行都唔使改，亦冇每張卡各自 attach listener。 */
-        <SpotlightScope>
-          <RelatedCards related={related} locale={locale} currency={currency} rates={snapshot.rates} href={href} />
-        </SpotlightScope>
+        <Reveal>
+          <SpotlightScope>
+            <RelatedCards related={related} locale={locale} currency={currency} rates={snapshot.rates} href={href} />
+          </SpotlightScope>
+        </Reveal>
       )}
     </div>
   );

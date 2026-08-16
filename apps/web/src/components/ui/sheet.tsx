@@ -47,6 +47,9 @@ const readUnmounted = () => false;
 
 const EASE_OUT = [0.22, 1, 0.36, 1] as const;
 const EASE_IN = [0.4, 0, 1, 1] as const;
+/* = globals.css 個 --ease-spring token（cubic-bezier(0.34, 1.56, 0.64, 1)）。
+   FE05 WS3 只用喺**桌面 dialog** 入場：手機 sheet 嘅拉／彈時間一格都唔准郁。 */
+const EASE_SPRING = [0.34, 1.56, 0.64, 1] as const;
 const FOCUSABLE = "button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
 /* 拉落幾多 / 幾快就當收（B5） */
 const DRAG_CLOSE_OFFSET = 90;
@@ -154,8 +157,19 @@ function SheetLayer({ onClose, children, backdropClassName, panelClassName, vari
     }
     : variant === "sheet"
       ? {
+        /* 桌面 dialog：只換 easing / 時間，**唔郁 initial 個 scale**。
+           試過 0.96 起手 overshoot 大啲（峰值 1.0039），但 reducedMotion 之下 framer
+           一樣會 render 一 frame `initial` —— 即係為咗桌面靚 2% 而令 reduced-motion
+           用戶嗰下跳幅由 2% 變 4%。0.98 起手行 --ease-spring 一樣衝到 1 以上。
+           opacity 另開一條 EASE_OUT：由 spring 帶住淡入會炒過 1。
+           退場唔郁（關窗要爽快，唔要回彈）。reduced-motion 唔喺呢度處理：
+           <MotionConfig reducedMotion="user"> 係單一閘門，transform 會自己唔播。 */
         initial: { opacity: 0, scale: 0.98 },
-        animate: { opacity: 1, scale: 1, transition: { duration: 0.17, ease: EASE_OUT } },
+        animate: {
+          opacity: 1,
+          scale: 1,
+          transition: { duration: 0.22, ease: EASE_SPRING, opacity: { duration: 0.16, ease: EASE_OUT } },
+        },
         exit: { opacity: 0, scale: 0.98, transition: { duration: 0.12, ease: EASE_IN } },
       }
       : {
