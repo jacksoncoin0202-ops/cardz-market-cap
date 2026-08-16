@@ -18,8 +18,8 @@ scroll reveal + chart draw-in、skeleton / empty state、OG 圖有卡圖。
 | | |
 |---|---|
 | Tag | `fe04-live`（annotated，已 push 上 origin） |
-| Commit | `4bed89a7736afa70efae31e84a66bf01bb09a49d` |
-| 內容 | 2026-08-16 現役 live 嘅 FE04 build |
+| Commit | `c622d7419e2d84e9c9ffd120bf5f3e60926d0a1b`（2026-08-17 02:20 由 `4bed89a7` 移上嚟：加埋四粒 `fix(fe)` 手機 hotfix——時段 popover 上表頭行／不透明、anchor-based back-nav scroll restore——全部已 live）|
+| 內容 | 2026-08-17 02:16 現役 live 嘅 FE04 build（含 hotfix） |
 | Live 憑據 | `https://app.cardzmarketcap.com/api/health` → `"presentation":"FE04"` |
 
 **唔准刪呢個 tag。** 冇咗佢就唔知退去邊。
