@@ -113,6 +113,28 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
   const isMobileTiles = useSyncExternalStore(subscribeMobileTiles, () => window.matchMedia(mobileTilesQuery).matches, () => false);
   const dark = theme === "dark";
 
+  /* 絲滑拖動：slider 每下 input 都即時 setPickedCount 會令成版 tile 重排重繪，
+     手機直接窒。呢度用 rAF throttle——每幀最多 commit 一次，拖動跟手但重排唔會密過螢幕刷新。 */
+  const dragRafRef = useRef(0);
+  const dragValueRef = useRef(0);
+  const handleSliderInput = useCallback((value: number) => {
+    dragValueRef.current = value;
+    if (dragRafRef.current) return;
+    dragRafRef.current = requestAnimationFrame(() => {
+      dragRafRef.current = 0;
+      setPickedCount(dragValueRef.current);
+    });
+  }, []);
+  useEffect(() => () => cancelAnimationFrame(dragRafRef.current), []);
+
+  /* 入場 stagger 只播一次：首輪播完之後加 data-settled，之後拖 slider 加出嚟嘅
+     新 tile 唔會再播 480ms 淡入，否則一拖就全版閃。 */
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSettled(true), 1000);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   // Mobile heatmap keeps its own period state instead of the URL-driven one:
   // changing period must not push the router, otherwise the page jumps back up
   // right after the share-image jump to the ranking table.
@@ -333,7 +355,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
           max={cards.length}
           step={1}
           value={visibleCount}
-          onChange={(event) => setPickedCount(Number(event.target.value))}
+          onChange={(event) => handleSliderInput(Number(event.target.value))}
           aria-label={t.heatmap.tilesLabel}
         />
         <span className="tile-slider-value" aria-hidden="true">{visibleCount}</span>
@@ -372,7 +394,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
         </div>
         {controls}
       </div>
-      <div className="heatmap-frame" ref={frameRef} onMouseLeave={() => { setActive(null); setPreviewPos(null); }}>
+      <div className="heatmap-frame" ref={frameRef} data-settled={settled ? "" : undefined} onMouseLeave={() => { setActive(null); setPreviewPos(null); }}>
         {tiles.map(({ item, x, y, width, height }, tileIndex) => {
           const card = item.card;
           const gap = params.gap;
