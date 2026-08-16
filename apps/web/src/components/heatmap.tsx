@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { CardImage } from "./card-image";
 import { CopyButton } from "./copy-button";
@@ -9,7 +9,7 @@ import { PeriodSelector } from "./period-selector";
 import { DETAIL_PRINT_FIELDS, printIdentityRows } from "./print-badge";
 import { copy } from "@/lib/i18n";
 import { formatDate, formatMetricInteger, formatMetricMoney, formatMoney, formatObservationDate, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
-import { buildGridSteps, gridCellRect, heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
+import { heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
 import { drawQr } from "@/lib/qr";
 import { changeValue, DEFAULT_TILE, tileColors, tileStyle, type TileParams } from "@/lib/tile-style";
 import { PUBLIC_CANONICAL_HOST, PUBLIC_SITE_URL } from "@/lib/public-site";
@@ -110,53 +110,53 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
   const [sheetCard, setSheetCard] = useState<MarketCardView | null>(null);
   const [pickedCount, setPickedCount] = useState<number | null>(null);
   const [showTune, setShowTune] = useState(false);
-  /* 拖動中嘅暫定值：thumb 行先，tiles 跟住逐張長出嚟；放手先 commit */
-  const [dragCount, setDragCount] = useState<number | null>(null);
   const isMobileTiles = useSyncExternalStore(subscribeMobileTiles, () => window.matchMedia(mobileTilesQuery).matches, () => false);
   const dark = theme === "dark";
 
-  /* 絲滑 + 互動感並存：
-     1) fill 條同數字用 DOM 直寫，完全唔經 React，thumb 100% 跟手；
-     2) 拖動中 setDragCount 用 startTransition 標記低優先，一格一格長 tile，
-        即使部機慢都係 drop 中間幀而唔係卡 thumb；
-     3) 放手嗰下 commitSlider 一次過 setPickedCount，treemap 靚構圖一次浮現。 */
+  /* Slider 絲滑三件事（2026-08-16 重寫，取代「拖動格網 + 放手 commit」）：
+     1) input 係 uncontrolled（defaultValue）。之前 value={visibleCount} 係 controlled，
+        React 每次 render 都會將 DOM value 拉返去舊值 → thumb 郁唔到、放手讀到嘅
+        value 亦係舊值（100% 冇反應）兩個 bug 都係呢度出。
+     2) fill 條同數字用 DOM 直寫，唔經 React，thumb 100% 跟手。
+     3) treemap 跟手指行，但每次最多一個 transition render 在飛：input 事件淨係
+        記低目標值（pendingRef），上一個 render commit 咗先再排下一個。
+        快機 = 逐格跟；慢機 = 自動跳幀而唔會排隊塞死，thumb 永遠唔窒。 */
   const sliderRef = useRef<HTMLInputElement>(null);
   const sliderValueRef = useRef<HTMLSpanElement>(null);
-  const draggingRef = useRef(false);
+  const pendingCountRef = useRef<number | null>(null); // 用戶最新拖到、未 commit 嘅值
+  const requestedCountRef = useRef<number | null>(null); // 上一次交俾 setPickedCount 嘅值
+  const inFlightRef = useRef(false); // 有冇一個 tile render 未 commit
   const paintSliderFill = useCallback((value: number, min: number, max: number) => {
     const input = sliderRef.current;
     if (input) input.style.setProperty("--fill", `${((value - min) / Math.max(1, max - min)) * 100}%`);
     if (sliderValueRef.current) sliderValueRef.current.textContent = String(value);
   }, []);
+  const pumpSlider = useCallback(() => {
+    const target = pendingCountRef.current;
+    if (target === null || inFlightRef.current) return;
+    if (target === requestedCountRef.current) { pendingCountRef.current = null; return; }
+    requestedCountRef.current = target;
+    inFlightRef.current = true;
+    startTransition(() => setPickedCount(target));
+  }, []);
   const handleSliderInput = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const el = event.currentTarget;
     const value = Number(el.value);
     paintSliderFill(value, Number(el.min), Number(el.max));
-    startTransition(() => setDragCount(value));
-  }, [paintSliderFill]);
-  const commitSlider = useCallback(() => {
-    draggingRef.current = false;
-    setDragging(false);
-    setDragCount(null); // 即時收起格網模式，避免閃黑底
-    const el = sliderRef.current;
-    if (el) {
-      const value = Number(el.value);
-      startTransition(() => setPickedCount(value));
-    }
-  }, []);
-  const startDrag = useCallback(() => { draggingRef.current = true; setDragging(true); }, []);
-
-  /* 入場 stagger 只播一次：首輪播完之後加 data-settled，之後拖 slider 加出嚟嘅
-     新 tile 唔會再播 480ms 淡入，否則一拖就全版閃。 */
-  const [settled, setSettled] = useState(false);
+    pendingCountRef.current = value;
+    pumpSlider();
+  }, [paintSliderFill, pumpSlider]);
+  /* 一 commit 就放行下一格：pickedCount 一變即係上一個 render 已落地 */
   useEffect(() => {
-    const timer = window.setTimeout(() => setSettled(true), 1000);
-    return () => window.clearTimeout(timer);
-  }, []);
+    inFlightRef.current = false;
+    if (pendingCountRef.current !== null && pendingCountRef.current !== pickedCount) pumpSlider();
+    else pendingCountRef.current = null;
+  }, [pickedCount, pumpSlider]);
 
-  /* 拖動標記放上 frame：拖動中新出現嘅 tile 播短促 120ms 淡入（逐張浮出嘅
-     互動感），而唔係完全冇動畫。 */
-  const [dragging, setDragging] = useState(false);
+  /* 拖 slider 之前先暖圖：未出場嗰批卡嘅 200w 縮圖一次過拉落 cache，
+     tile 浮出嗰下已經有圖，唔會先出空框再等圖 pop。淨係用戶真係掂 slider 先做，
+     淨係睇唔拖嘅人一個 byte 都唔使多載。 */
+  const warmedRef = useRef(false);
 
   // Mobile heatmap keeps its own period state instead of the URL-driven one:
   // changing period must not push the router, otherwise the page jumps back up
@@ -183,18 +183,33 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
   const visibleCount = pickedCount === null
     ? defaultCount
     : Math.min(Math.max(minimumVisibleCount, pickedCount), cards.length);
-  /* 拖動中顯示幾多張：跟 slider 暫定值，非拖動就等於已 commit 嘅 visibleCount */
-  const shownCount = dragCount === null
-    ? visibleCount
-    : Math.min(Math.max(minimumVisibleCount, dragCount), cards.length);
   const lastTriggerRef = useRef<HTMLElement | null>(null);
   const colors = tileColors(dark, params);
 
   const activePeriod = isMobileTiles ? mobilePeriod : period;
 
-  /* state 同步入 DOM：commit 之後（visibleCount 變）將 fill 同數字推返入 slider，
-     保持單一真相，拖完永遠同渲染結果一致。 */
+  const warmImages = useCallback(() => {
+    if (warmedRef.current || typeof window === "undefined") return;
+    warmedRef.current = true;
+    const connection = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
+    if (connection?.saveData) return;
+    for (const card of cards.slice(visibleCount)) {
+      const img = new Image();
+      img.decoding = "async";
+      img.src = card.image.variants?.["200"] ?? card.image.url;
+    }
+  }, [cards, visibleCount]);
+
+  /* 非拖動嘅外部改動（mobile↔desktop 預設數、hydration）先同步 DOM；
+     拖動中（pending 有值）DOM 已經係用戶隻手，唔准掂。
+     一定要經 input.value= 寫（唔可以淨睇 DOM 已經啱就跳過）：SSR 當 desktop 出
+     value=100，hydrate 之後 mobile 先變 23，React 係改 defaultValue 令 DOM 跟住變，
+     但 React 自己個 value tracker 仲記住 "100"——之後用戶第一下直接撳到 100，
+     React 見「冇變」就吞咗個 onChange，熱力圖冇反應。經 setter 寫一次先會同步 tracker。 */
   useEffect(() => {
+    if (pendingCountRef.current !== null) return;
+    const input = sliderRef.current;
+    if (input) input.value = String(visibleCount);
     paintSliderFill(visibleCount, minimumVisibleCount, cards.length);
   }, [visibleCount, minimumVisibleCount, cards.length, paintSliderFill]);
 
@@ -210,7 +225,6 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
 
   const visibleCards = useMemo(() => cards.slice(0, visibleCount), [cards, visibleCount]);
   const totalCap = useMemo(() => visibleCards.reduce((sum, card) => sum + (card.marketCap.value ?? 0), 0), [visibleCards]);
-  const shownCards = useMemo(() => cards.slice(0, shownCount), [cards, shownCount]);
 
   const tiles = useMemo(() => heatmapTreemapLayout(
     visibleCards.map((card) => ({ card, rank: card.viewRank, value: Math.max(1, card.marketCap.value ?? 1) })),
@@ -218,24 +232,30 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
     size.height,
   ), [visibleCards, size.height, size.width]);
 
-  /* 拖動專用固定格網：由最小到全滿嘅 col×row 檔位一次過砌好。
-     拖 slider 嗰陣唔跑 treemap——舊 tile 原地唔郁，新 tile 喺下一格長出嚟，
-     先有「逐張跟住手指浮出」嘅互動感，又唔會每吓全版洗位。 */
-  const gridSteps = useMemo(
-    () => buildGridSteps(cards.length, minimumVisibleCount, size.width, size.height),
-    [cards.length, minimumVisibleCount, size.width, size.height],
-  );
-  const dragStep = useMemo(() => {
-    if (!gridSteps.length) return null;
-    return gridSteps.find((step) => step.count >= shownCount) ?? gridSteps[gridSteps.length - 1];
-  }, [gridSteps, shownCount]);
-  const gridTiles = useMemo(() => {
-    if (!dragStep || !size.width || !size.height) return [];
-    return shownCards.map((card, index) => ({ card, ...gridCellRect(dragStep, index, size.width, size.height) }));
-  }, [dragStep, shownCards, size.width, size.height]);
-  /* 格網模式：pointer 撳住、或拖完之後 treemap 重排未到位嘅 gap 都照用，
-     唔會閃返黑底再跳構圖。 */
-  const dragLayout = dragging || dragCount !== null;
+  /* 浮出動畫每張 tile 派一個固定 delay（--d），派咗就唔准改——
+     改一個仲喺 DOM 嘅 tile 嘅 animation-delay 會令佢重播（閃一下）。
+     入場：--d = index×18ms（cap 414ms），成版由大到細螺旋浮現（treemap 由左上
+     spiral 落右下，最細嗰批最後喺右下角「飛出嚟」）。
+     拖 slider 加出嚟嘅（data-late）：--d 由該批第一張起計 10ms 一級（cap 600ms）
+     + 260ms pop，慢拖每張即時跟手指浮出；一下跳到 100 就成批順住螺旋掃落右下角
+     （≈ 0.86s，同首輪入場 0.9s 一樣長）。 */
+  const tileEntryRef = useRef(new Map<string, { late: boolean; delay: number }>());
+  const committedCountRef = useRef(0); // 上一次 commit 咗幾多張 tile（>= 呢個 index 嘅一定唔喺 DOM）
+  const enteredRef = useRef(false); // 首輪入場已 commit
+  const entryFor = (cardId: string, index: number) => {
+    const map = tileEntryRef.current;
+    const existing = map.get(cardId);
+    if (existing && index < committedCountRef.current) return existing;
+    const entry = enteredRef.current
+      ? { late: true, delay: Math.min(Math.max(0, index - committedCountRef.current) * 10, 600) }
+      : { late: false, delay: Math.min(index * 18, 414) };
+    map.set(cardId, entry);
+    return entry;
+  };
+  useLayoutEffect(() => {
+    committedCountRef.current = tiles.length;
+    if (tiles.length) enteredRef.current = true;
+  }, [tiles]);
 
   const closeSheet = useCallback(() => {
     setSheetCard(null);
@@ -407,15 +427,11 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
           min={minimumVisibleCount}
           max={cards.length}
           step={1}
-          value={visibleCount}
+          defaultValue={visibleCount}
           ref={sliderRef}
           onChange={handleSliderInput}
-          onPointerDown={startDrag}
-          onPointerUp={commitSlider}
-          onKeyUp={(event) => {
-            // 鍵盤調整冇 pointerup，arrow key 撳完即 commit
-            if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(event.key)) commitSlider();
-          }}
+          onPointerDown={warmImages}
+          onFocus={warmImages}
           aria-label={t.heatmap.tilesLabel}
         />
         <span className="tile-slider-value" ref={sliderValueRef} aria-hidden="true">{visibleCount}</span>
@@ -454,21 +470,26 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
         </div>
         {controls}
       </div>
-      <div className="heatmap-frame" ref={frameRef} data-settled={settled ? "" : undefined} data-dragging={dragging ? "" : undefined} onMouseLeave={() => { setActive(null); setPreviewPos(null); }}>
-        {(dragLayout ? gridTiles : tiles.map((tile) => ({ card: tile.item.card, x: tile.x, y: tile.y, width: tile.width, height: tile.height }))).map(({ card, x, y, width, height }, tileIndex) => {
+      <div className="heatmap-frame" ref={frameRef} onMouseLeave={() => { setActive(null); setPreviewPos(null); }}>
+        {tiles.map(({ item, x, y, width, height }, tileIndex) => {
+          const card = item.card;
           const gap = params.gap;
           const tileX = x + gap / 2;
           const tileY = y + gap / 2;
           const tileW = width - gap;
           const tileH = height - gap;
           const st = tileStyle(changeValue(card, activePeriod), tileW, tileH, colors, params);
+          const entry = entryFor(card.id, tileIndex);
+          /* sizes 落 24px 一格：拖動中 tile 每幀微縮，唔好每幀都改 srcset 選圖 */
+          const imageSizes = `${Math.max(48, Math.ceil(st.cardW / 24) * 24)}px`;
           return (
             <button
               className="heatmap-tile"
               key={card.id}
               type="button"
               data-dir={st.direction}
-              style={{ left: tileX, top: tileY, width: tileW, height: tileH, background: st.bg, "--i": tileIndex } as React.CSSProperties}
+              data-late={entry.late ? "" : undefined}
+              style={{ left: tileX, top: tileY, width: tileW, height: tileH, background: st.bg, "--d": `${entry.delay}ms` } as React.CSSProperties}
               aria-label={`#${card.viewRank} ${card.officialName || t.status.unavailable}, ${card.collectorNumber}`}
               aria-haspopup="dialog"
               onMouseEnter={() => {
@@ -504,7 +525,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
                   aria-hidden="true"
                   style={{ width: st.cardW, height: st.cardH, left: (tileW - st.cardW) / 2, top: (tileH - st.cardH) / 2 }}
                 >
-                  <CardImage image={card.image} sizes={`${Math.max(40, Math.round(st.cardW))}px`} loading={dragLayout || card.viewRank <= 8 ? "eager" : "lazy"} alt={card.officialName ?? ""} />
+                  <CardImage image={card.image} sizes={imageSizes} loading={entry.late || card.viewRank <= 8 ? "eager" : "lazy"} alt={card.officialName ?? ""} />
                 </span>
               ) : null}
               {st.move ? (
@@ -520,10 +541,10 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
           <li><span className="legend-swatch down" />{t.heatmap.negative}</li>
           <li><span className="legend-swatch pending" />{t.heatmap.neutral}</li>
           <li><span className="legend-swatch up" />{t.heatmap.positive}</li>
-          <li className="legend-count">{shownCount} / {cards.length} {t.heatmap.count}</li>
+          <li className="legend-count">{visibleCount} / {cards.length} {t.heatmap.count}</li>
         </ul>
         <p className="methodology-note">{t.methodology.body}</p>
-        <a className="ranking-jump" href="#market-ranking">{t.heatmap.viewRanking.replace("{count}", String(shownCount))}</a>
+        <a className="ranking-jump" href="#market-ranking">{t.heatmap.viewRanking.replace("{count}", String(visibleCount))}</a>
       </div>
       {sheetCard && <CardDialog card={sheetCard} locale={locale} currency={currency} snapshot={snapshot} href={href} onClose={closeSheet} period={activePeriod} />}
       {active && previewPos && createPortal(

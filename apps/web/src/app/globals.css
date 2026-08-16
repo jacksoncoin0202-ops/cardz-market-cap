@@ -678,10 +678,6 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   background: transparent;
   isolation: isolate;
 }
-/* 拖動中格網最後一行未必填滿，空位用頁面底色補，唔會突兀 */
-.heatmap-frame[data-dragging] {
-  background: var(--paper);
-}
 .heatmap-tile {
   position: absolute;
   display: block;
@@ -695,24 +691,26 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   outline: 0;
   transform: translateZ(0);
   transition: box-shadow 170ms ease, filter 170ms ease, opacity 220ms ease;
-  animation: tile-in 480ms var(--ease-standard) both;
-  animation-delay: min(calc(var(--i, 0) * 18ms), 414ms);
+  /* 入場：由透明浮上，--d 由 JS 逐張派（index×18ms，cap 414ms），成版由大到細
+     螺旋浮現，最後喺右下角「飛出嚟」。fill 用 backwards 唔用 both：delay 期間
+     隱形，播完就放手俾 hover dim 等普通 rule 接管（both 會將 opacity:1 鎖死）。 */
+  animation: tile-in 480ms var(--ease-standard) backwards;
+  animation-delay: var(--d, 0ms);
 }
-/* 首輪入場播完（data-settled）之後，拖 slider 先至出現嘅 tile 直接顯示，
-   唔再逐張播淡入，否則一拖全版閃。 */
-.heatmap-frame[data-settled] .heatmap-tile {
-  animation: none;
+/* 拖 slider 之後先出現嘅 tile（data-late）：短促 260ms 由細 pop 出嚟，
+   --d 由該批第一張起計，慢拖即時跟手指、快拖一批順住螺旋掃出去。 */
+.heatmap-tile[data-late] {
+  animation-name: tile-pop;
+  animation-duration: 260ms;
 }
-/* 拖動中：新出現嘅 tile 播短促 120ms 淡入——逐張跟住手指浮出嘅互動感，
-   快過一吓眨眼，唔會閃。 */
-.heatmap-frame[data-settled][data-dragging] .heatmap-tile {
-  animation: tile-in 120ms var(--ease-standard) both;
-  animation-delay: 0ms;
-}
-/* 入場：23 磚由透明浮上，stagger 由 --i 控制；上限 414ms，成版 ≤ 0.9s */
 @keyframes tile-in {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+@keyframes tile-pop {
+  0% { opacity: 0; transform: translateZ(0) scale(0.72); }
+  70% { opacity: 1; transform: translateZ(0) scale(1.03); }
+  100% { opacity: 1; transform: translateZ(0) scale(1); }
 }
 /* 中間直向卡（Wall Card 比例），擺喺純色框中心 */
 .tile-card {
@@ -730,13 +728,13 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   object-fit: contain;
   object-position: center;
 }
-/* 拖動中新出現嘅 tile 圖未 load 完之前隱形（tile 純色框照舊），
-   load 好先淡入——唔會閃灰底骷髏 */
-.heatmap-frame[data-dragging] .tile-card img {
+/* 拖 slider 先出現嘅 tile：圖未 load 完之前隱形（tile 純色框照舊），
+   load 好先淡入——唔會閃灰底骷髏。首輪 SSR 嗰批唔套，免得 hydrate 前空框。 */
+.heatmap-tile[data-late] .tile-card img {
   opacity: 0;
   transition: opacity 150ms ease;
 }
-.heatmap-frame[data-dragging] .tile-card img.tile-img-ready {
+.heatmap-tile[data-late] .tile-card img.tile-img-ready {
   opacity: 1;
 }
 .heatmap-frame:hover .heatmap-tile:not(:hover),
