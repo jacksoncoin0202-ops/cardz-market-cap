@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { watchlistPageCount } from "@/lib/pagination";
+import { WATCHLIST_PAGE_SIZE, watchlistPageCount } from "@/lib/pagination";
 import { PUBLIC_SITE_URL } from "@/lib/public-site";
 import { loadMarketSnapshot } from "@/lib/server-snapshot";
 
@@ -35,6 +35,9 @@ function entry(path: string, lastModified: string): MetadataRoute.Sitemap[number
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const snapshot = await loadMarketSnapshot();
+  if (WATCHLIST_PAGE_SIZE !== 200) {
+    throw new Error(`WATCHLIST_PAGE_SIZE drifted: ${WATCHLIST_PAGE_SIZE}`);
+  }
   const pageCount = watchlistPageCount(snapshot.watchlist.length);
   const core = [
     "/",
