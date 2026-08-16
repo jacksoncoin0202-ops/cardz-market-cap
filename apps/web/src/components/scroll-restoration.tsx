@@ -111,7 +111,11 @@ export function ScrollRestoration() {
       }
       if (restoring || locked()) return;
       const y = Math.round(window.scrollY);
-      if (y <= 0) return;
+      if (y <= 0) {
+        /* 真係喺頂（唔係 scroll-lock 造成嘅 0）：清走舊記錄，唔好返嚟彈去上一次碌到嘅位 */
+        try { window.sessionStorage.removeItem(entryKey()); } catch { /* ignore */ }
+        return;
+      }
       const anchor = findAnchor();
       const record: Saved = { y, href: anchor?.href ?? null, off: Math.round(anchor?.off ?? 0) };
       try {
