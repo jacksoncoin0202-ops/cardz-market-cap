@@ -66,6 +66,18 @@ export interface TileStyle {
   fontSize: number;      // label 字體 px（隨 tile 縮放）
 }
 
+/* 中間卡圖尺寸——tileStyle 同 heatmap 暖圖（預拉要揀同一張 srcset 檔）共用，唔准各自再計。
+   卡圖用長邊做基準：橫 tile 唔會得個角落咁細。
+   高：長邊 × cardPct；闊：aspect 計完再夾喺 tile 闊 88%／高 86% 內，細 tile 唔會貼死框邊。 */
+export function tileCardSize(w: number, h: number, p: TileParams): { cardW: number; cardH: number } {
+  const longSide = Math.max(w, h);
+  let cardH = longSide * p.cardPct;
+  let cardW = cardH * p.cardAspect;
+  if (cardW > w * 0.88) { cardW = w * 0.88; cardH = cardW / p.cardAspect; }
+  if (cardH > h * 0.86) { cardH = h * 0.86; cardW = cardH * p.cardAspect; }
+  return { cardW, cardH };
+}
+
 /* w/h 係 tile 實際顯示尺寸（px） */
 export function tileStyle(value: number | null, w: number, h: number, colors: TileColors, p: TileParams): TileStyle {
   const t = frameStrength(value, p);
@@ -77,14 +89,7 @@ export function tileStyle(value: number | null, w: number, h: number, colors: Ti
     ? colors.neutral
     : `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`;
   const shortSide = Math.min(w, h);
-  /* 卡圖用長邊做基準：橫 tile 唔會得個角落咁細。
-     高：長邊 × cardPct；闊：aspect 計完再夾喺 tile 闊 92% 內。 */
-  const longSide = Math.max(w, h);
-  let cardH = longSide * p.cardPct;
-  let cardW = cardH * p.cardAspect;
-  /* 闊高雙夾，留最少 6% 邊，細 tile 唔會貼死框邊 */
-  if (cardW > w * 0.88) { cardW = w * 0.88; cardH = cardW / p.cardAspect; }
-  if (cardH > h * 0.86) { cardH = h * 0.86; cardW = cardH * p.cardAspect; }
+  const { cardW, cardH } = tileCardSize(w, h, p);
   /* 門檻放寬：tile 細都照 show 卡圖，保持成版整齊（用戶 2026-07-24 指示） */
   const showCard = p.cardPct > 0 && cardW >= 5 && cardH >= 7;
   const move = value !== null ? `${value > 0 ? "+" : ""}${value.toFixed(1)}%` : null;

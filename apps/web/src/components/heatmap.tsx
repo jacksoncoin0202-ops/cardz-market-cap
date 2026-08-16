@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import { CardImage } from "./card-image";
+import { CardImage, srcSet as cardSrcSet } from "./card-image";
 import { CopyButton } from "./copy-button";
 import { PeriodSelector } from "./period-selector";
 import { DETAIL_PRINT_FIELDS, printIdentityRows } from "./print-badge";
@@ -11,7 +11,7 @@ import { copy } from "@/lib/i18n";
 import { formatDate, formatMetricInteger, formatMetricMoney, formatMoney, formatObservationDate, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
 import { heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
 import { drawQr } from "@/lib/qr";
-import { changeValue, DEFAULT_TILE, tileColors, tileStyle, type TileParams } from "@/lib/tile-style";
+import { changeValue, DEFAULT_TILE, tileCardSize, tileColors, tileStyle, type TileParams } from "@/lib/tile-style";
 import { PUBLIC_CANONICAL_HOST, PUBLIC_SITE_URL } from "@/lib/public-site";
 import { useMarketSettings } from "@/lib/use-market-settings";
 import { defaultMarketWindow, type Currency, type Locale, type MarketCardView, type MarketViewSnapshot, type MarketWindow } from "@/lib/types";
@@ -154,8 +154,8 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
   }, [pickedCount, pumpSlider]);
 
   /* 拖 slider 之前先暖圖：未出場嗰批卡嘅 200w 縮圖一次過拉落 cache，
-     tile 浮出嗰下已經有圖，唔會先出空框再等圖 pop。淨係用戶真係掂 slider 先做，
-     淨係睇唔拖嘅人一個 byte 都唔使多載。 */
+     tile 浮出嗰下已經有圖，唔會先出空框再等圖 pop。desktop 淨係用戶掂 slider 先做；
+     mobile 另有 idle 預拉（見下面 effect），因為手機拉 slider 係主要玩法。 */
   const warmedRef = useRef(false);
 
   // Mobile heatmap keeps its own period state instead of the URL-driven one:
@@ -188,17 +188,54 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
 
   const activePeriod = isMobileTiles ? mobilePeriod : period;
 
+  /* 暖圖要同 tile 揀同一張 variant：tile 係 srcset(200w/600w)+sizes 俾瀏覽器揀，
+     DPR 3 手機 72px 格會揀 600w；如果淨係預拉 200w，去到真機係 cache miss，
+     成個暖圖白做。所以照樣用 srcset+sizes 俾瀏覽器行同一套選圖算法——
+     sizes 用「拉到盡（全部 tile）」嗰刻嘅卡闊計，late tile 細，揀出嚟嘅檔最保守。 */
   const warmImages = useCallback(() => {
     if (warmedRef.current || typeof window === "undefined") return;
+    if (size.width <= 0 || size.height <= 0) return; // 未量到 frame，下次再試
     warmedRef.current = true;
     const connection = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
     if (connection?.saveData) return;
-    for (const card of cards.slice(visibleCount)) {
+    const fullTiles = heatmapTreemapLayout(
+      cards.map((card) => ({ card, rank: card.viewRank, value: Math.max(1, card.marketCap.value ?? 1) })),
+      size.width,
+      size.height,
+    );
+    const pending = new Set(cards.slice(visibleCount).map((card) => card.id));
+    for (const { item, width, height } of fullTiles) {
+      const card = item.card;
+      if (!pending.has(card.id)) continue;
+      const { cardW } = tileCardSize(width - params.gap, height - params.gap, params);
       const img = new Image();
       img.decoding = "async";
-      img.src = card.image.variants?.["200"] ?? card.image.url;
+      img.fetchPriority = "low";
+      const set = cardSrcSet(card.image);
+      if (set) {
+        img.sizes = `${Math.max(48, Math.ceil(cardW / 24) * 24)}px`;
+        img.srcset = set;
+      }
+      img.src = card.image.url;
     }
-  }, [cards, visibleCount]);
+  }, [cards, visibleCount, size.width, size.height, params]);
+
+  /* 手機唔等用戶掂 slider 先暖圖：page 靜落嚟（idle）就預拉未出場嗰 77 張 200w
+     縮圖（合共 ~0.9MB），拉到嗰下 tile 一彈就有圖，唔會先出色框再等圖。
+     只喺 4g／未知網絡做；2g/3g 或 saveData 就照舊等 pointerdown 先拉。 */
+  useEffect(() => {
+    if (!isMobileTiles || typeof window === "undefined") return;
+    const connection = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
+    if (connection?.saveData) return;
+    if (connection?.effectiveType && connection.effectiveType !== "4g") return;
+    const w = window as Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number; cancelIdleCallback?: (id: number) => void };
+    if (w.requestIdleCallback) {
+      const id = w.requestIdleCallback(warmImages, { timeout: 4000 });
+      return () => w.cancelIdleCallback?.(id);
+    }
+    const id = window.setTimeout(warmImages, 2500);
+    return () => window.clearTimeout(id);
+  }, [isMobileTiles, warmImages]);
 
   /* 非拖動嘅外部改動（mobile↔desktop 預設數、hydration）先同步 DOM；
      拖動中（pending 有值）DOM 已經係用戶隻手，唔准掂。
@@ -236,9 +273,9 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
      改一個仲喺 DOM 嘅 tile 嘅 animation-delay 會令佢重播（閃一下）。
      入場：--d = index×18ms（cap 414ms），成版由大到細螺旋浮現（treemap 由左上
      spiral 落右下，最細嗰批最後喺右下角「飛出嚟」）。
-     拖 slider 加出嚟嘅（data-late）：--d 由該批第一張起計 10ms 一級（cap 600ms）
-     + 260ms pop，慢拖每張即時跟手指浮出；一下跳到 100 就成批順住螺旋掃落右下角
-     （≈ 0.86s，同首輪入場 0.9s 一樣長）。 */
+     拖 slider 加出嚟嘅（data-late）：--d = 0，零錯開（owner 2026-08-16：「一拉就即刻
+     飛出嚟」，手機唔想再等 stagger）。「飛出」感覺全靠 220ms 由細 pop 大嗰下，
+     一 commit 就即刻開波，慢機都唔會再多一層延遲。 */
   const tileEntryRef = useRef(new Map<string, { late: boolean; delay: number }>());
   const committedCountRef = useRef(0); // 上一次 commit 咗幾多張 tile（>= 呢個 index 嘅一定唔喺 DOM）
   const enteredRef = useRef(false); // 首輪入場已 commit
@@ -247,7 +284,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
     const existing = map.get(cardId);
     if (existing && index < committedCountRef.current) return existing;
     const entry = enteredRef.current
-      ? { late: true, delay: Math.min(Math.max(0, index - committedCountRef.current) * 10, 600) }
+      ? { late: true, delay: 0 }
       : { late: false, delay: Math.min(index * 18, 414) };
     map.set(cardId, entry);
     return entry;

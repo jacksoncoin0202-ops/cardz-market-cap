@@ -5,7 +5,7 @@ import type { MarketCardView } from "@/lib/types";
 
 type CardImageImage = MarketCardView["image"];
 
-function srcSet(image: CardImageImage): string | undefined {
+export function srcSet(image: CardImageImage): string | undefined {
   if (!image.variants) return undefined;
   const entries: string[] = [];
   if (image.variants["200"]) entries.push(`${image.variants["200"]} 200w`);

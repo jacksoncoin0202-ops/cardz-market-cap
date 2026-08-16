@@ -697,11 +697,12 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   animation: tile-in 480ms var(--ease-standard) backwards;
   animation-delay: var(--d, 0ms);
 }
-/* 拖 slider 之後先出現嘅 tile（data-late）：短促 260ms 由細 pop 出嚟，
-   --d 由該批第一張起計，慢拖即時跟手指、快拖一批順住螺旋掃出去。 */
+/* 拖 slider 之後先出現嘅 tile（data-late）：零 delay、220ms 由細 pop 出嚟——
+   一 commit 就即刻彈，「飛出嚟」感覺全靠 scale 嗰下，唔靠錯開。 */
 .heatmap-tile[data-late] {
   animation-name: tile-pop;
-  animation-duration: 260ms;
+  animation-duration: 220ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
 }
 @keyframes tile-in {
   from { opacity: 0; }
