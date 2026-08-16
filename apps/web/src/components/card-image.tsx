@@ -38,6 +38,11 @@ export function CardImage({ image, sizes, loading = "lazy", alt, className }: {
       decoding="async"
       className={className}
       onError={handleCardImageError}
+      onLoad={(event) => event.currentTarget.classList.add("tile-img-ready")}
+      ref={(el) => {
+        // 瀏覽器 cache 命中會直接 complete、onLoad 唔再觸發，mount 時補一刀
+        if (el && el.complete && el.naturalWidth > 0) el.classList.add("tile-img-ready");
+      }}
     />
   );
 }

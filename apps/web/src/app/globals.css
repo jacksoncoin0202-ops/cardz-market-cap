@@ -553,6 +553,7 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   margin: 0;
   accent-color: var(--accent);
   cursor: pointer;
+  --fill: 0%;
 }
 .tile-slider-value {
   min-width: 3ch;
@@ -677,6 +678,10 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   background: transparent;
   isolation: isolate;
 }
+/* 拖動中格網最後一行未必填滿，空位用頁面底色補，唔會突兀 */
+.heatmap-frame[data-dragging] {
+  background: var(--paper);
+}
 .heatmap-tile {
   position: absolute;
   display: block;
@@ -698,6 +703,12 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
 .heatmap-frame[data-settled] .heatmap-tile {
   animation: none;
 }
+/* 拖動中：新出現嘅 tile 播短促 120ms 淡入——逐張跟住手指浮出嘅互動感，
+   快過一吓眨眼，唔會閃。 */
+.heatmap-frame[data-settled][data-dragging] .heatmap-tile {
+  animation: tile-in 120ms var(--ease-standard) both;
+  animation-delay: 0ms;
+}
 /* 入場：23 磚由透明浮上，stagger 由 --i 控制；上限 414ms，成版 ≤ 0.9s */
 @keyframes tile-in {
   from { opacity: 0; }
@@ -718,6 +729,15 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   height: 100%;
   object-fit: contain;
   object-position: center;
+}
+/* 拖動中新出現嘅 tile 圖未 load 完之前隱形（tile 純色框照舊），
+   load 好先淡入——唔會閃灰底骷髏 */
+.heatmap-frame[data-dragging] .tile-card img {
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+.heatmap-frame[data-dragging] .tile-card img.tile-img-ready {
+  opacity: 1;
 }
 .heatmap-frame:hover .heatmap-tile:not(:hover),
 .heatmap-frame:focus-within .heatmap-tile:not(:hover):not(:focus-visible) {
@@ -1560,9 +1580,10 @@ html.theme-transitions .site-footer {
   .tile-slider-label { white-space: nowrap; }
   .tile-slider input[type="range"] { flex: 1; width: auto; min-width: 0; height: 24px; }
   .tile-slider input[type="range"]::-webkit-slider-thumb { width: 20px; height: 20px; margin-top: -7px; border: 0; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 4px rgba(22, 22, 20, 0.35); -webkit-appearance: none; appearance: none; }
-  .tile-slider input[type="range"]::-webkit-slider-runnable-track { height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 32%, var(--line)); }
+  /* 品牌橙 fill：thumb 左邊實色 accent，右邊淺底，--fill 由拖動直寫即時更新 */
+  .tile-slider input[type="range"]::-webkit-slider-runnable-track { height: 6px; border-radius: 999px; background: linear-gradient(to right, var(--accent) 0 var(--fill, 0%), color-mix(in srgb, var(--accent) 24%, var(--line)) var(--fill, 0%) 100%); }
   .tile-slider input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; border: 0; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 4px rgba(22, 22, 20, 0.35); }
-  .tile-slider input[type="range"]::-moz-range-track { height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 32%, var(--line)); }
+  .tile-slider input[type="range"]::-moz-range-track { height: 6px; border-radius: 999px; background: linear-gradient(to right, var(--accent) 0 var(--fill, 0%), color-mix(in srgb, var(--accent) 24%, var(--line)) var(--fill, 0%) 100%); }
   /* Row 2: compact period buttons + small Share. */
   .heatmap-controls .period-selector { order: 3; flex: 1 1 auto; align-self: auto; justify-content: flex-start; gap: 2px; padding: 3px; border-radius: 12px; }
   .heatmap-controls .period-selector button { flex: 1 1 auto; min-width: 0; min-height: 30px; padding: 0 6px; font-size: 11px; }

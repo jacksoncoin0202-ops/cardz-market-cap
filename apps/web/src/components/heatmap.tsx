@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { CardImage } from "./card-image";
 import { CopyButton } from "./copy-button";
@@ -9,7 +9,7 @@ import { PeriodSelector } from "./period-selector";
 import { DETAIL_PRINT_FIELDS, printIdentityRows } from "./print-badge";
 import { copy } from "@/lib/i18n";
 import { formatDate, formatMetricInteger, formatMetricMoney, formatMoney, formatObservationDate, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
-import { heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
+import { buildGridSteps, gridCellRect, heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
 import { drawQr } from "@/lib/qr";
 import { changeValue, DEFAULT_TILE, tileColors, tileStyle, type TileParams } from "@/lib/tile-style";
 import { PUBLIC_CANONICAL_HOST, PUBLIC_SITE_URL } from "@/lib/public-site";
@@ -110,22 +110,41 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
   const [sheetCard, setSheetCard] = useState<MarketCardView | null>(null);
   const [pickedCount, setPickedCount] = useState<number | null>(null);
   const [showTune, setShowTune] = useState(false);
+  /* 拖動中嘅暫定值：thumb 行先，tiles 跟住逐張長出嚟；放手先 commit */
+  const [dragCount, setDragCount] = useState<number | null>(null);
   const isMobileTiles = useSyncExternalStore(subscribeMobileTiles, () => window.matchMedia(mobileTilesQuery).matches, () => false);
   const dark = theme === "dark";
 
-  /* 絲滑拖動：slider 每下 input 都即時 setPickedCount 會令成版 tile 重排重繪，
-     手機直接窒。呢度用 rAF throttle——每幀最多 commit 一次，拖動跟手但重排唔會密過螢幕刷新。 */
-  const dragRafRef = useRef(0);
-  const dragValueRef = useRef(0);
-  const handleSliderInput = useCallback((value: number) => {
-    dragValueRef.current = value;
-    if (dragRafRef.current) return;
-    dragRafRef.current = requestAnimationFrame(() => {
-      dragRafRef.current = 0;
-      setPickedCount(dragValueRef.current);
-    });
+  /* 絲滑 + 互動感並存：
+     1) fill 條同數字用 DOM 直寫，完全唔經 React，thumb 100% 跟手；
+     2) 拖動中 setDragCount 用 startTransition 標記低優先，一格一格長 tile，
+        即使部機慢都係 drop 中間幀而唔係卡 thumb；
+     3) 放手嗰下 commitSlider 一次過 setPickedCount，treemap 靚構圖一次浮現。 */
+  const sliderRef = useRef<HTMLInputElement>(null);
+  const sliderValueRef = useRef<HTMLSpanElement>(null);
+  const draggingRef = useRef(false);
+  const paintSliderFill = useCallback((value: number, min: number, max: number) => {
+    const input = sliderRef.current;
+    if (input) input.style.setProperty("--fill", `${((value - min) / Math.max(1, max - min)) * 100}%`);
+    if (sliderValueRef.current) sliderValueRef.current.textContent = String(value);
   }, []);
-  useEffect(() => () => cancelAnimationFrame(dragRafRef.current), []);
+  const handleSliderInput = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const el = event.currentTarget;
+    const value = Number(el.value);
+    paintSliderFill(value, Number(el.min), Number(el.max));
+    startTransition(() => setDragCount(value));
+  }, [paintSliderFill]);
+  const commitSlider = useCallback(() => {
+    draggingRef.current = false;
+    setDragging(false);
+    setDragCount(null); // 即時收起格網模式，避免閃黑底
+    const el = sliderRef.current;
+    if (el) {
+      const value = Number(el.value);
+      startTransition(() => setPickedCount(value));
+    }
+  }, []);
+  const startDrag = useCallback(() => { draggingRef.current = true; setDragging(true); }, []);
 
   /* 入場 stagger 只播一次：首輪播完之後加 data-settled，之後拖 slider 加出嚟嘅
      新 tile 唔會再播 480ms 淡入，否則一拖就全版閃。 */
@@ -134,6 +153,10 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
     const timer = window.setTimeout(() => setSettled(true), 1000);
     return () => window.clearTimeout(timer);
   }, []);
+
+  /* 拖動標記放上 frame：拖動中新出現嘅 tile 播短促 120ms 淡入（逐張浮出嘅
+     互動感），而唔係完全冇動畫。 */
+  const [dragging, setDragging] = useState(false);
 
   // Mobile heatmap keeps its own period state instead of the URL-driven one:
   // changing period must not push the router, otherwise the page jumps back up
@@ -160,10 +183,20 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
   const visibleCount = pickedCount === null
     ? defaultCount
     : Math.min(Math.max(minimumVisibleCount, pickedCount), cards.length);
+  /* 拖動中顯示幾多張：跟 slider 暫定值，非拖動就等於已 commit 嘅 visibleCount */
+  const shownCount = dragCount === null
+    ? visibleCount
+    : Math.min(Math.max(minimumVisibleCount, dragCount), cards.length);
   const lastTriggerRef = useRef<HTMLElement | null>(null);
   const colors = tileColors(dark, params);
 
   const activePeriod = isMobileTiles ? mobilePeriod : period;
+
+  /* state 同步入 DOM：commit 之後（visibleCount 變）將 fill 同數字推返入 slider，
+     保持單一真相，拖完永遠同渲染結果一致。 */
+  useEffect(() => {
+    paintSliderFill(visibleCount, minimumVisibleCount, cards.length);
+  }, [visibleCount, minimumVisibleCount, cards.length, paintSliderFill]);
 
   useEffect(() => {
     const frame = frameRef.current;
@@ -177,12 +210,32 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
 
   const visibleCards = useMemo(() => cards.slice(0, visibleCount), [cards, visibleCount]);
   const totalCap = useMemo(() => visibleCards.reduce((sum, card) => sum + (card.marketCap.value ?? 0), 0), [visibleCards]);
+  const shownCards = useMemo(() => cards.slice(0, shownCount), [cards, shownCount]);
 
   const tiles = useMemo(() => heatmapTreemapLayout(
     visibleCards.map((card) => ({ card, rank: card.viewRank, value: Math.max(1, card.marketCap.value ?? 1) })),
     size.width,
     size.height,
   ), [visibleCards, size.height, size.width]);
+
+  /* 拖動專用固定格網：由最小到全滿嘅 col×row 檔位一次過砌好。
+     拖 slider 嗰陣唔跑 treemap——舊 tile 原地唔郁，新 tile 喺下一格長出嚟，
+     先有「逐張跟住手指浮出」嘅互動感，又唔會每吓全版洗位。 */
+  const gridSteps = useMemo(
+    () => buildGridSteps(cards.length, minimumVisibleCount, size.width, size.height),
+    [cards.length, minimumVisibleCount, size.width, size.height],
+  );
+  const dragStep = useMemo(() => {
+    if (!gridSteps.length) return null;
+    return gridSteps.find((step) => step.count >= shownCount) ?? gridSteps[gridSteps.length - 1];
+  }, [gridSteps, shownCount]);
+  const gridTiles = useMemo(() => {
+    if (!dragStep || !size.width || !size.height) return [];
+    return shownCards.map((card, index) => ({ card, ...gridCellRect(dragStep, index, size.width, size.height) }));
+  }, [dragStep, shownCards, size.width, size.height]);
+  /* 格網模式：pointer 撳住、或拖完之後 treemap 重排未到位嘅 gap 都照用，
+     唔會閃返黑底再跳構圖。 */
+  const dragLayout = dragging || dragCount !== null;
 
   const closeSheet = useCallback(() => {
     setSheetCard(null);
@@ -355,10 +408,17 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
           max={cards.length}
           step={1}
           value={visibleCount}
-          onChange={(event) => handleSliderInput(Number(event.target.value))}
+          ref={sliderRef}
+          onChange={handleSliderInput}
+          onPointerDown={startDrag}
+          onPointerUp={commitSlider}
+          onKeyUp={(event) => {
+            // 鍵盤調整冇 pointerup，arrow key 撳完即 commit
+            if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(event.key)) commitSlider();
+          }}
           aria-label={t.heatmap.tilesLabel}
         />
-        <span className="tile-slider-value" aria-hidden="true">{visibleCount}</span>
+        <span className="tile-slider-value" ref={sliderValueRef} aria-hidden="true">{visibleCount}</span>
       </label>
       <button
         type="button"
@@ -394,9 +454,8 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
         </div>
         {controls}
       </div>
-      <div className="heatmap-frame" ref={frameRef} data-settled={settled ? "" : undefined} onMouseLeave={() => { setActive(null); setPreviewPos(null); }}>
-        {tiles.map(({ item, x, y, width, height }, tileIndex) => {
-          const card = item.card;
+      <div className="heatmap-frame" ref={frameRef} data-settled={settled ? "" : undefined} data-dragging={dragging ? "" : undefined} onMouseLeave={() => { setActive(null); setPreviewPos(null); }}>
+        {(dragLayout ? gridTiles : tiles.map((tile) => ({ card: tile.item.card, x: tile.x, y: tile.y, width: tile.width, height: tile.height }))).map(({ card, x, y, width, height }, tileIndex) => {
           const gap = params.gap;
           const tileX = x + gap / 2;
           const tileY = y + gap / 2;
@@ -445,7 +504,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
                   aria-hidden="true"
                   style={{ width: st.cardW, height: st.cardH, left: (tileW - st.cardW) / 2, top: (tileH - st.cardH) / 2 }}
                 >
-                  <CardImage image={card.image} sizes={`${Math.max(40, Math.round(st.cardW))}px`} loading={card.viewRank <= 8 ? "eager" : "lazy"} alt={card.officialName ?? ""} />
+                  <CardImage image={card.image} sizes={`${Math.max(40, Math.round(st.cardW))}px`} loading={dragLayout || card.viewRank <= 8 ? "eager" : "lazy"} alt={card.officialName ?? ""} />
                 </span>
               ) : null}
               {st.move ? (
@@ -461,10 +520,10 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
           <li><span className="legend-swatch down" />{t.heatmap.negative}</li>
           <li><span className="legend-swatch pending" />{t.heatmap.neutral}</li>
           <li><span className="legend-swatch up" />{t.heatmap.positive}</li>
-          <li className="legend-count">{visibleCards.length} / {cards.length} {t.heatmap.count}</li>
+          <li className="legend-count">{shownCount} / {cards.length} {t.heatmap.count}</li>
         </ul>
         <p className="methodology-note">{t.methodology.body}</p>
-        <a className="ranking-jump" href="#market-ranking">{t.heatmap.viewRanking.replace("{count}", String(visibleCards.length))}</a>
+        <a className="ranking-jump" href="#market-ranking">{t.heatmap.viewRanking.replace("{count}", String(shownCount))}</a>
       </div>
       {sheetCard && <CardDialog card={sheetCard} locale={locale} currency={currency} snapshot={snapshot} href={href} onClose={closeSheet} period={activePeriod} />}
       {active && previewPos && createPortal(
