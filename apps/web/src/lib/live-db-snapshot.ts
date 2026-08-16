@@ -574,7 +574,7 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       const variantId = Number(row.variant_id);
       const canonicalName = String(row.canonical_name ?? "").trim();
       const locale = locales.get(variantId) ?? { names: localized(), sets: localized(), stories: localized(), observedAt: null };
-      if (canonicalName) for (const code of LOCALES) locale.names[code] = canonicalName;
+      if (canonicalName) for (const code of LOCALES) if (!locale.names[code]) locale.names[code] = canonicalName;
       const image = images.get(variantId);
       // 出 DB 講嘅 canonical sha，唔好去 data/public/market-assets 度摸有冇檔。
       // 新收嘅圖一定係 private-only（2026-08-11 collect_control:snk_en_image 一次過
