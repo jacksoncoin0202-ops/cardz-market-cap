@@ -1,3 +1,5 @@
+/* type-only import：編譯時抹走，唔會將 site-copy 嗰幾版長文拖入首頁 bundle。 */
+import type { ContentPageKey } from "./site-copy";
 import type { Locale, MarketWindow } from "./types";
 
 // The card's printing language, not the reader's locale. These are the codes emitted by the
@@ -25,6 +27,37 @@ export interface Copy {
     /* watchlist pager 嘅 aria-label（‹ ›）*/
     previousPage: string;
     nextPage: string;
+  };
+  /*
+   * 五版內容頁嘅 <title> / meta description（GEO 批，owner 2026-08-16；verify pass 補齊）。
+   *
+   * 點解唔跟 site-copy 嘅 h1／答案：H1 寫得長冇問題（畫面有位），但 SERP 會截。
+   * 未有呢兩組字之前 content-page.tsx 退返 H1，實測 /methodology 出咗 101 字嘅 <title>，
+   * 連 head term 都畀截走。規矩：加埋 root layout 嘅 " | CardZ Marketcap" 之前 ≤60 字，
+   * 描述 120–155 字（英文為準，CJK 字數自然短啲），head term 行頭、品牌行尾。
+   *
+   * 只覆蓋五版內容頁。/rankings 同 /market-report 唔喺度：嗰兩版嘅標題係由 snapshot
+   * 生（帶年份／月份），寫死喺呢度就變咗同一句嘢兩個來源，一定有日對唔上。
+   */
+  pageTitles: Record<ContentPageKey, string>;
+  pageDescriptions: Record<ContentPageKey, string>;
+  /*
+   * Footer 導覽（verify pass 2026-08-16 加）。GEO 批出咗七版新頁，但站內零入口 ——
+   * 淨係喺 sitemap 同 llms.txt 見到，人同爬蟲都行唔到過去（孤兒頁）。
+   *
+   * 點解擺喺 i18n.ts 而唔係 site-copy.ts：Footer 係 client component，site-copy.ts
+   * 係五版長文，import 落 client 會將幾十 KB 內容推入每一版嘅 bundle。呢度得七個短 label。
+   * 亦唔入 header：手機 header 得四條主 nav 就已經迫爆。
+   */
+  footerNav: {
+    heading: string;
+    rankings: string;
+    marketReport: string;
+    methodology: string;
+    about: string;
+    faq: string;
+    glossary: string;
+    data: string;
   };
   boxHero: { eyebrow: string; title: string; body: string };
   box: {
@@ -59,6 +92,43 @@ export interface Copy {
   hero: { eyebrow: string; title: string; body: string };
   pokemonHero: { eyebrow: string; title: string; body: string };
   onePieceHero: { eyebrow: string; title: string; body: string };
+  /*
+   * 首屏可引用段（GEO，owner 2026-08-16）。H1 淨係一句品牌聲線，答唔到「呢個網站係咩、
+   * 個數點計、幾時嘅數」——所以 hero 下面補呢四句：定義、as-of、當前市況、消歧義。
+   * `summary` 嘅數全部由 snapshot 填（{total} {topName} {topCap} {moverName} {moverPct}），
+   * 一個都唔准寫死；填唔齊就成句唔出（同 cardFactSentence 一樣 fail-closed）。
+   */
+  intro: {
+    definition: string;
+    /** {date} */
+    asOf: string;
+    /** {total} {topName} {topCap} {moverName} {moverPct} */
+    summary: string;
+    disambiguation: string;
+    /** <details> 嘅 summary 標籤（默認摺埋，手機唔准推走熱力圖）；{date} */
+    about: string;
+  };
+  /*
+   * hero.* 係畀人睇嘅（owner 定嘅品牌聲線；2026-08-16 GEO 批將 title 改做 keyword-first，
+   * body 保留聲線但要講得出 PSA 10 同市值）；呢組淨係畀搜尋／AI 引用睇。
+   * 之前三個 ranking hub 直接攞 hero.title/body 當 <title>/description 用，一條 string 做兩份工：
+   *   - 首頁 <title> 冇任何 head term，亦冇 `| CardZ Marketcap`（Next 嘅 title.template 唔會套用喺
+   *     定義佢嗰個 segment，而 app/page.tsx 同 app/layout.tsx 同一個 segment）；
+   *   - /pokemon 同 /one-piece 五個語言全部共用同一句 body，即係兩版重複 meta description。
+   * 分開兩組之後版面零改動，只係 <head> 換咗。—— verify pass 2026-08-16
+   */
+  seo: {
+    home: { title: string; description: string };
+    pokemon: { title: string; description: string };
+    onePiece: { title: string; description: string };
+    /*
+     * JSON-LD Dataset（@id = datasetId()）嘅唯一名稱來源。之前 market-page、seo-routes、
+     * /data 三個 owner 各自寫一份，同一個 @id 喺三版有三個唔同名 —— schema 入面即係
+     * 同一個實體自相矛盾，引擎唔知信邊個。放喺 i18n（唔係 site-copy）係因為 market-page
+     * 係 "use client"，唔可以將成個 site-copy 拖落 client bundle。—— verify pass 2026-08-16
+     */
+    dataset: { name: string; description: string };
+  };
   watchlistHero: { eyebrow: string; title: string; body: string };
   heatmap: {
     title: string;
@@ -141,14 +211,32 @@ export interface Copy {
     languageFilterAll: string;
     languageFilterAllShort: string;
     searchPlaceholder: string;
+    searchPlaceholderPokemon: string;
+    searchPlaceholderOnePiece: string;
     searchPlaceholderBox: string;
     searchLabel: string;
+    searchLabelPokemon: string;
+    searchLabelOnePiece: string;
+    searchScope: string;
+    searchScopeAll: string;
     searchClear: string;
     sortHighToLow: string;
     sortLowToHigh: string;
     resultCount: string;
     noSearchResults: string;
     noSearchResultsBox: string;
+    searchUnqualified: string;
+    searchUnqualifiedScoped: string;
+    catalogElsewhere: string;
+    searchModeTitle: string;
+    clearSearch: string;
+    rankingRange: string;
+    showMore: string;
+    /* 搜尋結果分批出：{count} = 今次再顯示幾多張，{total} = 命中總數 */
+    showMoreResults: string;
+    /* 全站索引載唔到時嘅退化提示（rankings.tsx 只剩當頁過濾，唔係「冇結果」） */
+    catalogUnavailable: string;
+    pageSizeLabel: string;
     sortBy: string;
     currency: string;
     /* 升跌顏色慣例切換：按鈕 aria-label / title 出「而家係邊個慣例」 */
@@ -180,6 +268,30 @@ export interface Copy {
 export const copy: Record<Locale, Copy> = {
   en: {
     nav: { all: "TCG Market", pokemon: "Pokémon", onePiece: "One Piece", watchlist: "Watchlist", box: "BOX", previousPage: "Previous page", nextPage: "Next page" },
+    pageTitles: {
+      methodology: "Trading card market cap: PSA 10 price × population",
+      about: "About CardZ Marketcap, the graded card market index",
+      faq: "Pokémon card market cap FAQ: PSA 10 questions answered",
+      glossary: "PSA 10 market cap glossary: graded card index terms",
+      data: "PSA 10 market cap data and API: rankings in JSON",
+    },
+    pageDescriptions: {
+      methodology: "How CardZ Marketcap computes trading card market cap: PSA 10 reference price multiplied by verified PSA 10 population, and the gaps we leave blank.",
+      about: "CardZ Marketcap is a daily graded card market index. What it tracks, how Pokémon and One Piece cards are ranked by PSA 10 market cap, and who builds it.",
+      faq: "Answers on Pokémon card market cap and PSA 10 market cap: what the number means, where the price and population come from, and what it is not.",
+      glossary: "Definitions for the graded card market index: PSA 10 market cap, population report, gem rate, reference price and the other terms used in the rankings.",
+      data: "PSA 10 market cap rankings as JSON over a public read-only API. Endpoints, field definitions, update cadence, licence and the citation format.",
+    },
+    footerNav: {
+      heading: "Explore",
+      rankings: "Rankings",
+      marketReport: "Market report",
+      methodology: "Methodology",
+      about: "About",
+      faq: "FAQ",
+      glossary: "Glossary",
+      data: "Data & API",
+    },
     boxHero: {
       eyebrow: "BOX MARKET",
       title: "Sold-first prices for sealed booster boxes",
@@ -219,18 +331,43 @@ export const copy: Record<Locale, Copy> = {
     },
     hero: {
       eyebrow: "CARDZ MARKET INDEX",
-      title: "The market view for collectible cards",
-      body: "Art comes first. Verified identity, tradable supply and current pricing make the market easier to read.",
+      title: "Pokémon & Trading Card Market Cap — PSA 10 Index",
+      body: "Art comes first. Verified identity, tradable PSA 10 supply and current pricing turn each card into a readable market cap.",
     },
     pokemonHero: {
       eyebrow: "POKÉMON MARKET",
-      title: "Pokémon cards as a living market",
-      body: "Verified printings ranked through current PSA 10 supply and pricing.",
+      title: "Pokémon Card Market Cap Rankings (PSA 10)",
+      body: "Verified printings ranked by PSA 10 market cap: current PSA 10 supply and pricing, nothing invented.",
     },
     onePieceHero: {
       eyebrow: "ONE PIECE MARKET",
-      title: "One Piece cards as a living market",
-      body: "Verified printings ranked through current PSA 10 supply and pricing.",
+      title: "One Piece Card Market Cap Rankings (PSA 10)",
+      body: "Verified printings ranked by PSA 10 market cap: current PSA 10 supply and pricing, nothing invented.",
+    },
+    intro: {
+      definition: "CardZ Marketcap is a daily market-cap index for graded collectible cards. Each card's market cap is its PSA 10 reference price multiplied by its verified PSA 10 population, covering Pokémon and One Piece printings ranked from the top down.",
+      asOf: "Figures on this page are as of {date}.",
+      summary: "The cards listed here carry {total} in combined PSA 10 market cap. {topName} leads at {topCap}; the largest 7-day price move is {moverName} at {moverPct}.",
+      disambiguation: "CardZ Marketcap is a data index for graded cards — not a cryptocurrency, not the CARDS token, and there is no CardZ ticker.",
+      about: "About this index · as of {date}",
+    },
+    seo: {
+      home: {
+        title: "Trading card market cap: live PSA 10 index",
+        description: "Trading card market cap rankings for Pokémon and One Piece, calculated as PSA 10 price × verified PSA 10 population. Updated daily by CardZ Marketcap.",
+      },
+      pokemon: {
+        title: "Pokémon card market cap: PSA 10 rankings",
+        description: "Pokémon card market cap rankings by PSA 10 price × verified PSA 10 population, covering the most valuable graded cards. Updated daily by CardZ Marketcap.",
+      },
+      onePiece: {
+        title: "One Piece card market cap: PSA 10 rankings",
+        description: "One Piece card market cap rankings by PSA 10 price × verified PSA 10 population, covering the top graded cards. Updated daily by CardZ Marketcap.",
+      },
+      dataset: {
+        name: "CardZ Marketcap graded trading card market cap index",
+        description: "Daily market capitalisation index for graded Pokémon and One Piece trading cards, computed as PSA 10 reference price multiplied by verified PSA 10 population.",
+      },
     },
     watchlistHero: {
       eyebrow: "MARKET WATCH",
@@ -280,15 +417,31 @@ export const copy: Record<Locale, Copy> = {
       printLanguage: "{language} print", setCode: "Set code", finish: "Surface",
       languageFilterAll: "All languages",
       languageFilterAllShort: "All",
-      searchPlaceholder: "Search name, number, or set",
+      searchPlaceholder: "Search every card on CARDZ",
+      searchPlaceholderPokemon: "Search Pokémon",
+      searchPlaceholderOnePiece: "Search One Piece",
       searchPlaceholderBox: "Search box name or set code",
-      searchLabel: "Search this list",
+      searchLabel: "Search all cards on CARDZ",
+      searchLabelPokemon: "Search Pokémon cards",
+      searchLabelOnePiece: "Search One Piece cards",
+      searchScope: "Search in",
+      searchScopeAll: "All",
       searchClear: "Clear",
       sortHighToLow: "High to low",
       sortLowToHigh: "Low to high",
       resultCount: "{shown} / {total}",
-      noSearchResults: "No cards match this search.",
+      noSearchResults: "Nothing on CARDZ matches that.",
       noSearchResultsBox: "No boxes match this search.",
+      searchUnqualified: "If a card is missing, it has not qualified for this site yet — not a bug.",
+      searchUnqualifiedScoped: "Nothing in {scope} matches. Switch the scope, or search all of CARDZ.",
+      catalogElsewhere: "On CARDZ, outside this ranking",
+      searchModeTitle: "Search results",
+      clearSearch: "Clear search",
+      rankingRange: "#{from}–#{to}",
+      showMore: "Show more",
+      showMoreResults: "Show {count} more ({total} total)",
+      catalogUnavailable: "Site-wide index unavailable right now — showing matches from this page only.",
+      pageSizeLabel: "Per page",
       sortBy: "Sort by",
       currency: "Currency",
       upDownGreen: "Gains shown in green",
@@ -329,6 +482,30 @@ export const copy: Record<Locale, Copy> = {
   },
   "zh-TW": {
     nav: { all: "TCG 市場", pokemon: "寶可夢", onePiece: "海賊王", watchlist: "觀察名單", box: "原盒", previousPage: "上一頁", nextPage: "下一頁" },
+    pageTitles: {
+      methodology: "集換式卡牌 市值計算方法：PSA 10 價格 × 鑑定數量",
+      about: "關於 CardZ Marketcap：鑑定卡市場指數",
+      faq: "寶可夢卡牌 市值常見問題：PSA 10 市值解答",
+      glossary: "PSA 10 市值名詞解釋：鑑定卡指數用語",
+      data: "PSA 10 市值資料與 API：以 JSON 取得排行",
+    },
+    pageDescriptions: {
+      methodology: "CardZ Marketcap 如何計算集換式卡牌市值：以 PSA 10 參考價格乘上已確認的 PSA 10 鑑定數量，並說明哪些資料我們刻意留空。",
+      about: "CardZ Marketcap 是每日更新的鑑定卡市場指數，依 PSA 10 市值為寶可夢與海賊王卡牌排名。這裡說明收錄範圍、計算方式與製作團隊。",
+      faq: "關於寶可夢卡牌市值與 PSA 10 市值的問答：這個數字代表什麼、價格與鑑定數量從何而來，以及它不代表什麼。",
+      glossary: "鑑定卡市場指數的名詞解釋：PSA 10 市值、鑑定數量報告、Gem Rate、參考價格，以及排行中使用的其他用語。",
+      data: "以公開唯讀 API 提供 JSON 格式的 PSA 10 市值排行。內含端點、欄位定義、更新頻率、授權條款與引用格式。",
+    },
+    footerNav: {
+      heading: "探索",
+      rankings: "排行榜",
+      marketReport: "市場報告",
+      methodology: "計算方法",
+      about: "關於我們",
+      faq: "常見問題",
+      glossary: "名詞解釋",
+      data: "資料與 API",
+    },
     boxHero: {
       eyebrow: "BOX MARKET",
       title: "未開封原盒 · 成交價優先",
@@ -368,18 +545,43 @@ export const copy: Record<Locale, Copy> = {
     },
     hero: {
       eyebrow: "CARDZ MARKET INDEX",
-      title: "收藏卡牌的市場全景",
-      body: "以藝術價值為起點，透過經核實的身份、可流通供應及現時價格理解市場。",
+      title: "寶可夢卡牌 · 集換式卡牌市值 — PSA 10 指數",
+      body: "以藝術價值為起點，透過經核實的身份、PSA 10 可流通供應及現時價格，將每張卡讀成一個市值。",
     },
     pokemonHero: {
       eyebrow: "寶可夢市場",
-      title: "以流動市場視角理解寶可夢卡牌",
-      body: "按已核實印刷版本、PSA 10 供應及現時價格排列。",
+      title: "寶可夢卡牌市值排行（PSA 10）",
+      body: "按已核實印刷版本的 PSA 10 市值排列：現時 PSA 10 供應與價格，沒有虛構數字。",
     },
     onePieceHero: {
       eyebrow: "海賊王市場",
-      title: "以流動市場視角理解海賊王卡牌",
-      body: "按已核實印刷版本、PSA 10 供應及現時價格排列。",
+      title: "海賊王卡牌市值排行（PSA 10）",
+      body: "按已核實印刷版本的 PSA 10 市值排列：現時 PSA 10 供應與價格，沒有虛構數字。",
+    },
+    intro: {
+      definition: "CardZ Marketcap 是鑑定收藏卡的每日市值指數：每張卡的市值 = PSA 10 參考價 × 已核實 PSA 10 鑑定數量，涵蓋寶可夢與海賊王卡牌，由高至低排列。",
+      asOf: "本頁數據截至 {date}。",
+      summary: "本頁列出的卡牌合計 PSA 10 市值為 {total}，由 {topName}（{topCap}）領先；7 日價格升幅最大的是 {moverName}（{moverPct}）。",
+      disambiguation: "CardZ Marketcap 是鑑定卡的資料指數，並非加密貨幣，亦不是 CARDS 代幣，沒有 CardZ 代號。",
+      about: "關於這個指數 · 截至 {date}",
+    },
+    seo: {
+      home: {
+        title: "集換式卡牌市值：PSA 10 即時指數",
+        description: "集換式卡牌市值排行，涵蓋寶可夢與海賊王，以 PSA 10 參考價 × 已核實 PSA 10 鑑定數量計算，每日更新。資料來自 CardZ Marketcap。",
+      },
+      pokemon: {
+        title: "寶可夢卡牌市值：PSA 10 排行",
+        description: "寶可夢卡牌市值排行，以 PSA 10 參考價 × 已核實 PSA 10 鑑定數量計算，收錄最具價值的鑑定卡，每日更新。資料來自 CardZ Marketcap。",
+      },
+      onePiece: {
+        title: "海賊王卡牌市值：PSA 10 排行",
+        description: "海賊王卡牌市值排行，以 PSA 10 參考價 × 已核實 PSA 10 鑑定數量計算，收錄最具價值的鑑定卡，每日更新。資料來自 CardZ Marketcap。",
+      },
+      dataset: {
+        name: "CardZ Marketcap 鑑定集換式卡牌市值指數",
+        description: "鑑定寶可夢與海賊王集換式卡牌的每日市值指數，以 PSA 10 參考價乘以已核實 PSA 10 鑑定數量計算。",
+      },
     },
     watchlistHero: {
       eyebrow: "市場觀察",
@@ -413,15 +615,31 @@ export const copy: Record<Locale, Copy> = {
       printLanguage: "{language}版", setCode: "系列代碼", finish: "卡面",
       languageFilterAll: "全部語言",
       languageFilterAllShort: "全部",
-      searchPlaceholder: "搜尋卡名、編號或系列",
+      searchPlaceholder: "搜尋站內全部卡牌",
+      searchPlaceholderPokemon: "搜尋寶可夢",
+      searchPlaceholderOnePiece: "搜尋海賊王",
       searchPlaceholderBox: "搜尋盒名或系列代碼",
-      searchLabel: "搜尋此列表",
+      searchLabel: "搜尋站內全部卡牌",
+      searchLabelPokemon: "搜尋寶可夢卡牌",
+      searchLabelOnePiece: "搜尋海賊王卡牌",
+      searchScope: "搜尋範圍",
+      searchScopeAll: "全部",
       searchClear: "清除",
       sortHighToLow: "由高到低",
       sortLowToHigh: "由低到高",
       resultCount: "{shown} / {total}",
-      noSearchResults: "沒有符合此搜尋的卡牌。",
+      noSearchResults: "站內沒有符合此搜尋的卡牌。",
       noSearchResultsBox: "沒有符合此搜尋的原盒。",
+      searchUnqualified: "找不到並不是故障，而是這張卡尚未合乎資格進入本站。",
+      searchUnqualifiedScoped: "在{scope}找不到這張卡。可改搜尋範圍，或返大榜搜全部。",
+      catalogElsewhere: "已收錄，但不在此榜",
+      searchModeTitle: "搜尋結果",
+      clearSearch: "清除搜尋",
+      rankingRange: "#{from}–#{to}",
+      showMore: "展示更多",
+      showMoreResults: "再顯示 {count} 張（共 {total} 張）",
+      catalogUnavailable: "全站索引暫時載不到，只顯示本頁結果。",
+      pageSizeLabel: "每頁",
       sortBy: "排序方式",
       currency: "貨幣",
       upDownGreen: "紅跌綠升",
@@ -454,6 +672,30 @@ export const copy: Record<Locale, Copy> = {
   },
   "zh-CN": {
     nav: { all: "TCG 市场", pokemon: "宝可梦", onePiece: "海贼王", watchlist: "观察名单", box: "原盒", previousPage: "上一页", nextPage: "下一页" },
+    pageTitles: {
+      methodology: "集换式卡牌 市值计算方法：PSA 10 价格 × 鉴定数量",
+      about: "关于 CardZ Marketcap：鉴定卡市值指数",
+      faq: "宝可梦卡牌 市值常见问题：PSA 10 市值解答",
+      glossary: "PSA 10 市值名词解释：鉴定卡指数用语",
+      data: "PSA 10 市值数据与 API：以 JSON 获取排行",
+    },
+    pageDescriptions: {
+      methodology: "CardZ Marketcap 如何计算集换式卡牌市值：以 PSA 10 参考价格乘以已核实的 PSA 10 鉴定数量，并说明哪些数据我们刻意留空。",
+      about: "CardZ Marketcap 是每日更新的集换式卡牌市值指数，按 PSA 10 市值为宝可梦与海贼王卡牌排名。这里说明收录范围、计算方式与制作团队。",
+      faq: "关于宝可梦卡牌市值与 PSA 10 市值的问答：这个数字代表什么、价格与鉴定数量从何而来，以及它不代表什么。",
+      glossary: "鉴定卡市值指数的名词解释：PSA 10 市值、鉴定数量报告、Gem Rate、参考价格，以及排行中使用的其他用语。",
+      data: "以公开只读 API 提供 JSON 格式的 PSA 10 市值排行。内含端点、字段定义、更新频率、授权条款与引用格式。",
+    },
+    footerNav: {
+      heading: "探索",
+      rankings: "排行榜",
+      marketReport: "市场报告",
+      methodology: "计算方法",
+      about: "关于我们",
+      faq: "常见问题",
+      glossary: "名词解释",
+      data: "数据与 API",
+    },
     boxHero: {
       eyebrow: "BOX MARKET",
       title: "未开封原盒 · 成交价优先",
@@ -492,14 +734,39 @@ export const copy: Record<Locale, Copy> = {
       byline: "由 CardZ Marketcap Editorial 编算及复核。",
     },
     hero: {
-      eyebrow: "CARDZ MARKET INDEX", title: "收藏卡牌的市场全景",
-      body: "以艺术价值为起点，通过经核实的身份、可流通供应及当前价格理解市场。",
+      eyebrow: "CARDZ MARKET INDEX", title: "宝可梦卡牌 · 集换式卡牌市值 — PSA 10 指数",
+      body: "以艺术价值为起点，通过经核实的身份、PSA 10 可流通供应及当前价格，把每张卡读成一个市值。",
     },
     pokemonHero: {
-      eyebrow: "宝可梦市场", title: "以流动市场视角理解宝可梦卡牌", body: "按已核实印刷版本、PSA 10 供应及当前价格排列。",
+      eyebrow: "宝可梦市场", title: "宝可梦卡牌市值排行（PSA 10）", body: "按已核实印刷版本的 PSA 10 市值排列：当前 PSA 10 供应与价格，没有虚构数字。",
     },
     onePieceHero: {
-      eyebrow: "海贼王市场", title: "以流动市场视角理解海贼王卡牌", body: "按已核实印刷版本、PSA 10 供应及当前价格排列。",
+      eyebrow: "海贼王市场", title: "海贼王卡牌市值排行（PSA 10）", body: "按已核实印刷版本的 PSA 10 市值排列：当前 PSA 10 供应与价格，没有虚构数字。",
+    },
+    intro: {
+      definition: "CardZ Marketcap 是评级收藏卡的每日市值指数：每张卡的市值 = PSA 10 参考价 × 已核实 PSA 10 评级数量，涵盖宝可梦与海贼王卡牌，由高至低排列。",
+      asOf: "本页数据截至 {date}。",
+      summary: "本页列出的卡牌合计 PSA 10 市值为 {total}，由 {topName}（{topCap}）领先；7 日价格涨幅最大的是 {moverName}（{moverPct}）。",
+      disambiguation: "CardZ Marketcap 是评级卡的数据指数，并非加密货币，也不是 CARDS 代币，没有 CardZ 代号。",
+      about: "关于这个指数 · 截至 {date}",
+    },
+    seo: {
+      home: {
+        title: "集换式卡牌市值：PSA 10 实时指数",
+        description: "集换式卡牌市值排行，涵盖宝可梦与海贼王，以 PSA 10 参考价 × 已核实 PSA 10 鉴定数量计算，每日更新。数据来自 CardZ Marketcap。",
+      },
+      pokemon: {
+        title: "宝可梦卡牌市值：PSA 10 排行",
+        description: "宝可梦卡牌市值排行，以 PSA 10 参考价 × 已核实 PSA 10 鉴定数量计算，收录最具价值的鉴定卡，每日更新。数据来自 CardZ Marketcap。",
+      },
+      onePiece: {
+        title: "海贼王卡牌市值：PSA 10 排行",
+        description: "海贼王卡牌市值排行，以 PSA 10 参考价 × 已核实 PSA 10 鉴定数量计算，收录最具价值的鉴定卡，每日更新。数据来自 CardZ Marketcap。",
+      },
+      dataset: {
+        name: "CardZ Marketcap 评级集换式卡牌市值指数",
+        description: "评级宝可梦与海贼王集换式卡牌的每日市值指数，以 PSA 10 参考价乘以已核实 PSA 10 评级数量计算。",
+      },
     },
     watchlistHero: {
       eyebrow: "市场观察", title: "第 101 位起 · 持续观察", body: "紧随前百名之外的卡牌，追踪价格时效、供应与需求。",
@@ -531,15 +798,31 @@ export const copy: Record<Locale, Copy> = {
       printLanguage: "{language}版", setCode: "系列代码", finish: "卡面",
       languageFilterAll: "全部语言",
       languageFilterAllShort: "全部",
-      searchPlaceholder: "搜索卡名、编号或系列",
+      searchPlaceholder: "搜索站内全部卡牌",
+      searchPlaceholderPokemon: "搜索宝可梦",
+      searchPlaceholderOnePiece: "搜索海贼王",
       searchPlaceholderBox: "搜索盒名或系列代码",
-      searchLabel: "搜索此列表",
+      searchLabel: "搜索站内全部卡牌",
+      searchLabelPokemon: "搜索宝可梦卡牌",
+      searchLabelOnePiece: "搜索海贼王卡牌",
+      searchScope: "搜索范围",
+      searchScopeAll: "全部",
       searchClear: "清除",
       sortHighToLow: "由高到低",
       sortLowToHigh: "由低到高",
       resultCount: "{shown} / {total}",
-      noSearchResults: "没有符合此搜索的卡牌。",
+      noSearchResults: "站内没有符合此搜索的卡牌。",
       noSearchResultsBox: "没有符合此搜索的原盒。",
+      searchUnqualified: "找不到并不是故障，而是这张卡尚未合乎资格进入本站。",
+      searchUnqualifiedScoped: "在{scope}找不到这张卡。可改搜索范围，或回大榜搜全部。",
+      catalogElsewhere: "已收录，但不在此榜",
+      searchModeTitle: "搜索结果",
+      clearSearch: "清除搜索",
+      rankingRange: "#{from}–#{to}",
+      showMore: "展示更多",
+      showMoreResults: "再显示 {count} 张（共 {total} 张）",
+      catalogUnavailable: "全站索引暂时加载不到，只显示本页结果。",
+      pageSizeLabel: "每页",
       sortBy: "排序方式",
       currency: "货币",
       upDownGreen: "红跌绿升",
@@ -571,6 +854,30 @@ export const copy: Record<Locale, Copy> = {
   },
   ja: {
     nav: { all: "TCG 市場", pokemon: "ポケモン", onePiece: "ワンピース", watchlist: "ウォッチリスト", box: "BOX", previousPage: "前のページ", nextPage: "次のページ" },
+    pageTitles: {
+      methodology: "トレカ 時価総額の算出方法：PSA10 価格 × 鑑定枚数",
+      about: "CardZ Marketcap とは：鑑定カード時価総額指数",
+      faq: "ポケモンカード 時価総額 FAQ：PSA10 の疑問に回答",
+      glossary: "PSA10 時価総額の用語集：鑑定カード指数の用語",
+      data: "PSA10 時価総額のデータと API：JSON で取得",
+    },
+    pageDescriptions: {
+      methodology: "CardZ Marketcap がトレカ時価総額を算出する方法：PSA10 参考価格に確認済みの PSA10 鑑定枚数を掛けます。あえて空欄のままにする箇所も説明します。",
+      about: "CardZ Marketcap は毎日更新される鑑定カード時価総額指数です。ポケモンカードとワンピースカードを PSA10 時価総額で順位付けしています。対象範囲と運営者を説明します。",
+      faq: "ポケモンカード時価総額と PSA10 時価総額についての質問と回答：この数値が何を示すのか、価格と鑑定枚数の出どころ、そして何ではないのか。",
+      glossary: "鑑定カード指数の用語集：PSA10 時価総額、ポピュレーションレポート、ジェムレート、参考価格など、ランキングで使う用語を定義します。",
+      data: "公開の読み取り専用 API で PSA10 時価総額ランキングを JSON 提供。エンドポイント、フィールド定義、更新頻度、ライセンス、引用形式を掲載。",
+    },
+    footerNav: {
+      heading: "サイト内リンク",
+      rankings: "ランキング",
+      marketReport: "市場レポート",
+      methodology: "算出方法",
+      about: "運営について",
+      faq: "よくある質問",
+      glossary: "用語集",
+      data: "データと API",
+    },
     boxHero: {
       eyebrow: "BOX市場",
       title: "未開封BOX · 成約価格を優先",
@@ -609,14 +916,39 @@ export const copy: Record<Locale, Copy> = {
       byline: "CardZ Marketcap Editorial が集計・確認しています。",
     },
     hero: {
-      eyebrow: "CARDZ MARKET INDEX", title: "コレクティブルカード市場を一望する",
-      body: "アートの価値を起点に、確認済みのカード情報、流通供給、現在価格から市場を読み解きます。",
+      eyebrow: "CARDZ MARKET INDEX", title: "ポケモンカード・トレカ 時価総額 — PSA10 指数",
+      body: "アートの価値を起点に、確認済みのカード情報と PSA 10 の流通供給、現在価格から一枚ごとの時価総額を読み解きます。",
     },
     pokemonHero: {
-      eyebrow: "ポケモン市場", title: "動く市場として見るポケモンカード", body: "確認済みの印刷版、PSA 10 供給、現在価格で順位付けします。",
+      eyebrow: "ポケモン市場", title: "ポケモンカード 時価総額ランキング（PSA10）", body: "確認済みの印刷版を PSA 10 時価総額で順位付け。現在の PSA 10 供給と価格だけを使い、数字は作りません。",
     },
     onePieceHero: {
-      eyebrow: "ワンピース市場", title: "動く市場として見るワンピースカード", body: "確認済みの印刷版、PSA 10 供給、現在価格で順位付けします。",
+      eyebrow: "ワンピース市場", title: "ワンピースカード 時価総額ランキング（PSA10）", body: "確認済みの印刷版を PSA 10 時価総額で順位付け。現在の PSA 10 供給と価格だけを使い、数字は作りません。",
+    },
+    intro: {
+      definition: "CardZ Marketcap は鑑定済みコレクションカードの日次時価総額指数です。各カードの時価総額は PSA 10 参考価格 × 確認済み PSA 10 鑑定枚数で算出し、ポケモンカードとワンピースカードを上位から並べます。",
+      asOf: "本ページの数値は {date} 時点です。",
+      summary: "掲載カードの PSA 10 時価総額は合計 {total}。首位は {topName}（{topCap}）、7日間の価格変動が最大なのは {moverName}（{moverPct}）です。",
+      disambiguation: "CardZ Marketcap は鑑定カードのデータ指数です。暗号資産でも CARDS トークンでもなく、CardZ のティッカーは存在しません。",
+      about: "この指数について · {date} 時点",
+    },
+    seo: {
+      home: {
+        title: "トレカ時価総額：PSA 10 ライブ指数",
+        description: "ポケモンとワンピースを網羅したトレカ時価総額ランキング。PSA 10 参考価格 × 確認済み PSA 10 鑑定枚数で算出し、毎日更新しています。提供：CardZ Marketcap。",
+      },
+      pokemon: {
+        title: "ポケモンカード時価総額：PSA 10 ランキング",
+        description: "ポケモンカード時価総額ランキング。PSA 10 参考価格 × 確認済み PSA 10 鑑定枚数で算出し、価値の高い鑑定済みカードを毎日更新。提供：CardZ Marketcap。",
+      },
+      onePiece: {
+        title: "ワンピースカード時価総額：PSA 10 ランキング",
+        description: "ワンピースカード時価総額ランキング。PSA 10 参考価格 × 確認済み PSA 10 鑑定枚数で算出し、価値の高い鑑定済みカードを毎日更新。提供：CardZ Marketcap。",
+      },
+      dataset: {
+        name: "CardZ Marketcap 鑑定トレーディングカード時価総額指数",
+        description: "鑑定済みのポケモンおよびワンピースのトレーディングカードを対象とした日次時価総額指数。PSA10 参考価格に確認済み PSA10 鑑定枚数を掛けて算出。",
+      },
     },
     watchlistHero: {
       eyebrow: "マーケットウォッチ", title: "101位以降 · 継続ウォッチ", body: "トップ100圏外のカードの価格鮮度・供給・需要を追跡。",
@@ -648,15 +980,31 @@ export const copy: Record<Locale, Copy> = {
       printLanguage: "{language}版", setCode: "セットコード", finish: "表面",
       languageFilterAll: "すべての言語",
       languageFilterAllShort: "すべて",
-      searchPlaceholder: "名前・番号・セットで検索",
+      searchPlaceholder: "掲載中の全カードを検索",
+      searchPlaceholderPokemon: "ポケモンを検索",
+      searchPlaceholderOnePiece: "ワンピースを検索",
       searchPlaceholderBox: "ボックス名またはセットコードで検索",
-      searchLabel: "このリストを検索",
+      searchLabel: "掲載中の全カードを検索",
+      searchLabelPokemon: "ポケモンカードを検索",
+      searchLabelOnePiece: "ワンピースカードを検索",
+      searchScope: "検索対象",
+      searchScopeAll: "すべて",
       searchClear: "クリア",
       sortHighToLow: "高い順",
       sortLowToHigh: "低い順",
       resultCount: "{shown} / {total}",
-      noSearchResults: "この検索に一致するカードはありません。",
+      noSearchResults: "一致するカードはありません。",
       noSearchResultsBox: "この検索に一致するボックスはありません。",
+      searchUnqualified: "見つからない場合は不具合ではなく、まだ掲載資格を満たしていないためです。",
+      searchUnqualifiedScoped: "{scope}には一致するカードがありません。対象を切り替えるか、全体から検索してください。",
+      catalogElsewhere: "掲載中・このランキング外",
+      searchModeTitle: "検索結果",
+      clearSearch: "検索をクリア",
+      rankingRange: "#{from}–#{to}",
+      showMore: "さらに表示",
+      showMoreResults: "さらに {count} 件表示（全 {total} 件）",
+      catalogUnavailable: "サイト全体の索引を読み込めません。このページ内の該当分のみ表示しています。",
+      pageSizeLabel: "表示件数",
       sortBy: "並べ替え",
       currency: "通貨",
       upDownGreen: "上昇＝緑",
@@ -688,6 +1036,30 @@ export const copy: Record<Locale, Copy> = {
   },
   ko: {
     nav: { all: "TCG 마켓", pokemon: "포켓몬", onePiece: "원피스", watchlist: "관심 목록", box: "BOX", previousPage: "이전 페이지", nextPage: "다음 페이지" },
+    pageTitles: {
+      methodology: "트레이딩 카드 시가총액 산출 방법: PSA 10 가격 × 개체수",
+      about: "CardZ Marketcap 소개: 등급 카드 시가총액 지수",
+      faq: "포켓몬 카드 시가총액 FAQ: PSA 10 질문 정리",
+      glossary: "PSA 10 시가총액 용어집: 등급 카드 지수 용어",
+      data: "PSA 10 시가총액 데이터와 API: JSON으로 제공",
+    },
+    pageDescriptions: {
+      methodology: "CardZ Marketcap이 트레이딩 카드 시가총액을 산출하는 방법: PSA 10 기준가에 검증된 PSA 10 개체수를 곱합니다. 비워 두는 항목도 함께 설명합니다.",
+      about: "CardZ Marketcap은 매일 갱신되는 등급 카드 시가총액 지수입니다. 포켓몬 카드와 원피스 카드를 PSA 10 시가총액으로 순위를 매기며, 수록 범위와 운영 주체를 설명합니다.",
+      faq: "포켓몬 카드 시가총액과 PSA 10 시가총액에 대한 질문과 답변: 이 수치가 무엇을 뜻하는지, 가격과 개체수의 출처는 어디인지, 그리고 무엇이 아닌지.",
+      glossary: "등급 카드 지수 용어집: PSA 10 시가총액, 개체수 리포트, 젬 레이트, 기준가 등 순위에 사용하는 용어를 정의합니다.",
+      data: "공개 읽기 전용 API로 PSA 10 시가총액 순위를 JSON으로 제공합니다. 엔드포인트, 필드 정의, 갱신 주기, 라이선스, 인용 형식을 안내합니다.",
+    },
+    footerNav: {
+      heading: "둘러보기",
+      rankings: "랭킹",
+      marketReport: "시장 리포트",
+      methodology: "산출 방법",
+      about: "소개",
+      faq: "자주 묻는 질문",
+      glossary: "용어집",
+      data: "데이터와 API",
+    },
     boxHero: {
       eyebrow: "BOX MARKET",
       title: "미개봉 박스 · 체결가 우선",
@@ -727,18 +1099,43 @@ export const copy: Record<Locale, Copy> = {
     },
     hero: {
       eyebrow: "CARDZ MARKET INDEX",
-      title: "컬렉터블 카드 시장을 한눈에",
-      body: "아트의 가치를 출발점으로, 검증된 카드 정보와 유통 공급, 현재 가격으로 시장을 읽습니다.",
+      title: "포켓몬 카드·트레이딩 카드 시가총액 — PSA 10 지수",
+      body: "아트의 가치를 출발점으로, 검증된 카드 정보와 PSA 10 유통 공급, 현재 가격으로 카드마다 시가총액을 읽습니다.",
     },
     pokemonHero: {
       eyebrow: "포켓몬 마켓",
-      title: "살아있는 시장으로 보는 포켓몬 카드",
-      body: "검증된 인쇄판을 현재 PSA 10 공급과 가격으로 순위화합니다.",
+      title: "포켓몬 카드 시가총액 순위 (PSA 10)",
+      body: "검증된 인쇄판을 PSA 10 시가총액으로 순위화합니다. 현재 PSA 10 공급과 가격만 사용하며 수치를 지어내지 않습니다.",
     },
     onePieceHero: {
       eyebrow: "원피스 마켓",
-      title: "살아있는 시장으로 보는 원피스 카드",
-      body: "검증된 인쇄판을 현재 PSA 10 공급과 가격으로 순위화합니다.",
+      title: "원피스 카드 시가총액 순위 (PSA 10)",
+      body: "검증된 인쇄판을 PSA 10 시가총액으로 순위화합니다. 현재 PSA 10 공급과 가격만 사용하며 수치를 지어내지 않습니다.",
+    },
+    intro: {
+      definition: "CardZ Marketcap은 등급 수집 카드의 일간 시가총액 지수입니다. 카드별 시가총액은 PSA 10 기준가 × 검증된 PSA 10 개체수로 산출하며, 포켓몬 카드와 원피스 카드를 상위부터 나열합니다.",
+      asOf: "이 페이지의 수치는 {date} 기준입니다.",
+      summary: "이 페이지에 표시된 카드의 PSA 10 시가총액 합계는 {total}입니다. 1위는 {topName}({topCap}), 7일 가격 변동이 가장 큰 카드는 {moverName}({moverPct})입니다.",
+      disambiguation: "CardZ Marketcap은 등급 카드의 데이터 지수입니다. 암호화폐도 CARDS 토큰도 아니며 CardZ 티커는 존재하지 않습니다.",
+      about: "이 지수에 대하여 · {date} 기준",
+    },
+    seo: {
+      home: {
+        title: "트레이딩 카드 시가총액: PSA 10 지수",
+        description: "포켓몬과 원피스를 아우르는 트레이딩 카드 시가총액 순위. PSA 10 기준가 × 검증된 PSA 10 등급 수량으로 산출하며 매일 갱신합니다. 제공: CardZ Marketcap.",
+      },
+      pokemon: {
+        title: "포켓몬 카드 시가총액: PSA 10 순위",
+        description: "포켓몬 카드 시가총액 순위. PSA 10 기준가 × 검증된 PSA 10 등급 수량으로 산출한 최고가 등급 카드 목록을 매일 갱신합니다. 제공: CardZ Marketcap.",
+      },
+      onePiece: {
+        title: "원피스 카드 시가총액: PSA 10 순위",
+        description: "원피스 카드 시가총액 순위. PSA 10 기준가 × 검증된 PSA 10 등급 수량으로 산출한 최고가 등급 카드 목록을 매일 갱신합니다. 제공: CardZ Marketcap.",
+      },
+      dataset: {
+        name: "CardZ Marketcap 등급 트레이딩 카드 시가총액 지수",
+        description: "등급을 받은 포켓몬·원피스 트레이딩 카드의 일간 시가총액 지수. PSA 10 기준가에 검증된 PSA 10 개체수를 곱해 산출한다.",
+      },
     },
     watchlistHero: {
       eyebrow: "마켓 워치",
@@ -772,15 +1169,31 @@ export const copy: Record<Locale, Copy> = {
       printLanguage: "{language}판", setCode: "세트 코드", finish: "표면",
       languageFilterAll: "모든 언어",
       languageFilterAllShort: "전체",
-      searchPlaceholder: "이름, 번호, 세트로 검색",
+      searchPlaceholder: "사이트 전체 카드 검색",
+      searchPlaceholderPokemon: "포켓몬 검색",
+      searchPlaceholderOnePiece: "원피스 검색",
       searchPlaceholderBox: "박스 이름 또는 세트 코드로 검색",
-      searchLabel: "이 목록 검색",
+      searchLabel: "사이트 전체 카드 검색",
+      searchLabelPokemon: "포켓몬 카드 검색",
+      searchLabelOnePiece: "원피스 카드 검색",
+      searchScope: "검색 범위",
+      searchScopeAll: "전체",
       searchClear: "지우기",
       sortHighToLow: "높은 순",
       sortLowToHigh: "낮은 순",
       resultCount: "{shown} / {total}",
-      noSearchResults: "이 검색과 일치하는 카드가 없습니다.",
+      noSearchResults: "일치하는 카드가 없습니다.",
       noSearchResultsBox: "이 검색과 일치하는 박스가 없습니다.",
+      searchUnqualified: "찾을 수 없다면 오류가 아니라, 아직 이 사이트에 오를 자격이 없는 것입니다.",
+      searchUnqualifiedScoped: "{scope}에서 찾을 수 없습니다. 범위를 바꾸거나 전체에서 검색하세요.",
+      catalogElsewhere: "수록됨 · 이 순위 밖",
+      searchModeTitle: "검색 결과",
+      clearSearch: "검색 지우기",
+      rankingRange: "#{from}–#{to}",
+      showMore: "더 보기",
+      showMoreResults: "{count}개 더 보기 (총 {total}개)",
+      catalogUnavailable: "전체 색인을 지금 불러올 수 없어 이 페이지의 결과만 표시합니다.",
+      pageSizeLabel: "페이지당",
       sortBy: "정렬 기준",
       currency: "통화",
       upDownGreen: "상승=녹색",

@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { CardDetail } from "@/components/card-detail";
 import { displayCardName } from "@/lib/card-name";
+import { formatInteger, formatMoney, formatObservationDate } from "@/lib/format";
 import { copy, localizedCardLanguage } from "@/lib/i18n";
+import { cardFactSentence, cardSubject, relatedCards } from "@/lib/related-cards";
 import { localeFromSearchParams, marketMetadata, type PageSearchParams } from "@/lib/route-metadata";
 import { loadMarketSnapshot, singleCardSnapshot } from "@/lib/server-snapshot";
 
@@ -37,8 +39,9 @@ async function requireCard(id: string) {
 
 export async function generateMetadata({ params, searchParams }: CardRouteProps): Promise<Metadata> {
   const [{ id }, locale] = await Promise.all([params, localeFromSearchParams(searchParams)]);
-  const { card } = await requireCard(id);
-  const labels = copy[locale].labels;
+  const { card, snapshot } = await requireCard(id);
+  const t = copy[locale];
+  const labels = t.labels;
   /*
    * owner 2026-08-16：<title> 跟 UI 語言出當地官方譯名（displayCardName，同 H1／sheet／熱力圖一致）；
    * 非英文 locale 而譯名同英文唔同時，英文 officialName 跟喺後面做搜尋／辨識 anchor。
@@ -48,9 +51,48 @@ export async function generateMetadata({ params, searchParams }: CardRouteProps)
     ? labels.printLanguage.replace("{language}", localizedCardLanguage(card.cardLanguage, locale))
     : null;
   const localName = displayCardName(card, locale, card.officialName || labels.viewCard);
-  const baseTitle = card.officialName && localName !== card.officialName ? `${localName}（${card.officialName}）` : localName;
-  const title = printLanguage ? `${baseTitle} · ${printLanguage}` : baseTitle;
-  const description = card.story?.[locale] || labels.viewCard;
+  /*
+   * 60 字上限（GEO，owner 2026-08-16）：長 PSA 名試過整到成條 <title> 127 字，出街只
+   * 見到頭幾十字，連 root layout 貼嘅「| CardZ Marketcap」都斬埋。所以由外向內剝，
+   * 剝嘅一定係「可以冇」嗰截，唔係身份：
+   *   1. 非英文 locale 嗰個「（英文 officialName）」係搜尋 anchor，爆咗就淨返譯名；
+   *   2. 「· 日文版」純粹 disambiguation，爆咗直接唔出。
+   * en 個 officialName 本身就係張卡嘅身份，一個字都唔准斬（斬咗就唔係嗰張卡）。
+   */
+  const TITLE_MAX = 60;
+  const withOfficial = card.officialName && localName !== card.officialName
+    ? `${localName}（${card.officialName}）`
+    : localName;
+  const baseTitle = withOfficial.length > TITLE_MAX ? localName : withOfficial;
+  const withPrintLanguage = printLanguage ? `${baseTitle} · ${printLanguage}` : baseTitle;
+  const title = withPrintLanguage.length > TITLE_MAX ? baseTitle : withPrintLanguage;
+  /*
+   * description 由「小故事開頭 160 字」改做關鍵詞行先嘅事實句（GEO，owner 2026-08-16）：
+   * 卡名／set／編號／市值／PSA 10 價／POP／日期／名次全部喺可見範圍入面。直接行卡頁
+   * 上面睇得見嗰句可引用事實（cardFactSentence），唔另開第六個版本——同一張卡喺
+   * <meta> 同頁面上面一定講同一句（AGENTS 規矩 13）。三個數缺一就跌返小故事。
+   * `total: null`：講「共 N 張」要完整 snapshot 兼多 20 幾字，plainDescription 160 字
+   * 一斬就連名次都冇埋，寧願淨講名次。
+   */
+  const factDate = card.pricePsa10.checkedAt || card.pricePsa10.asOf || snapshot.effectiveAt;
+  const capValue = card.marketCap.value;
+  const priceValue = card.pricePsa10.value;
+  const popValue = card.populationPsa10.value;
+  const factName = (localName && localName !== card.officialName ? localName : cardSubject(card)) || localName;
+  const description = capValue !== null && priceValue !== null && popValue !== null
+    ? cardFactSentence(locale, {
+      name: factName,
+      set: card.setName[locale] || card.setName.en || t.status.unavailable,
+      num: card.collectorNumber,
+      cap: formatMoney(capValue, "USD", snapshot.rates, locale, true),
+      price: formatMoney(priceValue, "USD", snapshot.rates, locale),
+      pop: formatInteger(popValue, locale),
+      date: formatObservationDate(factDate, locale),
+      rank: card.marketRank,
+      total: null,
+      tcg: card.tcg === "One Piece" ? t.nav.onePiece : t.nav.pokemon,
+    })
+    : card.story?.[locale] || labels.viewCard;
   // 每張卡出自己嗰張 OG（卡名 / set / 市值 / PSA 10 價同 POP）。
   return marketMetadata(
     locale,
@@ -65,5 +107,12 @@ export async function generateMetadata({ params, searchParams }: CardRouteProps)
 export default async function CardPage({ params }: CardRouteProps) {
   const { id } = await params;
   const { snapshot } = await requireCard(id);
-  return <CardDetail id={id} snapshot={snapshot} />;
+  /*
+   * `related` 一定要喺呢度（server）計：卡頁行嘅 `singleCardSnapshot` 只得一張卡，
+   * 同 set / 同 TCG 嘅鄰居同「共 N 張」個總數都要完整 snapshot 先數得到。
+   * 冇傳呢個 prop 嘅話 card-detail 會靜靜跳過成條 related strip 同總數字句 ——
+   * 唔會報錯，所以要喺 route 度睇先知（verify pass 2026-08-16 補返）。
+   */
+  const related = relatedCards(await loadMarketSnapshot(), id);
+  return <CardDetail id={id} snapshot={snapshot} related={related} />;
 }

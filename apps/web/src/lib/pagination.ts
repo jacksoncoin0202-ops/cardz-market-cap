@@ -1,8 +1,29 @@
 export const WATCHLIST_PAGE_SIZE = 200;
+export const RANKING_PAGE_SIZES = [100, 200, 300, 500] as const;
+export type RankingPageSize = (typeof RANKING_PAGE_SIZES)[number];
+export const DEFAULT_RANKING_PAGE_SIZE: RankingPageSize = 100;
+export type RankingScope = "all" | "pokemon" | "one-piece";
 
-/* 頁數唯一計法：watchlist 頁面同 sitemap 都行呢度，兩邊唔准各自 ceil。空榜都當 1 頁。 */
+/* 頁數唯一計法：榜頁、舊 watchlist API、sitemap 都行呢度，兩邊唔准各自 ceil。空榜都當 1 頁。 */
+export function rankingPageCount(cardCount: number, pageSize: number): number {
+  return Math.max(Math.ceil(cardCount / Math.max(pageSize, 1)), 1);
+}
+
 export function watchlistPageCount(cardCount: number): number {
-  return Math.max(Math.ceil(cardCount / WATCHLIST_PAGE_SIZE), 1);
+  return rankingPageCount(cardCount, WATCHLIST_PAGE_SIZE);
+}
+
+/*
+ * `?size=` 只收 100／200／300／500。冇傳 = 100。唔喺名單入面就 `null`，
+ * 叫方決定 404 定 400 —— 呢度唔 clamp 去最近嘅合法值。
+ */
+export function parseRequestedPageSize(raw: string | string[] | undefined): RankingPageSize | null {
+  if (raw === undefined) return DEFAULT_RANKING_PAGE_SIZE;
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (value === undefined) return DEFAULT_RANKING_PAGE_SIZE;
+  if (!/^[1-9]\d*$/.test(value)) return null;
+  const size = Number(value) as RankingPageSize;
+  return RANKING_PAGE_SIZES.includes(size) ? size : null;
 }
 
 /*

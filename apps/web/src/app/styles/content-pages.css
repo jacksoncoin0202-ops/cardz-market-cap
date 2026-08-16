@@ -1,0 +1,316 @@
+/*
+ * 內容頁（/methodology /about /faq /glossary /data）專用樣式。
+ * 只用 globals.css 已有嘅 token（--ink/--muted/--line/--surface/--section-radius…），
+ * 唔喺呢度另開色，深淺色主題就自動跟得返全站。
+ * mobile-first：所有表格由 .content-table-wrap 包住做橫向捲，body 唔准出橫 scroll。
+ */
+
+.content-page {
+  max-width: 76ch;
+}
+
+.content-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.content-hero h1 {
+  font-size: clamp(28px, 5vw, 42px);
+  line-height: 1.18;
+  letter-spacing: -0.02em;
+  margin: 0;
+  text-wrap: balance;
+}
+
+/*
+ * 麵包屑：內容頁唔會載入 card-links.css（唔用嗰邊嘅組件），所以要自己一份。
+ * 逐條對齊 card-links.css 嘅 .crumbs，兩組頁面睇落先係同一個站（owner 2026-08-16）。
+ */
+.crumbs {
+  margin: 0 0 10px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.crumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.crumbs li {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  color: var(--muted);
+}
+
+.crumbs li + li::before {
+  margin-right: 6px;
+  color: var(--line-strong);
+  content: "›";
+}
+
+.crumbs a {
+  color: var(--muted);
+  text-decoration: none;
+  transition: color var(--control-transition);
+}
+
+.crumbs a:hover,
+.crumbs a:focus-visible {
+  color: var(--ink);
+}
+
+.crumbs li:last-child span {
+  color: var(--ink);
+}
+
+/*
+ * 摘要塊：GEO 嘅可引用段落。刻意做到自成一句、唔靠上下文，
+ * 因為 LLM 通常淨係抽呢一 block 出嚟答（owner 2026-08-16）。
+ */
+.content-answer {
+  border-left: 3px solid var(--accent);
+  background: var(--surface);
+  border-radius: var(--control-radius);
+  padding: 16px 18px;
+  margin: 0 0 24px;
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+.content-asof {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0 0 24px;
+}
+
+.content-toc {
+  border: 1px solid var(--line);
+  border-radius: var(--section-radius);
+  padding: 16px 20px;
+  margin: 0 0 32px;
+  background: var(--surface);
+}
+
+.content-toc h2 {
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 10px;
+}
+
+.content-toc ol {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  font-size: 15px;
+}
+
+.content-body section {
+  margin: 0 0 36px;
+  scroll-margin-top: 84px;
+}
+
+.content-body h2 {
+  font-size: clamp(20px, 3vw, 26px);
+  line-height: 1.3;
+  margin: 0 0 12px;
+  letter-spacing: -0.01em;
+}
+
+.content-body h3 {
+  font-size: 17px;
+  line-height: 1.4;
+  margin: 20px 0 6px;
+}
+
+.content-body p {
+  margin: 0 0 12px;
+  line-height: 1.72;
+  color: var(--hero-copy, var(--ink));
+}
+
+.content-body ul {
+  margin: 0 0 12px;
+  padding-left: 20px;
+  line-height: 1.7;
+}
+
+.content-body li {
+  margin-bottom: 6px;
+}
+
+.content-body a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--line-strong);
+}
+
+.content-body a:hover {
+  text-decoration-color: currentColor;
+}
+
+/* 表格一律外面套呢層，窄螢幕自己橫捲，唔會頂爆成頁。 */
+.content-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  margin: 0 0 16px;
+}
+
+.content-table {
+  width: 100%;
+  min-width: 460px;
+  border-collapse: collapse;
+  font-size: 15px;
+}
+
+.content-table caption {
+  caption-side: top;
+  text-align: left;
+  padding: 12px 14px 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.content-table th,
+.content-table td {
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.content-table thead th {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.content-table tbody tr:last-child td,
+.content-table tbody tr:last-child th {
+  border-bottom: 0;
+}
+
+.content-table code {
+  font-size: 13px;
+}
+
+.content-faq {
+  display: grid;
+  gap: 18px;
+}
+
+.content-faq-item h3 {
+  margin: 0 0 6px;
+  font-size: 17px;
+  line-height: 1.4;
+}
+
+.content-faq-item p {
+  margin: 0;
+  color: var(--hero-copy, var(--ink));
+  line-height: 1.7;
+}
+
+.content-glossary {
+  margin: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.content-glossary div {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+  scroll-margin-top: 84px;
+}
+
+.content-glossary dt {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.content-glossary dd {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.content-code {
+  display: block;
+  overflow-x: auto;
+  background: var(--soft, var(--surface));
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre;
+  margin: 0 0 12px;
+}
+
+.content-callout {
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  padding: 14px 16px;
+  background: var(--surface);
+  margin: 0 0 16px;
+}
+
+.content-callout p:last-child {
+  margin-bottom: 0;
+}
+
+.content-note {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.content-more {
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+  margin-top: 8px;
+}
+
+.content-more h2 {
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 10px;
+}
+
+.content-more ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  font-size: 15px;
+}
+
+@media (max-width: 720px) {
+  .content-answer {
+    font-size: 16px;
+    padding: 14px 16px;
+  }
+
+  .content-body section {
+    margin-bottom: 28px;
+  }
+}

@@ -26,10 +26,10 @@ function canonicalCards(snapshot: MarketViewSnapshot): MarketCardView[] {
     });
 }
 
-function gameView(cards: MarketCardView[], tcg: "Pokémon" | "One Piece"): MarketCardView[] {
+function gameUniverse(cards: MarketCardView[], tcg: "Pokémon" | "One Piece"): MarketCardView[] {
   return cards
     .filter((card) => card.tcg === tcg && card.marketRank > 0)
-    .slice(0, 100)
+    .sort((a, b) => a.marketRank - b.marketRank)
     .map((card, index) => ({ ...card, rank: index + 1, viewRank: index + 1 }));
 }
 
@@ -319,11 +319,27 @@ export function scopeSnapshot(
 ): MarketViewSnapshot {
   const canonical = canonicalCards(snapshot);
   if (scope === "all") {
-    const cards = canonical
-      .filter((card) => card.marketRank >= 1 && card.marketRank <= 100)
-      .map((card) => ({ ...card, rank: card.marketRank, viewRank: card.marketRank }))
-      .map(listCard);
-    return { ...withoutSealed(snapshot), coverage: scopedCoverage(cards.length), top100: cards, watchlist: [] };
+    const ranked = canonical
+      .filter((card) => card.marketRank >= 1)
+      .sort((a, b) => a.marketRank - b.marketRank)
+      .map((card) => ({ ...card, rank: card.marketRank, viewRank: card.marketRank }));
+    const awaiting = canonical
+      .filter((card) => !(card.marketRank >= 1))
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map((card) => ({ ...card, rank: 0, viewRank: 0 }));
+    const all = [...ranked, ...awaiting];
+    const pageSize = Math.min(Math.max(Math.trunc(options?.pageSize ?? 100), 1), 500);
+    const pageCount = Math.max(Math.ceil(all.length / pageSize), 1);
+    const page = Math.min(Math.max(Math.trunc(options?.page ?? 1), 1), pageCount);
+    const cards = all.slice((page - 1) * pageSize, page * pageSize).map(listCard);
+    const lead100 = ranked.slice(0, 100).map(listCard);
+    return {
+      ...withoutSealed(snapshot),
+      coverage: scopedCoverage(cards.length, all.length),
+      top100: cards,
+      watchlist: [],
+      lead100,
+    };
   }
   if (scope === "watchlist") {
     /*
@@ -350,8 +366,19 @@ export function scopeSnapshot(
     return { ...withoutSealed(snapshot), coverage: scopedCoverage(cards.length, all.length), top100: cards, watchlist: [] };
   }
   const expected = scope === "pokemon" ? "Pokémon" : "One Piece";
-  const cards = gameView(canonical, expected).map(listCard);
-  return { ...withoutSealed(snapshot), coverage: scopedCoverage(cards.length), top100: cards, watchlist: [] };
+  const ranked = gameUniverse(canonical, expected);
+  const pageSize = Math.min(Math.max(Math.trunc(options?.pageSize ?? 100), 1), 500);
+  const pageCount = Math.max(Math.ceil(ranked.length / pageSize), 1);
+  const page = Math.min(Math.max(Math.trunc(options?.page ?? 1), 1), pageCount);
+  const cards = ranked.slice((page - 1) * pageSize, page * pageSize).map(listCard);
+  const lead100 = ranked.slice(0, 100).map(listCard);
+  return {
+    ...withoutSealed(snapshot),
+    coverage: scopedCoverage(cards.length, ranked.length),
+    top100: cards,
+    watchlist: [],
+    lead100,
+  };
 }
 
 export function singleCardSnapshot(snapshot: MarketViewSnapshot, id: string): MarketViewSnapshot {

@@ -4,10 +4,12 @@ import { useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { BoxGroupSelector, normaliseBoxScope } from "./box-group-selector";
 import { BoxRankings } from "./box-rankings";
+import { Breadcrumbs } from "./breadcrumbs";
 import { Provenance } from "./provenance";
 import { canonicalPublicUrl, siteOrganization, StructuredData } from "./structured-data";
 import { copy } from "@/lib/i18n";
 import { formatDate } from "@/lib/format";
+import { geoCopy } from "@/lib/related-cards";
 import type { MarketViewSnapshot } from "@/lib/types";
 import { useMarketSettings } from "@/lib/use-market-settings";
 
@@ -40,12 +42,16 @@ export function BoxMarketPage({ snapshot }: { snapshot: MarketViewSnapshot }) {
       {
         "@type": "ItemList",
         name: t.box.boardTitle.replace("{count}", String(products.length)),
+        /* ItemList 嘅名同描述以前得英文（items 更加寫死 `product.name.en`），
+           即係 ?lang=ja 出街嘅 schema 同頁面上面睇到嘅字唔同 —— 五個語系一齊跟 locale。 */
+        description: t.boxHero.body,
         numberOfItems: products.length,
+        itemListOrder: "https://schema.org/ItemListOrderDescending",
         /* canonical URL，唔帶 ?lang/currency/period；position 順序 1 起，唔用 rank（group 篩完會跳號） */
         itemListElement: products.slice(0, 100).map((product, index) => ({
           "@type": "ListItem",
           position: index + 1,
-          name: product.name.en,
+          name: product.name[locale] || product.name.en,
           url: canonicalPublicUrl(`/box/${product.id}`),
         })),
       },
@@ -55,6 +61,10 @@ export function BoxMarketPage({ snapshot }: { snapshot: MarketViewSnapshot }) {
   return (
     <div className="page-shell market-page-shell watchlist-page-shell" data-cardz-generation={snapshot.generation}>
       <StructuredData value={structuredData} />
+      <Breadcrumbs
+        items={[{ label: t.nav.all, href: href("/") }, { label: t.nav.box }]}
+        label={geoCopy[locale].breadcrumbLabel}
+      />
       <section className="hero-section fade-up">
         <p className="section-kicker">{t.boxHero.eyebrow}</p>
         <h1>{t.boxHero.title}</h1>

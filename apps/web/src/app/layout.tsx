@@ -3,13 +3,49 @@ import { Suspense } from "react";
 import { DocumentLanguage, LangScript, SkipLink, ThemeScript } from "@/components/document-language";
 import { Footer, Header } from "@/components/header";
 import { AppMotionConfig } from "@/components/motion-config";
-import { PUBLIC_SITE_URL } from "@/lib/public-site";
+import { organizationId, siteOrganization, StructuredData } from "@/components/structured-data";
+import { PUBLIC_SITE_URL, SITE_DESCRIPTOR_EN } from "@/lib/public-site";
 import "./globals.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL(PUBLIC_SITE_URL),
   title: { default: "CardZ Marketcap", template: "%s | CardZ Marketcap" },
-  description: "Art market intelligence for collectible cards.",
+  description: SITE_DESCRIPTOR_EN,
+};
+
+/*
+ * 全站根 JSON-LD（GEO，owner 2026-08-16）：Organization + WebSite 各一個，喺 layout
+ * 出一次，所有頁面都繼承到。之前 Organization 淨係喺 Dataset/Product 入面做
+ * publisher（一個 `@id` 指住個從來冇定義過嘅節點），而 WebSite 全站零。
+ * 呢度嘅 `@id` 一定要行 organizationId()，唔准喺呢個檔手砌 hash（AGENTS 規矩 13）。
+ * logo 揀 /icons/icon-512.png：實檔存在（public/icons/），512×512 夠 Google 嘅最低要求。
+ */
+const siteGraph = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      ...siteOrganization(),
+      "@id": organizationId(),
+      description: SITE_DESCRIPTOR_EN,
+      logo: new URL("/icons/icon-512.png", PUBLIC_SITE_URL).toString(),
+      knowsAbout: [
+        "Pokémon Trading Card Game",
+        "One Piece Card Game",
+        "PSA 10 graded cards",
+        "PSA population reports",
+        "Trading card market capitalization",
+      ],
+    },
+    {
+      "@type": "WebSite",
+      "@id": `${PUBLIC_SITE_URL}/#website`,
+      url: `${PUBLIC_SITE_URL}/`,
+      name: "CardZ Marketcap",
+      description: SITE_DESCRIPTOR_EN,
+      publisher: { "@id": organizationId() },
+      inLanguage: ["en", "zh-Hant", "zh-Hans", "ja", "ko"],
+    },
+  ],
 };
 
 /* themeColor 兩粒跟 OS 嘅 media meta 係無 JS 時嘅底；有 JS 由 ThemeScript 自己嗰粒 meta 蓋過（跟 data-theme）。 */
@@ -38,6 +74,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <head>
         <ThemeScript />
         <LangScript />
+        <StructuredData value={siteGraph} />
       </head>
       <body>
         <AppMotionConfig>

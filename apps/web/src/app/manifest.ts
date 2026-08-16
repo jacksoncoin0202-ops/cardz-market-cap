@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { SITE_DESCRIPTOR_EN } from "@/lib/public-site";
 
 /*
  * PWA manifest（/manifest.webmanifest）。theme/background 揀 light `--paper`：
@@ -11,7 +12,9 @@ export default function manifest(): MetadataRoute.Manifest {
     id: "/",
     name: "CardZ Marketcap",
     short_name: "CardZ",
-    description: "Art market intelligence for collectible cards.",
+    /* 同 root layout 嘅 <meta description> 同一句（GEO，owner 2026-08-16）：兩處講唔同嘢
+       就等於同一個 app 有兩個自我介紹。 */
+    description: SITE_DESCRIPTOR_EN,
     start_url: "/",
     scope: "/",
     display: "standalone",

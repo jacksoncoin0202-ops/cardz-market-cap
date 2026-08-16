@@ -5,6 +5,14 @@ export const PUBLIC_SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://car
 
 export const PUBLIC_CANONICAL_HOST = new URL(PUBLIC_SITE_URL).hostname;
 
+/*
+ * 全站英文一句定義（GEO，owner 2026-08-16）。root layout 嘅 <meta description>、
+ * manifest、同 Organization/WebSite JSON-LD 全部行呢一句 —— 三個出口以前各寫各嘅
+ * 「Art market intelligence for collectible cards.」，一句都冇講過個數點計。
+ * 呢句唔跟 locale 行：JSON-LD 同 manifest 都係 static（layout 唔准讀 headers()）。
+ */
+export const SITE_DESCRIPTOR_EN = "CardZ Marketcap is a daily market-cap index for graded collectible cards: PSA 10 reference price × verified PSA 10 population, per card, for Pokémon and One Piece.";
+
 export const PUBLIC_SITE_ALIAS_HOSTS = [
   "cardsmarketcap.com",
   "www.cardsmarketcap.com",

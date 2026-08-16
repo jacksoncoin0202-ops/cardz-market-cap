@@ -130,6 +130,36 @@ export interface MarketCardView {
   salesSparkline: number[];
 }
 
+/*
+ * 全站搜尋用嘅瘦身索引。榜頁 `scopeSnapshot` 只帶當前 view（例如 Top 100），
+ * 所以搜尋唔可以只打 `cards` —— 要另外攞呢份（`/api/v1/catalog`）。
+ * 唔掛上 RSC snapshot，避免每個榜頁多送 ~1600 行。
+ */
+export interface CatalogEntry {
+  kind: "card" | "box";
+  id: string;
+  href: string;
+  officialName: string | null;
+  name: Partial<Record<Locale, string>>;
+  collectorNumber: string;
+  setName: Partial<Record<Locale, string>>;
+  setCode: string | null;
+  tcg: string;
+  cardLanguage: PrintLanguage | null;
+  marketRank: number;
+  image: {
+    url: string;
+    alt: string | null;
+    kind: "raw_front" | "placeholder" | "box_front";
+    variants?: Partial<Record<"200" | "600", string>>;
+  };
+  pricePsa10?: MarketMetric<number>;
+  populationPsa10?: MarketMetric<number>;
+  marketCap?: MarketMetric<number>;
+  windows?: MarketCardView["windows"];
+  salesSparkline?: number[];
+}
+
 export interface MarketViewSnapshot {
   schemaVersion: string;
   generation: string;
@@ -150,6 +180,8 @@ export interface MarketViewSnapshot {
   rates: Record<Currency, number>;
   top100: MarketCardView[];
   watchlist: MarketCardView[];
+  /** 熱力圖永遠用市值前 100。榜表 `top100` 而家可以係任一頁 slice。 */
+  lead100?: MarketCardView[];
   /** BOX sidecar overlay. Absent when box-subset.json is missing. Never part of PSA10 seed. */
   sealed?: SealedViewBlock;
 }

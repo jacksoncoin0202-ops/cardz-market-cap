@@ -17,6 +17,23 @@ const htmlLanguages = {
   ko: "ko",
 } as const;
 
+/* 有副檔名當 asset（/brand/*.png、/icons/*、manifest.webmanifest、robots.txt、sitemap.xml…） */
+const ASSET_PATH_PATTERN = /\.[a-z0-9]+$/i;
+
+/*
+ * 機讀面一條都唔准食 geo-redirect：爬蟲攞 /llms.txt 收到 302 去 /llms.txt?lang=ja 就等於冇咗。
+ * 四條全部有副檔名，所以上面條 ASSET_PATH_PATTERN 已經包住 —— 呢個唔係第二套邏輯，
+ * 係一個會叫嘅證明：唔知邊日有人「順手」改鬆條 regex，dev / test 會即刻 throw。
+ * （生產唔 throw：middleware 掛咗成個站就死。）
+ */
+const MACHINE_READABLE_PATHS = ["/llms.txt", "/llms-full.txt", "/robots.txt", "/sitemap.xml"] as const;
+if (process.env.NODE_ENV !== "production") {
+  const leaking = MACHINE_READABLE_PATHS.filter((path) => !ASSET_PATH_PATTERN.test(path));
+  if (leaking.length) {
+    throw new Error(`middleware: 機讀面會被 geo-redirect 食咗 → ${leaking.join(", ")}`);
+  }
+}
+
 /*
  * 只對真人嘅 HTML document navigation 做 geo 預設；RSC / prefetch / bot / 靜態檔一律唔郁。
  * ⚠️ Next 嘅 middleware adapter 會喺入 middleware 之前剝走 `rsc` / `next-router-prefetch` /
@@ -37,8 +54,7 @@ function isDocumentNavigation(request: NextRequest): boolean {
   if (BOT_UA_PATTERN.test(headers.get("user-agent") ?? "")) return false;
   const { pathname } = request.nextUrl;
   if (pathname === "/api" || pathname.startsWith("/api/") || pathname.startsWith("/_next/")) return false;
-  /* 有副檔名當 asset（/brand/*.png、/icons/*、manifest.webmanifest、robots.txt、sitemap.xml…） */
-  if (/\.[a-z0-9]+$/i.test(pathname)) return false;
+  if (ASSET_PATH_PATTERN.test(pathname)) return false;
   return true;
 }
 

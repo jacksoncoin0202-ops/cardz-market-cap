@@ -823,7 +823,9 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
     <section className="heatmap-section" aria-labelledby="heatmap-heading">
       <div className="heatmap-heading">
         <div>
-          <h1 id="heatmap-heading">{title.replace("{count}", String(cards.length))}</h1>
+          {/* h2 唔係 h1（GEO，owner 2026-08-16）：H1 已經由 market-page 個 hero 出，
+              一版一個 H1。id / aria-labelledby 照舊，CSS `.heatmap-heading h1, h2` 一齊食。 */}
+          <h2 id="heatmap-heading">{title.replace("{count}", String(cards.length))}</h2>
           {/* 總市值用 CapTicker：載入 / 期間切換 / 拉 slider 都係由上一個顯示值滾去新值，唔會跳字 */}
           <p className="heatmap-total-cap">{t.labels.marketCap} · <CapTicker value={totalCap} format={formatTotalCap} /></p>
           <p>{t.heatmap.body}</p>

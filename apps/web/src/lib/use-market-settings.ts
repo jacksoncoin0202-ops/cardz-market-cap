@@ -1,9 +1,10 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import { normaliseCurrency, normaliseLocale, normaliseTheme } from "./format";
 import { cardLanguages } from "./i18n";
+import { DEFAULT_RANKING_PAGE_SIZE } from "./pagination";
 import { defaultMarketWindow, marketWindows, type Currency, type Locale, type MarketWindow, type PrintLanguage, type Theme } from "./types";
 
 export function normaliseMarketWindow(value: string | null | undefined): MarketWindow {
@@ -115,6 +116,17 @@ export function useMarketSettings() {
     for (const notify of themeListeners) notify();
   }, []);
 
+  /* SSR／未 hydrate 冇 `window`，`update()` 就用 render 嗰份 params 兜底；客戶端永遠讀 live URL。 */
+  const paramsFallback = useRef(params);
+  useEffect(() => { paramsFallback.current = params; }, [params]);
+
+  /*
+   * `update()` 一定要喺 **call 嗰刻** 讀 `window.location.search` 再 derive 每個 field 嘅
+   * current 值，唔准 close over render 時嘅 `params`（stale-closure race）：搜尋框
+   * debounce 220ms 之間，用戶撳排序 chip／時段嗰個 handler 仲揸住打字前嗰份 params，
+   * 攞佢砌新 query 就會將啱啱寫入嘅 `q` 洗返走（反方向亦然，兩次寫入互相覆蓋）。
+   * URL 係唯一真相，所以每次都由 live URL 重新讀。
+   */
   const update = useCallback((next: {
     locale?: Locale;
     currency?: Currency;
@@ -124,23 +136,31 @@ export function useMarketSettings() {
     query?: string;
     sort?: string;
     dir?: "asc" | "desc";
+    page?: number;
+    size?: number;
   }) => {
     if (next.theme) setTheme(next.theme);
+    const liveParams = typeof window === "undefined"
+      ? new URLSearchParams(paramsFallback.current.toString())
+      : new URLSearchParams(window.location.search);
+    const liveUrlTheme = liveParams.get("theme");
     /* 淨係轉 theme（localStorage 事實）就唔准 router.replace —— 以前每撳一下 toggle
        都行一次 RSC navigation。例外：URL 帶住 ?theme= 覆蓋緊，就要落埋個 param 先轉得到。 */
     const onlyTheme = Object.entries(next).every(([key, value]) => key === "theme" || value === undefined);
-    if (onlyTheme && !(next.theme && urlTheme)) return;
+    if (onlyTheme && !(next.theme && liveUrlTheme)) return;
     if (next.locale) writePrefCookie("cardz-lang", next.locale);
     if (next.currency) writePrefCookie("cardz-currency", next.currency);
-    const nextParams = new URLSearchParams(params.toString());
+    const nextParams = new URLSearchParams(liveParams.toString());
     if (next.theme) nextParams.delete("theme");
-    const nextLocale = next.locale ?? locale;
-    const nextCurrency = next.currency ?? currency;
-    const nextPeriod = next.period ?? period;
-    const nextPrintLang = next.printLang ?? printLang;
-    const nextQuery = next.query !== undefined ? next.query : query;
-    const nextSort = next.sort !== undefined ? next.sort : sort;
-    const nextDir = next.dir !== undefined ? next.dir : dir;
+    const nextLocale = next.locale ?? normaliseLocale(liveParams.get("lang"));
+    const nextCurrency = next.currency ?? normaliseCurrency(liveParams.get("currency"));
+    const nextPeriod = next.period ?? normaliseMarketWindow(liveParams.get("period"));
+    const nextPrintLang = next.printLang ?? normalisePrintLang(liveParams.get("printLang"));
+    const nextQuery = next.query !== undefined ? next.query : liveParams.get("q") ?? "";
+    const nextSort = next.sort !== undefined ? next.sort : liveParams.get("sort") ?? "rank";
+    const nextDir = next.dir !== undefined
+      ? next.dir
+      : liveParams.get("dir") === "asc" ? "asc" as const : "desc" as const;
     if (nextLocale === "en") nextParams.delete("lang");
     else nextParams.set("lang", nextLocale);
     if (nextCurrency === "USD") nextParams.delete("currency");
@@ -151,6 +171,14 @@ export function useMarketSettings() {
     else nextParams.set("printLang", nextPrintLang);
     if (!nextQuery.trim()) nextParams.delete("q");
     else nextParams.set("q", nextQuery);
+    if (next.page !== undefined) {
+      if (next.page <= 1) nextParams.delete("page");
+      else nextParams.set("page", String(next.page));
+    }
+    if (next.size !== undefined) {
+      if (next.size === DEFAULT_RANKING_PAGE_SIZE) nextParams.delete("size");
+      else nextParams.set("size", String(next.size));
+    }
     if (!nextSort || nextSort === "rank") {
       nextParams.delete("sort");
       nextParams.delete("dir");
@@ -161,7 +189,7 @@ export function useMarketSettings() {
     }
     const suffix = nextParams.toString();
     router.replace(suffix ? `${pathname}?${suffix}` : pathname, { scroll: false });
-  }, [currency, dir, locale, params, pathname, period, printLang, query, router, setTheme, sort, urlTheme]);
+  }, [pathname, router, setTheme]);
 
   const href = useCallback((path: string) => {
     const query = new URLSearchParams();

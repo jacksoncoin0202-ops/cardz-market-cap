@@ -6,6 +6,7 @@ import { useEffect, useRef } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ArrowDownUp, Globe2, Moon, Sun } from "lucide-react";
 import { SelectControl } from "./select-control";
+import { SiteSearch } from "./site-search";
 import { tap } from "@/lib/haptic";
 import { copy } from "@/lib/i18n";
 import { currencies, locales, type Currency, type Locale } from "@/lib/types";
@@ -52,10 +53,10 @@ export function Header() {
     { path: "/", label: t.nav.all },
     { path: "/pokemon", label: t.nav.pokemon },
     { path: "/one-piece", label: t.nav.onePiece },
-    { path: "/watchlist", label: t.nav.watchlist },
     { path: "/box", label: t.nav.box },
   ];
 
+  const rankingRoute = pathname === "/" || pathname === "/pokemon" || pathname === "/one-piece";
   const logo = logoByTheme[theme];
   const upDownLabel = updown === "red-up" ? t.labels.upDownRed : t.labels.upDownGreen;
 
@@ -82,6 +83,7 @@ export function Header() {
           ))}
         </nav>
         <div className="market-controls">
+          {rankingRoute ? null : <SiteSearch />}
           <button
             type="button"
             className="select-control theme-toggle"
@@ -147,8 +149,22 @@ export function Header() {
 }
 
 export function Footer() {
-  const { locale } = useMarketSettings();
+  const { locale, href } = useMarketSettings();
   const t = copy[locale];
+  /*
+   * GEO 批七版新頁嘅唯一站內入口（verify pass 2026-08-16）。之前佢哋只互相 link
+   * 同埋出現喺 sitemap／llms.txt，由主站行唔到過去 —— 爬蟲當孤兒頁，內部連結權重係零。
+   * 全部行 href()，所以 ?lang / currency 跟住走，唔會撳一下就跌返英文。
+   */
+  const exploreLinks = [
+    { path: "/rankings", label: t.footerNav.rankings },
+    { path: "/market-report", label: t.footerNav.marketReport },
+    { path: "/methodology", label: t.footerNav.methodology },
+    { path: "/about", label: t.footerNav.about },
+    { path: "/faq", label: t.footerNav.faq },
+    { path: "/glossary", label: t.footerNav.glossary },
+    { path: "/data", label: t.footerNav.data },
+  ];
   return (
     <footer className="site-footer">
       <div className="footer-inner">
@@ -159,6 +175,16 @@ export function Footer() {
           <p className="footer-byline">{t.provenance.byline}</p>
         </div>
       </div>
+      <nav className="footer-nav" aria-label={t.footerNav.heading}>
+        <p className="footer-nav-title">{t.footerNav.heading}</p>
+        <ul className="footer-nav-list">
+          {exploreLinks.map((link) => (
+            <li key={link.path}>
+              <Link href={href(link.path)}>{link.label}</Link>
+            </li>
+          ))}
+        </ul>
+      </nav>
     </footer>
   );
 }

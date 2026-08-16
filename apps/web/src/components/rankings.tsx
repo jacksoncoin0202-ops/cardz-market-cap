@@ -1,19 +1,27 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { ArrowDown, ArrowUp, TrendingDown, TrendingUp } from "lucide-react";
 import { CardImage } from "./card-image";
 import { displayCardName } from "@/lib/card-name";
 import { ExploreBar, SortHeader } from "./explore-bar";
 import { PeriodSelector } from "./period-selector";
 import { Sparkline } from "./sparkline";
+import { loadCatalog, prefetchCatalog } from "@/lib/catalog-client";
+import { CATALOG_LIST_CAP, catalogToCard, searchCatalog } from "@/lib/catalog-search";
 import { cardLanguages, copy, localizedCardLanguage, localizedCardLanguageShort } from "@/lib/i18n";
-import { formatDeltaMoney, formatInteger, formatMetricInteger, formatMetricMoney, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
+import { formatDeltaMoney, formatMetricInteger, formatMetricMoney, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
 import { tap } from "@/lib/haptic";
 import { cardMatchesQuery, nextExploreSort, normaliseCardSort, sortCards } from "@/lib/list-explore";
 import { useMarketSettings, type PrintLangFilter } from "@/lib/use-market-settings";
-import type { Currency, Locale, MarketCardView, MarketMetric, MarketViewSnapshot, MarketWindow, TrackedSalesMetric } from "@/lib/types";
+import { useMediaQuery } from "@/lib/use-media-query";
+import type { RankingScope } from "@/lib/pagination";
+import type { CatalogEntry, Currency, Locale, MarketCardView, MarketMetric, MarketViewSnapshot, MarketWindow, TrackedSalesMetric } from "@/lib/types";
+
+/* globals.css `@media (max-width: 980px)` 度 .desktop-ranking-table 收起、.mobile-ranking-list
+   出場。兩邊要係同一個斷點，唔係就會兩個都出／兩個都唔出。 */
+const MOBILE_LIST_QUERY = "(max-width: 980px)";
 
 interface RankingsProps {
   cards: MarketCardView[];
@@ -23,6 +31,7 @@ interface RankingsProps {
   href: (path: string) => string;
   watchlist?: boolean;
   marketLabel?: string;
+  searchScope?: RankingScope;
 }
 
 export function MetricDelta({ metric, changePct, currency, rates, locale }: {
@@ -101,40 +110,133 @@ function ChangeBadge({ card, period, locale }: { card: MarketCardView; period: M
   );
 }
 
-export function Rankings({ cards, locale, currency, snapshot, href, watchlist = false, marketLabel }: RankingsProps) {
+export function Rankings({ cards, locale, currency, snapshot, href, watchlist = false, marketLabel, searchScope = "all" }: RankingsProps) {
   const { period, printLang, query, sort, dir, update } = useMarketSettings();
   const t = copy[locale];
   const cardSort = normaliseCardSort(sort);
+  const [catalog, setCatalog] = useState<CatalogEntry[] | null>(null);
+  /* 載索引失敗要同「未載完」分得開：catalog 一律保持 null（退化做當頁過濾），
+     旗只係用嚟出提示。以前寫 setCatalog([]) —— 空索引 = 零命中，斷網一搜就變成
+     「全部卡未合資格」，係講大話。 */
+  const [catalogError, setCatalogError] = useState(false);
+  const isMobileList = useMediaQuery(MOBILE_LIST_QUERY);
+  /* 搜尋範圍只係 client 狀態：轉寶可夢／海賊王唔准 router 跳頁，熱力圖唔好重畫。
+     header nav 先至係真換榜。 */
+  const [liveScope, setLiveScope] = useState(searchScope);
+  useEffect(() => { setLiveScope(searchScope); }, [searchScope]);
+  const searching = Boolean(query.trim());
+  useEffect(() => {
+    if (!searching) return;
+    let cancelled = false;
+    loadCatalog()
+      .then((payload) => {
+        if (cancelled) return;
+        setCatalog(payload.entries);
+        setCatalogError(false);
+      })
+      .catch(() => {
+        if (!cancelled) setCatalogError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [searching]);
+  const searchTcg = liveScope === "pokemon" ? "Pokémon" : liveScope === "one-piece" ? "One Piece" : undefined;
+  const scopedCatalog = useMemo(() => {
+    if (!catalog?.length) return [];
+    return catalog.filter((entry) => entry.kind === "card" && (!searchTcg || entry.tcg === searchTcg));
+  }, [catalog, searchTcg]);
   /* 篩選只列出榜上真係有嘅印刷語言。dev seed 帶 legacy key `language`，
      mapper 出 null，所以 dev 冇語言、冇 filter —— 呢個係正確行為。 */
   const availableLanguages = useMemo(() => {
+    const pool = searching && scopedCatalog.length ? scopedCatalog : cards;
     const seen = new Set<string>();
-    for (const card of cards) if (card.cardLanguage) seen.add(card.cardLanguage);
+    for (const item of pool) if (item.cardLanguage) seen.add(item.cardLanguage);
     return cardLanguages.filter((lang) => seen.has(lang));
-  }, [cards]);
+  }, [cards, scopedCatalog, searching]);
   /* URL 揀咗個榜上冇嘅語言就當冇篩，唔准出空榜。 */
   const activeLang: PrintLangFilter =
     printLang !== "all" && availableLanguages.includes(printLang) ? printLang : "all";
-  /* 篩選淨係隱藏行：viewRank / marketRank 照原樣出，唔准重新編號。 */
+  /* demote 唔准靜靜做：URL 仲寫住舊 printLang，pool 一變（換頁／索引載完）就會復活，
+     294 張變返 1 張。所以要寫返 URL。條件本身就係 guard——寫完 printLang 就係 "all"，
+     langDemoted 變 false，唔會 loop。
+     索引仲載緊（searching && catalog === null）唔准寫：嗰陣個 pool 只係當頁嗰批卡，
+     當唔到係成個榜嘅語言全集。 */
+  const langPoolSettled = !searching || catalog !== null;
+  const langDemoted = langPoolSettled && printLang !== "all" && !availableLanguages.includes(printLang);
+  useEffect(() => {
+    if (langDemoted) update({ printLang: "all" });
+  }, [langDemoted, update]);
+  /* 命中先算晒（分母要真數，唔可以出截斷數），render 先至截 visibleLimit。
+     searchCatalog 傳唔傳 limit 都一樣要 map + sort 晒成個 pool 再 slice，所以喺呢度
+     slice 開銷相同，但攞得返個 total。 */
+  const catalogHits = useMemo(() => {
+    if (!searching || !scopedCatalog.length) return [];
+    const hits = searchCatalog(scopedCatalog, query, locale, { kind: "card" });
+    return activeLang === "all" ? hits : hits.filter((entry) => entry.cardLanguage === activeLang);
+  }, [activeLang, locale, query, scopedCatalog, searching]);
+  /* 一個字母可以命中三千幾張：一次過 render 曬 = 89k DOM node、主線程一秒幾。
+     先出 CATALOG_LIST_CAP（80）張，撳「再顯示」逐 80 加。 */
+  const [visibleLimit, setVisibleLimit] = useState(CATALOG_LIST_CAP);
+  const [isPending, startShowMore] = useTransition();
+  /* query／語言／範圍一變，catalogHits 就係新 array —— render 期直接 reset 返 80
+     （同 box-rankings.tsx 一樣嘅「adjust state on prop change」寫法，唔用 effect，
+     免得先 mount 晒幾千行再縮）。 */
+  const [seenHits, setSeenHits] = useState(catalogHits);
+  if (seenHits !== catalogHits) {
+    setSeenHits(catalogHits);
+    setVisibleLimit(CATALOG_LIST_CAP);
+  }
+  const shownHits = useMemo(
+    () => (catalogHits.length > visibleLimit ? catalogHits.slice(0, visibleLimit) : catalogHits),
+    [catalogHits, visibleLimit],
+  );
+  /* 篩選淨係隱藏行：viewRank / marketRank 照原樣出，唔准重新編號。
+     搜尋打晒 bake 入站嘅卡，還原成同一張榜表，唔另開一列核突結果。 */
   const visibleCards = useMemo(() => {
     const langCards = activeLang === "all" ? cards : cards.filter((card) => card.cardLanguage === activeLang);
-    return sortCards(langCards.filter((card) => cardMatchesQuery(card, query, locale)), cardSort, dir);
-  }, [activeLang, cardSort, cards, dir, locale, query]);
+    if (!searching) return sortCards(langCards, cardSort, dir, period);
+    /* catalog 未到（或者載失敗，兩者都係 null）先用當前榜頂住；一 load 完就只信全站索引，
+       唔准跌返去當前頁過濾（唔係咁，大榜搜魯夫再切寶可夢會繼續出海賊王）。 */
+    if (catalog === null) {
+      return sortCards(langCards.filter((card) => cardMatchesQuery(card, query, locale)), cardSort, dir, period);
+    }
+    const inView = new Map(cards.map((card) => [card.id, card]));
+    const rows = shownHits
+      .map((entry) => inView.get(entry.id) ?? catalogToCard(entry))
+      .filter((card): card is MarketCardView => Boolean(card));
+    return sortCards(rows, cardSort, dir, period);
+  }, [activeLang, cardSort, cards, catalog, dir, locale, period, query, searching, shownHits]);
   const applySort = (key: string) => {
     tap.select();
     const next = nextExploreSort(cardSort, dir, key);
     update({ sort: next.sort, dir: next.dir });
   };
-  const rankingTitle = t.heatmap.rankingTitle.replace("{count}", String(cards.length));
-  const resultLabel = (query.trim() || visibleCards.length !== cards.length)
-    ? t.labels.resultCount.replace("{shown}", String(visibleCards.length)).replace("{total}", String(cards.length))
+  const rankedOnPage = cards.filter((card) => card.viewRank > 0);
+  const firstRank = rankedOnPage[0]?.viewRank;
+  const lastRank = rankedOnPage.at(-1)?.viewRank;
+  const rankingTitle = firstRank === 1
+    ? t.heatmap.rankingTitle.replace("{count}", String(rankedOnPage.length || cards.length))
+    : firstRank && lastRank
+      ? t.labels.rankingRange.replace("{from}", String(firstRank)).replace("{to}", String(lastRank))
+      : t.heatmap.rankingTitle.replace("{count}", String(cards.length));
+  const heading = searching ? t.labels.searchModeTitle : watchlist ? t.nav.watchlist : rankingTitle;
+  const catalogCardCount = scopedCatalog.length;
+  const resultTotal = searching && catalogCardCount ? catalogCardCount : cards.length;
+  /* 用緊全站索引嗰陣，{shown} 要出命中總數而唔係「而家 render 緊幾多行」——
+     出截斷數會令人以為全站得 80 張命中。 */
+  const usingCatalog = searching && catalog !== null && catalogCardCount > 0;
+  const resultShown = usingCatalog ? catalogHits.length : visibleCards.length;
+  const remaining = usingCatalog ? Math.max(0, catalogHits.length - visibleLimit) : 0;
+  const resultLabel = (searching || visibleCards.length !== cards.length)
+    ? t.labels.resultCount.replace("{shown}", String(resultShown)).replace("{total}", String(resultTotal))
     : null;
   return (
     <section className="rankings-section" id="market-ranking" aria-labelledby="ranking-heading">
       <div className="ranking-heading">
         <div>
           <p className="section-kicker">{watchlist ? t.labels.watchStatus : marketLabel ?? t.nav.all}</p>
-          <h2 id="ranking-heading">{watchlist ? t.nav.watchlist : rankingTitle}</h2>
+          <h2 id="ranking-heading">{heading}</h2>
           {availableLanguages.length > 1 && (
             <div className="lang-filter" role="group" aria-label={t.labels.language}>
               {(["all", ...availableLanguages] as PrintLangFilter[]).map((lang) => (
@@ -157,27 +259,73 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
       <ExploreBar
         query={query}
         onQueryChange={(value) => update({ query: value })}
-        placeholder={t.labels.searchPlaceholder}
-        searchLabel={t.labels.searchLabel}
+        placeholder={
+          liveScope === "pokemon"
+            ? t.labels.searchPlaceholderPokemon
+            : liveScope === "one-piece"
+              ? t.labels.searchPlaceholderOnePiece
+              : t.labels.searchPlaceholder
+        }
+        searchLabel={
+          liveScope === "pokemon"
+            ? t.labels.searchLabelPokemon
+            : liveScope === "one-piece"
+              ? t.labels.searchLabelOnePiece
+              : t.labels.searchLabel
+        }
         clearLabel={t.labels.searchClear}
         resultLabel={resultLabel}
         sortKeys={[
           { key: "rank", label: t.labels.rank },
-          { key: "cap", label: t.labels.marketCapShort },
           { key: "price", label: t.labels.priceShort },
           { key: "pop", label: t.labels.populationShort },
+          { key: "sales", label: t.labels.trackedSalesShort },
+          { key: "change", label: t.labels.changeShort },
         ]}
         sort={cardSort}
         dir={dir}
         onSort={applySort}
         highToLow={t.labels.sortHighToLow}
         lowToHigh={t.labels.sortLowToHigh}
+        onSearchFocus={() => prefetchCatalog()}
+        onClearSearch={searching ? () => update({ query: "", sort: "rank", dir: "desc", page: 1, size: 100 }) : undefined}
+        clearSearchLabel={t.labels.clearSearch}
+        searchScope={liveScope}
+        onSearchScopeChange={(next) => {
+          setLiveScope(next);
+          if (query.trim()) prefetchCatalog();
+        }}
       />
-      {!visibleCards.length ? <p className="empty-state">{query.trim() ? t.labels.noSearchResults : t.labels.noCards}</p> : (
+      {/* 索引載唔到就唔准扮全站搜過：有結果都要講明剩返當頁（冇結果嗰個 case 出喺 empty-state 入面） */}
+      {searching && catalogError && visibleCards.length ? (
+        <p className="empty-state-hint">{t.labels.catalogUnavailable}</p>
+      ) : null}
+      {!visibleCards.length ? (
+        <div className="empty-state">
+          <p>{searching ? t.labels.noSearchResults : t.labels.noCards}</p>
+          {searching && catalogError ? (
+            <p className="empty-state-hint">{t.labels.catalogUnavailable}</p>
+          ) : searching ? (
+            <p className="empty-state-hint">
+              {liveScope === "all"
+                ? t.labels.searchUnqualified
+                : t.labels.searchUnqualifiedScoped.replace(
+                  "{scope}",
+                  liveScope === "pokemon" ? t.nav.pokemon : t.nav.onePiece,
+                )}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      {visibleCards.length ? (
         <>
+          {/* 桌面 table 同手機 list 只 render 一個：以前兩份都 mount，DOM／sparkline 行兩次。
+              SSR 同 hydration render 一律當桌面（useMediaQuery 個 server snapshot 係 false），
+              hydrate 完先切，唔會 hydration mismatch。 */}
+          {isMobileList ? null : (
           <div className="desktop-ranking-table">
             <table>
-              <caption className="sr-only">{watchlist ? t.nav.watchlist : rankingTitle}</caption>
+              <caption className="sr-only">{heading}</caption>
               <colgroup>
                 <col className="col-rank" /><col className="col-card" /><col className="col-number" /><col className="col-price" />
                 <col className="col-pop" /><col className="col-cap" /><col className="col-sales" /><col className="col-change" /><col className="col-spark" />
@@ -187,9 +335,9 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                 <th scope="col">{t.labels.card}</th><th scope="col">{t.labels.number}</th>
                 <SortHeader label={t.labels.priceShort} sortKey="price" activeKey={cardSort} dir={dir} onSort={applySort} className="numeric" />
                 <SortHeader label={t.labels.populationShort} sortKey="pop" activeKey={cardSort} dir={dir} onSort={applySort} className="numeric" />
-                <SortHeader label={t.labels.marketCapShort} sortKey="cap" activeKey={cardSort} dir={dir} onSort={applySort} className="numeric" />
-                <th scope="col" className="numeric">{t.periods[period]} {t.labels.trackedSalesShort}</th>
-                <th scope="col" className="numeric">{t.periods[period]} {t.labels.changeShort}</th>
+                <th scope="col" className="numeric">{t.labels.marketCapShort}</th>
+                <SortHeader label={`${t.periods[period]} ${t.labels.trackedSalesShort}`} sortKey="sales" activeKey={cardSort} dir={dir} onSort={applySort} className="numeric" />
+                <SortHeader label={`${t.periods[period]} ${t.labels.changeShort}`} sortKey="change" activeKey={cardSort} dir={dir} onSort={applySort} className="numeric" />
                 <th scope="col" className="numeric">{t.labels.salesTrendShort}</th>
               </tr></thead>
               <tbody>{visibleCards.map((card) => {
@@ -199,7 +347,8 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                    中鍵／Cmd-click／右鍵複製連結全部返嚟，table 語意亦唔會被 role="link" 蓋走。 */
                 return (
                   <tr key={card.id} className="rank-row">
-                    <td className="rank-cell" data-rank={card.viewRank > 0 ? String(card.viewRank) : undefined}>{card.viewRank > 0 ? card.viewRank : t.labels.awaitingFreshPrice}</td>
+                    {/* rank 欄得 26px：冇數字出「—」，成句「等待新鮮價格」放 title，唔准塞入格 */}
+                    <td className="rank-cell" data-rank={card.viewRank > 0 ? String(card.viewRank) : undefined} title={card.viewRank > 0 ? undefined : t.labels.awaitingFreshPrice}>{card.viewRank > 0 ? card.viewRank : "—"}</td>
                     <td><Link href={cardUrl} className="row-link"><CardIdentity card={card} locale={locale} unavailable={t.status.unavailable} /></Link></td>
                     <td className="collector-cell">{card.collectorNumber}</td>
                     <td className="numeric price-cell">
@@ -224,6 +373,8 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
               })}</tbody>
             </table>
           </div>
+          )}
+          {isMobileList ? (
           <div className="mobile-ranking-list">
             <div className="mobile-list-header" aria-hidden="true">
               <span className="mobile-col-info">{t.labels.card}</span>
@@ -232,7 +383,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
             </div>
             {visibleCards.map((card) => (
               <Link className="mobile-rank-card" href={href(`/card/${card.id}`)} key={card.id}>
-                <span className="mobile-rank-index">{card.viewRank > 0 ? card.viewRank : t.labels.awaitingFreshPrice}</span>
+                <span className="mobile-rank-index" title={card.viewRank > 0 ? undefined : t.labels.awaitingFreshPrice}>{card.viewRank > 0 ? card.viewRank : "—"}</span>
                 <div className="ranking-thumb"><CardImage image={card.image} sizes="56px" alt={displayCardName(card, locale, t.status.unavailable)} /></div>
                 <div className="mobile-card-info">
                   <span className="mobile-card-sub">
@@ -261,8 +412,22 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
               </Link>
             ))}
           </div>
+          ) : null}
+          {remaining > 0 ? (
+            <button
+              type="button"
+              className="box-show-more"
+              disabled={isPending}
+              aria-busy={isPending}
+              onClick={() => startShowMore(() => setVisibleLimit((limit) => limit + CATALOG_LIST_CAP))}
+            >
+              {t.labels.showMoreResults
+                .replace("{count}", String(Math.min(remaining, CATALOG_LIST_CAP)))
+                .replace("{total}", String(catalogHits.length))}
+            </button>
+          ) : null}
         </>
-      )}
+      ) : null}
     </section>
   );
 }

@@ -1,5 +1,6 @@
+import { buildCatalogIndex } from "@/lib/catalog-search";
 import { loadMarketSnapshot, scopeSnapshot, singleCardSnapshot, type ScopeOptions } from "@/lib/server-snapshot";
-import type { MarketCardView, MarketViewSnapshot } from "@/lib/types";
+import type { CatalogEntry, MarketCardView, MarketViewSnapshot } from "@/lib/types";
 
 /*
  * 前端統一數據入口。
@@ -41,4 +42,20 @@ export async function getMarketData(scope: MarketScope, options?: ScopeOptions):
 export async function getCardData(id: string): Promise<MarketCardView | null> {
   const snapshot = singleCardSnapshot(await loadMarketSnapshot(), id);
   return snapshot.top100[0] ?? null;
+}
+
+export interface CatalogListPayload {
+  generation: string;
+  count: number;
+  entries: CatalogEntry[];
+}
+
+export async function getCatalogData(): Promise<CatalogListPayload> {
+  const snapshot = await loadMarketSnapshot();
+  const entries = buildCatalogIndex(snapshot);
+  return {
+    generation: snapshot.generation,
+    count: entries.length,
+    entries,
+  };
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Breadcrumbs } from "./breadcrumbs";
 import { CardImage } from "./card-image";
 import { CopyButton } from "./copy-button";
 import { CapTicker } from "./cap-ticker";
@@ -9,16 +10,28 @@ import { PeriodSelector } from "./period-selector";
 import { DETAIL_PRINT_FIELDS, printIdentityRows } from "./print-badge";
 import { Provenance } from "./provenance";
 import { PriceDelta, MetricDelta, staleClass, staleTitle } from "./rankings";
-import { absolutePublicUrl, canonicalPublicUrl, siteOrganization, StructuredData } from "./structured-data";
+import { RelatedCards } from "./related-cards";
+import { absolutePublicUrl, canonicalPublicUrl, datasetId, siteOrganization, StructuredData } from "./structured-data";
 import { displayCardName } from "@/lib/card-name";
 import { copy } from "@/lib/i18n";
-import { formatMetricInteger, formatMetricMoney, formatMoney, formatObservationDate, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
+import { formatInteger, formatMetricInteger, formatMetricMoney, formatMoney, formatObservationDate, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
 import { plainDescription } from "@/lib/plain-text";
+import { cardFactSentence, cardSubject, geoCopy, setHubPath, setSlug, tcgHubPath, type RelatedCardsPayload } from "@/lib/related-cards";
 import { StoryPanel } from "./story-panel";
 import { type MarketViewSnapshot } from "@/lib/types";
 import { useMarketSettings } from "@/lib/use-market-settings";
+import "@/app/styles/card-links.css";
 
-export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewSnapshot }) {
+/*
+ * `related` 由 route（server）計，因為卡頁行嘅係 `singleCardSnapshot`——client 側
+ * 得返呢一張卡，砌唔到「同一個 set」「排名前後」。冇傳落嚟嗰陣個 prop 係
+ * undefined，相關卡區塊直接唔出，其餘照行（所以未接線都 build 得到）。
+ */
+export function CardDetail({ id, snapshot, related }: {
+  id: string;
+  snapshot: MarketViewSnapshot;
+  related?: RelatedCardsPayload | null;
+}) {
   const { locale, currency, period, href } = useMarketSettings();
   const t = copy[locale];
   const card = snapshot.top100.find((item) => item.id === id);
@@ -35,35 +48,109 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
   const windowMetric = card.windows[period];
   const title = displayCardName(card, locale, card.officialName ?? "");
   const story = card.story?.[locale] || null;
+  const geo = geoCopy[locale];
+  const cardUrl = canonicalPublicUrl(`/card/${card.id}`);
+  const localizedTcg = card.tcg === "One Piece" ? t.nav.onePiece : t.nav.pokemon;
+  const setLabel = card.setName[locale] || card.setName.en || "";
+  /*
+   * 可引用事實用嘅日期同上面「資料時間」同一個值（卡自己嘅價格觀察日，冇先跌
+   * snapshot 時間）。schema 同睇得見嗰句一定要講同一日，唔可以一句寫價格日、
+   * 另一句寫 bake 日。
+   */
+  const factDate = card.pricePsa10.checkedAt || card.pricePsa10.asOf || snapshot.effectiveAt;
+  const capValue = card.marketCap.value;
+  const priceValue = card.pricePsa10.value;
+  const popValue = card.populationPsa10.value;
+  /*
+   * GEO（owner 2026-08-16）：卡頁 H1 下面出一句自己站得住嘅事實——實體名、計法
+   * （PSA 10 價 × PSA 10 鑑定數量）、日期、排名齊集，唔使睇圖表都答到問題。
+   * 三個數有一個係 null 就成句唔出：「市值：暫無資料」呢種句唔可以攞去引用。
+   * 「共 N 張」要完整 snapshot 先數到，冇 `related` 就淨講名次，唔准估個總數。
+   */
+  /*
+   * 引用句唔用 H1 個全名：en 嘅 officialName 係 PSA 證書原句（年份 + set 名 + 編號
+   * 全部喺入面），照塞落去會喺一句入面出三次 set 名、亦都爆 50 字上限。有本地化
+   * 短名就用短名，冇就用剝走年份／set／編號之後嘅主體名。
+   */
+  const localName = displayCardName(card, locale, "");
+  const factName = (localName && localName !== card.officialName ? localName : cardSubject(card))
+    || localName
+    || card.officialName
+    || "";
+  const cardFact = capValue !== null && priceValue !== null && popValue !== null
+    ? cardFactSentence(locale, {
+      name: factName,
+      set: setLabel || t.status.unavailable,
+      num: card.collectorNumber,
+      cap: formatMoney(capValue, currency, snapshot.rates, locale, true),
+      price: formatMoney(priceValue, currency, snapshot.rates, locale),
+      pop: formatInteger(popValue, locale),
+      date: formatObservationDate(factDate, locale),
+      rank: card.marketRank,
+      total: related?.tcgRankedCount ?? null,
+      tcg: localizedTcg,
+    })
+    : null;
+  const setPath = related?.setPath ?? setHubPath(card);
+  const crumbs = [
+    { label: t.nav.all, href: href("/") },
+    { label: localizedTcg, href: href(related?.tcgPath ?? tcgHubPath(card.tcg)) },
+    ...(setLabel && setSlug(card) ? [{ label: setLabel, href: href(setPath) }] : []),
+    { label: title || t.status.unavailable },
+  ];
+  /*
+   * 市值 / PSA 10 價 / 鑑定數量 / 名次全部係頁面上面睇得見嘅數，但以前一個都冇入
+   * schema。逐條落 PropertyValue（USD 原值，唔跟顯示貨幣），null 嗰條唔出——
+   * 缺數就係缺數，唔准出 0。
+   */
+  const additionalProperty = [
+    capValue !== null ? { "@type": "PropertyValue", name: "marketCapUsd", value: capValue, unitText: "USD" } : null,
+    priceValue !== null ? { "@type": "PropertyValue", name: "pricePsa10Usd", value: priceValue, unitText: "USD" } : null,
+    popValue !== null ? { "@type": "PropertyValue", name: "populationPsa10", value: popValue, unitText: "count" } : null,
+    card.marketRank >= 1 ? { "@type": "PropertyValue", name: "marketRank", value: card.marketRank } : null,
+    factDate ? { "@type": "PropertyValue", name: "asOf", value: factDate } : null,
+    card.cardLanguage ? { "@type": "PropertyValue", name: "printLanguage", value: card.cardLanguage } : null,
+    card.setName.en ? { "@type": "PropertyValue", name: "setName", value: card.setName.en } : null,
+  ].filter((entry) => entry !== null);
   const structuredData = {
     "@context": "https://schema.org",
     "@graph": [
+      /*
+       * 一張卡同時係作品同商品，所以行 multi-type：本身嗰個 VisualArtwork 冇錯，
+       * 唔好為咗加 Product 而拆做兩個節點——同一件嘢兩個 @id 就係拆散實體。
+       * 冇 offers / 冇 rating：我哋唔賣卡、亦冇評分，作一個出嚟就係假 schema。
+       * BreadcrumbList 由 <Breadcrumbs> 出（同睇得見嗰條係同一份資料），呢度唔再出。
+       */
       {
-        "@type": "VisualArtwork",
+        "@type": ["Product", "VisualArtwork"],
+        "@id": `${cardUrl}#card`,
+        url: cardUrl,
         name: title || t.status.unavailable,
+        alternateName: card.officialName && card.officialName !== title ? card.officialName : undefined,
         identifier: card.collectorNumber,
+        sku: card.collectorNumber || undefined,
         image: absolutePublicUrl(card.image.url),
+        brand: { "@type": "Brand", name: card.tcg === "One Piece" ? "One Piece Card Game" : "Pokémon" },
+        isPartOf: card.setName.en ? { "@type": "CreativeWorkSeries", name: card.setName.en } : undefined,
         /*
          * JSON-LD 唔經 `marketMetadata`，所以要喺呢度自己 normalise 多一次。
          * 呢個 `description` 同 `<meta>` 嗰個係同一篇故事、同一個消毒規矩，
          * 唯獨走另一條路出街 —— 漏咗呢句就得 schema.org 嗰邊仲係生 markdown。
+         * 冇故事就用上面睇得見嗰句事實，兩邊字一模一樣。
          */
-        description: plainDescription(story ?? "") || undefined,
+        description: plainDescription(story ?? "") || cardFact || undefined,
         dateModified: card.pricePsa10.asOf || snapshot.effectiveAt || undefined,
         publisher: siteOrganization(),
-      },
-      {
-        "@type": "BreadcrumbList",
-        itemListElement: [
-          { "@type": "ListItem", position: 1, name: t.nav.all, item: canonicalPublicUrl("/") },
-          { "@type": "ListItem", position: 2, name: title || t.status.unavailable },
-        ],
+        additionalProperty,
+        isBasedOn: canonicalPublicUrl("/methodology"),
+        subjectOf: { "@type": "Dataset", "@id": datasetId() },
       },
     ],
   };
   return (
     <div className="page-shell detail-page">
       <StructuredData value={structuredData} />
+      <Breadcrumbs items={crumbs} label={geo.breadcrumbLabel} />
       <div className="detail-actions">
         <Link className="back-link" href={href("/")}>← {t.nav.all}</Link>
         <CopyButton getText={() => `${window.location.origin}/card/${card.id}`} label={t.labels.share} doneLabel={t.labels.shareDone} errorLabel={t.labels.shareError} preferNativeShare />
@@ -77,7 +164,9 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
           <header className="detail-header">
             <p className="section-kicker">{card.tcg}</p>
             <h1>{title || t.status.unavailable}</h1>
-            <p className="detail-set">{card.setName[locale] || t.status.unavailable}</p>
+            <p className="detail-set">{setLabel || t.status.unavailable}</p>
+            {/* 可引用事實：server render 出嚟嘅純文字，唔係淨喺圖表入面。 */}
+            {cardFact && <p className="card-fact">{cardFact}</p>}
             {/* 印刷版本逐條併入現有 identity list：冇值嘅欄根本唔會回，
                 所以完全冇資料嗰陣呢個 dl 同以前一模一樣。
                 owner 2026-08-02：語言版本＋卡包來源喺內頁出齊（DETAIL_PRINT_FIELDS 包
@@ -121,6 +210,9 @@ export function CardDetail({ id, snapshot }: { id: string; snapshot: MarketViewS
           <Provenance updatedAt={card.pricePsa10.checkedAt || card.pricePsa10.asOf || snapshot.effectiveAt} />
         </div>
       </article>
+      {related && (
+        <RelatedCards related={related} locale={locale} currency={currency} rates={snapshot.rates} href={href} />
+      )}
     </div>
   );
 }

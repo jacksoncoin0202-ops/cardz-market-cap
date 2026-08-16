@@ -95,6 +95,7 @@ const nextConfig: NextConfig = {
     return [
       { source: "/sealed", destination: "/box", permanent: true },
       { source: "/sealed/:id", destination: "/box/:id", permanent: true },
+      { source: "/watchlist", destination: "/", permanent: true },
       ...Object.entries(LEGACY_CARD_IDS).flatMap(([oldId, newId]) => [
         { source: `/card/${oldId}`, destination: `/card/${newId}`, permanent: true },
         { source: `/api/v1/cards/${oldId}`, destination: `/api/v1/cards/${newId}`, permanent: true },
@@ -114,6 +115,17 @@ const nextConfig: NextConfig = {
       "/card/:id",
       "/box",
       "/box/:id",
+      /* GEO 批（owner 2026-08-16）新增嘅內容頁，同榜頁行同一個 edge cache。 */
+      "/methodology",
+      "/about",
+      "/faq",
+      "/glossary",
+      "/data",
+      "/rankings",
+      "/rankings/:slug",
+      "/market-report",
+      "/pokemon/set/:slug",
+      "/one-piece/set/:slug",
     ];
     return [
       {
@@ -124,8 +136,26 @@ const nextConfig: NextConfig = {
         source,
         headers: [htmlCacheControl],
       })),
+      /*
+       * `/api/v1/*` 係公開機讀面：任何人（包括 AI 引擎同第三方 script）攞得到、
+       * 而且要俾人索引。owner 2026-08-16 決定連 JSON 一齊開放引用，所以呢度明寫
+       * `X-Robots-Tag: all` 蓋返任何預設 noindex。
+       */
       {
-        source: "/api/:path*",
+        source: "/api/v1/:path*",
+        headers: [
+          { key: "Access-Control-Allow-Origin", value: "*" },
+          { key: "Access-Control-Allow-Methods", value: "GET, OPTIONS" },
+          { key: "X-Robots-Tag", value: "all" },
+          htmlCacheControl,
+        ],
+      },
+      /*
+       * 原本呢度係 `/api/:path*` 一刀切 noindex —— 連 /api/v1/ 同 /api/og/ 一齊殺埋。
+       * 而家只剩運維探針：health 冇內容價值，索引咗淨係污染 SERP。
+       */
+      {
+        source: "/api/health",
         headers: [
           {
             key: "X-Robots-Tag",

@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "npm --workspace @cardz/market-data run build && next dev",
     "build": "npm --workspace @cardz/market-data run build && next build && node scripts/prepare-standalone.mjs",
-    "start": "next start"
+    "start": "next start",
+    "geo:ua-matrix": "node scripts/geo/crawler-ua-matrix.mjs",
+    "geo:indexnow": "node scripts/geo/indexnow-ping.mjs"
   },
   "dependencies": {
     "@cardz/market-data": "0.1.0",

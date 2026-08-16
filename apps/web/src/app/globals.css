@@ -346,7 +346,8 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
 .select-control { position: relative; }
 /* header 兩粒 icon 掣：真 44px 方格，圖示置中 */
 .theme-toggle,
-.updown-toggle { min-width: 44px; min-height: 44px; justify-content: center; padding-inline: 0; }
+.updown-toggle,
+.site-search-toggle { min-width: 44px; min-height: 44px; justify-content: center; padding-inline: 0; }
 .theme-toggle-icon { display: inline-flex; align-items: center; justify-content: center; line-height: 0; }
 .select-trigger {
   display: flex;
@@ -464,6 +465,41 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   line-height: 1.6;
   opacity: 0.85;
 }
+/* Footer 導覽：GEO 批七版內容頁／榜頁嘅站內入口（verify pass 2026-08-16）。
+   flex-wrap 唔用 grid：label 長度五個語言差好遠，固定欄數喺 ja/ko 會爆行。 */
+.footer-nav {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.footer-nav-title {
+  margin: 0 0 8px;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.footer-nav-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.footer-nav-list a {
+  color: var(--footer-text);
+  font-size: 12px;
+  line-height: 1.6;
+  text-decoration: none;
+}
+.footer-nav-list a:hover,
+.footer-nav-list a:focus-visible {
+  color: var(--fg);
+  text-decoration: underline;
+}
+
 /* 方法區：首頁排名下面同卡頁圖表下面共用（components/provenance.tsx）。 */
 .provenance-panel {
   margin-top: 40px;
@@ -542,7 +578,8 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   text-transform: uppercase;
 }
 .hero-section h1,
-.heatmap-heading h1 {
+.heatmap-heading h1,
+.heatmap-heading h2 {
   width: min(100%, 970px);
   margin-bottom: 16px;
   overflow-wrap: break-word;
@@ -580,7 +617,8 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   padding-bottom: 22px;
 }
 .heatmap-heading > div { min-width: 0; }
-.heatmap-heading h1 {
+.heatmap-heading h1,
+.heatmap-heading h2 {
   margin-bottom: 12px;
   /* 唔好 line-clamp：過渡寬度會夾出「...」。寧願字級跟寬度落，
      最多兩行自然換行。 */
@@ -1742,7 +1780,8 @@ html.theme-transitions .card-dialog {
   /* Mobile first viewport: small heading -> compact controls row (slider as hero) -> big heatmap. */
   .heatmap-section { grid-template-rows: auto minmax(0, 1fr) auto; padding: 8px 0 12px; }
   .heatmap-heading { align-items: flex-start; flex-direction: column; gap: 4px; padding-bottom: 8px; }
-  .heatmap-heading h1 { margin-bottom: 4px; font-size: 20px; line-height: 1.15; }
+  .heatmap-heading h1,
+  .heatmap-heading h2 { margin-bottom: 4px; font-size: 20px; line-height: 1.15; }
   .heatmap-total-cap { margin: 0; font-size: 12px; }
   .heatmap-controls { align-self: stretch; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 4px; }
   /* Row 1: tune toggle + Tiles slider stretched wide. */
@@ -1767,6 +1806,9 @@ html.theme-transitions .card-dialog {
   /* 手機 sticky 預算：h2 + kicker + lang-filter + period 成舊釘住會食走成三分一屏。
      markup 冇獨立 chip row 可以單獨釘（chips 同 h2 同一個 div），所以整個 heading 唔釘。 */
   .ranking-heading { position: static; align-items: flex-start; flex-direction: column; gap: 12px; }
+  /* column flex + align-items:flex-start → 包住 kicker/h2/lang-filter 嗰個 div 係 shrink-to-fit，
+     底下 width:100% 嘅 .lang-filter 就跟住 h2 文字闊度走（241/144/210/194px，四語言唔同）。 */
+  .ranking-heading > div { align-self: stretch; }
   .ranking-heading h2 { font-size: 24px; }
   .ranking-heading .period-selector { width: 100%; max-width: none; }
   /* Ranking controls: one compact spec so every chip row shares the same size. */
@@ -1880,6 +1922,75 @@ html.theme-transitions .card-dialog {
   .grader-tabs { display: flex; width: 100%; justify-content: center; }
 }
 .empty-state { margin: 24px 0; padding: 18px; border: 1px dashed var(--line-strong); border-radius: var(--control-radius); color: var(--muted); font-size: 12px; }
+.empty-state p { margin: 0; }
+.empty-state p + p,
+.site-search-empty p + p { margin-top: 8px; }
+.empty-state-hint { font-size: 11px; line-height: 1.55; color: var(--dt-color); }
+.site-search-hit {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  min-height: 64px;
+  padding: 8px 10px;
+  color: inherit;
+  text-decoration: none;
+  border-radius: 6px;
+}
+.site-search-hit .ranking-thumb { width: 42px; height: 60px; }
+.catalog-hit-copy { min-width: 0; display: grid; gap: 3px; }
+.catalog-hit-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.catalog-hit-meta { display: flex; flex-wrap: wrap; gap: 0 10px; color: var(--muted); font-size: 11px; }
+@media (hover: hover) {
+  .site-search-hit:hover,
+  .site-search-hit[aria-selected="true"] { background: var(--table-row-hover); }
+}
+.site-search { position: relative; }
+.site-search-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: var(--z-overlay);
+  width: min(420px, calc(100vw - 32px));
+  padding: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--control-radius);
+  background: var(--surface-translucent-strong);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: var(--elev-3);
+}
+.site-search-field {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--control-bg);
+}
+.site-search-field:focus-within { border-color: var(--line-strong); }
+.site-search-field input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+.site-search-field input::placeholder { color: var(--muted); }
+.site-search-field input::-webkit-search-cancel-button,
+.site-search-field input::-webkit-search-decoration { -webkit-appearance: none; appearance: none; display: none; }
+.site-search-hits { list-style: none; margin: 8px 0 0; padding: 0; }
+.site-search-empty { margin: 10px 4px 2px; color: var(--muted); font-size: 12px; }
+.site-search-empty p { margin: 0; }
+@media (max-width: 680px) {
+  .site-search-panel { position: fixed; top: calc(var(--header-height) + env(safe-area-inset-top)); right: 12px; left: 12px; width: auto; }
+  .site-search-field input { font-size: 16px; }
+}
 .empty-detail { padding: 60px 0; }
 .data-time { margin-top: 10px; color: var(--muted); font-size: 10px; }
 .identity-list { display: flex; flex-wrap: wrap; gap: 10px 26px; margin: 10px 0 0; }
@@ -2018,7 +2129,8 @@ html.theme-transitions .card-dialog {
   .heatmap-controls .period-selector button::after { inset: -7px 0; }
   .heatmap-export::after,
   .heatmap-tune-toggle::after { content: ""; position: absolute; inset: -4px; }
-  .explore-clear::after { content: ""; position: absolute; inset: 0 -6px; }
+  /* ✕ 本身 32×42（跟框），::after 溢出 1px/6px 補到 44×44，唔影響 row 高度 */
+  .explore-clear::after { content: ""; position: absolute; inset: -1px -6px; }
 }
 
 /* moumen ticket ticker：卡詳情頁市值數字 0 滾到目標值 */
@@ -2162,17 +2274,42 @@ button.primary-action { border: 0; }
 .explore-search {
   flex: 1 1 240px;
   min-width: 0;
-  min-height: 44px;
+  /* 固定 44px（border-box）：✕ 出現／消失都唔准撐高個框。
+     子元素一律唔准做高度來源 —— 舊時 .explore-clear 嘅 min-height:44 令個框變 46px。 */
+  height: 44px;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 12px;
+  padding: 0 12px 0 6px;
   border: 1px solid var(--line);
   border-radius: var(--control-radius);
   background: var(--control-bg);
   transition: border-color 170ms ease;
 }
+.explore-scope { position: relative; flex: none; }
+.explore-scope-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--soft);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.explore-scope-menu { left: 0; right: auto; min-width: 148px; }
+.explore-scope-menu .select-option { width: 100%; text-decoration: none; }
 .explore-search:focus-within { border-color: var(--line-strong); }
+.explore-search-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
 .explore-search input {
   flex: 1;
   min-width: 0;
@@ -2184,7 +2321,7 @@ button.primary-action { border: 0; }
   outline: none;
 }
 .explore-search input::placeholder { color: var(--muted); }
-/* 原生 search 嘅 X 收起，用自己個 .explore-clear（icon 掣、44px 高） */
+/* 原生 search 嘅 X 收起，用自己個 .explore-clear（icon 掣、跟框 42px，命中區 44px） */
 .explore-search input::-webkit-search-cancel-button,
 .explore-search input::-webkit-search-decoration { -webkit-appearance: none; appearance: none; display: none; }
 .explore-clear {
@@ -2193,7 +2330,8 @@ button.primary-action { border: 0; }
   align-items: center;
   justify-content: center;
   width: 32px;
-  min-height: 44px;
+  /* 跟住 44px 個框拉滿（42px 內容區），唔准反過嚟撐高佢；44px 命中區靠下面嘅 ::after */
+  align-self: stretch;
   margin-right: -8px;
   padding: 0;
   border: 0;
@@ -2233,6 +2371,23 @@ button.primary-action { border: 0; }
 }
 /* role=status 個 <p> 長駐；空嘅時候唔好食多一格 column-gap（explore-bar 係 14px） */
 .explore-count:empty { margin-inline-start: -14px; }
+.explore-reset {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--soft);
+  color: var(--control-idle);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 170ms ease, border-color 170ms ease, background 170ms ease;
+}
+@media (hover: hover) {
+  .explore-reset:hover { color: var(--ink); border-color: var(--line-strong); background: var(--surface); }
+}
 .explore-sort-chips {
   display: none;
   flex-wrap: wrap;
@@ -2258,12 +2413,23 @@ button.primary-action { border: 0; }
   .explore-sort-chips button:hover { color: var(--ink); border-color: var(--line-strong); background: var(--surface); }
 }
 /* 手機 explore bar：一定要喺 base 後面（同 specificity，source order 決勝）。
-   input 16px：iOS focus 唔會 zoom；container 靠 min-height 40 keep 返個樣。 */
+   input 16px：iOS focus 唔會 zoom；框高度用返 base 嘅固定 44px，手機唔再縮細（有／冇 ✕ 同高）。 */
 @media (max-width: 680px) {
-  .explore-sort-chips { flex-wrap: nowrap; gap: 4px; }
+  /* chips 唔准 wrap，亦唔准 clip 走 .explore-dir：橫向 scroll 保底（Phase B 拆走 chips 後可以刪）。
+     padding/margin ±6px：留位俾 button::after 嘅 44px 命中區，唔會變咗垂直 scroll。 */
+  .explore-sort-chips {
+    flex-wrap: nowrap;
+    gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-block: 6px;
+    margin-block: -6px;
+  }
   .explore-sort-chips button { min-height: 32px; font-size: 11px; padding-inline: 10px; }
-  .explore-search { min-height: 40px; padding-block: 0; }
+  /* 方向掣個 label 唔准摺行：摺咗就縮到細過 min-content，scroll 都救唔返 */
+  .explore-dir span { white-space: nowrap; }
   .explore-search input { font-size: 16px; }
+  .explore-scope-trigger { min-height: 28px; font-size: 11px; padding-inline: 7px; }
 }
 .explore-dir { display: inline-flex; align-items: center; gap: 5px; }
 .sort-th {
@@ -2318,6 +2484,13 @@ button.primary-action { border: 0; }
   text-decoration: none;
   transition: background 170ms ease, transform 90ms ease;
 }
+.watchlist-pager a[data-active="true"] {
+  border-color: var(--line-strong);
+  background: var(--surface);
+}
+.ranking-pager { flex-wrap: wrap; }
+.ranking-page-sizes { display: inline-flex; align-items: center; gap: 8px; }
+.ranking-show-more { padding-inline: 14px; min-width: auto; }
 @media (hover: hover) {
   .watchlist-pager a:hover { background: var(--surface); }
 }
@@ -2402,4 +2575,56 @@ html.theme-transitions .box-thumb { transition: background-color 240ms cubic-bez
   .detail-metrics > div:hover { transform: none; }
   .back-link { transition: none; }
   .back-link:hover { transform: none; }
+}
+
+/* ── 首屏可引用段（GEO，owner 2026-08-16）──
+   hero 下面嗰 3–5 行定義／as-of／市況／消歧義。首頁聲線係 art first，所以呢舊字
+   刻意細一級、用 --hero-copy 淡色：畀引擎同第一次嚟嘅人一句答案，唔准搶熱力圖。
+   闊度同 .hero-copy 一樣（780px），兩段字唔會左右對唔齊。 */
+.intro-block {
+  width: min(100%, 780px);
+  margin-top: 14px;
+  color: var(--hero-copy);
+  font-size: 13.5px;
+  line-height: 1.6;
+  letter-spacing: -0.006em;
+  text-wrap: pretty;
+}
+/* summary 一行：as-of 日期常駐可見；用 ▸/▾ 自己畫，唔用 UA marker（跨瀏覽器樣式一致）。 */
+.intro-block > summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  font-size: 13px;
+  user-select: none;
+}
+.intro-block > summary::-webkit-details-marker { display: none; }
+.intro-block > summary::before {
+  content: "";
+  width: 0; height: 0;
+  border-left: 5px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  opacity: 0.7;
+  transition: transform 160ms ease;
+}
+.intro-block[open] > summary::before { transform: rotate(90deg); }
+.intro-block > summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; border-radius: 3px; }
+.intro-body { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
+.intro-block p { margin: 0; }
+.intro-block a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+.intro-links { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+@media (max-width: 980px) {
+  /* 手機：熱力圖係第一屏主角，所以 hero 收窄留白、intro 再細一級。 */
+  .market-page-shell .hero-section { padding: 18px 0 22px; }
+  .intro-block { margin-top: 10px; font-size: 12.5px; }
+  .intro-body { gap: 4px; }
 }

@@ -1,6 +1,6 @@
-import type { Locale, MarketCardView, MarketWindow, SealedProductView } from "./types";
+import { defaultMarketWindow, type Locale, type MarketCardView, type MarketWindow, type SealedProductView } from "./types";
 
-export const cardSortKeys = ["rank", "price", "pop", "cap"] as const;
+export const cardSortKeys = ["rank", "price", "pop", "sales", "change"] as const;
 export const boxSortKeys = ["rank", "price", "sold", "release"] as const;
 export const sortDirs = ["asc", "desc"] as const;
 
@@ -24,6 +24,8 @@ export function normaliseQuery(value: string | null | undefined): string {
 }
 
 export function normaliseCardSort(value: string | null | undefined): CardSortKey {
+  /* 舊 URL `?sort=cap`：市值序就係榜序，唔再開第二個互相取消嘅掣。 */
+  if (value === "cap") return DEFAULT_SORT;
   return cardSortKeys.includes(value as CardSortKey) ? value as CardSortKey : DEFAULT_SORT;
 }
 
@@ -90,6 +92,12 @@ function metricValue(metric: { value: number | null } | undefined): number | nul
   return value === null || value === undefined || !Number.isFinite(value) ? null : value;
 }
 
+/* 打和用嘅 rank：viewRank 行先，rank 0（等緊新價）當最大排最後，唔准因為係 0 而搶到最前。 */
+function tieBreakRank(card: MarketCardView): number {
+  const rank = card.viewRank > 0 ? card.viewRank : card.marketRank;
+  return rank > 0 ? rank : Number.MAX_SAFE_INTEGER;
+}
+
 /* 缺值排最後，唔當 0。相同數用原本 rank 打和，唔重新編號。 */
 export function compareNullable(a: number | null, b: number | null, dir: SortDir): number {
   if (a === null && b === null) return 0;
@@ -98,16 +106,32 @@ export function compareNullable(a: number | null, b: number | null, dir: SortDir
   return dir === "asc" ? a - b : b - a;
 }
 
-export function sortCards(cards: MarketCardView[], sort: CardSortKey, dir: SortDir): MarketCardView[] {
-  if (sort === "rank") return cards.slice();
+export function sortCards(
+  cards: MarketCardView[],
+  sort: CardSortKey,
+  dir: SortDir,
+  period: MarketWindow = defaultMarketWindow,
+): MarketCardView[] {
+  /* rank = 市值榜序。#1 永遠在最前；唔同 cap 再打一次仗。 */
+  if (sort === "rank") {
+    return cards.slice().sort((left, right) => {
+      const rankA = left.marketRank > 0 ? left.marketRank : Number.MAX_SAFE_INTEGER;
+      const rankB = right.marketRank > 0 ? right.marketRank : Number.MAX_SAFE_INTEGER;
+      return rankA - rankB || left.id.localeCompare(right.id);
+    });
+  }
   return cards.slice().sort((left, right) => {
     const key = sort === "price"
       ? compareNullable(metricValue(left.pricePsa10), metricValue(right.pricePsa10), dir)
       : sort === "pop"
         ? compareNullable(metricValue(left.populationPsa10), metricValue(right.populationPsa10), dir)
-        : compareNullable(metricValue(left.marketCap), metricValue(right.marketCap), dir);
+        : sort === "sales"
+          ? compareNullable(metricValue(left.windows[period]?.trackedSales.valueUsd), metricValue(right.windows[period]?.trackedSales.valueUsd), dir)
+          : sort === "change"
+            ? compareNullable(metricValue(left.windows[period]?.changePct), metricValue(right.windows[period]?.changePct), dir)
+            : compareNullable(metricValue(left.marketCap), metricValue(right.marketCap), dir);
     if (key !== 0) return key;
-    return (left.viewRank || left.marketRank) - (right.viewRank || right.marketRank);
+    return tieBreakRank(left) - tieBreakRank(right);
   });
 }
 

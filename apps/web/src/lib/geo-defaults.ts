@@ -75,4 +75,33 @@ export function geoRedirectSearch(search: URLSearchParams, defaults: GeoDefaults
 /* IP 國家 header 優先序：Cloudflare → Vercel → CloudFront → 通用。 */
 export const COUNTRY_HEADERS = ["cf-ipcountry", "x-vercel-ip-country", "cloudfront-viewer-country", "x-country"] as const;
 
-export const BOT_UA_PATTERN = /bot|crawl|spider|slurp|facebookexternalhit|preview/i;
+/*
+ * 邊個 UA 唔好 geo-redirect（owner 2026-08-16）。
+ *
+ * 舊版係 /bot|crawl|spider|slurp|facebookexternalhit|preview/i —— 靠模糊字眼撞。撞唔中嘅
+ * 代價唔細：爬蟲攞 `/` 會食到 302 去 `/?lang=ja`，索引到嘅就變咗日文版，canonical 亂晒。
+ * 而好多要緊嘅 UA 根本冇「bot」呢三個字母：`ChatGPT-User`、`Perplexity-User`、
+ * `Claude-User`、`anthropic-ai`、`meta-externalfetcher`、`python-requests`、`curl`…
+ *
+ * 所以而家逐個寫死（前半），generic 字眼留喺後半做網。`preview` 保留：舊行為，
+ * 各種 link-preview fetcher 靠佢，剷咗冇著數。
+ */
+export const BOT_UA_PATTERN = new RegExp(
+  [
+    // 搜尋引擎
+    "googlebot", "bingbot", "duckduckbot", "applebot", "yandex", "baiduspider", "yeti", "slurp",
+    // 社交／通訊 link preview
+    "facebookexternalhit", "twitterbot", "linkedinbot", "discordbot", "telegrambot", "whatsapp", "slackbot",
+    // AI 搜尋 / 用戶觸發抓取
+    "oai-searchbot", "chatgpt-user", "perplexitybot", "perplexity-user",
+    "claude-user", "claude-searchbot", "duckassistbot", "mistralai-user", "youbot",
+    // AI 訓練 / dataset
+    "gptbot", "claudebot", "anthropic-ai", "google-extended", "ccbot", "amazonbot",
+    "bytespider", "meta-externalagent", "meta-externalfetcher", "cohere-ai", "petalbot",
+    // 自動化 / 監測 / HTTP client
+    "headlesschrome", "lighthouse", "curl", "wget", "python-requests", "node-fetch", "axios", "go-http-client",
+    // generic 網
+    "bot", "crawl", "spider", "scrap", "fetch", "preview",
+  ].join("|"),
+  "i",
+);

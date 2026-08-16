@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { copy } from "./i18n";
 import { normaliseLocale } from "./format";
 import { plainDescription } from "./plain-text";
+import { PUBLIC_SITE_URL } from "./public-site";
 import type { Locale } from "./types";
 
 export type PageSearchParams = Promise<Record<string, string | string[] | undefined>>;
@@ -11,7 +12,8 @@ export async function localeFromSearchParams(searchParams: PageSearchParams): Pr
   return normaliseLocale(Array.isArray(value) ? value[0] : value);
 }
 
-function localizedPath(path: string, locale: Locale): string {
+/* canonical / hreflang / og:url 三樣要係同一條 path，所以 export 出去畀其他 route 行同一份。 */
+export function localizedPath(path: string, locale: Locale): string {
   if (locale === "en") return path;
   return `${path}${path.includes("?") ? "&" : "?"}lang=${locale}`;
 }
@@ -56,12 +58,30 @@ export function marketMetadata(
         "x-default": localizedPath(path, "en"),
       },
     },
-    openGraph: { title, description: summary, siteName: "CardZ Marketcap", type: "website", locale, images },
+    /*
+     * og:url 要絕對 URL（GEO，owner 2026-08-16）。以前成站冇出過呢粒 meta，分享／
+     * 爬蟲就要自己估邊條先係正本；而家同 canonical 行同一個 localizedPath，兩者
+     * 永遠對得住（en 裸 path，其餘帶 ?lang=）。
+     */
+    openGraph: {
+      title,
+      description: summary,
+      siteName: "CardZ Marketcap",
+      type: "website",
+      locale,
+      url: new URL(localizedPath(path, locale), PUBLIC_SITE_URL).toString(),
+      images,
+    },
     twitter: { card: "summary_large_image", title, description: summary, images },
   };
 }
 
 export function defaultMarketMetadata(locale: Locale): Metadata {
   const t = copy[locale];
-  return marketMetadata(locale, t.hero.title, t.hero.body, "/");
+  /*
+   * 首頁要自己帶 `| CardZ Marketcap`：Next 嘅 title.template 只套用落**子** segment，
+   * 而 app/page.tsx 同定義個 template 嘅 app/layout.tsx 係同一個 segment，所以套唔到。
+   * 其餘頁面唔好照抄呢句，否則會出兩次品牌名。—— verify pass 2026-08-16
+   */
+  return marketMetadata(locale, `${t.seo.home.title} | CardZ Marketcap`, t.seo.home.description, "/");
 }

@@ -25,6 +25,23 @@ export function siteOrganization(url: string = PUBLIC_SITE_URL) {
   return baseSiteOrganization(new URL(url, PUBLIC_SITE_URL).origin);
 }
 
+/*
+ * 全站 Dataset / Organization 只准有一個 @id（verify pass 2026-08-16 修）。
+ *
+ * 之前三個 owner 各寫各嘅：market-page 出一個冇 @id 嘅 Dataset、seo-routes 用
+ * `#psa10-index`、而 card-detail / box-detail 嘅 subjectOf 指住 `#dataset-top100`
+ * —— 即係成 1,900 版卡頁／BOX 頁嘅 subjectOf 指住一個冇人定義過嘅節點，同時首頁
+ * 嗰個 Dataset 冇 @id 認唔返。JSON-LD 靠 @id merge，所以收埋做呢兩個 function，
+ * 邊個檔要就 import，唔准再喺 component 入面手砌 hash（AGENTS 規矩 13）。
+ */
+export function datasetId(): string {
+  return `${canonicalPublicUrl("/")}#dataset-top100`;
+}
+
+export function organizationId(): string {
+  return `${canonicalPublicUrl("/")}#organization`;
+}
+
 export function StructuredData({ value }: { value: object }) {
   const json = JSON.stringify(value).replace(/</g, "\\u003c");
   return <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: json }} />;
