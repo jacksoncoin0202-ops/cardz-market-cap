@@ -18,13 +18,14 @@ const serverSnapshot = read("apps/web/src/lib/server-snapshot.ts");
 const marketPage = read("apps/web/src/components/market-page.tsx");
 const heatmap = read("apps/web/src/components/heatmap.tsx");
 const rankings = read("apps/web/src/components/rankings.tsx");
-const home = read("apps/web/src/app/(market)/page.tsx");
-const pokemon = read("apps/web/src/app/(market)/pokemon/page.tsx");
-const onePiece = read("apps/web/src/app/(market)/one-piece/page.tsx");
+/* 2026-08-16：(market) route group 拆咗，三個市場頁搬返 app/ 根；/watchlist 變 308 → /（榜頁改用 ?page= pager）。 */
+const home = read("apps/web/src/app/page.tsx");
+const pokemon = read("apps/web/src/app/pokemon/page.tsx");
+const onePiece = read("apps/web/src/app/one-piece/page.tsx");
 
-check("shared page size", /export const WATCHLIST_PAGE_SIZE = 200/.test(pagination));
-check("watchlist imports page size", /WATCHLIST_PAGE_SIZE/.test(watchlist));
-check("sitemap covers every page", /watchlistPageCount/.test(sitemap) && /WATCHLIST_PAGE_SIZE/.test(sitemap));
+check("shared page size", /export const WATCHLIST_PAGE_SIZE = 200/.test(pagination) && /export const DEFAULT_RANKING_PAGE_SIZE: RankingPageSize = 100/.test(pagination));
+check("watchlist redirects to ranking pager", /redirect\("\/"\)/.test(watchlist));
+check("sitemap covers every page", /rankingPageCount\(/.test(sitemap) && /DEFAULT_RANKING_PAGE_SIZE/.test(sitemap));
 check("sitemap reads seed at runtime", /export const dynamic = "force-dynamic"/.test(sitemap));
 check("query alternates keep page", /path\.includes\("\?"\).*&/.test(sitemap.replace(/\s+/g, " ")));
 check("health counts full beyond-top100", /rankedBeyondTop100/.test(health) && /awaitingFreshPrice/.test(health));
