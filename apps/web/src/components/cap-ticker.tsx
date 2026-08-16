@@ -8,8 +8,15 @@ import { useEffect, useRef, useState } from "react";
 export function CapTicker({ value, format }: { value: number; format: (n: number) => string }) {
   const [display, setDisplay] = useState(value);
   const rafRef = useRef<number | null>(null);
+  const firedRef = useRef(false);
 
   useEffect(() => {
+    /* 淨係首次 mount 滾一次；之後 value 更新直接顯示新值，唔再重播動畫 */
+    if (firedRef.current) {
+      setDisplay(value);
+      return;
+    }
+    firedRef.current = true;
     const start = performance.now();
     const duration = 900;
     const from = 0;

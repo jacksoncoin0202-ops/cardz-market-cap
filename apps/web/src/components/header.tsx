@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useRef } from "react";
 import { Globe2, Moon, Sun } from "lucide-react";
 import { SelectControl } from "./select-control";
 import { copy } from "@/lib/i18n";
@@ -15,6 +16,20 @@ export function Header() {
   const pathname = usePathname();
   const { locale, currency, theme, update, href } = useMarketSettings();
   const t = copy[locale];
+  const headerRef = useRef<HTMLElement | null>(null);
+
+  /* 捲落少少就加條 1px 分界陰影，等 header 同內容有層次 */
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      el.dataset.scrolled = window.scrollY > 8 ? "true" : "false";
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
   const links = [
     { path: "/", label: t.nav.all },
     { path: "/pokemon", label: t.nav.pokemon },
@@ -24,7 +39,7 @@ export function Header() {
   ];
 
   return (
-    <header className="site-header">
+    <header className="site-header" ref={headerRef}>
       <div className="header-inner">
         <Link className="brand" href={href("/")} aria-label="CardZ Marketcap">
           <img className="brand-logo" src="/brand/logo-cardz-marketcap.png" alt="CardZ Marketcap" />

@@ -373,7 +373,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
         {controls}
       </div>
       <div className="heatmap-frame" ref={frameRef} onMouseLeave={() => { setActive(null); setPreviewPos(null); }}>
-        {tiles.map(({ item, x, y, width, height }) => {
+        {tiles.map(({ item, x, y, width, height }, tileIndex) => {
           const card = item.card;
           const gap = params.gap;
           const tileX = x + gap / 2;
@@ -387,7 +387,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
               key={card.id}
               type="button"
               data-dir={st.direction}
-              style={{ left: tileX, top: tileY, width: tileW, height: tileH, background: st.bg }}
+              style={{ left: tileX, top: tileY, width: tileW, height: tileH, background: st.bg, "--i": tileIndex } as React.CSSProperties}
               aria-label={`#${card.viewRank} ${card.officialName || t.status.unavailable}, ${card.collectorNumber}`}
               aria-haspopup="dialog"
               onMouseEnter={() => {
