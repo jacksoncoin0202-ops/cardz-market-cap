@@ -13,6 +13,7 @@ import { cardSubject, fillTemplate } from "@/lib/related-cards";
 import { useMarketSettings } from "@/lib/use-market-settings";
 import type { Locale, MarketCardView, MarketViewSnapshot } from "@/lib/types";
 import "@/app/styles/market-foot.css";
+import "@/app/styles/glow-badges.css";
 
 type MarketPageKind = "all" | "pokemon" | "one-piece" | "watchlist";
 
@@ -184,6 +185,22 @@ export function MarketPage({ kind, snapshot, pager }: { kind: MarketPageKind; sn
               <p>{t.intro.definition}</p>
               <p>{fillTemplate(t.intro.asOf, { date: formatObservationDate(snapshot.effectiveAt, locale) })}</p>
               {introSummary && <p>{introSummary}</p>}
+              {/*
+                7 日最大升幅 chip（FE05 WS2）。moverCard 本來只係喺上面嗰句市況文字入面
+                出現過名，冇自己嘅 render site；發光要有個實體，所以喺同一段補一粒 chip，
+                順手多一條內鏈落嗰張卡。**唔落 heatmap tile／ranking row**：tile 由另一
+                session 揸住，ranking row 100 行加發光 = 100 個 box-shadow。
+                摺埋咗嘅 <details> 入面 = 唔喺 `/` 第一屏，符合首屏預算。
+              */}
+              {moverCard && (
+                <p>
+                  <Link className="mover-chip" href={href(`/card/${moverCard.id}`)}>
+                    <span className="mover-chip-label">{t.periods["7d"]} {t.labels.change}</span>
+                    <strong>{introCardName(moverCard, locale)}</strong>
+                    <em>{formatPercent(moverCard.windows["7d"].changePct, locale)}</em>
+                  </Link>
+                </p>
+              )}
               <p>{t.intro.disambiguation}</p>
               <p className="intro-links">
                 <Link href={href("/methodology")}>{t.footerNav.methodology}</Link>

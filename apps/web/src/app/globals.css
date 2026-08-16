@@ -137,6 +137,25 @@
   --print-chip-bg: rgba(255, 255, 255, 0.72);
   --print-chip-text: #5f5f5a;
   --print-pill-shadow: 0 1px 4px rgba(22, 22, 20, 0.1);
+
+  /* FE05 WS2：卡圖 holo / spotlight + 發光徽章（styles/card-art.css、styles/glow-badges.css）。
+     卡圖係透明底 WebP，所有 overlay 只准 mask（DESIGN.md §5），所以呢啲 token 全部係
+     「畫喺卡形之內」嘅顏色，唔係蓋成個 box 嘅背景。 */
+  --holo-a1: rgba(255, 255, 255, 0.42);
+  --holo-a2: rgba(255, 255, 255, 0.1);
+  --holo-rainbow: conic-gradient(from 210deg at 50% 50%, rgba(255, 138, 76, 0.11), rgba(96, 186, 255, 0.1), rgba(178, 132, 255, 0.11), rgba(96, 226, 178, 0.08), rgba(255, 138, 76, 0.11));
+  /* 靜態（手機／reduced-motion／未 hover）嗰陣 holo 嘅透明度；唔係顏色所以唔使 dark 對版。 */
+  --holo-idle: 0.28;
+  --spot-a: rgba(255, 255, 255, 0.34);
+  --row-spot: rgba(184, 84, 22, 0.1);
+  --glow-accent: 0 0 0 1px rgba(184, 84, 22, 0.34), 0 6px 20px rgba(184, 84, 22, 0.28);
+  /* live 徽章嘅綠係「狀態色」，**故意唔行 --positive**：--positive 會俾 data-updown 對調，
+     用戶揀「紅升」個「資料新鮮」點就會變紅 = 講錯嘢。 */
+  --live-dot: #1f9d55;
+  --live-dot-halo: rgba(31, 157, 85, 0.18);
+  --live-badge-bg: var(--surface);
+  --live-beam: var(--accent);
+  --live-beam-idle: var(--line);
 }
 
 [data-theme="dark"] {
@@ -218,6 +237,19 @@
   --print-chip-bg: rgba(36, 36, 36, 0.72);
   --print-chip-text: #a5a5a0;
   --print-pill-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+
+  /* FE05 WS2：深色底卡圖本身已經跳，holo/spotlight 一律收細 alpha，唔好搞到似濕水。
+     --live-badge-bg / --live-beam 喺 :root 用 var(--surface) / var(--accent)，
+     兩個底 token 自己已經翻，所以呢度唔使再定義一次（定義多次先係漏改嘅來源）。 */
+  --holo-a1: rgba(255, 255, 255, 0.26);
+  --holo-a2: rgba(255, 255, 255, 0.06);
+  --holo-rainbow: conic-gradient(from 210deg at 50% 50%, rgba(255, 150, 92, 0.14), rgba(110, 196, 255, 0.12), rgba(190, 148, 255, 0.14), rgba(110, 236, 190, 0.1), rgba(255, 150, 92, 0.14));
+  --spot-a: rgba(255, 255, 255, 0.2);
+  --row-spot: rgba(232, 130, 63, 0.16);
+  --glow-accent: 0 0 0 1px rgba(232, 130, 63, 0.4), 0 6px 22px rgba(232, 130, 63, 0.3);
+  --live-dot: #3ec98a;
+  --live-dot-halo: rgba(62, 201, 138, 0.2);
+  --live-beam-idle: var(--line-strong);
 }
 
 /* 升跌顏色慣例（owner 2026-08-16）：全部 locale 默認綠升紅跌；用戶喺 header 設定掣揀「紅升」

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Breadcrumbs } from "./breadcrumbs";
+import { CardArt, SpotlightScope } from "./card-art";
 import { CardImage } from "./card-image";
 import { CopyButton } from "./copy-button";
 import { CapTicker } from "./cap-ticker";
@@ -21,6 +22,8 @@ import { StoryPanel } from "./story-panel";
 import { type MarketViewSnapshot } from "@/lib/types";
 import { useMarketSettings } from "@/lib/use-market-settings";
 import "@/app/styles/card-links.css";
+import "@/app/styles/card-art.css";
+import "@/app/styles/glow-badges.css";
 
 /*
  * `related` 由 route（server）計，因為卡頁行嘅係 `singleCardSnapshot`——client 側
@@ -157,8 +160,16 @@ export function CardDetail({ id, snapshot, related }: {
       </div>
       <article className="detail-grid">
         <section className="detail-art" aria-label={t.labels.imageAlt}>
-          <span className="detail-rank">#{card.marketRank}</span>
-          <CardImage image={card.image} sizes="(max-width: 680px) 90vw, 560px" loading="eager" alt={card.officialName ?? ""} />
+          {/* 只有 #1 先發光（`.detail-rank-top`）——發光講「唯一」，第 2 名開始一樣係普通牌。 */}
+          <span className={`detail-rank${card.marketRank === 1 ? " detail-rank-top" : ""}`}>#{card.marketRank}</span>
+          {/*
+            <CardArt> 只係包住 <CardImage>：card-image.tsx 係 100 格 heatmap 嘅 hot path，
+            props 要保持 primitive，所以效果一律喺外層加，唔准加 prop 落佢度。
+            mask 用同一張 _600（同 srcset 大圖同一個檔），冇 _600 就退返原圖。
+          */}
+          <CardArt maskSrc={card.image.variants?.["600"] ?? card.image.url}>
+            <CardImage image={card.image} sizes="(max-width: 680px) 90vw, 560px" loading="eager" alt={card.officialName ?? ""} />
+          </CardArt>
         </section>
         <div className="detail-content">
           <header className="detail-header">
@@ -211,7 +222,11 @@ export function CardDetail({ id, snapshot, related }: {
         </div>
       </article>
       {related && (
-        <RelatedCards related={related} locale={locale} currency={currency} rates={snapshot.rates} href={href} />
+        /* SpotlightScope 只出一個冇樣式嘅 div + 一個 delegated pointermove（桌面 only），
+           所以 related-cards.tsx 一行都唔使改，亦冇每張卡各自 attach listener。 */
+        <SpotlightScope>
+          <RelatedCards related={related} locale={locale} currency={currency} rates={snapshot.rates} href={href} />
+        </SpotlightScope>
       )}
     </div>
   );

@@ -2,6 +2,7 @@
 
 import { copy } from "@/lib/i18n";
 import { useMarketSettings } from "@/lib/use-market-settings";
+import "@/app/styles/glow-badges.css";
 
 /*
  * 出街可見嘅方法說明。兩個規矩：
@@ -44,7 +45,15 @@ export function Provenance({ updatedAt, kind = "cards" }: {
       </dl>
       {iso && (
         <p className="provenance-updated">
-          <time dateTime={iso}>{`${block.updated} ${iso}`}</time>
+          {/*
+            live 徽章（FE05 WS2）：綠點 + 邊框 beam 包住原本嗰個 <time>。
+            **文字一個字都冇改**——上面第 2 條規矩（label + ISO 同一個 text node）照守，
+            粒點係 aria-hidden 嘅純裝飾，抽取器讀到嘅 rendered text 同以前一模一樣。
+          */}
+          <span className="live-badge">
+            <span className="live-dot" aria-hidden="true" />
+            <time dateTime={iso}>{`${block.updated} ${iso}`}</time>
+          </span>
         </p>
       )}
       <p className="provenance-byline">{block.byline}</p>

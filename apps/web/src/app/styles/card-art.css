@@ -1,0 +1,144 @@
+/*
+ * 卡圖 holo / tilt / spotlight（FE05 WS2）——由 `components/card-art.tsx` 擁有，
+ * `components/card-detail.tsx` import。
+ *
+ * 幾何契約（改之前先睇）：
+ * `.detail-art` 係 flex 置中容器，`.card-art` 100% 填滿佢（所以 `.detail-art img` 嗰句
+ * `max-width/max-height: 100%` 換咗個 parent 之後解出完全一樣嘅數 = 零位移）。
+ * 卡圖係 `object-fit: contain` 加 26px（≤680px 16px）padding，即係**真正畫到卡嘅範圍
+ * = wrapper 縮入一個 padding 之後、再 contain-fit 卡嘅比例**。所以 sheen / spotlight
+ * 兩個 pseudo 行 `inset: var(--card-art-pad)` + `mask-size: contain`，同 `<img>` 解出
+ * 同一個矩形（實測 1280 差 0.01px、390 差 0.5px），唔使靠 JS 度尺。
+ * padding 改咗就要改 --card-art-pad，否則 sheen 會偏。
+ */
+.detail-art {
+  /* 3D 舞台喺外層；transform 一定要落內層 .card-art（.detail-art 係定位/背景層）。 */
+  perspective: 1100px;
+}
+
+.card-art {
+  --px: 0.5;
+  --py: 0.5;
+  --tilt-x: 0deg;
+  --tilt-y: 0deg;
+  --card-art-pad: 26px;
+  /* fail-closed：冇 mask 來源就用全透明 1×1，寧願冇效果，都好過一塊漸變蓋住透明底穿崩。 */
+  --card-art-empty: url("data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7");
+  position: relative;
+  z-index: 0;
+  display: flex;
+  flex: 0 0 auto;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  transform: rotateX(var(--tilt-x)) rotateY(var(--tilt-y));
+}
+
+/* 收手嗰下先有 transition：跟住 pointer 嗰陣要即時，鬆手先柔和歸零。 */
+.card-art[data-art-state="idle"] {
+  transition: transform 320ms var(--ease-standard);
+}
+
+/* will-change 只喺真係郁緊嗰陣掛，鬆手即刻拆（DESIGN.md §4.4）。 */
+.card-art[data-art-state="active"] {
+  will-change: transform;
+}
+
+.card-art::before,
+.card-art::after {
+  content: "";
+  position: absolute;
+  inset: var(--card-art-pad);
+  pointer-events: none;
+  -webkit-mask-image: var(--card-art-src, var(--card-art-empty));
+  mask-image: var(--card-art-src, var(--card-art-empty));
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+
+/* holo sheen：一條斜光 + 一層彩虹，兩層都跟 pointer 移動（唔係自己不停掃）。 */
+.card-art::before {
+  background-image:
+    linear-gradient(112deg, transparent 33%, var(--holo-a1) 47%, var(--holo-a2) 54%, transparent 67%),
+    var(--holo-rainbow);
+  background-size: 300% 300%, 200% 200%;
+  background-position:
+    calc(var(--px) * 100%) calc(var(--py) * 100%),
+    calc((1 - var(--px)) * 100%) calc((1 - var(--py)) * 100%);
+  opacity: var(--holo-idle);
+}
+
+/* spotlight：soft-light 混色，所以淺底唔會白爆、深底唔會灰霧。 */
+.card-art::after {
+  background-image: radial-gradient(38% 30% at calc(var(--px) * 100%) calc(var(--py) * 100%), var(--spot-a), transparent 72%);
+  mix-blend-mode: soft-light;
+  opacity: 0;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .card-art::before,
+  .card-art::after {
+    transition: opacity 260ms var(--ease-standard);
+  }
+  .card-art[data-art-state="active"]::before,
+  .card-art[data-art-state="active"]::after {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 680px) {
+  /* globals.css `.detail-art img` 喺呢個斷點轉 16px padding，mask 要跟。 */
+  .card-art { --card-art-pad: 16px; }
+}
+
+/* 觸控／粗指針：連個 blend layer 都唔起，剩返一層靜態 holo。 */
+@media (hover: none), (pointer: coarse) {
+  .card-art::after { display: none; }
+}
+
+/*
+ * reduced-motion：靜態低透明 holo，冇 tilt、冇 spotlight。
+ * JS 側本身就唔會 attach listener，呢個 block 係第二層保險（CSS 唔靠 JS 守）。
+ */
+@media (prefers-reduced-motion: reduce) {
+  .card-art {
+    transform: none;
+    transition: none;
+    will-change: auto;
+  }
+  /* pseudo 唔會繼承上面嗰句 transition: none，要自己寫一句（DESIGN.md §3.1）。 */
+  .card-art::before,
+  .card-art::after {
+    transition: none;
+  }
+  .card-art::before { opacity: var(--holo-idle); }
+  .card-art::after { display: none; }
+}
+
+/*
+ * 相關卡 hover spotlight（桌面 only，冇 tilt）。--px/--py 由 `SpotlightScope`
+ * 一個 delegated listener 寫落被 hover 嗰個 <a>，冇 hover 就用 0.5 預設值。
+ */
+@media (hover: hover) and (pointer: fine) {
+  .spotlight-scope .related-group li a { position: relative; }
+  .spotlight-scope .related-group li a::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background-image: radial-gradient(120px circle at calc(var(--px, 0.5) * 100%) calc(var(--py, 0.5) * 100%), var(--row-spot), transparent 70%);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 200ms var(--ease-standard);
+  }
+  .spotlight-scope .related-group li a:hover::after { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spotlight-scope .related-group li a::after { display: none; }
+}
