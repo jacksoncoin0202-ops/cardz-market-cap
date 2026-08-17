@@ -1194,10 +1194,9 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   color: #fff;
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7), 0 0 10px rgba(0, 0, 0, 0.4);
   pointer-events: none;
+  /* 同色淡底板（label 唔再齋靠 text-shadow）由 JS inline background 落（tileStyle.plate = tile 同一隻升／跌
+     hex 34%）：以前用 --frame-up/--frame-down token，red-up 對調 / /tune 自訂色時底板同 tile 唔同色。 */
 }
-/* 同色淡底板：label 唔再齋靠 text-shadow 先睇得清 */
-.heatmap-tile[data-dir="up"] .tile-move { background: color-mix(in srgb, var(--frame-up) 34%, transparent); }
-.heatmap-tile[data-dir="down"] .tile-move { background: color-mix(in srgb, var(--frame-down) 34%, transparent); }
 
 /* ── 調參 panel ────────────────────────────────────────────── */
 .tune-panel {

@@ -59,6 +59,7 @@ function scaleSaturation(r: number, g: number, b: number, t: number): [number, n
 export interface TileStyle {
   direction: "up" | "down" | "neutral";
   bg: string;            // tile 純色 fill
+  plate: string | null;  // 升跌 label 底板色（同 tile 同一隻升／跌 hex，34% alpha）；neutral 冇底板
   cardW: number;         // 中間卡闊 px
   cardH: number;         // 中間卡高 px
   showCard: boolean;
@@ -153,11 +154,15 @@ export function tileStyle(value: number | null, w: number, h: number, colors: Ti
   const bg = direction === "neutral" || (p.deadzone > 0 && t === 0)
     ? colors.neutral
     : `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`;
+  /* label 底板：同色淡板（34%），色由 colors 嚟（唔係 CSS token）—— red-up 對調 / /tune 自訂色之下
+     先同 tile 對得上；以前 CSS 用 --frame-up/--frame-down，red-up 時升 tile 係紅、底板卻係綠。 */
+  const [pr, pg, pb] = hexToRgb(hex);
+  const plate = direction === "neutral" ? null : `rgba(${pr}, ${pg}, ${pb}, 0.34)`;
   const { cardW, cardH } = tileCardSize(w, h, p);
   /* 門檻放寬：tile 細都照 show 卡圖，保持成版整齊（用戶 2026-07-24 指示） */
   const showCard = p.cardPct > 0 && cardW >= 5 && cardH >= 7;
   const { move, fontSize } = fitTileLabel(value, w, h);
-  return { direction, bg, cardW, cardH, showCard, move, fontSize };
+  return { direction, bg, plate, cardW, cardH, showCard, move, fontSize };
 }
 
 export function changeValue(card: { windows: Record<string, { changePct: { status: string; value: number | null } }> }, period: string): number | null {

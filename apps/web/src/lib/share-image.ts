@@ -300,7 +300,6 @@ export async function renderHeatmapShare(opts: HeatmapShareOptions): Promise<HTM
   const oy = Math.round(headerTop + headerH + unit * 2.5);
   const images = await Promise.all(tiles.map((tile) => loadImage(tile.imageUrl)));
   const tileRadius = TILE_RADIUS_CSS * scale;
-  const labelPlate = { up: withAlpha(colors.up, 0.34), down: withAlpha(colors.down, 0.34) };
 
   tiles.forEach((tile, index) => {
     const gap = params.gap;
@@ -344,8 +343,7 @@ export async function renderHeatmapShare(opts: HeatmapShareOptions): Promise<HTM
     }
 
     if (st.move) {
-      /* label 抄 .tile-move：右上角、同色淡底板、白字 800 + 陰影。
-         底板色由 opts.colors 嚟（唔係 CSS token）—— red-up / 自訂色之下先至同 tile 對得上。 */
+      /* label 抄 .tile-move：右上角、同色淡底板（st.plate，同 on-screen 同一條數）、白字 800 + 陰影。 */
       const fontPx = st.fontSize * scale;
       ctx.font = `800 ${fontPx}px ${SHARE_FONT}`;
       const textW = ctx.measureText(st.move).width;
@@ -353,9 +351,8 @@ export async function renderHeatmapShare(opts: HeatmapShareOptions): Promise<HTM
       const plateH = fontPx * LABEL.lineHeight + LABEL.padY * 2 * scale;
       const plateX = tx + tw - LABEL.inset * scale - plateW;
       const plateY = ty + LABEL.inset * scale;
-      const plate = st.direction === "up" ? labelPlate.up : st.direction === "down" ? labelPlate.down : null;
-      if (plate) {
-        ctx.fillStyle = plate;
+      if (st.plate) {
+        ctx.fillStyle = st.plate;
         roundedPath(ctx, plateX, plateY, plateW, plateH, LABEL.radius * scale);
         ctx.fill();
       }

@@ -16,6 +16,7 @@ import { displayCardName } from "@/lib/card-name";
 import { copy } from "@/lib/i18n";
 import { formatDate, formatMetricInteger, formatMetricMoney, formatMoney, formatObservationDate, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
 import { tap } from "@/lib/haptic";
+import { snapCardBox, snapFrameSize, snapTileBox } from "@/lib/pixel-snap";
 import { heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
 import { renderHeatmapShare } from "@/lib/share-image";
 import { changeValue, DEFAULT_TILE, tileCardSize, tileColors, tileStyle, type TileParams } from "@/lib/tile-style";
@@ -214,7 +215,8 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
   const { resolved: upDown, setPref: setUpDownPref } = useUpDown(locale);
   const t = copy[locale];
   const frameRef = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ width: 0, height: 0 });
+  /* frame 闊高（CSS px，已向下取整到 device px 格）+ 當時嘅 devicePixelRatio —— tile 幾何全部靠佢釘格 */
+  const [size, setSize] = useState({ width: 0, height: 0, dpr: 1 });
   const [sheetCard, setSheetCard] = useState<MarketCardView | null>(null);
   const [pickedCount, setPickedCount] = useState<number | null>(null);
   const [showTune, setShowTune] = useState(false);
@@ -403,10 +405,11 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
   useEffect(() => {
     const frame = frameRef.current;
     if (!frame) return;
-    /* 取整 + 冇變就唔 set：sub-pixel 抖動唔好觸發成版 100 格重排 */
+    /* 向下取整到 device px 格 + 冇變就唔 set：sub-pixel 抖動唔好觸發成版 100 格重排。
+       dpr 喺呢度一齊讀：browser zoom 會改 frame 闊度 → ResizeObserver 一定 fire → dpr 跟住更新。 */
     const measure = (width: number, height: number) => {
-      const w = Math.round(width), h = Math.round(height);
-      setSize((prev) => (prev.width === w && prev.height === h ? prev : { width: w, height: h }));
+      const next = snapFrameSize(width, height, window.devicePixelRatio || 1);
+      setSize((prev) => (prev.width === next.width && prev.height === next.height && prev.dpr === next.dpr ? prev : next));
     };
     const observer = new ResizeObserver(([entry]) => {
       measure(entry.contentRect.width, entry.contentRect.height);
@@ -484,10 +487,13 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
     });
     tileElsRef.current = map;
   });
-  const tileGeom = useMemo(() => {
-    const gap = params.gap;
-    return new Map(tiles.map(({ item, x, y, width, height }) => [item.card.id, { x: x + gap / 2, y: y + gap / 2, w: width - gap, h: height - gap }]));
-  }, [tiles, params.gap]);
+  /* tile 實際 box（扣 gap + 釘落 device px 格，見 lib/pixel-snap.ts）——render 同 hover preview 用同一組數；
+     index 對 index 就係 tiles[i] */
+  const tileBoxes = useMemo(
+    () => tiles.map(({ x, y, width, height }) => snapTileBox(x, y, width, height, params.gap, size.dpr)),
+    [tiles, params.gap, size.dpr],
+  );
+  const tileGeom = useMemo(() => new Map(tiles.map(({ item }, i) => [item.card.id, tileBoxes[i]])), [tiles, tileBoxes]);
   const tileGeomRef = useRef(tileGeom);
   useEffect(() => { tileGeomRef.current = tileGeom; }, [tileGeom]);
   const tilesRef = useRef(tiles);
@@ -776,12 +782,12 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
         onPointerLeave={cancelPress}
         onContextMenu={handleFrameContextMenu}
       >
-        {tiles.map(({ item, x, y, width, height }) => {
+        {tiles.map(({ item }, i) => {
           const card = item.card;
-          const gap = params.gap;
-          const tileW = width - gap;
-          const tileH = height - gap;
-          const st = tileStyle(changeValue(card, activePeriod), tileW, tileH, colors, params);
+          const box = tileBoxes[i];
+          const st = tileStyle(changeValue(card, activePeriod), box.w, box.h, colors, params);
+          /* 卡圖 box 都釘格：闊高整數 device px、置中餘量雙數，卡邊唔會半粒 pixel 糊 */
+          const cardBox = snapCardBox(box.w, box.h, st.cardW, st.cardH, size.dpr);
           const entry = entries.get(card.id) ?? LATE_ENTRY;
           /* 讀屏一句聽晒：名、編號、期間變幅、市值 */
           const label = `#${card.viewRank} ${displayCardName(card, locale, t.status.unavailable)}, ${card.collectorNumber}, ${t.periods[activePeriod]} ${t.labels.change} ${formatPercent(card.windows[activePeriod].changePct, locale)}, ${t.labels.marketCap} ${formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true)}`;
@@ -789,14 +795,15 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
             <HeatmapTile
               key={card.id}
               cardId={card.id}
-              x={x + gap / 2}
-              y={y + gap / 2}
-              w={tileW}
-              h={tileH}
+              x={box.x}
+              y={box.y}
+              w={box.w}
+              h={box.h}
               bg={st.bg}
+              plate={st.plate}
               direction={st.direction}
-              cardW={st.cardW}
-              cardH={st.cardH}
+              cardW={cardBox.cardW}
+              cardH={cardBox.cardH}
               showCard={st.showCard}
               move={st.move}
               fontSize={st.fontSize}
@@ -804,8 +811,8 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
               late={entry.late}
               imageSrc={card.image.url}
               imageSrcSet={cardSrcSet(card.image)}
-              sizes={tileImageSizes(st.cardW)}
-              fetchPriority={tileFetchPriority(card.viewRank, st.cardW)}
+              sizes={tileImageSizes(cardBox.cardW)}
+              fetchPriority={tileFetchPriority(card.viewRank, cardBox.cardW)}
               alt={displayCardName(card, locale)}
               ariaLabel={label}
               onHover={handleTileHover}

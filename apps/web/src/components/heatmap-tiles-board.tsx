@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { srcSet as cardSrcSet } from "./card-image";
 import { HeatmapTile, tileFetchPriority, tileImageSizes } from "./heatmap-tile";
+import { snapCardBox, snapFrameSize, snapTileBox } from "@/lib/pixel-snap";
 import { heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
 import { changeValue, tileColors, tileStyle, type TileParams } from "@/lib/tile-style";
 import { useUpDown } from "@/lib/use-updown";
@@ -17,15 +18,15 @@ export function HeatmapTilesBoard({ cards, period, params, dark, onPick }: {
   onPick?: (card: MarketCardView) => void;
 }) {
   const frameRef = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ width: 0, height: 0 });
+  const [size, setSize] = useState({ width: 0, height: 0, dpr: 1 });
 
   useEffect(() => {
     const frame = frameRef.current;
     if (!frame) return;
-    /* 取整 + 冇變就唔 set：sub-pixel 抖動唔好觸發成版 100 格重排 */
+    /* 同主 heatmap 一樣：向下取整到 device px 格 + 冇變就唔 set（sub-pixel 抖動唔好觸發成版 100 格重排） */
     const measure = (width: number, height: number) => {
-      const w = Math.round(width), h = Math.round(height);
-      setSize((prev) => (prev.width === w && prev.height === h ? prev : { width: w, height: h }));
+      const next = snapFrameSize(width, height, window.devicePixelRatio || 1);
+      setSize((prev) => (prev.width === next.width && prev.height === next.height && prev.dpr === next.dpr ? prev : next));
     };
     const observer = new ResizeObserver(([entry]) => measure(entry.contentRect.width, entry.contentRect.height));
     observer.observe(frame);
@@ -58,22 +59,23 @@ export function HeatmapTilesBoard({ cards, period, params, dark, onPick }: {
     <div className="heatmap-frame" ref={frameRef}>
       {tiles.map(({ item, x, y, width, height }) => {
         const card = item.card;
-        const gap = params.gap;
-        const tileW = width - gap;
-        const tileH = height - gap;
-        const st = tileStyle(changeValue(card, period), tileW, tileH, colors, params);
+        /* 同主 heatmap 同一套釘格（lib/pixel-snap.ts）：gap 一律相等、卡圖落整數格 */
+        const box = snapTileBox(x, y, width, height, params.gap, size.dpr);
+        const st = tileStyle(changeValue(card, period), box.w, box.h, colors, params);
+        const cardBox = snapCardBox(box.w, box.h, st.cardW, st.cardH, size.dpr);
         return (
           <HeatmapTile
             key={card.id}
             cardId={card.id}
-            x={x + gap / 2}
-            y={y + gap / 2}
-            w={tileW}
-            h={tileH}
+            x={box.x}
+            y={box.y}
+            w={box.w}
+            h={box.h}
             bg={st.bg}
+            plate={st.plate}
             direction={st.direction}
-            cardW={st.cardW}
-            cardH={st.cardH}
+            cardW={cardBox.cardW}
+            cardH={cardBox.cardH}
             showCard={st.showCard}
             move={st.move}
             fontSize={st.fontSize}
@@ -81,8 +83,8 @@ export function HeatmapTilesBoard({ cards, period, params, dark, onPick }: {
             late={false}
             imageSrc={card.image.url}
             imageSrcSet={cardSrcSet(card.image)}
-            sizes={tileImageSizes(st.cardW)}
-            fetchPriority={tileFetchPriority(card.viewRank, st.cardW)}
+            sizes={tileImageSizes(cardBox.cardW)}
+            fetchPriority={tileFetchPriority(card.viewRank, cardBox.cardW)}
             alt={card.officialName ?? ""}
             ariaLabel={`#${card.viewRank} ${card.officialName ?? ""} ${card.collectorNumber}`.trim()}
             onPick={onPick ? handlePick : undefined}

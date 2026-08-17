@@ -15,7 +15,10 @@ export interface HeatmapTileProps {
   w: number;
   h: number;
   bg: string;
+  /* label 底板色（tileStyle.plate）：inline 落 .tile-move，唔靠 CSS token —— red-up / 自訂色都同 tile 同色 */
+  plate: string | null;
   direction: TileStyle["direction"];
+  /* 卡圖闊高（CSS px）；heatmap.tsx 已用 snapCardBox 釘落 device px 格，.tile-card 用 50%+translate 置中 */
   cardW: number;
   cardH: number;
   showCard: boolean;
@@ -34,18 +37,6 @@ export interface HeatmapTileProps {
   onFocus?: (cardId: string) => void;
   onPick?: (cardId: string, el: HTMLButtonElement) => void;
 }
-
-/* 卡圖幾何走 CSS var（--card-w/--card-h 寫喺 tile 上），.tile-card 自己嘅 inline
-   style 係一個 module-level 常數 → 同一個 reference，React 連 diff 都慳返，
-   拉 slider 每格由 10 個 style 寫入減到 6 個。同一組 rule 亦會落 globals.css，
-   落咗之後呢個常數可以刪。 */
-const TILE_CARD_STYLE: CSSProperties = {
-  width: "var(--card-w)",
-  height: "var(--card-h)",
-  left: "50%",
-  top: "50%",
-  transform: "translate(-50%, -50%)",
-};
 
 /* pop / fade 播完就落旗：data-late 拆走（will-change 同 art gate 唔好長期 arm 住），
    data-settled 俾 CSS 停 animation。data-late 由 React 派但只喺 mount 寫一次，
@@ -82,8 +73,9 @@ export const HeatmapTile = memo(function HeatmapTile(p: HeatmapTileProps) {
       onAnimationEnd={settleTile}
     >
       {p.showCard ? (
-        <span className="tile-card" aria-hidden="true" style={TILE_CARD_STYLE}>
-          {/* frame 入面嘅 tile 全部喺 viewport 內，一律 eager；優先級先分高低。
+        <span className="tile-card" aria-hidden="true">
+          {/* 卡圖幾何全部喺 globals.css .tile-card（width/height 讀 --card-w/--card-h、50% + translate 置中）。
+              frame 入面嘅 tile 全部喺 viewport 內，一律 eager；優先級先分高低。
               late tile 嘅圖 load 好先淡入（tile-img-gated），首輪嗰批唔套。 */}
           <CardImg
             src={p.imageSrc}
@@ -97,7 +89,7 @@ export const HeatmapTile = memo(function HeatmapTile(p: HeatmapTileProps) {
         </span>
       ) : null}
       {p.move ? (
-        <span className="tile-move" style={{ fontSize: p.fontSize }} aria-hidden="true">{p.move}</span>
+        <span className="tile-move" style={{ fontSize: p.fontSize, background: p.plate ?? undefined }} aria-hidden="true">{p.move}</span>
       ) : null}
     </button>
   );
