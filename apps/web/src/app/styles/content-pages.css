@@ -85,10 +85,12 @@
   border-radius: var(--control-radius);
   padding: var(--space-4) 18px;
   margin: 0 0 var(--space-6);
-  /* FE05 欠單：呢度係**斷點階梯**（17px / ≤720px 16px），唔係流體曲線。--step-1 條 ramp
-     掃過 720–765px，量到 methodology@721 成頁位移 33.44px、about@721 6.25px，爆 WS1
-     「五個驗收闊度 ≤2px」契約。連續 clamp 夾唔到階梯，所以留硬數，要 owner 拍板先轉 fluid。 */
-  font-size: 17px;
+  /* FE05 fix-visual（owner 2026-08-17 拍板）：由斷點階梯（17px / ≤720px 16px）收編做
+     --step-1 = clamp(16px, 2.222vw, 17px)。同一個「摘要／可引用段落」角色喺 hub 側嘅
+     .hub-answer（styles/hubs.css）而家行同一個 token —— 之前兩套字級（16→17 vs 14→17）
+     係真設計缺陷，唔係 tuning。**呢個係設計改動，唔係零 reflow 收編**：ramp 掃過
+     720–765px，量度基線已經重新記錄喺 DESIGN.md §1.3。 */
+  font-size: var(--step-1);
   line-height: 1.6;
 }
 
@@ -312,7 +314,8 @@
 
 @media (max-width: 720px) {
   .content-answer {
-    font-size: 16px;
+    /* font-size 唔再喺呢度覆寫：--step-1 喺 ≤720px 已經解出 16px（clamp 下限），
+       留住嗰句就係同一個數寫兩次。padding 唔係字階，照留。 */
     padding: 14px var(--space-4);
   }
 

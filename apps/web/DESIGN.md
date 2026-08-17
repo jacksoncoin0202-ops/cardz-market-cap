@@ -74,11 +74,11 @@ token 定義本身就住喺 `globals.css`，→0 冇可能）。真正嘅驗收�
 
 流體字階，六級。**step-2/3/4 逐字照抄 FE04 原本嗰條 `vw` clamp**，唔係另外畫一條線。
 
-| Token | 值 | ramp 窗口 | 已落點（WS1） |
+| Token | 值 | ramp 窗口 | 已落點 |
 |---|---|---|---|
-| `--step--1` | `clamp(12px, 1.3vw, 13px)` | 923–1000px | （未落用，留畀 WS2–5 新 CSS） |
-| `--step-0` | `clamp(14px, 1.5vw, 15px)` | 933–1000px | （未落用，同上） |
-| `--step-1` | `clamp(16px, 2.222vw, 17px)` | 720–765px | （未落用，同上） |
+| `--step--1` | `clamp(12px, 1.3vw, 13px)` | 923–1000px | `.mover-chip`（WS2）、`.empty-state-title`（WS4） |
+| `--step-0` | `clamp(14px, 1.5vw, 15px)` | 933–1000px | `.hub-lead`、`.provenance-panel h2`（**fix-visual**） |
+| `--step-1` | `clamp(16px, 2.222vw, 17px)` | 720–765px | `.content-answer`、`.hub-answer`（**fix-visual**） |
 | `--step-2` | `clamp(20px, 3vw, 26px)` | 667–867px | `.content-body h2`（= FE04 原式） |
 | `--step-3` | `clamp(26px, 3.4vw, 42px)` | 765–1236px | `.hub-hero h1`（= FE04 原式） |
 | `--step-4` | `clamp(28px, 5vw, 42px)` | 560–840px | `.content-hero h1`（= FE04 原式） |
@@ -102,22 +102,27 @@ token 定義本身就住喺 `globals.css`，→0 冇可能）。真正嘅驗收�
 `.hub-lead` 全站**只有 `/market-report`** 出（`seo-table.tsx:110`，`block.intro` 存在先渲染）；
 `.provenance-panel` 喺 `/`、`/box`、`/pokemon`、`/card/[id]`；`.content-*` 喺 `/about`、`/methodology`、`/faq`、`/glossary`。
 
-**已知未收編（欠單，要 owner 拍板先郁）：**
+**已收編（fix-visual，2026-08-17，owner 明文授權接受 reflow）：**
+
+四個階梯落點收咗，**呢個係設計改動唔係零 reflow 收編** —— 下面「fix-visual 量到嘅實數」
+就係新 baseline，之後量度一律同佢比，唔好再攞 WS1 嗰組數當基準。
+
+| 位置 | 原本 | 而家 | 效果 |
+|---|---|---|---|
+| `.content-answer` | 17px / ≤720px 16px | `var(--step-1)` | ≤720 同 ≥765 一模一樣；ramp 只喺 721–764 之間 |
+| `.hub-answer` | `clamp(14px, 1.4vw, 17px)` | `var(--step-1)` | **同 `.content-answer` 統一咗**（一個角色一套字級）；手機由 14 → 16px |
+| `.hub-lead` | 14px / ≥981px 15px | `var(--step-0)` | 步位由 981 變成 933–1000 嘅 ramp |
+| `.provenance-panel h2` | 15px / ≤900px 14px | `var(--step-0)` | 步位由 900 變成 933–1000 嘅 ramp（901–932 由 15px 變 14px） |
+
+**仲未收編（欠單，要 owner 另外拍板）：**
 
 | 位置 | 現況 | 點解未收 |
 |---|---|---|
-| `.content-answer` | 17px / ≤720px 16px | **斷點階梯**。試過落 `--step-1`，ramp 掃過 720–765px，量到 `/methodology`@721 位移 **33.44px**、`/about`@721 **6.25px** |
-| `.hub-lead` | 14px / ≥981px 15px | **斷點階梯**。試過落 `--step-0`，量到 `/market-report`@981 **13.58px**、@940 **4.69px** |
-| `.provenance-panel h2` | 15px / ≤900px 14px | **斷點階梯**（步位喺 900，同 `.hub-lead` 嘅 981 唔同步，一個 token 服侍唔到兩個）。量到 `/` 同 `/card/[id]`@940 **1.24px** |
-| `.hub-answer` | `clamp(14px, 1.4vw, 17px)` | 同 `.content-answer`（16→17px）係**同一個角色兩套字級** —— 真設計缺陷。統一落 `--step-1` 喺 390px 量到成頁跌 **49.7px** |
 | `.hub-note` | 12px / ≥981px 12.5px | 斷點階梯；`--step--1` 上限 13px，1280px 量到累積 **22.9px** |
 | `.provenance-body` | 13px 平頭 | `--step--1` 喺 390px 係 12px，量到 **5.1px** |
 
-即係話 **WS1 淨係收編咗三個本來就係流體嘅落點**（`--step-2/3/4`），六個階梯／平頭落點原封不動。
-`--step--1/0/1` 留住係俾 WS2–5 嘅**新** CSS 用（新 CSS 冇 baseline 要保）；
-WS5 完咗仲係零 call site 就刪。**WS2 更新：`--step--1` 有咗第一個 call site（`.mover-chip`）；
-`--step-0` / `--step-1` 仍然零。**`.content-answer` vs `.hub-answer` 嗰個「同一角色兩套字級」
-值得 owner 一次過拍板。
+**WS1 欠單②「`--step-0` / `--step-1` 有定義零 call site → WS5 完仲係零就刪」已經結案：
+兩個 token 而家各有兩個 call site，行「收編」唔行「刪」。** 六級字階全部有落點。
 
 字距：`--tracking-tight` `-0.02em`（大標題）、`--tracking-wide` `0.08em`（大寫細標籤）。
 全局 `h1,h2,h3` 嘅 `-0.035em`（:265）**唔喺字階入面** —— 佢係首頁聲線嘅一部分，唔准順手改。
@@ -204,6 +209,8 @@ owner 2026-08-16 決定：**全部 locale 默認綠升紅跌**；用戶自己揀
 | `chart-draw` | `styles/history-chart.css` | `.price-line` 由頭畫到尾（`pathLength="1"` + dashoffset 1→0，900ms） | 同檔 `@media (prefers-reduced-motion: reduce)`：`animation: none` + `stroke-dasharray: none` |
 | `chart-bar-rise` | 同上 | `.sales-bar` 由 baseline `scaleY(0→1)`，stagger 30ms、序號封頂 20 | 同上 |
 | `chart-dot-in` | 同上 | `.price-point` 喺線畫完（760ms）先淡入 | 同上 |
+| `live-dot-pulse` | `styles/glow-badges.css` | live 徽章綠點嘅擴散環（`.live-dot::after`），**`1.2s × 5` = 6s 之後停**，`forwards` 釘死喺 = base style 嘅終態 | 同檔 `@media (prefers-reduced-motion: reduce)`：`.live-dot::after { animation: none; display: none }` |
+| `card-sheen-sweep` | `styles/card-art.css` | 手機／無 hover 嘅一次性 holo 掃光（`.card-sheen::before`），`1.6s linear × 1`、**冇 fill-mode**，播完 `getAnimations()` 回 0 | 同檔 reduce block：`.card-art[data-art-sheen="ready"] .card-sheen{display:none}` + `::before{animation:none}`（**selector 形狀要同 `@media (hover: none)` 嗰兩條一樣**，見 §3.4） |
 
 其他 transition 類 reduced-motion block：`:2186`（grader tabs）、`:2289`（cap-ticker）、
 `:2669`（explore search / sort）、`:2778`（hover-lift / skip-link / detail-metrics / back-link /
@@ -222,6 +229,26 @@ WS3 三個 chart keyframe **全部收喺 `.history-panel[data-draw="in"]` 底下
 `fade-up` 只喺 `@media (min-width: 981px)` 播（:2773–2776）：手機第一屏要即刻見到內容，
 唔可以等浮現。新動效預設跟呢個形狀 —— **手機靜態、桌面先加戲**，
 tilt / spotlight 類仲要再加 `@media (hover: hover) and (pointer: fine)`。
+
+**例外（fix-visual）：`card-sheen-sweep` 係「手機專屬」。** 唔係「桌面有、手機減」，
+係反過嚟 —— 桌面靠 pointer 掃 sheen，冇 hover 嘅機根本冇 pointer 事件，卡圖由頭到尾
+死實。所以喺 `@media (hover: none)` 補**一次**掃光（唔係常駐 ambient），掃完返去同
+以前一模一樣嘅靜態低透明 holo。原則冇變：**手機唔准有常駐動畫**。
+
+### 3.4 reduced-motion sibling 嘅 selector 形狀（fix-visual 學到）
+
+**sibling 嘅 selector 特異度要 ≥ 佢要壓嗰條，唔係寫個 class 就算。**
+`card-sheen-sweep` 第一版喺 reduce block 寫 `.card-sheen { display: none }`（0,1,0），
+但開啟嗰條係 `.card-art[data-art-sheen="ready"] .card-sheen`（0,3,0）——
+**特異度輸咗，source order 幫唔到手**。實測（`temp/fe05/visual/rule9.json` 第一輪）
+喺 `reduce` context 手動種返個 attribute，computed 仍然係 `display: block` +
+`animationName: card-sheen-sweep`：即係呢個 sibling **寫咗等於冇寫**
+（AGENTS.md 規矩 9「有檢查但零 call site 當冇檢查」嘅 CSS 版）。
+修法係喺 reduce block 用同一個 selector 形狀再寫一次。
+
+**驗法：喺 `reduce` context 手動 force 返個 DOM 狀態（種 class / 種 attribute）再讀
+computed style**，唔好淨係睇「JS 冇 arm 所以睇唔到動畫」——嗰個係 JS 閘 pass，
+唔係 CSS sibling pass。
 
 ---
 
@@ -290,6 +317,12 @@ tilt / spotlight 類仲要再加 `@media (hover: hover) and (pointer: fine)`。
 - mask 來源由 `CardArt` inline 寫 `--card-art-src`（同一張 `_600`，SSR 就有，唔使等 hydrate）。
   冇來源就 fallback 落全透明 1×1 GIF：寧願冇效果，都好過一塊漸變蓋住透明底穿崩。
 - **`transform` 唔准落 `.detail-art`**（佢係定位／背景層，桌面會 sticky）；`perspective` 先至落佢。
+- **要郁嘅 overlay 一定要兩層：外層揸 mask（唔郁）、內層做 transform。**
+  mask 落邊個 element，transform 就連 mask 一齊搬，即係「sheen 留喺卡形之內」直接爆。
+  fix-visual 個手機掃光就係咁：`.card-sheen`（`inset: var(--card-art-pad)` + mask +
+  `overflow: hidden`）包住 `.card-sheen::before`（條光帶，`translate3d` 掃過）。
+  `.card-art::before` / `::after` 兩個 pseudo 唔郁位（只換 `background-position`），
+  所以佢哋單層就夠。
 
 ---
 
@@ -345,6 +378,7 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
 | **WS2** | 卡圖 holo / tilt / spotlight（`card-art.tsx` wrapper + `styles/card-art.css`）、`#1` chip、7d top mover chip、live 徽章 border beam（`styles/glow-badges.css`）、相關卡 hover spotlight | ✅ 已落 |
 | **WS3** | Motion 系統：共用 IntersectionObserver reveal（`reveal.tsx` + `styles/reveal.css`）、history chart 線條 draw-in / bar scaleY / 點淡入（`styles/history-chart.css`）、count-up 擴到 PSA 10 價 + 鑑定數量 + hub stat、桌面 dialog spring overshoot、`.primary-action` press 陰影、排序方向掣 180° 翻轉 | ✅ 已落 |
 | **WS4** | Loading / empty / status：共用 `skeletons.tsx`（`MarketHeroSkeleton` / `RankingRowsSkeleton`）+ `styles/skeleton.css`、`empty-state.tsx` + `styles/empty-state.css`（4 個 call site）、`aria-busy` 落 `#market-ranking` / `#box-ranking`。**`/card/[id]` 冇骨架**：`app/card/loading.tsx` 同 route 內 `<Suspense>` 兩條路都試過、兩條都要唔起（見下面 WS4 實數第 2 點） | ✅ 已落（1 條 plan gate 未過，見欠單 ⑤） |
+| **fix-visual** | header 兩個 select menu 轉實色底、`--step-0`/`--step-1` 收編（answer 角色統一）、live 綠點有上限脈衝、手機一次性 holo 掃光 | ✅ 已落（2026-08-17） |
 | WS5 | OG 圖 v2（卡圖入圖，satori 讀唔到 WebP → 要解碼），fail-open 退返純文字版 | TODO |
 | WS6 | HyperFrames 每日市場 recap 片（`apps/web` 以外，獨立 folder） | TODO（可選） |
 
@@ -667,6 +701,114 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
 27. **`naturalWidth` 喺 `srcset` w-descriptor + `sizes` 之下係密度校正過**：同一個 429×600 檔
     喺 1280 報 400×560、喺 390 報 250×351。WS2 寫嘅「實測呢張係 400 × 560」就係呢個。
     攞真實檔案尺寸唔可以信 `naturalWidth`。
+
+**fix-visual 量到嘅實數**（`temp/fe05/visual/`，dev server :3901，卡 `cmc_fc229f7ae1b256b2119fa79b`）：
+
+- **兩個 header menu 都係實色**（`verify.json` `A_menus`，8 個組合 = 語言／貨幣 × light／dark × 390／1280）：
+  `backgroundColor` light `rgb(255,255,255)`（= `--surface`）、dark `rgb(26,26,26)`；
+  `backdropFilter` **全部 `none`**；選項文字 light `rgb(23,23,23)` / dark `rgb(236,236,236)`
+  （= `--ink`，選中同未選中都係）；`data-theme` 逐個對得上。截圖 8 張
+  `menu-{language,currency}-{390,1280}-{light,dark}.png`。
+- **字階收編（A/B，同一個 page load 注返 FE04 宣告做對照，唔改檔）**：6 頁 × **13 個闊度**
+  （360 / 390 / 720 / 721 / 765 / 768 / 900 / 901 / 940 / 981 / 1000 / 1024 / 1280，`ab.json`）——
+  - **最大 |Δtop| = 49.67px**（`/rankings/[slug]` @360 同 @390，`.hub-answer` 14→16px 令段落多咗行）；
+    `docHeight` 最大 **+49**（同一格）、最大 **−34**（`/methodology`@721，`.content-answer` 17→16.02px）。
+    兩個數都喺 owner 畀嘅 ~60px 上限之內。
+  - `.hub-answer` 自己個 box 最大 **Δwidth 129.59px**（@900–1000）—— 呢個係 `max-width: 72ch`
+    跟住字級變闊，唔係頁面位移，唔好同 Δtop 溝埋講。
+  - `/`、`/card/[id]` **13 個闊度全部 0.00px / docHeight 0**（佢哋只食 `.provenance-panel h2`，
+    而 `--step-0` 喺 ≤932 同 ≥1000 解出同以前一樣嘅 14 / 15px）。差異只喺 901–981：
+    量到 |Δtop| **1.36px**（@901）、**1.24px**（@940）、**0.39px**（@981）。
+  - `/about`、`/methodology` 除咗 721 嗰格之外全部 0.00px。
+  - **`scrollWidth` 13 × 6 = 78 個組合逐個相同**（新舊完全一樣）→ 零新增橫向溢出。
+- **360px × zh-TW / ja / ko**（`verify.json` `D_i18n360`，18 個「語言 × 頁」組合）：
+  `documentElement.scrollWidth` / `body.scrollWidth` **全部 = 360 = innerWidth**；
+  四個收編 selector 逐個 `scrollHeight - clientHeight ≤ 1` 兼 `overflow: visible`
+  → **0 個裁字**。三張截圖 `i18n-360-{zhTW,ja,ko}.png`。
+- **live 綠點脈衝有上限**（`B_livedot`）：`iterations 5`、`duration 1200ms`、`fill forwards`；
+  1 秒時 `running`，8 秒時 **`finished`**、`currentTime` 封頂 `6000`。
+  `/card/[id]` 同 `/` 兩邊都一樣（beam 仍然鎖死喺 `.detail-page`，粒點兩邊都跳）。
+  `reduce` context **0 個 animation**。`scrollWidth` 冇變（1265）。
+  **唔會 re-render 再播**：撳 header 換貨幣（成個 provenance subtree re-render）之後
+  `startTime` 由 `442` → **`442`**（同一個數）、state 仍然 `finished`。
+- **手機一次性掃光**（`C_sheen`，390 × `is_mobile` + `has_touch`）：
+  `data-art-sheen="ready"`、`animation-iteration-count 1`、`fill-mode none`、`1.6s`；
+  早期取樣 `getAnimations()` **1 個 `running`** → 2.5 秒之後 **0 個**（light + dark 都係）。
+  **CLS 0.0000、`layout-shift` entry 0 個**（observer `buffered: true`），
+  `scrollWidth` **390**（冇橫向溢出）。桌面 1280：`.card-sheen` `display: none`、
+  0 個 animation、`data-art-state` 仍然 `idle`（tilt 冇郁）。
+  截圖：`sheen-mid-390-{dark,light}.png`（`animation.pause()` + `currentTime = 800`，
+  即 linear 之下嘅正中）vs `sheen-rest-390-{dark,light}.png`。
+- **兩個新 reduced-motion sibling 逐個即場證明會 fire**（`rule9.json`，AGENTS.md 規矩 9）：
+  喺 `reduce` context 手動種 `data-art-sheen="ready"` →
+  `.card-sheen` `display "none"`、`::before` `animationName "none"`、`getAnimations()` 0；
+  `.live-dot::after` `display "none"` / `animationName "none"` / `getAnimations()` 0。
+  同一段 forcing 喺 `no-preference` → `display "block"`、`card-sheen-sweep 1.6s` /
+  `live-dot-pulse 1.2s × 5` 全部起。
+  **第一輪呢個 probe 紅咗**（reduce 之下仍然 `display: block` + `card-sheen-sweep`），
+  根因同修法見 §3.4。
+- 6 頁 × 390／1280 兩檔 console error / warning / pageerror **全部 0**（`console.json`）。
+- `npx tsc --noEmit -p apps/web` **0 error**（ESLint 喺呢棵 tree 行唔到，見 WS2 欠單 ⑦）。
+
+**fix-visual 嘅決定（owner 授權我代拍板，每條寫埋點樣反轉）：**
+
+1. **決定：`.select-menu` 轉實色 `--surface`，唔係調高 alpha。**
+   根因同 `.period-menu-list` 一模一樣：祖先 `.site-header` 自己有 `backdrop-filter`
+   （globals.css :351）→ 佢係 **backdrop root**，入面個 popover 個 `backdrop-filter`
+   sample 唔到 header 以外嘅頁面內容，所以只係一層 .82 alpha 蓋住**未 blur** 嘅底 =
+   睇穿。`backdrop-filter` 亦一齊收（喺 backdrop root 入面冇效果，淨係逼多次 repaint）。
+   **點樣反轉**：`globals.css` `.select-menu` 改返 `background: var(--surface-translucent-strong)`
+   + `backdrop-filter: blur(14px)`（但咁樣就係還原個 bug）。真正嘅另一條路係將 header
+   個 `backdrop-filter` 拆走，令 popover 唔再喺 backdrop root 入面 —— 嗰個係另一單嘢。
+
+2. **決定：`.content-answer` 同 `.hub-answer` 統一落 `--step-1`，手機面由 14px 升到 16px。**
+   兩個係同一個「可引用摘要」角色，兩套字級係真設計缺陷；owner 已經授權接受 reflow，
+   所以揀「統一」而唔係「兩邊各自留硬數」。代價量咗：`/rankings/[slug]` @360/390 成頁跌 49.67px。
+   **點樣反轉**：`styles/hubs.css` `.hub-answer` 改返 `font-size: clamp(14px, 1.4vw, 17px)`；
+   `styles/content-pages.css` `.content-answer` 改返 `17px` + `@media (max-width: 720px)` 加返 `16px`。
+
+3. **決定：`.hub-lead` / `.provenance-panel h2` 落 `--step-0`（WS1 原計劃）。**
+   兩端數值同以前一樣，改嘅只係「步位喺邊」——由硬斷點（981 / 900）變成 933–1000 嘅 ramp。
+   最大代價喺 `/market-report`（`.hub-lead` 唯一 call site），`/` 同 `/card/[id]` 最多 1.36px。
+   **點樣反轉**：`hubs.css` `.hub-lead` 改返 `14px` + `@media (min-width: 981px)` 加返 `15px`；
+   `globals.css` `.provenance-panel h2` 改返 `15px` + `@media (max-width: 900px)` 加返 `14px`。
+
+4. **決定：live 綠點脈衝喺**所有**出 `.live-badge` 嘅頁行，唔學 beam 鎖死喺 `.detail-page`。**
+   beam 鎖 `.detail-page` 嘅理由係「`/` 唔可以喺 load 嗰陣多一條 7.8 秒 paint 動畫」——
+   beam 行 `@property` 角度 + conic-gradient 邊框，**每 frame 都要重 paint**。
+   粒點個環淨係 transform / opacity（compositor 做，零 paint）、只有 7px、6 秒收工，
+   成本唔同一個數量級，而「資料新鮮」本來就係全站訊號。
+   **點樣反轉**：`glow-badges.css` 個 `.live-dot::after` 選擇器加返 `.detail-page` 前綴。
+
+5. **決定：`/` 唔加 display face（維持默認）。**
+   `--font-sans` 一個 system stack 到底，`/` 嘅 H1 係 LCP element，加自訂字體 =
+   多一個 render-blocking / FOUT 風險，換嚟嘅只係「靚啲」。§4.1 明文唔加新字體。
+   **點樣反轉**：要加就係一單獨立嘢——加 `--font-display` token + `next/font` 自 host，
+   而且要重量 `/` 嘅 LCP（呢份 doc §4.1 同「明確非目標」都要一齊改）。
+
+6. **決定：手機掃光行 `linear`，唔行 `--ease-standard`。**
+   `--ease-standard` = `cubic-bezier(0.22, 1, 0.36, 1)`，**半程就行咗 96% 路**
+   （實測 `currentTime 800/1600` 嗰陣 translate 已經 +505px，條光早就出咗畫面），
+   睇落似閃一閃唔似掃光。§1.5 嗰四條曲線係俾**入場／互動**用，唔係俾等速位移用；
+   `live-beam` 一樣行 `linear`。**點樣反轉**：`card-art.css` 換返 `var(--ease-standard)`。
+
+7. **決定：掃光多開一個真 DOM 節點（`<span class="card-sheen">`），唔用 pseudo。**
+   mask 落邊個 element，transform 就連 mask 一齊郁 = 爆 §5「overlay 只准用 mask」條契約。
+   所以外層揸 mask（唔郁）＋ 內層 `::before` 掃過。pseudo 冇 children，做唔到。
+   個 span 係 `aria-hidden` 純裝飾、base style `display: none`，所以桌面／reduced-motion／
+   爬蟲側零影響。**點樣反轉**：拆咗個 span，改用喺 `.card-art::after` 度 animate
+   `background-position`（做得到，但變咗 paint-per-frame）。
+
+**fix-visual 嘅欠單：**
+
+1. **`.hub-note`（12 / 12.5px）同 `.provenance-body`（13px 平頭）仍然係硬數**，`--step--1`
+   夾唔返（見 §1.3）。呢兩個冇「同一角色兩套字級」嘅缺陷做理由，所以冇順手收。
+2. **掃光只有 `/card/[id]` 食到**（`CardArt` 得嗰度 call）。`/box/[id]` 個卡圖冇包 `CardArt`，
+   要唔要一齊有，係另一單。
+3. **`--holo-a1` 喺 dark 係 `#ffffff42`（≈ .26 alpha）**，掃光相對含蓄。呢個係故意跟返
+   WS2 桌面 sheen 同一對 token（唔准為咗手機另開一對）；覺得唔夠明顯就係改 token，
+   兩邊一齊變。
+4. dev server（未 minify）量到嘅 longtask 唔算數（WS1 欠單 ④ 同一條），呢次冇量 longtask。
 
 ### 明確非目標
 

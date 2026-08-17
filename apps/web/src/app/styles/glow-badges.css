@@ -94,12 +94,50 @@
 }
 
 .live-dot {
+  /* pseudo 個脈衝環要定位喺粒點度；position 唔改 layout（flex item 照舊）。 */
+  position: relative;
   width: 7px;
   height: 7px;
   flex: 0 0 auto;
   border-radius: 50%;
   background: var(--live-dot);
   box-shadow: 0 0 0 3px var(--live-dot-halo);
+}
+
+/*
+ * 綠點脈衝（FE05 fix-visual，2026-08-17 owner 拍板）。
+ *
+ * **有迭代上限**：5 × 1.2s = 6s 之後自己停，冇 `infinite`（§4 預算明文唔准常駐視覺噪音；
+ * WS2 欠單 ③ 就係「要跳就要有上限，owner 拍板先加」——而家拍咗板）。
+ * `forwards` 令佢釘死喺最後一格，而最後一格 **等於靜止態**（scale(1) + opacity 0），
+ * 即係播完之後同冇動畫嗰陣一模一樣。
+ *
+ * 只 animate transform / opacity（compositor 做，零 paint）——**唔郁 .live-dot 個
+ * box-shadow**，box-shadow 每 frame 重 paint，係 §4.5 明文唔准嘅嗰種。
+ *
+ * 環擴到 scale(2.6) = 7px × 2.6，即每邊向外 5.6px；`.live-badge` 左內距 10px，
+ * 所以個環唔會撐大 scroll 區域（實測 scrollWidth 冇變）。
+ *
+ * **唔會因為 re-render 再播**：animation 純 CSS、掛喺 class 上面，`provenance.tsx`
+ * 換 locale / currency 只係 re-render 同一個 DOM 節點（冇 key、冇條件 mount），
+ * React 唔會重建佢 → CSS animation 唔會 restart。
+ */
+.live-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--live-dot);
+  opacity: 0;
+  pointer-events: none;
+  animation: live-dot-pulse 1.2s var(--ease-standard) 5 forwards;
+}
+
+@keyframes live-dot-pulse {
+  0% { opacity: 0.55; transform: scale(1); }
+  70% { opacity: 0; transform: scale(2.6); }
+  /* 收返 scale(1)：呢格係 `forwards` 釘死嘅終態，一定要同 base style 一樣。 */
+  100% { opacity: 0; transform: scale(1); }
 }
 
 /*
@@ -118,6 +156,8 @@
 @media (prefers-reduced-motion: reduce) {
   /* 靜態點 + 靜態邊，冇 beam。 */
   .detail-page .live-badge { animation: none; }
+  /* 脈衝環：唔播、亦都唔留一個 0 透明度嘅 pseudo 喺度（display: none 最乾淨）。 */
+  .live-dot::after { animation: none; display: none; }
   /* globals.css 冇 blanket reduced-motion 規則，逐個新 transition 自己收（DESIGN.md §3.1）。 */
   .mover-chip { transition: none; }
 }

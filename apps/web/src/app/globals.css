@@ -39,14 +39,15 @@
      第一版 FE05 寫成 390→1280 直線，兩端啱但中段唔同：量到 768/900/1024 度
      `.content-hero h1` 差到 −5.97px、`.hub-hero h1` +6.68px、成頁最多位移 57.74px。
      教訓：**端點相同 ≠ 曲線相同**，換 clamp 一定要至少量 390/768/900/1024/1280 五個闊度。
-     --step--1/0/1 **未落任何現有 selector**：佢哋對應嗰幾個位（.provenance-body、
-     .hub-lead、.provenance-panel h2、.content-answer）喺 FE04 係**斷點階梯**唔係曲線，
-     連續 clamp 夾唔到階梯（量到 methodology@721 33.44px、/market-report@981 13.58px），
-     所以三個階梯落點一律留硬數 + 註解，等 owner 一次過拍板；呢三級 token 留畀 WS2–5 新 CSS。
+     --step-0 / --step-1 **喺 fix-visual（2026-08-17）收編咗**：owner 拍板接受 reflow，
+     所以 .content-answer / .hub-answer 統一落 --step-1（一個角色一套字級），
+     .hub-lead / .provenance-panel h2 落 --step-0（WS1 原計劃）。呢啲落點喺 FE04 係
+     **斷點階梯**，連續 clamp 夾唔到階梯 → ramp 窗口入面一定同以前唔同，實測數字
+     喺 DESIGN.md §1.3。`.provenance-body` / `.hub-note` 仍然留硬數（未拍板）。
        step  值                        ramp 窗口     落點
-       --1   clamp(12px,1.3vw,13px)    923–1000px    （未落用）
-        0    clamp(14px,1.5vw,15px)    933–1000px    （未落用）
-        1    clamp(16px,2.222vw,17px)  720–765px     （未落用）
+       --1   clamp(12px,1.3vw,13px)    923–1000px    .mover-chip、.empty-state-title
+        0    clamp(14px,1.5vw,15px)    933–1000px    .hub-lead、.provenance-panel h2
+        1    clamp(16px,2.222vw,17px)  720–765px     .content-answer、.hub-answer
         2    clamp(20px,3vw,26px)      667–867px     .content-body h2（= FE04 原式，逐字照抄）
         3    clamp(26px,3.4vw,42px)    765–1236px    .hub-hero h1（= FE04 原式）
         4    clamp(28px,5vw,42px)      560–840px     .content-hero h1（= FE04 原式）
@@ -456,9 +457,18 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   list-style: none;
   border: 1px solid var(--line-strong);
   border-radius: var(--control-radius);
-  background: var(--surface-translucent-strong);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  /*
+   * 實色底（FE05 fix-visual，2026-08-17）。原本係 --surface-translucent-strong（alpha .82）
+   * + backdrop-filter blur(14px)，同 .period-menu-list 修之前一模一樣嘅根因：
+   * 祖先 .site-header 自己有 backdrop-filter（:351）→ 佢係 **backdrop root**，
+   * 喺佢入面嘅 popover 個 backdrop-filter 根本 sample 唔到 header 以外嘅頁面內容，
+   * 即係得返 .82 alpha 蓋住**未 blur** 嘅底 = 睇穿（文字疊住下面嘅排名／熱力圖）。
+   * 收埋 backdrop-filter：喺 backdrop root 入面冇效果，淨係逼多次 repaint。
+   * 兩個 menu（.select-menu / .period-menu-list）而家同一條規矩。
+   */
+  background: var(--surface);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   box-shadow: var(--elev-3);
   animation: menu-in 140ms var(--ease-standard) both;
   transform-origin: top right;
@@ -589,12 +599,13 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   border-radius: 18px;
   background: var(--soft);
 }
-/* FE05 欠單：斷點階梯（15px / ≤900px 14px），同 .hub-lead / .content-answer 同一形狀。
-   --step-0 條 ramp 掃過 933–1000px，量到 / 同 /card/[id] @940 位移 1.24px（未爆 2px，
-   但同一 token 喺 /market-report 爆到 13.58px）。三個階梯落點一齊留硬數，等 owner 一次過拍板。 */
+/* FE05 fix-visual（owner 2026-08-17 拍板）：斷點階梯（15px / ≤900px 14px）收編做
+   --step-0 = clamp(14px, 1.5vw, 15px)，即 WS1 原本嘅計劃。步位由 900 變成 933–1000 嘅
+   ramp，所以 900–1000 嗰段會同以前唔同（以前 901px 就已經係 15px，而家 901px 係 14px）。
+   量度基線見 DESIGN.md §1.3。要反轉：改返 `font-size: 15px` + 下面 ≤900 嗰句 14px。 */
 .provenance-panel h2 {
   margin: 6px 0 10px;
-  font-size: 15px;
+  font-size: var(--step-0);
   line-height: 1.35;
 }
 /* 13px 平頭，冇一個 step 兩端都夾得返（--step--1 喺 390 係 12px，量到成頁跌 5.1px）。
@@ -636,7 +647,7 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
 }
 @media (max-width: 900px) {
   .provenance-panel { margin-top: 28px; padding: var(--space-5) 18px; border-radius: 14px; }
-  .provenance-panel h2 { font-size: 14px; }
+  /* h2 個 font-size 唔再喺呢度覆寫：--step-0 喺 ≤933px 已經解出 14px（clamp 下限）。 */
 }
 @media (max-width: 900px) {
   .site-footer { padding: 24px max(18px, env(safe-area-inset-right)) calc(48px + env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); }

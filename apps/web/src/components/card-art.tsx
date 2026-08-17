@@ -116,6 +116,44 @@ export function CardArt({ maskSrc, children }: { maskSrc: string; children: Reac
     };
   }, []);
 
+  /*
+   * 冇 hover 嘅機（手機／平板）：圖 load 好之後掃**一次** holo（CSS 側
+   * `.card-sheen`，1.6s、iteration 1、冇 fill-mode）。
+   *
+   * 呢度做嘅嘢淨係「落一次 data-art-sheen="ready"」：
+   * - 落一次就算數（`sheenArmed` ref 守住），所以 re-render / 換 locale 唔會再播；
+   * - reduced-motion 或者有 hover 嘅機：**一個 attribute 都唔落**，CSS 側亦有
+   *   第二層保險（`.card-sheen { display: none }`）；
+   * - 圖有機會喺 hydrate 之前已經 load 完（SSR 出 <img>），所以先睇 `complete`。
+   */
+  const sheenArmed = useRef(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || sheenArmed.current) return;
+    if (!window.matchMedia) return;
+    if (!window.matchMedia("(hover: none)").matches) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    const img = el.querySelector("img");
+    if (!img) return;
+
+    const arm = () => {
+      if (sheenArmed.current) return;
+      sheenArmed.current = true;
+      el.dataset.artSheen = "ready";
+    };
+
+    /* 爛圖都要放行：唔係「等到成功先掃」，係「唔再等」——否則 error 個 case 永遠冇效果，
+       但個 <span> 一直掛喺度。 */
+    if (img.complete) { arm(); return; }
+    img.addEventListener("load", arm, { once: true });
+    img.addEventListener("error", arm, { once: true });
+    return () => {
+      img.removeEventListener("load", arm);
+      img.removeEventListener("error", arm);
+    };
+  }, []);
+
   return (
     <div
       ref={ref}
@@ -126,6 +164,14 @@ export function CardArt({ maskSrc, children }: { maskSrc: string; children: Reac
       style={src ? ({ "--card-art-src": `url("${src}")` } as CSSProperties) : undefined}
     >
       {children}
+      {/*
+        一次性掃光嘅載體（`styles/card-art.css` `.card-sheen`）。
+        SSR 就出，但 base style 係 `display: none` —— 冇 `data-art-sheen` 就等於冇呢舊嘢，
+        所以桌面／reduced-motion／爬蟲側零影響（純裝飾，aria-hidden）。
+        要一個真節點嘅原因喺 CSS 註解：mask 同 transform 唔可以落同一層，否則條光
+        會連卡形一齊郁。
+      */}
+      <span className="card-sheen" aria-hidden="true" />
     </div>
   );
 }
