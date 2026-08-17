@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { srcSet as cardSrcSet } from "./card-image";
 import { HeatmapTile, tileFetchPriority, tileImageSizes } from "./heatmap-tile";
-import { snapCardBox, snapFrameSize, snapTileBox } from "@/lib/pixel-snap";
+import { snapCardBox, snapFrameGrid, snapTileBox } from "@/lib/pixel-snap";
 import { heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
 import { changeValue, tileColors, tileStyle, type TileParams } from "@/lib/tile-style";
 import { useUpDown } from "@/lib/use-updown";
@@ -18,20 +18,24 @@ export function HeatmapTilesBoard({ cards, period, params, dark, onPick }: {
   onPick?: (card: MarketCardView) => void;
 }) {
   const frameRef = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ width: 0, height: 0, dpr: 1 });
+  const [size, setSize] = useState({ width: 0, height: 0, dpr: 1, originX: 0, originY: 0 });
 
   useEffect(() => {
     const frame = frameRef.current;
     if (!frame) return;
-    /* 同主 heatmap 一樣：向下取整到 device px 格 + 冇變就唔 set（sub-pixel 抖動唔好觸發成版 100 格重排） */
-    const measure = (width: number, height: number) => {
-      const next = snapFrameSize(width, height, window.devicePixelRatio || 1);
-      setSize((prev) => (prev.width === next.width && prev.height === next.height && prev.dpr === next.dpr ? prev : next));
+    /* 同主 heatmap 一樣：釘落絕對 device px 格（要 frame 嘅 viewport 位置，見 pixel-snap.ts）
+       + 冇變就唔 set（sub-pixel 抖動唔好觸發成版 100 格重排） */
+    const measure = (rect: DOMRect) => {
+      const next = snapFrameGrid(rect.width, rect.height, window.devicePixelRatio || 1, rect.left, rect.top);
+      setSize((prev) => (
+        prev.width === next.width && prev.height === next.height && prev.dpr === next.dpr
+          && prev.originX === next.originX && prev.originY === next.originY ? prev : next
+      ));
     };
-    const observer = new ResizeObserver(([entry]) => measure(entry.contentRect.width, entry.contentRect.height));
+    const observer = new ResizeObserver(() => measure(frame.getBoundingClientRect()));
     observer.observe(frame);
     const rect = frame.getBoundingClientRect();
-    if (rect.width > 0 && rect.height > 0) measure(rect.width, rect.height);
+    if (rect.width > 0 && rect.height > 0) measure(rect);
     return () => observer.disconnect();
   }, []);
 
@@ -60,7 +64,7 @@ export function HeatmapTilesBoard({ cards, period, params, dark, onPick }: {
       {tiles.map(({ item, x, y, width, height }) => {
         const card = item.card;
         /* 同主 heatmap 同一套釘格（lib/pixel-snap.ts）：gap 一律相等、卡圖落整數格 */
-        const box = snapTileBox(x, y, width, height, params.gap, size.dpr);
+        const box = snapTileBox(x, y, width, height, params.gap, size);
         const st = tileStyle(changeValue(card, period), box.w, box.h, colors, params);
         const cardBox = snapCardBox(box.w, box.h, st.cardW, st.cardH, size.dpr);
         return (

@@ -16,7 +16,7 @@ import { displayCardName } from "@/lib/card-name";
 import { copy } from "@/lib/i18n";
 import { formatDate, formatMetricInteger, formatMetricMoney, formatMoney, formatObservationDate, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
 import { tap } from "@/lib/haptic";
-import { snapCardBox, snapFrameSize, snapTileBox } from "@/lib/pixel-snap";
+import { snapCardBox, snapFrameGrid, snapTileBox } from "@/lib/pixel-snap";
 import { heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
 import { renderHeatmapShare } from "@/lib/share-image";
 import { changeValue, DEFAULT_TILE, tileCardSize, tileColors, tileStyle, type TileParams } from "@/lib/tile-style";
@@ -215,8 +215,8 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
   const { resolved: upDown, setPref: setUpDownPref } = useUpDown(locale);
   const t = copy[locale];
   const frameRef = useRef<HTMLDivElement>(null);
-  /* frame 闊高（CSS px，已向下取整到 device px 格）+ 當時嘅 devicePixelRatio —— tile 幾何全部靠佢釘格 */
-  const [size, setSize] = useState({ width: 0, height: 0, dpr: 1 });
+  /* frame 喺絕對 device px 格上嘅 layout 盒（闊高 + dpr + origin 偏移）—— tile 幾何全部靠佢釘格 */
+  const [size, setSize] = useState({ width: 0, height: 0, dpr: 1, originX: 0, originY: 0 });
   const [sheetCard, setSheetCard] = useState<MarketCardView | null>(null);
   const [pickedCount, setPickedCount] = useState<number | null>(null);
   const [showTune, setShowTune] = useState(false);
@@ -405,20 +405,25 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
   useEffect(() => {
     const frame = frameRef.current;
     if (!frame) return;
-    /* 向下取整到 device px 格 + 冇變就唔 set：sub-pixel 抖動唔好觸發成版 100 格重排。
+    /* 釘落絕對 device px 格 + 冇變就唔 set：sub-pixel 抖動唔好觸發成版 100 格重排。
+       要傳 frame 嘅 viewport 位置（rect.left/top）：Chrome snap 嘅係絕對座標，唔傳就右／下邊多一粒（見 pixel-snap.ts）。
        dpr 喺呢度一齊讀：browser zoom 會改 frame 闊度 → ResizeObserver 一定 fire → dpr 跟住更新。 */
-    const measure = (width: number, height: number) => {
-      const next = snapFrameSize(width, height, window.devicePixelRatio || 1);
-      setSize((prev) => (prev.width === next.width && prev.height === next.height && prev.dpr === next.dpr ? prev : next));
+    const measure = (width: number, height: number, left: number, top: number) => {
+      const next = snapFrameGrid(width, height, window.devicePixelRatio || 1, left, top);
+      setSize((prev) => (
+        prev.width === next.width && prev.height === next.height && prev.dpr === next.dpr
+          && prev.originX === next.originX && prev.originY === next.originY ? prev : next
+      ));
     };
-    const observer = new ResizeObserver(([entry]) => {
-      measure(entry.contentRect.width, entry.contentRect.height);
-      frameRectRef.current = frame.getBoundingClientRect();
+    const observer = new ResizeObserver(() => {
+      const next = frame.getBoundingClientRect();
+      frameRectRef.current = next;
+      measure(next.width, next.height, next.left, next.top);
     });
     observer.observe(frame);
     const rect = frame.getBoundingClientRect();
     frameRectRef.current = rect;
-    if (rect.width > 0 && rect.height > 0) measure(rect.width, rect.height);
+    if (rect.width > 0 && rect.height > 0) measure(rect.width, rect.height, rect.left, rect.top);
     const onScroll = () => { clearHover(); frameRectRef.current = null; };
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => {
@@ -490,8 +495,8 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
   /* tile 實際 box（扣 gap + 釘落 device px 格，見 lib/pixel-snap.ts）——render 同 hover preview 用同一組數；
      index 對 index 就係 tiles[i] */
   const tileBoxes = useMemo(
-    () => tiles.map(({ x, y, width, height }) => snapTileBox(x, y, width, height, params.gap, size.dpr)),
-    [tiles, params.gap, size.dpr],
+    () => tiles.map(({ x, y, width, height }) => snapTileBox(x, y, width, height, params.gap, size)),
+    [tiles, params.gap, size],
   );
   const tileGeom = useMemo(() => new Map(tiles.map(({ item }, i) => [item.card.id, tileBoxes[i]])), [tiles, tileBoxes]);
   const tileGeomRef = useRef(tileGeom);
