@@ -386,7 +386,7 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
 | **fix-heatmap-title** | heatmap H1 永遠一行（`white-space: nowrap` + 字級 = `min(4.6vw, 100cqi/9.5)`，`.heatmap-title` 係 inline-size container）；heading 拆走描述句、footer 拆走 methodology-note；五語言標題縮到 ≤ 9em（`test-fe-heatmap-title-width.mjs` 守住） | ✅ 已落 + live（2026-08-17 13:50，22422add） |
 | **fix-owner-round-0817** | owner 2026-08-17 三輪口頭 review：桌面填滿（shell cap 1440→2400、gutter `clamp(32px,3vw,72px)`、表格 88px 行／卡名欄 26%）、字級手機↔桌面統一（nav 14 / metric label 11 / 數值 22↔20 / story 15）、內頁順序「圖 → 走勢 → 市值/數量 → 簡介」、header search 常駐 + 升跌反轉掣搬落 nav 行（≤980）、卡榜 EN/JP/SC/TC chip（桌面 + 手機）、原盒 group 只分 TCG + 語言入排序 sheet／`.lang-filter`、品牌橙細節（heatmap 總市值數字、nav 現位底線 2px、升跌掣兩支箭嘴跟 `--positive/--negative`）；順手修 `.detail-metrics span` 食咗 `.cap-ticker` 令三格數值 9.5px 灰字 | ✅ 已落 + live（2026-08-17 06:31Z，49e27f95） |
 | **fix-tile-label-fit** | heatmap 升跌 label 唔准食字：`fitTileLabel()` 用 canvas 量真字體闊度（同 `.tile-move` 同 family／800），先試完整 `+295.2%`，唔入就縮字（下限 8px）→ 去小數 `+295%` → 都唔入就唔顯示；離 tile 邊 4px、padding 1px 3px；share 圖同一套。實測 390/360/768/1440/1920 × 3 hub × 1D/1Y：0 格爆邊、最細邊距 4px（`temp/fe05/desktop-fill/tilelabel.py`） | ✅ 已落 + live（2026-08-17 07:22Z，03fb0ed7） |
-| **feat-currencies** | 貨幣由 7 隻加到 **31 隻**（正典次序，USD 永遠 index 0）；trigger 同選項都出貨幣自己個符號做「logo」；選項出 code + ICU 本地化名（`Intl.DisplayNames`，五語系）；選單按 **亞太 → 美洲 → 歐洲 → 中東非洲** 分四組、`max-height: min(420px, 100svh − header − 24px)` 可捲；`availableCurrencies()`（`lib/server-snapshot.ts`）只出 snapshot 真係有匯率嗰批（讀唔到就 fail-open 出全部）；`<SiteHeader>` server wrapper 餵 prop 落 client `<Header>`；`geo-defaults.ts` 由 7 個國家加到 45 個 | 🟡 已落本地，**未部署** |
+| **feat-currencies** | 貨幣由 7 隻加到 **31 隻**（正典次序，USD 永遠 index 0）；trigger 同選項都出貨幣自己個符號做「logo」；選項出 code + ICU 本地化名（`Intl.DisplayNames`，五語系）；選單 **USD 釘最頂**（owner「usd默認最頂」），之後按 **亞太 → 美洲 → 歐洲 → 中東非洲** 分四組、`max-height: min(420px, 100svh − header − 24px)` 可捲；`availableCurrencies()`（`lib/server-snapshot.ts`）只出 snapshot 真係有匯率嗰批（讀唔到就 fail-open 出全部）；`<SiteHeader>` server wrapper 餵 prop 落 client `<Header>`；`geo-defaults.ts` 由 7 個國家加到 45 個 | ✅ 已落 + live（2026-08-17 08:17Z FE 3bc093a0；08:21Z bake 7a0a7214 出 31 隻匯率，live `?currency=SGD` → `SGD 34.58億`、EUR/MYR 有價） |
 | WS5 | OG 圖 v2（卡圖入圖，satori 讀唔到 WebP → 要解碼），fail-open 退返純文字版 | TODO |
 | WS6 | HyperFrames 每日市場 recap 片（`apps/web` 以外，獨立 folder） | TODO（可選） |
 
@@ -974,7 +974,9 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
    per-locale module 級 cache。手寫 155 格一定會過時，而且五個語系冇人守得住。
    `fallback: "none"` → 冇資料回 `undefined`，包住 try/catch 回 `null`，**唔畫空 `.currency-name`**。
    只喺 client 用（選單撳開先 render）→ 冇 SSR / hydration mismatch。
-3. **分組次序 亞太 → 美洲 → 歐洲 → 中東非洲**（`currencyRegionOrder`），唔跟正典次序。
+3. **USD 釘最頂、唔屬任何組**（owner 2026-08-17「usd默認最頂」）：佢係 base 兼預設，埋喺美洲組第 16 位要捲先搵到。
+   `currencyMenuOrder()` 先放 USD，`currencyMenuGroup()` 對 USD 回 `null`（唔出 heading）；`currencyRegion.USD` 仍然係 americas（geo 用）。
+   之後**分組次序 亞太 → 美洲 → 歐洲 → 中東非洲**（`currencyRegionOrder`），唔跟正典次序。
    讀者主要喺 HK / TW / JP / KR，第一組就要係佢哋嗰批；組**入面**保持正典次序。
    heading 行 `role="presentation"`，**唔佔 option 序號** —— `select-control.tsx` 個 `index`
    仍然係扁平位置，所以 id / `aria-activedescendant` / 鍵盤上下同冇分組嗰陣一模一樣。
@@ -988,9 +990,10 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
    `apps/web/src/lib/types.ts` `currencies`（FE + `Currency` type）、
    `packages/market-data/src/schema.ts` `CURRENCIES`（snapshot 契約）、
    `pipelines/fx_rates.py` `SUPPORTED_CURRENCIES`（FX 採集 + 驗證）。
-   **呢單嘢前兩份已經改，`fx_rates.py` 未改 —— 即係後端仲係只採 7 隻匯率，
-   31 隻入面得 7 隻真係揀得到（靠第 4 點隱藏其餘 24 隻）。呢個係欠單，唔係已經做完。**
-   `live-db-snapshot.ts` 個 `rates` 由逐隻手寫改成行 `currencies` map，加貨幣唔使再改嗰度。
+   三份 2026-08-17 一齊改齊（`fx_rates.py` 喺 fe-db 改、live tree 鏡像）；fe-db 朝鏈 `morning_browser_lanes.ps1` +
+   `refresh_publish.ps1` 加咗 `fx_rates.py → fx_db_load.py` 步驟（之前 037 鏈由頭到尾冇人行 FX，出街匯率停喺 08-02）。
+   `live-db-snapshot.ts` 個 `rates` 由逐隻手寫改成行 `currencies` map，加貨幣唔使再改嗰度 —— bake 出街嘅 31 隻匯率就係靠呢度。
+   **出街 snapshot 要 bake 過先有 31 隻**：FE deploy 咗但未 bake 嗰段時間，第 4 點令選單只出舊 snapshot 有嘅 7 隻。
 
 ### 明確非目標
 
