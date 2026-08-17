@@ -42,16 +42,26 @@ export interface CardImgProps {
   fetchPriority?: "high" | "low" | "auto";
   alt: string;
   className?: string;
+  /*
+   * 內在尺寸（baked payload 嘅 `image.width/height`）。出咗呢一對，`<img>` 由
+   * parse 嗰刻就有 aspect-ratio，圖未到之前唔會由 0×0 撐開 —— CLS 就係喺呢度嚟。
+   * 兩個都係 primitive number，`memo` 照樣淨係比較值（DESIGN.md §5）。
+   * 冇尺寸就兩個一齊唔傳：得一半冇 aspect-ratio，填 0 個盒真係會塌。
+   */
+  width?: number;
+  height?: number;
 }
 
 /* 原始版：淨係食 primitive（heatmap tile 用，memo 只比較字串） */
-export function CardImg({ src, srcSet: set, sizes, loading = "lazy", fetchPriority, alt, className }: CardImgProps) {
+export function CardImg({ src, srcSet: set, sizes, loading = "lazy", fetchPriority, alt, className, width, height }: CardImgProps) {
   return (
     <img
       src={src}
       srcSet={set}
       sizes={sizes}
       alt={alt}
+      width={width}
+      height={height}
       loading={loading}
       fetchPriority={fetchPriority}
       decoding="async"
@@ -63,6 +73,20 @@ export function CardImg({ src, srcSet: set, sizes, loading = "lazy", fetchPriori
   );
 }
 
+/*
+ * placeholder（`/card-placeholder.svg`）冇 baked 尺寸，唔准借卡嘅比例度佢 ——
+ * 借咗就係一個講大話嘅盒。爛圖 fallback 之後（`handleCardImageError` 換 src）
+ * attribute 就故意留住：個盒已經佔咗位，拆走反而多一次 shift。
+ */
 export function CardImage({ image, ...rest }: Omit<CardImgProps, "src" | "srcSet"> & { image: CardImageImage }) {
-  return <CardImg src={image.url} srcSet={srcSet(image)} {...rest} />;
+  const sized = image.kind !== "placeholder";
+  return (
+    <CardImg
+      src={image.url}
+      srcSet={srcSet(image)}
+      width={sized ? image.width : undefined}
+      height={sized ? image.height : undefined}
+      {...rest}
+    />
+  );
 }

@@ -1,4 +1,4 @@
-import { locales, marketWindows, type CatalogEntry, type Locale, type LocalizedText, type MarketCardView, type MarketMetric, type MarketViewSnapshot, type SealedProductView, type WindowMetrics } from "./types";
+import { intrinsicSize, locales, marketWindows, type CatalogEntry, type Locale, type LocalizedText, type MarketCardView, type MarketMetric, type MarketViewSnapshot, type SealedProductView, type WindowMetrics } from "./types";
 import { foldSearchText, normaliseQuery } from "./list-explore";
 
 export const CATALOG_LIST_CAP = 80;
@@ -14,6 +14,11 @@ function slimLocales(text: Partial<Record<Locale, string | null>> | undefined): 
   return out;
 }
 
+/*
+ * 索引只帶 200px 縮圖（榜頁 thumb 用），但 `width` / `height` 照原圖帶 ——
+ * `<img width height>` 要嘅係比例，唔係位元組尺寸；`_200` 係同一張圖等比縮，
+ * 比例一樣。冇尺寸就唔出（`intrinsicSize`）。
+ */
 function slimImage(image: CatalogEntry["image"]): CatalogEntry["image"] {
   const variant200 = image.variants?.["200"];
   return {
@@ -21,6 +26,7 @@ function slimImage(image: CatalogEntry["image"]): CatalogEntry["image"] {
     alt: image.alt,
     kind: image.kind,
     ...(variant200 ? { variants: { "200": variant200 } } : {}),
+    ...intrinsicSize(image.width, image.height),
   };
 }
 
@@ -76,6 +82,8 @@ export function catalogEntryFromCard(card: MarketCardView): CatalogEntry {
       alt: card.image.alt,
       kind: card.image.kind,
       variants: card.image.variants,
+      width: card.image.width,
+      height: card.image.height,
     }),
     pricePsa10: slimMetric(card.pricePsa10),
     populationPsa10: slimMetric(card.populationPsa10),
@@ -103,6 +111,8 @@ export function catalogEntryFromBox(product: SealedProductView): CatalogEntry {
       alt: product.name.en,
       kind: product.image.kind === "placeholder" ? "placeholder" : "box_front",
       variants: product.image.variants,
+      width: product.image.width,
+      height: product.image.height,
     }),
   };
 }
@@ -276,6 +286,7 @@ export function catalogToCard(entry: CatalogEntry): MarketCardView | null {
       alt: entry.image.alt,
       kind: entry.image.kind === "raw_front" ? "raw_front" : "placeholder",
       variants: entry.image.variants,
+      ...intrinsicSize(entry.image.width, entry.image.height),
     },
     pricePsa10: entry.pricePsa10,
     populationPsa10: entry.populationPsa10,

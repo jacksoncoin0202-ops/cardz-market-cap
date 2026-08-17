@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import { CATALOG_LIST_CAP } from "./catalog-search";
 import { normaliseCurrency, normaliseLocale, normaliseTheme } from "./format";
 import { cardLanguages } from "./i18n";
 import { DEFAULT_RANKING_PAGE_SIZE } from "./pagination";
@@ -13,6 +14,34 @@ export function normaliseMarketWindow(value: string | null | undefined): MarketW
 
 /* 語言篩選只過濾顯示，唔改排名。`all` 係預設、唔上 URL。 */
 export type PrintLangFilter = PrintLanguage | "all";
+
+/*
+ * 搜尋榜「顯示更多」嘅行數（`show=<int>`）。
+ *
+ * 以前係 `rankings.tsx` 嘅 `useState`：撳兩下展開到 240 行、揀第 190 行入卡頁、
+ * 撳返上一頁 —— state 冇咗，榜返返 80 行，`scroll-restoration.tsx` 嗰個 anchor
+ * （`a[href^="/card/"]`）根本唔喺 DOM 入面，只可以跌返絕對 Y。URL 係唯一真相，
+ * 所以展開量都要上 URL：back-nav 同分享連結都行返同一條路。
+ *
+ * 規矩：
+ *  - 只喺 > 預設（`CATALOG_LIST_CAP`）先出現喺 URL，等預設 URL 保持乾淨；
+ *  - 一律收埋做 CAP 嘅倍數（`?show=123` → 160），唔准出半版；
+ *  - `MAX_SHOW` 係硬頂：`?show=99999999` 一次過 render 幾百萬行 = 主線程死。
+ *    真正上限仲要俾 caller 按命中數再 clamp 一次（見 `rankings.tsx`）。
+ */
+const MAX_SHOW = CATALOG_LIST_CAP * 100;
+
+function clampShow(raw: number): number {
+  if (!Number.isFinite(raw) || raw <= CATALOG_LIST_CAP) return CATALOG_LIST_CAP;
+  return Math.ceil(Math.min(raw, MAX_SHOW) / CATALOG_LIST_CAP) * CATALOG_LIST_CAP;
+}
+
+/* 嚴格淨數字：`Number.parseInt("240abc")` 會收貨 240，即係打錯都靜靜當啱。 */
+export function normaliseShow(value: string | null | undefined): number {
+  const text = (value ?? "").trim();
+  if (!/^\d+$/.test(text)) return CATALOG_LIST_CAP;
+  return clampShow(Number(text));
+}
 
 export function normalisePrintLang(value: string | null | undefined): PrintLangFilter {
   return cardLanguages.includes(value as PrintLanguage) ? value as PrintLanguage : "all";
@@ -124,6 +153,7 @@ export function useMarketSettings() {
   const period = normaliseMarketWindow(params.get("period"));
   const printLang = normalisePrintLang(params.get("printLang"));
   const query = params.get("q") ?? "";
+  const show = normaliseShow(params.get("show"));
   const sort = params.get("sort") ?? "rank";
   const dir = params.get("dir") === "asc" ? "asc" as const : "desc" as const;
   const urlTheme = params.get("theme");
@@ -170,6 +200,7 @@ export function useMarketSettings() {
     dir?: "asc" | "desc";
     page?: number;
     size?: number;
+    show?: number;
   }) => {
     if (next.theme) setTheme(next.theme);
     const live = typeof window === "undefined" ? null : liveSearch();
@@ -218,6 +249,17 @@ export function useMarketSettings() {
       if (next.size === DEFAULT_RANKING_PAGE_SIZE) nextParams.delete("size");
       else nextParams.set("size", String(next.size));
     }
+    if (next.show !== undefined) {
+      const nextShow = clampShow(next.show);
+      if (nextShow <= CATALOG_LIST_CAP) nextParams.delete("show");
+      else nextParams.set("show", String(nextShow));
+    }
+    /* q 一變，舊嗰個展開量就係講緊另一批命中，一定要跌返預設；同一個 q 再寫一次
+       （搜尋框每 220ms debounce 會寫同一個值）唔算變。呢句要行喺上面 set 之後，
+       唔係「清 q 但留住 show=240」。 */
+    if (next.query !== undefined && nextQuery.trim() !== (liveParams.get("q") ?? "").trim()) {
+      nextParams.delete("show");
+    }
     if (!nextSort || nextSort === "rank") {
       nextParams.delete("sort");
       nextParams.delete("dir");
@@ -245,5 +287,5 @@ export function useMarketSettings() {
     return suffix ? `${path}?${suffix}` : path;
   }, [currency, locale, period]);
 
-  return { locale, currency, period, printLang, query, sort, dir, theme, update, href };
+  return { locale, currency, period, printLang, query, show, sort, dir, theme, update, href };
 }

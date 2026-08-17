@@ -28,6 +28,24 @@ export type SnapshotCoverageClaim = "verified-top-n" | "verified-top-100";
  */
 export type LocalizedText = Record<Locale, string | null> & { en: string };
 
+/*
+ * 圖片內在尺寸嘅唯一收窄點（`image.width` / `image.height`）。三個投影
+ * （`snapshot.ts` / `catalog-search.ts` / `box-view.ts`）都 call 佢，唔好逐處
+ * 自己寫一套判斷 —— 同一條問題三份 copy 就會有一份放行咗 0（AGENTS.md 規矩 13）。
+ * 兩個都係正整數先出，任何一邊缺／0／非有限就成對唔出：`<img>` 得一半尺寸
+ * 冇 aspect-ratio，等於白做，而填 0 會令個盒真係塌成 0。
+ */
+export function intrinsicSize(
+  width: number | null | undefined,
+  height: number | null | undefined,
+): { width: number; height: number } | Record<string, never> {
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return {};
+  const w = Math.round(width as number);
+  const h = Math.round(height as number);
+  if (w <= 0 || h <= 0) return {};
+  return { width: w, height: h };
+}
+
 export interface MarketMetric<T> {
   value: T | null;
   status: MetricStatus;
@@ -109,6 +127,13 @@ export interface MarketCardView {
     alt: string | null;
     kind: "raw_front" | "placeholder";
     variants?: Partial<Record<"200" | "600", string>>;
+    /*
+     * Baked intrinsic pixels（`PublicImage.width/height`）。`<img width height>` 靠佢
+     * 開盒佔位，圖未到之前唔會 0×0 再撐開（CLS）。**唔知就唔准填**：placeholder
+     * 冇尺寸、live-db 冇量到就係 0，兩種都係 omit，唔准借另一張卡嘅比例。
+     */
+    width?: number;
+    height?: number;
   };
   pricePsa10: MarketMetric<number>;
   /** Detail-only RAW / ungraded reference. List projection omits this. */
@@ -152,6 +177,9 @@ export interface CatalogEntry {
     alt: string | null;
     kind: "raw_front" | "placeholder" | "box_front";
     variants?: Partial<Record<"200" | "600", string>>;
+    /** 同 `MarketCardView.image`：唔知就 omit。 */
+    width?: number;
+    height?: number;
   };
   pricePsa10?: MarketMetric<number>;
   populationPsa10?: MarketMetric<number>;
@@ -213,6 +241,9 @@ export interface SealedProductView {
     url: string;
     kind: "box_front" | "placeholder";
     variants?: Partial<Record<"200" | "600", string>>;
+    /** 同 `MarketCardView.image`：唔知就 omit。 */
+    width?: number;
+    height?: number;
   };
   story?: LocalizedText | null;
   priceUsd: MarketMetric<number>;

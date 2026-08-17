@@ -1,5 +1,5 @@
 import { deriveBoxWindow, longWindows } from "./derive-windows";
-import { marketWindows, sealedGroups, type MarketMetric, type SealedProductView, type SealedViewBlock } from "./types";
+import { intrinsicSize, marketWindows, sealedGroups, type MarketMetric, type SealedProductView, type SealedViewBlock } from "./types";
 
 /*
  * BOX sidecar 投影。唔經 @cardz/market-data、唔經 PSA10 seed。
@@ -20,7 +20,7 @@ export interface BoxSidecarProduct {
   productKind: string;
   printWave: string;
   status: string;
-  image?: { src: string; kind: string };
+  image?: { src: string; kind: string; width?: number; height?: number };
   story?: Partial<Record<"en" | "zh-TW" | "zh-CN" | "ja" | "ko", string>>;
   price?: {
     usd: number;
@@ -142,6 +142,13 @@ function boxProductView(product: BoxSidecarProduct): SealedProductView | null {
           "600": product.image.src.replace(/\.webp$/, "_600.webp"),
         }
         : undefined,
+      /*
+       * Sidecar 帶住原盒圖嘅內在尺寸（box-subset.json `image.width/height`），
+       * 之前喺投影層跌咗。而家照傳落 view／`/api/v1` —— **但 `box-image.tsx`
+       * 未 consume**，所以 BOX 頁嘅 `<img>` 仲未有 width/height attribute
+       * （見 DESIGN.md 欠單）。呢度只係唔再丟資料。
+       */
+      ...intrinsicSize(product.image?.width, product.image?.height),
     },
     story: boxStory(product.story),
     priceUsd: priceMetric,

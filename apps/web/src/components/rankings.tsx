@@ -117,7 +117,7 @@ function ChangeBadge({ card, period, locale }: { card: MarketCardView; period: M
 }
 
 export function Rankings({ cards, locale, currency, snapshot, href, watchlist = false, marketLabel, searchScope = "all" }: RankingsProps) {
-  const { period, printLang, query, sort, dir, update } = useMarketSettings();
+  const { period, printLang, query, show, sort, dir, update } = useMarketSettings();
   const router = useRouter();
   const t = copy[locale];
   const cardSort = normaliseCardSort(sort);
@@ -192,17 +192,18 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
     return activeLang === "all" ? hits : hits.filter((entry) => entry.cardLanguage === activeLang);
   }, [activeLang, locale, query, scopedCatalog, searching]);
   /* 一個字母可以命中三千幾張：一次過 render 曬 = 89k DOM node、主線程一秒幾。
-     先出 CATALOG_LIST_CAP（80）張，撳「再顯示」逐 80 加。 */
-  const [visibleLimit, setVisibleLimit] = useState(CATALOG_LIST_CAP);
+     先出 CATALOG_LIST_CAP（80）張，撳「再顯示」逐 80 加。
+     展開量係 URL state（`show=`，見 use-market-settings.ts）唔係 React state：
+     以前撳完入卡頁再撳返上一頁，state 冇咗、榜縮返 80 行，scroll-restoration 連
+     嗰行 anchor 都搵唔返。q 一變由 `update()` 負責清走個 param。 */
   const [isPending, startShowMore] = useTransition();
-  /* query／語言／範圍一變，catalogHits 就係新 array —— render 期直接 reset 返 80
-     （同 box-rankings.tsx 一樣嘅「adjust state on prop change」寫法，唔用 effect，
-     免得先 mount 晒幾千行再縮）。 */
-  const [seenHits, setSeenHits] = useState(catalogHits);
-  if (seenHits !== catalogHits) {
-    setSeenHits(catalogHits);
-    setVisibleLimit(CATALOG_LIST_CAP);
-  }
+  /* URL 講幾多就幾多，但唔准超過「命中數湊足一版」——`?show=8000` 打三張命中嘅
+     搜尋，`remaining` 要係 0（唔出掣），下一次撳都由真實上限接落去。 */
+  const maxVisible = Math.max(
+    CATALOG_LIST_CAP,
+    Math.ceil(catalogHits.length / CATALOG_LIST_CAP) * CATALOG_LIST_CAP,
+  );
+  const visibleLimit = Math.min(show, maxVisible);
   const shownHits = useMemo(
     () => (catalogHits.length > visibleLimit ? catalogHits.slice(0, visibleLimit) : catalogHits),
     [catalogHits, visibleLimit],
@@ -365,7 +366,8 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
         availableLanguages={availableLanguages}
         /* 一個手勢一次寫入：三樣嘢一次過落 URL，唔會三次 router.replace 互相覆蓋 */
         onApply={(next) => update({ sort: next.sort, dir: next.dir, printLang: next.printLang, page: 1 })}
-        onReset={() => update({ sort: "rank", dir: "desc", printLang: "all", page: 1 })}
+        /* 「還原」要連展開量一齊清（`show` ≤ 預設就等於由 URL 刪走） */
+        onReset={() => update({ sort: "rank", dir: "desc", printLang: "all", page: 1, show: CATALOG_LIST_CAP })}
       />
       {/* 索引載唔到就唔准扮全站搜過：有結果都要講明剩返當頁（冇結果嗰個 case 出喺 empty-state 入面） */}
       {searching && catalogError && visibleCards.length ? (
@@ -500,7 +502,9 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
               className="box-show-more"
               disabled={isPending}
               aria-busy={isPending}
-              onClick={() => startShowMore(() => setVisibleLimit((limit) => limit + CATALOG_LIST_CAP))}
+              /* transition 包住 router.replace：commit 之前個掣 disabled，
+                 所以連撳兩下唔會兩次都由同一個 visibleLimit 起算。 */
+              onClick={() => startShowMore(() => update({ show: visibleLimit + CATALOG_LIST_CAP }))}
             >
               {t.labels.showMoreResults
                 .replace("{count}", String(Math.min(remaining, CATALOG_LIST_CAP)))

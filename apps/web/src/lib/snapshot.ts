@@ -3,6 +3,7 @@ import { deriveLongWindows, longWindows } from "./derive-windows";
 import { formatStoryForDisplay } from "./story-display";
 import {
   currencies,
+  intrinsicSize,
   marketWindows,
   producerWindows,
   type Currency,
@@ -154,6 +155,12 @@ function cardView(card: CanonicalCard): MarketCardView {
       alt: canonicalName,
       kind: imageIsSafe ? "raw_front" : "placeholder",
       variants: imageIsSafe ? card.image.variants : undefined,
+      /*
+       * 內在尺寸出到 `<img width height>`（FE05 WS-state）。舊 snapshot 冇呢兩個
+       * field、live-db 量唔到會寫 0、placeholder 根本冇尺寸 —— 三種都 omit，
+       * 唔准填 0 或者借另一張卡嘅比例。
+       */
+      ...(imageIsSafe ? intrinsicSize(card.image.width, card.image.height) : {}),
     },
     pricePsa10: metric(card.pricePsa10),
     // Older public snapshots predate this optional field. Keep the view contract

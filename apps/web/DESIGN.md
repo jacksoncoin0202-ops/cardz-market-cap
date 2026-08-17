@@ -609,6 +609,56 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
     同一段 forcing 喺 `no-preference` → `opacity 0` + `fade-up 0.7s` + `chart-draw` /
     `chart-bar-rise` / `chart-dot-in` 全部起。
 
+**WS-state（URL 狀態 + 卡圖內在尺寸）實數**（證據 `temp/fe05/state/`）：
+
+18. **WS1 欠單 ③ / WS2 決定 ① 已還。** 正解照 WS2 寫嘅做：bake 側本來就有
+    `PublicImage.width/height`（`packages/market-data/src/schema.ts:59`），只係 view 層掉咗。
+    而家 `snapshot.ts` / `catalog-search.ts` / `box-view.ts` 三個投影共用一個收窄點
+    `lib/types.ts intrinsicSize()`（AGENTS.md 規矩 13，唔開第四份），`card-image.tsx` 出
+    `<img width height>`。`snapshot.ts` 一改就蓋埋 live DB 路（`live-db-snapshot.ts` 尾巴
+    `normaliseSnapshot()`），所以 `live-db-snapshot.ts` 零改動。
+19. **CLS 由 0.0585 → 0.0000（`mech.json`）。** 40KB/s throttle 撞唔返欠單 ③ 個 shift
+    （同 WS1 講嘅「18 次中 1 次」一致），所以改成 **route 延遲 3 秒**先逼佢出：
+    冇 attr 嗰邊 `@768` 三次全部 **0.0585**（1 個 shift entry）、`@390` 三次入面兩次 **0.0262**；
+    有 attr 嗰邊 `@768` / `@390` 各三次 **全部 0.0000、0 個 entry**。
+    「冇 attr」嗰組係 route 改寫 HTML 剝走 `width`/`height` 造出嚟，每 run 都覆檢
+    hydrate 之後 attr 仍然係 `null`（React 19 冇補返）。
+20. **⚠️ `.detail-art img` 個 **元素盒** 真係變大咗，唔係 0 delta（`geom.json`）。**
+    `<img width height>` 係 presentational hint（`width:429px; height:600px`），**兩軸都寫死之後
+    冇咗保比例約束**，`max-width`/`max-height` 各自 clamp，所以個盒由「內容大細」變成「撐滿容器」：
+    390 度 +148.687px 闊、1280 度 +10.844px 闊。**但用戶睇到嗰張圖冇郁**：`object-fit: contain`
+    算出嚟嘅 paint rect delta **0.016px**，`.detail-art` 元素截圖兩邊 **byte-identical**
+    （正常卡 + 怪比例卡 × 390/1280 四組全中）。正路修法係 CSS 加一條 `img { height: auto }`，
+    但 WS-state 冇 CSS 檔權限（`globals.css` / `styles/*.css` 由第二個 agent 揸）——
+    **留返欠單**。ranking thumb / heatmap tile 個盒係 0 delta，只有 `.detail-art` 有呢個形狀。
+21. **7 張卡 bake 落嘅 base 尺寸同真正出街嗰個 variant 唔同（bake 側資料欠單）。**
+    掃晒 `data/public/market-assets` 5709 個 WebP：1604 張卡嘅 `_600` **全部 429×600**、
+    `_200` 全部 200×280，但有 7 個 base 檔係 719×1000 ×3 / 600×838 / 1000×730 / 500×698 /
+    431×600。因為 `srcSet()` 一定出 variants 而且有 `sizes`，瀏覽器**永遠唔會**畫 base 檔，
+    即係嗰 7 張卡宣告嘅比例描述緊一個唔會 render 嘅檔。實測無害（宣告值兩軸都大過容器，
+    clamp 完個盒同正常卡一模一樣，截圖 byte-identical），但正解係 bake 側寫 variant 嘅尺寸。
+22. **`box-image.tsx` 未消費 `image.width/height`。** `box-view.ts` 已經帶住（data-only），
+    component 側未出 attribute —— `/box/[id]` 個圖仲係冇預留位。
+23. **公開 API 契約 additive**：`/api/v1/market`、`/api/v1/cards/[id]`、`/api/v1/catalog` 三條
+    route 都係直接 `Response.json` 個 view，所以 `image.width` / `image.height` 自動出咗街
+    （實測 429/600、1000/730）。**只加 key，冇改冇刪**。全個 `docs/` 冇任何檔寫過呢個 payload
+    嘅 schema，所以除咗呢度冇第二處要同步。
+24. **「顯示更多」由 React state 搬去 URL（`show=<int>`）。** 只有大過 `CATALOG_LIST_CAP`(80)
+    先出現喺 URL；`normaliseShow()` 嚴格淨數字（`240abc` 唔准當 240）、向上湊到 80 嘅倍數、
+    上限 = 命中數湊足一版。`update()` 用 `router.replace` 所以唔加 history entry
+    （實測撳兩次 `history.length` 一直係 **2**）。q 一變就 delete 個 param，`SortFilterSheet`
+    嘅「還原」一樣 delete。
+25. **back-nav 實測（`show_url.json`）**：`/?q=a` 撳兩次 → `?q=a&show=240` / 240 行，
+    撳第 150 行（`rect_top 365.5`、`scrollY 18747`）入卡頁再 back → URL 保住 `show=240`、
+    240 行、嗰行仲喺度、`rect_top` **365.5**（**delta 0.0**），而 `scrollY` 係 18987 ——
+    即係 `scroll-restoration.tsx` 行嘅係**錨點相對**還原，唔係絕對 Y，數字對唔上唔代表壞咗。
+    新開一版 `?q=a&show=240` 喺 390（mobile list）同 1280（desktop table）都出足 240 行。
+26. **App Router 嘅 push 係 same-document**，Playwright `wait_for_url()` 由頭到尾唔會 fire。
+    量呢類跳轉要 poll `location.pathname`，唔係 `wait_for_url` 壞咗。
+27. **`naturalWidth` 喺 `srcset` w-descriptor + `sizes` 之下係密度校正過**：同一個 429×600 檔
+    喺 1280 報 400×560、喺 390 報 250×351。WS2 寫嘅「實測呢張係 400 × 560」就係呢個。
+    攞真實檔案尺寸唔可以信 `naturalWidth`。
+
 ### 明確非目標
 
 唔遷 Tailwind / shadcn；唔上 WebGL / shader；`/` 唔加 marketing hero、唔加新字體；
