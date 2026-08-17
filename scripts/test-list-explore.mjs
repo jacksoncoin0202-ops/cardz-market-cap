@@ -15,14 +15,15 @@ const RANKINGS = join(ROOT, "apps/web/src/components/rankings.tsx");
 
 const require = createRequire(join(ROOT, "apps/web/package.json"));
 const ts = require("typescript");
-const source = readFileSync(SOURCE, "utf8");
-const { outputText } = ts.transpileModule(source, {
+const TYPES = join(ROOT, "apps/web/src/lib/types.ts");
+const transpile = (source) => ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-});
+}).outputText.replaceAll('from "./types"', 'from "./types.mjs"');
 const dir = join(tmpdir(), `cardz-list-explore-${process.pid}`);
 mkdirSync(dir, { recursive: true });
+writeFileSync(join(dir, "types.mjs"), transpile(readFileSync(TYPES, "utf8")));
 const file = join(dir, "list-explore.mjs");
-writeFileSync(file, outputText);
+writeFileSync(file, transpile(readFileSync(SOURCE, "utf8")));
 const explore = await import(pathToFileURL(file).href);
 rmSync(dir, { recursive: true, force: true });
 
@@ -38,7 +39,7 @@ check("heatmap has no list-explore", !heatmap.includes("list-explore") && !heatm
 check("href omits explore query", /if \(period !== (?:defaultMarketWindow|"30d")\) query\.set\("period", period\);/.test(settings) && !/query\.set\("q"/.test(settings.split("const href")[1] ?? ""));
 check("ranking title uses full catalog", /rankingTitle\.replace\("\{count\}", String\(cards\.length\)\)/.test(rankings));
 check("box keys omit pop and cap", JSON.stringify(explore.boxSortKeys) === JSON.stringify(["rank", "price", "sold", "release"]));
-check("card keys are rank price pop cap", JSON.stringify(explore.cardSortKeys) === JSON.stringify(["rank", "price", "pop", "cap"]));
+check("card keys are rank price pop sales change", JSON.stringify(explore.cardSortKeys) === JSON.stringify(["rank", "price", "pop", "sales", "change"]));
 
 function card(overrides = {}) {
   return {
