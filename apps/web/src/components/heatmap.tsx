@@ -34,6 +34,26 @@ interface HeatmapProps {
   title: string;
 }
 
+/*
+ * 邊個 tile 貼住 frame 邊（treemap 出嚟嘅 x/y 係 frame 座標，0 同 frameW/frameH 就係邊）。
+ * 用途：frame 係 `overflow:hidden` + `--section-radius` 圓角，而 tile 一律 4px 方角，
+ * 所以四個角嗰格會俾 frame 切走一橛 —— hover 嗰條 2px 白線行到角位就斷（owner
+ * 2026-08-18：「白色嗰條線食咗個角頭」）。標咗 data-corner 之後 CSS 會俾嗰格
+ * 跟返 frame 個弧，線就收得返入去。半徑喺 CSS 度砌，呢度只講「邊格喺邊個角」。
+ * 0.5px 容差：treemap 出嘅係浮點，唔可以用 === 0 比。
+ */
+const EDGE_EPS = 0.5;
+function cornerToken(tile: { x: number; y: number; width: number; height: number } | undefined, w: number, h: number): string {
+  if (!tile || !w || !h) return "";
+  const left = tile.x <= EDGE_EPS;
+  const top = tile.y <= EDGE_EPS;
+  const right = tile.x + tile.width >= w - EDGE_EPS;
+  const bottom = tile.y + tile.height >= h - EDGE_EPS;
+  /* 一格可以食兩個角（例如成條左邊都係佢），所以係 token list 唔係單一值 */
+  return [top && left ? "tl" : "", top && right ? "tr" : "", bottom && left ? "bl" : "", bottom && right ? "br" : ""]
+    .filter(Boolean).join(" ");
+}
+
 function CardFacts({ card, locale, currency, snapshot, period }: Omit<HeatmapProps, "cards" | "href" | "title"> & { card: MarketCardView; period: MarketWindow }) {
   const t = copy[locale];
   const windowMetric = card.windows[period];
@@ -489,6 +509,13 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
       /* 用 attribute 比對：<button> 冇 attribute 時 .tabIndex 都係 0，會漏寫 */
       const want = id === active ? "0" : "-1";
       if (el.getAttribute("tabindex") !== want) el.setAttribute("tabindex", want);
+      /* 角落格跟返 frame 圓角（見檔頭 cornerToken）。同 role/tabindex 一樣行 DOM 直寫，
+         唔加 props —— HeatmapTile 係 memo，多一個 props 就多一批 re-render。 */
+      const corner = cornerToken(tiles[i], size.width, size.height);
+      if ((el.getAttribute("data-corner") ?? "") !== corner) {
+        if (corner) el.setAttribute("data-corner", corner);
+        else el.removeAttribute("data-corner");
+      }
     });
     tileElsRef.current = map;
   });

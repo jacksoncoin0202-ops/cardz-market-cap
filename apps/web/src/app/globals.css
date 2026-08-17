@@ -1135,7 +1135,9 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   /* tile 可以裁，但 preview 用 fixed 脫離呢個 frame，唔會被呢度裁邊 */
   overflow: hidden;
   border: 0;
-  border-radius: var(--section-radius);
+  /* 角落 tile 要跟返呢個弧，所以圓角行一個會繼承落 tile 嘅 var，唔准直接寫死喺 border-radius */
+  --heatmap-frame-radius: var(--section-radius);
+  border-radius: var(--heatmap-frame-radius);
   background: transparent;
   isolation: isolate;
 }
@@ -1178,6 +1180,14 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   animation: tile-in 320ms var(--ease-standard) backwards;
   animation-delay: var(--d, 0ms);
 }
+/* 貼住 frame 四個角嗰格：跟返 frame 個弧（data-corner 由 heatmap.tsx layout effect 落，
+   見嗰邊 cornerToken 註）。唔跟嘅話 frame 個 `overflow:hidden` 會斜斜咁切走格仔一隻角，
+   hover 嗰條 `inset 0 0 0 2px` 白線就喺角位斷開（owner 2026-08-18 投訴）。
+   減 2px：tile 由 frame 邊縮入咗半個 gap（實測 1.6px），外圈半徑扣返先同 frame 個弧同心。 */
+.heatmap-tile[data-corner~="tl"] { border-top-left-radius: calc(var(--heatmap-frame-radius) - 2px); }
+.heatmap-tile[data-corner~="tr"] { border-top-right-radius: calc(var(--heatmap-frame-radius) - 2px); }
+.heatmap-tile[data-corner~="bl"] { border-bottom-left-radius: calc(var(--heatmap-frame-radius) - 2px); }
+.heatmap-tile[data-corner~="br"] { border-bottom-right-radius: calc(var(--heatmap-frame-radius) - 2px); }
 /* 拖 slider 之後先出現嘅 tile（data-late）：零 delay、200ms 由細 pop 出嚟。
    pop 期間先 promote layer；播完 JS 拆 data-late + 落 data-settled。 */
 .heatmap-tile[data-late] {
@@ -2134,7 +2144,8 @@ html.theme-transitions .card-dialog {
   .detail-period-row .period-selector { align-self: stretch; }
   .ranking-heading .period-selector button,
   .detail-period-row .period-selector button { flex: 1 1 0; min-width: 0; padding-inline: 8px; white-space: nowrap; }
-  .heatmap-frame { border-radius: 18px; }
+  /* 改 token 唔好淨改 border-radius：角落 tile 要靠同一個數跟返個弧（見 .heatmap-tile[data-corner]） */
+  .heatmap-frame { --heatmap-frame-radius: 18px; }
   .heatmap-footer { align-items: flex-start; flex-direction: column; gap: 3px; }
   .heatmap-legend { flex-wrap: wrap; gap: 7px 12px; }
   .legend-count { width: 100%; margin-left: 0; }
@@ -3017,6 +3028,27 @@ button.primary-action { border: 0; }
 .ranking-pager { flex-wrap: wrap; }
 .ranking-page-sizes { display: inline-flex; align-items: center; gap: 8px; }
 .ranking-show-more { padding-inline: 14px; min-width: auto; }
+/* 「碌到底接落去」嘅觸發線（ranking-pager.tsx）。**唔可以 `display:none`**——
+   `display:none` 嘅元素冇 box，IntersectionObserver 永遠唔會 fire，成個自動接落去
+   會靜靜死咗而畫面睇唔出分別。所以留返一粒 1px 高、完全透明嘅 box。 */
+.ranking-feed-sentinel {
+  width: 100%;
+  height: 1px;
+  margin: 0;
+  pointer-events: none;
+}
+/* 讀屏公告專用：唔准佔位（否則接緊嗰陣個 pager 會跳一跳），但要留喺 a11y tree 入面，
+   所以用 clip 唔用 display:none。 */
+.ranking-feed-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 @media (hover: hover) {
   .watchlist-pager a:hover { background: var(--surface); }
 }

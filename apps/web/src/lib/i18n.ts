@@ -238,6 +238,9 @@ export interface Copy {
     showMore: string;
     /* 搜尋結果分批出：{count} = 今次再顯示幾多張，{total} = 命中總數 */
     showMoreResults: string;
+    /* 榜單接落去嗰陣：個掣嘅字 + 讀屏 aria-live 公告（owner 2026-08-18「我想繼續碌落去」）。
+       同 `showMoreResults` 分開——嗰個係搜尋結果分批，呢個係榜單本身接落一版。 */
+    loadingMore: string;
     /* 全站索引載唔到時嘅退化提示（rankings.tsx 只剩當頁過濾，唔係「冇結果」） */
     catalogUnavailable: string;
     pageSizeLabel: string;
@@ -476,6 +479,7 @@ export const copy: Record<Locale, Copy> = {
       rankingRange: "#{from}–#{to}",
       showMore: "Show more",
       showMoreResults: "Show {count} more ({total} total)",
+      loadingMore: "Loading…",
       catalogUnavailable: "Site-wide index unavailable right now — showing matches from this page only.",
       pageSizeLabel: "Per page",
       resultCountShort: "{count} cards",
@@ -689,6 +693,7 @@ export const copy: Record<Locale, Copy> = {
       rankingRange: "#{from}–#{to}",
       showMore: "展示更多",
       showMoreResults: "再顯示 {count} 張（共 {total} 張）",
+      loadingMore: "載入中…",
       catalogUnavailable: "全站索引暫時載不到，只顯示本頁結果。",
       pageSizeLabel: "每頁",
       resultCountShort: "{count} 張",
@@ -887,6 +892,7 @@ export const copy: Record<Locale, Copy> = {
       rankingRange: "#{from}–#{to}",
       showMore: "展示更多",
       showMoreResults: "再显示 {count} 张（共 {total} 张）",
+      loadingMore: "加载中…",
       catalogUnavailable: "全站索引暂时加载不到，只显示本页结果。",
       pageSizeLabel: "每页",
       resultCountShort: "{count} 张",
@@ -1084,6 +1090,7 @@ export const copy: Record<Locale, Copy> = {
       rankingRange: "#{from}–#{to}",
       showMore: "さらに表示",
       showMoreResults: "さらに {count} 件表示（全 {total} 件）",
+      loadingMore: "読み込み中…",
       catalogUnavailable: "サイト全体の索引を読み込めません。このページ内の該当分のみ表示しています。",
       pageSizeLabel: "表示件数",
       resultCountShort: "{count} 件",
@@ -1288,6 +1295,7 @@ export const copy: Record<Locale, Copy> = {
       rankingRange: "#{from}–#{to}",
       showMore: "더 보기",
       showMoreResults: "{count}개 더 보기 (총 {total}개)",
+      loadingMore: "불러오는 중…",
       catalogUnavailable: "전체 색인을 지금 불러올 수 없어 이 페이지의 결과만 표시합니다.",
       pageSizeLabel: "페이지당",
       resultCountShort: "{count}장",

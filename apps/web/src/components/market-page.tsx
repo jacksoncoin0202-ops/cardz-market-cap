@@ -1,15 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Heatmap } from "./heatmap";
 import { Provenance } from "./provenance";
+import { RankingPager, type RankingPagerData } from "./ranking-pager";
 import { Rankings } from "./rankings";
 import { canonicalPublicUrl, datasetId, organizationId, siteOrganization, StructuredData } from "./structured-data";
 import { displayCardName } from "@/lib/card-name";
 import { formatMoney, formatObservationDate, formatPercent } from "@/lib/format";
 import { copy, type Copy } from "@/lib/i18n";
 import { cardSubject, fillTemplate } from "@/lib/related-cards";
+import { fetchRankingPage } from "@/lib/ranking-feed";
 import { useMarketSettings } from "@/lib/use-market-settings";
 import type { Locale, MarketCardView, MarketViewSnapshot } from "@/lib/types";
 import "@/app/styles/market-foot.css";
@@ -39,11 +41,73 @@ export function marketHeatmapTitle(kind: MarketPageKind, cardCount: number, t: C
   return marketTitle.replace("{count}", String(cardCount));
 }
 
-export function MarketPage({ kind, snapshot, pager }: { kind: MarketPageKind; snapshot: MarketViewSnapshot; pager?: ReactNode }) {
+export function MarketPage({ kind, snapshot, pager }: { kind: MarketPageKind; snapshot: MarketViewSnapshot; pager?: RankingPagerData | null }) {
   const { locale, currency, href } = useMarketSettings();
   const t = copy[locale];
   const hero = kind === "pokemon" ? t.pokemonHero : kind === "one-piece" ? t.onePieceHero : kind === "watchlist" ? t.watchlistHero : t.hero;
   const cards = snapshot.top100;
+  /*
+   * 「碌到底接落去」攞返嚟嗰批（owner 2026-08-18）。**只餵去 `<Rankings>`**——
+   * 熱力圖（`heatmapCards`）同 JSON-LD（`listedCards`）一律用返 SSR 嗰版 `cards`：
+   *  · 熱力圖係「頭 100 格」，接多 500 行落去唔應該令佢變成 600 格；
+   *  · ItemList 要對得返個 canonical URL 嗰頁嘅內容，client 接咗幾多行係用戶行為，
+   *    寫落 structured data 就係同 crawler 講大話。
+   *
+   * 用 signature 綁住 `scope|page|size`：soft-nav 換頁／換數量嗰陣呢個 component
+   * 唔會 unmount，state 唔自己清就會拎住上一頁嗰批 rows 接落新一頁下面（#101–#200
+   * 跟住 #601–#700）。同 `rankings.tsx` 個 `sessionShow?.query === query` 一樣嘅寫法。
+   */
+  const feedSignature = pager ? `${pager.scope}|${pager.page}|${pager.pageSize}` : "";
+  const [feed, setFeed] = useState<{ sig: string; rows: MarketCardView[]; nextPage: number; failed: boolean }>(
+    { sig: "", rows: [], nextPage: 0, failed: false },
+  );
+  const [loadingMore, setLoadingMore] = useState(false);
+  const fresh = feed.sig === feedSignature;
+  const extraRows = fresh ? feed.rows : [];
+  const feedFailed = fresh && feed.failed;
+  const listCards = extraRows.length ? [...cards, ...extraRows] : cards;
+  /* 接到尾就要收埋個掣：`nextHref` 係 SSR 嗰刻算嘅（page 1 < pageCount 就一直存在），
+     接完最後一頁佢仍然係非 null，唔另外數就會留低一個撳極都冇反應嘅「展示更多」。 */
+  const hasMore = pager ? (fresh ? feed.nextPage : pager.page + 1) <= pager.pageCount : false;
+
+  /*
+   * 呢兩個 ref 係「唔准連發」嘅唯一閘：IntersectionObserver 喺一次快碌入面可以連續
+   * fire 幾下，而 React state 要下一次 render 先睇得到，淨靠 `loadingMore` 會漏。
+   * side effect（fetch）唔准擺喺 `setFeed` 個 updater 入面 —— StrictMode 會行兩次
+   * updater，即係一 render 打兩個 request。
+   */
+  const inFlight = useRef(false);
+  const feedRef = useRef(feed);
+  /* render 期間唔准寫 ref（react-hooks 有 error 級 rule）。effect 同樣趕得切：
+     `loadMore` 淨係由 click / IntersectionObserver 叫，兩者都喺 commit 之後。 */
+  useEffect(() => { feedRef.current = feed; }, [feed]);
+
+  const loadMore = useCallback(() => {
+    if (!pager || inFlight.current) return;
+    const sig = `${pager.scope}|${pager.page}|${pager.pageSize}`;
+    const prev = feedRef.current;
+    const current = prev.sig === sig ? prev : { sig, rows: [], nextPage: pager.page + 1, failed: false };
+    const target = current.nextPage;
+    if (target > pager.pageCount) return;
+    inFlight.current = true;
+    setLoadingMore(true);
+    /* 撳「再試一次」要即刻清走個紅旗，否則自動接落去仲係停手狀態。 */
+    if (current !== prev || current.failed) setFeed({ ...current, failed: false });
+    fetchRankingPage(pager.scope, target, pager.pageSize)
+      .then((rows) => {
+        setFeed((now) => (now.sig === sig && now.nextPage === target
+          ? { sig, rows: [...now.rows, ...rows], nextPage: target + 1, failed: false }
+          : now));
+      })
+      .catch(() => {
+        /* 唔准靜靜當到咗尾：出 failed 旗，個掣變「再試一次」，自動接落去停手。 */
+        setFeed((now) => (now.sig === sig ? { ...now, failed: true } : now));
+      })
+      .finally(() => {
+        inFlight.current = false;
+        setLoadingMore(false);
+      });
+  }, [pager]);
   const heatmapCards = snapshot.lead100 ?? cards.slice(0, 100);
   /* 傳 raw title（保留 {count}）俾 Heatmap 自己按 visibleCards.length replace，
      咁 Tiles slider 改咗數量，標題同 Share image 都會跟住變。 */
@@ -158,7 +222,7 @@ export function MarketPage({ kind, snapshot, pager }: { kind: MarketPageKind; sn
         <Heatmap cards={heatmapCards} locale={locale} currency={currency} snapshot={snapshot} href={href} title={heatmapTitle} />
       )}
       <Rankings
-        cards={cards}
+        cards={listCards}
         locale={locale}
         currency={currency}
         snapshot={snapshot}
@@ -167,8 +231,20 @@ export function MarketPage({ kind, snapshot, pager }: { kind: MarketPageKind; sn
         marketLabel={marketLabel}
         searchScope={kind === "pokemon" || kind === "one-piece" ? kind : "all"}
       />
-      {/* 每頁 100／200／300／500 + 上下頁：緊貼榜尾，唔准跌落頁尾說明之後 */}
-      {pager}
+      {/* 每頁 100／200／300／500 + 上下頁 + 「展示更多」：緊貼榜尾，唔准跌落頁尾說明之後。
+          範圍字（#1–#200）要跟住接落去嘅實際行數走，所以傳 render 緊嗰批嘅頭尾 rank。 */}
+      {pager ? (
+        <RankingPager
+          data={pager}
+          firstRank={pager.firstRank}
+          lastRank={listCards.filter((card) => card.viewRank > 0).at(-1)?.viewRank ?? pager.lastRank}
+          loadedRows={listCards.length}
+          hasMore={hasMore}
+          loading={loadingMore}
+          failed={feedFailed}
+          onLoadMore={loadMore}
+        />
+      ) : null}
       {kind !== "watchlist" && (
         /*
          * 頁尾「關於呢個指數」：hero 標題（keyword-first，5 語）做 h2 + 一句 body，

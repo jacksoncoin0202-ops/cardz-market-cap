@@ -1,6 +1,6 @@
 import { MarketPage } from "./market-page";
-import { RankingPager } from "./ranking-pager";
 import { copy } from "@/lib/i18n";
+import { RANKING_PAGE_SIZES } from "@/lib/pagination";
 import {
   rankingHrefFor,
   rankingPath,
@@ -21,21 +21,37 @@ export async function RankingSurface({
   const { snapshot, page, pageSize, pageCount, firstRank, lastRank } = await requireRankingPage(scope, params);
   const t = copy[locale];
   const searching = typeof params.q === "string" && params.q.trim().length > 0;
-  /* pager 由 MarketPage 喺榜尾（Rankings 之後、頁尾說明之前）render——之前做 sibling 會跌落
-     Provenance／about 之後，離個榜成版遠（owner 2026-08-16 晚 review）。 */
-  const pager = !searching ? (
-    <RankingPager
-      page={page}
-      pageSize={pageSize}
-      pageCount={pageCount}
-      firstRank={firstRank}
-      lastRank={lastRank}
-      showMoreLabel={t.labels.showMore}
-      pageSizeLabel={t.labels.pageSizeLabel}
-      previousLabel={t.nav.previousPage}
-      nextLabel={t.nav.nextPage}
-      hrefFor={rankingHrefFor(rankingPath(scope), params)}
-    />
-  ) : null;
-  return <MarketPage kind={scope} snapshot={snapshot} pager={pager} />;
+  const hrefFor = rankingHrefFor(rankingPath(scope), params);
+  /*
+   * pager 由 MarketPage 喺榜尾（Rankings 之後、頁尾說明之前）render——之前做 sibling 會跌落
+   * Provenance／about 之後，離個榜成版遠（owner 2026-08-16 晚 review）。
+   *
+   * 2026-08-18 起呢度**唔再 render 個 pager 出嚟**，只係傳純資料落去：`<RankingPager>`
+   * 變咗 client component（要 IntersectionObserver + 接落去嘅 handler），而 function
+   * 係過唔到 server → client 邊界嘅，所以 `hrefFor()` 喺呢度先行晒，出一堆現成 href。
+   */
+  const pagerData = !searching ? {
+    scope,
+    page,
+    pageSize,
+    pageCount,
+    firstRank,
+    lastRank,
+    sizeLinks: RANKING_PAGE_SIZES.map((size) => ({
+      size,
+      href: hrefFor({ page: 1, size }),
+      active: size === pageSize,
+    })),
+    prevHref: page > 1 ? hrefFor({ page: page - 1, size: pageSize }) : null,
+    nextHref: page < pageCount ? hrefFor({ page: page + 1, size: pageSize }) : null,
+    labels: {
+      showMore: t.labels.showMore,
+      pageSize: t.labels.pageSizeLabel,
+      previous: t.nav.previousPage,
+      next: t.nav.nextPage,
+      loading: t.labels.loadingMore,
+      retry: t.errorPage.retry,
+    },
+  } : null;
+  return <MarketPage kind={scope} snapshot={snapshot} pager={pagerData} />;
 }
