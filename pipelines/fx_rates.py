@@ -17,7 +17,18 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 
-SUPPORTED_CURRENCIES = ("USD", "HKD", "CNY", "GBP", "TWD", "JPY", "KRW")
+# 貨幣清單（owner 2026-08-17：「加埋新加坡幣、馬來西亞幣、歐元……加多啲」）。
+# 次序係 canonical：USD 一定係 [0]（base），其餘照呢個次序出街。
+# 同一份清單仲有兩個副本，改一齊：FE `apps/web/src/lib/types.ts` `currencies`
+# 同 `packages/market-data/src/schema.ts` `CURRENCIES`。`operator_fe_export.currencies_block`
+# 由呢度 import，唔再自己寫死。Frankfurter v2 `/v2/rates?base=USD&quotes=…` 31 隻全部有報價（2026-08-17 實測）。
+SUPPORTED_CURRENCIES = (
+    "USD",
+    "HKD", "TWD", "JPY", "KRW", "CNY", "SGD", "MYR", "THB", "PHP", "IDR", "VND", "INR", "AUD", "NZD",
+    "EUR", "GBP", "CHF", "SEK", "NOK", "DKK", "PLN", "CZK",
+    "CAD", "MXN", "BRL",
+    "AED", "SAR", "ILS", "TRY", "ZAR",
+)
 QUOTE_CURRENCIES = SUPPORTED_CURRENCIES[1:]
 DEFAULT_ENDPOINT = "https://api.frankfurter.dev/v2/rates"
 DEFAULT_CACHE = Path(__file__).resolve().parents[1] / "data/runtime/private-fx/latest.json"
@@ -216,13 +227,11 @@ def public_currency_block(snapshot: Mapping[str, Any] | None, generated_at: date
 
 def self_test() -> dict[str, Any]:
     now = datetime(2026, 7, 22, 12, tzinfo=timezone.utc)
+    # fixture 跟 QUOTE_CURRENCIES 生成（清單一改 self-test 自動跟），只有 JPY / KRW 用真實量級數值
+    sample_rates = {"HKD": 7.8, "CNY": 7.2, "GBP": 0.78, "TWD": 32.5, "JPY": 162.5, "KRW": 1380.0}
     payload = [
-        {"date": "2026-07-22", "base": "USD", "quote": "HKD", "rate": 7.8},
-        {"date": "2026-07-22", "base": "USD", "quote": "CNY", "rate": 7.2},
-        {"date": "2026-07-22", "base": "USD", "quote": "GBP", "rate": 0.78},
-        {"date": "2026-07-22", "base": "USD", "quote": "TWD", "rate": 32.5},
-        {"date": "2026-07-22", "base": "USD", "quote": "JPY", "rate": 162.5},
-        {"date": "2026-07-22", "base": "USD", "quote": "KRW", "rate": 1380.0},
+        {"date": "2026-07-22", "base": "USD", "quote": quote, "rate": sample_rates.get(quote, 1.5)}
+        for quote in QUOTE_CURRENCIES
     ]
     snapshot = normalise_response(payload, now)
     public, state = public_currency_block(snapshot, now)

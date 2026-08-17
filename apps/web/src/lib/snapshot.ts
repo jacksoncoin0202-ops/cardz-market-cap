@@ -179,9 +179,13 @@ function cardView(card: CanonicalCard): MarketCardView {
 }
 
 export function normaliseSnapshot(snapshot: CanonicalSnapshot): MarketViewSnapshot {
+  /*
+   * 容忍 snapshot 少過 FE 清單：baked snapshot 可能係舊一日 bake 出、未有新加嘅貨幣，
+   * 硬讀 `.value` 會 TypeError 炸成頁。缺就 NaN，`formatMoney` fail-closed 出「暫無資料」。
+   */
   const rates = Object.fromEntries(currencies.map((currency) => [
     currency,
-    snapshot.currencies.rates[currency].value ?? Number.NaN,
+    snapshot.currencies.rates[currency]?.value ?? Number.NaN,
   ])) as Record<Currency, number>;
   const top100 = snapshot.top100.map(cardView);
   const watchlist = snapshot.watchlist.map(cardView);

@@ -261,6 +261,11 @@ export interface Copy {
     searchAllSite: string;
     sortBy: string;
     currency: string;
+    /* 貨幣選單分組 heading（31 隻貨幣，按地區分四組；次序見 lib/currency-meta.ts） */
+    currencyRegionAsia: string;
+    currencyRegionAmericas: string;
+    currencyRegionEurope: string;
+    currencyRegionMea: string;
     /* 升跌顏色慣例切換：按鈕 aria-label / title 出「而家係邊個慣例」 */
     upDownGreen: string;
     upDownRed: string;
@@ -478,6 +483,10 @@ export const copy: Record<Locale, Copy> = {
       searchAllSite: "Search all of CARDZ for “{query}” →",
       sortBy: "Sort by",
       currency: "Currency",
+      currencyRegionAsia: "Asia-Pacific",
+      currencyRegionAmericas: "Americas",
+      currencyRegionEurope: "Europe",
+      currencyRegionMea: "Middle East & Africa",
       upDownGreen: "Gains shown in green",
       upDownRed: "Gains shown in red",
     },
@@ -686,6 +695,10 @@ export const copy: Record<Locale, Copy> = {
       searchAllSite: "在全站搜尋「{query}」→",
       sortBy: "排序方式",
       currency: "貨幣",
+      currencyRegionAsia: "亞太",
+      currencyRegionAmericas: "美洲",
+      currencyRegionEurope: "歐洲",
+      currencyRegionMea: "中東・非洲",
       upDownGreen: "紅跌綠升",
       upDownRed: "紅升綠跌",
     },
@@ -879,6 +892,10 @@ export const copy: Record<Locale, Copy> = {
       searchAllSite: "在全站搜索「{query}」→",
       sortBy: "排序方式",
       currency: "货币",
+      currencyRegionAsia: "亚太",
+      currencyRegionAmericas: "美洲",
+      currencyRegionEurope: "欧洲",
+      currencyRegionMea: "中东・非洲",
       upDownGreen: "红跌绿升",
       upDownRed: "红升绿跌",
     },
@@ -1071,6 +1088,10 @@ export const copy: Record<Locale, Copy> = {
       searchAllSite: "サイト全体で「{query}」を検索 →",
       sortBy: "並べ替え",
       currency: "通貨",
+      currencyRegionAsia: "アジア太平洋",
+      currencyRegionAmericas: "米州",
+      currencyRegionEurope: "欧州",
+      currencyRegionMea: "中東・アフリカ",
       upDownGreen: "上昇＝緑",
       upDownRed: "上昇＝赤",
     },
@@ -1270,6 +1291,10 @@ export const copy: Record<Locale, Copy> = {
       searchAllSite: "전체에서 “{query}” 검색 →",
       sortBy: "정렬 기준",
       currency: "통화",
+      currencyRegionAsia: "아시아·태평양",
+      currencyRegionAmericas: "미주",
+      currencyRegionEurope: "유럽",
+      currencyRegionMea: "중동·아프리카",
       upDownGreen: "상승=녹색",
       upDownRed: "상승=빨강",
     },

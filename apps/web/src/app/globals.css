@@ -510,6 +510,46 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
 .select-option[data-active="true"] { background: var(--control-bg); color: var(--ink); }
 .select-option[aria-selected="true"] { color: var(--ink); }
 .select-check { margin-left: auto; color: var(--accent); }
+
+/* 貨幣選單（FE05 currencies，owner 2026-08-17：「加多啲貨幣、對應返個 logo」）
+   31 隻貨幣 → 要 scroll；符號係「logo」，code 係身份，名係 ICU 本地化。
+   max-height 用 svh 減 header，手機 360 都要留喺畫面內；.select-menu 本身係 period menu 都用嘅殼，所以呢度只加 class。 */
+.currency-menu {
+  min-width: 236px;
+  max-height: min(420px, calc(100svh - var(--header-height) - 24px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.currency-menu .select-option { gap: 8px; }
+.select-group-label {
+  padding: 8px 10px 4px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.select-group-label + .select-group-label { display: none; }
+.currency-symbol {
+  display: inline-flex;
+  min-width: 2.6em;
+  justify-content: center;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+/* trigger 個符號唔使對齊欄位，唔好被 2.6em 撐開（.select-control gap 得 5px） */
+.select-control > .currency-symbol { min-width: 0; color: var(--accent); font-size: 12px; }
+.currency-code { font-weight: 600; min-width: 3.2em; }
+.currency-name {
+  color: var(--control-idle);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 12em;
+}
+.select-option[data-active="true"] .currency-name,
+.select-option[aria-selected="true"] .currency-name { color: var(--ink); }
+
 .header-fallback { height: var(--header-height); border-bottom: 1px solid var(--line); }
 
 /* 橫屏 notch：page-shell 嘅 gutter 逐個 breakpoint 唔同，safe-area 加喺 <main> 外殼一次搞掂 */

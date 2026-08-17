@@ -1,9 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import { Suspense } from "react";
 import { DocumentLanguage, LangScript, SkipLink, ThemeScript } from "@/components/document-language";
-import { Footer, Header } from "@/components/header";
+import { Footer } from "@/components/header";
 import { AppMotionConfig } from "@/components/motion-config";
 import { ScrollRestoration } from "@/components/scroll-restoration";
+import { SiteHeader } from "@/components/site-header";
 import { organizationId, siteOrganization, StructuredData } from "@/components/structured-data";
 import { PUBLIC_SITE_URL, SITE_DESCRIPTOR_EN } from "@/lib/public-site";
 import "./globals.css";
@@ -84,7 +85,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           <ScrollRestoration />
           <Suspense fallback={<a className="skip-link" href="#main">Skip to content</a>}><SkipLink /></Suspense>
           <Suspense fallback={null}><DocumentLanguage /></Suspense>
-          <Suspense fallback={<div className="header-fallback" />}><Header /></Suspense>
+          <Suspense fallback={<div className="header-fallback" />}><SiteHeader /></Suspense>
           <main id="main" tabIndex={-1}>{children}</main>
           <Suspense><Footer /></Suspense>
         </AppMotionConfig>

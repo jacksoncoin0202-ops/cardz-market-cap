@@ -8,6 +8,7 @@ import { Globe2, Moon, Sun } from "lucide-react";
 import { SelectControl } from "./select-control";
 import { SiteSearch } from "./site-search";
 import { tap } from "@/lib/haptic";
+import { currencyDisplayName, currencyMenuGroup, currencyMenuOrder, currencySymbol } from "@/lib/currency-meta";
 import { copy } from "@/lib/i18n";
 import { currencies, locales, type Currency, type Locale } from "@/lib/types";
 import { useMarketSettings } from "@/lib/use-market-settings";
@@ -16,6 +17,7 @@ import { useUpDown } from "@/lib/use-updown";
 const localeLabel = { en: "EN", "zh-TW": "繁中", "zh-CN": "简中", ja: "日本語", ko: "한국어" } as const;
 /* 選項文字係各自語言寫嘅，俾 lang tag 讀屏先唔會用英文口音讀「日本語」 */
 const localeLang = { en: "en", "zh-TW": "zh-Hant", "zh-CN": "zh-Hans", ja: "ja", ko: "ko" } as const;
+/* Trigger 出 code（USD / HKD…）—— 符號行 icon slot，名只喺選單度出。 */
 const currencyLabel = Object.fromEntries(currencies.map((item) => [item, item])) as Record<Currency, string>;
 
 /*
@@ -29,7 +31,11 @@ const logoByTheme = {
   dark: { src: "/brand/logo-cardz-marketcap-dark.png", width: 858, height: 348 },
 } as const;
 
-export function Header() {
+/*
+ * `availableCurrencies` 由 server wrapper（`site-header.tsx`）落，係「今日 snapshot 真係有匯率」嗰批。
+ * 唔傳（例如 storybook / 舊 call site）就當全部有。
+ */
+export function Header({ availableCurrencies = currencies }: { availableCurrencies?: readonly Currency[] } = {}) {
   const pathname = usePathname();
   const { locale, currency, theme, update, href } = useMarketSettings();
   const { resolved: updown, setPref: setUpDown } = useUpDown(locale);
@@ -57,6 +63,16 @@ export function Header() {
   ];
 
   const logo = logoByTheme[theme];
+  /* 現時選咗嘅貨幣一定要揀得返（就算佢今日冇匯率），否則個 select 個值唔喺 options 入面。 */
+  const currencyOptions = currencyMenuOrder(
+    availableCurrencies.includes(currency) ? availableCurrencies : [...availableCurrencies, currency],
+  );
+  const currencyRegionLabels = {
+    asia: t.labels.currencyRegionAsia,
+    americas: t.labels.currencyRegionAmericas,
+    europe: t.labels.currencyRegionEurope,
+    mea: t.labels.currencyRegionMea,
+  };
   const upDownLabel = updown === "red-up" ? t.labels.upDownRed : t.labels.upDownGreen;
   /* 同一粒掣 render 兩次（header 控制列 / nav 行），CSS 按斷點只顯示一粒；display:none 嗰粒唔入 a11y tree。 */
   const upDownButton = (placement: "updown-toggle-header" | "updown-toggle-nav") => (
@@ -148,12 +164,28 @@ export function Header() {
           />
           <SelectControl<Currency>
             value={currency}
-            options={currencies}
+            options={currencyOptions}
             labels={currencyLabel}
             onChange={(item) => update({ currency: item })}
             label={t.labels.currency}
-            icon={<span aria-hidden="true">$</span>}
+            /* 符號 = 貨幣自己個 logo，跟住揀咗邊隻換。<bdi> 隔開阿拉伯文符號（د.إ / ﷼），
+               唔隔就會反轉成行嘅視覺次序。 */
+            icon={<span aria-hidden="true" className="currency-symbol"><bdi>{currencySymbol[currency]}</bdi></span>}
             className="currency-control"
+            menuClassName="currency-menu"
+            /* USD 釘頂、冇 heading（null）；其餘按地區分組 */
+            groupOf={currencyMenuGroup}
+            groupLabels={currencyRegionLabels}
+            renderOption={(item) => {
+              const name = currencyDisplayName(item, locale);
+              return (
+                <>
+                  <span className="currency-symbol"><bdi>{currencySymbol[item]}</bdi></span>
+                  <span className="currency-code">{item}</span>
+                  {name && <span className="currency-name">{name}</span>}
+                </>
+              );
+            }}
           />
         </div>
       </div>

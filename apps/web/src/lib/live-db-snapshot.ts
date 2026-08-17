@@ -12,7 +12,7 @@ import type { RowDataPacket } from "mysql2";
 import mysql from "mysql2/promise";
 import { normaliseSnapshot } from "./snapshot";
 import { formatStoryForDisplay } from "./story-display";
-import type { MarketViewSnapshot } from "./types";
+import { currencies, type MarketViewSnapshot } from "./types";
 
 const LOCALES = ["en", "zhTW", "zhCN", "ja", "ko"] as const;
 const WINDOWS = { "1d": 1, "7d": 7, "30d": 30, "90d": 90, "180d": 180, "365d": 365 } as const;
@@ -759,11 +759,10 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       },
       currencies: {
         base: "USD",
-        supported: ["USD", "HKD", "CNY", "GBP", "TWD", "JPY", "KRW"],
-        rates: {
-          USD: rate("USD"), HKD: rate("HKD"), CNY: rate("CNY"), GBP: rate("GBP"),
-          TWD: rate("TWD"), JPY: rate("JPY"), KRW: rate("KRW"),
-        },
+        /* 逐隻手寫 = 加一隻貨幣就要記得改呢度；改行 `currencies`（lib/types.ts）自動跟。
+           DB 冇嗰隻嘅 `rate()` 會出 value=null 嘅 metric，落到 normaliseSnapshot 變 NaN。 */
+        supported: [...currencies],
+        rates: Object.fromEntries(currencies.map((code) => [code, rate(code)])) as PublicMarketSnapshot["currencies"]["rates"],
         asOf: [...fx.values()].map((row) => iso(row.effective_at)).filter((value): value is string => Boolean(value)).sort().at(-1) ?? effectiveAt,
       },
       top100: cards.slice(0, 100),

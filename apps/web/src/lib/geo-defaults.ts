@@ -11,7 +11,11 @@ export const DEFAULT_CURRENCY: Currency = "USD";
 export const LANG_COOKIE = "cardz-lang";
 export const CURRENCY_COOKIE = "cardz-currency";
 
-/* 國家 → 預設。冇喺表入面（連 US / 未知）一律 en / USD。 */
+/*
+ * 國家 → 預設。冇喺表入面（連 US / 未知）一律 en / USD。
+ * 站得五個語系，所以除咗東亞六個之外全部 `lang: "en"` —— 只係幫佢揀返本地貨幣，
+ * 唔會扮有本地語言版。貨幣一定要喺 `currencies`（lib/types.ts）入面。
+ */
 const COUNTRY_DEFAULTS: Record<string, { lang: Locale; currency: Currency }> = {
   JP: { lang: "ja", currency: "JPY" },
   KR: { lang: "ko", currency: "KRW" },
@@ -20,6 +24,45 @@ const COUNTRY_DEFAULTS: Record<string, { lang: Locale; currency: Currency }> = {
   MO: { lang: "zh-TW", currency: "HKD" },
   CN: { lang: "zh-CN", currency: "CNY" },
   GB: { lang: "en", currency: "GBP" },
+  // 亞太
+  SG: { lang: "en", currency: "SGD" },
+  MY: { lang: "en", currency: "MYR" },
+  TH: { lang: "en", currency: "THB" },
+  PH: { lang: "en", currency: "PHP" },
+  ID: { lang: "en", currency: "IDR" },
+  VN: { lang: "en", currency: "VND" },
+  IN: { lang: "en", currency: "INR" },
+  AU: { lang: "en", currency: "AUD" },
+  NZ: { lang: "en", currency: "NZD" },
+  // 美洲
+  CA: { lang: "en", currency: "CAD" },
+  MX: { lang: "en", currency: "MXN" },
+  BR: { lang: "en", currency: "BRL" },
+  // 歐洲（非歐元）
+  CH: { lang: "en", currency: "CHF" },
+  SE: { lang: "en", currency: "SEK" },
+  NO: { lang: "en", currency: "NOK" },
+  DK: { lang: "en", currency: "DKK" },
+  PL: { lang: "en", currency: "PLN" },
+  CZ: { lang: "en", currency: "CZK" },
+  // 歐元區
+  DE: { lang: "en", currency: "EUR" },
+  FR: { lang: "en", currency: "EUR" },
+  IT: { lang: "en", currency: "EUR" },
+  ES: { lang: "en", currency: "EUR" },
+  NL: { lang: "en", currency: "EUR" },
+  BE: { lang: "en", currency: "EUR" },
+  AT: { lang: "en", currency: "EUR" },
+  PT: { lang: "en", currency: "EUR" },
+  IE: { lang: "en", currency: "EUR" },
+  FI: { lang: "en", currency: "EUR" },
+  GR: { lang: "en", currency: "EUR" },
+  // 中東・非洲
+  AE: { lang: "en", currency: "AED" },
+  SA: { lang: "en", currency: "SAR" },
+  IL: { lang: "en", currency: "ILS" },
+  TR: { lang: "en", currency: "TRY" },
+  ZA: { lang: "en", currency: "ZAR" },
 };
 
 export interface GeoDefaults {

@@ -2,7 +2,7 @@ import type { PublicMarketSnapshot } from "@cardz/market-data";
 import { boxBlockView, boxStory, type BoxSidecarBlock } from "./box-view";
 import { marketAssetObjectKey } from "./market-media";
 import { normaliseSnapshot } from "./snapshot";
-import type { MarketCardView, MarketMetric, MarketViewSnapshot, SealedProductView, SealedViewBlock } from "./types";
+import { currencies, type Currency, type MarketCardView, type MarketMetric, type MarketViewSnapshot, type SealedProductView, type SealedViewBlock } from "./types";
 
 const DEFAULT_SNAPSHOT_PATH = "data/public/seed-snapshot.json";
 const BOX_SIDECAR_PATH = "data/public/box-subset.json";
@@ -283,6 +283,18 @@ export function loadMarketSnapshot(): Promise<MarketViewSnapshot> {
   }
   snapshotPromise ??= readSnapshot();
   return snapshotPromise;
+}
+
+/* Header 貨幣選單只出有匯率嘅貨幣：baked snapshot 未有某隻貨幣（例如後端未跑新一日 bake）就唔好俾人揀到「暫無資料」。
+   snapshot 讀唔到就退返全部（fail-open：header 唔可以因為資料層死而消失）。 */
+export async function availableCurrencies(): Promise<Currency[]> {
+  try {
+    const { rates } = await loadMarketSnapshot();
+    const usable = currencies.filter((code) => Number.isFinite(rates[code]) && rates[code] > 0);
+    return usable.length > 0 ? usable : [...currencies];
+  } catch {
+    return [...currencies];
+  }
 }
 
 export async function loadNodeMarketAsset(asset: string): Promise<NodeMarketAsset | null> {

@@ -76,7 +76,8 @@ export function middleware(request: NextRequest) {
 
   /*
    * GEO 預設（owner 2026-08-16）：URL 冇 lang / currency 嗰陣，cookie 有就跟 cookie，
-   * 冇就跟 IP 國家（JP→ja/JPY、KR→ko/KRW、TW→zh-TW/TWD、HK/MO→zh-TW/HKD、CN→zh-CN/CNY、GB→en/GBP），
+   * 冇就跟 IP 國家 —— 對照表係 `lib/geo-defaults.ts` 嘅 `COUNTRY_DEFAULTS`（東亞六個連語言一齊轉，
+   * 其餘只轉貨幣、語言留 en；表入面冇嘅國家一律 en / USD）。呢度唔再抄一次，抄咗就會同表脫節。
    * resolve 出嚟唔係 en / USD 就 302 去同一條 path 加 param（其他 param 保留）。
    * redirect 後 URL 一定帶住 param，所以第二次唔會再 match，唔會迴圈。
    *

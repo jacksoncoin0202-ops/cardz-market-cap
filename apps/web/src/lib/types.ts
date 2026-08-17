@@ -1,5 +1,19 @@
 export const locales = ["en", "zh-TW", "zh-CN", "ja", "ko"] as const;
-export const currencies = ["USD", "HKD", "CNY", "GBP", "TWD", "JPY", "KRW"] as const;
+/*
+ * 貨幣正典次序（canonical order）：USD 一定係 index 0（base，所有價由 USD 換算）。
+ * 同一份清單同一個次序活喺三個地方，改就要三個一齊改：
+ *   1. 呢度（FE 選單 + `Currency` type）
+ *   2. `packages/market-data/src/schema.ts` `CURRENCIES`（canonical snapshot 契約）
+ *   3. `pipelines/fx_rates.py` `SUPPORTED_CURRENCIES`（FX 採集 + snapshot 驗證）
+ * 三邊唔同步 = baked snapshot 缺匯率；FE 側靠 `availableCurrencies()`（server-snapshot.ts）
+ * 過濾，缺嗰隻唔會俾人揀到，唔會出「暫無資料」。
+ */
+export const currencies = [
+  "USD", "HKD", "TWD", "JPY", "KRW", "CNY", "SGD", "MYR", "THB", "PHP",
+  "IDR", "VND", "INR", "AUD", "NZD", "EUR", "GBP", "CHF", "SEK", "NOK",
+  "DKK", "PLN", "CZK", "CAD", "MXN", "BRL", "AED", "SAR", "ILS", "TRY",
+  "ZAR",
+] as const;
 export const marketWindows = ["1d", "7d", "30d", "90d", "180d", "365d"] as const;
 export const producerWindows = ["1d", "7d", "30d"] as const;
 export const marketWindowDays = {
