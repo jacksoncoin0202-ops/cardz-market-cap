@@ -31,18 +31,30 @@ const publicBuildId = /^[A-Za-z0-9._-]{1,64}$/.test(requestedBuildId)
   ? requestedBuildId
   : "invalid-build-id";
 
+/*
+ * Cloudflare Web Analytics 由 CF 邊緣自動注入 `<script src="https://static.cloudflareinsights.com/beacon.min.js/…">`，
+ * 個 beacon 再 POST 去 `https://cloudflareinsights.com/cdn-cgi/rum`。呢兩個 host 唔喺 CSP
+ * 白名單 = 生產 console 每次載入都紅一條 `violates the following Content Security Policy
+ * directive: "script-src 'self' 'unsafe-inline'"`，而且 analytics 完全冇數。
+ *
+ * 兩個 host **唔同**（`static.` 派 script、裸 domain 收 beacon），所以要分別落
+ * script-src 同 connect-src，唔可以只寫一個。
+ */
+const CF_INSIGHTS_SCRIPT_SRC = "https://static.cloudflareinsights.com";
+const CF_INSIGHTS_CONNECT_SRC = "https://cloudflareinsights.com";
+
 const contentSecurityPolicy = [
   "default-src 'self'",
   "base-uri 'self'",
   "form-action 'self'",
   "frame-ancestors 'none'",
   "object-src 'none'",
-  `script-src 'self' 'unsafe-inline'${isDevelopment ? " 'unsafe-eval'" : ""}`,
+  `script-src 'self' 'unsafe-inline' ${CF_INSIGHTS_SCRIPT_SRC}${isDevelopment ? " 'unsafe-eval'" : ""}`,
   "script-src-attr 'none'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
-  `connect-src 'self'${isDevelopment ? " ws: wss:" : ""}`,
+  `connect-src 'self' ${CF_INSIGHTS_CONNECT_SRC}${isDevelopment ? " ws: wss:" : ""}`,
   "worker-src 'self' blob:",
   "media-src 'self'",
   "manifest-src 'self'",
