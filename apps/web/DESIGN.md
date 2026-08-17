@@ -413,9 +413,18 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
    chip 擺返同一段（順手多一條內鏈落卡頁）。**ranking row 唔掂**（100 行 × box-shadow）、
    **heatmap tile 唔掂**（另一 session 揸住，而且要 `data-rank` hook）。
 6. `--step--1` 而家有一個 call site（`.mover-chip`），§1.3 尾嗰句「零 call site」要跟住更新。
-7. ESLint 喺呢棵 tree **行唔到**（`apps/web/package.json` 冇 lint script，`node_modules` 冇
-   `eslint`，`npx` 會去拉一個唔同 major 嘅版本再 `ERR_MODULE_NOT_FOUND`）。WS2 只跑咗
+7. ~~ESLint 喺呢棵 tree **行唔到**（`apps/web/package.json` 冇 lint script，`node_modules` 冇
+   `eslint`，`npx` 會去拉一個唔同 major 嘅版本再 `ERR_MODULE_NOT_FOUND`）。~~ WS2 只跑咗
    `npx tsc --noEmit -p apps/web`（**0 error**）。
+   **已修 729af269 + fix-tooling（2026-08-17）**：裝返 `eslint@9` + `eslint-config-next@16`，
+   入口 `npm run lint`；基線 **10 error / 9 warning**（全部 pre-existing src，未修）。
+   call site 係 `scripts/test-eslint-ratchet.mjs` —— `scripts/run_all_tests.py` 會自動 glob
+   `scripts/test-*.mjs`，所以 `npm test` 一跑就跑到，多過基線／少過基線都紅。
+   代價（明寫，唔係漏咗）：lockfile 由 78 個 `packages{}` 升到 **423** 個，全部 `dev:true`；
+   `apps/web/Dockerfile:17` 係裸 `npm ci`（唔可以加 `--omit=dev`，`next build` 要 typescript
+   同 `@types/*`），所以 Docker deps layer 大咗；runner stage 只 copy `.next/standalone`，
+   **runtime image 唔受影響**。個 `@babel/*` subtree 係 `eslint-plugin-react-hooks@6` 拉入嚟，
+   唔係 `eslint-config-next` 自己，所以「改用兩個 plugin」都省唔到（除非放棄 rules-of-hooks）。
 
 **WS4 量到嘅實數**（`temp/fe05/ws4/`，dev server :3901）：
 
@@ -470,7 +479,7 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
 - **空狀態截圖** 390 / 1280 × light / dark 四張，`themeAttr` 對、icon 數 **1**、文字齊
   （`empty-390|1280-{light,dark}.png` + `empty-close-*.png` 近拍）。
 - 五頁（`/`、`/box`、`/card/[id]`、`/?q=<冇結果>`、`/pokemon`）console error / warning / pageerror **0**。
-- `npx tsc --noEmit -p apps/web` **0 error**（ESLint 同 WS2 一樣行唔到，見 WS2 欠單 ⑦）。
+- `npx tsc --noEmit -p apps/web` **0 error**（當時 ESLint 同 WS2 一樣行唔到；已修 729af269 + fix-tooling，見 WS2 欠單 ⑦）。
 
 **WS4 嘅決定同欠單：**
 
@@ -533,7 +542,7 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
 - **`.primary-action` press**：idle `boxShadow: none` / `transform: none`；撳住
   `scale(0.98)` + `--elev-1`，`transition-duration: 0.12s`（鬆手行返上面 0.22s spring）。
 - 五個 context（卡頁 ×4、hub、`/`、404 頁）console error / pageerror **0**。
-- `npx tsc --noEmit -p apps/web` **0 error**（ESLint 同 WS2 一樣行唔到，見 WS2 欠單 ⑦）。
+- `npx tsc --noEmit -p apps/web` **0 error**（當時 ESLint 同 WS2 一樣行唔到；已修 729af269 + fix-tooling，見 WS2 欠單 ⑦）。
 
 **WS3 嘅決定同欠單：**
 

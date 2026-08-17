@@ -39,6 +39,13 @@ const publicBuildId = /^[A-Za-z0-9._-]{1,64}$/.test(requestedBuildId)
  *
  * 兩個 host **唔同**（`static.` 派 script、裸 domain 收 beacon），所以要分別落
  * script-src 同 connect-src，唔可以只寫一個。
+ *
+ * ⚠ 呢個改動嘅範圍係「**CSP 唔再擋**」，唔等於「analytics 有返數」。CSP 頭本身
+ * 淨係證到瀏覽器容許呢兩個 origin；beacon 有冇真係被 CF 邊緣注入、Web Analytics
+ * token 有冇設好、`/cdn-cgi/rum` 收唔收得到 payload，喺呢棵 tree 同 dev server
+ * （前面冇 CF）都驗唔到。出街後先驗：
+ *   curl -s https://app.cardzmarketcap.com/ | grep -o 'static.cloudflareinsights.com[^"]*'
+ * 拎到 beacon URL、加上 CF dashboard 15 分鐘內 pageview > 0，先可以講 analytics 修好。
  */
 const CF_INSIGHTS_SCRIPT_SRC = "https://static.cloudflareinsights.com";
 const CF_INSIGHTS_CONNECT_SRC = "https://cloudflareinsights.com";
