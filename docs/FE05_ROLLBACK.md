@@ -63,6 +63,31 @@ pwsh -NoProfile -File scripts\fe05_rollback.ps1 -DryRun
 8. **驗 live** — 每 40 秒抓一次 `/api/health`（browser UA），最多 12 分鐘，等到 `presentation == FE04`。
    等唔到 → exit 2，同時話你知 rollback commit 已經喺 `main` 上面，要去睇 webhook / docker log。
 
+#### 等唔到嗰陣：先分「webhook 冇 fire」定「build 炸咗」（2026-08-17 加）
+
+兩者外觀一模一樣（commit 喺 `main`、live 照舊），但處理完全唔同。**唔好靠估**，
+GitHub 側嘅 delivery 記錄一 query 就分到（`repo` scope 已經夠，唔使 `admin:repo_hook`）：
+
+```bash
+gh api "repos/jacksoncoin0202-ops/cardz-market-cap/hooks/658470027/deliveries?per_page=8" --jq '.[] | "\(.delivered_at)  \(.status) \(.status_code)"'
+```
+
+同 `git reflog show --date=iso-strict-local origin/main` 逐粒對時間（正常係 push 之後 **2 秒內**
+就有一次 delivery，1:1）。
+
+| 見到 | 即係 | 做咩 |
+|---|---|---|
+| 有 delivery、`200` | webhook 收到咗，AWS 側 `git pull` / `next build` 有問題 | 去睇 docker build log（要 AWS 存取） |
+| 有 delivery、非 `2xx` | 接收端死咗 | 睇 `spwebhook.funtoken.me`，IT 側 |
+| **完全冇 delivery** | GitHub 根本冇派 —— 唔關 code 事，本機點驗都冇用 | 唔好改 code 去「修」佢。等下一粒 `[deploy]` push 帶起（會連埋之前積落嗰啲），仲係冇就升 IT |
+
+`cf-cache-status` 順便睇埋：`DYNAMIC` = origin 真係出緊舊嘢（唔係 Cloudflare 快取），
+`HIT` 先至係快取問題。
+
+> 實例：`895f9f76`（`fe05(cjk)`）2026-08-17 `14:28:28Z` push 咗上 `main`，subject 有 `[deploy]`，
+> 但 hook `658470027` 由 `13:16:23Z` 之後零 delivery（前 5 粒 push 全部對得返，2 秒內）。
+> hook 本身 `active: true`、`last_response 200`。即係 GitHub 側冇派，唔係 build 炸。
+
 ### Flags
 
 | Flag | 做咩 |

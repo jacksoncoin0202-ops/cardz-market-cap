@@ -23,9 +23,23 @@ const SHARE_TEXT = {
   intensity: "Deeper shade = bigger move",
 } as const;
 
-/* 一條 stack 行晒五個語言（圖入面得英文字，唔使再分 locale）。
-   系統字為主：分享圖係 click 之後即刻畫，唔等得 web font 落 network。 */
-const SHARE_FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, system-ui, sans-serif';
+/* SSR / 攞唔到 computed style 先用呢條（一條 stack 行晒五個語言 —— 圖入面得英文字）。 */
+const SHARE_FONT_FALLBACK = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, system-ui, sans-serif';
+
+/*
+ * 分享 PNG 要同網頁同一隻字（fe05(og-share)，2026-08-17）。
+ * ⚠️ **唔可以硬寫 "Inter"**：`next/font/local` 出嘅 family 係 build-time hash（`__Inter_e8ce0c`
+ * 之類），canvas `ctx.font` 認唔到就靜靜跌返系統字 —— 冇 error、冇 warning、圖照出，
+ * 只係字唔同咗。讀返 `document.body` 個 computed `font-family` 就一定同網頁見到嗰隻一樣，
+ * 連 `:lang()` 排序都一併跟到。
+ * ⚠️ 一定要喺 `await document.fonts.ready` **之後**先 call：未 load 完嘅話量出嚟嘅闊度係
+ * fallback 字嘅闊度，截字位同 legend 排位會全部錯。
+ */
+function shareFont(): string {
+  if (typeof document === "undefined" || !document.body) return SHARE_FONT_FALLBACK;
+  const family = getComputedStyle(document.body).fontFamily;
+  return family.trim() ? family : SHARE_FONT_FALLBACK;
+}
 
 /* bg/text/sub 沿用舊 export 嘅值；accent 抄 globals.css 嘅 `--accent`
    （:root #b85416 / [data-theme="dark"] #e8823f）—— canvas 讀唔到 CSS var，改 token 記住改埋呢度。
@@ -193,16 +207,19 @@ export async function renderHeatmapShare(opts: HeatmapShareOptions): Promise<HTM
   const canvasW = boardW + pad * 2;
   const contentW = canvasW - pad * 2;
 
-  /* 字級（CSS px × scale） */
+  /* 字體可能仲喺度 load：唔等就會量錯闊度（截字位、legend 排位全部跟住錯）。
+     ⚠️ 呢句一定要行喺下面 `shareFont()` 之前 —— 未 load 完嘅話 computed family 一樣係
+     `__Inter_x`，但 canvas 量到嘅係 fallback 字嘅闊度。 */
+  if (typeof document !== "undefined" && document.fonts?.ready) {
+    try { await document.fonts.ready; } catch { /* 唔支援就照畫 */ }
+  }
+
+  /* 字級（CSS px × scale）。SHARE_FONT 係 body 個 computed family，同網頁一模一樣。 */
+  const SHARE_FONT = shareFont();
   const titleFont = (narrow: boolean) => `700 ${Math.round((narrow ? 20 : 26) * scale)}px ${SHARE_FONT}`;
   const stampFont = `500 ${Math.round(12 * scale)}px ${SHARE_FONT}`;
   const legendFont = `600 ${Math.round(12 * scale)}px ${SHARE_FONT}`;
   const noteFont = `500 ${Math.round(11 * scale)}px ${SHARE_FONT}`;
-
-  /* 字體可能仲喺度 load：唔等就會量錯闊度（截字位、legend 排位全部跟住錯）。 */
-  if (typeof document !== "undefined" && document.fonts?.ready) {
-    try { await document.fonts.ready; } catch { /* 唔支援就照畫 */ }
-  }
 
   const measureCanvas = document.createElement("canvas");
   const measure = measureCanvas.getContext("2d");

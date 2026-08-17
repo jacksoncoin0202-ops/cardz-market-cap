@@ -38,6 +38,44 @@ const ART_MAX_HEIGHT = 522;
  * 就算真係漏咗，下面 try/catch 會退返純文字版，唔會出 500；響應帶
  * `x-og-art: 0`，deploy 之後 `curl -sI` 一句就驗到卡圖路徑係咪真係生勾勾。
  */
+/*
+ * OG 字體（fe05(og-share)，2026-08-17）：唔餵 `fonts` 嘅話 satori 用返 next/og 自己
+ * bundle 嗰隻（`node_modules/next/dist/compiled/@vercel/og/Geist-Regular.ttf`）——
+ * 即係網頁行 Inter、分享圖行 Geist，字形／字寬／weight ramp 三樣都對唔上。
+ *
+ * satori **唔食 woff2 亦唔食 variable font**（要 static TTF/OTF/WOFF），所以唔可以直接
+ * 用 `src/fonts/InterVariable-latin.woff2` 嗰份，要另外放三隻 static instance。
+ *   來源：Google Fonts CSS API v2（legacy UA 會回 truetype），Inter v20，2026-08-17 取
+ *     Inter-Regular.ttf   w400  324,820 bytes  sha256 1b08e7fc267a5c7e1d614100f604b83e7e8a0be241f0f288faa2b3ac93a683ba
+ *     Inter-SemiBold.ttf  w600  326,048 bytes  sha256 e7a1aaf7eda9f2fad4131725fa556265ec75ca7b2d756260173a040363e8d4f7
+ *     Inter-Bold.ttf      w700  326,468 bytes  sha256 b37284b5701b6b168dfc770aa1a4ac492106422fd3ba76bc7641e37434e8019c
+ *   授權 SIL OFL 1.1，全文喺同一個資料夾嘅 OFL.txt（binary 派發必須同行）。
+ *   只 register 400 / 600 / 700 三個數 —— layout 唔准用其他 weight，satori 唔會合成。
+ *
+ * 兩路 `existsSync` 同 logo 嗰段一樣：dev 由 repo root 行，standalone build `process.cwd()`
+ * 已經係 `apps/web`。載入失敗**唔准**炸 —— 退返 `undefined`（即係 satori 用返 bundled font），
+ * 同卡圖一樣 fail-open：OG 端點死咗等於社交分享冇圖，比字形唔啱仲差。
+ */
+let ogFontsPromise: Promise<{ name: string; data: Buffer; weight: 400 | 600 | 700; style: "normal" }[] | undefined> | null = null;
+function loadOgFonts() {
+  ogFontsPromise ??= (async () => {
+    const { existsSync } = await import("node:fs");
+    const files: [string, 400 | 600 | 700][] = [["Inter-Regular.ttf", 400], ["Inter-SemiBold.ttf", 600], ["Inter-Bold.ttf", 700]];
+    try {
+      const loaded = await Promise.all(files.map(async ([file, weight]) => {
+        const path = [resolve(process.cwd(), "public/fonts/og", file), resolve(process.cwd(), "apps/web/public/fonts/og", file)].find((p) => existsSync(p));
+        if (!path) throw new Error(`missing ${file}`);
+        return { name: "Inter", data: await readFile(path), weight, style: "normal" as const };
+      }));
+      return loaded;
+    } catch (error) {
+      console.warn(`[og/card] OG font load failed, satori 退返 bundled font: ${error instanceof Error ? error.message : "unknown"}`);
+      return undefined;
+    }
+  })();
+  return ogFontsPromise;
+}
+
 let artFailureLogged = false;
 function noteArtFailure(id: string, error: unknown): void {
   /* 只嗌一次：OG 係爬蟲面，壞一張通常等於壞成批，逐張 log 會浸死 log。 */
@@ -123,8 +161,10 @@ function clampSetName(name: string): string {
 function Stat({ label, value, valueSize = 52 }: { label: string; value: string; valueSize?: number }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <span style={{ fontSize: 22, color: MUTED, letterSpacing: 1.6 }}>{label}</span>
-      <span style={{ fontSize: valueSize, color: INK, fontWeight: 700 }}>{value}</span>
+      {/* 對齊網頁 §1.3.2 角色：label = --w-label 600（唔係 400），data = --w-data 600（唔係 700）。
+          Inter 600 比 bundled font 700 幼但字身闊少少，tracking 由 1.6 → 1.8 補返個呼吸位。 */}
+      <span style={{ fontSize: 22, color: MUTED, letterSpacing: 1.8, fontWeight: 600 }}>{label}</span>
+      <span style={{ fontSize: valueSize, color: INK, fontWeight: 600 }}>{value}</span>
     </div>
   );
 }
@@ -145,11 +185,14 @@ function TextOnlyLayout({ card, logoSrc }: { card: MarketCardView; logoSrc: stri
       }}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-        <span style={{ fontSize: 24, color: ACCENT, letterSpacing: 4 }}>
+        {/* kicker = --w-label 600 + --track-kicker 級數；Inter 600 大寫比舊 bundled font 400 闊，
+            4 → 3.4 先返返舊闊度（最長 kicker「POKEMON · #SV4A-205」唔可以谷長咗撞落標題）。 */}
+        <span style={{ fontSize: 24, color: ACCENT, letterSpacing: 3.4, fontWeight: 600 }}>
           {card.tcg.toUpperCase()} · #{card.collectorNumber}
         </span>
         <span style={{ fontSize: textOnlyTitleSize(name), color: INK, fontWeight: 700, lineHeight: 1.1 }}>{name}</span>
-        <span style={{ fontSize: 30, color: MUTED, lineHeight: 1.3 }}>{clampSetName(card.setName.en)}</span>
+        {/* set 名明寫 400：唔好靠 satori 嘅默認 —— 我哋只 register 400/600/700，唔明寫就靠彩數 */}
+        <span style={{ fontSize: 30, color: MUTED, lineHeight: 1.3, fontWeight: 400 }}>{clampSetName(card.setName.en)}</span>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 26 }}>
         <div style={{ display: "flex", gap: 72, borderTop: `2px solid ${LINE}`, paddingTop: 30 }}>
@@ -202,7 +245,8 @@ function ArtLayout({ card, art, logoSrc }: { card: MarketCardView; art: CardArt;
                   background: ACCENT,
                   color: PAPER,
                   fontSize: 24,
-                  fontWeight: 700,
+                  /* chip = 網頁 `.detail-rank` 嗰個角色，C2 已經由 650 收做 600 */
+                  fontWeight: 600,
                   borderRadius: 999,
                   padding: "6px 18px",
                 }}
@@ -210,12 +254,12 @@ function ArtLayout({ card, art, logoSrc }: { card: MarketCardView; art: CardArt;
                 #{card.marketRank}
               </span>
             ) : null}
-            <span style={{ fontSize: 22, color: MUTED, letterSpacing: 3 }}>
+            <span style={{ fontSize: 22, color: MUTED, letterSpacing: 3, fontWeight: 600 }}>
               {card.tcg.toUpperCase()} · #{card.collectorNumber}
             </span>
           </div>
           <span style={{ fontSize: titleSize(name), color: INK, fontWeight: 700, lineHeight: 1.12 }}>{name}</span>
-          <span style={{ fontSize: 24, color: MUTED, lineHeight: 1.3 }}>{clampSetName(card.setName.en)}</span>
+          <span style={{ fontSize: 24, color: MUTED, lineHeight: 1.3, fontWeight: 400 }}>{clampSetName(card.setName.en)}</span>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 18, borderTop: `2px solid ${LINE}`, paddingTop: 22 }}>
@@ -267,10 +311,14 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     art = null;
   }
 
+  const fonts = await loadOgFonts();
+
   return new ImageResponse(
     art ? <ArtLayout card={card} art={art} logoSrc={logoSrc} /> : <TextOnlyLayout card={card} logoSrc={logoSrc} />,
     {
       ...size,
+      /* undefined = 載唔到字體（上面已經 warn 咗），交返俾 satori 用 bundled font，唔好因為字體炸咗張圖 */
+      ...(fonts ? { fonts } : {}),
       /*
        * 卡圖本身係 content-addressed（immutable），但張 OG 仲印住市值／PSA10 價／
        * pop，呢啲跟 snapshot 每日郁，所以唔可以行 market-media.ts 嗰條一年

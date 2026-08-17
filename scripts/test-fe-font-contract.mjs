@@ -10,6 +10,8 @@
  *  ④ layout.tsx 個 inter.variable 必須落 <html>，唔係 <body>：--font-sans 住喺 :root，
  *     --font-inter 淨係喺 body 定義嘅話 :root 度 var() 解唔到 → 整條 --font-sans invalid → 全站跌 serif
  *  ⑤ 兩處 binary（src/fonts、public/fonts/og）各自傍住一份 OFL.txt（OFL 1.1 派發義務）；woff2 sha256 對得返 index.ts 寫嗰個
+ *  ⑥ OG（satori）三個 static TTF 齊、sha256 對得返 route.tsx 檔頭、係真 sfnt，而且 OG layout 冇用過
+ *     400/600/700 以外嘅 fontWeight（satori 唔合成字重，跳出去就靜靜跌返最近嗰個 face）
  */
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -149,13 +151,32 @@ if (existsSync(woff2)) {
   const size = statSync(woff2).size;
   check("woff2 ≤ 60 kB (DESIGN.md §4.1 預算)", size <= 60 * 1024, `${size} bytes`);
 }
+/* ⑥ OG（satori）字體。**唔准寫成 `if (existsSync(ogDir))`** —— 咁樣人哋一 `rm -rf` 個 folder，
+   成段 check 就靜靜消失，route 跌返 satori 內置 Geist，PNG 同網頁字體again 唔同而 CI 全綠。
+   所以由 route.tsx **有冇 reference `public/fonts/og`** 反推：有 reference = 檔案必須齊。 */
+const OG_ROUTE = "apps/web/src/app/api/og/card/[id]/route.tsx";
+const ogRoute = read(OG_ROUTE);
 const ogDir = join(ROOT, "apps/web/public/fonts/og");
-if (existsSync(ogDir)) {
+if (ogRoute.includes("public/fonts/og")) {
   check("public/fonts/og/OFL.txt present (OG TTF 都要傍住 license)", existsSync(join(ogDir, "OFL.txt")));
+  // 三個檔要齊，而且 sha256 對得返 route.tsx 檔頭抄低嗰個（satori 唔食 woff2／variable，只可以 static TTF）
+  for (const [file, weight] of [["Inter-Regular.ttf", 400], ["Inter-SemiBold.ttf", 600], ["Inter-Bold.ttf", 700]]) {
+    const path = join(ogDir, file);
+    check(`public/fonts/og/${file} present`, existsSync(path));
+    if (!existsSync(path)) continue;
+    const sha = createHash("sha256").update(readFileSync(path)).digest("hex");
+    const declared = (ogRoute.match(new RegExp(`${file}\\s+w${weight}\\s+[\\d,]+ bytes\\s+sha256\\s+([0-9a-f]{64})`)) || [])[1];
+    check(`${file} sha256 對得返 route.tsx 檔頭`, declared === sha, `file=${sha} declared=${declared}`);
+    check(`${file} 係真 TTF（sfnt 00010000）`, readFileSync(path).readUInt32BE(0) === 0x00010000);
+  }
+  // satori 唔會合成字重：register 咗 400/600/700，layout 就一個 weight 都唔准跳出呢三個數
+  const OG_WEIGHTS = new Set(["400", "600", "700"]);
+  const badWeights = [...ogRoute.matchAll(/fontWeight:\s*(\d+)/g)].map((m) => m[1]).filter((w) => !OG_WEIGHTS.has(w));
+  check("OG layout 只用 register 咗嘅 400/600/700", badWeights.length === 0, `見到 ${[...new Set(badWeights)].join(",")}`);
 }
 
 if (failed.length) {
   console.error("FAIL FE05 font contract:\n" + failed.map((item) => ` - ${item}`).join("\n"));
   process.exit(1);
 }
-console.log(`PASS FE05 font contract (next/font single source, no external font host, --f-latin = Inter, ${fontSansDecls.length} --font-sans decls lead with --f-latin, 4 [lang]:lang() stacks re-declare font-family, variable on <html>, OFL + sha256)`);
+console.log(`PASS FE05 font contract (next/font single source, no external font host, --f-latin = Inter, ${fontSansDecls.length} --font-sans decls lead with --f-latin, 4 [lang]:lang() stacks re-declare font-family, variable on <html>, OFL + sha256, OG 3 TTF sha256 + weight ⊆ {400,600,700})`);
