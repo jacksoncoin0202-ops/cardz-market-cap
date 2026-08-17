@@ -1977,6 +1977,11 @@ html.theme-transitions .card-dialog {
   border-radius: var(--section-radius);
   background: var(--detail-art-bg);
 }
+/* `<img width height>`（FE05 fix-state，防 CLS）係 presentational hint，兩軸各自俾 max-* clamp，
+   所以個 element box 會撐到容器咁大（390 闊 +149px）而唔係 contain 大細——**故意唔加 `height: auto`**：
+   實測（temp/fe05/final/mech_auto.json）一加返 auto，未 load 個盒又變返冇比例，CLS 由 0 彈返
+   0.026@390 / 0.058@768 / 0.032@1280。畫出嚟嘅圖（object-fit: contain）同 mask 幾何一樣，
+   螢幕截圖 byte-identical，所以個盒大咗係接受咗嘅代價。 */
 .detail-art img { max-width: 100%; max-height: 100%; padding: 26px; object-fit: contain; }
 .detail-rank {
   position: absolute;

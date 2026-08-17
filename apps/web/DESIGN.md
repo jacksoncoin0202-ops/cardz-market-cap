@@ -695,6 +695,12 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
     冇 attr 嗰張（下面第 21 點個 fail-closed 閘剛好剝走咗佢）1280 **386.609×519.984** /
     390 **209.313×279.984** —— 即係 +10.844px / +148.687px，同 review 量到嘅一模一樣。
     正解仍然係 CSS `.detail-art img { height: auto }`，**唔喺 WS-state 權限範圍**（欠單未還）。
+    **（2026-08-17 結案：`height: auto` 唔係正解，已試過、已量到、已收返。）**
+    `temp/fe05/final/mech_auto.json`：加 `width:auto; height:auto` 之後未 load 個盒又變返冇比例，
+    route 延遲 3s 之下 CLS 由 **0** 彈返 **0.026@390 / 0.058@768 / 0.032@1280**（shift 來源 IMG 本身）——
+    即係同冇 attr 之前一模一樣。所以個 element box 撐滿容器係**接受咗嘅代價**（paint 同 mask 幾何
+    唔變、截圖 byte-identical），globals.css `.detail-art img` 嗰行上面已寫明「故意唔加 height:auto」。
+    欠單 20 由「未還」改做「唔還——決定咁樣」。
 21. **7 張卡 bake 落嘅 base 尺寸同真正出街嗰個 variant 唔同（bake 側資料欠單）。**
     **（fix-state 補）** FE 側加咗 fail-closed 閘：`intrinsicSize(w, h, kind)` 見到
     `kind === "raw_front"` 而比例同 variant 畫布（`429/600`，`pipelines/build_asset_derivatives.py:13-15`）
