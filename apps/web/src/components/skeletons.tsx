@@ -20,7 +20,7 @@ export function MarketHeroSkeleton() {
   return (
     <div className="heatmap-section skeleton-heatmap">
       <div className="skeleton-hero">
-        <div className="skeleton-block skeleton-kicker" />
+        {/* 真 heading 而家只有一行 H1 + 一行總市值（fix-heatmap-title），kicker / 描述句已冇 */}
         <div className="skeleton-block skeleton-title" />
         <div className="skeleton-block skeleton-copy" />
       </div>

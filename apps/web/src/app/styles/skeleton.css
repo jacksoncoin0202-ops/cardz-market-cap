@@ -12,9 +12,9 @@
    swap 嗰下唔會跳版 */
 .skeleton-heatmap { gap: 14px; }
 .skeleton-hero { width: min(100%, 940px); padding: 0; display: grid; gap: 14px; }
-.skeleton-kicker { width: 140px; height: 12px; }
-.skeleton-title { width: min(100%, 620px); height: clamp(42px, 6vw, 72px); border-radius: 16px; }
-.skeleton-copy { width: min(100%, 540px); height: 16px; }
+/* title = 真 H1 盒（字級 4.6vw × 1.06 + 0.32em padding）；copy = 總市值一行 13px。1280 量到真 heading 108px */
+.skeleton-title { width: min(100%, 620px); height: clamp(28px, 5.5vw, 92px); border-radius: 16px; }
+.skeleton-copy { width: min(100%, 220px); height: 13px; }
 .skeleton-canvas { min-height: 0; border-radius: var(--section-radius); }
 .skeleton-strip { height: 44px; margin: 0; border-radius: var(--control-radius); }
 .skeleton-rows { display: grid; gap: 2px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--section-radius); background: var(--surface-translucent); }

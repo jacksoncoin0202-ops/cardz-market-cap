@@ -851,13 +851,15 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
   return (
     <section className="heatmap-section" aria-labelledby="heatmap-heading">
       <div className="heatmap-heading">
-        <div>
+        <div className="heatmap-title">
           {/* 呢個係市場頁唯一嘅 H1（owner 2026-08-16 晚：「一入到去就係成個熱力圖」——
-              hero 文案搬咗落頁尾做 h2，首屏只留呢個標題 + 總市值一行）。 */}
+              hero 文案搬咗落頁尾做 h2，首屏只留呢個標題 + 總市值一行）。
+              owner 2026-08-17：「文字遷就返個熱力圖」—— 標題永遠一行（CSS nowrap + 跟容器闊度縮字級），
+              heading 唔再擺 heatmap.body 描述句（換語言唔會再偷 heatmap 高度；
+              描述句保留喺下面 legend 嘅 aria-label 同 share image）。 */}
           <h1 id="heatmap-heading">{title.replace("{count}", String(cards.length))}</h1>
           {/* 總市值用 CapTicker：載入 / 期間切換 / 拉 slider 都係由上一個顯示值滾去新值，唔會跳字 */}
           <p className="heatmap-total-cap">{t.labels.marketCap} · <CapTicker value={totalCap} format={formatTotalCap} /></p>
-          <p>{t.heatmap.body}</p>
         </div>
         {controls}
       </div>
@@ -930,7 +932,8 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
           <li><span className="legend-swatch up" />{t.heatmap.positive}</li>
           <li className="legend-count">{visibleCount} / {cards.length} {t.heatmap.count}</li>
         </ul>
-        <p className="methodology-note">{t.methodology.body}</p>
+        {/* methodology 全文喺 site footer（header.tsx）同 share image 都有；heatmap footer 唔再重複
+            —— 佢每語言 3–5 行唔同高度，會偷 heatmap 高度（owner 2026-08-17：文字遷就熱力圖）。 */}
         <a className="ranking-jump" href="#market-ranking">{t.heatmap.viewRanking.replace("{count}", String(visibleCount))}</a>
       </div>
       <CardDialog card={sheetCard} locale={locale} currency={currency} snapshot={snapshot} href={href} onClose={closeSheet} period={activePeriod} returnFocusRef={lastTriggerRef} />

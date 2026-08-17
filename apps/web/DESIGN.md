@@ -383,6 +383,7 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
 | **WS3** | Motion 系統：共用 IntersectionObserver reveal（`reveal.tsx` + `styles/reveal.css`）、history chart 線條 draw-in / bar scaleY / 點淡入（`styles/history-chart.css`）、count-up 擴到 PSA 10 價 + 鑑定數量 + hub stat、桌面 dialog spring overshoot、`.primary-action` press 陰影、排序方向掣 180° 翻轉 | ✅ 已落 |
 | **WS4** | Loading / empty / status：共用 `skeletons.tsx`（`MarketHeroSkeleton` / `RankingRowsSkeleton`）+ `styles/skeleton.css`、`empty-state.tsx` + `styles/empty-state.css`（4 個 call site）、`aria-busy` 落 `#market-ranking` / `#box-ranking`。**`/card/[id]` 冇骨架**：`app/card/loading.tsx` 同 route 內 `<Suspense>` 兩條路都試過、兩條都要唔起（見下面 WS4 實數第 2 點） | ✅ 已落（1 條 plan gate 未過，見欠單 ⑤） |
 | **fix-visual** | header 兩個 select menu 轉實色底、`--step-0`/`--step-1` 收編（answer 角色統一）、live 綠點有上限脈衝、手機一次性 holo 掃光 | ✅ 已落（2026-08-17） |
+| **fix-heatmap-title** | heatmap H1 永遠一行（`white-space: nowrap` + 字級 = `min(4.6vw, 100cqi/9.5)`，`.heatmap-title` 係 inline-size container）；heading 拆走描述句、footer 拆走 methodology-note；五語言標題縮到 ≤ 9em（`test-fe-heatmap-title-width.mjs` 守住） | ✅ 已落（2026-08-17） |
 | WS5 | OG 圖 v2（卡圖入圖，satori 讀唔到 WebP → 要解碼），fail-open 退返純文字版 | TODO |
 | WS6 | HyperFrames 每日市場 recap 片（`apps/web` 以外，獨立 folder） | TODO（可選） |
 
@@ -900,6 +901,29 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
    WS2 桌面 sheen 同一對 token（唔准為咗手機另開一對）；覺得唔夠明顯就係改 token，
    兩邊一齊變。
 4. dev server（未 minify）量到嘅 longtask 唔算數（WS1 欠單 ④ 同一條），呢次冇量 longtask。
+
+**fix-heatmap-title 嘅決定**（owner 2026-08-17：「無論手機版定電腦版，我都想熱力圖儘量唔好遷就啲文字，
+係文字遷就返個熱力圖……就咁 top 100 市值咪算囉」）：
+
+1. **根因係 `.heatmap-section` grid 個 heading 行係 `auto`**：H1 換行幾多行、描述句幾多行、
+   footer methodology 幾多行（zh 3 / ja ko 4 / en 5 行）全部直接由 `.heatmap-frame` 度扣。
+   改前（`temp/fe05/heatmap-title/before.json`）1280px 個 frame：zh 372 / en 341 / ja 294；
+   1024px：zh 327 / en 296 / ja 212。改後（`after.json`）五語言 1024 → 505–507、1280 → 513–515、
+   1415 → 598–600、1920 → 774–775（±2px 係 ja/ko controls 闊 9–14px 令標題容器窄咗少少）；
+   390 / 768 唔變（本來已經一行）。
+2. **字級由容器決定、唔由語言決定**：`.heatmap-title { container-type: inline-size; flex: 1 1 0 }`，
+   H1 `font-size: clamp(16px, min(4.6vw, calc(100cqi / 9.5)), 68px)`。五語言最長標題
+   （ja「ワンピース TOP 100」）實測 ≈ 9.03em，9.5 留 5% 字體差（review 量到 981px 時 ja 只剩 2.8px slack）。
+   因為公式唔認得文字，改 i18n heatmap 標題**一定要**過
+   `scripts/test-fe-heatmap-title-width.mjs`（估算 em ≤ divisor × 0.97，內建兩條 negative case 證明會 fire）。
+   唔識 `cqi` 嘅舊瀏覽器行 `@supports not` 解除 nowrap，照舊換行。
+3. **981–1180px 個 H1 會細到 16–30px**（controls 720px 佔咗大半行）。呢個係故意：owner 揀 heatmap，
+   唔揀大字。**點樣反轉**：clamp 樓底由 16px 升返（每升 1px，最窄嗰段 ja/ko 就早 ~9px 出「...」）。
+4. **`overflow: hidden` + `line-height: 1.06` 會裁 Segoe UI 下伸部**（p / g 底部）：H1 加
+   `padding-block: 0.16em` 擴大裁剪盒、`margin-block: -0.16em calc(12px - 0.16em)` 補返，版面高度不變。
+   手機 rule 嘅 `margin-bottom` 跟住改做 `calc(4px - 0.16em)`。
+5. **描述句同 methodology 唔係刪咗**：`t.heatmap.body` 仍然係 legend `aria-label` + share image；
+   `t.methodology.body` 全文喺 site footer（`header.tsx:174`）。heatmap 區只係唔再重複。
 
 ### 明確非目標
 

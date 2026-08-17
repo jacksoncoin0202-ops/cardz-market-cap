@@ -396,10 +396,12 @@ export const copy: Record<Locale, Copy> = {
       body: "Cards just outside the top 100, tracked for price freshness, supply and demand.",
     },
     heatmap: {
-      title: "Top {count} market heatmap",
+      /* heatmap H1 一定要 ≤ 9em 闊（globals.css .heatmap-heading h1 用容器闊度 ÷ 9.5 定字級，永遠一行）；
+         owner 2026-08-17：「就咁 top 100 市值咪算囉」—— 圖自己會講嘢。改文案先量闊度。 */
+      title: "Top {count} heatmap",
       rankingTitle: "Top {count} by market cap",
-      pokemonTitle: "Pokémon market heatmap",
-      onePieceTitle: "One Piece market heatmap",
+      pokemonTitle: "Pokémon heatmap",
+      onePieceTitle: "One Piece heatmap",
       body: "Area represents current PSA 10 market cap. Colour follows the selected price window.",
       negative: "Down",
       neutral: "Data pending",
@@ -1005,7 +1007,7 @@ export const copy: Record<Locale, Copy> = {
       eyebrow: "マーケットウォッチ", title: "101位以降 · 継続ウォッチ", body: "トップ100圏外のカードの価格鮮度・供給・需要を追跡。",
     },
     heatmap: {
-      title: "時価総額トップ {count} ヒートマップ", rankingTitle: "時価総額トップ {count}", pokemonTitle: "ポケモン市場ヒートマップ", onePieceTitle: "ワンピース市場ヒートマップ",
+      title: "時価総額 TOP {count}", rankingTitle: "時価総額トップ {count}", pokemonTitle: "ポケモン TOP {count}", onePieceTitle: "ワンピース TOP {count}",
       body: "面積は現在の PSA 10 時価総額、色は選択期間の価格変化を表します。",
       negative: "下落", neutral: "集計中", positive: "上昇", count: "枚の適格カード", tilesLabel: "表示数", viewRanking: "トップ {count} を見る", shareImage: "画像をシェア",
       customize: "色をカスタマイズ", customizeTitle: "ヒートマップの色", resetDefault: "デフォルトに戻す",
@@ -1204,7 +1206,7 @@ export const copy: Record<Locale, Copy> = {
       body: "상위 100 밖 카드의 가격 신선도·공급·수요를 추적합니다.",
     },
     heatmap: {
-      title: "시가총액 상위 {count} 히트맵", rankingTitle: "시가총액 상위 {count}", pokemonTitle: "포켓몬 시장 히트맵", onePieceTitle: "원피스 시장 히트맵",
+      title: "시가총액 TOP {count}", rankingTitle: "시가총액 상위 {count}", pokemonTitle: "포켓몬 TOP {count}", onePieceTitle: "원피스 TOP {count}",
       body: "면적은 현재 PSA 10 시가총액, 색상은 선택 기간의 가격 변동을 나타냅니다.",
       negative: "하락", neutral: "집계 중", positive: "상승", count: "장의 적격 카드", tilesLabel: "표시 수", viewRanking: "상위 {count} 보기", shareImage: "이미지 공유",
       customize: "색상 사용자 정의", customizeTitle: "히트맵 색상", resetDefault: "기본값으로 재설정",
