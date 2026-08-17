@@ -84,37 +84,40 @@ export function tileCardSize(w: number, h: number, p: TileParams): { cardW: numb
    仲要離開左右邊；寧願縮字／去小數／索性唔顯示，都唔准裁字。 */
 export const TILE_LABEL = { inset: 4, padX: 3, padY: 1, lineHeight: 1.2, minFont: 8, maxFont: 14 } as const;
 
-/* label 闊度（每 1px 字體嘅 em 數）：有 canvas 就用真字體量（同 CSS 同一個 font-family、
-   同一個 800 weight，量出嚟就係瀏覽器實際排出嚟嘅闊度）；SSR / 冇 canvas 先用保守估值。
-   結果按字串 cache——100 格 × 拉 slider 每幀都會問，唔可以每次都 measureText。 */
-let measureCtx: CanvasRenderingContext2D | null | undefined;
+/* label 闊度（每 1px 字體嘅 em 數）—— 純查表，唔量 canvas（2026-08-17 起，FE05 webfont）。
+   點解唔再用 canvas measureText：
+   ① 全站字體而家係 self-host Inter（src/fonts），Inter 4 default 數字係 proportional，CSS 上 label 靠 body
+      `font-variant-numeric: tabular-nums` 先變等闊；canvas measureText 完全睇唔到 tnum（亦睇唔到 .tile-move
+      嘅 letter-spacing），量出嚟 vs 真 DOM 嘅比例按字串內容由 0.95 飄到 1.18（"+11.1%" 個 1 特別窄），
+      一個 fudge 常數修唔到，label 會爆邊。
+   ② canvas 第一次量嗰陣 Inter 可能未到手，量到 fallback（Arial metric）再永久 cache，SSR / CSR 又唔一致。
+   查表：字元集只有 [+-]?\d+(\.\d)?% 呢幾種，逐隻對住 Inter Variable 800 + tabular-nums 用 DOM
+   getBoundingClientRect ×10 字元實測（dev :3901，DESIGN.md §1.3.1 量度記錄）：
+     數字 / + / −  0.6455 em（tnum 令 + − 都同數字等闊）
+     .            0.2686 em
+     %            1.0293 em
+   再加 .tile-move 嘅 letter-spacing 0.01em × 字元數（同 globals.css 綁死）。
+   Inter 未到手嘅一刻（swap 前）真身係 Arial-metric fallback，數字 0.556em 窄過表值 → 只會細少少，唔會爆邊。
+   share PNG 個 canvas 用同一條數，方向一樣安全（見 lib/share-image.ts）。
+   換字體 / 改 .tile-move weight 或 letter-spacing 就要重量呢三個數——
+   temp/fe05/review-webfont/measure-inter.mjs（headless Chromium 對 dev :3901）出 tileLabelEm800tabular。 */
+const LABEL_EM_DIGIT = 0.6455;
+const LABEL_EM_DOT = 0.2686;
+const LABEL_EM_PERCENT = 1.0293;
+const LABEL_EM_OTHER = 0.7; /* 表外字元（理論上冇）：保守當闊 */
+const LETTER_SPACING_EM = 0.01;
 const labelEmCache = new Map<string, number>();
-const MEASURE_PX = 100;
-function labelMeasureCtx(): CanvasRenderingContext2D | null {
-  if (measureCtx !== undefined) return measureCtx;
-  measureCtx = null;
-  if (typeof document === "undefined") return null;
-  const ctx = document.createElement("canvas").getContext("2d");
-  if (!ctx) return null;
-  const family = (document.body && getComputedStyle(document.body).fontFamily) || "system-ui, sans-serif";
-  ctx.font = `800 ${MEASURE_PX}px ${family}`;
-  /* font shorthand parse 唔到會靜靜留返 default 10px——量出嚟細 10 倍，label 就會爆邊；退返 sans-serif */
-  if (!ctx.font.includes(`${MEASURE_PX}px`)) ctx.font = `800 ${MEASURE_PX}px sans-serif`;
-  measureCtx = ctx;
-  return ctx;
-}
-function estimateLabelEm(text: string): number {
-  let em = 0;
-  for (const ch of text) em += ch === "." ? 0.32 : ch === "%" ? 0.95 : 0.62;
-  return em;
-}
 export function tileLabelEm(text: string): number {
   const cached = labelEmCache.get(text);
   if (cached !== undefined) return cached;
-  const ctx = labelMeasureCtx();
-  const raw = ctx ? ctx.measureText(text).width / MEASURE_PX : estimateLabelEm(text);
-  /* +4%：tabular-nums canvas 量唔到（SF 嘅等寬數字比 proportional 闊少少）；再加 CSS letter-spacing 0.01em × 字數 */
-  const em = raw * 1.04 + text.length * 0.01;
+  let em = 0;
+  for (const ch of text) {
+    em += ch === "." ? LABEL_EM_DOT
+      : ch === "%" ? LABEL_EM_PERCENT
+      : (ch >= "0" && ch <= "9") || ch === "+" || ch === "-" || ch === "−" ? LABEL_EM_DIGIT
+      : LABEL_EM_OTHER;
+    em += LETTER_SPACING_EM;
+  }
   labelEmCache.set(text, em);
   return em;
 }

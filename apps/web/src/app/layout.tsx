@@ -7,6 +7,7 @@ import { ScrollRestoration } from "@/components/scroll-restoration";
 import { SiteHeader } from "@/components/site-header";
 import { organizationId, siteOrganization, StructuredData } from "@/components/structured-data";
 import { PUBLIC_SITE_URL, SITE_DESCRIPTOR_EN } from "@/lib/public-site";
+import { inter } from "@/fonts";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -67,12 +68,15 @@ export const viewport: Viewport = {
  * `<html lang>` SSR 預設 `en`；`?lang=` 由 LangScript 喺 paint 前改，之後 DocumentLanguage 跟 client locale。
  * `data-theme` / `data-updown` 一樣係 client-only 事實，server 唔出，全部由 ThemeScript paint 前落——
  * 所以 <html> 要 suppressHydrationWarning（lang / data-* 同 server HTML 唔同係預期）。
+ * `inter.variable`（--font-inter）必須落 <html> 唔係 <body>：globals.css `--font-sans` 住喺 :root，
+ * 個 var 喺 body 先定義嘅話 :root 度解唔到 → 整條 --font-sans invalid → 全站跌 serif（見 src/fonts/index.ts）。
+ * ThemeScript / LangScript 唔掂 className，所以 SSR 同 client 個 class 一樣，零 hydration mismatch。
  */
 export const revalidate = 300;
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className={inter.variable} suppressHydrationWarning>
       <head>
         <ThemeScript />
         <LangScript />

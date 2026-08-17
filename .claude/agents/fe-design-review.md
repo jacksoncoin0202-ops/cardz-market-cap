@@ -71,7 +71,7 @@ with sync_playwright() as p:
 |---|---|---|
 | 1 | **Token 唔 hardcode** | 兩句都要行（`git diff` **睇唔到未 tracked 嘅新檔**，而 FE05 大部分新 CSS 都係新檔）：<br>① `git diff -U0 -- 'apps/web/**/*.css' 'apps/web/**/*.tsx' 'apps/web/**/*.ts' ':(exclude)apps/web/src/app/api/og/**' \| grep -nE '^\+.*#[0-9a-fA-F]{3,8}\b' \| grep -vE '^\+?\s*--[A-Za-z0-9-]+\s*:'`<br>② `git ls-files --others --exclude-standard -- 'apps/web/**/*.css' 'apps/web/**/*.tsx' 'apps/web/**/*.ts' \| grep -v '^apps/web/src/app/api/og/' \| xargs -r grep -nHE '#[0-9a-fA-F]{3,8}\b'`<br>兩句夾埋應該 0 行。有就逐行貼，講返應該用邊個 `var(--…)`。<br>**兩個設計上嘅豁免，喺呢兩處見到 hex 唔准報紅：**<br>• `apps/web/src/app/api/og/**` —— satori / resvg 唔食 CSS 變數，OG route（WS5 主場）一定要 literal hex（現時已經有 6 個）<br>• **token 定義本身**（`--foo: #rrggbb`，即 `globals.css` `:root` / `[data-theme="dark"]`）—— 定義處一定係 literal，WS1 就係加呢啲。要查嘅係「**用**嗰邊有冇繞過 `var(--…)`」 |
 | 2 | **每個新 keyframe 有 reduced-motion sibling** | `grep -rn '@keyframes' apps/web/src/app/styles apps/web/src/app/globals.css` 攞新加嗰啲；逐個確認同檔有 `@media (prefers-reduced-motion: reduce)` 覆蓋住用佢嗰個 selector（pattern：`globals.css` :2727-2735）。淨係「有 media block」唔算 —— 要對得返嗰個 selector |
-| 3 | **`/` 第一屏零新工作** | `/` 嘅 diff 應該係空。有改動就要講清楚點解唔影響 heatmap + 一行總市值。另外對 `home__390__*` 同 `home__1280__*` 截圖同 main 嗰版：LCP element 冇變、冇新字體、冇新動畫 |
+| 3 | **`/` 第一屏零新工作** | `/` 嘅 diff 應該係空。有改動就要講清楚點解唔影響 heatmap + 一行總市值。另外對 `home__390__*` 同 `home__1280__*` 截圖同 main 嗰版：LCP element 冇變、冇新動畫。<br>**字體（DESIGN.md §1.3.1，2026-08-17 起）**：`--font-sans` 只准 resolve 到嗰一隻 self-host Inter latin —— `grep -rnE "from ['\"]next/font|@font-face\s*\{|fonts\.googleapis|fonts\.gstatic" apps/web/src`（用 `grep -r` 唔用 `git grep`：新檔未 tracked 睇唔到）**只准命中 `apps/web/src/fonts/index.ts:1`**（多一個 = 紅）；`node scripts/test-fe-font-contract.mjs` 要 PASS。掂到 `/` 嘅 diff 要貼：`[...document.fonts].map(f=>f.family+" "+f.status)`（要見 `inter loaded`）、`/_next/static/media/*.woff2` 請求數 + bytes（**1 個、≤ 60 kB**）、CLS + LCP element 前後（LCP element 仍係 `.heatmap-heading h1`） |
 | 4 | **CLS / longtask 數字** | Playwright 入面 `PerformanceObserver`（`layout-shift` 累加、`longtask` 收 duration）。要出**真數字**：CLS ≤ 0.01；scroll 全頁 0 個 >200ms longtask；WS2 掃 pointer 5s 冇 >50ms longtask。冇數字唔准打 ✅ |
 | 5 | **404 契約** | `curl -s -o /dev/null -w '%{http_code}' localhost:3901/card/does-not-exist` → **404**；`/watchlist` → **308**。呢兩條錯咗係事故，唔係樣衰 |
 | 6 | **Crawler 見到文字** | `curl -s localhost:3901/rankings/<slug>` 同主路由，grep 返啲文案（reveal / Suspense 之後**唔准**淨低空殼）。貼返 grep 命中行數 |
@@ -114,3 +114,15 @@ sibling 嘅 `@keyframes`，跑一次，見到 **#1 同 #2 兩粒紅** 先還原�
 還原之後：`git status --porcelain -- apps/web/src/app/styles/card-links.css` 空、probe 檔已刪、
 全 `apps/web/src` grep `fe05-gate-probe|fe05GateProbe|3ab0ff` = 0（剩返嘅兩粒 `#b85416` 係
 `globals.css` 個 token 定義同 OG route 個 satori 常數，即上面兩條豁免本身）。
+
+**已做過（2026-08-17，webfont commit，#3 字體 grep + `test-fe-font-contract.mjs`）**：種咗 untracked
+`styles/__font_gate_probe.css`（`@font-face {` + `fonts.gstatic.com`）＋ `sparkline.tsx` 尾加一行
+`import x from "next/font/google"`。實際輸出：
+
+- #3 grep → 3 行：`__font_gate_probe.css:1`、`sparkline.tsx:42`、`fonts/index.ts:1`（只有最尾一行係合法）→ 紅
+- `node scripts/test-fe-font-contract.mjs` → `FAIL`，三條：`exactly one next/font import: found in: sparkline.tsx, fonts/index.ts`、
+  `no hand-written @font-face in …__font_gate_probe.css`、`no external font host in …__font_gate_probe.css`，exit 1
+- 陷阱：`git grep` 睇唔到 untracked probe 檔（連 `fonts/index.ts` 都係新檔），所以 #3 寫死用 `grep -r`；
+  pattern 用 `from ['"]next/font` 唔用裸 `next/font`，否則 `globals.css` 個註釋（講 `--font-inter` 由 next/font/local 落）會假陽性
+
+還原之後：probe 檔已刪、`git status --porcelain -- sparkline.tsx styles/` 空、grep 只剩 `fonts/index.ts:1`、contract test PASS。

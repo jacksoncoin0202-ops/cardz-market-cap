@@ -27,12 +27,19 @@
   --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 
-  /* ── 字體 stack（FE05）──
-     --font-sans = body 一直用嗰條，只係抽咗做 token；一個新字體都冇加（/ 嘅 H1 係 LCP）。
+  /* ── 字體 stack（FE05 webfont，owner 2026-08-17）──
+     --font-inter 由 next/font/local 喺 <html> 落（src/fonts/index.ts，Inter Variable latin subset，
+     self-host、swap、preload、Arial metric fallback）。呢度只准 consume，唔准硬寫 "Inter"。
+     拉丁 + 數字永遠由 Inter 出；漢字／假名／諺文 Inter 冇 glyph，逐字跌落後面嘅 OS 字。
+     舊 stack 頭四個 family（-apple-system / SF Pro / Helvetica Neue）Windows 一隻都冇 → 全站跌落
+     Yu Gothic（日文字）出拉丁 = 2026-08-17 個「用緊日文字體」投訴嘅根。
+     Windows CJK family（JhengHei / YaHei / Malgun）補返，令 zh / ko 唔再食 Yu Gothic 字形；
+     per-:lang() 排序落 C3。
      --font-mono 之前喺四處逐字複製（collector-cell / mobile-card-number /
-     identity-list dd / box-set-chip），改一次要改四處，所以收埋一份。 */
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", "PingFang TC", "PingFang SC", "Hiragino Sans", "Yu Gothic", Arial, sans-serif;
-  --font-mono: "SF Mono", "Roboto Mono", ui-monospace, monospace;
+     identity-list dd / box-set-chip），改一次要改四處，所以收埋一份；補 Cascadia / Consolas，
+     Windows 唔再跌 Courier New。 */
+  --font-sans: var(--font-inter), "PingFang TC", "PingFang SC", "Hiragino Sans", "Yu Gothic", "Microsoft JhengHei", "Microsoft YaHei", "Malgun Gothic", -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+  --font-mono: "SF Mono", "Cascadia Mono", Consolas, "Roboto Mono", ui-monospace, monospace;
 
   /* ── 流體字階（FE05）──
      **step-2/3/4 原封照抄 FE04 嗰條 vw 曲線，唔係自己畫一條新嘅。**
@@ -283,9 +290,13 @@ body {
   color: var(--ink);
   font-family: var(--font-sans);
   font-size: 15px;
-  font-feature-settings: "kern" 1, "tnum" 1;
+  /* tnum 用高階屬性唔用 font-feature-settings：後者 all-or-nothing，後代任何一層再寫一次
+     font-feature-settings 就靜靜抹走 tnum；font-variant-numeric 可繼承、可組合。kern 預設已開。 */
+  font-variant-numeric: tabular-nums;
+  /* CJK OS 字只得 Regular/Bold static；遇著只有 Regular 嘅 family 瀏覽器會合成粗體，10–13px 漢字糊成一嚿。
+     有真 Bold 嘅 family 照樣攞真 Bold，所以 none 冇損失。全站零 italic。 */
+  font-synthesis: none;
   line-height: 1.5;
-  text-rendering: optimizeLegibility;
 }
 
 a { color: inherit; text-decoration: none; }
@@ -1116,8 +1127,9 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
 }
 .heatmap-tile:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.9); outline-offset: 2px; }
 /* 幾何（inset 4 / padding 1px 3px / line-height 1.2 / weight 800 / letter-spacing 0.01em）同
-   lib/tile-style.ts `TILE_LABEL` + tileLabelEm 逐個數綁死：JS 用真字體量闊度再揀字體大細，
-   保證 label 成個入晒 tile 又離開左右邊（owner 2026-08-17：唔准食字）；改呢度必改嗰邊。 */
+   lib/tile-style.ts `TILE_LABEL` + tileLabelEm 逐個數綁死：JS 用 Inter 800 tabular 實測嘅逐字元闊度表
+   揀字體大細，保證 label 成個入晒 tile 又離開左右邊（owner 2026-08-17：唔准食字）；改呢度必改嗰邊
+   （改 font-weight / letter-spacing / 換字體 = 重量嗰張表）。 */
 .tile-move {
   position: absolute;
   top: 4px;

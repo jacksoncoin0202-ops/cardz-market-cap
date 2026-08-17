@@ -63,14 +63,47 @@ component CSS 寫死 `#b85416`。呢條係 `fe-design-review` gate 嘅硬檢查�
 
 | Token | 值 | 用途 |
 |---|---|---|
-| `--font-sans` | system stack（:34） | `body` 唯一字體。**冇 self-host、冇 `next/font`、冇 display face** |
-| `--font-mono` | `"SF Mono", "Roboto Mono", ui-monospace, monospace` | 編號 / ID 類欄位 |
+| `--font-inter` | `next/font/local` 出（`src/fonts/index.ts`，落 `<html className>`） | **只准由 `--font-sans` consume**；call site 唔准直用、唔准硬寫 `"Inter"`（family 係 hash 名） |
+| `--font-sans` | `var(--font-inter), <OS CJK stack>, Arial, sans-serif`（:41） | `body` 唯一字體。拉丁 self-host Inter（§1.3.1），CJK 行 OS 字。**冇 display face、冇 CJK web font** |
+| `--font-mono` | `"SF Mono", "Cascadia Mono", Consolas, "Roboto Mono", ui-monospace, monospace` | 編號 / ID 類欄位（Windows 之前跌 Courier New，webfont commit 補 Cascadia / Consolas） |
 
 `--font-mono` 之前喺四個地方逐字複製；FE05 收埋做一個 token，四處（`.collector-cell` :1509、
 `.mobile-card-number` :1657、`.identity-list dd` :2147、`.box-set-chip` :2724）全部 call 佢。
 驗證：`grep -c "SF Mono" globals.css` → **1**（就係 token 定義嗰行；plan 寫 →0 係手民之誤，
 token 定義本身就住喺 `globals.css`，→0 冇可能）。真正嘅驗收係 **零 call site 硬寫**：
 全 `apps/web/src` grep `font-family` 剩返 3 × `var(--font-mono)` + 1 × `var(--font-sans)` + 1 × `inherit`（`.chart-label`）。
+
+#### 1.3.1 Web font 交付（FE05 webfont commit，2026-08-17；推翻 §8 決定 5）
+
+**點解要**：舊 `--font-sans` 係 Apple system stack → `"Yu Gothic"` → Arial。Windows 冇 SF Pro / Helvetica Neue /
+PingFang / Hiragino，第一隻存在嘅係 **Yu Gothic（Windows 內置日文字）**，Windows Chrome / Edge 全站拉丁 + 數字
+都由 Yu Gothic 嘅拉丁字形出（投訴「用緊日文字體」「冇 load 好」，B 2026-08-17）。而且 Yu Gothic / JhengHei /
+YaHei / Malgun 全部只得 300/400/700 static weight，CSS 匹配 500→400、>500→700，`h1,h2,h3{font-weight:500}`
+出 Regular、`.heatmap-total-cap` 600 / `.cap-ticker` 650 出 Bold —— **標題 vs 標籤喺 CJK 系統字上必然倒轉**。
+呢個係 bug，唔係品味。
+
+| 項 | 值 | 點解 |
+|---|---|---|
+| 檔 | `src/fonts/InterVariable-latin.woff2` 48,256 bytes，sha256 `3100e775…bc62`（寫喺 `src/fonts/index.ts`，contract test 對數） | `@fontsource-variable/inter@5.3.0` `files/inter-latin-wght-normal.woff2`，**手抄 binary 唔 `npm i`**（`scripts/test-lockfile-prod-pins.mjs`：任何 npm i 都可能 re-hoist browserslist） |
+| subset | latin only（U+0000-00FF + 常用標點 / ₤€™↑↓−∕）；**唔收 latin-ext**（+85 kB）| CJK / 諺文一個 glyph 都冇，靠 `--font-sans` 後面 OS 字逐字 fallback；₩ ₹ ₱ ₫ ₪ ₺ ฿ 一樣行 OS fallback |
+| 載入 | `next/font/local`：`weight "100 900"`、`display: "swap"`、`preload: true`、`adjustFontFallback: "Arial"` | `swap` 唔係 `optional`：optional 100ms 內攞唔到就今次永不 swap，第一次訪問大概率照睇 Yu Gothic = 修唔到投訴。Arial metric fallback（size-adjust / ascent / descent override）壓 swap CLS |
+| 位置 | `inter.variable` **一定落 `<html>`**（`layout.tsx`） | `--font-sans` 住喺 `:root`；`--font-inter` 只喺 body 定義嘅話 `:root` 度 `var()` 解唔到 → 整條 `--font-sans` invalid → 全站跌 serif、CI 照綠 |
+| CSP | `font-src 'self'` 唔使改 | next/font 出 `/_next/static/media/*.woff2` 同源；`prepare-standalone.mjs` 已 copy `.next/static` |
+| 點解唔 `next/font/google` | webhook `docker compose up --build` build stage 要出外網攞字體，一次 DNS / egress 失敗 = deploy fail；google 版最終都係 self-host，CSP 零分別 |
+| 授權 | SIL OFL 1.1，`src/fonts/OFL.txt` 同行（binary 派發義務） |
+| 契約 | `scripts/test-fe-font-contract.mjs`（`npm test` 自動 glob）：next/font 只准 `src/fonts/index.ts` 一處、零手寫 `@font-face` / googleapis / gstatic、`--font-sans` 打頭 `var(--font-inter)`、variable 落 `<html>`、OFL + sha256 + ≤60 kB。加完種過 3 個 bug 見紅（body 位置 / 外部 host / --font-sans 換頭）再還原 |
+
+**連帶改動（同一 commit，唔准拆開出街）：**
+
+- body：`font-feature-settings: "kern" 1, "tnum" 1` → `font-variant-numeric: tabular-nums`（低階屬性 all-or-nothing，後代一寫就抹走 tnum；tnum 喺 Yu Gothic 上係死嘅，Inter 上「復活」→ 全站數字 advance 一齊變）；加 `font-synthesis: none`（CJK 只得 Regular 嘅家族唔准合成粗體，10–13px 漢字會糊）；拆 `text-rendering: optimizeLegibility`。
+- `lib/tile-style.ts` `tileLabelEm`：由 canvas `measureText` 改做**逐字元查表**。Inter 4 default 數字係 proportional（「1」0.415em），CSS 靠 tnum 先等闊，canvas 睇唔到 tnum 亦睇唔到 letter-spacing，比例按內容 0.95–1.18 飄，一個 fudge 修唔到；亦解決咗「第一次量到 fallback 就永久 cache」同 SSR ≠ CSR。表值：數字 / + / − 0.6455、`.` 0.2686、`%` 1.0293（Inter 800 tabular，DOM 實測），+ `.tile-move` letter-spacing 0.01em/字。swap 前 Arial-metric 數字 0.556 窄過表值 → 只會細少少，唔會爆邊。
+- `scripts/test-fe-heatmap-title-width.mjs` 估算表換 Inter 500 逐字元 advance + tabular 數字 0.6455；divisor 9.5 **唔郁**（最闊「ワンピース TOP 100」估 9.08 / DOM 9.057em = 95.4%）；negative self-test 照 fire（舊 EN 11.34、舊 JA 14.84 > 9.5）。
+
+**§1.3「零 reflow ≤ 2px」對呢粒 commit 豁免**：換字體 = 明知全站 Latin 幾何會郁（Inter vs Yu Gothic 拉丁 +3.3%：canvas 100px「Top 100 market heatmap」1180.66 vs 1143.12 vs Arial 1106.2）。驗收標準改為：**冇跌出容器 / 冇撞埋 / 冇新 ellipsis、CLS ≤ 0.01、`/` LCP element 仍係 `.heatmap-heading h1`**（量到嘅實數見 §8 log 該行）。
+
+**量度腳本**：`temp/fe05/review-webfont/measure-inter.mjs`（headless Chromium 對 dev :3901，`document.fonts.ready` 之後）出：逐字元 advance（500 / 600）、五語言標題 DOM 闊度、tile label 800 tabular 逐字元、三個 context `1111` vs `9999` 差 = 0、`fontSynthesis: none`。換字體 / 改 tile weight / 改字距 = 重跑再更新兩張表。
+
+**注意**：`document.fonts.check("500 15px Inter")` 喺呢個 build **會回 true** —— next/font/local 出嘅 family 叫 `inter`（跟 export 名），family 比對 case-insensitive；所以「硬寫 Inter 一定 false」呢句唔成立，驗證要睇 `getComputedStyle(document.body).fontFamily` 第一項 = `inter` + `[...document.fonts]` 有 `inter 100 900` loaded。
 
 流體字階，六級。**step-2/3/4 逐字照抄 FE04 原本嗰條 `vw` clamp**，唔係另外畫一條線。
 
@@ -261,8 +294,10 @@ computed style**，唔好淨係睇「JS 冇 arm 所以睇唔到動畫」——�
 呢啲數係硬預算，唔係目標：
 
 1. **第一屏（`/`）= heatmap + 一行總市值。就係咁多。**
-   唔加 marketing hero（owner 2026-08-16）、唔加新字體、唔加 WebGL/shader、
+   唔加 marketing hero（owner 2026-08-16）、唔加 WebGL/shader、
    唔喺 `/` 首屏加任何 IntersectionObserver reveal。`/` 嘅 LCP element 唔准變。
+   字體：拉丁收窄為**一隻** self-host variable font ≤ 60 kB（Inter latin，§1.3.1，owner 2026-08-17）；
+   **唔准第二隻 / display face / CJK web font**（Noto CJK 幾百 kB 起，第二期另議 `font-display: optional`）。
 2. **Sparkline 永不動。** `rankings` 一頁有 100+ 個實例（`components/sparkline.tsx`），
    加動畫 = 100 條同時跑。呢條寫死喺檔入面，唔准「試下」。
 3. **一個共用 IntersectionObserver。** 要 scroll reveal 就 module 級開**一個** observer 派畀所有
@@ -388,6 +423,7 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
 | **fix-tile-label-fit** | heatmap 升跌 label 唔准食字：`fitTileLabel()` 用 canvas 量真字體闊度（同 `.tile-move` 同 family／800），先試完整 `+295.2%`，唔入就縮字（下限 8px）→ 去小數 `+295%` → 都唔入就唔顯示；離 tile 邊 4px、padding 1px 3px；share 圖同一套。實測 390/360/768/1440/1920 × 3 hub × 1D/1Y：0 格爆邊、最細邊距 4px（`temp/fe05/desktop-fill/tilelabel.py`） | ✅ 已落 + live（2026-08-17 07:22Z，03fb0ed7） |
 | **feat-currencies** | 貨幣由 7 隻加到 **31 隻**（正典次序，USD 永遠 index 0）；trigger 同選項都出貨幣自己個符號做「logo」；選項出 code + ICU 本地化名（`Intl.DisplayNames`，五語系）；選單 **USD 釘最頂**（owner「usd默認最頂」），之後按 **亞太 → 美洲 → 歐洲 → 中東非洲** 分四組、`max-height: min(420px, 100svh − header − 24px)` 可捲；`availableCurrencies()`（`lib/server-snapshot.ts`）只出 snapshot 真係有匯率嗰批（讀唔到就 fail-open 出全部）；`<SiteHeader>` server wrapper 餵 prop 落 client `<Header>`；`geo-defaults.ts` 由 7 個國家加到 45 個 | ✅ 已落 + live（2026-08-17 08:17Z FE 3bc093a0；08:21Z bake 7a0a7214 出 31 隻匯率，live `?currency=SGD` → `SGD 34.58億`、EUR/MYR 有價） |
 | **fix-share-image** | heatmap「分享圖片」PNG 重做（owner 2026-08-17 晚：「睇上去好山寨」→ 圖片主導、咩都唔使加、全英文、高清、色塊小圓角）：畫圖抽出 `lib/share-image.ts`（純 canvas `renderHeatmapShare()`）、`heatmap.tsx` `exportHeatmap` 只剩砌 opts → toBlob → share/download；`scale = clamp(2400/frameWidth, 2, 3.5)` + 5.2M px 面積封頂（390 直度出 1421×2304、1440 橫度 2774×1455）；底色 + radial vignette + 128² grain + accent hairline 框；tile 圓角 4×scale（同 `.heatmap-tile`）、卡圖 drop shadow、label 同 `.tile-move` 同一組幾何 + plate + text-shadow；header 量內容排一行／兩行；下底只剩一行 legend（swatch = `colors.up/down/neutral`，已跟 red-up／`/tune`）+「Deeper shade = bigger move」（唔夠位就唔出）；footer／QR／methodology／stat／tagline 全部拆走。順手修：tile↔card 對錯（`visibleCards[index]` vs treemap 重排 → 改 `tile.item.card`）、label 字級乘咗兩次 scale、`textBaseline` 漏出、toast 由「已複製連結」改 `t.share.done/error`；`taglines.ts` 死咗嘅 `pickRandomTagline` 刪走。QC：`temp/fe05/desktop-fill/share_image.py` 攔 `navigator.share`，390/1440 × zh-TW/en × light/dark × 綠升/紅升 16 張全 OK | ✅ 已落 + live（2026-08-17 11:04Z push d9af2fa8，11:05Z live chunk 已有新字串；live 實出 390→1421×2304、1440→2774×1455） |
+| **fe05(webfont)** | 拉丁 self-host **Inter Variable latin**（§1.3.1；owner 2026-08-17 拍板，推翻 §8 決定 5）：`src/fonts/{InterVariable-latin.woff2,OFL.txt,index.ts}`（next/font/local，wght 100–900、swap、preload、Arial metric fallback）、`layout.tsx` `<html className={inter.variable}>`、`--font-sans` 打頭 `var(--font-inter)`、`--font-mono` 補 Cascadia / Consolas、body `font-feature-settings tnum` → `font-variant-numeric: tabular-nums` + `font-synthesis: none`、`tile-style.ts` canvas 量度 → Inter 800 tabular 逐字元查表、`test-fe-heatmap-title-width.mjs` 估算表換 Inter 逐字元 + tabular 數字、新 `test-fe-font-contract.mjs`。**只換字，字重／字級／字距一條冇郁**（C2 另 commit）。驗收（dev :3901 headless Chromium，`temp/fe05/review-webfont/{measure-inter,verify-c1,tilelabel}.mjs`）：body family 第一項 `inter`、`inter 100 900 loaded`；woff2 **1 個請求 48,256 B** `immutable` + `<link rel=preload as=font>`、0 CSP violation；`/` **CLS 0 / 0 / 0**（warm ×3）、cold-swap（woff2 +500ms）**0.0001**；LCP element 四次都係 `.heatmap-heading h1`；390 × 5 locale × `/`、`/pokemon`、`/card/[id]`：scrollWidth 全部 390、0 個元素 right > 390、H1 nowrap `scrollWidth == clientWidth`（零 ellipsis）、`.heatmap-heading` 高度五語言 **150px 全等**；tile label 20 組（390/360/768/1440/1920 × 3 hub + 1Y）**0 格爆邊、minGap 4px、overflowText 0**；`tsc` 0；`npm test` FE 全綠（2 個紅係 `pipelines/rebuild_036.py` 讀 machine-private `backend.env`，同 FE 無關）。**點樣反轉**：`git revert` 呢粒（woff2 / OFL 留 repo 無害）| ✅ 已落（2026-08-17；live 時間 / SHA 見 commit） |
 | WS5 | OG 圖 v2（卡圖入圖，satori 讀唔到 WebP → 要解碼），fail-open 退返純文字版 | TODO |
 | WS6 | HyperFrames 每日市場 recap 片（`apps/web` 以外，獨立 folder） | TODO（可選） |
 
@@ -875,11 +911,15 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
    成本唔同一個數量級，而「資料新鮮」本來就係全站訊號。
    **點樣反轉**：`glow-badges.css` 個 `.live-dot::after` 選擇器加返 `.detail-page` 前綴。
 
-5. **決定：`/` 唔加 display face（維持默認）。**
-   `--font-sans` 一個 system stack 到底，`/` 嘅 H1 係 LCP element，加自訂字體 =
-   多一個 render-blocking / FOUT 風險，換嚟嘅只係「靚啲」。§4.1 明文唔加新字體。
-   **點樣反轉**：要加就係一單獨立嘢——加 `--font-display` token + `next/font` 自 host，
-   而且要重量 `/` 嘅 LCP（呢份 doc §4.1 同「明確非目標」都要一齊改）。
+5. **決定：`/` 唔加 display face（維持默認）。** ⚠️ **部分推翻（owner 2026-08-17，webfont commit）**：
+   原文「`--font-sans` 一個 system stack 到底」已廢 —— system stack 喺 Windows 跌落 Yu Gothic，
+   標題／標籤字重倒轉 + 拉丁字形錯，係 bug 唔係「靚啲」（根因同數字見 §1.3.1）。而家拉丁行
+   self-host Inter Variable（一隻、latin subset、48 kB、preload + swap + Arial metric fallback）。
+   **仍然成立嘅部分**：唔加 display face、唔加第二隻字體、唔加 CJK web font；`/` LCP element 唔准變。
+   **點樣反轉**：`git revert` webfont commit（`fe05(webfont)`）—— `--font-sans` 會退返 system stack、
+   `tile-style.ts` 退返 canvas 量度、contract test 一齊走；woff2 / OFL 留喺 repo 無害。
+   （舊文：`/` 嘅 H1 係 LCP element，加自訂字體 = 多一個 render-blocking / FOUT 風險。
+   實測見 §8 log 該行：preload 同源 48 kB，CLS / LCP element 都守到。）
 
 6. **決定：手機掃光行 `linear`，唔行 `--ease-standard`。**
    `--ease-standard` = `cubic-bezier(0.22, 1, 0.36, 1)`，**半程就行咗 96% 路**
@@ -999,7 +1039,8 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
 
 ### 明確非目標
 
-唔遷 Tailwind / shadcn；唔上 WebGL / shader；`/` 唔加 marketing hero、唔加新字體；
+唔遷 Tailwind / shadcn；唔上 WebGL / shader；`/` 唔加 marketing hero；字體只得 §1.3.1 嗰一隻 Inter latin
+（唔加 display face / 第二隻 / CJK web font / latin-ext / opsz 檔；`zero` `cv*` `ss*` `-webkit-font-smoothing` 全部唔開）；
 唔改 `heatmap.tsx` 嘅 tile 幾何／顏色算法（`exportHeatmap` 已按 owner 2026-08-17 要求重做，見 fix-share-image）；唔加 `app/card/loading.tsx`；
 唔為視覺效果加 npm dep；無 scroll-jacking / parallax；sparkline 同 ranking row 唔動；
 唔為咗動畫放鬆任何 gate / 契約 / crawler 可見文字。
