@@ -110,8 +110,9 @@
 
 .content-toc h2 {
   font-size: 12px;
-  letter-spacing: 0.14em;
+  letter-spacing: var(--track-kicker);
   text-transform: uppercase;
+  font-feature-settings: "case" 1;
   color: var(--muted);
   margin: 0 0 10px;
 }
@@ -205,6 +206,7 @@
   font-size: 12px;
   letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
+  font-feature-settings: "case" 1;
   color: var(--muted);
   font-weight: 600;
 }
@@ -296,8 +298,9 @@
 
 .content-more h2 {
   font-size: 12px;
-  letter-spacing: 0.14em;
+  letter-spacing: var(--track-kicker);
   text-transform: uppercase;
+  font-feature-settings: "case" 1;
   color: var(--muted);
   margin: 0 0 10px;
 }

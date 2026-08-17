@@ -81,7 +81,7 @@
 
 .related-legend {
   margin: 0 0 12px;
-  font-size: 10px;
+  font-size: var(--fs-micro);
   letter-spacing: 0.02em;
 }
 
@@ -101,7 +101,7 @@
 .related-group h2 {
   margin: 0;
   font-size: 14px;
-  font-weight: 650;
+  font-weight: var(--w-heading);
   letter-spacing: -0.01em;
 }
 
@@ -157,7 +157,7 @@
 .related-meta {
   overflow: hidden;
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: max(10.5px, var(--fs-micro)); /* 拉丁 10.5 唔郁；CJK token 升到 11 先跟 */
   text-overflow: ellipsis;
   white-space: nowrap;
   grid-column: 1;
@@ -176,12 +176,12 @@
 
 .related-figures strong {
   font-size: 12.5px;
-  font-weight: 650;
+  font-weight: var(--w-data);
   white-space: nowrap;
 }
 
 .related-figures em {
-  font-size: 10.5px;
+  font-size: max(10.5px, var(--fs-micro));
   font-style: normal;
   white-space: nowrap;
 }

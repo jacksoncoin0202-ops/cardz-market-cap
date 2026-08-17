@@ -8,5 +8,5 @@
   border-color: var(--ink);
   background: var(--ink);
   color: var(--surface);
-  font-weight: 650;
+  font-weight: var(--w-label);
 }

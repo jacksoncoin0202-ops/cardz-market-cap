@@ -43,6 +43,7 @@
   font-size: 11px;
   letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
+  font-feature-settings: "case" 1;
   white-space: nowrap;
 }
 
@@ -58,7 +59,7 @@
 .mover-chip em {
   color: var(--accent);
   font-style: normal;
-  font-weight: 650;
+  font-weight: var(--w-data);
   white-space: nowrap;
 }
 

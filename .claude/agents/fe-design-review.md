@@ -77,7 +77,7 @@ with sync_playwright() as p:
 | 6 | **Crawler 見到文字** | `curl -s localhost:3901/rankings/<slug>` 同主路由，grep 返啲文案（reveal / Suspense 之後**唔准**淨低空殼）。貼返 grep 命中行數 |
 | 7 | **Reduced-motion 終態完整** | 4 張 reduce 截圖：所有內容最終 opacity 1、冇半透明、冇縮細、冇殘留 transform |
 | 8 | **390px 唔穿版** | 每張 390 截圖睇：冇橫向 scroll、冇重疊、5 語言最長字串唔爆格（`document.documentElement.scrollWidth <= 390`，貼數字） |
-| 9 | **CSS 落點啱** | 新 CSS 喺 `apps/web/src/app/styles/<feature>.css` 由 owning component import；`globals.css` 只准加 `:root` / `[data-theme="dark"]` token 同 plan 明講嗰幾行。`git diff --stat -- apps/web/src/app/globals.css` 貼出嚟 |
+| 9 | **CSS 落點啱** | 新 CSS 喺 `apps/web/src/app/styles/<feature>.css` 由 owning component import；`globals.css` 只准加 `:root` / `[data-theme="dark"]` token 同 plan 明講嗰幾行。`git diff --stat -- apps/web/src/app/globals.css` 貼出嚟。<br>**字重 / 微字級（DESIGN.md §1.3.2，2026-08-17 起）**：`grep -rnE "font-weight:\s*(550|650)" apps/web/src` → **0**（CJK 系統字 500 界：550 / 650 同 700 冇分別，標題 vs 標籤會倒轉）；新規則要字重就 call `--w-*` token；掂到 `/` 要貼 `.heatmap-heading h1` vs `.heatmap-total-cap` computed `fontWeight`（h1 ≥ 標籤，而且要跨 500 界：600 vs 500）；全站 computed weight ⊆ {400,500,600,700,800}；含漢字 / 假名 / 諺文嘅 leaf element `fontSize ≥ 10px`（`--fs-micro`）；`overflow-wrap: anywhere` 唔准再出現喺 `.muted-copy` / `.preview-facts dd` |
 | 10 | **禁區冇被掂** | `git diff --name-only` 唔可以有 `heatmap.tsx`、`heatmap-tile.tsx`、`app/card/loading.tsx`、任何 `.env`、`data/` |
 | 11 | **Typecheck** | `npx tsc --noEmit -p apps/web` exit 0。跑唔郁就照講跑唔郁，唔准當佢過 |
 | 12 | **`will-change` 收得返** | 有落 `will-change` 嘅話，動畫完之後要拆（`data-settled` pattern，`globals.css` :898）。用 `evaluate` 讀 computed style 前後對比，貼數字 |

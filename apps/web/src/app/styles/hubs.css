@@ -122,16 +122,17 @@
 .hub-stat dt {
   margin: 0 0 4px;
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: max(10.5px, var(--fs-micro)); /* 拉丁 10.5 唔郁；CJK token 11 先跟 */
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  font-feature-settings: "case" 1;
 }
 
 .hub-stat dd {
   margin: 0;
   color: var(--ink);
   font-size: 17px;
-  font-weight: 650;
+  font-weight: var(--w-data);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
 }
@@ -195,10 +196,11 @@
 .seo-table thead th {
   background: var(--soft);
   color: var(--table-head-cell);
-  font-size: 10.5px;
+  font-size: max(10.5px, var(--fs-micro));
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+  font-feature-settings: "case" 1;
 }
 
 .seo-table tbody tr:last-child td {
@@ -227,7 +229,7 @@
   max-width: 34ch;
   overflow: hidden;
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: max(10.5px, var(--fs-micro));
   font-weight: 400;
   text-overflow: ellipsis;
 }

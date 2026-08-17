@@ -70,6 +70,45 @@
   --tracking-tight: -0.02em;
   --tracking-wide: 0.08em;
 
+  /* ── 字重階（FE05 type-scale，owner 2026-08-17）──
+     拉丁行 Inter Variable（100–900 連續），但 CJK 跌落 OS 字（Yu Gothic / JhengHei / YaHei / Malgun）
+     只得 Regular / Bold 兩級，CSS 匹配界線 = 500（>500 一律 Bold，≤500 一律 Regular）。
+     所以「標題 vs 標籤」唔可以靠 550 vs 650 呢種 Inter 先分得出嘅差，一定要跨過 500 界；
+     而且 weight 唔准做階層唯一載體（size + weight + colour 三樣一齊）。全站 computed weight
+     只准 ∈ {400, 500, 600, 700, 800}，550 / 650 全部收埋落呢張表：
+       body 400 · quiet 500（次要文字／首頁一行總市值）· heading 600（h1–h3）· name 600（卡名）
+       label 600（大寫細標籤／表頭／chip）· data 600（數值）· strong 700（Bold）· tile 800（heatmap label） */
+  --w-body: 400;
+  --w-quiet: 500;
+  --w-heading: 600;
+  --w-name: 600;
+  --w-label: 600;
+  --w-data: 600;
+  --w-strong: 700;
+  --w-tile: 800;
+  /* 細字級 floor：CJK 承載文字 ≥ 10px（label 目標 11px）；純拉丁／數字微標可以 9px。
+     C3 會喺 :lang(CJK) 度將 --fs-nano/--fs-micro/--fs-th 一齊升。 */
+  --fs-nano: 9px;
+  --fs-micro: 10px;
+  --fs-th: 9.5px;
+  /* 行高／裁字 padding：display 係 h1–h3 全局、hero 係首頁 H1（唔准郁：/ H1 高度 = lh × fs，郁咗偷熱力圖高度）、
+     clamp2 係兩行 line-clamp 盒（桌面 preview / 手機卡名）、copy 係段落。clip-pad 係 nowrap+overflow:hidden
+     標題嘅上下 padding（防 descender／假名被 overflow 裁走），margin 用負值抵消返，版面唔郁。 */
+  --lh-display: 1.04;
+  --lh-hero: 1.06;
+  --lh-clamp2: 1.15;
+  --lh-clamp2m: 1.25;
+  --lh-copy: 1.55;
+  --clip-pad: 0.16em;
+  /* 字距：display = 全局 h1–h3 嘅 -0.035em（首頁聲線，拉丁不變；C3 喺 CJK 清零）、name = 卡名、
+     copy = 段落、kicker = 大寫 kicker、th = 表頭、sentence = 整句大寫標語（.prestige-tagline）。 */
+  --track-display: -0.035em;
+  --track-name: -0.02em;
+  --track-copy: -0.012em;
+  --track-kicker: 0.14em;
+  --track-th: 0.055em;
+  --track-sentence: 0.1em;
+
   /* ── 間距階（FE05）── 4px 基準；只係俾新 CSS 用同埋逐步收編現有硬數，
      現有版面數值一個都冇改（用邊個 step 就一定係同一個 px 值）。 */
   --space-1: 4px;
@@ -306,7 +345,8 @@ img { max-width: 100%; height: auto; }
 /* touch：唔要系統灰色 tap 閃光，pressed feel 由各自 :active 規則負責 */
 a, button, [role="button"], label, input, select, textarea, summary { -webkit-tap-highlight-color: transparent; }
 h1, h2, h3, p { margin-top: 0; }
-h1, h2, h3 { font-weight: 500; letter-spacing: -0.035em; line-height: 1.04; }
+/* 標題 600 唔係 500：CJK OS 字 500 → Regular，會輕過 600 嘅標籤（投訴 2026-08-17：H1 普通、副標粗）。 */
+h1, h2, h3 { font-weight: var(--w-heading); letter-spacing: var(--track-display); line-height: var(--lh-display); }
 :focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 .sr-only {
   position: absolute;
@@ -534,7 +574,7 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
 .currency-menu .select-option { gap: 8px; }
 .select-group-label {
   padding: 8px 10px 4px;
-  font-size: 10px;
+  font-size: var(--fs-micro);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
@@ -589,14 +629,14 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   margin: 0;
   color: var(--footer-text);
   font-size: 12px;
-  font-weight: 550;
+  font-weight: var(--w-quiet);
   line-height: 1.6;
 }
 .footer-methodology-title {
   margin: 0 0 6px;
   color: var(--accent);
-  font-size: 10px;
-  font-weight: 650;
+  font-size: var(--fs-micro);
+  font-weight: var(--w-label);
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
@@ -625,8 +665,8 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
 .footer-nav-title {
   margin: 0 0 8px;
   color: var(--accent);
-  font-size: 10px;
-  font-weight: 650;
+  font-size: var(--fs-micro);
+  font-weight: var(--w-label);
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
@@ -728,11 +768,16 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   margin-bottom: 11px;
   color: var(--accent);
   font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.14em;
+  font-weight: var(--w-label);
+  letter-spacing: var(--track-kicker);
   line-height: 1.2;
   text-transform: uppercase;
 }
+/* 大寫細標籤開 Inter 嘅 `case`（連字號／括號／「·」對齊大寫高度）。只落 uppercase label class，
+   唔准落 body：「·」係全站分隔符（Market cap · $2.7B），全局開會令佢喺小寫行度浮高。
+   font-feature-settings 係低階屬性，呢度只寫 case，唔會抹走 body 嘅 font-variant-numeric（另一條屬性）。 */
+.section-kicker, .rank-kicker, .desktop-ranking-table th, .footer-methodology-title, .footer-nav-title,
+.sort-sheet-group h4, .select-group-label, .grader-share-center span { font-feature-settings: "case" 1; }
 .hero-section h1,
 .heatmap-heading h1,
 .heatmap-heading h2 {
@@ -747,8 +792,8 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   margin-bottom: 0;
   color: var(--hero-copy);
   font-size: clamp(15px, 1.55vw, 20px);
-  line-height: 1.55;
-  letter-spacing: -0.012em;
+  line-height: var(--lh-copy);
+  letter-spacing: var(--track-copy);
   text-wrap: pretty;
 }
 
@@ -783,16 +828,18 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
      9.5 留 5% 俾 Mac / Windows / Noto 字體差；字級只由容器決定、唔由語言決定 → 五語言 heading 高度一致。
      公式唔認得文字，所以 i18n heatmap title 一定要 ≤ 9em（scripts/test-fe-heatmap-title-width.mjs 守住）。
      樓底 16px（981px 時 ja/ko 容器只剩 ~152px，最長標題要 16px 先入到）；再唔夠位先出「...」（= 文案要再縮，唔係 CSS 問題）。
-     padding/margin ±0.16em 係一對：overflow hidden 會裁 1.06 行高外面嘅下伸部（Segoe UI 嘅 p/g），
-     加 padding 擴大裁剪盒、負 margin 補返，版面高度不變。 */
+     padding/margin ±clip-pad 係一對：overflow hidden 會裁 1.06 行高外面嘅下伸部（p/g 同假名嘅濁點），
+     加 padding 擴大裁剪盒、負 margin 補返，版面高度不變（C3 CJK 會將 --clip-pad 升到 0.24em）。
+     字重明寫 --w-heading（600）：首頁階層由 size（68:14）+ weight（跨 500 界）+ colour（ink:muted）三樣承載。 */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding-block: 0.16em;
-  margin-block: -0.16em calc(12px - 0.16em);
+  padding-block: var(--clip-pad);
+  margin-block: calc(-1 * var(--clip-pad)) calc(12px - var(--clip-pad));
   font-size: clamp(16px, 4.6vw, 68px); /* 唔識 cqi 嘅舊瀏覽器（Safari < 16）用返 viewport 階梯 */
   font-size: clamp(16px, min(4.6vw, calc(100cqi / 9.5)), 68px);
-  line-height: 1.06;
+  font-weight: var(--w-heading);
+  line-height: var(--lh-hero);
 }
 /* 唔識 cqi 嘅舊瀏覽器：字級跟 viewport，一行塞唔落就照舊換行，唔好 nowrap 剩返兩三隻字 */
 @supports not (font-size: 1cqi) {
@@ -803,12 +850,13 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   margin: -4px 0 10px;
   color: var(--muted, var(--hero-copy));
   font-size: 14px; /* 手機／桌面同一個數（owner 2026-08-17 字級統一） */
-  font-weight: 600;
+  font-weight: var(--w-quiet); /* 500：一定要輕過 H1（600）——CJK OS 字上 600 vs 650 冇分別，500 vs 600 先跨到 Regular/Bold 界 */
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.01em;
 }
-/* owner 2026-08-17：市值數字要品牌橙（label「市值 ·」照舊 muted），同排行表 .market-cap-cell 同一隻色 */
-.heatmap-total-cap .cap-ticker { color: var(--accent); font-weight: 650; }
+/* owner 2026-08-17：市值數字要品牌橙（label「市值 ·」照舊 muted），同排行表 .market-cap-cell 同一隻色；
+   weight 600 = data 角色，同 H1 齊平唔超過（accent 已經係佢嘅強調） */
+.heatmap-total-cap .cap-ticker { color: var(--accent); font-weight: var(--w-data); }
 .heatmap-controls {
   flex: none;
   display: flex;
@@ -1186,7 +1234,7 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
 .tune-field input[type="range"] { width: 100%; accent-color: var(--accent); }
 .tune-field input[type="color"] { width: 100%; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: transparent; cursor: pointer; }
 .tune-field-inactive { opacity: 0.45; }
-.tune-field output { min-width: 44px; text-align: right; font-variant-numeric: tabular-nums; font-size: 11px; font-weight: 650; }
+.tune-field output { min-width: 44px; text-align: right; font-variant-numeric: tabular-nums; font-size: 11px; font-weight: var(--w-data); }
 .tune-json { margin: 10px 0 0; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft); font-size: 10px; line-height: 1.5; overflow-x: auto; }
 
 /* /tune 調參 lab：左邊全幅 board、右邊固定 panel；手機轉直排 */
@@ -1244,7 +1292,7 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
 }
 .sheet-image img { width: 100%; height: 100%; object-fit: contain; }
 .preview-copy { min-width: 0; padding: 18px 20px; display: flex; flex-direction: column; }
-.rank-kicker { margin-bottom: 8px; color: var(--accent); font-size: 10px; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; }
+.rank-kicker { margin-bottom: 8px; color: var(--accent); font-size: var(--fs-micro); font-weight: var(--w-label); letter-spacing: 0.08em; text-transform: uppercase; }
 .preview-copy h3,
 .bottom-sheet h3 { margin-bottom: 6px; font-size: 22px; }
 .preview-copy h3 {
@@ -1252,19 +1300,22 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-  line-height: 1.15;
-  max-height: calc(2 * 1.15em);
+  line-height: var(--lh-clamp2);
+  max-height: calc(2 * var(--lh-clamp2) * 1em);
 }
 .muted-copy { margin-bottom: 12px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+/* overflow-wrap: break-word 唔係 anywhere：grid 欄已經 minmax(0,1fr) + min-width:0，anywhere 會喺有位嘅情況下
+   都揀「Brilliant Star|s」咁斷字；break-word 只喺一個字都塞唔落先斷。 */
 .preview-copy .muted-copy {
+  --lh: 1.35;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
   white-space: normal;
-  overflow-wrap: anywhere;
-  line-height: 1.35;
-  max-height: calc(2 * 1.35em);
+  overflow-wrap: break-word;
+  line-height: var(--lh);
+  max-height: calc(2 * var(--lh) * 1em);
 }
 .preview-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 12px; margin: 0; }
 .preview-facts div { min-width: 0; }
@@ -1274,7 +1325,7 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--preview-facts-dt);
-  font-size: 9px;
+  font-size: var(--fs-micro);
   letter-spacing: 0.03em;
 }
 .preview-facts dd {
@@ -1282,14 +1333,14 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   font-size: 12px;
   font-weight: 600;
   white-space: normal;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   line-height: 1.3;
 }
 .preview-facts div[data-field="editionCode"] {
   grid-column: 1 / -1;
 }
 /* As of 貼底：facts 長短因語言而異，用 auto margin 頂落去，唔會再被裁 */
-.preview-time { margin: auto 0 0; padding-top: 10px; color: var(--muted); font-size: 9px; }
+.preview-time { margin: auto 0 0; padding-top: 10px; color: var(--muted); font-size: var(--fs-micro); }
 .primary-action {
   min-height: 44px;
   display: inline-flex;
@@ -1317,7 +1368,7 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   gap: 24px;
   padding: 10px 2px 0;
 }
-.heatmap-legend { display: flex; align-items: center; gap: 16px; margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: 10px; }
+.heatmap-legend { display: flex; align-items: center; gap: 16px; margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: var(--fs-micro); }
 .heatmap-legend > li { display: flex; align-items: center; gap: 5px; }
 .legend-swatch { width: 22px; height: 5px; border-radius: 99px; }
 .legend-swatch.down { background: var(--negative); }
@@ -1330,7 +1381,7 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   align-items: center;
   border-bottom: 1px solid var(--ink);
   font-size: 12px;
-  font-weight: 550;
+  font-weight: var(--w-quiet);
   white-space: nowrap;
 }
 
@@ -1410,8 +1461,8 @@ html { scrollbar-gutter: stable; }
 .sort-sheet-group h4 {
   margin: 0 0 8px;
   color: var(--muted);
-  font-size: 10px;
-  font-weight: 650;
+  font-size: var(--fs-micro);
+  font-weight: var(--w-label);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -1438,7 +1489,7 @@ html { scrollbar-gutter: stable; }
   min-height: 48px;
   border-radius: var(--control-radius);
   font-size: 14px;
-  font-weight: 650;
+  font-weight: var(--w-label);
   cursor: pointer;
 }
 .sort-sheet-apply {
@@ -1504,9 +1555,9 @@ html { scrollbar-gutter: stable; }
   overflow: hidden;
   border-bottom: 1px solid var(--line);
   color: var(--table-head);
-  font-size: 9.5px;
-  font-weight: 650;
-  letter-spacing: 0.055em;
+  font-size: var(--fs-th);
+  font-weight: var(--w-label);
+  letter-spacing: var(--track-th);
   text-align: left;
   text-transform: uppercase;
   text-overflow: ellipsis;
@@ -1561,7 +1612,7 @@ html { scrollbar-gutter: stable; }
   flex: none;
   object-fit: contain;
 }
-.grader-table .grader-card strong { min-width: 0; overflow: hidden; font-size: 13px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+.grader-table .grader-card strong { min-width: 0; overflow: hidden; font-size: 13px; font-weight: var(--w-name); text-overflow: ellipsis; white-space: nowrap; }
 .rank-cell { color: var(--rank-cell) !important; font-variant-numeric: tabular-nums; font-weight: 600; text-align: left; }
 .rank-cell[data-rank="1"],
 .rank-cell[data-rank="2"],
@@ -1574,7 +1625,7 @@ html { scrollbar-gutter: stable; }
 .sales-cell .price-delta { display: flex; justify-content: flex-end; }
 /* 主數同 delta 各自右對齊，兩行右邊先齊；成個 cell 內容推埋右邊 */
 .price-cell, .market-cap-cell, .sales-cell { text-align: right; }
-.price-now { display: block; margin-left: auto; font-size: 14px; font-weight: 650; text-align: right; }
+.price-now { display: block; margin-left: auto; font-size: 14px; font-weight: var(--w-data); text-align: right; }
 .pop-now { display: block; font-weight: 600; }
 .desktop-ranking-table td:has(.pop-now) { white-space: normal !important; }
 .price-delta {
@@ -1621,9 +1672,9 @@ html { scrollbar-gutter: stable; }
 }
 .ranking-thumb img { width: 100%; height: 100%; vertical-align: middle; object-fit: contain; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 .ranking-name { min-width: 0; }
-.ranking-name strong { display: block; overflow: hidden; color: var(--ink); font-size: 13px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+.ranking-name strong { display: block; overflow: hidden; color: var(--ink); font-size: 13px; font-weight: var(--w-name); text-overflow: ellipsis; white-space: nowrap; }
 .collector-cell { color: var(--mobile-number) !important; font-family: var(--font-mono); font-size: 10px !important; }
-.market-cap-cell { color: var(--accent) !important; font-weight: 650; }
+.market-cap-cell { color: var(--accent) !important; font-weight: var(--w-data); }
 .metric-positive { color: var(--positive) !important; }
 .metric-negative { color: var(--negative) !important; }
 .metric-neutral { color: var(--metric-neutral) !important; }
@@ -1662,8 +1713,8 @@ html { scrollbar-gutter: stable; }
   text-align: center;
   pointer-events: none;
 }
-.grader-share-center strong { font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
-.grader-share-center span { color: var(--muted); font-size: 9.5px; letter-spacing: 0.04em; text-transform: uppercase; }
+.grader-share-center strong { font-size: 15px; font-weight: var(--w-data); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.grader-share-center span { color: var(--muted); font-size: var(--fs-micro); letter-spacing: 0.04em; text-transform: uppercase; }
 .grader-share-legend {
   display: flex;
   flex-wrap: wrap;
@@ -1707,7 +1758,7 @@ html { scrollbar-gutter: stable; }
     padding: 6px 14px 6px 10px;
     border-bottom: 1px solid var(--line);
     color: var(--dt-color);
-    font-size: 9px;
+    font-size: 10px; /* 固定唔用 token：390px 五欄一行，CJK 11px 會令欄名互撞（C2 9→10 只補 CJK floor） */
     font-weight: 600;
     letter-spacing: 0.04em;
     /* 表頭高度唔准跟翻譯長度變：英文欄名摺兩行就由 27px 變 40px，成張榜俾佢推低 13px
@@ -1761,7 +1812,7 @@ html { scrollbar-gutter: stable; }
     color: var(--ink);
     font-size: 13px;
     font-weight: 600;
-    line-height: 1.25;
+    line-height: var(--lh-clamp2m);
     white-space: normal;
   }
   .mobile-card-sub {
@@ -2065,11 +2116,11 @@ html.theme-transitions .card-dialog {
   background: var(--detail-rank-bg);
   color: var(--detail-rank-text);
   font-size: 11px;
-  font-weight: 650;
+  font-weight: var(--w-label);
 }
 .detail-content { min-width: 0; }
 .detail-header { padding-top: 6px; }
-.detail-header h1 { font-size: clamp(34px, 3.4vw, 48px); letter-spacing: -0.02em; }
+.detail-header h1 { font-size: clamp(34px, 3.4vw, 48px); letter-spacing: var(--track-name); }
 /* set 名後面跟印刷語言 badge，所以要 flex + gap（純文字行冇 gap 會黐埋個 pill） */
 .detail-set { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; color: var(--muted); font-size: 15px; }
 .detail-period-row { margin: 18px 0 12px; }
@@ -2092,7 +2143,7 @@ html.theme-transitions .card-dialog {
 }
 .detail-metrics .wide-metric { grid-column: span 2; }
 .detail-metrics span { display: block; margin-bottom: 5px; overflow: hidden; color: var(--dt-color); font-size: 11px; letter-spacing: 0.02em; text-overflow: ellipsis; white-space: nowrap; }
-.detail-metrics strong { display: block; overflow: hidden; font-size: 22px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.detail-metrics strong { display: block; overflow: hidden; font-size: 22px; font-weight: var(--w-data); text-overflow: ellipsis; white-space: nowrap; }
 .detail-metrics .metric-value-fit { font-size: clamp(16px, 1.5vw, 22px); }
 /* WS3 count-up 將數值包咗一層 <span class="cap-ticker">，撞正上面「.detail-metrics span = 細字 label」嗰條——
    市值 / PSA10 價 / POP 三格出街版一直係 9.5px 灰字（2026-08-17 owner 話「d 錢」睇唔清先揭發）。
@@ -2123,8 +2174,8 @@ html.theme-transitions .card-dialog {
 .grader-supply-panel h2 { margin-bottom: 10px; font-size: 13px; }
 .grader-supply-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
 .grader-supply-grid > div { min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-translucent); }
-.grader-supply-grid span { display: block; margin-bottom: 4px; overflow: hidden; color: var(--dt-color); font-size: 9.5px; text-overflow: ellipsis; white-space: nowrap; }
-.grader-supply-grid strong { display: block; font-size: 15px; font-weight: 650; }
+.grader-supply-grid span { display: block; margin-bottom: 4px; overflow: hidden; color: var(--dt-color); font-size: var(--fs-micro); text-overflow: ellipsis; white-space: nowrap; }
+.grader-supply-grid strong { display: block; font-size: 15px; font-weight: var(--w-data); }
 .grader-supply-grid small { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
 @media (max-width: 680px) {
   .grader-supply-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
@@ -2155,7 +2206,7 @@ html.theme-transitions .card-dialog {
   background: var(--surface);
   color: var(--ink);
   font-size: 12px;
-  font-weight: 650;
+  font-weight: var(--w-label);
   cursor: pointer;
   transition: border-color 170ms ease, background 170ms ease;
 }
@@ -2176,7 +2227,7 @@ html.theme-transitions .card-dialog {
 }
 .site-search-hit .ranking-thumb { width: 42px; height: 60px; }
 .catalog-hit-copy { min-width: 0; display: grid; gap: 3px; }
-.catalog-hit-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.catalog-hit-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: var(--w-name); }
 .catalog-hit-meta { display: flex; flex-wrap: wrap; gap: 0 10px; color: var(--muted); font-size: 11px; }
 @media (hover: hover) {
   .site-search-hit:hover,
@@ -2416,7 +2467,7 @@ html.theme-transitions .card-dialog {
 .not-found h1 { margin-bottom: 16px; font-size: clamp(36px, 5vw, 68px); }
 .not-found .primary-action { margin-top: 28px; }
 .site-footer .prestige-tagline,
-.not-found .prestige-tagline { margin: 16px 0 0; color: var(--footer-methodology-text); font-size: 11px; font-weight: 500; letter-spacing: 0.1em; line-height: 1.6; opacity: 0.8; }
+.not-found .prestige-tagline { margin: 16px 0 0; color: var(--footer-methodology-text); font-size: 11px; font-weight: var(--w-quiet); letter-spacing: var(--track-sentence); line-height: 1.6; opacity: 0.8; }
 .not-found .prestige-tagline { margin-top: 24px; max-width: 65ch; }
 /* error.tsx：重試掣 + 返首頁並排，窄屏直排 */
 .error-page-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
@@ -2446,7 +2497,7 @@ button.primary-action { border: 0; }
   background: var(--print-badge-neutral-bg);
   color: var(--print-badge-neutral-text);
   font-size: 11px;
-  font-weight: 650;
+  font-weight: var(--w-label);
   letter-spacing: 0.01em;
   line-height: 1;
   white-space: nowrap;
@@ -2473,7 +2524,7 @@ button.primary-action { border: 0; }
   border-radius: 999px;
   background: var(--print-chip-bg);
   color: var(--print-chip-text);
-  font-size: 10px;
+  font-size: var(--fs-micro);
   font-weight: 600;
   letter-spacing: 0.02em;
   line-height: 1.6;
@@ -3054,7 +3105,7 @@ html.theme-transitions .box-thumb { transition: background-color 240ms cubic-bez
   .hero-copy { font-size: clamp(15px, 1.55vw, 22px); }
 
   /* 2. 排行表 */
-  .desktop-ranking-table th { height: 56px; padding-inline: 12px; font-size: 10.5px; }
+  .desktop-ranking-table th { height: 56px; padding-inline: 12px; font-size: max(10.5px, var(--fs-th)); }
   .desktop-ranking-table td { height: 88px; padding-inline: 12px; font-size: 13.5px; }
   /* 欄闊重分：卡名欄 20%→26%（1440 闊 12 個中文字就省略號，而編號／POP 欄一半係空），
      編號 10→8、POP 10→9、價 13→12、升跌 9→8、走勢 10→9；卡榜合計仍係 100%。 */
