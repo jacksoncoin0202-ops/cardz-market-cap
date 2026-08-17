@@ -3,18 +3,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { srcSet as cardSrcSet } from "./card-image";
 import { HeatmapTile, tileFetchPriority, tileImageSizes } from "./heatmap-tile";
+import { displayCardName } from "@/lib/card-name";
 import { snapCardBox, snapFrameGrid, snapTileBox } from "@/lib/pixel-snap";
 import { heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
 import { changeValue, tileColors, tileStyle, type TileParams } from "@/lib/tile-style";
 import { useUpDown } from "@/lib/use-updown";
-import type { MarketCardView, MarketWindow } from "@/lib/types";
+import type { Locale, MarketCardView, MarketWindow } from "@/lib/types";
 
 /* 純 tiles board：填滿父容器（100%×100%），冇 heading/controls，俾 tune lab 重用 */
-export function HeatmapTilesBoard({ cards, period, params, dark, onPick }: {
+export function HeatmapTilesBoard({ cards, period, params, dark, locale, onPick }: {
   cards: MarketCardView[];
   period: MarketWindow;
   params: TileParams;
   dark: boolean;
+  /* alt 要本地化卡名（同 `heatmap.tsx` 一樣行 `displayCardName`）。唔傳就當 en。 */
+  locale?: Locale;
   onPick?: (card: MarketCardView) => void;
 }) {
   const frameRef = useRef<HTMLDivElement>(null);
@@ -89,8 +92,8 @@ export function HeatmapTilesBoard({ cards, period, params, dark, onPick }: {
             imageSrcSet={cardSrcSet(card.image)}
             sizes={tileImageSizes(cardBox.cardW)}
             fetchPriority={tileFetchPriority(card.viewRank, cardBox.cardW)}
-            alt={card.officialName ?? ""}
-            ariaLabel={`#${card.viewRank} ${card.officialName ?? ""} ${card.collectorNumber}`.trim()}
+            alt={displayCardName(card, locale ?? "en")}
+            ariaLabel={`#${card.viewRank} ${displayCardName(card, locale ?? "en")} ${card.collectorNumber}`.trim()}
             onPick={onPick ? handlePick : undefined}
           />
         );

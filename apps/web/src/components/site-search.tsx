@@ -174,7 +174,10 @@ export function SiteSearch() {
                       onMouseEnter={() => setActive(index)}
                     >
                       <span className="ranking-thumb">
-                        <img src={entry.image.url} alt="" onError={handleCardImageError} />
+                        {/* `.ranking-thumb` 個框 CSS 已經釘死 42×60（手機 52×72）、img `width/height:100%`，
+                            所以呢度冇 CLS 風險，唔使補 intrinsic dims。要補嘅係 lazy：搜尋結果可以拉到好長，
+                            預設 eager 會即刻拉晒每一格嘅縮圖。 */}
+                        <img src={entry.image.url} alt="" loading="lazy" decoding="async" onError={handleCardImageError} />
                       </span>
                       <span className="catalog-hit-copy">
                         <strong>{name}</strong>

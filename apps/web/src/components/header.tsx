@@ -31,14 +31,21 @@ const localeLang: Record<Locale, HtmlLang> = {
 const currencyLabel = Object.fromEntries(currencies.map((item) => [item, item])) as Record<Currency, string>;
 
 /*
- * Logo 兩張 PNG（light 879×380、dark 858×348）以前一齊 render、靠 CSS display 切換，
- * 結果 light mode 都會 fetch 埋張 dark logo。而家只 render 一張，src 由 theme 揀
- * （theme 本身已經係 useSyncExternalStore：server / hydration 出 light，之後先換）。
+ * Logo 兩張 PNG 以前一齊 render、靠 CSS display 切換，結果 light mode 都會 fetch 埋張
+ * dark logo。而家只 render 一張，src 由 theme 揀（theme 本身已經係 useSyncExternalStore：
+ * server / hydration 出 light，之後先換）。
  * width/height 跟真實 PNG 比例寫死，等瀏覽器一早知道個框，唔會 layout shift。
+ *
+ * **header 用 `-h100` 細版**（FE05 assets commit）：`.brand-logo` 最高得 50px
+ * （手機 34、預設 46、≥1440 50），派原圖 879×380 即係 8.8 倍像素。細版由原圖 lanczos3
+ * 縮到高 100px（最大顯示 50px 嘅 2×，Retina 夠用）：light 18,429 → 9,338 B、
+ * dark 9,775 → 7,592 B。
+ * **原圖唔准刪**：`api/og/card/[id]/route.tsx` 用 sharp 讀原圖砌 1200×630 OG 圖，
+ * `lib/share-image.ts` 喺 2496px 闊嘅 canvas 度畫佢 —— 兩處都要全解析度。
  */
 const logoByTheme = {
-  light: { src: "/brand/logo-cardz-marketcap.png", width: 879, height: 380 },
-  dark: { src: "/brand/logo-cardz-marketcap-dark.png", width: 858, height: 348 },
+  light: { src: "/brand/logo-cardz-marketcap-h100.png", width: 231, height: 100 },
+  dark: { src: "/brand/logo-cardz-marketcap-dark-h100.png", width: 247, height: 100 },
 } as const;
 
 /*

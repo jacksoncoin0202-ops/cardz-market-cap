@@ -193,7 +193,9 @@ export function CardDetail({ id, snapshot, related }: {
             mask 用同一張 _600（同 srcset 大圖同一個檔），冇 _600 就退返原圖。
           */}
           <CardArt maskSrc={card.image.variants?.["600"] ?? card.image.url}>
-            <CardImage image={card.image} sizes="(max-width: 680px) 90vw, 560px" loading="eager" alt={card.officialName ?? ""} />
+            {/* alt 用 `title`（= `displayCardName(card, locale, officialName)`）唔用 `officialName`：
+                後者永遠英文，ja/ko/zh 讀屏用戶會聽到一句同版面唔同語言嘅卡名。 */}
+            <CardImage image={card.image} sizes="(max-width: 680px) 90vw, 560px" loading="eager" alt={title} />
           </CardArt>
         </section>
         <div className="detail-content">

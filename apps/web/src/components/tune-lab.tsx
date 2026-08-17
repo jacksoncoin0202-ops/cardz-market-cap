@@ -14,7 +14,7 @@ function TuneLabInner({ cards }: { cards: MarketCardView[] }) {
   return (
     <div className="tune-lab">
       <div className="tune-lab-board">
-        <HeatmapTilesBoard cards={cards} period={period} params={params} dark={theme === "dark"} />
+        <HeatmapTilesBoard cards={cards} period={period} params={params} dark={theme === "dark"} locale={locale} />
       </div>
       <div className="tune-lab-side">
         <TunePanel params={params} onChange={setParams} dark={theme === "dark"} locale={locale} />

@@ -2724,7 +2724,13 @@ button.primary-action { border: 0; }
     border-radius: 6px;
     background: var(--surface);
     color: var(--muted);
-    font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    /* `font:` shorthand 會**重設**冇寫嘅 font-* 子屬性（font-variant / font-stretch / …），
+       而且直接寫死一條 mono stack，繞過 `--font-mono`（Windows 果度先至有 Cascadia / Consolas）。
+       拆返做逐個屬性 = 同全站行同一條 stack。 */
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: var(--w-heading);
+    line-height: 1;
     pointer-events: none;
   }
   .explore-search:focus-within .explore-kbd { display: none; }

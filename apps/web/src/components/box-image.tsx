@@ -26,6 +26,14 @@ export function BoxImage({ image, sizes, alt = "", loading = "lazy", className }
   loading?: "eager" | "lazy";
   className?: string;
 }) {
+  /*
+   * `width`/`height` 係 baked intrinsic pixels（`SealedProductView["image"]`），只係攞嚟開盒佔位。
+   * **唔知就唔准填**（type 個註釋寫得好清楚）：placeholder 冇尺寸、live-db 冇量到就係 0，
+   * 兩種都要 omit —— 借另一件貨嘅比例會令個框一開始就錯，比冇框仲差。
+   * `.detail-art` 高度寫死，所以佢唔會撐開周圍嘅版面；郁嘅係張圖自己由 0×0 彈到實際尺寸
+   * （flex 置中，向兩邊擴），呢個一樣計 layout shift。
+   */
+  const dims = image.width && image.height ? { width: image.width, height: image.height } : {};
   return (
     <img
       src={image.url}
@@ -36,6 +44,7 @@ export function BoxImage({ image, sizes, alt = "", loading = "lazy", className }
       decoding="async"
       className={className}
       onError={handleError}
+      {...dims}
     />
   );
 }

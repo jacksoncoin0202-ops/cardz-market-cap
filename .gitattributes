@@ -34,8 +34,10 @@ pipelines/migrations/047_restore_legacy_quote_append_only.mysql.sql -text
 # 字體 binary：test-fe-font-contract.mjs 用 sha256(disk bytes) 對返 index.ts / OG route
 # 檔頭抄嗰個 hash。呢度唔明寫 `-text` 就淨係靠 git 嘅 binary 自動偵測 —— 一個 checkout
 # 揀錯就 eol 正規化，hash 對唔上，而個 test 會喺人哋 clone 完第一次跑就無端紅。
-# 唔准當 `*.png` 咁行 LFS：webfont 要 `next build` 讀得到，LFS pointer 喺冇 smudge
-# 嘅環境（Docker build）就係一個 130 bytes 嘅文字檔。
+# 順帶：字體**唔行 LFS**（上面 `*.png` 果條唔覆蓋佢哋）。呢個 repo 嘅 deploy 係
+# 有 smudge 嘅（`public/brand/*.png` 全部係 LFS pointer，而 OG route 用 sharp 讀原圖
+# 出到正常 logo），所以唔係「一定唔得」；只係字體 130 bytes 一個 pointer 換嚟嘅
+# 失敗模式（全站跌 fallback 字，冇 error）唔值得為咗慳嗰 380 kB 去冒。
 *.ttf -text
 *.otf -text
 *.woff -text
