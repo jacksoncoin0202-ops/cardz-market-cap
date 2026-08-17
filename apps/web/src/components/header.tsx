@@ -9,6 +9,7 @@ import { SelectControl } from "./select-control";
 import { SiteSearch } from "./site-search";
 import { tap } from "@/lib/haptic";
 import { currencyDisplayName, currencyMenuGroup, currencyMenuOrder, currencySymbol } from "@/lib/currency-meta";
+import { htmlLang, type HtmlLang } from "@/lib/card-name";
 import { copy } from "@/lib/i18n";
 import { currencies, locales, type Currency, type Locale } from "@/lib/types";
 import { useMarketSettings } from "@/lib/use-market-settings";
@@ -16,7 +17,16 @@ import { useUpDown } from "@/lib/use-updown";
 
 const localeLabel = { en: "EN", "zh-TW": "繁中", "zh-CN": "简中", ja: "日本語", ko: "한국어" } as const;
 /* 選項文字係各自語言寫嘅，俾 lang tag 讀屏先唔會用英文口音讀「日本語」 */
-const localeLang = { en: "en", "zh-TW": "zh-Hant", "zh-CN": "zh-Hans", ja: "ja", ko: "ko" } as const;
+/* 語言選單每個選項用自己嘅語言標 lang（「繁中」要 zh-Hant 字形，唔係跟緊住頁面語言）。
+   值一律由 htmlLang() 出 —— 全站得一個 locale → BCP47 嘅真身，唔准喺呢度再抄一份對照表
+   （抄一份 = 將來加語言時兩邊會唔同步；scripts/test-fe-lang-attr.mjs 守住）。 */
+const localeLang: Record<Locale, HtmlLang> = {
+  en: htmlLang("en"),
+  "zh-TW": htmlLang("zh-TW"),
+  "zh-CN": htmlLang("zh-CN"),
+  ja: htmlLang("ja"),
+  ko: htmlLang("ko"),
+};
 /* Trigger 出 code（USD / HKD…）—— 符號行 icon slot，名只喺選單度出。 */
 const currencyLabel = Object.fromEntries(currencies.map((item) => [item, item])) as Record<Currency, string>;
 

@@ -16,7 +16,7 @@ import { PriceDelta, MetricDelta, staleClass, staleTitle } from "./rankings";
 import { RelatedCards } from "./related-cards";
 import { Reveal } from "./reveal";
 import { absolutePublicUrl, canonicalPublicUrl, datasetId, siteOrganization, StructuredData } from "./structured-data";
-import { displayCardName } from "@/lib/card-name";
+import { cardNameLangAttr, displayCardName } from "@/lib/card-name";
 import { copy } from "@/lib/i18n";
 import { formatInteger, formatMetricInteger, formatMetricMoney, formatMoney, formatObservationDate, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
 import { plainDescription } from "@/lib/plain-text";
@@ -199,7 +199,7 @@ export function CardDetail({ id, snapshot, related }: {
         <div className="detail-content">
           <header className="detail-header">
             <p className="section-kicker">{card.tcg}</p>
-            <h1>{title || t.status.unavailable}</h1>
+            <h1 lang={cardNameLangAttr(card, locale)}>{title || t.status.unavailable}</h1>
             <p className="detail-set">{setLabel || t.status.unavailable}</p>
             {/* 印刷版本逐條併入現有 identity list：冇值嘅欄根本唔會回，
                 所以完全冇資料嗰陣呢個 dl 同以前一模一樣。

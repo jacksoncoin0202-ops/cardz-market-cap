@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { displayCardName } from "@/lib/card-name";
+import { cardNameLangAttr, displayCardName } from "@/lib/card-name";
 import { formatMetricMoney, formatPercent, metricTone } from "@/lib/format";
 import { copy } from "@/lib/i18n";
 import { fillTemplate, geoCopy, type RelatedCardLink, type RelatedCardsPayload } from "@/lib/related-cards";
@@ -34,7 +34,7 @@ function RelatedRow({
   return (
     <li>
       <Link href={href(`/card/${card.id}`)}>
-        <span className="related-name">{title}</span>
+        <span className="related-name" lang={cardNameLangAttr(card, locale)}>{title}</span>
         <span className="related-meta">
           {setName ? `${setName} · ` : ""}#{card.collectorNumber}
           {card.marketRank >= 1 ? ` · #${card.marketRank}` : ""}

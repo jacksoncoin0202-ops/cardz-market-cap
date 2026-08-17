@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { ArrowDown, ArrowUp, Inbox, SearchX, TrendingDown, TrendingUp } from "lucide-react";
 import { CardImage } from "./card-image";
-import { displayCardName } from "@/lib/card-name";
+import { cardNameLangAttr, displayCardName } from "@/lib/card-name";
 import { EmptyState } from "./empty-state";
 import { ExploreBar, SortHeader } from "./explore-bar";
 import { PeriodMenu, PeriodSelector } from "./period-selector";
@@ -105,7 +105,7 @@ function CardIdentity({ card, locale, unavailable }: { card: MarketCardView; loc
     <div className="ranking-card-identity">
       <div className="ranking-thumb"><CardImage image={card.image} sizes="56px" alt={name} /></div>
       <div className="ranking-name">
-        <strong>{name}</strong>
+        <strong lang={cardNameLangAttr(card, locale)}>{name}</strong>
         {/* 語言 chip 同原盒榜一樣擺卡名下面（owner 2026-08-17） */}
         {badge && <span className="ranking-sub-row"><span className={badge.className} title={badge.title}>{badge.label}</span></span>}
       </div>
@@ -504,7 +504,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                     <span className="mobile-card-number">{card.collectorNumber}</span>
                     {langChip && <span className={`${langChip.className} mobile-lang-badge`} title={langChip.title}>{langChip.label}</span>}
                   </span>
-                  <strong className="mobile-card-name">{displayCardName(card, locale, t.status.unavailable)}</strong>
+                  <strong className="mobile-card-name" lang={cardNameLangAttr(card, locale)}>{displayCardName(card, locale, t.status.unavailable)}</strong>
                   {card.marketCap.value !== null && (card.marketCap.status === "ready" || card.marketCap.status === "stale") && (
                     <span className="mobile-card-sub">
                       <span className={staleClass(card.marketCap, "mobile-card-cap")} title={staleTitle(card.marketCap, locale)}>{formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true)}</span>

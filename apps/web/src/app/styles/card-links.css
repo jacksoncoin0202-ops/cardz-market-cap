@@ -102,7 +102,9 @@
   margin: 0;
   font-size: 14px;
   font-weight: var(--w-heading);
-  letter-spacing: -0.01em;
+  /* 收編：本來硬寫 -0.01em，CJK block 清唔到 → ja/ko/zh 嘅「このセットの他のカード」都食住負字距。
+     --track-copy = Latin -0.012em / CJK 0（差 0.028px @14px，肉眼冇）。 */
+  letter-spacing: var(--track-copy);
 }
 
 .related-group > header a {

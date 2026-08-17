@@ -936,18 +936,18 @@ export const copy: Record<Locale, Copy> = {
   ja: {
     nav: { all: "TCG 市場", pokemon: "ポケモン", onePiece: "ワンピース", watchlist: "ウォッチリスト", box: "BOX", previousPage: "前のページ", nextPage: "次のページ" },
     pageTitles: {
-      methodology: "トレカ 時価総額の算出方法：PSA10 価格 × 鑑定枚数",
+      methodology: "トレカ 時価総額の算出方法：PSA 10 価格 × 鑑定枚数",
       about: "CardZ Marketcap とは：鑑定カード時価総額指数",
-      faq: "ポケモンカード 時価総額 FAQ：PSA10 の疑問に回答",
-      glossary: "PSA10 時価総額の用語集：鑑定カード指数の用語",
-      data: "PSA10 時価総額のデータと API：JSON で取得",
+      faq: "ポケモンカード 時価総額 FAQ：PSA 10 の疑問に回答",
+      glossary: "PSA 10 時価総額の用語集：鑑定カード指数の用語",
+      data: "PSA 10 時価総額のデータと API：JSON で取得",
     },
     pageDescriptions: {
-      methodology: "CardZ Marketcap がトレカ時価総額を算出する方法：PSA10 参考価格に確認済みの PSA10 鑑定枚数を掛けます。あえて空欄のままにする箇所も説明します。",
-      about: "CardZ Marketcap は毎日更新される鑑定カード時価総額指数です。ポケモンカードとワンピースカードを PSA10 時価総額で順位付けしています。対象範囲と運営者を説明します。",
-      faq: "ポケモンカード時価総額と PSA10 時価総額についての質問と回答：この数値が何を示すのか、価格と鑑定枚数の出どころ、そして何ではないのか。",
-      glossary: "鑑定カード指数の用語集：PSA10 時価総額、ポピュレーションレポート、ジェムレート、参考価格など、ランキングで使う用語を定義します。",
-      data: "公開の読み取り専用 API で PSA10 時価総額ランキングを JSON 提供。エンドポイント、フィールド定義、更新頻度、ライセンス、引用形式を掲載。",
+      methodology: "CardZ Marketcap がトレカ時価総額を算出する方法：PSA 10 参考価格に確認済みの PSA 10 鑑定枚数を掛けます。あえて空欄のままにする箇所も説明します。",
+      about: "CardZ Marketcap は毎日更新される鑑定カード時価総額指数です。ポケモンカードとワンピースカードを PSA 10 時価総額で順位付けしています。対象範囲と運営者を説明します。",
+      faq: "ポケモンカード時価総額と PSA 10 時価総額についての質問と回答：この数値が何を示すのか、価格と鑑定枚数の出どころ、そして何ではないのか。",
+      glossary: "鑑定カード指数の用語集：PSA 10 時価総額、ポピュレーションレポート、ジェムレート、参考価格など、ランキングで使う用語を定義します。",
+      data: "公開の読み取り専用 API で PSA 10 時価総額ランキングを JSON 提供。エンドポイント、フィールド定義、更新頻度、ライセンス、引用形式を掲載。",
     },
     footerNav: {
       heading: "サイト内リンク",
@@ -960,8 +960,8 @@ export const copy: Record<Locale, Copy> = {
       data: "データと API",
     },
     boxHero: {
-      eyebrow: "BOX市場",
-      title: "未開封BOX · 成約価格を優先",
+      eyebrow: "BOX 市場",
+      title: "未開封 BOX · 成約価格を優先",
       body: "BOX参考価格は実際の成約が基準。出品価格は参考値です。",
     },
     box: {
@@ -980,7 +980,7 @@ export const copy: Record<Locale, Copy> = {
       fullName: "正式名称",
       print: "版",
       coverage: "{total} 中 {priced} BOXに価格",
-      empty: "BOX市場データを準備中です。",
+      empty: "BOX 市場データを準備中です。",
       showMore: "もっと見る（残り {count} 件）",
       printWaves: { "1st": "初版", wave1: "初版", wave2: "再販", unlimited: "アンリミテッド", reprint: "再販" },
     },
@@ -997,14 +997,14 @@ export const copy: Record<Locale, Copy> = {
       byline: "CardZ Marketcap Editorial が集計・確認しています。",
     },
     hero: {
-      eyebrow: "CARDZ MARKET INDEX", title: "ポケモンカード・トレカ 時価総額 — PSA10 指数",
+      eyebrow: "CARDZ MARKET INDEX", title: "ポケモンカード・トレカ時価総額 — PSA 10 指数",
       body: "アートの価値を起点に、確認済みのカード情報と PSA 10 の流通供給、現在価格から一枚ごとの時価総額を読み解きます。",
     },
     pokemonHero: {
-      eyebrow: "ポケモン市場", title: "ポケモンカード 時価総額ランキング（PSA10）", body: "確認済みの印刷版を PSA 10 時価総額で順位付け。現在の PSA 10 供給と価格だけを使い、数字は作りません。",
+      eyebrow: "ポケモン市場", title: "ポケモンカード 時価総額ランキング（PSA 10）", body: "確認済みの印刷版を PSA 10 時価総額で順位付け。現在の PSA 10 供給と価格だけを使い、数字は作りません。",
     },
     onePieceHero: {
-      eyebrow: "ワンピース市場", title: "ワンピースカード 時価総額ランキング（PSA10）", body: "確認済みの印刷版を PSA 10 時価総額で順位付け。現在の PSA 10 供給と価格だけを使い、数字は作りません。",
+      eyebrow: "ワンピース市場", title: "ワンピースカード 時価総額ランキング（PSA 10）", body: "確認済みの印刷版を PSA 10 時価総額で順位付け。現在の PSA 10 供給と価格だけを使い、数字は作りません。",
     },
     intro: {
       definition: "CardZ Marketcap は鑑定済みコレクションカードの日次時価総額指数です。各カードの時価総額は PSA 10 参考価格 × 確認済み PSA 10 鑑定枚数で算出し、ポケモンカードとワンピースカードを上位から並べます。",
@@ -1028,11 +1028,11 @@ export const copy: Record<Locale, Copy> = {
       },
       dataset: {
         name: "CardZ Marketcap 鑑定トレーディングカード時価総額指数",
-        description: "鑑定済みのポケモンおよびワンピースのトレーディングカードを対象とした日次時価総額指数。PSA10 参考価格に確認済み PSA10 鑑定枚数を掛けて算出。",
+        description: "鑑定済みのポケモンおよびワンピースのトレーディングカードを対象とした日次時価総額指数。PSA 10 参考価格に確認済み PSA 10 鑑定枚数を掛けて算出。",
       },
     },
     watchlistHero: {
-      eyebrow: "マーケットウォッチ", title: "101位以降 · 継続ウォッチ", body: "トップ100圏外のカードの価格鮮度・供給・需要を追跡。",
+      eyebrow: "マーケットウォッチ", title: "101位以降 · 継続ウォッチ", body: "トップ 100圏外のカードの価格鮮度・供給・需要を追跡。",
     },
     heatmap: {
       title: "時価総額 TOP {count}", rankingTitle: "時価総額トップ {count}", pokemonTitle: "ポケモン TOP {count}", onePieceTitle: "ワンピース TOP {count}",

@@ -33,12 +33,24 @@
      拉丁 + 數字永遠由 Inter 出；漢字／假名／諺文 Inter 冇 glyph，逐字跌落後面嘅 OS 字。
      舊 stack 頭四個 family（-apple-system / SF Pro / Helvetica Neue）Windows 一隻都冇 → 全站跌落
      Yu Gothic（日文字）出拉丁 = 2026-08-17 個「用緊日文字體」投訴嘅根。
-     Windows CJK family（JhengHei / YaHei / Malgun）補返，令 zh / ko 唔再食 Yu Gothic 字形；
-     per-:lang() 排序落 C3。
+     Windows CJK family（JhengHei / YaHei / Malgun）補返，令 zh / ko 唔再食 Yu Gothic 字形。
+     C3（fe05(cjk)）：stack 拆做四條 per-script token，`--font-sans` 按 <html lang>（`[lang]:lang()` 規則，
+     :root 之後）重排——ja 頁 JP 字先、zh-Hant 頁 TC 先、zh-Hans 頁 SC 先、ko 頁 KR 先；en 頁 / 未標 lang
+     嘅漢字 JP-first（owner 默認）。點解要重排：Han unification —— 同一個 code point（直／骨／画）
+     喺 JP / TC / SC 字體出唔同字形，Windows 用戶睇 zh 頁唔應該食 Yu Gothic 嘅日式字形。
+     全部係 OS 字，唔 self-host CJK web font（deferred：第二期 Noto font-display: optional）。
+     UI 變體（Yu Gothic UI / JhengHei UI）刻意唔用：拉丁反正由 Inter 出，UI 變體嘅假名／諺文闊度同
+     C1 量度用嘅正體唔同（title-width 估算表 CJK 1.0em/字係對住 Yu Gothic / JhengHei / Malgun 量）。
      --font-mono 之前喺四處逐字複製（collector-cell / mobile-card-number /
      identity-list dd / box-set-chip），改一次要改四處，所以收埋一份；補 Cascadia / Consolas，
      Windows 唔再跌 Courier New。 */
-  --font-sans: var(--font-inter), "PingFang TC", "PingFang SC", "Hiragino Sans", "Yu Gothic", "Microsoft JhengHei", "Microsoft YaHei", "Malgun Gothic", -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+  --f-latin: var(--font-inter);
+  --f-jp: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", YuGothic, Meiryo, "Noto Sans JP", "Noto Sans CJK JP";
+  --f-tc: "PingFang TC", "PingFang HK", "Microsoft JhengHei", "Noto Sans TC", "Noto Sans CJK TC";
+  --f-sc: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC";
+  --f-kr: "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", "Noto Sans CJK KR";
+  --f-tail: -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+  --font-sans: var(--f-latin), var(--f-jp), var(--f-tc), var(--f-sc), var(--f-kr), var(--f-tail);
   --font-mono: "SF Mono", "Cascadia Mono", Consolas, "Roboto Mono", ui-monospace, monospace;
 
   /* ── 流體字階（FE05）──
@@ -100,9 +112,12 @@
   --lh-clamp2m: 1.25;
   --lh-copy: 1.55;
   --clip-pad: 0.16em;
-  /* 字距：display = 全局 h1–h3 嘅 -0.035em（首頁聲線，拉丁不變；C3 喺 CJK 清零）、name = 卡名、
-     copy = 段落、kicker = 大寫 kicker、th = 表頭、sentence = 整句大寫標語（.prestige-tagline）。 */
+  /* 字距：display = 全局 h1–h3 嘅 -0.035em（首頁聲線，拉丁不變；CJK 清零，見 :root 之後嘅 CJK block）、
+     hero = 首頁 heatmap H1 專用（**唔准喺 CJK 清零**：H1 有 9.5em 容器預算，ja「ワンピース TOP 100」
+     ls 0 = 9.52em 會出「…」；test-fe-heatmap-title-width.mjs 讀呢個值做估算，全 repo 只准聲明一次）、
+     name = 卡名、copy = 段落、kicker = 大寫 kicker、th = 表頭、sentence = 整句大寫標語（.prestige-tagline）。 */
   --track-display: -0.035em;
+  --track-hero: -0.035em;
   --track-name: -0.02em;
   --track-copy: -0.012em;
   --track-kicker: 0.14em;
@@ -204,6 +219,62 @@
   --live-beam: var(--accent);
   --live-beam-idle: var(--line);
 }
+
+/* ── per-:lang() 字體 stack（fe05(cjk)，owner 2026-08-17）──
+   `[lang]:lang(x)`（唔係裸 `:lang(x)`）：只掛喺真係帶 lang 屬性嘅元素（<html> + 卡名 <strong lang>），
+   specificity (0,2,0) 唔會同 .collector-cell 之類嘅 --font-mono 規則鬥 source order。
+   ⚠️ 每條除咗重排 --font-sans 之外一定要再寫一次 font-family：body{font-family:var(--font-sans)} 只喺 body
+   compute 一次，後代 <span lang> 繼承嘅係 computed family，唔會因為 --font-sans 變咗而重算。
+   值域 = lib/card-name.ts htmlLang()：en / ja / ko / zh-Hant / zh-Hans（LangScript 亦係出呢五個）。
+   :lang(zh-Hant) 唔 match lang="zh-TW"（RFC 4647 extended filtering），所以 JSX 唔准硬寫 zh-TW。 */
+[lang]:lang(ja) { --font-sans: var(--f-latin), var(--f-jp), var(--f-tc), var(--f-sc), var(--f-kr), var(--f-tail); font-family: var(--font-sans); }
+[lang]:lang(zh-Hant) { --font-sans: var(--f-latin), var(--f-tc), var(--f-sc), var(--f-jp), var(--f-kr), var(--f-tail); font-family: var(--font-sans); }
+[lang]:lang(zh-Hans) { --font-sans: var(--f-latin), var(--f-sc), var(--f-tc), var(--f-jp), var(--f-kr), var(--f-tail); font-family: var(--font-sans); }
+[lang]:lang(ko) { --font-sans: var(--f-latin), var(--f-kr), var(--f-jp), var(--f-tc), var(--f-sc), var(--f-tail); font-family: var(--font-sans); }
+
+/* ── CJK 排版 token 覆蓋（fe05(cjk)）──
+   一個 block 改 token 值，唔重寫版面規則（call site 全部經 §1.3.2 token）。掛喺每個 CJK 語言元素上
+   （唔係只 :root）：en 頁入面嘅 <strong lang="ja"> 都食到；反過來 ja 頁入面 lang="en" 嘅英文卡名
+   繼承 CJK 值（頁面級一致）。specificity (0,1,0) 同 :root 一樣 → 一定要排喺 :root 之後。
+   - 字級 floor：漢字／假名／諺文 10px 已經係下限，label 升到 11（--fs-micro / --fs-th / --fs-nano）
+   - 行高：CJK 冇 ascender/descender 分別，方塊字 1.04 行高會黐埋 → h1–h3 1.25、兩行 clamp 盒 1.35 / 1.4、
+     段落 1.75；`--lh-hero` 唔郁（/ H1 高度 = lh × fs，五語言 heading 高度要全等）；--clip-pad 0.16 → 0.24em
+     （假名濁點／諺文下伸部喺 overflow:hidden 盒要多啲位；padding + 負 margin 一對，版面唔郁）
+   - 字距：display / name / copy / sentence 全部清零（CJK 唔靠 tracking 出聲線；.prestige-tagline 0.1em
+     對 ja / ko 整句係最傷）；kicker 0.14 → 0.05em、th 0.055 → 0.02em、--tracking-wide 0.08 → 0.03em
+   - ⚠️ 首頁 H1 嘅 --track-hero 唔喺呢度清零：`ワンピース TOP 100` 喺 ls 0 會去到 9.52em > 9.5em 容器預算
+     → 出「…」；-0.035em 保住 9.07em（scripts/test-fe-heatmap-title-width.mjs 亦係假設全語言 -0.035）。 */
+:is(:lang(ja), :lang(ko), :lang(zh-Hant), :lang(zh-Hans)) {
+  --fs-nano: 10px;
+  --fs-micro: 11px;
+  --fs-th: 11px;
+  --lh-display: 1.25;
+  --lh-clamp2: 1.35;
+  --lh-clamp2m: 1.4;
+  --lh-copy: 1.75;
+  --clip-pad: 0.24em;
+  --track-display: 0;
+  --track-name: 0;
+  --track-copy: 0;
+  --track-kicker: 0.05em;
+  --track-th: 0.02em;
+  --track-sentence: 0;
+  --tracking-tight: 0;
+  --tracking-wide: 0.03em;
+}
+/* 韓文以詞為單位斷行（keep-all），太長嘅單一詞先由 break-word 硬斷；日／中 kinsoku strict（行首唔准出
+   句讀／小假名／長音）只落文字盒，唔落全局（table cell / chip 入面嘅純數字唔使）。 */
+:lang(ko) { word-break: keep-all; overflow-wrap: break-word; }
+:is(:lang(ja), :lang(zh-Hant), :lang(zh-Hans)) :is(h1, h2, h3, .mobile-card-name, .preview-copy h3, .muted-copy, .preview-facts dd, .hero-copy, .story-panel p) { line-break: strict; }
+/* ⚠️ 上面兩條係「祖先 :lang() + 後代按 tag/class 命中」，所以 CJK 頁入面標咗 lang="en" 嘅英文卡名
+   （card-name.ts cardNameLangAttr）唔會自動解除 —— keep-all 由祖先繼承落嚟，line-break: strict 更加係
+   直接命中 <h1> / .mobile-card-name 本身。要真係有 opt-out 就要明寫呢條解除規則。
+   specificity 同上面兩條打和（0,2,0 / 0,2,0），排喺後面先贏。 */
+:is(:lang(ja), :lang(ko), :lang(zh-Hant), :lang(zh-Hans)) [lang="en"] { word-break: normal; overflow-wrap: break-word; line-break: auto; }
+/* 六條仲係硬寫 0.05–0.1em 嘅大寫 label（拉丁值各自唔同，唔值得為 0.2px 差開幾個 token）：CJK 一律收到
+   --track-kicker（0.05em）。其餘硬寫嘅 letter-spacing 全部 |≤ 0.04em|（最大係 .mobile-list-header 0.04em），
+   CJK 上唔顯眼，唔郁。scripts/test-fe-font-contract.mjs 掃全部 CSS 守住呢句唔會再講大話。 */
+:is(:lang(ja), :lang(ko), :lang(zh-Hant), :lang(zh-Hans)) :is(.rank-kicker, .select-group-label, .footer-methodology-title, .footer-nav-title, .sort-sheet-group h4, .seo-table thead th) { letter-spacing: var(--track-kicker); }
 
 [data-theme="dark"] {
   --ink: #ececec;
@@ -830,7 +901,9 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
      樓底 16px（981px 時 ja/ko 容器只剩 ~152px，最長標題要 16px 先入到）；再唔夠位先出「...」（= 文案要再縮，唔係 CSS 問題）。
      padding/margin ±clip-pad 係一對：overflow hidden 會裁 1.06 行高外面嘅下伸部（p/g 同假名嘅濁點），
      加 padding 擴大裁剪盒、負 margin 補返，版面高度不變（C3 CJK 會將 --clip-pad 升到 0.24em）。
-     字重明寫 --w-heading（600）：首頁階層由 size（68:14）+ weight（跨 500 界）+ colour（ink:muted）三樣承載。 */
+     字重明寫 --w-heading（600）：首頁階層由 size（68:14）+ weight（跨 500 界）+ colour（ink:muted）三樣承載。
+     字距用 --track-hero 唔用 h1 全局嘅 --track-display：CJK block 會將 --track-display 清零，但呢個 H1 有 9.5em
+     容器預算，ja「ワンピース TOP 100」ls 0 = 9.52em 會出「…」，所以五語言一律 -0.035em（title-width test 同一假設）。 */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -839,6 +912,7 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   font-size: clamp(16px, 4.6vw, 68px); /* 唔識 cqi 嘅舊瀏覽器（Safari < 16）用返 viewport 階梯 */
   font-size: clamp(16px, min(4.6vw, calc(100cqi / 9.5)), 68px);
   font-weight: var(--w-heading);
+  letter-spacing: var(--track-hero);
   line-height: var(--lh-hero);
 }
 /* 唔識 cqi 嘅舊瀏覽器：字級跟 viewport，一行塞唔落就照舊換行，唔好 nowrap 剩返兩三隻字 */
@@ -2039,7 +2113,10 @@ html.theme-transitions .card-dialog {
   .heatmap-section { grid-template-rows: auto minmax(0, 1fr) auto; padding: 8px 0 12px; }
   .heatmap-heading { align-items: flex-start; flex-direction: column; gap: 4px; padding-bottom: 8px; }
   .heatmap-heading h1,
-  .heatmap-heading h2 { margin-bottom: calc(4px - 0.16em); font-size: 20px; line-height: 1.15; }
+  /* clip-pad 對：padding-block 係 var(--clip-pad)，margin 一定要用同一個 token 抵返。
+     本來硬寫 0.16em，CJK 升到 0.24em 之後抵少咗 0.08em × 20px = 1.6px —— 390 度 CJK heading
+     實測高過 EN 1.61px（DOM 量到 149.98 vs 151.59），熱力圖偷咗嗰 1.6px。 */
+  .heatmap-heading h2 { margin-bottom: calc(4px - var(--clip-pad)); font-size: 20px; line-height: 1.15; }
   .heatmap-total-cap { margin: 0; }
   .heatmap-controls { align-self: stretch; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 4px; }
   /* Row 1: tune toggle + Tiles slider stretched wide. */

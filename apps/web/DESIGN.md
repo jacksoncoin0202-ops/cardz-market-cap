@@ -64,7 +64,8 @@ component CSS 寫死 `#b85416`。呢條係 `fe-design-review` gate 嘅硬檢查�
 | Token | 值 | 用途 |
 |---|---|---|
 | `--font-inter` | `next/font/local` 出（`src/fonts/index.ts`，落 `<html className>`） | **只准由 `--font-sans` consume**；call site 唔准直用、唔准硬寫 `"Inter"`（family 係 hash 名） |
-| `--font-sans` | `var(--font-inter), <OS CJK stack>, Arial, sans-serif`（:41） | `body` 唯一字體。拉丁 self-host Inter（§1.3.1），CJK 行 OS 字。**冇 display face、冇 CJK web font** |
+| `--f-latin` / `--f-jp` / `--f-tc` / `--f-sc` / `--f-kr` / `--f-tail` | `var(--font-inter)` / 各 script 嘅 OS 字 stack / `-apple-system, BlinkMacSystemFont, Arial, sans-serif` | **只准由 `--font-sans` 砌用**（§1.3.3）；call site 唔准直用 `--f-*` |
+| `--font-sans` | `var(--f-latin), var(--f-jp), var(--f-tc), var(--f-sc), var(--f-kr), var(--f-tail)`（:root 默認 JP-first）+ 四條 `[lang]:lang()` 覆蓋按語言重排 | `body` 唯一字體。拉丁 self-host Inter（§1.3.1），CJK 行 OS 字、按 `<html lang>` 排先後（§1.3.3）。**冇 display face、冇 CJK web font** |
 | `--font-mono` | `"SF Mono", "Cascadia Mono", Consolas, "Roboto Mono", ui-monospace, monospace` | 編號 / ID 類欄位（Windows 之前跌 Courier New，webfont commit 補 Cascadia / Consolas） |
 
 `--font-mono` 之前喺四個地方逐字複製；FE05 收埋做一個 token，四處（`.collector-cell` :1509、
@@ -91,7 +92,7 @@ YaHei / Malgun 全部只得 300/400/700 static weight，CSS 匹配 500→400、>
 | CSP | `font-src 'self'` 唔使改 | next/font 出 `/_next/static/media/*.woff2` 同源；`prepare-standalone.mjs` 已 copy `.next/static` |
 | 點解唔 `next/font/google` | webhook `docker compose up --build` build stage 要出外網攞字體，一次 DNS / egress 失敗 = deploy fail；google 版最終都係 self-host，CSP 零分別 |
 | 授權 | SIL OFL 1.1，`src/fonts/OFL.txt` 同行（binary 派發義務） |
-| 契約 | `scripts/test-fe-font-contract.mjs`（`npm test` 自動 glob）：next/font 只准 `src/fonts/index.ts` 一處、零手寫 `@font-face` / googleapis / gstatic、`--font-sans` 打頭 `var(--font-inter)`、variable 落 `<html>`、OFL + sha256 + ≤60 kB。加完種過 3 個 bug 見紅（body 位置 / 外部 host / --font-sans 換頭）再還原 |
+| 契約 | `scripts/test-fe-font-contract.mjs`（`npm test` 自動 glob）：next/font 只准 `src/fonts/index.ts` 一處、零手寫 `@font-face` / googleapis / gstatic、`--f-latin = var(--font-inter)` + 每條 `--font-sans` 宣告打頭 `var(--f-latin)`（cjk commit 起，見 §1.3.3）、variable 落 `<html>`、OFL + sha256 + ≤60 kB。加完種過 3 個 bug 見紅（body 位置 / 外部 host / --font-sans 換頭）再還原 |
 
 **連帶改動（同一 commit，唔准拆開出街）：**
 
@@ -153,6 +154,97 @@ JhengHei / YaHei / Malgun）只得 Regular / Bold 兩級，CSS 匹配界線 = **
 | `--step-2` | `clamp(20px, 3vw, 26px)` | 667–867px | `.content-body h2`（= FE04 原式） |
 | `--step-3` | `clamp(26px, 3.4vw, 42px)` | 765–1236px | `.hub-hero h1`（= FE04 原式） |
 | `--step-4` | `clamp(28px, 5vw, 42px)` | 560–840px | `.content-hero h1`（= FE04 原式） |
+
+#### 1.3.3 CJK：per-`:lang()` 字體 stack + CJK token 覆蓋 + 卡名 `lang`（FE05 cjk commit，2026-08-17）
+
+**點解要**：§1.3.1 之後拉丁係 Inter，但 Inter 冇一個 CJK glyph，漢字 / 假名 / 諺文全部靠 `--font-sans` 後面嘅 OS 字逐字
+fallback。舊 stack 一條到底（JP 字排先），即係 **zh-TW / zh-CN 頁嘅漢字喺 Windows 都係 Yu Gothic 出**（Han unification：
+「直 / 骨 / 画」字形跟字體國別，台灣用戶見到日式字形），ko 頁嘅漢字同樣。而且 §1.3.2 嘅字距 / 行高 / 微字級係為拉丁調嘅
+（-0.035em display tracking、9–10px 微標、1.04 行高）—— 對 CJK 一律唔啱：CJK 唔靠 tracking 出聲線、方塊字 10px 以下糊、
+1.04 行高會裁上下。所以 C3 做三件事，**全部係 token 覆蓋，唔重寫版面規則**。
+
+**1. 字體 stack 拆做 per-script token，按 `<html lang>` 重排**（globals.css `:root` + 緊跟 `:root {}` 後面嘅 4 條 `[lang]:lang()`）：
+
+| Token | 值 |
+|---|---|
+| `--f-latin` | `var(--font-inter)` |
+| `--f-jp` | `"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", YuGothic, Meiryo, "Noto Sans JP", "Noto Sans CJK JP"` |
+| `--f-tc` | `"PingFang TC", "PingFang HK", "Microsoft JhengHei", "Noto Sans TC", "Noto Sans CJK TC"` |
+| `--f-sc` | `"PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC"` |
+| `--f-kr` | `"Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", "Noto Sans CJK KR"` |
+| `--f-tail` | `-apple-system, BlinkMacSystemFont, Arial, sans-serif` |
+| `--font-sans`（`:root` 默認） | `latin, jp, tc, sc, kr, tail` —— 未標 lang 嘅漢字 JP-first（owner 默認：卡本身係日版為主） |
+| `[lang]:lang(ja)` | `latin, jp, tc, sc, kr, tail` |
+| `[lang]:lang(zh-Hant)` | `latin, tc, sc, jp, kr, tail` |
+| `[lang]:lang(zh-Hans)` | `latin, sc, tc, jp, kr, tail` |
+| `[lang]:lang(ko)` | `latin, kr, jp, tc, sc, tail` |
+
+**兩個陷阱（contract test 守住）**：
+- **每條 `[lang]:lang()` 一定要同時再寫 `font-family: var(--font-sans)`** —— `body { font-family: var(--font-sans) }` 只 compute 一次，
+  後代 `<span lang="en">` 繼承嘅係 *computed* family，淨改 token 唔會生效。selector 用 `[lang]:lang(x)`（specificity 0,2,0）
+  係為咗壓過 `body`（0,0,1）同 `.xxx`（0,1,0）—— 唔准喺 call site 再寫 `font-family`。
+- **`:lang(zh-Hant)` 唔 match `lang="zh-TW"`**（RFC 4647 extended filtering 只由 prefix 對）。所以 `<html lang>` 同任何 `lang` 屬性
+  **只准出五個值 `en | ja | ko | zh-Hant | zh-Hans`**（`lib/card-name.ts` `htmlLang()`；`document-language.tsx` LangScript + `DocumentLanguage`
+  兩處都行呢個 map），唔准喺 JSX 硬寫 `lang="zh-TW"`。
+- 唔用 `Yu Gothic UI` / `Microsoft JhengHei UI` / `YaHei UI`（Windows UI 變體字面較窄、行高較細）：§1.3.1 / §1.3.2 嘅量度（title-width 表、
+  tile label、H1 高度）全部係用非 UI 版量嘅，換 UI 版就要全部重量。
+
+**2. CJK token 覆蓋**（一個 `:is(:lang(ja), :lang(ko), :lang(zh-Hant), :lang(zh-Hans)) { … }` block，緊跟 stack 規則）：
+
+| Token | 拉丁（§1.3.2） | CJK | 點解 |
+|---|---|---|---|
+| `--fs-nano` / `--fs-micro` / `--fs-th` | 9 / 10 / 9.5px | **10 / 11 / 11px** | 方塊字 floor 10、標籤 11（§1.3.2 嗰堆 `max(10.5px, var(--fs-micro))` 就係為呢一步留嘅） |
+| `--lh-display` / `--lh-clamp2` / `--lh-clamp2m` / `--lh-copy` | 1.04 / 1.15 / 1.25 / 1.55 | **1.25 / 1.35 / 1.4 / 1.75** | 方塊字上下滿格，1.04 會裁 |
+| `--lh-hero` | 1.06 | **1.06 唔郁** | `/` H1 高度 = lh × fs，郁咗就偷 heatmap 高度；改用 `--clip-pad` 頂。⚠️ 驗收係「**390 度五語言相等**」（H1 撞住字級下限 20px）——**1280 由來未相等過**：H1 fs = `min(4.6vw, calc(100cqi / 9.5))`，1280 度綁住 `100cqi/9.5`，而 cqi（`.heatmap-title` 容器）隨 `.heatmap-controls` 字長逐語言變 426.25–440.25px → fs 差 1.474px → 高度差 1.54px。實測 live（C2，冇 CJK block）同 dev（C3）五個數逐位相同，即係版面結構本身，唔係 CJK token 造成（`temp/fe05/review-webfont/heading-baseline-live.mjs`） |
+| `--clip-pad` | 0.16em | **0.24em** | H1 padding-block（負 margin 抵消），CJK 上下唔裁 |
+| `--track-display` / `--track-name` / `--track-copy` / `--track-sentence` / `--tracking-tight` | -0.035 / -0.02 / -0.012 / 0.1em / 舊值 | **0** | CJK 唔靠 tracking；`.prestige-tagline` 0.1em 對整句日文 / 韓文係最刺眼嗰個 |
+| `--track-kicker` / `--track-th` / `--tracking-wide` | 0.14 / 0.055 / 舊值 | **0.05 / 0.02 / 0.03em** | 大寫 kicker 對漢字 no-op，但字距唔可以係 0.14em |
+| **`--track-hero`**（新，`:root` 一次） | -0.035em | **-0.035em 唔郁**（唔喺 CJK block 出現） | `.heatmap-heading h1,h2` 由 `--track-display` 改行 `--track-hero`：ja「ワンピース TOP 100」清零就係 9.52em > 9.5 × 0.97 = 出「…」。`test-fe-heatmap-title-width.mjs` 直接讀呢個 token（唔硬寫 -0.035）並 assert 全 globals.css 只宣告一次 |
+
+再加四條**唔係 token** 嘅 CJK 規則：`:lang(ko) { word-break: keep-all; overflow-wrap: break-word }`（韓文按詞斷）；
+`:is(:lang(ja), :lang(zh-Hant), :lang(zh-Hans)) :is(h1,h2,h3,.mobile-card-name,.preview-copy h3,.muted-copy,.preview-facts dd,.hero-copy,.story-panel p) { line-break: strict }`
+（禁則：「。」「、」唔准企行首）；**`:is(:lang(ja),:lang(ko),:lang(zh-Hant),:lang(zh-Hans)) [lang="en"] { word-break: normal; overflow-wrap: break-word; line-break: auto }`**
+（見下面 3.）；`.rank-kicker / .select-group-label / .footer-methodology-title / .footer-nav-title / .sort-sheet-group h4 / .seo-table thead th`
+六條硬寫 letter-spacing 嘅標籤喺 CJK 下改行 `var(--track-kicker)`。`text-transform: uppercase` 保留（對漢字 no-op）。
+`test-fe-font-contract.mjs` 掃全部 CSS：凡硬寫 `letter-spacing` 絕對值 > 0.04em 而唔喺收編名單 = 紅（原本漏咗
+`.sort-sheet-group h4` 0.06em，ja「並べ替え」真係食住 20% 超標字距）。
+
+**3. 卡名 `lang` 屬性**（`lib/card-name.ts` `displayCardNameLang()` / `cardNameLangAttr()`）：`displayCardName` 跌落英文 `officialName`
+嗰啲卡（zh-CN 譯名覆蓋最少）喺 CJK 頁出 `lang="en"`，譯名存在就唔出屬性（同頁面語言一樣）。
+**唔用 `card.cardLanguage`**（實體卡印刷語言，唔係顯示緊嘅名嘅語言）。
+⚠️ **`lang="en"` 自己一個係改唔到 CSS 嘅**：`:lang(ko)` 嘅 keep-all 由祖先**繼承**落嚟、`line-break: strict` 嘅 subject 係
+`:is(h1, .mobile-card-name, …)` 按 tag/class 直接命中元素本身 —— 兩條都唔會因為元素標咗 `lang="en"` 而唔 match。
+真正嘅 opt-out 係上面第四條明寫規則（specificity 同 strict 條打和 0,2,0，靠排喺佢後面贏）。
+`test-fe-lang-attr.mjs` assert 呢條規則存在、解除 `word-break` + `line-break`、而且排喺 `line-break: strict` 之後。
+落點：`rankings.tsx`（桌面 + 手機卡名）、`card-detail.tsx` H1、`related-cards.tsx`。**`heatmap.tsx` 嘅 tile aria / preview 名冇加**
+（review gate off-limits 檔，見 §8 該行「未做」）。
+
+**4. 文案（唔用 `text-autospace`）**：**四個** live ja 文案檔 —— `lib/i18n.ts`、`lib/site-copy.ts`、`lib/hub-copy.ts`（63 處）、
+`lib/related-cards.ts`（12 處）—— ja block 和欧混植補半形空格：`PSA10`→`PSA 10`、`BOX市場`→`BOX 市場`、
+`未開封BOX`→`未開封 BOX`、`トップ100`→`トップ 100`、`のFAQ`→`の FAQ`；`ja.hero.title` 拆走假名／漢字之間嘅空格
+（「ポケモンカード・トレカ時価総額 — PSA 10 指数」）。
+⚠️ 呢條規則本來只寫喺呢度、冇 call site，結果 `hub-copy` / `related-cards` 漏咗成個月都冇人發現。
+而家由 `scripts/test-fe-lang-attr.mjs` ⑥ 守：掃呢四個檔（**去咗註釋先掃**），命中即紅。
+**唔好裸 grep 成個 `apps/web/src`** —— 全 repo 剩低嘅命中係廣東話／英文註釋（`lib/types.ts:115`、`lib/live-db-snapshot.ts:115`、
+`globals.css:2225`…），當紅會逼人改註釋。亦**唔做**「漢字貼住拉丁就紅」嘅通用偵測：`101位以降` 係故意保留嘅正常寫法。
+
+**5. `CapTicker` 單位鎖**（`lib/ticker-start.ts` `tickerStart()` / `tickerEase()`）：compact 單位由 Intl 按值揀（$999M → $1.0B、万 → 億），
+由 0 滾上去途中會換字、字串長度跳。起點改為「同一單位範圍最低嘅 10 冪」（$1B → $2.7B、1億 → 12.31億），跨單位 retarget
+由該範圍邊緣接落去（$2.7B → $850M 變 $999.9M → $850M）。format 係黑盒，只靠字串「單位簽名」（拆走數字 / 分隔符 / 空格）比對。
+兩個真係爆過嘅邊界：
+
+- **`tickerEase` 一定要夾 `[0,1]`**：`start` 喺 layout effect 攞，rAF callback 收到嘅 `now` 係嗰 frame 開始嗰刻，
+  同 frame 內就會 `elapsed < 0`；ease-out cubic `1-(1-p)³` 喺 p<0 回負值 → 顯示值跌到起點以下。
+  dev 實測起點 $1B 第一 frame 出咗 **$993.75M**（單位跳返 M）。
+- **target 貼住單位範圍頂（頭 0.01%，例如 $999.99M）搵唔到更高嘅同單位起點 → 回 `target`（唔滾）**，
+  唔准回範圍底：舊寫法回 `$1M`，即係 `$12B → $999.99M` 呢個**跌價**畫面由低三個數量級嘅位向上滾。
+
+契約 `scripts/test-fe-ticker-unit.mjs`：5 locale × 6 貨幣 × 10 目標 = 900 條 path 各採 101 點 + 298 條真 rAF path（由 −2 frame 掃起）
++ **4800 條單位邊緣 path**（每個 10 冪 ×0.999999…×1.01）。方向斷言係**無條件**嘅（`from > target → start ≥ target`）——
+舊版用 `roomAbove` 守住，而 `$999.99M` 啱啱就係 `roomAbove === false`，個 bug 就係咁綠住出街。
+
+**html lang 唔加 cookie fallback**：`middleware.ts` 對非 en 嘅 document navigation 一定 302 補 `?lang=`，URL 就係 locale 真相；
+LangScript 讀 cookie 出 ja 而 render 出嚟係 en 內容 = 脫節，寧願唔加。
 
 #### 收編規矩（WS1 review 之後收緊，硬標準）
 
@@ -462,8 +554,9 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
 | **feat-currencies** | 貨幣由 7 隻加到 **31 隻**（正典次序，USD 永遠 index 0）；trigger 同選項都出貨幣自己個符號做「logo」；選項出 code + ICU 本地化名（`Intl.DisplayNames`，五語系）；選單 **USD 釘最頂**（owner「usd默認最頂」），之後按 **亞太 → 美洲 → 歐洲 → 中東非洲** 分四組、`max-height: min(420px, 100svh − header − 24px)` 可捲；`availableCurrencies()`（`lib/server-snapshot.ts`）只出 snapshot 真係有匯率嗰批（讀唔到就 fail-open 出全部）；`<SiteHeader>` server wrapper 餵 prop 落 client `<Header>`；`geo-defaults.ts` 由 7 個國家加到 45 個 | ✅ 已落 + live（2026-08-17 08:17Z FE 3bc093a0；08:21Z bake 7a0a7214 出 31 隻匯率，live `?currency=SGD` → `SGD 34.58億`、EUR/MYR 有價） |
 | **fix-share-image** | heatmap「分享圖片」PNG 重做（owner 2026-08-17 晚：「睇上去好山寨」→ 圖片主導、咩都唔使加、全英文、高清、色塊小圓角）：畫圖抽出 `lib/share-image.ts`（純 canvas `renderHeatmapShare()`）、`heatmap.tsx` `exportHeatmap` 只剩砌 opts → toBlob → share/download；`scale = clamp(2400/frameWidth, 2, 3.5)` + 5.2M px 面積封頂（390 直度出 1421×2304、1440 橫度 2774×1455）；底色 + radial vignette + 128² grain + accent hairline 框；tile 圓角 4×scale（同 `.heatmap-tile`）、卡圖 drop shadow、label 同 `.tile-move` 同一組幾何 + plate + text-shadow；header 量內容排一行／兩行；下底只剩一行 legend（swatch = `colors.up/down/neutral`，已跟 red-up／`/tune`）+「Deeper shade = bigger move」（唔夠位就唔出）；footer／QR／methodology／stat／tagline 全部拆走。順手修：tile↔card 對錯（`visibleCards[index]` vs treemap 重排 → 改 `tile.item.card`）、label 字級乘咗兩次 scale、`textBaseline` 漏出、toast 由「已複製連結」改 `t.share.done/error`；`taglines.ts` 死咗嘅 `pickRandomTagline` 刪走。QC：`temp/fe05/desktop-fill/share_image.py` 攔 `navigator.share`，390/1440 × zh-TW/en × light/dark × 綠升/紅升 16 張全 OK | ✅ 已落 + live（2026-08-17 11:04Z push d9af2fa8，11:05Z live chunk 已有新字串；live 實出 390→1421×2304、1440→2774×1455） |
 | **fe05(webfont)** | 拉丁 self-host **Inter Variable latin**（§1.3.1；owner 2026-08-17 拍板，推翻 §8 決定 5）：`src/fonts/{InterVariable-latin.woff2,OFL.txt,index.ts}`（next/font/local，wght 100–900、swap、preload、Arial metric fallback）、`layout.tsx` `<html className={inter.variable}>`、`--font-sans` 打頭 `var(--font-inter)`、`--font-mono` 補 Cascadia / Consolas、body `font-feature-settings tnum` → `font-variant-numeric: tabular-nums` + `font-synthesis: none`、`tile-style.ts` canvas 量度 → Inter 800 tabular 逐字元查表、`test-fe-heatmap-title-width.mjs` 估算表換 Inter 逐字元 + tabular 數字、新 `test-fe-font-contract.mjs`。**只換字，字重／字級／字距一條冇郁**（C2 另 commit）。驗收（dev :3901 headless Chromium，`temp/fe05/review-webfont/{measure-inter,verify-c1,tilelabel}.mjs`）：body family 第一項 `inter`、`inter 100 900 loaded`；woff2 **1 個請求 48,256 B** `immutable` + `<link rel=preload as=font>`、0 CSP violation；`/` **CLS 0 / 0 / 0**（warm ×3）、cold-swap（woff2 +500ms）**0.0001**；LCP element 四次都係 `.heatmap-heading h1`；390 × 5 locale × `/`、`/pokemon`、`/card/[id]`：scrollWidth 全部 390、0 個元素 right > 390、H1 nowrap `scrollWidth == clientWidth`（零 ellipsis）、`.heatmap-heading` 高度五語言 **150px 全等**；tile label 20 組（390/360/768/1440/1920 × 3 hub + 1Y）**0 格爆邊、minGap 4px、overflowText 0**；`tsc` 0；`npm test` FE 全綠（2 個紅係 `pipelines/rebuild_036.py` 讀 machine-private `backend.env`，同 FE 無關）。**點樣反轉**：`git revert` 呢粒（woff2 / OFL 留 repo 無害）| ✅ 已落 + live（2026-08-17 12:17Z，push 2ee7d5a2；live 用內容認：`Link:` header 有 `rel=preload; as=font` woff2、woff2 200 / 48,256 B / `immutable` / `font/woff2`、`<html class="inter_…__variable">`、CSS chunk 有 `--font-inter` + `font-family: inter` + `tabular-nums`。⚠️ live `X-CARDZ-Build` 永遠係 `local`（`next.config.ts` `CARDZ_PUBLIC_BUILD_ID` 出街 build 冇設），**唔可以靠 header 對 SHA**，要用內容 marker） |
-| **fe05(type-scale)** | 字重反轉修正 + 字級／行高／字距 token 化（§1.3.2；投訴 2026-08-17「H1 普通、副標粗、Windows 成個站日文字體」嘅第二粒）：`:root` 加 `--w-*` / `--fs-*` / `--lh-*` / `--track-*` / `--clip-pad` token；`h1,h2,h3` **500 → 600**（CJK OS 字 500 落 Regular，600 落 Bold —— 標題 vs 標籤必須跨 500 界）；`.heatmap-total-cap` **600 → 500**、`.cap-ticker` 650 → 600；26 條 550/650 全部收做 500/600 token（label / name / data / chip 角色）；`.catalog-hit-copy strong` UA 700 → 明寫 600；微字級 9/10px → `var(--fs-micro)`（10px，C3 CJK 升 11）、`.desktop-ranking-table th` → `var(--fs-th)`、`.mobile-list-header` 固定 10px（390 五欄，唔用 token）；`overflow-wrap: anywhere` → `break-word`（`.preview-copy .muted-copy` / `.preview-facts dd`）；`case` feature 只落 15 條 uppercase label class（`·` 係全站分隔符，唔准全局）。`test-fe-heatmap-title-width.mjs` 估算表換 Inter **600** 逐字元（widest 9.06em「ワンピース TOP 100」，DOM 對照誤差 ≤ 0.7%）；review agent check #9 加 `grep 550|650 → 0` + heading ≥ label pair + computed weight ⊆ {400,500,600,700,800}。驗收（dev :3901，`temp/fe05/review-webfont/verify-c2{,-preview}.mjs`）：5 locale × `/`、`/pokemon`、`/card/[id]`、`/market-report`、`/box` 每對 heading ≥ label 全 OK（H1 600/45.79px vs total-cap **500**/14px vs cap-ticker 600/14px；ranking h2 600 vs th 600/10.5px；detail h1 600/46px；related h2 600 vs meta 400；hub h1/h2 600 vs hub-stat dt 400）；全站 computed weight ⊆ {400,500,600,700,800}、`fontSynthesis: none`；390 × 5 locale × 3 route scrollWidth 390 / 0 溢出 / `.heatmap-heading` **150px 全等** / `.mobile-list-header` 26px 全等 / H1 零 ellipsis；CJK 最細 10px；hover preview h3 clamp 兩行完整（ch 51 ≥ 2×25.3）、muted / dd `break-word`；`tsc` 0、font-contract PASS、title-width PASS。**點樣反轉**：`git revert` 呢粒（純 CSS + docs + test 表，冇 binary） | ✅ 已落（2026-08-17；live 認法：live CSS chunk 有 `--w-heading` + `.heatmap-total-cap{…font-weight:500}`） |
+| **fe05(type-scale)** | 字重反轉修正 + 字級／行高／字距 token 化（§1.3.2；投訴 2026-08-17「H1 普通、副標粗、Windows 成個站日文字體」嘅第二粒）：`:root` 加 `--w-*` / `--fs-*` / `--lh-*` / `--track-*` / `--clip-pad` token；`h1,h2,h3` **500 → 600**（CJK OS 字 500 落 Regular，600 落 Bold —— 標題 vs 標籤必須跨 500 界）；`.heatmap-total-cap` **600 → 500**、`.cap-ticker` 650 → 600；26 條 550/650 全部收做 500/600 token（label / name / data / chip 角色）；`.catalog-hit-copy strong` UA 700 → 明寫 600；微字級 9/10px → `var(--fs-micro)`（10px，C3 CJK 升 11）、`.desktop-ranking-table th` → `var(--fs-th)`、`.mobile-list-header` 固定 10px（390 五欄，唔用 token）；`overflow-wrap: anywhere` → `break-word`（`.preview-copy .muted-copy` / `.preview-facts dd`）；`case` feature 只落 15 條 uppercase label class（`·` 係全站分隔符，唔准全局）。`test-fe-heatmap-title-width.mjs` 估算表換 Inter **600** 逐字元（widest 9.06em「ワンピース TOP 100」，DOM 對照誤差 ≤ 0.7%）；review agent check #9 加 `grep 550|650 → 0` + heading ≥ label pair + computed weight ⊆ {400,500,600,700,800}。驗收（dev :3901，`temp/fe05/review-webfont/verify-c2{,-preview}.mjs`）：5 locale × `/`、`/pokemon`、`/card/[id]`、`/market-report`、`/box` 每對 heading ≥ label 全 OK（H1 600/45.79px vs total-cap **500**/14px vs cap-ticker 600/14px；ranking h2 600 vs th 600/10.5px；detail h1 600/46px；related h2 600 vs meta 400；hub h1/h2 600 vs hub-stat dt 400）；全站 computed weight ⊆ {400,500,600,700,800}、`fontSynthesis: none`；390 × 5 locale × 3 route scrollWidth 390 / 0 溢出 / `.heatmap-heading` **150px 全等** / `.mobile-list-header` 26px 全等 / H1 零 ellipsis；CJK 最細 10px；hover preview h3 clamp 兩行完整（ch 51 ≥ 2×25.3）、muted / dd `break-word`；`tsc` 0、font-contract PASS、title-width PASS。**點樣反轉**：`git revert` 呢粒（純 CSS + docs + test 表，冇 binary） | ✅ 已落 + live（2026-08-17 push 345f8555 12:41Z；live CSS chunk 12:42Z 已有 `--w-heading`、`.heatmap-total-cap{…font-weight:var(--w-quiet)}` + `--w-quiet:500`、`h1,h2,h3{font-weight:var(--w-heading)}`；12:56Z 再對一次同一組 marker。注意 minified CSS 保留 `var(--w-*)`，唔會解成 500，probe 要對 token 名） |
 | **fix-heatmap-align** | heatmap 色塊「挨左挨右、間距唔勻」修正（owner 2026-08-17 晚：「save 低嗰張熱力圖好過喺 website 見到嗰張」）。**根因唔喺 treemap，喺 render**：`heatmapTreemapLayout` 出浮點 x/y/w/h，之前每格各自 `+ gap/2`（1.5px），每條邊都落喺半粒 device px 上，Chrome 逐個 absolutely-positioned box 獨立 snap → 名義 3px 嘅 gap 實際 render 成 2 / 3 / 4px（1440 有 18% gap 唔啱、1920 32%；frame 四邊 L/T 1.5px vs R 1.14 / B 1.22）。**修法**：新 `lib/pixel-snap.ts` 做 device-px 格嘅唯一契約 —— `snapTileBox()` 釘**邊界線**（唔係逐格）落 device px 整數格，`gap` 拆做 `p = floor(g/2)`（左／上）+ `q = g − p`（右／下），相鄰兩格共用同一條線 → 任何 dpr 之下 gap 一律 exactly `round(gap × dpr)` 粒 device px；treemap「面積 ∝ 市值」算法一個字冇郁。另有 `snapCardBox()`（卡圖置中偏移整數化，唔會左右差半粒）同 `snapFrameSize()`（floor，唔准 round 出界）。`heatmap.tsx` 同 `heatmap-tiles-board.tsx`（`/tune`）同一套。**順手修第二粒真 bug**：`.tile-move` 淡底板本來係 CSS `color-mix(in srgb, var(--frame-up/--frame-down) 34%)`，但紅升模式係 JS 對調 `colors.up/down`、CSS token **唔會**對調 → 紅色 tile 頂住綠色底板（`/tune` 自訂色一樣中）。改為 `tileStyle().plate`（同 tile 同一隻 hex 34%）inline 落 label，CSS 兩條規則刪走；`share-image.ts` 改食 `st.plate` 唔再自己計；死 code `TILE_CARD_STYLE` 刪走（幾何一早喺 `.tile-card`）。**驗收**（DOM 幾何，`temp/fe05/desktop-fill/board_measure.py` + `board_plate_check.py`）：1440 dpr1 由 **396/400 條邊唔喺 device 格、42 個 gap 唔係 3px** → **0/400、gap 全部 exactly 3.0000（std 0）**；1920 由 399/400 + 74 個 off → 0/400 + 0 off；dpr2 → 0/400、gap 全部 6.0000；dpr1.25 剩 ≤ 0.023 device px 殘差（LayoutUnit 1/64 量化，= 1.6% 粒 pixel，肉眼冇）；手機 390 dpr3 gap 9–9.047；plate 色桌面紅升 99/99 + `/tune` 100/100 同 tile 同色；`tsc` 0、eslint 0 error。**第二版（絕對格，同日 push `99ee19fa` 之後）**：出街後量 live 先發現 tile 之間齊晒，但 frame 最外圈仲差一粒 —— render 出嚟 1440 係 `左2 上2 右3 下3`、1920 `左2 上2 右2 下3`、1440@2x `左3 上3 右4 下3`。因為 Chrome snap 嘅係**絕對**座標，而 frame 自己個 origin 係浮點（1440 實測 `left 43.1875 / width 1338.625`），淨係喺 frame 本地座標 round，右／下邊 round 落絕對格就多一粒。`snapFrameSize` → `snapFrameGrid(w, h, dpr, absLeft, absTop)`，回埋 `originX/originY`（= 由 frame 邊移到最近嗰條 device 線），`snapTileBox` 改收成個 grid；量度改用 `getBoundingClientRect()`（`.heatmap-frame` `border:0` 冇 padding，同 contentRect 一樣）。修完四邊全等：1440 `2/2/2/2`、1920 `2/2/2/2`、1440@2x `3/3/3/3`、390@3x `5/5/5/5`，gap 依然 231 / 220 條全部 3px、`cardOffMax` 0。**`fracStyleCount` 由 0 變 100 係預期**：inline style 而家帶住 sub-pixel origin 偏移（例如 1.8125），**要睇嘅係 render 出嚟嘅絕對格**，唔係 CSS 值靚唔靚。⚠️ `absTop` 係 viewport 座標會跟 scroll 變，ResizeObserver 唔會因為 scroll 而 fire → scroll 完 `originY` 可能過時；**gap 唔受影響**（兩個整數之差，加同一個偏移 round 完不變），最多最外圈上／下飄 ±1 device px，唔值得為咗佢喺 scroll handler setState 重排 100 格。share PNG 1440 出 2774×1457（floor 改 round，之前 2772×1455）。**⚠️ 像素掃描器會呃你**：只數「純底色」行會每個 gap 少算 1–2 行（Chrome 邊緣 AA 溝色，實測綠 `(27,113,78)` 同底 `(247,247,245)` 中間有 `(116,167,145)`）—— 信 DOM `getBoundingClientRect × dpr` 嘅整數性，唔好信數 pixel。新 gate `scripts/test-fe-pixel-snap.mjs`（dpr 1/1.25/1.5/2/3 × gap 0–5，種返 `x1 = R - q - 1` 證實會 fail）。share PNG 唔行呢套（canvas 自己 scale 2–3.5），只係 1440 出圖由 2774 → 2772 闊（frame 改 floor）。**點樣反轉**：`git revert` 呢粒 | ✅ 已出街（2026-08-17：`99ee19fa` tile gap + `b56ab40e` frame 絕對格；live 量到 1440 / 1920 四邊 2/2/2/2、gap 全部 3px）|
+| **fe05(cjk)** | per-`:lang()` CJK 字體 stack + CJK 排版覆蓋 + 卡名 `lang` 屬性（§1.3.3；2026-08-17 投訴嘅第三粒，收尾）：`--font-sans` 拆做 `--f-latin` / `--f-jp` / `--f-tc` / `--f-sc` / `--f-kr`，四條 `[lang]:lang(ja|zh-Hant|zh-Hans|ko)` 各自重排 —— **每條都要再寫一次 `font-family`**（`body{font-family:var(--font-sans)}` 只 compute 一次，後代繼承嘅係結果唔係個 var）。CJK token block：`--fs-nano/micro/th` 10/11/11px、`--lh-display/clamp2/clamp2m/copy` 1.25/1.35/1.4/1.75、`--clip-pad` 0.24em、`--track-*` 清零、`--track-kicker` 0.05em；`--lh-hero` 同 `--track-hero` **唔郁**（郁咗偷 heatmap 高度／H1 出「…」）。另加 `:lang(ko) word-break: keep-all`、ja/zh `line-break: strict`、六條大寫 label 收 `--track-kicker`，同**明寫嘅 `[lang="en"]` 斷行解除規則** —— 元素自己標 `lang="en"` **唔會**自動解除（keep-all 由祖先繼承落嚟、`line-break: strict` 係按 tag/class 直接命中 `<h1>`／`.mobile-card-name`），specificity 打和靠排喺後面贏。卡名加 `displayCardNameLang()` / `cardNameLangAttr()`（Han unification：日文卡名喺中文頁本來會攞錯 `直`／`骨`／`画` 字形）。ja 文案和欧混植補到晒**四個** live 文案檔（`i18n.ts`、`site-copy.ts`、`hub-copy.ts` 63 處、`related-cards.ts` 12 處 —— 之前只做咗頭兩個，後兩個漏咗成個月冇人發現，因為當時得一句文冇 call site）。`cap-ticker` 單位由目標值一次過決定（新 `lib/ticker-start.ts`：`tickerStart()` + `tickerEase()` 夾 `[0,1]`），修返兩個真 glitch：第一 frame 負進度跌穿起點（實測 `/` en/USD 出過 `$993.75M`）、target 貼住單位頂（`$999.99M`）時跌價竟然由 `$1M` 向上滾。**新閘**：`test-fe-lang-attr.mjs`（`htmlLang()`×5、LangScript 真 `eval`×10、header `localeLang`、122 個 tsx `lang=` 屬性、卡名 5×5 分支、`[lang="en"]` 解除規則、4 個 ja 文案檔和欧混植）、`test-fe-ticker-unit.mjs`（900 paths × 101 樣本 + 298 rAF paths + **4800 單位邊緣 paths**，方向係**無條件**斷言 —— 舊寫法俾 `roomAbove` 守住，正好 skip 咗出事嗰個 case）、`test-fe-font-contract.mjs` 加「`:root` 有默認 `--font-sans`」+「`body` 真係 call 佢」+ 全 CSS `letter-spacing` 掃描（>0.04em 一定要喺 CJK 收編名單入面）。六條新檢查逐條種返 bug 證實會紅（`FAILED TO FIRE: none`）。**實測**（dev :3901，5 locale × 390/1280 × `/` `/one-piece` `/card/…`，`temp/fe05/review-webfont/verify-c3.json` 0 fail）：CDP `CSS.getPlatformFontsForNode` ja → Yu Gothic、zh-Hant → PingFang TC、zh-Hans → Microsoft YaHei、ko → Malgun，**zh 頁 H1 零 Yu Gothic**；`.heatmap-heading` 390 五語言 spread **0.02px**（clip-pad token 對抵啱）；1280 spread 1.54px 係版面結構本身（live C2 同 dev C3 五個數逐位相同，見 §1.3.3 `--lh-hero` 行）；cap-ticker 五個 locale 全程單位唔變（`$B` / `￥億` / `₩조` / `$億` / `¥亿`，35–50 個取樣值）；`npx tsc --noEmit -p apps/web` 0；FE test 全綠（`npm test` 52/54，紅嗰 2 條係 python data-lane 搵唔到 `data/runtime/config/backend.env`，呢個 FE worktree 本來就冇，同 C3 無關）。**點樣反轉**：`git revert` 呢粒 —— CJK 會退返 C2 嘅單一 stack（Windows 上 zh 頁重新見日文字形）、卡名 `lang` 屬性同 ja 半形空格一齊退，Latin Inter（C1）唔受影響 | ✅ 已落（本機閘全綠；push + live probe 見下一粒 docs commit）|
 | WS5 | OG 圖 v2（卡圖入圖，satori 讀唔到 WebP → 要解碼），fail-open 退返純文字版 | TODO |
 | WS6 | HyperFrames 每日市場 recap 片（`apps/web` 以外，獨立 folder） | TODO（可選） |
 

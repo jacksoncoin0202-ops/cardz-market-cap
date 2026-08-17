@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { htmlLang } from "@/lib/card-name";
 import { copy } from "@/lib/i18n";
 import { useMarketSettings } from "@/lib/use-market-settings";
 
@@ -32,10 +33,13 @@ export function SkipLink() {
   return <a className="skip-link" href="#main">{copy[locale].skipToContent}</a>;
 }
 
+/* html lang 只跟 URL locale（middleware 對非 en 嘅 document navigation 一定 302 補 ?lang=，所以 LangScript 讀 URL 就夠；
+   唔加 cookie fallback —— URL 冇 lang 就係 en 頁，html lang 跟 cookie 出 ja 會同 render 出嚟嘅 en 內容脫節）。
+   值域同 lib/card-name.ts htmlLang() 一致：globals.css `[lang]:lang()` 字體 stack 只認 en / ja / ko / zh-Hant / zh-Hans。 */
 export function DocumentLanguage() {
   const { locale } = useMarketSettings();
   useEffect(() => {
-    document.documentElement.lang = locale === "zh-TW" ? "zh-Hant" : locale === "zh-CN" ? "zh-Hans" : locale;
+    document.documentElement.lang = htmlLang(locale);
   }, [locale]);
   return null;
 }

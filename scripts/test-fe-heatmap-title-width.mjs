@@ -23,7 +23,8 @@ const heatmapTsx = read("apps/web/src/components/heatmap.tsx");
    跨 weight 唔變（500 / 800 DOM 實測都係 0.6455；proportional 嘅「1」只有 0.415，用 proportional 表會低估 "100" 0.23em）。
    CJK / kana / Hangul 唔係 Inter 出（latin subset 冇 glyph，跌落 OS 字），Windows Yu Gothic / JhengHei /
    Malgun 三家全部 1.00em/字（DOM 實測：3 字同 4 字標題差恰好 1.00em），一律當 1.0。
-   再扣 H1 嘅 letter-spacing -0.035em/字（`--track-display`）。DOM 實測（100px, weight 600, ls -0.035em）對照：
+   再扣 H1 嘅 letter-spacing/字 —— 由 globals.css `--track-hero`（fe05(cjk) 起獨立 token，-0.035em；CJK locale 唔清零，
+   因為 ja「ワンピース TOP 100」清零就係 9.52em > 9.5×0.97，H1 會出「…」）讀返嚟，唔硬寫。DOM 實測（100px, weight 600, ls -0.035em）對照：
      「ワンピース TOP 100」9.066（估 9.06）、「市值前 100 熱力圖」8.093、「Top 100 heatmap」8.007、
      「One Piece TOP 100」8.838、「Pokémon TOP 100」8.501、「원피스 TOP 100」7.136 —— 估算誤差 ≤ 0.7%。
    （weight 500 嗰版：ワンピース 9.057 / Top 100 heatmap 7.934，600 只多 0.1–0.9%。）
@@ -37,6 +38,16 @@ const INTER_600 = {
   U: 0.7358, V: 0.7275, W: 1.02, X: 0.7197, Y: 0.7134, Z: 0.6523,
 };
 const INTER_TABULAR_DIGIT = 0.6455;
+
+// H1 字距由 --track-hero 帶（.heatmap-heading h1 { letter-spacing: var(--track-hero) }），全 globals.css 只准宣告一次
+// （CJK token block 唔准覆蓋佢 —— 覆蓋咗估算就同真頁面脫節）。負數 em；讀唔到就 fail，唔靜靜當 0。
+const cssNoComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
+const trackHeroDecls = [...cssNoComments.matchAll(/--track-hero:\s*([^;]+);/g)].map((m) => m[1].trim());
+check("--track-hero declared exactly once in globals.css", trackHeroDecls.length === 1);
+const TRACK_HERO_EM = trackHeroDecls.length === 1 ? Number(trackHeroDecls[0].match(/^(-?[\d.]+)em$/)?.[1] ?? NaN) : NaN;
+check("--track-hero is an em value", Number.isFinite(TRACK_HERO_EM));
+check("--track-hero is negative (Latin display tracking; 0 會令 ja 標題爆闊)", TRACK_HERO_EM < 0);
+check("heatmap h1 letter-spacing uses var(--track-hero)", /\.heatmap-heading h1,\s*\.heatmap-heading h2 \{[^}]*letter-spacing:\s*var\(--track-hero\)/.test(cssNoComments));
 export function estimateEm(text) {
   let em = 0;
   for (const ch of text) {
@@ -50,7 +61,7 @@ export function estimateEm(text) {
     else if (cp >= 0x3000) em += 1.0; // CJK / kana（Yu Gothic / JhengHei 實測 1.00）
     else em += 0.6;
   }
-  return em - 0.035 * [...text].length;
+  return em + (Number.isFinite(TRACK_HERO_EM) ? TRACK_HERO_EM : 0) * [...text].length;
 }
 
 // H1 rule：nowrap + 容器 ÷ divisor

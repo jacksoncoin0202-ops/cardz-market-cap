@@ -1,6 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef } from "react";
+import { tickerEase, tickerStart } from "@/lib/ticker-start";
 
 /* moumen ticket-ticker 概念：數字由 0 滾去目標值，ease-out 漸停，唔係閃變。
    JSX 出真實值，唔用 0 —— server render 同無 JS 訪客（連爬蟲）見到嘅係真市值；
@@ -31,7 +32,7 @@ export function CapTicker({ value, format }: { value: number; format: (n: number
     };
     if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const from = shownRef.current ?? 0;
+    const from = tickerStart(shownRef.current, value, formatRef.current);
     if (reduced || from === value) {
       shownRef.current = value;
       write(value);
@@ -41,12 +42,11 @@ export function CapTicker({ value, format }: { value: number; format: (n: number
     const start = performance.now();
     write(from);
     const tick = (now: number) => {
-      const p = Math.min(1, (now - start) / duration);
-      const eased = 1 - Math.pow(1 - p, 3);
-      const current = p >= 1 ? value : from + (value - from) * eased;
+      const eased = tickerEase(now - start, duration);
+      const current = eased >= 1 ? value : from + (value - from) * eased;
       shownRef.current = current;
       write(current);
-      rafRef.current = p < 1 ? requestAnimationFrame(tick) : null;
+      rafRef.current = eased < 1 ? requestAnimationFrame(tick) : null;
     };
     rafRef.current = requestAnimationFrame(tick);
     return () => {
