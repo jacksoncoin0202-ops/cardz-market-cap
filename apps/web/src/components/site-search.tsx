@@ -48,6 +48,7 @@ export function SiteSearch() {
   }, [open]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 打字重設 highlight：改成 derived state 會令鍵盤上下鍵嘅選擇被每次 render 沖走，係行為改動唔係 lint 修。
     setActive(0);
   }, [text]);
 

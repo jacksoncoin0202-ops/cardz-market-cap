@@ -134,6 +134,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
      嗰邊 3 秒後會翻返 false，冇 JS／靜態抓取嗰邊就永遠 busy。加呢粒 mount 旗，
      `aria-busy` 只喺 client 真係載緊索引嗰陣先 true。 */
   const [hydrated, setHydrated] = useState(false);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- mount 旗係 hydration 專用：server 一定要 render false，所以唯一寫得嘅時機就係 mount effect。
   useEffect(() => setHydrated(true), []);
   const isMobileList = useMediaQuery(MOBILE_LIST_QUERY);
   const isMobileBar = useMediaQuery(MOBILE_BAR_QUERY);

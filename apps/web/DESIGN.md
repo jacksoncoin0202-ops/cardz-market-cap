@@ -455,7 +455,19 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
    `eslint`，`npx` 會去拉一個唔同 major 嘅版本再 `ERR_MODULE_NOT_FOUND`）。~~ WS2 只跑咗
    `npx tsc --noEmit -p apps/web`（**0 error**）。
    **已修 729af269 + fix-tooling（2026-08-17）**：裝返 `eslint@9` + `eslint-config-next@16`，
-   入口 `npm run lint`；基線 **10 error / 9 warning**（全部 pre-existing src，未修）。
+   入口 `npm run lint`；首次基線 **10 error / 9 warning**（全部 pre-existing src）。
+   **fix-lint（2026-08-17）之後：0 error / 8 warning，`npm run lint` exit 0。**
+   一格 rule severity 都冇郁 —— 7 個 error 用 `eslint-disable-next-line` + 一行理由
+   （`rankings.tsx` / `site-search.tsx` 嘅 hydration flag 同打字重設 highlight、
+   `live-db-snapshot.ts` 5 句同步 `require`，轉 `await import` 會逼三個 function 變 async），
+   3 個喺 `heatmap.tsx`（`react-hooks/refs`，即 :444–446 明文寫住嘅「render 淨係讀 ref」設計）
+   行 `globalIgnores` —— **嗰個檔由另一 session 揸住，呢個 ignore 係欠單**：交返之後要剷走
+   呢行再決定修定 disable，剷走之前 `heatmap.tsx` 零 lint 覆蓋。`heatmap-tile.tsx` 冇 ignore（0 problem）。
+   證明 rule 仲係著：`npx eslint . --no-inline-config` **7 個 error 原地彈返出嚟**（唔係關咗 rule）。
+   剩低 8 個 warning：7 個係 `_` 前綴嘅「特登唔用」變數（`server-snapshot.ts` ×4、
+   `live-db-snapshot.ts` ×2、`use-updown.ts` ×1 —— next 個 config 淨係 `'warn'`，冇
+   `varsIgnorePattern: "^_"`），1 個係 `ui/sheet.tsx:111` 嘅 ref-cleanup（**特登**喺 cleanup
+   先讀 `returnFocusRef.current`，抄去 effect 開頭 = 改 focus 返嚟嘅目標）。
    call site 係 `scripts/test-eslint-ratchet.mjs` —— `scripts/run_all_tests.py` 會自動 glob
    `scripts/test-*.mjs`，所以 `npm test` 一跑就跑到，多過基線／少過基線都紅。
    代價（明寫，唔係漏咗）：lockfile 由 78 個 `packages{}` 升到 **423** 個，全部 `dev:true`；

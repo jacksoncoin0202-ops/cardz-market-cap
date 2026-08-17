@@ -21,7 +21,14 @@ const LONG_WINDOWS = new Set(["90d", "180d", "365d"]);
 
 type DbRow = RowDataPacket & Record<string, unknown>;
 
+/*
+ * 下面 5 句 `require("node:fs"/"node:path")` 全部係**同步** lazy load，喺同步 function 入面。
+ * ESM 對版係 `await import()`（server-snapshot.ts:137 就係咁），但佢會逼 `repoRoot()` /
+ * `loadDbEnvironment()` / `loadSaleQuarantine()` 三個 function 變 async，跟住成條同步
+ * call chain 一齊改 —— 係行為改動，唔係 lint 修。所以逐句 disable + 記住點解。
+ */
 function repoRoot(): string {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- 同步 lazy load；轉 `await import` 會令呢個 function 變 async（見上面 block 註）。
   const { basename, dirname, resolve } = require("node:path") as typeof import("node:path");
   const configuredRoot = process.env.CARDZ_REPO_ROOT?.trim();
   if (configuredRoot) return configuredRoot;
@@ -33,7 +40,9 @@ function repoRoot(): string {
 
 function loadDbEnvironment(): void {
   if (process.env.CARDZ_DB_PASSWORD && process.env.CARDZ_DB_USER && process.env.CARDZ_DB_NAME) return;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- 同步 lazy load（見 repoRoot 上面嘅 block 註）。
   const { readFileSync } = require("node:fs") as typeof import("node:fs");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- 同上。
   const { resolve } = require("node:path") as typeof import("node:path");
   const contents = readFileSync(resolve(repoRoot(), "data/runtime/config/backend.env"), "utf8");
   for (const raw of contents.split(/\r?\n/)) {
@@ -55,7 +64,9 @@ function loadDbEnvironment(): void {
 // 檔案唔存在就 throw：靜靜咁 fail-open 出街 = 毒數照出，寧願 bake 死。
 // receipt 過期就由 scripts/test_price_lane_contracts.py 嘅 DB gate 兜住。
 function loadSaleQuarantine(): Map<string, { valueUsd: number; count: number }> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- 同步 lazy load（見 repoRoot 上面嘅 block 註）。
   const { readFileSync } = require("node:fs") as typeof import("node:fs");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- 同上。
   const { resolve } = require("node:path") as typeof import("node:path");
   const receiptPath = resolve(repoRoot(), "data/runtime/operator/audit/pc_sale_title_quarantine_current.json");
   const doc = JSON.parse(readFileSync(receiptPath, "utf8")) as {

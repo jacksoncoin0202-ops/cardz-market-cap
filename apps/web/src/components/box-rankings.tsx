@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { PackageOpen, SearchX } from "lucide-react";
+import { PackageOpen } from "lucide-react";
 import { BoxImage } from "./box-image";
 import { EmptyState } from "./empty-state";
 import { ExploreBar, SortHeader } from "./explore-bar";
