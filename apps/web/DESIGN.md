@@ -383,7 +383,7 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
 | **WS3** | Motion 系統：共用 IntersectionObserver reveal（`reveal.tsx` + `styles/reveal.css`）、history chart 線條 draw-in / bar scaleY / 點淡入（`styles/history-chart.css`）、count-up 擴到 PSA 10 價 + 鑑定數量 + hub stat、桌面 dialog spring overshoot、`.primary-action` press 陰影、排序方向掣 180° 翻轉 | ✅ 已落 |
 | **WS4** | Loading / empty / status：共用 `skeletons.tsx`（`MarketHeroSkeleton` / `RankingRowsSkeleton`）+ `styles/skeleton.css`、`empty-state.tsx` + `styles/empty-state.css`（4 個 call site）、`aria-busy` 落 `#market-ranking` / `#box-ranking`。**`/card/[id]` 冇骨架**：`app/card/loading.tsx` 同 route 內 `<Suspense>` 兩條路都試過、兩條都要唔起（見下面 WS4 實數第 2 點） | ✅ 已落（1 條 plan gate 未過，見欠單 ⑤） |
 | **fix-visual** | header 兩個 select menu 轉實色底、`--step-0`/`--step-1` 收編（answer 角色統一）、live 綠點有上限脈衝、手機一次性 holo 掃光 | ✅ 已落（2026-08-17） |
-| **fix-heatmap-title** | heatmap H1 永遠一行（`white-space: nowrap` + 字級 = `min(4.6vw, 100cqi/9.5)`，`.heatmap-title` 係 inline-size container）；heading 拆走描述句、footer 拆走 methodology-note；五語言標題縮到 ≤ 9em（`test-fe-heatmap-title-width.mjs` 守住） | ✅ 已落（2026-08-17） |
+| **fix-heatmap-title** | heatmap H1 永遠一行（`white-space: nowrap` + 字級 = `min(4.6vw, 100cqi/9.5)`，`.heatmap-title` 係 inline-size container）；heading 拆走描述句、footer 拆走 methodology-note；五語言標題縮到 ≤ 9em（`test-fe-heatmap-title-width.mjs` 守住） | ✅ 已落 + live（2026-08-17 13:50，22422add） |
 | WS5 | OG 圖 v2（卡圖入圖，satori 讀唔到 WebP → 要解碼），fail-open 退返純文字版 | TODO |
 | WS6 | HyperFrames 每日市場 recap 片（`apps/web` 以外，獨立 folder） | TODO（可選） |
 
