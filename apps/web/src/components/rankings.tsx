@@ -27,7 +27,10 @@ import type { CatalogEntry, Currency, Locale, MarketCardView, MarketMetric, Mark
 const MOBILE_LIST_QUERY = "(max-width: 980px)";
 /* 手機瘦身斷點（同 explore-bar.tsx / globals.css 手機 explore 段一致）：≤680 先收起
    語言列、時段選擇器同排序 chips，改行「搜尋框 + 排序 sheet」。 */
-const MOBILE_BAR_QUERY = "(max-width: 680px)";
+/* export 俾 box-rankings.tsx 用同一個斷點：globals.css ≤680 嗰段將 .ranking-heading 釘返做一行
+   （h2 左、一粒 popover 掣右），所以凡係 .ranking-heading 入面嘅時段掣，≤680 一律要係 PeriodMenu，
+   唔可以再係六粒掣嘅 PeriodSelector（/box 曾經漏咗，h2 被夾到一字一行）。 */
+export const MOBILE_BAR_QUERY = "(max-width: 680px)";
 
 interface RankingsProps {
   cards: MarketCardView[];

@@ -6,16 +6,17 @@ import { PackageOpen } from "lucide-react";
 import { BoxImage } from "./box-image";
 import { EmptyState } from "./empty-state";
 import { ExploreBar, SortHeader } from "./explore-bar";
-import { PeriodSelector } from "./period-selector";
+import { PeriodMenu, PeriodSelector } from "./period-selector";
 import { SortFilterSheet } from "./sort-filter-sheet";
 import { Sparkline } from "./sparkline";
-import { MetricDelta, staleClass, staleTitle } from "./rankings";
+import { MetricDelta, MOBILE_BAR_QUERY, staleClass, staleTitle } from "./rankings";
 import { copy } from "@/lib/i18n";
 import { tap } from "@/lib/haptic";
 import { boxMatchesQuery, nextExploreSort, normaliseBoxSort, sortBoxes } from "@/lib/list-explore";
 import { formatInteger, formatMetricMoney, formatPercent, metricTone } from "@/lib/format";
 import type { Currency, Locale, SealedProductView } from "@/lib/types";
 import { useMarketSettings } from "@/lib/use-market-settings";
+import { useMediaQuery } from "@/lib/use-media-query";
 
 const INITIAL_ROWS = 50;
 /* 「顯示更多」每次 +50，唔係一下 mount 幾百行 */
@@ -87,6 +88,9 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
   /* 同 rankings.tsx 一樣（FE05 WS4）：打緊字／「顯示更多」transition 期間，
      見到嘅唔係最終結果。BOX 冇全站索引，所以少咗 catalog 嗰一項。 */
   const [queryPending, setQueryPending] = useState(false);
+  /* 同 rankings.tsx：≤680 .ranking-heading 係一行（h2 左、掣右），六粒掣擺唔落 → 收埋做 PeriodMenu popover。
+     之前漏咗呢度，/box 手機版 h2 被夾到一字一行、六粒掣撐成一大塊（owner 2026-08-17 截圖）。 */
+  const isMobileBar = useMediaQuery(MOBILE_BAR_QUERY);
   return (
     <section className="rankings-section" id="box-ranking" aria-labelledby="box-ranking-heading" aria-busy={queryPending || isPending}>
       <div className="ranking-heading">
@@ -94,7 +98,7 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
           <p className="section-kicker">{t.nav.box}</p>
           <h2 id="box-ranking-heading">{title}</h2>
         </div>
-        <PeriodSelector compact />
+        {isMobileBar ? <PeriodMenu /> : <PeriodSelector compact />}
       </div>
       {!products.length ? <EmptyState icon={PackageOpen} title={t.box.empty} /> : (
         <>
