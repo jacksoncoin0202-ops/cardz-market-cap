@@ -969,6 +969,11 @@ def coverage_from_cards(cards, top, watch):
 
 
 def currencies_block(effective_at: str, fx: dict | None = None):
+    """出街 snapshot 嘅 currencies block。清單同次序由 fx_rates.SUPPORTED_CURRENCIES 一個地方定
+    （2026-08-17 前係呢度寫死七隻，同 fx_rates 各自一份 —— 加貨幣要改兩處，一定甩）。
+    DB 未有某隻貨幣嘅匯率就照出 unavailable，FE 見到非 finite 就 fail-closed 出「暫無資料」。"""
+    from fx_rates import SUPPORTED_CURRENCIES  # pipelines/ 已喺 sys.path（operator_control 同直接執行都係）
+
     fx = fx or {}
     def rate(code):
         row = fx.get(code)
@@ -978,15 +983,10 @@ def currencies_block(effective_at: str, fx: dict | None = None):
     fx_times = [asof_iso(row.get("effective_at")) for row in fx.values() if row.get("effective_at")]
     return {
         "base": "USD",
-        "supported": ["USD", "HKD", "CNY", "GBP", "TWD", "JPY", "KRW"],
+        "supported": list(SUPPORTED_CURRENCIES),
         "rates": {
-            "USD": metric(1, "ready", effective_at),
-            "HKD": rate("HKD"),
-            "CNY": rate("CNY"),
-            "GBP": rate("GBP"),
-            "TWD": rate("TWD"),
-            "JPY": rate("JPY"),
-            "KRW": rate("KRW"),
+            code: metric(1, "ready", effective_at) if code == "USD" else rate(code)
+            for code in SUPPORTED_CURRENCIES
         },
         "asOf": max(fx_times) if fx_times else effective_at,
     }

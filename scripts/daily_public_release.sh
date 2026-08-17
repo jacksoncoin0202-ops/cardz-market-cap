@@ -67,6 +67,14 @@ git -C "$RELEASE_REPO" fetch origin main
 # remote.origin.fetch 曾經係空（冇 refspec），origin/main 永遠停喺 clone 嗰刻。
 BEFORE="$(git -C "$RELEASE_REPO" rev-parse HEAD)"
 git -C "$RELEASE_REPO" merge --ff-only FETCH_HEAD
+# node_modules 要同 lockfile 同步，唔靠人手記得入去 npm ci。2026-08-17：main 加咗 eslint dev dep
+# + test-eslint-ratchet.mjs，release checkout 個 node_modules 停喺 08-11 → guards 死三次
+# （「eslint 未裝」）。lockfile 呢次 ff 有變、或者 lockfile 比上次安裝新，就 npm ci 一次。
+if ! git -C "$RELEASE_REPO" diff --quiet "$BEFORE" HEAD -- package-lock.json \
+   || [[ "$RELEASE_REPO/package-lock.json" -nt "$RELEASE_REPO/node_modules/.package-lock.json" ]]; then
+  printf 'daily release: package-lock.json newer than node_modules, running npm ci\n' >&2
+  (cd "$RELEASE_REPO" && npm ci --no-audit --no-fund)
+fi
 test -f "$RELEASE_REPO/node_modules/typescript/bin/tsc"
 
 # The release checkout is the exact tree that will bake. Run no-DB guards
