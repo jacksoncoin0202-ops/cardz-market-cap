@@ -62,7 +62,8 @@ export interface Copy {
   boxHero: { eyebrow: string; title: string; body: string };
   box: {
     groupAll: string;
-    groups: Record<"optcg-en" | "optcg-jp" | "ptcg-en" | "ptcg-jp", string>;
+    /* 只分 TCG；語言（EN/JP）由榜嘅語言篩負責，唔再喺呢排掣度分 */
+    groups: Record<"optcg" | "ptcg", string>;
     boardTitle: string;
     box: string;
     release: string;
@@ -320,7 +321,7 @@ export const copy: Record<Locale, Copy> = {
     },
     box: {
       groupAll: "All",
-      groups: { "optcg-en": "One Piece EN", "optcg-jp": "One Piece JP", "ptcg-en": "Pokémon EN", "ptcg-jp": "Pokémon JP" },
+      groups: { optcg: "One Piece", ptcg: "Pokémon" },
       boardTitle: "BOX ({count})",
       box: "Box",
       release: "Release",
@@ -546,7 +547,7 @@ export const copy: Record<Locale, Copy> = {
     },
     box: {
       groupAll: "全部",
-      groups: { "optcg-en": "海賊王 英文", "optcg-jp": "海賊王 日文", "ptcg-en": "寶可夢 英文", "ptcg-jp": "寶可夢 日文" },
+      groups: { optcg: "海賊王", ptcg: "寶可夢" },
       boardTitle: "原盒排行（{count}）",
       box: "原盒",
       release: "發售",
@@ -746,7 +747,7 @@ export const copy: Record<Locale, Copy> = {
     },
     box: {
       groupAll: "全部",
-      groups: { "optcg-en": "海贼王 英文", "optcg-jp": "海贼王 日文", "ptcg-en": "宝可梦 英文", "ptcg-jp": "宝可梦 日文" },
+      groups: { optcg: "海贼王", ptcg: "宝可梦" },
       boardTitle: "原盒排行（{count}）",
       box: "原盒",
       release: "发售",
@@ -938,7 +939,7 @@ export const copy: Record<Locale, Copy> = {
     },
     box: {
       groupAll: "すべて",
-      groups: { "optcg-en": "ワンピース 英語", "optcg-jp": "ワンピース 日本語", "ptcg-en": "ポケモン 英語", "ptcg-jp": "ポケモン 日本語" },
+      groups: { optcg: "ワンピース", ptcg: "ポケモン" },
       boardTitle: "BOXランキング（{count}）",
       box: "BOX",
       release: "発売",
@@ -1130,7 +1131,7 @@ export const copy: Record<Locale, Copy> = {
     },
     box: {
       groupAll: "전체",
-      groups: { "optcg-en": "원피스 영문", "optcg-jp": "원피스 일문", "ptcg-en": "포켓몬 영문", "ptcg-jp": "포켓몬 일문" },
+      groups: { optcg: "원피스", ptcg: "포켓몬" },
       boardTitle: "BOX 랭킹 ({count})",
       box: "BOX",
       release: "발매",

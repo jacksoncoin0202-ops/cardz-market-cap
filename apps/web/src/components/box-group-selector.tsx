@@ -4,12 +4,20 @@ import { motion } from "framer-motion";
 import { useId } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { copy } from "@/lib/i18n";
-import { sealedGroups, type Locale, type SealedGroup } from "@/lib/types";
+import { sealedTcgs, type Locale, type SealedGroup, type SealedTcg } from "@/lib/types";
 
-export type BoxScope = "all" | SealedGroup;
+export type BoxScope = "all" | SealedTcg;
+
+/* `product.group` 仍然係 "optcg-en" 呢類四值，掣只認前半段（TCG）。 */
+export function tcgOfGroup(group: SealedGroup): SealedTcg {
+  return group.split("-")[0] as SealedTcg;
+}
 
 export function normaliseBoxScope(value: string | null | undefined): BoxScope {
-  return sealedGroups.includes(value as SealedGroup) ? (value as SealedGroup) : "all";
+  if (sealedTcgs.includes(value as SealedTcg)) return value as SealedTcg;
+  /* 向後相容：舊連結 / 舊書籤仲係 ?group=ptcg-jp，當佢係 "ptcg"（唔理語言）。 */
+  const head = (value ?? "").split("-")[0];
+  return sealedTcgs.includes(head as SealedTcg) ? (head as SealedTcg) : "all";
 }
 
 export function BoxGroupSelector({ locale }: { locale: Locale }) {
@@ -30,7 +38,7 @@ export function BoxGroupSelector({ locale }: { locale: Locale }) {
 
   const options: Array<{ scope: BoxScope; label: string }> = [
     { scope: "all", label: t.box.groupAll },
-    ...sealedGroups.map((group) => ({ scope: group as BoxScope, label: t.box.groups[group] })),
+    ...sealedTcgs.map((tcg) => ({ scope: tcg as BoxScope, label: t.box.groups[tcg] })),
   ];
 
   return (

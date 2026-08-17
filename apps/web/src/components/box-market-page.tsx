@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { PackageOpen } from "lucide-react";
-import { BoxGroupSelector, normaliseBoxScope } from "./box-group-selector";
+import { BoxGroupSelector, normaliseBoxScope, tcgOfGroup } from "./box-group-selector";
 import { BoxRankings } from "./box-rankings";
 import { Breadcrumbs } from "./breadcrumbs";
 import { EmptyState } from "./empty-state";
@@ -23,7 +23,8 @@ export function BoxMarketPage({ snapshot }: { snapshot: MarketViewSnapshot }) {
   const scope = normaliseBoxScope(params.get("group"));
   const products = useMemo(() => {
     if (!block) return [];
-    return scope === "all" ? block.products : block.products.filter((product) => product.group === scope);
+    /* 掣只分 TCG，所以按 group 前半段篩；英／日由榜嘅語言篩處理。 */
+    return scope === "all" ? block.products : block.products.filter((product) => tcgOfGroup(product.group) === scope);
   }, [block, scope]);
   const coverage = block
     ? t.box.coverage

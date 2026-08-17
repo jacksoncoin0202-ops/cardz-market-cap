@@ -1,4 +1,4 @@
-import { copy, localizedCardLanguage } from "@/lib/i18n";
+import { copy, localizedCardLanguage, localizedCardLanguageShort } from "@/lib/i18n";
 import type { Locale, MarketCardView } from "@/lib/types";
 
 /*
@@ -31,6 +31,23 @@ import type { Locale, MarketCardView } from "@/lib/types";
  */
 
 export type PrintIdentityField = "setCode" | "finishCode";
+
+/*
+ * 語言 chip（EN / JP / KR / SC / TC）—— owner 2026-08-17：原盒榜嗰粒好用，卡榜（桌面 + 手機）
+ * 一樣要有。同 box-rankings.tsx 嘅 langBadge 用同一套 .print-badge--compact 樣式；
+ * 顏色只分 ja / en 兩色，其餘（ko / zhCN / zhTW）行 neutral token。
+ * 冇 cardLanguage 就回 null，叫方唔畫（規矩 1：唔准出空 chip）。
+ * 注意：呢粒係「語言」，唔係上面第 3 條講嘅 identity 欄（setCode / finishCode），榜頁照舊唔畫嗰啲。
+ */
+export function languageBadge(language: string | null, locale: Locale): { className: string; label: string; title: string } | null {
+  if (!language) return null;
+  const tone = language === "ja" ? " print-badge--ja" : language === "en" ? " print-badge--en" : "";
+  return {
+    className: `print-badge${tone} print-badge--compact`,
+    label: localizedCardLanguageShort(language),
+    title: localizedCardLanguage(language, locale),
+  };
+}
 
 /*
  * 內頁專用白名單（card-detail identity list ＋ heatmap CardFacts）。

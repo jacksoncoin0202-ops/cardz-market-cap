@@ -58,14 +58,17 @@
 /* ---------- 可引用事實 ---------- */
 .card-fact {
   max-width: 68ch;
-  margin: 12px 0 0;
+  /* owner 2026-08-17：card-fact 由 H1 下面搬咗去 metrics／資料時間後面做「簡介」開頭。
+     上面貼住 11.5px 嘅 .data-time，12px 太逼、睇落似同一段；拉開做 22px 分開兩組資訊。
+     下面留 0，交返俾 .story-panel 自己嘅 margin-top（唔想兩邊各加一次變雙倍）。 */
+  margin: 22px 0 0;
   padding: 12px 14px;
   border: 1px solid var(--line);
   border-left: 3px solid var(--accent);
   border-radius: var(--control-radius);
   background: var(--surface-translucent);
   color: var(--ink);
-  font-size: 13px;
+  font-size: 15px; /* owner 2026-08-17：手機／桌面同一個字級 */
   line-height: 1.65;
 }
 

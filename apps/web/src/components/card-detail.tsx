@@ -201,8 +201,6 @@ export function CardDetail({ id, snapshot, related }: {
             <p className="section-kicker">{card.tcg}</p>
             <h1>{title || t.status.unavailable}</h1>
             <p className="detail-set">{setLabel || t.status.unavailable}</p>
-            {/* 可引用事實：server render 出嚟嘅純文字，唔係淨喺圖表入面。 */}
-            {cardFact && <p className="card-fact">{cardFact}</p>}
             {/* 印刷版本逐條併入現有 identity list：冇值嘅欄根本唔會回，
                 所以完全冇資料嗰陣呢個 dl 同以前一模一樣。
                 owner 2026-08-02：語言版本＋卡包來源喺內頁出齊（DETAIL_PRINT_FIELDS 包
@@ -215,14 +213,20 @@ export function CardDetail({ id, snapshot, related }: {
             </dl>
           </header>
           {/*
-            FE05 WS3 scroll reveal：呢頁一共三個 <Reveal>（story / metrics / related）
-            加 history chart 自己個 draw-in，四個 —— 每頁上限 8 個 section 級 target。
+            FE05 WS3 scroll reveal：呢頁一共三個 <Reveal>（metrics / story / related，
+            DOM 順序）加 history chart 自己個 draw-in，四個 —— 每頁上限 8 個 section 級 target。
             metrics 直接由原本嗰個 <section> 做 target（零多餘 DOM）；story 因為
             <StoryPanel> 自己出 <section>，所以退返一個 wrapper <div>（block layout，
             margin 照樣穿過去，實測 rect 零位移）。
           */}
-          <Reveal><StoryPanel title={t.labels.story} story={story} /></Reveal>
           <div className="detail-period-row"><PeriodSelector compact /></div>
+          {/*
+            owner 2026-08-17：「圖之後即刻走勢 → 市值/數量 → 再碌先簡介」——
+            所以 header 只留身份（kicker / h1 / set / identity），時段掣同走勢圖緊接住卡圖，
+            metrics + 資料時間跟尾，簡介（可引用事實 + 故事）一律推到最底先出。
+            手機同桌面同一份 DOM 順序，唔准用 CSS order 扮排位。
+          */}
+          <HistoryChart points={card.historyDaily} locale={locale} currency={currency} rates={snapshot.rates} />
           <Reveal as="section" className="detail-metrics" aria-label={t.labels.marketCap}>
             <div><span>{t.labels.marketCap}</span><strong className={staleClass(card.marketCap, "metric-value-fit")} title={staleTitle(card.marketCap, locale)}>{capTick === null ? formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true) : <CapTicker key={capTick} value={capTick} format={(n) => formatMoney(n, currency, snapshot.rates, locale, true)} />}</strong><MetricDelta metric={card.marketCap} changePct={windowMetric.marketCapChangePct} currency={currency} rates={snapshot.rates} locale={locale} /></div>
             {/* FE05 WS3：PSA 10 價同鑑定數量跟返市值行同一個 ticker（JSX 出真實值，
@@ -251,7 +255,14 @@ export function CardDetail({ id, snapshot, related }: {
               : null}
             {t.labels.checkedAt}: {formatObservationDate(card.pricePsa10.checkedAt || card.pricePsa10.asOf || snapshot.effectiveAt, locale)}
           </p>
-          <HistoryChart points={card.historyDaily} locale={locale} currency={currency} rates={snapshot.rates} />
+          {/*
+            「簡介」= 可引用事實 + 故事，兩樣一齊擺喺數字後面。
+            card-fact 係 GEO 可引用嘅純文字（server render，唔係淨喺圖表入面），
+            所以搬位歸搬位，DOM 入面一定要留返；JSON-LD／meta 讀嘅係 `cardFact` 變數，
+            唔讀 DOM，所以呢個順序改動同 schema 完全無關。
+          */}
+          {cardFact && <p className="card-fact">{cardFact}</p>}
+          <Reveal><StoryPanel title={t.labels.story} story={story} /></Reveal>
           <Provenance updatedAt={card.pricePsa10.checkedAt || card.pricePsa10.asOf || snapshot.effectiveAt} />
         </div>
       </article>

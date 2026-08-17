@@ -14,6 +14,7 @@ import { Sparkline } from "./sparkline";
 import { loadCatalog, prefetchCatalog } from "@/lib/catalog-client";
 import { CATALOG_LIST_CAP, catalogToCard, searchCatalog } from "@/lib/catalog-search";
 import { cardLanguages, copy, localizedCardLanguage, localizedCardLanguageShort } from "@/lib/i18n";
+import { languageBadge } from "./print-badge";
 import { formatDeltaMoney, formatMetricInteger, formatMetricMoney, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
 import { tap } from "@/lib/haptic";
 import { cardMatchesQuery, nextExploreSort, normaliseCardSort, sortCards } from "@/lib/list-explore";
@@ -99,10 +100,15 @@ export function staleTitle(metric: MarketMetric<unknown>, locale: Locale): strin
 
 function CardIdentity({ card, locale, unavailable }: { card: MarketCardView; locale: Locale; unavailable: string }) {
   const name = displayCardName(card, locale, unavailable);
+  const badge = languageBadge(card.cardLanguage, locale);
   return (
     <div className="ranking-card-identity">
       <div className="ranking-thumb"><CardImage image={card.image} sizes="56px" alt={name} /></div>
-      <div className="ranking-name"><strong>{name}</strong></div>
+      <div className="ranking-name">
+        <strong>{name}</strong>
+        {/* 語言 chip 同原盒榜一樣擺卡名下面（owner 2026-08-17） */}
+        {badge && <span className="ranking-sub-row"><span className={badge.className} title={badge.title}>{badge.label}</span></span>}
+      </div>
     </div>
   );
 }
@@ -487,13 +493,16 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                   成個 header 由 27px 變 40px，第一張卡就跌出設計稿嘅 320px 外 */}
               <span className="mobile-col-spark">{t.labels.salesTrendColumn}</span>
             </div>
-            {visibleCards.map((card) => (
+            {visibleCards.map((card) => {
+              const langChip = languageBadge(card.cardLanguage, locale);
+              return (
               <Link className="mobile-rank-card" href={href(`/card/${card.id}`)} key={card.id}>
                 <span className="mobile-rank-index" title={card.viewRank > 0 ? undefined : t.labels.awaitingFreshPrice}>{card.viewRank > 0 ? card.viewRank : "—"}</span>
                 <div className="ranking-thumb"><CardImage image={card.image} sizes="56px" alt={displayCardName(card, locale, t.status.unavailable)} /></div>
                 <div className="mobile-card-info">
                   <span className="mobile-card-sub">
                     <span className="mobile-card-number">{card.collectorNumber}</span>
+                    {langChip && <span className={`${langChip.className} mobile-lang-badge`} title={langChip.title}>{langChip.label}</span>}
                   </span>
                   <strong className="mobile-card-name">{displayCardName(card, locale, t.status.unavailable)}</strong>
                   {card.marketCap.value !== null && (card.marketCap.status === "ready" || card.marketCap.status === "stale") && (
@@ -516,7 +525,8 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                 </div>
                 <Sparkline values={card.salesSparkline} label={t.labels.salesTrend} />
               </Link>
-            ))}
+              );
+            })}
           </div>
           </>
           ) : null}

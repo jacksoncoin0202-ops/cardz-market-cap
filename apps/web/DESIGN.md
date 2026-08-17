@@ -384,6 +384,7 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
 | **WS4** | Loading / empty / status：共用 `skeletons.tsx`（`MarketHeroSkeleton` / `RankingRowsSkeleton`）+ `styles/skeleton.css`、`empty-state.tsx` + `styles/empty-state.css`（4 個 call site）、`aria-busy` 落 `#market-ranking` / `#box-ranking`。**`/card/[id]` 冇骨架**：`app/card/loading.tsx` 同 route 內 `<Suspense>` 兩條路都試過、兩條都要唔起（見下面 WS4 實數第 2 點） | ✅ 已落（1 條 plan gate 未過，見欠單 ⑤） |
 | **fix-visual** | header 兩個 select menu 轉實色底、`--step-0`/`--step-1` 收編（answer 角色統一）、live 綠點有上限脈衝、手機一次性 holo 掃光 | ✅ 已落（2026-08-17） |
 | **fix-heatmap-title** | heatmap H1 永遠一行（`white-space: nowrap` + 字級 = `min(4.6vw, 100cqi/9.5)`，`.heatmap-title` 係 inline-size container）；heading 拆走描述句、footer 拆走 methodology-note；五語言標題縮到 ≤ 9em（`test-fe-heatmap-title-width.mjs` 守住） | ✅ 已落 + live（2026-08-17 13:50，22422add） |
+| **fix-owner-round-0817** | owner 2026-08-17 三輪口頭 review：桌面填滿（shell cap 1440→2400、gutter `clamp(32px,3vw,72px)`、表格 88px 行／卡名欄 26%）、字級手機↔桌面統一（nav 14 / metric label 11 / 數值 22↔20 / story 15）、內頁順序「圖 → 走勢 → 市值/數量 → 簡介」、header search 常駐 + 升跌反轉掣搬落 nav 行（≤980）、卡榜 EN/JP/SC/TC chip（桌面 + 手機）、原盒 group 只分 TCG + 語言入排序 sheet／`.lang-filter`、品牌橙細節（heatmap 總市值數字、nav 現位底線 2px、升跌掣兩支箭嘴跟 `--positive/--negative`）；順手修 `.detail-metrics span` 食咗 `.cap-ticker` 令三格數值 9.5px 灰字 | ✅ 已落（2026-08-17，本地預覽） |
 | WS5 | OG 圖 v2（卡圖入圖，satori 讀唔到 WebP → 要解碼），fail-open 退返純文字版 | TODO |
 | WS6 | HyperFrames 每日市場 recap 片（`apps/web` 以外，獨立 folder） | TODO（可選） |
 
@@ -924,6 +925,32 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
    手機 rule 嘅 `margin-bottom` 跟住改做 `calc(4px - 0.16em)`。
 5. **描述句同 methodology 唔係刪咗**：`t.heatmap.body` 仍然係 legend `aria-label` + share image；
    `t.methodology.body` 全文喺 site footer（`header.tsx:174`）。heatmap 區只係唔再重複。
+
+**fix-owner-round-0817 嘅決定**（owner 2026-08-17 三段口頭 review，逐句對返）：
+
+1. **「只搞電腦版，放大啲，用盡佢，留少少呼吸位」**：`@media (min-width: 981px)` 尾段一個 block（`--desk-gutter` / `--desk-max`），
+   `.header-inner` / `.page-shell` 一齊由 `min(100%, 1440px)` 變 `min(100%, 2400px)`；1920 實測 shell 1905px、heatmap frame 1790×765
+   （改前 1410×~600）。hub 頁（`.page-shell.hub-page`）另外鎖 1280——長文唔應該 100 字一行。表格 th 56 / td 88、縮圖 50×70、
+   `.detail-art` 最高 680（`img` padding **唔郁**：26px = card-art.css `--card-art-pad`，holo mask 幾何靠佢）。
+   卡名欄 20→26%（1440 闊「月亮伊布 VMAX 異圖 2…」截斷而編號欄一半係空）。
+2. **「字體大小統一」**：以桌面為準，手機只喺真係擺唔落先細一級：nav 12→14；`.detail-metrics` label 9.5→11、數值 19→22（手機 14→20）、
+   delta 10.5→12（手機 8→12）；story 14→15；identity dt 11.5 / dd 13；`.card-fact` 13→15。手機 `.chart-label` 冇郁——SVG viewBox 720 縮放，px 冇意義。
+3. **「圖之後即刻走勢 → 市值/數量 → 再碌先簡介」**：`card-detail.tsx` DOM 順序 header（kicker/h1/set/identity）→ period → HistoryChart →
+   metrics → data-time → card-fact → story → provenance。card-fact 係 GEO 可引用事實，只搬位唔刪；JSON-LD／meta 讀變數唔讀 DOM。Reveal 仍係 3 個。
+4. **「search 永遠喺 menu，但唔准逼走 logo；升跌反轉搬第二度」**：`<SiteSearch>` 全頁常駐；升跌反轉掣 render 兩粒（`.updown-toggle-header` /
+   `.updown-toggle-nav`），CSS 按斷點只出一粒：≥981 留 header 控制列，≤980 落 nav 行最右。實測 390 四語言 logo 79×34 原比例；≤400 再收 gap 8→6 /
+   padding 7→6 / icon 掣 44→40 令 360 ja 都保得住（77px）；**320 ja 仍縮到 37px，接受**（iPhone SE 1 代級數）。
+5. **「市值數字用返品牌橙」「現位底線橙」「箭嘴跟升跌色」**：`.heatmap-total-cap .cap-ticker { color: var(--accent) }`；
+   `.primary-nav a::after` 由 `--ink` 1px 變 `--accent` 2px；升跌掣 icon 由 lucide `ArrowDownUp` 改手寫同一幾何嘅 SVG（兩個 `<g>` 各自
+   `color: var(--positive)` / `var(--negative)`），`data-updown` 一反轉箭嘴顏色即跟。
+6. **「EN/JP chip 加埋入卡榜同手機」**：`print-badge.tsx` 加 `languageBadge()`（同 box `langBadge` 共用 `.print-badge--compact`；只分 ja/en 兩色，
+   ko/zhCN/zhTW 中性）；桌面喺 `.ranking-name` 下面 `.ranking-sub-row`，手機同編號一行 `.mobile-lang-badge`（9px）。原盒手機 list 之前根本冇 chip，一齊補。
+7. **「原盒 Pokémon 一個種類就得，語言入排序」**：`BoxScope` 由四值變 `"all"|"optcg"|"ptcg"`（`tcgOfGroup()`；舊 URL `?group=ptcg-jp` 讀嗰陣
+   demote 做 `ptcg`，唔改寫 URL）；`t.box.groups` 改 2 key、字照抄 `nav.onePiece/pokemon`；語言篩共用卡榜嘅 `?printLang=`（box `lang` "jp"↔"ja"），
+   桌面 h2 下面 `.lang-filter` 全部/EN/JP，手機入 SortFilterSheet「語言」段 + filter chip；URL 帶 pool 冇嘅語言就寫返 "all"。
+8. **順手修嘅舊 bug（[KNOWN]，出街版一直錯）**：WS3 count-up 將內頁三格數值包咗 `<span class="cap-ticker">`，撞正 `.detail-metrics span`
+   （label 規則：9.5px、`--dt-color`），所以市值／PSA10 價／POP 一直係細灰字，得 6M 升跌／成交額／RAW 正常。
+   `.detail-metrics strong > .cap-ticker { font-size/color: inherit }` 還原。**冇 test 守住**（CSS 計算值要 browser）——欠單。
 
 ### 明確非目標
 

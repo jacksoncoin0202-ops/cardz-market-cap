@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { ArrowDownUp, Globe2, Moon, Sun } from "lucide-react";
+import { Globe2, Moon, Sun } from "lucide-react";
 import { SelectControl } from "./select-control";
 import { SiteSearch } from "./site-search";
 import { tap } from "@/lib/haptic";
@@ -56,9 +56,30 @@ export function Header() {
     { path: "/box", label: t.nav.box },
   ];
 
-  const rankingRoute = pathname === "/" || pathname === "/pokemon" || pathname === "/one-piece";
   const logo = logoByTheme[theme];
   const upDownLabel = updown === "red-up" ? t.labels.upDownRed : t.labels.upDownGreen;
+  /* 同一粒掣 render 兩次（header 控制列 / nav 行），CSS 按斷點只顯示一粒；display:none 嗰粒唔入 a11y tree。 */
+  const upDownButton = (placement: "updown-toggle-header" | "updown-toggle-nav") => (
+    <button
+      type="button"
+      className={`select-control updown-toggle ${placement}`}
+      data-updown={updown}
+      aria-label={upDownLabel}
+      title={upDownLabel}
+      onClick={() => {
+        tap.select();
+        /* 明確揀 green-up / red-up，唔會退返去 auto —— 用戶撳過就係佢嘅選擇 */
+        setUpDown(updown === "red-up" ? "green-up" : "red-up");
+      }}
+    >
+      {/* owner 2026-08-17：兩支箭嘴跟現時升跌顏色（上箭 --positive、下箭 --negative），
+          data-updown 一反轉顏色即跟。lucide ArrowDownUp 係一條 path 上唔到兩隻色，所以手寫同一幾何。 */}
+      <svg aria-hidden="true" className="control-icon updown-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+        <g className="updown-icon-down"><path d="m3 16 4 4 4-4" /><path d="M7 20V4" /></g>
+        <g className="updown-icon-up"><path d="m21 8-4-4-4 4" /><path d="M17 4v16" /></g>
+      </svg>
+    </button>
+  );
 
   return (
     <header className="site-header" ref={headerRef}>
@@ -81,9 +102,14 @@ export function Header() {
               {link.label}
             </Link>
           ))}
+          {/* ≤980 兩行 header：升跌反轉掣搬落 nav 行右邊（CSS 切換邊個顯示），
+              第一行淨返 logo + search / theme / 語言 / 貨幣，logo 唔再俾五粒掣逼細。 */}
+          {upDownButton("updown-toggle-nav")}
         </nav>
         <div className="market-controls">
-          {rankingRoute ? null : <SiteSearch />}
+          {/* owner 2026-08-17：search 永遠喺 header（排行頁以前收埋，因為頁內有 explore bar；
+              「/」快捷鍵仍然讓畀 explore bar，見 site-search.tsx）。 */}
+          <SiteSearch />
           <button
             type="button"
             className="select-control theme-toggle"
@@ -110,20 +136,7 @@ export function Header() {
               </motion.span>
             </AnimatePresence>
           </button>
-          <button
-            type="button"
-            className="select-control updown-toggle"
-            data-updown={updown}
-            aria-label={upDownLabel}
-            title={upDownLabel}
-            onClick={() => {
-              tap.select();
-              /* 明確揀 green-up / red-up，唔會退返去 auto —— 用戶撳過就係佢嘅選擇 */
-              setUpDown(updown === "red-up" ? "green-up" : "red-up");
-            }}
-          >
-            <ArrowDownUp aria-hidden="true" className="control-icon" strokeWidth={1.7} />
-          </button>
+          {upDownButton("updown-toggle-header")}
           <SelectControl<Locale>
             value={locale}
             options={locales}

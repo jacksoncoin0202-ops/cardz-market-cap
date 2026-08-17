@@ -9,6 +9,7 @@ import { PeriodSelector } from "./period-selector";
 import { Provenance } from "./provenance";
 import { MetricDelta, staleClass, staleTitle } from "./rankings";
 import { BoxImage } from "./box-image";
+import { tcgOfGroup } from "./box-group-selector";
 import { absolutePublicUrl, canonicalPublicUrl, datasetId, StructuredData } from "./structured-data";
 import { copy } from "@/lib/i18n";
 import { formatDate, formatInteger, formatMetricMoney, formatMoney, formatObservationDate, formatPercent, metricTone } from "@/lib/format";
@@ -106,7 +107,8 @@ export function BoxDetail({ product, snapshot }: {
   const crumbs = [
     { label: t.nav.all, href: href("/") },
     { label: t.nav.box, href: href("/box") },
-    { label: t.box.groups[product.group], href: appendParam(href("/box"), "group", product.group) },
+    /* 麵包屑跟返 /box 上面嗰排掣：只到 TCG 一層（語言喺榜度篩），唔好指去一個唔存在嘅 group 值。 */
+    { label: t.box.groups[tcgOfGroup(product.group)], href: appendParam(href("/box"), "group", tcgOfGroup(product.group)) },
     { label: boxName },
   ];
   const structuredData = {

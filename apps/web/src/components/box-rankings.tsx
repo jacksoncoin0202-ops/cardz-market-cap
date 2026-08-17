@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { PackageOpen } from "lucide-react";
 import { BoxImage } from "./box-image";
@@ -10,12 +10,12 @@ import { PeriodMenu, PeriodSelector } from "./period-selector";
 import { SortFilterSheet } from "./sort-filter-sheet";
 import { Sparkline } from "./sparkline";
 import { MetricDelta, MOBILE_BAR_QUERY, staleClass, staleTitle } from "./rankings";
-import { copy } from "@/lib/i18n";
+import { copy, localizedCardLanguage, localizedCardLanguageShort } from "@/lib/i18n";
 import { tap } from "@/lib/haptic";
 import { boxMatchesQuery, nextExploreSort, normaliseBoxSort, sortBoxes } from "@/lib/list-explore";
 import { formatInteger, formatMetricMoney, formatPercent, metricTone } from "@/lib/format";
-import type { Currency, Locale, SealedProductView } from "@/lib/types";
-import { useMarketSettings } from "@/lib/use-market-settings";
+import type { Currency, Locale, PrintLanguage, SealedProductView } from "@/lib/types";
+import { useMarketSettings, type PrintLangFilter } from "@/lib/use-market-settings";
 import { useMediaQuery } from "@/lib/use-media-query";
 
 const INITIAL_ROWS = 50;
@@ -26,6 +26,12 @@ function langBadge(product: SealedProductView): { className: string; label: stri
   return product.lang === "jp"
     ? { className: "print-badge print-badge--ja print-badge--compact", label: "JP" }
     : { className: "print-badge print-badge--en print-badge--compact", label: "EN" };
+}
+
+/* 原盒資料嘅 `lang` 係 "en" | "jp"，但語言篩用嘅係卡榜嗰套 PrintLanguage（日文係 "ja"）。
+   兩邊要對得返，先至可以共用同一個 ?printLang= param 同同一段 UI。 */
+function boxPrintLang(product: SealedProductView): PrintLanguage {
+  return product.lang === "jp" ? "ja" : "en";
 }
 
 function nativeLine(product: SealedProductView, locale: Locale): string | null {
@@ -41,13 +47,28 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
   currency: Currency;
   href: (path: string) => string;
 }) {
-  const { period, query, sort, dir, update } = useMarketSettings();
+  const { period, printLang, query, sort, dir, update } = useMarketSettings();
   const t = copy[locale];
   const boxSort = normaliseBoxSort(sort);
-  const explored = useMemo(
-    () => sortBoxes(products.filter((product) => boxMatchesQuery(product, query, locale)), boxSort, dir, period),
-    [boxSort, dir, locale, period, products, query],
-  );
+  /* 篩選只列出榜上真係有嘅語言（同 rankings.tsx 一樣，≤1 種就唔出）。 */
+  const availableLanguages = useMemo(() => {
+    const seen = new Set<PrintLanguage>();
+    for (const product of products) seen.add(boxPrintLang(product));
+    return (["en", "ja"] as PrintLanguage[]).filter((lang) => seen.has(lang));
+  }, [products]);
+  /* URL 揀咗個榜上冇嘅語言（例如 ?printLang=ko）就當冇篩，唔准出空榜。 */
+  const activeLang: PrintLangFilter =
+    printLang !== "all" && availableLanguages.includes(printLang) ? printLang : "all";
+  /* 同 rankings.tsx：demote 唔准靜靜做，URL 仲寫住舊 printLang 嘅話，換 group／換頁
+     個 pool 一變佢就會復活。寫返 URL；寫完條件自己就 false，唔會 loop。 */
+  const langDemoted = printLang !== "all" && !availableLanguages.includes(printLang);
+  useEffect(() => {
+    if (langDemoted) update({ printLang: "all" });
+  }, [langDemoted, update]);
+  const explored = useMemo(() => {
+    const pool = activeLang === "all" ? products : products.filter((product) => boxPrintLang(product) === activeLang);
+    return sortBoxes(pool.filter((product) => boxMatchesQuery(product, query, locale)), boxSort, dir, period);
+  }, [activeLang, boxSort, dir, locale, period, products, query]);
   const [visibleCount, setVisibleCount] = useState(INITIAL_ROWS);
   const [isPending, startShowMore] = useTransition();
   /* query / sort / dir / period / group（products）一變，explored 就係新 array —— render 期直接
@@ -68,8 +89,8 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
   const resultLabel = (query.trim() || explored.length !== products.length)
     ? t.labels.resultCount.replace("{shown}", String(explored.length)).replace("{total}", String(products.length))
     : null;
-  /* BOX 冇範圍（route 已經係 /box）、冇印刷語言，所以個 sheet 得排序 + 方向兩段。
-     `availableLanguages: []` 就係 SortFilterSheet 唔出語言嗰段嘅條件。 */
+  /* BOX 冇範圍（route 已經係 /box），所以個 sheet 得排序 + 方向 + 語言三段；
+     語言嗰段由 availableLanguages（>1 種）決定出唔出。 */
   const sortKeys = [
     { key: "rank", label: t.labels.rank },
     { key: "price", label: t.labels.priceShort },
@@ -78,12 +99,24 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
   ];
   const sortLabel = sortKeys.find((item) => item.key === boxSort)?.label ?? t.labels.rank;
   const [sortSheetOpen, setSortSheetOpen] = useState(false);
-  const filterChips = boxSort === "rank" ? [] : [{
-    key: "sort",
-    label: `${sortLabel} ${dir === "asc" ? "↑" : "↓"}`,
-    removeLabel: t.labels.removeFilter.replace("{filter}", sortLabel),
-    onRemove: () => update({ sort: "rank", dir: "desc" }),
-  }];
+  /* 同 rankings.tsx：有非預設先出 chip 行，排序同語言各一粒。 */
+  const filterChips: Array<{ key: string; label: string; removeLabel: string; onRemove: () => void }> = [];
+  if (boxSort !== "rank") {
+    filterChips.push({
+      key: "sort",
+      label: `${sortLabel} ${dir === "asc" ? "↑" : "↓"}`,
+      removeLabel: t.labels.removeFilter.replace("{filter}", sortLabel),
+      onRemove: () => update({ sort: "rank", dir: "desc" }),
+    });
+  }
+  if (activeLang !== "all") {
+    filterChips.push({
+      key: "lang",
+      label: localizedCardLanguageShort(activeLang),
+      removeLabel: t.labels.removeFilter.replace("{filter}", localizedCardLanguage(activeLang, locale)),
+      onRemove: () => update({ printLang: "all" }),
+    });
+  }
 
   /* 同 rankings.tsx 一樣（FE05 WS4）：打緊字／「顯示更多」transition 期間，
      見到嘅唔係最終結果。BOX 冇全站索引，所以少咗 catalog 嗰一項。 */
@@ -97,6 +130,23 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
         <div>
           <p className="section-kicker">{t.nav.box}</p>
           <h2 id="box-ranking-heading">{title}</h2>
+          {/* 語言列手機搬咗入排序 sheet（同卡榜一樣） */}
+          {!isMobileBar && availableLanguages.length > 1 && (
+            <div className="lang-filter" role="group" aria-label={t.labels.language}>
+              {(["all", ...availableLanguages] as PrintLangFilter[]).map((lang) => (
+                <button
+                  key={lang}
+                  type="button"
+                  aria-pressed={activeLang === lang}
+                  aria-label={lang === "all" ? t.labels.languageFilterAll : localizedCardLanguage(lang, locale)}
+                  onClick={() => { tap.select(); update({ printLang: lang }); }}
+                >
+                  {activeLang === lang && <span className="lang-filter-pill" aria-hidden="true" />}
+                  <span>{lang === "all" ? t.labels.languageFilterAllShort : localizedCardLanguageShort(lang)}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         {isMobileBar ? <PeriodMenu /> : <PeriodSelector compact />}
       </div>
@@ -128,11 +178,11 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
             onClose={() => setSortSheetOpen(false)}
             locale={locale}
             sortKeys={sortKeys}
-            value={{ sort: boxSort, dir, printLang: "all" }}
-            availableLanguages={[]}
-            /* printLang 喺 /box 冇意思：sheet 唔會出嗰段，所以呢度都唔寫入 URL */
-            onApply={(next) => update({ sort: next.sort, dir: next.dir })}
-            onReset={() => update({ sort: "rank", dir: "desc" })}
+            value={{ sort: boxSort, dir, printLang: activeLang }}
+            availableLanguages={availableLanguages}
+            /* 手機冇語言列（收埋咗喺呢個 sheet），所以 printLang 一定要一齊寫返 URL */
+            onApply={(next) => update({ sort: next.sort, dir: next.dir, printLang: next.printLang })}
+            onReset={() => update({ sort: "rank", dir: "desc", printLang: "all" })}
           />
           {!explored.length ? <p className="empty-state">{t.labels.noSearchResultsBox}</p> : (
           <>
@@ -202,12 +252,17 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
             {visibleProducts.map((product) => {
               const metrics = product.windows[period];
               const tone = metricTone(metrics.changePct);
+              const mobileBadge = langBadge(product);
               return (
                 <Link className="mobile-rank-card" href={href(`/box/${product.id}`)} key={product.id}>
                   <span className="mobile-rank-index">{product.rank}</span>
                   <div className="ranking-thumb box-thumb"><BoxImage image={product.image} sizes="56px" alt="" /></div>
                   <div className="mobile-card-info">
-                    <span className="mobile-card-sub"><span className="mobile-card-number">{product.setCode}</span></span>
+                    {/* owner 2026-08-17：語言唔再分 group，靠呢粒 EN/JP chip（同卡榜手機版一樣擺編號隔籬） */}
+                    <span className="mobile-card-sub">
+                      <span className="mobile-card-number">{product.setCode}</span>
+                      <span className={`${mobileBadge.className} mobile-lang-badge`}>{mobileBadge.label}</span>
+                    </span>
                     <strong className="mobile-card-name">{product.name[locale] || product.name.en}</strong>
                   </div>
                   <div className="mobile-card-right">

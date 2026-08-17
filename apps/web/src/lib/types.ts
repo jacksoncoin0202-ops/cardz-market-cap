@@ -238,6 +238,10 @@ export interface MarketViewSnapshot {
 
 export const sealedGroups = ["optcg-en", "optcg-jp", "ptcg-en", "ptcg-jp"] as const;
 export type SealedGroup = (typeof sealedGroups)[number];
+/* /box 上面只分 TCG（owner 2026-08-17）：語言唔再係一粒 group 掣，改用同卡榜一樣嘅
+   EN/JP 語言篩（sort/filter）。資料層 `product.group` 仍然係四值，唔郁。 */
+export const sealedTcgs = ["optcg", "ptcg"] as const;
+export type SealedTcg = (typeof sealedTcgs)[number];
 export type SealedPriceKind = "sold" | "market" | "ask";
 
 export interface SealedNative {

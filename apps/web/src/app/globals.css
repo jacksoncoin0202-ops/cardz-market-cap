@@ -396,8 +396,10 @@ h1, h2, h3 { font-weight: 500; letter-spacing: -0.035em; line-height: 1.04; }
   right: 100%;
   bottom: 6px;
   left: 0;
-  height: 1px;
-  background: var(--ink);
+  height: 2px;
+  border-radius: 1px;
+  /* owner 2026-08-17：現時位置底線用品牌橙，唔係 --ink（「呢啲橙色嘅小細節位做好啲」） */
+  background: var(--accent);
   transition: right 170ms ease;
 }
 .primary-nav a:focus-visible,
@@ -427,6 +429,12 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
 .theme-toggle,
 .updown-toggle,
 .site-search-toggle { min-width: 44px; min-height: 44px; justify-content: center; padding-inline: 0; }
+/* 升跌反轉掣 render 兩粒（header.tsx）：桌面一行 header 用控制列嗰粒；≤980 兩行 header 用 nav 行嗰粒
+   （owner 2026-08-17：search 永遠喺 header，但唔准逼細個 logo → 第一行淨返 4 粒掣）。 */
+.updown-toggle-nav { display: none; }
+/* 升跌反轉掣兩支箭嘴跟現時升跌色：data-updown 對調 --positive/--negative 時，箭嘴顏色一齊翻 */
+.updown-icon-up { color: var(--positive); }
+.updown-icon-down { color: var(--negative); }
 .theme-toggle-icon { display: inline-flex; align-items: center; justify-content: center; line-height: 0; }
 .select-trigger {
   display: flex;
@@ -743,11 +751,13 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
 .heatmap-total-cap {
   margin: -4px 0 10px;
   color: var(--muted, var(--hero-copy));
-  font-size: 13px;
+  font-size: 14px; /* 手機／桌面同一個數（owner 2026-08-17 字級統一） */
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.01em;
 }
+/* owner 2026-08-17：市值數字要品牌橙（label「市值 ·」照舊 muted），同排行表 .market-cap-cell 同一隻色 */
+.heatmap-total-cap .cap-ticker { color: var(--accent); font-weight: 650; }
 .heatmap-controls {
   flex: none;
   display: flex;
@@ -1541,7 +1551,7 @@ html { scrollbar-gutter: stable; }
 /* 卡圖統一原生 RGBA 圓角（2026-07-25 標準）：DB 入面每張圖已係 429x600 透明畫布
    （梵高比卡超做基準），前端唔准再 CSS 削角/放大裁切。 */
 .detail-price-now { font-size: 22px !important; }
-.detail-price-now + .price-delta { display: flex; margin-top: 4px; font-size: 11px; }
+.detail-price-now + .price-delta { display: flex; margin-top: 4px; font-size: 12px; }
 .ranking-card-identity { min-width: 0; display: flex; align-items: center; gap: 12px; }
 .ranking-thumb {
   width: 42px;
@@ -1704,6 +1714,8 @@ html { scrollbar-gutter: stable; }
     gap: 8px;
     min-width: 0;
   }
+  /* 卡榜手機版語言 chip：同編號一行、細粒啲（owner 2026-08-17「擺細粒 d 整齊 d」） */
+  .mobile-card-sub .mobile-lang-badge { align-self: center; padding: 1px 6px; font-size: 9px; }
   .mobile-card-number {
     align-self: flex-start;
     overflow: hidden;
@@ -1873,8 +1885,11 @@ html.theme-transitions .card-dialog {
     justify-content: space-between;
     gap: 0 8px;
   }
-  .primary-nav a { min-height: 40px; font-size: 11px; white-space: nowrap; padding-inline: 2px; }
+  /* nav 字級同桌面統一 14px（owner 2026-08-17：「menu 太細」）；四個 locale 最長 ja 都入到 320px */
+  .primary-nav a { min-height: 40px; font-size: 14px; white-space: nowrap; padding-inline: 2px; }
   .market-controls { justify-self: end; }
+  .market-controls .updown-toggle-header { display: none; }
+  .primary-nav .updown-toggle-nav { display: inline-flex; min-width: 40px; min-height: 40px; }
   .header-fallback { height: var(--header-height); }
   .page-shell { padding-top: 44px; padding-bottom: 78px; }
   .market-page-shell { padding-top: 0; }
@@ -1919,7 +1934,7 @@ html.theme-transitions .card-dialog {
   .heatmap-heading { align-items: flex-start; flex-direction: column; gap: 4px; padding-bottom: 8px; }
   .heatmap-heading h1,
   .heatmap-heading h2 { margin-bottom: calc(4px - 0.16em); font-size: 20px; line-height: 1.15; }
-  .heatmap-total-cap { margin: 0; font-size: 12px; }
+  .heatmap-total-cap { margin: 0; }
   .heatmap-controls { align-self: stretch; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 4px; }
   /* Row 1: tune toggle + Tiles slider stretched wide. */
   .heatmap-tune-toggle { order: 1; width: 36px; height: 36px; border-radius: 12px; }
@@ -1957,7 +1972,6 @@ html.theme-transitions .card-dialog {
   .rankings-section { min-height: 0; padding-top: 24px; }
   .sheet-card-layout { display: block; }
   .sheet-image { height: 280px; min-height: 0; margin-bottom: 18px; }
-  .story-panel > p:last-child { font-size: 14px; }
   .grader-hero { padding: 30px 24px; }
   .grader-hero h1 { font-size: 36px; line-height: 1.1; }
   .grader-share-body { grid-template-columns: minmax(0, 1fr); justify-items: center; padding-inline: 16px; }
@@ -2001,7 +2015,7 @@ html.theme-transitions .card-dialog {
 .detail-header { padding-top: 6px; }
 .detail-header h1 { font-size: clamp(34px, 3.4vw, 48px); letter-spacing: -0.02em; }
 /* set 名後面跟印刷語言 badge，所以要 flex + gap（純文字行冇 gap 會黐埋個 pill） */
-.detail-set { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; color: var(--muted); font-size: 13px; }
+.detail-set { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; color: var(--muted); font-size: 15px; }
 .detail-period-row { margin: 18px 0 12px; }
 .detail-period-row .period-selector { max-width: min(100%, 360px); }
 /* 內頁手機 override 一定要跟喺 base 後面：之前擺喺上面嘅 980/680 block 入面，
@@ -2013,7 +2027,6 @@ html.theme-transitions .card-dialog {
   .detail-art { height: 330px; }
   .detail-art img { padding: 16px; }
   .detail-header h1 { font-size: 36px; line-height: 1.1; }
-  .detail-set { font-size: 14px; }
   .detail-period-row .period-selector { width: 100%; max-width: none; }
 }
 .detail-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
@@ -2022,24 +2035,30 @@ html.theme-transitions .card-dialog {
   .detail-metrics > div:hover { transform: translateY(-1px); box-shadow: var(--elev-2); }
 }
 .detail-metrics .wide-metric { grid-column: span 2; }
-.detail-metrics span { display: block; margin-bottom: 5px; overflow: hidden; color: var(--dt-color); font-size: 9.5px; letter-spacing: 0.02em; text-overflow: ellipsis; white-space: nowrap; }
-.detail-metrics strong { display: block; overflow: hidden; font-size: 19px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
-.detail-metrics .metric-value-fit { font-size: clamp(13px, 1.35vw, 19px); }
-.detail-metrics .price-delta { margin-top: 4px; font-size: 10.5px; }
+.detail-metrics span { display: block; margin-bottom: 5px; overflow: hidden; color: var(--dt-color); font-size: 11px; letter-spacing: 0.02em; text-overflow: ellipsis; white-space: nowrap; }
+.detail-metrics strong { display: block; overflow: hidden; font-size: 22px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.detail-metrics .metric-value-fit { font-size: clamp(16px, 1.5vw, 22px); }
+/* WS3 count-up 將數值包咗一層 <span class="cap-ticker">，撞正上面「.detail-metrics span = 細字 label」嗰條——
+   市值 / PSA10 價 / POP 三格出街版一直係 9.5px 灰字（2026-08-17 owner 話「d 錢」睇唔清先揭發）。
+   呢度顯式還原：ticker 跟返 <strong> 嘅 size / colour。 */
+.detail-metrics strong > .cap-ticker { display: inline; margin: 0; overflow: visible; color: inherit; font-size: inherit; letter-spacing: inherit; white-space: inherit; }
+.detail-metrics .price-delta { margin-top: 4px; font-size: 12px; }
 .detail-metrics span sup { margin-left: 3px; color: var(--accent); font-size: 8px; }
 @media (max-width: 680px) {
   .detail-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
   .detail-metrics .wide-metric { grid-column: span 2; }
+  /* 手機兩欄：wide-metric 後面嗰格（RAW 參考價）唔准孤零零佔半行 */
+  .detail-metrics .wide-metric ~ div { grid-column: 1 / -1; }
   .detail-metrics > div { padding: 10px 8px; }
-  .detail-metrics strong { font-size: 14px; }
-  .detail-metrics .metric-value-fit { font-size: 11px; }
-  .detail-metrics .price-delta { font-size: 8px; letter-spacing: -0.02em; }
-  .detail-metrics .detail-price-now { font-size: 14px !important; }
+  /* owner 2026-08-17 字級手機／桌面統一：label 11 / delta 12 同桌面一樣；大數字 20（桌面 22）因為兩欄每格淨 ~150px */
+  .detail-metrics strong { font-size: 20px; }
+  .detail-metrics .metric-value-fit { font-size: 16px; }
+  .detail-metrics .detail-price-now { font-size: 20px !important; }
 }
 
 .story-panel { margin-top: 16px; padding: 24px 26px; border-radius: 16px; background: var(--soft); color: var(--story-panel-text); }
-.story-panel h2 { margin-bottom: 8px; font-size: 13px; }
-.story-panel > p { font-size: 13px; line-height: 1.65; white-space: pre-line; }
+.story-panel h2 { margin-bottom: 8px; font-size: 15px; }
+.story-panel > p { font-size: 15px; line-height: 1.7; white-space: pre-line; }
 .story-panel > p + p { margin-top: 12px; }
 @media (max-width: 980px) {
   .story-panel { padding: 26px; }
@@ -2154,17 +2173,17 @@ html.theme-transitions .card-dialog {
   .site-search-field input { font-size: 16px; }
 }
 .empty-detail { padding: 60px 0; }
-.data-time { margin-top: 10px; color: var(--muted); font-size: 10px; }
+.data-time { margin-top: 10px; color: var(--muted); font-size: 11.5px; }
 .identity-list { display: flex; flex-wrap: wrap; gap: 10px 26px; margin: 10px 0 0; }
-.identity-list dt { color: var(--dt-color); font-size: 10px; }
-.identity-list dd { margin: 0; font-family: var(--font-mono); font-size: 11px; }
+.identity-list dt { color: var(--dt-color); font-size: 11.5px; }
+.identity-list dd { margin: 0; font-family: var(--font-mono); font-size: 13px; }
 .detail-page { padding-top: 40px; }
-.back-link { display: inline-flex; align-items: center; min-height: 44px; color: var(--muted); font-size: 12px; transition: color 170ms ease, transform 180ms var(--ease-standard); }
+.back-link { display: inline-flex; align-items: center; min-height: 44px; color: var(--muted); font-size: 13px; transition: color 170ms ease, transform 180ms var(--ease-standard); }
 @media (hover: hover) {
   .back-link:hover { color: var(--ink); transform: translateX(-2px); }
 }
 .history-heading { padding-top: 28px; }
-.chart-legend { display: flex; gap: 14px; padding-top: 8px; color: var(--muted); font-size: 10px; }
+.chart-legend { display: flex; gap: 14px; padding-top: 8px; color: var(--muted); font-size: 12px; }
 .chart-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .grader-tabs { position: relative; display: inline-flex; gap: 0; margin-top: 14px; padding: 4px; border: 1px solid var(--line); border-radius: 16px; background: var(--soft); }
 /* 滑動 pill：跟住 active tab 走，transition 負責滑動效果 */
@@ -2236,7 +2255,16 @@ html.theme-transitions .card-dialog {
     width: 100%;
     gap: 0 6px;
   }
-  .primary-nav a { min-height: 32px; font-size: 10px; white-space: nowrap; padding-inline: 1px; }
+  .primary-nav a { min-height: 32px; font-size: 14px; white-space: nowrap; padding-inline: 1px; }
+  .primary-nav .updown-toggle-nav { min-width: 32px; min-height: 32px; border-radius: 10px; }
+}
+@media (max-width: 400px) {
+  /* 360 闊 + ja「日本語」語言掣：四粒掣 265px 會逼細 logo（實測 79→59）；收 gap / padding / icon 掣闊度慳 18px，
+     logo 保得住 34px 高嘅原生比例（79px 闊）。320 闊仍然唔夠，接受（iPhone SE 1 代級數）。 */
+  .market-controls { gap: 6px; }
+  .market-controls .select-control { padding-inline: 6px; }
+  .market-controls .theme-toggle,
+  .market-controls .site-search-toggle { min-width: 40px; padding-inline: 0; }
   .heatmap-section { height: calc(100vh - var(--header-height)); height: calc(100svh - var(--header-height)); min-height: 0; grid-template-rows: auto minmax(0, 1fr) auto; }
   .hero-section h1 { font-size: 28px; }
   .detail-art { height: 280px; }
@@ -2815,7 +2843,7 @@ button.primary-action { border: 0; }
 .box-group-selector { flex-wrap: wrap; }
 .box-thumb { padding: 3px; border-radius: 8px; background: var(--soft); box-shadow: var(--elev-1); }
 .box-thumb img { border: 0; object-fit: contain; filter: none; }
-.box-sub-row { display: flex; align-items: center; gap: 6px; min-width: 0; margin-top: 3px; }
+.box-sub-row, .ranking-sub-row { display: flex; align-items: center; gap: 6px; min-width: 0; margin-top: 3px; }
 .box-set-chip { color: var(--muted); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.02em; white-space: nowrap; }
 .box-status-chip { padding: 2px 7px; border-radius: 999px; background: var(--print-badge-neutral-bg); color: var(--print-badge-neutral-text); font-size: 10px; font-weight: 600; line-height: 1; white-space: nowrap; }
 .box-muted-row { opacity: 0.55; }
@@ -2936,4 +2964,84 @@ html.theme-transitions .box-thumb { transition: background-color 240ms cubic-bez
   .market-page-shell .hero-section { padding: 18px 0 22px; }
   .intro-block { margin-top: 10px; font-size: 12.5px; }
   .intro-body { gap: 4px; }
+}
+
+/* ── Desktop fill（owner 2026-08-17：「只搞電腦版，放返大啲嘢，佔晒啲位；用盡佢，再留少少呼吸位」）──
+   ≥981 先生效，≤980 手機一律唔郁（owner：「黎緊唔好搞手機」）。
+   1. 1440px cap 拆走：shell 跟 viewport 行，gutter = clamp(32px, 3vw, 72px)（1440→43 / 1920→58 / 2560→72），
+      2400px 先封頂（3440 ultra-wide 唔使成行字拉到天邊）。實測 1920 之前左右各留 240px 白、2560 各 560px。
+   2. 排行表：字 12→13.5、卡名 13→15、縮圖 42×60→50×70、sparkline 72×22→96×30 —— 之前 82px 高嘅行入面淨係得
+      12px 字，行高冇用到。
+   3. 卡內頁：卡圖 520→680 高（欄 34%→40%）、metrics 字 19→24、故事 13→15；RAW 格 span 2 填返第二行個空位。
+   放呢度（檔尾）係因為同 specificity 靠 source order 贏返上面嘅 base；`!important` 只用喺 base 本身已經
+   `!important` 嗰幾條（.collector-cell / .detail-price-now），唔准擴散。 */
+@media (min-width: 981px) {
+  :root {
+    --desk-gutter: clamp(32px, 3vw, 72px);
+    --desk-max: 2400px;
+  }
+  /* 1. 闊度 */
+  .header-inner { width: min(100%, var(--desk-max)); padding-inline: var(--desk-gutter); }
+  .page-shell { width: min(100%, var(--desk-max)); padding-inline: var(--desk-gutter); }
+  .site-footer {
+    width: min(100%, var(--desk-max));
+    padding-inline: max(var(--desk-gutter), env(safe-area-inset-right)) max(var(--desk-gutter), env(safe-area-inset-left));
+  }
+  .page-loading { width: min(calc(100% - 2 * var(--desk-gutter)), calc(var(--desk-max) - 2 * var(--desk-gutter))); }
+  .brand-logo { height: 50px; }
+  .primary-nav a { font-size: 14px; }
+  .footer-brandline, .footer-methodology-body { font-size: 13px; }
+
+  /* 首頁：標題行副標 */
+  .hero-section { width: min(100%, 1100px); }
+  .hero-section h1 { font-size: clamp(30px, 4.2vw, 64px); }
+  .hero-copy { font-size: clamp(15px, 1.55vw, 22px); }
+
+  /* 2. 排行表 */
+  .desktop-ranking-table th { height: 56px; padding-inline: 12px; font-size: 10.5px; }
+  .desktop-ranking-table td { height: 88px; padding-inline: 12px; font-size: 13.5px; }
+  /* 欄闊重分：卡名欄 20%→26%（1440 闊 12 個中文字就省略號，而編號／POP 欄一半係空），
+     編號 10→8、POP 10→9、價 13→12、升跌 9→8、走勢 10→9；卡榜合計仍係 100%。 */
+  .col-card { width: 26%; }
+  .col-number { width: 8%; }
+  .col-pop { width: 9%; }
+  .col-price { width: 12%; }
+  .col-change { width: 8%; }
+  .col-spark { width: 9%; }
+  .ranking-thumb { width: 50px; height: 70px; }
+  .ranking-card-identity { gap: 14px; }
+  .ranking-name strong { font-size: 15px; }
+  .grader-table .grader-card strong { font-size: 15px; }
+  .collector-cell { font-size: 11.5px !important; }
+  .price-now { font-size: 16px; }
+  .price-delta { font-size: 11px; }
+  .sparkline { width: 96px; height: 30px; }
+  .explore-search input { font-size: 14px; }
+
+  /* 3. 卡內頁 */
+  .detail-grid { grid-template-columns: minmax(360px, min(40%, 680px)) minmax(0, 1fr); gap: 48px; }
+  .detail-art {
+    height: min(680px, calc(100vh - var(--header-height) - 64px));
+    height: min(680px, calc(100svh - var(--header-height) - 64px));
+  }
+  /* img padding 唔郁（26px = card-art.css --card-art-pad，改咗 sheen 會偏） */
+  .detail-rank { top: 16px; left: 16px; padding: 5px 12px; font-size: 12px; }
+  .detail-header h1 { font-size: clamp(36px, 3.6vw, 60px); }
+  /* 字級（detail-set / card-fact / identity / story / metrics label+delta / data-time / legend）已經升晒去 base，
+     手機同桌面同一個數（owner：字體大小統一）；呢度淨返 layout。 */
+  .detail-page .card-fact { max-width: 78ch; padding: 14px 18px; }
+  .identity-list { gap: 12px 30px; margin-top: 14px; }
+  .story-panel { padding: 26px 30px; }
+  .detail-metrics { gap: 12px; }
+  .detail-metrics > div { padding: 16px 18px; }
+  .detail-metrics span { margin-bottom: 6px; }
+  /* 第二行：wide（成交額）+ RAW 各佔一半；冇 RAW 就 wide 獨佔成行 —— 唔留空格 */
+  .detail-metrics .wide-metric ~ div { grid-column: span 2; }
+  .detail-metrics .wide-metric:last-child { grid-column: span 4; }
+}
+@media (min-width: 1441px) {
+  /* SEO hub 長文頁：1120 量度係讀得舒服嘅理由，但 1920 度左右各 400px 白太誇；放到 1280 + 榜單三欄 */
+  /* hubs.css 係 component CSS，載入次序喺 globals 之後 → 要高一級 specificity 先贏 */
+  .page-shell.hub-page { width: min(100%, 1280px); }
+  .hub-page .hub-links ul { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
