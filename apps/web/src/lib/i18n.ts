@@ -271,6 +271,13 @@ export interface Copy {
     upDownRed: string;
   };
   theme: { dark: string; light: string };
+  /*
+   * Heatmap 分享圖嘅 toast（CopyButton doneLabel/errorLabel）。以前借用 labels.shareDone /
+   * shareError（「已複製連結」／「複製失敗」）—— 但個掣係匯出 PNG，唔係複製連結，講錯咗件事。
+   * ⚠️ 圖**入面**嘅字全部係英文硬編碼喺 lib/share-image.ts，唔喺呢度（owner 2026-08-17：
+   * 一張圖出咗街係俾全世界睇）。呢兩條淨係介面 toast，所以要跟介面語言。
+   */
+  share: { done: string; error: string };
   methodology: { title: string; body: string };
   /*
    * 出街頁面淨係講「點計」，唔講由邊度攞數 —— 供應商代號唔准曝光。
@@ -491,6 +498,7 @@ export const copy: Record<Locale, Copy> = {
       upDownRed: "Gains shown in red",
     },
     theme: { dark: "Dark mode", light: "Light mode" },
+    share: { done: "Image ready", error: "Export failed — try again" },
     methodology: {
       title: "How CardZ Marketcap ranks the market",
       /*
@@ -703,6 +711,7 @@ export const copy: Record<Locale, Copy> = {
       upDownRed: "紅升綠跌",
     },
     theme: { dark: "深色模式", light: "淺色模式" },
+    share: { done: "圖片已匯出", error: "匯出失敗，請再試" },
     methodology: {
       title: "CardZ Marketcap 如何排列市場",
       // 改動理由見上面英文版嗰段註解（實測數字 + owner 決定）。
@@ -900,6 +909,7 @@ export const copy: Record<Locale, Copy> = {
       upDownRed: "红升绿跌",
     },
     theme: { dark: "深色模式", light: "浅色模式" },
+    share: { done: "图片已导出", error: "导出失败，请重试" },
     methodology: {
       title: "CardZ Marketcap 如何排列市场",
       body: "入选，从来不是理所当然。本指数收录的每一张卡都至少有 1,000 张经核实的 PSA 10；市值即为该存量乘以 PSA 10 参考价。参考价取自追踪范围内经核实的 PSA 10 成交；若窗口内的成交纪录不足，该数字即为参考水平，而非成交均价。真实供应、真实需求，绝不虚构。",
@@ -1096,6 +1106,7 @@ export const copy: Record<Locale, Copy> = {
       upDownRed: "上昇＝赤",
     },
     theme: { dark: "ダークモード", light: "ライトモード" },
+    share: { done: "画像を書き出しました", error: "書き出しに失敗しました" },
     methodology: {
       title: "CardZ Marketcap の市場ランキング方法",
       body: "掲載は、与えられるものではなく獲得するもの。この指数のカードはすべて確認済み PSA 10 が 1,000 枚以上あり、時価総額はその流通量に PSA 10 参考価格を掛けた値です。参考価格は、当社の追跡範囲内で確認された PSA 10 取引から算出します。対象期間の取引記録が十分でない場合、その数値は取引平均ではなく参考水準として示されます。実在する供給と需要、それ以外は作りません。",
@@ -1299,6 +1310,7 @@ export const copy: Record<Locale, Copy> = {
       upDownRed: "상승=빨강",
     },
     theme: { dark: "다크 모드", light: "라이트 모드" },
+    share: { done: "이미지를 내보냈습니다", error: "내보내기에 실패했습니다" },
     methodology: {
       title: "CardZ Marketcap의 시장 순위 방식",
       body: "수록은 주어지는 것이 아니라 얻어내는 것입니다. 이 지수의 모든 카드는 검증된 PSA 10이 1,000장 이상이며, 시가총액은 그 물량에 PSA 10 기준가를 곱한 값입니다. 기준가는 저희 추적 범위 안에서 검증된 PSA 10 거래로 산출합니다. 해당 기간의 거래 기록이 충분하지 않을 경우 그 수치는 거래 평균이 아니라 참고 수준으로 제시됩니다. 실제 공급과 실제 수요, 그 밖의 것은 만들지 않습니다.",

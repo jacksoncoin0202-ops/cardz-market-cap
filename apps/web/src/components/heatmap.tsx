@@ -17,9 +17,8 @@ import { copy } from "@/lib/i18n";
 import { formatDate, formatMetricInteger, formatMetricMoney, formatMoney, formatObservationDate, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
 import { tap } from "@/lib/haptic";
 import { heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
-import { drawQr } from "@/lib/qr";
+import { renderHeatmapShare } from "@/lib/share-image";
 import { changeValue, DEFAULT_TILE, tileCardSize, tileColors, tileStyle, type TileParams } from "@/lib/tile-style";
-import { PUBLIC_CANONICAL_HOST, PUBLIC_SITE_URL } from "@/lib/public-site";
 import { useMarketSettings } from "@/lib/use-market-settings";
 import { useUpDown } from "@/lib/use-updown";
 import type { Currency, Locale, MarketCardView, MarketViewSnapshot, MarketWindow } from "@/lib/types";
@@ -623,149 +622,41 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
   }, []);
   useEffect(() => cancelPress, [cancelPress]);
 
-  /* 富士菲林式分享：heatmap 逐格畫上 canvas，pixel wordmark + 真實數量標題 + QR
-     mobile-first：點料用 brand 色，唔好淨係白底黑字 */
+  /*
+   * 分享圖：畫圖全部喺 lib/share-image.ts（純 canvas，冇 React），呢度淨係
+   * 砌 opts → toBlob → share/download。圖入面嘅字一律英文（owner 2026-08-17：
+   * 一張圖出咗街係俾全世界睇），所以 periodLabel 傳 copy.en.periods、日期用
+   * formatDate(..., "en")；share sheet 嘅標題／文字先跟返介面語言。
+   */
   const exportHeatmap = useCallback(async () => {
     if (!size.width || !size.height || !tiles.length) return;
-    const scale = Math.min(2, 2400 / size.width);
-    const pad = Math.round(28 * scale);
-    const headerH = Math.round(120 * scale);
-    const footerH = Math.round(160 * scale);
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.round(size.width * scale) + pad * 2;
-    canvas.height = Math.round(size.height * scale) + pad * 2 + headerH + footerH;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    /* 深色模式用品牌深炭底（同 logo pack 嘅 #0D0D0F 接近），淺色用暖白 */
-    const bgColor = dark ? "#0D0D0F" : "#fafaf7";
-    const textColor = dark ? "#f1f1ee" : "#191917";
-    const subColor = dark ? "#a0a09b" : "#555550";
-    ctx.fillStyle = bgColor;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    /* header：左邊 logo + 真實數量標題，右邊日期；窄畫布改兩行排，唔准疊字 */
-    const headerMidY = pad + headerH / 2;
-    const loadImage = (src: string) => new Promise<HTMLImageElement | null>((resolve) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => resolve(null);
-      img.src = src;
+    const canvas = await renderHeatmapShare({
+      frameWidth: size.width,
+      frameHeight: size.height,
+      /* 每格認住 tile.item.card：treemap 會按市值重排，舊版攞 visibleCards[index] 去對
+         tiles.entries()，張冠李戴——A 卡嘅圖配 B 卡嘅升跌（2026-08-17 code review 捉到）。 */
+      tiles: tiles.map(({ item, x, y, width, height }) => ({
+        x,
+        y,
+        width,
+        height,
+        change: changeValue(item.card, activePeriod),
+        imageUrl: item.card.image.url,
+      })),
+      params,
+      colors,
+      dark,
+      count: tiles.length,
+      periodLabel: copy.en.periods[activePeriod],
+      dateText: formatDate(new Date().toISOString(), "en"),
     });
-    const logo = await loadImage(dark ? "/brand/logo-cardz-marketcap-dark.png" : "/brand/logo-cardz-marketcap.png");
-    const stamp = formatDate(new Date().toISOString(), locale);
-    const periodLabel = t.periods[activePeriod];
-    const shareTitle = `${title.replace("{count}", String(visibleCards.length))} · ${periodLabel} ${t.labels.change}`;
-    const shareTitleNarrow = `${title.replace("{count}", String(visibleCards.length))} · ${periodLabel}`;
-    const logoH = Math.round(56 * scale);
-    const logoW = logo ? Math.round(logoH * (logo.width / logo.height)) : 0;
-    const stampFont = Math.round(12 * scale);
-    ctx.font = `600 ${Math.round(22 * scale)}px system-ui, sans-serif`;
-    const titleW = ctx.measureText(shareTitle).width;
-    ctx.font = `500 ${stampFont}px system-ui, sans-serif`;
-    const stampW = ctx.measureText(stamp).width;
-    const oneLineW = pad + logoW + Math.round(18 * scale) + titleW + Math.round(24 * scale) + stampW + pad;
-    const narrow = oneLineW > canvas.width;
-    const fitText = (text: string, maxW: number) => {
-      if (ctx.measureText(text).width <= maxW) return text;
-      let cut = text;
-      while (cut.length > 1 && ctx.measureText(`${cut}…`).width > maxW) cut = cut.slice(0, -1);
-      return `${cut}…`;
-    };
-    ctx.textBaseline = "middle";
-    if (logo) {
-      const logoY = narrow ? pad + Math.round(8 * scale) : headerMidY - logoH / 2;
-      ctx.drawImage(logo, pad, logoY, logoW, logoH);
-    }
-    ctx.font = `500 ${stampFont}px system-ui, sans-serif`;
-    ctx.fillStyle = subColor;
-    if (narrow) {
-      ctx.fillText(stamp, canvas.width - pad - stampW, pad + Math.round(36 * scale));
-      ctx.font = `600 ${Math.round(15 * scale)}px system-ui, sans-serif`;
-      ctx.fillText(fitText(shareTitleNarrow, canvas.width - pad * 2), pad, pad + Math.round(100 * scale));
-    } else {
-      ctx.font = `600 ${Math.round(22 * scale)}px system-ui, sans-serif`;
-      ctx.fillStyle = textColor;
-      ctx.fillText(shareTitle, pad + logoW + Math.round(18 * scale), headerMidY);
-      ctx.font = `500 ${stampFont}px system-ui, sans-serif`;
-      ctx.fillStyle = subColor;
-      ctx.fillText(stamp, canvas.width - pad - stampW, headerMidY);
-    }
-
-    const ox = pad;
-    const oy = pad + headerH;
-    const images = await Promise.all(visibleCards.map((card) => loadImage(card.image.url)));
-
-    for (const [index, { x, y, width, height }] of tiles.entries()) {
-      const card = visibleCards[index];
-      if (!card) continue;
-      const gap = params.gap;
-      const tx = ox + (x + gap / 2) * scale;
-      const ty = oy + (y + gap / 2) * scale;
-      const tw = (width - gap) * scale;
-      const th = (height - gap) * scale;
-      const st = tileStyle(changeValue(card, activePeriod), tw, th, colors, params);
-      ctx.fillStyle = st.bg;
-      ctx.fillRect(tx, ty, tw, th);
-      const img = images[index];
-      if (img && st.showCard) {
-        const cw = st.cardW; const ch = st.cardH;
-        const cx = tx + (tw - cw) / 2; const cy = ty + (th - ch) / 2;
-        // contain：完整卡圖等比縮放入框，唔准 center-crop 食角
-        const fit = Math.min(cw / img.width, ch / img.height);
-        const dw = img.width * fit; const dh = img.height * fit;
-        ctx.drawImage(img, cx + (cw - dw) / 2, cy + (ch - dh) / 2, dw, dh);
-      }
-      if (st.move) {
-        /* st.move / st.fontSize 已經由 fitTileLabel 按 tile 闊度揀好（唔入就去小數／唔畫），share 圖同螢幕一致 */
-        ctx.font = `800 ${st.fontSize * scale}px system-ui, sans-serif`;
-        ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
-        const mw = ctx.measureText(st.move).width;
-        const mx = tx + tw - mw - Math.max(4, tw * 0.05);
-        const my = ty + Math.max(10, th * 0.1);
-        ctx.fillText(st.move, mx, my);
-      }
-    }
-
-    /* footer 右邊：QR → 官網；左邊 methodology，逐字 wrap 避免撳埋 QR 區 */
-    const qrBox = Math.round(72 * scale);
-    const qrCx = canvas.width - pad - qrBox / 2;
-    const qrCy = canvas.height - pad - footerH / 2;
-    const methodology = t.methodology.body;
-    const qrLeft = canvas.width - pad - qrBox - Math.round(16 * scale);
-    ctx.font = `500 ${Math.round(12 * scale)}px system-ui, sans-serif`;
-    ctx.fillStyle = subColor;
-    const maxTextWidth = qrLeft - pad;
-    /* token wrap：英文字/數字成個 token 落行，CJK 逐字，唔准喺 word 中間斷開 */
-    const lineHeight = Math.round(20 * scale);
-    const tokens = methodology.match(/[\w$][\w,.%$+/-]*|\s+|./g) ?? [methodology];
-    const lines: string[] = [];
-    let line = "";
-    for (const token of tokens) {
-      const trial = line + token;
-      if (ctx.measureText(trial).width > maxTextWidth && line.trim()) {
-        lines.push(line.trimEnd());
-        line = token.trimStart();
-      } else {
-        line = trial;
-      }
-    }
-    if (line.trim()) lines.push(line.trimEnd());
-    if (lines.length <= 1) {
-      ctx.fillText(methodology, pad, qrCy);
-    } else {
-      const startY = qrCy - ((lines.length - 1) * lineHeight) / 2;
-      lines.forEach((text, i) => ctx.fillText(text, pad, startY + i * lineHeight));
-    }
-    drawQr(ctx, PUBLIC_SITE_URL, qrCx, qrCy, qrBox, dark ? "#f1f1ee" : "#191917", bgColor);
-    ctx.font = `500 ${Math.round(10 * scale)}px system-ui, sans-serif`;
-    ctx.fillStyle = subColor;
-    const qrLabel = PUBLIC_CANONICAL_HOST;
-    ctx.fillText(qrLabel, qrCx - ctx.measureText(qrLabel).width / 2, qrCy + qrBox / 2 + Math.round(10 * scale));
 
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
     if (!blob) throw new Error("heatmap export: toBlob returned null");
-    const filename = `cardz-heatmap-top${visibleCards.length}-${new Date().toISOString().slice(0, 10)}.png`;
+    const filename = `cardz-heatmap-top${tiles.length}-${new Date().toISOString().slice(0, 10)}.png`;
     const pageUrl = window.location.href;
+    /* share sheet 嘅標題／文字係俾當下用戶睇嘅介面字，所以跟返 locale（唔同圖入面嘅英文字） */
+    const shareTitle = `${title.replace("{count}", String(tiles.length))} · ${t.periods[activePeriod]}`;
     /*
      * 分享（owner 2026-08-16 晚）：唔准夾硬要人 save 個 file。
      * 1) 有 Web Share Level 2（Android Chrome / iOS Safari / Chrome）就出**系統 share sheet**：
@@ -777,7 +668,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
      */
     const file = new File([blob], filename, { type: "image/png" });
     const nav = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
-    const shareData: ShareData = { files: [file], title: shareTitleNarrow, text: `${shareTitleNarrow}\n${pageUrl}` };
+    const shareData: ShareData = { files: [file], title: shareTitle, text: `${shareTitle}\n${pageUrl}` };
     let shared = false;
     if (typeof nav.share === "function" && nav.canShare?.(shareData)) {
       try {
@@ -801,7 +692,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
     if (isMobileTiles) {
       document.getElementById("market-ranking")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-  }, [size, tiles, visibleCards, title, locale, activePeriod, isMobileTiles, params, colors, dark, t.methodology.body, t.periods, t.labels.change]);
+  }, [size.width, size.height, tiles, title, activePeriod, isMobileTiles, params, colors, dark, t.periods]);
 
   // Controls 抽返出嚟：desktop 同標題並排，手機由 CSS 將佢哋排喺標題下面、
   // 圖上面（Tiles slider 做主角），結構保持一致。
@@ -842,8 +733,9 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
         className="heatmap-export"
         getText={() => window.location.href}
         label={t.heatmap.shareImage}
-        doneLabel={t.labels.shareDone}
-        errorLabel={t.labels.shareError}
+        /* 呢個掣係匯出 PNG，唔係複製連結——toast 要用 share.done/error，唔好再借 labels.shareDone */
+        doneLabel={t.share.done}
+        errorLabel={t.share.error}
         onCopy={exportHeatmap}
       />
     </div>
