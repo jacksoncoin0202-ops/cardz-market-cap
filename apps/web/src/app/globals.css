@@ -2602,7 +2602,8 @@ button.primary-action { border: 0; }
   max-width: calc(100vw - 32px);
   padding: 5px;
   /*
-   * 實色底，唔准跟 .select-menu 嗰個 --surface-translucent-strong（alpha .82）。
+   * 實色底，同 .select-menu 一樣（兩個 popover 都喺 backdrop root 之下，backdrop-filter
+   * 冇效果，所以唔可以靠 --surface-translucent-strong 嗰個 alpha .82）。
    * 父層 .ranking-heading 自己有 backdrop-filter → 佢係 backdrop root，popover 嘅
    * backdrop-filter 根本 sample 唔到 heading 以外嘅嘢（搜尋列／「走勢」表頭），
    * 所以得返 .82 alpha 蓋住未 blur 嘅字 = 睇穿（owner 2026-08-17 截圖）。

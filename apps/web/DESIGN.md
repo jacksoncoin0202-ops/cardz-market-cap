@@ -100,7 +100,11 @@ token 定義本身就住喺 `globals.css`，→0 冇可能）。真正嘅驗收�
 
 另外：**截圖／量度矩陣要按 selector 嘅真實 call site 揀頁，唔准按「呢幾頁順手」。**
 `.hub-lead` 全站**只有 `/market-report`** 出（`seo-table.tsx:110`，`block.intro` 存在先渲染）；
-`.provenance-panel` 喺 `/`、`/box`、`/pokemon`、`/card/[id]`；`.content-*` 喺 `/about`、`/methodology`、`/faq`、`/glossary`。
+`.provenance-panel` 嘅 call site 由 component import 反查（review fix 2026-08-17，`grep components/provenance`）：
+`market-page.tsx`（`RankingSurface` → `/`、`/pokemon`、`/one-piece`）、`box-market-page.tsx`（`/box`，
+`/sealed` 只係 `redirect("/box")` 嘅 alias）、`box-detail.tsx`（`/box/[id]`）、`card-detail.tsx`（`/card/[id]`）；
+`.content-*` 喺 `ContentPage` 嘅五個 route：`/about`、`/methodology`、`/faq`、`/glossary`、**`/data`**。
+**呢兩行就係量度矩陣嘅完整清單，加頁之前先 grep import，唔好靠記。**
 
 **已收編（fix-visual，2026-08-17，owner 明文授權接受 reflow）：**
 
@@ -209,7 +213,7 @@ owner 2026-08-16 決定：**全部 locale 默認綠升紅跌**；用戶自己揀
 | `chart-draw` | `styles/history-chart.css` | `.price-line` 由頭畫到尾（`pathLength="1"` + dashoffset 1→0，900ms） | 同檔 `@media (prefers-reduced-motion: reduce)`：`animation: none` + `stroke-dasharray: none` |
 | `chart-bar-rise` | 同上 | `.sales-bar` 由 baseline `scaleY(0→1)`，stagger 30ms、序號封頂 20 | 同上 |
 | `chart-dot-in` | 同上 | `.price-point` 喺線畫完（760ms）先淡入 | 同上 |
-| `live-dot-pulse` | `styles/glow-badges.css` | live 徽章綠點嘅擴散環（`.live-dot::after`），**`1.2s × 5` = 6s 之後停**，`forwards` 釘死喺 = base style 嘅終態 | 同檔 `@media (prefers-reduced-motion: reduce)`：`.live-dot::after { animation: none; display: none }` |
+| `live-dot-pulse` | `styles/glow-badges.css` | live 徽章綠點嘅擴散環（`.live-dot::after`），**`1.2s × 5` = 6s 之後停**，**冇 fill-mode**（100% 格 = base style，播完 `getAnimations()` 歸 0，同 `card-sheen-sweep` 一致） | 同檔 `@media (prefers-reduced-motion: reduce)`：`.live-dot::after { animation: none; display: none }` |
 | `card-sheen-sweep` | `styles/card-art.css` | 手機／無 hover 嘅一次性 holo 掃光（`.card-sheen::before`），`1.6s linear × 1`、**冇 fill-mode**，播完 `getAnimations()` 回 0 | 同檔 reduce block：`.card-art[data-art-sheen="ready"] .card-sheen{display:none}` + `::before{animation:none}`（**selector 形狀要同 `@media (hover: none)` 嗰兩條一樣**，見 §3.4） |
 
 其他 transition 類 reduced-motion block：`:2186`（grader tabs）、`:2289`（cap-ticker）、
@@ -762,16 +766,43 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
     量到 |Δtop| **1.36px**（@901）、**1.24px**（@940）、**0.39px**（@981）。
   - `/about`、`/methodology` 除咗 721 嗰格之外全部 0.00px。
   - **`scrollWidth` 13 × 6 = 78 個組合逐個相同**（新舊完全一樣）→ 零新增橫向溢出。
+- **補量：另外 8 個 call-site route**（review 2026-08-17 揸返同一支 A/B 腳本；頭 6 個
+  `temp/fe05/review-visual/r10_gap.py`，`/data` 同 `/box/[id]` 係 `temp/fe05/fix-visual-r2/r11_data_boxid.py`）。
+  原本 6 頁矩陣漏咗呢 8 個，**唔係漏 bug，係漏記錄** —— 逐格 `scrollWidth` 新舊相同、
+  零 CLIP、零 OVERFLOW。呢 8 行連上面 6 行先係完整 baseline：
+
+  | route | 食邊個 selector | 最大 \|Δtop\| | 同格 ΔdocHeight |
+  |---|---|---|---|
+  | `/glossary` | `.content-answer` | **31.88px** @721 | −32 |
+  | `/faq` | `.content-answer` | 6.25px @721 | −6 |
+  | `/data` | `.content-answer` | 6.25px @721 | −6 |
+  | `/box` | `.provenance-panel h2` | 1.36px @901 | −2 |
+  | `/pokemon` | `.provenance-panel h2` | 1.36px @901 | −2 |
+  | `/one-piece` | `.provenance-panel h2` | 1.36px @901 | −2 |
+  | `/sealed`（→ `/box` alias） | `.provenance-panel h2` | 1.36px @901 | −2 |
+  | `/box/[id]` | `.provenance-panel h2` | 1.36px @901 | −1 |
+
+  `.content-answer` 三頁全部只喺 **721 一格**有分別（722–764 未量，但 ramp 同一條）；
+  `.provenance-panel h2` 五頁全部係 901 / 940 / 981 三格 = 1.36 / 1.23–1.24 / 0.39px，
+  同 `/`、`/card/[id]` 一模一樣。最壞嗰格 `/glossary`@721 = 31.88px，仲喺 owner 嘅 ~60px 之內，
+  但佢係全站第二大（僅次於 `/rankings/[slug]` 49.67px）—— 之後改 `--step-1` 要連佢一齊量。
 - **360px × zh-TW / ja / ko**（`verify.json` `D_i18n360`，18 個「語言 × 頁」組合）：
   `documentElement.scrollWidth` / `body.scrollWidth` **全部 = 360 = innerWidth**；
   四個收編 selector 逐個 `scrollHeight - clientHeight ≤ 1` 兼 `overflow: visible`
   → **0 個裁字**。三張截圖 `i18n-360-{zhTW,ja,ko}.png`。
-- **live 綠點脈衝有上限**（`B_livedot`）：`iterations 5`、`duration 1200ms`、`fill forwards`；
-  1 秒時 `running`，8 秒時 **`finished`**、`currentTime` 封頂 `6000`。
-  `/card/[id]` 同 `/` 兩邊都一樣（beam 仍然鎖死喺 `.detail-page`，粒點兩邊都跳）。
+- **live 綠點脈衝有上限，而且播完唔留低嘢**（`B_livedot`；review fix 之後重量，
+  `temp/fe05/fix-visual-r2/r3_rerun.json`）：`iterations 5`、`duration 1200ms`、
+  **`fill none`**；t0 `running`（1 個），**t=7.5s 同 t=10.5s 兩次採樣
+  `document.querySelector('.live-dot').getAnimations({subtree:true}).length` 都係 `0`**，
+  `/` 同 `/card/[id]` 兩邊一樣（beam 仍然鎖死喺 `.detail-page`，粒點兩邊都跳）。
+  **第一輪呢度紅過**：原本個 shorthand 有 `forwards`，個 effect 永遠 "in effect" →
+  10.5 秒之後 `getAnimations()` 仍然係 1（`finished`、`currentTime` 封頂 `6000`）。
+  上限本身冇壞（冇第 6 圈、冇重播），但係 100% 嗰格已經等於 base style，`forwards` 買唔到
+  任何嘢，淨係令「播完唔准留低嘢」嗰類 audit 讀成紅 —— 而且同隔籬 `card-sheen-sweep`
+  （冇 fill-mode，實測 1 → 0）唔一致。**拆咗 `forwards`，兩個新 keyframe 而家同一形狀。**
   `reduce` context **0 個 animation**。`scrollWidth` 冇變（1265）。
   **唔會 re-render 再播**：撳 header 換貨幣（成個 provenance subtree re-render）之後
-  `startTime` 由 `442` → **`442`**（同一個數）、state 仍然 `finished`。
+  仍然係 **0 個 animation**（冇新 animation 生出嚟）。
 - **手機一次性掃光**（`C_sheen`，390 × `is_mobile` + `has_touch`）：
   `data-art-sheen="ready"`、`animation-iteration-count 1`、`fill-mode none`、`1.6s`；
   早期取樣 `getAnimations()` **1 個 `running`** → 2.5 秒之後 **0 個**（light + dark 都係）。
@@ -846,7 +877,8 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
    夾唔返（見 §1.3）。呢兩個冇「同一角色兩套字級」嘅缺陷做理由，所以冇順手收。
 2. **掃光只有 `/card/[id]` 食到**（`CardArt` 得嗰度 call）。`/box/[id]` 個卡圖冇包 `CardArt`，
    要唔要一齊有，係另一單。
-3. **`--holo-a1` 喺 dark 係 `#ffffff42`（≈ .26 alpha）**，掃光相對含蓄。呢個係故意跟返
+3. **`--holo-a1` 喺 dark 係 `rgba(255, 255, 255, 0.26)`**（globals.css:245；light 係 `.42`，:145），
+   掃光相對含蓄。呢個係故意跟返
    WS2 桌面 sheen 同一對 token（唔准為咗手機另開一對）；覺得唔夠明顯就係改 token，
    兩邊一齊變。
 4. dev server（未 minify）量到嘅 longtask 唔算數（WS1 欠單 ④ 同一條），呢次冇量 longtask。

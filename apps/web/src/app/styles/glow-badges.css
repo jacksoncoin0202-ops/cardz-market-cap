@@ -109,8 +109,11 @@
  *
  * **有迭代上限**：5 × 1.2s = 6s 之後自己停，冇 `infinite`（§4 預算明文唔准常駐視覺噪音；
  * WS2 欠單 ③ 就係「要跳就要有上限，owner 拍板先加」——而家拍咗板）。
- * `forwards` 令佢釘死喺最後一格，而最後一格 **等於靜止態**（scale(1) + opacity 0），
- * 即係播完之後同冇動畫嗰陣一模一樣。
+ * **冇 fill-mode**（review fix 2026-08-17）：100% 嗰格（opacity 0 + scale(1)）本身就等於
+ * base style，所以 `forwards` 買唔到任何嘢，反而令個 animation 永遠 "in effect" —— 播完
+ * 之後 `getAnimations()` 仍然數到 1 個（`finished`、`currentTime` 封頂 6000），
+ * 一個「播完唔准留低嘢」嘅 audit 會當佢紅。拆咗 `forwards` 之後 6 秒後歸 0，
+ * 同隔籬 `card-sheen-sweep`（一樣冇 fill-mode）同一個形狀。
  *
  * 只 animate transform / opacity（compositor 做，零 paint）——**唔郁 .live-dot 個
  * box-shadow**，box-shadow 每 frame 重 paint，係 §4.5 明文唔准嘅嗰種。
@@ -130,13 +133,13 @@
   background: var(--live-dot);
   opacity: 0;
   pointer-events: none;
-  animation: live-dot-pulse 1.2s var(--ease-standard) 5 forwards;
+  animation: live-dot-pulse 1.2s var(--ease-standard) 5;
 }
 
 @keyframes live-dot-pulse {
   0% { opacity: 0.55; transform: scale(1); }
   70% { opacity: 0; transform: scale(2.6); }
-  /* 收返 scale(1)：呢格係 `forwards` 釘死嘅終態，一定要同 base style 一樣。 */
+  /* 收返 scale(1)：終態一定要同 base style 一樣（冇 fill-mode，播完直接跌返 base）。 */
   100% { opacity: 0; transform: scale(1); }
 }
 
