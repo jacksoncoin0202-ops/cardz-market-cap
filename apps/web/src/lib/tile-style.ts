@@ -78,6 +78,68 @@ export function tileCardSize(w: number, h: number, p: TileParams): { cardW: numb
   return { cardW, cardH };
 }
 
+/* 升跌 label 幾何契約——同 globals.css `.tile-move` 逐個數對齊，改一邊必改另一邊：
+   離 tile 邊 inset px、左右 padding padX、上下 padding padY、line-height。
+   owner 2026-08-17：「唔好食咗啲 percentage」——label 一定要成個字入晒 tile 入面，
+   仲要離開左右邊；寧願縮字／去小數／索性唔顯示，都唔准裁字。 */
+export const TILE_LABEL = { inset: 4, padX: 3, padY: 1, lineHeight: 1.2, minFont: 8, maxFont: 14 } as const;
+
+/* label 闊度（每 1px 字體嘅 em 數）：有 canvas 就用真字體量（同 CSS 同一個 font-family、
+   同一個 800 weight，量出嚟就係瀏覽器實際排出嚟嘅闊度）；SSR / 冇 canvas 先用保守估值。
+   結果按字串 cache——100 格 × 拉 slider 每幀都會問，唔可以每次都 measureText。 */
+let measureCtx: CanvasRenderingContext2D | null | undefined;
+const labelEmCache = new Map<string, number>();
+const MEASURE_PX = 100;
+function labelMeasureCtx(): CanvasRenderingContext2D | null {
+  if (measureCtx !== undefined) return measureCtx;
+  measureCtx = null;
+  if (typeof document === "undefined") return null;
+  const ctx = document.createElement("canvas").getContext("2d");
+  if (!ctx) return null;
+  const family = (document.body && getComputedStyle(document.body).fontFamily) || "system-ui, sans-serif";
+  ctx.font = `800 ${MEASURE_PX}px ${family}`;
+  /* font shorthand parse 唔到會靜靜留返 default 10px——量出嚟細 10 倍，label 就會爆邊；退返 sans-serif */
+  if (!ctx.font.includes(`${MEASURE_PX}px`)) ctx.font = `800 ${MEASURE_PX}px sans-serif`;
+  measureCtx = ctx;
+  return ctx;
+}
+function estimateLabelEm(text: string): number {
+  let em = 0;
+  for (const ch of text) em += ch === "." ? 0.32 : ch === "%" ? 0.95 : 0.62;
+  return em;
+}
+export function tileLabelEm(text: string): number {
+  const cached = labelEmCache.get(text);
+  if (cached !== undefined) return cached;
+  const ctx = labelMeasureCtx();
+  const raw = ctx ? ctx.measureText(text).width / MEASURE_PX : estimateLabelEm(text);
+  /* +4%：tabular-nums canvas 量唔到（SF 嘅等寬數字比 proportional 闊少少）；再加 CSS letter-spacing 0.01em × 字數 */
+  const em = raw * 1.04 + text.length * 0.01;
+  labelEmCache.set(text, em);
+  return em;
+}
+
+/* 揀 label 文字 + 字體：先試完整「+295.2%」，唔入就縮字（下限 minFont）；仲唔入就去小數「+295%」再縮；
+   都唔得就唔顯示（owner：「睇唔到數字唔緊要，但唔好食咗」）。字體上限跟舊規則 12% 短邊、8–14px。 */
+export function fitTileLabel(value: number | null, w: number, h: number): { move: string | null; fontSize: number } {
+  const L = TILE_LABEL;
+  const shortSide = Math.min(w, h);
+  const base = Math.max(L.minFont, Math.min(L.maxFont, Math.round(shortSide * 0.12)));
+  if (value === null || !Number.isFinite(value)) return { move: null, fontSize: base };
+  const availW = w - 2 * L.inset - 2 * L.padX;
+  const availH = h - 2 * L.inset - 2 * L.padY;
+  const sign = value > 0 ? "+" : "";
+  const full = `${sign}${value.toFixed(1)}%`;
+  const compact = `${sign}${Math.round(value)}%`;
+  const candidates = compact === full ? [full] : [full, compact];
+  const maxByHeight = Math.floor(availH / L.lineHeight);
+  for (const text of candidates) {
+    const fontSize = Math.min(base, Math.floor(availW / tileLabelEm(text)), maxByHeight);
+    if (fontSize >= L.minFont) return { move: text, fontSize };
+  }
+  return { move: null, fontSize: base };
+}
+
 /* w/h 係 tile 實際顯示尺寸（px） */
 export function tileStyle(value: number | null, w: number, h: number, colors: TileColors, p: TileParams): TileStyle {
   const t = frameStrength(value, p);
@@ -88,13 +150,10 @@ export function tileStyle(value: number | null, w: number, h: number, colors: Ti
   const bg = direction === "neutral" || (p.deadzone > 0 && t === 0)
     ? colors.neutral
     : `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`;
-  const shortSide = Math.min(w, h);
   const { cardW, cardH } = tileCardSize(w, h, p);
   /* 門檻放寬：tile 細都照 show 卡圖，保持成版整齊（用戶 2026-07-24 指示） */
   const showCard = p.cardPct > 0 && cardW >= 5 && cardH >= 7;
-  const move = value !== null ? `${value > 0 ? "+" : ""}${value.toFixed(1)}%` : null;
-  /* 字體隨 tile 縮放：12% 短邊，上下限 8–14px，保持成版字體一致（用戶 2026-07-24 指示） */
-  const fontSize = Math.max(8, Math.min(14, Math.round(shortSide * 0.12)));
+  const { move, fontSize } = fitTileLabel(value, w, h);
   return { direction, bg, cardW, cardH, showCard, move, fontSize };
 }
 

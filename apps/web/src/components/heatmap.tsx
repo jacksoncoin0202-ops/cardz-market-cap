@@ -716,7 +716,8 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
         ctx.drawImage(img, cx + (cw - dw) / 2, cy + (ch - dh) / 2, dw, dh);
       }
       if (st.move) {
-        ctx.font = `700 ${st.fontSize * scale}px system-ui, sans-serif`;
+        /* st.move / st.fontSize 已經由 fitTileLabel 按 tile 闊度揀好（唔入就去小數／唔畫），share 圖同螢幕一致 */
+        ctx.font = `800 ${st.fontSize * scale}px system-ui, sans-serif`;
         ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
         const mw = ctx.measureText(st.move).width;
         const mx = tx + tw - mw - Math.max(4, tw * 0.05);

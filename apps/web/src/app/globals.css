@@ -1075,18 +1075,22 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   }
 }
 .heatmap-tile:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.9); outline-offset: 2px; }
+/* 幾何（inset 4 / padding 1px 3px / line-height 1.2 / weight 800 / letter-spacing 0.01em）同
+   lib/tile-style.ts `TILE_LABEL` + tileLabelEm 逐個數綁死：JS 用真字體量闊度再揀字體大細，
+   保證 label 成個入晒 tile 又離開左右邊（owner 2026-08-17：唔准食字）；改呢度必改嗰邊。 */
 .tile-move {
   position: absolute;
   top: 4px;
   right: 4px;
   z-index: 3;
-  padding: 1px 4px;
+  padding: 1px 3px;
   border-radius: 4px;
   font-size: 10px; /* JS inline fontSize 會冚過呢個，呢個係 SSR fallback */
   font-weight: 800;
   line-height: 1.2;
   letter-spacing: 0.01em;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   color: #fff;
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7), 0 0 10px rgba(0, 0, 0, 0.4);
   pointer-events: none;

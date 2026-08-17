@@ -385,6 +385,7 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
 | **fix-visual** | header 兩個 select menu 轉實色底、`--step-0`/`--step-1` 收編（answer 角色統一）、live 綠點有上限脈衝、手機一次性 holo 掃光 | ✅ 已落（2026-08-17） |
 | **fix-heatmap-title** | heatmap H1 永遠一行（`white-space: nowrap` + 字級 = `min(4.6vw, 100cqi/9.5)`，`.heatmap-title` 係 inline-size container）；heading 拆走描述句、footer 拆走 methodology-note；五語言標題縮到 ≤ 9em（`test-fe-heatmap-title-width.mjs` 守住） | ✅ 已落 + live（2026-08-17 13:50，22422add） |
 | **fix-owner-round-0817** | owner 2026-08-17 三輪口頭 review：桌面填滿（shell cap 1440→2400、gutter `clamp(32px,3vw,72px)`、表格 88px 行／卡名欄 26%）、字級手機↔桌面統一（nav 14 / metric label 11 / 數值 22↔20 / story 15）、內頁順序「圖 → 走勢 → 市值/數量 → 簡介」、header search 常駐 + 升跌反轉掣搬落 nav 行（≤980）、卡榜 EN/JP/SC/TC chip（桌面 + 手機）、原盒 group 只分 TCG + 語言入排序 sheet／`.lang-filter`、品牌橙細節（heatmap 總市值數字、nav 現位底線 2px、升跌掣兩支箭嘴跟 `--positive/--negative`）；順手修 `.detail-metrics span` 食咗 `.cap-ticker` 令三格數值 9.5px 灰字 | ✅ 已落 + live（2026-08-17 06:31Z，49e27f95） |
+| **fix-tile-label-fit** | heatmap 升跌 label 唔准食字：`fitTileLabel()` 用 canvas 量真字體闊度（同 `.tile-move` 同 family／800），先試完整 `+295.2%`，唔入就縮字（下限 8px）→ 去小數 `+295%` → 都唔入就唔顯示；離 tile 邊 4px、padding 1px 3px；share 圖同一套。實測 390/360/768/1440/1920 × 3 hub × 1D/1Y：0 格爆邊、最細邊距 4px（`temp/fe05/desktop-fill/tilelabel.py`） | ✅ 已落（2026-08-17，本地預覽） |
 | WS5 | OG 圖 v2（卡圖入圖，satori 讀唔到 WebP → 要解碼），fail-open 退返純文字版 | TODO |
 | WS6 | HyperFrames 每日市場 recap 片（`apps/web` 以外，獨立 folder） | TODO（可選） |
 
@@ -951,6 +952,16 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
 8. **順手修嘅舊 bug（[KNOWN]，出街版一直錯）**：WS3 count-up 將內頁三格數值包咗 `<span class="cap-ticker">`，撞正 `.detail-metrics span`
    （label 規則：9.5px、`--dt-color`），所以市值／PSA10 價／POP 一直係細灰字，得 6M 升跌／成交額／RAW 正常。
    `.detail-metrics strong > .cap-ticker { font-size/color: inherit }` 還原。**冇 test 守住**（CSS 計算值要 browser）——欠單。
+
+**fix-tile-label-fit 嘅決定**（owner 2026-08-17：「睇唔到數字唔緊要，但唔好食咗啲 percentage……唔想見到啲字黐住張圖最左最右」）：
+
+- 舊做法：字體 = 12% 短邊夾 8–14px，label `position:absolute; right:4px` 由右向左生長，tile `overflow:hidden` 就喺左邊裁走「+3」——1440 100 格
+  1Y 都有成排 `89.1%`／`87.3%` 咁樣缺頭。
+- 新做法（`lib/tile-style.ts` `fitTileLabel`）：可用闊 = tile 闊 − 2×inset(4) − 2×padX(3)；label 闊度用 canvas `measureText`（body 嘅 font-family、800）
+  量一次 cache 一次（+4% 補 tabular-nums、+0.01em×字數補 letter-spacing）；`fontSize = min(舊上限, floor(可用闊 / em), floor(可用高 / 1.2))`。
+  ≥8px 就出完整字；唔夠就試去小數；再唔夠 `move = null` 唔畫。手機 100 格時細格會冇數字——owner 講明接受；要救多啲可以將 `TILE_LABEL.minFont` 落 7。
+- 幾何契約寫死喺兩邊（`TILE_LABEL` ↔ `.tile-move`），comment 互相指住；`exportHeatmap` 直接食同一個 `st.move/st.fontSize`，share 圖唔會另外爆。
+- SSR 冇 canvas → 保守估值（digit 0.62em / % 0.95 / . 0.32）；實際 tile 只喺 client 量完 frame 先 render，估值只係 fallback。
 
 ### 明確非目標
 
