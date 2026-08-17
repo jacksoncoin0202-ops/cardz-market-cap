@@ -40,6 +40,11 @@ export const AUTO_APPEND_ROW_CAP = 800;
    照接落去。1200 > 一版高度，覆蓋到大部分桌面 viewport。 */
 const SENTINEL_ROOT_MARGIN = "1200px 0px 800px 0px";
 
+/* 「撳咗換頁／換數量，等新內容 commit 完再返榜頂」個旗要擺 module level：soft nav
+   有機會令呢個 component 重建，旗放喺 component 入面（ref／state）就會一齊冇咗，
+   結果停喺榜中間。實測放 ref 果版三個 viewport 全部唔 scroll。 */
+let pendingRankingTop: string | null = null;
+
 export type RankingSizeLink = { size: RankingPageSize; href: string; active: boolean };
 
 /* server → client 只可以過純資料，所以 `hrefFor()` 喺 RankingSurface 度行晒，
@@ -134,10 +139,20 @@ export function RankingPager({
   }, [loading, loadedRows]);
 
   /* 換頁／換數量：`scroll={false}` 之後要自己定位，否則會停喺原本個 scroll 位睇住
-     另一批卡。對 `#market-ranking`（榜頂）唔係文件頂 —— 呢個就係 owner 投訴嗰點。 */
-  const toRankingTop = () => {
+     另一批卡。對 `#market-ranking`（榜頂）唔係文件頂 —— 呢個就係 owner 投訴嗰點。
+     ⚠️ 唔喺 onClick 度即刻 scroll：soft nav 係一次 RSC round trip，撳嗰刻榜上可能已經
+     接咗 800 行，nav commit 之後淨返 200 行 —— 喺 document 高度大變之前就開始 smooth
+     scroll，動畫成 1.4 秒都係跑緊一個舊版面。所以 click 只立旗，真正 scroll 等
+     `page|pageSize` 換到（＝新內容已經 commit）先做。 */
+  const navKey = `${page}|${pageSize}`;
+  useEffect(() => {
+    /* 記住嘅係**撳之前**個 key：effect 見到 key 唔同咗先代表新一頁真係 render 咗。
+       dep 只有 navKey，所以 nav 途中嘅普通 re-render 唔會提早觸發。 */
+    if (!pendingRankingTop || pendingRankingTop === navKey) return;
+    pendingRankingTop = null;
     document.getElementById("market-ranking")?.scrollIntoView({ block: "start" });
-  };
+  }, [navKey]);
+  const toRankingTop = () => { pendingRankingTop = navKey; };
 
   if (pageCount <= 1 && pageSize === DEFAULT_RANKING_PAGE_SIZE) return null;
   const range = firstRank !== undefined && lastRank !== undefined ? `#${firstRank}–#${lastRank}` : null;
