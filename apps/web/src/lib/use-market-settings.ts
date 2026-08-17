@@ -26,14 +26,35 @@ export type PrintLangFilter = PrintLanguage | "all";
  * 規矩：
  *  - 只喺 > 預設（`CATALOG_LIST_CAP`）先出現喺 URL，等預設 URL 保持乾淨；
  *  - 一律收埋做 CAP 嘅倍數（`?show=123` → 160），唔准出半版；
- *  - `MAX_SHOW` 係硬頂：`?show=99999999` 一次過 render 幾百萬行 = 主線程死。
+ *  - `URL_SHOW_CAP` 係硬頂，而且係**真係夾得住**嗰個數（見下）。
  *    真正上限仲要俾 caller 按命中數再 clamp 一次（見 `rankings.tsx`）。
  */
-const MAX_SHOW = CATALOG_LIST_CAP * 100;
+
+/*
+ * 由 URL 嚟嘅展開量硬頂 = 6 版（480 行）。
+ *
+ * 原本寫 `CATALOG_LIST_CAP * 100`（8000），註釋話係防「一次過 render 幾百萬行」——
+ * 但 `/api/v1/catalog` 得 1911 條，`rankings.tsx` 已經按命中數 clamp 到 ≤1920，
+ * 所以 8000 由頭到尾冇夾過任何嘢，係死 code。實測（`temp/fe05/fix-state/m_load.py`）
+ * `/?q=a&show=8000` 一個 commit render 晒 1594 行：1280 度 **50,615 個 DOM node**、
+ * 最長 long task **787ms**；390 度 40,164 node。呢條路一個書籤／分享連結就行到。
+ *
+ * 所以「URL 講嘅數」同「用戶撳出嚟嘅數」要分開：
+ *  - URL（第一 paint、back-nav、分享）最多 480 行 —— 一個 commit 嘅預算；
+ *  - 撳「顯示更多」撳過 480 嗰部分留喺 `rankings.tsx` 嘅 session state，每次只加 80，
+ *    唔會寫上 URL，所以任何 URL 都唔會描述一個大過預算嘅第一 paint。
+ * 代價寫得明白：撳到 800 行再入卡頁、撳返上一頁，還原到 480 行（唔係 800）。
+ */
+export const URL_SHOW_CAP = CATALOG_LIST_CAP * 6;
 
 function clampShow(raw: number): number {
   if (!Number.isFinite(raw) || raw <= CATALOG_LIST_CAP) return CATALOG_LIST_CAP;
-  return Math.ceil(Math.min(raw, MAX_SHOW) / CATALOG_LIST_CAP) * CATALOG_LIST_CAP;
+  return Math.ceil(Math.min(raw, URL_SHOW_CAP) / CATALOG_LIST_CAP) * CATALOG_LIST_CAP;
+}
+
+/* URL 應該長成點：≤ 預設就係「唔應該有呢個 param」（null）。 */
+function canonicalShowParam(show: number): string | null {
+  return show > CATALOG_LIST_CAP ? String(show) : null;
 }
 
 /* 嚴格淨數字：`Number.parseInt("240abc")` 會收貨 240，即係打錯都靜靜當啱。 */
@@ -153,7 +174,16 @@ export function useMarketSettings() {
   const period = normaliseMarketWindow(params.get("period"));
   const printLang = normalisePrintLang(params.get("printLang"));
   const query = params.get("q") ?? "";
-  const show = normaliseShow(params.get("show"));
+  const rawShow = params.get("show");
+  const show = normaliseShow(rawShow);
+  /*
+   * 「讀嗰陣清乾淨」唔等於 URL 乾淨：`?show=abc` 出 80 行，但 URL 一路都仲係
+   * `show=abc`，之後任何一次 `update()`（撳排序）都會照抄住佢傳落去 —— 即係
+   * module header 講「URL 係唯一真相」但 URL 本身唔係真相。所以要有人寫返去。
+   * 邊個寫：`rankings.tsx`（`show` 嘅唯一消費者），同 `printLang` demote 一樣嘅
+   * 自我修正 effect；喺呢度寫會變成 header／heatmap／rankings 三份一齊寫。
+   */
+  const showDirty = rawShow !== null && rawShow !== canonicalShowParam(show);
   const sort = params.get("sort") ?? "rank";
   const dir = params.get("dir") === "asc" ? "asc" as const : "desc" as const;
   const urlTheme = params.get("theme");
@@ -287,5 +317,5 @@ export function useMarketSettings() {
     return suffix ? `${path}?${suffix}` : path;
   }, [currency, locale, period]);
 
-  return { locale, currency, period, printLang, query, show, sort, dir, theme, update, href };
+  return { locale, currency, period, printLang, query, show, showDirty, sort, dir, theme, update, href };
 }

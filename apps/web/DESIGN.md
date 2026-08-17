@@ -674,7 +674,20 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
     （正常卡 + 怪比例卡 × 390/1280 四組全中）。正路修法係 CSS 加一條 `img { height: auto }`，
     但 WS-state 冇 CSS 檔權限（`globals.css` / `styles/*.css` 由第二個 agent 揸）——
     **留返欠單**。ranking thumb / heatmap tile 個盒係 0 delta，只有 `.detail-art` 有呢個形狀。
+    **（fix-state 覆核，`temp/fe05/fix-state/m_attrs.py`）** 仲係咁：同一版 code 之下
+    有 attr 嗰張卡 `.detail-art img` 個盒 1280 **397.453×520** / 390 **358×280**，
+    冇 attr 嗰張（下面第 21 點個 fail-closed 閘剛好剝走咗佢）1280 **386.609×519.984** /
+    390 **209.313×279.984** —— 即係 +10.844px / +148.687px，同 review 量到嘅一模一樣。
+    正解仍然係 CSS `.detail-art img { height: auto }`，**唔喺 WS-state 權限範圍**（欠單未還）。
 21. **7 張卡 bake 落嘅 base 尺寸同真正出街嗰個 variant 唔同（bake 側資料欠單）。**
+    **（fix-state 補）** FE 側加咗 fail-closed 閘：`intrinsicSize(w, h, kind)` 見到
+    `kind === "raw_front"` 而比例同 variant 畫布（`429/600`，`pipelines/build_asset_derivatives.py:13-15`）
+    差過 1% 就成對唔出。實測 `/api/v1/catalog`：1603 張卡照出（`429×600` ×1597、
+    `719×1000` ×3、`600×838`、`500×698`、`431×600` —— 比例全部差 <0.6%），
+    **淨係 1 張**（`cmc_51dbab1d0cede988c65e5f81`，宣告 `1000×730` 橫向、出街 `_600` 係
+    429×600 直度）而家 omit，`/api/v1/cards/[id]` 個 `image` 冇咗 `width`/`height`。
+    307 條 BOX 一條都冇變（BOX 唔行卡畫布：實測有 `1000×730` / `750×750` / `1600×1600`）。
+    根因仲喺 bake 側，呢個閘只係唔准 FE 講一個唔會 render 嘅比例。
     掃晒 `data/public/market-assets` 5709 個 WebP：1604 張卡嘅 `_600` **全部 429×600**、
     `_200` 全部 200×280，但有 7 個 base 檔係 719×1000 ×3 / 600×838 / 1000×730 / 500×698 /
     431×600。因為 `srcSet()` 一定出 variants 而且有 `sizes`，瀏覽器**永遠唔會**畫 base 檔，
@@ -684,18 +697,46 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
     component 側未出 attribute —— `/box/[id]` 個圖仲係冇預留位。
 23. **公開 API 契約 additive**：`/api/v1/market`、`/api/v1/cards/[id]`、`/api/v1/catalog` 三條
     route 都係直接 `Response.json` 個 view，所以 `image.width` / `image.height` 自動出咗街
-    （實測 429/600、1000/730）。**只加 key，冇改冇刪**。全個 `docs/` 冇任何檔寫過呢個 payload
+    （實測 429/600；`1000/730` 嗰張由 fix-state 個 fail-closed 閘剝走咗，見第 21 點）。
+    **只加 key，冇改冇刪**。全個 `docs/` 冇任何檔寫過呢個 payload
     嘅 schema，所以除咗呢度冇第二處要同步。
 24. **「顯示更多」由 React state 搬去 URL（`show=<int>`）。** 只有大過 `CATALOG_LIST_CAP`(80)
     先出現喺 URL；`normaliseShow()` 嚴格淨數字（`240abc` 唔准當 240）、向上湊到 80 嘅倍數、
     上限 = 命中數湊足一版。`update()` 用 `router.replace` 所以唔加 history entry
     （實測撳兩次 `history.length` 一直係 **2**）。q 一變就 delete 個 param，`SortFilterSheet`
     嘅「還原」一樣 delete。
+    **（fix-state 改咗兩件事）**
+    - **硬頂由 8000 改成 480（`URL_SHOW_CAP = CATALOG_LIST_CAP * 6`），而且真係夾得住。**
+      原本寫 `CATALOG_LIST_CAP * 100`，但 catalog 得 1911 條、`rankings.tsx` 已經按命中數
+      clamp 到 ≤1920，所以 8000 由頭到尾冇夾過嘢＝死 code，個註釋講嘅保護根本冇 fire。
+      實測（`temp/fe05/fix-state/m_load.py`，`/?q=a&show=8000`）改之前一個 commit render
+      1594 行：1280 **50,615 node / 最長 long task 787ms**、390 **40,164 node / 412ms**；
+      改之後 480 行：1280 **15,699 node / 628ms**、390 **12,402 node / 305ms**
+      （URL 已經係 canonical `show=480` 嗰次：1280 **15,707 / 496ms**、390 **12,372 / 248ms**，
+      差嗰 ~130ms 係自我修正嗰次 `router.replace` 嘅第二次 render）。
+    - **撳過 480 行嗰段唔上 URL**，改為 `rankings.tsx` 嘅 `sessionShow`（綁 `query`，
+      同 `update()` 「q 一變 delete show」同一條規矩，「還原」一齊清）。實測撳 8 下：
+      行數 160/240/320/400/480/**560/640/720**，`show` 停喺 **480**，`replaceState` 停喺
+      **5 次**（第 6–8 下零 navigation），`history.length` 全程 **2**，零 console error。
+      代價講明白：撳到 720 行入卡頁再 back，還原到 **480** 行唔係 720。
+    - **URL 會自我修正（新）**：以前 `?show=abc` 出 80 行但 URL 一路留住 `abc`，
+      之後任何一次 `update()` 都照抄住個垃圾值。而家 `showDirty` + `rankings.tsx`
+      一個 effect 寫返去（同 `langDemoted` 同一個 pattern）。實測 14 個值
+      （`temp/fe05/fix-state/m_sanitise.py`，全部 `?q=a&show=<raw>`）：
+      `abc` / `-5` / `240abc` / `1e3` / `160.0` / `0` / `80` → 80 行 + URL **冇咗個 param**；
+      `123` → 160 行 + `show=160`；`00000240` / `+240`（`+` 解碼成空格，`trim` 完係 240）
+      → 240 行 + `show=240`；`99999999` / `8000` → 480 行 + `show=480`；
+      `160` / `480` 原樣。**render 幾多行 URL 就寫幾多**，零 console error。
 25. **back-nav 實測（`show_url.json`）**：`/?q=a` 撳兩次 → `?q=a&show=240` / 240 行，
     撳第 150 行（`rect_top 365.5`、`scrollY 18747`）入卡頁再 back → URL 保住 `show=240`、
     240 行、嗰行仲喺度、`rect_top` **365.5**（**delta 0.0**），而 `scrollY` 係 18987 ——
     即係 `scroll-restoration.tsx` 行嘅係**錨點相對**還原，唔係絕對 Y，數字對唔上唔代表壞咗。
     新開一版 `?q=a&show=240` 喺 390（mobile list）同 1280（desktop table）都出足 240 行。
+    **（fix-state 覆核）** 同一個場景（390，`?q=a&show=240`、第 150 行、
+    `temp/fe05/fix-state/m_back240.py`）改完之後一樣：back 返嚟 `?q=a&show=240`、240 行、
+    `rect_top` **delta 0.0**。而 `?q=a&show=8000` 呢條路 back 返嚟由 1594 行變 480 行，
+    back 嗰刻嘅 long task 由**最長 769ms / 合共 1538ms**（review 量）跌到
+    **最長 411ms / 合共 822ms**（`m_back.py`，390），URL 保住 `?q=a&show=480`。
 26. **App Router 嘅 push 係 same-document**，Playwright `wait_for_url()` 由頭到尾唔會 fire。
     量呢類跳轉要 poll `location.pathname`，唔係 `wait_for_url` 壞咗。
 27. **`naturalWidth` 喺 `srcset` w-descriptor + `sizes` 之下係密度校正過**：同一個 429×600 檔

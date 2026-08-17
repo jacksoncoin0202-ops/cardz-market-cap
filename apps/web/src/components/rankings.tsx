@@ -17,7 +17,7 @@ import { cardLanguages, copy, localizedCardLanguage, localizedCardLanguageShort 
 import { formatDeltaMoney, formatMetricInteger, formatMetricMoney, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
 import { tap } from "@/lib/haptic";
 import { cardMatchesQuery, nextExploreSort, normaliseCardSort, sortCards } from "@/lib/list-explore";
-import { useMarketSettings, type PrintLangFilter } from "@/lib/use-market-settings";
+import { URL_SHOW_CAP, useMarketSettings, type PrintLangFilter } from "@/lib/use-market-settings";
 import { useMediaQuery } from "@/lib/use-media-query";
 import type { RankingScope } from "@/lib/pagination";
 import type { CatalogEntry, Currency, Locale, MarketCardView, MarketMetric, MarketViewSnapshot, MarketWindow, TrackedSalesMetric } from "@/lib/types";
@@ -117,7 +117,7 @@ function ChangeBadge({ card, period, locale }: { card: MarketCardView; period: M
 }
 
 export function Rankings({ cards, locale, currency, snapshot, href, watchlist = false, marketLabel, searchScope = "all" }: RankingsProps) {
-  const { period, printLang, query, show, sort, dir, update } = useMarketSettings();
+  const { period, printLang, query, show, showDirty, sort, dir, update } = useMarketSettings();
   const router = useRouter();
   const t = copy[locale];
   const cardSort = normaliseCardSort(sort);
@@ -193,17 +193,33 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
   }, [activeLang, locale, query, scopedCatalog, searching]);
   /* 一個字母可以命中三千幾張：一次過 render 曬 = 89k DOM node、主線程一秒幾。
      先出 CATALOG_LIST_CAP（80）張，撳「再顯示」逐 80 加。
-     展開量係 URL state（`show=`，見 use-market-settings.ts）唔係 React state：
-     以前撳完入卡頁再撳返上一頁，state 冇咗、榜縮返 80 行，scroll-restoration 連
-     嗰行 anchor 都搵唔返。q 一變由 `update()` 負責清走個 param。 */
+     展開量頭 480 行（`URL_SHOW_CAP`）係 URL state（`show=`，見 use-market-settings.ts）：
+     以前純 React state，撳完入卡頁再撳返上一頁，state 冇咗、榜縮返 80 行，
+     scroll-restoration 連嗰行 anchor 都搵唔返。q 一變由 `update()` 負責清走個 param。
+     480 行之後嗰段係 session state（下面 `sessionShow`）——URL 唔可以描述一個
+     大過一個 commit 預算嘅第一 paint。 */
   const [isPending, startShowMore] = useTransition();
+  /*
+   * 撳出嚟嘅展開量：URL 只帶到 `URL_SHOW_CAP`（480 行 = 一個 commit 嘅預算），
+   * 撳多過嗰個數嘅部分只活喺呢一 session（每撳一下加 80 行，唔係一 paint 幾百行）。
+   * 綁住 `query`：`update()` 一見 q 變就 delete `show`，呢邊要跟返同一條規矩，
+   * 唔係搜「a」展開到 800 行、改搜「pikachu」會照住 800 行出。
+   */
+  const [sessionShow, setSessionShow] = useState<{ query: string; rows: number } | null>(null);
+  const sessionRows = sessionShow?.query === query ? sessionShow.rows : 0;
   /* URL 講幾多就幾多，但唔准超過「命中數湊足一版」——`?show=8000` 打三張命中嘅
      搜尋，`remaining` 要係 0（唔出掣），下一次撳都由真實上限接落去。 */
   const maxVisible = Math.max(
     CATALOG_LIST_CAP,
     Math.ceil(catalogHits.length / CATALOG_LIST_CAP) * CATALOG_LIST_CAP,
   );
-  const visibleLimit = Math.min(show, maxVisible);
+  const visibleLimit = Math.min(Math.max(show, sessionRows), maxVisible);
+  /* `?show=abc` / `?show=123` 讀嗰陣係 80 / 160，但 URL 冇改過就會一路帶住個
+     垃圾值傳落去（`update()` 照抄未提及嘅 param）。同 `langDemoted` 一樣嘅自我
+     修正：寫一次返去，寫完 `showDirty` 就係 false，唔會 loop。 */
+  useEffect(() => {
+    if (showDirty) update({ show });
+  }, [show, showDirty, update]);
   const shownHits = useMemo(
     () => (catalogHits.length > visibleLimit ? catalogHits.slice(0, visibleLimit) : catalogHits),
     [catalogHits, visibleLimit],
@@ -366,8 +382,12 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
         availableLanguages={availableLanguages}
         /* 一個手勢一次寫入：三樣嘢一次過落 URL，唔會三次 router.replace 互相覆蓋 */
         onApply={(next) => update({ sort: next.sort, dir: next.dir, printLang: next.printLang, page: 1 })}
-        /* 「還原」要連展開量一齊清（`show` ≤ 預設就等於由 URL 刪走） */
-        onReset={() => update({ sort: "rank", dir: "desc", printLang: "all", page: 1, show: CATALOG_LIST_CAP })}
+        /* 「還原」要連展開量一齊清（`show` ≤ 預設就等於由 URL 刪走），
+           連撳出嚟嗰段 session 展開都要清，唔係 URL 返 80 行但畫面仲係 800 行 */
+        onReset={() => {
+          setSessionShow(null);
+          update({ sort: "rank", dir: "desc", printLang: "all", page: 1, show: CATALOG_LIST_CAP });
+        }}
       />
       {/* 索引載唔到就唔准扮全站搜過：有結果都要講明剩返當頁（冇結果嗰個 case 出喺 empty-state 入面） */}
       {searching && catalogError && visibleCards.length ? (
@@ -504,7 +524,13 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
               aria-busy={isPending}
               /* transition 包住 router.replace：commit 之前個掣 disabled，
                  所以連撳兩下唔會兩次都由同一個 visibleLimit 起算。 */
-              onClick={() => startShowMore(() => update({ show: visibleLimit + CATALOG_LIST_CAP }))}
+              onClick={() => startShowMore(() => {
+                const nextRows = visibleLimit + CATALOG_LIST_CAP;
+                setSessionShow({ query, rows: nextRows });
+                /* 過咗 URL 硬頂就唔好再寫：URL 寫住 480，session state 帶住其餘，
+                   唔係每撳一下都行一次 clamp 到同一個值嘅 router.replace。 */
+                if (nextRows <= URL_SHOW_CAP) update({ show: nextRows });
+              })}
             >
               {t.labels.showMoreResults
                 .replace("{count}", String(Math.min(remaining, CATALOG_LIST_CAP)))

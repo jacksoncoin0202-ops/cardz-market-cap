@@ -160,7 +160,7 @@ function cardView(card: CanonicalCard): MarketCardView {
        * field、live-db 量唔到會寫 0、placeholder 根本冇尺寸 —— 三種都 omit，
        * 唔准填 0 或者借另一張卡嘅比例。
        */
-      ...(imageIsSafe ? intrinsicSize(card.image.width, card.image.height) : {}),
+      ...(imageIsSafe ? intrinsicSize(card.image.width, card.image.height, "raw_front") : {}),
     },
     pricePsa10: metric(card.pricePsa10),
     // Older public snapshots predate this optional field. Keep the view contract

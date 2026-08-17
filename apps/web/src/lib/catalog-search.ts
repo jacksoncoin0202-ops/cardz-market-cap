@@ -17,7 +17,8 @@ function slimLocales(text: Partial<Record<Locale, string | null>> | undefined): 
 /*
  * 索引只帶 200px 縮圖（榜頁 thumb 用），但 `width` / `height` 照原圖帶 ——
  * `<img width height>` 要嘅係比例，唔係位元組尺寸；`_200` 係同一張圖等比縮，
- * 比例一樣。冇尺寸就唔出（`intrinsicSize`）。
+ * 比例一樣。冇尺寸、或者 base 比例對唔上 variant 畫布，就唔出（`intrinsicSize`，
+ * 要傳埋 `kind`：卡先夾畫布比例，BOX 唔行嗰個畫布）。
  */
 function slimImage(image: CatalogEntry["image"]): CatalogEntry["image"] {
   const variant200 = image.variants?.["200"];
@@ -26,7 +27,7 @@ function slimImage(image: CatalogEntry["image"]): CatalogEntry["image"] {
     alt: image.alt,
     kind: image.kind,
     ...(variant200 ? { variants: { "200": variant200 } } : {}),
-    ...intrinsicSize(image.width, image.height),
+    ...intrinsicSize(image.width, image.height, image.kind),
   };
 }
 
@@ -286,7 +287,7 @@ export function catalogToCard(entry: CatalogEntry): MarketCardView | null {
       alt: entry.image.alt,
       kind: entry.image.kind === "raw_front" ? "raw_front" : "placeholder",
       variants: entry.image.variants,
-      ...intrinsicSize(entry.image.width, entry.image.height),
+      ...intrinsicSize(entry.image.width, entry.image.height, entry.image.kind),
     },
     pricePsa10: entry.pricePsa10,
     populationPsa10: entry.populationPsa10,

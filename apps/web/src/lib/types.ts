@@ -35,14 +35,36 @@ export type LocalizedText = Record<Locale, string | null> & { en: string };
  * 兩個都係正整數先出，任何一邊缺／0／非有限就成對唔出：`<img>` 得一半尺寸
  * 冇 aspect-ratio，等於白做，而填 0 會令個盒真係塌成 0。
  */
+/*
+ * 卡圖 variant 畫布：`pipelines/build_asset_derivatives.py:13-15`
+ * （`normalize_card_canvas` → 429×600 透明畫布等比置中，`_600` = 429×600、`_200` = 200×280）。
+ * `srcSet()` 一定出 variants + `sizes`，所以瀏覽器**永遠唔會**畫 base 檔 —— 宣告尺寸
+ * 只可以當「比例」用，而個比例要描述真係會畫嗰個檔。
+ */
+const CARD_CANVAS_ASPECT = 429 / 600;
+/* `_200`（200×280 = 0.7143）同 429/600（0.7150）差 0.1%，所以 1% 容差擺得落兩個 variant。 */
+const CARD_ASPECT_TOLERANCE = 0.01;
+
 export function intrinsicSize(
   width: number | null | undefined,
   height: number | null | undefined,
+  kind?: string | null,
 ): { width: number; height: number } | Record<string, never> {
   if (!Number.isFinite(width) || !Number.isFinite(height)) return {};
   const w = Math.round(width as number);
   const h = Math.round(height as number);
   if (w <= 0 || h <= 0) return {};
+  /*
+   * Fail-closed：base 檔嘅比例對唔上 variant 畫布就成對唔出。
+   * 實測 `/api/v1/catalog` 1911 條：1597 張卡係 429×600，另外 6 張（719×1000 ×3、
+   * 600×838、500×698、431×600）比例全部喺 0.6% 之內 —— 照出；淨係 **1 張** 宣告
+   * 1000×730（橫向，差 91%），佢出街嗰個 `_600` 其實係 429×600 直度。個唯一
+   * `width:auto` 消費者（`.preview-image img`，桌面熱力圖 hover）會照住宣告值開一個
+   * 橫向盒，圖一到就跳 —— 正正係呢個 attribute pair 要防嘅 CLS。宣告錯不如唔宣告。
+   * `box_front` 唔行呢個畫布（實測 1000×730 / 750×750 / 1600×1600 都有），所以只夾卡。
+   * 正解係 bake 側寫 variant 尺寸（DESIGN.md 欠單 21），呢度只係唔准講大話。
+   */
+  if (kind === "raw_front" && Math.abs(w / h / CARD_CANVAS_ASPECT - 1) > CARD_ASPECT_TOLERANCE) return {};
   return { width: w, height: h };
 }
 
