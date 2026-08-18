@@ -1448,13 +1448,13 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
 @media (hover: hover) {
   .primary-action:hover { background: var(--accent); transform: translateY(-1px); }
 }
+/* 得一行 legend（見 heatmap.tsx 個註）。原本 min-height:54px 係為咗托住
+   `.ranking-jump` 嗰個 44px tap target，link 拆咗就唔可以留 —— 留住等於熱力圖
+   白白矮 46px。`justify-content` 亦冇意思，得一個 child。 */
 .heatmap-footer {
-  min-height: 54px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 10px 2px 0;
+  padding: 8px 2px 0;
 }
 .heatmap-legend { display: flex; align-items: center; gap: 16px; margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: var(--fs-micro); }
 .heatmap-legend > li { display: flex; align-items: center; gap: 5px; }
@@ -1462,16 +1462,6 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
 .legend-swatch.down { background: var(--negative); }
 .legend-swatch.pending { background: var(--legend-pending); }
 .legend-swatch.up { background: var(--positive); }
-.legend-count { margin-left: 4px; }
-.ranking-jump {
-  min-height: 44px;
-  display: inline-flex;
-  align-items: center;
-  border-bottom: 1px solid var(--ink);
-  font-size: 12px;
-  font-weight: var(--w-quiet);
-  white-space: nowrap;
-}
 
 .sheet-backdrop { display: none; }
 /* B5 scroll lock：gutter 固定避免鎖 scroll 時版面跳位；framer 而家負責 sheet 進出動畫 */
@@ -2009,6 +1999,12 @@ html.theme-transitions .card-dialog {
 /* ── Detail actions / share ────────────────────────────────── */
 /* fixed 卡圖 z-index 40，detail-actions 要高過佢先唔會被遮住 */
 .detail-actions { position: relative; z-index: 50; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+/* 兩粒掣（分享圖 / 分享連結）孖埋擺右邊，`.detail-actions` 個 space-between 仍然
+   淨係分「返回」同呢組。手機 360px 都放得落：量過最長語言兩粒加埋 214px。 */
+.detail-share { display: flex; align-items: center; gap: 8px; }
+/* 主 action：accent 描邊 + accent 字，同 `.primary-action` 唔同級（嗰個係實色底），
+   唔會喺頂部一行細掣入面搶到成頁失衡。 */
+.share-image-button { border-color: var(--accent); color: var(--accent); }
 .share-button {
   min-height: 44px;
   display: inline-flex;
@@ -2151,9 +2147,10 @@ html.theme-transitions .card-dialog {
   .detail-period-row .period-selector button { flex: 1 1 0; min-width: 0; padding-inline: 8px; white-space: nowrap; }
   /* 改 token 唔好淨改 border-radius：角落 tile 要靠同一個數跟返個弧（見 .heatmap-tile[data-corner]） */
   .heatmap-frame { --heatmap-frame-radius: 18px; }
-  .heatmap-footer { align-items: flex-start; flex-direction: column; gap: 3px; }
+  /* 三粒 legend 手機一行放得晒（量過最長嗰個語言 296px < 360px 可用闊），
+     所以唔使再 column stack；padding 再收 2px 俾熱力圖。 */
+  .heatmap-footer { padding-top: 6px; }
   .heatmap-legend { flex-wrap: wrap; gap: 7px 12px; }
-  .legend-count { width: 100%; margin-left: 0; }
   /* 手機 sticky 預算：h2 + kicker + lang-filter + period 成舊釘住會食走成三分一屏。
      markup 冇獨立 chip row 可以單獨釘（chips 同 h2 同一個 div），所以整個 heading 唔釘。 */
   .ranking-heading { position: static; align-items: flex-start; flex-direction: column; gap: 12px; }
@@ -2479,15 +2476,13 @@ html.theme-transitions .card-dialog {
 /* interactionkit spring button：撳落去縮一放，回彈帶少少 overshoot */
 .primary-action,
 .heatmap-export,
-.share-button,
-.ranking-jump {
+.share-button {
   transition: background 170ms ease, border-color 170ms ease, color 170ms ease,
     transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .primary-action:active,
 .heatmap-export:active,
-.share-button:active,
-.ranking-jump:active { transform: scale(0.98); }
+.share-button:active { transform: scale(0.98); }
 /* FE05 WS3（Interaction Kit）：scale(.98) 上面已經有，撳落嗰下再收埋一層陰影，
    而且 press 用 120ms（快過回彈嗰 220ms spring）—— 落手要即刻應，鬆手先慢慢彈返。
    只落 .primary-action：另外三個係細 chip，加陰影會喺熱力圖頂搶眼。 */

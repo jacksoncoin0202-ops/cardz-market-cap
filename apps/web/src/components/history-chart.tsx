@@ -6,6 +6,7 @@ import { EmptyState } from "./empty-state";
 import { revealOnce } from "./reveal";
 import { copy } from "@/lib/i18n";
 import { formatMoney, formatObservationDayMonth } from "@/lib/format";
+import { pointsForWindow } from "@/lib/history-window";
 import { useMarketSettings } from "@/lib/use-market-settings";
 import { marketWindowDays, type Currency, type Locale, type PricePoint } from "@/lib/types";
 import "@/app/styles/history-chart.css";
@@ -20,20 +21,6 @@ interface HistoryChartProps {
 /* 入場最長嗰條：bar 最尾一條 delay 20×30ms + 420ms = 1020ms（線 900ms、點 760+240ms）。
    加 180ms buffer 先收 state，唔好喺 keyframe 未完就抽走條 rule。 */
 const DRAW_TOTAL_MS = 1200;
-
-export function pointsForWindow(points: PricePoint[], days: number): PricePoint[] {
-  const sorted = points
-    .filter((point) => Number.isFinite(Date.parse(point.at)))
-    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
-  const latest = sorted.at(-1);
-  if (!latest) return [];
-  if (days === 1) return sorted.slice(-2);
-  const end = Date.parse(latest.at);
-  const cutoff = end - days * 86_400_000;
-  const inside = sorted.filter((point) => Date.parse(point.at) >= cutoff);
-  const anchor = sorted.filter((point) => Date.parse(point.at) < cutoff).at(-1);
-  return anchor ? [anchor, ...inside] : inside;
-}
 
 /* bar 出唔出嘅條件抽咗做一個 predicate：render 嗰陣同計 stagger 序號嗰陣要同一句，
    兩處各寫一次就一定有一日行開（AGENTS.md 規矩 13）。 */

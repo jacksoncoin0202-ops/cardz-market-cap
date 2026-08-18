@@ -39,7 +39,7 @@ const iconMotion = {
   transition: { duration: 0.18, ease: [0.16, 1, 0.3, 1] as const },
 };
 
-export function CopyButton({ getText, label, doneLabel, errorLabel, className = "share-button", preferNativeShare = false, onCopy }: {
+export function CopyButton({ getText, label, doneLabel, errorLabel, className = "share-button", preferNativeShare = false, onCopy, onWarm }: {
   /* onCopy 自己搞 clipboard 嗰陣可以唔傳 */
   getText?: () => string;
   label: string;
@@ -48,6 +48,13 @@ export function CopyButton({ getText, label, doneLabel, errorLabel, className = 
   className?: string;
   preferNativeShare?: boolean;
   onCopy?: () => void | Promise<void>;
+  /*
+   * 「就快撳」嘅信號（hover / focus / 撳落去嗰刻），俾叫方預先攞定重嘢。
+   * ⚠️ 存在理由：`navigator.share` 一定要喺 user activation 之內叫（見 lib/share-file.ts），
+   * 撳完先 fetch 幾百 KB 圖 iOS Safari 會掟 NotAllowedError，share sheet 唔出、直接落載。
+   * 一定要 idempotent —— 呢個 handler 一次互動會 fire 兩三次（enter → focus → down）。
+   */
+  onWarm?: () => void;
 }) {
   const [state, setState] = useState<CopyState>("idle");
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -99,6 +106,9 @@ export function CopyButton({ getText, label, doneLabel, errorLabel, className = 
         type="button"
         className={className}
         onClick={run}
+        onPointerEnter={onWarm}
+        onPointerDown={onWarm}
+        onFocus={onWarm}
         data-state={state}
         disabled={busy}
         aria-busy={busy}

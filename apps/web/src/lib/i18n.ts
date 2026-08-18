@@ -140,10 +140,7 @@ export interface Copy {
     negative: string;
     neutral: string;
     positive: string;
-    count: string;
     tilesLabel: string;
-    viewRanking: string;
-    shareImage: string;
     /* kiosk 全屏（店主展示模式）：同一粒掣兩個 aria-label，唔准得一個字串靠 icon 講狀態 */
     fullscreen: string;
     exitFullscreen: string;
@@ -207,6 +204,9 @@ export interface Copy {
     share: string;
     shareDone: string;
     shareError: string;
+    /* 「匯出／分享一張圖」嘅掣文字。熱力圖同卡片內頁共用同一個 key ——
+       同一個動作唔好兩個字串，翻譯到第三次就會有一個語言講另一件事。 */
+    shareImage: string;
     /*
      * 印刷版本相關。`printLanguage` 係 template：`languages` 只出裸字（「日文」），
      * 但 badge 要出「日文版」，所以用 {language} 佔位符夾 localizedCardLanguage() 嘅輸出。
@@ -434,10 +434,7 @@ export const copy: Record<Locale, Copy> = {
       negative: "Down",
       neutral: "Data pending",
       positive: "Up",
-      count: "eligible cards",
       tilesLabel: "Tiles",
-      viewRanking: "View Top {count}",
-      shareImage: "Share image",
       fullscreen: "Full screen display",
       exitFullscreen: "Exit full screen",
       customize: "Customize colours",
@@ -466,7 +463,7 @@ export const copy: Record<Locale, Copy> = {
       viewCard: "Open card profile", close: "Close", story: "Why the market cares", history: "Daily market history",
       dailyPrice: "Reference price", trackedSalesBars: "Tracked sales", salesTrend: "Tracked sales trend", salesTrendShort: "Sales trend", salesTrendColumn: "Trend", imageAlt: "Card artwork",
       noHistory: "Daily price history is still accumulating.", noCards: "No eligible cards are available in this view.", noSales: "No sales recorded", watchStatus: "Watchlist status",
-      share: "Share card", shareDone: "Link copied", shareError: "Copy failed — select the address bar",
+      share: "Share card", shareDone: "Link copied", shareError: "Copy failed — select the address bar", shareImage: "Share image",
       printLanguage: "{language} print", setCode: "Set code", finish: "Surface",
       languageFilterAll: "All languages",
       languageFilterAllShort: "All",
@@ -663,7 +660,7 @@ export const copy: Record<Locale, Copy> = {
     heatmap: {
       title: "市值前 {count} 熱力圖", rankingTitle: "市值前 {count} 排行", pokemonTitle: "寶可夢市場熱力圖", onePieceTitle: "海賊王市場熱力圖",
       body: "面積代表現時 PSA 10 市值，色彩反映所選期間的價格變化。",
-      negative: "下跌", neutral: "資料累積中", positive: "上升", count: "張合資格卡牌", tilesLabel: "顯示格數", viewRanking: "查看前 {count}", shareImage: "分享圖片",
+      negative: "下跌", neutral: "資料累積中", positive: "上升", tilesLabel: "顯示格數",
       fullscreen: "全螢幕展示", exitFullscreen: "離開全螢幕",
       customize: "自訂色彩", customizeTitle: "熱力圖色彩", resetDefault: "恢復預設",
       upColor: "上升顏色", downColor: "下跌顏色", intensity: "色彩強度", neutralZone: "中立區", gap: "格子間距", cardSize: "卡牌大小",
@@ -684,7 +681,7 @@ export const copy: Record<Locale, Copy> = {
       viewCard: "查看卡牌詳情", close: "關閉", story: "市場為何追捧", history: "每日市場走勢",
       dailyPrice: "參考價格", trackedSalesBars: "已追蹤成交額", salesTrend: "已追蹤成交額走勢", salesTrendShort: "成交走勢", salesTrendColumn: "走勢", imageAlt: "卡牌圖像",
       noHistory: "每日價格歷史仍在累積。", noCards: "此分類暫時沒有合資格卡牌。", noSales: "無成交紀錄", watchStatus: "觀察狀態",
-      share: "分享卡牌", shareDone: "已複製連結", shareError: "複製失敗，請手動複製網址",
+      share: "分享卡牌", shareDone: "已複製連結", shareError: "複製失敗，請手動複製網址", shareImage: "分享圖片",
       printLanguage: "{language}版", setCode: "系列代碼", finish: "卡面",
       languageFilterAll: "全部語言",
       languageFilterAllShort: "全部",
@@ -866,7 +863,7 @@ export const copy: Record<Locale, Copy> = {
     heatmap: {
       title: "市值前 {count} 热力图", rankingTitle: "市值前 {count} 排行", pokemonTitle: "宝可梦市场热力图", onePieceTitle: "海贼王市场热力图",
       body: "面积代表当前 PSA 10 市值，色彩反映所选期间的价格变化。",
-      negative: "下跌", neutral: "数据累积中", positive: "上涨", count: "张合资格卡牌", tilesLabel: "显示格数", viewRanking: "查看前 {count}", shareImage: "分享图片",
+      negative: "下跌", neutral: "数据累积中", positive: "上涨", tilesLabel: "显示格数",
       fullscreen: "全屏展示", exitFullscreen: "退出全屏",
       customize: "自定义色彩", customizeTitle: "热力图色彩", resetDefault: "恢复默认",
       upColor: "上涨颜色", downColor: "下跌颜色", intensity: "色彩强度", neutralZone: "中立区", gap: "格子间距", cardSize: "卡牌大小",
@@ -887,7 +884,7 @@ export const copy: Record<Locale, Copy> = {
       viewCard: "查看卡牌详情", close: "关闭", story: "市场为何追捧", history: "每日市场走势",
       dailyPrice: "参考价格", trackedSalesBars: "已追踪成交额", salesTrend: "已追踪成交额走势", salesTrendShort: "成交走势", salesTrendColumn: "走势", imageAlt: "卡牌图像",
       noHistory: "每日价格历史仍在累积。", noCards: "此分类暂时没有合资格卡牌。", noSales: "无成交纪录", watchStatus: "观察状态",
-      share: "分享卡牌", shareDone: "已复制链接", shareError: "复制失败，请手动复制网址",
+      share: "分享卡牌", shareDone: "已复制链接", shareError: "复制失败，请手动复制网址", shareImage: "分享图片",
       printLanguage: "{language}版", setCode: "系列代码", finish: "卡面",
       languageFilterAll: "全部语言",
       languageFilterAllShort: "全部",
@@ -1068,7 +1065,7 @@ export const copy: Record<Locale, Copy> = {
     heatmap: {
       title: "時価総額 TOP {count}", rankingTitle: "時価総額トップ {count}", pokemonTitle: "ポケモン TOP {count}", onePieceTitle: "ワンピース TOP {count}",
       body: "面積は現在の PSA 10 時価総額、色は選択期間の価格変化を表します。",
-      negative: "下落", neutral: "集計中", positive: "上昇", count: "枚の適格カード", tilesLabel: "表示数", viewRanking: "トップ {count} を見る", shareImage: "画像をシェア",
+      negative: "下落", neutral: "集計中", positive: "上昇", tilesLabel: "表示数",
       fullscreen: "フルスクリーン表示", exitFullscreen: "フルスクリーンを終了",
       customize: "色をカスタマイズ", customizeTitle: "ヒートマップの色", resetDefault: "デフォルトに戻す",
       upColor: "上昇カラー", downColor: "下落カラー", intensity: "色の強度", neutralZone: "ニュートラルゾーン", gap: "タイル間隔", cardSize: "カードサイズ",
@@ -1089,7 +1086,7 @@ export const copy: Record<Locale, Copy> = {
       viewCard: "カード詳細を見る", close: "閉じる", story: "市場で支持される理由", history: "日次市場推移",
       dailyPrice: "参考価格", trackedSalesBars: "追跡成約額", salesTrend: "追跡成約額の推移", salesTrendShort: "成約推移", salesTrendColumn: "推移", imageAlt: "カード画像",
       noHistory: "日次価格履歴を蓄積しています。", noCards: "この表示には適格カードがありません。", noSales: "成約記録なし", watchStatus: "観察ステータス",
-      share: "カードを共有", shareDone: "リンクをコピーしました", shareError: "コピーに失敗しました。URL を手動でコピーしてください",
+      share: "カードを共有", shareDone: "リンクをコピーしました", shareError: "コピーに失敗しました。URL を手動でコピーしてください", shareImage: "画像をシェア",
       printLanguage: "{language}版", setCode: "セットコード", finish: "表面",
       languageFilterAll: "すべての言語",
       languageFilterAllShort: "すべて",
@@ -1277,7 +1274,7 @@ export const copy: Record<Locale, Copy> = {
     heatmap: {
       title: "시가총액 TOP {count}", rankingTitle: "시가총액 상위 {count}", pokemonTitle: "포켓몬 TOP {count}", onePieceTitle: "원피스 TOP {count}",
       body: "면적은 현재 PSA 10 시가총액, 색상은 선택 기간의 가격 변동을 나타냅니다.",
-      negative: "하락", neutral: "집계 중", positive: "상승", count: "장의 적격 카드", tilesLabel: "표시 수", viewRanking: "상위 {count} 보기", shareImage: "이미지 공유",
+      negative: "하락", neutral: "집계 중", positive: "상승", tilesLabel: "표시 수",
       fullscreen: "전체 화면 표시", exitFullscreen: "전체 화면 종료",
       customize: "색상 사용자 정의", customizeTitle: "히트맵 색상", resetDefault: "기본값으로 재설정",
       upColor: "상승 색상", downColor: "하락 색상", intensity: "색상 강도", neutralZone: "중립 구간", gap: "타일 간격", cardSize: "카드 크기",
@@ -1298,7 +1295,7 @@ export const copy: Record<Locale, Copy> = {
       viewCard: "카드 상세 보기", close: "닫기", story: "시장이 주목하는 이유", history: "일별 시장 추이",
       dailyPrice: "기준 가격", trackedSalesBars: "추적 거래액", salesTrend: "추적 거래액 추이", salesTrendShort: "거래 추이", salesTrendColumn: "추이", imageAlt: "카드 이미지",
       noHistory: "일별 가격 이력을 축적하고 있습니다.", noCards: "이 보기에 적격 카드가 없습니다.", noSales: "거래 기록 없음", watchStatus: "관찰 상태",
-      share: "카드 공유", shareDone: "링크 복사됨", shareError: "복사 실패 — 주소창에서 직접 복사하세요",
+      share: "카드 공유", shareDone: "링크 복사됨", shareError: "복사 실패 — 주소창에서 직접 복사하세요", shareImage: "이미지 공유",
       printLanguage: "{language}판", setCode: "세트 코드", finish: "표면",
       languageFilterAll: "모든 언어",
       languageFilterAllShort: "전체",

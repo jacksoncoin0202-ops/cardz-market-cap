@@ -20,6 +20,7 @@ import { formatDate, formatMetricInteger, formatMetricMoney, formatMoney, format
 import { tap } from "@/lib/haptic";
 import { snapCardBox, snapFrameGrid, snapTileBox } from "@/lib/pixel-snap";
 import { heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
+import { shareImageBlob } from "@/lib/share-file";
 import { renderHeatmapShare } from "@/lib/share-image";
 import { changeValue, DEFAULT_TILE, tileCardSize, tileColors, tileStyle, type TileParams } from "@/lib/tile-style";
 import { useMarketSettings } from "@/lib/use-market-settings";
@@ -949,36 +950,18 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
     /* share sheet 嘅標題／文字係俾當下用戶睇嘅介面字，所以跟返 locale（唔同圖入面嘅英文字） */
     const shareTitle = `${title.replace("{count}", String(tiles.length))} · ${t.periods[activePeriod]}`;
     /*
-     * 分享（owner 2026-08-16 晚）：唔准夾硬要人 save 個 file。
-     * 1) 有 Web Share Level 2（Android Chrome / iOS Safari / Chrome）就出**系統 share sheet**：
-     *    WhatsApp、IG、Threads、Facebook、「儲存到相簿」全部由 OS 俾人揀，張圖 + 標題 + 連結一齊落。
-     * 2) 用戶自己撳走 share sheet（AbortError）= 唔係錯，靜靜完成。
-     * 3) 冇 share（桌面 Firefox 等）或者 share 本身失敗先 fallback 落 download —— 呢個係最後一步，唔係第一步。
-     * navigator.share 一定要喺 user activation 內叫：卡圖全部已經喺 tile 度顯示緊（cache hit），
+     * 分享（owner 2026-08-16 晚）：唔准夾硬要人 save 個 file —— 有 share sheet 就出 share sheet。
+     * 成段邏輯（share / dismiss / download fallback）喺 lib/share-file.ts，同卡片內頁嗰個
+     * 分享圖掣共用一份。呢度嘅 activation 唔使 warm：卡圖全部已經喺 tile 度顯示緊（cache hit），
      * await 圖 + toBlob 都係毫秒級，仲喺 activation 窗口入面。
      */
-    const file = new File([blob], filename, { type: "image/png" });
-    const nav = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
-    const shareData: ShareData = { files: [file], title: shareTitle, text: `${shareTitle}\n${pageUrl}` };
-    let shared = false;
-    if (typeof nav.share === "function" && nav.canShare?.(shareData)) {
-      try {
-        await nav.share(shareData);
-        shared = true;
-      } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") return; // 用戶自己收埋 share sheet
-        // NotAllowedError（activation 過期）／其他：落 download fallback
-      }
-    }
-    if (!shared) {
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = filename;
-      anchor.click();
-      URL.revokeObjectURL(url);
-      navigator.clipboard?.writeText(pageUrl).catch(() => undefined);
-    }
+    const outcome = await shareImageBlob(blob, {
+      filename,
+      title: shareTitle,
+      text: `${shareTitle}\n${pageUrl}`,
+      clipboardFallbackText: pageUrl,
+    });
+    if (outcome === "dismissed") return; // 用戶自己收埋 share sheet，唔好再 scroll 佢
     // 手機：share 完張圖直落排名表。
     if (isMobileTiles) {
       document.getElementById("market-ranking")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1023,7 +1006,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
       <CopyButton
         className="heatmap-export"
         getText={() => window.location.href}
-        label={t.heatmap.shareImage}
+        label={t.labels.shareImage}
         /* 呢個掣係匯出 PNG，唔係複製連結——toast 要用 share.done/error，唔好再借 labels.shareDone */
         doneLabel={t.share.done}
         errorLabel={t.share.error}
@@ -1149,17 +1132,20 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
           />
         )}
       </div>
+      {/* footer 淨返一行 legend（owner 2026-08-19）：
+          ⚠️ 刪咗「{visibleCount} / {cards.length} 張合資格卡牌」同「查看前 N」——
+          兩者都係重複資訊：格數個 slider 自己有數字讀出（`.tile-slider-value`），
+          排行榜喺同一頁 scroll 落去就見到，唔使一條 44px 高嘅 jump link 佔住。
+          `.heatmap-section` 係 `grid-template-rows: auto minmax(0,1fr) auto`，
+          footer 縮矮 = 熱力圖直接高返嗰個數（桌面 ~46px、手機 ~40px），
+          owner 明文：文字遷就熱力圖。methodology 全文一路都喺 site footer + share image。 */}
       <div className="heatmap-footer">
         {/* 本來就係一組並列項目，用 ul/li 出返語意，抽取器同讀屏都攞得到。 */}
         <ul className="heatmap-legend" aria-label={t.heatmap.body}>
           <li><span className="legend-swatch down" />{t.heatmap.negative}</li>
           <li><span className="legend-swatch pending" />{t.heatmap.neutral}</li>
           <li><span className="legend-swatch up" />{t.heatmap.positive}</li>
-          <li className="legend-count">{visibleCount} / {cards.length} {t.heatmap.count}</li>
         </ul>
-        {/* methodology 全文喺 site footer（header.tsx）同 share image 都有；heatmap footer 唔再重複
-            —— 佢每語言 3–5 行唔同高度，會偷 heatmap 高度（owner 2026-08-17：文字遷就熱力圖）。 */}
-        <a className="ranking-jump" href="#market-ranking">{t.heatmap.viewRanking.replace("{count}", String(visibleCount))}</a>
       </div>
       {/* 公司 logo（owner 明文要求）擺右下角，同左下角 legend 對角、離左上標題最遠。
           `kiosk &&` 唔准拆：呢兩個 SVG 加埋 71 KB，平時 render 就係首屏白白多一個請求。 */}

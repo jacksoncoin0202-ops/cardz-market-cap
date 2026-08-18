@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRef } from "react";
 import { FileSearch } from "lucide-react";
 import { Breadcrumbs } from "./breadcrumbs";
 import { EmptyState } from "./empty-state";
@@ -20,6 +21,7 @@ import { cardNameLangAttr, displayCardName } from "@/lib/card-name";
 import { copy } from "@/lib/i18n";
 import { formatInteger, formatMetricInteger, formatMetricMoney, formatMoney, formatObservationDate, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
 import { plainDescription } from "@/lib/plain-text";
+import { shareImageBlob } from "@/lib/share-file";
 import { cardFactSentence, cardSubject, geoCopy, setHubPath, setSlug, tcgHubPath, type RelatedCardsPayload } from "@/lib/related-cards";
 import { StoryPanel } from "./story-panel";
 import { type MarketMetric, type MarketViewSnapshot } from "@/lib/types";
@@ -38,6 +40,68 @@ function tickerValue(metric: MarketMetric<number>): number | null {
   if (metric.value === null) return null;
   if (metric.status === "accumulating" || metric.status === "unavailable") return null;
   return metric.value;
+}
+
+/*
+ * 分享圖（owner 2026-08-19）：張圖由 `/api/og/card/[id]?format=story` server 側出，
+ * 1080×1920 —— 手機一打開就係滿版，唔使人 pinch。點解唔喺 client 畫：
+ * 熱力圖嗰張係即場 canvas（要跟用戶當下揀嘅格數／時段），卡片內頁嗰張淨係跟卡片
+ * 本身，server 出得就 server 出 —— 順便同社交 unfurl 嗰張共用同一份 layout code，
+ * 唔會有「分享出去嗰張同網頁對唔上」呢種問題（AGENTS.md 規矩 13）。
+ *
+ * ⚠️ 拆成獨立 component 唔係為咗好睇：`CardDetail` 揾唔到卡嗰陣會 early return，
+ * hook 寫喺佢下面即刻變咗條件式呼叫（react-hooks/rules-of-hooks，2026-08-19 真係爆過）。
+ * 呢度 hook 永遠行齊。同樣理由唔用 `useCallback`：React Compiler 開住，手寫 memo
+ * 反而會令佢跳過 optimize（preserve-manual-memoization）。
+ */
+function ShareImageButton({ cardId, title, label, doneLabel, errorLabel }: {
+  cardId: string;
+  title: string;
+  label: string;
+  doneLabel: string;
+  errorLabel: string;
+}) {
+  /*
+   * ⚠️ warm：`navigator.share` 一定要喺 user activation 之內叫（見 lib/share-file.ts），
+   * 而張圖成 1.4 MB。撳完先 fetch 喺 iOS Safari 會過咗 activation 期 → 冇 share sheet。
+   * 所以 hover / focus / 撳落去嗰刻就開始攞，click handler 只係 await 一個已經飛緊嘅
+   * promise。ref 記住個 promise 令佢 idempotent —— onWarm 一次互動會 fire 兩三次。
+   */
+  const shareBlobRef = useRef<Promise<Blob> | null>(null);
+  const warmShareImage = () => {
+    shareBlobRef.current ??= fetch(`/api/og/card/${encodeURIComponent(cardId)}?format=story`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`share image HTTP ${response.status}`);
+        return response.blob();
+      })
+      .catch((error) => {
+        /* 失敗唔可以黐住個 ref，否則之後撳幾多次都係同一個 rejected promise */
+        shareBlobRef.current = null;
+        throw error;
+      });
+  };
+  const shareCardImage = async () => {
+    warmShareImage();
+    const blob = await shareBlobRef.current!;
+    const pageUrl = `${window.location.origin}/card/${cardId}`;
+    /* share sheet 嘅標題／正文跟返介面語言；**圖入面**啲字一律英文（見 og route 檔頭）。 */
+    await shareImageBlob(blob, {
+      filename: `cardz-${cardId}.png`,
+      title,
+      text: `${title}\n${pageUrl}`,
+      clipboardFallbackText: pageUrl,
+    });
+  };
+  return (
+    <CopyButton
+      className="share-button share-image-button"
+      label={label}
+      doneLabel={doneLabel}
+      errorLabel={errorLabel}
+      onCopy={shareCardImage}
+      onWarm={warmShareImage}
+    />
+  );
 }
 
 /*
@@ -181,7 +245,19 @@ export function CardDetail({ id, snapshot, related }: {
       <Breadcrumbs items={crumbs} label={geo.breadcrumbLabel} />
       <div className="detail-actions">
         <Link className="back-link" href={href("/")}>← {t.nav.all}</Link>
-        <CopyButton getText={() => `${window.location.origin}/card/${card.id}`} label={t.labels.share} doneLabel={t.labels.shareDone} errorLabel={t.labels.shareError} preferNativeShare />
+        <div className="detail-share">
+          {/* 分享圖行先：owner 要人分享出去係一張睇得晒數據嘅圖，唔係一條乾條連結。
+              toast 用 `share.done/error`（「圖片已匯出」）—— 呢個掣唔係複製連結，
+              唔好再借 labels.shareDone，講錯咗件事（同熱力圖嗰個掣一樣嘅理由）。 */}
+          <ShareImageButton
+            cardId={card.id}
+            title={title}
+            label={t.labels.shareImage}
+            doneLabel={t.share.done}
+            errorLabel={t.share.error}
+          />
+          <CopyButton getText={() => `${window.location.origin}/card/${card.id}`} label={t.labels.share} doneLabel={t.labels.shareDone} errorLabel={t.labels.shareError} preferNativeShare />
+        </div>
       </div>
       <article className="detail-grid">
         <section className="detail-art" aria-label={t.labels.imageAlt}>

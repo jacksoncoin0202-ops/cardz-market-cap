@@ -159,10 +159,11 @@
   .heatmap-section[data-kiosk="true"] .heatmap-controls:focus-within { opacity: 1; }
 }
 
-/* ⚠️ 刪咗（2026-08-18，FX 層合併）：`.heatmap-footer` 嘅 absolute 擺位、`.heatmap-legend`
-   嘅 padding/backdrop-filter、`.ranking-jump { display: none }` 三組共 16 行。
-   上面 owner 收 chrome 嗰句已經 `.heatmap-footer { display: none }`，legend 同 ranking-jump
-   都係佢嘅後代 —— 三組全部係零 call site 嘅死 code（AGENTS「死 code 就刪」）。
+/* ⚠️ 刪咗（2026-08-18，FX 層合併）：`.heatmap-footer` 嘅 absolute 擺位同 `.heatmap-legend`
+   嘅 padding/backdrop-filter，共 16 行。上面 owner 收 chrome 嗰句已經
+   `.heatmap-footer { display: none }`，legend 係佢嘅後代 —— 全部係零 call site 嘅死 code
+   （AGENTS「死 code 就刪」）。（同一批仲有 `.ranking-jump { display: none }`，而個 link
+   本身喺 2026-08-19 已經由 heatmap footer 拆晒，全 repo 冇咗呢個 class。）
    如果將來 footer 喺 kiosk 之下要返嚟，連擺位一齊重寫，唔好留住一份對唔到人嘅舊數。 */
 
 /* ── 公司 logo：右下角，同左上嘅退出掣對角 ──

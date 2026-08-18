@@ -116,23 +116,56 @@ check("OG route 用 data:image/svg+xml;base64", ogRoute.includes("data:image/svg
 check("OG route 冇用 svg+xml;charset（btoa 會炸 InvalidCharacterError）", !/svg\+xml;\s*charset/i.test(ogRoute));
 /* 驗**完整檔名**唔係驗 `.svg` 後綴：覆核 2026-08-18 種過 fault —— OG route 改指
    `-dark.svg`（白 wordmark 畫落 #f7f7f5 panel = 隱形），舊版後綴檢查照綠。
-   OG panel 永遠係淺色底，所以呢兩路一定係 light skin。 */
-const OG_LOGO_WANT = "brand/logo-cardz-marketcap.svg";
+   2026-08-19 起 OG 有 `?theme=light|dark` 兩塊底，所以唔再係「一定 light skin」，
+   而係**邊個 theme 配邊個檔**要對 —— 掉轉一樣係白字畫白底／黑描邊畫黑底，一樣零 error。
+   route 側寫成 `LOGO_BY_THEME` 一張明表（唔准砌 template string），就係為咗俾呢度驗。 */
+const OG_LOGO_BY_THEME = { light: "brand/logo-cardz-marketcap.svg", dark: "brand/logo-cardz-marketcap-dark.svg" };
+const ogSkins = [...ogRoute.matchAll(/\b(light|dark):\s*"(brand\/logo-cardz-marketcap[\w-]*\.\w+)"/g)].map((m) => [m[1], m[2]]);
+check("OG route 有 LOGO_BY_THEME 兩個 skin", ogSkins.length === 2, JSON.stringify(ogSkins));
+for (const [theme, logoPath] of ogSkins) {
+  check(`OG route ${theme} theme 用 ${OG_LOGO_BY_THEME[theme]}（掉轉 = wordmark 隱形，零 error）`,
+    logoPath === OG_LOGO_BY_THEME[theme], `實際 ${logoPath}`);
+}
+/* 再兜一句：全個 route 出現過嘅 logo 路徑**只可以**係嗰兩條（即係冇人喺 map 以外
+   另外寫死一條）。冇呢句嘅話，有人喺 layout 入面直接寫死一個檔名，上面張表仍然全綠。 */
 const ogLogoPaths = [...ogRoute.matchAll(/brand\/logo-cardz-marketcap[\w-]*\.(\w+)/g)].map((m) => m[0]);
-check(`OG route 兩路 existsSync 都指 ${OG_LOGO_WANT}（light skin，唔准 -dark：白字畫落淺底 = 隱形）`,
-  ogLogoPaths.length === 2 && ogLogoPaths.every((p) => p === OG_LOGO_WANT),
+check("OG route 冇喺 LOGO_BY_THEME 以外再寫死 logo 路徑",
+  ogLogoPaths.length === 2 && ogLogoPaths.every((p) => Object.values(OG_LOGO_BY_THEME).includes(p)),
   ogLogoPaths.join(", ") || "(none)");
 
 /* satori 唔理 SVG 自己嗰個 width/height（覆核實測：剝走都逐 px 一樣），所以呢兩個 declared
    數就係 OG wordmark 嘅**唯一**尺寸來源。原本零 assert —— 種 fault 改成 100×43，wordmark
    靜靜細一半，test 照綠。寫死喺度：要改版面就連呢行一齊改，改動先至被人睇見。 */
-const OG_IMG_DIMS = [[280, 121], [200, 86]];
+const OG_IMG_DIMS = [[280, 121], [200, 86], [220, 95]];
 const ogImgs = [...ogRoute.matchAll(/<img\s+src=\{logoSrc\}[^>]*?width=\{(\d+)\}\s+height=\{(\d+)\}/g)]
   .map((m) => [Number(m[1]), Number(m[2])]);
-check("OG route 有兩個 wordmark <img src={logoSrc}>", ogImgs.length === 2, JSON.stringify(ogImgs));
-check(`OG wordmark declared 尺寸 = TextOnly 280×121 / Art 200×86`,
+check("OG route 有三個 wordmark <img src={logoSrc}>", ogImgs.length === 3, JSON.stringify(ogImgs));
+check(`OG wordmark declared 尺寸 = TextOnly 280×121 / Wide 200×86 / Story 220×95`,
   JSON.stringify(ogImgs) === JSON.stringify(OG_IMG_DIMS),
   `實際 ${JSON.stringify(ogImgs)}`);
+
+/*
+ * 分享圖尺寸（2026-08-19）。兩個數都係「改咗都唔會有 error，只係出街張圖唔啱樣」：
+ *  · wide 1200×630 係 og:image / twitter summary_large_image 嗰個平台比例，而且
+ *    `lib/route-metadata.ts` 對外宣告緊呢兩個數 —— route 同 metadata 各行各路就會
+ *    出現「宣告 1200×630、實際出另一個尺寸」，平台照 crop，冇人收到警告。
+ *  · story 1080×1920 係 owner 要嘅手機滿版比例（9:16）。有人順手改成 1080×1350
+ *    就變返 4:5，手機打開上下有黑邊 —— 一樣係零 error。
+ */
+const OG_FORMAT_WANT = { wide: [1200, 630], story: [1080, 1920] };
+const ogFormats = [...ogRoute.matchAll(/\b(wide|story):\s*\{\s*width:\s*(\d+),\s*height:\s*(\d+)/g)]
+  .map((m) => [m[1], Number(m[2]), Number(m[3])]);
+check("OG route FORMATS 有 wide + story 兩個", ogFormats.length === 2, JSON.stringify(ogFormats));
+for (const [format, width, height] of ogFormats) {
+  const want = OG_FORMAT_WANT[format];
+  check(`OG ${format} 尺寸 = ${want.join("×")}`, want[0] === width && want[1] === height, `實際 ${width}×${height}`);
+}
+/* wide 個尺寸同時要對得返 route-metadata 對外宣告嗰對數。 */
+const routeMetadata = read("apps/web/src/lib/route-metadata.ts");
+const declaredOg = (routeMetadata.match(/width:\s*(\d+),\s*height:\s*(\d+)/) || []).slice(1).map(Number);
+check("route-metadata 宣告嘅 og:image 尺寸 = OG wide 尺寸",
+  declaredOg.length === 2 && declaredOg[0] === OG_FORMAT_WANT.wide[0] && declaredOg[1] === OG_FORMAT_WANT.wide[1],
+  `metadata=${declaredOg.join("×") || "(none)"} route=${OG_FORMAT_WANT.wide.join("×")}`);
 
 /* ⑥ share-image 轉 SVG（2496px canvas 上採樣 PNG 會糊）；header **唔准**轉 —— light 版
    first-paint 資產 brotli(q11) 9,098 → 17,016 B（+7,918 B）而視覺上零得着（header 最大 50px 高，
@@ -160,4 +193,4 @@ if (failed.length) {
   console.error("FAIL brand wordmark SVG contract:\n" + failed.map((item) => ` - ${item}`).join("\n"));
   process.exit(1);
 }
-console.log("PASS brand wordmark SVG contract (2 SVG, viewBox==width/height, no text/script/xlink/external, defs⇄use 兩邊對得晒, OG base64 svg+xml, share-image .svg, header 仍然 -h100.png, sha256 stamp 對得返)");
+console.log("PASS brand wordmark SVG contract (2 SVG, viewBox==width/height, no text/script/xlink/external, defs⇄use 兩邊對得晒, OG base64 svg+xml, OG theme⇄skin + 3 個 wordmark 尺寸, OG wide/story 尺寸 + route-metadata 對得返, share-image .svg, header 仍然 -h100.png, sha256 stamp 對得返)");
