@@ -14,6 +14,9 @@ export const metadata: Metadata = {
   metadataBase: new URL(PUBLIC_SITE_URL),
   title: { default: "CardZ Marketcap", template: "%s | CardZ Marketcap" },
   description: SITE_DESCRIPTOR_EN,
+  verification: {
+    google: "_fvfNcfJclKIRrKY8HXu98F4eLkb1cKmoxxaV8Fa97g",
+  },
 };
 
 /*
