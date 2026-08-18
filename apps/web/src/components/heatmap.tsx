@@ -8,6 +8,7 @@ import { createPortal, flushSync } from "react-dom";
 import { CapTicker } from "./cap-ticker";
 import { CardImage, srcSet as cardSrcSet } from "./card-image";
 import { CopyButton } from "./copy-button";
+import { HeatmapKioskFx } from "./heatmap-kiosk-fx";
 import { HeatmapTile, tileFetchPriority, tileImageSizes } from "./heatmap-tile";
 import { PeriodSelector } from "./period-selector";
 import { DETAIL_PRINT_FIELDS, printIdentityRows } from "./print-badge";
@@ -54,6 +55,20 @@ function cornerToken(tile: { x: number; y: number; width: number; height: number
   /* 一格可以食兩個角（例如成條左邊都係佢），所以係 token list 唔係單一值 */
   return [top && left ? "tl" : "", top && right ? "tr" : "", bottom && left ? "bl" : "", bottom && right ? "br" : ""]
     .filter(Boolean).join(" ");
+}
+
+/*
+ * Kiosk 入場 burst 用嘅歸一距離：tile 中心離 frame 中心幾遠，0（正中）…1（角落）。
+ * CSS 攞佢做 `animation-delay: calc(var(--fx-r) * var(--kiosk-burst-delay))`，成版由中心炸開。
+ * 同 `--d`（入場浮出波，由**左上角**起計）唔同源：嗰個係平時載入嘅掃描感，
+ * 呢個係 kiosk 開場嘅爆開感，兩條式撈埋一齊就兩樣都唔似。
+ * 3 位小數：CSS 用 calc 乘 ms，多過 3 位淨係令 setProperty 嘅字串比對次次唔中。
+ */
+function fxRadius(tile: { x: number; y: number; width: number; height: number } | undefined, w: number, h: number): string {
+  if (!tile || !w || !h) return "0";
+  const cx = w / 2, cy = h / 2;
+  const maxR = Math.hypot(cx, cy) || 1;
+  return Math.min(1, Math.hypot(tile.x + tile.width / 2 - cx, tile.y + tile.height / 2 - cy) / maxR).toFixed(3);
 }
 
 function CardFacts({ card, locale, currency, snapshot, period }: Omit<HeatmapProps, "cards" | "href" | "title"> & { card: MarketCardView; period: MarketWindow }) {
@@ -248,6 +263,9 @@ const KIOSK_HTML_CLASS = "heatmap-kiosk";
 /* 假全屏（冇 Fullscreen API 嗰條路）先加呢個。**唔可以落喺 section 上面**：
    要收埋 site header / footer / 榜單，佢哋全部係 section 嘅祖先或者兄弟。 */
 const KIOSK_FALLBACK_CLASS = "heatmap-kiosk-fallback";
+/* 退出全屏之後釘住 scroll 幾多幀（點解要釘：見退出 effect 嗰段長註）。
+   實測 anchoring 喺 t+19ms 同 t+62ms 推兩次，10 幀 ≈ 160ms 蓋得住，同時短到用戶察覺唔到。 */
+const KIOSK_SCROLL_HOLD_FRAMES = 10;
 
 /* 品牌 logo（owner 明文「要 show 翻個公司 logo」）。兩張都係 vector，擺幾大都唔會糊。
    **只准 kiosk 開咗之後先 render**：light 版 59 KB，平時就派落嚟即係首頁首屏白白多 59 KB
@@ -262,6 +280,23 @@ const KIOSK_LOGO = {
 /* 店舖長開：snapshot 每日 bake，唔定時 refresh 就會掛住琴日個數字直到有人掂部機。
    5 分鐘係 router.refresh()（RSC payload，唔係成版 reload），tile 唔會閃走。 */
 const KIOSK_REFRESH_MS = 5 * 60 * 1000;
+
+/*
+ * Kiosk 特效 kill switch。五個 token 默認全開，落喺 `[data-kiosk-fx~="…"]`，
+ * CSS 每個特效自己 gate 返自己嗰個 token。
+ * 出口係 URL query（`?kioskfx=breathe,tour`）唔係 localStorage：部機掛喺牆上面冇 devtools，
+ * 店主改個書籤就熄得，我哋 debug 都唔使入 console。`?kioskfx=` 空值 = 五個全熄（總掣）。
+ * 只認呢五個字：attribute 係我哋自己 render 落 DOM，唔准俾 URL 塞任意字串入去。
+ * `enter` 特登唔喺 list —— 入場 burst 由 `[data-kiosk-enter]` arm/disarm，唔係長開嘅特效。
+ */
+const KIOSK_FX_TOKENS = ["breathe", "sweep", "tour", "edge", "noise"] as const;
+function readKioskFx(): string {
+  if (typeof window === "undefined") return KIOSK_FX_TOKENS.join(" "); // useState initializer 喺 SSR 都會行
+  const raw = new URLSearchParams(window.location.search).get("kioskfx");
+  if (raw === null) return KIOSK_FX_TOKENS.join(" ");
+  const want = new Set(raw.split(/[\s,]+/));
+  return KIOSK_FX_TOKENS.filter((tok) => want.has(tok)).join(" ");
+}
 
 /* 四角向外 = 入全屏；四角向內 = 退出。同隔離 .heatmap-tune-toggle 一套畫法
    （16×16 viewBox 24、stroke currentColor、strokeWidth 2、round cap）。 */
@@ -292,6 +327,9 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
   const sectionRef = useRef<HTMLElement>(null);
   const kioskToggleRef = useRef<HTMLButtonElement>(null);
   const [kiosk, setKiosk] = useState(false);
+  /* 讀一次就釘死：URL 中途唔會變，而中途變 token list 會令 CSS animation 重播（成版閃）。
+     SSR/hydration 安全：`data-kiosk-fx` 只喺 kiosk===true 先 render，而 kiosk 兩邊都由 false 起。 */
+  const [kioskFx] = useState(readKioskFx);
   /* 而家行緊邊條路。用 ref 唔用 state：fullscreenchange handler 要即刻讀到最新值
      （假全屏期間 native fullscreenElement 一定係 null，唔分開就會即刻自己關咗自己）。 */
   const cssKioskRef = useRef(false);
@@ -376,8 +414,32 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
     if (!kioskWasOnRef.current) return;
     kioskWasOnRef.current = false;
     document.documentElement.classList.remove(KIOSK_HTML_CLASS, KIOSK_FALLBACK_CLASS);
-    window.scrollTo({ top: kioskScrollRef.current, left: 0, behavior: "instant" });
+    const want = kioskScrollRef.current;
+    window.scrollTo({ top: want, left: 0, behavior: "instant" });
     kioskToggleRef.current?.focus({ preventScroll: true });
+    /* ── 還原完仲要釘住幾幀，否則 scroll anchoring 會自己再推走 ──
+       行到上面 scrollTo 嗰刻，section 仲係 `position: fixed`（未返返入 flow），文件矮咗成個
+       section 咁多——實測 scrollHeight 10370 → 11022，差 652 = section 高度。reflow 一到，
+       瀏覽器 scroll anchoring 為咗維持視覺穩定自己補 scroll ⇒ 260 變 777（差 517，3/3 重現）。
+       **唔係 FE05 整出嚟**：換返 HEAD 版 heatmap-kiosk.css 一樣跳、拆走 FX component 一樣跳，
+       native 全屏同假全屏兩條路都跳。只喺 `prefers-reduced-motion: reduce` 之下見到。
+       行過嘅死路，唔好再行一次：
+         · `scroll-behavior` 唔係因——兩邊強行掉轉，個跳位唔跟住走（qa-reduce-scroll.mjs 交叉驗）。
+         · 淨係補一針 scrollTo（double rAF）——假全屏修到，native 修唔到：anchoring 喺 t+19ms
+           同 t+62ms 推咗**兩次**，一針追唔切。
+         · `overflow-anchor: none` 落 <html> inline ——冇用。佢唔繼承，只係話「呢個 element
+           自己唔做 anchor」，Chromium 照樣揀個深啲嘅 node 做 anchor。要 `*` 先冚到，代價太大。
+       所以釘住到 reflow 完為止：每幀見到郁咗就拉返，最多 KIOSK_SCROLL_HOLD_FRAMES 幀。
+       已經喺位就唔寫，用戶喺呢 ~0.16 秒內自己捲，最多俾我哋拉返一兩幀。 */
+    let frames = 0;
+    let raf = 0;
+    const hold = () => {
+      if (Math.abs(window.scrollY - want) > 1) window.scrollTo({ top: want, left: 0, behavior: "instant" });
+      frames += 1;
+      if (frames < KIOSK_SCROLL_HOLD_FRAMES) raf = requestAnimationFrame(hold);
+    };
+    raf = requestAnimationFrame(hold);
+    return () => cancelAnimationFrame(raf);
   }, [kiosk]);
 
   /* 走咗去第二版（soft nav）而仲喺 kiosk：component 一 unmount 就冇人再拆 class，
@@ -689,6 +751,18 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
         if (corner) el.setAttribute("data-corner", corner);
         else el.removeAttribute("data-corner");
       }
+      /* Kiosk 特效兩個 custom property（styles/heatmap-kiosk.css 讀）：
+         `--fx-i` = tile 序（呼吸波錯開相位）、`--fx-r` = 離中心歸一距離（入場 burst 由中心散開）。
+         同 data-corner 一樣行 DOM 直寫，唔加 props —— HeatmapTile 係 memo。
+         只喺 kiosk 開咗先寫：平時冇任何 rule 讀佢哋，慳返每次 commit 200 次 setProperty
+         （呢個 effect 冇 dep array，逐 commit 行；hover / slider / ticker 都會經過）。
+         退出 kiosk 特登**唔** remove：留住冇人讀，而 remove 要多行 200 次 DOM write。 */
+      if (kiosk) {
+        const fi = String(i);
+        if (el.style.getPropertyValue("--fx-i") !== fi) el.style.setProperty("--fx-i", fi);
+        const fr = fxRadius(tiles[i], size.width, size.height);
+        if (el.style.getPropertyValue("--fx-r") !== fr) el.style.setProperty("--fx-r", fr);
+      }
     });
     tileElsRef.current = map;
   });
@@ -973,8 +1047,10 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
     </div>
   );
 
+  /* data-kiosk = kiosk 總掣；data-kiosk-fx = 逐個特效嘅 token list（見上面 readKioskFx）。
+     兩個都淨係 kiosk 期間存在，退出即刻連 CSS 一齊斷乾淨。 */
   return (
-    <section className="heatmap-section" ref={sectionRef} data-kiosk={kiosk ? "true" : undefined} aria-labelledby="heatmap-heading">
+    <section className="heatmap-section" ref={sectionRef} data-kiosk={kiosk ? "true" : undefined} data-kiosk-fx={kiosk ? kioskFx : undefined} aria-labelledby="heatmap-heading">
       <div className="heatmap-heading">
         <div className="heatmap-title">
           {/* 呢個係市場頁唯一嘅 H1（owner 2026-08-16 晚：「一入到去就係成個熱力圖」——
@@ -1049,6 +1125,29 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
         {/* 一層 overlay 做 hover dim（CSS：frame:hover 就淡入），代替 99 個兄弟各自 opacity/filter；
             指緊嗰格靠 data-hover 升 z-index 浮喺 overlay 上面 */}
         <div className="heatmap-dim" aria-hidden="true" />
+        {/* Kiosk 特效層（ghost / stage / ring / sweep / noise / edge / 資訊板）+ 自動巡遊。
+            一定要喺 .heatmap-frame 入面：ghost/stage/ring 寫嘅係 tile 嘅 offsetParent 座標（= frame），
+            而且要俾 frame 個 overflow:hidden 兜住飛到中間嗰張大卡。
+            `kiosk &&` 唔准拆：非 kiosk 期間 7 個 node + 一條 5.26s timer 鏈全部唔應該存在，
+            而 unmount 就係我哋唯一嘅 cleanup 觸發點（退出全屏 = kiosk 轉 false = unmount）。 */}
+        {kiosk && (
+          <HeatmapKioskFx
+            sectionRef={sectionRef}
+            frameRef={frameRef}
+            tileElsRef={tileElsRef}
+            tiles={tiles}
+            tileBoxes={tileBoxes}
+            width={size.width}
+            height={size.height}
+            locale={locale}
+            currency={currency}
+            rates={snapshot.rates}
+            period={activePeriod}
+            unavailable={t.status.unavailable}
+            moveUp={colors.up}
+            moveDown={colors.down}
+          />
+        )}
       </div>
       <div className="heatmap-footer">
         {/* 本來就係一組並列項目，用 ul/li 出返語意，抽取器同讀屏都攞得到。 */}
