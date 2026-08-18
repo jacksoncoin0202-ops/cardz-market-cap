@@ -34,6 +34,14 @@ function withQuery(path: string, query: string): string {
   return path.includes("?") ? `${path}&${query}` : `${path}?${query}`;
 }
 
+/*
+ * Next MetadataRoute 目前會將 alternate href 原樣寫入 XML；帶第二個 query
+ * parameter 時，裸 `&` 會令嚴格 XML parser（Naver）直接拒收整份 sitemap。
+ */
+function xmlAttributeUrl(url: string): string {
+  return url.replaceAll("&", "&amp;");
+}
+
 interface EntryOptions {
   images?: string[];
   priority?: number;
@@ -54,7 +62,10 @@ function entry(path: string, lastModified: string, options: EntryOptions = {}): 
     ...(options.images?.length ? { images: options.images } : {}),
     alternates: {
       languages: Object.fromEntries(
-        Object.entries(locales).map(([locale, query]) => [locale, `${siteUrl}${withQuery(path, query)}`]),
+        Object.entries(locales).map(([locale, query]) => [
+          locale,
+          xmlAttributeUrl(`${siteUrl}${withQuery(path, query)}`),
+        ]),
       ),
     },
   };
