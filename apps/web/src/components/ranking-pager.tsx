@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef } from "react";
-import { DEFAULT_RANKING_PAGE_SIZE, type RankingPageSize, type RankingScope } from "@/lib/pagination";
+import { DEFAULT_RANKING_PAGE_SIZE, RANKING_ROW_CAP, type RankingPageSize, type RankingScope } from "@/lib/pagination";
 
 /*
  * 榜尾控制列。owner 2026-08-18 投訴兩件事，兩件都喺呢度修：
@@ -26,11 +26,20 @@ import { DEFAULT_RANKING_PAGE_SIZE, type RankingPageSize, type RankingScope } fr
  * 之後接管。
  */
 
-/* 自動接落去嘅上限：畫面已經有咁多行就唔再自動攞，要用戶自己撳。
-   點解要有：一行係一張卡（圖 + sparkline + 6 個 metric），手機碌到 1600 行
-   DOM 會頂唔順。點解係 800 唔係「無限」：800 行 = size 100 撳足 7 次都仲係自動，
-   已經遠遠超過「我想繼續碌」嗰個訴求；再落去就應該由用戶明確表態。 */
-export const AUTO_APPEND_ROW_CAP = 800;
+/*
+ * 接落去嘅硬頂（`RANKING_ROW_CAP`，= 最大可揀嘅每頁數量 = 500 行）。
+ *
+ * 舊版係 800，而且**淨係夾自動接**，撳「展示更多」照樣可以無限接落去。
+ * owner 2026-08-18：「碌下碌下⋯⋯原來 show 到成 800 個項目，部機就會 lag 機，我要
+ * F5 refresh 一次先可以更新返」——所以呢個 cap 而家：
+ *  · 自動同手動兩條路都夾（`canAppend` 本身就要過 cap）；
+ *  · 夾嘅係**接完之後嘅行數**（`loadedRows + pageSize <= cap`），唔係接之前。
+ *    舊寫法 `loadedRows < cap` 係「未夠 800 就再接一版」，size 100 嗰陣實際會停喺
+ *    800，但 size 500 就會由 500 接去 1000 —— 即係 cap 講 800 實際出 1000。
+ *
+ * 過咗 cap 唔係死路：`nextHref` 會指去**下一版未睇過嘅**（見下面 pageHrefs），
+ * 撳落去係換頁，成個 list 由 #501 重畫，DOM 行數返返 ≤ cap。
+ */
 
 /* 下邊 800px：仲差成版先到 pager 就已經開始攞下一批，以正常碌速夠時間 fetch + render，
    用戶感覺唔到停頓（太細例如 100px 就變「碌到底先開始 load」＝仍然見到阻尼）。
@@ -58,7 +67,14 @@ export type RankingPagerData = {
   lastRank?: number;
   sizeLinks: RankingSizeLink[];
   prevHref: string | null;
-  nextHref: string | null;
+  /*
+   * 每一版嘅 href，index 0 = 第 1 版。點解要成個 list 而唔係淨傳 `nextHref`：
+   * 接落去之後「下一版」已經唔係 `page + 1` —— 由第 1 版接到 #1–#500（size 100）
+   * 之後，下一版係第 6 版唔係第 2 版。舊寫法直接傳 server 算好嘅 `page + 1`，
+   * 撳落去會攞返一批啱啱先睇完嘅卡。函數過唔到 server → client 邊界，所以喺
+   * server 一次過砌晒（size 100 × 1604 張 = 17 條短 string，payload 可以忽略）。
+   */
+  pageHrefs: string[];
   labels: {
     showMore: string;
     pageSize: string;
@@ -66,6 +82,7 @@ export type RankingPagerData = {
     next: string;
     loading: string;
     retry: string;
+    rowCap: string;
   };
 };
 
@@ -92,13 +109,23 @@ export function RankingPager({
   failed?: boolean;
   onLoadMore?: () => void;
 }) {
-  const { page, pageSize, pageCount, sizeLinks, prevHref, nextHref, labels } = data;
+  const { page, pageSize, pageCount, sizeLinks, prevHref, pageHrefs, labels } = data;
   const sentinelRef = useRef<HTMLDivElement>(null);
 
-  const canAppend = Boolean(onLoadMore) && nextHref !== null && hasMore !== false;
+  /* 接咗幾多版落去。冇 append 能力（冇 JS／SSR）就係 0，一切行返「呢一版」嘅數。 */
+  const loadedPages = loadedRows && loadedRows > pageSize ? Math.ceil(loadedRows / pageSize) - 1 : 0;
+  const lastLoadedPage = Math.min(pageCount, page + loadedPages);
+  /* 「下一版」= 最後接到嗰版之後嗰版，唔係 `page + 1`（見 pageHrefs 個註釋）。 */
+  const nextHref = lastLoadedPage < pageCount ? pageHrefs[lastLoadedPage] ?? null : null;
+
+  /* 接完之後會唔會爆 cap。夾嘅係**接完之後**嘅行數，唔係接之前 —— 見檔頭。 */
+  const withinRowCap = (loadedRows ?? 0) + pageSize <= RANKING_ROW_CAP;
+  const canAppend = Boolean(onLoadMore) && nextHref !== null && hasMore !== false && withinRowCap;
   /* 失敗咗就唔准再自動試——否則 sentinel 仲喺 viewport 入面，會變成無限重試風暴。
      要繼續就由用戶撳「再試一次」。 */
-  const canAutoAppend = canAppend && !failed && (loadedRows ?? 0) < AUTO_APPEND_ROW_CAP;
+  const canAutoAppend = canAppend && !failed;
+  /* 撞到頂：仲有卡，但再接落去就爆 cap。要出一句解釋，唔係得個掣靜靜消失。 */
+  const cappedOut = Boolean(onLoadMore) && nextHref !== null && hasMore !== false && !withinRowCap;
 
   /* 用 ref 攞最新嘅 handler／狀態：IntersectionObserver 只想 observe 一次，
      唔想每次 loading 一 toggle 就 disconnect + 重新 observe（嗰下會漏咗一次交叉）。 */
@@ -157,8 +184,6 @@ export function RankingPager({
   if (pageCount <= 1 && pageSize === DEFAULT_RANKING_PAGE_SIZE) return null;
   const range = firstRank !== undefined && lastRank !== undefined ? `#${firstRank}–#${lastRank}` : null;
   /* 接咗幾多頁落去，個 `1/3` 就要講返實情（`1–3/3`），唔可以接到尾都仲寫住 `1/3`。 */
-  const loadedPages = loadedRows && loadedRows > pageSize ? Math.ceil(loadedRows / pageSize) - 1 : 0;
-  const lastLoadedPage = Math.min(pageCount, page + loadedPages);
   const pageLabel = lastLoadedPage > page ? `${page}–${lastLoadedPage}/${pageCount}` : `${page}/${pageCount}`;
   return (
     <>
@@ -213,9 +238,10 @@ export function RankingPager({
           </span>
         ) : null}
       </nav>
-      {/* 讀屏公告：接緊落一批。`aria-live="polite"` 唔會打斷用戶。 */}
+      {/* 讀屏公告：接緊落一批。`aria-live="polite"` 唔會打斷用戶。
+          撞到 cap 嗰句都行呢個位：個「展示更多」掣會消失，唔出句嘢就變成靜靜死咗。 */}
       <p className="ranking-feed-status" role="status" aria-live="polite">
-        {loading ? labels.loading : null}
+        {loading ? labels.loading : cappedOut ? labels.rowCap : null}
       </p>
     </>
   );

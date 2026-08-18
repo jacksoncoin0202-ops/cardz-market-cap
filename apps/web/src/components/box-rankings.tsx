@@ -14,6 +14,7 @@ import { copy, localizedCardLanguage, localizedCardLanguageShort } from "@/lib/i
 import { tap } from "@/lib/haptic";
 import { boxMatchesQuery, nextExploreSort, normaliseBoxSort, sortBoxes } from "@/lib/list-explore";
 import { formatInteger, formatMetricMoney, formatPercent, metricTone } from "@/lib/format";
+import { DEFAULT_RANKING_PAGE_SIZE } from "@/lib/pagination";
 import type { Currency, Locale, PrintLanguage, SealedProductView } from "@/lib/types";
 import { useMarketSettings, type PrintLangFilter } from "@/lib/use-market-settings";
 import { useMediaQuery } from "@/lib/use-media-query";
@@ -178,8 +179,11 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
             onClose={() => setSortSheetOpen(false)}
             locale={locale}
             sortKeys={sortKeys}
-            value={{ sort: boxSort, dir, printLang: activeLang }}
+            /* /box 唔行 `?size=` 分頁（成個原盒榜一次過出），所以 sheet 唔出「每頁」
+               嗰段，`pageSize` 淨係填個預設頂住 type，冇人讀。 */
+            value={{ sort: boxSort, dir, printLang: activeLang, pageSize: DEFAULT_RANKING_PAGE_SIZE }}
             availableLanguages={availableLanguages}
+            pageSizePicker={false}
             /* 手機冇語言列（收埋咗喺呢個 sheet），所以 printLang 一定要一齊寫返 URL */
             onApply={(next) => update({ sort: next.sort, dir: next.dir, printLang: next.printLang })}
             onReset={() => update({ sort: "rank", dir: "desc", printLang: "all" })}

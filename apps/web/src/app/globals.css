@@ -2661,8 +2661,26 @@ button.primary-action { border: 0; }
   background: var(--surface);
   box-shadow: var(--print-pill-shadow);
 }
-/* 榜標題底下獨立一行，唔好逼死右邊 sticky 嘅 PeriodSelector */
-.ranking-heading .lang-filter { margin-top: 10px; }
+/* 榜標題底下獨立一行，唔好逼死右邊 sticky 嘅 PeriodSelector。
+   margin 掛喺個 row 度唔係掛喺 .lang-filter：而家一行入面有兩條分段掣
+   （語言 + 每頁數量），逐條掛就會喺 wrap 之後多咗一段冇人要嘅空隙。 */
+.ranking-heading .ranking-filter-row { margin-top: 10px; }
+.ranking-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+/* 「每頁」嗰個字唔係掣，唔可以食 `.lang-filter button` 嗰份 min-height／padding，
+   所以自己一條規則。放喺膠囊入面（唔係外面）先睇得出佢係講緊呢組掣。 */
+.page-size-filter .page-size-label {
+  padding-inline: 8px 2px;
+  color: var(--muted);
+  font-size: var(--fs-micro);
+  font-weight: var(--w-label);
+  letter-spacing: var(--track-th);
+  white-space: nowrap;
+}
 .explore-bar {
   display: flex;
   flex-wrap: wrap;

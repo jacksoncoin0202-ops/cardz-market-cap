@@ -5,6 +5,7 @@ import { Sheet } from "./ui/sheet";
 import { tap } from "@/lib/haptic";
 import { copy, localizedCardLanguage } from "@/lib/i18n";
 import type { SortDir } from "@/lib/list-explore";
+import { RANKING_PAGE_SIZES, type RankingPageSize } from "@/lib/pagination";
 import type { PrintLangFilter } from "@/lib/use-market-settings";
 import type { Locale, PrintLanguage } from "@/lib/types";
 
@@ -22,6 +23,7 @@ export interface SortFilterValue {
   sort: string;
   dir: SortDir;
   printLang: PrintLangFilter;
+  pageSize: RankingPageSize;
 }
 
 interface SortFilterBodyProps {
@@ -31,6 +33,9 @@ interface SortFilterBodyProps {
   value: SortFilterValue;
   /* 榜上真係有嘅印刷語言；≤1 種就唔出呢一段 */
   availableLanguages: PrintLanguage[];
+  /* 出唔出「每頁」嗰段。手機（≤680）榜頂嗰行收起咗，呢個 sheet 就係唯一入口
+     ——同語言列一樣嘅安排（owner 2026-08-18 問手機擺邊）。 */
+  pageSizePicker: boolean;
   onApply: (next: SortFilterValue) => void;
   onReset: () => void;
 }
@@ -50,7 +55,7 @@ export function SortFilterSheet({ open, ...body }: SortFilterBodyProps & { open:
   );
 }
 
-function SortFilterBody({ onClose, locale, sortKeys, value, availableLanguages, onApply, onReset }: SortFilterBodyProps) {
+function SortFilterBody({ onClose, locale, sortKeys, value, availableLanguages, pageSizePicker, onApply, onReset }: SortFilterBodyProps) {
   const t = copy[locale];
   /* 草稿只活喺 sheet 入面。<Sheet> 只喺 open 期間 mount 呢個 body，所以每次開都由
      傳入嘅 URL 現值重新起錶，唔使 effect 去 sync（sync effect 會同「用戶啱啱改咗草稿」打交）。 */
@@ -117,6 +122,26 @@ function SortFilterBody({ onClose, locale, sortKeys, value, availableLanguages, 
                 }}
               >
                 {lang === "all" ? t.labels.languageFilterAll : localizedCardLanguage(lang, locale)}
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+      {pageSizePicker ? (
+        <section className="sort-sheet-group">
+          <h4>{t.labels.pageSizeLabel}</h4>
+          <div className="sort-sheet-options" role="group" aria-label={t.labels.pageSizeLabel}>
+            {RANKING_PAGE_SIZES.map((size) => (
+              <button
+                key={size}
+                type="button"
+                aria-pressed={draft.pageSize === size}
+                onClick={() => {
+                  if (draft.pageSize !== size) tap.select();
+                  setDraft((prev) => ({ ...prev, pageSize: size }));
+                }}
+              >
+                {size}
               </button>
             ))}
           </div>

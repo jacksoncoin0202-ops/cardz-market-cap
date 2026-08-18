@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import { CATALOG_LIST_CAP } from "./catalog-search";
 import { normaliseCurrency, normaliseLocale, normaliseTheme } from "./format";
 import { cardLanguages } from "./i18n";
-import { DEFAULT_RANKING_PAGE_SIZE } from "./pagination";
+import { DEFAULT_RANKING_PAGE_SIZE, parseRequestedPageSize } from "./pagination";
 import { defaultMarketWindow, marketWindows, type Currency, type Locale, type MarketWindow, type PrintLanguage, type Theme } from "./types";
 
 export function normaliseMarketWindow(value: string | null | undefined): MarketWindow {
@@ -184,6 +184,10 @@ export function useMarketSettings() {
    * 自我修正 effect；喺呢度寫會變成 header／heatmap／rankings 三份一齊寫。
    */
   const showDirty = rawShow !== null && rawShow !== canonicalShowParam(show);
+  /* 每頁數量：讀 live URL 唔讀 props，咁換完數量嗰粒掣即刻著返，唔使等 RSC 行完。
+     `?size=` 唔合法（parser 回 null）喺 server 已經 404 咗，client 只會見到合法值，
+     所以呢度直接跌返預設就夠，唔使好似 `show` 咁再寫返個自我修正 effect。 */
+  const pageSize = parseRequestedPageSize(params.get("size") ?? undefined) ?? DEFAULT_RANKING_PAGE_SIZE;
   const sort = params.get("sort") ?? "rank";
   const dir = params.get("dir") === "asc" ? "asc" as const : "desc" as const;
   const urlTheme = params.get("theme");
@@ -317,5 +321,5 @@ export function useMarketSettings() {
     return suffix ? `${path}?${suffix}` : path;
   }, [currency, locale, period]);
 
-  return { locale, currency, period, printLang, query, show, showDirty, sort, dir, theme, update, href };
+  return { locale, currency, period, printLang, pageSize, query, show, showDirty, sort, dir, theme, update, href };
 }

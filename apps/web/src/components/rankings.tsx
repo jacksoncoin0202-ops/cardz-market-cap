@@ -20,7 +20,7 @@ import { tap } from "@/lib/haptic";
 import { cardMatchesQuery, nextExploreSort, normaliseCardSort, sortCards } from "@/lib/list-explore";
 import { URL_SHOW_CAP, useMarketSettings, type PrintLangFilter } from "@/lib/use-market-settings";
 import { useMediaQuery } from "@/lib/use-media-query";
-import type { RankingScope } from "@/lib/pagination";
+import { DEFAULT_RANKING_PAGE_SIZE, RANKING_PAGE_SIZES, type RankingScope } from "@/lib/pagination";
 import type { CatalogEntry, Currency, Locale, MarketCardView, MarketMetric, MarketViewSnapshot, MarketWindow, TrackedSalesMetric } from "@/lib/types";
 
 /* globals.css `@media (max-width: 980px)` 度 .desktop-ranking-table 收起、.mobile-ranking-list
@@ -42,6 +42,8 @@ interface RankingsProps {
   watchlist?: boolean;
   marketLabel?: string;
   searchScope?: RankingScope;
+  /* 出唔出每頁數量掣。由 market-page.tsx 判（佢先攞到 pageCount），呢度只負責畫。 */
+  pageSizePicker?: boolean;
 }
 
 export function MetricDelta({ metric, changePct, currency, rates, locale }: {
@@ -125,8 +127,8 @@ function ChangeBadge({ card, period, locale }: { card: MarketCardView; period: M
   );
 }
 
-export function Rankings({ cards, locale, currency, snapshot, href, watchlist = false, marketLabel, searchScope = "all" }: RankingsProps) {
-  const { period, printLang, query, show, showDirty, sort, dir, update } = useMarketSettings();
+export function Rankings({ cards, locale, currency, snapshot, href, watchlist = false, marketLabel, searchScope = "all", pageSizePicker = false }: RankingsProps) {
+  const { period, printLang, pageSize, query, show, showDirty, sort, dir, update } = useMarketSettings();
   const router = useRouter();
   const t = copy[locale];
   const cardSort = normaliseCardSort(sort);
@@ -324,21 +326,44 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
         <div>
           <p className="section-kicker">{watchlist ? t.labels.watchStatus : marketLabel ?? t.nav.all}</p>
           <h2 id="ranking-heading">{heading}</h2>
-          {/* 語言列手機搬咗入排序 sheet */}
-          {!isMobileBar && availableLanguages.length > 1 && (
-            <div className="lang-filter" role="group" aria-label={t.labels.language}>
-              {(["all", ...availableLanguages] as PrintLangFilter[]).map((lang) => (
-                <button
-                  key={lang}
-                  type="button"
-                  aria-pressed={activeLang === lang}
-                  aria-label={lang === "all" ? t.labels.languageFilterAll : localizedCardLanguage(lang, locale)}
-                  onClick={() => { tap.select(); update({ printLang: lang }); }}
-                >
-                  {activeLang === lang && <span className="lang-filter-pill" aria-hidden="true" />}
-                  <span>{lang === "all" ? t.labels.languageFilterAllShort : localizedCardLanguageShort(lang)}</span>
-                </button>
-              ))}
+          {/* 語言列同每頁數量列手機都搬咗入排序 sheet（≤680）。兩條都係同一款
+              分段掣，所以共用 `.lang-filter` 個樣，包喺一行入面等佢哋自己 wrap。 */}
+          {!isMobileBar && (availableLanguages.length > 1 || pageSizePicker) && (
+            <div className="ranking-filter-row">
+              {availableLanguages.length > 1 && (
+                <div className="lang-filter" role="group" aria-label={t.labels.language}>
+                  {(["all", ...availableLanguages] as PrintLangFilter[]).map((lang) => (
+                    <button
+                      key={lang}
+                      type="button"
+                      aria-pressed={activeLang === lang}
+                      aria-label={lang === "all" ? t.labels.languageFilterAll : localizedCardLanguage(lang, locale)}
+                      onClick={() => { tap.select(); update({ printLang: lang }); }}
+                    >
+                      {activeLang === lang && <span className="lang-filter-pill" aria-hidden="true" />}
+                      <span>{lang === "all" ? t.labels.languageFilterAllShort : localizedCardLanguageShort(lang)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {/* 換數量一定要一齊 `page: 1`：而家喺第 5 版揀 500，唔重設就變咗
+                  `?page=5&size=500`（#2001 起）——榜得 1604 張，直接 404。 */}
+              {pageSizePicker && (
+                <div className="lang-filter page-size-filter" role="group" aria-label={t.labels.pageSizeLabel}>
+                  <span className="page-size-label" aria-hidden="true">{t.labels.pageSizeLabel}</span>
+                  {RANKING_PAGE_SIZES.map((size) => (
+                    <button
+                      key={size}
+                      type="button"
+                      aria-pressed={pageSize === size}
+                      onClick={() => { tap.select(); update({ size, page: 1 }); }}
+                    >
+                      {pageSize === size && <span className="lang-filter-pill" aria-hidden="true" />}
+                      <span>{size}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -388,15 +413,17 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
         onClose={() => setSortSheetOpen(false)}
         locale={locale}
         sortKeys={sortKeys}
-        value={{ sort: cardSort, dir, printLang: activeLang }}
+        value={{ sort: cardSort, dir, printLang: activeLang, pageSize }}
         availableLanguages={availableLanguages}
-        /* 一個手勢一次寫入：三樣嘢一次過落 URL，唔會三次 router.replace 互相覆蓋 */
-        onApply={(next) => update({ sort: next.sort, dir: next.dir, printLang: next.printLang, page: 1 })}
+        pageSizePicker={pageSizePicker}
+        /* 一個手勢一次寫入：四樣嘢一次過落 URL，唔會四次 router.replace 互相覆蓋。
+           `page: 1` 同榜頂嗰行同一個理由——換數量之後舊 page 號可能已經出界。 */
+        onApply={(next) => update({ sort: next.sort, dir: next.dir, printLang: next.printLang, size: next.pageSize, page: 1 })}
         /* 「還原」要連展開量一齊清（`show` ≤ 預設就等於由 URL 刪走），
            連撳出嚟嗰段 session 展開都要清，唔係 URL 返 80 行但畫面仲係 800 行 */
         onReset={() => {
           setSessionShow(null);
-          update({ sort: "rank", dir: "desc", printLang: "all", page: 1, show: CATALOG_LIST_CAP });
+          update({ sort: "rank", dir: "desc", printLang: "all", size: DEFAULT_RANKING_PAGE_SIZE, page: 1, show: CATALOG_LIST_CAP });
         }}
       />
       {/* 索引載唔到就唔准扮全站搜過：有結果都要講明剩返當頁（冇結果嗰個 case 出喺 empty-state 入面） */}

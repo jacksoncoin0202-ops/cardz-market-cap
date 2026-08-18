@@ -1,6 +1,6 @@
 import { MarketPage } from "./market-page";
 import { copy } from "@/lib/i18n";
-import { RANKING_PAGE_SIZES } from "@/lib/pagination";
+import { RANKING_PAGE_SIZES, RANKING_ROW_CAP } from "@/lib/pagination";
 import {
   rankingHrefFor,
   rankingPath,
@@ -43,7 +43,8 @@ export async function RankingSurface({
       active: size === pageSize,
     })),
     prevHref: page > 1 ? hrefFor({ page: page - 1, size: pageSize }) : null,
-    nextHref: page < pageCount ? hrefFor({ page: page + 1, size: pageSize }) : null,
+    /* 每版一條 href（index 0 = 第 1 版）。size 100 × 1604 張 = 17 條，payload 忽略得。 */
+    pageHrefs: Array.from({ length: pageCount }, (_, index) => hrefFor({ page: index + 1, size: pageSize })),
     labels: {
       showMore: t.labels.showMore,
       pageSize: t.labels.pageSizeLabel,
@@ -51,6 +52,8 @@ export async function RankingSurface({
       next: t.nav.nextPage,
       loading: t.labels.loadingMore,
       retry: t.errorPage.retry,
+      /* {count} 喺呢度填死：pager 係 client component，唔想連 fillTemplate 都拖埋落去。 */
+      rowCap: t.labels.rowCapReached.replace("{count}", String(RANKING_ROW_CAP)),
     },
   } : null;
   return <MarketPage kind={scope} snapshot={snapshot} pager={pagerData} />;

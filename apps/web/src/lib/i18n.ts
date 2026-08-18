@@ -247,6 +247,9 @@ export interface Copy {
     /* 全站索引載唔到時嘅退化提示（rankings.tsx 只剩當頁過濾，唔係「冇結果」） */
     catalogUnavailable: string;
     pageSizeLabel: string;
+    /* 榜上接夠 {count} 行就唔再接（owner 2026-08-18：800 行會 lag 到要 F5）。
+       個「展示更多」掣會消失，所以要出一句解釋去邊度睇下一批。 */
+    rowCapReached: string;
     /*
      * Phase B 手機瘦身（設計稿 UX_MOBILE_SEARCH_DESIGN_20260816 §設計（手機））：
      * 計數搬入搜尋框內（`resultCountShort`），讀屏另一份獨立 debounce 播
@@ -487,6 +490,7 @@ export const copy: Record<Locale, Copy> = {
       loadingMore: "Loading…",
       catalogUnavailable: "Site-wide index unavailable right now — showing matches from this page only.",
       pageSizeLabel: "Per page",
+      rowCapReached: "Showing at most {count} rows — use › for the next page.",
       resultCountShort: "{count} cards",
       resultCountAnnounce: "{count} cards found",
       sortSheetTitle: "Sort & filter",
@@ -702,6 +706,7 @@ export const copy: Record<Locale, Copy> = {
       loadingMore: "載入中…",
       catalogUnavailable: "全站索引暫時載不到，只顯示本頁結果。",
       pageSizeLabel: "每頁",
+      rowCapReached: "一次最多顯示 {count} 行，按 › 看下一頁。",
       resultCountShort: "{count} 張",
       resultCountAnnounce: "{count} 張卡牌",
       sortSheetTitle: "排序與篩選",
@@ -902,6 +907,7 @@ export const copy: Record<Locale, Copy> = {
       loadingMore: "加载中…",
       catalogUnavailable: "全站索引暂时加载不到，只显示本页结果。",
       pageSizeLabel: "每页",
+      rowCapReached: "一次最多显示 {count} 行，点 › 看下一页。",
       resultCountShort: "{count} 张",
       resultCountAnnounce: "{count} 张卡牌",
       sortSheetTitle: "排序与筛选",
@@ -1101,6 +1107,7 @@ export const copy: Record<Locale, Copy> = {
       loadingMore: "読み込み中…",
       catalogUnavailable: "サイト全体の索引を読み込めません。このページ内の該当分のみ表示しています。",
       pageSizeLabel: "表示件数",
+      rowCapReached: "一度に表示できるのは最大 {count} 件です。続きは › で次のページへ。",
       resultCountShort: "{count} 件",
       resultCountAnnounce: "カード {count} 件",
       sortSheetTitle: "並べ替えと絞り込み",
@@ -1307,6 +1314,7 @@ export const copy: Record<Locale, Copy> = {
       loadingMore: "불러오는 중…",
       catalogUnavailable: "전체 색인을 지금 불러올 수 없어 이 페이지의 결과만 표시합니다.",
       pageSizeLabel: "페이지당",
+      rowCapReached: "한 번에 최대 {count}개까지 표시됩니다. 다음 페이지는 › 를 누르세요.",
       resultCountShort: "{count}장",
       resultCountAnnounce: "카드 {count}장",
       sortSheetTitle: "정렬 및 필터",

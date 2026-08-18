@@ -11,6 +11,7 @@ import { displayCardName } from "@/lib/card-name";
 import { formatMoney, formatObservationDate, formatPercent } from "@/lib/format";
 import { copy, type Copy } from "@/lib/i18n";
 import { cardSubject, fillTemplate } from "@/lib/related-cards";
+import { DEFAULT_RANKING_PAGE_SIZE } from "@/lib/pagination";
 import { fetchRankingPage } from "@/lib/ranking-feed";
 import { useMarketSettings } from "@/lib/use-market-settings";
 import type { Locale, MarketCardView, MarketViewSnapshot } from "@/lib/types";
@@ -230,6 +231,10 @@ export function MarketPage({ kind, snapshot, pager }: { kind: MarketPageKind; sn
         watchlist={kind === "watchlist"}
         marketLabel={marketLabel}
         searchScope={kind === "pokemon" || kind === "one-piece" ? kind : "all"}
+        /* 每頁數量掣（owner 2026-08-18 指住榜頂話要擺喺嗰度）。條件同榜尾 pager 嗰個
+           一模一樣：得一版而且係預設數量就冇嘢好揀。搜尋模式 `pager` 係 null——
+           搜尋結果唔行 `?size=`，行 `?show=`，出個揀唔郁嘅掣會呃人。 */
+        pageSizePicker={Boolean(pager && (pager.pageCount > 1 || pager.pageSize !== DEFAULT_RANKING_PAGE_SIZE))}
       />
       {/* 每頁 100／200／300／500 + 上下頁 + 「展示更多」：緊貼榜尾，唔准跌落頁尾說明之後。
           範圍字（#1–#200）要跟住接落去嘅實際行數走，所以傳 render 緊嗰批嘅頭尾 rank。 */}
