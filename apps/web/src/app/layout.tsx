@@ -18,6 +18,7 @@ export const metadata: Metadata = {
     google: "_fvfNcfJclKIRrKY8HXu98F4eLkb1cKmoxxaV8Fa97g",
     other: {
       "naver-site-verification": "00ffbeede11d172215c89e7953bf4a1102b9893b",
+      "yandex-verification": "5e19b0179c26a2a1",
     },
   },
 };
