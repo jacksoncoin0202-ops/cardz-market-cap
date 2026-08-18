@@ -43,10 +43,23 @@ function shareFont(): string {
 
 /* bg/text/sub 沿用舊 export 嘅值；accent 抄 globals.css 嘅 `--accent`
    （:root #b85416 / [data-theme="dark"] #e8823f）—— canvas 讀唔到 CSS var，改 token 記住改埋呢度。
-   logo 同 components/header.tsx 嘅 BRAND_LOGO 一樣：淺色底用有黑描邊嗰版，深色底用白版。 */
+   logo 同 components/header.tsx 一樣分兩版：淺色底用有黑描邊嗰版，深色底用白版。
+   ⚠️ **logo 用 SVG 唔用 PNG**（fe05(logo-svg)，2026-08-18）：呢張分享圖闊到 2496px，
+   而 logo 原圖得 879×380，畫落去係上採樣 —— 放大睇邊位糊。Chrome 係喺 **destination
+   解析度** rasterize SVG（唔係先出 intrinsic size 再放大），所以換 SVG 之後個 wordmark
+   係真銳邊。same-origin SVG 一樣唔會 taint canvas，`toBlob` 照出得。
+   ⚠️ SVG 個 `width`/`height` 屬性一定要**同 viewBox 後兩個數一致**（唔係「有就得」）。
+   覆核 2026-08-18 實測，唔好信舊註嗰個「冇 width/height 就變 300×150」嘅講法：
+     · 剝走 width/height → Chrome 報 300×130（light）/ 300×122（dark），**ratio 保住**
+       （2.3077 vs 真身 2.3126、2.4590 vs 2.4597），drawn logoW 只差 1px，oneRow 唔會跳。
+     · 真正會出事係反方向：`width` 改咗而 viewBox 唔郁（例如 width=900）→ Chrome 報
+       900×419 → `logoW` 由 259 跌到 **241**、ink 由 255×108 跌到 237×100 = **細咗 ~7%**。
+   所以 scripts/test-fe-brand-logo-svg.mjs 守嘅係「width == viewBox[2]」呢條等式，
+   唔係「有冇 width 屬性」。注意佢守嘅係 **SVG 檔本身**；下面 `logoW` 嗰行點計、
+   同埋 skin ↔ 檔名嘅對應，係另外兩條 assert（覆核種 fault 證過原本兩條都冇守到）。 */
 const PALETTE = {
-  dark: { bg: "#0D0D0F", text: "#F1F1EE", sub: "#A0A09B", accent: "#E8823F", logo: "/brand/logo-cardz-marketcap-dark.png" },
-  light: { bg: "#FAFAF7", text: "#191917", sub: "#555550", accent: "#B85416", logo: "/brand/logo-cardz-marketcap.png" },
+  dark: { bg: "#0D0D0F", text: "#F1F1EE", sub: "#A0A09B", accent: "#E8823F", logo: "/brand/logo-cardz-marketcap-dark.svg" },
+  light: { bg: "#FAFAF7", text: "#191917", sub: "#555550", accent: "#B85416", logo: "/brand/logo-cardz-marketcap.svg" },
 } as const;
 
 /* tile 圓角：同 globals.css `.heatmap-tile { border-radius: 4px }` 綁死（owner 2026-08-17：
@@ -229,6 +242,13 @@ export async function renderHeatmapShare(opts: HeatmapShareOptions): Promise<HTM
      一行擺得落（logo | 標題 | 日期）就一行；擺唔落就兩行（logo + 日期一行、標題自己一行）。 */
   const logo = await loadImage(skin.logo);
   const logoH = Math.round(32 * scale);
+  /* `logo.width/height` 係 intrinsic 尺寸（<img> 未入 DOM，冇 CSS layout）。SVG 檔頭有寫死
+     `width`/`height` 屬性所以攞到整數化嘅 969×419（light）/ 947×385（dark）—— Chrome 會將
+     viewBox 嗰啲小數（969.29 / 946.82×384.98）四捨五入先報，唔好照抄檔頭個小數落嚟對數。
+     一旦有人剝走嗰兩個屬性，Chrome 會回默認 300×150 → 比例由 2.31 跌到 2.0，logo 窄咗之餘
+     連 oneRow 個臨界點都會跳。scripts/test-fe-brand-logo-svg.mjs 守住呢兩個屬性。
+     實測（1280×900 桌面 / 375×812 手機 × light+dark 四組，PNG↔SVG A/B）：drawn logo rect
+     四組入面三組一模一樣，得 dark 手機 276→275（−1px，0.36%），oneRow 決定四組全部冇變。 */
   const logoW = logo ? Math.round(logoH * (logo.width / logo.height)) : 0;
   const shareTitle = `Top ${count} · ${periodLabel}`;
   measure.font = stampFont;

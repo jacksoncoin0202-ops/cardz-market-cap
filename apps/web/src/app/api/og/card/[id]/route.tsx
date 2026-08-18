@@ -269,7 +269,12 @@ function ArtLayout({ card, art, logoSrc }: { card: MarketCardView; art: CardArt;
               <Stat label="PSA 10 POP" value={integer(card.populationPsa10.value)} valueSize={34} />
             </div>
           </div>
-          {/* 200×86 保住原 wordmark 2.31:1 比例（純文字版係 280×121）。 */}
+          {/* 200×86 = 2.326:1，同 SVG viewBox 969.29/419.45 = 2.311:1 差 0.6%（純文字版係 280×121）。
+              呢兩個數唔可以照抄新 SVG 嘅 intrinsic size —— 一定要量返出圖：同一張卡同一支 dev
+              server A/B，PNG wordmark 出 ink bbox 196×83 @(526,502)、SVG 出 198×84 @(525,501)，
+              底邊兩邊都係 y=584（+2/+1 px 純粹係 vector 抗鋸齒比 PNG 自己嗰條邊多留一格淡墨）。
+              即係冇縮水、亦冇撞底邊。剪 viewBox 之前量過係 243×103 vs 276×117（細 12%）——
+              所以 viewBox 留白同 PNG 唔一樣嗰陣，呢兩個 declared 數就會靜靜出錯圖。 */}
           <img src={logoSrc} alt="CardZ Marketcap" width={200} height={86} />
         </div>
       </div>
@@ -293,13 +298,29 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
    */
   if (!card) return new Response("Card not found", { status: 404 });
 
+  /*
+   * Wordmark 餵 SVG 唔餵 PNG（fe05(logo-svg)，2026-08-18）：satori 內置 resvg 識直接
+   * 行 vector，唔使解一張 879×380 嘅 PNG 再喺 200px 闊度縮 —— 出嚟嘅邊係真銳邊。
+   * ⚠️ **一定要 `;base64,`**：`svg+xml;charset=utf-8,` + `encodeURIComponent` 嗰種寫法
+   *    行到 satori 內部個 `btoa` 就會 `InvalidCharacterError`（實測），OG 端點直接 500。
+   * ⚠️ 呢條路 **冇** letterbox 呢個 failure mode —— 舊註寫錯咗，覆核 2026-08-18 用真嘅
+   *    @vercel/og 餵四個變體重現唔到：`width="900"` 而 viewBox 唔郁、甚至 width/height
+   *    兩個屬性完全剝走，ink 都係 198×84 @(957,501)、inkPx 6435，**逐個數一樣**。
+   *    原因係下面個 `<img width={200} height={86}>` 已經俾咗 explicit box，resvg 唔會理
+   *    SVG 自己嗰兩個屬性。真正會令 logo 縮細嘅係 **share-image 嗰條 Chrome canvas 路**
+   *    （見 lib/share-image.ts 個註）—— width/viewBox 唔一致喺嗰邊會細 ~7%。
+   *    所以 scripts/test-fe-brand-logo-svg.mjs 嗰條 `width == viewBox[2]` 係為 share-image
+   *    而守，唔係為呢度；OG 呢邊真正要守嘅係上面 `;base64,` 同下面個 skin 檔名。
+   * 兩路 `existsSync` 同上面 OG font 嗰段一樣：dev 由 repo root 行、standalone build
+   * `process.cwd()` 已經係 `apps/web`。搵唔到就照舊回 500 —— 冇 wordmark 嘅 OG 圖唔算出到街。
+   */
   const { existsSync } = await import("node:fs");
   const logoFile = [
-    resolve(process.cwd(), "public/brand/logo-cardz-marketcap.png"),
-    resolve(process.cwd(), "apps/web/public/brand/logo-cardz-marketcap.png"),
+    resolve(process.cwd(), "public/brand/logo-cardz-marketcap.svg"),
+    resolve(process.cwd(), "apps/web/public/brand/logo-cardz-marketcap.svg"),
   ].find((path) => existsSync(path));
   if (!logoFile) return new Response("Brand mark missing", { status: 500 });
-  const logoSrc = `data:image/png;base64,${(await readFile(logoFile)).toString("base64")}`;
+  const logoSrc = `data:image/svg+xml;base64,${(await readFile(logoFile)).toString("base64")}`;
 
   /* fail-open：卡圖任何一步炸（asset 唔喺度、sharp 載唔到、解碼失敗）都退返
      純文字版，唔准變 500 —— OG 端點死咗等於社交分享冇圖，比冇卡圖仲差。 */

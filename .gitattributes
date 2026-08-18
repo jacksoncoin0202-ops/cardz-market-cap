@@ -12,6 +12,12 @@ data/private/images/**/* filter=lfs diff=lfs merge=lfs -text
 *.ts text eol=lf
 *.tsx text eol=lf
 *.md text eol=lf
+# SVG 一定要釘 LF：`scripts/test-fe-brand-logo-svg.mjs` ⑦ 對 `<svg` 之後 body 嘅 sha256
+# stamp，而個 stamp 係喺 LF 之下計嘅。冇呢句就跌返 core.autocrlf ——
+# Windows checkout 出 CRLF、sha 即刻對唔返，`npm test` 喺一部乾淨機上面無端端紅，
+# 而 diff 睇落一個字都冇改過（2026-08-18 加 SVG wordmark 嗰陣 git 已經出咗
+# 「LF will be replaced by CRLF」警告，先發現）。
+*.svg text eol=lf
 
 # 部署到 Linux 嘅檔一律 LF，唔理 core.autocrlf。CRLF 嘅 .sh 喺 Linux 係
 # 「bad interpreter: /usr/bin/env bash^M」即死；systemd unit 嘅 ExecStart 值
