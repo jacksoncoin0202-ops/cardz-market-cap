@@ -35,6 +35,11 @@
     再跑一次修完嘅邏輯，見到佢由 refuse 變 pass 先算數。
 15. **036 係靚仔 PSA10，隨時 fallback。037／FE04 只加 BOX。** 唔開 rebuild_037。BOX 公開路徑 /box，sidecar overlay，唔准寫入 PSA10 seed-snapshot.json。契約：docs/HANDOFF_037_FE04.md。Live 認 https://app.cardzmarketcap.com/api/health。
 
+16. **出街唔准淨係 `git push` 就走人** — `git push origin HEAD:main` 之後一定要跑
+    `pwsh -NoProfile -File scripts\deploy_watch.ps1`，等佢講咗結果先算做完。（2026-08-17
+    `895f9f76` push 咗、GitHub 遲咗 30 分 55 秒先派，冇人睇實就當咗漏派去亂改 code。
+    exit code 分流同判讀見 [docs/FE05_ROLLBACK.md](docs/FE05_ROLLBACK.md) 第 8 步。）
+
 ## 查 bug 之前
 
 先對 [runbook「缺陷形狀清單」](docs/COLLECTION_RUNBOOK.md)。呢個 repo 出過嘅事故有固定形狀

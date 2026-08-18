@@ -63,30 +63,72 @@ pwsh -NoProfile -File scripts\fe05_rollback.ps1 -DryRun
 8. **驗 live** — 每 40 秒抓一次 `/api/health`（browser UA），最多 12 分鐘，等到 `presentation == FE04`。
    等唔到 → exit 2，同時話你知 rollback commit 已經喺 `main` 上面，要去睇 webhook / docker log。
 
-#### 等唔到嗰陣：先分「webhook 冇 fire」定「build 炸咗」（2026-08-17 加）
+#### 等唔到嗰陣：先分「webhook 冇 fire」定「build 炸咗」（2026-08-17 加，2026-08-18 改正）
 
-兩者外觀一模一樣（commit 喺 `main`、live 照舊），但處理完全唔同。**唔好靠估**，
-GitHub 側嘅 delivery 記錄一 query 就分到（`repo` scope 已經夠，唔使 `admin:repo_hook`）：
+兩者外觀一模一樣（commit 喺 `main`、live 照舊），但處理完全唔同。**唔好靠估、亦都唔好人手查**
+—— 一句命令就有齊答案：
+
+```powershell
+pwsh -NoProfile -File scripts\deploy_watch.ps1              # push 完即刻跑，睇實佢
+pwsh -NoProfile -File scripts\deploy_watch.ps1 -AuditOnly -Sha <sha>   # 事後翻查一粒
+```
+
+exit code 就係診斷：`0` 上街驗到／`2` delivery 2xx 但 live 冇轉（AWS 側）／`3` GitHub 未派／
+`4` 接收端非 2xx／`5` 未量到就已經錯（冇 `[deploy]`、未 push、gh 未登入、連 live 基線都抓唔到）。
+
+想自己查嘅話（`repo` scope 已經夠，唔使 `admin:repo_hook`）：
 
 ```bash
 gh api "repos/jacksoncoin0202-ops/cardz-market-cap/hooks/658470027/deliveries?per_page=8" --jq '.[] | "\(.delivered_at)  \(.status) \(.status_code)"'
 ```
 
 同 `git reflog show --date=iso-strict-local origin/main` 逐粒對時間（正常係 push 之後 **2 秒內**
-就有一次 delivery，1:1）。
+就有一次 delivery，1:1；2026-08-18 覆量 72 小時 82 件：median 1.2s、p90 1.4s）。
 
 | 見到 | 即係 | 做咩 |
 |---|---|---|
 | 有 delivery、`200` | webhook 收到咗，AWS 側 `git pull` / `next build` 有問題 | 去睇 docker build log（要 AWS 存取） |
-| 有 delivery、非 `2xx` | 接收端死咗 | 睇 `spwebhook.funtoken.me`，IT 側 |
-| **完全冇 delivery** | GitHub 根本冇派 —— 唔關 code 事，本機點驗都冇用 | 唔好改 code 去「修」佢。等下一粒 `[deploy]` push 帶起（會連埋之前積落嗰啲），仲係冇就升 IT |
+| 有 delivery、非 `2xx` | 接收端死咗 | 睇 `spwebhook.funtoken.me`，IT 側。GitHub **唔會**自動重試，要人手 redeliver 或者再推一粒空 `[deploy]` |
+| **列表暫時搵唔到對得返嘅 delivery** | **未派到（可能仲喺 GitHub queue）** —— **唔可以**就咁判定漏派 | 跑 `scripts\deploy_watch.ps1` 等佢。實測最誇張遲過 **30 分 55 秒**（2026-08-17 `895f9f76`）。等唔切就推一粒空 `[deploy]` 踢一腳（AWS pull 去 tip，會連之前積落嗰啲一齊帶上街） |
 
 `cf-cache-status` 順便睇埋：`DYNAMIC` = origin 真係出緊舊嘢（唔係 Cloudflare 快取），
 `HIT` 先至係快取問題。
 
-> 實例：`895f9f76`（`fe05(cjk)`）2026-08-17 `14:28:28Z` push 咗上 `main`，subject 有 `[deploy]`，
-> 但 hook `658470027` 由 `13:16:23Z` 之後零 delivery（前 5 粒 push 全部對得返，2 秒內）。
-> hook 本身 `active: true`、`last_response 200`。即係 GitHub 側冇派，唔係 build 炸。
+##### 「查唔到 delivery」≠「GitHub 冇派」（2026-08-18 查實）
+
+`GET .../hooks/{id}/deliveries` **只列已經派咗出去嘅 delivery**，而且按 `delivered_at` 排。
+**未派出去嘅 event 喺呢個列表係完全隱形嘅。** 所以喺 queue 塞住嗰段時間去查，見到嘅同
+「GitHub 根本冇收過呢粒 push」一模一樣 —— 呢個就係 2026-08-17 判錯嘅原因。
+
+要分真假，睇 delivery 個 **`guid`**：佢係 UUIDv1，頭 60 bit 係 **event 產生時間**
+（100ns × since 1582-10-15）。`delivered_at` 只講「幾時派到」，`guid` 先講「GitHub 幾時已經
+知道有呢粒 push」。兩者相減 = 真 lag。`scripts/deploy_watch.ps1` 嘅 `Get-GuidCreatedUtc`
+就係做呢件事，`-AuditOnly` 會直接印出嚟。
+
+> 實例改正：`895f9f76`（`fe05(cjk)`）2026-08-17 `14:28:28Z` push，subject 有 `[deploy]`，
+> 當時查 deliveries 見唔到對得返嘅 delivery，判咗「GitHub 冇派」。**呢個判斷係錯嘅。**
+> 事後翻查：delivery `ea2ac230-9a47-11f1` 嘅 guid 話 GitHub `14:28:28.722Z` 就已經產生咗
+> event，只係 `14:59:24.105Z` 先派出去 —— 遲 **1855.4 秒 = 30 分 55 秒**，`OK 200`、
+> `redelivery=false`、`throttled_at=null`。同期對照：`215a5e00` 遲 1.1 秒、`005935a3` 遲 1.2 秒。
+> 本機 reflog 56 粒 push **56/56 全部對得返 delivery，一件都冇真漏**。
+> 即係：唔係漏派，係一件遲咗 500 倍。
+
+##### 坑：`gh api --jq` 一轉字串就整爛 19 位 delivery id
+
+想 redeliver 就要攞個 `id`，但 gojq 一 `tostring` / 字串內插就跌精度（2026-08-18 實測，gh 2.86.0，同一粒）：
+
+| 寫法 | 出咩 |
+|---|---|
+| `--jq '.[0].id'` | `3837521760775839744` ✅ 冇郁過就準 |
+| `--jq '.[] \| "\(.id)"'` | `3837521760775840000` ❌ 尾四位變 `0000` |
+| `--jq '.[0].id \| tostring'` | `3837521760775840000` ❌ 同上 |
+
+偏偏「喺 shell 入面連埋其他 field 一齊印」正正就係要字串內插嗰種寫法。攞住走樣嗰個 id 去
+`GET .../deliveries/<id>` 會 **404**，而 `gh` 仲會加多句
+`This API operation needs the "admin:repo_hook" scope` 引你去申請 scope ——
+**純粹係紅鯡魚**：`repo` scope 已經夠，用返準嘅 id 就 200。
+所以攞 id 要麼淨係 `--jq '.[0].id'`（唔好連字串），要麼好似 `deploy_watch.ps1` 咁自己
+`ConvertFrom-Json`（出 `Int64`，全程唔經字串）。
 
 ### Flags
 
