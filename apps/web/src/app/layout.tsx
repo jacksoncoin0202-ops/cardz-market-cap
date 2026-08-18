@@ -16,6 +16,9 @@ export const metadata: Metadata = {
   description: SITE_DESCRIPTOR_EN,
   verification: {
     google: "_fvfNcfJclKIRrKY8HXu98F4eLkb1cKmoxxaV8Fa97g",
+    other: {
+      "naver-site-verification": "00ffbeede11d172215c89e7953bf4a1102b9893b",
+    },
   },
 };
 
