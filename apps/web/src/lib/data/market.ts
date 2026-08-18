@@ -46,6 +46,8 @@ export async function getCardData(id: string): Promise<MarketCardView | null> {
 
 export interface CatalogListPayload {
   generation: string;
+  generatedAt: string;
+  effectiveAt: string;
   count: number;
   entries: CatalogEntry[];
 }
@@ -55,6 +57,8 @@ export async function getCatalogData(): Promise<CatalogListPayload> {
   const entries = buildCatalogIndex(snapshot);
   return {
     generation: snapshot.generation,
+    generatedAt: snapshot.generatedAt,
+    effectiveAt: snapshot.effectiveAt,
     count: entries.length,
     entries,
   };

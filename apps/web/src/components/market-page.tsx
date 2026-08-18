@@ -181,8 +181,21 @@ export function MarketPage({ kind, snapshot, pager }: { kind: MarketPageKind; sn
             encodingFormat: "application/json",
             contentUrl: canonicalPublicUrl("/api/v1/market"),
           },
+          {
+            "@type": "DataDownload",
+            encodingFormat: "application/json",
+            contentUrl: canonicalPublicUrl("/api/v1/search"),
+            name: "Card lookup",
+            description: "GET /api/v1/search?q= name, nickname or collector number. Five languages. Folded substring, not typo-fuzzy.",
+          },
         ],
         publisher: { ...siteOrganization(), "@id": organizationId() },
+      },
+      {
+        "@type": "SearchAction",
+        "@id": `${canonicalPublicUrl("/api/v1/search")}#lookup`,
+        target: `${canonicalPublicUrl("/api/v1/search")}?q={query}`,
+        "query-input": "required name=query",
       },
       {
         "@type": "ItemList",

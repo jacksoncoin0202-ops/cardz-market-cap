@@ -168,6 +168,45 @@ export function catalogMatchesQuery(entry: CatalogEntry, query: string): boolean
   return catalogHaystack(entry).includes(needle);
 }
 
+export const catalogMatchKinds = [
+  "number-exact",
+  "number-prefix",
+  "name-exact",
+  "name-prefix",
+  "official-prefix",
+  "contains",
+] as const;
+
+export type CatalogMatchKind = (typeof catalogMatchKinds)[number];
+
+const MATCH_KIND_SCORE: Record<CatalogMatchKind, number> = {
+  "number-exact": 0,
+  "number-prefix": 1,
+  "name-exact": 2,
+  "name-prefix": 3,
+  "official-prefix": 4,
+  contains: 10,
+};
+
+/*
+ * 命中點解排前：完整編號／全名優先，之後先至係 includes。
+ * 公開 API 同榜頁搜尋共用呢個判準，唔好兩邊各自寫一份。
+ */
+export function catalogMatchKind(entry: CatalogEntry, query: string, locale: Locale): CatalogMatchKind | null {
+  const needle = normaliseQuery(query);
+  if (!needle) return null;
+  const number = foldSearchText(entry.collectorNumber ?? "");
+  const name = foldSearchText(displayCatalogName(entry, locale));
+  const official = foldSearchText(entry.officialName ?? "");
+  if (number && number === needle) return "number-exact";
+  if (number.startsWith(needle)) return "number-prefix";
+  if (name && name === needle) return "name-exact";
+  if (name.startsWith(needle)) return "name-prefix";
+  if (official.startsWith(needle)) return "official-prefix";
+  if (!catalogMatchesQuery(entry, query)) return null;
+  return "contains";
+}
+
 /*
  * 細分排序：完整編號／全名優先，之後先至係 includes。
  * 同分用 marketRank（0 = 等緊新價，排最後）。
@@ -175,17 +214,13 @@ export function catalogMatchesQuery(entry: CatalogEntry, query: string): boolean
 export function catalogMatchScore(entry: CatalogEntry, query: string, locale: Locale): number {
   const needle = normaliseQuery(query);
   if (!needle) return entry.marketRank > 0 ? entry.marketRank : Number.MAX_SAFE_INTEGER;
-  const number = foldSearchText(entry.collectorNumber ?? "");
-  const name = foldSearchText(displayCatalogName(entry, locale));
-  const official = foldSearchText(entry.officialName ?? "");
-  if (number && number === needle) return 0;
-  if (number.startsWith(needle)) return 1;
-  if (name && name === needle) return 2;
-  if (name.startsWith(needle)) return 3;
-  if (official.startsWith(needle)) return 4;
-  if (!catalogMatchesQuery(entry, query)) return Number.POSITIVE_INFINITY;
-  const rank = entry.marketRank > 0 ? entry.marketRank : 50_000;
-  return 10 + rank / 100_000;
+  const kind = catalogMatchKind(entry, query, locale);
+  if (!kind) return Number.POSITIVE_INFINITY;
+  if (kind === "contains") {
+    const rank = entry.marketRank > 0 ? entry.marketRank : 50_000;
+    return MATCH_KIND_SCORE.contains + rank / 100_000;
+  }
+  return MATCH_KIND_SCORE[kind];
 }
 
 export interface CatalogSearchOptions {

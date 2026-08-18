@@ -60,6 +60,43 @@ export async function GET(): Promise<Response> {
         },
         {
           method: "GET",
+          path: "/api/v1/search",
+          url: `${site}/api/v1/search`,
+          description:
+            "Look up a card or sealed box by name, nickname or collector number. Matches English, Traditional Chinese, Simplified Chinese, Japanese and Korean. Folded substring, not typo-fuzzy.",
+          query: {
+            q: { type: "string", required: true, description: "Name, nickname or collector number. Empty returns 400." },
+            lang: { values: ["en", "zh-TW", "zh-CN", "ja", "ko"], default: "en", description: "Ranks display names; matching still uses every language." },
+            kind: { values: ["card", "box"], description: "Omit to search both." },
+            tcg: { values: ["pokemon", "one-piece"], description: "Omit to search both games." },
+            limit: { type: "positive integer", default: 8, max: 50 },
+          },
+          examples: [
+            `${site}/api/v1/search?q=${encodeURIComponent("梵高皮卡丘")}&lang=zh-TW`,
+            `${site}/api/v1/search?q=moonbreon`,
+            `${site}/api/v1/search?q=217/187`,
+            `${site}/api/v1/search?q=OP05-119`,
+          ],
+        },
+        {
+          method: "GET",
+          path: "/api/v1/resolve",
+          url: `${site}/api/v1/resolve`,
+          description:
+            "Same search, but returns one card when the top hit is uniquely strong. Ambiguous names return resolved:null and a short candidate list.",
+          query: {
+            q: { type: "string", required: true },
+            lang: { values: ["en", "zh-TW", "zh-CN", "ja", "ko"], default: "en" },
+            kind: { values: ["card", "box"] },
+            tcg: { values: ["pokemon", "one-piece"] },
+          },
+          examples: [
+            `${site}/api/v1/resolve?q=217/187`,
+            `${site}/api/v1/resolve?q=${encodeURIComponent("月亮伊布")}&lang=zh-TW`,
+          ],
+        },
+        {
+          method: "GET",
           path: "/api/v1/market",
           url: `${site}/api/v1/market`,
           description: "Ranked cards with market cap, PSA 10 reference price, verified PSA 10 population and window changes.",
@@ -105,6 +142,10 @@ export async function GET(): Promise<Response> {
         "cards[].marketCap": "{ value: USD | null, status, asOf } — population x reference price.",
         "cards[].windows": "Keyed 1d, 7d, 30d, 90d, 180d, 365d. changePct is the price change; marketCapChangePct is the market-cap change; trackedSales covers completed sales inside tracked coverage.",
         "cards[].historyDaily": "Single-card endpoint only: daily points { at, priceUsd, priceStatus, trackedSalesValueUsd, trackedSalesCount }.",
+        "hits[].match": "Why the hit ranked: number-exact, number-prefix, name-exact, name-prefix, official-prefix, or contains.",
+        "hits[].url": "Canonical public page for the hit. Cite this URL with the effectiveAt date.",
+        citation: "Ready-to-paste attribution line. A figure without its date is not attributable to us.",
+        "resolve.ambiguous": "true when more than one printing is a strong match. Do not guess — show hits or ask.",
         "null semantics": "A null value means the figure is not published for that window. It never means zero.",
       },
       license: {

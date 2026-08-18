@@ -29,6 +29,8 @@ export default async function DataPage({ searchParams }: { searchParams: PageSea
   const answer = fillProse(t.answer, vars);
   const url = canonicalPublicUrl(contentPagePaths.data);
   const marketEndpoint = absolutePublicUrl("/api/v1/market");
+  const searchEndpoint = absolutePublicUrl("/api/v1/search");
+  const resolveEndpoint = absolutePublicUrl("/api/v1/resolve");
   const curl = `curl -s "${marketEndpoint}?scope=pokemon&page=1"`;
   /* attribution 要同 /api/v1 同 /llms-full.txt 出一模一樣嘅字串，所以 site origin 要填入去；
      fill() 見到解唔到嘅 placeholder 會回 null 成句唔出，唔補 `site` 個 attribution 就會消失。 */
@@ -61,6 +63,25 @@ export default async function DataPage({ searchParams }: { searchParams: PageSea
           contentUrl: marketEndpoint,
         },
       ],
+    },
+    /*
+     * 只入 JSON-LD：人睇嘅 /data 版面唔准郁。Agent／爬蟲由呢度同 /llms.txt、/api/v1 學 lookup。
+     */
+    {
+      "@type": "SearchAction",
+      "@id": `${absolutePublicUrl("/api/v1/search")}#lookup`,
+      target: `${searchEndpoint}?q={query}`,
+      "query-input": "required name=query",
+      description:
+        "Look up a CardZ Marketcap card by name, nickname or collector number in en, zh-TW, zh-CN, ja or ko. Folded substring, not typo-fuzzy. Also GET /api/v1/resolve?q= for a single hit when unique.",
+    },
+    {
+      "@type": "EntryPoint",
+      "@id": resolveEndpoint,
+      url: resolveEndpoint,
+      httpMethod: "GET",
+      contentType: "application/json",
+      description: "Resolve one card when the top search hit is uniquely strong; otherwise resolved is null.",
     },
   ];
 
