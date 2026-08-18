@@ -250,6 +250,12 @@ export interface Copy {
     /* 榜上接夠 {count} 行就唔再接（owner 2026-08-18：800 行會 lag 到要 F5）。
        個「展示更多」掣會消失，所以要出一句解釋去邊度睇下一批。 */
     rowCapReached: string;
+    /* 榜頂「而家一共 render 緊幾多行」。owner 2026-08-18：「碌到五百嗰時，睇返頂頂
+       嗰個頁面都冇話係五百」—— 每頁數量掣仍然 highlight 住 100（佢真係 100/版），
+       同畫面上 500 行望落打對台，所以要喺同一組掣隔離講返實數。 */
+    rowsShown: string;
+    /* 榜尾 pager 嗰粒「返回頂部」（返榜頂，唔係文件頂） */
+    backToTop: string;
     /*
      * Phase B 手機瘦身（設計稿 UX_MOBILE_SEARCH_DESIGN_20260816 §設計（手機））：
      * 計數搬入搜尋框內（`resultCountShort`），讀屏另一份獨立 debounce 播
@@ -491,6 +497,8 @@ export const copy: Record<Locale, Copy> = {
       catalogUnavailable: "Site-wide index unavailable right now — showing matches from this page only.",
       pageSizeLabel: "Per page",
       rowCapReached: "Showing at most {count} rows — use › for the next page.",
+      rowsShown: "{count} loaded",
+      backToTop: "Back to top",
       resultCountShort: "{count} cards",
       resultCountAnnounce: "{count} cards found",
       sortSheetTitle: "Sort & filter",
@@ -707,6 +715,8 @@ export const copy: Record<Locale, Copy> = {
       catalogUnavailable: "全站索引暫時載不到，只顯示本頁結果。",
       pageSizeLabel: "每頁",
       rowCapReached: "一次最多顯示 {count} 行，按 › 看下一頁。",
+      rowsShown: "已載入 {count}",
+      backToTop: "回到頂部",
       resultCountShort: "{count} 張",
       resultCountAnnounce: "{count} 張卡牌",
       sortSheetTitle: "排序與篩選",
@@ -908,6 +918,8 @@ export const copy: Record<Locale, Copy> = {
       catalogUnavailable: "全站索引暂时加载不到，只显示本页结果。",
       pageSizeLabel: "每页",
       rowCapReached: "一次最多显示 {count} 行，点 › 看下一页。",
+      rowsShown: "已加载 {count}",
+      backToTop: "回到顶部",
       resultCountShort: "{count} 张",
       resultCountAnnounce: "{count} 张卡牌",
       sortSheetTitle: "排序与筛选",
@@ -1108,6 +1120,8 @@ export const copy: Record<Locale, Copy> = {
       catalogUnavailable: "サイト全体の索引を読み込めません。このページ内の該当分のみ表示しています。",
       pageSizeLabel: "表示件数",
       rowCapReached: "一度に表示できるのは最大 {count} 件です。続きは › で次のページへ。",
+      rowsShown: "{count} 件読込済",
+      backToTop: "先頭に戻る",
       resultCountShort: "{count} 件",
       resultCountAnnounce: "カード {count} 件",
       sortSheetTitle: "並べ替えと絞り込み",
@@ -1315,6 +1329,8 @@ export const copy: Record<Locale, Copy> = {
       catalogUnavailable: "전체 색인을 지금 불러올 수 없어 이 페이지의 결과만 표시합니다.",
       pageSizeLabel: "페이지당",
       rowCapReached: "한 번에 최대 {count}개까지 표시됩니다. 다음 페이지는 › 를 누르세요.",
+      rowsShown: "{count}개 로드됨",
+      backToTop: "맨 위로",
       resultCountShort: "{count}장",
       resultCountAnnounce: "카드 {count}장",
       sortSheetTitle: "정렬 및 필터",

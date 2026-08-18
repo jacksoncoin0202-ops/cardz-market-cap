@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef } from "react";
-import { DEFAULT_RANKING_PAGE_SIZE, RANKING_ROW_CAP, type RankingPageSize, type RankingScope } from "@/lib/pagination";
+import { DEFAULT_RANKING_PAGE_SIZE, rankingRowCap, type RankingPageSize, type RankingScope } from "@/lib/pagination";
 
 /*
  * 榜尾控制列。owner 2026-08-18 投訴兩件事，兩件都喺呢度修：
@@ -27,7 +27,7 @@ import { DEFAULT_RANKING_PAGE_SIZE, RANKING_ROW_CAP, type RankingPageSize, type 
  */
 
 /*
- * 接落去嘅硬頂（`RANKING_ROW_CAP`，= 最大可揀嘅每頁數量 = 500 行）。
+ * 接落去嘅硬頂（`rankingRowCap(pageSize)`，= max(pageSize, 500)）。
  *
  * 舊版係 800，而且**淨係夾自動接**，撳「展示更多」照樣可以無限接落去。
  * owner 2026-08-18：「碌下碌下⋯⋯原來 show 到成 800 個項目，部機就會 lag 機，我要
@@ -83,6 +83,7 @@ export type RankingPagerData = {
     loading: string;
     retry: string;
     rowCap: string;
+    toTop: string;
   };
 };
 
@@ -119,7 +120,7 @@ export function RankingPager({
   const nextHref = lastLoadedPage < pageCount ? pageHrefs[lastLoadedPage] ?? null : null;
 
   /* 接完之後會唔會爆 cap。夾嘅係**接完之後**嘅行數，唔係接之前 —— 見檔頭。 */
-  const withinRowCap = (loadedRows ?? 0) + pageSize <= RANKING_ROW_CAP;
+  const withinRowCap = (loadedRows ?? 0) + pageSize <= rankingRowCap(pageSize);
   const canAppend = Boolean(onLoadMore) && nextHref !== null && hasMore !== false && withinRowCap;
   /* 失敗咗就唔准再自動試——否則 sentinel 仲喺 viewport 入面，會變成無限重試風暴。
      要繼續就由用戶撳「再試一次」。 */
@@ -237,6 +238,26 @@ export function RankingPager({
             ) : null}
           </span>
         ) : null}
+        {/* 「返回頂部」（owner 2026-08-18：「碌到最低⋯⋯喺呢一個揀選幾多百幾多百第二頁
+            嗰度，有一個掣撳一撳就返回至頂」）。返嘅係 `#market-ranking`（榜頂，即係
+            每頁數量掣所在），唔係文件頂 —— 佢想返去嗰度就係為咗睇／改嗰組掣，
+            一嘢摙返上 hero 就又要再碌落嚟。同 pager 其餘 link 一致。 */}
+        <a
+          className="ranking-to-top"
+          href="#market-ranking"
+          aria-label={labels.toTop}
+          title={labels.toTop}
+          onClick={(event) => {
+            /* 有 JS 就唔好將 `#market-ranking` 寫入 URL／history（撳返上一頁會彈返落底）；
+               冇 JS 就照行返呢個真 anchor —— 呢粒掣一樣要喺冇 JS 之下用得。 */
+            event.preventDefault();
+            document.getElementById("market-ranking")?.scrollIntoView({ block: "start" });
+          }}
+        >
+          <span aria-hidden="true">↑</span>
+          {/* ≤680 CSS 收起，剩返個箭嘴：390 嗰行已經有 5 個數量掣 + ‹ › + 展示更多。 */}
+          <span className="ranking-to-top-text" aria-hidden="true">{labels.toTop}</span>
+        </a>
       </nav>
       {/* 讀屏公告：接緊落一批。`aria-live="polite"` 唔會打斷用戶。
           撞到 cap 嗰句都行呢個位：個「展示更多」掣會消失，唔出句嘢就變成靜靜死咗。 */}

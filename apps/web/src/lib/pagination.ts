@@ -1,29 +1,48 @@
 export const WATCHLIST_PAGE_SIZE = 200;
 
-/* 揀得嘅每頁數量（owner 2026-08-18：「俾人去揀 100、200 或者 500 個⋯⋯一千太誇張」）。
-   300 冇人用，順手砍走 —— 但佢曾經係真 `<a href>` 出過街，見 LEGACY_PAGE_SIZES。 */
-export const RANKING_PAGE_SIZES = [100, 200, 500] as const;
+/*
+ * 揀得嘅每頁數量。owner 2026-08-18 先收窄做 `[100,200,500]`，同日再放返
+ * 「加返 300 落去囉，鍾意 1000 加埋都得，唔大問題」—— 所以五個全部係正選。
+ * 加數量落呢度**唔會**令「碌下碌下自動接到 lag 機」返嚟，因為自動接嘅上限
+ * 係獨立嘅 AUTO_APPEND_ROW_CAP，唔跟呢個 list 嘅最大值走（見下面）。
+ */
+export const RANKING_PAGE_SIZES = [100, 200, 300, 500, 1000] as const;
 
 /*
- * 出過街、可能已經俾人 bookmark 或者爬蟲收咗嘅舊值。**唔再喺任何 UI 出現**，
- * 但 URL 照收 —— 榜尾嗰排數量掣一直係真 `<a href="?size=300">`，直接踢佢做 404
- * 就係將已收錄嘅 URL 打死。呢個 list 只會縮唔會長：新數量一律加落
- * RANKING_PAGE_SIZES。
+ * 出過街、可能已經俾人 bookmark 或者爬蟲收咗，但**唔再喺任何 UI 出現**嘅舊值。
+ * 榜尾嗰排數量掣一直係真 `<a href="?size=N">`，砍走一個數量唔可以順手踢佢做 404。
+ * 而家係空嘅（300 已經放返正選）—— 留住個機制，下次再砍就有位擺。
  */
-const LEGACY_PAGE_SIZES = [300] as const;
+const LEGACY_PAGE_SIZES = [] as const;
 
 export type RankingPageSize = (typeof RANKING_PAGE_SIZES)[number] | (typeof LEGACY_PAGE_SIZES)[number];
 export const DEFAULT_RANKING_PAGE_SIZE: RankingPageSize = 100;
 
 /*
- * 榜上同一時間最多 render 幾多行（碌到底自動接落去 + 撳「展示更多」都受呢個數夾）。
+ * **自動／撳掣接落去**嘅累積上限。
  *
- * owner 2026-08-18：「碌下碌下⋯⋯原來 show 到成 800 個項目，部機就會 lag 機，
- * 我要 F5 refresh 一次先可以更新返，所以先提供到 500 個。」—— 即係「最多揀到嘅每頁
- * 數量」同「畫面最多幾多行」係同一個數，所以呢度**由 RANKING_PAGE_SIZES 推導**，
- * 唔准寫死。寫死嘅話下次有人加個 800 落去，cap 就會靜靜變咗「揀到但顯示唔到」。
+ * owner 2026-08-18：「碌下碌下⋯⋯原來 show 到成 800 個項目，部機就會 lag 機，我要
+ * F5 refresh 一次先可以更新返，所以先提供到 500 個。」—— 佢投訴嘅係「我冇要求過，
+ * 但佢自己累積到」，所以夾嘅係**累積**，唔係「一版可以有幾多行」。
  */
-export const RANKING_ROW_CAP = Math.max(...RANKING_PAGE_SIZES);
+const AUTO_APPEND_ROW_CAP = 500;
+
+/*
+ * 榜上同一時間最多 render 幾多行。
+ *
+ * `pageSize` 本身永遠算數：用戶主動撳「1000」就係佢自己要一版 1000 行，唔准收埋
+ * 一半當冇事發生。受夾嘅只係**接落去嗰部分**。
+ *
+ * 呢度**唔准**寫返 `Math.max(...RANKING_PAGE_SIZES)`（2026-08-18 早上嗰版就係咁）：
+ * 咁寫嘅話 owner 一加 `1000` 落選項，「自動接落去」個上限就靜靜由 500 跳去 1000，
+ * 即係佢原本投訴嗰個 lag 直接返晒嚟，而且冇任何地方睇得出。
+ *
+ * 實際效果（1604 張榜）：size 100 接到 500 行、200 接到 400 行、300／500／1000
+ * 一版到底唔再接（再接一整版就爆）。過咗頂唔係死路，`›` 會揭去下一版。
+ */
+export function rankingRowCap(pageSize: number): number {
+  return Math.max(pageSize, AUTO_APPEND_ROW_CAP);
+}
 
 export type RankingScope = "all" | "pokemon" | "one-piece";
 

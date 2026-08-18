@@ -362,6 +362,14 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
                       <span>{size}</span>
                     </button>
                   ))}
+                  {/* owner 2026-08-18：「碌到五百嗰個時候，跟住之後睇返頂頂嗰個頁面嘅
+                      都冇話係五百」。個掣仍然 highlight 住 100 係啱嘅（佢真係 100 一版），
+                      但同畫面上 500 行望落打對台 —— 所以喺同一組掣後面直接講返實數。
+                      **唔准**改去 highlight「500」：嗰個掣嘅意思係「每頁」，接落去嘅
+                      累積行數係另一件事，撈埋就變咗換頁之後對唔上。 */}
+                  <span className="page-size-loaded">
+                    {t.labels.rowsShown.replace("{count}", String(visibleCards.length))}
+                  </span>
                 </div>
               )}
             </div>

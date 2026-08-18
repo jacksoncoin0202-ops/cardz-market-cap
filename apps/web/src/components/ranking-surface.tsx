@@ -1,6 +1,6 @@
 import { MarketPage } from "./market-page";
 import { copy } from "@/lib/i18n";
-import { RANKING_PAGE_SIZES, RANKING_ROW_CAP } from "@/lib/pagination";
+import { RANKING_PAGE_SIZES, rankingRowCap } from "@/lib/pagination";
 import {
   rankingHrefFor,
   rankingPath,
@@ -52,8 +52,10 @@ export async function RankingSurface({
       next: t.nav.nextPage,
       loading: t.labels.loadingMore,
       retry: t.errorPage.retry,
-      /* {count} 喺呢度填死：pager 係 client component，唔想連 fillTemplate 都拖埋落去。 */
-      rowCap: t.labels.rowCapReached.replace("{count}", String(RANKING_ROW_CAP)),
+      /* {count} 喺呢度填死：pager 係 client component，唔想連 fillTemplate 都拖埋落去。
+         cap 跟住 pageSize 走（size 1000 就係 1000），所以唔可以填一個全站通用嘅常數。 */
+      rowCap: t.labels.rowCapReached.replace("{count}", String(rankingRowCap(pageSize))),
+      toTop: t.labels.backToTop,
     },
   } : null;
   return <MarketPage kind={scope} snapshot={snapshot} pager={pagerData} />;

@@ -2673,13 +2673,21 @@ button.primary-action { border: 0; }
 }
 /* 「每頁」嗰個字唔係掣，唔可以食 `.lang-filter button` 嗰份 min-height／padding，
    所以自己一條規則。放喺膠囊入面（唔係外面）先睇得出佢係講緊呢組掣。 */
-.page-size-filter .page-size-label {
-  padding-inline: 8px 2px;
+.page-size-filter .page-size-label,
+.page-size-filter .page-size-loaded {
   color: var(--muted);
   font-size: var(--fs-micro);
   font-weight: var(--w-label);
   letter-spacing: var(--track-th);
   white-space: nowrap;
+}
+.page-size-filter .page-size-label { padding-inline: 8px 2px; }
+/* 「已載入 500」——同「每頁」對稱擺喺膠囊另一端，中間留條淡線分開「你揀嘅設定」
+   同「而家實際幾多行」兩件事（owner 2026-08-18：碌到 500 返上頂見唔到 500）。 */
+.page-size-filter .page-size-loaded {
+  margin-inline-start: 2px;
+  padding-inline: 8px;
+  border-inline-start: 1px solid var(--line);
 }
 .explore-bar {
   display: flex;
@@ -3051,6 +3059,15 @@ button.primary-action { border: 0; }
 .ranking-pager { flex-wrap: wrap; }
 .ranking-page-sizes { display: inline-flex; align-items: center; gap: 8px; }
 .ranking-show-more { padding-inline: 14px; min-width: auto; }
+/* 「返回頂部」（owner 2026-08-18 要求擺喺榜尾呢排掣度）。食返 `.watchlist-pager a`
+   嗰份 36×36 底，只加返個字嘅左右位。 */
+.ranking-to-top { gap: 6px; padding-inline: 12px; min-width: auto; }
+@media (max-width: 680px) {
+  /* 手機呢一行已經有 5 個數量掣 + ‹ › + 「展示更多」，個字收埋剩返支箭嘴。
+     `aria-label` 一直都喺 `<a>` 度，所以讀屏冇損失。 */
+  .ranking-to-top-text { display: none; }
+  .ranking-to-top { padding-inline: 0; }
+}
 /* 「碌到底接落去」嘅觸發線（ranking-pager.tsx）。**唔可以 `display:none`**——
    `display:none` 嘅元素冇 box，IntersectionObserver 永遠唔會 fire，成個自動接落去
    會靜靜死咗而畫面睇唔出分別。所以留返一粒 1px 高、完全透明嘅 box。 */
