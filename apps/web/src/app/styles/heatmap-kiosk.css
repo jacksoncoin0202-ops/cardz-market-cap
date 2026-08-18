@@ -1,0 +1,184 @@
+/*
+ * 熱力圖 kiosk 全屏（owner 2026-08-18：「鋪頭店主想推廣我哋嘅 index⋯⋯一個掣一撳落去就自動
+ * 適應屏幕，橫嘅打橫佔據晒、直嘅打直佔據晒⋯⋯當然啦，要 show 翻個公司 logo」）。
+ *
+ * **點解唔使寫新演算法**：`heatmapTreemapLayout()` 收 frame 嘅實際闊高，frame 又有
+ * ResizeObserver 睇住 —— 即係任何長寬比佢一早已經自己重排啱。所以「橫鋪橫、直鋪直」
+ * 剩返一件事要做：**換個容器**，令 frame 由「grid 中間一行」變成「成塊屏」。
+ *
+ * 兩條路共用同一個 `[data-kiosk="true"]`：
+ *  ① native `Element.requestFullscreen()`（desktop / Android / iPad）
+ *  ② CSS 假全屏（`html.heatmap-kiosk-fallback`）—— **iPhone Safari 冇 `Element.requestFullscreen`**，
+ *     唔做呢條路個功能喺一大堆真店主部機直情係死嘅。
+ * 樣要一模一樣，所以「全屏之下點樣擺」嗰段規則只綁 `[data-kiosk="true"]`，唔綁 `:fullscreen`。
+ *
+ * 由 heatmap.tsx 自己 import（DESIGN.md §6 pattern，同 heatmap-tune.css 一樣）。
+ */
+
+/* ── 共用：section 變一個覆蓋層容器，frame 撐到盡，字同 logo 全部浮喺 tile 上面 ──
+   frame 一定要**佔足** viewport（唔可以留返標題嗰行高度俾佢），owner 要嘅係「佔據晒」。
+   所以標題／總市值／legend／logo 一律變 absolute overlay，唔再喺 grid 度食行高。 */
+.heatmap-section[data-kiosk="true"] {
+  /* 兩條路都自己寫死 fixed inset:0，唔靠 UA 嗰條 `:fullscreen { position: fixed !important }`：
+     Chrome 有落 !important，但唔係每個引擎都有；一旦跌返 static，入面啲 absolute overlay
+     就會去咗搵上一層 positioned 祖先，成個 HUD 飛去第二度。 */
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  /* isolation：HUD 同 frame 嘅 z-index 只喺呢個 section 入面比大細，唔會撞到站級 --z-* 階梯 */
+  isolation: isolate;
+  display: block; /* 拆咗 grid-template-rows：三行變一層 frame + 幾件 overlay */
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  /* 唔透明底：假全屏嗰條路全靠佢蓋住後面成版（tile 之間有 gap，透明底會見到榜單） */
+  background: var(--paper);
+}
+.heatmap-section[data-kiosk="true"] .heatmap-frame {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  /* 角落 tile 個圓角係 max(0px, var(--heatmap-frame-radius) - 2px)（globals.css）——
+     呢度落 0 之後四隻角一齊變 0。max() 唔可以拆：純 calc(0px - 2px) = -2px 係 invalid，
+     成句 declaration 俾瀏覽器丟走，四隻角會靜靜跌返 .heatmap-tile 嘅 4px 方角。 */
+  --heatmap-frame-radius: 0px;
+}
+/* hover dim 喺 kiosk 之下唔要：preview 係 portal 落 document.body，native 全屏只 render
+   section 個 subtree（假全屏果條路 --z-overlay 100 又低過 section 個 --z-modal 120）——
+   兩條路都見唔到 preview，留住個 dim 就變成「掃過去成版變灰但乜都冇出」。 */
+.heatmap-section[data-kiosk="true"] .heatmap-dim { display: none; }
+
+/* ── HUD 容器：淨返做全屏掣嘅定位框 ──
+   owner 2026-08-18：「都全圖 mode 就唔好要 top100 同升跌 仲有日子，好影響睇」。
+   標題 / 總市值 / legend / 期間掣全部收埋（見下），所以呢舊嘢原本嗰堆「面板」樣式
+   （60vw 底板、backdrop-filter、h1 margin、總市值字級）已經冇 element 食 —— 一齊刪咗，
+   唔留死 code。剩返定位：掣要浮喺右上角。 */
+.heatmap-section[data-kiosk="true"] .heatmap-heading {
+  position: absolute;
+  z-index: 1;
+  top: max(16px, env(safe-area-inset-top));
+  right: max(16px, env(safe-area-inset-right));
+  left: max(16px, env(safe-area-inset-left));
+  align-items: flex-start;
+  padding-bottom: 0;
+  /* HUD 唔准食走 tile 嘅 pointer：只有真係要撳嘅掣先收返 pointer-events */
+  pointer-events: none;
+}
+
+/* ── 全圖 mode 收埋 chrome（owner 2026-08-18）──
+   ⚠️ 收嘅係 `.heatmap-title`，**唔係** `.heatmap-heading` —— 差一個 class 就出唔返去。
+   `{controls}`（入面就係全屏掣）係 `.heatmap-heading` 嘅第二個 child（heatmap.tsx :984），
+   落 `.heatmap-heading { display: none }` 實測個掣即刻變 `box={w:0,h:0,visible:false}`，
+   即係入咗 kiosk 就永遠退唔出，店主要 reload 成版。
+   ⚠️ 用 display:none 唔用 visibility/opacity：標題同 legend 兩塊底板都有
+   `backdrop-filter: blur(10px)`，blur 係逐幀 backdrop copy —— 留住個盒就等於白燒 GPU。
+   收埋唔會令 frame 變大：frame 一早就係 `position:absolute; inset:0` 撐晒全屏，
+   而 :30 已經拆走 grid-template-rows，呢幾件本身就係 absolute overlay，冇食 grid track。 */
+.heatmap-section[data-kiosk="true"] .heatmap-title,
+.heatmap-section[data-kiosk="true"] .heatmap-footer,
+.heatmap-section[data-kiosk="true"] .period-selector { display: none; }
+
+/* ── Controls：淨返退出掣 ──
+   slider / 調色 / 分享圖係作者自己調嘢先用；期間掣（.period-selector）上面已經收咗。 */
+.heatmap-section[data-kiosk="true"] .tile-slider,
+.heatmap-section[data-kiosk="true"] .heatmap-tune-toggle,
+.heatmap-section[data-kiosk="true"] .heatmap-export { display: none; }
+/* 標題冇咗之後 `.heatmap-heading` 剩返個掣一個 child，而佢係 `justify-content: space-between`
+   （globals.css :886）→ 個掣會跌返最左。
+   用 `margin-left: auto` 唔用 `justify-content: flex-end`：窄機（globals.css :2094 / :2129）
+   會將 `.heatmap-heading` 轉做 `flex-direction: column` + controls `align-self: stretch`，
+   喺 column 之下 flex-end 係「推去底」，橫向完全冇作用（實測 720×1280 個掣仲企喺 x=16）。
+   auto margin 兩個方向都啱：row 係主軸推去右，column 係交叉軸靠右（同時取消 stretch）。 */
+.heatmap-section[data-kiosk="true"] .heatmap-controls { margin-left: auto; }
+.heatmap-section[data-kiosk="true"] .heatmap-controls {
+  pointer-events: auto;
+  transition: opacity 240ms var(--ease-standard);
+}
+/* 有滑鼠嘅機（= 店主部機／電視盒）先淡出：掣淡到 0.22 而唔係 display:none —— 仍然撳得、
+   仍然喺 a11y tree、仍然 focus 得返，只係唔搶戲。觸控機冇 hover，一律留全亮，
+   否則店主喺 iPad 上面就搵唔返出口。 */
+@media (hover: hover) {
+  .heatmap-section[data-kiosk="true"] .heatmap-controls { opacity: 0.22; }
+  .heatmap-section[data-kiosk="true"]:hover .heatmap-controls,
+  .heatmap-section[data-kiosk="true"] .heatmap-controls:focus-within { opacity: 1; }
+}
+
+/* ── Legend：左下角。跳去 #market-ranking 喺全屏之下係死連結（成個站淨返呢一版），收埋。 ── */
+.heatmap-section[data-kiosk="true"] .heatmap-footer {
+  position: absolute;
+  z-index: 1;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  left: max(16px, env(safe-area-inset-left));
+  padding: 0;
+  pointer-events: none;
+}
+.heatmap-section[data-kiosk="true"] .heatmap-legend {
+  padding: 8px 14px;
+  border-radius: var(--control-radius);
+  background: color-mix(in srgb, var(--paper) 82%, transparent);
+  backdrop-filter: blur(10px);
+}
+.heatmap-section[data-kiosk="true"] .ranking-jump { display: none; }
+
+/* ── 公司 logo：右下角，同 legend 對角，唔會壓住左上嘅標題 ──
+   vector 檔，clamp 到幾大都唔會糊。只喺 kiosk 開咗先 render（見 heatmap.tsx KIOSK_LOGO 註）。 */
+.heatmap-kiosk-logo {
+  position: absolute;
+  z-index: 1;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  width: clamp(120px, 15vw, 260px);
+  height: auto;
+  padding: 10px 14px;
+  border-radius: var(--control-radius);
+  background: color-mix(in srgb, var(--paper) 82%, transparent);
+  backdrop-filter: blur(10px);
+  pointer-events: none;
+}
+
+/* ── 掣本身（非 kiosk 期間就係普通一粒方掣，同 .heatmap-tune-toggle 同一套幾何） ── */
+.heatmap-kiosk-toggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--soft);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+@media (hover: hover) {
+  .heatmap-kiosk-toggle:hover { color: var(--ink); border-color: var(--line-strong); }
+}
+.heatmap-kiosk-toggle[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--soft));
+}
+
+/* ── 兩條路都要：殺咗 page scrollbar **同埋** 佢留低嗰條 gutter ──
+   **唔係為咗靚，係為咗真係佔滿。** 全屏元素係 `position: fixed`，而 fixed 嘅 containing block
+   係「viewport 減走 scrollbar gutter」。globals.css :1476 有 `html { scrollbar-gutter: stable }`
+   （成個站防主題切換跳動用），即係右邊永遠鎖起 15px —— 實測 frame 1265 vs innerWidth 1280，
+   owner 要嘅「佔據晒」就差咗一條。
+   **兩句缺一不可**：`overflow: hidden` 收走真 scrollbar（榜單幾千 px 高，全屏之下佢仲喺度），
+   `scrollbar-gutter: auto` 先收得返嗰 15px 預留位 —— 淨落 overflow:hidden 量返出嚟一樣係 1265
+   （實測，見 _probe-kiosk-fixed.mjs 個 asIs / fixB）。
+   Windows / Linux Chrome 係實心 scrollbar，店主部電視就係呢個情況。 */
+html.heatmap-kiosk { overflow: hidden; scrollbar-gutter: auto; }
+
+/* ── CSS 假全屏（冇 Fullscreen API 嗰條路，主要係 iPhone Safari） ──
+   section 個 `fixed inset:0` 上面已經寫咗（兩條路共用），呢度淨係要多做一件事：
+   header / footer / 榜單一律 visibility:hidden
+   （唔用 display:none —— 800 行榜一 display:none 就成版 reflow，退出時再 reflow 一次，
+   而且 scroll 高度會塌，還原 scroll 位就唔準）。 */
+html.heatmap-kiosk-fallback .site-header,
+html.heatmap-kiosk-fallback .site-footer,
+html.heatmap-kiosk-fallback .skip-link { visibility: hidden; }
+html.heatmap-kiosk-fallback .page-shell > *:not(.heatmap-section) { visibility: hidden; }

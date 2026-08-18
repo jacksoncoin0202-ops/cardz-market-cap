@@ -1183,11 +1183,16 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
 /* 貼住 frame 四個角嗰格：跟返 frame 個弧（data-corner 由 heatmap.tsx layout effect 落，
    見嗰邊 cornerToken 註）。唔跟嘅話 frame 個 `overflow:hidden` 會斜斜咁切走格仔一隻角，
    hover 嗰條 `inset 0 0 0 2px` 白線就喺角位斷開（owner 2026-08-18 投訴）。
-   減 2px：tile 由 frame 邊縮入咗半個 gap（實測 1.6px），外圈半徑扣返先同 frame 個弧同心。 */
-.heatmap-tile[data-corner~="tl"] { border-top-left-radius: calc(var(--heatmap-frame-radius) - 2px); }
-.heatmap-tile[data-corner~="tr"] { border-top-right-radius: calc(var(--heatmap-frame-radius) - 2px); }
-.heatmap-tile[data-corner~="bl"] { border-bottom-left-radius: calc(var(--heatmap-frame-radius) - 2px); }
-.heatmap-tile[data-corner~="br"] { border-bottom-right-radius: calc(var(--heatmap-frame-radius) - 2px); }
+   減 2px：tile 由 frame 邊縮入咗半個 gap（實測 1.6px），外圈半徑扣返先同 frame 個弧同心。
+   `max(0px, …)` 係**防守性**寫法，唔係喺度修緊一個 live bug —— 講清楚免得下手誤信：
+   kiosk 全屏會落 `--heatmap-frame-radius: 0px`（見 styles/heatmap-kiosk.css），計出嚟係 -2px，
+   而 css-values-4 講明 math function 出負數係喺 **used-value** 階段 clamp，唔係 parse 階段丟句。
+   即係話冇 max() 都一樣 computed 0px（覆核 2026-08-18 兩邊實測都係 "0px"）。
+   留住佢係因為「半徑唔准出負數」呢個意圖要睇得出，唔係因為拆咗會爛。 */
+.heatmap-tile[data-corner~="tl"] { border-top-left-radius: max(0px, calc(var(--heatmap-frame-radius) - 2px)); }
+.heatmap-tile[data-corner~="tr"] { border-top-right-radius: max(0px, calc(var(--heatmap-frame-radius) - 2px)); }
+.heatmap-tile[data-corner~="bl"] { border-bottom-left-radius: max(0px, calc(var(--heatmap-frame-radius) - 2px)); }
+.heatmap-tile[data-corner~="br"] { border-bottom-right-radius: max(0px, calc(var(--heatmap-frame-radius) - 2px)); }
 /* 拖 slider 之後先出現嘅 tile（data-late）：零 delay、200ms 由細 pop 出嚟。
    pop 期間先 promote layer；播完 JS 拆 data-late + 落 data-settled。 */
 .heatmap-tile[data-late] {

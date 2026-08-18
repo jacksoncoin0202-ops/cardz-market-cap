@@ -2,6 +2,7 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { CapTicker } from "./cap-ticker";
@@ -24,6 +25,7 @@ import { useMarketSettings } from "@/lib/use-market-settings";
 import { useUpDown } from "@/lib/use-updown";
 import type { Currency, Locale, MarketCardView, MarketViewSnapshot, MarketWindow } from "@/lib/types";
 import "@/app/styles/heatmap-tune.css";
+import "@/app/styles/heatmap-kiosk.css";
 
 interface HeatmapProps {
   cards: MarketCardView[];
@@ -229,6 +231,43 @@ interface TileEntry { late: boolean; delay: number; }
 const LATE_ENTRY: TileEntry = { late: true, delay: 0 };
 const ENTRY_WAVE_MS = 240;
 
+/*
+ * ── Kiosk 全屏（owner 2026-08-18：店主想一撳就自動鋪滿成塊屏，橫直都要）────────────
+ *
+ * 幾何唔使我哋做：treemap 收 frame 實際闊高、frame 有 ResizeObserver，換咗容器佢自己重排。
+ * 呢度只負責「入 / 出」同「全屏期間嘅店舖行為」（wake lock + 定時 refresh）。
+ * 樣全部喺 app/styles/heatmap-kiosk.css。
+ */
+
+/* 兩條路都要落嘅 <html> class，作用係收走 page scrollbar **同埋**佢預留嗰條 gutter
+   （`overflow: hidden` + `scrollbar-gutter: auto`，見 styles/heatmap-kiosk.css 嗰段註）。
+   **唔係為咗靚，係為咗真係佔滿。** 全屏元素係 fixed，fixed 嘅 containing block 唔計 gutter，
+   而個站成日鎖住 `scrollbar-gutter: stable` —— 唔拆就實測 frame 1265 vs innerWidth 1280，
+   右邊 15px 唔係熱力圖。Windows / Linux Chrome 係實心 scrollbar，店主部電視就係呢個情況。 */
+const KIOSK_HTML_CLASS = "heatmap-kiosk";
+/* 假全屏（冇 Fullscreen API 嗰條路）先加呢個。**唔可以落喺 section 上面**：
+   要收埋 site header / footer / 榜單，佢哋全部係 section 嘅祖先或者兄弟。 */
+const KIOSK_FALLBACK_CLASS = "heatmap-kiosk-fallback";
+
+/* 品牌 logo（owner 明文「要 show 翻個公司 logo」）。兩張都係 vector，擺幾大都唔會糊。
+   **只准 kiosk 開咗之後先 render**：light 版 59 KB，平時就派落嚟即係首頁首屏白白多 59 KB
+   （DESIGN.md 開章：任何「加多啲視覺」第一個問題係會唔會令第一屏慢咗）。
+   width/height 抄返檔案真實 viewBox（light 969.29×419.45、dark 946.82×384.98）——
+   **兩張比例唔同**，共用一組數會扁咗其中一張。theme 揀邊個檔跟返 header.tsx 個 logoByTheme。 */
+const KIOSK_LOGO = {
+  light: { src: "/brand/logo-cardz-marketcap.svg", width: 969, height: 419 },
+  dark: { src: "/brand/logo-cardz-marketcap-dark.svg", width: 947, height: 385 },
+} as const;
+
+/* 店舖長開：snapshot 每日 bake，唔定時 refresh 就會掛住琴日個數字直到有人掂部機。
+   5 分鐘係 router.refresh()（RSC payload，唔係成版 reload），tile 唔會閃走。 */
+const KIOSK_REFRESH_MS = 5 * 60 * 1000;
+
+/* 四角向外 = 入全屏；四角向內 = 退出。同隔離 .heatmap-tune-toggle 一套畫法
+   （16×16 viewBox 24、stroke currentColor、strokeWidth 2、round cap）。 */
+const KIOSK_ICON_ENTER = "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5";
+const KIOSK_ICON_EXIT = "M9 4v5H4M20 9h-5V4M15 20v-5h5M4 15h5v5";
+
 export function Heatmap({ cards, locale, currency, snapshot, href, title }: HeatmapProps) {
   const { period, theme } = useMarketSettings();
   /* 升跌色慣例（F13）：red-up 就將 up/down 兩組色對調——tune 參數意義不變（「升色」永遠係用戶心目中嘅升色）。 */
@@ -245,6 +284,140 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
   const dark = theme === "dark";
   const [hoverStore] = useState(createHoverStore);
   const cardsById = useMemo(() => new Map(cards.map((card) => [card.id, card])), [cards]);
+
+  /* ── Kiosk 全屏 ───────────────────────────────────────────────────────────────
+     target 係 **section 唔係 frame**：咁標題、總市值、legend 先會跟住入全屏
+     （native 全屏只 render 全屏元素個 subtree，揀咗 frame 就淨返一版無名色格）。 */
+  const router = useRouter();
+  const sectionRef = useRef<HTMLElement>(null);
+  const kioskToggleRef = useRef<HTMLButtonElement>(null);
+  const [kiosk, setKiosk] = useState(false);
+  /* 而家行緊邊條路。用 ref 唔用 state：fullscreenchange handler 要即刻讀到最新值
+     （假全屏期間 native fullscreenElement 一定係 null，唔分開就會即刻自己關咗自己）。 */
+  const cssKioskRef = useRef(false);
+  const kioskScrollRef = useRef(0);
+  /* tile handler 讀呢個（唔係讀 state）：handler 一律要釘死身份，HeatmapTile 個 memo 先有效。 */
+  const kioskRef = useRef(false);
+  useEffect(() => { kioskRef.current = kiosk; }, [kiosk]);
+
+  const enterKiosk = useCallback(() => {
+    const section = sectionRef.current;
+    if (!section) return;
+    kioskScrollRef.current = window.scrollY; // 一定要喺加 class 之前讀（html overflow:hidden 會 clamp 到 0）
+    const fallback = () => {
+      cssKioskRef.current = true;
+      document.documentElement.classList.add(KIOSK_FALLBACK_CLASS);
+      setKiosk(true);
+    };
+    document.documentElement.classList.add(KIOSK_HTML_CLASS);
+    /* iPhone Safari **冇** Element.requestFullscreen（iPad 有）。呢個唔係「舊瀏覽器」而係
+       一大批真店主部機，所以攞唔到 API 就落 CSS 假全屏，兩條路都要行得通。 */
+    if (typeof section.requestFullscreen === "function") {
+      /* 成功嗰下唔喺度 setKiosk：交返俾 fullscreenchange 收尾，同 ESC／瀏覽器自己退出行同一條路，
+         state 先冇機會卡喺「以為仲喺全屏」。 */
+      section.requestFullscreen().catch(fallback); // 用戶拒絕 / iframe 冇 allow / 手勢過期：唔好死
+      return;
+    }
+    fallback();
+  }, []);
+
+  const exitKiosk = useCallback(() => {
+    if (cssKioskRef.current) {
+      cssKioskRef.current = false;
+      document.documentElement.classList.remove(KIOSK_HTML_CLASS, KIOSK_FALLBACK_CLASS);
+      setKiosk(false);
+      return;
+    }
+    /* 同樣交返俾 fullscreenchange；exitFullscreen 本身拒絕（罕有）先自己落閘，唔好卡住。 */
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => setKiosk(false));
+    else setKiosk(false);
+  }, []);
+
+  const toggleKiosk = useCallback(() => {
+    tap.select();
+    if (kiosk) exitKiosk();
+    else enterKiosk();
+  }, [kiosk, enterKiosk, exitKiosk]);
+
+  /* 用戶撳 ESC、撳瀏覽器個「退出全屏」、或者切走 tab 令全屏自動散 —— 全部只會 fire 呢個 event。
+     唔聽就會卡喺「以為仲喺全屏」：controls 收埋、frame 撐到盡，但實際上已經返咗普通頁。 */
+  useEffect(() => {
+    const onChange = () => {
+      if (cssKioskRef.current) return; // 假全屏果條路唔關 native 事
+      setKiosk(document.fullscreenElement === sectionRef.current);
+    };
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
+  /* 假全屏冇瀏覽器幫手，ESC 要自己補；native 全屏個 ESC 由瀏覽器食咗，keydown 都收唔到。 */
+  useEffect(() => {
+    if (!kiosk) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && cssKioskRef.current) { event.preventDefault(); exitKiosk(); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [kiosk, exitKiosk]);
+
+  /* 退出之後拆返 <html> class、還原 scroll 位同 focus。ESC／瀏覽器自己退出／切走 tab 全部
+     都會行到呢度，因為佢哋一律經 fullscreenchange → setKiosk(false)。
+     次序有意思：一定要**先**拆 overflow:hidden 先 scrollTo，否則捲返去嘅目標位仲係俾 clamp 住。
+     behavior 一定要寫 "instant"：html 有 scroll-behavior: smooth，"auto" 嘅意思係「跟 CSS」
+     ＝ 播成秒嘅捲動動畫，退出嗰下成版飄兼 focus 落錯位。
+     focus 個 preventScroll 唔可以慳（覆核 2026-08-18 實測）：focus() 預設會 scroll-into-view，
+     而 html 嗰個 scroll-behavior: smooth 令佢變成一段動畫，**倒轉頭剷走**上一行啱啱還原好嘅
+     scroll 位（實測 260 → 0，時間線係 t=142ms 到位 260，跟住 247→72→26→0）。
+     只有「退出嗰刻 focus 一直坐喺個掣度」先睇唔出，因為嗰陣 focus() 係 no-op —— 即係話
+     喺 kiosk 撳過期間掣、或者用 ESC／瀏覽器 UI 退出，就一定中招。 */
+  const kioskWasOnRef = useRef(false);
+  useEffect(() => {
+    if (kiosk) { kioskWasOnRef.current = true; return; }
+    if (!kioskWasOnRef.current) return;
+    kioskWasOnRef.current = false;
+    document.documentElement.classList.remove(KIOSK_HTML_CLASS, KIOSK_FALLBACK_CLASS);
+    window.scrollTo({ top: kioskScrollRef.current, left: 0, behavior: "instant" });
+    kioskToggleRef.current?.focus({ preventScroll: true });
+  }, [kiosk]);
+
+  /* 走咗去第二版（soft nav）而仲喺 kiosk：component 一 unmount 就冇人再拆 class，
+     成個站會卡喺 overflow:hidden + 榜單 invisible。呢句係最後一道保險。 */
+  useEffect(() => () => {
+    document.documentElement.classList.remove(KIOSK_HTML_CLASS, KIOSK_FALLBACK_CLASS);
+  }, []);
+
+  /* Wake lock：店舖開足全日，唔攞就熄屏。**一 blur 就會俾系統自動釋放**（切 tab、鎖屏），
+     所以返到前景一定要重攞，否則等於冇做過。冇 API（iOS Safari < 16.4 等）就靜靜跳過。 */
+  useEffect(() => {
+    if (!kiosk || typeof navigator === "undefined" || !("wakeLock" in navigator)) return;
+    let dropped = false;
+    let sentinel: WakeLockSentinel | null = null;
+    const acquire = () => {
+      if (dropped || sentinel || document.visibilityState !== "visible") return;
+      navigator.wakeLock.request("screen").then((next) => {
+        if (dropped) { next.release().catch(() => undefined); return; }
+        sentinel = next;
+        next.addEventListener("release", () => { if (sentinel === next) sentinel = null; });
+      }).catch(() => undefined); // 電量低 / 政策唔俾：唔係錯，照顯示落去
+    };
+    acquire();
+    const onVisible = () => { if (document.visibilityState === "visible") acquire(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      dropped = true;
+      document.removeEventListener("visibilitychange", onVisible);
+      sentinel?.release().catch(() => undefined);
+      sentinel = null;
+    };
+  }, [kiosk]);
+
+  /* 定時 refresh：只喺 kiosk 期間行，退出即清 timer（非 kiosk 期間偷偷每 5 分鐘打 server
+     就係無端端嘅背景流量）。router.refresh() 只換 RSC payload，tile 唔會整版閃走。 */
+  useEffect(() => {
+    if (!kiosk) return;
+    const id = window.setInterval(() => router.refresh(), KIOSK_REFRESH_MS);
+    return () => window.clearInterval(id);
+  }, [kiosk, router]);
 
   /* Slider 絲滑三件事（2026-08-16 重寫，取代「拖動格網 + 放手 commit」）：
      1) input 係 uncontrolled（defaultValue）。之前 value={visibleCount} 係 controlled，
@@ -540,8 +713,10 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
   useEffect(() => { isMobileTilesRef.current = isMobileTiles; }, [isMobileTiles]);
   const handleTileHover = useCallback((cardId: string, el: HTMLButtonElement, x: number, y: number, w: number, h: number) => {
     /* 手機：touch 嘅 mouseenter 會 stick，唔落 data-hover（免得 tap 完個格「揀死」），
-       preview 又係 display:none，唔好白 render portal。 */
-    if (isMobileTilesRef.current) return;
+       preview 又係 display:none，唔好白 render portal。
+       Kiosk 同理但原因唔同：preview 係 portal 落 document.body，native 全屏只 render section
+       個 subtree（假全屏果條路個 z 又低過 section），兩條路都見唔到 —— 唔好白做。 */
+    if (isMobileTilesRef.current || kioskRef.current) return;
     const prev = hoveredTileRef.current;
     if (prev !== el) {
       prev?.removeAttribute("data-hover");
@@ -622,6 +797,10 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
     nextEl?.focus();
   }, []);
   const handleTilePick = useCallback((cardId: string, el: HTMLButtonElement) => {
+    /* Kiosk 之下唔開 sheet：<Sheet> 一樣係 portal 落 document.body，喺 native 全屏根本
+       render 唔到出嚟 —— 開咗即係「撳咗一下乜都冇」，仲衰過唔俾撳。讀 ref 唔讀 state：
+       呢個 handler 要釘死身份，HeatmapTile 個 memo 先有效（heat-perf 合約）。 */
+    if (kioskRef.current) return;
     const card = cardsById.get(cardId);
     if (!card) return;
     lastTriggerRef.current = el;
@@ -776,11 +955,26 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
         errorLabel={t.share.error}
         onCopy={exportHeatmap}
       />
+      {/* Kiosk 全屏（owner 2026-08-18 店主展示模式）。aria-pressed 講狀態、aria-label 跟住換字，
+          唔可以淨靠 icon —— 讀屏睇唔到「四角向內定向外」。 */}
+      <button
+        ref={kioskToggleRef}
+        type="button"
+        className="heatmap-kiosk-toggle"
+        onClick={toggleKiosk}
+        aria-label={kiosk ? t.heatmap.exitFullscreen : t.heatmap.fullscreen}
+        aria-pressed={kiosk}
+        title={kiosk ? t.heatmap.exitFullscreen : t.heatmap.fullscreen}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d={kiosk ? KIOSK_ICON_EXIT : KIOSK_ICON_ENTER} />
+        </svg>
+      </button>
     </div>
   );
 
   return (
-    <section className="heatmap-section" aria-labelledby="heatmap-heading">
+    <section className="heatmap-section" ref={sectionRef} data-kiosk={kiosk ? "true" : undefined} aria-labelledby="heatmap-heading">
       <div className="heatmap-heading">
         <div className="heatmap-title">
           {/* 呢個係市場頁唯一嘅 H1（owner 2026-08-16 晚：「一入到去就係成個熱力圖」——
@@ -868,6 +1062,17 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
             —— 佢每語言 3–5 行唔同高度，會偷 heatmap 高度（owner 2026-08-17：文字遷就熱力圖）。 */}
         <a className="ranking-jump" href="#market-ranking">{t.heatmap.viewRanking.replace("{count}", String(visibleCount))}</a>
       </div>
+      {/* 公司 logo（owner 明文要求）擺右下角，同左下角 legend 對角、離左上標題最遠。
+          `kiosk &&` 唔准拆：呢兩個 SVG 加埋 71 KB，平時 render 就係首屏白白多一個請求。 */}
+      {kiosk && (
+        <img
+          className="heatmap-kiosk-logo"
+          src={KIOSK_LOGO[theme].src}
+          width={KIOSK_LOGO[theme].width}
+          height={KIOSK_LOGO[theme].height}
+          alt="CardZ Marketcap"
+        />
+      )}
       <CardDialog card={sheetCard} locale={locale} currency={currency} snapshot={snapshot} href={href} onClose={closeSheet} period={activePeriod} returnFocusRef={lastTriggerRef} />
       <HoverPreview store={hoverStore} cardsById={cardsById} locale={locale} currency={currency} snapshot={snapshot} period={activePeriod} />
       {/* D4：tune panel 都行 <Sheet>（role=dialog、Esc、focus 入去／還返 toggle、scroll lock、退場動畫）。
