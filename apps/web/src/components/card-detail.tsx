@@ -55,6 +55,8 @@ function tickerValue(metric: MarketMetric<number>): number | null {
  * 呢度 hook 永遠行齊。同樣理由唔用 `useCallback`：React Compiler 開住，手寫 memo
  * 反而會令佢跳過 optimize（preserve-manual-memoization）。
  */
+const SHARE_FETCH_TIMEOUT_MS = 20_000;
+
 function ShareImageButton({ cardId, title, label, doneLabel, errorLabel }: {
   cardId: string;
   title: string;
@@ -70,7 +72,11 @@ function ShareImageButton({ cardId, title, label, doneLabel, errorLabel }: {
    */
   const shareBlobRef = useRef<Promise<Blob> | null>(null);
   const warmShareImage = () => {
-    shareBlobRef.current ??= fetch(`/api/og/card/${encodeURIComponent(cardId)}?format=post`)
+    /* ⚠️ 一定要有 timeout：冇 signal 嘅 fetch 可以吊死到天光，個掣就一路 busy（見
+       copy-button.tsx `COPY_TIMEOUT_MS`）。20 秒係實測 1.3-1.4s 之上留足十幾倍水位。 */
+    shareBlobRef.current ??= fetch(`/api/og/card/${encodeURIComponent(cardId)}?format=post`, {
+      signal: typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(SHARE_FETCH_TIMEOUT_MS) : undefined,
+    })
       .then((response) => {
         if (!response.ok) throw new Error(`share image HTTP ${response.status}`);
         return response.blob();

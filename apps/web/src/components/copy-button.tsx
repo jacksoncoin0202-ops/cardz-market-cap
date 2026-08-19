@@ -32,6 +32,28 @@ async function writeClipboard(text: string): Promise<void> {
 
 type CopyState = "idle" | "busy" | "done" | "error";
 
+/*
+ * ⚠️ 死鎖閘（owner 2026-08-19 報：分享圖撳落去轉圈轉好耐，之後「直頭冇反應」，
+ *    再撳幾多次都冇用）。根因唔喺張圖度 —— 係呢度 `await onCopy()` 冇上限：
+ *    條 promise 一日唔 settle，`state` 就一日停喺 "busy"，而 busy = `disabled`
+ *    + `busyRef` 擋重入 = 用戶連再撳嘅機會都冇，亦冇任何錯誤訊號。
+ *
+ *    45 秒係度出嚟嘅：分享圖個 blob 撳之前已經 warm 咗（見 onWarm），由撳到出
+ *    share sheet 係毫秒級；真正會食時間嘅只有用戶喺 sheet 度揀 app。揀足 45 秒
+ *    先當炒 —— 炒咗出返 error 俾佢再撳，唔會靜靜鎖死。
+ */
+const COPY_TIMEOUT_MS = 45_000;
+
+function withTimeout<T>(task: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    task,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`copy-button: ${ms}ms 都未 settle`)), ms);
+    }),
+  ]).finally(() => { if (timer) clearTimeout(timer); });
+}
+
 const iconMotion = {
   initial: { opacity: 0, scale: 0.6 },
   animate: { opacity: 1, scale: 1 },
@@ -75,7 +97,7 @@ export function CopyButton({ getText, label, doneLabel, errorLabel, className = 
     };
     try {
       if (onCopy) {
-        await onCopy();
+        await withTimeout(Promise.resolve(onCopy()), COPY_TIMEOUT_MS);
         finish("done");
         return;
       }

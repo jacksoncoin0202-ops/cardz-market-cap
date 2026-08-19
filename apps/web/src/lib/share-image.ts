@@ -190,11 +190,29 @@ function planScale(frameWidth: number, frameHeight: number): number {
   return scale;
 }
 
-function defaultLoadImage(src: string): Promise<HTMLImageElement | null> {
+/*
+ * ⚠️ 一張圖最多等咁耐。吊死嘅 request（連線 stall、reverse proxy 唔回）**唔會** fire
+ *    onload 亦唔會 fire onerror —— 冇呢個閘，下面 `Promise.all` 就會永遠 pending，
+ *    成個 export 停喺度唔郁，個分享掣就一路轉圈（owner 2026-08-19 報嘅其中一條路）。
+ *    逾時當冇圖：tile 照畫底色，張圖少一格好過成張出唔到。
+ */
+const IMAGE_LOAD_TIMEOUT_MS = 8_000;
+
+/* export 係為咗 `scripts/test-fe-share-file.mjs` 真係 call 得到佢驗個 timeout。 */
+export function defaultLoadImage(src: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
     const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
+    const done = (value: HTMLImageElement | null) => {
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => {
+      /* 收線：唔咁做張半死嘅圖會繼續佔住個 connection slot，拖住後面啲 tile。 */
+      img.src = "";
+      done(null);
+    }, IMAGE_LOAD_TIMEOUT_MS);
+    img.onload = () => done(img);
+    img.onerror = () => done(null);
     img.src = src;
   });
 }
