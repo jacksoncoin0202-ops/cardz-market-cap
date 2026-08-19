@@ -990,8 +990,8 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", SHARE_JPEG_QUALITY));
     if (!blob) throw new Error("heatmap export: toBlob returned null");
     /* 檔名帶比例：owner 會兩個版本都出，落咗相簿之後淨係睇縮圖好難分邊張係邊張。
-       副檔名要同上面個 MIME 對得住 —— 唔啱嘅話 iOS 相簿會當佢係壞檔。 */
-    const filename = `cardz-heatmap-top${tiles.length}-${shareAspect === "post" ? "4x5" : "wide"}-${new Date().toISOString().slice(0, 10)}.jpg`;
+       冇副檔名 —— 由 blob 個 MIME 推（見 lib/share-file.ts `filenameFor`）。 */
+    const filenameBase = `cardz-heatmap-top${tiles.length}-${shareAspect === "post" ? "4x5" : "wide"}-${new Date().toISOString().slice(0, 10)}`;
     const pageUrl = window.location.href;
     /* share sheet 嘅標題／文字係俾當下用戶睇嘅介面字，所以跟返 locale（唔同圖入面嘅英文字） */
     const shareTitle = `${title.replace("{count}", String(tiles.length))} · ${t.periods[activePeriod]}`;
@@ -1002,7 +1002,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
      * await 圖 + toBlob 都係毫秒級，仲喺 activation 窗口入面。
      */
     const outcome = await shareImageBlob(blob, {
-      filename,
+      filenameBase,
       title: shareTitle,
       text: `${shareTitle}\n${pageUrl}`,
       clipboardFallbackText: pageUrl,

@@ -77,9 +77,9 @@ function makeEnv({ mobile, share, canShare = () => true, supportsDownload = true
   return { log, live, anchors, restore: () => { URL.createObjectURL = realCreate; URL.revokeObjectURL = realRevoke; } };
 }
 
-const { shareImageBlob } = await import(`file://${join(ROOT, "apps/web/src/lib/share-file.ts").replaceAll("\\", "/")}`);
-const blob = () => new Blob([new Uint8Array(64)], { type: "image/png" });
-const opts = { filename: "cardz-x.png", title: "t", text: "t\nhttps://x", clipboardFallbackText: "https://x" };
+const { shareImageBlob, filenameFor } = await import(`file://${join(ROOT, "apps/web/src/lib/share-file.ts").replaceAll("\\", "/")}`);
+const blob = (type = "image/png") => new Blob([new Uint8Array(64)], { type });
+const opts = { filenameBase: "cardz-x", title: "t", text: "t\nhttps://x", clipboardFallbackText: "https://x" };
 
 /* ── B1：桌面唔准掂 Web Share ──
    呢條就係 owner 部機嗰條路。舊 code 喺呢個環境會行 share() 等 Windows flyout。 */
@@ -97,7 +97,7 @@ const opts = { filename: "cardz-x.png", title: "t", text: "t\nhttps://x", clipbo
   await shareImageBlob(blob(), opts);
   check("B2: append 喺 click 之前", env.log.indexOf("append") < env.log.indexOf("click(parent=body)"), `log=${env.log.join(",")}`);
   check("B2: click 嗰刻 anchor 喺 body 入面", env.log.includes("click(parent=body)"), `log=${env.log.join(",")}`);
-  check("B2: download 檔名有落格", env.anchors[0]?.download === opts.filename, `download=${env.anchors[0]?.download}`);
+  check("B2: download 檔名有落格", env.anchors[0]?.download === "cardz-x.png", `download=${env.anchors[0]?.download}`);
   env.restore();
 }
 
@@ -165,6 +165,33 @@ const opts = { filename: "cardz-x.png", title: "t", text: "t\nhttps://x", clipbo
   ]);
   check("B8: 吊死嘅圖會逾時回 null，唔會 pending 到天光", settled === "settled", `settled=${settled} after ${Date.now() - started}ms`);
   delete globalThis.Image;
+}
+
+/* ── B9：副檔名一定要跟返 blob 個 MIME ──
+   2026-08-20 卡片分享圖由 PNG 轉 JPEG（og route `JPEG_QUALITY`），而 card-detail
+   嗰句檔名本來寫死 `.png`。一個 `.png` 入面裝住 JPEG bytes 唔會即刻爆 —— 爆喺
+   iOS 相簿匯入嗰刻，用戶見到係「張圖存唔到落相簿」。所以副檔名冇得由叫方講。 */
+{
+  check("B9: image/jpeg → .jpg（唔係 .jpeg）", filenameFor("a", "image/jpeg") === "a.jpg", filenameFor("a", "image/jpeg"));
+  check("B9: image/png → .png", filenameFor("a", "image/png") === "a.png", filenameFor("a", "image/png"));
+  check("B9: image/webp → .webp", filenameFor("a", "image/webp") === "a.webp", filenameFor("a", "image/webp"));
+  check("B9: 帶參數嘅 MIME 照拆得開", filenameFor("a", "image/jpeg; charset=binary") === "a.jpg", filenameFor("a", "image/jpeg; charset=binary"));
+  check("B9: 空 MIME 跌返 .png", filenameFor("a", "") === "a.png", filenameFor("a", ""));
+
+  /* 唔係淨係驗個 helper —— 驗佢真係接返落落載路徑（有檢查但零 call site 就當冇檢查）。 */
+  const env = makeEnv({ mobile: false });
+  await shareImageBlob(blob("image/jpeg"), opts);
+  check("B9: JPEG blob 落載出 .jpg", env.anchors[0]?.download === "cardz-x.jpg", `download=${env.anchors[0]?.download}`);
+  env.restore();
+
+  /* 叫方唔准喺 base 度自己寫副檔名（會變 `x.png.jpg`）。tsc 攔唔到呢種。 */
+  for (const file of ["apps/web/src/components/card-detail.tsx", "apps/web/src/components/heatmap.tsx"]) {
+    const bases = [...read(file).matchAll(/filenameBase[:\s=]+`([^`]*)`/g)].map((m) => m[1]);
+    check(`B9: ${file} 有傳 filenameBase`, bases.length > 0);
+    for (const base of bases) {
+      check(`B9: ${file} 個 filenameBase 冇自己加副檔名`, !/[.](png|jpe?g|webp|gif|avif)$/i.test(base), `base=${base}`);
+    }
+  }
 }
 
 /* ── S1/S2：行唔到嘅兩處（React component / fetch）用 call site 驗 ──

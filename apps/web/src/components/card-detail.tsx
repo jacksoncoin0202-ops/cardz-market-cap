@@ -93,7 +93,7 @@ function ShareImageButton({ cardId, title, label, doneLabel, errorLabel }: {
     const pageUrl = `${window.location.origin}/card/${cardId}`;
     /* share sheet 嘅標題／正文跟返介面語言；**圖入面**啲字一律英文（見 og route 檔頭）。 */
     await shareImageBlob(blob, {
-      filename: `cardz-${cardId}.png`,
+      filenameBase: `cardz-${cardId}`,
       title,
       text: `${title}\n${pageUrl}`,
       clipboardFallbackText: pageUrl,

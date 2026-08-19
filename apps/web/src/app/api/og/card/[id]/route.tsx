@@ -4,17 +4,23 @@ import { ImageResponse } from "next/og";
 import { shortSubject } from "@/lib/related-cards";
 import { buildShareChart, type ShareChart } from "@/lib/share-chart";
 import { loadNodeMarketAsset, loadMarketSnapshot } from "@/lib/server-snapshot";
+import { readShareFormat, type ShareFormat } from "@/lib/share-destinations";
 import { defaultMarketWindow, marketWindowDays, type MarketCardView, type MarketWindow } from "@/lib/types";
 
 export const size = { width: 1200, height: 630 };
-export const contentType = "image/png";
+export const contentType = "image/jpeg";
 
 /*
  * 兩款分享圖，一條 route（fe06(share-card)，2026-08-19）：
  *   `?format=wide`（預設，1200×630）  —— 社交 unfurl。`twitter:card=summary_large_image`
  *      同 `og:image` 指住嘅就係佢，尺寸由 `lib/route-metadata.ts` 宣告，唔准亂改。
- *   `?format=post`（1080×1350，4:5）—— 人手分享嗰張：存落相簿再貼 Threads／X／IG feed、
- *      send 落 LINE／WhatsApp。owner 2026-08-19：「手機一打開就見到係全屏幕，噉嘅樣先至似樣」。
+ *   `?format=post`（1080×1350，4:5）—— 真係一張圖噉貼出去嗰張：存落相簿再貼
+ *      Threads／X／IG feed、send 落 LINE／WhatsApp 對話。owner 2026-08-19：
+ *      「手機一打開就見到係全屏幕，噉嘅樣先至似樣」。
+ *
+ * `?format=` 亦收**目的地名**（`whatsapp` / `x` / `threads` / `line` …）。噉樣叫方
+ * 寫佢送去邊，唔使記尺寸 —— 張表同埋點解今日三個貼圖目的地全部係 4:5，見
+ * `lib/share-destinations.ts`。
  *
  * ⚠️ **4:5 唔准改返 9:16。** 呢個 format 第一版出 1080×1920，owner 實測貼上 Threads / X：
  * 三家對直度圖都有高度上限，超過就**唔裁、改為按高度縮細**，於是隔離人哋啲相滿版、
@@ -35,7 +41,6 @@ export const contentType = "image/png";
  * 網站（網站亦係 dark skin 做主）唔會覺得三個地方三個樣。
  * 呢個係一行 flip、一行 revert —— 想睇返 light 就改返呢粒字，或者拉 `?theme=light`。
  */
-type ShareFormat = "wide" | "post";
 type ShareTheme = "light" | "dark";
 
 const FORMATS: Record<ShareFormat, { width: number; height: number; defaultTheme: ShareTheme }> = {
@@ -44,19 +49,26 @@ const FORMATS: Record<ShareFormat, { width: number; height: number; defaultTheme
 };
 
 /*
- * wide 出 JPEG 唔出 PNG（2026-08-19，實測驅動）。
+ * 兩個 format 都出 JPEG 唔出 PNG（wide 2026-08-19、post 2026-08-20，兩次都係實測驅動）。
  *
- * 量到：出街嗰三張 wide PNG 係 594KB / 623KB / 648KB —— WhatsApp 文件寫明 og:image
- * 上限 600KB，即係**今日已經有卡爆咗閘**，而失敗係靜默嘅（人哋條 link 出唔到圖，
+ * wide：量到出街嗰三張 PNG 係 594KB / 623KB / 648KB —— WhatsApp 文件寫明 og:image
+ * 上限 600KB，即係**當時已經有卡爆咗閘**，而失敗係靜默嘅（人哋條 link 出唔到圖，
  * 我哋呢邊乜 log 都冇）。同一張圖 JPEG q90 4:4:4 得 ~200KB（31% of PNG），
  * 文字邊冇肉眼分別（4:4:4 唔做色度抽樣，就係為咗保住細字同橙色 accent）。
- * 卡圖坐喺不透明地台上，冇透明角要保，所以轉 JPEG 冇美學代價。
  *
- * post **唔轉**：嗰張係人手 save 落相簿再上傳，冇 byte 閘，質素行先。
+ * post 本來寫住「唔轉：嗰張係人手 save 落相簿再上傳，冇 byte 閘，質素行先」。
+ * 個**前提冧咗**：owner 2026-08-20 講明有條 cron 鏈會 download 呢張圖再 upload 去
+ * WhatsApp／X／Threads。即係話呢張圖而家一日行幾轉機器嘅 download + upload，而收貨
+ * 嗰三家**全部都會自己再壓一次做 JPEG** —— 我哋條 PNG 邊（654,912 bytes 實測）
+ * 一個 pixel 都保唔到落最終讀者度，淨係令條鏈慢同食頻寬。所以照轉，質素唔會蝕。
+ * post 用 q92（高過 wide）：佢係俾人揿大睇嗰張，而佢冇 600KB 閘要夾。
+ *
+ * 卡圖坐喺不透明地台上，冇透明角要保，所以轉 JPEG 冇美學代價 —— 同一個理由亦寫喺
+ * `components/heatmap.tsx` 個 `SHARE_JPEG_QUALITY`。
  * ⚠️ `og:image:type` 喺 `card/[id]/page.tsx` 明寫 `image/jpeg`，同呢度一定要一致 ——
  *    `scripts/test-fe-og-unfurl.mjs` 會攞真 bytes 對返個宣告。
  */
-const WIDE_JPEG_QUALITY = 90;
+const JPEG_QUALITY: Record<ShareFormat, number> = { wide: 90, post: 92 };
 
 /*
  * satori 冇 CSS var，所以要寫死 hex。每一粒都係 globals.css 嗰份 token 嘅字面值
@@ -893,12 +905,6 @@ function PostLayout({ card, art, logoSrc, palette, chart, change, asOf }: {
   );
 }
 
-/* `story` 係過渡別名：2026-08-19 早上出過一版 9:16，嗰陣派出去嘅 HTML 仲喺 CDN／
-   用戶開住嘅 tab 度，撳分享會照舊帶 `?format=story`。唔認佢就會跌返 wide（1200×630
-   橫圖），用戶攞到一張錯格式嘅圖 —— 一行別名擋得住，所以擋。 */
-function readFormat(value: string | null): ShareFormat {
-  return value === "post" || value === "story" ? "post" : "wide";
-}
 function readTheme(value: string | null, fallback: ShareTheme): ShareTheme {
   return value === "dark" ? "dark" : value === "light" ? "light" : fallback;
 }
@@ -906,7 +912,7 @@ function readTheme(value: string | null, fallback: ShareTheme): ShareTheme {
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const query = new URL(request.url).searchParams;
-  const format = readFormat(query.get("format"));
+  const format = readShareFormat(query.get("format"));
   const spec = FORMATS[format];
   const theme = readTheme(query.get("theme"), spec.defaultTheme);
   const palette = THEMES[theme];
@@ -1021,7 +1027,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     headers: {
       "Cache-Control": "public, max-age=300, s-maxage=300, stale-while-revalidate=86400",
       /*
-       * fail-open 冇 status code 分別（兩邊都係 200 image/png），純文字版本身又有
+       * fail-open 冇 status code 分別（兩邊都係 200，成功 image/jpeg），純文字版本身又有
        * 91KB，size floor 都分唔到。所以每個 response 自己講返行咗邊條路：
        * `curl -sI '.../api/og/card/<id>?format=post' | grep x-og` →
        *   x-og-art 1/0    = 有冇卡圖（0 多數即係 standalone 冇 ship sharp）
@@ -1036,40 +1042,38 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     },
   });
 
-  if (format !== "post") {
-    /*
-     * wide 轉 JPEG（見上面 `WIDE_JPEG_QUALITY` 個註：PNG 實測 594–648KB，爆咗
-     * WhatsApp 文件寫明嘅 600KB，而且係靜默失敗）。
-     * ⚠️ fail-open：sharp 載唔到／轉唔到就照出返 PNG —— 一張大過閘嘅圖，好過冇圖。
-     *    嗰陣 `x-og-bytes` 仍然講真數，CI（test-fe-og-unfurl）就會紅，唔會靜靜過骨。
-     */
-    /*
-     * ☠️ 用 `Headers` 實例、行 `.set()`——**唔可以** spread
-     *    `Object.fromEntries(image.headers)` 再插一条 `"Content-Type"`。
-     *    `Headers` iterator 吐出嘅 key 係小寫（`content-type`），喙 plain object
-     *    裏面同 `"Content-Type"` 係**兩把鍵**，兩條都會落到個 response，
-     *    出街嘅值係 `image/png, image/jpeg`。實測過：唔會喁、唔會警告，
-     *    sharp 一樣 decode 到（看 bytes），但 unfurler 係看個 header 字串嘅。
-     */
-    const png = Buffer.from(await image.arrayBuffer());
-    const respond = (body: Buffer, mime: string) => {
-      const headers = new Headers(image.headers);
-      headers.set("Content-Type", mime);
-      headers.set("Content-Length", String(body.length));
-      headers.set("x-og-bytes", String(body.length));
-      return new Response(new Uint8Array(body), { headers });
-    };
-    try {
-      const { default: sharp } = await import("sharp");
-      const jpeg = await sharp(png)
-        /* 4:4:4 = 唔做色度抽樣。細字同 #e8823f 橙色 accent 靠佢先唔會糊邊。 */
-        .jpeg({ quality: WIDE_JPEG_QUALITY, chromaSubsampling: "4:4:4", mozjpeg: true })
-        .toBuffer();
-      return respond(jpeg, "image/jpeg");
-    } catch (error) {
-      noteArtFailure(`${id}:jpeg`, error);
-      return respond(png, "image/png");
-    }
+  /*
+   * 轉 JPEG（見上面 `JPEG_QUALITY` 個註）。
+   * ⚠️ fail-open：sharp 載唔到／轉唔到就照出返 PNG —— 一張大過閘嘅圖，好過冇圖。
+   *    嗰陣 `x-og-bytes` 仍然講真數，CI（test-fe-og-unfurl）就會紅，唔會靜靜過骨。
+   *    落到用戶手上嗰個檔名亦跟返真 MIME（`lib/share-file.ts` `filenameFor`），
+   *    fail-open 出 PNG 都唔會變成一個叫 `.jpg` 嘅 PNG。
+   */
+  /*
+   * ☠️ 用 `Headers` 實例、行 `.set()`——**唔可以** spread
+   *    `Object.fromEntries(image.headers)` 再插一条 `"Content-Type"`。
+   *    `Headers` iterator 吐出嘅 key 係小寫（`content-type`），喙 plain object
+   *    裏面同 `"Content-Type"` 係**兩把鍵**，兩條都會落到個 response，
+   *    出街嘅值係 `image/png, image/jpeg`。實測過：唔會喁、唔會警告，
+   *    sharp 一樣 decode 到（看 bytes），但 unfurler 係看個 header 字串嘅。
+   */
+  const png = Buffer.from(await image.arrayBuffer());
+  const respond = (body: Buffer, mime: string) => {
+    const headers = new Headers(image.headers);
+    headers.set("Content-Type", mime);
+    headers.set("Content-Length", String(body.length));
+    headers.set("x-og-bytes", String(body.length));
+    return new Response(new Uint8Array(body), { headers });
+  };
+  try {
+    const { default: sharp } = await import("sharp");
+    const jpeg = await sharp(png)
+      /* 4:4:4 = 唔做色度抽樣。細字同 #e8823f 橙色 accent 靠佢先唔會糊邊。 */
+      .jpeg({ quality: JPEG_QUALITY[format], chromaSubsampling: "4:4:4", mozjpeg: true })
+      .toBuffer();
+    return respond(jpeg, "image/jpeg");
+  } catch (error) {
+    noteArtFailure(`${id}:jpeg`, error);
+    return respond(png, "image/png");
   }
-  return image;
 }

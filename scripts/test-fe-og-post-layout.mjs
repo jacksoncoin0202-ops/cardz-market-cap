@@ -18,9 +18,10 @@
  *     所以呢度唔信任何加減數：`--live` 直接掃 PNG 嘅 ink bbox，四邊都要 ≥ padding。
  *     （T1–T4 靜態守「唔好再手滑」，T5 live 守「真係入唔入得晒」——兩層唔可以互相代替。）
  */
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const failed = [];
@@ -218,6 +219,13 @@ if (process.argv.includes("--live")) {
       const bust = Object.entries(margins).filter(([, v]) => v < POST_PAD - 2);
       check(`T5: ${id} post 冇衝穿 padding`, bust.length === 0,
         `${bust.map(([k, v]) => `${k}=${v}`).join(" ")}（padding=${POST_PAD}，全部邊距 ${JSON.stringify(margins)}）`);
+      /* post 2026-08-20 由 PNG 轉埋 JPEG：呢張圖而家係條 HERMES cron 鏈 download
+         完再 upload 去 WhatsApp／X／Threads，而三家收貨之後一律自己再壓做 JPEG ——
+         我哋條 PNG 邊（實測 654,912 bytes）一個 pixel 都保唔到落最終讀者度。
+         `===` 唔准改做 `.includes`（見下面 wide 嗰條個註）。 */
+      check(`T5: ${id} post 出 JPEG`, m.mime === "image/jpeg", `content-type=${m.mime}`);
+      check(`T5: ${id} post 細過原本張 PNG`, m.bytes < 400_000,
+        `${(m.bytes / 1024).toFixed(0)}KB（原本 PNG 640KB；post 冇 600KB 硬閘，呢條淨係防有人靜靜改返 PNG）`);
     }
 
     /*
@@ -258,6 +266,68 @@ if (process.argv.includes("--live")) {
       }
     }
   }
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * T6 — 目的地表（`?format=whatsapp` 嗰啲）
+ *
+ * owner 2026-08-20：條 HERMES cron 鏈做完自動鏈就 download 張圖再 upload 去唔同
+ * 平台。條鏈**唔喺呢個 repo**，所以佢寫嘅係目的地名，「邊個平台用邊個尺寸」呢個
+ * 決定留喺 `lib/share-destinations.ts`。呢一組守住嗰張表唔會靜靜噉壞：
+ *   · 對去一個 route 冇 layout 嘅 format → import 即刻炸（T6e 真係逼佢炸一次）
+ *   · 打錯字／新平台未加 → 跌返 wide，唔准 500（條鏈今日冇圖出 好過 攞到橫圖？
+ *     唔係 —— 攞到橫圖好過冇圖，所以係 fail-open）
+ * ───────────────────────────────────────────────────────────── */
+{
+  const DEST_REL = "apps/web/src/lib/share-destinations.ts";
+  const { readShareFormat, shareDestinations, SHARE_FORMATS } =
+    await import(pathToFileURL(join(ROOT, DEST_REL)).href);
+
+  /* T6a：每個目的地都要對到一個 route 真係有 layout 嘅 format。
+     唔係信 lib 自己個 guard —— 係攞 route.tsx 個 FORMATS 真身嚟對。 */
+  const routeFormats = [...code.matchAll(/\b(wide|post):\s*\{\s*width:/g)].map((m) => m[1]);
+  check("T6a: 由 route 度到 FORMATS", routeFormats.length === 2, JSON.stringify(routeFormats));
+  for (const dest of shareDestinations()) {
+    const format = readShareFormat(dest);
+    check(`T6a: 目的地 ${dest} 對到 route 有嘅 format`, routeFormats.includes(format), `${dest} → ${format}`);
+  }
+
+  /* T6b：owner 點名嗰三個貼圖目的地一定要係 4:5 嗰個 format。 */
+  for (const dest of ["whatsapp", "x", "threads", "instagram", "line"]) {
+    check(`T6b: ${dest} 用 4:5（post）`, readShareFormat(dest) === "post", `${dest} → ${readShareFormat(dest)}`);
+  }
+  check("T6b: 大細楷都認", readShareFormat("WhatsApp") === "post", readShareFormat("WhatsApp"));
+
+  /* T6c：認唔到唔准炸、唔准 500 —— 跌返 wide。 */
+  for (const bad of ["", "  ", "mastodon", "POST_", "9x16", null, undefined]) {
+    check(`T6c: ${JSON.stringify(bad)} 跌返 wide`, readShareFormat(bad) === "wide", `→ ${readShareFormat(bad)}`);
+  }
+
+  /* T6d：張表唔係死 code —— route 真係行佢（有檢查但零 call site 就當冇檢查）。 */
+  check("T6d: route 行 readShareFormat", /readShareFormat\(query\.get\("format"\)\)/.test(code),
+    "route.tsx 冇用 readShareFormat");
+  check("T6d: route 冇再自己開一張 alias 表", !/FORMAT_ALIASES/.test(code), "route.tsx 仲有第二張表");
+
+  /* T6e：個 guard 真係會 fire —— 整一份「對去一個唔存在嘅 format」嘅 copy 落 temp
+     再 import 佢。炸唔起 = 呢條防線唔存在。 */
+  const dir = mkdtempSync(join(tmpdir(), "cardz-share-dest-guard-"));
+  try {
+    const mutated = read(DEST_REL).replace('whatsapp: "post",', 'whatsapp: "reel" as ShareFormat,');
+    check("T6e: 改得到嗰行（改咗張表寫法就要順手更新呢個 test）", mutated.includes('"reel"'));
+    const probe = join(dir, "share-destinations.probe.ts");
+    writeFileSync(probe, mutated, "utf8");
+    let message = "";
+    try { await import(pathToFileURL(probe).href); } catch (error) { message = String(error?.message ?? error); }
+    check("T6e: 對去一個唔存在嘅 format 會即刻炸", message.includes("唔存在嘅 format"), `掟嘅係：${message || "(乜都冇掟)"}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  /* T6f：兩個 format 都要出 JPEG —— 舊 code 有條 `format !== "post"` 閘，拆咗，唔准返嚟。 */
+  check("T6f: JPEG 轉換冇再淨係做 wide", !/format\s*!==\s*"post"/.test(code), "route.tsx 仲有 post 唔轉嗰個閘");
+  check("T6f: quality 逐個 format 出", /JPEG_QUALITY\[format\]/.test(code), "route.tsx 冇用 JPEG_QUALITY[format]");
+  check("T6f: SHARE_FORMATS 同 route 對得住", [...SHARE_FORMATS].sort().join() === [...routeFormats].sort().join(),
+    `lib=${[...SHARE_FORMATS].join()} route=${[...routeFormats].join()}`);
 }
 
 if (failed.length) {

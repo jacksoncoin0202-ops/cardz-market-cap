@@ -22,15 +22,34 @@ export type ShareOutcome =
   | "dismissed";
 
 export interface ShareImageOptions {
-  /** 落載檔名，要連副檔名，而且要同 blob 個 MIME 對得住（`image/jpeg` → `.jpg`）——
-   *  唔啱嘅話 iOS 相簿會當佢係壞檔。 */
-  filename: string;
+  /** 落載檔名，**唔好加副檔名** —— 副檔名由 blob 個 MIME 推返出嚟（見 `filenameFor`）。 */
+  filenameBase: string;
   /** share sheet 標題（跟返介面語言 —— 同圖入面一律英文嗰條規矩無關） */
   title: string;
   /** share sheet 正文，一般係「標題 + 換行 + 頁面連結」 */
   text: string;
   /** 冇得 share、要跌落 download 嗰陣順手抄入剪貼簿嘅文字（通常係頁面 URL） */
   clipboardFallbackText?: string;
+}
+
+/*
+ * 副檔名由 blob 個 MIME 推返出嚟，叫方唔准自己寫。
+ *
+ * 一份 `image/jpeg` 嘅 blob 叫做 `.png` 唔會即刻爆：Web Share 照出 share sheet、
+ * `<a download>` 照落到檔。爆嘅係之後 —— iOS 相簿匯入嗰陣認副檔名，見到 `.png`
+ * 入面係 JPEG bytes 就當佢係壞檔，用戶見到嘅係「張圖存唔到落相簿」。
+ *
+ * 2026-08-20 卡片分享圖由 PNG 轉 JPEG，`card-detail.tsx` 嗰句 `cardz-${id}.png` 就
+ * 即刻變咗大話 —— 呢個 API 本來收「連副檔名嘅檔名」，即係**容許**兩邊講唔同嘢。
+ * 所以而家收 base，副檔名冇得由叫方講，兩者永遠對得住。
+ *
+ * `image/jpeg` 係唯一一個 subtype ≠ 副檔名嘅特例；其餘（png / webp / gif / avif）
+ * 直接攞 subtype 就啱，所以唔使維護一張會過時嘅表。
+ */
+export function filenameFor(base: string, mime: string): string {
+  const subtype = mime.split("/")[1]?.split(";")[0]?.trim().toLowerCase();
+  if (!subtype) return `${base}.png`;
+  return `${base}.${subtype === "jpeg" ? "jpg" : subtype}`;
 }
 
 /*
@@ -80,7 +99,9 @@ function downloadBlob(blob: Blob, filename: string): boolean {
 }
 
 export async function shareImageBlob(blob: Blob, opts: ShareImageOptions): Promise<ShareOutcome> {
-  const file = new File([blob], opts.filename, { type: blob.type || "image/png" });
+  const mime = blob.type || "image/png";
+  const filename = filenameFor(opts.filenameBase, mime);
+  const file = new File([blob], filename, { type: mime });
   const nav = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
   const shareData: ShareData = { files: [file], title: opts.title, text: opts.text };
 
@@ -100,7 +121,7 @@ export async function shareImageBlob(blob: Blob, opts: ShareImageOptions): Promi
     }
   }
 
-  const downloaded = downloadBlob(blob, opts.filename);
+  const downloaded = downloadBlob(blob, filename);
   if (opts.clipboardFallbackText) {
     /* 落載咗張圖但冇 share sheet 貼唔到條 link，順手抄入剪貼簿；抄唔到唔算錯。 */
     navigator.clipboard?.writeText(opts.clipboardFallbackText).catch(() => undefined);

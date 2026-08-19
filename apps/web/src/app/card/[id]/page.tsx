@@ -187,7 +187,7 @@ export async function generateMetadata({ params, searchParams }: CardRouteProps)
    * bytes」。要講清楚佢買唔到咩 —— **唔會**令 Facebook 自動 refresh 舊 preview（FB 係
    * per-page-URL cache），已 send 咗嘅 WhatsApp／iMessage 訊息亦永遠唔會更新。佢保證嘅
    * 係：任何一家真係 re-scrape 嗰陣攞到嘅一定係當日 bytes，唔係 CDN 舊圖。
-   * `readFormat`/`readTheme` 對未知 param 已經 default-through，OG route 唔使改。
+   * `readShareFormat`/`readTheme` 對未知 param 已經 default-through，OG route 唔使改。
    *
    * imageAlt 由裸卡名改成載實數：alt 係讀屏同埋部分 unfurler 嘅純文字 fallback，
    * 只講個名等於將張圖入面全部數字掉咗。
