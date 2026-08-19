@@ -136,11 +136,11 @@ check("OG route 冇喺 LOGO_BY_THEME 以外再寫死 logo 路徑",
 /* satori 唔理 SVG 自己嗰個 width/height（覆核實測：剝走都逐 px 一樣），所以呢兩個 declared
    數就係 OG wordmark 嘅**唯一**尺寸來源。原本零 assert —— 種 fault 改成 100×43，wordmark
    靜靜細一半，test 照綠。寫死喺度：要改版面就連呢行一齊改，改動先至被人睇見。 */
-const OG_IMG_DIMS = [[280, 121], [200, 86], [220, 95]];
+const OG_IMG_DIMS = [[280, 121], [200, 86], [190, 82]];
 const ogImgs = [...ogRoute.matchAll(/<img\s+src=\{logoSrc\}[^>]*?width=\{(\d+)\}\s+height=\{(\d+)\}/g)]
   .map((m) => [Number(m[1]), Number(m[2])]);
 check("OG route 有三個 wordmark <img src={logoSrc}>", ogImgs.length === 3, JSON.stringify(ogImgs));
-check(`OG wordmark declared 尺寸 = TextOnly 280×121 / Wide 200×86 / Story 220×95`,
+check(`OG wordmark declared 尺寸 = TextOnly 280×121 / Wide 200×86 / Post 190×82`,
   JSON.stringify(ogImgs) === JSON.stringify(OG_IMG_DIMS),
   `實際 ${JSON.stringify(ogImgs)}`);
 
@@ -149,13 +149,31 @@ check(`OG wordmark declared 尺寸 = TextOnly 280×121 / Wide 200×86 / Story 22
  *  · wide 1200×630 係 og:image / twitter summary_large_image 嗰個平台比例，而且
  *    `lib/route-metadata.ts` 對外宣告緊呢兩個數 —— route 同 metadata 各行各路就會
  *    出現「宣告 1200×630、實際出另一個尺寸」，平台照 crop，冇人收到警告。
- *  · story 1080×1920 係 owner 要嘅手機滿版比例（9:16）。有人順手改成 1080×1350
- *    就變返 4:5，手機打開上下有黑邊 —— 一樣係零 error。
+ *  · post 1080×1350 = 4:5，**唔准改返 9:16**。2026-08-19 早上出過一版 1080×1920，
+ *    owner 實測貼上 Threads / X：三家對直度圖都有高度上限，超過就**唔裁、改為按高度
+ *    縮細**，於是隔離人哋啲相滿版、我哋嗰張永遠得七八成闊。IG feed 4:5 最嚴，鎖到
+ *    闊÷高 ≥ 0.8 三家都唔會再縮。同一條線寫死喺熱力圖分享圖（`lib/share-image.ts`
+ *    `SHARE_MIN_ASPECT`）—— 兩張分享圖同一個理由、同一個數。
+ *    改高過 1350 冇 error、冇 warning，只係貼出去嗰刻細一截，冇人收到通知。
  */
-const OG_FORMAT_WANT = { wide: [1200, 630], story: [1080, 1920] };
-const ogFormats = [...ogRoute.matchAll(/\b(wide|story):\s*\{\s*width:\s*(\d+),\s*height:\s*(\d+)/g)]
+const OG_FORMAT_WANT = { wide: [1200, 630], post: [1080, 1350] };
+const ogFormats = [...ogRoute.matchAll(/\b(wide|post):\s*\{\s*width:\s*(\d+),\s*height:\s*(\d+)/g)]
   .map((m) => [m[1], Number(m[2]), Number(m[3])]);
-check("OG route FORMATS 有 wide + story 兩個", ogFormats.length === 2, JSON.stringify(ogFormats));
+check("OG route FORMATS 有 wide + post 兩個", ogFormats.length === 2, JSON.stringify(ogFormats));
+/* 直度分享圖闊÷高一定要 ≥ 0.8（同 share-image.ts `SHARE_MIN_ASPECT` 同一個數）。
+   上面對死 1080×1350 已經夠，但呢句講嘅係**點解**係嗰對數 —— 第日有人要換另一對
+   直度尺寸，起碼唔會靜靜跌返落 Threads / X 縮細嗰個區間。 */
+const SHARE_MIN_ASPECT = Number((read("apps/web/src/lib/share-image.ts").match(/SHARE_MIN_ASPECT\s*=\s*([\d.]+)/) || [])[1]);
+check("share-image 有 SHARE_MIN_ASPECT", Number.isFinite(SHARE_MIN_ASPECT), String(SHARE_MIN_ASPECT));
+/* 讀 route **真身**嗰對數（唔係上面張 want 表）—— 咁樣改 source 先會 fire，改 want 表
+   亦頂唔住。兩句都紅先係啱：一句話「唔係嗰對數」，一句話「而且跌咗入被縮細嗰區間」。 */
+const ogPost = ogFormats.find(([format]) => format === "post");
+check("OG route FORMATS 有 post", Boolean(ogPost), JSON.stringify(ogFormats));
+if (ogPost) {
+  check(`OG post 闊÷高 ≥ SHARE_MIN_ASPECT(${SHARE_MIN_ASPECT})`,
+    ogPost[1] / ogPost[2] >= SHARE_MIN_ASPECT,
+    `${ogPost[1]}/${ogPost[2]} = ${(ogPost[1] / ogPost[2]).toFixed(3)} —— Threads / X / IG 會按高度縮細，貼出去食唔晒 post 闊度`);
+}
 for (const [format, width, height] of ogFormats) {
   const want = OG_FORMAT_WANT[format];
   check(`OG ${format} 尺寸 = ${want.join("×")}`, want[0] === width && want[1] === height, `實際 ${width}×${height}`);
@@ -193,4 +211,4 @@ if (failed.length) {
   console.error("FAIL brand wordmark SVG contract:\n" + failed.map((item) => ` - ${item}`).join("\n"));
   process.exit(1);
 }
-console.log("PASS brand wordmark SVG contract (2 SVG, viewBox==width/height, no text/script/xlink/external, defs⇄use 兩邊對得晒, OG base64 svg+xml, OG theme⇄skin + 3 個 wordmark 尺寸, OG wide/story 尺寸 + route-metadata 對得返, share-image .svg, header 仍然 -h100.png, sha256 stamp 對得返)");
+console.log("PASS brand wordmark SVG contract (2 SVG, viewBox==width/height, no text/script/xlink/external, defs⇄use 兩邊對得晒, OG base64 svg+xml, OG theme⇄skin + 3 個 wordmark 尺寸, OG wide/post 尺寸 + 直度 aspect ≥ 0.8 + route-metadata 對得返, share-image .svg, header 仍然 -h100.png, sha256 stamp 對得返)");

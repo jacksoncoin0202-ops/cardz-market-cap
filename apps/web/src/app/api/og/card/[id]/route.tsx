@@ -12,25 +12,31 @@ export const contentType = "image/png";
  * 兩款分享圖，一條 route（fe06(share-card)，2026-08-19）：
  *   `?format=wide`（預設，1200×630）  —— 社交 unfurl。`twitter:card=summary_large_image`
  *      同 `og:image` 指住嘅就係佢，尺寸由 `lib/route-metadata.ts` 宣告，唔准亂改。
- *   `?format=story`（1080×1920，9:16）—— 人手分享嗰張：存落相簿、send 落 LINE／WhatsApp、
- *      落 IG／Threads story。owner 2026-08-19：「手機一打開就見到係全屏幕，噉嘅樣先至似樣」——
- *      9:16 就係手機睇相嗰個滿版比例，1200×630 喺豎屏得中間一條。版位鬆，所以完整走勢圖 +
- *      成交 bar + 四個數 + 日期軸全部出得晒。
+ *   `?format=post`（1080×1350，4:5）—— 人手分享嗰張：存落相簿再貼 Threads／X／IG feed、
+ *      send 落 LINE／WhatsApp。owner 2026-08-19：「手機一打開就見到係全屏幕，噉嘅樣先至似樣」。
+ *
+ * ⚠️ **4:5 唔准改返 9:16。** 呢個 format 第一版出 1080×1920，owner 實測貼上 Threads / X：
+ * 三家對直度圖都有高度上限，超過就**唔裁、改為按高度縮細**，於是隔離人哋啲相滿版、
+ * 我哋嗰張永遠得七八成闊。IG feed 4:5 最嚴，鎖到闊÷高 ≥ 0.8 三家都唔會再縮。
+ * 同一條線寫死喺熱力圖分享圖（`lib/share-image.ts` `SHARE_MIN_ASPECT`）—— 兩張分享圖
+ * 同一個理由、同一個數，`scripts/test-fe-brand-logo-svg.mjs` 兩邊一齊驗。
+ * 順帶：高度收窄之後卡圖唔使再放大到 1.267×，而家係 0.933×（**縮細**），
+ * 三個 format 入面卡面最銳就係呢張。
  *
  * **點解唔開多條 route**：兩款圖嘅資料來源、卡圖解碼、字體、wordmark、fail-open 行為
  * 完全一樣，開兩條就係同一條問題兩份 copy（AGENTS.md 規矩 13）。分別淨係 layout。
  *
  * `?theme=light|dark`：wide 預設 light（社交爬蟲唔會帶 theme，而 unfurl 卡片多數坐喺
- * 淺色 feed），story 預設 dark（owner 要「氣氛、優雅」——深底先襯得返卡圖嗰個透明
- * RGBA 邊，亦係手機滿版睇相嗰陣最唔刺眼；同網站 `[data-theme="dark"]` 係同一組 token，
+ * 淺色 feed），post 預設 dark（owner 要「氣氛、優雅」——深底先襯得返卡圖嗰個透明
+ * RGBA 邊，亦係喺 feed 度最唔刺眼；同網站 `[data-theme="dark"]` 係同一組 token，
  * 唔係另一套色）。
  */
-type ShareFormat = "wide" | "story";
+type ShareFormat = "wide" | "post";
 type ShareTheme = "light" | "dark";
 
 const FORMATS: Record<ShareFormat, { width: number; height: number; defaultTheme: ShareTheme }> = {
   wide: { width: 1200, height: 630, defaultTheme: "light" },
-  story: { width: 1080, height: 1920, defaultTheme: "dark" },
+  post: { width: 1080, height: 1350, defaultTheme: "dark" },
 };
 
 /*
@@ -105,17 +111,17 @@ const ART_PANEL_WIDTH = 468; /* 1200 嘅 39%，大約計劃講嘅 ~40% */
 const ART_MAX_WIDTH = 384;
 const ART_MAX_HEIGHT = 522;
 /*
- * story 卡圖舞台（952 闊 = 1080 − 64×2）同卡圖上限。
+ * post 卡圖舞台（968 闊 = 1080 − 56×2）同卡圖上限。
  *
  * ⚠️ **卡圖母版得 429×600**：2026-08-19 抽驗 `data/public/market-assets` 60 個全尺寸
  * asset，52 個係 429×600，其餘係 box 類（1000×730 / 1600×1417 / 517×550）。即係卡面
  * 本身冇更高清嘅來源 —— 想「唔蒙查查」，唯一做法係**唔好放太大**，唔係放大咗嗌高清。
- * 760 高 = 1.267× 放大，配 lanczos3 + 輕銳化（見 loadCardArt）喺手機睇實色邊仲食得住；
- * 過 1.5× 就開始見到 upscale 嗰浸糊。文字／走勢圖／wordmark 全部係 vector，喺 1080 闊度
- * 直接畫，同卡圖冇關係 —— 嗰啲係真銳，所以成張圖睇落仍然係「高清」。 */
-const STORY_ART_STAGE_HEIGHT = 820;
-const STORY_ART_MAX_WIDTH = 580;
-const STORY_ART_MAX_HEIGHT = 760;
+ * 560 高 = 0.933×，即係**縮細**：呢張係三個 format 入面唯一冇放大過卡面嗰張，
+ * 亦即係最銳嗰張（9:16 嗰版要 760 高 = 1.267× 放大，改 4:5 順帶執返呢樣）。
+ * 文字／走勢圖／wordmark 全部係 vector，喺 1080 闊度直接畫，同卡圖冇關係。 */
+const POST_ART_STAGE_HEIGHT = 620;
+const POST_ART_MAX_WIDTH = 452;
+const POST_ART_MAX_HEIGHT = 560;
 
 /* 走勢圖釘死 180 日 —— 同網頁 `defaultMarketWindow`（types.ts）同一個窗。
    張圖出咗街係俾第三者睇，唔可以帶當前用戶揀嘅時段；但撳入去見到嘅預設係 180D，
@@ -195,24 +201,27 @@ interface CardArt {
 }
 
 /*
- * `allowUpscale`：
- *   wide（卡圖畫 384×522）—— 唔開，母版 429×600 已經夠大，縮就得。
- *   story（畫到 760 高）—— 要開，否則 `withoutEnlargement` 會靜靜出返 429×600 嘅細圖，
- *     喺 1080 闊嘅版上面得半個位、成張圖散晒，而且零 error（最難捉嗰種）。
- * 放大一定會軟，所以補一記**輕**銳化。唔可以下重手：卡圖係去咗底嘅 RGBA，邊緣一過銳
- * 就沿住 alpha 邊出白光暈，喺深色 story 底特別現眼。
+ * `fromMaster`（2026-08-19 由舊名 `allowUpscale` 改過嚟 —— 4:5 之後 post 已經**冇再放大**，
+ * 個名再叫 upscale 就係呃下一個睇呢段 code 嘅人）：
+ *   wide（卡圖畫 384×522 = 0.64×）—— 唔開，`_600` 派生檔縮落去就得，解碼快。
+ *   post（畫到 560 高 = 0.933×）—— 要開。呢個縮放太貼近 1×，行 `_600` 嘅話等於攞一份
+ *     已經再壓過一次 WebP 嘅圖幾乎原大咁貼上去，壓縮 artifact 一粒都磨唔走；攞全尺寸
+ *     母版由 600 lanczos3 落 560 先真係乾淨。
+ * 補嗰記**輕**銳化係補返 lanczos 縮放本身嗰浸軟。唔可以下重手：卡圖係去咗底嘅 RGBA，
+ * 邊緣一過銳就沿住 alpha 邊出白光暈，喺深色底特別現眼。
+ * `withoutEnlargement: !fromMaster` 留返做保險：行派生檔嗰路永遠唔准放大。
  */
 async function loadCardArt(
   card: MarketCardView,
   maxWidth: number,
   maxHeight: number,
-  allowUpscale = false,
+  fromMaster = false,
 ): Promise<CardArt | null> {
   if (card.image.kind !== "raw_front") return null;
   /* 放大嗰陣一定要攞全尺寸母版，唔可以攞 `_600` 派生檔再放大 —— 兩者同高（600），
      但派生檔已經再壓過一次 WebP，放大會連壓縮 artifact 一齊放大。
      縮細嗰路照用 `_600`：細檔解碼快，結果一模一樣。 */
-  const source = allowUpscale ? card.image.url : card.image.variants?.["600"] ?? card.image.url;
+  const source = fromMaster ? card.image.url : card.image.variants?.["600"] ?? card.image.url;
   const asset = source.split("/").pop();
   if (!asset) return null;
 
@@ -224,10 +233,10 @@ async function loadCardArt(
     width: maxWidth,
     height: maxHeight,
     fit: "inside",
-    withoutEnlargement: !allowUpscale,
+    withoutEnlargement: !fromMaster,
     kernel: "lanczos3",
   });
-  if (allowUpscale) pipeline = pipeline.sharpen({ sigma: 0.6, m1: 0.4, m2: 0.8 });
+  if (fromMaster) pipeline = pipeline.sharpen({ sigma: 0.6, m1: 0.4, m2: 0.8 });
   const { data, info } = await pipeline.png({ compressionLevel: 9 }).toBuffer({ resolveWithObject: true });
 
   return {
@@ -289,12 +298,13 @@ function titleSize(name: string): number {
   return 34;
 }
 
-/* story 成幅 952px 可用闊（比 wide 個 620 闊 54%），所以同一長度食得起大兩級。
-   44 呢級係下限：3 行 × 1.1 行距 = 145px，配 820px 舞台先啱啱塞得晒（見 StoryLayout 個預算註）。 */
-function storyTitleSize(name: string): number {
-  if (name.length <= 34) return 68;
-  if (name.length <= 60) return 56;
-  return 44;
+/* post 成幅 968px 可用闊（比 wide 個 620 闊 56%），所以同一長度食得起大一級。
+   38 呢級係下限：`clampTitle` 封咗 96 字，38px 喺 968px 闊度兩行剛好裝得晒
+   （3 行 × 1.1 = 125px 會逼爆下面個垂直預算，見 PostLayout 個預算註）。 */
+function postTitleSize(name: string): number {
+  if (name.length <= 34) return 56;
+  if (name.length <= 60) return 46;
+  return 38;
 }
 
 function clampTitle(name: string): string {
@@ -431,7 +441,7 @@ function ArtStage({ art, alt, width, height, radius, palette }: {
         borderRadius: radius,
         background: palette.artGround,
         /* ⚠️ 唔准漏：個 glow 係 absolute 而且**特登大過個舞台**（卡圖 1.6 倍），
-           冇呢句就成團暖光淌出去洗晒隔離嘅文字欄／整張 story 個底。
+           冇呢句就成團暖光淌出去洗晒隔離嘅文字欄／整張 post 個底。
            第一版量過就係噉：wide 右欄變咗一片粉橙，舞台邊界完全消失。 */
         overflow: "hidden",
       }}
@@ -543,17 +553,25 @@ function WideLayout({ card, art, logoSrc, palette, chart, change, asOf }: {
 }
 
 /*
- * story（1080×1920，9:16）：由上而下 —— 品牌／卡圖／身份／四個數／走勢／出處。
- * 呢個係「人手分享、手機滿版睇」嗰張，所以四個數同完整走勢圖（連成交 bar、日期軸）
- * 全部出得起。
+ * post（1080×1350，4:5）：由上而下 —— 品牌／卡圖／身份／四個數／走勢／出處。
+ * 呢個係「人手分享」嗰張：save 落相簿再貼 Threads / X / IG feed。
  *
- * 垂直預算（padding 64 → 內容高 1792，最壞情況 = 3 行 44px 標題）：
- *   品牌行 95 + 舞台 820 + 身份 240 + 四個數 132 + 走勢 348 + 出處 29 = 1664，
- *   剩 128px 由 `justifyContent: space-between` 攤落 5 個罅（每個 ~25）。
- *   短卡名（1 行 68px）身份跌到 169 → 每個罅 ~39，張圖自動鬆返 —— 唔會好似固定 gap
+ * ⚠️ **點解係 4:5 唔係 9:16**（owner 2026-08-19 實測後改）：第一版出 1080×1920，
+ * 貼上 Threads / X 永遠淨係佔到 post 闊度七八成。三家對直度圖都有高度上限，超過就
+ * **唔裁、改為按高度縮細**，於是隔離人哋啲相滿版、我哋嗰張細一截。IG 4:5 最嚴，
+ * 鎖 0.8 就三家都唔會再縮。同一條線亦寫死喺熱力圖分享圖（lib/share-image.ts
+ * `SHARE_MIN_ASPECT`）—— 兩張分享圖同一個理由、同一個數。
+ *
+ * 順帶好處：高度收窄之後卡圖唔使再放大到 1.267×。而家 560 高 = 0.933×（**縮細**），
+ * 429×600 母版一 px 都唔使靠估 —— 呢張係三個 format 入面卡面最銳嗰張。
+ *
+ * 垂直預算（padding 56 → 內容高 1238，最壞情況 = 2 行 38px 標題）：
+ *   品牌行 82 + 舞台 620 + 身份 149 + 四個數 116 + 走勢 153 + 出處 26 = 1146，
+ *   剩 92px 由 `justifyContent: space-between` 攤落 5 個罅（每個 ~18）。
+ *   短卡名（1 行 56px）身份跌到 122 → 每個罅 ~23，張圖自動鬆返 —— 唔會好似固定 gap
  *   噉將慳返嘅位全部堆喺底部變一大笪空白。
  */
-function StoryLayout({ card, art, logoSrc, palette, chart, change, asOf }: {
+function PostLayout({ card, art, logoSrc, palette, chart, change, asOf }: {
   card: MarketCardView;
   art: CardArt;
   logoSrc: string;
@@ -576,18 +594,18 @@ function StoryLayout({ card, art, logoSrc, palette, chart, change, asOf }: {
       }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
-        {/* 220×95 = 2.316:1，同 wide 個 200×86 一樣係量返出圖嘅數（見 WideLayout 嗰個註）。 */}
-        <img src={logoSrc} alt="CardZ Marketcap" width={220} height={95} />
+        {/* 190×82 = 2.316:1，同 wide 個 200×86 一樣係量返出圖嘅數（見 WideLayout 嗰個註）。 */}
+        <img src={logoSrc} alt="CardZ Marketcap" width={190} height={82} />
         {card.marketRank >= 1 ? (
           <span
             style={{
               display: "flex",
               background: palette.rankBg,
               color: palette.rankInk,
-              fontSize: 30,
+              fontSize: 26,
               fontWeight: 600,
               borderRadius: 999,
-              padding: "10px 26px",
+              padding: "8px 22px",
             }}
           >
             #{card.marketRank}
@@ -598,55 +616,60 @@ function StoryLayout({ card, art, logoSrc, palette, chart, change, asOf }: {
       <ArtStage
         art={art}
         alt={card.image.alt ?? name}
-        width={952}
-        height={STORY_ART_STAGE_HEIGHT}
-        /* 32 = 網頁 `--section-radius` 24 按 story 放大比例調高少少；手機滿版睇，24 喺
-           1080 闊度會細到似方角。 */
-        radius={32}
+        width={968}
+        height={POST_ART_STAGE_HEIGHT}
+        /* 28 = 網頁 `--section-radius` 24 按 post 放大比例調高少少；1080 闊度度 24 會細到似方角。 */
+        radius={28}
         palette={palette}
       />
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 12, width: "100%" }}>
-        <span style={{ fontSize: 28, color: palette.accent, letterSpacing: 3.6, fontWeight: 600 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
+        <span style={{ fontSize: 24, color: palette.accent, letterSpacing: 3.2, fontWeight: 600 }}>
           {card.tcg.toUpperCase()} · #{card.collectorNumber}
         </span>
-        <span style={{ fontSize: storyTitleSize(name), color: palette.ink, fontWeight: 700, lineHeight: 1.1 }}>{name}</span>
-        <span style={{ fontSize: 30, color: palette.muted, lineHeight: 1.3, fontWeight: 400 }}>{clampSetName(card.setName.en)}</span>
+        <span style={{ fontSize: postTitleSize(name), color: palette.ink, fontWeight: 700, lineHeight: 1.1 }}>{name}</span>
+        <span style={{ fontSize: 26, color: palette.muted, lineHeight: 1.3, fontWeight: 400 }}>{clampSetName(card.setName.en)}</span>
       </div>
 
-      {/* 四個數一行：量過最闊嗰行由 label 主導（PSA 10 PRICE 最長），約 810px < 952px 可用闊。 */}
-      <div style={{ display: "flex", gap: 44, borderTop: `2px solid ${palette.line}`, paddingTop: 26, width: "100%" }}>
-        <Stat palette={palette} label="MARKET CAP" value={usd(card.marketCap.value)} valueSize={52} />
-        <Stat palette={palette} label="PSA 10 PRICE" value={usd(card.pricePsa10.value)} valueSize={40} />
-        <Stat palette={palette} label="PSA 10 POP" value={integer(card.populationPsa10.value)} valueSize={40} />
+      {/* 四個數一行：量過最闊嗰行由 label 主導（PSA 10 PRICE 最長），約 730px < 968px 可用闊。 */}
+      <div style={{ display: "flex", gap: 40, borderTop: `2px solid ${palette.line}`, paddingTop: 22, width: "100%" }}>
+        <Stat palette={palette} label="MARKET CAP" value={usd(card.marketCap.value)} valueSize={46} />
+        <Stat palette={palette} label="PSA 10 PRICE" value={usd(card.pricePsa10.value)} valueSize={36} />
+        <Stat palette={palette} label="PSA 10 POP" value={integer(card.populationPsa10.value)} valueSize={36} />
         {change ? (
-          <Stat palette={palette} label={`${SHARE_WINDOW_LABEL} CHANGE`} value={change.text} valueSize={40} tone={change.tone} />
+          <Stat palette={palette} label={`${SHARE_WINDOW_LABEL} CHANGE`} value={change.text} valueSize={36} tone={change.tone} />
         ) : null}
       </div>
 
       {chart ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%", borderTop: `2px solid ${palette.line}`, paddingTop: 26 }}>
-          {/* story 嘅變動已經喺上面四個數嗰行出咗一次（`180D CHANGE`），
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", borderTop: `2px solid ${palette.line}`, paddingTop: 22 }}>
+          {/* post 嘅變動已經喺上面四個數嗰行出咗一次（`180D CHANGE`），
               caption 唔好再出多次 —— 同一個數喺同一張圖出兩次係雜訊。
               wide 冇嗰個 stat（得三個數），所以嗰邊照傳 change。 */}
-          <ChartCaption palette={palette} change={null} fontSize={26} />
+          <ChartCaption palette={palette} change={null} fontSize={24} />
           <img src={chart.src} alt="" width={chart.width} height={chart.height} />
-          <ChartAxis palette={palette} chart={chart} fontSize={24} />
+          {/* 日期軸留返：caption 個 `180D` 講長度，呢兩個月份講**邊 180 日** —— 張圖出咗街
+              之後冇得撳入去問，絕對日期先答到「幾時嘅數」。實測最長卡名（96 字 → 3 行 38px）
+              加埋佢仍然入得晒 1238px 預算。 */}
+          <ChartAxis palette={palette} chart={chart} fontSize={22} />
         </div>
       ) : null}
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
-        <span style={{ fontSize: 24, color: palette.muted, letterSpacing: 1.8, fontWeight: 600 }}>CARDZMARKETCAP.COM</span>
+        <span style={{ fontSize: 22, color: palette.muted, letterSpacing: 1.8, fontWeight: 600 }}>CARDZMARKETCAP.COM</span>
         {asOf ? (
-          <span style={{ fontSize: 24, color: palette.muted, letterSpacing: 1.2, fontWeight: 400 }}>AS OF {asOf.toUpperCase()}</span>
+          <span style={{ fontSize: 22, color: palette.muted, letterSpacing: 1.2, fontWeight: 400 }}>AS OF {asOf.toUpperCase()}</span>
         ) : null}
       </div>
     </div>
   );
 }
 
+/* `story` 係過渡別名：2026-08-19 早上出過一版 9:16，嗰陣派出去嘅 HTML 仲喺 CDN／
+   用戶開住嘅 tab 度，撳分享會照舊帶 `?format=story`。唔認佢就會跌返 wide（1200×630
+   橫圖），用戶攞到一張錯格式嘅圖 —— 一行別名擋得住，所以擋。 */
 function readFormat(value: string | null): ShareFormat {
-  return value === "story" ? "story" : "wide";
+  return value === "post" || value === "story" ? "post" : "wide";
 }
 function readTheme(value: string | null, fallback: ShareTheme): ShareTheme {
   return value === "dark" ? "dark" : value === "light" ? "light" : fallback;
@@ -703,8 +726,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
      純文字版，唔准變 500 —— OG 端點死咗等於社交分享冇圖，比冇卡圖仲差。 */
   let art: CardArt | null = null;
   try {
-    art = format === "story"
-      ? await loadCardArt(card, STORY_ART_MAX_WIDTH, STORY_ART_MAX_HEIGHT, true)
+    art = format === "post"
+      ? await loadCardArt(card, POST_ART_MAX_WIDTH, POST_ART_MAX_HEIGHT, true)
       : await loadCardArt(card, ART_MAX_WIDTH, ART_MAX_HEIGHT);
   } catch (error) {
     noteArtFailure(id, error);
@@ -714,12 +737,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   /* 走勢圖同卡圖一樣 fail-open：`buildShareChart` 少過兩個價點就回 null，layout 見到
      null 就成塊唔出。**唔准**因為冇歷史而令張圖 500 或者畫一條假線。 */
   const chart = buildShareChart(card.historyDaily ?? [], SHARE_WINDOW_DAYS, {
-    width: format === "story" ? 952 : 620,
-    height: format === "story" ? 240 : 64,
-    lineWidth: format === "story" ? 4 : 2.5,
-    /* wide 版扁到得 64px，成交 bar 會同條價線打架，所以只喺 story 出（同網頁一樣兩層都有）。 */
-    bars: format === "story",
-    grid: format === "story",
+    width: format === "post" ? 968 : 620,
+    height: format === "post" ? 120 : 64,
+    lineWidth: format === "post" ? 3 : 2.5,
+    /* wide 版扁到得 64px，成交 bar 會同條價線打架，所以只喺 post 出（同網頁一樣兩層都有）。 */
+    bars: format === "post",
+    grid: format === "post",
     palette: { accent: palette.accent, grid: palette.line, bar: palette.salesBar, surface: palette.surface },
   });
 
@@ -735,8 +758,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
   const element = !art
     ? <TextOnlyLayout card={card} logoSrc={logoSrc} palette={palette} />
-    : format === "story"
-      ? <StoryLayout card={card} art={art} logoSrc={logoSrc} palette={palette} chart={chart} change={change} asOf={asOf} />
+    : format === "post"
+      ? <PostLayout card={card} art={art} logoSrc={logoSrc} palette={palette} chart={chart} change={change} asOf={asOf} />
       : <WideLayout card={card} art={art} logoSrc={logoSrc} palette={palette} chart={chart} change={change} asOf={asOf} />;
 
   return new ImageResponse(element, {
@@ -755,7 +778,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       /*
        * fail-open 冇 status code 分別（兩邊都係 200 image/png），純文字版本身又有
        * 91KB，size floor 都分唔到。所以每個 response 自己講返行咗邊條路：
-       * `curl -sI '.../api/og/card/<id>?format=story' | grep x-og` →
+       * `curl -sI '.../api/og/card/<id>?format=post' | grep x-og` →
        *   x-og-art 1/0    = 有冇卡圖（0 多數即係 standalone 冇 ship sharp）
        *   x-og-chart 1/0  = 有冇走勢圖（0 = 呢張卡窗內少過兩個價點）
        *   x-og-format/theme = 實際行咗邊個 layout（query 打錯字會靜靜跌返 wide + 該 format 預設 theme）

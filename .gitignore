@@ -33,3 +33,4 @@ scripts/fe03-verify.cjs
 !.claude/agents/
 .claude/agents/*
 !.claude/agents/*.md
+.gstack/
