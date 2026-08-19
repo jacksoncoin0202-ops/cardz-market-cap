@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { ImageResponse } from "next/og";
+import { shortSubject } from "@/lib/related-cards";
 import { buildShareChart, type ShareChart } from "@/lib/share-chart";
 import { loadNodeMarketAsset, loadMarketSnapshot } from "@/lib/server-snapshot";
 import { defaultMarketWindow, marketWindowDays, type MarketCardView, type MarketWindow } from "@/lib/types";
@@ -26,18 +27,36 @@ export const contentType = "image/png";
  * **點解唔開多條 route**：兩款圖嘅資料來源、卡圖解碼、字體、wordmark、fail-open 行為
  * 完全一樣，開兩條就係同一條問題兩份 copy（AGENTS.md 規矩 13）。分別淨係 layout。
  *
- * `?theme=light|dark`：wide 預設 light（社交爬蟲唔會帶 theme，而 unfurl 卡片多數坐喺
- * 淺色 feed），post 預設 dark（owner 要「氣氛、優雅」——深底先襯得返卡圖嗰個透明
- * RGBA 邊，亦係喺 feed 度最唔刺眼；同網站 `[data-theme="dark"]` 係同一組 token，
- * 唔係另一套色）。
+ * `?theme=light|dark`：兩個 format 而家都預設 dark。
+ *
+ * ⚠️ wide 由 light 揭做 dark 係 owner 2026-08-19 嘅決定，**推翻**咗呢度本來寫嘅
+ * 「unfurl 卡片多數坐喺淺色 feed 所以用 light」。理由：坐喺淺色 feed 正正就係要**唔似**
+ * 隔籬啲白卡先撳得落手；而且 post 本身係 dark，兩張圖終於得返一個視覺身份，人哋撳入
+ * 網站（網站亦係 dark skin 做主）唔會覺得三個地方三個樣。
+ * 呢個係一行 flip、一行 revert —— 想睇返 light 就改返呢粒字，或者拉 `?theme=light`。
  */
 type ShareFormat = "wide" | "post";
 type ShareTheme = "light" | "dark";
 
 const FORMATS: Record<ShareFormat, { width: number; height: number; defaultTheme: ShareTheme }> = {
-  wide: { width: 1200, height: 630, defaultTheme: "light" },
+  wide: { width: 1200, height: 630, defaultTheme: "dark" },
   post: { width: 1080, height: 1350, defaultTheme: "dark" },
 };
+
+/*
+ * wide 出 JPEG 唔出 PNG（2026-08-19，實測驅動）。
+ *
+ * 量到：出街嗰三張 wide PNG 係 594KB / 623KB / 648KB —— WhatsApp 文件寫明 og:image
+ * 上限 600KB，即係**今日已經有卡爆咗閘**，而失敗係靜默嘅（人哋條 link 出唔到圖，
+ * 我哋呢邊乜 log 都冇）。同一張圖 JPEG q90 4:4:4 得 ~200KB（31% of PNG），
+ * 文字邊冇肉眼分別（4:4:4 唔做色度抽樣，就係為咗保住細字同橙色 accent）。
+ * 卡圖坐喺不透明地台上，冇透明角要保，所以轉 JPEG 冇美學代價。
+ *
+ * post **唔轉**：嗰張係人手 save 落相簿再上傳，冇 byte 閘，質素行先。
+ * ⚠️ `og:image:type` 喺 `card/[id]/page.tsx` 明寫 `image/jpeg`，同呢度一定要一致 ——
+ *    `scripts/test-fe-og-unfurl.mjs` 會攞真 bytes 對返個宣告。
+ */
+const WIDE_JPEG_QUALITY = 90;
 
 /*
  * satori 冇 CSS var，所以要寫死 hex。每一粒都係 globals.css 嗰份 token 嘅字面值
@@ -64,6 +83,13 @@ const THEMES: Record<ShareTheme, {
   /** rank 藥丸 = 網頁 `.detail-rank`（`--detail-rank-bg` / `--detail-rank-text`） */
   rankBg: string;
   rankInk: string;
+  /*
+   * 變動藥丸個底色。satori 冇 CSS var 亦計唔到 alpha 疊底，所以要**預先撈埋**寫成
+   * 實色 hex：positive/negative 前景色以 12% 溶入 paper 嗰個結果。
+   * 藥丸唔用純 accent 底 —— 88px hero 隔籬要一舊唔搶戲但認得出正負嘅色塊。
+   */
+  positiveSoft: string;
+  negativeSoft: string;
 }> = {
   light: {
     paper: "#f7f7f5", /* --paper */
@@ -79,6 +105,8 @@ const THEMES: Record<ShareTheme, {
     salesBar: "#a8c5ca", /* .sales-bar */
     rankBg: "rgba(23, 23, 23, 0.8)", /* --detail-rank-bg */
     rankInk: "#ffffff", /* --detail-rank-text */
+    positiveSoft: "#e4efeb", /* #23775b @12% on #f7f7f5 */
+    negativeSoft: "#f4e4e8", /* #a63b52 @12% on #f7f7f5 */
   },
   dark: {
     paper: "#101010",
@@ -94,6 +122,8 @@ const THEMES: Record<ShareTheme, {
     salesBar: "#7a9aa2",
     rankBg: "rgba(236, 236, 236, 0.85)",
     rankInk: "#101010",
+    positiveSoft: "#1a2b26", /* #4cb893 @12% on #101010 */
+    negativeSoft: "#26181c", /* #d4748c @12% on #101010 */
   },
 };
 
@@ -107,9 +137,19 @@ const LOGO_BY_THEME: Record<ShareTheme, string> = {
   dark: "brand/logo-cardz-marketcap-dark.svg",
 };
 
-const ART_PANEL_WIDTH = 468; /* 1200 嘅 39%，大約計劃講嘅 ~40% */
-const ART_MAX_WIDTH = 384;
-const ART_MAX_HEIGHT = 522;
+/*
+ * 卡圖鐵路由 468 收到 430（2026-08-19）：慳返嘅 38px 全部畀右欄，令 88px hero 數字
+ * 同兩行卡名有位企。
+ *
+ * 誰知鐵路收窄咗反而可以將卡面**放大**：舊版 350×490 喺 630 高嘅板裡面上下各剩
+ * 70px 空地，owner 講「好核突」嘅其中一塊就係呢等空位。改 396×554 之後上下各剩
+ * 38px、左右各 17px，塊板就係卡。
+ * ☠️ 上限永遠唔准超 429×600（卡圖 asset 母版）：554/600 = **0.923×**，仍然係縮細。
+ *    超過 1.0× = 放大嗌高清，即係 owner 講嘅「蒙查查」。
+ */
+const ART_PANEL_WIDTH = 430;
+const ART_MAX_WIDTH = 396;
+const ART_MAX_HEIGHT = 554;
 /*
  * post 卡圖舞台（968 闊 = 1080 − 56×2）同卡圖上限。
  *
@@ -318,14 +358,6 @@ function monthYear(iso: string | null | undefined): string | null {
   return `${MONTHS[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
 }
 
-/* 卡名有長到 90+ 字（例：「… Pikachu With Grey Felt Hat Pokemon X Van Gogh 085/SVP」），
-   右欄淨得 620px，所以字級跟長度落，超長先切。 */
-function titleSize(name: string): number {
-  if (name.length <= 34) return 52;
-  if (name.length <= 60) return 42;
-  return 34;
-}
-
 /* post 成幅 968px 可用闊（比 wide 個 620 闊 56%），所以同一長度食得起大一級。
    38 呢級係下限：`clampTitle` 封咗 96 字，38px 喺 968px 闊度兩行剛好裝得晒
    （3 行 × 1.1 = 125px 會逼爆下面個垂直預算，見 PostLayout 個預算註）。 */
@@ -348,18 +380,94 @@ function textOnlyTitleSize(name: string): number {
   return 46;
 }
 
+/*
+ * wide（1200×630）：左卡圖右數據。fe06 起三個數擺同一行（本來 1+2 兩行），慳返嗰行位擺走勢圖。
+ *
+ * 三個數**同一個字級**，同 post 一樣（見 POST_TYPE 個註：同一行、同一個 label 級、同一條線
+ * 之下，字級唔同讀落唔似分主次，似排錯版）。舊版係 44/34/34。
+ * 36 係量返出嚟嘅（榜首 Van Gogh Pikachu = 全榜最闊嗰行 `$141.95M` / `$2.9K` / `49,808`，
+ * 620px 右欄）：44/34/34 嗰陣 label 行食 598px（剩 22），36 之後跌到 561px（剩 59）——
+ * 三格闊度由 max(label, value) 定，value 收窄咗成行都跟住收。
+ *
+ * `WIDE_TYPE` 由三級變**四級**（2026-08-19）。呢個係特登破咗「三級，唔准撒數字」嗰條
+ * 規矩，理由係量度出嚟嘅，唔係手癢：
+ *
+ *   WhatsApp 嘅 unfurl 縮圖闊約 330pt，即係 1200px 源縮到 **0.275×**。舊版最大嗰個
+ *   數字係 36px → 落到氣泡入面 **9.9pt**，細過 WhatsApp 自己嘅正文。即係話 owner
+ *   而家傳出去嘅每一張 link preview，個市值根本冇人讀得到 —— 換文案、換比例、換
+ *   theme 一樣救唔到，因為冇一個字級係為 330pt 縮圖而設。
+ *   88px × 0.275 = 24.2pt，大過 WhatsApp 自己嘅粗體標題；Discord（~400px fit box，
+ *   0.333×）出 29pt。
+ *
+ *   micro 18 = 細字（走勢 caption、AS OF、rank 尾巴、佐證 label）
+ *   meta  22 = kicker / hero label / set 行
+ *   stat  30 = 佐證行兩個數（PSA 10 價、POP）—— **特登細過 hero**：rank 係鈎、
+ *              cap 係 payload、呢行係收據，一眼要讀得出邊個係主角。
+ *   hero  88 = 市值，全圖唯一一個「縮到氣泡入面都仲讀到」嘅數。
+ *
+ * ⚠️ rank 用 40px 唔用 hero 級：產品叫 Market Cap，hero 一定要係 cap。兩個 100px 級
+ *    數字打對台等於冇 hero。40 vs 88 差 2.2×，層級一眼讀得出。
+ */
+const WIDE_TYPE = { micro: 18, meta: 22, stat: 30, hero: 88 } as const;
+const WIDE_RANK_SIZE = 40;
+
+/*
+ * 卡名喺 wide 右欄（678px）嘅字級 ramp。
+ *
+ * ⚠️ 呢度餵入嚟嘅係 `shortSubject(card, "en", WIDE_NAME_MAX)`，唔係預設嗰個 44 字 ——
+ * 44 字 @34px 一定食兩行，而 2026-08-19 逐 px 掃出嚟嘅結果係：兩行標題 + 88px hero
+ * 一齊擺，右欄 ink 去到 y=624，衝穿底 padding 35px（張圖照 200 出街，冇 error）。
+ * 封 36 字之後每級都入到一行：36×0.5em@34px ≈ 612 < 678。
+ */
+const WIDE_NAME_MAX = 50;
+function wideTitleSize(name: string): number {
+  if (name.length <= 20) return 46;
+  if (name.length <= 30) return 40;
+  /* 50 字 @32px 喺 678 闊度 = 2 行（每行 ~42 字），唔會有第三行。 */
+  return 32;
+}
+
+/*
+ * wide 個 kicker（`SET · #NUM · LANG PRINT`）要入一行。
+ *
+ * 實測：18px / 600 / letterSpacing 2.2 全大寫，678px 欄寬最多裝 ~53 字（≈ 12.6px/字）。
+ * 舊版寫死 `clampSetName(name)` 默認 46，於是 Mario Pikachu 嘅
+ * `POKEMON JAPANESE XY PROMO · #294/XY-P · JAPANESE PRINT`（54 字）摺二行，
+ * 推矮下面整組 22px。所以 set 名嘅預算係**剩余**，唔係定數。
+ */
+const WIDE_KICKER_MAX = 53;
+
 /* set 名最長 74 字（實測全 1604 張榜卡）。右欄 24px 得一行位，兩行就會頂到
-   wordmark 距底邊剩 10px（量過：panel ink bottom margin 41 → 10）。 */
-function clampSetName(name: string): string {
-  return name.length <= 46 ? name : `${name.slice(0, 45).trimEnd()}…`;
+   wordmark 距底邊剩 10px（量過：panel ink bottom margin 41 → 10）。
+   wide 個 kicker 一行要塞晒 set + 編號 + 語言，所以嗰邊傳細啲嘅 max。 */
+function clampSetName(name: string, max = 46): string {
+  return name.length <= max ? name : `${name.slice(0, max - 1).trimEnd()}…`;
+}
+
+/*
+ * 印刷語言喺圖入面嘅英文寫法。**唔准**行 `localizedCardLanguage()` ——
+ * OG 圖只載到 Inter（latin-only），餵「日文版」入去會出一行 tofu 方格。
+ * 呢張表就係「圖入面唔准出 CJK」呢條規矩嘅執行點。
+ */
+const PRINT_LANGUAGE_EN: Record<string, string> = {
+  ja: "JP PRINT",
+  ko: "KR PRINT",
+  zhCN: "CN PRINT",
+  zhTW: "TW PRINT",
+};
+function printLanguageEn(language: string | null): string | null {
+  if (!language || language === "en") return null;
+  return PRINT_LANGUAGE_EN[language] ?? null;
 }
 
 type Palette = (typeof THEMES)[ShareTheme];
 
-function Stat({ label, value, valueSize = 52, palette, tone }: {
+function Stat({ label, value, valueSize = 52, labelSize = 22, palette, tone }: {
   label: string;
   value: string;
   valueSize?: number;
+  /** wide 個佐證行 label 收到 micro 18：嗰行係收據，唔可以同 hero label 22 一樣重。 */
+  labelSize?: number;
   palette: Palette;
   tone?: "positive" | "negative" | "neutral";
 }) {
@@ -368,7 +476,7 @@ function Stat({ label, value, valueSize = 52, palette, tone }: {
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {/* 對齊網頁 §1.3.2 角色：label = --w-label 600（唔係 400），data = --w-data 600（唔係 700）。
           Inter 600 比 bundled font 700 幼但字身闊少少，tracking 由 1.6 → 1.8 補返個呼吸位。 */}
-      <span style={{ fontSize: 22, color: palette.muted, letterSpacing: 1.8, fontWeight: 600 }}>{label}</span>
+      <span style={{ fontSize: labelSize, color: palette.muted, letterSpacing: 1.8, fontWeight: 600 }}>{label}</span>
       <span style={{ fontSize: valueSize, color, fontWeight: 600 }}>{value}</span>
     </div>
   );
@@ -416,9 +524,27 @@ function chartRange(chart: ShareChart): string | null {
   return `${from} — ${to}`.toUpperCase();
 }
 
-/* 今日出街嗰版：淨文字、成幅 1200 闊。攞唔到卡圖就原封不動退返呢個。 */
-function TextOnlyLayout({ card, logoSrc, palette }: { card: MarketCardView; logoSrc: string; palette: Palette }) {
-  const name = clampTitle(card.officialName ?? card.setName.en);
+/*
+ * 攞唔到卡圖（asset 唔喺度／sharp 炸／解碼失敗）就退返呢版。
+ *
+ * ⚠️ 呢個 layout **兩個 format 共用**，所以幾何一定要跟住 format 行 ——
+ * 舊版寫死一套（padding 64/72、logo 280×121、字級 24/30/52），喺 1080×1350 鬆到浪費，
+ * 喺 1200×630 就係啱啱好；而家市值升咗做 88px hero，同一套數落 630 高度**一定爆**
+ * （手算 bottom group 已經 424px，成幅得 502px 淨）。所以兩套幾何明寫落表。
+ *
+ * 卡圖炸咗唔係「將就」嘅理由：縮圖睇唔到數字呢個病同卡圖有冇載到完全無關
+ * （52px × 0.275 = 14.3pt 一樣讀唔到）。冇咗最搶眼嗰嚿，個數就更加唔可以再細。
+ */
+const TEXT_ONLY_GEO = {
+  wide: { padding: "40px 48px", gapTop: 8, gapBottom: 14, kicker: WIDE_TYPE.micro, set: WIDE_TYPE.micro, stat: WIDE_TYPE.stat, logoW: 144, logoH: 62, rule: 14, cols: 60 },
+  post: { padding: "56px 72px", gapTop: 20, gapBottom: 26, kicker: POST_TYPE.micro, set: POST_TYPE.meta, stat: POST_TYPE.stat, logoW: 280, logoH: 121, rule: 30, cols: 72 },
+} as const;
+function TextOnlyLayout({ card, logoSrc, palette, format }: { card: MarketCardView; logoSrc: string; palette: Palette; format: ShareFormat }) {
+  const geo = format === "post" ? TEXT_ONLY_GEO.post : TEXT_ONLY_GEO.wide;
+  /* wide 只得 630 高，卡名唔可以食三行 —— 同 WideLayout 行同一個封頂同同一條 ramp。 */
+  const name = format === "post"
+    ? clampTitle(card.officialName ?? card.setName.en)
+    : shortSubject(card, "en", WIDE_NAME_MAX) || clampTitle(card.officialName ?? card.setName.en);
   return (
     <div
       style={{
@@ -427,27 +553,41 @@ function TextOnlyLayout({ card, logoSrc, palette }: { card: MarketCardView; logo
         width: "100%",
         height: "100%",
         background: palette.paper,
-        padding: "64px 72px",
+        padding: geo.padding,
         justifyContent: "space-between",
       }}
     >
-      <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: geo.gapTop }}>
         {/* kicker = --w-label 600 + --track-kicker 級數；Inter 600 大寫比舊 bundled font 400 闊，
             4 → 3.4 先返返舊闊度（最長 kicker「POKEMON · #SV4A-205」唔可以谷長咗撞落標題）。 */}
-        <span style={{ fontSize: 24, color: palette.accent, letterSpacing: 3.4, fontWeight: 600 }}>
+        <span style={{ fontSize: geo.kicker, color: palette.accent, letterSpacing: 3.4, fontWeight: 600 }}>
           {card.tcg.toUpperCase()} · #{card.collectorNumber}
         </span>
-        <span style={{ fontSize: textOnlyTitleSize(name), color: palette.ink, fontWeight: 700, lineHeight: 1.1 }}>{name}</span>
+        <span
+          style={{
+            fontSize: format === "post" ? textOnlyTitleSize(name) : wideTitleSize(name),
+            color: palette.ink,
+            fontWeight: 700,
+            lineHeight: 1.1,
+          }}
+        >
+          {name}
+        </span>
         {/* set 名明寫 400：唔好靠 satori 嘅默認 —— 我哋只 register 400/600/700，唔明寫就靠彩數 */}
-        <span style={{ fontSize: 30, color: palette.muted, lineHeight: 1.3, fontWeight: 400 }}>{clampSetName(card.setName.en)}</span>
+        <span style={{ fontSize: geo.set, color: palette.muted, lineHeight: 1.3, fontWeight: 400 }}>
+          {clampSetName(card.setName.en, geo.cols)}
+        </span>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 26 }}>
-        <div style={{ display: "flex", gap: 72, borderTop: `2px solid ${palette.line}`, paddingTop: 30 }}>
-          <Stat palette={palette} label="MARKET CAP" value={usd(card.marketCap.value)} />
-          <Stat palette={palette} label="PSA 10 PRICE" value={usd(card.pricePsa10.value)} />
-          <Stat palette={palette} label="PSA 10 POP" value={integer(card.populationPsa10.value)} />
+      <div style={{ display: "flex", flexDirection: "column", gap: geo.gapBottom }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, borderTop: `2px solid ${palette.line}`, paddingTop: geo.rule }}>
+          <span style={{ fontSize: WIDE_TYPE.meta, color: palette.muted, letterSpacing: 1.8, fontWeight: 600 }}>PSA 10 MARKET CAP</span>
+          <span style={{ fontSize: WIDE_TYPE.hero, color: palette.ink, fontWeight: 700, lineHeight: 1 }}>{usd(card.marketCap.value)}</span>
         </div>
-        <img src={logoSrc} alt="CardZ Marketcap" width={280} height={121} />
+        <div style={{ display: "flex", gap: geo.cols }}>
+          <Stat palette={palette} label="PSA 10 PRICE" value={usd(card.pricePsa10.value)} valueSize={geo.stat} labelSize={WIDE_TYPE.micro} />
+          <Stat palette={palette} label="PSA 10 POP" value={integer(card.populationPsa10.value)} valueSize={geo.stat} labelSize={WIDE_TYPE.micro} />
+        </div>
+        <img src={logoSrc} alt="CardZ Marketcap" width={geo.logoW} height={geo.logoH} />
       </div>
     </div>
   );
@@ -501,25 +641,7 @@ function ArtStage({ art, alt, width, height, radius, palette }: {
   );
 }
 
-/*
- * wide（1200×630）：左卡圖右數據。fe06 起三個數擺同一行（本來 1+2 兩行），慳返嗰行位擺走勢圖。
- *
- * 三個數**同一個字級**，同 post 一樣（見 POST_TYPE 個註：同一行、同一個 label 級、同一條線
- * 之下，字級唔同讀落唔似分主次，似排錯版）。舊版係 44/34/34。
- * 36 係量返出嚟嘅（榜首 Van Gogh Pikachu = 全榜最闊嗰行 `$141.95M` / `$2.9K` / `49,808`，
- * 620px 右欄）：44/34/34 嗰陣 label 行食 598px（剩 22），36 之後跌到 561px（剩 59）——
- * 三格闊度由 max(label, value) 定，value 收窄咗成行都跟住收。
- *
- * `WIDE_TYPE` 同 `POST_TYPE` 一樣係「三級，唔准撒數字」。分級照呢張圖自己嘅角色行：
- *   micro 18 = 細字（走勢 caption、AS OF）
- *   meta  22 = 頂個 header 行（rank chip、TCG·編號、set 名）—— 本來 rank chip 係 24，
- *              同隔籬 22 差 9%，就係 owner 講嗰種「大大細細」，收埋做 22。
- *   stat  36 = 三個數
- * 注意 kicker 喺 post 係 micro、喺 wide 係 meta：wide 得 630 高，kicker 同 rank chip
- * 打橫並排係同一件嘢，唔可以一個 18 一個 22。
- */
-const WIDE_TYPE = { micro: 18, meta: 22, stat: 36 } as const;
-function WideLayout({ card, art, logoSrc, palette, chart, change, asOf }: {
+function WideLayout({ card, art, logoSrc, palette, chart, change, asOf, name, rankTotal }: {
   card: MarketCardView;
   art: CardArt;
   logoSrc: string;
@@ -527,8 +649,11 @@ function WideLayout({ card, art, logoSrc, palette, chart, change, asOf }: {
   chart: ShareChart | null;
   change: ReturnType<typeof changeText>;
   asOf: string | null;
+  name: string;
+  rankTotal: number | null;
 }) {
-  const name = clampTitle(card.officialName ?? card.setName.en);
+  const changeTone = change?.tone === "positive" ? palette.positive : change?.tone === "negative" ? palette.negative : palette.muted;
+  const changeBg = change?.tone === "positive" ? palette.positiveSoft : change?.tone === "negative" ? palette.negativeSoft : palette.surface;
   return (
     <div style={{ display: "flex", width: "100%", height: "100%", background: palette.paper }}>
       <ArtStage
@@ -544,59 +669,104 @@ function WideLayout({ card, art, logoSrc, palette, chart, change, asOf }: {
           display: "flex",
           flexDirection: "column",
           flex: 1,
-          /* 上下 44：最壞情況（3 行 34px 標題 + 一行 set 名）量到 ink 由 top 44
-             去到 bottom 589，即上下邊距 44 / 41，齊頭。set 名唔 clamp 就會變兩行、
-             底邊距跌到 10px（量過）。 */
-          padding: "44px 56px",
+          /* 右欄內容闊 = 1200 − 430(卡圖) − 48 − 44 = 678。 */
+          padding: "40px 44px 40px 48px",
           justifyContent: "space-between",
         }}
       >
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-            {card.marketRank >= 1 ? (
-              <span
-                style={{
-                  display: "flex",
-                  background: palette.rankBg,
-                  color: palette.rankInk,
-                  fontSize: WIDE_TYPE.meta,
-                  /* chip = 網頁 `.detail-rank` 嗰個角色，C2 已經由 650 收做 600 */
-                  fontWeight: 600,
-                  borderRadius: 999,
-                  padding: "6px 18px",
-                }}
-              >
-                #{card.marketRank}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {/*
+            rank 由「22px 藥丸裝飾」升做 40px 區塊（2026-08-19）。
+            佢係成張圖入面唯一會自我繁殖嘅元素：睇到「#4 of 1,307」，下一個問題梗係
+            「噉 #1 係邊張？」—— 呢個問題答案喺榜頁，唔喺呢張卡度，即係一個鈎唔止一次撳。
+            ⚠️ `RANKED` 呢個字**永遠唔准為咗慳位剝走**：1,307 係 CardZ 收錄兼排名嘅卡，
+               唔係全世界嘅寶可夢卡（snapshot.coverage.claim = verified-top-n）。
+          */}
+          {card.marketRank >= 1 ? (
+            <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
+              <span style={{ fontSize: WIDE_RANK_SIZE, color: palette.ink, fontWeight: 700 }}>#{card.marketRank}</span>
+              <span style={{ fontSize: WIDE_TYPE.micro, color: palette.muted, letterSpacing: 1.6, fontWeight: 600 }}>
+                {rankTotal ? `OF ${integer(rankTotal)} RANKED ${card.tcg.toUpperCase()}` : `RANKED ${card.tcg.toUpperCase()}`}
               </span>
-            ) : null}
-            <span style={{ fontSize: WIDE_TYPE.meta, color: palette.accent, letterSpacing: 3, fontWeight: 600 }}>
-              {card.tcg.toUpperCase()} · #{card.collectorNumber}
-            </span>
-          </div>
-          <span style={{ fontSize: titleSize(name), color: palette.ink, fontWeight: 700, lineHeight: 1.12 }}>{name}</span>
-          <span style={{ fontSize: WIDE_TYPE.meta, color: palette.muted, lineHeight: 1.3, fontWeight: 400 }}>{clampSetName(card.setName.en)}</span>
+            </div>
+          ) : null}
+          <span style={{ fontSize: wideTitleSize(name), color: palette.ink, fontWeight: 700, lineHeight: 1.12 }}>{name}</span>
+          {/* set · 編號 · 印刷語言 一行過，擺喺卡名**之下**做出處收據（唔係上面做 kicker）：
+              unfurl 入面卡名喺氣泡個 title 行已經出咗一次，圖入面呢行嘅角色係「邊個版本」，
+              所以行 micro 唔行 meta —— 順帶慳返成組高度畀 88px hero。
+              ⚠️ Inter 得 latin face，語言段一定要行英文常數表，唔准餵 CJK（會出 tofu）——
+              `PRINT_LANGUAGE_EN` 就係為咗呢個而存在。 */}
+          <span style={{ fontSize: WIDE_TYPE.micro, color: palette.accent, letterSpacing: 2.2, fontWeight: 600 }}>
+            {(() => {
+              const tail = [`#${card.collectorNumber}`, printLanguageEn(card.cardLanguage)].filter(Boolean) as string[];
+              const budget = WIDE_KICKER_MAX - tail.join(" · ").length - tail.length * 3;
+              return [clampSetName(card.setName.en, Math.max(14, budget)).toUpperCase(), ...tail].join(" · ");
+            })()}
+          </span>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <div style={{ display: "flex", gap: 44, borderTop: `2px solid ${palette.line}`, paddingTop: 20 }}>
-            <Stat palette={palette} label="MARKET CAP" value={usd(card.marketCap.value)} valueSize={WIDE_TYPE.stat} />
-            <Stat palette={palette} label="PSA 10 PRICE" value={usd(card.pricePsa10.value)} valueSize={WIDE_TYPE.stat} />
-            <Stat palette={palette} label="PSA 10 POP" value={integer(card.populationPsa10.value)} valueSize={WIDE_TYPE.stat} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {/*
+            ★ HERO：全圖唯一一個為「縮到 0.275× 都仲要讀得到」而設嘅數。
+            右邊貼變動藥丸；冇變動（累積中／未有數）就**整粒消失**，唔准出 0.00% 扮平穩。
+          */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, borderTop: `2px solid ${palette.line}`, paddingTop: 12 }}>
+            {/* ⚠️ 窗口標籤（180D）**唔准**接喙這條 label 後面：市值係即時數，
+                唔係 180 日數。寫成「PSA 10 MARKET CAP · 180D」係講假話。 */}
+            <span style={{ fontSize: WIDE_TYPE.meta, color: palette.muted, letterSpacing: 1.8, fontWeight: 600 }}>PSA 10 MARKET CAP</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+              <span style={{ fontSize: WIDE_TYPE.hero, color: palette.ink, fontWeight: 700, lineHeight: 1 }}>{usd(card.marketCap.value)}</span>
+              {change ? (
+                <span
+                  style={{
+                    display: "flex",
+                    background: changeBg,
+                    color: changeTone,
+                    /* ☠️ 唔准升返 stat：實測最闊嘅 hero（$141.95M @88px ≈ 400px）加
+                       30px 藥丸 = 681px > 欄寬 678，nowrap 之後藥丸就貼死粒 M。
+                       22px 量返係 622px，留返真嘅 20px gap。 */
+                    fontSize: WIDE_TYPE.meta,
+                    fontWeight: 600,
+                    borderRadius: 999,
+                    padding: "6px 18px",
+                    /* ☠️ 兩粒都唔可以删：舊版嘅藥丸會被 hero 擠窄，「+43.3% 180D」
+                       摺成兩行同 hero 撞埋一块。現在窗口標籤搬啦上面條 label，
+                       藥丸只剩變動，再加 nowrap + 唔准縮。 */
+                    whiteSpace: "nowrap",
+                    flexShrink: 0,
+                  }}
+                >
+                  {change.text} {SHARE_WINDOW_LABEL}
+                </span>
+              ) : null}
+            </div>
           </div>
-          {/* 冇歷史（少過兩個價點）就成塊唔出，唔畫一條假線亦唔留空框。 */}
+          {/* 佐證行：cap 係點計出嚟嘅（價 × 數量）。特登細過 hero —— 呢行係收據唔係主角，
+              但一定要喺度，因為「你堆數作嘅」呢個反對要當場答死。 */}
+          <div style={{ display: "flex", gap: 48 }}>
+            <Stat palette={palette} label="PSA 10 PRICE" value={usd(card.pricePsa10.value)} valueSize={WIDE_TYPE.stat} labelSize={WIDE_TYPE.micro} />
+            <Stat palette={palette} label="PSA 10 POP" value={integer(card.populationPsa10.value)} valueSize={WIDE_TYPE.stat} labelSize={WIDE_TYPE.micro} />
+          </div>
+          {/* 冇歷史（少過兩個價點）就成塊唔出，唔畫一條假線亦唔留空框。
+              變動已經升咗上 hero，所以右槽改出日期範圍（同 post 一樣邏輯）。 */}
           {chart ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
-              <ChartCaption palette={palette} change={change} fontSize={WIDE_TYPE.micro} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, width: "100%" }}>
+              <ChartCaption palette={palette} change={null} range={chartRange(chart)} fontSize={WIDE_TYPE.micro} />
               <img src={chart.src} alt="" width={chart.width} height={chart.height} />
             </div>
           ) : null}
+          {/*
+            犧牲帶（y ≳ 546）：X 裁到 2:1、Discord 縮到最細嗰陣，最底呢條最易冇。
+            所以**永遠唔准放數字**——淨係 wordmark 同資料日期。
+            144×62 = 2.323:1，同 SVG viewBox 969.29/419.45 = 2.311:1 差 0.7%（純文字版係 280×121）。
+            **比例先係要守嗰樣，絕對尺寸唔係。** 呢個比例係量返出圖度出嚟嘅，唔係照抄 SVG
+            intrinsic size：同一張卡同一支 dev server A/B（當時 declared 200×86），PNG
+            wordmark 出 ink bbox 196×83 @(526,502)、SVG 出 198×84 @(525,501)，底邊兩邊
+            都係 y=584；剪 viewBox 之前量過係 243×103 vs 276×117（細 12%）—— 即係 viewBox
+            留白同 PNG 唔一樣嗰陣，declared 數就會靜靜出錯圖。
+            2026-08-19 為咗畀返高度落 88px hero，declared 由 200×86 收做 144×62（同一比例）。
+          */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
-            {/* 200×86 = 2.326:1，同 SVG viewBox 969.29/419.45 = 2.311:1 差 0.6%（純文字版係 280×121）。
-                呢兩個數唔可以照抄新 SVG 嘅 intrinsic size —— 一定要量返出圖：同一張卡同一支 dev
-                server A/B，PNG wordmark 出 ink bbox 196×83 @(526,502)、SVG 出 198×84 @(525,501)，
-                底邊兩邊都係 y=584（+2/+1 px 純粹係 vector 抗鋸齒比 PNG 自己嗰條邊多留一格淡墨）。
-                即係冇縮水、亦冇撞底邊。剪 viewBox 之前量過係 243×103 vs 276×117（細 12%）——
-                所以 viewBox 留白同 PNG 唔一樣嗰陣，呢兩個 declared 數就會靜靜出錯圖。 */}
-            <img src={logoSrc} alt="CardZ Marketcap" width={200} height={86} />
+            <img src={logoSrc} alt="CardZ Marketcap" width={144} height={62} />
             {asOf ? (
               <span style={{ fontSize: WIDE_TYPE.micro, color: palette.muted, letterSpacing: 1.2, fontWeight: 400 }}>AS OF {asOf.toUpperCase()}</span>
             ) : null}
@@ -654,7 +824,7 @@ function PostLayout({ card, art, logoSrc, palette, chart, change, asOf }: {
       }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
-        {/* 190×82 = 2.316:1，同 wide 個 200×86 一樣係量返出圖嘅數（見 WideLayout 嗰個註）。 */}
+        {/* 190×82 = 2.316:1，同 wide 個 144×62 一樣係量返出圖嘅數（見 WideLayout 嗰個註）。 */}
         <img src={logoSrc} alt="CardZ Marketcap" width={190} height={82} />
         {card.marketRank >= 1 ? (
           <span
@@ -795,8 +965,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   /* 走勢圖同卡圖一樣 fail-open：`buildShareChart` 少過兩個價點就回 null，layout 見到
      null 就成塊唔出。**唔准**因為冇歷史而令張圖 500 或者畫一條假線。 */
   const chart = buildShareChart(card.historyDaily ?? [], SHARE_WINDOW_DAYS, {
-    width: format === "post" ? 968 : 620,
-    height: format === "post" ? 120 : 64,
+    /* wide 右欄由 620 闊做 678（卡圖鐵路 468 → 430）；高度由 64 收到 44 讓位畀 88px hero。 */
+    width: format === "post" ? 968 : 678,
+    height: format === "post" ? 120 : 34,
     lineWidth: format === "post" ? 3 : 2.5,
     /* wide 版扁到得 64px，成交 bar 會同條價線打架，所以只喺 post 出（同網頁一樣兩層都有）。 */
     bars: format === "post",
@@ -814,13 +985,29 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
   const fonts = await loadOgFonts();
 
+  /*
+   * wide 用短卡名（同 `<title>` / `og:title` 同一個 helper），唔再用 96 字嘅 PSA 全串。
+   * 全串喺 630px 高嘅畫布度食三行，逼到 88px hero 冇位企；而縮到 WhatsApp 氣泡入面
+   * 嗰三行字本身一個字都讀唔到。圖入面永遠行 en（Inter latin-only）。
+   */
+  const wideName = shortSubject(card, "en", WIDE_NAME_MAX);
+  /*
+   * 同 TCG 有排名嘅卡總數。`snapshot.top100` 只係排頭 100 張，其餘坐喺 `watchlist` ——
+   * 淨數 top100 會出「OF 93 RANKED POKÉMON」呢個 13 倍細嘅假分母。攞唔到 snapshot
+   * （fail-open）就係 null，嗰陣淨寫「RANKED POKÉMON」，唔准填個似層層嘅數。
+   */
+  const rankTotal = snapshot
+    ? [...snapshot.top100, ...snapshot.watchlist]
+      .filter((candidate) => candidate.tcg === card.tcg && candidate.marketRank >= 1).length || null
+    : null;
+
   const element = !art
-    ? <TextOnlyLayout card={card} logoSrc={logoSrc} palette={palette} />
+    ? <TextOnlyLayout card={card} logoSrc={logoSrc} palette={palette} format={format} />
     : format === "post"
       ? <PostLayout card={card} art={art} logoSrc={logoSrc} palette={palette} chart={chart} change={change} asOf={asOf} />
-      : <WideLayout card={card} art={art} logoSrc={logoSrc} palette={palette} chart={chart} change={change} asOf={asOf} />;
+      : <WideLayout card={card} art={art} logoSrc={logoSrc} palette={palette} chart={chart} change={change} asOf={asOf} name={wideName} rankTotal={rankTotal} />;
 
-  return new ImageResponse(element, {
+  const image = new ImageResponse(element, {
     width: spec.width,
     height: spec.height,
     /* undefined = 載唔到字體（上面已經 warn 咗），交返俾 satori 用 bundled font，唔好因為字體炸咗張圖 */
@@ -848,4 +1035,41 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       "x-og-theme": theme,
     },
   });
+
+  if (format !== "post") {
+    /*
+     * wide 轉 JPEG（見上面 `WIDE_JPEG_QUALITY` 個註：PNG 實測 594–648KB，爆咗
+     * WhatsApp 文件寫明嘅 600KB，而且係靜默失敗）。
+     * ⚠️ fail-open：sharp 載唔到／轉唔到就照出返 PNG —— 一張大過閘嘅圖，好過冇圖。
+     *    嗰陣 `x-og-bytes` 仍然講真數，CI（test-fe-og-unfurl）就會紅，唔會靜靜過骨。
+     */
+    /*
+     * ☠️ 用 `Headers` 實例、行 `.set()`——**唔可以** spread
+     *    `Object.fromEntries(image.headers)` 再插一条 `"Content-Type"`。
+     *    `Headers` iterator 吐出嘅 key 係小寫（`content-type`），喙 plain object
+     *    裏面同 `"Content-Type"` 係**兩把鍵**，兩條都會落到個 response，
+     *    出街嘅值係 `image/png, image/jpeg`。實測過：唔會喁、唔會警告，
+     *    sharp 一樣 decode 到（看 bytes），但 unfurler 係看個 header 字串嘅。
+     */
+    const png = Buffer.from(await image.arrayBuffer());
+    const respond = (body: Buffer, mime: string) => {
+      const headers = new Headers(image.headers);
+      headers.set("Content-Type", mime);
+      headers.set("Content-Length", String(body.length));
+      headers.set("x-og-bytes", String(body.length));
+      return new Response(new Uint8Array(body), { headers });
+    };
+    try {
+      const { default: sharp } = await import("sharp");
+      const jpeg = await sharp(png)
+        /* 4:4:4 = 唔做色度抽樣。細字同 #e8823f 橙色 accent 靠佢先唔會糊邊。 */
+        .jpeg({ quality: WIDE_JPEG_QUALITY, chromaSubsampling: "4:4:4", mozjpeg: true })
+        .toBuffer();
+      return respond(jpeg, "image/jpeg");
+    } catch (error) {
+      noteArtFailure(`${id}:jpeg`, error);
+      return respond(png, "image/png");
+    }
+  }
+  return image;
 }

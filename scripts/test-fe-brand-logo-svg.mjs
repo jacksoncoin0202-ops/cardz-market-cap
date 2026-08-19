@@ -136,13 +136,37 @@ check("OG route 冇喺 LOGO_BY_THEME 以外再寫死 logo 路徑",
 /* satori 唔理 SVG 自己嗰個 width/height（覆核實測：剝走都逐 px 一樣），所以呢兩個 declared
    數就係 OG wordmark 嘅**唯一**尺寸來源。原本零 assert —— 種 fault 改成 100×43，wordmark
    靜靜細一半，test 照綠。寫死喺度：要改版面就連呢行一齊改，改動先至被人睇見。 */
-const OG_IMG_DIMS = [[280, 121], [200, 86], [190, 82]];
+const OG_IMG_DIMS = [[144, 62], [190, 82]];
 const ogImgs = [...ogRoute.matchAll(/<img\s+src=\{logoSrc\}[^>]*?width=\{(\d+)\}\s+height=\{(\d+)\}/g)]
   .map((m) => [Number(m[1]), Number(m[2])]);
-check("OG route 有三個 wordmark <img src={logoSrc}>", ogImgs.length === 3, JSON.stringify(ogImgs));
-check(`OG wordmark declared 尺寸 = TextOnly 280×121 / Wide 200×86 / Post 190×82`,
+check("OG route 有兩個寫死尺寸嘅 wordmark <img src={logoSrc}>", ogImgs.length === 2, JSON.stringify(ogImgs));
+check(`OG wordmark declared 尺寸 = Wide 144×62 / Post 190×82`,
   JSON.stringify(ogImgs) === JSON.stringify(OG_IMG_DIMS),
   `實際 ${JSON.stringify(ogImgs)}`);
+
+/* fail-open 個 TextOnlyLayout 兩個 format 共用，尺寸由 `TEXT_ONLY_GEO` 出，唔係寫死喺
+   `<img>` 度 —— 上面條 regex 掃唔到。呢一段唔補返，退化版嘅 wordmark 就變返零 assert。 */
+const TEXT_ONLY_WANT = { wide: [144, 62], post: [280, 121] };
+const geoBlock = ogRoute.match(/const TEXT_ONLY_GEO\s*=\s*\{[\s\S]*?\n\} as const;/)?.[0] ?? "";
+check("OG route 有 TEXT_ONLY_GEO", !!geoBlock);
+for (const [format, want] of Object.entries(TEXT_ONLY_WANT)) {
+  const row = geoBlock.match(new RegExp(`${format}:\\s*\\{[^}]*logoW:\\s*(\\d+),\\s*logoH:\\s*(\\d+)`));
+  const got = row ? [Number(row[1]), Number(row[2])] : null;
+  check(`TEXT_ONLY_GEO.${format} wordmark = ${want[0]}×${want[1]}`,
+    JSON.stringify(got) === JSON.stringify(want), `實際 ${JSON.stringify(got)}`);
+}
+
+/*
+ * 四對數全部要守返同一個長寬比。上面幾條寫死數字，係為咗「改動要被人睇見」；
+ * 呢條守嘅係另一件事 —— **改成一個唔成比例嘅數**。satori 唔會補正，出街就係扁咗／
+ * 拉長咗嘅 wordmark，一樣係零 error。2.328:1 係量返出圖度返嚟嘅（見 route.tsx 個註）。
+ */
+const WORDMARK_RATIO = 2.328;
+for (const [w, h] of [...ogImgs, ...Object.values(TEXT_ONLY_WANT)]) {
+  const ratio = w / h;
+  check(`wordmark ${w}×${h} 長寬比 ≈ ${WORDMARK_RATIO}`, Math.abs(ratio - WORDMARK_RATIO) / WORDMARK_RATIO < 0.01,
+    `${ratio.toFixed(3)}`);
+}
 
 /*
  * 分享圖尺寸（2026-08-19）。兩個數都係「改咗都唔會有 error，只係出街張圖唔啱樣」：
@@ -211,4 +235,4 @@ if (failed.length) {
   console.error("FAIL brand wordmark SVG contract:\n" + failed.map((item) => ` - ${item}`).join("\n"));
   process.exit(1);
 }
-console.log("PASS brand wordmark SVG contract (2 SVG, viewBox==width/height, no text/script/xlink/external, defs⇄use 兩邊對得晒, OG base64 svg+xml, OG theme⇄skin + 3 個 wordmark 尺寸, OG wide/post 尺寸 + 直度 aspect ≥ 0.8 + route-metadata 對得返, share-image .svg, header 仍然 -h100.png, sha256 stamp 對得返)");
+console.log("PASS brand wordmark SVG contract (2 SVG, viewBox==width/height, no text/script/xlink/external, defs⇄use 兩邊對得晒, OG base64 svg+xml, OG theme⇄skin + 4 個 wordmark 尺寸同長寬比, OG wide/post 尺寸 + 直度 aspect ≥ 0.8 + route-metadata 對得返, share-image .svg, header 仍然 -h100.png, sha256 stamp 對得返)");

@@ -4,9 +4,10 @@ import { CardDetail } from "@/components/card-detail";
 import { displayCardName } from "@/lib/card-name";
 import { formatInteger, formatMoney, formatObservationDate } from "@/lib/format";
 import { copy, localizedCardLanguage } from "@/lib/i18n";
-import { cardFactSentence, cardSubject, relatedCards } from "@/lib/related-cards";
+import { cardShareLine, cardSubject, relatedCards, shortSubject } from "@/lib/related-cards";
 import { localeFromSearchParams, marketMetadata, type PageSearchParams } from "@/lib/route-metadata";
 import { loadMarketSnapshot, singleCardSnapshot } from "@/lib/server-snapshot";
+import { defaultMarketWindow } from "@/lib/types";
 
 export const revalidate = 300;
 
@@ -43,70 +44,174 @@ async function requireCard(id: string) {
   return { full, snapshot, card };
 }
 
+/*
+ * 同一個 TCG 之下有排名嘅卡總數（實測 2026-08-18 snapshot：Pokémon 1,307、One Piece 297）。
+ *
+ * ⚠️ 一定要行 `top100` **加** `watchlist`：`top100` 個名係歷史遺留，佢真係得排頭 100 張，
+ * 其餘 1,504 張坐喺 `watchlist`。淨數 `top100` 就會出「#4 of 93 ranked Pokémon」——
+ * 一個 13 倍細嘅假分母，出咗街冇得追。
+ * ⚠️ 「ranked／收錄」呢個限定詞喺文案入面永不准剝：1,307 係 CardZ 收錄兼排到名嘅卡，
+ * 唔係全世界嘅寶可夢卡（`coverage.claim === "verified-top-n"`）。
+ */
+function tcgRankedCount(full: Awaited<ReturnType<typeof requireCard>>["full"], tcg: string): number | null {
+  const count = [...full.top100, ...full.watchlist]
+    .filter((candidate) => candidate.tcg === tcg && candidate.marketRank >= 1).length;
+  return count > 0 ? count : null;
+}
+
 export async function generateMetadata({ params, searchParams }: CardRouteProps): Promise<Metadata> {
   const [{ id }, locale] = await Promise.all([params, localeFromSearchParams(searchParams)]);
-  const { card, snapshot } = await requireCard(id);
+  const { full, card, snapshot } = await requireCard(id);
   const t = copy[locale];
   const labels = t.labels;
-  /*
-   * owner 2026-08-16：<title> 跟 UI 語言出當地官方譯名（displayCardName，同 H1／sheet／熱力圖一致）；
-   * 非英文 locale 而譯名同英文唔同時，英文 officialName 跟喺後面做搜尋／辨識 anchor。
-   * 印刷語言只係 disambiguation suffix。
-   */
-  const printLanguage = card.cardLanguage
-    ? labels.printLanguage.replace("{language}", localizedCardLanguage(card.cardLanguage, locale))
-    : null;
   const localName = displayCardName(card, locale, card.officialName || labels.viewCard);
-  /*
-   * 60 字上限（GEO，owner 2026-08-16）：長 PSA 名試過整到成條 <title> 127 字，出街只
-   * 見到頭幾十字，連 root layout 貼嘅「| CardZ Marketcap」都斬埋。所以由外向內剝，
-   * 剝嘅一定係「可以冇」嗰截，唔係身份：
-   *   1. 非英文 locale 嗰個「（英文 officialName）」係搜尋 anchor，爆咗就淨返譯名；
-   *   2. 「· 日文版」純粹 disambiguation，爆咗直接唔出。
-   * en 個 officialName 本身就係張卡嘅身份，一個字都唔准斬（斬咗就唔係嗰張卡）。
-   */
-  const TITLE_MAX = 60;
-  const withOfficial = card.officialName && localName !== card.officialName
-    ? `${localName}（${card.officialName}）`
-    : localName;
-  const baseTitle = withOfficial.length > TITLE_MAX ? localName : withOfficial;
-  const withPrintLanguage = printLanguage ? `${baseTitle} · ${printLanguage}` : baseTitle;
-  const title = withPrintLanguage.length > TITLE_MAX ? baseTitle : withPrintLanguage;
-  /*
-   * description 由「小故事開頭 160 字」改做關鍵詞行先嘅事實句（GEO，owner 2026-08-16）：
-   * 卡名／set／編號／市值／PSA 10 價／POP／日期／名次全部喺可見範圍入面。直接行卡頁
-   * 上面睇得見嗰句可引用事實（cardFactSentence），唔另開第六個版本——同一張卡喺
-   * <meta> 同頁面上面一定講同一句（AGENTS 規矩 13）。三個數缺一就跌返小故事。
-   * `total: null`：講「共 N 張」要完整 snapshot 兼多 20 幾字，plainDescription 160 字
-   * 一斬就連名次都冇埋，寧願淨講名次。
-   */
-  const factDate = card.pricePsa10.checkedAt || card.pricePsa10.asOf || snapshot.effectiveAt;
+  const tcgName = card.tcg === "One Piece" ? t.nav.onePiece : t.nav.pokemon;
+  const rankedCount = tcgRankedCount(full, card.tcg);
   const capValue = card.marketCap.value;
   const priceValue = card.pricePsa10.value;
   const popValue = card.populationPsa10.value;
-  const factName = (localName && localName !== card.officialName ? localName : cardSubject(card)) || localName;
-  const description = capValue !== null && priceValue !== null && popValue !== null
-    ? cardFactSentence(locale, {
-      name: factName,
+  const capText = capValue !== null ? formatMoney(capValue, "USD", snapshot.rates, locale, true) : null;
+
+  /*
+   * <title> / og:title 由「卡名（英文全名）· 印刷語言」改成「短卡名 #編號 語言 · #排名 TCG · 市值」
+   * （owner 2026-08-19）。
+   *
+   * 點解要改：舊式出街嘅係 PSA 全串，實測 rank #4 嗰張出咗
+   * `2016 Pokemon Japanese XY Promo Full Art/Mario Pikachu Mario Pikachu Special Box 294/XY-P`
+   * ——88 字，喺 WhatsApp／Telegram 嘅 unfurl 標題只見到頭一截「2016 Pokemon Japanese XY
+   * Promo Full Art/Mario…」，即係**年份同 set 名食晒全部可見空間**，而人哋會唔會撳全靠
+   * 嘅嗰兩個數（#4、$76.06M）連出場機會都冇。
+   *
+   * 60 字上限維持（owner 2026-08-16 定，`<title>` 仲要俾 layout template 加 18 字）。
+   * 剝除次序（唔准調轉）：
+   *   1. 短卡名尾巴（`shortSubject` 字界剪 + `…`）——最長兼最可以短嘅一截；
+   *   2. `{TCG}` 個字 —— 張圖同 og:description 都攞得返；
+   *   3. `· {市值}` 整段 —— og:description 攞得返。
+   * `#{編號}`、印刷語言、`#{排名}` 永不剝：同一角色同一 set 嘅兩張卡淨靠編號分身份。
+   */
+  const TITLE_MAX = 60;
+  /*
+   * 印刷語言喺 title 度用**短 token**，唔用 badge 嗰句。
+   * en 個 `printLanguage` template 出「Japanese print」= 14 字，喺 60 字預算入面食咗
+   * 23%，實測會逼到卡名由「Mario Pikachu Special Box」剪剩「Mario Pikachu…」兼連
+   * 「Pokémon」都要剝走。CJK 嗰句本身就係「日文版」三個字，唔使動。
+   * ⚠️ 呢個 token 永不准剝：同一角色同一 set 嘅日英兩版靠佢分身份。
+   */
+  const LANG_TOKEN: Record<string, string> = { ja: "JP", ko: "KR", zhCN: "CN", zhTW: "TW" };
+  const printLanguage = card.cardLanguage && card.cardLanguage !== "en"
+    ? (locale === "en"
+      ? LANG_TOKEN[card.cardLanguage] ?? null
+      : labels.printLanguage.replace("{language}", localizedCardLanguage(card.cardLanguage, locale)))
+    : null;
+  const identity = [
+    card.collectorNumber ? `#${card.collectorNumber}` : null,
+    printLanguage,
+  ].filter(Boolean).join(" ");
+  const rankPart = card.marketRank >= 1 ? `#${card.marketRank}` : null;
+  const buildTitle = (subject: string, withIdentity: boolean, withTcg: boolean, withCap: boolean) => [
+    [subject, withIdentity ? identity : null].filter(Boolean).join(" "),
+    rankPart ? [rankPart, withTcg ? tcgName : null].filter(Boolean).join(" ") : null,
+    withCap ? capText : null,
+  ].filter(Boolean).join(" · ");
+  /*
+   * 先用完整短卡名砌一次，爆咗先按**實際超出幾多字**剪 —— 唔好靠「固定段長度」倒扣：
+   * 卡名同編號之間嗰個空格唔喺固定段入面，實測會少計一格，於是砌出 61 字（爆 1 字）
+   * 再無謂咁降級剝走「Pokémon」。
+   */
+  const SUBJECT_FLOOR = 16;
+  /*
+   * 降級階梯嘅次序 = 邊樣最抵留低。編號（`#085/SVP`）**排喺卡名之前俾人剝**：
+   * 實測「Pikachu With Grey Felt Hat Pokemon X Van Gogh」剩 27 字預算，斬成
+   *「Pikachu With Grey Felt…」—— 個名嘅記認位（Van Gogh）冇咗，換返嚟嘅係一串
+   * 只有收藏者先識讀嘅編號。氣泡標題係鈎，編號係收據；收據喺圖入面同頁面都仲有。
+   * ⚠️ 但編號只喺**卡名真係入唔落**嗰陣先剝，唔係一開波就唔要。
+   */
+  const SUBJECT_KEEP = 30;
+  const fullSubject = shortSubject(card, locale);
+  let title = buildTitle(fullSubject, true, true, true);
+  if (title.length > TITLE_MAX) {
+    const budget = fullSubject.length - (title.length - TITLE_MAX);
+    title = budget >= SUBJECT_KEEP
+      ? buildTitle(shortSubject(card, locale, budget), true, true, true)
+      : buildTitle(fullSubject, false, true, true);
+  }
+  if (title.length > TITLE_MAX) {
+    const budget = Math.max(SUBJECT_FLOOR, fullSubject.length - (title.length - TITLE_MAX));
+    title = buildTitle(shortSubject(card, locale, budget), false, true, true);
+  }
+  if (title.length > TITLE_MAX) title = buildTitle(shortSubject(card, locale, SUBJECT_FLOOR), false, false, true);
+  if (title.length > TITLE_MAX) title = buildTitle(shortSubject(card, locale, SUBJECT_FLOOR), false, false, false);
+  /* 全部剝完都仲爆（理論上唔會，但唔准出街先斷）→ 硬剪，起碼保住開頭。 */
+  if (title.length > TITLE_MAX) title = `${title.slice(0, TITLE_MAX - 1).trimEnd()}…`;
+
+  /*
+   * description 由散文事實句改成點分隔嘅分享行（owner 2026-08-19）。
+   *
+   * 舊寫法留低嘅一句註係**實測錯**嘅：佢寫住「卡名／set／編號／市值／PSA 10 價／POP／
+   * 日期／名次全部喺可見範圍入面」，但 `plainDescription()` 個 160 字 clamp 實際將出街
+   * 嗰句斬到「…as of Aug 18…」——price / pop / 名次一個都入唔到 meta。
+   * 新做法：同一份 `CardFactInput` 出兩個 variant —— 散文句繼續行頁面
+   * `<p class="card-fact">` 同 JSON-LD（完整未斬，AI 爬蟲主要讀嗰兩度），點分隔行入三個
+   * meta 出口（永遠 ≤160，唔會被 clamp 掂）。理由寫喺 `cardShareLine` 個註。
+   * 三個數缺一就照舊跌返小故事。
+   */
+  const factDate = card.pricePsa10.checkedAt || card.pricePsa10.asOf || snapshot.effectiveAt;
+  const changeMetric = card.windows?.[defaultMarketWindow]?.changePct;
+  /* fail-closed：status 唔係 ready/stale（累積中／未有數）就當冇數，唔准出「0.00%」扮平穩。 */
+  const changeText = changeMetric
+    && changeMetric.value !== null
+    && Number.isFinite(changeMetric.value)
+    && (changeMetric.status === "ready" || changeMetric.status === "stale")
+    ? `${changeMetric.value > 0 ? "▲+" : changeMetric.value < 0 ? "▼" : "•"}${changeMetric.value.toFixed(1)}% ${defaultMarketWindow.toUpperCase()}`
+    : null;
+  const shareInput = capText !== null && priceValue !== null && popValue !== null
+    ? {
+      name: (localName && localName !== card.officialName ? localName : cardSubject(card)) || localName,
       set: card.setName[locale] || card.setName.en || t.status.unavailable,
       num: card.collectorNumber,
-      cap: formatMoney(capValue, "USD", snapshot.rates, locale, true),
+      cap: capText,
       price: formatMoney(priceValue, "USD", snapshot.rates, locale),
       pop: formatInteger(popValue, locale),
       date: formatObservationDate(factDate, locale),
       rank: card.marketRank,
-      total: null,
-      tcg: card.tcg === "One Piece" ? t.nav.onePiece : t.nav.pokemon,
-    })
+      total: rankedCount,
+      tcg: tcgName,
+    }
+    : null;
+  const description = shareInput
+    ? cardShareLine(locale, { ...shareInput, change: changeText })
     : card.story?.[locale] || labels.viewCard;
-  // 每張卡出自己嗰張 OG（卡名 / set / 市值 / PSA 10 價同 POP）。
+
+  /*
+   * og:image URL 帶 `?v={generation}`：Meta 自己嘅建議係「換 URL，唔好喺同一條 URL 覆蓋
+   * bytes」。要講清楚佢買唔到咩 —— **唔會**令 Facebook 自動 refresh 舊 preview（FB 係
+   * per-page-URL cache），已 send 咗嘅 WhatsApp／iMessage 訊息亦永遠唔會更新。佢保證嘅
+   * 係：任何一家真係 re-scrape 嗰陣攞到嘅一定係當日 bytes，唔係 CDN 舊圖。
+   * `readFormat`/`readTheme` 對未知 param 已經 default-through，OG route 唔使改。
+   *
+   * imageAlt 由裸卡名改成載實數：alt 係讀屏同埋部分 unfurler 嘅純文字 fallback，
+   * 只講個名等於將張圖入面全部數字掉咗。
+   */
+  const imageAlt = [
+    /*
+     * 短卡名，唔用 88 字嘅 PSA 全串 —— alt 係讀屏一句過讀出嚟，全串會蓋過後面啲數。
+     * ⚠️ 但**唔可以用 `shortSubject` 個 44 字預設**：alt 冇長度壓力（唔上 <title>、
+     * 唔上氣泡），斬到「…Pokemon X Van…」係將讀屏用戶嗰句斬走咗最關鍵嗰兩個字。
+     * 排版先要 44，語意唔需要。
+     */
+    [shortSubject(card, locale, 80), card.collectorNumber ? `#${card.collectorNumber}` : null].filter(Boolean).join(" "),
+    /* 數字段直接借用同一條分享行：alt 唔准講一套、meta 講另一套，亦唔准淨係得個名。 */
+    shareInput ? description : null,
+  ].filter(Boolean).join(" — ");
   return marketMetadata(
     locale,
     title,
     description,
     `/card/${id}`,
-    `/api/og/card/${encodeURIComponent(id)}`,
-    localName || "CardZ Marketcap",
+    `/api/og/card/${encodeURIComponent(id)}?v=${encodeURIComponent(snapshot.generation)}`,
+    imageAlt || localName || "CardZ Marketcap",
+    /* wide 個 OG route 出 JPEG（壓落 WhatsApp 600KB 閘），唔係站內默認嗰張 PNG。 */
+    "image/jpeg",
   );
 }
 

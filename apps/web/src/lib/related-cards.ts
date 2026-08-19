@@ -75,6 +75,86 @@ export function cardSubject(
 }
 
 /*
+ * 貼身重覆詞組摺疊：「Mario Pikachu Mario Pikachu Special Box」→「Mario Pikachu Special Box」。
+ *
+ * 呢個唔係美化，係修資料污染：PSA 全串名入面有 236 張（實測 seed-snapshot 1,604 張）
+ * 帶住即時重覆嘅詞組，因為上游將「產品名」同「卡名」串埋一齊而兩者本身就重覆。
+ * 出街嘅 <title> 同分享圖入面兩次都見到同一個詞 = 睇落似 bug。
+ *
+ * ⚠️ 只摺**貼身**重覆（`X X`），唔准摺隔開嘅（`X Y X`）——「Pikachu Pokemon X Van Gogh」
+ * 嗰個 `X` 係「crossover」嘅 X，唔係重覆。
+ */
+export function dedupeAdjacentRuns(text: string): string {
+  let out = text;
+  for (let pass = 0; pass < 3; pass += 1) {
+    const next = out.replace(/\b([A-Za-z0-9'./&-]+(?:\s+[A-Za-z0-9'./&-]+)*?)\s+\1\b/g, "$1");
+    if (next === out) break;
+    out = next;
+  }
+  return out;
+}
+
+/*
+ * 卡面詞彙縮寫表 —— **只准收「同一件事嘅公認短寫」**，唔准收「意思差唔多」。
+ * SIR / IR 係 TCG 圈日常寫法，唔係我哋發明；`Full Art/` 係上游串名嘅接駁符號唔係卡面字。
+ * 用途：<title> 硬封 60 字，慳呢啲位先夠留住角色名 + 編號 + 排名 + 市值。
+ */
+const SUBJECT_ABBREVIATIONS: ReadonlyArray<[RegExp, string]> = [
+  [/\bFull Art\//gi, ""],
+  [/\bSpecial Illustration Rare\b/gi, "SIR"],
+  [/\bIllustration Rare\b/gi, "IR"],
+  [/\bAlternate Art\b/gi, "Alt Art"],
+  [/\bBlack Star Promo\b/gi, "Promo"],
+  [/\bSword & Shield\b/gi, "SWSH"],
+  [/\bUltra-Premium Collection\b/gi, "UPC"],
+];
+
+/** 由**尾**喺字界剪，加 `…`。中間省略唔准用喺卡名（搜唔到、認唔出）。 */
+function trimToWidth(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max - 1);
+  const space = cut.lastIndexOf(" ");
+  const kept = (space > max * 0.5 ? cut.slice(0, space) : cut).trimEnd();
+  return `${kept}…`;
+}
+
+/*
+ * 分享面（<title> / og:title / 分享圖）用嘅短卡名。
+ *
+ * ⚠️ 呢個**唔係** `displayCardName` 嘅替代品：頁面 H1、JSON-LD、sheet 全部繼續用
+ * 完整 `officialName`／譯名。呢條只服務「有 60 字硬牆」嗰幾個出口 —— owner 2026-08-19：
+ * 出街 og:title 而家係 88 字嘅 PSA 全串（`2016 Pokemon Japanese XY Promo Full
+ * Art/Mario Pikachu Mario Pikachu Special Box 294/XY-P`），喺 WhatsApp 氣泡淨見到頭
+ * 一截年份同 set 名，即係**最冇用嗰截**，而市值／排名全部被斬走。
+ *
+ * 步驟（順序唔准調）：
+ *   1. 非 en locale 有官方譯名 → 直接用譯名（本身已經短，例如「瑪利歐皮卡丘 全幅」），
+ *      剝走尾巴嗰個編號（title 自己會另外印 `#294/XY-P`，唔好講兩次）。
+ *   2. 其餘（en，或者冇譯名）→ `cardSubject()` 剝年份／set 前綴／編號尾。
+ *      ⚠️ `name.en` **唔係**乾淨短名，佢同 `officialName` 一模一樣（實測 API），
+ *      所以英文冇捷徑，一定要行呢條。
+ *   3. 摺重覆詞組 → 4. 縮寫表 → 5. 仍然爆就字界剪。
+ */
+export function shortSubject(
+  card: Pick<MarketCardView, "officialName" | "setName" | "collectorNumber" | "name">,
+  locale: Locale,
+  max = 44,
+): string {
+  const number = (card.collectorNumber ?? "").trim();
+  const localised = locale === "en" ? "" : (card.name?.[locale] ?? "").trim();
+  if (localised && localised !== card.officialName) {
+    let text = localised;
+    if (number && text.endsWith(number)) text = text.slice(0, text.length - number.length).trim();
+    if (text) return trimToWidth(text, max);
+  }
+  let text = dedupeAdjacentRuns(cardSubject(card));
+  for (const [pattern, replacement] of SUBJECT_ABBREVIATIONS) text = text.replace(pattern, replacement);
+  text = text.replace(/\s{2,}/g, " ").trim();
+  if (!text) text = dedupeAdjacentRuns(card.officialName ?? "").trim();
+  return trimToWidth(text, max);
+}
+
+/*
  * 卡面詞彙（版本／稀有度／產品形態），唔係角色名。呢張清單係由 seed-snapshot 嘅
  * token 頻率表挑出嚟嘅，唔係抄一套通用停用詞：跑完之後 1,599 張入面 1,363 張
  * （85%）落到一個 ≥2 張嘅角色組，頭幾個 key 係 pikachu / charizard /
@@ -225,6 +305,18 @@ export interface GeoCopy {
   cardFact: string;
   cardFactRank: string;
   cardFactRankNoTotal: string;
+  /*
+   * 分享行（`cardShareLine`）嘅四個格。**唔係** `cardFact` 嘅翻版 —— 散文句係寫畀
+   * 頁面同 JSON-LD 讀，呢四格係寫畀「頭 80 字就被斬」嗰個場景讀（WhatsApp／TG／
+   * Slack 嘅 unfurl description）。同一份 `CardFactInput` 出，數字冇可能唔一致。
+   *
+   * ⚠️ `ranked` / 「收錄」呢個限定詞**永不准為咗慳位剝走**：1,307 係 CardZ 收錄兼
+   * 排名嘅卡，唔係全世界嘅卡。剝咗就係 overclaim。
+   */
+  shareRank: string;
+  shareRankNoTotal: string;
+  shareCap: string;
+  sharePricePop: string;
   boxTitle: string;
   boxDescription: string;
   boxFact: string;
@@ -249,6 +341,10 @@ export const geoCopy: Record<Locale, GeoCopy> = {
        大部分卡先至守得住 50 字上限（1,599 張實測：中位數 45 字）。 */
     cardFactRank: "Ranked #{rank} of {total} {tcg} cards by market cap.",
     cardFactRankNoTotal: "Ranked #{rank} by market cap.",
+    shareRank: "#{rank} of {total} ranked {tcg}",
+    shareRankNoTotal: "#{rank} ranked {tcg}",
+    shareCap: "{cap} cap",
+    sharePricePop: "PSA 10 {price} × {pop} pop",
     boxTitle: "Sealed Booster Box Prices — Sold-First Market Tracker",
     boxDescription: "Sealed booster box prices for the Pokémon TCG and One Piece Card Game, set by completed sales first. {priced} of {total} boxes carry a price as of {date}.",
     boxFact: "CardZ Marketcap tracks sealed booster box prices for the Pokémon TCG and the One Piece Card Game. A completed sale sets the reference price; an ask floor stands in only when no sale exists. {priced} of {total} boxes carry a price as of {date}.",
@@ -274,6 +370,10 @@ export const geoCopy: Record<Locale, GeoCopy> = {
     cardFact: "{name}（{set} #{num}）在 CardZ Marketcap 的 PSA 10 市值為 {cap}（{date}）：PSA 10 價格 {price} × PSA 10 鑑定數量 {pop}。",
     cardFactRank: "在 {total} 張{tcg}卡牌之中，市值排名第 {rank}。",
     cardFactRankNoTotal: "市值排名第 {rank}。",
+    shareRank: "{tcg}市值第 {rank} 名／已收錄 {total} 張",
+    shareRankNoTotal: "{tcg}市值第 {rank} 名",
+    shareCap: "市值 {cap}",
+    sharePricePop: "PSA 10 {price} × {pop} 張",
     boxTitle: "寶可夢／海賊王原盒價格 — 未拆盒行情追蹤",
     boxDescription: "寶可夢與海賊王集換式卡牌原盒價格，以成交價優先計算。截至 {date}，{total} 個原盒之中有 {priced} 個有價格。",
     boxFact: "CardZ Marketcap 追蹤寶可夢與海賊王集換式卡牌的未拆原盒價格。參考價一律以完成成交為準；只有在完全沒有成交時，才以最低要價暫代。截至 {date}，{total} 個原盒之中有 {priced} 個有價格。",
@@ -294,6 +394,10 @@ export const geoCopy: Record<Locale, GeoCopy> = {
     cardFact: "{name}（{set} #{num}）在 CardZ Marketcap 的 PSA 10 市值为 {cap}（{date}）：PSA 10 价格 {price} × PSA 10 评级数量 {pop}。",
     cardFactRank: "在 {total} 张{tcg}卡牌之中，市值排名第 {rank}。",
     cardFactRankNoTotal: "市值排名第 {rank}。",
+    shareRank: "{tcg}市值第 {rank} 名／已收录 {total} 张",
+    shareRankNoTotal: "{tcg}市值第 {rank} 名",
+    shareCap: "市值 {cap}",
+    sharePricePop: "PSA 10 {price} × {pop} 张",
     boxTitle: "宝可梦／海贼王原盒价格 — 未拆盒行情追踪",
     boxDescription: "宝可梦与海贼王集换式卡牌原盒价格，以成交价优先计算。截至 {date}，{total} 个原盒之中有 {priced} 个有价格。",
     boxFact: "CardZ Marketcap 追踪宝可梦与海贼王集换式卡牌的未拆原盒价格。参考价一律以完成成交为准；只有在完全没有成交时，才以最低要价暂代。截至 {date}，{total} 个原盒之中有 {priced} 个有价格。",
@@ -314,6 +418,10 @@ export const geoCopy: Record<Locale, GeoCopy> = {
     cardFact: "{name}（{set} #{num}）の PSA 10 時価総額は CardZ Marketcap で {date} 時点 {cap}。PSA 10 価格 {price} × PSA 10 鑑定枚数 {pop} で算出。",
     cardFactRank: "{tcg}カード {total} 枚中、時価総額 {rank} 位。",
     cardFactRankNoTotal: "時価総額 {rank} 位。",
+    shareRank: "{tcg}時価総額 {rank} 位／収録 {total} 枚",
+    shareRankNoTotal: "{tcg}時価総額 {rank} 位",
+    shareCap: "時価総額 {cap}",
+    sharePricePop: "PSA 10 {price} × {pop} 枚",
     boxTitle: "ポケカ・ワンピBOX相場 — 未開封 BOX価格トラッカー",
     boxDescription: "ポケカとワンピースカードの未開封 BOX相場。参考価格は成約優先で算出。{date} 時点で {total} BOX 中 {priced} BOX に価格。",
     boxFact: "CardZ Marketcap はポケモンカードとワンピースカードゲームの未開封 BOX相場を追跡します。参考価格は成約価格が基準で、成約がない場合のみ最安提示価格を代用します。{date} 時点で {total} BOX 中 {priced} BOX に価格があります。",
@@ -334,6 +442,10 @@ export const geoCopy: Record<Locale, GeoCopy> = {
     cardFact: "{name}({set} #{num})의 PSA 10 시가총액은 CardZ Marketcap 기준 {date} 현재 {cap}입니다: PSA 10 가격 {price} × PSA 10 개체수 {pop}.",
     cardFactRank: "{tcg} 카드 {total}장 중 시가총액 {rank}위.",
     cardFactRankNoTotal: "시가총액 {rank}위.",
+    shareRank: "{tcg} 시가총액 {rank}위／수록 {total}장",
+    shareRankNoTotal: "{tcg} 시가총액 {rank}위",
+    shareCap: "시가총액 {cap}",
+    sharePricePop: "PSA 10 {price} × {pop}장",
     boxTitle: "포켓몬·원피스 부스터 박스 시세 — 미개봉 박스 가격",
     boxDescription: "포켓몬·원피스 카드게임 미개봉 부스터 박스 시세. 기준가는 체결가 우선입니다. {date} 기준 {total}개 박스 중 {priced}개에 가격이 있습니다.",
     boxFact: "CardZ Marketcap은 포켓몬 카드와 원피스 카드게임의 미개봉 부스터 박스 시세를 추적합니다. 기준가는 체결된 판매가로 정하며, 체결가가 없을 때만 최저 호가로 대체합니다. {date} 기준 {total}개 박스 중 {priced}개에 가격이 있습니다.",
@@ -409,4 +521,49 @@ export function cardFactSentence(locale: Locale, input: CardFactInput): string {
    */
   const separator = /[。！？]$/.test(base) ? "" : " ";
   return `${base}${separator}${rank}`;
+}
+
+/*
+ * 同一份事實嘅**第二個 variant**：點分隔嘅分享行，畀 `<meta name="description">` /
+ * `og:description` / `twitter:description` 三個出口。
+ *
+ * 點解要多一個 variant（AGENTS 規矩 13 講「同一張卡唔准講兩句唔同嘅嘢」）：
+ * 出街嗰句散文本身**已經**被 `plainDescription()` 個 160 字 clamp 斬到
+ * 「…as of Aug 18…」——price / pop / 排名全部入唔到 meta。即係規矩 13 今日
+ * 其實已經破緊（meta 講嘅係半句），而破法係最差嗰種：斬喺中間、冇數字。
+ * 呢個 variant 由**同一個 `CardFactInput`** 出，數字冇可能矛盾，而且散文句喺頁面
+ * `<p class="card-fact">` 同 JSON-LD 度**完整未斬**（AI 爬蟲主要讀嗰兩度），
+ * 所以係「一個真相、兩個長度」，唔係「兩個真相」。owner 2026-08-19 拍板。
+ *
+ * 排位理由：頭 80 字 = 氣泡入面嗰個人睇到嗰截（Meta 自己 WhatsApp 文件講
+ * 「80 characters will suffice」），所以載排名／市值／變動；80 字之後係爬蟲食嘅，
+ * 載 price × pop × 日期 —— 嗰兩樣喺 chat 度本來就見唔到，擺後面零成本。
+ *
+ * 變動段冇數就**整格消失**，唔准出「0.00%」扮平穩（同 OG 圖 `changeText()` 同一條
+ * fail-closed 規矩）。窗名一定要跟住真實用咗嘅窗，fallback 咗仲印「180D」= 講大話。
+ */
+export interface CardShareLineInput extends CardFactInput {
+  /** 已經砌好嘅變動段，例如「▲+41.6% 180D」；冇數／status 唔 ready 就傳 null。 */
+  change: string | null;
+}
+
+export function cardShareLine(locale: Locale, input: CardShareLineInput): string {
+  const t = geoCopy[locale];
+  const segments: string[] = [];
+  if (input.rank >= 1) {
+    segments.push(input.total && input.total > 0
+      ? fillTemplate(t.shareRank, { rank: input.rank, total: formatInteger(input.total, locale), tcg: input.tcg })
+      : fillTemplate(t.shareRankNoTotal, { rank: input.rank, tcg: input.tcg }));
+  }
+  segments.push(fillTemplate(t.shareCap, { cap: input.cap }));
+  if (input.change) segments.push(input.change);
+  segments.push(fillTemplate(t.sharePricePop, { price: input.price, pop: input.pop }));
+  segments.push(input.date);
+  /*
+   * 由**尾**丟格直到 ≤160 —— 尾段係爬蟲料，頭段係人料。唔准中間斬：被截都要停喺
+   * 一件完整事實上面，呢個先係點分隔（唔用完整句）嘅全部意義。
+   */
+  const MAX = 160;
+  while (segments.length > 1 && segments.join(" · ").length > MAX) segments.pop();
+  return segments.join(" · ");
 }

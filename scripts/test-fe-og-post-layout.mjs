@@ -91,11 +91,13 @@ for (const [name, body] of [["PostLayout", post], ["WideLayout", wide]]) {
 /* ─────────────────────────────────────────────────────────────
  * T2 — 同一行嘅 `<Stat>` 一定要同一個字級（守 ①，owner 直接指住嗰個病）
  * ───────────────────────────────────────────────────────────── */
-for (const [name, body, expectMin] of [["PostLayout", post, 3], ["WideLayout", wide, 3]]) {
+/* wide 由 3 個 Stat（cap/price/pop 一行）改成 2 個（price/pop 佐證行）——
+   cap 升咗做 88px hero，唔再係 `<Stat>`。所以最少數目一個 layout 一個。 */
+for (const [name, body, expectMin] of [["PostLayout", post, 3], ["WideLayout", wide, 2]]) {
   if (!body) continue;
   const sizes = [...body.matchAll(/<Stat\b[^/>]*?valueSize=\{([^}]+)\}/g)].map((m) => m[1].trim());
   check(`T2: ${name} 有 ${expectMin}+ 個 Stat`, sizes.length >= expectMin, `得 ${sizes.length} 個`);
-  check(`T2: ${name} 四個數同一個字級`, new Set(sizes).size <= 1, `搵到 ${JSON.stringify([...new Set(sizes)])}`);
+  check(`T2: ${name} 同一行嘅數同一個字級`, new Set(sizes).size <= 1, `搵到 ${JSON.stringify([...new Set(sizes)])}`);
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -120,15 +122,41 @@ if (post) {
 }
 
 /* ─────────────────────────────────────────────────────────────
+ * T3b — wide 個 hero 要真係捱得住縮圖（守 unfurl CTR）
+ *
+ * wide 唔係畀人全屏睇嘅：WhatsApp 個 unfurl 縮圖闊 ~330pt，即係 1200px 嘅 **0.275×**。
+ * 舊版 stat 36px → 落到 9.9pt，即係張圖入面**一個數都睇唔到**，凈係見到卡圖同一撻灰字。
+ * 所以市值升做 hero，而 hero 要有一條底線：0.275× 之後至少 22pt（≈ 手機正文 1.5 倍）。
+ * 呢條唔係美學偏好，係「縮到咁細仲讀唔讀到」嘅物理下限，所以要用數守住。
+ * ───────────────────────────────────────────────────────────── */
+const WHATSAPP_SCALE = 330 / 1200;
+const HERO_MIN_PT = 22;
+if (SCALES.WIDE_TYPE) {
+  const wideScale = Object.fromEntries([...SCALES.WIDE_TYPE.matchAll(/(\w+):\s*(\d+)/g)].map((m) => [m[1], Number(m[2])]));
+  check("T3b: WIDE_TYPE 有 hero", Number.isFinite(wideScale.hero), JSON.stringify(wideScale));
+  if (Number.isFinite(wideScale.hero)) {
+    const pt = wideScale.hero * WHATSAPP_SCALE;
+    check("T3b: hero 縮到 WhatsApp 尺寸仲讀到", pt >= HERO_MIN_PT,
+      `${wideScale.hero}px × ${WHATSAPP_SCALE.toFixed(3)} = ${pt.toFixed(1)}pt，要 ≥ ${HERO_MIN_PT}pt`);
+    check("T3b: hero 明顯大過 stat", wideScale.hero >= wideScale.stat * 2,
+      `hero=${wideScale.hero} stat=${wideScale.stat}（唔夠 2× 就分唔出主次）`);
+  }
+}
+if (wide) {
+  check("T3b: WideLayout 真係用咗 hero", /WIDE_TYPE\.hero/.test(wide), "搵唔到 WIDE_TYPE.hero");
+}
+
+/* ─────────────────────────────────────────────────────────────
  * T4 — 走勢圖下面唔准再有第二行日期（守 ②）
  *
  * `ChartAxis` 係嗰行日期軸。收咗埋 caption 右邊之後佢就係死 code；一旦有人「順手加返」，
  * 3 行卡名嗰個 case 會即刻衝返穿底邊 —— 而且係靜靜噉衝，睇唔到 error。
  * ───────────────────────────────────────────────────────────── */
 check("T4: ChartAxis 已刪，唔准加返", !/ChartAxis/.test(code), "route.tsx 仲有 ChartAxis");
-if (post) {
-  const dateRows = (post.match(/chartRange\(/g) ?? []).length;
-  check("T4: 日期範圍出一次", dateRows === 1, `出咗 ${dateRows} 次`);
+for (const [name, body] of [["PostLayout", post], ["WideLayout", wide]]) {
+  if (!body) continue;
+  const dateRows = (body.match(/chartRange\(/g) ?? []).length;
+  check(`T4: ${name} 日期範圍出一次`, dateRows === 1, `出咗 ${dateRows} 次`);
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -160,7 +188,9 @@ if (process.argv.includes("--live")) {
       const res = await fetch(url).catch((e) => ({ ok: false, status: `連唔到 ${base}（${e?.cause?.code ?? e?.message ?? e}）` }));
       if (!res.ok) return { error: `${res.status}` };
       const art = res.headers.get("x-og-art");
-      const { data, info } = await sharp(Buffer.from(await res.arrayBuffer())).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+      const bytes = Buffer.from(await res.arrayBuffer());
+      const mime = res.headers.get("content-type");
+      const { data, info } = await sharp(bytes).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
       const { width: W, height: H, channels: C } = info;
       const at = (x, y) => { const i = (y * W + x) * C; return [data[i], data[i + 1], data[i + 2]]; };
       const hi = xTo === null ? W - 1 : Math.min(xTo, W - 1);
@@ -174,7 +204,7 @@ if (process.argv.includes("--live")) {
         }
         if (n > 2) { if (top < 0) top = y; bottom = y; left = Math.min(left, first); right = Math.max(right, last); }
       }
-      return { W, H, art, top, bottom, left, right };
+      return { W, H, art, mime, bytes: bytes.length, top, bottom, left, right };
     }
 
     const POST_PAD = 56;
@@ -190,19 +220,42 @@ if (process.argv.includes("--live")) {
         `${bust.map(([k, v]) => `${k}=${v}`).join(" ")}（padding=${POST_PAD}，全部邊距 ${JSON.stringify(margins)}）`);
     }
 
-    /* wide 右欄：卡圖佔左邊 468，右欄 padding 56 → 可用 620。三個數收窄之後應該鬆好多。 */
-    const WIDE_COL_L = 468 + 56;
-    const WIDE_COL_R = 1200 - 56;
-    const w = await inkBox(`${base}/api/og/card/${encodeURIComponent(byCap[0].id)}`, {
-      bgX: 468 + 6, xFrom: WIDE_COL_L - 16,
-    });
-    if (w.error) failed.push(`T5: wide ${w.error}`);
-    else {
-      check("T5: wide 尺寸", w.W === 1200 && w.H === 630, `${w.W}×${w.H}`);
-      check("T5: wide 右欄右邊冇出界", w.right <= WIDE_COL_R + 2, `ink 去到 x=${w.right}，欄右邊 ${WIDE_COL_R}`);
-      check("T5: wide 右欄左邊冇撞卡圖", w.left >= WIDE_COL_L - 2, `ink 由 x=${w.left} 起，欄左邊 ${WIDE_COL_L}`);
-      check("T5: wide 上下冇衝穿 44 padding", w.top >= 44 - 2 && 630 - 1 - w.bottom >= 44 - 2,
-        `上=${w.top} 下=${630 - 1 - w.bottom}`);
+    /*
+     * wide 右欄嘅幾何**由 route.tsx 度返**，唔再喺呢度抄一次。
+     * 上一版寫死 `468 + 56`，跟住 route 改咗做 430 板 + 48/44/40 padding，
+     * 呢條 test 就變咗喺度守一個唔存在嘅版面 —— 綠燈但守緊空氣。
+     */
+    const artPanel = Number(code.match(/const ART_PANEL_WIDTH\s*=\s*(\d+)/)?.[1]);
+    const padRaw = wide?.match(/padding:\s*"(\d+)px\s+(\d+)px\s+(\d+)px\s+(\d+)px"/);
+    check("T5: 由 route 度到 wide 幾何", Number.isFinite(artPanel) && !!padRaw,
+      `ART_PANEL_WIDTH=${artPanel} padding=${padRaw?.[0] ?? "搵唔到"}`);
+    if (Number.isFinite(artPanel) && padRaw) {
+      const [padT, padR, padB, padL] = padRaw.slice(1, 5).map(Number);
+      const WIDE_COL_L = artPanel + padL;
+      const WIDE_COL_R = 1200 - padR;
+      /* wide 同 post 一樣要掃齊三個極端 —— 淨掃「市值最大」嗰張會漏咗「卡名最長」，
+         而卡名先係整組推穿底邊嗰個變數（2026-08-19 就係噉衝咗 35px）。 */
+      for (const id of picks) {
+        const w = await inkBox(`${base}/api/og/card/${encodeURIComponent(id)}`, {
+          bgX: artPanel + 6, xFrom: WIDE_COL_L - 16,
+        });
+        if (w.error) { failed.push(`T5: ${id} wide ${w.error}`); continue; }
+        check(`T5: ${id} wide 尺寸`, w.W === 1200 && w.H === 630, `${w.W}×${w.H}`);
+        check(`T5: ${id} wide 右欄右邊冇出界`, w.right <= WIDE_COL_R + 2, `ink 去到 x=${w.right}，欄右邊 ${WIDE_COL_R}`);
+        check(`T5: ${id} wide 右欄左邊冇撞卡圖`, w.left >= WIDE_COL_L - 2, `ink 由 x=${w.left} 起，欄左邊 ${WIDE_COL_L}`);
+        check(`T5: ${id} wide 上下冇衝穿 ${padT}/${padB} padding`, w.top >= padT - 2 && 630 - 1 - w.bottom >= padB - 2,
+          `上=${w.top} 下=${630 - 1 - w.bottom}`);
+        /*
+         * WhatsApp 文檔寫明 og:image 上限 600KB，超咗**唔會報錯**，直接唔出圖。
+         * 實測舊版 PNG 係 594/623/648KB —— 三張入面兩張已經默默噉爆咗。
+         * 所以 wide 轉咗 JPEG；呢條就係嗰個閘，唔准將來有人改返 PNG 又冇人知。
+         */
+        /* 一定要 `===`：第一版寫 `.includes("jpeg")`，於是 `image/png, image/jpeg`
+           （headers spread 撞 key，見 route.tsx `respond()` 個註）照樣綠燈。 */
+        check(`T5: ${id} wide 出 JPEG`, w.mime === "image/jpeg", `content-type=${w.mime}`);
+        check(`T5: ${id} wide 細過 WhatsApp 600KB 閘`, w.bytes < 550_000,
+          `${(w.bytes / 1024).toFixed(0)}KB（閘 550KB，WhatsApp 硬上限 600KB）`);
+      }
     }
   }
 }
