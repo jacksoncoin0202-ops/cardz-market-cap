@@ -258,8 +258,15 @@ if (process.argv.includes("--live")) {
     for (const id of ids) {
       for (const w of [981, 1280, 1440, 1920]) {
         await page.setViewportSize({ width: w, height: 1000 });
-        await page.goto(`${base}/card/${encodeURIComponent(id)}?lang=zh-TW`, { waitUntil: "networkidle" });
+        /* 唔用 `networkidle`：出街站有長駐連線（analytics beacon），永遠 idle 唔到，
+           對住 https://cardzmarketcap.com 會直接 30s timeout。等真正要量嗰幾個節點反而準。 */
+        await page.goto(`${base}/card/${encodeURIComponent(id)}?lang=zh-TW`, { waitUntil: "domcontentloaded" });
+        await page.waitForSelector(".detail-metrics strong", { state: "attached" });
         await page.addStyleTag({ content: ".reveal-pending{opacity:1 !important;animation:none !important}" });
+        await page.waitForFunction(() => {
+          const i = document.querySelector(".detail-art img");
+          return i && i.complete && i.naturalWidth > 0;
+        });
         await page.waitForTimeout(200);
         const m = await page.evaluate(() => {
           const root = document.querySelector(".detail-page");
