@@ -12,6 +12,9 @@
  *  ⑤ 兩處 binary（src/fonts、public/fonts/og）各自傍住一份 OFL.txt（OFL 1.1 派發義務）；woff2 sha256 對得返 index.ts 寫嗰個
  *  ⑥ OG（satori）三個 static TTF 齊、sha256 對得返 route.tsx 檔頭、係真 sfnt，而且 OG layout 冇用過
  *     400/600/700 以外嘅 fontWeight（satori 唔合成字重，跳出去就靜靜跌返最近嗰個 face）
+ *  ⑦ `share-copy.ts` `SHARE_LANG_FONTS` 每個語言字體檔真係喺 public/fonts/og、sha256 對得返
+ *     嗰度檔頭抄低嗰個、係真 sfnt。呢條就係「CJK 出空位」嗰個 failure mode 嘅執行點：
+ *     餵 CJK 落一個唔存在／換咗版嘅字體，satori 出嘅係空位 —— 唔報錯、唔 log、照出 200。
  */
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -173,10 +176,42 @@ if (ogRoute.includes("public/fonts/og")) {
   const OG_WEIGHTS = new Set(["400", "600", "700"]);
   const badWeights = [...ogRoute.matchAll(/fontWeight:\s*(\d+)/g)].map((m) => m[1]).filter((w) => !OG_WEIGHTS.has(w));
   check("OG layout 只用 register 咗嘅 400/600/700", badWeights.length === 0, `見到 ${[...new Set(badWeights)].join(",")}`);
+
+  /* ⑦ 語言字體（CJK）。同 ⑥ 一樣由**宣告**反推：`SHARE_LANG_FONTS` 講咗要邊個檔，
+     嗰個檔就必須喺磁碟、必須係宣告嗰個版本。少一隻 = 該語言成張圖變一格格空白，
+     而 satori 唔會報錯 —— 呢條 check 就係嗰個 failure mode 唯一會嗌嘅地方。 */
+  const shareCopySrc = read("apps/web/src/lib/share-copy.ts");
+  const langFonts = [...shareCopySrc.matchAll(/\["([\w.-]+\.(?:otf|ttf))",\s*(\d{3})\]/g)].map((m) => [m[1], Number(m[2])]);
+  check("share-copy.ts 讀得到 SHARE_LANG_FONTS 個清單（改咗寫法就要更新呢個 test）", langFonts.length > 0,
+    `搵到 ${langFonts.length} 個`);
+  /* OFL 1.1 §2：派 binary 就要同時派 licence + **嗰隻字體自己嘅版權聲明**。傍住 Inter 嗰份
+     OFL.txt 入面寫嘅係 Inter Project Authors，唔 cover Noto，所以要各有各嗰份。 */
+  if (langFonts.length > 0) {
+    check("public/fonts/og/OFL-NotoSansSC.txt present（Noto 唔 cover 喺 Inter 嗰份 OFL.txt）",
+      existsSync(join(ogDir, "OFL-NotoSansSC.txt")));
+  }
+  for (const [file, weight] of langFonts) {
+    const path = join(ogDir, file);
+    check(`public/fonts/og/${file} present`, existsSync(path));
+    if (!existsSync(path)) continue;
+    const bytes = readFileSync(path);
+    const sha = createHash("sha256").update(bytes).digest("hex");
+    /* 唔用 `new RegExp` 拼字串 —— 一路 escape 落去 template literal 度 `\s` 會俾當成 `s`，
+       個 check 就會永遠「檔頭冇寫」噉樣自己綠／自己紅。認行、再喺行入面攞 sha 直接啲。 */
+    const note = shareCopySrc.split("\n").find((line) => line.includes(file) && line.includes(`w${weight}`));
+    const declared = (note?.match(/sha256 ([0-9a-f]{64})/) || [])[1];
+    check(`${file} 檔頭有寫低 bytes 數`, note?.includes(`${bytes.length.toLocaleString("en-US")} bytes`) ?? false,
+      `磁碟 ${bytes.length} bytes，檔頭嗰行：${note?.trim() ?? "(搵唔到)"}`);
+    check(`${file} sha256 對得返 share-copy.ts 檔頭`, declared === sha, `file=${sha} declared=${declared ?? "(檔頭冇寫)"}`);
+    /* OTF = `OTTO`（CFF outline），TTF = 0x00010000。satori 兩種都食，woff2 唔食。 */
+    const magic = bytes.readUInt32BE(0);
+    check(`${file} 係真 sfnt（OTTO 或 00010000，唔係 woff2）`, magic === 0x4f54544f || magic === 0x00010000,
+      `magic=0x${magic.toString(16)}`);
+  }
 }
 
 if (failed.length) {
   console.error("FAIL FE05 font contract:\n" + failed.map((item) => ` - ${item}`).join("\n"));
   process.exit(1);
 }
-console.log(`PASS FE05 font contract (next/font single source, no external font host, --f-latin = Inter, ${fontSansDecls.length} --font-sans decls lead with --f-latin, 4 [lang]:lang() stacks re-declare font-family, variable on <html>, OFL + sha256, OG 3 TTF sha256 + weight ⊆ {400,600,700})`);
+console.log(`PASS FE05 font contract (next/font single source, no external font host, --f-latin = Inter, ${fontSansDecls.length} --font-sans decls lead with --f-latin, 4 [lang]:lang() stacks re-declare font-family, variable on <html>, OFL + sha256, OG 3 TTF sha256 + weight ⊆ {400,600,700}, SHARE_LANG_FONTS 語言字體 sha256)`);

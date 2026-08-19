@@ -5,6 +5,7 @@ import { shortSubject } from "@/lib/related-cards";
 import { buildShareChart, type ShareChart } from "@/lib/share-chart";
 import { loadNodeMarketAsset, loadMarketSnapshot } from "@/lib/server-snapshot";
 import { readShareFormat, type ShareFormat } from "@/lib/share-destinations";
+import { readShareLang, shareCopy, SHARE_LANG_FONTS, type ShareCopy, type ShareLang } from "@/lib/share-copy";
 import { defaultMarketWindow, marketWindowDays, type MarketCardView, type MarketWindow } from "@/lib/types";
 
 export const size = { width: 1200, height: 630 };
@@ -32,6 +33,10 @@ export const contentType = "image/jpeg";
  *
  * **點解唔開多條 route**：兩款圖嘅資料來源、卡圖解碼、字體、wordmark、fail-open 行為
  * 完全一樣，開兩條就係同一條問題兩份 copy（AGENTS.md 規矩 13）。分別淨係 layout。
+ *
+ * `?lang=en|zh-CN`（預設 en）：owner 2026-08-20 —— X.com 除咗英文帳號仲有
+ * CARDZGame 簡體帳號，同一張卡要出兩次圖。字係邊度嚟、點解加語言之前一定要先睇字體，
+ * 見 `lib/share-copy.ts`。認唔到嘅值跌返 en（response 個 `x-og-lang` 講返實際行咗邊個）。
  *
  * `?theme=light|dark`：兩個 format 而家都預設 dark。
  *
@@ -237,32 +242,49 @@ const SHARE_WINDOW_LABEL = SHARE_WINDOW.toUpperCase();
  *   授權 SIL OFL 1.1，全文喺同一個資料夾嘅 OFL.txt（binary 派發必須同行）。
  *   只 register 400 / 600 / 700 三個數 —— layout 唔准用其他 weight，satori 唔會合成。
  *
- * ⚠️ 只有 latin：所以**張圖入面一個字都唔准跟介面語言**（owner 2026-08-17 對 heatmap
- * 分享圖落嘅同一條規矩 —— 一張圖出咗街係俾全世界睇）。卡名一律 `officialName`、
- * set 名一律 `setName.en`、其餘標籤全部係下面嘅英文常數。餵 CJK 落嚟只會出豆腐字。
+ * ⚠️ Inter 只有 latin。2026-08-20 之前呢度寫住「張圖入面一個字都唔准跟介面語言」——
+ * 嗰條規矩**唔係取消咗，係搬咗去有字體嗰度**：`?lang=zh-CN` 會喺 Inter 後面再叠
+ * Noto Sans SC（見 `lib/share-copy.ts` `SHARE_LANG_FONTS`），satori 逐個 glyph 揀邊隻
+ * 畫得到 —— 數字／$／% 照行 Inter，中文字先跌落 Noto。**冇登記字體嘅語言一律唔准出**：
+ * 餵 CJK 落一個 latin-only face，satori 出嘅係空位，而且唔會報錯、唔會 log、照出 200。
+ *
+ * Noto 兩隻加埋 16MB，所以**逐個語言分開 cache、要嗰陣先載**：英文 request 唔應該
+ * 為咗一個用唔著嘅字體食多 16MB。
  *
  * 兩路 `existsSync` 同 logo 嗰段一樣：dev 由 repo root 行，standalone build `process.cwd()`
  * 已經係 `apps/web`。載入失敗**唔准**炸 —— 退返 `undefined`（即係 satori 用返 bundled font），
  * 同卡圖一樣 fail-open：OG 端點死咗等於社交分享冇圖，比字形唔啱仲差。
  */
-let ogFontsPromise: Promise<{ name: string; data: Buffer; weight: 400 | 600 | 700; style: "normal" }[] | undefined> | null = null;
-function loadOgFonts() {
-  ogFontsPromise ??= (async () => {
-    const { existsSync } = await import("node:fs");
-    const files: [string, 400 | 600 | 700][] = [["Inter-Regular.ttf", 400], ["Inter-SemiBold.ttf", 600], ["Inter-Bold.ttf", 700]];
-    try {
-      const loaded = await Promise.all(files.map(async ([file, weight]) => {
-        const path = [resolve(process.cwd(), "public/fonts/og", file), resolve(process.cwd(), "apps/web/public/fonts/og", file)].find((p) => existsSync(p));
-        if (!path) throw new Error(`missing ${file}`);
-        return { name: "Inter", data: await readFile(path), weight, style: "normal" as const };
-      }));
-      return loaded;
-    } catch (error) {
-      console.warn(`[og/card] OG font load failed, satori 退返 bundled font: ${error instanceof Error ? error.message : "unknown"}`);
-      return undefined;
-    }
-  })();
-  return ogFontsPromise;
+type OgFont = { name: string; data: Buffer; weight: 400 | 600 | 700; style: "normal" };
+const ogFontsByLang = new Map<ShareLang, Promise<OgFont[] | undefined>>();
+function loadOgFonts(lang: ShareLang) {
+  let pending = ogFontsByLang.get(lang);
+  if (!pending) {
+    pending = (async () => {
+      const { existsSync } = await import("node:fs");
+      /* Inter 三隻 register 做 "Inter"；語言字體 register 做 "Noto Sans SC"，兩個名一齊
+         寫落 layout 個 `fontFamily`（`copy.fontFamily`），satori 先識逐個 glyph 揀。 */
+      const files: [string, 400 | 600 | 700, string][] = [
+        ["Inter-Regular.ttf", 400, "Inter"],
+        ["Inter-SemiBold.ttf", 600, "Inter"],
+        ["Inter-Bold.ttf", 700, "Inter"],
+        ...(SHARE_LANG_FONTS[lang] ?? []).map(([file, weight]) => [file, weight, "Noto Sans SC"] as [string, 400 | 700, string]),
+      ];
+      try {
+        const loaded = await Promise.all(files.map(async ([file, weight, name]) => {
+          const path = [resolve(process.cwd(), "public/fonts/og", file), resolve(process.cwd(), "apps/web/public/fonts/og", file)].find((p) => existsSync(p));
+          if (!path) throw new Error(`missing ${file}`);
+          return { name, data: await readFile(path), weight, style: "normal" as const };
+        }));
+        return loaded;
+      } catch (error) {
+        console.warn(`[og/card] OG font load failed (lang=${lang}), satori 退返 bundled font: ${error instanceof Error ? error.message : "unknown"}`);
+        return undefined;
+      }
+    })();
+    ogFontsByLang.set(lang, pending);
+  }
+  return pending;
 }
 
 let artFailureLogged = false;
@@ -353,42 +375,80 @@ function changeText(card: MarketCardView): { text: string; tone: "positive" | "n
   return { text: `${arrow} ${value > 0 ? "+" : ""}${value.toFixed(1)}%`, tone };
 }
 
-/* 圖入面嘅日期一律英文短月（見上面字體註：只有 latin face）。UTC 讀，唔跟 server 時區。 */
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
-function shortDate(iso: string | null | undefined): string | null {
+/* 日期字面逐個語言唔同（`AUG 18, 2026` / `2026年8月18日`），寫法喺 `lib/share-copy.ts`。
+   兩邊都 UTC 讀，唔跟 server 時區。 */
+function utcDate(iso: string | null | undefined): Date | null {
   if (!iso) return null;
   const time = Date.parse(iso);
-  if (!Number.isFinite(time)) return null;
-  const date = new Date(time);
-  return `${MONTHS[date.getUTCMonth()]} ${date.getUTCDate()}, ${date.getUTCFullYear()}`;
+  return Number.isFinite(time) ? new Date(time) : null;
 }
-function monthYear(iso: string | null | undefined): string | null {
-  if (!iso) return null;
-  const time = Date.parse(iso);
-  if (!Number.isFinite(time)) return null;
-  const date = new Date(time);
-  return `${MONTHS[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
+function shortDate(iso: string | null | undefined, copy: ShareCopy): string | null {
+  const date = utcDate(iso);
+  return date ? copy.shortDate(date) : null;
+}
+function monthYear(iso: string | null | undefined, copy: ShareCopy): string | null {
+  const date = utcDate(iso);
+  return date ? copy.monthYear(date) : null;
+}
+
+/*
+ * 一個字喺圖入面食幾多「格」。CJK／全形標點畫出嚟啱啱好係 latin 嘅兩倍闊，所以下面
+ * 全部字級 ramp 同 clamp 嘅門檻（全部係度住英文量返嚟）**唔可以直接數 `.length`**：
+ * 一個 60 字嘅中文卡名 = 120 格，照 latin 門檻俾佢 46px 就會摺三行衝穿底 padding
+ * （見 PostLayout 個垂直預算）。latin-only 字串行呢個 function = `.length`，所以
+ * 英文嗰邊一個 px 都冇郁。
+ */
+function displayWidth(text: string): number {
+  let width = 0;
+  for (const ch of text) {
+    const code = ch.codePointAt(0) ?? 0;
+    const wide = (code >= 0x1100 && code <= 0x115f)
+      || (code >= 0x2e80 && code <= 0xa4cf)
+      || (code >= 0xac00 && code <= 0xd7a3)
+      || (code >= 0xf900 && code <= 0xfaff)
+      || (code >= 0xfe30 && code <= 0xfe6f)
+      || (code >= 0xff00 && code <= 0xff60)
+      || (code >= 0xffe0 && code <= 0xffe6);
+    width += wide ? 2 : 1;
+  }
+  return width;
+}
+
+/** 按「格」封頂，唔係按字數 —— 見 `displayWidth`。超咗就砍到啱好再貼一粒 `…`（`…` 自己都食一格）。 */
+function clampWidth(text: string, max: number): string {
+  if (displayWidth(text) <= max) return text;
+  let out = "";
+  let width = 0;
+  for (const ch of text) {
+    const w = displayWidth(ch);
+    if (width + w > max - 1) break;
+    out += ch;
+    width += w;
+  }
+  return `${out.trimEnd()}…`;
 }
 
 /* post 成幅 968px 可用闊（比 wide 個 620 闊 56%），所以同一長度食得起大一級。
    38 呢級係下限：`clampTitle` 封咗 96 字，38px 喺 968px 闊度兩行剛好裝得晒
    （3 行 × 1.1 = 125px 會逼爆下面個垂直預算，見 PostLayout 個預算註）。 */
 function postTitleSize(name: string): number {
-  if (name.length <= 34) return 56;
-  if (name.length <= 60) return 46;
+  const width = displayWidth(name);
+  if (width <= 34) return 56;
+  if (width <= 60) return 46;
   return 38;
 }
 
 function clampTitle(name: string): string {
-  return name.length <= 96 ? name : `${name.slice(0, 95).trimEnd()}…`;
+  return clampWidth(name, 96);
 }
 
 /* 純文字版（fail-open 路徑）成幅 1056px 可用闊，所以同一長度食得起大一級。
    原本呢度寫死 78px：93 字嘅卡名食四行，`MARKET CAP` 俾底邊斬一半、wordmark
    直情出咗界。退化版一樣要見得人，所以照跟長度落級。 */
 function textOnlyTitleSize(name: string): number {
-  if (name.length <= 34) return 78;
-  if (name.length <= 60) return 58;
+  const width = displayWidth(name);
+  if (width <= 34) return 78;
+  if (width <= 60) return 58;
   return 46;
 }
 
@@ -433,8 +493,9 @@ const WIDE_RANK_SIZE = 40;
  */
 const WIDE_NAME_MAX = 50;
 function wideTitleSize(name: string): number {
-  if (name.length <= 20) return 46;
-  if (name.length <= 30) return 40;
+  const width = displayWidth(name);
+  if (width <= 20) return 46;
+  if (width <= 30) return 40;
   /* 50 字 @32px 喺 678 闊度 = 2 行（每行 ~42 字），唔會有第三行。 */
   return 32;
 }
@@ -453,23 +514,33 @@ const WIDE_KICKER_MAX = 53;
    wordmark 距底邊剩 10px（量過：panel ink bottom margin 41 → 10）。
    wide 個 kicker 一行要塞晒 set + 編號 + 語言，所以嗰邊傳細啲嘅 max。 */
 function clampSetName(name: string, max = 46): string {
-  return name.length <= max ? name : `${name.slice(0, max - 1).trimEnd()}…`;
+  return clampWidth(name, max);
 }
 
 /*
- * 印刷語言喺圖入面嘅英文寫法。**唔准**行 `localizedCardLanguage()` ——
- * OG 圖只載到 Inter（latin-only），餵「日文版」入去會出一行 tofu 方格。
- * 呢張表就係「圖入面唔准出 CJK」呢條規矩嘅執行點。
+ * 印刷語言徽章。**唔准**行 `localizedCardLanguage()`（網站嗰隻）—— 佢係跟介面語言出字，
+ * 而張圖淨係載到 `?lang=` 嗰個語言嘅字體。逐個語言嘅寫法喺 `lib/share-copy.ts`
+ * `printLanguage`，即係「圖入面唔准出冇字體嘅字」呢條規矩嘅執行點。
  */
-const PRINT_LANGUAGE_EN: Record<string, string> = {
-  ja: "JP PRINT",
-  ko: "KR PRINT",
-  zhCN: "CN PRINT",
-  zhTW: "TW PRINT",
-};
-function printLanguageEn(language: string | null): string | null {
+function printLanguage(language: string | null, copy: ShareCopy): string | null {
   if (!language || language === "en") return null;
-  return PRINT_LANGUAGE_EN[language] ?? null;
+  return copy.printLanguage(language);
+}
+
+/*
+ * 卡名／set 名喺張圖入面嘅寫法。
+ * en 照舊行 `officialName`（PSA 全串，同 2026-08-20 前一模一樣）；其他語言先至攞
+ * `name[locale]`，攞唔到就跌返英文 —— 半條中文半條英文，好過一格空位。
+ */
+function cardTitle(card: MarketCardView, copy: ShareCopy): string {
+  if (copy.lang !== "en") {
+    const localised = card.name?.[copy.nameLocale]?.trim();
+    if (localised) return localised;
+  }
+  return card.officialName ?? card.setName.en;
+}
+function cardSetName(card: MarketCardView, copy: ShareCopy): string {
+  return card.setName[copy.nameLocale]?.trim() || card.setName.en;
 }
 
 type Palette = (typeof THEMES)[ShareTheme];
@@ -500,17 +571,18 @@ function Stat({ label, value, valueSize = 52, labelSize = 22, palette, tone }: {
  *   post：講**邊 180 日**（變動已經喺四個數嗰行出咗）。
  * SVG 入面冇字（見 lib/share-chart.ts 檔頭），所有座標軸文字都喺呢度用 satori 畫。
  */
-function ChartCaption({ palette, change, range, fontSize }: {
+function ChartCaption({ palette, change, range, fontSize, copy }: {
   palette: Palette;
   change: ReturnType<typeof changeText>;
   range?: string | null;
   fontSize: number;
+  copy: ShareCopy;
 }) {
   const tone = change?.tone === "positive" ? palette.positive : change?.tone === "negative" ? palette.negative : palette.muted;
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
       <span style={{ fontSize, color: palette.muted, letterSpacing: 1.8, fontWeight: 600 }}>
-        PSA 10 PRICE · {SHARE_WINDOW_LABEL}
+        {copy.priceWindow(SHARE_WINDOW_LABEL)}
       </span>
       {change ? <span style={{ fontSize, color: tone, fontWeight: 600 }}>{change.text}</span> : null}
       {!change && range ? <span style={{ fontSize, color: palette.muted, letterSpacing: 1.8, fontWeight: 600 }}>{range}</span> : null}
@@ -529,11 +601,11 @@ function ChartCaption({ palette, change, range, fontSize }: {
  * −20 變 +14 鬆動），尾段亦由「2×2 四舊嘢」變返兩行清楚角色（幾時嘅數 / 邊個出）。
  * 絕對日期照樣留喺圖入面 —— 張圖出咗街冇得撳入去問，呢個係當初加 axis 嘅理由，冇丟。
  */
-function chartRange(chart: ShareChart): string | null {
-  const from = monthYear(chart.firstAt);
-  const to = monthYear(chart.lastAt);
+function chartRange(chart: ShareChart, copy: ShareCopy): string | null {
+  const from = monthYear(chart.firstAt, copy);
+  const to = monthYear(chart.lastAt, copy);
   if (!from || !to) return null;
-  return `${from} — ${to}`.toUpperCase();
+  return copy.upper(copy.range(from, to));
 }
 
 /*
@@ -551,12 +623,12 @@ const TEXT_ONLY_GEO = {
   wide: { padding: "40px 48px", gapTop: 8, gapBottom: 14, kicker: WIDE_TYPE.micro, set: WIDE_TYPE.micro, stat: WIDE_TYPE.stat, logoW: 144, logoH: 62, rule: 14, cols: 60 },
   post: { padding: "56px 72px", gapTop: 20, gapBottom: 26, kicker: POST_TYPE.micro, set: POST_TYPE.meta, stat: POST_TYPE.stat, logoW: 280, logoH: 121, rule: 30, cols: 72 },
 } as const;
-function TextOnlyLayout({ card, logoSrc, palette, format }: { card: MarketCardView; logoSrc: string; palette: Palette; format: ShareFormat }) {
+function TextOnlyLayout({ card, logoSrc, palette, format, copy }: { card: MarketCardView; logoSrc: string; palette: Palette; format: ShareFormat; copy: ShareCopy }) {
   const geo = format === "post" ? TEXT_ONLY_GEO.post : TEXT_ONLY_GEO.wide;
   /* wide 只得 630 高，卡名唔可以食三行 —— 同 WideLayout 行同一個封頂同同一條 ramp。 */
   const name = format === "post"
-    ? clampTitle(card.officialName ?? card.setName.en)
-    : shortSubject(card, "en", WIDE_NAME_MAX) || clampTitle(card.officialName ?? card.setName.en);
+    ? clampTitle(cardTitle(card, copy))
+    : clampWidth(shortSubject(card, copy.nameLocale, WIDE_NAME_MAX) || cardTitle(card, copy), WIDE_NAME_MAX);
   return (
     <div
       style={{
@@ -567,13 +639,14 @@ function TextOnlyLayout({ card, logoSrc, palette, format }: { card: MarketCardVi
         background: palette.paper,
         padding: geo.padding,
         justifyContent: "space-between",
+        fontFamily: copy.fontFamily,
       }}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: geo.gapTop }}>
         {/* kicker = --w-label 600 + --track-kicker 級數；Inter 600 大寫比舊 bundled font 400 闊，
             4 → 3.4 先返返舊闊度（最長 kicker「POKEMON · #SV4A-205」唔可以谷長咗撞落標題）。 */}
         <span style={{ fontSize: geo.kicker, color: palette.accent, letterSpacing: 3.4, fontWeight: 600 }}>
-          {card.tcg.toUpperCase()} · #{card.collectorNumber}
+          {copy.tcg(card.tcg)} · #{card.collectorNumber}
         </span>
         <span
           style={{
@@ -587,17 +660,17 @@ function TextOnlyLayout({ card, logoSrc, palette, format }: { card: MarketCardVi
         </span>
         {/* set 名明寫 400：唔好靠 satori 嘅默認 —— 我哋只 register 400/600/700，唔明寫就靠彩數 */}
         <span style={{ fontSize: geo.set, color: palette.muted, lineHeight: 1.3, fontWeight: 400 }}>
-          {clampSetName(card.setName.en, geo.cols)}
+          {clampSetName(cardSetName(card, copy), geo.cols)}
         </span>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: geo.gapBottom }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 6, borderTop: `2px solid ${palette.line}`, paddingTop: geo.rule }}>
-          <span style={{ fontSize: WIDE_TYPE.meta, color: palette.muted, letterSpacing: 1.8, fontWeight: 600 }}>PSA 10 MARKET CAP</span>
+          <span style={{ fontSize: WIDE_TYPE.meta, color: palette.muted, letterSpacing: 1.8, fontWeight: 600 }}>{copy.psa10MarketCap}</span>
           <span style={{ fontSize: WIDE_TYPE.hero, color: palette.ink, fontWeight: 700, lineHeight: 1 }}>{usd(card.marketCap.value)}</span>
         </div>
         <div style={{ display: "flex", gap: geo.cols }}>
-          <Stat palette={palette} label="PSA 10 PRICE" value={usd(card.pricePsa10.value)} valueSize={geo.stat} labelSize={WIDE_TYPE.micro} />
-          <Stat palette={palette} label="PSA 10 POP" value={integer(card.populationPsa10.value)} valueSize={geo.stat} labelSize={WIDE_TYPE.micro} />
+          <Stat palette={palette} label={copy.psa10Price} value={usd(card.pricePsa10.value)} valueSize={geo.stat} labelSize={WIDE_TYPE.micro} />
+          <Stat palette={palette} label={copy.psa10Pop} value={integer(card.populationPsa10.value)} valueSize={geo.stat} labelSize={WIDE_TYPE.micro} />
         </div>
         <img src={logoSrc} alt="CardZ Marketcap" width={geo.logoW} height={geo.logoH} />
       </div>
@@ -653,7 +726,7 @@ function ArtStage({ art, alt, width, height, radius, palette }: {
   );
 }
 
-function WideLayout({ card, art, logoSrc, palette, chart, change, asOf, name, rankTotal }: {
+function WideLayout({ card, art, logoSrc, palette, chart, change, asOf, name, rankTotal, copy }: {
   card: MarketCardView;
   art: CardArt;
   logoSrc: string;
@@ -663,11 +736,12 @@ function WideLayout({ card, art, logoSrc, palette, chart, change, asOf, name, ra
   asOf: string | null;
   name: string;
   rankTotal: number | null;
+  copy: ShareCopy;
 }) {
   const changeTone = change?.tone === "positive" ? palette.positive : change?.tone === "negative" ? palette.negative : palette.muted;
   const changeBg = change?.tone === "positive" ? palette.positiveSoft : change?.tone === "negative" ? palette.negativeSoft : palette.surface;
   return (
-    <div style={{ display: "flex", width: "100%", height: "100%", background: palette.paper }}>
+    <div style={{ display: "flex", width: "100%", height: "100%", background: palette.paper, fontFamily: copy.fontFamily }}>
       <ArtStage
         art={art}
         alt={card.image.alt ?? name}
@@ -698,7 +772,7 @@ function WideLayout({ card, art, logoSrc, palette, chart, change, asOf, name, ra
             <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
               <span style={{ fontSize: WIDE_RANK_SIZE, color: palette.ink, fontWeight: 700 }}>#{card.marketRank}</span>
               <span style={{ fontSize: WIDE_TYPE.micro, color: palette.muted, letterSpacing: 1.6, fontWeight: 600 }}>
-                {rankTotal ? `OF ${integer(rankTotal)} RANKED ${card.tcg.toUpperCase()}` : `RANKED ${card.tcg.toUpperCase()}`}
+                {copy.ranked(rankTotal ? integer(rankTotal) : null, copy.tcg(card.tcg))}
               </span>
             </div>
           ) : null}
@@ -706,13 +780,13 @@ function WideLayout({ card, art, logoSrc, palette, chart, change, asOf, name, ra
           {/* set · 編號 · 印刷語言 一行過，擺喺卡名**之下**做出處收據（唔係上面做 kicker）：
               unfurl 入面卡名喺氣泡個 title 行已經出咗一次，圖入面呢行嘅角色係「邊個版本」，
               所以行 micro 唔行 meta —— 順帶慳返成組高度畀 88px hero。
-              ⚠️ Inter 得 latin face，語言段一定要行英文常數表，唔准餵 CJK（會出 tofu）——
-              `PRINT_LANGUAGE_EN` 就係為咗呢個而存在。 */}
+              ⚠️ 語言段一定要行 `printLanguage()`（逐個語言一張表），唔准行網站嗰個
+              `localizedCardLanguage()`：餵一個冇載字體嘅語言落 satori 會出空位，唔會報錯。 */}
           <span style={{ fontSize: WIDE_TYPE.micro, color: palette.accent, letterSpacing: 2.2, fontWeight: 600 }}>
             {(() => {
-              const tail = [`#${card.collectorNumber}`, printLanguageEn(card.cardLanguage)].filter(Boolean) as string[];
-              const budget = WIDE_KICKER_MAX - tail.join(" · ").length - tail.length * 3;
-              return [clampSetName(card.setName.en, Math.max(14, budget)).toUpperCase(), ...tail].join(" · ");
+              const tail = [`#${card.collectorNumber}`, printLanguage(card.cardLanguage, copy)].filter(Boolean) as string[];
+              const budget = WIDE_KICKER_MAX - displayWidth(tail.join(" · ")) - tail.length * 3;
+              return [copy.upper(clampSetName(cardSetName(card, copy), Math.max(14, budget))), ...tail].join(" · ");
             })()}
           </span>
         </div>
@@ -724,7 +798,7 @@ function WideLayout({ card, art, logoSrc, palette, chart, change, asOf, name, ra
           <div style={{ display: "flex", flexDirection: "column", gap: 4, borderTop: `2px solid ${palette.line}`, paddingTop: 12 }}>
             {/* ⚠️ 窗口標籤（180D）**唔准**接喙這條 label 後面：市值係即時數，
                 唔係 180 日數。寫成「PSA 10 MARKET CAP · 180D」係講假話。 */}
-            <span style={{ fontSize: WIDE_TYPE.meta, color: palette.muted, letterSpacing: 1.8, fontWeight: 600 }}>PSA 10 MARKET CAP</span>
+            <span style={{ fontSize: WIDE_TYPE.meta, color: palette.muted, letterSpacing: 1.8, fontWeight: 600 }}>{copy.psa10MarketCap}</span>
             <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
               <span style={{ fontSize: WIDE_TYPE.hero, color: palette.ink, fontWeight: 700, lineHeight: 1 }}>{usd(card.marketCap.value)}</span>
               {change ? (
@@ -755,14 +829,14 @@ function WideLayout({ card, art, logoSrc, palette, chart, change, asOf, name, ra
           {/* 佐證行：cap 係點計出嚟嘅（價 × 數量）。特登細過 hero —— 呢行係收據唔係主角，
               但一定要喺度，因為「你堆數作嘅」呢個反對要當場答死。 */}
           <div style={{ display: "flex", gap: 48 }}>
-            <Stat palette={palette} label="PSA 10 PRICE" value={usd(card.pricePsa10.value)} valueSize={WIDE_TYPE.stat} labelSize={WIDE_TYPE.micro} />
-            <Stat palette={palette} label="PSA 10 POP" value={integer(card.populationPsa10.value)} valueSize={WIDE_TYPE.stat} labelSize={WIDE_TYPE.micro} />
+            <Stat palette={palette} label={copy.psa10Price} value={usd(card.pricePsa10.value)} valueSize={WIDE_TYPE.stat} labelSize={WIDE_TYPE.micro} />
+            <Stat palette={palette} label={copy.psa10Pop} value={integer(card.populationPsa10.value)} valueSize={WIDE_TYPE.stat} labelSize={WIDE_TYPE.micro} />
           </div>
           {/* 冇歷史（少過兩個價點）就成塊唔出，唔畫一條假線亦唔留空框。
               變動已經升咗上 hero，所以右槽改出日期範圍（同 post 一樣邏輯）。 */}
           {chart ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 4, width: "100%" }}>
-              <ChartCaption palette={palette} change={null} range={chartRange(chart)} fontSize={WIDE_TYPE.micro} />
+              <ChartCaption palette={palette} change={null} range={chartRange(chart, copy)} fontSize={WIDE_TYPE.micro} copy={copy} />
               <img src={chart.src} alt="" width={chart.width} height={chart.height} />
             </div>
           ) : null}
@@ -780,7 +854,7 @@ function WideLayout({ card, art, logoSrc, palette, chart, change, asOf, name, ra
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
             <img src={logoSrc} alt="CardZ Marketcap" width={144} height={62} />
             {asOf ? (
-              <span style={{ fontSize: WIDE_TYPE.micro, color: palette.muted, letterSpacing: 1.2, fontWeight: 400 }}>AS OF {asOf.toUpperCase()}</span>
+              <span style={{ fontSize: WIDE_TYPE.micro, color: palette.muted, letterSpacing: 1.2, fontWeight: 400 }}>{copy.asOf(copy.upper(asOf))}</span>
             ) : null}
           </div>
         </div>
@@ -813,7 +887,7 @@ function WideLayout({ card, art, logoSrc, palette, chart, change, asOf, name, ra
  *     堆喺底部變一大笪空白。
  * 改任何一個 block 嘅高度／字級，行返 `scripts/test-fe-og-post-layout.mjs` 重新量過。
  */
-function PostLayout({ card, art, logoSrc, palette, chart, change, asOf }: {
+function PostLayout({ card, art, logoSrc, palette, chart, change, asOf, copy }: {
   card: MarketCardView;
   art: CardArt;
   logoSrc: string;
@@ -821,8 +895,9 @@ function PostLayout({ card, art, logoSrc, palette, chart, change, asOf }: {
   chart: ShareChart | null;
   change: ReturnType<typeof changeText>;
   asOf: string | null;
+  copy: ShareCopy;
 }) {
-  const name = clampTitle(card.officialName ?? card.setName.en);
+  const name = clampTitle(cardTitle(card, copy));
   return (
     <div
       style={{
@@ -833,6 +908,7 @@ function PostLayout({ card, art, logoSrc, palette, chart, change, asOf }: {
         background: palette.paper,
         padding: 56,
         justifyContent: "space-between",
+        fontFamily: copy.fontFamily,
       }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
@@ -867,21 +943,21 @@ function PostLayout({ card, art, logoSrc, palette, chart, change, asOf }: {
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
         <span style={{ fontSize: POST_TYPE.micro, color: palette.accent, letterSpacing: 3.2, fontWeight: 600 }}>
-          {card.tcg.toUpperCase()} · #{card.collectorNumber}
+          {copy.tcg(card.tcg)} · #{card.collectorNumber}
         </span>
         <span style={{ fontSize: postTitleSize(name), color: palette.ink, fontWeight: 700, lineHeight: 1.1 }}>{name}</span>
-        <span style={{ fontSize: POST_TYPE.meta, color: palette.muted, lineHeight: 1.3, fontWeight: 400 }}>{clampSetName(card.setName.en)}</span>
+        <span style={{ fontSize: POST_TYPE.meta, color: palette.muted, lineHeight: 1.3, fontWeight: 400 }}>{clampSetName(cardSetName(card, copy))}</span>
       </div>
 
       {/* 四個數一行，**四格同一個字級**（見 POST_TYPE 個註）—— 同網頁四個 KPI 由 `--kpi-fs`
           一個變數出係同一個道理：同一行、同一個 label 級、同一條線之下，字級唔同讀落唔似
           分主次，似排錯版。要分主次就靠位置（market cap 坐第一格）。 */}
       <div style={{ display: "flex", gap: 40, borderTop: `2px solid ${palette.line}`, paddingTop: 22, width: "100%" }}>
-        <Stat palette={palette} label="MARKET CAP" value={usd(card.marketCap.value)} valueSize={POST_TYPE.stat} />
-        <Stat palette={palette} label="PSA 10 PRICE" value={usd(card.pricePsa10.value)} valueSize={POST_TYPE.stat} />
-        <Stat palette={palette} label="PSA 10 POP" value={integer(card.populationPsa10.value)} valueSize={POST_TYPE.stat} />
+        <Stat palette={palette} label={copy.marketCap} value={usd(card.marketCap.value)} valueSize={POST_TYPE.stat} />
+        <Stat palette={palette} label={copy.psa10Price} value={usd(card.pricePsa10.value)} valueSize={POST_TYPE.stat} />
+        <Stat palette={palette} label={copy.psa10Pop} value={integer(card.populationPsa10.value)} valueSize={POST_TYPE.stat} />
         {change ? (
-          <Stat palette={palette} label={`${SHARE_WINDOW_LABEL} CHANGE`} value={change.text} valueSize={POST_TYPE.stat} tone={change.tone} />
+          <Stat palette={palette} label={copy.change(SHARE_WINDOW_LABEL)} value={change.text} valueSize={POST_TYPE.stat} tone={change.tone} />
         ) : null}
       </div>
 
@@ -890,7 +966,7 @@ function PostLayout({ card, art, logoSrc, palette, chart, change, asOf }: {
           {/* post 嘅變動已經喺上面四個數嗰行出咗一次（`180D CHANGE`），caption 唔好再出多次
               —— 同一個數喺同一張圖出兩次係雜訊。右邊個位讓返俾日期範圍（見 chartRange 個註）。
               wide 冇嗰個 stat（得三個數），所以嗰邊照傳 change。 */}
-          <ChartCaption palette={palette} change={null} range={chartRange(chart)} fontSize={POST_TYPE.micro} />
+          <ChartCaption palette={palette} change={null} range={chartRange(chart, copy)} fontSize={POST_TYPE.micro} copy={copy} />
           <img src={chart.src} alt="" width={chart.width} height={chart.height} />
         </div>
       ) : null}
@@ -898,7 +974,7 @@ function PostLayout({ card, art, logoSrc, palette, chart, change, asOf }: {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
         <span style={{ fontSize: POST_TYPE.micro, color: palette.muted, letterSpacing: 1.8, fontWeight: 600 }}>CARDZMARKETCAP.COM</span>
         {asOf ? (
-          <span style={{ fontSize: POST_TYPE.micro, color: palette.muted, letterSpacing: 1.2, fontWeight: 400 }}>AS OF {asOf.toUpperCase()}</span>
+          <span style={{ fontSize: POST_TYPE.micro, color: palette.muted, letterSpacing: 1.2, fontWeight: 400 }}>{copy.asOf(copy.upper(asOf))}</span>
         ) : null}
       </div>
     </div>
@@ -913,6 +989,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const { id } = await params;
   const query = new URL(request.url).searchParams;
   const format = readShareFormat(query.get("format"));
+  const lang = readShareLang(query.get("lang"));
+  const copy = shareCopy(lang);
   const spec = FORMATS[format];
   const theme = readTheme(query.get("theme"), spec.defaultTheme);
   const palette = THEMES[theme];
@@ -987,16 +1065,17 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
    * 同一條式（card-detail.tsx）。唔可以用 generation 時間：實測 1286 張出街卡入面
    * 949 張（73.8%）真實價格日比 generation 早 8 日以上。
    */
-  const asOf = shortDate(card.pricePsa10.checkedAt || card.pricePsa10.asOf || snapshot?.effectiveAt);
+  const asOf = shortDate(card.pricePsa10.checkedAt || card.pricePsa10.asOf || snapshot?.effectiveAt, copy);
 
-  const fonts = await loadOgFonts();
+  const fonts = await loadOgFonts(lang);
 
   /*
    * wide 用短卡名（同 `<title>` / `og:title` 同一個 helper），唔再用 96 字嘅 PSA 全串。
    * 全串喺 630px 高嘅畫布度食三行，逼到 88px hero 冇位企；而縮到 WhatsApp 氣泡入面
-   * 嗰三行字本身一個字都讀唔到。圖入面永遠行 en（Inter latin-only）。
+   * 嗰三行字本身一個字都讀唔到。`shortSubject` 收 locale，中文版直接攞 `name["zh-CN"]`；
+   * 再過一次 `clampWidth` 係因為佢個 max 數嘅係字數，中文一個字食兩格。
    */
-  const wideName = shortSubject(card, "en", WIDE_NAME_MAX);
+  const wideName = clampWidth(shortSubject(card, copy.nameLocale, WIDE_NAME_MAX), WIDE_NAME_MAX);
   /*
    * 同 TCG 有排名嘅卡總數。`snapshot.top100` 只係排頭 100 張，其餘坐喺 `watchlist` ——
    * 淨數 top100 會出「OF 93 RANKED POKÉMON」呢個 13 倍細嘅假分母。攞唔到 snapshot
@@ -1008,10 +1087,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     : null;
 
   const element = !art
-    ? <TextOnlyLayout card={card} logoSrc={logoSrc} palette={palette} format={format} />
+    ? <TextOnlyLayout card={card} logoSrc={logoSrc} palette={palette} format={format} copy={copy} />
     : format === "post"
-      ? <PostLayout card={card} art={art} logoSrc={logoSrc} palette={palette} chart={chart} change={change} asOf={asOf} />
-      : <WideLayout card={card} art={art} logoSrc={logoSrc} palette={palette} chart={chart} change={change} asOf={asOf} name={wideName} rankTotal={rankTotal} />;
+      ? <PostLayout card={card} art={art} logoSrc={logoSrc} palette={palette} chart={chart} change={change} asOf={asOf} copy={copy} />
+      : <WideLayout card={card} art={art} logoSrc={logoSrc} palette={palette} chart={chart} change={change} asOf={asOf} name={wideName} rankTotal={rankTotal} copy={copy} />;
 
   const image = new ImageResponse(element, {
     width: spec.width,
@@ -1033,12 +1112,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
        *   x-og-art 1/0    = 有冇卡圖（0 多數即係 standalone 冇 ship sharp）
        *   x-og-chart 1/0  = 有冇走勢圖（0 = 呢張卡窗內少過兩個價點）
        *   x-og-format/theme = 實際行咗邊個 layout（query 打錯字會靜靜跌返 wide + 該 format 預設 theme）
+       *   x-og-lang       = 實際出咗邊個語言（`?lang=` 打錯字會靜靜跌返 en）
        * 上面 noteArtFailure 個 log 一個 process 只嗌一次，靠佢驗證唔到。
        */
       "x-og-art": art ? "1" : "0",
       "x-og-chart": chart ? "1" : "0",
       "x-og-format": format,
       "x-og-theme": theme,
+      "x-og-lang": lang,
     },
   });
 
