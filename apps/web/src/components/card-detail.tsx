@@ -60,7 +60,7 @@ const SHARE_FETCH_TIMEOUT_MS = 20_000;
 function ShareImageButton({ cardId, imageLang, title, label, doneLabel, errorLabel }: {
   cardId: string;
   /* 介面語言。張圖入面啲字跟佢行（`api/og/card` 個 `?lang=`）—— 未 ship 字體嗰啲
-     語言（zh-TW / ja / ko）route 會自己跌返 en，呢邊唔使再維持一張表。
+     語言（ja / ko）route 會自己跌返 en，呢邊唔使再維持一張表。
      ⚠️ **唔准叫 `lang`**：JSX 入面 `lang=` 係 HTML 屬性，`test-fe-lang-attr` 會當你
      想寫個 DOM `lang`（`zh-TW` 落 DOM 係錯值）而擋住。呢個係 query param 唔係屬性。 */
   imageLang: string;

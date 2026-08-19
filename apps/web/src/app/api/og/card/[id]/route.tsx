@@ -34,9 +34,10 @@ export const contentType = "image/jpeg";
  * **點解唔開多條 route**：兩款圖嘅資料來源、卡圖解碼、字體、wordmark、fail-open 行為
  * 完全一樣，開兩條就係同一條問題兩份 copy（AGENTS.md 規矩 13）。分別淨係 layout。
  *
- * `?lang=en|zh-CN`（預設 en）：owner 2026-08-20 —— X.com 除咗英文帳號仲有
- * CARDZGame 簡體帳號，同一張卡要出兩次圖。字係邊度嚟、點解加語言之前一定要先睇字體，
- * 見 `lib/share-copy.ts`。認唔到嘅值跌返 en（response 個 `x-og-lang` 講返實際行咗邊個）。
+ * `?lang=en|zh-CN|zh-TW`（預設 en）：owner 2026-08-20 —— X.com 除咗英文帳號仲有
+ * CARDZGame 簡體帳號，同一張卡要出多次圖；同日補埋繁體（網站有 zh-TW 頁）。字係邊度嚟、
+ * 點解加語言之前一定要先睇字體，見 `lib/share-copy.ts`。認唔到嘅值（ja / ko —— 未 ship
+ * 字體）跌返 en（response 個 `x-og-lang` 講返實際行咗邊個）。
  *
  * `?theme=light|dark`：兩個 format 而家都預設 dark。
  *
