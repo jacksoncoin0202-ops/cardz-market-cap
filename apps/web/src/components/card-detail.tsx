@@ -57,8 +57,13 @@ function tickerValue(metric: MarketMetric<number>): number | null {
  */
 const SHARE_FETCH_TIMEOUT_MS = 20_000;
 
-function ShareImageButton({ cardId, title, label, doneLabel, errorLabel }: {
+function ShareImageButton({ cardId, imageLang, title, label, doneLabel, errorLabel }: {
   cardId: string;
+  /* 介面語言。張圖入面啲字跟佢行（`api/og/card` 個 `?lang=`）—— 未 ship 字體嗰啲
+     語言（zh-TW / ja / ko）route 會自己跌返 en，呢邊唔使再維持一張表。
+     ⚠️ **唔准叫 `lang`**：JSX 入面 `lang=` 係 HTML 屬性，`test-fe-lang-attr` 會當你
+     想寫個 DOM `lang`（`zh-TW` 落 DOM 係錯值）而擋住。呢個係 query param 唔係屬性。 */
+  imageLang: string;
   title: string;
   label: string;
   doneLabel: string;
@@ -74,7 +79,7 @@ function ShareImageButton({ cardId, title, label, doneLabel, errorLabel }: {
   const warmShareImage = () => {
     /* ⚠️ 一定要有 timeout：冇 signal 嘅 fetch 可以吊死到天光，個掣就一路 busy（見
        copy-button.tsx `COPY_TIMEOUT_MS`）。20 秒係實測 1.3-1.4s 之上留足十幾倍水位。 */
-    shareBlobRef.current ??= fetch(`/api/og/card/${encodeURIComponent(cardId)}?format=post`, {
+    shareBlobRef.current ??= fetch(`/api/og/card/${encodeURIComponent(cardId)}?format=post&lang=${encodeURIComponent(imageLang)}`, {
       signal: typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(SHARE_FETCH_TIMEOUT_MS) : undefined,
     })
       .then((response) => {
@@ -91,7 +96,7 @@ function ShareImageButton({ cardId, title, label, doneLabel, errorLabel }: {
     warmShareImage();
     const blob = await shareBlobRef.current!;
     const pageUrl = `${window.location.origin}/card/${cardId}`;
-    /* share sheet 嘅標題／正文跟返介面語言；**圖入面**啲字一律英文（見 og route 檔頭）。 */
+    /* share sheet 嘅標題／正文同**圖入面**啲字而家一齊跟介面語言（見 og route 個 `?lang=`）。 */
     await shareImageBlob(blob, {
       filenameBase: `cardz-${cardId}`,
       title,
@@ -258,6 +263,7 @@ export function CardDetail({ id, snapshot, related }: {
             toast 用 `share.done/error`（「圖片已匯出」），唔好借 labels.shareDone。 */}
         <ShareImageButton
           cardId={card.id}
+          imageLang={locale}
           title={title}
           label={t.labels.shareImage}
           doneLabel={t.share.done}

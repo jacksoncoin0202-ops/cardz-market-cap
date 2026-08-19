@@ -189,6 +189,10 @@ export async function generateMetadata({ params, searchParams }: CardRouteProps)
    * 係：任何一家真係 re-scrape 嗰陣攞到嘅一定係當日 bytes，唔係 CDN 舊圖。
    * `readShareFormat`/`readTheme` 對未知 param 已經 default-through，OG route 唔使改。
    *
+   * `&lang=` 跟返頁面語言：中文頁派出去嘅 link 出一張英文圖，就係「頁面同 preview
+   * 講唔同語言」。`readShareLang` 認唔到（zh-TW / ja / ko —— 未 ship 字體）會跌返 en，
+   * 所以呢度照傳 locale 就得，唔使喺呢邊維持第二張「邊個語言有圖」嘅表。
+   *
    * imageAlt 由裸卡名改成載實數：alt 係讀屏同埋部分 unfurler 嘅純文字 fallback，
    * 只講個名等於將張圖入面全部數字掉咗。
    */
@@ -208,7 +212,7 @@ export async function generateMetadata({ params, searchParams }: CardRouteProps)
     title,
     description,
     `/card/${id}`,
-    `/api/og/card/${encodeURIComponent(id)}?v=${encodeURIComponent(snapshot.generation)}`,
+    `/api/og/card/${encodeURIComponent(id)}?v=${encodeURIComponent(snapshot.generation)}&lang=${encodeURIComponent(locale)}`,
     imageAlt || localName || "CardZ Marketcap",
     /* wide 個 OG route 出 JPEG（壓落 WhatsApp 600KB 閘），唔係站內默認嗰張 PNG。 */
     "image/jpeg",
