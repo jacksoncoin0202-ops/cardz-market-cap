@@ -17,10 +17,12 @@ check("ShareAspect includes wa", /export type ShareAspect = "post" \| "wa" \| "f
 check("shareTargetAspect exists", /export function shareTargetAspect\(/.test(shareImage));
 check("renderHeatmapShare uses per-slot minAspect", /const minAspect = shareTargetAspect\(opts\.aspect \?\? "post"\) \?\? SHARE_MIN_ASPECT;/.test(shareImage));
 check("padX uses minAspect not only 4:5", /canvasH \* minAspect/.test(shareImage));
-check("post export button class", /className="heatmap-export heatmap-export-post"/.test(heatmap));
-check("wa export button class", /className="heatmap-export heatmap-export-wa"/.test(heatmap));
-check("post button exports post", /onCopy=\{\(\) => exportHeatmap\("post"\)\}/.test(heatmap));
-check("wa button exports wa", /onCopy=\{\(\) => exportHeatmap\("wa"\)\}/.test(heatmap));
+check("one share trigger", /className="heatmap-export"/.test(heatmap) && (heatmap.match(/className="heatmap-export"/g) || []).length === 1);
+check("share menu wrapper", /className="heatmap-share period-menu"/.test(heatmap));
+check("post option class", /className="period-option heatmap-export-post"/.test(heatmap));
+check("wa option class", /className="period-option heatmap-export-wa"/.test(heatmap));
+check("post option exports post", /void exportHeatmap\("post"\)/.test(heatmap));
+check("wa option exports wa", /void exportHeatmap\("wa"\)/.test(heatmap));
 check("render passes aspect slot", /aspect: slot/.test(heatmap));
 check("filename has 9x16", /9x16/.test(heatmap));
 const localeText = i18n.slice(i18n.indexOf("export const copy"));
@@ -31,4 +33,4 @@ if (failed.length) {
   console.error("FAIL heatmap share slots:\n" + failed.map((item) => ` - ${item}`).join("\n"));
   process.exit(1);
 }
-console.log("PASS heatmap share slots (post 4:5 + wa 9:16, two buttons, no letterbox lock)");
+console.log("PASS heatmap share slots (one share button + 4:5/9:16 menu)");

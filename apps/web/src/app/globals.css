@@ -1060,6 +1060,12 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   background: var(--surface);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
 }
+.heatmap-share { position: relative; flex: none; }
+.heatmap-share-menu {
+  grid-template-columns: 1fr;
+  min-width: 148px;
+  width: max-content;
+}
 .heatmap-export {
   flex: none;
   min-height: 44px;

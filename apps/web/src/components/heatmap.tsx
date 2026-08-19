@@ -1,13 +1,13 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
+import { Share2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { CapTicker } from "./cap-ticker";
 import { CardImage, srcSet as cardSrcSet } from "./card-image";
-import { CopyButton } from "./copy-button";
 import { HeatmapKioskFx } from "./heatmap-kiosk-fx";
 import { HeatmapTile, tileFetchPriority, tileImageSizes } from "./heatmap-tile";
 import { PeriodSelector } from "./period-selector";
@@ -585,6 +585,26 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
     setShareAspectState(next);
     try { localStorage.setItem("cardz-heatmap-share-aspect", next); } catch { /* 寫唔入就算 */ }
   }, []);
+  const [shareMenuOpen, setShareMenuOpen] = useState(false);
+  const shareMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!shareMenuOpen) return;
+    const onPointer = (event: PointerEvent) => {
+      if (shareMenuRef.current?.contains(event.target as Node)) return;
+      setShareMenuOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      setShareMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [shareMenuOpen]);
   const { set: setParam, peek: peekParams } = useParamPump(params, setParamsState);
   const tuneCommitRef = useTuneCommit(persistParams, peekParams);
   const [tuneResetKey, setTuneResetKey] = useState(0);
@@ -1050,22 +1070,49 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
         </svg>
       </button>
       <PeriodSelector />
-      <CopyButton
-        className="heatmap-export heatmap-export-post"
-        getText={() => window.location.href}
-        label={t.labels.shareImagePost}
-        doneLabel={t.share.done}
-        errorLabel={t.share.error}
-        onCopy={() => exportHeatmap("post")}
-      />
-      <CopyButton
-        className="heatmap-export heatmap-export-wa"
-        getText={() => window.location.href}
-        label={t.labels.shareImageWa}
-        doneLabel={t.share.done}
-        errorLabel={t.share.error}
-        onCopy={() => exportHeatmap("wa")}
-      />
+      <div className="heatmap-share period-menu" ref={shareMenuRef}>
+        <button
+          type="button"
+          className="heatmap-export"
+          aria-expanded={shareMenuOpen}
+          aria-haspopup="listbox"
+          aria-label={t.labels.shareImage}
+          onClick={() => setShareMenuOpen((value) => !value)}
+        >
+          <Share2 aria-hidden="true" size={14} strokeWidth={1.8} />
+          <span>{t.labels.shareImage}</span>
+        </button>
+        {shareMenuOpen ? (
+          <ul className="select-menu period-menu-list heatmap-share-menu" role="listbox" aria-label={t.labels.shareImage}>
+            <li role="presentation">
+              <button
+                type="button"
+                className="period-option heatmap-export-post"
+                role="option"
+                onClick={() => {
+                  setShareMenuOpen(false);
+                  void exportHeatmap("post");
+                }}
+              >
+                {t.labels.shareImagePost}
+              </button>
+            </li>
+            <li role="presentation">
+              <button
+                type="button"
+                className="period-option heatmap-export-wa"
+                role="option"
+                onClick={() => {
+                  setShareMenuOpen(false);
+                  void exportHeatmap("wa");
+                }}
+              >
+                {t.labels.shareImageWa}
+              </button>
+            </li>
+          </ul>
+        ) : null}
+      </div>
       {/* Kiosk 全屏（owner 2026-08-18 店主展示模式）。aria-pressed 講狀態、aria-label 跟住換字，
           唔可以淨靠 icon —— 讀屏睇唔到「四角向內定向外」。 */}
       <button
