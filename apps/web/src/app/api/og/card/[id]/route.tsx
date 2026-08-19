@@ -262,13 +262,16 @@ function loadOgFonts(lang: ShareLang) {
   if (!pending) {
     pending = (async () => {
       const { existsSync } = await import("node:fs");
-      /* Inter 三隻 register 做 "Inter"；語言字體 register 做 "Noto Sans SC"，兩個名一齊
-         寫落 layout 個 `fontFamily`（`copy.fontFamily`），satori 先識逐個 glyph 揀。 */
+      /* Inter 三隻 register 做 "Inter"；語言字體個 family 名由 `SHARE_LANG_FONTS` 講
+         （簡體 "Noto Sans SC"、繁體 "Noto Sans TC"），兩個名一齊寫落 layout 個
+         `fontFamily`（`copy.fontFamily`），satori 先識逐個 glyph 揀。呢度**唔准**
+         hardcode family 名 —— 加語言嗰陣照抄就會將 TC 掛住 SC 個名，satori 搵唔到，
+         出返一格格空位而且唔會報錯。 */
       const files: [string, 400 | 600 | 700, string][] = [
         ["Inter-Regular.ttf", 400, "Inter"],
         ["Inter-SemiBold.ttf", 600, "Inter"],
         ["Inter-Bold.ttf", 700, "Inter"],
-        ...(SHARE_LANG_FONTS[lang] ?? []).map(([file, weight]) => [file, weight, "Noto Sans SC"] as [string, 400 | 700, string]),
+        ...(SHARE_LANG_FONTS[lang] ?? []).map(([file, weight, family]) => [file, weight, family] as [string, 400 | 700, string]),
       ];
       try {
         const loaded = await Promise.all(files.map(async ([file, weight, name]) => {

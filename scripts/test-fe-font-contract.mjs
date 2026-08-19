@@ -181,16 +181,17 @@ if (ogRoute.includes("public/fonts/og")) {
      嗰個檔就必須喺磁碟、必須係宣告嗰個版本。少一隻 = 該語言成張圖變一格格空白，
      而 satori 唔會報錯 —— 呢條 check 就係嗰個 failure mode 唯一會嗌嘅地方。 */
   const shareCopySrc = read("apps/web/src/lib/share-copy.ts");
-  const langFonts = [...shareCopySrc.matchAll(/\["([\w.-]+\.(?:otf|ttf))",\s*(\d{3})\]/g)].map((m) => [m[1], Number(m[2])]);
+  const langFonts = [...shareCopySrc.matchAll(/\["([\w.-]+\.(?:otf|ttf))",\s*(\d{3})\s*,\s*"([^"]+)"\]/g)]
+    .map((m) => [m[1], Number(m[2]), m[3]]);
   check("share-copy.ts 讀得到 SHARE_LANG_FONTS 個清單（改咗寫法就要更新呢個 test）", langFonts.length > 0,
     `搵到 ${langFonts.length} 個`);
   /* OFL 1.1 §2：派 binary 就要同時派 licence + **嗰隻字體自己嘅版權聲明**。傍住 Inter 嗰份
      OFL.txt 入面寫嘅係 Inter Project Authors，唔 cover Noto，所以要各有各嗰份。 */
-  if (langFonts.length > 0) {
-    check("public/fonts/og/OFL-NotoSansSC.txt present（Noto 唔 cover 喺 Inter 嗰份 OFL.txt）",
-      existsSync(join(ogDir, "OFL-NotoSansSC.txt")));
+  for (const family of new Set(langFonts.map(([file]) => file.split("-")[0]))) {
+    check(`public/fonts/og/OFL-${family}.txt present（Noto 唔 cover 喺 Inter 嗰份 OFL.txt）`,
+      existsSync(join(ogDir, `OFL-${family}.txt`)));
   }
-  for (const [file, weight] of langFonts) {
+  for (const [file, weight, family] of langFonts) {
     const path = join(ogDir, file);
     check(`public/fonts/og/${file} present`, existsSync(path));
     if (!existsSync(path)) continue;
@@ -207,6 +208,10 @@ if (ogRoute.includes("public/fonts/og")) {
     const magic = bytes.readUInt32BE(0);
     check(`${file} 係真 sfnt（OTTO 或 00010000，唔係 woff2）`, magic === 0x4f54544f || magic === 0x00010000,
       `magic=0x${magic.toString(16)}`);
+    /* register 個 family 名要對得返隻檔真正嘅家族 —— 掛錯名（TC 掛住 "Noto Sans SC"）
+       satori 一樣搵唔到，出空位唔報錯。由檔名反推：`NotoSansTC-Bold.otf` → `Noto Sans TC`。 */
+    const expected = file.split("-")[0].replace(/([a-z])([A-Z])/g, "$1 $2").replace(/(Sans) ([A-Z]{2})$/, "$1 $2");
+    check(`${file} register 個 family 名對得返檔名`, family === expected, `寫住 "${family}"，檔名推出嚟係 "${expected}"`);
   }
 }
 

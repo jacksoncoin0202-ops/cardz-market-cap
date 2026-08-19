@@ -2,7 +2,13 @@
  * 分享圖入面嘅字，逐個語言一份。
  *
  * owner 2026-08-20：「X.com 我哋有 CARDZGame 中文簡體，所以你中文都要出多一次。」
- * 即係同一張卡要出兩次圖：英文一張貼英文帳號、簡體一張貼中文帳號。
+ * 同日再問「繁中點解無?」—— 網站本身有 zh-TW 頁，繁體頁派出去嘅 link preview 出英文圖
+ * 就係頁面同張圖講唔同話。所以三個語言：英文、簡體、繁體。
+ *
+ * ⚠️ **繁體唔准借簡體字體。** Noto Sans SC 個 cmap 其實 cover 晒 `體參價寶夢賊` 呢啲字
+ * （2026-08-20 逐個 codepoint 驗過），即係話用 SC 出繁體**唔會空格、唔會報錯** ——
+ * 但字形係大陸體（骨／直／令／者 嗰啲部件唔同），台港讀者一眼睇得出。所以繁體行返
+ * Noto Sans TC，唔行「反正睇得到」呢條路。
  *
  * ⚠️ **加語言之前先睇字體。** `api/og/card/[id]` 本來寫住「一個字都唔准跟介面語言」，
  * 唔係品味問題 —— 佢淨係載住 Inter（latin only），餵 CJK 落去 satori 出嘅係空位，
@@ -15,34 +21,45 @@
  * 而且兩邊改嘅節奏唔同（網站文案日日執，圖入面啲標籤半年冇郁過）。用詞照跟返
  * site-copy 嗰套（市值 / PSA 10 参考价 / PSA 10 评级数量 / 数据截至），唔准另撚一套。
  */
-export const SHARE_LANGS = ["en", "zh-CN"] as const;
+export const SHARE_LANGS = ["en", "zh-CN", "zh-TW"] as const;
 export type ShareLang = (typeof SHARE_LANGS)[number];
 
 /*
- * 邊個語言要邊隻字體檔（相對 `public/fonts/og/`）。
+ * 邊個語言要邊隻字體檔（相對 `public/fonts/og/`），連埋 register 落 satori 嗰個
+ * **family 名** —— 第三格唔係擺設：satori 淨係靠個 family 名同 `fontFamily` 對，
+ * register 錯名（例如繁體字體掛住「Noto Sans SC」）就等於冇載過，出返一格格空位而
+ * 且唔會報錯。所以 family 名寫喺呢度，唔准喺 route 度 hardcode，下面個 guard 會對返
+ * `SHARE_FONT_FAMILY` 有冇提過佢。
  *
  * `null` = 淨係靠 Inter 就夠（latin）。有值 = 除咗 Inter 仲要疊埋呢隻，satori 會逐個
- * glyph 揀邊隻畫得到。Noto Sans SC 兩隻加埋 16MB，所以**淨係要嗰陣先載**（見 route
- * 個 `loadOgFonts(lang)`）—— 英文 request 唔應該為咗一個用唔著嘅字體食多 16MB memory。
+ * glyph 揀邊隻畫得到。每個 CJK 語言兩隻字體十幾 MB，所以**淨係要嗰陣先載**（見 route
+ * 個 `loadOgFonts(lang)`）—— 英文 request 唔應該為咗一個用唔著嘅字體食多十幾 MB memory。
  *
- * 來源：notofonts/noto-cjk release Sans2.004 嘅 `18_NotoSansSC.zip`，2026-08-20 取
+ * 來源：notofonts/noto-cjk release Sans2.004，2026-08-20 取
+ *   `18_NotoSansSC.zip`
  *   NotoSansSC-Regular.otf  w400  8,331,336 bytes  sha256 faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9
  *   NotoSansSC-Bold.otf     w700  8,543,168 bytes  sha256 c6cb5a93abaa9edc8ee7463b7ebb7f42d618d40e6ed2f7a5371c97b0b64767c0
- *   授權 SIL OFL 1.1，全文喺同一個資料夾嘅 OFL.txt（binary 派發必須同行）。
- *   **冇 subset**：subset 錯一個字就係一格空位，而空位唔會報錯（滿足唔到就唔好慳嗰 15MB）。
- *   satori 唔食 woff2 亦唔食 variable font —— Google Fonts CSS API 派 Noto Sans SC
+ *   `19_NotoSansTC.zip`
+ *   NotoSansTC-Regular.otf  w400  5,683,368 bytes  sha256 5bab0cb3c1cf89dde07c4a95a4054b195afbcfe784d69d75c340780712237537
+ *   NotoSansTC-Bold.otf     w700  5,839,972 bytes  sha256 55420b259eb119bf5f2a0aadba10cf9d736c12d64ab93e78546d69ef5f43558b
+ *   授權 SIL OFL 1.1，每個 family 一份全文（`OFL-NotoSansSC.txt` / `OFL-NotoSansTC.txt`，
+ *   兩份內容一樣但要各自同行；Inter 嗰份 `OFL.txt` 只寫 Inter 個 copyright，唔 cover Noto）。
+ *   **冇 subset**：subset 錯一個字就係一格空位，而空位唔會報錯（滿足唔到就唔好慳嗰十幾 MB）。
+ *   satori 唔食 woff2 亦唔食 variable font —— Google Fonts CSS API 派 Noto Sans SC／TC
  *   淨係得 woff2（切成 ~100 個 unicode-range subset），所以一定要行呢個 static OTF release。
- *   ⚠️ 呢兩行 sha256 由 `scripts/test-fe-font-contract.mjs` ⑥ 對返落磁碟。
+ *   ⚠️ 呢幾行 sha256 由 `scripts/test-fe-font-contract.mjs` ⑦ 對返落磁碟。
  */
-export const SHARE_LANG_FONTS: Record<ShareLang, readonly [file: string, weight: 400 | 700][] | null> = {
+export const SHARE_LANG_FONTS: Record<ShareLang, readonly [file: string, weight: 400 | 700, family: string][] | null> = {
   en: null,
-  "zh-CN": [["NotoSansSC-Regular.otf", 400], ["NotoSansSC-Bold.otf", 700]],
+  "zh-CN": [["NotoSansSC-Regular.otf", 400, "Noto Sans SC"], ["NotoSansSC-Bold.otf", 700, "Noto Sans SC"]],
+  "zh-TW": [["NotoSansTC-Regular.otf", 400, "Noto Sans TC"], ["NotoSansTC-Bold.otf", 700, "Noto Sans TC"]],
 };
 
 /** satori 用嘅 family 串。CJK 排喺 Inter 後面：數字／$ / % 行 Inter，中文字先跌落 Noto。 */
 export const SHARE_FONT_FAMILY: Record<ShareLang, string> = {
   en: "Inter",
   "zh-CN": "Inter, Noto Sans SC",
+  "zh-TW": "Inter, Noto Sans TC",
 };
 
 const MONTHS_EN = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
@@ -50,7 +67,7 @@ const MONTHS_EN = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP"
 export interface ShareCopy {
   lang: ShareLang;
   /** 攞卡名／set 名嗰陣用邊個 locale key（`LocalizedText` 個 key）。 */
-  nameLocale: "en" | "zh-CN";
+  nameLocale: "en" | "zh-CN" | "zh-TW";
   fontFamily: string;
   marketCap: string;
   /** wide／純文字版嗰個 hero label：`PSA 10 MARKET CAP`（post 個四格用短嘅 `marketCap`） */
@@ -82,6 +99,7 @@ export interface ShareCopy {
 const PRINT_LANGUAGE: Record<ShareLang, Record<string, string>> = {
   en: { ja: "JP PRINT", ko: "KR PRINT", zhCN: "CN PRINT", zhTW: "TW PRINT" },
   "zh-CN": { ja: "日文版", ko: "韩文版", zhCN: "简体中文版", zhTW: "繁体中文版" },
+  "zh-TW": { ja: "日文版", ko: "韓文版", zhCN: "簡體中文版", zhTW: "繁體中文版" },
 };
 
 /* `card.tcg` 係自由字串（DB 出），所以認 substring 唔認 enum —— 認唔到就照出原字，
@@ -90,6 +108,13 @@ function tcgZhCN(raw: string): string {
   const key = raw.toLowerCase();
   if (key.includes("pok")) return "宝可梦";
   if (key.includes("one piece") || key.includes("optcg")) return "海贼王";
+  return raw;
+}
+
+function tcgZhTW(raw: string): string {
+  const key = raw.toLowerCase();
+  if (key.includes("pok")) return "寶可夢";
+  if (key.includes("one piece") || key.includes("optcg")) return "海賊王";
   return raw;
 }
 
@@ -136,7 +161,29 @@ const ZH_CN: ShareCopy = {
   upper: (text) => text,
 };
 
-const COPY: Record<ShareLang, ShareCopy> = { en: EN, "zh-CN": ZH_CN };
+/* 用詞跟返 `site-copy.ts` 個 zhTW（數據截至／PSA 10 參考價／PSA 10 鑑定數量）——
+   注意繁體側叫「鑑定數量」唔係簡體側嗰個「评级数量」，唔准兩邊照譯。 */
+const ZH_TW: ShareCopy = {
+  lang: "zh-TW",
+  nameLocale: "zh-TW",
+  fontFamily: SHARE_FONT_FAMILY["zh-TW"],
+  marketCap: "市值",
+  psa10MarketCap: "PSA 10 市值",
+  psa10Price: "PSA 10 參考價",
+  psa10Pop: "PSA 10 鑑定數量",
+  change: (window) => `${window.replace(/D$/i, "天")}變化`,
+  priceWindow: (window) => `PSA 10 參考價 · ${window.replace(/D$/i, "天")}`,
+  asOf: (date) => `數據截至 ${date}`,
+  ranked: (total, tcg) => (total ? `${tcg}排名 · 共 ${total} 張` : `${tcg}排名`),
+  tcg: tcgZhTW,
+  printLanguage: (language) => PRINT_LANGUAGE["zh-TW"][language] ?? null,
+  shortDate: (date) => `${date.getUTCFullYear()}年${date.getUTCMonth() + 1}月${date.getUTCDate()}日`,
+  monthYear: (date) => `${date.getUTCFullYear()}年${date.getUTCMonth() + 1}月`,
+  range: (from, to) => `${from} — ${to}`,
+  upper: (text) => text,
+};
+
+const COPY: Record<ShareLang, ShareCopy> = { en: EN, "zh-CN": ZH_CN, "zh-TW": ZH_TW };
 
 /*
  * ⚠️ 呢個 guard 唔係擺設：加一個語言落 `SHARE_LANGS` 而唔喺 `SHARE_LANG_FONTS` /
@@ -155,12 +202,25 @@ const COPY: Record<ShareLang, ShareCopy> = { en: EN, "zh-CN": ZH_CN };
   if (unfonted.length > 0) {
     throw new Error(`share-copy: ${unfonted.join("、")} 冇指定 CJK 字體 —— satori 會出空格，唔會報錯`);
   }
+  /* register 個 family 名要真係喺 `fontFamily` 串入面出現，唔係 satori 搵唔到隻字體
+     —— 同「冇載過」一模一樣：空位、冇 error、200。加語言最易漏就係呢下（抄上一個
+     語言嗰行但淨係換咗檔名，family 名照抄）。 */
+  const unnamed = SHARE_LANGS.flatMap((lang) =>
+    (SHARE_LANG_FONTS[lang] ?? [])
+      .filter(([, , family]) => !SHARE_FONT_FAMILY[lang].includes(family))
+      .map(([file, , family]) => `${lang}/${file}→${family}`));
+  if (unnamed.length > 0) {
+    throw new Error(`share-copy: 字體 register 個 family 名唔喺 SHARE_FONT_FAMILY 入面（${unnamed.join("、")}）—— satori 搵唔到，出空格`);
+  }
 }
 
 /*
  * key 一律細楷（`readShareLang` 會 lowercase）。條 HERMES 鏈同各家 API 寫 locale
- * 嘅方式唔一（`zh-CN` / `zh_CN` / `zhcn` / `cn`），所以認寬啲 —— 但**只認得兩個
- * 語言**：多打一個 `zh-TW` 落嚟會跌返 en 出英文圖，唔會出一堆空格。
+ * 嘅方式唔一（`zh-CN` / `zh_CN` / `zhcn` / `cn`），所以認寬啲 —— 但**只認得 ship 咗
+ * 字體嗰幾個**：打 `ja` / `ko` 落嚟會跌返 en 出英文圖，唔會出一堆空格。
+ *
+ * 冇地區碼嘅 `zh` 當簡體（同 CLDR 一樣：`zh` 嘅預設 script 係 Hans）。要繁體就要
+ * 講明 `zh-TW` / `zh-Hant` / `tw`。
  */
 const LANG_ALIASES: Record<string, ShareLang> = {
   en: "en",
@@ -169,6 +229,11 @@ const LANG_ALIASES: Record<string, ShareLang> = {
   cn: "zh-CN",
   zh: "zh-CN",
   "zh-hans": "zh-CN",
+  "zh-tw": "zh-TW",
+  zhtw: "zh-TW",
+  tw: "zh-TW",
+  "zh-hant": "zh-TW",
+  "zh-hk": "zh-TW",
 };
 
 /*
