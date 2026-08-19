@@ -1999,11 +1999,9 @@ html.theme-transitions .card-dialog {
 /* ── Detail actions / share ────────────────────────────────── */
 /* fixed 卡圖 z-index 40，detail-actions 要高過佢先唔會被遮住 */
 .detail-actions { position: relative; z-index: 50; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
-/* 兩粒掣（分享圖 / 分享連結）孖埋擺右邊，`.detail-actions` 個 space-between 仍然
-   淨係分「返回」同呢組。手機 360px 都放得落：量過最長語言兩粒加埋 214px。 */
-.detail-share { display: flex; align-items: center; gap: 8px; }
 /* 主 action：accent 描邊 + accent 字，同 `.primary-action` 唔同級（嗰個係實色底），
-   唔會喺頂部一行細掣入面搶到成頁失衡。 */
+   唔會喺頂部一行細掣入面搶到成頁失衡。`.detail-actions` 個 space-between 分「返回」
+   同佢。手機 360px 放得落：量過最長語言（日文「画像をシェア」）112px。 */
 .share-image-button { border-color: var(--accent); color: var(--accent); }
 .share-button {
   min-height: 44px;
@@ -2050,6 +2048,46 @@ html.theme-transitions .card-dialog {
 .history-empty p { margin: 0; }
 
 .detail-grid { display: grid; grid-template-columns: minmax(300px, 34%) minmax(0, 1fr); gap: 44px; align-items: start; }
+/*
+ * 卡內頁長文區（可引用事實 + 故事 + 方法）—— 2026-08-19 由 `.detail-content` 右欄
+ * 搬咗出嚟做成版，因為右欄本身淨係 ~574–755px 闊，塞三塊長文落去等於自願用半版紙。
+ *
+ * measure 由呢度一個地方收，唔准三塊各自帶 cap：佢哋 base 係 68ch（card-fact）/
+ * 冇（story-panel）/ 76ch（provenance-panel）。喺舊嗰個窄右欄冇一個 bind 得到，
+ * 所以睇落齊；一搬做成版即刻解到三個唔同數（1440 量到右邊線 1382 / 1315 / 1346），
+ * 就係 owner 講嘅「唔對齊」。
+ *
+ *   ≥1121px：兩欄，`.provenance-panel` 佔右邊成柱，欄闊 ~645px ≈ 73ch = measure，
+ *            所以喺 grid 入面 `max-width: none` 拆走個人 cap。
+ *   ≤1120px：一柱，由 `.detail-prose` 自己收 76ch（呢個站已經用開嘅數），三塊填滿佢。
+ *            手機 76ch 遠大過版心，等於冇 cap —— block flow 同搬出嚟之前一模一樣。
+ *
+ * 三塊嘅左邊線 = `.page-shell` 左邊線（1440 度係 x=43），同麵包屑／返回／相關卡牌
+ * 同一條。`.provenance-panel` 個 76ch base 唔准拆 —— 首頁／原盒嗰啲成版 panel 仲靠佢。
+ */
+@media (max-width: 1120px) {
+  .detail-prose { max-width: 76ch; }
+  .detail-prose .card-fact,
+  .detail-prose .provenance-panel { max-width: none; }
+}
+@media (min-width: 1121px) {
+  .detail-prose { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 48px; align-items: start; margin-top: 22px; }
+  /* 明寫 column、**唔好**明寫 row：`card-fact` 同 story 都係 conditional render。
+     寫死 `grid-row: 2` 嘅話，冇 card-fact 嗰啲卡個故事就會困喺第二行，頂部同右欄
+     差 78px（1440 實測 T=1270 vs 1192）。留返 auto：有 fact 就 fact 行 1 / story 行 2，
+     冇 fact 就 story 上返行 1，兩欄永遠平頭。`.provenance-panel` 釘死 column 2，
+     所以 auto-flow 唔會將佢抽落左欄。
+     `max-width: none`：base 68ch 喺 14px 字解到 601px，喺 645px 欄入面仲會 bind，
+     令 card-fact 比隔籬「市場為何追捧」窄 45px（實測）—— 欄本身已經係 measure。 */
+  .detail-prose .card-fact { grid-column: 1; max-width: none; }
+  .detail-prose .detail-story-slot { grid-column: 1; }
+  .detail-prose .provenance-panel { grid-column: 2; grid-row: 1 / span 2; }
+  /* 兩欄嘅頂要平頭：兩塊本來各自帶 22px / 40px top margin（block flow 嗰陣係「同上面
+     隔開」），喺 grid 入面就變成「row 1 入面各自向下推唔同距離」= 兩欄高低唔一。
+     隔開嘅責任交返俾 `.detail-prose` 自己個 margin-top。 */
+  .detail-prose .card-fact,
+  .detail-prose .provenance-panel { margin-top: 0; }
+}
 
 @media (max-width: 1120px) {
   .header-inner { padding-inline: 28px; gap: 20px; }
@@ -3285,7 +3323,11 @@ html.theme-transitions .box-thumb { transition: background-color 240ms cubic-bez
   .detail-header h1 { font-size: clamp(36px, 3.6vw, 60px); }
   /* 字級（detail-set / card-fact / identity / story / metrics label+delta / data-time / legend）已經升晒去 base，
      手機同桌面同一個數（owner：字體大小統一）；呢度淨返 layout。 */
-  .detail-page .card-fact { max-width: 78ch; padding: 14px 18px; }
+  /* 呢度唔再改 max-width：`.card-fact` 而家住喺 `.detail-prose` 一欄入面，欄本身
+     已經係 measure；原本嗰個 78ch（實測 689px）淨係喺右欄整出第二條右邊線 ——
+     2026-08-19 owner 就係指住呢條線講「唔對齊」。base 68ch（card-links.css）由
+     `.detail-prose .card-fact { max-width: none }` 喺 ≥1121px 收返。 */
+  .detail-page .card-fact { padding: 14px 18px; }
   .identity-list { gap: 12px 30px; margin-top: 14px; }
   .story-panel { padding: 26px 30px; }
   .detail-metrics { gap: 12px; }

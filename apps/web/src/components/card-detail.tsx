@@ -245,19 +245,17 @@ export function CardDetail({ id, snapshot, related }: {
       <Breadcrumbs items={crumbs} label={geo.breadcrumbLabel} />
       <div className="detail-actions">
         <Link className="back-link" href={href("/")}>← {t.nav.all}</Link>
-        <div className="detail-share">
-          {/* 分享圖行先：owner 要人分享出去係一張睇得晒數據嘅圖，唔係一條乾條連結。
-              toast 用 `share.done/error`（「圖片已匯出」）—— 呢個掣唔係複製連結，
-              唔好再借 labels.shareDone，講錯咗件事（同熱力圖嗰個掣一樣嘅理由）。 */}
-          <ShareImageButton
-            cardId={card.id}
-            title={title}
-            label={t.labels.shareImage}
-            doneLabel={t.share.done}
-            errorLabel={t.share.error}
-          />
-          <CopyButton getText={() => `${window.location.origin}/card/${card.id}`} label={t.labels.share} doneLabel={t.labels.shareDone} errorLabel={t.labels.shareError} preferNativeShare />
-        </div>
+        {/* 得一粒分享掣：owner 2026-08-19 拆走「分享卡牌」（純複製連結）——
+            分享出去要嘅係一張睇得晒數據嘅圖，唔係一條乾條連結，兩粒掣並排淨係整亂。
+            連結仍然喺 share sheet 嘅正文入面一齊派（見 ShareImageButton）。
+            toast 用 `share.done/error`（「圖片已匯出」），唔好借 labels.shareDone。 */}
+        <ShareImageButton
+          cardId={card.id}
+          title={title}
+          label={t.labels.shareImage}
+          doneLabel={t.share.done}
+          errorLabel={t.share.error}
+        />
       </div>
       <article className="detail-grid">
         <section className="detail-art" aria-label={t.labels.imageAlt}>
@@ -333,17 +331,26 @@ export function CardDetail({ id, snapshot, related }: {
               : null}
             {t.labels.checkedAt}: {formatObservationDate(card.pricePsa10.checkedAt || card.pricePsa10.asOf || snapshot.effectiveAt, locale)}
           </p>
-          {/*
-            「簡介」= 可引用事實 + 故事，兩樣一齊擺喺數字後面。
-            card-fact 係 GEO 可引用嘅純文字（server render，唔係淨喺圖表入面），
-            所以搬位歸搬位，DOM 入面一定要留返；JSON-LD／meta 讀嘅係 `cardFact` 變數，
-            唔讀 DOM，所以呢個順序改動同 schema 完全無關。
-          */}
-          {cardFact && <p className="card-fact">{cardFact}</p>}
-          <Reveal><StoryPanel title={t.labels.story} story={story} /></Reveal>
-          <Provenance updatedAt={card.pricePsa10.checkedAt || card.pricePsa10.asOf || snapshot.effectiveAt} />
         </div>
       </article>
+      {/*
+        長文區（可引用事實 / 故事 / 方法）2026-08-19 由右欄搬咗出嚟。
+        點解：桌面 1440 實測，左欄（卡圖）680px 高、右欄 1746px 高 —— 卡圖下面
+        成 1066 × 536px 淨係吉住，而三塊長文迫喺右半版，仲要各自帶住唔同嘅 ch cap
+        （量到右邊線 1382 / 1315 / 1346 三條，就係「唔對齊」嘅來源）。
+        搬出嚟之後三塊由 x=43 起（同麵包屑／返回／相關卡牌同一條左邊線），
+        桌面分兩欄各 ~646px ≈ 68ch，仍然喺可讀範圍。
+        DOM 次序冇變（一直都係 fact → story → method），手機 `.detail-grid` 本來就
+        `display: block`，所以手機睇落完全一樣。card-fact 係 GEO 可引用純文字，
+        JSON-LD／meta 讀嘅係 `cardFact` 變數唔讀 DOM，搬位同 schema 無關。
+      */}
+      <div className="detail-prose">
+        {cardFact && <p className="card-fact">{cardFact}</p>}
+        {/* 冇故事嗰陣 StoryPanel 回 null —— 唔好淨係包住個空 Reveal <div>，
+            喺 grid 入面佢會佔實一格，右欄就會憑空跌低一截。 */}
+        {story && <Reveal className="detail-story-slot"><StoryPanel title={t.labels.story} story={story} /></Reveal>}
+        <Provenance updatedAt={card.pricePsa10.checkedAt || card.pricePsa10.asOf || snapshot.effectiveAt} />
+      </div>
       {related && (
         /* SpotlightScope 只出一個冇樣式嘅 div + 一個 delegated pointermove（桌面 only），
            所以 related-cards.tsx 一行都唔使改，亦冇每張卡各自 attach listener。 */
