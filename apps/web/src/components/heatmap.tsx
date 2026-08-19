@@ -951,7 +951,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
    * 一張圖出咗街係俾全世界睇），所以 periodLabel 傳 copy.en.periods、日期用
    * formatDate(..., "en")；share sheet 嘅標題／文字先跟返介面語言。
    */
-  const exportHeatmap = useCallback(async () => {
+  const exportHeatmap = useCallback(async (slot: ShareAspect = shareAspect) => {
     if (!size.width || !size.height || !tiles.length) return;
     /*
      * 分享圖唔可以照抄畫面個 frame 比例。手機 frame 係 343×508（0.68），加埋 header /
@@ -962,7 +962,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
      * `frame` 保留畫面嗰個形狀。兩條路都係攞住個新尺寸**重行一次 treemap**，格仔填得滿 ——
      * 好過硬加黑邊。
      */
-    const board = shareBoardSize(size.width, size.height, shareAspect);
+    const board = shareBoardSize(size.width, size.height, slot);
     const shareTiles = board.width === size.width && board.height === size.height
       ? tiles
       : heatmapTreemapLayout(tiles.map(({ item }) => item), board.width, board.height);
@@ -985,13 +985,14 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
       count: shareTiles.length,
       periodLabel: copy.en.periods[activePeriod],
       dateText: formatDate(new Date().toISOString(), "en"),
+      aspect: slot,
     });
 
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", SHARE_JPEG_QUALITY));
     if (!blob) throw new Error("heatmap export: toBlob returned null");
     /* 檔名帶比例：owner 會兩個版本都出，落咗相簿之後淨係睇縮圖好難分邊張係邊張。
        冇副檔名 —— 由 blob 個 MIME 推（見 lib/share-file.ts `filenameFor`）。 */
-    const filenameBase = `cardz-heatmap-top${tiles.length}-${shareAspect === "post" ? "4x5" : "wide"}-${new Date().toISOString().slice(0, 10)}`;
+    const filenameBase = `cardz-heatmap-top${tiles.length}-${slot === "post" ? "4x5" : slot === "wa" ? "9x16" : "wide"}-${new Date().toISOString().slice(0, 10)}`;
     const pageUrl = window.location.href;
     /* share sheet 嘅標題／文字係俾當下用戶睇嘅介面字，所以跟返 locale（唔同圖入面嘅英文字） */
     const shareTitle = `${title.replace("{count}", String(tiles.length))} · ${t.periods[activePeriod]}`;
@@ -1050,13 +1051,20 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
       </button>
       <PeriodSelector />
       <CopyButton
-        className="heatmap-export"
+        className="heatmap-export heatmap-export-post"
         getText={() => window.location.href}
-        label={t.labels.shareImage}
-        /* 呢個掣係匯出張圖，唔係複製連結——toast 要用 share.done/error，唔好再借 labels.shareDone */
+        label={t.labels.shareImagePost}
         doneLabel={t.share.done}
         errorLabel={t.share.error}
-        onCopy={exportHeatmap}
+        onCopy={() => exportHeatmap("post")}
+      />
+      <CopyButton
+        className="heatmap-export heatmap-export-wa"
+        getText={() => window.location.href}
+        label={t.labels.shareImageWa}
+        doneLabel={t.share.done}
+        errorLabel={t.share.error}
+        onCopy={() => exportHeatmap("wa")}
       />
       {/* Kiosk 全屏（owner 2026-08-18 店主展示模式）。aria-pressed 講狀態、aria-label 跟住換字，
           唔可以淨靠 icon —— 讀屏睇唔到「四角向內定向外」。 */}

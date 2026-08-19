@@ -82,6 +82,7 @@ const MAX_CANVAS_AREA = 5_200_000;
  * （唔使理另一邊：圖闊過上限只會變矮，闊度照樣滿版。）
  */
 export const SHARE_MIN_ASPECT = 0.8;
+export const SHARE_WA_ASPECT = 9 / 16;
 
 /* 一張分享圖除咗 board 之外嘅固定開銷（CSS px，scale = 1）：
    直度 = 上下 pad 24×2 + header 32 + 上下各 20 空隙 + legend 14.4 ≈ 135（單行 header）；
@@ -116,7 +117,13 @@ const POST_BOARD_MAX_W = 1280;
  * 好過左右／上下硬加黑邊。SHARE_CHROME_H / SHARE_GUTTER_W 係估算，估歪咗
  * renderHeatmapShare() 尾嗰個 padX 閘會補返左右留白，一定唔會出到直過 SHARE_MIN_ASPECT。
  */
-export type ShareAspect = "post" | "frame";
+export type ShareAspect = "post" | "wa" | "frame";
+
+export function shareTargetAspect(aspect: ShareAspect): number | null {
+  if (aspect === "post") return SHARE_MIN_ASPECT;
+  if (aspect === "wa") return SHARE_WA_ASPECT;
+  return null;
+}
 
 export function shareBoardSize(
   frameWidth: number,
@@ -124,16 +131,17 @@ export function shareBoardSize(
   aspect: ShareAspect = "post",
 ): { width: number; height: number } {
   const height = Math.max(1, Math.round(frameHeight));
+  const locked = shareTargetAspect(aspect);
+  if (locked !== null) {
+    const boardW = Math.min(Math.max(1, Math.round(frameWidth)), POST_BOARD_MAX_W);
+    return {
+      width: boardW,
+      height: Math.max(1, Math.round((boardW + SHARE_GUTTER_W) / locked) - SHARE_CHROME_H),
+    };
+  }
   const minWidth = Math.round((height + SHARE_CHROME_H) * SHARE_MIN_ASPECT) - SHARE_GUTTER_W;
   const width = Math.max(1, Math.round(frameWidth), minWidth);
-  /* frame 太直（手機）：加闊到啱啱 0.8，高度唔郁 —— 兩條路喺呢度出同一個答案。 */
-  if (aspect === "frame" || width <= minWidth) return { width, height };
-  /* frame 太扁（桌面）：闊度封頂，反推一個令 canvas 啱啱 4:5 嘅高度。 */
-  const boardW = Math.min(width, POST_BOARD_MAX_W);
-  return {
-    width: boardW,
-    height: Math.max(1, Math.round((boardW + SHARE_GUTTER_W) / SHARE_MIN_ASPECT) - SHARE_CHROME_H),
-  };
+  return { width, height };
 }
 
 export interface ShareTileInput {
@@ -160,6 +168,8 @@ export interface HeatmapShareOptions {
   count: number;
   periodLabel: string;
   dateText: string;
+  /* post=4:5, wa=9:16, frame=畫面形（只守 0.8 下限） */
+  aspect?: ShareAspect;
   /* 測試 / 非瀏覽器環境先注入；預設行 new Image() */
   loadImage?: (src: string) => Promise<HTMLImageElement | null>;
 }
@@ -287,6 +297,7 @@ function grainPattern(ctx: CanvasRenderingContext2D): CanvasPattern | null {
  */
 export async function renderHeatmapShare(opts: HeatmapShareOptions): Promise<HTMLCanvasElement> {
   const { frameWidth, frameHeight, tiles, params, colors, dark, count, periodLabel, dateText } = opts;
+  const minAspect = shareTargetAspect(opts.aspect ?? "post") ?? SHARE_MIN_ASPECT;
   const loadImage = opts.loadImage ?? defaultLoadImage;
   const skin = dark ? PALETTE.dark : PALETTE.light;
   const scale = planScale(frameWidth, frameHeight);
@@ -363,7 +374,7 @@ export async function renderHeatmapShare(opts: HeatmapShareOptions): Promise<HTM
   const canvasH = Math.round(pad + headerH + unit * 2.5 + boardH + unit * 2.5 + legendH + pad);
   /* 滿版閘（見 SHARE_MIN_ASPECT）：唔夠闊就左右補底色。caller 行過 shareBoardSize() 嘅話
      行到呢度通常只差幾 px；呢句係兜底，唔係主力。 */
-  const padX = Math.max(pad, Math.round((Math.round(canvasH * SHARE_MIN_ASPECT) - boardW) / 2));
+  const padX = Math.max(pad, Math.round((Math.round(canvasH * minAspect) - boardW) / 2));
   const canvasW = boardW + padX * 2;
   const canvas = document.createElement("canvas");
   canvas.width = canvasW;

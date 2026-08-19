@@ -211,6 +211,8 @@ export interface Copy {
     /* 「匯出／分享一張圖」嘅掣文字。熱力圖同卡片內頁共用同一個 key ——
        同一個動作唔好兩個字串，翻譯到第三次就會有一個語言講另一件事。 */
     shareImage: string;
+    shareImagePost: string;
+    shareImageWa: string;
     /*
      * 印刷版本相關。`printLanguage` 係 template：`languages` 只出裸字（「日文」），
      * 但 badge 要出「日文版」，所以用 {language} 佔位符夾 localizedCardLanguage() 嘅輸出。
@@ -472,7 +474,7 @@ export const copy: Record<Locale, Copy> = {
       viewCard: "Open card profile", close: "Close", story: "Why the market cares", history: "Daily market history",
       dailyPrice: "Reference price", trackedSalesBars: "Tracked sales", salesTrend: "Tracked sales trend", salesTrendShort: "Sales trend", salesTrendColumn: "Trend", imageAlt: "Card artwork",
       noHistory: "Daily price history is still accumulating.", noCards: "No eligible cards are available in this view.", noSales: "No sales recorded", watchStatus: "Watchlist status",
-      share: "Share card", shareDone: "Link copied", shareError: "Copy failed — select the address bar", shareImage: "Share image",
+      share: "Share card", shareDone: "Link copied", shareError: "Copy failed — select the address bar", shareImage: "Share image", shareImagePost: "Share 4:5", shareImageWa: "Share 9:16",
       printLanguage: "{language} print", setCode: "Set code", finish: "Surface",
       languageFilterAll: "All languages",
       languageFilterAllShort: "All",
@@ -692,7 +694,7 @@ export const copy: Record<Locale, Copy> = {
       viewCard: "查看卡牌詳情", close: "關閉", story: "市場為何追捧", history: "每日市場走勢",
       dailyPrice: "參考價格", trackedSalesBars: "已追蹤成交額", salesTrend: "已追蹤成交額走勢", salesTrendShort: "成交走勢", salesTrendColumn: "走勢", imageAlt: "卡牌圖像",
       noHistory: "每日價格歷史仍在累積。", noCards: "此分類暫時沒有合資格卡牌。", noSales: "無成交紀錄", watchStatus: "觀察狀態",
-      share: "分享卡牌", shareDone: "已複製連結", shareError: "複製失敗，請手動複製網址", shareImage: "分享圖片",
+      share: "分享卡牌", shareDone: "已複製連結", shareError: "複製失敗，請手動複製網址", shareImage: "分享圖片", shareImagePost: "分享 4:5", shareImageWa: "分享 9:16",
       printLanguage: "{language}版", setCode: "系列代碼", finish: "卡面",
       languageFilterAll: "全部語言",
       languageFilterAllShort: "全部",
@@ -897,7 +899,7 @@ export const copy: Record<Locale, Copy> = {
       viewCard: "查看卡牌详情", close: "关闭", story: "市场为何追捧", history: "每日市场走势",
       dailyPrice: "参考价格", trackedSalesBars: "已追踪成交额", salesTrend: "已追踪成交额走势", salesTrendShort: "成交走势", salesTrendColumn: "走势", imageAlt: "卡牌图像",
       noHistory: "每日价格历史仍在累积。", noCards: "此分类暂时没有合资格卡牌。", noSales: "无成交纪录", watchStatus: "观察状态",
-      share: "分享卡牌", shareDone: "已复制链接", shareError: "复制失败，请手动复制网址", shareImage: "分享图片",
+      share: "分享卡牌", shareDone: "已复制链接", shareError: "复制失败，请手动复制网址", shareImage: "分享图片", shareImagePost: "分享 4:5", shareImageWa: "分享 9:16",
       printLanguage: "{language}版", setCode: "系列代码", finish: "卡面",
       languageFilterAll: "全部语言",
       languageFilterAllShort: "全部",
@@ -1101,7 +1103,7 @@ export const copy: Record<Locale, Copy> = {
       viewCard: "カード詳細を見る", close: "閉じる", story: "市場で支持される理由", history: "日次市場推移",
       dailyPrice: "参考価格", trackedSalesBars: "追跡成約額", salesTrend: "追跡成約額の推移", salesTrendShort: "成約推移", salesTrendColumn: "推移", imageAlt: "カード画像",
       noHistory: "日次価格履歴を蓄積しています。", noCards: "この表示には適格カードがありません。", noSales: "成約記録なし", watchStatus: "観察ステータス",
-      share: "カードを共有", shareDone: "リンクをコピーしました", shareError: "コピーに失敗しました。URL を手動でコピーしてください", shareImage: "画像をシェア",
+      share: "カードを共有", shareDone: "リンクをコピーしました", shareError: "コピーに失敗しました。URL を手動でコピーしてください", shareImage: "画像をシェア", shareImagePost: "共有 4:5", shareImageWa: "共有 9:16",
       printLanguage: "{language}版", setCode: "セットコード", finish: "表面",
       languageFilterAll: "すべての言語",
       languageFilterAllShort: "すべて",
@@ -1312,7 +1314,7 @@ export const copy: Record<Locale, Copy> = {
       viewCard: "카드 상세 보기", close: "닫기", story: "시장이 주목하는 이유", history: "일별 시장 추이",
       dailyPrice: "기준 가격", trackedSalesBars: "추적 거래액", salesTrend: "추적 거래액 추이", salesTrendShort: "거래 추이", salesTrendColumn: "추이", imageAlt: "카드 이미지",
       noHistory: "일별 가격 이력을 축적하고 있습니다.", noCards: "이 보기에 적격 카드가 없습니다.", noSales: "거래 기록 없음", watchStatus: "관찰 상태",
-      share: "카드 공유", shareDone: "링크 복사됨", shareError: "복사 실패 — 주소창에서 직접 복사하세요", shareImage: "이미지 공유",
+      share: "카드 공유", shareDone: "링크 복사됨", shareError: "복사 실패 — 주소창에서 직접 복사하세요", shareImage: "이미지 공유", shareImagePost: "공유 4:5", shareImageWa: "공유 9:16",
       printLanguage: "{language}판", setCode: "세트 코드", finish: "표면",
       languageFilterAll: "모든 언어",
       languageFilterAllShort: "전체",
