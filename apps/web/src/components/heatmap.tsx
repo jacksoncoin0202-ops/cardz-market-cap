@@ -283,6 +283,19 @@ const KIOSK_LOGO = {
 const KIOSK_REFRESH_MS = 5 * 60 * 1000;
 
 /*
+ * 分享圖出 JPEG 唔出 PNG（owner 2026-08-19：「b 轉 jpeg」）。
+ *
+ * 張圖係 4:5 嘅相片格（2034×2533），入面幾百張卡圖 —— 同一張 canvas 實測：PNG 6.33 MB、
+ * q0.92 1.34 MB（手機 top23 嗰版 5.97 MB → 1.02 MB）。咁大張嘅代價唔喺硬碟：
+ * iOS share sheet 要成秒先遞得出去，LINE / Threads / IG 收到之後一律自己再壓一次，
+ * 壓出嚟隨時仲差過我哋自己壓。q0.92 肉眼睇唔出分別（owner 要求「高清、唔好蒙查查」
+ * 仍然成立 —— 縮嘅係 encode，唔係解像度，張 canvas 仲係原本尺寸）。
+ *
+ * 冇 alpha 好蝕：renderHeatmapShare 開場就 fillRect 咗成塊底，張 canvas 由頭到尾唔透明。
+ */
+const SHARE_JPEG_QUALITY = 0.92;
+
+/*
  * Kiosk 特效 kill switch。五個 token 默認全開，落喺 `[data-kiosk-fx~="…"]`，
  * CSS 每個特效自己 gate 返自己嗰個 token。
  * 出口係 URL query（`?kioskfx=breathe,tour`）唔係 localStorage：部機掛喺牆上面冇 devtools，
@@ -974,10 +987,11 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
       dateText: formatDate(new Date().toISOString(), "en"),
     });
 
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", SHARE_JPEG_QUALITY));
     if (!blob) throw new Error("heatmap export: toBlob returned null");
-    /* 檔名帶比例：owner 會兩個版本都出，落咗相簿之後淨係睇縮圖好難分邊張係邊張。 */
-    const filename = `cardz-heatmap-top${tiles.length}-${shareAspect === "post" ? "4x5" : "wide"}-${new Date().toISOString().slice(0, 10)}.png`;
+    /* 檔名帶比例：owner 會兩個版本都出，落咗相簿之後淨係睇縮圖好難分邊張係邊張。
+       副檔名要同上面個 MIME 對得住 —— 唔啱嘅話 iOS 相簿會當佢係壞檔。 */
+    const filename = `cardz-heatmap-top${tiles.length}-${shareAspect === "post" ? "4x5" : "wide"}-${new Date().toISOString().slice(0, 10)}.jpg`;
     const pageUrl = window.location.href;
     /* share sheet 嘅標題／文字係俾當下用戶睇嘅介面字，所以跟返 locale（唔同圖入面嘅英文字） */
     const shareTitle = `${title.replace("{count}", String(tiles.length))} · ${t.periods[activePeriod]}`;
@@ -1039,7 +1053,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
         className="heatmap-export"
         getText={() => window.location.href}
         label={t.labels.shareImage}
-        /* 呢個掣係匯出 PNG，唔係複製連結——toast 要用 share.done/error，唔好再借 labels.shareDone */
+        /* 呢個掣係匯出張圖，唔係複製連結——toast 要用 share.done/error，唔好再借 labels.shareDone */
         doneLabel={t.share.done}
         errorLabel={t.share.error}
         onCopy={exportHeatmap}

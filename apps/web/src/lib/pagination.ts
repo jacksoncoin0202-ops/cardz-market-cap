@@ -1,25 +1,22 @@
 export const WATCHLIST_PAGE_SIZE = 200;
 
 /*
- * 揀得嘅每頁數量。owner 2026-08-18 先收窄做 `[100,200,500]`，同日再放返
- * 「加返 300 落去囉，鍾意 1000 加埋都得，唔大問題」—— 所以五個全部係正選。
- * 加數量落呢度**唔會**令「碌下碌下自動接到 lag 機」返嚟，因為自動接嘅上限
- * 係獨立嘅 AUTO_APPEND_ROW_CAP，唔跟呢個 list 嘅最大值走（見下面）。
+ * 揀得嘅每頁數量。
+ *
+ * owner 2026-08-19：「永遠得 500 呀，冇 1000 嘅。最多都係 500，唔可以有一千，剷曬
+ * 1000 啲掣啦。」—— 所以 1000 由正選剷咗，改為喺下面 alias 返落 500（舊 link 唔 404，
+ * 但亦唔會出返 1000 行）。
+ *
+ * 三排數量掣（ranking-surface / rankings / sort-filter-sheet）全部 map 呢個 array，
+ * 所以呢度加一個數量 = 三個地方一齊多咗粒掣，冇得只加一邊。
  */
-export const RANKING_PAGE_SIZES = [100, 200, 300, 500, 1000] as const;
+export const RANKING_PAGE_SIZES = [100, 200, 300, 500] as const;
 
-/*
- * 出過街、可能已經俾人 bookmark 或者爬蟲收咗，但**唔再喺任何 UI 出現**嘅舊值。
- * 榜尾嗰排數量掣一直係真 `<a href="?size=N">`，砍走一個數量唔可以順手踢佢做 404。
- * 而家係空嘅（300 已經放返正選）—— 留住個機制，下次再砍就有位擺。
- */
-const LEGACY_PAGE_SIZES = [] as const;
-
-export type RankingPageSize = (typeof RANKING_PAGE_SIZES)[number] | (typeof LEGACY_PAGE_SIZES)[number];
+export type RankingPageSize = (typeof RANKING_PAGE_SIZES)[number];
 export const DEFAULT_RANKING_PAGE_SIZE: RankingPageSize = 100;
 
 /*
- * **自動／撳掣接落去**嘅累積上限。
+ * **自動／撳掣接落去**嘅累積上限，同時亦係每頁數量嘅硬頂（見下面個 guard）。
  *
  * owner 2026-08-18：「碌下碌下⋯⋯原來 show 到成 800 個項目，部機就會 lag 機，我要
  * F5 refresh 一次先可以更新返，所以先提供到 500 個。」—— 佢投訴嘅係「我冇要求過，
@@ -28,17 +25,34 @@ export const DEFAULT_RANKING_PAGE_SIZE: RankingPageSize = 100;
 const AUTO_APPEND_ROW_CAP = 500;
 
 /*
+ * ⚠️ 加返一個大過 500 嘅數量落 RANKING_PAGE_SIZES 唔係「多咗個選項」，係直接違反
+ * owner 2026-08-19 嗰句「最多都係 500，唔可以有一千」，而且 `rankingRowCap` 會跟住
+ * pageSize 走，即係佢原本投訴嗰個 800 行 lag 機直接返晒嚟。
+ *
+ * 呢個 module 榜頁 / sitemap / API 都 import，所以炸喺 import 嗰刻 = `next build`
+ * 即刻紅，唔會靜靜出咗街先發現。唔准改做 console.warn。
+ */
+const oversized = RANKING_PAGE_SIZES.filter((size) => size > AUTO_APPEND_ROW_CAP);
+if (oversized.length > 0) {
+  throw new Error(`pagination: 每頁數量唔准大過 ${AUTO_APPEND_ROW_CAP}（見到 ${oversized.join("、")}）——「最多都係 500，唔可以有一千」`);
+}
+
+/*
+ * 出過街、可能已經俾人 bookmark 或者爬蟲收咗嘅舊數量 → 對返落而家仲有嘅數量。
+ * 榜尾嗰排數量掣一直係真 `<a href="?size=N">`，砍走一個數量唔可以順手踢佢做 404；
+ * 但**亦唔准照舊出返嗰個數量**，所以係「收貨 + 對落 500」，唔係「收貨 + 出 1000」。
+ */
+const LEGACY_PAGE_SIZE_ALIASES = new Map<number, RankingPageSize>([[1000, 500]]);
+
+/*
  * 榜上同一時間最多 render 幾多行。
  *
- * `pageSize` 本身永遠算數：用戶主動撳「1000」就係佢自己要一版 1000 行，唔准收埋
- * 一半當冇事發生。受夾嘅只係**接落去嗰部分**。
+ * 而家所有選得嘅數量都 ≤ 500（上面個 guard 保住），所以呢度實際永遠回 500。
+ * 個 `Math.max` 唔准拆走：佢係「pageSize 本身永遠算數」嗰條規矩嘅唯一實現，
+ * 拆咗之後日後改數量就會靜靜出現「揀 400 但淨係 render 到 300」呢種未夾過嘅組合。
  *
- * 呢度**唔准**寫返 `Math.max(...RANKING_PAGE_SIZES)`（2026-08-18 早上嗰版就係咁）：
- * 咁寫嘅話 owner 一加 `1000` 落選項，「自動接落去」個上限就靜靜由 500 跳去 1000，
- * 即係佢原本投訴嗰個 lag 直接返晒嚟，而且冇任何地方睇得出。
- *
- * 實際效果（1604 張榜）：size 100 接到 500 行、200 接到 400 行、300／500／1000
- * 一版到底唔再接（再接一整版就爆）。過咗頂唔係死路，`›` 會揭去下一版。
+ * 實際效果（1604 張榜）：size 100 接到 500 行、200 接到 400 行、300／500 一版到底
+ * 唔再接。過咗頂唔係死路，`›` 會揭去下一版。
  */
 export function rankingRowCap(pageSize: number): number {
   return Math.max(pageSize, AUTO_APPEND_ROW_CAP);
@@ -56,17 +70,19 @@ export function watchlistPageCount(cardCount: number): number {
 }
 
 /*
- * `?size=` 只收 RANKING_PAGE_SIZES 加埋 LEGACY_PAGE_SIZES。冇傳 = 100。唔喺名單
- * 入面就 `null`，叫方決定 404 定 400 —— 呢度唔 clamp 去最近嘅合法值。
+ * `?size=` 只收 RANKING_PAGE_SIZES，加上 LEGACY_PAGE_SIZE_ALIASES 嗰啲舊值（會對返落
+ * 而家嘅數量）。冇傳 = 100。兩邊都唔中就 `null`，叫方決定 404 定 400 —— 呢度唔會
+ * clamp 去最近嘅合法值（`?size=750` 係錯，唔係 500）。
  */
 export function parseRequestedPageSize(raw: string | string[] | undefined): RankingPageSize | null {
   if (raw === undefined) return DEFAULT_RANKING_PAGE_SIZE;
   const value = Array.isArray(raw) ? raw[0] : raw;
   if (value === undefined) return DEFAULT_RANKING_PAGE_SIZE;
   if (!/^[1-9]\d*$/.test(value)) return null;
-  const size = Number(value) as RankingPageSize;
-  const accepted: readonly number[] = [...RANKING_PAGE_SIZES, ...LEGACY_PAGE_SIZES];
-  return accepted.includes(size) ? size : null;
+  const size = Number(value);
+  const offered: readonly number[] = RANKING_PAGE_SIZES;
+  if (offered.includes(size)) return size as RankingPageSize;
+  return LEGACY_PAGE_SIZE_ALIASES.get(size) ?? null;
 }
 
 /*

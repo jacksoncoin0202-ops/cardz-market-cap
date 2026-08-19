@@ -53,7 +53,7 @@ export async function RankingSurface({
       loading: t.labels.loadingMore,
       retry: t.errorPage.retry,
       /* {count} 喺呢度填死：pager 係 client component，唔想連 fillTemplate 都拖埋落去。
-         cap 跟住 pageSize 走（size 1000 就係 1000），所以唔可以填一個全站通用嘅常數。 */
+         cap 由 rankingRowCap 出（見 lib/pagination.ts），唔准喺呢度寫死條數。 */
       rowCap: t.labels.rowCapReached.replace("{count}", String(rankingRowCap(pageSize))),
       toTop: t.labels.backToTop,
     },

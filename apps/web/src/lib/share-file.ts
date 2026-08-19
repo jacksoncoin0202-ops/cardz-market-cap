@@ -22,7 +22,8 @@ export type ShareOutcome =
   | "dismissed";
 
 export interface ShareImageOptions {
-  /** 落載檔名，要連 `.png` */
+  /** 落載檔名，要連副檔名，而且要同 blob 個 MIME 對得住（`image/jpeg` → `.jpg`）——
+   *  唔啱嘅話 iOS 相簿會當佢係壞檔。 */
   filename: string;
   /** share sheet 標題（跟返介面語言 —— 同圖入面一律英文嗰條規矩無關） */
   title: string;
