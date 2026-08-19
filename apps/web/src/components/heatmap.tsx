@@ -21,7 +21,7 @@ import { tap } from "@/lib/haptic";
 import { snapCardBox, snapFrameGrid, snapTileBox } from "@/lib/pixel-snap";
 import { heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
 import { shareImageBlob } from "@/lib/share-file";
-import { renderHeatmapShare } from "@/lib/share-image";
+import { renderHeatmapShare, shareBoardSize } from "@/lib/share-image";
 import { changeValue, DEFAULT_TILE, tileCardSize, tileColors, tileStyle, type TileParams } from "@/lib/tile-style";
 import { useMarketSettings } from "@/lib/use-market-settings";
 import { useUpDown } from "@/lib/use-updown";
@@ -922,12 +922,23 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
    */
   const exportHeatmap = useCallback(async () => {
     if (!size.width || !size.height || !tiles.length) return;
+    /*
+     * 分享圖唔可以照抄畫面個 frame 比例。手機 frame 係 343×508（0.68），加埋 header /
+     * legend 出到嚟成張 PNG 得 0.58 —— Threads / X / IG feed 對直度圖有高度上限，太直
+     * 唔會裁而係縮細，於是張圖淨係佔到 post 闊度七八成（owner 2026-08-19 實測）。
+     * shareBoardSize() 只加闊唔加高，攞住個新尺寸**重行一次 treemap**，格仔填得滿 ——
+     * 好過左右硬加兩條黑邊。桌面 frame 本身夠闊，回返原尺寸，行呢度同以前一模一樣。
+     */
+    const board = shareBoardSize(size.width, size.height);
+    const shareTiles = board.width === size.width && board.height === size.height
+      ? tiles
+      : heatmapTreemapLayout(tiles.map(({ item }) => item), board.width, board.height);
     const canvas = await renderHeatmapShare({
-      frameWidth: size.width,
-      frameHeight: size.height,
+      frameWidth: board.width,
+      frameHeight: board.height,
       /* 每格認住 tile.item.card：treemap 會按市值重排，舊版攞 visibleCards[index] 去對
          tiles.entries()，張冠李戴——A 卡嘅圖配 B 卡嘅升跌（2026-08-17 code review 捉到）。 */
-      tiles: tiles.map(({ item, x, y, width, height }) => ({
+      tiles: shareTiles.map(({ item, x, y, width, height }) => ({
         x,
         y,
         width,
@@ -938,7 +949,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
       params,
       colors,
       dark,
-      count: tiles.length,
+      count: shareTiles.length,
       periodLabel: copy.en.periods[activePeriod],
       dateText: formatDate(new Date().toISOString(), "en"),
     });

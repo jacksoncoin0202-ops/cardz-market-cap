@@ -73,6 +73,36 @@ const LABEL = { inset: 4, padX: 3, padY: 1, radius: 4, lineHeight: 1.2 } as cons
 /* iOS canvas 上限 16.7M px；呢度自己封頂喺 5.2M，留大量餘裕兼令 toBlob 唔會慢到甩 user activation。 */
 const MAX_CANVAS_AREA = 5_200_000;
 
+/*
+ * 最直可以去到幾直（闊 ÷ 高）。
+ *
+ * Threads / X / IG feed 對直度圖有高度上限：**唔會裁**，而係按高度縮細，於是張圖淨係
+ * 佔到 post 闊度七八成，隔離人哋啲相就滿版 —— owner 2026-08-19 貼出去實測，手機出嗰張
+ * 1369×2373（0.58）永遠細一截。三家入面 IG 4:5 最嚴，所以鎖 0.8：**冇一家會再縮佢**。
+ * （唔使理另一邊：圖闊過上限只會變矮，闊度照樣滿版。）
+ */
+export const SHARE_MIN_ASPECT = 0.8;
+
+/* 一張分享圖除咗 board 之外嘅固定開銷（CSS px，scale = 1）：
+   直度 = 上下 pad 24×2 + header 32 + 上下各 20 空隙 + legend 14.4 ≈ 135（單行 header）；
+   橫度 = 左右 pad 24×2。純粹俾 shareBoardSize() 估個 board 幾大，估歪咗
+   renderHeatmapShare() 尾嗰個閘會補返左右留白，唔會出到直過 SHARE_MIN_ASPECT 嘅圖。 */
+const SHARE_CHROME_H = 140;
+const SHARE_GUTTER_W = 48;
+
+/**
+ * 畫面個 heatmap frame 幾何 → 分享圖應該用幾大個 board。
+ *
+ * ⚠️ 唔可以照抄 frame：手機個 frame 係 343×508（0.68），加埋 header/legend 出到嚟成張
+ * canvas 得 0.58，直過上面講嗰條線。呢度只會**加闊**（高度唔郁），caller 攞住個
+ * 尺寸重行一次 treemap，格仔就填得滿 —— 好過左右硬加兩條黑邊。
+ */
+export function shareBoardSize(frameWidth: number, frameHeight: number): { width: number; height: number } {
+  const height = Math.max(1, Math.round(frameHeight));
+  const minWidth = Math.round((height + SHARE_CHROME_H) * SHARE_MIN_ASPECT) - SHARE_GUTTER_W;
+  return { width: Math.max(1, Math.round(frameWidth), minWidth), height };
+}
+
 export interface ShareTileInput {
   /* treemap 原始 rect（未扣 gap），同 on-screen 傳俾 <HeatmapTile> 嗰組數一模一樣 */
   x: number;
@@ -217,8 +247,9 @@ export async function renderHeatmapShare(opts: HeatmapShareOptions): Promise<HTM
   const hair = Math.max(1, Math.round(scale)); // 1 CSS px 幼線
   const boardW = Math.round(frameWidth * scale);
   const boardH = Math.round(frameHeight * scale);
-  const canvasW = boardW + pad * 2;
-  const contentW = canvasW - pad * 2;
+  /* 版心 = board 闊度。⚠️ 唔好寫返 `canvasW - pad * 2`：下面個滿版閘只加**左右**留白，
+     boardW 唔會變；倒推嘅話一加留白，上面量好嘅 header / legend 排位就全部錯。 */
+  const contentW = boardW;
 
   /* 字體可能仲喺度 load：唔等就會量錯闊度（截字位、legend 排位全部跟住錯）。
      ⚠️ 呢句一定要行喺下面 `shareFont()` 之前 —— 未 load 完嘅話 computed family 一樣係
@@ -279,6 +310,10 @@ export async function renderHeatmapShare(opts: HeatmapShareOptions): Promise<HTM
   const legendH = Math.max(swatch, Math.round(12 * scale) * 1.2);
 
   const canvasH = Math.round(pad + headerH + unit * 2.5 + boardH + unit * 2.5 + legendH + pad);
+  /* 滿版閘（見 SHARE_MIN_ASPECT）：唔夠闊就左右補底色。caller 行過 shareBoardSize() 嘅話
+     行到呢度通常只差幾 px；呢句係兜底，唔係主力。 */
+  const padX = Math.max(pad, Math.round((Math.round(canvasH * SHARE_MIN_ASPECT) - boardW) / 2));
+  const canvasW = boardW + padX * 2;
   const canvas = document.createElement("canvas");
   canvas.width = canvasW;
   canvas.height = canvasH;
@@ -315,25 +350,25 @@ export async function renderHeatmapShare(opts: HeatmapShareOptions): Promise<HTM
   const headerTop = pad;
   if (logo) {
     const logoY = oneRow ? headerTop + (headerH - logoH) / 2 : headerTop;
-    ctx.drawImage(logo, pad, logoY, logoW, logoH);
+    ctx.drawImage(logo, padX, logoY, logoW, logoH);
   }
   if (oneRow) {
     const midY = headerTop + headerH / 2;
     ctx.font = titleFont(false);
     const titleMax = contentW - logoW - unit * 3 - stampW - unit * 3;
-    drawText(ctx, fitText(ctx, shareTitle, titleMax), pad + logoW + unit * 3, midY, { font: titleFont(false), color: skin.text, baseline: "middle" });
-    drawText(ctx, dateText, canvasW - pad, midY, { font: stampFont, color: skin.sub, align: "right", baseline: "middle" });
+    drawText(ctx, fitText(ctx, shareTitle, titleMax), padX + logoW + unit * 3, midY, { font: titleFont(false), color: skin.text, baseline: "middle" });
+    drawText(ctx, dateText, canvasW - padX, midY, { font: stampFont, color: skin.sub, align: "right", baseline: "middle" });
   } else {
     const rowMid = headerTop + Math.max(logoH, Math.round(12 * scale) * 1.2) / 2;
-    drawText(ctx, dateText, canvasW - pad, rowMid, { font: stampFont, color: skin.sub, align: "right", baseline: "middle" });
+    drawText(ctx, dateText, canvasW - padX, rowMid, { font: stampFont, color: skin.sub, align: "right", baseline: "middle" });
     ctx.font = titleFont(true);
     /* baseline 用 bottom 唔用 alphabetic：alphabetic 會令 descender（Top 個 p）跌出 header 之外 */
-    drawText(ctx, fitText(ctx, shareTitle, contentW), pad, headerTop + headerH, { font: titleFont(true), color: skin.text, baseline: "bottom" });
+    drawText(ctx, fitText(ctx, shareTitle, contentW), padX, headerTop + headerH, { font: titleFont(true), color: skin.text, baseline: "bottom" });
   }
 
   /* ── tiles ──
      幾何同 on-screen 一模一樣：x/y/w/h 全部由同一組 treemap rect 扣 gap 得出，再 × scale。 */
-  const ox = pad;
+  const ox = padX;
   const oy = Math.round(headerTop + headerH + unit * 2.5);
   const images = await Promise.all(tiles.map((tile) => loadImage(tile.imageUrl)));
   const tileRadius = TILE_RADIUS_CSS * scale;
@@ -412,7 +447,7 @@ export async function renderHeatmapShare(opts: HeatmapShareOptions): Promise<HTM
      唯一一行附加資訊：色板直接用 opts.colors，所以 red-up 反轉之後個 legend 自己跟住反轉。 */
   const legendTop = oy + boardH + unit * 2.5;
   const legendMid = legendTop + legendH / 2;
-  let cursor = pad;
+  let cursor = padX;
   ctx.font = legendFont;
   for (const item of legendItems) {
     ctx.fillStyle = item.color;
@@ -423,7 +458,7 @@ export async function renderHeatmapShare(opts: HeatmapShareOptions): Promise<HTM
     cursor += ctx.measureText(item.label).width + legendGap;
   }
   if (showNote) {
-    drawText(ctx, SHARE_TEXT.intensity, canvasW - pad, legendMid, { font: noteFont, color: skin.sub, align: "right", baseline: "middle" });
+    drawText(ctx, SHARE_TEXT.intensity, canvasW - padX, legendMid, { font: noteFont, color: skin.sub, align: "right", baseline: "middle" });
   }
 
   /* ── 幼框 ── 最後畫，壓喺所有嘢上面，似一張裱好嘅相 */
