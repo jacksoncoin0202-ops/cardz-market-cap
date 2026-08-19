@@ -21,7 +21,7 @@ import { tap } from "@/lib/haptic";
 import { snapCardBox, snapFrameGrid, snapTileBox } from "@/lib/pixel-snap";
 import { heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
 import { shareImageBlob } from "@/lib/share-file";
-import { renderHeatmapShare, shareBoardSize } from "@/lib/share-image";
+import { renderHeatmapShare, shareBoardSize, type ShareAspect } from "@/lib/share-image";
 import { changeValue, DEFAULT_TILE, tileCardSize, tileColors, tileStyle, type TileParams } from "@/lib/tile-style";
 import { useMarketSettings } from "@/lib/use-market-settings";
 import { useUpDown } from "@/lib/use-updown";
@@ -554,6 +554,24 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
   const persistParams = useCallback((next: TileParams) => {
     try { localStorage.setItem("cardz-heatmap-params", JSON.stringify(next)); } catch { /* 寫唔入就算 */ }
   }, []);
+
+  /*
+   * 分享圖比例（owner 2026-08-19：「我依家就算喺電腦度做，我哋 post social media，
+   * 我都想 post 4 比 5 圖」）。預設 `post` = 釘死 4:5，**同部機幾大冇關係** —— 以前個
+   * board 淨係「加闊唔加高」，即係手機出 4:5、桌面出橫圖，同一粒掣兩種比例，owner 揀唔到。
+   * 留返 `frame`（跟畫面嗰個形狀）係因為 treemap 本身闊啲真係讀得清，Slack / Discord /
+   * blog embed 亦係橫圖舒服 —— 但嗰個係另一個場景，唔應該由部機幫你決定。
+   * 呢個 state 唔影響任何 SSR markup（tune panel 收埋嗰陣 Sheet 乜都唔 render），
+   * 所以照跟 params 嗰個 lazy-init + localStorage 寫法，唔會 hydration mismatch。
+   */
+  const [shareAspect, setShareAspectState] = useState<ShareAspect>(() => {
+    if (typeof window === "undefined") return "post";
+    return localStorage.getItem("cardz-heatmap-share-aspect") === "frame" ? "frame" : "post";
+  });
+  const setShareAspect = useCallback((next: ShareAspect) => {
+    setShareAspectState(next);
+    try { localStorage.setItem("cardz-heatmap-share-aspect", next); } catch { /* 寫唔入就算 */ }
+  }, []);
   const { set: setParam, peek: peekParams } = useParamPump(params, setParamsState);
   const tuneCommitRef = useTuneCommit(persistParams, peekParams);
   const [tuneResetKey, setTuneResetKey] = useState(0);
@@ -926,10 +944,12 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
      * 分享圖唔可以照抄畫面個 frame 比例。手機 frame 係 343×508（0.68），加埋 header /
      * legend 出到嚟成張 PNG 得 0.58 —— Threads / X / IG feed 對直度圖有高度上限，太直
      * 唔會裁而係縮細，於是張圖淨係佔到 post 闊度七八成（owner 2026-08-19 實測）。
-     * shareBoardSize() 只加闊唔加高，攞住個新尺寸**重行一次 treemap**，格仔填得滿 ——
-     * 好過左右硬加兩條黑邊。桌面 frame 本身夠闊，回返原尺寸，行呢度同以前一模一樣。
+     * 桌面反方向：frame 1200×640 出橫圖，喺直度 feed 度一樣細一截。
+     * `shareAspect` 兩條路（見 lib/share-image.ts）：`post` 釘死 4:5（太直加闊、太扁加高），
+     * `frame` 保留畫面嗰個形狀。兩條路都係攞住個新尺寸**重行一次 treemap**，格仔填得滿 ——
+     * 好過硬加黑邊。
      */
-    const board = shareBoardSize(size.width, size.height);
+    const board = shareBoardSize(size.width, size.height, shareAspect);
     const shareTiles = board.width === size.width && board.height === size.height
       ? tiles
       : heatmapTreemapLayout(tiles.map(({ item }) => item), board.width, board.height);
@@ -956,7 +976,8 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
 
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
     if (!blob) throw new Error("heatmap export: toBlob returned null");
-    const filename = `cardz-heatmap-top${tiles.length}-${new Date().toISOString().slice(0, 10)}.png`;
+    /* 檔名帶比例：owner 會兩個版本都出，落咗相簿之後淨係睇縮圖好難分邊張係邊張。 */
+    const filename = `cardz-heatmap-top${tiles.length}-${shareAspect === "post" ? "4x5" : "wide"}-${new Date().toISOString().slice(0, 10)}.png`;
     const pageUrl = window.location.href;
     /* share sheet 嘅標題／文字係俾當下用戶睇嘅介面字，所以跟返 locale（唔同圖入面嘅英文字） */
     const shareTitle = `${title.replace("{count}", String(tiles.length))} · ${t.periods[activePeriod]}`;
@@ -977,7 +998,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
     if (isMobileTiles) {
       document.getElementById("market-ranking")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-  }, [size.width, size.height, tiles, title, activePeriod, isMobileTiles, params, colors, dark, t.periods]);
+  }, [size.width, size.height, tiles, title, activePeriod, isMobileTiles, params, colors, dark, t.periods, shareAspect]);
 
   // Controls 抽返出嚟：desktop 同標題並排，手機由 CSS 將佢哋排喺標題下面、
   // 圖上面（Tiles slider 做主角），結構保持一致。
@@ -1197,6 +1218,16 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
             * （見上面 colors useMemo），所以「升色」picker 要綁住 down*，改落去先真係改到升色。
             * key 帶 upDown：uncontrolled color input 換綁定要 remount 先出正確 defaultValue。
             */}
+          {/* 分享圖比例。擺喺 panel 最頂 —— 呢個係唯一會改變「出街嗰張嘢係咩」嘅設定，
+              下面全部係色。同 ↕ 嗰行共用 `tune-updown-actions` 個分段掣樣式。 */}
+          <div className="tune-field" role="group" aria-label={t.heatmap.shareShape}>
+            {/* 冇 class：`.tune-field span` 已經係 TuneRange / TuneColor 嗰個 label 樣式 */}
+            <span>{t.heatmap.shareShape}</span>
+            <div className="tune-panel-actions tune-updown-actions">
+              <button type="button" aria-pressed={shareAspect === "post"} data-active={shareAspect === "post" ? "true" : "false"} onClick={() => setShareAspect("post")}>{t.heatmap.shareShapePost}</button>
+              <button type="button" aria-pressed={shareAspect === "frame"} data-active={shareAspect === "frame" ? "true" : "false"} onClick={() => setShareAspect("frame")}>{t.heatmap.shareShapeFrame}</button>
+            </div>
+          </div>
           <div className="tune-field" role="group" aria-label={upDown === "red-up" ? t.labels.upDownRed : t.labels.upDownGreen}>
             <div className="tune-panel-actions tune-updown-actions">
               <button type="button" aria-pressed={upDown === "green-up"} data-active={upDown === "green-up" ? "true" : "false"} onClick={() => setUpDownPref("green-up")}>{t.labels.upDownGreen}</button>

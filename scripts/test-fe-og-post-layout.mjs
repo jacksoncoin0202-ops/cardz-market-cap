@@ -1,0 +1,215 @@
+#!/usr/bin/env node
+/*
+ * 分享圖排版契約（`api/og/card/[id]`）—— 2026-08-19。
+ * 預設純靜態：唔開瀏覽器、唔使 dev server，由 run_all_tests.py glob `scripts/test-*.mjs` 收。
+ * 加 `--live` 先會真係打條 route、逐 px 掃返張 PNG（要 dev server，見底部）。
+ *
+ * 背景：owner 睇住出街嗰張 4:5 講 ——「入面啲字大大細細、字體不一，感覺好奇怪」。
+ * 拆開係兩件事，兩件都係**冇 error、冇 warning、CI 照綠**嗰種：
+ *
+ *  ① **同一個角色，兩個字級。** 四個數擺同一行、同一個 label 級、同一條分隔線之下，
+ *     偏偏係 46/36/36/36；三個「大寫 tracked 細標籤」係 22/24/22。22 同 24 差 9% ——
+ *     肉眼分唔出係有意定係手滑，但排埋一齊就係「大大細細」。守法唔係叫人小心啲，
+ *     係**唔准喺 layout 入面撒 fontSize 數字**：一律行 `POST_TYPE` 三級（T1/T2/T3）。
+ *
+ *  ② **垂直預算靠估。** 舊註寫住「最壞情況 = 2 行 38px 標題……剩 92px」，但 `clampTitle`
+ *     封嘅係 96 **字**唔係行數，38px 喺 968 闊度一行得 ~38 字 —— 96 字係 **3 行**。
+ *     實測 3 行嗰啲卡 ink 去到 y=1313，衝穿底 padding 20px，張圖照 200 出街。
+ *     所以呢度唔信任何加減數：`--live` 直接掃 PNG 嘅 ink bbox，四邊都要 ≥ padding。
+ *     （T1–T4 靜態守「唔好再手滑」，T5 live 守「真係入唔入得晒」——兩層唔可以互相代替。）
+ */
+import { readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const failed = [];
+const check = (label, condition, detail) => { if (!condition) failed.push(detail ? `${label}: ${detail}` : label); };
+const read = (rel) => readFileSync(join(ROOT, rel), "utf8");
+
+const ROUTE_REL = "apps/web/src/app/api/og/card/[id]/route.tsx";
+const route = read(ROUTE_REL);
+
+/* 剝走註釋先掃 —— 唔剝嘅話上面成段中文註提到嘅「46/36」會當咗係 code。 */
+const code = route.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
+
+/**
+ * `function Name(` 開始，回傳個 body（唔含註釋）。
+ *
+ * ⚠️ 唔可以攞 `indexOf("{", head)` 做開頭：呢批 component 個簽名係
+ * `function PostLayout({ card, art, … }: { card: MarketCardView; … })` ——
+ * 第一個 `{` 係參數解構，數大括號會喺型別註解收口嗰度提早收，攞到一段唔係 body 嘅嘢，
+ * 跟住所有「body 入面搵唔到 X」嘅 assert 就會**假綠**（第一版就係噉：T2 報「得 0 個 Stat」
+ * 但 T1 照過）。所以要等 paren depth 歸零之後嗰個 `{` 先算 body。
+ */
+function fnBody(src, name) {
+  const head = src.indexOf(`function ${name}(`);
+  if (head < 0) return null;
+  let paren = 0;
+  let i = src.indexOf("(", head);
+  for (; i < src.length; i++) {
+    if (src[i] === "(") paren++;
+    else if (src[i] === ")" && --paren === 0) break;
+  }
+  const open = src.indexOf("{", i);
+  if (open < 0) return null;
+  let depth = 0;
+  for (let j = open; j < src.length; j++) {
+    if (src[j] === "{") depth++;
+    else if (src[j] === "}" && --depth === 0) return src.slice(open, j + 1);
+  }
+  return null;
+}
+
+const post = fnBody(code, "PostLayout");
+const wide = fnBody(code, "WideLayout");
+/* 唔可以淨係 `!!post`：攞錯咗一段唔係 body 嘅嘢一樣係 truthy，跟住下面每條「搵唔到就過」
+   嘅 assert 全部假綠。要驗返個 body 真係載住我哋要守嗰啲嘢。 */
+check("T0: 攞到 PostLayout body", !!post && post.includes("<Stat") && post.includes("ArtStage"), post ? `${post.length} 字元` : "null");
+check("T0: 攞到 WideLayout body", !!wide && wide.includes("<Stat") && wide.includes("ArtStage"), wide ? `${wide.length} 字元` : "null");
+
+/* ─────────────────────────────────────────────────────────────
+ * T1 — layout 入面唔准出現裸 font size 數字（守 ①）
+ *
+ * 呢條先係真正嘅閘。「四個數要同級」單獨守唔住 ——下一次手滑會係 caption、kicker、
+ * 頁腳。所以規矩係：字級一律由檔頭嘅 `POST_TYPE` / `WIDE_TYPE` / `postTitleSize`
+ * 出，layout body 入面一個 magic number 都唔准有。
+ *
+ * 兩種寫法都要掃：inline style 係 `fontSize: 18`，傳落 component 係 `fontSize={18}`。
+ * 第一版淨係掃前者，`<ChartCaption fontSize={18} />` 就靜靜噉溜咗過。
+ * ───────────────────────────────────────────────────────────── */
+const NUMERIC_FS = /fontSize[:=]\s*\{?\s*\d/g;
+const NUMERIC_VS = /valueSize=\{\s*\d/g;
+for (const [name, body] of [["PostLayout", post], ["WideLayout", wide]]) {
+  if (!body) continue;
+  const fs = body.match(NUMERIC_FS) ?? [];
+  const vs = body.match(NUMERIC_VS) ?? [];
+  check(`T1: ${name} 唔准撒 fontSize 數字`, fs.length === 0, `搵到 ${fs.length} 個（要行 POST_TYPE / WIDE_TYPE / postTitleSize）`);
+  check(`T1: ${name} 唔准撒 valueSize 數字`, vs.length === 0, `搵到 ${vs.length} 個（要行 POST_TYPE.stat / WIDE_TYPE.stat）`);
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * T2 — 同一行嘅 `<Stat>` 一定要同一個字級（守 ①，owner 直接指住嗰個病）
+ * ───────────────────────────────────────────────────────────── */
+for (const [name, body, expectMin] of [["PostLayout", post, 3], ["WideLayout", wide, 3]]) {
+  if (!body) continue;
+  const sizes = [...body.matchAll(/<Stat\b[^/>]*?valueSize=\{([^}]+)\}/g)].map((m) => m[1].trim());
+  check(`T2: ${name} 有 ${expectMin}+ 個 Stat`, sizes.length >= expectMin, `得 ${sizes.length} 個`);
+  check(`T2: ${name} 四個數同一個字級`, new Set(sizes).size <= 1, `搵到 ${JSON.stringify([...new Set(sizes)])}`);
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * T3 — `POST_TYPE` 三級要真係三級（唔可以兩級撞埋，撞埋就等於冇分過角色）
+ * ───────────────────────────────────────────────────────────── */
+const SCALES = Object.fromEntries(
+  [...code.matchAll(/const (POST_TYPE|WIDE_TYPE)\s*=\s*\{([^}]+)\}/g)].map((m) => [m[1], m[2]]),
+);
+for (const scaleName of ["POST_TYPE", "WIDE_TYPE"]) {
+  const decl = SCALES[scaleName];
+  check(`T3: 搵到 ${scaleName}`, !!decl);
+  if (!decl) continue;
+  const scale = Object.fromEntries([...decl.matchAll(/(\w+):\s*(\d+)/g)].map((m) => [m[1], Number(m[2])]));
+  check(`T3: ${scaleName} 三級齊`, ["micro", "meta", "stat"].every((k) => Number.isFinite(scale[k])), JSON.stringify(scale));
+  check(`T3: ${scaleName} micro < meta < stat`, scale.micro < scale.meta && scale.meta < scale.stat, JSON.stringify(scale));
+  /* 兩級太近＝肉眼分唔出，就係 owner 講嗰種「大大細細」。要分就分得夠開。 */
+  check(`T3: ${scaleName} meta 至少大過 micro 15%`, scale.meta >= scale.micro * 1.15, `${scale.micro} → ${scale.meta}`);
+}
+if (post) {
+  const micro = (post.match(/POST_TYPE\.micro/g) ?? []).length;
+  check("T3: micro 覆蓋齊所有細標籤角色", micro >= 4, `得 ${micro} 個（kicker / caption / 頁腳 ×2 最少）`);
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * T4 — 走勢圖下面唔准再有第二行日期（守 ②）
+ *
+ * `ChartAxis` 係嗰行日期軸。收咗埋 caption 右邊之後佢就係死 code；一旦有人「順手加返」，
+ * 3 行卡名嗰個 case 會即刻衝返穿底邊 —— 而且係靜靜噉衝，睇唔到 error。
+ * ───────────────────────────────────────────────────────────── */
+check("T4: ChartAxis 已刪，唔准加返", !/ChartAxis/.test(code), "route.tsx 仲有 ChartAxis");
+if (post) {
+  const dateRows = (post.match(/chartRange\(/g) ?? []).length;
+  check("T4: 日期範圍出一次", dateRows === 1, `出咗 ${dateRows} 次`);
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * T5 —（opt-in）`--live`：真係打條 route，逐 px 掃 ink bbox（守 ②）
+ *
+ * 唔用 headless Chromium —— OG 係 server 側渲染，攞返個 PNG 直接掃就係最貼近出街嗰張。
+ * 挑卡係自維護嘅：由 seed-snapshot 揀「卡名最長」（行數最壞）＋「市值最大」（stat 行最闊）
+ * ＋「卡名最短」（另一極端），唔寫死 id。
+ * ───────────────────────────────────────────────────────────── */
+if (process.argv.includes("--live")) {
+  const base = process.env.OG_BASE_URL ?? "http://localhost:3901";
+  const sharp = await import("sharp").then((m) => m.default).catch(() => null);
+  if (!sharp) {
+    failed.push("T5: --live 要 sharp，但 import 唔到");
+  } else {
+    const snap = JSON.parse(read("data/public/seed-snapshot.json"));
+    const cards = (snap.top100 ?? []).filter((c) => c.id && c.officialName);
+    check("T5: seed-snapshot 有卡", cards.length > 0);
+    const byLen = [...cards].sort((a, b) => b.officialName.length - a.officialName.length);
+    const byCap = [...cards].sort((a, b) => (b.marketCap?.value ?? 0) - (a.marketCap?.value ?? 0));
+    const picks = [...new Set([byLen[0]?.id, byCap[0]?.id, byLen[byLen.length - 1]?.id].filter(Boolean))];
+
+    /* 底色喺**同一行、同一個面板**嘅 padding 區取樣 —— 咁 vignette 喺該高度嘅亮度已經
+       計咗入去，唔會將漸變本身當成墨。
+       ⚠️ `bgX` 一定要同掃描範圍同一個面板：wide 左邊成條係卡圖漸變、右邊係 paper，
+       攞左邊做底色去掃右邊，成條右欄都會當咗係墨（right=1199，假紅）。 */
+    async function inkBox(url, { bgX = 3, xFrom = 0, xTo = null } = {}) {
+      /* dev server 冧咗要報一行紅，唔好掟 stack 出嚟 —— 呢個 test 會由 run_all_tests 收。 */
+      const res = await fetch(url).catch((e) => ({ ok: false, status: `連唔到 ${base}（${e?.cause?.code ?? e?.message ?? e}）` }));
+      if (!res.ok) return { error: `${res.status}` };
+      const art = res.headers.get("x-og-art");
+      const { data, info } = await sharp(Buffer.from(await res.arrayBuffer())).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+      const { width: W, height: H, channels: C } = info;
+      const at = (x, y) => { const i = (y * W + x) * C; return [data[i], data[i + 1], data[i + 2]]; };
+      const hi = xTo === null ? W - 1 : Math.min(xTo, W - 1);
+      let top = -1, bottom = -1, left = W, right = -1;
+      for (let y = 0; y < H; y++) {
+        const [br, bg, bb] = at(bgX, y);
+        let first = -1, last = -1, n = 0;
+        for (let x = xFrom; x <= hi; x++) {
+          const [r, g, b] = at(x, y);
+          if (Math.abs(r - br) + Math.abs(g - bg) + Math.abs(b - bb) > 54) { if (first < 0) first = x; last = x; n++; }
+        }
+        if (n > 2) { if (top < 0) top = y; bottom = y; left = Math.min(left, first); right = Math.max(right, last); }
+      }
+      return { W, H, art, top, bottom, left, right };
+    }
+
+    const POST_PAD = 56;
+    for (const id of picks) {
+      const m = await inkBox(`${base}/api/og/card/${encodeURIComponent(id)}?format=post`);
+      if (m.error) { failed.push(`T5: ${id} post ${m.error}`); continue; }
+      check(`T5: ${id} post 尺寸`, m.W === 1080 && m.H === 1350, `${m.W}×${m.H}`);
+      check(`T5: ${id} post 有卡圖`, m.art === "1", `x-og-art=${m.art}`);
+      const margins = { 上: m.top, 下: m.H - 1 - m.bottom, 左: m.left, 右: m.W - 1 - m.right };
+      /* −2 係抗鋸齒容差：文字邊緣會滲出一格淡墨。 */
+      const bust = Object.entries(margins).filter(([, v]) => v < POST_PAD - 2);
+      check(`T5: ${id} post 冇衝穿 padding`, bust.length === 0,
+        `${bust.map(([k, v]) => `${k}=${v}`).join(" ")}（padding=${POST_PAD}，全部邊距 ${JSON.stringify(margins)}）`);
+    }
+
+    /* wide 右欄：卡圖佔左邊 468，右欄 padding 56 → 可用 620。三個數收窄之後應該鬆好多。 */
+    const WIDE_COL_L = 468 + 56;
+    const WIDE_COL_R = 1200 - 56;
+    const w = await inkBox(`${base}/api/og/card/${encodeURIComponent(byCap[0].id)}`, {
+      bgX: 468 + 6, xFrom: WIDE_COL_L - 16,
+    });
+    if (w.error) failed.push(`T5: wide ${w.error}`);
+    else {
+      check("T5: wide 尺寸", w.W === 1200 && w.H === 630, `${w.W}×${w.H}`);
+      check("T5: wide 右欄右邊冇出界", w.right <= WIDE_COL_R + 2, `ink 去到 x=${w.right}，欄右邊 ${WIDE_COL_R}`);
+      check("T5: wide 右欄左邊冇撞卡圖", w.left >= WIDE_COL_L - 2, `ink 由 x=${w.left} 起，欄左邊 ${WIDE_COL_L}`);
+      check("T5: wide 上下冇衝穿 44 padding", w.top >= 44 - 2 && 630 - 1 - w.bottom >= 44 - 2,
+        `上=${w.top} 下=${630 - 1 - w.bottom}`);
+    }
+  }
+}
+
+if (failed.length) {
+  console.error(`FAIL ${failed.length}`);
+  for (const line of failed) console.error(`  - ${line}`);
+  process.exit(1);
+}
+console.log(`PASS test-fe-og-post-layout${process.argv.includes("--live") ? " (+live)" : " (static)"}`);

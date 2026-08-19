@@ -153,6 +153,10 @@ export interface Copy {
     neutralZone: string;
     gap: string;
     cardSize: string;
+    /* 分享圖比例（4:5 定跟畫面闊版）—— 見 lib/share-image.ts `ShareAspect` */
+    shareShape: string;
+    shareShapePost: string;
+    shareShapeFrame: string;
     /* /tune lab 專用（clamp / alpha / aspect + 複製 JSON），heatmap tune panel 唔出 */
     clamp: string;
     alphaMin: string;
@@ -437,8 +441,8 @@ export const copy: Record<Locale, Copy> = {
       tilesLabel: "Tiles",
       fullscreen: "Full screen display",
       exitFullscreen: "Exit full screen",
-      customize: "Customize colours",
-      customizeTitle: "Heatmap colours",
+      customize: "Customize heatmap",
+      customizeTitle: "Heatmap settings",
       resetDefault: "Reset to default",
       upColor: "Up colour",
       downColor: "Down colour",
@@ -446,6 +450,7 @@ export const copy: Record<Locale, Copy> = {
       neutralZone: "Neutral zone",
       gap: "Tile spacing",
       cardSize: "Card size",
+      shareShape: "Share image shape", shareShapePost: "4:5 (social)", shareShapeFrame: "Wide (as shown)",
       clamp: "Saturation point (% change)", alphaMin: "Lightest opacity", alphaMax: "Deepest opacity", cardAspect: "Card aspect ratio",
       copyParams: "Copy parameters", paramsCopied: "Parameters copied", copyFailed: "Copy failed",
     },
@@ -662,8 +667,9 @@ export const copy: Record<Locale, Copy> = {
       body: "面積代表現時 PSA 10 市值，色彩反映所選期間的價格變化。",
       negative: "下跌", neutral: "資料累積中", positive: "上升", tilesLabel: "顯示格數",
       fullscreen: "全螢幕展示", exitFullscreen: "離開全螢幕",
-      customize: "自訂色彩", customizeTitle: "熱力圖色彩", resetDefault: "恢復預設",
+      customize: "自訂熱力圖", customizeTitle: "熱力圖設定", resetDefault: "恢復預設",
       upColor: "上升顏色", downColor: "下跌顏色", intensity: "色彩強度", neutralZone: "中立區", gap: "格子間距", cardSize: "卡牌大小",
+      shareShape: "分享圖比例", shareShapePost: "4:5（社交）", shareShapeFrame: "闊版（跟畫面）",
       clamp: "飽和點（漲跌 %）", alphaMin: "最淺透明度", alphaMax: "最深透明度", cardAspect: "卡牌長寬比",
       copyParams: "複製參數", paramsCopied: "已複製參數", copyFailed: "複製失敗",
     },
@@ -865,8 +871,9 @@ export const copy: Record<Locale, Copy> = {
       body: "面积代表当前 PSA 10 市值，色彩反映所选期间的价格变化。",
       negative: "下跌", neutral: "数据累积中", positive: "上涨", tilesLabel: "显示格数",
       fullscreen: "全屏展示", exitFullscreen: "退出全屏",
-      customize: "自定义色彩", customizeTitle: "热力图色彩", resetDefault: "恢复默认",
+      customize: "自定义热力图", customizeTitle: "热力图设置", resetDefault: "恢复默认",
       upColor: "上涨颜色", downColor: "下跌颜色", intensity: "色彩强度", neutralZone: "中立区", gap: "格子间距", cardSize: "卡牌大小",
+      shareShape: "分享图比例", shareShapePost: "4:5（社交）", shareShapeFrame: "宽版（跟画面）",
       clamp: "饱和点（涨跌 %）", alphaMin: "最浅透明度", alphaMax: "最深透明度", cardAspect: "卡牌长宽比",
       copyParams: "复制参数", paramsCopied: "已复制参数", copyFailed: "复制失败",
     },
@@ -1067,8 +1074,9 @@ export const copy: Record<Locale, Copy> = {
       body: "面積は現在の PSA 10 時価総額、色は選択期間の価格変化を表します。",
       negative: "下落", neutral: "集計中", positive: "上昇", tilesLabel: "表示数",
       fullscreen: "フルスクリーン表示", exitFullscreen: "フルスクリーンを終了",
-      customize: "色をカスタマイズ", customizeTitle: "ヒートマップの色", resetDefault: "デフォルトに戻す",
+      customize: "ヒートマップをカスタマイズ", customizeTitle: "ヒートマップ設定", resetDefault: "デフォルトに戻す",
       upColor: "上昇カラー", downColor: "下落カラー", intensity: "色の強度", neutralZone: "ニュートラルゾーン", gap: "タイル間隔", cardSize: "カードサイズ",
+      shareShape: "シェア画像の比率", shareShapePost: "4:5（SNS）", shareShapeFrame: "ワイド（画面どおり）",
       clamp: "飽和点（変動率 %）", alphaMin: "最も薄い不透明度", alphaMax: "最も濃い不透明度", cardAspect: "カードの縦横比",
       copyParams: "パラメータをコピー", paramsCopied: "パラメータをコピーしました", copyFailed: "コピーに失敗しました",
     },
@@ -1276,8 +1284,9 @@ export const copy: Record<Locale, Copy> = {
       body: "면적은 현재 PSA 10 시가총액, 색상은 선택 기간의 가격 변동을 나타냅니다.",
       negative: "하락", neutral: "집계 중", positive: "상승", tilesLabel: "표시 수",
       fullscreen: "전체 화면 표시", exitFullscreen: "전체 화면 종료",
-      customize: "색상 사용자 정의", customizeTitle: "히트맵 색상", resetDefault: "기본값으로 재설정",
+      customize: "히트맵 사용자 정의", customizeTitle: "히트맵 설정", resetDefault: "기본값으로 재설정",
       upColor: "상승 색상", downColor: "하락 색상", intensity: "색상 강도", neutralZone: "중립 구간", gap: "타일 간격", cardSize: "카드 크기",
+      shareShape: "공유 이미지 비율", shareShapePost: "4:5 (소셜)", shareShapeFrame: "와이드 (화면대로)",
       clamp: "포화 지점(변동률 %)", alphaMin: "가장 옅은 불투명도", alphaMax: "가장 짙은 불투명도", cardAspect: "카드 가로세로 비율",
       copyParams: "파라미터 복사", paramsCopied: "파라미터를 복사했습니다", copyFailed: "복사 실패",
     },

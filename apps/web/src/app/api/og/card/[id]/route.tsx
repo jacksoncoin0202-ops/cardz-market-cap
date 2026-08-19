@@ -123,6 +123,34 @@ const POST_ART_STAGE_HEIGHT = 620;
 const POST_ART_MAX_WIDTH = 452;
 const POST_ART_MAX_HEIGHT = 560;
 
+/*
+ * post 嘅字級表（fe07(post-type)，2026-08-19）。
+ *
+ * ⚠️ **PostLayout 唔准再喺 JSX 度撒 fontSize 數字** —— 一律行呢三級。owner 2026-08-19 睇住
+ * 出街嗰張講：「入面啲字大大細細、字體不一，感覺好奇怪」。翻查係兩類毛病，兩類都唔係
+ * 「有層次」，係**手滑**：
+ *
+ *   1) 四個數同一行，字級係 46 / 36 / 36 / 36 —— MARKET CAP 大成 1.28 倍。網頁自己嗰四個
+ *      KPI 由 `--kpi-fs` 一個變數出，四格永遠同級（globals.css `.detail-grid-rail`），
+ *      即係分享圖同網站講緊兩套唔同嘅嘢。同一行、同一個 label 級、同一條分隔線之下，
+ *      唔同字級讀落唔似「重要啲」，似排錯版。
+ *   2) 三個「大寫 tracked 細標籤」角色（stat label 22 / 走勢 caption 24 / 頁腳 22）加埋
+ *      accent kicker 24 —— 22 同 24 差 9%，肉眼分唔出係有意定係唔小心，但排埋一齊就係
+ *      「大大細細」嗰種感覺。同一個角色只准有一個數。
+ *
+ * 所以而家得三級（title 除外，佢係跟卡名長度嘅 ramp，見 postTitleSize）：
+ *   micro 22 —— 所有大寫 tracked 細標籤：stat label（Stat 內置 22）、走勢 caption、
+ *               日期軸、頁腳兩邊、accent kicker。
+ *   meta  26 —— set 名、rank 藥丸。
+ *   stat  44 —— 四個數，**一律同級**。
+ *
+ * 44 唔係執個中位數，係度返出嚟：四個數最闊嗰行（label `PSA 10 PRICE` 185px +
+ * value `▲ +41.6%` 4.83em）喺 968px 可用闊食 ~854px，仲有 114px 鬆動；再大到 46 就只剩
+ * 97px，而 market cap 一過 $1000M（`$1234.56M`）就會食突。垂直方面 stat 行由 113.6 跌到
+ * 111.2px，即係比舊版**寬鬆咗**，PostLayout 個垂直預算註唔使改。
+ */
+const POST_TYPE = { micro: 22, meta: 26, stat: 44 } as const;
+
 /* 走勢圖釘死 180 日 —— 同網頁 `defaultMarketWindow`（types.ts）同一個窗。
    張圖出咗街係俾第三者睇，唔可以帶當前用戶揀嘅時段；但撳入去見到嘅預設係 180D，
    所以圖同頁面第一眼一定要係同一段。 */
@@ -346,11 +374,16 @@ function Stat({ label, value, valueSize = 52, palette, tone }: {
   );
 }
 
-/* 走勢圖上面嗰行字：左邊講「畫緊咩、幾長」，右邊講變動。SVG 入面冇字（見
-   lib/share-chart.ts 檔頭），所有座標軸文字都喺呢度用 satori 畫。 */
-function ChartCaption({ palette, change, fontSize }: {
+/*
+ * 走勢圖上面嗰行字：左邊永遠講「畫緊咩、幾長」，右邊按 format 講一樣嘢 ——
+ *   wide：講變動（嗰邊得三個數，冇 `180D CHANGE` 嗰格）。
+ *   post：講**邊 180 日**（變動已經喺四個數嗰行出咗）。
+ * SVG 入面冇字（見 lib/share-chart.ts 檔頭），所有座標軸文字都喺呢度用 satori 畫。
+ */
+function ChartCaption({ palette, change, range, fontSize }: {
   palette: Palette;
   change: ReturnType<typeof changeText>;
+  range?: string | null;
   fontSize: number;
 }) {
   const tone = change?.tone === "positive" ? palette.positive : change?.tone === "negative" ? palette.negative : palette.muted;
@@ -360,21 +393,27 @@ function ChartCaption({ palette, change, fontSize }: {
         PSA 10 PRICE · {SHARE_WINDOW_LABEL}
       </span>
       {change ? <span style={{ fontSize, color: tone, fontWeight: 600 }}>{change.text}</span> : null}
+      {!change && range ? <span style={{ fontSize, color: palette.muted, letterSpacing: 1.8, fontWeight: 600 }}>{range}</span> : null}
     </div>
   );
 }
 
-/* 走勢圖下面嗰行：頭尾兩個月份 —— 同網頁 history chart 底下嗰兩個 label 同一個角色。 */
-function ChartAxis({ palette, chart, fontSize }: { palette: Palette; chart: ShareChart; fontSize: number }) {
+/*
+ * 「邊 180 日」= 頭尾兩個月份，砌成一句 `FEB 2026 — AUG 2026`。
+ *
+ * ⚠️ 本來呢兩個月份係走勢圖**下面**自己一行（`ChartAxis`，左右對齊住條線兩端）。2026-08-19
+ * 量過出街嗰張：3 行卡名嗰啲（96 字，例如 Van Gogh Pikachu）ink 去到 y=1313，即係**衝穿咗**
+ * 底 padding（1350−56=1294）20px；同時尾段變成四個 22px muted label 砌成一個 2×2
+ * （Feb/Aug 一行、網址/AS OF 一行，中間得 5px），owner 睇落就係「大大細細、字體不一」嗰種亂。
+ * 收埋落 caption 右邊一次過解兩樣：慳返 26.4(行) + 8(gap) = 34.4px（3 行嗰個 case 由
+ * −20 變 +14 鬆動），尾段亦由「2×2 四舊嘢」變返兩行清楚角色（幾時嘅數 / 邊個出）。
+ * 絕對日期照樣留喺圖入面 —— 張圖出咗街冇得撳入去問，呢個係當初加 axis 嘅理由，冇丟。
+ */
+function chartRange(chart: ShareChart): string | null {
   const from = monthYear(chart.firstAt);
   const to = monthYear(chart.lastAt);
   if (!from || !to) return null;
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
-      <span style={{ fontSize, color: palette.muted, fontWeight: 400 }}>{from}</span>
-      <span style={{ fontSize, color: palette.muted, fontWeight: 400 }}>{to}</span>
-    </div>
-  );
+  return `${from} — ${to}`.toUpperCase();
 }
 
 /* 今日出街嗰版：淨文字、成幅 1200 闊。攞唔到卡圖就原封不動退返呢個。 */
@@ -462,8 +501,24 @@ function ArtStage({ art, alt, width, height, radius, palette }: {
   );
 }
 
-/* wide（1200×630）：左卡圖右數據。fe06 起三個數擺同一行（本來 1+2 兩行），
-   慳返嗰行位擺走勢圖 —— 量過：三個數 42/34/34 喺 620px 右欄最闊食 529px，仲有 91px 鬆動。 */
+/*
+ * wide（1200×630）：左卡圖右數據。fe06 起三個數擺同一行（本來 1+2 兩行），慳返嗰行位擺走勢圖。
+ *
+ * 三個數**同一個字級**，同 post 一樣（見 POST_TYPE 個註：同一行、同一個 label 級、同一條線
+ * 之下，字級唔同讀落唔似分主次，似排錯版）。舊版係 44/34/34。
+ * 36 係量返出嚟嘅（榜首 Van Gogh Pikachu = 全榜最闊嗰行 `$141.95M` / `$2.9K` / `49,808`，
+ * 620px 右欄）：44/34/34 嗰陣 label 行食 598px（剩 22），36 之後跌到 561px（剩 59）——
+ * 三格闊度由 max(label, value) 定，value 收窄咗成行都跟住收。
+ *
+ * `WIDE_TYPE` 同 `POST_TYPE` 一樣係「三級，唔准撒數字」。分級照呢張圖自己嘅角色行：
+ *   micro 18 = 細字（走勢 caption、AS OF）
+ *   meta  22 = 頂個 header 行（rank chip、TCG·編號、set 名）—— 本來 rank chip 係 24，
+ *              同隔籬 22 差 9%，就係 owner 講嗰種「大大細細」，收埋做 22。
+ *   stat  36 = 三個數
+ * 注意 kicker 喺 post 係 micro、喺 wide 係 meta：wide 得 630 高，kicker 同 rank chip
+ * 打橫並排係同一件嘢，唔可以一個 18 一個 22。
+ */
+const WIDE_TYPE = { micro: 18, meta: 22, stat: 36 } as const;
 function WideLayout({ card, art, logoSrc, palette, chart, change, asOf }: {
   card: MarketCardView;
   art: CardArt;
@@ -504,7 +559,7 @@ function WideLayout({ card, art, logoSrc, palette, chart, change, asOf }: {
                   display: "flex",
                   background: palette.rankBg,
                   color: palette.rankInk,
-                  fontSize: 24,
+                  fontSize: WIDE_TYPE.meta,
                   /* chip = 網頁 `.detail-rank` 嗰個角色，C2 已經由 650 收做 600 */
                   fontWeight: 600,
                   borderRadius: 999,
@@ -514,23 +569,23 @@ function WideLayout({ card, art, logoSrc, palette, chart, change, asOf }: {
                 #{card.marketRank}
               </span>
             ) : null}
-            <span style={{ fontSize: 22, color: palette.accent, letterSpacing: 3, fontWeight: 600 }}>
+            <span style={{ fontSize: WIDE_TYPE.meta, color: palette.accent, letterSpacing: 3, fontWeight: 600 }}>
               {card.tcg.toUpperCase()} · #{card.collectorNumber}
             </span>
           </div>
           <span style={{ fontSize: titleSize(name), color: palette.ink, fontWeight: 700, lineHeight: 1.12 }}>{name}</span>
-          <span style={{ fontSize: 22, color: palette.muted, lineHeight: 1.3, fontWeight: 400 }}>{clampSetName(card.setName.en)}</span>
+          <span style={{ fontSize: WIDE_TYPE.meta, color: palette.muted, lineHeight: 1.3, fontWeight: 400 }}>{clampSetName(card.setName.en)}</span>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           <div style={{ display: "flex", gap: 44, borderTop: `2px solid ${palette.line}`, paddingTop: 20 }}>
-            <Stat palette={palette} label="MARKET CAP" value={usd(card.marketCap.value)} valueSize={44} />
-            <Stat palette={palette} label="PSA 10 PRICE" value={usd(card.pricePsa10.value)} valueSize={34} />
-            <Stat palette={palette} label="PSA 10 POP" value={integer(card.populationPsa10.value)} valueSize={34} />
+            <Stat palette={palette} label="MARKET CAP" value={usd(card.marketCap.value)} valueSize={WIDE_TYPE.stat} />
+            <Stat palette={palette} label="PSA 10 PRICE" value={usd(card.pricePsa10.value)} valueSize={WIDE_TYPE.stat} />
+            <Stat palette={palette} label="PSA 10 POP" value={integer(card.populationPsa10.value)} valueSize={WIDE_TYPE.stat} />
           </div>
           {/* 冇歷史（少過兩個價點）就成塊唔出，唔畫一條假線亦唔留空框。 */}
           {chart ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
-              <ChartCaption palette={palette} change={change} fontSize={18} />
+              <ChartCaption palette={palette} change={change} fontSize={WIDE_TYPE.micro} />
               <img src={chart.src} alt="" width={chart.width} height={chart.height} />
             </div>
           ) : null}
@@ -543,7 +598,7 @@ function WideLayout({ card, art, logoSrc, palette, chart, change, asOf }: {
                 所以 viewBox 留白同 PNG 唔一樣嗰陣，呢兩個 declared 數就會靜靜出錯圖。 */}
             <img src={logoSrc} alt="CardZ Marketcap" width={200} height={86} />
             {asOf ? (
-              <span style={{ fontSize: 18, color: palette.muted, letterSpacing: 1.2, fontWeight: 400 }}>AS OF {asOf.toUpperCase()}</span>
+              <span style={{ fontSize: WIDE_TYPE.micro, color: palette.muted, letterSpacing: 1.2, fontWeight: 400 }}>AS OF {asOf.toUpperCase()}</span>
             ) : null}
           </div>
         </div>
@@ -565,11 +620,16 @@ function WideLayout({ card, art, logoSrc, palette, chart, change, asOf }: {
  * 順帶好處：高度收窄之後卡圖唔使再放大到 1.267×。而家 560 高 = 0.933×（**縮細**），
  * 429×600 母版一 px 都唔使靠估 —— 呢張係三個 format 入面卡面最銳嗰張。
  *
- * 垂直預算（padding 56 → 內容高 1238，最壞情況 = 2 行 38px 標題）：
- *   品牌行 82 + 舞台 620 + 身份 149 + 四個數 116 + 走勢 153 + 出處 26 = 1146，
- *   剩 92px 由 `justifyContent: space-between` 攤落 5 個罅（每個 ~18）。
- *   短卡名（1 行 56px）身份跌到 122 → 每個罅 ~23，張圖自動鬆返 —— 唔會好似固定 gap
- *   噉將慳返嘅位全部堆喺底部變一大笪空白。
+ * 垂直預算（padding 56 → 內容高 1238）。⚠️ **呢度啲數要量，唔可以估** —— 舊版呢段寫住
+ * 「最壞情況 = 2 行 38px 標題… 剩 92px」，但 clampTitle 封嘅係 96 **字**唔係行數，而 38px
+ * 喺 968 闊度一行得 ~38 字，所以 96 字係 **3 行**。2026-08-19 逐 px 掃出街嗰張：3 行嗰啲
+ * （Van Gogh Pikachu / Charizard VSTAR UPC）ink 去到 y=1313，衝穿底 padding 20px。
+ * 收走走勢圖下面嗰行日期軸（見 chartRange）之後量返：
+ *   3 行卡名 —— ink 58 → 1279，上下邊距 58 / 70（padding 56）✅
+ *   2 行卡名 —— ink 58 → 1257，上下邊距 58 / 92 ✅，多出嘅位由 `justifyContent:
+ *     space-between` 攤落 4 個罅，張圖自動鬆返 —— 唔會好似固定 gap 噉將慳返嘅位全部
+ *     堆喺底部變一大笪空白。
+ * 改任何一個 block 嘅高度／字級，行返 `scripts/test-fe-og-post-layout.mjs` 重新量過。
  */
 function PostLayout({ card, art, logoSrc, palette, chart, change, asOf }: {
   card: MarketCardView;
@@ -602,7 +662,7 @@ function PostLayout({ card, art, logoSrc, palette, chart, change, asOf }: {
               display: "flex",
               background: palette.rankBg,
               color: palette.rankInk,
-              fontSize: 26,
+              fontSize: POST_TYPE.meta,
               fontWeight: 600,
               borderRadius: 999,
               padding: "8px 22px",
@@ -624,41 +684,39 @@ function PostLayout({ card, art, logoSrc, palette, chart, change, asOf }: {
       />
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
-        <span style={{ fontSize: 24, color: palette.accent, letterSpacing: 3.2, fontWeight: 600 }}>
+        <span style={{ fontSize: POST_TYPE.micro, color: palette.accent, letterSpacing: 3.2, fontWeight: 600 }}>
           {card.tcg.toUpperCase()} · #{card.collectorNumber}
         </span>
         <span style={{ fontSize: postTitleSize(name), color: palette.ink, fontWeight: 700, lineHeight: 1.1 }}>{name}</span>
-        <span style={{ fontSize: 26, color: palette.muted, lineHeight: 1.3, fontWeight: 400 }}>{clampSetName(card.setName.en)}</span>
+        <span style={{ fontSize: POST_TYPE.meta, color: palette.muted, lineHeight: 1.3, fontWeight: 400 }}>{clampSetName(card.setName.en)}</span>
       </div>
 
-      {/* 四個數一行：量過最闊嗰行由 label 主導（PSA 10 PRICE 最長），約 730px < 968px 可用闊。 */}
+      {/* 四個數一行，**四格同一個字級**（見 POST_TYPE 個註）—— 同網頁四個 KPI 由 `--kpi-fs`
+          一個變數出係同一個道理：同一行、同一個 label 級、同一條線之下，字級唔同讀落唔似
+          分主次，似排錯版。要分主次就靠位置（market cap 坐第一格）。 */}
       <div style={{ display: "flex", gap: 40, borderTop: `2px solid ${palette.line}`, paddingTop: 22, width: "100%" }}>
-        <Stat palette={palette} label="MARKET CAP" value={usd(card.marketCap.value)} valueSize={46} />
-        <Stat palette={palette} label="PSA 10 PRICE" value={usd(card.pricePsa10.value)} valueSize={36} />
-        <Stat palette={palette} label="PSA 10 POP" value={integer(card.populationPsa10.value)} valueSize={36} />
+        <Stat palette={palette} label="MARKET CAP" value={usd(card.marketCap.value)} valueSize={POST_TYPE.stat} />
+        <Stat palette={palette} label="PSA 10 PRICE" value={usd(card.pricePsa10.value)} valueSize={POST_TYPE.stat} />
+        <Stat palette={palette} label="PSA 10 POP" value={integer(card.populationPsa10.value)} valueSize={POST_TYPE.stat} />
         {change ? (
-          <Stat palette={palette} label={`${SHARE_WINDOW_LABEL} CHANGE`} value={change.text} valueSize={36} tone={change.tone} />
+          <Stat palette={palette} label={`${SHARE_WINDOW_LABEL} CHANGE`} value={change.text} valueSize={POST_TYPE.stat} tone={change.tone} />
         ) : null}
       </div>
 
       {chart ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", borderTop: `2px solid ${palette.line}`, paddingTop: 22 }}>
-          {/* post 嘅變動已經喺上面四個數嗰行出咗一次（`180D CHANGE`），
-              caption 唔好再出多次 —— 同一個數喺同一張圖出兩次係雜訊。
+          {/* post 嘅變動已經喺上面四個數嗰行出咗一次（`180D CHANGE`），caption 唔好再出多次
+              —— 同一個數喺同一張圖出兩次係雜訊。右邊個位讓返俾日期範圍（見 chartRange 個註）。
               wide 冇嗰個 stat（得三個數），所以嗰邊照傳 change。 */}
-          <ChartCaption palette={palette} change={null} fontSize={24} />
+          <ChartCaption palette={palette} change={null} range={chartRange(chart)} fontSize={POST_TYPE.micro} />
           <img src={chart.src} alt="" width={chart.width} height={chart.height} />
-          {/* 日期軸留返：caption 個 `180D` 講長度，呢兩個月份講**邊 180 日** —— 張圖出咗街
-              之後冇得撳入去問，絕對日期先答到「幾時嘅數」。實測最長卡名（96 字 → 3 行 38px）
-              加埋佢仍然入得晒 1238px 預算。 */}
-          <ChartAxis palette={palette} chart={chart} fontSize={22} />
         </div>
       ) : null}
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
-        <span style={{ fontSize: 22, color: palette.muted, letterSpacing: 1.8, fontWeight: 600 }}>CARDZMARKETCAP.COM</span>
+        <span style={{ fontSize: POST_TYPE.micro, color: palette.muted, letterSpacing: 1.8, fontWeight: 600 }}>CARDZMARKETCAP.COM</span>
         {asOf ? (
-          <span style={{ fontSize: 22, color: palette.muted, letterSpacing: 1.2, fontWeight: 400 }}>AS OF {asOf.toUpperCase()}</span>
+          <span style={{ fontSize: POST_TYPE.micro, color: palette.muted, letterSpacing: 1.2, fontWeight: 400 }}>AS OF {asOf.toUpperCase()}</span>
         ) : null}
       </div>
     </div>

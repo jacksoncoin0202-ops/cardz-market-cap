@@ -90,17 +90,50 @@ export const SHARE_MIN_ASPECT = 0.8;
 const SHARE_CHROME_H = 140;
 const SHARE_GUTTER_W = 48;
 
+/*
+ * post board 闊度上限（CSS px）。Kiosk 喺 2560 闊螢幕出嘅 frame 如果原封不動攞去砌 4:5，
+ * board 會變 2560×3120，planScale 個面積閘壓到 1.25× 都仲爆 5.2M 預算。1280 係參考桌面
+ * 闊度，planScale 喺呢度出 2×（2400/1280 = 1.875 → 夾返 2），縮返嚟得 2033×2557 輸出，
+ * 遠高過 1080×1350 —— 唔會蒙。treemap 反正會重行一次，board 細咗只係格仔相對大咗。
+ */
+const POST_BOARD_MAX_W = 1280;
+
 /**
  * 畫面個 heatmap frame 幾何 → 分享圖應該用幾大個 board。
  *
- * ⚠️ 唔可以照抄 frame：手機個 frame 係 343×508（0.68），加埋 header/legend 出到嚟成張
- * canvas 得 0.58，直過上面講嗰條線。呢度只會**加闊**（高度唔郁），caller 攞住個
- * 尺寸重行一次 treemap，格仔就填得滿 —— 好過左右硬加兩條黑邊。
+ * ⚠️ 唔可以照抄 frame。兩個方向都會出事，所以 `aspect` 兩條路：
+ *
+ *   `"post"`（預設）—— **釘死 4:5**，同部機幾大冇關係。手機 frame 343×508（0.68）太直 →
+ *      加闊；桌面 frame 1200×640（1.88）太扁 → **加高**。owner 2026-08-19：「我依家就算
+ *      喺電腦度做，我哋 post social media，我都想 post 4 比 5 圖」。以前呢度只加闊唔加高，
+ *      即係「手機出 4:5、桌面出橫圖」——同一個掣喺兩部機出兩種比例，張圖靚唔靚由部機決定，
+ *      owner 揀唔到。
+ *   `"frame"` —— 保留畫面見到嗰個形狀（只加闊到 0.8 下限，即係舊行為）。橫圖喺 Slack /
+ *      Discord / 部落格 embed 度睇得舒服啲，treemap 亦係闊啲先讀得清；淨係喺 IG / Threads
+ *      嗰種直度 feed 度會細一截。
+ *
+ * 兩條路都係**只改 board 尺寸**，caller 攞住個新尺寸重行一次 treemap，格仔就填得滿 ——
+ * 好過左右／上下硬加黑邊。SHARE_CHROME_H / SHARE_GUTTER_W 係估算，估歪咗
+ * renderHeatmapShare() 尾嗰個 padX 閘會補返左右留白，一定唔會出到直過 SHARE_MIN_ASPECT。
  */
-export function shareBoardSize(frameWidth: number, frameHeight: number): { width: number; height: number } {
+export type ShareAspect = "post" | "frame";
+
+export function shareBoardSize(
+  frameWidth: number,
+  frameHeight: number,
+  aspect: ShareAspect = "post",
+): { width: number; height: number } {
   const height = Math.max(1, Math.round(frameHeight));
   const minWidth = Math.round((height + SHARE_CHROME_H) * SHARE_MIN_ASPECT) - SHARE_GUTTER_W;
-  return { width: Math.max(1, Math.round(frameWidth), minWidth), height };
+  const width = Math.max(1, Math.round(frameWidth), minWidth);
+  /* frame 太直（手機）：加闊到啱啱 0.8，高度唔郁 —— 兩條路喺呢度出同一個答案。 */
+  if (aspect === "frame" || width <= minWidth) return { width, height };
+  /* frame 太扁（桌面）：闊度封頂，反推一個令 canvas 啱啱 4:5 嘅高度。 */
+  const boardW = Math.min(width, POST_BOARD_MAX_W);
+  return {
+    width: boardW,
+    height: Math.max(1, Math.round((boardW + SHARE_GUTTER_W) / SHARE_MIN_ASPECT) - SHARE_CHROME_H),
+  };
 }
 
 export interface ShareTileInput {
