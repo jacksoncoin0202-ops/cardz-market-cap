@@ -31,6 +31,7 @@ export function SiteSearch() {
   const hits = text.trim() && entries
     ? searchCatalog(entries, text, locale, { limit: CATALOG_HEADER_CAP })
     : [];
+  const noResults = Boolean(text.trim()) && !hits.length;
 
   useEffect(() => {
     if (!open) return;
@@ -149,7 +150,15 @@ export function SiteSearch() {
               </button>
             ) : null}
           </label>
-          {text.trim() && !hits.length ? (
+          {/*
+            入圍門檻**未打字就要見到**（owner 2026-08-19：「一定有人問點解搵唔到嗰張卡」）。
+            擺喺 empty state 度唔夠 —— 嗰陣人已經覺得個站壞咗。有結果嗰陣照出：搵到 A 卡
+            嘅人下一秒就會搵 B 卡，規矩留喺原位好過閃走。
+          */}
+          {/* 搵唔到嗰陣唔出：下面 empty state 已經連「唔係故障」一齊講埋同一條規矩，
+              兩句排住講同一件事會似 bug。 */}
+          {!noResults ? <p className="site-search-note">{t.labels.searchPopRule}</p> : null}
+          {noResults ? (
             <div className="site-search-empty">
               <p>{t.labels.noSearchResults}</p>
               <p className="empty-state-hint">{t.labels.searchUnqualified}</p>

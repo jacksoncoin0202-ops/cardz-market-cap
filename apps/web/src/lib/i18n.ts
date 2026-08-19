@@ -236,6 +236,10 @@ export interface Copy {
     resultCount: string;
     noSearchResults: string;
     noSearchResultsBox: string;
+    /* 入圍門檻，一句過寫喺搜尋框下面 —— 唔係等人搵唔到先解釋（owner 2026-08-19）。
+       數字同 methodology.body、llms-full.txt、snapshot universe.populationMin 綁死，
+       改門檻要五種語言一齊改，靠 scripts/test-fe-pop-threshold.mjs 守。 */
+    searchPopRule: string;
     searchUnqualified: string;
     searchUnqualifiedScoped: string;
     catalogElsewhere: string;
@@ -487,7 +491,8 @@ export const copy: Record<Locale, Copy> = {
       resultCount: "{shown} / {total}",
       noSearchResults: "Nothing on CARDZ matches that.",
       noSearchResultsBox: "No boxes match this search.",
-      searchUnqualified: "If a card is missing, it has not qualified for this site yet — not a bug.",
+      searchPopRule: "Listed only at 1,000+ verified PSA 10 copies.",
+      searchUnqualified: "A card missing here is below 1,000 verified PSA 10 copies — not a bug.",
       searchUnqualifiedScoped: "Nothing in {scope} matches. Switch the scope, or search all of CARDZ.",
       catalogElsewhere: "On CARDZ, outside this ranking",
       searchModeTitle: "Search results",
@@ -706,7 +711,8 @@ export const copy: Record<Locale, Copy> = {
       resultCount: "{shown} / {total}",
       noSearchResults: "站內沒有符合此搜尋的卡牌。",
       noSearchResultsBox: "沒有符合此搜尋的原盒。",
-      searchUnqualified: "找不到並不是故障，而是這張卡尚未合乎資格進入本站。",
+      searchPopRule: "只收錄經核實 PSA 10 達 1,000 張或以上的卡牌。",
+      searchUnqualified: "找不到並非故障：該卡經核實的 PSA 10 未夠 1,000 張，尚未收錄。",
       searchUnqualifiedScoped: "在{scope}找不到這張卡。可改搜尋範圍，或返大榜搜全部。",
       catalogElsewhere: "已收錄，但不在此榜",
       searchModeTitle: "搜尋結果",
@@ -910,7 +916,8 @@ export const copy: Record<Locale, Copy> = {
       resultCount: "{shown} / {total}",
       noSearchResults: "站内没有符合此搜索的卡牌。",
       noSearchResultsBox: "没有符合此搜索的原盒。",
-      searchUnqualified: "找不到并不是故障，而是这张卡尚未合乎资格进入本站。",
+      searchPopRule: "只收录经核实 PSA 10 达 1,000 张或以上的卡牌。",
+      searchUnqualified: "找不到并非故障：该卡经核实的 PSA 10 未够 1,000 张，尚未收录。",
       searchUnqualifiedScoped: "在{scope}找不到这张卡。可改搜索范围，或回大榜搜全部。",
       catalogElsewhere: "已收录，但不在此榜",
       searchModeTitle: "搜索结果",
@@ -1113,7 +1120,8 @@ export const copy: Record<Locale, Copy> = {
       resultCount: "{shown} / {total}",
       noSearchResults: "一致するカードはありません。",
       noSearchResultsBox: "この検索に一致するボックスはありません。",
-      searchUnqualified: "見つからない場合は不具合ではなく、まだ掲載資格を満たしていないためです。",
+      searchPopRule: "確認済み PSA 10 が 1,000 枚以上のカードのみ掲載。",
+      searchUnqualified: "見つからないのは不具合ではなく、確認済み PSA 10 が 1,000 枚に届いていないためです。",
       searchUnqualifiedScoped: "{scope}には一致するカードがありません。対象を切り替えるか、全体から検索してください。",
       catalogElsewhere: "掲載中・このランキング外",
       searchModeTitle: "検索結果",
@@ -1323,7 +1331,8 @@ export const copy: Record<Locale, Copy> = {
       resultCount: "{shown} / {total}",
       noSearchResults: "일치하는 카드가 없습니다.",
       noSearchResultsBox: "이 검색과 일치하는 박스가 없습니다.",
-      searchUnqualified: "찾을 수 없다면 오류가 아니라, 아직 이 사이트에 오를 자격이 없는 것입니다.",
+      searchPopRule: "검증된 PSA 10 1,000장 이상 카드만 수록합니다.",
+      searchUnqualified: "찾을 수 없다면 오류가 아니라, 검증된 PSA 10이 1,000장에 미치지 못한 것입니다.",
       searchUnqualifiedScoped: "{scope}에서 찾을 수 없습니다. 범위를 바꾸거나 전체에서 검색하세요.",
       catalogElsewhere: "수록됨 · 이 순위 밖",
       searchModeTitle: "검색 결과",
