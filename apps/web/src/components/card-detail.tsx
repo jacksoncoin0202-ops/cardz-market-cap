@@ -258,7 +258,10 @@ export function CardDetail({ id, snapshot, related }: {
           errorLabel={t.share.error}
         />
       </div>
-      <article className="detail-grid">
+      {/* `detail-grid-rail`：卡內頁專用嘅桌面排位。`.detail-grid` / `.detail-art` /
+          `.detail-content` / `.detail-metrics` / `.data-time` 五個 class 全部同 box-detail.tsx
+          共用，所以所有新 rule 一律靠呢個 class 收口 —— 原盒內頁一個 px 都唔會郁。 */}
+      <article className="detail-grid detail-grid-rail">
         <section className="detail-art" aria-label={t.labels.imageAlt}>
           {/* 只有 #1 先發光（`.detail-rank-top`）——發光講「唯一」，第 2 名開始一樣係普通牌。 */}
           <span className={`detail-rank${card.marketRank === 1 ? " detail-rank-top" : ""}`}>#{card.marketRank}</span>
@@ -304,35 +307,43 @@ export function CardDetail({ id, snapshot, related }: {
             手機同桌面同一份 DOM 順序，唔准用 CSS order 扮排位。
           */}
           <HistoryChart points={card.historyDaily} locale={locale} currency={currency} rates={snapshot.rates} />
-          <Reveal as="section" className="detail-metrics" aria-label={t.labels.marketCap}>
-            <div><span>{t.labels.marketCap}</span><strong className={staleClass(card.marketCap, "metric-value-fit")} title={staleTitle(card.marketCap, locale)}>{capTick === null ? formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true) : <CapTicker key={capTick} value={capTick} format={(n) => formatMoney(n, currency, snapshot.rates, locale, true)} />}</strong><MetricDelta metric={card.marketCap} changePct={windowMetric.marketCapChangePct} currency={currency} rates={snapshot.rates} locale={locale} /></div>
-            {/* FE05 WS3：PSA 10 價同鑑定數量跟返市值行同一個 ticker（JSX 出真實值，
-                滾動只喺 hydrate 之後）。數量要 Math.round —— 中途嗰啲小數唔可以見街。 */}
-            <div><span>{t.labels.price}</span><strong className={staleClass(card.pricePsa10, "detail-price-now")} title={staleTitle(card.pricePsa10, locale)}>{priceTick === null ? formatMetricMoney(card.pricePsa10, currency, snapshot.rates, locale) : <CapTicker key={priceTick} value={priceTick} format={(n) => formatMoney(n, currency, snapshot.rates, locale)} />}</strong><PriceDelta card={card} period={period} currency={currency} rates={snapshot.rates} locale={locale} /></div>
-            <div><span>{t.labels.population}</span><strong className={staleClass(card.populationPsa10, "")} title={staleTitle(card.populationPsa10, locale)}>{popTick === null ? formatMetricInteger(card.populationPsa10, locale) : <CapTicker key={popTick} value={popTick} format={(n) => formatInteger(Math.round(n), locale)} />}</strong></div>
-            <div><span>{t.periods[period]} {t.labels.change}</span><strong className={`metric-${metricTone(windowMetric.changePct)}`}>{formatPercent(windowMetric.changePct, locale)}</strong>{windowMetric.changePct.sourceSwitched && <small className="muted-copy">{t.provenance.anchorSwitched}</small>}</div>
-            <div className="wide-metric"><span>{t.periods[period]} {t.labels.trackedSales}</span><strong className="metric-value-fit">{formatTrackedSales(windowMetric.trackedSales, currency, snapshot.rates, locale)}</strong><MetricDelta metric={windowMetric.trackedSales.valueUsd} changePct={windowMetric.trackedSalesChangePct} currency={currency} rates={snapshot.rates} locale={locale} /></div>
-            {/* 冇 RAW 參考價就成格唔出，唔好畫住「暫無資料」霸位 */}
-            {card.priceUngradedReference && card.priceUngradedReference.value !== null && (
-              <div><span>{t.labels.ungradedReference}</span><strong className={staleClass(card.priceUngradedReference, "")} title={staleTitle(card.priceUngradedReference, locale)}>{formatMetricMoney(card.priceUngradedReference, currency, snapshot.rates, locale)}</strong></div>
-            )}
-          </Reveal>
-          {/*
-            「資料時間」講嘅係上面嗰堆數幾時嘅，唔係個 snapshot 幾時 bake。
-            原本行 `snapshot.effectiveAt || card.pricePsa10.asOf`，而 effectiveAt 永遠有值，
-            所以第二項係死 code，逐張卡都畫緊 generation 時間。實測 1286 張出街卡入面
-            949 張（73.8%）個真實價格日期比 generation 早 8 日以上，最誇張嗰張
-            （rk1231）價格係 2026-03-27，個頁面照寫「Data time: Aug 10, 2026」——
-            差 136 日。市值 = 價 × POP，所以呢個日期一錯，成塊 metrics 都報錯時間。
-            改用卡自己嗰個價格觀察日；冇價先跌返 snapshot 時間。
-          */}
-          <p className="data-time">
-            {card.pricePsa10.sourcePeriodAt
-              ? `${t.labels.pricePeriod}: ${formatObservationDate(card.pricePsa10.sourcePeriodAt, locale)} · `
-              : null}
-            {t.labels.checkedAt}: {formatObservationDate(card.pricePsa10.checkedAt || card.pricePsa10.asOf || snapshot.effectiveAt, locale)}
-          </p>
         </div>
+        {/*
+          `.detail-content` 喺呢度收口：市值/數量同資料時間升做 `.detail-grid` 直屬 child，
+          由 `.detail-grid-rail > … { grid-column: 1 / -1 }` 攤成一條全版 KPI 條。
+          同 2026-08-19 `.detail-prose` 搬出右欄同一個做法：**淨係換 parent，DOM 次序一個字冇郁**
+          （卡圖 → 標題 → 時段掣 → 走勢圖 → 市值/數量 → 資料時間 → 簡介），讀屏同 Tab 序一樣，
+          亦都唔准改用 CSS `order`。手機 `.detail-grid` 本身就係 `display: block`（呢個檔 ~2141），
+          而新 CSS 全部包喺 `@media (min-width: 981px)` 入面，所以 ≤980 由構造上郁唔到。
+        */}
+        <Reveal as="section" className="detail-metrics" aria-label={t.labels.marketCap}>
+          <div><span>{t.labels.marketCap}</span><strong className={staleClass(card.marketCap, "metric-value-fit")} title={staleTitle(card.marketCap, locale)}>{capTick === null ? formatMetricMoney(card.marketCap, currency, snapshot.rates, locale, true) : <CapTicker key={capTick} value={capTick} format={(n) => formatMoney(n, currency, snapshot.rates, locale, true)} />}</strong><MetricDelta metric={card.marketCap} changePct={windowMetric.marketCapChangePct} currency={currency} rates={snapshot.rates} locale={locale} /></div>
+          {/* FE05 WS3：PSA 10 價同鑑定數量跟返市值行同一個 ticker（JSX 出真實值，
+              滾動只喺 hydrate 之後）。數量要 Math.round —— 中途嗰啲小數唔可以見街。 */}
+          <div><span>{t.labels.price}</span><strong className={staleClass(card.pricePsa10, "detail-price-now")} title={staleTitle(card.pricePsa10, locale)}>{priceTick === null ? formatMetricMoney(card.pricePsa10, currency, snapshot.rates, locale) : <CapTicker key={priceTick} value={priceTick} format={(n) => formatMoney(n, currency, snapshot.rates, locale)} />}</strong><PriceDelta card={card} period={period} currency={currency} rates={snapshot.rates} locale={locale} /></div>
+          <div><span>{t.labels.population}</span><strong className={staleClass(card.populationPsa10, "")} title={staleTitle(card.populationPsa10, locale)}>{popTick === null ? formatMetricInteger(card.populationPsa10, locale) : <CapTicker key={popTick} value={popTick} format={(n) => formatInteger(Math.round(n), locale)} />}</strong></div>
+          <div><span>{t.periods[period]} {t.labels.change}</span><strong className={`metric-${metricTone(windowMetric.changePct)}`}>{formatPercent(windowMetric.changePct, locale)}</strong>{windowMetric.changePct.sourceSwitched && <small className="muted-copy">{t.provenance.anchorSwitched}</small>}</div>
+          <div className="wide-metric"><span>{t.periods[period]} {t.labels.trackedSales}</span><strong className="metric-value-fit">{formatTrackedSales(windowMetric.trackedSales, currency, snapshot.rates, locale)}</strong><MetricDelta metric={windowMetric.trackedSales.valueUsd} changePct={windowMetric.trackedSalesChangePct} currency={currency} rates={snapshot.rates} locale={locale} /></div>
+          {/* 冇 RAW 參考價就成格唔出，唔好畫住「暫無資料」霸位 */}
+          {card.priceUngradedReference && card.priceUngradedReference.value !== null && (
+            <div><span>{t.labels.ungradedReference}</span><strong className={staleClass(card.priceUngradedReference, "")} title={staleTitle(card.priceUngradedReference, locale)}>{formatMetricMoney(card.priceUngradedReference, currency, snapshot.rates, locale)}</strong></div>
+          )}
+        </Reveal>
+        {/*
+          「資料時間」講嘅係上面嗰堆數幾時嘅，唔係個 snapshot 幾時 bake。
+          原本行 `snapshot.effectiveAt || card.pricePsa10.asOf`，而 effectiveAt 永遠有值，
+          所以第二項係死 code，逐張卡都畫緊 generation 時間。實測 1286 張出街卡入面
+          949 張（73.8%）個真實價格日期比 generation 早 8 日以上，最誇張嗰張
+          （rk1231）價格係 2026-03-27，個頁面照寫「Data time: Aug 10, 2026」——
+          差 136 日。市值 = 價 × POP，所以呢個日期一錯，成塊 metrics 都報錯時間。
+          改用卡自己嗰個價格觀察日；冇價先跌返 snapshot 時間。
+        */}
+        <p className="data-time">
+          {card.pricePsa10.sourcePeriodAt
+            ? `${t.labels.pricePeriod}: ${formatObservationDate(card.pricePsa10.sourcePeriodAt, locale)} · `
+            : null}
+          {t.labels.checkedAt}: {formatObservationDate(card.pricePsa10.checkedAt || card.pricePsa10.asOf || snapshot.effectiveAt, locale)}
+        </p>
       </article>
       {/*
         長文區（可引用事實 / 故事 / 方法）2026-08-19 由右欄搬咗出嚟。

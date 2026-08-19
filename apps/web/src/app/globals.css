@@ -3337,6 +3337,178 @@ html.theme-transitions .box-thumb { transition: background-color 240ms cubic-bez
   .detail-metrics .wide-metric ~ div { grid-column: span 2; }
   .detail-metrics .wide-metric:last-child { grid-column: span 4; }
 }
+/* ============================================================
+ * 卡內頁桌面 rail（`.detail-grid-rail`）—— owner 2026-08-19：
+ * 「你睇下呢度咁大個空位，你唔好好利用佢……你可以將啲嘢放大縮細，
+ *   或者諗下點樣可以佔用晒啲空間，而家成件事好核突。」
+ *
+ * 病（1920 / zh-TW / 一般卡實測）：左欄卡圖盤寫死 680 高，右欄 1118.75 高
+ * → 漸變盤底下吉 438.75px（1600 吉 343.95、1440 吉 294.72、1280 吉 254.45）。
+ * 同時 `.detail-metrics` 迫喺右欄 1061.8px 入面，`.wide-metric:last-child` 食
+ * `span 4` 變一格 1061.8px 闊嘅孤兒行 —— 一格數字霸半版紙。兩個病同一個根：
+ * 兩欄嘅高度冇人夾，闊度又冇人用。
+ *
+ * 醫法（次序好重要，係由 row 推落去唔係由卡圖推上嚟）：
+ *   1. panel `align-self: stretch` + `height: auto` → 高度 = 個 grid row = 右欄高度。
+ *      係結構性歸零，唔係啱啱夾掂個數。
+ *   2. `.card-art` 抽離 flow（`position: absolute; inset: 0`）→ panel 內在高度變 0，
+ *      斬斷「卡圖撐高 panel、panel 又撐高 row」個循環，卡圖先至真係彈性。
+ *      `.detail-rank` 一直都係 `position: absolute`，所以 `.detail-art` 呢個 flex
+ *      container 冇晒 in-flow child 都冇嘢郁位。
+ *   3. metrics + 資料時間 `grid-column: 1 / -1` 升做全幅 KPI 條 —— 橫向嗰忽浪費
+ *      同嗰條孤兒行一齊解掉，而且 5 格同 6 格都鋪得滿（見下面 6-unit 嗰段）。
+ *
+ * 五個 class（`.detail-grid` / `.detail-art` / `.detail-content` / `.detail-metrics` /
+ * `.data-time`）全部同 `box-detail.tsx` 共用，所以每一條都要用 `.detail-grid-rail`
+ * 收窄，`/box/[id]` 先至一個 px 都唔會郁。成個 block 收喺 `@media (min-width: 981px)`
+ * 入面 = 手機由構造上郁唔到（owner：手機版內頁係 OK 嘅）。
+ * ============================================================ */
+@media (min-width: 981px) {
+  .detail-grid.detail-grid-rail {
+    /* 以下每個數都有出處，一個度身砌嘅魔術數都冇： */
+    --rail-min: 360px;   /* = 上面 `.detail-grid` `minmax(360px, …)` 原有下限，冇改過 */
+    --rail-frame: 52px;  /* = `.detail-art img` `padding: 26px` 左右加埋
+                              = `.card-art` `--card-art-pad`（card-art.css:24）兩邊。
+                              呢個係「卡面」同「欄闊」之間唯一嘅差額。 */
+    --rail-ar-w: 429;    /* = <img width>／<img height>，即係瀏覽器攞去解 aspect-ratio */
+    --rail-ar-h: 600;    /*   嗰兩個數。用返同一對先唔會出現兩套幾何。 */
+    /* 卡面闊度封頂。**唔准當佢係「揀個靚數」** —— 佢係「唔准放大過 1.25×」呢條
+       owner 硬規矩（唔好蒙查查）換算出嚟嘅，所以兩個因數各自寫一行：
+       429px = 出街嗰張 `_600.webp` **真身** bitmap 闊度（RIFF `VP8 ` chunk 讀出嚟，
+               同 `<img width>` 一致；全 1604 張入面最細嗰個闊度亦係 429）。
+       ⚠️ 唔准用 `img.naturalWidth` 去量呢個數。呢張圖有 `srcset … 600w` +
+          `sizes: 560px`，瀏覽器會做 density correction（density = 600 ÷ 560），
+          `naturalWidth` 回 **400**、375 度更加回 241 —— 個數跟 viewport 郁，
+          攞佢做分母會當咗自己放大緊 1.25× 其實得 1.16×，白白縮細張卡。
+          量真身：讀檔頭，或者 `<img width>` attribute。（`scripts/test-fe-detail-rail.mjs`
+          有一條 assert 專登釘死呢件事。） */
+    --rail-src-w: 429px;
+    --rail-upscale: 1.25;
+    --rail-card-w: calc(var(--rail-src-w) * var(--rail-upscale));
+    /* 兩條上限取細：
+       ① 卡面上限 + 框。
+       ② 「成張卡入到一個螢幕」—— 即係原本 `min(680px, calc(100svh - --header-height
+          - 64px))` 嗰個意思。panel 高度而家由 row 話事、唔再受控，所以要由**闊度**
+          封返：可用高度按同一個比例換算成闊度。冇咗呢忽，矮 viewport（1920×720）
+          張卡會爆出螢幕。 */
+    --rail-max: min(
+      calc(var(--rail-card-w) + var(--rail-frame)),
+      calc((100svh - var(--header-height) - 64px - var(--rail-frame)) * var(--rail-ar-w) / var(--rail-ar-h) + var(--rail-frame))
+    );
+    /* 由 981 到 ∞ 一條式，冇第二個斷點 —— 1121–1280 嗰段唔使另外補，佢本身就喺條線上面
+       （評審投訴其他方案「1121–1280 完全冇修」，呢度唔可以犯同一個錯）。 */
+    grid-template-columns: minmax(var(--rail-min), min(40%, var(--rail-max))) minmax(0, 1fr);
+    /* 22px = `.detail-prose` 個 `margin-top: 22px`（呢個檔 :2074）—— 全版 block 之間
+       嘅距離已經有一個數，唔好再發明第三個。`gap: 48px` 只係欄距，行距由呢條話事。
+       KPI 條 ↔ 資料時間亦食呢個 gap，所以下面要拆走 `.data-time` 自己嗰 10px margin
+       （一個概念一個實現，唔准 gap + margin 兩層叠）。 */
+    row-gap: 22px;
+    /* KPI 條排幾多欄要睇「佢自己有幾闊」，唔係睇 viewport：viewport 減 gutter 減
+       scrollbar 之後同真實條闊差成十幾 px，用 viewport 做斷點 = Windows 同 Mac
+       睇到兩個唔同版。所以開 inline-size container，下面直接量條 bar。
+       同 `.heatmap-title`（:893）同一招。 */
+    container-type: inline-size;
+    container-name: detail-rail;
+    /* 22px = `.detail-metrics strong` base（:2273，owner 2026-08-17 定「d 錢要睇得清」）。
+       19px = 2026-08-17 加大之前嘅桌面 metrics 字級，即「跌到呢度為止仲係出過街嘅
+       標準」，再細寧願退返兩行都唔准。 */
+    --kpi-fs-max: 22px;
+    --kpi-fs-min: 19px;
+  }
+
+  .detail-grid-rail > .detail-art {
+    height: auto;
+    align-self: stretch;
+    /* 樓底 = 欄闊喺下限（`--rail-min`）嗰陣張卡嘅完整高度。同 `--rail-max` 行同一條
+       `(w − frame) × ar_h / ar_w + frame`，只係 w 換成欄闊下限 —— 一條公式覆蓋成個
+       桌面段，唔會出現「981–1120 用一個數、≥1121 用另一條式」呢種兩個來源。
+       點解一定要有樓底：`server-snapshot` 有幾條 runtime 路會出冇 width/height
+       attribute 嘅 <img>（placeholder／量到 0／舊 snapshot）。冇 attribute 就冇
+       aspect-ratio，加上 `.card-art` 已經離咗 flow，右欄一矮個盤就會塌到 0。 */
+    min-height: calc((var(--rail-min) - var(--rail-frame)) * var(--rail-ar-h) / var(--rail-ar-w) + var(--rail-frame));
+  }
+
+  /* 見上面第 2 點：抽離 flow 係「彈性卡圖」嘅前提。順帶修返 sheen mask ——
+     `.card-art::before/::after` 用 `mask-size: contain` 對住 `.card-art` padding box 解，
+     但 `<img>` 個 border box 以前俾 `width` attribute（429）釘死，欄闊一過 481px
+     兩個盒就分家（review #3 講嗰個 71.95×100.73px 偏移就係呢件事）。落咗
+     `width: 100%` 之後兩個盒共用同一條限制邊。 */
+  .detail-grid-rail > .detail-art > .card-art { position: absolute; inset: 0; }
+  /* 唔係 `height: auto` —— 嗰條已經因為 CLS 被否決（見 `.detail-art img` 上面嗰段）。
+     呢度淨係令 border box 跟欄闊，高度照舊由 width/height attribute 嘅 aspect-ratio
+     出，所以 CLS 路徑一個字都冇變。 */
+  .detail-grid-rail > .detail-art img { width: 100%; }
+
+  /* 全版 KPI 條。一定要明寫橫跨：唔寫嘅話 auto-placement 會將佢哋掉入卡圖嗰欄
+     （1120 度只剩 415px 闊、每格 ~95px，即刻爆字）。 */
+  .detail-grid-rail > .detail-metrics,
+  .detail-grid-rail > .data-time { grid-column: 1 / -1; }
+  /* 做咗 grid item 之後行距歸 `row-gap` 管；唔清就係 22 + 10 = 32，兩個來源爭同一個間距。 */
+  .detail-grid-rail > .data-time { margin-top: 0; }
+
+  /* 永遠 6 個 unit —— 所以 3 欄同 6 欄都啱啱鋪滿，兩種卡都冇孤行、冇空格：
+       冇 RAW（1604 張入面 523 張）：市值 / 價 / POP / 升跌 各 1 + 成交額 2 = 6
+       有 RAW                      ：上面四格 + 成交額 1 + RAW 1          = 6
+     判斷靠 `.wide-metric` 係咪 `:last-child` —— 對返 card-detail.tsx 真 DOM：`.wide-metric`
+     （成交額）永遠係第 5 個 child，RAW 係 conditional render 嘅第 6 個，而 `<Reveal>`
+     淨係出 `<Tag>` 本身、零多餘 wrapper，所以 `:last-child` 判得準，**唔使 `:has()`**。
+     明寫 `> ` 同 `.detail-grid-rail` 前綴係為咗贏返 base `.detail-metrics .wide-metric`
+     （0,2,0）同 ≥981 嗰兩條，唔靠 source order。 */
+  .detail-grid-rail > .detail-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    --kpi-fs: var(--kpi-fs-max);
+  }
+  .detail-grid-rail > .detail-metrics > .wide-metric:last-child { grid-column: span 2; }
+  .detail-grid-rail > .detail-metrics > .wide-metric:not(:last-child) { grid-column: span 1; }
+  .detail-grid-rail > .detail-metrics > .wide-metric ~ div { grid-column: span 1; }
+
+  /* ⚠️ 截字（`US$2188.45萬` 俾 ellipsis 切走）唔係加 `overflow: visible` 就算數。
+     根因係 `.metric-value-fit` 個 `clamp(16px, 1.5vw, 22px)`（:2274）攞 **viewport**
+     做「fit」嘅尺，但真正決定塞唔塞得落嘅係 **格闊**，兩者唔同步；而且中招嘅唔止佢
+     一個 —— `.detail-price-now`、POP、升跌 % 都係 22px 死數，連隻假 fit 都冇。
+     所以：① 格夠闊（上面）② 字級由格闊解（下面）。一條 KPI 帶入面六個數要同一級，
+     所以由**成條 bar** 解唔係逐格解 —— 逐格解嘅話 5 格卡嗰個 span 2 會大過隔籬四格，
+     同一行兩隻字級。 */
+  .detail-grid-rail > .detail-metrics strong { font-size: var(--kpi-fs); }
+  /* `!important` 唔係新開嘅擴散：base `.detail-price-now`（:1738）本身就 important，
+     唔跟返就淨係 PSA 10 價嗰格甩返 22px、成行唔齊。:3271 嗰條「只用喺 base 本身
+     已經 important 嗰幾條」照守。 */
+  .detail-grid-rail > .detail-metrics .detail-price-now { font-size: var(--kpi-fs) !important; }
+
+  /* 1284px 唔係執個數，係咁計出嚟：
+       8.7em  = 五語言 × 全部幣種入面最闊嗰個數值（ko / IDR「IDR 607,800,295」實測
+                8.28em @22px）+ 5% 俾字體差。同 `.heatmap-heading` 個 9.5em 同一個做法。
+       166px  = 19px（--kpi-fs-min）× 8.7em，即「字唔准細過 19px」換算返嘅最窄內文區。
+                順帶蓋埋 label：五語言最長 label（en「Ungraded / RAW reference」）實測
+                144.73px @11px，喺 166px 度仲有位 —— label 係 nowrap + ellipsis 又冇得縮，
+                所以佢一定要入得晒，呢個先係六欄嘅真樓底。
+       204px  = 166 + 18×2（padding，≥981 `.detail-metrics > div`）+ 1×2（border，:2267）
+       1284px = 6 × 204 + 5 × 12（gap，≥981 `.detail-metrics`）
+     即「條 bar 夠位畫六格、每格夠位畫 ≥19px 數字同一行完整 label」先開六欄；唔夠就留返
+     三欄兩行 —— 一樣鋪滿、一樣冇孤行，而且格闊闊好多，字保住 22px。 */
+  @container detail-rail (min-width: 1284px) {
+    /* 明寫 `.detail-grid` 前綴（0,3,0）贏返上面同名嗰條（0,2,0）：`@container` 本身
+       唔加 specificity，唔可以靠佢，亦唔准靠 source order。 */
+    .detail-grid.detail-grid-rail > .detail-metrics {
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      /* 288px = 5 × 12（gap）+ 6 × 38（每格 padding + border）；52.2 = 6 × 8.7。
+         即 font = 每格內文闊 ÷ 8.7。上面 1284px 條件已經保證佢 ≥19px，所以個 clamp
+         樓底行唔到 —— 留住係怕將來有人郁 padding / gap 而唔記得改呢條式。 */
+      --kpi-fs: clamp(var(--kpi-fs-min), calc((100cqi - 288px) / 52.2), var(--kpi-fs-max));
+    }
+  }
+}
+
+/* 唔識 `cqi` / `@container` 嘅瀏覽器（Safari < 16）：條 bar 停喺三欄、`--kpi-fs` 照樣
+   22px，三欄格闊本身已經夠，其實一樣唔會切。呢條係最後一道保險：萬一將來有人改窄咗，
+   寧願換行都唔好切走位數 —— 數字讀少一位係報錯價，換行只係唔靚。
+   同 `.heatmap-heading` 個 @supports 同一招。 */
+@supports not (font-size: 1cqi) {
+  @media (min-width: 981px) {
+    .detail-grid-rail > .detail-metrics strong { white-space: normal; text-overflow: clip; }
+  }
+}
+
 @media (min-width: 1441px) {
   /* SEO hub 長文頁：1120 量度係讀得舒服嘅理由，但 1920 度左右各 400px 白太誇；放到 1280 + 榜單三欄 */
   /* hubs.css 係 component CSS，載入次序喺 globals 之後 → 要高一級 specificity 先贏 */
