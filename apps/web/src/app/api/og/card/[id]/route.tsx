@@ -52,6 +52,15 @@ type ShareTheme = "light" | "dark";
 const FORMATS: Record<ShareFormat, { width: number; height: number; defaultTheme: ShareTheme }> = {
   wide: { width: 1200, height: 630, defaultTheme: "dark" },
   post: { width: 1080, height: 1350, defaultTheme: "dark" },
+  /*
+   * `status` 1080×1920（9:16）—— WhatsApp Status / IG 限時動態嗰種**全屏**面
+   * （owner 2026-08-20 加分享目的地選單，WhatsApp 揀咗呢個；邊個平台配邊個尺寸
+   * 見 `lib/share-destinations.ts`）。
+   *
+   * ⚠️ 呢個尺寸**淨係**俾 status／story 面用，唔准做通用分享圖。貼落 feed
+   * （Threads / X / IG post）三家都唔會裁，而係按高度縮細 → 張圖得七八成闊。
+   */
+  status: { width: 1080, height: 1920, defaultTheme: "dark" },
 };
 
 /*
@@ -74,7 +83,7 @@ const FORMATS: Record<ShareFormat, { width: number; height: number; defaultTheme
  * ⚠️ `og:image:type` 喺 `card/[id]/page.tsx` 明寫 `image/jpeg`，同呢度一定要一致 ——
  *    `scripts/test-fe-og-unfurl.mjs` 會攞真 bytes 對返個宣告。
  */
-const JPEG_QUALITY: Record<ShareFormat, number> = { wide: 90, post: 92 };
+const JPEG_QUALITY: Record<ShareFormat, number> = { wide: 90, post: 92, status: 92 };
 
 /*
  * satori 冇 CSS var，所以要寫死 hex。每一粒都係 globals.css 嗰份 token 嘅字面值
@@ -180,6 +189,24 @@ const ART_MAX_HEIGHT = 554;
 const POST_ART_STAGE_HEIGHT = 620;
 const POST_ART_MAX_WIDTH = 452;
 const POST_ART_MAX_HEIGHT = 560;
+
+/*
+ * 兩個直度 format 各自嘅幾何（`PostLayout` 兩個都行 —— 排版角色一模一樣，
+ * 分別淨係「有幾多高度可以使」，開多個 layout function 就係同一份 copy 兩份）。
+ *
+ * ⚠️ `status` 個 padding 上下 250 唔係「留白留多啲好睇」，係**平台 UI 蓋住嗰兩條**：
+ * IG Story / WhatsApp Status 喺 1080×1920 上面，頂嗰 250px 有頭像／進度條、底嗰
+ * 250px 有回覆列同 caption。安全區得中間 1080×1420 —— 即係話真正可以放嘢嘅高度
+ * 只比 post（1350 − 56×2 = 1238）多 182px，唔係多 570px。照 56 padding 排就係
+ * 「logo 同 AS OF 兩行俾人哋 UI 食咗」。
+ *
+ * 多出嗰 182px 落喺卡圖舞台（620 → 700）同走勢圖（120 → 180）度：卡圖上限**冇郁**
+ * （452×560，見 POST_ART_MAX_*），因為母版得 429×600，谷大就係放大糊咗。
+ */
+const TALL_GEO: Record<Exclude<ShareFormat, "wide">, { padding: string; artStage: number; chartHeight: number }> = {
+  post: { padding: "56px", artStage: POST_ART_STAGE_HEIGHT, chartHeight: 120 },
+  status: { padding: "250px 56px", artStage: 700, chartHeight: 180 },
+};
 
 /*
  * post 嘅字級表（fe07(post-type)，2026-08-19）。
@@ -626,13 +653,17 @@ function chartRange(chart: ShareChart, copy: ShareCopy): string | null {
 const TEXT_ONLY_GEO = {
   wide: { padding: "40px 48px", gapTop: 8, gapBottom: 14, kicker: WIDE_TYPE.micro, set: WIDE_TYPE.micro, stat: WIDE_TYPE.stat, logoW: 144, logoH: 62, rule: 14, cols: 60 },
   post: { padding: "56px 72px", gapTop: 20, gapBottom: 26, kicker: POST_TYPE.micro, set: POST_TYPE.meta, stat: POST_TYPE.stat, logoW: 280, logoH: 121, rule: 30, cols: 72 },
+  /* 同 post 一套字級，只係上下 padding 要避開 story 嘅平台 UI（見 TALL_GEO 個註）。
+     ⚠️ 唔准寫成 `format === "post" ? post : wide` —— status 跌咗落 wide 嗰套
+     （padding 40/48、logo 144×62、hero 落 1920 高）就係一版縮喺頂嘅細字。 */
+  status: { padding: "250px 72px", gapTop: 20, gapBottom: 26, kicker: POST_TYPE.micro, set: POST_TYPE.meta, stat: POST_TYPE.stat, logoW: 280, logoH: 121, rule: 30, cols: 72 },
 } as const;
 function TextOnlyLayout({ card, logoSrc, palette, format, copy }: { card: MarketCardView; logoSrc: string; palette: Palette; format: ShareFormat; copy: ShareCopy }) {
-  const geo = format === "post" ? TEXT_ONLY_GEO.post : TEXT_ONLY_GEO.wide;
+  const geo = TEXT_ONLY_GEO[format];
   /* wide 只得 630 高，卡名唔可以食三行 —— 同 WideLayout 行同一個封頂同同一條 ramp。 */
-  const name = format === "post"
-    ? clampTitle(cardTitle(card, copy))
-    : clampWidth(shortSubject(card, copy.nameLocale, WIDE_NAME_MAX) || cardTitle(card, copy), WIDE_NAME_MAX);
+  const name = format === "wide"
+    ? clampWidth(shortSubject(card, copy.nameLocale, WIDE_NAME_MAX) || cardTitle(card, copy), WIDE_NAME_MAX)
+    : clampTitle(cardTitle(card, copy));
   return (
     <div
       style={{
@@ -654,7 +685,7 @@ function TextOnlyLayout({ card, logoSrc, palette, format, copy }: { card: Market
         </span>
         <span
           style={{
-            fontSize: format === "post" ? textOnlyTitleSize(name) : wideTitleSize(name),
+            fontSize: format === "wide" ? wideTitleSize(name) : textOnlyTitleSize(name),
             color: palette.ink,
             fontWeight: 700,
             lineHeight: 1.1,
@@ -891,7 +922,7 @@ function WideLayout({ card, art, logoSrc, palette, chart, change, asOf, name, ra
  *     堆喺底部變一大笪空白。
  * 改任何一個 block 嘅高度／字級，行返 `scripts/test-fe-og-post-layout.mjs` 重新量過。
  */
-function PostLayout({ card, art, logoSrc, palette, chart, change, asOf, copy }: {
+function PostLayout({ card, art, logoSrc, palette, chart, change, asOf, format, copy }: {
   card: MarketCardView;
   art: CardArt;
   logoSrc: string;
@@ -899,8 +930,11 @@ function PostLayout({ card, art, logoSrc, palette, chart, change, asOf, copy }: 
   chart: ShareChart | null;
   change: ReturnType<typeof changeText>;
   asOf: string | null;
+  /* post 1080×1350 定 status 1080×1920 —— 兩個都行呢個 layout，見 TALL_GEO 個註 */
+  format: Exclude<ShareFormat, "wide">;
   copy: ShareCopy;
 }) {
+  const geo = TALL_GEO[format];
   const name = clampTitle(cardTitle(card, copy));
   return (
     <div
@@ -910,7 +944,7 @@ function PostLayout({ card, art, logoSrc, palette, chart, change, asOf, copy }: 
         width: "100%",
         height: "100%",
         background: palette.paper,
-        padding: 56,
+        padding: geo.padding,
         justifyContent: "space-between",
         fontFamily: copy.fontFamily,
       }}
@@ -939,7 +973,7 @@ function PostLayout({ card, art, logoSrc, palette, chart, change, asOf, copy }: 
         art={art}
         alt={card.image.alt ?? name}
         width={968}
-        height={POST_ART_STAGE_HEIGHT}
+        height={geo.artStage}
         /* 28 = 網頁 `--section-radius` 24 按 post 放大比例調高少少；1080 闊度度 24 會細到似方角。 */
         radius={28}
         palette={palette}
@@ -1042,9 +1076,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
      純文字版，唔准變 500 —— OG 端點死咗等於社交分享冇圖，比冇卡圖仲差。 */
   let art: CardArt | null = null;
   try {
-    art = format === "post"
-      ? await loadCardArt(card, POST_ART_MAX_WIDTH, POST_ART_MAX_HEIGHT, true)
-      : await loadCardArt(card, ART_MAX_WIDTH, ART_MAX_HEIGHT);
+    art = format === "wide"
+      ? await loadCardArt(card, ART_MAX_WIDTH, ART_MAX_HEIGHT)
+      : await loadCardArt(card, POST_ART_MAX_WIDTH, POST_ART_MAX_HEIGHT, true);
   } catch (error) {
     noteArtFailure(id, error);
     art = null;
@@ -1054,12 +1088,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
      null 就成塊唔出。**唔准**因為冇歷史而令張圖 500 或者畫一條假線。 */
   const chart = buildShareChart(card.historyDaily ?? [], SHARE_WINDOW_DAYS, {
     /* wide 右欄由 620 闊做 678（卡圖鐵路 468 → 430）；高度由 64 收到 44 讓位畀 88px hero。 */
-    width: format === "post" ? 968 : 678,
-    height: format === "post" ? 120 : 34,
-    lineWidth: format === "post" ? 3 : 2.5,
-    /* wide 版扁到得 64px，成交 bar 會同條價線打架，所以只喺 post 出（同網頁一樣兩層都有）。 */
-    bars: format === "post",
-    grid: format === "post",
+    width: format === "wide" ? 678 : 968,
+    /* status 高 570px，條線可以畫高啲（180）—— 見 TALL_GEO */
+    height: format === "wide" ? 34 : TALL_GEO[format].chartHeight,
+    lineWidth: format === "wide" ? 2.5 : 3,
+    /* wide 版扁到得 34px，成交 bar 會同條價線打架，所以只喺直度版出（同網頁一樣兩層都有）。 */
+    bars: format !== "wide",
+    grid: format !== "wide",
     palette: { accent: palette.accent, grid: palette.line, bar: palette.salesBar, surface: palette.surface },
   });
 
@@ -1092,9 +1127,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
   const element = !art
     ? <TextOnlyLayout card={card} logoSrc={logoSrc} palette={palette} format={format} copy={copy} />
-    : format === "post"
-      ? <PostLayout card={card} art={art} logoSrc={logoSrc} palette={palette} chart={chart} change={change} asOf={asOf} copy={copy} />
-      : <WideLayout card={card} art={art} logoSrc={logoSrc} palette={palette} chart={chart} change={change} asOf={asOf} name={wideName} rankTotal={rankTotal} copy={copy} />;
+    : format === "wide"
+      ? <WideLayout card={card} art={art} logoSrc={logoSrc} palette={palette} chart={chart} change={change} asOf={asOf} name={wideName} rankTotal={rankTotal} copy={copy} />
+      : <PostLayout card={card} art={art} logoSrc={logoSrc} palette={palette} chart={chart} change={change} asOf={asOf} format={format} copy={copy} />;
 
   const image = new ImageResponse(element, {
     width: spec.width,

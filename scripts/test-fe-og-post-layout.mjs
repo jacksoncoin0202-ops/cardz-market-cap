@@ -229,6 +229,29 @@ if (process.argv.includes("--live")) {
     }
 
     /*
+     * status 1080×1920（owner 2026-08-20 加分享目的地選單，WhatsApp Status 揀呢個）。
+     *
+     * ⚠️ 呢度守嘅**唔係**「有冇衝穿 padding」咁簡單 —— 上下 250 唔係留白，係 IG Story /
+     * WhatsApp Status 個平台 UI（頭像／進度條／回覆列）實蓋住嗰兩條。ink 走入去
+     * = logo 同 AS OF 俾人哋介面食咗，而張圖照 200 出街、冇 error、冇人會 report。
+     * 左右照 56，同 post 一樣。
+     */
+    const STATUS_PAD_Y = 250;
+    for (const id of picks) {
+      const m = await inkBox(`${base}/api/og/card/${encodeURIComponent(id)}?format=status`);
+      if (m.error) { failed.push(`T5: ${id} status ${m.error}`); continue; }
+      check(`T5: ${id} status 尺寸`, m.W === 1080 && m.H === 1920, `${m.W}×${m.H}`);
+      check(`T5: ${id} status 有卡圖`, m.art === "1", `x-og-art=${m.art}`);
+      const margins = { 上: m.top, 下: m.H - 1 - m.bottom, 左: m.left, 右: m.W - 1 - m.right };
+      const bust = Object.entries(margins)
+        .filter(([k, v]) => v < (k === "上" || k === "下" ? STATUS_PAD_Y : POST_PAD) - 2);
+      check(`T5: ${id} status ink 留喺 story 安全區`, bust.length === 0,
+        `${bust.map(([k, v]) => `${k}=${v}`).join(" ")}（上下閘 ${STATUS_PAD_Y}、左右 ${POST_PAD}，全部邊距 ${JSON.stringify(margins)}）`);
+      check(`T5: ${id} status 出 JPEG`, m.mime === "image/jpeg", `content-type=${m.mime}`);
+      check(`T5: ${id} status 大細合理`, m.bytes < 500_000, `${(m.bytes / 1024).toFixed(0)}KB`);
+    }
+
+    /*
      * wide 右欄嘅幾何**由 route.tsx 度返**，唔再喺呢度抄一次。
      * 上一版寫死 `468 + 56`，跟住 route 改咗做 430 板 + 48/44/40 padding，
      * 呢條 test 就變咗喺度守一個唔存在嘅版面 —— 綠燈但守緊空氣。
@@ -285,18 +308,26 @@ if (process.argv.includes("--live")) {
 
   /* T6a：每個目的地都要對到一個 route 真係有 layout 嘅 format。
      唔係信 lib 自己個 guard —— 係攞 route.tsx 個 FORMATS 真身嚟對。 */
-  const routeFormats = [...code.matchAll(/\b(wide|post):\s*\{\s*width:/g)].map((m) => m[1]);
-  check("T6a: 由 route 度到 FORMATS", routeFormats.length === 2, JSON.stringify(routeFormats));
+  const routeFormats = [...code.matchAll(/\b(wide|post|status):\s*\{\s*width:/g)].map((m) => m[1]);
+  check("T6a: 由 route 度到 FORMATS", routeFormats.length === 3, JSON.stringify(routeFormats));
   for (const dest of shareDestinations()) {
     const format = readShareFormat(dest);
     check(`T6a: 目的地 ${dest} 對到 route 有嘅 format`, routeFormats.includes(format), `${dest} → ${format}`);
   }
 
-  /* T6b：owner 點名嗰三個貼圖目的地一定要係 4:5 嗰個 format。 */
-  for (const dest of ["whatsapp", "x", "threads", "instagram", "line"]) {
+  /* T6b：貼圖目的地一定要係 4:5。
+     ⚠️⚠️ **`whatsapp` 係呢條入面最貴嗰個**：條 HERMES cron 鏈（唔喺呢個 repo）每日
+     download `?format=whatsapp` 再 upload 去 WhatsApp **對話／群組**，owner 2026-08-20
+     （e61c1aa9）明講「氣泡保持比例唔裁」= 4:5。2026-08-20 加目的地選單嗰陣一度將佢
+     改成 `status`（9:16），條鏈個 URL 一個字都冇變、response 照 200、`x-og-format`
+     照出，即係當晚會靜靜 upload 咗一批高瘦圖，冇 error 冇 log 冇人知。全屏 9:16 要
+     明寫 `?format=status`，唔准掛喺公司名上面。 */
+  for (const dest of ["x", "twitter", "threads", "instagram", "ig", "line", "other", "whatsapp"]) {
     check(`T6b: ${dest} 用 4:5（post）`, readShareFormat(dest) === "post", `${dest} → ${readShareFormat(dest)}`);
   }
   check("T6b: 大細楷都認", readShareFormat("WhatsApp") === "post", readShareFormat("WhatsApp"));
+  /* 全屏面自己一個 key —— 選單嗰行「限時動態／狀態」行呢個，唔關公司名事 */
+  check("T6b: status 用 9:16（全屏面）", readShareFormat("status") === "status", readShareFormat("status"));
 
   /* T6c：認唔到唔准炸、唔准 500 —— 跌返 wide。 */
   for (const bad of ["", "  ", "mastodon", "POST_", "9x16", null, undefined]) {
@@ -312,7 +343,7 @@ if (process.argv.includes("--live")) {
      再 import 佢。炸唔起 = 呢條防線唔存在。 */
   const dir = mkdtempSync(join(tmpdir(), "cardz-share-dest-guard-"));
   try {
-    const mutated = read(DEST_REL).replace('whatsapp: "post",', 'whatsapp: "reel" as ShareFormat,');
+    const mutated = read(DEST_REL).replace('x: "post",', 'x: "reel" as ShareFormat,');
     check("T6e: 改得到嗰行（改咗張表寫法就要順手更新呢個 test）", mutated.includes('"reel"'));
     const probe = join(dir, "share-destinations.probe.ts");
     writeFileSync(probe, mutated, "utf8");
@@ -323,7 +354,7 @@ if (process.argv.includes("--live")) {
     rmSync(dir, { recursive: true, force: true });
   }
 
-  /* T6f：兩個 format 都要出 JPEG —— 舊 code 有條 `format !== "post"` 閘，拆咗，唔准返嚟。 */
+  /* T6f：三個 format 都要出 JPEG —— 舊 code 有條 `format !== "post"` 閘，拆咗，唔准返嚟。 */
   check("T6f: JPEG 轉換冇再淨係做 wide", !/format\s*!==\s*"post"/.test(code), "route.tsx 仲有 post 唔轉嗰個閘");
   check("T6f: quality 逐個 format 出", /JPEG_QUALITY\[format\]/.test(code), "route.tsx 冇用 JPEG_QUALITY[format]");
   check("T6f: SHARE_FORMATS 同 route 對得住", [...SHARE_FORMATS].sort().join() === [...routeFormats].sort().join(),

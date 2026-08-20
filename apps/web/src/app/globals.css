@@ -274,7 +274,7 @@
 /* 六條仲係硬寫 0.05–0.1em 嘅大寫 label（拉丁值各自唔同，唔值得為 0.2px 差開幾個 token）：CJK 一律收到
    --track-kicker（0.05em）。其餘硬寫嘅 letter-spacing 全部 |≤ 0.04em|（最大係 .mobile-list-header 0.04em），
    CJK 上唔顯眼，唔郁。scripts/test-fe-font-contract.mjs 掃全部 CSS 守住呢句唔會再講大話。 */
-:is(:lang(ja), :lang(ko), :lang(zh-Hant), :lang(zh-Hans)) :is(.rank-kicker, .select-group-label, .footer-methodology-title, .footer-nav-title, .sort-sheet-group h4, .seo-table thead th) { letter-spacing: var(--track-kicker); }
+:is(:lang(ja), :lang(ko), :lang(zh-Hant), :lang(zh-Hans)) :is(.rank-kicker, .select-group-label, .share-menu-kicker, .footer-methodology-title, .footer-nav-title, .sort-sheet-group h4, .seo-table thead th) { letter-spacing: var(--track-kicker); }
 
 [data-theme="dark"] {
   --ink: #ececec;
@@ -1060,11 +1060,121 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   background: var(--surface);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
 }
-.heatmap-share { position: relative; flex: none; }
-.heatmap-share-menu {
-  grid-template-columns: 1fr;
-  min-width: 148px;
+/* ── 分享目的地選單（components/share-menu.tsx）─────────────────
+ * 熱力圖同卡片內頁共用。owner 2026-08-20：撳「分享圖片」要先問去邊
+ * （WhatsApp / Threads / X / IG / 其他），再按目的地出啱嗰個尺寸。
+ *
+ * 個殼刻意**唔**照抄 .select-menu：嗰個係「一行字 + 剔」嘅細清單（min-width 140），
+ * 呢個每行有 icon｜名｜比例三欄。共用嘅係 token（--surface / --line-strong /
+ * --elev-3 / --control-radius）同埋 menu-in / menu-out 兩條 keyframes —— 即係話
+ * 「popover 睇落係點」仲係得一套，變嘅淨係行入面點排。
+ *
+ * ⚠️ 退場嗰條**要明寫**（下面 .share-menu-panel.select-menu-exit）。`.select-menu-exit`
+ * 喺呢個檔第 611 行、即係喺 `.share-menu-panel` 之前；兩條都係單 class（0,1,0），打和
+ * 就睇邊條後 —— 後嗰條係 `.share-menu-panel { animation: menu-in }`，所以淨靠加個
+ * `.select-menu-exit` class 係**改唔到** animation-name，塊板會硬企 120ms 之後一格閃走。
+ * `.select-menu` 本身冇事（佢喺 603 行，喺 611 之前），所以呢個坑淨係新 component 中。 */
+.share-menu { position: relative; flex: none; display: inline-flex; }
+.share-menu-chevron { margin-left: 2px; color: var(--accent); transition: transform 170ms var(--ease-standard); }
+.share-menu-chevron[data-open="true"] { transform: rotate(180deg); }
+.share-menu-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: var(--z-overlay);
   width: max-content;
+  min-width: 216px;
+  /* 360px 機都要留喺畫面內：page-shell 手機 gutter 16px ×2 */
+  max-width: calc(100vw - 32px);
+  padding: 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--control-radius);
+  /* 實色底 + 唔准 backdrop-filter：同 .select-menu / .period-menu-list 同一個根因
+     —— 呢個 popover 一樣住喺有 backdrop-filter 嘅祖先（.site-header / .ranking-heading）
+     入面，即係 backdrop root 之內，blur sample 唔到外面，半透明就變咗睇穿。 */
+  background: var(--surface);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: var(--elev-3);
+  animation: menu-in 140ms var(--ease-standard) both;
+  transform-origin: top right;
+}
+/* 個掣唔一定喺右邊：熱力圖喺手機係排喺左手邊，右貼就飛咗出畫面左邊（名同比例
+   齊齊斬走）。share-menu.tsx 開嗰下度真身闊度，唔夠位就反去左貼 —— 呢度唔准
+   改成 media query：決定嘅係個掣喺畫面邊個位，唔係畫面幾闊。 */
+.share-menu-panel[data-align="left"] {
+  right: auto;
+  left: 0;
+  transform-origin: top left;
+}
+/* 見上面：`.select-menu-exit` 排喺前面，唔明寫呢條就冇退場動畫（0,1,1 > 0,1,0） */
+.share-menu-panel.select-menu-exit { animation: menu-out 120ms var(--ease-standard) both; }
+.share-menu-kicker {
+  margin: 0;
+  padding: 7px 10px 5px;
+  color: var(--muted);
+  font-size: var(--fs-micro);
+  font-weight: var(--w-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.share-menu-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 8px;
+  /* 殼 12px 減 5px padding = 7px：內外圓角同心，唔會見到行角同殼角錯開 */
+  border: 0;
+  border-radius: 7px;
+  /* <button> 冇 background 就跌返 UA `buttonface`（跟 OS color-scheme，唔跟站內
+     data-theme）→ 淺色主題配深色系統即刻黑底。同 .period-option 同一個坑。 */
+  background: transparent;
+  color: var(--control-idle);
+  font-size: 13px;
+  font-weight: var(--w-label);
+  text-align: left;
+  cursor: pointer;
+  transition: background 140ms var(--ease-standard), color 140ms var(--ease-standard);
+}
+@media (hover: hover) {
+  .share-menu-item:hover { background: var(--control-bg); color: var(--ink); }
+}
+.share-menu-item:focus-visible { background: var(--control-bg); color: var(--ink); }
+.share-menu-icon { display: inline-flex; align-items: center; justify-content: center; color: inherit; }
+.share-menu-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.share-menu-ratio {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--soft);
+  color: var(--muted);
+  font-size: var(--fs-micro);
+  font-weight: var(--w-label);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.share-menu-item:hover .share-menu-ratio,
+.share-menu-item:focus-visible .share-menu-ratio {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+/* 頭四行係 owner 點名嗰四個平台，尾兩行係兜底：畫條 hairline 分開，好過再加個 kicker */
+.share-menu-item[data-target="other"] { margin-top: 5px; }
+.share-menu-item[data-target="other"]::before {
+  content: "";
+  position: absolute;
+  top: -3px;
+  left: 8px;
+  right: 8px;
+  height: 1px;
+  background: var(--line);
+}
+/* 觸控：44px 係手指下限（DESIGN.md §3.2），滑鼠唔使咁高 */
+@media (pointer: coarse) {
+  .share-menu-item { min-height: 44px; }
 }
 .heatmap-export {
   flex: none;
@@ -3208,6 +3318,10 @@ html.theme-transitions .box-thumb { transition: background-color 240ms cubic-bez
   /* animationend 唔會 fire，will-change 要喺呢度自己拆 */
   .heatmap-tile[data-late] { will-change: auto; }
   .select-menu, .select-menu-exit { animation: none; }
+  /* 兩條都要寫：`.share-menu-panel.select-menu-exit` 係 0,1,1，單靠下面條 0,1,0
+     嘅 `animation: none` 蓋唔到佢（specificity 贏過 source order）。 */
+  .share-menu-panel, .share-menu-panel.select-menu-exit { animation: none; }
+  .share-menu-chevron { transition: none; }
   .copy-icon-busy svg { animation: none; }
   .skip-link { transition: none; }
   .detail-metrics > div { transition: none; }

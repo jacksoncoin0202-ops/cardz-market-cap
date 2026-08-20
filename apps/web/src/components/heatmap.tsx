@@ -1,7 +1,6 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { Share2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
@@ -12,6 +11,7 @@ import { HeatmapKioskFx } from "./heatmap-kiosk-fx";
 import { HeatmapTile, tileFetchPriority, tileImageSizes } from "./heatmap-tile";
 import { PeriodSelector } from "./period-selector";
 import { DETAIL_PRINT_FIELDS, printIdentityRows } from "./print-badge";
+import { ShareMenu } from "./share-menu";
 import { TuneColor, TuneRange, useParamPump, useTuneCommit } from "./tune-panel";
 import { Sheet } from "./ui/sheet";
 import { displayCardName } from "@/lib/card-name";
@@ -569,42 +569,12 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
   }, []);
 
   /*
-   * 分享圖比例（owner 2026-08-19：「我依家就算喺電腦度做，我哋 post social media，
-   * 我都想 post 4 比 5 圖」）。預設 `post` = 釘死 4:5，**同部機幾大冇關係** —— 以前個
-   * board 淨係「加闊唔加高」，即係手機出 4:5、桌面出橫圖，同一粒掣兩種比例，owner 揀唔到。
-   * 留返 `frame`（跟畫面嗰個形狀）係因為 treemap 本身闊啲真係讀得清，Slack / Discord /
-   * blog embed 亦係橫圖舒服 —— 但嗰個係另一個場景，唔應該由部機幫你決定。
-   * 呢個 state 唔影響任何 SSR markup（tune panel 收埋嗰陣 Sheet 乜都唔 render），
-   * 所以照跟 params 嗰個 lazy-init + localStorage 寫法，唔會 hydration mismatch。
+   * 分享圖比例唔再係一個 state。owner 2026-08-20 之前呢度有個 `shareAspect`
+   * localStorage 記住「4:5 定闊版」，但由 08-19 加咗分享選單之後每個 call site
+   * 都已經明講揀邊個 slot，個 state 一路淨係喺 tune panel 度自己同自己講嘢。
+   * 而家比例由**目的地**決定（lib/share-destinations.ts），冇得亦唔應該記住 ——
+   * 今次 post 去 IG，下次 post 去 WhatsApp Status，記住上次係幫倒忙。
    */
-  const [shareAspect, setShareAspectState] = useState<ShareAspect>(() => {
-    if (typeof window === "undefined") return "post";
-    return localStorage.getItem("cardz-heatmap-share-aspect") === "frame" ? "frame" : "post";
-  });
-  const setShareAspect = useCallback((next: ShareAspect) => {
-    setShareAspectState(next);
-    try { localStorage.setItem("cardz-heatmap-share-aspect", next); } catch { /* 寫唔入就算 */ }
-  }, []);
-  const [shareMenuOpen, setShareMenuOpen] = useState(false);
-  const shareMenuRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!shareMenuOpen) return;
-    const onPointer = (event: PointerEvent) => {
-      if (shareMenuRef.current?.contains(event.target as Node)) return;
-      setShareMenuOpen(false);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.stopPropagation();
-      setShareMenuOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointer);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("pointerdown", onPointer);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [shareMenuOpen]);
   const { set: setParam, peek: peekParams } = useParamPump(params, setParamsState);
   const tuneCommitRef = useTuneCommit(persistParams, peekParams);
   const [tuneResetKey, setTuneResetKey] = useState(0);
@@ -971,14 +941,14 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
    * 一張圖出咗街係俾全世界睇），所以 periodLabel 傳 copy.en.periods、日期用
    * formatDate(..., "en")；share sheet 嘅標題／文字先跟返介面語言。
    */
-  const exportHeatmap = useCallback(async (slot: ShareAspect = shareAspect) => {
+  const exportHeatmap = useCallback(async (slot: ShareAspect) => {
     if (!size.width || !size.height || !tiles.length) return;
     /*
      * 分享圖唔可以照抄畫面個 frame 比例。手機 frame 係 343×508（0.68），加埋 header /
      * legend 出到嚟成張 PNG 得 0.58 —— Threads / X / IG feed 對直度圖有高度上限，太直
      * 唔會裁而係縮細，於是張圖淨係佔到 post 闊度七八成（owner 2026-08-19 實測）。
      * 桌面反方向：frame 1200×640 出橫圖，喺直度 feed 度一樣細一截。
-     * `shareAspect` 兩條路（見 lib/share-image.ts）：`post` 釘死 4:5（太直加闊、太扁加高），
+     * 三條路（見 lib/share-image.ts）：`post` 釘死 4:5（太直加闊、太扁加高）、`wa` 釘死 9:16、
      * `frame` 保留畫面嗰個形狀。兩條路都係攞住個新尺寸**重行一次 treemap**，格仔填得滿 ——
      * 好過硬加黑邊。
      */
@@ -1033,7 +1003,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
     if (isMobileTiles) {
       document.getElementById("market-ranking")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-  }, [size.width, size.height, tiles, title, activePeriod, isMobileTiles, params, colors, dark, t.periods, shareAspect]);
+  }, [size.width, size.height, tiles, title, activePeriod, isMobileTiles, params, colors, dark, t.periods]);
 
   // Controls 抽返出嚟：desktop 同標題並排，手機由 CSS 將佢哋排喺標題下面、
   // 圖上面（Tiles slider 做主角），結構保持一致。
@@ -1070,49 +1040,25 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
         </svg>
       </button>
       <PeriodSelector />
-      <div className="heatmap-share period-menu" ref={shareMenuRef}>
-        <button
-          type="button"
-          className="heatmap-export"
-          aria-expanded={shareMenuOpen}
-          aria-haspopup="listbox"
-          aria-label={t.labels.shareImage}
-          onClick={() => setShareMenuOpen((value) => !value)}
-        >
-          <Share2 aria-hidden="true" size={14} strokeWidth={1.8} />
-          <span>{t.labels.shareImage}</span>
-        </button>
-        {shareMenuOpen ? (
-          <ul className="select-menu period-menu-list heatmap-share-menu" role="listbox" aria-label={t.labels.shareImage}>
-            <li role="presentation">
-              <button
-                type="button"
-                className="period-option heatmap-export-post"
-                role="option"
-                onClick={() => {
-                  setShareMenuOpen(false);
-                  void exportHeatmap("post");
-                }}
-              >
-                {t.labels.shareImagePost}
-              </button>
-            </li>
-            <li role="presentation">
-              <button
-                type="button"
-                className="period-option heatmap-export-wa"
-                role="option"
-                onClick={() => {
-                  setShareMenuOpen(false);
-                  void exportHeatmap("wa");
-                }}
-              >
-                {t.labels.shareImageWa}
-              </button>
-            </li>
-          </ul>
-        ) : null}
-      </div>
+      {/* 分享：先問去邊，再按目的地出比例。同卡片內頁一模一樣嘅 popover
+          （components/share-menu.tsx），目的地→比例嗰張表喺 lib/share-destinations.ts。
+          呢度唔使 onWarm —— 卡圖全部已經喺 tile 度顯示緊（cache hit），畫 canvas
+          係毫秒級，仲喺 user activation 窗口入面。 */}
+      <ShareMenu
+        surface="heatmap"
+        triggerClassName="heatmap-export"
+        copy={{
+          label: t.labels.shareImage,
+          pick: t.labels.shareTo,
+          status: t.labels.shareToStatus,
+          other: t.labels.shareToOther,
+          desktop: t.labels.shareToDesktop,
+          frame: t.labels.shareRatioFrame,
+          done: t.share.done,
+          error: t.share.error,
+        }}
+        onPick={(target) => exportHeatmap(target.aspect)}
+      />
       {/* Kiosk 全屏（owner 2026-08-18 店主展示模式）。aria-pressed 講狀態、aria-label 跟住換字，
           唔可以淨靠 icon —— 讀屏睇唔到「四角向內定向外」。 */}
       <button
@@ -1287,16 +1233,9 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
             * （見上面 colors useMemo），所以「升色」picker 要綁住 down*，改落去先真係改到升色。
             * key 帶 upDown：uncontrolled color input 換綁定要 remount 先出正確 defaultValue。
             */}
-          {/* 分享圖比例。擺喺 panel 最頂 —— 呢個係唯一會改變「出街嗰張嘢係咩」嘅設定，
-              下面全部係色。同 ↕ 嗰行共用 `tune-updown-actions` 個分段掣樣式。 */}
-          <div className="tune-field" role="group" aria-label={t.heatmap.shareShape}>
-            {/* 冇 class：`.tune-field span` 已經係 TuneRange / TuneColor 嗰個 label 樣式 */}
-            <span>{t.heatmap.shareShape}</span>
-            <div className="tune-panel-actions tune-updown-actions">
-              <button type="button" aria-pressed={shareAspect === "post"} data-active={shareAspect === "post" ? "true" : "false"} onClick={() => setShareAspect("post")}>{t.heatmap.shareShapePost}</button>
-              <button type="button" aria-pressed={shareAspect === "frame"} data-active={shareAspect === "frame" ? "true" : "false"} onClick={() => setShareAspect("frame")}>{t.heatmap.shareShapeFrame}</button>
-            </div>
-          </div>
+          {/* 呢度以前有個「分享圖比例」分段掣（4:5 / 闊版）。owner 2026-08-20 起比例由
+              分享選單嘅**目的地**決定，唔再係一個要預先入 panel 揀嘅設定 —— 撳分享嗰刻
+              先揀，仲快同仲準。panel 而家淨返色同格局。 */}
           <div className="tune-field" role="group" aria-label={upDown === "red-up" ? t.labels.upDownRed : t.labels.upDownGreen}>
             <div className="tune-panel-actions tune-updown-actions">
               <button type="button" aria-pressed={upDown === "green-up"} data-active={upDown === "green-up" ? "true" : "false"} onClick={() => setUpDownPref("green-up")}>{t.labels.upDownGreen}</button>

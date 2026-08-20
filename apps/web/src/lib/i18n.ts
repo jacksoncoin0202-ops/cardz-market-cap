@@ -153,10 +153,6 @@ export interface Copy {
     neutralZone: string;
     gap: string;
     cardSize: string;
-    /* 分享圖比例（4:5 定跟畫面闊版）—— 見 lib/share-image.ts `ShareAspect` */
-    shareShape: string;
-    shareShapePost: string;
-    shareShapeFrame: string;
     /* /tune lab 專用（clamp / alpha / aspect + 複製 JSON），heatmap tune panel 唔出 */
     clamp: string;
     alphaMin: string;
@@ -211,8 +207,20 @@ export interface Copy {
     /* 「匯出／分享一張圖」嘅掣文字。熱力圖同卡片內頁共用同一個 key ——
        同一個動作唔好兩個字串，翻譯到第三次就會有一個語言講另一件事。 */
     shareImage: string;
-    shareImagePost: string;
-    shareImageWa: string;
+    /*
+     * 目的地選單（components/share-menu.tsx）。owner 2026-08-20：撳「分享圖片」要先
+     * 問去邊，因為每個平台嘅最佳比例唔同。
+     *
+     * ⚠️ 冇 `shareToInstagram` / `shareToX` 呢啲 key —— 四個平台名係專有名詞，五個語言
+     * 一模一樣，入咗 i18n 就係四條永遠唔會譯、但每次加語言都要抄多四次嘅字串。名寫死
+     * 喺 share-menu.tsx `BRAND_NAME`。呢度剩返真係要譯嗰啲。
+     */
+    shareTo: string;
+    shareToStatus: string;
+    shareToOther: string;
+    shareToDesktop: string;
+    /* 熱力圖闊版唔係固定比例（跟用戶當下畫面），比例位出呢句代替「16:9」 */
+    shareRatioFrame: string;
     /*
      * 印刷版本相關。`printLanguage` 係 template：`languages` 只出裸字（「日文」），
      * 但 badge 要出「日文版」，所以用 {language} 佔位符夾 localizedCardLanguage() 嘅輸出。
@@ -456,7 +464,6 @@ export const copy: Record<Locale, Copy> = {
       neutralZone: "Neutral zone",
       gap: "Tile spacing",
       cardSize: "Card size",
-      shareShape: "Share image shape", shareShapePost: "4:5 (social)", shareShapeFrame: "Wide (as shown)",
       clamp: "Saturation point (% change)", alphaMin: "Lightest opacity", alphaMax: "Deepest opacity", cardAspect: "Card aspect ratio",
       copyParams: "Copy parameters", paramsCopied: "Parameters copied", copyFailed: "Copy failed",
     },
@@ -474,7 +481,7 @@ export const copy: Record<Locale, Copy> = {
       viewCard: "Open card profile", close: "Close", story: "Why the market cares", history: "Daily market history",
       dailyPrice: "Reference price", trackedSalesBars: "Tracked sales", salesTrend: "Tracked sales trend", salesTrendShort: "Sales trend", salesTrendColumn: "Trend", imageAlt: "Card artwork",
       noHistory: "Daily price history is still accumulating.", noCards: "No eligible cards are available in this view.", noSales: "No sales recorded", watchStatus: "Watchlist status",
-      share: "Share card", shareDone: "Link copied", shareError: "Copy failed — select the address bar", shareImage: "Share image", shareImagePost: "Share 4:5", shareImageWa: "Share 9:16",
+      share: "Share card", shareDone: "Link copied", shareError: "Copy failed — select the address bar", shareImage: "Share image", shareTo: "Share to", shareToStatus: "Story / Status", shareToOther: "Other app", shareToDesktop: "Desktop / blog", shareRatioFrame: "As shown",
       printLanguage: "{language} print", setCode: "Set code", finish: "Surface",
       languageFilterAll: "All languages",
       languageFilterAllShort: "All",
@@ -676,7 +683,6 @@ export const copy: Record<Locale, Copy> = {
       fullscreen: "全螢幕展示", exitFullscreen: "離開全螢幕",
       customize: "自訂熱力圖", customizeTitle: "熱力圖設定", resetDefault: "恢復預設",
       upColor: "上升顏色", downColor: "下跌顏色", intensity: "色彩強度", neutralZone: "中立區", gap: "格子間距", cardSize: "卡牌大小",
-      shareShape: "分享圖比例", shareShapePost: "4:5（社交）", shareShapeFrame: "闊版（跟畫面）",
       clamp: "飽和點（漲跌 %）", alphaMin: "最淺透明度", alphaMax: "最深透明度", cardAspect: "卡牌長寬比",
       copyParams: "複製參數", paramsCopied: "已複製參數", copyFailed: "複製失敗",
     },
@@ -694,7 +700,7 @@ export const copy: Record<Locale, Copy> = {
       viewCard: "查看卡牌詳情", close: "關閉", story: "市場為何追捧", history: "每日市場走勢",
       dailyPrice: "參考價格", trackedSalesBars: "已追蹤成交額", salesTrend: "已追蹤成交額走勢", salesTrendShort: "成交走勢", salesTrendColumn: "走勢", imageAlt: "卡牌圖像",
       noHistory: "每日價格歷史仍在累積。", noCards: "此分類暫時沒有合資格卡牌。", noSales: "無成交紀錄", watchStatus: "觀察狀態",
-      share: "分享卡牌", shareDone: "已複製連結", shareError: "複製失敗，請手動複製網址", shareImage: "分享圖片", shareImagePost: "分享 4:5", shareImageWa: "分享 9:16",
+      share: "分享卡牌", shareDone: "已複製連結", shareError: "複製失敗，請手動複製網址", shareImage: "分享圖片", shareTo: "分享去邊", shareToStatus: "限時動態／狀態", shareToOther: "其他 App", shareToDesktop: "電腦／網誌", shareRatioFrame: "跟畫面",
       printLanguage: "{language}版", setCode: "系列代碼", finish: "卡面",
       languageFilterAll: "全部語言",
       languageFilterAllShort: "全部",
@@ -881,7 +887,6 @@ export const copy: Record<Locale, Copy> = {
       fullscreen: "全屏展示", exitFullscreen: "退出全屏",
       customize: "自定义热力图", customizeTitle: "热力图设置", resetDefault: "恢复默认",
       upColor: "上涨颜色", downColor: "下跌颜色", intensity: "色彩强度", neutralZone: "中立区", gap: "格子间距", cardSize: "卡牌大小",
-      shareShape: "分享图比例", shareShapePost: "4:5（社交）", shareShapeFrame: "宽版（跟画面）",
       clamp: "饱和点（涨跌 %）", alphaMin: "最浅透明度", alphaMax: "最深透明度", cardAspect: "卡牌长宽比",
       copyParams: "复制参数", paramsCopied: "已复制参数", copyFailed: "复制失败",
     },
@@ -899,7 +904,7 @@ export const copy: Record<Locale, Copy> = {
       viewCard: "查看卡牌详情", close: "关闭", story: "市场为何追捧", history: "每日市场走势",
       dailyPrice: "参考价格", trackedSalesBars: "已追踪成交额", salesTrend: "已追踪成交额走势", salesTrendShort: "成交走势", salesTrendColumn: "走势", imageAlt: "卡牌图像",
       noHistory: "每日价格历史仍在累积。", noCards: "此分类暂时没有合资格卡牌。", noSales: "无成交纪录", watchStatus: "观察状态",
-      share: "分享卡牌", shareDone: "已复制链接", shareError: "复制失败，请手动复制网址", shareImage: "分享图片", shareImagePost: "分享 4:5", shareImageWa: "分享 9:16",
+      share: "分享卡牌", shareDone: "已复制链接", shareError: "复制失败，请手动复制网址", shareImage: "分享图片", shareTo: "分享到哪里", shareToStatus: "限时动态／状态", shareToOther: "其他 App", shareToDesktop: "电脑／博客", shareRatioFrame: "跟画面",
       printLanguage: "{language}版", setCode: "系列代码", finish: "卡面",
       languageFilterAll: "全部语言",
       languageFilterAllShort: "全部",
@@ -1085,7 +1090,6 @@ export const copy: Record<Locale, Copy> = {
       fullscreen: "フルスクリーン表示", exitFullscreen: "フルスクリーンを終了",
       customize: "ヒートマップをカスタマイズ", customizeTitle: "ヒートマップ設定", resetDefault: "デフォルトに戻す",
       upColor: "上昇カラー", downColor: "下落カラー", intensity: "色の強度", neutralZone: "ニュートラルゾーン", gap: "タイル間隔", cardSize: "カードサイズ",
-      shareShape: "シェア画像の比率", shareShapePost: "4:5（SNS）", shareShapeFrame: "ワイド（画面どおり）",
       clamp: "飽和点（変動率 %）", alphaMin: "最も薄い不透明度", alphaMax: "最も濃い不透明度", cardAspect: "カードの縦横比",
       copyParams: "パラメータをコピー", paramsCopied: "パラメータをコピーしました", copyFailed: "コピーに失敗しました",
     },
@@ -1103,7 +1107,7 @@ export const copy: Record<Locale, Copy> = {
       viewCard: "カード詳細を見る", close: "閉じる", story: "市場で支持される理由", history: "日次市場推移",
       dailyPrice: "参考価格", trackedSalesBars: "追跡成約額", salesTrend: "追跡成約額の推移", salesTrendShort: "成約推移", salesTrendColumn: "推移", imageAlt: "カード画像",
       noHistory: "日次価格履歴を蓄積しています。", noCards: "この表示には適格カードがありません。", noSales: "成約記録なし", watchStatus: "観察ステータス",
-      share: "カードを共有", shareDone: "リンクをコピーしました", shareError: "コピーに失敗しました。URL を手動でコピーしてください", shareImage: "画像をシェア", shareImagePost: "共有 4:5", shareImageWa: "共有 9:16",
+      share: "カードを共有", shareDone: "リンクをコピーしました", shareError: "コピーに失敗しました。URL を手動でコピーしてください", shareImage: "画像をシェア", shareTo: "シェア先", shareToStatus: "ストーリー／ステータス", shareToOther: "その他のアプリ", shareToDesktop: "PC・ブログ", shareRatioFrame: "画面どおり",
       printLanguage: "{language}版", setCode: "セットコード", finish: "表面",
       languageFilterAll: "すべての言語",
       languageFilterAllShort: "すべて",
@@ -1296,7 +1300,6 @@ export const copy: Record<Locale, Copy> = {
       fullscreen: "전체 화면 표시", exitFullscreen: "전체 화면 종료",
       customize: "히트맵 사용자 정의", customizeTitle: "히트맵 설정", resetDefault: "기본값으로 재설정",
       upColor: "상승 색상", downColor: "하락 색상", intensity: "색상 강도", neutralZone: "중립 구간", gap: "타일 간격", cardSize: "카드 크기",
-      shareShape: "공유 이미지 비율", shareShapePost: "4:5 (소셜)", shareShapeFrame: "와이드 (화면대로)",
       clamp: "포화 지점(변동률 %)", alphaMin: "가장 옅은 불투명도", alphaMax: "가장 짙은 불투명도", cardAspect: "카드 가로세로 비율",
       copyParams: "파라미터 복사", paramsCopied: "파라미터를 복사했습니다", copyFailed: "복사 실패",
     },
@@ -1314,7 +1317,7 @@ export const copy: Record<Locale, Copy> = {
       viewCard: "카드 상세 보기", close: "닫기", story: "시장이 주목하는 이유", history: "일별 시장 추이",
       dailyPrice: "기준 가격", trackedSalesBars: "추적 거래액", salesTrend: "추적 거래액 추이", salesTrendShort: "거래 추이", salesTrendColumn: "추이", imageAlt: "카드 이미지",
       noHistory: "일별 가격 이력을 축적하고 있습니다.", noCards: "이 보기에 적격 카드가 없습니다.", noSales: "거래 기록 없음", watchStatus: "관찰 상태",
-      share: "카드 공유", shareDone: "링크 복사됨", shareError: "복사 실패 — 주소창에서 직접 복사하세요", shareImage: "이미지 공유", shareImagePost: "공유 4:5", shareImageWa: "공유 9:16",
+      share: "카드 공유", shareDone: "링크 복사됨", shareError: "복사 실패 — 주소창에서 직접 복사하세요", shareImage: "이미지 공유", shareTo: "공유할 곳", shareToStatus: "스토리 / 상태", shareToOther: "다른 앱", shareToDesktop: "PC / 블로그", shareRatioFrame: "화면대로",
       printLanguage: "{language}판", setCode: "세트 코드", finish: "표면",
       languageFilterAll: "모든 언어",
       languageFilterAllShort: "전체",

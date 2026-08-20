@@ -7,7 +7,7 @@ import { Breadcrumbs } from "./breadcrumbs";
 import { EmptyState } from "./empty-state";
 import { CardArt, SpotlightScope } from "./card-art";
 import { CardImage } from "./card-image";
-import { CopyButton } from "./copy-button";
+import { ShareMenu, type ShareMenuCopy } from "./share-menu";
 import { CapTicker } from "./cap-ticker";
 import { HistoryChart } from "./history-chart";
 import { PeriodSelector } from "./period-selector";
@@ -21,6 +21,7 @@ import { cardNameLangAttr, displayCardName } from "@/lib/card-name";
 import { copy } from "@/lib/i18n";
 import { formatInteger, formatMetricInteger, formatMetricMoney, formatMoney, formatObservationDate, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
 import { plainDescription } from "@/lib/plain-text";
+import { type ShareFormat, type ShareTarget } from "@/lib/share-destinations";
 import { shareImageBlob } from "@/lib/share-file";
 import { cardFactSentence, cardSubject, geoCopy, setHubPath, setSlug, tcgHubPath, type RelatedCardsPayload } from "@/lib/related-cards";
 import { StoryPanel } from "./story-panel";
@@ -57,7 +58,7 @@ function tickerValue(metric: MarketMetric<number>): number | null {
  */
 const SHARE_FETCH_TIMEOUT_MS = 20_000;
 
-function ShareImageButton({ cardId, imageLang, title, label, doneLabel, errorLabel }: {
+function ShareImageButton({ cardId, imageLang, title, copy: menuCopy }: {
   cardId: string;
   /* 介面語言。張圖入面啲字跟佢行（`api/og/card` 個 `?lang=`）—— 未 ship 字體嗰啲
      語言（ja / ko）route 會自己跌返 en，呢邊唔使再維持一張表。
@@ -65,21 +66,30 @@ function ShareImageButton({ cardId, imageLang, title, label, doneLabel, errorLab
      想寫個 DOM `lang`（`zh-TW` 落 DOM 係錯值）而擋住。呢個係 query param 唔係屬性。 */
   imageLang: string;
   title: string;
-  label: string;
-  doneLabel: string;
-  errorLabel: string;
+  copy: ShareMenuCopy;
 }) {
   /*
    * ⚠️ warm：`navigator.share` 一定要喺 user activation 之內叫（見 lib/share-file.ts），
    * 而張圖成 1.4 MB。撳完先 fetch 喺 iOS Safari 會過咗 activation 期 → 冇 share sheet。
    * 所以 hover / focus / 撳落去嗰刻就開始攞，click handler 只係 await 一個已經飛緊嘅
    * promise。ref 記住個 promise 令佢 idempotent —— onWarm 一次互動會 fire 兩三次。
+   *
+   * 而家一張卡有三個尺寸（4:5 / 9:16 / 16:9），所以係一個 Map 唔係一個 ref：揀
+   * Instagram warm 咗 4:5 之後再 hover 限時動態，兩張都要各自留住。ShareMenu 一開
+   * 就先 warm 預設嗰個（七個目的地入面五個都係 `post`）。
+   *
+   * ⚠️ key 要連埋語言：張圖入面啲字係 server 按 `?lang=` 出嘅，而換語言係 query-only
+   * soft navigation（`use-market-settings` 行 `router.replace`，同一條 pathname）——
+   * 個 component 唔會 remount，個 ref 原封不動。淨係 key format 嘅話，英文版 warm 完
+   * 再轉繁中，撳分享攞返嘅係**英文嗰張**，冇 error 冇 log。
    */
-  const shareBlobRef = useRef<Promise<Blob> | null>(null);
-  const warmShareImage = () => {
+  const shareBlobs = useRef(new Map<string, Promise<Blob>>());
+  const warmShareImage = (format: ShareFormat) => {
+    const key = `${format}|${imageLang}`;
+    if (shareBlobs.current.has(key)) return;
     /* ⚠️ 一定要有 timeout：冇 signal 嘅 fetch 可以吊死到天光，個掣就一路 busy（見
        copy-button.tsx `COPY_TIMEOUT_MS`）。20 秒係實測 1.3-1.4s 之上留足十幾倍水位。 */
-    shareBlobRef.current ??= fetch(`/api/og/card/${encodeURIComponent(cardId)}?format=post&lang=${encodeURIComponent(imageLang)}`, {
+    const pending = fetch(`/api/og/card/${encodeURIComponent(cardId)}?format=${format}&lang=${encodeURIComponent(imageLang)}`, {
       signal: typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(SHARE_FETCH_TIMEOUT_MS) : undefined,
     })
       .then((response) => {
@@ -87,31 +97,32 @@ function ShareImageButton({ cardId, imageLang, title, label, doneLabel, errorLab
         return response.blob();
       })
       .catch((error) => {
-        /* 失敗唔可以黐住個 ref，否則之後撳幾多次都係同一個 rejected promise */
-        shareBlobRef.current = null;
+        /* 失敗唔可以黐住個 Map，否則之後撳幾多次都係同一個 rejected promise */
+        shareBlobs.current.delete(key);
         throw error;
       });
+    shareBlobs.current.set(key, pending);
   };
-  const shareCardImage = async () => {
-    warmShareImage();
-    const blob = await shareBlobRef.current!;
+  const shareCardImage = async (target: ShareTarget) => {
+    warmShareImage(target.format);
+    const blob = await shareBlobs.current.get(`${target.format}|${imageLang}`)!;
     const pageUrl = `${window.location.origin}/card/${cardId}`;
     /* share sheet 嘅標題／正文同**圖入面**啲字而家一齊跟介面語言（見 og route 個 `?lang=`）。 */
     await shareImageBlob(blob, {
-      filenameBase: `cardz-${cardId}`,
+      /* 檔名帶 format：桌面落載幾個尺寸落同一個 Downloads 都唔會撞名變 (1)(2) */
+      filenameBase: `cardz-${cardId}-${target.format}`,
       title,
       text: `${title}\n${pageUrl}`,
       clipboardFallbackText: pageUrl,
     });
   };
   return (
-    <CopyButton
-      className="share-button share-image-button"
-      label={label}
-      doneLabel={doneLabel}
-      errorLabel={errorLabel}
-      onCopy={shareCardImage}
-      onWarm={warmShareImage}
+    <ShareMenu
+      surface="card"
+      copy={menuCopy}
+      triggerClassName="share-button share-image-button"
+      onPick={shareCardImage}
+      onWarm={(target) => warmShareImage(target.format)}
     />
   );
 }
@@ -265,9 +276,16 @@ export function CardDetail({ id, snapshot, related }: {
           cardId={card.id}
           imageLang={locale}
           title={title}
-          label={t.labels.shareImage}
-          doneLabel={t.share.done}
-          errorLabel={t.share.error}
+          copy={{
+            label: t.labels.shareImage,
+            pick: t.labels.shareTo,
+            status: t.labels.shareToStatus,
+            other: t.labels.shareToOther,
+            desktop: t.labels.shareToDesktop,
+            frame: t.labels.shareRatioFrame,
+            done: t.share.done,
+            error: t.share.error,
+          }}
         />
       </div>
       {/* `detail-grid-rail`：卡內頁專用嘅桌面排位。`.detail-grid` / `.detail-art` /

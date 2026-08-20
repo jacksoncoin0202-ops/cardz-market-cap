@@ -13,6 +13,9 @@
       對調。opts.colors 就係實際畫落 tile 嗰兩隻色，legend 直接攞佢做色板，所以永遠講真話。 */
 
 import { tileStyle, type TileColors, type TileParams } from "./tile-style";
+/* 比例槽個名住喺 lib/share-destinations.ts（同「邊個平台用邊個比例」同一張表），
+   呢度只做實現。re-export 令舊叫方（`import { type ShareAspect } from "@/lib/share-image"`）唔使郁。 */
+import type { ShareAspect } from "./share-destinations";
 
 /* 圖入面所有字（英文 only，見檔頭規矩 1） */
 const SHARE_TEXT = {
@@ -117,7 +120,7 @@ const POST_BOARD_MAX_W = 1280;
  * 好過左右／上下硬加黑邊。SHARE_CHROME_H / SHARE_GUTTER_W 係估算，估歪咗
  * renderHeatmapShare() 尾嗰個 padX 閘會補返左右留白，一定唔會出到直過 SHARE_MIN_ASPECT。
  */
-export type ShareAspect = "post" | "wa" | "frame";
+export type { ShareAspect };
 
 export function shareTargetAspect(aspect: ShareAspect): number | null {
   if (aspect === "post") return SHARE_MIN_ASPECT;

@@ -201,9 +201,10 @@ const opts = { filenameBase: "cardz-x", title: "t", text: "t\nhttps://x", clipbo
   check("S1: CopyButton 有死鎖閘常數", /COPY_TIMEOUT_MS\s*=\s*[\d_]+/.test(copyButton));
   check("S1: 死鎖閘真係包住 onCopy()", /await\s+withTimeout\(\s*Promise\.resolve\(onCopy\(\)\)\s*,\s*COPY_TIMEOUT_MS\s*\)/.test(copyButton));
   const cardDetail = read("apps/web/src/components/card-detail.tsx");
-  /* 咬 `format=post` 之後 200 字內要見到 signal —— 唔准咬死 query string 收喺邊
-     （2026-08-20 加咗 `&lang=`，舊 pattern 嗰個 `` format=post` `` 就對唔上）。 */
-  check("S2: 分享圖 fetch 有 abort signal", /format=post[^`]{0,80}`,\s*\{[\s\S]{0,200}?AbortSignal\.timeout\(SHARE_FETCH_TIMEOUT_MS\)/.test(cardDetail));
+  /* 咬 `format=` 之後 200 字內要見到 signal —— 唔准咬死 query string 收喺邊
+     （2026-08-20 早上加咗 `&lang=`，同日下晝 `format=post` 變咗 `format=${format}`
+     ——目的地選單一張卡有三個尺寸，舊 pattern 兩次都對唔上）。 */
+  check("S2: 分享圖 fetch 有 abort signal", /format=\$\{format\}[^`]{0,80}`,\s*\{[\s\S]{0,200}?AbortSignal\.timeout\(SHARE_FETCH_TIMEOUT_MS\)/.test(cardDetail));
 }
 
 if (failed.length) {

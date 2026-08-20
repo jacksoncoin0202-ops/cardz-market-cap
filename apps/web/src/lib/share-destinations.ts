@@ -1,30 +1,85 @@
 /*
- * 「張圖送去邊」→「用邊個 format」嘅唯一一張表。
+ * 「張圖送去邊」→「用邊個尺寸」嘅唯一一張表。
  *
- * owner 2026-08-20：「因應佢喺任何嘅地方，就俾返張最合適嘅圖。」送圖嗰條 cron 鏈
- * （HERMES）**唔喺呢個 repo** —— 佢做完自動鏈就 download 張圖再 upload 去 WhatsApp／
- * X／Threads。所以條鏈應該淨係寫佢送去邊（`?format=whatsapp`），「WhatsApp 用邊個
- * 尺寸」呢個決定留喺呢度。日後邊個平台要換比例 = 改呢張表，條鏈一行都唔使郁。
+ * 兩類叫方，同一張表：
+ *  · **用戶**撳「分享圖片」→ 彈個目的地選單（`components/share-menu.tsx`）。owner
+ *    2026-08-20：「彈個 button 出嚟問你想分享去邊：WhatsApp、Threads、X.COM、IG 定係
+ *    其他地方？因應分享去唔同地方，要配合返唔同嘅最佳 social media size」。
+ *  · **HERMES 條 cron 鏈**（唔喺呢個 repo）做完自動鏈就 download 張圖再 upload 去
+ *    WhatsApp／X／Threads —— 佢淨係寫佢送去邊（`?format=whatsapp`），尺寸留喺呢度決定。
  *
- * ⚠️ 今日三個貼圖目的地全部指去 `post`（1080×1350，4:5），**唔係求其填**：
- *   · IG feed 直度上限就係 4:5（闊÷高 0.8），再高會裁。
- *   · Threads 跟 IG 一路。owner 2026-08-19 實測 9:16 貼 Threads／X 會縮到七八成闊
- *     （見 og route 檔頭「4:5 唔准改返 9:16」同 `lib/share-image.ts` SHARE_MIN_ASPECT）。
- *   · WhatsApp 對話／群組個氣泡保持比例唔裁，4:5 佔到最高，撳落去全屏放大。
- * 即係話「每個平台一個尺寸」呢件事，喺今日呢三個目的地上**答案啱啱好一樣**。
- * 硬要各出一個唔同比例，會有一兩個變差。
+ * 即係話「邊個平台用邊個比例」呢個知識**得一份**：改呢張表，選單同條鏈一齊跟，
+ * 兩邊都唔使郁（AGENTS.md 規矩 13）。
  *
- * 要拆嘅時候：喺 og route 加多個 ShareFormat（連 layout），再改呢度指過去 —— 唔係
- * 喺條鏈度改，亦唔係喺呢度亂作一個 route 唔識嘅 format 名（下面個 guard 會擋）。
+ * 今日三個比例：
+ *   · `post` 1080×1350（4:5）—— IG feed / Threads / X。三家對直度圖都有高度上限，
+ *     超過**唔裁、改為按高度縮細**，張圖就永遠得七八成闊（owner 2026-08-19 實測）。
+ *     IG 4:5 最嚴，鎖 0.8 三家都唔會再縮。
+ *   · `status` 1080×1920（9:16）—— IG 限時動態 / WhatsApp Status 嗰種**全屏**面。
+ *     ⚠️ 佢係「邊個**面**」唔係「邊間公司」：同一個 WhatsApp，對話氣泡行 4:5、Status
+ *     行 9:16。
+ *     ⚠️ 呢個比例**淨係**俾 status／story 面用。貼落 feed（Threads / X / IG post）就係
+ *     上面講嗰個「縮到七八成闊」嘅陷阱，所以下面張表冇一個 feed 目的地指去佢。
+ *   · `wide` 1200×630（16:9）—— 社交 unfurl（`og:image`）同埋電腦／部落格 embed。
  */
-export const SHARE_FORMATS = ["wide", "post"] as const;
+export const SHARE_FORMATS = ["wide", "post", "status"] as const;
 export type ShareFormat = (typeof SHARE_FORMATS)[number];
+
+/*
+ * 熱力圖嗰張分享圖係即場 canvas（要跟用戶當下揀嘅格數／時段），唔行上面條 og route，
+ * 所以佢有自己一組比例槽 —— 實現喺 `lib/share-image.ts`（`shareBoardSize` /
+ * `shareTargetAspect`），嗰邊直接 re-export 呢個 type。擺喺呢度係為咗令「一個目的地
+ * 喺兩邊各用邊個槽」睇得晒喺同一張表。
+ *   post = 4:5、wa = 9:16、frame = 跟畫面見到嗰個形狀（闊版）。
+ */
+export const SHARE_ASPECTS = ["post", "wa", "frame"] as const;
+export type ShareAspect = (typeof SHARE_ASPECTS)[number];
+
+export type ShareTargetId = "instagram" | "threads" | "x" | "whatsapp" | "status" | "other" | "desktop";
+
+export interface ShareTarget {
+  id: ShareTargetId;
+  /** 卡片內頁：server 出圖，`?format=` 就係佢（見 `app/api/og/card/[id]/route.tsx`） */
+  format: ShareFormat;
+  /** 熱力圖：client canvas 嘅比例槽 */
+  aspect: ShareAspect;
+  /** 選單右邊嗰粒比例標。純數字，唔使 i18n。 */
+  ratio: string;
+  /**
+   * 熱力圖嗰邊唔係固定比例（`frame` = 跟畫面），所以上面個 `ratio` 只講得卡片內頁。
+   * 有呢個 flag 嘅列喺熱力圖選單會出本地化嘅「跟畫面」。
+   */
+  frameOnHeatmap?: true;
+}
+
+/*
+ * 選單次序 = 呢個 array 次序。owner 2026-08-20 點名嗰四個平台行先，跟住兩個兜底。
+ *
+ * ⚠️ 五個「send 一張圖俾人睇」嘅目的地**全部係 4:5，唔係求其填**：IG feed 直度上限
+ * 就係 4:5，Threads 跟 IG 一路，X 一樣（owner：「X.COM 好明顯係 4:5」），WhatsApp
+ * 對話／群組個氣泡保持比例唔裁、4:5 佔到最高（owner 2026-08-20，e61c1aa9）。硬要各
+ * 出一個唔同比例，會有一兩個變差。
+ *
+ * ⚠️ **9:16 唔係「WhatsApp 嗰行」，係「全屏面嗰行」。** WhatsApp 有兩個面：對話氣泡
+ * （4:5，上面）同 Status（全屏 9:16）；IG 一樣分 feed 同限時動態。所以 9:16 自己一行
+ * `status`，唔准掛落任何一個公司名 —— 掛咗就即係「揀 WhatsApp = 一定係 Status」，
+ * 而條 cron 鏈嘅 `?format=whatsapp` 講嘅正正係對話氣泡嗰個面（見下面 alias 表）。
+ */
+export const SHARE_TARGETS: readonly ShareTarget[] = [
+  { id: "instagram", format: "post", aspect: "post", ratio: "4:5" },
+  { id: "threads", format: "post", aspect: "post", ratio: "4:5" },
+  { id: "x", format: "post", aspect: "post", ratio: "4:5" },
+  { id: "whatsapp", format: "post", aspect: "post", ratio: "4:5" },
+  { id: "status", format: "status", aspect: "wa", ratio: "9:16" },
+  { id: "other", format: "post", aspect: "post", ratio: "4:5" },
+  { id: "desktop", format: "wide", aspect: "frame", ratio: "16:9", frameOnHeatmap: true },
+];
 
 /*
  * key 一律小楷；`readShareFormat` 會幫叫方 lowercase，所以呢度唔准出現大楷。
  *
  * 分兩組，因為兩組係**兩件唔同嘅事**，唔好因為名似就撈埋：
- *  · 貼圖 = 真係 send 一張圖出去（人手 save 落相簿再貼，或者條鏈 upload）→ 4:5。
+ *  · 貼圖 = 真係 send 一張圖出去（人手 save 落相簿再貼，或者條鏈 upload）。
  *  · unfurl = 我哋淨係派條 link，對面自己爬 `og:image` → 1200×630，仲有 WhatsApp
  *    文檔嗰個 600KB 靜默閘要夾（見 og route `JPEG_QUALITY`）。
  * 同一個平台可以兩樣都做（WhatsApp send 圖 vs WhatsApp send link），所以呢張表認嘅
@@ -33,10 +88,20 @@ export type ShareFormat = (typeof SHARE_FORMATS)[number];
 const FORMAT_ALIASES: Record<string, ShareFormat> = {
   wide: "wide",
   post: "post",
-  /* `story`：2026-08-19 早上出過一版 9:16，嗰陣派出去嘅 HTML 仲喺 CDN／用戶開住嘅
-     tab 度，撳分享會照舊帶 `?format=story`。唔認佢就跌返 wide，用戶攞到一張橫圖。 */
+  status: "status",
+  /*
+   * ⚠️ `story` **故意仍然指住 `post`，唔准改去 `status`。** 2026-08-19 早上出過一版
+   * 9:16 通用分享圖，嗰陣派出去嘅 HTML 仲喺 CDN／用戶開住嘅 tab 度，撳分享會照舊帶
+   * `?format=story` —— 但嗰粒掣係**通用**分享（貼 Threads／X／IG feed），9:16 落嗰啲
+   * feed 就係「縮到七八成闊」嗰個陷阱。今日 9:16 有返個真 format（`status`），但佢
+   * 只准由明確揀咗 WhatsApp Status 嘅人攞到，唔准由一粒舊掣靜靜攞到。
+   */
   story: "post",
-  /* 貼圖目的地 */
+  /* 貼圖目的地 —— 同 SHARE_TARGETS 同一組答案，條 cron 鏈寫平台名就得。
+     ⚠️ `whatsapp` = **對話／群組氣泡**，唔係 Status：條 cron 鏈（唔喺呢個 repo）就係
+     upload 去對話／群組（owner 2026-08-20，e61c1aa9：「WhatsApp 氣泡保持比例唔裁」），
+     所以佢一路都係、而且要繼續係 `post` 4:5。想攞全屏 9:16 就明寫 `?format=status`
+     —— 條鏈一日冇改 URL，佢攞到嘅嘢就一日唔准變樣。 */
   whatsapp: "post",
   x: "post",
   twitter: "post",
@@ -44,9 +109,11 @@ const FORMAT_ALIASES: Record<string, ShareFormat> = {
   instagram: "post",
   ig: "post",
   line: "post",
+  other: "post",
   /* 派 link 俾人自己 unfurl */
   unfurl: "wide",
   facebook: "wide",
+  desktop: "wide",
   og: "wide",
 };
 
@@ -58,6 +125,18 @@ const FORMAT_ALIASES: Record<string, ShareFormat> = {
 const unknown = Object.entries(FORMAT_ALIASES).filter(([, format]) => !SHARE_FORMATS.includes(format));
 if (unknown.length > 0) {
   throw new Error(`share-destinations: 對去一個唔存在嘅 format（${unknown.map(([k, v]) => `${k}→${v}`).join("、")}）`);
+}
+
+/*
+ * ⚠️ 第二個 guard：選單每一個目的地都一定要喺上面張 alias 表度搵到自己個 id，而且
+ * 兩邊答案要一樣。冇呢句嘅話，「選單叫 og route 出 4:5、條 cron 鏈叫同一個名出 9:16」
+ * 呢種靜默分叉就會出得街 —— 兩邊都係 200，冇人會發現。同樣炸喺 import 嗰刻。
+ */
+const drifted = SHARE_TARGETS.filter((target) => FORMAT_ALIASES[target.id] !== target.format);
+if (drifted.length > 0) {
+  throw new Error(
+    `share-destinations: 目的地同 alias 表講唔同嘢（${drifted.map((t) => `${t.id}: 選單 ${t.format} vs alias ${FORMAT_ALIASES[t.id]}`).join("、")}）`,
+  );
 }
 
 /*
