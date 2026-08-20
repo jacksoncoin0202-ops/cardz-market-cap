@@ -20,8 +20,9 @@ import { formatDate, formatMetricInteger, formatMetricMoney, formatMoney, format
 import { tap } from "@/lib/haptic";
 import { snapCardBox, snapFrameGrid, snapTileBox } from "@/lib/pixel-snap";
 import { heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
+import { heatmapOgFilename, heatmapOgLang, heatmapOgPath, type HeatmapOgScope, type HeatmapOgTheme } from "@/lib/heatmap-og";
 import { shareImageBlob } from "@/lib/share-file";
-import { renderHeatmapShare, shareBoardSize, type ShareAspect } from "@/lib/share-image";
+import type { ShareFormat, ShareTarget } from "@/lib/share-destinations";
 import { changeValue, DEFAULT_TILE, tileCardSize, tileColors, tileStyle, type TileParams } from "@/lib/tile-style";
 import { useMarketSettings } from "@/lib/use-market-settings";
 import { useUpDown } from "@/lib/use-updown";
@@ -36,6 +37,7 @@ interface HeatmapProps {
   snapshot: MarketViewSnapshot;
   href: (path: string) => string;
   title: string;
+  scope: HeatmapOgScope;
 }
 
 /*
@@ -72,7 +74,7 @@ function fxRadius(tile: { x: number; y: number; width: number; height: number } 
   return Math.min(1, Math.hypot(tile.x + tile.width / 2 - cx, tile.y + tile.height / 2 - cy) / maxR).toFixed(3);
 }
 
-function CardFacts({ card, locale, currency, snapshot, period }: Omit<HeatmapProps, "cards" | "href" | "title"> & { card: MarketCardView; period: MarketWindow }) {
+function CardFacts({ card, locale, currency, snapshot, period }: Omit<HeatmapProps, "cards" | "href" | "title" | "scope"> & { card: MarketCardView; period: MarketWindow }) {
   const t = copy[locale];
   const windowMetric = card.windows[period];
   return (
@@ -94,7 +96,7 @@ function CardFacts({ card, locale, currency, snapshot, period }: Omit<HeatmapPro
 
 /* 手機 bottom sheet / desktop dialog 共用 <Sheet>（scroll lock、focus trap、Esc、拉落收、退場動畫全部喺入面）。
    card 變 null 嗰次 render 係 open=false，AnimatePresence 會用上一次嘅 children 播退場，所以內容唔會半路消失。 */
-function CardDialog({ card, locale, currency, snapshot, href, onClose, period, returnFocusRef }: Omit<HeatmapProps, "cards" | "title"> & {
+function CardDialog({ card, locale, currency, snapshot, href, onClose, period, returnFocusRef }: Omit<HeatmapProps, "cards" | "title" | "scope"> & {
   card: MarketCardView | null;
   onClose: () => void;
   period: MarketWindow;
@@ -282,18 +284,8 @@ const KIOSK_LOGO = {
    5 分鐘係 router.refresh()（RSC payload，唔係成版 reload），tile 唔會閃走。 */
 const KIOSK_REFRESH_MS = 5 * 60 * 1000;
 
-/*
- * 分享圖出 JPEG 唔出 PNG（owner 2026-08-19：「b 轉 jpeg」）。
- *
- * 張圖係 4:5 嘅相片格（2034×2533），入面幾百張卡圖 —— 同一張 canvas 實測：PNG 6.33 MB、
- * q0.92 1.34 MB（手機 top23 嗰版 5.97 MB → 1.02 MB）。咁大張嘅代價唔喺硬碟：
- * iOS share sheet 要成秒先遞得出去，LINE / Threads / IG 收到之後一律自己再壓一次，
- * 壓出嚟隨時仲差過我哋自己壓。q0.92 肉眼睇唔出分別（owner 要求「高清、唔好蒙查查」
- * 仍然成立 —— 縮嘅係 encode，唔係解像度，張 canvas 仲係原本尺寸）。
- *
- * 冇 alpha 好蝕：renderHeatmapShare 開場就 fillRect 咗成塊底，張 canvas 由頭到尾唔透明。
- */
-const SHARE_JPEG_QUALITY = 0.92;
+/* 人手分享 GET /api/og/heatmap（同 cron）。40 格 OG 慢過單卡，timeout 比卡片 20s 闊。 */
+const SHARE_FETCH_TIMEOUT_MS = 45_000;
 
 /*
  * Kiosk 特效 kill switch。五個 token 默認全開，落喺 `[data-kiosk-fx~="…"]`，
@@ -317,7 +309,7 @@ function readKioskFx(): string {
 const KIOSK_ICON_ENTER = "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5";
 const KIOSK_ICON_EXIT = "M9 4v5H4M20 9h-5V4M15 20v-5h5M4 15h5v5";
 
-export function Heatmap({ cards, locale, currency, snapshot, href, title }: HeatmapProps) {
+export function Heatmap({ cards, locale, currency, snapshot, href, title, scope }: HeatmapProps) {
   const { period, theme } = useMarketSettings();
   /* 升跌色慣例（F13）：red-up 就將 up/down 兩組色對調——tune 參數意義不變（「升色」永遠係用戶心目中嘅升色）。 */
   const { resolved: upDown, setPref: setUpDownPref } = useUpDown(locale);
@@ -936,80 +928,65 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
   useEffect(() => cancelPress, [cancelPress]);
 
   /*
-   * 分享圖：畫圖全部喺 lib/share-image.ts（純 canvas，冇 React），呢度淨係
-   * 砌 opts → toBlob → share/download。圖入面嘅字一律英文（owner 2026-08-17：
-   * 一張圖出咗街係俾全世界睇），所以 periodLabel 傳 copy.en.periods、日期用
-   * formatDate(..., "en")；share sheet 嘅標題／文字先跟返介面語言。
+   * 分享圖：同卡片內頁一樣 GET server OG。period / 格數 / 榜 / 主題 / 升跌色 / 語言
+   * 全部寫入 query，auto-update 用同一條 URL。hover 就 warm，撳掣只 await 已飛緊嘅
+   * promise —— OG 有 40 格卡圖，撳完先 fetch 會過 iOS activation。
    */
-  const exportHeatmap = useCallback(async (slot: ShareAspect) => {
-    /* ⚠️ 未量到尺寸／未有格仔 = 出唔到圖，一定要掟。靜靜 `return` 嘅話 ShareMenu 見到
-       個 promise 正常 resolve，就當你分享成功，出綠剔 —— 但一張圖都冇出過。 */
-    if (!size.width || !size.height || !tiles.length) {
-      throw new Error("heatmap export: 熱力圖未量到尺寸／未有格仔");
-    }
-    /*
-     * 分享圖唔可以照抄畫面個 frame 比例。手機 frame 係 343×508（0.68），加埋 header /
-     * legend 出到嚟成張 PNG 得 0.58 —— Threads / X / IG feed 對直度圖有高度上限，太直
-     * 唔會裁而係縮細，於是張圖淨係佔到 post 闊度七八成（owner 2026-08-19 實測）。
-     * 桌面反方向：frame 1200×640 出橫圖，喺直度 feed 度一樣細一截。
-     * 三條路（見 lib/share-image.ts）：`post` 釘死 4:5（太直加闊、太扁加高）、`wa` 釘死 9:16、
-     * `frame` 保留畫面嗰個形狀。兩條路都係攞住個新尺寸**重行一次 treemap**，格仔填得滿 ——
-     * 好過硬加黑邊。
-     */
-    const board = shareBoardSize(size.width, size.height, slot);
-    const shareTiles = board.width === size.width && board.height === size.height
-      ? tiles
-      : heatmapTreemapLayout(tiles.map(({ item }) => item), board.width, board.height);
-    const canvas = await renderHeatmapShare({
-      frameWidth: board.width,
-      frameHeight: board.height,
-      /* 每格認住 tile.item.card：treemap 會按市值重排，舊版攞 visibleCards[index] 去對
-         tiles.entries()，張冠李戴——A 卡嘅圖配 B 卡嘅升跌（2026-08-17 code review 捉到）。 */
-      tiles: shareTiles.map(({ item, x, y, width, height }) => ({
-        x,
-        y,
-        width,
-        height,
-        change: changeValue(item.card, activePeriod),
-        imageUrl: item.card.image.url,
-      })),
-      params,
-      colors,
-      dark,
-      count: shareTiles.length,
-      periodLabel: copy.en.periods[activePeriod],
-      dateText: formatDate(new Date().toISOString(), "en"),
-      aspect: slot,
+  const shareBlobs = useRef(new Map<string, Promise<Blob>>());
+  const imageLang = heatmapOgLang(locale);
+  const ogTheme: HeatmapOgTheme = dark ? "dark" : "light";
+  const warmShareImage = useCallback((format: ShareFormat) => {
+    const key = `${format}|${imageLang}|${activePeriod}|${visibleCount}|${scope}|${ogTheme}|${upDown}`;
+    if (shareBlobs.current.has(key)) return;
+    const path = heatmapOgPath({
+      period: activePeriod,
+      show: visibleCount,
+      scope,
+      format,
+      theme: ogTheme,
+      updown: upDown,
+      lang: imageLang,
     });
-
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", SHARE_JPEG_QUALITY));
-    if (!blob) throw new Error("heatmap export: toBlob returned null");
-    /* 檔名帶比例：owner 會兩個版本都出，落咗相簿之後淨係睇縮圖好難分邊張係邊張。
-       冇副檔名 —— 由 blob 個 MIME 推（見 lib/share-file.ts `filenameFor`）。 */
-    const filenameBase = `cardz-heatmap-top${tiles.length}-${slot === "post" ? "4x5" : slot === "wa" ? "9x16" : "wide"}-${new Date().toISOString().slice(0, 10)}`;
+    const pending = fetch(path, {
+      signal: typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(SHARE_FETCH_TIMEOUT_MS) : undefined,
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error(`heatmap OG HTTP ${response.status}`);
+        return response.blob();
+      })
+      .catch((error) => {
+        shareBlobs.current.delete(key);
+        throw error;
+      });
+    shareBlobs.current.set(key, pending);
+  }, [imageLang, activePeriod, visibleCount, scope, ogTheme, upDown]);
+  const exportHeatmap = useCallback(async (target: ShareTarget) => {
+    warmShareImage(target.format);
+    const key = `${target.format}|${imageLang}|${activePeriod}|${visibleCount}|${scope}|${ogTheme}|${upDown}`;
+    const blob = await shareBlobs.current.get(key)!;
+    const filenameBase = heatmapOgFilename({
+      period: activePeriod,
+      show: visibleCount,
+      scope,
+      format: target.format,
+      theme: ogTheme,
+      updown: upDown,
+      lang: imageLang,
+    });
     const pageUrl = window.location.href;
-    /* share sheet 嘅標題／文字係俾當下用戶睇嘅介面字，所以跟返 locale（唔同圖入面嘅英文字） */
-    const shareTitle = `${title.replace("{count}", String(tiles.length))} · ${t.periods[activePeriod]}`;
-    /*
-     * 分享（owner 2026-08-16 晚）：唔准夾硬要人 save 個 file —— 有 share sheet 就出 share sheet。
-     * 成段邏輯（share / dismiss / download fallback）喺 lib/share-file.ts，同卡片內頁嗰個
-     * 分享圖掣共用一份。呢度嘅 activation 唔使 warm：卡圖全部已經喺 tile 度顯示緊（cache hit），
-     * await 圖 + toBlob 都係毫秒級，仲喺 activation 窗口入面。
-     */
+    const shareTitle = `${title.replace("{count}", String(visibleCount))} · ${t.periods[activePeriod]}`;
     const outcome = await shareImageBlob(blob, {
       filenameBase,
       title: shareTitle,
       text: `${shareTitle}\n${pageUrl}`,
       clipboardFallbackText: pageUrl,
     });
-    /* 個 outcome 要交返俾 ShareMenu：dismissed 唔准出綠剔（見 components/share-menu.tsx `pick`） */
-    if (outcome === "dismissed") return outcome; // 用戶自己收埋 share sheet，唔好再 scroll 佢
-    // 手機：share 完張圖直落排名表。
+    if (outcome === "dismissed") return outcome;
     if (isMobileTiles) {
       document.getElementById("market-ranking")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
     return outcome;
-  }, [size.width, size.height, tiles, title, activePeriod, isMobileTiles, params, colors, dark, t.periods]);
+  }, [warmShareImage, imageLang, activePeriod, visibleCount, scope, ogTheme, upDown, title, t.periods, isMobileTiles]);
 
   // Controls 抽返出嚟：desktop 同標題並排，手機由 CSS 將佢哋排喺標題下面、
   // 圖上面（Tiles slider 做主角），結構保持一致。
@@ -1046,10 +1023,8 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
         </svg>
       </button>
       <PeriodSelector />
-      {/* 分享：先問去邊，再按目的地出比例。同卡片內頁一模一樣嘅 popover
-          （components/share-menu.tsx），目的地→比例嗰張表喺 lib/share-destinations.ts。
-          呢度唔使 onWarm —— 卡圖全部已經喺 tile 度顯示緊（cache hit），畫 canvas
-          係毫秒級，仲喺 user activation 窗口入面。 */}
+      {/* 分享：先問去邊，再 GET /api/og/heatmap（period/scope/format/theme/updown/lang）。
+          onWarm 同卡片內頁一樣：OG 有幾十格卡圖，撳完先 fetch 會過 iOS activation。 */}
       <ShareMenu
         surface="heatmap"
         triggerClassName="heatmap-export"
@@ -1063,7 +1038,8 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
           done: t.share.done,
           error: t.share.error,
         }}
-        onPick={(target) => exportHeatmap(target.aspect)}
+        onPick={exportHeatmap}
+        onWarm={(target) => warmShareImage(target.format)}
       />
       {/* Kiosk 全屏（owner 2026-08-18 店主展示模式）。aria-pressed 講狀態、aria-label 跟住換字，
           唔可以淨靠 icon —— 讀屏睇唔到「四角向內定向外」。 */}

@@ -52,11 +52,10 @@ export const FORMAT_SIZES: Record<ShareFormat, { width: number; height: number }
 };
 
 /*
- * 熱力圖嗰張分享圖係即場 canvas（要跟用戶當下揀嘅格數／時段），唔行上面條 og route，
- * 所以佢有自己一組比例槽 —— 實現喺 `lib/share-image.ts`（`shareBoardSize` /
- * `shareTargetAspect`），嗰邊直接 re-export 呢個 type。擺喺呢度係為咗令「一個目的地
- * 喺兩邊各用邊個槽」睇得晒喺同一張表。
- *   post = 4:5、wa = 9:16、frame = 跟畫面見到嗰個形狀（闊版）。
+ * 熱力圖人手分享同宣傳鏈／cron **同一條** `GET /api/og/heatmap?...`
+ * （`apps/web/src/app/api/og/heatmap/route.tsx` + `lib/heatmap-og.ts`）。
+ * 對 `x-og-generation`。唔開 browser、唔截 :3900。
+ *   post / portrait = 4:5、status = 9:16、wide / landscape = 1.91:1。
  */
 export const SHARE_ASPECTS = ["post", "wa", "frame"] as const;
 export type ShareAspect = (typeof SHARE_ASPECTS)[number];
@@ -67,7 +66,7 @@ export interface ShareTarget {
   id: ShareTargetId;
   /** 卡片內頁：server 出圖，`?format=` 就係佢（見 `app/api/og/card/[id]/route.tsx`） */
   format: ShareFormat;
-  /** 熱力圖：client canvas 嘅比例槽 */
+  /** 熱力圖選單仍然帶 aspect（舊 canvas 槽）；出圖而家跟 `format` 行 OG。 */
   aspect: ShareAspect;
   /** 選單右邊嗰粒比例標。純數字，唔使 i18n。 */
   ratio: string;
@@ -123,6 +122,10 @@ const FORMAT_ALIASES: Record<string, ShareFormat> = {
    * 只准由明確揀咗 WhatsApp Status 嘅人攞到，唔准由一粒舊掣靜靜攞到。
    */
   story: "post",
+  /* 橫／直口語 alias：auto-update 同人手都可以寫 landscape / portrait，唔使記 format 名。 */
+  landscape: "wide",
+  portrait: "post",
+  tall: "status",
   /* 貼圖目的地 —— 同 SHARE_TARGETS 同一組答案，條 cron 鏈寫平台名就得。
      ⚠️ `whatsapp` = **對話／群組氣泡**，唔係 Status：條 cron 鏈（唔喺呢個 repo）就係
      upload 去對話／群組（owner 2026-08-20，e61c1aa9：「WhatsApp 氣泡保持比例唔裁」），

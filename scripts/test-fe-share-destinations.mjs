@@ -158,18 +158,18 @@ for (const dead of ["shareImagePost", "shareImageWa", "shareShape"]) {
   check(`死 key ${dead} 清乾淨`, !i18n.includes(dead));
 }
 
-/* ⑥ 熱力圖 canvas 三個比例槽 */
+/* ⑥ 熱力圖分享走 OG download API，唔再喺 client canvas 截圖 */
 check("SHARE_WA_ASPECT is 9/16", /export const SHARE_WA_ASPECT = 9 \/ 16;/.test(shareImage));
 check("ShareAspect 由 share-destinations 出（一張表）", /export type \{ ShareAspect \};/.test(shareImage)
   && /import type \{ ShareAspect \} from "\.\/share-destinations";/.test(shareImage));
 check("SHARE_ASPECTS 三個槽", /export const SHARE_ASPECTS = \["post", "wa", "frame"\] as const;/.test(destinations));
-check("shareTargetAspect exists", /export function shareTargetAspect\(/.test(shareImage));
-check("renderHeatmapShare uses per-slot minAspect", /const minAspect = shareTargetAspect\(opts\.aspect \?\? "post"\) \?\? SHARE_MIN_ASPECT;/.test(shareImage));
-check("padX uses minAspect not only 4:5", /canvasH \* minAspect/.test(shareImage));
-/* 冇預設值：每個 call site 一定要明講去邊個比例 */
-check("exportHeatmap 冇預設 slot", /const exportHeatmap = useCallback\(async \(slot: ShareAspect\) =>/.test(heatmap));
-check("render passes aspect slot", /aspect: slot/.test(heatmap));
-check("filename has 9x16", /9x16/.test(heatmap));
+check("heatmap 分享 GET /api/og/heatmap", /heatmapOgPath\(/.test(heatmap) && /fetch\(path/.test(heatmap));
+check("heatmap 分享有 timeout", /AbortSignal\.timeout\(SHARE_FETCH_TIMEOUT_MS\)/.test(heatmap));
+check("heatmap warm cache key 連語言 period scope updown",
+  /const key = `\$\{format\}\|\$\{imageLang\}\|\$\{activePeriod\}\|\$\{visibleCount\}\|\$\{scope\}\|\$\{ogTheme\}\|\$\{upDown\}`;/.test(heatmap));
+check("exportHeatmap 冇預設 target", /const exportHeatmap = useCallback\(async \(target: ShareTarget\) =>/.test(heatmap));
+check("heatmap onWarm 預先 fetch", /onWarm=\{\(target\) => warmShareImage\(target\.format\)\}/.test(heatmap));
+check("filename 比例喺 heatmap-og", /9x16/.test(read("apps/web/src/lib/heatmap-og.ts")));
 
 
 /* ═════════════════════════════════════════════════════════════════════════
@@ -239,8 +239,8 @@ check("⑦d: readShareLang 一樣行 Object.hasOwn", /Object\.hasOwn\(LANG_ALIAS
 check("ShareMenu 認得 dismissed", /outcome === "dismissed"/.test(shareMenu) && /setState\("idle"\);/.test(shareMenu));
 check("卡片內頁交返個 outcome", /return await shareImageBlob\(blob, \{/.test(cardDetail));
 check("熱力圖交返個 outcome", /return outcome;/.test(heatmap));
-check("熱力圖未 ready 唔准靜靜扮成功（要掟）",
-  /throw new Error\("heatmap export: 熱力圖未量到尺寸/.test(heatmap));
+check("熱力圖 OG 失敗唔准靜靜扮成功（要掟）",
+  /if \(!response\.ok\) throw new Error\(`heatmap OG HTTP/.test(heatmap));
 
 /*
  * ⑦f busy 唔准用 DOM `disabled`：瀏覽器將一個正攞住 focus 嘅 button 設成 disabled

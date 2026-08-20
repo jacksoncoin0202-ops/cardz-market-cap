@@ -47,9 +47,8 @@ function tickerValue(metric: MarketMetric<number>): number | null {
  * 分享圖（owner 2026-08-19）：張圖由 `/api/og/card/[id]?format=post` server 側出，
  * 1080×1350（4:5）—— 貼落 Threads / X / IG feed 先食得晒 post 闊度（原因見 og route
  * 檔頭同 lib/share-image.ts `SHARE_MIN_ASPECT`）。點解唔喺 client 畫：
- * 熱力圖嗰張係即場 canvas（要跟用戶當下揀嘅格數／時段），卡片內頁嗰張淨係跟卡片
- * 本身，server 出得就 server 出 —— 順便同社交 unfurl 嗰張共用同一份 layout code，
- * 唔會有「分享出去嗰張同網頁對唔上」呢種問題（AGENTS.md 規矩 13）。
+ * 卡片內頁同熱力圖都係 server OG（`/api/og/card/[id]`、`/api/og/heatmap`），
+ * 順便同社交 unfurl 共用 layout，唔會有「分享出去嗰張同網頁對唔上」（AGENTS.md 規矩 13）。
  *
  * ⚠️ 拆成獨立 component 唔係為咗好睇：`CardDetail` 揾唔到卡嗰陣會 early return，
  * hook 寫喺佢下面即刻變咗條件式呼叫（react-hooks/rules-of-hooks，2026-08-19 真係爆過）。

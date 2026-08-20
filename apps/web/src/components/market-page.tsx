@@ -13,6 +13,7 @@ import { copy, type Copy } from "@/lib/i18n";
 import { cardSubject, fillTemplate } from "@/lib/related-cards";
 import { DEFAULT_RANKING_PAGE_SIZE } from "@/lib/pagination";
 import { fetchRankingPage } from "@/lib/ranking-feed";
+import { heatmapOgScopeFromKind } from "@/lib/heatmap-og";
 import { useMarketSettings } from "@/lib/use-market-settings";
 import type { Locale, MarketCardView, MarketViewSnapshot } from "@/lib/types";
 import "@/app/styles/market-foot.css";
@@ -233,7 +234,7 @@ export function MarketPage({ kind, snapshot, pager }: { kind: MarketPageKind; sn
         </section>
       )}
       {kind !== "watchlist" && (
-        <Heatmap cards={heatmapCards} locale={locale} currency={currency} snapshot={snapshot} href={href} title={heatmapTitle} />
+        <Heatmap cards={heatmapCards} locale={locale} currency={currency} snapshot={snapshot} href={href} title={heatmapTitle} scope={heatmapOgScopeFromKind(kind)} />
       )}
       <Rankings
         cards={listCards}
