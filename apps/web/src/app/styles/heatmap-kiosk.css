@@ -266,11 +266,11 @@ html.heatmap-kiosk-fallback .page-shell > *:not(.heatmap-section) { visibility: 
       **owner 2026-08-18 要「開盡」⇒ 默認五個全開**，tsx 派 "breathe sweep tour edge noise"。
       但 kill switch 一定要留：店主部機頂唔順就喺呢度剪走一個 token，對應嗰個特效即刻
       唔 match。頂唔順第一個剪 `breathe`（成本真身，見下面 §1 註）。
-      入場（enter）唔喺呢個 list：佢係一次性，由 `[data-kiosk-enter]` arm、播完拆走。
-   3. 每格 tile 兩個 custom property，由 heatmap.tsx 個 layout effect **直寫 DOM**
+      ✗ 冇 `enter` token：入場動畫成個剷咗（點解 → 下面 §6），owner 2026-08-21 要「第一眼定住」。
+   3. 每格 tile 一個 custom property，由 heatmap.tsx 個 layout effect **直寫 DOM**
       （同 `data-corner` 一模一樣做法，**唔准加 props** —— HeatmapTile 係 memo）：
         --fx-i   tile 喺 tiles[] 嘅 index（0…n-1，無單位） → 呼吸波錯開相位
-        --fx-r   tile 中心離 board 中心嘅歸一距離（0…1，3 位小數） → 入場由中心散開
+      ✗ 剔咗 `--fx-r`（離中心歸一距離）：佢淨係餵入場 burst，burst 剷咗就冇 call site。
    4. 巡遊狀態全部係 attribute，冇一個係 React state（避免每步 re-render 100 格）：
         .heatmap-frame[data-kiosk-tour="fly"|"hold"]
         .heatmap-tile[data-kiosk-star] / [data-kiosk-star][data-fly="out"]
@@ -306,7 +306,7 @@ html.heatmap-kiosk-fallback .page-shell > *:not(.heatmap-section) { visibility: 
      全份最高嗰條啟用 rule 係 (0,8,0)（T5，見檔尾對照表），sibling (0,9,0)。
      ⚠️ 呢份嘢由頭到尾**一個 type selector 都冇**，所以特異度第三位一律 0。
      原型檔頭寫「(0,7,1) / (0,8,1)」係數錯咗（佢當咗有個 html），已經更正。
-   • 一次性動畫（kiosk-burst / kiosk-billboard-in）用 `backwards` 唔用 `both`：
+   • 一次性動畫（kiosk-billboard-in）用 `backwards` 唔用 `both`：
      實測 `both` 播完 `getAnimations()` 仲有 1 個（永遠 in effect），`backwards` 回 0。
    • 顏色零 hardcode：全部收埋落下面個 token block。
    ═════════════════════════════════════════════════════════════════════════ */
@@ -343,10 +343,6 @@ html.heatmap-kiosk-fallback .page-shell > *:not(.heatmap-section) { visibility: 
      一輪 = out 900 + hold 3200 + 60 + back 700 + gap 400 = 5260ms。 */
   --kiosk-fly-out: 900ms;
   --kiosk-fly-back: 700ms;
-  /* 入場 burst 嘅時間亦都只得一個真身：JS 用同一個 readMs 讀返嚟計 disarm
-     （原型喺 JS 寫死 520/620、CSS 又寫多份，兩邊遲早對唔上）。 */
-  --kiosk-burst-delay: 220ms;
-  --kiosk-burst-dur: 380ms;
 }
 [data-theme="dark"] .heatmap-section[data-kiosk="true"] .heatmap-frame {
   --kiosk-scrim: rgba(8, 8, 7, 0.74);
@@ -733,33 +729,27 @@ html[data-updown="red-up"] .kiosk-billboard-move[data-dir="down"] { color: var(-
   animation: kiosk-edge-pulse 3600ms ease-in-out infinite;
 }
 
-/* ── 6. 入場（一次性）──────────────────────────────────────────────────
-   由中心向外 staggered 彈出。delay 讀 `--fx-r`（0 = 板中心，1 = 最遠嗰角）。
-   100% 格 = base style（opacity 1 / transform none），所以唔使 forwards；
-   `backwards` 只填 delay 期間，播完就唔再 in effect → getAnimations() 回 0（實測）。
-   ⚠️ delay / duration 兩個數行 token（--kiosk-burst-delay / -dur），JS 用同一個
-   getComputedStyle 讀返嚟計 disarm 時鐘 —— 原型 JS 寫死 520/620 再喺 CSS 寫多份，
-   同「時間只有一個真身」呢條原則唔一致。 */
-/* owner 2026-08-18：「啱啱入去有一版⋯⋯啲卡全部走晒位。」查到唔係排版錯（逐幀量
-   tile 嘅 layout box，由 0ms 起四邊都係 2px，見 temp/fe05/kiosk-fx-land/repro-enter-jump.mjs），
-   係呢個入場動畫本身：原本 `scale(0.62)` + 最遲 520ms 先開場 + 播 620ms，即係成 1.14 秒
-   之內成版都係一格格細細粒散喺度，睇落就係「走晒位」；頭 ~100ms 更加係一塊白板。
-   改法：郁幅度細到肉眼唔覺得郁（6%），總長砍一半，冚唪唥 0.6 秒內埋位。
-   ⚠️ 唔好加返 overshoot（>1 嗰格）：100 格各自超調再彈返，就係「散」嘅來源。
-   ⚠️ 唔准喺呢度 fade opacity：`backwards` 會令成 100 格喺各自 delay 期間都係 opacity 0，
-      即係入場頭嗰幾幀成塊板係**白色**（實測 0ms 截圖一片白）。掛喺牆嘅大電視閃一下白
-      比郁一郁難睇好多。要淡入就淡 frame 底色，唔好淡 tile。 */
-@keyframes kiosk-burst {
-  0%   { transform: scale(0.94); }
-  100% { transform: none; }
-}
-.heatmap-section[data-kiosk="true"][data-kiosk-enter] .heatmap-tile {                      /* (0,4,0) */
-  animation: kiosk-burst var(--kiosk-burst-dur) var(--ease-spring) backwards;
-  animation-delay: calc(var(--fx-r, 0) * var(--kiosk-burst-delay));
-  /* 一次性動畫先值得 promote；JS 播完拆走 data-kiosk-enter，will-change 一齊消失
-     （DESIGN §4.4 `data-settled` 同一形狀）。 */
-  will-change: transform;
-}
+/* ── 6. 入場：冇動畫（特登，唔准加返）────────────────────────────────────
+   撳落全屏第一幀，成塊板已經係最終狀態。呢度**冇** @keyframes、冇 `[data-kiosk-enter]`、
+   heatmap-kiosk-fx.tsx 冇 arm/disarm、heatmap.tsx 冇寫 `--fx-r`。
+
+   點解剷咗（owner 兩次投訴同一件事，2026-08-18 → 2026-08-21）：
+   入場 burst scale 嘅係 `.heatmap-tile` 個**盒**，而格與格之間條白隙係釘死喺 device px
+   格上面（lib/pixel-snap.ts）。盒一 scale，每格就向外食走自己嗰條隙、而且各自 delay
+   唔同步 —— 成版睇落就係「啲卡走晒位」。呢條同 §1 kiosk-breathe 個註寫嘅係同一條規矩，
+   只不過 breathe scale 嘅係入面嗰張 `.tile-card`，所以冇事。
+
+   實測（app.cardzmarketcap.com，headed Chromium，2026-08-21，逐幀量相鄰 tile 之間嘅隙）：
+     · 入 kiosk 之前：全版一律 5.00 device px（dpr 1.5）／3.00（dpr 1）
+     · Enter 後 185ms：8.3…16.93px，100 格全部凍喺 scale(0.94)（`backwards` 填 delay 窗）
+     · 221…455ms：9.11…17.69px，仲係 0.94
+     · 之後 `--ease-spring` 過衝到 1.0059 先埋位；最後一幀衰嘢 851ms，105 幀中 30 幀係花嘅
+     · dpr 1 一樣中招（3px → 2.2…9.85px），唔係 scaling 問題
+   ⚠️ 唔好「改細幅度」／「縮短時間」當修好：0.94 已經係第二次縮細嘅版本，一樣量到走位。
+      任何 scale 落 `.heatmap-tile` 盒都會踩同一個窿。真係想要入場動效就淡 frame 底色，
+      或者跟 breathe 咁 scale `.tile-card`，唔准掂 tile 盒。
+   附帶好處：C8 `verify-kiosk.mjs` 個 fillScan / unionDH 閘唔再同入場動畫鬥時間
+   （見 heatmap-kiosk-fx.tsx 檔頭嗰段 2026-08-18 實測，270ms 餘量嗰條數）—— 冇動畫就冇餘量問題。 */
 
 /* ── 7. 底噪：vignette + grain（靜態，零逐幀成本）────────────────────────
    抄 lib/share-image.ts 嗰套：純色底 → 中央微亮／邊角微暗 radial vignette → 幼噪點。
@@ -876,13 +866,7 @@ html[data-updown="red-up"] .kiosk-billboard-move[data-dir="down"] { color: var(-
     animation: none;
     opacity: 0.55;
   }
-  /* 6. 入場 —— 唔彈，直接就位；will-change 要自己拆
-        （reduced-motion 之下 animationend **唔會** fire，JS 個 disarm 收唔到，
-         同 globals.css `.heatmap-tile[data-late]` 踩過同一個坑）。 (0,5,0) */
-  .heatmap-section[data-kiosk][data-kiosk="true"][data-kiosk-enter] .heatmap-tile {
-    animation: none;
-    will-change: auto;
-  }
+  /* 6. 入場 —— 冇 sibling：上面 §6 根本冇動畫，reduce 同正常一樣「第一眼定住」。 */
   /* 7. 底噪本身係靜態，reduce 之下照出（佢唔係動效）；呢度只係明寫出嚟，
         免得下一個人以為漏咗一條 sibling。 (0,5,0) */
   .heatmap-section[data-kiosk][data-kiosk="true"][data-kiosk-fx~="noise"] .kiosk-noise { opacity: 1; }

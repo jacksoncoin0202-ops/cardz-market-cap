@@ -60,19 +60,9 @@ function cornerToken(tile: { x: number; y: number; width: number; height: number
     .filter(Boolean).join(" ");
 }
 
-/*
- * Kiosk 入場 burst 用嘅歸一距離：tile 中心離 frame 中心幾遠，0（正中）…1（角落）。
- * CSS 攞佢做 `animation-delay: calc(var(--fx-r) * var(--kiosk-burst-delay))`，成版由中心炸開。
- * 同 `--d`（入場浮出波，由**左上角**起計）唔同源：嗰個係平時載入嘅掃描感，
- * 呢個係 kiosk 開場嘅爆開感，兩條式撈埋一齊就兩樣都唔似。
- * 3 位小數：CSS 用 calc 乘 ms，多過 3 位淨係令 setProperty 嘅字串比對次次唔中。
- */
-function fxRadius(tile: { x: number; y: number; width: number; height: number } | undefined, w: number, h: number): string {
-  if (!tile || !w || !h) return "0";
-  const cx = w / 2, cy = h / 2;
-  const maxR = Math.hypot(cx, cy) || 1;
-  return Math.min(1, Math.hypot(tile.x + tile.width / 2 - cx, tile.y + tile.height / 2 - cy) / maxR).toFixed(3);
-}
+/* ✗ 呢度本來有個 `fxRadius()`（tile 離板中心嘅歸一距離），淨係餵 kiosk 入場 burst 個
+   `animation-delay`。burst 2026-08-21 剷咗（scale tile 盒食走 pixel-snap 白隙 → 走位，
+   實測見 app/styles/heatmap-kiosk.css §6），佢跟住零 call site，所以一齊剷。 */
 
 function CardFacts({ card, locale, currency, snapshot, period }: Omit<HeatmapProps, "cards" | "href" | "title" | "scope"> & { card: MarketCardView; period: MarketWindow }) {
   const t = copy[locale];
@@ -293,7 +283,7 @@ const SHARE_FETCH_TIMEOUT_MS = 45_000;
  * 出口係 URL query（`?kioskfx=breathe,tour`）唔係 localStorage：部機掛喺牆上面冇 devtools，
  * 店主改個書籤就熄得，我哋 debug 都唔使入 console。`?kioskfx=` 空值 = 五個全熄（總掣）。
  * 只認呢五個字：attribute 係我哋自己 render 落 DOM，唔准俾 URL 塞任意字串入去。
- * `enter` 特登唔喺 list —— 入場 burst 由 `[data-kiosk-enter]` arm/disarm，唔係長開嘅特效。
+ * 冇 `enter`：入場動畫 2026-08-21 剷晒（heatmap-kiosk.css §6），冇嘢可以熄。
  */
 const KIOSK_FX_TOKENS = ["breathe", "sweep", "tour", "edge", "noise"] as const;
 function readKioskFx(): string {
@@ -765,17 +755,15 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title, scope 
         if (corner) el.setAttribute("data-corner", corner);
         else el.removeAttribute("data-corner");
       }
-      /* Kiosk 特效兩個 custom property（styles/heatmap-kiosk.css 讀）：
-         `--fx-i` = tile 序（呼吸波錯開相位）、`--fx-r` = 離中心歸一距離（入場 burst 由中心散開）。
+      /* Kiosk 特效嘅 custom property（styles/heatmap-kiosk.css 讀）：
+         `--fx-i` = tile 序（呼吸波錯開相位）。得返一個 —— `--fx-r` 同入場 burst 一齊剷咗。
          同 data-corner 一樣行 DOM 直寫，唔加 props —— HeatmapTile 係 memo。
-         只喺 kiosk 開咗先寫：平時冇任何 rule 讀佢哋，慳返每次 commit 200 次 setProperty
+         只喺 kiosk 開咗先寫：平時冇任何 rule 讀佢，慳返每次 commit 100 次 setProperty
          （呢個 effect 冇 dep array，逐 commit 行；hover / slider / ticker 都會經過）。
-         退出 kiosk 特登**唔** remove：留住冇人讀，而 remove 要多行 200 次 DOM write。 */
+         退出 kiosk 特登**唔** remove：留住冇人讀，而 remove 要多行 100 次 DOM write。 */
       if (kiosk) {
         const fi = String(i);
         if (el.style.getPropertyValue("--fx-i") !== fi) el.style.setProperty("--fx-i", fi);
-        const fr = fxRadius(tiles[i], size.width, size.height);
-        if (el.style.getPropertyValue("--fx-r") !== fr) el.style.setProperty("--fx-r", fr);
       }
     });
     tileElsRef.current = map;

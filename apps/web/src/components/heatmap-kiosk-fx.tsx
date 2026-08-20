@@ -8,7 +8,7 @@ import type { Currency, Locale, MarketCardView, MarketWindow } from "@/lib/types
 
 /*
  * ═══════════════════════════════════════════════════════════════════════════
- * Kiosk 特效層（FE05）—— overlay + 自動聚光巡遊 + 入場 burst
+ * Kiosk 特效層（FE05）—— overlay + 自動聚光巡遊（**冇入場動畫**，見下面 §3）
  * ═══════════════════════════════════════════════════════════════════════════
  *
  * 樣全部喺 `app/styles/heatmap-kiosk.css`（kiosk 已經有自己一個 feature 檔，
@@ -19,7 +19,10 @@ import type { Currency, Locale, MarketCardView, MarketWindow } from "@/lib/types
  * ── 開關契約（同 CSS 逐隻字對齊，唔准自己另開一套）──────────────────────
  * 1. `.heatmap-section[data-kiosk="true"]`      總掣（heatmap.tsx 已經派）
  * 2. `.heatmap-section[data-kiosk-fx~="…"]`     逐個特效 kill switch（heatmap.tsx 派）
- * 3. `.heatmap-tile` 上面 `--fx-i` / `--fx-r`   heatmap.tsx 個 layout effect 直寫
+ * 3. `.heatmap-tile` 上面 `--fx-i`              heatmap.tsx 個 layout effect 直寫
+ *    ✗ 冇 `--fx-r`、冇 `[data-kiosk-enter]`：入場動畫 2026-08-21 剷咗（scale tile 盒
+ *      食走 pixel-snap 條白隙 → 成版走位）。點解同實測數字喺 heatmap-kiosk.css §6。
+ *      **唔准喺呢度加返任何 enter 動畫**，要動就淡 frame 底色或者 scale `.tile-card`。
  * 4. 巡遊狀態**全部係 attribute，冇一個係 React state**（避免每步 re-render 100 格）
  * 5. 飛行幾何寫三個 custom property `--fly-x/--fly-y/--fly-s`，**唔准寫 inline transform**
  *    （inline transform 贏晒所有 stylesheet，reduced-motion sibling 特異度寫到爆都蓋唔到）
@@ -46,30 +49,17 @@ const BOARD_LEAD_MS = 120;
 const BACK_LEAD_MS = 60;
 /*
  * 暖機：撳完全屏唔准即刻飛。
- * ① 產品：店主一撳，第一件事應該係見到成塊板落地 + 入場 burst 播完，唔係即刻有卡飛出嚟。
+ * ① 產品：店主一撳，第一件事應該係見到成塊板定定咁擺喺度，唔係即刻有卡飛出嚟。
  * ② 工程：C8 個 `verify-kiosk.mjs` 喺入 kiosk 後 1200ms（再等 logo load）量 fillScan /
  *    union bbox，而 gBCR 係計 transform 嘅 —— 飛緊嗰格會令佢見到一個窿。
  *    ⚠️ 呢個唔係「修好咗」：gate 量嘅時間點浮動（1200ms + logo load 0…15s），
  *    而巡遊係 5.26s 一循環嘅無限迴圈，任何固定 delay 都只係搬個機會率。真修法係
  *    gate 側濾走 `[data-kiosk-star]`（coordinator 決定）。
- *    ⚠️⚠️ 2026-08-18 覆核補返一件呢段本身漏咗講嘅事：**入場 burst 自己一樣撞到個 gate**，
- *    而且唔係機會率，係每次都撞。TOUR_WARMUP 擋唔到佢（warmup 係擋飛行，唔係擋 burst）。
- *    實測（1280×720 headless，兩次，`temp/fe05/kiosk-fx-land/adv/adv-c8-burst.mjs`）：
- *      · burst 窗口 = Enter 後 118…1292ms（100 格全部有 transform）
- *      · gate 實際量嘅時間 = 1205…1223ms，嗰刻仲有 15 條 burst animation 未收
- *      · gate 三條數要全部永久達標，最早係 rt ≈ 921…930ms ⇒ 1200ms 淨餘量得 **270…279ms**
- *      · 若果 gate 早過嗰個點量：rt 118…700ms 見到 coverage 0.20…0.36（閘 .93）、
- *        fillScan 0.29…0.46（閘 .999）、unionDH −304.6px（閘 ±8）—— 硬紅
- *      · 仲有第二條窄紅帶 rt ≈ 806…858ms：burst 過衝到 scale 1.035，unionDH = +10.6px > ±8
- *    即係話 BURST_MAX_DELAY + BURST_DUR 任何加長、或者慢機／CI 令 React commit 遲過 270ms，
- *    個 C8 閘就會為咗一個同「格仔有冇填滿」完全無關嘅理由紅。呢條唔准當「已知債」放埋一邊 ——
- *    `temp/fe05/kiosk-fx-land/adv/c8-burst-margin.mjs` 會守住呢 270ms。
+ *    ⚠️ 2026-08-18 嗰時仲有第二個撞 gate 嘅嘢——入場 burst，每次都撞，warmup 擋唔到佢
+ *    （warmup 係擋飛行）。2026-08-21 burst 成個剷咗（見 heatmap-kiosk.css §6），呢條路
+ *    連同佢嗰 270ms 餘量一齊冇咗。剩返上面 ⚠️ 嗰條飛行 vs gate 嘅機會率問題未修。
  */
 const TOUR_WARMUP_MS = 5000;
-/* 入場 burst：CSS 冇派 token 就用返呢對（同 CSS `calc(var(--fx-r) * 520ms)` / 620ms 綁死） */
-const BURST_MAX_DELAY = 520;
-const BURST_DUR = 620;
-const BURST_TAIL = 140;
 
 /*
  * 等大圖 decode 嘅上限。**呢個唔係優化，係救命閘**：下一步係喺 `upgradeImage().then()` 入面
@@ -335,36 +325,12 @@ export function HeatmapKioskFx({
   }, [frameRef, moveUp, moveDown]);
 
   /*
-   * 入場 burst（一次性）。
-   * **一定要 `useEffect` 唔可以 `useLayoutEffect`**：`--fx-r` 係 parent（heatmap.tsx）個
-   * layout effect 寫嘅，而 React commit 次序係「所有 layout effect（child 先）→ 所有 passive
-   * effect」。用 layout effect 就會喺 parent 寫 `--fx-r` 之前 arm →
-   * `animation-delay: calc(var(--fx-r, 0) * 520ms)` 全部 fallback 落 0 → 100 格同一時間彈，
-   * 冇咗由中心散開嗰個效果。
-   * deps 用 [width, height]：要等 `--fx-r` 按全屏尺寸寫過先 arm，唔係 100 格嘅散開半徑
-   * 係照舊尺寸算。入 kiosk 個陣 frame 由細變全屏，ResizeObserver 會再派一次 size，
-   * 即係呢個 effect 會行多過一次 —— 咁啱就係我哋想要嘅：用最終尺寸重播一次。
-   * disarm 一定要 timeout 兜底：reduced-motion 之下 `animationend` 唔會 fire。
+   * ✗ 呢度本來有個「入場 burst」effect（arm `[data-kiosk-enter]` → timeout disarm）。
+   *   2026-08-21 剷咗：佢 scale `.heatmap-tile` 個盒，食走 pixel-snap 釘死嘅白隙，成版走位。
+   *   而且個 effect deps 係 [width, height]，全屏 transition 期間 ResizeObserver 派多過一次
+   *   size，即係會重播——owner 見到嗰個「郁完好耐先定返」就係咁嚟。
+   *   實測數字 + 唔准點樣加返：heatmap-kiosk.css §6。
    */
-  useEffect(() => {
-    const section = sectionRef.current;
-    if (!section || width <= 0 || height <= 0) return;
-    const frame = frameRef.current;
-    const cs = frame ? getComputedStyle(frame) : null;
-    const delay = cs ? readMs(cs, "--kiosk-burst-delay", BURST_MAX_DELAY) : BURST_MAX_DELAY;
-    const dur = cs ? readMs(cs, "--kiosk-burst-dur", BURST_DUR) : BURST_DUR;
-    section.removeAttribute("data-kiosk-enter");
-    /* 逼一次 style/layout 重算：removeAttribute → setAttribute 喺同一 tick，
-       唔逼嘅話瀏覽器見唔到「拆咗」，條 animation 唔會重播。 */
-    section.getBoundingClientRect();
-    section.setAttribute("data-kiosk-enter", "");
-    const timer = window.setTimeout(() => section.removeAttribute("data-kiosk-enter"), delay + dur + BURST_TAIL);
-    return () => {
-      window.clearTimeout(timer);
-      /* 唔拆嘅話 `will-change: transform, opacity` 掛住 100 格，而 disarm timer 已經冇咗 → 永遠拆唔返 */
-      section.removeAttribute("data-kiosk-enter");
-    };
-  }, [sectionRef, frameRef, width, height]);
 
   /*
    * ── 巡遊 state machine ──────────────────────────────────────────────────
