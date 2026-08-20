@@ -186,12 +186,18 @@ const opts = { filenameBase: "cardz-x", title: "t", text: "t\nhttps://x", clipbo
 
   /* 叫方唔准喺 base 度自己寫副檔名（會變 `x.png.jpg`）。tsc 攔唔到呢種。 */
   for (const file of ["apps/web/src/components/card-detail.tsx", "apps/web/src/components/heatmap.tsx"]) {
-    const bases = [...read(file).matchAll(/filenameBase[:\s=]+`([^`]*)`/g)].map((m) => m[1]);
-    check(`B9: ${file} 有傳 filenameBase`, bases.length > 0);
+    const source = read(file);
+    const bases = [...source.matchAll(/filenameBase[:\s=]+`([^`]*)`/g)].map((m) => m[1]);
+    const usesFilenameHelper = /const\s+filenameBase\s*=\s*heatmapOgFilename\s*\(/.test(source)
+      && /shareImageBlob\([\s\S]{0,800}?\{[\s\S]{0,200}?\bfilenameBase\s*,/.test(source);
+    check(`B9: ${file} 有傳 filenameBase`, bases.length > 0 || usesFilenameHelper);
     for (const base of bases) {
       check(`B9: ${file} 個 filenameBase 冇自己加副檔名`, !/[.](png|jpe?g|webp|gif|avif)$/i.test(base), `base=${base}`);
     }
   }
+  const { heatmapOgFilename } = await import(`file://${join(ROOT, "apps/web/src/lib/heatmap-og.ts").replaceAll("\\", "/")}`);
+  const heatmapBase = heatmapOgFilename();
+  check("B9: heatmap helper 個 filenameBase 冇自己加副檔名", !/[.](png|jpe?g|webp|gif|avif)$/i.test(heatmapBase), `base=${heatmapBase}`);
 }
 
 /* ── S1/S2：行唔到嘅兩處（React component / fetch）用 call site 驗 ──
