@@ -53,3 +53,7 @@ pipelines/migrations/047_restore_legacy_quote_append_only.mysql.sql -text
 *.toml text eol=lf
 Dockerfile text eol=lf
 *.env.example text eol=lf
+# git hook 冇副檔名，跌唔到上面任何一條規則，而 core.autocrlf=true 會俾佢 CRLF。
+# hook 第一行係 `#!/bin/sh`，帶咗個  就變 `bad interpreter: /bin/sh^M` ——
+# git 唔會報錯，佢只係**靜靜唔行個 hook**，即係裝咗等於冇裝（最衰嗰種失敗）。
+scripts/githooks/* text eol=lf

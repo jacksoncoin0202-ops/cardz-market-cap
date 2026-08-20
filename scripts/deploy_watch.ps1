@@ -15,7 +15,8 @@
 #   max 1855.4s、非 2xx 0、本機 52/52 對得返。結論同上，冇變。
 #
 # 所以呢個腳本唔會再靠「有冇 delivery」一刀切，而係：
-#   1. push 之前個 subject 冇 [deploy] → 即刻停（呢個先係最常見嘅自己做錯）
+#   1. push 之前成個 message（subject + body）冇 [deploy] → 即刻停（呢個先係最常見嘅
+#      自己做錯）；body 有而 subject 冇 → 當佢會出街，大聲警告再照睇（2026-08-21 盲點）
 #   2. sha 唔喺 origin/main → 即刻停（根本未 push）
 #   3. 一路 poll GitHub delivery + live 內容 marker，兩邊分開講
 #   4. 過咗 grace 都冇 delivery → 大聲嗌「GitHub 未派，唔係你 build 炸」+ 畀埋下一步
@@ -38,7 +39,7 @@
 #   2  timeout，但 delivery 有而且 2xx  → AWS 側 git pull / next build 問題
 #   3  timeout，而且由頭到尾冇 delivery → GitHub 未派（唔關 code 事）
 #   4  delivery 有但係非 2xx           → 接收端 spwebhook.funtoken.me 死
-#   5  未量到就已經錯：subject 冇 [deploy]／未 push／gh 未登入／攞唔到 deliveries／
+#   5  未量到就已經錯：成個 message 冇 [deploy]／未 push／gh 未登入／攞唔到 deliveries／
 #      連 live 基線都抓唔到（冇基線就冇得比較，fail-closed，唔准估）
 #
 # 實跑證過會 fire（2026-08-18，真 GitHub API / 真站 / 假 live server，唔係講）：
@@ -47,7 +48,7 @@
 #   exit 2  -Marker <實冇嘅字> 短 timeout            → 「delivery 有但 live 冇轉」
 #   exit 3  -Simulate NoDelivery                    → 成段紅色警告 + 下一步
 #   exit 4  -Simulate FailedDelivery                → 印足 19 位 delivery id（冇被截）
-#   exit 5  -Sha 76a0a5c6（subject 冇 [deploy]）／ -Sha deadbeef1（認唔到 commit）／
+#   exit 5  -Sha 76a0a5c6（成個 message 冇 [deploy]）／ -Sha deadbeef1（認唔到 commit）／
 #           -BaseUrl 死站（攞唔到 live 基線）
 #   -Audit  72 小時：82 件、median 1.2s、p90 1.4s、max 1855.4s、本機 52/52 對得返
 #   -AuditOnly -Sha 895f9f76：exact=True、lag 1855.4s → 重現返成件事故
@@ -271,7 +272,7 @@ function Alarm-NoDelivery([string]$sha, [string]$elapsed, $stats) {
   Write-Host "==================================================================" -ForegroundColor Red
   Write-Host "  GitHub 未派件 —— 唔係你 build 炸，本機點改都冇用" -ForegroundColor Red
   Write-Host "==================================================================" -ForegroundColor Red
-  Write-Host "  commit    : $sha（已經喺 origin/main、subject 有 [deploy]）"
+  Write-Host "  commit    : $sha（已經喺 origin/main、message 有 [deploy]）"
   Write-Host "  等咗      : $elapsed"
   Write-Host "  hook      : $HookId → https://spwebhook.funtoken.me/hooks/deploy-cardzmarketcap"
   if ($stats) { Write-Host "  正常 lag  : median $($stats.Median)s / p90 $($stats.P90)s（過去 $AuditHours 小時 $($stats.N) 件）" }
@@ -368,11 +369,31 @@ if ($r.Code -ne 0) { Die "認唔到 commit：$Sha" 5 }
 $Sha = $r.Out
 $short = Cut $Sha 8
 $subject = (GitRun log -1 --format=%s $Sha).Out
+# ⚠️ 接收端認嘅係 **成個 `head_commit.message`**（subject + body）入面有冇個 literal，
+#    唔係淨睇 subject —— 呢個腳本本身第 375 行嘅錯誤訊息一直都咁寫，但上面條判斷
+#    以前淨係讀 `%s`。2026-08-21 `2851497c` 就係咁踩到：body 入面順口寫咗個 literal，
+#    AWS 側按契約會當佢係 deploy，而呢度反而 exit 5 拒絕睇 = 睇門狗有盲點。
+#    而家兩樣都讀：**判斷一律用全文（保守，同接收端一致）**，subject 只做「意圖」信號。
+$fullMsg = (GitRun log -1 --format=%B $Sha).Out
+$tagInSubject = $subject -match "\[deploy\]"
+$tagInFull = $fullMsg -match "\[deploy\]"
 
 Say "commit  $short  $subject"
 
-if ($subject -notmatch "\[deploy\]") {
-  Die "呢粒 commit subject 冇 [deploy] —— AWS 接收端係認 head_commit.message 入面嘅 literal [deploy]，冇就一世唔會 deploy。補一粒：git commit --allow-empty -m 'chore(deploy): … [deploy]' 再 push。" 5
+if (-not $tagInFull) {
+  Die "呢粒 commit 成個 message（subject + body）都冇 [deploy] —— AWS 接收端係認 head_commit.message 入面嘅 literal [deploy]，冇就一世唔會 deploy。補一粒：git commit --allow-empty -m 'chore(deploy): … [deploy]' 再 push。" 5
+}
+if (-not $tagInSubject) {
+  Write-Host ""
+  Write-Host "==================================================================" -ForegroundColor Yellow
+  Write-Host "  模糊形態：body 有 [deploy]、subject 冇 —— 你可能唔為意觸發咗出街" -ForegroundColor Yellow
+  Write-Host "==================================================================" -ForegroundColor Yellow
+  Write-Host "  commit  : $short  $subject"
+  Write-Host "  接收端係喺成個 message 度搵 literal，所以呢粒**當佢會 deploy** 嚟睇實。"
+  Write-Host "  規矩（AGENTS 17）：個 literal 要出現喺 message 度，就一定要出現喺 subject。"
+  Write-Host "  想講而唔想出街，寫成 `"deploy tag`" / `"個 deploy 標記`"，唔好打個 literal。"
+  Write-Host "  commit-msg hook 會擋呢個形態：pwsh -NoProfile -File scripts\install_githooks.ps1"
+  Write-Host ""
 }
 
 $null = GitRun fetch -q origin main
@@ -403,7 +424,13 @@ function Find-Delivery([datetime]$since) {
     if ([string]$p.ref -ne "refs/heads/main") { continue }
     $after = [string]$p.after
     $msg = ""
-    if ($p.head_commit) { $msg = ([string]$p.head_commit.message -split "`n")[0] }
+    $msgFull = ""
+    # `$msg` 淨係攞第一行嚟**印**（唔想個 report 拉成十行）；判斷 [deploy] 一律用
+    # `$msgFull` 全文 —— 接收端讀嘅就係全文，截咗第一行去判就會同接收端唔同答案。
+    if ($p.head_commit) {
+      $msgFull = [string]$p.head_commit.message
+      $msg = ($msgFull -split "`n")[0]
+    }
     $isMine = ($after -eq $Sha)
     $covers = $false
     if (-not $isMine -and $after) {
@@ -414,7 +441,8 @@ function Find-Delivery([datetime]$since) {
       $hit = [pscustomobject]@{
         Id = $c.Id; Guid = $c.Guid; Created = $c.Created; Delivered = $c.Delivered; LagSec = $c.LagSec
         Status = $c.Status; Code = $c.Code; After = $after; Msg = $msg
-        Exact = $isMine; HasDeployTag = ($msg -match "\[deploy\]")
+        Exact = $isMine; HasDeployTag = ($msgFull -match "\[deploy\]")
+        TagOnlyInBody = (($msgFull -match "\[deploy\]") -and -not ($msg -match "\[deploy\]"))
       }
       if ($Simulate -eq "FailedDelivery") { $hit.Code = 502; $hit.Status = "failed" }
       return @{ Ok = $true; Hit = $hit; Checked = $cands.Count }
@@ -465,7 +493,8 @@ while ($true) {
       if ($delivery.Code -ge 200 -and $delivery.Code -lt 300) {
         Ok "GitHub 派咗：$(Cut $delivery.Guid 13) $($delivery.Status) $($delivery.Code)（event 產生 $($delivery.Created.ToString('HH:mm:ssZ')) → 派出 $($delivery.Delivered.ToString('HH:mm:ssZ'))，lag ${lagTxt}s）"
         if ($delivery.LagSec -gt 60) { Warn "呢件遲咗 $([math]::Round($delivery.LagSec/60,1)) 分鐘 —— 之前查唔到係正常，唔係漏派。" }
-        if (-not $delivery.HasDeployTag) { Warn "但 payload head_commit 冇 [deploy]（『$($delivery.Msg)』）—— 接收端會唔理，等於冇 deploy。" }
+        if (-not $delivery.HasDeployTag) { Warn "但 payload head_commit 成個 message 都冇 [deploy]（『$($delivery.Msg)』）—— 接收端會唔理，等於冇 deploy。" }
+        elseif ($delivery.TagOnlyInBody) { Warn "payload head_commit 個 [deploy] 淨係喺 body（subject：『$($delivery.Msg)』）—— 接收端讀全文，所以呢粒照計會出街。" }
       } else {
         Write-Host ""
         Write-Host "==================================================================" -ForegroundColor Red

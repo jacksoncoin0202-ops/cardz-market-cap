@@ -40,6 +40,15 @@
     `895f9f76` push 咗、GitHub 遲咗 30 分 55 秒先派，冇人睇實就當咗漏派去亂改 code。
     exit code 分流同判讀見 [docs/FE05_ROLLBACK.md](docs/FE05_ROLLBACK.md) 第 8 步。）
 
+17. **個 deploy literal 一入 commit message，就一定要喺 subject。** 出街係 AWS 接收端睇
+    commit message 有冇個 literal 決定，而佢究竟睇 subject 定睇全文，repo 呢邊驗唔到
+    （源碼喺 AWS，IT 管；兩份契約都只寫「commit message 含」，冇分 subject／body）。
+    所以唔賭邊個讀法啱，而係**取消個分歧**：兩種讀法對每一粒合法 commit 都要俾同一個
+    答案。想喺 message 度講呢件事而唔出街 → 寫「deploy tag」，唔好打個 literal。
+    （2026-08-21 `2851497c` 喺 body 寫「呢粒唔帶 <literal>」解釋自己唔出街，個 literal
+    照樣入咗 message。`scripts/githooks/commit-msg` 而家擋住；`node scripts/install_githooks.mjs`
+    裝；`scripts/test-deploy-tag-contract.mjs` 守住條規矩同 deploy_watch 嘅判定口徑。）
+
 ## 查 bug 之前
 
 先對 [runbook「缺陷形狀清單」](docs/COLLECTION_RUNBOOK.md)。呢個 repo 出過嘅事故有固定形狀
