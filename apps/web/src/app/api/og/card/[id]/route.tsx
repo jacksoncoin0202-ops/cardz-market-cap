@@ -4,7 +4,7 @@ import { ImageResponse } from "next/og";
 import { shortSubject } from "@/lib/related-cards";
 import { buildShareChart, type ShareChart } from "@/lib/share-chart";
 import { loadNodeMarketAsset, loadMarketSnapshot } from "@/lib/server-snapshot";
-import { readShareFormat, type ShareFormat } from "@/lib/share-destinations";
+import { FORMAT_SIZES, readShareFormat, type ShareFormat } from "@/lib/share-destinations";
 import { readShareLang, shareCopy, SHARE_LANG_FONTS, type ShareCopy, type ShareLang } from "@/lib/share-copy";
 import { defaultMarketWindow, marketWindowDays, type MarketCardView, type MarketWindow } from "@/lib/types";
 
@@ -49,18 +49,15 @@ export const contentType = "image/jpeg";
  */
 type ShareTheme = "light" | "dark";
 
-const FORMATS: Record<ShareFormat, { width: number; height: number; defaultTheme: ShareTheme }> = {
-  wide: { width: 1200, height: 630, defaultTheme: "dark" },
-  post: { width: 1080, height: 1350, defaultTheme: "dark" },
-  /*
-   * `status` 1080×1920（9:16）—— WhatsApp Status / IG 限時動態嗰種**全屏**面
-   * （owner 2026-08-20 加分享目的地選單，WhatsApp 揀咗呢個；邊個平台配邊個尺寸
-   * 見 `lib/share-destinations.ts`）。
-   *
-   * ⚠️ 呢個尺寸**淨係**俾 status／story 面用，唔准做通用分享圖。貼落 feed
-   * （Threads / X / IG post）三家都唔會裁，而係按高度縮細 → 張圖得七八成闊。
-   */
-  status: { width: 1080, height: 1920, defaultTheme: "dark" },
+/*
+ * ⚠️ 呢度**淨係**講 theme。闊高由 `lib/share-destinations.ts` 個 `FORMAT_SIZES` 講，
+ * 因為選單右邊嗰粒比例標要同佢對數（嗰邊第三個 guard）。本來兩邊各寫一組數字，
+ * 2026-08-20 就出咗「標 16:9 但實際 1200×630」呢單（AGENTS.md 規矩 13）。
+ */
+const FORMAT_THEMES: Record<ShareFormat, ShareTheme> = {
+  wide: "dark",
+  post: "dark",
+  status: "dark",
 };
 
 /*
@@ -1029,8 +1026,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const format = readShareFormat(query.get("format"));
   const lang = readShareLang(query.get("lang"));
   const copy = shareCopy(lang);
-  const spec = FORMATS[format];
-  const theme = readTheme(query.get("theme"), spec.defaultTheme);
+  const spec = FORMAT_SIZES[format];
+  const theme = readTheme(query.get("theme"), FORMAT_THEMES[format]);
   const palette = THEMES[theme];
 
   const snapshot = await loadMarketSnapshot().catch(() => null);

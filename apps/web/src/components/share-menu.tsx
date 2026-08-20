@@ -26,6 +26,7 @@ import { Check, ChevronDown, Loader2, Monitor, MoreHorizontal, Share2, Smartphon
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { tap } from "@/lib/haptic";
 import { SHARE_TARGETS, type ShareTarget, type ShareTargetId } from "@/lib/share-destinations";
+import type { ShareOutcome } from "@/lib/share-file";
 
 /* 收埋 menu 前留 120ms 俾 `.select-menu-exit` 做退場動畫（同 select-control.tsx 一樣） */
 const MENU_EXIT_MS = 120;
@@ -113,10 +114,14 @@ export interface ShareMenuCopy {
 type PickState = "idle" | "busy" | "done" | "error";
 
 export function ShareMenu({ surface, copy, onPick, onWarm, triggerClassName }: {
-  /** 熱力圖同卡頁只有一處分別：闊版嗰列個比例標（卡頁固定 16:9、熱力圖跟畫面） */
+  /** 熱力圖同卡頁只有一處分別：闊版嗰列個比例標（卡頁固定 1.91:1、熱力圖跟畫面） */
   surface: "card" | "heatmap";
   copy: ShareMenuCopy;
-  onPick: (target: ShareTarget) => void | Promise<void>;
+  /*
+   * 回 `ShareOutcome` 嘅話呢度會**睇**佢 —— `"dismissed"`（用戶自己撳走 OS share
+   * sheet）唔准當成功。回 `void` 就一律當成功，所以新叫方應該回返個 outcome。
+   */
+  onPick: (target: ShareTarget) => ShareOutcome | void | Promise<ShareOutcome | void>;
   /** 「就快撳呢個目的地」，叫方預先攞張圖。一定要 idempotent（見檔頭）。 */
   onWarm?: (target: ShareTarget) => void;
   triggerClassName: string;
@@ -194,8 +199,19 @@ export function ShareMenu({ surface, copy, onPick, onWarm, triggerClassName }: {
     if (resetTimer.current) clearTimeout(resetTimer.current);
     setState("busy");
     try {
-      await withTimeout(Promise.resolve(onPick(target)), PICK_TIMEOUT_MS);
+      const outcome = await withTimeout(Promise.resolve(onPick(target)), PICK_TIMEOUT_MS);
       busyRef.current = false;
+      /*
+       * ⚠️ 用戶喺 OS share sheet 撳「取消」= `"dismissed"` = **乜都冇分享到**。
+       * 唔准出綠色剔：下面個 `role="status"` aria-live 會即刻讀「圖片已匯出」俾讀屏
+       * 用戶聽，而佢啱啱先自己取消咗。靜靜返 idle 先啱 —— `lib/share-file.ts` 自己
+       * 都寫住「唔係錯，叫方唔好報 error，亦唔好再做後續動作」。
+       * （2026-08-20 上街後審計捉到：兩個叫方都掉咗個 return value。）
+       */
+      if (outcome === "dismissed") {
+        setState("idle");
+        return;
+      }
       setState("done");
       tap.success();
     } catch {
@@ -240,13 +256,33 @@ export function ShareMenu({ surface, copy, onPick, onWarm, triggerClassName }: {
    * 度嘅係 `offsetWidth`（受 max-width clamp 影響、但同貼邊方向無關），所以計出嚟嘅結果
    * 唔會反過來影響下次量度 —— 一個 pass 就穩定，唔會左右左右咁彈。
    */
-  useLayoutEffect(() => {
-    if (!open) return;
+  const measureAlign = useCallback(() => {
     const trigger = triggerRef.current;
     const panel = panelRef.current;
     if (!trigger || !panel) return;
     setAlign(trigger.getBoundingClientRect().right - panel.offsetWidth < EDGE_GUTTER ? "left" : "right");
-  }, [open]);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    measureAlign();
+  }, [open, measureAlign]);
+
+  /*
+   * 開住個 menu 轉橫屏／拉窗口，個掣會由畫面左邊行去右邊（熱力圖手機直度個掣喺左，
+   * 橫置之後喺右）。唔重量就仲貼住舊嗰邊 —— 390→844 實測塊板凸出畫面右邊 ~28px，
+   * 比例標成列切走兼多咗橫向 overflow。轉屏唔會 fire pointerdown，所以個 menu 唔會
+   * 自己收，一定要自己聽（2026-08-20 上街後審計捉到）。
+   */
+  useEffect(() => {
+    if (!open) return;
+    window.addEventListener("resize", measureAlign);
+    window.addEventListener("orientationchange", measureAlign);
+    return () => {
+      window.removeEventListener("resize", measureAlign);
+      window.removeEventListener("orientationchange", measureAlign);
+    };
+  }, [open, measureAlign]);
 
   /* 鍵盤行到邊列，個 DOM focus 就跟住去邊列 —— menu 入面每列都係真 <button>，
      用真 focus 好過 aria-activedescendant：唔使自己畫高亮，`:focus-visible` 就係。 */
@@ -268,10 +304,17 @@ export function ShareMenu({ surface, copy, onPick, onWarm, triggerClassName }: {
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
         data-state={state}
-        disabled={busy}
+        /*
+         * ⚠️ 用 `aria-disabled` 唔用 `disabled`。瀏覽器將一個**正攞住 focus** 嘅 button
+         * 設成 `disabled` 會即刻 blur 佢，`activeElement` 跌返 `<body>` —— 而 `pick()`
+         * 正正就係 focus 個 trigger 之後即刻 `setState("busy")`。結果：鍵盤／讀屏用戶
+         * 分享完一次就跌返文件開頭，下一個 Tab 由 skip-link 重新數起。
+         * 唔准撳嘅保障喺 `busyRef`（`pick()` 第一句）同下面個 onClick，唔靠 DOM disabled。
+         */
+        aria-disabled={busy}
         aria-busy={busy}
         title={state === "error" ? copy.error : state === "done" ? copy.done : undefined}
-        onClick={() => (open ? close() : openMenu())}
+        onClick={() => { if (busy) return; if (open) close(); else openMenu(); }}
         onKeyDown={onTriggerKeyDown}
       >
         <AnimatePresence mode="wait" initial={false}>

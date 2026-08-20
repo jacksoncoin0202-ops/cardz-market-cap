@@ -20,10 +20,36 @@
  *     行 9:16。
  *     ⚠️ 呢個比例**淨係**俾 status／story 面用。貼落 feed（Threads / X / IG post）就係
  *     上面講嗰個「縮到七八成闊」嘅陷阱，所以下面張表冇一個 feed 目的地指去佢。
- *   · `wide` 1200×630（16:9）—— 社交 unfurl（`og:image`）同埋電腦／部落格 embed。
+ *   · `wide` 1200×630（1.91:1）—— 社交 unfurl（`og:image`）同埋電腦／部落格 embed。
+ *     （**唔係** 16:9。1.91:1 係 og:image 嘅標準闊高比。）
  */
 export const SHARE_FORMATS = ["wide", "post", "status"] as const;
 export type ShareFormat = (typeof SHARE_FORMATS)[number];
+
+/*
+ * 每個 format 嘅真實像素 —— **呢度係唯一真身**。`app/api/og/card/[id]/route.tsx`
+ * 讀返呢張表出圖（佢自己只留低 defaultTheme）。
+ *
+ * 點解要抽上嚟：選單右邊嗰粒比例標本來係人手寫，同 route 入面嗰組數字冇任何連繫。
+ * 2026-08-20 就出過一次街——`desktop` 標住「16:9」，但 `wide` 真身係 1200×630＝1.91:1，
+ * 塊 UI 向用戶講咗個假數字而全部 test 照綠。而家兩者同源，加埋下面第三個 guard，
+ * 標錯 = import 即刻炸。
+ *
+ * ⚠️ `wide` 1200×630 **唔准**為咗個標籤靚啲改成 1200×675。1200×630 係 og:image 標準
+ * 尺寸，`lib/route-metadata.ts` 宣告咗、`scripts/test-fe-og-post-layout.mjs` T5 釘住，
+ * 成張 wide layout（同 WhatsApp unfurl 600KB 靜默閘）都係照住 630 高度身砌。
+ */
+export const FORMAT_SIZES: Record<ShareFormat, { width: number; height: number }> = {
+  wide: { width: 1200, height: 630 },
+  post: { width: 1080, height: 1350 },
+  /*
+   * `status` 1080×1920（9:16）—— WhatsApp Status / IG 限時動態嗰種**全屏**面。
+   *
+   * ⚠️ 呢個尺寸**淨係**俾 status／story 面用，唔准做通用分享圖。貼落 feed
+   * （Threads / X / IG post）三家都唔會裁，而係按高度縮細 → 張圖得七八成闊。
+   */
+  status: { width: 1080, height: 1920 },
+};
 
 /*
  * 熱力圖嗰張分享圖係即場 canvas（要跟用戶當下揀嘅格數／時段），唔行上面條 og route，
@@ -72,7 +98,7 @@ export const SHARE_TARGETS: readonly ShareTarget[] = [
   { id: "whatsapp", format: "post", aspect: "post", ratio: "4:5" },
   { id: "status", format: "status", aspect: "wa", ratio: "9:16" },
   { id: "other", format: "post", aspect: "post", ratio: "4:5" },
-  { id: "desktop", format: "wide", aspect: "frame", ratio: "16:9", frameOnHeatmap: true },
+  { id: "desktop", format: "wide", aspect: "frame", ratio: "1.91:1", frameOnHeatmap: true },
 ];
 
 /*
@@ -140,13 +166,47 @@ if (drifted.length > 0) {
 }
 
 /*
+ * ⚠️ 第三個 guard：選單右邊嗰粒比例標，一定要同 `FORMAT_SIZES` 講嘅真實闊高比對得上。
+ *
+ * 2026-08-20 出過街：`desktop` 標「16:9」但實際出 1200×630（1.91:1）。個標籤純手寫、
+ * 冇人核對，於是 UI 向用戶報咗個假數字，三個 test 全綠。而家講大話 = import 炸 =
+ * `next build` 紅，唔使再靠人眼。
+ *
+ * 容差 1%：「1.91:1」係業界叫法（1200÷630 = 1.9048，差 0.28%），唔逼人寫 40:21。
+ */
+const RATIO_TOLERANCE = 0.01;
+const mislabelled = SHARE_TARGETS.filter((target) => {
+  const [labelW, labelH] = target.ratio.split(":").map(Number);
+  if (!Number.isFinite(labelW) || !Number.isFinite(labelH) || labelH === 0) return true;
+  const { width, height } = FORMAT_SIZES[target.format];
+  const real = width / height;
+  return Math.abs(labelW / labelH - real) / real > RATIO_TOLERANCE;
+});
+if (mislabelled.length > 0) {
+  throw new Error(
+    `share-destinations: 比例標同真實尺寸唔夾（${mislabelled
+      .map((t) => `${t.id}: 標 ${t.ratio} 但 ${t.format} 係 ${FORMAT_SIZES[t.format].width}×${FORMAT_SIZES[t.format].height}`)
+      .join("、")}）`,
+  );
+}
+
+/*
  * 認唔到（打錯字、新平台未加）就跌返 `wide` —— 唔准 500。
  *
  * 跌返 wide 唔係靜默：response 有 `x-og-format` 講返實際行咗邊個，`curl -sI` 就見到。
  * 對條鏈嚟講「攞到一張橫圖」好過「攞到 500 然之後今日冇圖出」。
  */
 export function readShareFormat(value: string | null | undefined): ShareFormat {
-  return (value ? FORMAT_ALIASES[value.toLowerCase()] : undefined) ?? "wide";
+  if (!value) return "wide";
+  /*
+   * ⚠️ 一定要行 `Object.hasOwn`，唔准直接 index 落去。`FORMAT_ALIASES` 係普通 object
+   * literal，行住 `Object.prototype` —— `?format=constructor` / `?format=__proto__`
+   * 直接 index 會攞到繼承嚟嘅 `Object` 建構函數（truthy，`??` 接唔到手），route 就會
+   * 攞住個 undefined spec 喺 request 度炸。2026-08-20 喺出街站實測 `?format=constructor`
+   * → **HTTP 500**，正正打爆上面「唔准 500」嗰句。
+   */
+  const key = value.toLowerCase();
+  return Object.hasOwn(FORMAT_ALIASES, key) ? FORMAT_ALIASES[key] : "wide";
 }
 
 /** 俾 test 同文件用：所有認得嘅目的地名。 */

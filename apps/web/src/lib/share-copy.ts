@@ -243,7 +243,14 @@ const LANG_ALIASES: Record<string, ShareLang> = {
  */
 export function readShareLang(value: string | null | undefined): ShareLang {
   if (!value) return "en";
-  return LANG_ALIASES[value.trim().toLowerCase().replace("_", "-")] ?? "en";
+  /*
+   * ⚠️ `Object.hasOwn`，唔准直接 index —— 同 `share-destinations.ts` `readShareFormat`
+   * 一模一樣嘅洞：`LANG_ALIASES` 行 `Object.prototype`，`?lang=constructor` 直接 index
+   * 會攞到 `Object` 建構函數（truthy，`??` 接唔到手），`shareCopy()` 攞唔到 COPY[...]
+   * 就喺 request 度炸。2026-08-20 出街站實測 `?lang=constructor` → **HTTP 500**。
+   */
+  const key = value.trim().toLowerCase().replace("_", "-");
+  return Object.hasOwn(LANG_ALIASES, key) ? LANG_ALIASES[key] : "en";
 }
 
 export function shareCopy(lang: ShareLang): ShareCopy {

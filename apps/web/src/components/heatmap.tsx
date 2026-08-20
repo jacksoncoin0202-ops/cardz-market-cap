@@ -942,7 +942,11 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
    * formatDate(..., "en")；share sheet 嘅標題／文字先跟返介面語言。
    */
   const exportHeatmap = useCallback(async (slot: ShareAspect) => {
-    if (!size.width || !size.height || !tiles.length) return;
+    /* ⚠️ 未量到尺寸／未有格仔 = 出唔到圖，一定要掟。靜靜 `return` 嘅話 ShareMenu 見到
+       個 promise 正常 resolve，就當你分享成功，出綠剔 —— 但一張圖都冇出過。 */
+    if (!size.width || !size.height || !tiles.length) {
+      throw new Error("heatmap export: 熱力圖未量到尺寸／未有格仔");
+    }
     /*
      * 分享圖唔可以照抄畫面個 frame 比例。手機 frame 係 343×508（0.68），加埋 header /
      * legend 出到嚟成張 PNG 得 0.58 —— Threads / X / IG feed 對直度圖有高度上限，太直
@@ -998,11 +1002,13 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title }: Heat
       text: `${shareTitle}\n${pageUrl}`,
       clipboardFallbackText: pageUrl,
     });
-    if (outcome === "dismissed") return; // 用戶自己收埋 share sheet，唔好再 scroll 佢
+    /* 個 outcome 要交返俾 ShareMenu：dismissed 唔准出綠剔（見 components/share-menu.tsx `pick`） */
+    if (outcome === "dismissed") return outcome; // 用戶自己收埋 share sheet，唔好再 scroll 佢
     // 手機：share 完張圖直落排名表。
     if (isMobileTiles) {
       document.getElementById("market-ranking")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
+    return outcome;
   }, [size.width, size.height, tiles, title, activePeriod, isMobileTiles, params, colors, dark, t.periods]);
 
   // Controls 抽返出嚟：desktop 同標題並排，手機由 CSS 將佢哋排喺標題下面、

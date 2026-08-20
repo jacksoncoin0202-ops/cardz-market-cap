@@ -303,13 +303,19 @@ if (process.argv.includes("--live")) {
  * ───────────────────────────────────────────────────────────── */
 {
   const DEST_REL = "apps/web/src/lib/share-destinations.ts";
-  const { readShareFormat, shareDestinations, SHARE_FORMATS } =
+  const { readShareFormat, shareDestinations, SHARE_FORMATS, FORMAT_SIZES } =
     await import(pathToFileURL(join(ROOT, DEST_REL)).href);
 
   /* T6a：每個目的地都要對到一個 route 真係有 layout 嘅 format。
      唔係信 lib 自己個 guard —— 係攞 route.tsx 個 FORMATS 真身嚟對。 */
-  const routeFormats = [...code.matchAll(/\b(wide|post|status):\s*\{\s*width:/g)].map((m) => m[1]);
-  check("T6a: 由 route 度到 FORMATS", routeFormats.length === 3, JSON.stringify(routeFormats));
+  /* ⚠️ 2026-08-20 起尺寸真身喺 `FORMAT_SIZES`（route.tsx 讀返佢，自己只留 theme）——
+     本來 route 同選單各寫一組數字，就係噉出咗「標 16:9 但實際 1200×630」嗰單。 */
+  const routeFormats = Object.keys(FORMAT_SIZES);
+  check("T6a: FORMAT_SIZES 三個 format", routeFormats.length === 3, JSON.stringify(routeFormats));
+  check("T6a: route 讀 FORMAT_SIZES", /import \{ FORMAT_SIZES, readShareFormat/.test(code), "route.tsx 冇 import FORMAT_SIZES");
+  check("T6a: route 冇再自己開一張尺寸表",
+    !/Record<ShareFormat, \{ width: number; height: number/.test(code), "route.tsx 仲有第二組尺寸");
+  check("T6a: route 出圖用 FORMAT_SIZES", /const spec = FORMAT_SIZES\[format\];/.test(code));
   for (const dest of shareDestinations()) {
     const format = readShareFormat(dest);
     check(`T6a: 目的地 ${dest} 對到 route 有嘅 format`, routeFormats.includes(format), `${dest} → ${format}`);
@@ -330,8 +336,19 @@ if (process.argv.includes("--live")) {
   check("T6b: status 用 9:16（全屏面）", readShareFormat("status") === "status", readShareFormat("status"));
 
   /* T6c：認唔到唔准炸、唔准 500 —— 跌返 wide。 */
-  for (const bad of ["", "  ", "mastodon", "POST_", "9x16", null, undefined]) {
+  /* ⚠️ `constructor` / `__proto__` 呢啲 `Object.prototype` key **一定要**喺呢個 list：
+     直接 index 一個普通 object literal 會攞到繼承嚟嘅嘢（truthy，`??` 接唔到手），route 就會
+     攞住個 undefined spec 喺 request 度炸。2026-08-20 上街實測 `?format=constructor` → **HTTP 500**，
+     而當時呢個 list 一個 prototype key 都冇，所以 CI 一路綠燈。修法係 `Object.hasOwn`。 */
+  const BAD_FORMATS = ["", "  ", "mastodon", "POST_", "9x16", null, undefined,
+    "constructor", "__proto__", "CONSTRUCTOR", "prototype", "toString", "valueOf", "hasOwnProperty"];
+  for (const bad of BAD_FORMATS) {
     check(`T6c: ${JSON.stringify(bad)} 跌返 wide`, readShareFormat(bad) === "wide", `→ ${readShareFormat(bad)}`);
+  }
+  /* 同一個洞喺 share-copy 個 `readShareLang`：`?lang=constructor` 上街實測一樣 500。 */
+  const { readShareLang } = await import(pathToFileURL(join(ROOT, "apps/web/src/lib/share-copy.ts")).href);
+  for (const bad of ["constructor", "__proto__", "CONSTRUCTOR", "toString", "valueOf", "mastodon", "", null, undefined]) {
+    check(`T6c: lang ${JSON.stringify(bad)} 跌返 en`, readShareLang(bad) === "en", `→ ${readShareLang(bad)}`);
   }
 
   /* T6d：張表唔係死 code —— route 真係行佢（有檢查但零 call site 就當冇檢查）。 */

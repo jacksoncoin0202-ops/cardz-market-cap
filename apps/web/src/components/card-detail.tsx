@@ -108,7 +108,9 @@ function ShareImageButton({ cardId, imageLang, title, copy: menuCopy }: {
     const blob = await shareBlobs.current.get(`${target.format}|${imageLang}`)!;
     const pageUrl = `${window.location.origin}/card/${cardId}`;
     /* share sheet 嘅標題／正文同**圖入面**啲字而家一齊跟介面語言（見 og route 個 `?lang=`）。 */
-    await shareImageBlob(blob, {
+    /* ⚠️ 一定要 `return` —— 掉咗個 outcome 嘅話，用戶撳走 share sheet（"dismissed"）
+       喺 ShareMenu 嗰邊睇落同分享成功一模一樣，出綠剔兼讀屏報「圖片已匯出」。 */
+    return await shareImageBlob(blob, {
       /* 檔名帶 format：桌面落載幾個尺寸落同一個 Downloads 都唔會撞名變 (1)(2) */
       filenameBase: `cardz-${cardId}-${target.format}`,
       title,

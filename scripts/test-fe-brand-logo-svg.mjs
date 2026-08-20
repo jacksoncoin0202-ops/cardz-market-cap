@@ -181,9 +181,15 @@ for (const [w, h] of [...ogImgs, ...Object.values(TEXT_ONLY_WANT)]) {
  *    改高過 1350 冇 error、冇 warning，只係貼出去嗰刻細一截，冇人收到通知。
  */
 const OG_FORMAT_WANT = { wide: [1200, 630], post: [1080, 1350] };
-const ogFormats = [...ogRoute.matchAll(/\b(wide|post):\s*\{\s*width:\s*(\d+),\s*height:\s*(\d+)/g)]
+/* ⚠️ 2026-08-20 起尺寸真身搬咗去 `lib/share-destinations.ts` 個 `FORMAT_SIZES`
+   （route.tsx 讀返佢，自己只留 defaultTheme）—— 本來兩邊各寫一組數字，就係噉出咗
+   「選單標 16:9 但實際出 1200×630」嗰單。呢度照樣讀真身，只係真身換咗個檔。 */
+const shareSizes = read("apps/web/src/lib/share-destinations.ts");
+const ogFormats = [...shareSizes.matchAll(/\b(wide|post):\s*\{\s*width:\s*(\d+),\s*height:\s*(\d+)/g)]
   .map((m) => [m[1], Number(m[2]), Number(m[3])]);
-check("OG route FORMATS 有 wide + post 兩個", ogFormats.length === 2, JSON.stringify(ogFormats));
+check("FORMAT_SIZES 有 wide + post 兩個", ogFormats.length === 2, JSON.stringify(ogFormats));
+check("og route 真係讀 FORMAT_SIZES（唔係自己再寫一組）",
+  /FORMAT_SIZES, readShareFormat/.test(ogRoute) && /const spec = FORMAT_SIZES\[format\];/.test(ogRoute));
 /* 直度分享圖闊÷高一定要 ≥ 0.8（同 share-image.ts `SHARE_MIN_ASPECT` 同一個數）。
    上面對死 1080×1350 已經夠，但呢句講嘅係**點解**係嗰對數 —— 第日有人要換另一對
    直度尺寸，起碼唔會靜靜跌返落 Threads / X 縮細嗰個區間。 */

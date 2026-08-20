@@ -1086,6 +1086,13 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   min-width: 216px;
   /* 360px 機都要留喺畫面內：page-shell 手機 gutter 16px ×2 */
   max-width: calc(100vw - 32px);
+  /* 七個目的地 + kicker = 324px 高。橫置手機 viewport 淨係 390 高，唔加閘就要成版
+     scroll 落去先撳到下面四個目的地（2026-08-20 844×390 實測：panel 249→573）。
+     同 `.currency-menu`（31 隻貨幣）行同一套；`svh` 唔用 `vh` 係為咗手機瀏覽器
+     嗰條會縮嘅網址列。`overscroll-behavior: contain` 擋住碌到底就帶埋成版走。 */
+  max-height: min(420px, calc(100svh - var(--header-height) - 24px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 5px;
   border: 1px solid var(--line-strong);
   border-radius: var(--control-radius);
@@ -1203,6 +1210,9 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
 @keyframes copy-spin { to { transform: rotate(360deg); } }
 .copy-icon-busy svg { animation: copy-spin 800ms linear infinite; }
 .share-button:disabled, .heatmap-export:disabled { cursor: wait; opacity: 0.7; }
+/* 分享掣 busy 嗰陣用 `aria-disabled` 唔用 `disabled`（DOM disabled 會踢走 focus，
+   見 components/share-menu.tsx），所以要自己補返同一個樣。 */
+.share-menu-trigger[aria-disabled="true"] { cursor: wait; opacity: 0.7; }
 .period-selector {
   flex: none;
   display: inline-flex;
