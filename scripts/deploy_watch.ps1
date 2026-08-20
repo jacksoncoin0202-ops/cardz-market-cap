@@ -64,7 +64,10 @@ param(
   [string]$BaseUrl = "https://app.cardzmarketcap.com",
   [string]$MarkerPath = "/",
   [string[]]$Marker = @(),
-  [ValidateSet("html", "css", "both")][string]$MarkerScope = "both",
+  # html=淨睇頁面 HTML；css=淨睇 .css chunk；both=兩樣（預設）；js=淨睇 .js chunk；all=三樣都睇。
+  # ⚠️ `both` **唔包 .js**。UI 文案／標籤（例：選單個 "1.91:1"）住喺 JS chunk，
+  #    用 both 就永遠 0/1。要驗 JS 入面嘅字就要 `-MarkerScope js`（或 all）。
+  [ValidateSet("html", "css", "both", "js", "all")][string]$MarkerScope = "both",
   [double]$TimeoutMinutes = 12,
   [int]$PollSeconds = 20,
   [int]$DeliveryGraceSeconds = 120,
@@ -246,10 +249,18 @@ function Get-LiveFingerprint() {
 }
 
 function Get-MarkerText($fp) {
+  $wantHtml = $MarkerScope -in @("html", "both", "all")
+  $wantCss = $MarkerScope -in @("css", "both", "all")
+  $wantJs = $MarkerScope -in @("js", "all")
   $text = ""
-  if ($MarkerScope -ne "css") { $text += $fp.Html }
-  if ($MarkerScope -ne "html" -and $fp.Chunks) {
-    foreach ($c in $fp.Chunks) { if ($c -match "\.css$") { $r = Get-Text ($BaseUrl + $c); if ($r.Ok) { $text += $r.Body } } }
+  if ($wantHtml) { $text += $fp.Html }
+  if (($wantCss -or $wantJs) -and $fp.Chunks) {
+    foreach ($c in $fp.Chunks) {
+      $isCss = $c -match "\.css$"
+      if (($isCss -and $wantCss) -or ((-not $isCss) -and $wantJs)) {
+        $r = Get-Text ($BaseUrl + $c); if ($r.Ok) { $text += $r.Body }
+      }
+    }
   }
   return $text
 }
@@ -536,6 +547,16 @@ while ($true) {
   if ($delivery -and -not $changed -and $elapsed.TotalMinutes -gt $BuildGraceMinutes -and -not $alarmed.ContainsKey("buildside")) {
     $alarmed["buildside"] = $true
     Alarm-BuildSide $Sha $delivery
+  }
+  # 內容明明換咗（chunkSha 郁咗）但 marker 由頭到尾一次都撞唔到 → 十有八九係支尺
+  # 量錯層，唔係個 deploy 死。唔嗌嘅話會靜靜等到 timeout 再報「live 內容冇轉」，
+  # report 講嘅嘢同事實啱啱相反（2026-08-20 就係噉嘥咗一轉）。
+  if ($changed -and -not $markerOk -and $Marker.Count -gt 0 -and -not $alarmed.ContainsKey("markerlayer")) {
+    $alarmed["markerlayer"] = $true
+    Warn "chunkSha 已經由 $(Cut $baseline.ChunkSha 8) 轉咗做 $(Cut $fp.ChunkSha 8)，但 marker 仲係 0 中 —— 大機會 marker 揀錯層。"
+    Write-Host "      而家 -MarkerScope $MarkerScope 抓緊：$(if ($MarkerScope -in @('html','both','all')) { 'HTML ' })$(if ($MarkerScope -in @('css','both','all')) { '.css ' })$(if ($MarkerScope -in @('js','all')) { '.js' })"
+    Write-Host "      UI 文案／標籤住喺 .js chunk，要 -MarkerScope js（或 all）先抓到。"
+    Write-Host "      CSS class／selector 先至係 both 抓到嗰批。"
   }
 
   # ---- 自動踢一腳（要明寫 -AutoKick 先會做；只踢一次）
