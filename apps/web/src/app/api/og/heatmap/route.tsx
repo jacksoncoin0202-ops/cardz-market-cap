@@ -1,5 +1,8 @@
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { ImageResponse } from "next/og";
 import {
   HEATMAP_OG_DEFAULT_PERIOD,
@@ -162,9 +165,17 @@ function formatMove(pct: number | null): string | null {
   return `${sign}${pct.toFixed(1)}%`;
 }
 
-function outputScale(format: ReturnType<typeof readShareFormat>): number {
-  /* 官網 canvas 分享係 2–3.5×。OG 舊版 1× + `_200` = 糊。post/wide 2×；9:16 1.5× 以免 OOM。 */
-  return format === "status" ? 1.5 : 2;
+function outputScale(_format: ReturnType<typeof readShareFormat>): number {
+  /*
+   * 2×（2160×2700）本機 ~40s，live gateway 504／timeout → CLI 自動化斷。
+   * 高清靠 `_600` + 間隙／陰影／% 底板（你收貨嘅佈局），像素用 format 真身 1080×1350。
+   */
+  return 1;
+}
+
+function cachePath(generation: string, parts: string[]): string {
+  const id = createHash("sha256").update(parts.join("|")).digest("hex").slice(0, 24);
+  return join(tmpdir(), "cardz-og-heatmap", generation, `${id}.jpg`);
 }
 
 function labelFontSize(w: number, h: number): number {
@@ -208,6 +219,37 @@ export async function GET(request: Request): Promise<Response> {
   const legend = LEGEND[lang];
 
   const snapshot = await loadMarketSnapshot();
+  const cacheFile = cachePath(snapshot.generation, [
+    snapshot.generation, period, String(show), scope, format, theme, updown, lang,
+  ]);
+  const filename = heatmapOgFilename({ period, show, scope, format, theme, updown, lang });
+  const ogHeaders = () => {
+    const headers = new Headers();
+    headers.set("Cache-Control", "public, max-age=300, s-maxage=300, stale-while-revalidate=86400");
+    headers.set("Content-Disposition", `inline; filename="${filename}.jpg"`);
+    headers.set("x-og-generation", snapshot.generation);
+    headers.set("x-og-period", period);
+    headers.set("x-og-show", String(show));
+    headers.set("x-og-scope", scope);
+    headers.set("x-og-format", format);
+    headers.set("x-og-theme", theme);
+    headers.set("x-og-updown", updown);
+    headers.set("x-og-lang", lang);
+    headers.set("x-og-width", String(width));
+    headers.set("x-og-height", String(height));
+    return headers;
+  };
+  if (existsSync(cacheFile)) {
+    const jpeg = await readFile(cacheFile);
+    if (jpeg.length >= 8000 && jpeg[0] === 0xff && jpeg[1] === 0xd8) {
+      const headers = ogHeaders();
+      headers.set("Content-Type", "image/jpeg");
+      headers.set("Content-Length", String(jpeg.length));
+      headers.set("x-og-bytes", String(jpeg.length));
+      headers.set("x-og-cache", "hit");
+      return new Response(new Uint8Array(jpeg), { headers });
+    }
+  }
   const scoped = scopeSnapshot(snapshot, scope, { pageSize: 100 });
   const cards = scoped.top100.slice(0, show);
   if (cards.length === 0) return new Response("No cards", { status: 404 });
@@ -234,7 +276,6 @@ export async function GET(request: Request): Promise<Response> {
     }),
   );
 
-  const { existsSync } = await import("node:fs");
   const logoFile = [
     resolve(process.cwd(), "public", skin.logo),
     resolve(process.cwd(), "apps/web/public", skin.logo),
@@ -244,7 +285,6 @@ export async function GET(request: Request): Promise<Response> {
   const title = `${BOARD_LABEL[lang][scope]} Top ${cards.length} · ${period.toUpperCase()}`;
   const dateText = copy.shortDate(new Date(snapshot.effectiveAt || snapshot.generatedAt));
   const fonts = await loadOgFonts(lang);
-  const filename = heatmapOgFilename({ period, show: cards.length, scope, format, theme, updown, lang });
 
   const logoH = Math.round(32 * scale);
   const logoW = Math.round(logoH * (969 / 419));
@@ -374,19 +414,9 @@ export async function GET(request: Request): Promise<Response> {
   );
 
   const png = Buffer.from(await image.arrayBuffer());
-  const headers = new Headers(image.headers);
-  headers.set("Cache-Control", "public, max-age=300, s-maxage=300, stale-while-revalidate=86400");
-  headers.set("Content-Disposition", `inline; filename="${filename}.jpg"`);
-  headers.set("x-og-generation", snapshot.generation);
-  headers.set("x-og-period", period);
+  const headers = ogHeaders();
   headers.set("x-og-show", String(cards.length));
-  headers.set("x-og-scope", scope);
-  headers.set("x-og-format", format);
-  headers.set("x-og-theme", theme);
-  headers.set("x-og-updown", updown);
-  headers.set("x-og-lang", lang);
-  headers.set("x-og-width", String(width));
-  headers.set("x-og-height", String(height));
+  headers.set("x-og-cache", "miss");
   const respond = (body: Buffer, mime: string) => {
     headers.set("Content-Type", mime);
     headers.set("Content-Length", String(body.length));
@@ -396,6 +426,12 @@ export async function GET(request: Request): Promise<Response> {
   try {
     const { default: sharp } = await import("sharp");
     const jpeg = await sharp(png).jpeg({ quality: JPEG_QUALITY, chromaSubsampling: "4:4:4", mozjpeg: true }).toBuffer();
+    try {
+      await mkdir(dirname(cacheFile), { recursive: true });
+      await writeFile(cacheFile, jpeg);
+    } catch {
+      /* cache 寫唔入唔擋出圖 */
+    }
     return respond(jpeg, "image/jpeg");
   } catch {
     headers.set("Content-Disposition", `inline; filename="${filename}.png"`);
