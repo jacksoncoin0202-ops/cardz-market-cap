@@ -35,10 +35,12 @@ export const contentType = "image/jpeg";
 
 const CARD_ASPECT = 0.714;
 const CARD_PCT = 0.62;
-const JPEG_QUALITY = 92;
+const TILE_GAP = 3;
+const JPEG_QUALITY = 90;
 const GREEN = "#17b576";
 const RED = "#dc567c";
 const NEUTRAL = "rgba(138, 133, 120, 0.3)";
+const LABEL = { inset: 4, padX: 3, padY: 1, radius: 4, minFont: 8, maxFont: 14 };
 
 const THEMES: Record<HeatmapOgTheme, { paper: string; ink: string; muted: string; logo: string }> = {
   dark: { paper: "#0D0D0F", ink: "#F1F1EE", muted: "#A0A09B", logo: "brand/logo-cardz-marketcap-dark.svg" },
@@ -160,16 +162,27 @@ function formatMove(pct: number | null): string | null {
   return `${sign}${pct.toFixed(1)}%`;
 }
 
+function outputScale(format: ReturnType<typeof readShareFormat>): number {
+  /* 官網 canvas 分享係 2–3.5×。OG 舊版 1× + `_200` = 糊。post/wide 2×；9:16 1.5× 以免 OOM。 */
+  return format === "status" ? 1.5 : 2;
+}
+
+function labelFontSize(w: number, h: number): number {
+  const shortSide = Math.min(w, h);
+  return Math.max(LABEL.minFont, Math.min(LABEL.maxFont, Math.round(shortSide * 0.12)));
+}
+
 async function loadCardArt(card: MarketCardView, maxEdge: number): Promise<string | null> {
   if (card.image.kind !== "raw_front") return null;
-  const source = card.image.variants?.["200"] ?? card.image.variants?.["600"] ?? card.image.url;
+  const source = card.image.variants?.["600"] ?? card.image.variants?.["200"] ?? card.image.url;
   const asset = source.split("/").pop();
   if (!asset) return null;
   const node = await loadNodeMarketAsset(asset);
   if (!node) return null;
   const { default: sharp } = await import("sharp");
+  const edge = Math.max(48, Math.min(600, Math.ceil(maxEdge)));
   const { data } = await sharp(Buffer.from(node.body))
-    .resize({ width: maxEdge, height: maxEdge, fit: "inside", withoutEnlargement: true, kernel: "lanczos3" })
+    .resize({ width: edge, height: edge, fit: "inside", withoutEnlargement: true, kernel: "lanczos3" })
     .png({ compressionLevel: 6 })
     .toBuffer({ resolveWithObject: true });
   return `data:image/png;base64,${data.toString("base64")}`;
@@ -186,6 +199,9 @@ export async function GET(request: Request): Promise<Response> {
   const lang = readShareLang(query.get("lang"));
   const copy = shareCopy(lang);
   const spec = FORMAT_SIZES[format];
+  const scale = outputScale(format);
+  const width = Math.round(spec.width * scale);
+  const height = Math.round(spec.height * scale);
   const skin = THEMES[theme];
   const up = updown === "red-up" ? RED : GREEN;
   const down = updown === "red-up" ? GREEN : RED;
@@ -196,11 +212,13 @@ export async function GET(request: Request): Promise<Response> {
   const cards = scoped.top100.slice(0, show);
   if (cards.length === 0) return new Response("No cards", { status: 404 });
 
-  const pad = 36;
-  const headerH = 56;
-  const legendH = 28;
-  const boardW = spec.width - pad * 2;
-  const boardH = spec.height - pad * 2 - headerH - 24 - legendH;
+  const pad = Math.round(24 * scale);
+  const headerH = Math.round(32 * scale);
+  const legendH = Math.round(16 * scale);
+  const boardGap = Math.round(20 * scale);
+  const boardW = width - pad * 2;
+  const boardH = height - pad * 2 - headerH - boardGap * 2 - legendH;
+  const gap = TILE_GAP * scale;
   const items = cards.map((card) => ({
     card,
     rank: card.viewRank,
@@ -209,7 +227,9 @@ export async function GET(request: Request): Promise<Response> {
   const tiles = heatmapTreemapLayout(items, boardW, boardH);
   const arts = await Promise.all(
     tiles.map(async (tile) => {
-      const { cardW } = cardBox(Math.max(1, tile.width - 3), Math.max(1, tile.height - 3));
+      const tw = Math.max(1, tile.width - gap);
+      const th = Math.max(1, tile.height - gap);
+      const { cardW } = cardBox(tw, th);
       return loadCardArt(tile.item.card, Math.max(48, Math.ceil(cardW)));
     }),
   );
@@ -226,12 +246,19 @@ export async function GET(request: Request): Promise<Response> {
   const fonts = await loadOgFonts(lang);
   const filename = heatmapOgFilename({ period, show: cards.length, scope, format, theme, updown, lang });
 
+  const logoH = Math.round(32 * scale);
+  const logoW = Math.round(logoH * (969 / 419));
+  const titleSize = Math.round(26 * scale);
+  const stampSize = Math.round(12 * scale);
+  const legendSize = Math.round(12 * scale);
+  const swatch = Math.round(12 * scale);
+
   const image = new ImageResponse(
     (
       <div
         style={{
-          width: spec.width,
-          height: spec.height,
+          width,
+          height,
           display: "flex",
           flexDirection: "column",
           background: skin.paper,
@@ -241,43 +268,70 @@ export async function GET(request: Request): Promise<Response> {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", height: headerH, justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-            <img src={logoSrc} alt="CardZ Marketcap" width={148} height={64} />
-            <div style={{ fontSize: 26, fontWeight: 700 }}>{title}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: Math.round(16 * scale) }}>
+            <img src={logoSrc} alt="CardZ Marketcap" width={logoW} height={logoH} />
+            <div style={{ fontSize: titleSize, fontWeight: 700 }}>{title}</div>
           </div>
-          <div style={{ fontSize: 16, color: skin.muted }}>{dateText}</div>
+          <div style={{ fontSize: stampSize, color: skin.muted }}>{dateText}</div>
         </div>
-        <div style={{ display: "flex", position: "relative", width: boardW, height: boardH, marginTop: 12 }}>
+        <div
+          style={{
+            display: "flex",
+            position: "relative",
+            width: boardW,
+            height: boardH,
+            marginTop: boardGap,
+          }}
+        >
           {tiles.map((tile, i) => {
             const pct = changePct(tile.item.card, period);
-            const { cardW, cardH } = cardBox(Math.max(1, tile.width - 3), Math.max(1, tile.height - 3));
+            const tw = Math.max(1, tile.width - gap);
+            const th = Math.max(1, tile.height - gap);
+            const { cardW, cardH } = cardBox(tw, th);
             const move = formatMove(pct);
             const art = arts[i];
+            const fontPx = Math.round(labelFontSize(tw, th));
+            const plate = pct && pct !== 0
+              ? `rgba(${hexToRgb(pct > 0 ? up : down).join(", ")}, 0.34)`
+              : null;
             return (
               <div
                 key={tile.item.card.id}
                 style={{
                   position: "absolute",
-                  left: tile.x,
-                  top: tile.y,
-                  width: tile.width,
-                  height: tile.height,
+                  left: tile.x + gap / 2,
+                  top: tile.y + gap / 2,
+                  width: tw,
+                  height: th,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
+                  overflow: "hidden",
                   background: tileFill(pct, up, down),
-                  borderRadius: 4,
+                  borderRadius: 4 * scale,
                 }}
               >
-                {art ? <img src={art} alt="" width={Math.round(cardW)} height={Math.round(cardH)} /> : null}
-                {move ? (
+                {art ? (
+                  <img
+                    src={art}
+                    alt=""
+                    width={Math.round(cardW)}
+                    height={Math.round(cardH)}
+                    style={{ boxShadow: `0 ${2 * scale}px ${6 * scale}px rgba(0,0,0,0.35)` }}
+                  />
+                ) : null}
+                {move && plate ? (
                   <div
                     style={{
                       position: "absolute",
-                      top: 4,
-                      right: 4,
-                      fontSize: 14,
-                      fontWeight: 700,
+                      top: LABEL.inset * scale,
+                      right: LABEL.inset * scale,
+                      display: "flex",
+                      background: plate,
+                      borderRadius: LABEL.radius * scale,
+                      padding: `${LABEL.padY * scale}px ${LABEL.padX * scale}px`,
+                      fontSize: fontPx,
+                      fontWeight: 800,
                       color: "#fff",
                     }}
                   >
@@ -288,24 +342,35 @@ export async function GET(request: Request): Promise<Response> {
             );
           })}
         </div>
-        <div style={{ display: "flex", marginTop: 14, fontSize: 14, fontWeight: 600, color: skin.muted, gap: 20 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 12, height: 12, background: up, borderRadius: 2 }} />
+        <div
+          style={{
+            display: "flex",
+            marginTop: boardGap,
+            fontSize: legendSize,
+            fontWeight: 600,
+            color: skin.muted,
+            gap: Math.round(20 * scale),
+            height: legendH,
+            alignItems: "center",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: Math.round(8 * scale) }}>
+            <div style={{ width: swatch, height: swatch, background: up, borderRadius: 2 * scale }} />
             {legend.up}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 12, height: 12, background: down, borderRadius: 2 }} />
+          <div style={{ display: "flex", alignItems: "center", gap: Math.round(8 * scale) }}>
+            <div style={{ width: swatch, height: swatch, background: down, borderRadius: 2 * scale }} />
             {legend.down}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 12, height: 12, background: NEUTRAL, borderRadius: 2 }} />
+          <div style={{ display: "flex", alignItems: "center", gap: Math.round(8 * scale) }}>
+            <div style={{ width: swatch, height: swatch, background: NEUTRAL, borderRadius: 2 * scale }} />
             {legend.pending}
           </div>
           <div style={{ marginLeft: "auto" }}>{legend.intensity}</div>
         </div>
       </div>
     ),
-    { width: spec.width, height: spec.height, ...(fonts ? { fonts } : {}) },
+    { width, height, ...(fonts ? { fonts } : {}) },
   );
 
   const png = Buffer.from(await image.arrayBuffer());
@@ -320,6 +385,8 @@ export async function GET(request: Request): Promise<Response> {
   headers.set("x-og-theme", theme);
   headers.set("x-og-updown", updown);
   headers.set("x-og-lang", lang);
+  headers.set("x-og-width", String(width));
+  headers.set("x-og-height", String(height));
   const respond = (body: Buffer, mime: string) => {
     headers.set("Content-Type", mime);
     headers.set("Content-Length", String(body.length));

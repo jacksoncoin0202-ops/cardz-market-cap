@@ -62,6 +62,8 @@ check("heatmap route 逐語言載字體", /loadOgFonts\(lang\)/.test(routeSrc) &
 check("heatmap route fontFamily 跟語言", /SHARE_FONT_FAMILY\[lang\]/.test(routeSrc));
 
 check("heatmap.tsx fetch heatmapOgPath", /heatmapOgPath\(/.test(heatmapSrc) && /fetch\(path/.test(heatmapSrc));
+check("卡圖優先 _600（唔好用 200 放大糊）", /variants\?\.\["600"\] \?\? card\.image\.variants\?\.\["200"\]/.test(routeSrc));
+check("post OG 2× 輸出（對齊官網 canvas 高清）", /format === "status" \? 1\.5 : 2/.test(routeSrc));
 check("heatmap.tsx 唔再 toBlob 出分享圖", !/canvas\.toBlob/.test(heatmapSrc));
 check("landscape → wide", readShareFormat("landscape") === "wide");
 check("portrait → post", readShareFormat("portrait") === "post");
