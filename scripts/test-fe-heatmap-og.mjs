@@ -93,6 +93,53 @@ check("tall → status", readShareFormat("tall") === "status");
   check("⑤ 180d 會紅（證明閘有牙）", dailyOk("180d") === false);
 }
 
+{
+  /*
+   * ⑥ 升跌 % 個字要跟住清晰度放大。
+   *
+   * 2026-08-21 owner 報：4K 張圖啲 percentage 細到睇唔到。根因唔係 render 細咗，
+   * 係 `labelFontSize` 個 `minFont`/`maxFont` 係 1× 嘅數 —— tile 大咗一倍，
+   * `shortSide * 0.12` 都大咗一倍，但一撞到 `maxFont` 就夾死喺 14px，畫布 2160
+   * 闊粒字仲係 14px。凡係 tile 短邊 ≥ ~117px（即係大部分 tile）都中招。
+   *
+   * 呢條唔係 regex 契約 —— 直接由 route 原始碼挖返個 function 出嚟行真數，
+   * 守嘅係「4K 個 font 就係 1080p 嘅兩倍」（±1px 係 round 嘅零頭）。
+   * 負控制種返舊寫法（clamp 唔乘 scale），一定要紅，證明呢條 check 有牙。
+   */
+  const strip = (src) => src.replace(/: number/g, "");
+  const labelConst = (routeSrc.match(/const LABEL = \{[^}]*\};/) || [])[0];
+  const fnSrc = (routeSrc.match(/function labelFontSize\([^)]*\)[^{]*\{[\s\S]*?\n\}/) || [])[0];
+  check("⑥ 挖到 LABEL 同 labelFontSize", Boolean(labelConst && fnSrc));
+
+  const build = (fn) => new Function(`${strip(labelConst)}\n${strip(fn)}\nreturn labelFontSize;`)();
+  const shipped = build(fnSrc);
+  /* 舊寫法：clamp 用返 1× 嘅數 —— 就係 owner 見到嗰個 bug。 */
+  const buggy = build(`function labelFontSize(w, h, scale) {
+    const shortSide = Math.min(w, h);
+    return Math.max(LABEL.minFont, Math.min(LABEL.maxFont, Math.round(shortSide * 0.12)));
+  }`);
+
+  /* 1× tile 短邊：由細過 minFont 一路到大到撞 maxFont。 */
+  const TILES = [40, 60, 80, 100, 105, 117, 140, 200, 300, 460];
+  const doublesOk = (f) => TILES.every((side) => {
+    const one = f(side, side * 1.25, 1);
+    const two = f(side * 2, side * 2.5, 2);
+    return Math.abs(two - one * 2) <= 1;
+  });
+  const worst = TILES.map((side) => ({
+    side, one: shipped(side, side * 1.25, 1), two: shipped(side * 2, side * 2.5, 2),
+  })).filter((row) => Math.abs(row.two - row.one * 2) > 1);
+
+  check("⑥ 4K 個 % font 係 1080p 嘅兩倍", doublesOk(shipped), JSON.stringify(worst));
+  /* maxFont 由原始碼讀返，改咗 14 呢條唔會靜靜變成廢閘。 */
+  const maxFont = Number((labelConst.match(/maxFont: (\d+)/) || [])[1]);
+  check("⑥ 大 tile 唔再夾死喺 1× 上限（4K 要 " + maxFont * 2 + "px）",
+    shipped(600, 750, 2) === maxFont * 2, String(shipped(600, 750, 2)));
+  check("⑥ 舊寫法會紅（證明閘有牙）", doublesOk(buggy) === false);
+  check("⑥ scale 冇 default，call site 一定要傳", /labelFontSize\(tw, th, scale\)/.test(routeSrc)
+    && /function labelFontSize\(w, h, scale\)/.test(strip(fnSrc)));
+}
+
 if (failed.length) {
   console.error(failed.map((row) => `FAIL ${row}`).join("\n"));
   process.exit(1);

@@ -194,9 +194,17 @@ function cachePath(generation: string, parts: string[]): string {
   return join(tmpdir(), "cardz-og-heatmap", generation, `${id}.jpg`);
 }
 
-function labelFontSize(w: number, h: number): number {
+/*
+ * 升跌 % 個字。`w`/`h` 入嚟已經係**放大咗**嘅 tile 尺寸，所以 `shortSide * 0.12`
+ * 自己已經係 2×；但 `minFont`/`maxFont` 係 1× 嘅數，唔乘返 `scale` 就會喺 4K
+ * 度夾死喺 14px —— 畫布大咗一倍、粒字冇變，睇落就係「4K 啲 % 細咗一半」。
+ * （2026-08-21 owner 報：4K 啲 percentage 細到睇唔到。）
+ *
+ * `scale` **冇 default 值**，係要逼將來新嘅 call site 明寫，唔寫 tsc 就紅。
+ */
+function labelFontSize(w: number, h: number, scale: number): number {
   const shortSide = Math.min(w, h);
-  return Math.max(LABEL.minFont, Math.min(LABEL.maxFont, Math.round(shortSide * 0.12)));
+  return Math.max(LABEL.minFont * scale, Math.min(LABEL.maxFont * scale, Math.round(shortSide * 0.12)));
 }
 
 async function loadCardArt(card: MarketCardView, maxEdge: number): Promise<string | null> {
@@ -370,7 +378,7 @@ export async function GET(request: Request): Promise<Response> {
             const { cardW, cardH } = cardBox(tw, th);
             const move = formatMove(pct);
             const art = arts[i];
-            const fontPx = Math.round(labelFontSize(tw, th));
+            const fontPx = Math.round(labelFontSize(tw, th, scale));
             const plate = pct && pct !== 0
               ? `rgba(${hexToRgb(pct > 0 ? up : down).join(", ")}, 0.34)`
               : null;
