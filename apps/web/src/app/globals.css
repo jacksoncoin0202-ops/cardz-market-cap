@@ -1186,9 +1186,12 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
  * 呢行係「揀一個設定」，唔係「揀一個目的地」，撳落去唔會收 menu。 */
 .share-menu-chips { display: flex; gap: 5px; padding: 0 3px 3px; }
 .share-menu-chip {
+  /* 粒字要**喺粒掣正中間**。「較慢」係徽章唔係字嘅一部分：留喺 flow 入面會
+     推歪個 label（4K 會偏左，同隔籬 1080p 對唔齊），所以抽出去絕對定位。
+     `baseline` 亦都唔會 vertically center —— 單行 flex line 會貼住 cross-start。 */
+  position: relative;
   display: inline-flex;
-  align-items: baseline;
-  gap: 5px;
+  align-items: center;
   flex: 1;
   justify-content: center;
   min-height: 32px;
@@ -1216,7 +1219,16 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   color: var(--accent);
 }
 /* 「較慢」——4K 未 cache 實測 50–57 秒。唔講就係扮撳落去即刻有。 */
-.share-menu-chip-note { color: var(--muted); font-size: var(--fs-micro); font-weight: var(--w-label); }
+.share-menu-chip-note {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  font-size: var(--fs-micro);
+  font-weight: var(--w-label);
+  pointer-events: none;
+}
 .share-menu-chip[data-active="true"] .share-menu-chip-note { color: inherit; opacity: 0.75; }
 @media (pointer: coarse) {
   .share-menu-chip { min-height: 40px; }
