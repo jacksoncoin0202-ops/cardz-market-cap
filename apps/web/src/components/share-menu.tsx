@@ -32,7 +32,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from
 import { tap } from "@/lib/haptic";
 import { SHARE_TARGETS, type ShareTarget, type ShareTargetId } from "@/lib/share-destinations";
 import type { ShareOutcome } from "@/lib/share-file";
-import { RESOLUTION_IS_SLOW, RESOLUTION_LABEL, RESOLUTION_TIMEOUT_MS, resolutionPixels, type ShareResolution } from "@/lib/share-resolution";
+import { RESOLUTION_IS_SLOW, RESOLUTION_LABEL, RESOLUTION_RETRY_BUDGET_MS, resolutionPixels, type ShareResolution } from "@/lib/share-resolution";
 
 /* 收埋 menu 前留 120ms 俾 `.select-menu-exit` 做退場動畫（同 select-control.tsx 一樣） */
 const MENU_EXIT_MS = 120;
@@ -185,10 +185,11 @@ export function ShareMenu({ surface, copy, quality, onPick, onWarm, onOpen, trig
 
   /*
    * 死鎖閘要跟得住揀咗嘅清晰度。`PICK_TIMEOUT_MS` 淨係「人喺 OS share sheet 度慢慢揀」
-   * 嗰段時間；出圖嗰段係 `RESOLUTION_TIMEOUT_MS`。4K 未 cache 實測 50–57 秒，兩段夾埋
-   * 先夠 —— 用返 45 秒就係「撳 4K 等 45 秒然後必定出紅色交叉」。
+   * 嗰段時間；出圖嗰段係 `RESOLUTION_RETRY_BUDGET_MS`（**唔係**單次 fetch timeout）——
+   * 4K 一定俾 gateway 喺 60 秒斬一次，要 retry 到 100–126 秒先攞到，所以要用成個
+   * retry 預算，唔係單次。用單次嗰個數 = 「撳 4K 等一陣然後必定出紅色交叉」。
    */
-  const pickTimeoutMs = quality ? RESOLUTION_TIMEOUT_MS[quality.value] + PICK_TIMEOUT_MS : PICK_TIMEOUT_MS;
+  const pickTimeoutMs = quality ? RESOLUTION_RETRY_BUDGET_MS[quality.value] + PICK_TIMEOUT_MS : PICK_TIMEOUT_MS;
 
   const clearExit = useCallback(() => {
     if (exitTimer.current) clearTimeout(exitTimer.current);

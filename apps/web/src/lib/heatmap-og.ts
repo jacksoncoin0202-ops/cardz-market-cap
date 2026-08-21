@@ -28,7 +28,7 @@ export const HEATMAP_OG_DEFAULT_PERIOD: MarketWindow = "7d";
  * 第一個人張圖，兩邊都係 200，冇人會發現。
  */
 export const HEATMAP_OG_QUERY_KEYS = [
-  "period", "show", "scope", "format", "theme", "updown", "lang", "res", "stamp", "tz",
+  "period", "show", "scope", "format", "theme", "updown", "lang", "res", "stamp", "tz", "at",
 ] as const;
 
 export type HeatmapOgScope = "all" | "pokemon" | "one-piece";
@@ -49,6 +49,12 @@ export interface HeatmapOgQuery {
   stamp?: StampMode;
   /** `stamp=now` 先有用。IANA 名，例如 `Asia/Tokyo`。認唔到跌返 UTC。 */
   tz?: string;
+  /**
+   * `stamp=now` 先有用。epoch ms，釘死個戳嗰一刻，令 retry 每次都行返同一條
+   * cache key（4K 一定要 retry，見 `lib/share-stamp.ts` 上面段實測）。
+   * 出窗／垃圾 → server 當冇俾，用佢自己而家。
+   */
+  at?: number;
 }
 
 export function heatmapOgScopeFromKind(kind: string): HeatmapOgScope {
@@ -79,6 +85,7 @@ export function heatmapOgSearch(opts: HeatmapOgQuery = {}): string {
   if (opts.stamp && opts.stamp !== "data") {
     q.set("stamp", opts.stamp);
     if (opts.tz) q.set("tz", opts.tz);
+    if (typeof opts.at === "number" && Number.isFinite(opts.at)) q.set("at", String(opts.at));
   }
   return q.toString();
 }

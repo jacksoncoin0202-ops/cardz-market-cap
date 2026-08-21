@@ -165,9 +165,12 @@ check("ShareAspect 由 share-destinations 出（一張表）", /export type \{ S
 check("SHARE_ASPECTS 三個槽", /export const SHARE_ASPECTS = \["post", "wa", "frame"\] as const;/.test(destinations));
 check("heatmap 分享 GET /api/og/heatmap", /heatmapOgPath\(/.test(heatmap) && /fetch\(path/.test(heatmap));
 /* 2026-08-21：timeout 由寫死 45 秒改成跟清晰度（4K 實測 50–57 秒，45 秒會次次自斬）。
-   呢條比原本嚴：唔淨止要有 timeout，仲要係逐級嗰個。 */
-check("heatmap 分享 timeout 跟清晰度", /AbortSignal\.timeout\(shareFetchTimeoutMs\(res\)\)/.test(heatmap)
-  && /RESOLUTION_TIMEOUT_MS\[res\]/.test(heatmap));
+   同日再收窄：真站量到 4K 一定俾 gateway 喺 60 秒斬，所以除咗**單次** timeout，
+   仲要有**成個 retry 迴圈**嘅預算。兩個數都要喺度 —— 淨得一個嗰種寫法就係
+   「等一次然後放棄」或者「一次過等十分鐘」，兩樣都錯。呢條比原本嚴，冇放鬆。 */
+check("heatmap 分享 timeout 跟清晰度", /AbortSignal\.timeout\(per\)/.test(heatmap)
+  && /RESOLUTION_TIMEOUT_MS\[res\]/.test(heatmap)
+  && /RESOLUTION_RETRY_BUDGET_MS\[res\]/.test(heatmap));
 check("heatmap warm cache key 連語言 period scope updown res",
   /`\$\{format\}\|\$\{imageLang\}\|\$\{activePeriod\}\|\$\{visibleCount\}\|\$\{scope\}\|\$\{ogTheme\}\|\$\{upDown\}\|\$\{res\}`/.test(heatmap));
 check("exportHeatmap 冇預設 target", /const exportHeatmap = useCallback\(async \(target: ShareTarget\) =>/.test(heatmap));
@@ -242,8 +245,13 @@ check("⑦d: readShareLang 一樣行 Object.hasOwn", /Object\.hasOwn\(LANG_ALIAS
 check("ShareMenu 認得 dismissed", /outcome === "dismissed"/.test(shareMenu) && /setState\("idle"\);/.test(shareMenu));
 check("卡片內頁交返個 outcome", /return await shareImageBlob\(blob, \{/.test(cardDetail));
 check("熱力圖交返個 outcome", /return outcome;/.test(heatmap));
+/* 2026-08-21 加咗 retry 之後，「失敗」有兩條路，兩條都唔准靜靜返個壞 blob：
+   ① 唔喺 retry 名單嗰啲 status（真係錯）→ 即刻掟；
+   ② retry 預算用晒都仲未攞到 → 迴圈出到嚟嗰下要掟，唔准 `return undefined`。
+   呢條由一個 needle 變兩個，收窄咗。 */
 check("熱力圖 OG 失敗唔准靜靜扮成功（要掟）",
-  /if \(!response\.ok\) throw new Error\(`heatmap OG HTTP/.test(heatmap));
+  /throw new Error\(`heatmap OG HTTP \$\{response\.status\}`\)/.test(heatmap)
+  && /throw new Error\(`heatmap OG 攞唔到/.test(heatmap));
 
 /*
  * ⑦f busy 唔准用 DOM `disabled`：瀏覽器將一個正攞住 focus 嘅 button 設成 disabled

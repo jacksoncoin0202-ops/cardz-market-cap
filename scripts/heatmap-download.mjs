@@ -13,13 +13,16 @@
  * 幾點、行咗幾耐）。
  *
  * ── 兩件唔明講就會咬親人嘅事 ─────────────────────────────────────────────
- * 1. **4K 慢。** 真 2× render，唔係放大。實測（40 格、post）：1080p 4–5 秒、
- *    4K 50–57 秒。所以呢度 default timeout 係 180 秒，同瀏覽器嗰邊唔同 ——
- *    瀏覽器有 gateway 睇實，CLI 冇，可以慢慢等。同一組參數第二次會撞 server cache
- *    （~0.1 秒），但 `--stamp now`（預設）個戳精確到分鐘，過咗一分鐘就係新一張。
- * 2. **個戳預設係「而家」。** CLI 落載嘅圖右上角寫嘅係你 call 佢嗰一刻 + 你部機個
- *    時區（`--tz` 改）。想要資料日就 `--stamp data` —— 嗰個先係 og:image 同 HERMES
- *    條 cron 鏈用嘅模式。
+ * 1. **4K 一次 request 攞唔到，要 retry —— 呢個 CLI 自己識做。**
+ *    2026-08-21 喺真站量：4K 每次都俾 gateway 喺 60 秒斬（504，量三次都係 60.1 秒），
+ *    但 server 斷咗線照做完照寫 cache，等夠再攞返同一條 URL 就 0.2 秒返 1.15 MB。
+ *    所以呢度嘅做法係「踢一腳 → 等 → 再攞」，`--timeout` 係**成個迴圈**嘅預算，
+ *    唔係單次。你唔使做嘢，但唔好見到中途印住 504 就以為死咗。
+ *    （早期呢度寫過「瀏覽器有 gateway、CLI 冇」—— 嗰句係錯嘅，同一個 gateway。）
+ * 2. **個戳預設係「而家」，而且會釘死。** 右上角寫你 call 佢嗰一刻 + 你部機時區
+ *    （`--tz` 改）。retry 要撞返同一條 cache key，所以 CLI 會用 `?at=` 把嗰一刻釘死
+ *    ——唔釘就過咗一分鐘變新 key，retry 永遠 miss。想要資料日就 `--stamp data`
+ *    （og:image 同 HERMES cron 鏈用嗰個）。
  *
  * ── 邊個係權威 ───────────────────────────────────────────────────────────
  * 呢個檔**冇自己一份選項表**。所有可揀嘅值都係開機嗰陣由 `apps/web/src/lib/*.ts`
@@ -36,6 +39,17 @@ const LIB = join(ROOT, "apps/web/src/lib");
 
 const DEFAULT_BASE = "https://app.cardzmarketcap.com";
 const DEFAULT_TIMEOUT_MS = 180_000;
+
+/*
+ * Retry 迴圈嘅數字，全部由 2026-08-21 真站實測嚟：
+ *   踢一腳 → gateway 60.1 秒出 504（量三次：60.1 / 60.0 / 60.1）
+ *   t+99s  仲未有；t+126s cache hit 1,143,776 bytes
+ * 所以第一次等 75 秒（畀 gateway 自己出 504，唔好客端先斬 —— 個 status code 有用），
+ * 之後每 15 秒攞一次，每次只等 30 秒（撞到 cache 係 0.2 秒，撞唔到就唔好呆等）。
+ */
+const KICK_TIMEOUT_MS = 75_000;
+const POLL_TIMEOUT_MS = 30_000;
+const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
 const read = (rel) => readFileSync(join(LIB, rel), "utf8");
 
@@ -62,6 +76,32 @@ function formatSizes(src) {
     out[m[1]] = { width: Number(m[2]), height: Number(m[3]) };
   }
   if (Object.keys(out).length === 0) throw new Error("heatmap-download: 讀唔到 FORMAT_SIZES");
+  return out;
+}
+
+/** `export const NAME = [408, 502] as const;` → [408,502] */
+function numberArray(src, name) {
+  const m = new RegExp(`export const ${name}\\s*=\\s*\\[([^\\]]*)\\]\\s*as const`).exec(src);
+  if (!m) throw new Error(`heatmap-download: 讀唔到 ${name}（改咗名？改埋呢度同 test）`);
+  const vals = [...m[1].matchAll(/(\d[\d_]*)/g)].map((x) => Number(x[1].replace(/_/g, "")));
+  if (vals.length === 0) throw new Error(`heatmap-download: ${name} 空`);
+  return vals;
+}
+
+/** `export const NAME = 15_000;` → 15000 */
+function numberConst(src, name) {
+  const m = new RegExp(`export const ${name}\\s*=\\s*([\\d_]+)`).exec(src);
+  if (!m) throw new Error(`heatmap-download: 讀唔到 ${name}（改咗名？改埋呢度同 test）`);
+  return Number(m[1].replace(/_/g, ""));
+}
+
+/** `"4k": 600_000,` 喺 RESOLUTION_RETRY_BUDGET_MS 入面 → {"1080p":60000,"4k":600000} */
+function retryBudget(src) {
+  const block = /RESOLUTION_RETRY_BUDGET_MS[^=]*=\s*\{([^}]*)\}/.exec(src);
+  if (!block) throw new Error("heatmap-download: 讀唔到 RESOLUTION_RETRY_BUDGET_MS");
+  const out = {};
+  for (const m of block[1].matchAll(/"([^"]+)":\s*([\d_]+)/g)) out[m[1]] = Number(m[2].replace(/_/g, ""));
+  if (Object.keys(out).length === 0) throw new Error("heatmap-download: RESOLUTION_RETRY_BUDGET_MS 空");
   return out;
 }
 
@@ -93,6 +133,10 @@ export function readOptions() {
     updown: unionType(heatmapOg, "HeatmapOgUpDown"),
     sizes: formatSizes(destinations),
     scale: resolutionScale(resolution),
+    budget: retryBudget(resolution),
+    retryStatuses: numberArray(resolution, "SHARE_RETRY_STATUSES"),
+    pollMs: numberConst(resolution, "SHARE_RETRY_POLL_MS"),
+    firstWaitMs: numberConst(resolution, "SHARE_RETRY_FIRST_WAIT_MS"),
   };
 }
 
@@ -138,7 +182,7 @@ function help(opts) {
     `  --tz        IANA 時區   （預設跟部機：${tz}）`,
     "  --out       出邊度：檔案路徑，或者一個資料夾（入面用自動檔名）   （預設 ./<自動檔名>.jpg）",
     `  --base      邊個站   （預設 ${DEFAULT_BASE}）`,
-    `  --timeout   幾多毫秒   （預設 ${DEFAULT_TIMEOUT_MS}，4K 要 50 秒以上）`,
+    `  --timeout   成個 retry 迴圈嘅預算（毫秒）   （預設跟清晰度：${opts.res.map((r) => `${r} ${Math.round((opts.budget[r] ?? 0) / 1000)}s`).join(" / ")}）`,
     "  --list      印晒所有可揀嘅值同真實像素",
     "",
     "  例：",
@@ -146,7 +190,9 @@ function help(opts) {
     "    node scripts/heatmap-download.mjs --res 4k --format status --out ~/story.jpg",
     "    node scripts/heatmap-download.mjs --base http://localhost:3901 --res 4k",
     "",
-    "  ⚠️ 4K 係真 2× render 唔係放大：實測 50–57 秒（1080p 4–5 秒）。",
+    "  ⚠️ 4K 係真 2× render 唔係放大。真站實測：gateway 60 秒斬一次（會見到 504），",
+    "     server 照 render 落去，約 100–126 秒之後拎到。呢個 CLI 自己會 retry，你唔使做嘢。",
+    "     1080p 一次過返，5.7 秒。",
   ].join("\n");
 }
 
@@ -200,7 +246,15 @@ async function main() {
     res: args.res ?? opts.res[0],
     stamp: args.stamp ?? "now",
   };
-  if (q.stamp === "now") q.tz = args.tz ?? localTimeZone();
+  if (q.stamp === "now") {
+    q.tz = args.tz ?? localTimeZone();
+    /*
+     * 釘死「而家」。唔釘就係：第一腳 07:44 出 504、15 秒後 retry 已經 07:45，兩條
+     * 唔同 cache key，server 由頭 render 多一次，永遠撞唔到頭先嗰張。歸到分鐘同
+     * server 一樣（`readStampAt` 都係 floor 到分鐘），兩邊先會計出同一條 key。
+     */
+    q.at = String(Math.floor(Date.now() / 60_000) * 60_000);
+  }
 
   /* 打錯字唔係死罪（server 有 fallback，唔會 500），但一定要嘈 —— 靜靜攞到另一張圖
      先係最難查嗰種。照送出去，等 server 講返佢實際行咗咩。 */
@@ -212,26 +266,53 @@ async function main() {
 
   const base = (args.base ?? DEFAULT_BASE).replace(/\/+$/, "");
   const url = `${base}/api/og/heatmap?${new URLSearchParams(q).toString()}`;
-  const timeout = Number(args.timeout ?? DEFAULT_TIMEOUT_MS);
+  /* `--timeout` 係**成個 retry 迴圈**嘅預算，唔係單次 request。預設由
+     `RESOLUTION_RETRY_BUDGET_MS` 嚟（1080p 60 秒、4K 600 秒），唔喺呢度寫死。 */
+  const budget = Number(args.timeout ?? opts.budget[q.res] ?? DEFAULT_TIMEOUT_MS);
   const scale = opts.scale[q.res] ?? 1;
   const spec = opts.sizes[q.format];
   const expect = spec ? `${Math.round(spec.width * scale)}×${Math.round(spec.height * scale)}` : "?";
 
   console.log(`→ ${url}`);
-  console.log(`  預期 ${q.res}（${expect}）${scale > 1 ? "，真 2× render，可能要 50 秒以上" : ""}`);
+  console.log(`  預期 ${q.res}（${expect}）${scale > 1 ? `，真 2× render，實測 100–126 秒，行緊 retry（預算 ${Math.round(budget / 1000)} 秒）` : ""}`);
 
+  /*
+   * 「踢一腳 → 等 → 再攞返同一條 URL」。
+   * 第一腳幾乎一定係 504（gateway 60 秒硬閘），**唔係失敗** —— server 收咗貨、
+   * 照 render 落去、照寫 cache。之後每一次都係攞同一條 URL，撞到就 0.2 秒返。
+   */
   const started = Date.now();
-  let response;
-  try {
-    response = await fetch(url, { signal: AbortSignal.timeout(timeout) });
-  } catch (err) {
-    const why = err?.name === "TimeoutError" ? `等咗 ${timeout}ms 都未返` : err?.message ?? String(err);
-    console.error(`✗ 攞唔到：${why}`);
-    if (scale > 1) console.error("  4K 慢，如果係 timeout：加 --timeout 300000，或者 --base 指去本地 dev server。");
-    process.exit(1);
+  const deadline = started + budget;
+  let response = null;
+  let attempts = 0;
+  let lastWhy = "";
+  while (Date.now() < deadline) {
+    attempts += 1;
+    const per = Math.min(attempts === 1 ? KICK_TIMEOUT_MS : POLL_TIMEOUT_MS, deadline - Date.now());
+    let got = null;
+    try {
+      got = await fetch(url, { signal: AbortSignal.timeout(per) });
+    } catch (err) {
+      lastWhy = err?.name === "TimeoutError" ? `等咗 ${per}ms 都未返` : (err?.message ?? String(err));
+    }
+    if (got?.ok) { response = got; break; }
+    if (got && !opts.retryStatuses.includes(got.status)) {
+      /* 唔係 gateway 唔想等，係真係錯 —— retry 幾多次都一樣，即刻收工。 */
+      console.error(`✗ HTTP ${got.status} ${got.statusText}`);
+      process.exit(1);
+    }
+    if (got) lastWhy = `HTTP ${got.status}`;
+    /* 第一腳之後等耐啲：每次 cache miss 都會喺 server 開多一個 render，問得密
+       只會令部機更加慢。等到約 t+110s（實測 render 100–126 秒完）先問第二次。 */
+    const wait = attempts === 1 ? opts.firstWaitMs : opts.pollMs;
+    if (Date.now() + wait >= deadline) break;
+    const at = Math.round((Date.now() - started) / 1000);
+    console.log(`· 第 ${attempts} 次 ${lastWhy}（t+${at}s）—— gateway 唔等，但 server 仲 render 緊，${wait / 1000} 秒後再攞返同一條 URL`);
+    await sleep(wait);
   }
-  if (!response.ok) {
-    console.error(`✗ HTTP ${response.status} ${response.statusText}`);
+  if (!response) {
+    console.error(`✗ ${Math.round(budget / 1000)} 秒預算用晒都攞唔到（試咗 ${attempts} 次，最後：${lastWhy}）`);
+    console.error(`  加 --timeout ${budget * 2}，或者 --base http://localhost:3901 指去本地 dev server。`);
     process.exit(1);
   }
   const bytes = Buffer.from(await response.arrayBuffer());
@@ -260,10 +341,18 @@ async function main() {
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, bytes);
 
-  console.log(`✓ ${gotW}×${gotH}  ${h("x-og-res")}  ${(bytes.length / 1024).toFixed(0)} KB  ${elapsed}s  (cache ${h("x-og-cache")})`);
+  console.log(`✓ ${gotW}×${gotH}  ${h("x-og-res")}  ${(bytes.length / 1024).toFixed(0)} KB  ${elapsed}s  (cache ${h("x-og-cache")}${attempts > 1 ? `，第 ${attempts} 次` : ""})`);
   console.log(`  戳：${stampText}${h("x-og-tz") ? `（${h("x-og-tz")}）` : "（資料日）"}`);
   console.log(`  generation ${h("x-og-generation")}`);
   console.log(`  ${outPath}`);
+
+  /*
+   * 個 `at` server 收唔收到？收唔到（多數係本機同 server 個鐘差得遠）就代表下次
+   * retry 會係另一條 cache key —— 今次好彩撞啱，下次可能一路 miss。要嘈。
+   */
+  if (q.stamp === "now" && h("x-og-at") && h("x-og-at") !== "pinned") {
+    console.warn(`⚠️  server 冇收你個 --at pin（x-og-at=${h("x-og-at")}）—— 對下部機個鐘，唔係 4K retry 會撞唔到 cache`);
+  }
 
   /* 攞到嘅同要求嘅唔同 = server 幫你 fallback 咗。唔准當冇事發生。 */
   if (h("x-og-res") && h("x-og-res") !== q.res) {

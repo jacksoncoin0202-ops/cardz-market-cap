@@ -71,6 +71,48 @@ export const RESOLUTION_TIMEOUT_MS: Record<ShareResolution, number> = {
   "4k": 180_000,
 };
 
+/*
+ * ── 一次 request 攞唔到 4K：真站實測 ─────────────────────────────────────
+ *
+ * 2026-08-21 喺 app.cardzmarketcap.com（deploy 之後即刻量）：
+ *   1080p  `HTTP 200  5.7s  409,905 bytes`      —— 一次過，冇事。
+ *   4K     `504 Gateway Timeout @ 60.1s`        —— 量三次，60.1 / 60.0 / 60.1，
+ *          即係 gateway 一個 60 秒硬閘，唔關 code 事，repo 呢邊改唔到。
+ *   但**斷線之後 server 冇停手**：等 150 秒再攞返同一條 URL，
+ *          `HTTP 200  0.2s  1,182,847 bytes  x-og-res=4k`。
+ *
+ * 所以 4K 唔係「等耐啲就得」，係「踢一腳 → 等佢自己做完 → 再攞返同一條 URL」。
+ * `RESOLUTION_TIMEOUT_MS` 係**一次** request 等幾耐；下面呢個係**成個 retry 迴圈**
+ * 嘅預算（踢 + 等 + 攞）。兩個數係兩件事，唔准合併。
+ *
+ * ⚠️ retry 要撞到 cache，就一定要每次都行同一條 cache key。`stamp=now` 個 key 帶
+ * 住分鐘，所以叫方要用 `?at=` 釘死嗰一刻 —— 見 `lib/share-stamp.ts`。
+ */
+export const RESOLUTION_RETRY_BUDGET_MS: Record<ShareResolution, number> = {
+  "1080p": 60_000,
+  "4k": 600_000,
+};
+
+/*
+ * 邊啲 status 值得再試。呢啲全部係「前面條 gateway 唔想等」，唔係「你參數錯」——
+ * 後面 server 通常仲喺度做緊嘢。其餘 4xx 同 500 唔喺度：retry 幾多次都係同一個答案。
+ * 網站同 CLI 兩邊都讀呢一張表，唔准各寫一份。
+ */
+export const SHARE_RETRY_STATUSES = [408, 502, 503, 504, 522, 524] as const;
+
+/** 兩次之間等幾耐。撞到 cache 係 0.2 秒，所以密啲冇著數，15 秒夠。 */
+export const SHARE_RETRY_POLL_MS = 15_000;
+
+/*
+ * 踢完第一腳之後**特別等耐啲**先問第二次。
+ *
+ * 點解要分開一個數：每一次 cache miss 嘅 request 都會喺 server 度開多一個 render，
+ * 唔會排隊，唔會共用。即係問得太密＝同一張圖同時 render 幾次，部機更加慢。
+ * 實測：gateway 60 秒斬，render 100–126 秒完。60 + 50 = 110 秒，啱啱落喺條帶入面，
+ * 所以正常情況下總共只會 render 一次（第二次問就已經撞到 cache）。
+ */
+export const SHARE_RETRY_FIRST_WAIT_MS = 50_000;
+
 /** 某個比例 × 某個清晰度 = 真實像素。UI／CLI／header 一律報呢個，唔准報 tier 名。 */
 export function resolutionPixels(format: ShareFormat, res: ShareResolution): { width: number; height: number } {
   const spec = FORMAT_SIZES[format];
@@ -151,6 +193,21 @@ if (tightTimeout.length > 0) {
   throw new Error(
     `share-resolution: 慢嘅 tier timeout 太窄，實測要 50–57 秒（${tightTimeout
       .map((res) => `${res}: ${RESOLUTION_TIMEOUT_MS[res]}ms < ${SLOW_TIER_MIN_TIMEOUT_MS}ms`)
+      .join("、")}）`,
+  );
+}
+
+/*
+ * ⚠️ Guard：成個 retry 預算唔可以細過單次 timeout —— 細過即係「第一腳都未等完就
+ * 收工」，個 retry 迴圈變裝飾品。
+ */
+const shortBudget = SHARE_RESOLUTIONS.filter(
+  (res) => RESOLUTION_RETRY_BUDGET_MS[res] < RESOLUTION_TIMEOUT_MS[res],
+);
+if (shortBudget.length > 0) {
+  throw new Error(
+    `share-resolution: retry 預算細過單次 timeout（${shortBudget
+      .map((res) => `${res}: ${RESOLUTION_RETRY_BUDGET_MS[res]}ms < ${RESOLUTION_TIMEOUT_MS[res]}ms`)
       .join("、")}）`,
   );
 }

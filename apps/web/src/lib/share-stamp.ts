@@ -1,4 +1,5 @@
 import type { ShareLang } from "./share-copy";
+import { RESOLUTION_RETRY_BUDGET_MS } from "./share-resolution";
 
 /*
  * 張圖右上角嗰個時間戳。
@@ -53,6 +54,61 @@ export function readTimeZone(value: string | null | undefined): string {
   } catch {
     return "UTC";
   }
+}
+
+/*
+ * ── `at`：釘死「嗰一刻」，為咗 retry ──────────────────────────────────────
+ *
+ * 2026-08-21 喺真站 app.cardzmarketcap.com 實測到嘅事：
+ *   4K 一次 request **必定**俾 gateway 60.1 秒斬（504），量咗三次都係 60 秒。
+ *   但 server 其實冇停手 —— 斷線之後照做完、照寫 cache。等 150 秒再攞返
+ *   同一條 URL：`HTTP 200 0.2s 1182847 bytes x-og-res=4k`。
+ *   （同一刻 1080p 係 `200 5.7s 409905 bytes`，冇呢個問題。）
+ *
+ * 所以 4K 嘅正路唔係「等佢一次過返」，係「踢一腳 → 等 → 再攞返同一條 URL」。
+ *
+ * 呢度就係嗰個「同一條 URL」點解需要幫手：`stamp=now` 之下個 cache key 帶住分鐘，
+ * 第一腳 07:44 第二腳 07:46 就係兩條唔同 key，永遠 miss，retry 變咗一次又一次
+ * 由頭 render。叫方要有得講「用返我第一腳嗰一刻」，所以有 `?at=<epoch ms>`。
+ *
+ * 兩條硬條件，一條都唔准鬆：
+ *   1. **歸到分鐘。** 顯示精度本來就係分鐘，唔歸就變成每毫秒一條 cache key。
+ *   2. **夾窗。** 呢條 route 係公開嘅；唔夾窗，任何人都可以用 `at` 無限噴 cache
+ *      檔。夾咗窗，key 數目封頂 = 窗口分鐘數（±60 分 = 121 條），有得計。
+ * 出窗／垃圾值 → 當冇俾（用 server 而家），唔准 500 —— 同 `readShareFormat` 一樣。
+ */
+export const STAMP_AT_WINDOW_MS = 60 * 60_000;
+
+/*
+ * ⚠️ Guard：個 pin 喺 retry 迴圈**開頭**釘落去，最後一次 retry 喺開頭 + 成個預算
+ * 之後先發生。所以個窗一定要闊過最長嗰個 retry 預算（留一倍位）—— 窄過就係 pin
+ * 喺半路過期，跟住每次 retry 都係新 cache key，4K 由「慢」變成「死循環」。
+ * 呢條係跨檔不變式：邊個調 `RESOLUTION_RETRY_BUDGET_MS` 都會即刻喺 import 度炸。
+ */
+const LONGEST_RETRY_BUDGET_MS = Math.max(...Object.values(RESOLUTION_RETRY_BUDGET_MS));
+if (STAMP_AT_WINDOW_MS < LONGEST_RETRY_BUDGET_MS * 2) {
+  throw new Error(
+    `share-stamp: STAMP_AT_WINDOW_MS（${STAMP_AT_WINDOW_MS}ms）窄過最長 retry 預算 `
+    + `（${LONGEST_RETRY_BUDGET_MS}ms）嘅兩倍 —— pin 會喺 retry 半路過期，4K 永遠 cache miss`,
+  );
+}
+
+export interface StampAt {
+  /** 真係用嚟出戳嗰個時刻 */
+  date: Date;
+  /** 叫方俾嘅 `at` 收唔收得？收唔到（冇俾／垃圾／出窗）就係 server 而家 */
+  pinned: boolean;
+}
+
+export function readStampAt(value: string | null | undefined, now: Date = new Date()): StampAt {
+  if (value === null || value === undefined) return { date: now, pinned: false };
+  const raw = String(value).trim();
+  if (!raw) return { date: now, pinned: false };
+  const ms = Number(raw);
+  if (!Number.isFinite(ms)) return { date: now, pinned: false };
+  const floored = Math.floor(ms / 60_000) * 60_000;
+  if (Math.abs(floored - now.getTime()) > STAMP_AT_WINDOW_MS) return { date: now, pinned: false };
+  return { date: new Date(floored), pinned: true };
 }
 
 const INTL_LOCALE: Record<ShareLang, string> = {

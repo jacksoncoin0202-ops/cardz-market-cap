@@ -40,11 +40,13 @@ const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s
 check("heatmap-og 唔 import defaultMarketWindow", !/\bdefaultMarketWindow\b/.test(stripComments(ogSrc)));
 check("heatmap route 唔 import defaultMarketWindow", !/\bdefaultMarketWindow\b/.test(stripComments(routeSrc)));
 
-/* 2026-08-21 加咗 res / stamp / tz（4K + 「截圖嗰一刻」個戳）。十個 key 都要三處齊：
-   呢張表、heatmapOgSearch()、route 讀返。漏咗任何一處都係靜靜咁 200 但參數冇效。 */
-const keys = ["period", "show", "scope", "format", "theme", "updown", "lang", "res", "stamp", "tz"];
-check("十個 query key 寫死",
-  /HEATMAP_OG_QUERY_KEYS = \[\s*"period", "show", "scope", "format", "theme", "updown", "lang", "res", "stamp", "tz",\s*\]/.test(ogSrc));
+/* 2026-08-21 加咗 res / stamp / tz（4K + 「截圖嗰一刻」個戳），同日再加 at
+   （4K 一定俾 gateway 60 秒斬，要 retry，retry 要釘死嗰一刻先撞返同一條 cache key）。
+   十一個 key 都要三處齊：呢張表、heatmapOgSearch()、route 讀返。
+   漏咗任何一處都係靜靜咁 200 但參數冇效。 */
+const keys = ["period", "show", "scope", "format", "theme", "updown", "lang", "res", "stamp", "tz", "at"];
+check("十一個 query key 寫死",
+  /HEATMAP_OG_QUERY_KEYS = \[\s*"period", "show", "scope", "format", "theme", "updown", "lang", "res", "stamp", "tz", "at",\s*\]/.test(ogSrc));
 for (const key of keys) {
   check(`heatmapOgSearch 寫 ${key}`, new RegExp(`q\\.set\\("${key}"`).test(ogSrc));
   check(`route 讀 ${key}`, new RegExp(`query\\.get\\("${key}"\\)`).test(routeSrc));

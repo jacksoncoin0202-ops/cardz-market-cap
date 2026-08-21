@@ -16,7 +16,7 @@ import { heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
 import { loadMarketSnapshot, loadNodeMarketAsset, scopeSnapshot } from "@/lib/server-snapshot";
 import { FORMAT_SIZES, readShareFormat } from "@/lib/share-destinations";
 import { RESOLUTION_SCALE, readShareResolution } from "@/lib/share-resolution";
-import { nowStamp, readStampMode, readTimeZone, stampCacheKey } from "@/lib/share-stamp";
+import { nowStamp, readStampAt, readStampMode, readTimeZone, stampCacheKey } from "@/lib/share-stamp";
 import {
   readShareLang,
   SHARE_FONT_FAMILY,
@@ -227,6 +227,7 @@ export async function GET(request: Request): Promise<Response> {
   const res = readShareResolution(query.get("res"));
   const stampMode = readStampMode(query.get("stamp"));
   const tz = readTimeZone(query.get("tz"));
+  const stampAt = readStampAt(query.get("at"));
   const copy = shareCopy(lang);
   const spec = FORMAT_SIZES[format];
   const scale = outputScale(res);
@@ -244,7 +245,7 @@ export async function GET(request: Request): Promise<Response> {
    * 所以同一分鐘之內（hover warm + 撳掣）仍然共用一張圖。
    */
   const dateText = stampMode === "now"
-    ? nowStamp(new Date(), tz, lang)
+    ? nowStamp(stampAt.date, tz, lang)
     : copy.shortDate(new Date(snapshot.effectiveAt || snapshot.generatedAt));
   const cacheFile = cachePath(snapshot.generation, [
     snapshot.generation, period, String(show), scope, format, theme, updown, lang,
@@ -271,7 +272,12 @@ export async function GET(request: Request): Promise<Response> {
        度掟 `Invalid character in header content`，即係一 set 中文就成個 request 500。
        percent-encode 之後 CLI 自己 `decodeURIComponent` 返。 */
     headers.set("x-og-stamp", encodeURIComponent(dateText));
-    if (stampMode === "now") headers.set("x-og-tz", tz);
+    if (stampMode === "now") {
+      headers.set("x-og-tz", tz);
+      /* 叫方要知自己個 `at` 收咗未 —— 收唔到就代表佢下一次 retry 會係另一條 cache
+         key（永遠 miss）。`pinned` = 用咗你俾嗰一刻，`now` = 用咗 server 而家。 */
+      headers.set("x-og-at", stampAt.pinned ? "pinned" : "now");
+    }
     return headers;
   };
   if (existsSync(cacheFile)) {
