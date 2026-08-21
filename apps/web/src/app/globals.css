@@ -1153,6 +1153,18 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
 .share-menu-item:focus-visible { background: var(--control-bg); color: var(--ink); }
 .share-menu-icon { display: inline-flex; align-items: center; justify-content: center; color: inherit; }
 .share-menu-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 第三欄：有得揀清晰度嗰陣係「真實像素 + 比例標」，冇就淨返比例標（卡片內頁）。
+   `.share-menu-item` 個 grid 仍然係三欄 —— 加第四個 child 會靜靜咁跌出格。 */
+.share-menu-meta { display: inline-flex; align-items: center; gap: 6px; }
+.share-menu-px {
+  color: var(--muted);
+  font-size: var(--fs-micro);
+  font-weight: var(--w-label);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.share-menu-item:hover .share-menu-px,
+.share-menu-item:focus-visible .share-menu-px { color: var(--ink); }
 .share-menu-ratio {
   padding: 2px 7px;
   border-radius: 999px;
@@ -1167,6 +1179,47 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
 .share-menu-item:focus-visible .share-menu-ratio {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   color: var(--accent);
+}
+/* ── 清晰度（1080p / 4K）───────────────────────────────────────
+ * owner 2026-08-21：「人地下載可以揀 4K 嗎？」熱力圖先有，卡片內頁唔傳個 prop
+ * 就冇呢一行。兩粒掣打橫排，唔照抄 `.share-menu-item` 嗰個 icon｜名｜比例三欄 ——
+ * 呢行係「揀一個設定」，唔係「揀一個目的地」，撳落去唔會收 menu。 */
+.share-menu-chips { display: flex; gap: 5px; padding: 0 3px 3px; }
+.share-menu-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  flex: 1;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  /* 同 .share-menu-item 一樣：<button> 冇 background 就跌返 UA `buttonface`，
+     跟 OS color-scheme 唔跟站內 data-theme。 */
+  background: transparent;
+  color: var(--control-idle);
+  font-size: 13px;
+  font-weight: var(--w-label);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 140ms var(--ease-standard), color 140ms var(--ease-standard),
+    border-color 140ms var(--ease-standard);
+}
+@media (hover: hover) {
+  .share-menu-chip:hover { background: var(--control-bg); color: var(--ink); }
+}
+.share-menu-chip:focus-visible { background: var(--control-bg); color: var(--ink); }
+.share-menu-chip[data-active="true"] {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+/* 「較慢」——4K 未 cache 實測 50–57 秒。唔講就係扮撳落去即刻有。 */
+.share-menu-chip-note { color: var(--muted); font-size: var(--fs-micro); font-weight: var(--w-label); }
+.share-menu-chip[data-active="true"] .share-menu-chip-note { color: inherit; opacity: 0.75; }
+@media (pointer: coarse) {
+  .share-menu-chip { min-height: 40px; }
 }
 /* 頭四行係 owner 點名嗰四個平台，尾兩行係兜底：畫條 hairline 分開，好過再加個 kicker */
 .share-menu-item[data-target="other"] { margin-top: 5px; }

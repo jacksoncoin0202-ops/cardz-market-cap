@@ -14,6 +14,11 @@
  * 呢度**唔知**點出圖：叫方俾一個 `onPick(target)`，攞住 `target.format`（卡頁）或者
  * `target.aspect`（熱力圖）自己做。
  *
+ * owner 2026-08-21：「人地下載可以揀 4K 嗎？我想 1080p 同埋 4K 兩隻分別嘅啫。」
+ * → 選單頂多咗一行清晰度（`quality` prop，唔傳就冇呢一行，卡片內頁一如以往）。
+ * 有得揀嗰陣每個目的地會**同時**報返真實闊×高 —— 「4K」係級數唔係像素（`wide` 揀 4K
+ * 出 2400×1260），淨係俾個 tier 名人睇就係講緊一個唔啱嘅數字。
+ *
  * ⚠️ **user activation**：`navigator.share` 一定要喺撳掣嗰下嘅 activation 之內叫
  * （見 `lib/share-file.ts`）。卡頁張圖要 fetch 幾百 KB，撳完先攞就過咗期 → iOS Safari
  * 唔彈 share sheet、直接落載。所以 `onWarm` 喺**兩個**時機 fire：選單一開就 warm 預設
@@ -27,6 +32,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from
 import { tap } from "@/lib/haptic";
 import { SHARE_TARGETS, type ShareTarget, type ShareTargetId } from "@/lib/share-destinations";
 import type { ShareOutcome } from "@/lib/share-file";
+import { RESOLUTION_IS_SLOW, RESOLUTION_LABEL, RESOLUTION_TIMEOUT_MS, resolutionPixels, type ShareResolution } from "@/lib/share-resolution";
 
 /* 收埋 menu 前留 120ms 俾 `.select-menu-exit` 做退場動畫（同 select-control.tsx 一樣） */
 const MENU_EXIT_MS = 120;
@@ -113,10 +119,29 @@ export interface ShareMenuCopy {
 
 type PickState = "idle" | "busy" | "done" | "error";
 
-export function ShareMenu({ surface, copy, onPick, onWarm, triggerClassName }: {
+/*
+ * 清晰度（1080p / 4K）。**成舊嘢一齊俾，唔准散開幾個 optional prop** ——
+ * 散開就會出現「俾咗 options 但漏咗 label」呢種狀態：TypeScript 收貨，畫面靜靜咁
+ * 唔出個掣，冇人知。整舊一齊，要就要齊。
+ *
+ * 卡片內頁唔傳呢個 prop，所以卡頁一如以往冇呢一行。
+ */
+export interface ShareMenuQuality {
+  /** 「清晰度」kicker */
+  label: string;
+  /** 慢嗰級旁邊嗰粒字（「慢」）。邊級算慢由 `RESOLUTION_IS_SLOW` 講，唔係叫方。 */
+  slowNote: string;
+  options: readonly ShareResolution[];
+  value: ShareResolution;
+  onChange: (res: ShareResolution) => void;
+}
+
+export function ShareMenu({ surface, copy, quality, onPick, onWarm, onOpen, triggerClassName }: {
   /** 熱力圖同卡頁只有一處分別：闊版嗰列個比例標（卡頁固定 1.91:1、熱力圖跟畫面） */
   surface: "card" | "heatmap";
   copy: ShareMenuCopy;
+  /** 冇就冇呢一行（卡片內頁）。見 `ShareMenuQuality`。 */
+  quality?: ShareMenuQuality;
   /*
    * 回 `ShareOutcome` 嘅話呢度會**睇**佢 —— `"dismissed"`（用戶自己撳走 OS share
    * sheet）唔准當成功。回 `void` 就一律當成功，所以新叫方應該回返個 outcome。
@@ -124,6 +149,14 @@ export function ShareMenu({ surface, copy, onPick, onWarm, triggerClassName }: {
   onPick: (target: ShareTarget) => ShareOutcome | void | Promise<ShareOutcome | void>;
   /** 「就快撳呢個目的地」，叫方預先攞張圖。一定要 idempotent（見檔頭）。 */
   onWarm?: (target: ShareTarget) => void;
+  /*
+   * 「開咗個選單」= 一次新嘅分享。喺 `onWarm` 之前 fire。
+   *
+   * ⚠️ 呢個唔係俾人做 analytics —— 熱力圖靠佢**倒空自己個 blob cache**。張圖右上角
+   * 個戳係「出圖嗰一刻」，唔倒就會出現：朝早十點開過個選單，下晝兩點再開、撳落去
+   * 攞返朝早十點嗰張 blob，張圖印住四個鐘之前嘅鐘。一個 menu session = 一個時刻。
+   */
+  onOpen?: () => void;
   triggerClassName: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -140,6 +173,22 @@ export function ShareMenu({ surface, copy, onPick, onWarm, triggerClassName }: {
   const baseId = useId();
   const listId = `${baseId}-list`;
   const labelId = `${baseId}-label`;
+  const qualityId = `${baseId}-quality`;
+
+  /*
+   * 鍵盤 roving index 行嘅係**成塊板**：清晰度粒掣排最前，跟住先係七個目的地。
+   * 兩截分開數就會變成「Up/Down 上到最頂就停喺第一個目的地」，清晰度嗰行永遠撳唔到
+   * —— 即係鍵盤同讀屏用戶等於冇咗個 4K 掣。
+   */
+  const resOptions = quality?.options ?? [];
+  const navCount = resOptions.length + SHARE_TARGETS.length;
+
+  /*
+   * 死鎖閘要跟得住揀咗嘅清晰度。`PICK_TIMEOUT_MS` 淨係「人喺 OS share sheet 度慢慢揀」
+   * 嗰段時間；出圖嗰段係 `RESOLUTION_TIMEOUT_MS`。4K 未 cache 實測 50–57 秒，兩段夾埋
+   * 先夠 —— 用返 45 秒就係「撳 4K 等 45 秒然後必定出紅色交叉」。
+   */
+  const pickTimeoutMs = quality ? RESOLUTION_TIMEOUT_MS[quality.value] + PICK_TIMEOUT_MS : PICK_TIMEOUT_MS;
 
   const clearExit = useCallback(() => {
     if (exitTimer.current) clearTimeout(exitTimer.current);
@@ -187,6 +236,8 @@ export function ShareMenu({ surface, copy, onPick, onWarm, triggerClassName }: {
     setClosing(false);
     setOpen(true);
     setActiveIndex(0);
+    /* 先講「開咗新一次」（叫方倒 cache），再 warm —— 掉轉就即刻倒走啱啱 warm 嗰張。 */
+    onOpen?.();
     /* 一開就 warm 預設 format：七個目的地入面五個都係 `post`，撳落去就已經攞緊。 */
     onWarm?.(SHARE_TARGETS[0]);
   };
@@ -199,7 +250,7 @@ export function ShareMenu({ surface, copy, onPick, onWarm, triggerClassName }: {
     if (resetTimer.current) clearTimeout(resetTimer.current);
     setState("busy");
     try {
-      const outcome = await withTimeout(Promise.resolve(onPick(target)), PICK_TIMEOUT_MS);
+      const outcome = await withTimeout(Promise.resolve(onPick(target)), pickTimeoutMs);
       busyRef.current = false;
       /*
        * ⚠️ 用戶喺 OS share sheet 撳「取消」= `"dismissed"` = **乜都冇分享到**。
@@ -227,23 +278,23 @@ export function ShareMenu({ surface, copy, onPick, onWarm, triggerClassName }: {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       openMenu();
-      setActiveIndex(event.key === "ArrowUp" ? SHARE_TARGETS.length - 1 : 0);
+      setActiveIndex(event.key === "ArrowUp" ? navCount - 1 : 0);
     }
   };
 
   const onListKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setActiveIndex((index) => (index + 1) % SHARE_TARGETS.length);
+      setActiveIndex((index) => (index + 1) % navCount);
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
-      setActiveIndex((index) => (index - 1 + SHARE_TARGETS.length) % SHARE_TARGETS.length);
+      setActiveIndex((index) => (index - 1 + navCount) % navCount);
     } else if (event.key === "Home") {
       event.preventDefault();
       setActiveIndex(0);
     } else if (event.key === "End") {
       event.preventDefault();
-      setActiveIndex(SHARE_TARGETS.length - 1);
+      setActiveIndex(navCount - 1);
     } else if (event.key === "Tab") {
       close();
     }
@@ -354,11 +405,53 @@ export function ShareMenu({ surface, copy, onPick, onWarm, triggerClassName }: {
           data-align={align}
           onKeyDown={onListKeyDown}
         >
+          {quality ? (
+            <>
+              <p id={qualityId} className="share-menu-kicker">{quality.label}</p>
+              {/* 揀清晰度**唔會**收 menu：揀完仲要揀去邊。所以呢度冇 `pick()`。 */}
+              <div className="share-menu-chips" role="group" aria-labelledby={qualityId}>
+                {quality.options.map((res, index) => (
+                  <button
+                    key={res}
+                    id={`${listId}-${index}`}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={res === quality.value}
+                    tabIndex={index === activeIndex ? 0 : -1}
+                    className="share-menu-chip"
+                    data-res={res}
+                    data-active={res === quality.value ? "true" : "false"}
+                    onPointerEnter={() => setActiveIndex(index)}
+                    /*
+                     * ⚠️ 呢度**唔准**順手叫 `onWarm` —— `onWarm` 係上面 render 個 closure，
+                     * 仲攞住舊嗰級（`onChange` 只係排咗個 setState，未 re-render），warm 出嚟
+                     * 嘅係啱啱撳走嗰級。4K 要 warm 就 `onChange` 入面自己 warm（叫方先知道
+                     * 新嗰級係咩）。
+                     */
+                    onClick={() => { tap.select(); quality.onChange(res); }}
+                  >
+                    <span className="share-menu-chip-label">{RESOLUTION_LABEL[res]}</span>
+                    {RESOLUTION_IS_SLOW[res] ? (
+                      <span className="share-menu-chip-note">{quality.slowNote}</span>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : null}
           <p id={labelId} className="share-menu-kicker">{copy.pick}</p>
-          {SHARE_TARGETS.map((target, index) => {
+          {SHARE_TARGETS.map((target, offset) => {
+            const index = resOptions.length + offset;
             const name = BRAND_NAME[target.id]
               ?? (target.id === "status" ? copy.status : target.id === "desktop" ? copy.desktop : copy.other);
             const ratio = surface === "heatmap" && target.frameOnHeatmap ? copy.frame : target.ratio;
+            /*
+             * ⚠️ 有得揀清晰度嗰陣，一定要同時報返**真實闊×高**。
+             * 「4K」係個 tier 名，唔係像素：`wide` 揀 4K 出嘅係 2400×1260，唔係 3840。
+             * 淨係俾個 tier 名人睇 = 講緊一個唔啱嘅數字（`lib/share-resolution.ts` 檔頭
+             * 寫住呢條規矩，2026-08-20 個比例標已經踩過一次同款窿）。
+             */
+            const px = quality ? resolutionPixels(target.format, quality.value) : null;
             return (
               <button
                 key={target.id}
@@ -375,7 +468,10 @@ export function ShareMenu({ surface, copy, onPick, onWarm, triggerClassName }: {
               >
                 <span className="share-menu-icon"><TargetGlyph id={target.id} /></span>
                 <span className="share-menu-name">{name}</span>
-                <span className="share-menu-ratio">{ratio}</span>
+                <span className="share-menu-meta">
+                  {px ? <span className="share-menu-px">{px.width}×{px.height}</span> : null}
+                  <span className="share-menu-ratio">{ratio}</span>
+                </span>
               </button>
             );
           })}

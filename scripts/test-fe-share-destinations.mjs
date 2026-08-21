@@ -164,9 +164,12 @@ check("ShareAspect 由 share-destinations 出（一張表）", /export type \{ S
   && /import type \{ ShareAspect \} from "\.\/share-destinations";/.test(shareImage));
 check("SHARE_ASPECTS 三個槽", /export const SHARE_ASPECTS = \["post", "wa", "frame"\] as const;/.test(destinations));
 check("heatmap 分享 GET /api/og/heatmap", /heatmapOgPath\(/.test(heatmap) && /fetch\(path/.test(heatmap));
-check("heatmap 分享有 timeout", /AbortSignal\.timeout\(SHARE_FETCH_TIMEOUT_MS\)/.test(heatmap));
-check("heatmap warm cache key 連語言 period scope updown",
-  /const key = `\$\{format\}\|\$\{imageLang\}\|\$\{activePeriod\}\|\$\{visibleCount\}\|\$\{scope\}\|\$\{ogTheme\}\|\$\{upDown\}`;/.test(heatmap));
+/* 2026-08-21：timeout 由寫死 45 秒改成跟清晰度（4K 實測 50–57 秒，45 秒會次次自斬）。
+   呢條比原本嚴：唔淨止要有 timeout，仲要係逐級嗰個。 */
+check("heatmap 分享 timeout 跟清晰度", /AbortSignal\.timeout\(shareFetchTimeoutMs\(res\)\)/.test(heatmap)
+  && /RESOLUTION_TIMEOUT_MS\[res\]/.test(heatmap));
+check("heatmap warm cache key 連語言 period scope updown res",
+  /`\$\{format\}\|\$\{imageLang\}\|\$\{activePeriod\}\|\$\{visibleCount\}\|\$\{scope\}\|\$\{ogTheme\}\|\$\{upDown\}\|\$\{res\}`/.test(heatmap));
 check("exportHeatmap 冇預設 target", /const exportHeatmap = useCallback\(async \(target: ShareTarget\) =>/.test(heatmap));
 check("heatmap onWarm 預先 fetch", /onWarm=\{\(target\) => warmShareImage\(target\.format\)\}/.test(heatmap));
 check("filename 比例喺 heatmap-og", /9x16/.test(read("apps/web/src/lib/heatmap-og.ts")));

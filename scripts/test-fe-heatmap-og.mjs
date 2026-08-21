@@ -40,8 +40,11 @@ const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s
 check("heatmap-og 唔 import defaultMarketWindow", !/\bdefaultMarketWindow\b/.test(stripComments(ogSrc)));
 check("heatmap route 唔 import defaultMarketWindow", !/\bdefaultMarketWindow\b/.test(stripComments(routeSrc)));
 
-const keys = ["period", "show", "scope", "format", "theme", "updown", "lang"];
-check("七個 query key 寫死", /HEATMAP_OG_QUERY_KEYS = \["period", "show", "scope", "format", "theme", "updown", "lang"\]/.test(ogSrc));
+/* 2026-08-21 加咗 res / stamp / tz（4K + 「截圖嗰一刻」個戳）。十個 key 都要三處齊：
+   呢張表、heatmapOgSearch()、route 讀返。漏咗任何一處都係靜靜咁 200 但參數冇效。 */
+const keys = ["period", "show", "scope", "format", "theme", "updown", "lang", "res", "stamp", "tz"];
+check("十個 query key 寫死",
+  /HEATMAP_OG_QUERY_KEYS = \[\s*"period", "show", "scope", "format", "theme", "updown", "lang", "res", "stamp", "tz",\s*\]/.test(ogSrc));
 for (const key of keys) {
   check(`heatmapOgSearch 寫 ${key}`, new RegExp(`q\\.set\\("${key}"`).test(ogSrc));
   check(`route 讀 ${key}`, new RegExp(`query\\.get\\("${key}"\\)`).test(routeSrc));
@@ -63,7 +66,17 @@ check("heatmap route fontFamily 跟語言", /SHARE_FONT_FAMILY\[lang\]/.test(rou
 
 check("heatmap.tsx fetch heatmapOgPath", /heatmapOgPath\(/.test(heatmapSrc) && /fetch\(path/.test(heatmapSrc));
 check("卡圖優先 _600（唔好用 200 放大糊）", /variants\?\.\["600"\] \?\? card\.image\.variants\?\.\["200"\]/.test(routeSrc));
-check("post OG 1× 像素（2× live 504，CLI 自動化要第一次 GET 完成）", /return 1;/.test(routeSrc) && /cardz-og-heatmap/.test(routeSrc));
+/*
+ * 2026-08-21：owner 要 4K，route 唔再永遠 `return 1`。守嘅嘢冇鬆 —— 要守嘅由來都係
+ * 「**冇寫 `res` 嗰條 URL 一定出 1×**」（og:image unfurl、HERMES cron 鏈、CLI 第一次
+ * GET 全部行嗰條），而唔係「呢個 repo 唔准有 2×」。所以改成釘預設同倍數表。
+ */
+const resSrc = read("apps/web/src/lib/share-resolution.ts");
+check("route 個倍數由 RESOLUTION_SCALE 出（唔准 route 自己寫死）", /return RESOLUTION_SCALE\[res\];/.test(routeSrc));
+check("預設清晰度 1080p", /DEFAULT_SHARE_RESOLUTION: ShareResolution = "1080p"/.test(resSrc));
+check("1080p 就係 1×（冇 res 嗰條 URL 唔准變大）", /"1080p": 1,/.test(resSrc));
+check("cache 檔名分開清晰度同個戳", /cardz-og-heatmap/.test(routeSrc)
+  && /res, stampCacheKey\(stampMode, dateText\),/.test(routeSrc));
 check("heatmap.tsx 唔再 toBlob 出分享圖", !/canvas\.toBlob/.test(heatmapSrc));
 check("landscape → wide", readShareFormat("landscape") === "wide");
 check("portrait → post", readShareFormat("portrait") === "post");

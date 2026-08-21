@@ -22,7 +22,13 @@ import { snapCardBox, snapFrameGrid, snapTileBox } from "@/lib/pixel-snap";
 import { heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
 import { heatmapOgFilename, heatmapOgLang, heatmapOgPath, type HeatmapOgScope, type HeatmapOgTheme } from "@/lib/heatmap-og";
 import { shareImageBlob } from "@/lib/share-file";
-import type { ShareFormat, ShareTarget } from "@/lib/share-destinations";
+import { SHARE_TARGETS, type ShareFormat, type ShareTarget } from "@/lib/share-destinations";
+import {
+  DEFAULT_SHARE_RESOLUTION,
+  RESOLUTION_TIMEOUT_MS,
+  SHARE_RESOLUTIONS,
+  type ShareResolution,
+} from "@/lib/share-resolution";
 import { changeValue, DEFAULT_TILE, tileCardSize, tileColors, tileStyle, type TileParams } from "@/lib/tile-style";
 import { useMarketSettings } from "@/lib/use-market-settings";
 import { useUpDown } from "@/lib/use-updown";
@@ -274,8 +280,14 @@ const KIOSK_LOGO = {
    5 分鐘係 router.refresh()（RSC payload，唔係成版 reload），tile 唔會閃走。 */
 const KIOSK_REFRESH_MS = 5 * 60 * 1000;
 
-/* 人手分享 GET /api/og/heatmap（同 cron）。40 格 OG 慢過單卡，timeout 比卡片 20s 闊。 */
-const SHARE_FETCH_TIMEOUT_MS = 45_000;
+/*
+ * 人手分享 GET /api/og/heatmap（同 cron）。40 格 OG 慢過單卡，timeout 比卡片 20s 闊。
+ *
+ * ⚠️ 呢個數字**跟清晰度走**，唔准寫死一個：1080p 45 秒同以前一樣，4K 實測 50–57 秒，
+ * 沿用 45 秒就係次次喺就快出到嗰陣自己斬自己。真身喺 `lib/share-resolution.ts`
+ * `RESOLUTION_TIMEOUT_MS`（CLI 都讀同一張表）。
+ */
+const shareFetchTimeoutMs = (res: ShareResolution) => RESOLUTION_TIMEOUT_MS[res];
 
 /*
  * Kiosk 特效 kill switch。五個 token 默認全開，落喺 `[data-kiosk-fx~="…"]`，
@@ -923,8 +935,19 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title, scope 
   const shareBlobs = useRef(new Map<string, Promise<Blob>>());
   const imageLang = heatmapOgLang(locale);
   const ogTheme: HeatmapOgTheme = dark ? "dark" : "light";
-  const warmShareImage = useCallback((format: ShareFormat) => {
-    const key = `${format}|${imageLang}|${activePeriod}|${visibleCount}|${scope}|${ogTheme}|${upDown}`;
+  /*
+   * 清晰度（owner 2026-08-21）。預設 1080p —— 4K 未 cache 要成分鐘，唔准做預設。
+   * 呢個 state 唔入 URL：佢係「今次落載想要幾大」，唔係頁面狀態，寫入 URL 就會連
+   * 分享出去嗰條 link 都拖住人哋等 4K。
+   */
+  const [shareRes, setShareRes] = useState<ShareResolution>(DEFAULT_SHARE_RESOLUTION);
+  const shareKey = useCallback(
+    (format: ShareFormat, res: ShareResolution) =>
+      `${format}|${imageLang}|${activePeriod}|${visibleCount}|${scope}|${ogTheme}|${upDown}|${res}`,
+    [imageLang, activePeriod, visibleCount, scope, ogTheme, upDown],
+  );
+  const warmShareImage = useCallback((format: ShareFormat, res: ShareResolution = shareRes) => {
+    const key = shareKey(format, res);
     if (shareBlobs.current.has(key)) return;
     const path = heatmapOgPath({
       period: activePeriod,
@@ -934,9 +957,18 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title, scope 
       theme: ogTheme,
       updown: upDown,
       lang: imageLang,
+      res,
+      /*
+       * owner 2026-08-21：「右上角嗰個日子，一定要變返我截圖嗰一刻嘅日子，並不是呢個
+       * 官方數據嘅日子。時間要跟返用戶當地嘅時間（例如 HKT）。」
+       * → 網站個掣一律 `stamp=now` + 部機自己個時區。route 嘅預設仍然係 `data`，
+       *   og:image unfurl 同 HERMES 條 cron 鏈唔受影響（見 lib/share-stamp.ts）。
+       */
+      stamp: "now",
+      tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
     });
     const pending = fetch(path, {
-      signal: typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(SHARE_FETCH_TIMEOUT_MS) : undefined,
+      signal: typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(shareFetchTimeoutMs(res)) : undefined,
     })
       .then((response) => {
         if (!response.ok) throw new Error(`heatmap OG HTTP ${response.status}`);
@@ -947,11 +979,10 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title, scope 
         throw error;
       });
     shareBlobs.current.set(key, pending);
-  }, [imageLang, activePeriod, visibleCount, scope, ogTheme, upDown]);
+  }, [shareKey, shareRes, imageLang, activePeriod, visibleCount, scope, ogTheme, upDown]);
   const exportHeatmap = useCallback(async (target: ShareTarget) => {
     warmShareImage(target.format);
-    const key = `${target.format}|${imageLang}|${activePeriod}|${visibleCount}|${scope}|${ogTheme}|${upDown}`;
-    const blob = await shareBlobs.current.get(key)!;
+    const blob = await shareBlobs.current.get(shareKey(target.format, shareRes))!;
     const filenameBase = heatmapOgFilename({
       period: activePeriod,
       show: visibleCount,
@@ -960,6 +991,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title, scope 
       theme: ogTheme,
       updown: upDown,
       lang: imageLang,
+      res: shareRes,
     });
     const pageUrl = window.location.href;
     const shareTitle = `${title.replace("{count}", String(visibleCount))} · ${t.periods[activePeriod]}`;
@@ -974,7 +1006,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title, scope 
       document.getElementById("market-ranking")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
     return outcome;
-  }, [warmShareImage, imageLang, activePeriod, visibleCount, scope, ogTheme, upDown, title, t.periods, isMobileTiles]);
+  }, [warmShareImage, shareKey, shareRes, imageLang, activePeriod, visibleCount, scope, ogTheme, upDown, title, t.periods, isMobileTiles]);
 
   // Controls 抽返出嚟：desktop 同標題並排，手機由 CSS 將佢哋排喺標題下面、
   // 圖上面（Tiles slider 做主角），結構保持一致。
@@ -1011,8 +1043,9 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title, scope 
         </svg>
       </button>
       <PeriodSelector />
-      {/* 分享：先問去邊，再 GET /api/og/heatmap（period/scope/format/theme/updown/lang）。
-          onWarm 同卡片內頁一樣：OG 有幾十格卡圖，撳完先 fetch 會過 iOS activation。 */}
+      {/* 分享：先揀清晰度＋去邊，再 GET /api/og/heatmap（period/scope/format/theme/
+          updown/lang/res/stamp/tz）。onWarm 同卡片內頁一樣：OG 有幾十格卡圖，撳完先
+          fetch 會過 iOS activation。 */}
       <ShareMenu
         surface="heatmap"
         triggerClassName="heatmap-export"
@@ -1026,8 +1059,23 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title, scope 
           done: t.share.done,
           error: t.share.error,
         }}
+        quality={{
+          label: t.labels.shareQuality,
+          slowNote: t.labels.shareQualitySlow,
+          options: SHARE_RESOLUTIONS,
+          value: shareRes,
+          onChange: (next) => {
+            setShareRes(next);
+            /* 換完級即刻開始跑（4K 冷 cache 要成分鐘）。一定要用 `next` 唔用 `shareRes`
+               —— `setShareRes` 只係排咗次 re-render，呢一句仲讀住舊嗰級。 */
+            warmShareImage(SHARE_TARGETS[0].format, next);
+          },
+        }}
         onPick={exportHeatmap}
         onWarm={(target) => warmShareImage(target.format)}
+        /* 開一次選單 = 一個時刻。唔倒 cache 就會攞返上次開嗰陣張圖，右上角個戳
+           印住幾個鐘之前嘅鐘（見 share-menu.tsx `onOpen`）。 */
+        onOpen={() => shareBlobs.current.clear()}
       />
       {/* Kiosk 全屏（owner 2026-08-18 店主展示模式）。aria-pressed 講狀態、aria-label 跟住換字，
           唔可以淨靠 icon —— 讀屏睇唔到「四角向內定向外」。 */}

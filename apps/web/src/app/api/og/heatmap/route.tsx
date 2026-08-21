@@ -15,6 +15,8 @@ import {
 import { heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
 import { loadMarketSnapshot, loadNodeMarketAsset, scopeSnapshot } from "@/lib/server-snapshot";
 import { FORMAT_SIZES, readShareFormat } from "@/lib/share-destinations";
+import { RESOLUTION_SCALE, readShareResolution } from "@/lib/share-resolution";
+import { nowStamp, readStampMode, readTimeZone, stampCacheKey } from "@/lib/share-stamp";
 import {
   readShareLang,
   SHARE_FONT_FAMILY,
@@ -29,7 +31,17 @@ import { marketWindows, type MarketCardView, type MarketWindow } from "@/lib/typ
  * matches. Do not screenshot :3900.
  *
  * Query: period, show, scope (all|pokemon|one-piece), format (post|status|wide|
- * landscape|portrait), theme, updown (green-up|red-up), lang (en|zh-TW|zh-CN).
+ * landscape|portrait), theme, updown (green-up|red-up), lang (en|zh-TW|zh-CN),
+ * res (1080p|4k), stamp (data|now), tz (IANA, e.g. Asia/Tokyo).
+ *
+ * res=4k is a real 2x render (post -> 2160x2700), not an upscale. It costs
+ * ~11x the wall clock of 1080p (measured 2026-08-21: 4.3-5.3s vs 53.7-56.8s on
+ * 40 tiles), so it is meant for scripts/heatmap-download.mjs, not for a browser
+ * sitting behind a gateway timeout. See lib/share-resolution.ts for the numbers.
+ *
+ * stamp=now prints the moment the image is rendered, in tz, instead of the
+ * snapshot date. Default stays `data` so og:image unfurls and the HERMES cron
+ * chain keep getting exactly what they got before.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -165,12 +177,16 @@ function formatMove(pct: number | null): string | null {
   return `${sign}${pct.toFixed(1)}%`;
 }
 
-function outputScale(_format: ReturnType<typeof readShareFormat>): number {
-  /*
-   * 2×（2160×2700）本機 ~40s，live gateway 504／timeout → CLI 自動化斷。
-   * 高清靠 `_600` + 間隙／陰影／% 底板（你收貨嘅佈局），像素用 format 真身 1080×1350。
-   */
-  return 1;
+/*
+ * 出圖倍數 = 用戶揀嘅清晰度，唔再寫死。
+ *
+ * 舊註釋（2026-08 之前）寫住「2× 本機 ~40s，live gateway 504／timeout → CLI 自動化斷，
+ * 所以一律 1×」。件事今日仲係啱 —— 唔同嘅係而家個代價**擺咗上枱**：預設仍然係 1×
+ * （`DEFAULT_SHARE_RESOLUTION`），想要 2× 就要明寫 `?res=4k`，而網站個掣同 CLI 都會
+ * 講返要等幾耐。慢係慢，但唔再係「想要都冇得要」。
+ */
+function outputScale(res: ReturnType<typeof readShareResolution>): number {
+  return RESOLUTION_SCALE[res];
 }
 
 function cachePath(generation: string, parts: string[]): string {
@@ -208,9 +224,12 @@ export async function GET(request: Request): Promise<Response> {
   const theme = readTheme(query.get("theme"));
   const updown = readUpDown(query.get("updown"));
   const lang = readShareLang(query.get("lang"));
+  const res = readShareResolution(query.get("res"));
+  const stampMode = readStampMode(query.get("stamp"));
+  const tz = readTimeZone(query.get("tz"));
   const copy = shareCopy(lang);
   const spec = FORMAT_SIZES[format];
-  const scale = outputScale(format);
+  const scale = outputScale(res);
   const width = Math.round(spec.width * scale);
   const height = Math.round(spec.height * scale);
   const skin = THEMES[theme];
@@ -219,10 +238,19 @@ export async function GET(request: Request): Promise<Response> {
   const legend = LEGEND[lang];
 
   const snapshot = await loadMarketSnapshot();
+  /*
+   * 右上角個戳。`now` 要喺 cache key 之前算好 —— 個戳一入圖，就係圖嘅一部分，
+   * 唔入 key 就係「第二個人攞到第一個人嗰一刻嘅鐘」。精度同顯示文字同源（分鐘），
+   * 所以同一分鐘之內（hover warm + 撳掣）仍然共用一張圖。
+   */
+  const dateText = stampMode === "now"
+    ? nowStamp(new Date(), tz, lang)
+    : copy.shortDate(new Date(snapshot.effectiveAt || snapshot.generatedAt));
   const cacheFile = cachePath(snapshot.generation, [
     snapshot.generation, period, String(show), scope, format, theme, updown, lang,
+    res, stampCacheKey(stampMode, dateText),
   ]);
-  const filename = heatmapOgFilename({ period, show, scope, format, theme, updown, lang });
+  const filename = heatmapOgFilename({ period, show, scope, format, theme, updown, lang, res });
   const ogHeaders = () => {
     const headers = new Headers();
     headers.set("Cache-Control", "public, max-age=300, s-maxage=300, stale-while-revalidate=86400");
@@ -237,6 +265,13 @@ export async function GET(request: Request): Promise<Response> {
     headers.set("x-og-lang", lang);
     headers.set("x-og-width", String(width));
     headers.set("x-og-height", String(height));
+    headers.set("x-og-res", res);
+    headers.set("x-og-stamp-mode", stampMode);
+    /* ⚠️ 個戳中文版有「年月日」，HTTP header 只食 latin-1 —— 直接 set 會喺 undici
+       度掟 `Invalid character in header content`，即係一 set 中文就成個 request 500。
+       percent-encode 之後 CLI 自己 `decodeURIComponent` 返。 */
+    headers.set("x-og-stamp", encodeURIComponent(dateText));
+    if (stampMode === "now") headers.set("x-og-tz", tz);
     return headers;
   };
   if (existsSync(cacheFile)) {
@@ -283,7 +318,6 @@ export async function GET(request: Request): Promise<Response> {
   if (!logoFile) return new Response("Brand mark missing", { status: 500 });
   const logoSrc = `data:image/svg+xml;base64,${(await readFile(logoFile)).toString("base64")}`;
   const title = `${BOARD_LABEL[lang][scope]} Top ${cards.length} · ${period.toUpperCase()}`;
-  const dateText = copy.shortDate(new Date(snapshot.effectiveAt || snapshot.generatedAt));
   const fonts = await loadOgFonts(lang);
 
   const logoH = Math.round(32 * scale);

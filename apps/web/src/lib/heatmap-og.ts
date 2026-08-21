@@ -1,4 +1,10 @@
 import { FORMAT_SIZES, type ShareFormat } from "./share-destinations";
+import {
+  DEFAULT_SHARE_RESOLUTION,
+  RESOLUTION_LABEL,
+  type ShareResolution,
+} from "./share-resolution";
+import type { StampMode } from "./share-stamp";
 import { readShareLang, type ShareLang } from "./share-copy";
 import type { MarketWindow } from "./types";
 
@@ -16,7 +22,14 @@ import type { MarketWindow } from "./types";
 export const HEATMAP_OG_PATH = "/api/og/heatmap";
 export const HEATMAP_OG_DEFAULT_SHOW = 40;
 export const HEATMAP_OG_DEFAULT_PERIOD: MarketWindow = "7d";
-export const HEATMAP_OG_QUERY_KEYS = ["period", "show", "scope", "format", "theme", "updown", "lang"] as const;
+/*
+ * ⚠️ 加新 key 要三處一齊改：呢張表、`heatmapOgSearch()`、route 入面個 cache key。
+ * 漏咗 cache key 嗰處係最陰功嗰種 bug —— 兩個唔同參數共用一個檔名，第二個人攞到
+ * 第一個人張圖，兩邊都係 200，冇人會發現。
+ */
+export const HEATMAP_OG_QUERY_KEYS = [
+  "period", "show", "scope", "format", "theme", "updown", "lang", "res", "stamp", "tz",
+] as const;
 
 export type HeatmapOgScope = "all" | "pokemon" | "one-piece";
 export type HeatmapOgUpDown = "green-up" | "red-up";
@@ -30,6 +43,12 @@ export interface HeatmapOgQuery {
   theme?: HeatmapOgTheme;
   updown?: HeatmapOgUpDown;
   lang?: ShareLang;
+  /** `1080p`（預設，快）／`4k`（真 2×，慢好多，見 `lib/share-resolution.ts` 實測） */
+  res?: ShareResolution;
+  /** `data` = 資料日（預設，og:image／cron 鏈用）；`now` = 出圖嗰一刻 */
+  stamp?: StampMode;
+  /** `stamp=now` 先有用。IANA 名，例如 `Asia/Tokyo`。認唔到跌返 UTC。 */
+  tz?: string;
 }
 
 export function heatmapOgScopeFromKind(kind: string): HeatmapOgScope {
@@ -49,6 +68,18 @@ export function heatmapOgSearch(opts: HeatmapOgQuery = {}): string {
   q.set("theme", opts.theme ?? "dark");
   q.set("updown", opts.updown ?? "green-up");
   q.set("lang", opts.lang ?? "en");
+  /*
+   * ⚠️ `res` / `stamp` / `tz` 只喺**唔係預設**嗰陣先寫入 query。
+   *
+   * HERMES 條 cron 鏈（唔喺呢個 repo）一路都係打冇呢三個 key 嘅 URL，佢攞到嘅嘢
+   * 唔准因為我哋加咗新掣而變樣（`share-destinations.ts` 明文寫住呢句）。同時網站
+   * 預設嗰條 URL 保持同舊版一模一樣 = cache 唔會因為多咗兩個 key 而全部 miss。
+   */
+  if (opts.res && opts.res !== DEFAULT_SHARE_RESOLUTION) q.set("res", opts.res);
+  if (opts.stamp && opts.stamp !== "data") {
+    q.set("stamp", opts.stamp);
+    if (opts.tz) q.set("tz", opts.tz);
+  }
   return q.toString();
 }
 
@@ -63,5 +94,9 @@ export function heatmapOgFilename(opts: HeatmapOgQuery = {}): string {
   const format = opts.format ?? "post";
   const size = FORMAT_SIZES[format];
   const ratio = size.width > size.height ? "wide" : size.height / size.width > 1.5 ? "9x16" : "4x5";
-  return `cardz-heatmap-${scope}-top${show}-${period}-${ratio}`;
+  /* 1080p 唔加後綴：舊檔名一日出咗街（分享出去、存咗落人哋相簿）就唔好無端改。
+     4K 一定要加 —— 同一張圖兩個清晰度落同一個 folder，冇後綴就係互相覆蓋。 */
+  const res = opts.res ?? DEFAULT_SHARE_RESOLUTION;
+  const suffix = res === DEFAULT_SHARE_RESOLUTION ? "" : `-${RESOLUTION_LABEL[res].toLowerCase()}`;
+  return `cardz-heatmap-${scope}-top${show}-${period}-${ratio}${suffix}`;
 }
