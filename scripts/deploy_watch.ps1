@@ -48,6 +48,8 @@
 #   exit 2  -Marker <實冇嘅字> 短 timeout            → 「delivery 有但 live 冇轉」
 #   exit 3  -Simulate NoDelivery                    → 成段紅色警告 + 下一步
 #   exit 4  -Simulate FailedDelivery                → 印足 19 位 delivery id（冇被截）
+#   exit 0  -Simulate LateMarker -Marker <live 有嘅字> → 逼出「chunkSha 冇郁，淨靠 marker
+#                                                      由 0 變 1 收工」條路（靜態檔改動就係噉）
 #   exit 5  -Sha 76a0a5c6（成個 message 冇 [deploy]）／ -Sha deadbeef1（認唔到 commit）／
 #           -BaseUrl 死站（攞唔到 live 基線）
 #   -Audit  72 小時：82 件、median 1.2s、p90 1.4s、max 1855.4s、本機 52/52 對得返
@@ -79,7 +81,7 @@ param(
   [switch]$AuditOnly,
   [switch]$Audit,
   [int]$AuditHours = 72,
-  [ValidateSet("none", "NoDelivery", "FailedDelivery", "StaleLive")][string]$Simulate = "none",
+  [ValidateSet("none", "NoDelivery", "FailedDelivery", "StaleLive", "LateMarker")][string]$Simulate = "none",
   [string]$JsonOut = ""
 )
 
@@ -473,7 +475,21 @@ $baseline = Get-LiveFingerprint
 if (-not $baseline.PageOk) { Die "攞唔到 live 基線（$BaseUrl$MarkerPath HTTP $($baseline.PageCode)）—— 個站而家本身就抓唔到，先去睇佢係咪已經死咗，唔好用呢個腳本估。" 5 }
 Say "live 基線 chunks=$($baseline.ChunkCount) chunkSha=$(Cut $baseline.ChunkSha 12) generation=$($baseline.Generation) generatedAt=$($baseline.GeneratedAt) presentation=$($baseline.Presentation) build=$($baseline.Build)"
 if ($baseline.Build -ne "local") { Warn "live build header = '$($baseline.Build)'（一路都係 'local'）—— 契約變咗，記得更新文件" }
-if ($Marker.Count -gt 0) { Say "內容 marker（$MarkerScope）：$($Marker -join ' | ')" }
+# 基線就要量一次 marker。唔量嘅話分唔到「呢個字係新 build 帶嚟」定係
+# 「本來就已經喺度」，之後 marker=1/1 完全冇資訊量。
+$baselineMarkerOk = $false
+if ($Marker.Count -gt 0) {
+  $bMiss = @($Marker | Where-Object { (Get-MarkerText $baseline) -notmatch $_ })
+  $baselineMarkerOk = ($bMiss.Count -eq 0)
+  # 逼基線當「未中」，等下面條「marker 由 0 變 1」分支行得到。
+  if ($Simulate -eq "LateMarker") { $baselineMarkerOk = $false; Say "[Simulate LateMarker] 當基線 marker 未中" }
+  Say "內容 marker（$MarkerScope）：$($Marker -join ' | ')  —— 基線已經中 $($Marker.Count - $bMiss.Count)/$($Marker.Count)"
+  if ($baselineMarkerOk) {
+    Warn "呢批 marker 一開波就全中 —— 即係佢分唔到『新 build 上咗街』同『本來就有』。"
+    Write-Host "      淨係得 chunkSha 郁先算數，而淨係改靜態檔（favicon / og 圖 / public/*）"
+    Write-Host "      係唔會換 chunk hash 嘅，噉樣會等到 timeout。揀個新 build 先會出現嘅字做 marker。"
+  }
+}
 
 $delivery = $null
 $kicked = $false
@@ -514,7 +530,7 @@ while ($true) {
 
   $fp = Get-LiveFingerprint
   $changed = $false
-  if ($Simulate -ne "StaleLive") {
+  if ($Simulate -notin @("StaleLive", "LateMarker")) {
     if (-not $fp.PageOk) {
       # 抓唔到 ≠ 轉咗。deploy 途中 container 重啟／Cloudflare 一嘢 5xx 都會咁，
       # 照當「未轉」繼續等先啱；當成「轉咗」就會喺個站死緊嗰陣報綠燈（實測過會）。
@@ -543,11 +559,20 @@ while ($true) {
       $(if ($fp.PageOk -and $fp.ChunkSha -ne $baseline.ChunkSha) { "*" } else { " " }), $fp.Generation, $changed, $markerNote)
 
   $done = $false
+  $doneNote = ""
   if ($DeliveryOnly) { $done = ($null -ne $delivery) -and $delivery.Code -ge 200 -and $delivery.Code -lt 300 }
-  else { $done = $changed -and $markerOk }
+  elseif ($changed -and $markerOk) { $done = $true }
+  elseif ($markerOk -and $Marker.Count -gt 0 -and -not $baselineMarkerOk) {
+    # marker 由 0 中變晒中 = 新 build 一定已經上咗街，chunkSha 郁唔郁都好。
+    # 淨係改靜態檔（favicon.ico / og 圖 / public/*）唔會換到 JS/CSS chunk hash，
+    # 所以 $changed 會一世 False。淨靠佢就會喺明明已經上咗街嗰陣報 FAIL
+    # （2026-08-22 換 favicon 實測：marker 第一 poll 就 1/1，照等足 12 分鐘再報錯）。
+    $done = $true
+    $doneNote = "  （靠 marker 由 0 變 $($Marker.Count)/$($Marker.Count) 收工；chunkSha 冇郁 —— 淨係改靜態檔就係噉，唔係問題）"
+  }
 
   if ($done) {
-    Ok "上街驗到：等咗 $elapsedTxt"
+    Ok "上街驗到：等咗 $elapsedTxt$doneNote"
     if ($delivery) {
       $l = "delivery lag $([math]::Round($delivery.LagSec,1))s"
       # 「派出 → 上街」只有喺真係睇住佢由舊變新嗰次先有意義；replay / -DeliveryOnly 唔好報。
