@@ -605,6 +605,39 @@ def _db_writer_lease(timeout_seconds: int = 120):
             connection.close()
 
 
+def _mint_sale_quotes(source: str, *, dry_run: bool) -> dict[str, Any]:
+    """Mint the ranked PSA10 quote from the latest real sale (owner 2026-08-23).
+
+    Runs over the WHOLE routed universe, not this tick's due batch, and runs
+    even when nothing was due.  Both price adapters are due-batched, so a hook
+    that only fired after a successful fetch would leave most cards without a
+    quote on most nights, and checked_at is what the accept-side staleness gate
+    reads -- an unminted card goes stale and aborts the 100% contract.
+    Re-minting an unchanged sale is cheap and idempotent: payload_sha256 does
+    not move, so the evidence row is re-stamped rather than duplicated.
+
+    Caller holds the DB-writer lease; this only builds the argv and runs it.
+    """
+
+    cmd = [
+        PY,
+        "-X",
+        "utf8",
+        "pipelines/psa10_latest_sale_quote.py",
+        "--source",
+        source,
+        "--variants",
+        "all",
+        "--write",
+    ]
+    if dry_run:
+        return {"skipped": "dry_run", "source": source}
+    result = _run(cmd, timeout=900, dry_run=False)
+    if result.get("exit") != 0:
+        raise RuntimeError(f"{source} latest-sale quote mint failed")
+    return result
+
+
 def _quarantined_streams(adapter: str) -> dict[str, dict[str, Any]]:
     state = _load_runtime_state(QUARANTINE_PATH, QUARANTINE_CONTRACT)
     entries = state["adapters"].get(adapter) or {}
@@ -2226,6 +2259,14 @@ def _run_snk_adapter(
         report["note"] = (
             "all due SNK IDs are quarantined" if quarantined else "no exact SNK IDs due"
         )
+        if adapter == "snk_price":
+            # Same reason as the EN lane: quotes are minted for the whole routed
+            # universe from trades already landed, not for tonight's due batch.
+            try:
+                with _db_writer_lease():
+                    report["saleQuotes"] = _mint_sale_quotes("snkrdunk", dry_run=dry_run)
+            except Exception as exc:  # noqa: BLE001
+                report.update({"ok": False, "error": f"sale_quotes:{type(exc).__name__}:{exc}"})
         return report
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
@@ -2361,6 +2402,9 @@ def _run_snk_adapter(
                 ingest_summary = json.loads(ingest_report_path.read_text(encoding="utf-8-sig"))
                 ingest_contract = _validate_snk_price_ingest(ingest_summary, ok_ids)
                 report.update(ingest_contract)
+                # K-line bars landed above are chart points only; the PRICE is
+                # minted here from the completed trades.
+                report["saleQuotes"] = _mint_sale_quotes("snkrdunk", dry_run=False)
             checkpoint = record_successful_poll(
                 adapter=adapter,
                 mode=mode,
@@ -4098,6 +4142,14 @@ def run_en_price_ref(
     }
     if not selected:
         report["note"] = "no exact EN price-reference variants due"
+        # Nothing to FETCH is not nothing to PRICE: the sales that arrived on
+        # earlier ticks still have to become quotes, or every EN card whose
+        # page was not due tonight goes stale and aborts the 100% contract.
+        try:
+            with _db_writer_lease():
+                report["saleQuotes"] = _mint_sale_quotes("pricecharting", dry_run=dry_run)
+        except Exception as exc:  # noqa: BLE001
+            report.update({"ok": False, "error": f"sale_quotes:{type(exc).__name__}:{exc}"})
         return report
     if not refresh.get("ok"):
         report.update({"ok": False, "error": "fresh_pc_pages_unavailable"})
@@ -4167,6 +4219,9 @@ def run_en_price_ref(
             )
             if report["materialize"].get("exit") != 0:
                 raise RuntimeError("EN price materialize failed")
+            # The materialize above lands chart points only; the PRICE is minted
+            # here from the PSA 10 sales.
+            report["saleQuotes"] = _mint_sale_quotes("pricecharting", dry_run=False)
             local_replay_ids = {
                 int(value) for value in (refresh.get("localReplayVariantIds") or [])
             }

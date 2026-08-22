@@ -86,11 +86,38 @@ def pc_guide_observation_predicate_sql(p_alias: str, so_alias: str) -> str:
 # payload predicate that proves one of its observations is a PSA10 quote, and
 # whether its rows are gated to a language set.  A new source with none of
 # those three quirks needs no edit here at all.
-LEGACY_QUOTE_STORAGE_ALIASES: dict[str, tuple[str, ...]] = {
-    # market_price_observation rows written before `snkrdunk` became the
-    # canonical code.  A fact about historical rows, not a policy.
-    "snkrdunk": ("snk_psa10", "snk"),
+QUOTE_STORAGE_ALIASES: dict[str, tuple[str, ...]] = {
+    # Storage codes that resolve back to a canonical quote source.  Two kinds
+    # of fact live here, both per-source, neither of them policy:
+    #   * legacy: rows written before `snkrdunk` became the canonical code;
+    #   * lane:   the `*_sales` code the latest-real-sale quote is stored
+    #             under (owner 2026-08-23).  The suffix is load-bearing on the
+    #             FE too -- live-db-snapshot anchorCandidate() only accepts a
+    #             history point whose source ends in `_sales`, which is what
+    #             stops the retired PC month head from serving as a 7D/30D
+    #             anchor after its quote lane is gone.
+    "snkrdunk": ("snk_psa10", "snk", "snkrdunk_sales"),
+    "pricecharting": ("pricecharting_sales",),
 }
+# F-MINT: the ONLY storage codes a live quote may be minted under.  Owner
+# 2026-08-23 retired the chart/K-line quote lanes (PC `manualonly.last` /
+# `manualonly.series`, SNK kline head bar): those observations still land in
+# market_price_observation for the charts, they simply may never become the
+# ranked price again.  Legacy generation reconstruction still needs the old
+# codes, so it passes purpose="legacy_reconstruction" explicitly.
+MINTABLE_QUOTE_STORAGE_SOURCE_CODES = frozenset({
+    "pricecharting_sales",
+    "snkrdunk_sales",
+})
+QUOTE_MINT_PURPOSE_LIVE = "live"
+QUOTE_MINT_PURPOSE_LEGACY = "legacy_reconstruction"
+QUOTE_MINT_PURPOSES = (QUOTE_MINT_PURPOSE_LIVE, QUOTE_MINT_PURPOSE_LEGACY)
+# Payload contract of a sale-lane observation, proved in SQL by
+# sale_observation_predicate_sql and written by psa10_latest_sale_quote.
+SALE_QUOTE_CONTRACT = "psa10_latest_sale_v1"
+SALE_QUOTE_METHOD = "latest_exact_psa10_sale_v1"
+SALE_QUOTE_OBSERVATION_KIND = "psa10_latest_sale"
+SALE_QUOTE_SOURCE_PRIORITY = 96
 DEFAULT_QUOTE_OBSERVATION_KIND = "psa10_reference_price"
 # Position N of a language route carries priority (N+1)*STEP.  operator_control
 # checks the row's selected_price_route_priority against exactly this.
@@ -143,7 +170,7 @@ def quote_storage_source_codes(source_code: str) -> tuple[str, ...]:
     """Canonical code plus every legacy code its rows were stored under."""
 
     code = str(source_code or "").casefold()
-    return (code,) + tuple(LEGACY_QUOTE_STORAGE_ALIASES.get(code, ()))
+    return (code,) + tuple(QUOTE_STORAGE_ALIASES.get(code, ()))
 
 
 def all_quote_storage_source_codes() -> tuple[str, ...]:
@@ -154,8 +181,16 @@ def all_quote_storage_source_codes() -> tuple[str, ...]:
 
 
 def sql_source_in_list(codes: Sequence[str]) -> str:
-    """`'a','b'` for a SQL IN list.  Source codes are registry-validated."""
+    """`'a','b'` for a SQL IN list.  Source codes are registry-validated.
 
+    An empty sequence renders `IN ()`, which is MySQL 1064 -- a nightly
+    bootstrap that dies on a syntax error is survivable, but the same shape one
+    `OR` away silently matches nothing.  Fail here instead, where the caller is
+    named, rather than at the database.
+    """
+
+    if not tuple(codes):
+        raise ValueError("empty SQL source list: the caller derived no source codes")
     return ",".join("'" + str(code).replace("'", "''") + "'" for code in codes)
 
 
@@ -164,7 +199,7 @@ def canonical_quote_source_sql(source_expr: str) -> str:
 
     parts = []
     for code in quote_source_codes():
-        aliases = LEGACY_QUOTE_STORAGE_ALIASES.get(code, ())
+        aliases = QUOTE_STORAGE_ALIASES.get(code, ())
         if aliases:
             parts.append(
                 f"WHEN {source_expr} IN ({sql_source_in_list(aliases)}) THEN '{code}'"
@@ -172,6 +207,90 @@ def canonical_quote_source_sql(source_expr: str) -> str:
     if not parts:
         return source_expr
     return "CASE " + " ".join(parts) + f" ELSE {source_expr} END"
+
+
+def mintable_quote_storage_source_codes() -> tuple[str, ...]:
+    """Storage codes a LIVE quote may be minted under, in route order.
+
+    Derived, never a second literal list: a code has to be a registered quote
+    source's storage code AND be declared mintable.  A `*_sales` alias that
+    nobody registered stays unmintable, and a registered source with no sale
+    lane cannot mint at all -- both fail closed.
+    """
+
+    return tuple(
+        code
+        for code in all_quote_storage_source_codes()
+        if code in MINTABLE_QUOTE_STORAGE_SOURCE_CODES
+    )
+
+
+def assert_quote_mint_allowed(
+    source_code: str,
+    *,
+    purpose: str = QUOTE_MINT_PURPOSE_LIVE,
+    reconstruction_kind: str | None = None,
+) -> str:
+    """F-MINT.  One guard, one door -- both INSERT paths call this.
+
+    Returns the normalised storage code, raises ValueError otherwise.  Minting
+    used to be "whatever the caller passed", then "any registered source"; the
+    chart lanes were registered, so registry membership alone no longer says
+    what may become tonight's price.
+    """
+
+    source = str(source_code or "").casefold()
+    if purpose not in QUOTE_MINT_PURPOSES:
+        raise ValueError(
+            f"unknown quote mint purpose {purpose!r}; expected one of {QUOTE_MINT_PURPOSES}"
+        )
+    if source not in all_quote_storage_source_codes():
+        raise ValueError(
+            f"quote revision source is not a registered quote source: {source!r};"
+            " register it in daily_chain_v2_adapters.build_default_registry()"
+            " (capability 'quote'), or add its storage code to"
+            " current_quote_revision.QUOTE_STORAGE_ALIASES"
+        )
+    if purpose == QUOTE_MINT_PURPOSE_LEGACY:
+        if reconstruction_kind != LEGACY_KIND:
+            raise ValueError(
+                "legacy_reconstruction minting requires reconstruction_kind="
+                f"{LEGACY_KIND!r}, got {reconstruction_kind!r}"
+            )
+        return source
+    if source not in mintable_quote_storage_source_codes():
+        raise ValueError(
+            f"chart quote lane is retired (owner 2026-08-23): {source!r} may not"
+            " mint a live quote revision. The ranked PSA10 price is the latest"
+            " real sale, minted by pipelines/psa10_latest_sale_quote.py under"
+            f" {sorted(MINTABLE_QUOTE_STORAGE_SOURCE_CODES)}."
+            " Rebuilding a historical generation? pass"
+            f" purpose={QUOTE_MINT_PURPOSE_LEGACY!r} with"
+            f" reconstruction_kind={LEGACY_KIND!r}."
+        )
+    return source
+
+
+def sale_observation_predicate_sql(p_alias: str, so_alias: str) -> str:
+    """Proof that one observation IS a latest-real-sale quote.
+
+    The chart predicate it replaces pinned PriceCharting's `manualonly.last` /
+    `manualonly.series` fields; this one pins the sale contract, the sale
+    observation kind and the sale source priority, so a chart row cannot drift
+    back into the bootstrap through a shared source code.
+    """
+
+    return (
+        f"{p_alias}.source_code IN ("
+        + sql_source_in_list(mintable_quote_storage_source_codes())
+        + ")"
+        f" AND {p_alias}.source_priority={SALE_QUOTE_SOURCE_PRIORITY}"
+        f" AND {so_alias}.observation_kind='{SALE_QUOTE_OBSERVATION_KIND}'"
+        f" AND JSON_UNQUOTE(JSON_EXTRACT({so_alias}.payload_json,'$.contract'))"
+        f"='{SALE_QUOTE_CONTRACT}'"
+        f" AND JSON_UNQUOTE(JSON_EXTRACT({so_alias}.payload_json,'$.method'))"
+        f"='{SALE_QUOTE_METHOD}'"
+    )
 
 
 def default_quote_storage_source_codes() -> tuple[str, ...]:
@@ -226,7 +345,7 @@ def language_quote_route(card_language: str | None) -> tuple[str, ...]:
 # A quote source in neither set gets the default treatment and needs no entry:
 # its observations are proved by DEFAULT_QUOTE_OBSERVATION_KIND and its rows
 # count for every card language.
-SPECIAL_QUOTE_OBSERVATION_SOURCES = frozenset({"pricecharting"})
+SPECIAL_QUOTE_OBSERVATION_SOURCES = frozenset({"pricecharting", "snkrdunk"})
 LANGUAGE_GATED_QUOTE_SOURCES = frozenset({"pricecharting"})
 
 
@@ -410,20 +529,13 @@ def insert_quote_revision(
     reconstruction_kind: str | None = None,
     reconstructed_from_acceptance_id: int | None = None,
     run_id: int | None = None,
+    purpose: str = QUOTE_MINT_PURPOSE_LIVE,
 ) -> int:
     """Insert one immutable quote revision. Returns id (existing or new)."""
 
-    source = str(source_code).casefold()
-    # F-MINT: minting is registry-gated, not "whatever the caller passed".  An
-    # unregistered source used to land a revision that the eligibility view then
-    # dropped on the floor, so the row existed and ranked nowhere.
-    if source not in all_quote_storage_source_codes():
-        raise ValueError(
-            f"quote revision source is not a registered quote source: {source!r};"
-            " register it in daily_chain_v2_adapters.build_default_registry()"
-            " (capability 'quote'), or add its legacy storage code to"
-            " current_quote_revision.LEGACY_QUOTE_STORAGE_ALIASES"
-        )
+    source = assert_quote_mint_allowed(
+        source_code, purpose=purpose, reconstruction_kind=reconstruction_kind
+    )
     external = str(source_external_entity_id)
     period = _as_date(source_period_at)
     checked = _as_utc_naive(checked_at)
@@ -527,6 +639,7 @@ def insert_quote_revisions_many(
                     "reconstructed_from_acceptance_id"
                 ),
                 run_id=row.get("run_id"),
+                purpose=str(row.get("purpose") or QUOTE_MINT_PURPOSE_LIVE),
             )
         )
     return ids
@@ -536,7 +649,13 @@ def bootstrap_from_eligible_observations(cursor: Any, *, actor: str = "043-boots
     """Seed quote revisions from current eligible market_price_observation rows.
 
     checked_at prefers source observation observed_at, then price effective_at.
-    source_period_at is the observation's observed_date (PC month or SNK day).
+    source_period_at is the observation's observed_date (the sale day).
+
+    Owner 2026-08-23: only the sale lanes are eligible here.  The PC guide
+    predicate (`manualonly.last` / `manualonly.series`) and the default
+    `psa10_reference_price` branch (the SNK kline head bar) both used to feed
+    this query; both are gone, because a re-bootstrap that could still mint a
+    chart quote would quietly undo the retirement on the next activation.
     """
 
     # Only the latest eligible observation per (variant, storage source).
@@ -562,16 +681,9 @@ def bootstrap_from_eligible_observations(cursor: Any, *, actor: str = "043-boots
            AND so2.payload_sha256=p2.payload_sha256
            AND so2.observed_date=p2.observed_date
           WHERE p2.metric_status='ready' AND p2.price_usd>0
-            AND p2.source_code IN (""" + sql_source_in_list(
-        all_quote_storage_source_codes()
-    ) + """)
-            AND (
-              (p2.source_code IN (""" + sql_source_in_list(
-        default_quote_storage_source_codes()
-    ) + """)
-               AND so2.observation_kind='""" + DEFAULT_QUOTE_OBSERVATION_KIND + """')
-              OR (""" + pc_guide_observation_predicate_sql("p2", "so2") + """)
-            )
+            -- sale_observation_predicate_sql already pins the source list; a
+            -- second copy here would be one more place to forget.
+            AND (""" + sale_observation_predicate_sql("p2", "so2") + """)
           GROUP BY p2.variant_id, p2.source_code
         ) latest
           ON latest.variant_id=p.variant_id
@@ -952,6 +1064,16 @@ def reconstruct_legacy_generation_quotes(cursor: Any) -> dict[str, int]:
             continue
         params: list[Any] = []
         for raw, spec, lineage in chunk:
+            # F-MINT, same door as insert_quote_revision.  This path stays a
+            # batched multi-row INSERT because it replays whole historical
+            # generations (two extra round-trips per row is the reason the
+            # batch exists), but it must not be a second, looser gate: a chart
+            # source is legal here ONLY as a legacy reconstruction.
+            assert_quote_mint_allowed(
+                str(spec["source_code"]),
+                purpose=QUOTE_MINT_PURPOSE_LEGACY,
+                reconstruction_kind=spec.get("reconstruction_kind"),
+            )
             price = Decimal(_price_text(spec["price_usd"]))
             payload = str(spec["payload_sha256"]).casefold()
             if price <= 0:
@@ -1143,9 +1265,32 @@ def self_test() -> dict[str, Any]:
     assert "CREATE OR REPLACE VIEW operator_eligible_current_quote_revision" in ddl
     assert "zhtw" in ddl
     assert "pc_psa10_local_history_v1" in pc_guide_observation_predicate_sql("p2", "so2")
+    # F-MINT: the chart lanes stay registered (their observations still feed the
+    # charts) and stay unmintable.  Assert both, so "registered" can never be
+    # mistaken for "may become tonight's price" again.
+    assert set(mintable_quote_storage_source_codes()) == set(
+        MINTABLE_QUOTE_STORAGE_SOURCE_CODES
+    )
+    for retired in ("pricecharting", "snkrdunk", "snk", "snk_psa10"):
+        assert retired in all_quote_storage_source_codes()
+        try:
+            assert_quote_mint_allowed(retired)
+        except ValueError as error:
+            assert "retired" in str(error)
+        else:  # pragma: no cover - guard must fire
+            raise AssertionError(f"F-MINT did not fire for {retired}")
+        assert assert_quote_mint_allowed(
+            retired,
+            purpose=QUOTE_MINT_PURPOSE_LEGACY,
+            reconstruction_kind=LEGACY_KIND,
+        ) == retired
+    sale_sql = sale_observation_predicate_sql("p2", "so2")
+    assert SALE_QUOTE_CONTRACT in sale_sql and SALE_QUOTE_OBSERVATION_KIND in sale_sql
+    assert "manualonly" not in sale_sql
     return {
         "ok": True,
         "distinctLineages": True,
         "pcPriceLanguageCasefold": True,
         "localHistoryGuidePredicate": True,
+        "chartQuoteLanesRetired": True,
     }
