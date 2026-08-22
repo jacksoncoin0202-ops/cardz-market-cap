@@ -390,9 +390,16 @@ export function CardDetail({ id, snapshot, related }: {
           改用卡自己嗰個價格觀察日；冇價先跌返 snapshot 時間。
         */}
         <p className="data-time">
-          {card.pricePsa10.sourcePeriodAt
-            ? `${t.labels.pricePeriod}: ${formatObservationDate(card.pricePsa10.sourcePeriodAt, locale)} · `
-            : null}
+          {/* 成交價行「成交日」，legacy chart quote 先至行返「價格期數」——
+              兩個欄位喺 producer 側互斥（live-db-snapshot.ts 個 isSaleQuote），
+              所以呢度唔會兩個一齊出。上面個 data-time 元素本身，同佢喺
+              .detail-metrics / .detail-prose 之間嘅位置，係 test-fe-detail-rail
+              T6 嘅契約，只准改內文。 */}
+          {card.pricePsa10.saleAt
+            ? `${t.labels.saleDate}: ${formatObservationDate(card.pricePsa10.saleAt, locale)} · `
+            : card.pricePsa10.sourcePeriodAt
+              ? `${t.labels.pricePeriod}: ${formatObservationDate(card.pricePsa10.sourcePeriodAt, locale)} · `
+              : null}
           {t.labels.checkedAt}: {formatObservationDate(card.pricePsa10.checkedAt || card.pricePsa10.asOf || snapshot.effectiveAt, locale)}
         </p>
       </article>

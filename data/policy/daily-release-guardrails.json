@@ -2,7 +2,10 @@
   "contract": "cardz-daily-release-guardrails-v1",
   "priceMaxAgeDaysBySource": {
     "default": 30,
-    "pricecharting": 40
+    "pricecharting": 30,
+    "snkrdunk": 30,
+    "pricecharting_sales": 30,
+    "snkrdunk_sales": 30
   },
   "rankedDropMaxRatio": 0.02,
   "awaitingFreshPriceMaxRatio": 0.02,

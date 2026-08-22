@@ -183,6 +183,7 @@ export interface Copy {
     changeShort: string;
     asOf: string;
     pricePeriod: string;
+    saleDate: string;
     checkedAt: string;
     awaitingFreshPrice: string;
     viewCard: string;
@@ -487,7 +488,7 @@ export const copy: Record<Locale, Copy> = {
       marketCap: "Market cap", marketCapShort: "Mkt Cap", trackedSales: "Tracked sales",
       trackedSalesShort: "Sales",
       salesHelp: "Only completed PSA 10 sales captured within CardZ Marketcap tracked coverage.", change: "Change", changeShort: "Chg", asOf: "Data time",
-      pricePeriod: "Price period", checkedAt: "Last checked",
+      pricePeriod: "Price period", saleDate: "Last sale", checkedAt: "Last checked",
       awaitingFreshPrice: "Awaiting fresh price",
       viewCard: "Open card profile", close: "Close", story: "Why the market cares", history: "Daily market history",
       dailyPrice: "Reference price", trackedSalesBars: "Tracked sales", salesTrend: "Tracked sales trend", salesTrendShort: "Sales trend", salesTrendColumn: "Trend", imageAlt: "Card artwork",
@@ -565,7 +566,7 @@ export const copy: Record<Locale, Copy> = {
       title: "How the market cap number is built",
       body: "Market cap is the current PSA 10 reference price multiplied by the verified PSA 10 population, recalculated on every daily update.",
       steps: [
-        { term: "Reference price", detail: "Completed PSA 10 sales captured inside CardZ Marketcap tracked coverage. Lots are unitised down to a single card, extreme outliers are dropped, and what remains is reduced to a median." },
+        { term: "Reference price", detail: "The most recent completed PSA 10 sale captured inside CardZ Marketcap tracked coverage. Lots are unitised down to a single card, and a sale priced far outside its own recent range is rejected in favour of the next most recent one." },
         { term: "Population", detail: "The verified PSA 10 population for that exact printing — language, set, collector number and parallel are never merged across printings." },
         { term: "Gaps", detail: "A card with insufficient data coverage in the window is marked as accumulating rather than being given a filled-in number. A missing value stays missing, never zero." },
       ],
@@ -706,7 +707,7 @@ export const copy: Record<Locale, Copy> = {
       marketCap: "市值", marketCapShort: "市值", trackedSales: "已追蹤成交額",
       trackedSalesShort: "成交",
       salesHelp: "只包括 CardZ Marketcap 追蹤範圍內捕捉到的 PSA 10 完成成交。", change: "升跌", changeShort: "升跌", asOf: "資料時間",
-      pricePeriod: "價格期數", checkedAt: "最近檢查",
+      pricePeriod: "價格期數", saleDate: "成交日", checkedAt: "最近檢查",
       awaitingFreshPrice: "等待新鮮價格",
       viewCard: "查看卡牌詳情", close: "關閉", story: "市場為何追捧", history: "每日市場走勢",
       dailyPrice: "參考價格", trackedSalesBars: "已追蹤成交額", salesTrend: "已追蹤成交額走勢", salesTrendShort: "成交走勢", salesTrendColumn: "走勢", imageAlt: "卡牌圖像",
@@ -776,7 +777,7 @@ export const copy: Record<Locale, Copy> = {
       title: "市值數字的計算方法",
       body: "市值＝現時 PSA 10 參考價 × 經核實的 PSA 10 存世數量，每日更新時重新計算。",
       steps: [
-        { term: "參考價", detail: "取自 CardZ Marketcap 追蹤範圍內已完成的 PSA 10 成交：先按張數還原單價，剔除極端值，再取中位數。" },
+        { term: "參考價", detail: "取自 CardZ Marketcap 追蹤範圍內已完成的 PSA 10 成交：先按張數還原單價，價格離自己近期區間太遠嗰單會被剔走，然後採用最近一單成交價。" },
         { term: "存世數量", detail: "該一個印刷版本經核實的 PSA 10 數量。語言、系列、卡號與平行版本不會混為一談。" },
         { term: "缺口", detail: "期間內資料覆蓋不足的卡會標示為資料累積中，而不是填一個數上去；缺失的數值永遠保持缺失，不會當作零。" },
       ],
@@ -910,7 +911,7 @@ export const copy: Record<Locale, Copy> = {
       marketCap: "市值", marketCapShort: "市值", trackedSales: "已追踪成交额",
       trackedSalesShort: "成交",
       salesHelp: "只包括 CardZ Marketcap 追踪范围内捕捉到的 PSA 10 完成成交。", change: "涨跌", changeShort: "涨跌", asOf: "数据时间",
-      pricePeriod: "价格期数", checkedAt: "最近检查",
+      pricePeriod: "价格期数", saleDate: "成交日", checkedAt: "最近检查",
       awaitingFreshPrice: "等待新鲜价格",
       viewCard: "查看卡牌详情", close: "关闭", story: "市场为何追捧", history: "每日市场走势",
       dailyPrice: "参考价格", trackedSalesBars: "已追踪成交额", salesTrend: "已追踪成交额走势", salesTrendShort: "成交走势", salesTrendColumn: "走势", imageAlt: "卡牌图像",
@@ -979,7 +980,7 @@ export const copy: Record<Locale, Copy> = {
       title: "市值数字的计算方法",
       body: "市值＝当前 PSA 10 参考价 × 经核实的 PSA 10 存世数量，每日更新时重新计算。",
       steps: [
-        { term: "参考价", detail: "取自 CardZ Marketcap 追踪范围内已完成的 PSA 10 成交：先按张数还原单价，剔除极端值，再取中位数。" },
+        { term: "参考价", detail: "取自 CardZ Marketcap 追踪范围内已完成的 PSA 10 成交：先按张数还原单价，价格离自身近期区间太远的会被剔除，然后采用最近一单成交价。" },
         { term: "存世数量", detail: "该一个印刷版本经核实的 PSA 10 数量。语言、系列、卡号与平行版本不会混为一谈。" },
         { term: "缺口", detail: "期间内数据覆盖不足的卡会标示为数据累积中，而不是填一个数上去；缺失的数值永远保持缺失，不会当作零。" },
       ],
@@ -1113,7 +1114,7 @@ export const copy: Record<Locale, Copy> = {
       marketCap: "時価総額", marketCapShort: "時価総額", trackedSales: "追跡成約額",
       trackedSalesShort: "成約",
       salesHelp: "CardZ Marketcap の追跡範囲で確認できた PSA 10 の成約のみを含みます。", change: "変動", changeShort: "変動", asOf: "データ時刻",
-      pricePeriod: "価格期", checkedAt: "最終確認",
+      pricePeriod: "価格期", saleDate: "成約日", checkedAt: "最終確認",
       awaitingFreshPrice: "新しい価格を待機中",
       viewCard: "カード詳細を見る", close: "閉じる", story: "市場で支持される理由", history: "日次市場推移",
       dailyPrice: "参考価格", trackedSalesBars: "追跡成約額", salesTrend: "追跡成約額の推移", salesTrendShort: "成約推移", salesTrendColumn: "推移", imageAlt: "カード画像",
@@ -1182,7 +1183,7 @@ export const copy: Record<Locale, Copy> = {
       title: "マーケットキャップの算出方法",
       body: "マーケットキャップは、現在の PSA 10 参考価格に確認済み PSA 10 の現存枚数を掛けた値で、毎日の更新ごとに再計算されます。",
       steps: [
-        { term: "参考価格", detail: "CardZ Marketcap の追跡範囲で確認できた PSA 10 の成約から取得します。まとめ売りは1枚あたりに換算し、極端な外れ値を除いたうえで中央値を用います。" },
+        { term: "参考価格", detail: "CardZ Marketcap の追跡範囲で確認できた PSA 10 の成約から取得します。まとめ売りは1枚あたりに換算し、直近の水準から大きく外れた成約を除いたうえで、最新の成約価格を用います。" },
         { term: "現存枚数", detail: "その印刷版に対する確認済み PSA 10 の枚数です。言語・セット・カード番号・パラレルを混在させることはありません。" },
         { term: "欠損", detail: "対象期間のデータカバレッジが不足しているカードは、数値を埋めずに集計中と表示します。欠損値は常に欠損のままで、ゼロとしては扱いません。" },
       ],
@@ -1323,7 +1324,7 @@ export const copy: Record<Locale, Copy> = {
       marketCap: "시가총액", marketCapShort: "시총", trackedSales: "추적 거래액",
       trackedSalesShort: "거래",
       salesHelp: "CardZ Marketcap 추적 범위에서 확인된 PSA 10 완료 거래만 포함합니다.", change: "등락", changeShort: "등락", asOf: "데이터 시각",
-      pricePeriod: "가격 기간", checkedAt: "최근 확인",
+      pricePeriod: "가격 기간", saleDate: "체결일", checkedAt: "최근 확인",
       awaitingFreshPrice: "신선한 가격 대기",
       viewCard: "카드 상세 보기", close: "닫기", story: "시장이 주목하는 이유", history: "일별 시장 추이",
       dailyPrice: "기준 가격", trackedSalesBars: "추적 거래액", salesTrend: "추적 거래액 추이", salesTrendShort: "거래 추이", salesTrendColumn: "추이", imageAlt: "카드 이미지",
@@ -1392,7 +1393,7 @@ export const copy: Record<Locale, Copy> = {
       title: "시가총액 산출 방식",
       body: "시가총액은 현재 PSA 10 기준가에 검증된 PSA 10 현존 수량을 곱한 값이며, 매일 갱신할 때마다 다시 계산합니다.",
       steps: [
-        { term: "기준가", detail: "CardZ Marketcap 추적 범위에서 확인된 PSA 10 완료 거래에서 가져옵니다. 묶음 거래는 카드 한 장 기준으로 환산하고 극단값을 제거한 뒤 중앙값을 사용합니다." },
+        { term: "기준가", detail: "CardZ Marketcap 추적 범위에서 확인된 PSA 10 완료 거래에서 가져옵니다. 묶음 거래는 카드 한 장 기준으로 환산하고, 최근 구간에서 크게 벗어난 거래는 제외한 뒤 가장 최근 체결가를 사용합니다." },
         { term: "현존 수량", detail: "해당 인쇄본에 대해 검증된 PSA 10 수량입니다. 언어, 세트, 카드 번호, 패러렐을 섞지 않습니다." },
         { term: "결측", detail: "해당 기간의 데이터 커버리지가 부족한 카드는 숫자를 채우지 않고 집계 중으로 표시합니다. 결측값은 언제나 결측으로 남으며 0으로 처리하지 않습니다." },
       ],

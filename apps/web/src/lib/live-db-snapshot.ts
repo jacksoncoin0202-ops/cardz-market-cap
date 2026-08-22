@@ -121,6 +121,17 @@ type AnchorCandidate = { at: string; priceUsd: number; sourceCode: string | null
 // 就退去當日成交均價（同 :444 升格邏輯同一份證據、同一個條件）；兩樣都冇
 // 先至冇候選。真成交 vs 指導價係本來就接受嘅比較，sourceSwitched 照 flag
 // 俾 UI 提示。
+// 056→sale lane：`pricecharting_sales` / `snkrdunk_sales` 係同一個供應商嘅成交升格碼，
+// 同 chart 觀測點（`pricecharting` / `snkrdunk`，market_price_observation 嗰邊永遠係母碼）
+// 比較時要當同一條 lane。唔剝尾碼：全板 currentSource 永遠對唔中任何 history 點——
+// EN 卡嘅日線由 PC 點靜靜變咗 SNK 點（ladder tier 1 < 2），1d/7d 變幅嘅錨點亦由
+// chart 退晒去成交均價，頁面照出、零 error。test-fe-sale-date-label T5 釘住兩個 call site。
+function chartLaneOf(sourceCode: unknown): string | null {
+  const code = String(sourceCode ?? "").trim();
+  if (!code) return null;
+  return code.endsWith("_sales") ? code.slice(0, -"_sales".length) : code;
+}
+
 function anchorCandidate(
   point: DailyHistoryPoint,
   currentSource: string | null,
@@ -518,7 +529,7 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       variant.set(date, point);
       return point;
     };
-    const currentSource = new Map(coreRows.map((row) => [Number(row.variant_id), String(row.price_source_code)]));
+    const currentSource = new Map(coreRows.map((row) => [Number(row.variant_id), chartLaneOf(row.price_source_code) ?? ""]));
     for (const row of priceRows[0]) {
       const variantId = Number(row.variant_id);
       const observedDate = day(row.observed_date);
@@ -607,6 +618,16 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       const priceCheckedAt = iso(row.price_checked_at) ?? iso(row.price_observed_at) ?? iso(row.price_effective_at);
       // Public asOf / freshness clock is checkedAt (043), not the PC month head.
       const priceAsOf = priceCheckedAt ?? pricePeriodAt;
+      // 056→sale lane：quote 來源以 `_sales` 結尾即係「呢個價本身就係一單真成交」，
+      // 個期數日期就係成交日，唔再係 chart 嘅月線頭。舊 chart quote（legacy
+      // generation 重建出嚟嗰啲）先至仲有「價格期數」呢個概念，所以兩個欄位互斥：
+      // 有 saleAt 就冇 sourcePeriodAt，反之亦然。FE 靠「邊個有值」判斷點寫個 label，
+      // 唔使多開一個 quoteBasis 欄（全部 quote 轉晒成交之後嗰個欄係恆定噪音）。
+      // 供應商代號本身唔會跟住出街：`price_source_code` 淨係喺呢度做判斷，
+      // 落 payload 嘅只有日期。
+      const isSaleQuote = String(row.price_source_code ?? "").endsWith("_sales");
+      const priceSaleAt = isSaleQuote ? pricePeriodAt : null;
+      const priceSourcePeriodAt = isSaleQuote ? null : pricePeriodAt;
       const populationAsOf = iso(row.population_effective_at);
       // 市值 = 價 × POP（rebuild_036.py:7176），所以佢只可以同兩個輸入入面**舊**
       // 嗰個一樣新。舊版攞 .at(-1)（max），即係用 POP 嘅新鮮度去標一個食緊 08-01
@@ -696,12 +717,14 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
               value: null,
               status: "accumulating",
               asOf: priceAsOf,
-              sourcePeriodAt: pricePeriodAt,
+              sourcePeriodAt: priceSourcePeriodAt,
+              saleAt: priceSaleAt,
               checkedAt: priceCheckedAt,
             }
           : {
               ...readyMetric(currentPrice, priceAsOf),
-              sourcePeriodAt: pricePeriodAt,
+              sourcePeriodAt: priceSourcePeriodAt,
+              saleAt: priceSaleAt,
               checkedAt: priceCheckedAt,
             },
         priceUngradedReference: readyMetric(numberValue(raw?.price_usd), iso(raw?.observed_at)),
@@ -714,7 +737,7 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
           awaitingFreshPrice ? null : currentPrice,
           currentPopulation,
           priceAsOf,
-          String(row.price_source_code),
+          chartLaneOf(row.price_source_code),
         ),
         historyDaily: history,
       };

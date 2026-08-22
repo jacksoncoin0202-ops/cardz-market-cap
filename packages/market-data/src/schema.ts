@@ -37,8 +37,13 @@ export interface MarketMetric {
   status: MarketStatus;
   /** Public "last updated" time. For PSA10 price this is checkedAt (043). */
   asOf: string | null;
-  /** Source chart/period date (e.g. PriceCharting month head). Optional. */
+  /** Source chart/period date (legacy chart quotes only). Optional. */
   sourcePeriodAt?: string | null;
+  /**
+   * Sale date of the completed sale this price IS. Present only when the
+   * quote is a real transaction; mutually exclusive with sourcePeriodAt.
+   */
+  saleAt?: string | null;
   /** Actual capture/check time used for freshness. Optional. */
   checkedAt?: string | null;
   /**
