@@ -1,0 +1,1070 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Durable SQLite journal for CARDZ Daily Chain V2.
+
+Only orchestration metadata is stored here.  Prices, identities, source
+payloads, and secrets remain in their existing authorities.
+"""
+from __future__ import annotations
+
+import json
+import os
+import secrets
+import sqlite3
+from contextlib import contextmanager
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Iterable, Iterator, Mapping
+
+from daily_chain_v2_contract import (
+    RetryDecision,
+    SourceTask,
+    autonomous_proven,
+    canonical_json,
+    classify_provenance,
+    sha256,
+)
+
+
+SCHEMA_VERSION = 1
+TERMINAL_TASK_STATES = frozenset({"COMPLETED", "DEGRADED", "TERMINAL", "SKIPPED"})
+SUCCESS_TASK_STATES = frozenset({"COMPLETED", "DEGRADED", "SKIPPED"})
+RUN_SUCCESS_STATES = frozenset({"PUBLISHED", "PUBLISHED_DEGRADED"})
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def iso(value: datetime | None = None) -> str:
+    return (value or utc_now()).astimezone(timezone.utc).isoformat(timespec="microseconds")
+
+
+def default_state_path() -> Path:
+    configured = os.environ.get("CARDZ_DAILY_V2_STATE_DB", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return Path.home() / ".local" / "state" / "cardz-marketcap" / "daily-chain-v2.sqlite3"
+
+
+class JournalError(RuntimeError):
+    pass
+
+
+class ClaimLost(JournalError):
+    pass
+
+
+class Journal:
+    def __init__(self, path: Path) -> None:
+        self.path = Path(path)
+
+    def initialise(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self.connect() as conn:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS journal_meta (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS chain_run (
+                    run_id TEXT PRIMARY KEY,
+                    business_date TEXT NOT NULL UNIQUE,
+                    status TEXT NOT NULL,
+                    origin TEXT NOT NULL,
+                    scheduled_event_107_count INTEGER NOT NULL DEFAULT 0,
+                    manual_intervention_count INTEGER NOT NULL DEFAULT 0,
+                    source_cutoff_at TEXT NOT NULL,
+                    sla_at TEXT NOT NULL,
+                    final_at TEXT NOT NULL,
+                    publication_status TEXT,
+                    generation_id TEXT,
+                    generated_at TEXT,
+                    content_sha256 TEXT,
+                    active_count INTEGER,
+                    degraded_sources_json TEXT NOT NULL DEFAULT '[]',
+                    proven_autonomous INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    completed_at TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS chain_task (
+                    task_key TEXT PRIMARY KEY,
+                    run_id TEXT NOT NULL,
+                    phase TEXT NOT NULL,
+                    source_code TEXT NOT NULL,
+                    capability TEXT NOT NULL,
+                    required_class TEXT NOT NULL,
+                    concurrency_group TEXT NOT NULL,
+                    max_concurrency INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    input_revision TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    checkpoint_json TEXT NOT NULL DEFAULT '{}',
+                    result_json TEXT,
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    max_attempts INTEGER NOT NULL,
+                    next_retry_at TEXT,
+                    lease_token TEXT,
+                    lease_expires_at TEXT,
+                    heartbeat_at TEXT,
+                    last_error_code TEXT,
+                    last_error TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (run_id) REFERENCES chain_run(run_id)
+                );
+                CREATE INDEX IF NOT EXISTS ix_chain_task_ready
+                    ON chain_task(run_id, status, next_retry_at, phase);
+                CREATE INDEX IF NOT EXISTS ix_chain_task_group
+                    ON chain_task(run_id, concurrency_group, status);
+
+                CREATE TABLE IF NOT EXISTS chain_attempt (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_key TEXT NOT NULL,
+                    attempt_no INTEGER NOT NULL,
+                    claim_token TEXT NOT NULL UNIQUE,
+                    status TEXT NOT NULL,
+                    started_at TEXT NOT NULL,
+                    heartbeat_at TEXT NOT NULL,
+                    finished_at TEXT,
+                    worker_pid INTEGER,
+                    process_started_at TEXT,
+                    command_sha256 TEXT,
+                    receipt_json TEXT,
+                    error_code TEXT,
+                    error_text TEXT,
+                    UNIQUE (task_key, attempt_no),
+                    FOREIGN KEY (task_key) REFERENCES chain_task(task_key)
+                );
+                CREATE INDEX IF NOT EXISTS ix_chain_attempt_running
+                    ON chain_attempt(status, heartbeat_at);
+
+                CREATE TABLE IF NOT EXISTS chain_event (
+                    event_key TEXT PRIMARY KEY,
+                    run_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    delivered INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    delivered_at TEXT,
+                    FOREIGN KEY (run_id) REFERENCES chain_run(run_id)
+                );
+                CREATE INDEX IF NOT EXISTS ix_chain_event_pending
+                    ON chain_event(run_id, delivered, created_at);
+                """
+            )
+            conn.execute(
+                "INSERT INTO journal_meta(key,value) VALUES('schema_version',?)"
+                " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (str(SCHEMA_VERSION),),
+            )
+
+    @contextmanager
+    def connect(self) -> Iterator[sqlite3.Connection]:
+        conn = sqlite3.connect(str(self.path), timeout=30, isolation_level=None)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("PRAGMA busy_timeout=30000")
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=FULL")
+        try:
+            yield conn
+        finally:
+            conn.close()
+
+    @contextmanager
+    def transaction(self) -> Iterator[sqlite3.Connection]:
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                yield conn
+            except Exception:
+                conn.rollback()
+                raise
+            else:
+                conn.commit()
+
+    def ensure_run(
+        self,
+        *,
+        business_date: str,
+        source_cutoff_at: str,
+        sla_at: str,
+        final_at: str,
+    ) -> dict[str, Any]:
+        run_id = f"cardz-v2:{business_date}"
+        now = iso()
+        with self.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO chain_run(
+                    run_id,business_date,status,origin,source_cutoff_at,sla_at,final_at,
+                    created_at,updated_at
+                ) VALUES(?,?,'RUNNING','unknown',?,?,?,?,?)
+                ON CONFLICT(business_date) DO NOTHING
+                """,
+                (run_id, business_date, source_cutoff_at, sla_at, final_at, now, now),
+            )
+            row = conn.execute(
+                "SELECT * FROM chain_run WHERE business_date=?", (business_date,)
+            ).fetchone()
+        if row is None:
+            raise JournalError(f"could not create run for {business_date}")
+        return dict(row)
+
+    def renew_manual_window(
+        self,
+        run_id: str,
+        *,
+        source_cutoff_at: str,
+        sla_at: str,
+        final_at: str,
+    ) -> tuple[dict[str, Any], list[str]]:
+        """Explicitly extend one manual E2E run and resume only cutoff work.
+
+        Normal ticks never call this method, so reconnecting cannot silently
+        manufacture a fresh deadline.  Completed checkpoints stay immutable;
+        only candidate work that the expired manual window closed is reopened.
+        """
+
+        cutoff = datetime.fromisoformat(source_cutoff_at)
+        sla = datetime.fromisoformat(sla_at)
+        final = datetime.fromisoformat(final_at)
+        if not cutoff < sla < final:
+            raise ValueError("manual E2E deadlines must be strictly ordered")
+        now = iso()
+        with self.transaction() as conn:
+            run = conn.execute(
+                "SELECT * FROM chain_run WHERE run_id=?", (run_id,)
+            ).fetchone()
+            if run is None:
+                raise JournalError(f"run not found: {run_id}")
+            if run["publication_status"]:
+                raise JournalError("a published run cannot renew its manual E2E window")
+            conn.execute(
+                """
+                UPDATE chain_run
+                SET source_cutoff_at=?,sla_at=?,final_at=?,updated_at=?
+                WHERE run_id=?
+                """,
+                (source_cutoff_at, sla_at, final_at, now, run_id),
+            )
+            rows = conn.execute(
+                """
+                SELECT task_key FROM chain_task
+                WHERE run_id=? AND status='DEGRADED'
+                  AND attempts<max_attempts
+                  AND (
+                    (phase='candidate-source' AND last_error_code='CANDIDATE_SOURCE_CUTOFF')
+                    OR
+                    (phase='activation' AND last_error_code='CANDIDATE_ACTIVATION_CUTOFF')
+                  )
+                ORDER BY created_at,task_key
+                """,
+                (run_id,),
+            ).fetchall()
+            reopened = [str(row["task_key"]) for row in rows]
+            if reopened:
+                placeholders = ",".join("?" for _ in reopened)
+                conn.execute(
+                    f"""
+                    UPDATE chain_task
+                    SET status='INTERRUPTED',next_retry_at=?,lease_token=NULL,
+                        lease_expires_at=NULL,
+                        last_error='explicit manual E2E window renewal reopened cutoff work',
+                        updated_at=?
+                    WHERE task_key IN ({placeholders})
+                    """,
+                    (now, now, *reopened),
+                )
+            updated = conn.execute(
+                "SELECT * FROM chain_run WHERE run_id=?", (run_id,)
+            ).fetchone()
+        return dict(updated), reopened
+
+    def register_provenance(
+        self,
+        run_id: str,
+        receipt: Mapping[str, Any],
+    ) -> tuple[str, bool]:
+        origin = classify_provenance(receipt)
+        try:
+            record_id = int(
+                receipt.get("event_record_id") or receipt.get("eventRecordId") or 0
+            )
+        except (TypeError, ValueError, OverflowError):
+            record_id = 0
+        instance_id = str(receipt.get("instance_id") or receipt.get("instanceId") or "")
+        if record_id > 0:
+            event_key = f"origin:{record_id}:{instance_id}"
+        else:
+            event_key = f"origin:manual:{sha256(receipt)}"
+        now = iso()
+        with self.transaction() as conn:
+            inserted = conn.execute(
+                """
+                INSERT INTO chain_event(
+                    event_key,run_id,event_type,payload_json,delivered,created_at,delivered_at
+                ) VALUES(?,?,?,?,1,?,?) ON CONFLICT(event_key) DO NOTHING
+                """,
+                (
+                    event_key, run_id, f"origin.{origin}",
+                    canonical_json(receipt).decode(), now, now,
+                ),
+            ).rowcount == 1
+            if inserted:
+                if origin == "scheduled":
+                    try:
+                        event_id = int(
+                            receipt.get("event_id") or receipt.get("eventId") or 0
+                        )
+                    except (TypeError, ValueError, OverflowError):
+                        event_id = 0
+                    bump_107 = 1 if event_id == 107 else 0
+                    conn.execute(
+                        """
+                        UPDATE chain_run
+                        SET scheduled_event_107_count=scheduled_event_107_count+?,
+                            origin=CASE WHEN manual_intervention_count=0 THEN 'scheduled' ELSE origin END,
+                            updated_at=?
+                        WHERE run_id=?
+                        """,
+                        (bump_107, now, run_id),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        UPDATE chain_run
+                        SET manual_intervention_count=manual_intervention_count+1,
+                            origin='manual',proven_autonomous=0,updated_at=?
+                        WHERE run_id=?
+                        """,
+                        (now, run_id),
+                    )
+                # Autonomy is derived evidence, not a sticky badge.  A manual
+                # intervention recorded against either day of an already-
+                # proven pair must invalidate the later day's proof too.
+                proof_rows = [
+                    dict(row) for row in conn.execute(
+                        """
+                        SELECT run_id,business_date,status,
+                               manual_intervention_count,scheduled_event_107_count
+                        FROM chain_run ORDER BY business_date
+                        """
+                    ).fetchall()
+                ]
+                for proof_row in proof_rows:
+                    proven = autonomous_proven(
+                        date.fromisoformat(str(proof_row["business_date"])),
+                        proof_rows,
+                    )
+                    conn.execute(
+                        "UPDATE chain_run SET proven_autonomous=? WHERE run_id=?",
+                        (1 if proven else 0, proof_row["run_id"]),
+                    )
+        return origin, inserted
+
+    def add_task(
+        self,
+        task: SourceTask,
+        *,
+        phase: str,
+        required_class: str,
+        concurrency_group: str,
+        max_concurrency: int,
+        max_attempts: int,
+        payload: Mapping[str, Any] | None = None,
+    ) -> bool:
+        now = iso()
+        body = {
+            "runId": task.run_id,
+            "businessDate": task.business_date,
+            "sourceCode": task.source_code,
+            "capability": task.capability,
+            "variantId": task.variant_id,
+            "externalId": task.external_id,
+            "shard": task.shard,
+            "inputRevision": task.input_revision,
+            **dict(payload or {}),
+        }
+        with self.transaction() as conn:
+            return conn.execute(
+                """
+                INSERT INTO chain_task(
+                    task_key,run_id,phase,source_code,capability,required_class,
+                    concurrency_group,max_concurrency,status,input_revision,payload_json,
+                    checkpoint_json,max_attempts,created_at,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,'PENDING',?,?,?,?,?,?)
+                ON CONFLICT(task_key) DO NOTHING
+                """,
+                (
+                    task.idempotency_key, task.run_id, phase, task.source_code,
+                    task.capability, required_class, concurrency_group,
+                    int(max_concurrency), task.input_revision,
+                    canonical_json(body).decode(),
+                    canonical_json(dict(task.checkpoint)).decode(),
+                    int(max_attempts), now, now,
+                ),
+            ).rowcount == 1
+
+    def add_raw_task(
+        self,
+        *,
+        run_id: str,
+        business_date: str,
+        phase: str,
+        source_code: str,
+        capability: str,
+        required_class: str,
+        concurrency_group: str,
+        max_concurrency: int = 1,
+        max_attempts: int = 1,
+        input_revision: str = "1",
+        payload: Mapping[str, Any] | None = None,
+        shard: str = "all",
+    ) -> str:
+        task = SourceTask(
+            run_id=run_id,
+            business_date=business_date,
+            source_code=source_code,
+            capability=capability,
+            shard=shard,
+            input_revision=input_revision,
+        )
+        self.add_task(
+            task,
+            phase=phase,
+            required_class=required_class,
+            concurrency_group=concurrency_group,
+            max_concurrency=max_concurrency,
+            max_attempts=max_attempts,
+            payload=payload,
+        )
+        return task.idempotency_key
+
+    def claim_ready(
+        self,
+        run_id: str,
+        *,
+        phases: Iterable[str] | None = None,
+        lease_seconds: int = 90,
+        limit: int = 32,
+        now: datetime | None = None,
+    ) -> list[dict[str, Any]]:
+        clock = now or utc_now()
+        now_text = iso(clock)
+        phase_list = tuple(phases or ())
+        with self.transaction() as conn:
+            where = (
+                "run_id=? AND status IN ('PENDING','RETRY','INTERRUPTED')"
+                " AND (next_retry_at IS NULL OR next_retry_at<=?)"
+            )
+            params: list[Any] = [run_id, now_text]
+            if phase_list:
+                where += f" AND phase IN ({','.join('?' for _ in phase_list)})"
+                params.extend(phase_list)
+            candidates = conn.execute(
+                f"SELECT * FROM chain_task WHERE {where} ORDER BY created_at,task_key",
+                params,
+            ).fetchall()
+            claimed: list[dict[str, Any]] = []
+            for row in candidates:
+                if len(claimed) >= int(limit):
+                    break
+                running = conn.execute(
+                    """
+                    SELECT COUNT(*) AS n FROM chain_task
+                    WHERE run_id=? AND concurrency_group=? AND status='RUNNING'
+                    """,
+                    (run_id, row["concurrency_group"]),
+                ).fetchone()["n"]
+                if int(running) >= int(row["max_concurrency"]):
+                    continue
+                claim = secrets.token_hex(24)
+                attempt = int(row["attempts"]) + 1
+                expires = iso(clock + timedelta(seconds=int(lease_seconds)))
+                changed = conn.execute(
+                    """
+                    UPDATE chain_task
+                    SET status='RUNNING',attempts=?,lease_token=?,lease_expires_at=?,
+                        heartbeat_at=?,updated_at=?
+                    WHERE task_key=? AND status IN ('PENDING','RETRY','INTERRUPTED')
+                    """,
+                    (attempt, claim, expires, now_text, now_text, row["task_key"]),
+                ).rowcount
+                if changed != 1:
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO chain_attempt(
+                        task_key,attempt_no,claim_token,status,started_at,heartbeat_at
+                    ) VALUES(?,?,?,'RUNNING',?,?)
+                    """,
+                    (row["task_key"], attempt, claim, now_text, now_text),
+                )
+                current = conn.execute(
+                    "SELECT * FROM chain_task WHERE task_key=?", (row["task_key"],)
+                ).fetchone()
+                claimed.append(dict(current))
+            return claimed
+
+    def validate_claim(self, task_key: str, claim_token: str) -> dict[str, Any]:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT t.*,a.attempt_no,a.worker_pid,a.process_started_at
+                FROM chain_task t INNER JOIN chain_attempt a
+                  ON a.task_key=t.task_key AND a.claim_token=t.lease_token
+                WHERE t.task_key=? AND t.lease_token=?
+                  AND t.status='RUNNING' AND a.status='RUNNING'
+                """,
+                (task_key, claim_token),
+            ).fetchone()
+        if row is None:
+            raise ClaimLost(f"V2 task claim is not active: {task_key}")
+        return dict(row)
+
+    def heartbeat(
+        self,
+        task_key: str,
+        claim_token: str,
+        *,
+        lease_seconds: int = 90,
+        worker_pid: int | None = None,
+        process_started_at: str | None = None,
+        command_sha256: str | None = None,
+        checkpoint: Any = None,
+    ) -> None:
+        now = utc_now()
+        now_text = iso(now)
+        expires = iso(now + timedelta(seconds=int(lease_seconds)))
+        with self.transaction() as conn:
+            changed = conn.execute(
+                """
+                UPDATE chain_task SET heartbeat_at=?,lease_expires_at=?,
+                    checkpoint_json=CASE WHEN ? IS NULL THEN checkpoint_json ELSE ? END,
+                    updated_at=?
+                WHERE task_key=? AND lease_token=? AND status='RUNNING'
+                """,
+                (
+                    now_text, expires,
+                    None if checkpoint is None else 1,
+                    None if checkpoint is None else canonical_json(checkpoint).decode(),
+                    now_text, task_key, claim_token,
+                ),
+            ).rowcount
+            if changed != 1:
+                raise ClaimLost(f"heartbeat lost V2 task claim: {task_key}")
+            conn.execute(
+                """
+                UPDATE chain_attempt SET heartbeat_at=?,
+                    worker_pid=COALESCE(?,worker_pid),
+                    process_started_at=COALESCE(?,process_started_at),
+                    command_sha256=COALESCE(?,command_sha256)
+                WHERE claim_token=? AND status='RUNNING'
+                """,
+                (now_text, worker_pid, process_started_at, command_sha256, claim_token),
+            )
+
+    def finish_success(
+        self,
+        task_key: str,
+        claim_token: str,
+        result: Mapping[str, Any],
+        *,
+        degraded: bool = False,
+    ) -> None:
+        now = iso()
+        status = "DEGRADED" if degraded else "COMPLETED"
+        receipt = canonical_json(result).decode()
+        with self.transaction() as conn:
+            changed = conn.execute(
+                """
+                UPDATE chain_task SET status=?,result_json=?,lease_token=NULL,
+                    lease_expires_at=NULL,next_retry_at=NULL,last_error_code=NULL,
+                    last_error=NULL,updated_at=?
+                WHERE task_key=? AND lease_token=? AND status='RUNNING'
+                """,
+                (status, receipt, now, task_key, claim_token),
+            ).rowcount
+            if changed != 1:
+                raise ClaimLost(f"finish lost V2 task claim: {task_key}")
+            conn.execute(
+                """
+                UPDATE chain_attempt SET status=?,finished_at=?,receipt_json=?
+                WHERE claim_token=? AND status='RUNNING'
+                """,
+                (status, now, receipt, claim_token),
+            )
+
+    def finish_failure(
+        self,
+        task_key: str,
+        claim_token: str,
+        *,
+        decision: RetryDecision,
+        error_text: str,
+        receipt: Mapping[str, Any] | None = None,
+        now: datetime | None = None,
+    ) -> str:
+        clock = now or utc_now()
+        now_text = iso(clock)
+        with self.transaction() as conn:
+            task = conn.execute(
+                "SELECT * FROM chain_task WHERE task_key=? AND lease_token=?",
+                (task_key, claim_token),
+            ).fetchone()
+            if task is None or task["status"] != "RUNNING":
+                raise ClaimLost(f"failure lost V2 task claim: {task_key}")
+            attempt = int(task["attempts"])
+            # Retry ladders belong to an error class, not to every unrelated
+            # failure the task has ever seen.  A source parser repair followed
+            # by its first MySQL timeout must still receive MySQL attempt 1;
+            # otherwise prior SOURCE_FAILED attempts silently exhaust infra
+            # recovery before the infra error even occurs.
+            previous_same_error = int(
+                conn.execute(
+                    """
+                    SELECT COUNT(*) AS n FROM chain_attempt
+                    WHERE task_key=? AND error_code=?
+                    """,
+                    (task_key, decision.error_code),
+                ).fetchone()["n"]
+            )
+            error_attempt = previous_same_error + 1
+            delay = decision.delay_for_attempt(error_attempt)
+            exhausted = attempt >= int(task["max_attempts"])
+            terminal = decision.terminal or delay is None or exhausted
+            status = "TERMINAL" if terminal else "RETRY"
+            next_retry = None if terminal else iso(clock + timedelta(seconds=int(delay)))
+            result_json = None if receipt is None else canonical_json(receipt).decode()
+            conn.execute(
+                """
+                UPDATE chain_task SET status=?,result_json=COALESCE(?,result_json),
+                    next_retry_at=?,lease_token=NULL,lease_expires_at=NULL,
+                    last_error_code=?,last_error=?,updated_at=?
+                WHERE task_key=? AND lease_token=?
+                """,
+                (
+                    status, result_json, next_retry, decision.error_code,
+                    error_text[-8000:], now_text, task_key, claim_token,
+                ),
+            )
+            conn.execute(
+                """
+                UPDATE chain_attempt SET status=?,finished_at=?,receipt_json=?,
+                    error_code=?,error_text=?
+                WHERE claim_token=? AND status='RUNNING'
+                """,
+                (
+                    status, now_text, result_json, decision.error_code,
+                    error_text[-8000:], claim_token,
+                ),
+            )
+            return status
+
+    def reopen_retryable_terminal(
+        self,
+        task_key: str,
+        *,
+        decision: RetryDecision,
+        now: datetime | None = None,
+    ) -> bool:
+        """Repair a terminal verdict made by the former global-attempt policy."""
+
+        if decision.terminal:
+            return False
+        clock = now or utc_now()
+        with self.transaction() as conn:
+            task = conn.execute(
+                "SELECT * FROM chain_task WHERE task_key=?", (task_key,)
+            ).fetchone()
+            if (
+                task is None
+                or task["status"] != "TERMINAL"
+                or int(task["attempts"]) >= int(task["max_attempts"])
+            ):
+                return False
+            # A classifier repair must be able to recover a verdict written by
+            # the old classifier.  Re-label only the latest failed attempt: its
+            # error text is unchanged, while retry accounting now follows the
+            # error class that text actually represents.
+            previous_code = str(task["last_error_code"] or "")
+            if previous_code != decision.error_code:
+                latest = conn.execute(
+                    """
+                    SELECT id FROM chain_attempt
+                    WHERE task_key=? AND status='TERMINAL'
+                    ORDER BY attempt_no DESC LIMIT 1
+                    """,
+                    (task_key,),
+                ).fetchone()
+                if latest is not None:
+                    conn.execute(
+                        "UPDATE chain_attempt SET error_code=? WHERE id=?",
+                        (decision.error_code, int(latest["id"])),
+                    )
+            same_error_attempts = int(
+                conn.execute(
+                    """
+                    SELECT COUNT(*) AS n FROM chain_attempt
+                    WHERE task_key=? AND error_code=?
+                    """,
+                    (task_key, decision.error_code),
+                ).fetchone()["n"]
+            )
+            delay = decision.delay_for_attempt(same_error_attempts)
+            if delay is None:
+                return False
+            retry_at = iso(clock + timedelta(seconds=int(delay)))
+            changed = conn.execute(
+                """
+                UPDATE chain_task
+                SET status='RETRY',next_retry_at=?,last_error_code=?,updated_at=?
+                WHERE task_key=? AND status='TERMINAL'
+                """,
+                (retry_at, decision.error_code, iso(clock), task_key),
+            ).rowcount
+            return changed == 1
+
+    def ensure_max_attempts(self, task_key: str, minimum: int) -> bool:
+        """Raise, never shrink, a durable task's total safety budget."""
+
+        if int(minimum) < 1:
+            raise ValueError("minimum attempts must be positive")
+        with self.transaction() as conn:
+            changed = conn.execute(
+                """
+                UPDATE chain_task SET max_attempts=?,updated_at=?
+                WHERE task_key=? AND max_attempts<?
+                """,
+                (int(minimum), iso(), task_key, int(minimum)),
+            ).rowcount
+            return changed == 1
+
+    def reclassify_retry(
+        self,
+        task_key: str,
+        *,
+        decision: RetryDecision,
+        now: datetime | None = None,
+    ) -> bool:
+        """Apply a corrected error class and its own retry clock to RETRY work."""
+
+        if decision.terminal:
+            return False
+        clock = now or utc_now()
+        with self.transaction() as conn:
+            task = conn.execute(
+                "SELECT * FROM chain_task WHERE task_key=?", (task_key,)
+            ).fetchone()
+            if (
+                task is None
+                or str(task["status"]) != "RETRY"
+                or str(task["last_error_code"] or "") == decision.error_code
+            ):
+                return False
+            latest = conn.execute(
+                """
+                SELECT id FROM chain_attempt
+                WHERE task_key=? AND status='RETRY'
+                ORDER BY attempt_no DESC LIMIT 1
+                """,
+                (task_key,),
+            ).fetchone()
+            if latest is None:
+                return False
+            conn.execute(
+                "UPDATE chain_attempt SET error_code=? WHERE id=?",
+                (decision.error_code, int(latest["id"])),
+            )
+            same_error_attempts = int(
+                conn.execute(
+                    "SELECT COUNT(*) AS n FROM chain_attempt WHERE task_key=? AND error_code=?",
+                    (task_key, decision.error_code),
+                ).fetchone()["n"]
+            )
+            delay = decision.delay_for_attempt(same_error_attempts)
+            if delay is None:
+                return False
+            changed = conn.execute(
+                """
+                UPDATE chain_task SET last_error_code=?,next_retry_at=?,updated_at=?
+                WHERE task_key=? AND status='RETRY'
+                """,
+                (
+                    decision.error_code,
+                    iso(clock + timedelta(seconds=int(delay))),
+                    iso(clock),
+                    task_key,
+                ),
+            ).rowcount
+            return changed == 1
+
+    def reopen_successful_tasks_before(
+        self,
+        run_id: str,
+        capabilities: Iterable[str],
+        *,
+        dependency_updated_at: str,
+        reason: str,
+    ) -> list[str]:
+        """Re-run downstream results that predate a newly completed dependency."""
+
+        selected = tuple(sorted({str(value) for value in capabilities if str(value)}))
+        if not selected:
+            return []
+        now_text = iso()
+        placeholders = ",".join("?" for _ in selected)
+        with self.transaction() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT task_key FROM chain_task
+                WHERE run_id=? AND capability IN ({placeholders})
+                  AND status IN ('COMPLETED','DEGRADED','SKIPPED')
+                  AND updated_at<?
+                ORDER BY created_at,task_key
+                """,
+                (run_id, *selected, dependency_updated_at),
+            ).fetchall()
+            task_keys = [str(row["task_key"]) for row in rows]
+            if task_keys:
+                key_placeholders = ",".join("?" for _ in task_keys)
+                conn.execute(
+                    f"""
+                    UPDATE chain_task
+                    SET status='INTERRUPTED',next_retry_at=?,lease_token=NULL,
+                        lease_expires_at=NULL,last_error_code='DEPENDENCY_CHANGED',
+                        last_error=?,updated_at=?
+                    WHERE task_key IN ({key_placeholders})
+                    """,
+                    (
+                        now_text,
+                        reason[-8000:],
+                        now_text,
+                        *task_keys,
+                    ),
+                )
+            return task_keys
+
+    def interrupt_claim(
+        self,
+        task_key: str,
+        claim_token: str,
+        *,
+        reason: str,
+        now: datetime | None = None,
+    ) -> None:
+        now_text = iso(now or utc_now())
+        with self.transaction() as conn:
+            changed = conn.execute(
+                """
+                UPDATE chain_task SET status='INTERRUPTED',next_retry_at=?,
+                    lease_token=NULL,lease_expires_at=NULL,last_error_code='WORKER_INTERRUPTED',
+                    last_error=?,updated_at=?
+                WHERE task_key=? AND lease_token=? AND status='RUNNING'
+                """,
+                (now_text, reason[-8000:], now_text, task_key, claim_token),
+            ).rowcount
+            if changed != 1:
+                raise ClaimLost(f"interrupt lost V2 task claim: {task_key}")
+            conn.execute(
+                """
+                UPDATE chain_attempt SET status='INTERRUPTED',finished_at=?,
+                    error_code='WORKER_INTERRUPTED',error_text=?
+                WHERE claim_token=? AND status='RUNNING'
+                """,
+                (now_text, reason[-8000:], claim_token),
+            )
+
+    def expired_attempts(self, *, now: datetime | None = None) -> list[dict[str, Any]]:
+        now_text = iso(now or utc_now())
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT t.*,a.worker_pid,a.process_started_at,a.command_sha256,
+                       a.claim_token,a.attempt_no
+                FROM chain_task t INNER JOIN chain_attempt a
+                  ON a.task_key=t.task_key AND a.claim_token=t.lease_token
+                WHERE t.status='RUNNING' AND a.status='RUNNING'
+                  AND t.lease_expires_at<?
+                ORDER BY t.lease_expires_at
+                """,
+                (now_text,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def degrade_unfinished_phase(
+        self,
+        run_id: str,
+        phase: str,
+        *,
+        error_code: str,
+        reason: str,
+    ) -> int:
+        """Close non-running optional work at its deterministic cutoff.
+
+        Running attempts keep their lease and are allowed to finish.  Pending
+        or retryable attempts cannot write late results after the activation
+        candidate set has been snapshotted for this business date.
+        """
+
+        now = iso()
+        with self.transaction() as conn:
+            return conn.execute(
+                """
+                UPDATE chain_task
+                SET status='DEGRADED',next_retry_at=NULL,lease_token=NULL,
+                    lease_expires_at=NULL,last_error_code=?,last_error=?,updated_at=?
+                WHERE run_id=? AND phase=?
+                  AND required_class<>'core'
+                  AND status IN ('PENDING','RETRY','INTERRUPTED')
+                """,
+                (error_code, reason[-8000:], now, run_id, phase),
+            ).rowcount
+
+    def tasks(self, run_id: str, *, phase: str | None = None) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            if phase is None:
+                rows = conn.execute(
+                    "SELECT * FROM chain_task WHERE run_id=? ORDER BY created_at,task_key",
+                    (run_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM chain_task WHERE run_id=? AND phase=? ORDER BY task_key",
+                    (run_id, phase),
+                ).fetchall()
+        return [dict(row) for row in rows]
+
+    def task(self, task_key: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM chain_task WHERE task_key=?", (task_key,)
+            ).fetchone()
+        return None if row is None else dict(row)
+
+    def run(self, run_id: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM chain_run WHERE run_id=?", (run_id,)).fetchone()
+        return None if row is None else dict(row)
+
+    def set_run_status(self, run_id: str, status: str) -> None:
+        now = iso()
+        with self.transaction() as conn:
+            changed = conn.execute(
+                "UPDATE chain_run SET status=?,updated_at=? WHERE run_id=?",
+                (status, now, run_id),
+            ).rowcount
+            if changed != 1:
+                raise JournalError(f"run not found: {run_id}")
+
+    def mark_publication(
+        self,
+        run_id: str,
+        *,
+        status: str,
+        generation_id: str,
+        generated_at: str,
+        content_sha256: str,
+        active_count: int,
+        degraded_sources: Iterable[str],
+    ) -> bool:
+        if status not in RUN_SUCCESS_STATES:
+            raise ValueError(f"invalid publication status: {status}")
+        now = iso()
+        degraded = sorted(set(str(item) for item in degraded_sources))
+        with self.transaction() as conn:
+            current = conn.execute(
+                "SELECT publication_status,generation_id FROM chain_run WHERE run_id=?",
+                (run_id,),
+            ).fetchone()
+            if current is None:
+                raise JournalError(f"run not found: {run_id}")
+            if current["publication_status"]:
+                if current["generation_id"] != generation_id:
+                    raise JournalError("one business date cannot confirm two generations")
+                return False
+            conn.execute(
+                """
+                UPDATE chain_run SET status=?,publication_status=?,generation_id=?,
+                    generated_at=?,content_sha256=?,active_count=?,degraded_sources_json=?,
+                    completed_at=?,updated_at=? WHERE run_id=?
+                """,
+                (
+                    status, status, generation_id, generated_at, content_sha256,
+                    int(active_count), canonical_json(degraded).decode(), now, now, run_id,
+                ),
+            )
+            run_row = conn.execute(
+                "SELECT business_date FROM chain_run WHERE run_id=?", (run_id,)
+            ).fetchone()
+            current_date = date.fromisoformat(run_row["business_date"])
+            evidence = conn.execute(
+                """
+                SELECT business_date,status,manual_intervention_count,
+                       scheduled_event_107_count
+                FROM chain_run WHERE status IN ('PUBLISHED','PUBLISHED_DEGRADED')
+                ORDER BY business_date DESC LIMIT 10
+                """
+            ).fetchall()
+            proven = autonomous_proven(current_date, (dict(row) for row in evidence))
+            conn.execute(
+                "UPDATE chain_run SET proven_autonomous=? WHERE run_id=?",
+                (1 if proven else 0, run_id),
+            )
+            return True
+
+    def add_event(
+        self,
+        run_id: str,
+        event_type: str,
+        dedupe_key: str,
+        payload: Mapping[str, Any],
+    ) -> bool:
+        event_key = f"{run_id}:{event_type}:{dedupe_key}"
+        with self.transaction() as conn:
+            return conn.execute(
+                """
+                INSERT INTO chain_event(event_key,run_id,event_type,payload_json,created_at)
+                VALUES(?,?,?,?,?) ON CONFLICT(event_key) DO NOTHING
+                """,
+                (event_key, run_id, event_type, canonical_json(payload).decode(), iso()),
+            ).rowcount == 1
+
+    def pending_events(self, run_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM chain_event
+                WHERE run_id=? AND delivered=0 AND event_type NOT LIKE 'origin.%'
+                ORDER BY created_at,event_key
+                """,
+                (run_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def mark_event_delivered(self, event_key: str) -> None:
+        with self.transaction() as conn:
+            conn.execute(
+                "UPDATE chain_event SET delivered=1,delivered_at=? WHERE event_key=?",
+                (iso(), event_key),
+            )
+
+    def summary(self, run_id: str) -> dict[str, Any]:
+        run = self.run(run_id)
+        if run is None:
+            raise JournalError(f"run not found: {run_id}")
+        tasks = self.tasks(run_id)
+        counts: dict[str, int] = {}
+        for task in tasks:
+            counts[task["status"]] = counts.get(task["status"], 0) + 1
+        return {
+            "run": run,
+            "taskCounts": counts,
+            "tasks": tasks,
+        }

@@ -1,0 +1,155 @@
+# CARDZ Marketcap Daily Chain V2 Windows boundary.
+# Task Scheduler provenance is captured here; WSL never accepts a caller-set
+# "scheduled" flag as autonomy evidence.
+[CmdletBinding()]
+param(
+    [switch]$AllowPublish,
+    [switch]$Notify,
+    [switch]$ManualE2E,
+    [switch]$RenewManualWindow,
+    [ValidatePattern('^\d{4}-\d{2}-\d{2}$')]
+    [string]$BusinessDate
+)
+
+$ErrorActionPreference = "Stop"
+$TaskName = "\CARDZ-Marketcap-Daily-V2"
+$Repo = Split-Path -Parent $PSScriptRoot
+$Runtime = Join-Path $Repo "data\runtime\daily-chain-v2\provenance"
+$StartedAt = Get-Date
+if ($ManualE2E -and -not $AllowPublish) {
+    throw "-ManualE2E requires explicit -AllowPublish"
+}
+if ($RenewManualWindow -and (-not $ManualE2E -or -not $AllowPublish)) {
+    throw "-RenewManualWindow requires -ManualE2E and -AllowPublish"
+}
+
+# Windows owns the headed CARDZ Chrome.  WSL workers consume :9333 but never
+# invent or substitute a browser profile. Nested powershell must stay Hidden
+# so the 10-minute tick does not steal focus with a CMD/PowerShell console.
+# Chrome itself stays headed (Cloudflare). Do not add --headless here.
+& powershell.exe -WindowStyle Hidden -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "ensure_chrome_cdp.ps1") -Port 9333
+if ($LASTEXITCODE -ne 0) {
+    throw "CARDZ CDP 9333 preflight failed"
+}
+
+function Convert-ToWslPath {
+    param([Parameter(Mandatory=$true)][string]$Path)
+    $resolved = [System.IO.Path]::GetFullPath($Path)
+    if ($resolved -notmatch '^[A-Za-z]:\\') {
+        throw "V2 launcher requires a drive-letter path: $resolved"
+    }
+    return "/mnt/" + $resolved.Substring(0, 1).ToLowerInvariant() + ($resolved.Substring(2) -replace '\\', '/')
+}
+
+function Get-EventDataMap {
+    param([Parameter(Mandatory=$true)]$Event)
+    $xml = [xml]$Event.ToXml()
+    $map = @{}
+    foreach ($node in $xml.Event.EventData.Data) {
+        $name = [string]$node.Name
+        if (-not [string]::IsNullOrWhiteSpace($name)) {
+            $map[$name] = [string]$node.'#text'
+        }
+    }
+    return @{
+        Xml = $xml
+        Data = $map
+    }
+}
+
+$self = Get-CimInstance Win32_Process -Filter "ProcessId=$PID"
+$parent = $null
+if ($self -and $self.ParentProcessId) {
+    $parent = Get-Process -Id $self.ParentProcessId -ErrorAction SilentlyContinue
+}
+$parentName = if ($parent) { $parent.ProcessName + ".exe" } else { "unknown" }
+
+$events = @(
+    Get-WinEvent -FilterHashtable @{
+        LogName = "Microsoft-Windows-TaskScheduler/Operational"
+        Id = 107,110
+        StartTime = $StartedAt.AddMinutes(-3)
+    } -ErrorAction SilentlyContinue |
+    Sort-Object TimeCreated -Descending
+)
+$selected = $null
+$selectedData = $null
+foreach ($event in $events) {
+    $parsed = Get-EventDataMap -Event $event
+    $eventTask = [string]$parsed.Data["TaskName"]
+    if ([string]::IsNullOrWhiteSpace($eventTask)) {
+        $eventTask = [string]$parsed.Xml.Event.UserData.TaskStart.TaskName
+    }
+    if ($eventTask.TrimEnd('\') -eq $TaskName.TrimEnd('\')) {
+        $selected = $event
+        $selectedData = $parsed
+        break
+    }
+}
+
+$eventId = 0
+$recordId = 0
+$instanceId = ""
+$eventTime = $null
+$ageSeconds = 999999
+if ($selected) {
+    $eventId = [int]$selected.Id
+    $recordId = [long]$selected.RecordId
+    $instanceId = [string]$selectedData.Data["InstanceId"]
+    if ([string]::IsNullOrWhiteSpace($instanceId)) {
+        $instanceId = [string]$selectedData.Xml.Event.System.Correlation.ActivityID
+    }
+    $eventTime = $selected.TimeCreated.ToUniversalTime().ToString("o")
+    $ageSeconds = [Math]::Max(0, ($StartedAt - $selected.TimeCreated).TotalSeconds)
+}
+
+$receipt = [ordered]@{
+    contract = "cardz-task-scheduler-provenance-v2"
+    event_id = $eventId
+    event_record_id = $recordId
+    instance_id = $instanceId
+    task_name = $TaskName
+    parent_process = $parentName
+    launcher_pid = $PID
+    event_time = $eventTime
+    event_age_seconds = [Math]::Round($ageSeconds, 3)
+    captured_at = (Get-Date).ToUniversalTime().ToString("o")
+    manual_e2e = [bool]$ManualE2E
+    renew_manual_window = [bool]$RenewManualWindow
+    business_date_override = $BusinessDate
+}
+
+New-Item -ItemType Directory -Force -Path $Runtime | Out-Null
+$stamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssfffffffZ")
+$receiptPath = Join-Path $Runtime ("provenance-" + $stamp + ".json")
+$temporary = $receiptPath + ".next"
+[System.IO.File]::WriteAllText(
+    $temporary,
+    ($receipt | ConvertTo-Json -Depth 5 -Compress) + "`n",
+    (New-Object System.Text.UTF8Encoding($false))
+)
+Move-Item -LiteralPath $temporary -Destination $receiptPath -Force
+
+$wslRepo = Convert-ToWslPath -Path $Repo
+$wslReceipt = Convert-ToWslPath -Path $receiptPath
+$args = @(
+    "-d", "Ubuntu", "--",
+    "python3", "-X", "utf8", "-u",
+    "$wslRepo/pipelines/daily_chain_v2.py",
+    "tick",
+    "--provenance", $wslReceipt,
+    "--max-runtime-seconds", "5400"
+)
+if ($AllowPublish) { $args += "--allow-publish" }
+if ($Notify) { $args += "--notify" }
+if ($ManualE2E) { $args += "--manual-e2e-window" }
+if ($RenewManualWindow) { $args += "--renew-manual-e2e-window" }
+if (-not [string]::IsNullOrWhiteSpace($BusinessDate)) {
+    $args += @("--business-date", $BusinessDate)
+}
+
+Write-Host "CARDZ_V2_START event=$eventId record=$recordId instance=$instanceId parent=$parentName"
+& wsl.exe @args
+$exitCode = $LASTEXITCODE
+Write-Host "CARDZ_V2_END exit=$exitCode provenance=$receiptPath"
+exit $exitCode

@@ -1,0 +1,883 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Bounded non-source stages invoked by the Daily Chain V2 orchestrator."""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import signal
+import subprocess
+import sys
+import traceback
+from datetime import datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, Mapping
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "pipelines"))
+
+from daily_chain_v2_contract import (  # noqa: E402
+    canonical_json,
+    daily_generation_sha256,
+    sha256,
+)
+
+
+def iso_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+
+def atomic_json(path: Path, value: Mapping[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.next")
+    temporary.write_bytes(canonical_json(value) + b"\n")
+    os.replace(temporary, path)
+
+
+def _run(command: list[str], *, timeout: int) -> dict[str, Any]:
+    proc = subprocess.run(
+        command,
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout,
+    )
+    combined = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"stage command exit={proc.returncode}:"
+            f" {' / '.join(combined.splitlines()[-20:])}"
+        )
+    return {
+        "exitCode": proc.returncode,
+        "outputTail": "\n".join(combined.splitlines()[-20:]),
+    }
+
+
+def stage_migrate(_args: argparse.Namespace) -> dict[str, Any]:
+    result = _run(
+        [
+            sys.executable,
+            "-X",
+            "utf8",
+            str(ROOT / "pipelines" / "db_runtime.py"),
+            "migrate",
+            "--only",
+            "051_daily_chain_v2_generic_sources.mysql.sql",
+            "--only",
+            "052_daily_chain_v2_strict_gemrate_product_number.mysql.sql",
+            "--only",
+            "053_daily_chain_v2_quote_eligibility_reconstruction.mysql.sql",
+        ],
+        timeout=900,
+    )
+    return {"stage": "migrate", **result}
+
+
+def stage_registry(_args: argparse.Namespace) -> dict[str, Any]:
+    import collect_control
+    from daily_chain_v2_adapters import build_default_registry
+    from daily_chain_v2_db import sync_source_registry
+
+    report = collect_control.cmd_status(rebuild_registry=True)
+    registry = collect_control._jsonl_rows(collect_control.REGISTRY_PATH)
+    if not registry:
+        raise RuntimeError("V2 collection registry is empty")
+    source_registry = sync_source_registry(
+        adapter.spec for adapter in build_default_registry().enabled()
+    )
+    return {
+        "stage": "registry",
+        "registryPath": str(collect_control.REGISTRY_PATH),
+        "rows": len(registry),
+        "counts": report.get("counts") or {},
+        "sourceRegistry": source_registry,
+        "payloadSha256": sha256(registry),
+    }
+
+
+def stage_contract(args: argparse.Namespace) -> dict[str, Any]:
+    import operator_control
+    from daily_chain_v2_db import current_run_contract, sync_variant_source_states
+
+    with operator_control.operator_e2e_lease(f"v2-contract:{args.label}"):
+        projected = sync_variant_source_states(args.run_id, args.business_date)
+        contract = current_run_contract(args.business_date)
+    failures = [
+        name for name in ("gemrate", "quotes", "fx")
+        if not bool((contract.get(name) or {}).get("complete"))
+    ]
+    result = {
+        "stage": "contract",
+        "label": args.label,
+        "projection": projected,
+        "contract": contract,
+        "complete": not failures,
+        "failures": failures,
+    }
+    if failures:
+        raise RuntimeError(
+            f"V2 core contract incomplete at {args.label}: {failures};"
+            f" gemrateMissing={len(contract['gemrate']['missing'])}"
+            f" quoteMissing={len(contract['quotes']['missing'])}"
+            f" fx={contract['fx']['covered']}/{contract['fx']['expected']}"
+        )
+    return result
+
+
+def _candidate_state_paths(discovery: Any) -> list[Path]:
+    return [
+        discovery.STATE_PATH,
+        discovery.STATE_PATH.with_name("daily-discovery-state-v2-http.json"),
+        discovery.STATE_PATH.with_name("daily-discovery-state-v2-browser.json"),
+    ]
+
+
+def _lane_state_path(discovery: Any, lane: str) -> Path:
+    return discovery.STATE_PATH.with_name(f"daily-discovery-state-v2-{lane}.json")
+
+
+def _ensure_lane_state(discovery: Any, lane: str, snapshot: Mapping[str, Any]) -> Path:
+    path = _lane_state_path(discovery, lane)
+    if path.is_file():
+        try:
+            discovery._load_state(path, snapshot["generation"])
+            return path
+        except SystemExit:
+            # The DB ledger is the authority; a cursor from an older catalog
+            # generation must not block the next natural V2 run.
+            pass
+    current_ids = sorted(int(row["variant_id"]) for row in snapshot["gapRows"])
+    known_ids = current_ids
+    if discovery.STATE_PATH.is_file():
+        try:
+            legacy = discovery._load_state(discovery.STATE_PATH, snapshot["generation"])
+            known_ids = legacy["knownGapIds"]
+        except SystemExit:
+            pass
+    discovery._write_state(
+        path,
+        snapshot["generation"],
+        known_ids,
+        [],
+        f"v2-{lane}-cursor-initialized",
+    )
+    return path
+
+
+def _pending_identity_ids(discovery: Any) -> tuple[dict[str, Any], list[int]]:
+    snapshot = discovery._runtime_snapshot(None)
+    pending: set[int] = set()
+    for path in _candidate_state_paths(discovery):
+        if path.is_file():
+            try:
+                state = discovery._load_state(path, snapshot["generation"])
+            except SystemExit:
+                continue
+            pending.update(int(value) for value in state["pendingActivationIds"])
+    active = {int(value) for value in snapshot["universeIds"]}
+    for row in discovery._load_ledger_rows(None):
+        if str(row.get("discovery_status") or "") == "inactive_exact":
+            pending.add(int(row["variant_id"]))
+    return snapshot, sorted(pending - active)
+
+
+def stage_discover(args: argparse.Namespace) -> dict[str, Any]:
+    import daily_discovery_activation as discovery
+
+    snapshot = discovery._runtime_snapshot(None)
+    state = _ensure_lane_state(discovery, args.lane, snapshot)
+    previous = os.environ.get(discovery.DAILY_CHAIN_ENV)
+    os.environ[discovery.DAILY_CHAIN_ENV] = "1"
+    try:
+        code = discovery.cmd_daily_discover_activate(
+            SimpleNamespace(
+                lane=args.lane,
+                initialize=False,
+                credentials_env=None,
+                state_path=state,
+            )
+        )
+    finally:
+        if previous is None:
+            os.environ.pop(discovery.DAILY_CHAIN_ENV, None)
+        else:
+            os.environ[discovery.DAILY_CHAIN_ENV] = previous
+    if code != 0:
+        raise RuntimeError(f"identity discovery lane={args.lane} exited {code}")
+    current = json.loads(state.read_text(encoding="utf-8"))
+    return {
+        "stage": "discover",
+        "lane": args.lane,
+        "pendingActivationIds": current.get("pendingActivationIds") or [],
+        "knownGapIds": current.get("knownGapIds") or [],
+        "statePath": str(state),
+    }
+
+
+def stage_pending(_args: argparse.Namespace) -> dict[str, Any]:
+    import daily_discovery_activation as discovery
+
+    snapshot, pending = _pending_identity_ids(discovery)
+    return {
+        "stage": "pending",
+        "generation": snapshot["generation"],
+        "pendingActivationIds": pending,
+        "pendingCount": len(pending),
+    }
+
+
+def stage_noop(args: argparse.Namespace) -> dict[str, Any]:
+    detail = json.loads(args.detail_json)
+    if not isinstance(detail, Mapping):
+        raise RuntimeError("noop detail must be an object")
+    return {"stage": "noop", "detail": dict(detail)}
+
+
+def stage_consolidate(_args: argparse.Namespace) -> dict[str, Any]:
+    result = _run(
+        [
+            sys.executable, "-X", "utf8",
+            str(ROOT / "pipelines" / "consolidate_pc_map.py"), "--write",
+        ],
+        timeout=900,
+    )
+    return {"stage": "consolidate", **result}
+
+
+def _activation_eligibility(
+    discovery: Any,
+    *,
+    generation: str,
+    pending: list[int],
+    business_date: str,
+) -> tuple[list[int], list[dict[str, Any]]]:
+    """Return append-eligible candidates without changing the active universe.
+
+    A discovery cursor is only a request to evaluate a card.  It is not proof
+    that the card now satisfies the public product contract.  Re-check the
+    canonical DB and the content-addressed image trio immediately before the
+    append-only lock transaction.
+    """
+
+    if not pending:
+        return [], []
+    from daily_chain_v2_db import business_window_utc
+
+    start, end = business_window_utc(business_date)
+    placeholders = ",".join(["%s"] * len(pending))
+    connection = discovery.R.connect(discovery.R.DAILY_CREDENTIALS_ENV)
+    facts: dict[int, dict[str, Any]] = {}
+    quote_variants: set[int] = set()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT rm.variant_id,rm.cohort,rm.identity_pending,
+                       rm.latest_psa10_population,
+                       ledger.discovery_status,ledger.blocker_code,
+                       printing.canonical_printing_sha256,
+                       image.canonical_image_content_sha256,
+                       MAX(CASE
+                         WHEN checkpoint.last_effective_at>=%s
+                          AND checkpoint.last_effective_at<%s
+                          AND checkpoint.last_payload_sha256 REGEXP '^[0-9a-f]{{64}}$'
+                         THEN 1 ELSE 0 END) AS current_gemrate_receipt
+                  FROM catalog_rebuild_member rm
+                  LEFT JOIN market_identity_discovery_ledger ledger
+                    ON ledger.variant_id=rm.variant_id
+                  LEFT JOIN catalog_printing_identity printing
+                    ON printing.variant_id=rm.variant_id
+                  LEFT JOIN operator_canonical_image_projection image
+                    ON image.variant_id=rm.variant_id
+                  LEFT JOIN operator_strict_source_identity gemrate
+                    ON gemrate.variant_id=rm.variant_id
+                   AND gemrate.source_code='gemrate'
+                  LEFT JOIN market_ingest_checkpoint checkpoint
+                    ON checkpoint.source_code='gemrate_pop'
+                   AND checkpoint.stream_key=CONCAT(
+                         rm.variant_id,':',gemrate.external_entity_id
+                       )
+                 WHERE rm.generation_id=%s
+                   AND rm.variant_id IN ({placeholders})
+                 GROUP BY rm.variant_id,rm.cohort,rm.identity_pending,
+                          rm.latest_psa10_population,ledger.discovery_status,
+                          ledger.blocker_code,printing.canonical_printing_sha256,
+                          image.canonical_image_content_sha256
+                """,
+                (start, end, generation, *pending),
+            )
+            facts = {int(row["variant_id"]): dict(row) for row in cursor.fetchall()}
+            cursor.execute(
+                f"""
+                SELECT DISTINCT quote.variant_id
+                  FROM market_current_quote_revision quote
+                  INNER JOIN catalog_printing_identity printing
+                    ON printing.variant_id=quote.variant_id
+                  INNER JOIN market_source_registry registry
+                    ON registry.source_code=quote.source_code
+                   AND registry.enabled=1
+                   AND JSON_CONTAINS(
+                         registry.capabilities_json,JSON_QUOTE('quote'),'$'
+                       )=1
+                  INNER JOIN operator_strict_source_identity identity
+                    ON identity.variant_id=quote.variant_id
+                   AND identity.source_code=registry.identity_source_code
+                   AND identity.external_entity_id=quote.source_external_entity_id
+                 WHERE quote.variant_id IN ({placeholders})
+                   AND quote.checked_at>=%s AND quote.checked_at<%s
+                   AND quote.price_usd>0
+                   AND quote.payload_sha256 REGEXP '^[0-9a-f]{{64}}$'
+                   AND quote.quote_lineage_sha256 REGEXP '^[0-9a-f]{{64}}$'
+                   AND (quote.reconstruction_kind IS NULL
+                        OR quote.reconstruction_kind IN (
+                          'bootstrap_from_observation',''
+                        ))
+                   AND EXISTS (
+                     SELECT 1 FROM market_quote_route_policy route
+                      WHERE route.source_code=quote.source_code
+                        AND route.is_active=1 AND route.is_eligible=1
+                        AND route.language_code IN (
+                          LOWER(REPLACE(printing.card_language,'_','-')),'*'
+                        )
+                   )
+                """,
+                (*pending, start, end),
+            )
+            quote_variants = {int(row["variant_id"]) for row in cursor.fetchall()}
+    finally:
+        connection.close()
+
+    eligible: list[int] = []
+    deferred: list[dict[str, Any]] = []
+    asset_dir = ROOT / "data" / "public" / "market-assets"
+    for variant_id in pending:
+        row = facts.get(variant_id)
+        reasons: list[str] = []
+        if row is None:
+            reasons.append("missing_rebuild_member")
+        else:
+            if str(row.get("cohort") or "") != "product_ready":
+                reasons.append(f"cohort:{row.get('cohort') or 'missing'}")
+            if int(row.get("identity_pending") or 0) != 0:
+                reasons.append("identity_pending")
+            if str(row.get("discovery_status") or "") != "inactive_exact":
+                reasons.append(
+                    f"identity:{row.get('discovery_status') or 'missing'}"
+                )
+            if (
+                int(row.get("latest_psa10_population") or 0)
+                < int(discovery.R.DISCOVERY_GAP_POP)
+            ):
+                reasons.append(
+                    f"pop_below_{int(discovery.R.DISCOVERY_GAP_POP)}"
+                )
+            if int(row.get("current_gemrate_receipt") or 0) != 1:
+                reasons.append("missing_current_gemrate_receipt")
+            if not str(row.get("canonical_printing_sha256") or ""):
+                reasons.append("missing_canonical_printing")
+            image_sha = str(row.get("canonical_image_content_sha256") or "")
+            if len(image_sha) != 64:
+                reasons.append("missing_canonical_image")
+            elif any(
+                not (asset_dir / filename).is_file()
+                for filename in (
+                    f"{image_sha}.webp",
+                    f"{image_sha}_200.webp",
+                    f"{image_sha}_600.webp",
+                )
+            ):
+                reasons.append("missing_public_image_trio")
+            if variant_id not in quote_variants:
+                reasons.append("missing_current_eligible_quote")
+        if reasons:
+            deferred.append({
+                "variantId": variant_id,
+                "reasons": reasons,
+                "blockerCode": None if row is None else row.get("blocker_code"),
+            })
+        else:
+            eligible.append(variant_id)
+    return eligible, deferred
+
+
+def _append_active_universe(
+    discovery: Any,
+    *,
+    run_id: str,
+    business_date: str,
+    generation: str,
+    variant_ids: list[int],
+) -> dict[str, Any]:
+    """Atomically create current = previous members UNION eligible candidates."""
+
+    if not variant_ids:
+        return {"baseLockId": None, "lockId": None, "memberCount": None}
+    connection = discovery.R.connect(discovery.R.DAILY_CREDENTIALS_ENV)
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id,lock_sha256,member_count,policy_json"
+                " FROM market_universe_lock WHERE is_current=1"
+                " ORDER BY id DESC FOR UPDATE"
+            )
+            locks = [dict(row) for row in cursor.fetchall()]
+            if len(locks) != 1:
+                raise RuntimeError(
+                    "append activation requires exactly one current universe lock:"
+                    f" {[row.get('id') for row in locks]}"
+                )
+            base = locks[0]
+            base_lock_id = int(base["id"])
+            cursor.execute(
+                "SELECT COUNT(*) AS members,COUNT(DISTINCT variant_id) AS variants"
+                " FROM market_universe_member WHERE universe_lock_id=%s",
+                (base_lock_id,),
+            )
+            counts = cursor.fetchone()
+            base_members = int(counts["members"])
+            if (
+                base_members != int(counts["variants"])
+                or base_members != int(base["member_count"])
+            ):
+                raise RuntimeError("current universe lock membership is inconsistent")
+            cursor.execute(
+                "SELECT variant_id FROM market_universe_member"
+                " WHERE universe_lock_id=%s ORDER BY variant_id",
+                (base_lock_id,),
+            )
+            base_ids = [int(row["variant_id"]) for row in cursor.fetchall()]
+            new_ids = sorted(set(variant_ids) - set(base_ids))
+            member_ids = sorted(set(base_ids) | set(new_ids))
+            if not new_ids:
+                return {
+                    "baseLockId": base_lock_id,
+                    "lockId": base_lock_id,
+                    "memberCount": base_members,
+                    "newVariantIds": [],
+                }
+            lock_doc = {
+                "contract": "cardz-daily-chain-v2-append-only-universe-v1",
+                "runId": run_id,
+                "businessDate": business_date,
+                "generation": generation,
+                "baseLockSha256": str(base["lock_sha256"]),
+                "memberVariantIds": member_ids,
+                "activatedVariantIds": new_ids,
+            }
+            lock_sha = sha256(lock_doc)
+            policy_json = base["policy_json"]
+            if not isinstance(policy_json, str):
+                policy_json = canonical_json(policy_json).decode("utf-8")
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            cursor.execute(
+                "INSERT INTO market_universe_lock"
+                " (lock_sha256,effective_at,policy_json,member_count,is_current)"
+                " VALUES (%s,%s,%s,%s,0)"
+                " ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id),"
+                " effective_at=VALUES(effective_at),member_count=VALUES(member_count)",
+                (lock_sha, now, policy_json, len(member_ids)),
+            )
+            lock_id = int(cursor.lastrowid)
+            cursor.execute(
+                "INSERT INTO market_universe_member"
+                " (universe_lock_id,variant_id,segment_code,member_role,market_rank,"
+                "  watch_position,watch_score,selection_signals_json)"
+                " SELECT %s,variant_id,segment_code,member_role,market_rank,"
+                "  watch_position,watch_score,selection_signals_json"
+                " FROM market_universe_member WHERE universe_lock_id=%s"
+                " ON DUPLICATE KEY UPDATE segment_code=VALUES(segment_code),"
+                " member_role=VALUES(member_role),market_rank=VALUES(market_rank),"
+                " watch_position=VALUES(watch_position),watch_score=VALUES(watch_score),"
+                " selection_signals_json=VALUES(selection_signals_json)",
+                (lock_id, base_lock_id),
+            )
+            signals = canonical_json({
+                "origin": "daily_chain_v2_append_only",
+                "runId": run_id,
+                "businessDate": business_date,
+                "generation": generation,
+            }).decode("utf-8")
+            for variant_id in new_ids:
+                cursor.execute(
+                    "INSERT INTO market_universe_member"
+                    " (universe_lock_id,variant_id,segment_code,member_role,"
+                    "  market_rank,selection_signals_json)"
+                    " VALUES (%s,%s,'tracked','candidate',NULL,%s)"
+                    " ON DUPLICATE KEY UPDATE segment_code=VALUES(segment_code),"
+                    " member_role=VALUES(member_role),"
+                    " selection_signals_json=VALUES(selection_signals_json)",
+                    (lock_id, variant_id, signals),
+                )
+            cursor.execute(
+                "SELECT COUNT(*) AS members,COUNT(DISTINCT variant_id) AS variants"
+                " FROM market_universe_member WHERE universe_lock_id=%s",
+                (lock_id,),
+            )
+            final_counts = cursor.fetchone()
+            if (
+                int(final_counts["members"]) != len(member_ids)
+                or int(final_counts["variants"]) != len(member_ids)
+            ):
+                raise RuntimeError("append-only universe lock membership drifted")
+            cursor.execute(
+                "UPDATE market_universe_lock SET is_current=0"
+                " WHERE is_current=1 AND id<>%s",
+                (lock_id,),
+            )
+            cursor.execute(
+                "UPDATE market_universe_lock SET is_current=1 WHERE id=%s",
+                (lock_id,),
+            )
+            if cursor.rowcount != 1:
+                raise RuntimeError("append-only universe lock vanished before promotion")
+        connection.commit()
+        return {
+            "baseLockId": base_lock_id,
+            "lockId": lock_id,
+            "lockSha256": lock_sha,
+            "memberCount": len(member_ids),
+            "newVariantIds": new_ids,
+        }
+    except BaseException:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def stage_activate(args: argparse.Namespace) -> dict[str, Any]:
+    import daily_discovery_activation as discovery
+    import operator_control
+    import rebuild_036
+
+    if not str(args.run_id or "").strip() or not str(args.business_date or "").strip():
+        raise RuntimeError("V2 candidate activation requires run and business date")
+    snapshot, pending = _pending_identity_ids(discovery)
+    state_paths = _candidate_state_paths(discovery)
+    if not pending:
+        if rebuild_036.FREEZE_WINDOW.is_file():
+            with operator_control.operator_e2e_lease("v2-recover-empty-activation"):
+                rebuild_036.cmd_unfreeze(SimpleNamespace(confirm=True))
+        return {
+            "stage": "activate",
+            "activationStatus": "nothing-pending",
+            "activated": [],
+            "generation": snapshot["generation"],
+        }
+    with operator_control.operator_e2e_lease("v2-activate-pending"):
+        # A hard-killed prior activation may have left the database frozen.
+        # The V2 task itself remains enabled, so this claimed retry can restore
+        # normal grants before re-running the same pending identity set.
+        if rebuild_036.FREEZE_WINDOW.is_file():
+            rebuild_036.cmd_unfreeze(SimpleNamespace(confirm=True))
+        eligible, deferred = _activation_eligibility(
+            discovery,
+            generation=snapshot["generation"],
+            pending=pending,
+            business_date=args.business_date,
+        )
+        append = _append_active_universe(
+            discovery,
+            run_id=args.run_id,
+            business_date=args.business_date,
+            generation=snapshot["generation"],
+            variant_ids=eligible,
+        )
+        after = discovery._runtime_snapshot(None)
+        active = set(int(value) for value in after["universeIds"])
+        missing = sorted(set(eligible) - active)
+        if missing:
+            raise RuntimeError(f"atomic activation returned without variants: {missing}")
+        final_gaps = sorted(int(row["variant_id"]) for row in after["gapRows"])
+        for state_path in state_paths:
+            if state_path == discovery.STATE_PATH or state_path.is_file():
+                discovery._write_state(
+                    state_path,
+                    after["generation"],
+                    final_gaps,
+                    [],
+                    "v2-append-only-activation-evaluated",
+                )
+        status = "activated" if eligible else "deferred-ineligible"
+    return {
+        "stage": "activate",
+        "activationStatus": status,
+        "activated": eligible,
+        "deferred": deferred,
+        "append": append,
+        "generation": after["generation"],
+    }
+
+
+def stage_accept(args: argparse.Namespace) -> dict[str, Any]:
+    import operator_control
+    import rebuild_036
+    from daily_chain_v2_db import post_accept_contract, recover_daily_accept
+
+    recovered = recover_daily_accept(args.run_id, args.business_date)
+    if recovered is not None:
+        if str(recovered.get("generationSha256") or "") != daily_generation_sha256(
+            args.business_date, str(recovered.get("contentSha256") or ""),
+        ):
+            raise RuntimeError("recovered daily accept generation/content lineage mismatch")
+        return {
+            "stage": "accept",
+            "recoveredFromCommittedLineage": True,
+            **recovered,
+        }
+
+    receipt_dir = ROOT / "data" / "runtime" / "rebuild-036"
+    before = {path.name for path in receipt_dir.glob("daily-accept-*.json")}
+    with operator_control.operator_e2e_lease("v2-daily-accept"):
+        code = rebuild_036.cmd_daily_accept(SimpleNamespace(credentials_env=None))
+    if code != 0:
+        raise RuntimeError(f"daily accept exited {code}")
+    candidates = sorted(
+        (path for path in receipt_dir.glob("daily-accept-*.json") if path.name not in before),
+        key=lambda path: path.stat().st_mtime_ns,
+    )
+    if not candidates:
+        raise RuntimeError("daily accept completed without a new receipt")
+    receipt_path = candidates[-1]
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    canonical = receipt.get("canonical")
+    if not isinstance(canonical, Mapping):
+        raise RuntimeError("daily accept receipt has no canonical result")
+    generation_sha = str(canonical.get("rankingGenerationSha256") or "")
+    content_sha = str(canonical.get("contentSha256") or "")
+    if len(generation_sha) != 64 or len(content_sha) != 64:
+        raise RuntimeError("daily accept V2 generation/content digest is missing")
+    derived_generation = daily_generation_sha256(args.business_date, content_sha)
+    if generation_sha != derived_generation:
+        raise RuntimeError(
+            "daily accept V2 generation/content lineage mismatch:"
+            f" expected={derived_generation} actual={generation_sha}"
+        )
+    members = int(receipt.get("members") or 0)
+    accepted = int(canonical.get("accepted") or 0)
+    ranked = int(canonical.get("ranked") or 0)
+    awaiting = int(canonical.get("awaitingFreshPrice") or 0)
+    if members < 1 or accepted != members or ranked != members or awaiting != 0:
+        raise RuntimeError(
+            "daily accept V2 coverage mismatch:"
+            f" members={members} accepted={accepted} ranked={ranked} awaiting={awaiting}"
+        )
+    post_contract = post_accept_contract(args.business_date, generation_sha, args.run_id)
+    if not post_contract["selectionComplete"] or not post_contract["generationComplete"]:
+        raise RuntimeError(f"daily accept V2 post-contract incomplete: {post_contract}")
+    return {
+        "stage": "accept",
+        "generationSha256": generation_sha,
+        "publicGenerationId": f"db3308_{generation_sha[:16]}",
+        "contentSha256": content_sha,
+        "activeCount": members,
+        "acceptedAt": receipt.get("acceptedAt"),
+        "receiptPath": str(receipt_path),
+        "canonical": dict(canonical),
+        "postContract": post_contract,
+    }
+
+
+def stage_box(args: argparse.Namespace) -> dict[str, Any]:
+    import operator_control
+
+    with operator_control.operator_e2e_lease("v2-box"):
+        compose = _run(
+            [sys.executable, "-X", "utf8", str(ROOT / "pipelines" / "sealed_daily.py"), "compose"],
+            timeout=1800,
+        )
+        output = ROOT / "data" / "public" / "box-subset.json"
+        export = _run(
+            [
+                sys.executable, "-X", "utf8",
+                str(ROOT / "pipelines" / "sealed_daily.py"), "export",
+                "--output", str(output),
+            ],
+            timeout=1800,
+        )
+    document = json.loads(output.read_text(encoding="utf-8"))
+    box_as_of = datetime.fromisoformat(str(document.get("asOf") or "").replace("Z", "+00:00"))
+    accepted_at = datetime.fromisoformat(str(args.accepted_at).replace("Z", "+00:00"))
+    if box_as_of.tzinfo is None:
+        box_as_of = box_as_of.replace(tzinfo=timezone.utc)
+    if accepted_at.tzinfo is None:
+        accepted_at = accepted_at.replace(tzinfo=timezone.utc)
+    if box_as_of < accepted_at:
+        raise RuntimeError(
+            f"BOX projection predates current V2 acceptance: box={box_as_of} accept={accepted_at}"
+        )
+    return {
+        "stage": "box",
+        "runId": args.run_id,
+        "acceptedAt": args.accepted_at,
+        "boxAsOf": document.get("asOf"),
+        "output": str(output),
+        "payloadSha256": sha256(document),
+        "compose": compose,
+        "export": export,
+    }
+
+
+def stage_live_confirm(args: argparse.Namespace) -> dict[str, Any]:
+    from daily_chain_v2_db import (
+        build_live_event,
+        fetch_live_health,
+        insert_live_event,
+        read_snapshot,
+        recover_live_event,
+    )
+
+    snapshot = read_snapshot(args.snapshot.resolve())
+    derived_generation = daily_generation_sha256(
+        args.business_date, args.expected_content_sha256,
+    )
+    if args.expected_generation != f"db3308_{derived_generation[:16]}":
+        raise RuntimeError("live-confirm generation/content lineage mismatch")
+    generation = snapshot.get("generation") or {}
+    if str(generation.get("id") or "") != args.expected_generation:
+        raise RuntimeError(
+            f"release snapshot generation mismatch: expected={args.expected_generation}"
+            f" actual={generation.get('id')}"
+        )
+    source_health = json.loads(args.source_health.resolve().read_text(encoding="utf-8"))
+    if not isinstance(source_health, Mapping):
+        raise RuntimeError("source health receipt is not an object")
+    health = fetch_live_health()
+    event = build_live_event(
+        business_date=args.business_date,
+        run_id=args.run_id,
+        snapshot=snapshot,
+        health=health,
+        active_count=args.active_count,
+        content_sha256=args.expected_content_sha256,
+        source_health=source_health,
+        degraded_sources=args.degraded_source,
+    )
+    recovered = recover_live_event(
+        business_date=args.business_date,
+        run_id=args.run_id,
+        expected_generation=args.expected_generation,
+        expected_content_sha256=args.expected_content_sha256,
+        expected_active_count=args.active_count,
+    )
+    if recovered is not None:
+        return {
+            "stage": "live-confirm",
+            "recoveredFromCommittedOutbox": True,
+            **recovered,
+            "health": {
+                "status": health.get("status"),
+                "generation": health.get("generation"),
+                "generatedAt": health.get("generatedAt"),
+            },
+        }
+    confirm_before = datetime.fromisoformat(str(args.confirm_before).replace("Z", "+00:00"))
+    if confirm_before.tzinfo is None:
+        confirm_before = confirm_before.replace(tzinfo=timezone.utc)
+    occurred_at = datetime.fromisoformat(str(event["occurredAt"]).replace("Z", "+00:00"))
+    if occurred_at.astimezone(timezone.utc) >= confirm_before.astimezone(timezone.utc):
+        raise RuntimeError("publication deadline passed before live.confirmed outbox insert")
+    event_id, inserted = insert_live_event(event)
+    return {
+        "stage": "live-confirm",
+        "eventId": event_id,
+        "inserted": inserted,
+        "event": event,
+        "health": {
+            "status": health.get("status"),
+            "generation": health.get("generation"),
+            "generatedAt": health.get("generatedAt"),
+        },
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path, required=True)
+    sub = parser.add_subparsers(dest="stage", required=True)
+    sub.add_parser("migrate").set_defaults(func=stage_migrate)
+    sub.add_parser("registry").set_defaults(func=stage_registry)
+    contract = sub.add_parser("contract")
+    contract.add_argument("--run-id", required=True)
+    contract.add_argument("--business-date", required=True)
+    contract.add_argument("--label", required=True)
+    contract.set_defaults(func=stage_contract)
+    discover = sub.add_parser("discover")
+    discover.add_argument("--lane", choices=("http", "browser"), required=True)
+    discover.set_defaults(func=stage_discover)
+    sub.add_parser("pending").set_defaults(func=stage_pending)
+    noop = sub.add_parser("noop")
+    noop.add_argument("--detail-json", required=True)
+    noop.set_defaults(func=stage_noop)
+    sub.add_parser("consolidate").set_defaults(func=stage_consolidate)
+    activate = sub.add_parser("activate")
+    # Defaults keep an already-journalled pre-upgrade task resumable; new task
+    # payloads also carry these values explicitly.
+    activate.add_argument("--run-id", default=os.environ.get("CARDZ_V2_RUN_ID"))
+    activate.add_argument(
+        "--business-date", default=os.environ.get("CARDZ_V2_BUSINESS_DATE")
+    )
+    activate.set_defaults(func=stage_activate)
+    accept = sub.add_parser("accept")
+    accept.add_argument("--run-id", required=True)
+    accept.add_argument("--business-date", required=True)
+    accept.set_defaults(func=stage_accept)
+    box = sub.add_parser("box")
+    box.add_argument("--run-id", required=True)
+    box.add_argument("--accepted-at", required=True)
+    box.set_defaults(func=stage_box)
+    live = sub.add_parser("live-confirm")
+    live.add_argument("--run-id", required=True)
+    live.add_argument("--business-date", required=True)
+    live.add_argument("--snapshot", type=Path, required=True)
+    live.add_argument("--expected-generation", required=True)
+    live.add_argument("--expected-content-sha256", required=True)
+    live.add_argument("--active-count", type=int, required=True)
+    live.add_argument("--source-health", type=Path, required=True)
+    live.add_argument("--confirm-before", required=True)
+    live.add_argument("--degraded-source", action="append", default=[])
+    live.set_defaults(func=stage_live_confirm)
+    args = parser.parse_args()
+    os.environ["CARDZ_DAILY_CHAIN_V2"] = "1"
+    if hasattr(args, "run_id"):
+        os.environ["CARDZ_V2_RUN_ID"] = str(args.run_id)
+    if hasattr(args, "business_date"):
+        os.environ["CARDZ_V2_BUSINESS_DATE"] = str(args.business_date)
+    def interrupted(signum: int, _frame: Any) -> None:
+        raise InterruptedError(f"stage interrupted by signal {signum}")
+
+    signal.signal(signal.SIGTERM, interrupted)
+    signal.signal(signal.SIGINT, interrupted)
+    try:
+        result = args.func(args)
+        receipt = {
+            "contract": "cardz-daily-chain-stage-v2",
+            "status": "completed",
+            "checkedAt": iso_now(),
+            **result,
+        }
+        atomic_json(args.output.resolve(), receipt)
+        print(json.dumps(receipt, ensure_ascii=False, sort_keys=True))
+        return 0
+    except (Exception, SystemExit) as error:  # durable error receipt first
+        receipt = {
+            "contract": "cardz-daily-chain-stage-v2",
+            "stage": args.stage,
+            "status": "terminal",
+            "checkedAt": iso_now(),
+            "errorCode": type(error).__name__,
+            "error": str(error),
+            "traceback": traceback.format_exc()[-8000:],
+        }
+        atomic_json(args.output.resolve(), receipt)
+        print(json.dumps(receipt, ensure_ascii=False, sort_keys=True), file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
