@@ -8,13 +8,15 @@ Default: write a brief, print heatmap URLs, assert the pack. Zero send.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import re
 import sys
 import unicodedata
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlencode, urlparse
@@ -87,9 +89,134 @@ SIMPLIFIED_ONLY = set(
 
 CDP_JSON = "http://127.0.0.1:9222/json"
 
+# Freshness gate. A promo post that quotes a two-day-old board lies about
+# "today's" movers, so the pack refuses to build instead of shipping stale data.
+# 26h (not 24h) leaves room for a late bake without opening a whole extra day.
+PROMO_MAX_LIVE_LAG_HOURS_DEFAULT = 26.0
+JST = timezone(timedelta(hours=9))
+RECEIPT_SLUG_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
 
 class PromoError(RuntimeError):
     pass
+
+
+class PromoStaleLive(PromoError):
+    """Live payload older than PROMO_MAX_LIVE_LAG_HOURS. CLI exit code 3."""
+
+
+def promo_runtime_dir() -> Path:
+    """data/runtime/promo, or PROMO_RUNTIME_DIR when tests/ops redirect it."""
+    override = os.environ.get("PROMO_RUNTIME_DIR", "").strip()
+    if override:
+        return Path(override)
+    return ROOT / "data" / "runtime" / "promo"
+
+
+def max_live_lag_hours() -> float:
+    raw = os.environ.get("PROMO_MAX_LIVE_LAG_HOURS", "").strip()
+    if not raw:
+        return PROMO_MAX_LIVE_LAG_HOURS_DEFAULT
+    try:
+        return float(raw)
+    except ValueError as error:
+        raise PromoError(f"PROMO_MAX_LIVE_LAG_HOURS={raw!r} is not a number") from error
+
+
+def parse_iso_utc(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if text.endswith(("Z", "z")):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def live_lag_hours(generated_at: Any, *, now: datetime | None = None) -> float | None:
+    parsed = parse_iso_utc(generated_at)
+    if parsed is None:
+        return None
+    ref = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    return (ref - parsed).total_seconds() / 3600.0
+
+
+def business_date_jst(now: datetime | None = None) -> str:
+    return (now or datetime.now(timezone.utc)).astimezone(JST).date().isoformat()
+
+
+def assert_live_fresh(
+    generated_at: Any,
+    *,
+    allow_stale: bool = False,
+    now: datetime | None = None,
+    max_lag_hours: float | None = None,
+) -> tuple[float | None, float]:
+    """Fail closed: an unparseable timestamp counts as stale, never as fresh."""
+    limit = max_live_lag_hours() if max_lag_hours is None else float(max_lag_hours)
+    lag = live_lag_hours(generated_at, now=now)
+    if lag is None:
+        if allow_stale:
+            return None, limit
+        raise PromoStaleLive(
+            f"live generatedAt {str(generated_at or '')!r} missing/unparseable — "
+            "refusing to promo (use --allow-stale)"
+        )
+    if lag > limit and not allow_stale:
+        raise PromoStaleLive(
+            f"live generatedAt {generated_at} is {lag:.2f}h old > {limit:.2f}h "
+            "(PROMO_MAX_LIVE_LAG_HOURS) — refusing to promo (use --allow-stale)"
+        )
+    return lag, limit
+
+
+def write_action_receipt(
+    *,
+    business_date: str,
+    destination: str,
+    dry_run: bool,
+    fill_only: bool,
+    posted: bool,
+    text: str,
+    live_generated_at: Any,
+    lag_hours: float | None,
+    outcome: str,
+    error: str | None = None,
+    runtime_dir: Path | None = None,
+    now: datetime | None = None,
+) -> Path:
+    """One receipt per build and per post attempt — dry-run included."""
+    base = Path(runtime_dir) if runtime_dir is not None else promo_runtime_dir()
+    dest_dir = base / "receipts"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    stamp = (now or datetime.now(timezone.utc)).astimezone(timezone.utc).strftime(
+        "%Y%m%dT%H%M%S%fZ"
+    )
+    slug = RECEIPT_SLUG_RE.sub("_", str(destination)) or "unknown"
+    path = dest_dir / f"{business_date}_{slug}_{stamp}.json"
+    payload = {
+        "business_date": business_date,
+        "destination": str(destination),
+        "dry_run": bool(dry_run),
+        "fill_only": bool(fill_only),
+        "posted": bool(posted),
+        "text_sha256": hashlib.sha256((text or "").encode("utf-8")).hexdigest(),
+        "live_generated_at": str(live_generated_at or ""),
+        "lag_hours": None if lag_hours is None else round(float(lag_hours), 4),
+        "outcome": str(outcome),
+        "error": None if error is None else str(error),
+    }
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    return path
 
 
 def metric_pct(card: Mapping[str, Any], period: str) -> float | None:
@@ -353,11 +480,20 @@ def brief_from_payload(
     scoped: Mapping[str, Mapping[str, Any]],
     *,
     period: str = DAILY_PERIOD,
+    allow_stale: bool = False,
+    now: datetime | None = None,
+    max_lag_hours: float | None = None,
 ) -> dict[str, Any]:
     generation = generation_id(health.get("generation"))
     generated_at = str(health.get("generatedAt") or "")
     if not generation:
         raise PromoError("health payload missing generation")
+    lag_hours, lag_limit = assert_live_fresh(
+        generated_at,
+        allow_stale=allow_stale,
+        now=now,
+        max_lag_hours=max_lag_hours,
+    )
     boards: dict[str, Any] = {}
     for scope, payload in scoped.items():
         payload_gen = generation_id(payload.get("generation"))
@@ -390,6 +526,9 @@ def brief_from_payload(
         "product": "CardZ Marketcap",
         "generation": generation,
         "generatedAt": generated_at,
+        "lagHours": None if lag_hours is None else round(lag_hours, 4),
+        "maxLagHours": lag_limit,
+        "allowStale": bool(allow_stale),
         "period": period,
         "liveUrl": LIVE,
         "publicLink": PUBLIC_LINK,
@@ -428,7 +567,11 @@ def reusable_heatmap(path: Path) -> bool:
 
 def write_receipt(pack: Path, payload: Mapping[str, Any]) -> Path:
     dest = pack / "receipt.json"
-    dest.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    dest.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     return dest
 
 
@@ -488,12 +631,19 @@ def fetch_json(url: str) -> Any:
         raise PromoError(f"live fetch failed {url}: {error}") from error
 
 
-def build_live_brief(period: str = DAILY_PERIOD) -> dict[str, Any]:
+def build_live_brief(
+    period: str = DAILY_PERIOD,
+    *,
+    allow_stale: bool = False,
+    now: datetime | None = None,
+) -> dict[str, Any]:
     health = fetch_json(f"{LIVE}/api/health")
     scoped: dict[str, Any] = {}
     for scope in SCOPES:
         scoped[scope] = fetch_json(f"{LIVE}/api/v1/market?scope={scope}&pageSize=100")
-    return brief_from_payload(health, scoped, period=period)
+    return brief_from_payload(
+        health, scoped, period=period, allow_stale=allow_stale, now=now
+    )
 
 
 def scan_leak(raw: bytes) -> list[str]:
@@ -591,14 +741,30 @@ def list_cdp_pages(endpoint: str = CDP_JSON) -> list[dict[str, Any]]:
 
 
 def cmd_brief(args: argparse.Namespace) -> int:
-    brief = build_live_brief(period=args.period)
-    out = Path(args.out) if args.out else ROOT / "data" / "runtime" / "promo" / brief["generation"] / "brief.json"
+    brief = build_live_brief(period=args.period, allow_stale=bool(getattr(args, "allow_stale", False)))
+    out = Path(args.out) if args.out else promo_runtime_dir() / brief["generation"] / "brief.json"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(brief, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    out.write_text(
+        json.dumps(brief, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     pack = out.parent
+    business_date = business_date_jst()
     for channel, text in (brief.get("copies") or {}).items():
-        (pack / f"{channel}.txt").write_text(text, encoding="utf-8")
+        (pack / f"{channel}.txt").write_text(text, encoding="utf-8", newline="\n")
         assert_text(channel, text)
+        write_action_receipt(
+            business_date=business_date,
+            destination=channel,
+            dry_run=True,
+            fill_only=False,
+            posted=False,
+            text=text,
+            live_generated_at=brief.get("generatedAt"),
+            lag_hours=brief.get("lagHours"),
+            outcome="built",
+        )
     heatmaps: dict[str, str] = {}
     errors: list[dict[str, str]] = []
     for channel, url in (brief.get("channelHeatmaps") or {}).items():
@@ -661,10 +827,14 @@ def cmd_assert(args: argparse.Namespace) -> int:
 
 
 def cmd_heatmap(args: argparse.Namespace) -> int:
-    brief = build_live_brief()
-    pack = Path(args.out) if args.out else ROOT / "data" / "runtime" / "promo" / brief["generation"]
+    brief = build_live_brief(allow_stale=bool(getattr(args, "allow_stale", False)))
+    pack = Path(args.out) if args.out else promo_runtime_dir() / brief["generation"]
     pack.mkdir(parents=True, exist_ok=True)
-    (pack / "brief.json").write_text(json.dumps(brief, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (pack / "brief.json").write_text(
+        json.dumps(brief, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     path = download_heatmap(
         brief,
         pack,
@@ -861,6 +1031,11 @@ def main() -> int:
     brief = sub.add_parser("brief")
     brief.add_argument("--period", default=DAILY_PERIOD)
     brief.add_argument("--out")
+    brief.add_argument(
+        "--allow-stale",
+        action="store_true",
+        help=f"skip the {PROMO_MAX_LIVE_LAG_HOURS_DEFAULT}h live-freshness gate",
+    )
     ass = sub.add_parser("assert")
     ass.add_argument("pack")
     ass.add_argument("--generation")
@@ -875,6 +1050,7 @@ def main() -> int:
     heat.add_argument("--theme", default="dark")
     heat.add_argument("--updown", default="green-up")
     heat.add_argument("--out")
+    heat.add_argument("--allow-stale", action="store_true")
     st = sub.add_parser("status")
     st.add_argument("pack")
     sub.add_parser("self-test")
@@ -892,6 +1068,9 @@ def main() -> int:
             return cmd_status(args)
         if args.cmd == "self-test":
             return cmd_self_test()
+    except PromoStaleLive as error:
+        print(f"PROMO_STALE_LIVE {error}", file=sys.stderr)
+        return 3
     except PromoError as error:
         print(f"PROMO_FAIL {error}", file=sys.stderr)
         return 1

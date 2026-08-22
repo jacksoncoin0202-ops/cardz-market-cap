@@ -1,5 +1,9 @@
 # CardZ Marketcap 宣傳鏈
 
+> **冇任何嘢會自動出帖。** 全條鏈只會**砌 pack、寫 receipt**。出街係人手一句
+> `promo_post.py compose --confirm`，冇第二條路：`live.confirmed` 唔會 post、
+> 17:45 嗰個排程 task 唔會 post、dry-run 連瀏覽器都唔會掂。
+
 **唔係自動更新鏈。** `live.confirmed` **唔准即刻 post**。Daddy 2026-08-21：Live bake 成功之後 **再等 30 分鐘** 先跑宣傳 `brief`（圖／文／閘）。出 X／Threads／WhatsApp 仍然要 9222／固定群名，未齊就停喺 pack。
 
 每日公開流程：
@@ -113,21 +117,109 @@ https://cardzmarketcap.com
 
 ---
 
+## 新鮮度閘（hard）
+
+Live payload 舊過 `PROMO_MAX_LIVE_LAG_HOURS`（env，預設 **26** 個鐘）就**唔准砌 pack**：
+`brief_from_payload` / `build_live_brief` 會 raise `PromoStaleLive`，CLI **exit 3**。
+
+- 26h（唔係 24h）留位畀遲咗嘅 bake，但唔會開多成日。
+- `generatedAt` 冇／解唔到 = **當舊**（fail-closed），唔會當新鮮。
+- 真係要出舊 board 先加 `--allow-stale`；brief 入面會有 `allowStale: true`、`lagHours`、`maxLagHours`。
+
+出面講「今日最大升跌」但個 board 係前日，就係講大話。所以呢個閘擋喺砌 pack 嗰步，唔係擋喺出帖嗰步。
+
+---
+
+## Receipt（每次砌／每次出，dry-run 都有）
+
+位置：`data/runtime/promo/receipts/<business_date>_<destination>_<utc-ts>.json`
+（`PROMO_RUNTIME_DIR` env 可以搬走成個 `data/runtime/promo`。）
+
+| 欄 | 意思 |
+|---|---|
+| `business_date` | JST 日（`YYYY-MM-DD`） |
+| `destination` | channel key，例如 `x.com-en` |
+| `dry_run` | 冇 `--confirm` 就係 `true` |
+| `fill_only` | 有冇用 `--fill-only` 掂過 composer |
+| `posted` | 真係撳咗／send 咗先係 `true` |
+| `text_sha256` | 出嗰段字嘅 sha256 |
+| `live_generated_at` | live `generatedAt` |
+| `lag_hours` | 出嗰刻 live 舊咗幾多個鐘 |
+| `outcome` | `built` / `dry_run` / `filled` / `posted` / `audience_mismatch` / `error` |
+| `error` | 冇錯就 `null` |
+
+pack 自己嗰個 `receipt.json`（heatmap 斷點／`errors[]`）照舊，兩者唔同嘢。
+
+---
+
+## Threads audience read-back（hard）
+
+真發（`--confirm`）之後即刻讀返嗰篇帖嘅 audience／社羣 label，同硬常數
+`THREADS_COMMUNITY = "CARDZGAME"` 對。呢個唔准由任何檔覆蓋（AGENTS.md 16）。唔對就：
+
+- `outcome = "audience_mismatch"`，寫入 receipt
+- stderr 印 `PROMO_POST_AUDIENCE_MISMATCH`
+- **exit 4**（唔准 exit 0 扮成功）
+
+讀唔到 label 一樣當 mismatch —— 未證實 = 未過。
+
+---
+
+## 17:45 JST 排程（砌 pack，**唔會 post**）
+
+Windows installer 註冊 `\CARDZ-Promo-After-Publish`，每日 **17:45 JST**，經
+`scripts/cardz_silent_run.vbs` 無視窗跑：
+
+```text
+wsl.exe -d Ubuntu -- python3 -X utf8 <repo>/scripts/promo_after_publish.py
+```
+
+`scripts/promo_after_publish.py` 係唯讀 consumer：讀 live published snapshot →
+行新鮮度閘 → 逐個 `scripts/promo_destinations.json` 嘅 destination 出文案 →
+寫 pack + receipt 落 `data/runtime/promo/<business_date>/`。冇 `promo_destinations.json`
+就 fallback 去 `promo_destinations.example.json`（stderr 有 `PROMO_PACK_WARN`）。
+
+佢**唔 import `promo_post`／playwright／websocket**，開唔到瀏覽器（`test_promo_pack.py`
+會 assert 跑完之後 `sys.modules` 冇呢啲）。
+
+| 輸出 | exit |
+|---|---|
+| `PROMO_PACK_OK <business_date> destinations=<n> lag_h=<x>` | 0 |
+| `PROMO_PACK_STALE …` | 3 |
+| `PROMO_PACK_ERROR …` | 2 |
+
+點解要有：宣傳鏈成日冇人跑，閘同文案就靜靜爛咗都冇人知。每日砌一次 pack ＝ 每日
+證明條鏈仲行得，而**完全唔會出帖**。
+
+---
+
 ## 命令
 
 ```text
 python -X utf8 scripts/promo_chain.py brief
+python -X utf8 scripts/promo_chain.py brief --allow-stale          # 過新鮮度閘（exit 3 果個）
 python -X utf8 scripts/promo_chain.py heatmap --scope pokemon --lang zh-TW --format post --updown green-up
 python -X utf8 scripts/promo_chain.py assert data/runtime/promo/<generation>
 python -X utf8 scripts/promo_chain.py status data/runtime/promo/<generation>
+python -X utf8 scripts/promo_after_publish.py                      # 排程用；砌 pack，唔 post
 python -X utf8 scripts/promo_post.py plan --pack data/runtime/promo/<generation>
 python -X utf8 scripts/promo_post.py compose --channel x.com-en --pack data/runtime/promo/<generation>
+python -X utf8 scripts/promo_post.py compose --channel x.com-en --pack data/runtime/promo/<generation> --fill-only
 python -X utf8 scripts/promo_post.py compose --channel threads-zh --pack data/runtime/promo/<generation> --confirm
 python -X utf8 scripts/test_promo_pack.py
 python -X utf8 scripts/test_promo_post.py
 ```
 
-`brief` 寫 `post=false`。`promo_post.py` **預設 dry-run**（填 compose／印 Hermes target，**唔撳 Post**）。加 `--confirm` 先真發。
+`brief` 寫 `post=false`。`promo_post.py compose` 三個模式：
+
+| 模式 | 掂唔掂瀏覽器 | 出唔出街 |
+|---|---|---|
+| 預設（dry-run） | **零** CDP／websocket／network，淨係寫 receipt | 否 |
+| `--fill-only` | 重用 9222 個 tab、填 composer + 貼圖 | 否（**唔撳 Post**） |
+| `--confirm` | 同上 | **係**，人手先准 |
+
+`--cdp` 可以換 endpoint，預設仍然係 `http://127.0.0.1:9222`（9333 係 PriceCharting，唔關事）。
+`--confirm` 同 `--fill-only` 唔可以一齊用。
 
 出帖腳本（2026-08-21 建）：
 

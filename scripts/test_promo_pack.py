@@ -7,14 +7,20 @@ Run: python -X utf8 scripts/test_promo_pack.py
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
+import promo_after_publish as PAP  # noqa: E402
 import promo_chain as P  # noqa: E402
+
+# Fixed clock so the freshness gate is deterministic: 1.5h after generatedAt.
+NOW_FIXED = datetime(2026, 8, 20, 10, 0, 0, tzinfo=timezone.utc)
 
 FAILED: list[str] = []
 CHECKS = 0
@@ -36,6 +42,28 @@ def expect_fail(label: str, fn) -> str:
         return str(error)
     FAILED.append(f"FAIL {label} did not fire")
     return ""
+
+
+def expect_stale(label: str, fn) -> str:
+    global CHECKS
+    CHECKS += 1
+    try:
+        fn()
+    except P.PromoStaleLive as error:
+        return str(error)
+    except P.PromoError as error:
+        FAILED.append(f"FAIL {label} raised the wrong error: {error}")
+        return ""
+    FAILED.append(f"FAIL {label} did not fire")
+    return ""
+
+
+def live_fixture(cards, generated_at: str, generation: str = "db3308_fix") -> dict:
+    payload = {"generation": {"id": generation}, "cards": cards}
+    return {
+        "health": {"generation": generation, "generatedAt": generated_at},
+        "scoped": {"pokemon": payload, "all": payload, "one-piece": payload},
+    }
 
 
 def main() -> int:
@@ -164,7 +192,9 @@ def main() -> int:
 
     health = {"generation": "db3308_aaa", "generatedAt": "2026-08-20T08:31:21.350Z"}
     payload = {"generation": {"id": "db3308_aaa"}, "cards": cards}
-    brief = P.brief_from_payload(health, {"pokemon": payload, "all": payload, "one-piece": payload})
+    brief = P.brief_from_payload(
+        health, {"pokemon": payload, "all": payload, "one-piece": payload}, now=NOW_FIXED
+    )
     check("brief-gen", brief["generation"], "db3308_aaa")
     check(
         "heatmap",
@@ -190,8 +220,222 @@ def main() -> int:
     check("post-flag", brief["post"], False)
     expect_fail(
         "gen-mismatch",
-        lambda: P.brief_from_payload(health, {"pokemon": {"generation": "other", "cards": cards}}),
+        lambda: P.brief_from_payload(
+            health, {"pokemon": {"generation": "other", "cards": cards}}, now=NOW_FIXED
+        ),
     )
+
+    # --- freshness gate (task 2) ---
+    expected_lag = round(
+        (NOW_FIXED - P.parse_iso_utc(health["generatedAt"])).total_seconds() / 3600.0, 4
+    )
+    check("brief-lag-hours", brief["lagHours"], expected_lag)
+    check("brief-max-lag", brief["maxLagHours"], 26.0)
+    fresh_edge = P.brief_from_payload(
+        health,
+        {"all": payload},
+        now=P.parse_iso_utc(health["generatedAt"]) + timedelta(hours=25, minutes=59),
+    )
+    check("fresh-under-26h", round(fresh_edge["lagHours"], 2), 25.98)
+    stale_msg = expect_stale(
+        "stale-over-26h",
+        lambda: P.brief_from_payload(
+            health,
+            {"all": payload},
+            now=P.parse_iso_utc(health["generatedAt"]) + timedelta(hours=26, minutes=1),
+        ),
+    )
+    check("stale-msg", "PROMO_MAX_LIVE_LAG_HOURS" in stale_msg, True)
+    allowed = P.brief_from_payload(
+        health,
+        {"all": payload},
+        now=P.parse_iso_utc(health["generatedAt"]) + timedelta(hours=200),
+        allow_stale=True,
+    )
+    check("allow-stale-builds", round(allowed["lagHours"], 1), 200.0)
+    check("allow-stale-flag", allowed["allowStale"], True)
+    expect_stale(
+        "stale-unparseable",
+        lambda: P.brief_from_payload({"generation": "g", "generatedAt": ""}, {"all": payload}),
+    )
+    env_before = os.environ.get("PROMO_MAX_LIVE_LAG_HOURS")
+    os.environ["PROMO_MAX_LIVE_LAG_HOURS"] = "1"
+    try:
+        check("env-limit", P.max_live_lag_hours(), 1.0)
+        expect_stale(
+            "stale-env-1h",
+            lambda: P.brief_from_payload(health, {"all": payload}, now=NOW_FIXED),
+        )
+    finally:
+        if env_before is None:
+            os.environ.pop("PROMO_MAX_LIVE_LAG_HOURS", None)
+        else:
+            os.environ["PROMO_MAX_LIVE_LAG_HOURS"] = env_before
+
+    # --- receipts (task 3) + newline="\n" (task 5) ---
+    with tempfile.TemporaryDirectory(prefix="promo-receipt-") as tmp:
+        runtime = Path(tmp)
+        receipt = P.write_action_receipt(
+            business_date="2026-08-20",
+            destination="x.com-en",
+            dry_run=True,
+            fill_only=False,
+            posted=False,
+            text="hello\n",
+            live_generated_at=health["generatedAt"],
+            lag_hours=brief["lagHours"],
+            outcome="built",
+            runtime_dir=runtime,
+        )
+        check("receipt-under-receipts", receipt.parent.name, "receipts")
+        check("receipt-name-prefix", receipt.name.startswith("2026-08-20_x.com-en_"), True)
+        raw = receipt.read_bytes()
+        check("receipt-no-cr", b"\r" in raw, False)
+        body = json.loads(raw.decode("utf-8"))
+        check(
+            "receipt-fields",
+            sorted(body),
+            [
+                "business_date",
+                "destination",
+                "dry_run",
+                "error",
+                "fill_only",
+                "lag_hours",
+                "live_generated_at",
+                "outcome",
+                "posted",
+                "text_sha256",
+            ],
+        )
+        check(
+            "receipt-sha",
+            body["text_sha256"],
+            "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+        )
+        check("receipt-outcome", body["outcome"], "built")
+        check("receipt-lag", body["lag_hours"], expected_lag)
+        check("receipt-error-null", body["error"], None)
+
+    # --- scheduled consumer promo_after_publish (task 6) ---
+    fresh_iso = (
+        (datetime.now(timezone.utc) - timedelta(hours=1))
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+    stale_iso = (
+        (datetime.now(timezone.utc) - timedelta(hours=100))
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+    dest_file_default, warn_default = PAP.resolve_destinations_file(None)
+    if PAP.DEST_FILE.is_file():
+        check("dest-real-used", dest_file_default, PAP.DEST_FILE)
+    else:
+        check("dest-example-fallback", dest_file_default, PAP.DEST_EXAMPLE)
+        check("dest-fallback-warns", any("falling back" in w for w in warn_default), True)
+
+    with tempfile.TemporaryDirectory(prefix="promo-after-") as tmp:
+        base = Path(tmp)
+        (base / "live-fresh.json").write_text(
+            json.dumps(live_fixture(cards, fresh_iso)), encoding="utf-8"
+        )
+        (base / "live-stale.json").write_text(
+            json.dumps(live_fixture(cards, stale_iso)), encoding="utf-8"
+        )
+        (base / "dest-bad.json").write_text(json.dumps({"nope-zz": "x"}), encoding="utf-8")
+        runtime = base / "runtime"
+        env_rt = os.environ.get("PROMO_RUNTIME_DIR")
+        os.environ["PROMO_RUNTIME_DIR"] = str(runtime)
+        try:
+            rc_ok = PAP.main(
+                [
+                    "--live-json", str(base / "live-fresh.json"),
+                    "--destinations", str(PAP.DEST_EXAMPLE),
+                    "--business-date", "2026-08-20",
+                ]
+            )
+            check("after-publish-ok-rc", rc_ok, 0)
+            pack = runtime / "2026-08-20"
+            check("after-publish-brief", (pack / "brief.json").is_file(), True)
+            check("after-publish-copy", (pack / "whatsapp-ptcg.txt").is_file(), True)
+            check("after-publish-copy-no-cr", b"\r" in (pack / "whatsapp-ptcg.txt").read_bytes(), False)
+            check("after-publish-brief-no-cr", b"\r" in (pack / "brief.json").read_bytes(), False)
+            receipts = sorted((runtime / "receipts").glob("2026-08-20_*.json"))
+            check("after-publish-receipts", len(receipts), 3)
+            first = json.loads(receipts[0].read_text(encoding="utf-8"))
+            check("after-publish-not-posted", first["posted"], False)
+            check("after-publish-dry", first["dry_run"], True)
+            check("after-publish-outcome", first["outcome"], "built")
+
+            rc_stale = PAP.main(
+                [
+                    "--live-json", str(base / "live-stale.json"),
+                    "--destinations", str(PAP.DEST_EXAMPLE),
+                    "--business-date", "2026-08-20",
+                ]
+            )
+            check("after-publish-stale-rc", rc_stale, 3)
+
+            rc_err = PAP.main(
+                [
+                    "--live-json", str(base / "live-fresh.json"),
+                    "--destinations", str(base / "dest-bad.json"),
+                    "--business-date", "2026-08-20",
+                ]
+            )
+            check("after-publish-error-rc", rc_err, 2)
+        finally:
+            if env_rt is None:
+                os.environ.pop("PROMO_RUNTIME_DIR", None)
+            else:
+                os.environ["PROMO_RUNTIME_DIR"] = env_rt
+
+    # --- CLI exit codes for the freshness gate (task 2), zero network ---
+    real_fetch = P.fetch_json
+    real_heatmap = P.download_heatmap
+    real_argv = sys.argv
+    with tempfile.TemporaryDirectory(prefix="promo-cli-") as tmp:
+        cli_pack = Path(tmp)
+        stale_health = {"generation": "db3308_cli", "generatedAt": stale_iso}
+        stale_payload = {"generation": {"id": "db3308_cli"}, "cards": cards}
+        P.fetch_json = lambda url: stale_health if "/api/health" in url else stale_payload
+        P.download_heatmap = lambda *_a, **_k: cli_pack / "heatmap-stub.jpg"
+        env_rt = os.environ.get("PROMO_RUNTIME_DIR")
+        os.environ["PROMO_RUNTIME_DIR"] = str(cli_pack / "runtime")
+        try:
+            sys.argv = ["promo_chain.py", "brief", "--out", str(cli_pack / "brief.json")]
+            check("cli-stale-exit-3", P.main(), 3)
+            check("cli-stale-wrote-nothing", (cli_pack / "brief.json").exists(), False)
+            sys.argv = [
+                "promo_chain.py",
+                "brief",
+                "--out",
+                str(cli_pack / "brief.json"),
+                "--allow-stale",
+            ]
+            check("cli-allow-stale-exit-0", P.main(), 0)
+            check("cli-allow-stale-wrote-brief", (cli_pack / "brief.json").is_file(), True)
+            check("cli-brief-no-cr", b"\r" in (cli_pack / "brief.json").read_bytes(), False)
+            check("cli-copy-no-cr", b"\r" in (cli_pack / "x.com-en.txt").read_bytes(), False)
+            cli_receipts = sorted((cli_pack / "runtime" / "receipts").glob("*.json"))
+            check("cli-build-receipts", len(cli_receipts), len(P.CHANNEL_SCRIPT))
+        finally:
+            P.fetch_json = real_fetch
+            P.download_heatmap = real_heatmap
+            sys.argv = real_argv
+            if env_rt is None:
+                os.environ.pop("PROMO_RUNTIME_DIR", None)
+            else:
+                os.environ["PROMO_RUNTIME_DIR"] = env_rt
+
+    banned = sorted(
+        name
+        for name in list(sys.modules)
+        if name == "promo_post"
+        or any(part in name.lower() for part in ("websocket", "playwright", "selenium", "pychrome"))
+    )
+    check("after-publish-no-browser-modules", banned, [])
 
     with tempfile.TemporaryDirectory() as tmp:
         pack = Path(tmp)

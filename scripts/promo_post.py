@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Promo publish drivers. Default is dry-run: fill compose, do not click Post.
+"""Promo publish drivers. Default is dry-run: build a receipt, touch nothing.
+
+Dry-run is side-effect free: zero CDP / websocket / network calls. Filling the
+composer is an explicit opt-in (`--fill-only`); it never clicks Post. Only
+`--confirm` posts, and posting is always a human-triggered command.
 
 X.com: Chrome 9222, one tab, proven data-testid selectors.
 Threads (Daddy 講「Flock」= Threads 社羣): 9222, must pick CARDZGAME or stop.
@@ -15,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -41,6 +46,22 @@ if set(CHANNEL_HERMES_NAME) != _WA_CHANNELS:
 
 X_COMPOSE = "https://x.com/compose/post"
 THREADS_HOME = "https://www.threads.net/"
+_AUDIENCE_WS_RE = re.compile(r"\s+")
+
+# Outcome -> process exit code. A post that landed in the wrong audience is a
+# failure even though the click succeeded, so it must not exit 0.
+OUTCOME_EXIT = {
+    "dry_run": 0,
+    "built": 0,
+    "filled": 0,
+    "posted": 0,
+    "audience_mismatch": 4,
+    "error": 1,
+}
+
+
+def exit_code_for_outcome(outcome: str) -> int:
+    return OUTCOME_EXIT.get(str(outcome), 1)
 
 
 class PostError(P.PromoError):
@@ -96,6 +117,32 @@ def hermes_target_for_channel(
     if not name:
         raise PostError(f"{channel}: 唔喺固定 Hermes 群表")
     return f"whatsapp:#{name}"
+
+
+def _normalize_audience(value: Any) -> str:
+    return _AUDIENCE_WS_RE.sub("", str(value or "")).casefold()
+
+
+def audience_outcome(label: Any, expected: Any) -> str:
+    """Read-back label must still name the configured audience, else mismatch."""
+    got = _normalize_audience(label)
+    want = _normalize_audience(expected)
+    if want and want in got:
+        return "posted"
+    return "audience_mismatch"
+
+
+def read_threads_audience(page) -> str:
+    """Best-effort read-back of the audience/visibility label of the new post."""
+    for selector in (
+        '[data-testid="audience-selector"]',
+        '[role="dialog"] [role="button"][aria-haspopup]',
+        '[data-pressable-container] [role="link"]',
+    ):
+        node = page.locator(selector).first
+        if node.count():
+            return str(node.inner_text(timeout=5000) or "").strip()
+    return ""
 
 
 def plan_steps(channel: str) -> list[str]:
@@ -164,17 +211,18 @@ def cmd_plan(args: argparse.Namespace) -> int:
     return 0
 
 
-def _connect():
+def _connect(cdp_url: str = CDP):
+    """Only reached with --fill-only or --confirm. Dry-run never calls this."""
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as error:
         raise PostError("playwright not installed") from error
     pw = sync_playwright().start()
     try:
-        browser = pw.chromium.connect_over_cdp(CDP)
+        browser = pw.chromium.connect_over_cdp(cdp_url)
     except Exception as error:
         pw.stop()
-        raise PostError(f"9222 connect failed: {error}") from error
+        raise PostError(f"{cdp_url} connect failed: {error}") from error
     return pw, browser
 
 
@@ -207,16 +255,24 @@ def compose_x(page, text: str, image: Path, *, confirm: bool) -> dict[str, Any]:
         file_input.set_input_files(str(image))
     btn = page.locator('[data-testid="tweetButtonInline"], [data-testid="tweetButton"]').first
     if not confirm:
-        return {"filled": True, "posted": False, "reason": "dry-run"}
+        return {"filled": True, "posted": False, "reason": "fill-only", "outcome": "filled"}
     btn.click(timeout=10000)
-    return {"filled": True, "posted": True}
+    return {"filled": True, "posted": True, "outcome": "posted"}
 
 
-def compose_threads(page, text: str, image: Path, *, confirm: bool) -> dict[str, Any]:
+def compose_threads(
+    page,
+    text: str,
+    image: Path,
+    *,
+    confirm: bool,
+    audience: str = THREADS_COMMUNITY,
+    page_reader=None,
+) -> dict[str, Any]:
     page.goto(THREADS_HOME, wait_until="domcontentloaded", timeout=30000)
-    community = page.get_by_text(THREADS_COMMUNITY, exact=False)
+    community = page.get_by_text(audience, exact=False)
     if community.count() == 0:
-        raise PostError(f"Threads 社羣 {THREADS_COMMUNITY} 未出現 — 停，唔好發去個人主 feed")
+        raise PostError(f"Threads 社羣 {audience} 未出現 — 停，唔好發去個人主 feed")
     community.first.click(timeout=8000)
     composer = page.locator('[role="textbox"]').first
     composer.wait_for(timeout=15000)
@@ -226,10 +282,31 @@ def compose_threads(page, text: str, image: Path, *, confirm: bool) -> dict[str,
     if file_input.count():
         file_input.set_input_files(str(image))
     if not confirm:
-        return {"filled": True, "posted": False, "community": THREADS_COMMUNITY, "reason": "dry-run"}
+        return {
+            "filled": True,
+            "posted": False,
+            "community": audience,
+            "reason": "fill-only",
+            "outcome": "filled",
+        }
     post_btn = page.get_by_role("button", name="Post").or_(page.get_by_role("button", name="發佈"))
     post_btn.first.click(timeout=10000)
-    return {"filled": True, "posted": True, "community": THREADS_COMMUNITY}
+    reader = page_reader or read_threads_audience
+    try:
+        label = str(reader(page) or "")
+        error = None
+    except Exception as read_error:  # unreadable == unverified == fail closed
+        label = ""
+        error = str(read_error)
+    outcome = audience_outcome(label, audience)
+    return {
+        "filled": True,
+        "posted": True,
+        "community": audience,
+        "audienceLabel": label,
+        "outcome": outcome,
+        "error": error,
+    }
 
 
 def send_whatsapp(
@@ -250,7 +327,13 @@ def send_whatsapp(
         dest = hermes_target_for_channel(channel)
     body = f"{text.strip()}\nMEDIA:{image}"
     if not confirm:
-        return {"filled": True, "posted": False, "to": dest, "reason": "dry-run"}
+        return {
+            "filled": False,
+            "posted": False,
+            "to": dest,
+            "reason": "dry-run",
+            "outcome": "dry_run",
+        }
     if os.name == "nt":
         cmd = ["wsl.exe", "-d", "Ubuntu", "--", HERMES_REAL, "send", "-q", "--to", dest]
     else:
@@ -259,34 +342,100 @@ def send_whatsapp(
     if proc.returncode != 0:
         err = (proc.stderr or proc.stdout).decode("utf-8", "replace")[-300:]
         raise PostError(f"hermes send exit {proc.returncode}: {err}")
-    return {"filled": True, "posted": True, "to": dest}
+    return {"filled": True, "posted": True, "to": dest, "outcome": "posted"}
+
+
+def _drive_browser(
+    channel: str,
+    text: str,
+    image: Path,
+    *,
+    confirm: bool,
+    cdp_url: str,
+    open_once: bool,
+    page_reader=None,
+) -> dict[str, Any]:
+    pw, browser = _connect(cdp_url)
+    try:
+        page, decision = _page_for_host(browser, P.HOST_FOR_CHANNEL[channel], allow_open=open_once)
+        if decision.get("extraSameHost"):
+            print("same-host extras exist; reuse the first, do not open another tab", file=sys.stderr)
+        if channel.startswith("x.com"):
+            result = compose_x(page, text, image, confirm=confirm)
+        else:
+            result = compose_threads(
+                page,
+                text,
+                image,
+                confirm=confirm,
+                audience=THREADS_COMMUNITY,
+                page_reader=page_reader,
+            )
+        result["tab"] = decision
+        return result
+    finally:
+        pw.stop()
 
 
 def cmd_compose(args: argparse.Namespace) -> int:
     channel = args.channel
     if channel not in P.CHANNEL_SCRIPT or channel in {"fork-zh", "site-zh"}:
         raise PostError(f"unsupported channel {channel}")
+    confirm = bool(args.confirm)
+    fill_only = bool(getattr(args, "fill_only", False))
+    if confirm and fill_only:
+        raise PostError("--fill-only and --confirm are mutually exclusive")
     pack = Path(args.pack)
+    brief = load_pack(pack)
     text = channel_copy(pack, channel)
     image = channel_image(pack, channel)
-    confirm = bool(args.confirm)
-    if channel.startswith("whatsapp"):
-        result = send_whatsapp(channel, text, image, confirm=confirm)
-        print(json.dumps({"channel": channel, **result}, ensure_ascii=False))
-        return 0
-    pw, browser = _connect()
+    business_date = str(getattr(args, "business_date", "") or P.business_date_jst())
+    live_generated_at = brief.get("generatedAt")
+    lag_hours = brief.get("lagHours")
+
+    error_text: str | None = None
     try:
-        page, decision = _page_for_host(browser, P.HOST_FOR_CHANNEL[channel], allow_open=bool(args.open_once))
-        if decision.get("extraSameHost"):
-            print("same-host extras exist; reuse the first, do not open another tab", file=sys.stderr)
-        if channel.startswith("x.com"):
-            result = compose_x(page, text, image, confirm=confirm)
+        if channel.startswith("whatsapp"):
+            result = send_whatsapp(channel, text, image, confirm=confirm)
+        elif not confirm and not fill_only:
+            # Hard rule: dry-run touches no browser, no CDP, no socket.
+            result = {"filled": False, "posted": False, "reason": "dry-run", "outcome": "dry_run"}
         else:
-            result = compose_threads(page, text, image, confirm=confirm)
-        print(json.dumps({"channel": channel, "tab": decision, **result}, ensure_ascii=False))
-    finally:
-        pw.stop()
-    return 0
+            result = _drive_browser(
+                channel,
+                text,
+                image,
+                confirm=confirm,
+                cdp_url=str(getattr(args, "cdp", CDP) or CDP),
+                open_once=bool(args.open_once),
+            )
+    except (PostError, P.PromoError) as error:
+        error_text = str(error)
+        result = {"filled": False, "posted": False, "outcome": "error"}
+    error_text = error_text or result.get("error")
+    outcome = str(result.get("outcome") or ("posted" if result.get("posted") else "dry_run"))
+    receipt = P.write_action_receipt(
+        business_date=business_date,
+        destination=channel,
+        dry_run=not confirm,
+        fill_only=fill_only,
+        posted=bool(result.get("posted")),
+        text=text,
+        live_generated_at=live_generated_at,
+        lag_hours=lag_hours,
+        outcome=outcome,
+        error=error_text,
+    )
+    print(json.dumps({"channel": channel, "receipt": str(receipt), **result}, ensure_ascii=False))
+    if outcome == "audience_mismatch":
+        print(
+            f"PROMO_POST_AUDIENCE_MISMATCH {channel} got={result.get('audienceLabel')!r}"
+            f" want={result.get('community')!r}",
+            file=sys.stderr,
+        )
+    elif error_text:
+        print(f"PROMO_POST_FAIL {error_text}", file=sys.stderr)
+    return exit_code_for_outcome(outcome)
 
 
 def main() -> int:
@@ -298,7 +447,14 @@ def main() -> int:
     comp.add_argument("--channel", required=True)
     comp.add_argument("--pack", required=True)
     comp.add_argument("--confirm", action="store_true", help="actually click Post / hermes send")
+    comp.add_argument(
+        "--fill-only",
+        action="store_true",
+        help="opt in to touching the composer (fills it, never clicks Post)",
+    )
     comp.add_argument("--open-once", action="store_true", help="allow a single new tab if host missing")
+    comp.add_argument("--cdp", default=CDP, help=f"CDP endpoint for the post path (default {CDP})")
+    comp.add_argument("--business-date", help="receipt business date (default: today JST)")
     args = parser.parse_args()
     try:
         if args.cmd == "plan":

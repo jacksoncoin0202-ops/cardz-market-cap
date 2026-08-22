@@ -3,7 +3,9 @@
 """promo_post gates. No 9222, no send."""
 from __future__ import annotations
 
+import argparse
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -11,6 +13,83 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import promo_post as PP  # noqa: E402
+
+COPY = "TCG Top 100 · 7D\n\n🟢 #4 Up One  +9.10%\n\nhttps://cardzmarketcap.com\n"
+
+
+class FakeNode:
+    """Playwright-locator shaped stub. Everything chains, nothing touches a browser."""
+
+    def __init__(self, n: int = 1) -> None:
+        self._n = n
+
+    @property
+    def first(self):
+        return self
+
+    def count(self) -> int:
+        return self._n
+
+    def __getattr__(self, _name):
+        def call(*_a, **_k):
+            return self
+
+        return call
+
+
+class FakePage:
+    def __init__(self) -> None:
+        self.keyboard = FakeNode()
+
+    def goto(self, *_a, **_k) -> None:
+        return None
+
+    def get_by_text(self, *_a, **_k):
+        return FakeNode()
+
+    def get_by_role(self, *_a, **_k):
+        return FakeNode()
+
+    def locator(self, *_a, **_k):
+        return FakeNode()
+
+
+def make_pack(pack: Path) -> None:
+    """Minimal but real pack: brief + copy + a heatmap that passes reusable_heatmap."""
+    pack.mkdir(parents=True, exist_ok=True)
+    (pack / "brief.json").write_text(
+        json.dumps(
+            {
+                "generation": "db3308_test",
+                "generatedAt": "2026-08-20T08:31:21.350Z",
+                "lagHours": 1.4774,
+                "period": "7d",
+                "post": False,
+            }
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+    (pack / "x.com-en.txt").write_text(COPY, encoding="utf-8", newline="\n")
+    (pack / "heatmap-all-7d-post-en.jpg").write_bytes(b"\xff\xd8\xff" + b"\x00" * 9000)
+
+
+def compose_args(pack: Path, **over) -> argparse.Namespace:
+    base = {
+        "channel": "x.com-en",
+        "pack": str(pack),
+        "confirm": False,
+        "fill_only": False,
+        "open_once": False,
+        "cdp": PP.CDP,
+        "business_date": "2026-08-20",
+    }
+    base.update(over)
+    return argparse.Namespace(**base)
+
+
+def boom(*_a, **_k):
+    raise AssertionError("dry-run must not touch a browser")
 
 FAILED: list[str] = []
 CHECKS = 0
@@ -29,6 +108,17 @@ def expect_fail(label: str, fn) -> str:
     try:
         fn()
     except PP.PostError as error:
+        return str(error)
+    FAILED.append(f"FAIL {label} did not fire")
+    return ""
+
+
+def expect_assertion(label: str, fn) -> str:
+    global CHECKS
+    CHECKS += 1
+    try:
+        fn()
+    except AssertionError as error:
         return str(error)
     FAILED.append(f"FAIL {label} did not fire")
     return ""
@@ -102,6 +192,122 @@ def main() -> int:
         (pack / "brief.json").write_text(json.dumps({"generation": "g1", "period": "7d", "post": False}), encoding="utf-8")
         err = expect_fail("no-copy", lambda: PP.channel_copy(pack, "x.com-en"))
         check("no-copy-mentions", "missing copy" in err, True)
+
+    # --- dry-run is side-effect free (task 1) ---
+    check("cdp-default-unchanged", PP.CDP, "http://127.0.0.1:9222")
+    real_connect = PP._connect
+    real_list = PP.P.list_cdp_pages
+    with tempfile.TemporaryDirectory(prefix="promo-post-") as tmp:
+        base = Path(tmp)
+        pack = base / "pack"
+        make_pack(pack)
+        runtime = base / "runtime"
+        env_rt = os.environ.get("PROMO_RUNTIME_DIR")
+        os.environ["PROMO_RUNTIME_DIR"] = str(runtime)
+        PP._connect = boom
+        PP.P.list_cdp_pages = boom
+        try:
+            rc = PP.cmd_compose(compose_args(pack))
+            check("dry-run-rc", rc, 0)
+            receipts = sorted((runtime / "receipts").glob("2026-08-20_x.com-en_*.json"))
+            check("dry-run-receipt-written", len(receipts), 1)
+            body = json.loads(receipts[0].read_text(encoding="utf-8"))
+            check("dry-run-receipt-dry", body["dry_run"], True)
+            check("dry-run-receipt-fill", body["fill_only"], False)
+            check("dry-run-receipt-posted", body["posted"], False)
+            check("dry-run-receipt-outcome", body["outcome"], "dry_run")
+            check("dry-run-receipt-lag", body["lag_hours"], 1.4774)
+            check("dry-run-receipt-gen-at", body["live_generated_at"], "2026-08-20T08:31:21.350Z")
+            check("dry-run-receipt-no-cr", b"\r" in receipts[0].read_bytes(), False)
+
+            # positive: --fill-only IS the opt-in that reaches the browser path
+            reached = expect_assertion(
+                "fill-only-reaches-connect", lambda: PP.cmd_compose(compose_args(pack, fill_only=True))
+            )
+            check("fill-only-connect-msg", "must not touch a browser" in reached, True)
+
+            expect_fail(
+                "fill-only-vs-confirm",
+                lambda: PP.cmd_compose(compose_args(pack, fill_only=True, confirm=True)),
+            )
+            check("dry-run-receipt-count-unchanged", len(sorted((runtime / "receipts").glob("*.json"))), 1)
+        finally:
+            PP._connect = real_connect
+            PP.P.list_cdp_pages = real_list
+            if env_rt is None:
+                os.environ.pop("PROMO_RUNTIME_DIR", None)
+            else:
+                os.environ["PROMO_RUNTIME_DIR"] = env_rt
+
+    # --- Threads audience stays the hard constant (AGENTS.md 16), not overridable ---
+    check("audience-constant", PP.THREADS_COMMUNITY, "CARDZGAME")
+    check("audience-no-override-helper", hasattr(PP, "threads_audience_for_channel"), False)
+
+    class FakePw:
+        def stop(self) -> None:
+            return None
+
+    seen: dict = {}
+
+    def record_threads(_page, _text, _image, **kwargs):
+        seen.update(kwargs)
+        return {"filled": True, "posted": False, "outcome": "filled"}
+
+    real_dest_file = PP.DEST_FILE
+    real_page_for_host = PP._page_for_host
+    real_compose_threads = PP.compose_threads
+    real_connect_2 = PP._connect
+    with tempfile.TemporaryDirectory(prefix="promo-dest-") as tmp:
+        dest_file = Path(tmp) / "destinations.json"
+        dest_file.write_text(
+            json.dumps({"threads-en": "threads:HIJACK", "whatsapp-ptcg": "whatsapp:#PTCG"}),
+            encoding="utf-8",
+        )
+        PP.DEST_FILE = dest_file
+        PP._connect = lambda cdp_url=PP.CDP: (FakePw(), object())
+        PP._page_for_host = lambda _browser, _host, *, allow_open: (FakePage(), {})
+        PP.compose_threads = record_threads
+        try:
+            # positive control: this runtime file IS read (whatsapp target comes from it)
+            check("dest-file-is-live", PP.hermes_target_for_channel("whatsapp-ptcg"), "whatsapp:#PTCG")
+            PP._drive_browser(
+                "threads-en", COPY, Path("x.jpg"), confirm=False, cdp_url=PP.CDP, open_once=False
+            )
+            check("audience-not-hijackable", seen.get("audience"), "CARDZGAME")
+        finally:
+            PP.DEST_FILE = real_dest_file
+            PP._connect = real_connect_2
+            PP._page_for_host = real_page_for_host
+            PP.compose_threads = real_compose_threads
+
+    # --- Threads audience read-back (task 4) ---
+    match = PP.compose_threads(
+        FakePage(), COPY, Path("x.jpg"), confirm=True, page_reader=lambda _page: "CARDZGAME"
+    )
+    check("audience-match-outcome", match["outcome"], "posted")
+    check("audience-match-posted", match["posted"], True)
+    check("audience-match-exit", PP.exit_code_for_outcome(match["outcome"]), 0)
+    mismatch = PP.compose_threads(
+        FakePage(), COPY, Path("x.jpg"), confirm=True, page_reader=lambda _page: "Anyone"
+    )
+    check("audience-mismatch-outcome", mismatch["outcome"], "audience_mismatch")
+    check("audience-mismatch-label", mismatch["audienceLabel"], "Anyone")
+    check("audience-mismatch-exit", PP.exit_code_for_outcome(mismatch["outcome"]), 4)
+
+    def unreadable(_page):
+        raise RuntimeError("selector gone")
+
+    blind = PP.compose_threads(FakePage(), COPY, Path("x.jpg"), confirm=True, page_reader=unreadable)
+    check("audience-unreadable-outcome", blind["outcome"], "audience_mismatch")
+    check("audience-unreadable-error", "selector gone" in str(blind["error"]), True)
+    filled = PP.compose_threads(
+        FakePage(), COPY, Path("x.jpg"), confirm=False, page_reader=lambda _page: "Anyone"
+    )
+    check("fill-only-threads-outcome", filled["outcome"], "filled")
+    check("fill-only-threads-not-posted", filled["posted"], False)
+    check("audience-normalizes-case", PP.audience_outcome("Posted to cardzgame", "CARDZGAME"), "posted")
+    check("exit-map-error", PP.exit_code_for_outcome("error"), 1)
+    check("exit-map-unknown", PP.exit_code_for_outcome("who-knows"), 1)
 
     if FAILED:
         print("\n".join(FAILED))
