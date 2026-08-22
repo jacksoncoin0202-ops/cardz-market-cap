@@ -66,7 +66,10 @@ PC_TABS = 2
 PC_SLEEP_SECONDS = 1.5
 PC_TRANSPORT = "fetch"
 IN_PAGE_FETCH_JS = """async (target) => {
-    const response = await fetch(target, { credentials: "include" });
+    const response = await fetch(target, {
+        credentials: "include",
+        signal: AbortSignal.timeout(60000),
+    });
     const text = await response.text();
     return {
         status: response.status,
@@ -74,6 +77,11 @@ IN_PAGE_FETCH_JS = """async (target) => {
         retryAfter: response.headers.get("retry-after"),
     };
 }"""
+PAGE_DECISION_STALL_SECONDS = 300.0
+CONNECT_OVER_CDP_TIMEOUT_MS = 15_000
+CDP_SETUP_SECONDS = 30.0
+HARD_STALL_KILLER_SECONDS = 360.0
+PROGRESS_STAMP = ROOT / "data/runtime/operator/collect/pc_cdp_progress.stamp"
 # 邊個 status 由邊個 counter 記住。撤銷一個判死嗰陣要減返啱嗰幾個 —— 呢個表存在
 # 嘅原因就係曾經「加嘅時候加兩個、減嘅時候減錯一個」，令 fail 少報咗一個。
 FAILURE_COUNTERS = {
@@ -161,11 +169,135 @@ async def load_via_goto(
 
 
 def ensure_cdp(port: int = 9333) -> None:
+    from cdp_identity import require_session_ready
+
     ps1 = ROOT / "scripts" / "ensure_chrome_cdp.ps1"
     subprocess.run(
         ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(ps1), "-Port", str(port)],
         check=False,
     )
+    require_session_ready(port)
+
+
+def touch_progress_stamp() -> None:
+    PROGRESS_STAMP.parent.mkdir(parents=True, exist_ok=True)
+    PROGRESS_STAMP.write_text(utc_now(), encoding="utf-8")
+
+
+def spawn_hard_stall_killer(
+    limit_seconds: float = HARD_STALL_KILLER_SECONDS,
+) -> subprocess.Popen:
+    """Independent process: kill this PID if the progress stamp goes stale.
+
+    The in-process stall thread cannot fire if Playwright holds the GIL on a
+    wedged CDP websocket. A detached python -c does not share that GIL.
+    """
+
+    parent = os.getpid()
+    stamp = str(PROGRESS_STAMP)
+    code = (
+        "import os,sys,time\n"
+        f"parent={parent}\n"
+        f"stamp={stamp!r}\n"
+        f"limit={float(limit_seconds)}\n"
+        "def alive(pid):\n"
+        "    try:\n"
+        "        import ctypes\n"
+        "        h=ctypes.windll.kernel32.OpenProcess(0x100000,0,pid)\n"
+        "        if h:\n"
+        "            ctypes.windll.kernel32.CloseHandle(h)\n"
+        "            return True\n"
+        "        return False\n"
+        "    except Exception:\n"
+        "        return False\n"
+        "while True:\n"
+        "    time.sleep(15)\n"
+        "    if not alive(parent):\n"
+        "        sys.exit(0)\n"
+        "    try:\n"
+        "        age=time.time()-os.path.getmtime(stamp)\n"
+        "    except OSError:\n"
+        "        age=limit+1\n"
+        "    if age>limit:\n"
+        "        os.system('taskkill /F /PID %d' % parent)\n"
+        "        sys.exit(3)\n"
+    )
+    popen_kwargs: dict = {
+        "args": [sys.executable, "-X", "utf8", "-c", code],
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+    }
+    if os.name == "nt":
+        popen_kwargs["creationflags"] = 0x00000008 | 0x00000200  # DETACHED | NEW_GROUP
+    else:
+        popen_kwargs["start_new_session"] = True
+    return subprocess.Popen(**popen_kwargs)
+
+
+def new_stall_watchdog_state(*, batch: int, results: list, limit: float = PAGE_DECISION_STALL_SECONDS) -> dict:
+    now = time.monotonic()
+    return {
+        "beat": now,
+        "pageDecisionBeat": now,
+        "limit": float(limit),
+        "done": False,
+        "batch": batch,
+        "results": results,
+    }
+
+
+def mark_page_decision(state: dict, *, now: float | None = None) -> None:
+    """Record that a tab reached a per-card status (ok / fail / requeue)."""
+
+    clock = time.monotonic() if now is None else now
+    state["pageDecisionBeat"] = clock
+    state["beat"] = clock
+    touch_progress_stamp()
+
+
+def stall_watchdog_should_fire(state: dict, *, now: float | None = None) -> bool:
+    """True when no card has reached a status decision within limit seconds.
+
+    Liveness beats — CF 5s polls, shared backoff sleeps, dequeue — must not
+    count. Two tabs share one watchdog dict: one hung Playwright call used
+    to keep `beat` fresh (or leave gather() blocked) while zero HTML landed.
+    """
+
+    clock = time.monotonic() if now is None else now
+    limit = float(state.get("limit") or 0.0)
+    if limit <= 0:
+        return False
+    progress = state.get("pageDecisionBeat")
+    if progress is None:
+        progress = state.get("beat") or 0.0
+    return (clock - float(progress)) > limit
+
+
+def should_auto_resume_report(
+    previous: dict,
+    *,
+    now: datetime | None = None,
+    max_age_seconds: float = 6 * 3600,
+) -> bool:
+    """Reuse a crashed run's exact-ok pages; never skip a finished full batch."""
+
+    as_of = str(previous.get("asOf") or "").strip()
+    if not as_of:
+        return False
+    try:
+        stamped = datetime.fromisoformat(as_of.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if stamped.tzinfo is None:
+        stamped = stamped.replace(tzinfo=timezone.utc)
+    clock = now or datetime.now(timezone.utc)
+    if (clock - stamped.astimezone(timezone.utc)).total_seconds() > max_age_seconds:
+        return False
+    ok = int(previous.get("ok") or 0)
+    batch = int(previous.get("batch") or 0)
+    if previous.get("watchdogStall") or previous.get("sessionError"):
+        return True
+    return ok > 0 and batch > 0 and ok < batch
 
 
 def arm_stall_watchdog(state: dict) -> None:
@@ -173,37 +305,41 @@ def arm_stall_watchdog(state: dict) -> None:
 
     Playwright protocol calls such as page.content()/page.title() accept no
     timeout, so one dropped CDP response can park the run forever while the
-    caller's subprocess timeout scales with batch size (hours). If the page
-    loop stops beating for state["limit"] seconds, persist a partial report
-    for forensics and hard-exit 3 so collect_control records a failed lane
-    and the next incr run resumes from checkpoints.
+    caller's subprocess timeout scales with batch size (hours). V2 also
+    heartbeats every 10s for as long as the subprocess lives, so a zombie
+    looks healthy. Stall on page *decisions*, persist a partial report, and
+    hard-exit 3 so the next incr can `--resume-report` that receipt.
     """
 
     def _watch() -> None:
         while not state.get("done"):
             time.sleep(15.0)
+            if not stall_watchdog_should_fire(state):
+                continue
             limit = float(state.get("limit") or 0.0)
-            if limit and (time.monotonic() - float(state["beat"])) > limit:
-                try:
-                    OUT.parent.mkdir(parents=True, exist_ok=True)
-                    OUT.write_text(
-                        json.dumps(
-                            {
-                                "asOf": utc_now(),
-                                "watchdogStall": True,
-                                "stallLimitSeconds": limit,
-                                "batch": state.get("batch"),
-                                "results": state.get("results"),
-                            },
-                            ensure_ascii=False,
-                            indent=2,
-                        ),
-                        encoding="utf-8",
-                    )
-                except Exception:  # noqa: BLE001
-                    pass
-                print(f"WATCHDOG_STALL no page-loop progress for {limit:.0f}s; exit 3", flush=True)
-                os._exit(3)
+            try:
+                OUT.parent.mkdir(parents=True, exist_ok=True)
+                OUT.write_text(
+                    json.dumps(
+                        {
+                            "asOf": utc_now(),
+                            "watchdogStall": True,
+                            "stallLimitSeconds": limit,
+                            "batch": state.get("batch"),
+                            "results": state.get("results"),
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            print(
+                f"WATCHDOG_STALL no page decision for {limit:.0f}s; exit 3",
+                flush=True,
+            )
+            os._exit(3)
 
     threading.Thread(target=_watch, daemon=True, name="stall-watchdog").start()
 
@@ -294,6 +430,7 @@ async def run_fetch_pool_with_pages(
                         "error": f"{type(exc).__name__}:{exc}",
                     }
                 )
+                mark_page_decision(watchdog)
                 continue
             expected_product_id = str(row.get("pc_product_id") or "").strip()
             product_match = re.search(r'\bproduct-id=["\'](\d+)["\']', html, re.I)
@@ -321,10 +458,15 @@ async def run_fetch_pool_with_pages(
                     ):
                         challenge_resolved = True
                         break
+            loose = bool(row.get("looseHtml"))
             identity_ok = (
-                bool(expected_product_id)
-                and actual_product_id == expected_product_id
-                and canonical_url == url_key(url)
+                (not blocked and len(html) > 5000)
+                if loose
+                else (
+                    bool(expected_product_id)
+                    and actual_product_id == expected_product_id
+                    and canonical_url == url_key(url)
+                )
             )
             # 多 tab 之後 pid 唔再夠獨特 —— 兩條 tab 唔會撞同一張卡，但一齊寫
             # 同一個 `.pid.next` 名就會互相踩。加 tab index 收返。
@@ -338,10 +480,14 @@ async def run_fetch_pool_with_pages(
             validation_row["notes"] = ""
             # 300 KB HTML 全 parse 一次，實測百幾 ms。留喺 event loop 度就等於
             # 全部 tab 排住隊等佢，tab 開幾多都冇用。
-            exact_price, exact_reason = await asyncio.to_thread(
-                validate_pc_psa10, validation_row
-            )
-            explicit_psa10_ok = exact_price is not None
+            if loose:
+                exact_price, exact_reason = None, "loose_html"
+                explicit_psa10_ok = True
+            else:
+                exact_price, exact_reason = await asyncio.to_thread(
+                    validate_pc_psa10, validation_row
+                )
+                explicit_psa10_ok = exact_price is not None
             if (
                 (code == 200 or challenge_resolved)
                 and len(html) > 5000
@@ -384,6 +530,7 @@ async def run_fetch_pool_with_pages(
                 "retryAfter": retry_after,
                 "challengeResolved": challenge_resolved,
             })
+            mark_page_decision(watchdog)
             print(
                 f"[{position}/{batch_size}] {status} vid={row.get('variant_id')} "
                 f"len={len(html)} code={code} tab={tab_index}",
@@ -439,14 +586,22 @@ async def run_fetch_pool(
     用假 page 直接測（見 scripts/test_pc_refresh_requeue.py）。呢層有 Playwright，
     測唔到；嗰層冇，測得到。
     """
+    from cdp_identity import require_session_ready
+
     async with async_playwright() as playwright:
-        try:
-            browser = await playwright.chromium.connect_over_cdp(f"http://127.0.0.1:{cdp_port}")
+        async def attach_tabs():
+            require_session_ready(cdp_port)
+            browser = await playwright.chromium.connect_over_cdp(
+                f"http://127.0.0.1:{cdp_port}",
+                timeout=CONNECT_OVER_CDP_TIMEOUT_MS,
+            )
             if not browser.contexts:
                 raise RuntimeError("dedicated CARDZ Chrome has no browser context")
             context = browser.contexts[0]
             price_pages = [
-                page for page in context.pages if "pricecharting.com" in (page.url or "")
+                page
+                for page in context.pages
+                if "pricecharting.com" in (page.url or "")
             ]
             pool = price_pages[:tabs]
             for extra in price_pages[tabs:]:
@@ -454,26 +609,42 @@ async def run_fetch_pool(
             while len(pool) < tabs:
                 pool.append(await context.new_page())
             for page in pool:
+                page.set_default_timeout(120000)
                 if "pricecharting.com" not in (page.url or ""):
                     await page.goto(
                         "https://www.pricecharting.com/",
                         wait_until="domcontentloaded",
-                        timeout=120000,
+                        timeout=min(120000, int(CDP_SETUP_SECONDS * 1000)),
                     )
-            # 唔好諗住 `page.route` 擋走圖／css 嚟慳額度：試過，會反效果。一版產品頁
-            # 向 www.pricecharting.com 打 31 個 request（15 圖 / 6 script / 4 css /
-            # 2 manifest / 2 xhr / 1 fetch / 1 document），睇落擋走 21 個就可以行快
-            # 三倍。實際係同一個設定（2 分頁 / 3.0s）、隔 3 分鐘背對背行兩轉：
-            # 唔擋 40/40 全清 2.05 s/頁，擋咗 38/40 兩次 429 3.69 s/頁。Cloudflare
-            # 見到「瀏覽器」淨係攞 HTML 唔攞 css／圖，直接當你係 bot。要扮足全套。
-        except Exception as exc:  # noqa: BLE001
+            return pool
+
+        # 唔好諗住 `page.route` 擋走圖／css 嚟慳額度：試過，會反效果。一版產品頁
+        # 向 www.pricecharting.com 打 31 個 request（15 圖 / 6 script / 4 css /
+        # 2 manifest / 2 xhr / 1 fetch / 1 document），睇落擋走 21 個就可以行快
+        # 三倍。實際係同一個設定（2 分頁 / 3.0s）、隔 3 分鐘背對背行兩轉：
+        # 唔擋 40/40 全清 2.05 s/頁，擋咗 38/40 兩次 429 3.69 s/頁。Cloudflare
+        # 見到「瀏覽器」淨係攞 HTML 唔攞 css／圖，直接當你係 bot。要扮足全套。
+        last_exc: Exception | None = None
+        pool = None
+        for attach_attempt in range(2):
+            try:
+                pool = await asyncio.wait_for(attach_tabs(), timeout=CDP_SETUP_SECONDS)
+                break
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                if attach_attempt == 0:
+                    ensure_cdp(cdp_port)
+                    continue
+        if pool is None:
             return {
                 "ok": 0,
                 "fail": 0,
                 "cf": 0,
                 "rateLimited": 0,
                 "retries": [],
-                "sessionError": f"single_cdp_connect:{type(exc).__name__}:{exc}",
+                "sessionError": (
+                    f"single_cdp_connect:{type(last_exc).__name__}:{last_exc}"
+                ),
             }
         kwargs.setdefault("transport", PC_TRANSPORT)
         out = await run_fetch_pool_with_pages(pending, pages=pool, **kwargs)
@@ -484,6 +655,199 @@ async def run_fetch_pool(
             except Exception:  # noqa: BLE001
                 pass
     return out
+
+
+def _run_loose_jobs(jobs: list[dict], *, cdp_port: int) -> dict:
+    """2-tab fetch for console/index/product HTML that is not yet a bound map row."""
+
+    if not jobs:
+        return {"ok": 0, "fail": 0, "cf": 0, "rateLimited": 0, "sessionError": None, "retries": []}
+    rows: list[dict] = []
+    for i, job in enumerate(jobs):
+        html_path = Path(str(job["html_path"]))
+        if not html_path.is_absolute():
+            html_path = ROOT / html_path
+        rel = html_path.resolve().relative_to(ROOT.resolve()).as_posix()
+        rows.append(
+            {
+                "variant_id": int(job.get("variant_id") or -(i + 1)),
+                "pc_url": job["url"],
+                "html_path": rel,
+                "htmlPath": rel,
+                "pc_product_id": "",
+                "looseHtml": True,
+            }
+        )
+    results: list[dict] = []
+    watchdog = new_stall_watchdog_state(batch=len(rows), results=results)
+    arm_stall_watchdog(watchdog)
+    try:
+        return asyncio.run(
+            run_fetch_pool(
+                rows,
+                cdp_port=cdp_port,
+                tabs=PC_TABS,
+                sleep_seconds=PC_SLEEP_SECONDS,
+                challenge_wait=120.0,
+                watchdog=watchdog,
+                results=results,
+                start_index=0,
+                batch_size=len(rows),
+            )
+        )
+    finally:
+        watchdog["done"] = True
+
+
+def bind_missing_ids_dual_tab(variant_ids: list[int], *, cdp_port: int) -> dict:
+    """Add-card (PC identity) uses the same 2-tab 9333 script as sold cap.
+
+    SNK exact is not a substitute. Prefetch console + survivor product pages
+    with PC_TABS=2, then let identity discover write from the local HTML.
+    """
+
+    import pc_identity_discover as disc
+    import rebuild_036 as R
+
+    scoped = sorted({int(v) for v in variant_ids if int(v) > 0})
+    report = {"requested": len(scoped), "targets": 0, "written": 0, "ok": True}
+    if not scoped:
+        return report
+    conn = R.connect(R.DAILY_CREDENTIALS_ENV)
+    try:
+        generation = disc._latest_generation(conn)
+        targets = disc.select_targets(conn, generation, 1000, "", 0, "*", scoped)
+    finally:
+        conn.close()
+    report["targets"] = len(targets)
+    if not targets:
+        return report
+
+    index_jobs = []
+    for tcg, category in disc.CATEGORY_BY_TCG.items():
+        path = disc._console_index_path(tcg)
+        if not path.is_file() or path.stat().st_size < 5000:
+            index_jobs.append(
+                {
+                    "url": f"https://www.pricecharting.com/category/{category}",
+                    "html_path": path,
+                }
+            )
+    _run_loose_jobs(index_jobs, cdp_port=cdp_port)
+    indexes = {
+        tcg: disc.load_console_index(tcg, allow_fetch=False, timeout_s=90)
+        for tcg in disc.CATEGORY_BY_TCG
+    }
+
+    slug_by_row: list[tuple[dict, str]] = []
+    slugs: list[str] = []
+    for row in targets:
+        tcg = str(row.get("tcg_code") or "")
+        slug, _why = disc.match_console(
+            str(row.get("set_name") or row.get("canonical_name") or ""),
+            str(row.get("card_language") or ""),
+            indexes.get(tcg) or {},
+        )
+        if slug:
+            slug_by_row.append((row, slug))
+            if slug not in slugs:
+                slugs.append(slug)
+
+    pending = [(slug, 0) for slug in slugs]
+    seen: set[tuple[str, int]] = set()
+    while pending:
+        jobs = []
+        nxt: list[tuple[str, int]] = []
+        for slug, cursor in pending:
+            key = (slug, cursor)
+            if key in seen:
+                continue
+            seen.add(key)
+            path = disc._console_page_path(slug, cursor)
+            url = f"https://www.pricecharting.com/console/{slug}"
+            if cursor:
+                url += f"?cursor={cursor}&when=none&sort="
+            if not path.is_file() or path.stat().st_size < 5000:
+                jobs.append({"url": url, "html_path": path})
+            nxt.append((slug, cursor))
+        if jobs:
+            _run_loose_jobs(jobs, cdp_port=cdp_port)
+        more: list[tuple[str, int]] = []
+        for slug, cursor in nxt:
+            path = disc._console_page_path(slug, cursor)
+            if not path.is_file():
+                continue
+            page_rows = disc.parse_console_rows(
+                path.read_text(encoding="utf-8", errors="replace")
+            )
+            if len(page_rows) >= disc.CONSOLE_PAGE_SIZE:
+                more.append((slug, cursor + disc.CONSOLE_PAGE_SIZE))
+        pending = more
+
+    product_jobs = []
+    seen_pid: set[str] = set()
+    for row, slug in slug_by_row:
+        index = indexes.get(str(row.get("tcg_code") or "")) or {}
+        for cand_slug, judged_set, _via in disc.console_candidates(row, index):
+            listings = disc.console_rows(
+                cand_slug, allow_fetch=False, timeout_s=90, delay=0.0
+            )
+            for listing in listings:
+                ok, _reason = disc.judge_listing(row, listing, judged_set)
+                if not ok:
+                    continue
+                pid = str(listing["pid"])
+                vid = int(row["variant_id"])
+                page_path = disc.PAGES_DIR / f"{vid}_{pid}.html"
+                if page_path.is_file() and page_path.stat().st_size > 5000:
+                    continue
+                key = f"{vid}:{pid}"
+                if key in seen_pid:
+                    continue
+                seen_pid.add(key)
+                product_jobs.append(
+                    {
+                        "url": listing["url"]
+                        if str(listing["url"]).startswith("http")
+                        else f"https://www.pricecharting.com{listing['url']}",
+                        "html_path": page_path,
+                        "variant_id": vid,
+                    }
+                )
+    if product_jobs:
+        _run_loose_jobs(product_jobs, cdp_port=cdp_port)
+
+    from types import SimpleNamespace
+
+    written = 0
+    for tcg in sorted(disc.CATEGORY_BY_TCG):
+        tcg_ids = [int(row["variant_id"]) for row in targets if row.get("tcg_code") == tcg]
+        if not tcg_ids:
+            continue
+        code = disc.cmd_pc_identity_discover(
+            SimpleNamespace(
+                write=True,
+                generation=generation,
+                tcg=tcg,
+                language="*",
+                min_pop=1000,
+                limit=0,
+                delay=0.0,
+                allow_repoint=False,
+                timeout=90,
+                no_fetch=True,
+                credentials_env=None,
+                variant_ids=tcg_ids,
+                report_sink=[],
+            )
+        )
+        if code != 0:
+            report["ok"] = False
+            report["error"] = f"pc_identity_discover:{tcg}:{code}"
+            return report
+        written += len(tcg_ids)
+    report["written"] = written
+    return report
 
 
 def main() -> int:
@@ -520,11 +884,35 @@ def main() -> int:
         help="exact active variant IDs to refresh; one integer per line",
     )
     ap.add_argument("--no-ingest", action="store_true")
+    ap.add_argument(
+        "--bind-missing-ids-file",
+        type=Path,
+        help="active variants with no exact PC id; identity+cap stay in this 2-tab script",
+    )
     args = ap.parse_args()
 
     started_monotonic = time.monotonic()
+    touch_progress_stamp()
+    spawn_hard_stall_killer()
+    boot_results: list[dict] = []
+    watchdog = new_stall_watchdog_state(batch=0, results=boot_results)
+    arm_stall_watchdog(watchdog)
+    tabs = max(1, int(args.workers))
+    if tabs != PC_TABS:
+        raise SystemExit(
+            f"9333 PC script is dual-tab only (PC_TABS={PC_TABS}); got --workers={tabs}"
+        )
     if not args.cdp_already_ensured:
         ensure_cdp(args.cdp_port)
+    bind_report = None
+    if args.bind_missing_ids_file:
+        bind_ids = [
+            int(line.strip())
+            for line in args.bind_missing_ids_file.read_text(encoding="utf-8-sig").splitlines()
+            if line.strip()
+        ]
+        bind_report = bind_missing_ids_dual_tab(bind_ids, cdp_port=args.cdp_port)
+        print(json.dumps({"pcBindMissing": bind_report}, ensure_ascii=False), flush=True)
     rows = [json.loads(l) for l in MAP.read_text(encoding="utf-8").splitlines() if l.strip()]
     requested_ids: list[int] = []
     if args.variant_ids_file:
@@ -535,6 +923,8 @@ def main() -> int:
                 if line.strip()
             )
         )
+        if bind_report is not None:
+            requested_ids = list(dict.fromkeys(requested_ids + bind_ids))
         requested_set = set(requested_ids)
         rows = [row for row in rows if int(row.get("variant_id") or 0) in requested_set]
     else:
@@ -585,17 +975,13 @@ def main() -> int:
     results = list(reused_results)
     session_error = None
     retries: list[dict] = []
-    watchdog = {
-        "beat": time.monotonic(),
-        # Worst legitimate iteration: goto 120s + challenge wait (default
-        # 120s, beaten every 5s inside) + backoff 120s + politeness sleep.
-        # 600s of silence therefore means a lost CDP reply, not a slow page.
-        "limit": 600.0,
-        "done": False,
-        "batch": len(batch),
-        "results": results,
-    }
-    arm_stall_watchdog(watchdog)
+    # Worst legitimate *decision*: goto 120s + challenge wait 120s. CF 5s
+    # polls and shared backoff sleeps are not decisions. 300s without a
+    # status line means a lost CDP reply, not a slow page.
+    # Watchdog was armed at process start so MAP load / resume / connect
+    # hangs cannot sit silent. Reuse the same dict; do not reset the beat.
+    watchdog["batch"] = len(batch)
+    watchdog["results"] = results
     if pending_batch:
         pool = asyncio.run(
             run_fetch_pool(
@@ -659,6 +1045,7 @@ def main() -> int:
         "cf": cf,
         "fail": fail,
         "results": results,
+        "bindMissing": bind_report,
         "ingest": ingest,
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)

@@ -136,10 +136,46 @@ def constant(name: str) -> float:
     return float(match.group(1)) if match else float("nan")
 
 
+check("PC_TABS 永遠雙線", constant("PC_TABS"), 2)
 check("PC_TABS 冇超出量過嘅範圍", constant("PC_TABS") <= 4, True)
 check("PC_SLEEP_SECONDS 冇低過 2026-08-15 fetch 乾淨值", constant("PC_SLEEP_SECONDS") >= 1.5, True)
 check("PC 預設用 in-page fetch", 'PC_TRANSPORT = "fetch"' in refresher, True)
 check("incr 唔再因為 mode 就強制 CDP", "incremental_refresh_due" in source, False)
+check(
+    "9333 加卡同 cap 同一條 refresher",
+    "--bind-missing-ids-file" in refresher,
+    True,
+)
+check(
+    "collect_control 唔另開 identity_discover 去 9333",
+    "pc_identity_discover" not in source,
+    True,
+)
+check(
+    "collect_control 把缺 PC id 嘅卡交畀同一條 2-tab 腳本",
+    "--bind-missing-ids-file" in source,
+    True,
+)
+check(
+    "refresher 拒絕單 tab",
+    "dual-tab only" in refresher,
+    True,
+)
+
+# --- 6. 朝鏈必須先成頁 cap PC，唔准再畀 GemRate 食死個 slot ---------------
+morning = (ROOT / "scripts" / "morning_browser_lanes.ps1").read_text(encoding="utf-8")
+first_incr = morning.find('collect_control.py", "incr"')
+snk_at = morning.find('"snk_trades"')
+window = morning[first_incr:first_incr + 280] if first_incr >= 0 else ""
+check("morning 有 incr collect_control", first_incr >= 0, True)
+check("morning 第一個 incr 係 browser", '"browser"' in window, True)
+check("morning 第一個 incr 有 --force-network", "--force-network" in window, True)
+check(
+    "morning 唔用 incr --adapter http 去拉 GemRate（GemRate 屬夜鏈）",
+    'collect_control.py", "incr"' in morning and "incr --adapter http" not in morning,
+    True,
+)
+check("morning HTTP catch-up 仍然有 SNK，而且喺 PC incr 之後", snk_at > first_incr, True)
 
 for line in FAILED:
     print(line)

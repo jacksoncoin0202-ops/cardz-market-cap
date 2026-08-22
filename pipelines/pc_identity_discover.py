@@ -422,11 +422,17 @@ def select_targets(
     conn: Any, generation: str, min_pop: int, tcg: str, limit: int, language: str,
     variant_ids: list[int] | None = None,
 ) -> list[dict[str, Any]]:
-    """Qualified, bound to a variant, and with no exact price source yet.
+    """Qualified variants that still have no exact PriceCharting product.
 
-    Mirrors snk_identity_discover.select_targets, with the language filter
-    inverted: that lane is the non-English one because English cards route to
-    PriceCharting under D4 language primacy, and this is where they route to.
+    SNK exact is not a substitute. PriceCharting and SNK are parallel sources:
+    a card that already has snkrdunk must still be selectable here until it
+    has an exact numeric PC product id. 2026-08-20: excluding snkrdunk /
+    snk_psa10 from this query left 477 active-universe cards with zero PC
+    identity rows, so 9333 only capped 1127/1604.
+
+    ``language`` empty or ``*`` means every language. Daily browser discovery
+    still passes ``en``; operator catch-up for the SNK-only remainder passes
+    ``*``.
 
     Red-listed cards are removed here rather than refused later, so they never
     reach a page fetch or a proposal record at all.
@@ -449,15 +455,17 @@ def select_targets(
          WHERE rm.generation_id = %s
            AND rm.cohort <> 'non_qualified'
            AND rm.latest_psa10_population >= %s
-           AND v.card_language = %s
            AND NOT EXISTS (
                  SELECT 1 FROM catalog_source_identity si
                   WHERE si.variant_id = v.id
-                    AND si.source_code IN ('snkrdunk', 'snk_psa10', 'pricecharting')
+                    AND si.source_code = 'pricecharting'
                     AND si.match_status = 'exact'
                )
     """
-    params: list[Any] = [generation, min_pop, language]
+    params: list[Any] = [generation, min_pop]
+    if str(language or "").strip() not in {"", "*"}:
+        sql += " AND v.card_language = %s"
+        params.append(language)
     red = red_listed_variants()
     sql += f" AND v.id NOT IN ({','.join(['%s'] * len(red))})"
     params.extend(red)

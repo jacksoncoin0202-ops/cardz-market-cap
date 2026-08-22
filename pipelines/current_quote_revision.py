@@ -90,11 +90,19 @@ def pc_guide_observation_predicate_sql(p_alias: str, so_alias: str) -> str:
 
 
 def eligible_current_quote_revision_ddl() -> str:
-    """CREATE OR REPLACE the ranking view. Code is the authority (shape 22)."""
+    """Registry-driven ranking view installed by migration 053.
 
-    lang = pc_price_language_sql("pi")
-    prio = pc_price_route_priority_sql("pi", "q.source_code")
-    return f"""
+    Migration 051 created the generic-source tables and a strict-identity
+    INNER JOIN view.  053 reconstructs eligibility: keep that path, and also
+    accept a completed market_variant_source_state quote.  The V2 query
+    deliberately contains no fixed eligible-source predicate.  Migration seed
+    data preserves the old en/zh/zhtw/zh-tw/zhcn/zh-cn priorities while future
+    sources only need registry plus route-policy rows.
+    """
+
+    return """
+-- legacy seeded baseline: q.source_code IN ('snkrdunk','snk_psa10','snk','pricecharting')
+-- exact-language seed set: en, zh, zhtw, zh-tw, zhcn, zh-cn
 CREATE OR REPLACE VIEW operator_eligible_current_quote_revision AS
 SELECT
   h.id AS price_history_acceptance_id,
@@ -104,8 +112,7 @@ SELECT
   q.price_usd,
   q.checked_at,
   q.source_period_at,
-  CASE WHEN q.source_code IN ('snk','snk_psa10') THEN 'snkrdunk'
-       ELSE q.source_code END AS price_source_code,
+  sr.canonical_source_code AS price_source_code,
   q.source_code AS price_storage_source_code,
   q.source_external_entity_id AS price_source_external_entity_id,
   q.source_observation_id AS price_source_observation_id,
@@ -115,7 +122,8 @@ SELECT
   h.lineage_sha256 AS price_lineage_sha256,
   q.quote_lineage_sha256,
   q.reconstruction_kind,
-  {prio} AS price_route_priority
+  rp.priority AS price_route_priority,
+  rp.policy_version AS price_policy_version
 FROM market_metric_history_acceptance h
 INNER JOIN market_current_quote_revision q
   ON h.source_record_type='market_current_quote_revision'
@@ -126,26 +134,73 @@ INNER JOIN market_current_quote_revision q
  AND h.external_entity_id=q.source_external_entity_id
  AND h.source_payload_sha256=q.payload_sha256
 INNER JOIN catalog_printing_identity pi ON pi.variant_id=q.variant_id
-INNER JOIN operator_strict_source_identity si
-  ON si.variant_id=q.variant_id
- AND si.source_code=CASE WHEN q.source_code IN ('snk','snk_psa10') THEN 'snkrdunk' ELSE q.source_code END
- AND si.external_entity_id=q.source_external_entity_id
+INNER JOIN market_source_registry sr
+  ON sr.source_code=q.source_code AND sr.enabled=1
+ AND JSON_CONTAINS(sr.capabilities_json,JSON_QUOTE('quote'),'$')=1
+INNER JOIN market_quote_route_policy rp
+  ON rp.id=(
+    SELECT chosen.id
+    FROM market_quote_route_policy chosen
+    WHERE chosen.source_code=q.source_code
+      AND chosen.is_active=1
+      AND chosen.is_eligible=1
+      AND chosen.language_code IN (
+        LOWER(REPLACE(pi.card_language,'_','-')),'*'
+      )
+    ORDER BY
+      CASE WHEN chosen.language_code=LOWER(REPLACE(pi.card_language,'_','-'))
+           THEN 0 ELSE 1 END,
+      chosen.activated_at DESC,
+      chosen.policy_version DESC,
+      chosen.priority ASC,
+      chosen.id DESC
+    LIMIT 1
+  )
 WHERE h.metric_kind='psa10_price'
-  AND h.source_code=si.source_code
-  AND q.source_code IN ('snkrdunk','snk_psa10','snk','pricecharting')
-  AND ({lang} OR q.source_code IN ('snkrdunk','snk_psa10','snk'))
+  AND h.source_code=sr.canonical_source_code
+  AND (
+    EXISTS (
+      SELECT 1 FROM operator_strict_source_identity si
+      WHERE si.variant_id=q.variant_id
+        AND si.source_code=sr.identity_source_code
+        AND si.external_entity_id=q.source_external_entity_id
+    )
+    OR EXISTS (
+      SELECT 1 FROM market_variant_source_state source_state
+      WHERE source_state.variant_id=q.variant_id
+        AND source_state.source_code=sr.canonical_source_code
+        AND source_state.capability='quote'
+        AND source_state.status='completed'
+        AND source_state.selected_quote_revision_id=q.id
+        AND source_state.payload_sha256=q.payload_sha256
+        AND source_state.evidence_ref=CONCAT('market_current_quote_revision:',q.id)
+    )
+  )
   AND q.price_usd>0
-  AND q.payload_sha256 REGEXP '^[0-9a-f]{{64}}$'
-  AND q.quote_lineage_sha256 REGEXP '^[0-9a-f]{{64}}$'
-  AND h.identity_evidence_sha256 REGEXP '^[0-9a-f]{{64}}$'
-  AND h.acceptance_evidence_sha256 REGEXP '^[0-9a-f]{{64}}$'
-  AND h.lineage_sha256 REGEXP '^[0-9a-f]{{64}}$'
+  AND q.payload_sha256 REGEXP '^[0-9a-f]{64}$'
+  AND q.quote_lineage_sha256 REGEXP '^[0-9a-f]{64}$'
+  AND h.identity_evidence_sha256 REGEXP '^[0-9a-f]{64}$'
+  AND h.acceptance_evidence_sha256 REGEXP '^[0-9a-f]{64}$'
+  AND h.lineage_sha256 REGEXP '^[0-9a-f]{64}$'
   AND (q.reconstruction_kind IS NULL
        OR q.reconstruction_kind IN ('bootstrap_from_observation',''))
 """.strip()
 
 
 def apply_eligible_current_quote_revision_view(cursor: Any) -> None:
+    cursor.execute(
+        "SELECT COUNT(*) AS n FROM information_schema.tables"
+        " WHERE table_schema=DATABASE() AND table_name='market_source_registry'"
+    )
+    row = cursor.fetchone() or {}
+    count = row.get("n") if isinstance(row, Mapping) else row[0]
+    if int(count or 0) != 1:
+        if __import__("os").environ.get("CARDZ_DAILY_CHAIN_V2") == "1":
+            raise RuntimeError("migration 051/053 is required before V2 quote selection")
+        # Until DADDY authorises Task Scheduler cutover, the current local
+        # scheduled path must keep its already-installed 050 view.  Do not
+        # replace it with SQL that references tables not installed yet.
+        return
     cursor.execute(eligible_current_quote_revision_ddl())
 
 
@@ -519,7 +574,34 @@ def reconstruct_legacy_generation_quotes(cursor: Any) -> dict[str, int]:
                price_history.source_payload_sha256,
                price_history.source_record_id,
                price_history.lineage_sha256 AS price_history_lineage_sha256,
-               pop_history.lineage_sha256 AS population_history_lineage_sha256
+               pop_history.lineage_sha256 AS population_history_lineage_sha256,
+               existing_resolution.quote_revision_id
+                 AS existing_resolution_quote_revision_id,
+               existing_resolution.price_usd AS existing_resolution_price_usd,
+               existing_resolution.source_period_at
+                 AS existing_resolution_source_period_at,
+               existing_resolution.checked_at AS existing_resolution_checked_at,
+               existing_resolution.quote_lineage_sha256
+                 AS existing_resolution_quote_lineage_sha256,
+               existing_resolution.resolution_status
+                 AS existing_resolution_status,
+               existing_resolution.resolver_evidence_sha256
+                 AS existing_resolver_evidence_sha256,
+               existing_quote.id AS existing_quote_id,
+               existing_quote.variant_id AS existing_quote_variant_id,
+               existing_quote.source_code AS existing_quote_source_code,
+               existing_quote.source_external_entity_id
+                 AS existing_quote_source_external_entity_id,
+               existing_quote.price_usd AS existing_quote_price_usd,
+               existing_quote.source_period_at AS existing_quote_source_period_at,
+               existing_quote.checked_at AS existing_quote_checked_at,
+               existing_quote.payload_sha256 AS existing_quote_payload_sha256,
+               existing_quote.quote_lineage_sha256
+                 AS existing_quote_lineage_sha256,
+               existing_quote.reconstruction_kind
+                 AS existing_quote_reconstruction_kind,
+               existing_quote.reconstructed_from_acceptance_id
+                 AS existing_quote_reconstructed_from_acceptance_id
         FROM market_canonical_metric_acceptance metric
         INNER JOIN market_metric_history_acceptance price_history
           ON price_history.id=metric.price_history_acceptance_id
@@ -530,6 +612,10 @@ def reconstruct_legacy_generation_quotes(cursor: Any) -> dict[str, int]:
          AND pop_history.metric_kind='psa10_population'
         INNER JOIN market_grader_population_observation pop
           ON pop.id=pop_history.source_record_id
+        LEFT JOIN market_legacy_quote_resolution existing_resolution
+          ON existing_resolution.metric_acceptance_id=metric.id
+        LEFT JOIN market_current_quote_revision existing_quote
+          ON existing_quote.id=existing_resolution.quote_revision_id
         WHERE metric.market_cap_usd IS NOT NULL
           AND pop.top_grade_population > 0
         """
@@ -539,9 +625,63 @@ def reconstruct_legacy_generation_quotes(cursor: Any) -> dict[str, int]:
     before = int((cursor.fetchone() or {}).get("n") or 0)
     resolved = 0
     invalid = 0
-    scanned = 0
+    scanned = len(rows)
+    reused = 0
+    resolution_work: list[tuple[Mapping[str, Any], Mapping[str, Any]]] = []
+    pending_quotes: list[
+        tuple[Mapping[str, Any], Mapping[str, Any], str]
+    ] = []
+
+    def flush_resolution_rows() -> None:
+        if not resolution_work:
+            return
+        pending_resolution_rows = []
+        for raw, candidate in resolution_work:
+            evidence = legacy_resolution_evidence_sha256(
+                raw, str(candidate.get("quote_lineage_sha256") or ""),
+            )
+            pending_resolution_rows.append((
+                int(raw["acceptance_id"]), int(candidate["id"]),
+                candidate["price_usd"], candidate["source_period_at"],
+                candidate["checked_at"],
+                str(candidate.get("quote_lineage_sha256") or ""), evidence,
+            ))
+        value_sql = (
+            "(%s,%s,%s,%s,%s,%s,UTC_TIMESTAMP(6),'resolved',%s,NULL,"
+            "'legacy-quote-resolver-v2')"
+        )
+        for start in range(0, len(pending_resolution_rows), 500):
+            chunk = pending_resolution_rows[start:start + 500]
+            flat_params = tuple(
+                value
+                for resolution_row in chunk
+                for value in resolution_row
+            )
+            cursor.execute(
+                """
+                INSERT INTO market_legacy_quote_resolution
+                  (metric_acceptance_id,quote_revision_id,price_usd,
+                   source_period_at,checked_at,quote_lineage_sha256,resolved_at,
+                   resolution_status,resolver_evidence_sha256,blocker_code,
+                   resolved_by)
+                VALUES """ + ",".join(value_sql for _ in chunk) + """
+                ON DUPLICATE KEY UPDATE
+                  quote_revision_id=VALUES(quote_revision_id),
+                  price_usd=VALUES(price_usd),
+                  source_period_at=VALUES(source_period_at),
+                  checked_at=VALUES(checked_at),
+                  quote_lineage_sha256=VALUES(quote_lineage_sha256),
+                  resolved_at=VALUES(resolved_at),
+                  resolution_status=VALUES(resolution_status),
+                  resolver_evidence_sha256=VALUES(resolver_evidence_sha256),
+                  blocker_code=NULL,
+                  resolved_by=VALUES(resolved_by)
+                """,
+                flat_params,
+            )
+        resolution_work.clear()
+
     for raw in rows:
-        scanned += 1
         spec = _legacy_quote_spec(raw)
         if spec is None:
             mark_legacy_resolution_invalid(
@@ -549,59 +689,181 @@ def reconstruct_legacy_generation_quotes(cursor: Any) -> dict[str, int]:
             )
             invalid += 1
             continue
+
+        # First reuse the mapped resolution when the full immutable contract is
+        # still current.  Stale/missing maps are handled set-wise below; there
+        # must never be a per-acceptance SELECT/INSERT loop here again.
+        joined_candidate = None
+        if raw.get("existing_quote_id") is not None:
+            joined_candidate = {
+                "id": raw["existing_quote_id"],
+                "variant_id": raw["existing_quote_variant_id"],
+                "source_code": raw["existing_quote_source_code"],
+                "source_external_entity_id": raw[
+                    "existing_quote_source_external_entity_id"
+                ],
+                "price_usd": raw["existing_quote_price_usd"],
+                "source_period_at": raw["existing_quote_source_period_at"],
+                "checked_at": raw["existing_quote_checked_at"],
+                "payload_sha256": raw["existing_quote_payload_sha256"],
+                "quote_lineage_sha256": raw["existing_quote_lineage_sha256"],
+                "reconstruction_kind": raw[
+                    "existing_quote_reconstruction_kind"
+                ],
+                "reconstructed_from_acceptance_id": raw[
+                    "existing_quote_reconstructed_from_acceptance_id"
+                ],
+            }
+        candidate = select_verified_legacy_candidate(
+            raw, [joined_candidate] if joined_candidate is not None else [],
+        )
+        if candidate is not None:
+            expected_evidence = legacy_resolution_evidence_sha256(
+                raw, str(candidate.get("quote_lineage_sha256") or ""),
+            )
+            resolution_is_current = all((
+                str(raw.get("existing_resolution_status") or "") == "resolved",
+                int(raw.get("existing_resolution_quote_revision_id") or 0)
+                    == int(candidate["id"]),
+                str(candidate.get("reconstruction_kind") or "") == LEGACY_KIND,
+                _price_text(raw.get("existing_resolution_price_usd"))
+                    == _price_text(candidate.get("price_usd")),
+                _as_date(raw.get("existing_resolution_source_period_at"))
+                    == _as_date(candidate.get("source_period_at")),
+                _as_utc_naive(raw.get("existing_resolution_checked_at"))
+                    == _as_utc_naive(candidate.get("checked_at")),
+                str(raw.get("existing_resolution_quote_lineage_sha256") or "")
+                    == str(candidate.get("quote_lineage_sha256") or ""),
+                str(raw.get("existing_resolver_evidence_sha256") or "")
+                    == expected_evidence,
+            ))
+            if resolution_is_current:
+                resolved += 1
+                reused += 1
+                continue
+            resolution_work.append((raw, candidate))
+        else:
+            lineage = quote_lineage_sha256(
+                variant_id=int(spec["variant_id"]),
+                source_code=str(spec["source_code"]),
+                source_external_entity_id=str(spec["source_external_entity_id"]),
+                price_usd=spec["price_usd"],
+                source_period_at=spec["source_period_at"],
+                checked_at=spec["checked_at"],
+                payload_sha256=str(spec["payload_sha256"]),
+                reconstruction_kind=spec.get("reconstruction_kind"),
+            )
+            pending_quotes.append((raw, spec, lineage))
+
+    quote_by_lineage: dict[str, Mapping[str, Any]] = {}
+
+    def load_quote_candidates(lineages: Sequence[str]) -> None:
+        for start in range(0, len(lineages), 500):
+            chunk = list(lineages[start:start + 500])
+            if not chunk:
+                continue
+            marks = ",".join(["%s"] * len(chunk))
+            cursor.execute(
+                f"""
+                SELECT id,variant_id,source_code,source_external_entity_id,
+                       price_usd,source_period_at,checked_at,payload_sha256,
+                       quote_lineage_sha256,reconstruction_kind,
+                       reconstructed_from_acceptance_id
+                FROM market_current_quote_revision
+                WHERE quote_lineage_sha256 IN ({marks})
+                """,
+                tuple(chunk),
+            )
+            for quote in cursor.fetchall():
+                quote_by_lineage[str(quote["quote_lineage_sha256"])] = quote
+
+    desired_lineages = list(dict.fromkeys(
+        lineage for _, _, lineage in pending_quotes
+    ))
+    load_quote_candidates(desired_lineages)
+    missing_by_lineage: dict[
+        str, tuple[Mapping[str, Any], Mapping[str, Any], str]
+    ] = {}
+    for item in pending_quotes:
+        if item[2] not in quote_by_lineage:
+            missing_by_lineage.setdefault(item[2], item)
+
+    missing_items = list(missing_by_lineage.values())
+    quote_value_sql = "(" + ",".join(["%s"] * 13) + ")"
+    for start in range(0, len(missing_items), 500):
+        chunk = missing_items[start:start + 500]
+        if not chunk:
+            continue
+        params: list[Any] = []
+        for raw, spec, lineage in chunk:
+            price = Decimal(_price_text(spec["price_usd"]))
+            payload = str(spec["payload_sha256"]).casefold()
+            if price <= 0:
+                raise ValueError("quote revision price must be positive")
+            if len(payload) != 64 or any(
+                char not in "0123456789abcdef" for char in payload
+            ):
+                raise ValueError("quote revision payload_sha256 invalid")
+            params.extend((
+                int(spec["variant_id"]), str(spec["source_code"]).casefold(),
+                str(spec["source_external_entity_id"]), price,
+                _as_date(spec["source_period_at"]),
+                _as_utc_naive(spec["checked_at"]), None,
+                int(spec["market_price_observation_id"]), payload, lineage,
+                spec.get("reconstruction_kind"), int(raw["acceptance_id"]), None,
+            ))
         cursor.execute(
             """
-            SELECT id, variant_id, source_code, source_external_entity_id,
-                   price_usd, source_period_at, checked_at, payload_sha256,
-                   quote_lineage_sha256, reconstructed_from_acceptance_id
-            FROM market_current_quote_revision
-            WHERE reconstructed_from_acceptance_id=%s
+            INSERT INTO market_current_quote_revision
+              (variant_id,source_code,source_external_entity_id,price_usd,
+               source_period_at,checked_at,source_observation_id,
+               market_price_observation_id,payload_sha256,quote_lineage_sha256,
+               reconstruction_kind,reconstructed_from_acceptance_id,run_id)
+            VALUES """ + ",".join(quote_value_sql for _ in chunk) + """
+            ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)
             """,
-            (int(raw["acceptance_id"]),),
+            tuple(params),
         )
-        existing_candidates = list(cursor.fetchall())
-        candidate = select_verified_legacy_candidate(raw, existing_candidates)
+    if missing_items:
+        load_quote_candidates([item[2] for item in missing_items])
+
+    for raw, _spec, lineage in pending_quotes:
+        candidate = quote_by_lineage.get(lineage)
         if candidate is None:
-            revision_id = insert_quote_revision(cursor, **spec)
-            cursor.execute(
-                """
-                SELECT id, variant_id, source_code, source_external_entity_id,
-                       price_usd, source_period_at, checked_at, payload_sha256,
-                       quote_lineage_sha256, reconstructed_from_acceptance_id
-                FROM market_current_quote_revision
-                WHERE reconstructed_from_acceptance_id=%s
-                """,
-                (int(raw["acceptance_id"]),),
+            mark_legacy_resolution_invalid(
+                cursor, int(raw["acceptance_id"]),
+                "ambiguous_or_missing_exact_quote_candidate",
             )
-            candidate = select_verified_legacy_candidate(raw, list(cursor.fetchall()))
-            if candidate is None:
-                mark_legacy_resolution_invalid(
-                    cursor, int(raw["acceptance_id"]),
-                    "ambiguous_or_missing_exact_quote_candidate",
-                )
-                invalid += 1
-                continue
-            revision_id = int(candidate["id"])
-        else:
-            revision_id = int(candidate["id"])
-        cursor.execute(
-            "SELECT quote_lineage_sha256 FROM market_current_quote_revision WHERE id=%s",
-            (revision_id,),
-        )
-        quote = cursor.fetchone() or {}
-        evidence = legacy_resolution_evidence_sha256(
-            raw, str(quote.get("quote_lineage_sha256") or ""),
-        )
-        upsert_legacy_resolution(
-            cursor, int(raw["acceptance_id"]), revision_id, evidence,
-        )
-        resolved += 1
+            invalid += 1
+            continue
+        owner = int(candidate.get("reconstructed_from_acceptance_id") or 0)
+        expected_owner = int(raw["acceptance_id"])
+        if owner != expected_owner:
+            raise RuntimeError(
+                "quote lineage collision across reconstruction owners: "
+                f"lineage={lineage} expected={expected_owner} actual={owner}"
+            )
+        verified = select_verified_legacy_candidate(raw, [candidate])
+        if verified is None:
+            mark_legacy_resolution_invalid(
+                cursor, expected_owner,
+                "ambiguous_or_missing_exact_quote_candidate",
+            )
+            invalid += 1
+            continue
+        resolution_work.append((raw, verified))
+
+    resolution_rows_written = len(resolution_work)
+    resolved += resolution_rows_written
+    flush_resolution_rows()
     cursor.execute("SELECT COUNT(*) AS n FROM market_current_quote_revision")
     after = int((cursor.fetchone() or {}).get("n") or 0)
     return {
         "scannedObservationPointers": scanned,
         "resolvedObservationPointers": resolved,
         "invalidObservationPointers": invalid,
+        "reusedExistingResolutions": reused,
+        "resolutionRowsWritten": resolution_rows_written,
         "revisionsWritten": after - before,
         "canonicalRepointed": 0,
     }

@@ -6,13 +6,32 @@ export GCM_INTERACTIVE=Never
 # --scheduled：由 daily_public_release.ps1 -Scheduled 帶落嚟。argv token 先係
 # 自動成功憑證；env CARDZ_DAILY_CHAIN 只係陪跑（stamp 對數）。
 STAMP_ARGS=()
+V2_MODE=0
+V2_RUN_ID=""
+V2_BUSINESS_DATE=""
+V2_EXPECTED_GENERATION=""
 for arg in "$@"; do
   case "$arg" in
     --scheduled) STAMP_ARGS+=(--scheduled) ;;
+    --v2-run-id=*) V2_MODE=1; V2_RUN_ID="${arg#*=}" ;;
+    --v2-business-date=*) V2_MODE=1; V2_BUSINESS_DATE="${arg#*=}" ;;
+    --v2-expected-generation=*) V2_MODE=1; V2_EXPECTED_GENERATION="${arg#*=}" ;;
     *) printf 'daily_public_release.sh: unknown arg %s\n' "$arg" >&2; exit 2 ;;
   esac
 done
+if ((V2_MODE == 1)); then
+  if [[ -z "$V2_RUN_ID" || -z "$V2_EXPECTED_GENERATION" || ! "$V2_BUSINESS_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ || ${#STAMP_ARGS[@]} -ne 0 ]]; then
+    printf 'daily_public_release.sh: V2 requires run id + business date + expected generation and forbids --scheduled\n' >&2
+    exit 2
+  fi
+  export CARDZ_DAILY_CHAIN_V2=1
+  export CARDZ_V2_RUN_ID="$V2_RUN_ID"
+  export CARDZ_V2_BUSINESS_DATE="$V2_BUSINESS_DATE"
+fi
 stamp_autonomy() {
+  if ((V2_MODE == 1)); then
+    return 0
+  fi
   local rc=0
   python3 -X utf8 "$SOURCE_REPO/scripts/stamp_daily_chain_autonomy.py" \
     --generation "$1" --generated-at "$2" --outcome "$3" "${STAMP_ARGS[@]}" || rc=$?
@@ -29,10 +48,59 @@ LOCK_FILE="/tmp/cardz-market-cap-daily-release.lock"
 exec 9>"$LOCK_FILE"
 flock -n 9
 
+V2_MANIFEST=""
+if ((V2_MODE == 1)); then
+  v2_key="$(printf '%s' "$V2_RUN_ID" | sha256sum | awk '{print $1}')"
+  V2_MANIFEST="$SOURCE_REPO/data/runtime/daily-chain-v2/publication/${v2_key}.json"
+fi
+
+v2_write_manifest() {
+  local commit="$1" generation_value="$2" generated_at_value="$3"
+  local snapshot_sha public_tree_sha
+  snapshot_sha="$(git -C "$RELEASE_REPO" show "${commit}:data/public/seed-snapshot.json" | sha256sum | awk '{print $1}')"
+  public_tree_sha="$(git -C "$RELEASE_REPO" ls-tree -r "$commit" -- data/public | sha256sum | awk '{print $1}')"
+  mkdir -p "$(dirname "$V2_MANIFEST")"
+  python3 - "$V2_MANIFEST" "$V2_RUN_ID" "$V2_BUSINESS_DATE" "$commit" "$generation_value" "$generated_at_value" "$snapshot_sha" "$public_tree_sha" <<'PY'
+import json,os,sys
+path,run_id,business_date,commit,generation,generated_at,snapshot_sha,public_tree_sha=sys.argv[1:]
+doc={"contract":"cardz-v2-immutable-publication-v1","runId":run_id,
+     "businessDate":business_date,"commit":commit,"generation":generation,
+     "generatedAt":generated_at,"snapshotSha256":snapshot_sha,
+     "publicTreeSha256":public_tree_sha}
+tmp=f"{path}.{os.getpid()}.next"
+with open(tmp,"w",encoding="utf-8",newline="\n") as fh:
+    json.dump(doc,fh,ensure_ascii=False,sort_keys=True,separators=(",",":"))
+    fh.write("\n")
+os.replace(tmp,path)
+PY
+}
+
+# The commit is durable before the sidecar can be written.  If the process was
+# killed in that tiny window, recover only an exact expected-generation release
+# commit whose diff is confined to the public artifact allowlist.
+if ((V2_MODE == 1)) && [[ ! -s "$V2_MANIFEST" ]]; then
+  head_generation="$(git -C "$RELEASE_REPO" show HEAD:data/public/seed-snapshot.json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("generation",{}).get("id",""))' 2>/dev/null || true)"
+  head_generated_at="$(git -C "$RELEASE_REPO" show HEAD:data/public/seed-snapshot.json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("generation",{}).get("generatedAt",""))' 2>/dev/null || true)"
+  head_subject="$(git -C "$RELEASE_REPO" log -1 --format=%s 2>/dev/null || true)"
+  recovery_paths_ok=1
+  while IFS= read -r path; do
+    [[ -z "$path" ]] && continue
+    case "$path" in
+      data/public/seed-snapshot.json|data/public/box-subset.json|data/public/market-assets/*.webp) ;;
+      *) recovery_paths_ok=0 ;;
+    esac
+  done < <(git -C "$RELEASE_REPO" diff-tree --no-commit-id --name-only -r HEAD)
+  if [[ "$head_generation" == "$V2_EXPECTED_GENERATION" \
+        && "$head_subject" == "release: daily CARDZ 037 FE04 $V2_EXPECTED_GENERATION [deploy]" \
+        && -n "$head_generated_at" && "$recovery_paths_ok" -eq 1 ]]; then
+    v2_write_manifest "$(git -C "$RELEASE_REPO" rev-parse HEAD)" "$head_generation" "$head_generated_at"
+  fi
+fi
+
 NOTIFY_PY="$SOURCE_REPO/scripts/notify_hermes.py"
 RELEASE_STAGE="preflight"
 notify_release() {
-  if [[ -f "$NOTIFY_PY" ]]; then
+  if ((V2_MODE == 0)) && [[ -f "$NOTIFY_PY" ]]; then
     python3 -X utf8 "$NOTIFY_PY" release "$@" || true
   fi
 }
@@ -45,6 +113,45 @@ on_release_exit() {
 trap on_release_exit EXIT
 
 test -e "$RELEASE_REPO/.git"
+if ((V2_MODE == 1)) && [[ -s "$V2_MANIFEST" ]]; then
+  RELEASE_STAGE="v2-resume-immutable-publication"
+  mapfile -t v2_saved < <(python3 - "$V2_MANIFEST" "$V2_RUN_ID" "$V2_BUSINESS_DATE" "$V2_EXPECTED_GENERATION" <<'PY'
+import json,sys
+d=json.load(open(sys.argv[1],encoding="utf-8"))
+if d.get("contract")!="cardz-v2-immutable-publication-v1": raise SystemExit("bad contract")
+if d.get("runId")!=sys.argv[2] or d.get("businessDate")!=sys.argv[3] or d.get("generation")!=sys.argv[4]:
+    raise SystemExit("manifest identity mismatch")
+for key in ("commit","generation","generatedAt","snapshotSha256","publicTreeSha256"):
+    print(d[key])
+PY
+  )
+  v2_commit="${v2_saved[0]:-}"
+  generation="${v2_saved[1]:-}"
+  generated_at="${v2_saved[2]:-}"
+  saved_snapshot_sha="${v2_saved[3]:-}"
+  saved_public_tree_sha="${v2_saved[4]:-}"
+  actual_snapshot_sha="$({ git -C "$RELEASE_REPO" show "${v2_commit}:data/public/seed-snapshot.json" 2>/dev/null || true; } | sha256sum | awk '{print $1}')"
+  actual_public_tree_sha="$({ git -C "$RELEASE_REPO" ls-tree -r "$v2_commit" -- data/public 2>/dev/null || true; } | sha256sum | awk '{print $1}')"
+  if [[ -z "$v2_commit" || -z "$generation" || -z "$generated_at" ]] \
+     || [[ "$generation" != "$V2_EXPECTED_GENERATION" ]] \
+     || [[ "$saved_snapshot_sha" != "$actual_snapshot_sha" || "$saved_public_tree_sha" != "$actual_public_tree_sha" ]] \
+     || ! git -C "$RELEASE_REPO" cat-file -e "${v2_commit}^{commit}"; then
+    printf 'V2 immutable publication schema contract is invalid or commit is missing: %s\n' "$V2_MANIFEST" >&2
+    exit 1
+  fi
+  git -C "$RELEASE_REPO" push origin "${v2_commit}:main"
+  for _ in $(seq 1 60); do
+    if body="$(curl --fail --silent --show-error https://app.cardzmarketcap.com/api/health)"; then
+      if PUBLIC_HEALTH="$body" python3 -c 'import json,os,sys; h=json.loads(os.environ["PUBLIC_HEALTH"]); sys.exit(0 if h.get("status")=="ok" and h.get("generation")==sys.argv[1] and h.get("generatedAt")==sys.argv[2] else 1)' "$generation" "$generated_at"; then
+        printf '%s\n' "$body"
+        exit 0
+      fi
+    fi
+    sleep 10
+  done
+  printf 'V2 immutable generation %s@%s did not reach live\n' "$generation" "$generated_at" >&2
+  exit 1
+fi
 # 條鏈自己每次都會重新生成 data/public/seed-snapshot.json 同
 # data/public/market-assets/*.webp，所以嗰條路徑下面嘅殘留冇保留價值。
 # 舊版係 `test -z "$(git status --porcelain)"`：只要有一次 run 死喺後面
@@ -57,6 +164,7 @@ if [[ -n "$(git -C "$RELEASE_REPO" status --porcelain -- ':!data/public')" ]]; t
   git -C "$RELEASE_REPO" status --porcelain -- ':!data/public' >&2
   exit 1
 fi
+git -C "$RELEASE_REPO" reset -q HEAD -- data/public
 git -C "$RELEASE_REPO" checkout -- data/public
 git -C "$RELEASE_REPO" fetch origin main
 # 對 FETCH_HEAD 快進，唔好淨係 assert 相等。原意係「一定要由 main 嗰個 tree
@@ -147,16 +255,18 @@ publish_assets() {
 }
 
 asset_attempt=1
+asset_max_attempts=3
+if ((V2_MODE == 1)); then asset_max_attempts=1; fi
 while true; do
   if publish_assets; then
     break
   fi
-  if ((asset_attempt >= 3)); then
+  if ((asset_attempt >= asset_max_attempts)); then
     printf 'daily release bake/sync/validate failed after %s attempts\n' "$asset_attempt" >&2
     exit 1
   fi
   asset_attempt=$((asset_attempt + 1))
-  printf 'daily release bake/sync/validate retry %s/3\n' "$asset_attempt" >&2
+  printf 'daily release bake/sync/validate retry %s/%s\n' "$asset_attempt" "$asset_max_attempts" >&2
   git -C "$RELEASE_REPO" checkout -- data/public
   sleep 15
 done
@@ -174,7 +284,8 @@ mapfile -t changed < <(git -C "$RELEASE_REPO" status --porcelain=v1 | sed 's/^..
 # 部署（實測 2026-08-11 13:29 commit 61f1ad3b，3 行 diff 全部係呢三個 stamp）。
 # 真數據郁嗰陣卡本身嗰啲欄一定跟住郁，個 diff 唔會空，所以 pop 呢三個唔會食咗真更新。
 # 將來多一個 run-stamp，個閘只會停止 fire（照推一個多餘 commit），唔會漏推。
-if [[ ${#changed[@]} -eq 1 && ${changed[0]} == data/public/seed-snapshot.json ]] \
+if ((V2_MODE == 0)) \
+   && [[ ${#changed[@]} -eq 1 && ${changed[0]} == data/public/seed-snapshot.json ]] \
    && git -C "$RELEASE_REPO" show HEAD:data/public/seed-snapshot.json \
       | python3 -c 'import json,sys
 RUN_STAMPS=(("generation","generatedAt"),("generation","effectiveAt"),("currencies","rates","USD","asOf"))
@@ -191,6 +302,10 @@ sys.exit(0 if strip(json.load(sys.stdin))==strip(json.load(open(sys.argv[1]))) e
 fi
 
 if ((${#changed[@]} == 0)); then
+  if ((V2_MODE == 1)); then
+    printf 'V2 release refused: daily acceptance produced no immutable generation change\n' >&2
+    exit 1
+  fi
   # 冇嘢要推唔等於出咗街。條鏈試過推咗 commit 但公開站冇跟上（見 docs 嘅 deploy
   # postmortem），嗰陣每一日都會report「no-change」然後大家以為正常。
   # 所以冇變都要對一次 live，唔啱就大聲死，等下一個 retry slot 再試。
@@ -225,15 +340,25 @@ done
 
 generation="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["generation"]["id"])' "$RELEASE_REPO/data/public/seed-snapshot.json")"
 generated_at="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["generation"]["generatedAt"])' "$RELEASE_REPO/data/public/seed-snapshot.json")"
+if ((V2_MODE == 1)) && [[ "$generation" != "$V2_EXPECTED_GENERATION" ]]; then
+  printf 'V2 release refused: accepted generation %s but bake produced %s\n' "$V2_EXPECTED_GENERATION" "$generation" >&2
+  exit 1
+fi
 git -C "$RELEASE_REPO" commit -m "release: daily CARDZ 037 FE04 $generation [deploy]"
+if ((V2_MODE == 1)); then
+  v2_commit="$(git -C "$RELEASE_REPO" rev-parse HEAD)"
+  v2_write_manifest "$v2_commit" "$generation" "$generated_at"
+fi
 push_attempt=1
+push_max_attempts=3
+if ((V2_MODE == 1)); then push_max_attempts=1; fi
 until git -C "$RELEASE_REPO" push origin HEAD:main; do
-  if ((push_attempt >= 3)); then
+  if ((push_attempt >= push_max_attempts)); then
     printf 'daily release push failed after %s attempts\n' "$push_attempt" >&2
     exit 1
   fi
   push_attempt=$((push_attempt + 1))
-  printf 'daily release push retry %s/3\n' "$push_attempt" >&2
+  printf 'daily release push retry %s/%s\n' "$push_attempt" "$push_max_attempts" >&2
   sleep 15
 done
 

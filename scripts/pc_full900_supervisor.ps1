@@ -54,10 +54,9 @@ function Clear-DeadLock {
 }
 
 function Test-Cdp {
-  try {
-    $r = Invoke-WebRequest "http://127.0.0.1:$Port/json/version" -UseBasicParsing -TimeoutSec 2
-    return $r.StatusCode -eq 200
-  } catch { return $false }
+  # HTTP 200 is not identity. WSL HeadlessChrome answers 200.
+  & powershell -NoProfile -ExecutionPolicy Bypass -File $Ensure -Port $Port -IdentityOnly | ForEach-Object { Log $_ }
+  return $LASTEXITCODE -eq 0
 }
 
 function Get-RunnerProcs {

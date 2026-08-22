@@ -18,6 +18,7 @@ import inspect
 import io
 import json
 import math
+import os
 import re
 import socket
 import subprocess
@@ -68,6 +69,7 @@ FREEZE_WINDOW = ROOT / "data" / "runtime" / "rebuild-036" / "freeze-window.json"
 PRUNE_ALLOWLIST = ROOT / "data" / "policy" / "prune-order-allowlist.json"
 FREEZE_PROOF_SCRIPT = ROOT / "scripts" / "prove_writer_freeze.py"
 MYSQL_CONTAINER = "cardz-market-cap-db-1"
+DOCKER_CLI = "docker.exe" if os.name != "nt" else "docker"
 POLICY = {"minPop": 1000, "planVersion": "036"}
 DAILY_GUARDRAILS_PATH = ROOT / "data" / "policy" / "daily-release-guardrails.json"
 def _load_daily_guardrails() -> dict[str, Any]:
@@ -130,7 +132,11 @@ NEVER_DELETE_TABLES = frozenset({"market_raw_payload_object", "market_source_obs
 # PLAN §6.1 input source 3: the old checkout's raw caches feed the worklist and
 # the card capture cache is merged copy-if-absent. That folder also owns the
 # MySQL compose file, so it must exist; treat absence as an environment fault.
-OLD_CHECKOUT_ROOT = Path("C:/Users/jackson0202/Documents/Playground/cardz-market-cap")
+OLD_CHECKOUT_ROOT = Path(
+    "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap"
+    if os.name != "nt"
+    else "C:/Users/jackson0202/Documents/Playground/cardz-market-cap"
+)
 
 
 def canonical_json(value: Any) -> bytes:
@@ -170,6 +176,31 @@ def _stable_repr(value: Any) -> str:
     if isinstance(value, Path):
         return f"path:{value.as_posix()}"
     return repr(value)
+
+
+def _validated_v2_activation_claim() -> bool:
+    """Trust the live V2 scheduler only while its exact activation claim runs."""
+
+    if os.environ.get("CARDZ_DAILY_CHAIN_V2", "").strip() != "1":
+        return False
+    state_db = os.environ.get("CARDZ_V2_STATE_DB", "").strip()
+    task_key = os.environ.get("CARDZ_V2_TASK_KEY", "").strip()
+    claim_token = os.environ.get("CARDZ_V2_CLAIM_TOKEN", "").strip()
+    run_id = os.environ.get("CARDZ_V2_RUN_ID", "").strip()
+    if not all((state_db, task_key, claim_token, run_id)):
+        return False
+    try:
+        from daily_chain_v2_journal import Journal
+
+        row = Journal(Path(state_db)).validate_claim(task_key, claim_token)
+    except Exception:  # noqa: BLE001 - invalid/missing proof means no exemption
+        return False
+    return (
+        str(row.get("run_id") or "") == run_id
+        and str(row.get("source_code") or "") == "system"
+        and str(row.get("phase") or "") == "activation"
+        and str(row.get("capability") or "") == "candidate-activation"
+    )
 
 
 def _referenced_globals(code: Any) -> set[str]:
@@ -422,7 +453,7 @@ def stage_preflight(ctx: SimpleNamespace) -> dict[str, Any]:
         " } } | ConvertTo-Json -Compress"
     )
     tasks_query = subprocess.run(
-        ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps_script],
         capture_output=True,
     )
     if tasks_query.returncode != 0:
@@ -435,6 +466,7 @@ def stage_preflight(ctx: SimpleNamespace) -> dict[str, Any]:
         task_rows = [task_rows]
     enabled = []
     matched_names: set[str] = set()
+    trusted_v2 = _validated_v2_activation_claim()
     for row in task_rows:
         blob = " ".join(str(row.get(key) or "") for key in ("name", "path", "actions"))
         if "cardz" not in blob.lower():
@@ -442,6 +474,9 @@ def stage_preflight(ctx: SimpleNamespace) -> dict[str, Any]:
         name = f"{row.get('path') or ''}{row.get('name') or '?'}"
         matched_names.add(name)
         state = str(row.get("state") or "").strip().lower()
+        normalised_name = "\\" + name.strip("\\")
+        if trusted_v2 and normalised_name == "\\CARDZ-Marketcap-Daily-V2":
+            continue
         if state != "disabled":
             enabled.append(f"{name}={state or 'unknown'}")
     if enabled:
@@ -2685,6 +2720,86 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
                 (generation,),
             )
             counts["psaLanguagesRestated"] = cursor.rowcount
+
+            # Identity-resolve necessarily judges the pre-bind catalog row,
+            # while this transaction may then restate that row from the same
+            # PSA-native evidence.  Reconcile only accepted_binding_moved
+            # incidents whose current exact binding has no conflict after the
+            # restatement.  Without this second look, the stale incident keeps
+            # identity_pending=1 and blocks activation even though the binding
+            # and authoritative display identity now agree.
+            cursor.execute(
+                "SELECT i.gemrate_id,m.cohort,m.identity_pending,m.detail_json,"
+                " v.id,v.opaque_id,v.tcg_code,v.card_language,v.canonical_name,"
+                " v.set_name,v.collector_number,v.identity_status,"
+                " p.parallel_code,p.printing_code,p.canonical_printing_sha256"
+                " FROM catalog_population_identity_incident i"
+                " INNER JOIN catalog_rebuild_member m"
+                "   ON m.generation_id=i.generation_id AND m.gemrate_id=i.gemrate_id"
+                " INNER JOIN catalog_source_identity s"
+                "   ON s.source_code='gemrate' AND s.external_entity_id=i.gemrate_id"
+                "  AND s.match_status='exact'"
+                " INNER JOIN catalog_variant v ON v.id=s.variant_id"
+                " LEFT JOIN catalog_printing_identity p ON p.variant_id=v.id"
+                " WHERE i.generation_id=%s"
+                "   AND i.incident_kind='accepted_binding_moved'"
+                "   AND i.resolved_at IS NULL",
+                (generation,),
+            )
+            post_restatement_rows = [dict(row) for row in cursor.fetchall()]
+            counts["postRestatementIncidentsClosed"] = 0
+            for row in post_restatement_rows:
+                gid = str(row["gemrate_id"])
+                fp = fingerprints.get(gid)
+                if fp is None or _fingerprint_variant_conflicts(fp, row):
+                    continue
+                cursor.execute(
+                    "UPDATE catalog_population_identity_incident"
+                    " SET resolved_at=%s,"
+                    " resolution='condition_cleared_after_psa_restatement'"
+                    " WHERE generation_id=%s AND gemrate_id=%s"
+                    "   AND incident_kind='accepted_binding_moved'"
+                    "   AND resolved_at IS NULL",
+                    (now_str, generation, gid),
+                )
+                if cursor.rowcount != 1:
+                    continue
+                detail = json.loads(row["detail_json"]) if row["detail_json"] else {}
+                s5 = detail.get("s5") if isinstance(detail.get("s5"), dict) else {}
+                pending_reasons = [
+                    str(reason) for reason in (s5.get("pendingReasons") or [])
+                    if str(reason) != "incident_open:accepted_binding_moved"
+                ]
+                s5["pendingReasons"] = pending_reasons
+                detail["s5"] = s5
+                detail["pendingReasons"] = [
+                    str(reason) for reason in (detail.get("pendingReasons") or [])
+                    if str(reason) != "binding_conflict"
+                ]
+                if isinstance(detail.get("binding"), dict):
+                    detail["binding"]["conflicts"] = []
+                identity_pending = int(
+                    bool(pending_reasons) and str(row["cohort"]) != "non_qualified"
+                )
+                cursor.execute(
+                    "UPDATE catalog_rebuild_member"
+                    " SET identity_pending=%s,detail_json=%s,computed_at=%s"
+                    " WHERE generation_id=%s AND gemrate_id=%s",
+                    (
+                        identity_pending,
+                        json.dumps(detail, ensure_ascii=False, sort_keys=True),
+                        now_str,
+                        generation,
+                        gid,
+                    ),
+                )
+                if gid in member_updates:
+                    member_updates[gid]["identity_pending"] = identity_pending
+                if int(row["identity_pending"] or 0) and not identity_pending:
+                    counts["identityPendingAfter"] -= 1
+                counts["incidentsClosed"] += 1
+                counts["incidentsStillOpen"] -= 1
+                counts["postRestatementIncidentsClosed"] += 1
 
             # The set name again, this time for the column the SITE reads.
             # catalog_variant.set_name above is the judgment input;
@@ -6490,7 +6605,8 @@ def _ensure_generation(conn, generation: str) -> None:
 def _checkpoints(conn, generation: str) -> dict[str, dict[str, Any]]:
     with conn.cursor() as cursor:
         cursor.execute(
-            "SELECT stage, status, attempt, input_sha256, output_sha256, error_code"
+            "SELECT stage, status, attempt, input_sha256, output_sha256, error_code,"
+            " counts_json"
             " FROM cardz_rebuild_checkpoint WHERE generation_id=%s",
             (generation,),
         )
@@ -6537,6 +6653,52 @@ def _stage_failed(conn, generation: str, stage: str, error_code: str) -> None:
     conn.commit()
 
 
+def _exception_chain_contains_interrupt(error: BaseException) -> bool:
+    """Keep the signal provenance when a DB client wraps InterruptedError."""
+
+    current: BaseException | None = error
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, InterruptedError):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def _stage_failed_durable(
+    ctx: SimpleNamespace,
+    stage: str,
+    error_code: str,
+) -> None:
+    """Record failure even when the interrupted query broke its connection."""
+
+    try:
+        _stage_failed(ctx.conn, ctx.generation, stage, error_code)
+        return
+    except pymysql.MySQLError:
+        pass
+
+    credentials = ctx.args.credentials_env or DEFAULT_CREDENTIALS_ENV
+    replacement = None
+    try:
+        replacement = connect(Path(credentials))
+        _stage_failed(replacement, ctx.generation, stage, error_code)
+    except Exception as checkpoint_error:  # original stage error must survive
+        print(
+            json.dumps({
+                "phase": "stage-failure-checkpoint-error",
+                "stage": stage,
+                "errorCode": type(checkpoint_error).__name__,
+            }),
+            file=sys.stderr,
+            flush=True,
+        )
+    finally:
+        if replacement is not None:
+            replacement.close()
+
+
 def printable_counts(counts: Mapping[str, Any], *, keep: int = 3) -> dict[str, Any]:
     """The checkpoint keeps the whole receipt; stdout gets a readable copy.
 
@@ -6570,10 +6732,17 @@ def _run_stage(ctx: SimpleNamespace, name: str, fn: Callable, *, forced: bool) -
     try:
         result = fn(ctx)
     except SystemExit as error:
-        _stage_failed(ctx.conn, ctx.generation, name, str(error)[:64] or "systemexit")
+        _stage_failed_durable(
+            ctx, name, str(error)[:64] or "systemexit",
+        )
         raise
     except Exception as error:  # noqa: BLE001 - checkpoint then surface
-        _stage_failed(ctx.conn, ctx.generation, name, f"{type(error).__name__}: {error}"[:64])
+        error_code = (
+            "WORKER_INTERRUPTED"
+            if _exception_chain_contains_interrupt(error)
+            else f"{type(error).__name__}: {error}"[:64]
+        )
+        _stage_failed_durable(ctx, name, error_code)
         raise
     result["input_sha256"] = input_sha
     _stage_finish(ctx.conn, ctx.generation, name, result)
@@ -6641,17 +6810,9 @@ def cmd_rebuild(args: argparse.Namespace) -> int:
         _ensure_generation(conn, generation)
 
         if args.invalidate_from:
-            start = STAGE_NAMES.index(args.invalidate_from)
-            targets = STAGE_NAMES[start:]
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    "UPDATE cardz_rebuild_checkpoint SET status='pending', input_sha256=NULL,"
-                    " output_sha256=NULL, error_code=NULL"
-                    f" WHERE generation_id=%s AND stage IN ({','.join(['%s'] * len(targets))})",
-                    (generation, *targets),
-                )
-                invalidated = cursor.rowcount
-            conn.commit()
+            invalidated = _invalidate_checkpoint_from(
+                conn, generation, args.invalidate_from
+            )
             print(json.dumps({"invalidatedFrom": args.invalidate_from, "checkpointRows": invalidated}))
             return 0
 
@@ -6661,6 +6822,23 @@ def cmd_rebuild(args: argparse.Namespace) -> int:
         return _run_linear(ctx)
     finally:
         conn.close()
+
+
+def _invalidate_checkpoint_from(conn: Any, generation: str, stage: str) -> int:
+    """Invalidate exactly one stage and its downstream checkpoint lineage."""
+
+    start = STAGE_NAMES.index(stage)
+    targets = STAGE_NAMES[start:]
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "UPDATE cardz_rebuild_checkpoint SET status='pending', input_sha256=NULL,"
+            " output_sha256=NULL, error_code=NULL"
+            f" WHERE generation_id=%s AND stage IN ({','.join(['%s'] * len(targets))})",
+            (generation, *targets),
+        )
+        invalidated = int(cursor.rowcount)
+    conn.commit()
+    return invalidated
 
 
 def _run_single_stage(ctx: SimpleNamespace) -> int:
@@ -6692,10 +6870,19 @@ def _run_single_stage(ctx: SimpleNamespace) -> int:
 def _run_linear(ctx: SimpleNamespace) -> int:
     args = ctx.args
     checkpoints = _checkpoints(ctx.conn, ctx.generation)
+    trusted_v2_resume = _validated_v2_activation_claim()
     for name, fn, input_fn, always_run in LINEAR_STAGES:
         record = checkpoints.get(name)
         status = record["status"] if record else "pending"
         if status == REBUILD_STAGE_COMPLETE and not always_run:
+            if trusted_v2_resume:
+                print(json.dumps({
+                    "phase": "stage-skip",
+                    "stage": name,
+                    "status": "complete",
+                    "reason": "immutable-generation-checkpoint",
+                }), flush=True)
+                continue
             if record.get("input_sha256"):
                 current = _stage_input_sha(name, ctx)
                 if current != record["input_sha256"]:
@@ -6704,8 +6891,33 @@ def _run_linear(ctx: SimpleNamespace) -> int:
                         f" {record['input_sha256'][:12]}.., now {current[:12]}..)."
                         f" Rerun with --invalidate-from {name} to invalidate it and downstream."
                     )
-            print(json.dumps({"phase": "stage-skip", "stage": name, "status": "complete"}), flush=True)
-            continue
+                else:
+                    print(json.dumps({"phase": "stage-skip", "stage": name, "status": "complete"}), flush=True)
+                    continue
+            else:
+                print(json.dumps({"phase": "stage-skip", "stage": name, "status": "complete"}), flush=True)
+                continue
+        if (
+            status == "failed"
+            and str((record or {}).get("error_code") or "").startswith(
+                ("InterruptedError", "WORKER_INTERRUPTED")
+            )
+        ):
+            with ctx.conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE cardz_rebuild_checkpoint
+                    SET status='pending',error_code='WORKER_INTERRUPTED'
+                    WHERE generation_id=%s AND stage=%s AND status='failed'
+                    """,
+                    (ctx.generation, name),
+                )
+            ctx.conn.commit()
+            status = "pending"
+            print(
+                json.dumps({"phase": "stage-resume", "stage": name, "from": "interrupted"}),
+                flush=True,
+            )
         # A stage marked always_run re-judges from scratch every pass, so a
         # failed row describes the pass that wrote it and nothing else. Blocking
         # on it demanded --force-stage, and --force-stage is one flag for the
@@ -6961,7 +7173,131 @@ def _activation_accept_history(
         """,
         (ACTIVATION_ACTOR, now_str),
     )
-    inserted["psa10PriceQuoteRevisions"] = int(cur.rowcount)
+    legacy_quote_rows = int(cur.rowcount)
+    cur.execute(
+        "SELECT COUNT(*) AS n FROM information_schema.tables"
+        " WHERE table_schema=DATABASE() AND table_name='market_source_registry'"
+    )
+    registry_row = cur.fetchone() or {}
+    registry_ready = int(
+        registry_row.get("n") if isinstance(registry_row, Mapping) else registry_row[0]
+    ) == 1
+    if registry_ready:
+        # V2 quote acceptance is registry-driven.  A future adapter writes its
+        # immutable market_current_quote_revision, registers its identity
+        # source and route policy, and reaches the canonical view without
+        # adding another source literal to this resolver.
+        cur.execute(
+            """
+            INSERT INTO market_metric_history_acceptance
+              (variant_id,metric_kind,source_record_type,source_record_id,source_code,
+               external_entity_id,observed_date,source_effective_at,source_payload_sha256,
+               identity_evidence_sha256,acceptance_evidence_sha256,lineage_sha256,
+               accepted_by,accepted_at)
+            SELECT q.variant_id,'psa10_price','market_current_quote_revision',q.id,
+                   sr.identity_source_code,q.source_external_entity_id,q.source_period_at,
+                   q.checked_at,q.payload_sha256,si.evidence_sha256,
+                   SHA2(CONCAT_WS('|','accept-registered-current-quote-revision-v2',
+                     q.id,q.variant_id,sr.identity_source_code,q.source_external_entity_id,
+                     q.payload_sha256,q.quote_lineage_sha256,si.evidence_sha256),256),
+                   SHA2(CONCAT_WS('|','metric-history-v2','psa10_price','quote-revision',
+                     q.id,q.variant_id,sr.identity_source_code,q.source_external_entity_id,
+                     q.payload_sha256,q.quote_lineage_sha256,si.evidence_sha256),256),
+                   %s,%s
+            FROM market_current_quote_revision q
+            INNER JOIN market_universe_member am ON am.variant_id=q.variant_id
+            INNER JOIN market_universe_lock ul
+              ON ul.id=am.universe_lock_id AND ul.is_current=1
+            INNER JOIN market_source_registry sr
+              ON sr.source_code=q.source_code AND sr.enabled=1
+             AND JSON_CONTAINS(sr.capabilities_json,JSON_QUOTE('quote'),'$')=1
+            INNER JOIN operator_strict_source_identity si
+              ON si.variant_id=q.variant_id
+             AND si.source_code=sr.identity_source_code
+             AND si.external_entity_id=q.source_external_entity_id
+            WHERE q.price_usd>0
+              AND q.payload_sha256 REGEXP '^[0-9a-f]{64}$'
+              AND q.quote_lineage_sha256 REGEXP '^[0-9a-f]{64}$'
+              AND si.evidence_sha256 REGEXP '^[0-9a-f]{64}$'
+              AND (q.reconstruction_kind IS NULL
+                   OR q.reconstruction_kind IN ('bootstrap_from_observation',''))
+            ON DUPLICATE KEY UPDATE
+              source_code=VALUES(source_code),external_entity_id=VALUES(external_entity_id),
+              observed_date=VALUES(observed_date),source_effective_at=VALUES(source_effective_at),
+              source_payload_sha256=VALUES(source_payload_sha256),
+              identity_evidence_sha256=VALUES(identity_evidence_sha256),
+              acceptance_evidence_sha256=VALUES(acceptance_evidence_sha256),
+              lineage_sha256=VALUES(lineage_sha256),accepted_by=VALUES(accepted_by),
+              accepted_at=VALUES(accepted_at)
+            """,
+            (ACTIVATION_ACTOR, now_str),
+        )
+        inserted["psa10PriceQuoteRevisions"] = int(cur.rowcount)
+        inserted["legacyQuoteAcceptanceRows"] = legacy_quote_rows
+    else:
+        inserted["psa10PriceQuoteRevisions"] = legacy_quote_rows
+
+    if os.environ.get("CARDZ_DAILY_CHAIN_V2", "").strip() == "1":
+        v2_run_id = os.environ.get("CARDZ_V2_RUN_ID", "").strip()
+        v2_business_date = os.environ.get("CARDZ_V2_BUSINESS_DATE", "").strip()
+        if not v2_run_id or not v2_business_date:
+            raise RuntimeError("V2 quote acceptance requires run and business date")
+        # Existing active cards are allowed to keep updating even when one
+        # provider identity remains manual-review.  The source-state projection
+        # is an immutable, run-scoped bind to the exact quote revision and raw
+        # payload.  New cards cannot use this lane because they are not members
+        # of the current universe until the strict activation contract passes.
+        # INSERT IGNORE preserves stronger strict-identity acceptance evidence
+        # whenever that lane already created the row.
+        cur.execute(
+            """
+            INSERT IGNORE INTO market_metric_history_acceptance
+              (variant_id,metric_kind,source_record_type,source_record_id,source_code,
+               external_entity_id,observed_date,source_effective_at,source_payload_sha256,
+               identity_evidence_sha256,acceptance_evidence_sha256,lineage_sha256,
+               accepted_by,accepted_at)
+            SELECT q.variant_id,'psa10_price','market_current_quote_revision',q.id,
+                   sr.canonical_source_code,q.source_external_entity_id,q.source_period_at,
+                   q.checked_at,q.payload_sha256,
+                   SHA2(CONCAT_WS('|','v2-active-source-state-bind-v1',
+                     source_state.run_id,source_state.business_date,source_state.variant_id,
+                     source_state.source_code,q.id,q.source_external_entity_id,
+                     q.payload_sha256,source_state.evidence_ref),256),
+                   SHA2(CONCAT_WS('|','accept-v2-active-source-state-quote-v1',
+                     source_state.run_id,source_state.business_date,source_state.variant_id,
+                     source_state.source_code,q.id,q.quote_lineage_sha256,
+                     q.payload_sha256,source_state.evidence_ref),256),
+                   SHA2(CONCAT_WS('|','metric-history-v2','psa10_price','source-state',
+                     source_state.run_id,source_state.business_date,source_state.variant_id,
+                     source_state.source_code,q.id,q.source_external_entity_id,
+                     q.payload_sha256,q.quote_lineage_sha256),256),
+                   %s,%s
+            FROM market_variant_source_state source_state
+            INNER JOIN market_current_quote_revision q
+              ON q.id=source_state.selected_quote_revision_id
+             AND q.variant_id=source_state.variant_id
+             AND q.payload_sha256=source_state.payload_sha256
+             AND source_state.evidence_ref=CONCAT('market_current_quote_revision:',q.id)
+            INNER JOIN market_source_registry sr
+              ON sr.source_code=q.source_code
+             AND sr.canonical_source_code=source_state.source_code
+             AND sr.enabled=1
+             AND JSON_CONTAINS(sr.capabilities_json,JSON_QUOTE('quote'),'$')=1
+            INNER JOIN market_universe_member am ON am.variant_id=q.variant_id
+            INNER JOIN market_universe_lock ul
+              ON ul.id=am.universe_lock_id AND ul.is_current=1
+            WHERE source_state.business_date=%s AND source_state.run_id=%s
+              AND source_state.capability='quote'
+              AND source_state.status='completed'
+              AND q.price_usd>0
+              AND q.payload_sha256 REGEXP '^[0-9a-f]{64}$'
+              AND q.quote_lineage_sha256 REGEXP '^[0-9a-f]{64}$'
+              AND (q.reconstruction_kind IS NULL
+                   OR q.reconstruction_kind IN ('bootstrap_from_observation',''))
+            """,
+            (ACTIVATION_ACTOR, now_str, v2_business_date, v2_run_id),
+        )
+        inserted["v2ActiveSourceStateQuoteRevisions"] = int(cur.rowcount)
 
     # Keep observation acceptances for monthly/history chart lineage only.
     # Ranking no longer selects from these mutable rows.
@@ -7290,6 +7626,16 @@ def _activation_rank_and_accept(
     ready = set(ready_ids)
     now_at = datetime.fromisoformat(now_str)
     previous_ranking = _previous_ranking_counts(cur)
+    v2_business_date = os.environ.get("CARDZ_V2_BUSINESS_DATE", "").strip()
+    v2_mode = os.environ.get("CARDZ_DAILY_CHAIN_V2", "").strip() == "1"
+    quote_window_sql = ""
+    quote_window_params: tuple[Any, ...] = ()
+    if v2_mode:
+        from daily_chain_v2_db import business_window_utc
+
+        quote_start, quote_end = business_window_utc(v2_business_date)
+        quote_window_sql = " WHERE p.checked_at >= %s AND p.checked_at < %s"
+        quote_window_params = (quote_start, quote_end)
     # Ranking selects immutable quote revisions (043). Freshness uses
     # checked_at (actual capture), not source_period_at (PC month head).
     cur.execute(
@@ -7299,11 +7645,15 @@ def _activation_rank_and_accept(
                p.observed_date AS price_observed_date,
                p.source_period_at AS price_source_period_at,
                p.checked_at AS price_checked_at,
-               p.price_source_code,p.price_route_priority,p.price_lineage_sha256
+               p.price_source_code,p.price_storage_source_code,
+               p.price_payload_sha256,p.quote_revision_id,
+               p.price_route_priority,p.price_policy_version,
+               p.price_lineage_sha256
         FROM operator_eligible_current_quote_revision p
         INNER JOIN market_universe_member am ON am.variant_id=p.variant_id
         INNER JOIN market_universe_lock ul ON ul.id=am.universe_lock_id AND ul.is_current=1
-        """
+        """ + quote_window_sql,
+        quote_window_params,
     )
     latest_price: dict[int, dict] = {}
     latest_price_keys: dict[int, tuple] = {}
@@ -7411,8 +7761,7 @@ def _activation_rank_and_accept(
     for variant_id in missing_price:
         row = {**latest_eligible_price[variant_id], **latest_population[variant_id]}
         awaiting_price.append((variant_id, row, Decimal("0")))
-    ranking_generation_sha = sha256_bytes(canonical_json(
-        [
+    legacy_generation_material = [
             {
                 "variantId": variant_id,
                 "priceAcceptanceId": int(row["price_history_acceptance_id"]),
@@ -7431,7 +7780,40 @@ def _activation_rank_and_accept(
             }
             for variant_id, row, _ in awaiting_price
         ]
-    ))
+    content_material = [
+        {
+            "variantId": variant_id,
+            "priceUsd": str(row["price_usd"]),
+            "population": int(row["psa10_population"]),
+            "marketCapUsd": format(cap, "f"),
+            "canonicalMarketRank": rank,
+            "selectedSourceCode": str(row["price_source_code"]),
+            "policyVersion": str(row.get("price_policy_version") or "legacy"),
+            "priceStatus": "ready",
+        }
+        for rank, (variant_id, row, cap) in enumerate(ranked, start=1)
+    ] + [
+        {
+            "variantId": variant_id,
+            "priceUsd": str(row["price_usd"]),
+            "population": int(row["psa10_population"]),
+            "marketCapUsd": None,
+            "canonicalMarketRank": None,
+            "selectedSourceCode": str(row["price_source_code"]),
+            "policyVersion": str(row.get("price_policy_version") or "legacy"),
+            "priceStatus": "awaiting_fresh_price",
+        }
+        for variant_id, row, _ in awaiting_price
+    ]
+    content_sha = sha256_bytes(canonical_json(content_material))
+    if v2_mode:
+        from daily_chain_v2_contract import daily_generation_sha256
+
+        ranking_generation_sha = daily_generation_sha256(
+            v2_business_date, content_sha,
+        )
+    else:
+        ranking_generation_sha = sha256_bytes(canonical_json(legacy_generation_material))
     accepted_rows = [
         (variant_id, row, cap, rank, False)
         for rank, (variant_id, row, cap) in enumerate(ranked, start=1)
@@ -7470,6 +7852,9 @@ def _activation_rank_and_accept(
                 "priceLineageSha256": row["price_lineage_sha256"],
                 "populationLineageSha256": row["population_lineage_sha256"],
                 "metricLineageSha256": metric_lineage_sha,
+                "selectedSourceCode": row["price_source_code"],
+                "quoteRevisionId": int(row["quote_revision_id"]),
+                "policyVersion": row.get("price_policy_version") or "legacy",
             }
         ))
         cur.execute(
@@ -7509,11 +7894,84 @@ def _activation_rank_and_accept(
                 ACTIVATION_ACTOR, now_str, supersedes,
             ),
         )
+        if v2_mode:
+            run_id = os.environ.get("CARDZ_V2_RUN_ID", "").strip()
+            if not run_id or not v2_business_date:
+                raise RuntimeError("V2 daily acceptance requires run and business date")
+            cur.execute(
+                """
+                SELECT source_code FROM market_variant_source_state
+                WHERE variant_id=%s AND capability='canonical_quote'
+                  AND is_selected=1 AND business_date<%s
+                ORDER BY business_date DESC,id DESC LIMIT 1
+                """,
+                (variant_id, v2_business_date),
+            )
+            previous_selection = cur.fetchone()
+            previous_source = (
+                str(previous_selection["source_code"])
+                if previous_selection else None
+            )
+            selected_source = str(row["price_source_code"])
+            switched = bool(previous_source and previous_source != selected_source)
+            cur.execute(
+                """
+                UPDATE market_variant_source_state SET is_selected=0
+                WHERE business_date=%s AND variant_id=%s
+                  AND capability='canonical_quote'
+                """,
+                (v2_business_date, variant_id),
+            )
+            cur.execute(
+                """
+                INSERT INTO market_variant_source_state
+                  (business_date,run_id,variant_id,source_code,capability,status,
+                   observed_at,checked_at,usd_value,payload_sha256,evidence_ref,
+                   selected_quote_revision_id,selected_policy_version,is_selected,
+                   source_switched,detail_json)
+                VALUES (%s,%s,%s,%s,'canonical_quote','completed',%s,%s,%s,%s,%s,
+                        %s,%s,1,%s,%s)
+                ON DUPLICATE KEY UPDATE
+                  run_id=VALUES(run_id),status=VALUES(status),
+                  observed_at=VALUES(observed_at),checked_at=VALUES(checked_at),
+                  usd_value=VALUES(usd_value),payload_sha256=VALUES(payload_sha256),
+                  evidence_ref=VALUES(evidence_ref),
+                  selected_quote_revision_id=VALUES(selected_quote_revision_id),
+                  selected_policy_version=VALUES(selected_policy_version),
+                  is_selected=VALUES(is_selected),source_switched=VALUES(source_switched),
+                  detail_json=VALUES(detail_json)
+                """,
+                (
+                    v2_business_date, run_id, variant_id, selected_source,
+                    row.get("price_source_observed_at") or row.get("price_checked_at"),
+                    row.get("price_checked_at") or row.get("price_effective_at"),
+                    row["price_usd"], row.get("price_payload_sha256"),
+                    f"market_current_quote_revision:{int(row['quote_revision_id'])}",
+                    int(row["quote_revision_id"]),
+                    str(row.get("price_policy_version") or "legacy"),
+                    1 if switched else 0,
+                    json.dumps(
+                        {
+                            "priceHistoryAcceptanceId": int(row["price_history_acceptance_id"]),
+                            "storageSourceCode": row.get("price_storage_source_code"),
+                            "rankingGenerationSha256": ranking_generation_sha,
+                            "contentSha256": content_sha,
+                            "acceptedAt": now_str,
+                        },
+                        ensure_ascii=False,
+                    ),
+                ),
+            )
     return {
         "accepted": len(accepted_rows),
         "ranked": len(ranked),
         "awaitingFreshPrice": len(awaiting_price),
         "rankingGenerationSha256": ranking_generation_sha,
+        "contentSha256": content_sha,
+        "policyVersions": sorted({
+            str(row.get("price_policy_version") or "legacy")
+            for _, row, _, _, _ in accepted_rows
+        }),
         "rankedGuard": ranking_guard,
         "ranks": {
             variant_id: rank
@@ -7628,6 +8086,20 @@ def cmd_activate(args: argparse.Namespace) -> int:
         if not ready_ids:
             raise SystemExit("S12 ABORT: zero product_ready variants; refusing empty universe")
 
+        previous_lock_id: int | None = None
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id FROM market_universe_lock WHERE is_current=1"
+                " ORDER BY id DESC FOR UPDATE"
+            )
+            current_locks = [int(row["id"]) for row in cur.fetchall()]
+        if len(current_locks) != 1:
+            raise SystemExit(
+                "S12 ABORT: expected exactly one current universe lock before activation;"
+                f" found={current_locks}"
+            )
+        previous_lock_id = current_locks[0]
+
         try:
             with conn.cursor() as cur:
                 # -- universe lock (is_current stays 0 until members verify) --
@@ -7704,8 +8176,31 @@ def cmd_activate(args: argparse.Namespace) -> int:
                 if cur.rowcount == 0:
                     raise SystemExit("S12 ABORT: generation row vanished")
             conn.commit()
-        except Exception:
+        except BaseException:
+            # apply_eligible_current_quote_revision_view() issues CREATE OR
+            # REPLACE VIEW inside _activation_accept_history().  MySQL DDL
+            # implicitly commits the current-lock flip that precedes it, so a
+            # later SystemExit guard (for example the ranked-card ratchet)
+            # cannot be repaired by rollback alone.  Always restore the exact
+            # pre-activation pointer before propagating any failure.
             conn.rollback()
+            if previous_lock_id is not None:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE market_universe_lock SET is_current=0"
+                        " WHERE is_current=1 AND id<>%s",
+                        (previous_lock_id,),
+                    )
+                    cur.execute(
+                        "UPDATE market_universe_lock SET is_current=1 WHERE id=%s",
+                        (previous_lock_id,),
+                    )
+                    if cur.rowcount != 1:
+                        raise RuntimeError(
+                            "S12 recovery ABORT: pre-activation universe lock vanished:"
+                            f" {previous_lock_id}"
+                        )
+                conn.commit()
             raise
 
         report = {
@@ -7840,6 +8335,7 @@ DAILY_ACCEPT_CANONICAL_FIELDS = (
     "rankingGenerationSha256",
     "rankedGuard",
 )
+DAILY_ACCEPT_V2_FIELDS = ("contentSha256", "policyVersions")
 
 
 def _canonical_ranking_receipt(canonical: Mapping[str, Any]) -> dict[str, Any]:
@@ -7850,7 +8346,11 @@ def _canonical_ranking_receipt(canonical: Mapping[str, Any]) -> dict[str, Any]:
     but incomplete receipt.
     """
 
-    return {field: canonical[field] for field in DAILY_ACCEPT_CANONICAL_FIELDS}
+    receipt = {field: canonical[field] for field in DAILY_ACCEPT_CANONICAL_FIELDS}
+    for field in DAILY_ACCEPT_V2_FIELDS:
+        if field in canonical:
+            receipt[field] = canonical[field]
+    return receipt
 
 
 def cmd_daily_accept(args: argparse.Namespace) -> int:
@@ -7869,9 +8369,37 @@ def cmd_daily_accept(args: argparse.Namespace) -> int:
 
     from datetime import datetime, timezone
 
+    print(
+        json.dumps(
+            {
+                "phase": "daily-accept-start",
+                "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+            },
+            ensure_ascii=False,
+        ),
+        flush=True,
+    )
     credentials = args.credentials_env or DAILY_CREDENTIALS_ENV
     conn = connect(credentials)
     try:
+        with conn.cursor() as cur:
+            # Fail in seconds if another writer holds MDL/row locks (human
+            # collect overlapping a refresh slot). Default lock_wait_timeout
+            # is one year; that is what made 2026-08-16 16:30 sit silent
+            # until Task Scheduler killed it at PT1H.
+            cur.execute("SET SESSION innodb_lock_wait_timeout=30")
+            cur.execute("SET SESSION lock_wait_timeout=30")
+        print(
+            json.dumps(
+                {
+                    "phase": "daily-accept-lock-timeouts",
+                    "innodb_lock_wait_timeout": 30,
+                    "lock_wait_timeout": 30,
+                },
+                ensure_ascii=False,
+            ),
+            flush=True,
+        )
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT id, lock_sha256, member_count FROM market_universe_lock"
@@ -8872,7 +9400,7 @@ def cmd_freeze(args: argparse.Namespace) -> int:
         raise SystemExit(f"refusing to freeze: {credentials} has no CARDZ_DB_PASSWORD")
     result = subprocess.run(
         [
-            "docker", "exec", "-i", MYSQL_CONTAINER,
+            DOCKER_CLI, "exec", "-i", MYSQL_CONTAINER,
             "sh", "-lc", 'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" --batch cardz_market_cap',
         ],
         input=_freeze_sql(user, password), capture_output=True, text=True,
@@ -8884,7 +9412,7 @@ def cmd_freeze(args: argparse.Namespace) -> int:
     # compared against are written by MySQL, and this machine runs UTC+9.
     stamp = subprocess.run(
         [
-            "docker", "exec", MYSQL_CONTAINER, "sh", "-lc",
+            DOCKER_CLI, "exec", MYSQL_CONTAINER, "sh", "-lc",
             'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" --batch --skip-column-names'
             ' -e "SELECT UTC_TIMESTAMP(6)"',
         ],
@@ -8917,7 +9445,7 @@ def cmd_unfreeze(args: argparse.Namespace) -> int:
         raise SystemExit("rebuild-036-unfreeze is destructive to the freeze; pass --confirm")
     result = subprocess.run(
         [
-            "docker", "exec", "-i", MYSQL_CONTAINER,
+            DOCKER_CLI, "exec", "-i", MYSQL_CONTAINER,
             "sh", "-lc", 'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" --batch cardz_market_cap',
         ],
         input=UNFREEZE_SQL, capture_output=True, text=True,
@@ -8937,7 +9465,7 @@ def cmd_unfreeze(args: argparse.Namespace) -> int:
     repaired: list[str] = []
     probe = subprocess.run(
         [
-            "docker", "exec", "-i", MYSQL_CONTAINER,
+            DOCKER_CLI, "exec", "-i", MYSQL_CONTAINER,
             "sh", "-lc", 'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" --batch -N cardz_market_cap',
         ],
         input=(
@@ -8952,7 +9480,7 @@ def cmd_unfreeze(args: argparse.Namespace) -> int:
             raise SystemExit(f"unfreeze: refusing suspicious view name {view!r}")
         show = subprocess.run(
             [
-                "docker", "exec", "-i", MYSQL_CONTAINER,
+                DOCKER_CLI, "exec", "-i", MYSQL_CONTAINER,
                 "sh", "-lc", 'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" --batch -N -r cardz_market_cap',
             ],
             input=f"SHOW CREATE VIEW `{view}`;\n", capture_output=True, text=True,
@@ -8964,7 +9492,7 @@ def cmd_unfreeze(args: argparse.Namespace) -> int:
         ddl = ddl.replace("CREATE ", "CREATE OR REPLACE ", 1)
         redo = subprocess.run(
             [
-                "docker", "exec", "-i", MYSQL_CONTAINER,
+                DOCKER_CLI, "exec", "-i", MYSQL_CONTAINER,
                 "sh", "-lc", 'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" cardz_market_cap',
             ],
             input=ddl + ";\n", capture_output=True, text=True,
@@ -8993,16 +9521,17 @@ _SCHEDULER_QUERY = (
     "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;"
     " Get-ScheduledTask | ForEach-Object { [pscustomobject]@{"
     " name=$_.TaskName; path=$_.TaskPath; state=[string]$_.State;"
+    " enabled=[bool]$_.Settings.Enabled;"
     " actions=(($_.Actions | ForEach-Object {"
     " \"$($_.Execute) $($_.Arguments) $($_.WorkingDirectory)\" }) -join ' ')"
     " } } | ConvertTo-Json -Compress"
 )
 
 
-def _cardz_scheduled_tasks() -> list[dict[str, str]]:
+def _cardz_scheduled_tasks() -> list[dict[str, Any]]:
     """The same whole-task match S0 preflight uses, so the two never disagree."""
     query = subprocess.run(
-        ["powershell", "-NoProfile", "-NonInteractive", "-Command", _SCHEDULER_QUERY],
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", _SCHEDULER_QUERY],
         capture_output=True,
     )
     if query.returncode != 0:
@@ -9018,11 +9547,16 @@ def _cardz_scheduled_tasks() -> list[dict[str, str]]:
                 "name": str(row.get("name") or ""),
                 "path": str(row.get("path") or "\\"),
                 "state": str(row.get("state") or "").strip().lower(),
+                "enabled": bool(row.get("enabled")),
             })
     return matched
 
 
-def _scheduler_set(tasks: list[dict[str, str]], *, enable: bool) -> list[str]:
+def _scheduler_task_key(task: Mapping[str, Any]) -> str:
+    return "\\" + f"{task.get('path') or ''}{task.get('name') or ''}".strip("\\")
+
+
+def _scheduler_set(tasks: list[dict[str, Any]], *, enable: bool) -> list[str]:
     if not tasks:
         return []
     verb = "Enable-ScheduledTask" if enable else "Disable-ScheduledTask"
@@ -9031,12 +9565,25 @@ def _scheduler_set(tasks: list[dict[str, str]], *, enable: bool) -> list[str]:
         for task in tasks
     )
     result = subprocess.run(
-        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
         capture_output=True, text=True,
     )
     if result.returncode != 0:
         raise SystemExit(f"{verb} failed: {result.stderr.strip()[:400]}")
-    return [f"{task['path']}{task['name']}" for task in tasks]
+    expected = {_scheduler_task_key(task) for task in tasks}
+    current = {
+        _scheduler_task_key(task): bool(task.get("enabled"))
+        for task in _cardz_scheduled_tasks()
+    }
+    mismatched = sorted(
+        task_key for task_key in expected
+        if current.get(task_key) is not bool(enable)
+    )
+    if mismatched:
+        raise SystemExit(
+            f"{verb} state mismatch after command: {mismatched}"
+        )
+    return sorted(expected)
 
 
 def _take_backup(generation: str) -> dict[str, Any]:
@@ -9056,7 +9603,7 @@ def _take_backup(generation: str) -> dict[str, Any]:
     with part.open("wb") as handle:
         result = subprocess.run(
             [
-                "docker", "exec", MYSQL_CONTAINER, "sh", "-lc",
+                DOCKER_CLI, "exec", MYSQL_CONTAINER, "sh", "-lc",
                 'exec mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction'
                 " --routines --triggers cardz_market_cap",
             ],
@@ -9124,9 +9671,22 @@ def cmd_e2e(args: argparse.Namespace) -> int:
     )
 
     tasks = _cardz_scheduled_tasks()
-    to_restore = [task for task in tasks if task["state"] != "disabled"]
+    trusted_v2 = _validated_v2_activation_claim()
+    to_restore = [
+        task for task in tasks
+        if bool(task.get("enabled"))
+        and not (
+            trusted_v2
+            and _scheduler_task_key(task) == "\\CARDZ-Marketcap-Daily-V2"
+        )
+    ]
     disabled = _scheduler_set(to_restore, enable=False)
-    record("scheduler-disable", tasks=disabled, alreadyDisabled=len(tasks) - len(to_restore))
+    record(
+        "scheduler-disable",
+        tasks=disabled,
+        alreadyDisabled=len(tasks) - len(to_restore),
+        v2Claimed=trusted_v2,
+    )
     try:
         cmd_freeze(SimpleNamespace(credentials_env=args.credentials_env))
         record("freeze")
@@ -9145,6 +9705,25 @@ def cmd_e2e(args: argparse.Namespace) -> int:
         # run. Taking it by hand was the step nobody remembered -- the gate
         # spent 55 hours passing on a 2026-08-08 dump while the chain wrote.
         record("backup", **_take_backup(args.generation))
+
+        # A prior activation process can finish its finally block after this
+        # process took the first scheduler snapshot and re-enable the legacy
+        # tasks.  Reconcile the live Settings.Enabled values immediately before
+        # S0 and add every newly enabled task to the exact restore set.
+        restore_by_key = {_scheduler_task_key(task): task for task in to_restore}
+        late_enabled = [
+            task for task in _cardz_scheduled_tasks()
+            if bool(task.get("enabled"))
+            and not (
+                trusted_v2
+                and _scheduler_task_key(task) == "\\CARDZ-Marketcap-Daily-V2"
+            )
+        ]
+        for task in late_enabled:
+            restore_by_key.setdefault(_scheduler_task_key(task), task)
+        to_restore = list(restore_by_key.values())
+        refenced = _scheduler_set(late_enabled, enable=False)
+        record("scheduler-refence", tasks=refenced)
 
         code = cmd_rebuild(stage_args)
         if code != 0:

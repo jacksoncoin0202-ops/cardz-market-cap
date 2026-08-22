@@ -59,10 +59,12 @@ import os
 import re
 import shutil
 import sys
+import threading
 import time
+from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Iterator, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
@@ -1143,7 +1145,12 @@ def cmd_daily(args) -> int:
         print(f"No ids in {args.ids_file or IDS_FILE}. Run `collect` first.", file=sys.stderr)
         return 2
     delay = SPEEDS[args.speed]
-    run_id = datetime.now(timezone.utc).strftime("daily_%Y%m%dT%H%M%SZ")
+    run_id = datetime.now(timezone.utc).strftime("daily_%Y%m%dT%H%M%S%fZ")
+    run_suffix = str(getattr(args, "run_suffix", "") or "").strip()
+    if run_suffix:
+        if not re.fullmatch(r"[a-z0-9-]{1,32}", run_suffix):
+            raise ValueError("--run-suffix must be lowercase alphanumeric/hyphen")
+        run_id = f"{run_id}_{run_suffix}"
     run_root = OUT_DIR / "runs" / run_id
     run_cards = run_root / "cards"
     selected_ids = ids[:args.limit] if args.limit else ids
@@ -1336,7 +1343,7 @@ def cmd_daily(args) -> int:
         export_csv_to(OUT_DIR / "population_history.csv")
     manifest["promoted"] = True
     _save(run_root / "manifest.json", manifest)
-    if rc == 0:
+    if rc == 0 and not bool(getattr(args, "skip_grader_volume", False)):
         # Also refresh the grader-level volume (incl TAG) alongside population.
         # Never let this break the population run. Recap pages need a real Chrome
         # (Cloudflare); skip quietly if playwright/Chrome isn't available.
@@ -1713,6 +1720,113 @@ def _abort_heavy_resources(route: Any) -> None:
         route.continue_()
 
 
+@contextmanager
+def _gemrate_public_page() -> Iterator[Any]:
+    """One headed-capable Chrome session for the whole public-page shard.
+
+    Relaunching Playwright Chrome every 25 cards hangs on this host
+    (2026-08-19/20 nightly and catch-up): first chunk succeeds, the next
+    ``chromium.launch`` never returns. Keep the browser open; persist in
+    the caller after each chunk so a kill still keeps finished cards.
+    """
+
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        raise RuntimeError("public-card-dump needs the pinned Playwright dependency")
+    with sync_playwright() as pw:
+        browser = _launch_chromium(pw)
+        ctx = browser.new_context(user_agent=UA, viewport={"width": 1366, "height": 900})
+        ctx.add_init_script(_STEALTH)
+        ctx.route("**/*", _abort_heavy_resources)
+        page = ctx.new_page()
+        page.goto(WEB + "/universal-pop-report", wait_until="domcontentloaded", timeout=60000)
+        page.wait_for_timeout(3000)
+        try:
+            yield page
+        finally:
+            browser.close()
+
+
+def _fetch_card_pages_on_page(
+    page: Any,
+    ids: list[str],
+    delay: float = 0.3,
+    label: str = "",
+    deadline: float | None = None,
+    payload_callback: Callable[[str, Mapping[str, Any]], None] | None = None,
+    cancel_event: threading.Event | None = None,
+) -> tuple[dict[str, Mapping[str, Any]], list[dict[str, Any]]]:
+    """Fetch exact public GemRate card pages on an already-open session.
+
+    ``payload_callback`` runs as soon as one exact card succeeds, before the
+    worker advances to the next card.  The discovery lane uses it to make every
+    card an immediate durable checkpoint instead of waiting for a whole chunk.
+    ``cancel_event`` lets a terminating orchestrator stop workers between page
+    requests and during long 429 waits without discarding completed captures.
+    """
+
+    def _raise_if_cancelled() -> None:
+        if cancel_event is not None and cancel_event.is_set():
+            raise InterruptedError("public card-page worker interrupted")
+
+    def _interruptible_page_wait(seconds: float) -> None:
+        remaining_ms = max(0, int(seconds * 1000))
+        while remaining_ms > 0:
+            _raise_if_cancelled()
+            step_ms = min(1000, remaining_ms)
+            page.wait_for_timeout(step_ms)
+            remaining_ms -= step_ms
+
+    results: dict[str, Mapping[str, Any]] = {}
+    receipts: list[dict[str, Any]] = []
+    for index, gid in enumerate(ids, start=1):
+        _raise_if_cancelled()
+        if deadline is not None and time.monotonic() >= deadline:
+            receipts.extend(
+                _public_failure_receipt(left, http_status=None, reason="budget_exhausted")
+                for left in ids[index - 1:]
+            )
+            break
+        ladder_step = 0
+        while True:
+            payload, failure, rate_limited = _fetch_card_once(page, gid)
+            if rate_limited:
+                if ladder_step >= len(RATE_LIMIT_LADDER):
+                    receipts.append(_public_failure_receipt(
+                        gid, http_status=429, reason="rate_limited_429_exhausted",
+                    ))
+                    break
+                wait_seconds = RATE_LIMIT_LADDER[ladder_step]
+                if deadline is not None and time.monotonic() + wait_seconds >= deadline:
+                    receipts.append(_public_failure_receipt(
+                        gid, http_status=429, reason="rate_limited_429_exhausted",
+                    ))
+                    break
+                ladder_step += 1
+                print(
+                    f"  {label}429 on {gid}; waiting {wait_seconds}s "
+                    f"(ladder {ladder_step}/{len(RATE_LIMIT_LADDER)})",
+                    file=sys.stderr,
+                )
+                _interruptible_page_wait(wait_seconds)
+                continue
+            if payload is not None:
+                if payload_callback is not None:
+                    payload_callback(gid, payload)
+                results[gid] = payload
+            elif failure is not None:
+                receipts.append(failure)
+            break
+        if index % 25 == 0:
+            print(
+                f"  {label}public card pages {index}/{len(ids)} ok={len(results)}",
+                file=sys.stderr,
+            )
+        _interruptible_page_wait(delay)
+    return results, receipts
+
+
 def _chrome_card_pages_with_receipts(
     ids: list[str], delay: float = 0.3, label: str = "",
     deadline: float | None = None,
@@ -1731,66 +1845,10 @@ def _chrome_card_pages_with_receipts(
     before it records ``rate_limited_429_exhausted`` instead of sleeping.
     """
 
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        raise RuntimeError("public-card-dump needs the pinned Playwright dependency")
-    results: dict[str, Mapping[str, Any]] = {}
-    receipts: list[dict[str, Any]] = []
-    with sync_playwright() as pw:
-        browser = _launch_chromium(pw)
-        ctx = browser.new_context(user_agent=UA, viewport={"width": 1366, "height": 900})
-        ctx.add_init_script(_STEALTH)
-        ctx.route("**/*", _abort_heavy_resources)
-        page = ctx.new_page()
-        page.goto(WEB + "/universal-pop-report", wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_timeout(3000)
-        for index, gid in enumerate(ids, start=1):
-            if deadline is not None and time.monotonic() >= deadline:
-                receipts.extend(
-                    _public_failure_receipt(left, http_status=None, reason="budget_exhausted")
-                    for left in ids[index - 1:]
-                )
-                break
-            ladder_step = 0
-            while True:
-                payload, failure, rate_limited = _fetch_card_once(page, gid)
-                if rate_limited:
-                    if ladder_step >= len(RATE_LIMIT_LADDER):
-                        receipts.append(_public_failure_receipt(
-                            gid, http_status=429, reason="rate_limited_429_exhausted",
-                        ))
-                        break
-                    wait_seconds = RATE_LIMIT_LADDER[ladder_step]
-                    if deadline is not None and time.monotonic() + wait_seconds >= deadline:
-                        # The rung would sleep straight through the budget; the
-                        # card is honestly unresolved-because-rate-limited, not
-                        # unattempted, so it keeps the 429 receipt.
-                        receipts.append(_public_failure_receipt(
-                            gid, http_status=429, reason="rate_limited_429_exhausted",
-                        ))
-                        break
-                    ladder_step += 1
-                    print(
-                        f"  {label}429 on {gid}; waiting {wait_seconds}s "
-                        f"(ladder {ladder_step}/{len(RATE_LIMIT_LADDER)})",
-                        file=sys.stderr,
-                    )
-                    page.wait_for_timeout(wait_seconds * 1000)
-                    continue
-                if payload is not None:
-                    results[gid] = payload
-                elif failure is not None:
-                    receipts.append(failure)
-                break
-            if index % 25 == 0:
-                print(
-                    f"  {label}public card pages {index}/{len(ids)} ok={len(results)}",
-                    file=sys.stderr,
-                )
-            page.wait_for_timeout(max(0, int(delay * 1000)))
-        browser.close()
-    return results, receipts
+    with _gemrate_public_page() as page:
+        return _fetch_card_pages_on_page(
+            page, ids, delay=delay, label=label, deadline=deadline,
+        )
 
 
 def _safe_browser_error(error: Exception) -> str:
@@ -1819,8 +1877,10 @@ def collect_public_card_details(
     promote a search-result population into canonical data.
 
     ``workers`` > 1 shards the pending list round-robin across that many
-    threads, each with its own browser and its own 429 ladder; captures still
-    persist per chunk, so a crash or kill never loses completed shards.
+    threads, each with one browser for the whole shard and its own 429 ladder.
+    Every successful capture persists before the worker advances to the next
+    card, so a crash or kill resumes from only IDs without a complete capture.
+    Do not relaunch Chrome per chunk — that hangs after the first 25.
 
     ``deadline`` (``time.monotonic()`` cutoff) turns undispatched work into
     ``budget_exhausted`` receipts instead of silent ``missing_response`` fill.
@@ -1838,6 +1898,7 @@ def collect_public_card_details(
     error: str | None = None
     failure_receipts: list[dict[str, Any]] = []
     attempted = 0
+    cancel_event = threading.Event()
 
     def _run_shard(shard: list[str], label: str, stagger: float) -> tuple[
         dict[str, Mapping[str, Any]], list[dict[str, Any]], int, str | None,
@@ -1846,39 +1907,49 @@ def collect_public_card_details(
         shard_receipts: list[dict[str, Any]] = []
         shard_attempted = 0
         shard_error: str | None = None
-        if stagger > 0:
-            time.sleep(stagger)
-        for start in range(0, len(shard), chunk_size):
-            if deadline is not None and time.monotonic() >= deadline:
-                shard_receipts.extend(
-                    _public_failure_receipt(gid, http_status=None, reason="budget_exhausted")
-                    for gid in shard[start:]
-                )
-                break
-            chunk = shard[start:start + chunk_size]
-            shard_attempted += len(chunk)
-            try:
-                chunk_payloads, chunk_receipts = _chrome_card_pages_with_receipts(
-                    chunk, delay=delay, label=label, deadline=deadline,
-                )
-            except Exception as caught:
-                shard_error = _safe_browser_error(caught)
-                shard_receipts.extend(
-                    _public_failure_receipt(gid, http_status=None, reason=shard_error)
-                    for gid in shard[start:]
-                )
-                break
-            for gid, payload in chunk_payloads.items():
-                _persist_public_card_capture(cards_dir, gid, payload)
-                shard_payloads[gid] = payload
-            shard_receipts.extend(chunk_receipts)
-            resolved_chunk_ids = set(chunk_payloads)
-            receipt_chunk_ids = {str(row.get("gemrateId")) for row in chunk_receipts}
-            for gid in chunk:
-                if gid not in resolved_chunk_ids and gid not in receipt_chunk_ids:
-                    shard_receipts.append(_public_failure_receipt(
-                        gid, http_status=None, reason="missing_response",
-                    ))
+        try:
+            if stagger > 0 and cancel_event.wait(stagger):
+                raise InterruptedError("public card-page worker interrupted")
+            with _gemrate_public_page() as page:
+                for start in range(0, len(shard), chunk_size):
+                    if cancel_event.is_set():
+                        raise InterruptedError("public card-page worker interrupted")
+                    if deadline is not None and time.monotonic() >= deadline:
+                        shard_receipts.extend(
+                            _public_failure_receipt(gid, http_status=None, reason="budget_exhausted")
+                            for gid in shard[start:]
+                        )
+                        break
+                    chunk = shard[start:start + chunk_size]
+                    shard_attempted += len(chunk)
+
+                    def _persist_immediately(gid: str, payload: Mapping[str, Any]) -> None:
+                        _persist_public_card_capture(cards_dir, gid, payload)
+                        shard_payloads[gid] = payload
+
+                    chunk_payloads, chunk_receipts = _fetch_card_pages_on_page(
+                        page, chunk, delay=delay, label=label, deadline=deadline,
+                        payload_callback=_persist_immediately,
+                        cancel_event=cancel_event,
+                    )
+                    shard_receipts.extend(chunk_receipts)
+                    resolved_chunk_ids = set(chunk_payloads)
+                    receipt_chunk_ids = {str(row.get("gemrateId")) for row in chunk_receipts}
+                    for gid in chunk:
+                        if gid not in resolved_chunk_ids and gid not in receipt_chunk_ids:
+                            shard_receipts.append(_public_failure_receipt(
+                                gid, http_status=None, reason="missing_response",
+                            ))
+        except InterruptedError:
+            raise
+        except Exception as caught:
+            shard_error = _safe_browser_error(caught)
+            leftover = [gid for gid in shard if gid not in shard_payloads]
+            leftover = [gid for gid in leftover if gid not in {str(row.get("gemrateId")) for row in shard_receipts}]
+            shard_receipts.extend(
+                _public_failure_receipt(gid, http_status=None, reason=shard_error)
+                for gid in leftover
+            )
         return shard_payloads, shard_receipts, shard_attempted, shard_error
 
     if pending:
@@ -1886,21 +1957,30 @@ def collect_public_card_details(
         if worker_count == 1:
             payloads, failure_receipts, attempted, error = _run_shard(pending, "", 0.0)
         else:
-            from concurrent.futures import ThreadPoolExecutor
+            from concurrent.futures import ThreadPoolExecutor, as_completed
 
             shards = [pending[offset::worker_count] for offset in range(worker_count)]
-            with ThreadPoolExecutor(max_workers=worker_count) as pool:
+            pool = ThreadPoolExecutor(max_workers=worker_count)
+            try:
                 futures = [
                     pool.submit(_run_shard, shard, f"w{offset + 1} ", offset * 1.5)
                     for offset, shard in enumerate(shards)
                 ]
-                for future in futures:
+                for future in as_completed(futures):
                     shard_payloads, shard_receipts, shard_attempted, shard_error = future.result()
                     payloads.update(shard_payloads)
                     failure_receipts.extend(shard_receipts)
                     attempted += shard_attempted
                     if shard_error and error is None:
                         error = shard_error
+            except BaseException:
+                cancel_event.set()
+                for future in futures:
+                    future.cancel()
+                pool.shutdown(wait=True, cancel_futures=True)
+                raise
+            else:
+                pool.shutdown(wait=True)
     resolved_ids = set(payloads)
     receipt_ids = {str(row.get("gemrateId")) for row in failure_receipts}
     for gid in pending:
@@ -2311,6 +2391,9 @@ def main(argv=None) -> int:
     d.add_argument("--workers", type=int, default=4,
                    help="parallel browsers for the public-card-page pass; the slow retry "
                         "pass always runs single-worker")
+    d.add_argument("--run-suffix", help="unique lowercase suffix for parallel V2 shards")
+    d.add_argument("--skip-grader-volume", action="store_true",
+                   help="parallel shard: leave the one shared grader-volume capture to shard 0")
     d.add_argument("--volume-slug", help="monthly recap slug for grader volume, e.g. june-2026-recap")
     d.set_defaults(fn=cmd_daily)
 

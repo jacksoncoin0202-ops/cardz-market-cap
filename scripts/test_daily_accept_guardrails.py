@@ -39,6 +39,11 @@ assert receipt["awaitingFreshPrice"] == 8
 assert "ranks" not in receipt
 print("POSITIVE_OK receipt carries accepted, ranked, awaiting, and generation sha")
 
+src = Path(R.__file__).read_text(encoding="utf-8")
+assert "SET SESSION innodb_lock_wait_timeout=30" in src
+assert "SET SESSION lock_wait_timeout=30" in src
+print("POSITIVE_OK daily-accept sets 30s lock wait timeouts")
+
 # The measured 08-31 failure (1,314 -> 369 ranked) must stop before any
 # canonical row is written.
 try:

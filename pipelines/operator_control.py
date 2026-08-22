@@ -17,7 +17,10 @@ import statistics
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
-from collection_contract import CHECKPOINT_ADAPTERS  # noqa: E402
+from collection_contract import (  # noqa: E402
+    CHECKPOINT_ADAPTERS,
+    LIVE_EBAY_SOLD_SOURCE_CODES,
+)
 from qualified_pool_operator import db, load_env  # noqa: E402
 from runtime_paths import assert_runtime_root  # noqa: E402
 import operator_fe_export as fe  # noqa: E402
@@ -32,7 +35,11 @@ RELAXED_POLICY_SHA256 = "b316374547268c88616cf1b9220f9797dd11b720fdbe26ff6a77825
 TONIGHT_CARD_COUNT = 762
 TONIGHT_BACKLOG_COUNT = 776
 COLLECT_REGISTRY_PATH = OUT_DIR / "collect" / "collect_registry.jsonl"
+CHECKPOINT_SOFT_FAILURES_PATH = OUT_DIR / "collect" / "checkpoint_soft_failures.json"
 CHECKPOINT_SLA_HOURS = 36
+# 少數量紅卡唔准擋成日 bake／推 live（2026-08-17）。
+# 健康 stream < 97% 先硬停；97% 或以上照出街，紅卡留 soft-failure 報告。
+CHECKPOINT_MIN_HEALTHY_RATIO = 0.97
 CANONICAL_IMAGE_POLICY_ID = "canonical-026-snk-en-exact-first-v1"
 # Compatibility name for older callers. 026 applies the policy to all 762 cards,
 # never to a rank-dependent Top-100 overlay.
@@ -326,7 +333,11 @@ def _trim_mean_prices(candidates: list[dict]) -> dict | None:
         return kept or list(pool)
 
     snk = [c for c in candidates if _is_snk_source(c.get("source_code"))]
-    peers = [c for c in candidates if str(c.get("source_code") or "") in {"ebay", "pricecharting"}]
+    peers = [
+        c
+        for c in candidates
+        if str(c.get("source_code") or "") in set(LIVE_EBAY_SOLD_SOURCE_CODES)
+    ]
     fallback = [c for c in candidates if not _is_snk_source(c.get("source_code"))]
 
     if snk:
@@ -376,8 +387,9 @@ def _sales_unit_authority(
 ) -> dict[int, dict]:
     """Compose display price from completed sales unit prices (qty unitized when present).
 
-    Polaris (DADDY 2026-08-03):
-    - EN chain uses eBay sales (`ebay` -> authority_code ebay_sales)
+    Polaris (DADDY 2026-08-03, 2026-08-19 sold-source fix):
+    - EN chain uses live eBay solds (C11 `pricecharting` rows) labeled
+      authority_code ebay_sales. Never `source_code='ebay'` (dead G10 archive).
     - JA/other chain uses SNK sales (`snkrdunk/snk/snk_psa10` -> snk_sales)
     - Prefer last 30d; if sparse take latest max_rows
     - Require >= min_n after extreme trim; median of survivors
@@ -512,11 +524,12 @@ def _pick_prefer_sources(rows: list[dict], prefer: tuple[str, ...]) -> dict | No
 def latest_prices(cur, variant_ids):
     """Pick display/authority price per variant.
 
-    Polaris pricing (DADDY 2026-08-03 review):
-    - EN cards: eBay sales 30d primary; else eBay then PriceCharting reference.
-      SNK does not hard-top EN boards (JP market ≠ EN truth).
+    Polaris pricing (DADDY 2026-08-03 review; 2026-08-19 sold-source fix):
+    Daily board quotes are `current_quote_revision` (pricecharting / SNK),
+    not this function. If this composer is called:
+    - EN: live C11 eBay solds (`LIVE_EBAY_SOLD_SOURCE_CODES`) 30d primary;
+      else PriceCharting guide. Never G10 `source_code='ebay'`.
     - JA / other: SNK sales 30d primary; else SNK reference only.
-      eBay/PC do not hard-top JA boards (unless SNK extreme-high guard in trim path).
     - g10_kline still banned everywhere.
     """
     if not variant_ids:
@@ -528,13 +541,13 @@ def latest_prices(cur, variant_ids):
 
     best: dict[int, dict] = {}
 
-    # --- EN chain: eBay first ---
+    # --- EN chain: live C11 eBay solds first ---
     if en_ids:
         best.update(
             _sales_unit_authority(
                 cur,
                 en_ids,
-                source_codes=("ebay",),
+                source_codes=LIVE_EBAY_SOLD_SOURCE_CODES,
                 authority_code="ebay_sales",
                 min_n=3,
                 lookback_days=30,
@@ -544,9 +557,9 @@ def latest_prices(cur, variant_ids):
         )
         missing_en = [vid for vid in en_ids if vid not in best]
         if missing_en:
-            by_vid = _latest_price_rows(cur, missing_en, ("ebay", "pricecharting"))
+            by_vid = _latest_price_rows(cur, missing_en, ("pricecharting",))
             for vid, rows in by_vid.items():
-                picked = _pick_prefer_sources(rows, ("ebay", "pricecharting"))
+                picked = _pick_prefer_sources(rows, ("pricecharting",))
                 if picked is not None:
                     best[vid] = picked
         # Residual only: if still no EN peer price/sales, allow SNK so board is not blank.
@@ -608,9 +621,9 @@ def latest_prices(cur, variant_ids):
         # Residual only: JA with no SNK sales/ref can use PC/eBay so board not blank.
         still_other = [vid for vid in other_ids if vid not in best]
         if still_other:
-            by_vid = _latest_price_rows(cur, still_other, ("pricecharting", "ebay"))
+            by_vid = _latest_price_rows(cur, still_other, ("pricecharting",))
             for vid, rows in by_vid.items():
-                picked = _pick_prefer_sources(rows, ("pricecharting", "ebay"))
+                picked = _pick_prefer_sources(rows, ("pricecharting",))
                 if picked is not None:
                     best[vid] = picked
 
@@ -1651,11 +1664,7 @@ def _checkpoint_stream_key(variant_id: int, external_id: Any) -> str:
     return f"{int(variant_id)}:{str(external_id or '').strip()}"[:100]
 
 
-def _active_checkpoint_gate(cur, *, active_ids: set[int]) -> dict[str, Any]:
-    registry = _read_jsonl(COLLECT_REGISTRY_PATH, "active collect registry")
-    registry_ids = {int(row["variantId"]) for row in registry}
-    if registry_ids != active_ids:
-        raise RuntimeError("collect registry does not match the current active universe")
+def _load_checkpoint_index(cur) -> dict[tuple[str, str], dict[str, Any]]:
     placeholders = ",".join(["%s"] * len(CHECKPOINT_ADAPTERS))
     cur.execute(
         f"""
@@ -1666,12 +1675,119 @@ def _active_checkpoint_gate(cur, *, active_ids: set[int]) -> dict[str, Any]:
         """,
         CHECKPOINT_ADAPTERS,
     )
-    checkpoints = {
+    return {
         (str(row["source_code"]), str(row["stream_key"])): row
         for row in cur.fetchall()
     }
+
+
+def missing_checkpoint_streams(
+    cur,
+    *,
+    registry: list[dict[str, Any]] | None = None,
+    adapters: tuple[str, ...] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Registry streams with no last_effective_at. One function, gate + first-stock."""
+    if registry is None:
+        registry = _read_jsonl(COLLECT_REGISTRY_PATH, "active collect registry")
+    checkpoints = _load_checkpoint_index(cur)
+    wanted = adapters or CHECKPOINT_ADAPTERS
+    missing: dict[str, list[dict[str, Any]]] = {}
+    for adapter in wanted:
+        adapter_missing: list[dict[str, Any]] = []
+        for row in registry:
+            if row.get("adapter") != adapter:
+                continue
+            stream_key = _checkpoint_stream_key(int(row["variantId"]), row.get("externalId"))
+            checkpoint = checkpoints.get((adapter, stream_key))
+            stamp = (checkpoint or {}).get("last_effective_at")
+            if checkpoint is None or stamp is None:
+                adapter_missing.append(
+                    {
+                        "variantId": int(row["variantId"]),
+                        "externalId": row.get("externalId"),
+                        "streamKey": stream_key,
+                    }
+                )
+        missing[adapter] = adapter_missing
+    return missing
+
+
+def _format_checkpoint_gate_error(
+    adapter: str,
+    *,
+    streams: int,
+    missing_ids: list[int],
+    max_age: float | None,
+    stale_ids: list[int] | None = None,
+    healthy_ratio: float | None = None,
+) -> str:
+    shown = sorted(missing_ids)[:20]
+    stale_shown = sorted(stale_ids or [])[:20]
+    return (
+        f"checkpoint gate failed {adapter}: streams={streams} "
+        f"missing={len(missing_ids)} missingVariantIds={shown} "
+        f"stale={len(stale_ids or [])} staleVariantIds={stale_shown} "
+        f"healthyRatio={healthy_ratio} maxAgeHours={max_age}"
+    )
+
+
+def checkpoint_adapter_verdict(
+    *,
+    streams: int,
+    missing_ids: list[int],
+    stale_ids: list[int],
+    min_healthy_ratio: float = CHECKPOINT_MIN_HEALTHY_RATIO,
+) -> dict[str, Any]:
+    """硬停只計未有 checkpoint。過期 stream（尤其 snk_en_image residual）只警告。
+
+    2026-08-17 16:30／18:30：709/843 張圖過 36h SLA，健康比 16%，refresh
+    連 bake 都冇。圖根本唔係每日 incr。缺 checkpoint ≥ 3% 先硬停。
+    """
+    if streams <= 0:
+        return {
+            "hard": True,
+            "okStreams": 0,
+            "healthyRatio": 0.0,
+            "redIds": [],
+            "missingIds": [],
+            "staleIds": [],
+        }
+    missing_u = sorted({int(value) for value in missing_ids})
+    stale_u = sorted(
+        {int(value) for value in stale_ids if int(value) not in set(missing_u)}
+    )
+    red = missing_u + stale_u
+    present = streams - len(missing_u)
+    ratio = present / streams if streams else 0.0
+    return {
+        "hard": ratio < float(min_healthy_ratio),
+        "okStreams": max(present, 0),
+        "healthyRatio": ratio,
+        "redIds": red,
+        "missingIds": missing_u,
+        "staleIds": stale_u,
+    }
+
+
+def _write_checkpoint_soft_failures(payload: dict[str, Any]) -> Path:
+    CHECKPOINT_SOFT_FAILURES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CHECKPOINT_SOFT_FAILURES_PATH.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n",
+        encoding="utf-8",
+    )
+    return CHECKPOINT_SOFT_FAILURES_PATH
+
+
+def _active_checkpoint_gate(cur, *, active_ids: set[int]) -> dict[str, Any]:
+    registry = _read_jsonl(COLLECT_REGISTRY_PATH, "active collect registry")
+    registry_ids = {int(row["variantId"]) for row in registry}
+    if registry_ids != active_ids:
+        raise RuntimeError("collect registry does not match the current active universe")
+    checkpoints = _load_checkpoint_index(cur)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     polls: dict[str, Any] = {}
+    soft_failures: list[dict[str, Any]] = []
     for adapter in CHECKPOINT_ADAPTERS:
         streams = [row for row in registry if row.get("adapter") == adapter]
         if not streams:
@@ -1683,42 +1799,101 @@ def _active_checkpoint_gate(cur, *, active_ids: set[int]) -> dict[str, Any]:
         if len(keys) != len(set(keys)):
             raise RuntimeError(f"active registry has duplicate stream keys for {adapter}")
         missing: list[int] = []
+        stale: list[int] = []
         stamps: list[datetime] = []
         run_ids: set[int] = set()
         for row, stream_key in zip(streams, keys):
+            variant_id = int(row["variantId"])
             checkpoint = checkpoints.get((adapter, stream_key))
             stamp = (checkpoint or {}).get("last_effective_at")
             if checkpoint is None or stamp is None:
-                missing.append(int(row["variantId"]))
+                missing.append(variant_id)
                 continue
             if stamp.tzinfo is not None:
                 stamp = stamp.astimezone(timezone.utc).replace(tzinfo=None)
+            age_hours = (now - stamp).total_seconds() / 3600
+            if age_hours > CHECKPOINT_SLA_HOURS:
+                stale.append(variant_id)
+                continue
             stamps.append(stamp)
             if checkpoint.get("last_run_id") is not None:
                 run_ids.add(int(checkpoint["last_run_id"]))
         oldest = min(stamps) if stamps else None
         newest = max(stamps) if stamps else None
         max_age = (now - oldest).total_seconds() / 3600 if oldest else None
-        if missing or max_age is None or max_age > CHECKPOINT_SLA_HOURS:
+        verdict = checkpoint_adapter_verdict(
+            streams=len(streams),
+            missing_ids=missing,
+            stale_ids=stale,
+        )
+        if verdict["hard"]:
             raise RuntimeError(
-                f"checkpoint gate failed {adapter}: streams={len(streams)} "
-                f"missing={len(missing)} maxAgeHours={max_age}"
+                _format_checkpoint_gate_error(
+                    adapter,
+                    streams=len(streams),
+                    missing_ids=missing,
+                    stale_ids=stale,
+                    healthy_ratio=verdict["healthyRatio"],
+                    max_age=max_age,
+                )
+            )
+        for variant_id in verdict["missingIds"]:
+            soft_failures.append(
+                {
+                    "adapter": adapter,
+                    "variantId": variant_id,
+                    "reason": "missing",
+                }
+            )
+        for variant_id in verdict["staleIds"]:
+            soft_failures.append(
+                {
+                    "adapter": adapter,
+                    "variantId": variant_id,
+                    "reason": "stale",
+                }
             )
         polls[adapter] = {
             "expectedStreams": len(streams),
             "checkpointedStreams": len(stamps),
-            "missingStreams": len(missing),
-            "oldestSuccessAt": oldest.isoformat(sep=" "),
-            "newestSuccessAt": newest.isoformat(sep=" "),
-            "oldestAgeHours": round(max_age, 2),
+            "missingStreams": len(verdict["missingIds"]),
+            "staleStreams": len(verdict["staleIds"]),
+            "healthyRatio": round(verdict["healthyRatio"], 6),
+            "softFail": bool(verdict["redIds"]),
+            "oldestSuccessAt": oldest.isoformat(sep=" ") if oldest else None,
+            "newestSuccessAt": newest.isoformat(sep=" ") if newest else None,
+            "oldestAgeHours": round(max_age, 2) if max_age is not None else None,
             "runIds": sorted(run_ids),
             "slaOk": True,
+            "missingVariantIds": verdict["missingIds"][:20],
+            "staleVariantIds": verdict["staleIds"][:20],
         }
-    return {
+    report = {
         "asOf": utc_now(),
         "slaHours": CHECKPOINT_SLA_HOURS,
+        "minHealthyRatio": CHECKPOINT_MIN_HEALTHY_RATIO,
+        "softFailureCount": len(soft_failures),
+        "softFailures": soft_failures,
+        "reportPath": str(CHECKPOINT_SOFT_FAILURES_PATH),
         "polls": polls,
     }
+    written = _write_checkpoint_soft_failures(report)
+    if soft_failures:
+        print(
+            json.dumps(
+                {
+                    "phase": "checkpoint-gate-soft-warning",
+                    "held": len(soft_failures),
+                    "minHealthyRatio": CHECKPOINT_MIN_HEALTHY_RATIO,
+                    "reportPath": str(written),
+                    "softFailures": soft_failures,
+                },
+                ensure_ascii=False,
+                default=str,
+            ),
+            flush=True,
+        )
+    return report
 
 
 def cmd_freeze_active_sources_from_checkpoints(*, actor: str, authorization_note: str) -> dict[str, Any]:

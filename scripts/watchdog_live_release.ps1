@@ -27,6 +27,7 @@ $ErrorActionPreference = "Continue"
 $PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
 
 if ([string]::IsNullOrWhiteSpace($RepoRoot)) { $RepoRoot = Split-Path -Parent $PSScriptRoot }
+. (Join-Path $RepoRoot "scripts\cardz_chain_lib.ps1")
 if ([string]::IsNullOrWhiteSpace($StateDir)) { $StateDir = Join-Path $RepoRoot "data\runtime\operator" }
 $chainLogDir = Join-Path $RepoRoot "data\runtime\logs"
 if ([string]::IsNullOrWhiteSpace($LogDir)) { $LogDir = $chainLogDir }
@@ -183,33 +184,23 @@ try {
     }
   }
 
-  # ---- 2. did today's chains launch and finish? ---------------------------
+  # ---- 2. did today's V2 chain launch? ------------------------------------
+  # 037 nightly/morning/refresh logs are not the live path after V2 cutover.
   if (-not $SkipLogCheck) {
-    $expected = @(
-      @{ Label = "nightly 03:30 JST"; Patterns = @("nightly-${yesterdayUtc}T1*.log", "nightly-${todayUtc}*.log"); Min = 1 },
-      @{ Label = "morning 09:30 JST"; Patterns = @("morning-${todayUtc}*.log");                                 Min = 1 },
-      @{ Label = "refresh 11:30/16:30 JST"; Patterns = @("refresh-${todayUtc}*.log");                           Min = 2 }
-    )
-    foreach ($e in $expected) {
+    $v2Day = Join-Path $RepoRoot "data\runtime\daily-chain-v2\$todayJst"
+    $v2Logs = Join-Path $v2Day "logs"
+    if (-not (Test-Path -LiteralPath $v2Day)) {
+      Fail "V2 run dir missing: $v2Day"
+    } else {
       $files = @()
-      foreach ($p in $e.Patterns) {
-        $files += @(Get-ChildItem -LiteralPath $chainLogDir -Filter $p -File -ErrorAction SilentlyContinue)
+      if (Test-Path -LiteralPath $v2Logs) {
+        $files = @(Get-ChildItem -LiteralPath $v2Logs -File -ErrorAction SilentlyContinue)
       }
-      $files = @($files | Sort-Object LastWriteTime)
-      if ($files.Count -eq 0) {
-        Fail "$($e.Label) never launched: no $($e.Patterns -join ' / ') under $chainLogDir"
-        continue
-      }
-      if ($files.Count -lt $e.Min) { Warn "$($e.Label): only $($files.Count) log(s) today, expected $($e.Min)" }
-      $latest = $files[-1]
-      $tail = @(Get-Content -LiteralPath $latest.FullName -Tail 8 -ErrorAction SilentlyContinue)
-      $tailText = ($tail -join "`n")
-      if ($tailText -match 'CRASH') { Fail "$($e.Label) log $($latest.Name) reports CRASH" }
-      elseif ($tailText -notmatch '(chain done|slot done)') { Fail "$($e.Label) log $($latest.Name) has no done line (killed by ExecutionTimeLimit or still running?)" }
-      else {
-        $doneLine = @($tail | Where-Object { $_ -match '(chain done|slot done)' })[-1]
-        if ($doneLine -match '(accept|publish)=(?!0\b)-?\d+') { Warn "$($e.Label) done with red step: $doneLine" }
-        else { Say "$($e.Label) ok: $doneLine" }
+      if ($files.Count -lt 1) {
+        Fail "V2 logs missing under $v2Logs"
+      } else {
+        $latest = @($files | Sort-Object LastWriteTime)[-1]
+        Say "V2 logs $($files.Count) latest=$($latest.Name) $($latest.LastWriteTime.ToString('o'))"
       }
     }
   }

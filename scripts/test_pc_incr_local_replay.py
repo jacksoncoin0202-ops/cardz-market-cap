@@ -79,6 +79,18 @@ def main() -> int:
             report_old["networkReasons"].get("1"),
             "local_exact_html_exceeds_36h_sla",
         )
+
+        os.utime(html_path, (mid, mid))
+        replayed_fn, network_fn, report_fn = cc.partition_local_pc_stock_pages(
+            [item], mode="incr", dry_run=False, force_network=True
+        )
+        check("force_network 10.5h 唔 replay", [i["variantId"] for i in replayed_fn], [])
+        check("force_network 10.5h 要 CDP", [i["variantId"] for i in network_fn], [1])
+        check(
+            "force_network 原因",
+            report_fn["networkReasons"].get("1"),
+            "operator_force_network",
+        )
     finally:
         cc._pc_subset_map = original_map
         deriv.validate_pc_psa10 = original_validate

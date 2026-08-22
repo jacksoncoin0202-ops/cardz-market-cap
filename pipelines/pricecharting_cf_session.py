@@ -43,6 +43,7 @@ def _is_cf(title: str, html: str) -> bool:
     return (
         "just a moment" in t
         or "just a moment" in h
+        or "しばらく" in (title or "")
         or "challenge-platform" in h
         or "cf-browser-verification" in h
         or "checking your browser" in h
@@ -109,10 +110,13 @@ def _wait_clear(page, timeout_s: int = 180) -> bool:
 
 
 def cmd_connect(port: int, url: str, timeout_s: int) -> int:
+    from cdp_identity import require_session_ready
+
+    require_session_ready(port)
     endpoint = f"http://127.0.0.1:{port}"
     print(f"Connecting CDP {endpoint}", flush=True)
     with sync_playwright() as p:
-        browser = p.chromium.connect_over_cdp(endpoint)
+        browser = p.chromium.connect_over_cdp(endpoint, timeout=15000)
         context = browser.contexts[0] if browser.contexts else browser.new_context()
         page = None
         # Prefer existing pricecharting tab
@@ -195,12 +199,24 @@ def _cmd_fetch_once(
 
     # 1) Prefer CDP real Chrome
     if prefer_cdp:
+        try:
+            from .cdp_identity import fetch_targets, fetch_version, reject_reason
+        except ImportError:
+            from cdp_identity import fetch_targets, fetch_version, reject_reason
+
         with sync_playwright() as p:
             for port in _try_cdp_ports():
                 endpoint = f"http://127.0.0.1:{port}"
                 try:
+                    why = reject_reason(fetch_version(port))
+                    if why:
+                        print(f"fetch: CDP {port} skip (identity {why})", flush=True)
+                        continue
+                    if fetch_targets(port) is None:
+                        print(f"fetch: CDP {port} skip (jammed-targets)", flush=True)
+                        continue
                     print(f"fetch: try CDP {endpoint}", flush=True)
-                    browser = p.chromium.connect_over_cdp(endpoint)
+                    browser = p.chromium.connect_over_cdp(endpoint, timeout=15000)
                 except Exception as e:
                     print(f"fetch: CDP {port} skip ({e})", flush=True)
                     continue

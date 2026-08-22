@@ -362,19 +362,13 @@ def pick_resolve_url(links: list[str], name: str, number: str, set_name: str) ->
 
 
 def ensure_cdp_or_raise(port: int = 9333) -> None:
-    """Never fetch without live CDP; revive through the registered helper."""
+    """Never fetch without live headed Windows CDP; revive through the helper."""
 
-    import urllib.request
+    from cdp_identity import reject_reason, fetch_version
 
     def live() -> bool:
-        try:
-            urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=2)
-            return True
-        except Exception:
-            return False
+        return reject_reason(fetch_version(port)) is None
 
-    if live():
-        return
     try:
         if LOCK.exists():
             LOCK.unlink(missing_ok=True)
@@ -392,7 +386,7 @@ def ensure_cdp_or_raise(port: int = 9333) -> None:
                 str(port),
             ],
             cwd=str(ROOT),
-            timeout=60,
+            timeout=90,
             check=False,
         )
     if not live():

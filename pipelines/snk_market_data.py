@@ -1141,6 +1141,7 @@ def ingest_kline_jsonls(
         "cardsAccepted": 0,
         "pricePoints": 0,
         "pricePointsAlreadyPersisted": 0,
+        "quoteHeadsRestamped": 0,
         "sourceRowsDeduped": 0,
         "skippedNoExactIdentity": 0,
         "skippedCondition": 0,
@@ -1300,7 +1301,19 @@ def ingest_kline_jsonls(
                 # old value. Older days are already persisted and stay untouched.
                 cutoff = (last_day - timedelta(days=KLINE_TAIL_REWRITE_DAYS)).isoformat()
                 to_write = [(day, price_jpy) for day, price_jpy in valid if day >= cutoff]
-                stats["pricePointsAlreadyPersisted"] += len(valid) - len(to_write)
+                skipped_as_persisted = len(valid) - len(to_write)
+                # A provider may retract newer candles.  In that case the
+                # current snapshot's real head can be older than the DB append
+                # index and fall outside the tail-rewrite window.  The chart
+                # history remains append-only, but the head still has to be
+                # replayed so this successful daily check mints a fresh quote
+                # revision instead of leaving the variant permanently stale.
+                source_head = max(valid, key=lambda point: point[0])
+                if all(day != source_head[0] for day, _price in to_write):
+                    to_write.append(source_head)
+                    skipped_as_persisted -= 1
+                    stats["quoteHeadsRestamped"] += 1
+                stats["pricePointsAlreadyPersisted"] += skipped_as_persisted
         source_row_sha256 = hashlib.sha256(
             json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()

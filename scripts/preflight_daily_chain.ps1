@@ -106,7 +106,7 @@ if ($needCdp) {
   $ensure = Join-Path $PSScriptRoot "ensure_chrome_cdp.ps1"
   if (-not (Test-Path -LiteralPath $ensure)) { SoftFail "ensure_chrome_cdp.ps1 missing at $ensure" }
   else {
-    $cdp = Invoke-Capped "powershell.exe" @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$ensure`"", "-Port", "$CdpPort") 45
+    $cdp = Invoke-Capped "powershell.exe" @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$ensure`"", "-Port", "$CdpPort") 90
     if ($cdp.Exit -eq 0) { Say "cdp ok $($cdp.Out)" } else { SoftFail "cdp $CdpPort down: $($cdp.Out)" }
   }
 }

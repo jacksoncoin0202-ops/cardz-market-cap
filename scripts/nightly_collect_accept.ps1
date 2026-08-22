@@ -13,6 +13,7 @@ New-Item -ItemType Directory -Force $logDir | Out-Null
 $stamp = (Get-Date).ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'")
 $log = Join-Path $logDir "nightly-$stamp.log"
 $crashLog = Join-Path $env:TEMP "cardz-036-nightly-last.log"
+. (Join-Path $PSScriptRoot "cardz_chain_lib.ps1")
 
 Set-Location $repo
 try {
@@ -38,8 +39,16 @@ try {
         exit 1
     }
 
-    & $py -X utf8 -u "pipelines\collect_control.py" incr --adapter http *>> $log
-    $collectExit = $LASTEXITCODE
+    $idle = Wait-CardzChainIdle -WaitSeconds 300 -ExcludeTaskNames @("CARDZ-037-Nightly-Collect-Accept") -LogPath $log
+    if (-not $idle.Idle) {
+        "[$stamp] sibling still running $($idle.Busy -join ','); nightly continues with capped HTTP" | Tee-Object -FilePath $log -Append
+    }
+
+    # Cap must be < Task ExecutionTimeLimit (PT5H30M) so accept still runs.
+    # GemRate child timeout is 10800s; leave room for SNK + accept.
+    $collectExit = Invoke-CappedProcess -File $py -Arguments @(
+        "-X", "utf8", "-u", "pipelines\collect_control.py", "incr", "--adapter", "http"
+    ) -Seconds 14400 -WorkingDirectory $repo -LogPath $log
 
     & $py -X utf8 -u "pipelines\sealed_daily.py" collect --adapter sealed_snk *>> $log
     $boxSnkExit = $LASTEXITCODE
@@ -53,6 +62,12 @@ try {
         "[$stamp] discovery failed exit=$discoverExit; daily-accept still runs on the current universe" | Tee-Object -FilePath $log -Append
     }
 
+    & $py -X utf8 -u "pipelines\collect_control.py" first-stock --adapter http *>> $log
+    $firstStockExit = $LASTEXITCODE
+    if ($firstStockExit -ne 0) {
+        "[$stamp] first-stock http failed exit=$firstStockExit; daily-accept still runs" | Tee-Object -FilePath $log -Append
+    }
+
     & $py -X utf8 -u "pipelines\operator_control.py" daily-accept *>> $log
     $acceptExit = $LASTEXITCODE
 
@@ -60,7 +75,7 @@ try {
     "[$done] nightly chain done collect=$collectExit discover=$discoverExit accept=$acceptExit boxSnk=$boxSnkExit boxYahoo=$boxYahooExit" | Tee-Object -FilePath $log -Append
     Copy-Item -Force $log $crashLog -ErrorAction SilentlyContinue
     $chainExit = 0
-    if ($collectExit -ne 0 -or $discoverExit -ne 0 -or $acceptExit -ne 0) { $chainExit = 1 }
+    if ($acceptExit -ne 0) { $chainExit = 1 }
     & $py -X utf8 -u "scripts\notify_hermes.py" chain --chain nightly --status "collect=$collectExit discover=$discoverExit accept=$acceptExit" --exit-code $chainExit --log $log --notify-on failure *>> $log
     exit $chainExit
 } catch {

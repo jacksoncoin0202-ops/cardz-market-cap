@@ -2,9 +2,10 @@
 # -*- coding: utf-8 -*-
 """CARDZ stock/incr collector control plane (Polaris era).
 
-Two operator modes only:
-  stock  - residual full pulls for gap ids
-  incr   - cursor/due exact-id deltas
+Operator modes:
+  stock       - residual full pulls for gap ids
+  incr        - cursor/due exact-id deltas
+  first-stock - only registry streams with no checkpoint (new activate)
 
 Does not revive archived run_daily factory. Display authority stays in operator_control.latest_prices.
 """
@@ -20,17 +21,27 @@ import sys
 import time
 import urllib.request
 from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
-from collection_contract import ADAPTER_LANE, CHECKPOINT_ADAPTERS  # noqa: E402
+from collection_contract import (  # noqa: E402
+    ADAPTER_LANE,
+    CHECKPOINT_ADAPTERS,
+    LIVE_EBAY_SOLD_SOURCE_CODES,
+)
 from qualified_pool_operator import db, load_env  # noqa: E402
-from operator_control import CHECKPOINT_SLA_HOURS, current_universe  # noqa: E402
+from operator_control import (  # noqa: E402
+    CHECKPOINT_SLA_HOURS,
+    current_universe,
+    missing_checkpoint_streams,
+)
 from runtime_paths import assert_runtime_root  # noqa: E402
 from native_image_resolver import ProcessedSnkDefaultImage, process_snk_default_image  # noqa: E402
 from snkrdunk_bulk import (  # noqa: E402
@@ -56,6 +67,18 @@ WINDOWS_PY = ROOT / ".venv-backend-windows/Scripts/python.exe"
 # `manual` = 唔入任何自動鏈，要人手 `--adapter <名>` 先行到。而家冇 adapter 喺
 # 呢類，個 group 留住係因為將來會有寫入形狀未 production-ready 嘅 lane。
 COLLECT_LEASE_CONTRACT = "mysql_advisory_adapter_lease_v1"
+# Adapter leases alone cannot serialize against daily-accept: 2026-08-16
+# 16:30 refresh sat silent for 60 minutes on MDL/row locks while a human
+# collect held cardz:collect:* . Mutating collect commands take the same
+# operator e2e lease so the overlap fails in seconds instead of hanging.
+COLLECT_E2E_LEASE_COMMANDS = frozenset({
+    "stock",
+    "incr",
+    "first-stock",
+    "prune-checkpoints",
+    "commit-snk-price-receipt",
+    "commit-snk-binding-delta",
+})
 # Per-item failure streaks and per-item success receipts live beside the other
 # collect runtime state. The MySQL stream checkpoint remains the resume
 # authority; these files carry the per-item evidence between daily runs.
@@ -64,6 +87,9 @@ ITEM_CHECKPOINT_PATH = OUT_DIR / "collect_item_checkpoints.json"
 QUARANTINE_CONTRACT = "collect_item_quarantine_v1"
 ITEM_CHECKPOINT_CONTRACT = "collect_item_checkpoint_v1"
 QUARANTINE_THRESHOLD = 3  # consecutive failed runs before an item is skipped
+RUNTIME_STATE_LEASE = "cardz:collect:runtime-state:v2"
+DB_WRITER_LEASE = "cardz:collect:db-writer:v2"
+GEMRATE_PARALLEL_LEASE_SCOPES = ("0-of-4", "1-of-4", "2-of-4", "3-of-4")
 PY = sys.executable
 # Reporting freshness and the acceptance gate must quote the same number, so
 # take it from the gate rather than keeping a second copy that can drift.
@@ -90,6 +116,11 @@ REFRESH_DUE_HOURS = SLA_HOURS - LANE_INTERVAL_HOURS
 # replay，Chrome 只打過期／壞頁。sold 表 30 行／2 日燒滿嘅代價：極熱卡可能
 # 少抄幾行新成交，直到 HTML 過 SLA。
 PC_REFRESH_DUE_HOURS = 0.0
+GEMRATE_WEBSITE_BUDGET_SECONDS = 5400
+GEMRATE_CHILD_TIMEOUT_MAX_SECONDS = 4 * 3600
+# Same shape as GemRate: a hard cap, never 45*universe hours.
+# Healthy 2-tab fetch of ~1000 pages is ~35 min; 90 min is the lost-CDP bound.
+PC_CDP_CHILD_TIMEOUT_MAX_SECONDS = 90 * 60
 CARDZ_CDP_PORT = int(os.environ.get("CARDZ_CDP_PORT", "9333"))
 # 9222 is the Codex browser profile. Attaching there drives somebody else's
 # logged-in Chrome, and the ban on it lived only in AGENTS.md while this knob
@@ -104,6 +135,7 @@ SNK_EN_SOURCE_CODE = "snkrdunk"
 SNK_EN_FREEZE_SOURCE_CODE = "snkrdunk_en"
 SNK_EN_ACCEPTED_BY = "collect_control:snk_en_image"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+JST = ZoneInfo("Asia/Tokyo")
 
 
 @dataclass(frozen=True)
@@ -485,6 +517,68 @@ def _load_runtime_state(path: Path, contract: str) -> dict[str, Any]:
     return state
 
 
+@contextmanager
+def _runtime_state_lease():
+    """Serialize shared JSON read-modify-write across parallel V2 sources.
+
+    Atomic replace prevents torn bytes, but it does not prevent two processes
+    from loading the same old document and losing each other's adapter entry.
+    MySQL advisory locks work across WSL and Windows and are already part of
+    this collector's runtime contract.
+    """
+    load_env()
+    connection = db()
+    cursor = connection.cursor()
+    acquired = False
+    try:
+        cursor.execute("SELECT GET_LOCK(%s, 30) AS acquired", (RUNTIME_STATE_LEASE,))
+        row = cursor.fetchone() or {}
+        acquired = int(row.get("acquired") or 0) == 1
+        if not acquired:
+            raise RuntimeError("collect runtime-state lease timed out")
+        yield
+    finally:
+        try:
+            if acquired:
+                cursor.execute("SELECT RELEASE_LOCK(%s)", (RUNTIME_STATE_LEASE,))
+        finally:
+            connection.close()
+
+
+@contextmanager
+def _db_writer_lease(timeout_seconds: int = 120):
+    """Serialize short ingest/checkpoint transactions, never source fetches.
+
+    V2 deliberately runs provider network work in parallel.  Those workers
+    still converge on the same observation/checkpoint indexes, where parallel
+    inserts can deadlock even when their variant shards do not overlap.  The
+    advisory lease is held only around DB mutation so network concurrency is
+    preserved and an interrupted worker releases it with its connection.
+    """
+
+    load_env()
+    connection = db()
+    cursor = connection.cursor()
+    acquired = False
+    try:
+        cursor.execute(
+            "SELECT GET_LOCK(%s, %s) AS acquired",
+            (DB_WRITER_LEASE, max(1, int(timeout_seconds))),
+        )
+        row = cursor.fetchone() or {}
+        value = row.get("acquired") if isinstance(row, dict) else row[0]
+        acquired = int(value or 0) == 1
+        if not acquired:
+            raise RuntimeError("collect DB-writer lease timed out")
+        yield
+    finally:
+        try:
+            if acquired:
+                cursor.execute("SELECT RELEASE_LOCK(%s)", (DB_WRITER_LEASE,))
+        finally:
+            connection.close()
+
+
 def _quarantined_streams(adapter: str) -> dict[str, dict[str, Any]]:
     state = _load_runtime_state(QUARANTINE_PATH, QUARANTINE_CONTRACT)
     entries = state["adapters"].get(adapter) or {}
@@ -529,24 +623,25 @@ def _record_item_outcomes(
     """Advance per-item failure streaks; one success clears the item's entry."""
     if not succeeded and not failed:
         return
-    now = utc_now()
-    state = _load_runtime_state(QUARANTINE_PATH, QUARANTINE_CONTRACT)
-    entries = dict(state["adapters"].get(adapter) or {})
-    for item in succeeded:
-        entries.pop(_stream_key(int(item["variantId"]), item.get("externalId")), None)
-    for row in failed:
-        stream = _stream_key(int(row["variantId"]), row.get("externalId"))
-        previous = entries.get(stream) or {}
-        entries[stream] = {
-            "variantId": int(row["variantId"]),
-            "externalId": str(row.get("externalId") or ""),
-            "reason": str(row.get("error") or row.get("reason") or "unknown"),
-            "consecutiveFailures": int(previous.get("consecutiveFailures") or 0) + 1,
-            "lastAttempt": now,
-        }
-    state["adapters"][adapter] = entries
-    state["updatedAt"] = now
-    _write_json_atomic(QUARANTINE_PATH, state)
+    with _runtime_state_lease():
+        now = utc_now()
+        state = _load_runtime_state(QUARANTINE_PATH, QUARANTINE_CONTRACT)
+        entries = dict(state["adapters"].get(adapter) or {})
+        for item in succeeded:
+            entries.pop(_stream_key(int(item["variantId"]), item.get("externalId")), None)
+        for row in failed:
+            stream = _stream_key(int(row["variantId"]), row.get("externalId"))
+            previous = entries.get(stream) or {}
+            entries[stream] = {
+                "variantId": int(row["variantId"]),
+                "externalId": str(row.get("externalId") or ""),
+                "reason": str(row.get("error") or row.get("reason") or "unknown"),
+                "consecutiveFailures": int(previous.get("consecutiveFailures") or 0) + 1,
+                "lastAttempt": now,
+            }
+        state["adapters"][adapter] = entries
+        state["updatedAt"] = now
+        _write_json_atomic(QUARANTINE_PATH, state)
 
 
 def _persist_item_checkpoints(
@@ -564,36 +659,34 @@ def _persist_item_checkpoints(
     """
     if not items:
         return
-    now = utc_now()
-    payload_sha_by_external = payload_sha_by_external or {}
-    state = _load_runtime_state(ITEM_CHECKPOINT_PATH, ITEM_CHECKPOINT_CONTRACT)
-    entries = dict(state["adapters"].get(adapter) or {})
-    for item in items:
-        external = str(item.get("externalId") or "")
-        entries[_stream_key(int(item["variantId"]), external)] = {
-            "variantId": int(item["variantId"]),
-            "externalId": external,
-            "mode": mode,
-            "lastSuccessAt": now,
-            "payloadSha256": payload_sha_by_external.get(external),
-            "runId": run_id,
-        }
-    state["adapters"][adapter] = entries
-    state["updatedAt"] = now
-    _write_json_atomic(ITEM_CHECKPOINT_PATH, state)
+    with _runtime_state_lease():
+        now = utc_now()
+        payload_sha_by_external = payload_sha_by_external or {}
+        state = _load_runtime_state(ITEM_CHECKPOINT_PATH, ITEM_CHECKPOINT_CONTRACT)
+        entries = dict(state["adapters"].get(adapter) or {})
+        for item in items:
+            external = str(item.get("externalId") or "")
+            entries[_stream_key(int(item["variantId"]), external)] = {
+                "variantId": int(item["variantId"]),
+                "externalId": external,
+                "mode": mode,
+                "lastSuccessAt": now,
+                "payloadSha256": payload_sha_by_external.get(external),
+                "runId": run_id,
+            }
+        state["adapters"][adapter] = entries
+        state["updatedAt"] = now
+        _write_json_atomic(ITEM_CHECKPOINT_PATH, state)
 
 
 def ensure_cdp(port: int = 9333) -> dict[str, Any]:
-    """Ensure the one dedicated CARDZ CDP session before the leased PC run."""
-    try:
-        with urllib.request.urlopen(
-            f"http://127.0.0.1:{port}/json/version", timeout=2
-        ) as response:
-            payload = json.load(response)
-        if response.status == 200 and payload.get("webSocketDebuggerUrl"):
-            return {"ok": True, "port": port, "reused": True}
-    except Exception:  # noqa: BLE001
-        pass
+    """Ensure the one dedicated CARDZ CDP session before the leased PC run.
+
+    Always go through ensure_chrome_cdp.ps1. A 200 on /json/version is not
+    identity: WSL/Headless Chrome on 9333 answers 200 and must be evicted.
+    Version-only 200 is also not a usable session: a hung /json/list is a
+    jammed DevTools websocket and must recycle Chrome.
+    """
     ps1 = ROOT / "scripts" / "ensure_chrome_cdp.ps1"
     if not ps1.exists():
         return {"ok": False, "reason": "ensure_chrome_cdp.ps1 missing"}
@@ -610,7 +703,11 @@ def ensure_cdp(port: int = 9333) -> dict[str, Any]:
         str(port),
     ]
     try:
-        r = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True, timeout=90)
+        # A Windows executable launched through WSL interop must not inherit a
+        # /mnt/c/... working directory.  PowerShell treats that translated cwd
+        # inconsistently even though the explicit -File path is valid.
+        interop_cwd = str(ROOT) if sys.platform == "win32" else "/mnt/c/Windows/System32"
+        r = subprocess.run(cmd, cwd=interop_cwd, capture_output=True, text=True, timeout=90)
         return {
             "ok": r.returncode == 0,
             "exit": r.returncode,
@@ -821,14 +918,18 @@ def load_universe_rows(cur) -> list[dict[str, Any]]:
             if sc in s and s[sc]["max"] is not None:
                 if snk_sale_max is None or s[sc]["max"] > snk_sale_max:
                     snk_sale_max = s[sc]["max"]
-        ebay_sale_max = (s.get("ebay") or {}).get("max")
+        ebay_sale_max = None
+        for sc in LIVE_EBAY_SOLD_SOURCE_CODES:
+            hit = (s.get(sc) or {}).get("max")
+            if hit is not None and (ebay_sale_max is None or hit > ebay_sale_max):
+                ebay_sale_max = hit
         snk_price_max = None
         for sc in ("snk_psa10", "snkrdunk", "snk"):
             if sc in p and p[sc]["max"] is not None:
                 if snk_price_max is None or p[sc]["max"] > snk_price_max:
                     snk_price_max = p[sc]["max"]
         en_price_max = None
-        for sc in ("ebay", "pricecharting"):
+        for sc in LIVE_EBAY_SOLD_SOURCE_CODES:
             if sc in p and p[sc]["max"] is not None:
                 if en_price_max is None or p[sc]["max"] > en_price_max:
                     en_price_max = p[sc]["max"]
@@ -976,16 +1077,15 @@ def classify_needs(
             }
         )
 
-    # PriceCharting 唔係「英文卡專用源」。呢個 block 本來成段包喺 `if lang == "en"`
-    # 入面，於是 79 張日文卡明明已經有 exact 數字 PC product id，由第一日起就冇入過
-    # 增量隊列 —— PC 同 SNK 對同一張卡係可以並行採，唔應該由卡language 決定。
-    # 內層條件本身已經夠嚴：冇 exact product id 就唔會 poll，有 snkrdunk 就唔會走
-    # discovery，所以拆走呢層 language 閘唔會放寬任何 acceptance。
+    # PriceCharting 同 SNK 係並行源，唔係二揀一。有 exact SNK 唔等於唔使 PC。
+    # 2026-08-20：舊閘「有 SNK 就唔 bind PC」令 477 張（已入 universe、有 SNK、
+    # 冇 PC id）永遠唔入 bind／9333，今日 cap 停喺 1127/1604。
+    # 冇 exact 數字 PC product id → 仍然要 bind；有就 poll。兩者可以同卡並行。
     pc_external = str(ids.get("pricecharting") or "").strip()
     pc_exact_product = pc_external if pc_external.isdigit() else None
-    if not pc_exact_product and not ids.get("snkrdunk"):
-        needs.append({"adapter": "bind_pc_or_ebay", "modeNeeded": "bind", "externalId": None, "transport": "cdp_9333", "polarRole": "en_identity"})
-    elif pc_exact_product:
+    if not pc_exact_product:
+        needs.append({"adapter": "bind_pc_or_ebay", "modeNeeded": "bind", "externalId": None, "transport": "cdp_9333", "polarRole": "pc_identity"})
+    if pc_exact_product:
         external = pc_exact_product
         smode = _poll_mode(
             has_stock=bool(row["sales"]["ebayAny"]),
@@ -1043,18 +1143,49 @@ def write_registry(reg: list[dict[str, Any]]) -> Path:
     return REGISTRY_PATH
 
 
+# Daily-facing freshness clocks only.
+# G10 `source_code='ebay'` last wrote 2026-08-04 and is NOT the 9333
+# PriceCharting eBay-sold lane (C11 writes those as source_code='pricecharting').
+# Naming that archive `ebay_sales` made operators report 9333 dead. Do not add it back.
+# pc_sales SLA clock is fetched_at (poll time). sold_at is listing day at 00:00
+# and will go red overnight even when Chrome just finished a clean sweep.
+DAILY_FRESHNESS_STREAMS: tuple[tuple[str, str], ...] = (
+    (
+        "snk_sales",
+        "SELECT MAX(sold_at) m, COUNT(*) n FROM market_sale_observation "
+        "WHERE source_code IN ('snkrdunk','snk','snk_psa10')",
+    ),
+    (
+        "snk_price",
+        "SELECT MAX(effective_at) m, COUNT(*) n FROM market_price_observation "
+        "WHERE source_code IN ('snk_psa10','snkrdunk','snk')",
+    ),
+    (
+        "pc_sales",
+        "SELECT MAX(fetched_at) m, COUNT(*) n FROM market_sale_observation "
+        "WHERE source_code='pricecharting'",
+    ),
+    (
+        "pc_price",
+        "SELECT MAX(effective_at) m, COUNT(*) n FROM market_price_observation "
+        "WHERE source_code='pricecharting'",
+    ),
+    (
+        "gemrate_pop",
+        "SELECT MAX(effective_at) m, COUNT(*) n FROM market_grader_population_observation "
+        "WHERE source_code='gemrate'",
+    ),
+)
+PC_SALES_LISTING_SQL = (
+    "SELECT MAX(sold_at) m FROM market_sale_observation WHERE source_code='pricecharting'"
+)
+
+
 def freshness_summary(
     cur, registry: list[dict[str, Any]] | None = None
 ) -> dict[str, Any]:
     out = {"asOf": utc_now(), "slaHours": SLA_HOURS, "streams": {}, "polls": {}}
-    queries = [
-        ("snk_sales", "SELECT MAX(sold_at) m, COUNT(*) n FROM market_sale_observation WHERE source_code IN ('snkrdunk','snk','snk_psa10')"),
-        ("ebay_sales", "SELECT MAX(sold_at) m, COUNT(*) n FROM market_sale_observation WHERE source_code='ebay'"),
-        ("snk_price", "SELECT MAX(effective_at) m, COUNT(*) n FROM market_price_observation WHERE source_code IN ('snk_psa10','snkrdunk','snk')"),
-        ("ebay_price", "SELECT MAX(effective_at) m, COUNT(*) n FROM market_price_observation WHERE source_code='ebay'"),
-        ("pc_price", "SELECT MAX(effective_at) m, COUNT(*) n FROM market_price_observation WHERE source_code='pricecharting'"),
-        ("gemrate_pop", "SELECT MAX(effective_at) m, COUNT(*) n FROM market_grader_population_observation WHERE source_code='gemrate'"),
-    ]
+    queries = list(DAILY_FRESHNESS_STREAMS)
     if _migration_029_ready(cur):
         queries.append(
             (
@@ -1076,13 +1207,24 @@ def freshness_summary(
         # dead feed can hide behind that for a whole extra day. Say what is true:
         # ok requires the stamp to be in the past AND inside the SLA.
         future = age is not None and age < 0
-        out["streams"][name] = {
+        entry = {
             "maxAt": m.isoformat(sep=" ") if hasattr(m, "isoformat") else m,
             "rows": n,
             "ageHours": None if age is None else round(age, 2),
             "futureStamped": future,
             "slaOk": age is not None and 0 <= age <= SLA_HOURS,
         }
+        if name == "pc_sales":
+            entry["clock"] = "fetched_at"
+            entry["lane"] = "pricecharting_c11_ebay_sold"
+        out["streams"][name] = entry
+    if "pc_sales" in out["streams"]:
+        cur.execute(PC_SALES_LISTING_SQL)
+        listing = cur.fetchone()
+        listing_max = listing["m"] if isinstance(listing, dict) else listing[0]
+        out["streams"]["pc_sales"]["listingMaxAt"] = (
+            listing_max.isoformat(sep=" ") if hasattr(listing_max, "isoformat") else listing_max
+        )
     checkpoints = load_checkpoints(cur)
     for adapter in CHECKPOINT_ADAPTERS:
         expected = [
@@ -1406,12 +1548,88 @@ def _ingest_gemrate_manifest(
         conn.close()
 
 
+def gemrate_child_timeout_seconds(selected_count: int) -> int:
+    """Kill timer for gemrate_source.py daily.
+
+    Must NOT scale with universe size. ``10 * len(selected)`` on 1604 IDs
+    was 16040s — longer than the 4h Task Scheduler limit — so 2026-08-20's
+    morning chain died in GemRate and never reached PC/publish.
+    ``selected_count`` is accepted so call sites stay honest; it must not
+    increase the timeout.
+    """
+    del selected_count
+    return min(
+        max(2 * GEMRATE_WEBSITE_BUDGET_SECONDS, 900),
+        GEMRATE_CHILD_TIMEOUT_MAX_SECONDS,
+    )
+
+
+def pc_cdp_child_timeout_seconds(selected_count: int) -> int:
+    """Kill timer for pc_cdp_sold_refresh_win.py.
+
+    ``45 * len(selected)`` on 1028 IDs was 46260s. A wedged CDP tab then
+    looked alive for 12.8 hours while V2 heartbeated every 10s. Cap at 90
+    minutes; ``selected_count`` stays on the call site so it cannot silently
+    start scaling the timeout again.
+    """
+    del selected_count
+    return PC_CDP_CHILD_TIMEOUT_MAX_SECONDS
+
+
+def _reusable_gemrate_manifest(
+    selected: list[dict[str, Any]], safe_scope: str
+) -> tuple[Path, dict[str, Any]] | None:
+    """Resume V2 ingest from today's exact immutable shard receipt.
+
+    Fetch and ingest are separate durability boundaries.  If MySQL rejects the
+    short ingest transaction, retrying the provider network work is both slow
+    and semantically wrong: the completed manifest is already the source
+    receipt.  Reuse is deliberately strict to the same JST business date,
+    shard suffix and exact resolved external-ID set.
+    """
+
+    business_date = os.environ.get("CARDZ_V2_BUSINESS_DATE", "").strip()
+    if not (
+        os.environ.get("CARDZ_DAILY_CHAIN_V2") == "1"
+        and safe_scope
+        and re.fullmatch(r"\d{4}-\d{2}-\d{2}", business_date)
+    ):
+        return None
+    expected = {str(item.get("externalId") or "") for item in selected}
+    pattern = f"daily_*_{safe_scope}/manifest.json"
+    for path in sorted(
+        (ROOT / "data/private/gemrate/runs").glob(pattern),
+        key=lambda candidate: candidate.stat().st_mtime_ns,
+        reverse=True,
+    ):
+        try:
+            manifest = json.loads(path.read_text(encoding="utf-8"))
+            fetched_at = _parse_datetime(manifest.get("fetchedAt"))
+            resolved = {
+                str(row.get("gemrateId") or "")
+                for row in (manifest.get("resolved") or [])
+            }
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            continue
+        if (
+            fetched_at is not None
+            and fetched_at.astimezone(JST).date().isoformat() == business_date
+            and resolved == expected
+            and not manifest.get("mismatches")
+            and bool(manifest.get("promoted"))
+            and bool(manifest.get("promotable"))
+        ):
+            return path, manifest
+    return None
+
+
 def run_gemrate_pop(
     items: list[dict[str, Any]],
     *,
     mode: str,
     limit: int | None,
     dry_run: bool,
+    work_scope: str | None = None,
 ) -> dict[str, Any]:
     active, quarantined = _partition_quarantined("gemrate_pop", items)
     selected = _unique_items(active, limit)
@@ -1432,47 +1650,77 @@ def run_gemrate_pop(
         )
         return report
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    ids_path = OUT_DIR / f"gemrate_ids_{mode}.txt"
+    safe_scope = re.sub(r"[^a-z0-9-]+", "-", str(work_scope or "").lower()).strip("-")
+    ids_path = OUT_DIR / (
+        f"gemrate_ids_{mode}_{safe_scope}.txt" if safe_scope else f"gemrate_ids_{mode}.txt"
+    )
     ids = [str(item["externalId"]) for item in selected]
     ids_path.write_text("\n".join(ids) + "\n", encoding="utf-8")
     if dry_run:
         report.update({"dryRun": True, "checkpointed": 0})
         return report
 
-    before = set((ROOT / "data/private/gemrate/runs").glob("daily_*/manifest.json"))
-    command = [
-        PY,
-        "-X",
-        "utf8",
-        "pipelines/gemrate_source.py",
-        "daily",
-        "--ids-file",
-        str(ids_path),
-        "--speed",
-        "fast",
-        "--website-budget-seconds",
-        "5400",
-    ]
-    # The kill timer must leave headroom above the child's website budget
-    # (5400s): the child also runs the direct-API leg, the mirror pass and two
-    # grader-volume browser launches. Aliasing the two guaranteed a SIGKILL
-    # exactly when the website budget was actually needed.
-    report["run"] = _run(command, timeout=max(2 * 5400, 10 * len(selected)), dry_run=False)
-    # Exit 1 is the child's declared-partial signal (some IDs unresolved); the
-    # manifest still carries every resolved row, so per-item ingest continues.
-    exit_code = report["run"].get("exit")
-    if exit_code not in (0, 1):
-        report.update({"ok": False, "error": "gemrate_daily_failed", "checkpointed": 0})
-        return report
-    after = set((ROOT / "data/private/gemrate/runs").glob("daily_*/manifest.json"))
-    candidates = sorted(after - before, key=lambda path: path.stat().st_mtime, reverse=True)
-    if not candidates:
-        candidates = sorted(after, key=lambda path: path.stat().st_mtime, reverse=True)
-    if not candidates:
-        report.update({"ok": False, "error": "gemrate_manifest_missing", "checkpointed": 0})
-        return report
-    manifest_path = candidates[0]
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    reusable = _reusable_gemrate_manifest(selected, safe_scope)
+    if reusable is not None:
+        manifest_path, manifest = reusable
+        exit_code = 0
+        report["run"] = {
+            "exit": 0,
+            "reusedManifest": True,
+            "manifest": str(manifest_path),
+            "networkRequests": 0,
+        }
+    else:
+        before = set((ROOT / "data/private/gemrate/runs").glob("daily_*/manifest.json"))
+        command = [
+            PY,
+            "-X",
+            "utf8",
+            "pipelines/gemrate_source.py",
+            "daily",
+            "--ids-file",
+            str(ids_path),
+            "--speed",
+            "fast",
+            "--website-budget-seconds",
+            str(GEMRATE_WEBSITE_BUDGET_SECONDS),
+            "--workers",
+            "1",
+        ]
+        if safe_scope:
+            command.extend(["--run-suffix", safe_scope])
+            if not safe_scope.startswith("0-of-"):
+                command.append("--skip-grader-volume")
+        # The kill timer must leave headroom above the child's website budget
+        # (5400s): the child also runs the direct-API leg, the mirror pass and two
+        # grader-volume browser launches. Aliasing the two guaranteed a SIGKILL
+        # exactly when the website budget was actually needed.
+        # MUST NOT scale with universe size: ``10 * len(selected)`` on 1604 IDs was
+        # 16040s, longer than the 4h Task Scheduler limit, so the morning chain
+        # was killed before PC/publish (2026-08-20).
+        report["run"] = _run(
+            command, timeout=gemrate_child_timeout_seconds(len(selected)), dry_run=False
+        )
+        # Exit 1 is the child's declared-partial signal (some IDs unresolved); the
+        # manifest still carries every resolved row, so per-item ingest continues.
+        exit_code = report["run"].get("exit")
+        if exit_code not in (0, 1):
+            report.update({"ok": False, "error": "gemrate_daily_failed", "checkpointed": 0})
+            return report
+        after = set((ROOT / "data/private/gemrate/runs").glob("daily_*/manifest.json"))
+        candidates = sorted(after - before, key=lambda path: path.stat().st_mtime, reverse=True)
+        if safe_scope:
+            candidates = [
+                path for path in candidates
+                if path.parent.name.endswith(f"_{safe_scope}")
+            ]
+        if not candidates and not safe_scope:
+            candidates = sorted(after, key=lambda path: path.stat().st_mtime, reverse=True)
+        if not candidates:
+            report.update({"ok": False, "error": "gemrate_manifest_missing", "checkpointed": 0})
+            return report
+        manifest_path = candidates[0]
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("mismatches"):
         # Direct/mirror disagreement is a source-integrity failure, never a
         # per-item one; nothing may advance from a mismatched manifest.
@@ -1521,7 +1769,8 @@ def run_gemrate_pop(
     write: dict[str, Any] = {"runId": None, "inserted": 0, "checkpointed": 0}
     if ok_items:
         try:
-            write = _ingest_gemrate_manifest(manifest, ok_items)
+            with _db_writer_lease():
+                write = _ingest_gemrate_manifest(manifest, ok_items)
         except Exception as exc:  # noqa: BLE001
             report.update({"ok": False, "error": f"gemrate_ingest:{type(exc).__name__}:{exc}", "checkpointed": 0})
             return report
@@ -1860,31 +2109,28 @@ def _run_snk_adapter(
             "--out",
             str(ingest_report_path),
         ]
-    report["ingest"] = _run(
-        ingest_cmd,
-        timeout=max(180, 5 * len(ok_ids)),
-        dry_run=False,
-    )
-    if report["ingest"].get("exit") != 0:
-        report.update({"ok": False, "error": f"{adapter}_ingest_failed"})
-        return report
-    if adapter == "snk_price":
-        try:
-            ingest_summary = json.loads(ingest_report_path.read_text(encoding="utf-8-sig"))
-            ingest_contract = _validate_snk_price_ingest(ingest_summary, ok_ids)
-        except Exception as exc:  # noqa: BLE001
-            report.update({"ok": False, "error": f"snk_price_ingest_contract:{type(exc).__name__}:{exc}"})
-            return report
-        report.update(ingest_contract)
     try:
-        checkpoint = record_successful_poll(
-            adapter=adapter,
-            mode=mode,
-            items=ok_items,
-            payload={"harvest": raw_rows, "ingest": report["ingest"]},
-            started_at=started_at,
-            payload_sha_by_external=payload_sha,
-        )
+        with _db_writer_lease():
+            report["ingest"] = _run(
+                ingest_cmd,
+                timeout=max(180, 5 * len(ok_ids)),
+                dry_run=False,
+            )
+            if report["ingest"].get("exit") != 0:
+                report.update({"ok": False, "error": f"{adapter}_ingest_failed"})
+                return report
+            if adapter == "snk_price":
+                ingest_summary = json.loads(ingest_report_path.read_text(encoding="utf-8-sig"))
+                ingest_contract = _validate_snk_price_ingest(ingest_summary, ok_ids)
+                report.update(ingest_contract)
+            checkpoint = record_successful_poll(
+                adapter=adapter,
+                mode=mode,
+                items=ok_items,
+                payload={"harvest": raw_rows, "ingest": report["ingest"]},
+                started_at=started_at,
+                payload_sha_by_external=payload_sha,
+            )
     except Exception as exc:  # noqa: BLE001
         report.update({"ok": False, "error": f"checkpoint:{type(exc).__name__}:{exc}"})
         return report
@@ -3228,16 +3474,35 @@ def _pc_subset_map(
 
 
 def partition_local_pc_stock_pages(
-    items: list[dict[str, Any]], *, mode: str, dry_run: bool
+    items: list[dict[str, Any]], *, mode: str, dry_run: bool, force_network: bool = False
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     """Use exact saved PC evidence when the artifact is still inside the SLA.
 
     Stock and incr both replay. Chrome only runs for missing / invalid /
     older-than-36h HTML. Classify still marks every PC stream due
     (``PC_REFRESH_DUE_HOURS = 0``); this function is the skip, not poll-mode.
+    ``force_network`` is operator catch-up: skip the SLA replay and CDP-fetch
+    every exact page. Morning/nightly must not pass it.
     """
 
     selected = _unique_items(items, None)
+    if force_network and selected and not dry_run:
+        return (
+            [],
+            selected,
+            {
+                "adapter": "pc_local_stock_replay",
+                "mode": mode,
+                "processed": 0,
+                "ok": True,
+                "cursorAdvanced": False,
+                "payloadShaByVariant": {},
+                "rows": [],
+                "networkReasons": {
+                    str(int(item["variantId"])): "operator_force_network" for item in selected
+                },
+            },
+        )
     empty_report = {
         "adapter": "pc_local_stock_replay",
         "mode": mode,
@@ -3325,29 +3590,41 @@ def refresh_pc_pages(
     sleep_seconds: float | None,
     tabs: int | None,
     cdp_already_ensured: bool,
+    bind_missing_ids: list[int] | None = None,
 ) -> dict[str, Any]:
     selected = _unique_items(items, None)
+    bind_missing_ids = sorted({int(v) for v in (bind_missing_ids or []) if int(v) > 0})
     report: dict[str, Any] = {
         "adapter": "pc_cdp_fresh_pages",
         "mode": mode,
         "processed": len(selected),
         "ok": True,
         "payloadShaByVariant": {},
+        "bindMissingIds": bind_missing_ids,
     }
-    if not selected:
+    if not selected and not bind_missing_ids:
         report["note"] = "no exact PC variants due"
         return report
-    try:
-        _, map_rows = _pc_subset_map(selected, mode=mode, label="refresh")
-    except Exception as exc:  # noqa: BLE001
-        report.update({"ok": False, "error": f"pc_map:{type(exc).__name__}:{exc}"})
-        return report
+    if selected:
+        try:
+            _, map_rows = _pc_subset_map(selected, mode=mode, label="refresh")
+        except Exception as exc:  # noqa: BLE001
+            report.update({"ok": False, "error": f"pc_map:{type(exc).__name__}:{exc}"})
+            return report
     ids_path = OUT_DIR / f"pc_variant_ids_{mode}.txt"
     ids_path.write_text(
         "\n".join(str(item["variantId"]) for item in selected) + "\n",
         encoding="ascii",
     )
     report["variantIdsPath"] = str(ids_path)
+    bind_path = None
+    if bind_missing_ids:
+        bind_path = OUT_DIR / f"pc_bind_missing_{mode}.txt"
+        bind_path.write_text(
+            "\n".join(str(vid) for vid in bind_missing_ids) + "\n",
+            encoding="ascii",
+        )
+        report["bindMissingPath"] = str(bind_path)
     if dry_run:
         report.update({"dryRun": True, "note": "exact PC variants selected; CDP was not executed"})
         return report
@@ -3379,12 +3656,27 @@ def refresh_pc_pages(
             cmd.extend(["--workers", str(max(1, int(tabs)))])
         if cdp_already_ensured:
             cmd.append("--cdp-already-ensured")
+        if resume_report is None and PC_REFRESH_REPORT.is_file():
+            try:
+                previous = json.loads(PC_REFRESH_REPORT.read_text(encoding="utf-8-sig"))
+            except (OSError, json.JSONDecodeError):
+                previous = None
+            if previous:
+                from pc_cdp_sold_refresh_win import should_auto_resume_report
+
+                if should_auto_resume_report(previous):
+                    resume_report = PC_REFRESH_REPORT
+                    report["autoResumeReport"] = str(PC_REFRESH_REPORT)
         if resume_report is not None:
             cmd.extend(["--resume-report", _windows_path(resume_report)])
+        if bind_path is not None:
+            cmd.extend(["--bind-missing-ids-file", _windows_path(bind_path)])
     except Exception as exc:  # noqa: BLE001
         report.update({"ok": False, "error": f"windows_path:{type(exc).__name__}:{exc}"})
         return report
-    report["run"] = _run(cmd, timeout=max(600, 45 * len(selected)), dry_run=False)
+    report["run"] = _run(
+        cmd, timeout=pc_cdp_child_timeout_seconds(len(selected)), dry_run=False
+    )
     if report["run"].get("exit") != 0 or not PC_REFRESH_REPORT.is_file():
         report.update({"ok": False, "error": "pc_cdp_refresh_failed"})
         return report
@@ -3476,42 +3768,44 @@ def run_pc_ebay_sales(
         str(ingest_report_path),
         "--write",
     ]
-    report["run"] = _run(command, timeout=max(1200, 10 * len(selected)), dry_run=False)
-    if report["run"].get("exit") != 0 or not ingest_report_path.is_file():
-        report.update({"ok": False, "error": "pc_ebay_sales_ingest_failed"})
-        return report
     try:
-        ingest = json.loads(ingest_report_path.read_text(encoding="utf-8-sig"))
-        stats = ingest.get("stats") or {}
-        if not (
-            int(ingest.get("mapReadyHigh") or 0) == len(selected)
-            and int(ingest.get("mapExistingVariant") or 0) == len(selected)
-            and int(ingest.get("mapExactProductGateRejected") or 0) == 0
-            and not ingest.get("missingVariantIds")
-            and int(stats.get("cards_no_html") or 0) == 0
-            and int(stats.get("cards_parse_fail") or 0) == 0
-        ):
-            raise RuntimeError("PC/eBay ingest report is incomplete")
-        local_replay_ids = {
-            int(value) for value in (refresh.get("localReplayVariantIds") or [])
-        }
-        replay_floor = _parse_datetime(
-            (refresh.get("localStockReplay") or {}).get("evidenceFreshnessFloor")
-        )
-        checkpoint = record_successful_poll(
-            adapter="pc_ebay_sales",
-            mode=mode,
-            items=selected,
-            payload=ingest,
-            started_at=started_at,
-            payload_sha_by_external=_pc_checkpoint_hashes(selected, refresh),
-            # A stock replay is valid source evidence, but its checkpoint must
-            # retain the artifact's real age instead of pretending it was
-            # fetched at the time of this control-plane run.
-            completed_at=replay_floor if local_replay_ids else None,
-        )
-        checkpoint["cursorAdvanced"] = True
-        checkpoint["reused"] = len(local_replay_ids)
+        with _db_writer_lease():
+            report["run"] = _run(
+                command, timeout=max(1200, 10 * len(selected)), dry_run=False
+            )
+            if report["run"].get("exit") != 0 or not ingest_report_path.is_file():
+                raise RuntimeError("PC/eBay sales ingest failed")
+            ingest = json.loads(ingest_report_path.read_text(encoding="utf-8-sig"))
+            stats = ingest.get("stats") or {}
+            if not (
+                int(ingest.get("mapReadyHigh") or 0) == len(selected)
+                and int(ingest.get("mapExistingVariant") or 0) == len(selected)
+                and int(ingest.get("mapExactProductGateRejected") or 0) == 0
+                and not ingest.get("missingVariantIds")
+                and int(stats.get("cards_no_html") or 0) == 0
+                and int(stats.get("cards_parse_fail") or 0) == 0
+            ):
+                raise RuntimeError("PC/eBay ingest report is incomplete")
+            local_replay_ids = {
+                int(value) for value in (refresh.get("localReplayVariantIds") or [])
+            }
+            replay_floor = _parse_datetime(
+                (refresh.get("localStockReplay") or {}).get("evidenceFreshnessFloor")
+            )
+            checkpoint = record_successful_poll(
+                adapter="pc_ebay_sales",
+                mode=mode,
+                items=selected,
+                payload=ingest,
+                started_at=started_at,
+                payload_sha_by_external=_pc_checkpoint_hashes(selected, refresh),
+                # A stock replay is valid source evidence, but its checkpoint must
+                # retain the artifact's real age instead of pretending it was
+                # fetched at the time of this control-plane run.
+                completed_at=replay_floor if local_replay_ids else None,
+            )
+            checkpoint["cursorAdvanced"] = True
+            checkpoint["reused"] = len(local_replay_ids)
     except Exception as exc:  # noqa: BLE001
         report.update({"ok": False, "error": f"pc_ebay_contract:{type(exc).__name__}:{exc}"})
         return report
@@ -3597,32 +3891,32 @@ def run_en_price_ref(
         str(map_path),
         "--write",
     ]
-    report["materialize"] = _run(
-        materialize_cmd,
-        timeout=max(1200, 10 * len(selected)),
-        dry_run=False,
-    )
-    if report["materialize"].get("exit") != 0:
-        report.update({"ok": False, "error": "en_price_materialize_failed"})
-        return report
     try:
-        local_replay_ids = {
-            int(value) for value in (refresh.get("localReplayVariantIds") or [])
-        }
-        replay_floor = _parse_datetime(
-            (refresh.get("localStockReplay") or {}).get("evidenceFreshnessFloor")
-        )
-        checkpoint = record_successful_poll(
-            adapter="en_price_ref",
-            mode=mode,
-            items=selected,
-            payload=plan,
-            started_at=started_at,
-            payload_sha_by_external=_pc_checkpoint_hashes(selected, refresh),
-            completed_at=replay_floor if local_replay_ids else None,
-        )
-        checkpoint["cursorAdvanced"] = True
-        checkpoint["reused"] = len(local_replay_ids)
+        with _db_writer_lease():
+            report["materialize"] = _run(
+                materialize_cmd,
+                timeout=max(1200, 10 * len(selected)),
+                dry_run=False,
+            )
+            if report["materialize"].get("exit") != 0:
+                raise RuntimeError("EN price materialize failed")
+            local_replay_ids = {
+                int(value) for value in (refresh.get("localReplayVariantIds") or [])
+            }
+            replay_floor = _parse_datetime(
+                (refresh.get("localStockReplay") or {}).get("evidenceFreshnessFloor")
+            )
+            checkpoint = record_successful_poll(
+                adapter="en_price_ref",
+                mode=mode,
+                items=selected,
+                payload=plan,
+                started_at=started_at,
+                payload_sha_by_external=_pc_checkpoint_hashes(selected, refresh),
+                completed_at=replay_floor if local_replay_ids else None,
+            )
+            checkpoint["cursorAdvanced"] = True
+            checkpoint["reused"] = len(local_replay_ids)
     except Exception as exc:  # noqa: BLE001
         report.update({"ok": False, "error": f"checkpoint:{type(exc).__name__}:{exc}"})
         return report
@@ -3646,7 +3940,7 @@ def _requested_adapters(adapters: list[str]) -> list[str]:
     return [adapter for adapter in allowed if adapter in selected]
 
 
-def _acquire_adapter_leases(adapters: list[str]):
+def _acquire_adapter_leases(adapters: list[str], *, lease_scope: str | None = None):
     """Hold one MySQL advisory lease per adapter for the complete collection run."""
     load_env()
     conn = db()
@@ -3656,14 +3950,26 @@ def _acquire_adapter_leases(adapters: list[str]):
         lease_roles = set(adapters)
         if lease_roles.intersection({"pc_ebay_sales", "en_price_ref"}):
             lease_roles.add("pc_cdp")
+        lock_names: set[str] = set()
         for adapter in sorted(lease_roles):
-            lock_name = f"cardz:collect:{adapter}"[:64]
+            suffix = f":{lease_scope}" if lease_scope else ""
+            lock_names.add(f"cardz:collect:{adapter}{suffix}"[:64])
+            if adapter == "gemrate_pop" and not lease_scope:
+                # The legacy/manual unsharded collector must be exclusive with
+                # every V2 shard.  It takes all four shard locks; a V2 shard
+                # takes exactly its own.  This preserves four-way V2 parallelism
+                # without letting an old/manual process bypass the same host.
+                lock_names.update(
+                    f"cardz:collect:{adapter}:{scope}"[:64]
+                    for scope in GEMRATE_PARALLEL_LEASE_SCOPES
+                )
+        for lock_name in sorted(lock_names):
             cur.execute("SELECT GET_LOCK(%s, 0) AS acquired", (lock_name,))
             row = cur.fetchone()
             value = row.get("acquired") if isinstance(row, dict) else row[0]
             if int(value or 0) != 1:
                 raise RuntimeError(
-                    f"adapter lease already held: {adapter}; stop the duplicate collector/Chrome runner"
+                    f"adapter lease already held: {lock_name}; stop the duplicate collector/Chrome runner"
                 )
             acquired.append(lock_name)
         return conn, acquired
@@ -3696,11 +4002,19 @@ def _collect_mode_impl(
     pc_sleep: float | None,
     pc_workers: int | None,
     variant_ids: list[int] | None = None,
+    force_network: bool = False,
+    rebuild_registry: bool = True,
+    report_path: Path | None = None,
+    work_scope: str | None = None,
 ) -> dict[str, Any]:
-    status = cmd_status(rebuild_registry=True)
+    status = cmd_status(rebuild_registry=rebuild_registry)
+    if not REGISTRY_PATH.is_file():
+        raise RuntimeError("collection registry is missing; V2 registry barrier did not complete")
     reg = _jsonl_rows(REGISTRY_PATH)
     requested = _requested_adapters(adapters)
-    # incr 只拉 cursor/due incremental。residual / 未完成 first stock 用 `stock`。
+    # incr 只拉 cursor/due incremental。residual stock 用 `stock`。
+    # 未完成 first stock（registry 有、checkpoint 無）用 `first-stock`，
+    # 唔好混入 incr，亦唔好一次過拉晒  residual stockDue。
     modes = {"stock"} if mode == "stock" else {"incr"}
     explicit_variants = set(int(value) for value in (variant_ids or []))
     due_by_adapter = {
@@ -3739,6 +4053,7 @@ def _collect_mode_impl(
                 mode=mode,
                 limit=limit,
                 dry_run=dry_run,
+                work_scope=work_scope,
             )
         )
     # One SNKRDUNK harvest per collect run: when both SNK ingest consumers are
@@ -3826,17 +4141,30 @@ def _collect_mode_impl(
     }
     cdp_already_ensured = False
     all_pc_items = list(pc_items_by_variant.values())
+    # Same 9333 dual-tab script does identity + cap. 576 universe cards have
+    # no numeric PC product id (mostly JA); they are bind_pc_or_ebay in the
+    # registry. Leaving this list empty made quote-only V2 skip them forever.
+    bind_missing_ids: list[int] = []
+    if any(name in requested for name in ("pc_ebay_sales", "en_price_ref")):
+        bind_missing_ids = sorted(
+            {
+                int(row["variantId"])
+                for row in reg
+                if row.get("adapter") == "bind_pc_or_ebay"
+                and int(row.get("variantId") or 0) > 0
+            }
+        )
     local_pc_items, network_pc_items, local_pc_report = partition_local_pc_stock_pages(
-        all_pc_items, mode=mode, dry_run=dry_run
+        all_pc_items, mode=mode, dry_run=dry_run, force_network=force_network
     )
-    if local_pc_items and not network_pc_items:
+    if local_pc_items and not network_pc_items and not bind_missing_ids:
         browser_bootstrap = {
             "requested": bool(ensure_browser),
             "needed": False,
             "ok": True,
             "reason": "all exact missing contracts replayed from local immutable HTML",
         }
-    if network_pc_items:
+    if network_pc_items or bind_missing_ids:
         if ensure_browser and not dry_run:
             browser_bootstrap = {
                 "requested": True,
@@ -3845,7 +4173,8 @@ def _collect_mode_impl(
             }
             if not bool(browser_bootstrap.get("ok")):
                 raise RuntimeError(
-                    "the singleton CARDZ CDP session could not be started; no PC adapter ran"
+                    "the singleton CARDZ CDP session could not be started; no PC adapter ran: "
+                    + json.dumps(browser_bootstrap, ensure_ascii=False, sort_keys=True)
                 )
             cdp_already_ensured = True
         network_pc_refresh = refresh_pc_pages(
@@ -3856,6 +4185,7 @@ def _collect_mode_impl(
             sleep_seconds=pc_sleep,
             tabs=pc_workers,
             cdp_already_ensured=cdp_already_ensured,
+            bind_missing_ids=bind_missing_ids,
         )
     else:
         network_pc_refresh = {
@@ -3987,8 +4317,9 @@ def _collect_mode_impl(
         report["freshness"] = report["postFreshness"]
     finally:
         conn.close()
-    output = LAST_STOCK if mode == "stock" else LAST_INCR
-    output.write_text(json.dumps(report, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    output = report_path or (LAST_STOCK if mode == "stock" else LAST_INCR)
+    report["reportPath"] = str(output)
+    _write_json_atomic(output, report)
     print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
     return report
 
@@ -4006,9 +4337,15 @@ def _collect_mode(
     pc_sleep: float | None,
     pc_workers: int | None,
     variant_ids: list[int] | None = None,
+    force_network: bool = False,
+    rebuild_registry: bool = True,
+    report_path: Path | None = None,
+    lease_scope: str | None = None,
 ) -> dict[str, Any]:
     requested = _requested_adapters(adapters)
-    lease_conn, lock_names = _acquire_adapter_leases(requested)
+    lease_conn, lock_names = _acquire_adapter_leases(
+        requested, lease_scope=lease_scope
+    )
     try:
         return _collect_mode_impl(
             mode=mode,
@@ -4022,6 +4359,10 @@ def _collect_mode(
             pc_sleep=pc_sleep,
             pc_workers=pc_workers,
             variant_ids=variant_ids,
+            force_network=force_network,
+            rebuild_registry=rebuild_registry,
+            report_path=report_path,
+            work_scope=lease_scope,
         )
     finally:
         _release_adapter_leases(lease_conn, lock_names)
@@ -4039,6 +4380,10 @@ def cmd_stock(
     pc_sleep: float | None,
     pc_workers: int | None,
     variant_ids: list[int] | None = None,
+    force_network: bool = False,
+    rebuild_registry: bool = True,
+    report_path: Path | None = None,
+    lease_scope: str | None = None,
 ) -> dict[str, Any]:
     return _collect_mode(
         mode="stock",
@@ -4052,7 +4397,111 @@ def cmd_stock(
         pc_sleep=pc_sleep,
         pc_workers=pc_workers,
         variant_ids=variant_ids,
+        force_network=force_network,
+        rebuild_registry=rebuild_registry,
+        report_path=report_path,
+        lease_scope=lease_scope,
     )
+
+
+def cmd_first_stock(
+    *,
+    adapters: list[str],
+    limit: int | None,
+    dry_run: bool,
+    delay: float,
+    workers: int,
+    ensure_browser: bool,
+    pc_resume_report: Path | None,
+    pc_sleep: float | None,
+    pc_workers: int | None,
+    force_network: bool = False,
+) -> dict[str, Any]:
+    """Collect only active registry streams that still have no checkpoint.
+
+    2026-08-17: 08-16 激活 v2016 / v1034 之後，朝／夜鏈只跑 incr，
+    first-stock 從未發生，daily-accept checkpoint gate 缺 1 條就成日唔出街。
+    """
+    cmd_status(rebuild_registry=True)
+    registry = _jsonl_rows(REGISTRY_PATH)
+    requested = _requested_adapters(adapters)
+    load_env()
+    conn = db()
+    try:
+        cur = conn.cursor()
+        missing = missing_checkpoint_streams(cur, registry=registry)
+    finally:
+        conn.close()
+    planned = {
+        adapter: list(missing.get(adapter) or [])
+        for adapter in requested
+        if missing.get(adapter)
+    }
+    report: dict[str, Any] = {
+        "action": "first-stock",
+        "asOf": utc_now(),
+        "requestedAdapters": requested,
+        "missing": {
+            adapter: [int(row["variantId"]) for row in rows]
+            for adapter, rows in planned.items()
+        },
+        "ran": [],
+        "ok": True,
+    }
+    if not planned:
+        report["note"] = "nothing missing"
+        print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
+        return report
+
+    browser_missing = [
+        adapter for adapter in planned if ADAPTER_LANE.get(adapter) == "browser"
+    ]
+    if browser_missing and not dry_run:
+        consolidate = subprocess.run(
+            [PY, "-X", "utf8", str(ROOT / "pipelines" / "consolidate_pc_map.py"), "--write"],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        report["consolidatePcMap"] = {
+            "exit": consolidate.returncode,
+            "stderrTail": (consolidate.stderr or consolidate.stdout or "")[-2000:],
+        }
+        if consolidate.returncode != 0:
+            report["ok"] = False
+            report["error"] = "consolidate_pc_map failed before browser first-stock"
+            print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
+            return report
+
+    for adapter, rows in planned.items():
+        variant_ids = sorted({int(row["variantId"]) for row in rows})
+        sub = cmd_stock(
+            adapters=[adapter],
+            limit=limit,
+            dry_run=dry_run,
+            delay=delay,
+            workers=workers,
+            ensure_browser=ensure_browser and ADAPTER_LANE.get(adapter) == "browser",
+            pc_resume_report=pc_resume_report,
+            pc_sleep=pc_sleep,
+            pc_workers=pc_workers,
+            variant_ids=variant_ids,
+            force_network=force_network,
+        )
+        ran = {
+            "adapter": adapter,
+            "variantIds": variant_ids,
+            "ok": bool(sub.get("ok")),
+            "error": sub.get("error"),
+        }
+        report["ran"].append(ran)
+        if not sub.get("ok"):
+            report["ok"] = False
+            report["error"] = f"first-stock adapter={adapter} failed"
+            break
+    print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
+    return report
 
 
 def cmd_incr(
@@ -4067,6 +4516,10 @@ def cmd_incr(
     pc_sleep: float | None,
     pc_workers: int | None,
     variant_ids: list[int] | None = None,
+    force_network: bool = False,
+    rebuild_registry: bool = True,
+    report_path: Path | None = None,
+    lease_scope: str | None = None,
 ) -> dict[str, Any]:
     return _collect_mode(
         mode="incr",
@@ -4080,6 +4533,10 @@ def cmd_incr(
         pc_sleep=pc_sleep,
         pc_workers=pc_workers,
         variant_ids=variant_ids,
+        force_network=force_network,
+        rebuild_registry=rebuild_registry,
+        report_path=report_path,
+        lease_scope=lease_scope,
     )
 
 
@@ -4108,9 +4565,15 @@ def main() -> int:
         p.add_argument("--pc-sleep", type=float, help="override the refresher's calibrated per-tab pause")
         p.add_argument("--pc-workers", type=int, help="override the refresher's calibrated tab count")
         p.add_argument("--variant-id", action="append", type=int, default=[], help="force exact active variant only (repeatable)")
+        p.add_argument("--force-network", action="store_true", help="operator catch-up: CDP-fetch exact PC pages even if local HTML is inside SLA")
 
     p_stock = sub.add_parser("stock", help="residual full pulls only")
     add_common(p_stock)
+    p_first = sub.add_parser(
+        "first-stock",
+        help="first collect for registry streams that still have no checkpoint",
+    )
+    add_common(p_first)
     p_incr = sub.add_parser("incr", help="daily deltas for due exact ids")
     add_common(p_incr)
     p_resume_snk = sub.add_parser(
@@ -4130,25 +4593,35 @@ def main() -> int:
     if not adapters:
         adapters = ["all"]
 
-    report = None
-    if args.cmd == "status":
-        cmd_status(rebuild_registry=not args.no_rebuild)
-    elif args.cmd == "prune-checkpoints":
-        cmd_prune_checkpoints(apply=args.apply)
-    elif args.cmd == "stock":
-        report = cmd_stock(adapters=adapters, limit=args.limit, dry_run=args.dry_run, delay=args.delay, workers=args.workers, ensure_browser=args.ensure_browser, pc_resume_report=args.pc_resume_report, pc_sleep=args.pc_sleep, pc_workers=args.pc_workers, variant_ids=args.variant_id)
-    elif args.cmd == "incr":
-        report = cmd_incr(adapters=adapters, limit=args.limit, dry_run=args.dry_run, delay=args.delay, workers=args.workers, ensure_browser=args.ensure_browser, pc_resume_report=args.pc_resume_report, pc_sleep=args.pc_sleep, pc_workers=args.pc_workers, variant_ids=args.variant_id)
-    elif args.cmd == "commit-snk-price-receipt":
-        report = cmd_commit_snk_price_receipt(receipt_path=args.receipt)
-    elif args.cmd == "commit-snk-binding-delta":
-        report = cmd_commit_snk_binding_delta(
-            harvest_path=args.harvest.resolve(),
-            variant_ids=args.variant_id,
-        )
-    else:
-        raise SystemExit(f"unknown command: {args.cmd}")
-    return 0 if report is None or report.get("ok") else 1
+    def _dispatch() -> int:
+        report = None
+        if args.cmd == "status":
+            cmd_status(rebuild_registry=not args.no_rebuild)
+        elif args.cmd == "prune-checkpoints":
+            cmd_prune_checkpoints(apply=args.apply)
+        elif args.cmd == "stock":
+            report = cmd_stock(adapters=adapters, limit=args.limit, dry_run=args.dry_run, delay=args.delay, workers=args.workers, ensure_browser=args.ensure_browser, pc_resume_report=args.pc_resume_report, pc_sleep=args.pc_sleep, pc_workers=args.pc_workers, variant_ids=args.variant_id, force_network=args.force_network)
+        elif args.cmd == "first-stock":
+            report = cmd_first_stock(adapters=adapters, limit=args.limit, dry_run=args.dry_run, delay=args.delay, workers=args.workers, ensure_browser=args.ensure_browser, pc_resume_report=args.pc_resume_report, pc_sleep=args.pc_sleep, pc_workers=args.pc_workers, force_network=args.force_network)
+        elif args.cmd == "incr":
+            report = cmd_incr(adapters=adapters, limit=args.limit, dry_run=args.dry_run, delay=args.delay, workers=args.workers, ensure_browser=args.ensure_browser, pc_resume_report=args.pc_resume_report, pc_sleep=args.pc_sleep, pc_workers=args.pc_workers, variant_ids=args.variant_id, force_network=args.force_network)
+        elif args.cmd == "commit-snk-price-receipt":
+            report = cmd_commit_snk_price_receipt(receipt_path=args.receipt)
+        elif args.cmd == "commit-snk-binding-delta":
+            report = cmd_commit_snk_binding_delta(
+                harvest_path=args.harvest.resolve(),
+                variant_ids=args.variant_id,
+            )
+        else:
+            raise SystemExit(f"unknown command: {args.cmd}")
+        return 0 if report is None or report.get("ok") else 1
+
+    if args.cmd in COLLECT_E2E_LEASE_COMMANDS:
+        from operator_control import operator_e2e_lease
+
+        with operator_e2e_lease(f"collect:{args.cmd}"):
+            return _dispatch()
+    return _dispatch()
 
 
 if __name__ == "__main__":

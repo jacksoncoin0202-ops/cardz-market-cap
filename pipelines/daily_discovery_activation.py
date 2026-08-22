@@ -422,8 +422,9 @@ def _prime_new_actives(variant_ids: Iterable[int]) -> None:
     variants_by_adapter: dict[str, list[int]] = {}
     for row in CC._jsonl_rows(CC.REGISTRY_PATH):
         vid = int(row.get("variantId") or 0)
-        if vid in ids:
-            variants_by_adapter.setdefault(str(row["adapter"]), []).append(vid)
+        adapter = str(row.get("adapter") or "")
+        if vid in ids and adapter in CC.CHECKPOINT_ADAPTERS:
+            variants_by_adapter.setdefault(adapter, []).append(vid)
     for adapter in sorted(variants_by_adapter):
         report = CC.cmd_incr(
             adapters=[adapter],
@@ -466,6 +467,44 @@ def scheduled_daily_chain() -> bool:
     return os.environ.get(DAILY_CHAIN_ENV, "").strip() == "1"
 
 
+def _v2_repair_from(generation: str) -> str | None:
+    """Select the narrowest checkpoint boundary for a claimed V2 retry."""
+    if os.environ.get("CARDZ_DAILY_CHAIN_V2", "").strip() != "1":
+        return None
+    conn = R.connect(R.DAILY_CREDENTIALS_ENV)
+    try:
+        checkpoints = R._checkpoints(conn, generation)
+    finally:
+        conn.close()
+    record = checkpoints.get("prune-plan") or {}
+    if str(record.get("status") or "") != "failed":
+        validate = checkpoints.get("validate") or {}
+        try:
+            validate_counts = json.loads(str(validate.get("counts_json") or "{}"))
+        except json.JSONDecodeError:
+            validate_counts = {}
+        failed_checks = set(validate_counts.get("failedChecks") or [])
+        if (
+            str(validate.get("status") or "") == R.REBUILD_STAGE_COMPLETE
+            and validate_counts.get("passed") is False
+            and failed_checks == {"cohortEquation", "incidentsResolved"}
+        ):
+            invalidate_from = "bind"
+            reason = "post-bind-identity-incident-reconciliation"
+        else:
+            return None
+    else:
+        invalidate_from = "prune-plan"
+        reason = "failed-read-only-stage"
+    print(json.dumps({
+        "dailyDiscovery": "checkpoint-repair",
+        "generation": generation,
+        "invalidateFrom": invalidate_from,
+        "reason": reason,
+    }, ensure_ascii=False), flush=True)
+    return invalidate_from
+
+
 def _run_activation(generation: str) -> str:
     # Discovery uses the long-lived backend account. Rebuild stages must not:
     # cmd_freeze creates the short-lived rebuild account described by
@@ -486,7 +525,10 @@ def _run_activation(generation: str) -> str:
         return "deferred"
     code = R.cmd_e2e(SimpleNamespace(
         generation=generation,
-        invalidate_from="identity-resolve",
+        # Resume completed 036 checkpoints.  A trusted live V2 claim handles
+        # the first code-drifted stage once inside _run_linear; retries must not
+        # invalidate completed upstream work again.
+        invalidate_from=_v2_repair_from(generation),
         credentials_env=None,
         freshness_hours=72.0,
         skip_bake=True,

@@ -31,6 +31,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
 from c11_pc_sold_ingest import db
+from collection_contract import LIVE_EBAY_SOLD_SOURCE_CODES
 from pc_ungraded_reference_ingest import (
     MAP_DEFAULT,
     _url_key,
@@ -130,9 +131,13 @@ def select_ebay_median(
     for sale in sales:
         if int(sale.get("variant_id") or 0) != variant_id:
             continue
-        if str(sale.get("source_code") or "").casefold() != SOURCE_EBAY:
+        sale_source = str(sale.get("source_code") or "").casefold()
+        live_sold = {code.casefold() for code in LIVE_EBAY_SOLD_SOURCE_CODES}
+        if sale_source not in live_sold:
             continue
-        if str(sale.get("external_entity_id") or "").casefold() != f"pc:{pc_product_id}".casefold():
+        ext = str(sale.get("external_entity_id") or "").casefold()
+        want = {str(pc_product_id).casefold(), f"pc:{pc_product_id}".casefold()}
+        if ext not in want:
             continue
         if str(sale.get("grader_code") or "").casefold() != "psa":
             continue
@@ -217,11 +222,11 @@ def load_pc_sales(connection: Any, variant_ids: list[int], *, as_of: datetime) -
                    transaction_fingerprint, source_payload_sha256
             FROM market_sale_observation
             WHERE variant_id IN ({marks})
-              AND source_code='ebay'
+              AND source_code IN ({",".join(["%s"] * len(LIVE_EBAY_SOLD_SOURCE_CODES))})
               AND sold_at >= %s
             ORDER BY variant_id, sold_at, transaction_fingerprint
             """,
-            (*variant_ids, (as_of - WINDOW).replace(tzinfo=None)),
+            (*variant_ids, *LIVE_EBAY_SOLD_SOURCE_CODES, (as_of - WINDOW).replace(tzinfo=None)),
         )
         return list(cursor.fetchall())
 

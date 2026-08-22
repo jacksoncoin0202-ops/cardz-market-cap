@@ -13,3 +13,11 @@ ADAPTER_LANE = {
 
 CHECKPOINT_ADAPTERS = tuple(ADAPTER_LANE)
 
+# Live eBay sold comps are written by C11 via PriceCharting pages (CDP 9333).
+# `source_code='ebay'` is the dead G10/altxyz archive (last write 2026-08-04).
+# Ranking, collect stock clocks, and EN sales authority must read this tuple
+# — never `'ebay'`. 2026-08-19: a freshness key named ebay_sales queried the
+# archive and an agent reported 9333 dead.
+LIVE_EBAY_SOLD_SOURCE_CODES: tuple[str, ...] = ("pricecharting",)
+DEAD_G10_EBAY_SOURCE_CODE = "ebay"
+

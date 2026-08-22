@@ -147,11 +147,11 @@ for script_name in ("nightly_collect_accept.ps1", "morning_browser_lanes.ps1"):
 print("POSITIVE_OK scheduled chains keep daily-accept after discovery failure")
 
 morning = (ROOT / "scripts" / "morning_browser_lanes.ps1").read_text(encoding="utf-8-sig")
-http_at = morning.index('incr --adapter http')
-cdp_if_at = morning.index("if ($cdpExit -eq 0)")
-assert http_at < cdp_if_at
-assert "incr --adapter browser --ensure-browser" in morning
-print("POSITIVE_OK morning HTTP incr runs even if CDP is down")
+browser_at = morning.index('"--adapter", "browser", "--ensure-browser", "--force-network"')
+snk_at = morning.index('"--adapter", "snk_trades", "--adapter", "snk_price"')
+assert browser_at < snk_at
+assert '"--adapter", "gemrate_pop"' not in morning
+print("POSITIVE_OK morning PC cap precedes bounded SNK catch-up without GemRate")
 
 sh = (ROOT / "scripts" / "daily_public_release.sh").read_text(encoding="utf-8")
 ps1 = (ROOT / "scripts" / "daily_public_release.ps1").read_text(encoding="utf-8-sig")
@@ -256,4 +256,3 @@ src = (ROOT / "pipelines" / "discovery_ledger.py").read_text(encoding="utf-8")
 assert "last_reviewed_at=IF(" in src
 assert "VALUES(discovery_status)<>market_identity_discovery_ledger.discovery_status" in src
 print("POSITIVE_OK discovery ledger keeps last_reviewed_at unless status changes")
-
