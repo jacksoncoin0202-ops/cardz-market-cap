@@ -475,7 +475,14 @@ def test_pc_error_classes() -> None:
     )
 
 
-def _refresh_with_stub(tmp: Path, run_result: dict, source_report: dict | None):
+def _refresh_with_stub(
+    tmp: Path,
+    run_result: dict,
+    source_report: dict | None,
+    *,
+    items: list[dict] | None = None,
+    bind_missing_ids: list[int] | None = None,
+):
     """Drive refresh_pc_pages with a stubbed child and a stubbed PC map."""
 
     html_path = tmp / "refresh.html"
@@ -506,13 +513,16 @@ def _refresh_with_stub(tmp: Path, run_result: dict, source_report: dict | None):
     cc._run_pc_child = fake_child  # type: ignore[assignment]
     try:
         return cc.refresh_pc_pages(
-            [{"variantId": 1, "externalId": PRODUCT_ID, "modeNeeded": "incr"}],
+            [{"variantId": 1, "externalId": PRODUCT_ID, "modeNeeded": "incr"}]
+            if items is None
+            else items,
             mode="incr",
             dry_run=False,
             resume_report=None,
             sleep_seconds=None,
             tabs=None,
             cdp_already_ensured=True,
+            bind_missing_ids=bind_missing_ids,
         )
     finally:
         (
@@ -580,6 +590,35 @@ def test_refresh_maps_storm_and_rejects_partial(tmp: Path) -> None:
 # ---------------------------------------------------------------------------
 # 3. child output streaming + hidden launch
 # ---------------------------------------------------------------------------
+def test_refresh_bind_only(tmp: Path) -> None:
+    """No exact PC variant due, only the bind list: the sweep must still count.
+
+    2026-08-22 attempt 15 (manual e2e): every exact page replayed from local
+    stock, so refresh_pc_pages ran bind-only; the child fetched 152/152 and the
+    contract step died with UnboundLocalError on ``map_rows`` -> both PC
+    adapters failed with fresh_pc_pages_unavailable, task TERMINAL 15/15.
+    """
+    complete = {
+        "batch": 1,
+        "ok": 1,
+        "fail": 0,
+        "cf": 0,
+        "missingRequestedVariantIds": [],
+        "bindUnresolvedVariantIds": [8],
+        "results": [{"variant_id": 7, "status": "ok"}],
+    }
+    bind_only = _refresh_with_stub(
+        tmp, {"exit": 0, "childLogTail": ""}, complete, items=[], bind_missing_ids=[7, 8]
+    )
+    check("bind-only refresh (no exact variant due) succeeds", bind_only.get("ok"), True)
+    check("bind-only refresh error is empty", bind_only.get("error"), None)
+    check("bind-only refresh has no exact payload shas", bind_only.get("payloadShaByVariant"), {})
+    check("bind-only refresh still hands the bind list to the child",
+          bool(bind_only.get("bindMissingPath")), True)
+    check("bind-only refresh surfaces unresolved bind ids",
+          bind_only.get("bindUnresolvedVariantIds"), [8])
+
+
 def test_child_log_and_rc(tmp: Path) -> None:
     check(
         "the child log is named per business date and pid",
@@ -842,6 +881,7 @@ def main() -> int:
         test_cf_storm_breaker(tmp)
         test_pc_error_classes()
         test_refresh_maps_storm_and_rejects_partial(tmp)
+        test_refresh_bind_only(tmp)
         test_child_log_and_rc(tmp)
         test_ensure_cdp_identity_only(tmp)
         test_source_registry_dispatch()

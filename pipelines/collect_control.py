@@ -3843,6 +3843,10 @@ def refresh_pc_pages(
     if not selected and not bind_missing_ids:
         report["note"] = "no exact PC variants due"
         return report
+    # Bind-only sweep (every exact page replayed from local stock): there is no
+    # exact MAP subset, so the contract step below has no rows to hash.
+    # 2026-08-22 attempt 15 died here with UnboundLocalError after 152/152.
+    map_rows: list[dict[str, Any]] = []
     if selected:
         try:
             _, map_rows = _pc_subset_map(selected, mode=mode, label="refresh")
