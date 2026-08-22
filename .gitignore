@@ -26,3 +26,8 @@ fe03-server.ps1
 scripts/fe03-verify.cjs
 # .claude/launch.json 都係本機 dev server 設定，同上面一齊漏入過 commit。
 .claude/
+
+# 2026-08-22 durability work: scratch scripts + backend env must never be committed
+temp/
+backend.env
+**/backend.env
