@@ -9,6 +9,9 @@ only processes started are this file's own sleeping fixtures.
 """
 from __future__ import annotations
 
+import contextlib
+import inspect
+import io
 import json
 import os
 import shutil
@@ -18,6 +21,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import types
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -36,6 +40,7 @@ from daily_chain_v2 import (  # noqa: E402
     health_path,
     last_scheduled_tick_utc,
     manual_e2e_schedule,
+    next_scheduled_tick_utc,
     recovery_disposition,
     send_alert,
     status_brief,
@@ -44,6 +49,7 @@ from daily_chain_v2 import (  # noqa: E402
 from daily_chain_v2_contract import SourceTask, classify_error  # noqa: E402
 from daily_chain_v2_journal import (  # noqa: E402
     Journal,
+    JournalError,
     interrupt_backoff_seconds,
     iso,
     utc_now,
@@ -138,9 +144,11 @@ try:
     assert window["start"] < window["source_cutoff"] < window["sla"] < window["final"]
     late = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)  # 21:00 JST
     late_window = manual_e2e_schedule(late, business_date=DAY)
-    assert late_window["final"] == late + timedelta(minutes=10)
+    assert late_window["final"] == late + timedelta(seconds=2700)
     assert late_window["source_cutoff"] < late_window["sla"] < late_window["final"]
-    early = datetime(2026, 8, 19, 18, 0, tzinfo=timezone.utc)  # 03:00 JST
+    # 04:00 JST: after the 03:30 tick, so the next-tick ceiling is a full day
+    # away and an eight hour window survives untouched.
+    early = datetime(2026, 8, 19, 19, 0, tzinfo=timezone.utc)  # 04:00 JST
     early_window = manual_e2e_schedule(early, business_date=DAY)
     assert early_window["final"] == early + timedelta(hours=8)  # inside 17:00 JST
     os.environ["CARDZ_V2_LAST_TICK_JST"] = "12:00"
@@ -159,7 +167,7 @@ try:
         )["final"] == datetime(2026, 8, 20, 3, 0, tzinfo=timezone.utc)
     finally:
         os.environ.pop("CARDZ_V2_LAST_TICK_JST", None)
-    print("POSITIVE_OK manual window clamps to the last scheduled tick and never shortens below ten minutes")
+    print("POSITIVE_OK manual window clamps to the last scheduled tick and never shortens below its floor")
 
     # ---------------------------------------------------------------- task 4
     journal = new_journal("budget")
@@ -251,6 +259,74 @@ try:
     UnparkArgs.list_only = True
     assert chain_module.run_unpark(journal, DAY, UnparkArgs()) == 0
     print("POSITIVE_OK unpark CLI journals operator provenance, lists, and exits 2 on an unknown task")
+
+    # ------------------------------------------------------------ retire
+    journal = new_journal("retire")
+    stale = add_task(journal, "pc-stale", max_attempts=8)
+    sql(
+        journal,
+        "UPDATE chain_task SET status='PARKED',attempts=8,max_attempts=8,"
+        "last_error_code='WORKER_PARKED' WHERE task_key=?",
+        (stale,),
+    )
+    assert journal.retire("no-such-task", reason="x") is None
+    retired = journal.retire(stale, reason="contract closed by later repairs")
+    assert retired is not None and retired["status"] == "SKIPPED"
+    assert retired["previousStatus"] == "PARKED"
+    assert retired["last_error_code"] == "OPERATOR_RETIRED"
+    assert int(retired["attempts"]) == 8 and int(retired["max_attempts"]) == 8
+    assert journal.claim_ready(RUN_ID, now=utc_now()) == []
+    assert journal.retire(stale, reason="twice") is None  # SKIPPED is settled
+    assert journal.unpark(stale) is None
+    assert journal.unparkable_tasks(RUN_ID) == []
+    later = utc_now()
+    core_done = {"required_class": "core", "status": "COMPLETED"}
+    assert chain_module.source_barrier_ready(
+        [core_done, {"required_class": "quote", "status": "PARKED"}],
+        now=later, cutoff=later + timedelta(hours=1),
+    ) is False
+    assert chain_module.source_barrier_ready(
+        [core_done, {"required_class": "quote", "status": "SKIPPED"}],
+        now=later, cutoff=later + timedelta(hours=1),
+    ) is True
+    health = chain_module.aggregate_source_health([
+        {"source_code": "pricecharting", "required_class": "quote", "status": "COMPLETED",
+         "attempts": 1, "last_error_code": None},
+        {"source_code": "pricecharting", "required_class": "quote", "status": "SKIPPED",
+         "attempts": 8, "last_error_code": "OPERATOR_RETIRED"},
+    ])
+    assert health["pricecharting"]["status"] == "COMPLETED"
+    assert health["pricecharting"]["errors"] == ["OPERATOR_RETIRED"]
+    assert chain_module.degraded_source_codes(health) == []
+    print("POSITIVE_OK retire settles a PARKED task as SKIPPED, keeps the trail, unblocks the barrier, and stays out of degradedSources")
+
+    stale_cli = add_task(journal, "pc-stale-cli", max_attempts=8)
+    sql(
+        journal,
+        "UPDATE chain_task SET status='TERMINAL',attempts=8,max_attempts=8,"
+        "last_error_code='SOURCE_FAILED' WHERE task_key=?",
+        (stale_cli,),
+    )
+
+    class RetireArgs:
+        list_only = False
+        task = stale_cli
+        reason = "operator cli retire"
+
+    assert chain_module.run_retire(journal, DAY, RetireArgs()) == 0
+    assert journal.task(stale_cli)["status"] == "SKIPPED"
+    retire_events = events(journal, "TASK_RETIRED")
+    assert len(retire_events) == 1
+    retire_payload = json.loads(retire_events[0]["payload_json"])
+    assert retire_payload["provenance"] == "operator"
+    assert retire_payload["reason"] == "operator cli retire"
+    assert retire_payload["previousStatus"] == "TERMINAL"
+    assert chain_module.run_retire(journal, DAY, RetireArgs()) == 2  # already settled
+    RetireArgs.task = "missing-key"
+    assert chain_module.run_retire(journal, DAY, RetireArgs()) == 2
+    RetireArgs.list_only = True
+    assert chain_module.run_retire(journal, DAY, RetireArgs()) == 0
+    print("POSITIVE_OK retire CLI journals operator provenance and exits 2 on settled or unknown tasks")
 
     # ---------------------------------------------------------------- task 3
     assert recovery_disposition(
@@ -557,5 +633,265 @@ try:
     ).resolve(), notify_module.__file__
     assert callable(getattr(notify_module, "send_message", None))
     print("POSITIVE_OK notify_hermes resolves from scripts/ once daily_chain_v2 is imported")
+
+    # ------------------------------------------------------------- fix C
+    # The 2026-08-22 run published with four minutes of manual window left,
+    # because the floor was tick start + 600 s.  The floor is now 2700 s, and
+    # the next unattended 03:30 JST tick is a hard ceiling above it.
+    assert chain_module.MANUAL_WINDOW_MIN_SECONDS == 2700
+    assert next_scheduled_tick_utc(
+        datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)  # 21:00 JST
+    ) == datetime(2026, 8, 20, 18, 30, tzinfo=timezone.utc)
+    assert next_scheduled_tick_utc(
+        datetime(2026, 8, 20, 18, 0, tzinfo=timezone.utc)  # 03:00 JST next day
+    ) == datetime(2026, 8, 20, 18, 30, tzinfo=timezone.utc)
+    assert next_scheduled_tick_utc(  # strictly after: 03:30 JST returns tomorrow
+        datetime(2026, 8, 20, 18, 30, tzinfo=timezone.utc)
+    ) == datetime(2026, 8, 21, 18, 30, tzinfo=timezone.utc)
+    floor_start = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)  # 21:00 JST
+    floor_window = manual_e2e_schedule(floor_start, business_date=DAY)
+    assert floor_window["final"] == floor_start + timedelta(seconds=2700)
+    assert floor_window["final"] - floor_start > timedelta(minutes=10)  # old floor
+    ceiling_start = datetime(2026, 8, 20, 18, 0, tzinfo=timezone.utc)  # 03:00 JST
+    ceiling_window = manual_e2e_schedule(ceiling_start)
+    assert ceiling_window["final"] > ceiling_start
+    assert ceiling_window["final"] <= next_scheduled_tick_utc(ceiling_start) - timedelta(
+        minutes=5
+    )
+    assert ceiling_window["final"] - ceiling_start < timedelta(seconds=2700)  # ceiling wins
+    assert (
+        ceiling_window["start"]
+        < ceiling_window["source_cutoff"]
+        < ceiling_window["sla"]
+        < ceiling_window["final"]
+    )
+    edge_start = datetime(2026, 8, 20, 18, 20, tzinfo=timezone.utc)  # 03:20 JST
+    edge_window = manual_e2e_schedule(edge_start)
+    assert edge_window["final"] == edge_start + timedelta(seconds=600)  # absolute floor
+    print("POSITIVE_OK manual window floors at 2700s, stops five minutes short of the next tick, and keeps the ten minute absolute bound")
+
+    journal = new_journal("renew-revival")
+    assert journal.run(RUN_ID)["status"] == "RUNNING"
+    journal.set_run_status(RUN_ID, "FAILED_FINAL")
+    revived_run, revived_reopened, revived_previous = journal.renew_manual_window(
+        RUN_ID,
+        source_cutoff_at="2026-08-20T12:30:00+00:00",
+        sla_at="2026-08-20T12:40:00+00:00",
+        final_at="2026-08-20T12:45:00+00:00",
+    )
+    assert revived_previous == "FAILED_FINAL"
+    assert revived_run["status"] == "RUNNING"
+    assert journal.run(RUN_ID)["status"] == "RUNNING"
+    assert revived_reopened == []
+    assert str(revived_run["final_at"]) == "2026-08-20T12:45:00+00:00"
+
+    plain = new_journal("renew-plain")
+    plain_run, _plain_reopened, plain_previous = plain.renew_manual_window(
+        RUN_ID,
+        source_cutoff_at="2026-08-20T12:30:00+00:00",
+        sla_at="2026-08-20T12:40:00+00:00",
+        final_at="2026-08-20T12:45:00+00:00",
+    )
+    assert plain_previous == "RUNNING" and plain_run["status"] == "RUNNING"
+
+    published = new_journal("renew-published")
+    sql(
+        published,
+        "UPDATE chain_run SET publication_status='PUBLISHED' WHERE run_id=?",
+        (RUN_ID,),
+    )
+    try:
+        published.renew_manual_window(
+            RUN_ID,
+            source_cutoff_at="2026-08-20T12:30:00+00:00",
+            sla_at="2026-08-20T12:40:00+00:00",
+            final_at="2026-08-20T12:45:00+00:00",
+        )
+        raise AssertionError("a published run must never renew its manual window")
+    except JournalError:
+        pass
+    print("POSITIVE_OK explicit renewal revives a FAILED_FINAL run to RUNNING while a published run still refuses")
+
+    # ------------------------------------------------------------- fix A
+    import rebuild_036 as connect_module  # noqa: E402
+
+    original_backoff = connect_module._CONNECT_BACKOFF
+    connect_module._CONNECT_BACKOFF = (0.0, 0.0, 0.0)
+    try:
+        flaky_calls: list[int] = []
+
+        def flaky() -> str:
+            flaky_calls.append(1)
+            if len(flaky_calls) < 3:
+                raise connect_module.pymysql.err.OperationalError(
+                    2003, "Can't connect to MySQL server on '127.0.0.1' (timed out)"
+                )
+            return "connection"
+
+        noise = io.StringIO()
+        with contextlib.redirect_stderr(noise):
+            assert connect_module.connect_with_retry(flaky, label="fixture") == "connection"
+        assert len(flaky_calls) == 3, flaky_calls
+        logged = [json.loads(line) for line in noise.getvalue().splitlines() if line.strip()]
+        assert [entry["attempt"] for entry in logged] == [1, 2], logged
+        assert {entry["event"] for entry in logged} == {"DB_CONNECT_RETRY"}
+        assert {entry["label"] for entry in logged} == {"fixture"}
+        assert "password" not in noise.getvalue().lower()
+
+        denied_calls: list[int] = []
+
+        def denied() -> str:
+            denied_calls.append(1)
+            raise connect_module.pymysql.err.OperationalError(1045, "Access denied")
+
+        try:
+            connect_module.connect_with_retry(denied, label="fixture")
+            raise AssertionError("a non connect-phase error must not be retried")
+        except connect_module.pymysql.err.OperationalError as error:
+            assert int(error.args[0]) == 1045
+        assert len(denied_calls) == 1, denied_calls
+
+        dead_calls: list[int] = []
+
+        def dead() -> str:
+            dead_calls.append(1)
+            raise connect_module.pymysql.err.OperationalError(2003, "timed out")
+
+        with contextlib.redirect_stderr(io.StringIO()):
+            try:
+                connect_module.connect_with_retry(dead, label="fixture")
+                raise AssertionError("an exhausted retry budget must re-raise")
+            except connect_module.pymysql.err.OperationalError as error:
+                assert int(error.args[0]) == 2003
+        assert len(dead_calls) == 3, dead_calls
+    finally:
+        connect_module._CONNECT_BACKOFF = original_backoff
+    assert connect_module._CONNECT_PHASE_ERRNOS == frozenset({2003, 2013})
+    print("POSITIVE_OK connect retry replays only the TCP handshake and raises an auth error on the first try")
+
+    # ------------------------------------------------------------- fix B
+    long_session_message = DailyChainV2._event_message(
+        "DB_LONG_SESSIONS_OBSERVED",
+        {
+            "runId": RUN_ID, "sessionCount": 2, "maxMinutes": 41,
+            "sessions": [{"id": 7, "seconds": 2460, "command": "Query", "sql": "SELECT 1"}],
+        },
+    )
+    assert "\U0001F534" not in long_session_message, long_session_message
+    assert "reported only" in long_session_message
+    assert "sessions=2" in long_session_message and "maxMinutes=41" in long_session_message
+    renewed_message = DailyChainV2._event_message(
+        "MANUAL_WINDOW_RENEWED",
+        {
+            "runId": RUN_ID, "origin": "manual-e2e", "previousStatus": "FAILED_FINAL",
+            "finalAt": "2026-08-20T12:45:00+00:00", "reopenedTaskKeys": ["a", "b"],
+        },
+    )
+    assert "\U0001F534" not in renewed_message, renewed_message
+    assert "previousStatus=<code>FAILED_FINAL</code>" in renewed_message
+    assert "reopened=2" in renewed_message
+    # Negative: an event type without a branch still renders the red fallback,
+    # so a future event cannot quietly render as good news.
+    assert "\U0001F534" in DailyChainV2._event_message("SOMETHING_NEW", {"runId": RUN_ID})
+    print("NEGATIVE_OK the two new event types render without a red alert while unknown types still do")
+
+    # ------------------------------------------------------------- fix D
+    preflight_source = inspect.getsource(DailyChainV2.report_long_db_sessions)
+    assert "KILL" not in preflight_source, "the preflight must never terminate a session"
+    assert "report_long_db_sessions" in inspect.getsource(DailyChainV2.initialise)
+
+    class FixtureCursor:
+        def __init__(self, rows: list[dict[str, Any]]) -> None:
+            self.rows = rows
+            self.calls: list[tuple[str, Any]] = []
+
+        def __enter__(self) -> "FixtureCursor":
+            return self
+
+        def __exit__(self, *_exc: Any) -> bool:
+            return False
+
+        def execute(self, statement: str, params: Any = None) -> None:
+            self.calls.append((statement, params))
+
+        def fetchall(self) -> list[dict[str, Any]]:
+            return self.rows
+
+    class FixtureConnection:
+        def __init__(self, rows: list[dict[str, Any]]) -> None:
+            self.rows = rows
+            self.cursors: list[FixtureCursor] = []
+            self.closed = False
+
+        def cursor(self) -> FixtureCursor:
+            cursor = FixtureCursor(self.rows)
+            self.cursors.append(cursor)
+            return cursor
+
+        def close(self) -> None:
+            self.closed = True
+
+    journal = new_journal("long-sessions")
+    chain = new_chain(journal)
+    # information_schema answers in upper case on the Windows MySQL build.
+    busy = FixtureConnection([{
+        "ID": 41, "USER": "cardz", "DB": "cardz_market_cap",
+        "COMMAND": "Query", "TIME": 2460, "sql_head": "SELECT COUNT(*) FROM heavy_view",
+    }])
+    stub = types.ModuleType("qualified_pool_operator")
+    stub.load_env = lambda: None  # type: ignore[attr-defined]
+    stub.db = lambda: busy  # type: ignore[attr-defined]
+    real_module = sys.modules.get("qualified_pool_operator")
+    sys.modules["qualified_pool_operator"] = stub
+    try:
+        chain.report_long_db_sessions()
+        observed = events(journal, "DB_LONG_SESSIONS_OBSERVED")
+        assert len(observed) == 1, observed
+        observed_payload = json.loads(observed[0]["payload_json"])
+        assert observed_payload["sessionCount"] == 1
+        assert observed_payload["maxMinutes"] == 41
+        assert observed_payload["sessions"][0]["id"] == 41
+        assert observed_payload["sessions"][0]["seconds"] == 2460
+        assert observed_payload["sessions"][0]["command"] == "Query"
+        assert busy.closed is True
+        statement, params = busy.cursors[0].calls[0]
+        assert "information_schema.processlist" in statement
+        assert "KILL" not in statement.upper()
+        assert params == ("cardz%", 1200)
+        assert "reported only" in DailyChainV2._event_message(
+            "DB_LONG_SESSIONS_OBSERVED", observed_payload
+        )
+
+        # Negative: nothing long running, and a database that refuses the
+        # preflight entirely, must both stay silent instead of blocking a tick.
+        stub.db = lambda: FixtureConnection([])  # type: ignore[attr-defined]
+        chain.report_long_db_sessions()
+
+        def refuse() -> Any:
+            raise RuntimeError("mysql is unreachable")
+
+        stub.db = refuse  # type: ignore[attr-defined]
+        chain.report_long_db_sessions()
+        assert len(events(journal, "DB_LONG_SESSIONS_OBSERVED")) == 1
+    finally:
+        if real_module is None:
+            sys.modules.pop("qualified_pool_operator", None)
+        else:
+            sys.modules["qualified_pool_operator"] = real_module
+    print("POSITIVE_OK the long session preflight journals what it saw, kills nothing, and never blocks a tick")
+
+    # ------------------------------------------------------------- fix E
+    rebuild_source = (ROOT / "pipelines" / "rebuild_036.py").read_text(encoding="utf-8")
+    pool_source = (ROOT / "pipelines" / "qualified_pool_operator.py").read_text(encoding="utf-8")
+    assert "max_execution_time" not in rebuild_source  # never on the writer path
+    assert "SET SESSION max_execution_time" in pool_source
+    assert 'os.environ.get("CARDZ_MAX_EXEC_MS", "120000")' in pool_source
+    assert "SET PERSIST" not in pool_source and "SET PERSIST" not in rebuild_source
+    assert "SET GLOBAL" not in pool_source and "SET GLOBAL" not in rebuild_source
+    assert 'label="qualified_pool_operator"' in pool_source
+    assert 'label="rebuild_036"' in rebuild_source
+    assert pool_source.count("connect_timeout=10") == 1
+    print("POSITIVE_OK the execution time cap is session scoped on the read path and absent from the rebuild writer")
+
 finally:
     cleanup()

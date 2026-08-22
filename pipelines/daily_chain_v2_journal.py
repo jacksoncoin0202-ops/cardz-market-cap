@@ -260,12 +260,17 @@ class Journal:
         source_cutoff_at: str,
         sla_at: str,
         final_at: str,
-    ) -> tuple[dict[str, Any], list[str]]:
+    ) -> tuple[dict[str, Any], list[str], str]:
         """Explicitly extend one manual E2E run and resume only cutoff work.
 
         Normal ticks never call this method, so reconnecting cannot silently
         manufacture a fresh deadline.  Completed checkpoints stay immutable;
         only candidate work that the expired manual window closed is reopened.
+
+        A run the previous window already marked FAILED_FINAL is revived to
+        RUNNING here and only here: run_tick still early-returns on
+        FAILED_FINAL, so an explicit operator renewal is the single way back.
+        Returns the status the run had before this call.
         """
 
         cutoff = datetime.fromisoformat(source_cutoff_at)
@@ -282,6 +287,12 @@ class Journal:
                 raise JournalError(f"run not found: {run_id}")
             if run["publication_status"]:
                 raise JournalError("a published run cannot renew its manual E2E window")
+            previous_status = str(run["status"] or "")
+            if previous_status == "FAILED_FINAL":
+                conn.execute(
+                    "UPDATE chain_run SET status='RUNNING',updated_at=? WHERE run_id=?",
+                    (now, run_id),
+                )
             conn.execute(
                 """
                 UPDATE chain_run
@@ -321,7 +332,7 @@ class Journal:
             updated = conn.execute(
                 "SELECT * FROM chain_run WHERE run_id=?", (run_id,)
             ).fetchone()
-        return dict(updated), reopened
+        return dict(updated), reopened, previous_status
 
     def register_provenance(
         self,
@@ -1009,6 +1020,47 @@ class Journal:
         row["previousStatus"] = str(task["status"])
         row["previousMaxAttempts"] = max_attempts
         row["previousInterruptions"] = int(task["interruptions"] or 0)
+        return row
+
+    def retire(
+        self,
+        task_key: str,
+        *,
+        reason: str,
+        now: datetime | None = None,
+    ) -> dict[str, Any] | None:
+        """Operator-only settlement of parked/terminal work that later work made
+        unnecessary (a quote repair whose shortfall other repairs already
+        closed).  The row becomes SKIPPED so the source barrier and the health
+        roll-up treat it as settled; attempts, the attempt trail and the reason
+        stay on the row.  Data gates downstream still decide on their own."""
+
+        clock = now or utc_now()
+        now_text = iso(clock)
+        states = ",".join(f"'{state}'" for state in UNPARKABLE_TASK_STATES)
+        with self.transaction() as conn:
+            task = conn.execute(
+                "SELECT * FROM chain_task WHERE task_key=?", (task_key,)
+            ).fetchone()
+            if task is None or str(task["status"]) not in set(UNPARKABLE_TASK_STATES):
+                return None
+            changed = conn.execute(
+                f"""
+                UPDATE chain_task SET status='SKIPPED',next_retry_at=NULL,
+                    lease_token=NULL,lease_expires_at=NULL,
+                    last_error_code='OPERATOR_RETIRED',last_error=?,updated_at=?
+                WHERE task_key=? AND status IN ({states})
+                """,
+                (f"retired by operator: {reason}"[-8000:], now_text, task_key),
+            ).rowcount
+            if changed != 1:
+                return None
+            row = dict(
+                conn.execute(
+                    "SELECT * FROM chain_task WHERE task_key=?", (task_key,)
+                ).fetchone()
+            )
+        row["previousStatus"] = str(task["status"])
         return row
 
     def unparkable_tasks(self, run_id: str) -> list[dict[str, Any]]:

@@ -326,18 +326,62 @@ def load_env_file(path: Path) -> dict[str, str]:
     return values
 
 
+# 2026-08-22: daily-accept attempt 5 died on (2003, "Can't connect to MySQL
+# server on '127.0.0.1' (timed out)") after 104 s of OS-level TCP timeout, with
+# the acceptance transaction already committed.  Only the connect phase is
+# retried here -- a query that failed has already reached the database and must
+# stay failed.
+_CONNECT_PHASE_ERRNOS = frozenset({2003, 2013})   # can't connect / lost during handshake
+_CONNECT_BACKOFF = (2.0, 5.0, 10.0)              # 3 tries total
+
+
+def connect_with_retry(factory, *, label: str):
+    """Retry ONLY the TCP/handshake phase. A query error is never retried here."""
+    last = None
+    for index in range(len(_CONNECT_BACKOFF)):
+        try:
+            return factory()
+        except pymysql.err.OperationalError as error:
+            code = error.args[0] if error.args else 0
+            if int(code or 0) not in _CONNECT_PHASE_ERRNOS:
+                raise
+            last = error
+            if index == len(_CONNECT_BACKOFF) - 1:
+                break
+            print(
+                json.dumps(
+                    {
+                        "event": "DB_CONNECT_RETRY",
+                        "label": label,
+                        "errno": int(code),
+                        "attempt": index + 1,
+                        "sleepSeconds": _CONNECT_BACKOFF[index],
+                    },
+                    ensure_ascii=False,
+                ),
+                file=sys.stderr,
+            )
+            time.sleep(_CONNECT_BACKOFF[index])
+    raise last
+
+
 def connect(credentials_env: Path) -> pymysql.connections.Connection:
     env = load_env_file(credentials_env)
-    conn = pymysql.connect(
-        host=env.get("CARDZ_DB_HOST", "127.0.0.1"),
-        port=int(env.get("CARDZ_DB_PORT", "3308")),
-        user=env["CARDZ_DB_USER"],
-        password=env["CARDZ_DB_PASSWORD"],
-        database=env.get("CARDZ_DB_NAME", "cardz_market_cap"),
-        charset="utf8mb4",
-        autocommit=False,
-        cursorclass=pymysql.cursors.DictCursor,
-        connect_timeout=10,
+    # Only the connect expression is retried: the keepalive tuning and the
+    # canonical-database assertion below must never be replayed.
+    conn = connect_with_retry(
+        lambda: pymysql.connect(
+            host=env.get("CARDZ_DB_HOST", "127.0.0.1"),
+            port=int(env.get("CARDZ_DB_PORT", "3308")),
+            user=env["CARDZ_DB_USER"],
+            password=env["CARDZ_DB_PASSWORD"],
+            database=env.get("CARDZ_DB_NAME", "cardz_market_cap"),
+            charset="utf8mb4",
+            autocommit=False,
+            cursorclass=pymysql.cursors.DictCursor,
+            connect_timeout=10,
+        ),
+        label="rebuild_036",
     )
     # Docker Desktop's NAT proxy drops TCP mappings that stay silent for
     # minutes (long COUNT(*) on heavy views) — the client then hangs forever

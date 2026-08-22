@@ -83,6 +83,10 @@ def assert_canonical_db(connection, port: int) -> None:
 def db():
     import pymysql
 
+    # Imported here, not at module scope: rebuild_036 is a heavy orchestrator
+    # and this module is imported by the daily chain's contract barrier.
+    from rebuild_036 import connect_with_retry
+
     load_env()
     raw_port = os.environ.get("CARDZ_DB_PORT")
     if not raw_port:
@@ -91,18 +95,41 @@ def db():
             "data/runtime/config/backend.env (canonical New-Era DB = 3308)."
         )
     port = int(raw_port)
-    connection = pymysql.connect(
-        host=os.environ.get("CARDZ_DB_HOST", "127.0.0.1"),
-        port=port,
-        user=os.environ["CARDZ_DB_USER"],
-        password=os.environ["CARDZ_DB_PASSWORD"],
-        database=os.environ["CARDZ_DB_NAME"],
-        charset="utf8mb4",
-        cursorclass=pymysql.cursors.DictCursor,
-        autocommit=False,
+    # 2026-08-22: post_accept_contract opened a fresh connection after the
+    # acceptance transaction had already committed and lost 104 s to an OS-level
+    # TCP timeout with no retry.  Retry covers the connect phase only.
+    connection = connect_with_retry(
+        lambda: pymysql.connect(
+            host=os.environ.get("CARDZ_DB_HOST", "127.0.0.1"),
+            port=port,
+            user=os.environ["CARDZ_DB_USER"],
+            password=os.environ["CARDZ_DB_PASSWORD"],
+            database=os.environ["CARDZ_DB_NAME"],
+            charset="utf8mb4",
+            cursorclass=pymysql.cursors.DictCursor,
+            autocommit=False,
+            connect_timeout=10,
+        ),
+        label="qualified_pool_operator",
     )
     try:
         assert_canonical_db(connection, port)
+        # Session-scoped runaway-SELECT cap.  A read that overruns this budget
+        # is a stuck query, and a stuck read holds the tick's connection open
+        # for hours.  Never persisted server-wide, and never on the rebuild
+        # writer path: this bounds SELECT only, so no gate gets easier.
+        with connection.cursor() as cursor:
+            try:
+                cursor.execute(
+                    "SET SESSION max_execution_time=%s",
+                    (int(os.environ.get("CARDZ_MAX_EXEC_MS", "120000")),),
+                )
+            except pymysql.err.OperationalError as error:
+                # 1193 = unknown system variable (server older than 5.7.8).
+                # The cap is a safety aid, not a gate: refuse to make it a new
+                # single point of failure for every connection in the chain.
+                if int((error.args[0] if error.args else 0) or 0) != 1193:
+                    raise
     except Exception:
         connection.close()
         raise

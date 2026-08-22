@@ -66,7 +66,12 @@ TICK_RESERVE_SECONDS = 30
 DEFAULT_MAX_RUNTIME_SECONDS = 3000
 MAX_RUNTIME_SECONDS_CEILING = 5400
 LAST_SCHEDULED_TICK_JST = "17:00"
-MANUAL_WINDOW_MIN_SECONDS = 600
+# 2026-08-22: the manual window was tick start + 600 s, and the run reached
+# publish with four minutes of window left.  Forty-five minutes is the floor
+# a manual E2E actually needs; the next scheduled tick is still the ceiling.
+MANUAL_WINDOW_MIN_SECONDS = 2700
+MANUAL_WINDOW_ABSOLUTE_MIN_SECONDS = 600
+NEXT_TICK_GUARD_SECONDS = 300
 ADOPT_GRACE_SECONDS = 120
 HEALTH_SCHEMA = 1
 NOTIFY_SCRIPT = ROOT / "scripts" / "notify_hermes.py"
@@ -137,6 +142,18 @@ def last_scheduled_tick_utc(day: date) -> datetime:
     return datetime.combine(day, day_time(hour, minute), tzinfo=JST).astimezone(timezone.utc)
 
 
+def next_scheduled_tick_utc(after: datetime) -> datetime:
+    """First scheduled 03:30-JST start strictly after `after`."""
+
+    jst = timezone(timedelta(hours=9))
+    local = after.astimezone(jst)
+    hour, minute = (int(part) for part in os.environ.get("CARDZ_V2_FIRST_TICK_JST", "03:30").split(":"))
+    candidate = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if candidate <= local:
+        candidate += timedelta(days=1)
+    return candidate.astimezone(timezone.utc)
+
+
 def clamp_manual_window(
     schedule: Mapping[str, datetime],
     *,
@@ -146,15 +163,19 @@ def clamp_manual_window(
 
     An unclamped +8h renewal at 16:00 JST keeps a manual run authoritative
     deep into the next unattended cycle; the operator window is capped at
-    17:00 JST, and never shorter than ten more minutes of work.
+    17:00 JST.  It is also never shorter than MANUAL_WINDOW_MIN_SECONDS of
+    remaining work, and never long enough to still be authoritative when the
+    next unattended 03:30 JST tick starts -- that ceiling outranks the floor,
+    with ten minutes kept as the absolute lower bound.
     """
 
     values = dict(schedule)
     started = values["start"].astimezone(timezone.utc)
-    cap = max(
-        started + timedelta(seconds=MANUAL_WINDOW_MIN_SECONDS),
-        last_scheduled_tick_utc(business_date),
-    )
+    floor = started + timedelta(seconds=MANUAL_WINDOW_MIN_SECONDS)
+    cap = max(floor, last_scheduled_tick_utc(business_date))
+    ceiling = next_scheduled_tick_utc(started) - timedelta(seconds=NEXT_TICK_GUARD_SECONDS)
+    cap = min(cap, ceiling)
+    cap = max(cap, started + timedelta(seconds=MANUAL_WINDOW_ABSOLUTE_MIN_SECONDS))
     if values["final"] <= cap:
         return values
     span = (cap - started).total_seconds()
@@ -465,7 +486,7 @@ def source_barrier_ready(
     unsettled = [
         row for row in tasks
         if str(row["required_class"]) != "core"
-        and str(row["status"]) not in {"COMPLETED", "DEGRADED", "TERMINAL"}
+        and str(row["status"]) not in {"COMPLETED", "DEGRADED", "TERMINAL", "SKIPPED"}
     ]
     return not unsettled
 
@@ -525,8 +546,9 @@ class DailyChainV2:
             final_at=iso(self.schedule["final"]),
         )
         reopened: list[str] = []
+        previous_status = ""
         if renew_manual_window:
-            row, reopened = self.journal.renew_manual_window(
+            row, reopened, previous_status = self.journal.renew_manual_window(
                 self.run_id,
                 source_cutoff_at=iso(self.schedule["source_cutoff"]),
                 sla_at=iso(self.schedule["sla"]),
@@ -558,6 +580,7 @@ class DailyChainV2:
                 {
                     "runId": self.run_id,
                     "origin": origin,
+                    "previousStatus": previous_status,
                     "sourceCutoffAt": row["source_cutoff_at"],
                     "slaAt": row["sla_at"],
                     "finalAt": row["final_at"],
@@ -571,7 +594,68 @@ class DailyChainV2:
                 self.day_text,
                 {"runId": self.run_id, "businessDate": self.day_text, "origin": origin},
             )
+        self.report_long_db_sessions()
         return row
+
+    def report_long_db_sessions(self, *, minutes: int = 20) -> None:
+        """Journal canonical-DB sessions older than `minutes`.  Observation only.
+
+        Nothing is terminated: this tick has no way to tell an operator's
+        deliberate long report from a stuck read, and a preflight that ends
+        somebody else's transaction is worse than the condition it watches.
+        Every failure is swallowed for the same reason -- a preflight must
+        never be the thing that stops a tick.
+        """
+
+        try:
+            from qualified_pool_operator import db, load_env
+
+            load_env()
+            connection = db()
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT id, user, db, command, time, LEFT(info, 200) AS sql_head
+                        FROM information_schema.processlist
+                        WHERE user LIKE %s AND command <> 'Sleep' AND time > %s
+                        ORDER BY time DESC
+                        """,
+                        ("cardz%", int(minutes) * 60),
+                    )
+                    # information_schema labels come back upper-cased on this
+                    # Windows MySQL build whatever the query spells.
+                    rows = [
+                        {str(key).lower(): value for key, value in dict(row).items()}
+                        for row in cursor.fetchall()
+                    ]
+            finally:
+                connection.close()
+        except Exception:
+            return
+        if not rows:
+            return
+        ids = [int(row.get("id") or 0) for row in rows]
+        seconds = [int(row.get("time") or 0) for row in rows]
+        self.journal.add_event(
+            self.run_id,
+            "DB_LONG_SESSIONS_OBSERVED",
+            sha256({"ids": ids, "day": self.day_text})[:16],
+            {
+                "runId": self.run_id,
+                "sessionCount": len(rows),
+                "maxMinutes": max(seconds) // 60 if seconds else 0,
+                "sessions": [
+                    {
+                        "id": int(row.get("id") or 0),
+                        "seconds": int(row.get("time") or 0),
+                        "command": str(row.get("command") or ""),
+                        "sql": str(row.get("sql_head") or "")[:200],
+                    }
+                    for row in rows
+                ],
+            },
+        )
 
     def add_stage(
         self,
@@ -2118,6 +2202,23 @@ class DailyChainV2:
                 f"sources=<code>{html.escape(source_summary or '-')}</code>\n"
                 f"{html.escape(str(payload.get('liveUrl') or ''))}"
             )
+        if event_type == "DB_LONG_SESSIONS_OBSERVED":
+            return (
+                "🟠 <b>CARDZ V2 long DB sessions</b>\n"
+                f"run=<code>{html.escape(str(payload.get('runId') or '-'))}</code>\n"
+                f"sessions={int(payload.get('sessionCount') or 0)} "
+                f"maxMinutes={int(payload.get('maxMinutes') or 0)}\n"
+                "<i>reported only, nothing was killed</i>"
+            )
+        if event_type == "MANUAL_WINDOW_RENEWED":
+            return (
+                "🟢 <b>CARDZ V2 manual window renewed</b>\n"
+                f"run=<code>{html.escape(str(payload.get('runId') or '-'))}</code>\n"
+                f"previousStatus=<code>"
+                f"{html.escape(str(payload.get('previousStatus') or '-'))}</code>\n"
+                f"finalAt=<code>{html.escape(str(payload.get('finalAt') or '-'))}</code> "
+                f"reopened={len(payload.get('reopenedTaskKeys') or [])}"
+            )
         return (
             f"🔴 <b>CARDZ V2 {html.escape(event_type)}</b>\n"
             f"run=<code>{html.escape(str(payload.get('runId') or '-'))}</code>\n"
@@ -2280,6 +2381,44 @@ def run_unpark(journal: Journal, business_date: date, args: Any) -> int:
     return 0
 
 
+def run_retire(journal: Journal, business_date: date, args: argparse.Namespace) -> int:
+    """Operator settlement of a parked/terminal task that later work superseded."""
+
+    run_id = f"cardz-v2:{business_date.isoformat()}"
+    if args.list_only:
+        return run_unpark(journal, business_date, args)
+    if not args.task:
+        print("retire requires --task <task_key> or --list", file=sys.stderr)
+        return 2
+    row = journal.retire(str(args.task), reason=str(args.reason))
+    if row is None:
+        print(f"task is not parked or terminal: {args.task}", file=sys.stderr)
+        return 2
+    journal.add_event(
+        run_id,
+        "TASK_RETIRED",
+        f"{row['task_key']}:{row['attempts']}:{iso()}",
+        {
+            "runId": run_id,
+            "taskKey": row["task_key"],
+            "phase": row.get("phase"),
+            "source": row.get("source_code"),
+            "provenance": "operator",
+            "reason": str(args.reason),
+            "previousStatus": row["previousStatus"],
+            "attempts": int(row.get("attempts") or 0),
+            "maxAttempts": int(row.get("max_attempts") or 0),
+            "status": row["status"],
+            "errorCode": row.get("last_error_code"),
+        },
+    )
+    print(
+        f"TASK_RETIRED {row['task_key']} {row['previousStatus']}->{row['status']}"
+        f" attempts={row['attempts']}/{row['max_attempts']} reason={args.reason}"
+    )
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -2307,6 +2446,12 @@ def main() -> int:
     unpark.add_argument("--task")
     unpark.add_argument("--reason", default="operator unpark")
     unpark.add_argument("--list", dest="list_only", action="store_true")
+    retire = sub.add_parser("retire")
+    retire.add_argument("--state-db", type=Path, default=default_state_path())
+    retire.add_argument("--business-date", type=date.fromisoformat)
+    retire.add_argument("--task")
+    retire.add_argument("--reason", required=True)
+    retire.add_argument("--list", dest="list_only", action="store_true")
     args = parser.parse_args()
 
     day = args.business_date or datetime.now(JST).date()
@@ -2327,6 +2472,10 @@ def main() -> int:
     if args.command == "unpark":
         journal.initialise()
         return run_unpark(journal, day, args)
+
+    if args.command == "retire":
+        journal.initialise()
+        return run_retire(journal, day, args)
 
     if (
         args.max_runtime_seconds < 60
