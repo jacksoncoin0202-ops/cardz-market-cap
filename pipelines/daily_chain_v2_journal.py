@@ -27,9 +27,34 @@ from daily_chain_v2_contract import (
 
 
 SCHEMA_VERSION = 1
-TERMINAL_TASK_STATES = frozenset({"COMPLETED", "DEGRADED", "TERMINAL", "SKIPPED"})
+# PARKED is settled work: it never auto-claims again and only `unpark` may
+# revive it.  Downstream barriers must treat it as finished, exactly like
+# TERMINAL, or one exhausted task would hold the whole business date open.
+TERMINAL_TASK_STATES = frozenset({"COMPLETED", "DEGRADED", "TERMINAL", "SKIPPED", "PARKED"})
 SUCCESS_TASK_STATES = frozenset({"COMPLETED", "DEGRADED", "SKIPPED"})
+CLAIMABLE_TASK_STATES = ("PENDING", "READY", "RETRY", "INTERRUPTED")
+UNPARKABLE_TASK_STATES = ("PARKED", "TERMINAL")
 RUN_SUCCESS_STATES = frozenset({"PUBLISHED", "PUBLISHED_DEGRADED"})
+DEFAULT_MAX_INTERRUPTIONS = 6
+INTERRUPT_BACKOFF_BASE_SECONDS = 60
+INTERRUPT_BACKOFF_CAP_SECONDS = 900
+
+
+def default_max_interruptions() -> int:
+    raw = os.environ.get("CARDZ_V2_MAX_INTERRUPTIONS", "").strip()
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_INTERRUPTIONS
+    return value if value >= 1 else DEFAULT_MAX_INTERRUPTIONS
+
+
+def interrupt_backoff_seconds(interruptions: int) -> int:
+    exponent = max(0, min(int(interruptions), 32))
+    return min(
+        INTERRUPT_BACKOFF_BASE_SECONDS * (2 ** exponent),
+        INTERRUPT_BACKOFF_CAP_SECONDS,
+    )
 
 
 def utc_now() -> datetime:
@@ -107,6 +132,7 @@ class Journal:
                     result_json TEXT,
                     attempts INTEGER NOT NULL DEFAULT 0,
                     max_attempts INTEGER NOT NULL,
+                    interruptions INTEGER NOT NULL DEFAULT 0,
                     next_retry_at TEXT,
                     lease_token TEXT,
                     lease_expires_at TEXT,
@@ -157,6 +183,17 @@ class Journal:
                     ON chain_event(run_id, delivered, created_at);
                 """
             )
+            # Additive migration for journals created before the interruption
+            # budget existed.  A live journal must keep its history; the column
+            # simply starts every existing task at zero interruptions.
+            columns = {
+                str(row["name"])
+                for row in conn.execute("PRAGMA table_info(chain_task)").fetchall()
+            }
+            if columns and "interruptions" not in columns:
+                conn.execute(
+                    "ALTER TABLE chain_task ADD COLUMN interruptions INTEGER NOT NULL DEFAULT 0"
+                )
             conn.execute(
                 "INSERT INTO journal_meta(key,value) VALUES('schema_version',?)"
                 " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -274,7 +311,7 @@ class Journal:
                     f"""
                     UPDATE chain_task
                     SET status='INTERRUPTED',next_retry_at=?,lease_token=NULL,
-                        lease_expires_at=NULL,
+                        lease_expires_at=NULL,interruptions=0,
                         last_error='explicit manual E2E window renewal reopened cutoff work',
                         updated_at=?
                     WHERE task_key IN ({placeholders})
@@ -454,16 +491,25 @@ class Journal:
         lease_seconds: int = 90,
         limit: int = 32,
         now: datetime | None = None,
+        max_interruptions: int | None = None,
     ) -> list[dict[str, Any]]:
         clock = now or utc_now()
         now_text = iso(clock)
         phase_list = tuple(phases or ())
+        budget = int(
+            default_max_interruptions() if max_interruptions is None else max_interruptions
+        )
+        claimable = ",".join(f"'{state}'" for state in CLAIMABLE_TASK_STATES)
         with self.transaction() as conn:
+            # Both budgets are enforced here, not only at failure time: an
+            # INTERRUPTED task that already spent its attempts or its
+            # interruption budget must never be handed out again.
             where = (
-                "run_id=? AND status IN ('PENDING','RETRY','INTERRUPTED')"
+                f"run_id=? AND status IN ({claimable})"
+                " AND attempts<max_attempts AND interruptions<?"
                 " AND (next_retry_at IS NULL OR next_retry_at<=?)"
             )
-            params: list[Any] = [run_id, now_text]
+            params: list[Any] = [run_id, budget, now_text]
             if phase_list:
                 where += f" AND phase IN ({','.join('?' for _ in phase_list)})"
                 params.extend(phase_list)
@@ -492,8 +538,8 @@ class Journal:
                     UPDATE chain_task
                     SET status='RUNNING',attempts=?,lease_token=?,lease_expires_at=?,
                         heartbeat_at=?,updated_at=?
-                    WHERE task_key=? AND status IN ('PENDING','RETRY','INTERRUPTED')
-                    """,
+                    WHERE task_key=? AND status IN ({claimable})
+                    """.format(claimable=claimable),
                     (attempt, claim, expires, now_text, now_text, row["task_key"]),
                 ).rowcount
                 if changed != 1:
@@ -839,6 +885,9 @@ class Journal:
                     UPDATE chain_task
                     SET status='INTERRUPTED',next_retry_at=?,lease_token=NULL,
                         lease_expires_at=NULL,last_error_code='DEPENDENCY_CHANGED',
+                        interruptions=0,
+                        max_attempts=CASE WHEN attempts>=max_attempts
+                            THEN attempts+1 ELSE max_attempts END,
                         last_error=?,updated_at=?
                     WHERE task_key IN ({key_placeholders})
                     """,
@@ -858,28 +907,121 @@ class Journal:
         *,
         reason: str,
         now: datetime | None = None,
-    ) -> None:
-        now_text = iso(now or utc_now())
+        max_interruptions: int | None = None,
+    ) -> str:
+        """Return the task to the queue under an explicit interruption budget.
+
+        An unbudgeted interruption is an infinite loop: every tick kills the
+        same worker, resets the retry clock to now, and the task is claimed
+        again forever.  Each interruption therefore costs budget and backs off;
+        an exhausted task parks and waits for an operator `unpark`.
+        """
+
+        clock = now or utc_now()
+        now_text = iso(clock)
+        budget = int(
+            default_max_interruptions() if max_interruptions is None else max_interruptions
+        )
         with self.transaction() as conn:
+            task = conn.execute(
+                """
+                SELECT * FROM chain_task
+                WHERE task_key=? AND lease_token=? AND status='RUNNING'
+                """,
+                (task_key, claim_token),
+            ).fetchone()
+            if task is None:
+                raise ClaimLost(f"interrupt lost V2 task claim: {task_key}")
+            interruptions = int(task["interruptions"] or 0) + 1
+            attempts = int(task["attempts"] or 0)
+            max_attempts = int(task["max_attempts"] or 1)
+            exhausted = interruptions >= budget or attempts >= max_attempts
+            status = "PARKED" if exhausted else "INTERRUPTED"
+            error_code = "WORKER_PARKED" if exhausted else "WORKER_INTERRUPTED"
+            next_retry = (
+                None if exhausted
+                else iso(clock + timedelta(seconds=interrupt_backoff_seconds(interruptions)))
+            )
             changed = conn.execute(
                 """
-                UPDATE chain_task SET status='INTERRUPTED',next_retry_at=?,
-                    lease_token=NULL,lease_expires_at=NULL,last_error_code='WORKER_INTERRUPTED',
+                UPDATE chain_task SET status=?,next_retry_at=?,interruptions=?,
+                    lease_token=NULL,lease_expires_at=NULL,last_error_code=?,
                     last_error=?,updated_at=?
                 WHERE task_key=? AND lease_token=? AND status='RUNNING'
                 """,
-                (now_text, reason[-8000:], now_text, task_key, claim_token),
+                (
+                    status, next_retry, interruptions, error_code,
+                    reason[-8000:], now_text, task_key, claim_token,
+                ),
             ).rowcount
             if changed != 1:
                 raise ClaimLost(f"interrupt lost V2 task claim: {task_key}")
             conn.execute(
                 """
                 UPDATE chain_attempt SET status='INTERRUPTED',finished_at=?,
-                    error_code='WORKER_INTERRUPTED',error_text=?
+                    error_code=?,error_text=?
                 WHERE claim_token=? AND status='RUNNING'
                 """,
-                (now_text, reason[-8000:], claim_token),
+                (now_text, error_code, reason[-8000:], claim_token),
             )
+        return status
+
+    def unpark(
+        self,
+        task_key: str,
+        *,
+        reason: str = "operator",
+        now: datetime | None = None,
+    ) -> dict[str, Any] | None:
+        """Operator-only revival of settled work; history is kept intact."""
+
+        clock = now or utc_now()
+        now_text = iso(clock)
+        states = ",".join(f"'{state}'" for state in UNPARKABLE_TASK_STATES)
+        with self.transaction() as conn:
+            task = conn.execute(
+                "SELECT * FROM chain_task WHERE task_key=?", (task_key,)
+            ).fetchone()
+            if task is None or str(task["status"]) not in set(UNPARKABLE_TASK_STATES):
+                return None
+            attempts = int(task["attempts"] or 0)
+            max_attempts = int(task["max_attempts"] or 1)
+            granted = attempts + 1 if attempts >= max_attempts else max_attempts
+            changed = conn.execute(
+                f"""
+                UPDATE chain_task SET status='READY',max_attempts=?,interruptions=0,
+                    next_retry_at=?,lease_token=NULL,lease_expires_at=NULL,
+                    last_error=?,updated_at=?
+                WHERE task_key=? AND status IN ({states})
+                """,
+                (
+                    granted, now_text, f"unparked by operator: {reason}"[-8000:],
+                    now_text, task_key,
+                ),
+            ).rowcount
+            if changed != 1:
+                return None
+            row = dict(
+                conn.execute(
+                    "SELECT * FROM chain_task WHERE task_key=?", (task_key,)
+                ).fetchone()
+            )
+        row["previousStatus"] = str(task["status"])
+        row["previousMaxAttempts"] = max_attempts
+        row["previousInterruptions"] = int(task["interruptions"] or 0)
+        return row
+
+    def unparkable_tasks(self, run_id: str) -> list[dict[str, Any]]:
+        states = ",".join(f"'{state}'" for state in UNPARKABLE_TASK_STATES)
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT * FROM chain_task WHERE run_id=? AND status IN ({states})
+                ORDER BY created_at,task_key
+                """,
+                (run_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def expired_attempts(self, *, now: datetime | None = None) -> list[dict[str, Any]]:
         now_text = iso(now or utc_now())
@@ -922,7 +1064,7 @@ class Journal:
                     lease_expires_at=NULL,last_error_code=?,last_error=?,updated_at=?
                 WHERE run_id=? AND phase=?
                   AND required_class<>'core'
-                  AND status IN ('PENDING','RETRY','INTERRUPTED')
+                  AND status IN ('PENDING','READY','RETRY','INTERRUPTED')
                 """,
                 (error_code, reason[-8000:], now, run_id, phase),
             ).rowcount

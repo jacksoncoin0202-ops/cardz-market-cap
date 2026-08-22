@@ -1,0 +1,548 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Durability fixtures for CARDZ Daily Chain V2 orchestration.
+
+Every check here proves a guard FIRES on the broken shape and stays quiet on
+the healthy one.  No Telegram, browser, MySQL, push, or deploy occurs: the
+journal lives in a private temp directory, alerts run in dry-run mode, and the
+only processes started are this file's own sleeping fixtures.
+"""
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import signal
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import time
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "pipelines"))
+
+import daily_chain_v2 as chain_module  # noqa: E402
+from daily_chain_v2 import (  # noqa: E402
+    ADOPT_GRACE_SECONDS,
+    DEFAULT_MAX_RUNTIME_SECONDS,
+    MAX_RUNTIME_SECONDS_CEILING,
+    DailyChainV2,
+    build_health_document,
+    clamp_manual_window,
+    health_path,
+    last_scheduled_tick_utc,
+    manual_e2e_schedule,
+    recovery_disposition,
+    send_alert,
+    status_brief,
+    write_health_document,
+)
+from daily_chain_v2_contract import SourceTask, classify_error  # noqa: E402
+from daily_chain_v2_journal import (  # noqa: E402
+    Journal,
+    interrupt_backoff_seconds,
+    iso,
+    utc_now,
+)
+from daily_chain_v2_worker import start_heartbeat  # noqa: E402
+
+DAY = date(2026, 8, 20)
+RUN_ID = f"cardz-v2:{DAY.isoformat()}"
+WORKSPACE = Path(tempfile.mkdtemp(prefix="cardz-v2-durability-o1-"))
+STARTED_PROCESSES: list[subprocess.Popen[Any]] = []
+
+
+def cleanup() -> None:
+    for proc in STARTED_PROCESSES:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=10)
+    shutil.rmtree(WORKSPACE, ignore_errors=True)
+
+
+def new_journal(name: str) -> Journal:
+    journal = Journal(WORKSPACE / f"{name}.sqlite3")
+    journal.initialise()
+    journal.ensure_run(
+        business_date=DAY.isoformat(),
+        source_cutoff_at="2026-08-20T01:15:00+00:00",
+        sla_at="2026-08-20T02:00:00+00:00",
+        final_at="2026-08-20T08:00:00+00:00",
+    )
+    return journal
+
+
+def add_task(journal: Journal, code: str, *, max_attempts: int = 3) -> str:
+    task = SourceTask(
+        run_id=RUN_ID, business_date=DAY.isoformat(),
+        source_code=code, capability="quote",
+    )
+    journal.add_task(
+        task, phase="source", required_class="extra",
+        concurrency_group=f"fixture:{code}", max_concurrency=1,
+        max_attempts=max_attempts,
+    )
+    return task.idempotency_key
+
+
+def sql(journal: Journal, statement: str, params: tuple[Any, ...] = ()) -> None:
+    with sqlite3.connect(str(journal.path)) as conn:
+        conn.execute(statement, params)
+        conn.commit()
+
+
+def new_chain(journal: Journal) -> DailyChainV2:
+    return DailyChainV2(
+        journal=journal,
+        business_date=DAY,
+        allow_publish=False,
+        notify=False,
+        deadline_monotonic=time.monotonic() + 600,
+    )
+
+
+def events(journal: Journal, event_type: str) -> list[dict[str, Any]]:
+    with sqlite3.connect(str(journal.path)) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM chain_event WHERE event_type=? ORDER BY created_at",
+            (event_type,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+try:
+    # ---------------------------------------------------------------- task 6
+    for token in (
+        "migration content changed for 051",
+        "MIGRATION HASH mismatch",
+        "migration checksum does not match recorded bytes",
+    ):
+        decision = classify_error(token)
+        assert decision.terminal and decision.error_code == "TERMINAL_CONTRACT", token
+    network = classify_error("HTTP 503 from gemrate mirror")
+    assert not network.terminal and network.error_code == "TRANSIENT_SOURCE"
+    assert not classify_error("connection timed out").terminal
+    print("POSITIVE_OK migration-content faults are terminal while network faults stay retryable")
+
+    # --------------------------------------------------------------- task 10
+    started = datetime(2026, 8, 20, 6, 0, tzinfo=timezone.utc)  # 15:00 JST
+    window = manual_e2e_schedule(started, business_date=DAY)
+    assert window["final"] == last_scheduled_tick_utc(DAY) == datetime(
+        2026, 8, 20, 8, 0, tzinfo=timezone.utc
+    )
+    assert window["start"] < window["source_cutoff"] < window["sla"] < window["final"]
+    late = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)  # 21:00 JST
+    late_window = manual_e2e_schedule(late, business_date=DAY)
+    assert late_window["final"] == late + timedelta(minutes=10)
+    assert late_window["source_cutoff"] < late_window["sla"] < late_window["final"]
+    early = datetime(2026, 8, 19, 18, 0, tzinfo=timezone.utc)  # 03:00 JST
+    early_window = manual_e2e_schedule(early, business_date=DAY)
+    assert early_window["final"] == early + timedelta(hours=8)  # inside 17:00 JST
+    os.environ["CARDZ_V2_LAST_TICK_JST"] = "12:00"
+    try:
+        assert last_scheduled_tick_utc(DAY) == datetime(
+            2026, 8, 20, 3, 0, tzinfo=timezone.utc
+        )
+        assert clamp_manual_window(
+            {
+                "start": early,
+                "source_cutoff": early + timedelta(hours=4),
+                "sla": early + timedelta(hours=5),
+                "final": early + timedelta(hours=12),
+            },
+            business_date=DAY,
+        )["final"] == datetime(2026, 8, 20, 3, 0, tzinfo=timezone.utc)
+    finally:
+        os.environ.pop("CARDZ_V2_LAST_TICK_JST", None)
+    print("POSITIVE_OK manual window clamps to the last scheduled tick and never shortens below ten minutes")
+
+    # ---------------------------------------------------------------- task 4
+    journal = new_journal("budget")
+    key = add_task(journal, "budget-source", max_attempts=20)
+    clock = datetime(2026, 8, 20, tzinfo=timezone.utc)
+    delays: list[int] = []
+    states: list[str] = []
+    for round_number in range(1, 8):
+        claimed = journal.claim_ready(RUN_ID, now=clock, max_interruptions=6)
+        if not claimed:
+            states.append("NOT_CLAIMED")
+            break
+        state = journal.interrupt_claim(
+            key, claimed[0]["lease_token"], reason="fixture interrupt",
+            now=clock, max_interruptions=6,
+        )
+        states.append(state)
+        row = journal.task(key)
+        assert int(row["interruptions"]) == round_number
+        if row["next_retry_at"]:
+            due = datetime.fromisoformat(str(row["next_retry_at"]))
+            delays.append(int((due - clock).total_seconds()))
+        clock += timedelta(seconds=1200)
+        if state == "PARKED":
+            break
+    assert states == ["INTERRUPTED"] * 5 + ["PARKED"], states
+    assert delays == [120, 240, 480, 900, 900], delays
+    assert interrupt_backoff_seconds(1) == 120 and interrupt_backoff_seconds(9) == 900
+    assert journal.task(key)["status"] == "PARKED"
+    assert journal.claim_ready(RUN_ID, now=clock + timedelta(hours=6)) == []
+    healthy = add_task(journal, "healthy-source", max_attempts=20)
+    assert [row["task_key"] for row in journal.claim_ready(RUN_ID, now=clock)] == [healthy]
+    print("POSITIVE_OK interruption budget backs off, parks at the limit, and never auto-claims a parked task")
+
+    os.environ["CARDZ_V2_MAX_INTERRUPTIONS"] = "1"
+    try:
+        env_journal = new_journal("budget-env")
+        env_key = add_task(env_journal, "env-source", max_attempts=20)
+        env_claim = env_journal.claim_ready(RUN_ID, now=clock)
+        assert len(env_claim) == 1
+        assert env_journal.interrupt_claim(
+            env_key, env_claim[0]["lease_token"], reason="env budget", now=clock
+        ) == "PARKED"
+    finally:
+        os.environ.pop("CARDZ_V2_MAX_INTERRUPTIONS", None)
+    print("NEGATIVE_OK CARDZ_V2_MAX_INTERRUPTIONS shrinks the budget instead of being ignored")
+
+    # ---------------------------------------------------------------- task 5
+    journal = new_journal("unpark")
+    stuck = add_task(journal, "pc-stuck", max_attempts=12)
+    sql(
+        journal,
+        "UPDATE chain_task SET status='TERMINAL',attempts=13,max_attempts=12,"
+        "last_error_code='SOURCE_FAILED' WHERE task_key=?",
+        (stuck,),
+    )
+    assert journal.claim_ready(RUN_ID, now=utc_now()) == []
+    revived = journal.unpark(stuck, reason="operator resume tonight")
+    assert revived is not None
+    assert revived["status"] == "READY" and revived["previousStatus"] == "TERMINAL"
+    assert int(revived["attempts"]) == 13 and int(revived["max_attempts"]) == 14
+    assert int(revived["interruptions"]) == 0
+    claimed = journal.claim_ready(RUN_ID, now=utc_now())
+    assert [row["task_key"] for row in claimed] == [stuck]
+    assert int(claimed[0]["attempts"]) == 14
+    assert journal.unpark("no-such-task") is None
+    assert journal.unpark(stuck) is None  # RUNNING is not parkable
+    listed = [row["task_key"] for row in journal.unparkable_tasks(RUN_ID)]
+    assert listed == []
+    print("POSITIVE_OK unpark revives a TERMINAL 13/12 task once and refuses non-parkable keys")
+
+    class UnparkArgs:
+        list_only = False
+        task = stuck
+        reason = "operator cli"
+
+    journal.interrupt_claim(
+        stuck, claimed[0]["lease_token"], reason="fixture", max_interruptions=1
+    )
+    assert journal.task(stuck)["status"] == "PARKED"
+    assert chain_module.run_unpark(journal, DAY, UnparkArgs()) == 0
+    assert journal.task(stuck)["status"] == "READY"
+    assert len(events(journal, "TASK_UNPARKED")) == 1
+    assert json.loads(events(journal, "TASK_UNPARKED")[0]["payload_json"])[
+        "provenance"
+    ] == "operator"
+    UnparkArgs.task = "missing-key"
+    assert chain_module.run_unpark(journal, DAY, UnparkArgs()) == 2
+    UnparkArgs.list_only = True
+    assert chain_module.run_unpark(journal, DAY, UnparkArgs()) == 0
+    print("POSITIVE_OK unpark CLI journals operator provenance, lists, and exits 2 on an unknown task")
+
+    # ---------------------------------------------------------------- task 3
+    assert recovery_disposition(
+        {"lease_expires_at": iso(utc_now() - timedelta(seconds=10))},
+        now=utc_now(), alive=True,
+    ) == "adopt"
+    assert recovery_disposition(
+        {"lease_expires_at": iso(utc_now() - timedelta(seconds=600))},
+        now=utc_now(), alive=True,
+    ) == "terminate"
+    assert recovery_disposition(
+        {"lease_expires_at": iso(utc_now() - timedelta(seconds=10))},
+        now=utc_now(), alive=False,
+    ) == "interrupt"
+
+    terminated: list[int] = []
+    real_terminate = chain_module.terminate_worker_group
+    chain_module.terminate_worker_group = lambda pid, **kwargs: terminated.append(int(pid))
+    try:
+        for label, lease_age, alive, expected_status, expect_kill in (
+            ("adopt", 10, True, "RUNNING", False),
+            ("terminate", 900, True, "INTERRUPTED", True),
+            ("dead", 10, False, "INTERRUPTED", False),
+        ):
+            journal = new_journal(f"recover-{label}")
+            key = add_task(journal, f"recover-{label}", max_attempts=5)
+            claim = journal.claim_ready(RUN_ID, now=utc_now())[0]
+            worker = subprocess.Popen(
+                [sys.executable, "-c", "import time; time.sleep(45)"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            STARTED_PROCESSES.append(worker)
+            expired = iso(utc_now() - timedelta(seconds=lease_age))
+            sql(journal, "UPDATE chain_task SET lease_expires_at=? WHERE task_key=?", (expired, key))
+            sql(
+                journal,
+                "UPDATE chain_attempt SET worker_pid=? WHERE claim_token=?",
+                (worker.pid, claim["lease_token"]),
+            )
+            chain = new_chain(journal)
+            chain._pid_belongs_to_attempt = lambda pid, row, _alive=alive: _alive
+            terminated.clear()
+            chain.recover_expired()
+            assert journal.task(key)["status"] == expected_status, label
+            assert bool(terminated) is expect_kill, (label, terminated)
+            adopted = events(journal, "TASK_ADOPTED")
+            assert bool(adopted) is (label == "adopt"), label
+            if label == "adopt":
+                assert worker.poll() is None
+                payload = json.loads(adopted[0]["payload_json"])
+                assert payload["pid"] == worker.pid
+            worker.kill()
+            worker.wait(timeout=10)
+        # The real predicate must reject a pid that is not this attempt's worker.
+        chain = new_chain(new_journal("recover-predicate"))
+        assert chain._pid_belongs_to_attempt(
+            999999, {"task_key": "x", "claim_token": "y", "process_started_at": ""}
+        ) is False
+    finally:
+        chain_module.terminate_worker_group = real_terminate
+    print("POSITIVE_OK expired leases adopt a live worker, kill a stale one, and interrupt a dead one")
+
+    # ---------------------------------------------------------------- task 2
+    journal = new_journal("heartbeat")
+    key = add_task(journal, "heartbeat-source", max_attempts=3)
+    claim = journal.claim_ready(RUN_ID, now=utc_now())[0]
+    os.environ["CARDZ_V2_HEARTBEAT_SECONDS"] = "1"
+    try:
+        stop = start_heartbeat(journal, key, claim["lease_token"])
+        beats: list[str] = []
+        leases: list[str] = []
+        deadline = time.monotonic() + 6
+        while time.monotonic() < deadline and len(beats) < 3:
+            row = journal.task(key)
+            if str(row["heartbeat_at"]) not in beats:
+                beats.append(str(row["heartbeat_at"]))
+                leases.append(str(row["lease_expires_at"]))
+            time.sleep(0.2)
+        stop()
+    finally:
+        os.environ.pop("CARDZ_V2_HEARTBEAT_SECONDS", None)
+    assert len(beats) >= 3, beats  # claim stamp plus at least two renewals
+    assert beats == sorted(beats) and leases == sorted(leases)
+    frozen = journal.task(key)["heartbeat_at"]
+    time.sleep(2.5)
+    assert journal.task(key)["heartbeat_at"] == frozen
+    print("POSITIVE_OK worker heartbeat renews the lease at least twice and stops on exit")
+
+    # ---------------------------------------------------------------- task 7
+    dry_run_path = WORKSPACE / "alerts.txt"
+    os.environ["CARDZ_V2_NOTIFY_DRY_RUN"] = "1"
+    journal = new_journal("alerts")
+    chain = new_chain(journal)
+    real_stdout = sys.stdout
+    try:
+        with dry_run_path.open("w", encoding="utf-8") as sink:
+            sys.stdout = sink
+            send_alert("fixture-key", "fixture text", level="warn", cooldown_min=1)
+            chain.journal_event(
+                "TICK_CRASHED", "fixture", {"runId": RUN_ID, "errorCode": "RuntimeError"}
+            )
+            chain.journal_event("TICK_CRASHED", "fixture", {"runId": RUN_ID})  # deduped
+            chain.journal_event("TASK_ERROR", "fixture", {"runId": RUN_ID})  # not lifecycle
+    finally:
+        sys.stdout = real_stdout
+        os.environ.pop("CARDZ_V2_NOTIFY_DRY_RUN", None)
+    lines = [line for line in dry_run_path.read_text(encoding="utf-8").splitlines() if line]
+    assert lines[0] == "NOTIFY_DRYRUN fixture-key warn fixture text", lines
+    assert len(lines) == 2, lines
+    assert lines[1].startswith("NOTIFY_DRYRUN v2-tick-crashed:2026-08-20 error"), lines
+    assert "TICK_CRASHED" in lines[1]
+    assert chain_module.LAST_ALERT and chain_module.LAST_ALERT["key"].startswith(
+        "v2-tick-crashed"
+    )
+    print("POSITIVE_OK lifecycle events alert once without --notify while ordinary events stay silent")
+
+    # ------------------------------------------------------------- tasks 8, 9
+    journal = new_journal("health")
+    key = add_task(journal, "health-source", max_attempts=4)
+    claim = journal.claim_ready(RUN_ID, now=utc_now())[0]
+    journal.interrupt_claim(key, claim["lease_token"], reason="fixture", max_interruptions=6)
+    parked_key = add_task(journal, "health-parked", max_attempts=4)
+    parked_claim = journal.claim_ready(RUN_ID, now=utc_now())[0]
+    journal.interrupt_claim(
+        parked_key, parked_claim["lease_token"], reason="fixture", max_interruptions=1
+    )
+    os.environ["CARDZ_V2_HEALTH_PATH"] = str(WORKSPACE / "health" / "health.json")
+    try:
+        document = build_health_document(
+            journal, DAY, tick_phase="ended", tick_exit_code=0,
+            tick_started_at_utc="2026-08-20T00:00:00.000000+00:00",
+            tick_ended_at_utc="2026-08-20T00:00:12.500000+00:00",
+        )
+        written = write_health_document(document)
+        assert written == health_path() and written.exists()
+        stored = json.loads(written.read_text(encoding="utf-8"))
+        assert stored["schema"] == 1 and isinstance(stored["schema"], int)
+        assert stored["business_date"] == "2026-08-20"
+        assert stored["run_state"] == "RUNNING"
+        assert stored["tick_phase"] == "ended" and stored["tick_exit_code"] == 0
+        assert stored["tick_duration_s"] == 12.5
+        assert stored["parked"] == [parked_key]
+        assert stored["tasks"][key]["interruptions"] == 1
+        assert stored["tasks"][key]["state"] == "INTERRUPTED"
+        assert stored["tasks"][parked_key]["last_error_code"] == "WORKER_PARKED"
+        assert stored["autonomous_proven"] is False
+        assert stored["manual_window_until_utc"] is None
+        assert isinstance(stored["next_retry_at_utc"], str)
+        assert set(stored) == {
+            "schema", "written_at_utc", "written_at_jst", "business_date",
+            "run_state", "tick_phase", "tick_exit_code", "tick_started_at_utc",
+            "tick_ended_at_utc", "tick_duration_s", "next_retry_at_utc", "tasks",
+            "parked", "manual_window_until_utc", "autonomous_proven", "last_alert",
+        }
+        brief = status_brief(journal, DAY)
+        assert brief.startswith("2026-08-20 RUNNING tasks=0/2 retry=1 terminal=0"), brief
+        assert f"parked={parked_key}" in brief
+        assert "manual_until=-" in brief and "autonomous=False" in brief
+        assert int(brief.split("health_age=")[1]) >= 0
+        sql(
+            journal,
+            "UPDATE chain_run SET final_at='2026-08-20T09:00:00+00:00' WHERE run_id=?",
+            (RUN_ID,),
+        )
+        manual_doc = build_health_document(journal, DAY, tick_phase="started")
+        assert manual_doc["manual_window_until_utc"].startswith("2026-08-20T09:00:00")
+        assert "manual_until=2026-08-20T09:00:00" in status_brief(journal, DAY)
+    finally:
+        os.environ.pop("CARDZ_V2_HEALTH_PATH", None)
+    print("POSITIVE_OK health.json carries every schema-1 field and status --brief reads the same data")
+
+    # ---------------------------------------------------------------- task 1
+    journal = new_journal("signal")
+    key = add_task(journal, "signal-source", max_attempts=4)
+    claim = journal.claim_ready(RUN_ID, now=utc_now())[0]
+    chain = new_chain(journal)
+    chain.own_claims[key] = claim["lease_token"]
+    chain.tick_started_at_utc = iso()
+    os.environ["CARDZ_V2_HEALTH_PATH"] = str(WORKSPACE / "signal-health.json")
+    os.environ["CARDZ_V2_NOTIFY_DRY_RUN"] = "1"
+    try:
+        code = chain.signal_shutdown(int(signal.SIGTERM))
+        stored = json.loads(health_path().read_text(encoding="utf-8"))
+    finally:
+        os.environ.pop("CARDZ_V2_HEALTH_PATH", None)
+        os.environ.pop("CARDZ_V2_NOTIFY_DRY_RUN", None)
+    assert code == 143
+    signalled = events(journal, "TICK_SIGNALLED")
+    assert len(signalled) == 1
+    payload = json.loads(signalled[0]["payload_json"])
+    assert payload["signal"] == "SIGTERM" and payload["pid"] == os.getpid()
+    assert journal.task(key)["status"] == "INTERRUPTED"
+    assert chain.own_claims == {}
+    assert stored["tick_phase"] == "signalled" and stored["tick_exit_code"] == 143
+
+    crashed_chain = new_chain(journal)
+    crashed_chain.tick_started_at_utc = iso()
+    os.environ["CARDZ_V2_HEALTH_PATH"] = str(WORKSPACE / "crash-health.json")
+    os.environ["CARDZ_V2_NOTIFY_DRY_RUN"] = "1"
+    try:
+        assert crashed_chain.tick_crashed(RuntimeError("boom"), exit_code=1) == 1
+        crash_health = json.loads(health_path().read_text(encoding="utf-8"))
+    finally:
+        os.environ.pop("CARDZ_V2_HEALTH_PATH", None)
+        os.environ.pop("CARDZ_V2_NOTIFY_DRY_RUN", None)
+    assert crash_health["tick_phase"] == "crashed" and crash_health["tick_exit_code"] == 1
+    assert len(events(journal, "TICK_CRASHED")) == 1
+    print("POSITIVE_OK SIGTERM journals TICK_SIGNALLED, releases its own claim, and reports exit 143")
+
+    # ------------------------------------------------------------ tasks 1, 11
+    # These two run the real CLI.  --selftest-sleep takes the lock, installs the
+    # handlers, writes health, and idles: no planning, no MySQL, no publish.
+    live_dir = Path(
+        subprocess.run(
+            ["mktemp", "-d", "-t", "cardz-v2-o1-tick-XXXXXX"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+    )
+    try:
+        state_db = live_dir / "chain.sqlite3"
+        health_file = live_dir / "health.json"
+        env = os.environ.copy()
+        env.update({
+            "CARDZ_V2_HEALTH_PATH": str(health_file),
+            "CARDZ_V2_NOTIFY_DRY_RUN": "1",
+        })
+        command = [
+            sys.executable, "-X", "utf8", str(ROOT / "pipelines" / "daily_chain_v2.py"),
+            "tick", "--state-db", str(state_db), "--business-date", DAY.isoformat(),
+            "--max-runtime-seconds", "120", "--selftest-sleep", "120",
+        ]
+        tick = subprocess.Popen(
+            command, cwd=str(ROOT), env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        STARTED_PROCESSES.append(tick)
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            if health_file.exists():
+                if json.loads(health_file.read_text(encoding="utf-8"))["tick_phase"] == "started":
+                    break
+            if tick.poll() is not None:
+                raise AssertionError(f"tick exited early: {tick.communicate()}")
+            time.sleep(0.2)
+        else:
+            raise AssertionError("tick never reported tick_phase=started")
+
+        # Task 11: a second tick on the same journal must skip, not double-run.
+        second = subprocess.run(
+            command[:-2] + ["--selftest-sleep", "1"],
+            cwd=str(ROOT), env={**env, "CARDZ_V2_HEALTH_PATH": str(live_dir / "second.json")},
+            capture_output=True, text=True, timeout=120,
+        )
+        assert second.returncode == 0, second.stderr[-2000:]
+        assert second.stdout.strip().splitlines()[-1] == "TICK_SKIPPED_LOCKED", second.stdout
+        skipped = json.loads((live_dir / "second.json").read_text(encoding="utf-8"))
+        assert skipped["tick_phase"] == "skipped_locked" and skipped["schema"] == 1
+
+        tick.send_signal(signal.SIGTERM)
+        tick.wait(timeout=60)
+        assert tick.returncode == 143, tick.returncode
+        signalled_health = json.loads(health_file.read_text(encoding="utf-8"))
+        assert signalled_health["tick_phase"] == "signalled"
+        assert signalled_health["tick_exit_code"] == 143
+        live_journal = Journal(state_db)
+        rows = events(live_journal, "TICK_SIGNALLED")
+        assert len(rows) == 1
+        assert json.loads(rows[0]["payload_json"])["signal"] == "SIGTERM"
+
+        # The released lock lets the next tick run instead of skipping forever.
+        third = subprocess.run(
+            command[:-2] + ["--selftest-sleep", "0.1"],
+            cwd=str(ROOT), env={**env, "CARDZ_V2_HEALTH_PATH": str(live_dir / "third.json")},
+            capture_output=True, text=True, timeout=120,
+        )
+        assert third.returncode == 0 and "TICK_SKIPPED_LOCKED" not in third.stdout
+        assert json.loads(
+            (live_dir / "third.json").read_text(encoding="utf-8")
+        )["tick_phase"] == "ended"
+    finally:
+        shutil.rmtree(live_dir, ignore_errors=True)
+    print("POSITIVE_OK a signalled tick exits 143 with journal evidence and a held tick lock skips instead of doubling")
+
+    # --------------------------------------------------------------- task 12
+    assert DEFAULT_MAX_RUNTIME_SECONDS == 3000
+    assert MAX_RUNTIME_SECONDS_CEILING == 5400
+    source = (ROOT / "pipelines" / "daily_chain_v2.py").read_text(encoding="utf-8")
+    assert '"--max-runtime-seconds", type=int, default=DEFAULT_MAX_RUNTIME_SECONDS' in source
+    assert "default=5400" not in source and "= 5400" not in source.replace(
+        "MAX_RUNTIME_SECONDS_CEILING = 5400", ""
+    )
+    assert ADOPT_GRACE_SECONDS == 120
+    print("POSITIVE_OK DEFAULT_MAX_RUNTIME_SECONDS is the single 3000 second tick budget")
+finally:
+    cleanup()

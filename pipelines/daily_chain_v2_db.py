@@ -11,7 +11,15 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
-from daily_chain_v2_contract import canonical_json, sha256
+from daily_chain_v2_contract import (
+    canonical_json,
+    core_contract_keys,
+    pop_contract_sources,
+    quote_repair_routes,
+    rates_contract_sources,
+    route_policy_upserts,
+    sha256,
+)
 from qualified_pool_operator import db, load_env
 
 
@@ -69,6 +77,27 @@ def current_run_contract(business_date: str) -> dict[str, Any]:
                 f" missing={sorted(expected_tables - tables)}"
             )
 
+        # The registry is the source list.  Every section below is built from
+        # these rows, so a new provider needs a registry row and an adapter,
+        # never another branch here.
+        registry_rows = _rows(
+            cursor,
+            """
+            SELECT source_code,canonical_source_code,identity_source_code,
+                   required_class,enabled,capabilities_json,config_json
+            FROM market_source_registry ORDER BY source_code
+            """,
+        )
+        barrier_keys = core_contract_keys(registry_rows)
+        pop_sources = pop_contract_sources(registry_rows) or (
+            {
+                "sourceCode": "gemrate",
+                "identitySourceCode": "gemrate",
+                "popCheckpointSourceCode": "gemrate_pop",
+            },
+        )
+        rates_sources = rates_contract_sources(registry_rows) or ("fx",)
+
         active_count = _scalar(
             cursor,
             """
@@ -77,32 +106,43 @@ def current_run_contract(business_date: str) -> dict[str, Any]:
               ON ul.id=am.universe_lock_id AND ul.is_current=1
             """,
         )
-        gemrate_rows = _rows(
-            cursor,
-            """
-            SELECT am.variant_id,MAX(CASE
-              WHEN si.variant_id IS NOT NULL
-               AND cp.last_effective_at>=%s AND cp.last_effective_at<%s
-               AND cp.last_payload_sha256 REGEXP '^[0-9a-f]{64}$'
-              THEN 1 ELSE 0 END
-            ) AS current_pop
-            FROM market_universe_member am
-            INNER JOIN market_universe_lock ul
-              ON ul.id=am.universe_lock_id AND ul.is_current=1
-            LEFT JOIN operator_strict_source_identity si
-              ON si.variant_id=am.variant_id AND si.source_code='gemrate'
-            LEFT JOIN market_ingest_checkpoint cp
-              ON cp.source_code='gemrate_pop'
-             AND cp.stream_key=CONCAT(am.variant_id,':',si.external_entity_id)
-            GROUP BY am.variant_id ORDER BY am.variant_id
-            """,
-            (start, end),
-        )
-        missing_gemrate = [
-            int(row["variant_id"])
-            for row in gemrate_rows
-            if int(row.get("current_pop") or 0) != 1
-        ]
+        pop_sections: dict[str, Any] = {}
+        for pop_source in pop_sources:
+            pop_rows = _rows(
+                cursor,
+                """
+                SELECT am.variant_id,MAX(CASE
+                  WHEN si.variant_id IS NOT NULL
+                   AND cp.last_effective_at>=%s AND cp.last_effective_at<%s
+                   AND cp.last_payload_sha256 REGEXP '^[0-9a-f]{64}$'
+                  THEN 1 ELSE 0 END
+                ) AS current_pop
+                FROM market_universe_member am
+                INNER JOIN market_universe_lock ul
+                  ON ul.id=am.universe_lock_id AND ul.is_current=1
+                LEFT JOIN operator_strict_source_identity si
+                  ON si.variant_id=am.variant_id AND si.source_code=%s
+                LEFT JOIN market_ingest_checkpoint cp
+                  ON cp.source_code=%s
+                 AND cp.stream_key=CONCAT(am.variant_id,':',si.external_entity_id)
+                GROUP BY am.variant_id ORDER BY am.variant_id
+                """,
+                (
+                    start, end,
+                    pop_source["identitySourceCode"],
+                    pop_source["popCheckpointSourceCode"],
+                ),
+            )
+            missing_pop = [
+                int(row["variant_id"])
+                for row in pop_rows
+                if int(row.get("current_pop") or 0) != 1
+            ]
+            pop_sections[pop_source["sourceCode"]] = {
+                "covered": len(pop_rows) - len(missing_pop),
+                "missing": missing_pop,
+                "complete": len(pop_rows) == active_count and not missing_pop,
+            }
 
         quote_rows = _rows(
             cursor,
@@ -169,26 +209,39 @@ def current_run_contract(business_date: str) -> dict[str, Any]:
             (start, end),
         )
         expected_fx = len(SUPPORTED_CURRENCIES) - 1
-        return {
+        contract: dict[str, Any] = {
             "businessDate": business_date,
             "windowUtc": {"start": start.isoformat(), "end": end.isoformat()},
             "activeCount": active_count,
-            "gemrate": {
-                "covered": len(gemrate_rows) - len(missing_gemrate),
-                "missing": missing_gemrate,
-                "complete": len(gemrate_rows) == active_count and not missing_gemrate,
-            },
+            "sources": registry_rows,
+            "barrierKeys": list(barrier_keys),
+            "popSources": [item["sourceCode"] for item in pop_sources],
+            "ratesSources": list(rates_sources),
             "quotes": {
                 "covered": len(quote_rows) - len(missing_quote),
                 "missing": missing_quote,
                 "complete": len(quote_rows) == active_count and not missing_quote,
             },
-            "fx": {
+        }
+        contract.update(pop_sections)
+        for rates_code in rates_sources:
+            contract[rates_code] = {
                 "covered": fx_count,
                 "expected": expected_fx,
                 "complete": fx_count == expected_fx,
-            },
-        }
+            }
+        for key in barrier_keys:
+            # A core source the registry declares but nothing can measure must
+            # block, never silently pass: registering it as quote/extra is the
+            # deliberate way to keep it out of the barrier.
+            if key not in contract:
+                contract[key] = {
+                    "covered": 0,
+                    "missing": [],
+                    "complete": False,
+                    "reason": "core source declares no pop or rates capability",
+                }
+        return contract
     finally:
         connection.close()
 
@@ -201,9 +254,21 @@ def _rows(cursor: Any, query: str, params: tuple[Any, ...] = ()) -> list[dict[st
 def quote_repair_sources(variant_ids: Sequence[int]) -> dict[str, list[int]]:
     """Route each missing variant to its highest-priority strict quote source."""
 
+    return quote_repair_plan(variant_ids)["routes"]
+
+
+def quote_repair_plan(variant_ids: Sequence[int]) -> dict[str, Any]:
+    """Repair routes plus every variant the versioned policy refused.
+
+    The MySQL join proposes a winner; ``quote_repair_routes`` re-runs the
+    declared ``select_quote`` policy over the same rows and drops any variant
+    where the two disagree, so a drifted ORDER BY cannot quietly repair a card
+    from an unproven source.
+    """
+
     requested = sorted({int(value) for value in variant_ids if int(value) > 0})
     if not requested:
-        return {}
+        return {"routes": {}, "rejected": []}
     load_env()
     connection = db()
     try:
@@ -212,7 +277,9 @@ def quote_repair_sources(variant_ids: Sequence[int]) -> dict[str, list[int]]:
         rows = _rows(
             cursor,
             f"""
-            SELECT pi.variant_id,sr.canonical_source_code AS source_code,rp.priority
+            SELECT pi.variant_id,sr.canonical_source_code AS source_code,
+                   rp.priority,rp.policy_version,rp.language_code,
+                   LOWER(REPLACE(pi.card_language,'_','-')) AS card_language
             FROM catalog_printing_identity pi
             INNER JOIN market_source_registry sr
               ON sr.enabled=1
@@ -240,13 +307,7 @@ def quote_repair_sources(variant_ids: Sequence[int]) -> dict[str, list[int]]:
             """,
             tuple(requested),
         )
-        selected: dict[int, str] = {}
-        for row in rows:
-            selected.setdefault(int(row["variant_id"]), str(row["source_code"]))
-        grouped: dict[str, list[int]] = {}
-        for variant_id, source_code in sorted(selected.items()):
-            grouped.setdefault(source_code, []).append(variant_id)
-        return grouped
+        return quote_repair_routes(rows)
     finally:
         connection.close()
 
@@ -260,22 +321,25 @@ def sync_source_registry(specs: Iterable[Any]) -> dict[str, int]:
     decision.
     """
 
+    spec_list = list(specs)
     load_env()
     connection = db()
     written = 0
     try:
         cursor = connection.cursor()
-        for spec in specs:
+        for spec in spec_list:
             source_code = str(spec.source_code)
             capabilities = sorted({str(value) for value in spec.capabilities})
+            lane = str(getattr(spec, "identity_lane", None) or "").strip() or None
+            priority = getattr(spec, "route_priority", None)
             cursor.execute(
                 """
                 INSERT INTO market_source_registry
                   (source_code,canonical_source_code,identity_source_code,
                    display_name,capabilities_json,transport,concurrency_group,
                    max_concurrency,cadence,freshness_sla_minutes,required_class,
-                   enabled,config_json)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,JSON_OBJECT())
+                   identity_lane,route_priority,enabled,config_json)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,JSON_OBJECT())
                 ON DUPLICATE KEY UPDATE
                   canonical_source_code=VALUES(canonical_source_code),
                   identity_source_code=VALUES(identity_source_code),
@@ -285,6 +349,8 @@ def sync_source_registry(specs: Iterable[Any]) -> dict[str, int]:
                   max_concurrency=VALUES(max_concurrency),
                   cadence=VALUES(cadence),
                   freshness_sla_minutes=VALUES(freshness_sla_minutes),
+                  identity_lane=VALUES(identity_lane),
+                  route_priority=VALUES(route_priority),
                   required_class=VALUES(required_class),enabled=VALUES(enabled)
                 """,
                 (
@@ -293,12 +359,43 @@ def sync_source_registry(specs: Iterable[Any]) -> dict[str, int]:
                     str(spec.transport), str(spec.concurrency_group),
                     int(spec.max_concurrency), str(spec.cadence),
                     int(spec.freshness_sla_minutes), str(spec.required_class),
+                    lane, None if priority is None else int(priority),
                     1 if bool(spec.enabled) else 0,
                 ),
             )
             written += 1
+        # A newly registered quote source used to reach the route policy only
+        # through a hand-written migration, so it could never be selected.
+        existing_policy = {
+            str(row["source_code"])
+            for row in _rows(
+                cursor,
+                "SELECT DISTINCT source_code FROM market_quote_route_policy"
+                " WHERE is_active=1",
+            )
+        }
+        policy_rows = route_policy_upserts(
+            spec_list,
+            existing_source_codes=existing_policy,
+            activated_at=datetime.now(timezone.utc)
+            .replace(tzinfo=None)
+            .strftime("%Y-%m-%d %H:%M:%S.%f"),
+        )
+        for policy_row in policy_rows:
+            cursor.execute(
+                """
+                INSERT INTO market_quote_route_policy
+                  (policy_version,language_code,source_code,priority,
+                   is_eligible,is_active,activated_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s)
+                ON DUPLICATE KEY UPDATE
+                  priority=VALUES(priority),is_eligible=VALUES(is_eligible),
+                  is_active=VALUES(is_active)
+                """,
+                policy_row,
+            )
         connection.commit()
-        return {"registered": written}
+        return {"registered": written, "routePolicyRows": len(policy_rows)}
     except Exception:
         connection.rollback()
         raise
@@ -362,45 +459,69 @@ def sync_variant_source_states(run_id: str, business_date: str) -> dict[str, int
             )
             quotes_written += 1
 
-        pop_rows = _rows(
-            cursor,
-            """
-            SELECT am.variant_id,si.external_entity_id,cp.last_effective_at,
-                   cp.last_payload_sha256,cp.last_run_id
-            FROM market_universe_member am
-            INNER JOIN market_universe_lock ul
-              ON ul.id=am.universe_lock_id AND ul.is_current=1
-            INNER JOIN operator_strict_source_identity si
-              ON si.variant_id=am.variant_id AND si.source_code='gemrate'
-            INNER JOIN market_ingest_checkpoint cp
-              ON cp.source_code='gemrate_pop'
-             AND cp.stream_key=CONCAT(am.variant_id,':',si.external_entity_id)
-            WHERE cp.last_effective_at>=%s AND cp.last_effective_at<%s
-            """,
-            (start, end),
-        )
-        for row in pop_rows:
-            cursor.execute(
+        # Same registry loop as the barrier: the POP projection must cover every
+        # core pop source, not the one that happened to exist first.
+        pop_sources = pop_contract_sources(
+            _rows(
+                cursor,
                 """
-                INSERT INTO market_variant_source_state
-                  (business_date,run_id,variant_id,source_code,capability,status,
-                   observed_at,checked_at,payload_sha256,evidence_ref,is_selected,
-                   source_switched,detail_json)
-                VALUES (%s,%s,%s,'gemrate','pop','completed',%s,%s,%s,%s,0,0,%s)
-                ON DUPLICATE KEY UPDATE run_id=VALUES(run_id),status=VALUES(status),
-                  observed_at=VALUES(observed_at),checked_at=VALUES(checked_at),
-                  payload_sha256=VALUES(payload_sha256),evidence_ref=VALUES(evidence_ref),
-                  detail_json=VALUES(detail_json)
+                SELECT source_code,canonical_source_code,identity_source_code,
+                       required_class,enabled,capabilities_json,config_json
+                FROM market_source_registry ORDER BY source_code
+                """,
+            )
+        ) or (
+            {
+                "sourceCode": "gemrate",
+                "identitySourceCode": "gemrate",
+                "popCheckpointSourceCode": "gemrate_pop",
+            },
+        )
+        for pop_source in pop_sources:
+            checkpoint_code = pop_source["popCheckpointSourceCode"]
+            pop_rows = _rows(
+                cursor,
+                """
+                SELECT am.variant_id,si.external_entity_id,cp.last_effective_at,
+                       cp.last_payload_sha256,cp.last_run_id
+                FROM market_universe_member am
+                INNER JOIN market_universe_lock ul
+                  ON ul.id=am.universe_lock_id AND ul.is_current=1
+                INNER JOIN operator_strict_source_identity si
+                  ON si.variant_id=am.variant_id AND si.source_code=%s
+                INNER JOIN market_ingest_checkpoint cp
+                  ON cp.source_code=%s
+                 AND cp.stream_key=CONCAT(am.variant_id,':',si.external_entity_id)
+                WHERE cp.last_effective_at>=%s AND cp.last_effective_at<%s
                 """,
                 (
-                    business_date, run_id, int(row["variant_id"]),
-                    row["last_effective_at"], row["last_effective_at"],
-                    row["last_payload_sha256"],
-                    f"market_ingest_checkpoint:gemrate_pop:{row['variant_id']}:{row['external_entity_id']}",
-                    json.dumps({"ingestRunId": int(row["last_run_id"])}),
+                    pop_source["identitySourceCode"], checkpoint_code, start, end,
                 ),
             )
-            pop_written += 1
+            for row in pop_rows:
+                cursor.execute(
+                    """
+                    INSERT INTO market_variant_source_state
+                      (business_date,run_id,variant_id,source_code,capability,status,
+                       observed_at,checked_at,payload_sha256,evidence_ref,is_selected,
+                       source_switched,detail_json)
+                    VALUES (%s,%s,%s,%s,'pop','completed',%s,%s,%s,%s,0,0,%s)
+                    ON DUPLICATE KEY UPDATE run_id=VALUES(run_id),status=VALUES(status),
+                      observed_at=VALUES(observed_at),checked_at=VALUES(checked_at),
+                      payload_sha256=VALUES(payload_sha256),evidence_ref=VALUES(evidence_ref),
+                      detail_json=VALUES(detail_json)
+                    """,
+                    (
+                        business_date, run_id, int(row["variant_id"]),
+                        pop_source["sourceCode"],
+                        row["last_effective_at"], row["last_effective_at"],
+                        row["last_payload_sha256"],
+                        f"market_ingest_checkpoint:{checkpoint_code}"
+                        f":{row['variant_id']}:{row['external_entity_id']}",
+                        json.dumps({"ingestRunId": int(row["last_run_id"])}),
+                    ),
+                )
+                pop_written += 1
         connection.commit()
         return {"quotesWritten": quotes_written, "popWritten": pop_written}
     except Exception:

@@ -19,8 +19,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
 from daily_chain_v2_contract import (  # noqa: E402
+    IDENTITY_LANE_FALLBACK,
     canonical_json,
+    contract_shortfall,
+    core_contract_keys,
     daily_generation_sha256,
+    identity_lanes,
+    list_v2_migrations,
     sha256,
 )
 
@@ -58,24 +63,32 @@ def _run(command: list[str], *, timeout: int) -> dict[str, Any]:
     }
 
 
+def migrate_command(root: Path) -> list[str]:
+    """Migrate exactly the V2 files that exist; adding one edits no code."""
+
+    names = list_v2_migrations(root)
+    if not names:
+        raise RuntimeError(f"no daily-chain V2 migrations found under {root}")
+    command = [
+        sys.executable,
+        "-X",
+        "utf8",
+        str(root / "pipelines" / "db_runtime.py"),
+        "migrate",
+    ]
+    for name in names:
+        command.extend(["--only", name])
+    return command
+
+
 def stage_migrate(_args: argparse.Namespace) -> dict[str, Any]:
-    result = _run(
-        [
-            sys.executable,
-            "-X",
-            "utf8",
-            str(ROOT / "pipelines" / "db_runtime.py"),
-            "migrate",
-            "--only",
-            "051_daily_chain_v2_generic_sources.mysql.sql",
-            "--only",
-            "052_daily_chain_v2_strict_gemrate_product_number.mysql.sql",
-            "--only",
-            "053_daily_chain_v2_quote_eligibility_reconstruction.mysql.sql",
-        ],
-        timeout=900,
-    )
-    return {"stage": "migrate", **result}
+    command = migrate_command(ROOT)
+    result = _run(command, timeout=900)
+    return {
+        "stage": "migrate",
+        "migrations": list_v2_migrations(ROOT),
+        **result,
+    }
 
 
 def stage_registry(_args: argparse.Namespace) -> dict[str, Any]:
@@ -107,8 +120,13 @@ def stage_contract(args: argparse.Namespace) -> dict[str, Any]:
     with operator_control.operator_e2e_lease(f"v2-contract:{args.label}"):
         projected = sync_variant_source_states(args.run_id, args.business_date)
         contract = current_run_contract(args.business_date)
+    # Registry-driven barrier: every enabled core source plus the shared quote
+    # coverage.  The literal tuple survives only inside core_contract_keys as
+    # the no-registry fallback, so a new core source blocks publication by
+    # being registered, not by being added to a list here.
+    barrier = core_contract_keys(contract.get("sources"))
     failures = [
-        name for name in ("gemrate", "quotes", "fx")
+        name for name in barrier
         if not bool((contract.get(name) or {}).get("complete"))
     ]
     result = {
@@ -116,15 +134,14 @@ def stage_contract(args: argparse.Namespace) -> dict[str, Any]:
         "label": args.label,
         "projection": projected,
         "contract": contract,
+        "barrierKeys": list(barrier),
         "complete": not failures,
         "failures": failures,
     }
     if failures:
         raise RuntimeError(
             f"V2 core contract incomplete at {args.label}: {failures};"
-            f" gemrateMissing={len(contract['gemrate']['missing'])}"
-            f" quoteMissing={len(contract['quotes']['missing'])}"
-            f" fx={contract['fx']['covered']}/{contract['fx']['expected']}"
+            f" {contract_shortfall(contract, barrier)}"
         )
     return result
 
@@ -796,6 +813,18 @@ def stage_live_confirm(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def discovery_lane_names() -> tuple[str, ...]:
+    """Lane names the registered identity sources declare, not a literal pair."""
+
+    try:
+        from daily_chain_v2_adapters import build_default_registry
+
+        specs = [adapter.spec for adapter in build_default_registry().enabled()]
+    except Exception:  # noqa: BLE001 - a broken registry must not hide the CLI
+        specs = []
+    return tuple(lane for lane, _group in (identity_lanes(specs) or IDENTITY_LANE_FALLBACK))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
@@ -808,7 +837,7 @@ def main() -> int:
     contract.add_argument("--label", required=True)
     contract.set_defaults(func=stage_contract)
     discover = sub.add_parser("discover")
-    discover.add_argument("--lane", choices=("http", "browser"), required=True)
+    discover.add_argument("--lane", choices=discovery_lane_names(), required=True)
     discover.set_defaults(func=stage_discover)
     sub.add_parser("pending").set_defaults(func=stage_pending)
     noop = sub.add_parser("noop")

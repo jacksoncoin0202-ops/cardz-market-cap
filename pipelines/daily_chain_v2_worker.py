@@ -13,9 +13,10 @@ import json
 import os
 import subprocess
 import sys
+import threading
 from datetime import date, datetime, time, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,6 +27,61 @@ from daily_chain_v2_journal import Journal  # noqa: E402
 
 
 JST = ZoneInfo("Asia/Tokyo")
+DEFAULT_HEARTBEAT_SECONDS = 30.0
+WORKER_LEASE_SECONDS = 90
+
+
+def heartbeat_interval_seconds() -> float:
+    raw = os.environ.get("CARDZ_V2_HEARTBEAT_SECONDS", "").strip()
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_HEARTBEAT_SECONDS
+    return value if value > 0 else DEFAULT_HEARTBEAT_SECONDS
+
+
+def start_heartbeat(
+    journal: Journal,
+    task_key: str,
+    claim_token: str,
+    *,
+    interval_seconds: float | None = None,
+    lease_seconds: int = WORKER_LEASE_SECONDS,
+) -> Callable[[], None]:
+    """Renew this attempt's lease from inside the worker.
+
+    Before this, only the orchestrator polled the child; a stage that outlived
+    one tick therefore looked lease-expired and the next tick killed it.  The
+    worker now proves its own liveness and stops the renewal on exit.
+    """
+
+    interval = float(
+        heartbeat_interval_seconds() if interval_seconds is None else interval_seconds
+    )
+    stopping = threading.Event()
+
+    def loop() -> None:
+        while not stopping.wait(interval):
+            try:
+                journal.heartbeat(
+                    task_key,
+                    claim_token,
+                    lease_seconds=lease_seconds,
+                    worker_pid=os.getpid(),
+                )
+            except Exception:  # a lost claim ends the renewal, never the work
+                return
+
+    thread = threading.Thread(
+        target=loop, name=f"v2-heartbeat-{task_key[:24]}", daemon=True
+    )
+    thread.start()
+
+    def stop() -> None:
+        stopping.set()
+        thread.join(timeout=max(1.0, interval))
+
+    return stop
 
 
 def iso_now() -> str:
@@ -69,7 +125,14 @@ def shard_variant_ids(registry: list[dict[str, Any]], adapter: str, shard: str) 
     })
 
 
-def run_collect(task: Mapping[str, Any], payload: Mapping[str, Any], receipt_path: Path) -> dict[str, Any]:
+def run_collect(
+    task: Mapping[str, Any],
+    payload: Mapping[str, Any],
+    receipt_path: Path,
+    *,
+    limit: int | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
     import collect_control as collect
 
     worker = payload.get("worker")
@@ -109,11 +172,19 @@ def run_collect(task: Mapping[str, Any], payload: Mapping[str, Any], receipt_pat
     mode = str(worker.get("mode") or "incr")
     if mode not in {"incr", "stock"}:
         raise RuntimeError(f"unsupported collect worker mode: {mode}")
+    # Declared by the task payload (or a hand override), not pinned in code:
+    # a bounded smoke run of one adapter no longer needs a source edit.
+    effective_limit = worker.get("limit") if limit is None else limit
+    if effective_limit is not None:
+        effective_limit = int(effective_limit)
+        if effective_limit < 1:
+            raise RuntimeError("collect worker limit must be positive")
+    effective_dry_run = bool(dry_run) or bool(worker.get("dry_run"))
     collect_command = collect.cmd_stock if mode == "stock" else collect.cmd_incr
     report = collect_command(
         adapters=adapters,
-        limit=None,
-        dry_run=False,
+        limit=effective_limit,
+        dry_run=effective_dry_run,
         delay=float(worker.get("delay") or 0.0),
         workers=int(worker.get("workers") or 24),
         ensure_browser=bool(worker.get("ensureBrowser")),
@@ -180,6 +251,8 @@ def run_collect(task: Mapping[str, Any], payload: Mapping[str, Any], receipt_pat
             "adapters": adapters,
             "shard": shard,
             "mode": mode,
+            "limit": effective_limit,
+            "dryRun": effective_dry_run,
             "failedAdapters": report.get("failedAdapters") or [],
             "truncatedAdapters": report.get("truncatedAdapters") or [],
         },
@@ -259,13 +332,68 @@ def run_fx(task: Mapping[str, Any], payload: Mapping[str, Any]) -> dict[str, Any
     }
 
 
+def _run_fx_kind(
+    task: Mapping[str, Any],
+    payload: Mapping[str, Any],
+    receipt_path: Path,
+    *,
+    limit: int | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    del receipt_path, limit, dry_run
+    return run_fx(task, payload)
+
+
+# Extension point: a new worker kind registers a runner here and an adapter
+# declares it, instead of a literal list being edited in two places.
+WORKER_RUNNERS: dict[str, Callable[..., dict[str, Any]]] = {
+    "collect": run_collect,
+    "fx": _run_fx_kind,
+}
+
+
+def registered_kinds() -> tuple[str, ...]:
+    """Worker kinds the registered adapters ask for, union what we can run."""
+
+    declared: tuple[str, ...] = ()
+    try:
+        from daily_chain_v2_adapters import registered_worker_kinds
+
+        declared = registered_worker_kinds()
+    except Exception:  # noqa: BLE001 - a broken registry must not hide the CLI
+        declared = ()
+    return tuple(sorted(set(declared) | set(WORKER_RUNNERS)))
+
+
+def resolve_worker_runner(kind: str) -> Callable[..., dict[str, Any]]:
+    runner = WORKER_RUNNERS.get(str(kind or "").strip())
+    if runner is None:
+        raise RuntimeError(
+            f"unsupported worker kind: {kind!r};"
+            f" adapters declare {list(registered_kinds())};"
+            f" this worker can run {sorted(WORKER_RUNNERS)}"
+        )
+    return runner
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state-db", type=Path, required=True)
     parser.add_argument("--task-key", required=True)
     parser.add_argument("--claim-token", required=True)
     parser.add_argument("--receipt", type=Path, required=True)
-    parser.add_argument("--kind", choices=("collect", "fx"), required=True)
+    parser.add_argument("--kind", choices=registered_kinds(), required=True)
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="hand override for the collect limit (task payload key: limit)",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="hand override: collect without writing (task payload key: dry_run)",
+    )
     args = parser.parse_args()
 
     journal = Journal(args.state_db.resolve())
@@ -277,11 +405,16 @@ def main() -> int:
     if expected_run and expected_run != str(task["run_id"]):
         raise RuntimeError("worker run environment does not match journal claim")
 
+    runner = resolve_worker_runner(args.kind)
+    stop_heartbeat = start_heartbeat(journal, args.task_key, args.claim_token)
     try:
-        if args.kind == "collect":
-            receipt = run_collect(task, payload, args.receipt.resolve())
-        else:
-            receipt = run_fx(task, payload)
+        receipt = runner(
+            task,
+            payload,
+            args.receipt.resolve(),
+            limit=args.limit,
+            dry_run=bool(args.dry_run),
+        )
         atomic_json(args.receipt.resolve(), receipt)
         print(json.dumps(receipt, ensure_ascii=False, sort_keys=True))
         return 0
@@ -300,6 +433,8 @@ def main() -> int:
         atomic_json(args.receipt.resolve(), failed)
         print(json.dumps(failed, ensure_ascii=False, sort_keys=True), file=sys.stderr)
         return 1
+    finally:
+        stop_heartbeat()
 
 
 if __name__ == "__main__":

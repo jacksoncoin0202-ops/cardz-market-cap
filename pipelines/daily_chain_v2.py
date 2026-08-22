@@ -20,6 +20,11 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
+try:  # POSIX-only; the tick itself already refuses to run outside WSL.
+    import fcntl
+except ImportError:  # pragma: no cover - Windows import of this module
+    fcntl = None  # type: ignore[assignment]
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
@@ -31,11 +36,14 @@ from daily_chain_v2_adapters import (  # noqa: E402
     terminate_worker_group,
 )
 from daily_chain_v2_contract import (  # noqa: E402
+    CONTRACT_SHORTFALL_MARKER,
     SourceTask,
     canonical_json,
     classify_error,
     classify_provenance,
+    identity_lanes,
     sha256,
+    v2_schema_capabilities,
 )
 from daily_chain_v2_journal import (  # noqa: E402
     Journal,
@@ -50,6 +58,33 @@ from daily_chain_v2_journal import (  # noqa: E402
 JST = ZoneInfo("Asia/Tokyo")
 TASK_LEASE_SECONDS = 90
 TICK_RESERVE_SECONDS = 30
+# One tick must fit inside the scheduler's own ExecutionTimeLimit; 3000 s is
+# the single source of that number for both the CLI default and the installer.
+DEFAULT_MAX_RUNTIME_SECONDS = 3000
+MAX_RUNTIME_SECONDS_CEILING = 5400
+LAST_SCHEDULED_TICK_JST = "17:00"
+MANUAL_WINDOW_MIN_SECONDS = 600
+ADOPT_GRACE_SECONDS = 120
+HEALTH_SCHEMA = 1
+NOTIFY_SCRIPT = ROOT / "scripts" / "notify_hermes.py"
+NOTIFY_TIMEOUT_SECONDS = 20
+# Lifecycle facts an operator must learn about even when the verbose --notify
+# stream is off.  Key/level/cooldown-minutes per journal event type.
+ALWAYS_ALERT_EVENTS: dict[str, tuple[str, str, int]] = {
+    "live.confirmed": ("v2-run-published", "info", 10),
+    "FAILED_FINAL": ("v2-run-failed-terminal", "error", 30),
+    "CORE_TASK_PARKED": ("v2-task-parked", "error", 30),
+    "TICK_CRASHED": ("v2-tick-crashed", "error", 10),
+    "TICK_SIGNALLED": ("v2-tick-signalled", "warn", 10),
+    "TASK_ADOPTED": ("v2-task-adopted", "info", 30),
+}
+RUN_STATE_BY_STATUS = {
+    "PUBLISHED": "PUBLISHED",
+    "PUBLISHED_DEGRADED": "PUBLISHED",
+    "FAILED_FINAL": "FAILED",
+    "ABORTED": "FAILED",
+    "READY_FOR_CUTOVER": "DONE",
+}
 RELEASE_SNAPSHOT = Path("/home/jackson0202/cardz-market-cap-release-daily/data/public/seed-snapshot.json")
 MYSQL_COMPOSE = Path("/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/compose.backend.yaml")
 MYSQL_COMPOSE_WINDOWS = r"C:\Users\jackson0202\Documents\Playground\cardz-market-cap\compose.backend.yaml"
@@ -65,8 +100,14 @@ TASK_STATUS_RANK = {
     "DEGRADED": 2,
     "COMPLETED": 1,
     "SKIPPED": 0,
+    # Above TERMINAL on purpose: a parked lane carries the unpark instruction
+    # and is the one state an operator must act on.
+    "PARKED": 8,
+    "READY": 3,
 }
 MYSQL_RECOVERY_LOCK = threading.Lock()
+LAST_ALERT: dict[str, Any] | None = None
+TICK_LOCK_HANDLE: Any = None
 
 
 def jst_schedule(day: date) -> dict[str, datetime]:
@@ -81,16 +122,255 @@ def jst_schedule(day: date) -> dict[str, datetime]:
     }
 
 
-def manual_e2e_schedule(now: datetime | None = None) -> dict[str, datetime]:
+def last_scheduled_tick_utc(day: date) -> datetime:
+    """The final scheduled tick of a business date (17:00 JST by contract)."""
+
+    text = os.environ.get("CARDZ_V2_LAST_TICK_JST", "").strip() or LAST_SCHEDULED_TICK_JST
+    try:
+        hour_text, minute_text = text.split(":", 1)
+        hour, minute = int(hour_text), int(minute_text)
+    except (ValueError, AttributeError):
+        hour, minute = 17, 0
+    return datetime.combine(day, day_time(hour, minute), tzinfo=JST).astimezone(timezone.utc)
+
+
+def clamp_manual_window(
+    schedule: Mapping[str, datetime],
+    *,
+    business_date: date,
+) -> dict[str, datetime]:
+    """No manual window may outlive the day's last scheduled tick.
+
+    An unclamped +8h renewal at 16:00 JST keeps a manual run authoritative
+    deep into the next unattended cycle; the operator window is capped at
+    17:00 JST, and never shorter than ten more minutes of work.
+    """
+
+    values = dict(schedule)
+    started = values["start"].astimezone(timezone.utc)
+    cap = max(
+        started + timedelta(seconds=MANUAL_WINDOW_MIN_SECONDS),
+        last_scheduled_tick_utc(business_date),
+    )
+    if values["final"] <= cap:
+        return values
+    span = (cap - started).total_seconds()
+    values["final"] = cap
+    values["source_cutoff"] = started + timedelta(seconds=span * 0.5)
+    values["sla"] = started + timedelta(seconds=span * 0.75)
+    return values
+
+
+def manual_e2e_schedule(
+    now: datetime | None = None,
+    *,
+    business_date: date | None = None,
+) -> dict[str, datetime]:
     """One authorized after-hours window; it never changes provenance to scheduled."""
 
     started = (now or utc_now()).astimezone(timezone.utc)
+    day = business_date or started.astimezone(JST).date()
+    return clamp_manual_window(
+        {
+            "start": started,
+            "source_cutoff": started + timedelta(hours=4),
+            "sla": started + timedelta(hours=5),
+            "final": started + timedelta(hours=8),
+        },
+        business_date=day,
+    )
+
+
+def health_path() -> Path:
+    configured = os.environ.get("CARDZ_V2_HEALTH_PATH", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return ROOT / "data" / "runtime" / "daily-chain-v2" / "health.json"
+
+
+def send_alert(
+    key: str,
+    text: str,
+    *,
+    level: str = "warn",
+    cooldown_min: int = 30,
+) -> bool:
+    """Best-effort operator alert.  Never raises, never blocks the chain."""
+
+    global LAST_ALERT
+    LAST_ALERT = {"key": key, "at_utc": iso()}
+    dry_run = os.environ.get("CARDZ_V2_NOTIFY_DRY_RUN", "").strip().casefold()
+    if dry_run not in {"", "0", "false", "no"}:
+        print(f"NOTIFY_DRYRUN {key} {level} {text}", flush=True)
+        return True
+    try:
+        subprocess.run(
+            [
+                sys.executable, "-X", "utf8", str(NOTIFY_SCRIPT), "alert",
+                "--key", key, "--text", text, "--level", level,
+                "--cooldown-min", str(int(cooldown_min)),
+            ],
+            cwd=str(ROOT),
+            capture_output=True,
+            timeout=NOTIFY_TIMEOUT_SECONDS,
+            check=False,
+        )
+        return True
+    except Exception:  # noqa: BLE001 - notification transport is never fatal
+        return False
+
+
+def run_state_of(run: Mapping[str, Any] | None) -> str:
+    if not run:
+        return "NONE"
+    return RUN_STATE_BY_STATUS.get(str(run.get("status") or ""), "RUNNING")
+
+
+def manual_window_until(run: Mapping[str, Any] | None, business_date: date) -> str | None:
+    """A final deadline that differs from 17:00 JST is an open manual window."""
+
+    if not run or not run.get("final_at"):
+        return None
+    try:
+        final = datetime.fromisoformat(str(run["final_at"]).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if final.tzinfo is None:
+        final = final.replace(tzinfo=timezone.utc)
+    final = final.astimezone(timezone.utc)
+    if final == last_scheduled_tick_utc(business_date):
+        return None
+    return iso(final)
+
+
+def build_health_document(
+    journal: Journal,
+    business_date: date,
+    *,
+    tick_phase: str,
+    tick_exit_code: int | None = None,
+    tick_started_at_utc: str | None = None,
+    tick_ended_at_utc: str | None = None,
+) -> dict[str, Any]:
+    """Schema-1 health contract shared with the watchdog (C1)."""
+
+    run_id = f"cardz-v2:{business_date.isoformat()}"
+    try:
+        run = journal.run(run_id)
+        rows = journal.tasks(run_id) if run else []
+    except Exception:  # noqa: BLE001 - health must survive a damaged journal
+        run, rows = None, []
+    tasks: dict[str, Any] = {}
+    parked: list[str] = []
+    retries: list[datetime] = []
+    for row in rows:
+        key = str(row["task_key"])
+        status = str(row["status"])
+        tasks[key] = {
+            "state": status,
+            "attempts": int(row.get("attempts") or 0),
+            "max_attempts": int(row.get("max_attempts") or 0),
+            "interruptions": int(row.get("interruptions") or 0),
+            "last_error_code": (
+                str(row["last_error_code"]) if row.get("last_error_code") else None
+            ),
+        }
+        if status == "PARKED":
+            parked.append(key)
+        raw_retry = row.get("next_retry_at")
+        if raw_retry and status in {"RETRY", "INTERRUPTED", "READY", "PENDING"}:
+            try:
+                due = datetime.fromisoformat(str(raw_retry).replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            retries.append(due if due.tzinfo else due.replace(tzinfo=timezone.utc))
+    duration: float | None = None
+    if tick_started_at_utc and tick_ended_at_utc:
+        try:
+            started = datetime.fromisoformat(tick_started_at_utc)
+            ended = datetime.fromisoformat(tick_ended_at_utc)
+            duration = round((ended - started).total_seconds(), 3)
+        except ValueError:
+            duration = None
+    now = utc_now()
     return {
-        "start": started,
-        "source_cutoff": started + timedelta(hours=4),
-        "sla": started + timedelta(hours=5),
-        "final": started + timedelta(hours=8),
+        "schema": HEALTH_SCHEMA,
+        "written_at_utc": iso(now),
+        "written_at_jst": now.astimezone(JST).isoformat(timespec="microseconds"),
+        "business_date": business_date.isoformat(),
+        "run_state": run_state_of(run),
+        "tick_phase": tick_phase,
+        "tick_exit_code": None if tick_exit_code is None else int(tick_exit_code),
+        "tick_started_at_utc": tick_started_at_utc,
+        "tick_ended_at_utc": tick_ended_at_utc,
+        "tick_duration_s": duration,
+        "next_retry_at_utc": iso(min(retries)) if retries else None,
+        "tasks": tasks,
+        "parked": sorted(parked),
+        "manual_window_until_utc": manual_window_until(run, business_date),
+        "autonomous_proven": bool(int((run or {}).get("proven_autonomous") or 0)),
+        "last_alert": LAST_ALERT,
     }
+
+
+def write_health_document(document: Mapping[str, Any]) -> Path:
+    path = health_path()
+    atomic_json(path, document)
+    return path
+
+
+def acquire_tick_lock(journal_path: Path) -> tuple[Any, bool]:
+    """One tick per journal.  A slow tick must never be doubled by the next."""
+
+    lock_path = journal_path.with_name(journal_path.name + ".tick.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = lock_path.open("a+")
+    if fcntl is None:
+        return handle, True
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        return None, False
+    return handle, True
+
+
+def recovery_disposition(
+    row: Mapping[str, Any],
+    *,
+    now: datetime,
+    alive: bool,
+    grace_seconds: int = ADOPT_GRACE_SECONDS,
+) -> str:
+    """Decide what an expired lease means: adopt, terminate, or interrupt.
+
+    A lease that expired while its worker is demonstrably alive and recently
+    heartbeating is this orchestrator's own long stage, not an orphan.  Killing
+    it restarts hours of work every single tick.
+    """
+
+    if not alive:
+        return "interrupt"
+    raw = row.get("lease_expires_at") or row.get("heartbeat_at")
+    if not raw:
+        return "terminate"
+    try:
+        expires = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        return "terminate"
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    late = (now - expires.astimezone(timezone.utc)).total_seconds()
+    return "adopt" if late <= float(grace_seconds) else "terminate"
+
+
+def adopt_grace_seconds() -> int:
+    raw = os.environ.get("CARDZ_V2_ADOPT_GRACE_SECONDS", "").strip()
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return ADOPT_GRACE_SECONDS
+    return value if value >= 0 else ADOPT_GRACE_SECONDS
 
 
 def atomic_json(path: Path, value: Mapping[str, Any]) -> None:
@@ -223,6 +503,10 @@ class DailyChainV2:
         self.receipt_dir = self.runtime_dir / "receipts"
         self.registry = build_default_registry()
         self.schedule = dict(schedule or jst_schedule(business_date))
+        # Claims this process currently owns, so a signal releases exactly its
+        # own work and never steals another tick's live lease.
+        self.own_claims: dict[str, str] = {}
+        self.tick_started_at_utc: str | None = None
 
     def initialise(
         self,
@@ -316,6 +600,11 @@ class DailyChainV2:
             payload={"kind": kind, "stageName": stage_name, "stageArgs": list(args)},
         )
 
+    def identity_lanes(self) -> tuple[tuple[str, str], ...]:
+        """Discovery lanes declared by the registered identity sources."""
+
+        return identity_lanes(adapter.spec for adapter in self.registry.enabled())
+
     def plan_candidate_source_tasks(self, pending_ids: Sequence[int]) -> int:
         """Ask every registered adapter to fan out the same pending identity set."""
 
@@ -364,12 +653,21 @@ class DailyChainV2:
         targets = sorted({int(value) for value in variant_ids if int(value) > 0})
         if not targets:
             return 0
-        adapter = self.registry.get(source_code)
+        # A registry source with no repair-capable adapter is a normal shape,
+        # not a stage failure: record why nothing was planned and let the rest
+        # of the repair fan-out continue.
+        try:
+            adapter = self.registry.get(source_code)
+        except KeyError:
+            self._repair_skipped(source_code, capability, "SOURCE_NOT_REGISTERED", targets)
+            return 0
         if not isinstance(adapter, CommandSourceAdapter):
+            self._repair_skipped(source_code, capability, "ADAPTER_NOT_COMMAND_BACKED", targets)
             return 0
         capability_adapters = adapter.capability_adapters or {}
         legacy_adapters = tuple(capability_adapters.get(capability) or ())
         if not legacy_adapters:
+            self._repair_skipped(source_code, capability, "CAPABILITY_NOT_REPAIRABLE", targets)
             return 0
         revision = sha256({
             "contract": "source-contract-repair-v2",
@@ -417,27 +715,65 @@ class DailyChainV2:
         )
         return 1
 
+    def _repair_skipped(
+        self,
+        source_code: str,
+        capability: str,
+        reason: str,
+        variant_ids: Sequence[int],
+    ) -> None:
+        self.journal_event(
+            "REPAIR_SKIPPED_NO_ADAPTER",
+            f"{source_code}:{capability}:{reason}",
+            {
+                "runId": self.run_id,
+                "source": source_code,
+                "capability": capability,
+                "errorCode": reason,
+                "variantIds": sorted(int(value) for value in variant_ids)[:200],
+                "variantCount": len(variant_ids),
+            },
+        )
+
     def plan_contract_repair_tasks(self) -> int:
         """Fan out missing POP/quote coverage through registered capabilities."""
 
-        from daily_chain_v2_db import current_run_contract, quote_repair_sources
+        from daily_chain_v2_db import current_run_contract, quote_repair_plan
 
         contract = current_run_contract(self.day_text)
         added = 0
-        gemrate_missing = sorted({
-            int(value) for value in (contract.get("gemrate") or {}).get("missing") or []
-            if int(value) > 0
-        })
-        added += self._plan_contract_repair(
-            source_code="gemrate",
-            capability="pop",
-            variant_ids=gemrate_missing,
-        )
+        # The contract names its own POP sections, so a third pop source is
+        # repaired by being registered rather than by being named here.
+        for source_code in contract.get("popSources") or ():
+            missing = sorted({
+                int(value)
+                for value in (contract.get(source_code) or {}).get("missing") or []
+                if int(value) > 0
+            })
+            added += self._plan_contract_repair(
+                source_code=str(source_code),
+                capability="pop",
+                variant_ids=missing,
+            )
         quote_missing = sorted({
             int(value) for value in (contract.get("quotes") or {}).get("missing") or []
             if int(value) > 0
         })
-        for source_code, variant_ids in quote_repair_sources(quote_missing).items():
+        plan = quote_repair_plan(quote_missing)
+        rejected = plan.get("rejected") or []
+        if rejected:
+            self.journal_event(
+                "QUOTE_ROUTE_POLICY_REJECTED",
+                sha256(rejected)[:16],
+                {
+                    "runId": self.run_id,
+                    "source": "quote-route-policy",
+                    "errorCode": "QUOTE_ROUTE_POLICY_MISMATCH",
+                    "rejected": rejected[:200],
+                    "rejectedCount": len(rejected),
+                },
+            )
+        for source_code, variant_ids in (plan.get("routes") or {}).items():
             added += self._plan_contract_repair(
                 source_code=source_code,
                 capability="quote",
@@ -515,28 +851,23 @@ class DailyChainV2:
             )
         return reopened
 
+    def schema_capabilities(self) -> tuple[str, ...]:
+        """One infra stage per V2 migration file on disk, in file order."""
+
+        return v2_schema_capabilities(ROOT)
+
     def plan(self, now: datetime) -> None:
-        if self.stage_row("schema-051") is None:
-            self.add_stage(
-                phase="infra", capability="schema-051", stage_name="migrate", max_attempts=4
-            )
-            return
-        if not self.stage_complete("schema-051"):
-            return
-        if self.stage_row("schema-052") is None:
-            self.add_stage(
-                phase="infra", capability="schema-052", stage_name="migrate", max_attempts=4
-            )
-            return
-        if not self.stage_complete("schema-052"):
-            return
-        if self.stage_row("schema-053") is None:
-            self.add_stage(
-                phase="infra", capability="schema-053", stage_name="migrate", max_attempts=4
-            )
-            return
-        if not self.stage_complete("schema-053"):
-            return
+        for capability in self.schema_capabilities():
+            if self.stage_row(capability) is None:
+                self.add_stage(
+                    phase="infra",
+                    capability=capability,
+                    stage_name="migrate",
+                    max_attempts=4,
+                )
+                return
+            if not self.stage_complete(capability):
+                return
         if self.stage_row("collection-registry") is None:
             self.add_stage(
                 phase="infra", capability="collection-registry", stage_name="registry", max_attempts=4
@@ -571,10 +902,9 @@ class DailyChainV2:
             )
             if row
             and str(row.get("status") or "") in {"RETRY", "TERMINAL"}
-            and any(
-                token in str(row.get("last_error") or "")
-                for token in ("gemrateMissing=", "quoteMissing=")
-            )
+            # Every coverage section reports "<key>Missing=<n>", so a third
+            # source becomes repairable without another literal token here.
+            and CONTRACT_SHORTFALL_MARKER in str(row.get("last_error") or "")
         ]
         if repair_contracts:
             try:
@@ -613,14 +943,17 @@ class DailyChainV2:
 
         identity = self.journal.tasks(self.run_id, phase="identity")
         if not identity:
-            for lane in ("http", "browser"):
+            # Lane and its transport group are declared by the registered
+            # identity sources (SourceSpec.identity_lane / concurrency_group),
+            # persisted in market_source_registry by migration 054.
+            for lane, group in self.identity_lanes():
                 self.add_stage(
                     phase="identity",
                     capability=f"identity-{lane}",
                     stage_name="discover",
                     args=("--lane", lane),
                     required_class="extra",
-                    concurrency_group=("host:snkrdunk" if lane == "http" else "cdp:9333"),
+                    concurrency_group=group,
                     max_attempts=7,
                 )
             return
@@ -947,6 +1280,156 @@ class DailyChainV2:
                 args=args, max_attempts=6,
             )
 
+    def journal_event(
+        self,
+        event_type: str,
+        dedupe_key: str,
+        payload: Mapping[str, Any],
+    ) -> bool:
+        """Journal one event and alert unconditionally on lifecycle facts.
+
+        `--notify` still gates the verbose progress stream; the six lifecycle
+        events below are the ones an operator cannot afford to miss, so they
+        leave through their own best-effort channel the first time they are
+        recorded.
+        """
+
+        inserted = self.journal.add_event(self.run_id, event_type, dedupe_key, payload)
+        if inserted and event_type in ALWAYS_ALERT_EVENTS:
+            key, level, cooldown = ALWAYS_ALERT_EVENTS[event_type]
+            send_alert(
+                f"{key}:{self.day_text}",
+                self._alert_text(event_type, payload),
+                level=level,
+                cooldown_min=cooldown,
+            )
+        return inserted
+
+    def _alert_text(self, event_type: str, payload: Mapping[str, Any]) -> str:
+        detail = " ".join(
+            f"{key}={payload[key]}"
+            for key in (
+                "taskKey", "signal", "pid", "exitCode", "errorCode", "reason",
+                "generation", "activeCount", "interruptions", "attempts",
+            )
+            if payload.get(key) not in (None, "")
+        )
+        return f"CARDZ V2 {event_type} run={self.run_id} {detail}".strip()
+
+    def write_health(
+        self,
+        *,
+        tick_phase: str,
+        tick_exit_code: int | None = None,
+        tick_ended_at_utc: str | None = None,
+    ) -> Path | None:
+        try:
+            return write_health_document(
+                build_health_document(
+                    self.journal,
+                    self.business_date,
+                    tick_phase=tick_phase,
+                    tick_exit_code=tick_exit_code,
+                    tick_started_at_utc=self.tick_started_at_utc,
+                    tick_ended_at_utc=tick_ended_at_utc,
+                )
+            )
+        except Exception:  # noqa: BLE001 - health reporting never fails a tick
+            return None
+
+    def release_own_claims(self, reason: str) -> list[str]:
+        released: list[str] = []
+        for task_key, claim in list(self.own_claims.items()):
+            try:
+                self._interrupt(task_key, claim, reason=reason)
+            except Exception:  # noqa: BLE001 - shutdown releases best effort
+                continue
+            released.append(task_key)
+        return released
+
+    def _interrupt(self, task_key: str, claim: str, *, reason: str) -> str:
+        status = self.journal.interrupt_claim(task_key, claim, reason=reason)
+        self.own_claims.pop(task_key, None)
+        if status == "PARKED":
+            row = self.journal.task(task_key) or {}
+            self.journal_event(
+                "CORE_TASK_PARKED",
+                f"{task_key}:{int(row.get('interruptions') or 0)}",
+                {
+                    "runId": self.run_id,
+                    "taskKey": task_key,
+                    "phase": row.get("phase"),
+                    "source": row.get("source_code"),
+                    "errorCode": "WORKER_PARKED",
+                    "reason": reason[-500:],
+                    "attempts": int(row.get("attempts") or 0),
+                    "maxAttempts": int(row.get("max_attempts") or 0),
+                    "interruptions": int(row.get("interruptions") or 0),
+                    "nextRetry": "operator unpark",
+                },
+            )
+        return status
+
+    def signal_shutdown(self, signum: int) -> int:
+        """Journal, release, and report before the process dies (exit 128+n)."""
+
+        try:
+            name = signal.Signals(int(signum)).name
+        except (ValueError, TypeError):
+            name = str(signum)
+        pid = os.getpid()
+        try:
+            self.journal_event(
+                "TICK_SIGNALLED",
+                f"{name}:{pid}:{iso()}",
+                {
+                    "runId": self.run_id,
+                    "stage": "orchestrator",
+                    "source": "system",
+                    "signal": name,
+                    "pid": pid,
+                    "errorCode": "TICK_SIGNALLED",
+                    "exitCode": 128 + int(signum),
+                    "nextRetry": "next scheduler tick",
+                },
+            )
+        except Exception:  # noqa: BLE001 - journalling must not block the exit
+            pass
+        try:
+            self.release_own_claims(f"tick received {name}")
+        except Exception:  # noqa: BLE001
+            pass
+        self.write_health(
+            tick_phase="signalled",
+            tick_exit_code=128 + int(signum),
+            tick_ended_at_utc=iso(),
+        )
+        return 128 + int(signum)
+
+    def tick_crashed(self, error: BaseException, *, exit_code: int) -> int:
+        try:
+            self.journal_event(
+                "TICK_CRASHED",
+                f"{type(error).__name__}:{exit_code}:{iso()}",
+                {
+                    "runId": self.run_id,
+                    "stage": "orchestrator",
+                    "source": "system",
+                    "errorCode": type(error).__name__,
+                    "error": str(error)[-2000:],
+                    "exitCode": exit_code,
+                    "nextRetry": "next scheduler tick",
+                },
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        self.write_health(
+            tick_phase="crashed",
+            tick_exit_code=exit_code,
+            tick_ended_at_utc=iso(),
+        )
+        return exit_code
+
     def _task_paths(self, row: Mapping[str, Any]) -> tuple[Path, Path]:
         digest = sha256(str(row["task_key"]))[:16]
         attempt = int(row.get("attempts") or 0)
@@ -1111,6 +1594,7 @@ class DailyChainV2:
     def execute_claim(self, row: Mapping[str, Any]) -> None:
         task_key = str(row["task_key"])
         claim = str(row["lease_token"])
+        self.own_claims[task_key] = claim
         try:
             payload_preview = json.loads(str(row["payload_json"]))
             if str(payload_preview.get("kind") or "") == "source":
@@ -1154,7 +1638,7 @@ class DailyChainV2:
                 result = self._run_stage_process(row)
                 self.journal.finish_success(task_key, claim, result)
         except WorkerInterrupted as error:
-            self.journal.interrupt_claim(task_key, claim, reason=str(error))
+            self._interrupt(task_key, claim, reason=str(error))
         except Exception as error:  # noqa: BLE001 - classify then checkpoint
             text = f"{type(error).__name__}:{error}"
             decision = classify_error(
@@ -1201,6 +1685,8 @@ class DailyChainV2:
                 )
             if decision.error_code == "MYSQL_UNAVAILABLE" and status == "RETRY":
                 self.recover_mysql()
+        finally:
+            self.own_claims.pop(task_key, None)
 
     def recover_mysql(self) -> None:
         with MYSQL_RECOVERY_LOCK:
@@ -1287,9 +1773,34 @@ class DailyChainV2:
                         "reason": "reopened under per-error retry accounting",
                     },
                 )
+        grace = adopt_grace_seconds()
+        now = utc_now()
         for row in self.journal.expired_attempts():
             pid = int(row.get("worker_pid") or 0)
-            if pid > 1 and self._pid_belongs_to_attempt(pid, row):
+            alive = pid > 1 and self._pid_belongs_to_attempt(pid, row)
+            disposition = recovery_disposition(
+                row, now=now, alive=alive, grace_seconds=grace
+            )
+            if disposition == "adopt":
+                # The worker is this attempt's own live process and its lease
+                # only just lapsed.  Adopt the claim instead of restarting it.
+                self.journal_event(
+                    "TASK_ADOPTED",
+                    f"{row['task_key']}:{row['claim_token']}",
+                    {
+                        "runId": self.run_id,
+                        "taskKey": row["task_key"],
+                        "phase": row["phase"],
+                        "source": row["source_code"],
+                        "pid": pid,
+                        "errorCode": "LEASE_LAPSED_WORKER_ALIVE",
+                        "leaseExpiresAt": row.get("lease_expires_at"),
+                        "graceSeconds": grace,
+                        "nextRetry": "adopted; worker keeps running",
+                    },
+                )
+                continue
+            if disposition == "terminate":
                 terminate_worker_group(
                     pid,
                     grace_seconds=(
@@ -1298,7 +1809,7 @@ class DailyChainV2:
                     ),
                 )
             try:
-                self.journal.interrupt_claim(
+                self._interrupt(
                     str(row["task_key"]),
                     str(row["claim_token"]),
                     reason="heartbeat lease expired; exact attempt reclaimed",
@@ -1455,8 +1966,7 @@ class DailyChainV2:
             degraded_sources=degraded,
         )
         if inserted:
-            self.journal.add_event(
-                self.run_id,
+            self.journal_event(
                 "live.confirmed",
                 self.day_text,
                 {
@@ -1508,8 +2018,7 @@ class DailyChainV2:
             )
         if now >= self.schedule["final"]:
             self.journal.set_run_status(self.run_id, "FAILED_FINAL")
-            self.journal.add_event(
-                self.run_id,
+            self.journal_event(
                 "FAILED_FINAL",
                 self.day_text,
                 {"runId": self.run_id, "taskCounts": self.journal.summary(self.run_id)["taskCounts"]},
@@ -1688,6 +2197,86 @@ def load_provenance(path: Path | None) -> dict[str, Any]:
     return value
 
 
+def status_brief(journal: Journal, business_date: date) -> str:
+    """One operator line built from the same data as health.json."""
+
+    health = build_health_document(journal, business_date, tick_phase="query")
+    tasks = health["tasks"]
+    done = sum(
+        1 for row in tasks.values() if str(row["state"]) in SUCCESS_TASK_STATES
+    )
+    retry = sum(1 for row in tasks.values() if str(row["state"]) in {"RETRY", "INTERRUPTED"})
+    terminal = sum(1 for row in tasks.values() if str(row["state"]) == "TERMINAL")
+    parked = ",".join(health["parked"]) or "-"
+    age = "-"
+    try:
+        written = json.loads(health_path().read_text(encoding="utf-8")).get("written_at_utc")
+        if written:
+            stamp = datetime.fromisoformat(str(written).replace("Z", "+00:00"))
+            if stamp.tzinfo is None:
+                stamp = stamp.replace(tzinfo=timezone.utc)
+            age = str(int((utc_now() - stamp).total_seconds()))
+    except (OSError, ValueError, json.JSONDecodeError, AttributeError):
+        age = "-"
+    return (
+        f"{health['business_date']} {health['run_state']}"
+        f" tasks={done}/{len(tasks)} retry={retry} terminal={terminal}"
+        f" parked={parked}"
+        f" next_retry={health['next_retry_at_utc'] or '-'}"
+        f" manual_until={health['manual_window_until_utc'] or '-'}"
+        f" autonomous={bool(health['autonomous_proven'])}"
+        f" health_age={age}"
+    )
+
+
+def run_unpark(journal: Journal, business_date: date, args: Any) -> int:
+    """Operator resume path for work the budgets stopped auto-claiming."""
+
+    run_id = f"cardz-v2:{business_date.isoformat()}"
+    if args.list_only:
+        rows = journal.unparkable_tasks(run_id)
+        for row in rows:
+            print(
+                f"{row['status']}\t{row['task_key']}\tattempts={row['attempts']}"
+                f"/{row['max_attempts']}\tinterruptions={row.get('interruptions') or 0}"
+                f"\t{row.get('last_error_code') or '-'}"
+            )
+        if not rows:
+            print("no parked or terminal tasks")
+        return 0
+    if not args.task:
+        print("unpark requires --task <task_key> or --list", file=sys.stderr)
+        return 2
+    row = journal.unpark(str(args.task), reason=str(args.reason))
+    if row is None:
+        print(f"task is not parkable: {args.task}", file=sys.stderr)
+        return 2
+    journal.add_event(
+        run_id,
+        "TASK_UNPARKED",
+        f"{row['task_key']}:{row['attempts']}:{iso()}",
+        {
+            "runId": run_id,
+            "taskKey": row["task_key"],
+            "phase": row.get("phase"),
+            "source": row.get("source_code"),
+            "provenance": "operator",
+            "reason": str(args.reason),
+            "previousStatus": row["previousStatus"],
+            "attempts": int(row.get("attempts") or 0),
+            "maxAttempts": int(row.get("max_attempts") or 0),
+            "previousMaxAttempts": int(row["previousMaxAttempts"]),
+            "previousInterruptions": int(row["previousInterruptions"]),
+            "nextRetry": row.get("next_retry_at"),
+        },
+    )
+    print(
+        f"TASK_UNPARKED {row['task_key']} {row['previousStatus']}->READY"
+        f" attempts={row['attempts']}/{row['max_attempts']} interruptions=0"
+    )
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1695,30 +2284,54 @@ def main() -> int:
     tick.add_argument("--state-db", type=Path, default=default_state_path())
     tick.add_argument("--provenance", type=Path)
     tick.add_argument("--business-date", type=date.fromisoformat)
-    tick.add_argument("--max-runtime-seconds", type=int, default=5400)
+    tick.add_argument(
+        "--max-runtime-seconds", type=int, default=DEFAULT_MAX_RUNTIME_SECONDS
+    )
     tick.add_argument("--allow-publish", action="store_true")
     tick.add_argument("--notify", action="store_true")
     tick.add_argument("--manual-e2e-window", action="store_true")
     tick.add_argument("--renew-manual-e2e-window", action="store_true")
+    # Durability fixture only: take the lock, install handlers, write health,
+    # then idle.  It never plans, claims, or touches MySQL.
+    tick.add_argument("--selftest-sleep", type=float, default=0.0, help=argparse.SUPPRESS)
     status = sub.add_parser("status")
     status.add_argument("--state-db", type=Path, default=default_state_path())
     status.add_argument("--business-date", type=date.fromisoformat)
+    status.add_argument("--brief", action="store_true")
+    unpark = sub.add_parser("unpark")
+    unpark.add_argument("--state-db", type=Path, default=default_state_path())
+    unpark.add_argument("--business-date", type=date.fromisoformat)
+    unpark.add_argument("--task")
+    unpark.add_argument("--reason", default="operator unpark")
+    unpark.add_argument("--list", dest="list_only", action="store_true")
     args = parser.parse_args()
 
     day = args.business_date or datetime.now(JST).date()
     journal = Journal(args.state_db.resolve())
+    run_id = f"cardz-v2:{day.isoformat()}"
     if args.command == "status":
         journal.initialise()
-        run_id = f"cardz-v2:{day.isoformat()}"
         row = journal.run(run_id)
+        if args.brief:
+            print(status_brief(journal, day))
+            return 0
         if row is None:
             print(json.dumps({"runId": run_id, "status": "NOT_STARTED"}, sort_keys=True))
             return 0
         print(json.dumps(journal.summary(run_id), ensure_ascii=False, sort_keys=True, default=str))
         return 0
 
-    if args.max_runtime_seconds < 60 or args.max_runtime_seconds > 5400:
-        raise SystemExit("--max-runtime-seconds must be between 60 and 5400")
+    if args.command == "unpark":
+        journal.initialise()
+        return run_unpark(journal, day, args)
+
+    if (
+        args.max_runtime_seconds < 60
+        or args.max_runtime_seconds > MAX_RUNTIME_SECONDS_CEILING
+    ):
+        raise SystemExit(
+            f"--max-runtime-seconds must be between 60 and {MAX_RUNTIME_SECONDS_CEILING}"
+        )
     if os.name == "nt":
         raise SystemExit("Daily Chain V2 tick must run inside WSL")
     if str(journal.path).replace("\\", "/").startswith("/mnt/"):
@@ -1730,21 +2343,65 @@ def main() -> int:
         raise SystemExit("--renew-manual-e2e-window requires --manual-e2e-window")
     if args.renew_manual_e2e_window and classify_provenance(provenance) != "manual":
         raise SystemExit("--renew-manual-e2e-window requires manual provenance")
+    journal.initialise()
+    lock_handle, acquired = acquire_tick_lock(journal.path)
+    if not acquired:
+        # Another tick still owns this journal.  Overlapping ticks double every
+        # claim race; skipping is the correct, silent, zero-exit outcome.
+        print("TICK_SKIPPED_LOCKED")
+        try:
+            write_health_document(
+                build_health_document(journal, day, tick_phase="skipped_locked")
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        return 0
+    global TICK_LOCK_HANDLE
+    # Keep the descriptor referenced: closing it would release the flock.
+    TICK_LOCK_HANDLE = lock_handle
     chain = DailyChainV2(
         journal=journal,
         business_date=day,
         allow_publish=bool(args.allow_publish),
         notify=bool(args.notify),
         deadline_monotonic=time.monotonic() + args.max_runtime_seconds,
-        schedule=manual_e2e_schedule() if args.manual_e2e_window else None,
+        schedule=(
+            manual_e2e_schedule(business_date=day) if args.manual_e2e_window else None
+        ),
     )
     chain.initialise(
         provenance,
         renew_manual_window=bool(args.renew_manual_e2e_window),
     )
+    chain.tick_started_at_utc = iso()
+
+    def _on_signal(signum: int, frame: Any) -> None:  # noqa: ANN001 - handler shape
+        del frame
+        os._exit(chain.signal_shutdown(int(signum)))
+
+    for signal_name in ("SIGTERM", "SIGINT", "SIGHUP"):
+        signal_number = getattr(signal, signal_name, None)
+        if signal_number is None:
+            continue
+        try:
+            signal.signal(signal_number, _on_signal)
+        except (OSError, ValueError):  # non-main thread or unsupported signal
+            continue
+    chain.write_health(tick_phase="started")
+
     try:
-        summary = chain.run_tick()
-    except Exception as error:  # noqa: BLE001 - persist orchestrator faults before exit
+        if args.selftest_sleep > 0:
+            time.sleep(float(args.selftest_sleep))
+            summary = {"run": journal.run(chain.run_id), "taskCounts": {}, "tasks": []}
+        else:
+            summary = chain.run_tick()
+    except KeyboardInterrupt:
+        raise SystemExit(chain.signal_shutdown(int(signal.SIGINT))) from None
+    except SystemExit as error:
+        code = error.code if isinstance(error.code, int) else 1
+        chain.tick_crashed(error, exit_code=int(code))
+        raise
+    except BaseException as error:  # noqa: BLE001 - persist orchestrator faults before exit
         error_code = classify_error(str(error)).error_code
         journal.add_event(
             chain.run_id,
@@ -1764,7 +2421,9 @@ def main() -> int:
             chain.deliver_events()
         except Exception:
             pass
+        chain.tick_crashed(error, exit_code=1)
         raise
+    chain.write_health(tick_phase="ended", tick_exit_code=0, tick_ended_at_utc=iso())
     print(json.dumps(summary, ensure_ascii=False, sort_keys=True, default=str))
     return 0
 

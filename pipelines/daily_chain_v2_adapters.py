@@ -316,6 +316,8 @@ def build_default_registry() -> AdapterRegistry:
                     freshness_sla_minutes=405,
                     required_class="quote",
                     adapter_version="2",
+                    identity_lane="http",
+                    route_priority=10,
                 ),
                 worker_kind="collect",
                 worker_payload={
@@ -336,6 +338,8 @@ def build_default_registry() -> AdapterRegistry:
                     freshness_sla_minutes=405,
                     required_class="quote",
                     adapter_version="2",
+                    identity_lane="browser",
+                    route_priority=20,
                 ),
                 worker_kind="collect",
                 worker_payload={
@@ -363,6 +367,25 @@ def build_default_registry() -> AdapterRegistry:
             ),
         )
     )
+
+
+def registered_worker_kinds(registry: AdapterRegistry | None = None) -> tuple[str, ...]:
+    """Worker kinds the registered adapters actually ask for.
+
+    The worker CLI derives its ``--kind`` choices from this, so registering an
+    adapter with a new worker kind never needs a literal list edited.
+    """
+
+    try:
+        resolved = build_default_registry() if registry is None else registry
+        kinds = {
+            str(getattr(adapter, "worker_kind", "") or "").strip()
+            for adapter in resolved.enabled()
+        }
+    except Exception:  # noqa: BLE001 - a broken registry must not hide the CLI
+        kinds = set()
+    kinds.discard("")
+    return tuple(sorted(kinds)) or ("collect", "fx")
 
 
 def task_payload(adapter: CommandSourceAdapter, task: SourceTask) -> dict[str, Any]:

@@ -15,12 +15,23 @@ import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from typing import Any, Iterable, Mapping, Protocol, Sequence
 
 
 CONTRACT_VERSION = "cardz-daily-chain-v2"
 JST_OFFSET = timedelta(hours=9)
 SOURCE_REQUIRED_CLASSES = frozenset({"core", "quote", "extra"})
+# Adding a data source must stay a registry row + migration file + adapter
+# registration.  Every constant below is only the no-registry fallback.
+V2_MIGRATION_GLOB = "0[5-9][0-9]_daily_chain_v2_*.mysql.sql"
+CORE_CONTRACT_FALLBACK_KEYS = ("fx", "gemrate", "quotes")
+IDENTITY_LANE_FALLBACK = (("browser", "cdp:9333"), ("http", "host:snkrdunk"))
+DEFAULT_ROUTE_PRIORITY = 30
+ROUTE_POLICY_VERSION = "cardz-route-v2"
+# The token the orchestrator looks for to decide that a failed barrier is
+# repairable coverage rather than an infrastructure fault.
+CONTRACT_SHORTFALL_MARKER = "Missing="
 RESULT_STATUSES = frozenset({
     "completed", "degraded", "quarantined", "retry", "terminal", "interrupted",
 })
@@ -59,6 +70,11 @@ class SourceSpec:
     required_class: str
     adapter_version: str = "1"
     enabled: bool = True
+    # Declared, never branched on: the orchestrator reads these instead of
+    # naming providers.  None means "this source owns no discovery lane" and
+    # "let the registry stage apply the default route priority".
+    identity_lane: str | None = None
+    route_priority: int | None = None
 
     def __post_init__(self) -> None:
         if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,63}", self.source_code):
@@ -249,6 +265,9 @@ def classify_error(text: str, *, stage: str = "source") -> RetryDecision:
     if any(token in value for token in (
         "unauthorized", "forbidden", "invalid api key", "authentication",
         "schema contract", "contract mismatch", "illegal numeric", "nan", "infinity",
+        # A migration whose recorded bytes no longer match is a contract fault,
+        # not a flaky source: retrying it just replays the same mismatch.
+        "migration content changed", "migration hash", "migration checksum",
     )):
         return RetryDecision("TERMINAL_CONTRACT", True, ())
     if stage == "publish":
@@ -531,3 +550,283 @@ def publication_decision(
         (),
         tuple(degraded),
     )
+
+
+# ---------------------------------------------------------------------------
+# Generic-source policy.  Everything below exists so that registering another
+# provider stays "registry row + migration file + adapter registration": the
+# orchestrator asks these functions instead of hard-coding provider names.
+
+
+def list_v2_migrations(root: Any) -> tuple[str, ...]:
+    """Sorted daily-chain V2 migration file names under ``root``.
+
+    Dropping a new ``05x_daily_chain_v2_*.mysql.sql`` in place is enough; no
+    stage list and no ``migrate --only`` argument has to be edited.
+    """
+
+    folder = Path(str(root)) / "pipelines" / "migrations"
+    return tuple(sorted(
+        path.name for path in folder.glob(V2_MIGRATION_GLOB) if path.is_file()
+    ))
+
+
+def v2_schema_capabilities(root: Any) -> tuple[str, ...]:
+    """Journal capability per V2 migration: ``051_...sql`` -> ``schema-051``."""
+
+    return tuple(
+        f"schema-{name.split('_', 1)[0]}" for name in list_v2_migrations(root)
+    )
+
+
+def registry_enabled(row: Mapping[str, Any]) -> bool:
+    value = row.get("enabled")
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return _clean(value).casefold() not in {"", "0", "false", "no"}
+    return bool(value)
+
+
+def registry_capabilities(row: Mapping[str, Any]) -> frozenset[str]:
+    raw: Any = row.get("capabilities")
+    if raw is None:
+        raw = row.get("capabilities_json")
+    if isinstance(raw, (str, bytes)):
+        try:
+            raw = json.loads(raw)
+        except (ValueError, TypeError):
+            raw = ()
+    if not isinstance(raw, (list, tuple, set, frozenset)):
+        raw = ()
+    return frozenset(_clean(value).casefold() for value in raw if _clean(value))
+
+
+def registry_config(row: Mapping[str, Any]) -> Mapping[str, Any]:
+    raw: Any = row.get("config")
+    if raw is None:
+        raw = row.get("config_json")
+    if isinstance(raw, (str, bytes)):
+        try:
+            raw = json.loads(raw)
+        except (ValueError, TypeError):
+            raw = {}
+    return raw if isinstance(raw, Mapping) else {}
+
+
+def core_contract_keys(
+    source_rows: Iterable[Mapping[str, Any]] | None,
+) -> tuple[str, ...]:
+    """Contract sections the pre/post barrier must see complete.
+
+    Every enabled ``required_class='core'`` source contributes its own section
+    and any enabled quote-capable source contributes the shared ``quotes``
+    section.  The literal tuple survives only as the no-registry fallback.
+    """
+
+    rows = [row for row in (source_rows or ()) if isinstance(row, Mapping)]
+    if not rows:
+        return CORE_CONTRACT_FALLBACK_KEYS
+    keys: set[str] = set()
+    for row in rows:
+        if not registry_enabled(row):
+            continue
+        code = _clean(row.get("source_code"))
+        if not code:
+            continue
+        if _clean(row.get("required_class")).casefold() == "core":
+            keys.add(code)
+        if "quote" in registry_capabilities(row):
+            keys.add("quotes")
+    return tuple(sorted(keys)) or CORE_CONTRACT_FALLBACK_KEYS
+
+
+def pop_contract_sources(
+    source_rows: Iterable[Mapping[str, Any]] | None,
+) -> tuple[dict[str, str], ...]:
+    """Core sources whose coverage is measured by a POP ingest checkpoint."""
+
+    found: list[dict[str, str]] = []
+    for row in source_rows or ():
+        if not isinstance(row, Mapping) or not registry_enabled(row):
+            continue
+        if _clean(row.get("required_class")).casefold() != "core":
+            continue
+        if "pop" not in registry_capabilities(row):
+            continue
+        code = _clean(row.get("source_code"))
+        if not code:
+            continue
+        canonical = _clean(row.get("canonical_source_code")) or code
+        checkpoint = (
+            _clean(registry_config(row).get("popCheckpointSourceCode"))
+            or f"{canonical}_pop"
+        )
+        found.append({
+            "sourceCode": code,
+            "identitySourceCode": _clean(row.get("identity_source_code")) or code,
+            "popCheckpointSourceCode": checkpoint,
+        })
+    return tuple(sorted(found, key=lambda item: item["sourceCode"]))
+
+
+def rates_contract_sources(
+    source_rows: Iterable[Mapping[str, Any]] | None,
+) -> tuple[str, ...]:
+    """Core sources whose coverage is measured by FX rate observations."""
+
+    return tuple(sorted({
+        _clean(row.get("source_code"))
+        for row in source_rows or ()
+        if isinstance(row, Mapping)
+        and registry_enabled(row)
+        and _clean(row.get("required_class")).casefold() == "core"
+        and "rates" in registry_capabilities(row)
+        and _clean(row.get("source_code"))
+    }))
+
+
+def identity_lanes(specs: Iterable[Any] | None) -> tuple[tuple[str, str], ...]:
+    """``(lane, concurrency group)`` pairs declared by identity sources."""
+
+    lanes: dict[str, str] = {}
+    for spec in specs or ():
+        if not bool(getattr(spec, "enabled", True)):
+            continue
+        lane = _clean(getattr(spec, "identity_lane", None))
+        if not lane:
+            continue
+        capabilities = {
+            _clean(value).casefold()
+            for value in (getattr(spec, "capabilities", ()) or ())
+        }
+        if "identity" not in capabilities:
+            continue
+        lanes.setdefault(
+            lane, _clean(getattr(spec, "concurrency_group", "")) or "db-writer"
+        )
+    return tuple(sorted(lanes.items())) or IDENTITY_LANE_FALLBACK
+
+
+def route_policy_upserts(
+    specs: Iterable[Any] | None,
+    *,
+    existing_source_codes: Iterable[str] = (),
+    activated_at: str,
+    policy_version: str = ROUTE_POLICY_VERSION,
+) -> tuple[tuple[Any, ...], ...]:
+    """Route-policy rows a newly registered quote source still needs.
+
+    A source that already owns policy rows is skipped on purpose: the
+    migration-owned per-language priorities stay authoritative, so registering
+    a new provider can never re-price an existing one.
+    """
+
+    existing = {_clean(value) for value in existing_source_codes if _clean(value)}
+    rows: list[tuple[Any, ...]] = []
+    for spec in specs or ():
+        if not bool(getattr(spec, "enabled", True)):
+            continue
+        capabilities = {
+            _clean(value).casefold()
+            for value in (getattr(spec, "capabilities", ()) or ())
+        }
+        if "quote" not in capabilities:
+            continue
+        code = _clean(getattr(spec, "source_code", ""))
+        if not code or code in existing:
+            continue
+        declared = getattr(spec, "route_priority", None)
+        priority = DEFAULT_ROUTE_PRIORITY if declared is None else int(declared)
+        if priority < 1:
+            raise ValueError(f"{code}: route_priority must be positive")
+        rows.append((policy_version, "*", code, priority, 1, 1, activated_at))
+    return tuple(sorted(rows))
+
+
+def contract_shortfall(
+    contract: Mapping[str, Any],
+    keys: Iterable[str],
+) -> str:
+    """Human-readable shortfall for each barrier section, in one line.
+
+    Coverage sections report ``<key>Missing=<n>``; that token is what tells the
+    orchestrator a targeted repair is worth planning, for every source rather
+    than for the two that used to be spelled out.
+    """
+
+    parts: list[str] = []
+    for name in keys:
+        section = contract.get(name) or {}
+        if not isinstance(section, Mapping):
+            parts.append(f"{name}=unknown")
+        elif "missing" in section:
+            parts.append(
+                f"{name}{CONTRACT_SHORTFALL_MARKER}"
+                f"{len(section.get('missing') or [])}"
+            )
+        else:
+            parts.append(
+                f"{name}={section.get('covered')}/{section.get('expected')}"
+            )
+    return " ".join(parts)
+
+
+def quote_repair_routes(
+    rows: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Group missing variants by repair source, cross-checked against policy.
+
+    ``select_quote`` is the declared, versioned routing policy.  The MySQL join
+    is faster but its ordering is easy to break silently, so a variant whose SQL
+    winner disagrees with the policy is rejected rather than repaired from an
+    unproven source.
+    """
+
+    by_variant: dict[int, list[Mapping[str, Any]]] = {}
+    for row in rows:
+        variant_id = int(row.get("variant_id") or 0)
+        if variant_id <= 0:
+            continue
+        by_variant.setdefault(variant_id, []).append(row)
+    grouped: dict[str, list[int]] = {}
+    rejected: list[dict[str, Any]] = []
+    for variant_id in sorted(by_variant):
+        variant_rows = by_variant[variant_id]
+        sql_winner = _clean(variant_rows[0].get("source_code"))
+        language = variant_rows[0].get("card_language")
+        candidates: list[QuoteCandidate] = []
+        policies: list[QuotePolicyRow] = []
+        seen: set[str] = set()
+        for index, row in enumerate(variant_rows):
+            code = _clean(row.get("source_code"))
+            if not code or code in seen:
+                continue
+            seen.add(code)
+            candidates.append(QuoteCandidate(
+                source_code=code,
+                # Descending so that a priority tie keeps the SQL row order
+                # instead of inventing a second, different tie-break.
+                quote_revision_id=len(variant_rows) - index,
+                checked_at="1970-01-01T00:00:00+00:00",
+                usd_value="1",
+            ))
+            policies.append(QuotePolicyRow(
+                policy_version=_clean(row.get("policy_version")) or "unknown",
+                language_code=_clean(row.get("language_code")) or "*",
+                source_code=code,
+                priority=int(row.get("priority") or DEFAULT_ROUTE_PRIORITY),
+            ))
+        selection = select_quote(language, candidates, policies)
+        if selection is None or selection.selected_source_code != sql_winner:
+            rejected.append({
+                "variantId": variant_id,
+                "sqlWinner": sql_winner or None,
+                "policyWinner": selection.selected_source_code if selection else None,
+            })
+            continue
+        grouped.setdefault(selection.selected_source_code, []).append(variant_id)
+    return {
+        "routes": {code: sorted(ids) for code, ids in sorted(grouped.items())},
+        "rejected": rejected,
+    }
