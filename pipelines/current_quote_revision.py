@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from functools import lru_cache
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Mapping, Sequence
@@ -45,19 +46,6 @@ def pc_price_language_sql(alias: str = "pi") -> str:
     return f"LOWER(REPLACE({alias}.card_language, '_', '-')) IN ({langs})"
 
 
-def pc_price_route_priority_sql(alias: str = "pi", source_expr: str = "q.source_code") -> str:
-    """EN and Chinese prefer PriceCharting; Japanese stays SNK-primary."""
-
-    lang = pc_price_language_sql(alias)
-    return (
-        f"CASE WHEN {lang} THEN "
-        f"CASE WHEN {source_expr}='pricecharting' THEN 10 "
-        f"WHEN {source_expr} IN ('snkrdunk','snk_psa10','snk') THEN 20 ELSE 90 END "
-        f"ELSE CASE WHEN {source_expr} IN ('snkrdunk','snk_psa10','snk') THEN 10 "
-        f"WHEN {source_expr}='pricecharting' THEN 20 ELSE 90 END END"
-    )
-
-
 def pc_guide_observation_predicate_sql(p_alias: str, so_alias: str) -> str:
     """PSA10 PC guide rows: current `last` field OR local history series.
 
@@ -87,6 +75,159 @@ def pc_guide_observation_predicate_sql(p_alias: str, so_alias: str) -> str:
         f"='VGPC.chart_data.manualonly.series')"
         f")"
     )
+
+
+# --- Registry-derived quote membership (F-MINT / F-PRODUCT-ROUTE) -----------
+# WHICH sources may mint a quote revision, and in WHAT order they route, is a
+# registry fact: the enabled `quote`-capability adapters in
+# daily_chain_v2_adapters, ordered by their declared route_priority.  Nothing
+# below names a provider except the three tables that ARE per-source facts:
+# the legacy storage codes a provider's old rows were written under, the
+# payload predicate that proves one of its observations is a PSA10 quote, and
+# whether its rows are gated to a language set.  A new source with none of
+# those three quirks needs no edit here at all.
+LEGACY_QUOTE_STORAGE_ALIASES: dict[str, tuple[str, ...]] = {
+    # market_price_observation rows written before `snkrdunk` became the
+    # canonical code.  A fact about historical rows, not a policy.
+    "snkrdunk": ("snk_psa10", "snk"),
+}
+DEFAULT_QUOTE_OBSERVATION_KIND = "psa10_reference_price"
+# Position N of a language route carries priority (N+1)*STEP.  operator_control
+# checks the row's selected_price_route_priority against exactly this.
+QUOTE_ROUTE_PRIORITY_STEP = 10
+# The discovery lane whose quote source leads the EN board (a browser-lane
+# marketplace is the EN-native one).  Declared, never branched on per provider.
+QUOTE_ROUTE_LEAD_LANE = "browser"
+# Catalog fact, matched exactly as `catalog_printing_identity.card_language`
+# stores it: which languages the lead-lane source serves, and which are served
+# by the remaining quote sources only.  Any other language routes nowhere and
+# every canonical-route check fails closed.
+LEAD_LANE_ROUTE_LANGUAGES = frozenset({"en"})
+NON_LEAD_ROUTE_LANGUAGES = frozenset({"ja", "ko", "zhCN", "zhTW"})
+
+
+@lru_cache(maxsize=1)
+def _quote_source_specs() -> tuple[Any, ...]:
+    """Enabled quote-capability registry specs, ordered by route priority.
+
+    Import-time derivation on purpose: this runs inside SQL builders and inside
+    operator gates, where a per-row database lookup of market_source_registry
+    would be both slow and a new failure mode.  The registry module is pure
+    (no database, no network), so the same list is available everywhere.
+    """
+
+    from daily_chain_v2_adapters import build_default_registry
+    from daily_chain_v2_contract import DEFAULT_ROUTE_PRIORITY
+
+    specs = [
+        adapter.spec
+        for adapter in build_default_registry().enabled()
+        if "quote" in tuple(adapter.spec.capabilities or ())
+    ]
+    specs.sort(
+        key=lambda spec: (
+            int(spec.route_priority or DEFAULT_ROUTE_PRIORITY),
+            str(spec.source_code),
+        )
+    )
+    return tuple(specs)
+
+
+def quote_source_codes() -> tuple[str, ...]:
+    """Canonical quote source codes, ordered by declared route priority."""
+
+    return tuple(str(spec.source_code) for spec in _quote_source_specs())
+
+
+def quote_storage_source_codes(source_code: str) -> tuple[str, ...]:
+    """Canonical code plus every legacy code its rows were stored under."""
+
+    code = str(source_code or "").casefold()
+    return (code,) + tuple(LEGACY_QUOTE_STORAGE_ALIASES.get(code, ()))
+
+
+def all_quote_storage_source_codes() -> tuple[str, ...]:
+    out: list[str] = []
+    for code in quote_source_codes():
+        out.extend(quote_storage_source_codes(code))
+    return tuple(out)
+
+
+def sql_source_in_list(codes: Sequence[str]) -> str:
+    """`'a','b'` for a SQL IN list.  Source codes are registry-validated."""
+
+    return ",".join("'" + str(code).replace("'", "''") + "'" for code in codes)
+
+
+def canonical_quote_source_sql(source_expr: str) -> str:
+    """Map every legacy storage code in `source_expr` back to its canonical."""
+
+    parts = []
+    for code in quote_source_codes():
+        aliases = LEGACY_QUOTE_STORAGE_ALIASES.get(code, ())
+        if aliases:
+            parts.append(
+                f"WHEN {source_expr} IN ({sql_source_in_list(aliases)}) THEN '{code}'"
+            )
+    if not parts:
+        return source_expr
+    return "CASE " + " ".join(parts) + f" ELSE {source_expr} END"
+
+
+def default_quote_storage_source_codes() -> tuple[str, ...]:
+    """Storage codes of the quote sources with no special payload predicate."""
+
+    out: list[str] = []
+    for code in quote_source_codes():
+        if code not in SPECIAL_QUOTE_OBSERVATION_SOURCES:
+            out.extend(quote_storage_source_codes(code))
+    return tuple(out)
+
+
+def ungated_quote_storage_source_codes() -> tuple[str, ...]:
+    """Storage codes of the quote sources accepted for every card language."""
+
+    out: list[str] = []
+    for code in quote_source_codes():
+        if code not in LANGUAGE_GATED_QUOTE_SOURCES:
+            out.extend(quote_storage_source_codes(code))
+    return tuple(out)
+
+
+def lead_quote_sources() -> tuple[str, ...]:
+    """Quote sources that own the lead discovery lane, in route order."""
+
+    return tuple(
+        str(spec.source_code)
+        for spec in _quote_source_specs()
+        if str(spec.identity_lane or "").strip() == QUOTE_ROUTE_LEAD_LANE
+    )
+
+
+def language_quote_route(card_language: str | None) -> tuple[str, ...]:
+    """Ordered canonical quote sources for one card language.
+
+    Position N carries route priority (N+1)*QUOTE_ROUTE_PRIORITY_STEP, which is
+    what operator_control._is_canonical_price_route verifies against the row.
+    An unsupported language returns (), so every route check fails closed.
+    """
+
+    language = str(card_language or "")
+    lead = lead_quote_sources()
+    rest = tuple(code for code in quote_source_codes() if code not in lead)
+    if language in LEAD_LANE_ROUTE_LANGUAGES:
+        return lead + rest
+    if language in NON_LEAD_ROUTE_LANGUAGES:
+        return rest
+    return ()
+
+
+# Per-source quirks, named because they ARE source facts, not routing policy.
+# A quote source in neither set gets the default treatment and needs no entry:
+# its observations are proved by DEFAULT_QUOTE_OBSERVATION_KIND and its rows
+# count for every card language.
+SPECIAL_QUOTE_OBSERVATION_SOURCES = frozenset({"pricecharting"})
+LANGUAGE_GATED_QUOTE_SOURCES = frozenset({"pricecharting"})
 
 
 def eligible_current_quote_revision_ddl() -> str:
@@ -273,6 +414,16 @@ def insert_quote_revision(
     """Insert one immutable quote revision. Returns id (existing or new)."""
 
     source = str(source_code).casefold()
+    # F-MINT: minting is registry-gated, not "whatever the caller passed".  An
+    # unregistered source used to land a revision that the eligibility view then
+    # dropped on the floor, so the row existed and ranked nowhere.
+    if source not in all_quote_storage_source_codes():
+        raise ValueError(
+            f"quote revision source is not a registered quote source: {source!r};"
+            " register it in daily_chain_v2_adapters.build_default_registry()"
+            " (capability 'quote'), or add its legacy storage code to"
+            " current_quote_revision.LEGACY_QUOTE_STORAGE_ALIASES"
+        )
     external = str(source_external_entity_id)
     period = _as_date(source_period_at)
     checked = _as_utc_naive(checked_at)
@@ -411,10 +562,14 @@ def bootstrap_from_eligible_observations(cursor: Any, *, actor: str = "043-boots
            AND so2.payload_sha256=p2.payload_sha256
            AND so2.observed_date=p2.observed_date
           WHERE p2.metric_status='ready' AND p2.price_usd>0
-            AND p2.source_code IN ('snkrdunk','snk_psa10','snk','pricecharting')
+            AND p2.source_code IN (""" + sql_source_in_list(
+        all_quote_storage_source_codes()
+    ) + """)
             AND (
-              (p2.source_code IN ('snkrdunk','snk_psa10','snk')
-               AND so2.observation_kind='psa10_reference_price')
+              (p2.source_code IN (""" + sql_source_in_list(
+        default_quote_storage_source_codes()
+    ) + """)
+               AND so2.observation_kind='""" + DEFAULT_QUOTE_OBSERVATION_KIND + """')
               OR (""" + pc_guide_observation_predicate_sql("p2", "so2") + """)
             )
           GROUP BY p2.variant_id, p2.source_code
@@ -428,8 +583,7 @@ def bootstrap_from_eligible_observations(cursor: Any, *, actor: str = "043-boots
         INNER JOIN catalog_printing_identity pi ON pi.variant_id=p.variant_id
         INNER JOIN operator_strict_source_identity si
           ON si.variant_id=p.variant_id
-         AND si.source_code=CASE WHEN p.source_code IN ('snk','snk_psa10')
-                                 THEN 'snkrdunk' ELSE p.source_code END
+         AND si.source_code=""" + canonical_quote_source_sql("p.source_code") + """
          AND si.external_entity_id=p.source_external_entity_id
         INNER JOIN market_source_observation so
           ON so.id=p.source_observation_id
@@ -439,7 +593,9 @@ def bootstrap_from_eligible_observations(cursor: Any, *, actor: str = "043-boots
          AND so.observed_date=p.observed_date
         WHERE p.metric_status='ready' AND p.price_usd>0
           AND (""" + pc_price_language_sql("pi") + """
-               OR p.source_code IN ('snkrdunk','snk_psa10','snk'))
+               OR p.source_code IN (""" + sql_source_in_list(
+        ungated_quote_storage_source_codes()
+    ) + """))
         """
     )
     rows = list(cursor.fetchall())

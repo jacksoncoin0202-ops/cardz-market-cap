@@ -68,3 +68,69 @@ assert guard["maximumAwaitingFreshPrice"] == 26
 assert R._price_max_age_days("pricecharting") == 40
 assert R._price_max_age_days("snkrdunk") == 30
 print("POSITIVE_OK source-cycle ages and two-percent ranking guards hold")
+
+# F-PRICE-AGE: the shipped policy must carry one cycle age per registry quote
+# source.  A missing entry used to fall back to `default` in silence.
+import json  # noqa: E402
+import tempfile  # noqa: E402
+
+sys.path.insert(0, str(ROOT / "pipelines"))
+from current_quote_revision import quote_source_codes  # noqa: E402
+
+REGISTRY_QUOTE_SOURCES = quote_source_codes()
+assert REGISTRY_QUOTE_SOURCES, "registry declares no quote source"
+shipped = json.loads(R.DAILY_GUARDRAILS_PATH.read_text(encoding="utf-8"))
+for _source in REGISTRY_QUOTE_SOURCES:
+    assert _source in shipped["priceMaxAgeDaysBySource"], _source
+print(
+    "POSITIVE_OK shipped guardrail declares a price age for every registry"
+    f" quote source {REGISTRY_QUOTE_SOURCES}"
+)
+
+_shipped_path = R.DAILY_GUARDRAILS_PATH
+with tempfile.TemporaryDirectory(prefix="cardz-e-priceage-") as _tmp:
+    _probe = Path(_tmp) / "daily-release-guardrails.json"
+
+    def _load_with(policy: dict) -> dict:
+        _probe.write_text(json.dumps(policy), encoding="utf-8")
+        R.DAILY_GUARDRAILS_PATH = _probe
+        try:
+            return R._load_daily_guardrails()
+        finally:
+            R.DAILY_GUARDRAILS_PATH = _shipped_path
+
+    # Negative: a complete policy still loads, and an unknown extra source is
+    # never required, so this gate cannot start rejecting today's policy.
+    _complete = json.loads(_shipped_path.read_text(encoding="utf-8"))
+    assert _load_with(_complete)["priceMaxAgeDaysBySource"]["default"] == 30
+    print("NEGATIVE_OK the shipped guardrail policy still loads unchanged")
+
+    # Positive: drop one registry quote source's entry -> fail closed, naming
+    # the source and the file.
+    _missing = json.loads(json.dumps(_complete))
+    _dropped = REGISTRY_QUOTE_SOURCES[0]
+    _missing["priceMaxAgeDaysBySource"].pop(_dropped)
+    try:
+        _load_with(_missing)
+    except RuntimeError as error:
+        assert _dropped in str(error), str(error)
+        assert "daily-release-guardrails.json" in str(error), str(error)
+        print(
+            "POSITIVE_OK a registry quote source with no price-age entry fails"
+            f" closed: {error}"
+        )
+    else:
+        raise AssertionError("missing price-age fixture did not fire")
+
+    # Positive: an entry that exists but is not a usable age is still invalid.
+    _zero = json.loads(json.dumps(_complete))
+    _zero["priceMaxAgeDaysBySource"][_dropped] = 0
+    try:
+        _load_with(_zero)
+    except RuntimeError as error:
+        assert "price ages are invalid" in str(error), str(error)
+        print("POSITIVE_OK a zero price age is rejected")
+    else:
+        raise AssertionError("zero price-age fixture did not fire")
+
+assert R.DAILY_GUARDRAILS_PATH == _shipped_path

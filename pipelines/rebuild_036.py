@@ -77,8 +77,19 @@ def _load_daily_guardrails() -> dict[str, Any]:
     if policy.get("contract") != "cardz-daily-release-guardrails-v1":
         raise RuntimeError("daily release guardrail contract is missing or unsupported")
     ages = policy.get("priceMaxAgeDaysBySource") or {}
-    if int(ages.get("default", 0)) < 1 or int(ages.get("pricecharting", 0)) < 1:
-        raise RuntimeError("daily release guardrail price ages are invalid")
+    # F-PRICE-AGE: every registry source that can carry a price must declare its
+    # own cycle age.  A source with no entry used to inherit `default` in
+    # silence, so a monthly-chart provider was aged like a daily one.
+    from current_quote_revision import quote_source_codes  # noqa: PLC0415
+
+    for source in ("default", *quote_source_codes()):
+        if source not in ages:
+            raise RuntimeError(
+                "daily release guardrail has no priceMaxAgeDaysBySource entry"
+                f" for source '{source}': add it to {DAILY_GUARDRAILS_PATH}"
+            )
+        if int(ages.get(source, 0)) < 1:
+            raise RuntimeError("daily release guardrail price ages are invalid")
     for field in ("rankedDropMaxRatio", "awaitingFreshPriceMaxRatio"):
         value = float(policy.get(field, -1))
         if not 0 <= value < 1:

@@ -260,24 +260,49 @@ def _is_canonical_price_route(
     selected_route_priority: Any,
     eligible_pricecharting_exists: Any,
 ) -> bool:
-    """Fail closed unless the selected exact source follows the 026 language route."""
+    """Fail closed unless the selected exact source follows the 026 language route.
 
-    language = str(card_language or "")
+    F-PRODUCT-ROUTE: the route itself -- which sources, in what order, at what
+    priority -- comes from current_quote_revision.language_quote_route, which
+    derives it from the enabled quote adapters in the source registry.  Nothing
+    here names a provider, so a third quote source is routed by registering it.
+    `eligible_pricecharting_exists` keeps its column name and its meaning: the
+    lead-lane source has an eligible quote for this variant.
+    """
+
+    from current_quote_revision import (  # noqa: PLC0415 - registry, not a cycle
+        QUOTE_ROUTE_PRIORITY_STEP,
+        language_quote_route,
+        lead_quote_sources,
+    )
+
     source = str(source_code or "")
     try:
         route_priority = int(selected_route_priority)
-        eligible_pc = int(eligible_pricecharting_exists)
+        eligible_lead = int(eligible_pricecharting_exists)
     except (TypeError, ValueError):
         return False
-    if eligible_pc not in {0, 1}:
+    if eligible_lead not in {0, 1}:
         return False
-    if language == "en":
-        if eligible_pc == 1:
-            return source == "pricecharting" and route_priority == 10
-        return source == "snkrdunk" and route_priority == 20
-    if language in {"ja", "ko", "zhCN", "zhTW"}:
-        return eligible_pc == 0 and source == "snkrdunk" and route_priority == 10
-    return False
+    route = language_quote_route(card_language)
+    if not route:
+        return False
+    if set(route) & set(lead_quote_sources()):
+        # The lead-lane source serves this language, and `eligible_lead` is the
+        # only thing that decides between it and the next source in the route.
+        index = 0 if eligible_lead == 1 else 1
+        if index >= len(route):
+            return False
+        return (
+            source == route[index]
+            and route_priority == (index + 1) * QUOTE_ROUTE_PRIORITY_STEP
+        )
+    # The lead-lane source is not on this language's route at all, so it must not
+    # have been selected as eligible either; the row then only has to sit at its
+    # own declared position in the route.
+    if eligible_lead != 0 or source not in route:
+        return False
+    return route_priority == (route.index(source) + 1) * QUOTE_ROUTE_PRIORITY_STEP
 
 
 def _trim_mean_prices(candidates: list[dict]) -> dict | None:
