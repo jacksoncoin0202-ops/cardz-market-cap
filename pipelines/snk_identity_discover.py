@@ -182,8 +182,9 @@ def select_targets(
     # 2026-08-09 what it costs when a lane cannot see one (AGENTS.md rule 11).
     # Derived, never copied: if the sheet stops parsing, this raises.
     red = R.red_listed_variants()
-    sql += f" AND v.id NOT IN ({','.join(['%s'] * len(red))})"
-    params.extend(red)
+    if red:
+        sql += f" AND v.id NOT IN ({','.join(['%s'] * len(red))})"
+        params.extend(red)
     if variant_ids is not None:
         scoped = sorted({int(variant_id) for variant_id in variant_ids})
         if not scoped:

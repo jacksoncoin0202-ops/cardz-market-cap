@@ -244,8 +244,19 @@ if hody:
 # --- 3c. the human red ruling reaches target selection ---------------------
 # Three of these were proposed and two went live before validator034 caught it,
 # so the check belongs where targets are chosen, not where evidence is written.
+# The sheet derives thirteen; the 036 release is the later ruling that unbound
+# the ones an operator identified, and what every lane refuses is the sheet
+# minus that release. Pretend nothing is released to exercise the exclusion.
+import stamp_red_sheet_quarantine as RED_SHEET  # noqa: E402
+
+SHEET = RED_SHEET.red_variant_ids()
+check("the sheet still derives thirteen cards", len(SHEET), 13)
+check("what the lanes refuse is the sheet minus the 036 release",
+      set(D.red_listed_variants()), set(SHEET) - RED_SHEET.released_red_variant_ids())
+_released = RED_SHEET.released_red_variant_ids
+RED_SHEET.released_red_variant_ids = lambda: set()
 RED = D.red_listed_variants()
-check("the sheet still rules on thirteen cards", len(RED), 13)
+check("with nothing released the lanes refuse all thirteen", len(RED), 13)
 for vid in (1717, 1741, 1464):
     truthy(f"v{vid} is on the red list", vid in RED)
 
@@ -286,6 +297,18 @@ snk_missing = [vid for vid in RED if vid not in snk_params]
 check(f"the SNK lane excludes every red card ({len(RED) - len(snk_missing)}/{len(RED)})",
       snk_missing, [])
 check("both lanes read the same derivation", S.R.red_listed_variants(), RED)
+RED_SHEET.released_red_variant_ids = _released
+check("and honour the release again once it is back",
+      set(D.red_listed_variants()), set(SHEET) - RED_SHEET.released_red_variant_ids())
+# With every red card released the list is empty, and an empty `NOT IN ()` is
+# a syntax error that would have taken both discovery lanes down at 03:30 JST.
+for lane, select in (("PC", lambda c: D.select_targets(c, "036_x", 1000, "one-piece", 0, "en")),
+                     ("SNK", lambda c: S.select_targets(c, "036_x", 1000, "one-piece", 0))):
+    _c = _Conn()
+    select(_c)
+    _sql, _params = _c.calls[-1]
+    truthy(f"the {lane} lane emits no empty NOT IN () when nothing is refused",
+           "NOT IN ()" not in _sql)
 
 
 # --- 3d. the card's number names a set, and that set has a page too --------
@@ -442,6 +465,130 @@ if _product_page.is_file() and _search_page.is_file():
            RB.pc_capture_for_product(PAGES_DIR, 2026, "999999999") is not None)
     check("a variant with no captures at all is missing",
           RB.pc_capture_for_product(PAGES_DIR, 99999999, "10032135"), None)
+
+
+# --- 3g. the number's set answers for the page -- never with its base print --
+# PriceCharting files a reprint under the set its number names, so the page's
+# set text disagrees with the catalog's set_name by construction and the
+# hard-conflict check refused it BEFORE the product check widened for exactly
+# that page (3d above, e487c360) ever ran. Measured 2026-08-22 over the 272 PC
+# manual_review rows: 131 hard_conflict holds, 19 of them SP/TR reprints and
+# promos whose page agreed on number, character, language and bracket.
+nami_sp = {
+    "tcg_code": "one-piece", "variant_id": -1, "collector_number": "OP08-106",
+    "card_language": "en", "fp_name": "Nami",
+    "canonical_name": "2024 One Piece OP09-Emperors in the New World Nami"
+                      " Special Alternate Art 106",
+    "set_name": "One Piece Emperors in the New World",
+    "fp_parallel": "Special Alternate Art", "parallel_code": "sp", "printing_code": "sp",
+}
+two_legends_page = {"cardNumber": "OP08-106", "derivedLanguage": "en",
+                    "setName": "One Piece Two Legends"}
+conflicts = RB._fingerprint_variant_conflicts(two_legends_page, nami_sp)
+truthy("the number's set page raises only a set conflict against the catalog's set_name",
+       conflicts and all(c.startswith("set:") for c in conflicts))
+check("and the number's set explains it",
+      RB._pc_number_set_explaining(two_legends_page, nami_sp, conflicts), "two legends")
+check("nothing to explain when the page already agrees",
+      RB._pc_number_set_explaining(
+          dict(two_legends_page, setName="One Piece Emperors in the New World"),
+          nami_sp, []), "")
+wrong_language = dict(two_legends_page, derivedLanguage="ja")
+conflicts = RB._fingerprint_variant_conflicts(wrong_language, nami_sp)
+truthy("a language conflict is raised alongside the set conflict",
+       any(c.startswith("language:") for c in conflicts))
+check("and the number's set does not explain it away",
+      RB._pc_number_set_explaining(wrong_language, nami_sp, conflicts), "")
+check("scoped to One Piece: a pokemon row gets no second answer",
+      RB._pc_number_set_explaining(
+          two_legends_page, dict(nami_sp, tcg_code="pokemon"),
+          ["set:['two', 'legends']!=['emperors']"]), "")
+
+# A page reached only through the number belongs to the number's set when it
+# is that set's own print: no bracket (its base print) or a treatment the set
+# printed itself. SP and Treasure Rare exist only as a later set's reprint.
+check("number's set + no bracket is its base print",
+      RB._pc_print_belongs_to_number_set("two legends", ""), True)
+check("number's set + [Alternate Art] is its own alt-art (v2054 vs v267)",
+      RB._pc_print_belongs_to_number_set("awakening of the new era", "Alternate Art"), True)
+check("number's set + [Manga] is its own manga rare",
+      RB._pc_print_belongs_to_number_set("paramount war", "Manga"), True)
+check("[SP] is only ever a reprint",
+      RB._pc_print_belongs_to_number_set("two legends", "SP"), False)
+check("[Special Alternate Art] likewise",
+      RB._pc_print_belongs_to_number_set("romance dawn", "Special Alternate Art"), False)
+check("[Treasure Rare] likewise",
+      RB._pc_print_belongs_to_number_set("500 years in the future", "Treasure Rare"), False)
+check("a product bracket is the promo's own",
+      RB._pc_print_belongs_to_number_set("500 years in the future", "Bandai Card Games Fest"),
+      False)
+check("the catalog's own set + no bracket is just the base card",
+      RB._pc_print_belongs_to_number_set("", ""), False)
+check("bracket vocabulary: [Alternate Art] -> aa", RB._pc_bracket_printing_code("Alternate Art"), "aa")
+check("bracket vocabulary: [Manga] -> mr, not the manga parallel",
+      RB._pc_bracket_printing_code("Manga"), "mr")
+check("bracket vocabulary: [SP] is the code itself", RB._pc_bracket_printing_code("SP"), "sp")
+check("bracket vocabulary: [1st Anniversary] names no treatment",
+      RB._pc_bracket_printing_code("1st Anniversary"), "")
+
+# The same predicate in the discover lane, so the wrong proposal is never
+# written (a manual_review row on the base print blocks the base card's claim).
+base_nami = listing(pid="7000001", title="Nami OP08-106", slug="nami-op08-106",
+                    url="https://www.pricecharting.com/game/one-piece-two-legends/"
+                        "nami-op08-106")
+sp_nami = listing(pid="7000002", title="Nami [SP] OP08-106", slug="nami-sp-op08-106",
+                  url="https://www.pricecharting.com/game/one-piece-two-legends/"
+                      "nami-sp-op08-106")
+ok, why = D.judge_listing(nami_sp, base_nami, "two legends")
+check("the reprint is refused the base print of its number's set", ok, False)
+truthy(f"and the reason says so ({why})", why.startswith("number_set_own_print:"))
+# v2054 (2026-08-22): the PRB01 reissue of the OP05 Luffy alt-art agreed with
+# the OP05 booster's own "[Alternate Art] OP05-119" page on number, character,
+# language and bracket; that page is v267, the booster's card.
+luffy_prb01 = {
+    "tcg_code": "one-piece", "variant_id": -1, "collector_number": "OP05-119",
+    "card_language": "ja", "fp_name": "Monkey D. Luffy",
+    "canonical_name": "2024 One Piece Japanese PRB01-Premium Booster -One Piece Card"
+                      " the Best- Monkey D. Luffy Alternate Art OP05-119",
+    "set_name": "One Piece Japanese PRB01-Premium Booster -One Piece Card the Best-",
+    "fp_parallel": "Alternate Art", "parallel_code": "alternate art", "printing_code": "",
+}
+aa_luffy = listing(pid="8506784", title="Monkey.D.Luffy [Alternate Art] OP05-119",
+                   slug="monkey-d-luffy-alternate-art-op05-119",
+                   url="https://www.pricecharting.com/game/"
+                       "one-piece-japanese-awakening-of-the-new-era/"
+                       "monkey-d-luffy-alternate-art-op05-119")
+ok, why = D.judge_listing(luffy_prb01, aa_luffy, "awakening of the new era")
+check("the PRB01 reissue is refused the booster's own alt-art page", ok, False)
+truthy(f"and the reason names the print ({why})",
+       why.startswith("number_set_own_print:[Alternate Art]:"))
+ok, why = D.judge_listing(nami_sp, sp_nami, "two legends")
+check(f"the bracketed reprint on its number's set is accepted ({why})", ok, True)
+base_card = dict(nami_sp, canonical_name="2024 One Piece OP08-Two Legends Nami 106",
+                 set_name="One Piece Two Legends", fp_parallel="", parallel_code="",
+                 printing_code="")
+ok, why = D.judge_listing(base_card, base_nami)
+check(f"the base card keeps its own base print ({why})", ok, True)
+ok, why = D.judge_listing(base_card, base_nami, "One Piece Two Legends")
+check(f"...also when judged against its own set by name ({why})", ok, True)
+
+
+# --- 3h. a human ruling on the row outranks the evidence ------------------
+# operator-zero-20260814 wrote nine PC rows "PC/SNK exact rejected so card
+# cannot become product_ready" under action 'accept'; the reverify lane read
+# only the action and v1203 passed every evidence check on 2026-08-22.
+RULING = ("operator-zero-20260814: live same-number already on board; GemRate"
+          " identity kept; PC/SNK exact rejected so card cannot become product_ready")
+check("an operator's reason is a ruling whatever the action says",
+      RB.operator_ruling(json.dumps({"action": "accept", "reason": RULING,
+                                     "evidence": {"path": "x"}})), RULING)
+check("a lane's own confirm is not a ruling",
+      RB.operator_ruling(json.dumps({"action": "confirm"})), "")
+check("a rejection reason that names no operator is not one either",
+      RB.operator_ruling(json.dumps({"action": "reject",
+                                     "reason": "wrong provider product"})), "")
+check("no evidence, no ruling", RB.operator_ruling(None), "")
+check("broken JSON is not a ruling", RB.operator_ruling("{not json"), "")
 
 
 # --- 4. the page-size constant is the page's, not ours ---------------------

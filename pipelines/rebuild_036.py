@@ -1446,6 +1446,49 @@ NOT_A_REJECTION_VERDICT_SQL = (
     + f"'$.{REJECTION_RED_LIST_KEY}')),'false') <> 'true'"
 )
 
+# A human ruling on the ROW, under whatever action its writer chose.
+# operator-zero-20260814 wrote nine PriceCharting rows and three SNKRDUNK rows
+# "live same-number already on board; GemRate identity kept; PC/SNK exact
+# rejected so card cannot become product_ready" under action 'accept' -- the
+# HOLD is what was accepted. Nothing read it: both reverify lanes select by
+# rejection verdict only, and on 2026-08-22 v1203 (one of the nine) passed
+# every evidence check and was one --write away from exact. A reason that
+# names its operator is a ruling; a reverify lane holds the row and says so.
+OPERATOR_RULING_REASON_PREFIX = "operator-"
+
+
+def operator_ruling(bind_evidence_json: Any) -> str:
+    """The operator's ruling recorded on a binding row, or ""."""
+
+    evidence: Any = bind_evidence_json
+    if isinstance(evidence, (str, bytes)):
+        try:
+            evidence = json.loads(evidence)
+        except ValueError:
+            return ""
+    if not isinstance(evidence, Mapping):
+        return ""
+    reason = str(evidence.get("reason") or "")
+    return reason if reason.startswith(OPERATOR_RULING_REASON_PREFIX) else ""
+
+
+# The ruling is about the CARD and was written on whichever of its rows existed
+# that day: v1203 carries it on its SNKRDUNK row only, and the PriceCharting row
+# pc-identity-discover wrote for it on 2026-08-22 knows nothing of it. Select
+# the newest operator ruling on any OTHER row of the same variant alongside the
+# row's own. '%%' because the PC lane executes with parameters (pymysql
+# formats the query) and the SNK lane without; LIKE reads both as a wildcard.
+VARIANT_OPERATOR_RULING_SQL = (
+    " (SELECT CONCAT(o.source_code, ': ',"
+    "         JSON_UNQUOTE(JSON_EXTRACT(o.bind_evidence_json, '$.reason')))"
+    "    FROM catalog_source_identity o WHERE o.variant_id=si.variant_id"
+    "     AND NOT (o.source_code=si.source_code"
+    "              AND o.external_entity_id=si.external_entity_id)"
+    "     AND JSON_UNQUOTE(JSON_EXTRACT(o.bind_evidence_json, '$.reason'))"
+    f"         LIKE '{OPERATOR_RULING_REASON_PREFIX}%%'"
+    "   ORDER BY o.updated_at DESC LIMIT 1) AS ruled_elsewhere,"
+)
+
 
 NUMBER_SET_CODE_RE = re.compile(r"^([A-Z]{2,4}\d{2})-")
 
@@ -1509,8 +1552,107 @@ def set_names_a_card_could_carry(row: Mapping[str, Any]) -> list[str]:
     return [name for name in names if name]
 
 
+def _pc_number_set_explaining(
+    fp: Mapping[str, Any], row: Mapping[str, Any], conflicts: list[str],
+) -> str:
+    """The set this card's NUMBER names, when that is what the page is filed under.
+
+    PriceCharting files a One Piece reprint under the set its number names
+    (see set_names_a_card_could_carry), so the page's set text disagrees with
+    the catalog's set_name by construction and _fingerprint_variant_conflicts
+    raises `set:` for it -- ahead of the product check that was widened to
+    read that very page (e487c360), which therefore never ran. Measured
+    2026-08-22 over the 272 PC manual_review rows: 131 hard_conflict holds,
+    19 of them SP/TR reprints and promos whose page agreed on number,
+    character, language and bracket.
+
+    Only a `set:` token conflict is ever explained, and only by re-running the
+    same conflict check with a name the card's number names in place of the
+    catalog's: language, collector number, set-code and tcg conflicts stay
+    conflicts, and a second name that raises any conflict of its own explains
+    nothing. Scoped to One Piece, where the vocabulary was derived. Returns the
+    explaining name so the caller can refuse a page that is the number's set's
+    own print -- see _pc_print_belongs_to_number_set -- or "" when nothing is
+    explained.
+    """
+
+    if str(row.get("tcg_code") or "") != "one-piece":
+        return ""
+    if not conflicts or not all(c.startswith("set:") for c in conflicts):
+        return ""
+    for alt in set_names_a_card_could_carry(row)[1:]:
+        if not _fingerprint_variant_conflicts(fp, {**dict(row), "set_name": alt}):
+            return alt
+    return ""
+
+
+# Print treatments that exist only as a LATER set's reprint of an older
+# number: One Piece's SP ("Special") cards and Treasure Rares are always
+# reissues of a card from an earlier set, so a "[SP] OP01-047" page can only
+# be the reprint's. Base, Alternate Art and Manga are printed by the number's
+# own set and a page carrying them is that set's card.
+_PC_REPRINT_ONLY_PRINTINGS = frozenset({"sp", "tr"})
+
+
+def _pc_bracket_printing_code(page_parallel: str) -> str:
+    """The catalog printing code a PriceCharting bracket names, or "".
+
+    Read off the same vocabulary _pc_print_signature_ok accepts: a code's
+    long forms first ("[Manga]" is the manga RARE, not the manga parallel --
+    see the synonym table), then a bracket that is the code itself ("[SP]").
+    A bracket neither can name ("[Bandai Card Games Fest]", "[Best
+    Selection]", "[1st Anniversary]") names a product, not a treatment.
+    """
+
+    bracket = _norm_text(page_parallel)
+    if not bracket:
+        return ""
+    for code, longforms in _PC_BRACKET_SYNONYMS.items():
+        if bracket in longforms:
+            return code
+    if bracket in _PC_BRACKET_SYNONYMS:
+        return bracket
+    return ""
+
+
+def _pc_print_belongs_to_number_set(via_number_set: str, page_parallel: str) -> bool:
+    """Does a page reached only through the card's NUMBER belong to the
+    number's own set -- that is, to the card whose catalog set that is?
+
+    A reprint keeps its number, so a promo, collection or Premium Booster
+    card reaches the number's set page through _pc_number_set_explaining and
+    agrees there on number, character and language. What separates it from
+    that set's own cards is the bracket:
+
+    - none: the set's base print. Nine such proposals on 2026-08-22 (v1876,
+      1915, 1962, 1974, 2034, 2077, 2146, 2153, 2172 onto booster base
+      pages) while PriceCharting sells each as its own bracketed product,
+      and owner ruling operator-zero-20260814 on three of them says they
+      must not become product_ready;
+    - a treatment the set printed itself (Alternate Art, Manga): v2054, the
+      PRB01 reissue of the OP05 Luffy alt-art, would otherwise have taken
+      the OP05 booster's own "[Alternate Art] OP05-119" page (pid 8506784)
+      from v267, the card that page is;
+    - SP or Treasure Rare: only ever a later set's reprint, so the page is
+      the reprint's -- 15 of the 19 bindings newly provable on 2026-08-22;
+    - a product name ("[Bandai Card Games Fest]"): the promo's, and
+      product_agrees has already held it to the catalog's own words.
+
+    The same predicate runs in the discover lane so the proposal is never
+    written in the first place.
+    """
+
+    if not via_number_set:
+        return False
+    if not str(page_parallel or "").strip():
+        return True
+    code = _pc_bracket_printing_code(page_parallel)
+    return bool(code) and code not in _PC_REPRINT_ONLY_PRINTINGS
+
+
 def red_listed_variants() -> list[int]:
-    """The thirteen cards a human read on the 034 audit sheet and refused.
+    """The cards a human read on the 034 audit sheet and refused, and nobody
+    has since identified: the sheet's thirteen minus the 036 release.
 
     Derived, never copied: the sheet is the authority, and a correction to it
     has to reach every lane without anybody remembering which lanes exist. It
@@ -1523,12 +1665,21 @@ def red_listed_variants() -> list[int]:
     because it could not see the ruling, prices and sales went live for two of
     them, and validator034's red13 invariant was what noticed -- one gate later
     than it should have been. AGENTS.md rule 11.
+
+    The 036 release (data/editorial/red-sheet-036-release.json, written by
+    adjudicate_operator_knowledge_20260813) is the later ruling: an operator
+    identified the card and bound it, so it is no longer refused.
+    psa_identity_repair already subtracts it; the discovery lanes did not,
+    and kept refusing to look for identities on cards the owner had released.
+    The reverify lanes hold by this list too, because the row-level stamp
+    (REJECTION_RED_LIST_KEY) is what the 2026-08-20 replay wiped when it
+    rewrote bindings with no evidence at all.
     """
 
     sys.path.insert(0, str(ROOT / "scripts"))
     import stamp_red_sheet_quarantine as RED
 
-    return RED.red_variant_ids()
+    return RED.active_red_variant_ids()
 
 
 def rejection_is_verdict(bind_evidence_json: Any) -> bool:
@@ -8819,6 +8970,7 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
         "pageMissing": 0, "pageParseFailures": 0,
         "pageProductMismatch": 0, "mapProductMismatch": 0, "hardConflicts": 0,
         "productMismatch": 0, "printSignatureMismatch": 0, "promoted": 0,
+        "operatorRuled": 0, "redListed": 0,
     }
     promoted: list[dict[str, Any]] = []
     held: list[dict[str, Any]] = []
@@ -8826,7 +8978,8 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
         with conn.cursor() as cursor:
             binding_sql = (
                 "SELECT si.external_entity_id AS pid, si.variant_id,"
-                " si.match_status,"
+                " si.match_status, si.bind_evidence_json,"
+                + VARIANT_OPERATOR_RULING_SQL +
                 # GemRate's own wording for the printing. For a booster card it
                 # names the treatment; for a promo it names the product, and
                 # the product-agreement rule below needs to tell them apart.
@@ -8866,6 +9019,7 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
                 bindings = cursor.fetchall()
 
         updates: list[tuple[str, str, str, dict[str, Any], tuple[str, ...], Path]] = []
+        still_red = set(red_listed_variants())
         for row in bindings:
             counts["reviewBindings"] += 1
             if str(row["match_status"]) == "rejected":
@@ -8879,6 +9033,17 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
                     "reason": reason, "detail": detail,
                 })
 
+            if variant_id in still_red:
+                counts["redListed"] += 1
+                hold("red_listed", "034 audit sheet red row: a human refused this card")
+                continue
+            ruling = operator_ruling(row.get("bind_evidence_json")) or str(
+                row.get("ruled_elsewhere") or ""
+            )
+            if ruling:
+                counts["operatorRuled"] += 1
+                hold("operator_ruled", ruling[:160])
+                continue
             map_product = map_product_by_variant.get(variant_id, "")
             if map_product and map_product != pid:
                 counts["mapProductMismatch"] += 1
@@ -8910,6 +9075,15 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
                 "setName": identity["setText"],
             }
             conflicts = _fingerprint_variant_conflicts(pseudo_fp, row)
+            # PriceCharting files a One Piece reprint under the set its NUMBER
+            # names, so the page's set text disagrees with the catalog's
+            # set_name by construction. Let the number's set answer for that
+            # one `set:` conflict: the product check below still has to agree
+            # on the same name, and a page reached this way that is the
+            # number's set's own print is refused before it does.
+            via_number_set = _pc_number_set_explaining(pseudo_fp, row, conflicts)
+            if via_number_set:
+                conflicts = []
             if identity["tcg"] and str(row["tcg_code"] or "") and \
                     identity["tcg"] != str(row["tcg_code"]):
                 conflicts.append(f"tcg:{identity['tcg']}!={row['tcg_code']}")
@@ -8924,6 +9098,14 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
             # Art, and every check up to here agreed. The rule is applied only
             # where its vocabulary was derived.
             if str(row["tcg_code"] or "") == "one-piece":
+                if _pc_print_belongs_to_number_set(via_number_set, identity["parallel"]):
+                    counts["productMismatch"] += 1
+                    hold(
+                        "product_mismatch",
+                        "product_mismatch:number_set_own_print:"
+                        f"[{identity['parallel']}]:{via_number_set}",
+                    )
+                    continue
                 same_product, why = False, "product_mismatch:no_set_name"
                 for candidate_set in set_names_a_card_could_carry(row):
                     same_product, why = op_identity_rules.product_agrees(
@@ -9112,6 +9294,7 @@ def cmd_snk_identity_reverify(args: argparse.Namespace) -> int:
         "reviewBindings": 0, "quarantineReconsidered": 0,
         "pageMissing": 0, "noPsa10OneCard": 0,
         "hardConflicts": 0, "parallelSoftMismatch": 0, "promoted": 0,
+        "operatorRuled": 0, "redListed": 0,
     }
     promoted: list[dict[str, Any]] = []
     held: list[dict[str, Any]] = []
@@ -9119,7 +9302,8 @@ def cmd_snk_identity_reverify(args: argparse.Namespace) -> int:
         with conn.cursor() as cursor:
             cursor.execute(
                 "SELECT si.external_entity_id AS iid, si.variant_id,"
-                " si.match_status,"
+                " si.match_status, si.bind_evidence_json,"
+                + VARIANT_OPERATOR_RULING_SQL +
                 " v.tcg_code, v.card_language, v.set_name, v.collector_number,"
                 " v.canonical_name,"
                 " v.set_code AS v_set_code, v.printing_code AS v_printing_code,"
@@ -9162,6 +9346,7 @@ def cmd_snk_identity_reverify(args: argparse.Namespace) -> int:
                     rows_by_id[item_id] = payload
 
         updates: list[tuple[str, int, str, str, dict[str, Any], tuple[str, ...]]] = []
+        still_red = set(red_listed_variants())
         for row in bindings:
             counts["reviewBindings"] += 1
             if str(row["match_status"]) == "rejected":
@@ -9175,6 +9360,17 @@ def cmd_snk_identity_reverify(args: argparse.Namespace) -> int:
                     "reason": reason, "detail": detail,
                 })
 
+            if variant_id in still_red:
+                counts["redListed"] += 1
+                hold("red_listed", "034 audit sheet red row: a human refused this card")
+                continue
+            ruling = operator_ruling(row.get("bind_evidence_json")) or str(
+                row.get("ruled_elsewhere") or ""
+            )
+            if ruling:
+                counts["operatorRuled"] += 1
+                hold("operator_ruled", ruling[:160])
+                continue
             if not iid_str.isdigit():
                 counts["pageMissing"] += 1
                 hold("non_numeric_id")

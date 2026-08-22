@@ -352,9 +352,23 @@ def judge_listing(
         return False, why
 
     bracket = LISTING_BRACKET_RE.search(listing["title"])
-    if not R._pc_print_signature_ok(bracket.group(1).strip() if bracket else "", row):
+    page_parallel = bracket.group(1).strip() if bracket else ""
+    # Judged against the set its NUMBER names (console_candidates' second
+    # page) and the listing is that set's own print -- no bracket, or a
+    # treatment the set printed itself: it belongs to the card whose catalog
+    # set that is. Nine promo/collection cards were proposed onto booster base
+    # pages this way on 2026-08-22, and the PRB01 Luffy reissue onto the OP05
+    # booster's own alt-art page. The promoting gate refuses them with the
+    # same predicate; refusing here too saves the page fetch and the
+    # manual_review row that would block the set's own card from its page.
+    via_number_set = (
+        set_name if set_name and set_name != str(row.get("set_name") or "") else ""
+    )
+    if R._pc_print_belongs_to_number_set(via_number_set, page_parallel):
+        return False, f"number_set_own_print:[{page_parallel}]:{set_name}"
+    if not R._pc_print_signature_ok(page_parallel, row):
         return False, (
-            f"print_signature:[{bracket.group(1).strip() if bracket else ''}]"
+            f"print_signature:[{page_parallel}]"
             f" vs printing={row.get('printing_code') or ''}"
             f" parallel={row.get('parallel_code') or ''}"
         )
@@ -467,8 +481,9 @@ def select_targets(
         sql += " AND v.card_language = %s"
         params.append(language)
     red = red_listed_variants()
-    sql += f" AND v.id NOT IN ({','.join(['%s'] * len(red))})"
-    params.extend(red)
+    if red:
+        sql += f" AND v.id NOT IN ({','.join(['%s'] * len(red))})"
+        params.extend(red)
     if variant_ids is not None:
         scoped = sorted({int(variant_id) for variant_id in variant_ids})
         if not scoped:
