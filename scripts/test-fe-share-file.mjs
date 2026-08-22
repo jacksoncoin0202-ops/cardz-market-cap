@@ -213,7 +213,7 @@ const opts = { filenameBase: "cardz-x", title: "t", text: "t\nhttps://x", clipbo
      100–126 秒）就係「揀 4K 一定 fail」，冇 error 冇 log。 */
   const shareFetch = read("apps/web/src/lib/share-fetch.ts");
   check("S2: 分享圖 fetch 有 abort signal",
-    /format=\$\{format\}&res=\$\{res\}[^`]{0,80}`;/.test(cardDetail)
+    /format=\$\{FORMAT_QUERY_NAME\[format\]\}&res=\$\{res\}[^`]{0,80}`;/.test(cardDetail)
     && /fetchShareBlob\(path, res, "card OG"\)/.test(cardDetail)
     && /AbortSignal\.timeout\(per\)/.test(shareFetch));
   check("S2a: 卡片內頁冇自己再寫一份 fetch/timeout",
