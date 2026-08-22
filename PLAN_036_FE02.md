@@ -1,5 +1,7 @@
 # PLAN 036 / FE02 — Identity-first 全量重建（唯一執行文件）
 
+> **2026-08-15：歷史文件。** 036 已完、而家開代 037／FE04。唔好當日更 SOP。Live 1449。先讀 `AGENTS.md` + `docs/HANDOFF_037_FE04.md`。
+
 > **版本命名（hard）：** backend = **036**、frontend = **FE02**。之後每次更新推上去：037 / FE03、038 / FE04……文件、migration、snapshot generation、FE build id 全部跟同一組數。
 >
 > **本版：** 2026-08-08 重寫。取代 [`PLAN_036_FE02.superseded-20260808.md`](PLAN_036_FE02.superseded-20260808.md)（916 行）。舊檔同時保留「舊方案 + 推翻 + 更正」三層，工程師有機會照錯版本做 —— 呢份**唔再有**「§9 推翻 §1」呢種疊加結構；有新發現直接改返原地方。

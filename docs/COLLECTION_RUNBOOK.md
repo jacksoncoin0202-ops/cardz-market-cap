@@ -41,8 +41,14 @@ Start/verify the CARDZ Chrome before any PriceCharting work:
 powershell -NoProfile -File scripts\ensure_chrome_cdp.ps1 -Port 9333
 ```
 
-Outputs `CDP_OK` or `CDP_REVIVED` (exit 0) when `http://127.0.0.1:9333/json/version` answers;
-`CHROME_NOT_FOUND` / `CDP_REVIVE_FAILED` (exit 1) otherwise (`scripts/ensure_chrome_cdp.ps1`).
+Outputs `CDP_OK` or `CDP_REVIVED` (exit 0) only when `127.0.0.1:9333` is **headed
+Windows Chrome** (not WSL / Linux / Headless) **and** `/json/list` answers within 5s.
+Headless is rejected: Cloudflare blocks it and the local CF tool needs a real window.
+A 200 on `/json/version` is not enough — foreign listener **or** jammed target list
+(`CDP_JAMMED reason=jammed-targets`) evicts and revives
+`%LOCALAPPDATA%\cardz-chrome-cdp-9333` with `--remote-debugging-address=127.0.0.1`.
+`CHROME_NOT_FOUND` / `CDP_REVIVE_FAILED` / `CDP_IDENTITY_REJECT` / `CDP_JAMMED` are
+exit 1 (`scripts/ensure_chrome_cdp.ps1`).
 
 ---
 
@@ -190,6 +196,8 @@ cookie exists, else **2**):
 ```powershell
 python -X utf8 pipelines\pricecharting_cf_session.py connect --port 9333 --timeout 120
 ```
+
+**永遠雙 tab。** `PC_TABS = 2`。加卡（未有 exact PC id）同 cap 頁係**同一條腳本一次執行**（`--bind-missing-ids-file`），唔准另開 `pc_identity_discover.py` 單 tab 去 9333。SNK 同 PC 係並行數據。
 
 ### Incremental refresh (Windows Python)
 
@@ -456,6 +464,15 @@ Flags (argparse in `pipelines/snk_market_data.py`): positional `ids`, `--ids-fil
 
 After ingest, `PROJECT_STATE.md` prescribes
 `python pipelines/operator_control.py db-tidy --project-ingested-history`.
+
+### Beta HTTP lane — カドラバ／tcgcard（plan，未入 `ADAPTER_LANE`）
+
+並行 SNK／PC 嘅第三條 **PSA10 円日線**。契約：[KADORABA_PRICE_SOURCE.md](file:///C:/Users/jackson0202/Documents/Playground/reverse-skill/work/jihuanshe/data/tcg_full/2026-08-18/review/KADORABA_PRICE_SOURCE.md)。
+
+- **唔經 CDP 9333。** Identity 之後係 EncInst `GET /card-versions/price-history`（要 MuMu + sister）。裸 HTTP DENY。
+- 建議 adapter 名 `kadoraba_psa10`，lane=`http`（同 `snk_price`）。掛夜鏈 HTTP collect 之後、`daily-accept` 之前。失敗 skip，**唔准** abort 朝／夜鏈。
+- Writer 只寫 `source_code=kadoraba_psa10`；唔改 SNK／PC identity。未 `accept-binding --kind source --source-code tcgcard` 之前 daily-accept **唔**用佢做主價。
+- **未 wiring：** 未改 `collection_contract.ADAPTER_LANE`、未 `--write` 3308。要 owner 明示先加。
 
 ### Resume / checkpoint
 

@@ -1,5 +1,7 @@
 # CARDZ Market Cap release report — 2026-08-07
 
+> **歷史（762／FE02）。唔係 live。** Live = 037／FE04／1449。先讀 `AGENTS.md` + `docs/HANDOFF_037_FE04.md`。
+
 ## Final state
 
 - Windows MySQL authority: `127.0.0.1:3308`.

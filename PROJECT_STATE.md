@@ -1,8 +1,12 @@
 # PROJECT_STATE — CARDZ Market Cap
 
-> **2026-08-14：而家開代係 037 / FE04**（036 live PSA10 + BOX sidecar）。036 / FE03 係靚仔 fallback。契約：[docs/HANDOFF_037_FE04.md](docs/HANDOFF_037_FE04.md)。
-> 036 每日鏈同閘仍然睇 [docs/HANDOFF_036_20260812.md](docs/HANDOFF_036_20260812.md)。
-> 下面 025–035 係歷史記錄。
+> **2026-08-15：呢棵係資料／日更真身**（collect → `daily-accept` → `daily_public_release`）。
+> FE 出街車：`../cardz-market-cap-037-fe04-live`（`[deploy]`）。實驗樹 `../cardz-market-cap` 只准讀 3308。
+> Live：`https://app.cardzmarketcap.com` · `037`／`FE04` · 1449 張 · BOX `/box` sidecar。
+> 日更 `incr` **唔拉** residual stock；新 activate 先 `stock`。
+> **2026-08-14 開代** 037 / FE04。036 / FE03 fallback。契約：[docs/HANDOFF_037_FE04.md](docs/HANDOFF_037_FE04.md)。
+> 036 每日鏈：[docs/HANDOFF_036_20260812.md](docs/HANDOFF_036_20260812.md)。
+> 下面 025–035 同「Active universe: 762」係歷史記錄，唔係而家 live。
 
 ## Runtime authority
 
@@ -75,7 +79,7 @@ There is no QC/finalizer/audit/runbook release layer. Build and run the direct s
 - The 2026-08-07 release snapshot above remains the last public artifact. Local DB schema is now through 035, but 034/035 have not been published.
 - FE02 health readback: 762 cards from Windows DB 3308 with build ID `fe02`.
 
-## 036 / FE03 — 現狀（2026-08-12）
+## 036 / FE03 — 2026-08-12 當日（歷史；卡數 1322 已過時）
 
 - Generation **036**，presentation **FE03**。2026-08-14 起 036 係 fallback；開代係 **037 / FE04**（只加 BOX）。
 - Active universe **1322** 張（唔再係 762）。有 PriceCharting 身份 993 張；英文 919/919 = 100%；322 張日文卡 PC 冇貨。
@@ -86,15 +90,14 @@ There is no QC/finalizer/audit/runbook release layer. Build and run the direct s
 - 🔴 **2026-08-31 有一個已知失效**：`MAX_CURRENT_PRICE_AGE_DAYS = 30` 細過 PriceCharting 月線週期，
   嗰日約 70% 卡會一齊失去排名，而四層閘全部接唔住、receipt 照寫正常。詳情同修法見 handoff §7。
 
-## 037 / FE04 — 現狀（2026-08-14）
+## 037 / FE04 — 現狀（2026-08-14 當日；卡數已過時）
 
 - 開代：**037 / FE04** = live 036 PSA10 + BOX sidecar。唔開 `rebuild_037`。
-- PSA10：`generation=db3308_b0cb6e76228b4a99` · 1368 張 · `sealedInSeed=false`。
+- 08-14 PSA10：`generation=db3308_b0cb6e76228b4a99` · **1368** 張 · `sealedInSeed=false`。
 - BOX：`data/public/box-subset.json` · 307／275／307 · 公開路徑 `/box`（`/sealed` 只 308）。
-- 內頁：跟主站 `.detail-art`（桌面 sticky／手機 relative、無 lightbox）；askFloor `wide-metric`；`/box/[id]` Product + BreadcrumbList。
+- **2026-08-15 live：** 1449 張。呢棵係資料／日更真身；FE 出街車係 037-fe04-live。
 - Daily：`sync_public_release_assets.py` 要保留 sidecar 圖；commit 訊息 `release: daily CARDZ 037 FE04 $generation [deploy]`。
 - Fallback：拎走 overlay／nav／`/box` 即返 036／FE03；seed 唔使改。
 - **Live 已確認（2026-08-14）**：`3aef760a` · health `product=037` · `/box` 200 · `/sealed` 308。Receipt：`data/public/037-fe04-receipt.json`。契約：[docs/HANDOFF_037_FE04.md](docs/HANDOFF_037_FE04.md)。
 
-**其餘一切（演化史、六個食過嘅虧、閘 tier 分級、未完成清單、硬規矩）一律以
-[docs/HANDOFF_036_20260812.md](docs/HANDOFF_036_20260812.md) 為準。**
+採集細節／未完成項睇 [docs/HANDOFF_036_20260812.md](docs/HANDOFF_036_20260812.md)。現狀契約睇 HANDOFF_037。1322／762 唔係 live。

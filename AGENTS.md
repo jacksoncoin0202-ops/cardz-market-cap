@@ -1,12 +1,17 @@
 # AGENTS.md — cardz-market-cap-fe-db-20260805
 
-任何 agent（Claude / Codex / 其他）喺呢個 repo 開工前必讀。呢度只放「跟錯會出事」嘅硬規矩；操作細節全部喺 **[docs/COLLECTION_RUNBOOK.md](docs/COLLECTION_RUNBOOK.md)** —— 做任何採集（全量/增量）之前先讀佢，跟佢嘅 canonical 命令，唔好自己憑記憶砌 flag。
+**呢棵係資料／日更真身**（collect → `daily-accept` → `daily_public_release`）。
+FE 出街車 = `../cardz-market-cap-037-fe04-live`（`[deploy]`）。**唔喺呢度** push `main` 當網站 deploy。
+實驗樹 `../cardz-market-cap` 只准讀 3308，**唔准** pass／bake／`[deploy]`。
+Live：`https://app.cardzmarketcap.com` · `037`／`FE04` · 1449 張 · BOX `/box` sidecar。
+
+任何 agent（Claude / Codex / 其他）喺呢個 repo 開工前必讀。呢度只放「跟錯會出事」嘅硬規矩；操作細節全部喺 **[docs/COLLECTION_RUNBOOK.md](docs/COLLECTION_RUNBOOK.md)** —— 做任何採集（全量/增量）之前先讀佢，跟佢嘅 canonical 命令，唔好自己憑記憶砌 flag。現狀契約：[docs/HANDOFF_037_FE04.md](docs/HANDOFF_037_FE04.md)。
 
 ## 硬規矩（違反 = 事故）
 
 1. **唔准 `git add -A` / `git add .`** — 逐個檔 add。`data/private/` 同 `data/runtime/` 已 gitignore（2026-08-08 起），但呢條規矩照守：working tree 隨時有唔應該入 repo 嘅嘢。
 2. **`backend.env` 一個 byte 都唔准改**（讀可以）。任何 rebuild DDL/DML 用 `data/runtime/config/rebuild.env`（`--credentials-env`）。writer freeze 期間 `cardz@%` 只有 SELECT。
-3. **PriceCharting 只用 CDP port 9333**（headed Chrome，`scripts/ensure_chrome_cdp.ps1 -Port 9333`）。9222 係 Codex 嘅 browser profile：唔准掂，唔准 fallback。headless 必被 Cloudflare 擋，唔好試。
+3. **PriceCharting 只用 CDP port 9333**（Windows **headed** Chrome，`scripts/ensure_chrome_cdp.ps1 -Port 9333`。Headless 禁止：CF 擋、本機 CF tool 要視窗）。9222 係 Codex 嘅 browser profile：唔准掂，唔准 fallback。WSL/Linux Chrome 仍然禁止。**9333 PC 腳本永遠雙 tab**（`pc_cdp_sold_refresh_win.py` `PC_TABS=2`）。加卡（identity bind）同 cap 頁係**同一條腳本、一次執行**，唔准另開 `pc_identity_discover.py` 單 tab 去 9333。SNK 同 PC 係並行數據，有 SNK 唔等於唔使 PC。
 4. **同時起兩個 orchestrator 而家係 code 擋，唔再靠自律。** `operator_control.py` `main()` 除 `READ_ONLY_COMMANDS` 之外每條 subcommand 都攞 `operator_e2e_lease`（MySQL `GET_LOCK`），第二個會即刻 `refused: another CARDZ 026 operator run owns …`。所以唔好再「直接 call stage function 繞過 orchestrator」——嗰個係舊時冇閘先要嘅做法，繞過即係繞過個閘。
 5. **舊 checkout `C:\Users\jackson0202\Documents\Playground\cardz-market-cap` 只准讀** — 佢擁有 MySQL 3308 嘅 docker compose 同 14GB volume，刪/搬 = 斷 DB。
 6. **秘密**：唔准將任何 env 密碼/token 印落 log 或 commit。
@@ -33,6 +38,8 @@
     缺陷有兩個方向，第一版修法喺 48 張「catalog 空白」度啱，喺 21 張「catalog 載住另一邊」
     度一格都冇郁；總數升咗 9 張，睇落似做完（runbook 形狀 21 補完）。剩低嗰批要逐個
     再跑一次修完嘅邏輯，見到佢由 refuse 變 pass 先算數。
+15. **日更 `incr` 唔拉 residual stock。** 新 activate／未 freeze-complete 先 `collect_control.py stock`。FE 出街車係 `../cardz-market-cap-037-fe04-live`，唔係呢度 push `main`。
+16. **宣傳鏈唔係自動更新鏈。** `live.confirmed` 之後等 **30 分鐘** 先跑 `promo_chain.py brief`（圖／文／閘）。**唔准**由 live.confirmed 直接 Hermes／X／Threads 發佈。操作法 [docs/PROMO_CHAIN.md](docs/PROMO_CHAIN.md)。9222 同一 host 一個 tab。Fork zh／WhatsApp／Threads 中文 = 繁體；簡體只准 x.com 中文。Threads compose 揀社羣 **CARDZGAME**。WhatsApp Hermes 用固定群名 **PTCG**（Pokémon 圖）／**Yaichi x Cardz.Game TCG 社區｜4號群**（TCG 圖）／**海賊王**（海賊王圖）（`CHANNEL_HERMES_NAME`），唔准 `send --list` 模糊對、唔准每次 AI 判定。
 
 ## 查 bug 之前
 
@@ -51,9 +58,11 @@
 
 | 文件 | 內容 |
 |---|---|
+| [docs/HANDOFF_037_FE04.md](docs/HANDOFF_037_FE04.md) | **而家開代**：037／FE04 = 036 PSA10 + BOX；036／FE03 隨時 fallback |
 | [docs/COLLECTION_RUNBOOK.md](docs/COLLECTION_RUNBOOK.md) | 五條採集線嘅全量/增量命令、resume 語義、failure receipts、exit codes、port doctrine、freeze 生命週期、FE 對數、**缺陷形狀清單** |
+| [docs/HANDOFF_036_20260812.md](docs/HANDOFF_036_20260812.md) | 每日鏈歷史＋未完成項。1322／08-12 數唔係 live |
 | [docs/POSTMORTEM_OP_GAP_20260809.md](docs/POSTMORTEM_OP_GAP_20260809.md) | 「pop≥1000 但上唔到 FE」十二個缺陷嘅逐個根因同修法 |
-| [PLAN_036_FE02.md](PLAN_036_FE02.md) | 036 rebuild 總計劃（stage 定義、gate 條件） |
+| [PLAN_036_FE02.md](PLAN_036_FE02.md) | **歷史** 036 rebuild 計劃，唔係而家日更 |
 | `pipelines/rebuild_036.py` docstrings | 每個 stage 嘅實際行為（code 係權威） |
 
 文件同 code 衝突時：**code 贏**，然後修文件。

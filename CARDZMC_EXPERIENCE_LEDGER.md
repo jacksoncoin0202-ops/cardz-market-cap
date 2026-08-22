@@ -77,6 +77,13 @@ release gate or a second runtime.
   different printing.  They were not mass-rebound, rejected or used to change
   market facts.
 
+## 9333 PC: dual-tab, one script (2026-08-20)
+
+- The headed Chrome on port 9333 always runs the sold refresher with `PC_TABS = 2`. Two tabs share one cookie jar and one backoff.
+- Adding a card (PriceCharting identity) is not a second 9333 process. Bind-missing and page cap are one `pc_cdp_sold_refresh_win.py` execution (`--bind-missing-ids-file`).
+- SNK exact does not replace PriceCharting. They are parallel sources; a card with SNK still needs a PC product id and a 9333 cap.
+- Do not use sequential `pc_identity_discover.py` → `CF.cmd_fetch` as a daily 9333 job.
+
 ## Frontend and release operating knowledge
 
 - `fe02` is the local frontend baseline.  Port 3800 is an engineering review

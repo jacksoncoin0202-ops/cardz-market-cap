@@ -1,5 +1,9 @@
 # Cardz Market Cap
 
+**呢棵係資料／日更真身。** 日常：collect → `daily-accept` → `daily_public_release`。
+FE 出街車：`../cardz-market-cap-037-fe04-live`（`[deploy]`）。**唔喺呢度** push `main` 當網站 deploy。
+實驗樹 `../cardz-market-cap` 只准讀 3308。Live：037／FE04／1449／`/box`。
+
 Cardz Market Cap has two explicit data modes.
 
 The local engineering frontend on port `3800` always reads the Windows MySQL
@@ -18,9 +22,10 @@ The AWS/Node production runtime reads exactly:
 AWS does not connect to MySQL and does not require QC receipts, release capsules,
 operator scripts, browser collectors, or an earlier generation.
 
-## cardzmc 資料入口
+## cardzmc 資料入口（歷史 762 快線；唔係而家全日更）
 
-保留所有已累積的採集資產，但日常快速更新只走一條已實測的資料路徑：
+而家日更：`collect_control.py` incr／stock → `daily-accept` → `daily_public_release`。
+下面 `snk_market_data.py` 係 033 保留快線。active 762 係當時切片。
 
 ```text
 exact SNK ID worklist
@@ -30,13 +35,12 @@ exact SNK ID worklist
 ```
 
 - `snkrdunk_bulk.py` 是 SNK API 共用層，供 `snk_market_data.py` 使用，保留。
-- `snk_market_data.py` 是日常 exact PSA10 價格、成交及本機 harvest 疊加入口。
+- `snk_market_data.py` 係 033 保留快線（exact PSA10 價／成交 harvest），**唔係**而家全日更入口。
 - PSA 身份修正入口係 `pipelines/psa_identity_repair.py`；active 762 resolution 入口係 `pipelines/resolve_active_psa_identity.py`。`canonical_name` 只可係 GemRate raw `population_data` 唯一 PSA row 嘅原文 `description`；完整卡號只保留喺 structured field。GemRate source coverage 必須來自獨立正數 PSA10 POP observation acceptance，receipt coverage 唔係 source coverage；任何 `database_lineage` binding 都唔可以進 `operator_strict_source_identity`。
 - `collect_control.py` 保留作 stock／provider binding 的增量控制；不混入以上快速日常路徑。
 - `operator_control.py` 保留作 canonical projection rebuild 和產品 snapshot 操作。
 
-以上係角色分工，唔係刪減。垃圾桶內未找到較新或較快的同名版本；現行
-`snk_market_data.py` 是唯一已實測可用的快速入口。
+以上係角色分工，唔係刪減。033 當日 `snk_market_data.py` 係已實測快線；而家日更行 collect → `daily-accept`。
 
 ## Baked production build
 
