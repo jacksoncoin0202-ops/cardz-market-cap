@@ -1,4 +1,4 @@
-import { FORMAT_SIZES, type ShareFormat } from "./share-destinations";
+import { FORMAT_QUERY_NAME, FORMAT_SIZES, SHARE_FORMATS, type ShareFormat } from "./share-destinations";
 import {
   DEFAULT_SHARE_RESOLUTION,
   RESOLUTION_LABEL,
@@ -70,7 +70,8 @@ export function heatmapOgSearch(opts: HeatmapOgQuery = {}): string {
   q.set("period", opts.period ?? HEATMAP_OG_DEFAULT_PERIOD);
   q.set("show", String(opts.show ?? HEATMAP_OG_DEFAULT_SHOW));
   q.set("scope", opts.scope ?? "all");
-  q.set("format", opts.format ?? "post");
+  /* ⚠️ 過 wire 要行 FORMAT_QUERY_NAME：format 叫 `portrait`（3:4）但 `?format=portrait` 係 4:5 `post` 嘅 alias。 */
+  q.set("format", FORMAT_QUERY_NAME[opts.format ?? "post"]);
   q.set("theme", opts.theme ?? "dark");
   q.set("updown", opts.updown ?? "green-up");
   q.set("lang", opts.lang ?? "en");
@@ -94,19 +95,58 @@ export function heatmapOgPath(opts: HeatmapOgQuery = {}): string {
   return `${HEATMAP_OG_PATH}?${heatmapOgSearch(opts)}`;
 }
 
+/*
+ * 檔名入面嗰粒比例字。**逐個 format 明寫，唔准由尺寸推。**
+ *
+ * 本來呢度係一條 `w===h ? "1x1" : w>h ? "wide" : h/w>1.5 ? "9x16" : "4x5"` 嘅推論
+ * 式。2026-08-23 加 `portrait` 3:4 同 `widescreen` 16:9 就即刻爆：
+ *   · 1080×1440 → h/w = 1.33，唔大過 1.5 → 條式叫佢做 **"4x5"**，同 post 撞檔名，
+ *     兩個唔同比例嘅圖落同一個 folder 互相覆蓋；
+ *   · 1920×1080 → w>h → 條式叫佢做 **"wide"**，同 1200×630 撞。
+ * 兩樣都係「照出 200、檔名靜靜咁一樣」嗰種，冇 error 冇 log。所以改成一張明表 +
+ * 一個 guard（下面）。加新 format 而唔加呢一行 = tsc 即刻紅（`Record<ShareFormat>`）。
+ *
+ * `wide` 個字唔係比例（1.91:1 寫唔靚）—— 佢係第一日就出咗街嘅檔名，唔准為咗
+ * 「整齊」改成 `1.91x1`：舊檔名一日出咗街（分享咗出去、存咗落人哋相簿）就唔好郁。
+ */
+export const FORMAT_RATIO_LABEL: Record<ShareFormat, string> = {
+  wide: "wide",
+  square: "1x1",
+  post: "4x5",
+  status: "9x16",
+  portrait: "3x4",
+  widescreen: "16x9",
+};
+
+/*
+ * ⚠️ Guard：個比例標唔准講大話。凡係寫成 `AxB` 嘅標籤，A/B 一定要對得返
+ * `FORMAT_SIZES` 嘅真實闊高比（容差 1%，同 share-destinations.ts 第三個 guard 一樣）。
+ * `wide` 唔係 AxB，跳過 —— 佢個真身喺 share-destinations 嗰邊已經釘住 1200×630。
+ * 炸喺 import 嗰刻 = `next build` 即紅。
+ */
+const RATIO_LABEL_TOLERANCE = 0.01;
+const lyingLabel = SHARE_FORMATS.filter((format) => {
+  const label = FORMAT_RATIO_LABEL[format];
+  const parts = /^(\d+)x(\d+)$/.exec(label);
+  if (!parts) return false;
+  const { width, height } = FORMAT_SIZES[format];
+  const real = width / height;
+  return Math.abs(Number(parts[1]) / Number(parts[2]) - real) / real > RATIO_LABEL_TOLERANCE;
+});
+if (lyingLabel.length > 0) {
+  throw new Error(
+    `heatmap-og: 檔名比例標同真實尺寸唔夾（${lyingLabel
+      .map((f) => `${f}: 標 ${FORMAT_RATIO_LABEL[f]} 但 ${FORMAT_SIZES[f].width}×${FORMAT_SIZES[f].height}`)
+      .join("、")}）`,
+  );
+}
+
 export function heatmapOgFilename(opts: HeatmapOgQuery = {}): string {
   const period = opts.period ?? HEATMAP_OG_DEFAULT_PERIOD;
   const show = opts.show ?? HEATMAP_OG_DEFAULT_SHOW;
   const scope = opts.scope ?? "all";
   const format = opts.format ?? "post";
-  const size = FORMAT_SIZES[format];
-  /* ⚠️ 逐個講清楚，唔准靠「唔係橫就當 4:5」—— 加咗 square 1080×1080 之後，
-     舊式嘅 else 會將正方形叫做 `4x5`，兩個唔同比例撞同一個檔名互相覆蓋。 */
-  const ratio = size.width === size.height
-    ? "1x1"
-    : size.width > size.height
-      ? "wide"
-      : size.height / size.width > 1.5 ? "9x16" : "4x5";
+  const ratio = FORMAT_RATIO_LABEL[format];
   /* 1080p 唔加後綴：舊檔名一日出咗街（分享出去、存咗落人哋相簿）就唔好無端改。
      4K 一定要加 —— 同一張圖兩個清晰度落同一個 folder，冇後綴就係互相覆蓋。 */
   const res = opts.res ?? DEFAULT_SHARE_RESOLUTION;

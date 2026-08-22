@@ -5,7 +5,7 @@ import { shortSubject } from "@/lib/related-cards";
 import { buildShareChart, type ShareChart } from "@/lib/share-chart";
 import { loadNodeMarketAsset, loadMarketSnapshot } from "@/lib/server-snapshot";
 import { RESOLUTION_SCALE, readShareResolution } from "@/lib/share-resolution";
-import { FORMAT_SIZES, readShareFormat, type ShareFormat } from "@/lib/share-destinations";
+import { FORMAT_SIZES, isWideFormat, readShareFormat, type ShareFormat, type TallShareFormat } from "@/lib/share-destinations";
 import { readShareLang, shareCopy, SHARE_LANG_FONTS, type ShareCopy, type ShareLang } from "@/lib/share-copy";
 import { defaultMarketWindow, marketWindowDays, type MarketCardView, type MarketWindow } from "@/lib/types";
 
@@ -62,6 +62,9 @@ const FORMAT_THEMES: Record<ShareFormat, ShareTheme> = {
   square: "dark",
   post: "dark",
   status: "dark",
+  /* 2026-08-23 加嘅兩個一樣 dark —— 六張圖一個視覺身份（見上面 wide 由 light 揭 dark 嗰段）。 */
+  portrait: "dark",
+  widescreen: "dark",
 };
 
 /*
@@ -85,7 +88,42 @@ const FORMAT_THEMES: Record<ShareFormat, ShareTheme> = {
  *    `scripts/test-fe-og-unfurl.mjs` 會攞真 bytes 對返個宣告。
  */
 /* square 同 post 一樣係俾人揿大睇嗰張，冇 byte 閘要夾，所以一樣 q92。 */
-const JPEG_QUALITY: Record<ShareFormat, number> = { wide: 90, square: 92, post: 92, status: 92 };
+/* portrait 3:4 同 post／square 同一族（俾人揿大睇，冇 byte 閘）→ q92。
+   widescreen 16:9 跟 wide 走 q90：佢係全表最大嗰張（1920×1080，4K 3840×2160），
+   q92 嘅 bytes 曲線喺呢個面積度先開始咬人，而 16:9 多數係擺落簡報／縮圖位，
+   唔會有人 1:1 pixel peep。 */
+const JPEG_QUALITY: Record<ShareFormat, number> = { wide: 90, square: 92, post: 92, status: 92, portrait: 92, widescreen: 90 };
+
+/*
+ * 「呢個 format 用邊套幾何嘅幾多倍」。
+ *
+ * 六個 format 得**兩套** layout（橫 `WideLayout` / 直 `PostLayout`），而每套嘅
+ * 幾何數字（padding、logo、字級、卡圖鐵路）都係度住一個母版尺寸嚟：橫版母版係
+ * `wide` 1200×630、直版母版係 `post` 1080×1350。四個舊 format 短邊全部 1080 或者
+ * 就係母版本身，所以一路唔使呢個數。
+ *
+ * `widescreen` 1920×1080 打破咗呢件事：佢係全表**唯一**闊過 1200 嘅畫布。照 1× 畫
+ * 橫版幾何落 1920 度，就係「1200 嘅版面貼喺 1920 嘅紙中間」—— 唔會炸，但 logo
+ * 144px、字級 52px 喺一張 1920 闊嘅圖度細咗 37%，同熱力圖嗰邊 `CHROME_SCALE` 講
+ * 緊同一件事（睇 `app/api/og/heatmap/route.tsx`）。
+ *
+ * 1.6 = 1920 ÷ 1200，即係**整套橫版幾何原封不動放大**，唔係逐個數重新度 ——
+ * 高度 630 × 1.6 = 1008，餘返 72px 由 `justifyContent: space-between` 攤落去
+ * （同 PostLayout 個垂直預算註講嘅同一個機制）。
+ *
+ * ⚠️ 呢個數**乘落 `scale`**，唔係代替佢：`?res=4k` 嘅 widescreen 係 1.6 × 2 = 3.2。
+ * ⚠️ 畫布本身（`ImageResponse` 個 width/height）**唔准**用呢個數 —— 畫布只跟
+ *    清晰度（`resScale`）。撈埋就會出一張 3072×1728 嘅「4K」，`x-og-width` 講一套、
+ *    `resolutionPixels()` 同選單講另一套。
+ */
+const FORMAT_LAYOUT_SCALE: Record<ShareFormat, number> = {
+  wide: 1,
+  square: 1,
+  post: 1,
+  status: 1,
+  portrait: 1,
+  widescreen: FORMAT_SIZES.widescreen.width / FORMAT_SIZES.wide.width,
+};
 
 /*
  * satori 冇 CSS var，所以要寫死 hex。每一粒都係 globals.css 嗰份 token 嘅字面值
@@ -212,7 +250,7 @@ const POST_ART_MAX_HEIGHT = 560;
 /* ⚠️ padding 寫返做數字（`padX`/`padY`）唔寫 CSS 字串 —— 4K 要乘 scale，
    字串就要 parse 返出嚟。順帶 test 度到嘅係數，可以直接比大細。 */
 const TALL_GEO: Record<
-  Exclude<ShareFormat, "wide">,
+  TallShareFormat,
   { padX: number; padY: number; artStage: number; chartHeight: number; artMaxWidth: number; artMaxHeight: number }
 > = {
   /*
@@ -233,6 +271,19 @@ const TALL_GEO: Record<
   square: { padX: 48, padY: 48, artStage: 408, chartHeight: 84, artMaxWidth: POST_ART_MAX_WIDTH, artMaxHeight: 384 },
   post: { padX: 56, padY: 56, artStage: POST_ART_STAGE_HEIGHT, chartHeight: 120, artMaxWidth: POST_ART_MAX_WIDTH, artMaxHeight: POST_ART_MAX_HEIGHT },
   status: { padX: 56, padY: 250, artStage: 700, chartHeight: 180, artMaxWidth: POST_ART_MAX_WIDTH, artMaxHeight: POST_ART_MAX_HEIGHT },
+  /*
+   * `portrait` 1080×1440（IG feed／grid，owner 2026-08-23）。同 post 一樣闊，高多 90px。
+   *
+   * 90px 全部落喺卡圖舞台（620 → 710），padding／走勢圖／卡圖上限**一個都冇郁**：
+   *   · 卡圖上限唔郁 —— 母版得 429×600，post 個 452×560 已經係「按高度封頂」，
+   *     再谷就係放大糊咗（同 `status` 嗰行一模一樣嘅理由，見 POST_ART_MAX_*）。
+   *     舞台高咗 = 張卡上下鬆啲，唔係張卡大咗。
+   *   · 走勢圖唔郁（120）—— 佢係一條扁線，高咗只會變成一嚿空白。
+   *   · padding 唔郁（56）—— 3:4 冇平台 UI 要避（唔似 status 嘅 250）。
+   * 即係話 post 個垂直預算（見 PostLayout 個註）原封不動、四邊邊距只會**鬆咗**，
+   * 唔會爆 —— 呢個係六個 format 入面唯一一個「加高度但唔使重新度」嘅情況。
+   */
+  portrait: { padX: 56, padY: 56, artStage: POST_ART_STAGE_HEIGHT + 90, chartHeight: 120, artMaxWidth: POST_ART_MAX_WIDTH, artMaxHeight: POST_ART_MAX_HEIGHT },
 };
 
 /*
@@ -714,11 +765,17 @@ const TEXT_ONLY_GEO = {
      ⚠️ 唔准寫成 `format === "post" ? post : wide` —— status 跌咗落 wide 嗰套
      （padding 40/48、logo 144×62、hero 落 1920 高）就係一版縮喺頂嘅細字。 */
   status: { padX: 72, padY: 250, gapTop: 20, gapBottom: 26, kicker: POST_TYPE.micro, set: POST_TYPE.meta, stat: POST_TYPE.stat, logoW: 280, logoH: 121, rule: 30, cols: 72 },
+  /* 3:4 同 post 一樣闊、高多 90px，冇平台 UI 要避 → 照抄 post 一套。 */
+  portrait: { padX: 72, padY: 56, gapTop: 20, gapBottom: 26, kicker: POST_TYPE.micro, set: POST_TYPE.meta, stat: POST_TYPE.stat, logoW: 280, logoH: 121, rule: 30, cols: 72 },
+  /* 16:9 係**橫**版，所以抄 wide 唔係抄 post（抄錯就係一版縮喺頂嘅細字，同上面
+     status 嗰個反面教材一樣）。畫布大 1.6 倍嗰件事由 `FORMAT_LAYOUT_SCALE` 處理，
+     唔係喺呢度乘返一次 —— 乘兩次就係字大過格。 */
+  widescreen: { padX: 48, padY: 40, gapTop: 8, gapBottom: 14, kicker: WIDE_TYPE.micro, set: WIDE_TYPE.micro, stat: WIDE_TYPE.stat, logoW: 144, logoH: 62, rule: 14, cols: 60 },
 } as const;
 function TextOnlyLayout({ card, logoSrc, palette, format, copy, scale }: { card: MarketCardView; logoSrc: string; palette: Palette; format: ShareFormat; copy: ShareCopy; scale: number }) {
   const geo = TEXT_ONLY_GEO[format];
   /* wide 只得 630 高，卡名唔可以食三行 —— 同 WideLayout 行同一個封頂同同一條 ramp。 */
-  const name = format === "wide"
+  const name = isWideFormat(format)
     ? clampWidth(shortSubject(card, copy.nameLocale, WIDE_NAME_MAX) || cardTitle(card, copy), WIDE_NAME_MAX)
     : clampTitle(cardTitle(card, copy));
   return (
@@ -742,7 +799,7 @@ function TextOnlyLayout({ card, logoSrc, palette, format, copy, scale }: { card:
         </span>
         <span
           style={{
-            fontSize: S(format === "wide" ? wideTitleSize(name) : textOnlyTitleSize(name), scale),
+            fontSize: S(isWideFormat(format) ? wideTitleSize(name) : textOnlyTitleSize(name), scale),
             color: palette.ink,
             fontWeight: 700,
             lineHeight: 1.1,
@@ -820,7 +877,7 @@ function ArtStage({ art, alt, width, height, radius, palette }: {
   );
 }
 
-function WideLayout({ card, art, logoSrc, palette, chart, change, asOf, name, rankTotal, copy, scale }: {
+function WideLayout({ card, art, logoSrc, palette, chart, change, asOf, name, rankTotal, copy, scale, canvasHeight }: {
   card: MarketCardView;
   art: CardArt;
   logoSrc: string;
@@ -832,6 +889,14 @@ function WideLayout({ card, art, logoSrc, palette, chart, change, asOf, name, ra
   rankTotal: number | null;
   copy: ShareCopy;
   scale: number;
+  /*
+   * 畫布真高度（已經乘咗清晰度）。**唔准寫返 `S(630, scale)`。**
+   * 卡圖舞台係一塊 explicit-height 嘅 box（`ArtStage` 要個數字去度中個光暈），
+   * 唔會跟住 flex stretch。母版 630 × layout scale 喺 `wide` 度啱啱好等於畫布高度，
+   * 但 `widescreen` 係 1080 而 630 × 1.6 = 1008 —— 差 72px，出嚟就係卡圖panel 底下
+   * 一條 72px 嘅底色橫帶，右邊嗰欄照樣去到底，望落似排錯版。
+   */
+  canvasHeight: number;
 }) {
   const changeTone = change?.tone === "positive" ? palette.positive : change?.tone === "negative" ? palette.negative : palette.muted;
   const changeBg = change?.tone === "positive" ? palette.positiveSoft : change?.tone === "negative" ? palette.negativeSoft : palette.surface;
@@ -841,7 +906,7 @@ function WideLayout({ card, art, logoSrc, palette, chart, change, asOf, name, ra
         art={art}
         alt={card.image.alt ?? name}
         width={S(ART_PANEL_WIDTH, scale)}
-        height={S(630, scale)}
+        height={canvasHeight}
         radius={0}
         palette={palette}
       />
@@ -992,7 +1057,7 @@ function PostLayout({ card, art, logoSrc, palette, chart, change, asOf, format, 
   asOf: string | null;
   /* square 1080×1080 / post 1080×1350 / status 1080×1920 —— 三個都行呢個 layout，
      排版角色一模一樣，分別淨係「有幾多高度可以使」（見 TALL_GEO 個註）。 */
-  format: Exclude<ShareFormat, "wide">;
+  format: TallShareFormat;
   copy: ShareCopy;
   scale: number;
 }) {
@@ -1095,7 +1160,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   /* `?res=4k` = 真 2× 渲染（1080×1080 → 2160×2160），唔係將 1× 張圖放大。
      打錯字跌返 1080p —— 同 `readShareFormat` 一樣 fail-open。 */
   const res = readShareResolution(query.get("res"));
-  const scale = RESOLUTION_SCALE[res];
+  /* 畫布跟清晰度，版面跟清晰度 × format 幾何倍數 —— 兩件事，見 `FORMAT_LAYOUT_SCALE`。 */
+  const resScale = RESOLUTION_SCALE[res];
+  const scale = resScale * FORMAT_LAYOUT_SCALE[format];
   const theme = readTheme(query.get("theme"), FORMAT_THEMES[format]);
   const palette = THEMES[theme];
 
@@ -1142,7 +1209,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
      純文字版，唔准變 500 —— OG 端點死咗等於社交分享冇圖，比冇卡圖仲差。 */
   let art: CardArt | null = null;
   try {
-    art = format === "wide"
+    art = isWideFormat(format)
       /* ⚠️ 4K 嗰陣 wide 都要行母版：派生檔得 600 高，`withoutEnlargement` 會令張卡圖
          停喺 1× 尺寸，出嚟就係「揀咗 4K 反而卡圖細一半」。 */
       ? await loadCardArt(card, S(ART_MAX_WIDTH, scale), S(ART_MAX_HEIGHT, scale), scale > 1)
@@ -1157,13 +1224,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
      null 就成塊唔出。**唔准**因為冇歷史而令張圖 500 或者畫一條假線。 */
   const chart = buildShareChart(card.historyDaily ?? [], SHARE_WINDOW_DAYS, {
     /* wide 右欄由 620 闊做 678（卡圖鐵路 468 → 430）；高度由 64 收到 44 讓位畀 88px hero。 */
-    width: S(format === "wide" ? 678 : 968, scale),
+    width: S(isWideFormat(format) ? 678 : 968, scale),
     /* status 高 570px，條線可以畫高啲（180）—— 見 TALL_GEO */
-    height: S(format === "wide" ? 34 : TALL_GEO[format].chartHeight, scale),
-    lineWidth: (format === "wide" ? 2.5 : 3) * scale,
+    height: S(isWideFormat(format) ? 34 : TALL_GEO[format].chartHeight, scale),
+    lineWidth: (isWideFormat(format) ? 2.5 : 3) * scale,
     /* wide 版扁到得 34px，成交 bar 會同條價線打架，所以只喺直度版出（同網頁一樣兩層都有）。 */
-    bars: format !== "wide",
-    grid: format !== "wide",
+    bars: !isWideFormat(format),
+    grid: !isWideFormat(format),
     palette: { accent: palette.accent, grid: palette.line, bar: palette.salesBar, surface: palette.surface },
   });
 
@@ -1196,13 +1263,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
   const element = !art
     ? <TextOnlyLayout card={card} logoSrc={logoSrc} palette={palette} format={format} copy={copy} scale={scale} />
-    : format === "wide"
-      ? <WideLayout card={card} art={art} logoSrc={logoSrc} palette={palette} chart={chart} change={change} asOf={asOf} name={wideName} rankTotal={rankTotal} copy={copy} scale={scale} />
+    : isWideFormat(format)
+      ? <WideLayout card={card} art={art} logoSrc={logoSrc} palette={palette} chart={chart} change={change} asOf={asOf} name={wideName} rankTotal={rankTotal} copy={copy} scale={scale} canvasHeight={S(spec.height, resScale)} />
       : <PostLayout card={card} art={art} logoSrc={logoSrc} palette={palette} chart={chart} change={change} asOf={asOf} format={format} copy={copy} scale={scale} />;
 
   const image = new ImageResponse(element, {
-    width: S(spec.width, scale),
-    height: S(spec.height, scale),
+    width: S(spec.width, resScale),
+    height: S(spec.height, resScale),
     /* undefined = 載唔到字體（上面已經 warn 咗），交返俾 satori 用 bundled font，唔好因為字體炸咗張圖 */
     ...(fonts ? { fonts } : {}),
     /*

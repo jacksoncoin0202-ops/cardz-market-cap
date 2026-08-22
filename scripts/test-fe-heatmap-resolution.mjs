@@ -348,8 +348,21 @@ check("C4: stamp=now 個 cache key 就係顯示文字本身（唔准兩份精度
     JSON.stringify(opts.stamp) === JSON.stringify([...stampMod.STAMP_MODES]),
     JSON.stringify(opts.stamp));
   check("D5: 4K 檔名帶後綴，1080p 唔帶（同一 folder 唔准互相覆蓋）",
-    cli.outputName({ scope: "all", show: 40, period: "7d", format: "post", res: "4k", sizes: opts.sizes }).includes("4k")
-    && !cli.outputName({ scope: "all", show: 40, period: "7d", format: "post", res: "1080p", sizes: opts.sizes }).includes("1080p"));
+    cli.outputName({ scope: "all", show: 40, period: "7d", format: "post", res: "4k", ratioLabel: opts.ratioLabel }).includes("4k")
+    && !cli.outputName({ scope: "all", show: 40, period: "7d", format: "post", res: "1080p", ratioLabel: opts.ratioLabel }).includes("1080p"));
+  /* ⚠️ 2026-08-23：比例字**唔准**再由尺寸估。舊寫法 `w/h` 估出 square = "4x5"，
+     server 個 `heatmapOgFilename` 叫 "1x1" —— 同一張圖兩個檔名，冇人發現。
+     而家兩邊夾硬讀同一張 `FORMAT_RATIO_LABEL`，估唔到就掟。 */
+  for (const [format, want] of [["square", "1x1"], ["portrait", "3x4"], ["widescreen", "16x9"]]) {
+    check(`D5b: CLI 檔名用 lib 個比例字（${format} → ${want}）`,
+      cli.outputName({ scope: "all", show: 40, period: "7d", format, res: "1080p", ratioLabel: opts.ratioLabel }).includes(want),
+      cli.outputName({ scope: "all", show: 40, period: "7d", format, res: "1080p", ratioLabel: opts.ratioLabel }));
+  }
+  let ratioThrew = "";
+  try {
+    cli.outputName({ scope: "all", show: 40, period: "7d", format: "nope", res: "1080p", ratioLabel: opts.ratioLabel });
+  } catch (error) { ratioThrew = String(error?.message ?? error); }
+  check("D5c: 唔識個 format 就掟，唔准靜靜出個亂檔名", ratioThrew.includes("比例字"), ratioThrew || "(冇掟)");
 }
 
 /* ── D（續）：retry 政策都唔准 CLI 自己抄一份 ── */
@@ -399,7 +412,7 @@ const CONTRACTS = [
   { id: "E12", file: MENU_REL, src: SRC.menu, label: "清晰度粒掣行 menuitemradio + aria-checked（鍵盤／讀屏都要撳到）",
     needles: ['role="menuitemradio"', "aria-checked={res === quality.value}"] },
   { id: "E13", file: MENU_REL, src: SRC.menu, label: "roving index 數埋清晰度嗰行（唔係就永遠 Tab 唔到）",
-    needles: ["resOptions.length + SHARE_TARGETS.length", "resOptions.length + offset"] },
+    needles: ["resOptions.length + SHARE_MENU_TARGETS.length", "resOptions.length + offset"] },
 
   /* heatmap：戳、cache、timeout */
   { id: "E14", file: HEATMAP_REL, src: SRC.heatmap, label: "網站個掣一律 stamp=now + 部機時區",

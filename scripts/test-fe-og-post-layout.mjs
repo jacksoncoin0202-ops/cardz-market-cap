@@ -349,9 +349,15 @@ if (process.argv.includes("--live")) {
   /* ⚠️ 2026-08-20 起尺寸真身喺 `FORMAT_SIZES`（route.tsx 讀返佢，自己只留 theme）——
      本來 route 同選單各寫一組數字，就係噉出咗「標 16:9 但實際 1200×630」嗰單。 */
   const routeFormats = Object.keys(FORMAT_SIZES);
-  check("T6a: FORMAT_SIZES 四個 format（wide / square / post / status）",
-  routeFormats.length === 4, JSON.stringify(routeFormats));
-  check("T6a: route 讀 FORMAT_SIZES", /import \{ FORMAT_SIZES, readShareFormat/.test(code), "route.tsx 冇 import FORMAT_SIZES");
+  /* 2026-08-23 由「啱啱四個」改成「呢批一定要喺度」：加格式（IG 直向 3:4／橫向
+     16:9）唔會假紅，但剷走任何一個舊格式一樣即刻紅。長度改為對 SHARE_FORMATS，
+     兩張表仍然唔准分家。 */
+  for (const format of ["wide", "square", "post", "status", "portrait", "widescreen"]) {
+    check(`T6a: FORMAT_SIZES 有 ${format}`, routeFormats.includes(format), JSON.stringify(routeFormats));
+  }
+  check("T6a: FORMAT_SIZES 同 SHARE_FORMATS 一樣長",
+    routeFormats.length === SHARE_FORMATS.length, JSON.stringify(routeFormats));
+  check("T6a: route 讀 FORMAT_SIZES", /import \{[^}]*\bFORMAT_SIZES\b[^}]*\breadShareFormat\b[^}]*\} from "@\/lib\/share-destinations"/.test(code), "route.tsx 冇 import FORMAT_SIZES");
   check("T6a: route 冇再自己開一張尺寸表",
     !/Record<ShareFormat, \{ width: number; height: number/.test(code), "route.tsx 仲有第二組尺寸");
   check("T6a: route 出圖用 FORMAT_SIZES", /const spec = FORMAT_SIZES\[format\];/.test(code));

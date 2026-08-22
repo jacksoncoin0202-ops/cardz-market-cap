@@ -79,10 +79,16 @@ check("desktop 喺熱力圖跟畫面（frameOnHeatmap）", /id: "desktop"[^}]*fr
 
 /* 目的地表同 alias 表對得返 —— import-time guard 已經會炸，但 build 唔行到就冇人知 */
 for (const [id, target] of targets) {
-  check(`FORMAT_ALIASES.${id} 同選單一致`, new RegExp(`^\\s*${id}: "${target.format}",`, "m").test(destinations),
+  check(`FORMAT_ALIASES.${id} 同選單一致`, new RegExp(`^\\s*"?${id}"?: "${target.format}",`, "m").test(destinations),
     `選單話 ${target.format}`);
 }
-check("import-time drift guard 仲喺度", /const drifted = SHARE_TARGETS\.filter/.test(destinations));
+check("import-time drift guard 仲喺度", /const drifted = GUARDED_TARGETS\.filter/.test(destinations));
+/* ⚠️ guard 掃嘅一定要係**選單真正出嗰批**。2026-08-23 加咗 SHARE_EXTRA_TARGETS
+   （IG 直向 3:4／橫向 16:9）之後，如果 guard 仲淨係掃 SHARE_TARGETS，新嗰兩行標錯
+   比例／對錯 alias 一樣唔會炸 —— 即係「有 guard 但唔覆蓋新嘢」＝ 冇 guard。 */
+check("drift guard 覆蓋埋選單額外嗰兩行",
+  /const GUARDED_TARGETS: readonly ShareTarget\[\] = SHARE_MENU_TARGETS;/.test(destinations)
+  && /const SHARE_MENU_TARGETS: readonly ShareTarget\[\] = \[\.\.\.SHARE_TARGETS, \.\.\.SHARE_EXTRA_TARGETS\]/.test(destinations));
 check("import-time unknown-format guard 仲喺度", /const unknown = Object\.entries\(FORMAT_ALIASES\)/.test(destinations));
 
 /* ② 舊 CDN tab 嗰粒通用分享掣：`story` 唔准變 9:16 */
@@ -102,8 +108,15 @@ check("whatsapp alias 仍然係 post（條 cron 鏈送對話／群組氣泡，�
   /^\s*whatsapp: "post",/m.test(destinations), "改咗就等於靜靜換咗條鏈每日出嗰批圖");
 
 /* ③ og route 認得 status */
-check("SHARE_FORMATS 有 square 同 status",
-  /export const SHARE_FORMATS = \["wide", "square", "post", "status"\] as const;/.test(destinations));
+/* ⚠️ 舊版對死成句字面，加一個新格式就假紅。而家讀返個 array 逐個對：加格式唔會紅，
+   但**剷走**任何一個舊格式（＝ 靜靜將某個目的地跌返 wide）一定紅。 */
+const formatList = (/export const SHARE_FORMATS = \[([^\]]*)\] as const;/.exec(destinations)?.[1] ?? "")
+  .split(",").map((item) => item.trim().replace(/^"|"$/g, "")).filter(Boolean);
+for (const format of ["wide", "square", "post", "status", "portrait", "widescreen"]) {
+  check(`SHARE_FORMATS 有 ${format}`, formatList.includes(format), JSON.stringify(formatList));
+}
+check("SHARE_FORMATS 頭四個次序冇郁",
+  formatList.slice(0, 4).join() === "wide,square,post,status", JSON.stringify(formatList));
 check("share-destinations 有 square 1080×1080（IG）", /square: \{ width: 1080, height: 1080 \}/.test(destinations));
 check("og route JPEG_QUALITY 有 square", /JPEG_QUALITY: Record<ShareFormat, number> = \{[^}]*square: \d+/.test(ogRoute));
 /* ⚠️ square 高度得 1080（比 post 少 270px），卡圖上限一定要細過 post ——
@@ -115,7 +128,9 @@ check("TEXT_ONLY_GEO 有 square（唔准跌落 wide 嗰套）", /^\s*square: \{ 
 /* ⚠️ 尺寸 2026-08-20 起住喺 `FORMAT_SIZES`（route.tsx 讀返佢）——見下面 ⑦a 攞真值再對。 */
 check("share-destinations 有 status 1080×1920", /status: \{ width: 1080, height: 1920 \}/.test(destinations));
 check("og route JPEG_QUALITY 有 status", /JPEG_QUALITY: Record<ShareFormat, number> = \{[^}]*status: \d+/.test(ogRoute));
-check("TALL_GEO 三個直度 format 各自幾何", /const TALL_GEO: Record<\s*Exclude<ShareFormat, "wide">/.test(ogRoute));
+check("TALL_GEO 直度 format 各自幾何（type 由 TallShareFormat 出）",
+  /const TALL_GEO: Record<\s*TallShareFormat/.test(ogRoute)
+  && /export type TallShareFormat = Exclude<ShareFormat, WideShareFormat>;/.test(destinations));
 check("status 避開 story 平台 UI（上下 250 安全區）", /status: \{ padX: 56, padY: 250,/.test(ogRoute));
 check("TEXT_ONLY_GEO 有 status（唔准跌落 wide 嗰套）", /^\s*status: \{ padX: 72, padY: 250,/m.test(ogRoute));
 /* ⚠️ 卡圖母版得 429×600：status 高咗唔准順手谷大卡圖，一谷就係放大糊咗 */
@@ -127,7 +142,8 @@ check("og route 冇剩返 `format === \"post\"` 分支（status 會跌落 wide�
   "改成 format === \"wide\" ? wide : 直度版");
 
 /* ④ 一個 picker，兩個面共用 */
-check("ShareMenu 由 SHARE_TARGETS 出", /SHARE_TARGETS\.map\(/.test(shareMenu));
+check("ShareMenu 由 SHARE_MENU_TARGETS 出（一張表，component 唔准自己砌）",
+  /SHARE_MENU_TARGETS\.map\(/.test(shareMenu));
 check("熱力圖用 ShareMenu", /<ShareMenu/.test(heatmap) && /surface="heatmap"/.test(heatmap));
 check("卡片內頁用 ShareMenu", /<ShareMenu/.test(cardDetail) && /surface="card"/.test(cardDetail));
 check("熱力圖冇剩返舊 picker markup", !/heatmap-share-menu|heatmap-export-post|heatmap-export-wa/.test(heatmap));
@@ -179,7 +195,8 @@ check("warm cache key 連埋語言同清晰度", /const key = `\$\{format\}\|\$\
 
 /* ⑤ i18n：四條新 key × 5 語言，舊 key 清乾淨 */
 const localeText = i18n.slice(i18n.indexOf("export const copy"));
-for (const key of ["shareTo", "shareToStatus", "shareToOther", "shareToDesktop", "shareRatioFrame"]) {
+for (const key of ["shareTo", "shareToStatus", "shareToOther", "shareToDesktop", "shareRatioFrame",
+  "shareToPortrait", "shareToWidescreen"]) {
   check(`五個語言都有 ${key}`, (localeText.match(new RegExp(`${key}:`, "g")) || []).length === 5,
     `${(localeText.match(new RegExp(`${key}:`, "g")) || []).length} 個`);
 }
@@ -212,7 +229,8 @@ check("filename 比例喺 heatmap-og", /9x16/.test(read("apps/web/src/lib/heatma
  * ⑦ 2026-08-20 上街之後嘅紅隊審計捉返嚟嗰批。每條都係「照出 200、冇 error、
  *    冇 log」嗰種靜默錯，所以一定要有 test，唔可以改完就算。
  * ═════════════════════════════════════════════════════════════════════════ */
-const { FORMAT_SIZES, SHARE_TARGETS: RUNTIME_TARGETS, readShareFormat: runtimeReadFormat } =
+const { FORMAT_SIZES, SHARE_MENU_TARGETS: RUNTIME_TARGETS, SHARE_FORMATS: RUNTIME_FORMATS,
+  FORMAT_QUERY_NAME, readShareFormat: runtimeReadFormat, isWideFormat, shareDestinations } =
   await import(pathToFileURL(join(ROOT, DEST_REL)).href);
 
 /* ⑦a 尺寸真身得一份：route.tsx 唔准再自己寫多組（AGENTS.md 規矩 13） */
@@ -223,7 +241,8 @@ check("FORMAT_SIZES post = 1080×1350",
 check("FORMAT_SIZES status = 1080×1920",
   FORMAT_SIZES.status.width === 1080 && FORMAT_SIZES.status.height === 1920, JSON.stringify(FORMAT_SIZES.status));
 check("og route 讀 FORMAT_SIZES 唔自己開表",
-  /FORMAT_SIZES, readShareFormat/.test(ogRoute) && /const spec = FORMAT_SIZES\[format\];/.test(ogRoute));
+  /import \{[^}]*\bFORMAT_SIZES\b[^}]*\breadShareFormat\b[^}]*\} from "@\/lib\/share-destinations"/.test(ogRoute)
+  && /const spec = FORMAT_SIZES\[format\];/.test(ogRoute));
 
 /*
  * ⑦b 比例標唔准講大話 —— 呢個就係 2026-08-20 出咗街嗰單：`desktop` 標「16:9」但
@@ -320,6 +339,312 @@ check("panel 個 slice 真係鎖到塊板（改咗 CSS 排位就要更新呢個 
 check("panel 有 max-height", /max-height: min\(420px, calc\(100svh/.test(panelBlock));
 check("panel 有 overflow-y", /overflow-y: auto;/.test(panelBlock));
 check("panel 有 overscroll-behavior", /overscroll-behavior: contain;/.test(panelBlock));
+
+/* ═════════════════════════════════════════════════════════════════════════
+ * ⑧ 2026-08-23 加咗兩個尺寸：`portrait` 1080×1440（IG feed／grid 3:4）同
+ *    `widescreen` 1920×1080（16:9）。owner 貼圖嗰四個面（X／Threads／WhatsApp／IG）
+ *    連埋呢兩個先算齊，冇人再需要手動 crop。
+ *
+ *    呢批 check 守嘅同樣係「照出 200、冇 error、冇 log」嗰種錯：
+ *     · 新 format 冇 alias 叫得到 = 一堆死 code，冇 test 會紅
+ *     · **`portrait` 呢個 alias 字係陷阱**：佢由第一日起就指住 4:5 嘅 `post`，
+ *       而條 HERMES 自動鏈（唔喺呢個 repo）真係會寫 `?format=portrait`。新嗰個
+ *       3:4 板要用 `3x4` / `ig-portrait` / `grid` 叫，**唔准搶**呢個字，
+ *       一搶就係靜靜換咗條鏈每日出嗰批圖（同 ②b `whatsapp` 一模一樣嘅單）。
+ *     · `widescreen` 係**橫**嘅但唔係 `wide` —— 分支寫 `format === "wide"` 就會
+ *       攞住 1920×1080 個畫布行直度 layout，出到嚟一嚿嘢但照 200。
+ *     · 檔名比例字如果由 `w/h` 估返出嚟，3:4 會估成 `4x5`、16:9 會估成 `wide`，
+ *       兩張圖同一個檔名，直接互相覆蓋。
+ * ═════════════════════════════════════════════════════════════════════════ */
+const heatmapOgSrc = read("apps/web/src/lib/heatmap-og.ts");
+const heatmapRoute = read("apps/web/src/app/api/og/heatmap/route.tsx");
+/*
+ * `heatmap-og.ts` / `share-resolution.ts` 個 import 冇副檔名（`./share-destinations`），
+ * Node 直接 import 會 ERR_MODULE_NOT_FOUND。所以成條鏈抄入 tmpdir，淨係幫 specifier
+ * 加返 `.ts` —— 同 `test-fe-heatmap-resolution.mjs` 一樣嘅做法。想種 bug 就交個
+ * mutator 落對應嗰個檔，`entry` 決定 import 邊個。
+ */
+const LIB_CHAIN = ["share-destinations.ts", "share-resolution.ts", "share-copy.ts", "heatmap-og.ts"];
+const probeDirs = [];
+async function loadLibChain({ mutate = {}, entry = "heatmap-og.ts" } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), "cardz-share-format-"));
+  probeDirs.push(dir);
+  for (const file of LIB_CHAIN) {
+    const src = (mutate[file] ?? ((x) => x))(read(`apps/web/src/lib/${file}`));
+    writeFileSync(join(dir, file), src.replace(/from "(\.\/[\w-]+)"/g, 'from "$1.ts"'), "utf8");
+  }
+  try {
+    return { mod: await import(pathToFileURL(join(dir, entry)).href), error: "" };
+  } catch (error) {
+    return { mod: null, error: String(error?.message ?? error) };
+  }
+}
+const chain = await loadLibChain();
+check("⑧: heatmap-og 條鏈 import 得（四個 import-time guard 對住真數據唔會炸）",
+  !!chain.mod, chain.error);
+const { FORMAT_RATIO_LABEL, heatmapOgFilename } = chain.mod ?? {};
+const { RESOLUTION_SCALE } = (await loadLibChain({ entry: "share-resolution.ts" })).mod ?? {};
+const shareDestinationList = shareDestinations();
+
+/* ⑧a 尺寸真身。唔止對數字，仲要對返個比例 —— 1080×1440 打錯做 1080×1350 一樣係
+   「有張圖出到」，但就同 post 一模一樣，加咗等於冇加。 */
+check("⑧a: portrait = 1080×1440（IG feed／grid 3:4）",
+  FORMAT_SIZES.portrait?.width === 1080 && FORMAT_SIZES.portrait?.height === 1440,
+  JSON.stringify(FORMAT_SIZES.portrait));
+check("⑧a: widescreen = 1920×1080（16:9）",
+  FORMAT_SIZES.widescreen?.width === 1920 && FORMAT_SIZES.widescreen?.height === 1080,
+  JSON.stringify(FORMAT_SIZES.widescreen));
+check("⑧a: portrait 真係 3:4（唔係 4:5 嘅另一個名）",
+  FORMAT_SIZES.portrait.width / FORMAT_SIZES.portrait.height === 3 / 4);
+check("⑧a: widescreen 真係 16:9",
+  FORMAT_SIZES.widescreen.width / FORMAT_SIZES.widescreen.height === 16 / 9);
+/* 直度圖闊÷高 ≥ 0.8（同 share-image.ts `SHARE_MIN_ASPECT`）—— 3:4 = 0.75，**低過**
+   條線：Threads／X 對呢個比例會縮細唔裁。所以佢淨係俾 IG feed／grid 用，
+   唔准順手搶咗通用直度目的地（嗰批仲係 4:5）。 */
+const MIN_ASPECT = Number((shareImage.match(/SHARE_MIN_ASPECT\s*=\s*([\d.]+)/) || [])[1]);
+check("⑧a: 讀得返 SHARE_MIN_ASPECT", Number.isFinite(MIN_ASPECT), String(MIN_ASPECT));
+check("⑧a: 3:4 低過 SHARE_MIN_ASPECT，所以唔准搶通用直度目的地",
+  FORMAT_SIZES.portrait.width / FORMAT_SIZES.portrait.height < MIN_ASPECT
+  && targets.get("threads")?.format === "post" && targets.get("x")?.format === "post");
+
+/* ⑧b alias：新名叫得到，舊名一個都唔准搬。 */
+for (const alias of ["3x4", "ig-portrait", "grid"]) {
+  check(`⑧b: ?format=${alias} → portrait`, runtimeReadFormat(alias) === "portrait", `→ ${runtimeReadFormat(alias)}`);
+}
+for (const alias of ["16x9", "widescreen", "hd", "youtube"]) {
+  check(`⑧b: ?format=${alias} → widescreen`, runtimeReadFormat(alias) === "widescreen", `→ ${runtimeReadFormat(alias)}`);
+}
+check("⑧b: 大細楷都認", runtimeReadFormat("3X4") === "portrait" && runtimeReadFormat("YouTube") === "widescreen");
+/*
+ * ⚠️⚠️ **呢四條係全段最貴。** 加新尺寸最順手嘅寫法就係「`portrait` 應該指 3:4 先啱」
+ * 同「`landscape` 應該指 16:9 先啱」—— 兩個都係派咗出街嘅 URL：
+ *  · `?format=portrait` 條 HERMES 鏈日日照叫，改咗 = 靜靜由 1080×1350 變 1080×1440
+ *  · `?format=landscape` 一路出 1200×630（og:image 1.91:1），改咗 = unfurl 卡片變咗
+ * 兩邊都係照 200、`x-og-format` 照出、冇 error 冇 log。要 3:4 就明寫 `3x4`。
+ */
+check("⑧b: portrait alias 冇被搶（仲係 4:5 post —— HERMES 鏈日日叫緊）",
+  runtimeReadFormat("portrait") === "post", `→ ${runtimeReadFormat("portrait")}`);
+check("⑧b: landscape alias 冇被搶（仲係 1.91:1 wide —— og:image 靠佢）",
+  runtimeReadFormat("landscape") === "wide", `→ ${runtimeReadFormat("landscape")}`);
+check("⑧b: story 仲係 post", runtimeReadFormat("story") === "post");
+check("⑧b: whatsapp 仲係 post", runtimeReadFormat("whatsapp") === "post");
+check("⑧b: instagram 仲係 square", runtimeReadFormat("instagram") === "square");
+/* 每個 format 都要至少一個 alias 叫得到（import-time guard 已經擋住，呢度 runtime
+   再驗一次：guard 掟得出 error 但冇 call site 就等於冇 guard）。 */
+for (const format of RUNTIME_FORMATS) {
+  check(`⑧b: ${format} 有 alias 叫得到`,
+    shareDestinationList.some((dest) => runtimeReadFormat(dest) === format), `冇任何 alias 對到 ${format}`);
+}
+
+/* ⑧c 橫定直：`widescreen` 係橫但唔係 `wide`，分支唔准再問 `=== "wide"`。 */
+for (const format of RUNTIME_FORMATS) {
+  const { width, height } = FORMAT_SIZES[format];
+  check(`⑧c: isWideFormat(${format}) 同真實闊高夾得返`, isWideFormat(format) === (width > height),
+    `isWideFormat=${isWideFormat(format)} 但 ${width}×${height}`);
+}
+check("⑧c: widescreen 算橫", isWideFormat("widescreen"));
+check("⑧c: portrait 唔算橫", !isWideFormat("portrait"));
+check("⑧c: og route 冇剩返 `format === \"wide\"` 分支（widescreen 會跌落直度幾何）",
+  !/format === "wide"/.test(ogCode), "改成 isWideFormat(format)");
+
+/* ⑧d 檔名比例字：唔准由 w/h 估，一估 3:4 就變 `4x5`、16:9 就變 `wide`，兩張圖撞名。 */
+check("⑧d: portrait 個比例字係 3x4", FORMAT_RATIO_LABEL.portrait === "3x4", FORMAT_RATIO_LABEL.portrait);
+check("⑧d: widescreen 個比例字係 16x9", FORMAT_RATIO_LABEL.widescreen === "16x9", FORMAT_RATIO_LABEL.widescreen);
+check("⑧d: 六個比例字冇撞（撞就係兩張圖同一個檔名，直接覆蓋）",
+  new Set(RUNTIME_FORMATS.map((f) => FORMAT_RATIO_LABEL[f])).size === RUNTIME_FORMATS.length,
+  JSON.stringify(FORMAT_RATIO_LABEL));
+check("⑧d: 舊比例字一個都冇郁（出咗街嘅檔名唔准改）",
+  FORMAT_RATIO_LABEL.wide === "wide" && FORMAT_RATIO_LABEL.square === "1x1"
+  && FORMAT_RATIO_LABEL.post === "4x5" && FORMAT_RATIO_LABEL.status === "9x16", JSON.stringify(FORMAT_RATIO_LABEL));
+check("⑧d: heatmapOgFilename 出到新比例字",
+  heatmapOgFilename({ format: "portrait" }).endsWith("-3x4")
+  && heatmapOgFilename({ format: "widescreen" }).endsWith("-16x9"),
+  `${heatmapOgFilename({ format: "portrait" })} / ${heatmapOgFilename({ format: "widescreen" })}`);
+check("⑧d: 4K 檔名照樣加後綴（同一 folder 唔准互相覆蓋）",
+  heatmapOgFilename({ format: "widescreen", res: "4k" }).endsWith("-16x9-4k"),
+  heatmapOgFilename({ format: "widescreen", res: "4k" }));
+check("⑧d: heatmapOgFilename 讀返張表，唔係自己由尺寸算",
+  /const ratio = FORMAT_RATIO_LABEL\[format\];/.test(heatmapOgSrc));
+
+/* ⑧e 4K：兩個新尺寸都要 ×2 出到真 4K（唔係得個名）。 */
+for (const [format, want1080p, want4k] of [
+  ["portrait", [1080, 1440], [2160, 2880]],
+  ["widescreen", [1920, 1080], [3840, 2160]],
+]) {
+  for (const [res, want] of [["1080p", want1080p], ["4k", want4k]]) {
+    const got = [
+      Math.round(FORMAT_SIZES[format].width * RESOLUTION_SCALE[res]),
+      Math.round(FORMAT_SIZES[format].height * RESOLUTION_SCALE[res]),
+    ];
+    check(`⑧e: ${format} ${res} = ${want[0]}×${want[1]}`, got[0] === want[0] && got[1] === want[1], got.join("×"));
+  }
+}
+
+/* ⑧f 選單：兩行係**額外**加，owner 點名嗰七個一行都唔准郁。 */
+check("⑧f: SHARE_TARGETS 仲係七行（新嘢入 SHARE_EXTRA_TARGETS）",
+  /export const SHARE_TARGETS: readonly ShareTarget\[\] = \[[^\]]*\]/.test(destinations)
+  && RUNTIME_TARGETS.length === 9, `選單 ${RUNTIME_TARGETS.length} 行`);
+const igPortrait = RUNTIME_TARGETS.find((t) => t.id === "ig-portrait");
+const widescreenTarget = RUNTIME_TARGETS.find((t) => t.id === "widescreen");
+check("⑧f: 選單有 ig-portrait 3:4", igPortrait?.format === "portrait" && igPortrait?.ratio === "3:4",
+  JSON.stringify(igPortrait));
+check("⑧f: 選單有 widescreen 16:9", widescreenTarget?.format === "widescreen" && widescreenTarget?.ratio === "16:9",
+  JSON.stringify(widescreenTarget));
+check("⑧f: 兩行唔准掛 frameOnHeatmap（佢哋係固定比例，唔跟畫面）",
+  !igPortrait?.frameOnHeatmap && !widescreenTarget?.frameOnHeatmap);
+check("⑧f: share-menu 兩行各有 glyph（冇 glyph 就兩行一模一樣，撳錯都唔知）",
+  /id === "ig-portrait"/.test(shareMenu) && /id === "widescreen"/.test(shareMenu));
+check("⑧f: 兩行個名行 i18n 唔係品牌名（唔准寫死中文入 component）",
+  /"ig-portrait": "portrait"/.test(shareMenu) && /widescreen: "widescreen"/.test(shareMenu));
+/* 五個語言喺上面 ⑤ 已經數過，呢度釘死 owner 點名嗰三隻嘅字面 */
+for (const want of ["Instagram portrait 3:4", "Widescreen 16:9", "IG 直向 3:4", "橫向 16:9", "IG 竖版 3:4"]) {
+  check(`⑧f: i18n 有「${want}」`, i18n.includes(want));
+}
+check("⑧f: 兩個面都傳埋新 copy", /portrait: t\.labels\.shareToPortrait/.test(heatmap)
+  && /widescreen: t\.labels\.shareToWidescreen/.test(heatmap)
+  && /portrait: t\.labels\.shareToPortrait/.test(cardDetail)
+  && /widescreen: t\.labels\.shareToWidescreen/.test(cardDetail));
+
+/* ⑧g 卡片 OG route 要真係識畫呢兩個尺寸 —— 唔係就攞住個新 spec 跌返舊幾何。 */
+check("⑧g: JPEG_QUALITY 有兩個新 format",
+  /JPEG_QUALITY: Record<ShareFormat, number> = \{[^}]*portrait: \d+[^}]*widescreen: \d+/.test(ogRoute));
+check("⑧g: FORMAT_THEMES 有兩個新 format",
+  /portrait: "(dark|light)",/.test(ogRoute) && /widescreen: "(dark|light)",/.test(ogRoute));
+check("⑧g: TALL_GEO 有 portrait（1440 高，唔准照抄 post 個 1350 幾何）",
+  /^\s*portrait: \{ padX: \d+, padY: \d+, artStage:/m.test(ogRoute));
+check("⑧g: TEXT_ONLY_GEO 兩個新 format 都有（唔准跌落 wide 嗰套）",
+  /^\s*portrait: \{ padX: \d+, padY: \d+, gapTop:/m.test(ogRoute)
+  && /^\s*widescreen: \{ padX: \d+, padY: \d+, gapTop:/m.test(ogRoute));
+/* ⚠️ 畫布同版面係兩件事：畫布跟清晰度（`resScale`），版面仲要乘個 format 幾何倍數。
+   1920 闊嘅畫布照 1200 闊嘅版面畫 = 個圖細細粒黏喺左上角，照 200。 */
+check("⑧g: 畫布跟清晰度、版面跟 FORMAT_LAYOUT_SCALE（兩件事唔准撈埋）",
+  /const scale = resScale \* FORMAT_LAYOUT_SCALE\[format\];/.test(ogRoute)
+  && /width: S\(spec\.width, resScale\),/.test(ogRoute)
+  && /height: S\(spec\.height, resScale\),/.test(ogRoute));
+check("⑧g: 舊四個 format 版面倍數釘死 1（新嘢唔准郁到出咗街嗰批）",
+  /wide: 1,\s*square: 1,\s*post: 1,\s*status: 1,\s*portrait: 1,/.test(ogRoute.replace(/\/\*[\s\S]*?\*\//g, "")));
+
+/* ⑧h 熱力圖 OG route：外框（標題／圖例／stamp）要跟畫布闊度放大，唔係 1920 嗰張
+   個 header 細到睇唔到。舊四個一定要釘死 1，否則今日出咗街嗰批圖會靜靜郁咗。 */
+check("⑧h: heatmap route 有 CHROME_SCALE 而且舊四個釘死 1",
+  /CHROME_SCALE: Record<ShareFormat, number> = \{\s*wide: 1,\s*square: 1,\s*post: 1,\s*status: 1,\s*portrait: 1,/.test(heatmapRoute));
+check("⑧h: widescreen 個外框倍數由 FORMAT_SIZES 算，唔係手寫死",
+  /widescreen: FORMAT_SIZES\.widescreen\.width \/ CHROME_BASE_WIDTH,/.test(heatmapRoute));
+check("⑧h: 外框用 chrome，唔係用返 scale", /const chrome = scale \* CHROME_SCALE\[format\];/.test(heatmapRoute));
+/* 熱力圖冇 per-format 版面分支 —— 塊板行 squarified treemap，自己會按闊高排。
+   一有 `format === "..."` 分支就係「加多個尺寸要再抄一次版面」。 */
+check("⑧h: heatmap route 冇 per-format 版面分支",
+  !/format === "(post|square|status|portrait|widescreen)"/.test(heatmapRoute.replace(/\/\*[\s\S]*?\*\//g, "")));
+
+/* ⑧i 兩個新 guard 真係有牙（AGENTS.md 規矩 9：有檢查但冇 call site = 冇檢查）。
+   種返個 bug 落去，import 一定要炸。 */
+{
+  {
+    /* ⑧i-1 橫直分類講大話：話 portrait 係橫嘅（但佢 1080×1440）。 */
+    const anchor = 'export const WIDE_FORMATS = ["wide", "widescreen"] as const satisfies readonly ShareFormat[];';
+    check("⑧i-1: 錨點仲喺度（改咗寫法就要更新呢個 test）", destinations.split(anchor).length - 1 === 1);
+    const { error: message1 } = await loadLibChain({
+      entry: "share-destinations.ts",
+      mutate: {
+        "share-destinations.ts": (src) => src.replace(anchor,
+          'export const WIDE_FORMATS = ["wide", "widescreen", "portrait"] as const satisfies readonly ShareFormat[];'),
+      },
+    });
+    check("⑧i-1: 橫直分類同真實闊高唔夾會即刻炸", message1.includes("WIDE_FORMATS 同真實闊高唔夾"),
+      `掟嘅係：${message1 || "(乜都冇掟)"}`);
+
+    /* ⑧i-2 新 format 冇 alias 叫得到（＝ 死 code）都要炸。 */
+    const aliasAnchor = '  "3x4": "portrait",\n';
+    check("⑧i-2: 錨點仲喺度（改咗寫法就要更新呢個 test）", destinations.split(aliasAnchor).length - 1 === 1);
+    const { error: message2 } = await loadLibChain({
+      entry: "share-destinations.ts",
+      mutate: {
+        "share-destinations.ts": (src) => src
+          .replace(aliasAnchor, "")
+          .replace('  "ig-portrait": "portrait",\n', "")
+          .replace('  grid: "portrait",\n', ""),
+      },
+    });
+    check("⑧i-2: 冇 alias 叫得到嘅 format 會即刻炸", message2.includes("冇任何 alias 叫得到"),
+      `掟嘅係：${message2 || "(乜都冇掟)"}`);
+
+    /* ⑧i-3 檔名比例字講大話（`portrait` 標返 `4x5`）都要炸。 */
+    const labelAnchor = '  portrait: "3x4",\n';
+    check("⑧i-3: 錨點仲喺度（改咗寫法就要更新呢個 test）", heatmapOgSrc.split(labelAnchor).length - 1 === 1);
+    const { error: message3 } = await loadLibChain({
+      mutate: { "heatmap-og.ts": (src) => src.replace(labelAnchor, '  portrait: "4x5",\n') },
+    });
+    check("⑧i-3: 檔名比例標講大話會即刻炸", message3.includes("檔名比例標同真實尺寸唔夾"),
+      `掟嘅係：${message3 || "(乜都冇掟)"}`);
+  }
+  for (const dir of probeDirs) rmSync(dir, { recursive: true, force: true });
+}
+
+/*
+ * ⑧j format 個名 ≠ 佢喺 URL 度點叫。
+ *
+ * ⚠️ 呢條係上面 ⑧b 嗰個陷阱嘅另一半：`portrait`（format 名）＝ 3:4，但
+ * `?format=portrait`（alias）＝ 4:5 post。任何叫方由 format 名砌 URL 都要經
+ * `FORMAT_QUERY_NAME` 譯一次 —— 唔譯就係 CLI 一句 `--format portrait` 靜靜攞返
+ * 4:5，照 200、`x-og-format` 仲會講「post」，差 90px 高冇人發現。
+ */
+const cliSrc = read("scripts/heatmap-download.mjs");
+check("⑧j: portrait 過 wire 要寫 3x4", FORMAT_QUERY_NAME.portrait === "3x4", FORMAT_QUERY_NAME.portrait);
+/* 唔係比字串，係行真嗰條解析路兜返轉頭。 */
+for (const format of RUNTIME_FORMATS) {
+  check(`⑧j: ?format=${FORMAT_QUERY_NAME[format]} 叫得返 ${format}`,
+    runtimeReadFormat(FORMAT_QUERY_NAME[format]) === format,
+    `→ ${runtimeReadFormat(FORMAT_QUERY_NAME[format])}`);
+}
+check("⑧j: 舊四個 format 個 wire 名同自己一樣（出咗街嘅 URL 唔准郁）",
+  ["wide", "square", "post", "status"].every((f) => FORMAT_QUERY_NAME[f] === f),
+  JSON.stringify(FORMAT_QUERY_NAME));
+/* CLI 唔准自己抄一份，亦唔准直接塞個 format 名落 URL。 */
+check("⑧j: CLI 讀返 lib 張表，唔准自己抄一份",
+  /function queryNames\(src\)/.test(cliSrc) && /FORMAT_QUERY_NAME\[\^=\]\*=/.test(cliSrc)
+  && /queryName: queryNames\(destinations\),/.test(cliSrc));
+check("⑧j: CLI 砌 URL 前譯一次",
+  /const wireFormat = opts\.queryName\[q\.format\] \?\? q\.format;/.test(cliSrc)
+  && /new URLSearchParams\(\{ \.\.\.q, format: wireFormat \}\)/.test(cliSrc),
+  "CLI 仲係直接塞 q.format 落 URL");
+/* guard 有牙：叫唔返同一個 format 就要炸。 */
+{
+  const queryAnchor = '  portrait: "3x4",\n  widescreen: "widescreen",\n};';
+  check("⑧j: 錨點仲喺度（改咗寫法就要更新呢個 test）",
+    destinations.split(queryAnchor).length - 1 === 1, `搵到 ${destinations.split(queryAnchor).length - 1} 個`);
+  const { error } = await loadLibChain({
+    entry: "share-destinations.ts",
+    mutate: {
+      "share-destinations.ts": (src) => src.replace(queryAnchor,
+        '  portrait: "portrait",\n  widescreen: "widescreen",\n};'),
+    },
+  });
+  check("⑧j: wire 名叫唔返同一個 format 會即刻炸", error.includes("FORMAT_QUERY_NAME 叫唔返同一個 format"),
+    `掟嘅係：${error || "(乜都冇掟)"}`);
+  for (const dir of probeDirs) rmSync(dir, { recursive: true, force: true });
+}
+
+/* ⑧k 網頁兩個砌 URL 位都要行 FORMAT_QUERY_NAME。2026-08-23 review 實測：選單「IG 直向 3:4」
+   撳落去送 `?format=portrait` → server 回 4:5 post（x-og-format: post），檔名卻叫 3x4。
+   CLI 譯咗，網頁冇譯 —— 呢個 test 對住 source 攔返。 */
+{
+  const ogSrc = read("apps/web/src/lib/heatmap-og.ts");
+  const detailSrc = read("apps/web/src/components/card-detail.tsx");
+  check("⑧k: heatmapOgSearch 過 wire 行 FORMAT_QUERY_NAME",
+    /q\.set\("format", FORMAT_QUERY_NAME\[opts\.format \?\? "post"\]\);/.test(ogSrc)
+    && /import \{[^}]*FORMAT_QUERY_NAME[^}]*\} from "\.\/share-destinations"/.test(ogSrc),
+    "heatmap-og 仲係直接塞 opts.format 落 ?format=");
+  check("⑧k: heatmapOgSearch 冇剩返舊寫法", !/q\.set\("format", opts\.format \?\? "post"\);/.test(ogSrc));
+  check("⑧k: card-detail 張卡 OG URL 過 wire 行 FORMAT_QUERY_NAME",
+    /\?format=\$\{FORMAT_QUERY_NAME\[format\]\}&res=/.test(detailSrc)
+    && /import \{[^}]*FORMAT_QUERY_NAME[^}]*\} from "@\/lib\/share-destinations"/.test(detailSrc),
+    "card-detail 仲係直接塞 format 落 ?format=");
+  check("⑧k: card-detail 冇剩返舊寫法", !/\?format=\$\{format\}&res=/.test(detailSrc));
+  /* 張表真係會譯：選單個 3:4 行過 wire 一定係 3x4，唔係 portrait */
+  const igPortrait = RUNTIME_TARGETS.find((t) => t.id === "ig-portrait");
+  check("⑧k: ig-portrait 行過 wire 係 3x4", Boolean(igPortrait) && FORMAT_QUERY_NAME[igPortrait.format] === "3x4",
+    `→ ${igPortrait ? FORMAT_QUERY_NAME[igPortrait.format] : "(冇 ig-portrait)"}`);
+}
 
 if (failed.length) {
   console.error("FAIL share destinations:\n" + failed.map((item) => ` - ${item}`).join("\n"));

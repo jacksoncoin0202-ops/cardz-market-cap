@@ -1044,6 +1044,8 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title, scope 
           status: t.labels.shareToStatus,
           other: t.labels.shareToOther,
           desktop: t.labels.shareToDesktop,
+          portrait: t.labels.shareToPortrait,
+          widescreen: t.labels.shareToWidescreen,
           frame: t.labels.shareRatioFrame,
           done: t.share.done,
           error: t.share.error,

@@ -21,7 +21,7 @@ import { cardNameLangAttr, displayCardName } from "@/lib/card-name";
 import { copy } from "@/lib/i18n";
 import { formatInteger, formatMetricInteger, formatMetricMoney, formatMoney, formatObservationDate, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
 import { plainDescription } from "@/lib/plain-text";
-import { type ShareFormat, type ShareTarget } from "@/lib/share-destinations";
+import { FORMAT_QUERY_NAME, type ShareFormat, type ShareTarget } from "@/lib/share-destinations";
 import { shareImageBlob } from "@/lib/share-file";
 import { fetchShareBlob } from "@/lib/share-fetch";
 import { DEFAULT_SHARE_RESOLUTION, SHARE_RESOLUTIONS, type ShareResolution } from "@/lib/share-resolution";
@@ -96,7 +96,8 @@ function ShareImageButton({ cardId, imageLang, title, copy: menuCopy, qualityCop
     if (shareBlobs.current.has(key)) return;
     /* ⚠️ 用共用嗰個 `fetchShareBlob`（AGENTS.md 規矩 13），唔准喺呢度自己寫個
        20 秒 timeout —— 4K 實測 100–126 秒先出到，20 秒等於「揀 4K 一定 fail」。 */
-    const path = `/api/og/card/${encodeURIComponent(cardId)}?format=${format}&res=${res}&lang=${encodeURIComponent(imageLang)}`;
+    /* ⚠️ 過 wire 要行 FORMAT_QUERY_NAME（`portrait` 個 alias 係 4:5 post，3:4 要寫 `3x4`） */
+    const path = `/api/og/card/${encodeURIComponent(cardId)}?format=${FORMAT_QUERY_NAME[format]}&res=${res}&lang=${encodeURIComponent(imageLang)}`;
     const pending = fetchShareBlob(path, res, "card OG")
       .catch((error) => {
         /* 失敗唔可以黐住個 Map，否則之後撳幾多次都係同一個 rejected promise */
@@ -299,6 +300,8 @@ export function CardDetail({ id, snapshot, related }: {
             status: t.labels.shareToStatus,
             other: t.labels.shareToOther,
             desktop: t.labels.shareToDesktop,
+            portrait: t.labels.shareToPortrait,
+            widescreen: t.labels.shareToWidescreen,
             frame: t.labels.shareRatioFrame,
             done: t.share.done,
             error: t.share.error,

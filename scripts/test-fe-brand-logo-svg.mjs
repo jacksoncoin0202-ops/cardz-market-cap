@@ -199,7 +199,7 @@ const ogFormats = [...shareSizes.matchAll(/\b(wide|post):\s*\{\s*width:\s*(\d+),
   .map((m) => [m[1], Number(m[2]), Number(m[3])]);
 check("FORMAT_SIZES 有 wide + post 兩個", ogFormats.length === 2, JSON.stringify(ogFormats));
 check("og route 真係讀 FORMAT_SIZES（唔係自己再寫一組）",
-  /FORMAT_SIZES, readShareFormat/.test(ogRoute) && /const spec = FORMAT_SIZES\[format\];/.test(ogRoute));
+  /import \{[^}]*\bFORMAT_SIZES\b[^}]*\breadShareFormat\b[^}]*\} from "@\/lib\/share-destinations"/.test(ogRoute) && /const spec = FORMAT_SIZES\[format\];/.test(ogRoute));
 /* 直度分享圖闊÷高一定要 ≥ 0.8（同 share-image.ts `SHARE_MIN_ASPECT` 同一個數）。
    上面對死 1080×1350 已經夠，但呢句講嘅係**點解**係嗰對數 —— 第日有人要換另一對
    直度尺寸，起碼唔會靜靜跌返落 Threads / X 縮細嗰個區間。 */

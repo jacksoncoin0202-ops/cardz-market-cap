@@ -79,6 +79,27 @@ function formatSizes(src) {
   return out;
 }
 
+/** `FORMAT_RATIO_LABEL: Record<ShareFormat, string> = { wide: "wide", … }` → {wide:"wide",…} */
+/* format 名 → `?format=` 要寫咩（見 lib 個 FORMAT_QUERY_NAME）。`portrait` 係唯一
+   一個唔同嘅：佢個名喺 alias namespace 度早就俾 4:5 post 佔咗。 */
+function queryNames(src) {
+  const block = /FORMAT_QUERY_NAME[^=]*=\s*\{([^}]*)\}/.exec(src);
+  if (!block) throw new Error("heatmap-download: 讀唔到 FORMAT_QUERY_NAME（改咗名？改埋呢度同 test）");
+  const out = {};
+  for (const m of block[1].matchAll(/"?([\w-]+)"?:\s*"([^"]+)"/g)) out[m[1]] = m[2];
+  if (Object.keys(out).length === 0) throw new Error("heatmap-download: FORMAT_QUERY_NAME 空");
+  return out;
+}
+
+function ratioLabels(src) {
+  const block = /FORMAT_RATIO_LABEL[^=]*=\s*\{([^}]*)\}/.exec(src);
+  if (!block) throw new Error("heatmap-download: 讀唔到 FORMAT_RATIO_LABEL（改咗名？改埋呢度同 test）");
+  const out = {};
+  for (const m of block[1].matchAll(/"?([\w-]+)"?:\s*"([^"]+)"/g)) out[m[1]] = m[2];
+  if (Object.keys(out).length === 0) throw new Error("heatmap-download: FORMAT_RATIO_LABEL 空");
+  return out;
+}
+
 /** `export const NAME = [408, 502] as const;` → [408,502] */
 function numberArray(src, name) {
   const m = new RegExp(`export const ${name}\\s*=\\s*\\[([^\\]]*)\\]\\s*as const`).exec(src);
@@ -132,6 +153,12 @@ export function readOptions() {
     theme: unionType(heatmapOg, "HeatmapOgTheme"),
     updown: unionType(heatmapOg, "HeatmapOgUpDown"),
     sizes: formatSizes(destinations),
+    /* 檔名嗰粒比例字。**一定要由 `lib/heatmap-og.ts` 讀返**，唔准喺呢度再推一次 ——
+       舊版就係喺 `outputName()` 自己寫咗條 `w>h ? "wide" : …` 推論式，同 server 嗰邊
+       分叉：square 1080×1080 server 叫 `1x1`、CLI 叫 `4x5`。兩邊都係 200，張圖冇分別，
+       淨係個檔名靜靜咁唔同，落同一個 folder 就互相覆蓋。 */
+    ratioLabel: ratioLabels(heatmapOg),
+    queryName: queryNames(destinations),
     scale: resolutionScale(resolution),
     budget: retryBudget(resolution),
     retryStatuses: numberArray(resolution, "SHARE_RETRY_STATUSES"),
@@ -175,6 +202,12 @@ function help(opts) {
     `  --show      10–100 格   （預設 40）`,
     `  --scope     ${opts.scope.join(" | ")}   （預設 all）`,
     `  --format    ${opts.format.join(" | ")}   （預設 post＝4:5）`,
+    `              比例：${opts.format.map((f) => `${f}=${opts.ratioLabel[f] ?? "?"}`).join(" ")}`,
+    "              ⚠️ portrait = 3:4（IG feed／grid）、widescreen = 16:9，兩個都唔係 wide（1.91:1 og:image）",
+    "              ⚠️ `--format` 收 format 名，`?format=` 食 alias，有一個字唔同：",
+    `              ${Object.entries(opts.queryName).filter(([name, wire]) => name !== wire)
+      .map(([name, wire]) => `--format ${name} 送出去係 ?format=${wire}`).join("、") || "（全部一樣）"}`,
+    "              （`?format=portrait` 呢個 alias 由第一日起就係 4:5 post，唔准搶）",
     `  --theme     ${opts.theme.join(" | ")}   （預設 dark）`,
     `  --updown    ${opts.updown.join(" | ")}   （預設 green-up）`,
     `  --lang      ${opts.lang.join(" | ")}   （預設 zh-TW）`,
@@ -188,6 +221,8 @@ function help(opts) {
     "  例：",
     "    node scripts/heatmap-download.mjs --res 4k --period 30d --scope pokemon",
     "    node scripts/heatmap-download.mjs --res 4k --format status --out ~/story.jpg",
+    "    node scripts/heatmap-download.mjs --format portrait --base http://localhost:3937   # IG 3:4",
+    "    node scripts/heatmap-download.mjs --format widescreen --res 4k                     # 3840×2160",
     "    node scripts/heatmap-download.mjs --base http://localhost:3901 --res 4k",
     "",
     "  ⚠️ 4K 係真 2× render 唔係放大。真站實測：gateway 60 秒斬一次（會見到 504），",
@@ -201,7 +236,7 @@ function list(opts) {
   for (const key of ["res", "format", "period", "scope", "theme", "updown", "lang", "stamp"]) {
     lines.push(`  --${key.padEnd(8)} ${opts[key].join(" | ")}`);
   }
-  lines.push("", "  每個比例 × 每個清晰度 真實出幾多像素：", "");
+  lines.push("", "  每個比例 × 每個清晰度 真實出幾多像素（右邊係檔名入面嗰粒比例字）：", "");
   const pad = Math.max(...opts.format.map((f) => f.length));
   for (const format of opts.format) {
     const spec = opts.sizes[format];
@@ -210,15 +245,22 @@ function list(opts) {
       const s = opts.scale[res] ?? 1;
       return `${res}=${Math.round(spec.width * s)}×${Math.round(spec.height * s)}`;
     });
-    lines.push(`    ${format.padEnd(pad)}  ${cells.join("   ")}`);
+    lines.push(`    ${format.padEnd(pad)}  ${cells.join("   ")}   [${opts.ratioLabel[format] ?? "?"}]`);
   }
   return lines.join("\n");
 }
 
-/** 檔名跟 `lib/heatmap-og.ts heatmapOgFilename()` 同一條規矩（4K 加後綴，1080p 唔加）。 */
-export function outputName({ scope, show, period, format, res, sizes }) {
-  const spec = sizes[format] ?? { width: 1080, height: 1350 };
-  const ratio = spec.width > spec.height ? "wide" : spec.height / spec.width > 1.5 ? "9x16" : "4x5";
+/**
+ * 檔名跟 `lib/heatmap-og.ts heatmapOgFilename()` 同一條規矩（4K 加後綴，1080p 唔加）。
+ *
+ * `ratioLabel` 係**必填**：認唔到個 format 就掟，唔准跌返一個似層層嘅比例字。
+ * 靜靜出咗個錯檔名，張圖本身係啱嘅，所以冇人會發現 —— 直到兩個比例互相覆蓋。
+ */
+export function outputName({ scope, show, period, format, res, ratioLabel }) {
+  const ratio = ratioLabel?.[format];
+  if (!ratio) {
+    throw new Error(`heatmap-download: 唔知 format "${format}" 個比例字（FORMAT_RATIO_LABEL 有：${Object.keys(ratioLabel ?? {}).join(" | ") || "冇"}）`);
+  }
   const suffix = res === "1080p" ? "" : `-${res.toLowerCase()}`;
   return `cardz-heatmap-${scope}-top${show}-${period}-${ratio}${suffix}.jpg`;
 }
@@ -265,7 +307,16 @@ async function main() {
   }
 
   const base = (args.base ?? DEFAULT_BASE).replace(/\/+$/, "");
-  const url = `${base}/api/og/heatmap?${new URLSearchParams(q).toString()}`;
+  /*
+   * ⚠️ `--format` 收嘅係 **format 名**，`?format=` 食嘅係 **alias**，兩個 namespace
+   * 有一個字唔同：`portrait`（名）＝ 3:4，但 `?format=portrait`（alias）＝ 4:5 post。
+   * 所以砌 URL 一定要經 `FORMAT_QUERY_NAME` 譯一次，唔准直接塞個名入去。
+   */
+  const wireFormat = opts.queryName[q.format] ?? q.format;
+  if (wireFormat !== q.format) {
+    console.log(`· --format ${q.format} → ?format=${wireFormat}（\`portrait\` 呢個 alias 早就俾 4:5 post 佔咗）`);
+  }
+  const url = `${base}/api/og/heatmap?${new URLSearchParams({ ...q, format: wireFormat }).toString()}`;
   /* `--timeout` 係**成個 retry 迴圈**嘅預算，唔係單次 request。預設由
      `RESOLUTION_RETRY_BUDGET_MS` 嚟（1080p 60 秒、4K 600 秒），唔喺呢度寫死。 */
   const budget = Number(args.timeout ?? opts.budget[q.res] ?? DEFAULT_TIMEOUT_MS);
@@ -325,7 +376,7 @@ async function main() {
 
   const defaultName = outputName({ scope: h("x-og-scope") || q.scope, show: h("x-og-show") || q.show,
     period: h("x-og-period") || q.period, format: h("x-og-format") || q.format,
-    res: h("x-og-res") || q.res, sizes: opts.sizes });
+    res: h("x-og-res") || q.res, ratioLabel: opts.ratioLabel });
   /*
    * `--out` 收檔案路徑**或者**資料夾。指住個 folder 係好自然嘅寫法（`--out ~/Desktop`），
    * 唔認就係一句 `EISDIR: illegal operation on a directory` 掉出嚟 —— 睇嘅人淨係知

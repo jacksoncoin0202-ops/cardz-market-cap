@@ -14,7 +14,7 @@ import {
 } from "@/lib/heatmap-og";
 import { heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
 import { loadMarketSnapshot, loadNodeMarketAsset, scopeSnapshot } from "@/lib/server-snapshot";
-import { FORMAT_SIZES, readShareFormat } from "@/lib/share-destinations";
+import { FORMAT_SIZES, readShareFormat, type ShareFormat } from "@/lib/share-destinations";
 import { RESOLUTION_SCALE, readShareResolution } from "@/lib/share-resolution";
 import { nowStamp, readStampAt, readStampMode, readTimeZone, stampCacheKey } from "@/lib/share-stamp";
 import {
@@ -30,9 +30,14 @@ import { marketWindows, type MarketCardView, type MarketWindow } from "@/lib/typ
  * Heatmap download API. Auto-update / promo GET this URL after live generation
  * matches. Do not screenshot :3900.
  *
- * Query: period, show, scope (all|pokemon|one-piece), format (post|status|wide|
- * landscape|portrait), theme, updown (green-up|red-up), lang (en|zh-TW|zh-CN),
- * res (1080p|4k), stamp (data|now), tz (IANA, e.g. Asia/Tokyo).
+ * Query: period, show, scope (all|pokemon|one-piece), format (post|square|status|
+ * wide|portrait 3:4|widescreen 16:9, plus the aliases in lib/share-destinations.ts:
+ * 1x1, 3x4, ig-portrait, grid, 16x9, hd, youtube, landscape, tall, ...), theme,
+ * updown (green-up|red-up), lang (en|zh-TW|zh-CN), res (1080p|4k), stamp
+ * (data|now), tz (IANA, e.g. Asia/Tokyo).
+ *
+ * ⚠️ `?format=portrait` is still the 4:5 `post` alias, NOT the 3:4 board — the
+ * out-of-repo auto-update chain writes it. Ask for 3:4 by name: `?format=3x4`.
  *
  * res=4k is a real 2x render (post -> 2160x2700), not an upscale. It costs
  * ~11x the wall clock of 1080p (measured 2026-08-21: 4.3-5.3s vs 53.7-56.8s on
@@ -56,6 +61,34 @@ const GREEN = "#17b576";
 const RED = "#dc567c";
 const NEUTRAL = "rgba(138, 133, 120, 0.3)";
 const LABEL = { inset: 4, padX: 3, padY: 1, radius: 4, minFont: 8, maxFont: 14 };
+
+/*
+ * 「外框」（logo／標題／個戳／legend）相對畫布嘅大細。
+ *
+ * 成塊板由頭到尾**冇按 format 分過支** —— treemap 自己食晒 boardW×boardH，所以加
+ * 一個新比例本身唔使改 layout：3:4 同 4:5 一樣闊（1080），欄數一樣，格仔高啲；
+ * 16:9 闊咗就自然多幾欄。真正會出事嘅淨係外框：上面全部數字（pad 24、header 32、
+ * 標題 26、legend 12）係喺一個 **1080 闊**嘅畫布度度出嚟嘅，而 `widescreen` 1920 闊
+ * —— 照原數畫出嚟，個 logo 同標題只佔畫面 56%（1080/1920）嘅相對高度，望落就係
+ * 「一塊大板上面貼咗行細字」。粒字冇縮過，但相對嚟講細咗，同 2026-08-21 owner 報
+ * 「4K 啲 percentage 細到睇唔到」係一模一樣嘅病（見 `labelFontSize`）。
+ *
+ * ⚠️ 其餘五個**釘死 1**，唔准改成一條 `width / 1080` 通式：`wide` 1200 闊會變成
+ * ×1.11，即係一粒「加新比例」嘅改動會靜靜咁改晒已經出咗街嘅 og:image。要改就要
+ * 有人明寫、明驗。
+ *
+ * ⚠️ 呢個**唔係** `scale`（清晰度）。`scale` 係像素密度（4K = 2×），呢個係版面
+ * 比例。兩個要相乘，唔可以二揀一。
+ */
+const CHROME_BASE_WIDTH = 1080;
+const CHROME_SCALE: Record<ShareFormat, number> = {
+  wide: 1,
+  square: 1,
+  post: 1,
+  status: 1,
+  portrait: 1,
+  widescreen: FORMAT_SIZES.widescreen.width / CHROME_BASE_WIDTH,
+};
 
 const THEMES: Record<HeatmapOgTheme, { paper: string; ink: string; muted: string; logo: string }> = {
   dark: { paper: "#0D0D0F", ink: "#F1F1EE", muted: "#A0A09B", logo: "brand/logo-cardz-marketcap-dark.svg" },
@@ -303,10 +336,17 @@ export async function GET(request: Request): Promise<Response> {
   const cards = scoped.top100.slice(0, show);
   if (cards.length === 0) return new Response("No cards", { status: 404 });
 
-  const pad = Math.round(24 * scale);
-  const headerH = Math.round(32 * scale);
-  const legendH = Math.round(16 * scale);
-  const boardGap = Math.round(20 * scale);
+  /*
+   * 外框 = 清晰度 × 版面比例（見 `CHROME_SCALE`）。**唔准**用返 `scale` ——
+   * 1920 闊嘅畫布配 1080 闊嘅外框數字，個標題同 legend 相對嚟講細一半。
+   * 格仔嗰邊（`gap` / `labelFontSize` / 圓角 / 陰影）繼續行 `scale`：嗰啲跟格仔
+   * 本身大細走，treemap 已經幫佢哋按畫布分配好。
+   */
+  const chrome = scale * CHROME_SCALE[format];
+  const pad = Math.round(24 * chrome);
+  const headerH = Math.round(32 * chrome);
+  const legendH = Math.round(16 * chrome);
+  const boardGap = Math.round(20 * chrome);
   const boardW = width - pad * 2;
   const boardH = height - pad * 2 - headerH - boardGap * 2 - legendH;
   const gap = TILE_GAP * scale;
@@ -334,12 +374,12 @@ export async function GET(request: Request): Promise<Response> {
   const title = `${BOARD_LABEL[lang][scope]} Top ${cards.length} · ${period.toUpperCase()}`;
   const fonts = await loadOgFonts(lang);
 
-  const logoH = Math.round(32 * scale);
+  const logoH = Math.round(32 * chrome);
   const logoW = Math.round(logoH * (969 / 419));
-  const titleSize = Math.round(26 * scale);
-  const stampSize = Math.round(12 * scale);
-  const legendSize = Math.round(12 * scale);
-  const swatch = Math.round(12 * scale);
+  const titleSize = Math.round(26 * chrome);
+  const stampSize = Math.round(12 * chrome);
+  const legendSize = Math.round(12 * chrome);
+  const swatch = Math.round(12 * chrome);
 
   const image = new ImageResponse(
     (
@@ -356,7 +396,7 @@ export async function GET(request: Request): Promise<Response> {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", height: headerH, justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: Math.round(16 * scale) }}>
+          <div style={{ display: "flex", alignItems: "center", gap: Math.round(16 * chrome) }}>
             <img src={logoSrc} alt="CardZ Marketcap" width={logoW} height={logoH} />
             <div style={{ fontSize: titleSize, fontWeight: 700 }}>{title}</div>
           </div>
@@ -437,21 +477,21 @@ export async function GET(request: Request): Promise<Response> {
             fontSize: legendSize,
             fontWeight: 600,
             color: skin.muted,
-            gap: Math.round(20 * scale),
+            gap: Math.round(20 * chrome),
             height: legendH,
             alignItems: "center",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: Math.round(8 * scale) }}>
-            <div style={{ width: swatch, height: swatch, background: up, borderRadius: 2 * scale }} />
+          <div style={{ display: "flex", alignItems: "center", gap: Math.round(8 * chrome) }}>
+            <div style={{ width: swatch, height: swatch, background: up, borderRadius: 2 * chrome }} />
             {legend.up}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: Math.round(8 * scale) }}>
-            <div style={{ width: swatch, height: swatch, background: down, borderRadius: 2 * scale }} />
+          <div style={{ display: "flex", alignItems: "center", gap: Math.round(8 * chrome) }}>
+            <div style={{ width: swatch, height: swatch, background: down, borderRadius: 2 * chrome }} />
             {legend.down}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: Math.round(8 * scale) }}>
-            <div style={{ width: swatch, height: swatch, background: NEUTRAL, borderRadius: 2 * scale }} />
+          <div style={{ display: "flex", alignItems: "center", gap: Math.round(8 * chrome) }}>
+            <div style={{ width: swatch, height: swatch, background: NEUTRAL, borderRadius: 2 * chrome }} />
             {legend.pending}
           </div>
           <div style={{ marginLeft: "auto" }}>{legend.intensity}</div>

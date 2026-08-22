@@ -19,6 +19,9 @@
  * 有得揀嗰陣每個目的地會**同時**報返真實闊×高 —— 「4K」係級數唔係像素（`wide` 揀 4K
  * 出 2400×1260），淨係俾個 tier 名人睇就係講緊一個唔啱嘅數字。
  *
+ * owner 2026-08-23：選單尾再加兩行「淨係要呢個比例」（IG 直向 3:4 / 橫向 16:9）——
+ * 佢哋唔係目的地，住喺 `SHARE_EXTRA_TARGETS`，所以七個目的地一個字都冇郁。
+ *
  * ⚠️ **user activation**：`navigator.share` 一定要喺撳掣嗰下嘅 activation 之內叫
  * （見 `lib/share-file.ts`）。卡頁張圖要 fetch 幾百 KB，撳完先攞就過咗期 → iOS Safari
  * 唔彈 share sheet、直接落載。所以 `onWarm` 喺**兩個**時機 fire：選單一開就 warm 預設
@@ -27,10 +30,10 @@
  */
 
 import { AnimatePresence, motion } from "framer-motion";
-import { Check, ChevronDown, Loader2, Monitor, MoreHorizontal, Share2, Smartphone, X as XIcon } from "lucide-react";
+import { Check, ChevronDown, Grid3x3, Loader2, Monitor, MoreHorizontal, RectangleHorizontal, Share2, Smartphone, X as XIcon } from "lucide-react";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { tap } from "@/lib/haptic";
-import { SHARE_TARGETS, type ShareTarget, type ShareTargetId } from "@/lib/share-destinations";
+import { SHARE_MENU_TARGETS, type ShareTarget, type ShareTargetId } from "@/lib/share-destinations";
 import type { ShareOutcome } from "@/lib/share-file";
 import { RESOLUTION_IS_SLOW, RESOLUTION_LABEL, RESOLUTION_RETRY_BUDGET_MS, resolutionPixels, type ShareResolution } from "@/lib/share-resolution";
 
@@ -90,15 +93,42 @@ function TargetGlyph({ id }: { id: ShareTargetId }) {
      呢一行係「邊個**面**」唔係「邊間公司」，掛咗 logo 就即刻同上面四行撞概念。 */
   if (id === "status") return <Smartphone aria-hidden="true" size={15} strokeWidth={1.8} />;
   if (id === "desktop") return <Monitor aria-hidden="true" size={15} strokeWidth={1.8} />;
+  /* 尾二行係「淨係揀個比例」（`SHARE_EXTRA_TARGETS`）—— 用形狀 icon 唔用公司 logo：
+     3:4 係 IG 個 grid 格仔、16:9 係一塊橫screen。掛咗 IG logo 落 3:4 就會同上面
+     第一行（IG = 1:1 feed post）撞，用戶要估邊行先係「真」IG。 */
+  if (id === "ig-portrait") return <Grid3x3 aria-hidden="true" size={15} strokeWidth={1.8} />;
+  if (id === "widescreen") return <RectangleHorizontal aria-hidden="true" size={15} strokeWidth={1.8} />;
   return <MoreHorizontal aria-hidden="true" size={15} strokeWidth={1.8} />;
 }
 
-const BRAND_NAME: Partial<Record<ShareTargetId, string>> = {
+const BRAND_NAME = {
   instagram: "Instagram",
   threads: "Threads",
   x: "X",
   whatsapp: "WhatsApp",
+} as const satisfies Partial<Record<ShareTargetId, string>>;
+type BrandedTargetId = keyof typeof BRAND_NAME;
+
+/*
+ * 其餘每一行由邊條 copy 出名。
+ *
+ * ⚠️ **用 `Record<Exclude<…>>` 唔用 `switch` + `default`**（2026-08-23 加兩行嗰陣改）。
+ * 舊寫法係一條 `id === "status" ? … : id === "desktop" ? … : copy.other` 嘅鏈 ——
+ * 加一個新目的地而唔加返佢個名，就會靜靜跌落最尾嗰個 `copy.other`，選單出現兩行
+ * 「其他 App」，tsc 綠、test 綠、冇 error。而家漏咗就係 tsc 紅。
+ */
+const DESCRIPTIVE_NAME: Record<Exclude<ShareTargetId, BrandedTargetId>, keyof ShareMenuCopy> = {
+  status: "status",
+  other: "other",
+  desktop: "desktop",
+  "ig-portrait": "portrait",
+  widescreen: "widescreen",
 };
+
+function targetName(id: ShareTargetId, copy: ShareMenuCopy): string {
+  const brand: string | undefined = BRAND_NAME[id as BrandedTargetId];
+  return brand ?? copy[DESCRIPTIVE_NAME[id as Exclude<ShareTargetId, BrandedTargetId>]];
+}
 
 export interface ShareMenuCopy {
   /** trigger 文字（`labels.shareImage`，「分享圖片」） */
@@ -111,6 +141,10 @@ export interface ShareMenuCopy {
   other: string;
   /** 電腦／部落格（闊版） */
   desktop: string;
+  /** IG 直向 3:4（`SHARE_EXTRA_TARGETS`，唔係目的地，係「我要呢個比例」） */
+  portrait: string;
+  /** 真 16:9 橫向 */
+  widescreen: string;
   /** 熱力圖嘅闊版唔係固定比例，比例位出呢句（「跟畫面」） */
   frame: string;
   done: string;
@@ -181,7 +215,7 @@ export function ShareMenu({ surface, copy, quality, onPick, onWarm, onOpen, trig
    * —— 即係鍵盤同讀屏用戶等於冇咗個 4K 掣。
    */
   const resOptions = quality?.options ?? [];
-  const navCount = resOptions.length + SHARE_TARGETS.length;
+  const navCount = resOptions.length + SHARE_MENU_TARGETS.length;
 
   /*
    * 死鎖閘要跟得住揀咗嘅清晰度。`PICK_TIMEOUT_MS` 淨係「人喺 OS share sheet 度慢慢揀」
@@ -239,8 +273,10 @@ export function ShareMenu({ surface, copy, quality, onPick, onWarm, onOpen, trig
     setActiveIndex(0);
     /* 先講「開咗新一次」（叫方倒 cache），再 warm —— 掉轉就即刻倒走啱啱 warm 嗰張。 */
     onOpen?.();
-    /* 一開就 warm 預設 format：七個目的地入面五個都係 `post`，撳落去就已經攞緊。 */
-    onWarm?.(SHARE_TARGETS[0]);
+    /* 一開就 warm 預設 format：七個目的地入面五個都係 `post`，撳落去就已經攞緊。
+       ⚠️ 要第一行（IG／`post` 嗰批），唔係新加嗰兩行 —— 所以行 `SHARE_MENU_TARGETS[0]`
+       而唔係最尾。加新行係加喺**尾**（見 `SHARE_EXTRA_TARGETS`），呢句唔使跟住改。 */
+    onWarm?.(SHARE_MENU_TARGETS[0]);
   };
 
   const pick = async (target: ShareTarget) => {
@@ -441,10 +477,9 @@ export function ShareMenu({ surface, copy, quality, onPick, onWarm, onOpen, trig
             </>
           ) : null}
           <p id={labelId} className="share-menu-kicker">{copy.pick}</p>
-          {SHARE_TARGETS.map((target, offset) => {
+          {SHARE_MENU_TARGETS.map((target, offset) => {
             const index = resOptions.length + offset;
-            const name = BRAND_NAME[target.id]
-              ?? (target.id === "status" ? copy.status : target.id === "desktop" ? copy.desktop : copy.other);
+            const name = targetName(target.id, copy);
             const ratio = surface === "heatmap" && target.frameOnHeatmap ? copy.frame : target.ratio;
             /*
              * ⚠️ 有得揀清晰度嗰陣，一定要同時報返**真實闊×高**。
