@@ -8,14 +8,38 @@ param(
     [switch]$ManualE2E,
     [switch]$RenewManualWindow,
     [ValidatePattern('^\d{4}-\d{2}-\d{2}$')]
-    [string]$BusinessDate
+    [string]$BusinessDate,
+    [int]$MaxRuntimeSeconds = 3000,
+    [switch]$SelfTest
 )
 
 $ErrorActionPreference = "Stop"
 $TaskName = "\CARDZ-Marketcap-Daily-V2"
 $Repo = Split-Path -Parent $PSScriptRoot
-$Runtime = Join-Path $Repo "data\runtime\daily-chain-v2\provenance"
+$Runtime = if ([string]::IsNullOrWhiteSpace($env:CARDZ_V2_LAUNCHER_PROVENANCE_DIR)) {
+    Join-Path $Repo "data\runtime\daily-chain-v2\provenance"
+} else {
+    $env:CARDZ_V2_LAUNCHER_PROVENANCE_DIR
+}
 $StartedAt = Get-Date
+
+# The tick runs hidden (see scripts\cardz_silent_run.vbs); nothing survives on a
+# console nobody sees.  Every line the launcher used to Write-Host now also lands
+# in a dated file so a dead tick can still be read tomorrow morning.
+$LogDir = if ([string]::IsNullOrWhiteSpace($env:CARDZ_V2_LAUNCHER_LOG_DIR)) {
+    Join-Path $Repo "logs\daily-chain-v2"
+} else {
+    $env:CARDZ_V2_LAUNCHER_LOG_DIR
+}
+New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+$LogPath = Join-Path $LogDir ("launcher-" + $StartedAt.ToString("yyyyMMdd") + ".log")
+function Write-Log {
+    param([Parameter(Mandatory=$true)][AllowEmptyString()][string]$Message)
+    $line = (Get-Date).ToString("o") + " " + $Message
+    Add-Content -LiteralPath $LogPath -Value $line -Encoding UTF8
+    Write-Host $line
+}
+
 if ($ManualE2E -and -not $AllowPublish) {
     throw "-ManualE2E requires explicit -AllowPublish"
 }
@@ -27,9 +51,14 @@ if ($RenewManualWindow -and (-not $ManualE2E -or -not $AllowPublish)) {
 # invent or substitute a browser profile. Nested powershell must stay Hidden
 # so the 10-minute tick does not steal focus with a CMD/PowerShell console.
 # Chrome itself stays headed (Cloudflare). Do not add --headless here.
-& powershell.exe -WindowStyle Hidden -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "ensure_chrome_cdp.ps1") -Port 9333
-if ($LASTEXITCODE -ne 0) {
-    throw "CARDZ CDP 9333 preflight failed"
+if ($SelfTest) {
+    Write-Log "SELFTEST_SKIP_PREFLIGHT cdp=9333"
+} else {
+    & powershell.exe -WindowStyle Hidden -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "ensure_chrome_cdp.ps1") -Port 9333
+    Write-Log "CARDZ_V2_PREFLIGHT cdp=9333 exit=$LASTEXITCODE"
+    if ($LASTEXITCODE -ne 0) {
+        throw "CARDZ CDP 9333 preflight failed"
+    }
 }
 
 function Convert-ToWslPath {
@@ -138,7 +167,7 @@ $args = @(
     "$wslRepo/pipelines/daily_chain_v2.py",
     "tick",
     "--provenance", $wslReceipt,
-    "--max-runtime-seconds", "5400"
+    "--max-runtime-seconds", "$MaxRuntimeSeconds"
 )
 if ($AllowPublish) { $args += "--allow-publish" }
 if ($Notify) { $args += "--notify" }
@@ -148,8 +177,19 @@ if (-not [string]::IsNullOrWhiteSpace($BusinessDate)) {
     $args += @("--business-date", $BusinessDate)
 }
 
-Write-Host "CARDZ_V2_START event=$eventId record=$recordId instance=$instanceId parent=$parentName"
-& wsl.exe @args
-$exitCode = $LASTEXITCODE
-Write-Host "CARDZ_V2_END exit=$exitCode provenance=$receiptPath"
+Write-Log ("CARDZ_V2_WSL_ARGS wsl.exe " + ($args -join " "))
+if ($SelfTest) {
+    Write-Log "SELFTEST_OK $LogPath"
+    exit 0
+}
+
+Write-Log "CARDZ_V2_START event=$eventId record=$recordId instance=$instanceId parent=$parentName"
+try {
+    & wsl.exe @args
+    $exitCode = $LASTEXITCODE
+} catch {
+    Write-Log "CARDZ_V2_LAUNCHER_EXCEPTION $($_.Exception.Message)"
+    exit 1
+}
+Write-Log "CARDZ_V2_END exit=$exitCode provenance=$receiptPath"
 exit $exitCode

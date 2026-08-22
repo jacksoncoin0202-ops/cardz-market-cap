@@ -20,8 +20,16 @@ param(
   [int]$BoxMaxAgeDays = 2,
   [string]$BoxSidecarPath = "\\wsl$\Ubuntu\home\jackson0202\cardz-market-cap-release-daily\data\public\box-subset.json",
   [switch]$SkipLogCheck,
+  [switch]$SkipLiveCheck,
   [switch]$ResetRatchet,
-  [switch]$NoNotify
+  [switch]$NoNotify,
+  [switch]$NotifyDryRun,
+  [string]$HealthPath = "",
+  # PowerShell variables are case-insensitive: a parameter literally named
+  # $NowUtc would BE the working $nowUtc below and silently poison every clock
+  # read in this script. Alias keeps the -NowUtc switch, different storage.
+  [Alias('NowUtc')][string]$NowUtcOverride = "",
+  [int]$HealthMaxAgeMin = 25
 )
 $ErrorActionPreference = "Continue"
 $PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
@@ -35,7 +43,20 @@ $py = "C:\Users\jackson0202\AppData\Local\Programs\Python\Python310\python.exe"
 New-Item -ItemType Directory -Force $LogDir | Out-Null
 New-Item -ItemType Directory -Force $StateDir | Out-Null
 
+if ([string]::IsNullOrWhiteSpace($HealthPath)) {
+  if (-not [string]::IsNullOrWhiteSpace($env:CARDZ_V2_HEALTH_PATH)) {
+    $HealthPath = $env:CARDZ_V2_HEALTH_PATH
+  } else {
+    $HealthPath = Join-Path $RepoRoot "data\runtime\daily-chain-v2\health.json"
+  }
+}
+
 $nowUtc = [datetime]::UtcNow
+if (-not [string]::IsNullOrWhiteSpace($NowUtcOverride)) {
+  $nowUtc = [DateTimeOffset]::Parse(
+    $NowUtcOverride, [cultureinfo]::InvariantCulture,
+    [System.Globalization.DateTimeStyles]::AssumeUniversal).UtcDateTime
+}
 $stamp = $nowUtc.ToString("yyyyMMdd'T'HHmmss'Z'")
 $log = Join-Path $LogDir "watchdog-$stamp.log"
 $statePath = Join-Path $StateDir "watchdog_last_health.json"
@@ -53,27 +74,41 @@ if (-not [string]::IsNullOrWhiteSpace($ExpectDate)) { $todayJst = $ExpectDate }
 $todayUtc = $nowUtc.ToString("yyyyMMdd")
 $yesterdayUtc = $nowUtc.AddDays(-1).ToString("yyyyMMdd")
 
+# The V2 chain ticks 03:30-17:00 JST (last scheduled tick) and must be DONE or
+# PUBLISHED by 17:30 JST. Inside that window we police health.json freshness;
+# only after it do we police the live site.
+$jstWindowStart = [TimeSpan]::FromMinutes(210)
+$jstWindowEnd = [TimeSpan]::FromMinutes(1050)
+$inWindow = ($nowJst.TimeOfDay -ge $jstWindowStart -and $nowJst.TimeOfDay -le $jstWindowEnd)
+$afterWindow = ($nowJst.TimeOfDay -gt $jstWindowEnd)
+$runLiveCheck = (-not $SkipLiveCheck) -and ($afterWindow -or -not [string]::IsNullOrWhiteSpace($ExpectDate))
+$healthAlerts = New-Object System.Collections.Generic.List[string]
+
 function Parse-Iso([string]$s) {
   try {
     return [DateTimeOffset]::Parse($s, [cultureinfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AssumeUniversal)
   } catch { return $null }
 }
 
-function Send-Notify([string]$text) {
-  if ($NoNotify) { Say "notify suppressed (-NoNotify)"; return }
-  $notify = Join-Path $RepoRoot "scripts\notify_hermes.py"
-  if (-not (Test-Path -LiteralPath $notify)) { Say "notify_hermes.py missing at $notify; cannot notify"; return }
+# Contract C3: notify_hermes.py only ever had `alert --key --text --level
+# --cooldown-min`. The old probe for a `send` subcommand always missed and fell
+# back to the `chain` subcommand, so watchdog alerts arrived labelled "morning".
+function Send-Notify([string]$key, [string]$text, [string]$level = "error", [int]$CooldownMin = 60) {
   # HTML parse_mode on the TG side: strip angle brackets / ampersands.
   $safe = ($text -replace '[<>]', "'") -replace '&', 'and'
   if ($safe.Length -gt 1500) { $safe = $safe.Substring(0, 1480) + " ...(truncated)" }
-  $help = (& $py -X utf8 $notify --help 2>&1 | Out-String)
-  if ($help -match '\{[^}]*\bsend\b[^}]*\}') {
-    & $py -X utf8 $notify send --text $safe *>> $log
-  } else {
-    # Stash-era notify_hermes.py has no `send`; ride the `chain` subcommand.
-    & $py -X utf8 $notify chain --chain morning --status $safe --exit-code 1 --log $log *>> $log
-  }
-  Say "notify exit=$LASTEXITCODE"
+  if ($NotifyDryRun) { Write-Output "NOTIFY_DRYRUN $key $level $safe"; Say "NOTIFY_DRYRUN $key $level $safe"; return }
+  if ($NoNotify) { Say "notify suppressed (-NoNotify) key=$key"; return }
+  $notify = Join-Path $RepoRoot "scripts\notify_hermes.py"
+  if (-not (Test-Path -LiteralPath $notify)) { Say "notify_hermes.py missing at $notify; cannot notify"; return }
+  & $py -X utf8 $notify alert --key $key --text $safe --level $level --cooldown-min $CooldownMin *>> $log
+  Say "notify key=$key exit=$LASTEXITCODE"
+}
+
+function Send-HealthAlert([string]$key, [string]$text, [string]$level) {
+  $healthAlerts.Add($key)
+  Say "ALERT $key $level $text"
+  Send-Notify $key $text $level 60
 }
 
 $health = $null
@@ -88,25 +123,79 @@ try {
     catch { Warn "state file unreadable: $statePath ($($_.Exception.Message))" }
   }
 
-  # ---- 1. live health -----------------------------------------------------
-  $ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0 Safari/537.36 CARDZ-watchdog"
-  for ($attempt = 1; $attempt -le 3; $attempt++) {
-    try {
-      $resp = Invoke-WebRequest -Uri $HealthUrl -UserAgent $ua -UseBasicParsing -TimeoutSec 20
-      if ($resp.StatusCode -eq 200) {
-        $healthRaw = [string]$resp.Content
-        $health = $healthRaw | ConvertFrom-Json
-        break
-      }
-      Warn "health http $($resp.StatusCode) attempt $attempt"
-    } catch {
-      Warn "health fetch attempt ${attempt}: $($_.Exception.Message)"
+  # ---- 0. orchestrator health.json (contract C1) --------------------------
+  # A tick that dies on CTRL_CLOSE writes nothing anywhere else; this file is the
+  # only thing that says "the chain is still alive" between 03:30 and 17:30 JST.
+  Say "health path=$HealthPath inWindow=$inWindow afterWindow=$afterWindow jst=$($nowJst.ToString('HH:mm'))"
+  $hj = $null
+  if (Test-Path -LiteralPath $HealthPath) {
+    try { $hj = Get-Content -LiteralPath $HealthPath -Raw -Encoding UTF8 | ConvertFrom-Json }
+    catch { $hj = $null; Warn "health.json unparsable: $($_.Exception.Message)" }
+  }
+  if ($null -eq $hj) {
+    if ($inWindow) {
+      Send-HealthAlert "v2-health-missing" "CARDZ V2 health.json missing/unreadable at $HealthPath inside the 03:30-17:30 JST window (JST $($nowJst.ToString('HH:mm')))" "error"
+    } elseif ($afterWindow) {
+      Send-HealthAlert "v2-not-done" "CARDZ V2 health.json missing/unreadable at $HealthPath after 17:30 JST; the chain never reported DONE/PUBLISHED" "error"
+    } else {
+      Say "health.json absent outside the JST window; no alert"
     }
-    if ($attempt -lt 3) { Start-Sleep -Seconds 10 }
+  } else {
+    $runState = [string]$hj.run_state
+    $tickPhase = [string]$hj.tick_phase
+    # DONE only counts for TODAY's business day: a leftover health.json from
+    # yesterday's PUBLISHED run must not silence every alert until 17:30 JST.
+    $healthDate = [string]$hj.business_date
+    $done = (@("DONE", "PUBLISHED") -contains $runState) -and ($healthDate -eq $todayJst)
+    $writtenAt = Parse-Iso ([string]$hj.written_at_utc)
+    $ageMin = $null
+    if ($null -ne $writtenAt) { $ageMin = [math]::Round(($nowUtc - $writtenAt.UtcDateTime).TotalMinutes, 1) }
+    Say "health run_state=$runState tick_phase=$tickPhase ageMin=$ageMin businessDate=$healthDate expectedDate=$todayJst done=$done"
+
+    if ($inWindow -and -not $done) {
+      if ($null -eq $writtenAt) {
+        Send-HealthAlert "v2-health-stale" "CARDZ V2 health.json written_at_utc unparsable ('$($hj.written_at_utc)') run_state=$runState tick_phase=$tickPhase" "error"
+      } elseif ($ageMin -gt $HealthMaxAgeMin) {
+        Send-HealthAlert "v2-health-stale" "CARDZ V2 health.json is ${ageMin}min old (max $HealthMaxAgeMin) run_state=$runState tick_phase=$tickPhase businessDate=$($hj.business_date)" "error"
+      }
+    }
+
+    $parked = @()
+    if ($null -ne $hj.parked) { $parked = @($hj.parked) }
+    if ($parked.Count -gt 0) {
+      Send-HealthAlert "v2-parked" "CARDZ V2 parked tasks: $($parked -join ', ') -- unpark with: python3 pipelines/daily_chain_v2.py unpark --task $([string]$parked[0])" "warn"
+    }
+
+    if ($afterWindow -and -not $done) {
+      Send-HealthAlert "v2-not-done" "CARDZ V2 run_state=$runState after 17:30 JST (tick_phase=$tickPhase businessDate=$($hj.business_date) ageMin=$ageMin)" "error"
+    }
+  }
+
+  # ---- 1. live health -----------------------------------------------------
+  # Runs every 15 min now, but the live site is only expected to be today's
+  # after the 17:30 JST publish window, so before that this section is skipped.
+  $ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0 Safari/537.36 CARDZ-watchdog"
+  if ($runLiveCheck) {
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+      try {
+        $resp = Invoke-WebRequest -Uri $HealthUrl -UserAgent $ua -UseBasicParsing -TimeoutSec 20
+        if ($resp.StatusCode -eq 200) {
+          $healthRaw = [string]$resp.Content
+          $health = $healthRaw | ConvertFrom-Json
+          break
+        }
+        Warn "health http $($resp.StatusCode) attempt $attempt"
+      } catch {
+        Warn "health fetch attempt ${attempt}: $($_.Exception.Message)"
+      }
+      if ($attempt -lt 3) { Start-Sleep -Seconds 10 }
+    }
+  } else {
+    Say "live-release check skipped (JST $($nowJst.ToString('HH:mm')) not past 17:30; no -ExpectDate)"
   }
 
   if ($null -eq $health) {
-    Fail "health unreachable/unparsable after 3 attempts: $HealthUrl"
+    if ($runLiveCheck) { Fail "health unreachable/unparsable after 3 attempts: $HealthUrl" }
   } else {
     Say "health $healthRaw"
     if ([string]$health.status -ne "ok") { Fail "status=$($health.status)" }
@@ -186,7 +275,7 @@ try {
 
   # ---- 2. did today's V2 chain launch? ------------------------------------
   # 037 nightly/morning/refresh logs are not the live path after V2 cutover.
-  if (-not $SkipLogCheck) {
+  if ($runLiveCheck -and -not $SkipLogCheck) {
     $v2Day = Join-Path $RepoRoot "data\runtime\daily-chain-v2\$todayJst"
     $v2Logs = Join-Path $v2Day "logs"
     if (-not (Test-Path -LiteralPath $v2Day)) {
@@ -215,7 +304,7 @@ if ($failures.Count -gt 0) {
   if ($health) { $summary += " || live gen=$($health.generation) generatedAt=$($health.generatedAt) cards=$($health.cards)" }
   $summary += " || log=data/runtime/logs/$(Split-Path -Leaf $log)"
   Say $summary
-  Send-Notify $summary
+  Send-Notify "v2-live-release" $summary "error" 60
   exit 1
 }
 
@@ -223,7 +312,13 @@ if ($state) {
   ($state | ConvertTo-Json -Depth 3) | Out-File -FilePath $statePath -Encoding utf8
   Say "state written $statePath"
 }
-$okLine = "OK CARDZ watchdog $todayJst JST gen=$($health.generation) cards=$($health.cards) box=$($health.box.total)"
+if ($healthAlerts.Count -gt 0) {
+  Say "RED CARDZ watchdog $todayJst JST health alerts: $($healthAlerts -join ', ')"
+  exit 2
+}
+$okLine = "OK CARDZ watchdog $todayJst JST"
+if ($health) { $okLine += " gen=$($health.generation) cards=$($health.cards) box=$($health.box.total)" }
+else { $okLine += " live-check=skipped health=ok" }
 if ($warnings.Count -gt 0) { $okLine += " warn: " + ($warnings -join " | ") }
 Say $okLine
 exit 0
