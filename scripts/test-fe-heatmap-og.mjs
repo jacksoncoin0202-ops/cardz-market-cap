@@ -66,7 +66,11 @@ check("route 寫 x-og-period/scope/updown/lang",
 check("heatmap route 逐語言載字體", /loadOgFonts\(lang\)/.test(routeSrc) && /SHARE_LANG_FONTS\[lang\]/.test(routeSrc));
 check("heatmap route fontFamily 跟語言", /SHARE_FONT_FAMILY\[lang\]/.test(routeSrc));
 
-check("heatmap.tsx fetch heatmapOgPath", /heatmapOgPath\(/.test(heatmapSrc) && /fetch\(path/.test(heatmapSrc));
+/* 2026-08-22：真正嗰個 `fetch(path` 抽咗落 `lib/share-fetch.ts`（卡片內頁一齊用，
+   AGENTS.md 規矩 13）。呢度守嘅嘢冇變 —— 熱力圖砌出嚟嗰條 path 要**真係**餵入去。 */
+const shareFetchSrc = readFileSync(join(ROOT, "apps/web/src/lib/share-fetch.ts"), "utf8");
+check("heatmap.tsx fetch heatmapOgPath", /heatmapOgPath\(/.test(heatmapSrc)
+  && /fetchShareBlob\(path, res, "heatmap OG"\)/.test(heatmapSrc) && /fetch\(path/.test(shareFetchSrc));
 check("卡圖優先 _600（唔好用 200 放大糊）", /variants\?\.\["600"\] \?\? card\.image\.variants\?\.\["200"\]/.test(routeSrc));
 /*
  * 2026-08-21：owner 要 4K，route 唔再永遠 `return 1`。守嘅嘢冇鬆 —— 要守嘅由來都係

@@ -5,10 +5,13 @@
  * media size」）。純靜態，唔使 dev server，由 run_all_tests.py glob 入 npm test。
  *
  * 守嘅係「一錯就靜靜出錯尺寸、但三邊都照 200」嗰批：
- *  ① `SHARE_TARGETS` 七個目的地齊：五個貼圖目的地（IG / Threads / X / WhatsApp / 其他）
- *     全部 4:5，全屏面 `status` 自己一行 9:16，`desktop` 1.91:1。
- *     ⚠️ 呢條就係整件事嘅重點：feed 三家（IG / Threads / X）對太直嘅圖**唔裁而係縮細**，
- *     邊個目的地寫錯咗 9:16 就係張圖永遠得七八成闊，冇 error、冇 log、冇人發現。
+ *  ① `SHARE_TARGETS` 七個目的地齊：**IG 自己一行 1:1**（owner 2026-08-22：「IG 原來
+ *     係正方形出 POST」），Threads / X / WhatsApp / 其他四個 4:5，全屏面 `status`
+ *     自己一行 9:16，`desktop` 1.91:1。
+ *     ⚠️ 呢條就係整件事嘅重點：feed 對太直嘅圖**唔裁而係縮細**，邊個目的地寫錯咗
+ *     9:16 就係張圖永遠得七八成闊，冇 error、冇 log、冇人發現。
+ *     ⚠️ 亦都守住反方向：IG 改咗方之後，唔准順手將 Threads / X 一齊拉落 square ——
+ *     嗰三家 4:5 係 owner 貼出去實測嘅結果，一齊改就係為咗表面整齊而令三張圖變差。
  *  ② `story` alias 仲係指住 `post`。派咗出去嘅舊 HTML 仲喺 CDN／用戶 tab 度，
  *     嗰粒係**通用**分享掣，指去 9:16 = ① 嗰個陷阱由舊 tab 直接中。
  *  ③ `status` 1080×1920 真身喺 `FORMAT_SIZES`，og route 有佢嘅 JPEG 質素。
@@ -34,6 +37,7 @@ const shareImage = read("apps/web/src/lib/share-image.ts");
 const shareMenu = read("apps/web/src/components/share-menu.tsx");
 const heatmap = read("apps/web/src/components/heatmap.tsx");
 const cardDetail = read("apps/web/src/components/card-detail.tsx");
+const shareFetch = read("apps/web/src/lib/share-fetch.ts");
 const ogRoute = read("apps/web/src/app/api/og/card/[id]/route.tsx");
 const i18n = read("apps/web/src/lib/i18n.ts");
 const css = read("apps/web/src/app/globals.css");
@@ -50,13 +54,20 @@ check("SHARE_TARGETS 讀得返（改咗寫法就要更新呢個 test）", target
 for (const id of ["instagram", "threads", "x", "whatsapp", "status", "other", "desktop"]) {
   check(`SHARE_TARGETS 有 ${id}`, targets.has(id));
 }
-/* ⚠️ 五個貼圖目的地全部 4:5。呢度唔准出現 9:16。
-   WhatsApp 都喺呢個 list：佢個對話／群組氣泡保持比例唔裁，4:5 佔到最高（owner
-   2026-08-20，e61c1aa9）。全屏 9:16 係下面 `status` 自己嗰行。 */
-for (const id of ["instagram", "threads", "x", "whatsapp", "other"]) {
+/* ⚠️ IG 自己一行 1:1（owner 2026-08-22 更正）。呢度唔准變返 post，亦唔准變 9:16。 */
+const instagram = targets.get("instagram");
+check("instagram 出 1:1（owner 2026-08-22：IG 係正方形出 POST）",
+  instagram?.format === "square" && instagram?.ratio === "1:1", JSON.stringify(instagram));
+
+/* ⚠️ 淨返四個貼圖目的地仍然係 4:5。呢度唔准出現 9:16，**亦唔准出現 square** ——
+   IG 改咗方之後最容易犯嘅錯就係「順手一齊改晒」。WhatsApp 都喺呢個 list：佢個對話／
+   群組氣泡保持比例唔裁，4:5 佔到最高（owner 2026-08-20，e61c1aa9）。
+   全屏 9:16 係下面 `status` 自己嗰行。 */
+for (const id of ["threads", "x", "whatsapp", "other"]) {
   const target = targets.get(id);
   if (!target) continue;
-  check(`${id} 出 4:5（feed／氣泡唔裁，太直只會縮細）`, target.format === "post" && target.aspect === "post" && target.ratio === "4:5",
+  check(`${id} 出 4:5（feed／氣泡唔裁，太直只會縮細；IG 改方唔准拉埋佢）`,
+    target.format === "post" && target.aspect === "post" && target.ratio === "4:5",
     JSON.stringify(target));
 }
 const status = targets.get("status");
@@ -91,13 +102,22 @@ check("whatsapp alias 仍然係 post（條 cron 鏈送對話／群組氣泡，�
   /^\s*whatsapp: "post",/m.test(destinations), "改咗就等於靜靜換咗條鏈每日出嗰批圖");
 
 /* ③ og route 認得 status */
-check("SHARE_FORMATS 有 status", /export const SHARE_FORMATS = \["wide", "post", "status"\] as const;/.test(destinations));
+check("SHARE_FORMATS 有 square 同 status",
+  /export const SHARE_FORMATS = \["wide", "square", "post", "status"\] as const;/.test(destinations));
+check("share-destinations 有 square 1080×1080（IG）", /square: \{ width: 1080, height: 1080 \}/.test(destinations));
+check("og route JPEG_QUALITY 有 square", /JPEG_QUALITY: Record<ShareFormat, number> = \{[^}]*square: \d+/.test(ogRoute));
+/* ⚠️ square 高度得 1080（比 post 少 270px），卡圖上限一定要細過 post ——
+   共用 560 個舞台就會爆。呢條係唯一擋得住「照抄 post 一行」嘅檢查。 */
+const squareGeo = ogRoute.match(/^\s*square: \{ padX: (\d+), padY: (\d+), artStage: (\d+), chartHeight: (\d+), artMaxWidth: \S+ artMaxHeight: (\d+) \},/m);
+check("TALL_GEO 有 square 而且卡圖上限細過 post 嘅 560",
+  !!squareGeo && Number(squareGeo[5]) < 560 && Number(squareGeo[3]) < 620, squareGeo?.[0] ?? "搵唔到 TALL_GEO.square");
+check("TEXT_ONLY_GEO 有 square（唔准跌落 wide 嗰套）", /^\s*square: \{ padX: 72, padY: 48,/m.test(ogRoute));
 /* ⚠️ 尺寸 2026-08-20 起住喺 `FORMAT_SIZES`（route.tsx 讀返佢）——見下面 ⑦a 攞真值再對。 */
 check("share-destinations 有 status 1080×1920", /status: \{ width: 1080, height: 1920 \}/.test(destinations));
 check("og route JPEG_QUALITY 有 status", /JPEG_QUALITY: Record<ShareFormat, number> = \{[^}]*status: \d+/.test(ogRoute));
-check("TALL_GEO 兩個直度 format 各自幾何", /const TALL_GEO: Record<Exclude<ShareFormat, "wide">/.test(ogRoute));
-check("status 避開 story 平台 UI（上下 250 安全區）", /status: \{ padding: "250px 56px"/.test(ogRoute));
-check("TEXT_ONLY_GEO 有 status（唔准跌落 wide 嗰套）", /^\s*status: \{ padding: "250px 72px"/m.test(ogRoute));
+check("TALL_GEO 三個直度 format 各自幾何", /const TALL_GEO: Record<\s*Exclude<ShareFormat, "wide">/.test(ogRoute));
+check("status 避開 story 平台 UI（上下 250 安全區）", /status: \{ padX: 56, padY: 250,/.test(ogRoute));
+check("TEXT_ONLY_GEO 有 status（唔准跌落 wide 嗰套）", /^\s*status: \{ padX: 72, padY: 250,/m.test(ogRoute));
 /* ⚠️ 卡圖母版得 429×600：status 高咗唔准順手谷大卡圖，一谷就係放大糊咗 */
 check("status 冇谷大卡圖（POST_ART_MAX_* 冇郁）", /const POST_ART_MAX_WIDTH = 452;/.test(ogRoute) && /const POST_ART_MAX_HEIGHT = 560;/.test(ogRoute));
 /* 三處 format 分支一律問「係咪 wide」——問「係咪 post」嘅話 status 會靜靜跌落 wide 嗰套幾何。
@@ -118,8 +138,15 @@ for (const [name, src] of [["heatmap.tsx", heatmap], ["card-detail.tsx", cardDet
   check(`${name} 冇自己寫死比例字串`, !/"4:5"|"9:16"|"16:9"|"1\.91:1"/.test(bare),
     "比例只准住喺 lib/share-destinations.ts");
 }
-/* ⚠️ 分享圖 fetch 一定要有 AbortSignal：冇 timeout 嘅 fetch 吊死 = 個掣永遠 busy */
-check("卡片內頁 share fetch 有 timeout", /AbortSignal\.timeout\(SHARE_FETCH_TIMEOUT_MS\)/.test(cardDetail));
+/* ⚠️ 分享圖 fetch 一定要有 AbortSignal：冇 timeout 嘅 fetch 吊死 = 個掣永遠 busy。
+   2026-08-22：兩個面共用 `lib/share-fetch.ts`（規矩 13）。卡片內頁本來自己寫住個
+   20 秒死 timeout —— 開咗 4K（實測 100–126 秒）之後嗰個數就係「揀 4K 一定 fail」。
+   所以呢條由「卡片內頁有 timeout」變成「卡片內頁唔准自己再寫一份」。 */
+check("share fetch 有 timeout（住喺共用 lib）", /AbortSignal\.timeout\(per\)/.test(shareFetch));
+check("卡片內頁行共用 fetchShareBlob，冇自己再寫一份",
+  /fetchShareBlob\(path, res, "card OG"\)/.test(cardDetail)
+  && !/SHARE_FETCH_TIMEOUT_MS/.test(cardDetail)
+  && !/AbortSignal\.timeout/.test(cardDetail));
 check("ShareMenu 有死鎖閘（PICK_TIMEOUT_MS）", /const PICK_TIMEOUT_MS = /.test(shareMenu) && /withTimeout\(Promise\.resolve\(onPick/.test(shareMenu));
 /* 品牌名唔准入 i18n（專有名詞，五個語言一樣） */
 check("品牌名寫死喺 share-menu（唔入 i18n）", /const BRAND_NAME/.test(shareMenu));
@@ -145,8 +172,10 @@ check("reduced-motion 蓋得住嗰條 0,1,1",
  * ⚠️ 分享圖 warm cache 一定要連語言做 key：換語言係 query-only soft navigation，
  * component 唔 remount，個 ref 原封不動 —— 淨係 key format 就會攞返上一個語言嗰張圖。
  */
-check("warm cache key 連埋語言", /const key = `\$\{format\}\|\$\{imageLang\}`;/.test(cardDetail)
-  && /shareBlobs\.current\.get\(`\$\{target\.format\}\|\$\{imageLang\}`\)/.test(cardDetail));
+/* 2026-08-22 再加清晰度：1080p warm 完再揀 4K，key 唔連 res 就攞返 1080p 嗰張，
+   檔名同用戶睇到嘅級數講住 4K。冇 error 冇 log。 */
+check("warm cache key 連埋語言同清晰度", /const key = `\$\{format\}\|\$\{res\}\|\$\{imageLang\}`;/.test(cardDetail)
+  && /shareBlobs\.current\.get\(`\$\{target\.format\}\|\$\{shareRes\}\|\$\{imageLang\}`\)/.test(cardDetail));
 
 /* ⑤ i18n：四條新 key × 5 語言，舊 key 清乾淨 */
 const localeText = i18n.slice(i18n.indexOf("export const copy"));
@@ -163,14 +192,15 @@ check("SHARE_WA_ASPECT is 9/16", /export const SHARE_WA_ASPECT = 9 \/ 16;/.test(
 check("ShareAspect 由 share-destinations 出（一張表）", /export type \{ ShareAspect \};/.test(shareImage)
   && /import type \{ ShareAspect \} from "\.\/share-destinations";/.test(shareImage));
 check("SHARE_ASPECTS 三個槽", /export const SHARE_ASPECTS = \["post", "wa", "frame"\] as const;/.test(destinations));
-check("heatmap 分享 GET /api/og/heatmap", /heatmapOgPath\(/.test(heatmap) && /fetch\(path/.test(heatmap));
+check("heatmap 分享 GET /api/og/heatmap", /heatmapOgPath\(/.test(heatmap)
+  && /fetchShareBlob\(path, res, "heatmap OG"\)/.test(heatmap) && /fetch\(path/.test(shareFetch));
 /* 2026-08-21：timeout 由寫死 45 秒改成跟清晰度（4K 實測 50–57 秒，45 秒會次次自斬）。
    同日再收窄：真站量到 4K 一定俾 gateway 喺 60 秒斬，所以除咗**單次** timeout，
    仲要有**成個 retry 迴圈**嘅預算。兩個數都要喺度 —— 淨得一個嗰種寫法就係
    「等一次然後放棄」或者「一次過等十分鐘」，兩樣都錯。呢條比原本嚴，冇放鬆。 */
-check("heatmap 分享 timeout 跟清晰度", /AbortSignal\.timeout\(per\)/.test(heatmap)
-  && /RESOLUTION_TIMEOUT_MS\[res\]/.test(heatmap)
-  && /RESOLUTION_RETRY_BUDGET_MS\[res\]/.test(heatmap));
+check("分享 timeout 跟清晰度", /AbortSignal\.timeout\(per\)/.test(shareFetch)
+  && /RESOLUTION_TIMEOUT_MS\[res\]/.test(shareFetch)
+  && /RESOLUTION_RETRY_BUDGET_MS\[res\]/.test(shareFetch));
 check("heatmap warm cache key 連語言 period scope updown res",
   /`\$\{format\}\|\$\{imageLang\}\|\$\{activePeriod\}\|\$\{visibleCount\}\|\$\{scope\}\|\$\{ogTheme\}\|\$\{upDown\}\|\$\{res\}`/.test(heatmap));
 check("exportHeatmap 冇預設 target", /const exportHeatmap = useCallback\(async \(target: ShareTarget\) =>/.test(heatmap));
@@ -249,9 +279,11 @@ check("熱力圖交返個 outcome", /return outcome;/.test(heatmap));
    ① 唔喺 retry 名單嗰啲 status（真係錯）→ 即刻掟；
    ② retry 預算用晒都仲未攞到 → 迴圈出到嚟嗰下要掟，唔准 `return undefined`。
    呢條由一個 needle 變兩個，收窄咗。 */
-check("熱力圖 OG 失敗唔准靜靜扮成功（要掟）",
-  /throw new Error\(`heatmap OG HTTP \$\{response\.status\}`\)/.test(heatmap)
-  && /throw new Error\(`heatmap OG 攞唔到/.test(heatmap));
+check("分享 OG 失敗唔准靜靜扮成功（要掟）",
+  /throw new Error\(`\$\{label\} HTTP \$\{response\.status\}`\)/.test(shareFetch)
+  && /throw new Error\(`\$\{label\} 攞唔到/.test(shareFetch));
+/* `label` 淨係做錯誤訊息 —— 兩個面都要各自傳，否則報錯講唔出邊張圖死咗。 */
+check("兩個面各自傳 label", /"heatmap OG"/.test(heatmap) && /"card OG"/.test(cardDetail));
 
 /*
  * ⑦f busy 唔准用 DOM `disabled`：瀏覽器將一個正攞住 focus 嘅 button 設成 disabled
@@ -293,4 +325,4 @@ if (failed.length) {
   console.error("FAIL share destinations:\n" + failed.map((item) => ` - ${item}`).join("\n"));
   process.exit(1);
 }
-console.log(`PASS share destinations (${targets.size} 個目的地 → 3 個尺寸，兩個面共用一個 picker)`);
+console.log(`PASS share destinations (${targets.size} 個目的地 → ${Object.keys(FORMAT_SIZES).length} 個尺寸，兩個面共用一個 picker)`);

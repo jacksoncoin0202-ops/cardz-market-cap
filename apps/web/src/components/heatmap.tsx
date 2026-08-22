@@ -23,14 +23,10 @@ import { heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
 import { heatmapOgFilename, heatmapOgLang, heatmapOgPath, type HeatmapOgScope, type HeatmapOgTheme } from "@/lib/heatmap-og";
 import { shareImageBlob } from "@/lib/share-file";
 import { SHARE_TARGETS, type ShareFormat, type ShareTarget } from "@/lib/share-destinations";
+import { fetchShareBlob } from "@/lib/share-fetch";
 import {
   DEFAULT_SHARE_RESOLUTION,
-  RESOLUTION_RETRY_BUDGET_MS,
-  RESOLUTION_TIMEOUT_MS,
   SHARE_RESOLUTIONS,
-  SHARE_RETRY_FIRST_WAIT_MS,
-  SHARE_RETRY_POLL_MS,
-  SHARE_RETRY_STATUSES,
   type ShareResolution,
 } from "@/lib/share-resolution";
 import { changeValue, DEFAULT_TILE, tileCardSize, tileColors, tileStyle, type TileParams } from "@/lib/tile-style";
@@ -284,53 +280,6 @@ const KIOSK_LOGO = {
    5 分鐘係 router.refresh()（RSC payload，唔係成版 reload），tile 唔會閃走。 */
 const KIOSK_REFRESH_MS = 5 * 60 * 1000;
 
-/*
- * 人手分享 GET /api/og/heatmap（同 cron）。40 格 OG 慢過單卡，timeout 比卡片 20s 闊。
- *
- * ⚠️ 呢個數字**跟清晰度走**，唔准寫死一個：1080p 45 秒同以前一樣，4K 實測 50–57 秒，
- * 沿用 45 秒就係次次喺就快出到嗰陣自己斬自己。真身喺 `lib/share-resolution.ts`
- * `RESOLUTION_TIMEOUT_MS`（CLI 都讀同一張表）。
- */
-const shareFetchTimeoutMs = (res: ShareResolution) => RESOLUTION_TIMEOUT_MS[res];
-
-/*
- * 「一次 fetch 攞到」呢個假設喺 4K 度係錯嘅。
- *
- * 2026-08-21 喺真站量：4K 每次都俾 gateway 喺 60 秒斬（504），但 server 冇停手，
- * 100–126 秒之後張圖已經喺 cache 度等緊。所以 4K 唔係「等耐啲」，係「踢一腳、
- * 等、再攞返**同一條 URL**」。
- *
- * 「同一條 URL」係關鍵：`stamp=now` 個 cache key 帶住分鐘，所以下面會用 `at=`
- * 釘死嗰一刻（見 `lib/share-stamp.ts`）。冇個 pin 就係每次 retry 都由頭 render。
- */
-async function fetchShareBlob(path: string, res: ShareResolution): Promise<Blob> {
-  const deadline = Date.now() + RESOLUTION_RETRY_BUDGET_MS[res];
-  let why = "";
-  let tries = 0;
-  while (Date.now() < deadline) {
-    tries += 1;
-    const per = Math.min(shareFetchTimeoutMs(res), deadline - Date.now());
-    let response: Response | null = null;
-    try {
-      response = await fetch(path, {
-        signal: typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(per) : undefined,
-      });
-    } catch (error) {
-      why = error instanceof Error ? error.message : String(error);
-    }
-    if (response?.ok) return await response.blob();
-    /* 唔喺 retry 名單 = 唔係 gateway 唔想等，係真係錯。再試幾多次都一樣。 */
-    if (response && !SHARE_RETRY_STATUSES.includes(response.status as (typeof SHARE_RETRY_STATUSES)[number])) {
-      throw new Error(`heatmap OG HTTP ${response.status}`);
-    }
-    if (response) why = `HTTP ${response.status}`;
-    /* 第一腳之後等耐啲 —— 每次 cache miss 都係 server 度多開一個 render。 */
-    const wait = tries === 1 ? SHARE_RETRY_FIRST_WAIT_MS : SHARE_RETRY_POLL_MS;
-    if (Date.now() + wait >= deadline) break;
-    await new Promise((done) => setTimeout(done, wait));
-  }
-  throw new Error(`heatmap OG 攞唔到：${why}`);
-}
 
 /*
  * Kiosk 特效 kill switch。五個 token 默認全開，落喺 `[data-kiosk-fx~="…"]`，
@@ -1013,7 +962,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title, scope 
          行返同一條 cache key。冇呢個 pin，4K 過咗一分鐘就變新 key，永遠 miss。 */
       at: Math.floor(Date.now() / 60_000) * 60_000,
     });
-    const pending = fetchShareBlob(path, res)
+    const pending = fetchShareBlob(path, res, "heatmap OG")
       .catch((error) => {
         shareBlobs.current.delete(key);
         throw error;

@@ -171,12 +171,13 @@ if (unknownAlias.length > 0) {
 /*
  * ⚠️ Guard 2：**個 tier 名唔准講大話。**
  *
- * `post`（1080×1350，七個目的地入面五個嘅預設）短邊一定要等如 tier 名嗰個數：
- * `1080p` → 1080、`4k` → 2160。有人改細 `FORMAT_SIZES.post`（例如為咗慳時間改成
- * 864×1080）而個掣仲寫住「1080p」，呢度即刻炸，唔使等用戶落載完自己數像素。
+ * `post`（1080×1350）同 `square`（1080×1080，IG）短邊一定要等如 tier 名嗰個數：
+ * `1080p` → 1080、`4k` → 2160。有人改細任何一個（例如為咗慳時間將 square 改成
+ * 864×864）而個掣仲寫住「1080p」，呢度即刻炸，唔使等用戶落載完自己數像素。
  *
- * 只釘 `post`：`status` 短邊一樣係 1080（順帶保住），`wide` 630 係 og:image 標準尺寸，
- * 佢個 tier 名本來就係級數唔係像素（見檔頭）。
+ * 兩個都釘，唔係淨釘 `post`：square 係 IG 嗰個目的地嘅唯一尺寸，佢講大話就係直接
+ * 呃咗撳 IG 嗰批人。`status` 短邊一樣係 1080（順帶保住），`wide` 630 係 og:image
+ * 標準尺寸，佢個 tier 名本來就係級數唔係像素（見檔頭）。
  */
 /*
  * ⚠️ Guard 3：**慢嘅一級唔准用快嗰級嘅 timeout。**
@@ -212,17 +213,20 @@ if (shortBudget.length > 0) {
   );
 }
 
-const EXPECTED_POST_SHORT_SIDE: Record<ShareResolution, number> = { "1080p": 1080, "4k": 2160 };
-const lyingTier = SHARE_RESOLUTIONS.filter((res) => {
-  const { width, height } = resolutionPixels("post", res);
-  return Math.min(width, height) !== EXPECTED_POST_SHORT_SIDE[res];
-});
+const EXPECTED_SHORT_SIDE: Record<ShareResolution, number> = { "1080p": 1080, "4k": 2160 };
+const PINNED_FORMATS = ["post", "square"] as const satisfies readonly ShareFormat[];
+const lyingTier = PINNED_FORMATS.flatMap((format) =>
+  SHARE_RESOLUTIONS.filter((res) => {
+    const { width, height } = resolutionPixels(format, res);
+    return Math.min(width, height) !== EXPECTED_SHORT_SIDE[res];
+  }).map((res) => ({ format, res })),
+);
 if (lyingTier.length > 0) {
   throw new Error(
     `share-resolution: tier 名同真實像素唔夾（${lyingTier
-      .map((res) => {
-        const { width, height } = resolutionPixels("post", res);
-        return `${res}: 應該短邊 ${EXPECTED_POST_SHORT_SIDE[res]} 但 post 出 ${width}×${height}`;
+      .map(({ format, res }) => {
+        const { width, height } = resolutionPixels(format, res);
+        return `${res}: 應該短邊 ${EXPECTED_SHORT_SIDE[res]} 但 ${format} 出 ${width}×${height}`;
       })
       .join("、")}）`,
   );

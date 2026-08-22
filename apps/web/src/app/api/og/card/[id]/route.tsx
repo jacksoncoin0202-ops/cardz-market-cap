@@ -4,6 +4,7 @@ import { ImageResponse } from "next/og";
 import { shortSubject } from "@/lib/related-cards";
 import { buildShareChart, type ShareChart } from "@/lib/share-chart";
 import { loadNodeMarketAsset, loadMarketSnapshot } from "@/lib/server-snapshot";
+import { RESOLUTION_SCALE, readShareResolution } from "@/lib/share-resolution";
 import { FORMAT_SIZES, readShareFormat, type ShareFormat } from "@/lib/share-destinations";
 import { readShareLang, shareCopy, SHARE_LANG_FONTS, type ShareCopy, type ShareLang } from "@/lib/share-copy";
 import { defaultMarketWindow, marketWindowDays, type MarketCardView, type MarketWindow } from "@/lib/types";
@@ -15,6 +16,8 @@ export const contentType = "image/jpeg";
  * 兩款分享圖，一條 route（fe06(share-card)，2026-08-19）：
  *   `?format=wide`（預設，1200×630）  —— 社交 unfurl。`twitter:card=summary_large_image`
  *      同 `og:image` 指住嘅就係佢，尺寸由 `lib/route-metadata.ts` 宣告，唔准亂改。
+ *   `?format=square`（1080×1080，1:1）—— **IG feed**（owner 2026-08-22：「IG 原來係
+ *     正方形出 POST」）。同 post 行同一個 layout，淨係垂直預算窄咗 270px。
  *   `?format=post`（1080×1350，4:5）—— 真係一張圖噉貼出去嗰張：存落相簿再貼
  *      Threads／X／IG feed、send 落 LINE／WhatsApp 對話。owner 2026-08-19：
  *      「手機一打開就見到係全屏幕，噉嘅樣先至似樣」。
@@ -56,6 +59,7 @@ type ShareTheme = "light" | "dark";
  */
 const FORMAT_THEMES: Record<ShareFormat, ShareTheme> = {
   wide: "dark",
+  square: "dark",
   post: "dark",
   status: "dark",
 };
@@ -80,7 +84,8 @@ const FORMAT_THEMES: Record<ShareFormat, ShareTheme> = {
  * ⚠️ `og:image:type` 喺 `card/[id]/page.tsx` 明寫 `image/jpeg`，同呢度一定要一致 ——
  *    `scripts/test-fe-og-unfurl.mjs` 會攞真 bytes 對返個宣告。
  */
-const JPEG_QUALITY: Record<ShareFormat, number> = { wide: 90, post: 92, status: 92 };
+/* square 同 post 一樣係俾人揿大睇嗰張，冇 byte 閘要夾，所以一樣 q92。 */
+const JPEG_QUALITY: Record<ShareFormat, number> = { wide: 90, square: 92, post: 92, status: 92 };
 
 /*
  * satori 冇 CSS var，所以要寫死 hex。每一粒都係 globals.css 嗰份 token 嘅字面值
@@ -200,9 +205,34 @@ const POST_ART_MAX_HEIGHT = 560;
  * 多出嗰 182px 落喺卡圖舞台（620 → 700）同走勢圖（120 → 180）度：卡圖上限**冇郁**
  * （452×560，見 POST_ART_MAX_*），因為母版得 429×600，谷大就係放大糊咗。
  */
-const TALL_GEO: Record<Exclude<ShareFormat, "wide">, { padding: string; artStage: number; chartHeight: number }> = {
-  post: { padding: "56px", artStage: POST_ART_STAGE_HEIGHT, chartHeight: 120 },
-  status: { padding: "250px 56px", artStage: 700, chartHeight: 180 },
+/*
+ * ⚠️ 卡圖上限跟住 format 行，唔准三個 format 共用一個數。`square` 高度得 1080，
+ * 比 post 少 270px —— 照用 post 嗰個 560 高上限，個舞台一定爆。
+ */
+/* ⚠️ padding 寫返做數字（`padX`/`padY`）唔寫 CSS 字串 —— 4K 要乘 scale，
+   字串就要 parse 返出嚟。順帶 test 度到嘅係數，可以直接比大細。 */
+const TALL_GEO: Record<
+  Exclude<ShareFormat, "wide">,
+  { padX: number; padY: number; artStage: number; chartHeight: number; artMaxWidth: number; artMaxHeight: number }
+> = {
+  /*
+   * `square` 1080×1080（IG feed）。內容高得 984（padding 48），比 post 嘅 1238 少 254px。
+   *
+   * 三個數點嚟：**量返嚟嘅**，唔係計數計出嚟（flex space-between 會食走剩餘空間，
+   * 加減數對唔到實際 ink）。先由 post 按比例試，再 `test-fe-og-post-layout.mjs --live`
+   * 逐 px 掃 ink bbox 收窄 —— 424 嗰刻底邊仲爭 7px（實測 41 < 48），收到 408 先入到。
+   *   卡圖舞台  620 → 408
+   *   走勢圖    120 →  84
+   *   padding    56 →  48（上下）
+   * 實測邊距（20 張卡，長／短卡名都一樣）：上 50、下 52、左右 48 —— 四邊都 ≥ padding。
+   * 卡圖上限由 452×560 收到 452×384（母版 429×600，按高度封頂 → 實際 275×384，
+   * 即係 0.64× —— 仲係**縮細**，同 post 一樣冇放大過母版，唔會蒙）。
+   *
+   * ⚠️ 改呢三個數任何一個，都要重跑 `--live` —— 而家淨返 4px 走盞。
+   */
+  square: { padX: 48, padY: 48, artStage: 408, chartHeight: 84, artMaxWidth: POST_ART_MAX_WIDTH, artMaxHeight: 384 },
+  post: { padX: 56, padY: 56, artStage: POST_ART_STAGE_HEIGHT, chartHeight: 120, artMaxWidth: POST_ART_MAX_WIDTH, artMaxHeight: POST_ART_MAX_HEIGHT },
+  status: { padX: 56, padY: 250, artStage: 700, chartHeight: 180, artMaxWidth: POST_ART_MAX_WIDTH, artMaxHeight: POST_ART_MAX_HEIGHT },
 };
 
 /*
@@ -315,6 +345,24 @@ function loadOgFonts(lang: ShareLang) {
   return pending;
 }
 
+/*
+ * 4K（`?res=4k`）= 逐個 px 數乘返個 scale，同 `api/og/heatmap` 條 route 一樣。
+ *
+ * ☠️ 試過「1× 排版 + 最外層 `transform: scale(2)`」—— **satori 唔食**：文字、色塊、
+ *    圓角都 scale 到，但 `<img>` 唔跟父層 transform。實測 2160×2160 嗰張 wordmark
+ *    同走勢圖直接唔見咗，卡圖細一截兼俾切走上半。三個 layout 入面最重要嗰三件嘢
+ *    全部係 `<img>`，所以嗰條路死得徹底，唔好再試。
+ *
+ * ⚠️ `scale` **冇 default 值**（同 heatmap 嗰個 `labelFontSize` 一樣）：逼將來新加嘅
+ *    layout／新 call site 明寫，唔寫 tsc 就紅。漏一個嘅後果係嗰嚿嘢喺 4K 度細一半，
+ *    200、冇 error、冇 log。
+ * ⚠️ letterSpacing 唔行呢個 helper —— 佢係小數，round 完 1.8 會變 2（+11%）。
+ *    嗰啲直接寫 `1.8 * scale`。
+ */
+function S(n: number, scale: number): number {
+  return Math.round(n * scale);
+}
+
 let artFailureLogged = false;
 function noteArtFailure(id: string, error: unknown): void {
   /* 只嗌一次：OG 係爬蟲面，壞一張通常等於壞成批，逐張 log 會浸死 log。 */
@@ -340,6 +388,11 @@ interface CardArt {
  * 補嗰記**輕**銳化係補返 lanczos 縮放本身嗰浸軟。唔可以下重手：卡圖係去咗底嘅 RGBA，
  * 邊緣一過銳就沿住 alpha 邊出白光暈，喺深色底特別現眼。
  * `withoutEnlargement: !fromMaster` 留返做保險：行派生檔嗰路永遠唔准放大。
+ */
+/*
+ * ⚠️ 4K（`?res=4k`）：`maxWidth`/`maxHeight` 由 call site 乘咗 2 先入嚟，所以呢度
+ * 咩都唔使識 —— 但要知母版得 600px 高，2× 之後張卡圖係**真係放大咗**母版。
+ * 呢個係資料上限唔係渲染上限（字、走勢圖、logo 全部係向量，4K 真利）。
  */
 async function loadCardArt(
   card: MarketCardView,
@@ -573,22 +626,24 @@ function cardSetName(card: MarketCardView, copy: ShareCopy): string {
 
 type Palette = (typeof THEMES)[ShareTheme];
 
-function Stat({ label, value, valueSize = 52, labelSize = 22, palette, tone }: {
+function Stat({ label, value, valueSize = 52, labelSize = 22, palette, tone, scale }: {
   label: string;
   value: string;
+  /** ⚠️ 1× 嘅數。乘 scale 喺呢個 component 入面做，call site 唔好乘多次。 */
   valueSize?: number;
   /** wide 個佐證行 label 收到 micro 18：嗰行係收據，唔可以同 hero label 22 一樣重。 */
   labelSize?: number;
   palette: Palette;
   tone?: "positive" | "negative" | "neutral";
+  scale: number;
 }) {
   const color = tone === "positive" ? palette.positive : tone === "negative" ? palette.negative : palette.ink;
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: S(8, scale) }}>
       {/* 對齊網頁 §1.3.2 角色：label = --w-label 600（唔係 400），data = --w-data 600（唔係 700）。
           Inter 600 比 bundled font 700 幼但字身闊少少，tracking 由 1.6 → 1.8 補返個呼吸位。 */}
-      <span style={{ fontSize: labelSize, color: palette.muted, letterSpacing: 1.8, fontWeight: 600 }}>{label}</span>
-      <span style={{ fontSize: valueSize, color, fontWeight: 600 }}>{value}</span>
+      <span style={{ fontSize: S(labelSize, scale), color: palette.muted, letterSpacing: 1.8 * scale, fontWeight: 600 }}>{label}</span>
+      <span style={{ fontSize: S(valueSize, scale), color, fontWeight: 600 }}>{value}</span>
     </div>
   );
 }
@@ -599,21 +654,24 @@ function Stat({ label, value, valueSize = 52, labelSize = 22, palette, tone }: {
  *   post：講**邊 180 日**（變動已經喺四個數嗰行出咗）。
  * SVG 入面冇字（見 lib/share-chart.ts 檔頭），所有座標軸文字都喺呢度用 satori 畫。
  */
-function ChartCaption({ palette, change, range, fontSize, copy }: {
+function ChartCaption({ palette, change, range, fontSize, copy, scale }: {
   palette: Palette;
   change: ReturnType<typeof changeText>;
   range?: string | null;
+  /** ⚠️ 1× 嘅數，乘 scale 喺呢度做。 */
   fontSize: number;
   copy: ShareCopy;
+  scale: number;
 }) {
   const tone = change?.tone === "positive" ? palette.positive : change?.tone === "negative" ? palette.negative : palette.muted;
+  const fs = S(fontSize, scale);
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
-      <span style={{ fontSize, color: palette.muted, letterSpacing: 1.8, fontWeight: 600 }}>
+      <span style={{ fontSize: fs, color: palette.muted, letterSpacing: 1.8 * scale, fontWeight: 600 }}>
         {copy.priceWindow(SHARE_WINDOW_LABEL)}
       </span>
-      {change ? <span style={{ fontSize, color: tone, fontWeight: 600 }}>{change.text}</span> : null}
-      {!change && range ? <span style={{ fontSize, color: palette.muted, letterSpacing: 1.8, fontWeight: 600 }}>{range}</span> : null}
+      {change ? <span style={{ fontSize: fs, color: tone, fontWeight: 600 }}>{change.text}</span> : null}
+      {!change && range ? <span style={{ fontSize: fs, color: palette.muted, letterSpacing: 1.8 * scale, fontWeight: 600 }}>{range}</span> : null}
     </div>
   );
 }
@@ -648,14 +706,16 @@ function chartRange(chart: ShareChart, copy: ShareCopy): string | null {
  * （52px × 0.275 = 14.3pt 一樣讀唔到）。冇咗最搶眼嗰嚿，個數就更加唔可以再細。
  */
 const TEXT_ONLY_GEO = {
-  wide: { padding: "40px 48px", gapTop: 8, gapBottom: 14, kicker: WIDE_TYPE.micro, set: WIDE_TYPE.micro, stat: WIDE_TYPE.stat, logoW: 144, logoH: 62, rule: 14, cols: 60 },
-  post: { padding: "56px 72px", gapTop: 20, gapBottom: 26, kicker: POST_TYPE.micro, set: POST_TYPE.meta, stat: POST_TYPE.stat, logoW: 280, logoH: 121, rule: 30, cols: 72 },
+  wide: { padX: 48, padY: 40, gapTop: 8, gapBottom: 14, kicker: WIDE_TYPE.micro, set: WIDE_TYPE.micro, stat: WIDE_TYPE.stat, logoW: 144, logoH: 62, rule: 14, cols: 60 },
+  post: { padX: 72, padY: 56, gapTop: 20, gapBottom: 26, kicker: POST_TYPE.micro, set: POST_TYPE.meta, stat: POST_TYPE.stat, logoW: 280, logoH: 121, rule: 30, cols: 72 },
+  /* 冇卡圖嗰版本來就得幾行字，1080 高度綽綽有餘，所以同 post 一套字級，淨係收窄 padding。 */
+  square: { padX: 72, padY: 48, gapTop: 20, gapBottom: 26, kicker: POST_TYPE.micro, set: POST_TYPE.meta, stat: POST_TYPE.stat, logoW: 280, logoH: 121, rule: 30, cols: 72 },
   /* 同 post 一套字級，只係上下 padding 要避開 story 嘅平台 UI（見 TALL_GEO 個註）。
      ⚠️ 唔准寫成 `format === "post" ? post : wide` —— status 跌咗落 wide 嗰套
      （padding 40/48、logo 144×62、hero 落 1920 高）就係一版縮喺頂嘅細字。 */
-  status: { padding: "250px 72px", gapTop: 20, gapBottom: 26, kicker: POST_TYPE.micro, set: POST_TYPE.meta, stat: POST_TYPE.stat, logoW: 280, logoH: 121, rule: 30, cols: 72 },
+  status: { padX: 72, padY: 250, gapTop: 20, gapBottom: 26, kicker: POST_TYPE.micro, set: POST_TYPE.meta, stat: POST_TYPE.stat, logoW: 280, logoH: 121, rule: 30, cols: 72 },
 } as const;
-function TextOnlyLayout({ card, logoSrc, palette, format, copy }: { card: MarketCardView; logoSrc: string; palette: Palette; format: ShareFormat; copy: ShareCopy }) {
+function TextOnlyLayout({ card, logoSrc, palette, format, copy, scale }: { card: MarketCardView; logoSrc: string; palette: Palette; format: ShareFormat; copy: ShareCopy; scale: number }) {
   const geo = TEXT_ONLY_GEO[format];
   /* wide 只得 630 高，卡名唔可以食三行 —— 同 WideLayout 行同一個封頂同同一條 ramp。 */
   const name = format === "wide"
@@ -669,20 +729,20 @@ function TextOnlyLayout({ card, logoSrc, palette, format, copy }: { card: Market
         width: "100%",
         height: "100%",
         background: palette.paper,
-        padding: geo.padding,
+        padding: `${S(geo.padY, scale)}px ${S(geo.padX, scale)}px`,
         justifyContent: "space-between",
         fontFamily: copy.fontFamily,
       }}
     >
-      <div style={{ display: "flex", flexDirection: "column", gap: geo.gapTop }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: S(geo.gapTop, scale) }}>
         {/* kicker = --w-label 600 + --track-kicker 級數；Inter 600 大寫比舊 bundled font 400 闊，
             4 → 3.4 先返返舊闊度（最長 kicker「POKEMON · #SV4A-205」唔可以谷長咗撞落標題）。 */}
-        <span style={{ fontSize: geo.kicker, color: palette.accent, letterSpacing: 3.4, fontWeight: 600 }}>
+        <span style={{ fontSize: S(geo.kicker, scale), color: palette.accent, letterSpacing: 3.4 * scale, fontWeight: 600 }}>
           {copy.tcg(card.tcg)} · #{card.collectorNumber}
         </span>
         <span
           style={{
-            fontSize: format === "wide" ? wideTitleSize(name) : textOnlyTitleSize(name),
+            fontSize: S(format === "wide" ? wideTitleSize(name) : textOnlyTitleSize(name), scale),
             color: palette.ink,
             fontWeight: 700,
             lineHeight: 1.1,
@@ -691,20 +751,22 @@ function TextOnlyLayout({ card, logoSrc, palette, format, copy }: { card: Market
           {name}
         </span>
         {/* set 名明寫 400：唔好靠 satori 嘅默認 —— 我哋只 register 400/600/700，唔明寫就靠彩數 */}
-        <span style={{ fontSize: geo.set, color: palette.muted, lineHeight: 1.3, fontWeight: 400 }}>
+        <span style={{ fontSize: S(geo.set, scale), color: palette.muted, lineHeight: 1.3, fontWeight: 400 }}>
+          {/* ⚠️ `geo.cols` 喺呢度係**字數**，唔准乘 scale —— 4K 唔會令一行裝多啲字。 */}
           {clampSetName(cardSetName(card, copy), geo.cols)}
         </span>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: geo.gapBottom }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, borderTop: `2px solid ${palette.line}`, paddingTop: geo.rule }}>
-          <span style={{ fontSize: WIDE_TYPE.meta, color: palette.muted, letterSpacing: 1.8, fontWeight: 600 }}>{copy.psa10MarketCap}</span>
-          <span style={{ fontSize: WIDE_TYPE.hero, color: palette.ink, fontWeight: 700, lineHeight: 1 }}>{usd(card.marketCap.value)}</span>
+      <div style={{ display: "flex", flexDirection: "column", gap: S(geo.gapBottom, scale) }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: S(6, scale), borderTop: `${S(2, scale)}px solid ${palette.line}`, paddingTop: S(geo.rule, scale) }}>
+          <span style={{ fontSize: S(WIDE_TYPE.meta, scale), color: palette.muted, letterSpacing: 1.8 * scale, fontWeight: 600 }}>{copy.psa10MarketCap}</span>
+          <span style={{ fontSize: S(WIDE_TYPE.hero, scale), color: palette.ink, fontWeight: 700, lineHeight: 1 }}>{usd(card.marketCap.value)}</span>
         </div>
-        <div style={{ display: "flex", gap: geo.cols }}>
-          <Stat palette={palette} label={copy.psa10Price} value={usd(card.pricePsa10.value)} valueSize={geo.stat} labelSize={WIDE_TYPE.micro} />
-          <Stat palette={palette} label={copy.psa10Pop} value={integer(card.populationPsa10.value)} valueSize={geo.stat} labelSize={WIDE_TYPE.micro} />
+        {/* 呢度個 `geo.cols` 係做 gap 用（px），所以要乘；上面做字數嗰個唔可以乘。 */}
+        <div style={{ display: "flex", gap: S(geo.cols, scale) }}>
+          <Stat palette={palette} label={copy.psa10Price} value={usd(card.pricePsa10.value)} valueSize={geo.stat} labelSize={WIDE_TYPE.micro} scale={scale} />
+          <Stat palette={palette} label={copy.psa10Pop} value={integer(card.populationPsa10.value)} valueSize={geo.stat} labelSize={WIDE_TYPE.micro} scale={scale} />
         </div>
-        <img src={logoSrc} alt="CardZ Marketcap" width={geo.logoW} height={geo.logoH} />
+        <img src={logoSrc} alt="CardZ Marketcap" width={S(geo.logoW, scale)} height={S(geo.logoH, scale)} />
       </div>
     </div>
   );
@@ -758,7 +820,7 @@ function ArtStage({ art, alt, width, height, radius, palette }: {
   );
 }
 
-function WideLayout({ card, art, logoSrc, palette, chart, change, asOf, name, rankTotal, copy }: {
+function WideLayout({ card, art, logoSrc, palette, chart, change, asOf, name, rankTotal, copy, scale }: {
   card: MarketCardView;
   art: CardArt;
   logoSrc: string;
@@ -769,6 +831,7 @@ function WideLayout({ card, art, logoSrc, palette, chart, change, asOf, name, ra
   name: string;
   rankTotal: number | null;
   copy: ShareCopy;
+  scale: number;
 }) {
   const changeTone = change?.tone === "positive" ? palette.positive : change?.tone === "negative" ? palette.negative : palette.muted;
   const changeBg = change?.tone === "positive" ? palette.positiveSoft : change?.tone === "negative" ? palette.negativeSoft : palette.surface;
@@ -777,8 +840,8 @@ function WideLayout({ card, art, logoSrc, palette, chart, change, asOf, name, ra
       <ArtStage
         art={art}
         alt={card.image.alt ?? name}
-        width={ART_PANEL_WIDTH}
-        height={630}
+        width={S(ART_PANEL_WIDTH, scale)}
+        height={S(630, scale)}
         radius={0}
         palette={palette}
       />
@@ -788,11 +851,11 @@ function WideLayout({ card, art, logoSrc, palette, chart, change, asOf, name, ra
           flexDirection: "column",
           flex: 1,
           /* 右欄內容闊 = 1200 − 430(卡圖) − 48 − 44 = 678。 */
-          padding: "40px 44px 40px 48px",
+          padding: `${S(40, scale)}px ${S(44, scale)}px ${S(40, scale)}px ${S(48, scale)}px`,
           justifyContent: "space-between",
         }}
       >
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: S(8, scale) }}>
           {/*
             rank 由「22px 藥丸裝飾」升做 40px 區塊（2026-08-19）。
             佢係成張圖入面唯一會自我繁殖嘅元素：睇到「#4 of 1,307」，下一個問題梗係
@@ -801,20 +864,20 @@ function WideLayout({ card, art, logoSrc, palette, chart, change, asOf, name, ra
                唔係全世界嘅寶可夢卡（snapshot.coverage.claim = verified-top-n）。
           */}
           {card.marketRank >= 1 ? (
-            <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
-              <span style={{ fontSize: WIDE_RANK_SIZE, color: palette.ink, fontWeight: 700 }}>#{card.marketRank}</span>
-              <span style={{ fontSize: WIDE_TYPE.micro, color: palette.muted, letterSpacing: 1.6, fontWeight: 600 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: S(12, scale) }}>
+              <span style={{ fontSize: S(WIDE_RANK_SIZE, scale), color: palette.ink, fontWeight: 700 }}>#{card.marketRank}</span>
+              <span style={{ fontSize: S(WIDE_TYPE.micro, scale), color: palette.muted, letterSpacing: 1.6 * scale, fontWeight: 600 }}>
                 {copy.ranked(rankTotal ? integer(rankTotal) : null, copy.tcg(card.tcg))}
               </span>
             </div>
           ) : null}
-          <span style={{ fontSize: wideTitleSize(name), color: palette.ink, fontWeight: 700, lineHeight: 1.12 }}>{name}</span>
+          <span style={{ fontSize: S(wideTitleSize(name), scale), color: palette.ink, fontWeight: 700, lineHeight: 1.12 }}>{name}</span>
           {/* set · 編號 · 印刷語言 一行過，擺喺卡名**之下**做出處收據（唔係上面做 kicker）：
               unfurl 入面卡名喺氣泡個 title 行已經出咗一次，圖入面呢行嘅角色係「邊個版本」，
               所以行 micro 唔行 meta —— 順帶慳返成組高度畀 88px hero。
               ⚠️ 語言段一定要行 `printLanguage()`（逐個語言一張表），唔准行網站嗰個
               `localizedCardLanguage()`：餵一個冇載字體嘅語言落 satori 會出空位，唔會報錯。 */}
-          <span style={{ fontSize: WIDE_TYPE.micro, color: palette.accent, letterSpacing: 2.2, fontWeight: 600 }}>
+          <span style={{ fontSize: S(WIDE_TYPE.micro, scale), color: palette.accent, letterSpacing: 2.2 * scale, fontWeight: 600 }}>
             {(() => {
               const tail = [`#${card.collectorNumber}`, printLanguage(card.cardLanguage, copy)].filter(Boolean) as string[];
               const budget = WIDE_KICKER_MAX - displayWidth(tail.join(" · ")) - tail.length * 3;
@@ -822,17 +885,17 @@ function WideLayout({ card, art, logoSrc, palette, chart, change, asOf, name, ra
             })()}
           </span>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: S(12, scale) }}>
           {/*
             ★ HERO：全圖唯一一個為「縮到 0.275× 都仲要讀得到」而設嘅數。
             右邊貼變動藥丸；冇變動（累積中／未有數）就**整粒消失**，唔准出 0.00% 扮平穩。
           */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 4, borderTop: `2px solid ${palette.line}`, paddingTop: 12 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: S(4, scale), borderTop: `${S(2, scale)}px solid ${palette.line}`, paddingTop: S(12, scale) }}>
             {/* ⚠️ 窗口標籤（180D）**唔准**接喙這條 label 後面：市值係即時數，
                 唔係 180 日數。寫成「PSA 10 MARKET CAP · 180D」係講假話。 */}
-            <span style={{ fontSize: WIDE_TYPE.meta, color: palette.muted, letterSpacing: 1.8, fontWeight: 600 }}>{copy.psa10MarketCap}</span>
-            <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-              <span style={{ fontSize: WIDE_TYPE.hero, color: palette.ink, fontWeight: 700, lineHeight: 1 }}>{usd(card.marketCap.value)}</span>
+            <span style={{ fontSize: S(WIDE_TYPE.meta, scale), color: palette.muted, letterSpacing: 1.8 * scale, fontWeight: 600 }}>{copy.psa10MarketCap}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: S(20, scale) }}>
+              <span style={{ fontSize: S(WIDE_TYPE.hero, scale), color: palette.ink, fontWeight: 700, lineHeight: 1 }}>{usd(card.marketCap.value)}</span>
               {change ? (
                 <span
                   style={{
@@ -842,10 +905,10 @@ function WideLayout({ card, art, logoSrc, palette, chart, change, asOf, name, ra
                     /* ☠️ 唔准升返 stat：實測最闊嘅 hero（$141.95M @88px ≈ 400px）加
                        30px 藥丸 = 681px > 欄寬 678，nowrap 之後藥丸就貼死粒 M。
                        22px 量返係 622px，留返真嘅 20px gap。 */
-                    fontSize: WIDE_TYPE.meta,
+                    fontSize: S(WIDE_TYPE.meta, scale),
                     fontWeight: 600,
                     borderRadius: 999,
-                    padding: "6px 18px",
+                    padding: `${S(6, scale)}px ${S(18, scale)}px`,
                     /* ☠️ 兩粒都唔可以删：舊版嘅藥丸會被 hero 擠窄，「+43.3% 180D」
                        摺成兩行同 hero 撞埋一块。現在窗口標籤搬啦上面條 label，
                        藥丸只剩變動，再加 nowrap + 唔准縮。 */
@@ -860,15 +923,15 @@ function WideLayout({ card, art, logoSrc, palette, chart, change, asOf, name, ra
           </div>
           {/* 佐證行：cap 係點計出嚟嘅（價 × 數量）。特登細過 hero —— 呢行係收據唔係主角，
               但一定要喺度，因為「你堆數作嘅」呢個反對要當場答死。 */}
-          <div style={{ display: "flex", gap: 48 }}>
-            <Stat palette={palette} label={copy.psa10Price} value={usd(card.pricePsa10.value)} valueSize={WIDE_TYPE.stat} labelSize={WIDE_TYPE.micro} />
-            <Stat palette={palette} label={copy.psa10Pop} value={integer(card.populationPsa10.value)} valueSize={WIDE_TYPE.stat} labelSize={WIDE_TYPE.micro} />
+          <div style={{ display: "flex", gap: S(48, scale) }}>
+            <Stat palette={palette} label={copy.psa10Price} value={usd(card.pricePsa10.value)} valueSize={WIDE_TYPE.stat} labelSize={WIDE_TYPE.micro} scale={scale} />
+            <Stat palette={palette} label={copy.psa10Pop} value={integer(card.populationPsa10.value)} valueSize={WIDE_TYPE.stat} labelSize={WIDE_TYPE.micro} scale={scale} />
           </div>
           {/* 冇歷史（少過兩個價點）就成塊唔出，唔畫一條假線亦唔留空框。
               變動已經升咗上 hero，所以右槽改出日期範圍（同 post 一樣邏輯）。 */}
           {chart ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 4, width: "100%" }}>
-              <ChartCaption palette={palette} change={null} range={chartRange(chart, copy)} fontSize={WIDE_TYPE.micro} copy={copy} />
+            <div style={{ display: "flex", flexDirection: "column", gap: S(4, scale), width: "100%" }}>
+              <ChartCaption palette={palette} change={null} range={chartRange(chart, copy)} fontSize={WIDE_TYPE.micro} copy={copy} scale={scale} />
               <img src={chart.src} alt="" width={chart.width} height={chart.height} />
             </div>
           ) : null}
@@ -884,9 +947,9 @@ function WideLayout({ card, art, logoSrc, palette, chart, change, asOf, name, ra
             2026-08-19 為咗畀返高度落 88px hero，declared 由 200×86 收做 144×62（同一比例）。
           */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
-            <img src={logoSrc} alt="CardZ Marketcap" width={144} height={62} />
+            <img src={logoSrc} alt="CardZ Marketcap" width={S(144, scale)} height={S(62, scale)} />
             {asOf ? (
-              <span style={{ fontSize: WIDE_TYPE.micro, color: palette.muted, letterSpacing: 1.2, fontWeight: 400 }}>{copy.asOf(copy.upper(asOf))}</span>
+              <span style={{ fontSize: S(WIDE_TYPE.micro, scale), color: palette.muted, letterSpacing: 1.2 * scale, fontWeight: 400 }}>{copy.asOf(copy.upper(asOf))}</span>
             ) : null}
           </div>
         </div>
@@ -919,7 +982,7 @@ function WideLayout({ card, art, logoSrc, palette, chart, change, asOf, name, ra
  *     堆喺底部變一大笪空白。
  * 改任何一個 block 嘅高度／字級，行返 `scripts/test-fe-og-post-layout.mjs` 重新量過。
  */
-function PostLayout({ card, art, logoSrc, palette, chart, change, asOf, format, copy }: {
+function PostLayout({ card, art, logoSrc, palette, chart, change, asOf, format, copy, scale }: {
   card: MarketCardView;
   art: CardArt;
   logoSrc: string;
@@ -927,9 +990,11 @@ function PostLayout({ card, art, logoSrc, palette, chart, change, asOf, format, 
   chart: ShareChart | null;
   change: ReturnType<typeof changeText>;
   asOf: string | null;
-  /* post 1080×1350 定 status 1080×1920 —— 兩個都行呢個 layout，見 TALL_GEO 個註 */
+  /* square 1080×1080 / post 1080×1350 / status 1080×1920 —— 三個都行呢個 layout，
+     排版角色一模一樣，分別淨係「有幾多高度可以使」（見 TALL_GEO 個註）。 */
   format: Exclude<ShareFormat, "wide">;
   copy: ShareCopy;
+  scale: number;
 }) {
   const geo = TALL_GEO[format];
   const name = clampTitle(cardTitle(card, copy));
@@ -941,24 +1006,24 @@ function PostLayout({ card, art, logoSrc, palette, chart, change, asOf, format, 
         width: "100%",
         height: "100%",
         background: palette.paper,
-        padding: geo.padding,
+        padding: `${S(geo.padY, scale)}px ${S(geo.padX, scale)}px`,
         justifyContent: "space-between",
         fontFamily: copy.fontFamily,
       }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
         {/* 190×82 = 2.316:1，同 wide 個 144×62 一樣係量返出圖嘅數（見 WideLayout 嗰個註）。 */}
-        <img src={logoSrc} alt="CardZ Marketcap" width={190} height={82} />
+        <img src={logoSrc} alt="CardZ Marketcap" width={S(190, scale)} height={S(82, scale)} />
         {card.marketRank >= 1 ? (
           <span
             style={{
               display: "flex",
               background: palette.rankBg,
               color: palette.rankInk,
-              fontSize: POST_TYPE.meta,
+              fontSize: S(POST_TYPE.meta, scale),
               fontWeight: 600,
               borderRadius: 999,
-              padding: "8px 22px",
+              padding: `${S(8, scale)}px ${S(22, scale)}px`,
             }}
           >
             #{card.marketRank}
@@ -969,47 +1034,47 @@ function PostLayout({ card, art, logoSrc, palette, chart, change, asOf, format, 
       <ArtStage
         art={art}
         alt={card.image.alt ?? name}
-        width={968}
-        height={geo.artStage}
+        width={S(968, scale)}
+        height={S(geo.artStage, scale)}
         /* 28 = 網頁 `--section-radius` 24 按 post 放大比例調高少少；1080 闊度度 24 會細到似方角。 */
-        radius={28}
+        radius={S(28, scale)}
         palette={palette}
       />
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
-        <span style={{ fontSize: POST_TYPE.micro, color: palette.accent, letterSpacing: 3.2, fontWeight: 600 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: S(10, scale), width: "100%" }}>
+        <span style={{ fontSize: S(POST_TYPE.micro, scale), color: palette.accent, letterSpacing: 3.2 * scale, fontWeight: 600 }}>
           {copy.tcg(card.tcg)} · #{card.collectorNumber}
         </span>
-        <span style={{ fontSize: postTitleSize(name), color: palette.ink, fontWeight: 700, lineHeight: 1.1 }}>{name}</span>
-        <span style={{ fontSize: POST_TYPE.meta, color: palette.muted, lineHeight: 1.3, fontWeight: 400 }}>{clampSetName(cardSetName(card, copy))}</span>
+        <span style={{ fontSize: S(postTitleSize(name), scale), color: palette.ink, fontWeight: 700, lineHeight: 1.1 }}>{name}</span>
+        <span style={{ fontSize: S(POST_TYPE.meta, scale), color: palette.muted, lineHeight: 1.3, fontWeight: 400 }}>{clampSetName(cardSetName(card, copy))}</span>
       </div>
 
       {/* 四個數一行，**四格同一個字級**（見 POST_TYPE 個註）—— 同網頁四個 KPI 由 `--kpi-fs`
           一個變數出係同一個道理：同一行、同一個 label 級、同一條線之下，字級唔同讀落唔似
           分主次，似排錯版。要分主次就靠位置（market cap 坐第一格）。 */}
-      <div style={{ display: "flex", gap: 40, borderTop: `2px solid ${palette.line}`, paddingTop: 22, width: "100%" }}>
-        <Stat palette={palette} label={copy.marketCap} value={usd(card.marketCap.value)} valueSize={POST_TYPE.stat} />
-        <Stat palette={palette} label={copy.psa10Price} value={usd(card.pricePsa10.value)} valueSize={POST_TYPE.stat} />
-        <Stat palette={palette} label={copy.psa10Pop} value={integer(card.populationPsa10.value)} valueSize={POST_TYPE.stat} />
+      <div style={{ display: "flex", gap: S(40, scale), borderTop: `${S(2, scale)}px solid ${palette.line}`, paddingTop: S(22, scale), width: "100%" }}>
+        <Stat palette={palette} label={copy.marketCap} value={usd(card.marketCap.value)} valueSize={POST_TYPE.stat} scale={scale} />
+        <Stat palette={palette} label={copy.psa10Price} value={usd(card.pricePsa10.value)} valueSize={POST_TYPE.stat} scale={scale} />
+        <Stat palette={palette} label={copy.psa10Pop} value={integer(card.populationPsa10.value)} valueSize={POST_TYPE.stat} scale={scale} />
         {change ? (
-          <Stat palette={palette} label={copy.change(SHARE_WINDOW_LABEL)} value={change.text} valueSize={POST_TYPE.stat} tone={change.tone} />
+          <Stat palette={palette} label={copy.change(SHARE_WINDOW_LABEL)} value={change.text} valueSize={POST_TYPE.stat} tone={change.tone} scale={scale} />
         ) : null}
       </div>
 
       {chart ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", borderTop: `2px solid ${palette.line}`, paddingTop: 22 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: S(8, scale), width: "100%", borderTop: `${S(2, scale)}px solid ${palette.line}`, paddingTop: S(22, scale) }}>
           {/* post 嘅變動已經喺上面四個數嗰行出咗一次（`180D CHANGE`），caption 唔好再出多次
               —— 同一個數喺同一張圖出兩次係雜訊。右邊個位讓返俾日期範圍（見 chartRange 個註）。
               wide 冇嗰個 stat（得三個數），所以嗰邊照傳 change。 */}
-          <ChartCaption palette={palette} change={null} range={chartRange(chart, copy)} fontSize={POST_TYPE.micro} copy={copy} />
+          <ChartCaption palette={palette} change={null} range={chartRange(chart, copy)} fontSize={POST_TYPE.micro} copy={copy} scale={scale} />
           <img src={chart.src} alt="" width={chart.width} height={chart.height} />
         </div>
       ) : null}
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
-        <span style={{ fontSize: POST_TYPE.micro, color: palette.muted, letterSpacing: 1.8, fontWeight: 600 }}>CARDZMARKETCAP.COM</span>
+        <span style={{ fontSize: S(POST_TYPE.micro, scale), color: palette.muted, letterSpacing: 1.8 * scale, fontWeight: 600 }}>CARDZMARKETCAP.COM</span>
         {asOf ? (
-          <span style={{ fontSize: POST_TYPE.micro, color: palette.muted, letterSpacing: 1.2, fontWeight: 400 }}>{copy.asOf(copy.upper(asOf))}</span>
+          <span style={{ fontSize: S(POST_TYPE.micro, scale), color: palette.muted, letterSpacing: 1.2 * scale, fontWeight: 400 }}>{copy.asOf(copy.upper(asOf))}</span>
         ) : null}
       </div>
     </div>
@@ -1027,6 +1092,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const lang = readShareLang(query.get("lang"));
   const copy = shareCopy(lang);
   const spec = FORMAT_SIZES[format];
+  /* `?res=4k` = 真 2× 渲染（1080×1080 → 2160×2160），唔係將 1× 張圖放大。
+     打錯字跌返 1080p —— 同 `readShareFormat` 一樣 fail-open。 */
+  const res = readShareResolution(query.get("res"));
+  const scale = RESOLUTION_SCALE[res];
   const theme = readTheme(query.get("theme"), FORMAT_THEMES[format]);
   const palette = THEMES[theme];
 
@@ -1074,8 +1143,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   let art: CardArt | null = null;
   try {
     art = format === "wide"
-      ? await loadCardArt(card, ART_MAX_WIDTH, ART_MAX_HEIGHT)
-      : await loadCardArt(card, POST_ART_MAX_WIDTH, POST_ART_MAX_HEIGHT, true);
+      /* ⚠️ 4K 嗰陣 wide 都要行母版：派生檔得 600 高，`withoutEnlargement` 會令張卡圖
+         停喺 1× 尺寸，出嚟就係「揀咗 4K 反而卡圖細一半」。 */
+      ? await loadCardArt(card, S(ART_MAX_WIDTH, scale), S(ART_MAX_HEIGHT, scale), scale > 1)
+      /* 上限跟住 format 行（square 矮 post 270px，唔可以共用）—— 見 TALL_GEO。 */
+      : await loadCardArt(card, S(TALL_GEO[format].artMaxWidth, scale), S(TALL_GEO[format].artMaxHeight, scale), true);
   } catch (error) {
     noteArtFailure(id, error);
     art = null;
@@ -1085,10 +1157,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
      null 就成塊唔出。**唔准**因為冇歷史而令張圖 500 或者畫一條假線。 */
   const chart = buildShareChart(card.historyDaily ?? [], SHARE_WINDOW_DAYS, {
     /* wide 右欄由 620 闊做 678（卡圖鐵路 468 → 430）；高度由 64 收到 44 讓位畀 88px hero。 */
-    width: format === "wide" ? 678 : 968,
+    width: S(format === "wide" ? 678 : 968, scale),
     /* status 高 570px，條線可以畫高啲（180）—— 見 TALL_GEO */
-    height: format === "wide" ? 34 : TALL_GEO[format].chartHeight,
-    lineWidth: format === "wide" ? 2.5 : 3,
+    height: S(format === "wide" ? 34 : TALL_GEO[format].chartHeight, scale),
+    lineWidth: (format === "wide" ? 2.5 : 3) * scale,
     /* wide 版扁到得 34px，成交 bar 會同條價線打架，所以只喺直度版出（同網頁一樣兩層都有）。 */
     bars: format !== "wide",
     grid: format !== "wide",
@@ -1123,14 +1195,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     : null;
 
   const element = !art
-    ? <TextOnlyLayout card={card} logoSrc={logoSrc} palette={palette} format={format} copy={copy} />
+    ? <TextOnlyLayout card={card} logoSrc={logoSrc} palette={palette} format={format} copy={copy} scale={scale} />
     : format === "wide"
-      ? <WideLayout card={card} art={art} logoSrc={logoSrc} palette={palette} chart={chart} change={change} asOf={asOf} name={wideName} rankTotal={rankTotal} copy={copy} />
-      : <PostLayout card={card} art={art} logoSrc={logoSrc} palette={palette} chart={chart} change={change} asOf={asOf} format={format} copy={copy} />;
+      ? <WideLayout card={card} art={art} logoSrc={logoSrc} palette={palette} chart={chart} change={change} asOf={asOf} name={wideName} rankTotal={rankTotal} copy={copy} scale={scale} />
+      : <PostLayout card={card} art={art} logoSrc={logoSrc} palette={palette} chart={chart} change={change} asOf={asOf} format={format} copy={copy} scale={scale} />;
 
   const image = new ImageResponse(element, {
-    width: spec.width,
-    height: spec.height,
+    width: S(spec.width, scale),
+    height: S(spec.height, scale),
     /* undefined = 載唔到字體（上面已經 warn 咗），交返俾 satori 用 bundled font，唔好因為字體炸咗張圖 */
     ...(fonts ? { fonts } : {}),
     /*
@@ -1154,6 +1226,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       "x-og-art": art ? "1" : "0",
       "x-og-chart": chart ? "1" : "0",
       "x-og-format": format,
+      "x-og-res": res,
       "x-og-theme": theme,
       "x-og-lang": lang,
     },

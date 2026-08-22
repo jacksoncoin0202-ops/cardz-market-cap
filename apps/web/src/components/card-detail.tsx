@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { FileSearch } from "lucide-react";
 import { Breadcrumbs } from "./breadcrumbs";
 import { EmptyState } from "./empty-state";
@@ -23,6 +23,8 @@ import { formatInteger, formatMetricInteger, formatMetricMoney, formatMoney, for
 import { plainDescription } from "@/lib/plain-text";
 import { type ShareFormat, type ShareTarget } from "@/lib/share-destinations";
 import { shareImageBlob } from "@/lib/share-file";
+import { fetchShareBlob } from "@/lib/share-fetch";
+import { DEFAULT_SHARE_RESOLUTION, SHARE_RESOLUTIONS, type ShareResolution } from "@/lib/share-resolution";
 import { cardFactSentence, cardSubject, geoCopy, setHubPath, setSlug, tcgHubPath, type RelatedCardsPayload } from "@/lib/related-cards";
 import { StoryPanel } from "./story-panel";
 import { type MarketMetric, type MarketViewSnapshot } from "@/lib/types";
@@ -55,9 +57,7 @@ function tickerValue(metric: MarketMetric<number>): number | null {
  * 呢度 hook 永遠行齊。同樣理由唔用 `useCallback`：React Compiler 開住，手寫 memo
  * 反而會令佢跳過 optimize（preserve-manual-memoization）。
  */
-const SHARE_FETCH_TIMEOUT_MS = 20_000;
-
-function ShareImageButton({ cardId, imageLang, title, copy: menuCopy }: {
+function ShareImageButton({ cardId, imageLang, title, copy: menuCopy, qualityCopy }: {
   cardId: string;
   /* 介面語言。張圖入面啲字跟佢行（`api/og/card` 個 `?lang=`）—— 未 ship 字體嗰啲
      語言（ja / ko）route 會自己跌返 en，呢邊唔使再維持一張表。
@@ -66,6 +66,9 @@ function ShareImageButton({ cardId, imageLang, title, copy: menuCopy }: {
   imageLang: string;
   title: string;
   copy: ShareMenuCopy;
+  /* 清晰度嗰行淨係兩句字；`value`/`onChange` 要 hook，所以喺呢個 component 入面砌
+     （見 share-menu.tsx `ShareMenuQuality` 個註：成舊一齊，唔准散開 optional prop）。 */
+  qualityCopy: { label: string; slowNote: string };
 }) {
   /*
    * ⚠️ warm：`navigator.share` 一定要喺 user activation 之內叫（見 lib/share-file.ts），
@@ -83,18 +86,18 @@ function ShareImageButton({ cardId, imageLang, title, copy: menuCopy }: {
    * 再轉繁中，撳分享攞返嘅係**英文嗰張**，冇 error 冇 log。
    */
   const shareBlobs = useRef(new Map<string, Promise<Blob>>());
-  const warmShareImage = (format: ShareFormat) => {
-    const key = `${format}|${imageLang}`;
+  /* 清晰度（owner 2026-08-22：內頁卡仔同熱力圖一樣要 1080 + 4K）。同熱力圖一樣，
+     揀咗邊級就係邊級，唔會靜靜幫用戶降級。 */
+  const [shareRes, setShareRes] = useState<ShareResolution>(DEFAULT_SHARE_RESOLUTION);
+  const warmShareImage = (format: ShareFormat, res: ShareResolution = shareRes) => {
+    /* ⚠️ key 要連埋清晰度：1080p warm 完再揀 4K，冇呢一段就攞返 1080p 嗰張，
+       個檔名同尺寸講住 4K，冇 error 冇 log。 */
+    const key = `${format}|${res}|${imageLang}`;
     if (shareBlobs.current.has(key)) return;
-    /* ⚠️ 一定要有 timeout：冇 signal 嘅 fetch 可以吊死到天光，個掣就一路 busy（見
-       copy-button.tsx `COPY_TIMEOUT_MS`）。20 秒係實測 1.3-1.4s 之上留足十幾倍水位。 */
-    const pending = fetch(`/api/og/card/${encodeURIComponent(cardId)}?format=${format}&lang=${encodeURIComponent(imageLang)}`, {
-      signal: typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(SHARE_FETCH_TIMEOUT_MS) : undefined,
-    })
-      .then((response) => {
-        if (!response.ok) throw new Error(`share image HTTP ${response.status}`);
-        return response.blob();
-      })
+    /* ⚠️ 用共用嗰個 `fetchShareBlob`（AGENTS.md 規矩 13），唔准喺呢度自己寫個
+       20 秒 timeout —— 4K 實測 100–126 秒先出到，20 秒等於「揀 4K 一定 fail」。 */
+    const path = `/api/og/card/${encodeURIComponent(cardId)}?format=${format}&res=${res}&lang=${encodeURIComponent(imageLang)}`;
+    const pending = fetchShareBlob(path, res, "card OG")
       .catch((error) => {
         /* 失敗唔可以黐住個 Map，否則之後撳幾多次都係同一個 rejected promise */
         shareBlobs.current.delete(key);
@@ -104,14 +107,15 @@ function ShareImageButton({ cardId, imageLang, title, copy: menuCopy }: {
   };
   const shareCardImage = async (target: ShareTarget) => {
     warmShareImage(target.format);
-    const blob = await shareBlobs.current.get(`${target.format}|${imageLang}`)!;
+    const blob = await shareBlobs.current.get(`${target.format}|${shareRes}|${imageLang}`)!;
     const pageUrl = `${window.location.origin}/card/${cardId}`;
     /* share sheet 嘅標題／正文同**圖入面**啲字而家一齊跟介面語言（見 og route 個 `?lang=`）。 */
     /* ⚠️ 一定要 `return` —— 掉咗個 outcome 嘅話，用戶撳走 share sheet（"dismissed"）
        喺 ShareMenu 嗰邊睇落同分享成功一模一樣，出綠剔兼讀屏報「圖片已匯出」。 */
     return await shareImageBlob(blob, {
-      /* 檔名帶 format：桌面落載幾個尺寸落同一個 Downloads 都唔會撞名變 (1)(2) */
-      filenameBase: `cardz-${cardId}-${target.format}`,
+      /* 檔名帶 format + 清晰度：桌面落載幾個尺寸／幾個級數落同一個 Downloads
+         都唔會撞名變 (1)(2) */
+      filenameBase: `cardz-${cardId}-${target.format}-${shareRes}`,
       title,
       text: `${title}\n${pageUrl}`,
       clipboardFallbackText: pageUrl,
@@ -121,6 +125,18 @@ function ShareImageButton({ cardId, imageLang, title, copy: menuCopy }: {
     <ShareMenu
       surface="card"
       copy={menuCopy}
+      quality={{
+        label: qualityCopy.label,
+        slowNote: qualityCopy.slowNote,
+        options: SHARE_RESOLUTIONS,
+        value: shareRes,
+        onChange: (next) => {
+          setShareRes(next);
+          /* 換完級即刻開始跑。一定要用 `next` 唔用 `shareRes` —— `setShareRes`
+             只係排咗次 re-render，呢一句仲讀住舊嗰級。 */
+          warmShareImage("post", next);
+        },
+      }}
       triggerClassName="share-button share-image-button"
       onPick={shareCardImage}
       onWarm={(target) => warmShareImage(target.format)}
@@ -287,6 +303,7 @@ export function CardDetail({ id, snapshot, related }: {
             done: t.share.done,
             error: t.share.error,
           }}
+          qualityCopy={{ label: t.labels.shareQuality, slowNote: t.labels.shareQualitySlow }}
         />
       </div>
       {/* `detail-grid-rail`：卡內頁專用嘅桌面排位。`.detail-grid` / `.detail-art` /

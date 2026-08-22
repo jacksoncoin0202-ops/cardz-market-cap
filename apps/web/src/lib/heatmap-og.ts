@@ -100,7 +100,13 @@ export function heatmapOgFilename(opts: HeatmapOgQuery = {}): string {
   const scope = opts.scope ?? "all";
   const format = opts.format ?? "post";
   const size = FORMAT_SIZES[format];
-  const ratio = size.width > size.height ? "wide" : size.height / size.width > 1.5 ? "9x16" : "4x5";
+  /* ⚠️ 逐個講清楚，唔准靠「唔係橫就當 4:5」—— 加咗 square 1080×1080 之後，
+     舊式嘅 else 會將正方形叫做 `4x5`，兩個唔同比例撞同一個檔名互相覆蓋。 */
+  const ratio = size.width === size.height
+    ? "1x1"
+    : size.width > size.height
+      ? "wide"
+      : size.height / size.width > 1.5 ? "9x16" : "4x5";
   /* 1080p 唔加後綴：舊檔名一日出咗街（分享出去、存咗落人哋相簿）就唔好無端改。
      4K 一定要加 —— 同一張圖兩個清晰度落同一個 folder，冇後綴就係互相覆蓋。 */
   const res = opts.res ?? DEFAULT_SHARE_RESOLUTION;

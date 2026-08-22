@@ -43,6 +43,9 @@ const I18N_REL = `${LIB}/i18n.ts`;
 const ROUTE_REL = "apps/web/src/app/api/og/heatmap/route.tsx";
 const MENU_REL = "apps/web/src/components/share-menu.tsx";
 const HEATMAP_REL = "apps/web/src/components/heatmap.tsx";
+const CARD_REL = "apps/web/src/components/card-detail.tsx";
+/* 2026-08-22：熱力圖同卡片內頁共用一條 fetch（AGENTS.md 規矩 13）。 */
+const FETCH_REL = `${LIB}/share-fetch.ts`;
 const CLI_REL = "scripts/heatmap-download.mjs";
 
 const SRC = {
@@ -54,6 +57,8 @@ const SRC = {
   route: read(ROUTE_REL),
   menu: read(MENU_REL),
   heatmap: read(HEATMAP_REL),
+  card: read(CARD_REL),
+  fetch: read(FETCH_REL),
   cli: read(CLI_REL),
 };
 
@@ -403,7 +408,7 @@ const CONTRACTS = [
     needles: ["onOpen={() => shareBlobs.current.clear()}"] },
   { id: "E16", file: HEATMAP_REL, src: SRC.heatmap, label: "client cache key 有 res",
     needles: ["${upDown}|${res}"] },
-  { id: "E17", file: HEATMAP_REL, src: SRC.heatmap, label: "fetch timeout 跟清晰度",
+  { id: "E17", file: FETCH_REL, src: SRC.fetch, label: "fetch timeout 跟清晰度",
     needles: ["AbortSignal.timeout(per)", "RESOLUTION_TIMEOUT_MS[res]"] },
   { id: "E18", file: HEATMAP_REL, src: SRC.heatmap, label: "換清晰度即刻 warm（用新嗰級，唔係 state 舊值）",
     needles: ["warmShareImage(SHARE_TARGETS[0].format, next)"] },
@@ -420,9 +425,15 @@ const CONTRACTS = [
     needles: ['q.set("at", String(opts.at))'] },
   { id: "E25", file: HEATMAP_REL, src: SRC.heatmap, label: "網站釘死嗰一刻（歸到分鐘，同 server readStampAt 一樣）",
     needles: ["at: Math.floor(Date.now() / 60_000) * 60_000,"] },
-  { id: "E26", file: HEATMAP_REL, src: SRC.heatmap, label: "網站識 retry（gateway 斬完要再攞返同一條 URL）",
-    needles: ["fetchShareBlob(path, res)", "RESOLUTION_RETRY_BUDGET_MS[res]", "SHARE_RETRY_STATUSES.includes",
+  { id: "E26", file: FETCH_REL, src: SRC.fetch, label: "識 retry（gateway 斬完要再攞返同一條 URL）",
+    needles: ["RESOLUTION_RETRY_BUDGET_MS[res]", "SHARE_RETRY_STATUSES.includes",
       "tries === 1 ? SHARE_RETRY_FIRST_WAIT_MS : SHARE_RETRY_POLL_MS"] },
+  /* 抽咗做共用 lib 之後，「兩個面真係行嗰條」要另外釘 —— 淨係驗個 lib 就會變成
+     「lib 好靚，但邊個都冇 call」。 */
+  { id: "E26a", file: HEATMAP_REL, src: SRC.heatmap, label: "熱力圖行共用 fetch",
+    needles: ['fetchShareBlob(path, res, "heatmap OG")'] },
+  { id: "E26b", file: CARD_REL, src: SRC.card, label: "卡片內頁行同一條（唔准自己再寫個 20 秒死 timeout）",
+    needles: ['fetchShareBlob(path, res, "card OG")'] },
   { id: "E27", file: CLI_REL, src: SRC.cli, label: "CLI 釘死嗰一刻（同網站同 server 三邊一樣歸分鐘）",
     needles: ["q.at = String(Math.floor(Date.now() / 60_000) * 60_000);"] },
   { id: "E28", file: CLI_REL, src: SRC.cli, label: "CLI 識 retry，而且 retry 名單同單次 timeout 都由 lib 嚟",
@@ -459,8 +470,16 @@ check("F2: 冇 share1080p / share4K 呢啲 key（型號名唔入 i18n，同四�
   !/share(1080p|4[kK])\s*:/.test(SRC.i18n));
 check("F3: heatmap 傳埋兩條 copy 落 ShareMenu",
   SRC.heatmap.includes("t.labels.shareQuality") && SRC.heatmap.includes("t.labels.shareQualitySlow"));
-check("F4: 卡片內頁唔傳 quality（呢個掣係熱力圖先有）",
-  !read("apps/web/src/components/card-detail.tsx").includes("quality={"));
+/* F4 2026-08-22 反轉：owner 講明「熱力圖 + 分享內頁卡仔 SIZE 一樣要 1080 + 4K」，
+   所以卡片內頁而家**一定要**有呢粒掣。舊版係「唔准有」，改咗方向唔係放鬆 ——
+   照樣係一條會紅嘅 assert，而且連埋落面條 fetch 一齊守（冇 4K timeout 就係
+   「揀咗 4K 一定 fail」）。 */
+check("F4: 卡片內頁都有 quality（owner 2026-08-22：內頁卡仔一樣要 1080 + 4K）",
+  SRC.card.includes("quality={") && SRC.card.includes("options: SHARE_RESOLUTIONS"));
+check("F4a: 卡片內頁換級即刻 warm（用新嗰級，唔係 state 舊值）",
+  SRC.card.includes('warmShareImage("post", next)'));
+check("F4b: 卡片內頁兩條 copy 都傳齊",
+  SRC.card.includes("t.labels.shareQuality") && SRC.card.includes("t.labels.shareQualitySlow"));
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * G. 4K 個代價唔准淨係我知：實測數字要留喺 code 入面

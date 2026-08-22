@@ -11,10 +11,14 @@
  * 即係話「邊個平台用邊個比例」呢個知識**得一份**：改呢張表，選單同條鏈一齊跟，
  * 兩邊都唔使郁（AGENTS.md 規矩 13）。
  *
- * 今日三個比例：
- *   · `post` 1080×1350（4:5）—— IG feed / Threads / X。三家對直度圖都有高度上限，
+ * 今日四個比例：
+ *   · `square` 1080×1080（1:1）—— **IG feed**。owner 2026-08-22：「IG 原來係正方形出
+ *     POST，所以唔係 4:5」。IG feed 收 1:1／4:5／1.91:1 三款，4:5 佔螢幕最高，但 owner
+ *     要嘅係方，噉就照方 —— 佢係出 post 嗰個人。1:1 亦係全世界最唔會出事嗰款（任何
+ *     grid、任何 embed 都唔會裁），代價係比 4:5 少 20% 螢幕面積。
+ *   · `post` 1080×1350（4:5）—— Threads / X / WhatsApp 氣泡。三家對直度圖都有高度上限，
  *     超過**唔裁、改為按高度縮細**，張圖就永遠得七八成闊（owner 2026-08-19 實測）。
- *     IG 4:5 最嚴，鎖 0.8 三家都唔會再縮。
+ *     鎖 0.8 三家都唔會再縮。
  *   · `status` 1080×1920（9:16）—— IG 限時動態 / WhatsApp Status 嗰種**全屏**面。
  *     ⚠️ 佢係「邊個**面**」唔係「邊間公司」：同一個 WhatsApp，對話氣泡行 4:5、Status
  *     行 9:16。
@@ -23,7 +27,7 @@
  *   · `wide` 1200×630（1.91:1）—— 社交 unfurl（`og:image`）同埋電腦／部落格 embed。
  *     （**唔係** 16:9。1.91:1 係 og:image 嘅標準闊高比。）
  */
-export const SHARE_FORMATS = ["wide", "post", "status"] as const;
+export const SHARE_FORMATS = ["wide", "square", "post", "status"] as const;
 export type ShareFormat = (typeof SHARE_FORMATS)[number];
 
 /*
@@ -41,6 +45,15 @@ export type ShareFormat = (typeof SHARE_FORMATS)[number];
  */
 export const FORMAT_SIZES: Record<ShareFormat, { width: number; height: number }> = {
   wide: { width: 1200, height: 630 },
+  /*
+   * `square` 1080×1080（1:1）—— IG feed。短邊同 `post` 一樣係 1080，所以「1080p / 4K」
+   * 兩個 tier 名對佢嚟講一樣係字面像素（`lib/share-resolution.ts` 個 Guard 2 兩個都釘）。
+   *
+   * ⚠️ 高度由 1350 跌到 1080 = **少咗 270px**，唔係「照 post 個 layout 塞埋去就得」。
+   * 卡圖舞台同走勢圖都要收（見 route 嗰邊 `TALL_GEO.square`），而收幾多唔准估 ——
+   * `scripts/test-fe-og-post-layout.mjs --live` 逐 px 掃返個 ink bbox 先算數。
+   */
+  square: { width: 1080, height: 1080 },
   post: { width: 1080, height: 1350 },
   /*
    * `status` 1080×1920（9:16）—— WhatsApp Status / IG 限時動態嗰種**全屏**面。
@@ -55,7 +68,7 @@ export const FORMAT_SIZES: Record<ShareFormat, { width: number; height: number }
  * 熱力圖人手分享同宣傳鏈／cron **同一條** `GET /api/og/heatmap?...`
  * （`apps/web/src/app/api/og/heatmap/route.tsx` + `lib/heatmap-og.ts`）。
  * 對 `x-og-generation`。唔開 browser、唔截 :3900。
- *   post / portrait = 4:5、status = 9:16、wide / landscape = 1.91:1。
+ *   square = 1:1、post / portrait = 4:5、status = 9:16、wide / landscape = 1.91:1。
  */
 export const SHARE_ASPECTS = ["post", "wa", "frame"] as const;
 export type ShareAspect = (typeof SHARE_ASPECTS)[number];
@@ -80,10 +93,13 @@ export interface ShareTarget {
 /*
  * 選單次序 = 呢個 array 次序。owner 2026-08-20 點名嗰四個平台行先，跟住兩個兜底。
  *
- * ⚠️ 五個「send 一張圖俾人睇」嘅目的地**全部係 4:5，唔係求其填**：IG feed 直度上限
- * 就係 4:5，Threads 跟 IG 一路，X 一樣（owner：「X.COM 好明顯係 4:5」），WhatsApp
- * 對話／群組個氣泡保持比例唔裁、4:5 佔到最高（owner 2026-08-20，e61c1aa9）。硬要各
- * 出一個唔同比例，會有一兩個變差。
+ * ⚠️ 「send 一張圖俾人睇」嗰批**唔係求其填比例**：Threads 跟 IG 一路、X 一樣
+ * （owner：「X.COM 好明顯係 4:5」）、WhatsApp 對話／群組個氣泡保持比例唔裁，4:5 佔到
+ * 最高（owner 2026-08-20，e61c1aa9），所以呢三個連同「其他」一齊行 4:5。
+ *
+ * ⚠️ **IG 自己一行 1:1**（owner 2026-08-22 更正：「IG 原來係正方形出 POST」）。佢係
+ * 唯一一個由 owner 點名要方嘅目的地 —— 唔准順手將 Threads／X 一齊拉埋落 square，
+ * 嗰三家 4:5 係實測出嚟嘅（見上面），一齊改就係為咗表面整齊而令三張圖變差。
  *
  * ⚠️ **9:16 唔係「WhatsApp 嗰行」，係「全屏面嗰行」。** WhatsApp 有兩個面：對話氣泡
  * （4:5，上面）同 Status（全屏 9:16）；IG 一樣分 feed 同限時動態。所以 9:16 自己一行
@@ -91,7 +107,7 @@ export interface ShareTarget {
  * 而條 cron 鏈嘅 `?format=whatsapp` 講嘅正正係對話氣泡嗰個面（見下面 alias 表）。
  */
 export const SHARE_TARGETS: readonly ShareTarget[] = [
-  { id: "instagram", format: "post", aspect: "post", ratio: "4:5" },
+  { id: "instagram", format: "square", aspect: "post", ratio: "1:1" },
   { id: "threads", format: "post", aspect: "post", ratio: "4:5" },
   { id: "x", format: "post", aspect: "post", ratio: "4:5" },
   { id: "whatsapp", format: "post", aspect: "post", ratio: "4:5" },
@@ -112,6 +128,8 @@ export const SHARE_TARGETS: readonly ShareTarget[] = [
  */
 const FORMAT_ALIASES: Record<string, ShareFormat> = {
   wide: "wide",
+  square: "square",
+  "1x1": "square",
   post: "post",
   status: "status",
   /*
@@ -135,8 +153,11 @@ const FORMAT_ALIASES: Record<string, ShareFormat> = {
   x: "post",
   twitter: "post",
   threads: "post",
-  instagram: "post",
-  ig: "post",
+  /* ⚠️ IG 兩個名一齊指去 `square`（owner 2026-08-22）。條 cron 鏈（唔喺呢個 repo）
+     寫 `?format=instagram` 攞到嘅嘢由呢一行話事 —— 佢一日冇改 URL，就一日要由呢度
+     跟返選單。上面第二個 guard 就係釘住「選單同 alias 唔准分叉」。 */
+  instagram: "square",
+  ig: "square",
   line: "post",
   other: "post",
   /* 派 link 俾人自己 unfurl */

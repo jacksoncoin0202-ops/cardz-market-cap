@@ -229,6 +229,42 @@ if (process.argv.includes("--live")) {
     }
 
     /*
+     * square 1080×1080（owner 2026-08-22：IG feed 出正方形 POST）。
+     *
+     * ⚠️ 三個直度 format 入面**得呢個真係會塞唔落** —— 佢用同一套排版角色（kicker /
+     * 卡名 / 卡圖 / 走勢圖 / 統計行 / logo），但高度比 post 少 270px。所以呢度唔係
+     * 抄多份 post：`TALL_GEO.square` 收咗幾多，就靠呢條逐 px 掃返出嚟。收得唔夠，
+     * flex 會壓縮／溢出，靜靜出街，冇 error 冇 log。
+     *
+     * padding 由 route 讀返，唔喺呢度另寫一個數 —— route 改咗 48 而 test 仲寫住 48
+     * 就係「兩邊各寫一次」嗰種永遠對唔上嘅債。
+     *
+     * ⚠️ 要連 `artStage:` 一齊夾住先認 —— 淨係寫 `square: { padX:` 會撞埋
+     * `TEXT_ONLY_GEO.square`（padX 72），度緊 A 表用住 B 表個數，冇 error。
+     */
+    const squarePadRaw = code.match(/square: \{ padX: (\d+), padY: (\d+), artStage:/);
+    check("T5: 由 route 度到 square padding", !!squarePadRaw, "route.tsx 搵唔到 TALL_GEO.square 個 padX/padY");
+    if (squarePadRaw) {
+      const SQUARE_PAD_X = Number(squarePadRaw[1]);
+      const SQUARE_PAD_Y = Number(squarePadRaw[2]);
+      for (const id of picks) {
+        const m = await inkBox(`${base}/api/og/card/${encodeURIComponent(id)}?format=square`);
+        if (m.error) { failed.push(`T5: ${id} square ${m.error}`); continue; }
+        check(`T5: ${id} square 尺寸`, m.W === 1080 && m.H === 1080, `${m.W}×${m.H}`);
+        check(`T5: ${id} square 有卡圖`, m.art === "1", `x-og-art=${m.art}`);
+        const sm = { 上: m.top, 下: m.H - 1 - m.bottom, 左: m.left, 右: m.W - 1 - m.right };
+        /* 上下對 padY、左右對 padX —— 而家兩個都係 48，夾埋一個數就會喺
+           將來改單邊嗰日靜靜度錯嗰邊。 */
+        const sfloor = { 上: SQUARE_PAD_Y, 下: SQUARE_PAD_Y, 左: SQUARE_PAD_X, 右: SQUARE_PAD_X };
+        const sbust = Object.entries(sm).filter(([k, v]) => v < sfloor[k] - 2);
+        check(`T5: ${id} square 冇衝穿 padding`, sbust.length === 0,
+          `${sbust.map(([k, v]) => `${k}=${v}(要≥${sfloor[k]})`).join(" ")}（padX=${SQUARE_PAD_X} padY=${SQUARE_PAD_Y}，全部邊距 ${JSON.stringify(sm)}）`);
+        check(`T5: ${id} square 出 JPEG`, m.mime === "image/jpeg", `content-type=${m.mime}`);
+        check(`T5: ${id} square 大細合理`, m.bytes < 400_000, `${(m.bytes / 1024).toFixed(0)}KB`);
+      }
+    }
+
+    /*
      * status 1080×1920（owner 2026-08-20 加分享目的地選單，WhatsApp Status 揀呢個）。
      *
      * ⚠️ 呢度守嘅**唔係**「有冇衝穿 padding」咁簡單 —— 上下 250 唔係留白，係 IG Story /
@@ -257,7 +293,9 @@ if (process.argv.includes("--live")) {
      * 呢條 test 就變咗喺度守一個唔存在嘅版面 —— 綠燈但守緊空氣。
      */
     const artPanel = Number(code.match(/const ART_PANEL_WIDTH\s*=\s*(\d+)/)?.[1]);
-    const padRaw = wide?.match(/padding:\s*"(\d+)px\s+(\d+)px\s+(\d+)px\s+(\d+)px"/);
+    /* ⚠️ 2026-08-22 真 4K：padding 由 CSS 字串變咗 `${S(n, scale)}px`（每個 px 常數
+       都要過 `S()`，唔係咁就喺 4K 度細一半）。呢條 regex 咬嘅係 1× 嗰個常數。 */
+    const padRaw = wide?.match(/padding:\s*`\$\{S\((\d+), scale\)\}px \$\{S\((\d+), scale\)\}px \$\{S\((\d+), scale\)\}px \$\{S\((\d+), scale\)\}px`/);
     check("T5: 由 route 度到 wide 幾何", Number.isFinite(artPanel) && !!padRaw,
       `ART_PANEL_WIDTH=${artPanel} padding=${padRaw?.[0] ?? "搵唔到"}`);
     if (Number.isFinite(artPanel) && padRaw) {
@@ -311,7 +349,8 @@ if (process.argv.includes("--live")) {
   /* ⚠️ 2026-08-20 起尺寸真身喺 `FORMAT_SIZES`（route.tsx 讀返佢，自己只留 theme）——
      本來 route 同選單各寫一組數字，就係噉出咗「標 16:9 但實際 1200×630」嗰單。 */
   const routeFormats = Object.keys(FORMAT_SIZES);
-  check("T6a: FORMAT_SIZES 三個 format", routeFormats.length === 3, JSON.stringify(routeFormats));
+  check("T6a: FORMAT_SIZES 四個 format（wide / square / post / status）",
+  routeFormats.length === 4, JSON.stringify(routeFormats));
   check("T6a: route 讀 FORMAT_SIZES", /import \{ FORMAT_SIZES, readShareFormat/.test(code), "route.tsx 冇 import FORMAT_SIZES");
   check("T6a: route 冇再自己開一張尺寸表",
     !/Record<ShareFormat, \{ width: number; height: number/.test(code), "route.tsx 仲有第二組尺寸");
@@ -321,17 +360,25 @@ if (process.argv.includes("--live")) {
     check(`T6a: 目的地 ${dest} 對到 route 有嘅 format`, routeFormats.includes(format), `${dest} → ${format}`);
   }
 
-  /* T6b：貼圖目的地一定要係 4:5。
+  /* T6b：貼圖目的地嘅比例。IG 1:1，其餘 4:5。
      ⚠️⚠️ **`whatsapp` 係呢條入面最貴嗰個**：條 HERMES cron 鏈（唔喺呢個 repo）每日
      download `?format=whatsapp` 再 upload 去 WhatsApp **對話／群組**，owner 2026-08-20
      （e61c1aa9）明講「氣泡保持比例唔裁」= 4:5。2026-08-20 加目的地選單嗰陣一度將佢
      改成 `status`（9:16），條鏈個 URL 一個字都冇變、response 照 200、`x-og-format`
      照出，即係當晚會靜靜 upload 咗一批高瘦圖，冇 error 冇 log 冇人知。全屏 9:16 要
      明寫 `?format=status`，唔准掛喺公司名上面。 */
-  for (const dest of ["x", "twitter", "threads", "instagram", "ig", "line", "other", "whatsapp"]) {
+  for (const dest of ["x", "twitter", "threads", "line", "other", "whatsapp"]) {
     check(`T6b: ${dest} 用 4:5（post）`, readShareFormat(dest) === "post", `${dest} → ${readShareFormat(dest)}`);
   }
   check("T6b: 大細楷都認", readShareFormat("WhatsApp") === "post", readShareFormat("WhatsApp"));
+  /* ⚠️ IG 兩個名（同條 cron 鏈可能用嘅 `?format=instagram`）一齊要 1:1 —— owner
+     2026-08-22：「IG 原來係正方形出 POST，所以唔係 4:5」。同上面 whatsapp 嗰個
+     道理一模一樣：URL 一個字都唔使改就會靜靜出錯比例，所以要喺呢度釘死。 */
+  for (const dest of ["instagram", "ig", "IG", "Instagram"]) {
+    check(`T6b: ${dest} 用 1:1（square）`, readShareFormat(dest) === "square", `${dest} → ${readShareFormat(dest)}`);
+  }
+  check("T6b: square 真係 1080×1080", FORMAT_SIZES.square?.width === 1080 && FORMAT_SIZES.square?.height === 1080,
+    JSON.stringify(FORMAT_SIZES.square));
   /* 全屏面自己一個 key —— 選單嗰行「限時動態／狀態」行呢個，唔關公司名事 */
   check("T6b: status 用 9:16（全屏面）", readShareFormat("status") === "status", readShareFormat("status"));
 

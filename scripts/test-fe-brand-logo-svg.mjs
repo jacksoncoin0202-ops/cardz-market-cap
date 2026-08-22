@@ -137,9 +137,19 @@ check("OG route 冇喺 LOGO_BY_THEME 以外再寫死 logo 路徑",
    數就係 OG wordmark 嘅**唯一**尺寸來源。原本零 assert —— 種 fault 改成 100×43，wordmark
    靜靜細一半，test 照綠。寫死喺度：要改版面就連呢行一齊改，改動先至被人睇見。 */
 const OG_IMG_DIMS = [[144, 62], [190, 82]];
-const ogImgs = [...ogRoute.matchAll(/<img\s+src=\{logoSrc\}[^>]*?width=\{(\d+)\}\s+height=\{(\d+)\}/g)]
+const ogImgs = [...ogRoute.matchAll(/<img\s+src=\{logoSrc\}[^>]*?width=\{S\((\d+), scale\)\}\s+height=\{S\((\d+), scale\)\}/g)]
   .map((m) => [Number(m[1]), Number(m[2])]);
 check("OG route 有兩個寫死尺寸嘅 wordmark <img src={logoSrc}>", ogImgs.length === 2, JSON.stringify(ogImgs));
+/* ⚠️ 2026-08-22 真 4K：每個 px 常數都要過 `S(n, scale)`。漏咗一個唔會炸 —— 嗰嚿嘢
+   喺 4K 度細一半，200、冇 error、冇 log（route 個 `S()` 註寫住）。所以呢度逐個
+   `<img src={logoSrc}>` 掃：三個（wide／post／fail-open）都一定要 width **同** height
+   都行 `S(..., scale)`。 */
+const logoImgs = [...ogRoute.matchAll(/<img\s+src=\{logoSrc\}[^>]*?\/>/g)].map((m) => m[0]);
+check("OG route 三個 wordmark <img>", logoImgs.length === 3, `搵到 ${logoImgs.length} 個`);
+const unscaledLogo = logoImgs.filter((tag) =>
+  !/width=\{S\([\w.]+, scale\)\}/.test(tag) || !/height=\{S\([\w.]+, scale\)\}/.test(tag));
+check("wordmark 尺寸全部行 S(n, scale)（漏咗 = 4K 度細一半，零 error）",
+  unscaledLogo.length === 0, unscaledLogo.join(" | "));
 check(`OG wordmark declared 尺寸 = Wide 144×62 / Post 190×82`,
   JSON.stringify(ogImgs) === JSON.stringify(OG_IMG_DIMS),
   `實際 ${JSON.stringify(ogImgs)}`);
