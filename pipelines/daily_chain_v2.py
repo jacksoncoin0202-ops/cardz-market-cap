@@ -27,6 +27,9 @@ except ImportError:  # pragma: no cover - Windows import of this module
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
+# notify_hermes lives in scripts/; deliver_events() imports it under --notify.
+# 2026-08-22 19:34 JST: the first -Notify tick crashed with ModuleNotFoundError.
+sys.path.append(str(ROOT / "scripts"))
 
 from daily_chain_v2_adapters import (  # noqa: E402
     CommandSourceAdapter,

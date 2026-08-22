@@ -785,7 +785,16 @@ def _log_tail(path: Path, lines: int = PC_CHILD_LOG_TAIL_LINES) -> str:
 def pc_hidden_launch_command(
     cmd: list[str], *, rc_path: Path, log_path: Path
 ) -> list[str]:
-    """Contract C5: rc-file, log-file, then the command."""
+    """Contract C5: rc-file, log-file, then the command.
+
+    The command runs inside cmd.exe on the Windows side, so the executable must
+    be a Windows path. 2026-08-22 19:34 JST: WINDOWS_PY is a /mnt/c/... path
+    (fine for WSL interop, which resolves it) and cmd.exe answered "cannot
+    find the path specified" in 0.2 s for every PC attempt.
+    """
+    exe, *rest = cmd
+    if exe.startswith("/"):
+        exe = _windows_path(Path(exe))
     return [
         "wscript.exe",
         "//nologo",
@@ -793,7 +802,8 @@ def pc_hidden_launch_command(
         _windows_path(PC_HIDDEN_LAUNCH_VBS),
         _windows_path(rc_path),
         _windows_path(log_path),
-        *cmd,
+        exe,
+        *rest,
     ]
 
 

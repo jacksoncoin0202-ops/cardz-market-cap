@@ -544,5 +544,18 @@ try:
     )
     assert ADOPT_GRACE_SECONDS == 120
     print("POSITIVE_OK DEFAULT_MAX_RUNTIME_SECONDS is the single 3000 second tick budget")
+
+    # --------------------------------------------------------------- task 13
+    # --notify imports notify_hermes inside deliver_events(); it lives in
+    # scripts/, which daily_chain_v2 must put on sys.path itself (2026-08-22
+    # 19:34 JST: first -Notify tick crashed with ModuleNotFoundError).
+    import importlib
+
+    notify_module = importlib.import_module("notify_hermes")
+    assert Path(notify_module.__file__).resolve() == (
+        ROOT / "scripts" / "notify_hermes.py"
+    ).resolve(), notify_module.__file__
+    assert callable(getattr(notify_module, "send_message", None))
+    print("POSITIVE_OK notify_hermes resolves from scripts/ once daily_chain_v2 is imported")
 finally:
     cleanup()

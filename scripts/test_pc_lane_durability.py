@@ -602,6 +602,18 @@ def test_child_log_and_rc(tmp: Path) -> None:
     check("the hidden launcher runs under wscript", launch[:3], ["wscript.exe", "//nologo", "//B"])
     check("C5 argument order is vbs, rc-file, log-file, command", launch[3].endswith("pc_cdp_hidden_launch.vbs"), True)
     check("the command comes last", launch[-2:], ["python.exe", "script.py"])
+    if cc._running_under_wsl():
+        # cmd.exe cannot open /mnt/c/...: the exe must cross as C:\...
+        wsl_exe = cc.pc_hidden_launch_command(
+            ["/mnt/c/Windows/System32/cmd.exe", "/c", "echo"],
+            rc_path=tmp / "rc.txt",
+            log_path=tmp / "log.txt",
+        )
+        check(
+            "a WSL-path exe is handed to cmd.exe as a Windows path",
+            (wsl_exe[-3].startswith("/mnt/"), wsl_exe[-3].lower().endswith("cmd.exe")),
+            (False, True),
+        )
 
     original_dir = cc.PC_CHILD_LOG_DIR
     cc.PC_CHILD_LOG_DIR = tmp / "pc-logs"
