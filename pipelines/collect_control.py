@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import inspect
 import json
 import os
 import re
@@ -35,6 +36,8 @@ from collection_contract import (  # noqa: E402
     ADAPTER_LANE,
     CHECKPOINT_ADAPTERS,
     LIVE_EBAY_SOLD_SOURCE_CODES,
+    SOURCE_ADAPTERS,
+    SOURCE_NOT_REGISTERED,
 )
 from qualified_pool_operator import db, load_env  # noqa: E402
 from operator_control import (  # noqa: E402
@@ -121,6 +124,29 @@ GEMRATE_CHILD_TIMEOUT_MAX_SECONDS = 4 * 3600
 # Same shape as GemRate: a hard cap, never 45*universe hours.
 # Healthy 2-tab fetch of ~1000 pages is ~35 min; 90 min is the lost-CDP bound.
 PC_CDP_CHILD_TIMEOUT_MAX_SECONDS = 90 * 60
+# The PC child used to run with capture_output, so a hung child's stdout stayed
+# in this process's memory: nothing on disk said which page it stopped on. One
+# log per run, and the last lines echoed into this process's own log on every
+# exit code.
+PC_CHILD_LOG_DIR = Path(
+    os.environ.get("PC_CHILD_LOG_DIR") or (ROOT / "data" / "runtime" / "pc")
+)
+PC_CHILD_LOG_TAIL_LINES = 20
+PC_HIDDEN_LAUNCH_VBS = ROOT / "pipelines" / "pc_cdp_hidden_launch.vbs"
+# Exit 4 = the child's Cloudflare storm breaker. It is a provider refusal:
+# retry it later, and never read it as a binding failure or as lost coverage.
+PC_CF_STORM_CLASS = "pc_cf_storm"
+CDP_UNREACHABLE_CLASS = "cdp_unreachable"
+PC_CDP_REFRESH_FAILED_CLASS = "pc_cdp_refresh_failed"
+PC_CHILD_EXIT_ERROR_CLASSES = {4: PC_CF_STORM_CLASS}
+PC_ERROR_CLASS_RETRY_SECONDS = {
+    PC_CF_STORM_CLASS: 20 * 60,
+    CDP_UNREACHABLE_CLASS: 5 * 60,
+}
+# Chrome's lifecycle belongs to the launcher preflight and the ChromeCdpWatchdog
+# task; the chain only asks whether the session is the right one. 30s, not 90.
+PC_ENSURE_CDP_TIMEOUT_SECONDS = 30
+SNK_SHARED_HARVEST_ADAPTERS = ("snk_trades", "snk_price")
 CARDZ_CDP_PORT = int(os.environ.get("CARDZ_CDP_PORT", "9333"))
 # 9222 is the Codex browser profile. Attaching there drives somebody else's
 # logged-in Chrome, and the ban on it lived only in AGENTS.md while this knob
@@ -679,17 +705,206 @@ def _persist_item_checkpoints(
         _write_json_atomic(ITEM_CHECKPOINT_PATH, state)
 
 
+def pc_child_error_class(exit_code: int | None) -> str:
+    """Map the PC child's exit code to a retry class.
+
+    Exit 4 is its Cloudflare storm breaker. Those pages were refused by the
+    provider: they are not identities we failed to bind and not coverage we
+    lost, so the class must never be read as either.
+    """
+    try:
+        code = int(exit_code)
+    except (TypeError, ValueError):
+        return PC_CDP_REFRESH_FAILED_CLASS
+    return PC_CHILD_EXIT_ERROR_CLASSES.get(code, PC_CDP_REFRESH_FAILED_CLASS)
+
+
+def pc_error_retry_after_seconds(error_class: str) -> int | None:
+    return PC_ERROR_CLASS_RETRY_SECONDS.get(str(error_class))
+
+
+def pc_error_is_retryable(error_class: str) -> bool:
+    return str(error_class) in PC_ERROR_CLASS_RETRY_SECONDS
+
+
+def _running_under_wsl() -> bool:
+    if sys.platform == "win32":
+        return False
+    if os.environ.get("WSL_DISTRO_NAME"):
+        return True
+    try:
+        version = Path("/proc/version").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return "microsoft" in version.lower()
+
+
+def pc_business_date() -> str:
+    value = os.environ.get("CARDZ_V2_BUSINESS_DATE", "").strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        return value
+    return datetime.now(JST).date().isoformat()
+
+
+def pc_child_log_path(
+    *, pid: int | None = None, business_date: str | None = None
+) -> Path:
+    owner = os.getpid() if pid is None else int(pid)
+    return PC_CHILD_LOG_DIR / f"pc_cdp_{business_date or pc_business_date()}_{owner}.log"
+
+
+def _read_rc_file(path: Path) -> int | None:
+    """The child's real exit code.
+
+    A return code does not propagate back through WSL interop, so the hidden
+    launcher writes it to this file and the file is the authority.
+    """
+    try:
+        text = path.read_text(encoding="utf-8-sig", errors="replace")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        token = line.strip()
+        if not token:
+            continue
+        try:
+            return int(token)
+        except ValueError:
+            return None
+    return None
+
+
+def _log_tail(path: Path, lines: int = PC_CHILD_LOG_TAIL_LINES) -> str:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    return "\n".join(text.splitlines()[-int(lines):])
+
+
+def pc_hidden_launch_command(
+    cmd: list[str], *, rc_path: Path, log_path: Path
+) -> list[str]:
+    """Contract C5: rc-file, log-file, then the command."""
+    return [
+        "wscript.exe",
+        "//nologo",
+        "//B",
+        _windows_path(PC_HIDDEN_LAUNCH_VBS),
+        _windows_path(rc_path),
+        _windows_path(log_path),
+        *cmd,
+    ]
+
+
+def _run_pc_child(
+    cmd: list[str], *, timeout: int, dry_run: bool, use_vbs: bool | None = None
+) -> dict[str, Any]:
+    """Run the PC CDP child with its output on disk and its rc read from a file.
+
+    Two failures this closes. The child ran with capture_output, so a hung
+    child's stdout lived only in this process's memory and nobody could see the
+    page it stopped on. And a plain WSL-interop launch of the Windows Python
+    pops a Windows Terminal window; on 2026-08-22 a human closing that window
+    killed the tick with CTRL_CLOSE. Hidden launch, log on disk, rc from file.
+    """
+    log_path = pc_child_log_path()
+    rc_path = log_path.with_name(log_path.name + ".rc")
+    hidden = _running_under_wsl() if use_vbs is None else bool(use_vbs)
+    item: dict[str, Any] = {
+        "cmd": cmd,
+        "timeout": timeout,
+        "dryRun": dry_run,
+        "startedAt": utc_now(),
+        "childLog": str(log_path),
+        "hiddenLaunch": hidden,
+    }
+    if dry_run:
+        item.update({"exit": 0, "skipped": True, "note": "dry-run; not executed"})
+        return item
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        rc_path.unlink()
+    except OSError:
+        pass
+    interop_cwd = str(ROOT) if sys.platform == "win32" else "/mnt/c/Windows/System32"
+    try:
+        if hidden:
+            launch = pc_hidden_launch_command(cmd, rc_path=rc_path, log_path=log_path)
+            item["rcFile"] = str(rc_path)
+            item["launchCmd"] = launch
+            proc = subprocess.run(
+                launch,
+                cwd=interop_cwd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                encoding="utf-8",
+                errors="replace",
+            )
+            rc_value = _read_rc_file(rc_path)
+            item["rcFileExit"] = rc_value
+            if rc_value is None:
+                item["exit"] = proc.returncode
+                item["error"] = "pc_child_rc_file_missing"
+            else:
+                item["exit"] = rc_value
+        else:
+            with log_path.open("w", encoding="utf-8", errors="replace") as sink:
+                proc = subprocess.run(
+                    cmd,
+                    cwd=str(ROOT),
+                    stdout=sink,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    timeout=timeout,
+                )
+            item["exit"] = proc.returncode
+    except subprocess.TimeoutExpired as exc:
+        item.update({"exit": 124, "error": f"timeout:{exc}"})
+    except Exception as exc:  # noqa: BLE001
+        item.update({"exit": 1, "error": f"{type(exc).__name__}:{exc}"})
+    tail = _log_tail(log_path)
+    item["childLogTail"] = tail
+    # Any exit code, not just failures: a "successful" run that stopped early is
+    # exactly the case that used to leave nothing behind.
+    print(f"PC child exit={item.get('exit')} log={log_path}", flush=True)
+    for line in tail.splitlines():
+        print(f"  pc-child| {line}", flush=True)
+    item["finishedAt"] = utc_now()
+    return item
+
+
+def _cdp_unreachable(**extra: Any) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "ok": False,
+        "errorClass": CDP_UNREACHABLE_CLASS,
+        "retryable": True,
+        "retryAfterSeconds": pc_error_retry_after_seconds(CDP_UNREACHABLE_CLASS),
+    }
+    result.update(extra)
+    return result
+
+
 def ensure_cdp(port: int = 9333) -> dict[str, Any]:
-    """Ensure the one dedicated CARDZ CDP session before the leased PC run.
+    """Check the one dedicated CARDZ CDP session; do not build it here.
 
     Always go through ensure_chrome_cdp.ps1. A 200 on /json/version is not
-    identity: WSL/Headless Chrome on 9333 answers 200 and must be evicted.
+    identity: WSL/Headless Chrome on 9333 answers 200 and must be rejected.
     Version-only 200 is also not a usable session: a hung /json/list is a
-    jammed DevTools websocket and must recycle Chrome.
+    jammed DevTools websocket.
+
+    Identity only. 9333 had three owners — the launcher preflight, the
+    ChromeCdpWatchdog task, and this chain — and they recycled Chrome under
+    each other mid sweep. The chain now answers one question inside 30s and
+    reports a retryable ``cdp_unreachable`` instead of spending 90s trying to
+    start a browser it does not own. PC_ENSURE_CDP_FULL=1 restores the full
+    evict/start path for a hand run.
     """
     ps1 = ROOT / "scripts" / "ensure_chrome_cdp.ps1"
     if not ps1.exists():
-        return {"ok": False, "reason": "ensure_chrome_cdp.ps1 missing"}
+        return _cdp_unreachable(reason="ensure_chrome_cdp.ps1 missing")
+    identity_only = os.environ.get("PC_ENSURE_CDP_FULL") != "1"
     # From WSL, call powershell.exe if present
     pwsh = "powershell.exe"
     cmd = [
@@ -702,20 +917,33 @@ def ensure_cdp(port: int = 9333) -> dict[str, Any]:
         "-Port",
         str(port),
     ]
+    if identity_only:
+        cmd.append("-IdentityOnly")
     try:
         # A Windows executable launched through WSL interop must not inherit a
         # /mnt/c/... working directory.  PowerShell treats that translated cwd
         # inconsistently even though the explicit -File path is valid.
         interop_cwd = str(ROOT) if sys.platform == "win32" else "/mnt/c/Windows/System32"
-        r = subprocess.run(cmd, cwd=interop_cwd, capture_output=True, text=True, timeout=90)
-        return {
-            "ok": r.returncode == 0,
+        r = subprocess.run(
+            cmd,
+            cwd=interop_cwd,
+            capture_output=True,
+            text=True,
+            timeout=PC_ENSURE_CDP_TIMEOUT_SECONDS,
+        )
+        observed = {
+            "identityOnly": identity_only,
             "exit": r.returncode,
             "stdoutTail": (r.stdout or "")[-1500:],
             "stderrTail": (r.stderr or "")[-1000:],
         }
+        if r.returncode == 0:
+            return {"ok": True, **observed}
+        return _cdp_unreachable(**observed)
     except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "error": f"{type(exc).__name__}:{exc}"}
+        return _cdp_unreachable(
+            identityOnly=identity_only, error=f"{type(exc).__name__}:{exc}"
+        )
 
 
 def _migration_029_ready(cur) -> bool:
@@ -3674,26 +3902,51 @@ def refresh_pc_pages(
     except Exception as exc:  # noqa: BLE001
         report.update({"ok": False, "error": f"windows_path:{type(exc).__name__}:{exc}"})
         return report
-    report["run"] = _run(
+    report["run"] = _run_pc_child(
         cmd, timeout=pc_cdp_child_timeout_seconds(len(selected)), dry_run=False
     )
+    report["childLog"] = report["run"].get("childLog")
+    report["childLogTail"] = report["run"].get("childLogTail")
     if report["run"].get("exit") != 0 or not PC_REFRESH_REPORT.is_file():
-        report.update({"ok": False, "error": "pc_cdp_refresh_failed"})
+        error_class = pc_child_error_class(report["run"].get("exit"))
+        report.update(
+            {
+                "ok": False,
+                "error": error_class,
+                "errorClass": error_class,
+                "retryable": pc_error_is_retryable(error_class),
+                "retryAfterSeconds": pc_error_retry_after_seconds(error_class),
+                # A Cloudflare storm is the provider refusing us, not a variant
+                # we failed to bind and not coverage that disappeared.
+                "identityMissing": [],
+                "coverageLoss": False,
+            }
+        )
         return report
     try:
         source_report = json.loads(PC_REFRESH_REPORT.read_text(encoding="utf-8-sig"))
+        if source_report.get("partial"):
+            # `partial: true` is a crashed/stopped run's receipt. It is resume
+            # material for the next attempt, never a completed sweep.
+            raise RuntimeError("PC refresh report is partial")
         report_time = _parse_datetime(source_report.get("asOf"))
         if report_time is None or report_time < started_at:
             raise RuntimeError("PC refresh report is stale")
         expected = len(selected)
+        batch = int(source_report.get("batch") or 0)
+        # batch may exceed expected: bind ids resolved in this same child run
+        # ride along. Unresolved bind ids (bindUnresolvedVariantIds) are an
+        # identity-lane gap, not a fetch failure, so they never fail the sweep.
         if not (
-            int(source_report.get("batch") or 0) == expected
-            and int(source_report.get("ok") or 0) == expected
+            batch >= expected
+            and int(source_report.get("ok") or 0) == batch
             and int(source_report.get("fail") or 0) == 0
             and int(source_report.get("cf") or 0) == 0
             and not source_report.get("missingRequestedVariantIds")
         ):
             raise RuntimeError("PC refresh report is incomplete")
+        if source_report.get("bindUnresolvedVariantIds"):
+            report["bindUnresolvedVariantIds"] = list(source_report["bindUnresolvedVariantIds"])
         payload_sha_by_variant: dict[str, str] = {}
         for row in map_rows:
             html_path = ROOT / str(row.get("html_path") or row.get("htmlPath") or "")
@@ -3940,6 +4193,79 @@ def _requested_adapters(adapters: list[str]) -> list[str]:
     return [adapter for adapter in allowed if adapter in selected]
 
 
+def _adapter_runner(source_key: str):
+    """Resolve one registry entry to the function that actually collects it."""
+    spec = SOURCE_ADAPTERS.get(str(source_key))
+    if not spec:
+        return None
+    runner = globals().get(str(spec.get("runner") or ""))
+    return runner if callable(runner) else None
+
+
+def dispatch_adapter(
+    source_key: str, items: list[dict[str, Any]], **kwargs: Any
+) -> dict[str, Any]:
+    """The one dispatch point for every collected source.
+
+    Adding a source used to mean editing the lane table plus a chain of
+    ``if adapter in requested`` blocks here, and a source that missed one of
+    them was silently skipped while the run still reported ok. The registry in
+    collection_contract is now the only list; anything it does not name fails
+    closed as ``source_not_registered``. Runner signatures differ (harvest,
+    delay, refresh…), so each runner is handed only the keywords it declares.
+    """
+    runner = _adapter_runner(source_key)
+    if runner is None:
+        return {
+            "adapter": str(source_key),
+            "ok": False,
+            "processed": 0,
+            "error": SOURCE_NOT_REGISTERED,
+            "errorClass": SOURCE_NOT_REGISTERED,
+        }
+    accepted = inspect.signature(runner).parameters
+    return runner(items, **{k: v for k, v in kwargs.items() if k in accepted})
+
+
+def _shared_snk_harvest(
+    requested: list[str],
+    due_by_adapter: dict[str, list[dict[str, Any]]],
+    *,
+    mode: str,
+    limit: int | None,
+    delay: float,
+    workers: int,
+    dry_run: bool,
+) -> dict[str, Any] | None:
+    """One SNKRDUNK harvest per collect run.
+
+    When both SNK ingest consumers are requested, the union of their due exact
+    IDs is fetched once and each lane ingests from the same immutable rows
+    (previously each lane refetched).
+    """
+    if dry_run or not all(name in requested for name in SNK_SHARED_HARVEST_ADAPTERS):
+        return None
+    union_ids: list[int] = []
+    seen_ids: set[int] = set()
+    for adapter in SNK_SHARED_HARVEST_ADAPTERS:
+        lane_active, _ = _partition_quarantined(adapter, due_by_adapter[adapter])
+        try:
+            _, lane_ids = _snk_selection(lane_active, limit)
+        except Exception:  # noqa: BLE001
+            # Selection errors belong to the lane report; fall back to
+            # per-lane harvesting so the lane fails with its own error.
+            return None
+        for external_id in lane_ids:
+            if external_id not in seen_ids:
+                seen_ids.add(external_id)
+                union_ids.append(external_id)
+    if not union_ids:
+        return None
+    return _snk_harvest_once(
+        union_ids, label="snk_shared", mode=mode, delay=delay, workers=workers
+    )
+
+
 def _acquire_adapter_leases(adapters: list[str], *, lease_scope: str | None = None):
     """Hold one MySQL advisory lease per adapter for the complete collection run."""
     load_env()
@@ -4046,77 +4372,34 @@ def _collect_mode_impl(
     }
     results: list[dict[str, Any]] = []
 
-    if "gemrate_pop" in requested:
-        results.append(
-            run_gemrate_pop(
-                due_by_adapter["gemrate_pop"],
-                mode=mode,
-                limit=limit,
-                dry_run=dry_run,
-                work_scope=work_scope,
-            )
-        )
-    # One SNKRDUNK harvest per collect run: when both SNK ingest consumers are
-    # requested, the union of their due exact IDs is fetched once and each lane
-    # ingests from the same immutable rows (previously each lane refetched).
+    # `requested` keeps registry order, so the lanes still run gemrate_pop,
+    # snk_trades, snk_price, snk_en_image — with the shared SNK harvest taken
+    # once, immediately before the first SNK lane, exactly as before.
     snk_shared_harvest: dict[str, Any] | None = None
-    if not dry_run and "snk_trades" in requested and "snk_price" in requested:
-        union_ids: list[int] = []
-        seen_ids: set[int] = set()
-        for adapter in ("snk_trades", "snk_price"):
-            lane_active, _ = _partition_quarantined(adapter, due_by_adapter[adapter])
-            try:
-                _, lane_ids = _snk_selection(lane_active, limit)
-            except Exception:  # noqa: BLE001
-                # Selection errors belong to the lane report; fall back to
-                # per-lane harvesting so the lane fails with its own error.
-                union_ids = []
-                break
-            for external_id in lane_ids:
-                if external_id not in seen_ids:
-                    seen_ids.add(external_id)
-                    union_ids.append(external_id)
-        if union_ids:
-            snk_shared_harvest = _snk_harvest_once(
-                union_ids,
-                label="snk_shared",
+    snk_harvest_taken = False
+    for source_key in [a for a in requested if ADAPTER_LANE.get(a) == "http"]:
+        if source_key in SNK_SHARED_HARVEST_ADAPTERS and not snk_harvest_taken:
+            snk_harvest_taken = True
+            snk_shared_harvest = _shared_snk_harvest(
+                requested,
+                due_by_adapter,
                 mode=mode,
+                limit=limit,
                 delay=delay,
                 workers=workers,
+                dry_run=dry_run,
             )
-    if "snk_trades" in requested:
         results.append(
-            run_snk_trades(
-                due_by_adapter["snk_trades"],
+            dispatch_adapter(
+                source_key,
+                due_by_adapter[source_key],
                 mode=mode,
                 limit=limit,
                 dry_run=dry_run,
                 delay=delay,
                 workers=workers,
+                work_scope=work_scope,
                 shared_harvest=snk_shared_harvest,
-            )
-        )
-    if "snk_price" in requested:
-        results.append(
-            run_snk_price(
-                due_by_adapter["snk_price"],
-                mode=mode,
-                limit=limit,
-                dry_run=dry_run,
-                delay=delay,
-                workers=workers,
-                shared_harvest=snk_shared_harvest,
-            )
-        )
-    if "snk_en_image" in requested:
-        results.append(
-            run_snk_en_image(
-                due_by_adapter["snk_en_image"],
-                mode=mode,
-                limit=limit,
-                dry_run=dry_run,
-                delay=delay,
-                workers=workers,
             )
         )
 
@@ -4215,19 +4498,11 @@ def _collect_mode_impl(
         "localStockReplay": local_pc_report,
         "networkRefresh": network_pc_refresh,
     }
-    if "pc_ebay_sales" in requested:
+    for source_key in [a for a in requested if ADAPTER_LANE.get(a) == "browser"]:
         results.append(
-            run_pc_ebay_sales(
-                selected_by_adapter["pc_ebay_sales"],
-                mode=mode,
-                dry_run=dry_run,
-                refresh=pc_refresh,
-            )
-        )
-    if "en_price_ref" in requested:
-        results.append(
-            run_en_price_ref(
-                selected_by_adapter["en_price_ref"],
+            dispatch_adapter(
+                source_key,
+                selected_by_adapter[source_key],
                 mode=mode,
                 dry_run=dry_run,
                 refresh=pc_refresh,

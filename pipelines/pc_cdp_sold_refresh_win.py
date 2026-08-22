@@ -40,6 +40,7 @@ import asyncio
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import threading
@@ -81,7 +82,27 @@ PAGE_DECISION_STALL_SECONDS = 300.0
 CONNECT_OVER_CDP_TIMEOUT_MS = 15_000
 CDP_SETUP_SECONDS = 30.0
 HARD_STALL_KILLER_SECONDS = 360.0
-PROGRESS_STAMP = ROOT / "data/runtime/operator/collect/pc_cdp_progress.stamp"
+# 每個 run 一個 stamp。舊版全部 run 共用 `pc_cdp_progress.stamp`：一個手跑撞正
+# 日更，新 run 一 touch，另一個 run 個 killer 就永遠見唔到 stale；反方向一個舊
+# killer 見到 stale 就照 `taskkill /F` 一個唔關佢事嘅 PID（Windows 幾分鐘就會
+# 重用 PID）。killer 只准睇返自己嗰個 stamp，而且殺之前要驗返 PID 身份。
+PROGRESS_STAMP_DIR = Path(
+    os.environ.get("PC_PROGRESS_STAMP_DIR")
+    or (ROOT / "data/runtime/operator/collect")
+)
+STALL_KILLER_IDENTITY_TOKEN = "pc_cdp_sold_refresh_win.py"
+# 每 N 個 page decision 落一次 partial report（tmp + os.replace）。舊版全程只喺
+# watchdog stall 同收工兩個位寫 report，中間任何一種死法都係一個字都冇留低，
+# 下一轉冇得 resume，成 batch 由零再燒一次 Cloudflare 額度。
+PARTIAL_REPORT_EVERY = max(1, int(os.environ.get("PC_PARTIAL_REPORT_EVERY", "10") or 10))
+# 連續 N 版 Cloudflare challenge / 403 就當風暴，停手交返俾上游 backoff。
+# 2026-08-22 一轉燒咗 13 次 attempt 直到 TERMINAL，全程冇一個閘叫停。
+PC_CF_STORM_THRESHOLD = max(1, int(os.environ.get("PC_CF_STORM_THRESHOLD", "8") or 8))
+EXIT_CF_STORM = 4
+EXIT_INTERRUPTED = 3
+# 由 main() 揀：鏈入面跑（--cdp-already-ensured）就淨係驗身份，Chrome 生死由
+# launcher preflight 同 ChromeCdpWatchdog 擁有。手跑仍然照開。
+CDP_IDENTITY_ONLY = {"value": False}
 # 邊個 status 由邊個 counter 記住。撤銷一個判死嗰陣要減返啱嗰幾個 —— 呢個表存在
 # 嘅原因就係曾經「加嘅時候加兩個、減嘅時候減錯一個」，令 fail 少報咗一個。
 FAILURE_COUNTERS = {
@@ -168,59 +189,233 @@ async def load_via_goto(
     return code, html, title, retry_after
 
 
-def ensure_cdp(port: int = 9333) -> None:
+def ensure_cdp(port: int = 9333, *, identity_only: bool | None = None) -> None:
+    """Verify the singleton CARDZ session; inside the chain do not start Chrome.
+
+    9333 had three owners (launcher preflight, the ChromeCdpWatchdog task, and
+    this script) and they recycled each other mid sweep. In a chain run the
+    lifecycle belongs to the first two, so this call degrades to
+    ``-IdentityOnly``. Hand runs still start Chrome, and PC_ENSURE_CDP_FULL=1
+    forces the full path for a one-off repair.
+    """
     from cdp_identity import require_session_ready
 
+    only = CDP_IDENTITY_ONLY["value"] if identity_only is None else bool(identity_only)
+    if os.environ.get("PC_ENSURE_CDP_FULL") == "1":
+        only = False
     ps1 = ROOT / "scripts" / "ensure_chrome_cdp.ps1"
-    subprocess.run(
-        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(ps1), "-Port", str(port)],
-        check=False,
-    )
+    cmd = [
+        "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(ps1),
+        "-Port", str(port),
+    ]
+    if only:
+        cmd.append("-IdentityOnly")
+    subprocess.run(cmd, check=False)
     require_session_ready(port)
 
 
+def progress_stamp_path(pid: int | None = None) -> Path:
+    """Per-run stamp path. A killer only ever watches the PID it was spawned for."""
+
+    owner = os.getpid() if pid is None else int(pid)
+    return PROGRESS_STAMP_DIR / f"pc_cdp_progress.{owner}.stamp"
+
+
 def touch_progress_stamp() -> None:
-    PROGRESS_STAMP.parent.mkdir(parents=True, exist_ok=True)
-    PROGRESS_STAMP.write_text(utc_now(), encoding="utf-8")
+    stamp = progress_stamp_path()
+    stamp.parent.mkdir(parents=True, exist_ok=True)
+    stamp.write_text(utc_now(), encoding="utf-8")
+
+
+# --- durable partial report -------------------------------------------------
+# 死法唔止一種：exception、Ctrl-C、Task Scheduler 收工送 CTRL_CLOSE、SIGTERM。
+# 每一種都要留低一份「做到邊」嘅 receipt，`partial: true` + `stop_reason`，
+# 落 disk 用 tmp + os.replace，半路俾人 kill 都唔會撕爛個 JSON。
+_REPORT_STATE: dict = {
+    "batch": 0,
+    "results": [],
+    "base": {},
+    "decisions": 0,
+    "armed": False,
+    "complete": False,
+    "terminal": False,
+}
+
+
+def write_report_atomic(payload: dict, path: Path | None = None) -> None:
+    target = OUT if path is None else path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_name(f".{target.name}.{os.getpid()}.next")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    os.replace(temporary, target)
+
+
+def register_report_state(
+    *, batch: int, results: list, base: dict | None = None
+) -> None:
+    _REPORT_STATE.update(
+        {
+            "batch": int(batch),
+            "results": results,
+            "base": dict(base or {}),
+            "armed": True,
+            "complete": False,
+            "terminal": False,
+        }
+    )
+
+
+def tally_results(results: list) -> dict:
+    out = {"ok": 0, "fail": 0, "cf": 0, "rateLimited": 0}
+    for row in results or []:
+        status = str(row.get("status") or "")
+        if status == "ok":
+            out["ok"] += 1
+            continue
+        for key in FAILURE_COUNTERS.get(status, DEFAULT_FAILURE_COUNTERS):
+            out[key] += 1
+    return out
+
+
+def partial_report_payload(stop_reason: str) -> dict:
+    results = list(_REPORT_STATE.get("results") or [])
+    payload = dict(_REPORT_STATE.get("base") or {})
+    payload.update(tally_results(results))
+    payload.update(
+        {
+            "asOf": utc_now(),
+            "partial": True,
+            "stop_reason": str(stop_reason),
+            "batch": int(_REPORT_STATE.get("batch") or 0),
+            "results": results,
+        }
+    )
+    return payload
+
+
+def write_partial_report(stop_reason: str, *, terminal: bool = True) -> bool:
+    """Persist what this run already proved. Never raises: it runs in death paths."""
+
+    if not _REPORT_STATE.get("armed"):
+        # `--help`, a bad flag, or a crash before the batch was known must not
+        # overwrite the previous run's usable receipt with an empty one.
+        return False
+    if not _REPORT_STATE.get("results"):
+        # Armed but proved zero pages (dual-tab guard, exception or signal
+        # right after register_report_state): an empty partial would clobber
+        # the previous run's usable receipt and there is nothing to resume.
+        # Guarded HERE so every exit path (finally, except, signal) obeys it.
+        return False
+    if _REPORT_STATE.get("complete"):
+        return False
+    if terminal and _REPORT_STATE.get("terminal"):
+        return False
+    try:
+        write_report_atomic(partial_report_payload(stop_reason))
+    except Exception:  # noqa: BLE001
+        return False
+    if terminal:
+        _REPORT_STATE["terminal"] = True
+    return True
+
+
+def install_partial_report_signals() -> None:
+    """SIGTERM / Windows SIGBREAK (CTRL_BREAK, CTRL_CLOSE) still leave a receipt."""
+
+    def _handler(signum, _frame):
+        write_partial_report(f"signal_{int(signum)}")
+        os._exit(EXIT_INTERRUPTED)
+
+    for name in ("SIGTERM", "SIGBREAK"):
+        signum = getattr(signal, name, None)
+        if signum is None:
+            continue
+        try:
+            signal.signal(signum, _handler)
+        except (OSError, ValueError):
+            continue
+
+
+# The detached killer runs as `python -c HARD_STALL_KILLER_CODE`, so it cannot
+# import this module. Keeping it as one module constant means the test execs the
+# exact shipped source instead of a copy that can drift.
+HARD_STALL_KILLER_CODE = """import os
+import subprocess
+import time
+
+
+def process_cmdline(pid):
+    try:
+        proc = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-Command",
+                "(Get-CimInstance Win32_Process -Filter 'ProcessId=%d').CommandLine"
+                % int(pid),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except Exception:
+        return ""
+    return (proc.stdout or "").strip()
+
+
+def identity_ok(cmdline, token):
+    # A bare PID is not an identity: Windows reuses PIDs within minutes, and the
+    # old killer would taskkill /F whatever program inherited the number.
+    text = (cmdline or "").lower()
+    if not text:
+        return False
+    return "python" in text and token.lower() in text
+
+
+def should_kill(age, limit, cmdline, token):
+    if age <= limit:
+        return False
+    return identity_ok(cmdline, token)
+
+
+def watch(parent, stamp, limit, token):
+    while True:
+        time.sleep(15)
+        cmdline = process_cmdline(parent)
+        if not identity_ok(cmdline, token):
+            return 0
+        try:
+            age = time.time() - os.path.getmtime(stamp)
+        except OSError:
+            age = limit + 1
+        if should_kill(age, limit, cmdline, token):
+            os.system("taskkill /F /PID %d" % parent)
+            return 3
+"""
 
 
 def spawn_hard_stall_killer(
     limit_seconds: float = HARD_STALL_KILLER_SECONDS,
 ) -> subprocess.Popen:
-    """Independent process: kill this PID if the progress stamp goes stale.
+    """Independent process: kill this PID if *its own* progress stamp goes stale.
 
     The in-process stall thread cannot fire if Playwright holds the GIL on a
     wedged CDP websocket. A detached python -c does not share that GIL.
+
+    Two hardenings over the 2026-08-22 shape: the stamp is per-run
+    (``pc_cdp_progress.<pid>.stamp``, never the shared global one), and the PID
+    is re-identified from its Win32 command line before any taskkill, so a
+    reused PID belonging to another program is left alone.
     """
 
     parent = os.getpid()
-    stamp = str(PROGRESS_STAMP)
-    code = (
-        "import os,sys,time\n"
-        f"parent={parent}\n"
-        f"stamp={stamp!r}\n"
-        f"limit={float(limit_seconds)}\n"
-        "def alive(pid):\n"
-        "    try:\n"
-        "        import ctypes\n"
-        "        h=ctypes.windll.kernel32.OpenProcess(0x100000,0,pid)\n"
-        "        if h:\n"
-        "            ctypes.windll.kernel32.CloseHandle(h)\n"
-        "            return True\n"
-        "        return False\n"
-        "    except Exception:\n"
-        "        return False\n"
-        "while True:\n"
-        "    time.sleep(15)\n"
-        "    if not alive(parent):\n"
-        "        sys.exit(0)\n"
-        "    try:\n"
-        "        age=time.time()-os.path.getmtime(stamp)\n"
-        "    except OSError:\n"
-        "        age=limit+1\n"
-        "    if age>limit:\n"
-        "        os.system('taskkill /F /PID %d' % parent)\n"
-        "        sys.exit(3)\n"
+    stamp = str(progress_stamp_path(parent))
+    code = HARD_STALL_KILLER_CODE + (
+        "\nraise SystemExit(watch("
+        f"{parent}, {stamp!r}, {float(limit_seconds)!r}, "
+        f"{STALL_KILLER_IDENTITY_TOKEN!r}))\n"
     )
     popen_kwargs: dict = {
         "args": [sys.executable, "-X", "utf8", "-c", code],
@@ -253,6 +448,9 @@ def mark_page_decision(state: dict, *, now: float | None = None) -> None:
     state["pageDecisionBeat"] = clock
     state["beat"] = clock
     touch_progress_stamp()
+    _REPORT_STATE["decisions"] = int(_REPORT_STATE.get("decisions") or 0) + 1
+    if _REPORT_STATE["decisions"] % PARTIAL_REPORT_EVERY == 0:
+        write_partial_report("in_progress", terminal=False)
 
 
 def stall_watchdog_should_fire(state: dict, *, now: float | None = None) -> bool:
@@ -295,7 +493,14 @@ def should_auto_resume_report(
         return False
     ok = int(previous.get("ok") or 0)
     batch = int(previous.get("batch") or 0)
-    if previous.get("watchdogStall") or previous.get("sessionError"):
+    if (
+        previous.get("partial")
+        or previous.get("watchdogStall")
+        or previous.get("sessionError")
+    ):
+        # `partial: true` is written by every death path (exception, Ctrl-C,
+        # SIGTERM/SIGBREAK, CF storm) and by the every-10-pages flush. It is a
+        # crashed run's receipt, never a finished sweep.
         return True
     return ok > 0 and batch > 0 and ok < batch
 
@@ -318,21 +523,16 @@ def arm_stall_watchdog(state: dict) -> None:
                 continue
             limit = float(state.get("limit") or 0.0)
             try:
-                OUT.parent.mkdir(parents=True, exist_ok=True)
-                OUT.write_text(
-                    json.dumps(
-                        {
-                            "asOf": utc_now(),
-                            "watchdogStall": True,
-                            "stallLimitSeconds": limit,
-                            "batch": state.get("batch"),
-                            "results": state.get("results"),
-                        },
-                        ensure_ascii=False,
-                        indent=2,
-                    ),
-                    encoding="utf-8",
+                payload = partial_report_payload("watchdog_stall")
+                payload.update(
+                    {
+                        "watchdogStall": True,
+                        "stallLimitSeconds": limit,
+                        "batch": state.get("batch"),
+                        "results": state.get("results"),
+                    }
                 )
+                write_report_atomic(payload)
             except Exception:  # noqa: BLE001
                 pass
             print(
@@ -355,6 +555,7 @@ async def run_fetch_pool_with_pages(
     start_index: int,
     batch_size: int,
     transport: str = PC_TRANSPORT,
+    cf_storm_threshold: int | None = None,
 ) -> dict:
     """揸 `tabs` 條 tab 同時抽，共用一條 backoff。
 
@@ -376,16 +577,34 @@ async def run_fetch_pool_with_pages(
     係終局判決，於是 983 版好頁又一次全部作廢。5xx 唔用共用 backoff：佢係單版嘢壞，
     唔係成個 IP 俾人限速。
     """
-    out: dict = {"ok": 0, "fail": 0, "cf": 0, "rateLimited": 0, "sessionError": None}
+    out: dict = {
+        "ok": 0,
+        "fail": 0,
+        "cf": 0,
+        "rateLimited": 0,
+        "sessionError": None,
+        "cfStorm": False,
+    }
     queue: asyncio.Queue = asyncio.Queue()
     for index, row in enumerate(pending):
         queue.put_nowait((index, row, 0))
     throttle = {"level": 0, "until": 0.0}
+    # Cloudflare 風暴斷路器：連續 N 版 challenge / 403 就唔好再撞。個 requeue
+    # ladder 本身係為「993 版入面撞到一兩次」設計，唔係為「成個 IP 俾人封」——
+    # 2026-08-22 就係咁樣一路重試燒到 TERMINAL，冇一個閘叫停。
+    storm_threshold = (
+        PC_CF_STORM_THRESHOLD
+        if cf_storm_threshold is None
+        else max(1, int(cf_storm_threshold))
+    )
+    storm = {"streak": 0, "tripped": False}
     counter = {"done": 0}
     retried: list[dict] = []
 
     async def worker(page, tab_index: int) -> None:
         while True:
+            if storm["tripped"]:
+                return
             try:
                 index, row, attempt = queue.get_nowait()
             except asyncio.QueueEmpty:
@@ -536,6 +755,19 @@ async def run_fetch_pool_with_pages(
                 f"len={len(html)} code={code} tab={tab_index}",
                 flush=True,
             )
+            if status == "cf_or_fail" or code == 403 or blocked:
+                storm["streak"] += 1
+                if storm["streak"] >= storm_threshold and not storm["tripped"]:
+                    storm["tripped"] = True
+                    out["cfStorm"] = True
+                    out["cfStormStreak"] = storm["streak"]
+                    print(
+                        f"PC_CF_STORM {storm['streak']} consecutive Cloudflare/403"
+                        f" pages (threshold {storm_threshold}); stopping the sweep",
+                        flush=True,
+                    )
+            else:
+                storm["streak"] = 0
             if status in RETRYABLE_STATUSES:
                 if status == "server_error":
                     # 5xx 係單版嘢壞，唔係成個 IP 俾人限速 —— 停晒全部分頁冇意思，
@@ -850,6 +1082,24 @@ def bind_missing_ids_dual_tab(variant_ids: list[int], *, cdp_port: int) -> dict:
     return report
 
 
+def partition_requested(
+    exact_requested: set[int], bind_ids: list[int], selected_ids: set[int]
+) -> tuple[list[int], list[int]]:
+    """Split what the MAP could not serve into two very different things.
+
+    ``missing_requested``: exact-ID variants the caller asked for that have no
+    MAP row -- a real acquisition failure, fails the run.
+    ``bind_unresolved``: bind-list variants (no PC id by construction) that the
+    bind step could not resolve this run -- an identity-lane gap, reported but
+    never a fetch failure. 2026-08-22: 13 attempts exited 1 with 650/650 pages
+    OK because 378 unresolvable bind ids were counted as missing_requested.
+    """
+    bind_only = {int(v) for v in bind_ids} - exact_requested
+    missing_requested = sorted(exact_requested - selected_ids)
+    bind_unresolved = sorted(bind_only - selected_ids)
+    return missing_requested, bind_unresolved
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=0, help="0 = all selected rows")
@@ -895,6 +1145,20 @@ def main() -> int:
     touch_progress_stamp()
     spawn_hard_stall_killer()
     boot_results: list[dict] = []
+    # Arm before the MAP read / CDP attach so a crash in those still writes a
+    # report the next run can `--resume-report` (the child rejects a resume
+    # report that lacks the strict single-browser contract fields).
+    register_report_state(
+        batch=0,
+        results=boot_results,
+        base={
+            "cdpPort": args.cdp_port,
+            "singleBrowserSession": True,
+            "fallbackBrowsers": 0,
+            "tabs": max(1, int(args.workers)),
+            "transport": PC_TRANSPORT,
+        },
+    )
     watchdog = new_stall_watchdog_state(batch=0, results=boot_results)
     arm_stall_watchdog(watchdog)
     tabs = max(1, int(args.workers))
@@ -902,6 +1166,7 @@ def main() -> int:
         raise SystemExit(
             f"9333 PC script is dual-tab only (PC_TABS={PC_TABS}); got --workers={tabs}"
         )
+    CDP_IDENTITY_ONLY["value"] = bool(args.cdp_already_ensured)
     if not args.cdp_already_ensured:
         ensure_cdp(args.cdp_port)
     bind_report = None
@@ -915,6 +1180,8 @@ def main() -> int:
         print(json.dumps({"pcBindMissing": bind_report}, ensure_ascii=False), flush=True)
     rows = [json.loads(l) for l in MAP.read_text(encoding="utf-8").splitlines() if l.strip()]
     requested_ids: list[int] = []
+    exact_requested: set[int] = set()
+    bind_ids_for_split: list[int] = []
     if args.variant_ids_file:
         requested_ids = list(
             dict.fromkeys(
@@ -923,14 +1190,20 @@ def main() -> int:
                 if line.strip()
             )
         )
+        exact_requested = set(requested_ids)
         if bind_report is not None:
+            # Bind ids that the bind step just resolved now have MAP rows and
+            # are fetched in this same run; the rest are bind_unresolved.
             requested_ids = list(dict.fromkeys(requested_ids + bind_ids))
+            bind_ids_for_split = list(bind_ids)
         requested_set = set(requested_ids)
         rows = [row for row in rows if int(row.get("variant_id") or 0) in requested_set]
     else:
         requested_set = set()
     selected_ids = {int(row.get("variant_id") or 0) for row in rows}
-    missing_requested = sorted(requested_set - selected_ids)
+    missing_requested, bind_unresolved = partition_requested(
+        exact_requested, bind_ids_for_split, selected_ids
+    )
     rows = rows[args.offset :]
     batch = rows if args.limit <= 0 else rows[: args.limit]
     row_by_variant = {int(row["variant_id"]): row for row in batch}
@@ -982,6 +1255,25 @@ def main() -> int:
     # hangs cannot sit silent. Reuse the same dict; do not reset the beat.
     watchdog["batch"] = len(batch)
     watchdog["results"] = results
+    register_report_state(
+        batch=len(batch),
+        results=results,
+        base={
+            "limit": args.limit,
+            "offset": args.offset,
+            "cdpPort": args.cdp_port,
+            "singleBrowserSession": True,
+            "fallbackBrowsers": 0,
+            "tabs": max(1, int(args.workers)),
+            "sleepSeconds": max(0.0, float(args.sleep)),
+            "transport": PC_TRANSPORT,
+            "resumeReport": str(args.resume_report) if args.resume_report else None,
+            "reused": len(reused_results),
+            "requested": len(requested_ids),
+            "selected": len(rows),
+            "missingRequestedVariantIds": missing_requested,
+        },
+    )
     if pending_batch:
         pool = asyncio.run(
             run_fetch_pool(
@@ -1002,6 +1294,14 @@ def main() -> int:
         rate_limited += pool["rateLimited"]
         session_error = pool["sessionError"]
         retries = pool["retries"]
+        if pool.get("cfStorm"):
+            watchdog["done"] = True
+            write_partial_report("pc_cf_storm")
+            print(
+                f"PC_CF_STORM partial report written to {OUT}; exit {EXIT_CF_STORM}",
+                flush=True,
+            )
+            return EXIT_CF_STORM
 
 
     ingest = None
@@ -1041,6 +1341,7 @@ def main() -> int:
         "requested": len(requested_ids),
         "selected": len(rows),
         "missingRequestedVariantIds": missing_requested,
+        "bindUnresolvedVariantIds": bind_unresolved,
         "ok": ok,
         "cf": cf,
         "fail": fail,
@@ -1048,8 +1349,8 @@ def main() -> int:
         "bindMissing": bind_report,
         "ingest": ingest,
     }
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_report_atomic(report)
+    _REPORT_STATE["complete"] = True
     watchdog["done"] = True
     print(json.dumps({k: report[k] for k in ["asOf", "batch", "ok", "cf", "fail"]}, ensure_ascii=False, indent=2))
     print(f"REPORT {OUT}")
@@ -1062,11 +1363,36 @@ def main() -> int:
         and session_error is None
         and len(results) == len(batch)
         and not missing_requested
-        and (not requested_ids or len(batch) == len(requested_ids))
+        and (not requested_ids or len(batch) == len(selected_ids))
         and (ingest is None or ingest.get("exit") == 0)
     )
     return 0 if complete else 1
 
 
+def run_cli() -> int:
+    """Every exit path leaves a receipt on disk.
+
+    Before this wrapper the report only existed at watchdog-stall time and at a
+    clean finish, so an exception / Ctrl-C / Task Scheduler CTRL_CLOSE threw
+    away every page the run had already proved and the next attempt restarted
+    the whole sweep against the same Cloudflare budget.
+    """
+
+    install_partial_report_signals()
+    try:
+        return main()
+    except KeyboardInterrupt:
+        write_partial_report("keyboard_interrupt")
+        return EXIT_INTERRUPTED
+    except SystemExit:
+        raise
+    except BaseException as exc:  # noqa: BLE001
+        write_partial_report(f"exception:{type(exc).__name__}")
+        raise
+    finally:
+        # Zero-progress runs are refused inside write_partial_report itself.
+        write_partial_report("interrupted")
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(run_cli())

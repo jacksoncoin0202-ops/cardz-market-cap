@@ -147,6 +147,64 @@ def main() -> int:
         True,
     )
 
+    # --- hard stall killer: per-run stamp + PID identity --------------------
+    # 2026-08-22 shape: one shared `pc_cdp_progress.stamp` plus a bare PID.
+    # Two runs overlapping meant either nobody ever saw a stale stamp, or a
+    # killer taskkill /F'd whatever program had inherited the PID by then.
+    check(
+        "global shared progress stamp is gone",
+        'PROGRESS_STAMP = ROOT / "data/runtime/operator/collect/pc_cdp_progress.stamp"'
+        in source,
+        False,
+    )
+    check(
+        "stamp path is per run",
+        mod.progress_stamp_path(4242).name,
+        "pc_cdp_progress.4242.stamp",
+    )
+    check(
+        "killer is spawned against its own run's stamp",
+        "progress_stamp_path(parent)" in source,
+        True,
+    )
+
+    killer: dict = {}
+    exec(mod.HARD_STALL_KILLER_CODE, killer)  # noqa: S102 - the shipped source itself
+    limit = mod.HARD_STALL_KILLER_SECONDS
+    token = mod.STALL_KILLER_IDENTITY_TOKEN
+    mine = (
+        r"C:\repo\.venv-backend-windows\Scripts\python.exe -X utf8 "
+        r"C:\repo\pipelines\pc_cdp_sold_refresh_win.py --variant-ids-file ids.txt"
+    )
+    reused = r"C:\Windows\system32\notepad.exe C:\Users\me\notes.txt"
+    check(
+        "stale stamp + matching identity fires",
+        killer["should_kill"](limit + 1, limit, mine, token),
+        True,
+    )
+    check(
+        "stale stamp + PID reused by another program does not fire",
+        killer["should_kill"](limit + 1, limit, reused, token),
+        False,
+    )
+    check(
+        "stale stamp + dead PID (no command line) does not fire",
+        killer["should_kill"](limit + 1, limit, "", token),
+        False,
+    )
+    check(
+        "fresh stamp does not fire",
+        killer["should_kill"](limit - 1, limit, mine, token),
+        False,
+    )
+    check(
+        "another python that is not this script does not fire",
+        killer["should_kill"](
+            limit + 1, limit, r"C:\python\python.exe gemrate_source.py", token
+        ),
+        False,
+    )
+
     for line in FAILED:
         print(line)
     print(f"{CHECKS - len(FAILED)}/{CHECKS} checks passed")

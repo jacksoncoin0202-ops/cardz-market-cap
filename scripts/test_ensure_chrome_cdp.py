@@ -20,7 +20,22 @@ from cdp_identity import (  # noqa: E402
 )
 
 
+def _windows_path(path: Path) -> str:
+    if sys.platform == "win32":
+        return str(path)
+    return subprocess.run(
+        ["wslpath", "-w", str(path)],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=30,
+    ).stdout.strip()
+
+
 def _run(*extra: str) -> subprocess.CompletedProcess[str]:
+    # Run from WSL and powershell.exe cannot open a /mnt/c/... -File path, nor
+    # inherit a translated cwd; it then answers in the console codepage, which
+    # is not UTF-8. Hand it a Windows path and decode leniently.
     return subprocess.run(
         [
             "powershell.exe",
@@ -28,12 +43,13 @@ def _run(*extra: str) -> subprocess.CompletedProcess[str]:
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            str(PS1),
+            _windows_path(PS1),
             *extra,
         ],
-        cwd=str(ROOT),
+        cwd=str(ROOT) if sys.platform == "win32" else "/mnt/c/Windows/System32",
         capture_output=True,
         text=True,
+        errors="replace",
         timeout=60,
     )
 
