@@ -9,7 +9,12 @@ param(
     [switch]$RenewManualWindow,
     [ValidatePattern('^\d{4}-\d{2}-\d{2}$')]
     [string]$BusinessDate,
-    [int]$MaxRuntimeSeconds = 3000,
+    # R2 (2026-08-24): claiming closes at 35 min so the drain fills the
+    # remaining ~12 min of the same PT55M window.  Must equal
+    # DEFAULT_MAX_RUNTIME_SECONDS in pipelines/daily_chain_v2.py and
+    # $MaxRuntimeSeconds in scripts/install_cardz_daily_v2_task.ps1;
+    # scripts/test_v2_tick_budget.py fails if any side drifts.
+    [int]$MaxRuntimeSeconds = 2100,
     [ValidatePattern('^[A-Z][A-Z0-9]{1,7}$')]
     [string]$RunLabel,
     [switch]$SelfTest

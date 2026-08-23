@@ -20,7 +20,12 @@ $Repo = Split-Path -Parent $PSScriptRoot
 $TaskName = "CARDZ-Marketcap-Daily-V2"
 $WatchdogTaskName = "CARDZ-037-Watchdog-Live-Release"
 $PromoTaskName = "CARDZ-Promo-After-Publish"
-$MaxRuntimeSeconds = 3000
+# R2 (2026-08-24): the claim window, not the whole PT55M.  Claiming closes at
+# 35 min and the tick drains live work for the remaining ~12 min inside the same
+# ExecutionTimeLimit.  Must equal DEFAULT_MAX_RUNTIME_SECONDS in
+# pipelines/daily_chain_v2.py and the launcher's default; scripts/test_v2_tick_budget.py
+# parses all three and fails if any side drifts.
+$MaxRuntimeSeconds = 2100
 $LegacyTasks = @(
     "CARDZ-037-Nightly-Collect-Accept",
     "CARDZ-037-Morning-Browser-Lanes",

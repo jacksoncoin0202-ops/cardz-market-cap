@@ -525,7 +525,12 @@ try:
         os.environ["CARDZ_V2_TICK_EXTERNAL_LIMIT_SECONDS"] = "600"
         capped = new_chain(new_journal("cap"), runtime_seconds=60.0)
         capped_hard = chain_module.tick_hard_limit_seconds()
-        assert capped_hard == 300.0, capped_hard
+        assert capped_hard == (
+            600.0
+            - chain_module.TICK_LAUNCHER_STARTUP_RESERVE_SECONDS
+            - chain_module.TICK_INTERRUPT_GRACE_MAX_SECONDS
+            - chain_module.TICK_DRAIN_TAIL_RESERVE_SECONDS
+        ), capped_hard
         assert (
             capped.drain_deadline_monotonic
             <= capped.tick_started_monotonic + capped_hard + 1e-6
@@ -560,7 +565,7 @@ try:
     external_limit = chain_module.tick_external_limit_seconds()
     latest_finish = (
         budget_chain.drain_deadline_monotonic
-        + chain_module.TICK_INTERRUPT_GRACE_SECONDS
+        + chain_module.TICK_INTERRUPT_GRACE_MAX_SECONDS
         + chain_module.TICK_DRAIN_TAIL_RESERVE_SECONDS
     )
     external_kill = (
@@ -572,17 +577,26 @@ try:
         "a drained tick would be hard-killed mid-finalisation: it finishes "
         f"{latest_finish - external_kill:.0f}s after the external limit"
     )
-    # ...and nothing regresses against today's 3000 s budget under the
-    # installed PT55M: the derived hard limit IS the CLI default.
+    # ...and R2 (2026-08-24): under the INSTALLED numbers the drain is real.
+    # The hard limit used to equal the CLI default, i.e. zero drain; claiming now
+    # closes at DEFAULT_MAX_RUNTIME_SECONDS and the drain fills the rest of the
+    # same PT55M window.  scripts/test_v2_tick_budget.py holds the .ps1 side.
     assert (
         chain_module.tick_hard_limit_seconds()
-        == float(chain_module.DEFAULT_MAX_RUNTIME_SECONDS)
+        - float(chain_module.DEFAULT_MAX_RUNTIME_SECONDS)
+        == float(chain_module.TICK_DRAIN_CEILING_SECONDS)
     ), chain_module.tick_hard_limit_seconds()
-    # Drain is still reachable today without touching the installer: a smaller
-    # --max-runtime-seconds closes claiming earlier and drain fills the rest.
+    installed_granted = (
+        budget_chain.drain_deadline_monotonic - budget_chain.deadline_monotonic
+    )
+    assert installed_granted >= 600.0, (
+        f"the installed tick was granted {installed_granted:.0f}s of drain"
+    )
+    # A smaller --max-runtime-seconds closes claiming earlier; the ceiling is
+    # the same wall clock either way.
     short_tick = new_chain(new_journal("shorttick"), runtime_seconds=1800.0)
     granted = short_tick.drain_deadline_monotonic - short_tick.deadline_monotonic
-    assert granted > 1000.0, (
+    assert abs(granted - float(chain_module.TICK_DRAIN_CEILING_SECONDS)) < 1e-6, (
         f"a 1800s tick under the installed limit was granted {granted:.0f}s of drain"
     )
     print(

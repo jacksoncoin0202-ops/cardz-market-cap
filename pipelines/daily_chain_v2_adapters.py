@@ -36,6 +36,35 @@ class WorkerInterrupted(RuntimeError):
 # Long enough for collect_control to ingest the cards its child already fetched
 # and declared; matches the stage subprocess path in daily_chain_v2.py.
 WORKER_SHUTDOWN_GRACE_SECONDS = 60.0
+# Operator finding 2026-08-24 (R3): 60 s does not cover a collect/gemrate child.
+# Inside the grace that worker has to (a) let the browser child notice the
+# deferred SIGTERM and finish its in-flight chunk, (b) write its declared-partial
+# manifest, (c) take the DB writer lease and ingest every card it captured, and
+# (d) checkpoint them -- measured at minutes, not seconds, over 1604 cards.
+# Killing it earlier throws away payloads that were already paid for
+# ("never abandon captured payloads").  The key is the worker kind for a source
+# worker and the stage name for a stage subprocess.
+WORKER_SHUTDOWN_GRACE_BY_KIND: dict[str, float] = {
+    "collect": 240.0,
+    # The checkpoint-repair stage shells out to the same collect child.
+    "checkpoint-repair": 240.0,
+}
+# The tick's hard limit must reserve the LONGEST grace any worker kind may take,
+# or a drained tick is designed to be hard-killed mid-kill.  One source: the
+# orchestrator imports this instead of repeating the number.
+MAX_WORKER_SHUTDOWN_GRACE_SECONDS = max(
+    [WORKER_SHUTDOWN_GRACE_SECONDS, *WORKER_SHUTDOWN_GRACE_BY_KIND.values()]
+)
+
+
+def worker_shutdown_grace_seconds(kind: str) -> float:
+    """Seconds this worker kind may take between SIGTERM and SIGKILL."""
+
+    return float(
+        WORKER_SHUTDOWN_GRACE_BY_KIND.get(
+            str(kind or "").strip(), WORKER_SHUTDOWN_GRACE_SECONDS
+        )
+    )
 
 
 def _iso_now() -> str:
@@ -282,13 +311,15 @@ class CommandSourceAdapter:
                 # resolve_deadline: tick drain can extend this after the worker
                 # started, so re-read it every poll instead of freezing it at
                 # claim time (2026-08-24 "tick deadline interrupted source
-                # worker").  WORKER_SHUTDOWN_GRACE_SECONDS: audit item 10 -- the
+                # worker").  worker_shutdown_grace_seconds: audit item 10 -- the
                 # default 5s grace killed collect_control while its child still
                 # held hundreds of fetched cards, so nothing was ingested and the
-                # retry restarted from zero.  The stage path already grants 60s.
+                # retry restarted from zero.  R3 (2026-08-24): the grace is per
+                # worker kind; the stage path uses the same table.
                 if now >= resolve_deadline(deadline_monotonic):
                     terminate_worker_group(
-                        proc.pid, grace_seconds=WORKER_SHUTDOWN_GRACE_SECONDS
+                        proc.pid,
+                        grace_seconds=worker_shutdown_grace_seconds(self.worker_kind),
                     )
                     raise WorkerInterrupted(
                         f"tick deadline interrupted source worker pid={proc.pid} task={task_key}"

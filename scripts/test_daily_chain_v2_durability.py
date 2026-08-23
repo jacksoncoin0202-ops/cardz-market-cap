@@ -648,7 +648,10 @@ try:
     print("POSITIVE_OK a signalled tick exits 143 with journal evidence and a held tick lock skips instead of doubling")
 
     # --------------------------------------------------------------- task 12
-    assert DEFAULT_MAX_RUNTIME_SECONDS == 3000
+    # R2 (2026-08-24): the claim window, not the whole PT55M.  The drain fills
+    # the rest; scripts/test_v2_tick_budget.py holds the .ps1 side to the same
+    # number and proves the drain is non-zero.
+    assert DEFAULT_MAX_RUNTIME_SECONDS == 2100
     assert MAX_RUNTIME_SECONDS_CEILING == 5400
     source = (ROOT / "pipelines" / "daily_chain_v2.py").read_text(encoding="utf-8")
     assert '"--max-runtime-seconds", type=int, default=DEFAULT_MAX_RUNTIME_SECONDS' in source
@@ -656,7 +659,7 @@ try:
         "MAX_RUNTIME_SECONDS_CEILING = 5400", ""
     )
     assert ADOPT_GRACE_SECONDS == 120
-    print("POSITIVE_OK DEFAULT_MAX_RUNTIME_SECONDS is the single 3000 second tick budget")
+    print("POSITIVE_OK DEFAULT_MAX_RUNTIME_SECONDS is the single 2100 second claim budget")
 
     # --------------------------------------------------------------- task 13
     # --notify imports notify_hermes inside deliver_events(); it lives in

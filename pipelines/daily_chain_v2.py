@@ -33,11 +33,14 @@ sys.path.insert(0, str(ROOT / "pipelines"))
 sys.path.append(str(ROOT / "scripts"))
 
 from daily_chain_v2_adapters import (  # noqa: E402
+    MAX_WORKER_SHUTDOWN_GRACE_SECONDS,
+    WORKER_SHUTDOWN_GRACE_SECONDS,
     CommandSourceAdapter,
     WorkerInterrupted,
     build_default_registry,
     task_payload,
     terminate_worker_group,
+    worker_shutdown_grace_seconds,
 )
 from daily_chain_v2_contract import (  # noqa: E402
     CONTRACT_SHORTFALL_MARKER,
@@ -85,13 +88,6 @@ EXECUTE_REFILL_IDLE_INTERVAL_SECONDS = 5.0
 # next_retry_wait() returned 0 while the concurrency group was full.
 TICK_SLEEP_SLICE_SECONDS = 60.0
 TICK_MIN_IDLE_SLEEP_SECONDS = 1.0
-# Drain (operator finding 2026-08-24).  Once claiming closes the tick keeps
-# waiting for work that is still alive.  2400 s: the longest honest single
-# worker measured is gemrate contract-repair over 1604 cards at ~55-60 min, and
-# a task claimed at the very start of a 3000 s tick already owns ~49.5 min of
-# it, so 40 min of drain covers that worker even when it was claimed 20 minutes
-# late, while still bounding the flock hold at max_runtime + 40 min.
-TICK_DRAIN_CEILING_SECONDS = 2400
 # The external limit is NOT ours to choose: the Task Scheduler action that runs
 # this tick carries ExecutionTimeLimit=PT55M (scripts/install_cardz_daily_v2_task.ps1),
 # and Windows kills the wscript -> powershell -> wsl.exe tree when it expires.
@@ -102,25 +98,30 @@ TICK_DRAIN_CEILING_SECONDS = 2400
 #     3300  PT55M
 #   -   60  launcher before python exists: ensure_chrome_cdp.ps1 preflight
 #           (8 s evict + 20 s revive + curl timeouts) and wsl.exe cold start
-#   -   60  TICK_INTERRUPT_GRACE_SECONDS: terminate_worker_group() at the bound
+#   -  240  TICK_INTERRUPT_GRACE_MAX_SECONDS: the longest grace any worker kind
+#           may take between SIGTERM and SIGKILL (R3: a collect/gemrate child
+#           finishes its step and ingests its manifest inside it)
 #   -  180  tail after the last worker dies: finalise_live + lifecycle_events +
 #           deliver_events (NOTIFY_TIMEOUT_SECONDS=20 per send, several events)
 #           + write_health + summary
-#   = 3000  == DEFAULT_MAX_RUNTIME_SECONDS
-# i.e. under the INSTALLED PT55M + -MaxRuntimeSeconds 3000 the drain grants zero
-# extra seconds and nothing regresses against today's margin.  Two ways to buy
-# real drain, neither of which this file may take on its own:
-#   (1) run the tick with a smaller --max-runtime-seconds; claiming closes
-#       earlier and drain fills the rest of the same 3000 s.  No installer
-#       change, available today.
-#   (2) raise ExecutionTimeLimit in scripts/install_cardz_daily_v2_task.ps1 AND
-#       set CARDZ_V2_TICK_EXTERNAL_LIMIT_SECONDS to the new PT value in the
-#       launcher's environment.  Raising one without the other either buys
-#       nothing or moves the kill outside our control.
+#   = 2820  == tick_hard_limit_seconds()
+# R2 (operator finding 2026-08-24): with -MaxRuntimeSeconds 3000 that hard limit
+# equalled the claim deadline, so the drain granted ZERO extra seconds and the
+# 55-60 min gemrate harvest could never finish a tick.  Claiming now closes at
+# DEFAULT_MAX_RUNTIME_SECONDS = 2100 (35 min) and the drain fills the remaining
+# 720 s (12 min) of the SAME PT55M window -- remedy (1) from that finding, no
+# ExecutionTimeLimit change.  The alternative, raising ExecutionTimeLimit in
+# scripts/install_cardz_daily_v2_task.ps1 AND setting
+# CARDZ_V2_TICK_EXTERNAL_LIMIT_SECONDS to the new PT value in the launcher's
+# environment, must still be done on both sides or it either buys nothing or
+# moves the kill outside our control.
 # The TICK_DRAINING event reports which of the two bounds truncated a drain.
 TICK_EXTERNAL_LIMIT_SECONDS = 3300
 TICK_LAUNCHER_STARTUP_RESERVE_SECONDS = 60
-TICK_INTERRUPT_GRACE_SECONDS = 60.0
+# One source for the grace: the adapters own the per-kind table and the tick
+# reserves its worst case, so neither side can move without the other.
+TICK_INTERRUPT_GRACE_SECONDS = WORKER_SHUTDOWN_GRACE_SECONDS
+TICK_INTERRUPT_GRACE_MAX_SECONDS = MAX_WORKER_SHUTDOWN_GRACE_SECONDS
 TICK_DRAIN_TAIL_RESERVE_SECONDS = 180
 DRAIN_HEARTBEAT_STALE_SECONDS = TASK_LEASE_SECONDS
 # Review fix: drain_deadline_for() asks claim_still_live() on EVERY worker poll
@@ -129,10 +130,26 @@ DRAIN_HEARTBEAT_STALE_SECONDS = TASK_LEASE_SECONDS
 # (source) / 2 s (stage) and the stale window is 90 s, so caching the answer for
 # five seconds cannot change a single decision.
 DRAIN_LIVENESS_CACHE_SECONDS = 5.0
-# One tick must fit inside the scheduler's own ExecutionTimeLimit; 3000 s is
-# the single source of that number for both the CLI default and the installer.
-DEFAULT_MAX_RUNTIME_SECONDS = 3000
+# One tick must fit inside the scheduler's own ExecutionTimeLimit; 2100 s is
+# the single source of that number for both the CLI default and the installer
+# (scripts/install_cardz_daily_v2_task.ps1 + scripts/cardz_daily_v2_launcher.ps1
+# repeat it as -MaxRuntimeSeconds; scripts/test_v2_tick_budget.py parses both
+# and fails if either side drifts).
+DEFAULT_MAX_RUNTIME_SECONDS = 2100
 MAX_RUNTIME_SECONDS_CEILING = 5400
+# Drain (operator finding 2026-08-24).  Once claiming closes the tick keeps
+# waiting for work that is still alive.  Derived, never chosen: the ceiling is
+# exactly the wall clock left inside the external limit after the claim window,
+# the worst-case interrupt grace and the finalisation tail, so the tick never
+# asks for drain it cannot have and TICK_DRAINING's truncatedByExternalLimit
+# means what it says -- somebody shrank the external limit under us.
+TICK_DRAIN_CEILING_SECONDS = (
+    TICK_EXTERNAL_LIMIT_SECONDS
+    - TICK_LAUNCHER_STARTUP_RESERVE_SECONDS
+    - TICK_INTERRUPT_GRACE_MAX_SECONDS
+    - TICK_DRAIN_TAIL_RESERVE_SECONDS
+    - DEFAULT_MAX_RUNTIME_SECONDS
+)
 LAST_SCHEDULED_TICK_JST = "17:00"
 # 2026-08-22: the manual window was tick start + 600 s, and the run reached
 # publish with four minutes of window left.  Forty-five minutes is the floor
@@ -618,13 +635,18 @@ def tick_hard_limit_seconds() -> float:
     designed to be hard-killed mid-finalisation.  It is now derived, so the
     arithmetic in the TICK_EXTERNAL_LIMIT_SECONDS comment is the only source of
     the number: external limit - launcher startup - interrupt grace - tail.
+
+    R3: the grace reserved here is the WORST case over every worker kind, not
+    the default one.  A collect/gemrate worker may spend 240 s finishing its
+    step and ingesting its manifest, and reserving only 60 s would put that kill
+    outside PT55M.
     """
 
     return max(
         0.0,
         tick_external_limit_seconds()
         - TICK_LAUNCHER_STARTUP_RESERVE_SECONDS
-        - TICK_INTERRUPT_GRACE_SECONDS
+        - TICK_INTERRUPT_GRACE_MAX_SECONDS
         - TICK_DRAIN_TAIL_RESERVE_SECONDS,
     )
 
@@ -1956,14 +1978,21 @@ class DailyChainV2:
         released: list[str] = []
         for task_key, claim in list(self.own_claims.items()):
             try:
-                self._interrupt(task_key, claim, reason=reason)
+                # A signalled tick is the external ExecutionTimeLimit (or an
+                # operator) ending the tick, not the task failing: the attempt
+                # is refunded, the interruption budget is not.
+                self._interrupt(task_key, claim, reason=reason, tick_limited=True)
             except Exception:  # noqa: BLE001 - shutdown releases best effort
                 continue
             released.append(task_key)
         return released
 
-    def _interrupt(self, task_key: str, claim: str, *, reason: str) -> str:
-        status = self.journal.interrupt_claim(task_key, claim, reason=reason)
+    def _interrupt(
+        self, task_key: str, claim: str, *, reason: str, tick_limited: bool = False
+    ) -> str:
+        status = self.journal.interrupt_claim(
+            task_key, claim, reason=reason, tick_limited=tick_limited
+        )
         self.own_claims.pop(task_key, None)
         if status == "PARKED":
             row = self.journal.task(task_key) or {}
@@ -2229,9 +2258,13 @@ class DailyChainV2:
                 # live claim, so a healthy worker survives the tick deadline and
                 # a stale one is still cut on it (operator finding 2026-08-24).
                 if time.monotonic() >= self._work_deadline_monotonic(row):
-                    # Same 60 s the drain arithmetic reserves; one source.
+                    # Per-stage grace from the same table the source workers use
+                    # (R3); the drain arithmetic reserves its worst case.
                     terminate_worker_group(
-                        proc.pid, grace_seconds=TICK_INTERRUPT_GRACE_SECONDS
+                        proc.pid,
+                        grace_seconds=worker_shutdown_grace_seconds(
+                            stage_name or kind
+                        ),
                     )
                     raise WorkerInterrupted(
                         f"tick deadline interrupted stage pid={proc.pid} capability={row['capability']}"
@@ -2351,7 +2384,11 @@ class DailyChainV2:
                 result = self._run_stage_process(row)
                 self.journal.finish_success(task_key, claim, result)
         except WorkerInterrupted as error:
-            self._interrupt(task_key, claim, reason=str(error))
+            # WorkerInterrupted is raised only where the tick itself cut the
+            # worker (drain deadline / cutoff / external limit).  That attempt
+            # is refunded so a resumable 55-90 min task is not parked by the
+            # tick budget; its interruption budget still parks it.
+            self._interrupt(task_key, claim, reason=str(error), tick_limited=True)
         except Exception as error:  # noqa: BLE001 - classify then checkpoint
             text = f"{type(error).__name__}:{error}"
             decision = classify_error(

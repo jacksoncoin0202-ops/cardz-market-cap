@@ -83,7 +83,7 @@ Check "launcher-selftest-log-created" ($logFiles.Count -eq 1) "log files under $
 Check "launcher-selftest-log-has-ok" ($logText -match "SELFTEST_OK") "log contains SELFTEST_OK"
 Check "launcher-selftest-skipped-preflight" ($logText -match "SELFTEST_SKIP_PREFLIGHT") "log contains SELFTEST_SKIP_PREFLIGHT"
 Check "launcher-selftest-no-tick" (-not ($logText -match "CARDZ_V2_START")) "log must not contain CARDZ_V2_START (no wsl.exe tick)"
-Check "launcher-default-max-runtime-3000" ($logText -match "--max-runtime-seconds 3000") "default -MaxRuntimeSeconds lands in the wsl arg list"
+Check "launcher-default-max-runtime-2100" ($logText -match "--max-runtime-seconds 2100") "default -MaxRuntimeSeconds lands in the wsl arg list"
 Check "launcher-max-runtime-override" ($rSelfMax.Out -match "--max-runtime-seconds 1234") "-MaxRuntimeSeconds 1234 lands in the wsl arg list"
 $flagLine = (($rSelfFlags.Out -split "`r?`n") | Where-Object { $_ -match "CARDZ_V2_WSL_ARGS" } | Select-Object -First 1)
 $flagsOk = ($flagLine -match "--allow-publish") -and ($flagLine -match "--notify") -and

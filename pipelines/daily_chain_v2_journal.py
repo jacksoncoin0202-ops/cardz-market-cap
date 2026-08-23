@@ -179,6 +179,14 @@ class Journal:
                     attempts INTEGER NOT NULL DEFAULT 0,
                     max_attempts INTEGER NOT NULL,
                     interruptions INTEGER NOT NULL DEFAULT 0,
+                    -- R3/attempt accounting (2026-08-24): attempts is bumped at
+                    -- claim time and the attempt_no is UNIQUE, so it can never
+                    -- be given back.  An attempt the TICK ended (drain deadline
+                    -- / external ExecutionTimeLimit) is not a failure of the
+                    -- task, so it is counted here and subtracted wherever
+                    -- max_attempts decides PARKED / TERMINAL / claimable.  The
+                    -- interruption budget below is what still parks such a task.
+                    interrupted_attempts INTEGER NOT NULL DEFAULT 0,
                     next_retry_at TEXT,
                     lease_token TEXT,
                     lease_expires_at TEXT,
@@ -239,6 +247,13 @@ class Journal:
             if columns and "interruptions" not in columns:
                 conn.execute(
                     "ALTER TABLE chain_task ADD COLUMN interruptions INTEGER NOT NULL DEFAULT 0"
+                )
+            # Same additive shape for the tick-interruption attempt refund: a
+            # live journal keeps its history and starts every task at zero.
+            if columns and "interrupted_attempts" not in columns:
+                conn.execute(
+                    "ALTER TABLE chain_task ADD COLUMN interrupted_attempts"
+                    " INTEGER NOT NULL DEFAULT 0"
                 )
             # Same additive shape for the renewal budget (audit P1-3): a live
             # journal keeps its history and starts this run at zero renewals.
@@ -414,7 +429,7 @@ class Journal:
                     """
                     SELECT task_key FROM chain_task
                     WHERE run_id=? AND status='DEGRADED'
-                      AND attempts<max_attempts
+                      AND attempts-interrupted_attempts<max_attempts
                       AND (
                         (phase='candidate-source' AND last_error_code='CANDIDATE_SOURCE_CUTOFF')
                         OR
@@ -629,10 +644,13 @@ class Journal:
         with self.transaction() as conn:
             # Both budgets are enforced here, not only at failure time: an
             # INTERRUPTED task that already spent its attempts or its
-            # interruption budget must never be handed out again.
+            # interruption budget must never be handed out again.  attempts is
+            # the claim counter; the attempts a TICK ended are subtracted so a
+            # long resumable task is not parked by its own tick budget (they
+            # still cost interruption budget, which is what parks it).
             where = (
                 f"run_id=? AND status IN ({claimable})"
-                " AND attempts<max_attempts AND interruptions<?"
+                " AND attempts-interrupted_attempts<max_attempts AND interruptions<?"
                 " AND (next_retry_at IS NULL OR next_retry_at<=?)"
             )
             params: list[Any] = [run_id, budget, now_text]
@@ -809,7 +827,12 @@ class Journal:
             )
             error_attempt = previous_same_error + 1
             delay = decision.delay_for_attempt(error_attempt)
-            exhausted = attempt >= int(task["max_attempts"])
+            # Attempts the TICK ended are not failures of this task, so they do
+            # not count toward the terminal verdict (2026-08-24 accounting fix).
+            exhausted = (
+                attempt - int(task["interrupted_attempts"] or 0)
+                >= int(task["max_attempts"])
+            )
             terminal = decision.terminal or delay is None or exhausted
             status = "TERMINAL" if terminal else "RETRY"
             next_retry = None if terminal else iso(clock + timedelta(seconds=int(delay)))
@@ -858,7 +881,8 @@ class Journal:
             if (
                 task is None
                 or task["status"] != "TERMINAL"
-                or int(task["attempts"]) >= int(task["max_attempts"])
+                or int(task["attempts"]) - int(task["interrupted_attempts"] or 0)
+                >= int(task["max_attempts"])
             ):
                 return False
             # A classifier repair must be able to recover a verdict written by
@@ -1012,8 +1036,10 @@ class Journal:
                     SET status='INTERRUPTED',next_retry_at=?,lease_token=NULL,
                         lease_expires_at=NULL,last_error_code='DEPENDENCY_CHANGED',
                         interruptions=0,
-                        max_attempts=CASE WHEN attempts>=max_attempts
-                            THEN attempts+1 ELSE max_attempts END,
+                        max_attempts=CASE
+                            WHEN attempts-interrupted_attempts>=max_attempts
+                            THEN attempts-interrupted_attempts+1
+                            ELSE max_attempts END,
                         last_error=?,updated_at=?
                     WHERE task_key IN ({key_placeholders})
                     """,
@@ -1034,6 +1060,7 @@ class Journal:
         reason: str,
         now: datetime | None = None,
         max_interruptions: int | None = None,
+        tick_limited: bool = False,
     ) -> str:
         """Return the task to the queue under an explicit interruption budget.
 
@@ -1041,6 +1068,14 @@ class Journal:
         same worker, resets the retry clock to now, and the task is claimed
         again forever.  Each interruption therefore costs budget and backs off;
         an exhausted task parks and waits for an operator `unpark`.
+
+        ``tick_limited`` marks the interruptions the TICK caused -- its drain
+        deadline or the external ExecutionTimeLimit -- as opposed to a worker
+        that died or lost its lease.  A resumable long task (gemrate harvest
+        55-60 min, PriceCharting full refresh 40-90 min) would otherwise spend
+        one of its max_attempts every tick and reach PARKED without a single
+        real failure.  The attempt is refunded; the interruption budget above is
+        untouched and is what still parks a task that can never finish.
         """
 
         clock = now or utc_now()
@@ -1060,8 +1095,14 @@ class Journal:
                 raise ClaimLost(f"interrupt lost V2 task claim: {task_key}")
             interruptions = int(task["interruptions"] or 0) + 1
             attempts = int(task["attempts"] or 0)
+            interrupted_attempts = int(task["interrupted_attempts"] or 0) + (
+                1 if tick_limited else 0
+            )
             max_attempts = int(task["max_attempts"] or 1)
-            exhausted = interruptions >= budget or attempts >= max_attempts
+            exhausted = (
+                interruptions >= budget
+                or attempts - interrupted_attempts >= max_attempts
+            )
             status = "PARKED" if exhausted else "INTERRUPTED"
             error_code = "WORKER_PARKED" if exhausted else "WORKER_INTERRUPTED"
             next_retry = (
@@ -1071,13 +1112,14 @@ class Journal:
             changed = conn.execute(
                 """
                 UPDATE chain_task SET status=?,next_retry_at=?,interruptions=?,
+                    interrupted_attempts=?,
                     lease_token=NULL,lease_expires_at=NULL,last_error_code=?,
                     last_error=?,updated_at=?
                 WHERE task_key=? AND lease_token=? AND status='RUNNING'
                 """,
                 (
-                    status, next_retry, interruptions, error_code,
-                    reason[-8000:], now_text, task_key, claim_token,
+                    status, next_retry, interruptions, interrupted_attempts,
+                    error_code, reason[-8000:], now_text, task_key, claim_token,
                 ),
             ).rowcount
             if changed != 1:
@@ -1118,7 +1160,9 @@ class Journal:
             ).fetchone()
             if task is None or str(task["status"]) not in set(UNPARKABLE_TASK_STATES):
                 return None
-            attempts = int(task["attempts"] or 0)
+            # Effective attempts: the ones the tick ended never spent budget, so
+            # unpark must not inflate max_attempts to cover them either.
+            attempts = int(task["attempts"] or 0) - int(task["interrupted_attempts"] or 0)
             max_attempts = int(task["max_attempts"] or 1)
             granted = attempts + 1 if attempts >= max_attempts else max_attempts
             changed = conn.execute(

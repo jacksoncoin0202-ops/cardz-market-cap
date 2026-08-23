@@ -28,7 +28,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator, Mapping
+from typing import Any, Iterable, Iterator, Mapping
 from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -326,6 +326,22 @@ def _age_hours(dt: datetime | None) -> float | None:
         dt = dt.replace(tzinfo=None)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     return (now - dt).total_seconds() / 3600.0
+
+
+def _child_interrupted(results: Iterable[Mapping[str, Any]]) -> bool:
+    """True when any adapter's child was cut mid-step by the tick's SIGTERM.
+
+    R3 (2026-08-24): the per-adapter result already carried this, but the run
+    report did not, so a receipt read by the orchestrator or the observer could
+    not tell "this lane failed" from "this lane was interrupted after ingesting
+    everything it had captured".
+    """
+
+    return any(
+        bool(result.get("childInterrupted"))
+        for result in results
+        if isinstance(result, Mapping)
+    )
 
 
 @contextmanager
@@ -2365,7 +2381,13 @@ def run_gemrate_pop(
     if child_interrupted or manifest.get("interrupted"):
         # audit item 10: the cards above are ingested and checkpointed, but an
         # interrupted run is never a clean verdict for the rest of the cohort.
-        report.update({"ok": False, "error": "gemrate_child_interrupted"})
+        report.update({
+            "ok": False,
+            "error": "gemrate_child_interrupted",
+            # R3: the child may have declared the interruption in its manifest
+            # without this process ever seeing the signal.
+            "childInterrupted": True,
+        })
     elif failed_items:
         report.update({"ok": False, "error": "gemrate_partial_items_failed"})
     return report
@@ -5023,6 +5045,9 @@ def _collect_mode_impl(
         "downloaded": downloaded_count,
         "failed": failed_count,
         "quarantined": quarantined_count,
+        # R3: an interrupted child is named in the run report so the worker
+        # receipt can carry it; the lane still fails, it just says why.
+        "childInterrupted": _child_interrupted(results),
         "snkSharedHarvest": snk_shared_summary,
         "preStatusCounts": status.get("counts"),
         "phaseSeconds": phase_seconds,

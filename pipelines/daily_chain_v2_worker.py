@@ -260,11 +260,18 @@ def run_collect(
         # classifier reads a code instead of whichever card happened to land
         # in the last 6000 characters of provider prose.  The blob still
         # follows, because an unmapped code falls through to the prose scan.
-        raise RuntimeError(
+        error = RuntimeError(
             f"errorCode=COLLECT_ADAPTER_FAILED adapters={adapters}"
             f" failed={report.get('failedAdapters')} truncated={report.get('truncatedAdapters')}"
             f" detail={json.dumps(failed_detail, ensure_ascii=False, sort_keys=True)[-6000:]}"
         )
+        if bool(report.get("childInterrupted")):
+            # R3: the lane still failed, but the failure receipt must say the
+            # child was cut by the tick's SIGTERM after ingesting what it had
+            # captured -- not that the provider broke.  The exception TYPE is
+            # unchanged so the retry classifier reads the same error code.
+            error.receipt_extra = {"childInterrupted": True}  # type: ignore[attr-defined]
+        raise error
     quarantined = int(report.get("quarantined") or 0)
     failed_items = int(report.get("failed") or 0)
     # audit P2-7: counts.failed was written to every receipt and read by
@@ -461,6 +468,31 @@ def resolve_worker_runner(kind: str) -> Callable[..., dict[str, Any]]:
     return runner
 
 
+def failure_receipt(task: Mapping[str, Any], error: BaseException) -> dict[str, Any]:
+    """The receipt a failed attempt leaves behind.
+
+    R3: a runner may attach ``receipt_extra`` to its exception (currently
+    ``childInterrupted``) so the receipt can describe HOW the attempt ended
+    without changing the exception type the retry classifier reads.  Extras
+    never overwrite the contract fields.
+    """
+
+    receipt = {
+        "contract": "cardz-source-result-v2",
+        "sourceCode": str(task["source_code"]),
+        # Retry/terminal policy belongs to the orchestrator classifier;
+        # a worker receipt describes the attempt and must not pre-judge it.
+        "status": "failed",
+        "observedAt": iso_now(),
+        "checkedAt": iso_now(),
+        "errorCode": type(error).__name__,
+        "error": str(error),
+    }
+    for key, value in (getattr(error, "receipt_extra", None) or {}).items():
+        receipt.setdefault(str(key), value)
+    return receipt
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state-db", type=Path, required=True)
@@ -504,17 +536,7 @@ def main() -> int:
         print(json.dumps(receipt, ensure_ascii=False, sort_keys=True))
         return 0
     except Exception as error:  # noqa: BLE001 - receipt first, nonzero second
-        failed = {
-            "contract": "cardz-source-result-v2",
-            "sourceCode": str(task["source_code"]),
-            # Retry/terminal policy belongs to the orchestrator classifier;
-            # a worker receipt describes the attempt and must not pre-judge it.
-            "status": "failed",
-            "observedAt": iso_now(),
-            "checkedAt": iso_now(),
-            "errorCode": type(error).__name__,
-            "error": str(error),
-        }
+        failed = failure_receipt(task, error)
         atomic_json(args.receipt.resolve(), failed)
         print(json.dumps(failed, ensure_ascii=False, sort_keys=True), file=sys.stderr)
         return 1

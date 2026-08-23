@@ -389,10 +389,17 @@ def test_worker_shutdown_grace_lets_the_ingest_land() -> None:
         adapters.WORKER_SHUTDOWN_GRACE_SECONDS >= 30.0,
         True,
     )
+    # R3 (2026-08-24): the grace is per worker kind now.  60 s never covered a
+    # collect/gemrate child finishing its step and ingesting its manifest.
+    check(
+        "collect worker grace covers the child wind-down plus ingest",
+        adapters.worker_shutdown_grace_seconds("collect") >= 240.0,
+        True,
+    )
     source = (PIPELINES / "daily_chain_v2_adapters.py").read_text(encoding="utf-8")
     check(
-        "source worker termination uses the grace constant",
-        "grace_seconds=WORKER_SHUTDOWN_GRACE_SECONDS" in source,
+        "source worker termination uses the per-kind grace table",
+        "grace_seconds=worker_shutdown_grace_seconds(self.worker_kind)" in source,
         True,
     )
 
