@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import urllib.request
 from datetime import date, datetime, time, timedelta, timezone
@@ -28,10 +29,31 @@ LIVE_HEALTH_URL = "https://app.cardzmarketcap.com/api/health"
 LIVE_URL = "https://app.cardzmarketcap.com/"
 
 
+RUN_STARTED_AT_ENV = "CARDZ_V2_RUN_STARTED_AT"
+
+
 def business_window_utc(business_date: str) -> tuple[datetime, datetime]:
+    """Observation window every V2 coverage check shares (naive UTC).
+
+    Scheduled runs plan after JST midnight of the business date, so the window
+    is that calendar day.  A manual window opened before midnight (2026-08-23
+    09:38 JST driving business date 08-24) collected everything before the
+    day began and every contract read 1604/1604 missing.  The orchestrator
+    exports the run's creation time; the window opens at the earlier of the
+    two so a same-run observation always counts, while the day rule is
+    untouched for scheduled runs.  Same family as the worker's
+    fx_freshness_floor.
+    """
+
     day = date.fromisoformat(business_date)
     start = datetime.combine(day, time.min, tzinfo=JST).astimezone(timezone.utc)
     end = datetime.combine(day + timedelta(days=1), time.min, tzinfo=JST).astimezone(timezone.utc)
+    started_text = os.environ.get(RUN_STARTED_AT_ENV, "").strip()
+    if started_text:
+        started = datetime.fromisoformat(started_text.replace("Z", "+00:00"))
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        start = min(start, started.astimezone(timezone.utc))
     return start.replace(tzinfo=None), end.replace(tzinfo=None)
 
 

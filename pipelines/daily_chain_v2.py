@@ -1590,6 +1590,10 @@ class DailyChainV2:
             "CARDZ_DAILY_CHAIN_V2": "1",
             "CARDZ_V2_RUN_ID": self.run_id,
             "CARDZ_V2_BUSINESS_DATE": self.day_text,
+            # business_window_utc opens the coverage window at the earlier of
+            # JST midnight and this run's creation, so an early manual window
+            # counts its own observations.
+            "CARDZ_V2_RUN_STARTED_AT": str((self.journal.run(self.run_id) or {}).get("created_at") or ""),
             "CARDZ_V2_TASK_KEY": str(row["task_key"]),
             "CARDZ_V2_CLAIM_TOKEN": str(row["lease_token"]),
             "CARDZ_V2_STATE_DB": str(self.journal.path),

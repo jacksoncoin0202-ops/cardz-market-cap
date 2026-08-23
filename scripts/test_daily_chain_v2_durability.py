@@ -911,5 +911,29 @@ try:
     assert 'fx_freshness_floor(business_day, task.get("created_at"))' in worker_source
     print("POSITIVE_OK fx freshness floor follows an early manual window and keeps midnight for scheduled runs")
 
+    # ------------------------------------------------------------- business window follows the run start
+    import daily_chain_v2_db as chain_db
+
+    saved_env = os.environ.pop(chain_db.RUN_STARTED_AT_ENV, None)
+    try:
+        midnight_naive = datetime(2026, 8, 23, 15, 0)  # 2026-08-24 00:00 JST, naive UTC
+        assert chain_db.business_window_utc("2026-08-24") == (midnight_naive, datetime(2026, 8, 24, 15, 0))
+        os.environ[chain_db.RUN_STARTED_AT_ENV] = "2026-08-23T00:38:37.753775+00:00"  # early manual window
+        early_start, early_end = chain_db.business_window_utc("2026-08-24")
+        assert early_start == datetime(2026, 8, 23, 0, 38, 37, 753775) and early_end == datetime(2026, 8, 24, 15, 0)
+        assert datetime(2026, 8, 23, 1, 7, 50) >= early_start  # fx attempt 2 observedAt now inside the window
+        os.environ[chain_db.RUN_STARTED_AT_ENV] = "2026-08-23T18:30:05.000000+00:00"  # scheduled tick
+        assert chain_db.business_window_utc("2026-08-24")[0] == midnight_naive
+        os.environ[chain_db.RUN_STARTED_AT_ENV] = ""
+        assert chain_db.business_window_utc("2026-08-24")[0] == midnight_naive
+    finally:
+        if saved_env is None:
+            os.environ.pop(chain_db.RUN_STARTED_AT_ENV, None)
+        else:
+            os.environ[chain_db.RUN_STARTED_AT_ENV] = saved_env
+    orchestrator_source = (ROOT / "pipelines" / "daily_chain_v2.py").read_text(encoding="utf-8")
+    assert '"CARDZ_V2_RUN_STARTED_AT": str((self.journal.run(self.run_id) or {}).get("created_at") or "")' in orchestrator_source
+    print("POSITIVE_OK business window opens at the run start for an early manual window and stays the JST day for scheduled runs")
+
 finally:
     cleanup()
