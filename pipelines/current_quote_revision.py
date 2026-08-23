@@ -514,8 +514,21 @@ def quote_lineage_sha256(
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def insert_quote_revision(
-    cursor: Any,
+_QUOTE_REVISION_INSERT = """
+        INSERT INTO market_current_quote_revision
+          (variant_id, source_code, source_external_entity_id, price_usd,
+           source_period_at, checked_at, source_observation_id,
+           market_price_observation_id, payload_sha256, quote_lineage_sha256,
+           reconstruction_kind, reconstructed_from_acceptance_id, run_id)
+        VALUES """
+_QUOTE_REVISION_VALUES = "(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+_QUOTE_REVISION_ON_DUP = """
+        ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)
+        """
+QUOTE_REVISION_BATCH_SIZE = 500
+
+
+def _quote_revision_row(
     *,
     variant_id: int,
     source_code: str,
@@ -530,8 +543,10 @@ def insert_quote_revision(
     reconstructed_from_acceptance_id: int | None = None,
     run_id: int | None = None,
     purpose: str = QUOTE_MINT_PURPOSE_LIVE,
-) -> int:
-    """Insert one immutable quote revision. Returns id (existing or new)."""
+) -> tuple[str, tuple[Any, ...], int | None]:
+    """The one gate every quote-revision writer passes (F-MINT, positive
+    price, payload shape, lineage). Returns (lineage, INSERT params, the
+    reconstruction owner the row must carry)."""
 
     source = assert_quote_mint_allowed(
         source_code, purpose=purpose, reconstruction_kind=reconstruction_kind
@@ -555,54 +570,35 @@ def insert_quote_revision(
         payload_sha256=payload,
         reconstruction_kind=reconstruction_kind,
     )
-    cursor.execute(
-        """
-        INSERT INTO market_current_quote_revision
-          (variant_id, source_code, source_external_entity_id, price_usd,
-           source_period_at, checked_at, source_observation_id,
-           market_price_observation_id, payload_sha256, quote_lineage_sha256,
-           reconstruction_kind, reconstructed_from_acceptance_id, run_id)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)
-        """,
-        (
-            int(variant_id),
-            source,
-            external,
-            price,
-            period,
-            checked,
-            int(source_observation_id) if source_observation_id else None,
-            int(market_price_observation_id) if market_price_observation_id else None,
-            payload,
-            lineage,
-            reconstruction_kind,
-            int(reconstructed_from_acceptance_id)
-            if reconstructed_from_acceptance_id
-            else None,
-            int(run_id) if run_id else None,
-        ),
-    )
-    revision_id = int(cursor.lastrowid or 0)
-    cursor.execute(
-        """
-        SELECT id, variant_id, source_code, source_external_entity_id,
-               price_usd, source_period_at, checked_at, payload_sha256,
-               reconstruction_kind, reconstructed_from_acceptance_id
-        FROM market_current_quote_revision
-        WHERE quote_lineage_sha256=%s
-        """,
-        (lineage,),
-    )
-    found = cursor.fetchone() or {}
-    revision_id = int(found.get("id") or revision_id or 0)
-    if revision_id <= 0:
-        raise RuntimeError("quote revision insert returned no id")
     expected_owner = (
         int(reconstructed_from_acceptance_id)
         if reconstructed_from_acceptance_id
         else None
     )
+    params = (
+        int(variant_id),
+        source,
+        external,
+        price,
+        period,
+        checked,
+        int(source_observation_id) if source_observation_id else None,
+        int(market_price_observation_id) if market_price_observation_id else None,
+        payload,
+        lineage,
+        reconstruction_kind,
+        expected_owner,
+        int(run_id) if run_id else None,
+    )
+    return lineage, params, expected_owner
+
+
+def _assert_quote_owner(
+    lineage: str, found: Mapping[str, Any], expected_owner: int | None,
+) -> int:
+    revision_id = int(found.get("id") or 0)
+    if revision_id <= 0:
+        raise RuntimeError("quote revision insert returned no id")
     actual_owner = (
         int(found["reconstructed_from_acceptance_id"])
         if found.get("reconstructed_from_acceptance_id") is not None
@@ -616,33 +612,128 @@ def insert_quote_revision(
     return revision_id
 
 
+def insert_quote_revision(
+    cursor: Any,
+    *,
+    variant_id: int,
+    source_code: str,
+    source_external_entity_id: str,
+    price_usd: Any,
+    source_period_at: Any,
+    checked_at: Any,
+    payload_sha256: str,
+    source_observation_id: int | None = None,
+    market_price_observation_id: int | None = None,
+    reconstruction_kind: str | None = None,
+    reconstructed_from_acceptance_id: int | None = None,
+    run_id: int | None = None,
+    purpose: str = QUOTE_MINT_PURPOSE_LIVE,
+) -> int:
+    """Insert one immutable quote revision. Returns id (existing or new)."""
+
+    lineage, params, expected_owner = _quote_revision_row(
+        variant_id=variant_id,
+        source_code=source_code,
+        source_external_entity_id=source_external_entity_id,
+        price_usd=price_usd,
+        source_period_at=source_period_at,
+        checked_at=checked_at,
+        payload_sha256=payload_sha256,
+        source_observation_id=source_observation_id,
+        market_price_observation_id=market_price_observation_id,
+        reconstruction_kind=reconstruction_kind,
+        reconstructed_from_acceptance_id=reconstructed_from_acceptance_id,
+        run_id=run_id,
+        purpose=purpose,
+    )
+    cursor.execute(
+        _QUOTE_REVISION_INSERT + _QUOTE_REVISION_VALUES + _QUOTE_REVISION_ON_DUP,
+        params,
+    )
+    revision_id = int(cursor.lastrowid or 0)
+    cursor.execute(
+        """
+        SELECT id, variant_id, source_code, source_external_entity_id,
+               price_usd, source_period_at, checked_at, payload_sha256,
+               reconstruction_kind, reconstructed_from_acceptance_id
+        FROM market_current_quote_revision
+        WHERE quote_lineage_sha256=%s
+        """,
+        (lineage,),
+    )
+    found = dict(cursor.fetchone() or {})
+    if not found.get("id") and revision_id:
+        found["id"] = revision_id
+    return _assert_quote_owner(lineage, found, expected_owner)
+
+
+def insert_quote_revisions_batch(
+    cursor: Any,
+    specs: Sequence[Mapping[str, Any]],
+) -> list[int]:
+    """insert_quote_revision for many rows: the same gate, the same rows, the
+    same owner collision check, 500 rows per round trip.
+
+    A05 2026-08-23: bootstrap_from_eligible_observations minted its 1618
+    revisions one INSERT + one SELECT each -- 3236 round trips, ~40 s of the
+    69 s acceptHistory step that no single statement explained. Each spec is
+    the keyword set of insert_quote_revision; ids come back in spec order."""
+
+    ids: list[int] = []
+    for start in range(0, len(specs), QUOTE_REVISION_BATCH_SIZE):
+        chunk = [
+            _quote_revision_row(**dict(spec))
+            for spec in specs[start:start + QUOTE_REVISION_BATCH_SIZE]
+        ]
+        unique: dict[str, tuple[Any, ...]] = {}
+        for lineage, params, _owner in chunk:
+            unique.setdefault(lineage, params)
+        cursor.execute(
+            _QUOTE_REVISION_INSERT
+            + ",".join(_QUOTE_REVISION_VALUES for _ in unique)
+            + _QUOTE_REVISION_ON_DUP,
+            tuple(value for params in unique.values() for value in params),
+        )
+        marks = ",".join(["%s"] * len(unique))
+        cursor.execute(
+            "SELECT id, quote_lineage_sha256, reconstructed_from_acceptance_id"
+            " FROM market_current_quote_revision"
+            f" WHERE quote_lineage_sha256 IN ({marks})",
+            tuple(unique),
+        )
+        found = {
+            str(row["quote_lineage_sha256"]): row for row in cursor.fetchall()
+        }
+        for lineage, _params, expected_owner in chunk:
+            ids.append(_assert_quote_owner(lineage, found.get(lineage) or {}, expected_owner))
+    return ids
+
+
 def insert_quote_revisions_many(
     cursor: Any,
     rows: Sequence[Mapping[str, Any]],
 ) -> list[int]:
-    ids: list[int] = []
-    for row in rows:
-        ids.append(
-            insert_quote_revision(
-                cursor,
-                variant_id=int(row["variant_id"]),
-                source_code=str(row["source_code"]),
-                source_external_entity_id=str(row["source_external_entity_id"]),
-                price_usd=row["price_usd"],
-                source_period_at=row["source_period_at"],
-                checked_at=row["checked_at"],
-                payload_sha256=str(row["payload_sha256"]),
-                source_observation_id=row.get("source_observation_id"),
-                market_price_observation_id=row.get("market_price_observation_id"),
-                reconstruction_kind=row.get("reconstruction_kind"),
-                reconstructed_from_acceptance_id=row.get(
-                    "reconstructed_from_acceptance_id"
-                ),
-                run_id=row.get("run_id"),
-                purpose=str(row.get("purpose") or QUOTE_MINT_PURPOSE_LIVE),
-            )
-        )
-    return ids
+    specs = [
+        {
+            "variant_id": int(row["variant_id"]),
+            "source_code": str(row["source_code"]),
+            "source_external_entity_id": str(row["source_external_entity_id"]),
+            "price_usd": row["price_usd"],
+            "source_period_at": row["source_period_at"],
+            "checked_at": row["checked_at"],
+            "payload_sha256": str(row["payload_sha256"]),
+            "source_observation_id": row.get("source_observation_id"),
+            "market_price_observation_id": row.get("market_price_observation_id"),
+            "reconstruction_kind": row.get("reconstruction_kind"),
+            "reconstructed_from_acceptance_id": row.get(
+                "reconstructed_from_acceptance_id"
+            ),
+            "run_id": row.get("run_id"),
+            "purpose": str(row.get("purpose") or QUOTE_MINT_PURPOSE_LIVE),
+        }
+        for row in rows
+    ]
+    return insert_quote_revisions_batch(cursor, specs)
 
 
 def bootstrap_from_eligible_observations(cursor: Any, *, actor: str = "043-bootstrap") -> dict[str, int]:
@@ -711,28 +802,28 @@ def bootstrap_from_eligible_observations(cursor: Any, *, actor: str = "043-boots
         """
     )
     rows = list(cursor.fetchall())
-    inserted = 0
+    specs = []
     for raw in rows:
         checked = (
             raw.get("source_observed_at")
             or raw.get("effective_at")
             or datetime.now(timezone.utc).replace(tzinfo=None)
         )
-        insert_quote_revision(
-            cursor,
-            variant_id=int(raw["variant_id"]),
-            source_code=str(raw["source_code"]),
-            source_external_entity_id=str(raw["source_external_entity_id"]),
-            price_usd=raw["price_usd"],
-            source_period_at=raw["observed_date"],
-            checked_at=checked,
-            payload_sha256=str(raw["payload_sha256"]),
-            source_observation_id=int(raw["source_observation_id"] or 0) or None,
-            market_price_observation_id=int(raw["market_price_observation_id"]),
-            reconstruction_kind="bootstrap_from_observation",
-            run_id=int(raw["run_id"]) if raw.get("run_id") else None,
-        )
-        inserted += 1
+        specs.append({
+            "variant_id": int(raw["variant_id"]),
+            "source_code": str(raw["source_code"]),
+            "source_external_entity_id": str(raw["source_external_entity_id"]),
+            "price_usd": raw["price_usd"],
+            "source_period_at": raw["observed_date"],
+            "checked_at": checked,
+            "payload_sha256": str(raw["payload_sha256"]),
+            "source_observation_id": int(raw["source_observation_id"] or 0) or None,
+            "market_price_observation_id": int(raw["market_price_observation_id"]),
+            "reconstruction_kind": "bootstrap_from_observation",
+            "run_id": int(raw["run_id"]) if raw.get("run_id") else None,
+        })
+    # A05 2026-08-23: batched door -- 1618 rows were 3236 round trips here.
+    inserted = len(insert_quote_revisions_batch(cursor, specs))
     return {"eligibleObservations": len(rows), "revisionsWritten": inserted, "actor": actor}
 
 

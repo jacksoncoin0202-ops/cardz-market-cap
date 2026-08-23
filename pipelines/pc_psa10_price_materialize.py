@@ -42,6 +42,7 @@ from pc_ungraded_reference_ingest import (
     source_observed_at,
 )
 from pricecharting_page_parse import parse_product_html
+from pc_page_cache import load_page as load_pc_page
 
 CONTRACT = "pc_psa10_current_price_v1"
 DEFAULT_PLAN = ROOT / "data/runtime/private-source-map/pc-psa10-current-price-plan-20260731T0630Z.json"
@@ -590,12 +591,14 @@ def collect_local_history(
         for artifact_path in sorted(root.rglob("*.html")):
             report["htmlFiles"] += 1
             try:
-                artifact = artifact_path.read_bytes()
-                html = artifact.decode("utf-8", errors="replace")
-                canonical_url = canonical_url_from_html(html)
-                if canonical_url is None:
+                # A05 2026-08-23: 3638 pages under the history root were read
+                # and parsed on every run (24.7 s); pc_page_cache serves the
+                # parse and the sha256 of exactly those bytes after one stat.
+                page = load_pc_page(artifact_path)
+                if page is None or page.canonical_url is None:
                     continue
-                parsed = parse_product_html(html, source_url=canonical_url)
+                canonical_url = page.canonical_url
+                parsed = page.parsed
                 product = parsed.get("product") if isinstance(parsed.get("product"), Mapping) else {}
                 product_id = str(product.get("id") or "")
                 row = expected.get((product_id, _url_key(canonical_url)))
@@ -614,8 +617,8 @@ def collect_local_history(
             except (OSError, ValueError, TypeError):
                 continue
             report["matchedExactArtifacts"] += 1
-            artifact_sha256 = hashlib.sha256(artifact).hexdigest()
-            precedence = (root_rank, artifact_path.stat().st_mtime_ns, str(artifact_path))
+            artifact_sha256 = page.sha256
+            precedence = (root_rank, page.mtime_ns, str(artifact_path))
             for point in series:
                 item = _history_point(
                     row=row,

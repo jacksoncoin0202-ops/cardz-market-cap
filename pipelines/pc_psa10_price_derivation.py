@@ -31,6 +31,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
 from c11_pc_sold_ingest import db
+from pc_page_cache import load_page as load_pc_page
 from collection_contract import LIVE_EBAY_SOLD_SOURCE_CODES
 from pc_ungraded_reference_ingest import (
     MAP_DEFAULT,
@@ -76,12 +77,16 @@ def validate_pc_psa10(row: Mapping[str, Any]) -> tuple[dict[str, Any] | None, st
     html_path = resolve_html_path(dict(row))
     if html_path is None:
         return None, "no_html"
-    html_bytes = html_path.read_bytes()
-    html = html_bytes.decode("utf-8", errors="replace")
-    canonical_url = canonical_url_from_html(html)
+    # A05 2026-08-23: one read + one parse per page, shared with the ingest
+    # child and the materializer through pc_page_cache (size/mtime/parser
+    # keyed). The lane used to read and parse every page four times.
+    page = load_pc_page(html_path, source_url=str(row["pc_url"]))
+    if page is None:
+        return None, "no_html"
+    canonical_url = page.canonical_url
     if canonical_url is None or _url_key(canonical_url) != _url_key(str(row["pc_url"])):
         return None, "canonical_url_mismatch"
-    parsed = parse_product_html(html, source_url=str(row["pc_url"]))
+    parsed = page.parsed
     if not parsed.get("ok"):
         return None, "parse_fail"
     product = parsed.get("product") if isinstance(parsed.get("product"), Mapping) else {}
@@ -108,7 +113,7 @@ def validate_pc_psa10(row: Mapping[str, Any]) -> tuple[dict[str, Any] | None, st
         "observed_date": observed_at.date(),
         "price_usd": money(price),
         "method": "pricecharting_explicit_psa10_field_v1",
-        "artifact_sha256": hashlib.sha256(html_bytes).hexdigest(),
+        "artifact_sha256": page.sha256,
         "field": "VGPC.chart_data.manualonly.last",
         "latest_sold_date": None,
         "sale_fingerprints": [],

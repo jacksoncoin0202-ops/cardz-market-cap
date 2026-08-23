@@ -8594,8 +8594,21 @@ class _TimedCursor:
     def __exit__(self, *exc) -> bool:
         return False
 
+    @staticmethod
+    def _key(query) -> str:
+        # A05 2026-08-23: the three INSERT ... SELECT statements into
+        # market_metric_history_acceptance share their first 120 chars (the
+        # column list), so the receipt could not tell them apart. Anchor the
+        # key on the SELECT list, which is what differs.
+        sql = " ".join(str(query).split())
+        head = sql[:40]
+        select_at = sql.find(" SELECT ")
+        if sql.upper().startswith("INSERT") and select_at > 0:
+            return head + " ... " + sql[select_at + 1:select_at + 121]
+        return sql[:120]
+
     def _record(self, query, seconds: float) -> None:
-        self.statements.append((round(seconds, 3), " ".join(str(query).split())[:120]))
+        self.statements.append((round(seconds, 3), self._key(query)))
 
     def execute(self, query, args=None):
         started = time.monotonic()
@@ -8614,6 +8627,20 @@ class _TimedCursor:
     def slowest(self, limit: int = 8) -> list[dict[str, Any]]:
         ranked = sorted(self.statements, key=lambda item: item[0], reverse=True)[:limit]
         return [{"seconds": seconds, "sql": sql} for seconds, sql in ranked]
+
+    def totals(self, limit: int = 8) -> list[dict[str, Any]]:
+        """Seconds and call count per statement shape: a 10 ms statement run
+        1618 times hides from slowest() but not from here."""
+        agg: dict[str, list[float]] = {}
+        for seconds, sql in self.statements:
+            bucket = agg.setdefault(sql, [0.0, 0])
+            bucket[0] += seconds
+            bucket[1] += 1
+        ranked = sorted(agg.items(), key=lambda item: item[1][0], reverse=True)[:limit]
+        return [
+            {"seconds": round(total, 3), "count": count, "sql": sql}
+            for sql, (total, count) in ranked
+        ]
 
 
 def cmd_daily_accept(args: argparse.Namespace) -> int:
@@ -8792,6 +8819,8 @@ def cmd_daily_accept(args: argparse.Namespace) -> int:
             "canonical": _canonical_ranking_receipt(canonical),
             "stepSeconds": step_seconds,
             "slowStatements": timed.slowest(),
+            "statementTotals": timed.totals(),
+            "statementCount": len(timed.statements),
             "acceptedAt": now_str,
         }
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")

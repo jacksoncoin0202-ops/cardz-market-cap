@@ -60,6 +60,23 @@ def main() -> int:
     check("limit respected", len(slow) == 2 and len(timed.slowest()) == 3)
     with timed as inner:
         check("context manager returns proxy", inner is timed)
+
+    # A05 2026-08-23: totals() aggregates by statement shape, and the key is
+    # anchored on the SELECT list so INSERT ... SELECT statements that share a
+    # column list no longer collapse into one bucket.
+    agg = rebuild_036._TimedCursor(FakeCursor())
+    head = "INSERT INTO market_metric_history_acceptance (" + ", ".join(f"col{i}" for i in range(20)) + ")"
+    agg.execute(head + " SELECT a.one FROM a")
+    agg.execute(head + " SELECT b.two FROM b")
+    for _ in range(3):
+        agg.execute("SELECT 1")
+    keys = {row["sql"] for row in agg.totals()}
+    check("INSERT ... SELECT keys differ on the SELECT list", len(keys) == 3, repr(keys))
+    check("key keeps the INSERT head", all(k.startswith("INSERT INTO market_metric_history_") for k in keys if "SELECT a" in k or "SELECT b" in k))
+    totals = {row["sql"]: row for row in agg.totals()}
+    check("totals count repeated statement", totals["SELECT 1"]["count"] == 3, repr(totals.get("SELECT 1")))
+    check("totals limit", len(agg.totals(2)) == 2)
+    check("slowest uses the same key", agg.slowest(1)[0]["sql"] in keys)
     print("EXIT", failed)
     return 1 if failed else 0
 

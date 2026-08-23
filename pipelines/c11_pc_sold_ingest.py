@@ -37,6 +37,7 @@ sys.path.insert(0, str(ROOT / "pipelines"))
 from failure_ledger import record_failure, record_resolution  # noqa: E402
 from pc_sale_identity import pc_sale_fingerprint, pc_sale_price_text  # noqa: E402
 from pricecharting_page_parse import parse_product_html  # noqa: E402
+from pc_page_cache import load_page as load_pc_page  # noqa: E402
 
 # The consolidated map every other reader uses (collect_control, pc_cdp_sold_refresh_win,
 # pc_ungraded_reference_ingest, new_era_db_tidy, rebuild_036). This script used to default
@@ -507,8 +508,14 @@ def collect_sales(map_rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]],
             stats["cards_no_html"] += 1
             card_reports.append({"variant_id": vid, "status": "no_html"})
             continue
-        html = html_path.read_text(encoding="utf-8", errors="replace")
-        parsed = parse_product_html(html, source_url=str(row.get("pc_url") or ""))
+        # A05 2026-08-23: shared read+parse cache (pc_page_cache); the parent
+        # lane validated this same page moments ago.
+        page = load_pc_page(html_path, source_url=str(row.get("pc_url") or ""))
+        if page is None:
+            stats["cards_no_html"] += 1
+            card_reports.append({"variant_id": vid, "status": "no_html"})
+            continue
+        parsed = page.parsed
         if not parsed.get("ok"):
             stats["cards_parse_fail"] += 1
             card_reports.append({"variant_id": vid, "status": "parse_fail", "error": parsed.get("error")})
