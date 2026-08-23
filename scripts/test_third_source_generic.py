@@ -239,35 +239,54 @@ print("NEGATIVE_OK the real registry answers are restored after the probes")
 # --------------------------------------------------------------------------
 # F-MINT
 # --------------------------------------------------------------------------
-# The literal lists that stood in current_quote_revision before the change.
-PREVIOUS_QUOTE_IN_LIST = ("snkrdunk", "snk_psa10", "snk", "pricecharting")
-PREVIOUS_SNK_IN_LIST = ("snkrdunk", "snk_psa10", "snk")
-PREVIOUS_ALIAS_IN_LIST = ("snk", "snk_psa10")
+# The literal lists that stand in current_quote_revision today.  Owner
+# 2026-08-23 retired the chart lanes: `pricecharting` (manualonly.last) and the
+# SNK K-line codes are still REGISTERED quote storage codes -- historical
+# revisions and the chart series keep referring to them -- but only the two
+# sale lanes may mint under purpose='live'.
+QUOTE_IN_LIST = (
+    "snkrdunk", "snk_psa10", "snk", "snkrdunk_sales",
+    "pricecharting", "pricecharting_sales",
+)
+SNK_IN_LIST = ("snkrdunk", "snk_psa10", "snk", "snkrdunk_sales")
+ALIAS_IN_LIST = ("snk", "snk_psa10", "snkrdunk_sales", "pricecharting_sales")
+MINTABLE_IN_LIST = ("snkrdunk_sales", "pricecharting_sales")
+RETIRED_MINT_LANES = ("pricecharting", "snkrdunk", "snk", "snk_psa10")
 
-assert CQ.all_quote_storage_source_codes() == PREVIOUS_QUOTE_IN_LIST
+assert CQ.all_quote_storage_source_codes() == QUOTE_IN_LIST
 assert CQ.sql_source_in_list(CQ.all_quote_storage_source_codes()) == (
-    "'snkrdunk','snk_psa10','snk','pricecharting'"
+    "'snkrdunk','snk_psa10','snk','snkrdunk_sales','pricecharting','pricecharting_sales'"
 )
-assert CQ.quote_storage_source_codes("snkrdunk") == PREVIOUS_SNK_IN_LIST
+assert CQ.quote_storage_source_codes("snkrdunk") == SNK_IN_LIST
+assert CQ.mintable_quote_storage_source_codes() == MINTABLE_IN_LIST
 _case = CQ.canonical_quote_source_sql("p.source_code")
-assert set(re.findall(r"'([a-z0-9_]+)'", _case)) == set(PREVIOUS_ALIAS_IN_LIST) | {"snkrdunk"}
+assert set(re.findall(r"'([a-z0-9_]+)'", _case)) == set(ALIAS_IN_LIST) | {
+    "snkrdunk", "pricecharting"
+}
+# Every alias must fold back to its parent, or the strict-identity join in the
+# eligibility view looks the sale quote up under a source that owns no identity.
 assert _case.startswith("CASE WHEN p.source_code IN (") and _case.endswith(
-    "THEN 'snkrdunk' ELSE p.source_code END"
+    "ELSE p.source_code END"
 )
-assert CQ.default_quote_storage_source_codes() == PREVIOUS_SNK_IN_LIST
-assert CQ.ungated_quote_storage_source_codes() == PREVIOUS_SNK_IN_LIST
+assert _case.count("WHEN p.source_code IN (") == 2, _case
+assert "THEN 'pricecharting'" in _case and "THEN 'snkrdunk'" in _case
+# No source is minted by default any more: the caller must name a sale lane.
+assert CQ.default_quote_storage_source_codes() == ()
+assert CQ.ungated_quote_storage_source_codes() == SNK_IN_LIST
 assert CQ.DEFAULT_QUOTE_OBSERVATION_KIND == "psa10_reference_price"
 _rendered = _render_bootstrap_sql()
-assert "p2.source_code IN ('snkrdunk','snk_psa10','snk','pricecharting')" in _rendered
-assert (
-    "p2.source_code IN ('snkrdunk','snk_psa10','snk')\n"
-    "               AND so2.observation_kind='psa10_reference_price'"
-) in _rendered
-assert "pc_psa10_local_history_v1" in _rendered
-assert "p.source_code IN ('snkrdunk','snk_psa10','snk'))" in _rendered
+# The selector may only see sale observations.  If either half of this pair
+# drops out, a chart level can be selected as the published price again.
+assert "p2.source_code IN ('snkrdunk_sales','pricecharting_sales')" in _rendered
+assert "so2.observation_kind='psa10_latest_sale'" in _rendered
+assert "'$.contract'))='psa10_latest_sale_v1'" in _rendered
+assert "p2.source_priority=96" in _rendered
+assert "psa10_reference_price" not in _rendered, _rendered
+assert "pc_psa10_local_history_v1" not in _rendered, _rendered
+assert "p.source_code IN ('snkrdunk','snk_psa10','snk','snkrdunk_sales'))" in _rendered
 print(
-    "NEGATIVE_OK the generated quote source lists equal the previous literal"
-    f" set {PREVIOUS_QUOTE_IN_LIST}"
+    "NEGATIVE_OK the generated quote source lists equal the current literal"
+    f" set {QUOTE_IN_LIST}"
 )
 
 # The IN lists only care about membership and route order, so this probe uses
@@ -285,24 +304,27 @@ try:
         "snkrdunk",
         "snk_psa10",
         "snk",
+        "snkrdunk_sales",
         "pricecharting",
+        "pricecharting_sales",
         "dummy-third",
     )
-    # default observation kind and no language gate, both without an edit
-    assert CQ.default_quote_storage_source_codes()[-1] == "dummy-third"
+    # A third source still joins every derived list with no edit; it just does
+    # not join the mintable set, because it ships no sale lane.
     assert CQ.ungated_quote_storage_source_codes()[-1] == "dummy-third"
+    assert "dummy-third" not in CQ.mintable_quote_storage_source_codes()
     _third_sql = _render_bootstrap_sql()
-    assert (
-        "p2.source_code IN ('snkrdunk','snk_psa10','snk','pricecharting','dummy-third')"
-    ) in _third_sql
-    assert "p2.source_code IN ('snkrdunk','snk_psa10','snk','dummy-third')" in _third_sql
-    assert "p.source_code IN ('snkrdunk','snk_psa10','snk','dummy-third'))" in _third_sql
+    assert "p.source_code IN ('snkrdunk','snk_psa10','snk','snkrdunk_sales','dummy-third'))" in (
+        _third_sql
+    )
+    # ... and it cannot smuggle itself into the price by being registered.
+    assert "'dummy-third'" not in _third_sql.split("GROUP BY")[0], _third_sql
 finally:
     _restore_registry()
-assert CQ.all_quote_storage_source_codes() == PREVIOUS_QUOTE_IN_LIST
+assert CQ.all_quote_storage_source_codes() == QUOTE_IN_LIST
 print(
-    "POSITIVE_OK a third quote source joins every generated IN list and gets the"
-    " default observation kind with no language gate"
+    "POSITIVE_OK a third quote source joins every generated IN list without an"
+    " edit, and still cannot mint a price without a sale lane"
 )
 
 
@@ -334,12 +356,40 @@ def _mint(source_code):
     )
 
 
-for _registered in PREVIOUS_QUOTE_IN_LIST:
-    assert _mint(_registered) == 77, _registered
-print(
-    "NEGATIVE_OK every registered quote storage code still mints a revision"
-    f" {PREVIOUS_QUOTE_IN_LIST}"
-)
+for _sale_lane in MINTABLE_IN_LIST:
+    assert _mint(_sale_lane) == 77, _sale_lane
+print(f"NEGATIVE_OK the sale lanes still mint a revision {MINTABLE_IN_LIST}")
+
+# F-MINT: a chart lane is registered and STILL cannot become a price.  This is
+# the assertion that makes the retirement real -- deleting the three minting
+# call sites alone would let the next caller re-add one by accident.
+for _retired in RETIRED_MINT_LANES:
+    assert _retired in CQ.all_quote_storage_source_codes(), _retired
+    try:
+        _mint(_retired)
+    except ValueError as error:
+        assert "retired" in str(error), str(error)
+        assert _retired in str(error), str(error)
+    else:
+        raise AssertionError(f"chart lane {_retired} still mints a live quote")
+print(f"POSITIVE_OK the retired chart lanes refuse to mint a live quote {RETIRED_MINT_LANES}")
+
+# Historical reconstruction is the one door left open for those codes, and only
+# for the reconstruction kind -- otherwise the retirement could be walked past
+# by passing a purpose string.
+assert CQ.assert_quote_mint_allowed(
+    "pricecharting",
+    purpose=CQ.QUOTE_MINT_PURPOSE_LEGACY,
+    reconstruction_kind=CQ.LEGACY_KIND,
+) == "pricecharting"
+try:
+    CQ.assert_quote_mint_allowed(
+        "pricecharting", purpose=CQ.QUOTE_MINT_PURPOSE_LEGACY, reconstruction_kind=None
+    )
+except ValueError as error:
+    print(f"POSITIVE_OK legacy reconstruction without its kind fails closed: {error}")
+else:
+    raise AssertionError("legacy purpose accepted a missing reconstruction kind")
 
 for _unregistered in ("ebay", "g10", "gemrate", "dummy-third"):
     try:
@@ -355,13 +405,27 @@ _install_registry(
     [_StubAdapter(_specs["snkrdunk"]), _StubAdapter(_specs["pricecharting"]), _StubAdapter(_third)]
 )
 try:
-    assert _mint("dummy-third") == 77
+    # Registration is still NECESSARY -- the code now appears in every derived
+    # list -- but since 2026-08-23 it is no longer SUFFICIENT: a live quote also
+    # needs a sale lane, so a third provider arrives priced by its real sales or
+    # not priced at all.
+    assert "dummy-third" in CQ.all_quote_storage_source_codes()
+    try:
+        _mint("dummy-third")
+    except ValueError as error:
+        assert "retired" in str(error), str(error)
+    else:
+        raise AssertionError("a registered chart-only third source minted a live quote")
 finally:
     _restore_registry()
 try:
     _mint("dummy-third")
-except ValueError:
-    print("POSITIVE_OK registering the source is the only thing that unlocks minting")
+except ValueError as error:
+    assert "not a registered quote source" in str(error), str(error)
+    print(
+        "POSITIVE_OK an unregistered source fails on registration and a"
+        " registered chart-only source fails on the retired lane"
+    )
 else:
     raise AssertionError("registry-driven mint gate did not fire")
 

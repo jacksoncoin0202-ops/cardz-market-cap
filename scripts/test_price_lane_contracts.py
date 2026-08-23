@@ -18,7 +18,9 @@ market_price_observation，同埋錯綁 identity 令兩個 source 家族嘅價�
      receipt 由 daily_public_release.sh 每次 bake 前重新生成；呢度監住兩者
      冇甩開（有新毒但 receipt 未跟上 = 紅）。
 """
+import json
 import sys
+from decimal import Decimal
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,8 +28,16 @@ sys.path.insert(0, str(ROOT / "pipelines"))
 
 # 落閘時刻：2026-08-12 清毒行動完成、audit 印落齊之後。
 FREEZE_UTC = "2026-08-12 14:10:00"
-CANONICAL_RUN_PREFIXES = ("snk_kline_ingest_", "rebuild036_snk_kline")
-SNK_SOURCES = ("snkrdunk", "snk", "snk_psa10")
+CANONICAL_RUN_PREFIXES = (
+    "snk_kline_ingest_",
+    "rebuild036_snk_kline",
+    # 2026-08-23：成交價 lane。run_key 前綴由 psa10_latest_sale_quote.RUN_KEY_PREFIX
+    # 出，唔喺呢度再抄一份。
+    "psa10_latest_sale_",
+)
+# snkrdunk_sales 一齊入嚟：新 lane 一出世就受同一個 anti-poison 閘管，
+# 唔可以因為佢係新 source_code 就自動免檢。
+SNK_SOURCES = ("snkrdunk", "snk", "snk_psa10", "snkrdunk_sales")
 
 # 20260812 深夜清零：本來 4 個 both-strict variant（653/658/666/789）查落全部係
 # 同一形狀 —— snk_harvest_chip / snk_flood_chip（形狀 27 毒 lane）喺 07-29 各寫咗
@@ -62,8 +72,7 @@ def main() -> int:
         WHERE p.source_code IN {SNK_SOURCES!r}
           AND p.metric_status = 'ready'
           AND r.started_at > %s
-          AND r.run_key NOT LIKE '{CANONICAL_RUN_PREFIXES[0]}%%'
-          AND r.run_key NOT LIKE '{CANONICAL_RUN_PREFIXES[1]}%%'
+          AND {" AND ".join(f"r.run_key NOT LIKE '{prefix}%%'" for prefix in CANONICAL_RUN_PREFIXES)}
         GROUP BY r.run_key
         """,
         (FREEZE_UTC,),
@@ -113,6 +122,62 @@ def main() -> int:
         "sale title quarantine receipt is fresh",
         not missing,
         f"flagged sales missing from receipt: {missing[:10]}",
+    )
+
+    # 4. F-BAND：出街嘅每一個成交價都要企喺 [M/2.5, M*2.0] 入面，
+    # 或者自己明講 ungated（prior < 3 單）。gate 有 code 但零 call site =
+    # 冇 gate，所以呢度直接對住 DB 入面真正揀咗嘅 quote 重算一次。
+    from current_quote_revision import mintable_quote_storage_source_codes  # noqa: E402
+    from sale_price_outlier import TRIM_HIGH, TRIM_LOW  # noqa: E402
+
+    sale_codes = mintable_quote_storage_source_codes()
+    marks = ",".join(["%s"] * len(sale_codes))
+    cur.execute(
+        f"""
+        SELECT q.variant_id, q.source_code, q.price_usd,
+               so.payload_json
+        FROM market_current_quote_revision q
+        INNER JOIN market_source_observation so ON so.id=q.source_observation_id
+        INNER JOIN (
+          SELECT variant_id, MAX(id) AS id
+          FROM market_current_quote_revision
+          WHERE source_code IN ({marks})
+          GROUP BY variant_id
+        ) latest ON latest.id=q.id
+        """,
+        tuple(sale_codes),
+    )
+    band_rows = [dict(r) for r in cur.fetchall()]
+    # 冇 sale quote 嘅時候下面兩個 check 係空跑，所以個數一定要印出嚟：
+    # 「零行」同「全部合格」睇落唔可以一樣。
+    print(f"info 成交 lane quote 行數 = {len(band_rows)}")
+    out_of_band = []
+    ungated = 0
+    for row in band_rows:
+        guard = (json.loads(row["payload_json"]) or {}).get("outlierGuard") or {}
+        if guard.get("ungated"):
+            ungated += 1
+            continue
+        median_text = guard.get("medianUsd")
+        if not median_text:
+            out_of_band.append((row["variant_id"], "no median evidence"))
+            continue
+        median = Decimal(str(median_text))
+        price = Decimal(str(row["price_usd"]))
+        if median <= 0:
+            continue
+        if price > median * Decimal(str(TRIM_HIGH)) or price < median / Decimal(str(TRIM_LOW)):
+            out_of_band.append((row["variant_id"], f"{price} vs median {median}"))
+    check(
+        "every published sale price sits inside the outlier band or says it is ungated",
+        not out_of_band,
+        f"out of band: {out_of_band[:5]}",
+    )
+    # 唔准出現「全部 ungated」呢種假綠：咁樣即係 band 從來冇 fire 過。
+    check(
+        "the band actually applies to most of the board, not just a handful",
+        not band_rows or ungated < len(band_rows),
+        f"{ungated}/{len(band_rows)} quotes are ungated",
     )
 
     conn.close()

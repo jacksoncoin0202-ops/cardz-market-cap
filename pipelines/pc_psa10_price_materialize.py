@@ -42,7 +42,6 @@ from pc_ungraded_reference_ingest import (
     source_observed_at,
 )
 from pricecharting_page_parse import parse_product_html
-from current_quote_revision import insert_quote_revision
 
 CONTRACT = "pc_psa10_current_price_v1"
 DEFAULT_PLAN = ROOT / "data/runtime/private-source-map/pc-psa10-current-price-plan-20260731T0630Z.json"
@@ -56,16 +55,6 @@ def _parse_stamp(value: Any) -> datetime:
     if parsed.tzinfo is None:
         raise ValueError("timestamp must include timezone")
     return parsed.astimezone(timezone.utc).replace(tzinfo=None)
-
-
-def _quote_checked_at(value: Any) -> datetime:
-    """S8 series points are naive UTC datetimes; plan rows are TZ-aware ISO."""
-
-    if isinstance(value, datetime):
-        if value.tzinfo is None:
-            return value
-        return value.astimezone(timezone.utc).replace(tzinfo=None)
-    return _parse_stamp(value)
 
 
 def _price(value: Any) -> Decimal:
@@ -486,42 +475,15 @@ def materialize(connection: Any, rows: list[dict[str, Any]], *, plan_sha256: str
                 (len(change), now, run_id),
             )
 
-        # Append-only daily quote revisions for every planned current quote.
-        # checked_at must be the capture/evidence clock (row effectiveAt), never
-        # materialize wall-clock: replaying the same capture is idempotent.
-        for row in rows:
-            if str(row["sourceCode"]).casefold() != SOURCE_PC:
-                continue
-            variant_id = int(row["variantId"])
-            external_entity_id = pc_product_id(row)
-            checked_at = _parse_stamp(row["effectiveAt"])
-            cursor.execute(
-                """
-                SELECT id, source_observation_id
-                FROM market_price_observation
-                WHERE variant_id=%s AND source_code=%s AND observed_date=%s
-                LIMIT 1
-                """,
-                (variant_id, SOURCE_PC, row["observedDate"]),
-            )
-            price_row = cursor.fetchone() or {}
-            insert_quote_revision(
-                cursor,
-                variant_id=variant_id,
-                source_code=SOURCE_PC,
-                source_external_entity_id=external_entity_id,
-                price_usd=row["priceUsd"],
-                source_period_at=row["observedDate"],
-                checked_at=checked_at,
-                payload_sha256=str(row["payloadSha256"]),
-                source_observation_id=int(price_row["source_observation_id"])
-                if price_row.get("source_observation_id")
-                else None,
-                market_price_observation_id=int(price_row["id"])
-                if price_row.get("id")
-                else None,
-                run_id=run_id,
-            )
+        # No quote is minted here any more (owner 2026-08-23).
+        # `manualonly.last` is the head of PriceCharting's monthly chart, not a
+        # sale: it was a month-old chart level for 1,148 of 1,184 EN cards and
+        # was nevertheless the published price of every one of them.  The chart
+        # rows above still land in market_price_observation because the charts
+        # need the series; the PRICE now comes from
+        # pipelines/psa10_latest_sale_quote.py, which reads the actual PSA 10
+        # sales.  insert_quote_revision would refuse `pricecharting` under
+        # purpose='live' anyway -- this deletion and that gate are one change.
     connection.commit()
     return len(change)
 
@@ -777,47 +739,11 @@ def materialize_local_history(connection: Any, rows: list[dict[str, Any]]) -> in
             "UPDATE market_ingest_run SET status='completed',accepted_count=%s,completed_at=%s WHERE id=%s",
             (len(rows), now, run_id),
         )
-        # Ranking reads live quote revisions, not observations. SNK kline
-        # already mints the head bar; local-history used to stop at
-        # market_price_observation, so leftover-5 had a chart and still
-        # aborted S12 (acceptance_present_but_view_rejected).
-        latest_by_variant: dict[int, dict[str, Any]] = {}
-        for row in rows:
-            variant_id = int(row["variantId"])
-            day = str(row["observedDate"])
-            prev = latest_by_variant.get(variant_id)
-            if prev is None or str(prev["observedDate"]) < day:
-                latest_by_variant[variant_id] = row
-        for row in latest_by_variant.values():
-            variant_id = int(row["variantId"])
-            external_entity_id = str(row["externalEntityId"])
-            cursor.execute(
-                """
-                SELECT id, source_observation_id
-                FROM market_price_observation
-                WHERE variant_id=%s AND source_code=%s AND observed_date=%s
-                LIMIT 1
-                """,
-                (variant_id, SOURCE_PC, row["observedDate"]),
-            )
-            price_row = cursor.fetchone() or {}
-            insert_quote_revision(
-                cursor,
-                variant_id=variant_id,
-                source_code=SOURCE_PC,
-                source_external_entity_id=external_entity_id,
-                price_usd=row["priceUsd"],
-                source_period_at=row["observedDate"],
-                checked_at=_quote_checked_at(row["effectiveAt"]),
-                payload_sha256=str(row["payloadSha256"]),
-                source_observation_id=int(price_row["source_observation_id"])
-                if price_row.get("source_observation_id")
-                else None,
-                market_price_observation_id=int(price_row["id"])
-                if price_row.get("id")
-                else None,
-                run_id=run_id,
-            )
+        # Local history is a backfill of chart points, and a chart point may no
+        # longer become a price (owner 2026-08-23).  It used to mint the head
+        # bar here so leftover-5 would stop aborting S12; that hole is filled by
+        # a real sale now.  The history rows above still land in
+        # market_price_observation, which is all the charts ever needed.
     connection.commit()
     return len(rows)
 

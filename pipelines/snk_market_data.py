@@ -1451,62 +1451,12 @@ def ingest_kline_jsonls(
             price_rows_to_write[offset : offset + 1000],
         )
 
-    # Ranking quote = latest bar only (head). Full SNK daily bars still land in
-    # market_price_observation for charts; do not mint one quote per tail candle.
-    # checked_at must be this run's fetch time (resolved_cards provenance), never
-    # a reused historical source observation clock — otherwise daily re-check of
-    # an unchanged head bar does not advance freshness.
-    if price_rows_to_write:
-        from current_quote_revision import insert_quote_revision
-
-        head_by_variant: dict[int, tuple[Any, ...]] = {}
-        for price_row in price_rows_to_write:
-            variant_id_i = int(price_row[1])
-            day_i = str(price_row[5])
-            prev = head_by_variant.get(variant_id_i)
-            if prev is None or str(prev[5]) < day_i:
-                head_by_variant[variant_id_i] = price_row
-
-        for price_row in head_by_variant.values():
-            run_id_i = int(price_row[0])
-            variant_id_i = int(price_row[1])
-            source_code_i = str(price_row[2])
-            external_i = str(price_row[3])
-            source_obs_i = int(price_row[4])
-            day_i = price_row[5]
-            effective_i = price_row[6]
-            price_usd_i = price_row[7]
-            payload_i = str(price_row[12])
-            cur.execute(
-                """
-                SELECT id FROM market_price_observation
-                WHERE variant_id=%s AND source_code=%s AND observed_date=%s
-                LIMIT 1
-                """,
-                (variant_id_i, source_code_i, day_i),
-            )
-            obs = cur.fetchone() or {}
-            checked_i = fetch_by_item.get(str(external_i))
-            if checked_i is None:
-                cur.execute(
-                    "SELECT observed_at FROM market_source_observation WHERE id=%s LIMIT 1",
-                    (source_obs_i,),
-                )
-                src = cur.fetchone() or {}
-                checked_i = src.get("observed_at") or effective_i
-            insert_quote_revision(
-                cur,
-                variant_id=variant_id_i,
-                source_code=source_code_i,
-                source_external_entity_id=external_i,
-                price_usd=price_usd_i,
-                source_period_at=day_i,
-                checked_at=checked_i,
-                payload_sha256=payload_i,
-                source_observation_id=source_obs_i,
-                market_price_observation_id=int(obs["id"]) if obs.get("id") else None,
-                run_id=run_id_i,
-            )
+    # The K-line head bar is no longer minted as a quote (owner 2026-08-23).
+    # A candle is a chart level, not a trade: it was the published price of all
+    # 420 JP cards while their real completed trades sat unused in
+    # market_sale_observation.  Every daily bar still lands in
+    # market_price_observation above -- the charts are untouched -- and the
+    # price is minted from the trades by pipelines/psa10_latest_sale_quote.py.
 
     # Release stale quarantines this run just re-verified.
     #

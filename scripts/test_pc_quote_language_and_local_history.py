@@ -9,13 +9,19 @@ not the gate:
    Chinese to SNK-primary and v35 becomes route=none despite 19 PC points.
 2. S8 writes pc_psa10_local_history_v1 series observations. Ranking bootstrap
    only accepted pc_psa10_current_price_v1 `last`. leftover-5 had charts and
-   zero live quote revisions. Legacy reconstructed quotes are excluded.
+   zero live quote revisions.
+
+Owner 2026-08-23 answered (2) a different way: a chart point is not a price at
+all, so neither contract mints a quote any more and leftover-5 is filled by a
+real sale.  The checks below now hold the OPPOSITE line -- the bootstrap must
+not go near the guide predicate, and local-history must not mint -- because
+that reversal is exactly what a future "restore the old behaviour" patch would
+undo by accident.  The language half of this file is unchanged and still live.
 
 Do not relax _pc_print_signature_ok. Do not copy the language set (shape 22).
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import inspect
 import sys
 from pathlib import Path
@@ -31,10 +37,7 @@ from current_quote_revision import (  # noqa: E402
     pc_price_language_sql,
     self_test,
 )
-from pc_psa10_price_materialize import (  # noqa: E402
-    _quote_checked_at,
-    materialize_local_history,
-)
+from pc_psa10_price_materialize import materialize_local_history  # noqa: E402
 import rebuild_036  # noqa: E402
 
 FAILURES: list[str] = []
@@ -66,14 +69,21 @@ check(
     True,
 )
 
+# The guide predicate still exists for the chart lane's own readers; what it
+# may no longer do is decide a price.
 guide = pc_guide_observation_predicate_sql("p2", "so2")
 check("guide predicate includes last-field contract", "pc_psa10_current_price_v1" in guide, True)
 check("guide predicate includes local-history contract", "pc_psa10_local_history_v1" in guide, True)
 
 boot_src = inspect.getsource(bootstrap_from_eligible_observations)
 check(
-    "bootstrap uses the shared guide predicate (not last-only)",
+    "bootstrap no longer selects chart guide observations at all",
     "pc_guide_observation_predicate_sql" in boot_src,
+    False,
+)
+check(
+    "bootstrap selects the sale lane instead",
+    "sale_observation_predicate_sql" in boot_src,
     True,
 )
 
@@ -91,26 +101,14 @@ check(
 
 hist_src = inspect.getsource(materialize_local_history)
 check(
-    "local-history materialize mints the latest quote revision",
+    "local-history materialize no longer mints a quote revision",
     "insert_quote_revision" in hist_src,
+    False,
+)
+check(
+    "local-history still writes the chart points the charts need",
+    "market_price_observation" in hist_src,
     True,
-)
-check(
-    "local-history quote clock accepts S8 naive UTC datetimes",
-    "_quote_checked_at" in hist_src,
-    True,
-)
-naive = datetime(2026, 8, 1, 0, 0, 0)
-check(
-    "naive UTC series stamp is kept",
-    _quote_checked_at(naive),
-    naive,
-)
-aware = datetime(2026, 8, 1, 0, 0, 0, tzinfo=timezone.utc)
-check(
-    "aware stamp becomes naive UTC",
-    _quote_checked_at(aware),
-    naive,
 )
 
 if FAILURES:
