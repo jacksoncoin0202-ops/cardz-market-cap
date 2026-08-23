@@ -1,11 +1,22 @@
 -- CARDZ 057: retire the chart / K-line quote routes (PHASE 2).
 --
--- DO NOT MERGE THIS FILE INTO THE LIVE TREE UNTIL PHASE 1 IS PROVEN.
--- pipelines/daily_chain_v2_contract.py:27 globs
--- "0[5-9][0-9]_daily_chain_v2_*.mysql.sql" and the chain's migrate task applies
--- every match, so landing this file in the live tree is the same as applying it
--- on the very next tick.  It sits unapplied on branch dev/20260823-p3-small
--- until the go/no-go query returns 0:
+-- PARKED, AND THE PARKING IS THE GATE.  A prose "do not merge" warning is not a
+-- gate: pipelines/daily_chain_v2_contract.py:27 globs
+-- "0[5-9][0-9]_daily_chain_v2_*.mysql.sql" into one migrate stage per match and
+-- pipelines/db_runtime.py:428 globs "*.mysql.sql" to apply them, so a visible
+-- file is applied on the very next tick with no human decision point between
+-- merge and apply.  This file is therefore named ".mysql.sql.pending", which
+-- neither glob can see -- both require the name to END in ".mysql.sql".
+--
+-- TO LAND IT: run the go/no-go query below, and ONLY when it returns 0, drop the
+-- ".pending" suffix.  That one rename is the whole landing step, and it turns
+-- scripts/test_migration_057_chart_route_retirement.py red until the same commit
+-- records the zero reading -- so the go/no-go can never be skipped silently.
+--
+-- 2026-08-23 reading: 1604, not 0 (pricecharting 1030 + snkrdunk 574).  Every
+-- selected canonical quote still comes from the four chart source codes this
+-- file retires, so landing it today would drive quotesMissing to ~1604 and fail
+-- the accepted==ranked==members contract closed -- i.e. blank the board.
 --
 --   SELECT COUNT(*) FROM market_variant_source_state s
 --   JOIN market_current_quote_revision q ON q.id=s.selected_quote_revision_id
