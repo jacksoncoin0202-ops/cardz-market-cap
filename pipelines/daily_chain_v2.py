@@ -13,7 +13,7 @@ import subprocess
 import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import asdict
 from datetime import date, datetime, time as day_time, timedelta, timezone
 from pathlib import Path
@@ -61,6 +61,34 @@ from daily_chain_v2_journal import (  # noqa: E402
 JST = ZoneInfo("Asia/Tokyo")
 TASK_LEASE_SECONDS = 90
 TICK_RESERVE_SECONDS = 30
+# audit P1-1: execute_ready() is a refilling pump, not a batch barrier.  These
+# three numbers are its shape: how many claims may be in flight, how often it
+# re-plans and refills while work is still running, and how often a busy tick
+# renews health.json for the watchdog.
+EXECUTE_MAX_IN_FLIGHT = 16
+EXECUTE_POLL_SECONDS = 2.0
+EXECUTE_HEALTH_INTERVAL_SECONDS = 30.0
+# audit P2-3: a wait is sliced so the flock holder keeps writing health and
+# reclaiming expired leases; the floor kills the ~20/s spin that happened when
+# next_retry_wait() returned 0 while the concurrency group was full.
+TICK_SLEEP_SLICE_SECONDS = 60.0
+TICK_MIN_IDLE_SLEEP_SECONDS = 1.0
+# Drain (operator finding 2026-08-24).  Once claiming closes the tick keeps
+# waiting for work that is still alive.  2400 s: the longest honest single
+# worker measured is gemrate contract-repair over 1604 cards at ~55-60 min, and
+# a task claimed at the very start of a 3000 s tick already owns ~49.5 min of
+# it, so 40 min of drain covers that worker even when it was claimed 20 minutes
+# late, while still bounding the flock hold at max_runtime + 40 min.
+TICK_DRAIN_CEILING_SECONDS = 2400
+# The external limit is NOT ours to choose: the Task Scheduler action that runs
+# this tick carries ExecutionTimeLimit=PT55M (scripts/install_cardz_daily_v2_task.ps1),
+# and Windows kills the wscript -> powershell -> wsl.exe tree when it expires.
+# 3240 s = PT55M minus a 60 s margin for the launcher's CDP preflight and WSL
+# startup.  Raising the installer's limit without raising this one buys nothing;
+# raising this one without the installer just moves the kill outside our control,
+# so the tick reports which of the two bounds actually truncated a drain.
+TICK_HARD_LIMIT_SECONDS = 3240
+DRAIN_HEARTBEAT_STALE_SECONDS = TASK_LEASE_SECONDS
 # One tick must fit inside the scheduler's own ExecutionTimeLimit; 3000 s is
 # the single source of that number for both the CLI default and the installer.
 DEFAULT_MAX_RUNTIME_SECONDS = 3000
@@ -343,6 +371,30 @@ def write_health_document(document: Mapping[str, Any]) -> Path:
     return path
 
 
+def report_tick_skipped(business_date: date) -> Path:
+    """Record TICK_SKIPPED_LOCKED WITHOUT touching health.json (audit P2-1b).
+
+    The skip branch used to rewrite the whole health document, so a tick that
+    was stuck while holding the flock had its `written_at_utc` refreshed by the
+    next scheduled tick every ten minutes.  The watchdog's 25-minute staleness
+    rule (scripts/watchdog_live_release.ps1) could therefore never fire.  A skip
+    is its own fact and gets its own file; health.json belongs to the tick that
+    owns the lock.
+    """
+
+    path = health_path().with_name("tick-skipped.json")
+    atomic_json(
+        path,
+        {
+            "schema": HEALTH_SCHEMA,
+            "business_date": business_date.isoformat(),
+            "last_skipped_at_utc": iso(),
+            "reason": "TICK_SKIPPED_LOCKED",
+        },
+    )
+    return path
+
+
 def acquire_tick_lock(journal_path: Path) -> tuple[Any, bool]:
     """One tick per journal.  A slow tick must never be doubled by the next."""
 
@@ -386,6 +438,23 @@ def recovery_disposition(
         expires = expires.replace(tzinfo=timezone.utc)
     late = (now - expires.astimezone(timezone.utc)).total_seconds()
     return "adopt" if late <= float(grace_seconds) else "terminate"
+
+
+def tick_hard_limit_seconds() -> float:
+    """Absolute wall clock this tick process may occupy, drain included.
+
+    Defaults to the installed Task Scheduler ExecutionTimeLimit minus a startup
+    margin.  An operator who raises PT55M in scripts/install_cardz_daily_v2_task.ps1
+    raises this in lockstep through the environment; nothing here can outlive
+    the external limit on its own.
+    """
+
+    raw = os.environ.get("CARDZ_V2_TICK_HARD_LIMIT_SECONDS", "").strip()
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return float(TICK_HARD_LIMIT_SECONDS)
+    return value if value > 0 else float(TICK_HARD_LIMIT_SECONDS)
 
 
 def adopt_grace_seconds() -> int:
@@ -536,6 +605,23 @@ class DailyChainV2:
         # own work and never steals another tick's live lease.
         self.own_claims: dict[str, str] = {}
         self.tick_started_at_utc: str | None = None
+        self._health_written_monotonic = float("-inf")
+        self._drain_reported = False
+        self.tick_started_monotonic = time.monotonic()
+        # Operator finding 2026-08-24 (not in the audit): a worker whose honest
+        # duration exceeds the tick budget can never finish.  Task
+        # gemrate:contract-repair:pop:all (1604 cards, ~55-60 min) was cut at
+        # every tick deadline and restarted from zero, spending the interruption
+        # budget until it would PARK.  Past the claiming deadline this tick keeps
+        # draining live, heartbeating claims up to the smaller of the drain
+        # ceiling and the EXTERNAL Task Scheduler ExecutionTimeLimit.
+        self.drain_deadline_monotonic = max(
+            deadline_monotonic,
+            min(
+                deadline_monotonic + TICK_DRAIN_CEILING_SECONDS,
+                self.tick_started_monotonic + tick_hard_limit_seconds(),
+            ),
+        )
 
     def initialise(
         self,
@@ -1429,6 +1515,17 @@ class DailyChainV2:
         except Exception:  # noqa: BLE001 - health reporting never fails a tick
             return None
 
+    def write_health_liveness(
+        self, tick_phase: str, *, min_interval: float = 0.0
+    ) -> None:
+        """Prove the tick is alive (audit P2-1a), at most once per min_interval."""
+
+        now = time.monotonic()
+        if min_interval > 0.0 and (now - self._health_written_monotonic) < min_interval:
+            return
+        self._health_written_monotonic = now
+        self.write_health(tick_phase=tick_phase)
+
     def release_own_claims(self, reason: str) -> list[str]:
         released: list[str] = []
         for task_key, claim in list(self.own_claims.items()):
@@ -1530,9 +1627,58 @@ class DailyChainV2:
             self.receipt_dir / f"{digest}-attempt-{attempt}.json",
         )
 
+    def claim_still_live(self, row: Mapping[str, Any]) -> bool:
+        """Is this exact claim still ours and still heartbeating?
+
+        Drain runs past the tick's own budget, so it may only be granted to work
+        whose durable claim is still valid.  A row that was reclaimed, retired,
+        or whose heartbeat writer died must be interrupted on the original
+        deadline exactly as before.
+        """
+
+        try:
+            current = self.journal.task(str(row["task_key"]))
+        except Exception:  # noqa: BLE001 - a damaged journal never earns drain
+            return False
+        if not current or str(current.get("status") or "") != "RUNNING":
+            return False
+        if str(current.get("lease_token") or "") != str(row["lease_token"]):
+            return False
+        raw = current.get("heartbeat_at")
+        if not raw:
+            return False
+        try:
+            beat = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        if beat.tzinfo is None:
+            beat = beat.replace(tzinfo=timezone.utc)
+        age = (utc_now() - beat.astimezone(timezone.utc)).total_seconds()
+        return age <= DRAIN_HEARTBEAT_STALE_SECONDS
+
+    def drain_deadline_for(self, row: Mapping[str, Any] | None) -> float:
+        """The tick's own bound on an already-claimed worker.
+
+        Operator finding 2026-08-24: attempt 1 and attempt 2 of
+        gemrate:contract-repair:pop:all were both cut at a tick deadline after
+        ~20 and ~48 minutes and both restarted the fetch from zero, so a worker
+        with an honest 55-60 min duration could never complete and would burn
+        the interruption budget to PARKED.  Once claiming closes, live work
+        keeps running to the drain ceiling instead.
+        """
+
+        if row is None or self.drain_deadline_monotonic <= self.deadline_monotonic:
+            return self.deadline_monotonic
+        if not self.claiming_closed():
+            # Nothing to decide yet, and no journal read on the hot path.
+            return self.deadline_monotonic
+        if not self.claim_still_live(row):
+            return self.deadline_monotonic
+        return self.drain_deadline_monotonic
+
     def _work_deadline_monotonic(self, row: Mapping[str, Any] | None = None) -> float:
         until_final = max(0.0, (self.schedule["final"] - utc_now()).total_seconds())
-        deadlines = [self.deadline_monotonic, time.monotonic() + until_final]
+        deadlines = [self.drain_deadline_for(row), time.monotonic() + until_final]
         phase = "" if row is None else str(row.get("phase") or "")
         optional_source_before_cutoff = bool(
             row is not None
@@ -1622,9 +1768,11 @@ class DailyChainV2:
                 },
                 proc.pid,
             )
-            work_deadline = self._work_deadline_monotonic(row)
             while proc.poll() is None:
-                if time.monotonic() >= work_deadline:
+                # Re-read, never freeze: the drain bound is decided against the
+                # live claim, so a healthy worker survives the tick deadline and
+                # a stale one is still cut on it (operator finding 2026-08-24).
+                if time.monotonic() >= self._work_deadline_monotonic(row):
                     terminate_worker_group(proc.pid, grace_seconds=60.0)
                     raise WorkerInterrupted(
                         f"tick deadline interrupted stage pid={proc.pid} capability={row['capability']}"
@@ -1719,7 +1867,10 @@ class DailyChainV2:
                         "claim_token": claim,
                         "log_path": log_path,
                         "receipt_path": receipt_path,
-                        "deadline_monotonic": self._work_deadline_monotonic(row),
+                        # A callable, not a frozen float: tick drain can extend
+                        # this after the worker started (operator finding
+                        # 2026-08-24).
+                        "deadline_monotonic": lambda: self._work_deadline_monotonic(row),
                     },
                     lambda **kwargs: self._heartbeat(
                         row, kwargs.get("checkpoint"), kwargs.get("worker_pid")
@@ -1989,24 +2140,106 @@ class DailyChainV2:
             waits.append(max(0.0, (due.astimezone(timezone.utc) - now).total_seconds()))
         return min(waits) if waits else None
 
-    def execute_ready(self) -> int:
-        if time.monotonic() >= self.deadline_monotonic - TICK_RESERVE_SECONDS:
-            return 0
-        rows = self.journal.claim_ready(
+    def report_drain(self, in_flight: int) -> None:
+        """Say once, per tick, that the tick is past its budget and why.
+
+        Without this the only observable difference between "drained to a clean
+        finish" and "the external Task Scheduler limit killed us mid-worker" is
+        a missing receipt.  `truncatedByExternalLimit` names the bound the
+        operator would have to raise in scripts/install_cardz_daily_v2_task.ps1.
+        """
+
+        if self._drain_reported or in_flight <= 0:
+            return
+        self._drain_reported = True
+        hard_limit = tick_hard_limit_seconds()
+        by_drain = self.deadline_monotonic + TICK_DRAIN_CEILING_SECONDS
+        by_scheduler = self.tick_started_monotonic + hard_limit
+        self.journal.add_event(
+            self.run_id,
+            "TICK_DRAINING",
+            f"{self.run_id}:{self.tick_started_at_utc or iso()}",
+            {
+                "runId": self.run_id,
+                "stage": "orchestrator",
+                "source": "system",
+                "errorCode": "TICK_DRAINING",
+                "inFlight": int(in_flight),
+                "drainSecondsGranted": round(
+                    max(0.0, self.drain_deadline_monotonic - self.deadline_monotonic), 1
+                ),
+                "drainCeilingSeconds": TICK_DRAIN_CEILING_SECONDS,
+                "externalLimitSeconds": hard_limit,
+                "truncatedByExternalLimit": bool(by_scheduler < by_drain),
+                "nextRetry": "in-flight worker keeps running to the drain ceiling",
+            },
+        )
+
+    def claiming_closed(self) -> bool:
+        """Past this instant the tick may drain live work but claims nothing."""
+
+        return time.monotonic() >= self.deadline_monotonic - TICK_RESERVE_SECONDS
+
+    def _claim_batch(self, limit: int) -> list[dict[str, Any]]:
+        # claim_ready() already refuses a row whose concurrency group has
+        # max_concurrency RUNNING rows, and an in-flight claim IS RUNNING, so
+        # refilling here can never double-count a group (audit P1-1).
+        if int(limit) <= 0 or self.claiming_closed():
+            return []
+        return self.journal.claim_ready(
             self.run_id,
             phases=self.eligible_phases(),
             lease_seconds=TASK_LEASE_SECONDS,
-            limit=16,
+            limit=int(limit),
         )
+
+    def execute_ready(self) -> int:
+        """Claim, run, and re-claim every time a slot frees (audit P1-1).
+
+        The old shape claimed one claim_ready() snapshot and joined the whole
+        batch before run_tick could plan again, so a task that failed in 18 s
+        waited for the slowest sibling in its batch: 2026-08-24 gemrate shard 3
+        died at +0.3m, was due at +1.3m, and only restarted at +15.3m.  Every
+        wait slice re-claims; every completion also re-plans, so a freshly
+        failed sibling becomes claimable on its own backoff clock.
+        """
+
+        rows = self._claim_batch(EXECUTE_MAX_IN_FLIGHT)
         if not rows:
             return 0
-        # Every durable claim must start heartbeating immediately; do not claim
-        # sixteen tasks and leave half queued behind an eight-thread executor.
-        with ThreadPoolExecutor(max_workers=len(rows)) as pool:
-            futures = [pool.submit(self.execute_claim, row) for row in rows]
-            for future in as_completed(futures):
-                future.result()
-        return len(rows)
+        started = len(rows)
+        with ThreadPoolExecutor(max_workers=EXECUTE_MAX_IN_FLIGHT) as pool:
+            pending: set[Future[None]] = {
+                pool.submit(self.execute_claim, row) for row in rows
+            }
+            while pending:
+                done, pending = wait(
+                    pending,
+                    timeout=EXECUTE_POLL_SECONDS,
+                    return_when=FIRST_COMPLETED,
+                )
+                for future in done:
+                    future.result()
+                # audit P2-1(a): the longest stretch of a run is exactly this
+                # loop; without a heartbeat here the watchdog's 25-minute
+                # staleness rule has no call site while a tick is working.
+                self.write_health_liveness(
+                    "draining" if self.claiming_closed() else "working",
+                    min_interval=EXECUTE_HEALTH_INTERVAL_SECONDS,
+                )
+                if self.claiming_closed():
+                    # Drain: keep waiting for live work, claim nothing new.
+                    self.report_drain(len(pending))
+                    continue
+                if done:
+                    # A slot freed.  Re-plan before refilling so a barrier that
+                    # just opened, or a task that just failed with a 60 s
+                    # backoff, is visible to the very next claim.
+                    self.plan(utc_now())
+                refill = self._claim_batch(EXECUTE_MAX_IN_FLIGHT - len(pending))
+                pending |= {pool.submit(self.execute_claim, row) for row in refill}
+                started += len(refill)
+        return started
 
     def finalise_live(self) -> None:
         run = self.journal.run(self.run_id) or {}
@@ -2247,6 +2480,11 @@ class DailyChainV2:
         self.recover_expired()
         while time.monotonic() < self.deadline_monotonic - TICK_RESERVE_SECONDS:
             now = utc_now()
+            # audit P2-1(a): a running tick must stamp health.json every pass.
+            # Before this, a tick only wrote health at 'started' and 'ended', so
+            # the watchdog's 25-minute staleness rule could not see a tick that
+            # was stuck for fifty minutes while holding the flock.
+            self.write_health_liveness("working")
             self.finalise_live()
             run = self.journal.run(self.run_id) or {}
             if now >= self.schedule["final"]:
@@ -2268,8 +2506,31 @@ class DailyChainV2:
                     or wait_seconds > until_final
                 ):
                     break
-                time.sleep(max(0.05, wait_seconds + 0.05))
+                # audit P2-3: the break above still decides on the UNCAPPED wait,
+                # so idle_wait() must consume that whole wait itself.  Capping
+                # only the sleep would re-enter this loop thirty times over the
+                # same wall clock instead of once.
+                self.idle_wait(max(TICK_MIN_IDLE_SLEEP_SECONDS, wait_seconds + 0.05))
         return self.journal.summary(self.run_id)
+
+    def idle_wait(self, seconds: float) -> None:
+        """Wait `seconds`, but in slices that keep the tick observable.
+
+        audit P2-3: `time.sleep(wait_seconds + 0.05)` could sleep 1800 s inside
+        one process holding the exclusive tick flock, writing no health and
+        never re-running recover_expired().  Each slice is at most
+        TICK_SLEEP_SLICE_SECONDS and never runs past the claiming deadline.
+        """
+
+        end = time.monotonic() + max(0.0, float(seconds))
+        while True:
+            limit = min(end, self.deadline_monotonic - TICK_RESERVE_SECONDS)
+            now = time.monotonic()
+            if now >= limit:
+                return
+            self.write_health_liveness("waiting")
+            time.sleep(min(TICK_SLEEP_SLICE_SECONDS, limit - now))
+            self.recover_expired()
 
 
 def load_provenance(path: Path | None) -> dict[str, Any]:
@@ -2511,9 +2772,7 @@ def main() -> int:
         # claim race; skipping is the correct, silent, zero-exit outcome.
         print("TICK_SKIPPED_LOCKED")
         try:
-            write_health_document(
-                build_health_document(journal, day, tick_phase="skipped_locked")
-            )
+            report_tick_skipped(day)
         except Exception:  # noqa: BLE001
             pass
         return 0
