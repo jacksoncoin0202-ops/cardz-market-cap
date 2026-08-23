@@ -740,5 +740,121 @@ try:
     assert "DISCOVERY_BASELINE.write" not in source
     print("POSITIVE_OK intake reads the discovery baseline and never writes it")
 
+
+
+    # ----------------------------------------------------- the V2 `intake` stage
+    # The stage is the only caller that passes do_apply=True, and the morning brief
+    # reads its result for "did a card cross the floor today".  A census nobody
+    # could read must therefore never come back out of here looking like a quiet
+    # day.  No MySQL: rebuild.connect is replaced by a counting stub.
+    import contextlib  # noqa: E402
+    import types  # noqa: E402
+
+    sys.path.insert(0, str(ROOT / "pipelines"))
+    import daily_chain_v2_stage as STAGE  # noqa: E402
+
+
+    class StageConn:
+        def __init__(self) -> None:
+            self.statements: list[str] = []
+            self.closed = False
+
+        def cursor(self) -> Any:
+            @contextlib.contextmanager
+            def _cursor() -> Any:
+                yield types.SimpleNamespace(execute=self.statements.append)
+
+            return _cursor()
+
+        def close(self) -> None:
+            self.closed = True
+
+
+    stage_calls: list[dict[str, Any]] = []
+    stage_receipts: list[Path] = []
+    stage_conns: list[StageConn] = []
+
+
+    def stage_run(report: dict[str, Any], code: int) -> dict[str, Any]:
+        real = (intake.census, intake.run, intake.write_receipt, rebuild.connect)
+
+        def fake_census(path: Any, **kwargs: Any) -> Any:
+            stage_calls.append({"call": "census", "maxAgeDays": kwargs.get("max_age_days")})
+            return real[0](WORKSPACE / "nope.jsonl", max_age_days=7, now=NOW)
+
+        def fake_run(conn: Any, **kwargs: Any) -> tuple[dict[str, Any], int]:
+            stage_calls.append({"call": "run", "doApply": kwargs.get("do_apply"),
+                                "maxSeed": kwargs.get("max_seed"), "conn": conn})
+            return copy.deepcopy(report), code
+
+        def fake_receipt(payload: Any, *, business_date: str, out: Any = None) -> Path:
+            path = WORKSPACE / f"stage-receipt-{business_date}.json"
+            path.write_text(json.dumps(dict(payload)), encoding="utf-8")
+            stage_receipts.append(path)
+            return path
+
+        def fake_connect(*_a: Any, **_k: Any) -> StageConn:
+            stage_conns.append(StageConn())
+            return stage_conns[-1]
+
+        intake.census = fake_census            # type: ignore[assignment]
+        intake.run = fake_run                  # type: ignore[assignment]
+        intake.write_receipt = fake_receipt    # type: ignore[assignment]
+        rebuild.connect = fake_connect         # type: ignore[assignment]
+        try:
+            return STAGE.stage_identity_intake(types.SimpleNamespace(
+                business_date="2026-08-22", max_age_days=7, max_seed=25,
+            ))
+        finally:
+            intake.census, intake.run, intake.write_receipt, rebuild.connect = real
+
+
+    stale_report = {
+        "generation": GEN, "censusPath": "/gone.jsonl", "censusMtime": None,
+        "censusStale": True, "censusMissing": True,
+        "buckets": {name: 0 for name in intake.VERDICT_ORDER},
+        "headroom": {"cap": {}}, "interned": [], "deferredByRatchet": [],
+        "needsHuman": [],
+    }
+    stale_result = stage_run(stale_report, 0)
+    assert stale_result["censusStale"] is True and stale_result["censusMissing"] is True
+    assert stale_result["internedCount"] == 0
+    assert "NOT" in stale_result.get("censusNote", ""), stale_result
+    assert stage_calls[0] == {"call": "census", "maxAgeDays": 7}
+    assert stage_calls[1]["call"] == "run" and stage_calls[1]["doApply"] is True
+    assert stage_calls[1]["conn"] is stage_conns[-1], "run() must get the stage's own connection"
+    assert stage_conns[-1].statements == ["SET SESSION max_execution_time=60000"]
+    assert stage_conns[-1].closed is True, "the stage may not leak a production connection"
+    assert stage_receipts and stage_receipts[-1].is_file()
+    print("POSITIVE_OK a stale census leaves the stage saying so instead of 'no new cards'")
+
+    fresh_report = dict(
+        stale_report,
+        censusStale=False, censusMissing=False, censusPath="/census.jsonl",
+        interned=[{"variantId": 4242, "gemrateId": LUFFY_GID}],
+        deferredByRatchet=[{"gemrateId": PERONA_GID}],
+        needsHuman=[{"gemrateId": CLASH_GID}],
+    )
+    fresh_result = stage_run(fresh_report, 0)
+    assert "censusNote" not in fresh_result
+    assert fresh_result["internedCount"] == 1
+    assert fresh_result["internedVariantIds"] == [4242]
+    assert fresh_result["deferredByRatchet"] == 1 and fresh_result["needsHuman"] == 1
+    print("NEGATIVE_OK a fresh census reports the cards it took in, by variant id")
+
+    # A refusal is not a quiet day either: an unmet precondition (055 not applied)
+    # has to fail the stage, not hand back a clean-looking result.
+    refused_report = dict(fresh_report, applyRefused=[f"schemaVersionMissing:{intake.SCHEMA_VERSION}"])
+    try:
+        stage_run(refused_report, 2)
+    except RuntimeError as error:
+        assert "refused" in str(error) and intake.SCHEMA_VERSION in str(error), str(error)
+    else:
+        raise AssertionError("an intake refusal came back as success")
+    assert stage_receipts[-1].is_file(), "a refusal still leaves its receipt behind"
+    assert stage_conns[-1].closed is True
+    print("POSITIVE_OK an intake refusal fails the stage and still writes its receipt")
+
+
 finally:
     shutil.rmtree(WORKSPACE, ignore_errors=True)

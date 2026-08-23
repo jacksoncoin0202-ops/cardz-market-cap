@@ -641,6 +641,121 @@ try:
     assert set(numbers) >= set(range(1, 11))
     ok("every run leaves a receipt carrying all ten steps in order", False)
 
+
+
+    # ---------------------------------------------------------------------------
+    # The V2 `operator-apply` stage: one drain of the paste inbox, through this
+    # module's single entry point, holding the operator lease.  No MySQL, no
+    # network: rebuild_036.connect and operator_bind.apply_one are replaced here.
+    import contextlib  # noqa: E402
+    import types  # noqa: E402
+
+    sys.path.insert(0, str(ROOT / "pipelines"))
+    import daily_chain_v2_stage as STAGE  # noqa: E402
+
+    DRAIN = Path(tempfile.mkdtemp(prefix="cardz-bind-inbox-"))
+    try:
+        inbox = DRAIN / "inbox"
+        inbox.mkdir(parents=True)
+        for name, variant_id in (("a", 1901), ("b", 1902), ("c", 1903)):
+            (inbox / f"{name}.json").write_text(
+                json.dumps({"variantId": variant_id, "url": PC_URL, "actor": "daddy"}),
+                encoding="utf-8",
+            )
+
+        verdicts = {
+            1901: (OB.EXIT_OK, "bound_exact", ""),
+            1902: (OB.EXIT_REFUSED, "red_listed", "red-sheet"),
+            1903: (OB.EXIT_CHAIN_CHANGED, "chain_changed", "proposal-update"),
+        }
+        seen_leases: list[str] = []
+        seen_calls: list[dict[str, Any]] = []
+
+        @contextlib.contextmanager
+        def fake_lease(owner: str):
+            seen_leases.append(owner)
+            yield
+
+        class DrainConn:
+            def __init__(self) -> None:
+                self.closed = False
+
+            def cursor(self) -> Any:
+                @contextlib.contextmanager
+                def _cursor() -> Any:
+                    yield types.SimpleNamespace(execute=lambda *a, **k: None)
+
+                return _cursor()
+
+            def close(self) -> None:
+                self.closed = True
+
+        def fake_apply_one(**kwargs: Any) -> dict[str, Any]:
+            seen_calls.append(dict(kwargs))
+            code, verdict, gate = verdicts[int(kwargs["variant_id"])]
+            return {
+                "variantId": kwargs["variant_id"], "sourceCode": "pricecharting",
+                "verdict": verdict, "gate": gate, "exitCode": code,
+                "receiptPath": f"/receipts/{kwargs['variant_id']}.json",
+            }
+
+        real_control = sys.modules.get("operator_control")
+        real_connect = R.connect
+        real_apply_one = OB.apply_one
+        drain_conn = DrainConn()
+        try:
+            sys.modules["operator_control"] = types.SimpleNamespace(  # type: ignore[assignment]
+                operator_e2e_lease=fake_lease
+            )
+            R.connect = lambda *_a, **_k: drain_conn  # type: ignore[assignment]
+            OB.apply_one = fake_apply_one  # type: ignore[assignment]
+            result = STAGE.stage_operator_apply(types.SimpleNamespace(inbox=inbox))
+            empty = DRAIN / "empty"
+            empty.mkdir()
+            quiet = STAGE.stage_operator_apply(types.SimpleNamespace(inbox=empty))
+        finally:
+            OB.apply_one = real_apply_one  # type: ignore[assignment]
+            R.connect = real_connect  # type: ignore[assignment]
+            if real_control is None:
+                sys.modules.pop("operator_control", None)
+            else:
+                sys.modules["operator_control"] = real_control
+
+        assert seen_leases == ["v2-operator-apply"], seen_leases
+        assert drain_conn.closed is True
+        assert all(call["write"] is True for call in seen_calls)
+        # apply_one only writes its 10-step verdict document when it is handed
+        # a receipts_dir, and this stage files the paste away straight after:
+        # without the CLI's own default every lease-held write is receiptless.
+        assert all(call.get("receipts_dir") for call in seen_calls), seen_calls
+        assert {str(call["receipts_dir"]) for call in seen_calls} == {
+            str(STAGE.ROOT / "data" / "runtime" / "operator" / "bind-url")
+        }, seen_calls
+        assert [call["variant_id"] for call in seen_calls] == [1901, 1902, 1903]
+        assert [row["variantId"] for row in result["applied"]] == [1901]
+        assert [row["variantId"] for row in result["refused"]] == [1902]
+        assert result["refused"][0]["gate"] == "red-sheet"
+        assert result["drained"] == 2 and result["seen"] == 3
+        ok("the stage drains every paste through apply_one under the operator lease")
+
+        # A verdict is durable in its own receipt, so the item leaves the inbox --
+        # except the one that says "the chain moved this row, run it again", which
+        # would be silently lost if a decided-looking file were filed away.
+        assert sorted(path.name for path in inbox.glob("*.json")) == ["c.json"]
+        assert sorted(path.name for path in (inbox / "done").glob("*.json")) == [
+            "a.json", "b.json"
+        ]
+        assert [row["variantId"] for row in result["retryable"]] == [1903]
+        ok("only the chain-changed paste stays in the inbox for the next run", False)
+
+        # An empty inbox is a fact, not a failure: zero calls, zero lease, no DB.
+        assert quiet["seen"] == 0 and quiet["drained"] == 0
+        assert quiet["applied"] == [] and quiet["retryable"] == []
+        assert seen_leases == ["v2-operator-apply"]
+        ok("an empty inbox opens no connection and takes no lease", False)
+    finally:
+        shutil.rmtree(DRAIN, ignore_errors=True)
+
     print(f"CHECKS={CHECKS}")
 finally:
     shutil.rmtree(WORKSPACE, ignore_errors=True)

@@ -32,6 +32,10 @@ ROUTE_POLICY_VERSION = "cardz-route-v2"
 # The token the orchestrator looks for to decide that a failed barrier is
 # repairable coverage rather than an infrastructure fault.
 CONTRACT_SHORTFALL_MARKER = "Missing="
+# Wall-clock twin of the orchestrator's monotonic work deadline, exported
+# to every stage subprocess so a stage can shrink its own work instead of
+# being killed mid-fetch at the cutoff.
+WORK_DEADLINE_ENV = "CARDZ_V2_WORK_DEADLINE_EPOCH"
 RESULT_STATUSES = frozenset({
     "completed", "degraded", "quarantined", "retry", "terminal", "interrupted",
 })

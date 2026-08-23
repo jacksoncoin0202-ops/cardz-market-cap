@@ -435,5 +435,158 @@ try:
     assert "SET SESSION max_execution_time" in source
     print("NEGATIVE_OK the brief only reads, never touches the runaway projection view, and caps its own session")
 
+
+
+    # ------------------------------------------- the V2 `brief` stage + delivery
+    # The stage renders once and hands the finished HTML to the journal; the
+    # journal is the only delivery path, and it must carry the markup through
+    # untouched.  Nothing here builds a real brief: B.build is a fixture.
+    import os  # noqa: E402
+    import types  # noqa: E402
+
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import daily_chain_v2_stage as STAGE  # noqa: E402
+    import notify_hermes as NH  # noqa: E402
+    from daily_chain_v2_journal import Journal  # noqa: E402
+
+    brief_html = (
+        '🌅 身份日報 2026-08-23\n'
+        '<a href="https://www.pricecharting.com/game/x">v3001 Monkey D. Luffy</a>\n'
+        '&lt;script&gt;'
+    )
+    saved_seen: list[dict[str, Any]] = []
+    build_calls: list[dict[str, Any]] = []
+    TODAY_KEY = "h" * 64
+    HOLLOW_HTML = "🌅 身份日報 2026-08-23（等你綁 2；列 0 張，其餘見全名單檔）"
+    stage_seen: dict[str, Any] = {"old" * 21 + "x": "2026-08-01"}
+
+    def fake_build(**kwargs: Any) -> dict[str, Any]:
+        build_calls.append(kwargs)
+        # render() is NOT idempotent across its own stamp: it drops the rows
+        # `seen` already lists.  A brief built after today's rows were stamped
+        # is hollow -- a bare count, no rows, no bind commands.
+        hollow = TODAY_KEY in (kwargs.get("seen") or {})
+        return {
+            "message": HOLLOW_HTML if hollow else brief_html,
+            "data": {"generation": "036_TEST", "population": 4242,
+                     "needsYou": [{"variantId": 3001}, {"variantId": 3002}]},
+            "seen": {TODAY_KEY: "2026-08-23"},
+        }
+
+    def fake_save_seen(seen: Any, path: Any = None) -> None:
+        saved_seen.append(dict(seen))
+        stage_seen.update(seen)
+
+    state_db = WORKSPACE / "brief-journal.sqlite3"
+    journal = Journal(state_db)
+    journal.initialise()
+    brief_run_id = journal.ensure_run(
+        business_date="2026-08-23",
+        source_cutoff_at="2026-08-23T01:15:00+00:00",
+        sla_at="2026-08-23T02:00:00+00:00",
+        final_at="2026-08-23T08:00:00+00:00",
+    )["run_id"]
+    real_build, real_load, real_save = B.build, B.load_seen, B.save_seen
+    real_env = {key: os.environ.get(key) for key in ("CARDZ_V2_STATE_DB", "CARDZ_V2_RUN_ID")}
+    try:
+        B.build = fake_build                                   # type: ignore[assignment]
+        B.load_seen = lambda path=None: dict(stage_seen)        # type: ignore[assignment]
+        B.save_seen = fake_save_seen                            # type: ignore[assignment]
+        os.environ["CARDZ_V2_STATE_DB"] = str(state_db)
+        os.environ["CARDZ_V2_RUN_ID"] = brief_run_id
+        stage_result = STAGE.stage_identity_brief(
+            types.SimpleNamespace(business_date="2026-08-23")
+        )
+
+        events = journal.pending_events(brief_run_id)
+        brief_events = [row for row in events if row["event_type"] == B.BRIEF_EVENT_TYPE]
+        assert len(brief_events) == 1, events
+        payload = json.loads(brief_events[0]["payload_json"])
+        assert payload["message"] == brief_html, "the stage must journal the rendered HTML itself"
+        assert '<a href="' in payload["message"] and "&lt;script&gt;" in payload["message"]
+        assert payload["businessDate"] == "2026-08-23" and payload["runId"] == brief_run_id
+        assert build_calls[0]["seen"] == {"old" * 21 + "x": "2026-08-01"}, build_calls[0]
+        # The stamp travels in the payload and is applied by deliver_events, so
+        # nothing is marked shown before the owner has actually received it.
+        assert payload["seen"] == {TODAY_KEY: "2026-08-23"}, payload
+        assert saved_seen == [], "a brief nobody has received yet must not be stamped"
+        assert stage_result["eventType"] == B.BRIEF_EVENT_TYPE
+        assert stage_result["needsYou"] == 2 and stage_result["messageChars"] == len(brief_html)
+        print("POSITIVE_OK the brief stage journals its rendered HTML verbatim and defers the stamp to delivery")
+
+        # Same brief twice in one run is one message; a changed brief is a new one.
+        STAGE.stage_identity_brief(types.SimpleNamespace(business_date="2026-08-23"))
+        again = [row for row in journal.pending_events(brief_run_id)
+                 if row["event_type"] == B.BRIEF_EVENT_TYPE]
+        assert len(again) == 1, "a retried brief stage must not send the same brief twice"
+        assert json.loads(again[0]["payload_json"])["message"] == brief_html, \
+            "the retry must still carry the full row list, not a hollow re-render"
+        brief_html = brief_html + "\n🖐 尋日 operator override：1"
+        STAGE.stage_identity_brief(types.SimpleNamespace(business_date="2026-08-23"))
+        changed_events = [row for row in journal.pending_events(brief_run_id)
+                          if row["event_type"] == B.BRIEF_EVENT_TYPE]
+        assert len(changed_events) == 2, "a brief that changed has something new to say"
+        print("NEGATIVE_OK a retried brief dedupes on its own text while a changed brief still ships")
+    finally:
+        B.build, B.load_seen, B.save_seen = real_build, real_load, real_save
+        for key, value in real_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+    # The seen state is shared with the legacy 037 digest inside one file, so a
+    # save must touch this report's key and nothing else.
+    state_file = WORKSPACE / "hermes_notify_state.json"
+    state_file.write_text(
+        json.dumps({"seen_manual_review": {"legacy": "2026-08-01"}, "last_test": "keep"}),
+        encoding="utf-8",
+    )
+    assert B.load_seen(state_file) == {}
+    B.save_seen({"k" * 64: "2026-08-23"}, state_file)
+    after = json.loads(state_file.read_text(encoding="utf-8"))
+    assert after["seen_manual_review"] == {"legacy": "2026-08-01"}
+    assert after["last_test"] == "keep"
+    assert after[B.SEEN_STATE_KEY] == {"k" * 64: "2026-08-23"}
+    assert B.load_seen(state_file) == {"k" * 64: "2026-08-23"}
+    print("POSITIVE_OK saving the brief's dedupe state leaves the legacy digest's key alone")
+
+    # ------------------------------------------------ notify_hermes identity-brief
+    notify_state: dict[str, Any] = {"seen_manual_review": {"legacy": "2026-08-01"}}
+    sent: list[str] = []
+    real_send, real_load_state, real_save_state = NH.send_message, NH._load_state, NH._save_state
+    real_nh_build = B.build
+    delivered = [True]
+    try:
+        B.build = fake_build                                   # type: ignore[assignment]
+        NH._load_state = lambda: json.loads(json.dumps(notify_state))  # type: ignore[assignment]
+        NH._save_state = lambda state: notify_state.update(state)      # type: ignore[assignment]
+
+        def fake_send(text: str) -> bool:
+            sent.append(text)
+            return delivered[0]
+
+        NH.send_message = fake_send                            # type: ignore[assignment]
+
+        delivered[0] = False
+        failed = NH.cmd_identity_brief(
+            types.SimpleNamespace(business_date="2026-08-23", dry_run=False)
+        )
+        assert failed == 1 and sent, "a dropped send has to be reported, not swallowed"
+        assert B.SEEN_STATE_KEY not in notify_state, \
+            "a brief nobody received must not be marked as already shown"
+
+        delivered[0] = True
+        assert NH.cmd_identity_brief(
+            types.SimpleNamespace(business_date="2026-08-23", dry_run=False)
+        ) == 0
+        assert sent[-1] == brief_html, "the delivered text is the rendered brief"
+        assert notify_state[B.SEEN_STATE_KEY] == {"h" * 64: "2026-08-23"}
+        assert notify_state["seen_manual_review"] == {"legacy": "2026-08-01"}
+        print("POSITIVE_OK a dropped brief keeps its rows unseen and a delivered one stamps only its own key")
+    finally:
+        B.build = real_nh_build                                # type: ignore[assignment]
+        NH.send_message, NH._load_state, NH._save_state = real_send, real_load_state, real_save_state
+
 finally:
     cleanup()

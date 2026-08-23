@@ -17,10 +17,18 @@ from types import SimpleNamespace
 from typing import Any, Mapping
 
 ROOT = Path(__file__).resolve().parents[1]
+# The orchestrator refuses to start work inside this reserve; a stage that
+# reads its wall-clock deadline honours the same number rather than a
+# second opinion about how much of a tick is left.
+TICK_RESERVE_SECONDS = 30
+# Below this much remaining tick, the browser lane re-proves the pages it
+# already has instead of opening a slow Cloudflare fetch it cannot finish.
+REVERIFY_FETCH_SECONDS = 600
 sys.path.insert(0, str(ROOT / "pipelines"))
 
 from daily_chain_v2_contract import (  # noqa: E402
     IDENTITY_LANE_FALLBACK,
+    WORK_DEADLINE_ENV,
     canonical_json,
     contract_shortfall,
     core_contract_keys,
@@ -255,6 +263,296 @@ def stage_pending(_args: argparse.Namespace) -> dict[str, Any]:
         "generation": snapshot["generation"],
         "pendingActivationIds": pending,
         "pendingCount": len(pending),
+    }
+
+
+def _stage_seconds_remaining(now: float | None = None) -> float | None:
+    """Seconds left of the orchestrator's own deadline, or None standalone."""
+
+    raw = str(os.environ.get(WORK_DEADLINE_ENV) or "").strip()
+    if not raw:
+        return None
+    try:
+        return float(raw) - (time.time() if now is None else now)
+    except ValueError:
+        return None
+
+
+def _rebuild_artifacts(prefix: str) -> set[str]:
+    folder = ROOT / "data" / "runtime" / "rebuild-036"
+    if not folder.is_dir():
+        return set()
+    return {path.name for path in folder.glob(f"{prefix}*.json")}
+
+
+def _newest_new_artifact(prefix: str, before: set[str]) -> Path | None:
+    folder = ROOT / "data" / "runtime" / "rebuild-036"
+    fresh = sorted(
+        path for path in folder.glob(f"{prefix}*.json") if path.name not in before
+    )
+    return fresh[-1] if fresh else None
+
+
+def stage_operator_apply(args: argparse.Namespace) -> dict[str, Any]:
+    """Drain last night's operator pastes through the one bind entry point.
+
+    Every item that receives a verdict leaves the inbox: its verdict is durable
+    in its own receipt, and an item that stays would re-spend this stage's
+    attempts every morning.  The one exception is EXIT_CHAIN_CHANGED, which
+    means "the chain moved this row, run it again" -- that item is left in the
+    inbox on purpose and reported as retryable.
+    """
+
+    import operator_bind
+    import operator_control
+    import rebuild_036 as rebuild
+
+    inbox = Path(args.inbox) if args.inbox else (
+        ROOT / "data" / "runtime" / "operator" / "bind" / "inbox"
+    )
+    items = operator_bind.inbox_items(inbox) if inbox.is_dir() else []
+    result: dict[str, Any] = {
+        "stage": "operator-apply",
+        "inbox": str(inbox),
+        "seen": len(items),
+        "drained": 0,
+        "applied": [],
+        "refused": [],
+        "retryable": [],
+    }
+    if not items:
+        return result
+
+    done = inbox / "done"
+    connection = rebuild.connect(rebuild.DAILY_CREDENTIALS_ENV)
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SET SESSION max_execution_time=60000")
+        with operator_control.operator_e2e_lease("v2-operator-apply"):
+            for path, item in items:
+                report = operator_bind.apply_one(
+                    variant_id=int(item["variantId"]),
+                    url=str(item["url"]),
+                    actor=str(item.get("actor") or "chain"),
+                    note=item.get("note"),
+                    write=True,
+                    operator_ruling_slug=item.get("operatorRuling"),
+                    freeze=bool(item.get("freeze")),
+                    conn=connection,
+                    # Same default as the bind-url CLI.  apply_one only writes
+                    # its 10-step verdict document when it is given a
+                    # receipts_dir, and this stage files the item away right
+                    # after -- without this the only durable evidence of a
+                    # lease-held DB write would be gone.
+                    receipts_dir=ROOT / "data" / "runtime" / "operator" / "bind-url",
+                )
+                row = {
+                    "file": path.name,
+                    "variantId": int(item["variantId"]),
+                    "sourceCode": report.get("sourceCode"),
+                    "verdict": report.get("verdict"),
+                    "gate": report.get("gate"),
+                    "exitCode": int(report.get("exitCode") or 0),
+                    "receiptPath": report.get("receiptPath"),
+                }
+                if row["exitCode"] == operator_bind.EXIT_CHAIN_CHANGED:
+                    result["retryable"].append(row)
+                    continue
+                done.mkdir(parents=True, exist_ok=True)
+                path.replace(done / path.name)
+                if row["exitCode"] == operator_bind.EXIT_OK:
+                    result["applied"].append(row)
+                else:
+                    result["refused"].append(row)
+    finally:
+        connection.close()
+    result["drained"] = len(result["applied"]) + len(result["refused"])
+    return result
+
+
+def stage_identity_intake(args: argparse.Namespace) -> dict[str, Any]:
+    """Take in the cards GemRate says crossed the population floor.
+
+    `--apply` is reached only here, and gemrate_identity_intake.run() holds the
+    v2-identity-intake operator lease around every write.  A stale or missing
+    census takes in nothing and says so: this stage may never be read as
+    "no new cards" when it simply did not look at fresh numbers.
+    """
+
+    import gemrate_identity_intake as intake
+    import rebuild_036 as rebuild
+
+    now = datetime.now(timezone.utc)
+    business_date = str(args.business_date or now.strftime("%Y-%m-%d"))
+    census = intake.census(None, max_age_days=int(args.max_age_days), now=now)
+    connection = rebuild.connect(rebuild.DAILY_CREDENTIALS_ENV)
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SET SESSION max_execution_time=60000")
+        report, code = intake.run(
+            connection,
+            census_result=census,
+            max_seed=int(args.max_seed),
+            do_apply=True,
+            now=now,
+        )
+    finally:
+        connection.close()
+    receipt = intake.write_receipt(report, business_date=business_date)
+    interned = list(report.get("interned") or [])
+    result: dict[str, Any] = {
+        "stage": "intake",
+        "generation": report.get("generation"),
+        "censusPath": report.get("censusPath"),
+        "censusMtime": report.get("censusMtime"),
+        "censusStale": bool(report.get("censusStale")),
+        "censusMissing": bool(report.get("censusMissing")),
+        "buckets": report.get("buckets"),
+        "headroom": report.get("headroom"),
+        "internedCount": len(interned),
+        "internedVariantIds": [
+            int(row["variantId"]) for row in interned if row.get("variantId")
+        ],
+        "deferredByRatchet": len(report.get("deferredByRatchet") or []),
+        "needsHuman": len(report.get("needsHuman") or []),
+        "receiptPath": str(receipt),
+    }
+    if result["censusStale"] or result["censusMissing"]:
+        # Said out loud in the stage result, because the morning brief reads
+        # this and an unread census is not the same fact as an empty one.
+        result["censusNote"] = (
+            "census is stale or missing: zero cards taken in, this is NOT"
+            " evidence that no card crossed the floor"
+        )
+    if code != 0:
+        raise RuntimeError(f"identity intake refused: {report.get('applyRefused')}")
+    return result
+
+
+def stage_identity_reverify(args: argparse.Namespace) -> dict[str, Any]:
+    """Re-prove held identity bindings on one lane, through the real gates.
+
+    The acceptance contract is rebuild_036's and nothing here relaxes it.  What
+    this stage adds is a budget: the browser lane fetches missing pages only
+    while the tick still has room for a slow Cloudflare morning, and neither
+    lane starts at all inside the orchestrator's reserve.
+    """
+
+    import rebuild_036 as rebuild
+
+    lane = str(args.lane)
+    scope = sorted({int(value) for value in (args.variant_id or [])})
+    remaining = _stage_seconds_remaining()
+    result: dict[str, Any] = {
+        "stage": "reverify",
+        "lane": lane,
+        "variantIds": scope,
+        "secondsRemaining": None if remaining is None else round(remaining, 1),
+    }
+    if remaining is not None and remaining <= TICK_RESERVE_SECONDS:
+        # Nothing was attempted, so nothing is claimed.  The next tick owns it.
+        return {
+            **result, "ran": False, "skipped": "tick-reserve",
+            "counts": {}, "held": [], "promotable": 0, "fetchMissing": False,
+        }
+    fetch_missing = lane == "browser" and (
+        remaining is None or remaining > REVERIFY_FETCH_SECONDS
+    )
+    if lane == "browser":
+        prefix = "pc-identity-reverify-"
+        namespace = SimpleNamespace(
+            credentials_env=None, pages_dir=None, map=None, write=True,
+            fetch_missing=fetch_missing,
+            variant_ids=scope if scope else None,
+        )
+        command = rebuild.cmd_pc_identity_reverify
+    else:
+        import operator_bind
+
+        if scope and not operator_bind.snk_judge_supports_scoping():
+            # Refusing beats sweeping: an unscoped SNK lane re-harvests every
+            # held binding in the table for a three-row ruling.
+            raise RuntimeError(
+                "snk identity reverify cannot be scoped on this tree;"
+                " refusing to sweep every held binding"
+            )
+        prefix = "snk-identity-reverify-"
+        namespace = SimpleNamespace(
+            credentials_env=None, write=True,
+            variant_ids=scope if scope else None,
+        )
+        command = rebuild.cmd_snk_identity_reverify
+    before = _rebuild_artifacts(prefix)
+    code = command(namespace)
+    if code != 0:
+        raise RuntimeError(f"identity reverify lane={lane} exited {code}")
+    artifact = _newest_new_artifact(prefix, before)
+    if artifact is None:
+        raise RuntimeError(f"identity reverify lane={lane} wrote no artifact")
+    report = json.loads(artifact.read_text(encoding="utf-8"))
+    return {
+        **result,
+        "ran": True,
+        "fetchMissing": fetch_missing,
+        "counts": report.get("counts") or {},
+        # First class, so the morning brief reads today's holds from this run
+        # instead of scraping whatever artifact happens to be newest on disk.
+        "held": report.get("held") or [],
+        "promotable": int(report.get("promotable") or 0),
+        "artifact": str(artifact),
+    }
+
+
+def stage_identity_brief(args: argparse.Namespace) -> dict[str, Any]:
+    """Render the morning identity brief and journal it for delivery.
+
+    The rendered HTML travels inside the event payload and
+    DailyChainV2._event_message returns it verbatim, so the links survive.
+
+    The dedupe state travels with it and is stamped by deliver_events, never
+    here: render() reads `seen` and drops the rows it lists, so a stage that
+    stamped before delivery would make its own retry render a hollow brief --
+    a new event key, a second message, and on the attempt that died before
+    add_event the hollow one would be the only brief the owner ever saw.
+    """
+
+    import identity_brief
+
+    now = datetime.now(timezone.utc)
+    business_date = str(args.business_date or now.strftime("%Y-%m-%d"))
+    seen = identity_brief.load_seen()
+    built = identity_brief.build(now=now, business_date=business_date, seen=seen)
+    data = built.get("data") or {}
+    message = str(built.get("message") or "")
+
+    event_key = ""
+    journal_path = os.environ.get("CARDZ_V2_STATE_DB")
+    run_id = os.environ.get("CARDZ_V2_RUN_ID")
+    if journal_path and run_id:
+        from daily_chain_v2_journal import Journal
+
+        event_key = f"{business_date}:{sha256(message)[:16]}"
+        Journal(Path(journal_path)).add_event(
+            run_id,
+            identity_brief.BRIEF_EVENT_TYPE,
+            event_key,
+            {
+                "runId": run_id,
+                "businessDate": business_date,
+                "generation": data.get("generation"),
+                "message": message,
+                "seen": built.get("seen") or {},
+            },
+        )
+    return {
+        "stage": "brief",
+        "businessDate": business_date,
+        "generation": data.get("generation"),
+        "population": data.get("population"),
+        "needsYou": len(data.get("needsYou") or []),
+        "messageChars": len(message),
+        "eventType": identity_brief.BRIEF_EVENT_TYPE,
+        "eventKey": event_key,
     }
 
 
@@ -997,6 +1295,28 @@ def main() -> int:
     discover.add_argument("--lane", choices=discovery_lane_names(), required=True)
     discover.set_defaults(func=stage_discover)
     sub.add_parser("pending").set_defaults(func=stage_pending)
+    operator_apply = sub.add_parser("operator-apply")
+    operator_apply.add_argument("--inbox", type=Path, default=None)
+    operator_apply.set_defaults(func=stage_operator_apply)
+    intake = sub.add_parser("intake")
+    intake.add_argument(
+        "--business-date", default=os.environ.get("CARDZ_V2_BUSINESS_DATE")
+    )
+    intake.add_argument("--max-age-days", type=int, default=7)
+    intake.add_argument("--max-seed", type=int, default=25)
+    intake.set_defaults(func=stage_identity_intake)
+    reverify = sub.add_parser("reverify")
+    reverify.add_argument("--lane", choices=discovery_lane_names(), required=True)
+    reverify.add_argument(
+        "--variant-id", type=int, action="append", default=[],
+        help="scope the lane; omitted means every held binding it owns",
+    )
+    reverify.set_defaults(func=stage_identity_reverify)
+    brief = sub.add_parser("brief")
+    brief.add_argument(
+        "--business-date", default=os.environ.get("CARDZ_V2_BUSINESS_DATE")
+    )
+    brief.set_defaults(func=stage_identity_brief)
     noop = sub.add_parser("noop")
     noop.add_argument("--detail-json", required=True)
     noop.set_defaults(func=stage_noop)
