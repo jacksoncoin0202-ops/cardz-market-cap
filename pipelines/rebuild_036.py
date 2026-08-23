@@ -7320,69 +7320,6 @@ def _activation_accept_history(
     # Ranking lineage: accept immutable current quote revisions (043).
     # History charts still use market_price_observation acceptances below.
     cur.execute(
-        """
-        INSERT INTO market_metric_history_acceptance
-          (variant_id,metric_kind,source_record_type,source_record_id,source_code,
-           external_entity_id,observed_date,source_effective_at,source_payload_sha256,
-           identity_evidence_sha256,acceptance_evidence_sha256,lineage_sha256,
-           accepted_by,accepted_at)
-        SELECT q.variant_id,'psa10_price','market_current_quote_revision',q.id,
-               CASE WHEN q.source_code IN ('snk','snk_psa10') THEN 'snkrdunk'
-                    ELSE q.source_code END,
-               q.source_external_entity_id,q.source_period_at,q.checked_at,q.payload_sha256,
-               si.evidence_sha256,
-               SHA2(CONCAT_WS('|','accept-current-quote-revision-v1',q.id,q.variant_id,
-                 CASE WHEN q.source_code IN ('snk','snk_psa10') THEN 'snkrdunk'
-                      ELSE q.source_code END,
-                 q.source_external_entity_id,q.payload_sha256,q.quote_lineage_sha256,
-                 si.evidence_sha256),256),
-               SHA2(CONCAT_WS('|','metric-history-v1','psa10_price','quote-revision',q.id,
-                 q.variant_id,
-                 CASE WHEN q.source_code IN ('snk','snk_psa10') THEN 'snkrdunk'
-                      ELSE q.source_code END,
-                 q.source_external_entity_id,q.payload_sha256,q.quote_lineage_sha256,
-                 si.evidence_sha256),256),
-               %s,%s
-        FROM market_current_quote_revision q
-        INNER JOIN market_universe_member am ON am.variant_id=q.variant_id
-        INNER JOIN market_universe_lock ul ON ul.id=am.universe_lock_id AND ul.is_current=1
-        INNER JOIN catalog_printing_identity pi ON pi.variant_id=q.variant_id
-        INNER JOIN operator_strict_source_identity si ON si.variant_id=q.variant_id
-          AND si.source_code=CASE WHEN q.source_code IN ('snk','snk_psa10')
-                                  THEN 'snkrdunk' ELSE q.source_code END
-          AND si.external_entity_id=q.source_external_entity_id
-        WHERE q.source_code IN ('snkrdunk','snk_psa10','snk','pricecharting')
-          AND (""" + pc_price_language_sql("pi") + """
-               OR q.source_code IN ('snkrdunk','snk_psa10','snk'))
-          AND q.price_usd>0
-          AND q.payload_sha256 REGEXP '^[0-9a-f]{64}$'
-          AND q.quote_lineage_sha256 REGEXP '^[0-9a-f]{64}$'
-          AND si.evidence_sha256 REGEXP '^[0-9a-f]{64}$'
-          AND (q.reconstruction_kind IS NULL
-               OR q.reconstruction_kind IN ('bootstrap_from_observation',''))
-        ON DUPLICATE KEY UPDATE
-          accepted_by=IF(market_metric_history_acceptance.lineage_sha256<>VALUES(lineage_sha256)
-                         OR market_metric_history_acceptance.observed_date<>VALUES(observed_date)
-                         OR market_metric_history_acceptance.source_effective_at<>VALUES(source_effective_at),
-                         VALUES(accepted_by),market_metric_history_acceptance.accepted_by),
-          accepted_at=IF(market_metric_history_acceptance.lineage_sha256<>VALUES(lineage_sha256)
-                         OR market_metric_history_acceptance.observed_date<>VALUES(observed_date)
-                         OR market_metric_history_acceptance.source_effective_at<>VALUES(source_effective_at),
-                         VALUES(accepted_at),market_metric_history_acceptance.accepted_at),
-          source_code=VALUES(source_code),external_entity_id=VALUES(external_entity_id),
-          observed_date=VALUES(observed_date),source_effective_at=VALUES(source_effective_at),
-          source_payload_sha256=VALUES(source_payload_sha256),
-          identity_evidence_sha256=VALUES(identity_evidence_sha256),
-          acceptance_evidence_sha256=VALUES(acceptance_evidence_sha256),
-          lineage_sha256=VALUES(lineage_sha256)
-        """,
-        (ACTIVATION_ACTOR, now_str),
-    )
-    # A07 2026-08-23 profile: 104,276 legacy quote acceptance rows re-stamped
-    # every run (accepted_at=VALUES(accepted_at)) with nothing moved; the
-    # stamp now moves only with lineage / observed_date / source_effective_at.
-    legacy_quote_rows = int(cur.rowcount)
-    cur.execute(
         "SELECT COUNT(*) AS n FROM information_schema.tables"
         " WHERE table_schema=DATABASE() AND table_name='market_source_registry'"
     )
@@ -7390,6 +7327,80 @@ def _activation_accept_history(
     registry_ready = int(
         registry_row.get("n") if isinstance(registry_row, Mapping) else registry_row[0]
     ) == 1
+    legacy_quote_rows = 0
+    # A08 2026-08-23 [KNOWN, 3308 probe]: on a registry schema every quote
+    # revision this 043 block accepts (52,138 rows) is also accepted by the
+    # registry-driven block below (84,136 rows, a strict superset: every
+    # legacy source is registered with the quote capability), and the two
+    # blocks compute different lineage_sha256 for the same row, so each run
+    # rewrote those 52,138 rows twice and the registry lineage always won.
+    # One writer per schema: the 043 block only runs where the registry
+    # table does not exist.  The rows the registry block writes, and the
+    # state they end in, are unchanged.
+    if not registry_ready:
+        cur.execute(
+            """
+            INSERT INTO market_metric_history_acceptance
+              (variant_id,metric_kind,source_record_type,source_record_id,source_code,
+               external_entity_id,observed_date,source_effective_at,source_payload_sha256,
+               identity_evidence_sha256,acceptance_evidence_sha256,lineage_sha256,
+               accepted_by,accepted_at)
+            SELECT q.variant_id,'psa10_price','market_current_quote_revision',q.id,
+                   CASE WHEN q.source_code IN ('snk','snk_psa10') THEN 'snkrdunk'
+                        ELSE q.source_code END,
+                   q.source_external_entity_id,q.source_period_at,q.checked_at,q.payload_sha256,
+                   si.evidence_sha256,
+                   SHA2(CONCAT_WS('|','accept-current-quote-revision-v1',q.id,q.variant_id,
+                     CASE WHEN q.source_code IN ('snk','snk_psa10') THEN 'snkrdunk'
+                          ELSE q.source_code END,
+                     q.source_external_entity_id,q.payload_sha256,q.quote_lineage_sha256,
+                     si.evidence_sha256),256),
+                   SHA2(CONCAT_WS('|','metric-history-v1','psa10_price','quote-revision',q.id,
+                     q.variant_id,
+                     CASE WHEN q.source_code IN ('snk','snk_psa10') THEN 'snkrdunk'
+                          ELSE q.source_code END,
+                     q.source_external_entity_id,q.payload_sha256,q.quote_lineage_sha256,
+                     si.evidence_sha256),256),
+                   %s,%s
+            FROM market_current_quote_revision q
+            INNER JOIN market_universe_member am ON am.variant_id=q.variant_id
+            INNER JOIN market_universe_lock ul ON ul.id=am.universe_lock_id AND ul.is_current=1
+            INNER JOIN catalog_printing_identity pi ON pi.variant_id=q.variant_id
+            INNER JOIN operator_strict_source_identity si ON si.variant_id=q.variant_id
+              AND si.source_code=CASE WHEN q.source_code IN ('snk','snk_psa10')
+                                      THEN 'snkrdunk' ELSE q.source_code END
+              AND si.external_entity_id=q.source_external_entity_id
+            WHERE q.source_code IN ('snkrdunk','snk_psa10','snk','pricecharting')
+              AND (""" + pc_price_language_sql("pi") + """
+                   OR q.source_code IN ('snkrdunk','snk_psa10','snk'))
+              AND q.price_usd>0
+              AND q.payload_sha256 REGEXP '^[0-9a-f]{64}$'
+              AND q.quote_lineage_sha256 REGEXP '^[0-9a-f]{64}$'
+              AND si.evidence_sha256 REGEXP '^[0-9a-f]{64}$'
+              AND (q.reconstruction_kind IS NULL
+                   OR q.reconstruction_kind IN ('bootstrap_from_observation',''))
+            ON DUPLICATE KEY UPDATE
+              accepted_by=IF(market_metric_history_acceptance.lineage_sha256<>VALUES(lineage_sha256)
+                             OR market_metric_history_acceptance.observed_date<>VALUES(observed_date)
+                             OR market_metric_history_acceptance.source_effective_at<>VALUES(source_effective_at),
+                             VALUES(accepted_by),market_metric_history_acceptance.accepted_by),
+              accepted_at=IF(market_metric_history_acceptance.lineage_sha256<>VALUES(lineage_sha256)
+                             OR market_metric_history_acceptance.observed_date<>VALUES(observed_date)
+                             OR market_metric_history_acceptance.source_effective_at<>VALUES(source_effective_at),
+                             VALUES(accepted_at),market_metric_history_acceptance.accepted_at),
+              source_code=VALUES(source_code),external_entity_id=VALUES(external_entity_id),
+              observed_date=VALUES(observed_date),source_effective_at=VALUES(source_effective_at),
+              source_payload_sha256=VALUES(source_payload_sha256),
+              identity_evidence_sha256=VALUES(identity_evidence_sha256),
+              acceptance_evidence_sha256=VALUES(acceptance_evidence_sha256),
+              lineage_sha256=VALUES(lineage_sha256)
+            """,
+            (ACTIVATION_ACTOR, now_str),
+        )
+        # A07 2026-08-23 profile: 104,276 legacy quote acceptance rows re-stamped
+        # every run (accepted_at=VALUES(accepted_at)) with nothing moved; the
+        # stamp now moves only with lineage / observed_date / source_effective_at.
+        legacy_quote_rows = int(cur.rowcount)
     if registry_ready:
         # V2 quote acceptance is registry-driven.  A future adapter writes its
         # immutable market_current_quote_revision, registers its identity
