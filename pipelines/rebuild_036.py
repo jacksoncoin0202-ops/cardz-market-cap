@@ -8572,6 +8572,50 @@ def _canonical_ranking_receipt(canonical: Mapping[str, Any]) -> dict[str, Any]:
     return receipt
 
 
+class _TimedCursor:
+    """Receipt-only statement clock for daily-accept. A04 2026-08-23: the
+    acceptHistory step took 68.6 s of a 90 s accept with no finer clock.
+    Delegates everything to the real cursor and records seconds per
+    execute/executemany; ``slowest()`` lands in the receipt."""
+
+    def __init__(self, cur) -> None:
+        self._cur = cur
+        self.statements: list[tuple[float, str]] = []
+
+    def __getattr__(self, name: str):
+        return getattr(self._cur, name)
+
+    def __iter__(self):
+        return iter(self._cur)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> bool:
+        return False
+
+    def _record(self, query, seconds: float) -> None:
+        self.statements.append((round(seconds, 3), " ".join(str(query).split())[:120]))
+
+    def execute(self, query, args=None):
+        started = time.monotonic()
+        try:
+            return self._cur.execute(query, args)
+        finally:
+            self._record(query, time.monotonic() - started)
+
+    def executemany(self, query, args):
+        started = time.monotonic()
+        try:
+            return self._cur.executemany(query, args)
+        finally:
+            self._record(query, time.monotonic() - started)
+
+    def slowest(self, limit: int = 8) -> list[dict[str, Any]]:
+        ranked = sorted(self.statements, key=lambda item: item[0], reverse=True)[:limit]
+        return [{"seconds": seconds, "sql": sql} for seconds, sql in ranked]
+
+
 def cmd_daily_accept(args: argparse.Namespace) -> int:
     """Nightly acceptance + re-rank for the CURRENT activated universe.
 
@@ -8712,9 +8756,10 @@ def cmd_daily_accept(args: argparse.Namespace) -> int:
         now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
         try:
             with conn.cursor() as cur:
-                history = _activation_accept_history(cur, now_str, fingerprints)
+                timed = _TimedCursor(cur)
+                history = _activation_accept_history(timed, now_str, fingerprints)
                 _mark("acceptHistory")
-                canonical = _activation_rank_and_accept(cur, ready_ids, now_str)
+                canonical = _activation_rank_and_accept(timed, ready_ids, now_str)
                 _mark("rankAndAccept")
                 for variant_id, rank in canonical["ranks"].items():
                     cur.execute(
@@ -8746,6 +8791,7 @@ def cmd_daily_accept(args: argparse.Namespace) -> int:
             "freshness36h": freshness,
             "canonical": _canonical_ranking_receipt(canonical),
             "stepSeconds": step_seconds,
+            "slowStatements": timed.slowest(),
             "acceptedAt": now_str,
         }
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")

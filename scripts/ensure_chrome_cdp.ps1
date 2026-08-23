@@ -9,7 +9,8 @@ param(
   [string]$UserDataDir = "",
   [string]$StartUrl = "https://www.pricecharting.com/",
   [switch]$SelfTest,
-  [switch]$IdentityOnly
+  [switch]$IdentityOnly,
+  [int]$ProbeAttempts = 3
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,16 +19,24 @@ if ([string]::IsNullOrWhiteSpace($UserDataDir)) {
 }
 
 function Get-CdpVersion {
-  param([int]$CandidatePort)
-  try {
-    $response = Invoke-WebRequest -Uri "http://127.0.0.1:$CandidatePort/json/version" -UseBasicParsing -TimeoutSec 2
-    if ($response.StatusCode -ne 200 -or [string]::IsNullOrWhiteSpace($response.Content)) {
-      return $null
+  param([int]$CandidatePort, [int]$Attempts = $ProbeAttempts)
+  # A04 2026-08-23 08:10:16Z: Chrome 9333 was alive, one 2 s probe missed, the
+  # PC lane reported CDP_9333_UNAVAILABLE and sat out a 300 s retry. A single
+  # transient miss is not "no-listener": probe up to $Attempts times, 700 ms
+  # apart. -ProbeAttempts 1 restores the one-shot probe (the proof test in
+  # scripts/test_ensure_chrome_cdp_probe_retry.py uses it as the seeded bug).
+  if ($Attempts -lt 1) { $Attempts = 1 }
+  for ($i = 1; $i -le $Attempts; $i++) {
+    try {
+      $response = Invoke-WebRequest -Uri "http://127.0.0.1:$CandidatePort/json/version" -UseBasicParsing -TimeoutSec 2
+      if ($response.StatusCode -eq 200 -and -not [string]::IsNullOrWhiteSpace($response.Content)) {
+        return ($response.Content | ConvertFrom-Json)
+      }
+    } catch {
     }
-    return ($response.Content | ConvertFrom-Json)
-  } catch {
-    return $null
+    if ($i -lt $Attempts) { Start-Sleep -Milliseconds 700 }
   }
+  return $null
 }
 
 function Get-CdpTargetList {
@@ -133,7 +142,8 @@ function Start-CardzChrome {
   )
   $deadline = (Get-Date).AddSeconds(20)
   while ((Get-Date) -lt $deadline) {
-    $ver = Get-CdpVersion -CandidatePort $CandidatePort
+    # This loop is already the retry; one probe per 500 ms poll.
+    $ver = Get-CdpVersion -CandidatePort $CandidatePort -Attempts 1
     $why = Get-CdpRejectReason -Version $ver
     if ($null -eq $why -and (Test-CdpTargetsReady -CandidatePort $CandidatePort)) {
       Write-Host "CDP_REVIVED port=$CandidatePort profile=$ProfileDir"

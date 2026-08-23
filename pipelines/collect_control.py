@@ -18,6 +18,7 @@ import json
 import os
 import re
 import signal
+import stat as stat_mod
 import subprocess
 import sys
 import time
@@ -4144,20 +4145,30 @@ def partition_local_pc_stock_pages(
             network_reasons[str(variant_id)] = "local_exact_map_html_path_empty"
             continue
         html_path = ROOT / html_field
-        if not html_path.is_file():
+        # A04 2026-08-23: this loop cost 33 s for 1238 pages on /mnt/c.
+        # validate_pc_psa10 has just read and hashed the page (artifact_sha256);
+        # is_file() + stat() + read_bytes() + sha256 here were a second pass
+        # over every byte. One stat for the SLA clock, the validator's hash.
+        try:
+            html_stat = html_path.stat()
+        except OSError:
+            html_stat = None
+        if html_stat is None or not stat_mod.S_ISREG(html_stat.st_mode):
             # audit P2-13: mirror the SLA branch above -- a missing artifact is
             # a refetch, never an exception out of the whole task.
             network.append(item)
             network_reasons[str(variant_id)] = "local_exact_html_missing"
             continue
-        modified_at = datetime.fromtimestamp(html_path.stat().st_mtime, timezone.utc)
+        modified_at = datetime.fromtimestamp(html_stat.st_mtime, timezone.utc)
         if (_age_hours(modified_at) or 0) > SLA_HOURS:
             network.append(item)
             network_reasons[str(variant_id)] = "local_exact_html_exceeds_36h_sla"
             continue
-        html_bytes = html_path.read_bytes()
         replayed.append(item)
-        payload_sha_by_variant[str(variant_id)] = hashlib.sha256(html_bytes).hexdigest()
+        payload_sha_by_variant[str(variant_id)] = str(
+            exact_price.get("artifact_sha256")
+            or hashlib.sha256(html_path.read_bytes()).hexdigest()
+        )
         evidence_times.append(modified_at)
         evidence_rows.append(
             {
