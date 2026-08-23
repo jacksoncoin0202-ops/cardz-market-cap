@@ -346,6 +346,13 @@ def main() -> int:
             original_run_child = cc._run_pc_child
             original_defer = cc._deferred_termination
             child_report = tmpdir / "pc_cdp_refresh_report.json"
+            # refresh_pc_pages 而家會睇 9333 child 嘅 progress stamp 決定使唔使
+            # 讓路（review 2026-08-24 major #1）。stamp 住喺 repo 真實 runtime
+            # 目錄，唔搬走嘅話，其他 test 留低嘅 stamp 就會決定呢個 test 嘅結果。
+            import pc_cdp_sold_refresh_win as pc_child_mod  # noqa: PLC0415
+
+            original_stamp_dir = pc_child_mod.PROGRESS_STAMP_DIR
+            pc_child_mod.PROGRESS_STAMP_DIR = tmpdir
             cc.OUT_DIR = tmpdir  # type: ignore[attr-defined]
             cc.PC_REFRESH_REPORT = child_report  # type: ignore[attr-defined]
             cc.WINDOWS_PY = Path(__file__).resolve()  # type: ignore[attr-defined]
@@ -433,7 +440,80 @@ def main() -> int:
                 )
                 check("被斬要寫入 receipt", interrupted_run.get("childInterrupted"), True)
                 check("被斬一樣係 fail", interrupted_run.get("ok"), False)
+
+                # --- 12. 9333 得一個 child：orphan 未死唔准開第二個 -----------
+                # review 2026-08-24 major #1：R5 之後條 sweep 50-65 分鐘，即係
+                # 日日都會俾 tick 斬。斬嘅係 WSL 側個 collect process，Windows
+                # 側個 hidden child 唔會死，繼續攞頁；下一個 tick 再開多一個
+                # child = 同時兩條 sweep 打 PriceCharting，request rate 直接雙倍。
+                launches: list[list[str]] = []
+                base_child = make_child(partial=False, exit_code=0)
+
+                def counting_child(cmd, *, timeout, dry_run, use_vbs=None):
+                    launches.append(list(cmd))
+                    return base_child(cmd, timeout=timeout, dry_run=dry_run)
+
+                cc._run_pc_child = counting_child  # type: ignore[assignment]
+                cc._deferred_termination = fake_defer(False)  # type: ignore[assignment]
+                live_stamp = tmpdir / "pc_cdp_progress.424242.stamp"
+                try:
+                    live_stamp.write_text("beat", encoding="utf-8")
+                    blocked = refresh_fn(
+                        [items[1], items[2]],
+                        mode="incr",
+                        dry_run=False,
+                        resume_report=tmpdir / "resume.json",
+                        sleep_seconds=None,
+                        tabs=None,
+                        cdp_already_ensured=True,
+                    )
+                    check("orphan 未死：唔准開第二個 child", len(launches), 0)
+                    check("orphan 未死：sweep 照舊 fail", blocked.get("ok"), False)
+                    check(
+                        "orphan 未死：有名有姓嘅 errorClass",
+                        blocked.get("errorClass"),
+                        "pc_child_already_running",
+                    )
+                    check("orphan 未死：下個 tick 可以再試", blocked.get("retryable"), True)
+                    check(
+                        "orphan 未死：一頁都未開過",
+                        blocked.get("attemptedFailedVariantIds"),
+                        [],
+                    )
+                    if callable(fallback_fn):
+                        cc.PC_DAILY_FULL_CYCLE_STAMP = tmpdir / "orphan-cycle.json"  # type: ignore[attr-defined]
+                        covered = call_fallback(
+                            fallback_fn,
+                            [items[1], items[2]],
+                            blocked,
+                            mode="incr",
+                            run_started_at=run_started_at,
+                            cycle_key="cardz-v2:orphan",
+                        )
+                        check("orphan 未死：唔准用舊 HTML 冚住佢", covered, None)
+                    # stamp 舊過 hard stall killer 個窗 = 嗰個 child 一定已經俾
+                    # 自己個 killer 殺咗，唔可以永遠封住條 lane。
+                    dead = time.time() - (float(pc_child_mod.HARD_STALL_KILLER_SECONDS) + 120.0)
+                    os.utime(live_stamp, (dead, dead))
+                    resumed = refresh_fn(
+                        [items[1], items[2]],
+                        mode="incr",
+                        dry_run=False,
+                        resume_report=tmpdir / "resume.json",
+                        sleep_seconds=None,
+                        tabs=None,
+                        cdp_already_ensured=True,
+                    )
+                    check("stamp 過咗期：照開新 child", len(launches), 1)
+                    check(
+                        "stamp 過咗期：唔會再賴 already-running",
+                        resumed.get("errorClass"),
+                        None,
+                    )
+                finally:
+                    live_stamp.unlink(missing_ok=True)
             finally:
+                pc_child_mod.PROGRESS_STAMP_DIR = original_stamp_dir
                 cc.OUT_DIR = original_out_dir  # type: ignore[attr-defined]
                 cc.PC_REFRESH_REPORT = original_report  # type: ignore[attr-defined]
                 cc.WINDOWS_PY = original_windows_py  # type: ignore[attr-defined]
@@ -523,6 +603,110 @@ def main() -> int:
                 sys.modules.pop("collect_control", None)
             else:
                 sys.modules["collect_control"] = previous_collect
+
+        # --- 13. cycle stamp 係 5-6 個 collect worker 共用嘅檔（review major #2）
+        # run_collect 對每一個 source（gemrate 4 shard + snkrdunk + pricecharting）
+        # 都送 refresh_policy="daily_full"，而佢哋喺同一個 ThreadPoolExecutor 入面
+        # 一齊開工。所以（甲）冇 PC 卡嗰啲 worker 根本唔應該掂呢個檔，（乙）寫落去
+        # 一定要行 _write_json_atomic：撕爛咗個 JSON = 讀返 None = 當成新 cycle，
+        # 錨點推前，已經攞咗嘅頁全部要重新再 Cloudflare 一次。
+        anchor_fn = getattr(cc, "pc_daily_full_run_anchor", None)
+        check("有 run anchor helper", callable(anchor_fn), True)
+        if callable(anchor_fn):
+            anchor_stamp = tmpdir / "anchor-cycle.json"
+            cc.PC_DAILY_FULL_CYCLE_STAMP = anchor_stamp  # type: ignore[attr-defined]
+            check(
+                "冇 PC 卡嘅 worker 唔准落錨",
+                anchor_fn("daily_full", dry_run=False, pc_items=[], cycle_key="cardz-v2:anchor"),
+                None,
+            )
+            check("冇 PC 卡：個檔根本唔應該出現", anchor_stamp.exists(), False)
+            check(
+                "dry-run 唔落錨",
+                anchor_fn("daily_full", dry_run=True, pc_items=[items[1]], cycle_key="cardz-v2:anchor"),
+                None,
+            )
+            check(
+                "operator sla_replay 唔落錨",
+                anchor_fn("sla_replay", dry_run=False, pc_items=[items[1]], cycle_key="cardz-v2:anchor"),
+                None,
+            )
+            check("到呢刻個檔仍然唔應該出現", anchor_stamp.exists(), False)
+            anchored = anchor_fn(
+                "daily_full", dry_run=False, pc_items=[items[1]], cycle_key="cardz-v2:anchor"
+            )
+            check("真係有 PC 卡先落錨", anchor_stamp.is_file(), True)
+            check("落到錨要有值", anchored is not None, True)
+            check(
+                "同一個 cycle 再問：錨點唔郁",
+                anchor_fn("daily_full", dry_run=False, pc_items=[items[1]], cycle_key="cardz-v2:anchor"),
+                anchored,
+            )
+
+        atomic_writes: list[str] = []
+        original_atomic = cc._write_json_atomic
+        atomic_stamp = tmpdir / "atomic-cycle.json"
+
+        def spy_atomic(path, payload):
+            atomic_writes.append(str(path))
+            return original_atomic(path, payload)
+
+        cc._write_json_atomic = spy_atomic  # type: ignore[assignment]
+        try:
+            cc.PC_DAILY_FULL_CYCLE_STAMP = atomic_stamp  # type: ignore[attr-defined]
+            atomic_started = cc.pc_daily_full_cycle_started_at("cardz-v2:atomic")
+            cc.pc_daily_full_record_refusal("cardz-v2:atomic", started_at=atomic_started)
+        finally:
+            cc._write_json_atomic = original_atomic  # type: ignore[assignment]
+        check(
+            "兩個 helper 都行 _write_json_atomic",
+            atomic_writes.count(str(atomic_stamp)),
+            2,
+        )
+        check("refusal 數得返",
+              (lambda: __import__("json").loads(atomic_stamp.read_text(encoding="utf-8-sig")).get("refusedSweeps"))(),
+              1)
+
+        # --- 14. tick 斬一次唔准食走一次「真失敗」嘅額度（review major #3）----
+        # claim_next 喺 CLAIM 嗰刻就 attempts+1，interrupt_claim 只加 interruptions
+        # 唔還返個 attempt。R5 令 pricecharting 由 5 分鐘 replay 變成 50-65 分鐘
+        # sweep，一個 business date 會俾斬 1-3 次；7 個 attempt 燒完就 PARKED，而
+        # PARKED 唔喺 source_barrier_ready 嘅 settled set 入面，成條鏈要等到 10:15。
+        import daily_chain_v2 as v2chain  # noqa: PLC0415
+        import daily_chain_v2_adapters as v2adapters  # noqa: PLC0415
+        import daily_chain_v2_journal as v2journal  # noqa: PLC0415
+
+        attempts_fn = getattr(v2chain, "source_task_max_attempts", None)
+        check("有 per-source attempt 預算", callable(attempts_fn), True)
+        if callable(attempts_fn):
+            specs = {
+                adapter.spec.source_code: adapter.spec
+                for adapter in v2adapters.build_default_registry().enabled()
+            }
+            check("真失敗嘅預算冇郁", getattr(v2chain, "SOURCE_MAX_ATTEMPTS", None), 7)
+            check(
+                "9333 sweep 由 spec 自己宣告，唔係喺 orchestrator 點名",
+                specs["pricecharting"].resumable_sweep,
+                True,
+            )
+            check(
+                "PC sweep 額外攞返 interruption 嗰份",
+                attempts_fn(specs["pricecharting"]),
+                7 + v2journal.default_max_interruptions(),
+            )
+            check("其他 source 一個都唔加", attempts_fn(specs["snkrdunk"]), 7)
+            check("gemrate 一樣唔加", attempts_fn(specs["gemrate"]), 7)
+            check(
+                "interruption 上限冇拆走（照樣會 PARK）",
+                v2journal.DEFAULT_MAX_INTERRUPTIONS >= 1,
+                True,
+            )
+            plan_src = (ROOT / "pipelines" / "daily_chain_v2.py").read_text(encoding="utf-8")
+            check(
+                "plan() 真係用返個 helper（唔准得個檢查冇 call site）",
+                "max_attempts=source_task_max_attempts(adapter.spec)" in plan_src,
+                True,
+            )
     finally:
         cc._pc_subset_map = original_map
         deriv.validate_pc_psa10 = original_validate

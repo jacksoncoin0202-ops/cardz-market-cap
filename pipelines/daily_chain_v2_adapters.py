@@ -428,6 +428,10 @@ def build_default_registry() -> AdapterRegistry:
                     adapter_version="2",
                     identity_lane="browser",
                     route_priority=20,
+                    # daily_full sweeps ~1171 pages at sleep 3.0 x 2 tabs
+                    # (50-65 min), longer than one claim window, and resumes
+                    # from the cycle stamp after a tick interruption.
+                    resumable_sweep=True,
                 ),
                 worker_kind="collect",
                 worker_payload={

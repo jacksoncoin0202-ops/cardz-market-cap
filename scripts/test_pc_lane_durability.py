@@ -497,6 +497,14 @@ def _refresh_with_stub(
     if report_path.exists():
         report_path.unlink()
     originals = (cc.OUT_DIR, cc.PC_REFRESH_REPORT, cc.WINDOWS_PY, cc._pc_subset_map, cc._run_pc_child)
+    # refresh_pc_pages refuses to launch a second 9333 child while one is still
+    # beating its progress stamp (review 2026-08-24). The stamps live in the
+    # repo's real runtime dir, so this harness has to stub that source too --
+    # otherwise a stamp another test left behind decides this one's outcome.
+    original_stamp_dir = mod.PROGRESS_STAMP_DIR
+    liveness_dir = tmp / "liveness"
+    liveness_dir.mkdir(parents=True, exist_ok=True)
+    mod.PROGRESS_STAMP_DIR = liveness_dir
     cc.OUT_DIR = tmp
     cc.PC_REFRESH_REPORT = report_path
     cc.WINDOWS_PY = ROOT / "pipelines" / "pc_cdp_hidden_launch.vbs"
@@ -525,6 +533,7 @@ def _refresh_with_stub(
             bind_missing_ids=bind_missing_ids,
         )
     finally:
+        mod.PROGRESS_STAMP_DIR = original_stamp_dir
         (
             cc.OUT_DIR,
             cc.PC_REFRESH_REPORT,

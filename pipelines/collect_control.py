@@ -181,10 +181,21 @@ PC_HIDDEN_LAUNCH_VBS = ROOT / "pipelines" / "pc_cdp_hidden_launch.vbs"
 PC_CF_STORM_CLASS = "pc_cf_storm"
 CDP_UNREACHABLE_CLASS = "cdp_unreachable"
 PC_CDP_REFRESH_FAILED_CLASS = "pc_cdp_refresh_failed"
+# review 2026-08-24: the 9333 child is launched hidden through WSL interop, so
+# it is not in this process's group. When the tick SIGKILLs the collect process
+# mid-sweep the child survives and keeps fetching; a second child launched by
+# the next tick would double the request rate on the one host this whole lane
+# exists to stay welcome at (SourceSpec max_concurrency=1 governs V2 task
+# claiming, not an orphan OS process).
+PC_CHILD_ALREADY_RUNNING_CLASS = "pc_child_already_running"
 PC_CHILD_EXIT_ERROR_CLASSES = {4: PC_CF_STORM_CLASS}
 PC_ERROR_CLASS_RETRY_SECONDS = {
     PC_CF_STORM_CLASS: 20 * 60,
     CDP_UNREACHABLE_CLASS: 5 * 60,
+    # One tick. The orphan either finishes its own sweep or its hard stall
+    # killer takes it, and either way the next tick resumes from the pages it
+    # already captured.
+    PC_CHILD_ALREADY_RUNNING_CLASS: 10 * 60,
 }
 # Chrome's lifecycle belongs to the launcher preflight and the ChromeCdpWatchdog
 # task; the chain only asks whether the session is the right one. 30s, not 90.
@@ -1045,6 +1056,52 @@ def pc_hidden_launch_command(
         exe,
         *rest,
     ]
+
+
+def pc_child_alive_stamp(*, now: datetime | None = None) -> dict[str, Any] | None:
+    """A 9333 child that is still running, seen through its own progress stamp.
+
+    The child's Windows PID never comes back through WSL interop, so liveness is
+    read off the artifact the child already maintains for its hard stall killer:
+    ``pc_cdp_progress.<pid>.stamp``, touched on every page decision. That killer
+    is what makes the window trustworthy in both directions -- a live child
+    beats inside ``HARD_STALL_KILLER_SECONDS`` or the killer takes it -- so a
+    stamp older than the window belongs to a child that is already dead and must
+    not wedge the lane forever.
+
+    Returns ``None`` when no child is running. A false positive costs one tick
+    and retries; a false negative costs two sweeps hammering PriceCharting at
+    once, so this errs closed.
+    """
+
+    from pc_cdp_sold_refresh_win import (  # noqa: PLC0415
+        HARD_STALL_KILLER_SECONDS,
+        PROGRESS_STAMP_DIR,
+    )
+
+    moment = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    window = float(HARD_STALL_KILLER_SECONDS)
+    newest: dict[str, Any] | None = None
+    try:
+        candidates = sorted(Path(PROGRESS_STAMP_DIR).glob("pc_cdp_progress.*.stamp"))
+    except OSError:
+        return None
+    for stamp in candidates:
+        try:
+            beat = datetime.fromtimestamp(stamp.stat().st_mtime, timezone.utc)
+        except OSError:
+            continue
+        age = (moment - beat).total_seconds()
+        if age > window:
+            continue
+        if newest is None or age < float(newest["ageSeconds"]):
+            newest = {
+                "stamp": str(stamp),
+                "beatAt": beat.isoformat().replace("+00:00", "Z"),
+                "ageSeconds": round(age, 3),
+                "windowSeconds": window,
+            }
+    return newest
 
 
 def _run_pc_child(
@@ -4100,18 +4157,16 @@ def pc_daily_full_cycle_started_at(
             if started.tzinfo is None:
                 started = started.replace(tzinfo=timezone.utc)
             return started.astimezone(timezone.utc)
-    PC_DAILY_FULL_CYCLE_STAMP.parent.mkdir(parents=True, exist_ok=True)
-    PC_DAILY_FULL_CYCLE_STAMP.write_text(
-        json.dumps(
-            {
-                "cycle": key,
-                "startedAt": moment.isoformat().replace("+00:00", "Z"),
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
+    # review 2026-08-24: 5-6 collect workers run daily_full in one thread pool,
+    # so this file is written concurrently. A torn read here is not harmless: it
+    # reads back as "no cycle", re-anchors startedAt to now, and every page this
+    # cycle already paid Cloudflare for looks unfetched again.
+    _write_json_atomic(
+        PC_DAILY_FULL_CYCLE_STAMP,
+        {
+            "cycle": key,
+            "startedAt": moment.isoformat().replace("+00:00", "Z"),
+        },
     )
     return moment
 
@@ -4137,12 +4192,28 @@ def pc_daily_full_record_refusal(cycle_key: str, *, started_at: datetime) -> int
         }
     refusals = int(stamped.get("refusedSweeps") or 0) + 1
     stamped["refusedSweeps"] = refusals
-    PC_DAILY_FULL_CYCLE_STAMP.parent.mkdir(parents=True, exist_ok=True)
-    PC_DAILY_FULL_CYCLE_STAMP.write_text(
-        json.dumps(stamped, ensure_ascii=False, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    _write_json_atomic(PC_DAILY_FULL_CYCLE_STAMP, stamped)
     return refusals
+
+
+def pc_daily_full_run_anchor(
+    refresh_policy: str,
+    *,
+    dry_run: bool,
+    pc_items: list[dict[str, Any]],
+    cycle_key: str,
+) -> datetime | None:
+    """The resume anchor, and the only place allowed to create the cycle stamp.
+
+    ``run_collect`` sends ``refresh_policy="daily_full"`` for every V2 collect
+    source (gemrate shards, snkrdunk, pricecharting) and they run in one thread
+    pool, so without this gate five workers with zero PC pages race the one
+    worker that has them for a file only the PC sweep reads.
+    """
+
+    if refresh_policy != "daily_full" or dry_run or not pc_items:
+        return None
+    return pc_daily_full_cycle_started_at(cycle_key)
 
 
 def partition_local_pc_stock_pages(
@@ -4573,6 +4644,37 @@ def refresh_pc_pages(
         return report
     if not WINDOWS_PY.is_file():
         report.update({"ok": False, "error": f"Windows backend Python missing: {WINDOWS_PY}"})
+        return report
+
+    # review 2026-08-24: single-flight on 9333. The daily_full sweep is 50-65
+    # min, so the tick interrupts it on ordinary business dates and SIGKILLs
+    # this process while the hidden Windows child keeps going. Launching a
+    # second child then puts two sweeps on PriceCharting at once. An empty
+    # attemptedFailedVariantIds is the honest answer here -- nothing was opened,
+    # so the fallback may not cover a single page with yesterday's HTML.
+    already_running = pc_child_alive_stamp()
+    if already_running is not None:
+        report.update(
+            {
+                "ok": False,
+                "error": PC_CHILD_ALREADY_RUNNING_CLASS,
+                "errorClass": PC_CHILD_ALREADY_RUNNING_CLASS,
+                "retryable": True,
+                "retryAfterSeconds": pc_error_retry_after_seconds(
+                    PC_CHILD_ALREADY_RUNNING_CLASS
+                ),
+                "childAlreadyRunning": already_running,
+                "attemptedFailedVariantIds": [],
+                "identityMissing": [],
+                "coverageLoss": False,
+            }
+        )
+        print(
+            "[collect] 9333 child still running; refusing a second sweep: "
+            + json.dumps(already_running, ensure_ascii=False, sort_keys=True),
+            file=sys.stderr,
+            flush=True,
+        )
         return report
 
     started_at = datetime.now(timezone.utc)
@@ -5214,10 +5316,11 @@ def _collect_mode_impl(
     cdp_already_ensured = False
     all_pc_items = list(pc_items_by_variant.values())
     bind_missing_ids = pc_bind_missing_ids(reg, requested, explicit_variants)
-    pc_run_started_at = (
-        pc_daily_full_cycle_started_at(refresh_cycle_key or "")
-        if refresh_policy == "daily_full" and not dry_run
-        else None
+    pc_run_started_at = pc_daily_full_run_anchor(
+        refresh_policy,
+        dry_run=dry_run,
+        pc_items=all_pc_items,
+        cycle_key=refresh_cycle_key or "",
     )
     local_pc_items, network_pc_items, local_pc_report = partition_local_pc_stock_pages(
         all_pc_items,

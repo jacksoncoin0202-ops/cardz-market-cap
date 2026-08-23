@@ -58,6 +58,7 @@ from daily_chain_v2_journal import (  # noqa: E402
     SUCCESS_TASK_STATES,
     TERMINAL_TASK_STATES,
     UNPARKABLE_TASK_STATES,
+    default_max_interruptions,
     default_state_path,
     iso,
     utc_now,
@@ -66,6 +67,31 @@ from daily_chain_v2_journal import (  # noqa: E402
 
 JST = ZoneInfo("Asia/Tokyo")
 TASK_LEASE_SECONDS = 90
+# How many *true* failures park a source task.  Unchanged.
+SOURCE_MAX_ATTEMPTS = 7
+# review 2026-08-24 (R5): claim_next spends an attempt at CLAIM time and
+# interrupt_claim never gives it back -- it only increments `interruptions`.
+# The PriceCharting daily_full sweep is a 1171-page / 50-65 min job against a
+# claim window shorter than that, so the tick interrupts it 1-3 times on an
+# ordinary business date, before any real failure.  Without headroom those
+# interruptions eat the failure budget, the task PARKs, and PARKED is not in
+# source_barrier_ready's settled set -- one parked row holds the barrier until
+# the 10:15 cutoff.  The headroom is exactly the interruption budget, so the
+# failure budget stays SOURCE_MAX_ATTEMPTS and nothing is loosened: interruptions
+# still park the task at their own cap.  Which sources need it is declared on
+# their SourceSpec (`resumable_sweep`), never named here.  Drop this once
+# interruption accounting stops burning attempts (R2).
+
+
+def source_task_max_attempts(spec: Any) -> int:
+    """Attempt budget for one source task, in one place."""
+
+    budget = SOURCE_MAX_ATTEMPTS
+    if bool(getattr(spec, "resumable_sweep", False)):
+        budget += int(default_max_interruptions())
+    return budget
+
+
 # audit P1-1: execute_ready() is a refilling pump, not a batch barrier.  These
 # three numbers are its shape: how many claims may be in flight, how often it
 # re-plans and refills while work is still running, and how often a busy tick
@@ -1335,7 +1361,7 @@ class DailyChainV2:
                     required_class=adapter.spec.required_class,
                     concurrency_group=adapter.spec.concurrency_group,
                     max_concurrency=adapter.spec.max_concurrency,
-                    max_attempts=7,
+                    max_attempts=source_task_max_attempts(adapter.spec),
                     payload=source_payload(adapter, task),
                 )
             return

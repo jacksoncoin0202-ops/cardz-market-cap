@@ -88,6 +88,11 @@ class SourceSpec:
     # "let the registry stage apply the default route priority".
     identity_lane: str | None = None
     route_priority: int | None = None
+    # Declared, never branched on: this source's worker cannot finish inside one
+    # claim window, so the tick interrupts it on ordinary business dates and the
+    # work resumes from on-disk progress.  The orchestrator reads it to size the
+    # attempt budget instead of naming the provider.
+    resumable_sweep: bool = False
 
     def __post_init__(self) -> None:
         if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,63}", self.source_code):
