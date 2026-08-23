@@ -281,6 +281,7 @@ def clamp_manual_window(
     schedule: Mapping[str, datetime],
     *,
     business_date: date,
+    rehearsal: bool = False,
 ) -> dict[str, datetime]:
     """Bound one manual window between a usable floor and the next tick.
 
@@ -295,6 +296,12 @@ def clamp_manual_window(
     * Ceiling: the next unattended 03:30 JST tick minus NEXT_TICK_GUARD_SECONDS.
       A manual run is never still authoritative when the scheduler restarts,
       and this ceiling outranks the floor.
+    * A labelled rehearsal (--run-label) lives in its own journal and never
+      publishes, so the business date's 17:00 JST final does not bind it and
+      it keeps the full +4h/+5h/+8h shape (A01 opened at 16:05 JST on
+      2026-08-23 was cut to 55 minutes by that cap).  Only the ceiling still
+      applies: a rehearsal and the unattended run would otherwise share CDP
+      9333, SNKRDUNK and MySQL at 03:30 JST.
     * Absolute lower bound: MANUAL_WINDOW_ABSOLUTE_MIN_SECONDS, for a window
       opened inside the guard band.
     * Renewals are capped at MANUAL_WINDOW_MAX_RENEWALS and are forward-only;
@@ -308,9 +315,11 @@ def clamp_manual_window(
     values = dict(schedule)
     started = values["start"].astimezone(timezone.utc)
     floor = started + timedelta(seconds=MANUAL_WINDOW_MIN_SECONDS)
-    cap = max(floor, last_scheduled_tick_utc(business_date))
     ceiling = next_scheduled_tick_utc(started) - timedelta(seconds=NEXT_TICK_GUARD_SECONDS)
-    cap = min(cap, ceiling)
+    if rehearsal:
+        cap = ceiling
+    else:
+        cap = min(max(floor, last_scheduled_tick_utc(business_date)), ceiling)
     cap = max(cap, started + timedelta(seconds=MANUAL_WINDOW_ABSOLUTE_MIN_SECONDS))
     if values["final"] <= cap:
         return values
@@ -325,6 +334,7 @@ def manual_e2e_schedule(
     now: datetime | None = None,
     *,
     business_date: date | None = None,
+    rehearsal: bool = False,
 ) -> dict[str, datetime]:
     """One authorized after-hours window; it never changes provenance to scheduled."""
 
@@ -338,6 +348,7 @@ def manual_e2e_schedule(
             "final": started + timedelta(hours=8),
         },
         business_date=day,
+        rehearsal=rehearsal,
     )
 
 
@@ -3372,7 +3383,7 @@ def main() -> int:
         schedule=(
             # A rehearsal opened after hours needs the manual window shape;
             # the scheduled window for the date has usually already closed.
-            manual_e2e_schedule(business_date=day)
+            manual_e2e_schedule(business_date=day, rehearsal=bool(run_label))
             if (args.manual_e2e_window or run_label) else None
         ),
         run_label=run_label,

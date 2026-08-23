@@ -1826,3 +1826,22 @@ with tempfile.TemporaryDirectory(prefix="v2-label-") as folder:
         assert "cardz-v2:2026-08-23#A01" in label_out.getvalue(), label_out.getvalue()
     finally:
         sys.argv = label_argv
+
+# A rehearsal window keeps the manual +4h/+5h/+8h shape: the business date's
+# 17:00 JST final binds the real manual contract, not a labelled rehearsal.
+_reh_jst = timezone(timedelta(hours=9))
+_reh_day = date(2026, 8, 23)
+_reh_at = datetime(2026, 8, 23, 16, 5, tzinfo=_reh_jst)
+_plain_window = v2core.manual_e2e_schedule(_reh_at, business_date=_reh_day)
+assert _plain_window["final"] == datetime(2026, 8, 23, 17, 0, tzinfo=_reh_jst), _plain_window
+_reh_window = v2core.manual_e2e_schedule(_reh_at, business_date=_reh_day, rehearsal=True)
+assert _reh_window["source_cutoff"] == _reh_at + timedelta(hours=4), _reh_window
+assert _reh_window["sla"] == _reh_at + timedelta(hours=5), _reh_window
+assert _reh_window["final"] == _reh_at + timedelta(hours=8), _reh_window
+# ...and the unattended 03:30 JST tick (minus the 300 s guard) still caps it.
+_reh_late = v2core.manual_e2e_schedule(
+    datetime(2026, 8, 23, 22, 0, tzinfo=_reh_jst), business_date=_reh_day, rehearsal=True
+)
+assert _reh_late["final"] == datetime(2026, 8, 24, 3, 25, tzinfo=_reh_jst), _reh_late
+assert _reh_late["source_cutoff"] < _reh_late["sla"] < _reh_late["final"], _reh_late
+print("POSITIVE_OK a rehearsal window keeps the manual shape and only the 03:30 JST ceiling binds it")
