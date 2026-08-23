@@ -8598,8 +8598,20 @@ def cmd_daily_accept(args: argparse.Namespace) -> int:
         ),
         flush=True,
     )
+    # A03 2026-08-23: 96 s in this command, the accept row stamped at +3 s
+    # (now_str), and no clock on any step. The receipt now carries one.
+    step_started = time.monotonic()
+    step_seconds: dict[str, float] = {}
+
+    def _mark(name: str) -> None:
+        nonlocal step_started
+        now = time.monotonic()
+        step_seconds[name] = round(now - step_started, 3)
+        step_started = now
+
     credentials = args.credentials_env or DAILY_CREDENTIALS_ENV
     conn = connect(credentials)
+    _mark("connect")
     try:
         with conn.cursor() as cur:
             # Fail in seconds if another writer holds MDL/row locks (human
@@ -8639,6 +8651,7 @@ def cmd_daily_accept(args: argparse.Namespace) -> int:
             ready_ids = [int(row["variant_id"]) for row in cur.fetchall()]
             if not ready_ids:
                 raise SystemExit("daily-accept ABORT: current lock has zero members")
+            _mark("lockMembers")
             # The gate existed in operator_control.py but nothing called it, so
             # accepted_at could move while every collector checkpoint was old.
             # Importing here keeps the gate in its existing owner and runs it
@@ -8648,6 +8661,7 @@ def cmd_daily_accept(args: argparse.Namespace) -> int:
             freshness = operator_control._active_checkpoint_gate(
                 cur, active_ids=set(ready_ids)
             )
+            _mark("checkpointGate")
             cur.execute(
                 "SELECT generation_id, activated_at FROM cardz_rebuild_generation"
                 " WHERE activated_at IS NOT NULL ORDER BY activated_at DESC LIMIT 1"
@@ -8662,12 +8676,14 @@ def cmd_daily_accept(args: argparse.Namespace) -> int:
             # healthy-looking universe that is missing its biggest cards is
             # the failure this command exists to stop repeating.
             discovery_gap = _assert_discovery_gap_not_worse(cur)
+            _mark("discoveryGap")
 
         # Tonight's discovery proves identities for cards whose price rows were
         # collateral-quarantined months ago. Nothing else would ever look at
         # those rows again, so the card would keep its new binding and still
         # have no price. Same predicate the rebuild stage uses.
         released = release_collateral_price_quarantine(conn)
+        _mark("quarantineRelease")
 
         fingerprints = _load_sales_fingerprints(generation)
         manifest_count = len(fingerprints)
@@ -8691,19 +8707,24 @@ def cmd_daily_accept(args: argparse.Namespace) -> int:
             daily_manifest_stats = _load_daily_sales_manifests(
                 cur, activated_at, fingerprints
             )
+            _mark("salesFingerprints")
 
         now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
         try:
             with conn.cursor() as cur:
                 history = _activation_accept_history(cur, now_str, fingerprints)
+                _mark("acceptHistory")
                 canonical = _activation_rank_and_accept(cur, ready_ids, now_str)
+                _mark("rankAndAccept")
                 for variant_id, rank in canonical["ranks"].items():
                     cur.execute(
                         "UPDATE market_universe_member SET market_rank=%s"
                         " WHERE universe_lock_id=%s AND variant_id=%s",
                         (rank, lock_id, variant_id),
                     )
+                _mark("rankUpdates")
             conn.commit()
+            _mark("commit")
         except Exception:
             conn.rollback()
             raise
@@ -8724,6 +8745,7 @@ def cmd_daily_accept(args: argparse.Namespace) -> int:
             "discoveryGap": discovery_gap,
             "freshness36h": freshness,
             "canonical": _canonical_ranking_receipt(canonical),
+            "stepSeconds": step_seconds,
             "acceptedAt": now_str,
         }
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")

@@ -4769,7 +4769,19 @@ def _collect_mode_impl(
     work_scope: str | None = None,
     gemrate_workers: int = 1,
 ) -> dict[str, Any]:
+    # A03 2026-08-23: the PC lane spent 34 s before its child spawned and the
+    # receipt had no clock for it. Each phase below lands in the report.
+    phase_started = time.monotonic()
+    phase_seconds: dict[str, float] = {}
+
+    def _mark(name: str) -> None:
+        nonlocal phase_started
+        now = time.monotonic()
+        phase_seconds[name] = round(now - phase_started, 3)
+        phase_started = now
+
     status = cmd_status(rebuild_registry=rebuild_registry)
+    _mark("status")
     if not REGISTRY_PATH.is_file():
         raise RuntimeError("collection registry is missing; V2 registry barrier did not complete")
     reg = _jsonl_rows(REGISTRY_PATH)
@@ -4806,6 +4818,7 @@ def _collect_mode_impl(
         adapter: _unique_items(rows, limit)
         for adapter, rows in due_by_adapter.items()
     }
+    _mark("classify")
     results: list[dict[str, Any]] = []
 
     # `requested` keeps registry order, so the lanes still run gemrate_pop,
@@ -4840,6 +4853,7 @@ def _collect_mode_impl(
             )
         )
 
+    _mark("httpLanes")
     pc_items_by_variant: dict[int, dict[str, Any]] = {}
     for adapter in ("pc_ebay_sales", "en_price_ref"):
         for item in selected_by_adapter.get(adapter, []):
@@ -4865,6 +4879,7 @@ def _collect_mode_impl(
     local_pc_items, network_pc_items, local_pc_report = partition_local_pc_stock_pages(
         all_pc_items, mode=mode, dry_run=dry_run, force_network=force_network
     )
+    _mark("pcPartition")
     if local_pc_items and not network_pc_items and not bind_missing_ids:
         browser_bootstrap = {
             "requested": bool(ensure_browser),
@@ -4904,6 +4919,7 @@ def _collect_mode_impl(
             "payloadShaByVariant": {},
             "note": "no exact PC variants require network refresh",
         }
+    _mark("pcNetworkRefresh")
     pc_refresh = {
         "adapter": "pc_page_acquisition",
         "mode": mode,
@@ -4934,6 +4950,7 @@ def _collect_mode_impl(
             )
         )
 
+    _mark("pcAdapters")
     by_adapter = {str(result.get("adapter")): result for result in results}
     failed = [
         adapter
@@ -4995,6 +5012,7 @@ def _collect_mode_impl(
         "quarantined": quarantined_count,
         "snkSharedHarvest": snk_shared_summary,
         "preStatusCounts": status.get("counts"),
+        "phaseSeconds": phase_seconds,
         "pcRefresh": pc_refresh,
         "browserBootstrap": browser_bootstrap,
         "results": results,
