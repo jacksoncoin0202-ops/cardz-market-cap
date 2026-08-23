@@ -605,8 +605,10 @@ assert '"rankingGenerationSha256": ranking_generation_sha' in rebuild
 assert "accept-registered-current-quote-revision-v2" in rebuild
 assert 'quote_window_sql = " WHERE p.checked_at >= %s AND p.checked_at < %s"' in rebuild
 assert '"identity", "candidate-source", "activation"' in core_source
-assert "candidate_activation_cutoff" in core_source
-assert 'capability="pending-identities"' in core_source
+# audit P2-16: the pending-identities stage and the CANDIDATE_ACTIVATION_CUTOFF
+# deferral are now driven for real in scripts/test_daily_chain_v2_loop.py, which
+# plans them, claims them and reads the emitted event, so the two source-text
+# asserts that used to stand here were deleted instead of duplicated.
 assert 'capability="candidate-source-plan"' in core_source
 assert "daily_public_release.ps1" not in core_source
 assert "journal must live on wsl ext4" in core_source
