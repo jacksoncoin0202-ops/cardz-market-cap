@@ -1461,6 +1461,77 @@ assert "&lt;a href=" in DailyChainV2._event_message(
 )
 print("NEGATIVE_OK identity.brief renders verbatim while every other event stays escaped")
 
+# Only a DELIVERED brief may mark its rows as shown.  render() drops the rows
+# `seen` already lists, so a stamp taken before the send makes the stage's own
+# retry render a hollow second brief -- and a dropped send that stamped would
+# silence those rows for the next fortnight.
+with tempfile.TemporaryDirectory(prefix="v2-o3-deliver-") as folder:
+    o3_journal, o3_planner = o3_chain(folder)
+    o3_planner.notify = True
+    o3_seen = {"c" * 64: "2026-08-20"}
+    o3_journal.add_event(
+        o3_planner.run_id,
+        v2core.IDENTITY_BRIEF_EVENT,
+        "2026-08-20:0123456789abcdef",
+        {"runId": o3_planner.run_id, "message": o3_html, "seen": o3_seen},
+    )
+    o3_stamped: list[dict[str, Any]] = []
+    o3_delivered = [False]
+    o3_sent: list[str] = []
+    o3_real_notify = sys.modules.get("notify_hermes")
+    o3_real_save = o3_brief.save_seen
+    try:
+        def o3_send(text: str) -> bool:
+            o3_sent.append(text)
+            return o3_delivered[0]
+
+        sys.modules["notify_hermes"] = types.SimpleNamespace(  # type: ignore[assignment]
+            send_message=o3_send
+        )
+        o3_brief.save_seen = lambda seen, path=None: o3_stamped.append(dict(seen))  # type: ignore[assignment]
+        o3_planner.deliver_events()
+        assert o3_sent == [o3_html], o3_sent
+        assert o3_stamped == [], "a brief nobody received must not be marked as shown"
+        o3_delivered[0] = True
+        o3_planner.deliver_events()
+        assert o3_stamped == [o3_seen], o3_stamped
+        # Delivered once is delivered: the event leaves the pending queue.
+        o3_planner.deliver_events()
+        assert o3_stamped == [o3_seen], o3_stamped
+    finally:
+        o3_brief.save_seen = o3_real_save  # type: ignore[assignment]
+        if o3_real_notify is None:
+            sys.modules.pop("notify_hermes", None)
+        else:
+            sys.modules["notify_hermes"] = o3_real_notify
+print("NEGATIVE_OK only a delivered identity brief stamps its own dedupe rows")
+
+# A PARKED identity stage is settled, not pending: an extra-class stage that
+# spent its interruption budget must never hold the publication day hostage
+# behind a gate only an operator `unpark` could open.
+with tempfile.TemporaryDirectory(prefix="v2-o3-parked-") as folder:
+    o3_journal, o3_planner = o3_chain(folder)
+    o3_drive(o3_journal, o3_planner, O3_BEFORE, until="identity-operator-apply")
+    o3_set(
+        o3_journal,
+        str(o3_rows(o3_journal, o3_planner)["identity-operator-apply"]["task_key"]),
+        "PARKED",
+    )
+    assert o3_planner.stage_complete("identity-operator-apply") is False
+    # Past IDENTITY_CUTOFF, where degrade_unfinished_phase closes every other
+    # unfinished stage but cannot touch PARKED -- only an operator `unpark`
+    # can.  A gate that spelled out SUCCESS|TERMINAL would return here on every
+    # iteration for the rest of the day, so accept and release never happen.
+    o3_order = o3_drive(
+        o3_journal, o3_planner, O3_AFTER, until="daily-accept",
+        hold=("identity-operator-apply",),
+    )
+    assert "identity-intake" in o3_order and "daily-accept" in o3_order
+    assert str(
+        o3_rows(o3_journal, o3_planner)["identity-operator-apply"]["status"]
+    ) == "PARKED"
+    print("NEGATIVE_OK a PARKED identity stage still lets plan() reach daily-accept")
+
 # The stage subprocess learns the parent's deadline as wall clock, and the
 # re-verify lane spends it instead of being killed mid-fetch.
 assert "WORK_DEADLINE_ENV:" in o2_core  # exported to every stage subprocess

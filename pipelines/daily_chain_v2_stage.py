@@ -330,6 +330,12 @@ def stage_operator_apply(args: argparse.Namespace) -> dict[str, Any]:
                     operator_ruling_slug=item.get("operatorRuling"),
                     freeze=bool(item.get("freeze")),
                     conn=connection,
+                    # Same default as the bind-url CLI.  apply_one only writes
+                    # its 10-step verdict document when it is given a
+                    # receipts_dir, and this stage files the item away right
+                    # after -- without this the only durable evidence of a
+                    # lease-held DB write would be gone.
+                    receipts_dir=ROOT / "data" / "runtime" / "operator" / "bind-url",
                 )
                 row = {
                     "file": path.name,
@@ -493,6 +499,12 @@ def stage_identity_brief(args: argparse.Namespace) -> dict[str, Any]:
 
     The rendered HTML travels inside the event payload and
     DailyChainV2._event_message returns it verbatim, so the links survive.
+
+    The dedupe state travels with it and is stamped by deliver_events, never
+    here: render() reads `seen` and drops the rows it lists, so a stage that
+    stamped before delivery would make its own retry render a hollow brief --
+    a new event key, a second message, and on the attempt that died before
+    add_event the hollow one would be the only brief the owner ever saw.
     """
 
     import identity_brief
@@ -503,7 +515,6 @@ def stage_identity_brief(args: argparse.Namespace) -> dict[str, Any]:
     built = identity_brief.build(now=now, business_date=business_date, seen=seen)
     data = built.get("data") or {}
     message = str(built.get("message") or "")
-    identity_brief.save_seen(built.get("seen") or {})
 
     event_key = ""
     journal_path = os.environ.get("CARDZ_V2_STATE_DB")
@@ -521,6 +532,7 @@ def stage_identity_brief(args: argparse.Namespace) -> dict[str, Any]:
                 "businessDate": business_date,
                 "generation": data.get("generation"),
                 "message": message,
+                "seen": built.get("seen") or {},
             },
         )
     return {

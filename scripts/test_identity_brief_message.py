@@ -456,15 +456,26 @@ try:
     )
     saved_seen: list[dict[str, Any]] = []
     build_calls: list[dict[str, Any]] = []
+    TODAY_KEY = "h" * 64
+    HOLLOW_HTML = "🌅 身份日報 2026-08-23（等你綁 2；列 0 張，其餘見全名單檔）"
+    stage_seen: dict[str, Any] = {"old" * 21 + "x": "2026-08-01"}
 
     def fake_build(**kwargs: Any) -> dict[str, Any]:
         build_calls.append(kwargs)
+        # render() is NOT idempotent across its own stamp: it drops the rows
+        # `seen` already lists.  A brief built after today's rows were stamped
+        # is hollow -- a bare count, no rows, no bind commands.
+        hollow = TODAY_KEY in (kwargs.get("seen") or {})
         return {
-            "message": build_calls[-1].get("message_override") or brief_html,
+            "message": HOLLOW_HTML if hollow else brief_html,
             "data": {"generation": "036_TEST", "population": 4242,
                      "needsYou": [{"variantId": 3001}, {"variantId": 3002}]},
-            "seen": {"h" * 64: "2026-08-23"},
+            "seen": {TODAY_KEY: "2026-08-23"},
         }
+
+    def fake_save_seen(seen: Any, path: Any = None) -> None:
+        saved_seen.append(dict(seen))
+        stage_seen.update(seen)
 
     state_db = WORKSPACE / "brief-journal.sqlite3"
     journal = Journal(state_db)
@@ -479,8 +490,8 @@ try:
     real_env = {key: os.environ.get(key) for key in ("CARDZ_V2_STATE_DB", "CARDZ_V2_RUN_ID")}
     try:
         B.build = fake_build                                   # type: ignore[assignment]
-        B.load_seen = lambda path=None: {"old" * 21 + "x": "2026-08-01"}  # type: ignore[assignment]
-        B.save_seen = lambda seen, path=None: saved_seen.append(dict(seen))  # type: ignore[assignment]
+        B.load_seen = lambda path=None: dict(stage_seen)        # type: ignore[assignment]
+        B.save_seen = fake_save_seen                            # type: ignore[assignment]
         os.environ["CARDZ_V2_STATE_DB"] = str(state_db)
         os.environ["CARDZ_V2_RUN_ID"] = brief_run_id
         stage_result = STAGE.stage_identity_brief(
@@ -495,16 +506,21 @@ try:
         assert '<a href="' in payload["message"] and "&lt;script&gt;" in payload["message"]
         assert payload["businessDate"] == "2026-08-23" and payload["runId"] == brief_run_id
         assert build_calls[0]["seen"] == {"old" * 21 + "x": "2026-08-01"}, build_calls[0]
-        assert saved_seen == [{"h" * 64: "2026-08-23"}], "a rendered brief must stamp its own dedupe state"
+        # The stamp travels in the payload and is applied by deliver_events, so
+        # nothing is marked shown before the owner has actually received it.
+        assert payload["seen"] == {TODAY_KEY: "2026-08-23"}, payload
+        assert saved_seen == [], "a brief nobody has received yet must not be stamped"
         assert stage_result["eventType"] == B.BRIEF_EVENT_TYPE
         assert stage_result["needsYou"] == 2 and stage_result["messageChars"] == len(brief_html)
-        print("POSITIVE_OK the brief stage journals its rendered HTML verbatim and stamps the dedupe state")
+        print("POSITIVE_OK the brief stage journals its rendered HTML verbatim and defers the stamp to delivery")
 
         # Same brief twice in one run is one message; a changed brief is a new one.
         STAGE.stage_identity_brief(types.SimpleNamespace(business_date="2026-08-23"))
         again = [row for row in journal.pending_events(brief_run_id)
                  if row["event_type"] == B.BRIEF_EVENT_TYPE]
         assert len(again) == 1, "a retried brief stage must not send the same brief twice"
+        assert json.loads(again[0]["payload_json"])["message"] == brief_html, \
+            "the retry must still carry the full row list, not a hollow re-render"
         brief_html = brief_html + "\n🖐 尋日 operator override：1"
         STAGE.stage_identity_brief(types.SimpleNamespace(business_date="2026-08-23"))
         changed_events = [row for row in journal.pending_events(brief_run_id)

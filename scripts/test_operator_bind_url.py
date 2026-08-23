@@ -724,6 +724,13 @@ try:
         assert seen_leases == ["v2-operator-apply"], seen_leases
         assert drain_conn.closed is True
         assert all(call["write"] is True for call in seen_calls)
+        # apply_one only writes its 10-step verdict document when it is handed
+        # a receipts_dir, and this stage files the paste away straight after:
+        # without the CLI's own default every lease-held write is receiptless.
+        assert all(call.get("receipts_dir") for call in seen_calls), seen_calls
+        assert {str(call["receipts_dir"]) for call in seen_calls} == {
+            str(STAGE.ROOT / "data" / "runtime" / "operator" / "bind-url")
+        }, seen_calls
         assert [call["variant_id"] for call in seen_calls] == [1901, 1902, 1903]
         assert [row["variantId"] for row in result["applied"]] == [1901]
         assert [row["variantId"] for row in result["refused"]] == [1902]

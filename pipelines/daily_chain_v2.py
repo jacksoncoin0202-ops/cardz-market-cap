@@ -1063,8 +1063,10 @@ class DailyChainV2:
         # Identity intake runs before the lanes: last night's operator pastes
         # are applied first, then the cards GemRate says crossed the floor are
         # taken in, so the same tick's lanes already go looking for them.
-        # Both gate on SUCCESS|TERMINAL, never on stage_complete: a stage that
-        # spent its attempts retires itself instead of parking the whole run.
+        # Both gate on TERMINAL_TASK_STATES -- every settled state, PARKED
+        # included -- never on stage_complete: a stage that spent its attempts
+        # or its interruption budget retires itself instead of parking the
+        # whole run behind a gate only an operator `unpark` could ever open.
         if self.stage_row("identity-operator-apply") is None:
             self.add_stage(
                 phase="identity",
@@ -1076,7 +1078,7 @@ class DailyChainV2:
             )
             return
         operator_apply = self.stage_row("identity-operator-apply") or {}
-        if str(operator_apply.get("status") or "") not in SUCCESS_TASK_STATES | {"TERMINAL"}:
+        if str(operator_apply.get("status") or "") not in TERMINAL_TASK_STATES:
             return
         if self.stage_row("identity-intake") is None:
             self.add_stage(
@@ -1090,7 +1092,7 @@ class DailyChainV2:
             )
             return
         intake_stage = self.stage_row("identity-intake") or {}
-        if str(intake_stage.get("status") or "") not in SUCCESS_TASK_STATES | {"TERMINAL"}:
+        if str(intake_stage.get("status") or "") not in TERMINAL_TASK_STATES:
             return
 
         identity = self.journal.tasks(self.run_id, phase="identity")
@@ -1138,7 +1140,7 @@ class DailyChainV2:
             return
         for lane, _group in self.identity_lanes():
             reverify = self.stage_row(f"identity-reverify-{lane}") or {}
-            if str(reverify.get("status") or "") not in SUCCESS_TASK_STATES | {"TERMINAL"}:
+            if str(reverify.get("status") or "") not in TERMINAL_TASK_STATES:
                 return
 
         if self.stage_row("pending-identities") is None:
@@ -1151,7 +1153,7 @@ class DailyChainV2:
             )
             return
         pending_stage = self.stage_row("pending-identities") or {}
-        if str(pending_stage.get("status") or "") not in SUCCESS_TASK_STATES | {"TERMINAL"}:
+        if str(pending_stage.get("status") or "") not in TERMINAL_TASK_STATES:
             return
 
         # The morning identity brief lives in `barrier`, not in `identity`:
@@ -2245,6 +2247,14 @@ class DailyChainV2:
                     os.environ["CARDZ_TG_THREAD_ID"] = previous
             if delivered:
                 self.journal.mark_event_delivered(str(event["event_key"]))
+                if event_type == IDENTITY_BRIEF_EVENT and payload.get("seen"):
+                    # Only a delivered brief may mark its rows as shown.  A
+                    # dropped send that stamped would silence those rows for
+                    # the next 14 days, and a stamp before delivery would make
+                    # the stage's own retry render a hollow second brief.
+                    import identity_brief
+
+                    identity_brief.save_seen(payload["seen"])
                 if event_type == "live.confirmed" and payload.get("eventId"):
                     from daily_chain_v2_db import mark_delivery
 
