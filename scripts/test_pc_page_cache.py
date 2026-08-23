@@ -166,6 +166,35 @@ def main() -> int:
         deriv.validate_pc_psa10(row)
         deriv.validate_pc_psa10(row)
         check("NEGATIVE: cache off -> validate twice parses twice", len(PARSES), 2)
+
+        # 8. A10 2026-08-23: the hit path must not walk Path.resolve (11 ms per
+        #    call on /mnt/c, ~4,548 calls per PC lane); relative and absolute
+        #    spellings of one file share one cache row.
+        os.environ["CARDZ_PC_PAGE_CACHE"] = str(CACHE_FILE)
+        pcc.reset()
+        probe = TMP / "resolve-probe.html"
+        probe.write_bytes(page_html(14100))
+        first = pcc.load_page(probe)
+        check("probe first load is a miss", first is not None and first.hit, False)
+        same_drive = os.path.splitdrive(os.getcwd())[0].lower() == os.path.splitdrive(str(probe))[0].lower()
+        relative = Path(os.path.relpath(probe)) if same_drive else probe
+        original_resolve = Path.resolve
+
+        def boom(self, *args, **kwargs):
+            raise AssertionError(f"Path.resolve on the page-cache hit path: {self}")
+
+        Path.resolve = boom  # type: ignore[assignment]
+        try:
+            second = pcc.load_page(probe)
+            third = pcc.load_page(relative)
+        except AssertionError as error:
+            FAILED.append(f"FAIL hit path resolves: {error}")
+            second = third = None
+        finally:
+            Path.resolve = original_resolve  # type: ignore[assignment]
+        check("absolute spelling hits", second is not None and second.hit, True)
+        check("relative spelling hits the same row", third is not None and third.hit, True)
+        check("same sha via both spellings", second is not None and third is not None and second.sha256 == third.sha256 == first.sha256, True)
     finally:
         pcc.parse_product_html = real_parse  # type: ignore[assignment]
         os.environ["CARDZ_PC_PAGE_CACHE"] = str(CACHE_FILE)

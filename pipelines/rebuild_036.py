@@ -8089,6 +8089,48 @@ def _activation_rank_and_accept(
         ranked=len(ranked),
         accepted=len(accepted_rows),
     )
+    previous_source_by_variant: dict[int, str] = {}
+    if v2_mode and accepted_rows:
+        run_id = os.environ.get("CARDZ_V2_RUN_ID", "").strip()
+        if not run_id or not v2_business_date:
+            raise RuntimeError("V2 daily acceptance requires run and business date")
+        # A10 2026-08-23 (A07 profile: 5 statement shapes x 1604 variants, ~1.4 ms
+        # round trip each).  The previous selection reads business_date <
+        # v2_business_date while every write in the loop binds business_date =
+        # v2_business_date: read set and write set are disjoint by date, so one
+        # window query before the loop answers exactly what the per-variant
+        # ORDER BY business_date DESC,id DESC LIMIT 1 answered (id is unique,
+        # no ties).  Variants outside accepted_rows are simply never looked up.
+        cur.execute(
+            """
+            SELECT variant_id,source_code FROM (
+              SELECT variant_id,source_code,
+                     ROW_NUMBER() OVER (
+                       PARTITION BY variant_id ORDER BY business_date DESC,id DESC
+                     ) AS rn
+              FROM market_variant_source_state
+              WHERE capability='canonical_quote' AND is_selected=1
+                AND business_date<%s
+            ) previous_selection WHERE rn=1
+            """,
+            (v2_business_date,),
+        )
+        previous_source_by_variant = {
+            int(prev["variant_id"]): str(prev["source_code"]) for prev in cur.fetchall()
+        }
+        # One clear of today's selection for exactly the locked variants (the
+        # explicit IN list is load-bearing: without it, variants outside the
+        # lock would lose their selection and post_accept_contract's
+        # selectedCount would silently drop).  Each per-variant INSERT below
+        # then sets its own row back to is_selected=1, as before; the cleared
+        # rows are disjoint per variant so the end state is identical.
+        accepted_variant_ids = [int(variant_id) for variant_id, _, _, _, _ in accepted_rows]
+        cur.execute(
+            "UPDATE market_variant_source_state SET is_selected=0"
+            " WHERE business_date=%s AND capability='canonical_quote'"
+            " AND variant_id IN (" + ",".join(["%s"] * len(accepted_variant_ids)) + ")",
+            [v2_business_date, *accepted_variant_ids],
+        )
     for variant_id, row, cap, rank, price_pending in accepted_rows:
         metric_lineage_sha = sha256_bytes(canonical_json(
             {
@@ -8158,33 +8200,9 @@ def _activation_rank_and_accept(
             ),
         )
         if v2_mode:
-            run_id = os.environ.get("CARDZ_V2_RUN_ID", "").strip()
-            if not run_id or not v2_business_date:
-                raise RuntimeError("V2 daily acceptance requires run and business date")
-            cur.execute(
-                """
-                SELECT source_code FROM market_variant_source_state
-                WHERE variant_id=%s AND capability='canonical_quote'
-                  AND is_selected=1 AND business_date<%s
-                ORDER BY business_date DESC,id DESC LIMIT 1
-                """,
-                (variant_id, v2_business_date),
-            )
-            previous_selection = cur.fetchone()
-            previous_source = (
-                str(previous_selection["source_code"])
-                if previous_selection else None
-            )
+            previous_source = previous_source_by_variant.get(int(variant_id))
             selected_source = str(row["price_source_code"])
             switched = bool(previous_source and previous_source != selected_source)
-            cur.execute(
-                """
-                UPDATE market_variant_source_state SET is_selected=0
-                WHERE business_date=%s AND variant_id=%s
-                  AND capability='canonical_quote'
-                """,
-                (v2_business_date, variant_id),
-            )
             cur.execute(
                 """
                 INSERT INTO market_variant_source_state
@@ -8672,7 +8690,7 @@ class _TimedCursor:
         ranked = sorted(self.statements, key=lambda item: item[0], reverse=True)[:limit]
         return [{"seconds": seconds, "sql": sql} for seconds, sql in ranked]
 
-    def totals(self, limit: int = 8) -> list[dict[str, Any]]:
+    def totals(self, limit: int = 24) -> list[dict[str, Any]]:
         """Seconds and call count per statement shape: a 10 ms statement run
         1618 times hides from slowest() but not from here."""
         agg: dict[str, list[float]] = {}

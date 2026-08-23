@@ -152,7 +152,13 @@ def load_page(path: Path, *, source_url: str | None = None) -> CachedPage | None
         return None
     if not stat_mod.S_ISREG(st.st_mode):
         return None
-    key = str(path.resolve())
+    # A10 2026-08-23 [KNOWN, measured in WSL on the live tree]: Path.resolve()
+    # walks every component with an lstat and costs 11.2 ms per call on
+    # /mnt/c; the PC lane asks for ~4,548 pages per run, so the key alone was
+    # ~50 s of a 100 s lane.  os.path.abspath is pure string work (0.00 ms) and
+    # yields the identical key for every live page (A/B over the 1,098 map
+    # pages: 0 misses).  Content identity is still (size, mtime_ns, parser).
+    key = os.path.abspath(path)
     size, mtime_ns = int(st.st_size), int(st.st_mtime_ns)
 
     with _LOCK:

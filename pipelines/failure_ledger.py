@@ -19,6 +19,7 @@ import os
 import re
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
@@ -107,10 +108,14 @@ def sanitize(value: Any, *, depth: int = 0) -> Any:
     return _clean_string(str(value))
 
 
+@lru_cache(maxsize=4096)
 def normalize_script(script: str | Path) -> str:
+    # A10 2026-08-23: ROOT is already resolved (line 28) and a script path
+    # never changes meaning within a process; re-resolving both on every
+    # record_* call cost ~9 ms each on /mnt/c (1,176 calls = ~10 s per lane).
     path = Path(str(script))
     try:
-        return path.resolve().relative_to(ROOT.resolve()).as_posix()
+        return path.resolve().relative_to(ROOT).as_posix()
     except (OSError, ValueError):
         return path.as_posix()[:512]
 
@@ -140,8 +145,15 @@ def stable_failure_id(
     return f"failure_{_sha256(identity)[:24]}"
 
 
+@lru_cache(maxsize=64)
+def _resolved_dir(key: str) -> Path:
+    return Path(key).resolve()
+
+
 def _events_root(ledger_root: Path) -> Path:
-    return ledger_root.resolve() / EVENTS_DIRNAME
+    # A10 2026-08-23: the ledger root does not move within a process; one
+    # resolve per distinct root instead of one per read/write (~10 ms each).
+    return _resolved_dir(str(ledger_root)) / EVENTS_DIRNAME
 
 
 def _event_paths(ledger_root: Path, failure_id: str | None = None) -> list[Path]:
