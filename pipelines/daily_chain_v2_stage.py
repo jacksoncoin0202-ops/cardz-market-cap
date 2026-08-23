@@ -290,11 +290,15 @@ def stage_deadline_budget_seconds(now_epoch: float | None = None) -> float | Non
 
 
 def missing_repair_streams(collect_control: Any, operator_control: Any) -> dict[str, list[dict[str, Any]]]:
-    """Registry streams with no checkpoint, read through the gate's own helper.
+    """Registry streams with no checkpoint, by the daily-accept gate's rule.
 
-    `operator_control.missing_checkpoint_streams` is the same function the
-    daily-accept checkpoint gate calls, so the repair can never disagree with
-    the gate about which streams are short.
+    `operator_control.missing_checkpoint_streams` applies the same
+    missing-stream rule as the daily-accept checkpoint gate
+    (`operator_control._active_checkpoint_gate`, which re-derives it inline in
+    its own `zip(streams, keys)` loop at operator_control.py:1831-1837).  They
+    are two separate code paths and nothing forces them to agree, so
+    `scripts/test_checkpoint_repair_stage.py` pins them to the same verdict on
+    one fixture instead of assuming it.
     """
 
     registry = collect_control._jsonl_rows(collect_control.REGISTRY_PATH)
@@ -368,6 +372,11 @@ def stage_checkpoint_repair(_args: argparse.Namespace) -> dict[str, Any]:
         )
     result["network"] = True
     result["budgetSeconds"] = None if budget is None else round(budget, 1)
+    # force_network is the operator catch-up flag that morning/nightly must not
+    # use for a whole-universe fetch; `cmd_first_stock` is its one sanctioned
+    # automated caller and `collect_control.assert_force_network_scope` holds it
+    # to the checkpoint-less streams.
+    #
     # `first-stock` is in COLLECT_E2E_LEASE_COMMANDS: adapter leases alone do
     # not serialize a mutating collect against daily-accept, and calling the
     # function instead of the CLI must not drop that lease.

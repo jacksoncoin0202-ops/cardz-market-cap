@@ -3764,7 +3764,11 @@ def partition_local_pc_stock_pages(
     older-than-36h HTML. Classify still marks every PC stream due
     (``PC_REFRESH_DUE_HOURS = 0``); this function is the skip, not poll-mode.
     ``force_network`` is operator catch-up: skip the SLA replay and CDP-fetch
-    every exact page. Morning/nightly must not pass it.
+    every exact page. Morning/nightly must not pass it for a whole-universe
+    stock/incr. The single sanctioned automated exception is
+    ``cmd_first_stock`` (v2 stage ``checkpoint-repair``), which forces only the
+    streams ``missing_checkpoint_streams`` just returned;
+    ``assert_force_network_scope`` keeps that limit in code, not in prose.
     """
 
     selected = _unique_items(items, None)
@@ -4748,6 +4752,28 @@ def cmd_stock(
     )
 
 
+def assert_force_network_scope(
+    adapter: str, variant_ids: list[int], missing_rows: list[dict[str, Any]] | None
+) -> None:
+    """``force_network`` may only skip the SLA replay for checkpoint-less streams.
+
+    ``partition_local_pc_stock_pages`` records the rule as prose: morning /
+    nightly must not force a whole-universe fetch.  ``cmd_first_stock`` is the
+    one automated caller allowed to force, and only for the streams
+    ``missing_checkpoint_streams`` returned, so widening that call site fails
+    here instead of quietly CDP-fetching every exact page.
+    """
+
+    allowed = {int(row["variantId"]) for row in (missing_rows or ())}
+    widened = sorted({int(value) for value in variant_ids} - allowed)
+    if not variant_ids or widened:
+        raise RuntimeError(
+            "force_network is limited to checkpoint-less streams: "
+            f"adapter={adapter} forced={len(variant_ids)} allowed={len(allowed)} "
+            f"widened={widened[:20]}"
+        )
+
+
 def cmd_first_stock(
     *,
     adapters: list[str],
@@ -4820,6 +4846,8 @@ def cmd_first_stock(
 
     for adapter, rows in planned.items():
         variant_ids = sorted({int(row["variantId"]) for row in rows})
+        if force_network:
+            assert_force_network_scope(adapter, variant_ids, missing.get(adapter))
         sub = cmd_stock(
             adapters=[adapter],
             limit=limit,

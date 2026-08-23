@@ -118,7 +118,79 @@ AFTER_IDENTITY_REPAIR = [
 
 
 # ---------------------------------------------------------------------------
-# 1. Missing-stream computation, through the gate's own helper.
+# 1a. The repair reads the gate's RULE, not the gate itself.
+#     `missing_checkpoint_streams` (repair + first-stock) and
+#     `_active_checkpoint_gate` (daily-accept) are two independent code paths:
+#     the gate re-derives the missing rule inline in its own zip loop and never
+#     calls the helper.  Nothing forces them to agree, so this fixture does.
+# ---------------------------------------------------------------------------
+GATE_FRESH = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)
+GATE_REGISTRY: list[dict[str, Any]] = []
+GATE_CHECKPOINTS: list[dict[str, Any]] = []
+for gate_adapter in operator_control.CHECKPOINT_ADAPTERS:
+    # >= 67 streams keeps two missing above CHECKPOINT_MIN_HEALTHY_RATIO, so the
+    # gate reports its verdict instead of hard-raising before it can be read.
+    for offset in range(100 if gate_adapter == "pc_ebay_sales" else 3):
+        gate_variant = 9000 + offset
+        gate_external = f"e{gate_variant}"
+        GATE_REGISTRY.append(
+            {"adapter": gate_adapter, "variantId": gate_variant, "externalId": gate_external}
+        )
+        if gate_adapter == "pc_ebay_sales" and offset == 0:
+            continue  # no checkpoint row at all
+        GATE_CHECKPOINTS.append(
+            {
+                "source_code": gate_adapter,
+                "stream_key": stream_key(gate_variant, gate_external),
+                # offset 1: the row exists but never got a stamp.
+                "last_effective_at": None
+                if (gate_adapter == "pc_ebay_sales" and offset == 1)
+                else GATE_FRESH,
+                "last_payload_sha256": "b" * 64,
+                "last_run_id": 1,
+            }
+        )
+
+helper_missing = operator_control.missing_checkpoint_streams(
+    FixtureCursor(GATE_CHECKPOINTS), registry=GATE_REGISTRY
+)
+gate_real = (
+    operator_control._read_jsonl,
+    operator_control._write_checkpoint_soft_failures,
+)
+operator_control._read_jsonl = lambda _path, _label: list(GATE_REGISTRY)
+operator_control._write_checkpoint_soft_failures = lambda _payload: WORKSPACE / "gate.json"
+try:
+    gate_report = operator_control._active_checkpoint_gate(
+        FixtureCursor(GATE_CHECKPOINTS),
+        active_ids={int(row["variantId"]) for row in GATE_REGISTRY},
+    )
+finally:
+    (
+        operator_control._read_jsonl,
+        operator_control._write_checkpoint_soft_failures,
+    ) = gate_real
+
+helper_sets = {
+    adapter: sorted({int(row["variantId"]) for row in rows})
+    for adapter, rows in helper_missing.items()
+}
+gate_missing: dict[str, list[int]] = {
+    adapter: [] for adapter in operator_control.CHECKPOINT_ADAPTERS
+}
+for failure in gate_report["softFailures"]:
+    if failure["reason"] == "missing":
+        gate_missing[str(failure["adapter"])].append(int(failure["variantId"]))
+gate_sets = {adapter: sorted(ids) for adapter, ids in gate_missing.items()}
+assert helper_sets == gate_sets, (helper_sets, gate_sets)
+# Both must see the row-with-no-stamp (9001) and the absent row (9000).
+assert helper_sets["pc_ebay_sales"] == [9000, 9001], helper_sets["pc_ebay_sales"]
+assert sorted(helper_sets) == sorted(operator_control.CHECKPOINT_ADAPTERS), sorted(helper_sets)
+print("POSITIVE_OK missing_checkpoint_streams and the daily-accept gate's own inline loop return the identical missing set")
+
+
+# ---------------------------------------------------------------------------
+# 1. Missing-stream computation, through the same helper.
 # ---------------------------------------------------------------------------
 missing = operator_control.missing_checkpoint_streams(
     FixtureCursor(AFTER_IDENTITY_REPAIR),
@@ -297,6 +369,77 @@ assert "TICK_RESERVE_SECONDS" in runner_source
 assert f"TICK_RESERVE_SECONDS = {TICK_RESERVE_SECONDS}" not in inspect.getsource(stage)
 assert 'sub.add_parser("checkpoint-repair")' in inspect.getsource(stage.main)
 print("POSITIVE_OK the stage deadline is published by the orchestrator with the reserve already subtracted, and the stage has a CLI entry")
+
+# 2f. The force_network boundary.  `partition_local_pc_stock_pages` forbids
+# morning/nightly from forcing a whole-universe fetch; `cmd_first_stock` is the
+# one sanctioned automated exception, so the limit is code, not prose.
+FORCE_MISSING_ROWS = [
+    {"variantId": 1915, "externalId": "10395109"},
+    {"variantId": 2033, "externalId": "8506789"},
+]
+collect_control.assert_force_network_scope("pc_ebay_sales", [1915, 2033], FORCE_MISSING_ROWS)
+for widened_ids in ([1915, 2033, 9999], [9999], []):
+    try:
+        collect_control.assert_force_network_scope(
+            "pc_ebay_sales", widened_ids, FORCE_MISSING_ROWS
+        )
+    except RuntimeError as error:
+        assert "force_network is limited to checkpoint-less streams" in str(error), error
+    else:
+        raise AssertionError(f"force_network scope accepted {widened_ids}")
+print("NEGATIVE_OK forcing the network for a variant that is not checkpoint-less is refused")
+
+
+class StockSpy:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def __call__(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append(kwargs)
+        return {"ok": True}
+
+
+stock_spy = StockSpy()
+first_stock_real = (
+    collect_control.cmd_status,
+    collect_control._jsonl_rows,
+    collect_control.load_env,
+    collect_control.db,
+    collect_control.cmd_stock,
+)
+collect_control.cmd_status = lambda **_kwargs: {"ok": True}
+collect_control._jsonl_rows = lambda _path: list(REGISTRY)
+collect_control.load_env = lambda: None
+collect_control.db = lambda: FixtureConnection(FixtureCursor(list(AFTER_IDENTITY_REPAIR)))
+collect_control.cmd_stock = stock_spy
+try:
+    # dry_run keeps the consolidate subprocess out of an offline test; the scope
+    # guard runs either way, before cmd_stock is reached.
+    first_stock_report = collect_control.cmd_first_stock(
+        adapters=["pc_ebay_sales"],
+        limit=None,
+        dry_run=True,
+        delay=0.0,
+        workers=24,
+        ensure_browser=False,
+        pc_resume_report=None,
+        pc_sleep=None,
+        pc_workers=None,
+        force_network=True,
+    )
+finally:
+    (
+        collect_control.cmd_status,
+        collect_control._jsonl_rows,
+        collect_control.load_env,
+        collect_control.db,
+        collect_control.cmd_stock,
+    ) = first_stock_real
+assert first_stock_report["ok"] is True, first_stock_report
+assert len(stock_spy.calls) == 1, stock_spy.calls
+assert stock_spy.calls[0]["force_network"] is True
+assert stock_spy.calls[0]["variant_ids"] == [1915, 2033], stock_spy.calls[0]["variant_ids"]
+print("POSITIVE_OK cmd_first_stock forces the network only for the streams missing_checkpoint_streams returned")
 
 
 # ---------------------------------------------------------------------------
