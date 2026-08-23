@@ -62,6 +62,16 @@ LAST_INCR = OUT_DIR / "last_incr.json"
 LAST_STOCK = OUT_DIR / "last_stock.json"
 LAST_STATUS = OUT_DIR / "last_status.json"
 PC_REFRESH_REPORT = OUT_DIR / "pc_cdp_refresh_report.json"
+PC_DAILY_FULL_CYCLE_STAMP = OUT_DIR / "pc_daily_full_cycle.json"
+# "fresh enough to publish" (SLA_HOURS, the acceptance gate) and "collect it
+# again" are different questions -- the daily chain asks the second one and used
+# to get the first one's answer, so it replayed day-old HTML every morning and
+# the board trailed PriceCharting by 11-35 h.
+PC_REFRESH_POLICIES = ("sla_replay", "daily_full", "fallback_replay")
+# 被 9333 拒絕一次唔准即刻出尋日 HTML。第一次拒絕留返個 failure 俾 chain 重試
+# （同一個 cycle 內），第二次先至准 fallback：owner 要「每日全部攞新」，
+# 一次 Cloudflare storm 唔應該靜靜地變成成日舊價。
+PC_DAILY_FULL_FALLBACK_MIN_REFUSALS = 2
 PC_MAP = ROOT / "data/runtime/private-source-map/c11_pc_ebay_map_full900.jsonl"
 WINDOWS_PY = ROOT / ".venv-backend-windows/Scripts/python.exe"
 # 每個 adapter 由邊條自動鏈收，係 adapter 自己嘅屬性，唔應該由兩個 .ps1 各自
@@ -171,10 +181,30 @@ PC_HIDDEN_LAUNCH_VBS = ROOT / "pipelines" / "pc_cdp_hidden_launch.vbs"
 PC_CF_STORM_CLASS = "pc_cf_storm"
 CDP_UNREACHABLE_CLASS = "cdp_unreachable"
 PC_CDP_REFRESH_FAILED_CLASS = "pc_cdp_refresh_failed"
+# review 2026-08-24: the 9333 child is launched hidden through WSL interop, so
+# it is not in this process's group. When the tick SIGKILLs the collect process
+# mid-sweep the child survives and keeps fetching; a second child launched by
+# the next tick would double the request rate on the one host this whole lane
+# exists to stay welcome at (SourceSpec max_concurrency=1 governs V2 task
+# claiming, not an orphan OS process).
+PC_CHILD_ALREADY_RUNNING_CLASS = "pc_child_already_running"
+# pc_cdp_sold_refresh_win imports playwright at module scope, and the probe
+# below runs on every sweep -- including where that import cannot succeed. These
+# mirror the child's own PROGRESS_STAMP_DIR / HARD_STALL_KILLER_SECONDS so a
+# missing browser stack degrades to "probe anyway", never to "no probe at all".
+PC_PROGRESS_STAMP_DIR_FALLBACK = Path(
+    os.environ.get("PC_PROGRESS_STAMP_DIR")
+    or (ROOT / "data/runtime/operator/collect")
+)
+PC_CHILD_HARD_STALL_SECONDS_FALLBACK = 360.0
 PC_CHILD_EXIT_ERROR_CLASSES = {4: PC_CF_STORM_CLASS}
 PC_ERROR_CLASS_RETRY_SECONDS = {
     PC_CF_STORM_CLASS: 20 * 60,
     CDP_UNREACHABLE_CLASS: 5 * 60,
+    # One tick. The orphan either finishes its own sweep or its hard stall
+    # killer takes it, and either way the next tick resumes from the pages it
+    # already captured.
+    PC_CHILD_ALREADY_RUNNING_CLASS: 10 * 60,
 }
 # Chrome's lifecycle belongs to the launcher preflight and the ChromeCdpWatchdog
 # task; the chain only asks whether the session is the right one. 30s, not 90.
@@ -1051,6 +1081,77 @@ def pc_hidden_launch_command(
         exe,
         *rest,
     ]
+
+
+def pc_refresh_error_class(report: Any) -> str:
+    """The PC page-acquisition failure class inside a collect report, if any.
+
+    `_collect_mode` reports the fetch verdict under `pcRefresh.networkRefresh`;
+    the adapters downstream only say `fresh_pc_pages_unavailable`, which cannot
+    tell a refused sweep (contention) apart from a failed one.
+    """
+
+    if not isinstance(report, Mapping):
+        return ""
+    pc_refresh = report.get("pcRefresh")
+    if not isinstance(pc_refresh, Mapping):
+        return ""
+    network = pc_refresh.get("networkRefresh")
+    if not isinstance(network, Mapping) or bool(network.get("ok")):
+        return ""
+    return str(network.get("errorClass") or "")
+
+
+def pc_child_alive_stamp(*, now: datetime | None = None) -> dict[str, Any] | None:
+    """A 9333 child that is still running, seen through its own progress stamp.
+
+    The child's Windows PID never comes back through WSL interop, so liveness is
+    read off the artifact the child already maintains for its hard stall killer:
+    ``pc_cdp_progress.<pid>.stamp``, touched on every page decision. That killer
+    is what makes the window trustworthy in both directions -- a live child
+    beats inside ``HARD_STALL_KILLER_SECONDS`` or the killer takes it -- so a
+    stamp older than the window belongs to a child that is already dead and must
+    not wedge the lane forever.
+
+    Returns ``None`` when no child is running. A false positive costs one tick
+    and retries; a false negative costs two sweeps hammering PriceCharting at
+    once, so this errs closed.
+    """
+
+    try:
+        from pc_cdp_sold_refresh_win import (  # noqa: PLC0415
+            HARD_STALL_KILLER_SECONDS,
+            PROGRESS_STAMP_DIR,
+        )
+    except Exception:  # noqa: BLE001 - playwright, or anything else that module needs
+        # An unimportable child module must not silently disable single-flight:
+        # that is the failure mode this whole probe exists to prevent.
+        HARD_STALL_KILLER_SECONDS = PC_CHILD_HARD_STALL_SECONDS_FALLBACK
+        PROGRESS_STAMP_DIR = PC_PROGRESS_STAMP_DIR_FALLBACK
+
+    moment = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    window = float(HARD_STALL_KILLER_SECONDS)
+    newest: dict[str, Any] | None = None
+    try:
+        candidates = sorted(Path(PROGRESS_STAMP_DIR).glob("pc_cdp_progress.*.stamp"))
+    except OSError:
+        return None
+    for stamp in candidates:
+        try:
+            beat = datetime.fromtimestamp(stamp.stat().st_mtime, timezone.utc)
+        except OSError:
+            continue
+        age = (moment - beat).total_seconds()
+        if age > window:
+            continue
+        if newest is None or age < float(newest["ageSeconds"]):
+            newest = {
+                "stamp": str(stamp),
+                "beatAt": beat.isoformat().replace("+00:00", "Z"),
+                "ageSeconds": round(age, 3),
+                "windowSeconds": window,
+            }
+    return newest
 
 
 def _run_pc_child(
@@ -4086,14 +4187,119 @@ def _pc_subset_map(
     return path, ordered
 
 
+def pc_daily_full_cycle_started_at(
+    cycle_key: str, *, now: datetime | None = None
+) -> datetime:
+    """When the current ``daily_full`` refresh cycle started collecting.
+
+    A tick interruption kills this process mid-sweep, so the anchor cannot be
+    the process start: the next tick would refetch every page it already paid
+    Cloudflare for. It is stamped once per cycle key (the chain run id, one per
+    business date) and every later attempt reads the same instant back, so a
+    page whose HTML was captured after it counts as already fetched this run.
+    """
+
+    moment = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    key = str(cycle_key or "").strip()
+    if not key:
+        raise RuntimeError("daily_full PC refresh needs a cycle key")
+    try:
+        stamped = json.loads(PC_DAILY_FULL_CYCLE_STAMP.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        stamped = None
+    if isinstance(stamped, dict) and str(stamped.get("cycle") or "") == key:
+        started = _parse_datetime(stamped.get("startedAt"))
+        if started is not None:
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            return started.astimezone(timezone.utc)
+    # review 2026-08-24: 5-6 collect workers run daily_full in one thread pool,
+    # so this file is written concurrently. A torn read here is not harmless: it
+    # reads back as "no cycle", re-anchors startedAt to now, and every page this
+    # cycle already paid Cloudflare for looks unfetched again.
+    _write_json_atomic(
+        PC_DAILY_FULL_CYCLE_STAMP,
+        {
+            "cycle": key,
+            "startedAt": moment.isoformat().replace("+00:00", "Z"),
+        },
+    )
+    return moment
+
+
+def pc_daily_full_record_refusal(cycle_key: str, *, started_at: datetime) -> int:
+    """Count the refused ``daily_full`` sweeps of this cycle, including this one.
+
+    Lives on the cycle stamp because every attempt is a fresh process: a counter
+    in memory would reset with it and the first refusal would fall back forever.
+    """
+
+    key = str(cycle_key or "").strip()
+    if not key:
+        raise RuntimeError("daily_full PC refresh needs a cycle key")
+    try:
+        stamped = json.loads(PC_DAILY_FULL_CYCLE_STAMP.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        stamped = None
+    if not isinstance(stamped, dict) or str(stamped.get("cycle") or "") != key:
+        stamped = {
+            "cycle": key,
+            "startedAt": started_at.isoformat().replace("+00:00", "Z"),
+        }
+    refusals = int(stamped.get("refusedSweeps") or 0) + 1
+    stamped["refusedSweeps"] = refusals
+    _write_json_atomic(PC_DAILY_FULL_CYCLE_STAMP, stamped)
+    return refusals
+
+
+def pc_daily_full_run_anchor(
+    refresh_policy: str,
+    *,
+    dry_run: bool,
+    pc_items: list[dict[str, Any]],
+    cycle_key: str,
+) -> datetime | None:
+    """The resume anchor, and the only place allowed to create the cycle stamp.
+
+    ``run_collect`` sends ``refresh_policy="daily_full"`` for every V2 collect
+    source (gemrate shards, snkrdunk, pricecharting) and they run in one thread
+    pool, so without this gate five workers with zero PC pages race the one
+    worker that has them for a file only the PC sweep reads.
+    """
+
+    if refresh_policy != "daily_full" or dry_run or not pc_items:
+        return None
+    return pc_daily_full_cycle_started_at(cycle_key)
+
+
 def partition_local_pc_stock_pages(
-    items: list[dict[str, Any]], *, mode: str, dry_run: bool, force_network: bool = False
+    items: list[dict[str, Any]],
+    *,
+    mode: str,
+    dry_run: bool,
+    force_network: bool = False,
+    refresh_policy: str = "sla_replay",
+    run_started_at: datetime | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     """Use exact saved PC evidence when the artifact is still inside the SLA.
 
-    Stock and incr both replay. Chrome only runs for missing / invalid /
-    older-than-36h HTML. Classify still marks every PC stream due
-    (``PC_REFRESH_DUE_HOURS = 0``); this function is the skip, not poll-mode.
+    ``sla_replay`` (operator ``stock`` / ``incr``): stock and incr both replay.
+    Chrome only runs for missing / invalid / older-than-36h HTML. Classify still
+    marks every PC stream due (``PC_REFRESH_DUE_HOURS = 0``); this function is
+    the skip, not poll-mode.
+
+    ``daily_full`` (the chain's daily source task, owner directive 2026-08-24):
+    every stream's page is fetched fresh through CDP 9333 on every run. Only a
+    page already captured during *this* cycle (``run_started_at``) replays, so
+    an interrupted tick resumes instead of refetching. The 36h SLA is untouched
+    -- it stays the acceptance/checkpoint gate, it just no longer decides
+    whether to re-collect.
+
+    ``fallback_replay``: after a fresh fetch failed (Cloudflare / timeout / CDP
+    down), replay exactly what ``sla_replay`` would have replayed and label it
+    ``fresh_fetch_failed_replay_local`` so the receipt never calls a fallback a
+    fresh page. Nothing outside the SLA replays here either.
+
     ``force_network`` is operator catch-up: skip the SLA replay and CDP-fetch
     every exact page. Morning/nightly must not pass it for a whole-universe
     stock/incr. The single sanctioned automated exception is
@@ -4102,6 +4308,8 @@ def partition_local_pc_stock_pages(
     ``assert_force_network_scope`` keeps that limit in code, not in prose.
     """
 
+    if refresh_policy not in PC_REFRESH_POLICIES:
+        raise RuntimeError(f"unknown PC refresh policy: {refresh_policy!r}")
     selected = _unique_items(items, None)
     if force_network and selected and not dry_run:
         return (
@@ -4118,6 +4326,8 @@ def partition_local_pc_stock_pages(
                 "networkReasons": {
                     str(int(item["variantId"])): "operator_force_network" for item in selected
                 },
+                "refreshPolicy": refresh_policy,
+                "replayReasons": {},
             },
         )
     empty_report = {
@@ -4129,9 +4339,19 @@ def partition_local_pc_stock_pages(
         "payloadShaByVariant": {},
         "rows": [],
         "networkReasons": {},
+        "refreshPolicy": refresh_policy,
+        "replayReasons": {},
     }
     if dry_run or not selected:
         return [], selected, empty_report
+    if refresh_policy != "sla_replay":
+        if run_started_at is None:
+            raise RuntimeError(
+                f"PC refresh policy {refresh_policy!r} needs run_started_at:"
+                " without the cycle anchor a resume cannot be told from a stale page"
+            )
+        if run_started_at.tzinfo is None:
+            run_started_at = run_started_at.replace(tzinfo=timezone.utc)
     _, map_rows = _pc_subset_map(selected, mode=mode, label="local-stock")
     from pc_psa10_price_derivation import validate_pc_psa10
 
@@ -4142,6 +4362,7 @@ def partition_local_pc_stock_pages(
     evidence_times: list[datetime] = []
     evidence_rows: list[dict[str, Any]] = []
     network_reasons: dict[str, str] = {}
+    replay_reasons: dict[str, str] = {}
     map_contract_errors: list[int] = []
     for item in selected:
         variant_id = int(item["variantId"])
@@ -4188,6 +4409,19 @@ def partition_local_pc_stock_pages(
             network.append(item)
             network_reasons[str(variant_id)] = "local_exact_html_exceeds_36h_sla"
             continue
+        replay_reason = "local_exact_html_within_sla"
+        if refresh_policy != "sla_replay":
+            captured_this_run = run_started_at is not None and modified_at >= run_started_at
+            if refresh_policy == "daily_full" and not captured_this_run:
+                network.append(item)
+                network_reasons[str(variant_id)] = "daily_full_refresh_due"
+                continue
+            replay_reason = (
+                "fresh_page_captured_this_run"
+                if captured_this_run
+                else "fresh_fetch_failed_replay_local"
+            )
+        replay_reasons[str(variant_id)] = replay_reason
         replayed.append(item)
         payload_sha_by_variant[str(variant_id)] = str(
             exact_price.get("artifact_sha256")
@@ -4228,12 +4462,189 @@ def partition_local_pc_stock_pages(
         ),
         "rows": evidence_rows,
         "networkReasons": network_reasons,
+        "refreshPolicy": refresh_policy,
+        "runStartedAt": (
+            run_started_at.isoformat().replace("+00:00", "Z")
+            if run_started_at is not None
+            else None
+        ),
+        # Why each replay happened, so a fallback after a refused fetch can
+        # never read as a fresh page in the receipt.
+        "replayReasons": replay_reasons,
+        "fallbackReplays": sum(
+            1
+            for reason in replay_reasons.values()
+            if reason == "fresh_fetch_failed_replay_local"
+        ),
         # audit P2-13: an empty html_path in the PC map is a map contract
         # error. It must be named in the receipt, not hidden behind a generic
         # "the file is missing" refetch reason.
         "mapContractErrors": map_contract_errors,
     }
     return replayed, network, report
+
+
+def _merge_pc_replay_reports(
+    base: dict[str, Any], extra: dict[str, Any]
+) -> dict[str, Any]:
+    """One ``localStockReplay`` block covering the cycle replay + the fallback."""
+
+    evidence_times = [
+        stamp
+        for stamp in (
+            _parse_datetime(report.get(key))
+            for report in (base, extra)
+            for key in ("evidenceAsOf", "evidenceFreshnessFloor")
+        )
+        if stamp is not None
+    ]
+    merged = {
+        **base,
+        "processed": int(base.get("processed") or 0) + int(extra.get("processed") or 0),
+        "ok": bool(base.get("ok")) and bool(extra.get("ok")),
+        "payloadShaByVariant": {
+            **(base.get("payloadShaByVariant") or {}),
+            **(extra.get("payloadShaByVariant") or {}),
+        },
+        "rows": [*(base.get("rows") or []), *(extra.get("rows") or [])],
+        "networkReasons": {
+            **(base.get("networkReasons") or {}),
+            **(extra.get("networkReasons") or {}),
+        },
+        "replayReasons": {
+            **(base.get("replayReasons") or {}),
+            **(extra.get("replayReasons") or {}),
+        },
+        "fallbackReplays": int(base.get("fallbackReplays") or 0)
+        + int(extra.get("fallbackReplays") or 0),
+        "mapContractErrors": [
+            *(base.get("mapContractErrors") or []),
+            *(extra.get("mapContractErrors") or []),
+        ],
+    }
+    if evidence_times:
+        merged["evidenceAsOf"] = (
+            max(evidence_times).isoformat().replace("+00:00", "Z")
+        )
+        merged["evidenceFreshnessFloor"] = (
+            min(evidence_times).isoformat().replace("+00:00", "Z")
+        )
+    return merged
+
+
+def pc_child_attempted_failed_ids(started_at: datetime) -> list[int]:
+    """Variants this child run actually opened and failed on.
+
+    The child writes one ``results`` row per page it decided, so the rows are
+    the only proof that a fetch happened at all. A page the sweep never reached
+    did not have a fetch *fail*; covering it from yesterday's HTML would rebuild
+    the exact bug R5 kills, so it must stay on the network lane. A report older
+    than this run proves nothing about this sweep and counts as zero attempts.
+    """
+
+    try:
+        payload = json.loads(PC_REFRESH_REPORT.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    report_time = _parse_datetime(payload.get("asOf"))
+    if report_time is None:
+        return []
+    if report_time.tzinfo is None:
+        report_time = report_time.replace(tzinfo=timezone.utc)
+    if report_time < started_at:
+        return []
+    failed: set[int] = set()
+    for row in payload.get("results") or []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("status") or "") == "ok":
+            continue
+        try:
+            failed.add(int(row.get("variant_id")))
+        except (TypeError, ValueError):
+            continue
+    return sorted(failed)
+
+
+def pc_fresh_fetch_fallback(
+    network_items: list[dict[str, Any]],
+    network_refresh: dict[str, Any],
+    *,
+    mode: str,
+    run_started_at: datetime,
+    cycle_key: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]] | None:
+    """Cover a refused CDP sweep with local evidence, or refuse to cover it.
+
+    The fallback is never wider than what ``sla_replay`` would have replayed on
+    its own, so no gate moves: a page missing / invalid / past the 36h SLA still
+    has no evidence and the sweep stays failed for everyone. ``None`` means the
+    lane keeps its failure -- silence is not an option here.
+
+    Three more things it refuses to cover (review 2026-08-24):
+    * a sweep the tick interrupted -- the failure is what makes the next tick
+      resume, so masking it turns the resume machinery into dead code;
+    * a page the child never opened (``attemptedFailedVariantIds``) -- an
+      unreached page did not have a fetch fail;
+    * the first refusal of a cycle -- the chain gets a real retry at the sweep
+      before anyone publishes yesterday's HTML.
+    """
+
+    if bool(network_refresh.get("childInterrupted")):
+        return None
+    attempted_failed = {
+        int(variant_id)
+        for variant_id in (network_refresh.get("attemptedFailedVariantIds") or [])
+    }
+    replayed, uncovered, replay_report = partition_local_pc_stock_pages(
+        network_items,
+        mode=mode,
+        dry_run=False,
+        refresh_policy="fallback_replay",
+        run_started_at=run_started_at,
+    )
+    if uncovered or not replayed:
+        return None
+    replay_reasons = replay_report.get("replayReasons") or {}
+    stale_cover = sorted(
+        int(variant_id)
+        for variant_id, reason in replay_reasons.items()
+        if reason == "fresh_fetch_failed_replay_local"
+    )
+    if [vid for vid in stale_cover if vid not in attempted_failed]:
+        # The child never opened these pages. They stay on the network lane so
+        # the sweep stays not-ok and the next tick resumes it.
+        return None
+    if stale_cover:
+        refusals = pc_daily_full_record_refusal(cycle_key, started_at=run_started_at)
+        if refusals < PC_DAILY_FULL_FALLBACK_MIN_REFUSALS:
+            return None
+    degraded = dict(network_refresh)
+    fresh_error = degraded.pop("error", None)
+    fresh_error_class = degraded.pop("errorClass", None)
+    degraded.pop("retryable", None)
+    degraded.pop("retryAfterSeconds", None)
+    degraded.update(
+        {
+            "ok": True,
+            "processed": sum(
+                1
+                for reason in replay_reasons.values()
+                if reason == "fresh_page_captured_this_run"
+            ),
+            "freshFetchFailed": True,
+            "freshFetchError": fresh_error,
+            "freshFetchErrorClass": fresh_error_class,
+            "fallbackReplayVariantIds": sorted(
+                int(variant_id)
+                for variant_id, reason in replay_reasons.items()
+                if reason == "fresh_fetch_failed_replay_local"
+            ),
+        }
+    )
+    return replayed, replay_report, degraded
 
 
 def refresh_pc_pages(
@@ -4291,6 +4702,37 @@ def refresh_pc_pages(
         report.update({"ok": False, "error": f"Windows backend Python missing: {WINDOWS_PY}"})
         return report
 
+    # review 2026-08-24: single-flight on 9333. The daily_full sweep is 50-65
+    # min, so the tick interrupts it on ordinary business dates and SIGKILLs
+    # this process while the hidden Windows child keeps going. Launching a
+    # second child then puts two sweeps on PriceCharting at once. An empty
+    # attemptedFailedVariantIds is the honest answer here -- nothing was opened,
+    # so the fallback may not cover a single page with yesterday's HTML.
+    already_running = pc_child_alive_stamp()
+    if already_running is not None:
+        report.update(
+            {
+                "ok": False,
+                "error": PC_CHILD_ALREADY_RUNNING_CLASS,
+                "errorClass": PC_CHILD_ALREADY_RUNNING_CLASS,
+                "retryable": True,
+                "retryAfterSeconds": pc_error_retry_after_seconds(
+                    PC_CHILD_ALREADY_RUNNING_CLASS
+                ),
+                "childAlreadyRunning": already_running,
+                "attemptedFailedVariantIds": [],
+                "identityMissing": [],
+                "coverageLoss": False,
+            }
+        )
+        print(
+            "[collect] 9333 child still running; refusing a second sweep: "
+            + json.dumps(already_running, ensure_ascii=False, sort_keys=True),
+            file=sys.stderr,
+            flush=True,
+        )
+        return report
+
     started_at = datetime.now(timezone.utc)
     try:
         cmd = [
@@ -4333,9 +4775,17 @@ def refresh_pc_pages(
     except Exception as exc:  # noqa: BLE001
         report.update({"ok": False, "error": f"windows_path:{type(exc).__name__}:{exc}"})
         return report
-    report["run"] = _run_pc_child(
-        cmd, timeout=pc_cdp_child_timeout_seconds(len(selected)), dry_run=False
-    )
+    # audit item 10 / review 2026-08-24: the orchestrator SIGTERMs the whole
+    # worker group at the tick deadline. Hold the signal until the child's step
+    # is over so nothing captured is abandoned, and remember that it happened:
+    # an interrupted sweep must keep its failure so the next tick resumes it
+    # instead of publishing whatever local HTML happens to be inside the SLA.
+    with _deferred_termination() as interrupted:
+        report["run"] = _run_pc_child(
+            cmd, timeout=pc_cdp_child_timeout_seconds(len(selected)), dry_run=False
+        )
+    if interrupted["signalled"]:
+        report["childInterrupted"] = True
     report["childLog"] = report["run"].get("childLog")
     report["childLogTail"] = report["run"].get("childLogTail")
     if report["run"].get("exit") != 0 or not PC_REFRESH_REPORT.is_file():
@@ -4345,6 +4795,9 @@ def refresh_pc_pages(
                 "ok": False,
                 "error": error_class,
                 "errorClass": error_class,
+                # Which pages this sweep actually opened and failed on: the only
+                # ones a local replay may stand in for.
+                "attemptedFailedVariantIds": pc_child_attempted_failed_ids(started_at),
                 "retryable": pc_error_is_retryable(error_class),
                 "retryAfterSeconds": pc_error_retry_after_seconds(error_class),
                 # A Cloudflare storm is the provider refusing us, not a variant
@@ -4387,7 +4840,13 @@ def refresh_pc_pages(
                 html_path.read_bytes()
             ).hexdigest()
     except Exception as exc:  # noqa: BLE001
-        report.update({"ok": False, "error": f"pc_refresh_contract:{type(exc).__name__}:{exc}"})
+        report.update(
+            {
+                "ok": False,
+                "error": f"pc_refresh_contract:{type(exc).__name__}:{exc}",
+                "attemptedFailedVariantIds": pc_child_attempted_failed_ids(started_at),
+            }
+        )
         return report
     report.update(
         {
@@ -4799,6 +5258,8 @@ def _collect_mode_impl(
     pc_workers: int | None,
     variant_ids: list[int] | None = None,
     force_network: bool = False,
+    refresh_policy: str = "sla_replay",
+    refresh_cycle_key: str | None = None,
     rebuild_registry: bool = True,
     report_path: Path | None = None,
     work_scope: str | None = None,
@@ -4911,8 +5372,19 @@ def _collect_mode_impl(
     cdp_already_ensured = False
     all_pc_items = list(pc_items_by_variant.values())
     bind_missing_ids = pc_bind_missing_ids(reg, requested, explicit_variants)
+    pc_run_started_at = pc_daily_full_run_anchor(
+        refresh_policy,
+        dry_run=dry_run,
+        pc_items=all_pc_items,
+        cycle_key=refresh_cycle_key or "",
+    )
     local_pc_items, network_pc_items, local_pc_report = partition_local_pc_stock_pages(
-        all_pc_items, mode=mode, dry_run=dry_run, force_network=force_network
+        all_pc_items,
+        mode=mode,
+        dry_run=dry_run,
+        force_network=force_network,
+        refresh_policy=refresh_policy,
+        run_started_at=pc_run_started_at,
     )
     _mark("pcPartition")
     if local_pc_items and not network_pc_items and not bind_missing_ids:
@@ -4954,10 +5426,45 @@ def _collect_mode_impl(
             "payloadShaByVariant": {},
             "note": "no exact PC variants require network refresh",
         }
+    if (
+        refresh_policy == "daily_full"
+        and network_pc_items
+        and not dry_run
+        and not bool(network_pc_refresh.get("ok"))
+        and pc_run_started_at is not None
+    ):
+        # 9333 refused the sweep (Cloudflare / timeout / CDP down). Falling back
+        # to the same within-SLA local evidence sla_replay would have used keeps
+        # the board publishing without widening anything: a page past the SLA
+        # still has no evidence and the lane still fails.
+        fallback = pc_fresh_fetch_fallback(
+            network_pc_items,
+            network_pc_refresh,
+            mode=mode,
+            run_started_at=pc_run_started_at,
+            cycle_key=str(refresh_cycle_key or ""),
+        )
+        if fallback is not None:
+            fallback_items, fallback_report, network_pc_refresh = fallback
+            local_pc_items = [*local_pc_items, *fallback_items]
+            local_pc_report = _merge_pc_replay_reports(local_pc_report, fallback_report)
+            print(
+                "[collect] WARNING PC daily_full fell back to local HTML for "
+                f"{int(fallback_report.get('fallbackReplays') or 0)} page(s): "
+                f"{network_pc_refresh.get('freshFetchError')}",
+                file=sys.stderr,
+                flush=True,
+            )
     _mark("pcNetworkRefresh")
     pc_refresh = {
         "adapter": "pc_page_acquisition",
         "mode": mode,
+        "refreshPolicy": refresh_policy,
+        "runStartedAt": (
+            pc_run_started_at.isoformat().replace("+00:00", "Z")
+            if pc_run_started_at is not None
+            else None
+        ),
         "processed": len(all_pc_items),
         "ok": bool(local_pc_report.get("ok")) and bool(network_pc_refresh.get("ok")),
         "localReplay": bool(all_pc_items) and not network_pc_items,
@@ -5094,6 +5601,8 @@ def _collect_mode(
     pc_workers: int | None,
     variant_ids: list[int] | None = None,
     force_network: bool = False,
+    refresh_policy: str = "sla_replay",
+    refresh_cycle_key: str | None = None,
     rebuild_registry: bool = True,
     report_path: Path | None = None,
     lease_scope: str | None = None,
@@ -5117,6 +5626,8 @@ def _collect_mode(
             pc_workers=pc_workers,
             variant_ids=variant_ids,
             force_network=force_network,
+            refresh_policy=refresh_policy,
+            refresh_cycle_key=refresh_cycle_key,
             rebuild_registry=rebuild_registry,
             report_path=report_path,
             work_scope=lease_scope,
@@ -5139,6 +5650,8 @@ def cmd_stock(
     pc_workers: int | None,
     variant_ids: list[int] | None = None,
     force_network: bool = False,
+    refresh_policy: str = "sla_replay",
+    refresh_cycle_key: str | None = None,
     rebuild_registry: bool = True,
     report_path: Path | None = None,
     lease_scope: str | None = None,
@@ -5157,6 +5670,8 @@ def cmd_stock(
         pc_workers=pc_workers,
         variant_ids=variant_ids,
         force_network=force_network,
+        refresh_policy=refresh_policy,
+        refresh_cycle_key=refresh_cycle_key,
         rebuild_registry=rebuild_registry,
         report_path=report_path,
         lease_scope=lease_scope,
@@ -5278,11 +5793,15 @@ def cmd_first_stock(
             "variantIds": variant_ids,
             "ok": bool(sub.get("ok")),
             "error": sub.get("error"),
+            "errorClass": pc_refresh_error_class(sub),
         }
         report["ran"].append(ran)
         if not sub.get("ok"):
             report["ok"] = False
             report["error"] = f"first-stock adapter={adapter} failed"
+            # The V2 checkpoint-repair stage has to tell a refused sweep apart
+            # from a failed one: the first defers, the second fails.
+            report["errorClass"] = ran["errorClass"]
             break
     print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
     return report
@@ -5301,6 +5820,8 @@ def cmd_incr(
     pc_workers: int | None,
     variant_ids: list[int] | None = None,
     force_network: bool = False,
+    refresh_policy: str = "sla_replay",
+    refresh_cycle_key: str | None = None,
     rebuild_registry: bool = True,
     report_path: Path | None = None,
     lease_scope: str | None = None,
@@ -5319,6 +5840,8 @@ def cmd_incr(
         pc_workers=pc_workers,
         variant_ids=variant_ids,
         force_network=force_network,
+        refresh_policy=refresh_policy,
+        refresh_cycle_key=refresh_cycle_key,
         rebuild_registry=rebuild_registry,
         report_path=report_path,
         lease_scope=lease_scope,
@@ -5353,8 +5876,22 @@ def main() -> int:
         p.add_argument("--variant-id", action="append", type=int, default=[], help="force exact active variant only (repeatable)")
         p.add_argument("--force-network", action="store_true", help="operator catch-up: CDP-fetch exact PC pages even if local HTML is inside SLA")
 
+    def add_refresh_policy(p):
+        p.add_argument(
+            "--refresh-policy",
+            choices=("sla_replay", "daily_full"),
+            default="sla_replay",
+            help="daily_full: fetch every exact PC page fresh through CDP this cycle",
+        )
+        p.add_argument(
+            "--refresh-cycle-key",
+            default=None,
+            help="daily_full resume anchor (the chain passes its run id)",
+        )
+
     p_stock = sub.add_parser("stock", help="residual full pulls only")
     add_common(p_stock)
+    add_refresh_policy(p_stock)
     p_first = sub.add_parser(
         "first-stock",
         help="first collect for registry streams that still have no checkpoint",
@@ -5362,6 +5899,7 @@ def main() -> int:
     add_common(p_first)
     p_incr = sub.add_parser("incr", help="daily deltas for due exact ids")
     add_common(p_incr)
+    add_refresh_policy(p_incr)
     p_resume_snk = sub.add_parser(
         "commit-snk-price-receipt",
         help="checkpoint an already successful SNK exact-ID harvest/ingest; no network",
@@ -5386,11 +5924,11 @@ def main() -> int:
         elif args.cmd == "prune-checkpoints":
             cmd_prune_checkpoints(apply=args.apply)
         elif args.cmd == "stock":
-            report = cmd_stock(adapters=adapters, limit=args.limit, dry_run=args.dry_run, delay=args.delay, workers=args.workers, ensure_browser=args.ensure_browser, pc_resume_report=args.pc_resume_report, pc_sleep=args.pc_sleep, pc_workers=args.pc_workers, variant_ids=args.variant_id, force_network=args.force_network)
+            report = cmd_stock(adapters=adapters, limit=args.limit, dry_run=args.dry_run, delay=args.delay, workers=args.workers, ensure_browser=args.ensure_browser, pc_resume_report=args.pc_resume_report, pc_sleep=args.pc_sleep, pc_workers=args.pc_workers, variant_ids=args.variant_id, force_network=args.force_network, refresh_policy=args.refresh_policy, refresh_cycle_key=args.refresh_cycle_key)
         elif args.cmd == "first-stock":
             report = cmd_first_stock(adapters=adapters, limit=args.limit, dry_run=args.dry_run, delay=args.delay, workers=args.workers, ensure_browser=args.ensure_browser, pc_resume_report=args.pc_resume_report, pc_sleep=args.pc_sleep, pc_workers=args.pc_workers, force_network=args.force_network)
         elif args.cmd == "incr":
-            report = cmd_incr(adapters=adapters, limit=args.limit, dry_run=args.dry_run, delay=args.delay, workers=args.workers, ensure_browser=args.ensure_browser, pc_resume_report=args.pc_resume_report, pc_sleep=args.pc_sleep, pc_workers=args.pc_workers, variant_ids=args.variant_id, force_network=args.force_network)
+            report = cmd_incr(adapters=adapters, limit=args.limit, dry_run=args.dry_run, delay=args.delay, workers=args.workers, ensure_browser=args.ensure_browser, pc_resume_report=args.pc_resume_report, pc_sleep=args.pc_sleep, pc_workers=args.pc_workers, variant_ids=args.variant_id, force_network=args.force_network, refresh_policy=args.refresh_policy, refresh_cycle_key=args.refresh_cycle_key)
         elif args.cmd == "commit-snk-price-receipt":
             report = cmd_commit_snk_price_receipt(receipt_path=args.receipt)
         elif args.cmd == "commit-snk-binding-delta":

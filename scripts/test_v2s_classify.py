@@ -437,6 +437,80 @@ try:
     assert degraded_result.evidence_ref == str(receipt_path)
     print("POSITIVE_OK P2-4 the raised worker error leads with its code and the adapter keeps the degraded receipt")
 
+    # ------------------------------------------------- R5 9333 single-flight
+    # review 2026-08-24 (blocking): a refused PriceCharting sweep is this lane's
+    # OWN 9333 child still fetching, not a failed fetch.  Read as SOURCE_FAILED
+    # it climbed the 60..1800 ladder and turned the source TERMINAL on the 7th
+    # refusal while the orphan was still working, so the day published with no
+    # fresh PC data at all.  Same reading as PUBLISH_LOCK_HELD: contention must
+    # not burn the ladder.
+    busy_text = (
+        "RuntimeError:errorCode=PC_CHILD_ALREADY_RUNNING adapters=['pc_ebay_sales']"
+        " failed=['pc_ebay_sales'] detail=[]"
+    )
+    busy_code, busy_terminal, busy_delays = decide(busy_text)
+    assert busy_code == "PC_CHILD_ALREADY_RUNNING" and not busy_terminal, (busy_code, busy_terminal)
+    busy_decision = classify_error(busy_text)
+    assert getattr(busy_decision, "contention", False) is True, busy_decision
+    assert busy_decision.delay_for_attempt(1) == busy_delays[0], busy_decision
+    # Repeating, not exhausting: the ladder never runs off its end into a
+    # terminal verdict while the other sweep is still holding the host.
+    assert busy_decision.delay_for_attempt(99) == busy_delays[-1], busy_decision
+    assert getattr(classify_error("boom"), "contention", False) is False
+    assert getattr(
+        classify_error(f"release exit={PUBLISH_LOCK_EXIT_CODE}: {PUBLISH_LOCK_MARKER}", stage="publish"),
+        "contention",
+        False,
+    ) is False
+
+    pc_task = {"source_code": "pricecharting", "run_id": RUN_ID}
+    pc_payload = {
+        "shard": "all",
+        "worker": {"adapters": ["pc_ebay_sales", "en_price_ref"]},
+    }
+    pc_busy_report = dict(ok_report)
+    pc_busy_report.update({
+        "ok": False,
+        "failedAdapters": ["pc_ebay_sales", "en_price_ref"],
+        "results": [
+            {"adapter": "pc_ebay_sales", "ok": False, "error": "fresh_pc_pages_unavailable"},
+            {"adapter": "en_price_ref", "ok": False, "error": "fresh_pc_pages_unavailable"},
+        ],
+        "pcRefresh": {
+            "networkRefresh": {
+                "ok": False,
+                "error": "pc_child_already_running",
+                "errorClass": "pc_child_already_running",
+                "retryable": True,
+            },
+        },
+    })
+    with collect_module(fake_collect(even_rows, pc_busy_report)):
+        try:
+            v2worker.run_collect(pc_task, pc_payload, receipt_path)
+        except RuntimeError as error:
+            busy_raised = str(error)
+            assert busy_raised.startswith("errorCode=PC_CHILD_ALREADY_RUNNING"), busy_raised[:160]
+            assert classify_error(f"RuntimeError:{busy_raised}").error_code == "PC_CHILD_ALREADY_RUNNING"
+        else:
+            raise AssertionError("single-flight refusal fixture did not fire")
+
+    # Negative: a real adapter fault next to the refusal must never be masked as
+    # contention -- that would make an honest failure immortal.
+    pc_mixed_report = dict(pc_busy_report)
+    pc_mixed_report["results"] = [
+        {"adapter": "pc_ebay_sales", "ok": False, "error": "fresh_pc_pages_unavailable"},
+        {"adapter": "en_price_ref", "ok": False, "error": "pc_map:ValueError:bad row"},
+    ]
+    with collect_module(fake_collect(even_rows, pc_mixed_report)):
+        try:
+            v2worker.run_collect(pc_task, pc_payload, receipt_path)
+        except RuntimeError as error:
+            assert str(error).startswith("errorCode=COLLECT_ADAPTER_FAILED"), str(error)[:160]
+        else:
+            raise AssertionError("mixed PC failure fixture did not fire")
+    print("POSITIVE_OK R5 a refused 9333 sweep carries its own contention code and never masks a real adapter fault")
+
     # ------------------------------------------- P1-2 alert on a terminal publish
     os.environ["CARDZ_V2_NOTIFY_DRY_RUN"] = "1"
     chain_module.LAST_ALERT = None

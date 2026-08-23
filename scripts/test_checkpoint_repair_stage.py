@@ -38,6 +38,7 @@ from daily_chain_v2 import (  # noqa: E402
     DailyChainV2,
     jst_schedule,
 )
+from daily_chain_v2_contract import classify_error  # noqa: E402
 from daily_chain_v2_journal import Journal, iso  # noqa: E402
 
 DAY = date(2026, 8, 22)
@@ -219,10 +220,20 @@ print("POSITIVE_OK missing-stream computation counts a stamp-less checkpoint row
 # 2. Stage behaviour: no-op, forced repair, deadline, fail-closed.
 # ---------------------------------------------------------------------------
 class FirstStockSpy:
-    def __init__(self, *, ok: bool = True, fills: FixtureCursor | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        ok: bool = True,
+        fills: FixtureCursor | None = None,
+        error_class: str | None = None,
+    ) -> None:
         self.calls: list[dict[str, Any]] = []
         self.ok = ok
         self.fills = fills
+        # cmd_first_stock reports WHICH class of failure the PC page
+        # acquisition hit; the single-flight refusal is contention, not a
+        # repair that failed.
+        self.error_class = error_class
 
     def __call__(self, **kwargs: Any) -> dict[str, Any]:
         self.calls.append(kwargs)
@@ -232,8 +243,16 @@ class FirstStockSpy:
             "action": "first-stock",
             "ok": self.ok,
             "error": None if self.ok else "first-stock adapter=pc_ebay_sales failed",
+            "errorClass": self.error_class,
             "missing": {"pc_ebay_sales": [1915, 2033]},
-            "ran": [{"adapter": "pc_ebay_sales", "variantIds": [1915, 2033], "ok": self.ok}],
+            "ran": [
+                {
+                    "adapter": "pc_ebay_sales",
+                    "variantIds": [1915, 2033],
+                    "ok": self.ok,
+                    "errorClass": self.error_class,
+                }
+            ],
         }
 
 
@@ -340,6 +359,33 @@ failed_result, _failed_elapsed, _failed_conn = run_stage(failed_cursor, failed_s
 assert isinstance(failed_result, RuntimeError), failed_result
 assert "first-stock failed" in str(failed_result)
 print("NEGATIVE_OK a failed first-stock surfaces as a stage failure with its own error text")
+
+# 2f. The 9333 single-flight probe refused the repair: contention, not failure.
+# review 2026-08-24 (major): this stage rides max_attempts=3 on the 60s/120s
+# ladder, and all three attempts land inside the child's 360 s stamp window --
+# the repair was deterministically killed by an orphan that was still fetching.
+busy_spy = FirstStockSpy(ok=False, error_class=collect_control.PC_CHILD_ALREADY_RUNNING_CLASS)
+busy_result, _busy_elapsed, _busy_conn = run_stage(
+    FixtureCursor(list(AFTER_IDENTITY_REPAIR)), busy_spy
+)
+assert isinstance(busy_result, RuntimeError), busy_result
+assert "deferred to the next tick" in str(busy_result), str(busy_result)
+assert "first-stock failed" not in str(busy_result), str(busy_result)
+busy_decision = classify_error(f"RuntimeError:{busy_result}")
+assert busy_decision.error_code == "PC_CHILD_ALREADY_RUNNING", busy_decision
+assert not busy_decision.terminal, busy_decision
+# Non-exhausting: the deferral repeats its delay instead of walking off the end
+# of a ladder, and the journal refunds the attempt it spent.
+assert getattr(busy_decision, "contention", False) is True, busy_decision
+assert busy_decision.delay_for_attempt(9) is not None, busy_decision
+# A later tick with a stale stamp gets through and actually repairs.
+stale_cursor = FixtureCursor(list(AFTER_IDENTITY_REPAIR))
+stale_spy = FirstStockSpy(fills=stale_cursor)
+stale_result, _stale_elapsed, _stale_conn = run_stage(stale_cursor, stale_spy)
+assert not isinstance(stale_result, Exception), stale_result
+assert stale_result["streamsMissingAfter"] == {"pc_ebay_sales": 0, "en_price_ref": 0}, stale_result
+assert len(stale_spy.calls) == 1, stale_spy.calls
+print("NEGATIVE_OK a sweep refused by the 9333 single-flight probe defers to the next tick as contention and succeeds once the stamp is stale")
 
 # 2e. Tick deadline: no budget left means no network at all, retry next tick.
 os.environ[stage.STAGE_DEADLINE_ENV] = repr(time.time() - 1.0)

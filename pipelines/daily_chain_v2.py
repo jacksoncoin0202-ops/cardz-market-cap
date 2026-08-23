@@ -70,6 +70,16 @@ from daily_chain_v2_journal import (  # noqa: E402
 
 JST = ZoneInfo("Asia/Tokyo")
 TASK_LEASE_SECONDS = 90
+# How many *true* failures park a source task.  One number, every source.
+# Review 2026-08-24 (blocking): a per-source "headroom" of + the interruption
+# budget was added here for the PriceCharting daily_full sweep, but claim time
+# increments ONE shared `attempts` counter and the journal's exhaustion checks
+# read that same counter -- so the headroom loosened the true-failure park cap
+# from 7 to 13 for that source.  A gate is never loosened to pay for accounting:
+# an attempt spent by a tick interruption is refunded by the interruption
+# accounting itself (R2), not by widening the failure budget.
+SOURCE_MAX_ATTEMPTS = 7
+
 # audit P1-1: execute_ready() is a refilling pump, not a batch barrier.  These
 # three numbers are its shape: how many claims may be in flight, how often it
 # re-plans and refills while work is still running, and how often a busy tick
@@ -1438,7 +1448,7 @@ class DailyChainV2:
                     required_class=adapter.spec.required_class,
                     concurrency_group=adapter.spec.concurrency_group,
                     max_concurrency=adapter.spec.max_concurrency,
-                    max_attempts=7,
+                    max_attempts=SOURCE_MAX_ATTEMPTS,
                     payload=source_payload(adapter, task),
                 )
             return
