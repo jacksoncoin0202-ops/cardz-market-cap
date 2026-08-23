@@ -15,6 +15,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -526,7 +527,11 @@ try:
     r4_cutoff = datetime(2026, 8, 20, 8, 0, tzinfo=timezone.utc)  # 17:00 JST
     r4_cap = r4_cutoff - timedelta(seconds=PUBLISH_LEG_SECONDS)
     for before_cutoff, delay in (
-        (6 * 3600, 120), (3600, 300), (1500, 600), (1000, 1200), (900, 1800),
+        (6 * 3600, 120),
+        (3600, 300),
+        (PUBLISH_LEG_SECONDS + 330, 600),
+        (PUBLISH_LEG_SECONDS + 30, 1200),
+        (PUBLISH_LEG_SECONDS, 1800),
     ):
         at = r4_cutoff - timedelta(seconds=before_cutoff)
         landed = clamp_retry_at(at, delay, not_after=r4_cap)
@@ -542,9 +547,15 @@ try:
     #     than one ladder step of window left retries INSIDE the window.
     os.environ["CARDZ_V2_NOTIFY_DRY_RUN"] = "1"
     try:
-        def r4_publish_failure(name: str, seconds_of_window: float) -> dict[str, Any]:
+        def r4_publish_failure(
+            name: str,
+            seconds_of_window: float,
+            *,
+            capability: str = "release",
+            leg_seconds: float = PUBLISH_LEG_SECONDS,
+        ) -> dict[str, Any]:
             started = chain_module.utc_now()
-            final_at = started + timedelta(seconds=PUBLISH_LEG_SECONDS + seconds_of_window)
+            final_at = started + timedelta(seconds=leg_seconds + seconds_of_window)
             r4_journal = new_journal(f"publish-ladder-{name}")
             r4_chain = DailyChainV2(
                 journal=r4_journal,
@@ -561,7 +572,7 @@ try:
             )
             key = r4_journal.add_raw_task(
                 run_id=RUN_ID, business_date=DAY.isoformat(), phase="publish",
-                source_code="release", capability=f"release-{name}",
+                source_code="release", capability=capability,
                 required_class="core", concurrency_group=f"publish:{name}",
                 max_attempts=6, payload={"kind": "stage", "stageName": "release"},
             )
@@ -601,6 +612,84 @@ try:
     finally:
         os.environ.pop("CARDZ_V2_NOTIFY_DRY_RUN", None)
     print("POSITIVE_OK R4 the publish ladder is capped at final - one leg and the 17:00 cutoff still ends the day")
+
+    # ------------------------------------------------------------------- R4b
+    # 2026-08-24 review of the cap above: it was charged to the whole `publish`
+    # PHASE, but that phase carries two legs of very different length.
+    # `release` (daily_chain_v2.py :1815) bakes/syncs/validates -- possibly
+    # PUBLISH_ASSET_MAX_ATTEMPTS times -- then commits, pushes and polls the
+    # live health endpoint for ten minutes.  `live-confirm` (:1871) is planned
+    # only after `release` COMPLETED, i.e. always at the tail of the day, and
+    # it reads the snapshot, makes one 20 s health request and inserts one
+    # outbox row; it stays valid right up to `--confirm-before final`
+    # (daily_chain_v2_stage.py :1248-1253), which is how the PUBLISH_FAILED
+    # ladder waits out FE deploy lag.  Charging live-confirm a release leg made
+    # every failure inside the last leg TERMINAL with attempts unspent and the
+    # day's `live.confirmed` lost -- the exact shape R4 exists to remove.
+    os.environ["CARDZ_V2_NOTIFY_DRY_RUN"] = "1"
+    try:
+        confirm = r4_publish_failure(
+            "live-confirm", 300.0, capability="live-confirm", leg_seconds=0,
+        )
+        assert confirm["status"] == "RETRY", confirm
+        assert confirm["last_error_code"] == "PUBLISH_FAILED", confirm
+        assert int(confirm["attempts"]) < 6, confirm
+        r4b_due = datetime.fromisoformat(str(confirm["next_retry_at"]).replace("Z", "+00:00"))
+        assert r4b_due < confirm["_final"], (r4b_due, confirm["_final"])
+    finally:
+        os.environ.pop("CARDZ_V2_NOTIFY_DRY_RUN", None)
+
+    from daily_chain_v2_contract import (  # noqa: E402
+        LIVE_CONFIRM_LEG_SECONDS,
+        PUBLISH_ASSET_PASS_SECONDS,
+        PUBLISH_ASSET_RETRY_SLEEP_SECONDS,
+        PUBLISH_HEALTH_POLL_SECONDS,
+        PUBLISH_LEG_SECONDS_BY_CAPABILITY,
+        publish_leg_seconds,
+    )
+
+    # Every publish capability the planner registers owns a MEASURED leg; a new
+    # one cannot quietly inherit the release leg.
+    chain_source = (ROOT / "pipelines" / "daily_chain_v2.py").read_text(encoding="utf-8")
+    planned_publish = set(
+        re.findall(r'phase="publish", capability="([a-z0-9-]+)"', chain_source)
+    )
+    assert planned_publish == {"release", "live-confirm"}, planned_publish
+    assert planned_publish == set(PUBLISH_LEG_SECONDS_BY_CAPABILITY), (
+        planned_publish, sorted(PUBLISH_LEG_SECONDS_BY_CAPABILITY)
+    )
+    assert publish_leg_seconds("release") == PUBLISH_LEG_SECONDS
+    assert publish_leg_seconds("live-confirm") == LIVE_CONFIRM_LEG_SECONDS
+    assert LIVE_CONFIRM_LEG_SECONDS < PUBLISH_LEG_SECONDS
+
+    # The release leg has to cover the WORST case it can now take: this commit
+    # also lets the bake replay PUBLISH_ASSET_MAX_ATTEMPTS times, and a leg
+    # whose second bake SUCCEEDS still has to push and be confirmed before
+    # `final`.  Sizing the cap on the single-pass leg would schedule a retry
+    # that is still mid-push at 17:00 JST.
+    r4b_worst_leg = (
+        PUBLISH_ASSET_MAX_ATTEMPTS * PUBLISH_ASSET_PASS_SECONDS
+        + (PUBLISH_ASSET_MAX_ATTEMPTS - 1) * PUBLISH_ASSET_RETRY_SLEEP_SECONDS
+        + PUBLISH_HEALTH_POLL_SECONDS
+    )
+    assert PUBLISH_LEG_SECONDS >= r4b_worst_leg, (PUBLISH_LEG_SECONDS, r4b_worst_leg)
+
+    # ...and the two sleeps that make up that worst case are read off the
+    # script itself, so neither side can drift alone.
+    r4b_retry_sleep = re.search(
+        r'git -C "\$RELEASE_REPO" checkout -- data/public\n\s*sleep (\d+)\n', release_source
+    )
+    assert r4b_retry_sleep is not None, "asset retry sleep not found in daily_public_release.sh"
+    assert PUBLISH_ASSET_RETRY_SLEEP_SECONDS == int(r4b_retry_sleep.group(1)), r4b_retry_sleep.group(1)
+    r4b_polls = re.findall(
+        r"for _ in \$\(seq 1 (\d+)\); do\n(?:.*\n)*?\s*sleep (\d+)\n\s*done\n", release_source
+    )
+    assert r4b_polls, "live health poll loop not found in daily_public_release.sh"
+    for r4b_rounds, r4b_sleep in r4b_polls:
+        assert PUBLISH_HEALTH_POLL_SECONDS == int(r4b_rounds) * int(r4b_sleep), (
+            PUBLISH_HEALTH_POLL_SECONDS, r4b_rounds, r4b_sleep
+        )
+    print("POSITIVE_OK R4b the publish leg is per-capability and sized on the retried bake")
 
 
 finally:
