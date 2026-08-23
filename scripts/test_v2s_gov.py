@@ -197,7 +197,15 @@ def core_blocked_speaks() -> None:
         # The alert leaves on the ALWAYS_ALERT_EVENTS channel: this chain was
         # built with notify=False and the alert still fired.
         assert chain.notify is False
-        assert "NOTIFY_DRYRUN v2-task-parked:" in sink.getvalue(), sink.getvalue()
+        alert_lines = [
+            line for line in sink.getvalue().splitlines()
+            if line.startswith("NOTIFY_DRYRUN v2-task-parked:")
+        ]
+        assert len(alert_lines) == 1, alert_lines
+        # The state must reach the channel, not only the journal document:
+        # _alert_text builds its detail from a fixed key list.
+        assert "state=TERMINAL" in alert_lines[0], alert_lines[0]
+        assert blocked in alert_lines[0], alert_lines[0]
         # The same row later PARKED is a new fact, not a duplicate.
         sql(
             journal,
@@ -224,6 +232,74 @@ def core_blocked_speaks() -> None:
     drive_plan(quiet_journal, quiet_chain, AFTER_CUTOFF, until="core-contract-pre")
     assert events(quiet_journal, "CORE_TASK_PARKED") == []
     assert chain_module.blocked_core_source_tasks([]) == []
+
+
+# ---------------------------------------------------------------- audit P0-1
+@check("P0-1 a DEGRADED core source speaks too, and is not sent at a dead lever")
+def degraded_core_blocked_speaks() -> None:
+    journal = new_journal("core-degraded")
+    chain = new_chain(journal)
+    # daily_chain_v2_worker.py finishes any report with quarantined >= 1 through
+    # finish_success(degraded=True), so a core row reaches DEGRADED without a
+    # single TASK_ERROR being written -- the quietest of the three blocked
+    # states, and the barrier stays shut on it exactly like TERMINAL.
+    blocked = add_source_task(journal, "gemrate", "pop", status="DEGRADED")
+    sink = io.StringIO()
+    os.environ["CARDZ_V2_NOTIFY_DRY_RUN"] = "1"
+    try:
+        with contextlib.redirect_stdout(sink):
+            drive_plan(journal, chain, BEFORE_CUTOFF, rounds=40)
+    finally:
+        os.environ.pop("CARDZ_V2_NOTIFY_DRY_RUN", None)
+    parked = events(journal, "CORE_TASK_PARKED")
+    assert len(parked) == 1, [row["event_key"] for row in parked]
+    payload = json.loads(parked[0]["payload_json"])
+    assert payload["state"] == "DEGRADED", payload
+    assert payload["taskKey"] == blocked, payload
+    assert "state=DEGRADED" in sink.getvalue(), sink.getvalue()
+    # DEGRADED is in neither UNPARKABLE_TASK_STATES nor RETIRABLE_TASK_STATES,
+    # so "operator unpark or retire" would point at a lever that is not
+    # connected to anything.
+    assert journal.unpark(blocked, run_id=RUN_ID, reason="fixture") is None
+    assert journal.retire(blocked, run_id=RUN_ID, reason="fixture") is None
+    assert "unpark" not in payload["nextRetry"], payload
+    assert str(journal.task(blocked)["status"]) == "DEGRADED"
+    # The barrier is untouched: DEGRADED never opened it, before or after.
+    assert chain_module.source_barrier_ready(
+        [{"required_class": "core", "status": "DEGRADED"}],
+        now=AFTER_CUTOFF,
+        cutoff=BEFORE_CUTOFF,
+    ) is False
+
+
+# ---------------------------------------------------------------- audit P0-1
+@check("P0-1 two blocked core rows page twice instead of sharing one cooldown key")
+def blocked_core_rows_page_separately() -> None:
+    journal = new_journal("core-two-blocked")
+    chain = new_chain(journal)
+    terminal = add_source_task(journal, "fx", "rates", status="TERMINAL")
+    degraded = add_source_task(journal, "gemrate", "pop", status="DEGRADED")
+    sink = io.StringIO()
+    os.environ["CARDZ_V2_NOTIFY_DRY_RUN"] = "1"
+    try:
+        with contextlib.redirect_stdout(sink):
+            drive_plan(journal, chain, BEFORE_CUTOFF, rounds=40)
+    finally:
+        os.environ.pop("CARDZ_V2_NOTIFY_DRY_RUN", None)
+    # notify_hermes dedupes on the alert key, so two rows sharing one key mean
+    # the operator learns about one of them and clears it while the other keeps
+    # the barrier shut.  Dry-run prints every call, so the key is what we pin.
+    keys = {
+        line.split(" ", 2)[1] for line in sink.getvalue().splitlines()
+        if line.startswith("NOTIFY_DRYRUN v2-task-parked:")
+    }
+    assert len(keys) == 2, keys
+    assert any(terminal in key for key in keys), keys
+    assert any(degraded in key for key in keys), keys
+    assert all(key.startswith(f"v2-task-parked:{DAY.isoformat()}:") for key in keys), keys
+    # An event type with no scope keeps the old per-business-date key.
+    assert chain_module.ALWAYS_ALERT_EVENTS["FAILED_FINAL"][0] == "v2-run-failed-terminal"
+    assert "alert_scope" in inspect.signature(DailyChainV2.journal_event).parameters
 
 
 # ------------------------------------------------------------- audit P1-8 (a)
@@ -301,8 +377,12 @@ def manual_window_clock_points() -> None:
 
 
 # ------------------------------------------------------------- audit P1-3 (a)
-@check("P1-3 a renewal only ever moves deadlines forward")
+@check("P1-3 the journal API refuses an out-of-order caller's backward deadlines")
 def renewal_is_forward_only() -> None:
+    # Scope note: these are hand-written ISO strings, i.e. the out-of-order
+    # caller later_iso exists to defend against.  manual_e2e_schedule cannot
+    # produce them -- see production_renewals_hit_the_cap for what actually
+    # happens on the real path, and the open re-arm the audit still wants.
     journal = new_journal("renew-forward")
     first, _reopened, _previous = journal.renew_manual_window(
         RUN_ID,
@@ -319,8 +399,9 @@ def renewal_is_forward_only() -> None:
         sla_at="2026-08-20T06:20:00+00:00",
         final_at="2026-08-20T06:30:00+00:00",
     )
-    # This is the 2026-08-22 pricecharting killer: a renewal re-arming an
-    # earlier source_cutoff onto sources that are already running.
+    # A backward source_cutoff would land on sources that are already running.
+    # This is the API guard only; it is NOT the 2026-08-22 pricecharting
+    # killer, which re-armed the cutoff *forward* every 40 minutes.
     assert str(second["source_cutoff_at"]) == "2026-08-20T06:22:30+00:00", dict(second)
     assert str(second["sla_at"]) == "2026-08-20T06:33:45+00:00", dict(second)
     assert str(second["final_at"]) == "2026-08-20T08:00:00+00:00", dict(second)
@@ -337,8 +418,10 @@ def renewal_is_forward_only() -> None:
 
 
 # ------------------------------------------------------------- audit P1-3 (a)
-@check("P1-3 renewing while a source is running never shortens its deadline")
+@check("P1-3 a backward renewal never shortens a running source's deadline")
 def renewal_with_running_source() -> None:
+    # Same scope note as above: hand-written backward deadlines, journal API
+    # level.  The forward re-arm this run would really suffer from is open.
     journal = new_journal("renew-running")
     key = add_source_task(journal, "pricecharting", "quote", required_class="quote")
     claimed = journal.claim_ready(RUN_ID, now=utc_now())
@@ -399,6 +482,71 @@ def renewals_are_capped() -> None:
     after = journal.run(RUN_ID)
     assert str(after["final_at"]) == final_before, dict(after)
     assert int(after["manual_window_renewals"]) == cap, dict(after)
+
+
+# ------------------------------------------------------------- audit P1-3 (c)
+@check("P1-3 on the real path the renewal cap binds and later_iso does not")
+def production_renewals_hit_the_cap() -> None:
+    """Replay the 2026-08-22 shape through the only production caller.
+
+    DailyChainV2.initialise renews with manual_e2e_schedule(business_date=day),
+    never with hand-written timestamps, so this is the input the incident
+    actually had: a 16:00 JST start renewed every 40 minutes, eight times.
+    """
+
+    business_date = date(2026, 8, 22)
+    run_id = f"cardz-v2:{business_date.isoformat()}"
+    started = datetime.combine(business_date, day_time(16, 0), tzinfo=JST)
+    opening = manual_e2e_schedule(
+        started.astimezone(timezone.utc), business_date=business_date
+    )
+    journal = Journal(WORKSPACE / "renew-production.sqlite3")
+    journal.initialise()
+    journal.ensure_run(
+        business_date=business_date.isoformat(),
+        source_cutoff_at=opening["source_cutoff"].isoformat(),
+        sla_at=opening["sla"].isoformat(),
+        final_at=opening["final"].isoformat(),
+    )
+
+    accepted: list[tuple[datetime, datetime]] = []
+    refusals = 0
+    clamped_by_later_iso = 0
+    for index in range(1, 9):  # 2026-08-22 recorded MANUAL_WINDOW_RENEWED=8
+        moment = (started + timedelta(minutes=40 * index)).astimezone(timezone.utc)
+        window = manual_e2e_schedule(moment, business_date=business_date)
+        try:
+            run, _reopened, _previous = journal.renew_manual_window(
+                run_id,
+                source_cutoff_at=window["source_cutoff"].isoformat(),
+                sla_at=window["sla"].isoformat(),
+                final_at=window["final"].isoformat(),
+            )
+        except JournalError as error:
+            refusals += 1
+            assert "already renewed" in str(error), str(error)
+            continue
+        stored = datetime.fromisoformat(str(run["source_cutoff_at"]))
+        clamped_by_later_iso += int(stored != window["source_cutoff"])
+        accepted.append((moment, stored))
+
+    cap = journal_module.MANUAL_WINDOW_MAX_RENEWALS
+    assert len(accepted) == cap, accepted
+    assert refusals == 8 - cap, refusals
+    # The one measured mitigation: the eight re-arms of 2026-08-22 become four.
+    assert len(accepted) < 8
+    cutoffs = [stored for _moment, stored in accepted]
+    assert cutoffs == sorted(cutoffs) and len(set(cutoffs)) == len(cutoffs), cutoffs
+    # OPEN (audit P1-3, reported in notDone): every accepted renewal still
+    # re-arms a fresh ~22 minute source_cutoff onto whatever non-core source is
+    # already running -- the 22.6 / 20.4 / 20.0 / 20.0 minute pricecharting
+    # attempts.  later_iso cannot see it, because clamp_manual_window is
+    # non-decreasing in `started`.  When the re-arm is finally fixed this
+    # assertion is the one that must change.
+    assert clamped_by_later_iso == 0, clamped_by_later_iso
+    for moment, stored in accepted:
+        runway = stored - moment
+        assert timedelta(minutes=20) <= runway <= timedelta(minutes=25), (moment, runway)
 
 
 # ---------------------------------------------------------------- audit B5 (1)

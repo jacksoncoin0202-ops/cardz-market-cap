@@ -84,10 +84,23 @@ def default_state_path() -> Path:
 def later_iso(candidate: str, current: str) -> str:
     """Return whichever of the two ISO timestamps is later, verbatim.
 
-    audit P1-3: a manual-window renewal re-armed `source_cutoff` at
-    `started + span*0.5` every single time, handing every already-running
-    non-core source a fresh ~22 minute deadline (the 2026-08-22 pricecharting
-    x12 WORKER_INTERRUPTED / ~533 min).  Deadlines are forward-only from here.
+    This is a journal-API guard and nothing more: renew_manual_window takes its
+    three deadlines from the caller, and no caller may pull `source_cutoff`,
+    `sla` or `final` backwards onto work that is already running.
+
+    It does NOT close audit P1-3's expensive half, and must not be described as
+    if it does.  The only production caller (DailyChainV2.initialise ->
+    manual_e2e_schedule -> clamp_manual_window) always builds the window from
+    `started=now`, and every term of that clamp is non-decreasing in `started`,
+    so `source_cutoff = (started + final)/2` strictly increases and this guard
+    never binds there.  Each renewal therefore still re-arms a fresh ~22 minute
+    source_cutoff onto already-running non-core sources -- the 2026-08-22
+    pricecharting attempts of 22.6 / 20.4 / 20.0 / 20.0 minutes.  What bounds
+    that shape on the real path today is MANUAL_WINDOW_MAX_RENEWALS (eight
+    re-arms become four); the re-arm itself is still open and needs the audit's
+    other half (exempt an already-running non-core source from a re-armed
+    cutoff), which is a deadline-semantics change landed nowhere yet.
+
     The winning string is returned unchanged so a renewal never rewrites the
     stored timestamp's formatting.
     """
@@ -316,11 +329,13 @@ class Journal:
         FAILED_FINAL, so an explicit operator renewal is the single way back.
         Returns the status the run had before this call.
 
-        Two limits keep a renewal from being free (audit P1-3).  Deadlines are
-        forward-only: a renewal never pulls `source_cutoff`, `sla` or `final`
-        earlier onto work that is already running.  And a run gets at most
-        MANUAL_WINDOW_MAX_RENEWALS of them; the next one is refused with a
-        journaled MANUAL_WINDOW_RENEWAL_REFUSED and a JournalError.
+        Two limits keep a renewal from being free (audit P1-3).  A run gets at
+        most MANUAL_WINDOW_MAX_RENEWALS of them -- the next one is refused with
+        a journaled MANUAL_WINDOW_RENEWAL_REFUSED and a JournalError, and this
+        is the only one of the two that binds on the production path.  The
+        second, later_iso, is a defensive API guard: see its docstring for why
+        it never fires on a window built by manual_e2e_schedule, and for the
+        source_cutoff re-arm that stays open.
         """
 
         cutoff = datetime.fromisoformat(source_cutoff_at)

@@ -52,6 +52,7 @@ from daily_chain_v2_journal import (  # noqa: E402
     Journal,
     SUCCESS_TASK_STATES,
     TERMINAL_TASK_STATES,
+    UNPARKABLE_TASK_STATES,
     default_state_path,
     iso,
     utc_now,
@@ -535,20 +536,27 @@ def blocked_core_source_tasks(
 ) -> list[Mapping[str, Any]]:
     """Core source rows that settled without succeeding (audit P0-1).
 
-    source_barrier_ready only opens on COMPLETED/SKIPPED, and neither TERMINAL
-    nor PARKED is ever claimed again (reopen_retryable_terminal refuses a
-    terminal decision, claim_ready skips PARKED), so one of these rows holds
-    the whole business date until an operator unparks or retires it.  On
-    2026-08-24 fx:rates:all went TERMINAL at +0.3m and the chain sat silent for
-    28.9 minutes, because the failure was written as TASK_ERROR, which is not
-    an ALWAYS_ALERT_EVENTS type.  Naming the row is the fix; the barrier itself
-    stays exactly as strict.
+    source_barrier_ready only opens a core row on COMPLETED/SKIPPED, so the
+    other three settled states -- TERMINAL, PARKED and DEGRADED -- each hold
+    the whole business date, and none of them is ever claimed again
+    (reopen_retryable_terminal refuses a terminal decision; CLAIMABLE_TASK_STATES
+    contains none of the three).  On 2026-08-24 fx:rates:all went TERMINAL at
+    +0.3m and the chain sat silent for 28.9 minutes, because the failure was
+    written as TASK_ERROR, which is not an ALWAYS_ALERT_EVENTS type.
+
+    DEGRADED is the quietest and the most reachable of the three: any source
+    report with quarantined >= 1 finishes through finish_success(degraded=True)
+    (daily_chain_v2_worker.py), so there is no TASK_ERROR to find afterwards --
+    and neither unpark nor retire accepts DEGRADED, so the operator has no
+    command to clear it either.  Naming the row is the whole fix; the barrier
+    itself stays exactly as strict.
     """
 
     return [
         row for row in tasks
         if str(row["required_class"]) == "core"
-        and str(row["status"]) in {"TERMINAL", "PARKED"}
+        and str(row["status"]) in TERMINAL_TASK_STATES
+        and str(row["status"]) not in {"COMPLETED", "SKIPPED"}
     ]
 
 
@@ -1126,25 +1134,37 @@ class DailyChainV2:
         # audit P0-1: say it out loud before returning.  CORE_TASK_PARKED is in
         # ALWAYS_ALERT_EVENTS, so this reaches Telegram on its own channel with
         # a 30 minute cooldown and does not depend on --notify being on.  The
-        # dedupe key carries the state, so a PARKED row that later goes TERMINAL
-        # alerts again instead of hiding behind the first event.
+        # dedupe key carries the state and alert_scope carries (task, state) as
+        # well, so two different blocked core rows -- or one row that goes
+        # PARKED after TERMINAL -- each page once instead of collapsing into the
+        # first row's per-business-date cooldown.
         for blocked in blocked_core_source_tasks(source_tasks):
+            state = str(blocked["status"])
             self.journal_event(
                 "CORE_TASK_PARKED",
-                f"{blocked['task_key']}:{blocked['status']}:{int(blocked.get('attempts') or 0)}",
+                f"{blocked['task_key']}:{state}:{int(blocked.get('attempts') or 0)}",
                 {
                     "runId": self.run_id,
                     "taskKey": str(blocked["task_key"]),
                     "phase": str(blocked["phase"]),
                     "source": str(blocked["source_code"]),
                     "capability": str(blocked["capability"]),
-                    "state": str(blocked["status"]),
+                    "state": state,
                     "errorCode": str(blocked.get("last_error_code") or "CORE_SOURCE_BLOCKED"),
                     "attempts": int(blocked.get("attempts") or 0),
                     "maxAttempts": int(blocked.get("max_attempts") or 0),
                     "reason": "core source settled without success; the source barrier stays closed",
-                    "nextRetry": "operator unpark or retire",
+                    # Only PARKED/TERMINAL have an operator command; telling the
+                    # operator to unpark a DEGRADED row sends them at a lever
+                    # that is not connected to anything.
+                    "nextRetry": (
+                        "operator unpark or retire"
+                        if state in UNPARKABLE_TASK_STATES
+                        else "no operator command clears DEGRADED:"
+                        " fix the source and re-run this business date"
+                    ),
                 },
+                alert_scope=f"{blocked['task_key']}:{state}",
             )
         if not source_barrier_ready(source_tasks, now=now, cutoff=self.schedule["source_cutoff"]):
             return
@@ -1515,6 +1535,8 @@ class DailyChainV2:
         event_type: str,
         dedupe_key: str,
         payload: Mapping[str, Any],
+        *,
+        alert_scope: str = "",
     ) -> bool:
         """Journal one event and alert unconditionally on lifecycle facts.
 
@@ -1522,13 +1544,19 @@ class DailyChainV2:
         events below are the ones an operator cannot afford to miss, so they
         leave through their own best-effort channel the first time they are
         recorded.
+
+        The alert key is per business date, so notify_hermes' cooldown collapses
+        every later event of the same type into the first one.  `alert_scope`
+        narrows that key for callers where the second event names a different
+        thing to go fix -- audit P0-1: two blocked core source rows are two
+        rows, not one repeat.
         """
 
         inserted = self.journal.add_event(self.run_id, event_type, dedupe_key, payload)
         if inserted and event_type in ALWAYS_ALERT_EVENTS:
             key, level, cooldown = ALWAYS_ALERT_EVENTS[event_type]
             send_alert(
-                f"{key}:{self.day_text}",
+                ":".join(part for part in (key, self.day_text, alert_scope) if part),
                 self._alert_text(event_type, payload),
                 level=level,
                 cooldown_min=cooldown,
@@ -1539,8 +1567,11 @@ class DailyChainV2:
         detail = " ".join(
             f"{key}={payload[key]}"
             for key in (
-                "taskKey", "signal", "pid", "exitCode", "errorCode", "reason",
-                "generation", "activeCount", "interruptions", "attempts",
+                # audit P0-1: "state" rides along so the operator can tell a
+                # TERMINAL core row from a PARKED or DEGRADED one on the
+                # channel, not only in the journal document.
+                "taskKey", "state", "signal", "pid", "exitCode", "errorCode",
+                "reason", "generation", "activeCount", "interruptions", "attempts",
             )
             if payload.get(key) not in (None, "")
         )
