@@ -40,6 +40,8 @@ from daily_chain_v2_adapters import (  # noqa: E402
 )
 from daily_chain_v2_contract import (  # noqa: E402
     CONTRACT_SHORTFALL_MARKER,
+    PUBLISH_LOCK_EXIT_CODE,
+    PUBLISH_LOCK_MARKER,
     SourceTask,
     canonical_json,
     classify_error,
@@ -87,6 +89,10 @@ ALWAYS_ALERT_EVENTS: dict[str, tuple[str, str, int]] = {
     "live.confirmed": ("v2-run-published", "info", 10),
     "FAILED_FINAL": ("v2-run-failed-terminal", "error", 30),
     "CORE_TASK_PARKED": ("v2-task-parked", "error", 30),
+    # audit P1-2: a publish verdict that cannot be retried is the end of the
+    # business date's automatic path.  TASK_ERROR is add_event only, so on
+    # 2026-08-23 nothing spoke until FAILED_FINAL at 17:00 JST.
+    "PUBLISH_TERMINAL": ("v2-publish-terminal", "error", 10),
     "TICK_CRASHED": ("v2-tick-crashed", "error", 10),
     "TICK_SIGNALLED": ("v2-tick-signalled", "warn", 10),
     "TASK_ADOPTED": ("v2-task-adopted", "info", 30),
@@ -1811,6 +1817,13 @@ class DailyChainV2:
         if kind == "release":
             if exit_code != 0:
                 tail = self._tail(log_path)
+                # audit P2-15: exit 75 is the release script saying another
+                # publisher holds the flock.  Name it so the classifier reads
+                # contention instead of a broken release.
+                if exit_code == PUBLISH_LOCK_EXIT_CODE:
+                    raise RuntimeError(
+                        f"release exit={exit_code}: {PUBLISH_LOCK_MARKER} {tail}"
+                    )
                 raise RuntimeError(f"release exit={exit_code}: {tail}")
             accept = task_result(self.stage_row("daily-accept") or {})
             manifest_path = publication_manifest_path(self.run_id)
@@ -1945,6 +1958,22 @@ class DailyChainV2:
                         "status": status,
                         "attempt": int(row["attempts"]),
                         "nextRetry": (self.journal.task(task_key) or {}).get("next_retry_at"),
+                        "logPath": str(self._task_paths(row)[0]),
+                    },
+                )
+            if str(row["phase"]) == "publish" and status == "TERMINAL":
+                # audit P1-2: this is the verdict an operator has to see now.
+                # journal_event carries it into ALWAYS_ALERT_EVENTS; the
+                # TASK_ERROR row above is add_event only and alerts nobody.
+                self.journal_event(
+                    "PUBLISH_TERMINAL",
+                    f"{task_key}:{decision.error_code}:{int(row['attempts'])}",
+                    {
+                        "runId": self.run_id,
+                        "taskKey": task_key,
+                        "phase": row["phase"],
+                        "errorCode": decision.error_code,
+                        "attempts": int(row["attempts"]),
                         "logPath": str(self._task_paths(row)[0]),
                     },
                 )
