@@ -6,15 +6,17 @@
 # CDP 9333 / WSL / MySQL-3308 long-session probes) and writes only under
 # data\runtime\daily-chain-v2\observer\<business-date>\. It starts 5 minutes
 # before the first 03:30 JST tick, auto-resolves the JST business date, and
-# exits on its own once the run is terminal (+25 min settle) or after
-# -MaxHours. Same console policy as the daily task: wscript //B + the hidden
+# once the run is terminal (+25 min settle) waits for the 17:45 JST
+# CARDZ-Promo-After-Publish task and records its result, then exits; -MaxHours
+# (14.75 h from 03:25 = 18:10 JST) is the hard stop, inside the PT15H limit.
+# Same console policy as the daily task: wscript //B + the hidden
 # runner, never powershell -WindowStyle Hidden (pops a Windows Terminal window).
 [CmdletBinding()]
 param(
     [switch]$Apply,
     [switch]$Remove,
     [switch]$Print,
-    [double]$MaxHours = 14,
+    [double]$MaxHours = 14.75,
     [string]$PythonExe = "C:\Users\jackson0202\AppData\Local\Programs\Python\Python310\python.exe"
 )
 
