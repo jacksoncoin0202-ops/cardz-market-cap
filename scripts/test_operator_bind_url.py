@@ -628,6 +628,93 @@ try:
     assert "variant_ids" in inspect.getsource(R.cmd_pc_identity_reverify)
     ok("the scoping guard answers from the SNK lane's own source, and the PC lane already reads variant_ids", False)
 
+    # ------------------- the judge's report is the TRAILING JSON object
+    # `cmd_snk_identity_reverify` reaches the provider through
+    # `snk_market_data.run`, which prints "[snk_market_data] x-version
+    # acquired ..." on stdout before the lane prints its report. Reading the
+    # whole buffer with json.loads() dies on that first character: live
+    # receipt data/runtime/operator/bind-url/20260823T134607Z-v2252-snkrdunk.json
+    # stopped at step 6 with gate judge_report_unreadable, detail "Expecting
+    # value: line 1 column 2 (char 1)" -- a harvested, proposal-inserted
+    # judgement thrown away because a library logged a line. Both lanes print
+    # their report with indent=1, so "the last line" is not a report either;
+    # the report is the last TOP-LEVEL JSON object in the buffer.
+    import contextlib as _contextlib  # noqa: E402
+    import io as _io  # noqa: E402
+
+    JUDGE_REPORT = {
+        "snkIdentityReverify": True,
+        "counts": {"reviewBindings": 1, "promoted": 0},
+        "held": [{"variant_id": 1203, "iid": "128178", "reason": "page_missing"}],
+    }
+    PRETTY = json.dumps(JUDGE_REPORT, ensure_ascii=False, indent=1, default=str)
+    HEAD_LOG = "[snk_market_data] x-version acquired workers=8 delay=0.0\n"
+    TAIL_LOG = "[snk_market_data] report -> /runtime/snk_reverify_report.json\n"
+
+    def judge_printing(text: str) -> Any:
+        def _judge(_args: Any) -> int:
+            sys.stdout.write(text)
+            return 0
+
+        return _judge
+
+    saved_snk_cmd = R.cmd_snk_identity_reverify
+    saved_pc_cmd = R.cmd_pc_identity_reverify
+    saved_scoping_guard = OB.snk_judge_supports_scoping
+    # The stubs below are not the real lane, so the scoping guard would read
+    # their source and refuse; the check above already proved the guard answers
+    # from the real lane, which does read variant_ids.
+    OB.snk_judge_supports_scoping = lambda: True  # type: ignore[assignment]
+    try:
+        for label, printed in (
+            ("a log line before it", HEAD_LOG + PRETTY + "\n"),
+            ("a log line after it", PRETTY + "\n" + TAIL_LOG),
+            ("log lines on both sides", HEAD_LOG + PRETTY + "\n" + TAIL_LOG),
+        ):
+            for source_code, attr in (
+                ("snkrdunk", "cmd_snk_identity_reverify"),
+                ("pricecharting", "cmd_pc_identity_reverify"),
+            ):
+                setattr(R, attr, judge_printing(printed))
+                echoed = _io.StringIO()
+                with _contextlib.redirect_stdout(echoed):
+                    got = REAL_RUN_JUDGE(
+                        source_code, 1203, write=False, pages_dir=PAGES,
+                        map_path=None, credentials_env=None,
+                    )
+                # The whole report, not the nested "counts" object a
+                # last-brace scan would hand back.
+                assert got == JUDGE_REPORT, (source_code, label, got)
+                # Still the judge's own words, verbatim: bind-url must not
+                # become the only account of what the lane did.
+                assert echoed.getvalue() == printed, (source_code, label)
+        ok("the judge's report is read as the trailing JSON object, log lines and all, on both lanes")
+
+        # And a buffer with no report in it is still unreadable: parsing
+        # loosely must not invent a verdict out of log noise.
+        for source_code, attr in (
+            ("snkrdunk", "cmd_snk_identity_reverify"),
+            ("pricecharting", "cmd_pc_identity_reverify"),
+        ):
+            setattr(R, attr, judge_printing(HEAD_LOG + "FAIL active item 128178\n"))
+            echoed = _io.StringIO()
+            try:
+                with _contextlib.redirect_stdout(echoed):
+                    REAL_RUN_JUDGE(
+                        source_code, 1203, write=False, pages_dir=PAGES,
+                        map_path=None, credentials_env=None,
+                    )
+                raise AssertionError("bind-url accepted a judge report that was not there")
+            except OB.BindStop as stop:
+                assert stop.verdict == "judge_report_unreadable", stop.verdict
+                assert stop.status == OB.STATUS_BLOCKED
+                assert stop.step == 6
+        ok("stdout carrying no JSON object at all is still judge_report_unreadable", False)
+    finally:
+        R.cmd_snk_identity_reverify = saved_snk_cmd  # type: ignore[assignment]
+        R.cmd_pc_identity_reverify = saved_pc_cmd  # type: ignore[assignment]
+        OB.snk_judge_supports_scoping = saved_scoping_guard  # type: ignore[assignment]
+
     # ------------------------------------------------------- the receipt
     OB.run_judge = empty_judge  # type: ignore[assignment]
     db = FakeDb([si_row("pricecharting", PID, VID)])

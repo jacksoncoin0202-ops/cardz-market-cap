@@ -319,6 +319,41 @@ def snk_judge_supports_scoping() -> bool:
     return "variant_ids" in source
 
 
+def trailing_json_object(printed: str) -> dict[str, Any] | None:
+    """The LAST top-level JSON object in a judge's stdout, or None.
+
+    Both lanes reach a provider before they print, and the libraries they
+    reach through log on stdout: `snk_market_data.run` announces
+    "[snk_market_data] x-version acquired ..." before the report and names the
+    report file after it. Reading the whole buffer with json.loads() therefore
+    died on the first log character -- receipt
+    data/runtime/operator/bind-url/20260823T134607Z-v2252-snkrdunk.json stopped
+    at step 6 with judge_report_unreadable after the harvest and the proposal
+    had already happened, so a real judgement was thrown away for a log line.
+
+    Scanning FORWARD and keeping the last object that decodes is what makes
+    this honest: raw_decode consumes a whole object including its nested ones,
+    so the walk steps over the report's inner dicts instead of handing one of
+    them back, which is exactly what a "last line" or "last brace" scan would
+    do to a report printed with indent=1. Nothing here relaxes the gate: a
+    buffer with no object in it still returns None."""
+
+    decoder = json.JSONDecoder()
+    found: dict[str, Any] | None = None
+    index = printed.find("{")
+    while index >= 0:
+        try:
+            # Every start tried is a "{", so anything that decodes here is an
+            # object -- an array or a bare scalar is never mistaken for a report.
+            value, end = decoder.raw_decode(printed, index)
+        except ValueError:
+            index = printed.find("{", index + 1)
+            continue
+        found = value
+        index = printed.find("{", end)
+    return found
+
+
 def run_judge(
     source_code: str,
     variant_id: int,
@@ -360,12 +395,19 @@ def run_judge(
     # Re-emit it: redirecting the judge's own words away from the operator
     # would make bind-url the only account of what happened.
     sys.stdout.write(printed)
-    try:
-        return json.loads(printed)
-    except ValueError as error:
+    report = trailing_json_object(printed)
+    if report is None:
+        try:
+            json.loads(printed)
+        except ValueError as error:
+            raise BindStop(
+                6, STATUS_BLOCKED, "judge_report_unreadable", str(error)
+            ) from error
         raise BindStop(
-            6, STATUS_BLOCKED, "judge_report_unreadable", str(error)
-        ) from error
+            6, STATUS_BLOCKED, "judge_report_unreadable",
+            "the judge printed no JSON object",
+        )
+    return report
 
 
 # ------------------------------------------------------------------ DB reads
