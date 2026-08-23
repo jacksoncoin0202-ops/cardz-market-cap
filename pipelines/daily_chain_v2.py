@@ -476,7 +476,12 @@ def source_barrier_ready(
     if not tasks:
         return False
     core = [row for row in tasks if str(row["required_class"]) == "core"]
-    if not core or any(str(row["status"]) != "COMPLETED" for row in core):
+    # SKIPPED only comes from an operator `retire` with a journaled reason: a
+    # core contract-repair whose shortfall closed (08-24: a 1604-card gemrate
+    # pop repair planned from a window bug) must not hold the run behind a
+    # re-collection nobody needs.  The contract stage downstream still
+    # measures the data itself, so this settles scheduling, not the data gate.
+    if not core or any(str(row["status"]) not in {"COMPLETED", "SKIPPED"} for row in core):
         return False
     # Quote/extra sources are allowed to keep their own leases and retry in
     # parallel after the deterministic 10:15 snapshot.  A slow optional source

@@ -279,8 +279,31 @@ try:
     assert journal.retire(stale, reason="twice") is None  # SKIPPED is settled
     assert journal.unpark(stale) is None
     assert journal.unparkable_tasks(RUN_ID) == []
+    waiting = add_task(journal, "gemrate-repair-waiting", max_attempts=7)
+    sql(journal, "UPDATE chain_task SET status='RETRY',attempts=2,lease_token=NULL WHERE task_key=?", (waiting,))
+    leased = add_task(journal, "gemrate-repair-running", max_attempts=7)
+    sql(journal, "UPDATE chain_task SET status='RETRY',attempts=2,lease_token='live' WHERE task_key=?", (leased,))
+    running = add_task(journal, "gemrate-repair-live", max_attempts=7)
+    sql(journal, "UPDATE chain_task SET status='RUNNING',attempts=2,lease_token='live' WHERE task_key=?", (running,))
+    assert journal.retire(leased, reason="never from under a worker") is None
+    assert journal.retire(running, reason="never from under a worker") is None
+    retired_waiting = journal.retire(waiting, reason="window bug closed the shortfall")
+    assert retired_waiting is not None and retired_waiting["status"] == "SKIPPED"
+    assert retired_waiting["previousStatus"] == "RETRY" and int(retired_waiting["attempts"]) == 2
+    assert journal.claim_ready(RUN_ID, now=utc_now() + timedelta(days=1)) == [] or all(
+        str(row["task_key"]) != waiting for row in journal.claim_ready(RUN_ID, now=utc_now() + timedelta(days=1))
+    )
     later = utc_now()
     core_done = {"required_class": "core", "status": "COMPLETED"}
+    assert chain_module.source_barrier_ready(
+        [core_done, {"required_class": "core", "status": "SKIPPED"}],
+        now=later, cutoff=later + timedelta(hours=1),
+    ) is True  # operator-retired core repair is settled scheduling
+    for still_open in ("RETRY", "INTERRUPTED", "PARKED", "TERMINAL", "RUNNING"):
+        assert chain_module.source_barrier_ready(
+            [core_done, {"required_class": "core", "status": still_open}],
+            now=later, cutoff=later + timedelta(days=1),
+        ) is False, still_open  # even past the cutoff a core task must settle
     assert chain_module.source_barrier_ready(
         [core_done, {"required_class": "quote", "status": "PARKED"}],
         now=later, cutoff=later + timedelta(hours=1),
@@ -298,7 +321,7 @@ try:
     assert health["pricecharting"]["status"] == "COMPLETED"
     assert health["pricecharting"]["errors"] == ["OPERATOR_RETIRED"]
     assert chain_module.degraded_source_codes(health) == []
-    print("POSITIVE_OK retire settles a PARKED task as SKIPPED, keeps the trail, unblocks the barrier, and stays out of degradedSources")
+    print("POSITIVE_OK retire settles PARKED and unleased RETRY tasks as SKIPPED, never a leased one, keeps the trail, unblocks the barrier (core included), and stays out of degradedSources")
 
     stale_cli = add_task(journal, "pc-stale-cli", max_attempts=8)
     sql(

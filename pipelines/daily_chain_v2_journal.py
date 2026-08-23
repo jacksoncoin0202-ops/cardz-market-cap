@@ -34,6 +34,10 @@ TERMINAL_TASK_STATES = frozenset({"COMPLETED", "DEGRADED", "TERMINAL", "SKIPPED"
 SUCCESS_TASK_STATES = frozenset({"COMPLETED", "DEGRADED", "SKIPPED"})
 CLAIMABLE_TASK_STATES = ("PENDING", "READY", "RETRY", "INTERRUPTED")
 UNPARKABLE_TASK_STATES = ("PARKED", "TERMINAL")
+# retire may also settle work that is merely waiting for its next attempt; a
+# live lease (RUNNING, or a claim in flight) is never retired from under a
+# worker.
+RETIRABLE_TASK_STATES = UNPARKABLE_TASK_STATES + ("RETRY", "INTERRUPTED")
 RUN_SUCCESS_STATES = frozenset({"PUBLISHED", "PUBLISHED_DEGRADED"})
 DEFAULT_MAX_INTERRUPTIONS = 6
 INTERRUPT_BACKOFF_BASE_SECONDS = 60
@@ -1037,19 +1041,23 @@ class Journal:
 
         clock = now or utc_now()
         now_text = iso(clock)
-        states = ",".join(f"'{state}'" for state in UNPARKABLE_TASK_STATES)
+        states = ",".join(f"'{state}'" for state in RETIRABLE_TASK_STATES)
         with self.transaction() as conn:
             task = conn.execute(
                 "SELECT * FROM chain_task WHERE task_key=?", (task_key,)
             ).fetchone()
-            if task is None or str(task["status"]) not in set(UNPARKABLE_TASK_STATES):
+            if (
+                task is None
+                or str(task["status"]) not in set(RETIRABLE_TASK_STATES)
+                or task["lease_token"]
+            ):
                 return None
             changed = conn.execute(
                 f"""
                 UPDATE chain_task SET status='SKIPPED',next_retry_at=NULL,
                     lease_token=NULL,lease_expires_at=NULL,
                     last_error_code='OPERATOR_RETIRED',last_error=?,updated_at=?
-                WHERE task_key=? AND status IN ({states})
+                WHERE task_key=? AND status IN ({states}) AND lease_token IS NULL
                 """,
                 (f"retired by operator: {reason}"[-8000:], now_text, task_key),
             ).rowcount
