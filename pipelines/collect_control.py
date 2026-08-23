@@ -605,6 +605,97 @@ def _db_writer_lease(timeout_seconds: int = 120):
             connection.close()
 
 
+PC_SALE_TITLE_QUARANTINE_UPSERT = """
+    INSERT INTO market_pc_sale_title_quarantine
+      (sale_observation_id, variant_id, reason, receipt_sha256, written_at)
+    VALUES (%s, %s, %s, %s, %s)
+    ON DUPLICATE KEY UPDATE
+      variant_id=VALUES(variant_id),
+      reason=VALUES(reason),
+      receipt_sha256=VALUES(receipt_sha256),
+      written_at=VALUES(written_at)
+"""
+
+
+def _sync_pc_sale_title_quarantine() -> dict[str, Any]:
+    """Materialise the PC title<->collector-number quarantine receipt (058).
+
+    The receipt stays the derivation -- pc_sale_title_quarantine.py runs the one
+    discriminator (c11_pc_sold_ingest.title_collector_contradiction) and writes
+    it.  This only copies it into market_pc_sale_title_quarantine, so
+    operator_eligible_accepted_psa10_sales_rows can drop the poisoned
+    transactions once for every reader, instead of each reader having to
+    remember to subtract them (operator_fe_export's daily projection and
+    operator_card_daily_fact_projection never did).
+
+    Upsert only, never DELETE: removing a row re-admits a sale the
+    discriminator once condemned, and that is not a side effect a nightly sync
+    gets to have.  A missing receipt raises, exactly like
+    psa10_latest_sale_quote.load_title_quarantine -- "no file" must never be
+    read as "nothing is quarantined".
+
+    A missing TABLE (error 1146) is the one tolerated case and is reported as
+    skipped=table_absent; see the comment at the except.
+
+    Caller holds the DB-writer lease.
+    """
+
+    from psa10_latest_sale_quote import QUARANTINE_RECEIPT  # noqa: E402
+
+    raw = QUARANTINE_RECEIPT.read_bytes()
+    doc = json.loads(raw.decode("utf-8"))
+    entries = doc.get("entries")
+    if not isinstance(entries, list):
+        raise ValueError(f"quarantine receipt has no entries list: {QUARANTINE_RECEIPT}")
+    receipt_sha256 = hashlib.sha256(raw).hexdigest()
+    written_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    rows = [
+        (
+            int(entry["saleObservationId"]),
+            int(entry["variantId"]),
+            str(entry.get("reason") or "title_collector_contradiction")[:64],
+            receipt_sha256,
+            written_at,
+        )
+        for entry in entries
+    ]
+    written = 0
+    skipped = ""
+    if rows:
+        load_env()
+        connection = db()
+        try:
+            cursor = connection.cursor()
+            try:
+                cursor.executemany(PC_SALE_TITLE_QUARANTINE_UPSERT, rows)
+            except Exception as error:  # noqa: BLE001 - re-raised unless it is 1146
+                # 1146 = table does not exist, i.e. 058 has not been applied to
+                # this database yet.  That is the bootstrap window between
+                # merging this code and the chain's migrate stage running, and
+                # in it the OLD view is still installed -- so the quarantine is
+                # still enforced exactly where it was before 058
+                # (psa10_latest_sale_quote.plan drops the sales, the FE
+                # subtracts them).  Degrading to that is not opening a hole;
+                # aborting the PriceCharting lane over it would be.  Every
+                # other error still raises.
+                if tuple(getattr(error, "args", ()))[:1] != (1146,):
+                    raise
+                skipped = "table_absent"
+            else:
+                connection.commit()
+                written = len(rows)
+        finally:
+            connection.close()
+    report: dict[str, Any] = {
+        "receipt": str(QUARANTINE_RECEIPT),
+        "receiptSha256": receipt_sha256,
+        "entries": written,
+    }
+    if skipped:
+        report["skipped"] = skipped
+    return report
+
+
 def _mint_sale_quotes(source: str, *, dry_run: bool) -> dict[str, Any]:
     """Mint the ranked PSA10 quote from the latest real sale (owner 2026-08-23).
 
@@ -616,7 +707,10 @@ def _mint_sale_quotes(source: str, *, dry_run: bool) -> dict[str, Any]:
     Re-minting an unchanged sale is cheap and idempotent: payload_sha256 does
     not move, so the evidence row is re-stamped rather than duplicated.
 
-    Caller holds the DB-writer lease; this only builds the argv and runs it.
+    Caller holds the DB-writer lease; this builds the argv, runs it, and for
+    the PriceCharting lane first materialises that lane's title quarantine
+    receipt into the database (058) so the sales-history view excludes the same
+    transactions the planner refuses to quote.
     """
 
     cmd = [
@@ -632,10 +726,16 @@ def _mint_sale_quotes(source: str, *, dry_run: bool) -> dict[str, Any]:
     ]
     if dry_run:
         return {"skipped": "dry_run", "source": source}
+    extra: dict[str, Any] = {}
+    if source == "pricecharting":
+        # Before the mint, not after: a receipt this run cannot read is a hard
+        # stop, and the quote it would otherwise mint is exactly the one the
+        # quarantine exists to block.
+        extra["titleQuarantine"] = _sync_pc_sale_title_quarantine()
     result = _run(cmd, timeout=900, dry_run=False)
     if result.get("exit") != 0:
         raise RuntimeError(f"{source} latest-sale quote mint failed")
-    return result
+    return {**result, **extra}
 
 
 def _quarantined_streams(adapter: str) -> dict[str, dict[str, Any]]:

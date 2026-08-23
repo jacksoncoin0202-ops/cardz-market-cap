@@ -83,9 +83,14 @@ block = fe[fe.index(needle_from):]
 block = block[:block.index("ORDER BY")]
 check("FE history query filters ready", "price.metric_status='ready'" in block, True)
 
+# 2026-08-23：legacy composition（operator_control 嗰個 chart 價 composer）成個
+# 刪咗 —— 零 call site，而且佢砌價唔經 F-MINT。讀者唔存在 = 佢冇可能讀到非 ready
+# 行，所以契約由「要有 ready-only filter」升做「唔准再有呢個讀者」。呢個係收緊
+# 唔係放鬆：一旦有人加返 `FROM market_price_observation`，佢要重新自己證明
+# ready-only，而呢行會即刻紅住等佢。
 oc = (ROOT / "pipelines" / "operator_control.py").read_text(encoding="utf-8")
-check("legacy composition is ready-only (fail-closed equality)",
-      "AND p.metric_status = 'ready'" in oc, True)
+check("legacy composition reader is gone (no market_price_observation query)",
+      "FROM market_price_observation" in oc, False)
 check("legacy composition dropped the blocklist form",
       "NOT IN ('banned_g10_kline','quarantined_lane')" in oc, False)
 

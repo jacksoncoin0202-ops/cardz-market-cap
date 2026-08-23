@@ -72,25 +72,26 @@ check(
     and DEAD_G10_EBAY_SOURCE_CODE not in LIVE_EBAY_SOLD_SOURCE_CODES,
 )
 
-prices_src = inspect.getsource(OC.latest_prices)
-check(
-    "latest_prices uses LIVE_EBAY_SOLD_SOURCE_CODES",
-    "LIVE_EBAY_SOLD_SOURCE_CODES" in prices_src,
+# 2026-08-23：operator_control 嗰個 chart 價 composer（latest_prices 一家）已經
+# 刪咗 —— run_daily 封存之後佢一直零 call site，而佢係由 market_price_observation
+# 嘅 chart 點砌價，唔經 current_quote_revision.assert_quote_mint_allowed（F-MINT）。
+# 排名價而家係 psa10_latest_sale_quote 出嘅最新真成交。所以呢度由「檢查佢讀邊個
+# source」變成「檢查佢冇返生」：一返生就即係多咗一條唔經 F-MINT 嘅 chart 價路。
+# 用 hasattr 唔用 source grep：留喺原位嘅 tombstone 註釋提到啲名都唔會假綠。
+RETIRED_CHART_COMPOSER_ATTRS = (
+    "latest_prices",
+    "_trim_mean_prices",
+    "_pick_prefer_sources",
+    "_sales_unit_authority",
+    "_latest_price_rows",
+    "_variant_languages",
 )
+for attr in RETIRED_CHART_COMPOSER_ATTRS:
+    check(f"chart 價 composer operator_control.{attr} 冇返生", not hasattr(OC, attr))
+# 反假綠：module 真係載入到先算。import 炸咗嘅話上面每一個 hasattr 都會「啱」。
 check(
-    "latest_prices EN sales does not hard-code source_codes=('ebay',)",
-    'source_codes=("ebay"' not in prices_src.replace(" ", ""),
-)
-check(
-    "latest_prices EN fallback is pricecharting, not ebay-then-PC",
-    '("ebay", "pricecharting")' not in prices_src
-    and "('ebay', 'pricecharting')" not in prices_src,
-)
-
-sales_src = inspect.getsource(OC._sales_unit_authority)
-check(
-    "sales composer documents C11 not G10 ebay",
-    "pricecharting" in sales_src and "dead G10" in sales_src,
+    "operator_control 真係載入到（唔係全部 hasattr 假綠）",
+    hasattr(OC, "image_rows") and hasattr(OC, "_is_canonical_price_route"),
 )
 
 collect_src = (ROOT / "pipelines" / "collect_control.py").read_text(encoding="utf-8")
