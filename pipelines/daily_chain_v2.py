@@ -68,6 +68,13 @@ TICK_RESERVE_SECONDS = 30
 EXECUTE_MAX_IN_FLIGHT = 16
 EXECUTE_POLL_SECONDS = 2.0
 EXECUTE_HEALTH_INTERVAL_SECONDS = 30.0
+# Review fix: a bare poll timeout must not re-run eligible_phases() (seven
+# journal reads) plus claim_ready() (a write transaction) thirty times a minute
+# for a whole tick.  A completion always refills immediately -- that is the
+# freed slot / opened barrier case.  Only the "a backoff expired while everyone
+# is still busy" case waits, and it waits at most this long, against the 14
+# minutes the audit measured.
+EXECUTE_REFILL_IDLE_INTERVAL_SECONDS = 5.0
 # audit P2-3: a wait is sliced so the flock holder keeps writing health and
 # reclaiming expired leases; the floor kills the ~20/s spin that happened when
 # next_retry_wait() returned 0 while the concurrency group was full.
@@ -83,12 +90,40 @@ TICK_DRAIN_CEILING_SECONDS = 2400
 # The external limit is NOT ours to choose: the Task Scheduler action that runs
 # this tick carries ExecutionTimeLimit=PT55M (scripts/install_cardz_daily_v2_task.ps1),
 # and Windows kills the wscript -> powershell -> wsl.exe tree when it expires.
-# 3240 s = PT55M minus a 60 s margin for the launcher's CDP preflight and WSL
-# startup.  Raising the installer's limit without raising this one buys nothing;
-# raising this one without the installer just moves the kill outside our control,
-# so the tick reports which of the two bounds actually truncated a drain.
-TICK_HARD_LIMIT_SECONDS = 3240
+# The drain bound is measured from THIS process's start, which is later than the
+# task's start, and a drain that ends at the bound still has to kill the worker
+# and finish the tick.  So the bound is the external limit minus every piece of
+# wall clock that is not drain:
+#     3300  PT55M
+#   -   60  launcher before python exists: ensure_chrome_cdp.ps1 preflight
+#           (8 s evict + 20 s revive + curl timeouts) and wsl.exe cold start
+#   -   60  TICK_INTERRUPT_GRACE_SECONDS: terminate_worker_group() at the bound
+#   -  180  tail after the last worker dies: finalise_live + lifecycle_events +
+#           deliver_events (NOTIFY_TIMEOUT_SECONDS=20 per send, several events)
+#           + write_health + summary
+#   = 3000  == DEFAULT_MAX_RUNTIME_SECONDS
+# i.e. under the INSTALLED PT55M + -MaxRuntimeSeconds 3000 the drain grants zero
+# extra seconds and nothing regresses against today's margin.  Two ways to buy
+# real drain, neither of which this file may take on its own:
+#   (1) run the tick with a smaller --max-runtime-seconds; claiming closes
+#       earlier and drain fills the rest of the same 3000 s.  No installer
+#       change, available today.
+#   (2) raise ExecutionTimeLimit in scripts/install_cardz_daily_v2_task.ps1 AND
+#       set CARDZ_V2_TICK_EXTERNAL_LIMIT_SECONDS to the new PT value in the
+#       launcher's environment.  Raising one without the other either buys
+#       nothing or moves the kill outside our control.
+# The TICK_DRAINING event reports which of the two bounds truncated a drain.
+TICK_EXTERNAL_LIMIT_SECONDS = 3300
+TICK_LAUNCHER_STARTUP_RESERVE_SECONDS = 60
+TICK_INTERRUPT_GRACE_SECONDS = 60.0
+TICK_DRAIN_TAIL_RESERVE_SECONDS = 180
 DRAIN_HEARTBEAT_STALE_SECONDS = TASK_LEASE_SECONDS
+# Review fix: drain_deadline_for() asks claim_still_live() on EVERY worker poll
+# (1/s per source worker, 1/2 s per stage worker, up to sixteen in flight) and
+# each ask opens a fresh sqlite connection.  Heartbeats are written every 10 s
+# (source) / 2 s (stage) and the stale window is 90 s, so caching the answer for
+# five seconds cannot change a single decision.
+DRAIN_LIVENESS_CACHE_SECONDS = 5.0
 # One tick must fit inside the scheduler's own ExecutionTimeLimit; 3000 s is
 # the single source of that number for both the CLI default and the installer.
 DEFAULT_MAX_RUNTIME_SECONDS = 3000
@@ -380,6 +415,12 @@ def report_tick_skipped(business_date: date) -> Path:
     rule (scripts/watchdog_live_release.ps1) could therefore never fire.  A skip
     is its own fact and gets its own file; health.json belongs to the tick that
     owns the lock.
+
+    tick-skipped.json is HUMAN-ONLY forensics and has no automated reader: the
+    watchdog opens health.json alone, and nothing else in this repo reads this
+    path.  The automated signal for "a tick is stuck under the flock" is exactly
+    the health.json staleness this branch stops forging -- do not add a gate
+    that depends on this file without giving it a real reader first.
     """
 
     path = health_path().with_name("tick-skipped.json")
@@ -440,21 +481,39 @@ def recovery_disposition(
     return "adopt" if late <= float(grace_seconds) else "terminate"
 
 
-def tick_hard_limit_seconds() -> float:
-    """Absolute wall clock this tick process may occupy, drain included.
+def tick_external_limit_seconds() -> float:
+    """The Task Scheduler ExecutionTimeLimit that kills this process tree.
 
-    Defaults to the installed Task Scheduler ExecutionTimeLimit minus a startup
-    margin.  An operator who raises PT55M in scripts/install_cardz_daily_v2_task.ps1
-    raises this in lockstep through the environment; nothing here can outlive
-    the external limit on its own.
+    Not ours to choose: an operator who changes ExecutionTimeLimit in
+    scripts/install_cardz_daily_v2_task.ps1 must set this variable to the same
+    number, or the tick keeps sizing its drain against the old PT value.
     """
 
-    raw = os.environ.get("CARDZ_V2_TICK_HARD_LIMIT_SECONDS", "").strip()
+    raw = os.environ.get("CARDZ_V2_TICK_EXTERNAL_LIMIT_SECONDS", "").strip()
     try:
         value = float(raw)
     except (TypeError, ValueError):
-        return float(TICK_HARD_LIMIT_SECONDS)
-    return value if value > 0 else float(TICK_HARD_LIMIT_SECONDS)
+        return float(TICK_EXTERNAL_LIMIT_SECONDS)
+    return value if value > 0 else float(TICK_EXTERNAL_LIMIT_SECONDS)
+
+
+def tick_hard_limit_seconds() -> float:
+    """Latest monotonic instant a drain may end, measured from python start.
+
+    Review fix: this used to be a bare 3240 that left no room for the interrupt
+    grace plus the finalisation tail inside PT55M, i.e. a drained tick was
+    designed to be hard-killed mid-finalisation.  It is now derived, so the
+    arithmetic in the TICK_EXTERNAL_LIMIT_SECONDS comment is the only source of
+    the number: external limit - launcher startup - interrupt grace - tail.
+    """
+
+    return max(
+        0.0,
+        tick_external_limit_seconds()
+        - TICK_LAUNCHER_STARTUP_RESERVE_SECONDS
+        - TICK_INTERRUPT_GRACE_SECONDS
+        - TICK_DRAIN_TAIL_RESERVE_SECONDS,
+    )
 
 
 def adopt_grace_seconds() -> int:
@@ -607,6 +666,10 @@ class DailyChainV2:
         self.tick_started_at_utc: str | None = None
         self._health_written_monotonic = float("-inf")
         self._drain_reported = False
+        # Worker threads all ask "is my claim still live?"; the answer is cached
+        # per claim for DRAIN_LIVENESS_CACHE_SECONDS (review fix).
+        self._live_claim_cache: dict[str, tuple[float, bool]] = {}
+        self._live_claim_lock = threading.Lock()
         self.tick_started_monotonic = time.monotonic()
         # Operator finding 2026-08-24 (not in the audit): a worker whose honest
         # duration exceeds the tick budget can never finish.  Task
@@ -1634,8 +1697,27 @@ class DailyChainV2:
         whose durable claim is still valid.  A row that was reclaimed, retired,
         or whose heartbeat writer died must be interrupted on the original
         deadline exactly as before.
+
+        Memoised for DRAIN_LIVENESS_CACHE_SECONDS (review fix): every worker
+        poll of every in-flight worker asks this once claiming has closed, and
+        each miss opens a fresh sqlite connection.
         """
 
+        cache_key = f"{row['task_key']}:{row['lease_token']}"
+        ttl = float(DRAIN_LIVENESS_CACHE_SECONDS)
+        asked_at = time.monotonic()
+        if ttl > 0.0:
+            with self._live_claim_lock:
+                cached = self._live_claim_cache.get(cache_key)
+            if cached is not None and cached[0] > asked_at:
+                return cached[1]
+        answer = self._read_claim_liveness(row)
+        if ttl > 0.0:
+            with self._live_claim_lock:
+                self._live_claim_cache[cache_key] = (asked_at + ttl, answer)
+        return answer
+
+    def _read_claim_liveness(self, row: Mapping[str, Any]) -> bool:
         try:
             current = self.journal.task(str(row["task_key"]))
         except Exception:  # noqa: BLE001 - a damaged journal never earns drain
@@ -1773,7 +1855,10 @@ class DailyChainV2:
                 # live claim, so a healthy worker survives the tick deadline and
                 # a stale one is still cut on it (operator finding 2026-08-24).
                 if time.monotonic() >= self._work_deadline_monotonic(row):
-                    terminate_worker_group(proc.pid, grace_seconds=60.0)
+                    # Same 60 s the drain arithmetic reserves; one source.
+                    terminate_worker_group(
+                        proc.pid, grace_seconds=TICK_INTERRUPT_GRACE_SECONDS
+                    )
                     raise WorkerInterrupted(
                         f"tick deadline interrupted stage pid={proc.pid} capability={row['capability']}"
                     )
@@ -2147,6 +2232,10 @@ class DailyChainV2:
         finish" and "the external Task Scheduler limit killed us mid-worker" is
         a missing receipt.  `truncatedByExternalLimit` names the bound the
         operator would have to raise in scripts/install_cardz_daily_v2_task.ps1.
+
+        Review fix: a drain is the HEALTHY path, so the payload carries no
+        `errorCode` and _event_message() renders it green.  A red alert here
+        would be crying wolf on the one surface audit P2-1 exists to make honest.
         """
 
         if self._drain_reported or in_flight <= 0:
@@ -2163,13 +2252,13 @@ class DailyChainV2:
                 "runId": self.run_id,
                 "stage": "orchestrator",
                 "source": "system",
-                "errorCode": "TICK_DRAINING",
                 "inFlight": int(in_flight),
                 "drainSecondsGranted": round(
                     max(0.0, self.drain_deadline_monotonic - self.deadline_monotonic), 1
                 ),
                 "drainCeilingSeconds": TICK_DRAIN_CEILING_SECONDS,
-                "externalLimitSeconds": hard_limit,
+                "externalLimitSeconds": tick_external_limit_seconds(),
+                "tickHardLimitSeconds": hard_limit,
                 "truncatedByExternalLimit": bool(by_scheduler < by_drain),
                 "nextRetry": "in-flight worker keeps running to the drain ceiling",
             },
@@ -2180,11 +2269,26 @@ class DailyChainV2:
 
         return time.monotonic() >= self.deadline_monotonic - TICK_RESERVE_SECONDS
 
+    def may_claim(self) -> bool:
+        """Both time boundaries that must hold before a row may be claimed.
+
+        Review fix (BLOCKER): run_tick checks `now >= self.schedule['final']`
+        and breaks BEFORE it ever reaches plan()/execute_ready(), so the batch
+        barrier could never claim past the run's final deadline.  The pump
+        refills on its own clock inside one execute_ready() call, so it has to
+        carry that boundary itself.  Past `final`, _work_deadline_monotonic()
+        already evaluates to now, so every such claim spawns a real worker only
+        to interrupt it on its first poll -- one interruption each, and six of
+        them (DEFAULT_MAX_INTERRUPTIONS) park a core task inside a single call.
+        """
+
+        return not self.claiming_closed() and utc_now() < self.schedule["final"]
+
     def _claim_batch(self, limit: int) -> list[dict[str, Any]]:
         # claim_ready() already refuses a row whose concurrency group has
         # max_concurrency RUNNING rows, and an in-flight claim IS RUNNING, so
         # refilling here can never double-count a group (audit P1-1).
-        if int(limit) <= 0 or self.claiming_closed():
+        if int(limit) <= 0 or not self.may_claim():
             return []
         return self.journal.claim_ready(
             self.run_id,
@@ -2208,6 +2312,7 @@ class DailyChainV2:
         if not rows:
             return 0
         started = len(rows)
+        last_idle_claim = time.monotonic()
         with ThreadPoolExecutor(max_workers=EXECUTE_MAX_IN_FLIGHT) as pool:
             pending: set[Future[None]] = {
                 pool.submit(self.execute_claim, row) for row in rows
@@ -2230,6 +2335,22 @@ class DailyChainV2:
                 if self.claiming_closed():
                     # Drain: keep waiting for live work, claim nothing new.
                     self.report_drain(len(pending))
+                    continue
+                if not done:
+                    # Review fix: a bare timeout wake means nothing finished, so
+                    # no slot freed and no barrier opened.  Only a retry backoff
+                    # can have expired, and that is worth at most one claim per
+                    # EXECUTE_REFILL_IDLE_INTERVAL_SECONDS instead of one every
+                    # poll.  Completions below are still refilled immediately.
+                    if (
+                        time.monotonic() - last_idle_claim
+                        < EXECUTE_REFILL_IDLE_INTERVAL_SECONDS
+                    ):
+                        continue
+                    last_idle_claim = time.monotonic()
+                if not self.may_claim():
+                    # Past the run's final deadline: drain what is running, and
+                    # do not re-plan work that can no longer be claimed.
                     continue
                 if done:
                     # A slot freed.  Re-plan before refilling so a barrier that
@@ -2451,6 +2572,20 @@ class DailyChainV2:
                 f"sessions={int(payload.get('sessionCount') or 0)} "
                 f"maxMinutes={int(payload.get('maxMinutes') or 0)}\n"
                 "<i>reported only, nothing was killed</i>"
+            )
+        if event_type == "TICK_DRAINING":
+            # Review fix: draining is the healthy path this package added.  The
+            # red fallback below would page the operator on every good tick,
+            # exactly the crying-wolf that audit P2-1 set out to remove.
+            return (
+                "🟢 <b>CARDZ V2 tick draining</b>\n"
+                f"run=<code>{html.escape(str(payload.get('runId') or '-'))}</code>\n"
+                f"inFlight={int(payload.get('inFlight') or 0)} "
+                f"granted={float(payload.get('drainSecondsGranted') or 0.0):.0f}s "
+                f"ceiling={int(payload.get('drainCeilingSeconds') or 0)}s\n"
+                f"externalLimit={int(float(payload.get('externalLimitSeconds') or 0))}s "
+                f"truncated={bool(payload.get('truncatedByExternalLimit'))}\n"
+                "<i>past the claiming deadline; live workers keep running</i>"
             )
         if event_type == "MANUAL_WINDOW_RENEWED":
             return (

@@ -46,6 +46,12 @@ def _process_started_at(pid: int) -> str | None:
         return None
 
 
+# Module-local indirection so a fixture can replace the worker launcher for THIS
+# module only (review fix).  Patching `adapters_module.subprocess.Popen` reaches
+# into the shared subprocess module object and replaces Popen process-wide.
+_popen = subprocess.Popen
+
+
 def resolve_deadline(value: Any) -> float:
     """Read a work deadline that the orchestrator may still be extending.
 
@@ -203,7 +209,7 @@ class CommandSourceAdapter:
                 )
                 + b"\n"
             )
-            proc = subprocess.Popen(
+            proc = _popen(
                 command,
                 cwd=str(ROOT),
                 env=env,
