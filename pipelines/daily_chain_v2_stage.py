@@ -691,6 +691,7 @@ def stage_checkpoint_repair(_args: argparse.Namespace) -> dict[str, Any]:
         result["firstStock"] = {
             "ok": bool(first_stock.get("ok")),
             "error": first_stock.get("error"),
+            "errorClass": first_stock.get("errorClass"),
             "missing": first_stock.get("missing"),
             "ran": first_stock.get("ran"),
         }
@@ -703,6 +704,23 @@ def stage_checkpoint_repair(_args: argparse.Namespace) -> dict[str, Any]:
     result["streamsMissingAfter"] = counts_after
     result["elapsedSeconds"] = round(time.monotonic() - started, 3)
     if not first_stock.get("ok"):
+        # review 2026-08-24 (major): the 9333 single-flight probe refuses this
+        # repair while the lane's OWN child is still sweeping.  That is
+        # contention, not a repair that failed -- and this stage rides
+        # max_attempts=3 on the 60s/120s ladder, so all three attempts land
+        # inside the child's 360 s stamp window and the stage is
+        # deterministically killed by a child that is doing its job.  Defer to
+        # the next tick, in the same shape as the exhausted-budget deferral
+        # above; the error code keeps it off the failure ladder.
+        if (
+            str(first_stock.get("errorClass") or "")
+            == collect_control.PC_CHILD_ALREADY_RUNNING_CLASS
+        ):
+            raise RuntimeError(
+                "checkpoint repair deferred to the next tick: "
+                "errorCode=PC_CHILD_ALREADY_RUNNING the 9333 child is still sweeping; "
+                f"missing={counts_before}"
+            )
         raise RuntimeError(
             f"checkpoint repair first-stock failed: {first_stock.get('error')};"
             f" before={counts_before} after={counts_after}"

@@ -22,13 +22,22 @@ from zoneinfo import ZoneInfo
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
-from daily_chain_v2_contract import canonical_json, sha256  # noqa: E402
+from daily_chain_v2_contract import (  # noqa: E402
+    PC_CHILD_ALREADY_RUNNING_CLASS,
+    canonical_json,
+    sha256,
+)
 from daily_chain_v2_journal import Journal  # noqa: E402
 
 
 JST = ZoneInfo("Asia/Tokyo")
 DEFAULT_HEARTBEAT_SECONDS = 30.0
 WORKER_LEASE_SECONDS = 90
+# What collect_control.run_pc_ebay_sales / run_en_price_ref report when the
+# shared PC page acquisition did not produce a page for them
+# (pipelines/collect_control.py).  scripts/test_pc_daily_full_refresh.py pins
+# this to the string the collector really emits.
+PC_PAGES_UNAVAILABLE_ADAPTER_ERROR = "fresh_pc_pages_unavailable"
 
 
 def heartbeat_interval_seconds() -> float:
@@ -262,12 +271,35 @@ def run_collect(
                     "commands": commands,
                 }
             )
+        # review 2026-08-24 (blocking): the PC adapters also report
+        # `fresh_pc_pages_unavailable` when the sweep was REFUSED because this
+        # lane's own 9333 child is still fetching.  That is contention, and
+        # COLLECT_ADAPTER_FAILED sends it up the SOURCE_FAILED ladder, where the
+        # 7th refusal turns the source TERMINAL while the orphan is still
+        # working.  Name the class instead -- but only when every failed adapter
+        # failed for exactly that reason, so a real fault is never masked.
+        pc_refresh_pre = report.get("pcRefresh")
+        network_pre = (
+            pc_refresh_pre.get("networkRefresh")
+            if isinstance(pc_refresh_pre, Mapping)
+            else None
+        )
+        pc_child_busy = (
+            isinstance(network_pre, Mapping)
+            and str(network_pre.get("errorClass") or "") == PC_CHILD_ALREADY_RUNNING_CLASS
+            and bool(failed_detail)
+            and all(
+                str(row.get("error") or "") == PC_PAGES_UNAVAILABLE_ADAPTER_ERROR
+                for row in failed_detail
+            )
+        )
         # audit P2-4 (first step): lead with the structured verdict so the
         # classifier reads a code instead of whichever card happened to land
         # in the last 6000 characters of provider prose.  The blob still
         # follows, because an unmapped code falls through to the prose scan.
         raise RuntimeError(
-            f"errorCode=COLLECT_ADAPTER_FAILED adapters={adapters}"
+            f"errorCode={'PC_CHILD_ALREADY_RUNNING' if pc_child_busy else 'COLLECT_ADAPTER_FAILED'}"
+            f" adapters={adapters}"
             f" failed={report.get('failedAdapters')} truncated={report.get('truncatedAdapters')}"
             f" detail={json.dumps(failed_detail, ensure_ascii=False, sort_keys=True)[-6000:]}"
         )

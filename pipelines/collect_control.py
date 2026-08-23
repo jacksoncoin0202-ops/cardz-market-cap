@@ -188,6 +188,15 @@ PC_CDP_REFRESH_FAILED_CLASS = "pc_cdp_refresh_failed"
 # exists to stay welcome at (SourceSpec max_concurrency=1 governs V2 task
 # claiming, not an orphan OS process).
 PC_CHILD_ALREADY_RUNNING_CLASS = "pc_child_already_running"
+# pc_cdp_sold_refresh_win imports playwright at module scope, and the probe
+# below runs on every sweep -- including where that import cannot succeed. These
+# mirror the child's own PROGRESS_STAMP_DIR / HARD_STALL_KILLER_SECONDS so a
+# missing browser stack degrades to "probe anyway", never to "no probe at all".
+PC_PROGRESS_STAMP_DIR_FALLBACK = Path(
+    os.environ.get("PC_PROGRESS_STAMP_DIR")
+    or (ROOT / "data/runtime/operator/collect")
+)
+PC_CHILD_HARD_STALL_SECONDS_FALLBACK = 360.0
 PC_CHILD_EXIT_ERROR_CLASSES = {4: PC_CF_STORM_CLASS}
 PC_ERROR_CLASS_RETRY_SECONDS = {
     PC_CF_STORM_CLASS: 20 * 60,
@@ -1058,6 +1067,25 @@ def pc_hidden_launch_command(
     ]
 
 
+def pc_refresh_error_class(report: Any) -> str:
+    """The PC page-acquisition failure class inside a collect report, if any.
+
+    `_collect_mode` reports the fetch verdict under `pcRefresh.networkRefresh`;
+    the adapters downstream only say `fresh_pc_pages_unavailable`, which cannot
+    tell a refused sweep (contention) apart from a failed one.
+    """
+
+    if not isinstance(report, Mapping):
+        return ""
+    pc_refresh = report.get("pcRefresh")
+    if not isinstance(pc_refresh, Mapping):
+        return ""
+    network = pc_refresh.get("networkRefresh")
+    if not isinstance(network, Mapping) or bool(network.get("ok")):
+        return ""
+    return str(network.get("errorClass") or "")
+
+
 def pc_child_alive_stamp(*, now: datetime | None = None) -> dict[str, Any] | None:
     """A 9333 child that is still running, seen through its own progress stamp.
 
@@ -1074,10 +1102,16 @@ def pc_child_alive_stamp(*, now: datetime | None = None) -> dict[str, Any] | Non
     once, so this errs closed.
     """
 
-    from pc_cdp_sold_refresh_win import (  # noqa: PLC0415
-        HARD_STALL_KILLER_SECONDS,
-        PROGRESS_STAMP_DIR,
-    )
+    try:
+        from pc_cdp_sold_refresh_win import (  # noqa: PLC0415
+            HARD_STALL_KILLER_SECONDS,
+            PROGRESS_STAMP_DIR,
+        )
+    except Exception:  # noqa: BLE001 - playwright, or anything else that module needs
+        # An unimportable child module must not silently disable single-flight:
+        # that is the failure mode this whole probe exists to prevent.
+        HARD_STALL_KILLER_SECONDS = PC_CHILD_HARD_STALL_SECONDS_FALLBACK
+        PROGRESS_STAMP_DIR = PC_PROGRESS_STAMP_DIR_FALLBACK
 
     moment = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     window = float(HARD_STALL_KILLER_SECONDS)
@@ -5734,11 +5768,15 @@ def cmd_first_stock(
             "variantIds": variant_ids,
             "ok": bool(sub.get("ok")),
             "error": sub.get("error"),
+            "errorClass": pc_refresh_error_class(sub),
         }
         report["ran"].append(ran)
         if not sub.get("ok"):
             report["ok"] = False
             report["error"] = f"first-stock adapter={adapter} failed"
+            # The V2 checkpoint-repair stage has to tell a refused sweep apart
+            # from a failed one: the first defers, the second fails.
+            report["errorClass"] = ran["errorClass"]
             break
     print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
     return report

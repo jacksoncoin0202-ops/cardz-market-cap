@@ -658,6 +658,17 @@ class Journal:
                     continue
                 claim = secrets.token_hex(24)
                 attempt = int(row["attempts"]) + 1
+                # A refunded contention attempt (finish_failure below) leaves
+                # the budget counter below the trail, so the trail numbers
+                # itself: attempt_no is UNIQUE per task and must never be
+                # reused, while `attempts` counts only what the budget spends.
+                attempt_no = int(
+                    conn.execute(
+                        "SELECT COALESCE(MAX(attempt_no),0) AS n FROM chain_attempt"
+                        " WHERE task_key=?",
+                        (row["task_key"],),
+                    ).fetchone()["n"]
+                ) + 1
                 expires = iso(clock + timedelta(seconds=int(lease_seconds)))
                 changed = conn.execute(
                     """
@@ -676,7 +687,7 @@ class Journal:
                         task_key,attempt_no,claim_token,status,started_at,heartbeat_at
                     ) VALUES(?,?,?,'RUNNING',?,?)
                     """,
-                    (row["task_key"], attempt, claim, now_text, now_text),
+                    (row["task_key"], attempt_no, claim, now_text, now_text),
                 )
                 current = conn.execute(
                     "SELECT * FROM chain_task WHERE task_key=?", (row["task_key"],)
@@ -809,7 +820,13 @@ class Journal:
             )
             error_attempt = previous_same_error + 1
             delay = decision.delay_for_attempt(error_attempt)
-            exhausted = attempt >= int(task["max_attempts"])
+            # Contention never ran the work -- the single-flight holder was
+            # still working -- so it may not spend the failure budget.
+            # claim_ready incremented `attempts` at CLAIM time; this gives that
+            # increment back, and the chain_attempt row stays, so the trail is
+            # complete while seven REAL failures still park the task.
+            attempts_after = attempt - 1 if decision.contention and attempt > 0 else attempt
+            exhausted = not decision.contention and attempt >= int(task["max_attempts"])
             terminal = decision.terminal or delay is None or exhausted
             status = "TERMINAL" if terminal else "RETRY"
             next_retry = None if terminal else iso(clock + timedelta(seconds=int(delay)))
@@ -817,12 +834,12 @@ class Journal:
             conn.execute(
                 """
                 UPDATE chain_task SET status=?,result_json=COALESCE(?,result_json),
-                    next_retry_at=?,lease_token=NULL,lease_expires_at=NULL,
+                    next_retry_at=?,attempts=?,lease_token=NULL,lease_expires_at=NULL,
                     last_error_code=?,last_error=?,updated_at=?
                 WHERE task_key=? AND lease_token=?
                 """,
                 (
-                    status, result_json, next_retry, decision.error_code,
+                    status, result_json, next_retry, attempts_after, decision.error_code,
                     error_text[-8000:], now_text, task_key, claim_token,
                 ),
             )

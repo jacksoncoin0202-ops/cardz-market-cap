@@ -502,9 +502,14 @@ def _refresh_with_stub(
     # repo's real runtime dir, so this harness has to stub that source too --
     # otherwise a stamp another test left behind decides this one's outcome.
     original_stamp_dir = mod.PROGRESS_STAMP_DIR
+    original_fallback_dir = getattr(cc, "PC_PROGRESS_STAMP_DIR_FALLBACK", None)
     liveness_dir = tmp / "liveness"
     liveness_dir.mkdir(parents=True, exist_ok=True)
     mod.PROGRESS_STAMP_DIR = liveness_dir
+    # The probe degrades to its own fallback dir when the child module cannot be
+    # imported (review 2026-08-24 minor #4); that dir is the real runtime one,
+    # so move it too or the degraded path reads live stamps.
+    cc.PC_PROGRESS_STAMP_DIR_FALLBACK = liveness_dir  # type: ignore[attr-defined]
     cc.OUT_DIR = tmp
     cc.PC_REFRESH_REPORT = report_path
     cc.WINDOWS_PY = ROOT / "pipelines" / "pc_cdp_hidden_launch.vbs"
@@ -534,6 +539,7 @@ def _refresh_with_stub(
         )
     finally:
         mod.PROGRESS_STAMP_DIR = original_stamp_dir
+        cc.PC_PROGRESS_STAMP_DIR_FALLBACK = original_fallback_dir  # type: ignore[attr-defined]
         (
             cc.OUT_DIR,
             cc.PC_REFRESH_REPORT,

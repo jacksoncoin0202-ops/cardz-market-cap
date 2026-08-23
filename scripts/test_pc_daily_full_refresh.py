@@ -352,7 +352,12 @@ def main() -> int:
             import pc_cdp_sold_refresh_win as pc_child_mod  # noqa: PLC0415
 
             original_stamp_dir = pc_child_mod.PROGRESS_STAMP_DIR
+            original_probe_fallback = getattr(cc, "PC_PROGRESS_STAMP_DIR_FALLBACK", None)
             pc_child_mod.PROGRESS_STAMP_DIR = tmpdir
+            # 個 probe import 唔到 child module 就用自己嘅 fallback 目錄
+            # （review 2026-08-24 minor #4），而嗰個 fallback 就係真實 runtime
+            # 目錄，所以一齊搬走。
+            cc.PC_PROGRESS_STAMP_DIR_FALLBACK = tmpdir  # type: ignore[attr-defined]
             cc.OUT_DIR = tmpdir  # type: ignore[attr-defined]
             cc.PC_REFRESH_REPORT = child_report  # type: ignore[attr-defined]
             cc.WINDOWS_PY = Path(__file__).resolve()  # type: ignore[attr-defined]
@@ -514,6 +519,7 @@ def main() -> int:
                     live_stamp.unlink(missing_ok=True)
             finally:
                 pc_child_mod.PROGRESS_STAMP_DIR = original_stamp_dir
+                cc.PC_PROGRESS_STAMP_DIR_FALLBACK = original_probe_fallback  # type: ignore[attr-defined]
                 cc.OUT_DIR = original_out_dir  # type: ignore[attr-defined]
                 cc.PC_REFRESH_REPORT = original_report  # type: ignore[attr-defined]
                 cc.WINDOWS_PY = original_windows_py  # type: ignore[attr-defined]
@@ -667,46 +673,208 @@ def main() -> int:
               (lambda: __import__("json").loads(atomic_stamp.read_text(encoding="utf-8-sig")).get("refusedSweeps"))(),
               1)
 
-        # --- 14. tick 斬一次唔准食走一次「真失敗」嘅額度（review major #3）----
-        # claim_next 喺 CLAIM 嗰刻就 attempts+1，interrupt_claim 只加 interruptions
-        # 唔還返個 attempt。R5 令 pricecharting 由 5 分鐘 replay 變成 50-65 分鐘
-        # sweep，一個 business date 會俾斬 1-3 次；7 個 attempt 燒完就 PARKED，而
-        # PARKED 唔喺 source_barrier_ready 嘅 settled set 入面，成條鏈要等到 10:15。
+        # --- 14. attempt 預算：pricecharting 同其他 source 一模一樣 7 ---------
+        # 之前呢度加咗 headroom（7 + interruption budget = 13）落同一個 `attempts`
+        # counter 上面，即係將「真失敗就 park」個閘由 7 放鬆到 13 —— 放鬆閘係唔准
+        # 嘅。被 tick 斬嗰啲 attempt 點計係 R2 branch 嘅嘢（interruption 自己還返個
+        # attempt）；呢邊只准得一個數：SOURCE_MAX_ATTEMPTS。
         import daily_chain_v2 as v2chain  # noqa: PLC0415
         import daily_chain_v2_adapters as v2adapters  # noqa: PLC0415
+        import daily_chain_v2_contract as v2contract  # noqa: PLC0415
         import daily_chain_v2_journal as v2journal  # noqa: PLC0415
+        import daily_chain_v2_worker as v2worker  # noqa: PLC0415
 
-        attempts_fn = getattr(v2chain, "source_task_max_attempts", None)
-        check("有 per-source attempt 預算", callable(attempts_fn), True)
-        if callable(attempts_fn):
-            specs = {
-                adapter.spec.source_code: adapter.spec
-                for adapter in v2adapters.build_default_registry().enabled()
-            }
-            check("真失敗嘅預算冇郁", getattr(v2chain, "SOURCE_MAX_ATTEMPTS", None), 7)
-            check(
-                "9333 sweep 由 spec 自己宣告，唔係喺 orchestrator 點名",
-                specs["pricecharting"].resumable_sweep,
-                True,
-            )
-            check(
-                "PC sweep 額外攞返 interruption 嗰份",
-                attempts_fn(specs["pricecharting"]),
-                7 + v2journal.default_max_interruptions(),
-            )
-            check("其他 source 一個都唔加", attempts_fn(specs["snkrdunk"]), 7)
-            check("gemrate 一樣唔加", attempts_fn(specs["gemrate"]), 7)
-            check(
-                "interruption 上限冇拆走（照樣會 PARK）",
-                v2journal.DEFAULT_MAX_INTERRUPTIONS >= 1,
-                True,
-            )
-            plan_src = (ROOT / "pipelines" / "daily_chain_v2.py").read_text(encoding="utf-8")
-            check(
-                "plan() 真係用返個 helper（唔准得個檢查冇 call site）",
-                "max_attempts=source_task_max_attempts(adapter.spec)" in plan_src,
-                True,
-            )
+        specs = {
+            adapter.spec.source_code: adapter.spec
+            for adapter in v2adapters.build_default_registry().enabled()
+        }
+        check("真失敗嘅預算冇郁", getattr(v2chain, "SOURCE_MAX_ATTEMPTS", None), 7)
+        check(
+            "冇 per-source attempt headroom helper",
+            getattr(v2chain, "source_task_max_attempts", None),
+            None,
+        )
+        check(
+            "SourceSpec 冇 resumable_sweep 呢個 headroom 掣",
+            hasattr(specs["pricecharting"], "resumable_sweep"),
+            False,
+        )
+        plan_src = (ROOT / "pipelines" / "daily_chain_v2.py").read_text(encoding="utf-8")
+        check(
+            "plan() 每個 source 都派同一個常數",
+            "max_attempts=SOURCE_MAX_ATTEMPTS" in plan_src,
+            True,
+        )
+
+        def planned_budget(spec):
+            """生產真正派落 journal 嗰個數，行返 plan() 行嗰條路。"""
+
+            helper = getattr(v2chain, "source_task_max_attempts", None)
+            if callable(helper):
+                return int(helper(spec))
+            return int(v2chain.SOURCE_MAX_ATTEMPTS)
+
+        check("pricecharting max_attempts", planned_budget(specs["pricecharting"]), 7)
+        check("snkrdunk max_attempts", planned_budget(specs["snkrdunk"]), 7)
+        check("gemrate max_attempts", planned_budget(specs["gemrate"]), 7)
+        check(
+            "interruption 上限冇拆走（照樣會 PARK）",
+            v2journal.DEFAULT_MAX_INTERRUPTIONS >= 1,
+            True,
+        )
+
+        # --- 15. 7 次真失敗照 TERMINAL；contention 唔准食走個額度 -------------
+        # `pc_child_already_running` 係「呢條 lane 自己隻 9333 child 仲喺度跑」，
+        # 唔係攞唔到頁。當成 SOURCE_FAILED 就會行 60..1800 條梯，第 7 次同類失敗
+        # TERMINAL —— 一隻跑緊 40-90 分鐘嘅 orphan 足夠燒晒成條 lane，然後當日
+        # 出街完全冇新 PC 數。Contention 唔准燒條梯，亦唔准燒 attempt 預算。
+        journal = v2journal.Journal(tmpdir / "attempt-budget.sqlite3")
+        journal.initialise()
+        day_text = "2026-08-25"
+        run_row = journal.ensure_run(
+            business_date=day_text,
+            source_cutoff_at="2026-08-25T01:15:00Z",
+            sla_at="2026-08-25T05:00:00Z",
+            final_at="2026-08-25T08:00:00Z",
+        )
+        run_id = str(run_row["run_id"])
+
+        def drive(task_key, error_text, *, rounds, start_at):
+            """Claim → fail 一個 task 幾轉，返回每轉個 status 同最後個時鐘。"""
+
+            clock = start_at
+            trail: list[str] = []
+            for _ in range(rounds):
+                claimed = journal.claim_ready(run_id, limit=8, now=clock)
+                row = next(
+                    (r for r in claimed if str(r["task_key"]) == task_key), None
+                )
+                if row is None:
+                    trail.append("UNCLAIMABLE")
+                    break
+                status = journal.finish_failure(
+                    task_key,
+                    str(row["lease_token"]),
+                    decision=v2contract.classify_error(error_text),
+                    error_text=error_text,
+                    now=clock,
+                )
+                trail.append(status)
+                if status == "TERMINAL":
+                    break
+                next_retry = (journal.task(task_key) or {}).get("next_retry_at")
+                if not next_retry:
+                    break
+                clock = datetime.fromisoformat(str(next_retry).replace("Z", "+00:00"))
+            return trail, clock
+
+        budget = planned_budget(specs["pricecharting"])
+        clock0 = datetime(2026, 8, 25, 0, 0, tzinfo=timezone.utc)
+        real_key = journal.add_raw_task(
+            run_id=run_id,
+            business_date=day_text,
+            phase="source",
+            source_code="pricecharting",
+            capability="quote",
+            required_class="quote",
+            concurrency_group="cdp:9333",
+            max_concurrency=1,
+            max_attempts=budget,
+        )
+        real_text = "RuntimeError:PriceCharting sold parser blew up on page 4"
+        check(
+            "真失敗仲係 SOURCE_FAILED",
+            v2contract.classify_error(real_text).error_code,
+            "SOURCE_FAILED",
+        )
+        real_trail, _real_clock = drive(real_key, real_text, rounds=12, start_at=clock0)
+        check("真失敗第 7 次就 TERMINAL", real_trail, ["RETRY"] * 6 + ["TERMINAL"])
+
+        busy_text = (
+            "RuntimeError:errorCode=PC_CHILD_ALREADY_RUNNING"
+            " adapters=['pc_ebay_sales', 'en_price_ref']"
+            " failed=['pc_ebay_sales', 'en_price_ref'] detail=[]"
+        )
+        busy_decision = v2contract.classify_error(busy_text)
+        check("contention 有自己個 error code", busy_decision.error_code, "PC_CHILD_ALREADY_RUNNING")
+        check("contention 唔係 terminal", busy_decision.terminal, False)
+        check(
+            "contention 條梯行唔完（第 50 次都仲有得等）",
+            busy_decision.delay_for_attempt(50) is not None,
+            True,
+        )
+        busy_key = journal.add_raw_task(
+            run_id=run_id,
+            business_date=day_text,
+            phase="source",
+            source_code="pricecharting",
+            capability="price",
+            required_class="quote",
+            concurrency_group="cdp:9333",
+            max_concurrency=1,
+            max_attempts=budget,
+        )
+        busy_trail, busy_clock = drive(busy_key, busy_text, rounds=12, start_at=clock0)
+        check("contention 一次都唔准 TERMINAL", sorted(set(busy_trail)), ["RETRY"])
+        check(
+            "contention 捱得住 90 分鐘",
+            (busy_clock - clock0).total_seconds() >= 90 * 60,
+            True,
+        )
+        check(
+            "捱完 90 分鐘仲 claim 得返",
+            [
+                str(r["task_key"])
+                for r in journal.claim_ready(run_id, limit=8, now=busy_clock)
+            ],
+            [busy_key],
+        )
+
+        # --- 16. 冇 playwright 一樣要 probe 到 9333 child（review minor #4）----
+        # `pc_child_alive_stamp` 係 single-flight 個閘。佢入面 import 嘅
+        # `pc_cdp_sold_refresh_win` 喺 module scope import playwright，import 一炸
+        # 個閘就變成「完全冇 probe」，等於兩隻 child 同時劖 PriceCharting。
+        probe_stamp = tmpdir / "pc_cdp_progress.777777.stamp"
+        probe_stamp.write_text("beat", encoding="utf-8")
+        original_fallback_dir = getattr(cc, "PC_PROGRESS_STAMP_DIR_FALLBACK", None)
+        original_child_module = sys.modules.get("pc_cdp_sold_refresh_win")
+        try:
+            if original_fallback_dir is not None:
+                cc.PC_PROGRESS_STAMP_DIR_FALLBACK = tmpdir  # type: ignore[attr-defined]
+            sys.modules["pc_cdp_sold_refresh_win"] = None  # type: ignore[assignment]
+            probed = cc.pc_child_alive_stamp()
+        except Exception as error:  # noqa: BLE001
+            probed = f"{type(error).__name__}:{error}"
+        finally:
+            if original_child_module is None:
+                sys.modules.pop("pc_cdp_sold_refresh_win", None)
+            else:
+                sys.modules["pc_cdp_sold_refresh_win"] = original_child_module
+            if original_fallback_dir is not None:
+                cc.PC_PROGRESS_STAMP_DIR_FALLBACK = original_fallback_dir  # type: ignore[attr-defined]
+            probe_stamp.unlink(missing_ok=True)
+        check(
+            "冇 playwright 都 probe 到 stamp",
+            probed if not isinstance(probed, dict) else str(probed.get("stamp")),
+            str(probe_stamp),
+        )
+
+        # --- 17. worker 認嘅 adapter error 就係 collector 真係出嗰個字 ---------
+        unavailable = cc.run_en_price_ref(
+            [items[1]], mode="incr", dry_run=True, refresh={"ok": False}
+        )
+        check(
+            "worker 認嘅字串 = collector 真係出嗰個",
+            getattr(v2worker, "PC_PAGES_UNAVAILABLE_ADAPTER_ERROR", None),
+            unavailable.get("error"),
+        )
+        check(
+            "contention class 兩邊拼法一致",
+            v2contract.PC_CHILD_ALREADY_RUNNING_CLASS
+            if hasattr(v2contract, "PC_CHILD_ALREADY_RUNNING_CLASS")
+            else None,
+            cc.PC_CHILD_ALREADY_RUNNING_CLASS,
+        )
     finally:
         cc._pc_subset_map = original_map
         deriv.validate_pc_psa10 = original_validate

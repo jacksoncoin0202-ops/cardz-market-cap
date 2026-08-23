@@ -88,11 +88,6 @@ class SourceSpec:
     # "let the registry stage apply the default route priority".
     identity_lane: str | None = None
     route_priority: int | None = None
-    # Declared, never branched on: this source's worker cannot finish inside one
-    # claim window, so the tick interrupts it on ordinary business dates and the
-    # work resumes from on-disk progress.  The orchestrator reads it to size the
-    # attempt budget instead of naming the provider.
-    resumable_sweep: bool = False
 
     def __post_init__(self) -> None:
         if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,63}", self.source_code):
@@ -252,11 +247,21 @@ class RetryDecision:
     error_code: str
     terminal: bool
     delays_seconds: tuple[int, ...]
+    # Contention is not failure: another holder of the same single-flight
+    # resource is working, so this attempt never ran.  Such a class repeats its
+    # last delay instead of walking off the end of its ladder into a terminal
+    # verdict, and daily_chain_v2_journal.finish_failure gives back the attempt
+    # the claim spent -- the failure budget exists for real failures.
+    contention: bool = False
 
     def delay_for_attempt(self, attempt_number: int) -> int | None:
         index = int(attempt_number) - 1
-        if self.terminal or index < 0 or index >= len(self.delays_seconds):
+        if self.terminal or index < 0 or not self.delays_seconds:
             return None
+        if index >= len(self.delays_seconds):
+            if not self.contention:
+                return None
+            index = len(self.delays_seconds) - 1
         return self.delays_seconds[index]
 
 
@@ -305,9 +310,30 @@ TERMINAL_NUMERIC_RE = re.compile(r"(?<![a-z])(nan|infinity)(?![a-z])")
 # belong here; every other code falls through to the substring scan so a MySQL
 # or CDP fault inside the blob is still recognised.
 ERROR_CODE_TOKEN_RE = re.compile(r"errorcode=([a-z0-9_]+)")
+# collect_control.PC_CHILD_ALREADY_RUNNING_CLASS, spelled again here so the
+# orchestrator never imports the collector; scripts/test_pc_daily_full_refresh.py
+# pins the two spellings to each other.
+PC_CHILD_ALREADY_RUNNING_CLASS = "pc_child_already_running"
+# One tick.  The orphaned 9333 child either finishes its own 40-90 min sweep or
+# its hard stall killer takes it, and either way the next tick resumes from the
+# pages it already captured.
+PC_CHILD_ALREADY_RUNNING_RETRY_SECONDS = (600,)
 ERROR_CODE_DECISIONS: dict[str, RetryDecision] = {
     "worker_receipt_missing": RetryDecision(
         "WORKER_RECEIPT_MISSING", False, INFRA_RETRY_SECONDS
+    ),
+    # review 2026-08-24 (blocking): a refused sweep is this lane's OWN 9333
+    # child still fetching, not a failed fetch.  Read as SOURCE_FAILED it
+    # climbed the 60..1800 ladder and turned the source TERMINAL on the 7th
+    # refusal while the orphan was still working -- the day then published with
+    # no fresh PriceCharting data.  Same reading as PUBLISH_LOCK_HELD below:
+    # contention must not burn the ladder, and here it must not burn the
+    # attempt budget either.
+    PC_CHILD_ALREADY_RUNNING_CLASS: RetryDecision(
+        "PC_CHILD_ALREADY_RUNNING",
+        False,
+        PC_CHILD_ALREADY_RUNNING_RETRY_SECONDS,
+        contention=True,
     ),
 }
 
