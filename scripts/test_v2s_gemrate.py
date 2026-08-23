@@ -372,7 +372,12 @@ def test_deferred_termination_holds_sigterm() -> None:
     if not hasattr(signal, "SIGTERM"):
         return
     with cc._deferred_termination() as state:
-        os.kill(os.getpid(), signal.SIGTERM)
+        # raise_signal(), not os.kill(getpid()): on Windows os.kill() is
+        # TerminateProcess(), which kills this interpreter with exit code 15
+        # before any handler can run, so the check could never execute there.
+        # raise_signal() delivers through the C runtime on both platforms and
+        # therefore actually exercises the deferring handler.
+        signal.raise_signal(signal.SIGTERM)
         check("SIGTERM recorded, process alive", state["signalled"], True)
     check("handler restored after the block",
           signal.getsignal(signal.SIGTERM) is not None, True)

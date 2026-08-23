@@ -3307,6 +3307,7 @@ def stage_pc_replay(ctx: SimpleNamespace) -> dict[str, Any]:
     with conn.cursor() as cursor:
         cursor.execute(
             "SELECT si.external_entity_id AS pid, si.variant_id, si.match_status,"
+            " si.bind_evidence_json,"
             " v.tcg_code, v.card_language, v.set_name, v.collector_number,"
             " v.canonical_name,"
             " v.set_code AS v_set_code, v.printing_code AS v_printing_code,"
@@ -3377,6 +3378,18 @@ def stage_pc_replay(ctx: SimpleNamespace) -> dict[str, Any]:
         # STAMPS bindings exact still using the loose reading.
         if not _pc_print_signature_ok(identity["parallel"], row):
             counts["parallelSoftMismatch"] += 1
+            # A ruling on the row outranks the page, in EVERY lane. Both
+            # reverify lanes have honoured operator_ruling since 2026-08-22
+            # (the 12:08Z artifact counts 16); this stage never looked, so a
+            # card the reverify lane held for its owner's ruling was
+            # downgraded here on the next replay and the ruling was silently
+            # re-decided by a capture. Not a relaxation: nothing is promoted,
+            # the row keeps exactly the status it already had.
+            ruled = operator_ruling(row.get("bind_evidence_json"))
+            if ruled:
+                counts["operatorRuled"] = counts.get("operatorRuled", 0) + 1
+                results.append((pid, status, ""))
+                continue
             if status == "exact" and hold_go:
                 # leftover-5 EN OP11 reprints omit [SP]/[TR] in the heading.
                 # TCGPlayer ID + sales already identified the product. Do not
@@ -8811,6 +8824,62 @@ def pc_capture_for_product(
     return fallback or (candidates[0] if candidates else None)
 
 
+def _pc_bracket_names_our_product(page_parallel: str, row: Mapping[str, Any]) -> bool:
+    """Does a PriceCharting bracket name the very product our catalog names?
+
+    PriceCharting sells a promo, anniversary set or gift collection as its own
+    product and writes the PRODUCT in the bracket ("[1st Anniversary]",
+    "[Gift Collection]"), while the catalog carries that product in set_name
+    and claims no treatment at all (printing_code "", parallel "base"). The
+    bracket comparison above only ever reads a bracket as a TREATMENT, so nine
+    such cards were held print_signature_mismatch on 2026-08-22 with their own
+    product's page in hand.
+
+    The bracket has to be EARNED out of our own set_name, one direction only:
+    every distinctive word the bracket says must already be in the set name we
+    wrote. That is what separates a card from its sibling product -- v2146 is
+    "1st Anniversary Set" and v2126 is "Film Red", so neither can take the
+    other's page.
+
+    Deliberately only set_name. canonical_name and fp_parallel say "1st
+    Anniversary" for v1424, a card whose set_name is the OP05 booster: reading
+    them would hand a booster card the anniversary product's page. And
+    _product_tokens drops years, so corroborating on canonical_name would also
+    let the 2014 Battle Festa twin eat the 2015 page.
+
+    A bracket that is nothing but a set code ("[PRB01]") carries no
+    distinctive word at all -- _product_tokens drops set codes, because every
+    listing repeats them -- so it is answered by the codes this row itself
+    names, never by the code its collector number prints. OP05-119 is printed
+    on both the OP05 booster Luffy and the PRB01 reissue; only the PRB01 row
+    says PRB01.
+    """
+
+    import op_identity_rules  # deferred: it imports this module at its top
+
+    bracket = _norm_text(page_parallel)
+    if not bracket:
+        return False
+    set_name = str(row.get("set_name") or "")
+    if not set_name:
+        return False
+    code = op_identity_rules.SET_CODE_RE.fullmatch(bracket.upper())
+    if code:
+        ours = {
+            str(row.get("v_set_code") or row.get("set_code") or "").upper(),
+            *(
+                match.group(1)
+                for match in op_identity_rules.SET_CODE_RE.finditer(set_name.upper())
+            ),
+        } - {""}
+        return code.group(1) in ours
+    # Arguments deliberately reversed: product_agrees asks "does THEIR listing
+    # say every distinctive word OURS does", and here the bracket is the
+    # smaller claim that our own set name has to cover.
+    agrees, _why = op_identity_rules.product_agrees(page_parallel, "", set_name)
+    return agrees
+
+
 def _pc_print_signature_ok(page_parallel: str, row: Mapping[str, Any]) -> bool:
     """Phase-D parallel agreement plus the abbreviation vocabulary.
 
@@ -8866,6 +8935,28 @@ def _pc_print_signature_ok(page_parallel: str, row: Mapping[str, Any]) -> bool:
     vpp = _norm_text(variant_parallel)
     year = re.match(r"(19|20)\d{2}\b", str(row.get("canonical_name") or ""))
     if vpp and year and bracket == f"{vpp} {year.group(0)}":
+        return True
+    # The bracket is our own PRODUCT, not a treatment. Written as one and-chain
+    # so it commutes with the dated-event rule above: neither can answer for a
+    # bracket the other accepts. Every conjunct is load-bearing --
+    # _pc_bracket_printing_code refuses any wording that names a treatment
+    # ("[Wanted]", "[Manga]", "[SP]"), _pc_bracket_names_our_product makes the
+    # bracket earn itself out of set_name, and the recursive call re-asks the
+    # bracket-less question the catalog can already answer, so a card whose
+    # printing_code claims a treatment is refused here exactly as it is there.
+    # The printing_code conjunct is spelled out rather than left to the
+    # recursive call: _parallel_agrees collapses "" and "base" into each other,
+    # so a row reading printing_code='sp' with parallel_code='base' would
+    # satisfy the bracket-less path on the parallel alone -- the Yamato hole,
+    # reached through a bracket this time. The catalog has to claim NO
+    # treatment for a product bracket to be readable as the product.
+    if (
+        str(row.get("tcg_code") or "") == "one-piece"
+        and not _pc_bracket_printing_code(page_parallel)
+        and _norm_text(str(row.get("printing_code") or "")) in _PC_BASE_PRINTINGS
+        and _pc_bracket_names_our_product(page_parallel, row)
+        and _pc_print_signature_ok("", row)
+    ):
         return True
     return False
 
@@ -9344,7 +9435,7 @@ def cmd_snk_identity_reverify(args: argparse.Namespace) -> int:
     held: list[dict[str, Any]] = []
     try:
         with conn.cursor() as cursor:
-            cursor.execute(
+            binding_sql = (
                 "SELECT si.external_entity_id AS iid, si.variant_id,"
                 " si.match_status, si.bind_evidence_json,"
                 + VARIANT_OPERATOR_RULING_SQL +
@@ -9362,7 +9453,28 @@ def cmd_snk_identity_reverify(args: argparse.Namespace) -> int:
                 "   AND si.match_status IN ('manual_review','rejected')"
                 f"   AND {NOT_A_REJECTION_VERDICT_SQL}"
             )
-            bindings = cursor.fetchall()
+            # The same scoping the PC lane already has. Without it, ruling on
+            # one SNKRDUNK card re-harvests every held binding in the table --
+            # the worklist below is built from whatever this query returns --
+            # so a three-row supersede would go fetch the provider for all of
+            # them. Shape copied from cmd_pc_identity_reverify on purpose: an
+            # empty --variant-id list selects nothing rather than everything.
+            binding_params: list[Any] = []
+            variant_ids = getattr(args, "variant_ids", None)
+            if variant_ids is not None:
+                scoped = sorted({int(variant_id) for variant_id in variant_ids})
+                if not scoped:
+                    bindings = []
+                else:
+                    binding_sql += (
+                        f" AND si.variant_id IN ({','.join(['%s'] * len(scoped))})"
+                    )
+                    binding_params.extend(scoped)
+                    cursor.execute(binding_sql, tuple(binding_params))
+                    bindings = cursor.fetchall()
+            else:
+                cursor.execute(binding_sql, tuple(binding_params))
+                bindings = cursor.fetchall()
 
         worklist = sorted({
             int(row["iid"]) for row in bindings if str(row["iid"]).isdigit()

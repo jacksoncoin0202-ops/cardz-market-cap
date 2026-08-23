@@ -7,26 +7,21 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-import statistics
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
-from collection_contract import (  # noqa: E402
-    CHECKPOINT_ADAPTERS,
-    LIVE_EBAY_SOLD_SOURCE_CODES,
-)
+from collection_contract import CHECKPOINT_ADAPTERS  # noqa: E402
 from qualified_pool_operator import db, load_env  # noqa: E402
 from runtime_paths import assert_runtime_root  # noqa: E402
 import operator_fe_export as fe  # noqa: E402
 
-LEGACY_PRICE_COMPOSITION_ORDER = ("snk_psa10", "snk", "snkrdunk", "pricecharting", "ebay")
-BANNED_PRICE_SOURCES = ("g10_kline",)
 FREEZE_KINDS = ("identity", "source", "image")
 OUT_DIR = ROOT / "data" / "runtime" / "operator"
 PROMOTED_PRODUCT_SNAPSHOT = OUT_DIR / "promoted-product-snapshot.json"
@@ -305,354 +300,14 @@ def _is_canonical_price_route(
     return route_priority == (route.index(source) + 1) * QUOTE_ROUTE_PRIORITY_STEP
 
 
-def _trim_mean_prices(candidates: list[dict]) -> dict | None:
-    """Compose authority price from latest per-source candidates.
-
-    Rules (DADDY 2026-08 follow-up):
-    1) Prefer SNK-family (snk_psa10/snk/snkrdunk): trim extremes inside SNK, average survivors.
-    2) Cross-source guard when eBay/PC peers exist:
-       - if SNK authority > 2.5x peer median => SNK is extreme-high; fall back to trimmed peers
-       - if SNK authority < peer median / 2.5 => keep SNK (peers often inflated lots)
-    3) No SNK: trim extremes among fallback sources only, then average.
-    """
-    if not candidates:
-        return None
-    order = {s: i for i, s in enumerate(LEGACY_PRICE_COMPOSITION_ORDER)}
-
-    def _vals(pool: list[dict]) -> list[float]:
-        out = []
-        for c in pool:
-            try:
-                out.append(float(c["price_usd"]))
-            except Exception:
-                continue
-        return out
-
-    def _avg_pool(pool: list[dict]) -> dict:
-        vals = _vals(pool)
-        avg = sum(vals) / len(vals)
-        rep = min(pool, key=lambda r: order.get(str(r.get("source_code")), 99))
-        out = dict(rep)
-        out["price_usd"] = avg
-        out["metric_status"] = str(rep.get("metric_status") or "ready")
-        return out
-
-    def _trim_pool(pool: list[dict]) -> list[dict]:
-        vals = _vals(pool)
-        if not vals:
-            return []
-        if len(vals) == 1:
-            return list(pool)
-        med = statistics.median(vals)
-        if med <= 0:
-            return list(pool)
-        kept = []
-        for c in pool:
-            try:
-                p = float(c["price_usd"])
-            except Exception:
-                continue
-            if p > med * 2.0 or p < med / 2.5:
-                continue
-            kept.append(c)
-        return kept or list(pool)
-
-    snk = [c for c in candidates if _is_snk_source(c.get("source_code"))]
-    peers = [
-        c
-        for c in candidates
-        if str(c.get("source_code") or "") in set(LIVE_EBAY_SOLD_SOURCE_CODES)
-    ]
-    fallback = [c for c in candidates if not _is_snk_source(c.get("source_code"))]
-
-    if snk:
-        snk_auth = _avg_pool(_trim_pool(snk))
-        peer_vals = _vals(peers)
-        if peer_vals:
-            peer_med = statistics.median(peer_vals)
-            snk_px = float(snk_auth["price_usd"])
-            # SNK extreme-high vs peer cluster => reject SNK authority for display
-            if peer_med > 0 and snk_px > peer_med * 2.5:
-                peer_pool = _trim_pool(peers) or peers
-                return _avg_pool(peer_pool)
-            # SNK far below peer cluster => keep SNK (do not let inflated eBay lift rank)
-        return snk_auth
-
-    if not fallback:
-        return None
-    return _avg_pool(_trim_pool(fallback))
-
-
-def _variant_languages(cur, variant_ids) -> dict[int, str]:
-    """card_language for authority routing. Missing => treat as non-EN (SNK chain)."""
-    if not variant_ids:
-        return {}
-    ph = ",".join(["%s"] * len(variant_ids))
-    cur.execute(
-        f"SELECT variant_id AS id, card_language FROM catalog_printing_identity WHERE variant_id IN ({ph})",
-        tuple(variant_ids),
-    )
-    out: dict[int, str] = {}
-    for row in cur.fetchall():
-        lang = str(row.get("card_language") or "").strip().lower()
-        out[int(row["id"])] = lang
-    return out
-
-
-def _sales_unit_authority(
-    cur,
-    variant_ids,
-    *,
-    source_codes: tuple[str, ...] = ("snkrdunk", "snk", "snk_psa10"),
-    authority_code: str = "snk_sales",
-    min_n: int = 3,
-    lookback_days: int = 30,
-    max_rows: int = 30,
-    require_quantity: bool = True,
-) -> dict[int, dict]:
-    """Compose display price from completed sales unit prices (qty unitized when present).
-
-    Polaris (DADDY 2026-08-03, 2026-08-19 sold-source fix):
-    - EN chain uses live eBay solds (C11 `pricecharting` rows) labeled
-      authority_code ebay_sales. Never `source_code='ebay'` (dead G10 archive).
-    - JA/other chain uses SNK sales (`snkrdunk/snk/snk_psa10` -> snk_sales)
-    - Prefer last 30d; if sparse take latest max_rows
-    - Require >= min_n after extreme trim; median of survivors
-    """
-    if not variant_ids or not source_codes:
-        return {}
-    ph = ",".join(["%s"] * len(variant_ids))
-    sources = ",".join(f"'{s}'" for s in source_codes)
-    qty_clause = "AND quantity IS NOT NULL AND quantity > 0" if require_quantity else ""
-    cur.execute(
-        f"""
-        SELECT variant_id, source_code, unit_price_usd, quantity, sold_at, transaction_value_usd
-        FROM market_sale_observation
-        WHERE variant_id IN ({ph})
-          AND source_code IN ({sources})
-          AND unit_price_usd IS NOT NULL
-          AND unit_price_usd > 0
-          {qty_clause}
-        ORDER BY sold_at DESC
-        """,
-        tuple(variant_ids),
-    )
-    by: dict[int, list] = {}
-    for row in cur.fetchall():
-        by.setdefault(int(row["variant_id"]), []).append(row)
-
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-    out: dict[int, dict] = {}
-    for vid, rows in by.items():
-        window = []
-        for r in rows:
-            sold = r.get("sold_at")
-            if sold is None:
-                continue
-            if getattr(sold, "tzinfo", None) is not None:
-                sold_naive = sold.replace(tzinfo=None)
-            else:
-                sold_naive = sold
-            try:
-                age = (now - sold_naive).days
-            except Exception:
-                continue
-            if age <= lookback_days:
-                window.append(r)
-        # EN/eBay: only trust true 30d window (no ancient max_rows backfill as authority).
-        if authority_code == "ebay_sales":
-            pool = window
-        else:
-            pool = window if len(window) >= min_n else rows[:max_rows]
-        units = []
-        for r in pool:
-            try:
-                units.append(float(r["unit_price_usd"]))
-            except Exception:
-                continue
-        if len(units) < min_n:
-            continue
-        med = statistics.median(units)
-        if med <= 0:
-            continue
-        kept = [u for u in units if not (u > med * 2.0 or u < med / 2.5)]
-        if len(kept) < min_n:
-            kept = units
-        auth = float(statistics.median(kept))
-        latest = pool[0]
-        sold = latest.get("sold_at")
-        if sold is not None and getattr(sold, "tzinfo", None) is not None:
-            sold = sold.replace(tzinfo=None)
-        observed = sold.date() if hasattr(sold, "date") else sold
-        out[vid] = {
-            "variant_id": vid,
-            "source_code": authority_code,
-            "price_usd": auth,
-            "effective_at": sold,
-            "observed_date": observed,
-            "metric_status": "ready",
-            "sales_n": len(kept),
-            "sales_pool_n": len(units),
-        }
-    return out
-
-
-def _latest_price_rows(cur, variant_ids, source_codes: tuple[str, ...]) -> dict[int, list]:
-    if not variant_ids or not source_codes:
-        return {}
-    ph = ",".join(["%s"] * len(variant_ids))
-    sources = ",".join(f"'{s}'" for s in source_codes)
-    banned = ",".join(f"'{s}'" for s in BANNED_PRICE_SOURCES)
-    cur.execute(
-        f"""
-        SELECT variant_id, source_code, price_usd, effective_at, metric_status, observed_date
-        FROM (
-            SELECT p.variant_id, p.source_code, p.price_usd, p.effective_at, p.metric_status, p.observed_date,
-                   ROW_NUMBER() OVER (
-                     PARTITION BY p.variant_id, p.source_code
-                     ORDER BY p.observed_date DESC, p.effective_at DESC
-                   ) AS rn
-            FROM market_price_observation p
-            WHERE p.variant_id IN ({ph})
-              AND p.source_code IN ({sources})
-              AND p.source_code NOT IN ({banned})
-              -- 等值 filter（fail-closed）：quarantined / quarantined_lane /
-              -- banned_g10_kline 以及將來任何新隔離字都自動出局。SQL 讀模
-              --（023/026/028/032）全部係 ready-only，呢度係最後一條追齊嘅讀路。
-              AND p.metric_status = 'ready'
-              AND p.price_usd IS NOT NULL
-              AND p.price_usd > 0
-        ) t
-        WHERE rn = 1
-        """,
-        tuple(variant_ids),
-    )
-    by_vid: dict[int, list] = {}
-    for row in cur.fetchall():
-        by_vid.setdefault(int(row["variant_id"]), []).append(row)
-    return by_vid
-
-
-def _pick_prefer_sources(rows: list[dict], prefer: tuple[str, ...]) -> dict | None:
-    """Pick single-source preference order (first available), no averaging across families."""
-    if not rows:
-        return None
-    by = {str(r.get("source_code") or ""): r for r in rows}
-    for code in prefer:
-        if code in by:
-            out = dict(by[code])
-            out["metric_status"] = str(out.get("metric_status") or "ready")
-            return out
-    return _trim_mean_prices(rows)
-
-
-def latest_prices(cur, variant_ids):
-    """Pick display/authority price per variant.
-
-    Polaris pricing (DADDY 2026-08-03 review; 2026-08-19 sold-source fix):
-    Daily board quotes are `current_quote_revision` (pricecharting / SNK),
-    not this function. If this composer is called:
-    - EN: live C11 eBay solds (`LIVE_EBAY_SOLD_SOURCE_CODES`) 30d primary;
-      else PriceCharting guide. Never G10 `source_code='ebay'`.
-    - JA / other: SNK sales 30d primary; else SNK reference only.
-    - g10_kline still banned everywhere.
-    """
-    if not variant_ids:
-        return {}
-
-    langs = _variant_languages(cur, variant_ids)
-    en_ids = [vid for vid in variant_ids if langs.get(vid) == "en"]
-    other_ids = [vid for vid in variant_ids if langs.get(vid) != "en"]
-
-    best: dict[int, dict] = {}
-
-    # --- EN chain: live C11 eBay solds first ---
-    if en_ids:
-        best.update(
-            _sales_unit_authority(
-                cur,
-                en_ids,
-                source_codes=LIVE_EBAY_SOLD_SOURCE_CODES,
-                authority_code="ebay_sales",
-                min_n=3,
-                lookback_days=30,
-                max_rows=30,
-                require_quantity=False,
-            )
-        )
-        missing_en = [vid for vid in en_ids if vid not in best]
-        if missing_en:
-            by_vid = _latest_price_rows(cur, missing_en, ("pricecharting",))
-            for vid, rows in by_vid.items():
-                picked = _pick_prefer_sources(rows, ("pricecharting",))
-                if picked is not None:
-                    best[vid] = picked
-        # Residual only: if still no EN peer price/sales, allow SNK so board is not blank.
-        # Does not hard-top EN when eBay/PC exists; last-resort completeness for JP-listed EN boards.
-        still_en = [vid for vid in en_ids if vid not in best]
-        if still_en:
-            by_vid = _latest_price_rows(cur, still_en, ("snk_psa10", "snk", "snkrdunk"))
-            for vid, rows in by_vid.items():
-                picked = _pick_prefer_sources(rows, ("snk_psa10", "snkrdunk", "snk"))
-                if picked is not None:
-                    out = dict(picked)
-                    out["metric_status"] = str(out.get("metric_status") or "ready")
-                    best[vid] = out
-
-    # --- JA / other chain: SNK first ---
-    if other_ids:
-        best.update(
-            _sales_unit_authority(
-                cur,
-                other_ids,
-                source_codes=("snkrdunk", "snk", "snk_psa10"),
-                authority_code="snk_sales",
-                min_n=3,
-                lookback_days=30,
-                max_rows=30,
-                require_quantity=True,
-            )
-        )
-        # If SNK sales composition diverges hard from SNK listing/ref, prefer ref.
-        # Fixes false -40%~-60% boards when sales pool mixes grades/units.
-        snk_ref_rows = _latest_price_rows(cur, other_ids, ("snk_psa10", "snk", "snkrdunk"))
-        for vid in list(other_ids):
-            sales = best.get(vid)
-            if not sales or str(sales.get("source_code")) != "snk_sales":
-                continue
-            ref = _pick_prefer_sources(snk_ref_rows.get(vid) or [], ("snk_psa10", "snkrdunk", "snk"))
-            if not ref:
-                continue
-            try:
-                s_px = float(sales["price_usd"])
-                r_px = float(ref["price_usd"])
-            except Exception:
-                continue
-            if r_px <= 0 or s_px <= 0:
-                continue
-            # Sales vs SNK ref: >1.75x divergence usually means mixed-grade/unit pollution
-            # (Sylveon/Charizard ex false -40% boards were ~1.77–1.83x under ref).
-            if s_px > r_px * 1.75 or s_px < r_px / 1.75:
-                best[vid] = ref
-
-                missing_other = [vid for vid in other_ids if vid not in best]
-        if missing_other:
-            by_vid = _latest_price_rows(cur, missing_other, ("snk_psa10", "snk", "snkrdunk"))
-            for vid, rows in by_vid.items():
-                # JA fallback: SNK refs only first.
-                picked = _trim_mean_prices(rows)
-                if picked is not None:
-                    best[vid] = picked
-        # Residual only: JA with no SNK sales/ref can use PC/eBay so board not blank.
-        still_other = [vid for vid in other_ids if vid not in best]
-        if still_other:
-            by_vid = _latest_price_rows(cur, still_other, ("pricecharting",))
-            for vid, rows in by_vid.items():
-                picked = _pick_prefer_sources(rows, ("pricecharting",))
-                if picked is not None:
-                    best[vid] = picked
-
-    return best
+# The legacy display-price composer lived here until 2026-08-23: it averaged
+# `market_price_observation` chart points (PriceCharting guide / SNK K-line) into
+# a "display authority" price.  It had had no caller since the run_daily factory
+# was archived, and the ranked PSA10 price is now the latest real sale minted by
+# pipelines/psa10_latest_sale_quote.py, with
+# current_quote_revision.assert_quote_mint_allowed (F-MINT) as the only mint
+# door.  Reviving a chart-averaged price here would bypass that door, because
+# this module never went through it.
 
 
 def image_rows(cur, variant_ids, *, prefer_snk_ids=()):
@@ -2736,6 +2391,217 @@ def cmd_db_tidy(*, snk_history_archive_dir: Path | None, project_ingested_histor
         return 0
 
 
+# --- operator-rule: the only sanctioned way to write a ruling on a row -----
+#
+# operator-zero-20260814 wrote its ruling straight into the DB, and so did
+# operator_adjudication_20260822 (137 rows, 2026-08-22 13:28Z) -- neither left
+# a before image, and neither named the SQL verb it used, so "what did this
+# ruling replace" was unanswerable from anything but the row's own timestamps.
+# A ruling is the one write in this repo that no gate can overturn afterwards,
+# which is exactly why it may not be the one write with no receipt.
+RULING_DIR = OUT_DIR / "rulings"
+RULING_ACTOR_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,39}")
+# The action lands in JSON that NOT_A_REJECTION_VERDICT_SQL reads back through
+# JSON_EXTRACT and interpolates; holding it to the shape rebuild_036 already
+# asserts for REJECTION_VERDICT_ACTIONS keeps the two readable by one eye.
+RULING_ACTION_RE = re.compile(r"[a-z][a-z-]{0,63}")
+RULING_SOURCE_CODES = ("pricecharting", "snkrdunk")
+
+
+def operator_ruling_payload(
+    before: Any, *, actor: str, action: str, reason_text: str,
+    supersede: bool, ruled_at: str,
+) -> tuple[dict[str, Any] | None, str]:
+    """The bind_evidence_json a ruling produces, or (None, why it is refused).
+
+    Pure on purpose: everything that decides whether a standing ruling is
+    about to be overwritten is decided here, where a test can re-seed the
+    overwrite without a database.
+    """
+
+    import rebuild_036
+
+    if not RULING_ACTOR_RE.fullmatch(actor or ""):
+        return None, f"actor must be lowercase [a-z0-9._-]: {actor!r}"
+    if not RULING_ACTION_RE.fullmatch(action or ""):
+        return None, f"action must be lowercase letters and hyphens: {action!r}"
+    text = " ".join(str(reason_text or "").split())
+    if not text:
+        return None, "a ruling without a reason is not a ruling: --reason is required"
+    evidence: Any = before
+    if isinstance(evidence, (str, bytes)):
+        try:
+            evidence = json.loads(evidence)
+        except ValueError:
+            return None, "bind_evidence_json is not JSON; refusing to overwrite it"
+    if evidence is None:
+        evidence = {}
+    if not isinstance(evidence, dict):
+        return None, f"bind_evidence_json is not an object: {type(evidence).__name__}"
+    standing = rebuild_036.operator_ruling(evidence)
+    if standing and not supersede:
+        return None, (
+            "this row already carries an operator ruling; pass --supersede to"
+            f" replace it. standing ruling: {standing}"
+        )
+    after = dict(evidence)
+    # The evidence block is what PROVED the binding; a ruling is about what to
+    # DO with it. Rewriting it here would erase the capture the next lane
+    # verifies against, so it is carried over untouched.
+    if "evidence" in evidence:
+        after["evidence"] = evidence["evidence"]
+    after["previousAction"] = str(evidence.get("action") or "")
+    after["action"] = action
+    after["reason"] = (
+        f"{rebuild_036.OPERATOR_RULING_REASON_PREFIX}{actor}-{ruled_at[:10]}: {text}"
+    )
+    after["operatorRuling"] = {
+        "actor": actor,
+        "ruledAt": ruled_at,
+        "action": action,
+        "supersedes": standing or None,
+    }
+    if not rebuild_036.operator_ruling(after):
+        # Belt and braces: the reason just written has to be the reason every
+        # lane reads back, or this command writes rulings nothing honours.
+        return None, "constructed reason is not readable as an operator ruling"
+    return after, ""
+
+
+def cmd_operator_rule(
+    *, source_code: str, variant_id: int, external_id: str, actor: str,
+    action: str, reason_text: str, supersede: bool = False,
+    write: bool = False, conn: Any = None,
+) -> int:
+    """Write (or supersede) the operator ruling on ONE binding row.
+
+    Dry-run unless --write. Refuses a row with no provider capture receipt: a
+    ruling that cannot point at what was looked at is an opinion.
+    """
+
+    if source_code not in RULING_SOURCE_CODES:
+        raise SystemExit(f"--source-code must be one of {RULING_SOURCE_CODES}")
+    external_id = str(external_id or "").strip()
+    if not external_id:
+        raise SystemExit("--external-id is required")
+    owns_conn = conn is None
+    if owns_conn:
+        load_env()
+        conn = db()
+    ruled_at = utc_now()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT variant_id, source_code, external_entity_id, match_status,"
+                " bind_evidence_json, evidence_sha256"
+                " FROM catalog_source_identity"
+                " WHERE source_code=%s AND external_entity_id=%s",
+                (source_code, external_id),
+            )
+            row = cursor.fetchone()
+            if not row:
+                raise SystemExit(
+                    f"no catalog_source_identity row for {source_code}/{external_id};"
+                    " operator-rule rules on a binding that exists, it does not"
+                    " open one"
+                )
+            # PRIMARY KEY is (source_code, external_entity_id): this id belongs
+            # to exactly one variant, so a --variant-id that disagrees means
+            # the operator is ruling on a different card than they think.
+            if int(row["variant_id"]) != int(variant_id):
+                raise SystemExit(
+                    f"{source_code}/{external_id} belongs to variant"
+                    f" {row['variant_id']}, not {variant_id}"
+                )
+            cursor.execute(
+                "SELECT capture_sha256, capture_path, captured_at"
+                " FROM catalog_provider_capture_receipt"
+                " WHERE source_code=%s AND external_entity_id=%s"
+                " ORDER BY captured_at DESC LIMIT 1",
+                (source_code, external_id),
+            )
+            receipt = cursor.fetchone()
+        if not receipt:
+            raise SystemExit(
+                f"no catalog_provider_capture_receipt for {source_code}/"
+                f"{external_id}: nothing was captured, so there is nothing to"
+                " rule on"
+            )
+        before = row["bind_evidence_json"]
+        after, why = operator_ruling_payload(
+            before, actor=actor, action=action, reason_text=reason_text,
+            supersede=supersede, ruled_at=ruled_at,
+        )
+        if after is None:
+            print(f"operator-rule REFUSED: {why}")
+            return 2
+        before_json = before if isinstance(before, str) else json.dumps(
+            before, ensure_ascii=False, sort_keys=True,
+        )
+        after_json = json.dumps(after, ensure_ascii=False, sort_keys=True)
+        record = {
+            "command": "operator-rule",
+            "ruledAt": ruled_at,
+            "actor": actor,
+            "sourceCode": source_code,
+            "variantId": int(variant_id),
+            "externalEntityId": external_id,
+            "matchStatus": str(row["match_status"]),
+            "supersede": bool(supersede),
+            "captureReceipt": {
+                "sha256": str(receipt["capture_sha256"]),
+                "path": str(receipt["capture_path"]),
+            },
+            "before": before_json,
+            "after": after_json,
+            "applied": False,
+        }
+        if not write:
+            print(json.dumps({**record, "dryRun": True}, ensure_ascii=False, indent=2))
+            print("operator-rule DRY-RUN: nothing written. re-run with --write")
+            return 0
+        RULING_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = ruled_at.replace(":", "").replace("-", "").replace(".", "")
+        path = RULING_DIR / f"ruling-{stamp}-v{int(variant_id)}-{source_code}.json"
+        # Receipt first, outcome second: a crash between the two leaves the
+        # before image on disk, which is the half that cannot be recovered.
+        path.write_text(
+            json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8",
+        )
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "UPDATE catalog_source_identity"
+                " SET bind_evidence_json=%s, updated_at=NOW()"
+                " WHERE source_code=%s AND external_entity_id=%s AND variant_id=%s",
+                (after_json, source_code, external_id, int(variant_id)),
+            )
+            changed = int(cursor.rowcount)
+        record["rowcount"] = changed
+        if changed != 1:
+            conn.rollback()
+            path.write_text(
+                json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8",
+            )
+            print(
+                f"operator-rule ABORT: UPDATE changed {changed} rows, expected 1."
+                " the chain moved this row underneath us; re-read it and rule"
+                " again"
+            )
+            return 2
+        conn.commit()
+        record["applied"] = True
+        path.write_text(
+            json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8",
+        )
+        print(f"operator-rule WROTE {source_code}/{external_id} v{variant_id}")
+        print(f"  reason: {after['reason']}")
+        print(f"  receipt: {path}")
+        return 0
+    finally:
+        if owns_conn:
+            conn.close()
+
+
 def main() -> int:
     assert_runtime_root(ROOT)
     parser = argparse.ArgumentParser(description="CARDZ operator dual-mode control plane")
@@ -2874,7 +2740,34 @@ def main() -> int:
         help="promote held SNK bindings a fresh master fetch can prove, incl. rejections nobody reasoned about (dry-run without --write)",
     )
     p_snk_reverify.add_argument("--write", action="store_true")
+    p_snk_reverify.add_argument(
+        "--variant-id", dest="variant_ids", type=int, action="append",
+        help="limit re-verification to this catalog variant; repeat for a batch",
+    )
     p_snk_reverify.add_argument("--credentials-env", dest="credentials_env", type=Path)
+    p_rule = sub.add_parser(
+        "operator-rule",
+        help="write or supersede the operator ruling on one binding row"
+             " (dry-run without --write)",
+    )
+    p_rule.add_argument(
+        "--source-code", dest="source_code", required=True,
+        choices=RULING_SOURCE_CODES,
+    )
+    p_rule.add_argument("--variant-id", dest="variant_id", type=int, required=True)
+    p_rule.add_argument("--external-id", dest="external_id", required=True)
+    p_rule.add_argument("--actor", required=True)
+    p_rule.add_argument(
+        "--action", required=True,
+        help="the verdict this ruling records, e.g. accept or"
+             " reject-wrong-printing-source",
+    )
+    p_rule.add_argument("--reason", dest="reason_text", required=True)
+    p_rule.add_argument(
+        "--supersede", action="store_true",
+        help="required to replace a ruling this row already carries",
+    )
+    p_rule.add_argument("--write", action="store_true")
     p_snk_discover = sub.add_parser(
         "snk-identity-discover",
         help="propose a first SNK binding for qualified variants that have no price source at all (dry-run without --write)",
@@ -2978,6 +2871,17 @@ def main() -> int:
             import rebuild_036
 
             return rebuild_036.cmd_snk_identity_reverify(args)
+        elif args.cmd == "operator-rule":
+            return cmd_operator_rule(
+                source_code=args.source_code,
+                variant_id=args.variant_id,
+                external_id=args.external_id,
+                actor=args.actor,
+                action=args.action,
+                reason_text=args.reason_text,
+                supersede=args.supersede,
+                write=args.write,
+            )
         elif args.cmd == "snk-identity-discover":
             import snk_identity_discover
 

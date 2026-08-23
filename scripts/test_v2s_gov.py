@@ -308,8 +308,10 @@ def settled_state_literals_do_not_drift() -> None:
     assert TERMINAL_TASK_STATES == SUCCESS_TASK_STATES | {"TERMINAL", "PARKED"}
     plan_source = inspect.getsource(DailyChainV2.plan)
     assert "SUCCESS_TASK_STATES | {" not in plan_source
-    # The four gates the audit named, all now spelled by the constant.
-    assert plan_source.count('or "") not in TERMINAL_TASK_STATES') == 4, plan_source.count(
+    # The four gates the audit named, plus the four the identity/Fix-F land
+    # added on top (operator-apply, intake, per-lane reverify, checkpoint-repair)
+    # -- all spelled by the constant, none by a hand-written literal.
+    assert plan_source.count('or "") not in TERMINAL_TASK_STATES') == 8, plan_source.count(
         'or "") not in TERMINAL_TASK_STATES'
     )
     orchestrator = (ROOT / "pipelines" / "daily_chain_v2.py").read_text(encoding="utf-8")
