@@ -72,6 +72,43 @@ def main() -> int:
             {**base, "batch": 3, "ok": 2, "fail": 1, "missingRequestedVariantIds": []},
         )
         check("a page failure still fails even with batch >= expected", notok.get("ok"), False)
+    # 3. bind ids never ride the sold refresh (2026-08-23 A01/A02: 57 leftover
+    #    MAP rows of rejected / manual_review identities were re-fetched on
+    #    every child run), and a bind-only run is complete with an empty batch.
+    rows = [{"variant_id": 1, "pid": "a"}, {"variant_id": 2, "pid": "b"}, {"variant_id": 3, "pid": "c"}]
+    vids = lambda picked: [int(row["variant_id"]) for row in picked]  # noqa: E731
+    check("exact ids are refreshed", vids(mod.select_refresh_rows(rows, {1, 3})), [1, 3])
+    check("bind-only ids with a leftover MAP row are NOT refreshed", vids(mod.select_refresh_rows(rows, set())), [])
+    check("an id that is exact and bind is refreshed once", vids(mod.select_refresh_rows(rows, {2})), [2])
+    base_done = dict(ok=0, fail=0, cf=0, rate_limited=0, session_error=None, results=[],
+                     missing_requested=[], ingest=None)
+    check("bind-only run with nothing to fetch is complete",
+          mod.sweep_complete(batch=[], exact_requested=set(), bind_ran=True, selected_ids=set(), **base_done), True)
+    check("an empty batch without a bind step is not complete",
+          mod.sweep_complete(batch=[], exact_requested=set(), bind_ran=False, selected_ids=set(), **base_done), False)
+    check("exact ids requested but none served is not complete",
+          mod.sweep_complete(batch=[], exact_requested={1}, bind_ran=True, selected_ids=set(),
+                             **{**base_done, "missing_requested": [1]}), False)
+    served = dict(ok=2, fail=0, cf=0, rate_limited=0, session_error=None, results=[{}, {}],
+                  missing_requested=[], ingest=None)
+    check("every exact page served is complete",
+          mod.sweep_complete(batch=[{}, {}], exact_requested={1, 2}, bind_ran=True, selected_ids={1, 2}, **served), True)
+    check("one failed page is not complete",
+          mod.sweep_complete(batch=[{}, {}], exact_requested={1, 2}, bind_ran=True, selected_ids={1, 2},
+                             **{**served, "ok": 1, "fail": 1}), False)
+
+    # 4. the parent sends the bind list on a lane sweep only; a scoped repair
+    #    (explicit variant ids) sends none.
+    import collect_control as cc
+    reg = [
+        {"adapter": "bind_pc_or_ebay", "variantId": 7},
+        {"adapter": "bind_pc_or_ebay", "variantId": 5},
+        {"adapter": "pc_ebay_sales", "variantId": 9},
+    ]
+    check("lane sweep sends the bind list", cc.pc_bind_missing_ids(reg, ["pc_ebay_sales"], set()), [5, 7])
+    check("scoped repair sends no bind list", cc.pc_bind_missing_ids(reg, ["pc_ebay_sales"], {9}), [])
+    check("non-PC request sends no bind list", cc.pc_bind_missing_ids(reg, ["snk_price"], set()), [])
+
     if FAILED:
         print(f"FAILED {len(FAILED)}: {FAILED}")
         return 1

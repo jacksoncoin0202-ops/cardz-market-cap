@@ -4722,6 +4722,34 @@ def _release_adapter_leases(conn, lock_names: list[str]) -> None:
         conn.close()
 
 
+def pc_bind_missing_ids(
+    reg: list[dict[str, Any]], requested: list[str], explicit_variants: set[int]
+) -> list[int]:
+    """Variants the PC child must try to bind (identity) on this call.
+
+    Same 9333 dual-tab script does identity + cap. 576 universe cards have no
+    numeric PC product id (mostly JA); they are bind_pc_or_ebay in the
+    registry. Leaving this list empty made quote-only V2 skip them forever.
+
+    An explicit variant scope (v2 ``checkpoint-repair`` / operator incr for
+    named streams) repairs those streams only: the whole-universe bind sweep
+    belongs to the lane's own call and ran twice more per repair on
+    2026-08-23 A01 (2 x ~100 s of page fetches, one 429, zero proposals).
+    """
+    if explicit_variants:
+        return []
+    if not any(name in requested for name in ("pc_ebay_sales", "en_price_ref")):
+        return []
+    return sorted(
+        {
+            int(row["variantId"])
+            for row in reg
+            if row.get("adapter") == "bind_pc_or_ebay"
+            and int(row.get("variantId") or 0) > 0
+        }
+    )
+
+
 def _collect_mode_impl(
     *,
     mode: str,
@@ -4833,19 +4861,7 @@ def _collect_mode_impl(
     }
     cdp_already_ensured = False
     all_pc_items = list(pc_items_by_variant.values())
-    # Same 9333 dual-tab script does identity + cap. 576 universe cards have
-    # no numeric PC product id (mostly JA); they are bind_pc_or_ebay in the
-    # registry. Leaving this list empty made quote-only V2 skip them forever.
-    bind_missing_ids: list[int] = []
-    if any(name in requested for name in ("pc_ebay_sales", "en_price_ref")):
-        bind_missing_ids = sorted(
-            {
-                int(row["variantId"])
-                for row in reg
-                if row.get("adapter") == "bind_pc_or_ebay"
-                and int(row.get("variantId") or 0) > 0
-            }
-        )
+    bind_missing_ids = pc_bind_missing_ids(reg, requested, explicit_variants)
     local_pc_items, network_pc_items, local_pc_report = partition_local_pc_stock_pages(
         all_pc_items, mode=mode, dry_run=dry_run, force_network=force_network
     )

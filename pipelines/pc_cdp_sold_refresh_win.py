@@ -1100,6 +1100,55 @@ def partition_requested(
     return missing_requested, bind_unresolved
 
 
+def select_refresh_rows(rows: list[dict], exact_requested: set[int]) -> list[dict]:
+    """MAP rows the sold refresh may fetch: the caller's exact ids, nothing else.
+
+    Bind ids never ride along. The bind step writes proposals (manual_review
+    rows + the proposal ledger), never a canonical MAP row, so a MAP row that
+    carries a bind id is a leftover of a rejected / manual_review identity.
+    Until 2026-08-23 those leftovers were merged into ``requested_ids`` and 57
+    such pages were re-fetched on every child run (A01 lane 58, A01
+    checkpoint-repair 61 x2 with a 429, A02 lane 57 -- ~100 s each, identical
+    bytes, zero proposals written).
+    """
+    return [row for row in rows if int(row.get("variant_id") or 0) in exact_requested]
+
+
+def sweep_complete(
+    *,
+    batch: list,
+    ok: int,
+    fail: int,
+    cf: int,
+    rate_limited: int,
+    session_error,
+    results: list,
+    missing_requested: list,
+    exact_requested: set[int],
+    bind_ran: bool,
+    selected_ids: set[int],
+    ingest,
+) -> bool:
+    """Exit-0 contract of one child run.
+
+    A bind-only run (no exact ids, bind step ran) has nothing to fetch and an
+    empty batch is its complete state; before 2026-08-23 it only looked
+    complete because leftover MAP rows padded the batch.
+    """
+    return (
+        (len(batch) > 0 or (not exact_requested and bind_ran))
+        and ok == len(batch)
+        and fail == 0
+        and cf == 0
+        and rate_limited == 0
+        and session_error is None
+        and len(results) == len(batch)
+        and not missing_requested
+        and (not exact_requested or len(batch) == len(selected_ids))
+        and (ingest is None or ingest.get("exit") == 0)
+    )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=0, help="0 = all selected rows")
@@ -1192,14 +1241,8 @@ def main() -> int:
         )
         exact_requested = set(requested_ids)
         if bind_report is not None:
-            # Bind ids that the bind step just resolved now have MAP rows and
-            # are fetched in this same run; the rest are bind_unresolved.
-            requested_ids = list(dict.fromkeys(requested_ids + bind_ids))
             bind_ids_for_split = list(bind_ids)
-        requested_set = set(requested_ids)
-        rows = [row for row in rows if int(row.get("variant_id") or 0) in requested_set]
-    else:
-        requested_set = set()
+        rows = select_refresh_rows(rows, exact_requested)
     selected_ids = {int(row.get("variant_id") or 0) for row in rows}
     missing_requested, bind_unresolved = partition_requested(
         exact_requested, bind_ids_for_split, selected_ids
@@ -1354,17 +1397,19 @@ def main() -> int:
     watchdog["done"] = True
     print(json.dumps({k: report[k] for k in ["asOf", "batch", "ok", "cf", "fail"]}, ensure_ascii=False, indent=2))
     print(f"REPORT {OUT}")
-    complete = (
-        len(batch) > 0
-        and ok == len(batch)
-        and fail == 0
-        and cf == 0
-        and rate_limited == 0
-        and session_error is None
-        and len(results) == len(batch)
-        and not missing_requested
-        and (not requested_ids or len(batch) == len(selected_ids))
-        and (ingest is None or ingest.get("exit") == 0)
+    complete = sweep_complete(
+        batch=batch,
+        ok=ok,
+        fail=fail,
+        cf=cf,
+        rate_limited=rate_limited,
+        session_error=session_error,
+        results=results,
+        missing_requested=missing_requested,
+        exact_requested=exact_requested,
+        bind_ran=bind_report is not None,
+        selected_ids=selected_ids,
+        ingest=ingest,
     )
     return 0 if complete else 1
 
