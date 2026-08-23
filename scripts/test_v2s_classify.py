@@ -662,20 +662,8 @@ try:
     assert publish_leg_seconds("live-confirm") == LIVE_CONFIRM_LEG_SECONDS
     assert LIVE_CONFIRM_LEG_SECONDS < PUBLISH_LEG_SECONDS
 
-    # The release leg has to cover the WORST case it can now take: this commit
-    # also lets the bake replay PUBLISH_ASSET_MAX_ATTEMPTS times, and a leg
-    # whose second bake SUCCEEDS still has to push and be confirmed before
-    # `final`.  Sizing the cap on the single-pass leg would schedule a retry
-    # that is still mid-push at 17:00 JST.
-    r4b_worst_leg = (
-        PUBLISH_ASSET_MAX_ATTEMPTS * PUBLISH_ASSET_PASS_SECONDS
-        + (PUBLISH_ASSET_MAX_ATTEMPTS - 1) * PUBLISH_ASSET_RETRY_SLEEP_SECONDS
-        + PUBLISH_HEALTH_POLL_SECONDS
-    )
-    assert PUBLISH_LEG_SECONDS >= r4b_worst_leg, (PUBLISH_LEG_SECONDS, r4b_worst_leg)
-
-    # ...and the two sleeps that make up that worst case are read off the
-    # script itself, so neither side can drift alone.
+    # The sleeps that make up a release leg are read off the script itself, so
+    # neither side can drift alone.
     r4b_retry_sleep = re.search(
         r'git -C "\$RELEASE_REPO" checkout -- data/public\n\s*sleep (\d+)\n', release_source
     )
@@ -689,7 +677,105 @@ try:
         assert PUBLISH_HEALTH_POLL_SECONDS == int(r4b_rounds) * int(r4b_sleep), (
             PUBLISH_HEALTH_POLL_SECONDS, r4b_rounds, r4b_sleep
         )
-    print("POSITIVE_OK R4b the publish leg is per-capability and sized on the retried bake")
+    print("POSITIVE_OK R4b the publish leg is per-capability and its parts are read off the script")
+
+    # ------------------------------------------------------------------- R4c
+    # 2026-08-24 review of R4b: R4b sized the release cap on the leg where
+    # EVERYTHING fails -- 3 bake passes + 2 retry sleeps + the FULL 600 s
+    # health poll = 1170 s -- but that leg is not the one a retry is trying to
+    # buy.  The bake normally passes on attempt 1 and the poll exits on the
+    # first healthy generation, so a SUCCESSFUL release leg is ~5 min.
+    # Charging every retry 19.5 min refused retries that would very likely have
+    # published: a PUBLISH_FAILED at 16:45 JST is TERMINAL under a 1170 s cap
+    # (cap = 16:40:30) while a 780 s cap (16:47) still gives it one real
+    # attempt -- and the brief's own spec for the cap is "cutoff minus one
+    # publish leg (~13 min)".  The cap is therefore the leg that can still
+    # SUCCEED: one bake pass + the health poll.
+    #
+    # The extra bake passes stay a SCRIPT-side budget: daily_public_release.sh
+    # now refuses to start a bake pass it cannot finish before
+    # CARDZ_V2_STAGE_DEADLINE_EPOCH (daily_chain_v2.py :2205, derived from
+    # _work_deadline_monotonic, which is never later than `final` -- :2126), so
+    # the worst case can no longer run past the cutoff and no longer has to be
+    # paid for by every retry in the ladder.
+    r4c_worst_leg = (
+        PUBLISH_ASSET_MAX_ATTEMPTS * PUBLISH_ASSET_PASS_SECONDS
+        + (PUBLISH_ASSET_MAX_ATTEMPTS - 1) * PUBLISH_ASSET_RETRY_SLEEP_SECONDS
+        + PUBLISH_HEALTH_POLL_SECONDS
+    )
+
+    # (a) The divergence band the review named: a release PUBLISH_FAILED with
+    #     16 min of window left must still get a real attempt.
+    os.environ["CARDZ_V2_NOTIFY_DRY_RUN"] = "1"
+    try:
+        band = r4_publish_failure("release-band", 960.0, leg_seconds=0)
+        assert band["status"] == "RETRY", band
+        assert band["last_error_code"] == "PUBLISH_FAILED", band
+        assert int(band["attempts"]) < 6, band
+        r4c_due = datetime.fromisoformat(str(band["next_retry_at"]).replace("Z", "+00:00"))
+        r4c_latest = band["_final"] - timedelta(seconds=PUBLISH_LEG_SECONDS)
+        assert r4c_due <= r4c_latest, (r4c_due, r4c_latest, band["_final"])
+    finally:
+        os.environ.pop("CARDZ_V2_NOTIFY_DRY_RUN", None)
+
+    # (b) ...because the leg is the succeeding one, not the all-fail one.
+    assert PUBLISH_LEG_SECONDS == PUBLISH_ASSET_PASS_SECONDS + PUBLISH_HEALTH_POLL_SECONDS, (
+        PUBLISH_LEG_SECONDS, PUBLISH_ASSET_PASS_SECONDS, PUBLISH_HEALTH_POLL_SECONDS
+    )
+    assert PUBLISH_LEG_SECONDS < r4c_worst_leg, (PUBLISH_LEG_SECONDS, r4c_worst_leg)
+
+    # (c) ...and the worst case is bounded where it is spent: the script owns
+    #     one definition of a pass, checks the orchestrator's stage deadline
+    #     before each retry, and refuses instead of starting a pass that would
+    #     be SIGTERMed mid-bake at the cutoff.
+    r4c_pass_lines = [
+        line.strip() for line in release_source.splitlines()
+        if line.strip().startswith("asset_pass_seconds=")
+    ]
+    assert r4c_pass_lines == [f"asset_pass_seconds={PUBLISH_ASSET_PASS_SECONDS}"], r4c_pass_lines
+    r4c_guard = re.search(r"\nasset_retry_fits\(\) \{\n(?:.*\n)*?\}\n", release_source)
+    assert r4c_guard is not None, "asset_retry_fits() not found in daily_public_release.sh"
+    assert re.search(
+        r"if ! asset_retry_fits; then\n(?:.*\n)*?\s*exit 1\n\s*fi\n", release_source
+    ), "the asset retry loop does not consult asset_retry_fits"
+    if shutil.which("bash"):
+        # The guard runs as the script's own text, not a paraphrase of it.
+        def r4c_run(deadline: str | None) -> str:
+            setup = (
+                "unset CARDZ_V2_STAGE_DEADLINE_EPOCH\n" if deadline is None
+                else f"export CARDZ_V2_STAGE_DEADLINE_EPOCH='{deadline}'\n"
+            )
+            script = (
+                "set -euo pipefail\n"
+                f"asset_pass_seconds={PUBLISH_ASSET_PASS_SECONDS}\n"
+                + setup
+                + r4c_guard.group(0)
+                + "if asset_retry_fits; then echo FITS; else echo REFUSES; fi\n"
+            )
+            done = subprocess.run(
+                # On stdin as bytes: text mode would rewrite every \n as \r\n
+                # for Git-for-Windows bash, and a native path argument loses
+                # its backslashes to the same re-parsing.
+                ["bash", "-s"],
+                input=script.encode("utf-8"),
+                capture_output=True, timeout=60,
+            )
+            assert done.returncode == 0, (
+                done.returncode, done.stdout.decode("utf-8", "replace"),
+                done.stderr.decode("utf-8", "replace"),
+            )
+            return done.stdout.decode("utf-8", "replace").strip()
+
+        # A whole pass still fits -> retry; less than a pass -> refuse.  No
+        # deadline and unparsable deadline keep the pre-R4c behaviour.
+        assert r4c_run(repr(time.time() + PUBLISH_ASSET_PASS_SECONDS + 120)) == "FITS"
+        assert r4c_run(repr(time.time() + PUBLISH_ASSET_PASS_SECONDS - 60)) == "REFUSES"
+        assert r4c_run(repr(time.time() - 60)) == "REFUSES"
+        assert r4c_run(None) == "FITS"
+        assert r4c_run("not-a-number") == "FITS"
+    else:
+        print("SKIP_NO_BASH asset_retry_fits execution needs bash; the parse half still runs")
+    print("POSITIVE_OK R4c the release cap is the succeeding leg and the script owns the retry budget")
 
 
 finally:

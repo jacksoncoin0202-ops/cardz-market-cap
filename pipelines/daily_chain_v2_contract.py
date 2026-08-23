@@ -54,35 +54,38 @@ PUBLISH_RETRY_SECONDS = (120, 300, 600, 1200, 1800)
 # agree, so neither side can drift on its own.
 PUBLISH_ASSET_MAX_ATTEMPTS = 3
 # The parts of one release leg in scripts/daily_public_release.sh: one
-# bake -> sync -> validate pass (measured ~180 s), the `sleep` between asset
-# attempts (:281), and the live health poll, 60 x 10 s (:375-394) before it
-# gives up.  scripts/test_v2s_classify.py reads the two sleeps back off the
-# script so the numbers cannot drift apart.
+# bake -> sync -> validate pass (measured ~180 s, and the script's own
+# `asset_pass_seconds`), the `sleep` between asset attempts, and the live
+# health poll, 60 x 10 s before it gives up.  scripts/test_v2s_classify.py
+# reads all three back off the script so the numbers cannot drift apart.
 PUBLISH_ASSET_PASS_SECONDS = 180
 PUBLISH_ASSET_RETRY_SLEEP_SECONDS = 15
 PUBLISH_HEALTH_POLL_SECONDS = 600
-# One release leg, WORST case rather than best: the bake may replay
-# PUBLISH_ASSET_MAX_ATTEMPTS times and still succeed, and a leg that succeeds
-# late is a publish the run cannot record -- stage_live_confirm refuses to
-# insert `live.confirmed` once `final` has passed.  A retry scheduled later
-# than `final - PUBLISH_LEG_SECONDS` cannot finish before the business date's
+# One release leg: the leg that can still SUCCEED -- one bake/sync/validate
+# pass plus the live health poll (the poll exits on the first healthy
+# generation, so this is already generous).  A retry scheduled later than
+# `final - PUBLISH_LEG_SECONDS` cannot finish before the business date's
 # 17:00 JST cutoff, so it is a retry that will never run: on 2026-08-23 the
 # 2/5/10/20/30 minute ladder above (67 minutes for five retries) could park the
 # next publish attempt past `final`, where lifecycle_events() stamps
 # FAILED_FINAL unconditionally -- attempts left, no window to spend them in.
 # The cutoff is not ours to move; the ladder is clamped to this instead.
-PUBLISH_LEG_SECONDS = (
-    PUBLISH_ASSET_MAX_ATTEMPTS * PUBLISH_ASSET_PASS_SECONDS
-    + (PUBLISH_ASSET_MAX_ATTEMPTS - 1) * PUBLISH_ASSET_RETRY_SLEEP_SECONDS
-    + PUBLISH_HEALTH_POLL_SECONDS
-)  # 3 x 180 + 2 x 15 + 600 = 1170
+# NOT the all-fail leg (3 passes + 2 sleeps + the full poll = 1170 s): the bake
+# normally passes on attempt 1, so charging every retry the worst case refuses
+# retries that would very likely have published -- a PUBLISH_FAILED at 16:45
+# JST would be TERMINAL with five attempts unspent.  The extra bake passes are
+# the SCRIPT's budget and are bounded where they are spent: the retry loop in
+# scripts/daily_public_release.sh refuses a pass it cannot finish before
+# CARDZ_V2_STAGE_DEADLINE_EPOCH, which daily_chain_v2.py derives from a work
+# deadline that is never later than `final`.
+PUBLISH_LEG_SECONDS = PUBLISH_ASSET_PASS_SECONDS + PUBLISH_HEALTH_POLL_SECONDS  # 780
 # `live-confirm` is the other task in the publish phase, and it is nothing like
 # the release leg: it reads the release snapshot, makes ONE health request
 # (fetch_live_health, 20 s timeout) and inserts one outbox row, and it is
 # planned only after `release` COMPLETED -- i.e. always in the tail of the day.
 # Its own gate is `--confirm-before final`, so its PUBLISH_FAILED ladder is
 # exactly the mechanism that waits out FE deploy lag.  Charging it the release
-# leg would make every failure inside the last 13-20 minutes TERMINAL with
+# leg would make every failure inside the last 13 minutes TERMINAL with
 # attempts unspent and the day's `live.confirmed` lost.
 LIVE_CONFIRM_LEG_SECONDS = 120
 # Publish-phase capability -> the leg that capability actually needs.  A leg is

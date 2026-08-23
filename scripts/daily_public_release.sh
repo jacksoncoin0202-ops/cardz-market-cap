@@ -267,12 +267,38 @@ asset_max_attempts=3
 # in pipelines/daily_chain_v2_contract.py; scripts/test_v2s_classify.py
 # parses this line and refuses to let the two sides drift.
 if ((V2_MODE == 1)); then asset_max_attempts=3; fi
+# One bake/sync/validate pass, measured.  == PUBLISH_ASSET_PASS_SECONDS in
+# pipelines/daily_chain_v2_contract.py; scripts/test_v2s_classify.py parses
+# this line so the two sides cannot drift.
+asset_pass_seconds=180
+# R4 2026-08-24: the orchestrator's publish ladder is capped at
+# `final - one SUCCEEDING leg`, not at the leg where all three bake attempts
+# fail -- charging every retry the worst case refused retries that would have
+# published.  The retry budget above is therefore bounded here instead: the
+# parent exports CARDZ_V2_STAGE_DEADLINE_EPOCH (daily_chain_v2.py, derived from
+# a work deadline that is never later than the 17:00 JST `final`) and SIGTERMs
+# this process on it, so a pass started with less than a pass left is a bake
+# that gets killed mid-flight.  Refuse it and report instead.  No deadline in
+# the environment (manual / legacy run) keeps the pre-R4 behaviour.
+asset_retry_fits() {
+  local deadline=${CARDZ_V2_STAGE_DEADLINE_EPOCH:-}
+  local secs=${deadline%%.*}
+  if [[ ! $secs =~ ^-?[0-9]+$ ]]; then
+    return 0
+  fi
+  (( secs - $(date +%s) >= asset_pass_seconds ))
+}
 while true; do
   if publish_assets; then
     break
   fi
   if ((asset_attempt >= asset_max_attempts)); then
     printf 'daily release bake/sync/validate failed after %s attempts\n' "$asset_attempt" >&2
+    exit 1
+  fi
+  if ! asset_retry_fits; then
+    printf 'daily release bake/sync/validate failed after %s attempts: less than %ss before the stage deadline, no retry\n' \
+      "$asset_attempt" "$asset_pass_seconds" >&2
     exit 1
   fi
   asset_attempt=$((asset_attempt + 1))
