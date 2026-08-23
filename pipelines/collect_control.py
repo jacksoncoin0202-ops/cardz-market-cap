@@ -17,6 +17,7 @@ import inspect
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -26,7 +27,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterator, Mapping
 from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -90,6 +91,27 @@ ITEM_CHECKPOINT_PATH = OUT_DIR / "collect_item_checkpoints.json"
 QUARANTINE_CONTRACT = "collect_item_quarantine_v1"
 ITEM_CHECKPOINT_CONTRACT = "collect_item_checkpoint_v1"
 QUARANTINE_THRESHOLD = 3  # consecutive failed runs before an item is skipped
+# audit P1-7: a streak only clears when the item succeeds again, but a
+# quarantined item is never attempted again -- three failures used to be a
+# permanent, self-sustaining lock that needed the state file edited by hand.
+# A streak whose last failure is older than this decays back to zero.
+QUARANTINE_DECAY_DAYS = 7
+# audit P1-7 / item 10: reasons that describe the transport, not the item.
+# A dead browser session, a spent wall-clock budget or a SIGTERM is a lane
+# failure; it must be reported (the lane still fails) but it must never push a
+# per-item quarantine streak, which exists to isolate individually bad IDs.
+GEMRATE_TRANSPORT_FAILURE_REASONS = frozenset({
+    "interrupted_by_signal",
+    "budget_exhausted",
+    "missing_response",
+    "browser_unavailable",
+})
+GEMRATE_TRANSPORT_FAILURE_PREFIXES = ("browser_collection_failed",)
+# audit P1-5 / audit trap 12: the gemrate adapter already runs max_concurrency=4
+# shards, so N workers means 4N Chromes on this host. The "no 429 at 4 Chromes"
+# evidence does not transfer to 8; going past 2 needs new measurement, so this
+# fails closed rather than clamping silently.
+GEMRATE_MAX_WORKERS = 2
 RUNTIME_STATE_LEASE = "cardz:collect:runtime-state:v2"
 DB_WRITER_LEASE = "cardz:collect:db-writer:v2"
 GEMRATE_PARALLEL_LEASE_SCOPES = ("0-of-4", "1-of-4", "2-of-4", "3-of-4")
@@ -293,6 +315,46 @@ def _age_hours(dt: datetime | None) -> float | None:
         dt = dt.replace(tzinfo=None)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     return (now - dt).total_seconds() / 3600.0
+
+
+@contextmanager
+def _deferred_termination() -> Iterator[dict[str, bool]]:
+    """Do not die mid-child; finish the durable step, then fail the lane.
+
+    audit item 10: the orchestrator terminates the whole worker process group at
+    the tick deadline, so this process used to die inside ``subprocess.run``
+    while the child had already fetched hundreds of cards.  Nothing was ingested
+    and nothing was checkpointed, so the next attempt started from zero.  Inside
+    this block SIGTERM/SIGINT only record that they happened; the caller ingests
+    whatever the child managed to declare and then reports the lane as failed.
+    The previous handlers are restored on exit, so a second signal (or the
+    orchestrator's SIGKILL) still stops the process.
+    """
+    state = {"signalled": False}
+    previous: dict[int, Any] = {}
+
+    def _on_signal(signum, _frame) -> None:
+        state["signalled"] = True
+        print(f"[collect] signal {signum} deferred until the child step finishes", file=sys.stderr)
+
+    for name in ("SIGTERM", "SIGINT"):
+        number = getattr(signal, name, None)
+        if number is None:
+            continue
+        try:
+            previous[number] = signal.signal(number, _on_signal)
+        except (ValueError, OSError):
+            # Not the main thread / unsupported platform: keep the old
+            # all-or-nothing behaviour rather than failing the lane here.
+            continue
+    try:
+        yield state
+    finally:
+        for number, handler in previous.items():
+            try:
+                signal.signal(number, handler)
+            except (ValueError, OSError):
+                continue
 
 
 def _run(cmd: list[str], *, timeout: int, dry_run: bool) -> dict[str, Any]:
@@ -638,6 +700,22 @@ def _mint_sale_quotes(source: str, *, dry_run: bool) -> dict[str, Any]:
     return result
 
 
+def _streak_has_decayed(entry: Mapping[str, Any], *, now: datetime | None = None) -> bool:
+    """audit P1-7: a streak whose last failure is older than the decay window is stale.
+
+    Quarantine is meant to skip an item that keeps failing, not to retire it.
+    Without decay the only event that clears a streak -- one later success --
+    can never happen, because a quarantined item is never attempted again.
+    """
+    last_attempt = _parse_datetime(entry.get("lastAttempt"))
+    if last_attempt is None:
+        return False
+    if last_attempt.tzinfo is None:
+        last_attempt = last_attempt.replace(tzinfo=timezone.utc)
+    reference = now or datetime.now(timezone.utc)
+    return (reference - last_attempt).total_seconds() > QUARANTINE_DECAY_DAYS * 86400
+
+
 def _quarantined_streams(adapter: str) -> dict[str, dict[str, Any]]:
     state = _load_runtime_state(QUARANTINE_PATH, QUARANTINE_CONTRACT)
     entries = state["adapters"].get(adapter) or {}
@@ -645,6 +723,7 @@ def _quarantined_streams(adapter: str) -> dict[str, dict[str, Any]]:
         stream: entry
         for stream, entry in entries.items()
         if int(entry.get("consecutiveFailures") or 0) >= QUARANTINE_THRESHOLD
+        and not _streak_has_decayed(entry)
     }
 
 
@@ -691,6 +770,9 @@ def _record_item_outcomes(
         for row in failed:
             stream = _stream_key(int(row["variantId"]), row.get("externalId"))
             previous = entries.get(stream) or {}
+            if _streak_has_decayed(previous):
+                # audit P1-7: an old streak is not evidence about today.
+                previous = {}
             entries[stream] = {
                 "variantId": int(row["variantId"]),
                 "externalId": str(row.get("externalId") or ""),
@@ -1847,6 +1929,25 @@ def pc_cdp_child_timeout_seconds(selected_count: int) -> int:
     return PC_CDP_CHILD_TIMEOUT_MAX_SECONDS
 
 
+def _gemrate_reuse_window_start(business_date: str) -> datetime | None:
+    """audit P2-12: anchor manifest reuse to the run, not to JST midnight.
+
+    Same midnight-bug family as the FX freshness floor. A manual window opened
+    before the business date's JST midnight fetches real data whose ``fetchedAt``
+    lands on the previous JST day, so the strict ``date() == business_date``
+    test threw the receipt away and re-ran 828s/shard of provider work that the
+    docstring below calls "both slow and semantically wrong". The window now
+    opens at the earlier of JST midnight and this run's creation, and closes at
+    now; the shard-suffix and exact resolved-ID-set checks are unchanged.
+    """
+    try:
+        midnight = datetime.fromisoformat(business_date).replace(tzinfo=JST).astimezone(timezone.utc)
+    except ValueError:
+        return None
+    started = _parse_datetime(os.environ.get("CARDZ_V2_RUN_STARTED_AT", "").strip())
+    return min(midnight, started) if started is not None else midnight
+
+
 def _reusable_gemrate_manifest(
     selected: list[dict[str, Any]], safe_scope: str
 ) -> tuple[Path, dict[str, Any]] | None:
@@ -1866,6 +1967,10 @@ def _reusable_gemrate_manifest(
         and re.fullmatch(r"\d{4}-\d{2}-\d{2}", business_date)
     ):
         return None
+    window_start = _gemrate_reuse_window_start(business_date)
+    if window_start is None:
+        return None
+    window_end = datetime.now(timezone.utc)
     expected = {str(item.get("externalId") or "") for item in selected}
     pattern = f"daily_*_{safe_scope}/manifest.json"
     for path in sorted(
@@ -1884,7 +1989,7 @@ def _reusable_gemrate_manifest(
             continue
         if (
             fetched_at is not None
-            and fetched_at.astimezone(JST).date().isoformat() == business_date
+            and window_start <= fetched_at <= window_end
             and resolved == expected
             and not manifest.get("mismatches")
             and bool(manifest.get("promoted"))
@@ -1894,6 +1999,38 @@ def _reusable_gemrate_manifest(
     return None
 
 
+def _gemrate_transport_outage(manifest: Mapping[str, Any], selected_count: int) -> bool:
+    """audit P1-7: tell a lane failure apart from N independent item failures.
+
+    A transport that attempted the whole cohort and resolved nothing is one
+    dead browser session, not 399 bad GemRate IDs.  The manifest already
+    carries the discriminator, so read it instead of pushing a quarantine
+    streak onto every card that a dead session never even requested.
+    """
+    transports = manifest.get("transports")
+    if not isinstance(transports, Mapping) or selected_count <= 0:
+        return False
+    attempted_any = False
+    for counts in transports.values():
+        if not isinstance(counts, Mapping):
+            return False
+        attempted = int(counts.get("attempted") or 0)
+        if attempted <= 0:
+            continue
+        attempted_any = True
+        if int(counts.get("succeeded") or 0) > 0 or attempted != selected_count:
+            return False
+    return attempted_any
+
+
+def _gemrate_failure_is_transport(reason: str) -> bool:
+    """audit P1-7 / item 10: is this reason about the pipe, not about the card?"""
+    text = str(reason or "")
+    return text in GEMRATE_TRANSPORT_FAILURE_REASONS or text.startswith(
+        GEMRATE_TRANSPORT_FAILURE_PREFIXES
+    )
+
+
 def run_gemrate_pop(
     items: list[dict[str, Any]],
     *,
@@ -1901,7 +2038,17 @@ def run_gemrate_pop(
     limit: int | None,
     dry_run: bool,
     work_scope: str | None = None,
+    gemrate_workers: int = 1,
 ) -> dict[str, Any]:
+    # audit P1-5 + trap 12: workers is payload-driven, but 4 shards x N workers
+    # is 4N Chromes on this host. Fail closed above the measured ceiling.
+    workers = max(1, int(gemrate_workers or 1))
+    if workers > GEMRATE_MAX_WORKERS:
+        raise RuntimeError(
+            f"gemrate workers={workers} exceeds GEMRATE_MAX_WORKERS="
+            f"{GEMRATE_MAX_WORKERS}; {workers} workers x 4 shards is "
+            f"{workers * 4} Chromes on this host"
+        )
     active, quarantined = _partition_quarantined("gemrate_pop", items)
     selected = _unique_items(active, limit)
     report: dict[str, Any] = {
@@ -1913,6 +2060,9 @@ def run_gemrate_pop(
         "quarantinedItems": quarantined,
         "failed": 0,
         "failedItems": [],
+        # audit P1-5: the operator has to be able to see what this shard
+        # actually ran with before anyone argues about raising it.
+        "gemrateWorkers": workers,
         "ok": True,
     }
     if not selected:
@@ -1931,6 +2081,7 @@ def run_gemrate_pop(
         report.update({"dryRun": True, "checkpointed": 0})
         return report
 
+    child_interrupted = False
     reusable = _reusable_gemrate_manifest(selected, safe_scope)
     if reusable is not None:
         manifest_path, manifest = reusable
@@ -1956,7 +2107,7 @@ def run_gemrate_pop(
             "--website-budget-seconds",
             str(GEMRATE_WEBSITE_BUDGET_SECONDS),
             "--workers",
-            "1",
+            str(workers),
         ]
         if safe_scope:
             command.extend(["--run-suffix", safe_scope])
@@ -1969,15 +2120,25 @@ def run_gemrate_pop(
         # MUST NOT scale with universe size: ``10 * len(selected)`` on 1604 IDs was
         # 16040s, longer than the 4h Task Scheduler limit, so the morning chain
         # was killed before PC/publish (2026-08-20).
-        report["run"] = _run(
-            command, timeout=gemrate_child_timeout_seconds(len(selected)), dry_run=False
-        )
+        # audit item 10: the orchestrator SIGTERMs the whole worker group at
+        # the tick deadline. Dying here threw away every card the child had
+        # already fetched (2026-08-24: 604 cards in 20 min, then 0 ingested,
+        # then a second attempt that started again from zero). Hold the signal
+        # while the child finishes its declared-partial manifest, ingest what
+        # it got, and only then let the lane fail.
+        with _deferred_termination() as interrupted:
+            report["run"] = _run(
+                command, timeout=gemrate_child_timeout_seconds(len(selected)), dry_run=False
+            )
+        child_interrupted = interrupted["signalled"]
         # Exit 1 is the child's declared-partial signal (some IDs unresolved); the
         # manifest still carries every resolved row, so per-item ingest continues.
         exit_code = report["run"].get("exit")
         if exit_code not in (0, 1):
             report.update({"ok": False, "error": "gemrate_daily_failed", "checkpointed": 0})
             return report
+        if child_interrupted:
+            report["childInterrupted"] = True
         after = set((ROOT / "data/private/gemrate/runs").glob("daily_*/manifest.json"))
         candidates = sorted(after - before, key=lambda path: path.stat().st_mtime, reverse=True)
         if safe_scope:
@@ -2033,10 +2194,31 @@ def run_gemrate_pop(
                 or "gemrate_manifest_missing_id",
             }
         )
-    if failed_items:
+    if _gemrate_transport_outage(manifest, len(selected)):
+        # audit P1-7: every attempted transport resolved nothing for the whole
+        # cohort -- one dead browser session, not len(selected) bad IDs. Report
+        # the lane failure and advance NO per-item streak; the core contract
+        # barrier still holds publish, which is what actually protects the data.
+        report.update({
+            "ok": False,
+            "error": "gemrate_transport_unavailable",
+            "manifest": str(manifest_path),
+            "checkpointed": 0,
+            "failed": len(failed_items),
+            "failedItems": failed_items,
+        })
+        return report
+    # audit P1-7 / item 10: a budget-exhausted, interrupted or dead-browser card
+    # is a transport verdict, not a verdict about that GemRate ID.
+    streak_items = [
+        row for row in failed_items
+        if not _gemrate_failure_is_transport(str(row.get("error") or ""))
+    ]
+    report["quarantineStreaksSkipped"] = len(failed_items) - len(streak_items)
+    if streak_items:
         # Per-item source failures advance the quarantine streak immediately so
         # they persist even if the ingest step below fails for other reasons.
-        _record_item_outcomes("gemrate_pop", succeeded=[], failed=failed_items)
+        _record_item_outcomes("gemrate_pop", succeeded=[], failed=streak_items)
     write: dict[str, Any] = {"runId": None, "inserted": 0, "checkpointed": 0}
     if ok_items:
         try:
@@ -2057,7 +2239,19 @@ def run_gemrate_pop(
     report.update({"manifest": str(manifest_path), **write})
     report["failed"] = len(failed_items)
     report["failedItems"] = failed_items
-    if failed_items:
+    # audit P1-5: the 429 ceiling that --workers 1 was protecting has never
+    # fired in measurement. Publish the count so raising workers is a decision
+    # backed by this shard's own receipt instead of by an assumption.
+    report["rateLimited429"] = sum(
+        1
+        for reason in (manifest.get("websiteFailureReceipts") or {}).values()
+        if str(reason) == "rate_limited_429_exhausted"
+    )
+    if child_interrupted or manifest.get("interrupted"):
+        # audit item 10: the cards above are ingested and checkpointed, but an
+        # interrupted run is never a clean verdict for the rest of the cohort.
+        report.update({"ok": False, "error": "gemrate_child_interrupted"})
+    elif failed_items:
         report.update({"ok": False, "error": "gemrate_partial_items_failed"})
     return report
 
@@ -3807,15 +4001,39 @@ def partition_local_pc_stock_pages(
     evidence_times: list[datetime] = []
     evidence_rows: list[dict[str, Any]] = []
     network_reasons: dict[str, str] = {}
+    map_contract_errors: list[int] = []
     for item in selected:
         variant_id = int(item["variantId"])
-        row = map_by_variant[variant_id]
+        # audit P2-13: a bare map_by_variant[variant_id] made one absent map row
+        # a KeyError that escaped _collect_mode_impl (which has no except at
+        # all) and took the whole pricecharting task down into a 62 min backoff.
+        row = map_by_variant.get(variant_id)
+        if row is None:
+            network.append(item)
+            network_reasons[str(variant_id)] = "local_exact_map_row_missing"
+            continue
         exact_price, reason = validate_pc_psa10(row)
         if exact_price is None:
             network.append(item)
             network_reasons[str(variant_id)] = reason
             continue
-        html_path = ROOT / str(row.get("html_path") or row.get("htmlPath") or "")
+        html_field = str(row.get("html_path") or row.get("htmlPath") or "")
+        if not html_field:
+            # audit P2-13: an empty map field is a map contract error, not a
+            # missing file -- and ROOT / "" resolves to ROOT itself, so stat()
+            # used to succeed on a directory and read_bytes() raised
+            # IsADirectoryError. Name it, keep the card on the network lane.
+            map_contract_errors.append(variant_id)
+            network.append(item)
+            network_reasons[str(variant_id)] = "local_exact_map_html_path_empty"
+            continue
+        html_path = ROOT / html_field
+        if not html_path.is_file():
+            # audit P2-13: mirror the SLA branch above -- a missing artifact is
+            # a refetch, never an exception out of the whole task.
+            network.append(item)
+            network_reasons[str(variant_id)] = "local_exact_html_missing"
+            continue
         modified_at = datetime.fromtimestamp(html_path.stat().st_mtime, timezone.utc)
         if (_age_hours(modified_at) or 0) > SLA_HOURS:
             network.append(item)
@@ -3859,6 +4077,10 @@ def partition_local_pc_stock_pages(
         ),
         "rows": evidence_rows,
         "networkReasons": network_reasons,
+        # audit P2-13: an empty html_path in the PC map is a map contract
+        # error. It must be named in the receipt, not hidden behind a generic
+        # "the file is missing" refetch reason.
+        "mapContractErrors": map_contract_errors,
     }
     return replayed, network, report
 
@@ -4401,6 +4623,7 @@ def _collect_mode_impl(
     rebuild_registry: bool = True,
     report_path: Path | None = None,
     work_scope: str | None = None,
+    gemrate_workers: int = 1,
 ) -> dict[str, Any]:
     status = cmd_status(rebuild_registry=rebuild_registry)
     if not REGISTRY_PATH.is_file():
@@ -4468,6 +4691,7 @@ def _collect_mode_impl(
                 delay=delay,
                 workers=workers,
                 work_scope=work_scope,
+                gemrate_workers=gemrate_workers,
                 shared_harvest=snk_shared_harvest,
             )
         )
@@ -4685,6 +4909,7 @@ def _collect_mode(
     rebuild_registry: bool = True,
     report_path: Path | None = None,
     lease_scope: str | None = None,
+    gemrate_workers: int = 1,
 ) -> dict[str, Any]:
     requested = _requested_adapters(adapters)
     lease_conn, lock_names = _acquire_adapter_leases(
@@ -4707,6 +4932,7 @@ def _collect_mode(
             rebuild_registry=rebuild_registry,
             report_path=report_path,
             work_scope=lease_scope,
+            gemrate_workers=gemrate_workers,
         )
     finally:
         _release_adapter_leases(lease_conn, lock_names)
@@ -4728,6 +4954,7 @@ def cmd_stock(
     rebuild_registry: bool = True,
     report_path: Path | None = None,
     lease_scope: str | None = None,
+    gemrate_workers: int = 1,
 ) -> dict[str, Any]:
     return _collect_mode(
         mode="stock",
@@ -4745,6 +4972,7 @@ def cmd_stock(
         rebuild_registry=rebuild_registry,
         report_path=report_path,
         lease_scope=lease_scope,
+        gemrate_workers=gemrate_workers,
     )
 
 
@@ -4864,6 +5092,7 @@ def cmd_incr(
     rebuild_registry: bool = True,
     report_path: Path | None = None,
     lease_scope: str | None = None,
+    gemrate_workers: int = 1,
 ) -> dict[str, Any]:
     return _collect_mode(
         mode="incr",
@@ -4881,6 +5110,7 @@ def cmd_incr(
         rebuild_registry=rebuild_registry,
         report_path=report_path,
         lease_scope=lease_scope,
+        gemrate_workers=gemrate_workers,
     )
 
 
