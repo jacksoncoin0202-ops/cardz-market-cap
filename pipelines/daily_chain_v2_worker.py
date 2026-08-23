@@ -125,6 +125,17 @@ def shard_variant_ids(registry: list[dict[str, Any]], adapter: str, shard: str) 
     })
 
 
+def adapter_registry_rows(registry: list[dict[str, Any]], adapter: str) -> int:
+    """How many registry rows this legacy adapter owns, shard-independent."""
+
+    return sum(
+        1
+        for row in registry
+        if str(row.get("adapter") or "") == adapter
+        and int(row.get("variantId") or 0) > 0
+    )
+
+
 def run_collect(
     task: Mapping[str, Any],
     payload: Mapping[str, Any],
@@ -157,16 +168,33 @@ def run_collect(
         registry = collect._jsonl_rows(collect.REGISTRY_PATH)
         variant_ids = shard_variant_ids(registry, adapters[0], shard)
         if not variant_ids:
+            # audit P2-5: an empty shard is normal (a sparse modulo bucket), an
+            # empty adapter is not -- the registry builder or the adapter name
+            # drifted and all four shards would return in milliseconds.  Only
+            # the first case may answer with a receipt.
+            adapter_rows = adapter_registry_rows(registry, adapters[0])
+            if adapter_rows == 0:
+                raise RuntimeError(
+                    f"collect registry has no registry rows for adapter={adapters[0]!r}"
+                    f" (shard={shard}); the registry or the adapter name drifted"
+                )
             now = iso_now()
+            # No work matched, so nothing was collected: the receipt must not
+            # forge a payload digest nor call the shard completed.
             return {
                 "contract": "cardz-source-result-v2",
                 "sourceCode": source_code,
-                "status": "completed",
+                "status": "degraded",
                 "observedAt": now,
                 "checkedAt": now,
-                "payloadSha256": sha256({"source": source_code, "shard": shard, "empty": True}),
                 "counts": {"processed": 0, "inserted": 0, "checkpointed": 0},
-                "detail": {"shard": shard, "empty": True},
+                "detail": {
+                    "shard": shard,
+                    "empty": True,
+                    "reason": "shard_matched_no_registry_rows",
+                    "adapter": adapters[0],
+                    "adapterRegistryRows": adapter_rows,
+                },
             }
     report_path = receipt_path.with_suffix(".collect.json")
     mode = str(worker.get("mode") or "incr")
@@ -225,13 +253,27 @@ def run_collect(
                     "commands": commands,
                 }
             )
+        # audit P2-4 (first step): lead with the structured verdict so the
+        # classifier reads a code instead of whichever card happened to land
+        # in the last 6000 characters of provider prose.  The blob still
+        # follows, because an unmapped code falls through to the prose scan.
         raise RuntimeError(
-            f"collect source failed adapters={adapters}"
+            f"errorCode=COLLECT_ADAPTER_FAILED adapters={adapters}"
             f" failed={report.get('failedAdapters')} truncated={report.get('truncatedAdapters')}"
             f" detail={json.dumps(failed_detail, ensure_ascii=False, sort_keys=True)[-6000:]}"
         )
     quarantined = int(report.get("quarantined") or 0)
-    status = "degraded" if quarantined else "completed"
+    failed_items = int(report.get("failed") or 0)
+    # audit P2-7: counts.failed was written to every receipt and read by
+    # nobody, so an adapter reporting ok=True with N failed items still called
+    # itself completed.  Partial work is degraded work, and the receipt names
+    # who dropped it.
+    failed_by_adapter = {
+        str(result.get("adapter")): int(result.get("failed") or 0)
+        for result in (report.get("results") or [])
+        if isinstance(result, Mapping) and int(result.get("failed") or 0) > 0
+    }
+    status = "degraded" if (quarantined or failed_items) else "completed"
     return {
         "contract": "cardz-source-result-v2",
         "sourceCode": source_code,
@@ -244,7 +286,7 @@ def run_collect(
             "processed": int(report.get("processed") or 0),
             "inserted": int(report.get("inserted") or 0),
             "checkpointed": int(report.get("checkpointed") or 0),
-            "failed": int(report.get("failed") or 0),
+            "failed": failed_items,
             "quarantined": quarantined,
         },
         "detail": {
@@ -254,6 +296,7 @@ def run_collect(
             "limit": effective_limit,
             "dryRun": effective_dry_run,
             "failedAdapters": report.get("failedAdapters") or [],
+            "failedByAdapter": failed_by_adapter,
             "truncatedAdapters": report.get("truncatedAdapters") or [],
         },
     }
@@ -339,6 +382,22 @@ def run_fx(task: Mapping[str, Any], payload: Mapping[str, Any]) -> dict[str, Any
     load_result = _run_checked(
         [sys.executable, "-X", "utf8", str(ROOT / "pipelines" / "fx_db_load.py")]
     )
+    # audit P2-6: the receipt counted snapshot["quotes"], a key the FX snapshot
+    # has never had (fx_rates writes "rates"), so `.get(...) or {}` swallowed
+    # the miss and every receipt claimed currencies:0 while 30 rows were
+    # written.  Count the real key, and prove the loader agrees before this
+    # attempt may call itself completed: fx_db_load writes every rate except
+    # the USD base row, so that one row is the whole expected difference.
+    rates = snapshot.get("rates") or {}
+    quoted = [code for code in rates if code != str(snapshot.get("base") or "USD")]
+    written = int(load_result.get("written") or 0)
+    loaded = load_result.get("currencies")
+    loaded_count = len(loaded) if isinstance(loaded, (list, tuple, set, dict)) else written
+    if not rates or len(quoted) != written or written != loaded_count:
+        raise RuntimeError(
+            f"FX rate count disagrees: snapshotRates={len(rates)}"
+            f" quoted={len(quoted)} written={written} loaded={loaded_count}"
+        )
     return {
         "contract": "cardz-source-result-v2",
         "sourceCode": str(task["source_code"]),
@@ -347,8 +406,9 @@ def run_fx(task: Mapping[str, Any], payload: Mapping[str, Any]) -> dict[str, Any
         "checkedAt": iso_now(),
         "payloadSha256": str(snapshot["payloadSha256"]),
         "counts": {
-            "currencies": len(snapshot.get("quotes") or {}),
-            "written": int(load_result.get("written") or 0),
+            "currencies": len(rates),
+            "quoted": len(quoted),
+            "written": written,
         },
         "detail": {"collect": collect_result, "load": load_result},
     }

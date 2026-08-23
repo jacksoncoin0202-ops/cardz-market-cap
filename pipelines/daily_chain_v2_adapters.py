@@ -36,6 +36,21 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
 
+def _worker_error_text(receipt: Mapping[str, Any], fallback: str) -> str:
+    """One failure string that leads with the worker's own verdict.
+
+    audit P2-4 (first step): the receipt already carries an error code, and
+    the adapter used to drop it and raise prose only, so the retry policy was
+    decided by whatever landed in the last 6000 characters of provider
+    output.  The code goes first and the prose follows; an error code the
+    classifier does not know still falls through to the substring scan.
+    """
+
+    code = str(receipt.get("errorCode") or "").strip()
+    prose = str(receipt.get("error") or "").strip() or fallback
+    return f"errorCode={code} {prose}" if code else prose
+
+
 def _process_started_at(pid: int) -> str | None:
     path = Path(f"/proc/{pid}/stat")
     try:
@@ -254,9 +269,7 @@ class CommandSourceAdapter:
         if not isinstance(receipt, Mapping):
             raise RuntimeError("worker receipt is not an object")
         if int(execution.get("exitCode") or 0) != 0:
-            raise RuntimeError(
-                str(receipt.get("error") or receipt.get("errorCode") or "source worker failed")
-            )
+            raise RuntimeError(_worker_error_text(receipt, "source worker failed"))
         if str(receipt.get("sourceCode") or "") != task.source_code:
             raise RuntimeError(
                 f"worker receipt source mismatch: expected={task.source_code}"
@@ -265,7 +278,7 @@ class CommandSourceAdapter:
         payload_digest = str(receipt.get("payloadSha256") or "") or sha256(receipt)
         status = str(receipt.get("status") or "completed").lower()
         if status not in {"completed", "degraded", "quarantined"}:
-            raise RuntimeError(str(receipt.get("error") or f"worker status={status}"))
+            raise RuntimeError(_worker_error_text(receipt, f"worker status={status}"))
         counts = receipt.get("counts") if isinstance(receipt.get("counts"), Mapping) else {}
         return SourceResult(
             status=status,
