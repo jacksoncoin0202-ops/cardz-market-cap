@@ -286,6 +286,28 @@ def _run_checked(command: list[str]) -> dict[str, Any]:
     return parsed or {"exit": 0, "tail": tail[-1000:]}
 
 
+def fx_freshness_floor(business_day: date, task_created_at: Any) -> datetime:
+    """Earliest fetchedAt this run accepts for the FX snapshot.
+
+    The contract is "not yesterday's last-good", i.e. JST midnight of the
+    business date.  A manual window opened before that midnight (2026-08-23
+    09:38 JST driving business date 08-24) made midnight unreachable, so every
+    fresh fetch read as stale and the core fx task went TERMINAL.  The task's
+    own creation time is the earliest instant a same-run fetch can exist, so
+    the floor is the earlier of the two.  Scheduled runs plan after midnight
+    and keep the midnight rule unchanged.
+    """
+
+    midnight = datetime.combine(business_day, time.min, tzinfo=JST).astimezone(timezone.utc)
+    created_text = str(task_created_at or "").strip()
+    if not created_text:
+        return midnight
+    created = datetime.fromisoformat(created_text.replace("Z", "+00:00"))
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    return min(midnight, created.astimezone(timezone.utc))
+
+
 def run_fx(task: Mapping[str, Any], payload: Mapping[str, Any]) -> dict[str, Any]:
     worker = payload.get("worker")
     if not isinstance(worker, Mapping):
@@ -308,11 +330,11 @@ def run_fx(task: Mapping[str, Any], payload: Mapping[str, Any]) -> dict[str, Any
     snapshot = validate_snapshot(json.loads(DEFAULT_CACHE.read_text(encoding="utf-8")))
     fetched = datetime.fromisoformat(str(snapshot["fetchedAt"]).replace("Z", "+00:00"))
     business_day = date.fromisoformat(str(payload["businessDate"]))
-    business_start = datetime.combine(business_day, time.min, tzinfo=JST).astimezone(timezone.utc)
-    if fetched < business_start:
+    freshness_floor = fx_freshness_floor(business_day, task.get("created_at"))
+    if fetched < freshness_floor:
         raise RuntimeError(
             f"FX schema contract: stale last-good fetchedAt={fetched.isoformat()}"
-            f" businessStart={business_start.isoformat()}"
+            f" freshnessFloor={freshness_floor.isoformat()}"
         )
     load_result = _run_checked(
         [sys.executable, "-X", "utf8", str(ROOT / "pipelines" / "fx_db_load.py")]

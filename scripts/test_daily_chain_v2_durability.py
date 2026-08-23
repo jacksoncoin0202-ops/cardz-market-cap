@@ -893,5 +893,23 @@ try:
     assert pool_source.count("connect_timeout=10") == 1
     print("POSITIVE_OK the execution time cap is session scoped on the read path and absent from the rebuild writer")
 
+    # ------------------------------------------------------------- fx freshness floor
+    from daily_chain_v2_worker import fx_freshness_floor
+
+    midnight_0824 = datetime(2026, 8, 23, 15, 0, tzinfo=timezone.utc)  # 2026-08-24 00:00 JST
+    early_plan = "2026-08-23T00:38:37.753775+00:00"  # manual window opened 09:38 JST the day before
+    fetched = datetime(2026, 8, 23, 0, 38, 54, tzinfo=timezone.utc)
+    assert fetched < midnight_0824  # the midnight-only rule refused this fetch (08-24 fx TERMINAL)
+    floor = fx_freshness_floor(date(2026, 8, 24), early_plan)
+    assert floor == datetime.fromisoformat(early_plan)
+    assert fetched >= floor
+    scheduled_plan = "2026-08-23T18:30:05.000000+00:00"
+    assert fx_freshness_floor(date(2026, 8, 24), scheduled_plan) == midnight_0824
+    assert fx_freshness_floor(date(2026, 8, 24), None) == midnight_0824
+    assert fetched < fx_freshness_floor(date(2026, 8, 24), scheduled_plan)  # yesterday's last-good still stale
+    worker_source = (ROOT / "pipelines" / "daily_chain_v2_worker.py").read_text(encoding="utf-8")
+    assert 'fx_freshness_floor(business_day, task.get("created_at"))' in worker_source
+    print("POSITIVE_OK fx freshness floor follows an early manual window and keeps midnight for scheduled runs")
+
 finally:
     cleanup()
