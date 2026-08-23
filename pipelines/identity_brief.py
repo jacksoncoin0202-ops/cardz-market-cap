@@ -71,6 +71,10 @@ BRIEF_EVENT_TYPE = "identity.brief"
 # Own dedupe key.  See module docstring.
 SEEN_STATE_KEY = "identity_brief_seen"
 REFLOAT_DAYS = 14
+# Both entry points (the V2 `brief` stage and `notify_hermes identity-brief`)
+# render the same message, so they share one dedupe record inside the notify
+# state document -- under this key only, never under the legacy 037 digest key.
+NOTIFY_STATE_PATH = ROOT / "data" / "runtime" / "notify" / "hermes_notify_state.json"
 
 # Structural caps (rule 2).
 MAX_NEW_CARDS = 5
@@ -681,6 +685,35 @@ def split_by_seen(
         else:
             repeat.append(dict(row))
     return fresh, repeat, state
+
+
+def load_seen(path: Path | None = None) -> dict[str, Any]:
+    """Read this report's own dedupe record out of the notify state."""
+
+    try:
+        state = json.loads((path or NOTIFY_STATE_PATH).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    record = state.get(SEEN_STATE_KEY)
+    return dict(record) if isinstance(record, Mapping) else {}
+
+
+def save_seen(seen: Mapping[str, Any], path: Path | None = None) -> Path:
+    """Merge the record back, leaving every other notify key untouched."""
+
+    target = path or NOTIFY_STATE_PATH
+    try:
+        state = json.loads(target.read_text(encoding="utf-8"))
+        if not isinstance(state, dict):
+            state = {}
+    except (OSError, ValueError):
+        state = {}
+    state[SEEN_STATE_KEY] = dict(seen)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
+    temporary.replace(target)
+    return target
 
 
 def remember(

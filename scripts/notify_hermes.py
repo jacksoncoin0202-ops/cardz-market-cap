@@ -445,6 +445,32 @@ def _collect_digest(state: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     return "\n".join(lines), state
 
 
+def cmd_identity_brief(args: argparse.Namespace) -> int:
+    """早朝身份日報：純讀 render，經 send_message 出 HTML（link 生存）。
+
+    Dedupe 用 identity_brief 自己嘅 key，永遠唔掂 legacy 037 digest 嗰個
+    `seen_manual_review`：兩份報告講唔同嘢，共用一個 key 會令其中一份靜咗。
+    """
+
+    sys.path.insert(0, str(ROOT / "pipelines"))
+    import identity_brief
+
+    state = _load_state()
+    seen = state.get(identity_brief.SEEN_STATE_KEY) or {}
+    result = identity_brief.build(business_date=args.business_date or None, seen=seen)
+    message = str(result.get("message") or "")
+    if args.dry_run:
+        print(message)
+        return 0
+    if not send_message(message):
+        return 1
+    # Only a delivered message may mark its rows as shown; a dropped send that
+    # stamped the state would silence tomorrow's report as well.
+    state[identity_brief.SEEN_STATE_KEY] = result.get("seen") or {}
+    _save_state(state)
+    return 0
+
+
 def cmd_digest(_args: argparse.Namespace) -> int:
     state = _load_state()
     try:
@@ -501,6 +527,11 @@ def main() -> int:
     p_alert.add_argument("--level", choices=("info", "warn", "error"), default="warn")
     p_alert.add_argument("--cooldown-min", default="60")
     p_alert.set_defaults(func=cmd_alert)
+
+    p_identity = sub.add_parser("identity-brief", help="早朝身份日報")
+    p_identity.add_argument("--business-date", default="")
+    p_identity.add_argument("--dry-run", action="store_true", help="只印，唔發")
+    p_identity.set_defaults(func=cmd_identity_brief)
 
     p_digest = sub.add_parser("digest", help="每日摘要")
     p_digest.set_defaults(func=cmd_digest)

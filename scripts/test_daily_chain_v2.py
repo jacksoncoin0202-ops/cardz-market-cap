@@ -1252,3 +1252,293 @@ try:
 finally:
     v2db.db, v2db.load_env = o2_db_real, o2_load_env_real
 print("POSITIVE_OK current_run_contract measures one section per registry source and blocks an unmeasurable core source")
+
+# ---------------------------------------------------------------------------
+# O3: the identity stages inside plan().  Everything below runs on a sqlite
+# journal with no MySQL, no browser, and no stage subprocess: only the planner.
+import os  # noqa: E402
+import sqlite3  # noqa: E402
+
+import daily_chain_v2 as v2core  # noqa: E402
+import identity_brief as o3_brief  # noqa: E402
+from daily_chain_v2_contract import WORK_DEADLINE_ENV  # noqa: E402
+
+O3_DAY = date(2026, 8, 20)
+O3_CUTOFF = datetime(2026, 8, 20, 1, 15, tzinfo=timezone.utc)
+O3_BEFORE = O3_CUTOFF - timedelta(hours=2)
+O3_AFTER = O3_CUTOFF + timedelta(minutes=5)
+O3_SCHEDULE = {
+    "source_cutoff": O3_CUTOFF,
+    "sla": O3_CUTOFF + timedelta(hours=1),
+    "final": O3_CUTOFF + timedelta(hours=8),
+}
+O3_LANES = tuple(lane for lane, _group in identity_lanes(
+    adapter.spec for adapter in build_default_registry().enabled()
+))
+O3_INTAKE_STAGES = ("identity-operator-apply", "identity-intake")
+O3_LANE_STAGES = tuple(f"identity-{lane}" for lane in O3_LANES)
+O3_REVERIFY_STAGES = tuple(f"identity-reverify-{lane}" for lane in O3_LANES)
+
+
+def o3_chain(folder: str) -> tuple[Journal, Any]:
+    journal = Journal(Path(folder) / "chain.sqlite3")
+    journal.initialise()
+    journal.ensure_run(
+        business_date=O3_DAY.isoformat(),
+        source_cutoff_at=iso(O3_CUTOFF),
+        sla_at=iso(O3_SCHEDULE["sla"]),
+        final_at=iso(O3_SCHEDULE["final"]),
+    )
+    chain = DailyChainV2(
+        journal=journal,
+        business_date=O3_DAY,
+        allow_publish=False,
+        notify=False,
+        deadline_monotonic=time.monotonic() + 600,
+        schedule=O3_SCHEDULE,
+    )
+    return journal, chain
+
+
+def o3_set(journal: Journal, task_key: str, status: str, result: str = "{}") -> None:
+    with sqlite3.connect(str(journal.path)) as conn:
+        conn.execute(
+            "UPDATE chain_task SET status=?,result_json=?,updated_at=? WHERE task_key=?",
+            (status, result, iso(), task_key),
+        )
+        conn.commit()
+
+
+def o3_rows(journal: Journal, chain: Any) -> dict[str, dict[str, Any]]:
+    return {str(row["capability"]): row for row in journal.tasks(chain.run_id)}
+
+
+def o3_drive(
+    journal: Journal,
+    chain: Any,
+    now: datetime,
+    *,
+    until: str,
+    hold: Sequence[str] = (),
+    rounds: int = 80,
+) -> dict[str, int]:
+    """plan() until `until` is planned, completing everything not held.
+
+    Returns the round in which each capability first appeared, which is the
+    order plan() actually chose -- plan() returns after each stage it adds.
+    """
+
+    first_round: dict[str, int] = {}
+    for index in range(rounds):
+        chain.plan(now)
+        rows = journal.tasks(chain.run_id)
+        for row in rows:
+            first_round.setdefault(str(row["capability"]), index)
+        if until in first_round:
+            return first_round
+        for row in rows:
+            capability = str(row["capability"])
+            if capability == until or capability in hold:
+                continue
+            if str(row["status"]) in {"PENDING", "READY", "RETRY", "INTERRUPTED"}:
+                o3_set(journal, str(row["task_key"]), "COMPLETED")
+    raise AssertionError(f"plan() never reached {until}: {sorted(first_round)}")
+
+
+with tempfile.TemporaryDirectory(prefix="v2-o3-order-") as folder:
+    o3_journal, o3_planner = o3_chain(folder)
+    o3_order = o3_drive(o3_journal, o3_planner, O3_BEFORE, until="pending-identities")
+    # Stage 1/2 are planned after the pre-identity contract barrier and before
+    # any discovery lane exists.
+    assert o3_order["core-contract-pre"] < o3_order["identity-operator-apply"]
+    assert o3_order["identity-operator-apply"] < o3_order["identity-intake"]
+    for lane_stage in O3_LANE_STAGES:
+        assert o3_order["identity-intake"] < o3_order[lane_stage], lane_stage
+    # Both re-verify stages come after the lanes have settled and before the
+    # pending-identity snapshot.
+    for lane_stage, reverify_stage in zip(O3_LANE_STAGES, O3_REVERIFY_STAGES):
+        assert o3_order[lane_stage] < o3_order[reverify_stage]
+        assert o3_order[reverify_stage] < o3_order["pending-identities"]
+    o3_planned = o3_rows(o3_journal, o3_planner)
+    # Exactly one stage per registry lane -- not "one because the phase was
+    # empty".  stage_row() itself raises on a duplicate.
+    for lane, group in o3_planner.identity_lanes():
+        for capability, attempts in (
+            (f"identity-{lane}", 7), (f"identity-reverify-{lane}", 7),
+        ):
+            row = o3_planned[capability]
+            assert str(row["phase"]) == "identity", capability
+            assert str(row["concurrency_group"]) == group, capability
+            assert int(row["max_attempts"]) == attempts, capability
+            assert o3_planner.stage_row(capability) is not None
+    assert str(o3_planned["identity-operator-apply"]["concurrency_group"]) == "db-writer"
+    assert int(o3_planned["identity-operator-apply"]["max_attempts"]) == 3
+    assert str(o3_planned["identity-intake"]["concurrency_group"]) == "host:gemrate"
+    assert int(o3_planned["identity-intake"]["max_attempts"]) == 4
+    for capability in O3_INTAKE_STAGES + O3_REVERIFY_STAGES:
+        assert str(o3_planned[capability]["phase"]) == "identity", capability
+        assert str(o3_planned[capability]["required_class"]) != "core", capability
+    # Idempotence: replanning the same settled run adds nothing at all.
+    o3_before_replan = len(o3_journal.tasks(o3_planner.run_id))
+    o3_planner.plan(O3_BEFORE)
+    o3_planner.plan(O3_BEFORE)
+    assert len(o3_journal.tasks(o3_planner.run_id)) == o3_before_replan
+    print(
+        "POSITIVE_OK intake and reverify stages plan around the lanes,"
+        " one per registry lane, and replanning adds nothing"
+    )
+
+# A stage that never finishes must retire itself rather than park the run:
+# every one of the four gates accepts TERMINAL, which stage_complete does not.
+with tempfile.TemporaryDirectory(prefix="v2-o3-terminal-") as folder:
+    o3_journal, o3_planner = o3_chain(folder)
+    o3_drive(o3_journal, o3_planner, O3_BEFORE, until="identity-operator-apply")
+    o3_set(
+        o3_journal,
+        str(o3_rows(o3_journal, o3_planner)["identity-operator-apply"]["task_key"]),
+        "TERMINAL",
+    )
+    assert o3_planner.stage_complete("identity-operator-apply") is False
+    o3_order = o3_drive(
+        o3_journal, o3_planner, O3_BEFORE, until="pending-identities",
+        hold=("identity-operator-apply",),
+    )
+    assert "identity-intake" in o3_order and "pending-identities" in o3_order
+    print("NEGATIVE_OK a TERMINAL identity stage retires itself instead of parking the run")
+
+# The brief lives in `barrier`, survives the identity cutoff, and can never
+# hold acceptance -- not even while it is retrying.
+with tempfile.TemporaryDirectory(prefix="v2-o3-brief-") as folder:
+    o3_journal, o3_planner = o3_chain(folder)
+    o3_drive(o3_journal, o3_planner, O3_BEFORE, until="identity-brief")
+    o3_brief_row = o3_rows(o3_journal, o3_planner)["identity-brief"]
+    assert str(o3_brief_row["phase"]) == "barrier", o3_brief_row["phase"]
+    assert str(o3_brief_row["concurrency_group"]) == "db-writer"
+    assert int(o3_brief_row["max_attempts"]) == 3
+    o3_set(o3_journal, str(o3_brief_row["task_key"]), "RETRY")
+    o3_order = o3_drive(
+        o3_journal, o3_planner, O3_BEFORE, until="daily-accept",
+        hold=("identity-brief",),
+    )
+    assert "daily-accept" in o3_order
+    assert str(o3_rows(o3_journal, o3_planner)["identity-brief"]["status"]) == "RETRY"
+    print("POSITIVE_OK a retrying identity brief sits in barrier and never blocks daily-accept")
+
+# The 10:15 cutoff closes the whole identity phase; the brief is still planned,
+# which is the morning that most needs it.
+with tempfile.TemporaryDirectory(prefix="v2-o3-cutoff-") as folder:
+    o3_journal, o3_planner = o3_chain(folder)
+    o3_drive(o3_journal, o3_planner, O3_BEFORE, until="identity-operator-apply")
+    o3_held = O3_INTAKE_STAGES + O3_LANE_STAGES + O3_REVERIFY_STAGES + (
+        "pending-identities",
+    )
+    o3_order = o3_drive(
+        o3_journal, o3_planner, O3_AFTER, until="identity-brief", hold=o3_held,
+    )
+    o3_closed = {
+        capability: row for capability, row in o3_rows(o3_journal, o3_planner).items()
+        if str(row["phase"]) == "identity"
+    }
+    assert set(o3_closed) == set(o3_held), sorted(o3_closed)
+    for capability, row in o3_closed.items():
+        assert str(row["status"]) == "DEGRADED", (capability, row["status"])
+        assert str(row["last_error_code"]) == "IDENTITY_CUTOFF", capability
+    assert "identity-brief" in o3_order
+    assert str(o3_rows(o3_journal, o3_planner)["identity-brief"]["status"]) == "PENDING"
+    print("POSITIVE_OK an identity phase closed by IDENTITY_CUTOFF still yields a brief")
+
+# The brief's transport: rendered HTML travels in the payload and comes back
+# out of _event_message byte for byte.
+o3_html = '\U0001F305 <b>CARDZ</b>\n<a href="https://www.gemrate.com/card/abc">card</a>'
+assert v2core.IDENTITY_BRIEF_EVENT == o3_brief.BRIEF_EVENT_TYPE == "identity.brief"
+assert v2core.IDENTITY_BRIEF_EVENT not in v2core.ALWAYS_ALERT_EVENTS
+assert DailyChainV2._event_message(
+    v2core.IDENTITY_BRIEF_EVENT, {"message": o3_html, "runId": "cardz-v2:2026-08-20"}
+) == o3_html
+# Negative: any other event type still goes through the escaping alert path.
+assert "&lt;a href=" in DailyChainV2._event_message(
+    "SOMETHING_ELSE", {"message": o3_html, "errorCode": o3_html}
+)
+print("NEGATIVE_OK identity.brief renders verbatim while every other event stays escaped")
+
+# The stage subprocess learns the parent's deadline as wall clock, and the
+# re-verify lane spends it instead of being killed mid-fetch.
+assert "WORK_DEADLINE_ENV:" in o2_core  # exported to every stage subprocess
+assert v2stage.TICK_RESERVE_SECONDS == v2core.TICK_RESERVE_SECONDS
+o3_saved_env = os.environ.get(WORK_DEADLINE_ENV)
+o3_runtime = ROOT / "data" / "runtime" / "rebuild-036"
+o3_artifacts: list[Path] = []
+o3_calls: list[dict[str, Any]] = []
+o3_report = {
+    "counts": {"promoted": 1, "reviewBindings": 3},
+    "held": [{"variantId": 1877, "reason": "print_signature_mismatch"}],
+    "promotable": 1,
+}
+
+
+def o3_fake_pc(args: Any) -> int:
+    o3_calls.append({"lane": "browser", "fetch": bool(args.fetch_missing)})
+    o3_runtime.mkdir(parents=True, exist_ok=True)
+    path = o3_runtime / f"pc-identity-reverify-99999999T{len(o3_calls):06d}Z-o3.json"
+    path.write_text(json.dumps(o3_report), encoding="utf-8")
+    o3_artifacts.append(path)
+    return 0
+
+
+def o3_fake_snk(args: Any) -> int:
+    o3_calls.append({"lane": "http", "variantIds": args.variant_ids})
+    return 0
+
+
+try:
+    os.environ[WORK_DEADLINE_ENV] = f"{time.time() + 5000:.3f}"
+    # +0.5ms: the deadline is exported as a rounded millisecond stamp.
+    assert 4000 < (v2stage._stage_seconds_remaining() or 0) <= 5000.001
+    os.environ[WORK_DEADLINE_ENV] = "not-a-number"
+    assert v2stage._stage_seconds_remaining() is None
+    os.environ.pop(WORK_DEADLINE_ENV)
+    assert v2stage._stage_seconds_remaining() is None
+
+    sys.modules["rebuild_036"] = types.SimpleNamespace(  # type: ignore[assignment]
+        cmd_pc_identity_reverify=o3_fake_pc,
+        cmd_snk_identity_reverify=o3_fake_snk,
+    )
+    # Inside the reserve nothing is attempted, so nothing is claimed.
+    os.environ[WORK_DEADLINE_ENV] = f"{time.time() + 5:.3f}"
+    o3_skipped = v2stage.stage_identity_reverify(
+        types.SimpleNamespace(lane="browser", variant_id=[])
+    )
+    assert o3_skipped["ran"] is False and o3_skipped["skipped"] == "tick-reserve"
+    assert o3_skipped["held"] == [] and o3_skipped["counts"] == {}
+    assert o3_calls == []
+    # With little time left the browser lane still runs, but stops fetching.
+    os.environ[WORK_DEADLINE_ENV] = f"{time.time() + 120:.3f}"
+    o3_short = v2stage.stage_identity_reverify(
+        types.SimpleNamespace(lane="browser", variant_id=[])
+    )
+    assert o3_short["ran"] is True and o3_short["fetchMissing"] is False
+    assert o3_calls[-1] == {"lane": "browser", "fetch": False}
+    # counts and held[] are the stage result, first class, read from this run's
+    # own artifact -- not scraped from whatever file is newest on disk.
+    assert o3_short["counts"] == o3_report["counts"]
+    assert o3_short["held"] == o3_report["held"]
+    assert o3_short["promotable"] == 1
+    # A full tick fetches the pages the lane is missing.
+    os.environ[WORK_DEADLINE_ENV] = f"{time.time() + 5000:.3f}"
+    o3_long = v2stage.stage_identity_reverify(
+        types.SimpleNamespace(lane="browser", variant_id=[])
+    )
+    assert o3_long["fetchMissing"] is True
+    assert o3_calls[-1] == {"lane": "browser", "fetch": True}
+finally:
+    for path in o3_artifacts:
+        path.unlink(missing_ok=True)
+    sys.modules.pop("rebuild_036", None)
+    if o3_saved_env is None:
+        os.environ.pop(WORK_DEADLINE_ENV, None)
+    else:
+        os.environ[WORK_DEADLINE_ENV] = o3_saved_env
+print(
+    "POSITIVE_OK the reverify stage honours the tick reserve, drops the fetch"
+    " under pressure, and returns counts + held[] from its own artifact"
+)

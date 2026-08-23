@@ -40,6 +40,7 @@ from daily_chain_v2_adapters import (  # noqa: E402
 )
 from daily_chain_v2_contract import (  # noqa: E402
     CONTRACT_SHORTFALL_MARKER,
+    WORK_DEADLINE_ENV,
     SourceTask,
     canonical_json,
     classify_error,
@@ -86,6 +87,10 @@ ALWAYS_ALERT_EVENTS: dict[str, tuple[str, str, int]] = {
     "TICK_SIGNALLED": ("v2-tick-signalled", "warn", 10),
     "TASK_ADOPTED": ("v2-task-adopted", "info", 30),
 }
+# The morning identity brief ships as its own journal event and _event_message
+# returns its already-rendered HTML verbatim.  Deliberately absent from the
+# dict above: that path escapes the message and prints every link as markup.
+IDENTITY_BRIEF_EVENT = "identity.brief"
 RUN_STATE_BY_STATUS = {
     "PUBLISHED": "PUBLISHED",
     "PUBLISHED_DEGRADED": "PUBLISHED",
@@ -1028,22 +1033,10 @@ class DailyChainV2:
         if not self.stage_complete("core-contract-pre"):
             return
 
-        identity = self.journal.tasks(self.run_id, phase="identity")
-        if not identity:
-            # Lane and its transport group are declared by the registered
-            # identity sources (SourceSpec.identity_lane / concurrency_group),
-            # persisted in market_source_registry by migration 054.
-            for lane, group in self.identity_lanes():
-                self.add_stage(
-                    phase="identity",
-                    capability=f"identity-{lane}",
-                    stage_name="discover",
-                    args=("--lane", lane),
-                    required_class="extra",
-                    concurrency_group=group,
-                    max_attempts=7,
-                )
-            return
+        # The 10:15 degrade runs BEFORE the identity stages are gated on.
+        # Every identity-phase stage below waits for the one above it, so a
+        # stage still retrying at the cutoff would otherwise hold the whole
+        # run behind a gate that the cutoff itself is supposed to open.
         if now >= self.schedule["source_cutoff"]:
             closed = self.journal.degrade_unfinished_phase(
                 self.run_id,
@@ -1066,9 +1059,87 @@ class DailyChainV2:
                         "nextRetry": "next business date",
                     },
                 )
-            identity = self.journal.tasks(self.run_id, phase="identity")
+
+        # Identity intake runs before the lanes: last night's operator pastes
+        # are applied first, then the cards GemRate says crossed the floor are
+        # taken in, so the same tick's lanes already go looking for them.
+        # Both gate on SUCCESS|TERMINAL, never on stage_complete: a stage that
+        # spent its attempts retires itself instead of parking the whole run.
+        if self.stage_row("identity-operator-apply") is None:
+            self.add_stage(
+                phase="identity",
+                capability="identity-operator-apply",
+                stage_name="operator-apply",
+                required_class="extra",
+                concurrency_group="db-writer",
+                max_attempts=3,
+            )
+            return
+        operator_apply = self.stage_row("identity-operator-apply") or {}
+        if str(operator_apply.get("status") or "") not in SUCCESS_TASK_STATES | {"TERMINAL"}:
+            return
+        if self.stage_row("identity-intake") is None:
+            self.add_stage(
+                phase="identity",
+                capability="identity-intake",
+                stage_name="intake",
+                args=("--business-date", self.day_text),
+                required_class="extra",
+                concurrency_group="host:gemrate",
+                max_attempts=4,
+            )
+            return
+        intake_stage = self.stage_row("identity-intake") or {}
+        if str(intake_stage.get("status") or "") not in SUCCESS_TASK_STATES | {"TERMINAL"}:
+            return
+
+        identity = self.journal.tasks(self.run_id, phase="identity")
+        # Lane and its transport group are declared by the registered
+        # identity sources (SourceSpec.identity_lane / concurrency_group),
+        # persisted in market_source_registry by migration 054.  The check is
+        # per lane, not "is the identity phase empty": the intake stages above
+        # already live in this phase, and an emptiness test would leave every
+        # lane unplanned forever.
+        planned_lane = False
+        for lane, group in self.identity_lanes():
+            if self.stage_row(f"identity-{lane}") is None:
+                self.add_stage(
+                    phase="identity",
+                    capability=f"identity-{lane}",
+                    stage_name="discover",
+                    args=("--lane", lane),
+                    required_class="extra",
+                    concurrency_group=group,
+                    max_attempts=7,
+                )
+                planned_lane = True
+        if planned_lane:
+            return
         if not optional_phase_settled(identity, now=now, cutoff=self.schedule["source_cutoff"]):
             return
+
+        # Re-verification runs once the lanes have settled and their transport
+        # is free again, on the same registry-declared groups: the browser lane
+        # re-proves PC pastes on cdp:9333, the http lane re-proves SNKRDUNK.
+        planned_reverify = False
+        for lane, group in self.identity_lanes():
+            if self.stage_row(f"identity-reverify-{lane}") is None:
+                self.add_stage(
+                    phase="identity",
+                    capability=f"identity-reverify-{lane}",
+                    stage_name="reverify",
+                    args=("--lane", lane),
+                    required_class="extra",
+                    concurrency_group=group,
+                    max_attempts=7,
+                )
+                planned_reverify = True
+        if planned_reverify:
+            return
+        for lane, _group in self.identity_lanes():
+            reverify = self.stage_row(f"identity-reverify-{lane}") or {}
+            if str(reverify.get("status") or "") not in SUCCESS_TASK_STATES | {"TERMINAL"}:
+                return
 
         if self.stage_row("pending-identities") is None:
             self.add_stage(
@@ -1082,6 +1153,22 @@ class DailyChainV2:
         pending_stage = self.stage_row("pending-identities") or {}
         if str(pending_stage.get("status") or "") not in SUCCESS_TASK_STATES | {"TERMINAL"}:
             return
+
+        # The morning identity brief lives in `barrier`, not in `identity`:
+        # degrade_unfinished_phase(run_id, "identity", IDENTITY_CUTOFF) would
+        # kill the report on exactly the slow morning it is needed.  Planned
+        # without a return and without a follow-up gate, so a retrying brief
+        # can never hold activation, acceptance, or publication.
+        if self.stage_row("identity-brief") is None:
+            self.add_stage(
+                phase="barrier",
+                capability="identity-brief",
+                stage_name="brief",
+                args=("--business-date", self.day_text),
+                required_class="extra",
+                concurrency_group="db-writer",
+                max_attempts=3,
+            )
 
         pending_result = (
             task_result(pending_stage)
@@ -1585,8 +1672,13 @@ class DailyChainV2:
                 "--output", str(receipt_path), stage_name, *stage_args,
             ]
         command_sha = sha256(command)
+        work_deadline = self._work_deadline_monotonic(row)
         env = os.environ.copy()
         env.update({
+            # Wall-clock twin of the monotonic deadline this parent enforces,
+            # so a stage that would go out to the network can decide to do less
+            # instead of being killed mid-fetch at the cutoff.
+            WORK_DEADLINE_ENV: f"{time.time() + max(0.0, work_deadline - time.monotonic()):.3f}",
             "CARDZ_DAILY_CHAIN_V2": "1",
             "CARDZ_V2_RUN_ID": self.run_id,
             "CARDZ_V2_BUSINESS_DATE": self.day_text,
@@ -1613,7 +1705,6 @@ class DailyChainV2:
                 },
                 proc.pid,
             )
-            work_deadline = self._work_deadline_monotonic(row)
             while proc.poll() is None:
                 if time.monotonic() >= work_deadline:
                     terminate_worker_group(proc.pid, grace_seconds=60.0)
@@ -2180,6 +2271,12 @@ class DailyChainV2:
 
     @staticmethod
     def _event_message(event_type: str, payload: Mapping[str, Any]) -> str:
+        if event_type == IDENTITY_BRIEF_EVENT:
+            # Verbatim: the brief is already rendered Telegram HTML with real
+            # <a href> links.  Never route it through _alert_text/html.escape
+            # (that is what ALWAYS_ALERT_EVENTS does), or every link in the
+            # morning report prints as literal markup.
+            return str(payload.get("message") or "")
         if event_type == "RUN_STARTED":
             return (
                 "🔵 <b>CARDZ V2 started</b>\n"
