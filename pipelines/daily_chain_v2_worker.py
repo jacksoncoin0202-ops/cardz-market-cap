@@ -282,7 +282,26 @@ def run_collect(
         for result in (report.get("results") or [])
         if isinstance(result, Mapping) and int(result.get("failed") or 0) > 0
     }
-    status = "degraded" if (quarantined or failed_items) else "completed"
+    # review 2026-08-24: a PC day published from yesterday's HTML (the CDP sweep
+    # was refused and the per-variant fallback covered it) used to read exactly
+    # like a clean run -- green task, green receipt, no warn anywhere. The
+    # fallback counter is the honest signal, so it degrades the source result
+    # and travels to the publish as a degraded source.
+    pc_refresh = report.get("pcRefresh")
+    pc_fallback_replays = 0
+    pc_fresh_fetch_failed = False
+    if isinstance(pc_refresh, Mapping):
+        local_replay = pc_refresh.get("localStockReplay")
+        if isinstance(local_replay, Mapping):
+            pc_fallback_replays = int(local_replay.get("fallbackReplays") or 0)
+        network_refresh = pc_refresh.get("networkRefresh")
+        if isinstance(network_refresh, Mapping):
+            pc_fresh_fetch_failed = bool(network_refresh.get("freshFetchFailed"))
+    status = (
+        "degraded"
+        if (quarantined or failed_items or pc_fallback_replays or pc_fresh_fetch_failed)
+        else "completed"
+    )
     return {
         "contract": "cardz-source-result-v2",
         "sourceCode": source_code,
@@ -307,6 +326,8 @@ def run_collect(
             "failedAdapters": report.get("failedAdapters") or [],
             "failedByAdapter": failed_by_adapter,
             "truncatedAdapters": report.get("truncatedAdapters") or [],
+            "pcFallbackReplays": pc_fallback_replays,
+            "pcFreshFetchFailed": pc_fresh_fetch_failed,
         },
     }
 

@@ -16,6 +16,12 @@ PriceCharting 11–35 個鐘（v1720 Mew ex 232/091：PC 08-22 有 $3100，出�
 3. 攞唔到（Cloudflare／CDP 死）先至逐張 fallback replay，reason 係
    `fresh_fetch_failed_replay_local`，分開計，唔准靜靜地當成功。
 4. fallback 唔准過 SLA：有一張冇合格本地證據就唔准 fallback，成個 refresh 照舊 fail。
+5. fallback 只准補「child 真係開過而且失敗」嗰啲 variant。child 未行到嗰啲頁根本冇
+   fetch failed 過，用尋日 HTML 冚住佢就係 R5 要殺嗰個 bug 本身（review 2026-08-24
+   blocking #2）：淨低嗰啲要留喺 network lane，成個 sweep 照舊 fail，下一個 tick 再行。
+6. 第一次被 9333 拒絕唔准即刻出舊 HTML：要留返一次重試機會，第二次先至 fallback。
+7. tick 斬到一半（childInterrupted）唔准 fallback：斬咗就要保住個 failure 去 resume。
+8. 真係出咗舊 HTML 就要嘈：日更鏈嘅 source result 要標 degraded，唔准靜靜地當 completed。
 
 Run: python -X utf8 scripts/test_pc_daily_full_refresh.py
 """
@@ -53,6 +59,21 @@ def partition(items, **kwargs):
     except TypeError as error:
         FAILED.append(f"FAIL partition_local_pc_stock_pages({kwargs!r}): {error}")
         return [], [], {}
+
+
+def call_fallback(fn, items, refresh, **kwargs):
+    """Same idea for the fallback: a missing knob is a failed check."""
+
+    try:
+        return fn(items, refresh, **kwargs)
+    except TypeError as error:
+        FAILED.append(f"FAIL pc_fresh_fetch_fallback({sorted(kwargs)}): {error}")
+        # 舊 signature 一樣要行落去，否則下面每個 check 都會因為 None 而白白 pass。
+        legacy = {k: v for k, v in kwargs.items() if k in ("mode", "run_started_at")}
+        try:
+            return fn(items, refresh, **legacy)
+        except TypeError:
+            return None
 
 
 def main() -> int:
@@ -189,6 +210,7 @@ def main() -> int:
         fallback_fn = getattr(cc, "pc_fresh_fetch_fallback", None)
         check("有 fallback helper", callable(fallback_fn), True)
         if callable(fallback_fn):
+            cc.PC_DAILY_FULL_CYCLE_STAMP = tmpdir / "fallback-cycle.json"  # type: ignore[attr-defined]
             failed_refresh = {
                 "adapter": "pc_cdp_fresh_pages",
                 "mode": "incr",
@@ -198,12 +220,26 @@ def main() -> int:
                 "errorClass": "pc_cloudflare_storm",
                 "retryable": True,
                 "payloadShaByVariant": {},
+                # child 真係開過 variant 2 而且失敗（cf）；variant 1 佢攞到手。
+                "attemptedFailedVariantIds": [2],
             }
-            outcome = fallback_fn(
+            # 第一次被拒：唔准即刻出舊 HTML，要留返一次重試（review major #1）。
+            first_refusal = call_fallback(
+                fallback_fn,
                 [items[1], items[2]],
                 failed_refresh,
                 mode="incr",
                 run_started_at=run_started_at,
+                cycle_key="cardz-v2:fallback",
+            )
+            check("第一次被拒：唔准 fallback，要重試多一轉", first_refusal, None)
+            outcome = call_fallback(
+                fallback_fn,
+                [items[1], items[2]],
+                failed_refresh,
+                mode="incr",
+                run_started_at=run_started_at,
+                cycle_key="cardz-v2:fallback",
             )
             check("有合格本地證據就 fallback", outcome is not None, True)
             if outcome is not None:
@@ -227,13 +263,46 @@ def main() -> int:
                 check("矛盾嘅 error key 要清走", "error" in degraded, False)
 
             # --- 7. 過 SLA 冇得 fallback：refresh 照舊 fail -------------------
-            refused = fallback_fn(
+            refused = call_fallback(
+                fallback_fn,
                 [items[2], items[3]],
-                failed_refresh,
+                {**failed_refresh, "attemptedFailedVariantIds": [2, 3]},
                 mode="incr",
                 run_started_at=run_started_at,
+                cycle_key="cardz-v2:fallback",
             )
             check("有一張冇合格證據就唔准 fallback", refused, None)
+
+            # --- 7b. child 未開過嗰啲頁唔准用舊 HTML 冚（blocking #2）---------
+            never_attempted = call_fallback(
+                fallback_fn,
+                [items[1], items[2]],
+                {**failed_refresh, "attemptedFailedVariantIds": []},
+                mode="incr",
+                run_started_at=run_started_at,
+                cycle_key="cardz-v2:fallback",
+            )
+            check("child 未行到嗰張：唔准 fallback，成個 sweep 照舊 fail", never_attempted, None)
+            partial_sweep = call_fallback(
+                fallback_fn,
+                [items[1], items[2]],
+                {**failed_refresh, "attemptedFailedVariantIds": [9999]},
+                mode="incr",
+                run_started_at=run_started_at,
+                cycle_key="cardz-v2:fallback",
+            )
+            check("attempted 名單唔覆蓋就唔准 fallback", partial_sweep, None)
+
+            # --- 7c. tick 斬到一半：保住 failure 去 resume（major #3）---------
+            interrupted_outcome = call_fallback(
+                fallback_fn,
+                [items[1], items[2]],
+                {**failed_refresh, "childInterrupted": True},
+                mode="incr",
+                run_started_at=run_started_at,
+                cycle_key="cardz-v2:fallback",
+            )
+            check("tick 斬咗個 child：唔准 fallback", interrupted_outcome, None)
 
             # --- 8. receipt 兩個數要對得返 -----------------------------------
             merge_fn = getattr(cc, "_merge_pc_replay_reports", None)
@@ -264,8 +333,117 @@ def main() -> int:
                     ["1", "2"],
                 )
 
+        # --- 10. refresh_pc_pages 要交代 child 真係開過邊啲 variant ---------
+        import contextlib  # noqa: PLC0415
+        import json as _json  # noqa: PLC0415
+
+        refresh_fn = getattr(cc, "refresh_pc_pages", None)
+        check("有 refresh_pc_pages", callable(refresh_fn), True)
+        if callable(refresh_fn):
+            original_out_dir = cc.OUT_DIR
+            original_report = cc.PC_REFRESH_REPORT
+            original_windows_py = cc.WINDOWS_PY
+            original_run_child = cc._run_pc_child
+            original_defer = cc._deferred_termination
+            child_report = tmpdir / "pc_cdp_refresh_report.json"
+            cc.OUT_DIR = tmpdir  # type: ignore[attr-defined]
+            cc.PC_REFRESH_REPORT = child_report  # type: ignore[attr-defined]
+            cc.WINDOWS_PY = Path(__file__).resolve()  # type: ignore[attr-defined]
+
+            def make_child(*, partial: bool, exit_code: int):
+                def _fake_child(cmd, *, timeout, dry_run, use_vbs=None):
+                    payload = {
+                        "asOf": datetime.now(timezone.utc)
+                        .isoformat()
+                        .replace("+00:00", "Z"),
+                        "batch": 2,
+                        "ok": 1,
+                        "fail": 1,
+                        "cf": 1,
+                        "results": [
+                            {"variant_id": 1, "status": "ok"},
+                            {"variant_id": 2, "status": "cf_or_fail"},
+                        ],
+                    }
+                    if partial:
+                        payload["partial"] = True
+                        payload["stop_reason"] = "watchdog_stall"
+                    child_report.write_text(
+                        _json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+                    )
+                    return {"exit": exit_code, "childLog": "", "childLogTail": ""}
+
+                return _fake_child
+
+            def fake_defer(signalled: bool):
+                @contextlib.contextmanager
+                def _cm():
+                    yield {"signalled": signalled}
+
+                return _cm
+
+            try:
+                cc._run_pc_child = make_child(partial=False, exit_code=3)  # type: ignore[assignment]
+                cc._deferred_termination = fake_defer(False)  # type: ignore[assignment]
+                hard_exit = refresh_fn(
+                    [items[1], items[2]],
+                    mode="incr",
+                    dry_run=False,
+                    resume_report=tmpdir / "resume.json",
+                    sleep_seconds=None,
+                    tabs=None,
+                    cdp_already_ensured=True,
+                )
+                check("child 死咗：sweep 照舊 fail", hard_exit.get("ok"), False)
+                check(
+                    "child 死咗都要講返佢開過而失敗嗰啲",
+                    hard_exit.get("attemptedFailedVariantIds"),
+                    [2],
+                )
+                check("冇被斬就唔標 childInterrupted", "childInterrupted" in hard_exit, False)
+
+                cc._run_pc_child = make_child(partial=True, exit_code=0)  # type: ignore[assignment]
+                partial_run = refresh_fn(
+                    [items[1], items[2]],
+                    mode="incr",
+                    dry_run=False,
+                    resume_report=tmpdir / "resume.json",
+                    sleep_seconds=None,
+                    tabs=None,
+                    cdp_already_ensured=True,
+                )
+                check("partial report：sweep 照舊 fail", partial_run.get("ok"), False)
+                check(
+                    "partial report 一樣要交代 attempted",
+                    partial_run.get("attemptedFailedVariantIds"),
+                    [2],
+                )
+
+                # --- 11. tick 斬到一半：receipt 要認 ------------------------
+                cc._run_pc_child = make_child(partial=False, exit_code=3)  # type: ignore[assignment]
+                cc._deferred_termination = fake_defer(True)  # type: ignore[assignment]
+                interrupted_run = refresh_fn(
+                    [items[1], items[2]],
+                    mode="incr",
+                    dry_run=False,
+                    resume_report=tmpdir / "resume.json",
+                    sleep_seconds=None,
+                    tabs=None,
+                    cdp_already_ensured=True,
+                )
+                check("被斬要寫入 receipt", interrupted_run.get("childInterrupted"), True)
+                check("被斬一樣係 fail", interrupted_run.get("ok"), False)
+            finally:
+                cc.OUT_DIR = original_out_dir  # type: ignore[attr-defined]
+                cc.PC_REFRESH_REPORT = original_report  # type: ignore[attr-defined]
+                cc.WINDOWS_PY = original_windows_py  # type: ignore[attr-defined]
+                cc._run_pc_child = original_run_child  # type: ignore[assignment]
+                cc._deferred_termination = original_defer  # type: ignore[assignment]
+
         # --- 9. 日更鏈真係叫 daily_full，錨點係個 run id --------------------
         captured: dict[str, object] = {}
+
+        collect_report_extra: dict[str, object] = {}
 
         def fake_collect_command(**kwargs):
             captured.clear()
@@ -279,6 +457,7 @@ def main() -> int:
                 "quarantined": 0,
                 "asOf": "2026-08-25T00:00:00Z",
                 "results": [],
+                **collect_report_extra,
             }
 
         import types
@@ -309,6 +488,36 @@ def main() -> int:
                 "cardz-v2:2026-08-25",
             )
             check("operator force_network 冇被順手開著", captured.get("force_network"), False)
+
+            # --- 12. 出咗舊 HTML 就唔准當 completed（major #4）--------------
+            collect_report_extra["pcRefresh"] = {
+                "networkRefresh": {"ok": True, "freshFetchFailed": True},
+                "localStockReplay": {"fallbackReplays": 2},
+            }
+            degraded_result = v2worker.run_collect(
+                {"source_code": "pricecharting", "run_id": "cardz-v2:2026-08-25"},
+                {
+                    "shard": "all",
+                    "worker": {"adapters": ["pc_ebay_sales"], "variantIds": [7]},
+                },
+                receipt_path,
+            )
+            check("fallback 出街 = degraded", degraded_result.get("status"), "degraded")
+            check(
+                "receipt 要寫低幾多張出咗舊 HTML",
+                (degraded_result.get("detail") or {}).get("pcFallbackReplays"),
+                2,
+            )
+            collect_report_extra.clear()
+            clean_result = v2worker.run_collect(
+                {"source_code": "pricecharting", "run_id": "cardz-v2:2026-08-25"},
+                {
+                    "shard": "all",
+                    "worker": {"adapters": ["pc_ebay_sales"], "variantIds": [7]},
+                },
+                receipt_path,
+            )
+            check("全部攞到新頁就照舊 completed", clean_result.get("status"), "completed")
         finally:
             if previous_collect is None:
                 sys.modules.pop("collect_control", None)
