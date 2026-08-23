@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 from collections import Counter
 from datetime import datetime, timezone
@@ -330,7 +331,8 @@ def changed_rows(connection: Any, rows: list[dict[str, Any]]) -> list[dict[str, 
             "price.metric_status, price.payload_sha256, price.source_external_entity_id, "
             "price.source_observation_id, source.source_code AS observation_source_code, "
             "source.external_entity_id AS observation_external_entity_id, "
-            "source.payload_sha256 AS observation_payload_sha256 "
+            "source.payload_sha256 AS observation_payload_sha256, "
+            "source.payload_json AS observation_payload_json "
             "FROM market_price_observation AS price "
             "LEFT JOIN market_source_observation AS source "
             "ON source.id=price.source_observation_id WHERE price.source_code IN ("
@@ -349,11 +351,16 @@ def changed_rows(connection: Any, rows: list[dict[str, Any]]) -> list[dict[str, 
             for row in cursor.fetchall()
         }
     changed: list[dict[str, Any]] = []
+    window = _v2_business_window()
     for row in rows:
         source = str(row["sourceCode"]).casefold()
         current = existing.get(
             (int(row["variantId"]), source, str(row["observedDate"]))
         )
+        if window is not None and current is not None and _same_day_same_evidence(
+            row, current, source=source, window=window,
+        ):
+            continue
         expected = (
             str(row["priceUsd"]),
             _parse_stamp(row["effectiveAt"]),
@@ -378,6 +385,67 @@ def changed_rows(connection: Any, rows: list[dict[str, Any]]) -> list[dict[str, 
         if actual != expected:
             changed.append(row)
     return changed
+
+
+def _v2_business_window() -> tuple[datetime, datetime] | None:
+    """The V2 run's business window (naive UTC), or None outside the chain."""
+
+    business_date = os.environ.get("CARDZ_V2_BUSINESS_DATE", "").strip()
+    if not business_date:
+        return None
+    from daily_chain_v2_db import business_window_utc
+
+    return business_window_utc(business_date)
+
+
+def _evidence(payload: Any) -> dict[str, Any] | None:
+    """The hashed payload without its run clock."""
+
+    if isinstance(payload, (bytes, str)):
+        try:
+            payload = json.loads(payload)
+        except ValueError:
+            return None
+    if not isinstance(payload, Mapping):
+        return None
+    return {key: value for key, value in payload.items() if key != "asOf"}
+
+
+def _same_day_same_evidence(
+    row: Mapping[str, Any],
+    current: Mapping[str, Any],
+    *,
+    source: str,
+    window: tuple[datetime, datetime],
+) -> bool:
+    """A05 2026-08-23: every run re-stamped ``asOf`` into the hashed payload,
+    so all 1238 source observations and price rows were rewritten each run
+    even when page, price, artifact and sales were identical -- and that
+    rewrite re-minted 1618 bootstrap quotes plus 35,949 legacy quote rows per
+    run.  The V2 contract needs one capture per business day
+    (quote.checked_at inside business_window_utc), not one per run: a row
+    captured earlier in this window with the same evidence stays as it is."""
+
+    effective_at = current.get("effective_at")
+    if not isinstance(effective_at, datetime):
+        return False
+    start, end = window
+    if not (start <= effective_at.replace(tzinfo=None) < end):
+        return False
+    if (
+        str(current.get("price_usd")) != str(row["priceUsd"])
+        or int(current.get("source_priority") or 0) != int(row["sourcePriority"])
+        or str(current.get("metric_status")) != "ready"
+        or str(current.get("source_external_entity_id") or "") != pc_product_id(row)
+        or current.get("source_observation_id") is None
+        or str(current.get("observation_source_code") or "").casefold() != source
+        or str(current.get("observation_external_entity_id") or "") != pc_product_id(row)
+        or str(current.get("observation_payload_sha256") or "") != str(current.get("payload_sha256") or "")
+    ):
+        return False
+    planned_evidence = _evidence(row.get("payload"))
+    current_evidence = _evidence(current.get("observation_payload_json"))
+    return planned_evidence is not None and planned_evidence == current_evidence
 
 
 def run_key_for_plan(plan_sha256: str) -> str:

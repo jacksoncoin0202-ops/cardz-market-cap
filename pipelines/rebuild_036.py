@@ -34,6 +34,7 @@ import pymysql
 from identity_name import complete_collector_number, complete_collector_tail
 import leftover5_go
 from current_quote_revision import pc_price_language_ok, pc_price_language_sql
+import db_runtime as db_runtime_connect
 from pc_sale_identity import pc_sale_fingerprint, pc_sale_price_text
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -328,41 +329,19 @@ def load_env_file(path: Path) -> dict[str, str]:
 
 # 2026-08-22: daily-accept attempt 5 died on (2003, "Can't connect to MySQL
 # server on '127.0.0.1' (timed out)") after 104 s of OS-level TCP timeout, with
-# the acceptance transaction already committed.  Only the connect phase is
-# retried here -- a query that failed has already reached the database and must
-# stay failed.
-_CONNECT_PHASE_ERRNOS = frozenset({2003, 2013})   # can't connect / lost during handshake
-_CONNECT_BACKOFF = (2.0, 5.0, 10.0)              # 3 tries total
+# the acceptance transaction already committed.  The retry itself now lives in
+# db_runtime.connect_with_retry (the one execution point for every
+# pymysql.connect in pipelines/); this name stays for callers and tests, and
+# _CONNECT_BACKOFF is read at call time so the durability test can zero it.
+_CONNECT_PHASE_ERRNOS = db_runtime_connect.CONNECT_PHASE_ERRNOS
+_CONNECT_BACKOFF = db_runtime_connect.CONNECT_BACKOFF
 
 
 def connect_with_retry(factory, *, label: str):
     """Retry ONLY the TCP/handshake phase. A query error is never retried here."""
-    last = None
-    for index in range(len(_CONNECT_BACKOFF)):
-        try:
-            return factory()
-        except pymysql.err.OperationalError as error:
-            code = error.args[0] if error.args else 0
-            if int(code or 0) not in _CONNECT_PHASE_ERRNOS:
-                raise
-            last = error
-            if index == len(_CONNECT_BACKOFF) - 1:
-                break
-            print(
-                json.dumps(
-                    {
-                        "event": "DB_CONNECT_RETRY",
-                        "label": label,
-                        "errno": int(code),
-                        "attempt": index + 1,
-                        "sleepSeconds": _CONNECT_BACKOFF[index],
-                    },
-                    ensure_ascii=False,
-                ),
-                file=sys.stderr,
-            )
-            time.sleep(_CONNECT_BACKOFF[index])
-    raise last
+    return db_runtime_connect.connect_with_retry(
+        factory, label=label, backoff=_CONNECT_BACKOFF
+    )
 
 
 def connect(credentials_env: Path) -> pymysql.connections.Connection:
@@ -7579,16 +7558,27 @@ def _activation_accept_history(
           AND p.payload_sha256 REGEXP '^[0-9a-f]{64}$'
           AND si.evidence_sha256 REGEXP '^[0-9a-f]{64}$'
         ON DUPLICATE KEY UPDATE
+          accepted_by=IF(market_metric_history_acceptance.lineage_sha256<>VALUES(lineage_sha256)
+                         OR market_metric_history_acceptance.observed_date<>VALUES(observed_date)
+                         OR market_metric_history_acceptance.source_effective_at<>VALUES(source_effective_at),
+                         VALUES(accepted_by),market_metric_history_acceptance.accepted_by),
+          accepted_at=IF(market_metric_history_acceptance.lineage_sha256<>VALUES(lineage_sha256)
+                         OR market_metric_history_acceptance.observed_date<>VALUES(observed_date)
+                         OR market_metric_history_acceptance.source_effective_at<>VALUES(source_effective_at),
+                         VALUES(accepted_at),market_metric_history_acceptance.accepted_at),
           source_code=VALUES(source_code),external_entity_id=VALUES(external_entity_id),
           observed_date=VALUES(observed_date),source_effective_at=VALUES(source_effective_at),
           source_payload_sha256=VALUES(source_payload_sha256),
           identity_evidence_sha256=VALUES(identity_evidence_sha256),
           acceptance_evidence_sha256=VALUES(acceptance_evidence_sha256),
-          lineage_sha256=VALUES(lineage_sha256),accepted_by=VALUES(accepted_by),
-          accepted_at=VALUES(accepted_at)
+          lineage_sha256=VALUES(lineage_sha256)
         """,
         (ACTIVATION_ACTOR, now_str),
     )
+    # A06 2026-08-23 profile: 626,038 row-writes (313k rows x ON DUP) per run,
+    # 15.6 s, because accepted_at=VALUES(accepted_at) re-stamped every row even
+    # when nothing about the acceptance had moved.  rowcount now counts rows
+    # that actually changed (MySQL reports 0 for a no-op duplicate).
     inserted["psa10Price"] = int(cur.rowcount)
 
     cur.execute(
@@ -7623,59 +7613,84 @@ def _activation_accept_history(
 
     inserted["psa10Sales"] = 0
     ordered = sorted(fingerprints)
-    for start in range(0, len(ordered), 500):
-        chunk = ordered[start:start + 500]
-        ph = ",".join(["%s"] * len(chunk))
-        # ON DUPLICATE KEY UPDATE（唔係 IGNORE）：uq_metric_history_source 係
-        # (source_record_type, source_record_id) —— 一個 sale record 永遠一行
-        # acceptance。product rebind 之後 sale row 會 re-stamp 歸現任 exact 主人
-        # （restamp_rebound_pc_sales_20260813.py，形狀 29 rebind 遺物），舊
-        # acceptance 嘅 variant_id 指住舊主：IGNORE 會靜靜吞掉新歸屬，張卡
-        # 喺 FE 永遠零成交（2026-08-13 v188 Ace OP02-013 Manga 就係咁）。
-        # acceptance 跟 record 現任歸屬走，同上面 psa10Price 嘅 ON DUP 先例
-        # 一致；variant 冇變嗰陣全部 VALUES 相同 = no-op。
-        cur.execute(
-            f"""
-            INSERT INTO market_metric_history_acceptance
-              (variant_id,metric_kind,source_record_type,source_record_id,source_code,
-               external_entity_id,observed_date,source_effective_at,source_payload_sha256,
-               identity_evidence_sha256,acceptance_evidence_sha256,lineage_sha256,
-               accepted_by,accepted_at)
-            SELECT s.variant_id,'psa10_sale','market_sale_observation',s.id,
-                   CASE WHEN s.source_code IN ('snk','snk_psa10') THEN 'snkrdunk' ELSE s.source_code END,
-                   s.external_entity_id,DATE(s.sold_at),s.sold_at,s.source_payload_sha256,
-                   si.evidence_sha256,
-                   SHA2(CONCAT_WS('|','accept-exact-psa10-sale-v1',s.id,s.variant_id,
-                     s.source_code,s.external_entity_id,s.source_payload_sha256,si.evidence_sha256),256),
-                   SHA2(CONCAT_WS('|','metric-history-v1','psa10_sale',s.id,s.variant_id,
-                     s.source_code,s.external_entity_id,s.source_payload_sha256,si.evidence_sha256),256),
-                   %s,%s
-            FROM market_sale_observation s
-            INNER JOIN market_universe_member am ON am.variant_id=s.variant_id
-            INNER JOIN market_universe_lock ul ON ul.id=am.universe_lock_id AND ul.is_current=1
-            INNER JOIN operator_strict_source_identity si ON si.variant_id=s.variant_id
-              AND si.source_code=CASE WHEN s.source_code IN ('snk','snk_psa10') THEN 'snkrdunk' ELSE s.source_code END
-              AND si.external_entity_id=s.external_entity_id
-            WHERE s.sold_at IS NOT NULL AND s.quantity>0 AND s.transaction_value_usd>0
-              AND UPPER(s.grader_code)='PSA'
-              AND UPPER(REPLACE(s.grade_label,' ','')) IN ('10','10.0','PSA10','GEMMINT10')
-              AND s.timestamp_quality IN ('exact','date','timestamp','exact_date','relative_resolved','relative_subday')
-              AND s.source_payload_sha256 REGEXP '^[0-9a-f]{{64}}$'
-              AND si.evidence_sha256 REGEXP '^[0-9a-f]{{64}}$'
-              AND s.transaction_fingerprint IN ({ph})
-            ON DUPLICATE KEY UPDATE
-              variant_id=VALUES(variant_id),source_code=VALUES(source_code),
-              external_entity_id=VALUES(external_entity_id),
-              observed_date=VALUES(observed_date),source_effective_at=VALUES(source_effective_at),
-              source_payload_sha256=VALUES(source_payload_sha256),
-              identity_evidence_sha256=VALUES(identity_evidence_sha256),
-              acceptance_evidence_sha256=VALUES(acceptance_evidence_sha256),
-              lineage_sha256=VALUES(lineage_sha256),accepted_by=VALUES(accepted_by),
-              accepted_at=VALUES(accepted_at)
-            """,
-            (ACTIVATION_ACTOR, now_str, *chunk),
+    # A06 2026-08-23 profile: 119 chunks of 500 fingerprints, each one a full
+    # pass over the universe's sale rows (transaction_fingerprint is only the
+    # third column of uq_market_sale_observation, so IN (...) cannot seek) =
+    # 32 s of a 69 s acceptHistory.  One session temp table and one hash join
+    # instead: same predicate, same ON DUPLICATE KEY semantics, one pass.
+    # TEMPORARY DDL does not commit the surrounding transaction (MySQL 8.4,
+    # binlog ROW, enforce_gtid_consistency=OFF on 3308) and the table is
+    # session-private, so a parallel session cannot see or clash with it.
+    cur.execute("DROP TEMPORARY TABLE IF EXISTS tmp_accept_sale_fingerprint")
+    cur.execute(
+        "CREATE TEMPORARY TABLE tmp_accept_sale_fingerprint "
+        "(transaction_fingerprint CHAR(64) NOT NULL PRIMARY KEY) ENGINE=InnoDB"
+    )
+    for start in range(0, len(ordered), 5000):
+        cur.executemany(
+            "INSERT IGNORE INTO tmp_accept_sale_fingerprint (transaction_fingerprint) VALUES (%s)",
+            [(value,) for value in ordered[start:start + 5000]],
         )
-        inserted["psa10Sales"] += int(cur.rowcount)
+    # ON DUPLICATE KEY UPDATE（唔係 IGNORE）：uq_metric_history_source 係
+    # (source_record_type, source_record_id) —— 一個 sale record 永遠一行
+    # acceptance。product rebind 之後 sale row 會 re-stamp 歸現任 exact 主人
+    # （restamp_rebound_pc_sales_20260813.py，形狀 29 rebind 遺物），舊
+    # acceptance 嘅 variant_id 指住舊主：IGNORE 會靜靜吞掉新歸屬，張卡
+    # 喺 FE 永遠零成交（2026-08-13 v188 Ace OP02-013 Manga 就係咁）。
+    # acceptance 跟 record 現任歸屬走，同上面 psa10Price 嘅 ON DUP 先例
+    # 一致；variant 冇變嗰陣全部 VALUES 相同 = no-op（accepted_at 只喺 lineage /
+    # observed_date / source_effective_at 郁咗先重印，否則每日重寫 59k 行）。
+    cur.execute(
+        """
+        INSERT INTO market_metric_history_acceptance
+          (variant_id,metric_kind,source_record_type,source_record_id,source_code,
+           external_entity_id,observed_date,source_effective_at,source_payload_sha256,
+           identity_evidence_sha256,acceptance_evidence_sha256,lineage_sha256,
+           accepted_by,accepted_at)
+        SELECT s.variant_id,'psa10_sale','market_sale_observation',s.id,
+               CASE WHEN s.source_code IN ('snk','snk_psa10') THEN 'snkrdunk' ELSE s.source_code END,
+               s.external_entity_id,DATE(s.sold_at),s.sold_at,s.source_payload_sha256,
+               si.evidence_sha256,
+               SHA2(CONCAT_WS('|','accept-exact-psa10-sale-v1',s.id,s.variant_id,
+                 s.source_code,s.external_entity_id,s.source_payload_sha256,si.evidence_sha256),256),
+               SHA2(CONCAT_WS('|','metric-history-v1','psa10_sale',s.id,s.variant_id,
+                 s.source_code,s.external_entity_id,s.source_payload_sha256,si.evidence_sha256),256),
+               %s,%s
+        FROM market_sale_observation s
+        INNER JOIN market_universe_member am ON am.variant_id=s.variant_id
+        INNER JOIN market_universe_lock ul ON ul.id=am.universe_lock_id AND ul.is_current=1
+        INNER JOIN operator_strict_source_identity si ON si.variant_id=s.variant_id
+          AND si.source_code=CASE WHEN s.source_code IN ('snk','snk_psa10') THEN 'snkrdunk' ELSE s.source_code END
+          AND si.external_entity_id=s.external_entity_id
+        INNER JOIN tmp_accept_sale_fingerprint fp
+          ON fp.transaction_fingerprint=s.transaction_fingerprint
+        WHERE s.sold_at IS NOT NULL AND s.quantity>0 AND s.transaction_value_usd>0
+          AND UPPER(s.grader_code)='PSA'
+          AND UPPER(REPLACE(s.grade_label,' ','')) IN ('10','10.0','PSA10','GEMMINT10')
+          AND s.timestamp_quality IN ('exact','date','timestamp','exact_date','relative_resolved','relative_subday')
+          AND s.source_payload_sha256 REGEXP '^[0-9a-f]{64}$'
+          AND si.evidence_sha256 REGEXP '^[0-9a-f]{64}$'
+        ON DUPLICATE KEY UPDATE
+          accepted_by=IF(market_metric_history_acceptance.lineage_sha256<>VALUES(lineage_sha256)
+                         OR market_metric_history_acceptance.observed_date<>VALUES(observed_date)
+                         OR market_metric_history_acceptance.source_effective_at<>VALUES(source_effective_at),
+                         VALUES(accepted_by),market_metric_history_acceptance.accepted_by),
+          accepted_at=IF(market_metric_history_acceptance.lineage_sha256<>VALUES(lineage_sha256)
+                         OR market_metric_history_acceptance.observed_date<>VALUES(observed_date)
+                         OR market_metric_history_acceptance.source_effective_at<>VALUES(source_effective_at),
+                         VALUES(accepted_at),market_metric_history_acceptance.accepted_at),
+          variant_id=VALUES(variant_id),source_code=VALUES(source_code),
+          external_entity_id=VALUES(external_entity_id),
+          observed_date=VALUES(observed_date),source_effective_at=VALUES(source_effective_at),
+          source_payload_sha256=VALUES(source_payload_sha256),
+          identity_evidence_sha256=VALUES(identity_evidence_sha256),
+          acceptance_evidence_sha256=VALUES(acceptance_evidence_sha256),
+          lineage_sha256=VALUES(lineage_sha256)
+        """,
+        (ACTIVATION_ACTOR, now_str),
+    )
+    inserted["psa10Sales"] = int(cur.rowcount)
+    cur.execute("DROP TEMPORARY TABLE IF EXISTS tmp_accept_sale_fingerprint")
 
     cur.execute(
         """

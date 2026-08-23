@@ -83,9 +83,9 @@ def assert_canonical_db(connection, port: int) -> None:
 def db():
     import pymysql
 
-    # Imported here, not at module scope: rebuild_036 is a heavy orchestrator
-    # and this module is imported by the daily chain's contract barrier.
-    from rebuild_036 import connect_with_retry
+    # Imported here, not at module scope: this module is imported by the daily
+    # chain's contract barrier and stays import-light.
+    from db_runtime import connect_with_retry
 
     load_env()
     raw_port = os.environ.get("CARDZ_DB_PORT")

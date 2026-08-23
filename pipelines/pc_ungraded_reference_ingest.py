@@ -53,17 +53,21 @@ def load_env() -> None:
 
 def db():
     import pymysql
+    from db_runtime import connect_with_retry
 
     load_env()
-    return pymysql.connect(
-        host=os.environ.get("CARDZ_DB_HOST", "127.0.0.1"),
-        port=int(os.environ.get("CARDZ_DB_PORT", "3308")),
-        user=os.environ["CARDZ_DB_USER"],
-        password=os.environ["CARDZ_DB_PASSWORD"],
-        database=os.environ["CARDZ_DB_NAME"],
-        charset="utf8mb4",
-        cursorclass=pymysql.cursors.DictCursor,
-        autocommit=False,
+    return connect_with_retry(
+        lambda: pymysql.connect(
+            host=os.environ.get("CARDZ_DB_HOST", "127.0.0.1"),
+            port=int(os.environ.get("CARDZ_DB_PORT", "3308")),
+            user=os.environ["CARDZ_DB_USER"],
+            password=os.environ["CARDZ_DB_PASSWORD"],
+            database=os.environ["CARDZ_DB_NAME"],
+            charset="utf8mb4",
+            cursorclass=pymysql.cursors.DictCursor,
+            autocommit=False,
+        ),
+        label="pc_ungraded_reference_ingest",
     )
 
 

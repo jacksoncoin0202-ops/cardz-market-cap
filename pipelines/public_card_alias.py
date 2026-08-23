@@ -23,6 +23,7 @@ import sys
 from pathlib import Path
 
 import pymysql
+from db_runtime import connect_with_retry
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
@@ -80,14 +81,17 @@ def main() -> int:
     args = parser.parse_args()
 
     load_backend_env()
-    connection = pymysql.connect(
-        host=args.host or os.environ.get("CARDZ_DB_HOST", "127.0.0.1"),
-        port=args.port or int(os.environ.get("CARDZ_DB_PORT", "3308")),
-        user=os.environ["CARDZ_DB_USER"],
-        password=os.environ["CARDZ_DB_PASSWORD"],
-        database=os.environ["CARDZ_DB_NAME"],
-        charset="utf8mb4",
-        cursorclass=pymysql.cursors.DictCursor,
+    connection = connect_with_retry(
+        lambda: pymysql.connect(
+            host=args.host or os.environ.get("CARDZ_DB_HOST", "127.0.0.1"),
+            port=args.port or int(os.environ.get("CARDZ_DB_PORT", "3308")),
+            user=os.environ["CARDZ_DB_USER"],
+            password=os.environ["CARDZ_DB_PASSWORD"],
+            database=os.environ["CARDZ_DB_NAME"],
+            charset="utf8mb4",
+            cursorclass=pymysql.cursors.DictCursor,
+        ),
+        label="public_card_alias",
     )
     minted: list[dict] = []
     try:

@@ -15,6 +15,7 @@ import json
 import os
 import re
 import sys
+import time as _time
 from collections import Counter
 from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
@@ -386,6 +387,70 @@ def load_runtime_db_env() -> None:
             os.environ[key] = value.strip()
 
 
+# 2026-08-22/23: three connect-phase failures seen in the V2 chain -- (2003)
+# TCP timeout, (2013) reset by peer during the handshake, and pymysql's own
+# "Packet sequence number wrong" raised while it is still negotiating (A06
+# en_price_ref checkpoint, 2026-08-23 09:09Z).  Every pymysql.connect in
+# pipelines/ goes through connect_with_retry (scripts/test_db_connect_retry.py
+# ratchets that) and ONLY the connect phase is retried: no statement has
+# reached the server yet, so a second attempt can never repeat work.  An auth
+# or schema error is raised on the first try.
+CONNECT_PHASE_ERRNOS = frozenset({2003, 2013})
+CONNECT_BACKOFF = (2.0, 5.0, 10.0)  # 3 tries total, ~17 s worst case
+_HANDSHAKE_INTERNAL_PREFIX = "Packet sequence number wrong"
+
+
+def connect_phase_error(error: BaseException) -> bool:
+    """True only for failures that mean the connection was never established."""
+
+    if isinstance(error, pymysql.err.OperationalError):
+        code = error.args[0] if error.args else 0
+        try:
+            return int(code or 0) in CONNECT_PHASE_ERRNOS
+        except (TypeError, ValueError):
+            return False
+    if isinstance(error, pymysql.err.InternalError):
+        text = str(error.args[-1] if error.args else error)
+        return text.startswith(_HANDSHAKE_INTERNAL_PREFIX)
+    return False
+
+
+def connect_with_retry(factory, *, label: str, backoff=None):
+    """Retry ONLY the TCP/handshake phase. A query error is never retried here."""
+
+    delays = tuple(CONNECT_BACKOFF if backoff is None else backoff)
+    last: BaseException | None = None
+    for index, delay in enumerate(delays):
+        try:
+            return factory()
+        except pymysql.err.MySQLError as error:
+            if not connect_phase_error(error):
+                raise
+            last = error
+            if index == len(delays) - 1:
+                break
+            code = 0
+            if isinstance(error, pymysql.err.OperationalError) and error.args:
+                code = error.args[0]
+            print(
+                json.dumps(
+                    {
+                        "event": "DB_CONNECT_RETRY",
+                        "label": label,
+                        "errno": int(code or 0),
+                        "error": type(error).__name__,
+                        "attempt": index + 1,
+                        "sleepSeconds": delay,
+                    },
+                    ensure_ascii=False,
+                ),
+                file=sys.stderr,
+            )
+            _time.sleep(delay)
+    assert last is not None
+    raise last
+
+
 def connection_from_args(args: argparse.Namespace, *, database: bool = True) -> Connection:
     load_runtime_db_env()
     password = args.password or os.environ.get("CARDZ_DB_PASSWORD")
@@ -399,19 +464,22 @@ def connection_from_args(args: argparse.Namespace, *, database: bool = True) -> 
             raise RuntimeError(f"CARDZ_DB_SSL_CA does not exist: {ca_path}")
         ssl_options = {"ca": str(ca_path), "check_hostname": True}
     io_timeout = int(os.environ.get("CARDZ_DB_IO_TIMEOUT_SECONDS", "1800"))
-    return pymysql.connect(
-        host=args.host,
-        port=args.port,
-        user=args.user,
-        password=password,
-        database=args.database if database else None,
-        charset="utf8mb4",
-        autocommit=False,
-        cursorclass=pymysql.cursors.DictCursor,
-        connect_timeout=10,
-        read_timeout=io_timeout,
-        write_timeout=io_timeout,
-        ssl=ssl_options,
+    return connect_with_retry(
+        lambda: pymysql.connect(
+            host=args.host,
+            port=args.port,
+            user=args.user,
+            password=password,
+            database=args.database if database else None,
+            charset="utf8mb4",
+            autocommit=False,
+            cursorclass=pymysql.cursors.DictCursor,
+            connect_timeout=10,
+            read_timeout=io_timeout,
+            write_timeout=io_timeout,
+            ssl=ssl_options,
+        ),
+        label="db_runtime",
     )
 
 
