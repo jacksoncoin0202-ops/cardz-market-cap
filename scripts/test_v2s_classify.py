@@ -45,6 +45,7 @@ from daily_chain_v2_contract import (  # noqa: E402
     PUBLISH_LOCK_MARKER,
     PUBLISH_RETRY_SECONDS,
     TRANSIENT_RETRY_SECONDS,
+    RetryDecision,
     SourceTask,
     clamp_retry_at,
     classify_error,
@@ -665,7 +666,11 @@ try:
     # The sleeps that make up a release leg are read off the script itself, so
     # neither side can drift alone.
     r4b_retry_sleep = re.search(
-        r'git -C "\$RELEASE_REPO" checkout -- data/public\n\s*sleep (\d+)\n', release_source
+        # R4d put a BOX-sidecar re-stage between the checkout and the sleep;
+        # anything else the retry tail grows must stay inside the loop body's
+        # two-space indent, and the measured sleep is still read off the script.
+        r'git -C "\$RELEASE_REPO" checkout -- data/public\n(?:  \w[^\n]*\n)*?  sleep (\d+)\n',
+        release_source,
     )
     assert r4b_retry_sleep is not None, "asset retry sleep not found in daily_public_release.sh"
     assert PUBLISH_ASSET_RETRY_SLEEP_SECONDS == int(r4b_retry_sleep.group(1)), r4b_retry_sleep.group(1)
@@ -776,6 +781,134 @@ try:
     else:
         print("SKIP_NO_BASH asset_retry_fits execution needs bash; the parse half still runs")
     print("POSITIVE_OK R4c the release cap is the succeeding leg and the script owns the retry budget")
+
+    # ------------------------------------------------------------------- R4d
+    # 2026-08-24 adversarial review of R4c: raising V2's asset_max_attempts
+    # from 1 to 3 made the retry loop REACHABLE for the first time, and that
+    # loop starts by reverting data/public -- which includes the BOX sidecar,
+    # copied in exactly once ABOVE the loop.  A retried bake therefore
+    # published YESTERDAY's /box in silence: --box-previous is
+    # `git show HEAD:data/public/box-subset.json`, i.e. the very bytes the
+    # checkout restores, so validate_daily_release.py's no-regression check
+    # compares the file against itself and passes.  Every pass must see
+    # exactly what pass 1 saw.
+    r4d_loop = re.search(r"\nwhile true; do\n((?:.*\n)*?)done\n", release_source)
+    assert r4d_loop is not None, "asset retry loop not found in daily_public_release.sh"
+    r4d_body = r4d_loop.group(1)
+    assert 'git -C "$RELEASE_REPO" checkout -- data/public' in r4d_body, r4d_body
+    # One definition of the copy, so the two call sites cannot drift apart...
+    assert release_source.count('cp "$BOX_SRC" "$BOX_DST"') == 1, release_source
+    # ...and it keeps the original site's condition: no SOURCE file still means
+    # "keep whatever release git carries", never an empty /box.
+    assert re.search(
+        r'if \[\[ -s "\$BOX_SRC" \]\]; then\n(?:.*\n)*?\s*cp "\$BOX_SRC" "\$BOX_DST"\n',
+        release_source,
+    ), "the BOX sidecar copy lost its `[[ -s $BOX_SRC ]]` guard"
+    r4d_functions = {
+        match.group(1): match.group(2)
+        for match in re.finditer(
+            r"\n([A-Za-z_][A-Za-z0-9_]*)\(\) \{\n((?:.*\n)*?)\}\n", release_source
+        )
+    }
+
+    def r4d_restages_sidecar(block: str) -> bool:
+        """Does `block` put SOURCE's box-subset.json back into the release tree?"""
+        if 'cp "$BOX_SRC" "$BOX_DST"' in block:
+            return True
+        return any(
+            re.search(rf"^\s*{re.escape(name)}\s*$", block, re.MULTILINE)
+            and 'cp "$BOX_SRC" "$BOX_DST"' in body
+            for name, body in r4d_functions.items()
+        )
+
+    r4d_after_checkout = r4d_body[
+        r4d_body.index('git -C "$RELEASE_REPO" checkout -- data/public'):
+    ]
+    assert r4d_restages_sidecar(r4d_after_checkout), (
+        "the asset retry reverts data/public and starts the next bake pass "
+        "without re-staging the BOX sidecar:\n" + r4d_body
+    )
+    # The same step runs before the first pass, out of the same definition.
+    assert r4d_restages_sidecar(
+        release_source[
+            release_source.index('BOX_DST="$RELEASE_REPO/data/public/box-subset.json"'):
+            release_source.index("publish_assets() {")
+        ]
+    ), "the first bake pass no longer stages the BOX sidecar"
+    print("POSITIVE_OK R4d the asset retry re-stages the BOX sidecar it just reverted")
+
+    # ------------------------------------------------------------------- R4e
+    # Same review, observability half: reclassify_retry() corrects
+    # chain_attempt.error_code and only THEN asks clamp_retry_at where the
+    # corrected ladder lands.  Near the cutoff that answer is None and the
+    # function returned before the chain_task UPDATE -- the attempt row carried
+    # the NEW class (same transaction, committed on return) while the task row,
+    # which is what `cardz-v2 status`, the observer and the alerts read, still
+    # named the OLD one.  The label is bookkeeping, the clock is the gate:
+    # correct the label either way, move the clock only when a slot exists.
+    r4e_journal = new_journal("reclassify-clamped")
+    r4e_key = r4e_journal.add_raw_task(
+        run_id=RUN_ID,
+        business_date=DAY.isoformat(),
+        phase="publish",
+        source_code="release",
+        capability="release",
+        required_class="publish",
+        concurrency_group="publish-r4e",
+        max_attempts=6,
+    )
+    r4e_claimed = r4e_journal.claim_ready(RUN_ID, phases=["publish"])
+    assert len(r4e_claimed) == 1, r4e_claimed
+    assert r4e_journal.finish_failure(
+        r4e_key,
+        str(r4e_claimed[0]["lease_token"]),
+        decision=RetryDecision("PUBLISH_FAILED", False, PUBLISH_RETRY_SECONDS),
+        error_text="release exit=1: bake failed",
+        now=datetime(2026, 8, 20, 6, 0, tzinfo=timezone.utc),
+        retry_not_after=datetime(2026, 8, 20, 8, 0, tzinfo=timezone.utc),
+    ) == "RETRY"
+    r4e_before = r4e_journal.task(r4e_key)
+    assert r4e_before["status"] == "RETRY", r4e_before
+    assert r4e_before["last_error_code"] == "PUBLISH_FAILED", r4e_before
+    r4e_clock = r4e_before["next_retry_at"]
+
+    # The corrected class is PUBLISH_LOCK_HELD, but `now` is already past the
+    # deadline, so clamp_retry_at answers None.
+    r4e_rescheduled = r4e_journal.reclassify_retry(
+        r4e_key,
+        decision=RetryDecision("PUBLISH_LOCK_HELD", False, INFRA_RETRY_SECONDS),
+        now=datetime(2026, 8, 20, 7, 0, tzinfo=timezone.utc),
+        retry_not_after=datetime(2026, 8, 20, 6, 0, tzinfo=timezone.utc),
+    )
+    with r4e_journal.connect() as r4e_conn:
+        r4e_attempt_code = r4e_conn.execute(
+            "SELECT error_code FROM chain_attempt WHERE task_key=?"
+            " ORDER BY attempt_no DESC LIMIT 1",
+            (r4e_key,),
+        ).fetchone()["error_code"]
+    r4e_after = r4e_journal.task(r4e_key)
+    assert r4e_attempt_code == "PUBLISH_LOCK_HELD", r4e_attempt_code
+    assert r4e_after["last_error_code"] == "PUBLISH_LOCK_HELD", r4e_after
+    # ...while the clock and the caller's answer stay honest: nothing was
+    # rescheduled, and the slot the task already owns is not moved.
+    assert r4e_rescheduled is False, r4e_rescheduled
+    assert r4e_after["next_retry_at"] == r4e_clock, (r4e_after, r4e_clock)
+    assert r4e_after["status"] == "RETRY", r4e_after
+
+    # An in-window correction still moves both, exactly as before.
+    r4e_moved = r4e_journal.reclassify_retry(
+        r4e_key,
+        decision=RetryDecision("PUBLISH_FAILED", False, PUBLISH_RETRY_SECONDS),
+        now=datetime(2026, 8, 20, 7, 0, tzinfo=timezone.utc),
+        retry_not_after=datetime(2026, 8, 20, 8, 0, tzinfo=timezone.utc),
+    )
+    r4e_final = r4e_journal.task(r4e_key)
+    assert r4e_moved is True, r4e_moved
+    assert r4e_final["last_error_code"] == "PUBLISH_FAILED", r4e_final
+    assert datetime.fromisoformat(str(r4e_final["next_retry_at"])) == datetime(
+        2026, 8, 20, 7, 0, tzinfo=timezone.utc
+    ) + timedelta(seconds=PUBLISH_RETRY_SECONDS[0]), r4e_final
+    print("POSITIVE_OK R4e a retry the cutoff leaves no slot for still gets its class corrected")
 
 
 finally:

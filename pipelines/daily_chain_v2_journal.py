@@ -980,21 +980,29 @@ class Journal:
             if delay is None:
                 return False
             retry_when = clamp_retry_at(clock, delay, not_after=retry_not_after)
-            if retry_when is None:
-                return False
+            # R4 2026-08-24: a corrected class whose next slot falls past the
+            # deadline used to return here, leaving chain_attempt carrying the
+            # NEW code (that UPDATE is already in this transaction) while
+            # chain_task -- what `cardz-v2 status`, the observer and the alerts
+            # read -- still named the OLD one.  The label is bookkeeping, the
+            # clock is the gate: correct the label either way and move the
+            # retry clock only when clamp_retry_at found it a lawful slot.
             changed = conn.execute(
                 """
-                UPDATE chain_task SET last_error_code=?,next_retry_at=?,updated_at=?
+                UPDATE chain_task
+                SET last_error_code=?,
+                    next_retry_at=COALESCE(?,next_retry_at),
+                    updated_at=?
                 WHERE task_key=? AND status='RETRY'
                 """,
                 (
                     decision.error_code,
-                    iso(retry_when),
+                    None if retry_when is None else iso(retry_when),
                     iso(clock),
                     task_key,
                 ),
             ).rowcount
-            return changed == 1
+            return changed == 1 and retry_when is not None
 
     def reopen_successful_tasks_before(
         self,

@@ -230,12 +230,21 @@ BOX_SRC="$SOURCE_REPO/data/public/box-subset.json"
 BOX_DST="$RELEASE_REPO/data/public/box-subset.json"
 BOX_PREV="$(mktemp /tmp/cardz-box-prev.XXXXXX.json)"
 git -C "$RELEASE_REPO" show HEAD:data/public/box-subset.json > "$BOX_PREV" 2>/dev/null || : > "$BOX_PREV"
-if [[ -s "$BOX_SRC" ]]; then
-  python3 -c 'import json,sys; json.load(open(sys.argv[1], encoding="utf-8"))' "$BOX_SRC"
-  cp "$BOX_SRC" "$BOX_DST"
-else
-  printf 'BOX sidecar missing in SOURCE; publishing previous sidecar\n' >&2
-fi
+# R4 2026-08-24: staging is a function because the asset retry loop below runs
+# `git checkout -- data/public`, which reverts this sidecar to the release
+# repo's HEAD -- byte-identical to $BOX_PREV.  A retried bake would then
+# republish YESTERDAY's /box in silence: validate_daily_release.py compares
+# --box against --box-previous and sees no regression because it is comparing
+# the file with itself.  Every pass must see exactly what pass 1 saw.
+stage_box_sidecar() {
+  if [[ -s "$BOX_SRC" ]]; then
+    python3 -c 'import json,sys; json.load(open(sys.argv[1], encoding="utf-8"))' "$BOX_SRC"
+    cp "$BOX_SRC" "$BOX_DST"
+  else
+    printf 'BOX sidecar missing in SOURCE; publishing previous sidecar\n' >&2
+  fi
+}
+stage_box_sidecar
 
 # Bake 喺 release checkout 跑。佢內建 prune 只識 PSA10 seed，會當 BOX sidecar
 # 897 張圖係 stale 搬走。037 sync 跟住又要 SOURCE（fe-db）有呢 897 張——
@@ -304,6 +313,7 @@ while true; do
   asset_attempt=$((asset_attempt + 1))
   printf 'daily release bake/sync/validate retry %s/%s\n' "$asset_attempt" "$asset_max_attempts" >&2
   git -C "$RELEASE_REPO" checkout -- data/public
+  stage_box_sidecar
   sleep 15
 done
 
