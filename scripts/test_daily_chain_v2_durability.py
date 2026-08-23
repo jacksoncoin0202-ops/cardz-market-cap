@@ -598,15 +598,27 @@ try:
             raise AssertionError("tick never reported tick_phase=started")
 
         # Task 11: a second tick on the same journal must skip, not double-run.
+        # audit P2-1(b): the skip must NOT refresh the running tick's health.json
+        # freshness stamp -- that is what made the watchdog's 25-minute rule
+        # blind to a tick stuck while holding the flock.  The skip records itself
+        # in its own marker file instead.
+        before_skip = json.loads(health_file.read_text(encoding="utf-8"))
         second = subprocess.run(
             command[:-2] + ["--selftest-sleep", "1"],
-            cwd=str(ROOT), env={**env, "CARDZ_V2_HEALTH_PATH": str(live_dir / "second.json")},
+            cwd=str(ROOT), env=env,
             capture_output=True, text=True, timeout=120,
         )
         assert second.returncode == 0, second.stderr[-2000:]
         assert second.stdout.strip().splitlines()[-1] == "TICK_SKIPPED_LOCKED", second.stdout
-        skipped = json.loads((live_dir / "second.json").read_text(encoding="utf-8"))
-        assert skipped["tick_phase"] == "skipped_locked" and skipped["schema"] == 1
+        after_skip = json.loads(health_file.read_text(encoding="utf-8"))
+        assert after_skip["written_at_utc"] == before_skip["written_at_utc"], after_skip
+        assert after_skip["tick_phase"] == "started", after_skip
+        skipped = json.loads(
+            (live_dir / "tick-skipped.json").read_text(encoding="utf-8")
+        )
+        assert skipped["reason"] == "TICK_SKIPPED_LOCKED" and skipped["schema"] == 1
+        assert skipped["business_date"] == DAY.isoformat(), skipped
+        assert skipped["last_skipped_at_utc"] > before_skip["written_at_utc"], skipped
 
         tick.send_signal(signal.SIGTERM)
         tick.wait(timeout=60)

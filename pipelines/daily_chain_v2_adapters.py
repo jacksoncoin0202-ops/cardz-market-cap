@@ -92,6 +92,25 @@ def run_started_at(state_db: Path, run_id: str) -> str:
     return "" if row is None else str(row[0] or "")
 
 
+# Module-local indirection so a fixture can replace the worker launcher for THIS
+# module only (review fix).  Patching `adapters_module.subprocess.Popen` reaches
+# into the shared subprocess module object and replaces Popen process-wide.
+_popen = subprocess.Popen
+
+
+def resolve_deadline(value: Any) -> float:
+    """Read a work deadline that the orchestrator may still be extending.
+
+    Operator finding 2026-08-24: a worker whose honest duration exceeds the tick
+    budget was interrupted at every tick deadline and restarted from zero.  Tick
+    drain can move the deadline after the worker started, so the poll loop must
+    re-read it instead of freezing it at claim time.  A plain float keeps the
+    old contract for callers that have no drain to offer.
+    """
+
+    return float(value() if callable(value) else value)
+
+
 def terminate_worker_group(pid: int, *, grace_seconds: float = 5.0) -> None:
     if pid <= 1:
         return
@@ -192,7 +211,7 @@ class CommandSourceAdapter:
         claim_token = str(context["claim_token"])
         log_path = Path(str(context["log_path"]))
         receipt_path = Path(str(context["receipt_path"]))
-        deadline_monotonic = float(context["deadline_monotonic"])
+        deadline_monotonic = context["deadline_monotonic"]
         log_path.parent.mkdir(parents=True, exist_ok=True)
         receipt_path.parent.mkdir(parents=True, exist_ok=True)
         command = [
@@ -243,7 +262,7 @@ class CommandSourceAdapter:
                 )
                 + b"\n"
             )
-            proc = subprocess.Popen(
+            proc = _popen(
                 command,
                 cwd=str(ROOT),
                 env=env,
@@ -260,11 +279,14 @@ class CommandSourceAdapter:
             last_heartbeat = 0.0
             while proc.poll() is None:
                 now = time.monotonic()
-                if now >= deadline_monotonic:
-                    # audit item 10: the default 5s grace killed collect_control
-                    # while its child still held hundreds of fetched cards, so
-                    # nothing was ingested and the retry restarted from zero.
-                    # The stage path already grants 60s for the same reason.
+                # resolve_deadline: tick drain can extend this after the worker
+                # started, so re-read it every poll instead of freezing it at
+                # claim time (2026-08-24 "tick deadline interrupted source
+                # worker").  WORKER_SHUTDOWN_GRACE_SECONDS: audit item 10 -- the
+                # default 5s grace killed collect_control while its child still
+                # held hundreds of fetched cards, so nothing was ingested and the
+                # retry restarted from zero.  The stage path already grants 60s.
+                if now >= resolve_deadline(deadline_monotonic):
                     terminate_worker_group(
                         proc.pid, grace_seconds=WORKER_SHUTDOWN_GRACE_SECONDS
                     )
