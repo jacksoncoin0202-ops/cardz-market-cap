@@ -106,11 +106,18 @@ TICK_MIN_IDLE_SLEEP_SECONDS = 1.0
 #           + write_health + summary
 #   = 2820  == tick_hard_limit_seconds()
 # R2 (operator finding 2026-08-24): with -MaxRuntimeSeconds 3000 that hard limit
-# equalled the claim deadline, so the drain granted ZERO extra seconds and the
-# 55-60 min gemrate harvest could never finish a tick.  Claiming now closes at
+# equalled the claim deadline, so the drain granted ZERO extra seconds -- a
+# worker claimed at 2999 s was killed one second later.  Claiming now closes at
 # DEFAULT_MAX_RUNTIME_SECONDS = 2100 (35 min) and the drain fills the remaining
 # 720 s (12 min) of the SAME PT55M window -- remedy (1) from that finding, no
-# ExecutionTimeLimit change.  The alternative, raising ExecutionTimeLimit in
+# ExecutionTimeLimit change.  Read the ceiling honestly: ONE tick gives a live
+# worker at most 2100 + 720 = 2820 s of wall clock, which is LESS than the 3000 s
+# it had before.  What the drain buys is a guarantee, not a longer tick: every
+# newly claimed worker now gets >= 720 s instead of possibly a few seconds.  The
+# 55-60 min gemrate harvest and the 40-90 min PriceCharting full refresh (R5)
+# still cannot finish inside one tick and MUST resume from their progress
+# stamps; the attempt accounting below is what keeps those resumptions from
+# parking the task.  The alternative, raising ExecutionTimeLimit in
 # scripts/install_cardz_daily_v2_task.ps1 AND setting
 # CARDZ_V2_TICK_EXTERNAL_LIMIT_SECONDS to the new PT value in the launcher's
 # environment, must still be done on both sides or it either buys nothing or
@@ -842,6 +849,23 @@ class DailyChainV2:
         self._live_claim_cache: dict[str, tuple[float, bool]] = {}
         self._live_claim_lock = threading.Lock()
         self.tick_started_monotonic = time.monotonic()
+        # Review fix 2026-08-24 (blocking): the drain arithmetic below is only
+        # sound while --max-runtime-seconds equals DEFAULT_MAX_RUNTIME_SECONDS.
+        # The registered Task Scheduler action bakes its OWN -MaxRuntimeSeconds
+        # into the argument string (scripts/install_cardz_daily_v2_task.ps1), so
+        # until somebody re-runs that installer the tick is still handed 3000 --
+        # and with the R3 grace that tick would finish 180 s AFTER PT55M and be
+        # hard-killed mid-finalisation.  The tick is self-safe instead of
+        # trusting its registration: claiming never outlives the hard limit,
+        # whatever it was handed.  (A hard limit of zero means somebody shrank
+        # the external limit below the reserves; leave that tick alone rather
+        # than closing claiming before it opened.)
+        hard_limit = tick_hard_limit_seconds()
+        if hard_limit > 0.0:
+            deadline_monotonic = min(
+                deadline_monotonic, self.tick_started_monotonic + hard_limit
+            )
+            self.deadline_monotonic = deadline_monotonic
         # Operator finding 2026-08-24 (not in the audit): a worker whose honest
         # duration exceeds the tick budget can never finish.  Task
         # gemrate:contract-repair:pop:all (1604 cards, ~55-60 min) was cut at
@@ -2150,9 +2174,24 @@ class DailyChainV2:
             return self.deadline_monotonic
         return self.drain_deadline_monotonic
 
-    def _work_deadline_monotonic(self, row: Mapping[str, Any] | None = None) -> float:
+    def _work_deadline_bound(
+        self, row: Mapping[str, Any] | None = None
+    ) -> tuple[float, str]:
+        """The earliest deadline binding this worker, and WHICH one it is.
+
+        Review fix 2026-08-24: only the tick's own budget ("tick") refunds the
+        attempt.  The 10:15 candidate cutoff and the 17:00 final are business
+        boundaries: a worker they cut really did fail to deliver, and refunding
+        it would let the task re-claim into an already-past work deadline, spawn
+        a worker that is interrupted immediately, and churn like that for the
+        whole interruption budget instead of settling at max_attempts.
+        """
+
         until_final = max(0.0, (self.schedule["final"] - utc_now()).total_seconds())
-        deadlines = [self.drain_deadline_for(row), time.monotonic() + until_final]
+        deadlines = [
+            (self.drain_deadline_for(row), "tick"),
+            (time.monotonic() + until_final, "final"),
+        ]
         phase = "" if row is None else str(row.get("phase") or "")
         optional_source_before_cutoff = bool(
             row is not None
@@ -2170,8 +2209,11 @@ class DailyChainV2:
             until_cutoff = max(
                 0.0, (self.schedule["source_cutoff"] - utc_now()).total_seconds()
             )
-            deadlines.append(time.monotonic() + until_cutoff)
-        return min(deadlines)
+            deadlines.append((time.monotonic() + until_cutoff, "cutoff"))
+        return min(deadlines, key=lambda bound: bound[0])
+
+    def _work_deadline_monotonic(self, row: Mapping[str, Any] | None = None) -> float:
+        return self._work_deadline_bound(row)[0]
 
     def _heartbeat(self, row: Mapping[str, Any], checkpoint: Any = None, worker_pid: int | None = None) -> None:
         details = checkpoint if isinstance(checkpoint, Mapping) else {}
@@ -2384,11 +2426,19 @@ class DailyChainV2:
                 result = self._run_stage_process(row)
                 self.journal.finish_success(task_key, claim, result)
         except WorkerInterrupted as error:
-            # WorkerInterrupted is raised only where the tick itself cut the
-            # worker (drain deadline / cutoff / external limit).  That attempt
-            # is refunded so a resumable 55-90 min task is not parked by the
-            # tick budget; its interruption budget still parks it.
-            self._interrupt(task_key, claim, reason=str(error), tick_limited=True)
+            # WorkerInterrupted is raised wherever the tick cut the worker, and
+            # that is three different bounds.  Only the tick BUDGET (claim
+            # deadline / drain / external limit) refunds the attempt, so a
+            # resumable 55-90 min task is not parked by the tick clock; the
+            # 10:15 candidate cutoff and the 17:00 final are business boundaries
+            # and still burn one (review fix 2026-08-24).  The interruption
+            # budget parks the task either way.
+            self._interrupt(
+                task_key,
+                claim,
+                reason=str(error),
+                tick_limited=self._work_deadline_bound(row)[1] == "tick",
+            )
         except Exception as error:  # noqa: BLE001 - classify then checkpoint
             text = f"{type(error).__name__}:{error}"
             decision = classify_error(

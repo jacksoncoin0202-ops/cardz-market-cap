@@ -79,15 +79,22 @@ def new_journal(name: str) -> Journal:
     return journal
 
 
-def add_task(journal: Journal, code: str, *, max_attempts: int = 3) -> str:
+def add_task(
+    journal: Journal,
+    code: str,
+    *,
+    max_attempts: int = 3,
+    phase: str = "source",
+    payload: dict[str, Any] | None = None,
+) -> str:
     task = SourceTask(
         run_id=RUN_ID, business_date=DAY.isoformat(),
         source_code=code, capability="quote",
     )
     journal.add_task(
-        task, phase="source", required_class="extra",
+        task, phase=phase, required_class="extra",
         concurrency_group=f"fixture:{code}", max_concurrency=1,
-        max_attempts=max_attempts,
+        max_attempts=max_attempts, payload=payload,
     )
     return task.idempotency_key
 
@@ -467,6 +474,144 @@ def real_failures_still_park_and_the_cap_still_holds() -> None:
     assert journal.task(parking)["status"] == "PARKED"
 
 
+# -------------------------------------------------------------------- R2 (10)
+def no_registration_can_outlive_the_external_limit() -> None:
+    """The tick is self-safe under ANY -MaxRuntimeSeconds it is handed.
+
+    Review fix 2026-08-24 (blocking): every number above is only sound while
+    --max-runtime-seconds equals DEFAULT_MAX_RUNTIME_SECONDS.  The LIVE Task
+    Scheduler action bakes its own -MaxRuntimeSeconds into the registered
+    argument string, so until somebody re-runs the installer with -Apply the
+    tick is still handed 3000 -- and with the R3 grace (240 s instead of 60 s)
+    that tick finishes 180 s AFTER PT55M, i.e. Windows hard-kills it
+    mid-finalisation and the run loses finalise_live / lifecycle_events /
+    write_health / summary.  The tick must clamp its own claim deadline to
+    tick_hard_limit_seconds() instead of trusting its registration.
+    """
+
+    hard_limit = chain_module.tick_hard_limit_seconds()
+    external_kill_offset = (
+        chain_module.tick_external_limit_seconds()
+        - chain_module.TICK_LAUNCHER_STARTUP_RESERVE_SECONDS
+    )
+    for runtime in (
+        float(chain_module.DEFAULT_MAX_RUNTIME_SECONDS),
+        3000.0,  # what the LIVE task still registers until the installer re-runs
+        float(chain_module.MAX_RUNTIME_SECONDS_CEILING),
+    ):
+        chain = new_chain(new_journal(f"reg{int(runtime)}"), runtime)
+        claim_overshoot = (
+            chain.deadline_monotonic - chain.tick_started_monotonic - hard_limit
+        )
+        assert claim_overshoot <= 1e-6, (
+            f"-MaxRuntimeSeconds {runtime:.0f}: claiming stays open "
+            f"{claim_overshoot:.0f}s past the tick hard limit"
+        )
+        latest_finish = (
+            chain.drain_deadline_monotonic
+            + chain_module.TICK_INTERRUPT_GRACE_MAX_SECONDS
+            + chain_module.TICK_DRAIN_TAIL_RESERVE_SECONDS
+        )
+        overshoot = latest_finish - (
+            chain.tick_started_monotonic + external_kill_offset
+        )
+        assert overshoot <= 1e-6, (
+            f"-MaxRuntimeSeconds {runtime:.0f}: the tick finishes {overshoot:.0f}s "
+            "after the external ExecutionTimeLimit and is hard-killed "
+            "mid-finalisation"
+        )
+
+
+# ---------------------------------------------------------------------- A (11)
+def only_the_tick_budget_refunds_the_attempt() -> None:
+    """A business boundary is not a tick interruption.
+
+    Review fix 2026-08-24 (major): _work_deadline_monotonic() mins the tick's
+    drain bound with the 10:15 candidate cutoff and the 17:00 final.  Refunding
+    the attempt for those too means the work deadline is already in the past on
+    the next claim, so the task churns claim -> spawn -> immediate re-interrupt
+    for its whole interruption budget (6) instead of settling at max_attempts.
+    """
+
+    class _InterruptedAdapter:
+        def execute(self, task: Any, context: Any, heartbeat: Any) -> Any:
+            raise adapters_module.WorkerInterrupted(
+                "tick deadline interrupted source worker pid=4242"
+            )
+
+    def fixture(
+        name: str,
+        *,
+        runtime_seconds: float,
+        cutoff_seconds: float,
+        final_seconds: float,
+        phase: str,
+        max_attempts: int = 3,
+    ) -> tuple[Journal, DailyChainV2, str]:
+        journal = new_journal(name)
+        chain = new_chain(journal, runtime_seconds)
+        now = chain_module.utc_now()
+        chain.schedule = {
+            "source_cutoff": now + timedelta(seconds=cutoff_seconds),
+            "sla": now + timedelta(seconds=final_seconds),
+            "final": now + timedelta(seconds=final_seconds),
+        }
+        chain.registry = {"interrupted-source": _InterruptedAdapter()}
+        chain._task_paths = lambda row: (  # type: ignore[method-assign]
+            WORKSPACE / f"{name}.log", WORKSPACE / f"{name}.json"
+        )
+        key = add_task(
+            journal, "interrupted-source", max_attempts=max_attempts,
+            phase=phase, payload={"kind": "source"},
+        )
+        return journal, chain, key
+
+    saved_alert = chain_module.send_alert
+    try:
+        chain_module.send_alert = lambda *a, **k: None  # type: ignore[assignment]
+
+        # (a) the TICK's own budget cut it: the attempt is refunded.
+        journal, chain, key = fixture(
+            "refund", runtime_seconds=-5.0, cutoff_seconds=7200.0,
+            final_seconds=7200.0, phase="source",
+        )
+        claimed = journal.claim_ready(RUN_ID)
+        assert claimed, "the fixture task was not claimable"
+        chain.execute_claim(claimed[0])
+        row = journal.task(key)
+        assert int(row["interrupted_attempts"]) == 1, (
+            f"the tick budget did not refund its own interruption: {dict(row)}"
+        )
+
+        # (b) the 10:15 candidate cutoff cut it: the attempt is NOT refunded,
+        #     and the task settles at max_attempts instead of churning.
+        journal, chain, key = fixture(
+            "cutoff", runtime_seconds=1800.0, cutoff_seconds=-60.0,
+            final_seconds=7200.0, phase="activation", max_attempts=3,
+        )
+        clock = chain_module.utc_now()
+        statuses: list[str] = []
+        for _ in range(8):
+            claimed = journal.claim_ready(RUN_ID, now=clock)
+            if not claimed:
+                break
+            chain.execute_claim(claimed[0])
+            statuses.append(str(journal.task(key)["status"]))
+            clock += timedelta(seconds=1200)
+        row = journal.task(key)
+        assert int(row["interrupted_attempts"]) == 0, (
+            "a worker cut by the 10:15 candidate cutoff had its attempt "
+            f"refunded: {dict(row)}"
+        )
+        assert len(statuses) == 3, (
+            "a cutoff-bound worker kept re-claiming and re-spawning past "
+            f"max_attempts=3: {len(statuses)} rounds {statuses}"
+        )
+        assert statuses[-1] == "PARKED" and int(row["attempts"]) == 3, dict(row)
+    finally:
+        chain_module.send_alert = saved_alert  # type: ignore[assignment]
+
+
 def main() -> int:
     try:
         check("installer/launcher/python agree on the tick budget", installed_numbers_agree)
@@ -478,6 +623,8 @@ def main() -> int:
         check("an interrupted child is named in the worker receipt", interrupted_child_is_named_in_the_receipt)
         check("a tick interruption does not burn an attempt", a_tick_interruption_does_not_burn_an_attempt)
         check("real failures still park and the cap still holds", real_failures_still_park_and_the_cap_still_holds)
+        check("no registration can outlive the external limit", no_registration_can_outlive_the_external_limit)
+        check("only the tick budget refunds the attempt", only_the_tick_budget_refunds_the_attempt)
     finally:
         shutil.rmtree(WORKSPACE, ignore_errors=True)
     if FAILURES:
