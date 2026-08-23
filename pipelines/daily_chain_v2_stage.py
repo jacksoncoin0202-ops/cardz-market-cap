@@ -9,6 +9,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,6 +29,15 @@ from daily_chain_v2_contract import (  # noqa: E402
     list_v2_migrations,
     sha256,
 )
+
+# The two browser-lane adapters whose streams the same run's identity repair
+# creates after the collection registry was already built.  Both are declared
+# `lane="browser"` in collection_contract, hence the cdp:9333 stage group.
+CHECKPOINT_REPAIR_ADAPTERS: tuple[str, ...] = ("pc_ebay_sales", "en_price_ref")
+# Wall-clock epoch this stage must stop by, published by the orchestrator with
+# TICK_RESERVE_SECONDS already subtracted, so that reserve keeps exactly one
+# definition (daily_chain_v2.TICK_RESERVE_SECONDS).
+STAGE_DEADLINE_ENV = "CARDZ_V2_STAGE_DEADLINE_EPOCH"
 
 
 def iso_now() -> str:
@@ -264,6 +274,144 @@ def stage_consolidate(_args: argparse.Namespace) -> dict[str, Any]:
         timeout=900,
     )
     return {"stage": "consolidate", **result}
+
+
+def stage_deadline_budget_seconds(now_epoch: float | None = None) -> float | None:
+    """Seconds of tick budget left, or None when no deadline was published."""
+
+    raw = os.environ.get(STAGE_DEADLINE_ENV, "").strip()
+    if not raw:
+        return None
+    try:
+        deadline = float(raw)
+    except ValueError:
+        return None
+    return deadline - (time.time() if now_epoch is None else now_epoch)
+
+
+def missing_repair_streams(collect_control: Any, operator_control: Any) -> dict[str, list[dict[str, Any]]]:
+    """Registry streams with no checkpoint, read through the gate's own helper.
+
+    `operator_control.missing_checkpoint_streams` is the same function the
+    daily-accept checkpoint gate calls, so the repair can never disagree with
+    the gate about which streams are short.
+    """
+
+    registry = collect_control._jsonl_rows(collect_control.REGISTRY_PATH)
+    collect_control.load_env()
+    conn = collect_control.db()
+    try:
+        cur = conn.cursor()
+        return operator_control.missing_checkpoint_streams(
+            cur, registry=registry, adapters=CHECKPOINT_REPAIR_ADAPTERS
+        )
+    finally:
+        conn.close()
+
+
+def stage_checkpoint_repair(_args: argparse.Namespace) -> dict[str, Any]:
+    """Give this run's freshly bound (variant, pid) streams their first checkpoint.
+
+    2026-08-22: activation bound 50 new `pc_ebay_sales` streams and 48
+    `en_price_ref` streams after the collection registry had already been
+    built, so daily-accept hard-failed attempts 1-3 on `checkpoint gate failed
+    pc_ebay_sales: streams=1171 missing=50` and attempt 4 on `en_price_ref ...
+    fresh_pc_pages_unavailable` (the local PC page was inside the 36 h SLA, so
+    the incr path replayed it instead of fetching, and a replay mints no first
+    checkpoint).  The operator finished the run by hand with
+    `collect_control incr --variant-id ... --force-network`.
+
+    `cmd_first_stock(force_network=True)` is that hand repair as one call:
+    `cmd_status(rebuild_registry=True)` -> `consolidate_pc_map --write` ->
+    `cmd_stock(variant_ids=<only the missing streams>, force_network=True)`,
+    where force_network is exactly what skips the SLA replay.  The checkpoint
+    gate is not touched: a stream that still has no checkpoint after this
+    stage still fails it.
+    """
+
+    import collect_control
+    import operator_control
+
+    started = time.monotonic()
+    missing_before = missing_repair_streams(collect_control, operator_control)
+    counts_before = {
+        adapter: len(missing_before.get(adapter) or ())
+        for adapter in CHECKPOINT_REPAIR_ADAPTERS
+    }
+    repair_adapters = [
+        adapter for adapter in CHECKPOINT_REPAIR_ADAPTERS if counts_before[adapter]
+    ]
+    result: dict[str, Any] = {
+        "stage": "checkpoint-repair",
+        "adapters": list(CHECKPOINT_REPAIR_ADAPTERS),
+        "streamsMissingBefore": counts_before,
+        "streamsMissingAfter": dict(counts_before),
+        "repairAdapters": repair_adapters,
+        "variantIds": {
+            adapter: sorted({int(row["variantId"]) for row in missing_before.get(adapter) or ()})
+            for adapter in repair_adapters
+        },
+        "network": False,
+    }
+    if not repair_adapters:
+        # Nothing was bound after the registry ran; do not open Chrome, do not
+        # rebuild the registry, do not consolidate the map.
+        result["note"] = "every registry stream already has a checkpoint"
+        result["elapsedSeconds"] = round(time.monotonic() - started, 3)
+        return result
+
+    budget = stage_deadline_budget_seconds()
+    if budget is not None and budget <= 0:
+        raise RuntimeError(
+            "checkpoint repair deferred to the next tick with no network: "
+            f"budgetSeconds={budget:.1f} missing={counts_before}"
+        )
+    result["network"] = True
+    result["budgetSeconds"] = None if budget is None else round(budget, 1)
+    # `first-stock` is in COLLECT_E2E_LEASE_COMMANDS: adapter leases alone do
+    # not serialize a mutating collect against daily-accept, and calling the
+    # function instead of the CLI must not drop that lease.
+    with operator_control.operator_e2e_lease("v2-checkpoint-repair"):
+        first_stock = collect_control.cmd_first_stock(
+            adapters=list(repair_adapters),
+            limit=None,
+            dry_run=False,
+            delay=0.0,
+            workers=24,
+            ensure_browser=True,
+            pc_resume_report=None,
+            pc_sleep=None,
+            pc_workers=None,
+            force_network=True,
+        )
+        result["firstStock"] = {
+            "ok": bool(first_stock.get("ok")),
+            "error": first_stock.get("error"),
+            "missing": first_stock.get("missing"),
+            "ran": first_stock.get("ran"),
+        }
+        counts_after = {
+            adapter: len(rows or ())
+            for adapter, rows in missing_repair_streams(
+                collect_control, operator_control
+            ).items()
+        }
+    result["streamsMissingAfter"] = counts_after
+    result["elapsedSeconds"] = round(time.monotonic() - started, 3)
+    if not first_stock.get("ok"):
+        raise RuntimeError(
+            f"checkpoint repair first-stock failed: {first_stock.get('error')};"
+            f" before={counts_before} after={counts_after}"
+        )
+    still_missing = {
+        adapter: count for adapter, count in counts_after.items() if count
+    }
+    if still_missing:
+        raise RuntimeError(
+            "checkpoint repair left streams without a checkpoint: "
+            f"{still_missing}; before={counts_before}"
+        )
+    return result
 
 
 def _activation_eligibility(
@@ -844,6 +992,7 @@ def main() -> int:
     noop.add_argument("--detail-json", required=True)
     noop.set_defaults(func=stage_noop)
     sub.add_parser("consolidate").set_defaults(func=stage_consolidate)
+    sub.add_parser("checkpoint-repair").set_defaults(func=stage_checkpoint_repair)
     activate = sub.add_parser("activate")
     # Defaults keep an already-journalled pre-upgrade task resumable; new task
     # payloads also carry these values explicitly.

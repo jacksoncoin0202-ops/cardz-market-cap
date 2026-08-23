@@ -1252,3 +1252,71 @@ try:
 finally:
     v2db.db, v2db.load_env = o2_db_real, o2_load_env_real
 print("POSITIVE_OK current_run_contract measures one section per registry source and blocks an unmeasurable core source")
+
+
+# F-FIXF: stage order around the daily-accept checkpoint gate.  The 08-22 run
+# lost five attempts because the streams identity repair had just bound reached
+# the gate with no checkpoint.  checkpoint-repair must therefore be planned
+# after activation and strictly before core-contract-post; the gate itself is
+# unchanged.  Fixture detail lives in scripts/test_checkpoint_repair_stage.py.
+import sqlite3  # noqa: E402
+
+from daily_chain_v2 import jst_schedule  # noqa: E402
+
+with tempfile.TemporaryDirectory(prefix="v2-o2-fixf-") as folder:
+    o2f_day = date(2026, 8, 22)
+    o2f_run_id = f"cardz-v2:{o2f_day.isoformat()}"
+    o2f_schedule = jst_schedule(o2f_day)
+    o2f_journal = Journal(Path(folder) / "chain.sqlite3")
+    o2f_journal.initialise()
+    o2f_journal.ensure_run(
+        business_date=o2f_day.isoformat(),
+        source_cutoff_at=iso(o2f_schedule["source_cutoff"]),
+        sla_at=iso(o2f_schedule["sla"]),
+        final_at=iso(o2f_schedule["final"]),
+    )
+    o2f_chain = DailyChainV2(
+        journal=o2f_journal,
+        business_date=o2f_day,
+        allow_publish=False,
+        notify=False,
+        deadline_monotonic=time.monotonic() + 600,
+        schedule=o2f_schedule,
+    )
+    o2f_now = o2f_schedule["source_cutoff"] - timedelta(hours=1)
+    o2f_order: list[str] = []
+    for _ in range(80):
+        # Plan twice per round: a resumed tick must add no duplicate stage.
+        o2f_chain.plan(o2f_now)
+        o2f_chain.plan(o2f_now)
+        for o2f_row in o2f_journal.tasks(o2f_run_id):
+            if str(o2f_row["capability"]) not in o2f_order:
+                o2f_order.append(str(o2f_row["capability"]))
+        if "daily-accept" in o2f_order:
+            break
+        with sqlite3.connect(str(o2f_journal.path)) as o2f_conn:
+            o2f_conn.execute(
+                "UPDATE chain_task SET status='COMPLETED',result_json='{}',"
+                "updated_at=? WHERE run_id=? AND status<>'COMPLETED'",
+                (iso(datetime.now(timezone.utc)), o2f_run_id),
+            )
+            o2f_conn.commit()
+    for o2f_needed in (
+        "candidate-activation", "checkpoint-repair", "core-contract-post", "daily-accept",
+    ):
+        assert o2f_needed in o2f_order, (o2f_needed, o2f_order)
+    assert o2f_order.index("candidate-activation") < o2f_order.index("checkpoint-repair")
+    assert o2f_order.index("checkpoint-repair") < o2f_order.index("core-contract-post")
+    assert o2f_order.index("core-contract-post") < o2f_order.index("daily-accept")
+    assert [
+        str(row["capability"]) for row in o2f_journal.tasks(o2f_run_id)
+    ].count("checkpoint-repair") == 1
+    o2f_repair = [
+        row for row in o2f_journal.tasks(o2f_run_id)
+        if str(row["capability"]) == "checkpoint-repair"
+    ][0]
+    assert str(o2f_repair["phase"]) == "barrier"
+    assert str(o2f_repair["concurrency_group"]) == "cdp:9333"
+    assert int(o2f_repair["max_attempts"]) == 3
+    assert str(o2f_repair["required_class"]) == "extra"
+print("POSITIVE_OK plan() inserts checkpoint-repair after activation and before core-contract-post, idempotently")
