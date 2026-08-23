@@ -1,7 +1,7 @@
 {
  "contract": "op-printed-code-v1",
  "source": "onepiece.limitlesstcg.com",
- "updatedAt": "2026-08-10T16:46:46Z",
+ "updatedAt": "2026-08-23T14:51:05Z",
  "codes": {
   "19": {
    "printedCode": "ST01-012",
@@ -1252,6 +1252,36 @@
    "setName": "One Piece Japanese OP06-Wings of the Captain",
    "collectorNumber": "118",
    "canonicalName": "2023 One Piece Japanese OP06-Wings of the Captain Roronoa Zoro Base 118"
+  },
+  "2251": {
+   "printedCode": "ST03-004",
+   "product": "st03-the-seven-warlords-of-the-sea",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP08?display=list",
+   "setName": "One Piece OP08-Two Legends",
+   "collectorNumber": "004",
+   "canonicalName": "2024 One Piece OP08-Two Legends Gecko Moria Special Alternate Art ST03-004"
+  },
+  "2254": {
+   "printedCode": "OP02-004",
+   "product": "op04-kingdoms-of-intrigue",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP04?display=list",
+   "setName": "One Piece OP04-Kingdoms of Intrigue",
+   "collectorNumber": "004",
+   "canonicalName": "2023 One Piece OP04-Kingdoms of Intrigue Edward Newgate Special Alternate Art OP02-004"
+  },
+  "2256": {
+   "printedCode": "EB04-039",
+   "product": "eb04-extra-booster",
+   "provenBy": "card_name",
+   "reprint": true,
+   "evidenceUrl": "https://onepiece.limitlesstcg.com/cards/en/OP14?display=list",
+   "setName": "One Piece OP14-EB04-the Azure Sea's Seven",
+   "collectorNumber": "039",
+   "canonicalName": "2026 One Piece OP14-EB04-the Azure Sea's Seven Eustass \"Captain\" Kid Special Alternate Art EB04-039"
   }
  },
  "advisory": {
