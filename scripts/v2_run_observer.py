@@ -181,6 +181,43 @@ def promo_time(day: str) -> dt.datetime | None:
     return dt.datetime.combine(d, dt.time(*PROMO_JST), tzinfo=JST).astimezone(dt.timezone.utc)
 
 
+def promo_brief(pdir: Path) -> dict | None:
+    """The brief.json fields the observer reports; None when the dir has no brief."""
+    bp = pdir / "brief.json"
+    if not bp.exists():
+        return None
+    try:
+        b = json.loads(bp.read_text(encoding="utf-8"))
+    except ValueError:
+        return {"error": "unreadable"}
+    if not isinstance(b, dict):
+        return {"error": "not an object"}
+    return {k: b.get(k) for k in ("generation", "lagHours", "post", "businessDate", "generatedAt", "publishedAt")}
+
+
+def resolve_promo_dir(day: str, generation: str | None) -> tuple[Path, dict | None, list[str]]:
+    """`data/runtime/promo/<dir>` is keyed by the JST day of the BAKE, not by the run's
+    business date: the bake that publishes business date D usually happens on D-1 JST, so
+    the D-1 dir is the one holding D's generation.  Prefer whichever dir actually carries
+    this run's generation (nearest day first); fall back to the business-date dir so a
+    genuinely missing brief is still reported against the expected location."""
+    base = ROOT / "data" / "runtime" / "promo"
+    default = base / day
+    scanned: list[str] = []
+    if generation and base.is_dir():
+        def distance(name: str) -> int:
+            try:
+                return abs((dt.date.fromisoformat(name) - dt.date.fromisoformat(day)).days)
+            except ValueError:
+                return 10 ** 6
+        for pdir in sorted((p for p in base.iterdir() if p.is_dir()), key=lambda p: (distance(p.name), p.name)):
+            scanned.append(pdir.name)
+            brief = promo_brief(pdir)
+            if brief and brief.get("generation") == generation:
+                return pdir, brief, scanned
+    return default, promo_brief(default), scanned
+
+
 def short_key(task_key: str) -> str:
     """'2026-08-24:gemrate:pop+identity:0-of-4:f270a1c7…' -> 'gemrate:pop+identity:0-of-4'."""
     parts = task_key.split(":")
@@ -931,17 +968,10 @@ class Observer:
 
     def collect_promo(self, promo_at: dt.datetime) -> None:
         info = probe_task_info(PROMO_TASK)
-        pdir = ROOT / "data" / "runtime" / "promo" / self.day
+        pdir, brief, scanned = resolve_promo_dir(self.day, self.run_generation)
         files = sorted(p.name for p in pdir.iterdir()) if pdir.exists() else []
-        brief: dict | None = None
-        bp = pdir / "brief.json"
-        if bp.exists():
-            try:
-                b = json.loads(bp.read_text(encoding="utf-8"))
-                brief = {k: b.get(k) for k in ("generation", "lagHours", "post", "businessDate", "generatedAt", "publishedAt")} if isinstance(b, dict) else {"error": "not an object"}
-            except ValueError:
-                brief = {"error": "unreadable"}
-        rec = {"at": iso(utc_now()), "promoAt": iso(promo_at), "task": info, "dir": str(pdir), "files": files, "brief": brief, "runGeneration": self.run_generation}
+        rec = {"at": iso(utc_now()), "promoAt": iso(promo_at), "task": info, "dir": str(pdir), "dirsScanned": scanned,
+               "files": files, "brief": brief, "runGeneration": self.run_generation}
         (self.out_dir / "promo.json").write_text(json.dumps(rec, indent=1, ensure_ascii=False, default=str), encoding="utf-8")
         self.promo = rec
         self.log(f"promo: task={json.dumps(info)} files={files} brief={json.dumps(brief, default=str)}")
@@ -956,7 +986,8 @@ class Observer:
         if brief is None:
             self.anomaly("PROMO_BRIEF_MISSING", "warn", {"dir": str(pdir), "files": files})
         elif self.run_generation and brief.get("generation") and brief["generation"] != self.run_generation:
-            self.anomaly("PROMO_GENERATION_MISMATCH", "warn", {"brief": brief.get("generation"), "run": self.run_generation})
+            self.anomaly("PROMO_GENERATION_MISMATCH", "warn", {"brief": brief.get("generation"), "run": self.run_generation,
+                                                              "dir": str(pdir), "dirsScanned": scanned})
 
     def watch(self) -> int:
         self.log(f"observer start run={self.run_id} poll={self.poll}s out={self.out_dir} root={ROOT} scheduled={self.scheduled}"
