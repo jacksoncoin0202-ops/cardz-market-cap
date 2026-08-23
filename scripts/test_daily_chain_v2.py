@@ -38,6 +38,7 @@ from daily_chain_v2_contract import (  # noqa: E402
     daily_generation_sha256,
     identity_disposition,
     list_v2_migrations,
+    PUBLISH_ASSET_MAX_ATTEMPTS,
     market_content_sha256,
     publication_decision,
     select_quote,
@@ -617,7 +618,12 @@ release = (ROOT / "scripts" / "daily_public_release.sh").read_text(encoding="utf
 assert "cardz-v2-immutable-publication-v1" in release
 assert "V2 release refused: daily acceptance produced no immutable generation change" in release
 assert "V2_EXPECTED_GENERATION" in release and "publicTreeSha256" in release
-assert "asset_max_attempts=1" in release and "push_max_attempts=1" in release
+# R4 2026-08-24: the bake/sync/validate retry stays INSIDE one orchestrator
+# attempt (the retry restores data/public first, so it is idempotent) and
+# its count is owned by pipelines/daily_chain_v2_contract.py.  The push is
+# still one shot in V2: the orchestrator owns push retries.
+assert f"asset_max_attempts={PUBLISH_ASSET_MAX_ATTEMPTS}; fi" in release, release
+assert "push_max_attempts=1" in release
 print("POSITIVE_OK V2 wiring is registry-driven, apply-gated, immutable, and non-destructive")
 
 # ---------------------------------------------------------------------------

@@ -46,6 +46,56 @@ RESULT_STATUSES = frozenset({
 TRANSIENT_RETRY_SECONDS = (60, 120, 240, 480, 960, 1800)
 INFRA_RETRY_SECONDS = (30, 60, 120)
 PUBLISH_RETRY_SECONDS = (120, 300, 600, 1200, 1800)
+# The V2 branch of scripts/daily_public_release.sh used to force ONE
+# bake/sync/validate attempt, so a single flaky bake spent a whole orchestrator
+# attempt plus a ladder step.  The script's retry runs
+# `git checkout -- data/public` first, so replaying the leg is idempotent.
+# scripts/test_v2s_classify.py parses the script and asserts the two numbers
+# agree, so neither side can drift on its own.
+PUBLISH_ASSET_MAX_ATTEMPTS = 3
+# The parts of one release leg in scripts/daily_public_release.sh: one
+# bake -> sync -> validate pass (measured ~180 s, and the script's own
+# `asset_pass_seconds`), the `sleep` between asset attempts, and the live
+# health poll, 60 x 10 s before it gives up.  scripts/test_v2s_classify.py
+# reads all three back off the script so the numbers cannot drift apart.
+PUBLISH_ASSET_PASS_SECONDS = 180
+PUBLISH_ASSET_RETRY_SLEEP_SECONDS = 15
+PUBLISH_HEALTH_POLL_SECONDS = 600
+# One release leg: the leg that can still SUCCEED -- one bake/sync/validate
+# pass plus the live health poll (the poll exits on the first healthy
+# generation, so this is already generous).  A retry scheduled later than
+# `final - PUBLISH_LEG_SECONDS` cannot finish before the business date's
+# 17:00 JST cutoff, so it is a retry that will never run: on 2026-08-23 the
+# 2/5/10/20/30 minute ladder above (67 minutes for five retries) could park the
+# next publish attempt past `final`, where lifecycle_events() stamps
+# FAILED_FINAL unconditionally -- attempts left, no window to spend them in.
+# The cutoff is not ours to move; the ladder is clamped to this instead.
+# NOT the all-fail leg (3 passes + 2 sleeps + the full poll = 1170 s): the bake
+# normally passes on attempt 1, so charging every retry the worst case refuses
+# retries that would very likely have published -- a PUBLISH_FAILED at 16:45
+# JST would be TERMINAL with five attempts unspent.  The extra bake passes are
+# the SCRIPT's budget and are bounded where they are spent: the retry loop in
+# scripts/daily_public_release.sh refuses a pass it cannot finish before
+# CARDZ_V2_STAGE_DEADLINE_EPOCH, which daily_chain_v2.py derives from a work
+# deadline that is never later than `final`.
+PUBLISH_LEG_SECONDS = PUBLISH_ASSET_PASS_SECONDS + PUBLISH_HEALTH_POLL_SECONDS  # 780
+# `live-confirm` is the other task in the publish phase, and it is nothing like
+# the release leg: it reads the release snapshot, makes ONE health request
+# (fetch_live_health, 20 s timeout) and inserts one outbox row, and it is
+# planned only after `release` COMPLETED -- i.e. always in the tail of the day.
+# Its own gate is `--confirm-before final`, so its PUBLISH_FAILED ladder is
+# exactly the mechanism that waits out FE deploy lag.  Charging it the release
+# leg would make every failure inside the last 13 minutes TERMINAL with
+# attempts unspent and the day's `live.confirmed` lost.
+LIVE_CONFIRM_LEG_SECONDS = 120
+# Publish-phase capability -> the leg that capability actually needs.  A leg is
+# a measurement, not a phase-wide constant; scripts/test_v2s_classify.py
+# asserts this covers exactly the publish capabilities the planner registers,
+# so a new one cannot quietly inherit the release leg.
+PUBLISH_LEG_SECONDS_BY_CAPABILITY = {
+    "release": PUBLISH_LEG_SECONDS,
+    "live-confirm": LIVE_CONFIRM_LEG_SECONDS,
+}
 # audit P2-15: scripts/daily_public_release.sh exits 75 when the legacy
 # publisher already holds the release flock.  The orchestrator stamps the
 # marker on the error text so a held lock never reads as a broken release.
@@ -387,6 +437,42 @@ def classify_error(text: str, *, stage: str = "source") -> RetryDecision:
     if any(token in value for token in ("ambiguous", "multiple exact", "identity conflict")):
         return RetryDecision("IDENTITY_AMBIGUOUS", True, ())
     return RetryDecision("SOURCE_FAILED", False, TRANSIENT_RETRY_SECONDS)
+
+
+def publish_leg_seconds(capability: Any) -> int:
+    """How long one attempt of this publish capability needs to finish.
+
+    Unknown capabilities get the longest measured leg: capping too early only
+    ends a run sooner, while capping too late schedules a retry that runs past
+    the cutoff.  The planner-coverage check in scripts/test_v2s_classify.py is
+    what keeps "unknown" from becoming the normal case.
+    """
+
+    return int(
+        PUBLISH_LEG_SECONDS_BY_CAPABILITY.get(str(capability or ""), PUBLISH_LEG_SECONDS)
+    )
+
+
+def clamp_retry_at(
+    now: datetime,
+    delay_seconds: int,
+    *,
+    not_after: datetime | None,
+) -> datetime | None:
+    """Where a backoff actually lands once a hard deadline is taken into account.
+
+    `None` means the deadline leaves no room at all.  A caller must treat that
+    exactly like an exhausted ladder (TERMINAL), never as "retry anyway": the
+    deadline is the gate, and pretending to schedule past it is what made
+    2026-08-23's release attempts disappear into FAILED_FINAL.
+    """
+
+    candidate = now + timedelta(seconds=int(delay_seconds))
+    if not_after is None or candidate <= not_after:
+        return candidate
+    if now <= not_after:
+        return not_after
+    return None
 
 
 def classify_provenance(receipt: Mapping[str, Any]) -> str:

@@ -53,6 +53,7 @@ from daily_chain_v2_contract import (  # noqa: E402
     classify_error,
     classify_provenance,
     identity_lanes,
+    publish_leg_seconds,
     sha256,
     v2_schema_capabilities,
 )
@@ -2525,6 +2526,7 @@ class DailyChainV2:
                 claim,
                 decision=decision,
                 error_text=text,
+                retry_not_after=self.publish_retry_not_after(row),
             )
             self.journal.add_event(
                 self.run_id,
@@ -2643,13 +2645,14 @@ class DailyChainV2:
                 str(row.get("last_error") or ""),
                 stage="publish" if str(row.get("phase") or "") == "publish" else "source",
             )
+            not_after = self.publish_retry_not_after(row)
             if status == "RETRY":
                 self.journal.reclassify_retry(
-                    str(row["task_key"]), decision=decision
+                    str(row["task_key"]), decision=decision, retry_not_after=not_after
                 )
                 continue
             if self.journal.reopen_retryable_terminal(
-                str(row["task_key"]), decision=decision
+                str(row["task_key"]), decision=decision, retry_not_after=not_after
             ):
                 self.journal.add_event(
                     self.run_id,
@@ -2990,6 +2993,28 @@ class DailyChainV2:
                     "liveUrl": event["liveUrl"],
                 },
             )
+
+    def publish_retry_not_after(self, row: Mapping[str, Any]) -> datetime | None:
+        """The last instant this publish retry may start and still finish its leg.
+
+        R4 2026-08-24: `final` is the business date's 17:00 JST cutoff and
+        lifecycle_events() stamps FAILED_FINAL there unconditionally, so a
+        publish backoff that lands after `final - <leg>` is an attempt the run
+        owns but can never spend.  Capping the ladder is the honest repair; the
+        cutoff itself stays exactly where it is.
+
+        The leg is per CAPABILITY, not per phase: `release` bakes, pushes and
+        polls the live health endpoint for ten minutes, while `live-confirm`
+        makes one health request and inserts one row and stays valid right up
+        to `--confirm-before final`.  Charging live-confirm the release leg
+        would turn a retryable FE-deploy-lag failure in the last stretch into a
+        TERMINAL with attempts unspent -- the same bug in the other direction.
+        """
+
+        if str(row.get("phase") or "") != "publish":
+            return None
+        leg = publish_leg_seconds(row.get("capability"))
+        return self.schedule["final"] - timedelta(seconds=leg)
 
     def lifecycle_events(self, now: datetime) -> None:
         run = self.journal.run(self.run_id) or {}

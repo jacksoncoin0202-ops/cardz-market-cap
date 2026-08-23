@@ -15,13 +15,14 @@ import contextlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
 import types
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -38,11 +39,15 @@ from daily_chain_v2 import DailyChainV2  # noqa: E402
 from daily_chain_v2_adapters import build_default_registry  # noqa: E402
 from daily_chain_v2_contract import (  # noqa: E402
     INFRA_RETRY_SECONDS,
+    PUBLISH_ASSET_MAX_ATTEMPTS,
+    PUBLISH_LEG_SECONDS,
     PUBLISH_LOCK_EXIT_CODE,
     PUBLISH_LOCK_MARKER,
     PUBLISH_RETRY_SECONDS,
     TRANSIENT_RETRY_SECONDS,
+    RetryDecision,
     SourceTask,
+    clamp_retry_at,
     classify_error,
 )
 from daily_chain_v2_journal import Journal  # noqa: E402
@@ -436,12 +441,23 @@ try:
     os.environ["CARDZ_V2_NOTIFY_DRY_RUN"] = "1"
     chain_module.LAST_ALERT = None
     journal = new_journal("publish-alert")
+    # R4: the ladder is clamped to `final - PUBLISH_LEG_SECONDS`, so this
+    # fixture has to own a real window instead of DAY's long-past 17:00 JST --
+    # otherwise every publish verdict here is TERMINAL for lack of time and the
+    # transient half of the check would prove nothing.
+    _alert_now = chain_module.utc_now()
     chain = DailyChainV2(
         journal=journal,
         business_date=DAY,
         allow_publish=False,
         notify=False,
         deadline_monotonic=time.monotonic() + 600,
+        schedule={
+            "start": _alert_now - timedelta(hours=1),
+            "source_cutoff": _alert_now + timedelta(hours=1),
+            "sla": _alert_now + timedelta(hours=2),
+            "final": _alert_now + timedelta(hours=4),
+        },
     )
 
     def fail_publish_task(capability: str, message: str) -> dict[str, Any]:
@@ -484,6 +500,416 @@ try:
     finally:
         os.environ.pop("CARDZ_V2_NOTIFY_DRY_RUN", None)
     print("POSITIVE_OK P1-2 a terminal publish verdict alerts immediately while a retryable one stays quiet")
+
+    # -------------------------------------------------------------------- R4
+    # 2026-08-24: the release ladder could burn itself out before the day's
+    # 17:00 JST final.  V2 forced a single bake attempt
+    # (daily_public_release.sh:263) and the orchestrator ladder
+    # (120,300,600,1200,1800 = 67 min) could park the next publish retry AFTER
+    # `final`, where lifecycle_events() stamps FAILED_FINAL unconditionally:
+    # attempts left, and no time left in which to spend them.  The cutoff is
+    # NOT loosened; the ladder is clamped to `final - PUBLISH_LEG_SECONDS` so
+    # every remaining attempt still gets one whole publish leg.
+
+    # (a) The two sides of the bake retry count agree, and the retry is only
+    #     idempotent because it restores data/public first.
+    assert 2 <= PUBLISH_ASSET_MAX_ATTEMPTS <= 3, PUBLISH_ASSET_MAX_ATTEMPTS
+    v2_asset_lines = [
+        line.strip() for line in release_source.splitlines()
+        if "V2_MODE == 1" in line and "asset_max_attempts=" in line
+    ]
+    assert len(v2_asset_lines) == 1, v2_asset_lines
+    assert f"asset_max_attempts={PUBLISH_ASSET_MAX_ATTEMPTS};" in v2_asset_lines[0], v2_asset_lines
+    assert 'git -C "$RELEASE_REPO" checkout -- data/public' in release_source
+
+    # (b) The ladder never schedules past cutoff - one leg, and once the last
+    #     leg no longer fits there is no room at all (which reads as exhausted,
+    #     never as "retry anyway after the cutoff").
+    r4_cutoff = datetime(2026, 8, 20, 8, 0, tzinfo=timezone.utc)  # 17:00 JST
+    r4_cap = r4_cutoff - timedelta(seconds=PUBLISH_LEG_SECONDS)
+    for before_cutoff, delay in (
+        (6 * 3600, 120),
+        (3600, 300),
+        (PUBLISH_LEG_SECONDS + 330, 600),
+        (PUBLISH_LEG_SECONDS + 30, 1200),
+        (PUBLISH_LEG_SECONDS, 1800),
+    ):
+        at = r4_cutoff - timedelta(seconds=before_cutoff)
+        landed = clamp_retry_at(at, delay, not_after=r4_cap)
+        assert landed is not None, (before_cutoff, delay)
+        assert landed <= r4_cap, (before_cutoff, delay, landed, r4_cap)
+        assert landed >= at, (before_cutoff, delay, landed)
+    assert clamp_retry_at(r4_cap, 120, not_after=r4_cap) == r4_cap
+    assert clamp_retry_at(r4_cap + timedelta(seconds=1), 120, not_after=r4_cap) is None
+    # No deadline at all leaves the ladder exactly as classify_error wrote it.
+    assert clamp_retry_at(r4_cutoff, 120, not_after=None) == r4_cutoff + timedelta(seconds=120)
+
+    # (c) Through the real orchestrator: a publish failure that lands with less
+    #     than one ladder step of window left retries INSIDE the window.
+    os.environ["CARDZ_V2_NOTIFY_DRY_RUN"] = "1"
+    try:
+        def r4_publish_failure(
+            name: str,
+            seconds_of_window: float,
+            *,
+            capability: str = "release",
+            leg_seconds: float = PUBLISH_LEG_SECONDS,
+        ) -> dict[str, Any]:
+            started = chain_module.utc_now()
+            final_at = started + timedelta(seconds=leg_seconds + seconds_of_window)
+            r4_journal = new_journal(f"publish-ladder-{name}")
+            r4_chain = DailyChainV2(
+                journal=r4_journal,
+                business_date=DAY,
+                allow_publish=False,
+                notify=False,
+                deadline_monotonic=time.monotonic() + 600,
+                schedule={
+                    "start": started - timedelta(hours=6),
+                    "source_cutoff": started - timedelta(hours=2),
+                    "sla": started - timedelta(hours=1),
+                    "final": final_at,
+                },
+            )
+            key = r4_journal.add_raw_task(
+                run_id=RUN_ID, business_date=DAY.isoformat(), phase="publish",
+                source_code="release", capability=capability,
+                required_class="core", concurrency_group=f"publish:{name}",
+                max_attempts=6, payload={"kind": "stage", "stageName": "release"},
+            )
+            claimed = [
+                row for row in r4_journal.claim_ready(RUN_ID, phases=("publish",), limit=4)
+                if str(row["task_key"]) == key
+            ]
+            assert len(claimed) == 1, (name, claimed)
+            r4_chain._run_stage_process = lambda row: (_ for _ in ()).throw(
+                RuntimeError("release exit=1: fatal: unable to access remote: HTTP 502")
+            )
+            with contextlib.redirect_stdout(io.StringIO()):
+                r4_chain.execute_claim(claimed[0])
+            row = dict(r4_journal.task(key) or {})
+            row["_final"] = final_at
+            row["_chain"] = r4_chain
+            row["_journal"] = r4_journal
+            return row
+
+        # 60 s of window: the 120 s ladder step would land past the cutoff.
+        inside = r4_publish_failure("inside", 60.0)
+        assert inside["status"] == "RETRY", inside
+        assert inside["last_error_code"] == "PUBLISH_FAILED", inside
+        r4_due = datetime.fromisoformat(str(inside["next_retry_at"]).replace("Z", "+00:00"))
+        r4_latest = inside["_final"] - timedelta(seconds=PUBLISH_LEG_SECONDS)
+        assert r4_due <= r4_latest, (r4_due, r4_latest, inside["_final"])
+
+        # No leg left in the day: TERMINAL, and the 17:00 cutoff still stamps
+        # FAILED_FINAL.  The cap tightens the ladder; it buys no extra time.
+        starved = r4_publish_failure("starved", -30.0)
+        assert starved["status"] == "TERMINAL", starved
+        assert not starved["next_retry_at"], starved
+        starved["_chain"].lifecycle_events(starved["_final"] + timedelta(seconds=1))
+        assert str((starved["_journal"].run(RUN_ID) or {}).get("status")) == "FAILED_FINAL", (
+            starved["_journal"].run(RUN_ID)
+        )
+    finally:
+        os.environ.pop("CARDZ_V2_NOTIFY_DRY_RUN", None)
+    print("POSITIVE_OK R4 the publish ladder is capped at final - one leg and the 17:00 cutoff still ends the day")
+
+    # ------------------------------------------------------------------- R4b
+    # 2026-08-24 review of the cap above: it was charged to the whole `publish`
+    # PHASE, but that phase carries two legs of very different length.
+    # `release` (daily_chain_v2.py :1815) bakes/syncs/validates -- possibly
+    # PUBLISH_ASSET_MAX_ATTEMPTS times -- then commits, pushes and polls the
+    # live health endpoint for ten minutes.  `live-confirm` (:1871) is planned
+    # only after `release` COMPLETED, i.e. always at the tail of the day, and
+    # it reads the snapshot, makes one 20 s health request and inserts one
+    # outbox row; it stays valid right up to `--confirm-before final`
+    # (daily_chain_v2_stage.py :1248-1253), which is how the PUBLISH_FAILED
+    # ladder waits out FE deploy lag.  Charging live-confirm a release leg made
+    # every failure inside the last leg TERMINAL with attempts unspent and the
+    # day's `live.confirmed` lost -- the exact shape R4 exists to remove.
+    os.environ["CARDZ_V2_NOTIFY_DRY_RUN"] = "1"
+    try:
+        confirm = r4_publish_failure(
+            "live-confirm", 300.0, capability="live-confirm", leg_seconds=0,
+        )
+        assert confirm["status"] == "RETRY", confirm
+        assert confirm["last_error_code"] == "PUBLISH_FAILED", confirm
+        assert int(confirm["attempts"]) < 6, confirm
+        r4b_due = datetime.fromisoformat(str(confirm["next_retry_at"]).replace("Z", "+00:00"))
+        assert r4b_due < confirm["_final"], (r4b_due, confirm["_final"])
+    finally:
+        os.environ.pop("CARDZ_V2_NOTIFY_DRY_RUN", None)
+
+    from daily_chain_v2_contract import (  # noqa: E402
+        LIVE_CONFIRM_LEG_SECONDS,
+        PUBLISH_ASSET_PASS_SECONDS,
+        PUBLISH_ASSET_RETRY_SLEEP_SECONDS,
+        PUBLISH_HEALTH_POLL_SECONDS,
+        PUBLISH_LEG_SECONDS_BY_CAPABILITY,
+        publish_leg_seconds,
+    )
+
+    # Every publish capability the planner registers owns a MEASURED leg; a new
+    # one cannot quietly inherit the release leg.
+    chain_source = (ROOT / "pipelines" / "daily_chain_v2.py").read_text(encoding="utf-8")
+    planned_publish = set(
+        re.findall(r'phase="publish", capability="([a-z0-9-]+)"', chain_source)
+    )
+    assert planned_publish == {"release", "live-confirm"}, planned_publish
+    assert planned_publish == set(PUBLISH_LEG_SECONDS_BY_CAPABILITY), (
+        planned_publish, sorted(PUBLISH_LEG_SECONDS_BY_CAPABILITY)
+    )
+    assert publish_leg_seconds("release") == PUBLISH_LEG_SECONDS
+    assert publish_leg_seconds("live-confirm") == LIVE_CONFIRM_LEG_SECONDS
+    assert LIVE_CONFIRM_LEG_SECONDS < PUBLISH_LEG_SECONDS
+
+    # The sleeps that make up a release leg are read off the script itself, so
+    # neither side can drift alone.
+    r4b_retry_sleep = re.search(
+        # R4d put a BOX-sidecar re-stage between the checkout and the sleep;
+        # anything else the retry tail grows must stay inside the loop body's
+        # two-space indent, and the measured sleep is still read off the script.
+        r'git -C "\$RELEASE_REPO" checkout -- data/public\n(?:  \w[^\n]*\n)*?  sleep (\d+)\n',
+        release_source,
+    )
+    assert r4b_retry_sleep is not None, "asset retry sleep not found in daily_public_release.sh"
+    assert PUBLISH_ASSET_RETRY_SLEEP_SECONDS == int(r4b_retry_sleep.group(1)), r4b_retry_sleep.group(1)
+    r4b_polls = re.findall(
+        r"for _ in \$\(seq 1 (\d+)\); do\n(?:.*\n)*?\s*sleep (\d+)\n\s*done\n", release_source
+    )
+    assert r4b_polls, "live health poll loop not found in daily_public_release.sh"
+    for r4b_rounds, r4b_sleep in r4b_polls:
+        assert PUBLISH_HEALTH_POLL_SECONDS == int(r4b_rounds) * int(r4b_sleep), (
+            PUBLISH_HEALTH_POLL_SECONDS, r4b_rounds, r4b_sleep
+        )
+    print("POSITIVE_OK R4b the publish leg is per-capability and its parts are read off the script")
+
+    # ------------------------------------------------------------------- R4c
+    # 2026-08-24 review of R4b: R4b sized the release cap on the leg where
+    # EVERYTHING fails -- 3 bake passes + 2 retry sleeps + the FULL 600 s
+    # health poll = 1170 s -- but that leg is not the one a retry is trying to
+    # buy.  The bake normally passes on attempt 1 and the poll exits on the
+    # first healthy generation, so a SUCCESSFUL release leg is ~5 min.
+    # Charging every retry 19.5 min refused retries that would very likely have
+    # published: a PUBLISH_FAILED at 16:45 JST is TERMINAL under a 1170 s cap
+    # (cap = 16:40:30) while a 780 s cap (16:47) still gives it one real
+    # attempt -- and the brief's own spec for the cap is "cutoff minus one
+    # publish leg (~13 min)".  The cap is therefore the leg that can still
+    # SUCCEED: one bake pass + the health poll.
+    #
+    # The extra bake passes stay a SCRIPT-side budget: daily_public_release.sh
+    # now refuses to start a bake pass it cannot finish before
+    # CARDZ_V2_STAGE_DEADLINE_EPOCH (daily_chain_v2.py :2205, derived from
+    # _work_deadline_monotonic, which is never later than `final` -- :2126), so
+    # the worst case can no longer run past the cutoff and no longer has to be
+    # paid for by every retry in the ladder.
+    r4c_worst_leg = (
+        PUBLISH_ASSET_MAX_ATTEMPTS * PUBLISH_ASSET_PASS_SECONDS
+        + (PUBLISH_ASSET_MAX_ATTEMPTS - 1) * PUBLISH_ASSET_RETRY_SLEEP_SECONDS
+        + PUBLISH_HEALTH_POLL_SECONDS
+    )
+
+    # (a) The divergence band the review named: a release PUBLISH_FAILED with
+    #     16 min of window left must still get a real attempt.
+    os.environ["CARDZ_V2_NOTIFY_DRY_RUN"] = "1"
+    try:
+        band = r4_publish_failure("release-band", 960.0, leg_seconds=0)
+        assert band["status"] == "RETRY", band
+        assert band["last_error_code"] == "PUBLISH_FAILED", band
+        assert int(band["attempts"]) < 6, band
+        r4c_due = datetime.fromisoformat(str(band["next_retry_at"]).replace("Z", "+00:00"))
+        r4c_latest = band["_final"] - timedelta(seconds=PUBLISH_LEG_SECONDS)
+        assert r4c_due <= r4c_latest, (r4c_due, r4c_latest, band["_final"])
+    finally:
+        os.environ.pop("CARDZ_V2_NOTIFY_DRY_RUN", None)
+
+    # (b) ...because the leg is the succeeding one, not the all-fail one.
+    assert PUBLISH_LEG_SECONDS == PUBLISH_ASSET_PASS_SECONDS + PUBLISH_HEALTH_POLL_SECONDS, (
+        PUBLISH_LEG_SECONDS, PUBLISH_ASSET_PASS_SECONDS, PUBLISH_HEALTH_POLL_SECONDS
+    )
+    assert PUBLISH_LEG_SECONDS < r4c_worst_leg, (PUBLISH_LEG_SECONDS, r4c_worst_leg)
+
+    # (c) ...and the worst case is bounded where it is spent: the script owns
+    #     one definition of a pass, checks the orchestrator's stage deadline
+    #     before each retry, and refuses instead of starting a pass that would
+    #     be SIGTERMed mid-bake at the cutoff.
+    r4c_pass_lines = [
+        line.strip() for line in release_source.splitlines()
+        if line.strip().startswith("asset_pass_seconds=")
+    ]
+    assert r4c_pass_lines == [f"asset_pass_seconds={PUBLISH_ASSET_PASS_SECONDS}"], r4c_pass_lines
+    r4c_guard = re.search(r"\nasset_retry_fits\(\) \{\n(?:.*\n)*?\}\n", release_source)
+    assert r4c_guard is not None, "asset_retry_fits() not found in daily_public_release.sh"
+    assert re.search(
+        r"if ! asset_retry_fits; then\n(?:.*\n)*?\s*exit 1\n\s*fi\n", release_source
+    ), "the asset retry loop does not consult asset_retry_fits"
+    if shutil.which("bash"):
+        # The guard runs as the script's own text, not a paraphrase of it.
+        def r4c_run(deadline: str | None) -> str:
+            setup = (
+                "unset CARDZ_V2_STAGE_DEADLINE_EPOCH\n" if deadline is None
+                else f"export CARDZ_V2_STAGE_DEADLINE_EPOCH='{deadline}'\n"
+            )
+            script = (
+                "set -euo pipefail\n"
+                f"asset_pass_seconds={PUBLISH_ASSET_PASS_SECONDS}\n"
+                + setup
+                + r4c_guard.group(0)
+                + "if asset_retry_fits; then echo FITS; else echo REFUSES; fi\n"
+            )
+            done = subprocess.run(
+                # On stdin as bytes: text mode would rewrite every \n as \r\n
+                # for Git-for-Windows bash, and a native path argument loses
+                # its backslashes to the same re-parsing.
+                ["bash", "-s"],
+                input=script.encode("utf-8"),
+                capture_output=True, timeout=60,
+            )
+            assert done.returncode == 0, (
+                done.returncode, done.stdout.decode("utf-8", "replace"),
+                done.stderr.decode("utf-8", "replace"),
+            )
+            return done.stdout.decode("utf-8", "replace").strip()
+
+        # A whole pass still fits -> retry; less than a pass -> refuse.  No
+        # deadline and unparsable deadline keep the pre-R4c behaviour.
+        assert r4c_run(repr(time.time() + PUBLISH_ASSET_PASS_SECONDS + 120)) == "FITS"
+        assert r4c_run(repr(time.time() + PUBLISH_ASSET_PASS_SECONDS - 60)) == "REFUSES"
+        assert r4c_run(repr(time.time() - 60)) == "REFUSES"
+        assert r4c_run(None) == "FITS"
+        assert r4c_run("not-a-number") == "FITS"
+    else:
+        print("SKIP_NO_BASH asset_retry_fits execution needs bash; the parse half still runs")
+    print("POSITIVE_OK R4c the release cap is the succeeding leg and the script owns the retry budget")
+
+    # ------------------------------------------------------------------- R4d
+    # 2026-08-24 adversarial review of R4c: raising V2's asset_max_attempts
+    # from 1 to 3 made the retry loop REACHABLE for the first time, and that
+    # loop starts by reverting data/public -- which includes the BOX sidecar,
+    # copied in exactly once ABOVE the loop.  A retried bake therefore
+    # published YESTERDAY's /box in silence: --box-previous is
+    # `git show HEAD:data/public/box-subset.json`, i.e. the very bytes the
+    # checkout restores, so validate_daily_release.py's no-regression check
+    # compares the file against itself and passes.  Every pass must see
+    # exactly what pass 1 saw.
+    r4d_loop = re.search(r"\nwhile true; do\n((?:.*\n)*?)done\n", release_source)
+    assert r4d_loop is not None, "asset retry loop not found in daily_public_release.sh"
+    r4d_body = r4d_loop.group(1)
+    assert 'git -C "$RELEASE_REPO" checkout -- data/public' in r4d_body, r4d_body
+    # One definition of the copy, so the two call sites cannot drift apart...
+    assert release_source.count('cp "$BOX_SRC" "$BOX_DST"') == 1, release_source
+    # ...and it keeps the original site's condition: no SOURCE file still means
+    # "keep whatever release git carries", never an empty /box.
+    assert re.search(
+        r'if \[\[ -s "\$BOX_SRC" \]\]; then\n(?:.*\n)*?\s*cp "\$BOX_SRC" "\$BOX_DST"\n',
+        release_source,
+    ), "the BOX sidecar copy lost its `[[ -s $BOX_SRC ]]` guard"
+    r4d_functions = {
+        match.group(1): match.group(2)
+        for match in re.finditer(
+            r"\n([A-Za-z_][A-Za-z0-9_]*)\(\) \{\n((?:.*\n)*?)\}\n", release_source
+        )
+    }
+
+    def r4d_restages_sidecar(block: str) -> bool:
+        """Does `block` put SOURCE's box-subset.json back into the release tree?"""
+        if 'cp "$BOX_SRC" "$BOX_DST"' in block:
+            return True
+        return any(
+            re.search(rf"^\s*{re.escape(name)}\s*$", block, re.MULTILINE)
+            and 'cp "$BOX_SRC" "$BOX_DST"' in body
+            for name, body in r4d_functions.items()
+        )
+
+    r4d_after_checkout = r4d_body[
+        r4d_body.index('git -C "$RELEASE_REPO" checkout -- data/public'):
+    ]
+    assert r4d_restages_sidecar(r4d_after_checkout), (
+        "the asset retry reverts data/public and starts the next bake pass "
+        "without re-staging the BOX sidecar:\n" + r4d_body
+    )
+    # The same step runs before the first pass, out of the same definition.
+    assert r4d_restages_sidecar(
+        release_source[
+            release_source.index('BOX_DST="$RELEASE_REPO/data/public/box-subset.json"'):
+            release_source.index("publish_assets() {")
+        ]
+    ), "the first bake pass no longer stages the BOX sidecar"
+    print("POSITIVE_OK R4d the asset retry re-stages the BOX sidecar it just reverted")
+
+    # ------------------------------------------------------------------- R4e
+    # Same review, observability half: reclassify_retry() corrects
+    # chain_attempt.error_code and only THEN asks clamp_retry_at where the
+    # corrected ladder lands.  Near the cutoff that answer is None and the
+    # function returned before the chain_task UPDATE -- the attempt row carried
+    # the NEW class (same transaction, committed on return) while the task row,
+    # which is what `cardz-v2 status`, the observer and the alerts read, still
+    # named the OLD one.  The label is bookkeeping, the clock is the gate:
+    # correct the label either way, move the clock only when a slot exists.
+    r4e_journal = new_journal("reclassify-clamped")
+    r4e_key = r4e_journal.add_raw_task(
+        run_id=RUN_ID,
+        business_date=DAY.isoformat(),
+        phase="publish",
+        source_code="release",
+        capability="release",
+        required_class="publish",
+        concurrency_group="publish-r4e",
+        max_attempts=6,
+    )
+    r4e_claimed = r4e_journal.claim_ready(RUN_ID, phases=["publish"])
+    assert len(r4e_claimed) == 1, r4e_claimed
+    assert r4e_journal.finish_failure(
+        r4e_key,
+        str(r4e_claimed[0]["lease_token"]),
+        decision=RetryDecision("PUBLISH_FAILED", False, PUBLISH_RETRY_SECONDS),
+        error_text="release exit=1: bake failed",
+        now=datetime(2026, 8, 20, 6, 0, tzinfo=timezone.utc),
+        retry_not_after=datetime(2026, 8, 20, 8, 0, tzinfo=timezone.utc),
+    ) == "RETRY"
+    r4e_before = r4e_journal.task(r4e_key)
+    assert r4e_before["status"] == "RETRY", r4e_before
+    assert r4e_before["last_error_code"] == "PUBLISH_FAILED", r4e_before
+    r4e_clock = r4e_before["next_retry_at"]
+
+    # The corrected class is PUBLISH_LOCK_HELD, but `now` is already past the
+    # deadline, so clamp_retry_at answers None.
+    r4e_rescheduled = r4e_journal.reclassify_retry(
+        r4e_key,
+        decision=RetryDecision("PUBLISH_LOCK_HELD", False, INFRA_RETRY_SECONDS),
+        now=datetime(2026, 8, 20, 7, 0, tzinfo=timezone.utc),
+        retry_not_after=datetime(2026, 8, 20, 6, 0, tzinfo=timezone.utc),
+    )
+    with r4e_journal.connect() as r4e_conn:
+        r4e_attempt_code = r4e_conn.execute(
+            "SELECT error_code FROM chain_attempt WHERE task_key=?"
+            " ORDER BY attempt_no DESC LIMIT 1",
+            (r4e_key,),
+        ).fetchone()["error_code"]
+    r4e_after = r4e_journal.task(r4e_key)
+    assert r4e_attempt_code == "PUBLISH_LOCK_HELD", r4e_attempt_code
+    assert r4e_after["last_error_code"] == "PUBLISH_LOCK_HELD", r4e_after
+    # ...while the clock and the caller's answer stay honest: nothing was
+    # rescheduled, and the slot the task already owns is not moved.
+    assert r4e_rescheduled is False, r4e_rescheduled
+    assert r4e_after["next_retry_at"] == r4e_clock, (r4e_after, r4e_clock)
+    assert r4e_after["status"] == "RETRY", r4e_after
+
+    # An in-window correction still moves both, exactly as before.
+    r4e_moved = r4e_journal.reclassify_retry(
+        r4e_key,
+        decision=RetryDecision("PUBLISH_FAILED", False, PUBLISH_RETRY_SECONDS),
+        now=datetime(2026, 8, 20, 7, 0, tzinfo=timezone.utc),
+        retry_not_after=datetime(2026, 8, 20, 8, 0, tzinfo=timezone.utc),
+    )
+    r4e_final = r4e_journal.task(r4e_key)
+    assert r4e_moved is True, r4e_moved
+    assert r4e_final["last_error_code"] == "PUBLISH_FAILED", r4e_final
+    assert datetime.fromisoformat(str(r4e_final["next_retry_at"])) == datetime(
+        2026, 8, 20, 7, 0, tzinfo=timezone.utc
+    ) + timedelta(seconds=PUBLISH_RETRY_SECONDS[0]), r4e_final
+    print("POSITIVE_OK R4e a retry the cutoff leaves no slot for still gets its class corrected")
+
 
 finally:
     cleanup()

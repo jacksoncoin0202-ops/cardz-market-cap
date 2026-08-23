@@ -230,12 +230,21 @@ BOX_SRC="$SOURCE_REPO/data/public/box-subset.json"
 BOX_DST="$RELEASE_REPO/data/public/box-subset.json"
 BOX_PREV="$(mktemp /tmp/cardz-box-prev.XXXXXX.json)"
 git -C "$RELEASE_REPO" show HEAD:data/public/box-subset.json > "$BOX_PREV" 2>/dev/null || : > "$BOX_PREV"
-if [[ -s "$BOX_SRC" ]]; then
-  python3 -c 'import json,sys; json.load(open(sys.argv[1], encoding="utf-8"))' "$BOX_SRC"
-  cp "$BOX_SRC" "$BOX_DST"
-else
-  printf 'BOX sidecar missing in SOURCE; publishing previous sidecar\n' >&2
-fi
+# R4 2026-08-24: staging is a function because the asset retry loop below runs
+# `git checkout -- data/public`, which reverts this sidecar to the release
+# repo's HEAD -- byte-identical to $BOX_PREV.  A retried bake would then
+# republish YESTERDAY's /box in silence: validate_daily_release.py compares
+# --box against --box-previous and sees no regression because it is comparing
+# the file with itself.  Every pass must see exactly what pass 1 saw.
+stage_box_sidecar() {
+  if [[ -s "$BOX_SRC" ]]; then
+    python3 -c 'import json,sys; json.load(open(sys.argv[1], encoding="utf-8"))' "$BOX_SRC"
+    cp "$BOX_SRC" "$BOX_DST"
+  else
+    printf 'BOX sidecar missing in SOURCE; publishing previous sidecar\n' >&2
+  fi
+}
+stage_box_sidecar
 
 # Bake 喺 release checkout 跑。佢內建 prune 只識 PSA10 seed，會當 BOX sidecar
 # 897 張圖係 stale 搬走。037 sync 跟住又要 SOURCE（fe-db）有呢 897 張——
@@ -260,7 +269,34 @@ publish_assets() {
 
 asset_attempt=1
 asset_max_attempts=3
-if ((V2_MODE == 1)); then asset_max_attempts=1; fi
+# R4 2026-08-24: V2 used to force ONE bake/sync/validate attempt here, so a
+# single flaky bake spent a whole orchestrator attempt and a step of the
+# 2/5/10/20/30 minute publish ladder.  The retry below restores data/public
+# first, so replaying the leg is idempotent.  3 == PUBLISH_ASSET_MAX_ATTEMPTS
+# in pipelines/daily_chain_v2_contract.py; scripts/test_v2s_classify.py
+# parses this line and refuses to let the two sides drift.
+if ((V2_MODE == 1)); then asset_max_attempts=3; fi
+# One bake/sync/validate pass, measured.  == PUBLISH_ASSET_PASS_SECONDS in
+# pipelines/daily_chain_v2_contract.py; scripts/test_v2s_classify.py parses
+# this line so the two sides cannot drift.
+asset_pass_seconds=180
+# R4 2026-08-24: the orchestrator's publish ladder is capped at
+# `final - one SUCCEEDING leg`, not at the leg where all three bake attempts
+# fail -- charging every retry the worst case refused retries that would have
+# published.  The retry budget above is therefore bounded here instead: the
+# parent exports CARDZ_V2_STAGE_DEADLINE_EPOCH (daily_chain_v2.py, derived from
+# a work deadline that is never later than the 17:00 JST `final`) and SIGTERMs
+# this process on it, so a pass started with less than a pass left is a bake
+# that gets killed mid-flight.  Refuse it and report instead.  No deadline in
+# the environment (manual / legacy run) keeps the pre-R4 behaviour.
+asset_retry_fits() {
+  local deadline=${CARDZ_V2_STAGE_DEADLINE_EPOCH:-}
+  local secs=${deadline%%.*}
+  if [[ ! $secs =~ ^-?[0-9]+$ ]]; then
+    return 0
+  fi
+  (( secs - $(date +%s) >= asset_pass_seconds ))
+}
 while true; do
   if publish_assets; then
     break
@@ -269,9 +305,15 @@ while true; do
     printf 'daily release bake/sync/validate failed after %s attempts\n' "$asset_attempt" >&2
     exit 1
   fi
+  if ! asset_retry_fits; then
+    printf 'daily release bake/sync/validate failed after %s attempts: less than %ss before the stage deadline, no retry\n' \
+      "$asset_attempt" "$asset_pass_seconds" >&2
+    exit 1
+  fi
   asset_attempt=$((asset_attempt + 1))
   printf 'daily release bake/sync/validate retry %s/%s\n' "$asset_attempt" "$asset_max_attempts" >&2
   git -C "$RELEASE_REPO" checkout -- data/public
+  stage_box_sidecar
   sleep 15
 done
 
