@@ -60,6 +60,12 @@ guard = R._assert_ranking_guardrail(
 )
 assert guard["minimumRanked"] == 1288
 assert guard["maximumAwaitingFreshPrice"] == 26
-assert R._price_max_age_days("pricecharting") == 40
+# 40 was a PriceCharting-only exemption for a month-old chart level.  The
+# price is a real sale now (1d0ae092 set every lane to 30 in
+# data/policy/daily-release-guardrails.json), so the EN lane keeps the same
+# one-cycle age as every other source (owner 2026-08-23).
+assert R._price_max_age_days("pricecharting") == 30
+assert R._price_max_age_days("pricecharting_sales") == 30
+assert R._price_max_age_days("snkrdunk_sales") == 30
 assert R._price_max_age_days("snkrdunk") == 30
 print("POSITIVE_OK source-cycle ages and two-percent ranking guards hold")
