@@ -8,6 +8,7 @@ import hashlib
 import html
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -209,6 +210,49 @@ def jst_schedule(day: date) -> dict[str, datetime]:
     }
 
 
+RUN_LABEL_RE = re.compile(r"^[A-Z][A-Z0-9]{1,7}$")
+
+
+def run_id_for(business_date: date | str, run_label: str = "") -> str:
+    """Durable run identity.
+
+    Unlabelled (the scheduled path and every real publish) stays byte-identical
+    to the historical `cardz-v2:<business_date>`.  A label names a REHEARSAL of
+    the same business date (`cardz-v2:2026-08-23#A01`): own journal file, own
+    runtime directory and health document, and it never publishes -- MySQL keys
+    publication to the business date (publication_outbox
+    UNIQUE(business_date,event_type); generation id = sha256(businessDate +
+    content)), so a second publish of one date is refused there whatever the
+    label says.  Labels are operator-facing and count up (A01, A02, ...)
+    instead of burning future business dates.
+    """
+
+    day = business_date.isoformat() if isinstance(business_date, date) else str(business_date)
+    label = (run_label or "").strip()
+    if not label:
+        return f"cardz-v2:{day}"
+    if not RUN_LABEL_RE.match(label):
+        raise ValueError(
+            f"run label must match {RUN_LABEL_RE.pattern} (e.g. A01), got {label!r}"
+        )
+    return f"cardz-v2:{day}#{label}"
+
+
+def rehearsal_state_path(base: Path, run_label: str) -> Path:
+    """A labelled run journals beside the live journal, never inside it.
+
+    The live journal is the autonomy evidence (chain_run.business_date is
+    UNIQUE there by design); a rehearsal must not add a second row for the
+    date or disturb `proven_autonomous`.
+    """
+
+    label = (run_label or "").strip()
+    if not label:
+        return base
+    run_id_for("2000-01-01", label)  # validates the label
+    return base.with_name(f"{base.stem}-{label}{base.suffix}")
+
+
 def last_scheduled_tick_utc(day: date) -> datetime:
     """The final scheduled tick of a business date (17:00 JST by contract)."""
 
@@ -314,11 +358,17 @@ def export_run_started_at(run: Mapping[str, Any] | None) -> str:
     return value
 
 
-def health_path() -> Path:
+def health_path(run_label: str = "") -> Path:
     configured = os.environ.get("CARDZ_V2_HEALTH_PATH", "").strip()
     if configured:
-        return Path(configured).expanduser()
-    return ROOT / "data" / "runtime" / "daily-chain-v2" / "health.json"
+        base = Path(configured).expanduser()
+    else:
+        base = ROOT / "data" / "runtime" / "daily-chain-v2" / "health.json"
+    label = (run_label or "").strip()
+    if not label:
+        return base
+    # The watchdog reads health.json alone; a rehearsal must not clobber it.
+    return base.with_name(f"{base.stem}-{label}{base.suffix}")
 
 
 def send_alert(
@@ -384,10 +434,11 @@ def build_health_document(
     tick_exit_code: int | None = None,
     tick_started_at_utc: str | None = None,
     tick_ended_at_utc: str | None = None,
+    run_label: str = "",
 ) -> dict[str, Any]:
     """Schema-1 health contract shared with the watchdog (C1)."""
 
-    run_id = f"cardz-v2:{business_date.isoformat()}"
+    run_id = run_id_for(business_date, run_label)
     try:
         run = journal.run(run_id)
         rows = journal.tasks(run_id) if run else []
@@ -431,6 +482,8 @@ def build_health_document(
         "written_at_utc": iso(now),
         "written_at_jst": now.astimezone(JST).isoformat(timespec="microseconds"),
         "business_date": business_date.isoformat(),
+        "run_id": run_id,
+        "run_label": run_label or None,
         "run_state": run_state_of(run),
         "tick_phase": tick_phase,
         "tick_exit_code": None if tick_exit_code is None else int(tick_exit_code),
@@ -446,13 +499,13 @@ def build_health_document(
     }
 
 
-def write_health_document(document: Mapping[str, Any]) -> Path:
-    path = health_path()
+def write_health_document(document: Mapping[str, Any], *, run_label: str = "") -> Path:
+    path = health_path(run_label)
     atomic_json(path, document)
     return path
 
 
-def report_tick_skipped(business_date: date) -> Path:
+def report_tick_skipped(business_date: date, run_label: str = "") -> Path:
     """Record TICK_SKIPPED_LOCKED WITHOUT touching health.json (audit P2-1b).
 
     The skip branch used to rewrite the whole health document, so a tick that
@@ -469,7 +522,10 @@ def report_tick_skipped(business_date: date) -> Path:
     that depends on this file without giving it a real reader first.
     """
 
-    path = health_path().with_name("tick-skipped.json")
+    label = (run_label or "").strip()
+    path = health_path(label).with_name(
+        f"tick-skipped-{label}.json" if label else "tick-skipped.json"
+    )
     atomic_json(
         path,
         {
@@ -722,15 +778,22 @@ class DailyChainV2:
         notify: bool,
         deadline_monotonic: float,
         schedule: Mapping[str, datetime] | None = None,
+        run_label: str = "",
     ) -> None:
         self.journal = journal
         self.business_date = business_date
         self.day_text = business_date.isoformat()
-        self.run_id = f"cardz-v2:{self.day_text}"
+        self.run_label = (run_label or "").strip()
+        self.run_id = run_id_for(business_date, self.run_label)
         self.allow_publish = allow_publish
         self.notify = notify
         self.deadline_monotonic = deadline_monotonic
-        self.runtime_dir = ROOT / "data" / "runtime" / "daily-chain-v2" / self.day_text
+        # A rehearsal gets its own directory: per-task files are keyed by
+        # task_key, which is date-scoped, so sharing the date's directory would
+        # overwrite the real run's logs and receipts.
+        self.runtime_dir = ROOT / "data" / "runtime" / "daily-chain-v2" / (
+            f"{self.day_text}-{self.run_label}" if self.run_label else self.day_text
+        )
         self.log_dir = self.runtime_dir / "logs"
         self.receipt_dir = self.runtime_dir / "receipts"
         self.registry = build_default_registry()
@@ -770,6 +833,7 @@ class DailyChainV2:
         self.journal.initialise()
         row = self.journal.ensure_run(
             business_date=self.day_text,
+            run_id=self.run_id,
             source_cutoff_at=iso(self.schedule["source_cutoff"]),
             sla_at=iso(self.schedule["sla"]),
             final_at=iso(self.schedule["final"]),
@@ -1859,7 +1923,9 @@ class DailyChainV2:
                     tick_exit_code=tick_exit_code,
                     tick_started_at_utc=self.tick_started_at_utc,
                     tick_ended_at_utc=tick_ended_at_utc,
-                )
+                    run_label=self.run_label,
+                ),
+                run_label=self.run_label,
             )
         except Exception:  # noqa: BLE001 - health reporting never fails a tick
             return None
@@ -3040,10 +3106,12 @@ def load_provenance(path: Path | None) -> dict[str, Any]:
     return value
 
 
-def status_brief(journal: Journal, business_date: date) -> str:
+def status_brief(journal: Journal, business_date: date, run_label: str = "") -> str:
     """One operator line built from the same data as health.json."""
 
-    health = build_health_document(journal, business_date, tick_phase="query")
+    health = build_health_document(
+        journal, business_date, tick_phase="query", run_label=run_label
+    )
     tasks = health["tasks"]
     done = sum(
         1 for row in tasks.values() if str(row["state"]) in SUCCESS_TASK_STATES
@@ -3053,7 +3121,7 @@ def status_brief(journal: Journal, business_date: date) -> str:
     parked = ",".join(health["parked"]) or "-"
     age = "-"
     try:
-        written = json.loads(health_path().read_text(encoding="utf-8")).get("written_at_utc")
+        written = json.loads(health_path(run_label).read_text(encoding="utf-8")).get("written_at_utc")
         if written:
             stamp = datetime.fromisoformat(str(written).replace("Z", "+00:00"))
             if stamp.tzinfo is None:
@@ -3061,8 +3129,9 @@ def status_brief(journal: Journal, business_date: date) -> str:
             age = str(int((utc_now() - stamp).total_seconds()))
     except (OSError, ValueError, json.JSONDecodeError, AttributeError):
         age = "-"
+    label = (run_label or "").strip()
     return (
-        f"{health['business_date']} {health['run_state']}"
+        f"{health['business_date']}{'#' + label if label else ''} {health['run_state']}"
         f" tasks={done}/{len(tasks)} retry={retry} terminal={terminal}"
         f" parked={parked}"
         f" next_retry={health['next_retry_at_utc'] or '-'}"
@@ -3093,7 +3162,7 @@ def operator_scope_error(journal: Journal, task_key: str, run_id: str) -> str:
 def run_unpark(journal: Journal, business_date: date, args: Any) -> int:
     """Operator resume path for work the budgets stopped auto-claiming."""
 
-    run_id = f"cardz-v2:{business_date.isoformat()}"
+    run_id = run_id_for(business_date, str(getattr(args, "run_label", "") or ""))
     if args.list_only:
         rows = journal.unparkable_tasks(run_id)
         for row in rows:
@@ -3144,7 +3213,7 @@ def run_unpark(journal: Journal, business_date: date, args: Any) -> int:
 def run_retire(journal: Journal, business_date: date, args: argparse.Namespace) -> int:
     """Operator settlement of a parked/terminal task that later work superseded."""
 
-    run_id = f"cardz-v2:{business_date.isoformat()}"
+    run_id = run_id_for(business_date, str(getattr(args, "run_label", "") or ""))
     if args.list_only:
         return run_unpark(journal, business_date, args)
     if not args.task:
@@ -3196,6 +3265,7 @@ def main() -> int:
     tick.add_argument("--notify", action="store_true")
     tick.add_argument("--manual-e2e-window", action="store_true")
     tick.add_argument("--renew-manual-e2e-window", action="store_true")
+    tick.add_argument("--run-label", default="", help="rehearsal label (A01, A02, ...): same business date, own journal file, own runtime dir/health file, never publishes")
     # Durability fixture only: take the lock, install handlers, write health,
     # then idle.  It never plans, claims, or touches MySQL.
     tick.add_argument("--selftest-sleep", type=float, default=0.0, help=argparse.SUPPRESS)
@@ -3203,28 +3273,39 @@ def main() -> int:
     status.add_argument("--state-db", type=Path, default=default_state_path())
     status.add_argument("--business-date", type=date.fromisoformat)
     status.add_argument("--brief", action="store_true")
+    status.add_argument("--run-label", default="")
     unpark = sub.add_parser("unpark")
     unpark.add_argument("--state-db", type=Path, default=default_state_path())
     unpark.add_argument("--business-date", type=date.fromisoformat)
     unpark.add_argument("--task")
     unpark.add_argument("--reason", default="operator unpark")
     unpark.add_argument("--list", dest="list_only", action="store_true")
+    unpark.add_argument("--run-label", default="")
     retire = sub.add_parser("retire")
     retire.add_argument("--state-db", type=Path, default=default_state_path())
     retire.add_argument("--business-date", type=date.fromisoformat)
     retire.add_argument("--task")
     retire.add_argument("--reason", required=True)
     retire.add_argument("--list", dest="list_only", action="store_true")
+    retire.add_argument("--run-label", default="")
     args = parser.parse_args()
 
     day = args.business_date or datetime.now(JST).date()
+    run_label = str(getattr(args, "run_label", "") or "").strip()
+    if run_label:
+        try:
+            run_id_for(day, run_label)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        # Rehearsals never share the live journal (autonomy evidence).
+        args.state_db = rehearsal_state_path(args.state_db, run_label)
     journal = Journal(args.state_db.resolve())
-    run_id = f"cardz-v2:{day.isoformat()}"
+    run_id = run_id_for(day, run_label)
     if args.command == "status":
         journal.initialise()
         row = journal.run(run_id)
         if args.brief:
-            print(status_brief(journal, day))
+            print(status_brief(journal, day, run_label))
             return 0
         if row is None:
             print(json.dumps({"runId": run_id, "status": "NOT_STARTED"}, sort_keys=True))
@@ -3247,6 +3328,16 @@ def main() -> int:
         raise SystemExit(
             f"--max-runtime-seconds must be between 60 and {MAX_RUNTIME_SECONDS_CEILING}"
         )
+    if run_label and args.allow_publish:
+        raise SystemExit(
+            "--run-label names a rehearsal and never publishes; drop --run-label"
+            " for a real run (MySQL keys publication to the business date)"
+        )
+    if run_label and (args.manual_e2e_window or args.renew_manual_e2e_window):
+        raise SystemExit(
+            "--run-label already implies a rehearsal window; it takes neither"
+            " --manual-e2e-window nor --renew-manual-e2e-window (open the next label instead)"
+        )
     if os.name == "nt":
         raise SystemExit("Daily Chain V2 tick must run inside WSL")
     if str(journal.path).replace("\\", "/").startswith("/mnt/"):
@@ -3265,7 +3356,7 @@ def main() -> int:
         # claim race; skipping is the correct, silent, zero-exit outcome.
         print("TICK_SKIPPED_LOCKED")
         try:
-            report_tick_skipped(day)
+            report_tick_skipped(day, run_label)
         except Exception:  # noqa: BLE001
             pass
         return 0
@@ -3279,8 +3370,12 @@ def main() -> int:
         notify=bool(args.notify),
         deadline_monotonic=time.monotonic() + args.max_runtime_seconds,
         schedule=(
-            manual_e2e_schedule(business_date=day) if args.manual_e2e_window else None
+            # A rehearsal opened after hours needs the manual window shape;
+            # the scheduled window for the date has usually already closed.
+            manual_e2e_schedule(business_date=day)
+            if (args.manual_e2e_window or run_label) else None
         ),
+        run_label=run_label,
     )
     chain.initialise(
         provenance,

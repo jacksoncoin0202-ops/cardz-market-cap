@@ -1693,3 +1693,136 @@ print(
     "POSITIVE_OK the reverify stage honours the tick reserve, drops the fetch"
     " under pressure, and returns counts + held[] from its own artifact"
 )
+
+
+# --- Run labels: A01 is a rehearsal of a business date, never a new date. ---
+# The golden strings are the ratchet: the scheduled (unlabelled) path must stay
+# byte-identical to every journal row, runtime dir and health file that exists.
+import contextlib  # noqa: E402
+import io  # noqa: E402
+import os  # noqa: E402
+
+from daily_chain_v2_journal import JournalError  # noqa: E402
+
+assert v2core.run_id_for(date(2026, 8, 23)) == "cardz-v2:2026-08-23"
+assert v2core.run_id_for("2026-08-23") == "cardz-v2:2026-08-23"
+assert v2core.run_id_for(date(2026, 8, 23), "  ") == "cardz-v2:2026-08-23"
+assert v2core.run_id_for(date(2026, 8, 23), "A01") == "cardz-v2:2026-08-23#A01"
+for bad_label in ("a01", "A", "2026-08-25", "A01234567", "A 1", "A#1", "08-25"):
+    try:
+        v2core.run_id_for(date(2026, 8, 23), bad_label)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(f"run label {bad_label!r} must be refused")
+label_base = Path("/state/daily-chain-v2.sqlite3")
+assert v2core.rehearsal_state_path(label_base, "") == label_base
+assert v2core.rehearsal_state_path(label_base, "A01") == Path("/state/daily-chain-v2-A01.sqlite3")
+assert v2core.health_path().name == "health.json"
+assert v2core.health_path("A01").name == "health-A01.json"
+assert v2core.health_path("A01").parent == v2core.health_path().parent
+
+with tempfile.TemporaryDirectory(prefix="v2-label-") as folder:
+    label_day = date(2026, 8, 23)
+    label_schedule = v2core.jst_schedule(label_day)
+    label_journal = Journal(Path(folder) / "daily-chain-v2-A01.sqlite3")
+    label_journal.initialise()
+    label_chain = DailyChainV2(
+        journal=label_journal, business_date=label_day, allow_publish=False, notify=False,
+        deadline_monotonic=time.monotonic() + 600, schedule=label_schedule, run_label="A01",
+    )
+    plain_chain = DailyChainV2(
+        journal=label_journal, business_date=label_day, allow_publish=False, notify=False,
+        deadline_monotonic=time.monotonic() + 600, schedule=label_schedule,
+    )
+    assert label_chain.run_id == "cardz-v2:2026-08-23#A01"
+    assert plain_chain.run_id == "cardz-v2:2026-08-23"
+    assert plain_chain.runtime_dir.name == "2026-08-23", plain_chain.runtime_dir
+    assert label_chain.runtime_dir.name == "2026-08-23-A01", label_chain.runtime_dir
+    assert label_chain.runtime_dir.parent == plain_chain.runtime_dir.parent
+    label_row = label_journal.ensure_run(
+        business_date="2026-08-23", run_id=label_chain.run_id,
+        source_cutoff_at=iso(label_schedule["source_cutoff"]),
+        sla_at=iso(label_schedule["sla"]), final_at=iso(label_schedule["final"]),
+    )
+    assert label_row["run_id"] == "cardz-v2:2026-08-23#A01"
+    assert label_row["business_date"] == "2026-08-23"
+    # Same journal, same date, other run id: refused, never adopted.
+    try:
+        label_journal.ensure_run(
+            business_date="2026-08-23",
+            source_cutoff_at=iso(label_schedule["source_cutoff"]),
+            sla_at=iso(label_schedule["sla"]), final_at=iso(label_schedule["final"]),
+        )
+    except JournalError as exc:
+        assert "needs its own journal" in str(exc), exc
+    else:
+        raise AssertionError("an unlabelled run must not adopt the rehearsal's row")
+    # Re-ensuring the same labelled run is idempotent.
+    assert label_journal.ensure_run(
+        business_date="2026-08-23", run_id=label_chain.run_id,
+        source_cutoff_at=iso(label_schedule["source_cutoff"]),
+        sla_at=iso(label_schedule["sla"]), final_at=iso(label_schedule["final"]),
+    )["run_id"] == "cardz-v2:2026-08-23#A01"
+
+    # Health: the labelled document names the labelled run and lands beside,
+    # not on top of, health.json.
+    label_env_before = os.environ.get("CARDZ_V2_HEALTH_PATH")
+    os.environ["CARDZ_V2_HEALTH_PATH"] = str(Path(folder) / "health.json")
+    try:
+        label_doc = v2core.build_health_document(
+            label_journal, label_day, tick_phase="query", run_label="A01"
+        )
+        assert label_doc["run_id"] == "cardz-v2:2026-08-23#A01", label_doc["run_id"]
+        assert label_doc["run_state"] == "RUNNING", label_doc["run_state"]
+        written_to = v2core.write_health_document(label_doc, run_label="A01")
+        assert written_to == Path(folder) / "health-A01.json", written_to
+        assert not (Path(folder) / "health.json").exists()
+        skipped_to = v2core.report_tick_skipped(label_day, "A01")
+        assert skipped_to == Path(folder) / "tick-skipped-A01.json", skipped_to
+        assert v2core.report_tick_skipped(label_day) == Path(folder) / "tick-skipped.json"
+        assert "A01" in v2core.status_brief(label_journal, label_day, "A01")
+    finally:
+        if label_env_before is None:
+            os.environ.pop("CARDZ_V2_HEALTH_PATH", None)
+        else:
+            os.environ["CARDZ_V2_HEALTH_PATH"] = label_env_before
+
+    # CLI gates (argument validation precedes the WSL-only environment checks).
+    label_argv = sys.argv
+    label_state = str(Path(folder) / "daily-chain-v2.sqlite3")
+    try:
+        for argv, needle in (
+            (["tick", "--run-label", "A01", "--allow-publish"], "rehearsal"),
+            (["tick", "--run-label", "A01", "--manual-e2e-window", "--allow-publish"], "rehearsal"),
+            (["tick", "--run-label", "a01"], "run label must match"),
+            (["status", "--run-label", "08-25"], "run label must match"),
+        ):
+            sys.argv = ["daily_chain_v2.py", *argv, "--state-db", label_state,
+                        "--business-date", "2026-08-23"]
+            try:
+                v2core.main()
+            except SystemExit as exc:
+                assert needle in str(exc), (argv, exc)
+            else:
+                raise AssertionError(f"{argv} must be refused")
+        # status on a fresh label derives its own journal file and names the
+        # labelled run; the live journal file is never created.
+        sys.argv = ["daily_chain_v2.py", "status", "--run-label", "A02",
+                    "--state-db", label_state, "--business-date", "2026-08-23"]
+        label_out = io.StringIO()
+        with contextlib.redirect_stdout(label_out):
+            assert v2core.main() == 0
+        assert '"runId": "cardz-v2:2026-08-23#A02"' in label_out.getvalue(), label_out.getvalue()
+        assert '"NOT_STARTED"' in label_out.getvalue()
+        assert (Path(folder) / "daily-chain-v2-A02.sqlite3").exists()
+        assert not Path(label_state).exists(), "a rehearsal must never create the live journal"
+        # and A01's own journal is what status reads for A01
+        sys.argv = ["daily_chain_v2.py", "status", "--run-label", "A01",
+                    "--state-db", label_state, "--business-date", "2026-08-23"]
+        label_out = io.StringIO()
+        with contextlib.redirect_stdout(label_out):
+            assert v2core.main() == 0
+        assert "cardz-v2:2026-08-23#A01" in label_out.getvalue(), label_out.getvalue()
+    finally:
+        sys.argv = label_argv

@@ -289,8 +289,9 @@ class Journal:
         source_cutoff_at: str,
         sla_at: str,
         final_at: str,
+        run_id: str | None = None,
     ) -> dict[str, Any]:
-        run_id = f"cardz-v2:{business_date}"
+        run_id = run_id or f"cardz-v2:{business_date}"
         now = iso()
         with self.transaction() as conn:
             conn.execute(
@@ -308,6 +309,14 @@ class Journal:
             ).fetchone()
         if row is None:
             raise JournalError(f"could not create run for {business_date}")
+        if str(row["run_id"]) != run_id:
+            # One journal holds one run per date.  A rehearsal label lives in
+            # its own journal file; adopting another run's row here would let
+            # it inherit finished tasks and publication state silently.
+            raise JournalError(
+                f"business date {business_date} already belongs to {row['run_id']}"
+                f" in this journal; {run_id} needs its own journal"
+            )
         return dict(row)
 
     def renew_manual_window(

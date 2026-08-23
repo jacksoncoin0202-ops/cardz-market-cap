@@ -10,6 +10,8 @@ param(
     [ValidatePattern('^\d{4}-\d{2}-\d{2}$')]
     [string]$BusinessDate,
     [int]$MaxRuntimeSeconds = 3000,
+    [ValidatePattern('^[A-Z][A-Z0-9]{1,7}$')]
+    [string]$RunLabel,
     [switch]$SelfTest
 )
 
@@ -45,6 +47,11 @@ if ($ManualE2E -and -not $AllowPublish) {
 }
 if ($RenewManualWindow -and (-not $ManualE2E -or -not $AllowPublish)) {
     throw "-RenewManualWindow requires -ManualE2E and -AllowPublish"
+}
+# A rehearsal (A01, A02, ...) reruns a business date in its own journal and
+# never publishes; the publish/manual-window switches do not apply to it.
+if (-not [string]::IsNullOrWhiteSpace($RunLabel) -and ($AllowPublish -or $ManualE2E -or $RenewManualWindow)) {
+    throw "-RunLabel names a rehearsal; it takes none of -AllowPublish/-ManualE2E/-RenewManualWindow"
 }
 
 # Windows owns the headed CARDZ Chrome.  WSL workers consume :9333 but never
@@ -146,6 +153,7 @@ $receipt = [ordered]@{
     manual_e2e = [bool]$ManualE2E
     renew_manual_window = [bool]$RenewManualWindow
     business_date_override = $BusinessDate
+    run_label = $RunLabel
 }
 
 New-Item -ItemType Directory -Force -Path $Runtime | Out-Null
@@ -175,6 +183,9 @@ if ($ManualE2E) { $args += "--manual-e2e-window" }
 if ($RenewManualWindow) { $args += "--renew-manual-e2e-window" }
 if (-not [string]::IsNullOrWhiteSpace($BusinessDate)) {
     $args += @("--business-date", $BusinessDate)
+}
+if (-not [string]::IsNullOrWhiteSpace($RunLabel)) {
+    $args += @("--run-label", $RunLabel)
 }
 
 Write-Log ("CARDZ_V2_WSL_ARGS wsl.exe " + ($args -join " "))
