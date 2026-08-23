@@ -216,6 +216,26 @@ rmSync(dir, { recursive: true, force: true });
   check("H5: 要講剔走離群成交", /outside its own recent range|outlier/i.test(line), line.trim().slice(0, 160));
 }
 
+/* ─────────────────────────────────────────────────────────────
+ * H6 — 日線價**未**做到 brief 講嘅「當日最新一單非離群成交」，呢個係已知欠單，
+ *      唔准靜靜當交咗貨。behaviour 一日仲係「當日成交均價 + 冇離群帶」，
+ *      producer 就一日要喺 history builder 段落入面帶住個欠單 marker。
+ *      （fix 咗 behaviour = `salesValue / salesCount` 消失，呢組 check 自動放行。）
+ * ───────────────────────────────────────────────────────────── */
+{
+  const MARKER = "R6-OPEN-TICKET: history-daily-latest-sale-and-outlier-band";
+  const builderSlice = startAt >= 0 && endAt > startAt ? producer.slice(startAt, endAt) : "";
+  const dayAverage = builderSlice.includes("point.priceUsd = salesValue / salesCount;");
+  check("H6: 前提——日線價仲係當日成交均價", dayAverage,
+    "均價寫法冇咗；如果真係改成『當日最新一單非離群成交』，連同 H6 一齊更新");
+  check("H6: 均價／冇離群帶要喺 history builder 入面明文標欠單 marker",
+    !dayAverage || builderSlice.includes(MARKER), `搵唔到 ${MARKER}`);
+  check("H6: 欠單要寫明依家冇離群帶（離群帶淨係喺 quote 側）",
+    !dayAverage || /冇離群帶/.test(builderSlice), "marker 段落冇講『冇離群帶』");
+  check("H6: 欠單要講明點先算修好（要 sale 級排序 = 改 view／migration）",
+    !dayAverage || /sale 級排序/.test(builderSlice), "marker 段落冇講修法");
+}
+
 if (failed.length) {
   console.error(`FAIL test-fe-history-sale-only (${failed.length}/${checks})`);
   for (const f of failed) console.error(` - ${f}`);

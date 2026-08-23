@@ -569,9 +569,20 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       // 2026-08-23：「月 K 全部全線踢走」。所以 chart 讀路已經整條刪走，日線
       // 淨返成交日；冇成交嘅日就冇點（唔准填），窗計算靠 nearestPrice /
       // latestBefore 嘅 as-of 語義自己向前帶。
-      // 同日多過一單就攞當日成交均價：sale 級嘅先後次序冇任何現有 view 出到
-      // （加 view = 改 migration），而日內排序對日線圖冇意義。頭條價嗰邊照舊
-      // 係單筆最新真成交，唔經呢度。
+      // R6-OPEN-TICKET: history-daily-latest-sale-and-outlier-band —— 呢條日線
+      // **未**做到 brief 要求嘅「當日最新一單非離群成交」。兩處差異，明文寫低，
+      // 唔准當交咗貨：
+      //  (a) 同日多過一單攞嘅係**當日成交均價**（value/count），唔係當日最後一單。
+      //      要修就要 sale 級排序：`operator_eligible_accepted_psa10_sales_rows`
+      //      （migration 026:527）只出 `DATE(sold_at)`，冇 sold_at 亦冇
+      //      sale_observation_id，即係要改 view／migration —— 呢個 worktree 唔准掂。
+      //  (b) 呢條日線**冇離群帶**。離群帶淨係喺 quote 側（頭條價）行，呢個 tree
+      //      冇對應實現，喺 TS 再抄一份 = 一個概念兩份實現，唔准。後果：頭條價
+      //      自己會 reject 嘅一單離群成交，仍然可以做到窗錨。
+      // (a)(b) 係一套嚟，唔准拆半修：淨做 (a) 唔做 (b) 會**放大**離群曝光——
+      // 出街 top100 嘅 2,623 個成交日點入面 1,592 個（60.7%）當日有 ≥2 單，均價
+      // 本身有攤薄作用，換成單一最後成交就冇。頭條價嗰邊照舊係單筆最新真成交
+      // （已過離群帶），唔經呢度。
       // 依然係 history-only：唔會取代已 accept 嘅現價，唔會郁市值排名。
       const salesCount = dayCount;
       const salesValue = dayValue;
