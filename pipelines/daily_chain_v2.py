@@ -1695,10 +1695,10 @@ class DailyChainV2:
     ) -> bool:
         """Journal one event and alert unconditionally on lifecycle facts.
 
-        `--notify` still gates the verbose progress stream; the six lifecycle
-        events below are the ones an operator cannot afford to miss, so they
-        leave through their own best-effort channel the first time they are
-        recorded.
+        `--notify` still gates the verbose progress stream; the lifecycle
+        events in ALWAYS_ALERT_EVENTS are the ones an operator cannot afford to
+        miss, so they leave through their own best-effort channel the first time
+        they are recorded.
 
         The alert key is per business date, so notify_hermes' cooldown collapses
         every later event of the same type into the first one.  `alert_scope`
