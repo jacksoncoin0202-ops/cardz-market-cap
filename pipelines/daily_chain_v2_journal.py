@@ -39,6 +39,11 @@ UNPARKABLE_TASK_STATES = ("PARKED", "TERMINAL")
 # worker.
 RETIRABLE_TASK_STATES = UNPARKABLE_TASK_STATES + ("RETRY", "INTERRUPTED")
 RUN_SUCCESS_STATES = frozenset({"PUBLISHED", "PUBLISHED_DEGRADED"})
+# audit P1-3: 2026-08-22 recorded MANUAL_WINDOW_RENEWED=8 and published at
+# 23:47 JST, 6h47m late, because renewals were unbounded -- FAILED_FINAL was
+# decoration, not a gate.  Four renewals is the ceiling; past it the run must
+# fail and the next business date starts clean.
+MANUAL_WINDOW_MAX_RENEWALS = 4
 DEFAULT_MAX_INTERRUPTIONS = 6
 INTERRUPT_BACKOFF_BASE_SECONDS = 60
 INTERRUPT_BACKOFF_CAP_SECONDS = 900
@@ -76,6 +81,42 @@ def default_state_path() -> Path:
     return Path.home() / ".local" / "state" / "cardz-marketcap" / "daily-chain-v2.sqlite3"
 
 
+def later_iso(candidate: str, current: str) -> str:
+    """Return whichever of the two ISO timestamps is later, verbatim.
+
+    This is a journal-API guard and nothing more: renew_manual_window takes its
+    three deadlines from the caller, and no caller may pull `source_cutoff`,
+    `sla` or `final` backwards onto work that is already running.
+
+    It does NOT close audit P1-3's expensive half, and must not be described as
+    if it does.  The only production caller (DailyChainV2.initialise ->
+    manual_e2e_schedule -> clamp_manual_window) always builds the window from
+    `started=now`, and every term of that clamp is non-decreasing in `started`,
+    so `source_cutoff = (started + final)/2` strictly increases and this guard
+    never binds there.  Each renewal therefore still re-arms a fresh ~22 minute
+    source_cutoff onto already-running non-core sources -- the 2026-08-22
+    pricecharting attempts of 22.6 / 20.4 / 20.0 / 20.0 minutes.  What bounds
+    that shape on the real path today is MANUAL_WINDOW_MAX_RENEWALS (eight
+    re-arms become four); the re-arm itself is still open and needs the audit's
+    other half (exempt an already-running non-core source from a re-armed
+    cutoff), which is a deadline-semantics change landed nowhere yet.
+
+    The winning string is returned unchanged so a renewal never rewrites the
+    stored timestamp's formatting.
+    """
+
+    try:
+        left = datetime.fromisoformat(candidate)
+        right = datetime.fromisoformat(current)
+    except (TypeError, ValueError):
+        return candidate
+    if left.tzinfo is None:
+        left = left.replace(tzinfo=timezone.utc)
+    if right.tzinfo is None:
+        right = right.replace(tzinfo=timezone.utc)
+    return candidate if left >= right else current
+
+
 class JournalError(RuntimeError):
     pass
 
@@ -105,6 +146,7 @@ class Journal:
                     origin TEXT NOT NULL,
                     scheduled_event_107_count INTEGER NOT NULL DEFAULT 0,
                     manual_intervention_count INTEGER NOT NULL DEFAULT 0,
+                    manual_window_renewals INTEGER NOT NULL DEFAULT 0,
                     source_cutoff_at TEXT NOT NULL,
                     sla_at TEXT NOT NULL,
                     final_at TEXT NOT NULL,
@@ -198,6 +240,17 @@ class Journal:
                 conn.execute(
                     "ALTER TABLE chain_task ADD COLUMN interruptions INTEGER NOT NULL DEFAULT 0"
                 )
+            # Same additive shape for the renewal budget (audit P1-3): a live
+            # journal keeps its history and starts this run at zero renewals.
+            run_columns = {
+                str(row["name"])
+                for row in conn.execute("PRAGMA table_info(chain_run)").fetchall()
+            }
+            if run_columns and "manual_window_renewals" not in run_columns:
+                conn.execute(
+                    "ALTER TABLE chain_run ADD COLUMN manual_window_renewals"
+                    " INTEGER NOT NULL DEFAULT 0"
+                )
             conn.execute(
                 "INSERT INTO journal_meta(key,value) VALUES('schema_version',?)"
                 " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -275,6 +328,14 @@ class Journal:
         RUNNING here and only here: run_tick still early-returns on
         FAILED_FINAL, so an explicit operator renewal is the single way back.
         Returns the status the run had before this call.
+
+        Two limits keep a renewal from being free (audit P1-3).  A run gets at
+        most MANUAL_WINDOW_MAX_RENEWALS of them -- the next one is refused with
+        a journaled MANUAL_WINDOW_RENEWAL_REFUSED and a JournalError, and this
+        is the only one of the two that binds on the production path.  The
+        second, later_iso, is a defensive API guard: see its docstring for why
+        it never fires on a window built by manual_e2e_schedule, and for the
+        source_cutoff re-arm that stays open.
         """
 
         cutoff = datetime.fromisoformat(source_cutoff_at)
@@ -283,6 +344,10 @@ class Journal:
         if not cutoff < sla < final:
             raise ValueError("manual E2E deadlines must be strictly ordered")
         now = iso()
+        refused: int | None = None
+        previous_status = ""
+        reopened: list[str] = []
+        updated: Any = None
         with self.transaction() as conn:
             run = conn.execute(
                 "SELECT * FROM chain_run WHERE run_id=?", (run_id,)
@@ -291,51 +356,88 @@ class Journal:
                 raise JournalError(f"run not found: {run_id}")
             if run["publication_status"]:
                 raise JournalError("a published run cannot renew its manual E2E window")
-            previous_status = str(run["status"] or "")
-            if previous_status == "FAILED_FINAL":
+            renewals = int(run["manual_window_renewals"] or 0)
+            if renewals >= MANUAL_WINDOW_MAX_RENEWALS:
+                # Journalled inside the transaction and raised after it commits,
+                # so the refusal survives even though the renewal does not.
                 conn.execute(
-                    "UPDATE chain_run SET status='RUNNING',updated_at=? WHERE run_id=?",
-                    (now, run_id),
-                )
-            conn.execute(
-                """
-                UPDATE chain_run
-                SET source_cutoff_at=?,sla_at=?,final_at=?,updated_at=?
-                WHERE run_id=?
-                """,
-                (source_cutoff_at, sla_at, final_at, now, run_id),
-            )
-            rows = conn.execute(
-                """
-                SELECT task_key FROM chain_task
-                WHERE run_id=? AND status='DEGRADED'
-                  AND attempts<max_attempts
-                  AND (
-                    (phase='candidate-source' AND last_error_code='CANDIDATE_SOURCE_CUTOFF')
-                    OR
-                    (phase='activation' AND last_error_code='CANDIDATE_ACTIVATION_CUTOFF')
-                  )
-                ORDER BY created_at,task_key
-                """,
-                (run_id,),
-            ).fetchall()
-            reopened = [str(row["task_key"]) for row in rows]
-            if reopened:
-                placeholders = ",".join("?" for _ in reopened)
-                conn.execute(
-                    f"""
-                    UPDATE chain_task
-                    SET status='INTERRUPTED',next_retry_at=?,lease_token=NULL,
-                        lease_expires_at=NULL,interruptions=0,
-                        last_error='explicit manual E2E window renewal reopened cutoff work',
-                        updated_at=?
-                    WHERE task_key IN ({placeholders})
+                    """
+                    INSERT INTO chain_event(event_key,run_id,event_type,payload_json,created_at)
+                    VALUES(?,?,?,?,?) ON CONFLICT(event_key) DO NOTHING
                     """,
-                    (now, now, *reopened),
+                    (
+                        f"{run_id}:MANUAL_WINDOW_RENEWAL_REFUSED:{renewals}:{now}",
+                        run_id,
+                        "MANUAL_WINDOW_RENEWAL_REFUSED",
+                        canonical_json({
+                            "runId": run_id,
+                            "errorCode": "MANUAL_WINDOW_RENEWAL_LIMIT",
+                            "renewals": renewals,
+                            "maxRenewals": MANUAL_WINDOW_MAX_RENEWALS,
+                            "finalAt": str(run["final_at"]),
+                            "requestedFinalAt": final_at,
+                            "nextRetry": "next business date",
+                        }).decode(),
+                        now,
+                    ),
                 )
-            updated = conn.execute(
-                "SELECT * FROM chain_run WHERE run_id=?", (run_id,)
-            ).fetchone()
+                refused = renewals
+            else:
+                source_cutoff_at = later_iso(source_cutoff_at, str(run["source_cutoff_at"]))
+                sla_at = later_iso(sla_at, str(run["sla_at"]))
+                final_at = later_iso(final_at, str(run["final_at"]))
+                previous_status = str(run["status"] or "")
+                if previous_status == "FAILED_FINAL":
+                    conn.execute(
+                        "UPDATE chain_run SET status='RUNNING',updated_at=? WHERE run_id=?",
+                        (now, run_id),
+                    )
+                conn.execute(
+                    """
+                    UPDATE chain_run
+                    SET source_cutoff_at=?,sla_at=?,final_at=?,
+                        manual_window_renewals=manual_window_renewals+1,updated_at=?
+                    WHERE run_id=?
+                    """,
+                    (source_cutoff_at, sla_at, final_at, now, run_id),
+                )
+                rows = conn.execute(
+                    """
+                    SELECT task_key FROM chain_task
+                    WHERE run_id=? AND status='DEGRADED'
+                      AND attempts<max_attempts
+                      AND (
+                        (phase='candidate-source' AND last_error_code='CANDIDATE_SOURCE_CUTOFF')
+                        OR
+                        (phase='activation' AND last_error_code='CANDIDATE_ACTIVATION_CUTOFF')
+                      )
+                    ORDER BY created_at,task_key
+                    """,
+                    (run_id,),
+                ).fetchall()
+                reopened = [str(row["task_key"]) for row in rows]
+                if reopened:
+                    placeholders = ",".join("?" for _ in reopened)
+                    conn.execute(
+                        f"""
+                        UPDATE chain_task
+                        SET status='INTERRUPTED',next_retry_at=?,lease_token=NULL,
+                            lease_expires_at=NULL,interruptions=0,
+                            last_error='explicit manual E2E window renewal reopened cutoff work',
+                            updated_at=?
+                        WHERE task_key IN ({placeholders})
+                        """,
+                        (now, now, *reopened),
+                    )
+                updated = conn.execute(
+                    "SELECT * FROM chain_run WHERE run_id=?", (run_id,)
+                ).fetchone()
+        if refused is not None:
+            raise JournalError(
+                f"manual E2E window for {run_id} was already renewed {refused} times"
+                f" (max {MANUAL_WINDOW_MAX_RENEWALS}); let it reach FAILED_FINAL and"
+                f" start the next business date instead of extending this one"
+            )
         return dict(updated), reopened, previous_status
 
     def register_provenance(
@@ -985,17 +1087,25 @@ class Journal:
         self,
         task_key: str,
         *,
+        run_id: str,
         reason: str = "operator",
         now: datetime | None = None,
     ) -> dict[str, Any] | None:
-        """Operator-only revival of settled work; history is kept intact."""
+        """Operator-only revival of settled work; history is kept intact.
+
+        audit P2-14: scoped to one run.  claim_ready only ever claims inside
+        the current run_id, so unparking a key pasted from another business
+        date used to flip the row to READY and print TASK_UNPARKED for a lane
+        no tick would ever pick up.  A foreign key returns None instead.
+        """
 
         clock = now or utc_now()
         now_text = iso(clock)
         states = ",".join(f"'{state}'" for state in UNPARKABLE_TASK_STATES)
         with self.transaction() as conn:
             task = conn.execute(
-                "SELECT * FROM chain_task WHERE task_key=?", (task_key,)
+                "SELECT * FROM chain_task WHERE task_key=? AND run_id=?",
+                (task_key, run_id),
             ).fetchone()
             if task is None or str(task["status"]) not in set(UNPARKABLE_TASK_STATES):
                 return None
@@ -1007,11 +1117,11 @@ class Journal:
                 UPDATE chain_task SET status='READY',max_attempts=?,interruptions=0,
                     next_retry_at=?,lease_token=NULL,lease_expires_at=NULL,
                     last_error=?,updated_at=?
-                WHERE task_key=? AND status IN ({states})
+                WHERE task_key=? AND run_id=? AND status IN ({states})
                 """,
                 (
                     granted, now_text, f"unparked by operator: {reason}"[-8000:],
-                    now_text, task_key,
+                    now_text, task_key, run_id,
                 ),
             ).rowcount
             if changed != 1:
@@ -1030,6 +1140,7 @@ class Journal:
         self,
         task_key: str,
         *,
+        run_id: str,
         reason: str,
         now: datetime | None = None,
     ) -> dict[str, Any] | None:
@@ -1037,14 +1148,19 @@ class Journal:
         unnecessary (a quote repair whose shortfall other repairs already
         closed).  The row becomes SKIPPED so the source barrier and the health
         roll-up treat it as settled; attempts, the attempt trail and the reason
-        stay on the row.  Data gates downstream still decide on their own."""
+        stay on the row.  Data gates downstream still decide on their own.
+
+        Scoped to one run for the same reason as unpark (audit P2-14): retiring
+        a key from another business date would settle a row today's barrier
+        never reads, while the operator believes the lane was cleared."""
 
         clock = now or utc_now()
         now_text = iso(clock)
         states = ",".join(f"'{state}'" for state in RETIRABLE_TASK_STATES)
         with self.transaction() as conn:
             task = conn.execute(
-                "SELECT * FROM chain_task WHERE task_key=?", (task_key,)
+                "SELECT * FROM chain_task WHERE task_key=? AND run_id=?",
+                (task_key, run_id),
             ).fetchone()
             if (
                 task is None
@@ -1057,9 +1173,13 @@ class Journal:
                 UPDATE chain_task SET status='SKIPPED',next_retry_at=NULL,
                     lease_token=NULL,lease_expires_at=NULL,
                     last_error_code='OPERATOR_RETIRED',last_error=?,updated_at=?
-                WHERE task_key=? AND status IN ({states}) AND lease_token IS NULL
+                WHERE task_key=? AND run_id=? AND status IN ({states})
+                  AND lease_token IS NULL
                 """,
-                (f"retired by operator: {reason}"[-8000:], now_text, task_key),
+                (
+                    f"retired by operator: {reason}"[-8000:], now_text,
+                    task_key, run_id,
+                ),
             ).rowcount
             if changed != 1:
                 return None

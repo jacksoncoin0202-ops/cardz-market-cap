@@ -225,7 +225,7 @@ try:
         (stuck,),
     )
     assert journal.claim_ready(RUN_ID, now=utc_now()) == []
-    revived = journal.unpark(stuck, reason="operator resume tonight")
+    revived = journal.unpark(stuck, run_id=RUN_ID, reason="operator resume tonight")
     assert revived is not None
     assert revived["status"] == "READY" and revived["previousStatus"] == "TERMINAL"
     assert int(revived["attempts"]) == 13 and int(revived["max_attempts"]) == 14
@@ -233,8 +233,8 @@ try:
     claimed = journal.claim_ready(RUN_ID, now=utc_now())
     assert [row["task_key"] for row in claimed] == [stuck]
     assert int(claimed[0]["attempts"]) == 14
-    assert journal.unpark("no-such-task") is None
-    assert journal.unpark(stuck) is None  # RUNNING is not parkable
+    assert journal.unpark("no-such-task", run_id=RUN_ID) is None
+    assert journal.unpark(stuck, run_id=RUN_ID) is None  # RUNNING is not parkable
     listed = [row["task_key"] for row in journal.unparkable_tasks(RUN_ID)]
     assert listed == []
     print("POSITIVE_OK unpark revives a TERMINAL 13/12 task once and refuses non-parkable keys")
@@ -269,15 +269,15 @@ try:
         "last_error_code='WORKER_PARKED' WHERE task_key=?",
         (stale,),
     )
-    assert journal.retire("no-such-task", reason="x") is None
-    retired = journal.retire(stale, reason="contract closed by later repairs")
+    assert journal.retire("no-such-task", run_id=RUN_ID, reason="x") is None
+    retired = journal.retire(stale, run_id=RUN_ID, reason="contract closed by later repairs")
     assert retired is not None and retired["status"] == "SKIPPED"
     assert retired["previousStatus"] == "PARKED"
     assert retired["last_error_code"] == "OPERATOR_RETIRED"
     assert int(retired["attempts"]) == 8 and int(retired["max_attempts"]) == 8
     assert journal.claim_ready(RUN_ID, now=utc_now()) == []
-    assert journal.retire(stale, reason="twice") is None  # SKIPPED is settled
-    assert journal.unpark(stale) is None
+    assert journal.retire(stale, run_id=RUN_ID, reason="twice") is None  # SKIPPED is settled
+    assert journal.unpark(stale, run_id=RUN_ID) is None
     assert journal.unparkable_tasks(RUN_ID) == []
     waiting = add_task(journal, "gemrate-repair-waiting", max_attempts=7)
     sql(journal, "UPDATE chain_task SET status='RETRY',attempts=2,lease_token=NULL WHERE task_key=?", (waiting,))
@@ -285,9 +285,9 @@ try:
     sql(journal, "UPDATE chain_task SET status='RETRY',attempts=2,lease_token='live' WHERE task_key=?", (leased,))
     running = add_task(journal, "gemrate-repair-live", max_attempts=7)
     sql(journal, "UPDATE chain_task SET status='RUNNING',attempts=2,lease_token='live' WHERE task_key=?", (running,))
-    assert journal.retire(leased, reason="never from under a worker") is None
-    assert journal.retire(running, reason="never from under a worker") is None
-    retired_waiting = journal.retire(waiting, reason="window bug closed the shortfall")
+    assert journal.retire(leased, run_id=RUN_ID, reason="never from under a worker") is None
+    assert journal.retire(running, run_id=RUN_ID, reason="never from under a worker") is None
+    retired_waiting = journal.retire(waiting, run_id=RUN_ID, reason="window bug closed the shortfall")
     assert retired_waiting is not None and retired_waiting["status"] == "SKIPPED"
     assert retired_waiting["previousStatus"] == "RETRY" and int(retired_waiting["attempts"]) == 2
     assert journal.claim_ready(RUN_ID, now=utc_now() + timedelta(days=1)) == [] or all(
@@ -955,7 +955,12 @@ try:
         else:
             os.environ[chain_db.RUN_STARTED_AT_ENV] = saved_env
     orchestrator_source = (ROOT / "pipelines" / "daily_chain_v2.py").read_text(encoding="utf-8")
-    assert '"CARDZ_V2_RUN_STARTED_AT": str((self.journal.run(self.run_id) or {}).get("created_at") or "")' in orchestrator_source
+    assert "RUN_STARTED_AT_ENV: export_run_started_at(self.journal.run(self.run_id))" in orchestrator_source
+    # audit B5: the orchestrator process itself must carry the env, not only
+    # its stage children, because plan_contract_repair_tasks reads the window
+    # in-process.
+    assert "export_run_started_at(row)" in inspect.getsource(DailyChainV2.initialise)
+    assert chain_module.RUN_STARTED_AT_ENV == chain_db.RUN_STARTED_AT_ENV
     print("POSITIVE_OK business window opens at the run start for an early manual window and stays the JST day for scheduled runs")
 
 finally:

@@ -52,6 +52,7 @@ from daily_chain_v2_journal import (  # noqa: E402
     Journal,
     SUCCESS_TASK_STATES,
     TERMINAL_TASK_STATES,
+    UNPARKABLE_TASK_STATES,
     default_state_path,
     iso,
     utc_now,
@@ -72,6 +73,10 @@ LAST_SCHEDULED_TICK_JST = "17:00"
 MANUAL_WINDOW_MIN_SECONDS = 2700
 MANUAL_WINDOW_ABSOLUTE_MIN_SECONDS = 600
 NEXT_TICK_GUARD_SECONDS = 300
+# Same name as daily_chain_v2_db.RUN_STARTED_AT_ENV, declared here so the
+# orchestrator can export it without importing the MySQL-backed module at
+# start-up.  scripts/test_v2s_gov.py asserts the two never drift apart.
+RUN_STARTED_AT_ENV = "CARDZ_V2_RUN_STARTED_AT"
 ADOPT_GRACE_SECONDS = 120
 HEALTH_SCHEMA = 1
 NOTIFY_SCRIPT = ROOT / "scripts" / "notify_hermes.py"
@@ -159,14 +164,27 @@ def clamp_manual_window(
     *,
     business_date: date,
 ) -> dict[str, datetime]:
-    """No manual window may outlive the day's last scheduled tick.
+    """Bound one manual window between a usable floor and the next tick.
 
-    An unclamped +8h renewal at 16:00 JST keeps a manual run authoritative
-    deep into the next unattended cycle; the operator window is capped at
-    17:00 JST.  It is also never shorter than MANUAL_WINDOW_MIN_SECONDS of
-    remaining work, and never long enough to still be authoritative when the
-    next unattended 03:30 JST tick starts -- that ceiling outranks the floor,
-    with ten minutes kept as the absolute lower bound.
+    What actually holds, in precedence order (audit P1-3 measured all four
+    corners, so state them instead of the older, false "never outlives the
+    day's last scheduled tick"):
+
+    * Floor: at least MANUAL_WINDOW_MIN_SECONDS, because a window that only
+      covers part of a publish leg is worse than no window (2026-08-22 got
+      600 s and finished with four minutes to spare).  Past 17:00 JST this
+      floor is what binds, so a window opened at 18:00 JST runs to 18:45.
+    * Ceiling: the next unattended 03:30 JST tick minus NEXT_TICK_GUARD_SECONDS.
+      A manual run is never still authoritative when the scheduler restarts,
+      and this ceiling outranks the floor.
+    * Absolute lower bound: MANUAL_WINDOW_ABSOLUTE_MIN_SECONDS, for a window
+      opened inside the guard band.
+    * Renewals are capped at MANUAL_WINDOW_MAX_RENEWALS and are forward-only;
+      Journal.renew_manual_window owns both rules.
+
+    Do not "fix" the floor by capping at 17:00 JST alone: after 17:00 that
+    yields a ten minute window and therefore a five minute source_cutoff,
+    which SIGTERMs every non-core source five minutes in.
     """
 
     values = dict(schedule)
@@ -203,6 +221,23 @@ def manual_e2e_schedule(
         },
         business_date=day,
     )
+
+
+def export_run_started_at(run: Mapping[str, Any] | None) -> str:
+    """Publish the run's creation time to this process and every child.
+
+    audit B5: business_window_utc widens the coverage window by this value, but
+    the orchestrator only injected it into stage subprocesses.  The repair
+    planner runs in-process (plan_contract_repair_tasks -> current_run_contract),
+    so the planner measured a narrow window while the barrier stage measured the
+    wide one -- that mismatch is what minted the pointless 1604-card gemrate
+    core repair on 2026-08-24.  One execution point: set it here, inherit it
+    everywhere.
+    """
+
+    value = str((run or {}).get("created_at") or "")
+    os.environ[RUN_STARTED_AT_ENV] = value
+    return value
 
 
 def health_path() -> Path:
@@ -496,6 +531,35 @@ def source_barrier_ready(
     return not unsettled
 
 
+def blocked_core_source_tasks(
+    tasks: Sequence[Mapping[str, Any]],
+) -> list[Mapping[str, Any]]:
+    """Core source rows that settled without succeeding (audit P0-1).
+
+    source_barrier_ready only opens a core row on COMPLETED/SKIPPED, so the
+    other three settled states -- TERMINAL, PARKED and DEGRADED -- each hold
+    the whole business date, and none of them is ever claimed again
+    (reopen_retryable_terminal refuses a terminal decision; CLAIMABLE_TASK_STATES
+    contains none of the three).  On 2026-08-24 fx:rates:all went TERMINAL at
+    +0.3m and the chain sat silent for 28.9 minutes, because the failure was
+    written as TASK_ERROR, which is not an ALWAYS_ALERT_EVENTS type.
+
+    DEGRADED is the quietest and the most reachable of the three: any source
+    report with quarantined >= 1 finishes through finish_success(degraded=True)
+    (daily_chain_v2_worker.py), so there is no TASK_ERROR to find afterwards --
+    and neither unpark nor retire accepts DEGRADED, so the operator has no
+    command to clear it either.  Naming the row is the whole fix; the barrier
+    itself stays exactly as strict.
+    """
+
+    return [
+        row for row in tasks
+        if str(row["required_class"]) == "core"
+        and str(row["status"]) in TERMINAL_TASK_STATES
+        and str(row["status"]) not in {"COMPLETED", "SKIPPED"}
+    ]
+
+
 def optional_phase_settled(
     tasks: Sequence[Mapping[str, Any]],
     *,
@@ -559,6 +623,10 @@ class DailyChainV2:
                 sla_at=iso(self.schedule["sla"]),
                 final_at=iso(self.schedule["final"]),
             )
+        # audit B5: the orchestrator plans contract repairs in-process, so it
+        # needs the same widened coverage window its stage children get.  Export
+        # once, here, as soon as the run row is known.
+        export_run_started_at(row)
         # Deadlines belong to the durable run.  A resumed manual E2E must not
         # receive a fresh eight-hour window merely because another tick began;
         # only the explicit manual renewal path above may change them.
@@ -761,6 +829,38 @@ class DailyChainV2:
         if not legacy_adapters:
             self._repair_skipped(source_code, capability, "CAPABILITY_NOT_REPAIRABLE", targets)
             return 0
+        # audit P2-2 (guard only, the identity redesign is a separate change):
+        # the revision hash covers variantIds, so every plan pass where the
+        # shortfall shrank mints a brand-new task with a brand-new 7-attempt
+        # ladder -- 2026-08-22 accumulated four pricecharting and three
+        # snkrdunk keys -- and each fresh PENDING row re-closes a source
+        # barrier that had already opened.  One unsettled repair per
+        # (source, capability) at a time; the live one keeps its targets.
+        existing = next(
+            (
+                row for row in self.journal.tasks(self.run_id, phase="source")
+                if str(row["source_code"]) == source_code
+                and str(row["capability"]) == f"contract-repair:{capability}"
+                and str(row["status"]) not in TERMINAL_TASK_STATES
+            ),
+            None,
+        )
+        if existing is not None:
+            self.journal_event(
+                "SOURCE_CONTRACT_REPAIR_DEFERRED",
+                f"{source_code}:{capability}:{existing['task_key']}:{sha256(targets)[:16]}",
+                {
+                    "runId": self.run_id,
+                    "source": source_code,
+                    "capability": capability,
+                    "errorCode": "REPAIR_ALREADY_IN_FLIGHT",
+                    "taskKey": str(existing["task_key"]),
+                    "status": str(existing["status"]),
+                    "variantIds": targets[:200],
+                    "variantCount": len(targets),
+                },
+            )
+            return 0
         revision = sha256({
             "contract": "source-contract-repair-v2",
             "businessDate": self.day_text,
@@ -830,8 +930,25 @@ class DailyChainV2:
     def plan_contract_repair_tasks(self) -> int:
         """Fan out missing POP/quote coverage through registered capabilities."""
 
-        from daily_chain_v2_db import current_run_contract, quote_repair_plan
+        from daily_chain_v2_db import (
+            business_window_utc,
+            current_run_contract,
+            quote_repair_plan,
+        )
 
+        # audit B5: the shortfall this reads is measured inside the same window,
+        # so a window that has not opened yet cannot report a real shortfall --
+        # it reports everything as missing.  Refuse loudly instead of minting a
+        # whole-universe repair (2026-08-24: 1604 gemrate pop cards).
+        window_start, _window_end = business_window_utc(self.day_text)
+        planned_at = utc_now().replace(tzinfo=None)
+        if planned_at < window_start:
+            raise RuntimeError(
+                "contract repair window has not opened yet:"
+                f" windowStart={window_start.isoformat()} now={planned_at.isoformat()}"
+                f" run={self.run_id}"
+                f" {RUN_STARTED_AT_ENV}={os.environ.get(RUN_STARTED_AT_ENV, '') or '<unset>'}"
+            )
         contract = current_run_contract(self.day_text)
         added = 0
         # The contract names its own POP sections, so a third pop source is
@@ -1014,6 +1131,41 @@ class DailyChainV2:
                     },
                 )
             source_tasks = self.journal.tasks(self.run_id, phase="source")
+        # audit P0-1: say it out loud before returning.  CORE_TASK_PARKED is in
+        # ALWAYS_ALERT_EVENTS, so this reaches Telegram on its own channel with
+        # a 30 minute cooldown and does not depend on --notify being on.  The
+        # dedupe key carries the state and alert_scope carries (task, state) as
+        # well, so two different blocked core rows -- or one row that goes
+        # PARKED after TERMINAL -- each page once instead of collapsing into the
+        # first row's per-business-date cooldown.
+        for blocked in blocked_core_source_tasks(source_tasks):
+            state = str(blocked["status"])
+            self.journal_event(
+                "CORE_TASK_PARKED",
+                f"{blocked['task_key']}:{state}:{int(blocked.get('attempts') or 0)}",
+                {
+                    "runId": self.run_id,
+                    "taskKey": str(blocked["task_key"]),
+                    "phase": str(blocked["phase"]),
+                    "source": str(blocked["source_code"]),
+                    "capability": str(blocked["capability"]),
+                    "state": state,
+                    "errorCode": str(blocked.get("last_error_code") or "CORE_SOURCE_BLOCKED"),
+                    "attempts": int(blocked.get("attempts") or 0),
+                    "maxAttempts": int(blocked.get("max_attempts") or 0),
+                    "reason": "core source settled without success; the source barrier stays closed",
+                    # Only PARKED/TERMINAL have an operator command; telling the
+                    # operator to unpark a DEGRADED row sends them at a lever
+                    # that is not connected to anything.
+                    "nextRetry": (
+                        "operator unpark or retire"
+                        if state in UNPARKABLE_TASK_STATES
+                        else "no operator command clears DEGRADED:"
+                        " fix the source and re-run this business date"
+                    ),
+                },
+                alert_scope=f"{blocked['task_key']}:{state}",
+            )
         if not source_barrier_ready(source_tasks, now=now, cutoff=self.schedule["source_cutoff"]):
             return
 
@@ -1085,7 +1237,13 @@ class DailyChainV2:
             )
             return
         pending_stage = self.stage_row("pending-identities") or {}
-        if str(pending_stage.get("status") or "") not in SUCCESS_TASK_STATES | {"TERMINAL"}:
+        # audit P1-8: these four gates hand-wrote the settled set and left out
+        # PARKED, so a parked optional stage blocked every later stage -- daily
+        # accept included -- until the operator noticed.  TERMINAL_TASK_STATES is
+        # the one definition of "this row will never move again"; the two gates
+        # that additionally need the cutoff escape (source_barrier_ready,
+        # optional_phase_settled) keep their own, deliberately different, sets.
+        if str(pending_stage.get("status") or "") not in TERMINAL_TASK_STATES:
             return
 
         pending_result = (
@@ -1153,7 +1311,7 @@ class DailyChainV2:
                 )
                 return
             candidate_registry = self.stage_row("candidate-collection-registry") or {}
-            if str(candidate_registry.get("status") or "") not in SUCCESS_TASK_STATES | {"TERMINAL"}:
+            if str(candidate_registry.get("status") or "") not in TERMINAL_TASK_STATES:
                 return
             if self.stage_row("candidate-source-plan") is None:
                 added = (
@@ -1178,7 +1336,7 @@ class DailyChainV2:
                 )
                 return
             candidate_plan = self.stage_row("candidate-source-plan") or {}
-            if str(candidate_plan.get("status") or "") not in SUCCESS_TASK_STATES | {"TERMINAL"}:
+            if str(candidate_plan.get("status") or "") not in TERMINAL_TASK_STATES:
                 return
             if now >= self.schedule["source_cutoff"]:
                 closed = self.journal.degrade_unfinished_phase(
@@ -1215,7 +1373,7 @@ class DailyChainV2:
                 )
                 return
             consolidate = self.stage_row("candidate-consolidate") or {}
-            if str(consolidate.get("status") or "") not in SUCCESS_TASK_STATES | {"TERMINAL"}:
+            if str(consolidate.get("status") or "") not in TERMINAL_TASK_STATES:
                 return
 
         if self.stage_row("candidate-activation") is None:
@@ -1377,6 +1535,8 @@ class DailyChainV2:
         event_type: str,
         dedupe_key: str,
         payload: Mapping[str, Any],
+        *,
+        alert_scope: str = "",
     ) -> bool:
         """Journal one event and alert unconditionally on lifecycle facts.
 
@@ -1384,13 +1544,19 @@ class DailyChainV2:
         events below are the ones an operator cannot afford to miss, so they
         leave through their own best-effort channel the first time they are
         recorded.
+
+        The alert key is per business date, so notify_hermes' cooldown collapses
+        every later event of the same type into the first one.  `alert_scope`
+        narrows that key for callers where the second event names a different
+        thing to go fix -- audit P0-1: two blocked core source rows are two
+        rows, not one repeat.
         """
 
         inserted = self.journal.add_event(self.run_id, event_type, dedupe_key, payload)
         if inserted and event_type in ALWAYS_ALERT_EVENTS:
             key, level, cooldown = ALWAYS_ALERT_EVENTS[event_type]
             send_alert(
-                f"{key}:{self.day_text}",
+                ":".join(part for part in (key, self.day_text, alert_scope) if part),
                 self._alert_text(event_type, payload),
                 level=level,
                 cooldown_min=cooldown,
@@ -1401,8 +1567,11 @@ class DailyChainV2:
         detail = " ".join(
             f"{key}={payload[key]}"
             for key in (
-                "taskKey", "signal", "pid", "exitCode", "errorCode", "reason",
-                "generation", "activeCount", "interruptions", "attempts",
+                # audit P0-1: "state" rides along so the operator can tell a
+                # TERMINAL core row from a PARKED or DEGRADED one on the
+                # channel, not only in the journal document.
+                "taskKey", "state", "signal", "pid", "exitCode", "errorCode",
+                "reason", "generation", "activeCount", "interruptions", "attempts",
             )
             if payload.get(key) not in (None, "")
         )
@@ -1598,7 +1767,7 @@ class DailyChainV2:
             # business_window_utc opens the coverage window at the earlier of
             # JST midnight and this run's creation, so an early manual window
             # counts its own observations.
-            "CARDZ_V2_RUN_STARTED_AT": str((self.journal.run(self.run_id) or {}).get("created_at") or ""),
+            RUN_STARTED_AT_ENV: export_run_started_at(self.journal.run(self.run_id)),
             "CARDZ_V2_TASK_KEY": str(row["task_key"]),
             "CARDZ_V2_CLAIM_TOKEN": str(row["lease_token"]),
             "CARDZ_V2_STATE_DB": str(self.journal.path),
@@ -2342,6 +2511,24 @@ def status_brief(journal: Journal, business_date: date) -> str:
     )
 
 
+def foreign_run_id(journal: Journal, task_key: str, run_id: str) -> str:
+    """The run that owns `task_key`, when it is not the one being operated on."""
+
+    row = journal.task(task_key) or {}
+    owner = str(row.get("run_id") or "")
+    return owner if owner and owner != run_id else ""
+
+
+def operator_scope_error(journal: Journal, task_key: str, run_id: str) -> str:
+    """audit P2-14: name the other business date instead of "not parkable"."""
+
+    return (
+        f"task belongs to another business date: {task_key}"
+        f" run={foreign_run_id(journal, task_key, run_id)}"
+        f" (this command is scoped to {run_id})"
+    )
+
+
 def run_unpark(journal: Journal, business_date: date, args: Any) -> int:
     """Operator resume path for work the budgets stopped auto-claiming."""
 
@@ -2360,8 +2547,11 @@ def run_unpark(journal: Journal, business_date: date, args: Any) -> int:
     if not args.task:
         print("unpark requires --task <task_key> or --list", file=sys.stderr)
         return 2
-    row = journal.unpark(str(args.task), reason=str(args.reason))
+    row = journal.unpark(str(args.task), run_id=run_id, reason=str(args.reason))
     if row is None:
+        if foreign_run_id(journal, str(args.task), run_id):
+            print(operator_scope_error(journal, str(args.task), run_id), file=sys.stderr)
+            return 2
         print(f"task is not parkable: {args.task}", file=sys.stderr)
         return 2
     journal.add_event(
@@ -2399,8 +2589,11 @@ def run_retire(journal: Journal, business_date: date, args: argparse.Namespace) 
     if not args.task:
         print("retire requires --task <task_key> or --list", file=sys.stderr)
         return 2
-    row = journal.retire(str(args.task), reason=str(args.reason))
+    row = journal.retire(str(args.task), run_id=run_id, reason=str(args.reason))
     if row is None:
+        if foreign_run_id(journal, str(args.task), run_id):
+            print(operator_scope_error(journal, str(args.task), run_id), file=sys.stderr)
+            return 2
         print(f"task is not parked or terminal: {args.task}", file=sys.stderr)
         return 2
     journal.add_event(
