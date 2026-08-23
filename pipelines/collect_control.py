@@ -62,6 +62,12 @@ LAST_INCR = OUT_DIR / "last_incr.json"
 LAST_STOCK = OUT_DIR / "last_stock.json"
 LAST_STATUS = OUT_DIR / "last_status.json"
 PC_REFRESH_REPORT = OUT_DIR / "pc_cdp_refresh_report.json"
+PC_DAILY_FULL_CYCLE_STAMP = OUT_DIR / "pc_daily_full_cycle.json"
+# "fresh enough to publish" (SLA_HOURS, the acceptance gate) and "collect it
+# again" are different questions -- the daily chain asks the second one and used
+# to get the first one's answer, so it replayed day-old HTML every morning and
+# the board trailed PriceCharting by 11-35 h.
+PC_REFRESH_POLICIES = ("sla_replay", "daily_full", "fallback_replay")
 PC_MAP = ROOT / "data/runtime/private-source-map/c11_pc_ebay_map_full900.jsonl"
 WINDOWS_PY = ROOT / ".venv-backend-windows/Scripts/python.exe"
 # 每個 adapter 由邊條自動鏈收，係 adapter 自己嘅屬性，唔應該由兩個 .ps1 各自
@@ -4064,14 +4070,76 @@ def _pc_subset_map(
     return path, ordered
 
 
+def pc_daily_full_cycle_started_at(
+    cycle_key: str, *, now: datetime | None = None
+) -> datetime:
+    """When the current ``daily_full`` refresh cycle started collecting.
+
+    A tick interruption kills this process mid-sweep, so the anchor cannot be
+    the process start: the next tick would refetch every page it already paid
+    Cloudflare for. It is stamped once per cycle key (the chain run id, one per
+    business date) and every later attempt reads the same instant back, so a
+    page whose HTML was captured after it counts as already fetched this run.
+    """
+
+    moment = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    key = str(cycle_key or "").strip()
+    if not key:
+        raise RuntimeError("daily_full PC refresh needs a cycle key")
+    try:
+        stamped = json.loads(PC_DAILY_FULL_CYCLE_STAMP.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        stamped = None
+    if isinstance(stamped, dict) and str(stamped.get("cycle") or "") == key:
+        started = _parse_datetime(stamped.get("startedAt"))
+        if started is not None:
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            return started.astimezone(timezone.utc)
+    PC_DAILY_FULL_CYCLE_STAMP.parent.mkdir(parents=True, exist_ok=True)
+    PC_DAILY_FULL_CYCLE_STAMP.write_text(
+        json.dumps(
+            {
+                "cycle": key,
+                "startedAt": moment.isoformat().replace("+00:00", "Z"),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return moment
+
+
 def partition_local_pc_stock_pages(
-    items: list[dict[str, Any]], *, mode: str, dry_run: bool, force_network: bool = False
+    items: list[dict[str, Any]],
+    *,
+    mode: str,
+    dry_run: bool,
+    force_network: bool = False,
+    refresh_policy: str = "sla_replay",
+    run_started_at: datetime | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     """Use exact saved PC evidence when the artifact is still inside the SLA.
 
-    Stock and incr both replay. Chrome only runs for missing / invalid /
-    older-than-36h HTML. Classify still marks every PC stream due
-    (``PC_REFRESH_DUE_HOURS = 0``); this function is the skip, not poll-mode.
+    ``sla_replay`` (operator ``stock`` / ``incr``): stock and incr both replay.
+    Chrome only runs for missing / invalid / older-than-36h HTML. Classify still
+    marks every PC stream due (``PC_REFRESH_DUE_HOURS = 0``); this function is
+    the skip, not poll-mode.
+
+    ``daily_full`` (the chain's daily source task, owner directive 2026-08-24):
+    every stream's page is fetched fresh through CDP 9333 on every run. Only a
+    page already captured during *this* cycle (``run_started_at``) replays, so
+    an interrupted tick resumes instead of refetching. The 36h SLA is untouched
+    -- it stays the acceptance/checkpoint gate, it just no longer decides
+    whether to re-collect.
+
+    ``fallback_replay``: after a fresh fetch failed (Cloudflare / timeout / CDP
+    down), replay exactly what ``sla_replay`` would have replayed and label it
+    ``fresh_fetch_failed_replay_local`` so the receipt never calls a fallback a
+    fresh page. Nothing outside the SLA replays here either.
+
     ``force_network`` is operator catch-up: skip the SLA replay and CDP-fetch
     every exact page. Morning/nightly must not pass it for a whole-universe
     stock/incr. The single sanctioned automated exception is
@@ -4080,6 +4148,8 @@ def partition_local_pc_stock_pages(
     ``assert_force_network_scope`` keeps that limit in code, not in prose.
     """
 
+    if refresh_policy not in PC_REFRESH_POLICIES:
+        raise RuntimeError(f"unknown PC refresh policy: {refresh_policy!r}")
     selected = _unique_items(items, None)
     if force_network and selected and not dry_run:
         return (
@@ -4096,6 +4166,8 @@ def partition_local_pc_stock_pages(
                 "networkReasons": {
                     str(int(item["variantId"])): "operator_force_network" for item in selected
                 },
+                "refreshPolicy": refresh_policy,
+                "replayReasons": {},
             },
         )
     empty_report = {
@@ -4107,9 +4179,19 @@ def partition_local_pc_stock_pages(
         "payloadShaByVariant": {},
         "rows": [],
         "networkReasons": {},
+        "refreshPolicy": refresh_policy,
+        "replayReasons": {},
     }
     if dry_run or not selected:
         return [], selected, empty_report
+    if refresh_policy != "sla_replay":
+        if run_started_at is None:
+            raise RuntimeError(
+                f"PC refresh policy {refresh_policy!r} needs run_started_at:"
+                " without the cycle anchor a resume cannot be told from a stale page"
+            )
+        if run_started_at.tzinfo is None:
+            run_started_at = run_started_at.replace(tzinfo=timezone.utc)
     _, map_rows = _pc_subset_map(selected, mode=mode, label="local-stock")
     from pc_psa10_price_derivation import validate_pc_psa10
 
@@ -4120,6 +4202,7 @@ def partition_local_pc_stock_pages(
     evidence_times: list[datetime] = []
     evidence_rows: list[dict[str, Any]] = []
     network_reasons: dict[str, str] = {}
+    replay_reasons: dict[str, str] = {}
     map_contract_errors: list[int] = []
     for item in selected:
         variant_id = int(item["variantId"])
@@ -4166,6 +4249,19 @@ def partition_local_pc_stock_pages(
             network.append(item)
             network_reasons[str(variant_id)] = "local_exact_html_exceeds_36h_sla"
             continue
+        replay_reason = "local_exact_html_within_sla"
+        if refresh_policy != "sla_replay":
+            captured_this_run = run_started_at is not None and modified_at >= run_started_at
+            if refresh_policy == "daily_full" and not captured_this_run:
+                network.append(item)
+                network_reasons[str(variant_id)] = "daily_full_refresh_due"
+                continue
+            replay_reason = (
+                "fresh_page_captured_this_run"
+                if captured_this_run
+                else "fresh_fetch_failed_replay_local"
+            )
+        replay_reasons[str(variant_id)] = replay_reason
         replayed.append(item)
         payload_sha_by_variant[str(variant_id)] = str(
             exact_price.get("artifact_sha256")
@@ -4206,12 +4302,125 @@ def partition_local_pc_stock_pages(
         ),
         "rows": evidence_rows,
         "networkReasons": network_reasons,
+        "refreshPolicy": refresh_policy,
+        "runStartedAt": (
+            run_started_at.isoformat().replace("+00:00", "Z")
+            if run_started_at is not None
+            else None
+        ),
+        # Why each replay happened, so a fallback after a refused fetch can
+        # never read as a fresh page in the receipt.
+        "replayReasons": replay_reasons,
+        "fallbackReplays": sum(
+            1
+            for reason in replay_reasons.values()
+            if reason == "fresh_fetch_failed_replay_local"
+        ),
         # audit P2-13: an empty html_path in the PC map is a map contract
         # error. It must be named in the receipt, not hidden behind a generic
         # "the file is missing" refetch reason.
         "mapContractErrors": map_contract_errors,
     }
     return replayed, network, report
+
+
+def _merge_pc_replay_reports(
+    base: dict[str, Any], extra: dict[str, Any]
+) -> dict[str, Any]:
+    """One ``localStockReplay`` block covering the cycle replay + the fallback."""
+
+    evidence_times = [
+        stamp
+        for stamp in (
+            _parse_datetime(report.get(key))
+            for report in (base, extra)
+            for key in ("evidenceAsOf", "evidenceFreshnessFloor")
+        )
+        if stamp is not None
+    ]
+    merged = {
+        **base,
+        "processed": int(base.get("processed") or 0) + int(extra.get("processed") or 0),
+        "ok": bool(base.get("ok")) and bool(extra.get("ok")),
+        "payloadShaByVariant": {
+            **(base.get("payloadShaByVariant") or {}),
+            **(extra.get("payloadShaByVariant") or {}),
+        },
+        "rows": [*(base.get("rows") or []), *(extra.get("rows") or [])],
+        "networkReasons": {
+            **(base.get("networkReasons") or {}),
+            **(extra.get("networkReasons") or {}),
+        },
+        "replayReasons": {
+            **(base.get("replayReasons") or {}),
+            **(extra.get("replayReasons") or {}),
+        },
+        "fallbackReplays": int(base.get("fallbackReplays") or 0)
+        + int(extra.get("fallbackReplays") or 0),
+        "mapContractErrors": [
+            *(base.get("mapContractErrors") or []),
+            *(extra.get("mapContractErrors") or []),
+        ],
+    }
+    if evidence_times:
+        merged["evidenceAsOf"] = (
+            max(evidence_times).isoformat().replace("+00:00", "Z")
+        )
+        merged["evidenceFreshnessFloor"] = (
+            min(evidence_times).isoformat().replace("+00:00", "Z")
+        )
+    return merged
+
+
+def pc_fresh_fetch_fallback(
+    network_items: list[dict[str, Any]],
+    network_refresh: dict[str, Any],
+    *,
+    mode: str,
+    run_started_at: datetime,
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]] | None:
+    """Cover a refused CDP sweep with local evidence, or refuse to cover it.
+
+    The fallback is never wider than what ``sla_replay`` would have replayed on
+    its own, so no gate moves: a page missing / invalid / past the 36h SLA still
+    has no evidence and the sweep stays failed for everyone. ``None`` means the
+    lane keeps its failure -- silence is not an option here.
+    """
+
+    replayed, uncovered, replay_report = partition_local_pc_stock_pages(
+        network_items,
+        mode=mode,
+        dry_run=False,
+        refresh_policy="fallback_replay",
+        run_started_at=run_started_at,
+    )
+    if uncovered or not replayed:
+        return None
+    replay_reasons = replay_report.get("replayReasons") or {}
+    degraded = dict(network_refresh)
+    fresh_error = degraded.pop("error", None)
+    fresh_error_class = degraded.pop("errorClass", None)
+    degraded.pop("retryable", None)
+    degraded.pop("retryAfterSeconds", None)
+    degraded.update(
+        {
+            "ok": True,
+            "processed": sum(
+                1
+                for reason in replay_reasons.values()
+                if reason == "fresh_page_captured_this_run"
+            ),
+            "freshFetchFailed": True,
+            "freshFetchError": fresh_error,
+            "freshFetchErrorClass": fresh_error_class,
+            "fallbackReplayVariantIds": sorted(
+                int(variant_id)
+                for variant_id, reason in replay_reasons.items()
+                if reason == "fresh_fetch_failed_replay_local"
+            ),
+        }
+    )
+    return replayed, replay_report, degraded
 
 
 def refresh_pc_pages(
@@ -4777,6 +4986,8 @@ def _collect_mode_impl(
     pc_workers: int | None,
     variant_ids: list[int] | None = None,
     force_network: bool = False,
+    refresh_policy: str = "sla_replay",
+    refresh_cycle_key: str | None = None,
     rebuild_registry: bool = True,
     report_path: Path | None = None,
     work_scope: str | None = None,
@@ -4889,8 +5100,18 @@ def _collect_mode_impl(
     cdp_already_ensured = False
     all_pc_items = list(pc_items_by_variant.values())
     bind_missing_ids = pc_bind_missing_ids(reg, requested, explicit_variants)
+    pc_run_started_at = (
+        pc_daily_full_cycle_started_at(refresh_cycle_key or "")
+        if refresh_policy == "daily_full" and not dry_run
+        else None
+    )
     local_pc_items, network_pc_items, local_pc_report = partition_local_pc_stock_pages(
-        all_pc_items, mode=mode, dry_run=dry_run, force_network=force_network
+        all_pc_items,
+        mode=mode,
+        dry_run=dry_run,
+        force_network=force_network,
+        refresh_policy=refresh_policy,
+        run_started_at=pc_run_started_at,
     )
     _mark("pcPartition")
     if local_pc_items and not network_pc_items and not bind_missing_ids:
@@ -4932,10 +5153,37 @@ def _collect_mode_impl(
             "payloadShaByVariant": {},
             "note": "no exact PC variants require network refresh",
         }
+    if (
+        refresh_policy == "daily_full"
+        and network_pc_items
+        and not dry_run
+        and not bool(network_pc_refresh.get("ok"))
+        and pc_run_started_at is not None
+    ):
+        # 9333 refused the sweep (Cloudflare / timeout / CDP down). Falling back
+        # to the same within-SLA local evidence sla_replay would have used keeps
+        # the board publishing without widening anything: a page past the SLA
+        # still has no evidence and the lane still fails.
+        fallback = pc_fresh_fetch_fallback(
+            network_pc_items,
+            network_pc_refresh,
+            mode=mode,
+            run_started_at=pc_run_started_at,
+        )
+        if fallback is not None:
+            fallback_items, fallback_report, network_pc_refresh = fallback
+            local_pc_items = [*local_pc_items, *fallback_items]
+            local_pc_report = _merge_pc_replay_reports(local_pc_report, fallback_report)
     _mark("pcNetworkRefresh")
     pc_refresh = {
         "adapter": "pc_page_acquisition",
         "mode": mode,
+        "refreshPolicy": refresh_policy,
+        "runStartedAt": (
+            pc_run_started_at.isoformat().replace("+00:00", "Z")
+            if pc_run_started_at is not None
+            else None
+        ),
         "processed": len(all_pc_items),
         "ok": bool(local_pc_report.get("ok")) and bool(network_pc_refresh.get("ok")),
         "localReplay": bool(all_pc_items) and not network_pc_items,
@@ -5069,6 +5317,8 @@ def _collect_mode(
     pc_workers: int | None,
     variant_ids: list[int] | None = None,
     force_network: bool = False,
+    refresh_policy: str = "sla_replay",
+    refresh_cycle_key: str | None = None,
     rebuild_registry: bool = True,
     report_path: Path | None = None,
     lease_scope: str | None = None,
@@ -5092,6 +5342,8 @@ def _collect_mode(
             pc_workers=pc_workers,
             variant_ids=variant_ids,
             force_network=force_network,
+            refresh_policy=refresh_policy,
+            refresh_cycle_key=refresh_cycle_key,
             rebuild_registry=rebuild_registry,
             report_path=report_path,
             work_scope=lease_scope,
@@ -5114,6 +5366,8 @@ def cmd_stock(
     pc_workers: int | None,
     variant_ids: list[int] | None = None,
     force_network: bool = False,
+    refresh_policy: str = "sla_replay",
+    refresh_cycle_key: str | None = None,
     rebuild_registry: bool = True,
     report_path: Path | None = None,
     lease_scope: str | None = None,
@@ -5132,6 +5386,8 @@ def cmd_stock(
         pc_workers=pc_workers,
         variant_ids=variant_ids,
         force_network=force_network,
+        refresh_policy=refresh_policy,
+        refresh_cycle_key=refresh_cycle_key,
         rebuild_registry=rebuild_registry,
         report_path=report_path,
         lease_scope=lease_scope,
@@ -5276,6 +5532,8 @@ def cmd_incr(
     pc_workers: int | None,
     variant_ids: list[int] | None = None,
     force_network: bool = False,
+    refresh_policy: str = "sla_replay",
+    refresh_cycle_key: str | None = None,
     rebuild_registry: bool = True,
     report_path: Path | None = None,
     lease_scope: str | None = None,
@@ -5294,6 +5552,8 @@ def cmd_incr(
         pc_workers=pc_workers,
         variant_ids=variant_ids,
         force_network=force_network,
+        refresh_policy=refresh_policy,
+        refresh_cycle_key=refresh_cycle_key,
         rebuild_registry=rebuild_registry,
         report_path=report_path,
         lease_scope=lease_scope,
@@ -5328,8 +5588,22 @@ def main() -> int:
         p.add_argument("--variant-id", action="append", type=int, default=[], help="force exact active variant only (repeatable)")
         p.add_argument("--force-network", action="store_true", help="operator catch-up: CDP-fetch exact PC pages even if local HTML is inside SLA")
 
+    def add_refresh_policy(p):
+        p.add_argument(
+            "--refresh-policy",
+            choices=("sla_replay", "daily_full"),
+            default="sla_replay",
+            help="daily_full: fetch every exact PC page fresh through CDP this cycle",
+        )
+        p.add_argument(
+            "--refresh-cycle-key",
+            default=None,
+            help="daily_full resume anchor (the chain passes its run id)",
+        )
+
     p_stock = sub.add_parser("stock", help="residual full pulls only")
     add_common(p_stock)
+    add_refresh_policy(p_stock)
     p_first = sub.add_parser(
         "first-stock",
         help="first collect for registry streams that still have no checkpoint",
@@ -5337,6 +5611,7 @@ def main() -> int:
     add_common(p_first)
     p_incr = sub.add_parser("incr", help="daily deltas for due exact ids")
     add_common(p_incr)
+    add_refresh_policy(p_incr)
     p_resume_snk = sub.add_parser(
         "commit-snk-price-receipt",
         help="checkpoint an already successful SNK exact-ID harvest/ingest; no network",
@@ -5361,11 +5636,11 @@ def main() -> int:
         elif args.cmd == "prune-checkpoints":
             cmd_prune_checkpoints(apply=args.apply)
         elif args.cmd == "stock":
-            report = cmd_stock(adapters=adapters, limit=args.limit, dry_run=args.dry_run, delay=args.delay, workers=args.workers, ensure_browser=args.ensure_browser, pc_resume_report=args.pc_resume_report, pc_sleep=args.pc_sleep, pc_workers=args.pc_workers, variant_ids=args.variant_id, force_network=args.force_network)
+            report = cmd_stock(adapters=adapters, limit=args.limit, dry_run=args.dry_run, delay=args.delay, workers=args.workers, ensure_browser=args.ensure_browser, pc_resume_report=args.pc_resume_report, pc_sleep=args.pc_sleep, pc_workers=args.pc_workers, variant_ids=args.variant_id, force_network=args.force_network, refresh_policy=args.refresh_policy, refresh_cycle_key=args.refresh_cycle_key)
         elif args.cmd == "first-stock":
             report = cmd_first_stock(adapters=adapters, limit=args.limit, dry_run=args.dry_run, delay=args.delay, workers=args.workers, ensure_browser=args.ensure_browser, pc_resume_report=args.pc_resume_report, pc_sleep=args.pc_sleep, pc_workers=args.pc_workers, force_network=args.force_network)
         elif args.cmd == "incr":
-            report = cmd_incr(adapters=adapters, limit=args.limit, dry_run=args.dry_run, delay=args.delay, workers=args.workers, ensure_browser=args.ensure_browser, pc_resume_report=args.pc_resume_report, pc_sleep=args.pc_sleep, pc_workers=args.pc_workers, variant_ids=args.variant_id, force_network=args.force_network)
+            report = cmd_incr(adapters=adapters, limit=args.limit, dry_run=args.dry_run, delay=args.delay, workers=args.workers, ensure_browser=args.ensure_browser, pc_resume_report=args.pc_resume_report, pc_sleep=args.pc_sleep, pc_workers=args.pc_workers, variant_ids=args.variant_id, force_network=args.force_network, refresh_policy=args.refresh_policy, refresh_cycle_key=args.refresh_cycle_key)
         elif args.cmd == "commit-snk-price-receipt":
             report = cmd_commit_snk_price_receipt(receipt_path=args.receipt)
         elif args.cmd == "commit-snk-binding-delta":

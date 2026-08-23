@@ -228,6 +228,12 @@ def run_collect(
         ),
         variant_ids=variant_ids,
         force_network=False,
+        # Owner directive 2026-08-24: the daily chain re-fetches every exact PC
+        # page through CDP 9333 on every run. The run id is the resume anchor,
+        # so a tick interruption resumes the sweep instead of paying Cloudflare
+        # for the pages this business date already captured.
+        refresh_policy=str(worker.get("refreshPolicy") or "daily_full"),
+        refresh_cycle_key=str(task["run_id"]),
         rebuild_registry=False,
         report_path=report_path,
         lease_scope=(
