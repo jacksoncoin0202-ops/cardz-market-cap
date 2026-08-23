@@ -326,6 +326,27 @@ def main() -> int:
             k3 = kinds(o3.out_dir)
             check("promo: rc 1 -> PROMO_TASK_RC_NONZERO", k3.get("PROMO_TASK_RC_NONZERO") == 1)
             check("promo: generation mismatch flagged", k3.get("PROMO_GENERATION_MISMATCH") == 1 and (o3.out_dir / "promo.json").exists())
+            # promo dirs are keyed by the JST day of the bake: the previous day's dir carries this run's generation
+            prev_pdir = tmp / "data" / "runtime" / "promo" / "2026-08-24"
+            prev_pdir.mkdir(parents=True)
+            (prev_pdir / "brief.json").write_text(json.dumps({"generation": "db3308_test", "lagHours": 5.0, "post": True}), encoding="utf-8")
+            o4 = make_observer(tmp / "term-prevday")
+            o4.run_generation = "db3308_test"
+            with redirect_stdout(io.StringIO()):
+                o4.collect_promo(promo_at)
+            k4 = kinds(o4.out_dir)
+            promo4 = json.loads((o4.out_dir / "promo.json").read_text(encoding="utf-8"))
+            check("promo: previous JST-day dir carrying the run generation -> no mismatch",
+                  "PROMO_GENERATION_MISMATCH" not in k4 and "PROMO_BRIEF_MISSING" not in k4, json.dumps(k4))
+            check("promo: resolved dir is the one holding the run generation",
+                  str(promo4.get("dir") or "").replace("\\", "/").endswith("promo/2026-08-24")
+                  and (promo4.get("brief") or {}).get("generation") == "db3308_test", json.dumps(promo4.get("dir")))
+            o5 = make_observer(tmp / "term-nogen")
+            o5.run_generation = "db3308_nowhere"
+            with redirect_stdout(io.StringIO()):
+                o5.collect_promo(promo_at)
+            check("promo: no promo dir carries the run generation -> still flagged",
+                  kinds(o5.out_dir).get("PROMO_GENERATION_MISMATCH") == 1, json.dumps(kinds(o5.out_dir)))
             with redirect_stdout(io.StringIO()):
                 report = obs.write_report(RUN, o3.out_dir, journal=term)
             text = report.read_text(encoding="utf-8")
