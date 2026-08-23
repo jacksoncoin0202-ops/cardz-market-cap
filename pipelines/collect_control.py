@@ -114,6 +114,16 @@ GEMRATE_TRANSPORT_FAILURE_PREFIXES = ("browser_collection_failed",)
 GEMRATE_MAX_WORKERS = 2
 RUNTIME_STATE_LEASE = "cardz:collect:runtime-state:v2"
 DB_WRITER_LEASE = "cardz:collect:db-writer:v2"
+# A sibling lane holds the writer lease for its whole ingest (SNKRDUNK's real
+# harvest held it past 120 s on 2026-08-23 A01), so a waiter needs that much
+# room; the worker heartbeat is a background thread, so a long GET_LOCK wait
+# never reads as a dead worker.
+DB_WRITER_LEASE_TIMEOUT_SECONDS = 900
+# GET_LOCK is a SELECT. qualified_pool_operator.db() caps every SELECT at
+# CARDZ_MAX_EXEC_MS (120 s) to kill runaway reads; on a lease connection that
+# cap killed the *wait* itself (errno 3024, A01 2026-08-23 PC lane). A lease
+# connection only waits on advisory locks and never reads, so lift it here.
+LEASE_SESSION_UNCAP_SQL = "SET SESSION max_execution_time=0"
 GEMRATE_PARALLEL_LEASE_SCOPES = ("0-of-4", "1-of-4", "2-of-4", "3-of-4")
 PY = sys.executable
 # Reporting freshness and the acceptance gate must quote the same number, so
@@ -619,6 +629,7 @@ def _runtime_state_lease():
     cursor = connection.cursor()
     acquired = False
     try:
+        cursor.execute(LEASE_SESSION_UNCAP_SQL)
         cursor.execute("SELECT GET_LOCK(%s, 30) AS acquired", (RUNTIME_STATE_LEASE,))
         row = cursor.fetchone() or {}
         acquired = int(row.get("acquired") or 0) == 1
@@ -634,7 +645,7 @@ def _runtime_state_lease():
 
 
 @contextmanager
-def _db_writer_lease(timeout_seconds: int = 120):
+def _db_writer_lease(timeout_seconds: int = DB_WRITER_LEASE_TIMEOUT_SECONDS):
     """Serialize short ingest/checkpoint transactions, never source fetches.
 
     V2 deliberately runs provider network work in parallel.  Those workers
@@ -649,6 +660,7 @@ def _db_writer_lease(timeout_seconds: int = 120):
     cursor = connection.cursor()
     acquired = False
     try:
+        cursor.execute(LEASE_SESSION_UNCAP_SQL)
         cursor.execute(
             "SELECT GET_LOCK(%s, %s) AS acquired",
             (DB_WRITER_LEASE, max(1, int(timeout_seconds))),
