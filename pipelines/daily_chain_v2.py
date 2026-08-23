@@ -40,6 +40,7 @@ from daily_chain_v2_adapters import (  # noqa: E402
 )
 from daily_chain_v2_contract import (  # noqa: E402
     CONTRACT_SHORTFALL_MARKER,
+    TICK_RESERVE_SECONDS,
     WORK_DEADLINE_ENV,
     SourceTask,
     canonical_json,
@@ -61,7 +62,6 @@ from daily_chain_v2_journal import (  # noqa: E402
 
 JST = ZoneInfo("Asia/Tokyo")
 TASK_LEASE_SECONDS = 90
-TICK_RESERVE_SECONDS = 30
 # One tick must fit inside the scheduler's own ExecutionTimeLimit; 3000 s is
 # the single source of that number for both the CLI default and the installer.
 DEFAULT_MAX_RUNTIME_SECONDS = 3000

@@ -36,6 +36,10 @@ CONTRACT_SHORTFALL_MARKER = "Missing="
 # to every stage subprocess so a stage can shrink its own work instead of
 # being killed mid-fetch at the cutoff.
 WORK_DEADLINE_ENV = "CARDZ_V2_WORK_DEADLINE_EPOCH"
+# The orchestrator refuses to start work inside this reserve; a stage that
+# reads its wall-clock deadline honours the same number rather than a second
+# opinion about how much of a tick is left.  One definition, both processes.
+TICK_RESERVE_SECONDS = 30
 RESULT_STATUSES = frozenset({
     "completed", "degraded", "quarantined", "retry", "terminal", "interrupted",
 })

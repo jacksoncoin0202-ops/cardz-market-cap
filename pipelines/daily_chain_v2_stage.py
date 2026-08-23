@@ -17,10 +17,6 @@ from types import SimpleNamespace
 from typing import Any, Mapping
 
 ROOT = Path(__file__).resolve().parents[1]
-# The orchestrator refuses to start work inside this reserve; a stage that
-# reads its wall-clock deadline honours the same number rather than a
-# second opinion about how much of a tick is left.
-TICK_RESERVE_SECONDS = 30
 # Below this much remaining tick, the browser lane re-proves the pages it
 # already has instead of opening a slow Cloudflare fetch it cannot finish.
 REVERIFY_FETCH_SECONDS = 600
@@ -28,6 +24,7 @@ sys.path.insert(0, str(ROOT / "pipelines"))
 
 from daily_chain_v2_contract import (  # noqa: E402
     IDENTITY_LANE_FALLBACK,
+    TICK_RESERVE_SECONDS,
     WORK_DEADLINE_ENV,
     canonical_json,
     contract_shortfall,
@@ -44,7 +41,7 @@ from daily_chain_v2_contract import (  # noqa: E402
 CHECKPOINT_REPAIR_ADAPTERS: tuple[str, ...] = ("pc_ebay_sales", "en_price_ref")
 # Wall-clock epoch this stage must stop by, published by the orchestrator with
 # TICK_RESERVE_SECONDS already subtracted, so that reserve keeps exactly one
-# definition (daily_chain_v2.TICK_RESERVE_SECONDS).
+# definition (daily_chain_v2_contract.TICK_RESERVE_SECONDS).
 STAGE_DEADLINE_ENV = "CARDZ_V2_STAGE_DEADLINE_EPOCH"
 
 
