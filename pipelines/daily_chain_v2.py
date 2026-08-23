@@ -1260,6 +1260,26 @@ class DailyChainV2:
                 return
             self.reconcile_post_activation_dependencies()
 
+        # Fix F: a stream this run just bound has no checkpoint yet, and the
+        # daily-accept checkpoint gate reads checkpoints, not bindings.  Refill
+        # them here, before the gate; the gate itself is unchanged.  Repair is
+        # extra, so an exhausted repair (TERMINAL) hands the verdict back to the
+        # untouched gate instead of parking the run.
+        if self.stage_row("checkpoint-repair") is None:
+            self.add_stage(
+                phase="barrier",
+                capability="checkpoint-repair",
+                stage_name="checkpoint-repair",
+                required_class="extra",
+                concurrency_group="cdp:9333",
+                max_attempts=3,
+            )
+            return
+        if str((self.stage_row("checkpoint-repair") or {}).get("status") or "") not in (
+            SUCCESS_TASK_STATES | {"TERMINAL"}
+        ):
+            return
+
         if self.stage_row("core-contract-post") is None:
             self.add_stage(
                 phase="barrier",
@@ -1585,6 +1605,7 @@ class DailyChainV2:
                 "--output", str(receipt_path), stage_name, *stage_args,
             ]
         command_sha = sha256(command)
+        work_deadline = self._work_deadline_monotonic(row)
         env = os.environ.copy()
         env.update({
             "CARDZ_DAILY_CHAIN_V2": "1",
@@ -1593,6 +1614,12 @@ class DailyChainV2:
             "CARDZ_V2_TASK_KEY": str(row["task_key"]),
             "CARDZ_V2_CLAIM_TOKEN": str(row["lease_token"]),
             "CARDZ_V2_STATE_DB": str(self.journal.path),
+            # Wall clock a stage must stop by, with TICK_RESERVE_SECONDS already
+            # subtracted so the reserve keeps one definition.  A stage that
+            # opens the network reads this instead of being killed mid-fetch.
+            "CARDZ_V2_STAGE_DEADLINE_EPOCH": repr(
+                time.time() + (work_deadline - time.monotonic()) - TICK_RESERVE_SECONDS
+            ),
         })
         with log_path.open("ab", buffering=0) as log:
             proc = subprocess.Popen(
@@ -1613,7 +1640,6 @@ class DailyChainV2:
                 },
                 proc.pid,
             )
-            work_deadline = self._work_deadline_monotonic(row)
             while proc.poll() is None:
                 if time.monotonic() >= work_deadline:
                     terminate_worker_group(proc.pid, grace_seconds=60.0)
