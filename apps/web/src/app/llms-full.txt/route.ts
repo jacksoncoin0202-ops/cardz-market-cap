@@ -167,7 +167,7 @@ export async function GET(): Promise<Response> {
     "",
     "Market cap is the current PSA 10 reference price multiplied by the verified PSA 10 population, recalculated on every daily update.",
     "",
-    "- Reference price: Completed PSA 10 sales captured inside CardZ Marketcap tracked coverage. Lots are unitised down to a single card, extreme outliers are dropped, and what remains is reduced to a median.",
+    "- Reference price: The most recent completed PSA 10 sale captured inside CardZ Marketcap tracked coverage. Lots are unitised down to a single card, and a sale priced far outside its own recent range is rejected in favour of the next most recent one. Daily history points carry the same real sales; a day without one carries no price.",
     "- Population: The verified PSA 10 population for that exact printing — language, set, collector number and parallel are never merged across printings.",
     "- Gaps: A card with insufficient data coverage in the window is marked as accumulating rather than being given a filled-in number. A missing value stays missing, never zero.",
     "",

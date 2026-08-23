@@ -296,11 +296,14 @@ function braced(source, start) {
 }
 
 /* ─────────────────────────────────────────────────────────────
- * T5 — history ladder／變幅錨點要認得 `_sales` 係母 lane 嘅升格碼。
- * `currentSource`（:521 ladder map）同 `windowMetrics(... currentSource)`（:729）都係由
- * `row.price_source_code` 嚟，而 056 之後嗰個值係 `pricecharting_sales`；history 點
- * （market_price_observation）永遠係母碼。唔剝尾碼 = 全板對唔中、靜靜換 lane。
- * 抽真 helper 出嚟行，再釘兩個 call site 都行過 helper。
+ * T5 — 變幅錨點要認得 `_sales` 係母 lane 嘅升格碼。
+ * `windowMetrics(... currentSource)` 由 `row.price_source_code` 嚟，而 056 之後嗰個值
+ * 係 `pricecharting_sales`。唔剝尾碼 = 全板對唔中、靜靜換 lane。
+ *
+ * 2026-08-24（R6）：舊嗰個 `currentSource` ladder map 淨係服務 `market_price_observation`
+ * 嘅 K 線點排序，而成條 chart 讀路已經整條刪走（日線只准由真成交嚟，見
+ * scripts/test-fe-history-sale-only.mjs）。所以呢度唔再釘個 ladder map，改為釘更強嘅
+ * 一句：chart 讀路唔准返嚟。剩返兩個 chartLaneOf call site（currentSource + 錨點）照釘。
  * ───────────────────────────────────────────────────────────── */
 {
   const helperMatch = producer.match(/function chartLaneOf\(sourceCode: unknown\): string \| null \{([\s\S]*?)\n\}/);
@@ -314,15 +317,19 @@ function braced(source, start) {
     check("T5: chart 母碼原樣", chartLaneOf("pricecharting") === "pricecharting" && chartLaneOf("snkrdunk") === "snkrdunk");
     check("T5: 空值 → null", chartLaneOf(null) === null && chartLaneOf("") === null);
   }
-  check("T5: ladder map 行過 chartLaneOf",
-    /new Map\(coreRows\.map\(\(row\) => \[Number\(row\.variant_id\), chartLaneOf\(row\.price_source_code\)/.test(producer),
-    "ladder map 仲係直接 String(row.price_source_code)");
+  check("T5: chart（market_price_observation）讀路唔准返嚟餵 history",
+    !producer.includes("INNER JOIN market_price_observation") && !/priceRows/.test(producer),
+    "producer 又有 K 線讀路");
+  check("T5: 變幅錨點嘅 source code 行過 chartLaneOf",
+    /const anchorSource = chartLaneOf\(anchor\?\.sourceCode \?\? null\);/.test(producer),
+    "anchorSource 冇剝尾碼，全板會假 sourceSwitched");
   check("T5: windowMetrics 個 currentSource 行過 chartLaneOf",
     /priceAsOf,\s*chartLaneOf\(row\.price_source_code\),\s*\)/.test(producer),
     "windowMetrics 仲係直接 String(row.price_source_code)");
-  check("T5: 兩個 call site 冇剩返舊寫法",
+  check("T5: call site 冇剩返舊寫法",
     !/\[Number\(row\.variant_id\), String\(row\.price_source_code\)\]/.test(producer)
-    && !/priceAsOf,\s*String\(row\.price_source_code\),?\s*\)/.test(producer));
+    && !/priceAsOf,\s*String\(row\.price_source_code\),?\s*\)/.test(producer)
+    && !/const anchorSource = anchor\?\.sourceCode \?\? null;/.test(producer));
 }
 
 if (failed.length) {

@@ -142,6 +142,9 @@ type AnchorCandidate = { at: string; priceUsd: number; sourceCode: string | null
 // 比較時要當同一條 lane。唔剝尾碼：全板 currentSource 永遠對唔中任何 history 點——
 // EN 卡嘅日線由 PC 點靜靜變咗 SNK 點（ladder tier 1 < 2），1d/7d 變幅嘅錨點亦由
 // chart 退晒去成交均價，頁面照出、零 error。test-fe-sale-date-label T5 釘住兩個 call site。
+// R6（2026-08-24）之後上面兩段變成歷史紀錄：history 已經冇 chart 觀測點，剩返成交點，
+// 所以 chartLaneOf 而家嘅工作淨係「錨（`<lane>_sales`）同現價 quote（`<lane>_sales`）
+// 剝返同一個母碼再比」，跨 marketplace 嗰個假暴升由源頭消失。
 function chartLaneOf(sourceCode: unknown): string | null {
   const code = String(sourceCode ?? "").trim();
   if (!code) return null;
@@ -264,7 +267,10 @@ function windowMetrics(
       : nearestPrice(history, targetMs, tolerance, currentMs, currentSource)
         ?? (code === "30d" ? latestBefore(history, targetMs - tolerance * 86_400_000, currentSource) : null);
     const priceChange = percentage(currentPrice, anchor?.priceUsd ?? null);
-    const anchorSource = anchor?.sourceCode ?? null;
+    // 錨點而家一律係成交點（`<lane>_sales` / 多源嗰日 `exact_psa10_sales`），
+    // 而 currentSource 已經行過 chartLaneOf（母碼）。唔剝尾碼比較 = 全板 1,604
+    // 張卡永遠 anchorSource !== currentSource，UI 掛住一個假嘅「換咗來源」提示。
+    const anchorSource = chartLaneOf(anchor?.sourceCode ?? null);
     const sourceSwitched = Boolean(anchorSource && currentSource && anchorSource !== currentSource);
     const inventCap = !LONG_WINDOWS.has(code);
     const anchorCap = !inventCap || anchor === null || currentPopulation === null
@@ -424,7 +430,7 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
     const variantIds = coreRows.map((row) => Number(row.variant_id));
     const placeholders = variantIds.map(() => "?").join(",");
 
-  const [localeRows, imageRows, fallbackImageRows, rawRows, priceRows, salesRows, fxRows] = await Promise.all([
+  const [localeRows, imageRows, fallbackImageRows, rawRows, salesRows, fxRows] = await Promise.all([
       connection.query<DbRow[]>(`
         SELECT variant_id,locale_code,localized_name,localized_set_name,market_story,observed_at
         FROM catalog_variant_locale WHERE variant_id IN (${placeholders})
@@ -471,20 +477,6 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
           SELECT variant_id,MAX(id) AS id FROM market_ungraded_reference_price
           WHERE variant_id IN (${placeholders}) GROUP BY variant_id
         ) latest ON latest.id=raw.id
-      `, variantIds),
-      connection.query<DbRow[]>(`
-        SELECT history.id,price.variant_id,price.observed_date,price.price_usd,price.effective_at,
-          CASE WHEN price.source_code IN ('snk','snk_psa10') THEN 'snkrdunk' ELSE price.source_code END AS source_code
-        FROM market_metric_history_acceptance history
-        INNER JOIN market_price_observation price ON history.source_record_type='market_price_observation'
-          AND history.source_record_id=price.id AND history.variant_id=price.variant_id
-        WHERE history.metric_kind='psa10_price' AND history.variant_id IN (${placeholders})
-          -- acceptance 行係 append-only，可以指住事後被隔離嘅觀測（quarantined /
-          -- quarantined_lane / banned_g10_kline）。SQL 讀模全部（023/026/028/032）
-          -- 都係 metric_status='ready' 先出街；呢條 TS 讀路一直冇跟，2026-08-12
-          -- ad-hoc lane 事故先發現。等值 filter：新隔離字自動 fail-closed。
-          AND price.metric_status='ready'
-        ORDER BY price.variant_id,price.observed_date,price.effective_at,history.id
       `, variantIds),
       connection.query<DbRow[]>(`
         SELECT variant_id,observed_date,sales_count,sales_value_usd,sales_coverage_status,
@@ -545,26 +537,6 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       variant.set(date, point);
       return point;
     };
-    const currentSource = new Map(coreRows.map((row) => [Number(row.variant_id), chartLaneOf(row.price_source_code) ?? ""]));
-    for (const row of priceRows[0]) {
-      const variantId = Number(row.variant_id);
-      const observedDate = day(row.observed_date);
-      if (!observedDate) continue;
-      const point = getPoint(variantId, observedDate);
-      const sourceCode = String(row.source_code);
-      const sourcePriority = sourceCode === currentSource.get(variantId)
-        ? 0
-        : sourceCode === "snkrdunk"
-          ? 1
-          : sourceCode === "pricecharting"
-            ? 2
-            : 3;
-      if (point.priceUsd !== null && point.priceSourcePriority <= sourcePriority) continue;
-      point.priceUsd = numberValue(row.price_usd);
-      point.priceStatus = point.priceUsd === null ? "unavailable" : "ready";
-      point.priceSourceCode = sourceCode;
-      point.priceSourcePriority = sourcePriority;
-    }
     const saleQuarantine = loadSaleQuarantine(await loadDbExcludedSaleIds(connection));
     for (const row of salesRows[0]) {
       const observedDate = day(row.observed_date);
@@ -588,12 +560,19 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       point.salesCoverage = String(row.sales_coverage_status || "unavailable") as DailyHistoryPoint["salesCoverage"];
       point.salesVerifiedZero = Boolean(row.sales_verified_zero);
 
-      // `operator_accepted_psa10_sales_history` contains only strict
-      // provider-bound PSA10 transactions.  A daily close from an exact
-      // provider remains preferred; when it is absent, the actual same-day
-      // PSA10 transaction average is a valid historical price anchor.  This
-      // is deliberately history-only: it never replaces the accepted current
-      // price or changes the market-cap ranking.
+      // 日線價**只可以**由呢度嚟。`operator_accepted_psa10_sales_history` 淨係
+      // 收嚴格 provider-bound 嘅 PSA10 真成交（已扣走 title↔卡號隔離嗰啲）。
+      // 2026-08-24 之前呢度仲有一條 `market_price_observation` 讀路餵住 K 線
+      // （PriceCharting／SNKRDUNK 嘅「有價冇成交」圖表點，最近 30 日 3,530 個），
+      // 而 `windowMetrics` 全部變幅都錨喺呢條 history 上面 —— 即係攞真成交同
+      // K 線比，出街一個 +8.8% 其實應該係 +55%，冇 error、冇 warning。owner
+      // 2026-08-23：「月 K 全部全線踢走」。所以 chart 讀路已經整條刪走，日線
+      // 淨返成交日；冇成交嘅日就冇點（唔准填），窗計算靠 nearestPrice /
+      // latestBefore 嘅 as-of 語義自己向前帶。
+      // 同日多過一單就攞當日成交均價：sale 級嘅先後次序冇任何現有 view 出到
+      // （加 view = 改 migration），而日內排序對日線圖冇意義。頭條價嗰邊照舊
+      // 係單筆最新真成交，唔經呢度。
+      // 依然係 history-only：唔會取代已 accept 嘅現價，唔會郁市值排名。
       const salesCount = dayCount;
       const salesValue = dayValue;
       if (point.priceUsd === null && salesCount !== null && salesCount > 0 && salesValue !== null && salesValue > 0) {
