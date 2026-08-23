@@ -58,6 +58,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import sys
 import threading
 import time
@@ -88,6 +89,51 @@ SPEEDS = {"slow": 3.0, "medium": 1.0, "fast": 0.15}
 # the next rung and retries; running past the last rung records a
 # rate_limited_429_exhausted failure receipt for that card.
 RATE_LIMIT_LADDER = (30, 60, 120, 300, 600)
+
+# Session warm-up backoff (seconds). audit P0-2: the one navigation that gates
+# all ~400 cards of a shard had no retry, so a transient Cloudflare/Chrome
+# failure ~1.5s into the session killed 399/399 cards twice (2026-08-20,
+# 2026-08-23) while three sibling shards launched Chrome in the same second.
+WEBSITE_SESSION_RETRY_BACKOFF = (5.0, 15.0, 30.0)
+
+# audit P1-6: give up on the first pass only after this many consecutive
+# session-level errors that harvested nothing, instead of breaking on the first.
+WEBSITE_SESSION_ERROR_LIMIT = 2
+
+# audit item 10 (2026-08-24 repair): a SIGTERM used to discard every card the
+# website pass had already captured because the manifest is only written at the
+# end of cmd_daily. This event lets the pass stop dispatching and fall through
+# to a declared-partial manifest, so the ~600 cards already fetched are ingested
+# instead of re-fetched from zero on the next attempt.
+_SHUTDOWN_EVENT = threading.Event()
+
+
+def shutdown_requested() -> bool:
+    return _SHUTDOWN_EVENT.is_set()
+
+
+def request_shutdown() -> None:
+    _SHUTDOWN_EVENT.set()
+
+
+def _install_shutdown_handlers() -> None:
+    """Stop dispatching on SIGTERM/SIGINT; never abandon captured payloads."""
+
+    def _on_signal(signum, _frame) -> None:
+        _SHUTDOWN_EVENT.set()
+        print(f"[daily] signal {signum}: finishing partial run", file=sys.stderr)
+
+    for name in ("SIGTERM", "SIGINT"):
+        number = getattr(signal, name, None)
+        if number is None:
+            continue
+        try:
+            signal.signal(number, _on_signal)
+        except (ValueError, OSError):
+            # Not the main thread / unsupported platform: the pass simply keeps
+            # its previous all-or-nothing behaviour rather than failing here.
+            continue
+
 
 # Cards per browser batch on the public-card-page pass. Small enough that the
 # wall-clock budget is checked often, large enough to amortise browser startup.
@@ -758,6 +804,7 @@ def build_population_transport_run(
     direct_attempted_ids: set[str] | None = None,
     website_attempted_ids: set[str] | None = None,
     mirror_attempted_ids: set[str] | None = None,
+    website_failure_reasons: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Resolve a complete current-population run without doing network I/O.
 
@@ -769,6 +816,11 @@ def build_population_transport_run(
     """
 
     website_payloads = website_payloads or {}
+    # audit P2-9: "no_current_population" is an assertion about GemRate's data.
+    # When the browser died before it issued a request the truthful reason is
+    # the transport receipt, not a data verdict, so the caller hands the
+    # per-card receipts in and they win over the generic fallback.
+    website_failure_reasons = website_failure_reasons or {}
     cards_by_gid: dict[str, Mapping[str, Any]] = {}
     for card in cards:
         gid = str(card.get("gemrateId") or "")
@@ -857,7 +909,10 @@ def build_population_transport_run(
             continue
 
         if not points:
-            unresolved.append({"gemrateId": gid, "reason": "no_current_population"})
+            unresolved.append({
+                "gemrateId": gid,
+                "reason": website_failure_reasons.get(gid, "no_current_population"),
+            })
             continue
         selected = max(
             points,
@@ -1166,6 +1221,12 @@ def cmd_daily(args) -> int:
     direct_attempted: set[str] = set()
     website_attempted: set[str] = set()
     mirror_attempted: set[str] = set()
+    # audit P2-9 / P2-10: keep the real per-card transport verdicts instead of
+    # letting them die inside collect_public_card_details.
+    website_failure_receipts: list[dict[str, Any]] = []
+    # audit item 10: a tick-deadline SIGTERM must not discard the cards this
+    # run already fetched; stop dispatching and fall through to a partial run.
+    _install_shutdown_handlers()
 
     print(
         f"[daily] {len(cards)} cards, direct={'enabled' if key else 'disabled'}, "
@@ -1175,6 +1236,8 @@ def cmd_daily(args) -> int:
     )
     if key:
         for gid in selected_ids:
+            if _SHUTDOWN_EVENT.is_set():
+                break
             direct_attempted.add(gid)
             payload, note = fetch_current_population(gid, key, delay)
             if payload is not None:
@@ -1220,11 +1283,15 @@ def cmd_daily(args) -> int:
         website_attempted.update(website_ids)
         workers = max(1, int(getattr(args, "workers", 0) or 4))
         pending = list(website_ids)
+        session_errors = 0
         for pass_workers, pass_delay, label in (
-            (workers, max(0.3, delay), "first"),
+            # audit P2-11: the caller already picked a delay (--speed fast is
+            # 0.15s); the old max(0.3, delay) floor silently doubled it with no
+            # measurement behind it and no 429 ever observed.
+            (workers, delay, "first"),
             (1, SPEEDS["slow"], "slow retry"),
         ):
-            if not pending or time.monotonic() >= deadline:
+            if not pending or time.monotonic() >= deadline or _SHUTDOWN_EVENT.is_set():
                 break
             if label != "first":
                 print(
@@ -1241,12 +1308,20 @@ def cmd_daily(args) -> int:
                 deadline=deadline,
                 payload_sink=website_payloads,
             )
+            website_failure_receipts.extend(outcome.get("failureReceipts") or [])
             if outcome["error"]:
                 print(
                     f"[daily] public card page unavailable: {outcome['error']}",
                     file=sys.stderr,
                 )
-                break
+                # audit P1-6: one session-level exception used to break out of
+                # the pass loop, which disabled the very slow-retry pass that
+                # exists to rescue these cards (2026-08-24: 399/399 lost).
+                # A session that harvested nothing counts towards the give-up
+                # limit; one that harvested something resets it.
+                session_errors = session_errors + 1 if not outcome["succeeded"] else 0
+                if session_errors >= WEBSITE_SESSION_ERROR_LIMIT:
+                    break
             # A per-page failure (CF challenge timing, browser evaluation) usually
             # clears on one slower retry, so whatever the fast pass missed gets a
             # second, gentler attempt inside the same budget.
@@ -1265,6 +1340,25 @@ def cmd_daily(args) -> int:
                 mirror_payloads[gid] = payload
                 _save(run_cards / gid / "population_mirror.json", payload)
 
+    # audit P2-10: the run dir keeps the exact per-card transport verdicts,
+    # including the browser exception class name, so the next outage does not
+    # have to be diagnosed by back-inference. Last verdict per card wins.
+    website_failure_reasons = {
+        str(row.get("gemrateId") or ""): str(row.get("reason") or "unknown")
+        for row in website_failure_receipts
+        if str(row.get("gemrateId") or "")
+    }
+    if website_failure_receipts:
+        _save(
+            run_root / "website_transport_receipts.json",
+            {
+                "schemaVersion": "1.0.0",
+                "runId": run_id,
+                "fetchedAt": fetched_at,
+                "interrupted": _SHUTDOWN_EVENT.is_set(),
+                "reasons": website_failure_reasons,
+            },
+        )
     try:
         manifest = build_population_transport_run(
             cards,
@@ -1275,10 +1369,15 @@ def cmd_daily(args) -> int:
             direct_attempted_ids=direct_attempted,
             website_attempted_ids=website_attempted,
             mirror_attempted_ids=mirror_attempted,
+            website_failure_reasons=website_failure_reasons,
         )
     except PopulationResolutionError as error:
         manifest = dict(error.manifest)
         manifest.update({"runId": run_id, "historyIncluded": False, "promoted": False})
+        if website_failure_reasons:
+            manifest["websiteFailureReceipts"] = website_failure_reasons
+        if _SHUTDOWN_EVENT.is_set():
+            manifest["interrupted"] = True
         if direct_identity_failures:
             manifest["directIdentityReceiptFailures"] = direct_identity_failures
         _save(run_root / "manifest.json", manifest)
@@ -1286,6 +1385,13 @@ def cmd_daily(args) -> int:
         return 1
 
     manifest.update({"runId": run_id, "historyIncluded": False, "promoted": False})
+    if website_failure_reasons:
+        manifest["websiteFailureReceipts"] = website_failure_reasons
+    if _SHUTDOWN_EVENT.is_set():
+        # audit item 10: a declared-partial manifest is what lets the caller
+        # ingest the cards this run did fetch. The flag keeps the lane failing
+        # -- an interrupted run is never a clean verdict.
+        manifest.update({"partial": True, "promotable": False, "interrupted": True})
     if direct_identity_failures:
         manifest.update({"partial": True, "promotable": False, "promoted": False})
         manifest["directIdentityReceiptFailures"] = direct_identity_failures
@@ -1574,7 +1680,10 @@ def _fetch_card_once(
                 for entry in initiated_json
             ) or any(entry.get("status") == 429 for entry in initiated_json):
                 break
-            page.wait_for_timeout(200)
+            # audit P2-11: a 200ms poll overshoots the arrival of the
+            # /card-details response by ~100ms on average; at ~400 cards a
+            # shard that is ~40s of pure sleep per shard.
+            page.wait_for_timeout(50)
         has_page_json = any(
             entry.get("status") == 200 and isinstance(entry.get("body"), Mapping)
             for entry in initiated_json
@@ -1735,13 +1844,49 @@ def _gemrate_public_page() -> Iterator[Any]:
     except ImportError:
         raise RuntimeError("public-card-dump needs the pinned Playwright dependency")
     with sync_playwright() as pw:
-        browser = _launch_chromium(pw)
-        ctx = browser.new_context(user_agent=UA, viewport={"width": 1366, "height": 900})
-        ctx.add_init_script(_STEALTH)
-        ctx.route("**/*", _abort_heavy_resources)
-        page = ctx.new_page()
-        page.goto(WEB + "/universal-pop-report", wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_timeout(3000)
+        # audit P0-2: this is the only network call in the whole website
+        # transport without a retry, and it gates every card in the shard. Two
+        # whole-shard 399/399 outages (2026-08-20, 2026-08-23) died here ~1.5s
+        # into the session while sibling shards launched Chrome in the same
+        # second. Retry the launch+context+warm-up as one unit, closing the
+        # half-dead browser in between, and only raise on the last attempt.
+        browser = None
+        for attempt, backoff in enumerate(
+            (*WEBSITE_SESSION_RETRY_BACKOFF, None), start=1
+        ):
+            try:
+                browser = _launch_chromium(pw)
+                ctx = browser.new_context(
+                    user_agent=UA, viewport={"width": 1366, "height": 900}
+                )
+                ctx.add_init_script(_STEALTH)
+                ctx.route("**/*", _abort_heavy_resources)
+                page = ctx.new_page()
+                page.goto(
+                    WEB + "/universal-pop-report",
+                    wait_until="domcontentloaded",
+                    timeout=60000,
+                )
+                page.wait_for_timeout(3000)
+                break
+            except Exception as error:
+                if browser is not None:
+                    try:
+                        browser.close()
+                    except Exception:
+                        pass
+                    browser = None
+                if backoff is None:
+                    # Keep the original exception class: _safe_browser_error
+                    # turns it into the receipt reason (audit P2-10).
+                    raise
+                print(
+                    f"[daily] public card page session attempt {attempt} failed "
+                    f"({type(error).__name__}); retrying in {backoff:.0f}s",
+                    file=sys.stderr,
+                )
+                if _SHUTDOWN_EVENT.wait(backoff):
+                    raise
         try:
             yield page
         finally:
@@ -1767,6 +1912,10 @@ def _fetch_card_pages_on_page(
     """
 
     def _raise_if_cancelled() -> None:
+        # audit item 10: a process-level SIGTERM stops dispatch the same way a
+        # caller cancellation does; the caller turns it into a partial run.
+        if _SHUTDOWN_EVENT.is_set():
+            raise InterruptedError("public card-page worker shutting down")
         if cancel_event is not None and cancel_event.is_set():
             raise InterruptedError("public card-page worker interrupted")
 
@@ -1852,11 +2001,17 @@ def _chrome_card_pages_with_receipts(
 
 
 def _safe_browser_error(error: Exception) -> str:
-    """Classify a browser failure without storing exception text or secrets."""
+    """Classify a browser failure without storing exception text or secrets.
+
+    audit P2-10: the exception class name is not a secret and it is the only
+    thing that separates "Chrome never launched" from "Cloudflare closed the
+    context". Two whole-shard outages had to be diagnosed by back-inference
+    because this collapsed every failure into one opaque string.
+    """
 
     if isinstance(error, RuntimeError):
         return "browser_unavailable"
-    return "browser_collection_failed"
+    return f"browser_collection_failed:{type(error).__name__}"
 
 
 def collect_public_card_details(
@@ -1912,7 +2067,7 @@ def collect_public_card_details(
                 raise InterruptedError("public card-page worker interrupted")
             with _gemrate_public_page() as page:
                 for start in range(0, len(shard), chunk_size):
-                    if cancel_event.is_set():
+                    if cancel_event.is_set() or _SHUTDOWN_EVENT.is_set():
                         raise InterruptedError("public card-page worker interrupted")
                     if deadline is not None and time.monotonic() >= deadline:
                         shard_receipts.extend(
@@ -1941,7 +2096,19 @@ def collect_public_card_details(
                                 gid, http_status=None, reason="missing_response",
                             ))
         except InterruptedError:
-            raise
+            # audit item 10: an in-flight shutdown is not a lost shard. Return
+            # what this worker already captured (each card was persisted the
+            # moment it succeeded) so cmd_daily can still build a declared
+            # partial manifest and the chain ingests it instead of re-fetching.
+            if not _SHUTDOWN_EVENT.is_set():
+                raise
+            shard_error = "interrupted_by_signal"
+            leftover = [gid for gid in shard if gid not in shard_payloads]
+            leftover = [gid for gid in leftover if gid not in {str(row.get("gemrateId")) for row in shard_receipts}]
+            shard_receipts.extend(
+                _public_failure_receipt(gid, http_status=None, reason=shard_error)
+                for gid in leftover
+            )
         except Exception as caught:
             shard_error = _safe_browser_error(caught)
             leftover = [gid for gid in shard if gid not in shard_payloads]

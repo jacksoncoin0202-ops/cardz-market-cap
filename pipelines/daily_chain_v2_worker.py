@@ -215,6 +215,9 @@ def run_collect(
         dry_run=effective_dry_run,
         delay=float(worker.get("delay") or 0.0),
         workers=int(worker.get("workers") or 24),
+        # audit P1-5: gemrate browser workers are a separate knob from the SNK
+        # harvest thread count above; sharing "workers" would hand gemrate 24.
+        gemrate_workers=int(worker.get("gemrateWorkers") or 1),
         ensure_browser=bool(worker.get("ensureBrowser")),
         pc_resume_report=None,
         pc_sleep=(

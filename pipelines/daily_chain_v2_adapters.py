@@ -32,6 +32,12 @@ class WorkerInterrupted(RuntimeError):
     pass
 
 
+# audit item 10: seconds between SIGTERM and SIGKILL for a source worker group.
+# Long enough for collect_control to ingest the cards its child already fetched
+# and declared; matches the stage subprocess path in daily_chain_v2.py.
+WORKER_SHUTDOWN_GRACE_SECONDS = 60.0
+
+
 def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
@@ -59,6 +65,31 @@ def _process_started_at(pid: int) -> str | None:
         return path.read_text(encoding="ascii").split()[21]
     except (OSError, IndexError):
         return None
+
+
+def run_started_at(state_db: Path, run_id: str) -> str:
+    """audit P2-12: the run's creation time, for windows anchored to the run.
+
+    ``CARDZ_V2_RUN_STARTED_AT`` is injected into stage subprocesses by the
+    orchestrator but never into its own environment, so a source worker (and
+    therefore collect_control) never saw it and fell back to JST midnight.
+    Read it straight off the journal instead of relying on inheritance.
+    """
+    import sqlite3
+
+    try:
+        conn = sqlite3.connect(f"file:{state_db}?mode=ro", uri=True, timeout=5.0)
+    except sqlite3.Error:
+        return ""
+    try:
+        row = conn.execute(
+            "SELECT created_at FROM chain_run WHERE run_id=?", (run_id,)
+        ).fetchone()
+    except sqlite3.Error:
+        return ""
+    finally:
+        conn.close()
+    return "" if row is None else str(row[0] or "")
 
 
 def terminate_worker_group(pid: int, *, grace_seconds: float = 5.0) -> None:
@@ -188,6 +219,13 @@ class CommandSourceAdapter:
                 "CARDZ_DAILY_CHAIN_V2": "1",
                 "CARDZ_V2_RUN_ID": task.run_id,
                 "CARDZ_V2_BUSINESS_DATE": task.business_date,
+                # audit P2-12: source workers need the same run anchor the
+                # stage subprocesses already get, or every window they compute
+                # (gemrate manifest reuse included) snaps back to JST midnight.
+                "CARDZ_V2_RUN_STARTED_AT": (
+                    os.environ.get("CARDZ_V2_RUN_STARTED_AT", "").strip()
+                    or run_started_at(state_db, task.run_id)
+                ),
                 "CARDZ_V2_TASK_KEY": task_key,
                 "CARDZ_V2_STATE_DB": str(state_db),
             }
@@ -223,7 +261,13 @@ class CommandSourceAdapter:
             while proc.poll() is None:
                 now = time.monotonic()
                 if now >= deadline_monotonic:
-                    terminate_worker_group(proc.pid)
+                    # audit item 10: the default 5s grace killed collect_control
+                    # while its child still held hundreds of fetched cards, so
+                    # nothing was ingested and the retry restarted from zero.
+                    # The stage path already grants 60s for the same reason.
+                    terminate_worker_group(
+                        proc.pid, grace_seconds=WORKER_SHUTDOWN_GRACE_SECONDS
+                    )
                     raise WorkerInterrupted(
                         f"tick deadline interrupted source worker pid={proc.pid} task={task_key}"
                     )
@@ -314,7 +358,16 @@ def build_default_registry() -> AdapterRegistry:
                     adapter_version="2",
                 ),
                 worker_kind="collect",
-                worker_payload={"adapters": ["gemrate_pop"], "ensureBrowser": False},
+                # audit P1-5: --workers was hardcoded to 1 in collect_control,
+                # which made gemrate the source-phase critical path at 2.7x the
+                # second-slowest source. 2 is the measured starting point; the
+                # collector fails closed above GEMRATE_MAX_WORKERS because this
+                # spec already runs max_concurrency=4 shards (2 x 4 = 8 Chromes).
+                worker_payload={
+                    "adapters": ["gemrate_pop"],
+                    "ensureBrowser": False,
+                    "gemrateWorkers": 2,
+                },
                 shards=("0-of-4", "1-of-4", "2-of-4", "3-of-4"),
                 capability_adapters={"pop": ("gemrate_pop",)},
             ),
