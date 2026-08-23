@@ -21,7 +21,7 @@ import sys
 import tempfile
 import time
 import types
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -38,11 +38,14 @@ from daily_chain_v2 import DailyChainV2  # noqa: E402
 from daily_chain_v2_adapters import build_default_registry  # noqa: E402
 from daily_chain_v2_contract import (  # noqa: E402
     INFRA_RETRY_SECONDS,
+    PUBLISH_ASSET_MAX_ATTEMPTS,
+    PUBLISH_LEG_SECONDS,
     PUBLISH_LOCK_EXIT_CODE,
     PUBLISH_LOCK_MARKER,
     PUBLISH_RETRY_SECONDS,
     TRANSIENT_RETRY_SECONDS,
     SourceTask,
+    clamp_retry_at,
     classify_error,
 )
 from daily_chain_v2_journal import Journal  # noqa: E402
@@ -436,12 +439,23 @@ try:
     os.environ["CARDZ_V2_NOTIFY_DRY_RUN"] = "1"
     chain_module.LAST_ALERT = None
     journal = new_journal("publish-alert")
+    # R4: the ladder is clamped to `final - PUBLISH_LEG_SECONDS`, so this
+    # fixture has to own a real window instead of DAY's long-past 17:00 JST --
+    # otherwise every publish verdict here is TERMINAL for lack of time and the
+    # transient half of the check would prove nothing.
+    _alert_now = chain_module.utc_now()
     chain = DailyChainV2(
         journal=journal,
         business_date=DAY,
         allow_publish=False,
         notify=False,
         deadline_monotonic=time.monotonic() + 600,
+        schedule={
+            "start": _alert_now - timedelta(hours=1),
+            "source_cutoff": _alert_now + timedelta(hours=1),
+            "sla": _alert_now + timedelta(hours=2),
+            "final": _alert_now + timedelta(hours=4),
+        },
     )
 
     def fail_publish_task(capability: str, message: str) -> dict[str, Any]:
@@ -484,6 +498,110 @@ try:
     finally:
         os.environ.pop("CARDZ_V2_NOTIFY_DRY_RUN", None)
     print("POSITIVE_OK P1-2 a terminal publish verdict alerts immediately while a retryable one stays quiet")
+
+    # -------------------------------------------------------------------- R4
+    # 2026-08-24: the release ladder could burn itself out before the day's
+    # 17:00 JST final.  V2 forced a single bake attempt
+    # (daily_public_release.sh:263) and the orchestrator ladder
+    # (120,300,600,1200,1800 = 67 min) could park the next publish retry AFTER
+    # `final`, where lifecycle_events() stamps FAILED_FINAL unconditionally:
+    # attempts left, and no time left in which to spend them.  The cutoff is
+    # NOT loosened; the ladder is clamped to `final - PUBLISH_LEG_SECONDS` so
+    # every remaining attempt still gets one whole publish leg.
+
+    # (a) The two sides of the bake retry count agree, and the retry is only
+    #     idempotent because it restores data/public first.
+    assert 2 <= PUBLISH_ASSET_MAX_ATTEMPTS <= 3, PUBLISH_ASSET_MAX_ATTEMPTS
+    v2_asset_lines = [
+        line.strip() for line in release_source.splitlines()
+        if "V2_MODE == 1" in line and "asset_max_attempts=" in line
+    ]
+    assert len(v2_asset_lines) == 1, v2_asset_lines
+    assert f"asset_max_attempts={PUBLISH_ASSET_MAX_ATTEMPTS};" in v2_asset_lines[0], v2_asset_lines
+    assert 'git -C "$RELEASE_REPO" checkout -- data/public' in release_source
+
+    # (b) The ladder never schedules past cutoff - one leg, and once the last
+    #     leg no longer fits there is no room at all (which reads as exhausted,
+    #     never as "retry anyway after the cutoff").
+    r4_cutoff = datetime(2026, 8, 20, 8, 0, tzinfo=timezone.utc)  # 17:00 JST
+    r4_cap = r4_cutoff - timedelta(seconds=PUBLISH_LEG_SECONDS)
+    for before_cutoff, delay in (
+        (6 * 3600, 120), (3600, 300), (1500, 600), (1000, 1200), (900, 1800),
+    ):
+        at = r4_cutoff - timedelta(seconds=before_cutoff)
+        landed = clamp_retry_at(at, delay, not_after=r4_cap)
+        assert landed is not None, (before_cutoff, delay)
+        assert landed <= r4_cap, (before_cutoff, delay, landed, r4_cap)
+        assert landed >= at, (before_cutoff, delay, landed)
+    assert clamp_retry_at(r4_cap, 120, not_after=r4_cap) == r4_cap
+    assert clamp_retry_at(r4_cap + timedelta(seconds=1), 120, not_after=r4_cap) is None
+    # No deadline at all leaves the ladder exactly as classify_error wrote it.
+    assert clamp_retry_at(r4_cutoff, 120, not_after=None) == r4_cutoff + timedelta(seconds=120)
+
+    # (c) Through the real orchestrator: a publish failure that lands with less
+    #     than one ladder step of window left retries INSIDE the window.
+    os.environ["CARDZ_V2_NOTIFY_DRY_RUN"] = "1"
+    try:
+        def r4_publish_failure(name: str, seconds_of_window: float) -> dict[str, Any]:
+            started = chain_module.utc_now()
+            final_at = started + timedelta(seconds=PUBLISH_LEG_SECONDS + seconds_of_window)
+            r4_journal = new_journal(f"publish-ladder-{name}")
+            r4_chain = DailyChainV2(
+                journal=r4_journal,
+                business_date=DAY,
+                allow_publish=False,
+                notify=False,
+                deadline_monotonic=time.monotonic() + 600,
+                schedule={
+                    "start": started - timedelta(hours=6),
+                    "source_cutoff": started - timedelta(hours=2),
+                    "sla": started - timedelta(hours=1),
+                    "final": final_at,
+                },
+            )
+            key = r4_journal.add_raw_task(
+                run_id=RUN_ID, business_date=DAY.isoformat(), phase="publish",
+                source_code="release", capability=f"release-{name}",
+                required_class="core", concurrency_group=f"publish:{name}",
+                max_attempts=6, payload={"kind": "stage", "stageName": "release"},
+            )
+            claimed = [
+                row for row in r4_journal.claim_ready(RUN_ID, phases=("publish",), limit=4)
+                if str(row["task_key"]) == key
+            ]
+            assert len(claimed) == 1, (name, claimed)
+            r4_chain._run_stage_process = lambda row: (_ for _ in ()).throw(
+                RuntimeError("release exit=1: fatal: unable to access remote: HTTP 502")
+            )
+            with contextlib.redirect_stdout(io.StringIO()):
+                r4_chain.execute_claim(claimed[0])
+            row = dict(r4_journal.task(key) or {})
+            row["_final"] = final_at
+            row["_chain"] = r4_chain
+            row["_journal"] = r4_journal
+            return row
+
+        # 60 s of window: the 120 s ladder step would land past the cutoff.
+        inside = r4_publish_failure("inside", 60.0)
+        assert inside["status"] == "RETRY", inside
+        assert inside["last_error_code"] == "PUBLISH_FAILED", inside
+        r4_due = datetime.fromisoformat(str(inside["next_retry_at"]).replace("Z", "+00:00"))
+        r4_latest = inside["_final"] - timedelta(seconds=PUBLISH_LEG_SECONDS)
+        assert r4_due <= r4_latest, (r4_due, r4_latest, inside["_final"])
+
+        # No leg left in the day: TERMINAL, and the 17:00 cutoff still stamps
+        # FAILED_FINAL.  The cap tightens the ladder; it buys no extra time.
+        starved = r4_publish_failure("starved", -30.0)
+        assert starved["status"] == "TERMINAL", starved
+        assert not starved["next_retry_at"], starved
+        starved["_chain"].lifecycle_events(starved["_final"] + timedelta(seconds=1))
+        assert str((starved["_journal"].run(RUN_ID) or {}).get("status")) == "FAILED_FINAL", (
+            starved["_journal"].run(RUN_ID)
+        )
+    finally:
+        os.environ.pop("CARDZ_V2_NOTIFY_DRY_RUN", None)
+    print("POSITIVE_OK R4 the publish ladder is capped at final - one leg and the 17:00 cutoff still ends the day")
+
 
 finally:
     cleanup()

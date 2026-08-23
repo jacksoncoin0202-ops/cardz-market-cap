@@ -46,6 +46,27 @@ RESULT_STATUSES = frozenset({
 TRANSIENT_RETRY_SECONDS = (60, 120, 240, 480, 960, 1800)
 INFRA_RETRY_SECONDS = (30, 60, 120)
 PUBLISH_RETRY_SECONDS = (120, 300, 600, 1200, 1800)
+# One publish leg, measured on scripts/daily_public_release.sh: bake -> sync ->
+# validate (~180 s) -> commit -> push -> the live health poll, which is 60 x
+# 10 s (:369-388) before it gives up.  A retry scheduled later than
+# `final - PUBLISH_LEG_SECONDS` cannot finish a leg before the business date's
+# 17:00 JST cutoff, so it is a retry that will never run: on 2026-08-23 the
+# 2/5/10/20/30 minute ladder above (67 minutes for five retries) could park the
+# next publish attempt past `final`, where lifecycle_events() stamps
+# FAILED_FINAL unconditionally -- attempts left, no window to spend them in.
+# The cutoff is not ours to move; the ladder is clamped to this instead.
+# 780 is the SUCCEEDING leg: a leg that has to replay the bake
+# (PUBLISH_ASSET_MAX_ATTEMPTS below) runs longer, but that leg ends in an
+# error rather than a publish, so overshooting the cutoff costs the day
+# nothing it had not already lost.
+PUBLISH_LEG_SECONDS = 780
+# The V2 branch of scripts/daily_public_release.sh used to force ONE
+# bake/sync/validate attempt, so a single flaky bake spent a whole orchestrator
+# attempt plus a ladder step.  The script's retry runs
+# `git checkout -- data/public` first, so replaying the leg is idempotent.
+# scripts/test_v2s_classify.py parses the script and asserts the two numbers
+# agree, so neither side can drift on its own.
+PUBLISH_ASSET_MAX_ATTEMPTS = 3
 # audit P2-15: scripts/daily_public_release.sh exits 75 when the legacy
 # publisher already holds the release flock.  The orchestrator stamps the
 # marker on the error text so a held lock never reads as a broken release.
@@ -387,6 +408,28 @@ def classify_error(text: str, *, stage: str = "source") -> RetryDecision:
     if any(token in value for token in ("ambiguous", "multiple exact", "identity conflict")):
         return RetryDecision("IDENTITY_AMBIGUOUS", True, ())
     return RetryDecision("SOURCE_FAILED", False, TRANSIENT_RETRY_SECONDS)
+
+
+def clamp_retry_at(
+    now: datetime,
+    delay_seconds: int,
+    *,
+    not_after: datetime | None,
+) -> datetime | None:
+    """Where a backoff actually lands once a hard deadline is taken into account.
+
+    `None` means the deadline leaves no room at all.  A caller must treat that
+    exactly like an exhausted ladder (TERMINAL), never as "retry anyway": the
+    deadline is the gate, and pretending to schedule past it is what made
+    2026-08-23's release attempts disappear into FAILED_FINAL.
+    """
+
+    candidate = now + timedelta(seconds=int(delay_seconds))
+    if not_after is None or candidate <= not_after:
+        return candidate
+    if now <= not_after:
+        return not_after
+    return None
 
 
 def classify_provenance(receipt: Mapping[str, Any]) -> str:

@@ -260,7 +260,13 @@ publish_assets() {
 
 asset_attempt=1
 asset_max_attempts=3
-if ((V2_MODE == 1)); then asset_max_attempts=1; fi
+# R4 2026-08-24: V2 used to force ONE bake/sync/validate attempt here, so a
+# single flaky bake spent a whole orchestrator attempt and a step of the
+# 2/5/10/20/30 minute publish ladder.  The retry below restores data/public
+# first, so replaying the leg is idempotent.  3 == PUBLISH_ASSET_MAX_ATTEMPTS
+# in pipelines/daily_chain_v2_contract.py; scripts/test_v2s_classify.py
+# parses this line and refuses to let the two sides drift.
+if ((V2_MODE == 1)); then asset_max_attempts=3; fi
 while true; do
   if publish_assets; then
     break

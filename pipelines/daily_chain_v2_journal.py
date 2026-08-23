@@ -21,6 +21,7 @@ from daily_chain_v2_contract import (
     SourceTask,
     autonomous_proven,
     canonical_json,
+    clamp_retry_at,
     classify_provenance,
     sha256,
 )
@@ -782,6 +783,7 @@ class Journal:
         error_text: str,
         receipt: Mapping[str, Any] | None = None,
         now: datetime | None = None,
+        retry_not_after: datetime | None = None,
     ) -> str:
         clock = now or utc_now()
         now_text = iso(clock)
@@ -810,9 +812,18 @@ class Journal:
             error_attempt = previous_same_error + 1
             delay = decision.delay_for_attempt(error_attempt)
             exhausted = attempt >= int(task["max_attempts"])
-            terminal = decision.terminal or delay is None or exhausted
+            # R4: a retry the caller's deadline leaves no room for is not a
+            # retry, it is a TERMINAL the run would otherwise only discover at
+            # the cutoff.  `retry_not_after` is the last instant this task may
+            # still START and finish; clamp_retry_at pulls the backoff forward
+            # to it and returns None when even that no longer fits.
+            retry_at = (
+                None if delay is None
+                else clamp_retry_at(clock, delay, not_after=retry_not_after)
+            )
+            terminal = decision.terminal or retry_at is None or exhausted
             status = "TERMINAL" if terminal else "RETRY"
-            next_retry = None if terminal else iso(clock + timedelta(seconds=int(delay)))
+            next_retry = None if terminal else iso(retry_at)
             result_json = None if receipt is None else canonical_json(receipt).decode()
             conn.execute(
                 """
@@ -845,6 +856,7 @@ class Journal:
         *,
         decision: RetryDecision,
         now: datetime | None = None,
+        retry_not_after: datetime | None = None,
     ) -> bool:
         """Repair a terminal verdict made by the former global-attempt policy."""
 
@@ -892,7 +904,10 @@ class Journal:
             delay = decision.delay_for_attempt(same_error_attempts)
             if delay is None:
                 return False
-            retry_at = iso(clock + timedelta(seconds=int(delay)))
+            retry_when = clamp_retry_at(clock, delay, not_after=retry_not_after)
+            if retry_when is None:
+                return False
+            retry_at = iso(retry_when)
             changed = conn.execute(
                 """
                 UPDATE chain_task
@@ -924,6 +939,7 @@ class Journal:
         *,
         decision: RetryDecision,
         now: datetime | None = None,
+        retry_not_after: datetime | None = None,
     ) -> bool:
         """Apply a corrected error class and its own retry clock to RETRY work."""
 
@@ -963,6 +979,9 @@ class Journal:
             delay = decision.delay_for_attempt(same_error_attempts)
             if delay is None:
                 return False
+            retry_when = clamp_retry_at(clock, delay, not_after=retry_not_after)
+            if retry_when is None:
+                return False
             changed = conn.execute(
                 """
                 UPDATE chain_task SET last_error_code=?,next_retry_at=?,updated_at=?
@@ -970,7 +989,7 @@ class Journal:
                 """,
                 (
                     decision.error_code,
-                    iso(clock + timedelta(seconds=int(delay))),
+                    iso(retry_when),
                     iso(clock),
                     task_key,
                 ),

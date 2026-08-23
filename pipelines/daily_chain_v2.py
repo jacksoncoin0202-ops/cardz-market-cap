@@ -41,6 +41,7 @@ from daily_chain_v2_adapters import (  # noqa: E402
 )
 from daily_chain_v2_contract import (  # noqa: E402
     CONTRACT_SHORTFALL_MARKER,
+    PUBLISH_LEG_SECONDS,
     PUBLISH_LOCK_EXIT_CODE,
     PUBLISH_LOCK_MARKER,
     TICK_RESERVE_SECONDS,
@@ -2362,6 +2363,7 @@ class DailyChainV2:
                 claim,
                 decision=decision,
                 error_text=text,
+                retry_not_after=self.publish_retry_not_after(row["phase"]),
             )
             self.journal.add_event(
                 self.run_id,
@@ -2480,13 +2482,14 @@ class DailyChainV2:
                 str(row.get("last_error") or ""),
                 stage="publish" if str(row.get("phase") or "") == "publish" else "source",
             )
+            not_after = self.publish_retry_not_after(row.get("phase"))
             if status == "RETRY":
                 self.journal.reclassify_retry(
-                    str(row["task_key"]), decision=decision
+                    str(row["task_key"]), decision=decision, retry_not_after=not_after
                 )
                 continue
             if self.journal.reopen_retryable_terminal(
-                str(row["task_key"]), decision=decision
+                str(row["task_key"]), decision=decision, retry_not_after=not_after
             ):
                 self.journal.add_event(
                     self.run_id,
@@ -2827,6 +2830,20 @@ class DailyChainV2:
                     "liveUrl": event["liveUrl"],
                 },
             )
+
+    def publish_retry_not_after(self, phase: Any) -> datetime | None:
+        """The last instant a publish retry may start and still finish its leg.
+
+        R4 2026-08-24: `final` is the business date's 17:00 JST cutoff and
+        lifecycle_events() stamps FAILED_FINAL there unconditionally, so a
+        publish backoff that lands after `final - PUBLISH_LEG_SECONDS` is an
+        attempt the run owns but can never spend.  Capping the ladder is the
+        honest repair; the cutoff itself stays exactly where it is.
+        """
+
+        if str(phase or "") != "publish":
+            return None
+        return self.schedule["final"] - timedelta(seconds=PUBLISH_LEG_SECONDS)
 
     def lifecycle_events(self, now: datetime) -> None:
         run = self.journal.run(self.run_id) or {}
