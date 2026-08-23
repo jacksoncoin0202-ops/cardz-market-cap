@@ -398,7 +398,12 @@ print("NEGATIVE_OK event 110/manual cannot count as autonomous proof")
 # the first delay, and publication retains its five immutable retry delays.
 assert classify_error("HTTP 429 Retry-After: 17").delays_seconds[0] == 17
 assert classify_error("response status=599").error_code == "TRANSIENT_SOURCE"
-assert classify_error("authentication rejected", stage="publish").terminal
+# audit P1-4: a rejected key stays terminal, but re-auth and Cloudflare blocks
+# clear after a cooldown and now carry the infra ladder instead of a zero-retry
+# terminal that only a hand `unpark` could reopen.
+assert classify_error("invalid api key", stage="publish").terminal
+auth_blocked = classify_error("authentication rejected", stage="publish")
+assert auth_blocked.error_code == "AUTH_OR_BLOCKED" and not auth_blocked.terminal
 assert classify_error("lock wait timeout exceeded").error_code != "MYSQL_UNAVAILABLE"
 assert classify_error("CDP 9333 connection refused").error_code == "CDP_9333_UNAVAILABLE"
 publish_retry = classify_error("live generation mismatch", stage="publish")

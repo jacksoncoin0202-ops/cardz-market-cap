@@ -38,6 +38,11 @@ RESULT_STATUSES = frozenset({
 TRANSIENT_RETRY_SECONDS = (60, 120, 240, 480, 960, 1800)
 INFRA_RETRY_SECONDS = (30, 60, 120)
 PUBLISH_RETRY_SECONDS = (120, 300, 600, 1200, 1800)
+# audit P2-15: scripts/daily_public_release.sh exits 75 when the legacy
+# publisher already holds the release flock.  The orchestrator stamps the
+# marker on the error text so a held lock never reads as a broken release.
+PUBLISH_LOCK_EXIT_CODE = 75
+PUBLISH_LOCK_MARKER = "publisher-lock-held"
 
 
 def canonical_json(value: Any) -> bytes:
@@ -242,10 +247,67 @@ class RetryDecision:
         return self.delays_seconds[index]
 
 
+# audit P1-2: 2026-08-23 slept 68.8 minutes across the 2/5/10/20/30 minute
+# ladder on six byte-identical release logs, all of them "65/66 passed, 1
+# failed, 7 skipped".  Waiting cannot fix a failing test count, a Python or
+# Node error class, or a missing command.  The failed-count capture group is
+# mandatory (audit 6 #5): a release whose tests all pass but whose git push
+# fails must stay retryable, and these checks may only run inside the publish
+# branch (audit 6 #4) because the same words are ordinary in a source
+# worker's traceback.
+PUBLISH_TEST_VERDICT_RE = re.compile(r"(\d+)\s*/\s*(\d+)\s+passed,\s*(\d+)\s+failed")
+# The class must open a line or follow a "...:" label (the orchestrator's own
+# "release exit=1: " prefix is one), never appear mid-word: "prototypeerrors"
+# is not a verdict.
+PUBLISH_ERROR_CLASS_RE = re.compile(
+    r"(?:^|:\s+)(?:nameerror|attributeerror|typeerror|importerror"
+    r"|modulenotfounderror|syntaxerror|referenceerror)\b",
+    re.MULTILINE,
+)
+PUBLISH_COMMAND_MISSING_RE = re.compile(r"\bexit=127\b|\bcommand not found\b")
+PUBLISH_LOCK_HELD_RE = re.compile(rf"\bexit={PUBLISH_LOCK_EXIT_CODE}\b")
+
+
+def publish_failure_is_deterministic(value: str) -> bool:
+    """True when repeating this publish attempt cannot change its verdict."""
+
+    verdict = PUBLISH_TEST_VERDICT_RE.search(value)
+    if verdict and int(verdict.group(3)) >= 1:
+        return True
+    return bool(
+        PUBLISH_ERROR_CLASS_RE.search(value)
+        or PUBLISH_COMMAND_MISSING_RE.search(value)
+    )
+
+
+# audit P1-4: "nan" and "infinity" were matched as substrings, so
+# mai-nan-tenance, gover-nan-ce and fi-nan-ce all read as numeric contract
+# faults with an empty retry ladder.  Only a standalone token is a fault.
+TERMINAL_NUMERIC_RE = re.compile(r"(?<![a-z])(nan|infinity)(?![a-z])")
+
+
+# audit P2-4 (first step): the worker already knows what failed, so a verdict
+# it states explicitly beats scanning 6000 characters of provider prose whose
+# tail decides the retry policy.  Only codes whose meaning is unambiguous
+# belong here; every other code falls through to the substring scan so a MySQL
+# or CDP fault inside the blob is still recognised.
+ERROR_CODE_TOKEN_RE = re.compile(r"errorcode=([a-z0-9_]+)")
+ERROR_CODE_DECISIONS: dict[str, RetryDecision] = {
+    "worker_receipt_missing": RetryDecision(
+        "WORKER_RECEIPT_MISSING", False, INFRA_RETRY_SECONDS
+    ),
+}
+
+
 def classify_error(text: str, *, stage: str = "source") -> RetryDecision:
     """Classify one failure without source-specific orchestration branches."""
 
     value = _clean(text).casefold()
+    code_token = ERROR_CODE_TOKEN_RE.search(value)
+    if code_token is not None:
+        mapped = ERROR_CODE_DECISIONS.get(code_token.group(1))
+        if mapped is not None:
+            return mapped
     if any(token in value for token in (
         "cardz-linked scheduled tasks not disabled",
         "scheduler state conflict",
@@ -263,14 +325,31 @@ def classify_error(text: str, *, stage: str = "source") -> RetryDecision:
     if "old checkout missing" in value:
         return RetryDecision("WORKSPACE_PATH_UNAVAILABLE", False, INFRA_RETRY_SECONDS)
     if any(token in value for token in (
-        "unauthorized", "forbidden", "invalid api key", "authentication",
-        "schema contract", "contract mismatch", "illegal numeric", "nan", "infinity",
+        "invalid api key",
+        "schema contract", "contract mismatch", "illegal numeric",
         # A migration whose recorded bytes no longer match is a contract fault,
         # not a flaky source: retrying it just replays the same mismatch.
         "migration content changed", "migration hash", "migration checksum",
-    )):
+    )) or TERMINAL_NUMERIC_RE.search(value):
         return RetryDecision("TERMINAL_CONTRACT", True, ())
+    # audit P1-4: a Cloudflare 403 and an expired session are the two most
+    # common shapes on this chain and both clear after a cooldown or a
+    # re-auth.  A rejected API key stays terminal above; these do not, because
+    # a terminal decision can only be reopened by a hand `unpark`.
+    if any(token in value for token in (
+        "unauthorized", "forbidden", "authentication",
+    )):
+        return RetryDecision("AUTH_OR_BLOCKED", False, INFRA_RETRY_SECONDS)
     if stage == "publish":
+        # audit P2-15: another publisher holding the release flock is
+        # contention, not a broken release; it must not burn the publish
+        # ladder waiting for a hand publish to finish.
+        if PUBLISH_LOCK_MARKER in value or PUBLISH_LOCK_HELD_RE.search(value):
+            return RetryDecision("PUBLISH_LOCK_HELD", False, INFRA_RETRY_SECONDS)
+        # audit P1-2: terminal on attempt 1 so the operator sees the verdict
+        # at +18 minutes instead of +87.
+        if publish_failure_is_deterministic(value):
+            return RetryDecision("PUBLISH_DETERMINISTIC", True, ())
         return RetryDecision("PUBLISH_FAILED", False, PUBLISH_RETRY_SECONDS)
     if any(token in value for token in (
         "cdp", "9333", "devtoolsactiveport", "chrome not reachable",

@@ -46,7 +46,11 @@ RELEASE_REPO="/home/jackson0202/cardz-market-cap-release-daily"
 LOCK_FILE="/tmp/cardz-market-cap-daily-release.lock"
 
 exec 9>"$LOCK_FILE"
-flock -n 9
+# audit P2-15: under `set -euo pipefail` a refused flock exited 1 with no
+# output, so V2 read "release exit=1: " and spent the 2/5/10/20/30 minute
+# publish ladder waiting for a hand publish to release the lock.  Exit 75
+# (EX_TEMPFAIL) plus a spoken reason lets the classifier call it contention.
+flock -n 9 || { printf 'daily release: another publisher holds %s\n' "$LOCK_FILE" >&2; exit 75; }
 
 V2_MANIFEST=""
 if ((V2_MODE == 1)); then
