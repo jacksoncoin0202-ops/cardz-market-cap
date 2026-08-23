@@ -51,15 +51,23 @@ function loadDbEnvironment(): void {
 // 生成，呢度淨係讀 receipt 扣數，唔准喺 TS 再抄一次判別邏輯。
 // 檔案唔存在就 throw：靜靜咁 fail-open 出街 = 毒數照出，寧願 bake 死。
 // receipt 過期就由 scripts/test_price_lane_contracts.py 嘅 DB gate 兜住。
-function loadSaleQuarantine(): Map<string, { valueUsd: number; count: number }> {
+//
+// 2026-08-23（migration 058）：receipt 已經 materialise 落
+// market_pc_sale_title_quarantine，而 operator_eligible_accepted_psa10_sales_rows
+// 直接踢走對得上嘅成交行 —— 咁 operator_fe_export / fact projection 呢啲讀者
+// 先至一齊乾淨。已經喺 DB 度踢走咗嗰啲，呢度就唔可以再減一次：同日仲有真成交
+// 嘅話，減兩次會連真嗰單都食埋，個日變曬灰。所以 TS 呢邊淨係補返「DB 仲未
+// sync」嗰批（migration 未 apply、或者今晚 PC lane 未行到）。
+function loadSaleQuarantine(alreadyExcludedSaleIds: ReadonlySet<number>): Map<string, { valueUsd: number; count: number }> {
   const { readFileSync } = require("node:fs") as typeof import("node:fs");
   const { resolve } = require("node:path") as typeof import("node:path");
   const receiptPath = resolve(repoRoot(), "data/runtime/operator/audit/pc_sale_title_quarantine_current.json");
   const doc = JSON.parse(readFileSync(receiptPath, "utf8")) as {
-    entries: Array<{ variantId: number; observedDate: string; transactionValueUsd: number | null; quantity: number | null }>;
+    entries: Array<{ saleObservationId: number; variantId: number; observedDate: string; transactionValueUsd: number | null; quantity: number | null }>;
   };
   const excluded = new Map<string, { valueUsd: number; count: number }>();
   for (const entry of doc.entries) {
+    if (alreadyExcludedSaleIds.has(Number(entry.saleObservationId))) continue;
     const key = `${entry.variantId}|${entry.observedDate}`;
     const slot = excluded.get(key) ?? { valueUsd: 0, count: 0 };
     slot.valueUsd += entry.transactionValueUsd ?? 0;
@@ -67,6 +75,20 @@ function loadSaleQuarantine(): Map<string, { valueUsd: number; count: number }> 
     excluded.set(key, slot);
   }
   return excluded;
+}
+
+// 表未存在（058 未 apply）先當空 set —— 咁即係退返做 058 之前嘅行為（喺 TS 度
+// 減），唔係 fail-open。其他 DB error 照拋，唔准當「冇隔離」。
+async function loadDbExcludedSaleIds(connection: mysql.Connection): Promise<Set<number>> {
+  try {
+    const [rows] = await connection.query<DbRow[]>(`
+      SELECT sale_observation_id FROM market_pc_sale_title_quarantine
+    `);
+    return new Set(rows.map((row) => Number(row.sale_observation_id)));
+  } catch (error) {
+    if ((error as { code?: string }).code === "ER_NO_SUCH_TABLE") return new Set<number>();
+    throw error;
+  }
 }
 
 function iso(value: unknown): string | null {
@@ -521,7 +543,7 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       point.priceSourceCode = sourceCode;
       point.priceSourcePriority = sourcePriority;
     }
-    const saleQuarantine = loadSaleQuarantine();
+    const saleQuarantine = loadSaleQuarantine(await loadDbExcludedSaleIds(connection));
     for (const row of salesRows[0]) {
       const observedDate = day(row.observed_date);
       if (!observedDate) continue;
