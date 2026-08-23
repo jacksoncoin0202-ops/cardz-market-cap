@@ -124,6 +124,10 @@ TICK_MIN_IDLE_SLEEP_SECONDS = 1.0
 # moves the kill outside our control.
 # The TICK_DRAINING event reports which of the two bounds truncated a drain.
 TICK_EXTERNAL_LIMIT_SECONDS = 3300
+# The one variable that lifts every number derived from the external limit,
+# named in the clamp report so an operator who wants a longer HAND-RUN tick
+# (no ExecutionTimeLimit applies to those) reads how to get it.
+TICK_EXTERNAL_LIMIT_ENV = "CARDZ_V2_TICK_EXTERNAL_LIMIT_SECONDS"
 TICK_LAUNCHER_STARTUP_RESERVE_SECONDS = 60
 # One source for the grace: the adapters own the per-kind table and the tick
 # reserves its worst case, so neither side can move without the other.
@@ -470,6 +474,7 @@ def build_health_document(
     tick_started_at_utc: str | None = None,
     tick_ended_at_utc: str | None = None,
     run_label: str = "",
+    tick_budget: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Schema-1 health contract shared with the watchdog (C1)."""
 
@@ -525,6 +530,9 @@ def build_health_document(
         "tick_started_at_utc": tick_started_at_utc,
         "tick_ended_at_utc": tick_ended_at_utc,
         "tick_duration_s": duration,
+        # Optional: only a live tick knows its own budget.  Additive, so the
+        # watchdog's schema-1 readers are untouched.
+        "tick_budget": dict(tick_budget) if tick_budget else None,
         "next_retry_at_utc": iso(min(retries)) if retries else None,
         "tasks": tasks,
         "parked": sorted(parked),
@@ -626,7 +634,7 @@ def tick_external_limit_seconds() -> float:
     number, or the tick keeps sizing its drain against the old PT value.
     """
 
-    raw = os.environ.get("CARDZ_V2_TICK_EXTERNAL_LIMIT_SECONDS", "").strip()
+    raw = os.environ.get(TICK_EXTERNAL_LIMIT_ENV, "").strip()
     try:
         value = float(raw)
     except (TypeError, ValueError):
@@ -860,12 +868,39 @@ class DailyChainV2:
         # whatever it was handed.  (A hard limit of zero means somebody shrank
         # the external limit below the reserves; leave that tick alone rather
         # than closing claiming before it opened.)
+        # Verifier fix 2026-08-24 (major): the clamp used to be silent -- no
+        # print, no journal event, no health field -- while the CLI still
+        # accepted anything up to MAX_RUNTIME_SECONDS_CEILING.  A hand-run tick
+        # has no ExecutionTimeLimit at all, so there the clamp buys nothing and
+        # merely cuts the operator's own 40-90 min PriceCharting watch (R5) to
+        # 47 minutes.  The clamp stays -- it is what keeps the LIVE 3000 s
+        # registration inside PT55M -- but it says so on stdout (launcher log),
+        # in the journal (initialise -> TICK_CLAIM_WINDOW_CLAMPED) and in
+        # health.json, and it names TICK_EXTERNAL_LIMIT_ENV, which really does
+        # lift it for a tick that must outlive PT55M.
         hard_limit = tick_hard_limit_seconds()
-        if hard_limit > 0.0:
-            deadline_monotonic = min(
-                deadline_monotonic, self.tick_started_monotonic + hard_limit
-            )
+        requested_claim_seconds = max(
+            0.0, deadline_monotonic - self.tick_started_monotonic
+        )
+        self.claim_window_requested_seconds = round(requested_claim_seconds, 1)
+        self.claim_window_clamped = False
+        if hard_limit > 0.0 and requested_claim_seconds > hard_limit:
+            deadline_monotonic = self.tick_started_monotonic + hard_limit
             self.deadline_monotonic = deadline_monotonic
+            self.claim_window_clamped = True
+            print(
+                "TICK_CLAIM_WINDOW_CLAMPED"
+                f" requested={requested_claim_seconds:.0f}s"
+                f" effective={hard_limit:.0f}s"
+                f" externalLimit={tick_external_limit_seconds():.0f}s"
+                f" lift={TICK_EXTERNAL_LIMIT_ENV}"
+                " (a hand-run tick that must outlive PT55M sets that variable;"
+                " a scheduled one needs install_cardz_daily_v2_task.ps1 -Apply)",
+                flush=True,
+            )
+        self.claim_window_seconds = round(
+            max(0.0, deadline_monotonic - self.tick_started_monotonic), 1
+        )
         # Operator finding 2026-08-24 (not in the audit): a worker whose honest
         # duration exceeds the tick budget can never finish.  Task
         # gemrate:contract-repair:pop:all (1604 cards, ~55-60 min) was cut at
@@ -947,6 +982,27 @@ class DailyChainV2:
                 "RUN_STARTED",
                 self.day_text,
                 {"runId": self.run_id, "businessDate": self.day_text, "origin": origin},
+            )
+        if self.claim_window_clamped:
+            # Once per run (the key carries the numbers), so a registration that
+            # disagrees with the code is read on the channel and in the journal
+            # instead of being inferred from a short tick.
+            self.journal_event(
+                "TICK_CLAIM_WINDOW_CLAMPED",
+                f"{self.day_text}:{self.claim_window_requested_seconds:.0f}"
+                f":{self.claim_window_seconds:.0f}",
+                {
+                    "runId": self.run_id,
+                    "stage": "orchestrator",
+                    "source": "system",
+                    "requestedClaimSeconds": self.claim_window_requested_seconds,
+                    "effectiveClaimSeconds": self.claim_window_seconds,
+                    "tickHardLimitSeconds": round(tick_hard_limit_seconds(), 1),
+                    "externalLimitSeconds": tick_external_limit_seconds(),
+                    "liftWith": TICK_EXTERNAL_LIMIT_ENV,
+                    "nextRetry": "re-run install_cardz_daily_v2_task.ps1 -Apply,"
+                    f" or set {TICK_EXTERNAL_LIMIT_ENV} for a hand-run tick",
+                },
             )
         self.report_long_db_sessions()
         return row
@@ -1964,6 +2020,25 @@ class DailyChainV2:
         )
         return f"CARDZ V2 {event_type} run={self.run_id} {detail}".strip()
 
+    def tick_budget(self) -> dict[str, Any]:
+        """What this tick was asked for versus what it may actually use.
+
+        health.json carried no deadline data at all, so a claim window cut by
+        the hard-limit clamp was invisible to everything that reads the run.
+        """
+
+        return {
+            "requestedClaimSeconds": self.claim_window_requested_seconds,
+            "claimSeconds": self.claim_window_seconds,
+            "claimClamped": bool(self.claim_window_clamped),
+            "drainSeconds": round(
+                max(0.0, self.drain_deadline_monotonic - self.deadline_monotonic), 1
+            ),
+            "tickHardLimitSeconds": round(tick_hard_limit_seconds(), 1),
+            "externalLimitSeconds": tick_external_limit_seconds(),
+            "liftWith": TICK_EXTERNAL_LIMIT_ENV,
+        }
+
     def write_health(
         self,
         *,
@@ -1981,6 +2056,7 @@ class DailyChainV2:
                     tick_started_at_utc=self.tick_started_at_utc,
                     tick_ended_at_utc=tick_ended_at_utc,
                     run_label=self.run_label,
+                    tick_budget=self.tick_budget(),
                 ),
                 run_label=self.run_label,
             )
@@ -3084,6 +3160,19 @@ class DailyChainV2:
                 f"externalLimit={int(float(payload.get('externalLimitSeconds') or 0))}s "
                 f"truncated={bool(payload.get('truncatedByExternalLimit'))}\n"
                 "<i>past the claiming deadline; live workers keep running</i>"
+            )
+        if event_type == "TICK_CLAIM_WINDOW_CLAMPED":
+            # A registration that disagrees with the code, not a failure: the
+            # red fallback below would page the operator for a tick that is
+            # doing exactly the safe thing.
+            return (
+                "🟠 <b>CARDZ V2 tick claim window clamped</b>\n"
+                f"run=<code>{html.escape(str(payload.get('runId') or '-'))}</code>\n"
+                f"requested={float(payload.get('requestedClaimSeconds') or 0.0):.0f}s "
+                f"effective={float(payload.get('effectiveClaimSeconds') or 0.0):.0f}s "
+                f"externalLimit={float(payload.get('externalLimitSeconds') or 0.0):.0f}s\n"
+                f"lift=<code>{html.escape(str(payload.get('liftWith') or '-'))}</code>\n"
+                "<i>claiming was capped to fit ExecutionTimeLimit; live work still drains</i>"
             )
         if event_type == "MANUAL_WINDOW_RENEWED":
             return (

@@ -27,6 +27,9 @@ private sqlite file in a temp directory and every "child process" is a stub.
 """
 from __future__ import annotations
 
+import io
+import json
+import os
 import re
 import shutil
 import sqlite3
@@ -34,6 +37,7 @@ import sys
 import tempfile
 import time
 import types
+from contextlib import redirect_stdout
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -612,6 +616,116 @@ def only_the_tick_budget_refunds_the_attempt() -> None:
         chain_module.send_alert = saved_alert  # type: ignore[assignment]
 
 
+# -------------------------------------------------------------------- R2 (12)
+def a_clamped_claim_window_is_never_silent() -> None:
+    """The clamp may shorten the operator's tick, but never behind their back.
+
+    Verifier finding 2026-08-24 (major): __init__ caps the claim window at
+    tick_hard_limit_seconds() with no print, no journal event and no health
+    field, while the CLI still accepts 60..MAX_RUNTIME_SECONDS_CEILING.  A
+    hand-run tick -- which no Task Scheduler ExecutionTimeLimit applies to at
+    all, so the clamp buys nothing there -- was silently cut to 47 min, and the
+    operator watching the 40-90 min PriceCharting full refresh (R5) end to end
+    had nothing to read.  The clamp stays (it is what keeps the LIVE 3000 s
+    registration inside PT55M), but it must announce itself on stdout, in the
+    journal and in health.json, and name the one variable that lifts it.
+    """
+
+    hard_limit = chain_module.tick_hard_limit_seconds()
+
+    def health_of(chain: DailyChainV2) -> dict[str, Any]:
+        written: list[Any] = []
+        saved = chain_module.write_health_document
+        try:
+            chain_module.write_health_document = (  # type: ignore[assignment]
+                lambda document, **_: (written.append(document), Path("health"))[1]
+            )
+            chain.write_health(tick_phase="started")
+        finally:
+            chain_module.write_health_document = saved  # type: ignore[assignment]
+        assert len(written) == 1, "write_health did not build a document"
+        return dict(written[0])
+
+    # (a) the LIVE registration (-MaxRuntimeSeconds 3000) is clamped, loudly.
+    journal = new_journal("clamp-said")
+    stream = io.StringIO()
+    with redirect_stdout(stream):
+        chain = new_chain(journal, 3000.0)
+    printed = stream.getvalue()
+    assert getattr(chain, "claim_window_clamped", None) is True, (
+        f"the tick cut the claim window 3000s -> {hard_limit:.0f}s without "
+        f"reporting it: stdout={printed!r}"
+    )
+    assert "3000" in printed and f"{hard_limit:.0f}" in printed, (
+        f"the clamp did not print requested vs effective: {printed!r}"
+    )
+    assert chain_module.TICK_EXTERNAL_LIMIT_ENV in printed, (
+        f"the clamp did not name the variable that lifts it: {printed!r}"
+    )
+
+    chain.report_long_db_sessions = lambda **_: None  # type: ignore[method-assign]
+    chain.initialise(chain_module.load_provenance(None))
+    rows = events(journal, "TICK_CLAIM_WINDOW_CLAMPED")
+    assert len(rows) == 1, f"the clamp left no journal event: {rows}"
+    payload = json.loads(str(rows[0]["payload_json"]))
+    assert abs(float(payload["requestedClaimSeconds"]) - 3000.0) <= 1.0, payload
+    assert abs(float(payload["effectiveClaimSeconds"]) - hard_limit) <= 1.0, payload
+    assert payload["liftWith"] == chain_module.TICK_EXTERNAL_LIMIT_ENV, payload
+
+    budget = health_of(chain).get("tick_budget") or {}
+    assert budget.get("claimClamped") is True, budget
+    assert float(budget["requestedClaimSeconds"]) > float(budget["claimSeconds"]), budget
+    assert float(budget["claimSeconds"]) <= hard_limit + 1e-6, budget
+    assert float(budget["drainSeconds"]) >= 0.0, budget
+    assert budget["liftWith"] == chain_module.TICK_EXTERNAL_LIMIT_ENV, budget
+
+    # (b) the installed default is honoured: no clamp, no noise, still reported.
+    quiet_journal = new_journal("clamp-quiet")
+    quiet_stream = io.StringIO()
+    with redirect_stdout(quiet_stream):
+        quiet = new_chain(
+            quiet_journal, float(chain_module.DEFAULT_MAX_RUNTIME_SECONDS)
+        )
+    assert getattr(quiet, "claim_window_clamped", None) is False, quiet_stream.getvalue()
+    assert "TICK_CLAIM_WINDOW_CLAMPED" not in quiet_stream.getvalue(), (
+        f"an unclamped tick cried clamp: {quiet_stream.getvalue()!r}"
+    )
+    quiet.report_long_db_sessions = lambda **_: None  # type: ignore[method-assign]
+    quiet.initialise(chain_module.load_provenance(None))
+    assert events(quiet_journal, "TICK_CLAIM_WINDOW_CLAMPED") == [], (
+        "an unclamped tick journalled a clamp"
+    )
+    quiet_budget = health_of(quiet).get("tick_budget") or {}
+    assert quiet_budget.get("claimClamped") is False, quiet_budget
+    assert abs(
+        float(quiet_budget["claimSeconds"])
+        - float(chain_module.DEFAULT_MAX_RUNTIME_SECONDS)
+    ) <= 1.0, quiet_budget
+
+    # (c) the named escape hatch really lifts it, so an operator-launched tick
+    #     that must outlive PT55M (R5 full refresh) can have the runtime it asks
+    #     for instead of being cut to 47 min.
+    saved_env = os.environ.get(chain_module.TICK_EXTERNAL_LIMIT_ENV)
+    os.environ[chain_module.TICK_EXTERNAL_LIMIT_ENV] = "7200"
+    try:
+        lifted = new_chain(
+            new_journal("clamp-lifted"),
+            float(chain_module.MAX_RUNTIME_SECONDS_CEILING),
+        )
+        assert getattr(lifted, "claim_window_clamped", None) is False, (
+            f"{chain_module.TICK_EXTERNAL_LIMIT_ENV}=7200 did not lift the clamp"
+        )
+        assert abs(
+            (lifted.deadline_monotonic - lifted.tick_started_monotonic)
+            - float(chain_module.MAX_RUNTIME_SECONDS_CEILING)
+        ) <= 1.0, "the lifted tick did not keep the runtime it asked for"
+    finally:
+        if saved_env is None:
+            os.environ.pop(chain_module.TICK_EXTERNAL_LIMIT_ENV, None)
+        else:
+            os.environ[chain_module.TICK_EXTERNAL_LIMIT_ENV] = saved_env
+
+
 def main() -> int:
     try:
         check("installer/launcher/python agree on the tick budget", installed_numbers_agree)
@@ -625,6 +739,7 @@ def main() -> int:
         check("real failures still park and the cap still holds", real_failures_still_park_and_the_cap_still_holds)
         check("no registration can outlive the external limit", no_registration_can_outlive_the_external_limit)
         check("only the tick budget refunds the attempt", only_the_tick_budget_refunds_the_attempt)
+        check("a clamped claim window is never silent", a_clamped_claim_window_is_never_silent)
     finally:
         shutil.rmtree(WORKSPACE, ignore_errors=True)
     if FAILURES:
