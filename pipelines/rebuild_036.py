@@ -7361,16 +7361,26 @@ def _activation_accept_history(
           AND (q.reconstruction_kind IS NULL
                OR q.reconstruction_kind IN ('bootstrap_from_observation',''))
         ON DUPLICATE KEY UPDATE
+          accepted_by=IF(market_metric_history_acceptance.lineage_sha256<>VALUES(lineage_sha256)
+                         OR market_metric_history_acceptance.observed_date<>VALUES(observed_date)
+                         OR market_metric_history_acceptance.source_effective_at<>VALUES(source_effective_at),
+                         VALUES(accepted_by),market_metric_history_acceptance.accepted_by),
+          accepted_at=IF(market_metric_history_acceptance.lineage_sha256<>VALUES(lineage_sha256)
+                         OR market_metric_history_acceptance.observed_date<>VALUES(observed_date)
+                         OR market_metric_history_acceptance.source_effective_at<>VALUES(source_effective_at),
+                         VALUES(accepted_at),market_metric_history_acceptance.accepted_at),
           source_code=VALUES(source_code),external_entity_id=VALUES(external_entity_id),
           observed_date=VALUES(observed_date),source_effective_at=VALUES(source_effective_at),
           source_payload_sha256=VALUES(source_payload_sha256),
           identity_evidence_sha256=VALUES(identity_evidence_sha256),
           acceptance_evidence_sha256=VALUES(acceptance_evidence_sha256),
-          lineage_sha256=VALUES(lineage_sha256),accepted_by=VALUES(accepted_by),
-          accepted_at=VALUES(accepted_at)
+          lineage_sha256=VALUES(lineage_sha256)
         """,
         (ACTIVATION_ACTOR, now_str),
     )
+    # A07 2026-08-23 profile: 104,276 legacy quote acceptance rows re-stamped
+    # every run (accepted_at=VALUES(accepted_at)) with nothing moved; the
+    # stamp now moves only with lineage / observed_date / source_effective_at.
     legacy_quote_rows = int(cur.rowcount)
     cur.execute(
         "SELECT COUNT(*) AS n FROM information_schema.tables"
@@ -7420,16 +7430,24 @@ def _activation_accept_history(
               AND (q.reconstruction_kind IS NULL
                    OR q.reconstruction_kind IN ('bootstrap_from_observation',''))
             ON DUPLICATE KEY UPDATE
+              accepted_by=IF(market_metric_history_acceptance.lineage_sha256<>VALUES(lineage_sha256)
+                             OR market_metric_history_acceptance.observed_date<>VALUES(observed_date)
+                             OR market_metric_history_acceptance.source_effective_at<>VALUES(source_effective_at),
+                             VALUES(accepted_by),market_metric_history_acceptance.accepted_by),
+              accepted_at=IF(market_metric_history_acceptance.lineage_sha256<>VALUES(lineage_sha256)
+                             OR market_metric_history_acceptance.observed_date<>VALUES(observed_date)
+                             OR market_metric_history_acceptance.source_effective_at<>VALUES(source_effective_at),
+                             VALUES(accepted_at),market_metric_history_acceptance.accepted_at),
               source_code=VALUES(source_code),external_entity_id=VALUES(external_entity_id),
               observed_date=VALUES(observed_date),source_effective_at=VALUES(source_effective_at),
               source_payload_sha256=VALUES(source_payload_sha256),
               identity_evidence_sha256=VALUES(identity_evidence_sha256),
               acceptance_evidence_sha256=VALUES(acceptance_evidence_sha256),
-              lineage_sha256=VALUES(lineage_sha256),accepted_by=VALUES(accepted_by),
-              accepted_at=VALUES(accepted_at)
+              lineage_sha256=VALUES(lineage_sha256)
             """,
             (ACTIVATION_ACTOR, now_str),
         )
+        # same conditional stamp as the legacy block above (A07: 164,901 row-writes/run)
         inserted["psa10PriceQuoteRevisions"] = int(cur.rowcount)
         inserted["legacyQuoteAcceptanceRows"] = legacy_quote_rows
     else:

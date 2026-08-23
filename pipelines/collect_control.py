@@ -779,8 +779,10 @@ def _mint_sale_quotes(source: str, *, dry_run: bool) -> dict[str, Any]:
     that only fired after a successful fetch would leave most cards without a
     quote on most nights, and checked_at is what the accept-side staleness gate
     reads -- an unminted card goes stale and aborts the 100% contract.
-    Re-minting an unchanged sale is cheap and idempotent: payload_sha256 does
-    not move, so the evidence row is re-stamped rather than duplicated.
+    Inside the V2 chain an unchanged sale is not re-minted at all: the mint
+    skips a variant whose quote already stands inside the business window
+    with the same payload_sha256 (psa10_latest_sale_quote.same_day_standing_quotes),
+    so a rehearsal of the same day adds zero quote revisions.
 
     Caller holds the DB-writer lease; this builds the argv, runs it, and for
     the PriceCharting lane first materialises that lane's title quarantine

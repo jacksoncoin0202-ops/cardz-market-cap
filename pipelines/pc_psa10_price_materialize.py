@@ -12,7 +12,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import sys
 from collections import Counter
 from datetime import datetime, timezone
@@ -390,12 +389,9 @@ def changed_rows(connection: Any, rows: list[dict[str, Any]]) -> list[dict[str, 
 def _v2_business_window() -> tuple[datetime, datetime] | None:
     """The V2 run's business window (naive UTC), or None outside the chain."""
 
-    business_date = os.environ.get("CARDZ_V2_BUSINESS_DATE", "").strip()
-    if not business_date:
-        return None
-    from daily_chain_v2_db import business_window_utc
+    from daily_chain_v2_db import business_window_from_env
 
-    return business_window_utc(business_date)
+    return business_window_from_env()
 
 
 def _evidence(payload: Any) -> dict[str, Any] | None:

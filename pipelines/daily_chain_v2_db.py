@@ -57,6 +57,26 @@ def business_window_utc(business_date: str) -> tuple[datetime, datetime]:
     return start.replace(tzinfo=None), end.replace(tzinfo=None)
 
 
+BUSINESS_DATE_ENV = "CARDZ_V2_BUSINESS_DATE"
+
+
+def business_window_from_env() -> tuple[datetime, datetime] | None:
+    """The running V2 chain's business window (naive UTC), or None outside it.
+
+    The one execution point for same-day idempotency in every writer the chain
+    re-runs inside a business day (pc_psa10_price_materialize, the sale-quote
+    mint): the orchestrator exports the business date to every task
+    subprocess, so inside the chain a second capture of unchanged evidence
+    stands on the first; outside the chain (operator catch-up, ad hoc mint)
+    writers keep their old behaviour.
+    """
+
+    business_date = os.environ.get(BUSINESS_DATE_ENV, "").strip()
+    if not business_date:
+        return None
+    return business_window_utc(business_date)
+
+
 def _scalar(cursor: Any, query: str, params: tuple[Any, ...] = ()) -> int:
     cursor.execute(query, params)
     row = cursor.fetchone() or {}

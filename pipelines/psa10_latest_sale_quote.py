@@ -460,6 +460,82 @@ def _open_run(cursor: Any, *, source: str, storage_source: str, plan_sha256: str
     return run_id
 
 
+def _v2_business_window() -> tuple[datetime, datetime] | None:
+    """The V2 run's business window (naive UTC), or None outside the chain."""
+
+    from daily_chain_v2_db import business_window_from_env
+
+    return business_window_from_env()
+
+
+def same_day_standing_quotes(
+    cursor: Any,
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    storage_source: str,
+    window: tuple[datetime, datetime],
+) -> set[int]:
+    """Variant ids whose planned quote already stands, unchanged, in the window.
+
+    A06/A07 2026-08-23 [KNOWN, DB probe]: every rehearsal of the same business
+    day re-minted 1,753 sale quotes (+1,618 bootstrap revisions on top of
+    them) although not one chosen sale had moved, because the harvest clock
+    (as_of) is part of the quote lineage and the evidence rows were re-stamped
+    to it.  The V2 freshness gates need ONE capture per business day
+    (checked_at inside the window); a quote that already stands inside this
+    window with the same payload_sha256 is that capture.  Both halves must
+    stand -- the history point (market_price_observation: same sale day and
+    payload, metric_status ready, effective_at inside the window) and the
+    quote revision -- otherwise the row is minted exactly as before.  Outside
+    the chain (no business date) nothing is skipped.
+    """
+
+    start, end = window
+    by_variant: dict[int, Mapping[str, Any]] = {
+        int(row["variantId"]): row for row in rows
+    }
+    standing_prices: set[int] = set()
+    standing_quotes: set[int] = set()
+    for chunk in _chunks(sorted(by_variant)):
+        marks = ",".join(["%s"] * len(chunk))
+        cursor.execute(
+            "SELECT variant_id, observed_date, payload_sha256, effective_at, metric_status"
+            " FROM market_price_observation"
+            f" WHERE source_code=%s AND variant_id IN ({marks})",
+            (storage_source, *chunk),
+        )
+        for found in cursor.fetchall() or ():
+            row = by_variant.get(int(found["variant_id"]))
+            effective_at = found.get("effective_at")
+            if (
+                row is not None
+                and str(found.get("metric_status")) == "ready"
+                and str(found.get("payload_sha256") or "").casefold()
+                == str(row["payloadSha256"]).casefold()
+                and str(found.get("observed_date"))[:10] == str(row["observedDate"])[:10]
+                and isinstance(effective_at, datetime)
+                and start <= effective_at < end
+            ):
+                standing_prices.add(int(found["variant_id"]))
+        cursor.execute(
+            "SELECT variant_id, source_external_entity_id, payload_sha256"
+            " FROM market_current_quote_revision"
+            " WHERE source_code=%s AND checked_at>=%s AND checked_at<%s"
+            f" AND variant_id IN ({marks})",
+            (storage_source, start, end, *chunk),
+        )
+        for found in cursor.fetchall() or ():
+            row = by_variant.get(int(found["variant_id"]))
+            if (
+                row is not None
+                and str(found.get("payload_sha256") or "").casefold()
+                == str(row["payloadSha256"]).casefold()
+                and str(found.get("source_external_entity_id")) == str(row["externalEntityId"])
+            ):
+                standing_quotes.add(int(found["variant_id"]))
+    return standing_prices & standing_quotes
+
+
 def materialize(connection: Any, plan_doc: Mapping[str, Any]) -> dict[str, int]:
     """One transaction: evidence -> price observation -> quote revision.
 
@@ -472,20 +548,27 @@ def materialize(connection: Any, plan_doc: Mapping[str, Any]) -> dict[str, int]:
     as_of = plan_doc["asOf"]
     storage_source = str(plan_doc["storageSourceCode"])
     minted = 0
+    standing: set[int] = set()
     with connection.cursor() as cursor:
         cursor.execute("SET SESSION max_execution_time=60000")
-        if not rows:
+        window = _v2_business_window()
+        if rows and window is not None:
+            standing = same_day_standing_quotes(
+                cursor, rows, storage_source=storage_source, window=window
+            )
+        pending = [row for row in rows if int(row["variantId"]) not in standing]
+        if not pending:
             connection.commit()
-            return {"quotesMinted": 0, "runId": 0}
+            return {"quotesMinted": 0, "quotesStanding": len(standing), "runId": 0}
         run_id = _open_run(
             cursor,
             source=str(plan_doc["source"]),
             storage_source=storage_source,
             plan_sha256=str(plan_doc["planSha256"]),
             as_of=as_of,
-            count=len(rows),
+            count=len(pending),
         )
-        for row in rows:
+        for row in pending:
             payload_json = canonical_payload_bytes(row["payload"]).decode("utf-8")
             cursor.execute(
                 """
@@ -568,7 +651,7 @@ def materialize(connection: Any, plan_doc: Mapping[str, Any]) -> dict[str, int]:
             (minted, datetime.now(timezone.utc).replace(tzinfo=None), run_id),
         )
     connection.commit()
-    return {"quotesMinted": minted, "runId": run_id}
+    return {"quotesMinted": minted, "quotesStanding": len(standing), "runId": run_id}
 
 
 def write_receipt(
@@ -578,6 +661,7 @@ def write_receipt(
     quotes_minted: int,
     path: Path | None = None,
     dry_run: bool = False,
+    quotes_standing: int = 0,
 ) -> Path:
     """§3.7.  `rejectedSales` is always present, even empty.
 
@@ -604,6 +688,9 @@ def write_receipt(
         "variantsPlanned": int(plan_doc["variantsPlanned"]),
         "salesScanned": int(plan_doc["salesScanned"]),
         "quotesMinted": int(quotes_minted),
+        # planned quotes that already stood, unchanged, inside the V2 business
+        # window (always 0 outside the chain and on a dry run)
+        "quotesStanding": int(quotes_standing),
         "ungated": sum(1 for row in plan_doc["rows"] if row["ungated"]),
         "rejectedSales": list(plan_doc["rejectedSales"]),
         "fallbackWalkbacks": list(plan_doc["fallbackWalkbacks"]),
@@ -795,10 +882,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 names = load_variant_names(cursor, sorted(set(interesting)))
         run_id = 0
         quotes_minted = 0
+        quotes_standing = 0
         if args.write:
             result = materialize(connection, plan_doc)
             run_id = int(result["runId"])
             quotes_minted = int(result["quotesMinted"])
+            quotes_standing = int(result.get("quotesStanding", 0))
         else:
             # A dry run must not leave a transaction open on the writer.
             connection.rollback()
@@ -813,6 +902,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         quotes_minted=quotes_minted,
         path=Path(args.report) if args.report else None,
         dry_run=bool(args.dry_run),
+        quotes_standing=quotes_standing,
     )
     if args.dry_run:
         summary = {
@@ -836,7 +926,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"receipt: {receipt}")
     print(
         f"source={args.source} variants={plan_doc['variantsPlanned']}"
-        f" minted={quotes_minted} runId={run_id}"
+        f" minted={quotes_minted} standing={quotes_standing} runId={run_id}"
         f" noEligibleSale={len(plan_doc['noEligibleSale'])}"
     )
     return 0
