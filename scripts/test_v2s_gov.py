@@ -315,6 +315,11 @@ def settled_state_literals_do_not_drift() -> None:
         'or "") not in TERMINAL_TASK_STATES'
     )
     orchestrator = (ROOT / "pipelines" / "daily_chain_v2.py").read_text(encoding="utf-8")
+    # f9c3e054: the reserve has exactly one definition, in the contract module.
+    # The orchestrator imports it and must never redefine it -- a same-valued
+    # duplicate is invisible to every attribute comparison in the suite.
+    assert "\nTICK_RESERVE_SECONDS = " not in orchestrator, "orchestrator redefines TICK_RESERVE_SECONDS"
+    assert "    TICK_RESERVE_SECONDS,\n" in orchestrator, "orchestrator must import TICK_RESERVE_SECONDS"
     # The one remaining hand-written settled set is the cutoff-escape barrier,
     # whose semantics are deliberately different and are pinned by
     # scripts/test_daily_chain_v2_durability.py.
