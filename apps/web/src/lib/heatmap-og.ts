@@ -16,7 +16,7 @@ import type { MarketWindow } from "./types";
  * Image is Top `show` tiles (default 40). Rank numbers in the caption pack
  * still come from Top 100.
  *
- * ⚠️ Default period is **7d**, not `defaultMarketWindow` (180d). Inheriting the
+ * ⚠️ Default period is **7d**, not `defaultMarketWindow` (30d since 2026-08-24). Inheriting the
  * site default is the "wrong day trend" trap.
  */
 export const HEATMAP_OG_PATH = "/api/og/heatmap";

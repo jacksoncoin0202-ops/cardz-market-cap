@@ -314,9 +314,10 @@ const TALL_GEO: Record<
  */
 const POST_TYPE = { micro: 22, meta: 26, stat: 44 } as const;
 
-/* 走勢圖釘死 180 日 —— 同網頁 `defaultMarketWindow`（types.ts）同一個窗。
-   張圖出咗街係俾第三者睇，唔可以帶當前用戶揀嘅時段；但撳入去見到嘅預設係 180D，
-   所以圖同頁面第一眼一定要係同一段。 */
+/* 走勢圖釘死一個窗 —— 而且係**推**自網頁 `defaultMarketWindow`（types.ts），唔准喺呢度
+   另寫一個字面值。張圖出咗街係俾第三者睇，唔可以帶當前用戶揀嘅時段；但撳入去見到嘅預設
+   就係 `defaultMarketWindow`（2026-08-24 起 = 30D），所以圖同頁面第一眼一定要係同一段。
+   下面所有 `180D` 字樣嘅註釋都係舉例，真值一律由 `SHARE_WINDOW_LABEL` 出。 */
 const SHARE_WINDOW: MarketWindow = defaultMarketWindow;
 const SHARE_WINDOW_DAYS = marketWindowDays[SHARE_WINDOW];
 const SHARE_WINDOW_LABEL = SHARE_WINDOW.toUpperCase();

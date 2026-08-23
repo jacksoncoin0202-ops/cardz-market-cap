@@ -73,7 +73,7 @@ function hasSalesBar(point: PricePoint): point is PricePoint & { trackedSalesVal
 }
 
 /*
- * `windowDays` 用網頁預設嗰個 180 日（`types.ts` `defaultMarketWindow`）：分享圖唔可以
+ * `windowDays` 用網頁預設嗰個窗（`types.ts` `defaultMarketWindow`，2026-08-24 起 = 30 日）：分享圖唔可以
  * 帶用戶當前揀嘅時段（張圖出咗街係俾第三者睇，佢冇揀過嘢），所以釘死一個窗，
  * 而嗰個窗要同人哋撳入去之後見到嘅預設一樣，唔係另一個數。
  */

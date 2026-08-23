@@ -29,7 +29,18 @@ export const themes = ["light", "dark"] as const;
 export type Locale = (typeof locales)[number];
 export type Currency = (typeof currencies)[number];
 export type MarketWindow = (typeof marketWindows)[number];
-export const defaultMarketWindow: MarketWindow = "180d";
+/*
+ * 預設時段（初次載入嘅 period、卡頁 meta 變動徽章、分享圖 `SHARE_WINDOW`）。
+ *
+ * 2026-08-24（R6）由 180d 搬去 30d：`historyDaily` 收窄成「真成交日」之後，條 series
+ * 稀疏咗，而所有 `changePct` 都要喺佢上面搵錨。08-23 嗰份 seed snapshot 實測（真
+ * `windowMetrics` 行全板 1,604 張）：30d 錨得住 1,537 張（95.8%），180d 淨係 165 張
+ * （10.3%）—— 即係舊預設會令 ~90% 卡嘅第一眼變「資料累積中」，而且冇 error、冇 500，
+ * 靜靜地塌。90d / 180d / 365d 照樣揀得到，只係唔再做預設。
+ * 呢個數由 `scripts/test-fe-default-window-coverage.mjs` 釘住（預設窗要 ≥ 60% 有錨），
+ * 揼返去 180d 會紅；日後成交數據長多咗，長窗自然過到，條閘會自己放行。
+ */
+export const defaultMarketWindow: MarketWindow = "30d";
 export type Theme = (typeof themes)[number];
 export type MetricStatus = "ready" | "accumulating" | "stale" | "unavailable";
 export type CoverageStatus = "complete" | "partial" | "stale" | "unavailable";
