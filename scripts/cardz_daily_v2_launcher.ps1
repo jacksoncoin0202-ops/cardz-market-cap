@@ -194,6 +194,18 @@ if ($SelfTest) {
     exit 0
 }
 
+# WSL Ubuntu must answer before the tick is handed to it (2026-08-23: three
+# Wsl/Service/0x8007274c in one morning while docker on the same VM kept
+# answering; every tick would have failed until a human ran `wsl -t Ubuntu`).
+# wsl_ubuntu_selfheal.ps1 terminates ONLY the Ubuntu distro, and only when the
+# VM is provably alive; it never runs `wsl --shutdown`.  Exit 3 = still dead.
+$selfheal = & powershell.exe -WindowStyle Hidden -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "wsl_ubuntu_selfheal.ps1")
+$selfhealExit = $LASTEXITCODE
+Write-Log ("CARDZ_V2_WSL_PREFLIGHT exit=$selfhealExit " + (($selfheal | Out-String).Trim()))
+if ($selfhealExit -ne 0) {
+    Write-Log "CARDZ_V2_END exit=3 provenance=$receiptPath wsl=dead"
+    exit 3
+}
 Write-Log "CARDZ_V2_START event=$eventId record=$recordId instance=$instanceId parent=$parentName"
 try {
     & wsl.exe @args
