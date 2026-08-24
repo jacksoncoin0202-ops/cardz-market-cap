@@ -1,11 +1,20 @@
 export const locales = ["en", "zh-TW", "zh-CN", "ja", "ko"] as const;
 export const currencies = ["USD", "HKD", "CNY", "GBP", "TWD", "JPY", "KRW"] as const;
-export const marketWindows = ["1d", "7d", "30d"] as const;
+import {
+  MARKET_WINDOW_DAYS,
+  MARKET_WINDOWS,
+  type MarketWindow as CanonicalMarketWindow,
+  type PublicCard as CanonicalPublicCard,
+  type PublicMarketSnapshot as CanonicalPublicMarketSnapshot,
+} from "@cardz/market-data";
+
+export const marketWindows = MARKET_WINDOWS;
+export const marketWindowDays = MARKET_WINDOW_DAYS;
 export const themes = ["light", "dark"] as const;
 
 export type Locale = (typeof locales)[number];
 export type Currency = (typeof currencies)[number];
-export type MarketWindow = (typeof marketWindows)[number];
+export type MarketWindow = CanonicalMarketWindow;
 export type Theme = (typeof themes)[number];
 export type MetricStatus = "ready" | "accumulating" | "stale" | "unavailable";
 export type CoverageStatus = "complete" | "partial" | "stale" | "unavailable";
@@ -140,9 +149,5 @@ export interface MarketViewSnapshot {
   top100: MarketCardView[];
   watchlist: MarketCardView[];
 }
-import type {
-  PublicCard as CanonicalPublicCard,
-  PublicMarketSnapshot as CanonicalPublicMarketSnapshot,
-} from "@cardz/market-data";
 
 export type { CanonicalPublicCard, CanonicalPublicMarketSnapshot };

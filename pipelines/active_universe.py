@@ -22,6 +22,7 @@ from typing import Any, Iterable, Mapping
 from daily_prices import PricePoint, resolve_windows
 from g10_ingest import load_landing_replay, parse_effective_at, read_json
 from g10_public_snapshot import normalize_collector, opaque_id
+from lang_registry import SUPPORTED_CARD_LANGUAGES
 from market_source_sync import (
     DEFAULT_GEMRATE,
     DEFAULT_LANDING,
@@ -36,7 +37,6 @@ from source_crosswalk import DEFAULT_OUT as DEFAULT_CROSSWALK, DEFAULT_SOURCE, b
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUT = ROOT / "data" / "runtime" / "private-source-map" / "active-universe.json"
 LOCK_SCHEMA_VERSION = "1.0.0"
-SUPPORTED_CARD_LANGUAGES = {"en", "ja", "ko", "zhCN", "zhTW"}
 EXCLUDED_CARD_LANGUAGES = {"th"}
 TRACKED_TCGS = {"pokemon", "one-piece"}
 LANGUAGE_ALIASES = {

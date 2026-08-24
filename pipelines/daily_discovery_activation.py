@@ -163,12 +163,9 @@ def plan_ledger_retry_targets(
         if str(raw.get("blocker_code") or "") == "multiple_exact_bindings":
             # More provider calls cannot safely choose between two exact owners.
             continue
-        quarantine_until = raw.get("quarantine_until")
-        if quarantine_until is not None and str(quarantine_until) > str(clock):
+        if not _row_due(raw, clock):
             continue
         next_due = raw.get("next_due_at")
-        if next_due is not None and str(next_due) > str(clock):
-            continue
         if variant_id in gap_by_id:
             row = gap_by_id[variant_id]
         else:

@@ -1,5 +1,6 @@
 import type { PublicMarketSnapshot } from "@cardz/market-data";
 import { marketAssetObjectKey } from "./market-media";
+import { normalisePageSize } from "./pagination";
 import { normaliseSnapshot } from "./snapshot";
 import type { LocalizedText, MarketCardView, MarketViewSnapshot } from "./types";
 
@@ -155,7 +156,7 @@ export function scopeSnapshot(
       ...ranked.map((card) => ({ ...card, rank: card.marketRank, viewRank: card.marketRank })),
       ...awaiting.map((card) => ({ ...card, rank: 0, viewRank: 0 })),
     ];
-    const pageSize = Math.min(Math.max(Math.trunc(options?.pageSize ?? 200), 1), 500);
+    const pageSize = normalisePageSize(options?.pageSize);
     const pageCount = Math.max(Math.ceil(all.length / pageSize), 1);
     const page = Math.min(Math.max(Math.trunc(options?.page ?? 1), 1), pageCount);
     const cards = all

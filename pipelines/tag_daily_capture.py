@@ -25,13 +25,14 @@ from typing import Any, Iterable, Mapping
 
 from tag_pop_data import dump_fresh
 from db_runtime import active_universe_lock_hash
+from lang_registry import SUPPORTED_CARD_LANGUAGES
 from market_source_sync import collection_cards, load_active_universe as load_market_active_universe
 
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_ACTIVE = ROOT / "data/runtime/private-source-map/active-universe.json"
 DEFAULT_CATALOG = ROOT / "data/tag/pops_pokemon.jsonl"
-SUPPORTED_LANGUAGES = {"en", "ja", "ko", "zhCN", "zhTW"}
+SUPPORTED_LANGUAGES = SUPPORTED_CARD_LANGUAGES
 HANGUL = re.compile(r"[\uac00-\ud7a3]")
 
 

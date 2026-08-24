@@ -8,14 +8,13 @@ import type {
   PublicMarketSnapshot,
   WindowMetrics,
 } from "@cardz/market-data";
+import { MARKET_WINDOW_DAYS } from "@cardz/market-data";
 import type { RowDataPacket } from "mysql2";
 import mysql from "mysql2/promise";
 import { normaliseSnapshot } from "./snapshot";
 import type { MarketViewSnapshot } from "./types";
 
 const LOCALES = ["en", "zhTW", "zhCN", "ja", "ko"] as const;
-const WINDOWS = { "1d": 1, "7d": 7, "30d": 30 } as const;
-
 type DbRow = RowDataPacket & Record<string, unknown>;
 
 function repoRoot(): string {
@@ -240,10 +239,10 @@ function windowMetrics(
   currentPopulation: number | null,
   currentAsOf: string | null,
   currentSource: string | null,
-): Record<keyof typeof WINDOWS, WindowMetrics> {
+): Record<keyof typeof MARKET_WINDOW_DAYS, WindowMetrics> {
   const currentMs = currentAsOf ? new Date(currentAsOf).valueOf() : Date.now();
   const currentCap = currentPrice === null || currentPopulation === null ? null : currentPrice * currentPopulation;
-  return Object.fromEntries(Object.entries(WINDOWS).map(([code, daysBack]) => {
+  return Object.fromEntries(Object.entries(MARKET_WINDOW_DAYS).map(([code, daysBack]) => {
     const tolerance = code === "1d" ? 2 : code === "7d" ? 3 : 5;
     const targetMs = currentMs - daysBack * 86_400_000;
     // 帶內空咗先輪到 step-function 後備（見 latestBefore 註釋）。帶內冇點
@@ -290,7 +289,7 @@ function windowMetrics(
         asOf: currentSales?.asOf ?? null,
       },
     } satisfies WindowMetrics];
-  })) as Record<keyof typeof WINDOWS, WindowMetrics>;
+  })) as Record<keyof typeof MARKET_WINDOW_DAYS, WindowMetrics>;
 }
 
 async function openConnection(): Promise<mysql.Connection> {
@@ -766,8 +765,8 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
         verifiedCount: Math.min(100, cards.length),
         top100Count: Math.min(100, cards.length),
         watchlistCount: Math.max(0, cards.length - 100),
-        changeReady: Object.fromEntries(Object.keys(WINDOWS).map((code) => [code, cards.filter((card) => card.windows[code as keyof typeof WINDOWS].changePct.value !== null).length])) as Record<keyof typeof WINDOWS, number>,
-        salesReady: Object.fromEntries(Object.keys(WINDOWS).map((code) => [code, cards.filter((card) => card.windows[code as keyof typeof WINDOWS].trackedSales.valueUsd.value !== null).length])) as Record<keyof typeof WINDOWS, number>,
+        changeReady: Object.fromEntries(Object.keys(MARKET_WINDOW_DAYS).map((code) => [code, cards.filter((card) => card.windows[code as keyof typeof MARKET_WINDOW_DAYS].changePct.value !== null).length])) as Record<keyof typeof MARKET_WINDOW_DAYS, number>,
+        salesReady: Object.fromEntries(Object.keys(MARKET_WINDOW_DAYS).map((code) => [code, cards.filter((card) => card.windows[code as keyof typeof MARKET_WINDOW_DAYS].trackedSales.valueUsd.value !== null).length])) as Record<keyof typeof MARKET_WINDOW_DAYS, number>,
         completeIdentityCount: cards.filter((card) => card.identityStatus === "confirmed").length,
         localizedStoryCount: Object.fromEntries(LOCALES.map((code) => [code, cards.filter((card) => Boolean(card.stories[code])).length])) as Record<(typeof LOCALES)[number], number>,
       },

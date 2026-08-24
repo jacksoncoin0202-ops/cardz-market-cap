@@ -21,9 +21,10 @@ from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
+from window_registry import WINDOW_DAYS
+
 
 GRADERS = ("PSA", "BGS", "CGC", "SGC", "TAG")
-WINDOW_DAYS = {"1d": 1, "7d": 7, "30d": 30}
 _SOURCE_REF = re.compile(r"/card/([^/]+)/([^/?#]+)", re.IGNORECASE)
 
 

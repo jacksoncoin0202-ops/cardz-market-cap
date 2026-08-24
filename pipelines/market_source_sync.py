@@ -20,6 +20,8 @@ from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from lang_registry import SUPPORTED_CARD_LANGUAGES
+
 from g10_ingest import (
     canonical_json,
     iso_utc,
@@ -98,9 +100,6 @@ TOP_GRADE = {
     "CGC": ("cgc", "cgc_10_perfect"),
     "SGC": ("sgc", "sgc_10_pristine"),
 }
-SUPPORTED_CARD_LANGUAGES = {"en", "ja", "ko", "zhCN", "zhTW"}
-
-
 def atomic_write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.next")

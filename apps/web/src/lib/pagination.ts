@@ -1,4 +1,11 @@
 export const WATCHLIST_PAGE_SIZE = 200;
+export const WATCHLIST_PAGE_SIZE_MAX = 500;
+
+export function normalisePageSize(value: number | undefined): number {
+  const candidate = Math.trunc(value ?? WATCHLIST_PAGE_SIZE);
+  if (!Number.isFinite(candidate)) return WATCHLIST_PAGE_SIZE;
+  return Math.min(Math.max(candidate, 1), WATCHLIST_PAGE_SIZE_MAX);
+}
 
 /*
  * `?page=` 嘅唯一解析點。頁面同 API 都行呢度，唔准各自寫一套。

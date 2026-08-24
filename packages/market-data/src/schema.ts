@@ -13,6 +13,11 @@ export const CURRENCIES = ["USD", "HKD", "CNY", "GBP", "TWD", "JPY", "KRW"] as c
 
 export type MarketStatus = (typeof MARKET_STATUSES)[number];
 export type MarketWindow = (typeof MARKET_WINDOWS)[number];
+export const MARKET_WINDOW_DAYS: Readonly<Record<MarketWindow, number>> = Object.freeze({
+  "1d": 1,
+  "7d": 7,
+  "30d": 30,
+});
 export type CoverageStatus = (typeof COVERAGE_STATUSES)[number];
 export type Locale = "en" | "zhTW" | "zhCN" | "ja" | "ko";
 export type Currency = (typeof CURRENCIES)[number];

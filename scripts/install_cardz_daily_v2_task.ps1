@@ -65,6 +65,23 @@ $PsHost = "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy By
 $DailyArgument = "//nologo //B $quotedRunner $PsHost $quotedLauncher -AllowPublish -Notify -MaxRuntimeSeconds $MaxRuntimeSeconds"
 $WatchdogArgument = "//nologo //B $quotedRunner $PsHost $quotedWatchdog"
 $PromoArgument = "//nologo //B $quotedRunner wsl.exe -d Ubuntu -- python3 -X utf8 $PromoScriptWsl"
+function Register-CardzManagedTask {
+    param(
+        [Parameter(Mandatory=$true)][string]$Name,
+        [Parameter(Mandatory=$true)][string]$Argument,
+        [Parameter(Mandatory=$true)]$Trigger,
+        [Parameter(Mandatory=$true)][int]$ExecutionMinutes,
+        [Parameter(Mandatory=$true)][string]$Description,
+        [Parameter(Mandatory=$true)]$Principal
+    )
+    $definition = New-ScheduledTask `
+        -Action (New-ScheduledTaskAction -Execute $WScriptExe -Argument $Argument -WorkingDirectory $Repo) `
+        -Trigger $Trigger `
+        -Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes $ExecutionMinutes)) `
+        -Principal $Principal `
+        -Description $Description
+    Register-ScheduledTask -TaskName $Name -InputObject $definition -Force | Out-Null
+}
 if ([string]::IsNullOrWhiteSpace($BackupDirectory)) {
     $stamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
     $BackupDirectory = Join-Path $Repo "data\runtime\daily-chain-v2\scheduler-backup-$stamp"
@@ -165,10 +182,6 @@ if ($runningTargets.Count -gt 0) {
     throw "V2 cutover refused while target tasks are running: $($runningTargets.TaskName -join ', ')"
 }
 
-$action = New-ScheduledTaskAction `
-    -Execute $WScriptExe `
-    -Argument $DailyArgument `
-    -WorkingDirectory $Repo
 $trigger = New-ScheduledTaskTrigger -Daily -At $firstNaturalStart
 $trigger.Repetition = New-CimInstance `
     -Namespace "Root/Microsoft/Windows/TaskScheduler" `
@@ -179,21 +192,10 @@ $trigger.Repetition = New-CimInstance `
         Duration = "PT13H30M"
         StopAtDurationEnd = $false
     }
-$settings = New-ScheduledTaskSettingsSet `
-    -StartWhenAvailable `
-    -MultipleInstances IgnoreNew `
-    -ExecutionTimeLimit (New-TimeSpan -Minutes 55)
 $principal = New-ScheduledTaskPrincipal `
     -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) `
     -LogonType Interactive `
     -RunLevel Limited
-$definition = New-ScheduledTask `
-    -Action $action `
-    -Trigger $trigger `
-    -Settings $settings `
-    -Principal $principal `
-    -Description "CARDZ Marketcap Daily Chain V2: resumable WSL orchestrator; event 107 provenance"
-
 $operationalLog = Get-WinEvent `
     -ListLog "Microsoft-Windows-TaskScheduler/Operational" `
     -ErrorAction Stop
@@ -222,7 +224,13 @@ foreach ($name in $LegacyTasks) {
         Disable-ScheduledTask -TaskName $name | Out-Null
     }
 }
-Register-ScheduledTask -TaskName $TaskName -InputObject $definition -Force | Out-Null
+Register-CardzManagedTask `
+    -Name $TaskName `
+    -Argument $DailyArgument `
+    -Trigger $trigger `
+    -ExecutionMinutes 55 `
+    -Description "CARDZ Marketcap Daily Chain V2: resumable WSL orchestrator; event 107 provenance" `
+    -Principal $principal
 
 # Watchdog is no longer a legacy 037 task to be disabled: it is the out-of-chain
 # health probe for V2 and is (re)registered here, every 15 min 04:00-18:00 local
@@ -239,25 +247,26 @@ $watchdogTrigger.Repetition = New-CimInstance `
         Duration = "PT14H"
         StopAtDurationEnd = $false
     }
-$watchdogDefinition = New-ScheduledTask `
-    -Action (New-ScheduledTaskAction -Execute $WScriptExe -Argument $WatchdogArgument -WorkingDirectory $Repo) `
+Register-CardzManagedTask `
+    -Name $WatchdogTaskName `
+    -Argument $WatchdogArgument `
     -Trigger $watchdogTrigger `
-    -Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 5)) `
-    -Principal $principal `
-    -Description "CARDZ V2 external watchdog: health.json freshness + live release check"
-Register-ScheduledTask -TaskName $WatchdogTaskName -InputObject $watchdogDefinition -Force | Out-Null
+    -ExecutionMinutes 5 `
+    -Description "CARDZ V2 external watchdog: health.json freshness + live release check" `
+    -Principal $principal
 
 # Promo pack builder (contract C4): reads the published snapshot, writes a pack +
-# receipt under data/runtime/promo/<business_date>/. It never posts.
+# receipt under data/runtime/promo/<generation>/. It never posts.
 $promoFirstStart = $nowLocal.Date.AddHours(17).AddMinutes(45)
 if ($promoFirstStart -le $nowLocal) { $promoFirstStart = $promoFirstStart.AddDays(1) }
-$promoDefinition = New-ScheduledTask `
-    -Action (New-ScheduledTaskAction -Execute $WScriptExe -Argument $PromoArgument -WorkingDirectory $Repo) `
-    -Trigger (New-ScheduledTaskTrigger -Daily -At $promoFirstStart) `
-    -Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 30)) `
-    -Principal $principal `
-    -Description "CARDZ promo pack builder after publish (build only; never posts)"
-Register-ScheduledTask -TaskName $PromoTaskName -InputObject $promoDefinition -Force | Out-Null
+$promoTrigger = New-ScheduledTaskTrigger -Daily -At $promoFirstStart
+Register-CardzManagedTask `
+    -Name $PromoTaskName `
+    -Argument $PromoArgument `
+    -Trigger $promoTrigger `
+    -ExecutionMinutes 30 `
+    -Description "CARDZ promo pack builder after publish (build only; never posts)" `
+    -Principal $principal
 
 $plan["result"] = "applied"
 $plan | ConvertTo-Json -Depth 5

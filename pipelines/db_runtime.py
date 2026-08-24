@@ -25,11 +25,13 @@ import pymysql
 from pymysql.connections import Connection
 
 from identity_name import complete_collector_tail
+from lang_registry import SUPPORTED_CARD_LANGUAGES
 from migration_policy import (
     RETIRED_APPLIED_ONLY_MIGRATIONS,
     assert_retired_hashes,
     migration_action,
 )
+from window_registry import WINDOW_DAYS
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -41,7 +43,6 @@ DEFAULT_GEMRATE_RECEIPT_MAPPINGS = (
     ROOT / "data" / "runtime" / "private-source-map" / "gemrate-receipt-mappings.json"
 )
 GRADERS = {"PSA", "BGS", "CGC", "SGC", "TAG"}
-SUPPORTED_CARD_LANGUAGES = {"en", "ja", "ko", "zhCN", "zhTW"}
 GEMRATE_ALIAS_TYPES = {"entity", "universal", "grader_member", "spec"}
 GEMRATE_HEX_ID = re.compile(r"[0-9a-f]{40}")
 SHA256_HEX = re.compile(r"[0-9a-f]{64}")
@@ -1400,7 +1401,7 @@ def import_batch(
                 coverage = str(payload.get("coverage") or "unavailable")
                 if isinstance(count, int) and count >= 0 and isinstance(value, (int, float)) and value >= 0:
                     window = kind.rsplit("_", 1)[-1]
-                    days = {"1d": 1, "7d": 7, "30d": 30}[window]
+                    days = WINDOW_DAYS[window]
                     window_end = parse_datetime(payload.get("asOf"), observed_date)
                     window_start = window_end - timedelta(days=days)
                     aggregate_hash = sha256(canonical_json(payload))

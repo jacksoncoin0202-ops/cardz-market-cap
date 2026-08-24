@@ -3,7 +3,7 @@
 import { copy } from "@/lib/i18n";
 import { formatMoney, formatObservationDayMonth } from "@/lib/format";
 import { useMarketSettings } from "@/lib/use-market-settings";
-import type { Currency, Locale, PricePoint } from "@/lib/types";
+import { marketWindowDays, type Currency, type Locale, type PricePoint } from "@/lib/types";
 
 interface HistoryChartProps {
   points: PricePoint[];
@@ -29,7 +29,7 @@ export function pointsForWindow(points: PricePoint[], days: number): PricePoint[
 export function HistoryChart({ points, locale, currency, rates }: HistoryChartProps) {
   const { period } = useMarketSettings();
   const t = copy[locale];
-  const days = period === "1d" ? 1 : period === "7d" ? 7 : 30;
+  const days = marketWindowDays[period];
   const selected = pointsForWindow(points, days);
   const prices = selected.filter((point) => point.priceUsd !== null && Number.isFinite(point.priceUsd));
   const sales = selected.filter((point) =>

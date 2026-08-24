@@ -18,6 +18,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 from collection_contract import CHECKPOINT_ADAPTERS  # noqa: E402
+from lang_registry import supported_card_language  # noqa: E402
 from qualified_pool_operator import db, load_env  # noqa: E402
 from runtime_paths import assert_runtime_root  # noqa: E402
 import operator_fe_export as fe  # noqa: E402
@@ -840,9 +841,7 @@ def build_operator_cards(cur, members, product_subset: bool):
         else:
             tcg = tcg_raw
 
-        lang = row.get("card_language")
-        if lang not in {"en", "ja", "ko", "zhCN", "zhTW"}:
-            lang = None
+        lang = supported_card_language(row.get("card_language"))
         collector = str(row.get("collector_number") or "")
         official_name = str(row.get("official_full_name") or "").strip()
         if product_subset and not official_name:
