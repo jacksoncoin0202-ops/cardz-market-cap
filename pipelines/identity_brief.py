@@ -13,7 +13,7 @@ Everything this module knows is READ.  It opens no writes to MySQL, moves no
 binding, and settles no ruling; the only file it may write is its own full-list
 artifact, and only when a caller asks for one.
 
-Seven rules are load bearing, each with a test in
+Eight rules are load bearing, each with a test in
 `scripts/test_identity_brief_message.py`:
 
 1.  The four headline numbers PARTITION the population at PSA10 pop >= 1000.
@@ -37,6 +37,12 @@ Seven rules are load bearing, each with a test in
 7.  Dedupe is keyed on sha256(variant_id|hold_reason) under its own state key
     `identity_brief_seen`, with a 14-day refloat.  The reason is IN the key, so
     a changed reason refloats by construction rather than by remembering to.
+8.  EVERY reverify hold is either listed or counted.  An unanswered hold whose
+    reason asks a question (ADJUDICATION_HOLD_REASONS) is read BEFORE the
+    product_ready / exact_n short-circuits and becomes 等你綁; every other hold
+    is counted by reason on one summary line carrying its artifact and date.
+    On 2026-08-23 all 226 holds were swallowed -- needsYou=0 was the branch
+    order, not an observation -- so `collect` now ABORTS on a swallowed one.
 
 `seen_manual_review` (scripts/notify_hermes.py) is NOT reused: that key belongs
 to the legacy 037 digest and sharing it would make either report silence the
@@ -122,6 +128,34 @@ HEADLINES = (HEADLINE_LIVE, HEADLINE_IDENTITY_NOT_LIVE, HEADLINE_NEEDS_YOU, HEAD
 DETAIL_CHAIN_WILL_RETRY = "chain_will_retry"
 DETAIL_DECIDED = "decided"
 DETAIL_UNJUDGEABLE = "unjudgeable"
+
+# Sub-bucket of HEADLINE_NEEDS_YOU: a reverify hold nobody has answered.
+DETAIL_NEEDS_ADJUDICATION = "needs_adjudication"
+
+# Hold reasons that are a QUESTION FOR THE OWNER.  rebuild_036's `hold()`
+# (:9323) only appends to the run's artifact -- it writes no ledger blocker and
+# moves no next_due -- so the row still reads active_exact / chain-owned and
+# NOTHING reschedules it.  Until the ledger side is fixed the brief may not
+# count these as "chain 自己再試"; they are the owner's work, and they reach him
+# only because the hold is read BEFORE the product_ready / exact_n
+# short-circuits: every held variant already carries exact_n>=1, so a hold
+# checked after them can never fire, which is how 27 print-signature /
+# product-mismatch questions read as green on 2026-08-23 and needsYou=0 was the
+# branch order rather than an observation.
+ADJUDICATION_HOLD_REASONS = frozenset({
+    "print_signature_mismatch", "product_mismatch", "parallel_soft_mismatch",
+})
+
+# Hold reasons that are the chain REFUSING a wrong candidate (SNK ja-vs-en
+# mirrors, dead pages, a map pointing elsewhere).  A correct refusal is not a
+# question, so these keep whatever bucket the row already had -- but they are
+# still SAID, as one summary line carrying the artifact and its date, because
+# 211 silently swallowed holds is what made the last report unusable.  The set
+# is the KNOWN half only: `collect` counts every non-adjudication reason, and
+# marks the ones neither set names, so a new reason cannot vanish either.
+LANE_OBJECTION_HOLD_REASONS = frozenset({
+    "hard_conflict", "map_product_mismatch", "page_missing",
+})
 
 # rebuild_036.OPERATOR_RULING_REASON_PREFIX.  The prefix is the ONLY thing that
 # makes a reason a ruling; "zero-20260814: ..." is a note somebody left, and a
@@ -229,7 +263,48 @@ def _read_operator_commands(path: Path | None) -> dict[str, bool]:
 # --------------------------------------------------------------------------- #
 # classification
 # --------------------------------------------------------------------------- #
-def classify(row: Mapping[str, Any], *, now: datetime, red_listed: Iterable[int] = ()) -> dict[str, Any]:
+def pending_adjudication_hold(
+    row: Mapping[str, Any],
+    hold: Mapping[str, Any] | None,
+    *,
+    red_listed: Iterable[int] = (),
+) -> dict[str, Any] | None:
+    """The reverify hold that makes this row a question for the owner, or None.
+
+    A hold is a question only while nobody has answered it, and the answer is
+    an operator ruling, a red-list entry, an alias or a demotion (rule 3:
+    re-asking a settled question is how a ruling gets quietly overturned).
+    Nothing else can serve as the answer -- `hold()` writes no ledger row -- so
+    those four ARE the adjudication signal, and they are checked here rather
+    than by branch order so that `classify` may read the hold before its
+    product_ready / exact_n short-circuits without reopening a decided card.
+
+    Deliberately independent of `classify`: `collect` asks the same question
+    again to ASSERT that no such row was swallowed by an earlier branch.
+    """
+
+    if not hold:
+        return None
+    if str(hold.get("reason") or "") not in ADJUDICATION_HOLD_REASONS:
+        return None
+    detail = _obj(row.get("detail_json") if "detail_json" in row else row.get("detail"))
+    if detail.get("aliasOf") or detail.get("demotedReason"):
+        return None
+    if ruling_text(row.get("ruling")):
+        return None
+    variant_id = row.get("variant_id")
+    if variant_id is not None and int(variant_id) in set(int(v) for v in red_listed):
+        return None
+    return dict(hold)
+
+
+def classify(
+    row: Mapping[str, Any],
+    *,
+    now: datetime,
+    red_listed: Iterable[int] = (),
+    holds: Mapping[int, Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Place one pop>=1000 member in exactly one headline bucket.
 
     Order is the argument.  `aliasOf` / `demotedReason` come before the binding
@@ -237,6 +312,12 @@ def classify(row: Mapping[str, Any], *, now: datetime, red_listed: Iterable[int]
     and `detail_json.pendingReasons` is never consulted: rebuild_036 forces it
     to empty for `non_qualified`, so reading it re-opens decisions the owner
     already made (plan risk 4).
+
+    An unanswered hold is read BEFORE `product_ready` and before `exact_n > 0`
+    for the reason in ADJUDICATION_HOLD_REASONS, and defers to a ruling / a
+    red-list entry / an alias / a demotion through
+    `pending_adjudication_hold`, so a decided card stays decided even when a
+    lane holds it.
     """
 
     red = set(int(v) for v in red_listed)
@@ -246,6 +327,19 @@ def classify(row: Mapping[str, Any], *, now: datetime, red_listed: Iterable[int]
     variant_id = row.get("variant_id")
     ruling = ruling_text(row.get("ruling"))
     language = str(row.get("card_language") or "").strip()
+
+    held = pending_adjudication_hold(
+        row,
+        None if (variant_id is None or not holds) else holds.get(int(variant_id)),
+        red_listed=red,
+    )
+    if held is not None:
+        return {"headline": HEADLINE_NEEDS_YOU, "detail": DETAIL_NEEDS_ADJUDICATION,
+                "reasonCode": str(held.get("reason") or "hold"),
+                "reasonText": f'{held.get("lane") or "?"} lane'
+                              f' {held.get("artifactDay") or "?"} hold 咗，冇人裁決過：'
+                              f'{held.get("detail") or "冇 detail"}',
+                "ruled": False}
 
     if cohort == "product_ready":
         return {"headline": HEADLINE_LIVE, "detail": "live", "reasonCode": "product_ready",
@@ -329,6 +423,15 @@ def _artifact_day(path: Path) -> str:
         return "?"
 
 
+def _repo_relative(path: Path) -> str:
+    """Repo-relative when it is inside the repo, absolute otherwise."""
+
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
 def load_reverify_holds(artifact_dir: Path | None = None) -> dict[int, dict[str, Any]]:
     """Newest `held[]` per lane out of the pc/snk reverify artifacts.
 
@@ -367,6 +470,7 @@ def load_reverify_holds(artifact_dir: Path | None = None) -> dict[int, dict[str,
                 "externalId": str(entry.get("pid") or entry.get("external_id") or "") or None,
                 "artifactDay": day,
                 "artifact": newest.name,
+                "artifactPath": _repo_relative(newest),
             }
             previous = holds.get(variant_id)
             if previous is None or record["artifactDay"] >= previous["artifactDay"]:
@@ -525,10 +629,18 @@ def collect(
     needs_you: list[dict[str, Any]] = []
     identity_not_live_ruled = 0
     never_attempted = 0
+    # Every hold on a member lands in exactly one of these two, so a hold can
+    # no longer be dropped by being neither listed nor counted.
+    needs_adjudication = 0
+    objection_counts: dict[str, int] = {}
+    held_in_population = 0
+    swallowed: list[Any] = []
 
     unbucketed: list[Any] = []
     for member in members:
-        verdict = classify(member, now=moment, red_listed=red)
+        variant_id = member.get("variant_id")
+        hold_record = holds.get(int(variant_id)) if variant_id is not None else None
+        verdict = classify(member, now=moment, red_listed=red, holds=holds)
         if verdict["headline"] in headline_counts:
             headline_counts[verdict["headline"]] += 1
         else:
@@ -543,6 +655,26 @@ def collect(
         if verdict["reasonCode"] == "never_attempted":
             never_attempted += 1
 
+        if hold_record:
+            held_in_population += 1
+            if verdict["detail"] == DETAIL_NEEDS_ADJUDICATION:
+                needs_adjudication += 1
+            else:
+                reason = str(hold_record.get("reason") or "unknown")
+                objection_counts[reason] = objection_counts.get(reason, 0) + 1
+                # Asked again instead of read off the verdict: this answer does
+                # not depend on branch order, so a classifier that short-cuts
+                # before the hold branch surfaces as `swallowed` below rather
+                # than as a quiet needsYou=0.
+                if pending_adjudication_hold(member, hold_record, red_listed=red) is not None:
+                    swallowed.append({
+                        "gemrateId": member.get("gemrate_id"),
+                        "variantId": member.get("variant_id"),
+                        "reason": reason,
+                        "headline": verdict["headline"],
+                        "detail": verdict["detail"],
+                    })
+
         # rebuild_036._discovery_gap_rows: qualified cohort, at the floor, no
         # exact binding, INNER JOIN catalog_variant.  Same shape, same rows.
         if (
@@ -555,8 +687,7 @@ def collect(
 
         if verdict["headline"] != HEADLINE_NEEDS_YOU:
             continue
-        variant_id = member.get("variant_id")
-        hold = dict(holds.get(int(variant_id), {})) if variant_id is not None else {}
+        hold = dict(hold_record or {})
         source_code = hold.get("sourceCode") or (
             "pricecharting" if str(member.get("card_language") or "") == "en" else "snkrdunk"
         )
@@ -613,6 +744,40 @@ def collect(
             f" pop>={int(population_floor)} 嘅卡冇入任何一個 headline bucket："
             f"{json.dumps(unbucketed[:5], ensure_ascii=False, default=str)}"
         )
+    if swallowed:
+        raise AssertionError(
+            f"identity brief ABORT: {len(swallowed)} 個未有人裁決嘅 lane hold 冇入「等你綁」"
+            f"（classify 嘅分支次序食咗佢哋，即係 2026-08-23 audit 嗰個病）："
+            f"{json.dumps(swallowed[:5], ensure_ascii=False, default=str)}"
+        )
+    member_variant_ids = {
+        int(row["variant_id"]) for row in members if row.get("variant_id") is not None
+    }
+    artifacts: dict[str, dict[str, Any]] = {}
+    for record in holds.values():
+        name = str(record.get("artifact") or "?")
+        artifacts.setdefault(name, {
+            "lane": record.get("lane"),
+            "artifact": name,
+            "artifactDay": record.get("artifactDay") or "?",
+            "path": record.get("artifactPath") or "",
+        })
+    lane_objections = {
+        "total": sum(objection_counts.values()),
+        "byReason": objection_counts,
+        # A reason neither set names is still printed, marked, and counted.
+        "unknownReasons": sorted(
+            reason for reason in objection_counts
+            if reason not in LANE_OBJECTION_HOLD_REASONS
+            and reason not in ADJUDICATION_HOLD_REASONS
+        ),
+        "needsAdjudication": needs_adjudication,
+        "heldInPopulation": held_in_population,
+        "offPopulation": sum(
+            1 for variant_id in holds if int(variant_id) not in member_variant_ids
+        ),
+        "artifacts": sorted(artifacts.values(), key=lambda row: str(row["artifact"])),
+    }
     baseline_map = {
         str(k): int(v)
         for k, v in ((baseline or {}).get("noCandidateAtPop") or {}).items()
@@ -633,6 +798,7 @@ def collect(
         "identityPhase": dict(identity_phase or identity_phase_state(None)),
         "intake": dict(intake or {"present": False, "path": None}),
         "census": dict(census or {"known": False, "path": None, "day": "?", "stale": True}),
+        "laneObjections": lane_objections,
         "gapCensus": gap_census,
         "gapBaseline": baseline_map,
         "overridesYesterday": overrides_yesterday,
@@ -909,6 +1075,27 @@ def _render_at(
     lines.append(
         f"   其中未試過 {never} 條；lane 預算 {budget}/日，"
         f"{max(0, never - budget)} 條今日輪唔到（聽日先到，唔使你郁）"
+    )
+
+    # block 5b -- the lane's refusals.  They are not the owner's work, but a
+    # hold nobody prints is a hold nobody knows about (rule 6 again).
+    objections = data.get("laneObjections") or {}
+    by_reason = objections.get("byReason") or {}
+    reason_bits = "、".join(
+        f"{_esc(reason)}×{int(count)}" for reason, count in sorted(by_reason.items())
+    ) or "0"
+    artifact_bits = "、".join(
+        f'<code>{_esc(row.get("path") or row.get("artifact"))}</code>'
+        f' {_esc(row.get("artifactDay") or "?")}'
+        for row in (objections.get("artifacts") or [])
+    ) or "今日冇 lane artifact"
+    unknown = objections.get("unknownReasons") or []
+    lines.append(
+        f'🧾 lane 反對（唔算等你綁）：{reason_bits}'
+        f' ｜ 未裁決升咗做等你綁 {int(objections.get("needsAdjudication") or 0)}'
+        f' ｜ 唔喺母體 {int(objections.get("offPopulation") or 0)}'
+        f' ｜ 出處 {artifact_bits}'
+        + (f' ｜ ⚠️ 未分類 reason：{_esc("、".join(map(str, unknown)))}' if unknown else "")
     )
 
     # block 6 -- the standing holes, stated even when zero (rule 6).

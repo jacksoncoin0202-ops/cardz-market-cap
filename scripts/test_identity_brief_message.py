@@ -48,11 +48,17 @@ def member(**overrides: Any) -> dict[str, Any]:
         "set_code": "OP02",
         "collector_number": "013",
         "discovery_status": "identity_ambiguous",
-        "blocker_code": "print_signature_mismatch",
+        # A LEDGER blocker, and one that really occurs at exact_n=0.  This used
+        # to read `print_signature_mismatch`, which is a reverify HOLD reason:
+        # holds only ever land on rows that already carry exact_n>=1, so the
+        # default fixture was a shape production does not have and every green
+        # check on it proved a path the chain never takes (2026-08-23 audit,
+        # defect 3).  Held rows are fixtured with a hold, further down.
+        "blocker_code": "manual_review",
         "attempt_count": 4,
         "next_due_at": None,
         "quarantine_until": None,
-        "last_outcome": "held",
+        "last_outcome": "manual_review",
         "last_reviewed_at": datetime(2026, 8, 22, 12, 8, tzinfo=timezone.utc),
         "exact_n": 0,
         "nonexact_n": 1,
@@ -291,6 +297,10 @@ try:
     for expected in (
         "🙋 <b>等你綁</b> 0", "⏳ chain 自己再試 0", "🔒 已裁決 0", "🈲 chain 判唔到 0",
         "⛔ <b>有身份但未出街</b> 0", "🖐 尋日 operator override：0", "母體 0",
+        # A day with no lane objection at all still prints the zero and says
+        # there was no artifact, so "quiet lane" and "lane never ran" stay
+        # different sentences.
+        "🧾 lane 反對（唔算等你綁）：0", "未裁決升咗做等你綁 0", "今日冇 lane artifact",
     ):
         assert expected in empty_message, expected
     print("NEGATIVE_OK a silent morning prints its zeros so it cannot be mistaken for a broken stage")
@@ -305,8 +315,12 @@ try:
     assert "之前講過而 reason 冇變 1 張" in same_message
     refloat_message, _ = B.render(one, seen=state, now=NOW + timedelta(days=B.REFLOAT_DAYS + 1))
     assert "v3001" in refloat_message
-    changed = collect([member(variant_id=3001, attempt_count=9,
-                              blocker_code="product_mismatch")], holds={})
+    # Production shape for "the reason changed": the browser lane now holds the
+    # row, so the ledger blocker is replaced by the hold reason and the key with
+    # it.  (`holds[1915]` is the artifact-backed record written just above.)
+    changed = collect([member(variant_id=3001, attempt_count=9, exact_n=1)],
+                      holds={3001: dict(holds[1915])})
+    assert changed["needsYou"][0]["holdReason"] == "print_signature_mismatch"
     changed_message, _ = B.render(changed, seen=state, now=NOW + timedelta(days=1))
     assert "v3001" in changed_message
     assert B.hold_key(3001, "a") != B.hold_key(3001, "b")
@@ -435,6 +449,183 @@ try:
     assert "SET SESSION max_execution_time" in source
     print("NEGATIVE_OK the brief only reads, never touches the runaway projection view, and caps its own session")
 
+    # ================================================== holds: the 2026-08-23 audit
+    # Production shape, taken from the audit's own re-run: EVERY held variant
+    # carries exact_n>=1 and most sit at cohort=product_ready.  A hold read
+    # after those two short-circuits can therefore never fire, which is why
+    # needsYou=0 was an identity of the branch order rather than an observation
+    # while 27 print-signature / product-mismatch questions read as green.
+    holds_dir = WORKSPACE / "audit-holds"
+    holds_dir.mkdir(parents=True, exist_ok=True)
+    (holds_dir / "pc-identity-reverify-20260823T041500Z.json").write_text(
+        json.dumps({"held": [
+            {"variant_id": 7001, "pid": "10395109", "reason": "product_mismatch",
+             "detail": "page=Alt Art number=OP02-013"},
+            {"variant_id": 7002, "pid": "10395110", "reason": "print_signature_mismatch",
+             "detail": "page=[2nd Anniversary] printing= parallel=base"},
+            {"variant_id": 7003, "pid": "10395111", "reason": "hard_conflict",
+             "detail": "ja page carried against an en card"},
+            {"variant_id": 7004, "pid": "10395112", "reason": "product_mismatch",
+             "detail": "page=Alt Art"},
+            {"variant_id": 7005, "pid": "10395113", "reason": "page_product_mismatch",
+             "detail": "page=?"},
+        ]}),
+        encoding="utf-8",
+    )
+    (holds_dir / "snk-identity-reverify-20260821T041500Z.json").write_text(
+        json.dumps({"held": [
+            {"variant_id": 7006, "pid": "471534", "reason": "parallel_soft_mismatch",
+             "detail": "parallel=base page=SR"},
+        ]}),
+        encoding="utf-8",
+    )
+    audit_holds = B.load_reverify_holds(holds_dir)
+    assert set(audit_holds) == {7001, 7002, 7003, 7004, 7005, 7006}
+    assert audit_holds[7001]["artifactDay"] == "2026-08-23"
+    assert audit_holds[7006]["lane"] == "http" and audit_holds[7006]["artifactDay"] == "2026-08-21"
+    assert audit_holds[7006]["artifactPath"].endswith("snk-identity-reverify-20260821T041500Z.json")
+
+    held_rows = [
+        # (a) live on the site, bound to a page the browser lane disputes.
+        member(variant_id=7001, cohort="product_ready", exact_n=1, attempt_count=3, pop=4000),
+        # (b) exact identity, print signature disputed.
+        member(variant_id=7002, cohort="qualified_market_pending", exact_n=1,
+               attempt_count=3, pop=3000),
+        # (c) the chain refusing a wrong candidate: correct work, not a question.
+        member(variant_id=7003, cohort="product_ready", exact_n=1, attempt_count=3, pop=2500),
+        # (d) already ruled: a hold may not reopen a decided card.
+        member(variant_id=7004, cohort="qualified_identity", exact_n=1, attempt_count=3,
+               pop=2400, ruling="pricecharting: operator-daddy-20260820: page is right"),
+        # a reason NEITHER set names still has to be counted and marked.
+        member(variant_id=7005, cohort="product_ready", exact_n=1, attempt_count=3, pop=2300),
+        # (b') the http lane's own reason, on a Japanese card.
+        member(variant_id=7006, cohort="product_ready", exact_n=1, attempt_count=3,
+               pop=2200, card_language="ja", tcg_code="pokemon"),
+    ]
+    held_data = collect(held_rows, holds=audit_holds)
+    verdicts = {
+        row["variant_id"]: B.classify(row, now=NOW, holds=audit_holds) for row in held_rows
+    }
+    assert verdicts[7001]["headline"] == B.HEADLINE_NEEDS_YOU
+    assert verdicts[7001]["detail"] == B.DETAIL_NEEDS_ADJUDICATION
+    assert verdicts[7001]["reasonCode"] == "product_mismatch"
+    assert verdicts[7002]["headline"] == B.HEADLINE_NEEDS_YOU
+    assert verdicts[7002]["reasonCode"] == "print_signature_mismatch"
+    assert verdicts[7006]["headline"] == B.HEADLINE_NEEDS_YOU
+    assert verdicts[7003]["headline"] == B.HEADLINE_LIVE          # (c) bucket unchanged
+    assert verdicts[7005]["headline"] == B.HEADLINE_LIVE
+    assert verdicts[7004]["headline"] != B.HEADLINE_NEEDS_YOU     # (d) stays decided
+    assert verdicts[7004]["ruled"] is True
+    assert held_data["headline"][B.HEADLINE_NEEDS_YOU] == 3
+    assert [row["variantId"] for row in held_data["needsYou"]] == [7001, 7002, 7006]
+    assert held_data["needsYou"][0]["evidenceDay"] == "2026-08-23"
+    assert held_data["needsYou"][2]["evidenceDay"] == "2026-08-21"
+    held_message, _ = B.render(held_data, seen={}, now=NOW)
+    assert "🙋 <b>等你綁</b> 3" in held_message
+    assert "hold=<code>product_mismatch</code>" in held_message
+    assert "operator_control.py bind-url --variant-id 7001" in held_message
+    print("POSITIVE_OK an unanswered print-signature/product/parallel hold reaches 等你綁 even on a live card")
+
+    # (c) + the unclassified reason: counted, named, dated, and NOT in 等你綁.
+    objections = held_data["laneObjections"]
+    assert objections["byReason"] == {
+        "hard_conflict": 1, "page_product_mismatch": 1, "product_mismatch": 1
+    }
+    assert objections["total"] == 3 and objections["needsAdjudication"] == 3
+    assert objections["heldInPopulation"] == 6 and objections["offPopulation"] == 0
+    assert objections["unknownReasons"] == ["page_product_mismatch"]
+    assert "hard_conflict×1" in held_message
+    assert "page_product_mismatch×1" in held_message
+    assert "pc-identity-reverify-20260823T041500Z.json</code> 2026-08-23" in held_message
+    assert "snk-identity-reverify-20260821T041500Z.json</code> 2026-08-21" in held_message
+    assert "⚠️ 未分類 reason：page_product_mismatch" in held_message
+    assert "v7003" not in held_message and "v7004" not in held_message
+    print("POSITIVE_OK a refused candidate is summarised by reason with its artifact and date instead of vanishing")
+
+    # Re-seed the defect: the branch order this fix changed.  product_ready and
+    # exact_n>0 answer first, so the hold never gets read -- and the swallowed
+    # holds are what the assert now catches instead of a silent needsYou=0.
+    real_classify = B.classify
+
+    def old_order_classify(row: Any, **kwargs: Any) -> dict[str, Any]:
+        if str(row.get("cohort") or "") == "product_ready":
+            return {"headline": B.HEADLINE_LIVE, "detail": "live",
+                    "reasonCode": "product_ready", "reasonText": "已經出街", "ruled": False}
+        if int(row.get("exact_n") or 0) > 0:
+            return {"headline": B.HEADLINE_IDENTITY_NOT_LIVE, "detail": "identity_not_live",
+                    "reasonCode": "cohort:x", "reasonText": "y", "ruled": False}
+        return real_classify(row, **kwargs)
+
+    B.classify = old_order_classify  # type: ignore[assignment]
+    try:
+        collect(held_rows, holds=audit_holds)
+        raise AssertionError("the swallowed-hold assert did not fire on the old branch order")
+    except AssertionError as error:
+        assert "冇入「等你綁」" in str(error), error
+    finally:
+        B.classify = real_classify  # type: ignore[assignment]
+    print("POSITIVE_OK the old branch order now aborts as swallowed holds instead of reporting 等你綁 0")
+
+    # And the partition still partitions with holds in play.
+    assert sum(held_data["headline"].values()) == held_data["population"] == 6
+
+    def leaky_held_classify(row: Any, **kwargs: Any) -> dict[str, Any]:
+        verdict = real_classify(row, **kwargs)
+        if row.get("variant_id") == 7002:
+            return {**verdict, "headline": "somewhere_else"}
+        return verdict
+
+    B.classify = leaky_held_classify  # type: ignore[assignment]
+    try:
+        collect(held_rows, holds=audit_holds)
+        raise AssertionError("the partition assert did not fire with holds present")
+    except AssertionError as error:
+        assert "冇入任何一個 headline bucket" in str(error), error
+    finally:
+        B.classify = real_classify  # type: ignore[assignment]
+    print("NEGATIVE_OK the four headline numbers still partition the population once holds move rows")
+
+    # A day-sized artifact: 226 holds, cap 5, honest totals, one message.
+    flood_dir = WORKSPACE / "flood-holds"
+    flood_dir.mkdir(parents=True, exist_ok=True)
+    flood_reasons = (
+        ["print_signature_mismatch"] * 22 + ["product_mismatch"] * 5
+        + ["parallel_soft_mismatch"] * 9 + ["hard_conflict"] * 150
+        + ["page_missing"] * 30 + ["map_product_mismatch"] * 10
+    )
+    assert len(flood_reasons) == 226
+    (flood_dir / "pc-identity-reverify-20260823T041500Z.json").write_text(
+        json.dumps({"held": [
+            {"variant_id": 8000 + n, "pid": str(900000 + n), "reason": reason,
+             "detail": f"row {n}"}
+            for n, reason in enumerate(flood_reasons)
+        ]}),
+        encoding="utf-8",
+    )
+    flood_holds = B.load_reverify_holds(flood_dir)
+    assert len(flood_holds) == 226
+    flood_rows = [
+        member(variant_id=8000 + n, cohort="product_ready", exact_n=1, attempt_count=3,
+               pop=9000 - n)
+        for n in range(226)
+    ]
+    flood = collect(flood_rows, holds=flood_holds)
+    assert flood["headline"][B.HEADLINE_NEEDS_YOU] == 36
+    assert flood["headline"][B.HEADLINE_LIVE] == 190
+    assert flood["laneObjections"]["total"] == 190
+    assert flood["laneObjections"]["byReason"]["hard_conflict"] == 150
+    flood_message, _ = B.render(flood, seen={}, now=NOW)
+    assert len(flood_message) < 4096, len(flood_message)
+    assert len(flood_message) <= B.MESSAGE_BUDGET, len(flood_message)
+    assert "🙋 <b>等你綁</b> 36" in flood_message
+    assert "hard_conflict×150" in flood_message and "page_missing×30" in flood_message
+    flood_listed = [line for line in flood_message.splitlines() if line.startswith("  • ")]
+    assert len(flood_listed) <= B.MAX_NEEDS_YOU, len(flood_listed)
+    assert "v8000 pop=9000" in flood_listed[0]                 # highest pop first
+    assert "其餘 31 張見全名單檔，唔喺度截字" in flood_message
+    assert flood_message.count("<code>") == flood_message.count("</code>")
+    print("POSITIVE_OK 226 holds render as 36 questions plus one honest objection line inside the budget")
+
 
 
     # ------------------------------------------- the V2 `brief` stage + delivery
@@ -487,7 +678,10 @@ try:
         final_at="2026-08-23T08:00:00+00:00",
     )["run_id"]
     real_build, real_load, real_save = B.build, B.load_seen, B.save_seen
-    real_env = {key: os.environ.get(key) for key in ("CARDZ_V2_STATE_DB", "CARDZ_V2_RUN_ID")}
+    real_env = {
+        key: os.environ.get(key)
+        for key in ("CARDZ_V2_STATE_DB", "CARDZ_V2_RUN_ID", "CARDZ_DAILY_V2_STATE_DB")
+    }
     try:
         B.build = fake_build                                   # type: ignore[assignment]
         B.load_seen = lambda path=None: dict(stage_seen)        # type: ignore[assignment]
@@ -527,6 +721,19 @@ try:
                           if row["event_type"] == B.BRIEF_EVENT_TYPE]
         assert len(changed_events) == 2, "a brief that changed has something new to say"
         print("NEGATIVE_OK a retried brief dedupes on its own text while a changed brief still ships")
+
+        # DEFECT 4: one journal, two env names.  daily_chain_v2.py:2358 exports
+        # CARDZ_V2_STATE_DB; daily_chain_v2_journal.py:79 default_state_path()
+        # reads CARDZ_DAILY_V2_STATE_DB, which the chain never sets -- so the
+        # identity-phase line described a journal this run never wrote to.
+        import daily_chain_v2_journal as JOURNAL_MODULE  # noqa: E402
+
+        os.environ.pop("CARDZ_DAILY_V2_STATE_DB", None)
+        assert JOURNAL_MODULE.default_state_path() != Path(str(state_db))
+        STAGE.stage_identity_brief(types.SimpleNamespace(business_date="2026-08-23"))
+        assert os.environ.get("CARDZ_DAILY_V2_STATE_DB") == str(state_db)
+        assert JOURNAL_MODULE.default_state_path() == Path(str(state_db))
+        print("POSITIVE_OK the brief stage bridges CARDZ_V2_STATE_DB so the journal it reads is the run's own")
     finally:
         B.build, B.load_seen, B.save_seen = real_build, real_load, real_save
         for key, value in real_env.items():

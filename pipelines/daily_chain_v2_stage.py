@@ -513,6 +513,17 @@ def stage_identity_brief(args: argparse.Namespace) -> dict[str, Any]:
     add_event the hollow one would be the only brief the owner ever saw.
     """
 
+    # One journal, two env names: daily_chain_v2.py:2358 exports the run's
+    # journal as CARDZ_V2_STATE_DB, while daily_chain_v2_journal.py:79
+    # (`default_state_path`) reads CARDZ_DAILY_V2_STATE_DB, which the chain
+    # never sets.  identity_brief._journal_identity_phase() goes through
+    # default_state_path(), so without this bridge line 2 of the brief reports
+    # a DIFFERENT journal -- usually the empty default -- as "身份階段未知".
+    # setdefault, so an explicitly configured journal still wins.
+    state_db = os.environ.get("CARDZ_V2_STATE_DB", "").strip()
+    if state_db:
+        os.environ.setdefault("CARDZ_DAILY_V2_STATE_DB", state_db)
+
     import identity_brief
 
     now = datetime.now(timezone.utc)
