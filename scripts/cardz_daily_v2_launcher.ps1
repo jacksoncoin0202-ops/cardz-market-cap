@@ -29,6 +29,11 @@ $Runtime = if ([string]::IsNullOrWhiteSpace($env:CARDZ_V2_LAUNCHER_PROVENANCE_DI
     $env:CARDZ_V2_LAUNCHER_PROVENANCE_DIR
 }
 $StartedAt = Get-Date
+$NotifyPython = if ([string]::IsNullOrWhiteSpace($env:CARDZ_V2_NOTIFY_PYTHON)) {
+    "C:\Users\jackson0202\AppData\Local\Programs\Python\Python310\python.exe"
+} else {
+    $env:CARDZ_V2_NOTIFY_PYTHON
+}
 
 # The tick runs hidden (see scripts\cardz_silent_run.vbs); nothing survives on a
 # console nobody sees.  Every line the launcher used to Write-Host now also lands
@@ -45,6 +50,101 @@ function Write-Log {
     $line = (Get-Date).ToString("o") + " " + $Message
     Add-Content -LiteralPath $LogPath -Value $line -Encoding UTF8
     Write-Host $line
+}
+
+function Write-LauncherAlertLog {
+    param([Parameter(Mandatory=$true)][AllowEmptyString()][string]$Message)
+    try {
+        Write-Log $Message
+    } catch {
+        Write-Host ((Get-Date).ToString("o") + " " + $Message)
+    }
+}
+
+function Send-LauncherAlert {
+    param(
+        [Parameter(Mandatory=$true)][string]$Key,
+        [Parameter(Mandatory=$true)][string]$Text
+    )
+    $safeKey = ($Key -replace '[^A-Za-z0-9_-]', '-').Trim('-')
+    if ([string]::IsNullOrWhiteSpace($safeKey)) { $safeKey = "launcher-alert" }
+    $alertDir = Join-Path $Runtime "launcher-alerts"
+    $alertStamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssfffffffZ")
+    $artifactPath = Join-Path $alertDir ("alert-" + $alertStamp + "-" + $safeKey + ".json")
+    try {
+        New-Item -ItemType Directory -Force -Path $alertDir | Out-Null
+        $artifact = [ordered]@{
+            contract = "cardz-v2-launcher-alert-v1"
+            key = $Key
+            text = $Text
+            launcher_pid = $PID
+            started_at = $StartedAt.ToUniversalTime().ToString("o")
+            recorded_at = (Get-Date).ToUniversalTime().ToString("o")
+            log_path = $LogPath
+        }
+        $artifactTmp = $artifactPath + ".next"
+        [System.IO.File]::WriteAllText(
+            $artifactTmp,
+            ($artifact | ConvertTo-Json -Depth 4 -Compress) + "`n",
+            (New-Object System.Text.UTF8Encoding($false))
+        )
+        Move-Item -LiteralPath $artifactTmp -Destination $artifactPath -Force
+        Write-LauncherAlertLog "CARDZ_V2_LAUNCHER_ALERT_ARTIFACT key=$Key path=$artifactPath"
+    } catch {
+        Write-LauncherAlertLog "CARDZ_V2_LAUNCHER_ALERT_ARTIFACT_FAILED key=$Key error=$($_.Exception.Message)"
+    }
+
+    $notifyScript = if ([string]::IsNullOrWhiteSpace($env:CARDZ_V2_NOTIFY_HERMES_PY)) {
+        Join-Path $PSScriptRoot "notify_hermes.py"
+    } else {
+        $env:CARDZ_V2_NOTIFY_HERMES_PY
+    }
+    $notifyExit = 127
+    try {
+        & $NotifyPython -X utf8 $notifyScript alert --key $Key --text $Text --level error --cooldown-min 1440 --require-delivery 2>&1 |
+            ForEach-Object { Write-LauncherAlertLog ("CARDZ_V2_LAUNCHER_ALERT_NOTIFY_OUTPUT " + $_) }
+        $notifyExit = $LASTEXITCODE
+    } catch {
+        Write-LauncherAlertLog "CARDZ_V2_LAUNCHER_ALERT_NOTIFY_FAILED key=$Key error=$($_.Exception.Message)"
+    }
+    Write-LauncherAlertLog "CARDZ_V2_LAUNCHER_ALERT_NOTIFY key=$Key exit=$notifyExit"
+    if ($notifyExit -eq 0) { return }
+
+    $popupMarker = Join-Path $alertDir ("popup-" + (Get-Date).ToString("yyyyMMdd") + "-" + $safeKey + ".marker")
+    if (Test-Path -LiteralPath $popupMarker) {
+        Write-LauncherAlertLog "CARDZ_V2_LAUNCHER_ALERT_POPUP_SUPPRESSED key=$Key marker=$popupMarker"
+        return
+    }
+    $popupExe = if ([string]::IsNullOrWhiteSpace($env:CARDZ_V2_LAUNCHER_MSG_EXE)) {
+        Join-Path ([Environment]::SystemDirectory) "msg.exe"
+    } else {
+        $env:CARDZ_V2_LAUNCHER_MSG_EXE
+    }
+    $popupExit = 127
+    try {
+        & $popupExe "*" "/TIME:60" $Text | Out-Null
+        $popupExit = $LASTEXITCODE
+        if ($popupExit -eq 0) {
+            [System.IO.File]::WriteAllText(
+                $popupMarker,
+                ((Get-Date).ToUniversalTime().ToString("o") + "`n"),
+                (New-Object System.Text.UTF8Encoding($false))
+            )
+        }
+    } catch {
+        Write-LauncherAlertLog "CARDZ_V2_LAUNCHER_ALERT_POPUP_FAILED key=$Key error=$($_.Exception.Message)"
+    }
+    Write-LauncherAlertLog "CARDZ_V2_LAUNCHER_ALERT_POPUP key=$Key exit=$popupExit"
+}
+
+trap {
+    $launcherError = $_.Exception.Message
+    Write-LauncherAlertLog "CARDZ_V2_LAUNCHER_EXCEPTION $launcherError"
+    Send-LauncherAlert -Key "v2-launcher-exception" -Text (
+        "CARDZ V2 launcher failed before or during tick startup: $launcherError. " +
+        "No successful tick handoff was recorded. Inspect: $LogPath"
+    )
+    exit 1
 }
 
 if ($ManualE2E -and -not $AllowPublish) {
@@ -194,29 +294,44 @@ if (-not [string]::IsNullOrWhiteSpace($RunLabel)) {
 }
 
 Write-Log ("CARDZ_V2_WSL_ARGS wsl.exe " + ($args -join " "))
-if ($SelfTest) {
-    Write-Log "SELFTEST_OK $LogPath"
-    exit 0
-}
 
 # WSL Ubuntu must answer before the tick is handed to it (2026-08-23: three
 # Wsl/Service/0x8007274c in one morning while docker on the same VM kept
 # answering; every tick would have failed until a human ran `wsl -t Ubuntu`).
 # wsl_ubuntu_selfheal.ps1 terminates ONLY the Ubuntu distro, and only when the
 # VM is provably alive; it never runs `wsl --shutdown`.  Exit 3 = still dead.
-$selfheal = & powershell.exe -WindowStyle Hidden -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "wsl_ubuntu_selfheal.ps1")
+$selfhealScript = if ([string]::IsNullOrWhiteSpace($env:CARDZ_V2_WSL_SELFHEAL_PS1)) {
+    Join-Path $PSScriptRoot "wsl_ubuntu_selfheal.ps1"
+} else {
+    $env:CARDZ_V2_WSL_SELFHEAL_PS1
+}
+$selfheal = & powershell.exe -WindowStyle Hidden -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $selfhealScript
 $selfhealExit = $LASTEXITCODE
 Write-Log ("CARDZ_V2_WSL_PREFLIGHT exit=$selfhealExit " + (($selfheal | Out-String).Trim()))
 if ($selfhealExit -ne 0) {
+    Send-LauncherAlert -Key "v2-launcher-wsl-dead" -Text (
+        "CARDZ V2 tick could not start: wsl_ubuntu_selfheal exit=$selfhealExit " +
+        "($(($selfheal | Out-String).Trim())). No tick ran; the chain is stalled until WSL Ubuntu answers. " +
+        "Inspect: wsl -l -v. Revive: wsl -t Ubuntu (never wsl --shutdown: it takes MySQL 3308 down)."
+    )
     Write-Log "CARDZ_V2_END exit=3 provenance=$receiptPath wsl=dead"
     exit 3
+}
+if ($SelfTest) {
+    Write-Log "SELFTEST_OK $LogPath"
+    exit 0
 }
 Write-Log "CARDZ_V2_START event=$eventId record=$recordId instance=$instanceId parent=$parentName"
 try {
     & wsl.exe @args
     $exitCode = $LASTEXITCODE
 } catch {
-    Write-Log "CARDZ_V2_LAUNCHER_EXCEPTION $($_.Exception.Message)"
+    $launcherError = $_.Exception.Message
+    Write-LauncherAlertLog "CARDZ_V2_LAUNCHER_EXCEPTION $launcherError"
+    Send-LauncherAlert -Key "v2-launcher-exception" -Text (
+        "CARDZ V2 launcher failed while handing the tick to WSL: $launcherError. " +
+        "Inspect: $LogPath"
+    )
     exit 1
 }
 Write-Log "CARDZ_V2_END exit=$exitCode provenance=$receiptPath"

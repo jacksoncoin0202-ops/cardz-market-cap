@@ -7,8 +7,8 @@ Subcommands：
   chain --chain nightly|morning|refresh  每條 chain 跑完報狀態（--notify-on failure|always）
   release --outcome published|no-change|failed
                                          daily_public_release.sh 出口（WSL 入面 call）
-  alert --key K --text T [--cooldown-min N]
-                                         任意 watchdog 警報，同 key 喺 cooldown 內唔重覆嘈
+  alert --key K --text T [--cooldown-min N] [--require-delivery]
+                                          任意 watchdog 警報，同 key 喺 cooldown 內唔重覆嘈
   digest                                 每日摘要：universe 數、要人手裁決嘅新卡、pop 跌警報
 
 秘密處理：TELEGRAM_BOT_TOKEN 由 Hermes 本尊嘅 ~/.hermes/.env（WSL Ubuntu）讀，
@@ -24,7 +24,7 @@ Backend（env CARDZ_NOTIFY_BACKEND）：
 任一 backend 失敗會 fallback 去另一個。
 
 設計原則：通報失敗唔准搞紅條 chain（TG 落地失敗只 warn，exit 0）；
-`test` 例外，發唔到 exit 1（因為佢存在意義就係驗證發送）。
+`test` 同 `alert --require-delivery` 例外，發唔到 exit 1（因為佢哋存在意義就係驗證發送）。
 stdout 只出 ASCII（PowerShell `*>> $log` 用 console codepage，非 ASCII 會變 ????）。
 """
 from __future__ import annotations
@@ -55,6 +55,7 @@ HERMES_ENV_CANDIDATES = [
 ]
 HERMES_REAL_LINUX = "/home/jackson0202/.local/bin/hermes.real"  # 跳過 ensure_local_stack wrapper
 STATE_PATH = ROOT / "data" / "runtime" / "notify" / "hermes_notify_state.json"
+UNDELIVERED_DIR = ROOT / "data" / "runtime" / "notify" / "undelivered"
 
 # 三條 Task Scheduler cron（CARDZ-037-*），digest 會照住呢張表報今日邊條行咗
 CHAIN_SCHEDULE = {
@@ -239,6 +240,24 @@ def _mark_sent(state: dict[str, Any], key: str) -> None:
     entry["suppressed"] = 0
 
 
+def _record_undelivered(key: str, text: str) -> Path:
+    """Durably record an alert that no delivery backend accepted."""
+    UNDELIVERED_DIR.mkdir(parents=True, exist_ok=True)
+    safe_key = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in key).strip("-") or "alert"
+    stamp = datetime.now().astimezone().strftime("%Y%m%dT%H%M%S%f%z")
+    path = UNDELIVERED_DIR / f"{stamp}-{os.getpid()}-{safe_key[:80]}.json"
+    tmp = path.with_suffix(".json.tmp")
+    payload = {
+        "contract": "cardz-notify-undelivered-v1",
+        "key": key,
+        "text": text,
+        "recorded_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+    }
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    tmp.replace(path)
+    return path
+
+
 def cmd_chain(args: argparse.Namespace) -> int:
     exit_code = int(args.exit_code)
     _record_chain_run(args.chain, exit_code, args.status)
@@ -315,10 +334,18 @@ def cmd_alert(args: argparse.Namespace) -> int:
         return 0
     icon = {"info": "ℹ️", "warn": "⚠️", "error": "🔴"}.get(args.level, "⚠️")
     text = f"{icon} <b>CARDZ {html.escape(args.key)}</b>\n{html.escape(args.text)}"
-    if send_message(text):
+    delivered = send_message(text)
+    if delivered:
         _mark_sent(state, args.key)
     _save_state(state)
-    return 0
+    if delivered:
+        return 0
+    try:
+        dropped = _record_undelivered(args.key, args.text)
+        _warn(f"notify_hermes: alert {args.key} undelivered; artifact={dropped}")
+    except OSError as exc:
+        _warn(f"notify_hermes: alert {args.key} undelivered; artifact write failed ({exc})")
+    return 1 if getattr(args, "require_delivery", False) else 0
 
 
 def _fmt_variant(row: dict[str, Any]) -> str:
@@ -526,6 +553,11 @@ def main() -> int:
     p_alert.add_argument("--text", required=True)
     p_alert.add_argument("--level", choices=("info", "warn", "error"), default="warn")
     p_alert.add_argument("--cooldown-min", default="60")
+    p_alert.add_argument(
+        "--require-delivery",
+        action="store_true",
+        help="return 1 when every delivery backend rejects the alert",
+    )
     p_alert.set_defaults(func=cmd_alert)
 
     p_identity = sub.add_parser("identity-brief", help="早朝身份日報")
