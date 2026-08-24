@@ -176,7 +176,10 @@ wsl.exe -d Ubuntu -- python3 -X utf8 <repo>/scripts/promo_after_publish.py
 
 `scripts/promo_after_publish.py` 係唯讀 consumer：讀 live published snapshot →
 行新鮮度閘 → 逐個 `scripts/promo_destinations.json` 嘅 destination 出文案 →
-寫 pack + receipt 落 `data/runtime/promo/<business_date>/`。冇 `promo_destinations.json`
+寫 pack + receipt 落 `data/runtime/promo/<generation>/`，再原子寫當日排程結果落
+`data/runtime/promo/scheduler/<business_date>.json`。呢份排程收據入面嘅 `exitCode`
+係跨 VBS／WSL 邊界嘅權威結果；Task Scheduler 外層 result 唔可以單獨當成功證據。
+冇 `promo_destinations.json`
 就 fallback 去 `promo_destinations.example.json`（stderr 有 `PROMO_PACK_WARN`）。
 
 佢**唔 import `promo_post`／playwright／websocket**，開唔到瀏覽器（`test_promo_pack.py`
@@ -184,7 +187,7 @@ wsl.exe -d Ubuntu -- python3 -X utf8 <repo>/scripts/promo_after_publish.py
 
 | 輸出 | exit |
 |---|---|
-| `PROMO_PACK_OK <business_date> destinations=<n> lag_h=<x>` | 0 |
+| `PROMO_PACK_OK <business_date> destinations=<n> lag_h=<x> receipt=<path>` | 0 |
 | `PROMO_PACK_STALE …` | 3 |
 | `PROMO_PACK_ERROR …` | 2 |
 

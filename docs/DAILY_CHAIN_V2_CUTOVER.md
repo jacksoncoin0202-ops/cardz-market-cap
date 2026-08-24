@@ -24,15 +24,15 @@ Only after an explicit `上`, the authorized cutover command is:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install_cardz_daily_v2_task.ps1 -Apply
 ```
 
-The apply path refuses to proceed if any expected legacy task is missing or any cutover target is still running. It then:
+The apply path refuses to proceed if any managed or still-present legacy target is running. An absent legacy task means its retirement already completed. It then:
 
 1. exports XML for the four legacy tasks and any existing V2 definition;
 2. enables the Task Scheduler Operational log;
-3. disables the four legacy tasks without deleting them;
-4. installs one interactive-logon task named `CARDZ-Marketcap-Daily-V2`;
+3. disables each legacy task that is still present;
+4. installs the interactive-logon daily, watchdog, and build-only promo tasks;
 5. schedules 03:30 local time with ten-minute repetition through 17:00;
 6. sets `StartWhenAvailable`, `IgnoreNew`, and a 55-minute execution limit;
-7. launches the WSL tick with publication enabled while Telegram and all promotion consumers remain disconnected.
+7. launches the WSL tick with publication and Telegram notification enabled; the repo promo task only builds a pack and never posts.
 
 The first natural tick installs migration `051` idempotently, synchronizes the Python source registry into MySQL, and resumes solely from the WSL ext4 SQLite journal. Bake/push/live retry runs directly in the same WSL process group, so an interrupted claim can reclaim the exact release PID lineage.
 
