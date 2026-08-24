@@ -711,6 +711,107 @@ def _write_attempt_report(document: Mapping[str, Any]) -> Path:
     return path
 
 
+def multiple_exact_unlock_decision(row: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Allow a retry only after an operator has resolved the exact-owner clash."""
+
+    if row is None:
+        raise ValueError("discovery ledger row does not exist")
+    if str(row.get("last_outcome") or "") != "quarantined_multiple_exact":
+        raise ValueError("variant is not in multiple-exact terminal quarantine")
+    if str(row.get("blocker_code") or "") == "multiple_exact_bindings":
+        raise ValueError(
+            "multiple exact bindings still exist; reject/supersede the wrong binding "
+            "with operator-rule before unlocking discovery"
+        )
+    return {
+        "variantId": int(row["variant_id"]),
+        "previousBlocker": row.get("blocker_code"),
+        "previousQuarantineUntil": row.get("quarantine_until"),
+        "nextOutcome": "operator_unlocked_multiple_exact",
+    }
+
+
+def cmd_daily_discovery_unlock(args: Any) -> int:
+    """Clear the 3650-day terminal hold after its identity conflict is fixed."""
+
+    variant_id = int(getattr(args, "variant_id", 0) or 0)
+    actor = str(getattr(args, "actor", "") or "").strip()
+    reason = str(getattr(args, "reason", "") or "").strip()
+    write = bool(getattr(args, "write", False))
+    if variant_id <= 0:
+        raise SystemExit("daily-discovery-unlock ABORT: --variant-id must be positive")
+    if not actor or not reason:
+        raise SystemExit("daily-discovery-unlock ABORT: --actor and --reason are required")
+    credentials_env = getattr(args, "credentials_env", None)
+    conn = R.connect(credentials_env or R.DAILY_CREDENTIALS_ENV)
+    try:
+        with conn.cursor() as cur:
+            # Re-read current binding truth first. A stale blocker value must not
+            # be accepted as proof that the operator actually resolved the clash.
+            DL.rebuild_ledger(cur)
+            cur.execute(
+                """
+                SELECT variant_id,blocker_code,last_outcome,quarantine_until
+                FROM market_identity_discovery_ledger
+                WHERE variant_id=%s FOR UPDATE
+                """,
+                (variant_id,),
+            )
+            row = cur.fetchone()
+            try:
+                decision = multiple_exact_unlock_decision(row)
+            except ValueError as error:
+                raise SystemExit(f"daily-discovery-unlock REFUSED: {error}") from error
+            record = {
+                "contract": "cardz-discovery-unlock-v1",
+                **decision,
+                "actor": actor,
+                "reason": reason,
+                "recordedAt": _utc_now(),
+                "applied": False,
+            }
+            if not write:
+                conn.rollback()
+                print(json.dumps({**record, "dryRun": True}, ensure_ascii=False, default=str))
+                print("daily-discovery-unlock DRY-RUN: nothing written; re-run with --write")
+                return 0
+            DISCOVERY_REPORT_DIR.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+            path = DISCOVERY_REPORT_DIR / f"daily-discovery-unlock-v{variant_id}-{stamp}.json"
+            temporary = path.with_suffix(path.suffix + ".tmp")
+            temporary.write_bytes(R.canonical_json(record) + b"\n")
+            os.replace(temporary, path)
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            cur.execute(
+                """
+                UPDATE market_identity_discovery_ledger
+                SET next_due_at=%s,quarantine_until=NULL,
+                    consecutive_same_evidence_count=0,last_evidence_sha256=NULL,
+                    last_outcome='operator_unlocked_multiple_exact',updated_at=%s
+                WHERE variant_id=%s
+                  AND last_outcome='quarantined_multiple_exact'
+                  AND IFNULL(blocker_code,'')<>'multiple_exact_bindings'
+                """,
+                (now, now, variant_id),
+            )
+            if int(cur.rowcount) != 1:
+                raise RuntimeError(
+                    f"discovery unlock changed {cur.rowcount} rows for variant {variant_id}"
+                )
+        conn.commit()
+        record["applied"] = True
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        temporary.write_bytes(R.canonical_json(record) + b"\n")
+        os.replace(temporary, path)
+        print(json.dumps({**record, "reportPath": str(path)}, ensure_ascii=False, default=str))
+        return 0
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def cmd_daily_discover_activate(args: Any) -> int:
     state_path = Path(getattr(args, "state_path", None) or STATE_PATH)
     credentials_env = getattr(args, "credentials_env", None)

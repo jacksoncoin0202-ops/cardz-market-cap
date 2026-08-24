@@ -115,18 +115,68 @@ fi
 
 NOTIFY_PY="$SOURCE_REPO/scripts/notify_hermes.py"
 RELEASE_STAGE="preflight"
+V2_RESUME_PARENT=""
+V2_RESUME_WORKTREE=""
+V2_RESUME_COMMIT=""
 notify_release() {
   if ((V2_MODE == 0)) && [[ -f "$NOTIFY_PY" ]]; then
     python3 -X utf8 "$NOTIFY_PY" release "$@" || true
   fi
 }
+cleanup_v2_resume_worktree() {
+  if [[ -n "$V2_RESUME_WORKTREE" && -d "$V2_RESUME_WORKTREE" ]]; then
+    git -C "$RELEASE_REPO" worktree remove --force "$V2_RESUME_WORKTREE" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$V2_RESUME_PARENT" && -d "$V2_RESUME_PARENT" ]]; then
+    rmdir "$V2_RESUME_PARENT" >/dev/null 2>&1 || true
+  fi
+  V2_RESUME_WORKTREE=""
+  V2_RESUME_PARENT=""
+}
 on_release_exit() {
   local rc=$?
+  cleanup_v2_resume_worktree
   if (( rc != 0 )); then
     notify_release --outcome failed --stage "$RELEASE_STAGE" --exit-code "$rc" --generation "${generation:-}"
   fi
+  return "$rc"
 }
 trap on_release_exit EXIT
+
+v2_prepare_resume_commit() {
+  local saved_commit="$1" saved_snapshot_sha="$2" saved_public_tree_sha="$3"
+  local actual_snapshot_sha actual_public_tree_sha
+  git -C "$RELEASE_REPO" fetch origin main
+  if git -C "$RELEASE_REPO" merge-base --is-ancestor "$saved_commit" FETCH_HEAD; then
+    # The immutable release is already in main history. A later code/data
+    # commit must never make an old worker roll main backwards.
+    V2_RESUME_COMMIT=""
+    return 0
+  fi
+  if git -C "$RELEASE_REPO" merge-base --is-ancestor FETCH_HEAD "$saved_commit"; then
+    V2_RESUME_COMMIT="$saved_commit"
+    return 0
+  fi
+
+  # Main advanced on another branch after the release commit was sealed.
+  # Re-apply only the saved immutable public tree on the new main tip.
+  V2_RESUME_PARENT="$(mktemp -d /tmp/cardz-v2-resume.XXXXXX)"
+  V2_RESUME_WORKTREE="$V2_RESUME_PARENT/tree"
+  git -C "$RELEASE_REPO" worktree add --quiet --detach "$V2_RESUME_WORKTREE" FETCH_HEAD
+  git -C "$V2_RESUME_WORKTREE" restore --source "$saved_commit" --staged --worktree -- data/public
+  if git -C "$V2_RESUME_WORKTREE" diff --cached --quiet; then
+    V2_RESUME_COMMIT="$(git -C "$V2_RESUME_WORKTREE" rev-parse HEAD)"
+  else
+    git -C "$V2_RESUME_WORKTREE" commit -m "release: daily CARDZ 037 FE04 $generation [deploy]"
+    V2_RESUME_COMMIT="$(git -C "$V2_RESUME_WORKTREE" rev-parse HEAD)"
+  fi
+  actual_snapshot_sha="$({ git -C "$RELEASE_REPO" show "${V2_RESUME_COMMIT}:data/public/seed-snapshot.json" 2>/dev/null || true; } | sha256sum | awk '{print $1}')"
+  actual_public_tree_sha="$({ git -C "$RELEASE_REPO" ls-tree -r "$V2_RESUME_COMMIT" -- data/public 2>/dev/null || true; } | sha256sum | awk '{print $1}')"
+  if [[ "$actual_snapshot_sha" != "$saved_snapshot_sha" || "$actual_public_tree_sha" != "$saved_public_tree_sha" ]]; then
+    printf 'V2 resume reconciliation changed immutable public bytes\n' >&2
+    exit 1
+  fi
+}
 
 test -e "$RELEASE_REPO/.git"
 if ((V2_MODE == 1)) && [[ -s "$V2_MANIFEST" ]]; then
@@ -155,7 +205,17 @@ PY
     printf 'V2 immutable publication schema contract is invalid or commit is missing: %s\n' "$V2_MANIFEST" >&2
     exit 1
   fi
+  v2_prepare_resume_commit "$v2_commit" "$saved_snapshot_sha" "$saved_public_tree_sha"
+  if [[ -z "$V2_RESUME_COMMIT" ]]; then
+    printf 'V2 immutable commit %s is already in origin/main history\n' "$v2_commit"
+    exit 0
+  fi
+  if [[ "$V2_RESUME_COMMIT" != "$v2_commit" ]]; then
+    v2_commit="$V2_RESUME_COMMIT"
+    v2_write_manifest "$v2_commit" "$generation" "$generated_at"
+  fi
   git -C "$RELEASE_REPO" push origin "${v2_commit}:main"
+  cleanup_v2_resume_worktree
   for _ in $(seq 1 60); do
     if body="$(curl --fail --silent --show-error https://app.cardzmarketcap.com/api/health)"; then
       if PUBLIC_HEALTH="$body" python3 -c 'import json,os,sys; h=json.loads(os.environ["PUBLIC_HEALTH"]); sys.exit(0 if h.get("status")=="ok" and h.get("generation")==sys.argv[1] and h.get("generatedAt")==sys.argv[2] else 1)' "$generation" "$generated_at"; then

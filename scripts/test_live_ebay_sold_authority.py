@@ -21,6 +21,7 @@ from collection_contract import (  # noqa: E402
 )
 from current_quote_revision import eligible_current_quote_revision_ddl  # noqa: E402
 import operator_control as OC  # noqa: E402
+import pc_psa10_price_derivation as derivation  # noqa: E402
 from pc_psa10_price_derivation import load_pc_sales, select_ebay_median  # noqa: E402
 
 FAILED: list[str] = []
@@ -125,6 +126,15 @@ check(
     or "q.source_code IN ('snkrdunk','snk_psa10','snk','pricecharting')" in ddl,
 )
 check("'ebay' is not an eligible quote source", "'ebay'" not in ddl)
+
+main_source = inspect.getsource(derivation.main)
+validator_source = inspect.getsource(derivation.validate_pc_psa10)
+check("pc_psa10 CLI defaults to live PriceCharting only", "default=SOURCE_PC" in main_source)
+check(
+    "PriceCharting cents enter the decimal guard before arithmetic",
+    "cents_value = _decimal(cents)" in validator_source
+    and "Decimal(str(cents))" not in validator_source,
+)
 
 if FAILED:
     print("FAILED: " + "; ".join(FAILED))

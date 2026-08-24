@@ -910,6 +910,24 @@ def insert_live_event(event: Mapping[str, Any]) -> tuple[int, bool]:
             connection.commit()
             return int(existing["id"]), False
         if supersede_seq > 1:
+            cursor.execute(
+                """
+                SELECT id,event_key,generation_id FROM publication_outbox
+                WHERE business_date=%s AND event_type=%s AND superseded=0
+                FOR UPDATE
+                """,
+                (event["businessDate"], event["eventType"]),
+            )
+            current_live = cursor.fetchone()
+            if (
+                current_live is not None
+                and str(current_live["generation_id"]) == str(event["generationId"])
+            ):
+                raise RuntimeError(
+                    "supersede produced unchanged generation "
+                    f"{event['generationId']} for {event['businessDate']}; "
+                    "publication already carries these bytes"
+                )
             # Same transaction as the insert: the date must never be readable
             # with two live rows, and the widened
             # UNIQUE(business_date,event_type,generation_id) still refuses a

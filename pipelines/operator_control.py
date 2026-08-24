@@ -2720,6 +2720,17 @@ def main() -> int:
     p_daily_discover.add_argument(
         "--credentials-env", dest="credentials_env", type=Path,
     )
+    p_discovery_unlock = sub.add_parser(
+        "daily-discovery-unlock",
+        help="clear a multiple-exact terminal quarantine after operator-rule resolves the clash",
+    )
+    p_discovery_unlock.add_argument("--variant-id", type=int, required=True)
+    p_discovery_unlock.add_argument("--actor", required=True)
+    p_discovery_unlock.add_argument("--reason", required=True)
+    p_discovery_unlock.add_argument("--write", action="store_true")
+    p_discovery_unlock.add_argument(
+        "--credentials-env", dest="credentials_env", type=Path,
+    )
     p_pc_reverify = sub.add_parser(
         "pc-identity-reverify",
         help="promote manual_review PC bindings the fresh full900 pages can prove (dry-run without --write)",
@@ -2863,6 +2874,10 @@ def main() -> int:
             import daily_discovery_activation
 
             return daily_discovery_activation.cmd_daily_discover_activate(args)
+        elif args.cmd == "daily-discovery-unlock":
+            import daily_discovery_activation
+
+            return daily_discovery_activation.cmd_daily_discovery_unlock(args)
         elif args.cmd == "pc-identity-reverify":
             import rebuild_036
 

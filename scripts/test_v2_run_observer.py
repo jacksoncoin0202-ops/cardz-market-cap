@@ -148,6 +148,21 @@ def main() -> int:
         check("launcher_line_time ISO line", obs.iso(obs.launcher_line_time("2026-08-23T03:30:01.2490936+09:00 CARDZ_V2_START", "20260823")) == "2026-08-22T18:30:01Z")
         check("launcher_line_time clock line uses file day as JST", obs.iso(obs.launcher_line_time("[03:30:10] CARDZ_V2_END exit=0", "20260825")) == "2026-08-24T18:30:10Z")
         check("expected_tick_start 03:30 JST", obs.iso(obs.expected_tick_start("2026-08-25")) == "2026-08-24T18:30:00Z")
+        expected = obs.expected_tick_start("2026-08-25")
+        assert expected is not None
+        after_grace = expected + dt.timedelta(seconds=obs.RUN_START_GRACE_SECONDS + 1)
+        check("task/tick liveness healthy", obs.task_tick_liveness(
+            {"state": "Ready", "rc": 0, "last": obs.iso(expected)},
+            expected, expected, after_grace,
+        ) == {})
+        check("task/tick liveness catches missing task run", "TASK_NOT_RUN" in obs.task_tick_liveness(
+            {"state": "Ready", "rc": 0, "last": obs.iso(expected - dt.timedelta(days=1))},
+            expected, None, after_grace,
+        ))
+        check("task/tick liveness catches scheduler/repo split", "TASK_REPO_TICK_MISMATCH" in obs.task_tick_liveness(
+            {"state": "Ready", "rc": 0, "last": obs.iso(expected)},
+            expected, None, after_grace,
+        ))
         check("promo_time 17:45 JST", obs.iso(obs.promo_time("2026-08-25")) == "2026-08-25T08:45:00Z")
         check("event_severity allowlist/error/unknown", obs.event_severity("RUN_STARTED") is None and obs.event_severity("FAILED_FINAL") == "error"
               and obs.event_severity("SOMETHING_NEW") == "warn" and obs.event_severity("TASK_ERROR") == "warn")

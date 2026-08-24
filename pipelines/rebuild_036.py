@@ -242,6 +242,27 @@ def _data_file_sha(path: Path) -> str | None:
     return None
 
 
+def _workspace_code_path(value: Any) -> Path | None:
+    """Return a live Python dependency under pipelines/ or scripts/."""
+
+    raw = getattr(value, "__file__", None)
+    if not raw:
+        try:
+            raw = inspect.getsourcefile(value)
+        except (TypeError, OSError):
+            raw = None
+    if not raw:
+        return None
+    try:
+        path = Path(raw).resolve()
+        relative = path.relative_to(ROOT.resolve())
+    except (OSError, ValueError):
+        return None
+    if relative.parts[0] not in {"pipelines", "scripts"} or path.suffix != ".py":
+        return None
+    return path
+
+
 def _code_sha(*roots: Callable | None) -> str:
     """Fingerprint the code a stage actually runs.
 
@@ -279,19 +300,44 @@ def _code_sha(*roots: Callable | None) -> str:
             # the entire One Piece rules module used to fingerprint as absent.
             # Editing printed_set_code moved nothing, and identity-resolve,
             # bind, pc-replay and snk-refresh all stage-skipped on the next run.
-            sibling = ROOT / "pipelines" / f"{name}.py"
-            if sibling.is_file():
+            sibling = next((
+                candidate for candidate in (
+                    ROOT / "pipelines" / f"{name}.py",
+                    ROOT / "scripts" / f"{name}.py",
+                ) if candidate.is_file()
+            ), None)
+            if sibling is not None:
                 parts.append(f"{name}\n{sibling.read_text(encoding='utf-8')}")
-                for attr, value in vars(importlib.import_module(name)).items():
+                try:
+                    sibling_module = importlib.import_module(name)
+                except ModuleNotFoundError:
+                    sibling_module = None
+                for attr, value in vars(sibling_module).items() if sibling_module else ():
                     if isinstance(value, Path):
                         digest = _data_file_sha(value)
                         if digest:
                             parts.append(f"{name}.{attr}#{digest}")
             continue
-        if (inspect.isfunction(obj) or inspect.isclass(obj)) and getattr(obj, "__module__", None) == __name__:
-            parts.append(f"{name}\n{inspect.getsource(obj)}")
-            if inspect.isfunction(obj):
-                queue.extend(_referenced_globals(obj.__code__))
+        if inspect.ismodule(obj):
+            dependency = _workspace_code_path(obj)
+            if dependency is not None:
+                parts.append(f"{name}\n{dependency.read_text(encoding='utf-8')}")
+                for attr, value in vars(obj).items():
+                    if isinstance(value, Path):
+                        data_digest = _data_file_sha(value)
+                        if data_digest:
+                            parts.append(f"{name}.{attr}#{data_digest}")
+        elif inspect.isfunction(obj) or inspect.isclass(obj):
+            if getattr(obj, "__module__", None) == __name__:
+                parts.append(f"{name}\n{inspect.getsource(obj)}")
+                if inspect.isfunction(obj):
+                    queue.extend(_referenced_globals(obj.__code__))
+            else:
+                # A top-level from-import is a real dependency too. The old
+                # __module__==rebuild_036 gate silently contributed zero bytes.
+                dependency = _workspace_code_path(obj)
+                if dependency is not None:
+                    parts.append(f"{name}\n{dependency.read_text(encoding='utf-8')}")
         elif isinstance(obj, Path):
             digest = _data_file_sha(obj)
             parts.append(f"{name}={_stable_repr(obj)}" + (f"#{digest}" if digest else ""))
@@ -6155,8 +6201,10 @@ def stage_discover(ctx: SimpleNamespace) -> dict[str, Any]:
         and (time.time() - brute_all.stat().st_mtime) < 7 * 24 * 3600
     )
     if not brute_reused:
+        import gemrate_brute_harvest
+
         harvest = subprocess.run(
-            [sys.executable, "-X", "utf8", str(ROOT / "pipelines" / "gemrate_brute_harvest.py"),
+            [sys.executable, "-X", "utf8", str(Path(gemrate_brute_harvest.__file__).resolve()),
              "--all-sets"],
             cwd=str(ROOT), capture_output=True, text=True,
         )

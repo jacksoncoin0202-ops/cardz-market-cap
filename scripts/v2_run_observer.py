@@ -123,6 +123,7 @@ CDP_TIMEOUT_SECONDS = 15.0
 MYSQL_BACKOFF_POLLS = 10             # after 3 probe timeouts in a row, stop asking for this many polls
 JOURNAL_IDLE_REPROBE_SECONDS = 600   # Ubuntu stopped between ticks: re-read the journal (boots the distro) at most every 10 min
 EXPECTED_TICK_JST = (3, 30)
+DAILY_TASK = "CARDZ-Marketcap-Daily-V2"
 PROMO_TASK = "CARDZ-Promo-After-Publish"
 PROMO_JST = (17, 45)
 PROMO_WAIT_SLACK_SECONDS = 12 * 60
@@ -470,6 +471,30 @@ def probe_task_info(name: str) -> dict:
         return json.loads(out.strip().splitlines()[-1])
     except (ValueError, IndexError, json.JSONDecodeError):
         return {"error": "TASK_PROBE_BAD_OUTPUT", "head": (out or err)[:160]}
+
+
+def task_tick_liveness(
+    info: dict, expected: dt.datetime, repo_tick: dt.datetime | None,
+    now: dt.datetime,
+) -> dict[str, dict]:
+    """Cross-check Task Scheduler's run with the repository-side tick."""
+
+    if now <= expected + dt.timedelta(seconds=RUN_START_GRACE_SECONDS):
+        return {}
+    if info.get("error"):
+        return {"TASK_PROBE_FAILED": {"task": DAILY_TASK, **info}}
+    last = parse_ts(info.get("last"))
+    if last is None or last < expected:
+        return {"TASK_NOT_RUN": {
+            "task": DAILY_TASK, "last": info.get("last"),
+            "expectedStart": iso(expected), "state": info.get("state"),
+        }}
+    if repo_tick is None or repo_tick < expected:
+        return {"TASK_REPO_TICK_MISMATCH": {
+            "task": DAILY_TASK, "taskLastRun": iso(last),
+            "repoTick": iso(repo_tick), "expectedStart": iso(expected),
+        }}
+    return {}
 
 
 def tail_path(p: str, limit: int = 8192) -> str:
@@ -820,6 +845,23 @@ class Observer:
 
         # launcher / ticks
         self.handle_launcher_lines(self.read_launcher())
+        if self.scheduled and self.expected_start is not None:
+            daily_task = probe_task_info(DAILY_TASK)
+            snap["dailyTask"] = daily_task
+            run_created = parse_ts(run.get("created_at")) if run else None
+            repo_tick = self.last_tick_start
+            if run_created is not None and (
+                repo_tick is None or run_created > repo_tick
+            ):
+                repo_tick = run_created
+            task_issues = task_tick_liveness(
+                daily_task, self.expected_start, repo_tick, now,
+            )
+            for issue in (
+                "TASK_PROBE_FAILED", "TASK_NOT_RUN", "TASK_REPO_TICK_MISMATCH",
+            ):
+                detail = task_issues.get(issue)
+                self.recurring(issue, "error", {DAILY_TASK: detail} if detail else {})
         gap: dict = {}
         silent: dict = {}
         if run and self.run_status not in TERMINAL_RUN_STATES and self.scheduled and self.last_tick_end \

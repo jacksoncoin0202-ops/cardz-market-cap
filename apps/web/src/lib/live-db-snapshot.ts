@@ -213,15 +213,24 @@ function percentage(current: number | null, previous: number | null): number | n
 
 function salesTotal(history: DailyHistoryPoint[], endMs: number, days: number): { value: number; count: number; asOf: string } | null {
   const startMs = endMs - (days - 1) * 86_400_000;
-  const rows = history.filter((point) => {
-    const at = new Date(point.at).valueOf();
-    return at >= startMs && at <= endMs && point.salesCoverage !== "unavailable";
-  });
+  const dated = history.map((point) => ({ point, at: new Date(point.at).valueOf() }));
+  if (dated.some(({ point, at }) => !Number.isFinite(at)
+    && point.salesCoverage !== "unavailable")) return null;
+  const rows = dated
+    .filter(({ point, at }) => Number.isFinite(at)
+      && at >= startMs
+      && at <= endMs
+      && point.salesCoverage !== "unavailable")
+    .sort((left, right) => left.at - right.at);
   if (rows.length === 0) return null;
+  // A covered day with no numeric aggregate is unknown, not a verified zero.
+  // Returning null keeps the whole window honest instead of biasing it low.
+  if (rows.some(({ point }) => !Number.isFinite(point.trackedSalesValueUsd)
+    || !Number.isFinite(point.trackedSalesCount))) return null;
   return {
-    value: rows.reduce((sum, point) => sum + (point.trackedSalesValueUsd ?? 0), 0),
-    count: rows.reduce((sum, point) => sum + (point.trackedSalesCount ?? 0), 0),
-    asOf: rows[rows.length - 1].at,
+    value: rows.reduce((sum, { point }) => sum + (point.trackedSalesValueUsd as number), 0),
+    count: rows.reduce((sum, { point }) => sum + (point.trackedSalesCount as number), 0),
+    asOf: rows[rows.length - 1].point.at,
   };
 }
 

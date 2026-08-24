@@ -19,7 +19,9 @@ Exit codes: 0 ok (PROMO_PACK_OK) / 3 stale live (PROMO_PACK_STALE) /
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -80,6 +82,19 @@ def build_pack(
     *,
     business_date: str,
 ) -> list[str]:
+    generation = str(brief.get("generation") or "").strip()
+    if not generation:
+        raise P.PromoError("live brief has no generation")
+    existing = out_dir / "brief.json"
+    if existing.is_file():
+        try:
+            prior_generation = str(json.loads(existing.read_text(encoding="utf-8")).get("generation") or "")
+        except (OSError, ValueError, AttributeError) as error:
+            raise P.PromoError(f"existing pack brief is unreadable: {existing}: {error}") from error
+        if prior_generation != generation:
+            raise P.PromoError(
+                f"refusing to mix generation {generation} into {prior_generation or '<missing>'} pack {out_dir}"
+            )
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "brief.json").write_text(
         json.dumps(brief, ensure_ascii=False, indent=2) + "\n",
@@ -109,30 +124,71 @@ def build_pack(
     return written
 
 
+def write_failure_artifact(
+    *, business_date: str, outcome: str, error: BaseException,
+    generation: str | None = None,
+) -> Path:
+    """Persist every scheduled failure, including failures before live loaded."""
+
+    failure_dir = P.promo_runtime_dir() / "failures"
+    failure_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    path = failure_dir / f"{business_date}_{outcome}_{stamp}.json"
+    payload = {
+        "contract": "cardz-promo-pack-failure-v1",
+        "businessDate": business_date,
+        "generation": generation,
+        "outcome": outcome,
+        "errorType": type(error).__name__,
+        "error": str(error),
+        "recordedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+    temporary = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    os.replace(temporary, path)
+    return path
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Build the daily promo pack from the published snapshot. Never posts."
     )
     parser.add_argument("--live-json", help="read {health, scoped} from a file instead of live HTTP")
     parser.add_argument("--destinations", help="destinations JSON (default scripts/promo_destinations.json)")
-    parser.add_argument("--out-dir", help="pack dir (default <PROMO_RUNTIME_DIR>/<business_date>)")
+    parser.add_argument("--out-dir", help="pack dir (default <PROMO_RUNTIME_DIR>/<generation>)")
     parser.add_argument("--business-date", help="YYYY-MM-DD (default: today JST)")
     args = parser.parse_args(argv)
 
     business_date = str(args.business_date or P.business_date_jst())
+    brief: dict[str, Any] | None = None
     try:
         dest_path, warnings = resolve_destinations_file(args.destinations)
         channels, more = destination_channels(dest_path)
         for line in warnings + more:
             print(line, file=sys.stderr)
         brief = load_live(args.live_json)
-        out_dir = Path(args.out_dir) if args.out_dir else P.promo_runtime_dir() / business_date
+        generation = str(brief.get("generation") or "").strip()
+        if not generation:
+            raise P.PromoError("live brief has no generation")
+        out_dir = Path(args.out_dir) if args.out_dir else P.promo_runtime_dir() / generation
         written = build_pack(brief, channels, out_dir, business_date=business_date)
     except P.PromoStaleLive as error:
-        print(f"PROMO_PACK_STALE {business_date} {error}")
+        artifact = write_failure_artifact(
+            business_date=business_date, outcome="stale", error=error,
+            generation=str((brief or {}).get("generation") or "") or None,
+        )
+        print(f"PROMO_PACK_STALE {business_date} artifact={artifact} {error}")
         return 3
     except Exception as error:  # noqa: BLE001 — one scheduled task, one exit code
-        print(f"PROMO_PACK_ERROR {business_date} {type(error).__name__}: {error}")
+        artifact = write_failure_artifact(
+            business_date=business_date, outcome="error", error=error,
+            generation=str((brief or {}).get("generation") or "") or None,
+        )
+        print(f"PROMO_PACK_ERROR {business_date} artifact={artifact} {type(error).__name__}: {error}")
         return 2
     lag = brief.get("lagHours")
     lag_text = "unknown" if lag is None else f"{float(lag):.2f}"

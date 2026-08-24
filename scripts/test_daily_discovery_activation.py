@@ -217,3 +217,29 @@ src = (ROOT / "pipelines" / "discovery_ledger.py").read_text(encoding="utf-8")
 assert "last_reviewed_at=IF(" in src
 assert "VALUES(discovery_status)<>market_identity_discovery_ledger.discovery_status" in src
 print("POSITIVE_OK discovery ledger keeps last_reviewed_at unless status changes")
+
+# The ten-year terminal quarantine has one useful unlock path: identity must
+# already be unambiguous after the operator ruling; merely asking to retry the
+# still-ambiguous row is refused.
+try:
+    D.multiple_exact_unlock_decision({
+        "variant_id": 88,
+        "last_outcome": "quarantined_multiple_exact",
+        "blocker_code": "multiple_exact_bindings",
+        "quarantine_until": "2036-08-25 00:00:00",
+    })
+except ValueError as error:
+    assert "operator-rule" in str(error)
+else:
+    raise AssertionError("unresolved multiple-exact identity was unlocked")
+unlock = D.multiple_exact_unlock_decision({
+    "variant_id": 88,
+    "last_outcome": "quarantined_multiple_exact",
+    "blocker_code": "inactive_with_exact_binding",
+    "quarantine_until": "2036-08-25 00:00:00",
+})
+assert unlock["variantId"] == 88
+operator_source = (ROOT / "pipelines" / "operator_control.py").read_text(encoding="utf-8")
+assert '"daily-discovery-unlock"' in operator_source
+assert "cmd_daily_discovery_unlock(args)" in operator_source
+print("POSITIVE_OK terminal multiple-exact quarantine unlocks only after the binding clash is resolved")

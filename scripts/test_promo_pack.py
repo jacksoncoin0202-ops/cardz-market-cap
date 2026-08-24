@@ -356,7 +356,7 @@ def main() -> int:
                 ]
             )
             check("after-publish-ok-rc", rc_ok, 0)
-            pack = runtime / "2026-08-20"
+            pack = runtime / "db3308_fix"
             check("after-publish-brief", (pack / "brief.json").is_file(), True)
             check("after-publish-copy", (pack / "whatsapp-ptcg.txt").is_file(), True)
             check("after-publish-copy-no-cr", b"\r" in (pack / "whatsapp-ptcg.txt").read_bytes(), False)
@@ -385,6 +385,33 @@ def main() -> int:
                 ]
             )
             check("after-publish-error-rc", rc_err, 2)
+            failures = sorted((runtime / "failures").glob("2026-08-20_*.json"))
+            check("after-publish-failure-artifacts", len(failures), 2)
+            failure_outcomes = {
+                json.loads(path.read_text(encoding="utf-8"))["outcome"]
+                for path in failures
+            }
+            check("after-publish-failure-outcomes", failure_outcomes, {"stale", "error"})
+
+            mixed = base / "mixed-pack"
+            mixed.mkdir()
+            (mixed / "brief.json").write_text(
+                json.dumps({"generation": "old-generation"}), encoding="utf-8"
+            )
+            rc_mixed = PAP.main(
+                [
+                    "--live-json", str(base / "live-fresh.json"),
+                    "--destinations", str(PAP.DEST_EXAMPLE),
+                    "--business-date", "2026-08-20",
+                    "--out-dir", str(mixed),
+                ]
+            )
+            check("after-publish-mixed-generation-refused", rc_mixed, 2)
+            check(
+                "after-publish-mixed-generation-preserved",
+                json.loads((mixed / "brief.json").read_text(encoding="utf-8"))["generation"],
+                "old-generation",
+            )
         finally:
             if env_rt is None:
                 os.environ.pop("PROMO_RUNTIME_DIR", None)

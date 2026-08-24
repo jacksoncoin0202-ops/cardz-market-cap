@@ -140,6 +140,14 @@ class FakeCursor:
         self.owner.statements.append((text, tuple(params or ())))
         if text.startswith("SELECT id,generation_id FROM publication_outbox"):
             self._result = self.owner.rows.get(str((params or ("",))[0]))
+        elif text.startswith("SELECT id,event_key,generation_id FROM publication_outbox"):
+            business_date, event_type = params
+            self._result = next((
+                row for row in self.owner.rows.values()
+                if row["business_date"] == business_date
+                and row["event_type"] == event_type
+                and not row["superseded"]
+            ), None)
         elif text.startswith("UPDATE publication_outbox SET superseded=1"):
             business_date, event_type, keep = params
             for key, row in self.owner.rows.items():
@@ -425,7 +433,7 @@ try:
     assert fake.marked == [first_key], fake.marked
     assert fake.rows[first_key]["superseded"] == 1
     assert fake.rows[second_key]["superseded"] == 0
-    assert fake.verbs() == ["SELECT", "UPDATE", "INSERT"], fake.verbs()
+    assert fake.verbs() == ["SELECT", "SELECT", "UPDATE", "INSERT"], fake.verbs()
     # Same transaction: one commit, after the update AND the insert.
     assert fake.committed == 1 and fake.rolled_back == 0
 
@@ -451,6 +459,22 @@ try:
     assert (replay_id, replay_inserted) == (7, False)
     assert replay.marked == [] and replay.verbs() == ["SELECT"]
 
+    # A supersede that rebuilt byte-identical output explains the terminal
+    # condition before touching the current row; it must not leak IntegrityError
+    # after consuming the worker's entire retry budget.
+    unchanged = FakeConnection({first_key: dict(base_row)})
+    with with_fake_outbox(unchanged):
+        try:
+            chain_db.insert_live_event(dict(event_two, generationId="gen-one"))
+        except RuntimeError as error:
+            assert "unchanged generation" in str(error), error
+            assert "publication already carries these bytes" in str(error), error
+        else:
+            raise AssertionError("a byte-identical supersede must fail before UPDATE")
+    assert unchanged.verbs() == ["SELECT", "SELECT"], unchanged.verbs()
+    assert unchanged.marked == [] and unchanged.rows[first_key]["superseded"] == 0
+    assert unchanged.committed == 0 and unchanged.rolled_back == 1
+
     # A key whose generation disagrees with its run id never reaches MySQL.
     forged = FakeConnection({})
     with with_fake_outbox(forged):
@@ -461,7 +485,7 @@ try:
         else:
             raise AssertionError("a /2 run must not publish under the generation-1 key")
     assert forged.statements == []
-    print("POSITIVE_OK a supersede publish marks the old outbox row and a non-supersede duplicate is still refused")
+    print("POSITIVE_OK supersede publication is atomic and byte-identical reruns fail before replacing live")
 
     # ------------------------------------------------ auto-supersede is OFF by default
     stale_journal = new_journal("auto")

@@ -102,7 +102,8 @@ def validate_pc_psa10(row: Mapping[str, Any]) -> tuple[dict[str, Any] | None, st
     latest = history.get("last")
     observed_at = source_observed_at(latest)
     cents = latest[1] if isinstance(latest, list) and len(latest) >= 2 else None
-    price = _decimal(Decimal(str(cents)) / Decimal(100)) if cents is not None else None
+    cents_value = _decimal(cents)
+    price = _decimal(cents_value / Decimal(100)) if cents_value is not None else None
     if observed_at is None or price is None:
         return None, "no_positive_psa10_field"
     return {
@@ -271,7 +272,7 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument(
         "--sources",
-        default=f"{SOURCE_PC},{SOURCE_EBAY}",
+        default=SOURCE_PC,
         help="comma-separated output families: pricecharting,ebay",
     )
     args = parser.parse_args()
