@@ -94,9 +94,21 @@ if ((V2_MODE == 1)) && [[ ! -s "$V2_MANIFEST" ]]; then
       *) recovery_paths_ok=0 ;;
     esac
   done < <(git -C "$RELEASE_REPO" diff-tree --no-commit-id --name-only -r HEAD)
+  # 2026-08-24 實錄：supersede-rerun 一日 generation 一個 byte 冇變，HEAD 就係朝早
+  # 已經 push 上 main 嘅 release commit——generation／subject／allowlist 三關全過，
+  # recovery 錯手寫 manifest，resume 對住已前進嘅 main 推 non-ff，3 次即 TERMINAL，
+  # 仲會將舊 FE 當「復原成功」。HEAD 已經喺 origin/main 歷史入面 = 冇嘢好復原：
+  # 行返正路（ff + 重新 bake）先會出到新嘢。fetch 唔到（斷網）就照舊入 recovery——
+  # 嗰陣 resume push 一樣會死，行為同以前一致，唔會更差。
+  head_already_public=0
+  if git -C "$RELEASE_REPO" fetch origin main 2>/dev/null \
+     && git -C "$RELEASE_REPO" merge-base --is-ancestor HEAD FETCH_HEAD 2>/dev/null; then
+    head_already_public=1
+  fi
   if [[ "$head_generation" == "$V2_EXPECTED_GENERATION" \
         && "$head_subject" == "release: daily CARDZ 037 FE04 $V2_EXPECTED_GENERATION [deploy]" \
-        && -n "$head_generated_at" && "$recovery_paths_ok" -eq 1 ]]; then
+        && -n "$head_generated_at" && "$recovery_paths_ok" -eq 1 \
+        && "$head_already_public" -eq 0 ]]; then
     v2_write_manifest "$(git -C "$RELEASE_REPO" rev-parse HEAD)" "$head_generation" "$head_generated_at"
   fi
 fi
@@ -265,6 +277,12 @@ publish_assets() {
     --assets "$RELEASE_REPO/data/public/market-assets" \
     --box "$BOX_DST" \
     --box-previous "$BOX_PREV"
+  # R6b 2026-08-24：真板 D3/D5（預設窗錨覆蓋率 ≥60% + 後備真係做緊嘢）喺呢度先判
+  # 得到——pre-bake suite 對住嘅係「上一次 bake」，producer schema 啱啱改嗰晚必然
+  # 係舊 schema（實錄：R6-final 過渡 snapshot 冇混合 series 又未有 historyReference，
+  # 180d 覆蓋率 10.4%，判唔到 R6b 本身好唔好）。--board 逼個 test 對住頭先 bake 出
+  # 嚟、將要 commit 出街嘅 bytes 硬跑，唔准 skip——gate 冇鬆過，只係搬到見到真相嘅位。
+  node "$RELEASE_REPO/scripts/test-fe-default-window-coverage.mjs" --board
 }
 
 asset_attempt=1
