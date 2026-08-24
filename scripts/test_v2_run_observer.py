@@ -148,6 +148,12 @@ def main() -> int:
         check("launcher_line_time ISO line", obs.iso(obs.launcher_line_time("2026-08-23T03:30:01.2490936+09:00 CARDZ_V2_START", "20260823")) == "2026-08-22T18:30:01Z")
         check("launcher_line_time clock line uses file day as JST", obs.iso(obs.launcher_line_time("[03:30:10] CARDZ_V2_END exit=0", "20260825")) == "2026-08-24T18:30:10Z")
         check("expected_tick_start 03:30 JST", obs.iso(obs.expected_tick_start("2026-08-25")) == "2026-08-24T18:30:00Z")
+        check("run_business_day accepts base, supersede, and label",
+              obs.run_business_day(RUN) == DAY and obs.run_business_day(RUN + "/2") == DAY and obs.run_business_day(RUN + "#T1") == DAY)
+        check("scheduled family sequence accepts only base and numeric /2+",
+              obs.scheduled_family_sequence(RUN, RUN) == 1 and obs.scheduled_family_sequence(RUN, RUN + "/2") == 2
+              and obs.scheduled_family_sequence(RUN, RUN + "/10") == 10 and obs.scheduled_family_sequence(RUN, RUN + "/1") is None
+              and obs.scheduled_family_sequence(RUN, RUN + "#T1") is None)
         expected = obs.expected_tick_start("2026-08-25")
         assert expected is not None
         after_grace = expected + dt.timedelta(seconds=obs.RUN_START_GRACE_SECONDS + 1)
@@ -220,6 +226,24 @@ def main() -> int:
             with redirect_stdout(io.StringIO()):
                 o0.poll_once(); o0.poll_once()
             check("RUN_NOT_STARTED fires once when late", kinds(o0.out_dir).get("RUN_NOT_STARTED") == 1, json.dumps(kinds(o0.out_dir)))
+
+            # A scheduled observer requests the stable base ID while the current
+            # live row may be an automatically-created supersede /N.
+            supersede = journal_fixture(clean=True)
+            supersede["runId"] = RUN + "/2"
+            supersede["requestedRunId"] = RUN
+            supersede["resolvedRunId"] = RUN + "/2"
+            supersede["run"]["run_id"] = RUN + "/2"
+            patch_probes(supersede)
+            osup = make_observer(tmp / "supersede")
+            osup.expected_start = obs.utc_now() - dt.timedelta(hours=1)
+            with redirect_stdout(io.StringIO()):
+                osup.poll_once()
+            live_sup = json.loads((osup.out_dir / "live.json").read_text(encoding="utf-8"))
+            check("observer resolves scheduled base to current supersede",
+                  osup.resolved_run_id == RUN + "/2" and osup.run_status == "RUNNING"
+                  and live_sup.get("requestedRunId") == RUN and live_sup.get("resolvedRunId") == RUN + "/2")
+            check("resolved supersede does not raise RUN_NOT_STARTED", "RUN_NOT_STARTED" not in kinds(osup.out_dir), json.dumps(kinds(osup.out_dir)))
 
             # 4. dirty run -> every detector fires exactly as designed
             (tmp / "logs" / "daily-chain-v2").mkdir(parents=True)
@@ -442,6 +466,36 @@ def main() -> int:
             check("snapshot rc 0", rc == 0)
             check("snapshot run/tasks/attempts/events incl required_class", data["run"]["status"] == "RUNNING" and len(data["tasks"]) == 1
                   and data["tasks"][0]["required_class"] == "core" and len(data["attempts"]) == 1 and len(data["events"]) == 1, json.dumps({k: data.get(k) for k in ("error",)}))
+            # The main journal only retains the live supersede row after the
+            # previous scheduled run is archived.  A base request follows it.
+            main_jp = tmp / "daily-chain-v2.sqlite3"
+            c = sqlite3.connect(main_jp)
+            c.executescript("""
+            CREATE TABLE chain_run(run_id TEXT PRIMARY KEY, business_date TEXT, status TEXT, origin TEXT, scheduled_event_107_count INT,
+              manual_intervention_count INT, source_cutoff_at TEXT, sla_at TEXT, final_at TEXT, publication_status TEXT, generation_id TEXT,
+              generated_at TEXT, content_sha256 TEXT, active_count INT, degraded_sources_json TEXT, proven_autonomous INT, created_at TEXT,
+              updated_at TEXT, completed_at TEXT, manual_window_renewals INT);
+            CREATE TABLE chain_task(task_key TEXT PRIMARY KEY, run_id TEXT, phase TEXT, source_code TEXT, capability TEXT, required_class TEXT,
+              concurrency_group TEXT, max_concurrency INT, status TEXT, input_revision TEXT, payload_json TEXT, checkpoint_json TEXT, result_json TEXT,
+              attempts INT, max_attempts INT, next_retry_at TEXT, lease_token TEXT, lease_expires_at TEXT, heartbeat_at TEXT, last_error_code TEXT,
+              last_error TEXT, created_at TEXT, updated_at TEXT, interruptions INT);
+            CREATE TABLE chain_attempt(id INTEGER PRIMARY KEY, task_key TEXT, attempt_no INT, claim_token TEXT, status TEXT, started_at TEXT,
+              heartbeat_at TEXT, finished_at TEXT, worker_pid INT, process_started_at TEXT, command_sha256 TEXT, receipt_json TEXT, error_code TEXT, error_text TEXT);
+            CREATE TABLE chain_event(event_key TEXT PRIMARY KEY, run_id TEXT, event_type TEXT, payload_json TEXT, delivered INT, created_at TEXT, delivered_at TEXT);
+            INSERT INTO chain_run(run_id,business_date,status,created_at) VALUES('cardz-v2:2026-08-25/2','2026-08-25','RUNNING','2026-08-24T19:30:00Z');
+            INSERT INTO chain_task(task_key,run_id,phase,required_class,status,attempts,max_attempts,created_at) VALUES('2026-08-25:system:box:all:fedcba9876543210','cardz-v2:2026-08-25/2','publish','core','COMPLETED',1,3,'2026-08-24T19:31:00Z');
+            INSERT INTO chain_attempt(task_key,attempt_no,status,started_at,finished_at) VALUES('2026-08-25:system:box:all:fedcba9876543210',1,'COMPLETED','2026-08-24T19:31:00Z','2026-08-24T19:31:05Z');
+            INSERT INTO chain_event(event_key,run_id,event_type,payload_json,delivered,created_at) VALUES('k2','cardz-v2:2026-08-25/2','RUN_STARTED','{}',1,'2026-08-24T19:30:01Z');
+            """)
+            c.commit(); c.close()
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                obs.cmd_snapshot(RUN)
+            data = json.loads(buf.getvalue())
+            check("snapshot base request resolves current /2 row",
+                  data.get("requestedRunId") == RUN and data.get("resolvedRunId") == RUN + "/2" and data.get("runId") == RUN + "/2"
+                  and data["run"]["run_id"] == RUN + "/2" and len(data["tasks"]) == 1 and len(data["attempts"]) == 1 and len(data["events"]) == 1,
+                  json.dumps({k: data.get(k) for k in ("requestedRunId", "resolvedRunId", "runId", "error")}))
             buf = io.StringIO()
             with redirect_stdout(buf):
                 obs.cmd_snapshot("cardz-v2:2026-08-25#NOPE")

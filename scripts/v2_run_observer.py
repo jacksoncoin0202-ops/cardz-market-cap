@@ -35,7 +35,7 @@ closed with a `<KIND>_CLEARED` record, so anomalies.jsonl stays a list of
 incidents rather than a heartbeat.
 
 Usage (Windows):
-  python -X utf8 -u scripts/v2_run_observer.py watch [--business-date YYYY-MM-DD | --run-id cardz-v2:YYYY-MM-DD[#LABEL]]
+  python -X utf8 -u scripts/v2_run_observer.py watch [--business-date YYYY-MM-DD | --run-id cardz-v2:YYYY-MM-DD[/N|#LABEL]]
         [--start-at ISO-UTC] [--poll 60] [--max-hours 14.75] [--settle-minutes 25] [--no-promo-sweep] [--notify]
   python -X utf8 -u scripts/v2_run_observer.py report --run-id ...      # render report.md from what was recorded
 Usage (inside WSL, used by `watch`):
@@ -284,12 +284,34 @@ def windows_path(p: str) -> Path | None:
 
 # --------------------------------------------------------------------------- snapshot (runs inside WSL)
 
+def run_business_day(run_id: str) -> str:
+    """Return YYYY-MM-DD for base, supersede (/N), and labelled (#LABEL) IDs."""
+    raw = run_id.removeprefix("cardz-v2:").split("#", 1)[0]
+    return raw.split("/", 1)[0]
+
+
+def scheduled_family_sequence(base_run_id: str, candidate_run_id: str) -> int | None:
+    """Sequence within one scheduled family; base is 1 and supersedes are /2+."""
+    if candidate_run_id == base_run_id:
+        return 1
+    match = re.fullmatch(re.escape(base_run_id) + r"/([0-9]+)", candidate_run_id)
+    sequence = int(match.group(1)) if match else 0
+    return sequence if sequence >= 2 else None
+
+
 def cmd_snapshot(run_id: str) -> int:
     import sqlite3
 
-    day, _, label = run_id.removeprefix("cardz-v2:").partition("#")
+    raw_id, _, label = run_id.removeprefix("cardz-v2:").partition("#")
+    day = run_business_day(run_id)
     path = os.path.expanduser(MAIN_JOURNAL.format(suffix=f"-{label}" if label else ""))
-    out: dict = {"runId": run_id, "journalPath": path, "capturedAt": iso(utc_now())}
+    out: dict = {
+        "runId": run_id,
+        "requestedRunId": run_id,
+        "resolvedRunId": run_id,
+        "journalPath": path,
+        "capturedAt": iso(utc_now()),
+    }
     if not os.path.exists(path):
         out["error"] = "NO_JOURNAL"
         print(json.dumps(out))
@@ -311,6 +333,18 @@ def cmd_snapshot(run_id: str) -> int:
             return 0
     c.row_factory = sqlite3.Row
     run = c.execute("SELECT * FROM chain_run WHERE run_id=?", (run_id,)).fetchone()
+    base_run_id = f"cardz-v2:{day}"
+    if not label and raw_id == day:
+        candidates = []
+        for candidate in c.execute("SELECT * FROM chain_run WHERE business_date=?", (day,)).fetchall():
+            seq = scheduled_family_sequence(base_run_id, str(candidate["run_id"]))
+            if seq is not None:
+                candidates.append((seq, str(candidate["created_at"] or ""), candidate))
+        if candidates:
+            run = max(candidates, key=lambda item: (item[0], item[1]))[2]
+    resolved_run_id = str(run["run_id"]) if run else run_id
+    out["runId"] = resolved_run_id
+    out["resolvedRunId"] = resolved_run_id
     out["run"] = dict(run) if run else None
     out["otherRuns"] = [dict(r) for r in c.execute(
         "SELECT run_id,business_date,status,publication_status,created_at,completed_at FROM chain_run ORDER BY created_at DESC LIMIT 5")]
@@ -320,15 +354,15 @@ def cmd_snapshot(run_id: str) -> int:
     out["tasks"] = [dict(r) for r in c.execute(
         "SELECT task_key,phase,source_code,capability,required_class,concurrency_group,status,attempts,max_attempts,next_retry_at,"
         " heartbeat_at,last_error_code,substr(last_error,1,400) AS last_error,created_at,updated_at,interruptions,"
-        " substr(checkpoint_json,1,300) AS checkpoint_json FROM chain_task WHERE run_id=? ORDER BY created_at", (run_id,))]
+        " substr(checkpoint_json,1,300) AS checkpoint_json FROM chain_task WHERE run_id=? ORDER BY created_at", (resolved_run_id,))]
     out["attempts"] = [dict(r) for r in c.execute(
         "SELECT a.task_key,a.attempt_no,a.status,a.started_at,a.heartbeat_at,a.finished_at,a.worker_pid,a.error_code,"
         " substr(a.error_text,1,400) AS error_text, substr(a.receipt_json,1,4000) AS receipt_json"
         " FROM chain_attempt a JOIN chain_task t ON t.task_key=a.task_key WHERE t.run_id=? ORDER BY a.started_at, a.attempt_no",
-        (run_id,))]
+        (resolved_run_id,))]
     out["events"] = [dict(r) for r in c.execute(
         "SELECT event_key,event_type,created_at,delivered,substr(payload_json,1,1500) AS payload_json"
-        " FROM chain_event WHERE run_id=? ORDER BY created_at", (run_id,))]
+        " FROM chain_event WHERE run_id=? ORDER BY created_at", (resolved_run_id,))]
     print(json.dumps(out, default=str, ensure_ascii=False))
     return 0
 
@@ -573,7 +607,9 @@ class Observer:
         notify_alerts: bool = False,
     ) -> None:
         self.run_id = run_id
-        self.day = run_id.removeprefix("cardz-v2:").split("#")[0]
+        self.requested_run_id = run_id
+        self.resolved_run_id = run_id
+        self.day = run_business_day(run_id)
         self.scheduled = "#" not in run_id              # labelled runs are manual rehearsals: no 03:30 / promo expectations
         self.expected_start = expected_tick_start(self.day) if self.scheduled else None
         self.out_dir = out_dir
@@ -638,7 +674,7 @@ class Observer:
 
         safe_kind = re.sub(r"[^a-z0-9_-]+", "-", kind.casefold()).strip("-") or "anomaly"
         key = f"v2-observer:{self.day}:{safe_kind}"
-        message = scrub(f"CARDZ V2 observer {severity.upper()} {kind} run={self.run_id} {brief[:900]}")
+        message = scrub(f"CARDZ V2 observer {severity.upper()} {kind} run={self.resolved_run_id} requested={self.requested_run_id} {brief[:900]}")
         rc, _stdout, _stderr = run_capped(
             [
                 sys.executable, "-X", "utf8", str(NOTIFY_SCRIPT), "alert",
@@ -740,10 +776,21 @@ class Observer:
     # -- journal consumers
     def consume_run(self, run: dict | None, data_fresh: bool, journal: dict, now: dt.datetime) -> None:
         if run:
+            resolved_run_id = str(journal.get("resolvedRunId") or run.get("run_id") or self.requested_run_id)
+            if resolved_run_id != self.resolved_run_id:
+                previous = self.resolved_run_id
+                self.resolved_run_id = resolved_run_id
+                self.run_status = None
+                self.run_generation = None
+                self.terminal_seen_at = None
+                self.task_status.clear()
+                self.seen_attempts.clear()
+                self.seen_events.clear()
+                self.log(f"RUN_RESOLVED requested={self.requested_run_id} {previous} -> {resolved_run_id}")
             status = str(run.get("status"))
             self.run_generation = run.get("generation_id") or self.run_generation
             if status != self.run_status:
-                self.log(f"RUN {self.run_id} status {self.run_status} -> {status} pub={run.get('publication_status')} gen={run.get('generation_id')}"
+                self.log(f"RUN {self.resolved_run_id} status {self.run_status} -> {status} pub={run.get('publication_status')} gen={run.get('generation_id')}"
                          f" origin={run.get('origin')} created={str(run.get('created_at'))[:19]} sla={str(run.get('sla_at'))[11:19]}"
                          f" final={str(run.get('final_at'))[11:19]} cutoff={str(run.get('source_cutoff_at'))[11:19]}"
                          f" interventions={run.get('manual_intervention_count')} degraded={run.get('degraded_sources_json')}")
@@ -760,7 +807,7 @@ class Observer:
         elif data_fresh:
             if self.run_status != "NOT_STARTED":
                 others = ", ".join(f"{r['run_id']}={r['status']}" for r in (journal.get("otherRuns") or [])[:3])
-                self.log(f"RUN {self.run_id} not in journal yet (latest: {others})")
+                self.log(f"RUN {self.requested_run_id} not in journal yet (latest: {others})")
                 self.run_status = "NOT_STARTED"
         late = {}
         if run is None and self.last_journal is not None and self.expected_start and now > self.expected_start + dt.timedelta(seconds=RUN_START_GRACE_SECONDS):
@@ -880,12 +927,12 @@ class Observer:
         if wsl.get("running") is None:
             journal: dict = {"error": "WSL_UNRESPONSIVE", "ms": wsl.get("ms")}
         elif self.last_journal is None or wsl.get("running") or idle_elapsed:
-            journal = probe_journal(self.run_id)
+            journal = probe_journal(self.requested_run_id)
         else:
             journal = {"skipped": "WSL_IDLE", "ms": 0}
             self.peaks["journalSkips"] += 1
         fresh = not journal.get("error") and not journal.get("skipped")
-        snap["journal"] = {k: journal.get(k) for k in ("error", "skipped", "ms", "capturedAt", "roError")}
+        snap["journal"] = {k: journal.get(k) for k in ("error", "skipped", "ms", "capturedAt", "roError", "requestedRunId", "resolvedRunId")}
         self.peaks["journalMsMax"] = max(self.peaks["journalMsMax"], int(journal.get("ms") or 0))
         if journal.get("error"):
             if "TIMEOUT" in journal["error"] or "UNRESPONSIVE" in journal["error"]:
@@ -952,7 +999,7 @@ class Observer:
                                         "tick_ended_at_utc", "tick_duration_s", "next_retry_at_utc", "parked", "autonomous_proven", "last_alert")} if h else {"error": "unreadable"}
         snap["health"] = health
         stale: dict = {}
-        if h and run and self.run_status not in TERMINAL_RUN_STATES and h.get("run_id") == self.run_id:
+        if h and run and self.run_status not in TERMINAL_RUN_STATES and h.get("run_id") == self.resolved_run_id:
             w = parse_ts(h.get("written_at_utc"))
             age = (now - w).total_seconds() if w else None
             if age is not None and age > HEALTH_STALE_SECONDS:
@@ -1032,7 +1079,7 @@ class Observer:
             self.recurring("MYSQL_PROBE_FAILED", "warn", {"probe": mysql} if mysql.get("error") else {})
             self.recurring("MYSQL_LONG_QUERY", "error", {str(r["id"]): r for r in (mysql.get("long") or []) if r["seconds"] > LONG_QUERY_SECONDS})
 
-        snap["run"] = {k: run.get(k) for k in ("status", "publication_status", "generation_id", "manual_intervention_count", "completed_at")} if run else None
+        snap["run"] = {k: run.get(k) for k in ("run_id", "status", "publication_status", "generation_id", "manual_intervention_count", "completed_at")} if run else None
         snap["taskCounts"] = counts
         snap["running"] = running
         with self.snap_path.open("a", encoding="utf-8") as fh:
@@ -1051,7 +1098,8 @@ class Observer:
         return False
 
     def write_live(self, at: str, counts: dict, running: list, host: dict, wsl: dict, cdp: dict, mysql_long, phase: str) -> None:
-        live = {"runId": self.run_id, "at": at, "phase": phase, "runStatus": self.run_status, "generation": self.run_generation,
+        live = {"runId": self.resolved_run_id, "requestedRunId": self.requested_run_id, "resolvedRunId": self.resolved_run_id,
+                "at": at, "phase": phase, "runStatus": self.run_status, "generation": self.run_generation,
                 "taskCounts": counts, "running": running, "host": host, "wsl": wsl, "cdp9333": cdp, "mysqlLong": mysql_long,
                 "anomalyCounts": self.anomaly_counts, "open": sorted(self.active), "peaks": self.peaks, "ticks": len(self.ticks),
                 "lastTickStart": iso(self.last_tick_start), "lastTickEnd": iso(self.last_tick_end), "promo": self.promo}
@@ -1114,7 +1162,7 @@ class Observer:
                                                               "dir": str(pdir), "dirsScanned": scanned})
 
     def watch(self) -> int:
-        self.log(f"observer start run={self.run_id} poll={self.poll}s out={self.out_dir} root={ROOT} scheduled={self.scheduled}"
+        self.log(f"observer start requestedRun={self.requested_run_id} poll={self.poll}s out={self.out_dir} root={ROOT} scheduled={self.scheduled}"
                  f" expectedStart={iso(self.expected_start)} promoSweep={self.promo_sweep}")
         missing = [str(p) for p in (ROOT / "logs" / "daily-chain-v2", ROOT / "data" / "runtime" / "daily-chain-v2" / "health.json") if not p.exists()]
         if missing:
@@ -1128,7 +1176,7 @@ class Observer:
                 self.anomaly("OBSERVER_EXCEPTION", "warn", {"error": f"{type(exc).__name__}: {exc}"[:400], "trace": traceback.format_exc()[-1200:]})
             if self.peaks["polls"] % 10 == 0 and self.last_journal is not None:
                 try:
-                    write_report(self.run_id, self.out_dir, journal=self.last_journal)
+                    write_report(self.requested_run_id, self.out_dir, journal=self.last_journal)
                 except Exception as exc:  # noqa: BLE001
                     self.log(f"report render failed: {type(exc).__name__}: {exc}")
             if done:
@@ -1139,7 +1187,7 @@ class Observer:
                 self.postrun_promo()
             except Exception as exc:  # noqa: BLE001
                 self.anomaly("OBSERVER_EXCEPTION", "warn", {"error": f"promo: {type(exc).__name__}: {exc}"[:400]})
-        write_report(self.run_id, self.out_dir)      # one live re-probe; falls back to journal-latest.json
+        write_report(self.requested_run_id, self.out_dir)      # one live re-probe; falls back to journal-latest.json
         self.log(f"report {self.out_dir / 'report.md'}")
         return 0
 
@@ -1187,8 +1235,11 @@ def write_report(run_id: str, out_dir: Path, journal: dict | None = None) -> Pat
         else:
             source = f"none (live: {journal.get('error') or 'no run'})"
     run = journal.get("run") or {}
-    lines = [f"# V2 run observer report — `{run_id}`", ""]
+    resolved_run_id = str(journal.get("resolvedRunId") or run.get("run_id") or run_id)
+    lines = [f"# V2 run observer report — `{resolved_run_id}`", ""]
     lines.append(f"- rendered {iso(utc_now())} · polls {len(snaps)} · anomalies {len(anoms)} · journal source: {source}")
+    if resolved_run_id != run_id:
+        lines.append(f"- requested `{run_id}` · resolved current scheduled run `{resolved_run_id}`")
     if run:
         c, d = parse_ts(run.get("created_at")), parse_ts(run.get("completed_at"))
         wall = f"{(d - c).total_seconds() / 60:.1f} min" if c and d else "(not completed)"
@@ -1288,7 +1339,8 @@ def write_report(run_id: str, out_dir: Path, journal: dict | None = None) -> Pat
     text = "\n".join(lines) + "\n"
     (out_dir / "report.md").write_text(text, encoding="utf-8")
     (out_dir / "summary.json").write_text(json.dumps({
-        "runId": run_id, "status": run.get("status"), "publicationStatus": run.get("publication_status"),
+        "runId": resolved_run_id, "requestedRunId": run_id, "resolvedRunId": resolved_run_id,
+        "status": run.get("status"), "publicationStatus": run.get("publication_status"),
         "generation": run.get("generation_id"), "origin": run.get("origin"), "provenAutonomous": run.get("proven_autonomous"),
         "anomalyKinds": {k: len(v) for k, v in grouped.items()},
         "errors": sum(1 for a in anoms if a.get("severity") == "error"), "warns": sum(1 for a in anoms if a.get("severity") == "warn"),
@@ -1345,7 +1397,7 @@ def main() -> int:
     if args.command == "snapshot":
         return cmd_snapshot(args.run_id)
     run_id = resolve_run_id(args)
-    out_dir = args.out_root / run_id.removeprefix("cardz-v2:").replace("#", "-")
+    out_dir = args.out_root / run_id.removeprefix("cardz-v2:").replace("#", "-").replace("/", "-")
     if args.command == "report":
         print(write_report(run_id, out_dir))
         return 0
