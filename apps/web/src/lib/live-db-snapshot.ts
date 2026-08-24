@@ -731,8 +731,19 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
         .sort((a, b) => a.at.localeCompare(b.at));
       // 同 `history` 一樣剝走供應商代號先出街（`test-public-surface-gate.mjs` 會喺
       // payload 任何深度搵供應商代號）。lane 判斷淨係喺呢個 module 入面用 draft 做。
+      // 顯式逐欄抄而唔係 `_x` rest-exclusion：eslint ratchet 每個棄用 destructure
+      // 計一個 warning（基線 8 已滿）。回型釘住 DailyHistoryPoint，漏欄 tsc 會嗌；
+      // 加欄唔逐個諗過就出唔到街——publish surface 本來就應該逐欄過數。
       const reference = referenceDrafts
-        .map(({ priceSourceCode: _referenceSourceCode, priceSourcePriority: _referenceSourcePriority, ...point }) => point);
+        .map((draft): DailyHistoryPoint => ({
+          at: draft.at,
+          priceUsd: draft.priceUsd,
+          priceStatus: draft.priceStatus,
+          trackedSalesValueUsd: draft.trackedSalesValueUsd,
+          trackedSalesCount: draft.trackedSalesCount,
+          salesCoverage: draft.salesCoverage,
+          salesVerifiedZero: draft.salesVerifiedZero,
+        }));
       const raw = rawPrices.get(variantId);
       const printingSetName = String(row.set_name ?? "");
       /*

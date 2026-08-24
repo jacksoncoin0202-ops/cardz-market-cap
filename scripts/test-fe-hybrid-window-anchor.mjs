@@ -204,9 +204,17 @@ const near = (value, want) => typeof value === "number" && Math.abs(value - want
     "搵唔到 historyDaily / historyReference 兩條");
   check("E: `historyDaily` 唔准由 reference 餵",
     !/historyDaily: \[\s*\.\.\.\s*history/.test(producer) && !/history\.concat\(reference/.test(producer));
-  check("E: 參考點嘅供應商代號唔准出街（同 historyDaily 一樣剝走）",
-    /const reference = referenceDrafts[\s\S]{0,200}priceSourceCode: _[A-Za-z]+/.test(producer),
-    "reference 投影冇剝走 priceSourceCode");
+  // 2026-08-24 收尾改：投影由 `_x` rest-exclusion 改咗做顯式逐欄抄（eslint ratchet
+  // 基線 8 已滿，每個棄用 destructure 計一個 warning）。呢條照舊釘「供應商代號唔准
+  // 出街」，只係認新形狀：要 DailyHistoryPoint 回型 + 逐欄抄，唔准 spread draft、
+  // 唔准出現 priceSource* key。
+  const refProjection = (producer.match(/const reference = referenceDrafts[\s\S]{0,700}?\}\)\);/) ?? [""])[0];
+  check("E: 參考點嘅供應商代號唔准出街（顯式逐欄抄：冇 spread、冇 priceSource* key）",
+    /\.map\(\(draft\): DailyHistoryPoint => \(\{/.test(refProjection)
+      && refProjection.includes("at: draft.at")
+      && !refProjection.includes("...draft")
+      && !/priceSource(Code|Priority)/.test(refProjection),
+    "reference 投影要顯式逐欄抄（DailyHistoryPoint 回型），唔准 spread draft 或者帶 priceSource* key");
 }
 
 rmSync(dir, { recursive: true, force: true });
