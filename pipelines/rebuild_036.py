@@ -8921,12 +8921,71 @@ _PC_BRACKET_SYNONYMS: dict[str, frozenset[str]] = {
     # Pokemon Master Ball is a 1:1 pairing; the catalog spells out the finish
     # ("master ball reverse holo") where the page bracket says just the seal.
     "mb": frozenset({"master ball"}),
+    # The plain reverse-holo finish. PC brackets it "[Reverse]" where the
+    # catalog stores "rh"; "[Reverse Holo]" is deliberately NOT here, because
+    # only the one word was seen and a longer wording is a page that says
+    # something this pairing was never read off. Two rows carry printing_code
+    # 'rh' database-wide (2026-08-24).
+    "rh": frozenset({"reverse"}),
 }
 
 # printing_code values that claim no treatment, so a bracket-less page heading
 # is allowed to be the card. Anything else names a treatment the page would
 # have to spell out.
 _PC_BASE_PRINTINGS = frozenset({"", "base"})
+
+# One Piece 3rd Anniversary metal prints. GemRate welds the product and the
+# metal into one parallel label ("3rd Anniversary-Silver"); PriceCharting sells
+# the same physical card as its own product and brackets only the metal
+# ("[SP Silver]"). printing_code 'spc' is the catalog's own name for that
+# print -- 3 rows database-wide (2026-08-24) -- and is not the coarse 'sp'
+# code whose [SP Foil]/[SP Gold] exclusion above must stay exactly as it is.
+_PC_SPC_METALS = frozenset({"gold", "silver"})
+
+
+def _pc_spc_metal(row: Mapping[str, Any]) -> str:
+    """The metal word an 'spc' catalog row claims for ITSELF, '' otherwise.
+
+    Read off this row's own parallel_code and nothing else. That is the whole
+    rule: v112 is "3rd Anniversary-Silver" and v36 is "3rd Anniversary-Gold",
+    so each may only answer to its own metal or the twins take each other's
+    page -- the same corroboration shape the dated-event rule uses, where the
+    year has to be the variant's own.
+    """
+
+    if _norm_text(str(row.get("printing_code") or "")) != "spc":
+        return ""
+    tokens = set(re.split(r"[^a-z0-9]+", _norm_text(str(row.get("parallel_code") or ""))))
+    metals = sorted(tokens & _PC_SPC_METALS)
+    return metals[0] if len(metals) == 1 else ""
+
+
+def _pc_spc_metal_parallel(row: Mapping[str, Any], *listing_text: str) -> str:
+    """The words product agreement should read for an spc row, '' to use its own.
+
+    product_agrees reads a parallel it cannot name as PRODUCT words, so
+    "3rd Anniversary-Silver" asked PriceCharting to print "3rd" and
+    "anniversary" beside a bracket that only ever says "[SP Silver]" -- v112
+    and v36 were refused `product_mismatch:missing=['3rd', 'anniversary']`
+    with their own product's page in hand.
+
+    The brand words are dropped only where the listing itself corroborates the
+    metal this row names, and what is handed back is PriceCharting's own
+    bracket wording ("sp silver"), so BOTH words stay required. Spelling the
+    metal alone would not survive product agreement: "gold" is a treatment
+    GEMRATE_TREATMENT can name, so it would contribute no required word at all
+    and a promo-bucket set name would be left with nothing to prove.
+
+    A listing that does not print our metal gets the full label back and is
+    refused exactly as before, which is what stops the Gold page answering for
+    the Silver card at this gate as well as at the print signature.
+    """
+
+    metal = _pc_spc_metal(row)
+    if not metal:
+        return ""
+    theirs = set(re.split(r"[^a-z0-9]+", _norm_text(" ".join(listing_text))))
+    return f"sp {metal}" if metal in theirs else ""
 
 
 def _pc_page_product_id(html: str) -> str:
@@ -9094,6 +9153,17 @@ def _pc_print_signature_ok(page_parallel: str, row: Mapping[str, Any]) -> bool:
     vpp = _norm_text(variant_parallel)
     year = re.match(r"(19|20)\d{2}\b", str(row.get("canonical_name") or ""))
     if vpp and year and bracket == f"{vpp} {year.group(0)}":
+        return True
+    # 3rd Anniversary metal prints, corroborated the same way: PC brackets
+    # "[SP Silver]" for a card the catalog labels "3rd Anniversary-Silver"
+    # with printing_code 'spc'. The metal is not noise to strip -- Silver and
+    # Gold are two products of one card -- so it must be the metal THIS row's
+    # own parallel names, and the Gold page keeps refusing the Silver card
+    # (proven both directions in scripts/test_pc_spc_metal_bracket.py). The
+    # coarse 'sp' code is untouched: [SP Foil] and [SP Gold] stay refused
+    # there, because that catalog code cannot say which product it is.
+    spc_metal = _pc_spc_metal(row)
+    if spc_metal and bracket == f"sp {spc_metal}":
         return True
     # The bracket is our own PRODUCT, not a treatment. Written as one and-chain
     # so it commutes with the dated-event rule above: neither can answer for a
@@ -9401,11 +9471,16 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
                     )
                     continue
                 same_product, why = False, "product_mismatch:no_set_name"
+                listing_text = (
+                    identity["setText"], identity["canonicalUrl"], identity["heading"],
+                )
+                our_parallel = (
+                    _pc_spc_metal_parallel(row, *listing_text)
+                    or str(row["fp_parallel"] or "")
+                )
                 for candidate_set in set_names_a_card_could_carry(row):
                     same_product, why = op_identity_rules.product_agrees(
-                        candidate_set, str(row["fp_parallel"] or ""),
-                        identity["setText"], identity["canonicalUrl"],
-                        identity["heading"],
+                        candidate_set, our_parallel, *listing_text,
                     )
                     if same_product:
                         break

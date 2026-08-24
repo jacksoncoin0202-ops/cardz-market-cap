@@ -343,10 +343,14 @@ def judge_listing(
     if not same_character:
         return False, why
 
+    listing_text = (listing["title"], urllib.parse.unquote(listing["url"]))
     same_product, why = product_agrees(
         set_name or str(row.get("set_name") or ""),
-        str(row.get("fp_parallel") or ""),
-        listing["title"], urllib.parse.unquote(listing["url"]),
+        # An spc row's label welds the anniversary product to its metal; the
+        # metal alone stays required when the listing itself prints it.
+        R._pc_spc_metal_parallel(row, *listing_text)
+        or str(row.get("fp_parallel") or ""),
+        *listing_text,
     )
     if not same_product:
         return False, why
@@ -379,6 +383,57 @@ def judge_listing(
 # Targets
 # ---------------------------------------------------------------------------
 
+# GemRate files the One Piece anniversary and promo products under a set name
+# PriceCharting has no console for ("One Piece Japanese 3rd Anniversary Set"),
+# so the only page left to try was the set the card's NUMBER names -- the
+# booster it was renumbered out of -- and v2074/v1931 were proposed onto that
+# booster's own base page. PriceCharting keeps these cards in the language's
+# promo bucket instead, bracketed with the product ("Monkey.D.Luffy
+# [3rd Anniversary] OP12-039").
+_PROMO_CLASS_WORDS = frozenset({"anniversary", "promo", "promos", "promotional"})
+
+
+def promo_console(language: str, index: dict[str, str]) -> str:
+    """PriceCharting's promo bucket for this language, '' when it is not sole.
+
+    Derived from the index, never spelled out: the bucket is the console whose
+    whole name is stopwords ("one piece japanese promo"), the same nameless
+    console match_console already answers a nameless set name with. A slug
+    written here would be the guess load_console_index exists to avoid --
+    `one-piece-japanese-promos` 404s exactly like a set with no cards.
+    """
+
+    want_japanese = language == "ja"
+    nameless = [
+        slug for slug, words in index.items()
+        if ("japanese" in words.split()) == want_japanese
+        and not op_identity_rules._product_tokens(words)
+    ]
+    return nameless[0] if len(nameless) == 1 else ""
+
+
+def promo_class_console(
+    row: dict[str, Any], set_name: str, language: str, index: dict[str, str],
+) -> str:
+    """The promo bucket an anniversary/promo-class set name may also be on.
+
+    Only consulted when the set name matched no console of its own, and the
+    trigger is literal: a Japanese One Piece set name that SAYS "anniversary"
+    or "promo". Narrow on purpose -- this widens WHERE candidates are read
+    from and nothing else. judge_listing still has to agree on number,
+    character, product and print signature, and the "[3rd Anniversary]"
+    bracket still has to earn itself out of our own set_name through
+    _pc_bracket_names_our_product.
+    """
+
+    if str(row.get("tcg_code") or "") != "one-piece" or language != "ja":
+        return ""
+    words = set(re.split(r"[^a-z0-9]+", R._norm_text(set_name)))
+    if not words & _PROMO_CLASS_WORDS:
+        return ""
+    return promo_console(language, index)
+
+
 def console_candidates(
     row: dict[str, Any], index: dict[str, str],
 ) -> list[tuple[str, str, str]]:
@@ -397,6 +452,11 @@ def console_candidates(
     set's, not the pulled-from set's -- otherwise product_agrees would refuse
     every row on it for saying "Two Legends" when we said "Emperors".
 
+    A third page for the anniversary/promo class, whose set name names no
+    console at all: see promo_class_console. It is judged against our own
+    set_name, because the promo bucket's rows carry the product in a bracket
+    rather than in the page's set text.
+
     This widens where we look; it does not widen what we accept. The number
     still has to match in full (OP08-106 names its own set), the character
     still has to match, and the print signature still has to match.
@@ -410,6 +470,9 @@ def console_candidates(
     if slug:
         out.append((slug, catalog_set, "set_name"))
         seen.add(slug)
+    elif promo := promo_class_console(row, catalog_set, language, index):
+        out.append((promo, catalog_set, "promo_bucket"))
+        seen.add(promo)
     first_why = why
 
     names = R.set_names_a_card_could_carry(row)

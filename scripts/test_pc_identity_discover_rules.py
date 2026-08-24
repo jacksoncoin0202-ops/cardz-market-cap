@@ -241,6 +241,85 @@ if hody:
     truthy("and the reason names the character", "character" in why)
 
 
+# --- 3b2. the anniversary/promo bucket is a page we may look on -----------
+# v2074 and v1931: GemRate files them under "3rd Anniversary Set", which names
+# no PriceCharting console at all, so the only page left to try was the set
+# their NUMBER names -- the OP12 booster -- and the proposal landed on that
+# booster's own base page (9734901 / 9735163, manual_review, never exact).
+# PriceCharting keeps these in the language's promo bucket, bracketed with the
+# product: "Monkey.D.Luffy [3rd Anniversary] OP12-039".
+INDEX3 = dict(INDEX)
+INDEX3["one-piece-japanese-legacy-of-the-master"] = (
+    "one piece japanese legacy of the master")
+
+anniversary = {
+    "tcg_code": "one-piece", "card_language": "ja",
+    "set_name": "One Piece Japanese 3rd Anniversary Set",
+    "collector_number": "OP12-039", "fp_name": "Monkey D. Luffy",
+    "canonical_name": "2025 One Piece Japanese 3rd Anniversary Set"
+                      " Monkey D. Luffy 039",
+    "fp_parallel": "", "parallel_code": "base", "printing_code": "",
+}
+cands3 = D.console_candidates(anniversary, INDEX3)
+check("the promo bucket is offered before the number's booster",
+      [c[0] for c in cands3],
+      ["one-piece-japanese-promo", "one-piece-japanese-legacy-of-the-master"])
+check("and the record says which reading found it", cands3[0][2], "promo_bucket")
+# Judged against our own set_name: the bucket's rows carry the product in a
+# bracket, not in the page's set text, so it is our words the bracket earns.
+check("the promo page is judged against our own set name", cands3[0][1],
+      anniversary["set_name"])
+# The bucket is derived from the index, not spelled out in the lane.
+check("the bucket is the language's nameless console",
+      D.promo_console("ja", INDEX3), "one-piece-japanese-promo")
+check("and English has its own", D.promo_console("en", INDEX3), "one-piece-promo")
+
+promo_listing = {
+    "pid": "10974001",
+    "title": "Monkey.D.Luffy [3rd Anniversary] OP12-039",
+    "slug": "monkey-d-luffy-3rd-anniversary-op12-039",
+    "url": "https://www.pricecharting.com/game/one-piece-japanese-promo/"
+           "monkey-d-luffy-3rd-anniversary-op12-039",
+}
+ok, why = D.judge_listing(anniversary, promo_listing, anniversary["set_name"])
+check(f"the promo bucket's row is judged acceptable ({why})", ok, True)
+# The booster's base page is what this widening exists to stop being the only
+# answer, and it is still refused: our set name says words that page never has.
+booster_base = {
+    "pid": "9734901", "title": "Monkey.D.Luffy OP12-039",
+    "slug": "monkey-d-luffy-op12-039",
+    "url": "https://www.pricecharting.com/game/"
+           "one-piece-japanese-legacy-of-the-master/monkey-d-luffy-op12-039",
+}
+ok, why = D.judge_listing(anniversary, booster_base, anniversary["set_name"])
+check("the booster's base page is still refused", ok, False)
+truthy(f"and the reason names the missing anniversary words ({why})",
+       "anniversary" in why)
+# Reached through the number instead, it is refused as that set's own print.
+ok, why = D.judge_listing(anniversary, booster_base, "legacy of the master")
+check("and refused again when reached through the number", ok, False)
+truthy("as the number's set's own print", why.startswith("number_set_own_print:"))
+
+# The trigger stays literal and narrow: a set name that names a console of its
+# own never widens, and neither does another language or another game.
+check("a set name with its own console does not reach for the bucket",
+      [c[0] for c in D.console_candidates(
+          dict(anniversary, set_name="One Piece Romance Dawn",
+               card_language="ja"), INDEX3)][0],
+      "one-piece-japanese-romance-dawn")
+check("an English card does not take the Japanese widening",
+      D.promo_class_console(anniversary, anniversary["set_name"], "en", INDEX3), "")
+check("nor does another game",
+      D.promo_class_console(dict(anniversary, tcg_code="pokemon"),
+                            anniversary["set_name"], "ja", INDEX3), "")
+check("nor a Japanese set name that says neither word",
+      D.promo_class_console(anniversary, "One Piece Japanese Two Legends", "ja",
+                            INDEX3), "")
+check("but one that says anniversary does",
+      D.promo_class_console(anniversary, anniversary["set_name"], "ja", INDEX3),
+      "one-piece-japanese-promo")
+
+
 # --- 3c. the human red ruling reaches target selection ---------------------
 # Three of these were proposed and two went live before validator034 caught it,
 # so the check belongs where targets are chosen, not where evidence is written.

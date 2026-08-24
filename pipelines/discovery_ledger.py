@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Iterable, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -19,26 +20,100 @@ sys.path.insert(0, str(ROOT / "pipelines"))
 
 from rebuild_036 import connect, DEFAULT_CREDENTIALS_ENV, DAILY_CREDENTIALS_ENV
 
+# The alias fold every other lane already applies: `snk` and `snk_psa10` are
+# legacy spellings of `snkrdunk` (new_era_db_tidy.py, operator_fe_export.py
+# both write `CASE WHEN source_code IN ('snk','snk_psa10') THEN 'snkrdunk'`).
+# Sources this ledger does not read answer to no family and are skipped.
+SOURCE_FAMILIES: dict[str, str] = {
+    "pricecharting": "pricecharting",
+    "snkrdunk": "snkrdunk",
+    "snk": "snkrdunk",
+    "snk_psa10": "snkrdunk",
+}
+
+_EMPTY_BINDING: dict[str, Any] = {"exact": {}, "nonexact": 0}
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def canonical_source_code(source_code: Any) -> str:
+    """The one name a provider answers to, '' when this ledger does not read it."""
+
+    return SOURCE_FAMILIES.get(str(source_code or "").strip().lower(), "")
+
+
+def aggregate_source_identities(
+    rows: Iterable[Mapping[str, Any]],
+) -> dict[int, dict[str, dict[str, Any]]]:
+    """variant -> canonical source -> which PRODUCTS that provider binds it to.
+
+    Exacts are counted over distinct (canonical source, external_entity_id)
+    pairs, not over rows. catalog_source_identity is keyed
+    (source_code, external_entity_id), so one SNKRDUNK product filed under two
+    spellings of the same provider is two ROWS naming one product: counting
+    rows read that as two bindings and raised multiple_exact_bindings against
+    v1020 and v1040 on 2026-08-24, whose `snkrdunk` and `snk_psa10` rows both
+    named external id 128132 / 128110. Ambiguity is two PRODUCTS.
+
+    nonexact stays a row count: a non-exact row is a candidate awaiting review,
+    and two candidates on one product really are two things to look at.
+    """
+
+    by_variant: dict[int, dict[str, dict[str, Any]]] = {}
+    for raw in rows:
+        family = canonical_source_code(raw.get("source_code"))
+        if not family:
+            continue
+        status = raw.get("match_status")
+        if status is None:  # mirrors SQL: NULL is neither exact nor non-exact
+            continue
+        agg = by_variant.setdefault(int(raw["variant_id"]), {}).setdefault(
+            family, {"exact": {}, "nonexact": 0}
+        )
+        if str(status) != "exact":
+            agg["nonexact"] += 1
+            continue
+        external = str(raw.get("external_entity_id") or "")
+        # An exact row naming no product cannot be PROVED to be the same
+        # binding as another one, so it folds into nothing: under-counting
+        # exacts is how an ambiguity stops being reported.
+        key = external or f"\x00{len(agg['exact'])}"
+        agg["exact"].setdefault(key, {
+            "externalId": external,
+            "evidenceSha256": str(raw.get("evidence_sha256") or ""),
+        })
+    return by_variant
+
+
+def _binding(
+    bindings: dict[int, dict[str, dict[str, Any]]], variant_id: int, family: str
+) -> dict[str, Any]:
+    return bindings.get(variant_id, {}).get(family, _EMPTY_BINDING)
+
+
 def rebuild_ledger(cursor: Any) -> dict[str, Any]:
     now = _now()
+    # Read the bindings as ROWS and fold the provider aliases in Python. The
+    # fold and the distinct-product count used to be two GROUP BY subqueries
+    # that treated `snk`, `snk_psa10` and `snkrdunk` as three sources; see
+    # aggregate_source_identities for what that cost.
+    cursor.execute(
+        """
+        SELECT variant_id, source_code, match_status, external_entity_id, evidence_sha256
+        FROM catalog_source_identity
+        WHERE source_code IN ('pricecharting','snkrdunk','snk','snk_psa10')
+        """
+    )
+    bindings = aggregate_source_identities(cursor.fetchall())
     # Current-universe membership is only is_current=1.
     cursor.execute(
         """
         SELECT v.id AS variant_id,
                CASE WHEN cur.variant_id IS NULL THEN 'inactive' ELSE 'active' END
                  AS catalog_status,
-               pi.card_language,
-               COALESCE(pc.exact_n, 0) AS pc_exact_n,
-               COALESCE(pc.nonexact_n, 0) AS pc_nonexact_n,
-               pc.exact_id AS pc_exact,
-               COALESCE(snk.exact_n, 0) AS snk_exact_n,
-               COALESCE(snk.nonexact_n, 0) AS snk_nonexact_n,
-               snk.exact_id AS snk_exact
+               pi.card_language
         FROM catalog_variant v
         LEFT JOIN catalog_printing_identity pi ON pi.variant_id=v.id
         LEFT JOIN (
@@ -47,34 +122,6 @@ def rebuild_ledger(cursor: Any) -> dict[str, Any]:
           INNER JOIN market_universe_lock ul
             ON ul.id=am.universe_lock_id AND ul.is_current=1
         ) cur ON cur.variant_id=v.id
-        LEFT JOIN (
-          SELECT variant_id,
-                 SUM(match_status='exact') AS exact_n,
-                 SUM(match_status<>'exact') AS nonexact_n,
-                 MAX(CASE WHEN match_status='exact' THEN external_entity_id END) AS exact_id,
-                 MAX(CASE WHEN match_status='exact' THEN evidence_sha256 END) AS exact_evidence,
-                 GROUP_CONCAT(CASE WHEN match_status='exact' THEN external_entity_id END
-                              ORDER BY external_entity_id SEPARATOR '|') AS exact_ids,
-                 GROUP_CONCAT(CASE WHEN match_status='exact' THEN evidence_sha256 END
-                              ORDER BY external_entity_id SEPARATOR '|') AS exact_evidences
-          FROM catalog_source_identity
-          WHERE source_code='pricecharting'
-          GROUP BY variant_id
-        ) pc ON pc.variant_id=v.id
-        LEFT JOIN (
-          SELECT variant_id,
-                 SUM(match_status='exact') AS exact_n,
-                 SUM(match_status<>'exact') AS nonexact_n,
-                 MAX(CASE WHEN match_status='exact' THEN external_entity_id END) AS exact_id,
-                 MAX(CASE WHEN match_status='exact' THEN evidence_sha256 END) AS exact_evidence,
-                 GROUP_CONCAT(CASE WHEN match_status='exact' THEN external_entity_id END
-                              ORDER BY external_entity_id SEPARATOR '|') AS exact_ids,
-                 GROUP_CONCAT(CASE WHEN match_status='exact' THEN evidence_sha256 END
-                              ORDER BY external_entity_id SEPARATOR '|') AS exact_evidences
-          FROM catalog_source_identity
-          WHERE source_code IN ('snkrdunk','snk','snk_psa10')
-          GROUP BY variant_id
-        ) snk ON snk.variant_id=v.id
         """
     )
     rows = list(cursor.fetchall())
@@ -83,10 +130,14 @@ def rebuild_ledger(cursor: Any) -> dict[str, Any]:
         variant_id = int(raw["variant_id"])
         catalog_status = str(raw["catalog_status"])
         language = str(raw.get("card_language") or "")
-        pc_exact_n = int(raw["pc_exact_n"] or 0)
-        snk_exact_n = int(raw["snk_exact_n"] or 0)
-        pc_nonexact_n = int(raw["pc_nonexact_n"] or 0)
-        snk_nonexact_n = int(raw["snk_nonexact_n"] or 0)
+        pc = _binding(bindings, variant_id, "pricecharting")
+        snk = _binding(bindings, variant_id, "snkrdunk")
+        pc_exact = [pc["exact"][key] for key in sorted(pc["exact"])]
+        snk_exact = [snk["exact"][key] for key in sorted(snk["exact"])]
+        pc_exact_n = len(pc_exact)
+        snk_exact_n = len(snk_exact)
+        pc_nonexact_n = int(pc["nonexact"])
+        snk_nonexact_n = int(snk["nonexact"])
 
         if pc_exact_n > 1 or snk_exact_n > 1:
             discovery = "identity_ambiguous"
@@ -130,18 +181,14 @@ def rebuild_ledger(cursor: Any) -> dict[str, Any]:
 
         detail = {
             "cardLanguage": language or None,
-            "pcExactId": raw.get("pc_exact"),
-            "pcExactEvidenceSha256": raw.get("pc_exact_evidence"),
-            "pcExactIds": str(raw.get("pc_exact_ids") or "").split("|")
-            if raw.get("pc_exact_ids") else [],
-            "pcExactEvidenceSha256s": str(raw.get("pc_exact_evidences") or "").split("|")
-            if raw.get("pc_exact_evidences") else [],
-            "snkExactId": raw.get("snk_exact"),
-            "snkExactEvidenceSha256": raw.get("snk_exact_evidence"),
-            "snkExactIds": str(raw.get("snk_exact_ids") or "").split("|")
-            if raw.get("snk_exact_ids") else [],
-            "snkExactEvidenceSha256s": str(raw.get("snk_exact_evidences") or "").split("|")
-            if raw.get("snk_exact_evidences") else [],
+            "pcExactId": pc_exact[-1]["externalId"] if pc_exact else None,
+            "pcExactEvidenceSha256": pc_exact[-1]["evidenceSha256"] if pc_exact else None,
+            "pcExactIds": [item["externalId"] for item in pc_exact],
+            "pcExactEvidenceSha256s": [item["evidenceSha256"] for item in pc_exact],
+            "snkExactId": snk_exact[-1]["externalId"] if snk_exact else None,
+            "snkExactEvidenceSha256": snk_exact[-1]["evidenceSha256"] if snk_exact else None,
+            "snkExactIds": [item["externalId"] for item in snk_exact],
+            "snkExactEvidenceSha256s": [item["evidenceSha256"] for item in snk_exact],
             "pcExactCount": pc_exact_n,
             "snkExactCount": snk_exact_n,
         }
