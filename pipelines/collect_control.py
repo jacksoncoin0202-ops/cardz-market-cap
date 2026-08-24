@@ -206,6 +206,18 @@ PC_ERROR_CLASS_RETRY_SECONDS = {
     # already captured.
     PC_CHILD_ALREADY_RUNNING_CLASS: 10 * 60,
 }
+# review 2026-08-24 (production: collect took 4 attempts, #2 and #3 died on
+# pc_child_already_running while the parent's own previous child was minutes
+# from finishing): a child that is still beating is a reason to wait, not to
+# burn a tick. Bounded on purpose -- the budget is a rounding error next to the
+# 50-65 min sweep, so an exhausted wait still leaves the tick its work, and it
+# refuses exactly as before. Nothing here ever kills the child.
+# The env knobs are for a hand run and for the suites that drive this path with
+# a stubbed child; they only shorten the wait, so no gate can move through them.
+PC_CHILD_WAIT_BUDGET_SECONDS = float(
+    os.environ.get("PC_CHILD_WAIT_BUDGET_SECONDS") or 120.0
+)
+PC_CHILD_WAIT_POLL_SECONDS = float(os.environ.get("PC_CHILD_WAIT_POLL_SECONDS") or 5.0)
 # Chrome's lifecycle belongs to the launcher preflight and the ChromeCdpWatchdog
 # task; the chain only asks whether the session is the right one. 30s, not 90.
 PC_ENSURE_CDP_TIMEOUT_SECONDS = 30
@@ -1152,6 +1164,48 @@ def pc_child_alive_stamp(*, now: datetime | None = None) -> dict[str, Any] | Non
                 "windowSeconds": window,
             }
     return newest
+
+
+def pc_wait_for_child_exit(
+    *,
+    budget_seconds: float = PC_CHILD_WAIT_BUDGET_SECONDS,
+    poll_seconds: float = PC_CHILD_WAIT_POLL_SECONDS,
+    probe: Any = None,
+) -> dict[str, Any]:
+    """Wait, inside a bounded budget, for a live 9333 child to stop beating.
+
+    Liveness stays the child's own progress stamp (``pc_child_alive_stamp``), so
+    a stamp that went stale mid-wait -- the hard stall killer took the child --
+    ends the wait the same way a clean exit does. The budget expiring is not an
+    escalation: the caller falls through to the same refusal as before, because
+    the one thing worse than losing a tick is two sweeps on PriceCharting.
+    """
+
+    probe_fn = pc_child_alive_stamp if probe is None else probe
+    started = time.monotonic()
+    polls = 0
+    last: dict[str, Any] | None = None
+    while True:
+        remaining = float(budget_seconds) - (time.monotonic() - started)
+        if remaining <= 0:
+            break
+        time.sleep(min(float(poll_seconds), remaining))
+        polls += 1
+        last = probe_fn()
+        if last is None:
+            return {
+                "exited": True,
+                "polls": polls,
+                "waitedSeconds": round(time.monotonic() - started, 3),
+                "budgetSeconds": float(budget_seconds),
+            }
+    return {
+        "exited": False,
+        "polls": polls,
+        "waitedSeconds": round(time.monotonic() - started, 3),
+        "budgetSeconds": float(budget_seconds),
+        "lastStamp": last,
+    }
 
 
 def _run_pc_child(
@@ -4709,6 +4763,20 @@ def refresh_pc_pages(
     # attemptedFailedVariantIds is the honest answer here -- nothing was opened,
     # so the fallback may not cover a single page with yesterday's HTML.
     already_running = pc_child_alive_stamp()
+    child_wait: dict[str, Any] | None = None
+    if already_running is not None:
+        # The old child is usually finishing, not stuck: wait it out inside a
+        # bounded budget instead of failing the attempt blind.
+        child_wait = pc_wait_for_child_exit()
+        report["childWait"] = child_wait
+        if child_wait.get("exited"):
+            print(
+                "[collect] 9333 child finished while waiting; proceeding: "
+                + json.dumps(child_wait, ensure_ascii=False, sort_keys=True),
+                file=sys.stderr,
+                flush=True,
+            )
+            already_running = None
     if already_running is not None:
         report.update(
             {
