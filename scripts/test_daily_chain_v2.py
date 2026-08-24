@@ -589,6 +589,7 @@ db_contract = (ROOT / "pipelines" / "daily_chain_v2_db.py").read_text(encoding="
 rebuild = (ROOT / "pipelines" / "rebuild_036.py").read_text(encoding="utf-8")
 assert "Id = 107,110" in launcher and "event_record_id" in launcher
 assert "-WindowStyle Hidden" in launcher
+assert '"env", "CARDZ_V2_AUTO_SUPERSEDE=1"' in launcher
 assert "03:30" in installer and "PT10M" in installer and "PT13H30M" in installer
 assert "-WindowStyle Hidden" in installer and "consoleWindowStyle" in installer
 assert "IgnoreNew" in installer and "StartWhenAvailable" in installer and "55" in installer

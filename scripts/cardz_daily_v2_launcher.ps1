@@ -276,6 +276,12 @@ $wslRepo = Convert-ToWslPath -Path $Repo
 $wslReceipt = Convert-ToWslPath -Path $receiptPath
 $args = @(
     "-d", "Ubuntu", "--",
+    # Phase-2 alignment is a property of the scheduled launcher, not an
+    # ambient Windows/WSL shell. Windows user env is not forwarded into WSL
+    # unless WSLENV is configured, and this machine deliberately has no such
+    # bridge. Pass the narrowly scoped flag on the command line so every real
+    # scheduled tick can repair an early-created published business date.
+    "env", "CARDZ_V2_AUTO_SUPERSEDE=1",
     "python3", "-X", "utf8", "-u",
     "$wslRepo/pipelines/daily_chain_v2.py",
     "tick",

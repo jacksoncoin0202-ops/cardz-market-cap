@@ -93,6 +93,7 @@ Check "launcher-selftest-skipped-preflight" ($logText -match "SELFTEST_SKIP_PREF
 Check "launcher-selftest-no-tick" (-not ($logText -match "CARDZ_V2_START")) "log must not contain CARDZ_V2_START (no wsl.exe tick)"
 Check "launcher-default-max-runtime-2100" ($logText -match "--max-runtime-seconds 2100") "default -MaxRuntimeSeconds lands in the wsl arg list"
 Check "launcher-max-runtime-override" ($rSelfMax.Out -match "--max-runtime-seconds 1234") "-MaxRuntimeSeconds 1234 lands in the wsl arg list"
+Check "launcher-auto-supersede-enters-wsl" ($logText -match "env CARDZ_V2_AUTO_SUPERSEDE=1 python3") "scheduled launcher owns the WSL auto-alignment flag"
 $flagLine = (($rSelfFlags.Out -split "`r?`n") | Where-Object { $_ -match "CARDZ_V2_WSL_ARGS" } | Select-Object -First 1)
 $flagsOk = ($flagLine -match "--allow-publish") -and ($flagLine -match "--notify") -and
            ($flagLine -match "--manual-e2e-window") -and ($flagLine -match "--renew-manual-e2e-window") -and

@@ -66,7 +66,7 @@ sibling-console inference：grep `pc_identity_discover.py` 證實**未落地**�
 | **08-25 03:30 JST** | 排程 tick 開波：infra stage 對 `schema-059` 冪等 skip（08-24 晚已人手 apply）；新 `identity-census` stage 首次埋位 | tick 唔炸；census receipt `identity-census-*.json` 出到（census 檔 08-24 20:56 啱啱 refresh 完，stage 應該回 fresh-skip——skip 都要有 receipt）；intake stage 對 v2259 冪等（08-24 20:19 已人手 --apply 收咗，聽朝應報 already_qualified 950／auto 0）[待驗] |
 | ~~08-25 03:36 JST~~ | ~~bridge cron 補帳期 bridge~~ | **已證實唔存在**（08-24 晚掃齊 Hermes cron jobs.json、WSL crontab、Task Scheduler 三邊，零 03:36／bridge job）。帳期修正由下一行 Phase-1 人手 supersede 做，唔另起 cron |
 | **08-25 日間** | **Phase 1：人手 supersede 一次**<br>`python3 -X utf8 pipelines/daily_chain_v2.py supersede --business-date YYYY-MM-DD --write`（default dry-run） | business date 拉返齊；舊 outbox row 標 `superseded`、新 row 帶新 generation；live `/api/health` generation 對得返新 run；**全程零 gate 鬆綁** |
-| **08-26 03:30 tick** | **Phase 2：開自動對齊**——set `CARDZ_V2_AUTO_SUPERSEDE`（default OFF；未 set 之前 tick 行為同今日一模一樣） | tick 自己 supersede 一次就停（`origin='auto'` 一日一次、一世一次由 journal 自己 enforce）；archived run 嘅 manual／event-107 counter 要**帶得入**新 run——autonomy 證據唔准被 supersede 洗走 |
+| **08-26 03:30 tick** | **Phase 2：開自動對齊**——scheduled launcher 明文用 `env CARDZ_V2_AUTO_SUPERSEDE=1` 送入 WSL；唔再依賴 Windows ambient env／`WSLENV` | tick 自己 supersede 一次就停（`origin='auto'` 一日一次、一世一次由 journal 自己 enforce）；archived run 嘅 manual／event-107 counter 要**帶得入**新 run——autonomy 證據唔准被 supersede 洗走 |
 | **08-27 · 08-28** | **Autonomy proof：兩日唔好掂佢** | 連續兩個自然日：有 event 107、零人手介入、非 DEGRADED → `autonomous_proven` 轉 true。**期間任何一次人手介入＝counter 歸零重數** |
 
 **平行一條（唔阻主線）：** 08-25 12:00 JST 宣傳 cron 第一個 slot——今日五個 script bug 修完之後，睇佢能唔能夠零介入一 take 出齊六步。
