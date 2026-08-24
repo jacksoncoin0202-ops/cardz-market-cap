@@ -154,7 +154,7 @@ $plan = [ordered]@{
         }
     }
     oldTasks = $LegacyTasks
-    oldTaskAction = "export XML then disable; never delete"
+    oldTaskAction = "export XML then disable when present; absence means cutover already completed"
     backupDirectory = [System.IO.Path]::GetFullPath($BackupDirectory)
     publish = "enabled only by this apply-gated task action"
     notifications = "enabled on the daily action (-Notify); promo consumer never posts"
@@ -164,14 +164,6 @@ if ($Print -or -not $Apply) {
     exit 0
 }
 
-$missingLegacy = @(
-    $LegacyTasks | Where-Object {
-        -not (Get-ScheduledTask -TaskName $_ -ErrorAction SilentlyContinue)
-    }
-)
-if ($missingLegacy.Count -gt 0) {
-    throw "V2 cutover refused: expected legacy tasks are missing: $($missingLegacy -join ', ')"
-}
 $ManagedTasks = @($TaskName, $WatchdogTaskName, $PromoTaskName)
 $runningTargets = @(
     @($LegacyTasks + $ManagedTasks) | ForEach-Object {

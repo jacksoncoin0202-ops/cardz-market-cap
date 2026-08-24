@@ -593,6 +593,7 @@ assert "03:30" in installer and "PT10M" in installer and "PT13H30M" in installer
 assert "-WindowStyle Hidden" in installer and "consoleWindowStyle" in installer
 assert "IgnoreNew" in installer and "StartWhenAvailable" in installer and "55" in installer
 assert "Disable-ScheduledTask" in installer and "Unregister-ScheduledTask" not in installer
+assert "expected legacy tasks are missing" not in installer
 assert 'operator_e2e_lease(f"v2-discover:' not in stage
 assert "daily-discovery-state-v2-{lane}.json" in stage
 adapter_source = (ROOT / "pipelines" / "daily_chain_v2_adapters.py").read_text(encoding="utf-8")
