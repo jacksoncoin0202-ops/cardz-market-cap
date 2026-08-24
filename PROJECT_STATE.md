@@ -63,7 +63,7 @@ sibling-console inference：grep `pc_identity_discover.py` 證實**未落地**�
 
 | 時間 | 做咩 | 驗收條件 |
 |---|---|---|
-| **08-25 03:30 JST** | 排程 tick 開波：infra stage 對 `schema-059` 冪等 skip（08-24 晚已人手 apply）；新 `identity-census` stage 首次埋位 | tick 唔炸；census receipt `identity-census-*.json` 出到（census 檔 08-24 20:56 啱啱 refresh 完，stage 應該回 fresh-skip——skip 都要有 receipt）[待驗] |
+| **08-25 03:30 JST** | 排程 tick 開波：infra stage 對 `schema-059` 冪等 skip（08-24 晚已人手 apply）；新 `identity-census` stage 首次埋位 | tick 唔炸；census receipt `identity-census-*.json` 出到（census 檔 08-24 20:56 啱啱 refresh 完，stage 應該回 fresh-skip——skip 都要有 receipt）；intake stage 對 v2259 冪等（08-24 20:19 已人手 --apply 收咗，聽朝應報 already_qualified 950／auto 0）[待驗] |
 | ~~08-25 03:36 JST~~ | ~~bridge cron 補帳期 bridge~~ | **已證實唔存在**（08-24 晚掃齊 Hermes cron jobs.json、WSL crontab、Task Scheduler 三邊，零 03:36／bridge job）。帳期修正由下一行 Phase-1 人手 supersede 做，唔另起 cron |
 | **08-25 日間** | **Phase 1：人手 supersede 一次**<br>`python3 -X utf8 pipelines/daily_chain_v2.py supersede --business-date YYYY-MM-DD --write`（default dry-run） | business date 拉返齊；舊 outbox row 標 `superseded`、新 row 帶新 generation；live `/api/health` generation 對得返新 run；**全程零 gate 鬆綁** |
 | **08-26 03:30 tick** | **Phase 2：開自動對齊**——set `CARDZ_V2_AUTO_SUPERSEDE`（default OFF；未 set 之前 tick 行為同今日一模一樣） | tick 自己 supersede 一次就停（`origin='auto'` 一日一次、一世一次由 journal 自己 enforce）；archived run 嘅 manual／event-107 counter 要**帶得入**新 run——autonomy 證據唔准被 supersede 洗走 |
@@ -146,7 +146,7 @@ Receipts／logs：`data/runtime/daily-chain-v2/<business-date>/{receipts,logs}/`
    兩條 default dry-run、行真 gate、寫 receipt（`data/runtime/operator/{bind-url,rulings}/`）；批次掉入 `data/runtime/operator/bind/inbox/`，第二朝 `operator-apply` 自動抽乾。
 7. **上場最後一里**：exact → cohort `qualified_identity` → `product_ready`（**V2 未有呢個 stage——§4 P2**）→ activation → daily-accept。
 
-**最近數字 [KNOWN]（intake receipt 2026-08-25）：** census 956 張 pop≥1000；新卡 backlog **0**（alias 7、already_qualified 949）；discovery ledger 1621 條帳齊（active_exact 1602）。
+**最近數字 [KNOWN]（intake --apply 2026-08-24 20:19 JST，receipt `identity-intake-2026-08-24.json`）：** census **957** 張 pop≥1000（08-24 20:56 fresh harvest）；**首張全自動收卡實證**——Mega Manectric EX #158（Mega Evolution EN，pop 1003）verdict `auto`/`new_variant` → **variant 2259** 開咗（exact gemrate binding + capture receipt + member cohort `qualified_identity` + decision row，同一 transaction，DB 五路獨立驗證齊）；discovery ledger **1622==1622** 帳齊（active_exact 1604）。新卡 backlog 0。
 
 人手裁決方法論：[docs/LEFTOVER5_IDENTITY_20260813.md](docs/LEFTOVER5_IDENTITY_20260813.md)。
 
