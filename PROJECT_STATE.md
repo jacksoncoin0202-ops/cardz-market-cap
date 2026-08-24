@@ -1,10 +1,10 @@
-# PROJECT_STATE — CARDZ Market Cap（2026-08-24 定案）
+# PROJECT_STATE — CARDZ Market Cap（2026-08-25 handoff 執行中）
 
-> ## 一條線：收返自動化嘅主權，四步走完就收工
+> ## 一條線：先收好 handoff 修復，再用自然排程證明全自動
 >
-> **08-25 03:30 tick** 自動上 migration 059 → **08-25 日間**人手 supersede 一次，親眼睇住帳期由「行快一日」拉返齊 → **08-26 03:30 tick** 開 `CARDZ_V2_AUTO_SUPERSEDE`，之後由鏈自己對齊 → **08-27／08-28 兩日唔好掂佢**，攞 `autonomous_proven = true`。
+> **08-25 17:00 後**先將隔離 staging 嘅 handoff 修復 fast-forward 落 authority，跑一次完整 Windows＋WSL 驗證並重裝四個 managed tasks → **08-26 03:30** 由自然 event 107 開第一條完整 E2E → live generation 對數 → 17:45 repo promo pack → Hermes 六渠道 receipts → 再攞第二個連續自然日，直到 `autonomous_proven = true`。
 >
-> **呢四步之間唔開新工程。** 其他欠單全部排喺 §4，唔准插隊；每一步嘅驗收條件寫喺 §3。
+> **08-25 唔係綠日。** 舊 generation 仍正常 live，但 current journal run `/2` 已 `FAILED_FINAL`；唔准用 live 正常掩蓋當日 scheduled E2E 失敗。未有下一個自然日完整 receipts 前，唔准講「已全自動」。
 
 > **呢份係現狀唯一入口。** 舊逐代記錄（025–037 開代史）已封存：[docs/archive/PROJECT_STATE_025-037_archived-20260824.md](docs/archive/PROJECT_STATE_025-037_archived-20260824.md)。
 > 讀嘢次序：[AGENTS.md](AGENTS.md)（硬規矩）→ 本檔（現狀）→ 各專題檔（§7 文件地圖）。
@@ -14,18 +14,20 @@
 
 | 項 | 數值 | 來源 |
 |---|---|---|
-| Live | `https://app.cardzmarketcap.com` · **1604 張** · generation `db3308_0b7eb7f4d2c34174` | `/api/health` 07:21Z；宣傳 gate 19:00 JST 再對一次同一 generation [KNOWN] |
+| Live | `https://app.cardzmarketcap.com` · status `ok` · generation `db3308_0b7eb7f4d2c34174` · generatedAt `2026-08-24T14:24:06.075Z` | `/api/health` 2026-08-25 04:30 JST [KNOWN] |
 | 版本 | product **037** · presentation **FE05**（fallback FE04）· BOX `/box` 307／275／307 | [KNOWN] |
-| 日更排程 | Task `CARDZ-Marketcap-Daily-V2` **Ready**，下一跑 **2026-08-25 03:30 JST**，PT10M repeat 到 17:00，上次 result **0** | `Get-ScheduledTaskInfo` 本檔實查 [KNOWN] |
-| 今日 run | `cardz-v2:2026-08-25` **PUBLISHED**，14:09 JST 收尾 exit 0，零 PARKED | `data/runtime/daily-chain-v2/health.json` [KNOWN] |
+| 日更排程 | `CARDZ-Marketcap-Daily-V2` **Ready**，03:30–17:00 每 10 分鐘；04:20 tick result **0**。Watchdog／Promo Ready；Observer 03:25 result **1** | Task Scheduler 2026-08-25 04:30 JST [KNOWN] |
+| 今日 run | live row `cardz-v2:2026-08-25/2` **FAILED_FINAL**；34 COMPLETED／1 DEGRADED／1 SKIPPED／1 TERMINAL；manual=66、event107=0。被 archive 嘅 run 1 先係 PUBLISHED/live generation | WSL journal `status --business-date 2026-08-25` [KNOWN] |
 | 自動化證明 | `autonomous_proven = false` | health.json [KNOWN] |
-| ⚠ 帳期 | **business date 行快一日**（早跑食咗 slot：08-24 當日跑咗 business date 08-25）。修法＝supersede，見一條線 | health.json [KNOWN] |
-| 宣傳鏈 | 2026-08-24 **六步全部出街**，gate DONE day=2026-08-24 generation=`db3308_0b7eb7f4d2c34174`（19:00 JST）。⚠ 今日係人手接力，唔係 cron 一 take | gate 輸出 [KNOWN] |
-| 本樹 | `rebuild/036-foundation`，**08-24 晚已 push 上 origin（ahead 0）**，HEAD 見 `git log` | `git push` + `rev-list --count` 實查 [KNOWN] |
+| ⚠ 今日失敗根因 | supersede 重建出同一 generation，`live-confirm` 燒 6 次後撞 `uq_publication_outbox_business_type_generation`；新 code 會第一次就用明確錯誤拒絕，唔再 raw 1062／重試 | journal terminal task + staged `daily_chain_v2_db.py` [KNOWN] |
+| 宣傳鏈 | 2026-08-24 六步成功；2026-08-25 repo pack 17:45、Hermes cron 12:00–20:00 嘅真 browser one-take **待實跑 receipts** | [KNOWN] |
+| Code | authority `rebuild/036-foundation` HEAD `1cbbe85f` tracked clean；隔離 `codex/cardz-handoff-complete` implementation tip `b964893d`，11 implementation commits ahead（另加本狀態文件 commit），17:00 前未落 authority | `git status/log` 2026-08-25 04:30 JST [KNOWN] |
 
-## 1. 今日（2026-08-24）落咗咩
+**Handoff 11 commits（staged，未 apply）[KNOWN]：** `53dc9531` 歷史 FX freeze＋060；`5f14ba53` reliability；`a2476ca2` shared registries；`4e1154af` executable guards；`99ca63cd` module split／recovery interlocks；`8d6e1fce` legacy retirement dependency；`5338ed4a` scheduled auto-align env；`9e23440a` promo inner receipt；`9c923721` docs；`faf9fb8d` FX unknowns；`b964893d` observer `/N` resolution。19 棵已確認 clean worktree 已移除，9 棵有效／dirty 樹保留；branch／commit 冇刪。
 
-**四個 commit 落 `rebuild/036-foundation`（`bf1aa457..911397c5`，未 push）：**
+## 1. 前日記錄（2026-08-24）
+
+**四個 commit 已落 `rebuild/036-foundation`（`bf1aa457..911397c5`；其後 08-24 已 push）：**
 
 | commit | 做咗咩 |
 |---|---|
@@ -63,28 +65,31 @@ sibling-console inference：grep `pc_identity_discover.py` 證實**未落地**�
 
 | 時間 | 做咩 | 驗收條件 |
 |---|---|---|
-| **08-25 03:30 JST** | 排程 tick 開波：infra stage 對 `schema-059` 冪等 skip（08-24 晚已人手 apply）；新 `identity-census` stage 首次埋位 | tick 唔炸；census receipt `identity-census-*.json` 出到（census 檔 08-24 20:56 啱啱 refresh 完，stage 應該回 fresh-skip——skip 都要有 receipt）；intake stage 對 v2259 冪等（08-24 20:19 已人手 --apply 收咗，聽朝應報 already_qualified 950／auto 0）[待驗] |
+| **08-25 03:30 JST** | 排程有 event 107 啟動，但 current `/2` 之前已 terminal；之後 tick 全部 rc0/no-op | **唔合格**：current run `FAILED_FINAL`、event107 counter 仍 0；唔算自然 E2E [KNOWN] |
 | ~~08-25 03:36 JST~~ | ~~bridge cron 補帳期 bridge~~ | **已證實唔存在**（08-24 晚掃齊 Hermes cron jobs.json、WSL crontab、Task Scheduler 三邊，零 03:36／bridge job）。帳期修正由下一行 Phase-1 人手 supersede 做，唔另起 cron |
-| **08-25 日間** | **Phase 1：人手 supersede 一次**<br>`python3 -X utf8 pipelines/daily_chain_v2.py supersede --business-date YYYY-MM-DD --write`（default dry-run） | business date 拉返齊；舊 outbox row 標 `superseded`、新 row 帶新 generation；live `/api/health` generation 對得返新 run；**全程零 gate 鬆綁** |
-| **08-26 03:30 tick** | **Phase 2：開自動對齊**——scheduled launcher 明文用 `env CARDZ_V2_AUTO_SUPERSEDE=1` 送入 WSL；唔再依賴 Windows ambient env／`WSLENV` | tick 自己 supersede 一次就停（`origin='auto'` 一日一次、一世一次由 journal 自己 enforce）；archived run 嘅 manual／event-107 counter 要**帶得入**新 run——autonomy 證據唔准被 supersede 洗走 |
-| **08-27 · 08-28** | **Autonomy proof：兩日唔好掂佢** | 連續兩個自然日：有 event 107、零人手介入、非 DEGRADED → `autonomous_proven` 轉 true。**期間任何一次人手介入＝counter 歸零重數** |
+| **08-25 Phase 1** | 人手 supersede 已執行，建立 `/2` | **失敗但 fail-closed**：rebuild 同舊 live bytes 相同，release 完成後 live-confirm duplicate generation terminal；live 冇錯數據出街 [KNOWN] |
+| **08-25 17:00 後** | fast-forward 11 個 staged commits；一次完整 Windows／WSL／PowerShell tests；`-Apply` 重裝 daily/watchdog/promo/observer；確認 XML 後 unregister 三個 scoped legacy tasks | authority clean、全套測試綠、四 task definitions 指向 authority、新 observer 帶 `--notify` 並識得 resolve `/N` |
+| **08-26 03:30 tick** | 第一個修復後自然 E2E；scheduled launcher 明文用 `env CARDZ_V2_AUTO_SUPERSEDE=1` 送入 WSL | event107、零 manual、060 apply、所有 core stage、release、live-confirm、live generation 全部 receipts 對齊 |
+| **08-26 17:45 起** | repo promo pack + Hermes 六渠道真 browser chain | scheduler inner receipt exit 0、pack generation==live；X／IG／Threads EN/ZH 六份 success receipt，gate DONE |
+| **之後第二個連續自然日** | 唔人手介入；只讀監察 | 連續兩個自然日 PUBLISHED、event107>0、manual=0、非 DEGRADED → `autonomous_proven=true` |
 
-**平行一條（唔阻主線）：** 08-25 12:00 JST 宣傳 cron 第一個 slot——今日五個 script bug 修完之後，睇佢能唔能夠零介入一 take 出齊六步。
+**平行一條：** 08-25 12:00–20:00 Hermes 會照舊 generation 嘗試；呢批只當 production 觀察，唔代替 08-26 新 generation E2E 證據。
 
 ## 4. 風險／欠單（按優先序）
 
 | # | 欠單 | 現狀／根因 | 下一步 |
 |---|---|---|---|
-| ~~P1~~ ✅ | ~~059 未落 3308~~ **08-24 晚已人手落**（`db_runtime.py migrate --only 059`，16 statements；version `059`、`superseded` 欄、寬 unique key 全部實查有，event_key lock 冇郁） | 聽朝 tick infra stage 見到有就 skip（冪等） | 淨返聽朝望一眼 tick 冇炸 |
-| ~~P1~~ ✅ | ~~Census 過期~~ **08-24 20:56 JST 已人手 harvest**（52/52 set、16309 張、**957 張 ≥1000**——比舊檔多 1 張新卡過線）；7 日死線推到 **08-31** | `identity_census_stage.py` in-chain 自動 refresh 仍然一次未 fire | 08-25 tick 睇 `identity-census-*.json` receipt 證佢識自己行 |
+| ~~P1~~ ✅ | ~~059 未落 3308~~ **08-24 晚已人手落**（`db_runtime.py migrate --only 059`，16 statements；version `059`、`superseded` 欄、寬 unique key 全部實查有，event_key lock 冇郁） | tick infra stage 見到有就 skip（冪等）；08-26 自然 E2E 收 receipt |
+| ~~P1~~ ✅ | ~~Census 過期~~ **08-24 20:56 JST 已人手 harvest**（52/52 set、16309 張、**957 張 ≥1000**——比舊檔多 1 張新卡過線）；7 日死線推到 **08-31** | `identity_census_stage.py` in-chain 自動 refresh 仍待自然 E2E receipt |
 | **P1** | 宣傳鏈 cron 一 take 未驗 | 五個 bug 已喺 code 修好，但今日六步係人手接力出街——**未證明過 cron 自己行得** | 08-25 12:00 JST 第一個 slot 睇 |
+| **P1** | Observer 排程 03:25 result 1，舊 observer 又只認 base ID | Task Scheduler action 由 03:25 行到 04:04 回 1；隔離 VBS smoke 證明 wrapper／quoting 可啟動，但 base request 對 current `/2` 會假報 `RUN_NOT_STARTED` | staged `b964893d` 動態 resolve 同日最高 `/N`，live/report 同時留 requested/resolved ID；17:00 後重裝，08-26 自然跑驗收 |
 | ~~P1~~ ✅ | ~~`snk_grade` 會否同樣受歷史 FX 重算影響~~ | 唯一 writer 已封存於 `archive/pipelines/g10_snkrdunk_grades_ingest.py`，輸入 API 明文要求 USD；非 USD 行直接拒絕，從未做 JPY→USD 換算。全 repo 冇 active `snk_grade` writer/call site | 唔屬於 060 修復面，唔改 |
 | ~~P1~~ ✅ | ~~08-03…08-16 FX 空窗成因未知~~ | 3308 `frankfurter` ingest 實查：08-02 後下一次 loader 係 08-17，中間零 run；08-02 run 嘅 `started_at` 亦冇被 last-good reuse 重播。舊 `CARDZ-Market-Cap-Daily` 最後只跑到 07-31，故空窗係 loader/scheduler 冇執行，唔係 72h reuse | `fx_asof` 對空窗用「不晚於市場日」最新已知點並寫 `fx_rate_as_of`；060 唔捏造歷史 backfill |
 | P2 | `hold()` 唔寫 ledger | `rebuild_036.py:9324/9672` ledger 側**仍然未寫**（blocker／next_due 一格唔郁）。**措辭嗰半 08-24 已修**：held 行入自己個 `lane_held` 桶，日報講「lane hold 住、下次 reverify 淨係重評」，唔再算落「chain 自己再試」（rule 9 + test） | 補 ledger 寫入（brief 誠實度嗰半已完，唔使再等） |
 | P2 | Cohort promotion 最後一里 | `qualified_identity`→`product_ready` 只有 rebuild validate 寫得，V2 冇 stage——收咗嘅新卡會停喺門口 | 藍圖 §C7；日報「有身份未出街」欄會照直報 |
 | ~~P2→尾巴~~ ✅ | 殭屍 sweep **08-24 晚清賬 39/39**：最後 3 行（v1814/v2157/v2159）經 `operator_bind.py` 重用 disk sidecar 補登記 capture receipt（held_by_judge 屬預期），再 `operator-rule reject` 全 WROTE；re-survey unruled=0 | receipt 喺 `rulings/` + `bind-url/` | 完 |
 | P3 | v2251 accept ruling 凍住 manual_review | ruling 令 reverify 無條件 hold（設計如此：chain 讓晒俾 operator），唔會自動升 exact | sibling-uniqueness rule 落地後 `--supersede` 呢條 ruling，俾機械路徑自己判 |
-| P2 | 調度器／分類器結構修 | classifier substring 判生死、`execute_ready` 批次屏障、`clamp_manual_window` 17:00 後失效 | [docs/V2_CHAIN_STRUCTURAL_AUDIT_20260823.md](docs/V2_CHAIN_STRUCTURAL_AUDIT_20260823.md) §5 逐項執 |
+| ~~P2~~ **staged** | 調度器／分類器結構修 | structured test verdict、`execute_ready`／recovery interlocks、manual window／durability guards 已分批落 `4e1154af`、`99ca63cd` 等 staging commits | 17:00 後完整測試＋自然 E2E 未過前唔標 done |
 | ~~P2~~ **已修 08-24** | Windows 側 durability test 紅 | `test_daily_chain_v2_durability.py` 標 WSL-only（`daily_chain_v2.py tick` 喺 `os.name=='nt'` 直接 SystemExit）；`test_pc_lane_durability.py` 只跳 `test_sigterm_writes_partial`（Windows `os.kill(SIGTERM)` = TerminateProcess，handler 唔會行） | 冇。兩個 suite 喺 Windows SKIP／綠、喺 WSL 照跑足 |
 | ~~P3~~ ✅ | ~~本樹未 push~~ **08-24 晚已 push**（`7a5f188a..6dba8d8e` → origin/rebuild/036-foundation，ahead 0） | 之後新 commit 照常再 push | 完 |
 | P3 | FE 樹文件分裂 | FE deploy 契約（`deploy_watch`／commit-msg hook／FE05_ROLLBACK）只喺 FE 樹；FE 樹 pointer 仲指 036 | 下次掂 FE 樹時同步 |
