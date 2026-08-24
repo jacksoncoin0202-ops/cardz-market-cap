@@ -249,13 +249,13 @@ export function CardDetail({ id, snapshot, related }: {
     "@context": "https://schema.org",
     "@graph": [
       /*
-       * 一張卡同時係作品同商品，所以行 multi-type：本身嗰個 VisualArtwork 冇錯，
-       * 唔好為咗加 Product 而拆做兩個節點——同一件嘢兩個 @id 就係拆散實體。
-       * 冇 offers / 冇 rating：我哋唔賣卡、亦冇評分，作一個出嚟就係假 schema。
+       * 呢頁係卡牌市場資料頁，唔係賣家商品頁：我哋冇 offers / review / rating，
+       * 所以唔可以標 Product。Google 會將 Product 當購物實體驗證，結果只會產生
+       * 一批永遠補唔到、亦唔應該作出嚟嘅 Product enhancement 錯誤。
        * BreadcrumbList 由 <Breadcrumbs> 出（同睇得見嗰條係同一份資料），呢度唔再出。
        */
       {
-        "@type": ["Product", "VisualArtwork"],
+        "@type": "VisualArtwork",
         "@id": `${cardUrl}#card`,
         url: cardUrl,
         name: title || t.status.unavailable,
@@ -276,7 +276,8 @@ export function CardDetail({ id, snapshot, related }: {
         publisher: siteOrganization(),
         additionalProperty,
         isBasedOn: canonicalPublicUrl("/methodology"),
-        subjectOf: { "@type": "Dataset", "@id": datasetId() },
+        /* 完整 Dataset 只喺 hub 定義；詳情頁純粹用 @id 引用，唔展開一個欠 name / description 嘅半截節點。 */
+        subjectOf: { "@id": datasetId() },
       },
     ],
   };

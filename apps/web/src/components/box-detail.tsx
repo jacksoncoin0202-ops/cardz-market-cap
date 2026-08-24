@@ -130,7 +130,8 @@ export function BoxDetail({ product, snapshot }: {
         releaseDate: product.release || undefined,
         additionalProperty: boxAdditionalProperty,
         offers,
-        subjectOf: { "@type": "Dataset", "@id": datasetId() },
+        /* 完整 Dataset 只喺 hub 定義；詳情頁純粹用 @id 引用，避免被當成欠欄位嘅 Dataset。 */
+        subjectOf: { "@id": datasetId() },
       },
     ],
   };
