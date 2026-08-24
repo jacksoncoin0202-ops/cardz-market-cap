@@ -56,7 +56,7 @@ function Convert-ToWslPath {
     return "/mnt/" + $resolved.Substring(0, 1).ToLowerInvariant() + ($resolved.Substring(2) -replace '\\', '/')
 }
 
-$WScriptExe = Join-Path $env:WINDIR "System32\wscript.exe"
+$WScriptExe = Join-Path ([Environment]::SystemDirectory) "wscript.exe"
 $quotedRunner = '"' + $SilentRunner + '"'
 $quotedLauncher = '"' + $Launcher + '"'
 $quotedWatchdog = '"' + $Watchdog + '"'
