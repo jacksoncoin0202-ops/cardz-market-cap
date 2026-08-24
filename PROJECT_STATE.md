@@ -21,7 +21,7 @@
 | 自動化證明 | `autonomous_proven = false` | health.json [KNOWN] |
 | ⚠ 帳期 | **business date 行快一日**（早跑食咗 slot：08-24 當日跑咗 business date 08-25）。修法＝supersede，見一條線 | health.json [KNOWN] |
 | 宣傳鏈 | 2026-08-24 **六步全部出街**，gate DONE day=2026-08-24 generation=`db3308_0b7eb7f4d2c34174`（19:00 JST）。⚠ 今日係人手接力，唔係 cron 一 take | gate 輸出 [KNOWN] |
-| 本樹 | `rebuild/036-foundation`，HEAD `911397c5`，**ahead of origin 89 commits（未 push）** | `git rev-list --count` [KNOWN] |
+| 本樹 | `rebuild/036-foundation`，**08-24 晚已 push 上 origin（ahead 0）**，HEAD 見 `git log` | `git push` + `rev-list --count` 實查 [KNOWN] |
 
 ## 1. 今日（2026-08-24）落咗咩
 
@@ -36,7 +36,7 @@
 
 **測試：** 84 個 suite 跑晒，**82 綠**。2 個紅係 pre-existing 嘅 Windows-only —— durability 測試要 WSL，**喺 WSL 行係綠（23 checks）**。唔係今日 regression。
 
-**Migration 059 狀態 [KNOWN]：** 檔喺 repo（`pipelines/migrations/059_daily_chain_v2_publication_supersede.mysql.sql`），**未 apply 落 MySQL 3308**。唔使人手落——`daily_chain_v2_contract.py:v2_schema_capabilities` 由檔名推導出 `schema-059` capability，infra stage 下個 tick（08-25 03:30 JST）自動 apply，orchestrator 零改動。SQL 本身 additive + idempotent，半途死可以重播。
+**Migration 059 狀態 [KNOWN]：** ✅ **08-24 晚已人手 apply 落 3308**（用 chain 自己條路 `db_runtime.py migrate --only 059…`，16 statements）。實查：`cardz_schema_version` 有 `059`、`publication_outbox` 有 `superseded` 欄＋寬 unique key `uq_publication_outbox_business_type_generation`、event_key lock `uq_publication_outbox_event` 原封不動。聽朝 tick infra stage 冪等 skip。
 
 **宣傳鏈 script 修（五個 bug，全部落 code）：**
 - `x-chrome-mcp-post.ps1`：UNC temp materialization
@@ -62,8 +62,8 @@ sibling-console inference：grep `pc_identity_discover.py` 證實**未落地**�
 
 | 時間 | 做咩 | 驗收條件 |
 |---|---|---|
-| **08-25 03:30 JST** | 排程 tick 開波：infra stage 自動 apply `schema-059`；新 `identity-census` stage 首次埋位 | `cardz_schema_version` 有 `059`；`publication_outbox` 見到 `superseded` 欄同寬 unique key；census receipt 出到（census 檔停喺 08-20 23:17，已過 3.5 日 refresh 線）[待驗] |
-| 08-25 03:36 JST | bridge cron（主線今日安排）補一手帳期 bridge | ⚠ 本檔掃 Task Scheduler + Hermes cron register 搵唔到呢個 job（唯一 03:3x 係 V2 task 03:30 + PT10M）。**起飛前要核實佢真係註冊咗**，唔好靠記憶 |
+| **08-25 03:30 JST** | 排程 tick 開波：infra stage 對 `schema-059` 冪等 skip（08-24 晚已人手 apply）；新 `identity-census` stage 首次埋位 | tick 唔炸；census receipt `identity-census-*.json` 出到（census 檔 08-24 20:56 啱啱 refresh 完，stage 應該回 fresh-skip——skip 都要有 receipt）[待驗] |
+| ~~08-25 03:36 JST~~ | ~~bridge cron 補帳期 bridge~~ | **已證實唔存在**（08-24 晚掃齊 Hermes cron jobs.json、WSL crontab、Task Scheduler 三邊，零 03:36／bridge job）。帳期修正由下一行 Phase-1 人手 supersede 做，唔另起 cron |
 | **08-25 日間** | **Phase 1：人手 supersede 一次**<br>`python3 -X utf8 pipelines/daily_chain_v2.py supersede --business-date YYYY-MM-DD --write`（default dry-run） | business date 拉返齊；舊 outbox row 標 `superseded`、新 row 帶新 generation；live `/api/health` generation 對得返新 run；**全程零 gate 鬆綁** |
 | **08-26 03:30 tick** | **Phase 2：開自動對齊**——set `CARDZ_V2_AUTO_SUPERSEDE`（default OFF；未 set 之前 tick 行為同今日一模一樣） | tick 自己 supersede 一次就停（`origin='auto'` 一日一次、一世一次由 journal 自己 enforce）；archived run 嘅 manual／event-107 counter 要**帶得入**新 run——autonomy 證據唔准被 supersede 洗走 |
 | **08-27 · 08-28** | **Autonomy proof：兩日唔好掂佢** | 連續兩個自然日：有 event 107、零人手介入、非 DEGRADED → `autonomous_proven` 轉 true。**期間任何一次人手介入＝counter 歸零重數** |
@@ -74,18 +74,18 @@ sibling-console inference：grep `pc_identity_discover.py` 證實**未落地**�
 
 | # | 欠單 | 現狀／根因 | 下一步 |
 |---|---|---|---|
-| **P1** | 059 未落 3308 | 檔喺 repo，DB 未有 `superseded` 欄／寬 unique | 08-25 03:30 tick 自動 apply。**apply 唔到＝成條 supersede 路行唔通**，要即刻人手落 |
-| **P1** | Census 自動 refresh 未實跑過 | `identity_census_stage.py` 今日先 in-chain，一次都未 fire；census 檔停喺 **08-20 23:17**，**08-27 23:17** 撞 7 日 intake fail-closed 線 | 08-25 tick 睇 receipt；唔 fire 就人手 harvest 續命，唔好等到撞線 |
+| ~~P1~~ ✅ | ~~059 未落 3308~~ **08-24 晚已人手落**（`db_runtime.py migrate --only 059`，16 statements；version `059`、`superseded` 欄、寬 unique key 全部實查有，event_key lock 冇郁） | 聽朝 tick infra stage 見到有就 skip（冪等） | 淨返聽朝望一眼 tick 冇炸 |
+| ~~P1~~ ✅ | ~~Census 過期~~ **08-24 20:56 JST 已人手 harvest**（52/52 set、16309 張、**957 張 ≥1000**——比舊檔多 1 張新卡過線）；7 日死線推到 **08-31** | `identity_census_stage.py` in-chain 自動 refresh 仍然一次未 fire | 08-25 tick 睇 `identity-census-*.json` receipt 證佢識自己行 |
 | **P1** | 宣傳鏈 cron 一 take 未驗 | 五個 bug 已喺 code 修好，但今日六步係人手接力出街——**未證明過 cron 自己行得** | 08-25 12:00 JST 第一個 slot 睇 |
 | P2 | `hold()` 唔寫 ledger | `rebuild_036.py:9324/9672`；brief 對 hold 卡講「chain 會再試」對呢批仍然係**假**。`e5542344` 只修咗 brief 讀 hold 嘅次序，冇修 ledger | 補 ledger 寫入，或者改 brief 措辭講返真相 |
 | P2 | Cohort promotion 最後一里 | `qualified_identity`→`product_ready` 只有 rebuild validate 寫得，V2 冇 stage——收咗嘅新卡會停喺門口 | 藍圖 §C7；日報「有身份未出街」欄會照直報 |
-| P2→尾巴 | 殭屍 pid sweep 已做（見 §2 #6）：30 行 ruled，剩 **3 行冇 capture receipt**（v1814/6235246、v2157/8508439、v2159/8508412）operator-rule fail-closed 拒絕 | 呢 3 行係 08-22 discover 留低、冇 capture；rule 佢要先 CDP 9333 補 capture（為死 proposal 燒 fetch，唔急） | 下次開 9333 順手補；或者等佢哋跟 sibling-rule 批次一齊清 |
+| ~~P2→尾巴~~ ✅ | 殭屍 sweep **08-24 晚清賬 39/39**：最後 3 行（v1814/v2157/v2159）經 `operator_bind.py` 重用 disk sidecar 補登記 capture receipt（held_by_judge 屬預期），再 `operator-rule reject` 全 WROTE；re-survey unruled=0 | receipt 喺 `rulings/` + `bind-url/` | 完 |
 | P3 | v2251 accept ruling 凍住 manual_review | ruling 令 reverify 無條件 hold（設計如此：chain 讓晒俾 operator），唔會自動升 exact | sibling-uniqueness rule 落地後 `--supersede` 呢條 ruling，俾機械路徑自己判 |
 | P2 | 調度器／分類器結構修 | classifier substring 判生死、`execute_ready` 批次屏障、`clamp_manual_window` 17:00 後失效 | [docs/V2_CHAIN_STRUCTURAL_AUDIT_20260823.md](docs/V2_CHAIN_STRUCTURAL_AUDIT_20260823.md) §5 逐項執 |
 | P2 | Windows 側 durability test 紅 | 2 個 suite 要 WSL（WSL 綠，23 checks）；Windows 紅係 pre-existing | 標 WSL-only 或補 platform skip，唔好日日靠人記住「呢兩條唔算」 |
-| P3 | 本樹未 push | ahead of origin **89 commits** | 揀時機 push（唔阻日更） |
+| ~~P3~~ ✅ | ~~本樹未 push~~ **08-24 晚已 push**（`7a5f188a..6dba8d8e` → origin/rebuild/036-foundation，ahead 0） | 之後新 commit 照常再 push | 完 |
 | P3 | FE 樹文件分裂 | FE deploy 契約（`deploy_watch`／commit-msg hook／FE05_ROLLBACK）只喺 FE 樹；FE 樹 pointer 仲指 036 | 下次掂 FE 樹時同步 |
-| P3 | `scripts/daily_public_release.ps1` phantom modification | working tree 長期有 `M`，**唔准 commit** | 查根因（邊個 writer 改咗佢），未查到之前保持 uncommitted |
+| ~~P3~~ ✅ | ~~phantom ps1~~ **08-24 晚根因＋修復**：index LF、working copy mixed CRLF/LF＋BOM，`autocrlf=true` 下永遠出 M；repo 內零 writer（純歷史手改）。working copy 統一 CRLF（BOM 保留），`git status` 已清、parser 0 error，**零 commit** | 如再現先考慮 `.gitattributes *.ps1 eol=crlf` pin（YAGNI，暫唔加） | 完 |
 
 ## 5. 機制參考
 
