@@ -21,6 +21,7 @@ import signal
 import stat as stat_mod
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -135,6 +136,23 @@ DB_WRITER_LEASE_TIMEOUT_SECONDS = 900
 # cap killed the *wait* itself (errno 3024, A01 2026-08-23 PC lane). A lease
 # connection only waits on advisory locks and never reads, so lift it here.
 LEASE_SESSION_UNCAP_SQL = "SET SESSION max_execution_time=0"
+# An advisory lease lives exactly as long as its connection, and a lease
+# connection is idle by design: it runs GET_LOCK, then nothing until
+# RELEASE_LOCK. The server therefore cannot tell a working holder from an
+# abandoned one, and wait_timeout defaults to 8 hours. 2026-08-25 A01: a
+# rehearsal worker died without its FIN reaching the container (WSL -> Windows
+# Docker loopback keeps the socket open), and the connection sat Sleep for 85
+# minutes still holding en_price_ref, pc_ebay_sales and pc_cdp -- past the next
+# day's 03:30 window opening, with no self-recovery and an error message
+# ("stop the duplicate collector") that sends the operator hunting a duplicate
+# that does not exist. Pinning a short session wait_timeout and pinging from a
+# daemon thread makes idleness mean dead: a live holder refreshes the clock, an
+# orphan is reaped by the server itself. Sweeping stale connections at startup
+# would be the wrong cure -- a legitimate holder is idle for its whole 50-65
+# minute sweep and looks identical to an orphan from the outside.
+LEASE_IDLE_TIMEOUT_SECONDS = int(os.environ.get("CARDZ_LEASE_IDLE_TIMEOUT_SECONDS") or 900)
+# Well inside the timeout so one lost ping never drops a live lease.
+LEASE_KEEPALIVE_SECONDS = float(os.environ.get("CARDZ_LEASE_KEEPALIVE_SECONDS") or 120.0)
 GEMRATE_PARALLEL_LEASE_SCOPES = ("0-of-4", "1-of-4", "2-of-4", "3-of-4")
 PY = sys.executable
 # Reporting freshness and the acceptance gate must quote the same number, so
@@ -674,6 +692,63 @@ def _load_runtime_state(path: Path, contract: str) -> dict[str, Any]:
     return state
 
 
+class _LeaseSessionGuard:
+    """Make an advisory-lease connection prove it is still owned.
+
+    Bounds the session's idle life to LEASE_IDLE_TIMEOUT_SECONDS and pings from
+    a daemon thread for as long as this process lives. The thread dies with the
+    process -- including SIGKILL, which is exactly the case that orphaned the
+    lease -- so the server reaps the abandoned session and the lock with it.
+    """
+
+    def __init__(
+        self,
+        connection,
+        *,
+        label: str,
+        idle_timeout: int = LEASE_IDLE_TIMEOUT_SECONDS,
+        interval: float = LEASE_KEEPALIVE_SECONDS,
+    ) -> None:
+        self._connection = connection
+        self._label = label
+        self._interval = max(1.0, float(interval))
+        self._stop = threading.Event()
+        self._lock = threading.Lock()
+        try:
+            cursor = connection.cursor()
+            cursor.execute("SET SESSION wait_timeout=%s", (max(2, int(idle_timeout)),))
+        except Exception as exc:  # noqa: BLE001 - falls back to the server default
+            print(
+                f"[collect] lease keepalive could not bound {self._label} session: {exc}",
+                flush=True,
+            )
+        self._thread = threading.Thread(
+            target=self._run, name=f"lease-keepalive-{label}", daemon=True
+        )
+        self._thread.start()
+
+    def _run(self) -> None:
+        while not self._stop.wait(self._interval):
+            with self._lock:
+                if self._stop.is_set():
+                    return
+                try:
+                    cursor = self._connection.cursor()
+                    cursor.execute("SELECT 1")
+                    cursor.fetchall()
+                except Exception:  # noqa: BLE001 - connection gone, lease gone with it
+                    return
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread.is_alive():
+            self._thread.join(timeout=self._interval + 5.0)
+        # Barrier: never let an in-flight ping share the connection with the
+        # RELEASE_LOCK that follows.
+        with self._lock:
+            pass
+
+
 @contextmanager
 def _runtime_state_lease():
     """Serialize shared JSON read-modify-write across parallel V2 sources.
@@ -687,6 +762,7 @@ def _runtime_state_lease():
     connection = db()
     cursor = connection.cursor()
     acquired = False
+    guard: _LeaseSessionGuard | None = None
     try:
         cursor.execute(LEASE_SESSION_UNCAP_SQL)
         cursor.execute("SELECT GET_LOCK(%s, 30) AS acquired", (RUNTIME_STATE_LEASE,))
@@ -694,8 +770,13 @@ def _runtime_state_lease():
         acquired = int(row.get("acquired") or 0) == 1
         if not acquired:
             raise RuntimeError("collect runtime-state lease timed out")
+        # Only now: the keepalive owns the connection for the idle window, and
+        # a blocked GET_LOCK is an active query, which wait_timeout ignores.
+        guard = _LeaseSessionGuard(connection, label="runtime-state")
         yield
     finally:
+        if guard is not None:
+            guard.stop()
         try:
             if acquired:
                 cursor.execute("SELECT RELEASE_LOCK(%s)", (RUNTIME_STATE_LEASE,))
@@ -718,6 +799,7 @@ def _db_writer_lease(timeout_seconds: int = DB_WRITER_LEASE_TIMEOUT_SECONDS):
     connection = db()
     cursor = connection.cursor()
     acquired = False
+    guard: _LeaseSessionGuard | None = None
     try:
         cursor.execute(LEASE_SESSION_UNCAP_SQL)
         cursor.execute(
@@ -729,8 +811,14 @@ def _db_writer_lease(timeout_seconds: int = DB_WRITER_LEASE_TIMEOUT_SECONDS):
         acquired = int(value or 0) == 1
         if not acquired:
             raise RuntimeError("collect DB-writer lease timed out")
+        # After the wait, never during it: the GET_LOCK above can block for
+        # DB_WRITER_LEASE_TIMEOUT_SECONDS on a busy sibling lane, and a blocked
+        # query keeps the session active, so wait_timeout cannot reap it there.
+        guard = _LeaseSessionGuard(connection, label="db-writer")
         yield
     finally:
+        if guard is not None:
+            guard.stop()
         try:
             if acquired:
                 cursor.execute("SELECT RELEASE_LOCK(%s)", (DB_WRITER_LEASE,))
@@ -5267,7 +5355,11 @@ def _acquire_adapter_leases(adapters: list[str], *, lease_scope: str | None = No
                     f"adapter lease already held: {lock_name}; stop the duplicate collector/Chrome runner"
                 )
             acquired.append(lock_name)
-        return conn, acquired
+        # Only once every lock is held: from here the connection is idle for the
+        # whole collection run, which is what let an orphan hold PC's leases for
+        # 85 minutes on 2026-08-25.  The guard bounds that to LEASE_IDLE_TIMEOUT.
+        guard = _LeaseSessionGuard(conn, label="adapter")
+        return conn, acquired, guard
     except Exception:
         for lock_name in reversed(acquired):
             cur.execute("SELECT RELEASE_LOCK(%s)", (lock_name,))
@@ -5275,8 +5367,12 @@ def _acquire_adapter_leases(adapters: list[str], *, lease_scope: str | None = No
         raise
 
 
-def _release_adapter_leases(conn, lock_names: list[str]) -> None:
+def _release_adapter_leases(
+    conn, lock_names: list[str], guard: "_LeaseSessionGuard | None" = None
+) -> None:
     try:
+        if guard is not None:
+            guard.stop()
         cur = conn.cursor()
         for lock_name in reversed(lock_names):
             cur.execute("SELECT RELEASE_LOCK(%s)", (lock_name,))
@@ -5677,7 +5773,7 @@ def _collect_mode(
     gemrate_workers: int = 1,
 ) -> dict[str, Any]:
     requested = _requested_adapters(adapters)
-    lease_conn, lock_names = _acquire_adapter_leases(
+    lease_conn, lock_names, lease_guard = _acquire_adapter_leases(
         requested, lease_scope=lease_scope
     )
     try:
@@ -5702,7 +5798,7 @@ def _collect_mode(
             gemrate_workers=gemrate_workers,
         )
     finally:
-        _release_adapter_leases(lease_conn, lock_names)
+        _release_adapter_leases(lease_conn, lock_names, lease_guard)
 
 
 def cmd_stock(
