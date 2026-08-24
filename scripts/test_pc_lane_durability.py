@@ -40,6 +40,28 @@ import pc_cdp_sold_refresh_win as mod  # noqa: E402
 FAILED: list[str] = []
 CHECKS = 0
 
+# POSIX-only checks (2026-08-24).  `os.kill(pid, signal.SIGTERM)` on Windows is
+# TerminateProcess: the process dies at once with rc 15 and the Python SIGTERM
+# handler NEVER runs, so `test_sigterm_writes_partial` cannot observe the
+# partial-report handler it exists to guard.  That is the platform, not a
+# regression, and it was costing five red checks every Windows run plus a
+# standing "呢兩條唔算" nobody should have to remember.  The check is SKIPPED
+# LOUDLY here and still runs in full under WSL; everything else in this file is
+# platform neutral and keeps running on Windows.
+POSIX_SIGNALS = os.name != "nt"
+
+
+def _wsl_command(script: Path) -> str:
+    """The exact command that runs this suite where the skipped checks work."""
+
+    root = str(ROOT).replace("\\", "/")
+    if len(root) > 1 and root[1] == ":":
+        root = f"/mnt/{root[0].lower()}{root[2:]}"
+    return (
+        f'wsl.exe -- bash -c "cd {root} && python3 -X utf8 '
+        f'{script.relative_to(ROOT).as_posix()}"'
+    )
+
 
 def check(label: str, got, want) -> None:
     global CHECKS
@@ -256,6 +278,15 @@ def test_partial_report(tmp: Path) -> None:
 
 def test_sigterm_writes_partial(tmp: Path) -> None:
     """SIGTERM / SIGBREAK must still leave a receipt (real signal, real process)."""
+
+    if not POSIX_SIGNALS:
+        print(
+            "SKIP test_sigterm_writes_partial: Windows os.kill(SIGTERM) is"
+            " TerminateProcess, so the partial-report handler never runs"
+            " (5 checks). 喺 WSL 行足全套："
+            f" {_wsl_command(Path(__file__).resolve())}"
+        )
+        return
 
     report_path = tmp / "signal_report.json"
     driver = tmp / "sigterm_driver.py"

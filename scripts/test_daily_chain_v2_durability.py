@@ -6,6 +6,8 @@ Every check here proves a guard FIRES on the broken shape and stays quiet on
 the healthy one.  No Telegram, browser, MySQL, push, or deploy occurs: the
 journal lives in a private temp directory, alerts run in dry-run mode, and the
 only processes started are this file's own sleeping fixtures.
+
+WSL-only: on Windows this prints SKIP and exits 0 (see the guard below).
 """
 from __future__ import annotations
 
@@ -28,6 +30,27 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
+
+# WSL-only suite (2026-08-24).  The subject under test is the real V2 chain, and
+# `daily_chain_v2.py tick` REFUSES to start when os.name == 'nt' -- its journal
+# must live on WSL ext4 and never on /mnt (pipelines/daily_chain_v2.py:3849,
+# `raise SystemExit("Daily Chain V2 tick must run inside WSL")`).  The live-CLI
+# checks therefore cannot pass on Windows by construction: the run died with
+# `tick exited early: ('', 'Daily Chain V2 tick must run inside WSL\n')` every
+# time, and the red was carried as a standing "呢條唔算" nobody should have to
+# remember.  Say it out loud and exit 0 instead; under WSL every check still
+# runs, and a real regression there is still red.
+if os.name == "nt":
+    _wsl_root = str(ROOT).replace("\\", "/")
+    if len(_wsl_root) > 1 and _wsl_root[1] == ":":
+        _wsl_root = f"/mnt/{_wsl_root[0].lower()}{_wsl_root[2:]}"
+    print(
+        "SKIP test_daily_chain_v2_durability: WSL-only —— daily_chain_v2.py tick"
+        " 喺 os.name=='nt' 直接 SystemExit（journal 要 WSL ext4，唔准 /mnt）"
+        f'\n     喺 WSL 行： wsl.exe -- bash -c "cd {_wsl_root} &&'
+        ' python3 -X utf8 scripts/test_daily_chain_v2_durability.py"'
+    )
+    raise SystemExit(0)
 
 import daily_chain_v2 as chain_module  # noqa: E402
 from daily_chain_v2 import (  # noqa: E402

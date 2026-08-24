@@ -13,7 +13,7 @@ Everything this module knows is READ.  It opens no writes to MySQL, moves no
 binding, and settles no ruling; the only file it may write is its own full-list
 artifact, and only when a caller asks for one.
 
-Eight rules are load bearing, each with a test in
+Nine rules are load bearing, each with a test in
 `scripts/test_identity_brief_message.py`:
 
 1.  The four headline numbers PARTITION the population at PSA10 pop >= 1000.
@@ -43,6 +43,15 @@ Eight rules are load bearing, each with a test in
     is counted by reason on one summary line carrying its artifact and date.
     On 2026-08-23 all 226 holds were swallowed -- needsYou=0 was the branch
     order, not an observation -- so `collect` now ABORTS on a swallowed one.
+9.  A row a lane already HELD is never counted as CHAIN-WILL-RETRY.  `hold()`
+    (rebuild_036:9324 / :9672) writes no ledger row, so quarantine_until /
+    next_due_at / attempt_count on a held row still describe the run BEFORE the
+    hold.  The reverify lanes DO re-read held rows every pass -- their binding
+    query keeps match_status IN ('manual_review','rejected') -- so the honest
+    word is 重評 (the same evidence, judged again) and not 再試 (a new fetch on a
+    new schedule).  Those rows carry their own DETAIL_LANE_HELD number, because
+    a promise the owner reads as "it will fix itself" is a promise the ledger
+    cannot keep.
 
 `seen_manual_review` (scripts/notify_hermes.py) is NOT reused: that key belongs
 to the legacy 037 digest and sharing it would make either report silence the
@@ -124,8 +133,11 @@ HEADLINE_NEEDS_YOU = "needs_you"
 HEADLINE_NOT_YOURS = "not_yours"
 HEADLINES = (HEADLINE_LIVE, HEADLINE_IDENTITY_NOT_LIVE, HEADLINE_NEEDS_YOU, HEADLINE_NOT_YOURS)
 
-# Sub-buckets of HEADLINE_NOT_YOURS, reported as the three numbers in block 5.
+# Sub-buckets of HEADLINE_NOT_YOURS, reported as the four numbers in block 5.
+# DETAIL_LANE_HELD is split out of DETAIL_CHAIN_WILL_RETRY on purpose: see
+# `_chain_owned_verdict` for why those rows may not be counted as a retry.
 DETAIL_CHAIN_WILL_RETRY = "chain_will_retry"
+DETAIL_LANE_HELD = "lane_held"
 DETAIL_DECIDED = "decided"
 DETAIL_UNJUDGEABLE = "unjudgeable"
 
@@ -298,6 +310,45 @@ def pending_adjudication_hold(
     return dict(hold)
 
 
+def _chain_owned_verdict(
+    reason_code: str,
+    retry_text: str,
+    hold: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """quarantine_until / next_due_at / attempt_count, read honestly.
+
+    Those three ledger facts mean "the chain owns this row" only while no lane
+    has looked at it yet.  `hold()` (rebuild_036:9324 and :9672) appends to the
+    run's artifact and writes NO ledger row -- no blocker_code, no next_due_at,
+    no attempt -- so on a HELD row all three still describe the run BEFORE the
+    hold, and "chain 自己再試" promises a retry nobody scheduled.
+
+    What the lanes really do is narrower, and the difference is the whole point
+    of this split: `cmd_pc_identity_reverify` / `cmd_snk_identity_reverify`
+    select `match_status IN ('manual_review','rejected')` and never exclude a
+    held row, so the NEXT reverify pass re-reads this row -- against the same
+    page, the same map and the same rules, reaching the same hold unless
+    somebody changes the evidence.  That is a re-evaluation every pass, not a
+    retry with new fetches and not a new schedule, so the brief says which one
+    it is PER REASON instead of counting the row under a blanket promise.
+
+    The bucket, not just the sentence, has to move: the number in block 5 is
+    what the owner reads, and a held row counted under 「chain 自己再試」 is the
+    lie whatever the sentence beside it says.
+    """
+
+    if not hold:
+        return {"headline": HEADLINE_NOT_YOURS, "detail": DETAIL_CHAIN_WILL_RETRY,
+                "reasonCode": reason_code, "reasonText": retry_text, "ruled": False}
+    return {"headline": HEADLINE_NOT_YOURS, "detail": DETAIL_LANE_HELD,
+            "reasonCode": str(hold.get("reason") or "hold"),
+            "reasonText": f'{hold.get("lane") or "?"} lane {hold.get("artifactDay") or "?"}'
+                          f' hold 咗（{hold.get("reason") or "?"}）：下次 reverify pass'
+                          f' 會重新評估同一份證據；hold 冇寫 ledger，所以'
+                          f'「{retry_text}」講嘅係 hold 之前嗰次，唔係新排期',
+            "ruled": False}
+
+
 def classify(
     row: Mapping[str, Any],
     *,
@@ -328,11 +379,8 @@ def classify(
     ruling = ruling_text(row.get("ruling"))
     language = str(row.get("card_language") or "").strip()
 
-    held = pending_adjudication_hold(
-        row,
-        None if (variant_id is None or not holds) else holds.get(int(variant_id)),
-        red_listed=red,
-    )
+    hold_record = None if (variant_id is None or not holds) else holds.get(int(variant_id))
+    held = pending_adjudication_hold(row, hold_record, red_listed=red)
     if held is not None:
         return {"headline": HEADLINE_NEEDS_YOU, "detail": DETAIL_NEEDS_ADJUDICATION,
                 "reasonCode": str(held.get("reason") or "hold"),
@@ -380,26 +428,27 @@ def classify(
                 "reasonText": f"{language}：冇 provider lane 覆蓋，chain 永遠判唔到，只有你綁得到",
                 "ruled": False}
 
+    # The three chain-owned facts below are routed through
+    # `_chain_owned_verdict`, which downgrades the promise to a re-evaluation
+    # when a lane already held this row: `hold()` writes no ledger, so these
+    # three columns describe the run before the hold, not a scheduled retry.
     quarantine = _as_utc(row.get("quarantine_until"))
     if quarantine and quarantine > now:
-        return {"headline": HEADLINE_NOT_YOURS, "detail": DETAIL_CHAIN_WILL_RETRY,
-                "reasonCode": "quarantined",
-                "reasonText": f"quarantine 到 {_day(quarantine)}", "ruled": False}
+        return _chain_owned_verdict(
+            "quarantined", f"quarantine 到 {_day(quarantine)}", hold_record)
 
     next_due = _as_utc(row.get("next_due_at"))
     if next_due and next_due > now:
-        return {"headline": HEADLINE_NOT_YOURS, "detail": DETAIL_CHAIN_WILL_RETRY,
-                "reasonCode": "next_due",
-                "reasonText": f"chain 排咗 {_day(next_due)} 再試", "ruled": False}
+        return _chain_owned_verdict(
+            "next_due", f"chain 排咗 {_day(next_due)} 再試", hold_record)
 
     attempts = row.get("attempt_count")
     if attempts is None or int(attempts) == 0:
         # Never attempted is the chain's queue, not the owner's backlog.  On
         # 2026-08-22 there were 78 such rows and calling them "waiting for you"
         # would have been a lie in the first line of the report.
-        return {"headline": HEADLINE_NOT_YOURS, "detail": DETAIL_CHAIN_WILL_RETRY,
-                "reasonCode": "never_attempted",
-                "reasonText": f"未試過，排緊 {LANE_DAILY_BUDGET}/lane/日 嘅隊", "ruled": False}
+        return _chain_owned_verdict(
+            "never_attempted", f"未試過，排緊 {LANE_DAILY_BUDGET}/lane/日 嘅隊", hold_record)
 
     blocker = str(row.get("blocker_code") or row.get("discovery_status") or "unknown")
     return {"headline": HEADLINE_NEEDS_YOU, "detail": "blocked", "reasonCode": blocker,
@@ -624,7 +673,8 @@ def collect(
     holds = dict(holds or {})
     red = set(int(v) for v in red_listed)
     headline_counts = {name: 0 for name in HEADLINES}
-    detail_counts = {DETAIL_CHAIN_WILL_RETRY: 0, DETAIL_DECIDED: 0, DETAIL_UNJUDGEABLE: 0}
+    detail_counts = {DETAIL_CHAIN_WILL_RETRY: 0, DETAIL_LANE_HELD: 0,
+                     DETAIL_DECIDED: 0, DETAIL_UNJUDGEABLE: 0}
     gap_census: dict[str, int] = {}
     needs_you: list[dict[str, Any]] = []
     identity_not_live_ruled = 0
@@ -1064,9 +1114,10 @@ def _render_at(
         if with_commands < shown:
             lines.append(f"  （命令只列頭 {with_commands} 條，其餘去全名單檔攞）")
 
-    # block 5 -- the three numbers that make up 唔使你郁 (rule 3 + rule 6).
+    # block 5 -- the four numbers that make up 唔使你郁 (rule 3 + rule 6 + rule 9).
     lines.append(
         f'⏳ chain 自己再試 {int(detail.get(DETAIL_CHAIN_WILL_RETRY, 0))}'
+        f' ｜ 🔁 lane hold 住、下次 reverify 淨係重評 {int(detail.get(DETAIL_LANE_HELD, 0))}'
         f' ｜ 🔒 已裁決 {int(detail.get(DETAIL_DECIDED, 0))}'
         f' ｜ 🈲 chain 判唔到 {int(detail.get(DETAIL_UNJUDGEABLE, 0))}（zhCN／zhTW 只有你綁得到）'
     )
@@ -1091,7 +1142,7 @@ def _render_at(
     ) or "今日冇 lane artifact"
     unknown = objections.get("unknownReasons") or []
     lines.append(
-        f'🧾 lane 反對（唔算等你綁）：{reason_bits}'
+        f'🧾 lane 反對（唔算等你綁；hold 冇寫 ledger，下次 reverify pass 重評唔改期）：{reason_bits}'
         f' ｜ 未裁決升咗做等你綁 {int(objections.get("needsAdjudication") or 0)}'
         f' ｜ 唔喺母體 {int(objections.get("offPopulation") or 0)}'
         f' ｜ 出處 {artifact_bits}'

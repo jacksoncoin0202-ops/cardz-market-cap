@@ -34,7 +34,8 @@
 | `634c1d7f` | **daily-chain-v2 supersede**：一個 business date 可以用 `/N` run generation **原地再出街**；加 `identity-census` stage；watchdog 唔再將已 superseded 嘅日當「做完」。附 migration **059**——`publication_outbox` 唯一鎖由 `(business_date,event_type)` 放寬做 `(business_date,event_type,generation_id)` + `superseded` reader flag。**`event_key` 鎖冇郁**，所以普通重跑一樣照撞，唔會靜靜出兩次 |
 | `911397c5` | **collect guard**：撞到 9333 PriceCharting child 仲喺度行嗰陣，喺有上限嘅 budget 入面等佢，唔再即刻拒 sweep（今日 PC 4 attempt 就係呢個形狀） |
 
-**測試：** 84 個 suite 跑晒，**82 綠**。2 個紅係 pre-existing 嘅 Windows-only —— durability 測試要 WSL，**喺 WSL 行係綠（23 checks）**。唔係今日 regression。
+**測試：** 84 個 suite 跑晒，**82 綠**。2 個紅係 pre-existing 嘅 Windows-only —— durability 測試要 WSL，**喺 WSL 行係綠**。唔係今日 regression。
+**08-24 補：** 嗰 2 個已加 platform guard，Windows 而家 SKIP／綠（`test_daily_chain_v2_durability` 印 SKIP exit 0；`test_pc_lane_durability` 101/101，只跳 SIGTERM 嗰 5 個）。WSL 側照跑足：24 checks／107 checks。**未重跑全部 84 個 suite。**
 
 **Migration 059 狀態 [KNOWN]：** ✅ **08-24 晚已人手 apply 落 3308**（用 chain 自己條路 `db_runtime.py migrate --only 059…`，16 statements）。實查：`cardz_schema_version` 有 `059`、`publication_outbox` 有 `superseded` 欄＋寬 unique key `uq_publication_outbox_business_type_generation`、event_key lock `uq_publication_outbox_event` 原封不動。聽朝 tick infra stage 冪等 skip。
 
@@ -77,12 +78,12 @@ sibling-console inference：grep `pc_identity_discover.py` 證實**未落地**�
 | ~~P1~~ ✅ | ~~059 未落 3308~~ **08-24 晚已人手落**（`db_runtime.py migrate --only 059`，16 statements；version `059`、`superseded` 欄、寬 unique key 全部實查有，event_key lock 冇郁） | 聽朝 tick infra stage 見到有就 skip（冪等） | 淨返聽朝望一眼 tick 冇炸 |
 | ~~P1~~ ✅ | ~~Census 過期~~ **08-24 20:56 JST 已人手 harvest**（52/52 set、16309 張、**957 張 ≥1000**——比舊檔多 1 張新卡過線）；7 日死線推到 **08-31** | `identity_census_stage.py` in-chain 自動 refresh 仍然一次未 fire | 08-25 tick 睇 `identity-census-*.json` receipt 證佢識自己行 |
 | **P1** | 宣傳鏈 cron 一 take 未驗 | 五個 bug 已喺 code 修好，但今日六步係人手接力出街——**未證明過 cron 自己行得** | 08-25 12:00 JST 第一個 slot 睇 |
-| P2 | `hold()` 唔寫 ledger | `rebuild_036.py:9324/9672`；brief 對 hold 卡講「chain 會再試」對呢批仍然係**假**。`e5542344` 只修咗 brief 讀 hold 嘅次序，冇修 ledger | 補 ledger 寫入，或者改 brief 措辭講返真相 |
+| P2 | `hold()` 唔寫 ledger | `rebuild_036.py:9324/9672` ledger 側**仍然未寫**（blocker／next_due 一格唔郁）。**措辭嗰半 08-24 已修**：held 行入自己個 `lane_held` 桶，日報講「lane hold 住、下次 reverify 淨係重評」，唔再算落「chain 自己再試」（rule 9 + test） | 補 ledger 寫入（brief 誠實度嗰半已完，唔使再等） |
 | P2 | Cohort promotion 最後一里 | `qualified_identity`→`product_ready` 只有 rebuild validate 寫得，V2 冇 stage——收咗嘅新卡會停喺門口 | 藍圖 §C7；日報「有身份未出街」欄會照直報 |
 | ~~P2→尾巴~~ ✅ | 殭屍 sweep **08-24 晚清賬 39/39**：最後 3 行（v1814/v2157/v2159）經 `operator_bind.py` 重用 disk sidecar 補登記 capture receipt（held_by_judge 屬預期），再 `operator-rule reject` 全 WROTE；re-survey unruled=0 | receipt 喺 `rulings/` + `bind-url/` | 完 |
 | P3 | v2251 accept ruling 凍住 manual_review | ruling 令 reverify 無條件 hold（設計如此：chain 讓晒俾 operator），唔會自動升 exact | sibling-uniqueness rule 落地後 `--supersede` 呢條 ruling，俾機械路徑自己判 |
 | P2 | 調度器／分類器結構修 | classifier substring 判生死、`execute_ready` 批次屏障、`clamp_manual_window` 17:00 後失效 | [docs/V2_CHAIN_STRUCTURAL_AUDIT_20260823.md](docs/V2_CHAIN_STRUCTURAL_AUDIT_20260823.md) §5 逐項執 |
-| P2 | Windows 側 durability test 紅 | 2 個 suite 要 WSL（WSL 綠，23 checks）；Windows 紅係 pre-existing | 標 WSL-only 或補 platform skip，唔好日日靠人記住「呢兩條唔算」 |
+| ~~P2~~ **已修 08-24** | Windows 側 durability test 紅 | `test_daily_chain_v2_durability.py` 標 WSL-only（`daily_chain_v2.py tick` 喺 `os.name=='nt'` 直接 SystemExit）；`test_pc_lane_durability.py` 只跳 `test_sigterm_writes_partial`（Windows `os.kill(SIGTERM)` = TerminateProcess，handler 唔會行） | 冇。兩個 suite 喺 Windows SKIP／綠、喺 WSL 照跑足 |
 | ~~P3~~ ✅ | ~~本樹未 push~~ **08-24 晚已 push**（`7a5f188a..6dba8d8e` → origin/rebuild/036-foundation，ahead 0） | 之後新 commit 照常再 push | 完 |
 | P3 | FE 樹文件分裂 | FE deploy 契約（`deploy_watch`／commit-msg hook／FE05_ROLLBACK）只喺 FE 樹；FE 樹 pointer 仲指 036 | 下次掂 FE 樹時同步 |
 | ~~P3~~ ✅ | ~~phantom ps1~~ **08-24 晚根因＋修復**：index LF、working copy mixed CRLF/LF＋BOM，`autocrlf=true` 下永遠出 M；repo 內零 writer（純歷史手改）。working copy 統一 CRLF（BOM 保留），`git status` 已清、parser 0 error，**零 commit** | 如再現先考慮 `.gitattributes *.ps1 eol=crlf` pin（YAGNI，暫唔加） | 完 |
@@ -136,7 +137,7 @@ Receipts／logs：`data/runtime/daily-chain-v2/<business-date>/{receipts,logs}/`
 2. **intake stage**（`gemrate_identity_intake.py`，in-chain apply）：分桶 `already_qualified`／`alias`／`ruled`／`ambiguous`（要人手，零寫入）／`auto`（開 catalog variant + exact binding + member row + ledger rebuild，同一 transaction，有 ratchet 上限）。
 3. **discover lanes**：PC（headed Chrome CDP **9333**，9222 唔准掂）＋ SNK（http），每 lane 每日 40 個預算。
 4. **reverify**：候選經全套 gate 判 `exact`／held。**Gate 唔准鬆——證據唔夠永遠係修 input 或落 ruling。**
-5. **pending → brief**：`identity_brief` stage 分四桶（已上場／已裁決／chain 自己再試／等你決定）經 HERMES 送日報，附可以 copy 嘅命令。
+5. **pending → brief**：`identity_brief` stage 分四桶（已上場／已裁決／chain 自己再試／等你決定）經 HERMES 送日報，附可以 copy 嘅命令。「唔使你郁」入面再拆多一個 **`lane_held`**：lane hold 過嘅行只係下次 reverify pass 重評，唔算 chain 排咗隊再試（`hold()` 唔寫 ledger）。
 6. **人手前門**（你嘅唯一日常工作面）：
    ```bash
    python -X utf8 pipelines/operator_control.py bind-url --variant-id N --url "<PC/SNK URL>" --actor daddy --write

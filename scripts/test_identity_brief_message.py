@@ -133,7 +133,8 @@ try:
         B.HEADLINE_NOT_YOURS: 5,
     }
     assert data["detail"] == {
-        B.DETAIL_CHAIN_WILL_RETRY: 1, B.DETAIL_DECIDED: 3, B.DETAIL_UNJUDGEABLE: 1
+        B.DETAIL_CHAIN_WILL_RETRY: 1, B.DETAIL_LANE_HELD: 0,
+        B.DETAIL_DECIDED: 3, B.DETAIL_UNJUDGEABLE: 1
     }
     print("NEGATIVE_OK the four headline numbers partition the pop>=1000 population exactly once")
 
@@ -296,11 +297,15 @@ try:
     empty_message, _ = B.render(empty, seen={}, now=NOW)
     for expected in (
         "🙋 <b>等你綁</b> 0", "⏳ chain 自己再試 0", "🔒 已裁決 0", "🈲 chain 判唔到 0",
+        # rule 9: the held bucket prints its zero too, so "no lane objection"
+        # and "the split is gone" cannot look alike.
+        "🔁 lane hold 住、下次 reverify 淨係重評 0",
         "⛔ <b>有身份但未出街</b> 0", "🖐 尋日 operator override：0", "母體 0",
         # A day with no lane objection at all still prints the zero and says
         # there was no artifact, so "quiet lane" and "lane never ran" stay
         # different sentences.
-        "🧾 lane 反對（唔算等你綁）：0", "未裁決升咗做等你綁 0", "今日冇 lane artifact",
+        "🧾 lane 反對（唔算等你綁；hold 冇寫 ledger，下次 reverify pass 重評唔改期）：0",
+        "未裁決升咗做等你綁 0", "今日冇 lane artifact",
     ):
         assert expected in empty_message, expected
     print("NEGATIVE_OK a silent morning prints its zeros so it cannot be mistaken for a broken stage")
@@ -625,6 +630,80 @@ try:
     assert "其餘 31 張見全名單檔，唔喺度截字" in flood_message
     assert flood_message.count("<code>") == flood_message.count("</code>")
     print("POSITIVE_OK 226 holds render as 36 questions plus one honest objection line inside the budget")
+
+    # ============ rule 9: a held row is never counted as 「chain 自己再試」(P2 欠單)
+    # `hold()` (rebuild_036:9324 / :9672) writes NO ledger row, so on a held row
+    # quarantine_until / next_due_at / attempt_count still describe the run
+    # BEFORE the hold.  The old wording counted all three under 「chain 自己再試」
+    # and told the owner a retry was scheduled; nothing was.  What the lanes
+    # really do is re-read the row every pass (their binding query keeps
+    # match_status IN ('manual_review','rejected')), which is 重評, not 再試.
+    def lane_hold(variant_id: int, reason: str) -> dict[str, Any]:
+        return {
+            "lane": "browser", "sourceCode": "pricecharting", "reason": reason,
+            "detail": f"held row {variant_id}", "externalId": "10395109",
+            "artifactDay": "2026-08-23",
+            "artifact": "pc-identity-reverify-20260823T041500Z.json",
+            "artifactPath": "data/runtime/rebuild-036/pc-identity-reverify-20260823T041500Z.json",
+        }
+
+    # exact_n=0 on purpose: this is the shape that REACHES the three
+    # chain-owned branches.  A held row with exact_n>=1 is answered earlier by
+    # 有身份未出街 / 已出街 and never made the retry promise in the first place.
+    retry_shaped = [
+        ("never_attempted", "hard_conflict",
+         member(variant_id=9101, exact_n=0, attempt_count=0)),
+        ("next_due", "page_missing",
+         member(variant_id=9102, exact_n=0, attempt_count=9,
+                next_due_at=NOW + timedelta(days=1))),
+        ("quarantined", "map_product_mismatch",
+         member(variant_id=9103, exact_n=0, attempt_count=9,
+                quarantine_until=NOW + timedelta(days=2))),
+    ]
+    retry_holds = {
+        int(row["variant_id"]): lane_hold(int(row["variant_id"]), reason)
+        for _, reason, row in retry_shaped
+    }
+    for chain_reason, hold_reason, row in retry_shaped:
+        verdict = B.classify(row, now=NOW, holds=retry_holds)
+        assert verdict["headline"] == B.HEADLINE_NOT_YOURS, (chain_reason, verdict)
+        assert verdict["detail"] == B.DETAIL_LANE_HELD, (chain_reason, verdict)
+        # The reason the owner reads is the LANE's objection, not the ledger
+        # column that happened to be set before the hold.
+        assert verdict["reasonCode"] == hold_reason, (chain_reason, verdict)
+        assert "reverify pass" in verdict["reasonText"], verdict
+        assert "hold 冇寫 ledger" in verdict["reasonText"], verdict
+        assert verdict["ruled"] is False
+    held_retry = collect([row for _, _, row in retry_shaped], holds=retry_holds)
+    assert held_retry["detail"][B.DETAIL_LANE_HELD] == 3
+    assert held_retry["detail"][B.DETAIL_CHAIN_WILL_RETRY] == 0
+    # `neverAttempted` drives the lane-budget sentence below block 5, so a held
+    # row leaving the retry bucket has to leave that number too.
+    assert held_retry["neverAttempted"] == 0
+    assert held_retry["needsYou"] == []                      # still not the owner's list
+    held_retry_message, _ = B.render(held_retry, seen={}, now=NOW)
+    assert "⏳ chain 自己再試 0" in held_retry_message
+    assert "🔁 lane hold 住、下次 reverify 淨係重評 3" in held_retry_message
+    assert "hold 冇寫 ledger，下次 reverify pass 重評唔改期" in held_retry_message
+    print("POSITIVE_OK a lane-held row is counted as 重評, never as a retry the ledger never scheduled")
+
+    # Re-seed the lie: drop the hold and the SAME three rows go back to
+    # 「chain 自己再試」 with the old wording.  So the hold is what moves them,
+    # not row inertness -- and the sentence the owner used to read is exactly
+    # the one this rule forbids on a held row.
+    for chain_reason, _hold_reason, row in retry_shaped:
+        bare = B.classify(row, now=NOW, holds={})
+        assert bare["detail"] == B.DETAIL_CHAIN_WILL_RETRY, (chain_reason, bare)
+        assert bare["reasonCode"] == chain_reason, (chain_reason, bare)
+        assert "hold 冇寫 ledger" not in bare["reasonText"], bare
+    bare_retry = collect([row for _, _, row in retry_shaped], holds={})
+    assert bare_retry["detail"][B.DETAIL_CHAIN_WILL_RETRY] == 3
+    assert bare_retry["detail"][B.DETAIL_LANE_HELD] == 0
+    assert bare_retry["neverAttempted"] == 1
+    bare_message, _ = B.render(bare_retry, seen={}, now=NOW)
+    assert "⏳ chain 自己再試 3" in bare_message
+    assert "🔁 lane hold 住、下次 reverify 淨係重評 0" in bare_message
+    print("NEGATIVE_OK the same rows without a hold keep the retry bucket, so the hold is doing the work")
 
 
 
