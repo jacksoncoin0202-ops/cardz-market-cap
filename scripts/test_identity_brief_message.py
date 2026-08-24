@@ -197,8 +197,8 @@ try:
     assert B.ruling_text("pricecharting: zero-20260814: x") == ""
     assert B.ruling_text("operator-daddy-20260823: x") == "operator-daddy-20260823: x"
     assert B.ruling_text("snkrdunk: operator-zero-20260814: x") == "snkrdunk: operator-zero-20260814: x"
-    rebuild_source = (ROOT / "pipelines" / "rebuild_036.py").read_text(encoding="utf-8")
-    assert f'OPERATOR_RULING_REASON_PREFIX = "{B.OPERATOR_RULING_REASON_PREFIX}"' in rebuild_source
+    import rebuild_036_identity_rules as identity_rules
+    assert identity_rules.OPERATOR_RULING_REASON_PREFIX == B.OPERATOR_RULING_REASON_PREFIX
     print("NEGATIVE_OK the same card is work for the owner once the settling fact is removed")
 
     # ------------------------------------- 有身份但未出街 (the assignment's wording)

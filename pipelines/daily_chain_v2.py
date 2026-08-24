@@ -205,6 +205,7 @@ ALWAYS_ALERT_EVENTS: dict[str, tuple[str, str, int]] = {
     "TICK_CRASHED": ("v2-tick-crashed", "error", 10),
     "TICK_SIGNALLED": ("v2-tick-signalled", "warn", 10),
     "TASK_ADOPTED": ("v2-task-adopted", "info", 30),
+    "MYSQL_RECOVERY_FAILED": ("v2-mysql-recovery-failed", "error", 30),
 }
 # The morning identity brief ships as its own journal event and _event_message
 # returns its already-rendered HTML verbatim.  Deliberately absent from the
@@ -2790,11 +2791,26 @@ class DailyChainV2:
                     },
                 )
             if decision.error_code == "MYSQL_UNAVAILABLE" and status == "RETRY":
-                self.recover_mysql()
+                self.recover_mysql(trigger_task=task_key)
         finally:
             self.own_claims.pop(task_key, None)
 
-    def recover_mysql(self) -> None:
+    def recover_mysql(self, *, trigger_task: str = "") -> bool:
+        def finish(ok: bool, reason: str) -> bool:
+            event_type = "MYSQL_RECOVERY_COMPLETED" if ok else "MYSQL_RECOVERY_FAILED"
+            hour = iso()[:13]
+            self.journal_event(
+                event_type,
+                f"{trigger_task}:{hour}:{reason}",
+                {
+                    "runId": self.run_id,
+                    "taskKey": trigger_task,
+                    "reason": reason,
+                },
+                alert_scope=trigger_task[:80],
+            )
+            return ok
+
         with MYSQL_RECOVERY_LOCK:
             command = [
                 DOCKER_CLI, "compose", "-f",
@@ -2812,7 +2828,7 @@ class DailyChainV2:
                     if key.startswith("CARDZ_DB_"):
                         recovery_env[key] = value.strip()
             except OSError:
-                return
+                return finish(False, "compose-env-unreadable")
             try:
                 proc = subprocess.run(
                     command,
@@ -2822,10 +2838,12 @@ class DailyChainV2:
                     check=False,
                     env=recovery_env,
                 )
-            except (OSError, subprocess.TimeoutExpired):
-                return
+            except OSError:
+                return finish(False, "compose-command-unavailable")
+            except subprocess.TimeoutExpired:
+                return finish(False, "compose-up-timeout")
             if proc.returncode != 0:
-                return
+                return finish(False, f"compose-up-exit-{proc.returncode}")
             deadline = time.monotonic() + 120
             while time.monotonic() < deadline:
                 try:
@@ -2840,13 +2858,17 @@ class DailyChainV2:
                         timeout=10,
                         check=False,
                     )
-                except (OSError, subprocess.TimeoutExpired):
-                    return
+                except OSError:
+                    return finish(False, "inspect-command-unavailable")
+                except subprocess.TimeoutExpired:
+                    return finish(False, "inspect-timeout")
                 if probe.returncode == 0 and probe.stdout.strip() in {"healthy", "running"}:
-                    return
+                    return finish(True, probe.stdout.strip())
                 time.sleep(2)
+            return finish(False, "health-timeout")
 
     def recover_expired(self) -> None:
+        mysql_recovery_attempted = False
         for row in self.journal.tasks(self.run_id):
             status = str(row.get("status") or "")
             if status not in {"RETRY", "TERMINAL"}:
@@ -2857,6 +2879,9 @@ class DailyChainV2:
                 str(row.get("last_error") or ""),
                 stage="publish" if str(row.get("phase") or "") == "publish" else "source",
             )
+            if decision.error_code == "MYSQL_UNAVAILABLE" and not mysql_recovery_attempted:
+                self.recover_mysql(trigger_task=str(row["task_key"]))
+                mysql_recovery_attempted = True
             not_after = self.publish_retry_not_after(row)
             if status == "RETRY":
                 self.journal.reclassify_retry(

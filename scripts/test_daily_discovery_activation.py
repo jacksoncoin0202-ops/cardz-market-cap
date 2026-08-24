@@ -108,8 +108,10 @@ try:
 finally:
     SNK.R.red_listed_variants = original_red_list
 
-rebuild_source = (ROOT / "pipelines" / "rebuild_036.py").read_text(encoding="utf-8")
-assert "si.variant_id IN" in rebuild_source
+reverify_source = (
+    ROOT / "pipelines" / "rebuild_036_reverify.py"
+).read_text(encoding="utf-8")
+assert "si.variant_id IN" in reverify_source
 print("POSITIVE_OK both discoverers and PC reverify enforce the variant-ID scope")
 
 

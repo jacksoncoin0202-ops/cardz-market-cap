@@ -92,6 +92,8 @@ sibling-console inference：grep `pc_identity_discover.py` 證實**未落地**�
 
 ### 5.1 邊棵樹做咩
 
+先記唯一三棵 Windows 樹：authority = `cardz-market-cap-fe-db-20260805`、FE 出街車 = `cardz-market-cap-037-fe04-live`、宿主／DB owner = `cardz-market-cap`。WSL release checkout 只係短命同步車，GitHub `origin/main` 係 remote ref，兩者都唔係另一棵資料 authority。
+
 | 位置 | 角色 | 規矩 |
 |---|---|---|
 | `cardz-market-cap-fe-db-20260805`（本樹，`rebuild/036-foundation`） | **資料／日更真身**：V2 鏈、pipelines、receipts、DB migrations | 唔准由呢度直接 bake／`[deploy]` |
@@ -121,6 +123,8 @@ source 採集（gemrate 4 shard ∥ pricecharting ∥ snkrdunk；fx 已 OPERATOR
 **Publish 對數鏈：** daily-accept 產 `publicGenerationId = db3308_<sha[:16]>` → release script 要 bake 出**一模一樣**嘅 generation 先准 commit → live-confirm 讀返 live 對數 → journal `mark_publication` + outbox 落 `live.confirmed:<date>`。059 之後：一個 date 可以有多過一個 generation，但**同一 date 唔會同時有兩行都聲稱自己係 live**（supersede publish 喺同一 transaction 標舊行）。
 
 **失敗行為：** transient 行 retry ladder；attempts 用完＝TERMINAL（stage 自己退役，唔 park 成條 run）；PARKED 有 `unpark`／`retire` 結案路徑；手動窗 floor 45 分鐘、唔准跨下一 tick、FAILED_FINAL 可 explicit 復活。
+
+**兩套 status 字彙刻意唔統一：** rebuild checkpoint 用 `complete`；日更 chain task 用 `COMPLETED`。`market_alerts.py` 會揀最新 `status='complete'` 嘅 rebuild run 寫 ranking lineage；將舊 rebuild writer 改成 `completed`，會令較舊 mtime run 蓋過正確 ranking lineage。呢個係資料契約，唔係拼字欠單。
 
 **操作命令（WSL）：**
 ```bash
@@ -174,4 +178,4 @@ Receipts／logs：`data/runtime/daily-chain-v2/<business-date>/{receipts,logs}/`
 | [docs/PROMO_CHAIN.md](docs/PROMO_CHAIN.md) | 宣傳鏈（零自動發文） |
 | [docs/LEFTOVER5_IDENTITY_20260813.md](docs/LEFTOVER5_IDENTITY_20260813.md) | 人手身份裁決方法論 |
 
-**封存／歷史（唔好當現狀讀）：** [docs/archive/PROJECT_STATE_025-037_archived-20260824.md](docs/archive/PROJECT_STATE_025-037_archived-20260824.md)、[docs/HANDOFF_036_20260812.md](docs/HANDOFF_036_20260812.md)、[docs/HANDOFF_037_FE04.md](docs/HANDOFF_037_FE04.md)、[docs/DAILY_CHAIN_AUTONOMY.md](docs/DAILY_CHAIN_AUTONOMY.md)（已被 V2 取代）、[docs/archive/PLAN_036_CLOSEOUT_archived-20260824.md](docs/archive/PLAN_036_CLOSEOUT_archived-20260824.md)、[docs/SEALED_OPS.md](docs/SEALED_OPS.md)（⚠ 命令指住 read-only 舊樹，唔好照跟）、`docs/handoff/`、postmortem 三份。
+**封存／歷史（唔好當現狀讀）：** [docs/archive/PROJECT_STATE_025-037_archived-20260824.md](docs/archive/PROJECT_STATE_025-037_archived-20260824.md)、[docs/HANDOFF_036_20260812.md](docs/HANDOFF_036_20260812.md)、[docs/HANDOFF_037_FE04.md](docs/HANDOFF_037_FE04.md)、[docs/DAILY_CHAIN_AUTONOMY.md](docs/DAILY_CHAIN_AUTONOMY.md)（已被 V2 取代）、[docs/archive/PLAN_036_CLOSEOUT_archived-20260824.md](docs/archive/PLAN_036_CLOSEOUT_archived-20260824.md)、`docs/handoff/`、postmortem 三份。Sealed 現行操作改讀 [docs/SEALED_OPS.md](docs/SEALED_OPS.md)。

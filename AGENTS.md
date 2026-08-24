@@ -5,6 +5,16 @@ FE 出街車 = `../cardz-market-cap-037-fe04-live`（`[deploy]`）。**唔喺呢
 實驗樹 `../cardz-market-cap` 只准讀 3308，**唔准** pass／bake／`[deploy]`。
 Live：`https://app.cardzmarketcap.com`（卡數／generation／presentation 睇 [PROJECT_STATE.md](PROJECT_STATE.md) §0，唔好信呢度嘅舊數）。
 
+三棵 Windows 樹係三個唔同角色，唔准互相代替：
+
+| 樹 | 唯一角色 | 不可跨越界線 |
+|---|---|---|
+| `cardz-market-cap-fe-db-20260805` | pipeline／日更 authority | 唔係 FE deploy 車 |
+| `cardz-market-cap-037-fe04-live` | `origin/main` FE 出街車 | 唔係 runtime／DB authority |
+| `cardz-market-cap` | worktree 宿主＋MySQL compose／volume owner | 只讀；唔准刪、搬、bake |
+
+WSL `~/cardz-market-cap-release-daily` 只係每次 fast-forward `origin/main` 嘅 release checkout，唔係第四個 authority；私有 runtime 由 authority 樹嘅 `data/runtime` junction 指返宿主樹持有。
+
 任何 agent（Claude / Codex / 其他）喺呢個 repo 開工前必讀。呢度只放「跟錯會出事」嘅硬規矩；操作細節全部喺 **[docs/COLLECTION_RUNBOOK.md](docs/COLLECTION_RUNBOOK.md)** —— 做任何採集（全量/增量）之前先讀佢，跟佢嘅 canonical 命令，唔好自己憑記憶砌 flag。**現狀唯一入口：[PROJECT_STATE.md](PROJECT_STATE.md)（2026-08-24 重寫）**；日更＝V2 鏈（每 10 分鐘 tick），唔係舊四-slot。
 
 ## 硬規矩（違反 = 事故）

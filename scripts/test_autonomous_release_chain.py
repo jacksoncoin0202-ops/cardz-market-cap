@@ -14,9 +14,10 @@ RUNNER = ROOT / "scripts" / "run_all_tests.py"
 
 def assert_release_guard(source: str) -> None:
     merge = source.index('git -C "$RELEASE_REPO" merge --ff-only FETCH_HEAD')
+    authority_guard = source.index('"$SOURCE_REPO/scripts/run_all_tests.py"')
     guard = source.index("$RELEASE_REPO/scripts/run_all_tests.py")
     bake = source.index('CARDZ_REPO_ROOT="$SOURCE_REPO" node "$RELEASE_REPO/scripts/bake-public-snapshot.mjs"')
-    assert merge < guard < bake, "release guard must run after fast-forward and before bake"
+    assert merge < authority_guard < guard < bake, "both authority and release guards must run before bake"
     assert "--no-db" in source
     assert "--skip-fe" in source
     assert "validate_daily_release" in source
@@ -37,6 +38,17 @@ except (AssertionError, ValueError):
     print("NEGATIVE_OK release chain without the no-DB guard was rejected")
 else:
     raise AssertionError("negative release-chain fixture did not fire")
+
+without_authority = real_source.replace(
+    '"$SOURCE_REPO/scripts/run_all_tests.py"',
+    '"$SOURCE_REPO/scripts/missing_authority_guard.py"',
+)
+try:
+    assert_release_guard(without_authority)
+except (AssertionError, ValueError):
+    print("NEGATIVE_OK release chain without the authority-tree guard was rejected")
+else:
+    raise AssertionError("negative authority-tree guard fixture did not fire")
 
 assert_release_guard(real_source)
 spec = importlib.util.spec_from_file_location("cardz_run_all_tests_contract", RUNNER)

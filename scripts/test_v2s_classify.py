@@ -539,6 +539,56 @@ try:
         },
     )
 
+    # A MySQL recovery has to close the loop: compose, health, journal outcome,
+    # and an immediate lifecycle alert when recovery itself fails.
+    real_subprocess_run = chain_module.subprocess.run
+    real_compose_env = chain_module.MYSQL_COMPOSE_ENV
+    compose_env = WORKSPACE / "backend.env"
+    compose_env.write_text("CARDZ_DB_HOST=fixture\n", encoding="utf-8")
+    chain_module.MYSQL_COMPOSE_ENV = compose_env
+    recovery_commands: list[list[str]] = []
+
+    def healthy_recovery(command, **kwargs):
+        recovery_commands.append(list(command))
+        return types.SimpleNamespace(returncode=0, stdout="healthy\n", stderr="")
+
+    try:
+        chain_module.subprocess.run = healthy_recovery
+        assert chain.recover_mysql(trigger_task="fixture:mysql") is True
+        assert len(recovery_commands) == 2 and "compose" in recovery_commands[0] and "inspect" in recovery_commands[1]
+        assert any(row["event_type"] == "MYSQL_RECOVERY_COMPLETED" for row in journal.pending_events(RUN_ID))
+
+        chain_module.LAST_ALERT = None
+        chain_module.subprocess.run = lambda *args, **kwargs: types.SimpleNamespace(returncode=17, stdout="", stderr="")
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert chain.recover_mysql(trigger_task="fixture:mysql-fail") is False
+        assert any(row["event_type"] == "MYSQL_RECOVERY_FAILED" for row in journal.pending_events(RUN_ID))
+        assert chain_module.LAST_ALERT and chain_module.LAST_ALERT["key"].startswith("v2-mysql-recovery-failed")
+    finally:
+        chain_module.subprocess.run = real_subprocess_run
+        chain_module.MYSQL_COMPOSE_ENV = real_compose_env
+    mysql_key = journal.add_raw_task(
+        run_id=RUN_ID, business_date=DAY.isoformat(), phase="source",
+        source_code="fixture", capability="mysql-resume", required_class="core",
+        concurrency_group="fixture:mysql", max_attempts=3,
+    )
+    mysql_claim = next(row for row in journal.claim_ready(RUN_ID, phases=("source",)) if row["task_key"] == mysql_key)
+    mysql_decision = classify_error("pymysql.err.OperationalError: (2003, Can't connect to MySQL server)")
+    assert mysql_decision.error_code == "MYSQL_UNAVAILABLE"
+    journal.finish_failure(
+        mysql_key, mysql_claim["lease_token"], decision=mysql_decision,
+        error_text="fixture mysql unavailable",
+    )
+    resumed_recovery: list[str] = []
+    real_recover_mysql = chain.recover_mysql
+    chain.recover_mysql = lambda *, trigger_task="": (resumed_recovery.append(trigger_task) or True)  # type: ignore[method-assign]
+    try:
+        chain.recover_expired()
+    finally:
+        chain.recover_mysql = real_recover_mysql  # type: ignore[method-assign]
+    assert resumed_recovery == [mysql_key], resumed_recovery
+    print("POSITIVE_OK MySQL recovery composes, waits for health, journals outcome and alerts on failure")
+
     def fail_publish_task(capability: str, message: str) -> dict[str, Any]:
         def run(row):
             raise RuntimeError(message)

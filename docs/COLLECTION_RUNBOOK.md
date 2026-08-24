@@ -467,7 +467,7 @@ After ingest, `PROJECT_STATE.md` prescribes
 
 ### Beta HTTP lane — カドラバ／tcgcard（plan，未入 `ADAPTER_LANE`）
 
-並行 SNK／PC 嘅第三條 **PSA10 円日線**。契約：[KADORABA_PRICE_SOURCE.md](file:///C:/Users/jackson0202/Documents/Playground/reverse-skill/work/jihuanshe/data/tcg_full/2026-08-18/review/KADORABA_PRICE_SOURCE.md)。
+並行 SNK／PC 嘅第三條 **PSA10 円日線**。契約仍屬 repo 外 beta 研究檔：`reverse-skill/work/jihuanshe/data/tcg_full/2026-08-18/review/KADORABA_PRICE_SOURCE.md`；未入 `ADAPTER_LANE` 前唔當本 repo 現行文件連結。
 
 - **唔經 CDP 9333。** Identity 之後係 EncInst `GET /card-versions/price-history`（要 MuMu + sister）。裸 HTTP DENY。
 - 建議 adapter 名 `kadoraba_psa10`，lane=`http`（同 `snk_price`）。掛夜鏈 HTTP collect 之後、`daily-accept` 之前。失敗 skip，**唔准** abort 朝／夜鏈。
@@ -1345,4 +1345,3 @@ When PC/SNK captures already exist on disk but ranking still shows stale/`awaiti
 5. If auto-ingest failed after a successful crawl, replay ingest from HTML cache; see “掃完但 auto-ingest 冇 fire” above.
 
 Ports: use CDP **9333** only. **9222 is forbidden** for CARDZ collection.
-
