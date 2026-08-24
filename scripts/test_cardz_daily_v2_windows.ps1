@@ -166,6 +166,10 @@ Check "installer-print-daily-action" ($rInst.Out -match "cardz_daily_v2_launcher
 Check "installer-print-watchdog-action" ($rInst.Out -match "watchdog_live_release\.ps1") "watchdog action present"
 Check "installer-print-promo-action" ($rInst.Out -match "promo_after_publish\.py") "promo action present"
 Check "installer-print-no-apply" (-not ($rInst.Out -match '"result"')) "-Print must not apply"
+# P0 2026-08-24: the computed StartBoundary used to be invisible in the plan, which
+# is why a mid-window -Apply could delete 79 of the day's 82 ticks in silence.
+Check "installer-print-shows-start-boundary" ($rInst.Out -match '"startBoundary"') "plan must expose the computed StartBoundary"
+Check "installer-print-shows-window-state" ($rInst.Out -match '"insideDailyWindow"') "plan must expose whether we are re-installing mid-window"
 
 Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host "RESULT fails=$fails"

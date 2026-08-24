@@ -12,7 +12,10 @@
 param(
     [switch]$Apply,
     [switch]$Print,
-    [string]$BackupDirectory = ""
+    [string]$BackupDirectory = "",
+    # Dry-run only: seed the clock so -Print can prove the StartBoundary guard at
+    # a synthetic time without waiting for the real window.  Refused under -Apply.
+    [datetime]$NowOverride = [datetime]::MinValue
 )
 
 $ErrorActionPreference = "Stop"
@@ -67,12 +70,44 @@ if ([string]::IsNullOrWhiteSpace($BackupDirectory)) {
     $BackupDirectory = Join-Path $Repo "data\runtime\daily-chain-v2\scheduler-backup-$stamp"
 }
 
+# P0 (2026-08-24): StartBoundary used to roll to tomorrow whenever 03:30 had
+# already passed, so a mid-window -Apply silently deleted the rest of the day's
+# repetition window.  Evidence: 08-23 fired 75 ticks 03:30-17:00; the 03:58:36
+# re-install on 08-24 left 4 (03:30, 03:40, 03:50, 03:59) and the next tick was
+# 08-25 03:30 -- 79 ticks gone with no error.
+# StartBoundary carries the DAILY recurrence time, so it must STAY at 03:30 and
+# roll forward only once the window has closed.  A mid-window tick is safe:
+# Journal.ensure_run keys the run on cardz-v2:<business_date>, so it resumes the
+# day's existing run instead of opening a duplicate business date.
+if ($NowOverride -ne [datetime]::MinValue) {
+    if ($Apply) { throw "-NowOverride is a dry-run aid; it must not be combined with -Apply" }
+    $nowLocal = $NowOverride
+} else {
+    $nowLocal = Get-Date
+}
+$DailyWindowMinutes = 810      # PT13H30M -- must match the daily Repetition Duration below
+$WatchdogWindowMinutes = 840   # PT14H    -- must match the watchdog Repetition Duration below
+$firstNaturalStart = $nowLocal.Date.AddHours(3).AddMinutes(30)
+if ($nowLocal -ge $firstNaturalStart.AddMinutes($DailyWindowMinutes)) {
+    $firstNaturalStart = $firstNaturalStart.AddDays(1)
+}
+$dailyInsideWindow = ($firstNaturalStart -le $nowLocal)
+$dailyTicksPreserved = 0
+if ($dailyInsideWindow) {
+    $elapsedMinutes = ($nowLocal - $firstNaturalStart).TotalMinutes
+    $dailyTicksPreserved = [int][math]::Floor($DailyWindowMinutes / 10) - [int][math]::Floor($elapsedMinutes / 10)
+}
+
 $plan = [ordered]@{
     apply = [bool]$Apply
     taskName = $TaskName
     launcher = $Launcher
     silentRunner = $SilentRunner
     trigger = "next 03:30 local; then daily; repeat PT10M for PT13H30M"
+    nowLocal = $nowLocal.ToString("yyyy-MM-ddTHH:mm:ssK")
+    startBoundary = $firstNaturalStart.ToString("yyyy-MM-ddTHH:mm:ssK")
+    insideDailyWindow = $dailyInsideWindow
+    todayTicksPreserved = $dailyTicksPreserved
     executionTimeLimit = "PT55M"
     startWhenAvailable = $true
     multipleInstances = "IgnoreNew"
@@ -134,11 +169,6 @@ $action = New-ScheduledTaskAction `
     -Execute $WScriptExe `
     -Argument $DailyArgument `
     -WorkingDirectory $Repo
-$nowLocal = Get-Date
-$firstNaturalStart = $nowLocal.Date.AddHours(3).AddMinutes(30)
-if ($firstNaturalStart -le $nowLocal) {
-    $firstNaturalStart = $firstNaturalStart.AddDays(1)
-}
 $trigger = New-ScheduledTaskTrigger -Daily -At $firstNaturalStart
 $trigger.Repetition = New-CimInstance `
     -Namespace "Root/Microsoft/Windows/TaskScheduler" `
@@ -198,7 +228,7 @@ Register-ScheduledTask -TaskName $TaskName -InputObject $definition -Force | Out
 # health probe for V2 and is (re)registered here, every 15 min 04:00-18:00 local
 # so the 17:30 final check is covered by the last repetition.
 $watchdogFirstStart = $nowLocal.Date.AddHours(4)
-if ($watchdogFirstStart -le $nowLocal) { $watchdogFirstStart = $watchdogFirstStart.AddDays(1) }
+if ($nowLocal -ge $watchdogFirstStart.AddMinutes($WatchdogWindowMinutes)) { $watchdogFirstStart = $watchdogFirstStart.AddDays(1) }
 $watchdogTrigger = New-ScheduledTaskTrigger -Daily -At $watchdogFirstStart
 $watchdogTrigger.Repetition = New-CimInstance `
     -Namespace "Root/Microsoft/Windows/TaskScheduler" `
