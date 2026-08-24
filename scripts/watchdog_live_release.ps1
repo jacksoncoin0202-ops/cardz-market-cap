@@ -146,11 +146,15 @@ try {
     # DONE only counts for TODAY's business day: a leftover health.json from
     # yesterday's PUBLISHED run must not silence every alert until 17:30 JST.
     $healthDate = [string]$hj.business_date
-    $done = (@("DONE", "PUBLISHED") -contains $runState) -and ($healthDate -eq $todayJst)
+    # Nor does a SUPERSEDED date count: its PUBLISHED run was archived so the
+    # date could be run again, and the replacement has not confirmed its own
+    # publication yet. Absent field (pre-supersede health.json) reads $false.
+    $supersedePending = [bool]$hj.supersede_pending
+    $done = (@("DONE", "PUBLISHED") -contains $runState) -and ($healthDate -eq $todayJst) -and (-not $supersedePending)
     $writtenAt = Parse-Iso ([string]$hj.written_at_utc)
     $ageMin = $null
     if ($null -ne $writtenAt) { $ageMin = [math]::Round(($nowUtc - $writtenAt.UtcDateTime).TotalMinutes, 1) }
-    Say "health run_state=$runState tick_phase=$tickPhase ageMin=$ageMin businessDate=$healthDate expectedDate=$todayJst done=$done"
+    Say "health run_state=$runState tick_phase=$tickPhase ageMin=$ageMin businessDate=$healthDate expectedDate=$todayJst supersedePending=$supersedePending done=$done"
 
     if ($inWindow -and -not $done) {
       if ($null -eq $writtenAt) {

@@ -502,13 +502,16 @@ try:
         # Only a live tick knows its own budget; built without one the field is
         # present and null, so the document keeps ONE shape for every reader.
         assert stored["tick_budget"] is None
+        # Generation 1 -- the only shape that existed before supersede -- reads
+        # exactly as it always did: no suffix on the run id, nothing pending.
+        assert stored["supersede_seq"] == 1 and stored["supersede_pending"] is False
         assert set(stored) == {
             "schema", "written_at_utc", "written_at_jst", "business_date",
             "run_id", "run_label",
             "run_state", "tick_phase", "tick_exit_code", "tick_started_at_utc",
             "tick_ended_at_utc", "tick_duration_s", "next_retry_at_utc", "tasks",
             "parked", "manual_window_until_utc", "autonomous_proven", "last_alert",
-            "tick_budget",
+            "tick_budget", "supersede_seq", "supersede_pending",
         }
         brief = status_brief(journal, DAY)
         assert brief.startswith("2026-08-20 RUNNING tasks=0/2 retry=1 terminal=0"), brief

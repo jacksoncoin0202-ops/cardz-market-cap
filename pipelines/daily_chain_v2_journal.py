@@ -23,7 +23,9 @@ from daily_chain_v2_contract import (
     canonical_json,
     clamp_retry_at,
     classify_provenance,
+    run_id_with_supersede_seq,
     sha256,
+    supersede_seq_of,
 )
 
 
@@ -45,6 +47,34 @@ RUN_SUCCESS_STATES = frozenset({"PUBLISHED", "PUBLISHED_DEGRADED"})
 # decoration, not a gate.  Four renewals is the ceiling; past it the run must
 # fail and the next business date starts clean.
 MANUAL_WINDOW_MAX_RENEWALS = 4
+# Supersede-in-place.  chain_run.business_date is UNIQUE and the tick no-op
+# guard makes a PUBLISHED date dead forever, so running one date again with
+# fresh data means MOVING the finished run out of the live tables first.
+# Every family is listed here because leaving one behind is silent: task_key
+# is date-scoped ({date}:{source}:{capability}:{shard}:{sha}), so a stranded
+# chain_task row makes the next run's add_task a no-op and that stage is never
+# planned again; chain_attempt is UNIQUE(task_key,attempt_no) for the same
+# reason.  The delete order is child-first because foreign_keys is ON.
+SUPERSEDE_FAMILIES = ("chain_attempt", "chain_task", "chain_event", "chain_run")
+SUPERSEDE_PRIMARY_KEY = {
+    "chain_run": ("run_id",),
+    # One date can be superseded more than once and task/event keys repeat
+    # across generations, so the archive keys them by generation as well.
+    "chain_task": ("task_key", "supersede_seq"),
+    "chain_attempt": ("id",),
+    "chain_event": ("event_key", "supersede_seq"),
+}
+SUPERSEDE_ARCHIVE_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("superseded_at", "TEXT NOT NULL DEFAULT ''"),
+    ("supersede_reason", "TEXT NOT NULL DEFAULT ''"),
+    ("supersede_seq", "INTEGER NOT NULL DEFAULT 1"),
+)
+# Only the run archive records who asked: an operator supersede is a manual
+# intervention for that date, an auto-align on a natural tick is not.
+SUPERSEDE_RUN_ARCHIVE_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("supersede_origin", "TEXT NOT NULL DEFAULT 'manual'"),
+)
+SUPERSEDE_ORIGINS = frozenset({"manual", "auto"})
 DEFAULT_MAX_INTERRUPTIONS = 6
 INTERRUPT_BACKOFF_BASE_SECONDS = 60
 INTERRUPT_BACKOFF_CAP_SECONDS = 900
@@ -267,6 +297,54 @@ class Journal:
                     "ALTER TABLE chain_run ADD COLUMN manual_window_renewals"
                     " INTEGER NOT NULL DEFAULT 0"
                 )
+            # Supersede archive.  The mirror is DERIVED from the live tables
+            # instead of being a second hand-written column list, so a column
+            # added above can never silently stop being archived: a new live
+            # column appears here on the next initialise, on an existing
+            # journal too.  The archive carries no constraint but its key --
+            # it is a dump, and a foreign key back into a table whose rows
+            # were just deleted would refuse the archival itself.
+            for table in SUPERSEDE_FAMILIES:
+                live_columns = [
+                    (str(row["name"]), str(row["type"] or ""))
+                    for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+                ]
+                archive = f"{table}_archive"
+                extra = SUPERSEDE_ARCHIVE_COLUMNS + (
+                    SUPERSEDE_RUN_ARCHIVE_COLUMNS if table == "chain_run" else ()
+                )
+                present = {
+                    str(row["name"])
+                    for row in conn.execute(f"PRAGMA table_info({archive})").fetchall()
+                }
+                if not present:
+                    body = ", ".join(
+                        f"{name} {ctype}".strip() for name, ctype in live_columns
+                    )
+                    body += "".join(f", {name} {decl}" for name, decl in extra)
+                    key = ", ".join(SUPERSEDE_PRIMARY_KEY[table])
+                    conn.execute(
+                        f"CREATE TABLE IF NOT EXISTS {archive} ({body}, PRIMARY KEY ({key}))"
+                    )
+                    continue
+                for name, ctype in live_columns:
+                    if name not in present:
+                        conn.execute(
+                            f"ALTER TABLE {archive} ADD COLUMN {name} {ctype}".strip()
+                        )
+                for name, decl in extra:
+                    if name not in present:
+                        conn.execute(f"ALTER TABLE {archive} ADD COLUMN {name} {decl}")
+            conn.executescript(
+                """
+                CREATE INDEX IF NOT EXISTS ix_chain_run_archive_date
+                    ON chain_run_archive(business_date, supersede_seq);
+                CREATE INDEX IF NOT EXISTS ix_chain_task_archive_run
+                    ON chain_task_archive(run_id);
+                CREATE INDEX IF NOT EXISTS ix_chain_event_archive_run
+                    ON chain_event_archive(run_id);
+                """
+            )
             conn.execute(
                 "INSERT INTO journal_meta(key,value) VALUES('schema_version',?)"
                 " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -310,15 +388,45 @@ class Journal:
         run_id = run_id or f"cardz-v2:{business_date}"
         now = iso()
         with self.transaction() as conn:
+            # A superseded date keeps its accounting.  Autonomy is evidence
+            # about the DATE, so archiving the previous run must not launder
+            # the manual interventions it recorded, and the event-107 lineage
+            # it proved must survive into the rerun.  An operator supersede is
+            # itself one manual intervention; an auto-align is not.  With no
+            # archived generation every term is zero and this row is created
+            # exactly as it always was.
+            #
+            # Read the LATEST archived generation, never the sum: each
+            # generation already carried the ones before it, so summing would
+            # re-count the same interventions once per supersede.
+            carried = conn.execute(
+                """
+                SELECT manual_intervention_count AS manual,
+                       scheduled_event_107_count AS scheduled,
+                       CASE WHEN supersede_origin='manual' THEN 1 ELSE 0 END
+                           AS operator_supersede
+                FROM chain_run_archive WHERE business_date=?
+                ORDER BY supersede_seq DESC LIMIT 1
+                """,
+                (business_date,),
+            ).fetchone()
             conn.execute(
                 """
                 INSERT INTO chain_run(
-                    run_id,business_date,status,origin,source_cutoff_at,sla_at,final_at,
+                    run_id,business_date,status,origin,scheduled_event_107_count,
+                    manual_intervention_count,source_cutoff_at,sla_at,final_at,
                     created_at,updated_at
-                ) VALUES(?,?,'RUNNING','unknown',?,?,?,?,?)
+                ) VALUES(?,?,'RUNNING','unknown',?,?,?,?,?,?,?)
                 ON CONFLICT(business_date) DO NOTHING
                 """,
-                (run_id, business_date, source_cutoff_at, sla_at, final_at, now, now),
+                (
+                    run_id, business_date,
+                    0 if carried is None else int(carried["scheduled"] or 0),
+                    0 if carried is None else (
+                        int(carried["manual"] or 0) + int(carried["operator_supersede"] or 0)
+                    ),
+                    source_cutoff_at, sla_at, final_at, now, now,
+                ),
             )
             row = conn.execute(
                 "SELECT * FROM chain_run WHERE business_date=?", (business_date,)
@@ -334,6 +442,270 @@ class Journal:
                 f" in this journal; {run_id} needs its own journal"
             )
         return dict(row)
+
+    def run_for_date(self, business_date: str) -> dict[str, Any] | None:
+        """The single LIVE run of a business date, whatever generation it is."""
+
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM chain_run WHERE business_date=?", (str(business_date),)
+            ).fetchone()
+        return None if row is None else dict(row)
+
+    def live_supersede_seq(self, business_date: str) -> int:
+        """Generation the next run of this date must carry: 1 + highest archived.
+
+        Safe on a journal that was never initialised (a first `status` call on
+        a fresh machine): with no archive there is nothing to supersede and the
+        answer is the historical generation 1.
+        """
+
+        try:
+            with self.connect() as conn:
+                row = conn.execute(
+                    "SELECT COALESCE(MAX(supersede_seq),0) AS seq"
+                    " FROM chain_run_archive WHERE business_date=?",
+                    (str(business_date),),
+                ).fetchone()
+        except sqlite3.Error:
+            return 1
+        return int((row["seq"] if row else 0) or 0) + 1
+
+    def supersede_history(self, business_date: str) -> list[dict[str, Any]]:
+        """Archived generations of one business date, oldest first."""
+
+        try:
+            with self.connect() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT run_id,supersede_seq,superseded_at,supersede_reason,
+                           supersede_origin,status,publication_status,generation_id,
+                           content_sha256,manual_intervention_count,
+                           scheduled_event_107_count,created_at,completed_at
+                    FROM chain_run_archive WHERE business_date=?
+                    ORDER BY supersede_seq
+                    """,
+                    (str(business_date),),
+                ).fetchall()
+        except sqlite3.Error:
+            return []
+        return [
+            {
+                "runId": str(row["run_id"]),
+                "supersedeSeq": int(row["supersede_seq"] or 1),
+                "supersededAt": str(row["superseded_at"] or ""),
+                "supersedeReason": str(row["supersede_reason"] or ""),
+                "supersedeOrigin": str(row["supersede_origin"] or "manual"),
+                "status": str(row["status"] or ""),
+                "publicationStatus": row["publication_status"],
+                "generationId": row["generation_id"],
+                "contentSha256": row["content_sha256"],
+                "manualInterventionCount": int(row["manual_intervention_count"] or 0),
+                "scheduledEvent107Count": int(row["scheduled_event_107_count"] or 0),
+                "createdAt": str(row["created_at"] or ""),
+                "completedAt": row["completed_at"],
+            }
+            for row in rows
+        ]
+
+    @staticmethod
+    def _supersede_receipt_path(receipt_dir: Any, business_date: str, seq: int) -> Path:
+        return Path(receipt_dir) / f"supersede-{business_date}-seq{seq}.json"
+
+    @staticmethod
+    def _supersede_families(conn: sqlite3.Connection, run_id: str) -> dict[str, list[dict[str, Any]]]:
+        """Every live row belonging to one run, keyed by table."""
+
+        tasks = [
+            dict(row) for row in conn.execute(
+                "SELECT * FROM chain_task WHERE run_id=? ORDER BY created_at,task_key",
+                (run_id,),
+            ).fetchall()
+        ]
+        task_keys = [str(row["task_key"]) for row in tasks]
+        attempts: list[dict[str, Any]] = []
+        if task_keys:
+            placeholders = ",".join("?" for _ in task_keys)
+            attempts = [
+                dict(row) for row in conn.execute(
+                    f"SELECT * FROM chain_attempt WHERE task_key IN ({placeholders})"
+                    " ORDER BY id",
+                    task_keys,
+                ).fetchall()
+            ]
+        events = [
+            dict(row) for row in conn.execute(
+                "SELECT * FROM chain_event WHERE run_id=? ORDER BY created_at,event_key",
+                (run_id,),
+            ).fetchall()
+        ]
+        run = conn.execute(
+            "SELECT * FROM chain_run WHERE run_id=?", (run_id,)
+        ).fetchone()
+        return {
+            "chain_run": [dict(run)] if run is not None else [],
+            "chain_task": tasks,
+            "chain_attempt": attempts,
+            "chain_event": events,
+        }
+
+    def supersede_preview(
+        self,
+        business_date: str,
+        *,
+        receipt_dir: Any,
+    ) -> dict[str, Any]:
+        """What `supersede_run` would archive.  Reads only; writes nothing."""
+
+        business_date = str(business_date)
+        with self.connect() as conn:
+            run = conn.execute(
+                "SELECT * FROM chain_run WHERE business_date=?", (business_date,)
+            ).fetchone()
+            if run is None:
+                raise JournalError(f"no live run for business date {business_date}")
+            run_id = str(run["run_id"])
+            families = self._supersede_families(conn, run_id)
+        seq = supersede_seq_of(run_id)
+        next_seq = seq + 1
+        return {
+            "businessDate": business_date,
+            "runId": run_id,
+            "supersedeSeq": seq,
+            "nextRunId": run_id_with_supersede_seq(run_id, next_seq),
+            "nextSupersedeSeq": next_seq,
+            "status": str(run["status"] or ""),
+            "publicationStatus": run["publication_status"],
+            "generationId": run["generation_id"],
+            "createdAt": str(run["created_at"] or ""),
+            "counts": {name: len(rows) for name, rows in families.items()},
+            "receiptPath": str(
+                self._supersede_receipt_path(receipt_dir, business_date, seq)
+            ),
+            "archived": self.supersede_history(business_date),
+        }
+
+    def supersede_run(
+        self,
+        business_date: str,
+        *,
+        reason: str,
+        receipt_dir: Any,
+        origin: str = "manual",
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Archive one business date's run so the date can be run again today.
+
+        One transaction does all of it: the receipt file is written FIRST, so a
+        failure to persist the evidence rolls the archival back and the live
+        run is still there.  Rows are copied into the `*_archive` mirrors and
+        then deleted child-first; nothing is dropped, and `chain_task` in
+        particular must move or the rerun inherits its finished stages
+        (task_key is date-scoped, and add_task is ON CONFLICT DO NOTHING).
+
+        The rerun's identity is `<run_id>/<seq+1>`; MySQL publication keys pick
+        the same suffix up, which is what lets the new generation publish while
+        the old outbox row is marked superseded instead of overwritten.
+        """
+
+        business_date = str(business_date)
+        origin = str(origin or "manual").strip().casefold()
+        if origin not in SUPERSEDE_ORIGINS:
+            raise ValueError(f"supersede origin must be one of {sorted(SUPERSEDE_ORIGINS)}")
+        reason = str(reason or "").strip()
+        if not reason:
+            raise ValueError("a supersede needs a reason: it is the date's only trail")
+        stamp = iso(now)
+        with self.transaction() as conn:
+            run = conn.execute(
+                "SELECT * FROM chain_run WHERE business_date=?", (business_date,)
+            ).fetchone()
+            if run is None:
+                raise JournalError(f"no live run for business date {business_date}")
+            run_id = str(run["run_id"])
+            seq = supersede_seq_of(run_id)
+            if origin == "auto":
+                # Hard cap: the chain aligns a stale published date at most
+                # once, ever.  A second automatic rerun of one date would be a
+                # loop nobody asked for; an operator can still supersede.
+                used = int(
+                    conn.execute(
+                        "SELECT COUNT(*) AS n FROM chain_run_archive"
+                        " WHERE business_date=? AND supersede_origin='auto'",
+                        (business_date,),
+                    ).fetchone()["n"]
+                    or 0
+                )
+                if used:
+                    raise JournalError(
+                        f"auto-supersede already used for {business_date}"
+                        f" ({used}x); only an operator supersede can rerun it again"
+                    )
+            families = self._supersede_families(conn, run_id)
+            receipt_path = self._supersede_receipt_path(receipt_dir, business_date, seq)
+            next_seq = seq + 1
+            receipt = {
+                "contract": "cardz-daily-chain-supersede-v1",
+                "businessDate": business_date,
+                "runId": run_id,
+                "supersedeSeq": seq,
+                "nextRunId": run_id_with_supersede_seq(run_id, next_seq),
+                "nextSupersedeSeq": next_seq,
+                "supersedeOrigin": origin,
+                "supersedeReason": reason,
+                "supersededAt": stamp,
+                "journalPath": str(self.path),
+                "counts": {name: len(rows) for name, rows in families.items()},
+                "rows": families,
+            }
+            receipt_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = receipt_path.with_name(f".{receipt_path.name}.{os.getpid()}.next")
+            temporary.write_bytes(canonical_json(receipt) + b"\n")
+            os.replace(temporary, receipt_path)
+            for table in SUPERSEDE_FAMILIES:
+                rows = families[table]
+                if not rows:
+                    continue
+                extra = {
+                    "superseded_at": stamp,
+                    "supersede_reason": reason,
+                    "supersede_seq": seq,
+                }
+                if table == "chain_run":
+                    extra["supersede_origin"] = origin
+                columns = list(rows[0].keys()) + list(extra.keys())
+                placeholders = ",".join("?" for _ in columns)
+                conn.executemany(
+                    f"INSERT INTO {table}_archive({','.join(columns)})"
+                    f" VALUES({placeholders})",
+                    [
+                        tuple(row[name] for name in rows[0].keys())
+                        + tuple(extra.values())
+                        for row in rows
+                    ],
+                )
+            task_keys = [str(row["task_key"]) for row in families["chain_task"]]
+            if task_keys:
+                placeholders = ",".join("?" for _ in task_keys)
+                conn.execute(
+                    f"DELETE FROM chain_attempt WHERE task_key IN ({placeholders})",
+                    task_keys,
+                )
+            conn.execute("DELETE FROM chain_task WHERE run_id=?", (run_id,))
+            conn.execute("DELETE FROM chain_event WHERE run_id=?", (run_id,))
+            conn.execute("DELETE FROM chain_run WHERE run_id=?", (run_id,))
+        return {
+            "businessDate": business_date,
+            "runId": run_id,
+            "supersedeSeq": seq,
+            "nextRunId": receipt["nextRunId"],
+            "nextSupersedeSeq": next_seq,
+            "supersedeOrigin": origin,
+            "supersedeReason": reason,
+            "supersededAt": stamp,
+            "counts": dict(receipt["counts"]),
+            "receiptPath": str(receipt_path),
+        }
 
     def renew_manual_window(
         self,
@@ -1484,8 +1856,16 @@ class Journal:
         counts: dict[str, int] = {}
         for task in tasks:
             counts[task["status"]] = counts.get(task["status"], 0) + 1
+        archived = self.supersede_history(str(run.get("business_date") or ""))
         return {
             "run": run,
             "taskCounts": counts,
             "tasks": tasks,
+            # Supersede lineage is part of reading a business date: without it
+            # a `/2` run looks like a run id typo instead of a rerun.
+            "supersede": {
+                "seq": supersede_seq_of(run_id),
+                "archivedCount": len(archived),
+                "archived": archived,
+            },
         }

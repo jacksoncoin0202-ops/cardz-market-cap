@@ -1294,6 +1294,17 @@ def stage_live_confirm(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def stage_identity_census(args: argparse.Namespace) -> dict[str, Any]:
+    """Refresh the GemRate census when it is too old for intake to trust it."""
+
+    from identity_census_stage import run_identity_census
+
+    return run_identity_census(
+        business_date=args.business_date,
+        budget_seconds=stage_deadline_budget_seconds(),
+    )
+
+
 def discovery_lane_names() -> tuple[str, ...]:
     """Lane names the registered identity sources declare, not a literal pair."""
 
@@ -1375,6 +1386,11 @@ def main() -> int:
     live.add_argument("--confirm-before", required=True)
     live.add_argument("--degraded-source", action="append", default=[])
     live.set_defaults(func=stage_live_confirm)
+    census = sub.add_parser("identity-census")
+    census.add_argument(
+        "--business-date", default=os.environ.get("CARDZ_V2_BUSINESS_DATE")
+    )
+    census.set_defaults(func=stage_identity_census)
     args = parser.parse_args()
     os.environ["CARDZ_DAILY_CHAIN_V2"] = "1"
     if hasattr(args, "run_id"):

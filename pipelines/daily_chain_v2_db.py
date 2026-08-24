@@ -20,6 +20,8 @@ from daily_chain_v2_contract import (
     rates_contract_sources,
     route_policy_upserts,
     sha256,
+    supersede_seq_of,
+    supersede_suffix,
 )
 from qualified_pool_operator import db, load_env
 
@@ -746,6 +748,24 @@ def validate_live_readback(snapshot: Mapping[str, Any], health: Mapping[str, Any
     return {"generationId": expected_id, "generatedAt": expected_at}
 
 
+LIVE_EVENT_KEY_RE = re.compile(r"live\.confirmed:\d{4}-\d{2}-\d{2}(/[1-9][0-9]*)?")
+
+
+def live_event_key(business_date: str, run_id: str) -> str:
+    """Outbox key of one published GENERATION of a business date.
+
+    publication_outbox locks publication to the date twice over: UNIQUE
+    event_key and UNIQUE(business_date,event_type).  A supersede rerun of the
+    same date is a new generation of that date, so its key carries the run's
+    `/N` suffix; the previous row is marked `superseded=1` in the same
+    transaction that inserts this one.  Generation 1 -- every run that never
+    supersedes -- produces the historical `live.confirmed:<date>` byte for
+    byte, so nothing already in the outbox changes meaning.
+    """
+
+    return f"live.confirmed:{business_date}{supersede_suffix(supersede_seq_of(run_id))}"
+
+
 def build_live_event(
     *,
     business_date: str,
@@ -763,7 +783,7 @@ def build_live_event(
         raise RuntimeError("accepted semantic content sha256 is invalid")
     degraded = sorted(set(str(value) for value in degraded_sources))
     event = {
-        "eventKey": f"live.confirmed:{business_date}",
+        "eventKey": live_event_key(business_date, run_id),
         "eventType": "live.confirmed",
         "businessDate": business_date,
         "runId": run_id,
@@ -800,7 +820,7 @@ def recover_live_event(
     or filesystem receipt is durable.
     """
 
-    event_key = f"live.confirmed:{business_date}"
+    event_key = live_event_key(business_date, run_id)
     load_env()
     connection = db()
     try:
@@ -865,8 +885,16 @@ def recover_live_event(
 
 def insert_live_event(event: Mapping[str, Any]) -> tuple[int, bool]:
     event_key = str(event["eventKey"])
-    if not re.fullmatch(r"live\.confirmed:\d{4}-\d{2}-\d{2}", event_key):
+    if not LIVE_EVENT_KEY_RE.fullmatch(event_key):
         raise ValueError("invalid live.confirmed event key")
+    # Only a SUPERSEDE rerun may put a second generation of one date into the
+    # outbox, and only because its run id says so.  An ordinary rerun of the
+    # date keeps the same event key and is still refused below, exactly as it
+    # always was: the outbox is the publication lock, and a supersede is the
+    # single explicit way to unlock one date, not a general escape.
+    supersede_seq = supersede_seq_of(str(event.get("runId") or ""))
+    if supersede_seq > 1 and not event_key.endswith(supersede_suffix(supersede_seq)):
+        raise ValueError("live.confirmed event key does not match its run's generation")
     load_env()
     connection = db()
     try:
@@ -881,6 +909,19 @@ def insert_live_event(event: Mapping[str, Any]) -> tuple[int, bool]:
                 raise RuntimeError("live.confirmed key already belongs to another generation")
             connection.commit()
             return int(existing["id"]), False
+        if supersede_seq > 1:
+            # Same transaction as the insert: the date must never be readable
+            # with two live rows, and the widened
+            # UNIQUE(business_date,event_type,generation_id) still refuses a
+            # rerun that produced the same generation.
+            cursor.execute(
+                """
+                UPDATE publication_outbox SET superseded=1
+                WHERE business_date=%s AND event_type=%s AND event_key<>%s
+                  AND superseded=0
+                """,
+                (event["businessDate"], event["eventType"], event_key),
+            )
         cursor.execute(
             """
             INSERT INTO publication_outbox

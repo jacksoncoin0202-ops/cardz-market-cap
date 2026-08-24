@@ -55,10 +55,14 @@ from daily_chain_v2_contract import (  # noqa: E402
     identity_lanes,
     publish_leg_seconds,
     sha256,
+    supersede_seq_of,
+    supersede_suffix,
     v2_schema_capabilities,
 )
 from daily_chain_v2_journal import (  # noqa: E402
     Journal,
+    JournalError,
+    RUN_SUCCESS_STATES,
     SUCCESS_TASK_STATES,
     TERMINAL_TASK_STATES,
     UNPARKABLE_TASK_STATES,
@@ -252,29 +256,63 @@ def jst_schedule(day: date) -> dict[str, datetime]:
 RUN_LABEL_RE = re.compile(r"^[A-Z][A-Z0-9]{1,7}$")
 
 
-def run_id_for(business_date: date | str, run_label: str = "") -> str:
+def run_id_for(
+    business_date: date | str,
+    run_label: str = "",
+    supersede_seq: int = 1,
+) -> str:
     """Durable run identity.
 
-    Unlabelled (the scheduled path and every real publish) stays byte-identical
-    to the historical `cardz-v2:<business_date>`.  A label names a REHEARSAL of
-    the same business date (`cardz-v2:2026-08-23#A01`): own journal file, own
-    runtime directory and health document, and it never publishes -- MySQL keys
-    publication to the business date (publication_outbox
-    UNIQUE(business_date,event_type); generation id = sha256(businessDate +
-    content)), so a second publish of one date is refused there whatever the
-    label says.  Labels are operator-facing and count up (A01, A02, ...)
-    instead of burning future business dates.
+    Unlabelled generation 1 (the scheduled path and every ordinary publish)
+    stays byte-identical to the historical `cardz-v2:<business_date>`.
+
+    A label names a REHEARSAL of the same business date
+    (`cardz-v2:2026-08-23#A01`): own journal file, own runtime directory and
+    health document, and it never publishes.
+
+    A supersede seq names a RERUN of the same business date with fresh data
+    (`cardz-v2:2026-08-24/2`): same journal, same date, own runtime directory,
+    and it keeps full publication rights -- the previous generation was
+    archived out of the journal and its outbox row is marked superseded when
+    the new one is confirmed.  The two are deliberately different concepts and
+    never combine: a rehearsal proves nothing by publishing, so asking for both
+    is a bug, not a mode.
     """
 
     day = business_date.isoformat() if isinstance(business_date, date) else str(business_date)
     label = (run_label or "").strip()
+    suffix = supersede_suffix(supersede_seq)
     if not label:
-        return f"cardz-v2:{day}"
+        return f"cardz-v2:{day}{suffix}"
     if not RUN_LABEL_RE.match(label):
         raise ValueError(
             f"run label must match {RUN_LABEL_RE.pattern} (e.g. A01), got {label!r}"
         )
+    if suffix:
+        raise ValueError(
+            "a rehearsal label never supersedes a business date;"
+            f" drop the label or the supersede generation ({label!r}{suffix})"
+        )
     return f"cardz-v2:{day}#{label}"
+
+
+def runtime_dir_for(
+    business_date: date | str,
+    run_label: str = "",
+    supersede_seq: int = 1,
+) -> Path:
+    """Per-run runtime directory.  Per-task files are keyed by task_key, which
+    is date-scoped, so a rehearsal or a supersede rerun that shared the date's
+    directory would overwrite the previous run's logs and receipts.
+    """
+
+    day = business_date.isoformat() if isinstance(business_date, date) else str(business_date)
+    label = (run_label or "").strip()
+    name = f"{day}-{label}" if label else day
+    seq = max(1, int(supersede_seq))
+    if seq > 1:
+        name = f"{name}-S{seq}"
+    return ROOT / "data" / "runtime" / "daily-chain-v2" / name
 
 
 def rehearsal_state_path(base: Path, run_label: str) -> Path:
@@ -290,6 +328,91 @@ def rehearsal_state_path(base: Path, run_label: str) -> Path:
         return base
     run_id_for("2000-01-01", label)  # validates the label
     return base.with_name(f"{base.stem}-{label}{base.suffix}")
+
+
+AUTO_SUPERSEDE_ENV = "CARDZ_V2_AUTO_SUPERSEDE"
+AUTO_SUPERSEDE_REASON = (
+    "auto-align: the published run for this business date was created on an"
+    " earlier calendar day, so the date is one day ahead of the calendar"
+)
+
+
+def auto_supersede_enabled() -> bool:
+    """Phase 2 auto-align is OFF unless the operator turns it on for a tick."""
+
+    return os.environ.get(AUTO_SUPERSEDE_ENV, "").strip().casefold() not in {
+        "", "0", "false", "no", "off",
+    }
+
+
+def maybe_auto_supersede(
+    journal: Journal,
+    business_date: date,
+    provenance: Mapping[str, Any],
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any] | None:
+    """Rerun a stale published business date on a NATURAL tick, at most once.
+
+    Business dates drifted a day ahead of the calendar because early manual
+    runs burned slots: a date publishes, the journal's UNIQUE business_date
+    plus the tick no-op guard make it dead forever, and the next natural tick
+    has to take tomorrow.  When this is enabled, a natural tick that finds
+    today's date already published by a run created on an EARLIER calendar day
+    archives that run and plans the date again with fresh data.
+
+    Four conditions, all required, and the journal enforces the cap itself:
+      * the flag is set (default OFF: with it unset this returns before it has
+        read anything, and the tick behaves exactly as it does today);
+      * the tick's provenance is scheduled, never an operator's CLI run;
+      * the live run for the date is PUBLISHED / PUBLISHED_DEGRADED and was
+        created before today (JST);
+      * no supersede has happened for that date today, and no automatic one
+        ever (`Journal.supersede_run` refuses a second `origin='auto'`).
+
+    An automatic supersede is deliberately NOT a manual intervention: the
+    archived run's manual and event-107 counters are carried into the rerun by
+    `Journal.ensure_run`, so the date's autonomy evidence survives it.
+    """
+
+    if not auto_supersede_enabled():
+        return None
+    if classify_provenance(provenance) != "scheduled":
+        return None
+    day_text = business_date.isoformat()
+    run = journal.run_for_date(day_text)
+    if not run or str(run.get("status") or "") not in RUN_SUCCESS_STATES:
+        return None
+    today_jst = (now or utc_now()).astimezone(JST).date()
+    created_raw = str(run.get("created_at") or "")
+    try:
+        created = datetime.fromisoformat(created_raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    if created.astimezone(JST).date() >= today_jst:
+        return None
+    for entry in journal.supersede_history(day_text):
+        if str(entry.get("supersedeOrigin")) == "auto":
+            return None
+        try:
+            stamped = datetime.fromisoformat(
+                str(entry.get("supersededAt") or "").replace("Z", "+00:00")
+            )
+        except ValueError:
+            continue
+        if stamped.tzinfo is None:
+            stamped = stamped.replace(tzinfo=timezone.utc)
+        if stamped.astimezone(JST).date() == today_jst:
+            return None
+    return journal.supersede_run(
+        day_text,
+        reason=AUTO_SUPERSEDE_REASON,
+        receipt_dir=runtime_dir_for(business_date, "", supersede_seq_of(str(run["run_id"]))),
+        origin="auto",
+        now=now,
+    )
 
 
 def last_scheduled_tick_utc(day: date) -> datetime:
@@ -486,10 +609,11 @@ def build_health_document(
     tick_ended_at_utc: str | None = None,
     run_label: str = "",
     tick_budget: Mapping[str, Any] | None = None,
+    supersede_seq: int = 1,
 ) -> dict[str, Any]:
     """Schema-1 health contract shared with the watchdog (C1)."""
 
-    run_id = run_id_for(business_date, run_label)
+    run_id = run_id_for(business_date, run_label, supersede_seq)
     try:
         run = journal.run(run_id)
         rows = journal.tasks(run_id) if run else []
@@ -545,6 +669,14 @@ def build_health_document(
         # watchdog's schema-1 readers are untouched.
         "tick_budget": dict(tick_budget) if tick_budget else None,
         "next_retry_at_utc": iso(min(retries)) if retries else None,
+        # Supersede lineage, additive to schema 1.  `supersede_pending` is the
+        # watchdog's re-arm signal: a superseded date's PUBLISHED health
+        # document is no longer proof that today published, and stays "not done
+        # yet" until the superseding generation confirms its own publication.
+        "supersede_seq": max(1, int(supersede_seq)),
+        "supersede_pending": bool(
+            int(supersede_seq) > 1 and not (run or {}).get("publication_status")
+        ),
         "tasks": tasks,
         "parked": sorted(parked),
         "manual_window_until_utc": manual_window_until(run, business_date),
@@ -764,6 +896,13 @@ def source_barrier_ready(
 ) -> bool:
     if not tasks:
         return False
+    # `system` rows in this phase are orchestrator stages parked alongside the
+    # sources (the identity census), not sources.  aggregate_source_health
+    # already draws exactly this line; counting one here would let an optional
+    # housekeeping stage hold the whole business date behind the core barrier,
+    # every pass, until 10:15.  Nothing this changes exists before the census:
+    # every other `system` stage lives in infra/barrier/identity/publish.
+    tasks = [row for row in tasks if str(row.get("source_code", "")) != "system"]
     core = [row for row in tasks if str(row["required_class"]) == "core"]
     # SKIPPED only comes from an operator `retire` with a journaled reason: a
     # core contract-repair whose shortfall closed (08-24: a 1604-card gemrate
@@ -838,20 +977,23 @@ class DailyChainV2:
         deadline_monotonic: float,
         schedule: Mapping[str, datetime] | None = None,
         run_label: str = "",
+        supersede_seq: int = 1,
     ) -> None:
         self.journal = journal
         self.business_date = business_date
         self.day_text = business_date.isoformat()
         self.run_label = (run_label or "").strip()
-        self.run_id = run_id_for(business_date, self.run_label)
+        # Generation of this business date.  1 is the historical single run;
+        # >1 means a previous generation was archived out of the journal and
+        # this one reruns the same date with fresh data -- own directory, full
+        # publication rights.
+        self.supersede_seq = max(1, int(supersede_seq))
+        self.run_id = run_id_for(business_date, self.run_label, self.supersede_seq)
         self.allow_publish = allow_publish
         self.notify = notify
         self.deadline_monotonic = deadline_monotonic
-        # A rehearsal gets its own directory: per-task files are keyed by
-        # task_key, which is date-scoped, so sharing the date's directory would
-        # overwrite the real run's logs and receipts.
-        self.runtime_dir = ROOT / "data" / "runtime" / "daily-chain-v2" / (
-            f"{self.day_text}-{self.run_label}" if self.run_label else self.day_text
+        self.runtime_dir = runtime_dir_for(
+            business_date, self.run_label, self.supersede_seq
         )
         self.log_dir = self.runtime_dir / "logs"
         self.receipt_dir = self.runtime_dir / "receipts"
@@ -1408,6 +1550,17 @@ class DailyChainV2:
             )
         return reopened
 
+    def publication_allowed(self) -> bool:
+        """May this run plan the release/live-confirm legs at all?
+
+        A supersede rerun keeps every publication right the first generation
+        had -- that is the whole point of Route B.  A REHEARSAL never has them,
+        and says so here as well as at the CLI: both forks the same runtime
+        directory mechanic, so the directory shape must never be what decides.
+        """
+
+        return bool(self.allow_publish) and not self.run_label
+
     def schema_capabilities(self) -> tuple[str, ...]:
         """One infra stage per V2 migration file on disk, in file order."""
 
@@ -1452,6 +1605,26 @@ class DailyChainV2:
                     payload=source_payload(adapter, task),
                 )
             return
+        # Identity census.  GemRate's PSA10>=1000 universe file is the input to
+        # identity intake; when it ages out the chain keeps binding yesterday's
+        # universe and nothing says so.  The stage SELF-GATES on the file's
+        # mtime and usually no-ops, so it is planned WITHOUT a return and with
+        # no follow-up gate anywhere: a census that fails, or never finishes,
+        # must not be able to touch identity, acceptance or publication.
+        #
+        # It sits in `source` because that is the only phase eligible_phases
+        # keeps claimable in every state of the run, published included -- and
+        # it must be planned only AFTER the adapters above, because an empty
+        # `source` phase is what triggers that planning.
+        if self.stage_row("identity-census") is None:
+            self.add_stage(
+                phase="source",
+                capability="identity-census",
+                stage_name="identity-census",
+                required_class="extra",
+                concurrency_group="host:gemrate",
+                max_attempts=2,
+            )
         repair_contracts = [
             row for row in (
                 self.stage_row("core-contract-pre"),
@@ -1919,7 +2092,7 @@ class DailyChainV2:
         if not self.stage_complete("box"):
             return
 
-        if not self.allow_publish:
+        if not self.publication_allowed():
             self.journal.set_run_status(self.run_id, "READY_FOR_CUTOVER")
             return
         if self.stage_row("release") is None:
@@ -2068,6 +2241,7 @@ class DailyChainV2:
                     tick_ended_at_utc=tick_ended_at_utc,
                     run_label=self.run_label,
                     tick_budget=self.tick_budget(),
+                    supersede_seq=self.supersede_seq,
                 ),
                 run_label=self.run_label,
             )
@@ -3328,11 +3502,17 @@ def load_provenance(path: Path | None) -> dict[str, Any]:
     return value
 
 
-def status_brief(journal: Journal, business_date: date, run_label: str = "") -> str:
+def status_brief(
+    journal: Journal,
+    business_date: date,
+    run_label: str = "",
+    supersede_seq: int = 1,
+) -> str:
     """One operator line built from the same data as health.json."""
 
     health = build_health_document(
-        journal, business_date, tick_phase="query", run_label=run_label
+        journal, business_date, tick_phase="query", run_label=run_label,
+        supersede_seq=supersede_seq,
     )
     tasks = health["tasks"]
     done = sum(
@@ -3352,8 +3532,10 @@ def status_brief(journal: Journal, business_date: date, run_label: str = "") -> 
     except (OSError, ValueError, json.JSONDecodeError, AttributeError):
         age = "-"
     label = (run_label or "").strip()
+    seq = int(health["supersede_seq"])
     return (
-        f"{health['business_date']}{'#' + label if label else ''} {health['run_state']}"
+        f"{health['business_date']}{'#' + label if label else ''}"
+        f"{supersede_suffix(seq)} {health['run_state']}"
         f" tasks={done}/{len(tasks)} retry={retry} terminal={terminal}"
         f" parked={parked}"
         f" next_retry={health['next_retry_at_utc'] or '-'}"
@@ -3384,7 +3566,11 @@ def operator_scope_error(journal: Journal, task_key: str, run_id: str) -> str:
 def run_unpark(journal: Journal, business_date: date, args: Any) -> int:
     """Operator resume path for work the budgets stopped auto-claiming."""
 
-    run_id = run_id_for(business_date, str(getattr(args, "run_label", "") or ""))
+    run_id = run_id_for(
+        business_date,
+        str(getattr(args, "run_label", "") or ""),
+        int(getattr(args, "supersede_seq", 1) or 1),
+    )
     if args.list_only:
         rows = journal.unparkable_tasks(run_id)
         for row in rows:
@@ -3435,7 +3621,11 @@ def run_unpark(journal: Journal, business_date: date, args: Any) -> int:
 def run_retire(journal: Journal, business_date: date, args: argparse.Namespace) -> int:
     """Operator settlement of a parked/terminal task that later work superseded."""
 
-    run_id = run_id_for(business_date, str(getattr(args, "run_label", "") or ""))
+    run_id = run_id_for(
+        business_date,
+        str(getattr(args, "run_label", "") or ""),
+        int(getattr(args, "supersede_seq", 1) or 1),
+    )
     if args.list_only:
         return run_unpark(journal, business_date, args)
     if not args.task:
@@ -3470,6 +3660,82 @@ def run_retire(journal: Journal, business_date: date, args: argparse.Namespace) 
         f"TASK_RETIRED {row['task_key']} {row['previousStatus']}->{row['status']}"
         f" attempts={row['attempts']}/{row['max_attempts']} reason={args.reason}"
     )
+    return 0
+
+
+def run_supersede(journal: Journal, business_date: date, args: argparse.Namespace) -> int:
+    """Operator same-day rerun: archive this date's run so it can run again.
+
+    Dry run by default and it prints the whole impact, because the write is
+    not reversible from the CLI: the live rows move into the `*_archive`
+    tables and only the JSON receipt reconstructs them.
+
+    MySQL is deliberately untouched here.  publication_outbox is a publication
+    lock, not run state: the older row for the date is marked superseded by
+    `insert_live_event` at the moment the new generation is confirmed, so a
+    supersede that never republishes leaves the live site exactly as it is.
+    """
+
+    day_text = business_date.isoformat()
+    seq = journal.live_supersede_seq(day_text)
+    try:
+        preview = journal.supersede_preview(
+            day_text, receipt_dir=runtime_dir_for(business_date, "", seq)
+        )
+    except JournalError as error:
+        print(f"SUPERSEDE_REFUSED {error}", file=sys.stderr)
+        return 2
+    impact = {
+        **preview,
+        "runtimeDir": str(runtime_dir_for(business_date, "", preview["nextSupersedeSeq"])),
+        "journalPath": str(journal.path),
+        "outbox": {
+            "table": "publication_outbox",
+            "eventType": "live.confirmed",
+            "supersededEventKey": (
+                f"live.confirmed:{day_text}{supersede_suffix(preview['supersedeSeq'])}"
+                if preview["publicationStatus"] else None
+            ),
+            "supersededGenerationId": preview["generationId"],
+            "newEventKey": (
+                f"live.confirmed:{day_text}"
+                f"{supersede_suffix(preview['nextSupersedeSeq'])}"
+            ),
+            "rowsMarkedSupersededAtPublish": 1 if preview["publicationStatus"] else 0,
+            "note": "MySQL is written by live-confirm, not by this command",
+        },
+    }
+    if not args.write:
+        print(json.dumps({"dryRun": True, **impact}, ensure_ascii=False, sort_keys=True, default=str))
+        return 0
+    try:
+        result = journal.supersede_run(
+            day_text,
+            reason=str(args.reason),
+            receipt_dir=runtime_dir_for(business_date, "", seq),
+            origin="manual",
+        )
+    except JournalError as error:
+        print(f"SUPERSEDE_REFUSED {error}", file=sys.stderr)
+        return 2
+    # The watchdog reads health.json alone and treats today-PUBLISHED as
+    # silence-OK.  The document it would still be reading describes a run that
+    # no longer exists, so re-stamp it here rather than waiting for the next
+    # tick to re-arm the watchdog.
+    try:
+        write_health_document(
+            build_health_document(
+                journal,
+                business_date,
+                tick_phase="superseded",
+                supersede_seq=result["nextSupersedeSeq"],
+            )
+        )
+    except Exception:  # noqa: BLE001 - health reporting never fails the command
+        pass
+    print(json.dumps(
+        {"dryRun": False, **impact, **result}, ensure_ascii=False, sort_keys=True, default=str
+    ))
     return 0
 
 
@@ -3510,6 +3776,17 @@ def main() -> int:
     retire.add_argument("--reason", required=True)
     retire.add_argument("--list", dest="list_only", action="store_true")
     retire.add_argument("--run-label", default="")
+    supersede = sub.add_parser(
+        "supersede",
+        help="archive this business date's run so the same date can run again"
+        " today with fresh data (dry run unless --write)",
+    )
+    supersede.add_argument("--state-db", type=Path, default=default_state_path())
+    supersede.add_argument("--business-date", type=date.fromisoformat)
+    supersede.add_argument(
+        "--reason", default="operator supersede: same-day rerun with fresh data"
+    )
+    supersede.add_argument("--write", action="store_true")
     args = parser.parse_args()
 
     day = args.business_date or datetime.now(JST).date()
@@ -3522,12 +3799,21 @@ def main() -> int:
         # Rehearsals never share the live journal (autonomy evidence).
         args.state_db = rehearsal_state_path(args.state_db, run_label)
     journal = Journal(args.state_db.resolve())
-    run_id = run_id_for(day, run_label)
+    # A superseded business date runs again as `<run_id>/<N>`; a date that was
+    # never superseded answers 1 here and every id below stays byte-identical
+    # to the historical one.
+    supersede_seq = journal.live_supersede_seq(day.isoformat())
+    args.supersede_seq = supersede_seq
+    run_id = run_id_for(day, run_label, supersede_seq)
+    if args.command == "supersede":
+        journal.initialise()
+        return run_supersede(journal, day, args)
+
     if args.command == "status":
         journal.initialise()
         row = journal.run(run_id)
         if args.brief:
-            print(status_brief(journal, day, run_label))
+            print(status_brief(journal, day, run_label, supersede_seq))
             return 0
         if row is None:
             print(json.dumps({"runId": run_id, "status": "NOT_STARTED"}, sort_keys=True))
@@ -3585,6 +3871,21 @@ def main() -> int:
     global TICK_LOCK_HANDLE
     # Keep the descriptor referenced: closing it would release the flock.
     TICK_LOCK_HANDLE = lock_handle
+    # Phase 2 auto-align, default OFF.  Under the tick lock, so two ticks can
+    # never archive the same date at once, and before the chain is built,
+    # because the archival is what decides this tick's run id and runtime dir.
+    # A rehearsal journal has no date to align.
+    if not run_label:
+        superseded = maybe_auto_supersede(journal, day, provenance)
+        if superseded is not None:
+            print(
+                "AUTO_SUPERSEDED"
+                f" run={superseded['runId']} next={superseded['nextRunId']}"
+                f" receipt={superseded['receiptPath']}",
+                flush=True,
+            )
+            supersede_seq = journal.live_supersede_seq(day.isoformat())
+            args.supersede_seq = supersede_seq
     chain = DailyChainV2(
         journal=journal,
         business_date=day,
@@ -3598,6 +3899,7 @@ def main() -> int:
             if (args.manual_e2e_window or run_label) else None
         ),
         run_label=run_label,
+        supersede_seq=supersede_seq,
     )
     chain.initialise(
         provenance,

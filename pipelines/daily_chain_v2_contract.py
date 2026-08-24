@@ -562,6 +562,49 @@ def previous_business_date(value: date) -> date:
     return candidate
 
 
+# Supersede-in-place run identity.  A business date that already published may
+# be run again with fresh data; the rerun keeps the date and carries the
+# generation in a `/N` suffix (`cardz-v2:2026-08-24/2`).  Generation 1 has no
+# suffix, so every historical run id, event key and outbox row keeps its exact
+# meaning and nothing that never supersedes has to know the suffix exists.
+RUN_ID_SUPERSEDE_RE = re.compile(r"/([1-9][0-9]*)$")
+
+
+def supersede_seq_of(run_id: Any) -> int:
+    """Supersede generation encoded in a run id; an unsuffixed id is 1."""
+
+    match = RUN_ID_SUPERSEDE_RE.search(str(run_id or ""))
+    return int(match.group(1)) if match else 1
+
+
+def supersede_suffix(seq: Any) -> str:
+    """`/N` for a superseding generation, empty string for the first one."""
+
+    try:
+        value = int(seq)
+    except (TypeError, ValueError):
+        value = 1
+    return f"/{value}" if value > 1 else ""
+
+
+def run_id_with_supersede_seq(run_id: Any, seq: Any) -> str:
+    """Same run id, re-stamped for generation `seq`.  The one suffix rewriter."""
+
+    return RUN_ID_SUPERSEDE_RE.sub("", str(run_id or "")) + supersede_suffix(seq)
+
+
+def run_id_business_date(run_id: Any) -> str:
+    """Business date of a run id, whatever label or supersede suffix it carries.
+
+    Every place that needs the date from an id uses this instead of splitting
+    on its own: `cardz-v2:2026-08-24`, `cardz-v2:2026-08-24#A01` and
+    `cardz-v2:2026-08-24/2` all answer `2026-08-24`.
+    """
+
+    _, _, rest = str(run_id or "").partition(":")
+    return RUN_ID_SUPERSEDE_RE.sub("", rest).partition("#")[0]
+
+
 def autonomous_proven(
     current_business_date: date,
     rows: Iterable[Mapping[str, Any]],
