@@ -9,7 +9,9 @@
  * 「+8.8%」其實係攞真成交同 K 線比。呢個唔會有 error，只會靜靜出錯數。
  *
  * 呢個檔守四樣嘢：
- *  ① producer 唔准再有 `market_price_observation` 嘅讀路（string 級，一眼睇得出有冇人加返）。
+ *  ① observation 讀路（R6b，owner 2026-08-24 起合法返嚟）全檔只准一處，而且只准餵
+ *     `historyReference` 呢條獨立 series；history builder 段落一個字都唔准掂佢
+ *     （string 級，一眼睇得出有冇人駁錯線）。
  *  ② **真源碼行一次**：抽 live-db-snapshot.ts 嗰段 history builder 出嚟，餵住 K 線點 +
  *     成交點，K 線嗰日一定唔可以出現喺 historyDaily。
  *  ③ **真 windowMetrics 行一次**（同一份 history）：30d 變幅要等於成交對成交嘅差；
@@ -44,12 +46,15 @@ const read = (rel) => readFileSync(join(ROOT, rel), "utf8");
 const producer = read(PRODUCER_REL);
 
 /* ─────────────────────────────────────────────────────────────
- * H1 — producer 冇 `market_price_observation` 讀路（chart 值唔准入公開 snapshot）。
+ * H1 — observation 讀路只准餵 `historyReference`（R6b）；historyDaily 讀路零接觸。
+ *      R6 原版係「成個 producer 唔准有呢條 SQL」；owner 2026-08-24 指示長窗
+ *      （90/180/365）行混合錨 + ≥90d 圖表補深歷史，讀路先返嚟——但一定係另一條
+ *      series，唔准再餵 historyDaily。
  * ───────────────────────────────────────────────────────────── */
-check("H1: 冇 `INNER JOIN market_price_observation`",
-  !producer.includes("INNER JOIN market_price_observation"));
-check("H1: 冇 `metric_kind='psa10_price'` 歷史 query",
-  !producer.includes("metric_kind='psa10_price'"));
+check("H1: `INNER JOIN market_price_observation` 有且只有一處（reference 讀路）",
+  producer.split("INNER JOIN market_price_observation").length - 1 === 1);
+check("H1: `metric_kind='psa10_price'` 有且只有一處（同一條 reference query）",
+  producer.split("metric_kind='psa10_price'").length - 1 === 1);
 check("H1: `priceRows` 呢個 binding 完全冇咗（唔准淨係 query 咗唔用）",
   !/\bpriceRows\b/.test(producer));
 
@@ -80,6 +85,10 @@ check("抽到 history builder 段落", startAt >= 0 && endAt > startAt, `${start
 let buildHistories = null;
 if (startAt >= 0 && endAt > startAt) {
   const slice = producer.slice(startAt, endAt);
+  // 只封真接線（SQL join / identifier），唔封講歷史嘅註釋。
+  check("H1: history builder 段落唔掂 observation/reference（historyDaily 照舊 sales-only）",
+    !slice.includes("INNER JOIN market_price_observation")
+    && !/referenceRows|references|ReferenceDraft/.test(slice));
   // 唯一一句改動：DB／receipt 讀路換成 test 餵入嘅隔離表。其餘一個字唔郁。
   const quarantineLine = slice.split("\n").filter((line) => line.trim().startsWith("const saleQuarantine ="));
   check("history builder 有且只有一行 `const saleQuarantine =`", quarantineLine.length === 1,

@@ -357,7 +357,7 @@ export function CardDetail({ id, snapshot, related }: {
             metrics + 資料時間跟尾，簡介（可引用事實 + 故事）一律推到最底先出。
             手機同桌面同一份 DOM 順序，唔准用 CSS order 扮排位。
           */}
-          <HistoryChart points={card.historyDaily} locale={locale} currency={currency} rates={snapshot.rates} />
+          <HistoryChart points={card.historyDaily} reference={card.historyReference} locale={locale} currency={currency} rates={snapshot.rates} />
         </div>
         {/*
           `.detail-content` 喺呢度收口：市值/數量同資料時間升做 `.detail-grid` 直屬 child，

@@ -32,15 +32,19 @@ export type MarketWindow = (typeof marketWindows)[number];
 /*
  * 預設時段（初次載入嘅 period、卡頁 meta 變動徽章、分享圖 `SHARE_WINDOW`）。
  *
- * 2026-08-24（R6）由 180d 搬去 30d：`historyDaily` 收窄成「真成交日」之後，條 series
- * 稀疏咗，而所有 `changePct` 都要喺佢上面搵錨。08-23 嗰份 seed snapshot 實測（真
- * `windowMetrics` 行全板 1,604 張）：30d 錨得住 1,537 張（95.8%），180d 淨係 165 張
- * （10.3%）—— 即係舊預設會令 ~90% 卡嘅第一眼變「資料累積中」，而且冇 error、冇 500，
- * 靜靜地塌。90d / 180d / 365d 照樣揀得到，只係唔再做預設。
+ * 2026-08-24（R6）曾經由 180d 搬去 30d：`historyDaily` 收窄成「真成交日」之後，條 series
+ * 稀疏咗，而所有 `changePct` 都要喺佢上面搵錨，180d 淨係 165/1604（10.3%）張卡錨得住。
+ *
+ * 2026-08-24（R6b，owner 指示）搬返 180d：長窗（90/180/365）而家行混合錨——有真成交錨
+ * 就用真成交，冇先至退去 `historyReference`（K 線／`market_price_observation` 參考點）。
+ * 同一份 seed snapshot 實測（真 `windowMetrics` 行全板 1,604 張）：
+ *   純成交   90d 35.6% / 180d 10.3% / 365d 3.0%
+ *   混合錨   90d 99.9% / 180d 99.3% / 365d 87.4%
+ * 1d / 7d / 30d **冇**呢條後備，永遠只認真成交（owner hard rule）。
  * 呢個數由 `scripts/test-fe-default-window-coverage.mjs` 釘住（預設窗要 ≥ 60% 有錨），
- * 揼返去 180d 會紅；日後成交數據長多咗，長窗自然過到，條閘會自己放行。
+ * 拆咗長窗後備再揼返 180d 就會紅（10.3%）。
  */
-export const defaultMarketWindow: MarketWindow = "30d";
+export const defaultMarketWindow: MarketWindow = "180d";
 export type Theme = (typeof themes)[number];
 export type MetricStatus = "ready" | "accumulating" | "stale" | "unavailable";
 export type CoverageStatus = "complete" | "partial" | "stale" | "unavailable";
@@ -196,6 +200,16 @@ export interface MarketCardView {
    * 而榜頁根本冇組件讀佢，唯一嘅圖係 <Sparkline>，佢淨係要 `salesSparkline`。
    */
   historyDaily: PricePoint[];
+  /*
+   * 參考點（K 線）series，同 `historyDaily` 分開放，**唔准**合併。
+   * 只有兩個合法用途（R6b，owner 2026-08-24）：
+   *  ① 長窗（90/180/365）冇真成交錨嗰陣做後備錨；
+   *  ② 卡頁長時段（≥90d）圖表，畫「最早一單真成交」之前嗰段深歷史。
+   * 短窗（1d/7d/30d）一個字都唔准用。榜頁同 `historyDaily` 一樣清空
+   * （`server-snapshot.ts` `listCard`）：榜頁冇組件讀，但佢好大舊。
+   * 舊 snapshot 冇呢條 field，所以係 optional，讀嘅時候一律 `?? []`。
+   */
+  historyReference?: PricePoint[];
   /*
    * `historyDaily` 入面非空且有限嘅 `trackedSalesValueUsd` 序列 —— <Sparkline>
    * 唯一會畫嘅數。喺 `normaliseSnapshot` 一次抽好，所以清空 historyDaily 之後

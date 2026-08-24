@@ -247,12 +247,25 @@ function salesTotal(history: DailyHistoryPoint[], endMs: number, days: number): 
   };
 }
 
+/*
+ * 混合錨政策（R6b，owner 2026-08-24）—— 短窗同長窗**唔同**規矩：
+ *  · 1d / 7d / 30d：只認 `history`（真成交）。`reference`（K 線／
+ *    `market_price_observation`）一個都唔准做錨。呢個係 R6 原本要斬嗰個病：
+ *    真成交 $2,000 → $3,100 應該 +55%，錨咗 K 線出 +8.8%，冇 error 冇 warning。
+ *  · 90d / 180d / 365d：有真成交錨就用真成交，**淨係**喺冇嘅時候先退去參考點。
+ *    成交系列嘅最早一點中位數得 74 日大，純成交嘅 180d 只錨得住 165/1604（10.3%）；
+ *    混合之後 1,593/1604（99.3%）。
+ * 「現價」嗰邊任何情況都係最新一單真成交推出嚟嘅 `currentPrice`，唔經呢兩條 series。
+ * 市值變幅照舊只喺短窗作（`inventCap`），所以參考錨永遠生唔出市值變幅。
+ * 條界由 `scripts/test-fe-hybrid-window-anchor.mjs` 用 mutation 探針釘住。
+ */
 function windowMetrics(
   history: DailyHistoryPoint[],
   currentPrice: number | null,
   currentPopulation: number | null,
   currentAsOf: string | null,
   currentSource: string | null,
+  reference: DailyHistoryPoint[] = [],
 ): Record<keyof typeof WINDOWS, WindowMetrics> {
   const currentMs = currentAsOf ? new Date(currentAsOf).valueOf() : Date.now();
   const currentCap = currentPrice === null || currentPopulation === null ? null : currentPrice * currentPopulation;
@@ -262,10 +275,12 @@ function windowMetrics(
     // 帶內空咗先輪到 step-function 後備（見 latestBefore 註釋）。帶內冇點
     // ⇒ (target−5d, target+5d) 全空 ⇒「最後一個 < target−5d 嘅點」就係
     //「最後一個 ≤ target 嘅點」，即係標準 as-of 語義，冇偷步。
-    const anchor = LONG_WINDOWS.has(code)
+    const saleAnchor = LONG_WINDOWS.has(code)
       ? latestBefore(history, targetMs + 1, currentSource)
       : nearestPrice(history, targetMs, tolerance, currentMs, currentSource)
         ?? (code === "30d" ? latestBefore(history, targetMs - tolerance * 86_400_000, currentSource) : null);
+    const anchor = saleAnchor
+      ?? (LONG_WINDOWS.has(code) ? latestBefore(reference, targetMs + 1, currentSource) : null);
     const priceChange = percentage(currentPrice, anchor?.priceUsd ?? null);
     // 錨點而家一律係成交點（`<lane>_sales` / 多源嗰日 `exact_psa10_sales`），
     // 而 currentSource 已經行過 chartLaneOf（母碼）。唔剝尾碼比較 = 全板 1,604
@@ -430,7 +445,7 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
     const variantIds = coreRows.map((row) => Number(row.variant_id));
     const placeholders = variantIds.map(() => "?").join(",");
 
-  const [localeRows, imageRows, fallbackImageRows, rawRows, salesRows, fxRows] = await Promise.all([
+  const [localeRows, imageRows, fallbackImageRows, rawRows, referenceRows, salesRows, fxRows] = await Promise.all([
       connection.query<DbRow[]>(`
         SELECT variant_id,locale_code,localized_name,localized_set_name,market_story,observed_at
         FROM catalog_variant_locale WHERE variant_id IN (${placeholders})
@@ -478,6 +493,29 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
           WHERE variant_id IN (${placeholders}) GROUP BY variant_id
         ) latest ON latest.id=raw.id
       `, variantIds),
+      /*
+       * 參考點（K 線）讀路 —— R6b（owner 2026-08-24）行返嚟，但**只**餵
+       * `historyReference` 呢條獨立 series，唔准掂 `historyDaily`。
+       * 用途得兩個，兩個都寫死喺 code：
+       *   ① 長窗（90/180/365）冇真成交錨嗰陣做後備錨（`windowMetrics` 個 `reference` 參數）。
+       *   ② 卡頁長時段圖表「最早一單真成交」之前嗰段深歷史（`mergeReferenceHistory`）。
+       * 短窗（1d/7d/30d）同 `historyDaily` 一個字都唔准用佢。
+       */
+      connection.query<DbRow[]>(`
+        SELECT history.id,price.variant_id,price.observed_date,price.price_usd,price.effective_at,
+          CASE WHEN price.source_code IN ('snk','snk_psa10') THEN 'snkrdunk' ELSE price.source_code END AS source_code
+        FROM market_metric_history_acceptance history
+        INNER JOIN market_price_observation price ON history.source_record_type='market_price_observation'
+          AND history.source_record_id=price.id AND history.variant_id=price.variant_id
+        WHERE history.metric_kind='psa10_price' AND history.variant_id IN (${placeholders})
+          -- acceptance 行係 append-only，可以指住事後被隔離嘅觀測（quarantined /
+          -- quarantined_lane / banned_g10_kline）。SQL 讀模全部（023/026/028/032）
+          -- 都係 metric_status='ready' 先出街；呢條 TS 讀路一直冇跟，2026-08-12
+          -- ad-hoc lane 事故先發現。等值 filter：新隔離字自動 fail-closed。
+          -- （scripts/test_snk_price_lane_audit.py 第 4 段釘住呢句。）
+          AND price.metric_status='ready'
+        ORDER BY price.variant_id,price.observed_date,price.effective_at,history.id
+      `, variantIds),
       connection.query<DbRow[]>(`
         SELECT variant_id,observed_date,sales_count,sales_value_usd,sales_coverage_status,
           sales_verified_zero,sales_source_codes,sales_evidence_at
@@ -520,6 +558,51 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       if (!images.has(variantId)) images.set(variantId, row);
     }
     const rawPrices = byVariant(rawRows[0]);
+
+    /*
+     * 參考 series（K 線）—— 同 `historyDaily` **完全分家**嘅第二條 series（R6b）。
+     * 佢有自己嘅 map、自己嘅 draft type，**唔會**經下面嗰個 `getPoint`，即係由構造上
+     * 塞唔入 `histories`；下面成段 sale-only history builder 一個字都冇改（R6 嗰段照留，
+     * `scripts/test-fe-history-sale-only.mjs` 抽緊嗰段源碼行）。
+     * 一日一點：同一日多過一個觀測就跟 lane 優先（同現價同源 > snkrdunk >
+     * pricecharting > 其他），同 R6 之前嗰個 ladder 一模一樣。
+     */
+    type ReferenceDraft = DailyHistoryPoint & {
+      priceSourceCode: string | null;
+      priceSourcePriority: number;
+    };
+    const currentSourceByVariant = new Map(coreRows.map((row) => [Number(row.variant_id), chartLaneOf(row.price_source_code) ?? ""]));
+    const references = new Map<number, Map<string, ReferenceDraft>>();
+    for (const row of referenceRows[0]) {
+      const variantId = Number(row.variant_id);
+      const observedDate = day(row.observed_date);
+      if (!observedDate) continue;
+      const priceUsd = numberValue(row.price_usd);
+      if (priceUsd === null) continue;
+      const sourceCode = String(row.source_code);
+      const priceSourcePriority = sourceCode === currentSourceByVariant.get(variantId)
+        ? 0
+        : sourceCode === "snkrdunk"
+          ? 1
+          : sourceCode === "pricecharting"
+            ? 2
+            : 3;
+      const byDate = references.get(variantId) ?? new Map<string, ReferenceDraft>();
+      references.set(variantId, byDate);
+      const existing = byDate.get(observedDate);
+      if (existing && existing.priceSourcePriority <= priceSourcePriority) continue;
+      byDate.set(observedDate, {
+        at: `${observedDate}T00:00:00Z`,
+        priceUsd,
+        priceStatus: "ready",
+        trackedSalesValueUsd: null,
+        trackedSalesCount: null,
+        salesCoverage: "unavailable",
+        salesVerifiedZero: false,
+        priceSourceCode: sourceCode,
+        priceSourcePriority,
+      });
+    }
 
     type HistoryDraft = DailyHistoryPoint & {
       priceSourceCode: string | null;
@@ -644,6 +727,12 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
         .sort((a, b) => a.at.localeCompare(b.at));
       const history = historyDrafts
         .map(({ priceSourceCode: _priceSourceCode, priceSourcePriority: _priceSourcePriority, ...point }) => point);
+      const referenceDrafts = [...(references.get(variantId)?.values() ?? [])]
+        .sort((a, b) => a.at.localeCompare(b.at));
+      // 同 `history` 一樣剝走供應商代號先出街（`test-public-surface-gate.mjs` 會喺
+      // payload 任何深度搵供應商代號）。lane 判斷淨係喺呢個 module 入面用 draft 做。
+      const reference = referenceDrafts
+        .map(({ priceSourceCode: _referenceSourceCode, priceSourcePriority: _referenceSourcePriority, ...point }) => point);
       const raw = rawPrices.get(variantId);
       const printingSetName = String(row.set_name ?? "");
       /*
@@ -744,8 +833,10 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
           currentPopulation,
           priceAsOf,
           chartLaneOf(row.price_source_code),
+          referenceDrafts,
         ),
         historyDaily: history,
+        historyReference: reference,
       };
     });
 

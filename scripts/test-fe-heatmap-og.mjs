@@ -4,7 +4,7 @@
  * 純靜態，唔使 dev server，由 run_all_tests.py glob 入 npm test。
  *
  * 守嘅係「錯咗照 200、冇人發現」嗰批：
- *  ① 預設 period 係 7d，唔准繼承網站 `defaultMarketWindow`（2026-08-24 起 30d）—— 嗰個係錯日趨勢
+ *  ① 預設 period 係 7d，唔准繼承網站 `defaultMarketWindow`（R6b 起 180d）—— 嗰個係錯日趨勢
  *  ② query 七個鍵齊：period / show / scope / format / theme / updown / lang
  *  ③ route 真係讀呢七個鍵，scope 認得 pokemon / one-piece，updown 認得 red-up
  *  ④ 人手分享同 cron 行同一條 URL builder（heatmap.tsx fetch heatmapOgPath）
@@ -34,11 +34,11 @@ const { readShareLang } = await import(pathToFileURL(join(ROOT, "apps/web/src/li
 check("path 係 /api/og/heatmap", /export const HEATMAP_OG_PATH = "\/api\/og\/heatmap"/.test(ogSrc));
 check("source 預設 period 7d", /HEATMAP_OG_DEFAULT_PERIOD: MarketWindow = "7d"/.test(ogSrc));
 check("source 預設 show 40", /HEATMAP_OG_DEFAULT_SHOW = 40/.test(ogSrc));
-/* 對照組：網站預設窗 2026-08-24（R6）由 180d 搬咗去 30d —— 值由
+/* 對照組：網站預設窗 R6b（2026-08-24，owner 指示長窗行混合錨）搬返 180d —— 值由
    `test-fe-default-window-coverage.mjs` 用真數據釘住，呢度只係要證明佢同熱力圖嘅 7d
    唔同一個數（唔同 = ① 條閘先至有嘢守）。 */
-check("網站 defaultMarketWindow 仍然係 30d（對照組）",
-  /export const defaultMarketWindow: MarketWindow = "30d";/.test(typesSrc));
+check("網站 defaultMarketWindow 係 180d（對照組）",
+  /export const defaultMarketWindow: MarketWindow = "180d";/.test(typesSrc));
 const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 check("heatmap-og 唔 import defaultMarketWindow", !/\bdefaultMarketWindow\b/.test(stripComments(ogSrc)));
 check("heatmap route 唔 import defaultMarketWindow", !/\bdefaultMarketWindow\b/.test(stripComments(routeSrc)));

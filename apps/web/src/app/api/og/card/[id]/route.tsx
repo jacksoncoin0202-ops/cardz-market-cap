@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { ImageResponse } from "next/og";
 import { shortSubject } from "@/lib/related-cards";
 import { buildShareChart, type ShareChart } from "@/lib/share-chart";
+import { mergeReferenceHistory } from "@/lib/history-window";
 import { loadNodeMarketAsset, loadMarketSnapshot } from "@/lib/server-snapshot";
 import { RESOLUTION_SCALE, readShareResolution } from "@/lib/share-resolution";
 import { FORMAT_SIZES, isWideFormat, readShareFormat, type ShareFormat, type TallShareFormat } from "@/lib/share-destinations";
@@ -1223,7 +1224,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
   /* 走勢圖同卡圖一樣 fail-open：`buildShareChart` 少過兩個價點就回 null，layout 見到
      null 就成塊唔出。**唔准**因為冇歷史而令張圖 500 或者畫一條假線。 */
-  const chart = buildShareChart(card.historyDaily ?? [], SHARE_WINDOW_DAYS, {
+  /* 分享圖同卡頁畫同一批點：`mergeReferenceHistory` 係「一個窗要邊幾點」政策嘅唯一實現
+     （lib/history-window.ts），呢度唔准另寫一次（AGENTS.md 規矩 13）。SHARE_WINDOW 而家係
+     180d，冇呢句就成板卡嘅分享圖淨返一兩個成交點，畫唔到線 → 塊圖冇走勢。 */
+  const chart = buildShareChart(
+    mergeReferenceHistory(card.historyDaily ?? [], card.historyReference ?? [], SHARE_WINDOW_DAYS),
+    SHARE_WINDOW_DAYS,
+    {
     /* wide 右欄由 620 闊做 678（卡圖鐵路 468 → 430）；高度由 64 收到 44 讓位畀 88px hero。 */
     width: S(isWideFormat(format) ? 678 : 968, scale),
     /* status 高 570px，條線可以畫高啲（180）—— 見 TALL_GEO */
@@ -1233,7 +1240,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     bars: !isWideFormat(format),
     grid: !isWideFormat(format),
     palette: { accent: palette.accent, grid: palette.line, bar: palette.salesBar, surface: palette.surface },
-  });
+    },
+  );
 
   const change = changeText(card);
   /*

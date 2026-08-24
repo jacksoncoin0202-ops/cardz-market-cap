@@ -177,6 +177,18 @@ export interface PublicCard {
   marketCap: MarketMetric;
   windows: Record<MarketWindow, WindowMetrics>;
   historyDaily: DailyHistoryPoint[];
+  /**
+   * Reference (chart / K-line) observations, kept as a SEPARATE series from
+   * `historyDaily`. `historyDaily` stays completed-sales-only; these points are
+   * "a price was quoted, no sale was recorded" and must never be merged into it.
+   * Two sanctioned uses only: the long windows (90d/180d/365d) may anchor on
+   * them when the card has no real-sale anchor in range, and the card-page chart
+   * may plot them for the span older than the card's earliest real-sale day.
+   * The short windows (1d/7d/30d) must never touch them.
+   * Optional: retained snapshots predate the field; `trackedSales*` are always
+   * null here because a reference point is by definition not a sale.
+   */
+  historyReference?: DailyHistoryPoint[];
 }
 
 export interface SnapshotGeneration {

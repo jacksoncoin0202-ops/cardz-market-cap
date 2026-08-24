@@ -317,14 +317,19 @@ function braced(source, start) {
     check("T5: chart 母碼原樣", chartLaneOf("pricecharting") === "pricecharting" && chartLaneOf("snkrdunk") === "snkrdunk");
     check("T5: 空值 → null", chartLaneOf(null) === null && chartLaneOf("") === null);
   }
-  check("T5: chart（market_price_observation）讀路唔准返嚟餵 history",
-    !producer.includes("INNER JOIN market_price_observation") && !/priceRows/.test(producer),
-    "producer 又有 K 線讀路");
+  /* R6b（owner 2026-08-24）：observation 讀路返咗嚟，但只准得一處，餵
+     `historyReference`（長窗後備錨 + ≥90d 深歷史圖）；historyDaily 側嘅深斷言喺
+     scripts/test-fe-history-sale-only.mjs H1。舊 `priceRows` binding 照封
+     （呢條 regex 原本俾 heredoc 食咗  變咗 backspace 字元，一直空轉，順手修埋）。 */
+  check("T5: observation 讀路有且只有一處（reference），舊 priceRows 唔准返嚟",
+    producer.split("INNER JOIN market_price_observation").length - 1 === 1
+      && !/priceRows/.test(producer),
+    "producer 嘅 K 線讀路唔係剛好一處，或者 priceRows 返咗嚟");
   check("T5: 變幅錨點嘅 source code 行過 chartLaneOf",
     /const anchorSource = chartLaneOf\(anchor\?\.sourceCode \?\? null\);/.test(producer),
     "anchorSource 冇剝尾碼，全板會假 sourceSwitched");
   check("T5: windowMetrics 個 currentSource 行過 chartLaneOf",
-    /priceAsOf,\s*chartLaneOf\(row\.price_source_code\),\s*\)/.test(producer),
+    /priceAsOf,\s*chartLaneOf\(row\.price_source_code\),\s*referenceDrafts,\s*\)/.test(producer),
     "windowMetrics 仲係直接 String(row.price_source_code)");
   check("T5: call site 冇剩返舊寫法",
     !/\[Number\(row\.variant_id\), String\(row\.price_source_code\)\]/.test(producer)

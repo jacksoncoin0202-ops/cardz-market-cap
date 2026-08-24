@@ -114,7 +114,14 @@ function cardView(card: CanonicalCard): MarketCardView {
     windowView(card.windows[window], true),
   ]));
   const baked = card.windows as Record<string, CanonicalCard["windows"]["1d"] | undefined>;
-  const derived = deriveLongWindows(card.historyDaily, card.pricePsa10.value, card.pricePsa10.asOf);
+  // 長窗後備：baked snapshot 冇長窗嗰陣先行呢條。混合錨同 producer 一樣——真成交
+  // 優先，冇先至退參考點（R6b）。短窗唔經呢度（producer 出嘅照用）。
+  const derived = deriveLongWindows(
+    card.historyDaily,
+    card.pricePsa10.value,
+    card.pricePsa10.asOf,
+    card.historyReference ?? [],
+  );
   const windows = {
     ...producer,
     ...Object.fromEntries(longWindows.map((window) => [
@@ -173,6 +180,7 @@ function cardView(card: CanonicalCard): MarketCardView {
     marketCap: metric(card.marketCap),
     windows,
     historyDaily: card.historyDaily.map((point) => ({ ...point })),
+    historyReference: (card.historyReference ?? []).map((point) => ({ ...point })),
     salesSparkline: card.historyDaily
       .map((point) => point.trackedSalesValueUsd)
       .filter((value): value is number => value !== null && Number.isFinite(value)),

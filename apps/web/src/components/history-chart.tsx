@@ -6,13 +6,19 @@ import { EmptyState } from "./empty-state";
 import { revealOnce } from "./reveal";
 import { copy } from "@/lib/i18n";
 import { formatMoney, formatObservationDayMonth } from "@/lib/format";
-import { pointsForWindow } from "@/lib/history-window";
+import { mergeReferenceHistory, pointsForWindow } from "@/lib/history-window";
 import { useMarketSettings } from "@/lib/use-market-settings";
 import { marketWindowDays, type Currency, type Locale, type PricePoint } from "@/lib/types";
 import "@/app/styles/history-chart.css";
 
 interface HistoryChartProps {
   points: PricePoint[];
+  /*
+   * 參考點（K 線）series。只有 ≥90d 嘅時段先至用得着，而且只補「最早一單真成交」
+   * 之前嗰段深歷史 —— 政策喺 `mergeReferenceHistory`，呢度唔准另寫一次。
+   * 盒（sealed）冇呢條 series，所以 optional。
+   */
+  reference?: PricePoint[];
   locale: Locale;
   currency: Currency;
   rates: Record<Currency, number>;
@@ -32,7 +38,7 @@ function hasSalesBar(point: PricePoint): point is PricePoint & { trackedSalesVal
     point.trackedSalesCount > 0;
 }
 
-export function HistoryChart({ points, locale, currency, rates }: HistoryChartProps) {
+export function HistoryChart({ points, reference, locale, currency, rates }: HistoryChartProps) {
   const { period } = useMarketSettings();
   const t = copy[locale];
   /*
@@ -60,7 +66,7 @@ export function HistoryChart({ points, locale, currency, rates }: HistoryChartPr
     return () => window.clearTimeout(timer);
   }, [draw]);
   const days = marketWindowDays[period];
-  const selected = pointsForWindow(points, days);
+  const selected = pointsForWindow(mergeReferenceHistory(points, reference ?? [], days), days);
   const prices = selected.filter((point) => point.priceUsd !== null && Number.isFinite(point.priceUsd));
   const sales = selected.filter((point) =>
     point.salesCoverage !== "unavailable" &&

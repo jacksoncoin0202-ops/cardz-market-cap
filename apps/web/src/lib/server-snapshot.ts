@@ -98,6 +98,9 @@ function listCard(card: MarketCardView): MarketCardView {
   return {
     ...rest,
     historyDaily: [],
+    // 參考 series 同 `historyDaily` 一樣：榜頁零讀者，但佢係全 payload 最大舊嘅嘢
+    // （seed 全板 198,915 點）。詳情頁行 `singleCardSnapshot`，唔經呢度，照有齊。
+    historyReference: [],
     salesSparkline: downsampleSparkline(card.salesSparkline),
     windows: slimWindows(card.windows),
     pricePsa10: slimMetric(card.pricePsa10),

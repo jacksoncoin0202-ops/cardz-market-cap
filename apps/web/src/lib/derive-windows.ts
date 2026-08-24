@@ -96,11 +96,16 @@ export function deriveWindowMetrics(
   currentPrice: number | null,
   currentAsOf: string | null,
   window: LongWindow,
+  reference: HistoryPricePoint[] = [],
 ): WindowMetrics {
   const days = longWindowDays[window];
   const currentMs = currentAsOf ? Date.parse(currentAsOf) : Number.NaN;
   const targetMs = currentMs - days * DAY_MS;
-  const anchor = Number.isFinite(currentMs) ? latestPriceOnOrBefore(history, targetMs) : null;
+  /* 混合錨（R6b）：真成交錨行先，冇先至退參考點（K 線）。呢個 function 只服務
+     長窗（type `LongWindow`），所以短窗由構造上入唔到呢條後備。 */
+  const anchor = Number.isFinite(currentMs)
+    ? (latestPriceOnOrBefore(history, targetMs) ?? latestPriceOnOrBefore(reference, targetMs))
+    : null;
   const priceChange = percentage(currentPrice, anchor?.priceUsd ?? null);
   const currentSales = Number.isFinite(currentMs) ? salesTotal(history, currentMs, days) : null;
   const previousSales = Number.isFinite(currentMs) ? salesTotal(history, currentMs - days * DAY_MS, days) : null;
@@ -128,11 +133,12 @@ export function deriveLongWindows(
   history: HistoryPricePoint[],
   currentPrice: number | null,
   currentAsOf: string | null,
+  reference: HistoryPricePoint[] = [],
 ): Record<LongWindow, WindowMetrics> {
   return Object.fromEntries(
     longWindows.map((window) => [
       window,
-      deriveWindowMetrics(history, currentPrice, currentAsOf, window),
+      deriveWindowMetrics(history, currentPrice, currentAsOf, window, reference),
     ]),
   ) as Record<LongWindow, WindowMetrics>;
 }
