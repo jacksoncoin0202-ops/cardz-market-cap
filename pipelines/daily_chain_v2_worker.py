@@ -417,7 +417,11 @@ def fx_freshness_floor(business_day: date, task_created_at: Any) -> datetime:
     created = datetime.fromisoformat(created_text.replace("Z", "+00:00"))
     if created.tzinfo is None:
         created = created.replace(tzinfo=timezone.utc)
-    return min(midnight, created.astimezone(timezone.utc))
+    # fetchedAt carries second precision (fx_rates.iso_utc, timespec="seconds"),
+    # so the floor must compare at that granularity: on 2026-08-25 a fresh fetch
+    # stamped 04:14:16 lost to a floor of 04:14:16.568775 (the task's own
+    # creation instant) and the core fx task went TERMINAL on attempt 1.
+    return min(midnight, created.astimezone(timezone.utc)).replace(microsecond=0)
 
 
 def run_fx(task: Mapping[str, Any], payload: Mapping[str, Any]) -> dict[str, Any]:

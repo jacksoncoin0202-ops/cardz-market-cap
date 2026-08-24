@@ -945,8 +945,14 @@ try:
     fetched = datetime(2026, 8, 23, 0, 38, 54, tzinfo=timezone.utc)
     assert fetched < midnight_0824  # the midnight-only rule refused this fetch (08-24 fx TERMINAL)
     floor = fx_freshness_floor(date(2026, 8, 24), early_plan)
-    assert floor == datetime.fromisoformat(early_plan)
+    assert floor == datetime.fromisoformat(early_plan).replace(microsecond=0)
     assert fetched >= floor
+    # 2026-08-25: fetchedAt is stamped with timespec="seconds" (fx_rates.iso_utc),
+    # so a fresh fetch inside the floor's own second (fetchedAt 04:14:16 vs task
+    # created 04:14:16.568775) must not read as stale.
+    same_second_plan = "2026-08-24T04:14:16.568775+00:00"
+    same_second_fetch = datetime(2026, 8, 24, 4, 14, 16, tzinfo=timezone.utc)
+    assert same_second_fetch >= fx_freshness_floor(date(2026, 8, 25), same_second_plan)
     scheduled_plan = "2026-08-23T18:30:05.000000+00:00"
     assert fx_freshness_floor(date(2026, 8, 24), scheduled_plan) == midnight_0824
     assert fx_freshness_floor(date(2026, 8, 24), None) == midnight_0824
