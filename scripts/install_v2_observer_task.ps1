@@ -28,8 +28,8 @@ $SilentRunner = Join-Path $PSScriptRoot "cardz_silent_run.vbs"
 foreach ($p in @($Observer, $SilentRunner, $PythonExe)) {
     if (-not (Test-Path -LiteralPath $p)) { throw "missing: $p" }
 }
-$WScriptExe = Join-Path $env:WINDIR "System32\wscript.exe"
-$Argument = "//nologo //B `"$SilentRunner`" `"$PythonExe`" -X utf8 -u `"$Observer`" watch --max-hours $MaxHours"
+$WScriptExe = Join-Path ([Environment]::SystemDirectory) "wscript.exe"
+$Argument = "//nologo //B `"$SilentRunner`" `"$PythonExe`" -X utf8 -u `"$Observer`" watch --max-hours $MaxHours --notify"
 $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 
 $plan = [ordered]@{
@@ -41,7 +41,7 @@ $plan = [ordered]@{
     executionTimeLimit = "PT15H"
     multipleInstances = "IgnoreNew"
     principal = "current user, Interactive, Limited"
-    writes = "data\runtime\daily-chain-v2\observer\<day>\ only (gitignored)"
+    writes = "data\runtime\daily-chain-v2\observer\<day>\ plus notify failure artifacts (gitignored)"
     existing = if ($existing) { "$($existing.State)" } else { "absent" }
     revert = "powershell -NoProfile -File scripts\install_v2_observer_task.ps1 -Remove"
 }
@@ -73,7 +73,7 @@ $principal = New-ScheduledTaskPrincipal `
     -LogonType Interactive `
     -RunLevel Limited
 $definition = New-ScheduledTask -Action $action -Trigger $trigger -Settings $settings -Principal $principal `
-    -Description "CARDZ V2 run observer: read-only monitor of the daily chain real run; writes data/runtime/daily-chain-v2/observer/<day>/"
+    -Description "CARDZ V2 run observer: monitor + warn/error delivery; writes data/runtime/daily-chain-v2/observer/<day>/"
 Register-ScheduledTask -TaskName $TaskName -InputObject $definition -Force | Out-Null
 $task = Get-ScheduledTask -TaskName $TaskName
 $info = $task | Get-ScheduledTaskInfo

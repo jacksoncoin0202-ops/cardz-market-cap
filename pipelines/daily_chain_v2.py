@@ -191,6 +191,7 @@ ADOPT_GRACE_SECONDS = 120
 HEALTH_SCHEMA = 1
 NOTIFY_SCRIPT = ROOT / "scripts" / "notify_hermes.py"
 NOTIFY_TIMEOUT_SECONDS = 20
+ALERT_FAILURE_DIR = ROOT / "data" / "runtime" / "daily-chain-v2" / "alert-failures"
 # Lifecycle facts an operator must learn about even when the verbose --notify
 # stream is off.  Key/level/cooldown-minutes per journal event type.
 ALWAYS_ALERT_EVENTS: dict[str, tuple[str, str, int]] = {
@@ -554,25 +555,52 @@ def send_alert(
     """Best-effort operator alert.  Never raises, never blocks the chain."""
 
     global LAST_ALERT
-    LAST_ALERT = {"key": key, "at_utc": iso()}
+    LAST_ALERT = {"key": key, "at_utc": iso(), "delivered": False}
     dry_run = os.environ.get("CARDZ_V2_NOTIFY_DRY_RUN", "").strip().casefold()
     if dry_run not in {"", "0", "false", "no"}:
         print(f"NOTIFY_DRYRUN {key} {level} {text}", flush=True)
+        LAST_ALERT["delivered"] = True
+        LAST_ALERT["dryRun"] = True
         return True
     try:
-        subprocess.run(
+        proc = subprocess.run(
             [
                 sys.executable, "-X", "utf8", str(NOTIFY_SCRIPT), "alert",
                 "--key", key, "--text", text, "--level", level,
                 "--cooldown-min", str(int(cooldown_min)),
+                "--require-delivery",
             ],
             cwd=str(ROOT),
             capture_output=True,
             timeout=NOTIFY_TIMEOUT_SECONDS,
             check=False,
         )
-        return True
-    except Exception:  # noqa: BLE001 - notification transport is never fatal
+        delivered = proc.returncode == 0
+        LAST_ALERT["exitCode"] = int(proc.returncode)
+        LAST_ALERT["delivered"] = delivered
+        if delivered:
+            return True
+        failure = ALERT_FAILURE_DIR / f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}-{os.getpid()}.json"
+        atomic_json(failure, {
+            "contract": "cardz-v2-alert-delivery-failure-v1",
+            "key": key,
+            "atUtc": LAST_ALERT["at_utc"],
+            "exitCode": int(proc.returncode),
+        })
+        LAST_ALERT["failureArtifact"] = str(failure)
+        return False
+    except Exception as error:  # noqa: BLE001 - notification transport is never fatal
+        try:
+            failure = ALERT_FAILURE_DIR / f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}-{os.getpid()}.json"
+            atomic_json(failure, {
+                "contract": "cardz-v2-alert-delivery-failure-v1",
+                "key": key,
+                "atUtc": LAST_ALERT["at_utc"],
+                "errorClass": type(error).__name__,
+            })
+            LAST_ALERT["failureArtifact"] = str(failure)
+        except OSError:
+            pass
         return False
 
 

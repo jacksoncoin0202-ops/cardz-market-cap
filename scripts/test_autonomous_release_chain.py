@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,7 +39,14 @@ else:
     raise AssertionError("negative release-chain fixture did not fire")
 
 assert_release_guard(real_source)
-runner_source = RUNNER.read_text(encoding="utf-8")
-assert '"validate_daily_release.py": ["--self-test"]' in runner_source
+spec = importlib.util.spec_from_file_location("cardz_run_all_tests_contract", RUNNER)
+assert spec is not None and spec.loader is not None
+runner = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(runner)
+assert runner.SCRIPT_SELF_TEST_ENTRIES.get("validate_daily_release.py") == ["--self-test"]
+fixture = [("one", "PASS", 0.1, ""), ("two", "FAIL", 0.2, "boom"), ("three", "SKIP", 0.0, "fixture")]
+assert runner.test_result_document(fixture) == {
+    "contract": "cardz-test-result-v1", "entries": 3, "passed": 1,
+    "failed": 1, "skipped": 1, "timeouts": 0,
+}
 print("POSITIVE_OK release checkout runs all no-DB guards before bake")
-

@@ -151,10 +151,15 @@ try:
     verdict = (
         "release exit=1: PASS scripts/test-public-surface-gate.mjs\n"
         "FAIL scripts/test-fe-share-file.mjs\n"
-        "65/66 passed, 1 failed, 7 skipped\n"
+        'CARDZ_TEST_RESULT {"contract":"cardz-test-result-v1","entries":73,"passed":65,"failed":1,"skipped":7,"timeouts":0}\n'
     )
     code, terminal, delays = decide(verdict, stage="publish")
     assert code == "PUBLISH_DETERMINISTIC" and terminal and delays == (), (code, terminal, delays)
+    old_human_summary = "release exit=1: 65/66 passed, 1 failed, 7 skipped"
+    old_code, old_terminal, old_delays = decide(old_human_summary, stage="publish")
+    assert old_code == "PUBLISH_FAILED" and not old_terminal and old_delays == PUBLISH_RETRY_SECONDS
+    malformed = 'release exit=1: CARDZ_TEST_RESULT {"contract":"cardz-test-result-v1","failed":1}'
+    assert decide(malformed, stage="publish")[0] == "PUBLISH_FAILED"
     # Audit 6 #4: the same tokens are ordinary inside a source worker traceback.
     source_code_, source_terminal, source_delays = decide(verdict)
     assert not source_terminal and not source_code_.startswith("PUBLISH"), (source_code_, source_terminal)
@@ -162,7 +167,7 @@ try:
 
     # Audit 6 #5: tests all green, git push failed -> still retryable.
     push_failure = (
-        "release exit=1: 66/66 passed, 0 failed, 7 skipped\n"
+        'release exit=1: CARDZ_TEST_RESULT {"contract":"cardz-test-result-v1","entries":73,"passed":66,"failed":0,"skipped":7,"timeouts":0}\n'
         "error: failed to push some refs to 'github.com:cardz/market-cap.git'\n"
     )
     code, terminal, delays = decide(push_failure, stage="publish")
@@ -562,7 +567,8 @@ try:
             alert_after_transient = chain_module.LAST_ALERT
             terminal_row = fail_publish_task(
                 "publish-deterministic",
-                "release exit=1: FAIL scripts/test-fe-share-file.mjs\n65/66 passed, 1 failed, 7 skipped",
+                'release exit=1: FAIL scripts/test-fe-share-file.mjs\nCARDZ_TEST_RESULT '
+                '{"contract":"cardz-test-result-v1","entries":73,"passed":65,"failed":1,"skipped":7,"timeouts":0}',
             )
         assert transient_row["status"] == "RETRY", transient_row
         assert transient_row["last_error_code"] == "PUBLISH_FAILED", transient_row

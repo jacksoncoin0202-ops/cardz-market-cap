@@ -12,7 +12,6 @@ the wire would fail rather than pass slowly.
 """
 from __future__ import annotations
 
-import inspect
 import json
 import re
 import shutil
@@ -602,32 +601,6 @@ try:
     assert "--freeze needs an exact row" in steps_of(report)[9]["detail"]
     ok("--freeze on a held row freezes nothing")
 
-    # -------------------------- the SNK lane may not be judged unscoped yet
-    # `cmd_snk_identity_reverify` selects EVERY held snkrdunk row and harvests
-    # all of them. Until it reads variant_ids, judging one paste would spend a
-    # full provider sweep, so the real run_judge has to refuse rather than
-    # start one.
-    saved_supports = OB.snk_judge_supports_scoping
-    OB.snk_judge_supports_scoping = lambda: False  # type: ignore[assignment]
-    try:
-        REAL_RUN_JUDGE("snkrdunk", 1203, write=False, pages_dir=None,
-                       map_path=None, credentials_env=None)
-        raise AssertionError("bind-url judged snkrdunk with an unscoped lane")
-    except OB.BindStop as stop:
-        assert stop.verdict == "snk_judge_not_scoped", stop.verdict
-        assert stop.status == OB.STATUS_BLOCKED
-        assert stop.step == 6
-    finally:
-        OB.snk_judge_supports_scoping = saved_supports  # type: ignore[assignment]
-    ok("bind-url refuses to judge a snkrdunk paste while the SNK lane still ignores variant_ids")
-
-    # The guard reads the lane's own source, so it answers about the tree it is
-    # running in rather than about a flag somebody set elsewhere.
-    snk_source = inspect.getsource(R.cmd_snk_identity_reverify)
-    assert OB.snk_judge_supports_scoping() == ("variant_ids" in snk_source)
-    assert "variant_ids" in inspect.getsource(R.cmd_pc_identity_reverify)
-    ok("the scoping guard answers from the SNK lane's own source, and the PC lane already reads variant_ids", False)
-
     # ------------------- the judge's report is the TRAILING JSON object
     # `cmd_snk_identity_reverify` reaches the provider through
     # `snk_market_data.run`, which prints "[snk_market_data] x-version
@@ -660,11 +633,6 @@ try:
 
     saved_snk_cmd = R.cmd_snk_identity_reverify
     saved_pc_cmd = R.cmd_pc_identity_reverify
-    saved_scoping_guard = OB.snk_judge_supports_scoping
-    # The stubs below are not the real lane, so the scoping guard would read
-    # their source and refuse; the check above already proved the guard answers
-    # from the real lane, which does read variant_ids.
-    OB.snk_judge_supports_scoping = lambda: True  # type: ignore[assignment]
     try:
         for label, printed in (
             ("a log line before it", HEAD_LOG + PRETTY + "\n"),
@@ -713,7 +681,6 @@ try:
     finally:
         R.cmd_snk_identity_reverify = saved_snk_cmd  # type: ignore[assignment]
         R.cmd_pc_identity_reverify = saved_pc_cmd  # type: ignore[assignment]
-        OB.snk_judge_supports_scoping = saved_scoping_guard  # type: ignore[assignment]
 
     # ------------------------------------------------------- the receipt
     OB.run_judge = empty_judge  # type: ignore[assignment]

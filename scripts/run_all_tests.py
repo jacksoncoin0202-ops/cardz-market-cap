@@ -2,15 +2,9 @@
 # -*- coding: utf-8 -*-
 """一次過跑晒 repo 入面所有 test 入口。
 
-點解要有呢個檔：呢個 repo 有 11 個 `scripts/test_*.py` 同 12 個 `pipelines/*.py`
-嘅 self-test，總共 23 個入口，而**冇任何嘢跑佢哋** —— 冇 CI、冇 Makefile、冇
-pytest 設定、git hook 全部係 git-lfs。即係話每一個「防再犯」嘅 test 寫完之後
-由第一日起就係死代碼：邏輯被人刪走，冇人會知。
-
-兩個入口形狀唔同，所以淨係 glob `scripts/test_*.py` 係唔夠嘅 —— 咁樣會靜靜漏
-咗全部 12 個 self-test。下面 SELF_TEST_ENTRIES 逐個寫明；同時 _discover 會自己
-掃返 pipelines/ 睇有冇未登記嘅 self-test，有就即刻紅。加咗新 self-test 而唔登記
-= 呢個 runner 唔過，唔會出現「有 test 但零 call site」呢個形狀。
+入口數量係動態嘅：pipeline 同 script-side self-test 明文登記，Python 同 Node
+test 即時掃描。新 test 會自動加入同一個 call site；新 pipeline self-test 未登記
+就會即刻紅，所以文件唔需要維護一個會過期嘅硬編碼總數。
 
 Run: python -X utf8 scripts/run_all_tests.py
      python -X utf8 scripts/run_all_tests.py --no-db   # 跳過要連 DB 嗰啲
@@ -18,6 +12,7 @@ Run: python -X utf8 scripts/run_all_tests.py
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -26,6 +21,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = sys.executable
+TEST_RESULT_CONTRACT = "cardz-test-result-v1"
+TEST_RESULT_PREFIX = "CARDZ_TEST_RESULT "
 
 # module -> 跑法。`--self-test` 係 flag 形，db_runtime 係 subcommand 形。
 SELF_TEST_ENTRIES: dict[str, list[str]] = {
@@ -121,8 +118,24 @@ def _run(label: str, argv: list[str], timeout: int) -> tuple[str, float, str]:
     return "FAIL", took, " / ".join(line.strip() for line in tail if line.strip())
 
 
+def test_result_document(results: list[tuple[str, str, float, str]]) -> dict[str, int | str]:
+    """Machine-readable verdict consumed by the publish retry classifier."""
+
+    passed = sum(status == "PASS" for _, status, _, _ in results)
+    failed = sum(status in {"FAIL", "TIMEOUT"} for _, status, _, _ in results)
+    skipped = sum(status == "SKIP" for _, status, _, _ in results)
+    return {
+        "contract": TEST_RESULT_CONTRACT,
+        "entries": len(results),
+        "passed": passed,
+        "failed": failed,
+        "skipped": skipped,
+        "timeouts": sum(status == "TIMEOUT" for _, status, _, _ in results),
+    }
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="跑晒 23 個 test 入口")
+    parser = argparse.ArgumentParser(description="動態發現並跑晒 repo test 入口")
     parser.add_argument("--no-db", action="store_true", help="跳過要連 3308 嗰啲")
     parser.add_argument("--skip-fe", action="store_true", help="跳過 scripts/test-*.mjs")
     parser.add_argument("--skip-pipelines", action="store_true", help="跳過 pipelines/* --self-test")
@@ -221,6 +234,7 @@ def main() -> int:
         f"\n{len(results) - len(failed) - len(skipped)}/{len(results) - len(skipped)}"
         f" passed, {len(failed)} failed, {len(skipped)} skipped"
     )
+    print(TEST_RESULT_PREFIX + json.dumps(test_result_document(results), separators=(",", ":")))
     return 1 if failed else 0
 
 

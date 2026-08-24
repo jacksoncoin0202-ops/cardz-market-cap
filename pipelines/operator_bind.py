@@ -300,25 +300,6 @@ def fetch_snkrdunk(item_id: str, out_path: Path, *, run_id: str) -> dict[str, An
     )
 
 
-def snk_judge_supports_scoping() -> bool:
-    """Does `cmd_snk_identity_reverify` honour `variant_ids` yet?
-
-    Until §A Step 2 lands, that lane selects EVERY held snkrdunk row and
-    harvests all of them, so asking it to judge one paste would spend a full
-    provider sweep on one card. Checked against the function's own source
-    rather than by passing the argument and hoping: the thing that has to be
-    true is that the lane READS it, and a Namespace attribute nobody reads is
-    exactly the shape of that bug."""
-
-    import inspect
-
-    try:
-        source = inspect.getsource(R.cmd_snk_identity_reverify)
-    except (OSError, TypeError):
-        return False
-    return "variant_ids" in source
-
-
 def trailing_json_object(printed: str) -> dict[str, Any] | None:
     """The LAST top-level JSON object in a judge's stdout, or None.
 
@@ -382,13 +363,6 @@ def run_judge(
         with contextlib.redirect_stdout(buffer):
             R.cmd_pc_identity_reverify(args)
     else:
-        if not snk_judge_supports_scoping():
-            raise BindStop(
-                6, STATUS_BLOCKED, "snk_judge_not_scoped",
-                "cmd_snk_identity_reverify does not read variant_ids yet, so "
-                "judging this paste would re-harvest every held snkrdunk row. "
-                "Land the SNK scoping change (plan §A Step 2) first.",
-            )
         with contextlib.redirect_stdout(buffer):
             R.cmd_snk_identity_reverify(args)
     printed = buffer.getvalue()

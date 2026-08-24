@@ -36,7 +36,7 @@ incidents rather than a heartbeat.
 
 Usage (Windows):
   python -X utf8 -u scripts/v2_run_observer.py watch [--business-date YYYY-MM-DD | --run-id cardz-v2:YYYY-MM-DD[#LABEL]]
-        [--start-at ISO-UTC] [--poll 60] [--max-hours 14.75] [--settle-minutes 25] [--no-promo-sweep]
+        [--start-at ISO-UTC] [--poll 60] [--max-hours 14.75] [--settle-minutes 25] [--no-promo-sweep] [--notify]
   python -X utf8 -u scripts/v2_run_observer.py report --run-id ...      # render report.md from what was recorded
 Usage (inside WSL, used by `watch`):
   python3 scripts/v2_run_observer.py snapshot <run_id>                  # JSON on stdout
@@ -129,6 +129,8 @@ PROMO_JST = (17, 45)
 PROMO_WAIT_SLACK_SECONDS = 12 * 60
 
 MAIN_JOURNAL = "~/.local/state/cardz-marketcap/daily-chain-v2{suffix}.sqlite3"
+NOTIFY_SCRIPT = ROOT / "scripts" / "notify_hermes.py"
+NOTIFY_TIMEOUT_SECONDS = 20
 
 # Nothing secret is supposed to reach the journal / launcher log, but payloads
 # and stderr are copied verbatim into this folder, so scrub the usual shapes.
@@ -538,7 +540,17 @@ def launcher_line_time(line: str, file_day: str) -> dt.datetime:
 # --------------------------------------------------------------------------- the watcher
 
 class Observer:
-    def __init__(self, run_id: str, out_dir: Path, *, poll: float, max_hours: float, settle_minutes: float, promo_sweep: bool = True) -> None:
+    def __init__(
+        self,
+        run_id: str,
+        out_dir: Path,
+        *,
+        poll: float,
+        max_hours: float,
+        settle_minutes: float,
+        promo_sweep: bool = True,
+        notify_alerts: bool = False,
+    ) -> None:
         self.run_id = run_id
         self.day = run_id.removeprefix("cardz-v2:").split("#")[0]
         self.scheduled = "#" not in run_id              # labelled runs are manual rehearsals: no 03:30 / promo expectations
@@ -548,6 +560,7 @@ class Observer:
         self.deadline = time.monotonic() + max_hours * 3600
         self.settle_seconds = settle_minutes * 60
         self.promo_sweep = promo_sweep
+        self.notify_alerts = notify_alerts
         self.out_dir.mkdir(parents=True, exist_ok=True)
         self.log_path = out_dir / "observer.log"
         self.snap_path = out_dir / "snapshots.jsonl"
@@ -596,6 +609,37 @@ class Observer:
         self.anomaly_counts[kind] = self.anomaly_counts.get(kind, 0) + 1
         brief = json.dumps({k: v for k, v in detail.items() if k not in ("payload", "tail")}, ensure_ascii=False, default=str)
         self.log(f"!! {severity.upper():5} {kind} {brief[:400]}")
+        if self.notify_alerts and severity in {"warn", "error"}:
+            self.send_anomaly_alert(kind, severity, brief)
+
+    def send_anomaly_alert(self, kind: str, severity: str, brief: str) -> bool:
+        """Deliver an anomaly and durably admit when delivery did not land."""
+
+        safe_kind = re.sub(r"[^a-z0-9_-]+", "-", kind.casefold()).strip("-") or "anomaly"
+        key = f"v2-observer:{self.day}:{safe_kind}"
+        message = scrub(f"CARDZ V2 observer {severity.upper()} {kind} run={self.run_id} {brief[:900]}")
+        rc, _stdout, _stderr = run_capped(
+            [
+                sys.executable, "-X", "utf8", str(NOTIFY_SCRIPT), "alert",
+                "--key", key, "--text", message, "--level", severity,
+                "--cooldown-min", "30", "--require-delivery",
+            ],
+            NOTIFY_TIMEOUT_SECONDS,
+        )
+        if rc == 0:
+            return True
+        failure = {
+            "contract": "cardz-v2-observer-alert-delivery-failure-v1",
+            "at": iso(utc_now()),
+            "kind": kind,
+            "severity": severity,
+            "key": key,
+            "exitCode": rc,
+        }
+        with (self.out_dir / "alert-failures.jsonl").open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(failure, ensure_ascii=False, default=str) + "\n")
+        self.log(f"!! ERROR ALERT_DELIVERY_FAILED kind={kind} exit={rc}")
+        return False
 
     def recurring(self, kind: str, severity: str, present: dict[str, dict]) -> None:
         """Open / repeat / close one condition per key.  `present` = the keys true right now."""
@@ -1257,6 +1301,7 @@ def main() -> int:
             p.add_argument("--max-hours", type=float, default=14.75)
             p.add_argument("--settle-minutes", type=float, default=25.0, help="keep polling this long after a terminal state (post-publish ticks)")
             p.add_argument("--no-promo-sweep", action="store_true", help="exit right after the settle instead of waiting for the 17:45 JST promo task")
+            p.add_argument("--notify", action="store_true", help="deliver warn/error anomalies through notify_hermes")
     args = ap.parse_args()
     if args.command == "snapshot":
         return cmd_snapshot(args.run_id)
@@ -1275,7 +1320,7 @@ def main() -> int:
             while target and utc_now() < target:
                 time.sleep(min(60.0, max(1.0, (target - utc_now()).total_seconds())))
         return Observer(run_id, out_dir, poll=args.poll, max_hours=args.max_hours, settle_minutes=args.settle_minutes,
-                        promo_sweep=not args.no_promo_sweep).watch()
+                        promo_sweep=not args.no_promo_sweep, notify_alerts=args.notify).watch()
     finally:
         try:
             (out_dir / "observer.lock").unlink()

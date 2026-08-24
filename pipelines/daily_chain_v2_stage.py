@@ -464,15 +464,6 @@ def stage_identity_reverify(args: argparse.Namespace) -> dict[str, Any]:
         )
         command = rebuild.cmd_pc_identity_reverify
     else:
-        import operator_bind
-
-        if scope and not operator_bind.snk_judge_supports_scoping():
-            # Refusing beats sweeping: an unscoped SNK lane re-harvests every
-            # held binding in the table for a three-row ruling.
-            raise RuntimeError(
-                "snk identity reverify cannot be scoped on this tree;"
-                " refusing to sweep every held binding"
-            )
         prefix = "snk-identity-reverify-"
         namespace = SimpleNamespace(
             credentials_env=None, write=True,

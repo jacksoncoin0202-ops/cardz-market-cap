@@ -101,8 +101,21 @@ function Send-Notify([string]$key, [string]$text, [string]$level = "error", [int
   if ($NoNotify) { Say "notify suppressed (-NoNotify) key=$key"; return }
   $notify = Join-Path $RepoRoot "scripts\notify_hermes.py"
   if (-not (Test-Path -LiteralPath $notify)) { Say "notify_hermes.py missing at $notify; cannot notify"; return }
-  & $py -X utf8 $notify alert --key $key --text $safe --level $level --cooldown-min $CooldownMin *>> $log
-  Say "notify key=$key exit=$LASTEXITCODE"
+  & $py -X utf8 $notify alert --key $key --text $safe --level $level --cooldown-min $CooldownMin --require-delivery *>> $log
+  $notifyExit = $LASTEXITCODE
+  Say "notify key=$key exit=$notifyExit"
+  if ($notifyExit -ne 0) {
+    $failDir = Join-Path $StateDir "notify-failures"
+    New-Item -ItemType Directory -Force $failDir | Out-Null
+    $failPath = Join-Path $failDir "$stamp-$key.json"
+    [ordered]@{
+      contract = "cardz-watchdog-alert-delivery-failure-v1"
+      key = $key
+      atUtc = $nowUtc.ToString("o")
+      exitCode = $notifyExit
+    } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $failPath -Encoding UTF8
+    Say "notify delivery failed artifact=$failPath"
+  }
 }
 
 function Send-HealthAlert([string]$key, [string]$text, [string]$level) {

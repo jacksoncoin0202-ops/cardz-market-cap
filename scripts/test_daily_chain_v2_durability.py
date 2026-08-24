@@ -489,6 +489,28 @@ try:
     )
     print("POSITIVE_OK lifecycle events alert once without --notify while ordinary events stay silent")
 
+    real_notify_run = chain_module.subprocess.run
+    real_failure_dir = chain_module.ALERT_FAILURE_DIR
+    chain_module.ALERT_FAILURE_DIR = WORKSPACE / "alert-failures"
+    chain_module.subprocess.run = lambda *args, **kwargs: types.SimpleNamespace(returncode=1)
+    try:
+        assert send_alert("fixture-drop", "fixture dropped", level="error") is False
+        failure_files = list(chain_module.ALERT_FAILURE_DIR.glob("*.json"))
+        assert len(failure_files) == 1, failure_files
+        failure = json.loads(failure_files[0].read_text(encoding="utf-8"))
+        assert failure["contract"] == "cardz-v2-alert-delivery-failure-v1"
+        assert chain_module.LAST_ALERT == {
+            "key": "fixture-drop",
+            "at_utc": chain_module.LAST_ALERT["at_utc"],
+            "delivered": False,
+            "exitCode": 1,
+            "failureArtifact": str(failure_files[0]),
+        }
+    finally:
+        chain_module.subprocess.run = real_notify_run
+        chain_module.ALERT_FAILURE_DIR = real_failure_dir
+    print("POSITIVE_OK dropped lifecycle alert returns false and leaves a caller-owned failure artifact")
+
     # ------------------------------------------------------------- tasks 8, 9
     journal = new_journal("health")
     key = add_task(journal, "health-source", max_attempts=4)

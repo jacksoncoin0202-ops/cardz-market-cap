@@ -131,7 +131,7 @@ def write_health(tmp: Path, *, age_min: float, run_id: str = RUN) -> None:
 
 def main() -> int:
     originals = {n: getattr(obs, n) for n in ("probe_journal", "probe_host", "probe_wsl", "probe_http", "probe_mysql", "probe_task_info",
-                                              "ROOT", "RECURRING_REPEAT_SECONDS", "MAIN_JOURNAL")}
+                                              "run_capped", "ROOT", "RECURRING_REPEAT_SECONDS", "MAIN_JOURNAL")}
     try:
         # 1. pure helpers
         check("short_key strips day and hash", obs.short_key("2026-08-25:gemrate:pop+identity:0-of-4:f270a1c7a1b2c3d4") == "gemrate:pop+identity:0-of-4")
@@ -197,6 +197,17 @@ def main() -> int:
             check("clean run: run status logged RUNNING", o.run_status == "RUNNING")
             check("clean run: receipt scrubbed", "should-be-scrubbed" not in (o.out_dir / "receipts.jsonl").read_text(encoding="utf-8")
                   and "<redacted>" in (o.out_dir / "receipts.jsonl").read_text(encoding="utf-8"))
+            # An observer anomaly must have an external consequence in the
+            # installed --notify mode, and a dropped alert must leave evidence.
+            notify_calls: list[list[str]] = []
+            obs.run_capped = lambda command, timeout, **kwargs: (notify_calls.append(command), (1, "", "drop"))[1]
+            notifying = obs.Observer(RUN, tmp / "notify", poll=1, max_hours=1, settle_minutes=0, notify_alerts=True)
+            with redirect_stdout(io.StringIO()):
+                notifying.anomaly("FIXTURE_ANOMALY", "error", {"task": "system:release"})
+            alert_failures = (notifying.out_dir / "alert-failures.jsonl").read_text(encoding="utf-8")
+            check("observer anomaly invokes required-delivery alert", len(notify_calls) == 1 and "--require-delivery" in notify_calls[0])
+            check("observer alert drop leaves failure artifact", "FIXTURE_ANOMALY" in alert_failures and '"exitCode": 1' in alert_failures)
+            obs.run_capped = originals["run_capped"]
             # CDP down before any tick / with no run must not alarm (watchdog territory)
             patch_probes({"runId": RUN, "run": None, "otherRuns": [], "ms": 10}, cdp_ok=False)
             o0 = make_observer(tmp / "norun")

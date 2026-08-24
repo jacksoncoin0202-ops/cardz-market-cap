@@ -315,15 +315,13 @@ class RetryDecision:
         return self.delays_seconds[index]
 
 
-# audit P1-2: 2026-08-23 slept 68.8 minutes across the 2/5/10/20/30 minute
-# ladder on six byte-identical release logs, all of them "65/66 passed, 1
-# failed, 7 skipped".  Waiting cannot fix a failing test count, a Python or
-# Node error class, or a missing command.  The failed-count capture group is
-# mandatory (audit 6 #5): a release whose tests all pass but whose git push
-# fails must stay retryable, and these checks may only run inside the publish
-# branch (audit 6 #4) because the same words are ordinary in a source
-# worker's traceback.
-PUBLISH_TEST_VERDICT_RE = re.compile(r"(\d+)\s*/\s*(\d+)\s+passed,\s*(\d+)\s+failed")
+# audit P1-2: 2026-08-23 slept 68.8 minutes on six byte-identical failed test
+# runs.  The release runner now emits a versioned JSON verdict; policy reads
+# that contract instead of scraping its human summary.  A release whose tests
+# pass but whose git push fails therefore remains retryable, while failed
+# tests are terminal without depending on presentation text.
+PUBLISH_TEST_RESULT_PREFIX = "CARDZ_TEST_RESULT "
+PUBLISH_TEST_RESULT_CONTRACT = "cardz-test-result-v1"
 # The class must open a line or follow a "...:" label (the orchestrator's own
 # "release exit=1: " prefix is one), never appear mid-word: "prototypeerrors"
 # is not a verdict.
@@ -336,11 +334,36 @@ PUBLISH_COMMAND_MISSING_RE = re.compile(r"\bexit=127\b|\bcommand not found\b")
 PUBLISH_LOCK_HELD_RE = re.compile(rf"\bexit={PUBLISH_LOCK_EXIT_CODE}\b")
 
 
+def publish_test_result(value: str) -> dict[str, Any] | None:
+    """Return the last valid structured runner verdict embedded in a log."""
+
+    for line in reversed(value.splitlines()):
+        marker = line.find(PUBLISH_TEST_RESULT_PREFIX)
+        if marker < 0:
+            continue
+        raw = line[marker + len(PUBLISH_TEST_RESULT_PREFIX):].strip()
+        try:
+            result = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(result, dict) or result.get("contract") != PUBLISH_TEST_RESULT_CONTRACT:
+            continue
+        counts = [result.get(key) for key in ("entries", "passed", "failed", "skipped", "timeouts")]
+        if any(not isinstance(count, int) or isinstance(count, bool) or count < 0 for count in counts):
+            continue
+        if result["entries"] != result["passed"] + result["failed"] + result["skipped"]:
+            continue
+        if result["timeouts"] > result["failed"]:
+            continue
+        return result
+    return None
+
+
 def publish_failure_is_deterministic(value: str) -> bool:
     """True when repeating this publish attempt cannot change its verdict."""
 
-    verdict = PUBLISH_TEST_VERDICT_RE.search(value)
-    if verdict and int(verdict.group(3)) >= 1:
+    verdict = publish_test_result(value)
+    if verdict is not None and verdict["failed"] >= 1:
         return True
     return bool(
         PUBLISH_ERROR_CLASS_RE.search(value)
