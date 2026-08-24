@@ -136,6 +136,69 @@ def url_key(value: str) -> str:
     return unescape(str(value or "")).rstrip("/")
 
 
+def load_resume_report(path: Path, cdp_port: int) -> dict:
+    """Load a --resume-report file, or {} when it cannot be trusted.
+
+    A resume report is bookkeeping about what a previous run already proved,
+    never data: ignoring a bad one only costs fresh fetches. 2026-08-24 a
+    test-fixture state leak wrote the production report, and the old raise on
+    contract mismatch parked the whole PC lane for the night (the chain
+    retried into the same poisoned file five times).
+    """
+
+    try:
+        previous = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as exc:
+        print(f"resume report ignored (unreadable): {path} ({exc})", flush=True)
+        return {}
+    try:
+        contract_ok = (
+            isinstance(previous, dict)
+            and previous.get("singleBrowserSession") is True
+            and int(previous.get("fallbackBrowsers", -1)) == 0
+            and int(previous.get("cdpPort") or 0) == cdp_port
+        )
+    except (TypeError, ValueError):
+        contract_ok = False
+    if not contract_ok:
+        print(
+            "resume report ignored: not produced by the strict single-browser "
+            f"contract on port {cdp_port}: {path}",
+            flush=True,
+        )
+        return {}
+    return previous
+
+
+def resume_entry_stale_reason(prior: dict, row: dict) -> str | None:
+    """None when the sidecar on disk still proves this exact product and the
+    recorded fetch; otherwise why the entry is stale. Reuse stays exactly as
+    strict as before -- but a stale entry is discarded so its variant
+    re-fetches fresh, instead of aborting the whole lane."""
+
+    html_path = ROOT / str(row.get("html_path") or row.get("htmlPath") or "")
+    html = html_path.read_text(encoding="utf-8", errors="replace") if html_path.is_file() else ""
+    if len(html) <= 5000:
+        return "sidecar_missing_or_truncated"
+    title_match = re.search(r"<title>(.*?)</title>", html, re.I | re.S)
+    title = (title_match.group(1) if title_match else "").strip()
+    if _is_cf(title, html):
+        return "sidecar_is_cf_challenge"
+    product_match = re.search(r'\bproduct-id=["\'](\d+)["\']', html, re.I)
+    actual_product_id = product_match.group(1) if product_match else ""
+    if actual_product_id != str(row.get("pc_product_id") or "").strip():
+        return "product_id_mismatch"
+    if canonical_url_from_html(html) != url_key(row.get("pc_url")):
+        return "canonical_url_mismatch"
+    try:
+        recorded_len = int(prior.get("len") or -1)
+    except (TypeError, ValueError):
+        recorded_len = -1
+    if recorded_len != len(html):
+        return "recorded_len_mismatch"
+    return None
+
+
 async def stable_page_content(page, watchdog: dict[str, float]) -> str:
     """Read the current document after a same-tab redirect finishes.
 
@@ -1251,14 +1314,9 @@ def main() -> int:
     batch = rows if args.limit <= 0 else rows[: args.limit]
     row_by_variant = {int(row["variant_id"]): row for row in batch}
     reused_results: list[dict] = []
+    resume_discarded: dict[int, str] = {}
     if args.resume_report:
-        previous = json.loads(args.resume_report.read_text(encoding="utf-8-sig"))
-        if not (
-            previous.get("singleBrowserSession") is True
-            and int(previous.get("fallbackBrowsers", -1)) == 0
-            and int(previous.get("cdpPort") or 0) == args.cdp_port
-        ):
-            raise RuntimeError("resume report was not produced by the strict single-browser contract")
+        previous = load_resume_report(args.resume_report, args.cdp_port)
         for prior in previous.get("results") or []:
             if prior.get("status") != "ok":
                 continue
@@ -1266,23 +1324,18 @@ def main() -> int:
             row = row_by_variant.get(variant_id)
             if not row:
                 continue
-            expected_product_id = str(row.get("pc_product_id") or "").strip()
-            html_path = ROOT / str(row.get("html_path") or row.get("htmlPath") or "")
-            html = html_path.read_text(encoding="utf-8", errors="replace") if html_path.is_file() else ""
-            product_match = re.search(r'\bproduct-id=["\'](\d+)["\']', html, re.I)
-            actual_product_id = product_match.group(1) if product_match else ""
-            canonical_url = canonical_url_from_html(html)
-            title_match = re.search(r"<title>(.*?)</title>", html, re.I | re.S)
-            title = (title_match.group(1) if title_match else "").strip()
-            if (
-                len(html) <= 5000
-                or _is_cf(title, html)
-                or actual_product_id != expected_product_id
-                or canonical_url != url_key(row.get("pc_url"))
-                or int(prior.get("len") or -1) != len(html)
-            ):
-                raise RuntimeError(f"resume artifact no longer matches exact product for variant {variant_id}")
+            stale = resume_entry_stale_reason(prior, row)
+            if stale is not None:
+                resume_discarded[variant_id] = stale
+                continue
             reused_results.append({**prior, "resumed": True})
+    if resume_discarded:
+        preview = dict(list(resume_discarded.items())[:20])
+        print(
+            f"resume entries discarded for {len(resume_discarded)} variants "
+            f"(stale bookkeeping; those variants re-fetch fresh in this batch): {preview}",
+            flush=True,
+        )
 
     reused_ids = {int(row["variant_id"]) for row in reused_results}
     pending_batch = [row for row in batch if int(row["variant_id"]) not in reused_ids]
@@ -1312,6 +1365,7 @@ def main() -> int:
             "transport": PC_TRANSPORT,
             "resumeReport": str(args.resume_report) if args.resume_report else None,
             "reused": len(reused_results),
+            "resumeDiscarded": len(resume_discarded),
             "requested": len(requested_ids),
             "selected": len(rows),
             "missingRequestedVariantIds": missing_requested,

@@ -917,21 +917,159 @@ def test_source_registry_dispatch() -> None:
     check("both lanes go through the registry", source.count("dispatch_adapter(") >= 3, True)
 
 
+# ---------------------------------------------------------------------------
+# 6. resume artifact self-heal: stale entries are discarded, never fatal
+# ---------------------------------------------------------------------------
+def _sidecar_html(product_id: str, url: str, size: int = 6000) -> str:
+    head = (
+        "<html><head><title>Card Prices</title>"
+        f'<link rel="canonical" href="{url}">'
+        "</head><body>"
+        f'<div product-id="{product_id}">sold listings</div>'
+    )
+    tail = "</body></html>"
+    return head + ("x" * max(0, size - len(head) - len(tail))) + tail
+
+
+def test_resume_self_heal(tmp: Path) -> None:
+    sidecars = tmp / "resume-sidecars"
+    sidecars.mkdir(parents=True, exist_ok=True)
+
+    def make_row(vid: int, pid: str, url: str, html: str | None) -> dict:
+        path = sidecars / f"{vid}_{pid}.html"
+        if html is not None:
+            path.write_text(html, encoding="utf-8")
+        return {
+            "variant_id": vid,
+            "pc_product_id": pid,
+            "pc_url": url,
+            "html_path": str(path),
+        }
+
+    url = "https://www.pricecharting.com/game/one-piece/test-card-op01-001"
+    good_html = _sidecar_html("12345", url)
+    good_row = make_row(1, "12345", url, good_html)
+    good_prior = {"variant_id": 1, "status": "ok", "len": len(good_html), "code": 200}
+
+    check(
+        "fresh matching sidecar is reusable",
+        mod.resume_entry_stale_reason(good_prior, good_row),
+        None,
+    )
+    check(
+        "missing sidecar discards the entry",
+        mod.resume_entry_stale_reason(good_prior, make_row(2, "12345", url, None)),
+        "sidecar_missing_or_truncated",
+    )
+    check(
+        "product-id mismatch discards the entry",
+        mod.resume_entry_stale_reason(good_prior, make_row(3, "99999", url, good_html)),
+        "product_id_mismatch",
+    )
+    other = "https://www.pricecharting.com/game/one-piece/other-card-op01-002"
+    check(
+        "canonical url mismatch discards the entry",
+        mod.resume_entry_stale_reason(good_prior, make_row(4, "12345", other, good_html)),
+        "canonical_url_mismatch",
+    )
+    check(
+        "recorded len mismatch discards the entry",
+        mod.resume_entry_stale_reason({**good_prior, "len": len(good_html) - 1}, good_row),
+        "recorded_len_mismatch",
+    )
+    cf_html = _sidecar_html("12345", url).replace("Card Prices", "Just a moment...")
+    check(
+        "cf challenge sidecar discards the entry",
+        mod.resume_entry_stale_reason({**good_prior, "len": len(cf_html)}, make_row(5, "12345", url, cf_html)),
+        "sidecar_is_cf_challenge",
+    )
+
+    # The report loader: an untrustworthy file is ignored (fresh fetches),
+    # never a lane-killing exception. This is the 2026-08-24 outage shape.
+    report = tmp / "resume-report.json"
+    report.write_text("{not json", encoding="utf-8")
+    check("corrupt report is ignored", mod.load_resume_report(report, 9333), {})
+    report.write_text(
+        json.dumps({"singleBrowserSession": True, "fallbackBrowsers": 0, "cdpPort": 9222}),
+        encoding="utf-8",
+    )
+    check("wrong-port report is ignored", mod.load_resume_report(report, 9333), {})
+    report.write_text(json.dumps({"fallbackBrowsers": "many"}), encoding="utf-8")
+    check("garbage contract fields are ignored", mod.load_resume_report(report, 9333), {})
+    report.write_text(json.dumps([1, 2, 3]), encoding="utf-8")
+    check("non-dict report is ignored", mod.load_resume_report(report, 9333), {})
+    good_report = {
+        "singleBrowserSession": True,
+        "fallbackBrowsers": 0,
+        "cdpPort": 9333,
+        "results": [good_prior],
+    }
+    report.write_text(json.dumps(good_report), encoding="utf-8")
+    check(
+        "contract-passing report still loads",
+        mod.load_resume_report(report, 9333).get("results"),
+        [good_prior],
+    )
+
+
+def _pristine_report_state() -> dict:
+    return {
+        "batch": 0,
+        "results": [],
+        "base": {},
+        "decisions": 0,
+        "armed": False,
+        "complete": False,
+        "terminal": False,
+    }
+
+
 def main() -> int:
     test_tmp_root = ROOT / "data" / "runtime" / "test-tmp"
     test_tmp_root.mkdir(parents=True, exist_ok=True)
     tmp = Path(tempfile.mkdtemp(prefix="pc_lane_durability_", dir=str(test_tmp_root)))
+    # 2026-08-24: one flush escaped to the PRODUCTION resume report. A test
+    # restored mod.OUT after itself, but module-global _REPORT_STATE kept the
+    # fixture results armed, and a later test crossing the every-10 decision
+    # boundary flushed them to the real path -- the chain then auto-resumed
+    # from fixture data and the PC lane died all night. The suite therefore
+    # parks OUT/PROGRESS_STAMP_DIR on tmp for the WHOLE run (tests that patch
+    # them further now restore to tmp, not production), resets _REPORT_STATE
+    # before every test, and finally asserts the production report bytes are
+    # untouched.
+    production_out = mod.OUT
+    production_report_bytes = (
+        production_out.read_bytes() if production_out.is_file() else None
+    )
+    original_stamp_dir = mod.PROGRESS_STAMP_DIR
+    mod.OUT = tmp / "suite-quarantine" / "pc_cdp_refresh_report.json"
+    mod.PROGRESS_STAMP_DIR = tmp / "suite-quarantine" / "stamps"
+
+    def fresh(test, *test_args) -> None:
+        mod._REPORT_STATE.clear()
+        mod._REPORT_STATE.update(_pristine_report_state())
+        test(*test_args)
+
     try:
-        test_partial_report(tmp)
-        test_sigterm_writes_partial(tmp)
-        test_cf_storm_breaker(tmp)
-        test_pc_error_classes()
-        test_refresh_maps_storm_and_rejects_partial(tmp)
-        test_refresh_bind_only(tmp)
-        test_child_log_and_rc(tmp)
-        test_ensure_cdp_identity_only(tmp)
-        test_source_registry_dispatch()
+        fresh(test_partial_report, tmp)
+        fresh(test_sigterm_writes_partial, tmp)
+        fresh(test_cf_storm_breaker, tmp)
+        fresh(test_pc_error_classes)
+        fresh(test_refresh_maps_storm_and_rejects_partial, tmp)
+        fresh(test_refresh_bind_only, tmp)
+        fresh(test_child_log_and_rc, tmp)
+        fresh(test_ensure_cdp_identity_only, tmp)
+        fresh(test_source_registry_dispatch)
+        fresh(test_resume_self_heal, tmp)
     finally:
+        mod.OUT = production_out
+        mod.PROGRESS_STAMP_DIR = original_stamp_dir
+        after = production_out.read_bytes() if production_out.is_file() else None
+        check(
+            "no test touched the production resume report",
+            after == production_report_bytes,
+            True,
+        )
         shutil.rmtree(tmp, ignore_errors=True)
 
     for line in FAILED:
