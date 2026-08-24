@@ -84,31 +84,11 @@ assert "_format_checkpoint_gate_error(" in operator
 assert "missingVariantIds=" in operator
 print("POSITIVE_OK checkpoint gate error names missingVariantIds")
 
-morning = (ROOT / "scripts" / "morning_browser_lanes.ps1").read_text(encoding="utf-8")
-nightly = (ROOT / "scripts" / "nightly_collect_accept.ps1").read_text(encoding="utf-8")
-refresh = (ROOT / "scripts" / "refresh_publish.ps1").read_text(encoding="utf-8")
-for name, source in (
-    ("morning", morning),
-    ("nightly", nightly),
-    ("refresh", refresh),
-):
-    needle = 'collect_control.py" first-stock'
-    if needle not in source:
-        raise AssertionError(f"{name} daily chain does not call first-stock")
-    first_at = source.find(needle)
-    accept_at = source.find('operator_control.py" daily-accept')
-    if accept_at < 0:
-        accept_at = source.rfind("daily-accept")
-    if first_at < 0 or accept_at < 0 or first_at > accept_at:
-        raise AssertionError(f"{name} first-stock is not before daily-accept")
-print("POSITIVE_OK morning/nightly/refresh call first-stock before daily-accept")
-
-assert (
-    'if ($acceptExit -ne 0 -or $publishExit -ne 0) { $chainExit = 1 }' in morning
-)
-assert (
-    "if ($cdpExit -ne 0 -or $collectExit -ne 0 -or $discoverExit -ne 0 -or $acceptExit -ne 0 -or $publishExit -ne 0)"
-    not in morning
-)
-assert "if ($acceptExit -ne 0) { $chainExit = 1 }" in nightly
-print("POSITIVE_OK scheduler success is accept/publish, not leftover collector reds")
+# The first-stock-before-daily-accept ordering used to be pinned by grepping the
+# three V1 wrappers (morning/nightly/refresh). Those wrappers moved to
+# archive/scripts/ on 2026-08-25 along with their Disabled Task Scheduler
+# entries. In V2 the ordering is a stage dependency, not text: stage
+# `checkpoint-repair` (pipelines/daily_chain_v2_stage.py) calls cmd_first_stock
+# and daily-accept sits behind it in the DAG, so a grep-based mirror of it here
+# would only re-assert what the DAG already makes unrepresentable. The
+# command-side checks above still hold.

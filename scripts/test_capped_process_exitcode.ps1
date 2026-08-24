@@ -39,11 +39,11 @@ if ($null -eq $planted) {
 # Source ratchet: the library must keep the Handle touch.
 $lib = Get-Content -LiteralPath (Join-Path $here "cardz_chain_lib.ps1") -Raw
 Check "library touches `$p.Handle before WaitForExit" ($lib -match '\$null = \$p\.Handle') $true
-Check "refresh_publish dotsources the library" (
-    (Get-Content -LiteralPath (Join-Path $here "refresh_publish.ps1") -Raw) -match 'cardz_chain_lib\.ps1'
-) $true
-Check "refresh_publish no longer has its own Start-Process python helper" (
-    (Get-Content -LiteralPath (Join-Path $here "refresh_publish.ps1") -Raw) -notmatch 'function Invoke-PyTimeout'
+# The two refresh_publish.ps1 checks that stood here went to archive/scripts/ with
+# that wrapper on 2026-08-25. watchdog_live_release.ps1 is now the live consumer
+# of this library, so the dotsource ratchet points at it instead.
+Check "watchdog_live_release dotsources the library" (
+    (Get-Content -LiteralPath (Join-Path $here "watchdog_live_release.ps1") -Raw) -match 'cardz_chain_lib\.ps1'
 ) $true
 
 # --- library: real codes --------------------------------------------------

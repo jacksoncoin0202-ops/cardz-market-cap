@@ -162,20 +162,10 @@ check(
     True,
 )
 
-# --- 6. 朝鏈必須先成頁 cap PC，唔准再畀 GemRate 食死個 slot ---------------
-morning = (ROOT / "scripts" / "morning_browser_lanes.ps1").read_text(encoding="utf-8")
-first_incr = morning.find('collect_control.py", "incr"')
-snk_at = morning.find('"snk_trades"')
-window = morning[first_incr:first_incr + 280] if first_incr >= 0 else ""
-check("morning 有 incr collect_control", first_incr >= 0, True)
-check("morning 第一個 incr 係 browser", '"browser"' in window, True)
-check("morning 第一個 incr 有 --force-network", "--force-network" in window, True)
-check(
-    "morning 唔用 incr --adapter http 去拉 GemRate（GemRate 屬夜鏈）",
-    'collect_control.py", "incr"' in morning and "incr --adapter http" not in morning,
-    True,
-)
-check("morning HTTP catch-up 仍然有 SNK，而且喺 PC incr 之後", snk_at > first_incr, True)
+# --- 6. 朝鏈 PC-before-SNK 次序 ------------------------------------------
+# 呢五條 check 本來係 grep morning_browser_lanes.ps1 嘅字串次序。V1 wrapper
+# 2026-08-25 搬咗去 archive/scripts/（三個 Task Scheduler entry 一早 Disabled），
+# V2 鏈嘅 lane 次序係 stage 依賴，唔係 ps1 入面嘅行序，所以呢度唔再照 grep。
 
 for line in FAILED:
     print(line)

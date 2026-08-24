@@ -136,62 +136,23 @@ assert "return 1" not in source[source.index("def cmd_daily_discover_activate"):
 assert '"dailyDiscovery": "complete"' in source
 print("POSITIVE_OK ordinary unresolved discovery no longer blocks daily-accept")
 
-for script_name in ("nightly_collect_accept.ps1", "morning_browser_lanes.ps1"):
-    source = (ROOT / "scripts" / script_name).read_text(encoding="utf-8-sig")
-    discover_at = source.index("daily-discover-activate")
-    accept_at = source.index('operator_control.py" daily-accept')
-    assert discover_at < accept_at, script_name
-    assert "CARDZ_DAILY_CHAIN" in source, script_name
-    assert "$discoverExit -eq 0" not in source, script_name
-    assert "daily-accept still runs" in source, script_name
-print("POSITIVE_OK scheduled chains keep daily-accept after discovery failure")
-
-morning = (ROOT / "scripts" / "morning_browser_lanes.ps1").read_text(encoding="utf-8-sig")
-browser_at = morning.index('"--adapter", "browser", "--ensure-browser", "--force-network"')
-snk_at = morning.index('"--adapter", "snk_trades", "--adapter", "snk_price"')
-assert browser_at < snk_at
-assert '"--adapter", "gemrate_pop"' not in morning
-print("POSITIVE_OK morning PC cap precedes bounded SNK catch-up without GemRate")
-
+# The V1 wrapper chain (morning_browser_lanes / nightly_collect_accept /
+# refresh_publish / preflight_daily_chain) moved to archive/scripts/ on
+# 2026-08-25: its three Task Scheduler entries have been Disabled since the V2
+# chain took over, so the assertions that pinned discovery-before-accept,
+# PC-before-SNK, notify and sealed wiring inside those wrappers went with them.
+# What stays here is the release script pair, which the V2 chain still runs.
 sh = (ROOT / "scripts" / "daily_public_release.sh").read_text(encoding="utf-8")
 ps1 = (ROOT / "scripts" / "daily_public_release.ps1").read_text(encoding="utf-8-sig")
 assert "--scheduled) STAMP_ARGS+=(--scheduled)" in sh
 assert "stamp_autonomy" in sh
 assert 'env "CARDZ_DAILY_CHAIN=' in ps1
-for wrapper_name in (
-    "morning_browser_lanes.ps1",
-    "refresh_publish.ps1",
-    "nightly_collect_accept.ps1",
-):
-    wrapper = (ROOT / "scripts" / wrapper_name).read_text(encoding="utf-8-sig")
-    assert "Test-LaunchedByTaskScheduler" in wrapper, wrapper_name
-print("POSITIVE_OK autonomy plumbing: --scheduled + env prefix + TS parent detect")
-assert (ROOT / "scripts" / "notify_hermes.py").is_file()
-nightly = (ROOT / "scripts" / "nightly_collect_accept.ps1").read_text(encoding="utf-8-sig")
-refresh = (ROOT / "scripts" / "refresh_publish.ps1").read_text(encoding="utf-8-sig")
-assert 'notify_hermes.py" chain --chain nightly' in nightly
-assert "--notify-on failure" in nightly
-assert 'notify_hermes.py" chain --chain morning' in morning
-assert "--notify-on always" in morning
-assert 'notify_hermes.py" digest' in morning
-assert 'notify_hermes.py" chain --chain refresh' in refresh
-assert "CRASH (see log)" in nightly and "CRASH (see log)" in morning
 assert "notify_release" in sh
-print("POSITIVE_OK Hermes notify call sites present")
-assert (ROOT / "scripts" / "preflight_daily_chain.ps1").is_file()
-assert (ROOT / "scripts" / "watchdog_live_release.ps1").is_file()
-assert "preflight_daily_chain.ps1" in nightly
-assert "preflight_daily_chain.ps1" in morning
-assert "preflight_daily_chain.ps1" in refresh
-print("POSITIVE_OK preflight wired into three wrappers")
-assert "sealed_daily.py" in nightly
-assert "sealed_snk" in nightly
-assert "sealed_yahoo" in nightly
-assert "sealed_daily.py" in morning
-assert "sealed_pc" in morning
 assert "rev-parse --absolute-git-dir" in sh
 assert "--box" in sh
-print("POSITIVE_OK BOX daily wiring + TESTED_MARK uses git-dir")
+assert (ROOT / "scripts" / "notify_hermes.py").is_file()
+assert (ROOT / "scripts" / "watchdog_live_release.ps1").is_file()
+print("POSITIVE_OK release autonomy plumbing + notify/BOX wiring + git-dir mark")
 
 os.environ["CARDZ_DAILY_CHAIN"] = "1"
 try:

@@ -138,9 +138,11 @@ def test_supervisor_uses_identity_gate():
     assert 'StatusCode -eq 200' not in text
 
 
-def test_preflight_cdp_budget_covers_evict():
-    text = (ROOT / "scripts" / "preflight_daily_chain.ps1").read_text(encoding="utf-8")
-    assert '"$CdpPort") 90' in text
+# test_preflight_cdp_budget_covers_evict lived here and pinned the 90s CDP evict
+# budget inside preflight_daily_chain.ps1. That wrapper moved to archive/scripts/
+# on 2026-08-25 with the rest of the V1 chain; the V2 launcher runs its own CDP
+# preflight (CARDZ_V2_PREFLIGHT), so there is no preflight_daily_chain.ps1 budget
+# left to guard.
 
 
 def test_fetchers_refuse_wrong_identity():
@@ -172,7 +174,6 @@ if __name__ == "__main__":
         test_python_refuses_9222,
         test_dead_port_targets_are_none,
         test_supervisor_uses_identity_gate,
-        test_preflight_cdp_budget_covers_evict,
         test_fetchers_refuse_wrong_identity,
         test_live_9333_is_windows_headed_or_absent,
     ]
