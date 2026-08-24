@@ -32,6 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
 from failure_ledger import record_failure, record_resolution  # noqa: E402
+from fx_asof import JpyPerUsdHistory  # noqa: E402
 
 MAP = ROOT / "data/runtime/private-source-map"
 DEFAULT_HARVEST = MAP / "snk-psa10-940.jsonl"
@@ -68,20 +69,6 @@ def db():
         ),
         label="ingest_snk_trades_sales",
     )
-
-
-def jpy_per_usd(cur) -> float:
-    cur.execute(
-        """
-        SELECT rate FROM market_fx_rate_observation
-        WHERE base_currency='USD' AND quote_currency='JPY'
-        ORDER BY effective_date DESC, id DESC LIMIT 1
-        """
-    )
-    row = cur.fetchone()
-    if not row or row.get("rate") is None or float(row["rate"]) <= 0:
-        raise RuntimeError("USD/JPY FX rate missing; refuse to invent conversion")
-    return float(row["rate"])
 
 
 def parse_qty(label: str) -> int:
@@ -155,9 +142,20 @@ def main() -> int:
 
     conn = db()
     cur = conn.cursor()
-    fx = jpy_per_usd(cur)
+    fx_history = JpyPerUsdHistory.load(cur)
     id_map = item_to_variant(cur)
-    print(json.dumps({"boundSnkIds": len(id_map), "jpyPerUsd": fx}, sort_keys=True), flush=True)
+    print(
+        json.dumps(
+            {
+                "boundSnkIds": len(id_map),
+                "fxPoints": fx_history.point_count,
+                "latestJpyPerUsd": fx_history.latest.rate,
+                "latestFxAsOf": fx_history.latest.effective_date.isoformat(),
+            },
+            sort_keys=True,
+        ),
+        flush=True,
+    )
 
     harvest_path = args.harvest
     if args.repull and id_map:
@@ -259,13 +257,14 @@ def main() -> int:
                 continue
             qty = parse_qty(str(t.get("label") or "1枚"))
             unit_jpy = float(price_jpy) / qty
-            unit_usd = round(unit_jpy / fx, 6)
             sold_raw = str(t.get("soldAt") or t.get("sold_at") or "")
             try:
                 sold_at = datetime.fromisoformat(sold_raw.replace("Z", "+00:00")).replace(tzinfo=None)
             except ValueError:
                 skipped_bad += 1
                 continue
+            trade_rate, trade_rate_as_of = fx_history.for_date(sold_at.date())
+            unit_usd = round(unit_jpy / trade_rate, 6)
             fp = fingerprint(item, sold_raw, float(price_jpy), qty, title)
             payload = {"itemId": item, "priceJpy": price_jpy, "qty": qty, "title": title, "soldAt": sold_raw}
             ph = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
@@ -283,6 +282,10 @@ def main() -> int:
                     effective,
                     "exact_date",
                     unit_usd,
+                    round(unit_jpy, 6),
+                    "JPY",
+                    trade_rate,
+                    trade_rate_as_of,
                     qty,
                     round(unit_usd * qty, 6),
                     ph,
@@ -324,15 +327,25 @@ def main() -> int:
         INSERT INTO market_sale_observation
             (run_id, variant_id, source_code, external_entity_id, transaction_fingerprint,
              grader_code, grade_label, sold_at, source_date_text, fetched_at,
-             timestamp_quality, unit_price_usd, quantity, transaction_value_usd,
+             timestamp_quality, unit_price_usd, native_unit_price, native_currency,
+             fx_rate_used, fx_rate_as_of, quantity, transaction_value_usd,
              source_payload_sha256, coverage_status)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE
             run_id=VALUES(run_id),
             variant_id=VALUES(variant_id),
-            unit_price_usd=VALUES(unit_price_usd),
+            unit_price_usd=IF(market_sale_observation.fx_rate_as_of IS NULL,
+                              VALUES(unit_price_usd), market_sale_observation.unit_price_usd),
+            transaction_value_usd=IF(market_sale_observation.fx_rate_as_of IS NULL,
+                                     VALUES(transaction_value_usd), market_sale_observation.transaction_value_usd),
+            native_unit_price=IF(market_sale_observation.fx_rate_as_of IS NULL,
+                                 VALUES(native_unit_price), market_sale_observation.native_unit_price),
+            native_currency=IF(market_sale_observation.fx_rate_as_of IS NULL,
+                               VALUES(native_currency), market_sale_observation.native_currency),
+            fx_rate_used=COALESCE(market_sale_observation.fx_rate_used, VALUES(fx_rate_used)),
+            fx_rate_as_of=COALESCE(market_sale_observation.fx_rate_as_of, VALUES(fx_rate_as_of)),
             quantity=VALUES(quantity),
-            transaction_value_usd=VALUES(transaction_value_usd),
             sold_at=VALUES(sold_at),
             fetched_at=VALUES(fetched_at),
             source_payload_sha256=VALUES(source_payload_sha256),

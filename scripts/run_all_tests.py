@@ -33,6 +33,7 @@ SELF_TEST_ENTRIES: dict[str, list[str]] = {
     "daily_prices.py": ["--self-test"],
     "db_runtime.py": ["self-test"],
     "fx_rates.py": ["--self-test"],
+    "fx_asof.py": ["--self-test"],
     "g10_ingest.py": ["--self-test"],
     "g10_public_snapshot.py": ["--self-test"],
     "gemrate_client.py": ["--self-test"],

@@ -51,6 +51,7 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE_DIR / "pipelines"))
 
 from failure_ledger import record_failure, record_resolution  # noqa: E402
+from fx_asof import JpyPerUsdHistory  # noqa: E402
 from snkrdunk_bulk import SnkrdunkApiPool, SnkrdunkApi, bfs_discover  # noqa: E402
 
 PSA10_CONDITION = "trading_card_single_psa10"
@@ -1116,20 +1117,12 @@ def ingest_kline_jsonls(
     if owns_conn:
         conn = _db_connect()
     cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT rate FROM market_fx_rate_observation
-        WHERE base_currency='USD' AND quote_currency='JPY'
-        ORDER BY effective_date DESC, id DESC
-        LIMIT 1
-        """
-    )
-    fx_row = cur.fetchone()
-    jpy_per_usd = float(fx_row["rate"]) if fx_row and fx_row.get("rate") is not None else None
-    if jpy_per_usd is None or jpy_per_usd <= 0:
+    try:
+        fx_history = JpyPerUsdHistory.load(cur)
+    except Exception:
         if owns_conn:
             conn.close()
-        raise RuntimeError("USD/JPY FX rate missing; refuse to invent conversion")
+        raise
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     key = run_key or f"snk_kline_ingest_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
@@ -1140,7 +1133,9 @@ def ingest_kline_jsonls(
         "ingestMode": ingest_mode,
         "jsonls": [str(path) for path in jsonl_paths],
         "sourceFiles": len(jsonl_paths),
-        "jpyPerUsd": jpy_per_usd,
+        "fxPoints": fx_history.point_count,
+        "latestJpyPerUsd": fx_history.latest.rate,
+        "latestFxAsOf": fx_history.latest.effective_date.isoformat(),
         "rowsSeen": len(rows),
         "cardsAccepted": 0,
         "pricePoints": 0,
@@ -1326,9 +1321,10 @@ def ingest_kline_jsonls(
             persisted_latest = _load_latest_persisted_kline(cur, item_id)
             persisted_kline_cache[item_id] = persisted_latest
         for day, price_jpy in to_write:
-            price_usd = round(price_jpy / jpy_per_usd, 6)
             # The market date is authoritative for chart anchors and public as-of.
             observed = date.fromisoformat(day)
+            price_rate, price_rate_as_of = fx_history.for_date(observed)
+            price_usd = round(price_jpy / price_rate, 6)
             effective = datetime.combine(observed, dt_time(23, 59, 59))
             dedup_key = (str(item_id), day)
             persisted = persisted_latest.get(day)
@@ -1343,7 +1339,10 @@ def ingest_kline_jsonls(
                     None,
                     persisted[0],
                     (run_id, variant_id, "snkrdunk", str(item_id)),
-                    (day, effective, price_usd, price_jpy, "JPY", 50, "ready", persisted[1]),
+                    (
+                        day, effective, price_usd, price_jpy, "JPY",
+                        price_rate, price_rate_as_of, 50, "ready", persisted[1],
+                    ),
                 )
                 stats["pricePoints"] += 1
                 continue
@@ -1367,7 +1366,10 @@ def ingest_kline_jsonls(
                 (str(item_id), day, payload_hash),
                 None,
                 (run_id, variant_id, "snkrdunk", str(item_id)),
-                (day, effective, price_usd, price_jpy, "JPY", 50, "ready", payload_hash),
+                (
+                    day, effective, price_usd, price_jpy, "JPY",
+                    price_rate, price_rate_as_of, 50, "ready", payload_hash,
+                ),
             )
             stats["pricePoints"] += 1
         resolved_cards.append((item_id, variant_id, len(to_write)))
@@ -1433,17 +1435,24 @@ def ingest_kline_jsonls(
         INSERT INTO market_price_observation
             (run_id, variant_id, source_code, source_external_entity_id,
              source_observation_id, observed_date, effective_at, price_usd,
-             native_price, native_currency, source_priority, metric_status, payload_sha256)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+             native_price, native_currency, fx_rate_used, fx_rate_as_of,
+             source_priority, metric_status, payload_sha256)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE
             last_run_id=VALUES(run_id),
             restamp_count=restamp_count+1,
             source_external_entity_id=VALUES(source_external_entity_id),
             source_observation_id=VALUES(source_observation_id),
             effective_at=VALUES(effective_at),
-            price_usd=VALUES(price_usd),
-            native_price=VALUES(native_price),
-            native_currency=VALUES(native_currency),
+            price_usd=IF(market_price_observation.fx_rate_as_of IS NULL,
+                         VALUES(price_usd), market_price_observation.price_usd),
+            native_price=IF(market_price_observation.fx_rate_as_of IS NULL,
+                            VALUES(native_price), market_price_observation.native_price),
+            native_currency=IF(market_price_observation.fx_rate_as_of IS NULL,
+                               VALUES(native_currency), market_price_observation.native_currency),
+            fx_rate_used=COALESCE(market_price_observation.fx_rate_used, VALUES(fx_rate_used)),
+            fx_rate_as_of=COALESCE(market_price_observation.fx_rate_as_of, VALUES(fx_rate_as_of)),
             source_priority=VALUES(source_priority),
             metric_status=CASE WHEN market_price_observation.metric_status='quarantined'
                                THEN 'quarantined' ELSE VALUES(metric_status) END,

@@ -3614,6 +3614,7 @@ def stage_snk_refresh(ctx: SimpleNamespace) -> dict[str, Any]:
 
     from datetime import datetime, timezone
 
+    import fx_asof  # noqa: F401 -- keeps fx_asof.py inside this stage's code hash
     import snk_market_data
 
     conn = ctx.conn
@@ -3970,20 +3971,6 @@ def _snk_harvest_path(generation: str) -> Path:
     raise SystemExit(f"S8 ABORT: snk harvest missing: {out_path}")
 
 
-def _jpy_per_usd(conn) -> float:
-    with conn.cursor() as cursor:
-        cursor.execute(
-            "SELECT rate FROM market_fx_rate_observation"
-            " WHERE base_currency='USD' AND quote_currency='JPY'"
-            " ORDER BY effective_date DESC, id DESC LIMIT 1"
-        )
-        row = cursor.fetchone()
-    rate = float(row["rate"]) if row and row.get("rate") is not None else 0.0
-    if rate <= 0:
-        raise SystemExit("S8 ABORT: USD/JPY FX rate missing; refuse to invent conversion")
-    return rate
-
-
 # A quarantined price row is released only when the provider item it was
 # captured from is, today, the item this card is PROVEN to be. Two writers set
 # this flag and they mean different things, exactly as with match_status:
@@ -4087,6 +4074,7 @@ def stage_price_materialize(ctx: SimpleNamespace) -> dict[str, Any]:
     from datetime import date as dt_date, datetime, time as dt_time, timezone
     from decimal import Decimal
 
+    import fx_asof  # noqa: F401 -- keeps fx_asof.py inside this stage's code hash
     import ingest_snk_trades_sales as snk_sales
     import snk_market_data
     from pc_psa10_price_materialize import (
@@ -4402,7 +4390,8 @@ def stage_price_materialize(ctx: SimpleNamespace) -> dict[str, Any]:
             if isinstance(item_id, int) and not row.get("error"):
                 rows_by_item[item_id] = row
 
-    fx = _jpy_per_usd(conn)
+    with conn.cursor() as fx_cursor:
+        trade_fx = fx_asof.JpyPerUsdHistory.load(fx_cursor)
     snk_current: dict[int, dict[str, Any]] = {}
     for vid in sorted(snk_bind):
         best: tuple[int, int, list[tuple[str, float]]] | None = None
@@ -4420,10 +4409,13 @@ def stage_price_materialize(ctx: SimpleNamespace) -> dict[str, Any]:
             continue
         _, item, points = best
         day, price_jpy = max(points, key=lambda pt: pt[0])
+        current_rate, current_rate_as_of = trade_fx.for_date(dt_date.fromisoformat(day))
         snk_current[vid] = {
             "observedDate": day,
-            "priceUsd": str(round(price_jpy / fx, 6)),
+            "priceUsd": str(round(price_jpy / current_rate, 6)),
             "priceJpy": price_jpy,
+            "fxRateUsed": current_rate,
+            "fxRateAsOf": current_rate_as_of.isoformat(),
             "points": len(points),
             "itemId": item,
         }
@@ -4466,7 +4458,9 @@ def stage_price_materialize(ctx: SimpleNamespace) -> dict[str, Any]:
             if fingerprint in seen_fingerprints:
                 continue
             seen_fingerprints.add(fingerprint)
-            unit_usd = round(float(price_jpy) / qty / fx, 6)
+            unit_jpy = float(price_jpy) / qty
+            trade_rate, trade_rate_as_of = trade_fx.for_date(sold_at.date())
+            unit_usd = round(unit_jpy / trade_rate, 6)
             payload = {
                 "itemId": item, "priceJpy": price_jpy, "qty": qty,
                 "title": title, "soldAt": sold_raw,
@@ -4475,8 +4469,9 @@ def stage_price_materialize(ctx: SimpleNamespace) -> dict[str, Any]:
                 (
                     vid, "snkrdunk", str(item), fingerprint, "psa", "10",
                     sold_at, sold_raw[:100],
-                    fetched_at or sold_at, "exact_date", unit_usd, qty,
-                    round(unit_usd * qty, 6),
+                    fetched_at or sold_at, "exact_date", unit_usd,
+                    round(unit_jpy, 6), "JPY", trade_rate, trade_rate_as_of,
+                    qty, round(unit_usd * qty, 6),
                     hashlib.sha256(
                         json.dumps(payload, sort_keys=True).encode("utf-8")
                     ).hexdigest(),
@@ -4527,18 +4522,27 @@ def stage_price_materialize(ctx: SimpleNamespace) -> dict[str, Any]:
                         "INSERT INTO market_sale_observation"
                         " (run_id, variant_id, source_code, external_entity_id,"
                         "  transaction_fingerprint, grader_code, grade_label,"
-                        "  sold_at, source_date_text, fetched_at,"
-                        "  timestamp_quality, unit_price_usd, quantity,"
-                        "  transaction_value_usd, source_payload_sha256,"
-                        "  coverage_status)"
-                        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
-                        "  %s, %s, %s, %s, %s)"
-                        " ON DUPLICATE KEY UPDATE run_id=VALUES(run_id),"
-                        "  variant_id=VALUES(variant_id),"
-                        "  unit_price_usd=VALUES(unit_price_usd),"
-                        "  quantity=VALUES(quantity),"
-                        "  transaction_value_usd=VALUES(transaction_value_usd),"
-                        "  sold_at=VALUES(sold_at), fetched_at=VALUES(fetched_at),"
+                         "  sold_at, source_date_text, fetched_at,"
+                         "  timestamp_quality, unit_price_usd, native_unit_price,"
+                         "  native_currency, fx_rate_used, fx_rate_as_of, quantity,"
+                         "  transaction_value_usd, source_payload_sha256,"
+                         "  coverage_status)"
+                         " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
+                         "  %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+                         " ON DUPLICATE KEY UPDATE run_id=VALUES(run_id),"
+                         "  variant_id=VALUES(variant_id),"
+                         "  unit_price_usd=IF(market_sale_observation.fx_rate_as_of IS NULL,"
+                         "    VALUES(unit_price_usd), market_sale_observation.unit_price_usd),"
+                         "  transaction_value_usd=IF(market_sale_observation.fx_rate_as_of IS NULL,"
+                         "    VALUES(transaction_value_usd), market_sale_observation.transaction_value_usd),"
+                         "  native_unit_price=IF(market_sale_observation.fx_rate_as_of IS NULL,"
+                         "    VALUES(native_unit_price), market_sale_observation.native_unit_price),"
+                         "  native_currency=IF(market_sale_observation.fx_rate_as_of IS NULL,"
+                         "    VALUES(native_currency), market_sale_observation.native_currency),"
+                         "  fx_rate_used=COALESCE(market_sale_observation.fx_rate_used, VALUES(fx_rate_used)),"
+                         "  fx_rate_as_of=COALESCE(market_sale_observation.fx_rate_as_of, VALUES(fx_rate_as_of)),"
+                         "  quantity=VALUES(quantity),"
+                         "  sold_at=VALUES(sold_at), fetched_at=VALUES(fetched_at),"
                         "  source_payload_sha256=VALUES(source_payload_sha256),"
                         "  coverage_status=VALUES(coverage_status)",
                         rows[offset:offset + 400],
@@ -4565,7 +4569,7 @@ def stage_price_materialize(ctx: SimpleNamespace) -> dict[str, Any]:
             "itemId": str(row[2]),
             "soldAt": str(row[7]),
             "unitPriceUsd": row[10],
-            "quantity": row[11],
+            "quantity": row[15],
         }) + b"\n"
         for row in sorted(snk_sale_rows, key=lambda row: str(row[3]))
     )
