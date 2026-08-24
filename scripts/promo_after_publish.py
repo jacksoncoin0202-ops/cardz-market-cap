@@ -153,6 +153,35 @@ def write_failure_artifact(
     return path
 
 
+def write_scheduler_receipt(
+    *, business_date: str, generation: str | None, outcome: str,
+    exit_code: int, pack_dir: Path | None = None, artifact: Path | None = None,
+) -> Path:
+    """Persist the inner WSL result; Task Scheduler's VBS wrapper can mask its rc."""
+
+    receipt_dir = P.promo_runtime_dir() / "scheduler"
+    receipt_dir.mkdir(parents=True, exist_ok=True)
+    path = receipt_dir / f"{business_date}.json"
+    payload = {
+        "contract": "cardz-promo-pack-scheduled-v1",
+        "businessDate": business_date,
+        "generation": generation,
+        "outcome": outcome,
+        "exitCode": exit_code,
+        "packDir": str(pack_dir) if pack_dir is not None else None,
+        "artifact": str(artifact) if artifact is not None else None,
+        "recordedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+    temporary = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    os.replace(temporary, path)
+    return path
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Build the daily promo pack from the published snapshot. Never posts."
@@ -165,6 +194,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     business_date = str(args.business_date or P.business_date_jst())
     brief: dict[str, Any] | None = None
+    out_dir: Path | None = None
     try:
         dest_path, warnings = resolve_destinations_file(args.destinations)
         channels, more = destination_channels(dest_path)
@@ -181,18 +211,32 @@ def main(argv: Sequence[str] | None = None) -> int:
             business_date=business_date, outcome="stale", error=error,
             generation=str((brief or {}).get("generation") or "") or None,
         )
-        print(f"PROMO_PACK_STALE {business_date} artifact={artifact} {error}")
+        receipt = write_scheduler_receipt(
+            business_date=business_date,
+            generation=str((brief or {}).get("generation") or "") or None,
+            outcome="stale", exit_code=3, pack_dir=out_dir, artifact=artifact,
+        )
+        print(f"PROMO_PACK_STALE {business_date} artifact={artifact} receipt={receipt} {error}")
         return 3
     except Exception as error:  # noqa: BLE001 — one scheduled task, one exit code
         artifact = write_failure_artifact(
             business_date=business_date, outcome="error", error=error,
             generation=str((brief or {}).get("generation") or "") or None,
         )
-        print(f"PROMO_PACK_ERROR {business_date} artifact={artifact} {type(error).__name__}: {error}")
+        receipt = write_scheduler_receipt(
+            business_date=business_date,
+            generation=str((brief or {}).get("generation") or "") or None,
+            outcome="error", exit_code=2, pack_dir=out_dir, artifact=artifact,
+        )
+        print(f"PROMO_PACK_ERROR {business_date} artifact={artifact} receipt={receipt} {type(error).__name__}: {error}")
         return 2
+    receipt = write_scheduler_receipt(
+        business_date=business_date, generation=str(brief.get("generation") or "") or None,
+        outcome="ok", exit_code=0, pack_dir=out_dir,
+    )
     lag = brief.get("lagHours")
     lag_text = "unknown" if lag is None else f"{float(lag):.2f}"
-    print(f"PROMO_PACK_OK {business_date} destinations={len(written)} lag_h={lag_text}")
+    print(f"PROMO_PACK_OK {business_date} destinations={len(written)} lag_h={lag_text} receipt={receipt}")
     return 0
 
 

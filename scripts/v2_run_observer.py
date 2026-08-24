@@ -221,6 +221,27 @@ def resolve_promo_dir(day: str, generation: str | None) -> tuple[Path, dict | No
     return default, promo_brief(default), scanned
 
 
+def promo_scheduler_receipt(day: str) -> tuple[Path, dict | None]:
+    """Read the promo program's own rc, which is authoritative across the VBS/WSL boundary."""
+
+    path = ROOT / "data" / "runtime" / "promo" / "scheduler" / f"{day}.json"
+    if not path.exists():
+        return path, None
+    try:
+        receipt = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        return path, {"error": f"{type(error).__name__}: {error}"}
+    if not isinstance(receipt, dict):
+        return path, {"error": "not an object"}
+    if receipt.get("contract") != "cardz-promo-pack-scheduled-v1":
+        return path, {"error": "wrong contract"}
+    if receipt.get("businessDate") != day:
+        return path, {"error": "wrong business date"}
+    if not isinstance(receipt.get("exitCode"), int):
+        return path, {"error": "exitCode is not an integer"}
+    return path, receipt
+
+
 def short_key(task_key: str) -> str:
     """'2026-08-24:gemrate:pop+identity:0-of-4:f270a1c7…' -> 'gemrate:pop+identity:0-of-4'."""
     parts = task_key.split(":")
@@ -1055,20 +1076,37 @@ class Observer:
     def collect_promo(self, promo_at: dt.datetime) -> None:
         info = probe_task_info(PROMO_TASK)
         pdir, brief, scanned = resolve_promo_dir(self.day, self.run_generation)
+        scheduler_path, scheduler_receipt = promo_scheduler_receipt(self.day)
         files = sorted(p.name for p in pdir.iterdir()) if pdir.exists() else []
         rec = {"at": iso(utc_now()), "promoAt": iso(promo_at), "task": info, "dir": str(pdir), "dirsScanned": scanned,
-               "files": files, "brief": brief, "runGeneration": self.run_generation}
+               "files": files, "brief": brief, "runGeneration": self.run_generation,
+               "schedulerReceiptPath": str(scheduler_path), "schedulerReceipt": scheduler_receipt}
         (self.out_dir / "promo.json").write_text(json.dumps(rec, indent=1, ensure_ascii=False, default=str), encoding="utf-8")
         self.promo = rec
-        self.log(f"promo: task={json.dumps(info)} files={files} brief={json.dumps(brief, default=str)}")
+        self.log(f"promo: task={json.dumps(info)} files={files} brief={json.dumps(brief, default=str)}"
+                 f" schedulerReceipt={json.dumps(scheduler_receipt, default=str)}")
+        task_ran = False
         if info.get("error"):
             self.anomaly("PROMO_TASK_PROBE_FAILED", "warn", info)
         else:
             last = parse_ts(info.get("last"))
             if last is None or last < promo_at:
                 self.anomaly("PROMO_TASK_NOT_RUN", "warn", {"last": info.get("last"), "promoAt": iso(promo_at), "state": info.get("state")})
-            elif int(info.get("rc") or 0) != 0:
-                self.anomaly("PROMO_TASK_RC_NONZERO", "error", {"rc": info.get("rc"), "last": info.get("last")})
+            else:
+                task_ran = True
+                if int(info.get("rc") or 0) != 0:
+                    self.anomaly("PROMO_TASK_RC_NONZERO", "error", {"rc": info.get("rc"), "last": info.get("last"), "source": "taskScheduler"})
+        if task_ran:
+            if scheduler_receipt is None:
+                self.anomaly("PROMO_SCHEDULER_RECEIPT_MISSING", "error", {"path": str(scheduler_path), "last": info.get("last")})
+            elif scheduler_receipt.get("error"):
+                self.anomaly("PROMO_SCHEDULER_RECEIPT_INVALID", "error", {"path": str(scheduler_path), "error": scheduler_receipt.get("error")})
+            else:
+                receipt_at = parse_ts(scheduler_receipt.get("recordedAt"))
+                if receipt_at is None or receipt_at < promo_at:
+                    self.anomaly("PROMO_SCHEDULER_RECEIPT_STALE", "error", {"path": str(scheduler_path), "recordedAt": scheduler_receipt.get("recordedAt"), "promoAt": iso(promo_at)})
+                if int(scheduler_receipt.get("exitCode") or 0) != 0:
+                    self.anomaly("PROMO_TASK_RC_NONZERO", "error", {"rc": scheduler_receipt.get("exitCode"), "outcome": scheduler_receipt.get("outcome"), "artifact": scheduler_receipt.get("artifact"), "source": "schedulerReceipt"})
         if brief is None:
             self.anomaly("PROMO_BRIEF_MISSING", "warn", {"dir": str(pdir), "files": files})
         elif self.run_generation and brief.get("generation") and brief["generation"] != self.run_generation:
@@ -1224,6 +1262,7 @@ def write_report(run_id: str, out_dir: Path, journal: dict | None = None) -> Pat
         lines += ["## Promo (CARDZ-Promo-After-Publish)", "",
                   f"- task: `{json.dumps(promo.get('task'), default=str)}` · expected at {promo.get('promoAt')}",
                   f"- dir `{promo.get('dir')}` files {promo.get('files')}",
+                  f"- scheduler receipt: `{json.dumps(promo.get('schedulerReceipt'), ensure_ascii=False, default=str)}`",
                   f"- brief: `{json.dumps(promo.get('brief'), ensure_ascii=False, default=str)}` · run generation `{promo.get('runGeneration')}`", ""]
     if snaps:
         hosts = [s.get("host") or {} for s in snaps if not (s.get("host") or {}).get("error")]

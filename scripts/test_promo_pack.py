@@ -367,6 +367,11 @@ def main() -> int:
             check("after-publish-not-posted", first["posted"], False)
             check("after-publish-dry", first["dry_run"], True)
             check("after-publish-outcome", first["outcome"], "built")
+            scheduled = json.loads((runtime / "scheduler" / "2026-08-20.json").read_text(encoding="utf-8"))
+            check("after-publish-scheduled-contract", scheduled["contract"], "cardz-promo-pack-scheduled-v1")
+            check("after-publish-scheduled-ok", (scheduled["exitCode"], scheduled["outcome"]), (0, "ok"))
+            check("after-publish-scheduled-generation", scheduled["generation"], "db3308_fix")
+            check("after-publish-scheduled-pack", Path(scheduled["packDir"]), pack)
 
             rc_stale = PAP.main(
                 [
@@ -376,6 +381,9 @@ def main() -> int:
                 ]
             )
             check("after-publish-stale-rc", rc_stale, 3)
+            scheduled = json.loads((runtime / "scheduler" / "2026-08-20.json").read_text(encoding="utf-8"))
+            check("after-publish-scheduled-stale", (scheduled["exitCode"], scheduled["outcome"]), (3, "stale"))
+            check("after-publish-scheduled-stale-artifact", Path(scheduled["artifact"]).is_file(), True)
 
             rc_err = PAP.main(
                 [
@@ -385,6 +393,8 @@ def main() -> int:
                 ]
             )
             check("after-publish-error-rc", rc_err, 2)
+            scheduled = json.loads((runtime / "scheduler" / "2026-08-20.json").read_text(encoding="utf-8"))
+            check("after-publish-scheduled-error", (scheduled["exitCode"], scheduled["outcome"]), (2, "error"))
             failures = sorted((runtime / "failures").glob("2026-08-20_*.json"))
             check("after-publish-failure-artifacts", len(failures), 2)
             failure_outcomes = {

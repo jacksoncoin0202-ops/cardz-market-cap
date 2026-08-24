@@ -351,11 +351,19 @@ def main() -> int:
                 o3.collect_promo(promo_at)
             k3 = kinds(o3.out_dir)
             check("promo: rc 1 -> PROMO_TASK_RC_NONZERO", k3.get("PROMO_TASK_RC_NONZERO") == 1)
+            check("promo: task ran without inner receipt -> PROMO_SCHEDULER_RECEIPT_MISSING", k3.get("PROMO_SCHEDULER_RECEIPT_MISSING") == 1)
             check("promo: generation mismatch flagged", k3.get("PROMO_GENERATION_MISMATCH") == 1 and (o3.out_dir / "promo.json").exists())
             # promo dirs are keyed by the JST day of the bake: the previous day's dir carries this run's generation
             prev_pdir = tmp / "data" / "runtime" / "promo" / "2026-08-24"
             prev_pdir.mkdir(parents=True)
             (prev_pdir / "brief.json").write_text(json.dumps({"generation": "db3308_test", "lagHours": 5.0, "post": True}), encoding="utf-8")
+            scheduler_dir = tmp / "data" / "runtime" / "promo" / "scheduler"
+            scheduler_dir.mkdir(parents=True)
+            (scheduler_dir / f"{DAY}.json").write_text(json.dumps({
+                "contract": "cardz-promo-pack-scheduled-v1", "businessDate": DAY,
+                "generation": "db3308_test", "outcome": "ok", "exitCode": 0,
+                "recordedAt": ts(1),
+            }), encoding="utf-8")
             o4 = make_observer(tmp / "term-prevday")
             o4.run_generation = "db3308_test"
             with redirect_stdout(io.StringIO()):
@@ -363,10 +371,24 @@ def main() -> int:
             k4 = kinds(o4.out_dir)
             promo4 = json.loads((o4.out_dir / "promo.json").read_text(encoding="utf-8"))
             check("promo: previous JST-day dir carrying the run generation -> no mismatch",
-                  "PROMO_GENERATION_MISMATCH" not in k4 and "PROMO_BRIEF_MISSING" not in k4, json.dumps(k4))
+                  "PROMO_GENERATION_MISMATCH" not in k4 and "PROMO_BRIEF_MISSING" not in k4
+                  and "PROMO_SCHEDULER_RECEIPT_MISSING" not in k4, json.dumps(k4))
             check("promo: resolved dir is the one holding the run generation",
                   str(promo4.get("dir") or "").replace("\\", "/").endswith("promo/2026-08-24")
                   and (promo4.get("brief") or {}).get("generation") == "db3308_test", json.dumps(promo4.get("dir")))
+            (scheduler_dir / f"{DAY}.json").write_text(json.dumps({
+                "contract": "cardz-promo-pack-scheduled-v1", "businessDate": DAY,
+                "generation": "db3308_test", "outcome": "error", "exitCode": 2,
+                "artifact": "failure.json", "recordedAt": ts(1),
+            }), encoding="utf-8")
+            o_receipt = make_observer(tmp / "term-receipt-rc")
+            o_receipt.run_generation = "db3308_test"
+            patch_probes(term, task_info={"state": "Ready", "rc": 0, "last": ts(5), "next": None})
+            with redirect_stdout(io.StringIO()):
+                o_receipt.collect_promo(promo_at)
+            check("promo: inner rc 2 beats masked scheduler rc 0",
+                  kinds(o_receipt.out_dir).get("PROMO_TASK_RC_NONZERO") == 1,
+                  json.dumps(kinds(o_receipt.out_dir)))
             o5 = make_observer(tmp / "term-nogen")
             o5.run_generation = "db3308_nowhere"
             with redirect_stdout(io.StringIO()):
