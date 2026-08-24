@@ -88,7 +88,7 @@ if (startAt >= 0 && endAt > startAt) {
   // 只封真接線（SQL join / identifier），唔封講歷史嘅註釋。
   check("H1: history builder 段落唔掂 observation/reference（historyDaily 照舊 sales-only）",
     !slice.includes("INNER JOIN market_price_observation")
-    && !/referenceRows|references|ReferenceDraft/.test(slice));
+    && !/\breferenceRows\b|\breferences\b|\bReferenceDraft\b/.test(slice));
   // 唯一一句改動：DB／receipt 讀路換成 test 餵入嘅隔離表。其餘一個字唔郁。
   const quarantineLine = slice.split("\n").filter((line) => line.trim().startsWith("const saleQuarantine ="));
   check("history builder 有且只有一行 `const saleQuarantine =`", quarantineLine.length === 1,

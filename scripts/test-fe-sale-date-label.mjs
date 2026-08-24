@@ -320,10 +320,10 @@ function braced(source, start) {
   /* R6b（owner 2026-08-24）：observation 讀路返咗嚟，但只准得一處，餵
      `historyReference`（長窗後備錨 + ≥90d 深歷史圖）；historyDaily 側嘅深斷言喺
      scripts/test-fe-history-sale-only.mjs H1。舊 `priceRows` binding 照封
-     （呢條 regex 原本俾 heredoc 食咗  變咗 backspace 字元，一直空轉，順手修埋）。 */
+     （呢條 regex 原本俾 heredoc 食咗 \b 變咗 backspace 字元，一直空轉，順手修埋）。 */
   check("T5: observation 讀路有且只有一處（reference），舊 priceRows 唔准返嚟",
     producer.split("INNER JOIN market_price_observation").length - 1 === 1
-      && !/priceRows/.test(producer),
+      && !/\bpriceRows\b/.test(producer),
     "producer 嘅 K 線讀路唔係剛好一處，或者 priceRows 返咗嚟");
   check("T5: 變幅錨點嘅 source code 行過 chartLaneOf",
     /const anchorSource = chartLaneOf\(anchor\?\.sourceCode \?\? null\);/.test(producer),

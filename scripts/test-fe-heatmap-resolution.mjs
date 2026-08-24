@@ -480,7 +480,7 @@ for (const key of ["shareQuality", "shareQualitySlow"]) {
 /* 揀個 key **定義**做標的（`shareXxx:`），唔係成個檔搵字 —— 檔頭嗰段註釋正正就係
    解釋點解冇呢兩條 key，搵字版會俾自己段解釋照返一嘢。 */
 check("F2: 冇 share1080p / share4K 呢啲 key（型號名唔入 i18n，同四個平台名同一個道理）",
-  !/share(1080p|4[kK])\s*:/.test(SRC.i18n));
+  !/\bshare(1080p|4[kK])\s*:/.test(SRC.i18n));
 check("F3: heatmap 傳埋兩條 copy 落 ShareMenu",
   SRC.heatmap.includes("t.labels.shareQuality") && SRC.heatmap.includes("t.labels.shareQualitySlow"));
 /* F4 2026-08-22 反轉：owner 講明「熱力圖 + 分享內頁卡仔 SIZE 一樣要 1080 + 4K」，
