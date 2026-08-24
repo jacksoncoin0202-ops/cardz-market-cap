@@ -1,5 +1,7 @@
 # CARDZ 037 / FE04 — 加入 BOX
 
+> **⚠ 歷史檔（2026-08-24 封存）：** 呢份係 037 開代契約，日程／卡數／FE04 全部過時（live 已係 FE05、日更已係 V2 鏈）。現狀睇 [../PROJECT_STATE.md](../PROJECT_STATE.md)。
+
 > **2026-08-15：** live 已係 **1449** 張 · `product=037` · `FE04` · BOX `/box`。
 > FE 出街車 = 呢棵 `cardz-market-cap-037-fe04-live`。資料／日更真身 = `../cardz-market-cap-fe-db-20260805`。
 > BOX 由 `sealed_daily.py` 產出、唔再人手搬（P6）。下面 1368／`db3308_b0cb6e76228b4a99` 係 08-14 當日數。

@@ -1,5 +1,7 @@
 # 036 收官交接計劃（給 Codex 執行）
 
+> **⚠ 歷史檔（2026-08-24 封存）：** 計劃書從未執行；「唔准開 generation 037」已被現實推翻（037 已 live）。唔好跟呢份做嘢。現狀睇 [../PROJECT_STATE.md](../PROJECT_STATE.md)。
+
 > 作者：Claude Opus 5 ｜ 撰於 2026-08-11 08:30 UTC（本機 17:30 +0900）
 > 狀態：**計劃書，未執行任何改動。** 本檔只係文檔，唔屬於 release commit。
 > 依據：036 e2e 全鏈跑完之後嘅實測 + 四路並行盤點（docs 欠單 / task 對數 / worktree / repeat-offender）。

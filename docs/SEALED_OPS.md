@@ -1,5 +1,6 @@
 # Sealed（原盒）Ops Runbook
 
+> **⚠ 部分過時（2026-08-24 標記）：** 下面啲命令仲指住 read-only 舊樹 `cardz-market-cap`（AGENTS 規矩 5 唔准寫）；BOX 產出已入 V2 鏈（`sealed_daily.py` in-chain 產 `/box` sidecar）。人手 Bind→Freeze SOP 嗰段仍然有效。現狀睇 [../PROJECT_STATE.md](../PROJECT_STATE.md) §2。
 > 2026-08-14 起。Sealed 係 PSA10 單卡以外嘅平行線：自己嘅 identity／freeze／observations／composer／snapshot block，唔掂 GemRate gate、universe lock、`latest_prices()`、Top100 pass contract。
 > **2026-08-15：** 公開路徑 `/box`。Live BOX overlay 喺 fe-db／037 sidecar。呢棵樹只養 sidecar，**唔准** merge 入 PSA10 seed／pass／`[deploy]`。
 

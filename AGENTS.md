@@ -3,9 +3,9 @@
 **呢棵係資料／日更真身**（collect → `daily-accept` → `daily_public_release`）。
 FE 出街車 = `../cardz-market-cap-037-fe04-live`（`[deploy]`）。**唔喺呢度** push `main` 當網站 deploy。
 實驗樹 `../cardz-market-cap` 只准讀 3308，**唔准** pass／bake／`[deploy]`。
-Live：`https://app.cardzmarketcap.com` · `037`／`FE04` · 1449 張 · BOX `/box` sidecar。
+Live：`https://app.cardzmarketcap.com`（卡數／generation／presentation 睇 [PROJECT_STATE.md](PROJECT_STATE.md) §0，唔好信呢度嘅舊數）。
 
-任何 agent（Claude / Codex / 其他）喺呢個 repo 開工前必讀。呢度只放「跟錯會出事」嘅硬規矩；操作細節全部喺 **[docs/COLLECTION_RUNBOOK.md](docs/COLLECTION_RUNBOOK.md)** —— 做任何採集（全量/增量）之前先讀佢，跟佢嘅 canonical 命令，唔好自己憑記憶砌 flag。現狀契約：[docs/HANDOFF_037_FE04.md](docs/HANDOFF_037_FE04.md)。
+任何 agent（Claude / Codex / 其他）喺呢個 repo 開工前必讀。呢度只放「跟錯會出事」嘅硬規矩；操作細節全部喺 **[docs/COLLECTION_RUNBOOK.md](docs/COLLECTION_RUNBOOK.md)** —— 做任何採集（全量/增量）之前先讀佢，跟佢嘅 canonical 命令，唔好自己憑記憶砌 flag。**現狀唯一入口：[PROJECT_STATE.md](PROJECT_STATE.md)（2026-08-24 重寫）**；日更＝V2 鏈（每 10 分鐘 tick），唔係舊四-slot。
 
 ## 硬規矩（違反 = 事故）
 
@@ -53,15 +53,21 @@ Live：`https://app.cardzmarketcap.com` · `037`／`FE04` · 1449 張 · BOX `/b
 - Quarantine（3 連敗跳過）：`data/runtime/operator/collect/collect_quarantine.json`
 - Collect 報告：`data/runtime/operator/collect/`
 - Rebuild checkpoint 權威：MySQL `cardz_rebuild_checkpoint`（file 只係 receipt）
+- **V2 日更鏈狀態權威：WSL ext4 SQLite journal**（`~/.local/state/cardz-marketcap/daily-chain-v2.sqlite3`）；receipts／logs：`data/runtime/daily-chain-v2/<business-date>/{receipts,logs}/`；health：`data/runtime/daily-chain-v2/health.json`
+- 身份 intake receipt：`data/runtime/daily-chain-v2/identity-intake-<date>.json`；人手裁決 receipts：`data/runtime/operator/{bind-url,rulings}/`
 
 ## 邊份文件講咩
 
 | 文件 | 內容 |
 |---|---|
-| [docs/HANDOFF_037_FE04.md](docs/HANDOFF_037_FE04.md) | **而家開代**：037／FE04 = 036 PSA10 + BOX；036／FE03 隨時 fallback |
-| [docs/COLLECTION_RUNBOOK.md](docs/COLLECTION_RUNBOOK.md) | 五條採集線嘅全量/增量命令、resume 語義、failure receipts、exit codes、port doctrine、freeze 生命週期、FE 對數、**缺陷形狀清單** |
-| [docs/HANDOFF_036_20260812.md](docs/HANDOFF_036_20260812.md) | 每日鏈歷史＋未完成項。1322／08-12 數唔係 live |
+| [PROJECT_STATE.md](PROJECT_STATE.md) | **現狀唯一入口**（2026-08-24 階段總結）：live 讀數、樹分工、V2 鏈點行、新卡 intake 鏈、做咗／未做／計劃、文件地圖 |
+| [docs/COLLECTION_RUNBOOK.md](docs/COLLECTION_RUNBOOK.md) | 五條採集線嘅全量/增量命令、resume 語義、failure receipts、exit codes、port doctrine、freeze 生命週期、FE 對數、**缺陷形狀清單**（**日更調度唔關佢事**——嗰 part 睇 PROJECT_STATE §2） |
+| [docs/DAILY_CHAIN_V2_CUTOVER.md](docs/DAILY_CHAIN_V2_CUTOVER.md) | V2 鏈安裝／授權史／autonomy 定義（cutover 已完成，task 行緊） |
+| [docs/V2_CHAIN_STRUCTURAL_AUDIT_20260823.md](docs/V2_CHAIN_STRUCTURAL_AUDIT_20260823.md) | V2 鏈實測行為＋結構欠單 ledger |
+| [docs/ADDING_A_SOURCE.md](docs/ADDING_A_SOURCE.md) | 加新數據源八步（V2-native） |
+| [docs/PLAN_FULL_AUTO_MODE_20260824.md](docs/PLAN_FULL_AUTO_MODE_20260824.md) | 完全體自動 MODE 藍圖（supersede rerun 設計等，未實施） |
 | [docs/POSTMORTEM_OP_GAP_20260809.md](docs/POSTMORTEM_OP_GAP_20260809.md) | 「pop≥1000 但上唔到 FE」十二個缺陷嘅逐個根因同修法 |
+| [docs/HANDOFF_037_FE04.md](docs/HANDOFF_037_FE04.md)／[docs/HANDOFF_036_20260812.md](docs/HANDOFF_036_20260812.md) | **歷史**：037 開代契約／036 敘事。日程、卡數全部過時 |
 | [PLAN_036_FE02.md](PLAN_036_FE02.md) | **歷史** 036 rebuild 計劃，唔係而家日更 |
 | `pipelines/rebuild_036.py` docstrings | 每個 stage 嘅實際行為（code 係權威） |
 

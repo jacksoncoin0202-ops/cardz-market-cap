@@ -1,5 +1,6 @@
 # 每日鏈自動成功閘
 
+> **⚠ 歷史檔（2026-08-24 封存）：** 呢份係 **036 舊鏈**嘅 autonomy 定義（`daily_chain_autonomy.json` receipt）。V2 鏈嘅現行定義（event 107 + `manual_intervention_count=0` 連續兩日，journal `proven_autonomous`）喺 [DAILY_CHAIN_V2_CUTOVER.md](DAILY_CHAIN_V2_CUTOVER.md)；現狀睇 [../PROJECT_STATE.md](../PROJECT_STATE.md)。
 > **2026-08-15：** 呢份係資料 bake 成功閘。FE 出街車 = `../cardz-market-cap-037-fe04-live`。Live 卡數而家 1449，唔係 1368／1322。
 
 DADDY 2026-08-14 寫死。

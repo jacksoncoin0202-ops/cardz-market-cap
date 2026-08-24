@@ -1,5 +1,7 @@
 # CardZ Marketcap Daily Chain V2 Cutover
 
+> **2026-08-24 更新：** cutover **已完成**——task `CARDZ-Marketcap-Daily-V2` 行緊（03:30–17:00 JST 每 10 分鐘 tick），舊四-slot task 已 Disabled，連續三個日 PUBLISHED。下面「prepared / 未授權」嘅語氣係 cutover 前寫嘅，install 步驟同 autonomy 定義仍然係權威。現狀睇 [../PROJECT_STATE.md](../PROJECT_STATE.md)。
+
 ## Current authority state
 
 - V2 code and the additive migration live in `cardz-market-cap-fe-db-20260805`.
