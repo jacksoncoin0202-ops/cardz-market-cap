@@ -611,6 +611,7 @@ try:
         chain.execute_claim(claimed[0])
         return dict(journal.task(key) or {})
 
+    alert_before_transient = chain_module.LAST_ALERT
     try:
         with contextlib.redirect_stdout(io.StringIO()):
             transient_row = fail_publish_task(
@@ -625,7 +626,10 @@ try:
             )
         assert transient_row["status"] == "RETRY", transient_row
         assert transient_row["last_error_code"] == "PUBLISH_FAILED", transient_row
-        assert alert_after_transient is None, alert_after_transient
+        assert alert_after_transient == alert_before_transient, (
+            alert_before_transient,
+            alert_after_transient,
+        )
         assert terminal_row["status"] == "TERMINAL", terminal_row
         assert terminal_row["last_error_code"] == "PUBLISH_DETERMINISTIC", terminal_row
         assert chain_module.LAST_ALERT is not None, "terminal publish verdict alerted nobody"
