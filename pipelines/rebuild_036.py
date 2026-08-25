@@ -6828,6 +6828,33 @@ def _load_daily_sales_manifests(
     return stats
 
 
+def _load_previously_accepted_sales_fingerprints(cur) -> set[str]:
+    """Rehydrate the already-authorised sale set from durable DB lineage.
+
+    The S8 files are activation inputs, not permanent daily runtime state. Once
+    activated, the acceptance row is the durable authority; joining it back to
+    the immutable sale record also preserves rebind restamping without widening
+    the accepted set when the original one-shot manifests are no longer local.
+    """
+
+    cur.execute(
+        """
+        SELECT DISTINCT s.transaction_fingerprint
+        FROM market_metric_history_acceptance a
+        INNER JOIN market_sale_observation s
+          ON a.source_record_type='market_sale_observation'
+         AND a.source_record_id=s.id
+        WHERE a.metric_kind='psa10_sale'
+          AND s.transaction_fingerprint REGEXP '^[0-9a-f]{64}$'
+        """
+    )
+    return {
+        str(row["transaction_fingerprint"])
+        for row in cur.fetchall()
+        if row.get("transaction_fingerprint")
+    }
+
+
 def _activation_bridge_population(cur, generation: str, now_str: str) -> dict[str, int]:
     """v2 landing → canonical market_grader_population_observation (FE join target).
 
@@ -8412,9 +8439,9 @@ def cmd_daily_accept(args: argparse.Namespace) -> int:
         released = release_collateral_price_quarantine(conn)
         _mark("quarantineRelease")
 
-        fingerprints = _load_sales_fingerprints(generation)
-        manifest_count = len(fingerprints)
         with conn.cursor() as cur:
+            fingerprints = _load_previously_accepted_sales_fingerprints(cur)
+            previously_accepted_count = len(fingerprints)
             # Post-activation sale rows carry the current recipes by
             # construction: the freeze stopped every legacy writer, and the
             # only sale writers since are the receipted collector ingests.
@@ -8464,8 +8491,8 @@ def cmd_daily_accept(args: argparse.Namespace) -> int:
             "universeLockSha256": lock_sha,
             "members": len(ready_ids),
             "salesFingerprints": {
-                "manifest": manifest_count,
-                "postActivation": len(fingerprints) - manifest_count,
+                "previouslyAccepted": previously_accepted_count,
+                "postActivation": len(fingerprints) - previously_accepted_count,
                 "dailyManifests": daily_manifest_stats,
             },
             "historyAcceptance": history,
