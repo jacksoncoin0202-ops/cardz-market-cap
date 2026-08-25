@@ -63,14 +63,17 @@ printf 'POSITIVE_OK V2 resume reapplies immutable public bytes on divergent main
 
 result = subprocess.run(
     ["wsl.exe", "-d", "Ubuntu", "--", "bash", "-s"],
-    input=script,
-    text=True,
+    # Windows text mode rewrites LF to CRLF before bash reads stdin, turning
+    # `pipefail` into `pipefail\r`.  Bytes preserve the shipped shell text.
+    input=script.encode("utf-8"),
     capture_output=True,
     timeout=90,
 )
+stdout = result.stdout.decode("utf-8", "replace")
+stderr = result.stderr.decode("utf-8", "replace")
 if result.returncode != 0:
     raise SystemExit(
         f"V2 resume integration failed rc={result.returncode}\n"
-        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+        f"stdout:\n{stdout}\nstderr:\n{stderr}"
     )
-print(result.stdout.strip())
+print(stdout.strip())

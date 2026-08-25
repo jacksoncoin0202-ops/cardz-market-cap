@@ -365,9 +365,10 @@ def publish_failure_is_deterministic(value: str) -> bool:
     verdict = publish_test_result(value)
     if verdict is not None and verdict["failed"] >= 1:
         return True
+    folded = value.casefold()
     return bool(
-        PUBLISH_ERROR_CLASS_RE.search(value)
-        or PUBLISH_COMMAND_MISSING_RE.search(value)
+        PUBLISH_ERROR_CLASS_RE.search(folded)
+        or PUBLISH_COMMAND_MISSING_RE.search(folded)
     )
 
 
@@ -414,7 +415,8 @@ ERROR_CODE_DECISIONS: dict[str, RetryDecision] = {
 def classify_error(text: str, *, stage: str = "source") -> RetryDecision:
     """Classify one failure without source-specific orchestration branches."""
 
-    value = _clean(text).casefold()
+    cleaned = _clean(text)
+    value = cleaned.casefold()
     code_token = ERROR_CODE_TOKEN_RE.search(value)
     if code_token is not None:
         mapped = ERROR_CODE_DECISIONS.get(code_token.group(1))
@@ -460,7 +462,7 @@ def classify_error(text: str, *, stage: str = "source") -> RetryDecision:
             return RetryDecision("PUBLISH_LOCK_HELD", False, INFRA_RETRY_SECONDS)
         # audit P1-2: terminal on attempt 1 so the operator sees the verdict
         # at +18 minutes instead of +87.
-        if publish_failure_is_deterministic(value):
+        if publish_failure_is_deterministic(cleaned):
             return RetryDecision("PUBLISH_DETERMINISTIC", True, ())
         return RetryDecision("PUBLISH_FAILED", False, PUBLISH_RETRY_SECONDS)
     if any(token in value for token in (

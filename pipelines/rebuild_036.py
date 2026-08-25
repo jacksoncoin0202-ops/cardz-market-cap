@@ -363,6 +363,10 @@ def _stage_input_sha(name: str, ctx: SimpleNamespace) -> str | None:
 
 
 def load_env_file(path: Path) -> dict[str, str]:
+    if path == DAILY_CREDENTIALS_ENV:
+        from cardz_db_config import compose_db_env
+
+        return compose_db_env()
     values: dict[str, str] = {}
     for raw in path.read_text(encoding="utf-8").splitlines():
         line = raw.strip()

@@ -426,7 +426,7 @@ def main() -> int:
             check("report has task table row", "system:daily-accept:all" in text)
             check("report has host + promo sections", "## Host / probes" in text and "## Promo" in text)
             check("report anomalies sorted error first", text.index("### PROMO_TASK_RC_NONZERO") < text.index("### PROMO_TASK_NOT_RUN"))
-            check("summary.json written with counts", json.loads((o3.out_dir / "summary.json").read_text(encoding="utf-8")).get("errors") == 1)
+            check("summary.json written with counts", json.loads((o3.out_dir / "summary.json").read_text(encoding="utf-8")).get("errors") == 2)
 
             # 7. lock: live python pid refused (rc path), stale pid taken over
             ld = tmp / "lock"

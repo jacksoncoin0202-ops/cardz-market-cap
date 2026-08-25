@@ -33,7 +33,7 @@ Caveats you must know (code behaviour, not doctrine):
 |------|-------------|
 | PriceCharting CDP fetching (headed Chrome lives on Windows) | Windows Python: `C:\Users\jackson0202\AppData\Local\Programs\Python\Python310\python.exe` (used by `scripts/pc_full900_supervisor.ps1`); `pipelines/collect_control.py` also references `.venv-backend-windows/Scripts/python.exe` |
 | DB ingest (C11, SNK kline, rebuild orchestrator) | WSL Ubuntu venv: `/home/jackson0202/cardz-market-cap/.venv-backend/bin/python` (the exact interpreter `pipelines/pc_cdp_sold_refresh_win.py` invokes for its auto-ingest leg) |
-| Canonical MySQL | Windows host, `127.0.0.1:3308`, credentials in `backend.env` (`PROJECT_STATE.md`) |
+| Canonical MySQL | Windows host, `127.0.0.1:3308`; runtime reads the DB-owner checkout's `compose.backend.yaml` without logging its values (`PROJECT_STATE.md`) |
 
 Start/verify the CARDZ Chrome before any PriceCharting work:
 

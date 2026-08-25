@@ -149,8 +149,18 @@ def installed_numbers_agree() -> None:
     assert chain_module.TICK_EXTERNAL_LIMIT_SECONDS == minutes * 60, (
         "TICK_EXTERNAL_LIMIT_SECONDS is not a whole number of minutes"
     )
-    assert f"-ExecutionTimeLimit (New-TimeSpan -Minutes {minutes})" in installer, (
-        f"installer does not register ExecutionTimeLimit of {minutes} minutes"
+    assert "-ExecutionTimeLimit (New-TimeSpan -Minutes $ExecutionMinutes)" in installer, (
+        "the shared registration helper no longer applies its explicit limit"
+    )
+    daily_registration = re.search(
+        r"Register-CardzManagedTask\s+`\n"
+        r"\s*-Name \$TaskName\s+`\n"
+        r"(?:.*\n)*?\s*-ExecutionMinutes (\d+)\s+`",
+        installer,
+    )
+    assert daily_registration is not None, "daily managed-task registration not found"
+    assert int(daily_registration.group(1)) == minutes, (
+        f"daily task registers {daily_registration.group(1)} minutes, expected {minutes}"
     )
     # The daily task declares its limit twice (plan header + daily action); the
     # watchdog and promo tasks own the other two PT values and are not this one.

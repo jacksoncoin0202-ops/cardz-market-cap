@@ -2819,15 +2819,10 @@ class DailyChainV2:
             ]
             recovery_env = os.environ.copy()
             try:
-                for raw in MYSQL_COMPOSE_ENV.read_text(encoding="utf-8").splitlines():
-                    line = raw.strip()
-                    if not line or line.startswith("#") or "=" not in line:
-                        continue
-                    key, value = line.split("=", 1)
-                    key = key.strip()
-                    if key.startswith("CARDZ_DB_"):
-                        recovery_env[key] = value.strip()
-            except OSError:
+                from cardz_db_config import compose_db_env
+
+                recovery_env.update(compose_db_env(MYSQL_COMPOSE))
+            except (OSError, RuntimeError):
                 return finish(False, "compose-env-unreadable")
             try:
                 proc = subprocess.run(

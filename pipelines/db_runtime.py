@@ -373,19 +373,11 @@ def ensure_migration_ledger(cursor: Any) -> None:
 
 
 def load_runtime_db_env() -> None:
-    """Load the local Windows-3308 connection without importing CRLF bytes."""
+    """Load the canonical Windows-owned 3308 compose settings."""
 
-    env_path = ROOT / "data" / "runtime" / "config" / "backend.env"
-    if not env_path.is_file():
-        return
-    for raw in env_path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        if key.startswith("CARDZ_DB_") and key not in os.environ:
-            os.environ[key] = value.strip()
+    from cardz_db_config import export_db_env
+
+    export_db_env()
 
 
 # 2026-08-22/23: three connect-phase failures seen in the V2 chain -- (2003)

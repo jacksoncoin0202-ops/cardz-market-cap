@@ -28,6 +28,7 @@ import leftover5_go  # noqa: E402
 import op_identity_rules  # noqa: E402
 import operator_control as OC  # noqa: E402
 import rebuild_036 as R  # noqa: E402
+import rebuild_036_reverify as RR  # noqa: E402
 
 WORKSPACE = Path(tempfile.mkdtemp(prefix="cardz-identity-release-gate-"))
 
@@ -195,12 +196,12 @@ try:
         )
         return agrees
 
-    real_helper = R._pc_bracket_names_our_product
+    real_helper = RR._pc_bracket_names_our_product
     try:
-        R._pc_bracket_names_our_product = _seeded_bracket_names_our_product
+        RR._pc_bracket_names_our_product = _seeded_bracket_names_our_product
         assert R._pc_print_signature_ok("1st Anniversary", V1424) is True
     finally:
-        R._pc_bracket_names_our_product = real_helper
+        RR._pc_bracket_names_our_product = real_helper
     assert R._pc_bracket_names_our_product("1st Anniversary", V1424) is False
     assert R._pc_print_signature_ok("1st Anniversary", V1424) is False
     print("POSITIVE_OK re-seeded (corroborate on canonical_name) the booster card takes the"
@@ -580,11 +581,11 @@ try:
 
         stub.run = _run  # type: ignore[attr-defined]
         previous = sys.modules.get("snk_market_data")
-        real_root, real_connect = R.ROOT, R.connect
+        real_root, real_connect = RR.ROOT, RR.connect
         sys.modules["snk_market_data"] = stub
         try:
-            R.ROOT = SNK_ROOT
-            R.connect = lambda *a, **k: FakeDB(answer)
+            RR.ROOT = SNK_ROOT
+            RR.connect = lambda *a, **k: FakeDB(answer)
             args = SimpleNamespace(credentials_env=None, write=False,
                                    variant_ids=variant_ids)
             try:
@@ -593,7 +594,7 @@ try:
             except _Harvested:
                 pass
         finally:
-            R.ROOT, R.connect = real_root, real_connect
+            RR.ROOT, RR.connect = real_root, real_connect
             if previous is None:
                 sys.modules.pop("snk_market_data", None)
             else:

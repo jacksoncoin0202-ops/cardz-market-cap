@@ -35,6 +35,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
 import daily_chain_v2 as chain_module  # noqa: E402
+import cardz_db_config as db_config  # noqa: E402
 from daily_chain_v2 import DailyChainV2  # noqa: E402
 from daily_chain_v2_adapters import build_default_registry  # noqa: E402
 from daily_chain_v2_contract import (  # noqa: E402
@@ -542,10 +543,12 @@ try:
     # A MySQL recovery has to close the loop: compose, health, journal outcome,
     # and an immediate lifecycle alert when recovery itself fails.
     real_subprocess_run = chain_module.subprocess.run
-    real_compose_env = chain_module.MYSQL_COMPOSE_ENV
-    compose_env = WORKSPACE / "backend.env"
-    compose_env.write_text("CARDZ_DB_HOST=fixture\n", encoding="utf-8")
-    chain_module.MYSQL_COMPOSE_ENV = compose_env
+    real_compose_env = db_config.compose_db_env
+    db_config.compose_db_env = lambda path=None: {
+        "CARDZ_DB_HOST": "fixture", "CARDZ_DB_PORT": "3308",
+        "CARDZ_DB_USER": "fixture", "CARDZ_DB_PASSWORD": "fixture",
+        "CARDZ_DB_NAME": "fixture",
+    }
     recovery_commands: list[list[str]] = []
 
     def healthy_recovery(command, **kwargs):
@@ -566,7 +569,7 @@ try:
         assert chain_module.LAST_ALERT and chain_module.LAST_ALERT["key"].startswith("v2-mysql-recovery-failed")
     finally:
         chain_module.subprocess.run = real_subprocess_run
-        chain_module.MYSQL_COMPOSE_ENV = real_compose_env
+        db_config.compose_db_env = real_compose_env
     mysql_key = journal.add_raw_task(
         run_id=RUN_ID, business_date=DAY.isoformat(), phase="source",
         source_code="fixture", capability="mysql-resume", required_class="core",

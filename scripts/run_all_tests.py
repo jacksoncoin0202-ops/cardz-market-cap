@@ -228,6 +228,20 @@ def main() -> int:
             line += f"  {detail[:160]}"
         print(line)
 
+    failures_path = ROOT / "data" / "runtime" / "tests" / "last-failures.json"
+    failure_details = [
+        {"label": label, "status": status, "seconds": took, "detail": detail}
+        for label, status, took, detail in results
+        if status in ("FAIL", "TIMEOUT")
+    ]
+    failures_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = failures_path.with_suffix(".next")
+    temporary.write_text(
+        json.dumps(failure_details, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(failures_path)
+
     failed = [row for row in results if row[1] in ("FAIL", "TIMEOUT")]
     skipped = [row for row in results if row[1] == "SKIP"]
     print(
