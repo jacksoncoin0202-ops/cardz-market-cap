@@ -7,7 +7,9 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from datetime import datetime, timezone
+from html import unescape
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -41,6 +43,91 @@ def valid_pc_url(value: Any) -> str:
     return url
 
 
+def verified_binding_evidence_rows() -> list[tuple[Path, dict[str, Any]]]:
+    """Project exact DB bindings only when their page receipt still verifies.
+
+    The binding names the evidence path, its SHA-256, product id, and canonical
+    URL.  The saved page must independently repeat the same product id and URL;
+    a DB row by itself is never enough to materialize the canonical map.
+    """
+
+    from qualified_pool_operator import db
+
+    product_pattern = re.compile(r"\bproduct-id=[\"'](\d+)[\"']", re.IGNORECASE)
+    canonical_patterns = (
+        re.compile(
+            r"<link[^>]+rel=[\"']canonical[\"'][^>]+href=[\"']([^\"']+)[\"']",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"<link[^>]+href=[\"']([^\"']+)[\"'][^>]+rel=[\"']canonical[\"']",
+            re.IGNORECASE,
+        ),
+    )
+    connection = db()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT variant_id,external_entity_id,bind_evidence_json
+                  FROM catalog_source_identity
+                 WHERE source_code='pricecharting' AND match_status='exact'
+                """
+            )
+            bindings = [dict(row) for row in cursor.fetchall()]
+    finally:
+        connection.close()
+
+    rows: list[tuple[Path, dict[str, Any]]] = []
+    root_resolved = ROOT.resolve()
+    for binding in bindings:
+        payload = binding.get("bind_evidence_json") or {}
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        evidence = payload.get("evidence") or {}
+        evidence_path = Path(str(evidence.get("path") or ""))
+        path = evidence_path if evidence_path.is_absolute() else ROOT / evidence_path
+        try:
+            path.resolve().relative_to(root_resolved)
+        except (OSError, ValueError):
+            continue
+        if not path.is_file():
+            continue
+        payload_bytes = path.read_bytes()
+        expected_sha256 = str(evidence.get("sha256") or "").lower()
+        current_sha256 = hashlib.sha256(payload_bytes).hexdigest()
+        html = payload_bytes.decode("utf-8", errors="replace")
+        product_match = product_pattern.search(html)
+        canonical_match = next(
+            (candidate.search(html) for candidate in canonical_patterns if candidate.search(html)),
+            None,
+        )
+        if not product_match or not canonical_match:
+            continue
+        try:
+            canonical_url = valid_pc_url(unescape(canonical_match.group(1)))
+            expected_url = valid_pc_url(unescape(str(evidence.get("canonicalUrl") or "")))
+        except RuntimeError:
+            continue
+        product_id = str(binding.get("external_entity_id") or "")
+        if product_match.group(1) != product_id or canonical_url != expected_url:
+            continue
+        rows.append(
+            (
+                path,
+                {
+                    "variant_id": int(binding["variant_id"]),
+                    "pc_product_id": int(product_id),
+                    "pc_url": canonical_url,
+                    "source_page_sha256": current_sha256,
+                    "binding_evidence_sha256": expected_sha256,
+                    "binding_evidence_sha_stale": current_sha256 != expected_sha256,
+                },
+            )
+        )
+    return rows
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--write", action="store_true", required=True)
@@ -68,7 +155,7 @@ def main() -> int:
         for row in pc_rows
     }
 
-    canonical_rows = jsonl(CANONICAL)
+    canonical_rows = jsonl(CANONICAL) if CANONICAL.is_file() else []
     canonical_by_variant: dict[int, dict[str, Any]] = {}
     for row in canonical_rows:
         variant_id = int(row.get("variant_id") or 0)
@@ -114,6 +201,10 @@ def main() -> int:
             except RuntimeError:
                 continue
             candidate_by_product.setdefault(product_id, []).append((path, row))
+    binding_evidence_rows = verified_binding_evidence_rows()
+    for path, row in binding_evidence_rows:
+        product_id = str(row["pc_product_id"])
+        candidate_by_product.setdefault(product_id, []).append((path, row))
 
     added = 0
     replaced = 0
@@ -266,6 +357,7 @@ def main() -> int:
         "manifestUsed": manifest_used,
         "manifestStale": manifest_stale,
         "supplementalUsed": supplemental_used,
+        "verifiedBindingEvidenceRows": len(binding_evidence_rows),
         "retiredStolenProducts": retired,
         "activeMissing": active_missing,
         "activeProductMismatch": active_mismatch,

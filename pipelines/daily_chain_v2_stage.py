@@ -115,6 +115,16 @@ def stage_registry(_args: argparse.Namespace) -> dict[str, Any]:
     registry = collect_control._jsonl_rows(collect_control.REGISTRY_PATH)
     if not registry:
         raise RuntimeError("V2 collection registry is empty")
+    pc_map = _run(
+        [
+            sys.executable,
+            "-X",
+            "utf8",
+            str(ROOT / "pipelines" / "consolidate_pc_map.py"),
+            "--write",
+        ],
+        timeout=300,
+    )
     source_registry = sync_source_registry(
         adapter.spec for adapter in build_default_registry().enabled()
     )
@@ -123,6 +133,7 @@ def stage_registry(_args: argparse.Namespace) -> dict[str, Any]:
         "registryPath": str(collect_control.REGISTRY_PATH),
         "rows": len(registry),
         "counts": report.get("counts") or {},
+        "pcMap": pc_map,
         "sourceRegistry": source_registry,
         "payloadSha256": sha256(registry),
     }

@@ -349,6 +349,11 @@ Chain: `pc_full900_supervisor.ps1` → `pc_full_serial_driver.py` → `pc_full_s
   `c11_pc_ebay_map_full900.jsonl` gated by the **current exact DB identity**
   (`catalog_source_identity` with `source_code='pricecharting'`, `match_status='exact'`); fails
   closed on conflicting products, skips stale/non-exact rows, writes atomically.
+- Daily Chain V2's registry stage also runs `consolidate_pc_map.py --write` before any source is
+  planned.  That writer can create a missing canonical map from each exact binding's local evidence
+  path only when the saved page repeats the same product id and canonical URL.  It records both the
+  current page SHA-256 and the original binding-evidence SHA-256; a refreshed page may change bytes,
+  but it cannot change identity.  Missing/mismatched local evidence fails the registry stage closed.
 - Shard runner (`pipelines/pc_full_shard_runner.py`): flags `--shard`, `--shards` (**6**),
   `--shard-file`, `--force`, `--limit` (**0**), `--offset` (**0**), `--variant-id`,
   `--candidate-url` (repeatable), `--import-existing-results`. Hardcodes
