@@ -73,10 +73,6 @@ SCRIPT_REQUIRES_PATH: dict[str, Path] = {
         / "80a8b349acb400cc08fe55617c3ff152256d371d"
         / "card_details.raw.receipt.json"
     ),
-    "test_pc_identity_discover_rules.py": (
-        ROOT / "data" / "runtime" / "operator" / "psa-identity-repair-034"
-        / "audit.json"
-    ),
     "test_pc_sale_identity.py": (
         ROOT / "data" / "private" / "pricecharting_session" / "html" / "full900"
         / "1_pikachu-with-grey-felt-hat-85_r.html"

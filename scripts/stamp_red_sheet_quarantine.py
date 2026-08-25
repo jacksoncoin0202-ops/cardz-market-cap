@@ -46,14 +46,54 @@ REASON = (
 RELEASE_036 = ROOT / "data" / "editorial" / "red-sheet-036-release.json"
 
 
+def _release_lists() -> tuple[set[int], set[int]] | None:
+    """Return the later ruling when it carries the complete red-sheet state.
+
+    New release documents record both sides of the ruling.  That makes the
+    document self-contained after the machine-private 034 audit is retired.
+    Older release documents only named released ids and still need the audit.
+    """
+
+    if not RELEASE_036.is_file():
+        return None
+    payload = json.loads(RELEASE_036.read_text(encoding="utf-8-sig"))
+    if payload.get("contract") != "red-sheet-036-release-v1":
+        raise SystemExit(f"red-sheet-036-release contract invalid: {RELEASE_036}")
+    if "stillRedVariantIds" not in payload:
+        return None
+    released = {int(x) for x in payload.get("releasedVariantIds") or []}
+    still_red = {int(x) for x in payload.get("stillRedVariantIds") or []}
+    overlap = released & still_red
+    if overlap:
+        raise SystemExit(
+            "red-sheet-036-release lists overlap: " + ",".join(map(str, sorted(overlap)))
+        )
+    historical = released | still_red
+    if len(historical) != 13:
+        raise SystemExit(
+            f"expected 13 red variants in later ruling, got {len(historical)}: "
+            f"{sorted(historical)}"
+        )
+    return released, still_red
+
+
 def red_variant_ids() -> list[int]:
     """The same thirteen ids validator034 and psa_identity_repair derive.
 
-    Read from the audit and the sheet manifest rather than copied, so a sheet
-    correction reaches this script without anyone remembering it exists.
+    Prefer the private audit and sheet manifest while they exist.  Once that
+    machine-private evidence is retired, the later self-contained 036 ruling
+    preserves the same historical set without making daily runs depend on an
+    ignored runtime file.
     """
 
-    audit = V.load_audit(V.OUT_034 / "audit.json")
+    audit_path = V.OUT_034 / "audit.json"
+    if not audit_path.is_file():
+        release_lists = _release_lists()
+        if release_lists is not None:
+            released, still_red = release_lists
+            return sorted(released | still_red)
+
+    audit = V.load_audit(audit_path)
     sheet = V.load_sheet_manifest()
     by_old_name: dict[str, list[dict]] = {}
     for row in audit["rows"]:
@@ -75,6 +115,9 @@ def released_red_variant_ids() -> set[int]:
     quarantine what is still refused.
     """
 
+    release_lists = _release_lists()
+    if release_lists is not None:
+        return release_lists[0]
     if not RELEASE_036.is_file():
         return set()
     payload = json.loads(RELEASE_036.read_text(encoding="utf-8-sig"))
@@ -86,6 +129,9 @@ def released_red_variant_ids() -> set[int]:
 
 
 def active_red_variant_ids() -> list[int]:
+    release_lists = _release_lists()
+    if release_lists is not None:
+        return sorted(release_lists[1])
     return sorted(set(red_variant_ids()) - released_red_variant_ids())
 
 

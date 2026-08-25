@@ -332,8 +332,8 @@ SHEET = RED_SHEET.red_variant_ids()
 check("the sheet still derives thirteen cards", len(SHEET), 13)
 check("what the lanes refuse is the sheet minus the 036 release",
       set(D.red_listed_variants()), set(SHEET) - RED_SHEET.released_red_variant_ids())
-_released = RED_SHEET.released_red_variant_ids
-RED_SHEET.released_red_variant_ids = lambda: set()
+_release_lists = RED_SHEET._release_lists
+RED_SHEET._release_lists = lambda: (set(), set(SHEET))
 RED = D.red_listed_variants()
 check("with nothing released the lanes refuse all thirteen", len(RED), 13)
 for vid in (1717, 1741, 1464):
@@ -376,7 +376,7 @@ snk_missing = [vid for vid in RED if vid not in snk_params]
 check(f"the SNK lane excludes every red card ({len(RED) - len(snk_missing)}/{len(RED)})",
       snk_missing, [])
 check("both lanes read the same derivation", S.R.red_listed_variants(), RED)
-RED_SHEET.released_red_variant_ids = _released
+RED_SHEET._release_lists = _release_lists
 check("and honour the release again once it is back",
       set(D.red_listed_variants()), set(SHEET) - RED_SHEET.released_red_variant_ids())
 # With every red card released the list is empty, and an empty `NOT IN ()` is
@@ -500,8 +500,7 @@ import consolidate_pc_map as CM  # noqa: E402
 check("proposals do not go where approved bindings live",
       D.PROPOSAL_MAP_PATH == CM.CANONICAL, False)
 truthy("proposals go somewhere the consolidator will look for transport",
-       D.PROPOSAL_MAP_PATH in set(
-           ROOT.glob("data/runtime/private-source-map/c11_pc_ebay_map_full900_shard*.jsonl")))
+       D.PROPOSAL_MAP_PATH.relative_to(ROOT).match(CM.TRANSPORT_GLOB))
 if CM.CANONICAL.is_file():
     seen: dict[int, int] = {}
     for line in CM.CANONICAL.read_text(encoding="utf-8-sig").splitlines():

@@ -19,6 +19,7 @@ CANONICAL = ROOT / "data/runtime/private-source-map/c11_pc_ebay_map_full900.json
 REGISTRY = ROOT / "data/runtime/operator/collect/collect_registry.jsonl"
 MANIFEST = ROOT / "data/launch/pc-map-additions-20260804.json"
 REPORT = ROOT / "data/runtime/operator/collect/pc_map_consolidation.json"
+TRANSPORT_GLOB = "data/runtime/private-source-map/c11_pc_ebay_map_full900_shard*.jsonl"
 SUPPLEMENTAL = (
     ROOT / "data/runtime/private-source-map/c11_pc_ebay_map_en23_ai.jsonl",
     ROOT / "data/runtime/private-source-map/c11_pc_ebay_map.jsonl",
@@ -185,9 +186,7 @@ def main() -> int:
         for variant_id in manifest_stale:
             manifest_by_variant.pop(variant_id)
 
-    source_paths = list(SUPPLEMENTAL) + sorted(
-        ROOT.glob("data/runtime/private-source-map/c11_pc_ebay_map_full900_shard*.jsonl")
-    )
+    source_paths = list(SUPPLEMENTAL) + sorted(ROOT.glob(TRANSPORT_GLOB))
     candidate_by_product: dict[str, list[tuple[Path, dict[str, Any]]]] = {}
     for path in source_paths:
         if not path.is_file():
