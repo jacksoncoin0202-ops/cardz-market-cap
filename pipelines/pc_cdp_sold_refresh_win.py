@@ -1288,7 +1288,23 @@ def main() -> int:
             for line in args.bind_missing_ids_file.read_text(encoding="utf-8-sig").splitlines()
             if line.strip()
         ]
-        bind_report = bind_missing_ids_dual_tab(bind_ids, cdp_port=args.cdp_port)
+        try:
+            bind_report = bind_missing_ids_dual_tab(bind_ids, cdp_port=args.cdp_port)
+        except Exception as error:  # noqa: BLE001 - optional identity work is receipted
+            # The caller deliberately treats unresolved bind ids as an
+            # identity-lane gap, not a failure of the active exact collection.
+            # Keep that contract when the discovery preflight itself is
+            # unavailable: name the error in the bind receipt, then continue
+            # with the exact MAP rows.  No identity is created or accepted by
+            # this branch.
+            bind_report = {
+                "requested": len(bind_ids),
+                "targets": 0,
+                "written": 0,
+                "ok": False,
+                "errorCode": "bind_missing_identity_preflight_failed",
+                "error": f"{type(error).__name__}:{error}",
+            }
         print(json.dumps({"pcBindMissing": bind_report}, ensure_ascii=False), flush=True)
     rows = [json.loads(l) for l in MAP.read_text(encoding="utf-8").splitlines() if l.strip()]
     requested_ids: list[int] = []
