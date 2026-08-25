@@ -1368,8 +1368,16 @@ def acquire_lock(out_dir: Path) -> bool:
             info = {"pid": 0}
         pid = int(info.get("pid") or 0)
         if pid:
-            rc, out, _ = run_capped(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"], 15)
-            if rc == 0 and f'"{pid}"' in out and "python" in out.lower():
+            if os.name == "nt":
+                rc, out, _ = run_capped(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"], 15)
+                live_python = rc == 0 and f'"{pid}"' in out and "python" in out.lower()
+            else:
+                try:
+                    cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\x00", b" ").lower()
+                except OSError:
+                    cmdline = b""
+                live_python = b"python" in cmdline
+            if live_python:
                 (out_dir / "lock-conflict.json").write_text(json.dumps({"refusedAt": iso(utc_now()), "holder": info, "me": os.getpid()}, indent=1), encoding="utf-8")
                 return False
     lock.write_text(json.dumps({"pid": os.getpid(), "startedAt": iso(utc_now()), "image": sys.executable}), encoding="utf-8")

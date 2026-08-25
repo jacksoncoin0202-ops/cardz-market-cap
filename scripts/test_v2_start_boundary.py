@@ -128,7 +128,12 @@ def test_planted_bug_loses_the_day():
     reverted = text.replace(FIXED_GUARD, BUGGY_GUARD)
     assert reverted != text
 
-    with tempfile.TemporaryDirectory() as tmp:
+    # PowerShell cannot reliably execute a -File path through a WSL UNC temp
+    # share. Keep the planted twin on the mounted Windows volume in WSL; on
+    # native Windows the same directory is local as well.
+    temp_root = ROOT / "data" / "runtime" / "tests"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=temp_root) as tmp:
         # Copy the whole scripts dir: the installer Test-Paths its siblings
         # (launcher, silent runner, watchdog) and throws if they are missing.
         stage = Path(tmp) / "scripts"

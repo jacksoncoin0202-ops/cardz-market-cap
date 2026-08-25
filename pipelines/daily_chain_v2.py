@@ -2874,7 +2874,15 @@ class DailyChainV2:
                 str(row.get("last_error") or ""),
                 stage="publish" if str(row.get("phase") or "") == "publish" else "source",
             )
-            if decision.error_code == "MYSQL_UNAVAILABLE" and not mysql_recovery_attempted:
+            # `last_error_code` is the durable verdict written when the worker
+            # failed.  The human-readable text may be shortened or scrubbed and
+            # is therefore insufficient by itself to rediscover a MySQL outage
+            # after a new tick adopts the journal.
+            stored_error_code = str(row.get("last_error_code") or "")
+            if (
+                stored_error_code == "MYSQL_UNAVAILABLE"
+                or decision.error_code == "MYSQL_UNAVAILABLE"
+            ) and not mysql_recovery_attempted:
                 self.recover_mysql(trigger_task=str(row["task_key"]))
                 mysql_recovery_attempted = True
             not_after = self.publish_retry_not_after(row)
