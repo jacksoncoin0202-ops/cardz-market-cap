@@ -82,12 +82,29 @@ $jstWindowEnd = [TimeSpan]::FromMinutes(1050)
 $inWindow = ($nowJst.TimeOfDay -ge $jstWindowStart -and $nowJst.TimeOfDay -le $jstWindowEnd)
 $afterWindow = ($nowJst.TimeOfDay -gt $jstWindowEnd)
 $runLiveCheck = (-not $SkipLiveCheck) -and ($afterWindow -or -not [string]::IsNullOrWhiteSpace($ExpectDate))
+$runLogCheck = $afterWindow -or -not [string]::IsNullOrWhiteSpace($ExpectDate)
 $healthAlerts = New-Object System.Collections.Generic.List[string]
 
 function Parse-Iso([string]$s) {
   try {
     return [DateTimeOffset]::Parse($s, [cultureinfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AssumeUniversal)
   } catch { return $null }
+}
+
+function Resolve-V2DayDirectory([string]$root, [string]$businessDate, [string]$runId) {
+  # The journal run id is the lineage authority.  A superseded run /N writes
+  # runtime artifacts under <date>-SN; probing the unsuffixed date would report
+  # a false red after a successful replacement publish.
+  $baseRunId = "cardz-v2:$businessDate"
+  if ($runId -eq $baseRunId) {
+    return (Join-Path $root "data\runtime\daily-chain-v2\$businessDate")
+  }
+  $escapedDate = [regex]::Escape($businessDate)
+  if ($runId -match "^cardz-v2:$escapedDate/([1-9][0-9]*)$") {
+    $seq = [int]$Matches[1]
+    return (Join-Path $root "data\runtime\daily-chain-v2\$businessDate-S$seq")
+  }
+  throw "health run_id does not match business date: run_id='$runId' business_date='$businessDate'"
 }
 
 # Contract C3: notify_hermes.py only ever had `alert --key --text --level
@@ -292,11 +309,16 @@ try {
 
   # ---- 2. did today's V2 chain launch? ------------------------------------
   # 037 nightly/morning/refresh logs are not the live path after V2 cutover.
-  if ($runLiveCheck -and -not $SkipLogCheck) {
-    $v2Day = Join-Path $RepoRoot "data\runtime\daily-chain-v2\$todayJst"
+  if ($runLogCheck -and -not $SkipLogCheck) {
+    if ($null -eq $hj) {
+      throw "V2 run lineage unavailable because health.json is missing/unreadable"
+    }
+    $v2RunId = [string]$hj.run_id
+    $v2Day = Resolve-V2DayDirectory $RepoRoot $todayJst $v2RunId
     $v2Logs = Join-Path $v2Day "logs"
+    Say "V2 run dir resolved runId=$v2RunId path=$v2Day"
     if (-not (Test-Path -LiteralPath $v2Day)) {
-      Fail "V2 run dir missing: $v2Day"
+      Fail "V2 run dir missing for runId=$v2RunId`: $v2Day"
     } else {
       $files = @()
       if (Test-Path -LiteralPath $v2Logs) {

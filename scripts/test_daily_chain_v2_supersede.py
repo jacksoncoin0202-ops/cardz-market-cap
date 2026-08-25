@@ -764,5 +764,13 @@ try:
     assert "-and (-not $supersedePending)" in done_lines[0], done_lines[0]
     print("POSITIVE_OK the watchdog re-arms on a superseded business date instead of reading it as done")
 
+    assert "function Resolve-V2DayDirectory" in watchdog
+    assert '$baseRunId = "cardz-v2:$businessDate"' in watchdog
+    assert '"data\\runtime\\daily-chain-v2\\$businessDate-S$seq"' in watchdog
+    assert '$v2RunId = [string]$hj.run_id' in watchdog
+    assert "$v2Day = Resolve-V2DayDirectory $RepoRoot $todayJst $v2RunId" in watchdog
+    assert '$v2Day = Join-Path $RepoRoot "data\\runtime\\daily-chain-v2\\$todayJst"' not in watchdog
+    print("POSITIVE_OK the watchdog follows the exact health run lineage into supersede -SN artifacts")
+
 finally:
     cleanup()
