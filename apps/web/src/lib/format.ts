@@ -45,6 +45,15 @@ export function normaliseTheme(value: string | null | undefined): Theme {
   return themes.includes(value as Theme) ? (value as Theme) : "light";
 }
 
+/*
+ * 顯示用升跌幅。熱力圖 label 1 位小數、榜／preview 2 位。
+ * 印出來係 0% 就當 0：無正負號、無 ±$、無紅綠。Number(toFixed) 會留 −0，要抹走。
+ */
+export function displayedChangePct(value: number, decimals: number): number {
+  const q = Number(value.toFixed(decimals));
+  return q === 0 ? 0 : q;
+}
+
 export function formatMoney(
   valueUsd: number | null,
   currency: Currency,
@@ -97,6 +106,7 @@ export function formatDeltaMoney(
     changePct.value === null || (changePct.status !== "ready" && changePct.status !== "stale") ||
     changePct.value <= -100
   ) return null;
+  if (displayedChangePct(changePct.value, 2) === 0) return null;
   const baseline = metric.value / (1 + changePct.value / 100);
   const delta = metric.value - baseline;
   if (Math.abs(delta) < 0.005) return null;
@@ -117,9 +127,9 @@ export function formatPercent(metric: MarketMetric<number>, locale: Locale): str
     return copy[locale].status[metric.status === "ready" ? "unavailable" : metric.status];
   }
   if (!Number.isFinite(metric.value)) return copy[locale].status.unavailable;
-  const sign = metric.value > 0 ? "+" : "";
-  const value = `${sign}${metric.value.toFixed(2)}%`;
-  return value;
+  const shown = displayedChangePct(metric.value, 2);
+  const sign = shown > 0 ? "+" : "";
+  return `${sign}${shown.toFixed(2)}%`;
 }
 
 export function formatTrackedSales(
@@ -195,8 +205,9 @@ export function metricTone(metric: MarketMetric<number>): "positive" | "negative
   if (
     (metric.status !== "ready" && metric.status !== "stale") ||
     metric.value === null ||
-    !Number.isFinite(metric.value) ||
-    metric.value === 0
+    !Number.isFinite(metric.value)
   ) return "neutral";
-  return metric.value > 0 ? "positive" : "negative";
+  const shown = displayedChangePct(metric.value, 2);
+  if (shown === 0) return "neutral";
+  return shown > 0 ? "positive" : "negative";
 }

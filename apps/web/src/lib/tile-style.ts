@@ -1,10 +1,20 @@
 "use client";
 
+import { displayedChangePct } from "./format";
+
+/* 熱力圖 label 一位小數。印出來係 0.0% 就當 0：中立、無正負號、無色塊。 */
+export const TILE_CHANGE_DECIMALS = 1;
+
+function tileChange(value: number | null): number | null {
+  if (value === null || !Number.isFinite(value)) return null;
+  return displayedChangePct(value, TILE_CHANGE_DECIMALS);
+}
+
 /* 純色框強度編碼：框 = 純紅/綠 fill（面積 = 市值，深淺 = 升跌幅），中間放直向卡 */
 export interface TileParams {
   clamp: number;      // change% 到幾多就當最深色（爆色）
   gamma: number;      // 誇大/壓細強度曲線
-  deadzone: number;   // ±deadzone% 之內當中立：褪色近灰（0 = 關閉）
+  deadzone: number;   // ±deadzone% 之內當中立（0 = 只有顯示 0.0% 嘅格）
   aMin: number;       // 最淺色透明度
   aMax: number;       // 最深色透明度
   gap: number;        // 格與格之間距離 px
@@ -39,11 +49,12 @@ function hexToRgb(hex: string): [number, number, number] {
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
 }
 
-/* 強度 0–1：|value| 喺 deadzone 內 → 0（近灰）；過咗 deadzone 之後由 0 重新升到 clamp 爆色 */
+/* 強度 0–1：顯示幅喺 deadzone 內 → 0（中立無色）；過咗 deadzone 之後由 0 重新升到 clamp 爆色 */
 export function frameStrength(value: number | null, p: TileParams): number {
-  if (value === null || !Number.isFinite(value)) return 0;
-  const mag = Math.abs(value);
-  if (mag <= p.deadzone && p.deadzone > 0) return 0;
+  const shown = tileChange(value);
+  if (shown === null) return 0;
+  const mag = Math.abs(shown);
+  if (mag <= p.deadzone) return 0;
   const span = Math.max(p.clamp - p.deadzone, 0.1);
   return Math.pow(Math.min(Math.max(mag - p.deadzone, 0), span) / span, p.gamma);
 }
@@ -129,12 +140,13 @@ export function fitTileLabel(value: number | null, w: number, h: number): { move
   const L = TILE_LABEL;
   const shortSide = Math.min(w, h);
   const base = Math.max(L.minFont, Math.min(L.maxFont, Math.round(shortSide * 0.12)));
-  if (value === null || !Number.isFinite(value)) return { move: null, fontSize: base };
+  const shown = tileChange(value);
+  if (shown === null) return { move: null, fontSize: base };
   const availW = w - 2 * L.inset - 2 * L.padX;
   const availH = h - 2 * L.inset - 2 * L.padY;
-  const sign = value > 0 ? "+" : "";
-  const full = `${sign}${value.toFixed(1)}%`;
-  const compact = `${sign}${Math.round(value)}%`;
+  const sign = shown > 0 ? "+" : "";
+  const full = `${sign}${shown.toFixed(1)}%`;
+  const compact = `${sign}${Math.round(shown)}%`;
   const candidates = compact === full ? [full] : [full, compact];
   const maxByHeight = Math.floor(availH / L.lineHeight);
   for (const text of candidates) {
@@ -146,12 +158,15 @@ export function fitTileLabel(value: number | null, w: number, h: number): { move
 
 /* w/h 係 tile 實際顯示尺寸（px） */
 export function tileStyle(value: number | null, w: number, h: number, colors: TileColors, p: TileParams): TileStyle {
+  const shown = tileChange(value);
   const t = frameStrength(value, p);
   const alpha = p.aMin + t * (p.aMax - p.aMin);
-  const direction: TileStyle["direction"] = value !== null && value > 0 ? "up" : value !== null && value < 0 ? "down" : "neutral";
+  const direction: TileStyle["direction"] = shown === null || shown === 0 || Math.abs(shown) <= p.deadzone
+    ? "neutral"
+    : shown > 0 ? "up" : "down";
   const hex = direction === "up" ? colors.up : colors.down;
   const [r, g, b] = p.deadzone > 0 ? scaleSaturation(...hexToRgb(hex), t) : hexToRgb(hex);
-  const bg = direction === "neutral" || (p.deadzone > 0 && t === 0)
+  const bg = direction === "neutral" || t === 0
     ? colors.neutral
     : `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`;
   /* label 底板：同色淡板（34%），色由 colors 嚟（唔係 CSS token）—— red-up 對調 / /tune 自訂色之下
