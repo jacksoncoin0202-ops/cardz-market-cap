@@ -59,6 +59,12 @@ export interface Copy {
     glossary: string;
     data: string;
   };
+  relatedNav: {
+    heading: string;
+    hub: string;
+    psaSubmit: string;
+    psa10Lookup: string;
+  };
   boxHero: { eyebrow: string; title: string; body: string };
   box: {
     groupAll: string;
@@ -371,6 +377,12 @@ export const copy: Record<Locale, Copy> = {
       glossary: "Glossary",
       data: "Data & API",
     },
+    relatedNav: {
+      heading: "Related",
+      hub: "Parrot TCG | PTCG grading & deal guides",
+      psaSubmit: "Taiwan PSA submit",
+      psa10Lookup: "PSA 10 price lookup",
+    },
     boxHero: {
       eyebrow: "BOX MARKET",
       title: "Sold-first prices for sealed booster boxes",
@@ -606,6 +618,12 @@ export const copy: Record<Locale, Copy> = {
       glossary: "名詞解釋",
       data: "資料與 API",
     },
+    relatedNav: {
+      heading: "相關",
+      hub: "多嘴鸚鵡｜PTCG 送評／優惠攻略",
+      psaSubmit: "台灣 PSA 送評",
+      psa10Lookup: "PSA 10 查價",
+    },
     boxHero: {
       eyebrow: "BOX MARKET",
       title: "未開封原盒 · 成交價優先",
@@ -817,6 +835,12 @@ export const copy: Record<Locale, Copy> = {
       glossary: "名词解释",
       data: "数据与 API",
     },
+    relatedNav: {
+      heading: "相关",
+      hub: "多嘴鹦鹉｜PTCG 送评／优惠攻略",
+      psaSubmit: "台湾 PSA 送评",
+      psa10Lookup: "PSA 10 查价",
+    },
     boxHero: {
       eyebrow: "BOX MARKET",
       title: "未开封原盒 · 成交价优先",
@@ -1020,6 +1044,12 @@ export const copy: Record<Locale, Copy> = {
       glossary: "用語集",
       data: "データと API",
     },
+    relatedNav: {
+      heading: "関連",
+      hub: "多嘴鸚鵡｜PTCG 鑑定提出・お得ガイド",
+      psaSubmit: "台湾の PSA 提出ガイド",
+      psa10Lookup: "PSA 10 価格の調べ方",
+    },
     boxHero: {
       eyebrow: "BOX 市場",
       title: "未開封 BOX · 成約価格を優先",
@@ -1222,6 +1252,12 @@ export const copy: Record<Locale, Copy> = {
       faq: "자주 묻는 질문",
       glossary: "용어집",
       data: "데이터와 API",
+    },
+    relatedNav: {
+      heading: "관련",
+      hub: "多嘴鸚鵡｜PTCG 감정신청·혜택 가이드",
+      psaSubmit: "대만 PSA 신청",
+      psa10Lookup: "PSA 10 시세 조회",
     },
     boxHero: {
       eyebrow: "BOX MARKET",

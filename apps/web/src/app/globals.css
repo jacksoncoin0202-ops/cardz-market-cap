@@ -760,6 +760,9 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   color: var(--fg);
   text-decoration: underline;
 }
+.footer-nav + .footer-nav {
+  margin-top: 16px;
+}
 
 /* 方法區：首頁排名下面同卡頁圖表下面共用（components/provenance.tsx）。 */
 .provenance-panel {

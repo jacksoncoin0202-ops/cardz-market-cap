@@ -227,6 +227,12 @@ export function Footer() {
     { path: "/glossary", label: t.footerNav.glossary },
     { path: "/data", label: t.footerNav.data },
   ];
+  /* Owned content hub — visible + crawlable footer cluster, same tab, no nofollow. */
+  const relatedLinks = [
+    { href: "https://parrottcg.com/", label: t.relatedNav.hub },
+    { href: "https://parrottcg.com/tw/guides/psa-submit/", label: t.relatedNav.psaSubmit },
+    { href: "https://parrottcg.com/tw/guides/psa-10-price-lookup/", label: t.relatedNav.psa10Lookup },
+  ];
   return (
     <footer className="site-footer">
       <div className="footer-inner">
@@ -243,6 +249,16 @@ export function Footer() {
           {exploreLinks.map((link) => (
             <li key={link.path}>
               <Link href={href(link.path)}>{link.label}</Link>
+            </li>
+          ))}
+        </ul>
+      </nav>
+      <nav className="footer-nav footer-nav-related" aria-label={t.relatedNav.heading}>
+        <p className="footer-nav-title">{t.relatedNav.heading}</p>
+        <ul className="footer-nav-list">
+          {relatedLinks.map((link) => (
+            <li key={link.href}>
+              <a href={link.href}>{link.label}</a>
             </li>
           ))}
         </ul>
