@@ -64,6 +64,7 @@ export interface Copy {
     hub: string;
     psaSubmit: string;
     psa10Lookup: string;
+    telegram: string;
   };
   boxHero: { eyebrow: string; title: string; body: string };
   box: {
@@ -382,6 +383,7 @@ export const copy: Record<Locale, Copy> = {
       hub: "Parrot TCG | PTCG grading & deal guides",
       psaSubmit: "PSA submit guide",
       psa10Lookup: "PSA 10 price lookup",
+      telegram: "PTCG Chinese Telegram",
     },
     boxHero: {
       eyebrow: "BOX MARKET",
@@ -623,6 +625,7 @@ export const copy: Record<Locale, Copy> = {
       hub: "多嘴鸚鵡｜PTCG 送評／優惠攻略",
       psaSubmit: "台灣 PSA 送評",
       psa10Lookup: "PSA 10 查價",
+      telegram: "PTCG 華語討論區",
     },
     boxHero: {
       eyebrow: "BOX MARKET",
@@ -840,6 +843,7 @@ export const copy: Record<Locale, Copy> = {
       hub: "多嘴鹦鹉｜PTCG 送评／优惠攻略",
       psaSubmit: "PSA 送评",
       psa10Lookup: "PSA 10 查价",
+      telegram: "PTCG 华语讨论区",
     },
     boxHero: {
       eyebrow: "BOX MARKET",
@@ -1049,6 +1053,7 @@ export const copy: Record<Locale, Copy> = {
       hub: "多嘴鸚鵡｜PTCG 鑑定提出・お得ガイド",
       psaSubmit: "PSA 提出ガイド",
       psa10Lookup: "PSA 10 価格の調べ方",
+      telegram: "PTCG 中国語 Telegram",
     },
     boxHero: {
       eyebrow: "BOX 市場",
@@ -1258,6 +1263,7 @@ export const copy: Record<Locale, Copy> = {
       hub: "多嘴鸚鵡｜PTCG 감정신청·혜택 가이드",
       psaSubmit: "PSA 신청 가이드",
       psa10Lookup: "PSA 10 시세 조회",
+      telegram: "PTCG 중국어 텔레그램",
     },
     boxHero: {
       eyebrow: "BOX MARKET",

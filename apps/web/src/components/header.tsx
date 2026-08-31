@@ -253,6 +253,7 @@ export function Footer() {
     { href: `${parrotBase}/`, label: t.relatedNav.hub },
     { href: `${parrotBase}/guides/psa-submit/`, label: submitLabel },
     { href: `${parrotBase}/guides/psa-10-price-lookup/`, label: lookupLabel },
+    { href: "https://t.me/TCG_asia", label: t.relatedNav.telegram },
   ];
   return (
     <footer className="site-footer">
