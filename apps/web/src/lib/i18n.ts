@@ -380,7 +380,7 @@ export const copy: Record<Locale, Copy> = {
     relatedNav: {
       heading: "Related",
       hub: "Parrot TCG | PTCG grading & deal guides",
-      psaSubmit: "Taiwan PSA submit",
+      psaSubmit: "PSA submit guide",
       psa10Lookup: "PSA 10 price lookup",
     },
     boxHero: {
@@ -838,7 +838,7 @@ export const copy: Record<Locale, Copy> = {
     relatedNav: {
       heading: "相关",
       hub: "多嘴鹦鹉｜PTCG 送评／优惠攻略",
-      psaSubmit: "台湾 PSA 送评",
+      psaSubmit: "PSA 送评",
       psa10Lookup: "PSA 10 查价",
     },
     boxHero: {
@@ -1047,7 +1047,7 @@ export const copy: Record<Locale, Copy> = {
     relatedNav: {
       heading: "関連",
       hub: "多嘴鸚鵡｜PTCG 鑑定提出・お得ガイド",
-      psaSubmit: "台湾の PSA 提出ガイド",
+      psaSubmit: "PSA 提出ガイド",
       psa10Lookup: "PSA 10 価格の調べ方",
     },
     boxHero: {
@@ -1256,7 +1256,7 @@ export const copy: Record<Locale, Copy> = {
     relatedNav: {
       heading: "관련",
       hub: "多嘴鸚鵡｜PTCG 감정신청·혜택 가이드",
-      psaSubmit: "대만 PSA 신청",
+      psaSubmit: "PSA 신청 가이드",
       psa10Lookup: "PSA 10 시세 조회",
     },
     boxHero: {

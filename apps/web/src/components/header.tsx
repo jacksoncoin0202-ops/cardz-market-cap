@@ -210,9 +210,18 @@ export function Header({ availableCurrencies = currencies }: { availableCurrenci
   );
 }
 
+function parrotPathLocale(locale: string, currency: string): "hk" | "tw" | "cn" | "en" {
+  if (currency === "HKD") return "hk";
+  if (locale === "zh-CN" || currency === "CNY") return "cn";
+  if (locale === "zh-TW" || currency === "TWD") return "tw";
+  return "en";
+}
+
 export function Footer() {
-  const { locale, href } = useMarketSettings();
+  const { locale, currency, href } = useMarketSettings();
   const t = copy[locale];
+  const parrotLocale = parrotPathLocale(locale, currency);
+  const parrotBase = `https://parrottcg.com/${parrotLocale}`;
   /*
    * GEO 批七版新頁嘅唯一站內入口（verify pass 2026-08-16）。之前佢哋只互相 link
    * 同埋出現喺 sitemap／llms.txt，由主站行唔到過去 —— 爬蟲當孤兒頁，內部連結權重係零。
@@ -228,10 +237,22 @@ export function Footer() {
     { path: "/data", label: t.footerNav.data },
   ];
   /* Owned content hub — visible + crawlable footer cluster, same tab, no nofollow. */
+  const submitLabel = {
+    tw: "台灣 PSA 送評",
+    hk: "香港 PSA 送評",
+    cn: "PSA 送评",
+    en: "PSA submit guide",
+  }[parrotLocale];
+  const lookupLabel = {
+    tw: "PSA 10 查價",
+    hk: "PSA 10 查價",
+    cn: "PSA 10 查价",
+    en: "PSA 10 price lookup",
+  }[parrotLocale];
   const relatedLinks = [
-    { href: "https://parrottcg.com/", label: t.relatedNav.hub },
-    { href: "https://parrottcg.com/tw/guides/psa-submit/", label: t.relatedNav.psaSubmit },
-    { href: "https://parrottcg.com/tw/guides/psa-10-price-lookup/", label: t.relatedNav.psa10Lookup },
+    { href: `${parrotBase}/`, label: t.relatedNav.hub },
+    { href: `${parrotBase}/guides/psa-submit/`, label: submitLabel },
+    { href: `${parrotBase}/guides/psa-10-price-lookup/`, label: lookupLabel },
   ];
   return (
     <footer className="site-footer">
