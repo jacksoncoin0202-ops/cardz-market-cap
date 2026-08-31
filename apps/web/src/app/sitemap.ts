@@ -20,14 +20,15 @@ const CONTENT_UPDATED = "2026-08-16";
 /* 單一 sitemap 上限係 50,000 條。過 45,000 就要開 generateSitemaps() 分片。 */
 const SPLIT_THRESHOLD = 45_000;
 
-const locales = {
-  en: "",
-  "zh-Hant": "lang=zh-TW",
-  "zh-Hans": "lang=zh-CN",
-  ja: "lang=ja",
-  ko: "lang=ko",
-  "x-default": "",
-} as const;
+const sitemapLocales = [
+  { hreflang: "en", query: "" },
+  { hreflang: "zh-Hant", query: "lang=zh-TW" },
+  { hreflang: "zh-Hans", query: "lang=zh-CN" },
+  { hreflang: "ja", query: "lang=ja" },
+  { hreflang: "ko", query: "lang=ko" },
+] as const;
+
+const alternateLocales = [...sitemapLocales, { hreflang: "x-default", query: "" }] as const;
 
 function withQuery(path: string, query: string): string {
   if (!query) return path;
@@ -54,21 +55,38 @@ interface SeoRouteEntry {
   priority?: number;
 }
 
-function entry(path: string, lastModified: string, options: EntryOptions = {}): MetadataRoute.Sitemap[number] {
+function entry(
+  path: string,
+  lastModified: string,
+  options: EntryOptions = {},
+  localeQuery = "",
+): MetadataRoute.Sitemap[number] {
   return {
-    url: `${siteUrl}${path}`,
+    url: `${siteUrl}${withQuery(path, localeQuery)}`,
     lastModified,
     ...(options.priority === undefined ? {} : { priority: options.priority }),
     ...(options.images?.length ? { images: options.images } : {}),
     alternates: {
       languages: Object.fromEntries(
-        Object.entries(locales).map(([locale, query]) => [
-          locale,
+        alternateLocales.map(({ hreflang, query }) => [
+          hreflang,
           xmlAttributeUrl(`${siteUrl}${withQuery(path, query)}`),
         ]),
       ),
     },
   };
+}
+
+/*
+ * Google 要求每個語言 URL 都有自己一條 <url><loc>，而每條都完整列出同一組
+ * hreflang（包括自身）。x-default 只作為 alternate，不重複產生第六條 canonical URL。
+ */
+function localizedEntries(
+  path: string,
+  lastModified: string,
+  options: EntryOptions = {},
+): MetadataRoute.Sitemap {
+  return sitemapLocales.map(({ query }) => entry(path, lastModified, options, query));
 }
 
 /*
@@ -115,19 +133,21 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const boxes = snapshot.sealed?.products ?? [];
 
   const collected: MetadataRoute.Sitemap = [
-    ...marketPaths.map((path) => entry(path, snapshot.effectiveAt, { priority: path === "/" ? 1 : 0.8 })),
-    ...contentPaths.map((path) => entry(path, CONTENT_UPDATED, { priority: 0.7 })),
-    /* 程式化路由（/rankings/*、/pokemon/set/*…）由 lib/seo-routes.ts 出，唔喺呢度硬砌。 */
-    ...seoRoutes(snapshot).map((route: SeoRouteEntry) =>
-      entry(route.path, route.lastModified || CONTENT_UPDATED, { priority: route.priority ?? 0.6 }),
+    ...marketPaths.flatMap((path) =>
+      localizedEntries(path, snapshot.effectiveAt, { priority: path === "/" ? 1 : 0.8 }),
     ),
-    ...cards.map((card) =>
-      entry(`/card/${card.id}`, cardLastModified(card, snapshot.effectiveAt), {
+    ...contentPaths.flatMap((path) => localizedEntries(path, CONTENT_UPDATED, { priority: 0.7 })),
+    /* 程式化路由（/rankings/*、/pokemon/set/*…）由 lib/seo-routes.ts 出，唔喺呢度硬砌。 */
+    ...seoRoutes(snapshot).flatMap((route: SeoRouteEntry) =>
+      localizedEntries(route.path, route.lastModified || CONTENT_UPDATED, { priority: route.priority ?? 0.6 }),
+    ),
+    ...cards.flatMap((card) =>
+      localizedEntries(`/card/${card.id}`, cardLastModified(card, snapshot.effectiveAt), {
         images: cardImages(card),
         priority: card.marketRank >= 1 && card.marketRank <= 100 ? 0.9 : 0.5,
       }),
     ),
-    ...boxes.map((product) => entry(`/box/${product.id}`, boxAsOf, { priority: 0.5 })),
+    ...boxes.flatMap((product) => localizedEntries(`/box/${product.id}`, boxAsOf, { priority: 0.5 })),
   ];
 
   /*
@@ -141,9 +161,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const urls = [...merged.values()];
 
   /*
-   * 2026-08-16 實測（seed-snapshot db3308_74effa09a06a3746）：1,925 條 + seoRoutes
-   * ＝ 1,599 張卡（全部帶圖）+ 307 個 box + 榜頁分頁 + 7 條內容頁，
-   * 離 45,000 好遠。
+   * 每個 base path 會輸出 en、zh-Hant、zh-Hans、ja、ko 五條可索引語言 URL。
+   * x-default 只存在於 alternates。目前資料量乘五後仍低於 45,000，但數量會每日變動。
    * 呢個 warn 唔係裝飾：卡數係日日變嘅，過咗閂就要真係開 generateSitemaps() 分片，
    * 唔係扮睇唔到。
    */

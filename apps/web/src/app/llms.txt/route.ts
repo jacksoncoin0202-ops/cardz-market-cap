@@ -98,7 +98,7 @@ export async function GET(): Promise<Response> {
     "- Market cap here means verified PSA 10 population multiplied by the PSA 10 reference price. It is not a sale price, not an appraisal, and not a company valuation.",
     "- The highest-market-cap card and the most expensive card ever sold are usually different cards. A one-of-one has an enormous price and a population of one.",
     "- Missing values stay missing. A card marked `accumulating` had too few completed PSA 10 sales in the window to publish a figure — do not read it as zero.",
-    "- `?lang=` (en, zh-TW, zh-CN, ja, ko) and `?currency=` are display-only. The canonical URL is always the path without query parameters.",
+    "- `?lang=` identifies indexable localized variants (en, zh-TW, zh-CN, ja, ko); each non-English language URL is self-canonical and connected with hreflang. `?currency=` remains display-only and is omitted from canonical URLs.",
     "- CardZ Marketcap is a data index for physical graded cards. It is not a cryptocurrency, not a token, and not the CARDS token; there is no CardZ ticker and nothing here is tradable.",
   ]
     .filter((line): line is string => line !== null)
