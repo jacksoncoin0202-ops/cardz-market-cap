@@ -234,10 +234,14 @@ function percentage(current: number | null, previous: number | null): number | n
 }
 
 function salesTotal(history: DailyHistoryPoint[], endMs: number, days: number): { value: number; count: number; asOf: string } | null {
-  const startMs = endMs - (days - 1) * 86_400_000;
+  // historyDaily 一日一點，時間固定係 UTC 00:00；currentAsOf 就保留成交／檢查嘅
+  // 時分秒。兩邊唔先對齊日桶，1d 會變成 [20:46, 20:46]，當日 00:00 個真成交
+  // 點永遠入唔到窗，7d / 30d 亦會各自漏咗最早一日。
+  const endDayMs = new Date(endMs).setUTCHours(0, 0, 0, 0);
+  const startMs = endDayMs - (days - 1) * 86_400_000;
   const rows = history.filter((point) => {
     const at = new Date(point.at).valueOf();
-    return at >= startMs && at <= endMs && point.salesCoverage !== "unavailable";
+    return at >= startMs && at <= endDayMs && point.salesCoverage !== "unavailable";
   });
   if (rows.length === 0) return null;
   return {

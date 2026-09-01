@@ -20,6 +20,8 @@
  *     `pricecharting_sales`，history 點係 `pricecharting_sales`，唔剝尾碼比較就會
  *     成板卡掛住「換咗來源」嘅提示。
  *  ⑤ /llms-full.txt 唔准再寫 reference price 係「reduced to a median」。
+ *  ⑥ 成交日點係 UTC 00:00，但 currentAsOf 帶時分秒；1d / 7d 窗必須先對齊
+ *     UTC 日桶，唔可以將當日真成交排除。mutation 探針要證明舊算法一定會被捉到。
  *
  * 純靜態 + 真評估：唔開 DB、唔開瀏覽器，由 run_all_tests.py 個 `scripts/test-*.mjs` glob 收。
  *
@@ -195,6 +197,47 @@ if (buildHistories) {
   check("H3: 30d 市值變幅跟返成交錨（價×POP）",
     Math.abs(windows["30d"].marketCapChangePct.value - expected) < 1e-9,
     JSON.stringify(windows["30d"].marketCapChangePct));
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * H3b — tracked sales 窗跟 UTC 日桶；currentAsOf 有時分秒都要計到當日。
+ *        同場載入舊算法 mutation，證明 regression 唔係一個永遠綠嘅假 guard。
+ * ───────────────────────────────────────────────────────────── */
+{
+  const dailySales = Array.from({ length: 7 }, (_, index) => {
+    const at = new Date(Date.UTC(2026, 7, 16 + index)).toISOString();
+    return {
+      at,
+      priceUsd: 100,
+      sourceCode: "pricecharting_sales",
+      trackedSalesValueUsd: 100,
+      trackedSalesCount: 1,
+      salesCoverage: "partial",
+      salesVerifiedZero: false,
+    };
+  });
+  const intradayAsOf = "2026-08-22T20:03:37Z";
+  const windows = snapshotLib.windowMetrics(dailySales, 100, 1000, intradayAsOf, "pricecharting");
+  check("H3b: 1d 計到同一 UTC 日嘅 00:00 成交點",
+    windows["1d"].trackedSales.valueUsd.value === 100
+      && windows["1d"].trackedSales.count.value === 1,
+    JSON.stringify(windows["1d"].trackedSales));
+  check("H3b: 7d 足七個 UTC 日桶，唔漏最早一日",
+    windows["7d"].trackedSales.valueUsd.value === 700
+      && windows["7d"].trackedSales.count.value === 7,
+    JSON.stringify(windows["7d"].trackedSales));
+
+  const normalizedLine = "const endDayMs = new Date(endMs).setUTCHours(0, 0, 0, 0);";
+  const brokenModuleBody = moduleBody.replace(normalizedLine, "const endDayMs = endMs;");
+  check("H3b mutation: 成功植入舊嘅 intraday end bug", brokenModuleBody !== moduleBody);
+  const brokenSnapshotLib = await import(transpile(
+    `${brokenModuleBody}\nexport { windowMetrics };\n`,
+    "producer-broken-sales-day-window.mjs",
+  ));
+  const broken = brokenSnapshotLib.windowMetrics(dailySales, 100, 1000, intradayAsOf, "pricecharting");
+  check("H3b mutation: 舊算法會漏走當日 00:00 成交",
+    broken["1d"].trackedSales.valueUsd.value === null,
+    JSON.stringify(broken["1d"].trackedSales));
 }
 
 /* ─────────────────────────────────────────────────────────────
