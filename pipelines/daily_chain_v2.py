@@ -1615,8 +1615,31 @@ class DailyChainV2:
         if not self.stage_complete("collection-registry"):
             return
 
+        # The dynamic PSA10>=1000 universe owns the first natural tick.  It is
+        # deliberately planned before the adapters: when it used to be added
+        # after four GemRate shards, only ~18 minutes of the 35-minute claim
+        # window remained and the bounded all-set harvest could never start.
+        # A missing/failed census remains retryable and fail-closed here; an old
+        # file is never substituted for the current business date.
+        if self.stage_row("identity-census") is None:
+            self.add_stage(
+                phase="source",
+                capability="identity-census",
+                stage_name="identity-census",
+                required_class="extra",
+                concurrency_group="host:gemrate",
+                max_attempts=2,
+            )
+            return
+        if not self.stage_complete("identity-census"):
+            return
+
         source_tasks = self.journal.tasks(self.run_id, phase="source")
-        if not source_tasks:
+        provider_source_tasks = [
+            row for row in source_tasks
+            if str(row.get("source_code") or "") != "system"
+        ]
+        if not provider_source_tasks:
             context = {
                 "run_id": self.run_id,
                 "business_date": self.day_text,
@@ -1634,26 +1657,6 @@ class DailyChainV2:
                     payload=source_payload(adapter, task),
                 )
             return
-        # Identity census.  GemRate's PSA10>=1000 universe file is the input to
-        # identity intake; when it ages out the chain keeps binding yesterday's
-        # universe and nothing says so.  The stage SELF-GATES on the file's
-        # mtime and usually no-ops, so it is planned WITHOUT a return and with
-        # no follow-up gate anywhere: a census that fails, or never finishes,
-        # must not be able to touch identity, acceptance or publication.
-        #
-        # It sits in `source` because that is the only phase eligible_phases
-        # keeps claimable in every state of the run, published included -- and
-        # it must be planned only AFTER the adapters above, because an empty
-        # `source` phase is what triggers that planning.
-        if self.stage_row("identity-census") is None:
-            self.add_stage(
-                phase="source",
-                capability="identity-census",
-                stage_name="identity-census",
-                required_class="extra",
-                concurrency_group="host:gemrate",
-                max_attempts=2,
-            )
         repair_contracts = [
             row for row in (
                 self.stage_row("core-contract-pre"),
@@ -2734,6 +2737,10 @@ class DailyChainV2:
             decision = classify_error(
                 text, stage="publish" if str(row["phase"]) == "publish" else "source"
             )
+            if decision.error_code == "CENSUS_TICK_BUDGET_DEFERRED":
+                # Remaining budget only shrinks: retrying in this tick cannot
+                # start the harvest. Leave the refunded row for the next tick.
+                self.deadline_monotonic = min(self.deadline_monotonic, time.monotonic())
             status = self.journal.finish_failure(
                 task_key,
                 claim,

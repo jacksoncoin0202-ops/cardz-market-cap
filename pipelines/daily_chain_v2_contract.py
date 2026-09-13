@@ -298,8 +298,8 @@ class RetryDecision:
     terminal: bool
     delays_seconds: tuple[int, ...]
     # Contention is not failure: another holder of the same single-flight
-    # resource is working, so this attempt never ran.  Such a class repeats its
-    # last delay instead of walking off the end of its ladder into a terminal
+    # resource is working, or the tick has no room to start the work. Such a
+    # class repeats its last delay instead of exhausting its ladder to a terminal
     # verdict, and daily_chain_v2_journal.finish_failure gives back the attempt
     # the claim spent -- the failure budget exists for real failures.
     contention: bool = False
@@ -393,6 +393,11 @@ PC_CHILD_ALREADY_RUNNING_CLASS = "pc_child_already_running"
 # pages it already captured.
 PC_CHILD_ALREADY_RUNNING_RETRY_SECONDS = (600,)
 ERROR_CODE_DECISIONS: dict[str, RetryDecision] = {
+    # Budget admission refused before harvest: use the existing no-work
+    # accounting. The orchestrator closes claiming so only a new tick retries.
+    "census_tick_budget_deferred": RetryDecision(
+        "CENSUS_TICK_BUDGET_DEFERRED", False, (0,), contention=True
+    ),
     "worker_receipt_missing": RetryDecision(
         "WORKER_RECEIPT_MISSING", False, INFRA_RETRY_SECONDS
     ),

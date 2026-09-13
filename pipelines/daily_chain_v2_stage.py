@@ -1297,14 +1297,26 @@ def stage_live_confirm(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def stage_identity_census(args: argparse.Namespace) -> dict[str, Any]:
-    """Refresh the GemRate census when it is too old for intake to trust it."""
+    """Refresh the business date's GemRate census before any source work."""
 
     from identity_census_stage import run_identity_census
 
-    return run_identity_census(
+    result = run_identity_census(
         business_date=args.business_date,
         budget_seconds=stage_deadline_budget_seconds(),
     )
+    if result.get("refreshed") is not True:
+        if result.get("skipReason") == "tick-budget-too-short":
+            # No harvest started. Refund the claim and yield to a fresh tick;
+            # the dated refreshed=true receipt still owns the source gate.
+            raise RuntimeError("errorCode=CENSUS_TICK_BUDGET_DEFERRED: tick-budget-too-short")
+        reason = str(
+            result.get("error")
+            or result.get("skipReason")
+            or "all-set harvest did not produce a complete census"
+        )
+        raise RuntimeError(f"INCOMPLETE_CENSUS: {reason}")
+    return result
 
 
 def discovery_lane_names() -> tuple[str, ...]:

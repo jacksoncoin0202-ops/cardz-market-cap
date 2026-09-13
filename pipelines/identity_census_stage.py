@@ -8,11 +8,12 @@ population floor" while actually meaning "nobody looked".  Nothing in the daily
 chain refreshed that file, so the census only ever got younger when an operator
 remembered to harvest by hand.
 
-This stage is the missing refresher, and it is deliberately the meekest stage in
-the chain: it self-gates on the census file's own mtime, refuses to start a
-half-hour harvest it cannot finish inside the tick, and never raises.  A failed
-or skipped harvest must cost the day nothing but a stale census -- publication
-is not allowed to depend on it.
+This stage is the missing refresher.  It refuses to start a half-hour harvest
+it cannot finish inside the tick and records every outcome.  The orchestrator
+owns the fail-closed decision: a business date cannot move on to source work
+until this receipt says the all-set census was refreshed.
+Budget refusal starts no harvest: the wrapper refunds the attempt and the
+orchestrator ends claiming for that tick, leaving the census for the next one.
 """
 from __future__ import annotations
 
@@ -28,15 +29,14 @@ from typing import Any, Callable, Mapping
 ROOT = Path(__file__).resolve().parents[1]
 CENSUS_RELATIVE = Path("data") / "private" / "gemrate_brute" / "psa10_1000_plus.jsonl"
 RECEIPT_RELATIVE = Path("data") / "runtime" / "daily-chain-v2"
-# Half of gemrate_identity_intake.DEFAULT_MAX_AGE_DAYS (7): the refresh has to
-# fire while the census still has half its life left, so that one skipped tick
-# -- or one failed harvest -- cannot hand intake a census it will refuse.
-CENSUS_MAX_AGE_DAYS = 3.5
-# A full --all-sets harvest runs well over twenty minutes.  With less tick than
-# this left the stage records the age and leaves the census alone: a harvest the
-# tick kills midway rewrites the file with a partial population, which is worse
-# than an honestly stale one.
-HARVEST_BUDGET_SECONDS = 2100.0
+# Daily chain policy: one successful all-set refresh per natural business date.
+# The dated receipt below prevents a second crawl during same-date retries;
+# mtime remains evidence, never the schedule authority.
+CENSUS_MAX_AGE_DAYS = 0.75
+# A full --all-sets harvest owns the first tick.  The subprocess timeout is the
+# hard network bound; the extra two minutes cover atomic promotion and the
+# stage receipt while still fitting the natural 35-minute claim window.
+HARVEST_BUDGET_SECONDS = 1920.0
 HARVEST_TIMEOUT_SECONDS = 1800
 SECONDS_PER_DAY = 86400.0
 
@@ -117,15 +117,27 @@ def run_identity_census(
 ) -> dict[str, Any]:
     """Refresh the census when it is stale, and say what was decided either way.
 
-    Never raises: every refusal and every harvest failure comes back as a
-    receipt field, because this stage sits in the `source` phase and a raise
-    here would be a source-lane failure the accept gate has to reason about.
+    Never raises: every refusal and harvest failure comes back as a receipt.
+    The daily-chain wrapper turns ``refreshed=false`` into the fail-closed task
+    verdict; keeping this function total also keeps its dated evidence intact.
     """
 
     base = root or ROOT
     moment = now or datetime.now(timezone.utc)
     day = business_date or moment.strftime("%Y-%m-%d")
     path = census_path(base)
+    target = receipt_path if receipt_path is not None else receipt_path_for(day, base)
+    already_refreshed_today = False
+    if target.is_file():
+        try:
+            existing = json.loads(target.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            existing = {}
+        already_refreshed_today = bool(
+            isinstance(existing, Mapping)
+            and str(existing.get("businessDate") or "") == day
+            and existing.get("refreshed") is True
+        )
     age = census_age_days(path, moment)
     receipt: dict[str, Any] = {
         "stage": "identity-census",
@@ -135,12 +147,15 @@ def run_identity_census(
         "ageDays": None if age is None else round(age, 4),
         "maxAgeDays": float(max_age_days),
         "budgetSeconds": None if budget_seconds is None else round(float(budget_seconds), 1),
-        "refreshed": False,
+        # Keep the durable success bit true on same-date no-op receipts so a
+        # later retry does not erase the evidence and trigger a second crawl.
+        "refreshed": already_refreshed_today,
+        "alreadyRefreshedThisBusinessDate": already_refreshed_today,
         "checkedAt": moment.isoformat(timespec="seconds"),
     }
-    stale = age is None or age > float(max_age_days)
-    if not stale:
-        receipt["skipReason"] = "census-fresh"
+    refresh_required = not already_refreshed_today
+    if already_refreshed_today:
+        receipt["skipReason"] = "business-date-already-refreshed"
     elif budget_seconds is not None and float(budget_seconds) < HARVEST_BUDGET_SECONDS:
         # Stated as its own reason: "stale and not refreshed" must never be
         # readable as "fresh", and the morning brief reads this receipt.
@@ -164,12 +179,11 @@ def run_identity_census(
                 receipt["ageDays"] = None if refreshed_age is None else round(refreshed_age, 4)
             else:
                 receipt["error"] = f"harvest exit={receipt['exitCode']}"
-    if not receipt["refreshed"] and stale:
+    if not receipt["refreshed"] and refresh_required:
         receipt["censusNote"] = (
-            "census is stale and was not refreshed: identity intake will take in"
-            " zero cards, which is NOT evidence that no card crossed the floor"
+            "business-date all-set census was not refreshed: the chain must not"
+            " use an older file as evidence that no card crossed the floor"
         )
-    target = receipt_path if receipt_path is not None else receipt_path_for(day, base)
     # Named before it is written, so the file on disk and the stage result the
     # journal stores are the same document.
     receipt["receiptPath"] = str(target)

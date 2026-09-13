@@ -20,16 +20,19 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
 import daily_chain_v2 as chain_module  # noqa: E402
 import daily_chain_v2_db as chain_db  # noqa: E402
+import daily_chain_v2_stage as stage_module  # noqa: E402
 import identity_census_stage as census_module  # noqa: E402
 from daily_chain_v2 import (  # noqa: E402
     AUTO_SUPERSEDE_ENV,
@@ -636,10 +639,10 @@ try:
     fresh_receipt = census_module.run_identity_census(
         root=census_root, now=now_census, business_date=DAY_TEXT, runner=record
     )
-    assert calls == [], "a fresh census must not shell out"
-    assert fresh_receipt["refreshed"] is False
-    assert fresh_receipt["skipReason"] == "census-fresh"
-    assert 0.9 < float(fresh_receipt["ageDays"]) < 1.1, fresh_receipt["ageDays"]
+    assert len(calls) == 1, "a new business date must refresh exactly once"
+    assert fresh_receipt["refreshed"] is True
+    assert fresh_receipt["alreadyRefreshedThisBusinessDate"] is False
+    assert float(fresh_receipt["ageDays"]) < 0.1, fresh_receipt["ageDays"]
     assert "censusNote" not in fresh_receipt
     assert json.loads(Path(fresh_receipt["receiptPath"]).read_text(encoding="utf-8")) == fresh_receipt
 
@@ -647,33 +650,37 @@ try:
     stale_receipt = census_module.run_identity_census(
         root=census_root, now=now_census, business_date=DAY_TEXT, runner=record
     )
-    assert len(calls) == 1, calls
+    assert len(calls) == 1, "same-date retry must not refresh twice"
     assert calls[0][-1] == "--all-sets", calls[0]
     assert calls[0][-2].endswith("gemrate_brute_harvest.py"), calls[0]
-    assert stale_receipt["refreshed"] is True and stale_receipt["exitCode"] == 0
-    assert float(stale_receipt["ageDays"]) < 0.1, stale_receipt["ageDays"]
+    assert stale_receipt["refreshed"] is True
+    assert stale_receipt["alreadyRefreshedThisBusinessDate"] is True
+    assert stale_receipt["skipReason"] == "business-date-already-refreshed"
     assert "censusNote" not in stale_receipt
 
-    # A harvest that fails, or a census that is missing entirely, costs the day
-    # a stale census and nothing else: this stage may never fail a run.
+    # The evidence helper is total even when the harvest fails.  The daily
+    # stage wrapper converts refreshed=false into the fail-closed task verdict.
     def explode(command: list[str], *, timeout: int, cwd: Path) -> dict[str, Any]:
         raise RuntimeError("curl_cffi died")
 
     touch_census(census_file, age_days=9.0, now=now_census)
     failed = census_module.run_identity_census(
-        root=census_root, now=now_census, business_date=DAY_TEXT, runner=explode
+        root=census_root, now=now_census, business_date=DAY_TEXT, runner=explode,
+        receipt_path=WORKSPACE / "census-failed.json",
     )
     assert failed["refreshed"] is False and "curl_cffi died" in failed["error"]
-    assert "NOT evidence" in failed["censusNote"]
+    assert "must not use an older file as evidence" in failed["censusNote"]
     nonzero = census_module.run_identity_census(
         root=census_root, now=now_census, business_date=DAY_TEXT,
         runner=lambda *_a, **_k: {"exitCode": 3, "outputTail": "blocked"},
+        receipt_path=WORKSPACE / "census-nonzero.json",
     )
     assert nonzero["refreshed"] is False and nonzero["exitCode"] == 3
     assert "censusNote" in nonzero
     missing_root = WORKSPACE / "no-census"
     missing = census_module.run_identity_census(
-        root=missing_root, now=now_census, business_date=DAY_TEXT, runner=record
+        root=missing_root, now=now_census, business_date=DAY_TEXT, runner=record,
+        receipt_path=WORKSPACE / "census-missing.json",
     )
     assert missing["ageDays"] is None and missing["censusMtime"] is None
     assert len(calls) == 2, "a missing census is stale and must be harvested"
@@ -683,28 +690,29 @@ try:
     starved = census_module.run_identity_census(
         root=census_root, now=now_census, business_date=DAY_TEXT,
         budget_seconds=120.0, runner=explode,
+        receipt_path=WORKSPACE / "census-starved.json",
     )
     assert starved["skipReason"] == "tick-budget-too-short"
     assert starved["refreshed"] is False and "censusNote" in starved
     roomy = census_module.run_identity_census(
         root=census_root, now=now_census, business_date=DAY_TEXT,
         budget_seconds=census_module.HARVEST_BUDGET_SECONDS + 1, runner=record,
+        receipt_path=WORKSPACE / "census-roomy.json",
     )
     assert roomy["refreshed"] is True and len(calls) == 3
-    assert census_module.CENSUS_MAX_AGE_DAYS == 3.5
-    print("POSITIVE_OK the census stage no-ops when fresh, harvests when stale, and never raises when the harvest fails")
+    assert census_module.CENSUS_MAX_AGE_DAYS == 0.75
+    print("POSITIVE_OK the census evidence refreshes once per business date and preserves every failed outcome")
 
-    # ------------------------------------------------- census stage is planned, and optional
+    # ------------------------------------------- census owns the first source tick
     census_block_start = plan_source.index('if self.stage_row("identity-census") is None:')
-    census_block = plan_source[census_block_start:plan_source.index("repair_contracts = [", census_block_start)]
+    census_block = plan_source[census_block_start:plan_source.index("source_tasks = self.journal.tasks", census_block_start)]
     assert 'phase="source"' in census_block and 'required_class="extra"' in census_block
     assert 'concurrency_group="host:gemrate"' in census_block
     assert "max_attempts=2" in census_block
-    # No `return` in the block: planning the census must not end the pass and
-    # starve every stage the same tick would otherwise plan.
-    assert "return" not in census_block, census_block
+    assert 'if not self.stage_complete("identity-census"):' in census_block
+    assert census_block.count("return") == 2, census_block
     adapter_at = plan_source.index("payload=source_payload(adapter, task)")
-    assert adapter_at < census_block_start, "the census must be planned after the adapters"
+    assert census_block_start < adapter_at, "the full census must own the first natural tick"
     stage_source = (ROOT / "pipelines" / "daily_chain_v2_stage.py").read_text(encoding="utf-8")
     assert 'sub.add_parser("identity-census")' in stage_source
     assert "census.set_defaults(func=stage_identity_census)" in stage_source
@@ -728,7 +736,88 @@ try:
         now=before_cutoff, cutoff=cutoff,
     ) is False
     assert source_barrier_ready([census_pending], now=before_cutoff, cutoff=cutoff) is False
-    print("POSITIVE_OK the census stage is planned as optional source work and cannot hold the core barrier")
+    print("POSITIVE_OK the census is fail-closed before adapter planning and remains outside the source barrier")
+
+    # Exercise the real wrapper -> execute_claim -> journal path without network.
+    # Both pre-cutoff and afternoon recovery must wait for dated census success.
+    for hour in (0, 5):
+        tick_now = datetime(2026, 8, 24, hour, 30, tzinfo=timezone.utc)
+        retry_journal = new_journal(f"census-retry-{hour}")
+        open_run(retry_journal)
+        retry_root = WORKSPACE / f"census-retry-root-{hour}"
+        # Yesterday's success and a fresh mtime cannot stand in for today's receipt.
+        touch_census(census_module.census_path(retry_root), age_days=0.1, now=tick_now)
+        census_module.write_receipt(
+            {"businessDate": "2026-08-23", "refreshed": True},
+            census_module.receipt_path_for(DAY_TEXT, retry_root),
+        )
+        harvest = Mock(return_value={"exitCode": 0})
+        real_census = census_module.run_identity_census
+
+        def isolated_census(**kwargs: Any) -> dict[str, Any]:
+            return real_census(root=retry_root, now=tick_now, runner=harvest, **kwargs)
+
+        def new_tick() -> DailyChainV2:
+            tick = DailyChainV2(
+                journal=retry_journal, business_date=DAY, allow_publish=False, notify=False,
+                deadline_monotonic=time.monotonic() + 2100,
+            )
+            tick.registry = Mock()
+            tick.registry.plan_all.return_value = []
+            tick._run_stage_process = lambda row: stage_module.stage_identity_census(
+                SimpleNamespace(business_date=DAY_TEXT)
+            )
+            tick._task_paths = lambda row: (WORKSPACE / "test.log", WORKSPACE / "test.json")
+            return tick
+
+        with patch.object(chain_module, "utc_now", return_value=tick_now), \
+                patch("daily_chain_v2_journal.utc_now", return_value=tick_now), \
+                patch.object(census_module, "run_identity_census", side_effect=isolated_census), \
+                patch.object(stage_module, "stage_deadline_budget_seconds", return_value=1882.0) as budget:
+            first_tick = new_tick()
+            for capability in (*first_tick.schema_capabilities(), "collection-registry"):
+                plant_task(retry_journal, RUN_ID, source_code="system", capability=capability, phase="infra")
+            first_tick.plan(tick_now)
+            census_key = first_tick.stage_row("identity-census")["task_key"]
+            # More deferrals than max_attempts must still spend no failure budget.
+            for _ in range(3):
+                tick = new_tick()
+                row = tick._claim_batch(1)[0]
+                tick.execute_claim(row)
+                state = retry_journal.task(census_key)
+                assert state["status"] == "RETRY" and state["attempts"] == 0, state
+                assert state["last_error_code"] == "CENSUS_TICK_BUDGET_DEFERRED", state
+                assert state["interruptions"] == 0
+                assert tick._claim_batch(1) == [], "budget skip must end claiming in this tick"
+                tick.plan(tick_now)
+                tick.registry.plan_all.assert_not_called()
+            harvest.assert_not_called()
+            print(f"POSITIVE_OK census budget=1882 RETRY attempts=0; same tick closed; sources blocked hour={hour}")
+
+            budget.return_value = 2100.0
+            next_tick = new_tick()
+            rows = next_tick._claim_batch(1)
+            assert len(rows) == 1 and rows[0]["task_key"] == census_key
+            next_tick.execute_claim(rows[0])
+            state = retry_journal.task(census_key)
+            assert state["status"] == "COMPLETED" and state["attempts"] == 1, state
+            harvest.assert_called_once()
+            assert harvest.call_args.args[0][-1] == "--all-sets"
+            receipt = json.loads(census_module.receipt_path_for(DAY_TEXT, retry_root).read_text())
+            assert receipt["businessDate"] == DAY_TEXT and receipt["refreshed"] is True
+            next_tick.plan(tick_now)
+            next_tick.registry.plan_all.assert_called_once()
+            print(f"POSITIVE_OK next tick budget=2100 harvest --all-sets COMPLETED; provider planning opened hour={hour}")
+
+        # A harvest that really starts and fails still consumes the normal budget.
+        with patch.object(census_module, "run_identity_census", return_value={"refreshed": False, "error": "harvest exit=3"}):
+            try:
+                stage_module.stage_identity_census(SimpleNamespace(business_date=DAY_TEXT))
+            except RuntimeError as error:
+                decision = chain_module.classify_error(str(error))
+                assert decision.error_code == "SOURCE_FAILED" and not decision.contention
+            else:
+                raise AssertionError("failed harvest must remain fail-closed")
 
     # ---------------------------------------------------------------- migration 059
     migration = ROOT / "pipelines" / "migrations" / "059_daily_chain_v2_publication_supersede.mysql.sql"
