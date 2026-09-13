@@ -1,5 +1,5 @@
 {
- "asOf": "2026-09-13T07:30:13.716878Z",
+ "asOf": "2026-09-13T20:41:18.753309Z",
  "coverage": {
   "total": 307,
   "priced": 274,
@@ -1933,7 +1933,7 @@
     "source": "snkrdunk",
     "asOf": "2026-03-19",
     "native": {
-     "amount": 7733072,
+     "amount": 7732570,
      "currency": "JPY"
     }
    },
@@ -1990,7 +1990,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 6933600,
+     "amount": 6933150,
      "currency": "JPY"
     }
    },
@@ -3428,7 +3428,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 3737660,
+     "amount": 3737418,
      "currency": "JPY"
     }
    },
@@ -3563,7 +3563,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-17",
     "native": {
-     "amount": 3682415,
+     "amount": 3682176,
      "currency": "JPY"
     }
    },
@@ -5309,7 +5309,7 @@
     "source": "snkrdunk",
     "asOf": "2025-12-02",
     "native": {
-     "amount": 3391698,
+     "amount": 3391478,
      "currency": "JPY"
     }
    },
@@ -5839,7 +5839,7 @@
     "source": "snkrdunk",
     "asOf": "2026-03-12",
     "native": {
-     "amount": 3197887,
+     "amount": 3197680,
      "currency": "JPY"
     }
    },
@@ -7997,7 +7997,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 2790883,
+     "amount": 2790702,
      "currency": "JPY"
     }
    },
@@ -8486,7 +8486,7 @@
     "source": "yahoo",
     "asOf": "2026-08-09",
     "native": {
-     "amount": 2586193,
+     "amount": 2586025,
      "currency": "JPY"
     }
    },
@@ -11836,7 +11836,7 @@
     "source": "snkrdunk",
     "asOf": "2026-06-23",
     "native": {
-     "amount": 2131925,
+     "amount": 2131786,
      "currency": "JPY"
     }
    },
@@ -11893,7 +11893,7 @@
     "source": "yahoo",
     "asOf": "2026-02-24",
     "native": {
-     "amount": 2127552,
+     "amount": 2127414,
      "currency": "JPY"
     }
    },
@@ -13261,7 +13261,7 @@
     "source": "yahoo",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 1914989,
+     "amount": 1914865,
      "currency": "JPY"
     }
    },
@@ -15180,7 +15180,7 @@
     "source": "yahoo",
     "asOf": "2026-03-08",
     "native": {
-     "amount": 1628889,
+     "amount": 1628783,
      "currency": "JPY"
     }
    },
@@ -15237,7 +15237,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 1627177,
+     "amount": 1627072,
      "currency": "JPY"
     }
    },
@@ -18922,7 +18922,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-09",
     "native": {
-     "amount": 1162868,
+     "amount": 1162792,
      "currency": "JPY"
     }
    },
@@ -19488,7 +19488,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 1018775,
+     "amount": 1018709,
      "currency": "JPY"
     }
    },
@@ -20689,7 +20689,7 @@
     "source": "yahoo",
     "asOf": "2026-07-26",
     "native": {
-     "amount": 941960,
+     "amount": 941899,
      "currency": "JPY"
     }
    },
@@ -20776,7 +20776,7 @@
     "source": "snkrdunk",
     "asOf": "2026-02-11",
     "native": {
-     "amount": 920603,
+     "amount": 920544,
      "currency": "JPY"
     }
    },
@@ -21120,7 +21120,7 @@
     "source": "snkrdunk",
     "asOf": "2026-05-10",
     "native": {
-     "amount": 830482,
+     "amount": 830428,
      "currency": "JPY"
     }
    },
@@ -21279,7 +21279,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 813039,
+     "amount": 812986,
      "currency": "JPY"
     }
    },
@@ -24561,7 +24561,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 714546,
+     "amount": 714500,
      "currency": "JPY"
     }
    },
@@ -24756,7 +24756,7 @@
     "source": "snkrdunk",
     "asOf": "2026-04-21",
     "native": {
-     "amount": 678243,
+     "amount": 678199,
      "currency": "JPY"
     }
    },
@@ -24825,7 +24825,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-09",
     "native": {
-     "amount": 661997,
+     "amount": 661954,
      "currency": "JPY"
     }
    },
@@ -26218,7 +26218,7 @@
     "source": "snkrdunk",
     "asOf": "2026-04-19",
     "native": {
-     "amount": 639577,
+     "amount": 639535,
      "currency": "JPY"
     }
    },
@@ -26622,7 +26622,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 603222,
+     "amount": 603183,
      "currency": "JPY"
     }
    },
@@ -29360,7 +29360,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-05",
     "native": {
-     "amount": 582504,
+     "amount": 582466,
      "currency": "JPY"
     }
    },
@@ -29425,7 +29425,7 @@
     "source": "snkrdunk",
     "asOf": "2026-05-16",
     "native": {
-     "amount": 581338,
+     "amount": 581300,
      "currency": "JPY"
     }
    },
@@ -30051,7 +30051,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-09",
     "native": {
-     "amount": 542671,
+     "amount": 542636,
      "currency": "JPY"
     }
    },
@@ -31018,7 +31018,7 @@
     "source": "snkrdunk",
     "asOf": "2026-07-07",
     "native": {
-     "amount": 531043,
+     "amount": 531008,
      "currency": "JPY"
     }
    },
@@ -32111,7 +32111,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 463209,
+     "amount": 463179,
      "currency": "JPY"
     }
    },
@@ -34568,7 +34568,7 @@
     "source": "yahoo",
     "asOf": "2026-03-27",
     "native": {
-     "amount": 433937,
+     "amount": 433909,
      "currency": "JPY"
     }
    },
@@ -35044,7 +35044,7 @@
     "source": "yahoo",
     "asOf": "2026-08-17",
     "native": {
-     "amount": 398331,
+     "amount": 398305,
      "currency": "JPY"
     }
    },
@@ -35862,7 +35862,7 @@
     "source": "snkrdunk",
     "asOf": "2026-06-05",
     "native": {
-     "amount": 387622,
+     "amount": 387597,
      "currency": "JPY"
     }
    },
@@ -38550,7 +38550,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 361572,
+     "amount": 361548,
      "currency": "JPY"
     }
    },
@@ -38847,7 +38847,7 @@
     "source": "yahoo",
     "asOf": "2026-07-12",
     "native": {
-     "amount": 326697,
+     "amount": 326676,
      "currency": "JPY"
     }
    },
@@ -38904,7 +38904,7 @@
     "source": "yahoo",
     "asOf": "2026-08-09",
     "native": {
-     "amount": 297781,
+     "amount": 297762,
      "currency": "JPY"
     }
    },
@@ -39039,7 +39039,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-09",
     "native": {
-     "amount": 281196,
+     "amount": 281178,
      "currency": "JPY"
     }
    },
@@ -39911,7 +39911,7 @@
     "source": "yahoo",
     "asOf": "2026-08-01",
     "native": {
-     "amount": 275225,
+     "amount": 275208,
      "currency": "JPY"
     }
    },
@@ -40597,7 +40597,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 251633,
+     "amount": 251616,
      "currency": "JPY"
     }
    },
@@ -43054,7 +43054,7 @@
     "source": "yahoo",
     "asOf": "2026-08-17",
     "native": {
-     "amount": 246659,
+     "amount": 246643,
      "currency": "JPY"
     }
    },
@@ -45515,7 +45515,7 @@
     "source": "snkrdunk",
     "asOf": "2026-07-16",
     "native": {
-     "amount": 242265,
+     "amount": 242249,
      "currency": "JPY"
     }
    },
@@ -49209,7 +49209,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 216217,
+     "amount": 216203,
      "currency": "JPY"
     }
    },
@@ -49482,7 +49482,7 @@
     "source": "snkrdunk",
     "asOf": "2026-06-26",
     "native": {
-     "amount": 213193,
+     "amount": 213179,
      "currency": "JPY"
     }
    },
@@ -49599,7 +49599,7 @@
     "source": "yahoo",
     "asOf": "2026-08-09",
     "native": {
-     "amount": 210649,
+     "amount": 210635,
      "currency": "JPY"
     }
    },
@@ -49716,7 +49716,7 @@
     "source": "snkrdunk",
     "asOf": "2025-10-26",
     "native": {
-     "amount": 201564,
+     "amount": 201551,
      "currency": "JPY"
     }
    },
@@ -50396,7 +50396,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 192842,
+     "amount": 192829,
      "currency": "JPY"
     }
    },
@@ -52888,7 +52888,7 @@
     "source": "yahoo",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 170434,
+     "amount": 170423,
      "currency": "JPY"
     }
    },
@@ -55734,7 +55734,7 @@
     "source": "snkrdunk",
     "asOf": "2024-09-28",
     "native": {
-     "amount": 162801,
+     "amount": 162790,
      "currency": "JPY"
     }
    },
@@ -55809,7 +55809,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 158440,
+     "amount": 158430,
      "currency": "JPY"
     }
    },
@@ -57161,7 +57161,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-16",
     "native": {
-     "amount": 154855,
+     "amount": 154845,
      "currency": "JPY"
     }
    },
@@ -61187,7 +61187,7 @@
     "source": "yahoo",
     "asOf": "2026-08-15",
     "native": {
-     "amount": 134050,
+     "amount": 134041,
      "currency": "JPY"
     }
    },
@@ -64753,7 +64753,7 @@
     "source": "yahoo",
     "asOf": "2026-08-18",
     "native": {
-     "amount": 128467,
+     "amount": 128459,
      "currency": "JPY"
     }
    },
@@ -67801,7 +67801,7 @@
     "source": "yahoo",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 124474,
+     "amount": 124465,
      "currency": "JPY"
     }
    },
@@ -69190,7 +69190,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 120115,
+     "amount": 120107,
      "currency": "JPY"
     }
    },
@@ -71605,7 +71605,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-18",
     "native": {
-     "amount": 114349,
+     "amount": 114342,
      "currency": "JPY"
     }
    },
@@ -72748,7 +72748,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-12",
     "native": {
-     "amount": 113138,
+     "amount": 113131,
      "currency": "JPY"
     }
    },
@@ -74029,7 +74029,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 112411,
+     "amount": 112403,
      "currency": "JPY"
     }
    },
@@ -77216,7 +77216,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-13",
     "native": {
-     "amount": 97875,
+     "amount": 97868,
      "currency": "JPY"
     }
    },
@@ -79686,7 +79686,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 77524,
+     "amount": 77519,
      "currency": "JPY"
     }
    },
@@ -80594,7 +80594,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-16",
     "native": {
-     "amount": 76556,
+     "amount": 76551,
      "currency": "JPY"
     }
    },
@@ -81227,7 +81227,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 76556,
+     "amount": 76551,
      "currency": "JPY"
     }
    },
@@ -82190,7 +82190,7 @@
     "source": "yahoo",
     "asOf": "2026-07-10",
     "native": {
-     "amount": 71794,
+     "amount": 71789,
      "currency": "JPY"
     }
    },
@@ -82768,7 +82768,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-01",
     "native": {
-     "amount": 71655,
+     "amount": 71650,
      "currency": "JPY"
     }
    },
@@ -83945,7 +83945,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-18",
     "native": {
-     "amount": 67786,
+     "amount": 67782,
      "currency": "JPY"
     }
    },
@@ -86586,7 +86586,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-17",
     "native": {
-     "amount": 63957,
+     "amount": 63953,
      "currency": "JPY"
     }
    },
@@ -89262,7 +89262,7 @@
     "source": "yahoo",
     "asOf": "2026-08-18",
     "native": {
-     "amount": 62879,
+     "amount": 62874,
      "currency": "JPY"
     }
    },
@@ -90290,7 +90290,7 @@
     "source": "yahoo",
     "asOf": "2026-08-17",
     "native": {
-     "amount": 60775,
+     "amount": 60771,
      "currency": "JPY"
     }
    },
@@ -94939,7 +94939,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-10",
     "native": {
-     "amount": 58144,
+     "amount": 58140,
      "currency": "JPY"
     }
    },
@@ -95842,7 +95842,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-12",
     "native": {
-     "amount": 58142,
+     "amount": 58138,
      "currency": "JPY"
     }
    },
@@ -99341,7 +99341,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 55139,
+     "amount": 55135,
      "currency": "JPY"
     }
    },
@@ -101707,7 +101707,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 54873,
+     "amount": 54869,
      "currency": "JPY"
     }
    },
@@ -102016,7 +102016,7 @@
     "source": "yahoo",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 52643,
+     "amount": 52640,
      "currency": "JPY"
     }
    },
@@ -104776,7 +104776,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-15",
     "native": {
-     "amount": 52329,
+     "amount": 52325,
      "currency": "JPY"
     }
    },
@@ -106141,7 +106141,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 52113,
+     "amount": 52110,
      "currency": "JPY"
     }
    },
@@ -108598,7 +108598,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-18",
     "native": {
-     "amount": 51597,
+     "amount": 51593,
      "currency": "JPY"
     }
    },
@@ -111055,7 +111055,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-15",
     "native": {
-     "amount": 51359,
+     "amount": 51356,
      "currency": "JPY"
     }
    },
@@ -114116,7 +114116,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-17",
     "native": {
-     "amount": 47484,
+     "amount": 47481,
      "currency": "JPY"
     }
    },
@@ -117430,7 +117430,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-06",
     "native": {
-     "amount": 43608,
+     "amount": 43605,
      "currency": "JPY"
     }
    },
@@ -118891,7 +118891,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 43608,
+     "amount": 43605,
      "currency": "JPY"
     }
    },
@@ -120070,7 +120070,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-15",
     "native": {
-     "amount": 42656,
+     "amount": 42653,
      "currency": "JPY"
     }
    },
@@ -123033,7 +123033,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 40700,
+     "amount": 40698,
      "currency": "JPY"
     }
    },
@@ -125490,7 +125490,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 40682,
+     "amount": 40679,
      "currency": "JPY"
     }
    },
@@ -126628,7 +126628,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 39731,
+     "amount": 39728,
      "currency": "JPY"
     }
    },
@@ -131758,7 +131758,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 36599,
+     "amount": 36596,
      "currency": "JPY"
     }
    },
@@ -134215,7 +134215,7 @@
     "source": "yahoo",
     "asOf": "2026-08-17",
     "native": {
-     "amount": 36274,
+     "amount": 36271,
      "currency": "JPY"
     }
    },
@@ -136448,7 +136448,7 @@
     "source": "yahoo",
     "asOf": "2026-08-18",
     "native": {
-     "amount": 35428,
+     "amount": 35425,
      "currency": "JPY"
     }
    },
@@ -138905,7 +138905,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 32961,
+     "amount": 32959,
      "currency": "JPY"
     }
    },
@@ -141983,7 +141983,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 29827,
+     "amount": 29825,
      "currency": "JPY"
     }
    },
@@ -142058,7 +142058,7 @@
     "source": "yahoo",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 29019,
+     "amount": 29018,
      "currency": "JPY"
     }
    },
@@ -144656,7 +144656,7 @@
     "source": "yahoo",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 27474,
+     "amount": 27472,
      "currency": "JPY"
     }
    },
@@ -147113,7 +147113,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 27468,
+     "amount": 27466,
      "currency": "JPY"
     }
    },
@@ -147482,7 +147482,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 27133,
+     "amount": 27132,
      "currency": "JPY"
     }
    },
@@ -150076,7 +150076,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 25681,
+     "amount": 25679,
      "currency": "JPY"
     }
    },
@@ -152533,7 +152533,7 @@
     "source": "yahoo",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 23989,
+     "amount": 23987,
      "currency": "JPY"
     }
    },
@@ -152816,7 +152816,7 @@
     "source": "yahoo",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 23579,
+     "amount": 23577,
      "currency": "JPY"
     }
    },
@@ -155273,7 +155273,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 21804,
+     "amount": 21802,
      "currency": "JPY"
     }
    },
@@ -157730,7 +157730,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 21319,
+     "amount": 21317,
      "currency": "JPY"
     }
    },
@@ -160187,7 +160187,7 @@
     "source": "yahoo",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 20567,
+     "amount": 20565,
      "currency": "JPY"
     }
    },
@@ -162408,7 +162408,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 20349,
+     "amount": 20348,
      "currency": "JPY"
     }
    },
@@ -164865,7 +164865,7 @@
     "source": "yahoo",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 20314,
+     "amount": 20313,
      "currency": "JPY"
     }
    },
@@ -167322,7 +167322,7 @@
     "source": "yahoo",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 20314,
+     "amount": 20313,
      "currency": "JPY"
     }
    },
@@ -169779,7 +169779,7 @@
     "source": "yahoo",
     "asOf": "2026-08-18",
     "native": {
-     "amount": 20217,
+     "amount": 20216,
      "currency": "JPY"
     }
    },
@@ -171694,7 +171694,7 @@
     "source": "yahoo",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 19362,
+     "amount": 19360,
      "currency": "JPY"
     }
    },
@@ -173821,7 +173821,7 @@
     "source": "yahoo",
     "asOf": "2026-08-17",
     "native": {
-     "amount": 19249,
+     "amount": 19248,
      "currency": "JPY"
     }
    },
@@ -174134,7 +174134,7 @@
     "source": "yahoo",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 19149,
+     "amount": 19148,
      "currency": "JPY"
     }
    },
@@ -176591,7 +176591,7 @@
     "source": "yahoo",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 18621,
+     "amount": 18619,
      "currency": "JPY"
     }
    },
@@ -178093,7 +178093,7 @@
     "source": "yahoo",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 17895,
+     "amount": 17894,
      "currency": "JPY"
     }
    },
@@ -180550,7 +180550,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 17830,
+     "amount": 17829,
      "currency": "JPY"
     }
    },
@@ -182077,7 +182077,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 17793,
+     "amount": 17792,
      "currency": "JPY"
     }
    },
@@ -182410,7 +182410,7 @@
     "source": "yahoo",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 17713,
+     "amount": 17712,
      "currency": "JPY"
     }
    },
@@ -184105,7 +184105,7 @@
     "source": "yahoo",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 17235,
+     "amount": 17234,
      "currency": "JPY"
     }
    },
@@ -186562,7 +186562,7 @@
     "source": "yahoo",
     "asOf": "2026-08-18",
     "native": {
-     "amount": 15477,
+     "amount": 15476,
      "currency": "JPY"
     }
    },
@@ -189019,7 +189019,7 @@
     "source": "yahoo",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 15257,
+     "amount": 15256,
      "currency": "JPY"
     }
    },
@@ -191476,7 +191476,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-17",
     "native": {
-     "amount": 14827,
+     "amount": 14826,
      "currency": "JPY"
     }
    },
@@ -193933,7 +193933,7 @@
     "source": "yahoo",
     "asOf": "2026-08-18",
     "native": {
-     "amount": 14362,
+     "amount": 14361,
      "currency": "JPY"
     }
    },
@@ -196390,7 +196390,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-01",
     "native": {
-     "amount": 14114,
+     "amount": 14113,
      "currency": "JPY"
     }
    },
@@ -196465,7 +196465,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 13847,
+     "amount": 13846,
      "currency": "JPY"
     }
    },
@@ -197608,7 +197608,7 @@
     "source": "yahoo",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 13739,
+     "amount": 13738,
      "currency": "JPY"
     }
    },
@@ -200065,7 +200065,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 13470,
+     "amount": 13469,
      "currency": "JPY"
     }
    },
@@ -202522,7 +202522,7 @@
     "source": "yahoo",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 13214,
+     "amount": 13213,
      "currency": "JPY"
     }
    },
@@ -205296,7 +205296,7 @@
     "source": "yahoo",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 12998,
+     "amount": 12997,
      "currency": "JPY"
     }
    },
@@ -207753,7 +207753,7 @@
     "source": "yahoo",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 12769,
+     "amount": 12768,
      "currency": "JPY"
     }
    },
@@ -210210,7 +210210,7 @@
     "source": "yahoo",
     "asOf": "2026-08-16",
     "native": {
-     "amount": 12208,
+     "amount": 12207,
      "currency": "JPY"
     }
    },
@@ -211059,7 +211059,7 @@
     "source": "yahoo",
     "asOf": "2026-08-17",
     "native": {
-     "amount": 12091,
+     "amount": 12090,
      "currency": "JPY"
     }
    },
@@ -211158,7 +211158,7 @@
     "source": "yahoo",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 11969,
+     "amount": 11968,
      "currency": "JPY"
     }
    },
@@ -213615,7 +213615,7 @@
     "source": "yahoo",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 11778,
+     "amount": 11777,
      "currency": "JPY"
     }
    },
@@ -216072,7 +216072,7 @@
     "source": "yahoo",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 11490,
+     "amount": 11489,
      "currency": "JPY"
     }
    },
@@ -218529,7 +218529,7 @@
     "source": "yahoo",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 11490,
+     "amount": 11489,
      "currency": "JPY"
     }
    },
@@ -225900,7 +225900,7 @@
     "source": "yahoo",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 11091,
+     "amount": 11090,
      "currency": "JPY"
     }
    },
@@ -228357,7 +228357,7 @@
     "source": "yahoo",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 11028,
+     "amount": 11027,
      "currency": "JPY"
     }
    },
@@ -229464,7 +229464,7 @@
     "source": "yahoo",
     "asOf": "2026-08-17",
     "native": {
-     "amount": 11011,
+     "amount": 11010,
      "currency": "JPY"
     }
    },
@@ -230289,7 +230289,7 @@
     "source": "yahoo",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 11011,
+     "amount": 11010,
      "currency": "JPY"
     }
    },
@@ -232746,7 +232746,7 @@
     "source": "yahoo",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 10963,
+     "amount": 10962,
      "currency": "JPY"
     }
    },
@@ -234495,7 +234495,7 @@
     "source": "yahoo",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 10826,
+     "amount": 10825,
      "currency": "JPY"
     }
    },
@@ -236952,7 +236952,7 @@
     "source": "yahoo",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 10695,
+     "amount": 10694,
      "currency": "JPY"
     }
    },
@@ -237531,7 +237531,7 @@
     "source": "yahoo",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 10641,
+     "amount": 10640,
      "currency": "JPY"
     }
    },
@@ -239574,7 +239574,7 @@
     "source": "yahoo",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 10533,
+     "amount": 10532,
      "currency": "JPY"
     }
    },
@@ -244488,7 +244488,7 @@
     "source": "yahoo",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 9915,
+     "amount": 9914,
      "currency": "JPY"
     }
    },
@@ -248004,7 +248004,7 @@
     "source": "yahoo",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 9672,
+     "amount": 9671,
      "currency": "JPY"
     }
    },
@@ -250461,7 +250461,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 9496,
+     "amount": 9495,
      "currency": "JPY"
     }
    },
@@ -251052,7 +251052,7 @@
     "source": "yahoo",
     "asOf": "2026-08-17",
     "native": {
-     "amount": 9191,
+     "amount": 9190,
      "currency": "JPY"
     }
    },
@@ -253443,7 +253443,7 @@
     "source": "yahoo",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 9097,
+     "amount": 9096,
      "currency": "JPY"
     }
    },
@@ -255858,7 +255858,7 @@
     "source": "yahoo",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 8513,
+     "amount": 8512,
      "currency": "JPY"
     }
    },
@@ -256521,7 +256521,7 @@
     "source": "yahoo",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 8222,
+     "amount": 8221,
      "currency": "JPY"
     }
    },
@@ -260379,7 +260379,7 @@
     "source": "yahoo",
     "asOf": "2026-08-16",
     "native": {
-     "amount": 6490,
+     "amount": 6489,
      "currency": "JPY"
     }
    },
