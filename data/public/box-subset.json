@@ -1,5 +1,5 @@
 {
- "asOf": "2026-09-20T03:45:09.227945Z",
+ "asOf": "2026-09-22T03:46:41.162621Z",
  "coverage": {
   "total": 307,
   "priced": 274,
@@ -1215,7 +1215,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 11667607,
+     "amount": 11716014,
      "currency": "JPY"
     }
    },
@@ -2206,7 +2206,7 @@
     "source": "snkrdunk",
     "asOf": "2026-03-19",
     "native": {
-     "amount": 7863060,
+     "amount": 7895683,
      "currency": "JPY"
     }
    },
@@ -2263,7 +2263,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 7050150,
+     "amount": 7079400,
      "currency": "JPY"
     }
    },
@@ -3067,7 +3067,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-15",
     "native": {
-     "amount": 5248445,
+     "amount": 5270220,
      "currency": "JPY"
     }
    },
@@ -3980,7 +3980,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 3800488,
+     "amount": 3816256,
      "currency": "JPY"
     }
    },
@@ -4115,7 +4115,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-17",
     "native": {
-     "amount": 3744314,
+     "amount": 3759849,
      "currency": "JPY"
     }
    },
@@ -5861,7 +5861,7 @@
     "source": "snkrdunk",
     "asOf": "2025-12-02",
     "native": {
-     "amount": 3448711,
+     "amount": 3463019,
      "currency": "JPY"
     }
    },
@@ -6391,7 +6391,7 @@
     "source": "snkrdunk",
     "asOf": "2026-03-12",
     "native": {
-     "amount": 3251642,
+     "amount": 3265133,
      "currency": "JPY"
     }
    },
@@ -8549,7 +8549,7 @@
     "source": "yahoo",
     "asOf": "2026-08-09",
     "native": {
-     "amount": 2629665,
+     "amount": 2640575,
      "currency": "JPY"
     }
    },
@@ -11671,7 +11671,7 @@
     "source": "snkrdunk",
     "asOf": "2026-06-23",
     "native": {
-     "amount": 2167761,
+     "amount": 2176755,
      "currency": "JPY"
     }
    },
@@ -11728,7 +11728,7 @@
     "source": "yahoo",
     "asOf": "2026-02-24",
     "native": {
-     "amount": 2163315,
+     "amount": 2172290,
      "currency": "JPY"
     }
    },
@@ -15293,7 +15293,7 @@
     "source": "yahoo",
     "asOf": "2026-03-08",
     "native": {
-     "amount": 1656270,
+     "amount": 1663141,
      "currency": "JPY"
     }
    },
@@ -15350,7 +15350,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 1654529,
+     "amount": 1661394,
      "currency": "JPY"
     }
    },
@@ -15796,7 +15796,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 1587728,
+     "amount": 1594315,
      "currency": "JPY"
     }
    },
@@ -19519,12 +19519,12 @@
    "printWave": "std",
    "status": "active",
    "price": {
-    "usd": 7547.17,
-    "kind": "market",
-    "source": "snkrdunk",
+    "usd": 7475.76,
+    "kind": "sold",
+    "source": "yahoo",
     "asOf": "2026-08-09",
     "native": {
-     "amount": 1182415,
+     "amount": 1176087,
      "currency": "JPY"
     }
    },
@@ -20497,7 +20497,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 1035900,
+     "amount": 1040198,
      "currency": "JPY"
     }
    },
@@ -21698,7 +21698,7 @@
     "source": "yahoo",
     "asOf": "2026-07-26",
     "native": {
-     "amount": 957794,
+     "amount": 961768,
      "currency": "JPY"
     }
    },
@@ -21785,7 +21785,7 @@
     "source": "snkrdunk",
     "asOf": "2026-02-11",
     "native": {
-     "amount": 936078,
+     "amount": 939962,
      "currency": "JPY"
     }
    },
@@ -22129,7 +22129,7 @@
     "source": "snkrdunk",
     "asOf": "2026-05-10",
     "native": {
-     "amount": 844442,
+     "amount": 847945,
      "currency": "JPY"
     }
    },
@@ -22263,311 +22263,8 @@
    }
   },
   {
-   "id": "ptcg-jp-xy6-booster-box-std",
-   "rank": 65,
-   "game": "ptcg",
-   "lang": "jp",
-   "group": "ptcg-jp",
-   "setCode": "XY6",
-   "names": {
-    "en": "Emerald Break",
-    "jp": "エメラルドブレイク"
-   },
-   "fullNames": {
-    "en": "Pokémon Card Game XY Expansion Pack Emerald Break Resale Box",
-    "ja": "ポケモンカードゲーム XY 拡張パック エメラルドブレイク 再販 ボックス"
-   },
-   "release": "2015-03",
-   "packsPerBox": 30,
-   "productKind": "booster-box",
-   "printWave": "std",
-   "status": "active",
-   "price": {
-    "usd": 5276.73,
-    "kind": "market",
-    "source": "snkrdunk",
-    "asOf": "2026-08-14",
-    "native": {
-     "amount": 826705,
-     "currency": "JPY"
-    }
-   },
-   "windows": {
-    "1d": {
-     "soldCount": 0,
-     "changeUsd": -4146.72,
-     "changePct": -78.59
-    },
-    "7d": {
-     "soldCount": 0,
-     "changeUsd": -4146.72,
-     "changePct": -78.59
-    },
-    "30d": {
-     "soldCount": 0,
-     "changeUsd": 0.0,
-     "changePct": 0.0
-    }
-   },
-   "historyDaily": [
-    {
-     "date": "2023-11-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-12-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-01-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-02-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-03-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-04-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-05-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-06-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-07-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-08-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-09-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-10-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-11-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-12-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-01-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-02-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-03-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-04-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-05-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-06-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-07-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-08-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-09-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-10-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-11-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-12-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-01-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-02-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-03-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-03-12",
-     "priceUsd": 22.25,
-     "soldCount": 1,
-     "soldValueUsd": 22.25
-    },
-    {
-     "date": "2026-03-14",
-     "priceUsd": 19.14,
-     "soldCount": 1,
-     "soldValueUsd": 19.14
-    },
-    {
-     "date": "2026-03-24",
-     "priceUsd": 12.43,
-     "soldCount": 1,
-     "soldValueUsd": 12.43
-    },
-    {
-     "date": "2026-04-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-05-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-05-11",
-     "priceUsd": 5031.45,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-06-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-06-19",
-     "priceUsd": 5031.45,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-07-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-08-01",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-08-07",
-     "priceUsd": 5276.73,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-08-14",
-     "priceUsd": 1130.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    }
-   ],
-   "image": {
-    "src": "/market-assets/33d7a32b075bdc3b63db3903b471fa95f27f9178684bf52109fff5964fa0ba5e.webp",
-    "sha256": "33d7a32b075bdc3b63db3903b471fa95f27f9178684bf52109fff5964fa0ba5e",
-    "kind": "box_front",
-    "width": 1000,
-    "height": 730
-   }
-  },
-  {
    "id": "ptcg-en-cl-booster-box-std",
-   "rank": 66,
+   "rank": 65,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -22866,7 +22563,7 @@
   },
   {
    "id": "ptcg-en-tm-booster-box-std",
-   "rank": 67,
+   "rank": 66,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -23291,7 +22988,7 @@
   },
   {
    "id": "ptcg-en-epo-booster-box-std",
-   "rank": 68,
+   "rank": 67,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -23848,7 +23545,7 @@
   },
   {
    "id": "ptcg-en-ge-booster-box-std",
-   "rank": 69,
+   "rank": 68,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -24195,7 +23892,7 @@
   },
   {
    "id": "ptcg-en-nvi-booster-box-std",
-   "rank": 70,
+   "rank": 69,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -24650,7 +24347,7 @@
   },
   {
    "id": "optcg-en-op-01-booster-box-wave2",
-   "rank": 71,
+   "rank": 70,
    "game": "optcg",
    "lang": "en",
    "group": "optcg-en",
@@ -25007,7 +24704,7 @@
   },
   {
    "id": "ptcg-jp-sm3plus-booster-box-std",
-   "rank": 72,
+   "rank": 71,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -25031,7 +24728,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 726557,
+     "amount": 729572,
      "currency": "JPY"
     }
    },
@@ -25202,7 +24899,7 @@
   },
   {
    "id": "ptcg-jp-sm1m-booster-box-std",
-   "rank": 73,
+   "rank": 72,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -25226,7 +24923,7 @@
     "source": "yahoo",
     "asOf": "2026-08-05",
     "native": {
-     "amount": 700984,
+     "amount": 703892,
      "currency": "JPY"
     }
    },
@@ -25267,7 +24964,7 @@
   },
   {
    "id": "ptcg-jp-bw5b-booster-box-std",
-   "rank": 74,
+   "rank": 73,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -25291,7 +24988,7 @@
     "source": "snkrdunk",
     "asOf": "2026-04-21",
     "native": {
-     "amount": 689644,
+     "amount": 692505,
      "currency": "JPY"
     }
    },
@@ -25336,7 +25033,7 @@
   },
   {
    "id": "ptcg-en-ros-booster-box-std",
-   "rank": 75,
+   "rank": 74,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -25887,7 +25584,7 @@
   },
   {
    "id": "ptcg-en-cec-booster-box-std",
-   "rank": 76,
+   "rank": 75,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -26426,7 +26123,7 @@
   },
   {
    "id": "ptcg-en-ffi-booster-box-std",
-   "rank": 77,
+   "rank": 76,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -26947,7 +26644,7 @@
   },
   {
    "id": "ptcg-jp-xy9-booster-box-std",
-   "rank": 78,
+   "rank": 77,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -26971,7 +26668,7 @@
     "source": "yahoo",
     "asOf": "2026-08-09",
     "native": {
-     "amount": 653278,
+     "amount": 655988,
      "currency": "JPY"
     }
    },
@@ -27244,7 +26941,7 @@
   },
   {
    "id": "ptcg-jp-xy8b-booster-box-std",
-   "rank": 79,
+   "rank": 78,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -27268,7 +26965,7 @@
     "source": "snkrdunk",
     "asOf": "2026-04-19",
     "native": {
-     "amount": 650328,
+     "amount": 653026,
      "currency": "JPY"
     }
    },
@@ -27319,7 +27016,7 @@
   },
   {
    "id": "ptcg-en-ar-booster-box-std",
-   "rank": 80,
+   "rank": 79,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -27648,7 +27345,7 @@
   },
   {
    "id": "ptcg-jp-sm3h-booster-box-std",
-   "rank": 81,
+   "rank": 80,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -27672,7 +27369,7 @@
     "source": "yahoo",
     "asOf": "2026-08-09",
     "native": {
-     "amount": 625143,
+     "amount": 627737,
      "currency": "JPY"
     }
    },
@@ -27969,7 +27666,7 @@
   },
   {
    "id": "ptcg-jp-s10b-booster-box-std",
-   "rank": 82,
+   "rank": 81,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -27993,7 +27690,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 613361,
+     "amount": 615906,
      "currency": "JPY"
     }
    },
@@ -30426,7 +30123,7 @@
   },
   {
    "id": "ptcg-en-ul-booster-box-std",
-   "rank": 83,
+   "rank": 82,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -30707,7 +30404,7 @@
   },
   {
    "id": "ptcg-jp-bw8a-booster-box-std",
-   "rank": 84,
+   "rank": 83,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -30731,7 +30428,7 @@
     "source": "snkrdunk",
     "asOf": "2026-05-16",
     "native": {
-     "amount": 591110,
+     "amount": 593562,
      "currency": "JPY"
     }
    },
@@ -30764,7 +30461,7 @@
   },
   {
    "id": "ptcg-jp-sm7-booster-box-std",
-   "rank": 85,
+   "rank": 84,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -30788,7 +30485,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-09",
     "native": {
-     "amount": 551793,
+     "amount": 554083,
      "currency": "JPY"
     }
    },
@@ -31731,7 +31428,7 @@
   },
   {
    "id": "ptcg-jp-xy8a-booster-box-std",
-   "rank": 86,
+   "rank": 85,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -31755,7 +31452,7 @@
     "source": "snkrdunk",
     "asOf": "2026-07-07",
     "native": {
-     "amount": 539969,
+     "amount": 542210,
      "currency": "JPY"
     }
    },
@@ -31824,7 +31521,7 @@
   },
   {
    "id": "ptcg-en-prc-booster-box-std",
-   "rank": 87,
+   "rank": 86,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -32357,7 +32054,7 @@
   },
   {
    "id": "ptcg-en-bkt-booster-box-std",
-   "rank": 88,
+   "rank": 87,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -32824,7 +32521,7 @@
   },
   {
    "id": "ptcg-jp-sm1plus-booster-box-std",
-   "rank": 89,
+   "rank": 88,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -32848,7 +32545,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 470995,
+     "amount": 472950,
      "currency": "JPY"
     }
    },
@@ -35281,7 +34978,7 @@
   },
   {
    "id": "ptcg-en-unm-booster-box-std",
-   "rank": 90,
+   "rank": 89,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -35850,7 +35547,7 @@
   },
   {
    "id": "ptcg-jp-bw5a-booster-box-std",
-   "rank": 91,
+   "rank": 90,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -35874,7 +35571,7 @@
     "source": "yahoo",
     "asOf": "2026-03-27",
     "native": {
-     "amount": 441231,
+     "amount": 443062,
      "currency": "JPY"
     }
    },
@@ -35919,7 +35616,7 @@
   },
   {
    "id": "ptcg-en-fco-booster-box-std",
-   "rank": 92,
+   "rank": 91,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -36440,7 +36137,7 @@
   },
   {
    "id": "ptcg-jp-bw4-booster-box-std",
-   "rank": 93,
+   "rank": 92,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -36464,7 +36161,7 @@
     "source": "snkrdunk",
     "asOf": "2026-06-05",
     "native": {
-     "amount": 394138,
+     "amount": 395773,
      "currency": "JPY"
     }
    },
@@ -36497,7 +36194,7 @@
   },
   {
    "id": "ptcg-en-bkp-booster-box-std",
-   "rank": 94,
+   "rank": 93,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -36994,7 +36691,7 @@
   },
   {
    "id": "ptcg-en-unb-booster-box-std",
-   "rank": 95,
+   "rank": 94,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -37551,7 +37248,7 @@
   },
   {
    "id": "ptcg-en-ces-booster-box-std",
-   "rank": 96,
+   "rank": 95,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -38132,7 +37829,7 @@
   },
   {
    "id": "ptcg-en-evo-booster-box-std",
-   "rank": 97,
+   "rank": 96,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -38675,7 +38372,7 @@
   },
   {
    "id": "ptcg-en-swsh07-booster-box-std",
-   "rank": 98,
+   "rank": 97,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -39128,7 +38825,7 @@
   },
   {
    "id": "ptcg-jp-xy7-booster-box-std",
-   "rank": 99,
+   "rank": 98,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -39152,7 +38849,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 367650,
+     "amount": 369175,
      "currency": "JPY"
     }
    },
@@ -39425,7 +39122,7 @@
   },
   {
    "id": "ptcg-jp-sm9-booster-box-std",
-   "rank": 100,
+   "rank": 99,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -39449,7 +39146,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-17",
     "native": {
-     "amount": 355564,
+     "amount": 357039,
      "currency": "JPY"
     }
    },
@@ -39722,7 +39419,7 @@
   },
   {
    "id": "ptcg-jp-xy3-booster-box-std",
-   "rank": 101,
+   "rank": 100,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -39746,7 +39443,7 @@
     "source": "yahoo",
     "asOf": "2026-07-12",
     "native": {
-     "amount": 332189,
+     "amount": 333567,
      "currency": "JPY"
     }
    },
@@ -39779,7 +39476,7 @@
   },
   {
    "id": "ptcg-jp-xy11b-booster-box-std",
-   "rank": 102,
+   "rank": 101,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -39803,7 +39500,7 @@
     "source": "yahoo",
     "asOf": "2026-08-09",
     "native": {
-     "amount": 302787,
+     "amount": 304043,
      "currency": "JPY"
     }
    },
@@ -39914,7 +39611,7 @@
   },
   {
    "id": "ptcg-jp-s7r-booster-box-std",
-   "rank": 103,
+   "rank": 102,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -39938,7 +39635,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-17",
     "native": {
-     "amount": 285244,
+     "amount": 286428,
      "currency": "JPY"
     }
    },
@@ -42375,7 +42072,7 @@
   },
   {
    "id": "ptcg-jp-xy1y-booster-box-std",
-   "rank": 104,
+   "rank": 103,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -42399,7 +42096,7 @@
     "source": "yahoo",
     "asOf": "2026-08-01",
     "native": {
-     "amount": 279852,
+     "amount": 281013,
      "currency": "JPY"
     }
    },
@@ -42474,7 +42171,7 @@
   },
   {
    "id": "ptcg-jp-jp2-booster-box-std",
-   "rank": 105,
+   "rank": 104,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -42498,7 +42195,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 255862,
+     "amount": 256924,
      "currency": "JPY"
     }
    },
@@ -44931,7 +44628,7 @@
   },
   {
    "id": "ptcg-jp-sm3n-booster-box-std",
-   "rank": 106,
+   "rank": 105,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -44955,7 +44652,7 @@
     "source": "snkrdunk",
     "asOf": "2026-07-16",
     "native": {
-     "amount": 246337,
+     "amount": 247359,
      "currency": "JPY"
     }
    },
@@ -45036,7 +44733,7 @@
   },
   {
    "id": "ptcg-en-lot-booster-box-std",
-   "rank": 107,
+   "rank": 106,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -45611,7 +45308,7 @@
   },
   {
    "id": "ptcg-en-upr-booster-box-std",
-   "rank": 108,
+   "rank": 107,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -46162,7 +45859,7 @@
   },
   {
    "id": "optcg-en-op-01-booster-box-wave1",
-   "rank": 109,
+   "rank": 108,
    "game": "optcg",
    "lang": "en",
    "group": "optcg-en",
@@ -48619,7 +48316,7 @@
   },
   {
    "id": "ptcg-en-fli-booster-box-std",
-   "rank": 110,
+   "rank": 109,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -49200,7 +48897,7 @@
   },
   {
    "id": "ptcg-jp-xy10-booster-box-std",
-   "rank": 111,
+   "rank": 110,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -49224,7 +48921,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 219852,
+     "amount": 220764,
      "currency": "JPY"
     }
    },
@@ -49473,7 +49170,7 @@
   },
   {
    "id": "ptcg-jp-sm2l-booster-box-std",
-   "rank": 112,
+   "rank": 111,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -49497,7 +49194,7 @@
     "source": "snkrdunk",
     "asOf": "2026-06-26",
     "native": {
-     "amount": 216776,
+     "amount": 217676,
      "currency": "JPY"
     }
    },
@@ -49590,7 +49287,7 @@
   },
   {
    "id": "ptcg-jp-xy11a-booster-box-std",
-   "rank": 113,
+   "rank": 112,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -49614,7 +49311,7 @@
     "source": "yahoo",
     "asOf": "2026-08-09",
     "native": {
-     "amount": 214190,
+     "amount": 215078,
      "currency": "JPY"
     }
    },
@@ -49707,7 +49404,7 @@
   },
   {
    "id": "ptcg-jp-sv8a-high-class-box-std",
-   "rank": 114,
+   "rank": 113,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -49731,7 +49428,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 211848,
+     "amount": 212727,
      "currency": "JPY"
     }
    },
@@ -52164,7 +51861,7 @@
   },
   {
    "id": "ptcg-jp-xy5a-booster-box-std",
-   "rank": 115,
+   "rank": 114,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -52188,7 +51885,7 @@
     "source": "snkrdunk",
     "asOf": "2025-10-26",
     "native": {
-     "amount": 204953,
+     "amount": 205803,
      "currency": "JPY"
     }
    },
@@ -52251,7 +51948,7 @@
   },
   {
    "id": "ptcg-en-gri-booster-box-std",
-   "rank": 116,
+   "rank": 115,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -52844,7 +52541,7 @@
   },
   {
    "id": "ptcg-jp-sm11-booster-box-std",
-   "rank": 117,
+   "rank": 116,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -52868,7 +52565,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 196083,
+     "amount": 196897,
      "currency": "JPY"
     }
    },
@@ -54785,7 +54482,7 @@
   },
   {
    "id": "ptcg-en-bus-booster-box-std",
-   "rank": 118,
+   "rank": 117,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -55336,7 +55033,7 @@
   },
   {
    "id": "ptcg-en-sts-booster-box-std",
-   "rank": 119,
+   "rank": 118,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -55923,7 +55620,7 @@
   },
   {
    "id": "ptcg-jp-sm8b-high-class-box-std",
-   "rank": 120,
+   "rank": 119,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -55947,7 +55644,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-15",
     "native": {
-     "amount": 180318,
+     "amount": 181066,
      "currency": "JPY"
     }
    },
@@ -57551,6 +57248,309 @@
    }
   },
   {
+   "id": "ptcg-jp-xy6-booster-box-std",
+   "rank": 120,
+   "game": "ptcg",
+   "lang": "jp",
+   "group": "ptcg-jp",
+   "setCode": "XY6",
+   "names": {
+    "en": "Emerald Break",
+    "jp": "エメラルドブレイク"
+   },
+   "fullNames": {
+    "en": "Pokémon Card Game XY Expansion Pack Emerald Break Resale Box",
+    "ja": "ポケモンカードゲーム XY 拡張パック エメラルドブレイク 再販 ボックス"
+   },
+   "release": "2015-03",
+   "packsPerBox": 30,
+   "productKind": "booster-box",
+   "printWave": "std",
+   "status": "active",
+   "price": {
+    "usd": 1130.01,
+    "kind": "market",
+    "source": "pricecharting",
+    "asOf": "2026-08-14",
+    "native": {
+     "amount": 177773,
+     "currency": "JPY"
+    }
+   },
+   "windows": {
+    "1d": {
+     "soldCount": 0,
+     "changeUsd": -4146.72,
+     "changePct": -78.59
+    },
+    "7d": {
+     "soldCount": 0,
+     "changeUsd": -4146.72,
+     "changePct": -78.59
+    },
+    "30d": {
+     "soldCount": 0,
+     "changeUsd": 0.0,
+     "changePct": 0.0
+    }
+   },
+   "historyDaily": [
+    {
+     "date": "2023-11-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-12-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-01-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-02-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-03-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-04-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-05-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-06-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-07-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-08-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-09-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-10-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-11-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-12-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-01-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-02-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-03-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-04-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-05-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-06-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-07-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-08-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-09-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-10-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-11-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-12-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-01-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-02-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-03-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-03-12",
+     "priceUsd": 22.25,
+     "soldCount": 1,
+     "soldValueUsd": 22.25
+    },
+    {
+     "date": "2026-03-14",
+     "priceUsd": 19.14,
+     "soldCount": 1,
+     "soldValueUsd": 19.14
+    },
+    {
+     "date": "2026-03-24",
+     "priceUsd": 12.43,
+     "soldCount": 1,
+     "soldValueUsd": 12.43
+    },
+    {
+     "date": "2026-04-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-05-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-05-11",
+     "priceUsd": 5031.45,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-06-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-06-19",
+     "priceUsd": 5031.45,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-07-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-08-01",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-08-07",
+     "priceUsd": 5276.73,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-08-14",
+     "priceUsd": 1130.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    }
+   ],
+   "image": {
+    "src": "/market-assets/33d7a32b075bdc3b63db3903b471fa95f27f9178684bf52109fff5964fa0ba5e.webp",
+    "sha256": "33d7a32b075bdc3b63db3903b471fa95f27f9178684bf52109fff5964fa0ba5e",
+    "kind": "box_front",
+    "width": 1000,
+    "height": 730
+   }
+  },
+  {
    "id": "optcg-en-op-05-booster-box-std",
    "rank": 121,
    "game": "optcg",
@@ -58498,7 +58498,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 167508,
+     "amount": 168203,
      "currency": "JPY"
     }
    },
@@ -60955,7 +60955,7 @@
     "source": "snkrdunk",
     "asOf": "2024-09-28",
     "native": {
-     "amount": 165538,
+     "amount": 166224,
      "currency": "JPY"
     }
    },
@@ -61030,7 +61030,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 161104,
+     "amount": 161772,
      "currency": "JPY"
     }
    },
@@ -62005,7 +62005,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-16",
     "native": {
-     "amount": 157458,
+     "amount": 158111,
      "currency": "JPY"
     }
    },
@@ -62548,7 +62548,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-18",
     "native": {
-     "amount": 151965,
+     "amount": 152596,
      "currency": "JPY"
     }
    },
@@ -65883,7 +65883,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 141398,
+     "amount": 141984,
      "currency": "JPY"
     }
    },
@@ -69209,7 +69209,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 122134,
+     "amount": 122640,
      "currency": "JPY"
     }
    },
@@ -71624,7 +71624,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-18",
     "native": {
-     "amount": 116271,
+     "amount": 116753,
      "currency": "JPY"
     }
    },
@@ -72767,7 +72767,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-12",
     "native": {
-     "amount": 115040,
+     "amount": 115517,
      "currency": "JPY"
     }
    },
@@ -74048,7 +74048,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 114300,
+     "amount": 114774,
      "currency": "JPY"
     }
    },
@@ -76966,7 +76966,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-16",
     "native": {
-     "amount": 110744,
+     "amount": 111203,
      "currency": "JPY"
     }
    },
@@ -78084,7 +78084,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-13",
     "native": {
-     "amount": 99520,
+     "amount": 99933,
      "currency": "JPY"
     }
    },
@@ -79195,8 +79195,1469 @@
    }
   },
   {
-   "id": "optcg-en-op-11-booster-box-std",
+   "id": "ptcg-jp-s3a-booster-box-std",
    "rank": 141,
+   "game": "ptcg",
+   "lang": "jp",
+   "group": "ptcg-jp",
+   "setCode": "S3a",
+   "names": {
+    "en": "Legendary Heartbeat",
+    "jp": "伝説の鼓動"
+   },
+   "fullNames": {
+    "en": "Pokemon Card Game Sword&Shield Enhanced Expansion Pack Heartbeat of the Legend Box",
+    "ja": "ポケモンカードゲーム ソード&シールド 強化拡張パック 伝説の鼓動 ボックス"
+   },
+   "release": "2020-07",
+   "packsPerBox": 20,
+   "productKind": "booster-box",
+   "printWave": "std",
+   "status": "active",
+   "price": {
+    "usd": 621.43,
+    "kind": "sold",
+    "source": "yahoo",
+    "asOf": "2026-08-06",
+    "native": {
+     "amount": 97763,
+     "currency": "JPY"
+    }
+   },
+   "windows": {
+    "1d": {
+     "soldCount": 0,
+     "changeUsd": 15.72,
+     "changePct": 5.88
+    },
+    "7d": {
+     "soldCount": 0,
+     "changeUsd": 31.45,
+     "changePct": 12.5
+    },
+    "30d": {
+     "soldCount": 0,
+     "changeUsd": 44.03,
+     "changePct": 18.42
+    }
+   },
+   "historyDaily": [
+    {
+     "date": "2021-11-17",
+     "priceUsd": 40.88,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-07-11",
+     "priceUsd": 50.31,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-08-20",
+     "priceUsd": 75.46,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-09-07",
+     "priceUsd": 58.81,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-09-24",
+     "priceUsd": 61.64,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-09-26",
+     "priceUsd": 71.69,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-09-27",
+     "priceUsd": 71.69,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-09-30",
+     "priceUsd": 520.44,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-10-03",
+     "priceUsd": 71.69,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-10-04",
+     "priceUsd": 176.1,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-10-05",
+     "priceUsd": 56.66,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-10-06",
+     "priceUsd": 345.91,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-10-07",
+     "priceUsd": 69.18,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-10-17",
+     "priceUsd": 224.53,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-10-18",
+     "priceUsd": 428.93,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-10-31",
+     "priceUsd": 232.69,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-11-06",
+     "priceUsd": 223.27,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-11-07",
+     "priceUsd": 232.7,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-11-08",
+     "priceUsd": 232.7,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-11-14",
+     "priceUsd": 81.13,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-11-15",
+     "priceUsd": 95.91,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-11-29",
+     "priceUsd": 81.76,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-12-05",
+     "priceUsd": 88.04,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-12-13",
+     "priceUsd": 264.15,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-12-14",
+     "priceUsd": 344.44,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-12-15",
+     "priceUsd": 94.33,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-12-19",
+     "priceUsd": 100.63,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-01-08",
+     "priceUsd": 191.82,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-01-11",
+     "priceUsd": 97.48,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-01-17",
+     "priceUsd": 1037.74,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-01-26",
+     "priceUsd": 99.37,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-01-29",
+     "priceUsd": 94.34,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-02-14",
+     "priceUsd": 311.82,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-02-17",
+     "priceUsd": 99.37,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-02-25",
+     "priceUsd": 314.47,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-02-26",
+     "priceUsd": 99.37,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-03-01",
+     "priceUsd": 99.37,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-03-02",
+     "priceUsd": 103.77,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-03-09",
+     "priceUsd": 75.48,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-03-16",
+     "priceUsd": 106.92,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-04-18",
+     "priceUsd": 105.66,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-04-23",
+     "priceUsd": 104.4,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-05-04",
+     "priceUsd": 371.07,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-05-11",
+     "priceUsd": 100.63,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-05-19",
+     "priceUsd": 119.5,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-05-22",
+     "priceUsd": 471.7,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-05-25",
+     "priceUsd": 124.47,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-05-27",
+     "priceUsd": 124.4,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-05-28",
+     "priceUsd": 124.34,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-05-29",
+     "priceUsd": 124.53,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-05-30",
+     "priceUsd": 880.5,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-06-01",
+     "priceUsd": 1257.86,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-06-09",
+     "priceUsd": 110.06,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-06-26",
+     "priceUsd": 943.4,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-06-27",
+     "priceUsd": 110.06,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-06-28",
+     "priceUsd": 124.53,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-07-19",
+     "priceUsd": 125.72,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-07-26",
+     "priceUsd": 94.34,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-08-08",
+     "priceUsd": 119.5,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-08-09",
+     "priceUsd": 119.5,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-08-17",
+     "priceUsd": 120.75,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-08-22",
+     "priceUsd": 122.64,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-09-16",
+     "priceUsd": 377.36,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-09-23",
+     "priceUsd": 377.35,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-10-03",
+     "priceUsd": 113.21,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-10-04",
+     "priceUsd": 377.36,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-10-14",
+     "priceUsd": 122.64,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-10-16",
+     "priceUsd": 125.47,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-10-31",
+     "priceUsd": 125.16,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-11-16",
+     "priceUsd": 101.26,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-11-19",
+     "priceUsd": 113.21,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-11-22",
+     "priceUsd": 103.77,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-11-30",
+     "priceUsd": 118.87,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-12-01",
+     "priceUsd": 120.75,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-12-11",
+     "priceUsd": 427.67,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-12-25",
+     "priceUsd": 128.93,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-12-29",
+     "priceUsd": 128.93,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-01-06",
+     "priceUsd": 133.65,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-01-11",
+     "priceUsd": 132.08,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-01-17",
+     "priceUsd": 132.08,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-01-26",
+     "priceUsd": 128.93,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-02-12",
+     "priceUsd": 119.5,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-02-16",
+     "priceUsd": 110.06,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-02-17",
+     "priceUsd": 238.99,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-02-28",
+     "priceUsd": 240.04,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-02-29",
+     "priceUsd": 115.09,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-03-11",
+     "priceUsd": 119.5,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-03-18",
+     "priceUsd": 130.82,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-03-22",
+     "priceUsd": 408.81,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-03-31",
+     "priceUsd": 124.53,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-04-15",
+     "priceUsd": 128.29,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-04-16",
+     "priceUsd": 128.29,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-04-24",
+     "priceUsd": 122.64,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-04-25",
+     "priceUsd": 122.64,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-04-28",
+     "priceUsd": 124.53,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-05-09",
+     "priceUsd": 113.84,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-05-10",
+     "priceUsd": 113.21,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-05-24",
+     "priceUsd": 118.87,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-06-07",
+     "priceUsd": 94.34,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-06-22",
+     "priceUsd": 112.89,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-07-01",
+     "priceUsd": 113.21,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-07-03",
+     "priceUsd": 113.21,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-07-07",
+     "priceUsd": 105.03,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-07-25",
+     "priceUsd": 117.6,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-08-23",
+     "priceUsd": 125.78,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-08-27",
+     "priceUsd": 125.78,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-09-09",
+     "priceUsd": 119.45,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-10-21",
+     "priceUsd": 110.06,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-10-27",
+     "priceUsd": 113.2,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-11-09",
+     "priceUsd": 94.34,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-11-11",
+     "priceUsd": 110.06,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-11-16",
+     "priceUsd": 113.21,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-11-20",
+     "priceUsd": 113.21,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-11-22",
+     "priceUsd": 113.21,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-12-20",
+     "priceUsd": 103.14,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-01-22",
+     "priceUsd": 119.5,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-01-26",
+     "priceUsd": 192.45,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-01-27",
+     "priceUsd": 125.79,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-01-28",
+     "priceUsd": 250.31,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-02-14",
+     "priceUsd": 125.79,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-02-24",
+     "priceUsd": 191.82,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-02-28",
+     "priceUsd": 119.5,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-03-16",
+     "priceUsd": 125.79,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-03-26",
+     "priceUsd": 125.79,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-03-30",
+     "priceUsd": 132.08,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-04-03",
+     "priceUsd": 123.27,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-04-08",
+     "priceUsd": 135.2,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-04-09",
+     "priceUsd": 144.65,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-04-25",
+     "priceUsd": 125.79,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-05-01",
+     "priceUsd": 154.09,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-05-11",
+     "priceUsd": 157.13,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-05-23",
+     "priceUsd": 156.6,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-05-26",
+     "priceUsd": 154.09,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-06-09",
+     "priceUsd": 155.97,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-06-13",
+     "priceUsd": 156.6,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-06-25",
+     "priceUsd": 144.53,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-06-27",
+     "priceUsd": 150.06,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-06-30",
+     "priceUsd": 144.65,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-07-01",
+     "priceUsd": 138.36,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-07-02",
+     "priceUsd": 134.91,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-07-03",
+     "priceUsd": 157.23,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-07-09",
+     "priceUsd": 157.23,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-08-10",
+     "priceUsd": 154.09,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-08-11",
+     "priceUsd": 157.23,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-08-20",
+     "priceUsd": 218.87,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-08-26",
+     "priceUsd": 155.97,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-08-31",
+     "priceUsd": 150.94,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-09-03",
+     "priceUsd": 450.62,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-09-04",
+     "priceUsd": 185.53,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-09-06",
+     "priceUsd": 188.68,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-09-07",
+     "priceUsd": 220.13,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-09-17",
+     "priceUsd": 188.36,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-10-01",
+     "priceUsd": 157.23,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-10-02",
+     "priceUsd": 188.68,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-10-08",
+     "priceUsd": 191.82,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-10-13",
+     "priceUsd": 182.39,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-10-19",
+     "priceUsd": 188.55,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-10-20",
+     "priceUsd": 188.58,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-10-21",
+     "priceUsd": 188.59,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-10-28",
+     "priceUsd": 182.39,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-11-01",
+     "priceUsd": 182.39,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-11-02",
+     "priceUsd": 364.78,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-11-03",
+     "priceUsd": 184.28,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-11-15",
+     "priceUsd": 182.39,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-11-18",
+     "priceUsd": 303.94,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-11-25",
+     "priceUsd": 179.25,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-12-03",
+     "priceUsd": 176.1,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-12-06",
+     "priceUsd": 183.52,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-12-09",
+     "priceUsd": 188.67,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-12-13",
+     "priceUsd": 187.74,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-12-21",
+     "priceUsd": 182.39,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-12-23",
+     "priceUsd": 186.15,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-12-25",
+     "priceUsd": 355.35,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-01-06",
+     "priceUsd": 180.82,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-01-07",
+     "priceUsd": 178.61,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-01-08",
+     "priceUsd": 182.38,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-01-21",
+     "priceUsd": 182.39,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-01-23",
+     "priceUsd": 179.25,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-01-24",
+     "priceUsd": 182.38,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-01-31",
+     "priceUsd": 182.38,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-02-01",
+     "priceUsd": 188.67,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-02-02",
+     "priceUsd": 201.26,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-02-03",
+     "priceUsd": 360.96,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-02-07",
+     "priceUsd": 200.94,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-02-10",
+     "priceUsd": 391.51,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-02-17",
+     "priceUsd": 220.12,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-02-18",
+     "priceUsd": 201.26,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-02-27",
+     "priceUsd": 214.89,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-03-01",
+     "priceUsd": 218.55,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-03-07",
+     "priceUsd": 213.83,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-03-09",
+     "priceUsd": 222.45,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-03-11",
+     "priceUsd": 220.13,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-03-15",
+     "priceUsd": 412.21,
+     "soldCount": 1,
+     "soldValueUsd": 412.21
+    },
+    {
+     "date": "2026-03-18",
+     "priceUsd": 447.8,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-03-19",
+     "priceUsd": 533.44,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-03-20",
+     "priceUsd": 221.38,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-03-22",
+     "priceUsd": 466.07,
+     "soldCount": 1,
+     "soldValueUsd": 466.07
+    },
+    {
+     "date": "2026-03-23",
+     "priceUsd": 155.36,
+     "soldCount": 1,
+     "soldValueUsd": 155.36
+    },
+    {
+     "date": "2026-03-25",
+     "priceUsd": 236.64,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-03-27",
+     "priceUsd": 226.42,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-03-31",
+     "priceUsd": 242.14,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-04-01",
+     "priceUsd": 245.28,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-04-03",
+     "priceUsd": 283.02,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-04-10",
+     "priceUsd": 455.97,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-04-12",
+     "priceUsd": 408.81,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-04-16",
+     "priceUsd": 284.61,
+     "soldCount": 1,
+     "soldValueUsd": 284.61
+    },
+    {
+     "date": "2026-04-17",
+     "priceUsd": 314.47,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-04-19",
+     "priceUsd": 314.47,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-04-20",
+     "priceUsd": 349.4,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-04-21",
+     "priceUsd": 338.36,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-04-22",
+     "priceUsd": 432.39,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-04-23",
+     "priceUsd": 357.86,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-04-24",
+     "priceUsd": 371.07,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-04-25",
+     "priceUsd": 364.78,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-04-27",
+     "priceUsd": 372.01,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-04-30",
+     "priceUsd": 348.43,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-05-01",
+     "priceUsd": 345.91,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-05-03",
+     "priceUsd": 356.92,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-05-04",
+     "priceUsd": 358.49,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-05-05",
+     "priceUsd": 372.86,
+     "soldCount": 1,
+     "soldValueUsd": 372.86
+    },
+    {
+     "date": "2026-05-06",
+     "priceUsd": 354.21,
+     "soldCount": 1,
+     "soldValueUsd": 354.21
+    },
+    {
+     "date": "2026-05-19",
+     "priceUsd": 339.62,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-05-30",
+     "priceUsd": 621.43,
+     "soldCount": 1,
+     "soldValueUsd": 621.43
+    },
+    {
+     "date": "2026-06-10",
+     "priceUsd": 2515.72,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-06-21",
+     "priceUsd": 283.02,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-06-26",
+     "priceUsd": 238.99,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-07-09",
+     "priceUsd": 283.02,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-07-15",
+     "priceUsd": 286.04,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-07-17",
+     "priceUsd": 273.46,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-07-18",
+     "priceUsd": 273.46,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-07-27",
+     "priceUsd": 251.57,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-07-31",
+     "priceUsd": 238.99,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-08-02",
+     "priceUsd": 267.3,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-08-06",
+     "priceUsd": 283.02,
+     "soldCount": 0,
+     "soldValueUsd": null
+    }
+   ],
+   "image": {
+    "src": "/market-assets/b0bdc51a0fd90e1851092af4f1fa8127383c5c0537ebb56d90609235d56a8686.webp",
+    "sha256": "b0bdc51a0fd90e1851092af4f1fa8127383c5c0537ebb56d90609235d56a8686",
+    "kind": "box_front",
+    "width": 1000,
+    "height": 730
+   }
+  },
+  {
+   "id": "optcg-en-op-11-booster-box-std",
+   "rank": 142,
    "game": "optcg",
    "lang": "en",
    "group": "optcg-en",
@@ -79441,7 +80902,7 @@
   },
   {
    "id": "ptcg-en-swsh01-booster-box-std",
-   "rank": 142,
+   "rank": 143,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -79866,7 +81327,7 @@
   },
   {
    "id": "optcg-en-prb-01-booster-box-std",
-   "rank": 143,
+   "rank": 144,
    "game": "optcg",
    "lang": "en",
    "group": "optcg-en",
@@ -82319,7 +83780,7 @@
   },
   {
    "id": "optcg-en-op-02-booster-box-std",
-   "rank": 144,
+   "rank": 145,
    "game": "optcg",
    "lang": "en",
    "group": "optcg-en",
@@ -82702,7 +84163,7 @@
   },
   {
    "id": "ptcg-en-swsh09-booster-box-std",
-   "rank": 145,
+   "rank": 146,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -83187,7 +84648,7 @@
   },
   {
    "id": "optcg-en-op-03-booster-box-std",
-   "rank": 146,
+   "rank": 147,
    "game": "optcg",
    "lang": "en",
    "group": "optcg-en",
@@ -83570,7 +85031,7 @@
   },
   {
    "id": "ptcg-jp-sm7a-booster-box-std",
-   "rank": 147,
+   "rank": 148,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -83594,7 +85055,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 78827,
+     "amount": 79154,
      "currency": "JPY"
     }
    },
@@ -84281,7 +85742,7 @@
   },
   {
    "id": "ptcg-jp-sm5plus-booster-box-std",
-   "rank": 148,
+   "rank": 149,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -84305,7 +85766,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-16",
     "native": {
-     "amount": 77843,
+     "amount": 78166,
      "currency": "JPY"
     }
    },
@@ -84914,7 +86375,7 @@
   },
   {
    "id": "ptcg-jp-sm6-booster-box-std",
-   "rank": 149,
+   "rank": 150,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -84938,7 +86399,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 77843,
+     "amount": 78166,
      "currency": "JPY"
     }
    },
@@ -85877,7 +87338,7 @@
   },
   {
    "id": "optcg-en-op-04-booster-box-std",
-   "rank": 150,
+   "rank": 151,
    "game": "optcg",
    "lang": "en",
    "group": "optcg-en",
@@ -86266,7 +87727,7 @@
   },
   {
    "id": "ptcg-en-sv02-booster-box-std",
-   "rank": 151,
+   "rank": 152,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -86667,7 +88128,7 @@
   },
   {
    "id": "ptcg-en-swsh12-booster-box-std",
-   "rank": 152,
+   "rank": 153,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -87068,7 +88529,7 @@
   },
   {
    "id": "ptcg-jp-sm7b-booster-box-std",
-   "rank": 153,
+   "rank": 154,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -87092,7 +88553,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-18",
     "native": {
-     "amount": 73704,
+     "amount": 74010,
      "currency": "JPY"
     }
    },
@@ -87929,7 +89390,7 @@
   },
   {
    "id": "ptcg-en-sv10-booster-box-std",
-   "rank": 154,
+   "rank": 155,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -88148,7 +89609,7 @@
   },
   {
    "id": "optcg-en-op-13-booster-box-std",
-   "rank": 155,
+   "rank": 156,
    "game": "optcg",
    "lang": "en",
    "group": "optcg-en",
@@ -88345,7 +89806,7 @@
   },
   {
    "id": "ptcg-jp-sm4a-booster-box-std",
-   "rank": 156,
+   "rank": 157,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -88369,7 +89830,7 @@
     "source": "yahoo",
     "asOf": "2026-07-10",
     "native": {
-     "amount": 73000,
+     "amount": 73303,
      "currency": "JPY"
     }
    },
@@ -88522,7 +89983,7 @@
   },
   {
    "id": "ptcg-en-swsh02-booster-box-std",
-   "rank": 157,
+   "rank": 158,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -89079,7 +90540,7 @@
   },
   {
    "id": "ptcg-jp-sv1v-booster-box-std",
-   "rank": 158,
+   "rank": 159,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -89103,7 +90564,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 68974,
+     "amount": 69260,
      "currency": "JPY"
     }
    },
@@ -91536,7 +92997,7 @@
   },
   {
    "id": "optcg-jp-eb-02-booster-box-std",
-   "rank": 159,
+   "rank": 160,
    "game": "optcg",
    "lang": "jp",
    "group": "optcg-jp",
@@ -91560,7 +93021,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-18",
     "native": {
-     "amount": 68925,
+     "amount": 69211,
      "currency": "JPY"
     }
    },
@@ -93387,7 +94848,7 @@
   },
   {
    "id": "ptcg-en-swsh06-booster-box-std",
-   "rank": 160,
+   "rank": 161,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -93914,7 +95375,7 @@
   },
   {
    "id": "optcg-jp-op-05-booster-box-std",
-   "rank": 161,
+   "rank": 162,
    "game": "optcg",
    "lang": "jp",
    "group": "optcg-jp",
@@ -93938,7 +95399,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-17",
     "native": {
-     "amount": 65407,
+     "amount": 65678,
      "currency": "JPY"
     }
    },
@@ -96375,7 +97836,7 @@
   },
   {
    "id": "ptcg-jp-sm12-booster-box-std",
-   "rank": 162,
+   "rank": 163,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -96399,7 +97860,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-17",
     "native": {
-     "amount": 65032,
+     "amount": 65302,
      "currency": "JPY"
     }
    },
@@ -98832,7 +100293,7 @@
   },
   {
    "id": "ptcg-jp-sm5s-booster-box-std",
-   "rank": 163,
+   "rank": 164,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -98856,7 +100317,7 @@
     "source": "yahoo",
     "asOf": "2026-08-01",
     "native": {
-     "amount": 64257,
+     "amount": 64523,
      "currency": "JPY"
     }
    },
@@ -98925,7 +100386,7 @@
   },
   {
    "id": "ptcg-en-me02-booster-box-std",
-   "rank": 164,
+   "rank": 165,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -99092,7 +100553,7 @@
   },
   {
    "id": "ptcg-jp-sv3a-booster-box-std",
-   "rank": 165,
+   "rank": 166,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -99116,7 +100577,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-18",
     "native": {
-     "amount": 62077,
+     "amount": 62335,
      "currency": "JPY"
     }
    },
@@ -101549,7 +103010,7 @@
   },
   {
    "id": "ptcg-jp-m2a-high-class-box-std",
-   "rank": 166,
+   "rank": 167,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -101573,7 +103034,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 61845,
+     "amount": 62102,
      "currency": "JPY"
     }
    },
@@ -103298,7 +104759,7 @@
   },
   {
    "id": "optcg-en-prb-02-booster-box-std",
-   "rank": 167,
+   "rank": 168,
    "game": "optcg",
    "lang": "en",
    "group": "optcg-en",
@@ -105145,7 +106606,7 @@
   },
   {
    "id": "ptcg-en-swsh10-booster-box-std",
-   "rank": 168,
+   "rank": 169,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -105618,7 +107079,7 @@
   },
   {
    "id": "ptcg-jp-m6-booster-box-std",
-   "rank": 169,
+   "rank": 170,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -105642,7 +107103,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 59417,
+     "amount": 59664,
      "currency": "JPY"
     }
    },
@@ -105901,7 +107362,7 @@
   },
   {
    "id": "ptcg-jp-sm8a-booster-box-std",
-   "rank": 170,
+   "rank": 171,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -105925,7 +107386,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-10",
     "native": {
-     "amount": 59121,
+     "amount": 59366,
      "currency": "JPY"
     }
    },
@@ -106804,7 +108265,7 @@
   },
   {
    "id": "ptcg-jp-s2-booster-box-std",
-   "rank": 171,
+   "rank": 172,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -106828,7 +108289,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-12",
     "native": {
-     "amount": 59119,
+     "amount": 59365,
      "currency": "JPY"
     }
    },
@@ -107539,7 +109000,7 @@
   },
   {
    "id": "ptcg-jp-m2-booster-box-std",
-   "rank": 172,
+   "rank": 173,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -107563,7 +109024,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 58356,
+     "amount": 58599,
      "currency": "JPY"
     }
    },
@@ -109665,777 +111126,6 @@
    }
   },
   {
-   "id": "ptcg-jp-s3-booster-box-std",
-   "rank": 173,
-   "game": "ptcg",
-   "lang": "jp",
-   "group": "ptcg-jp",
-   "setCode": "S3",
-   "names": {
-    "en": "Infinity Zone",
-    "jp": "ムゲンゾーン"
-   },
-   "fullNames": {
-    "en": "Pokemon Card Game Sword&Shield Expansion Pack Mugen Zone Box",
-    "ja": "ポケモンカードゲーム ソード&シールド 拡張パック ムゲンゾーン ボックス"
-   },
-   "release": "2020-06",
-   "packsPerBox": 30,
-   "productKind": "booster-box",
-   "printWave": "std",
-   "status": "active",
-   "price": {
-    "usd": 371.07,
-    "kind": "market",
-    "source": "snkrdunk",
-    "asOf": "2026-08-16",
-    "native": {
-     "amount": 58136,
-     "currency": "JPY"
-    }
-   },
-   "windows": {
-    "1d": {
-     "soldCount": 1,
-     "changeUsd": -15.18,
-     "changePct": -30.54
-    },
-    "7d": {
-     "soldCount": 2,
-     "changeUsd": -336.54,
-     "changePct": -90.69
-    },
-    "30d": {
-     "soldCount": 2,
-     "changeUsd": -349.12,
-     "changePct": -91.0
-    }
-   },
-   "historyDaily": [
-    {
-     "date": "2022-09-07",
-     "priceUsd": 84.91,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-10-01",
-     "priceUsd": 75.47,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-10-07",
-     "priceUsd": 84.91,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-10-14",
-     "priceUsd": 84.91,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-10-26",
-     "priceUsd": 94.34,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-11-02",
-     "priceUsd": 75.46,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-11-04",
-     "priceUsd": 75.46,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-11-14",
-     "priceUsd": 84.91,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-11-15",
-     "priceUsd": 88.05,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-02-14",
-     "priceUsd": 81.75,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-03-03",
-     "priceUsd": 84.91,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-03-06",
-     "priceUsd": 100.63,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-04-23",
-     "priceUsd": 176.1,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-07-25",
-     "priceUsd": 113.21,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-07-29",
-     "priceUsd": 119.5,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-08-14",
-     "priceUsd": 176.1,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-09-04",
-     "priceUsd": 176.1,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-09-26",
-     "priceUsd": 150.94,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-10-15",
-     "priceUsd": 110.06,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-11-12",
-     "priceUsd": 125.79,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-12-06",
-     "priceUsd": 163.52,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-12-21",
-     "priceUsd": 157.23,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-01-07",
-     "priceUsd": 144.03,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-01-11",
-     "priceUsd": 150.82,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-01-16",
-     "priceUsd": 217.45,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-01-26",
-     "priceUsd": 144.65,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-02-10",
-     "priceUsd": 116.35,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-02-15",
-     "priceUsd": 166.03,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-02-24",
-     "priceUsd": 175.79,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-03-03",
-     "priceUsd": 157.23,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-03-31",
-     "priceUsd": 201.26,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-04-25",
-     "priceUsd": 166.04,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-05-07",
-     "priceUsd": 163.52,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-05-08",
-     "priceUsd": 163.52,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-05-15",
-     "priceUsd": 157.23,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-05-16",
-     "priceUsd": 150.94,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-06-07",
-     "priceUsd": 125.79,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-07-06",
-     "priceUsd": 113.21,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-07-09",
-     "priceUsd": 112.58,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-07-17",
-     "priceUsd": 110.06,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-07-26",
-     "priceUsd": 125.79,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-08-16",
-     "priceUsd": 150.94,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-09-28",
-     "priceUsd": 174.84,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-11-12",
-     "priceUsd": 125.79,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-01-01",
-     "priceUsd": 187.42,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-01-13",
-     "priceUsd": 154.09,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-01-21",
-     "priceUsd": 150.94,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-01-25",
-     "priceUsd": 166.67,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-01-27",
-     "priceUsd": 201.26,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-02-14",
-     "priceUsd": 206.92,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-02-24",
-     "priceUsd": 174.7,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-02-26",
-     "priceUsd": 377.36,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-03-01",
-     "priceUsd": 194.97,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-03-14",
-     "priceUsd": 188.68,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-03-20",
-     "priceUsd": 181.45,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-04-03",
-     "priceUsd": 179.25,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-04-06",
-     "priceUsd": 188.68,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-04-28",
-     "priceUsd": 188.67,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-05-05",
-     "priceUsd": 201.25,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-05-11",
-     "priceUsd": 209.64,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-07-08",
-     "priceUsd": 311.32,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-07-15",
-     "priceUsd": 203.29,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-07-24",
-     "priceUsd": 210.06,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-07-27",
-     "priceUsd": 210.63,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-08-07",
-     "priceUsd": 211.53,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-08-11",
-     "priceUsd": 226.41,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-08-24",
-     "priceUsd": 213.77,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-08-31",
-     "priceUsd": 219.5,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-09-02",
-     "priceUsd": 334.91,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-09-20",
-     "priceUsd": 220.11,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-09-21",
-     "priceUsd": 277.67,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-10-02",
-     "priceUsd": 225.15,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-10-04",
-     "priceUsd": 227.75,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-10-12",
-     "priceUsd": 226.4,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-10-16",
-     "priceUsd": 226.42,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-10-31",
-     "priceUsd": 215.72,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-11-01",
-     "priceUsd": 215.72,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-11-11",
-     "priceUsd": 223.27,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-12-13",
-     "priceUsd": 232.7,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-12-18",
-     "priceUsd": 219.37,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-12-25",
-     "priceUsd": 220.13,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-01-02",
-     "priceUsd": 235.69,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-01-05",
-     "priceUsd": 243.14,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-01-06",
-     "priceUsd": 288.95,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-01-16",
-     "priceUsd": 279.24,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-01-27",
-     "priceUsd": 272.96,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-01-31",
-     "priceUsd": 281.64,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-02-01",
-     "priceUsd": 281.76,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-02-05",
-     "priceUsd": 281.76,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-02-13",
-     "priceUsd": 251.57,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-02-25",
-     "priceUsd": 280.33,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-02-26",
-     "priceUsd": 289.3,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-02-27",
-     "priceUsd": 564.14,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-03-06",
-     "priceUsd": 292.25,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-03-10",
-     "priceUsd": 220.13,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-03-21",
-     "priceUsd": 273.58,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-03-22",
-     "priceUsd": 276.73,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-03-23",
-     "priceUsd": 283.02,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-03-25",
-     "priceUsd": 289.31,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-04-06",
-     "priceUsd": 327.04,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-04-08",
-     "priceUsd": 344.51,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-04-12",
-     "priceUsd": 375.79,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-04-17",
-     "priceUsd": 440.25,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-04-21",
-     "priceUsd": 471.7,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-04-22",
-     "priceUsd": 494.75,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-04-24",
-     "priceUsd": 501.89,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-05-01",
-     "priceUsd": 459.12,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-05-06",
-     "priceUsd": 416.98,
-     "soldCount": 1,
-     "soldValueUsd": 416.98
-    },
-    {
-     "date": "2026-05-18",
-     "priceUsd": 471.06,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-05-19",
-     "priceUsd": 452.2,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-05-24",
-     "priceUsd": 440.25,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-05-26",
-     "priceUsd": 455.97,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-06-05",
-     "priceUsd": 364.78,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-06-26",
-     "priceUsd": 345.91,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-06-29",
-     "priceUsd": 283.02,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-07-09",
-     "priceUsd": 383.65,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-08-06",
-     "priceUsd": 371.07,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-08-14",
-     "priceUsd": 49.71,
-     "soldCount": 1,
-     "soldValueUsd": 49.71
-    },
-    {
-     "date": "2026-08-16",
-     "priceUsd": 34.53,
-     "soldCount": 1,
-     "soldValueUsd": 34.53
-    }
-   ],
-   "image": {
-    "src": "/market-assets/7c0bf540e75b0b3221f1f5db6c609eecf2a7529ff73a781e02036c72adc77653.webp",
-    "sha256": "7c0bf540e75b0b3221f1f5db6c609eecf2a7529ff73a781e02036c72adc77653",
-    "kind": "box_front",
-    "width": 1136,
-    "height": 830
-   }
-  },
-  {
    "id": "ptcg-en-sv03-booster-box-std",
    "rank": 174,
    "game": "ptcg",
@@ -110802,7 +111492,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 56608,
+     "amount": 56843,
      "currency": "JPY"
     }
    },
@@ -113263,7 +113953,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 56116,
+     "amount": 56349,
      "currency": "JPY"
     }
    },
@@ -115720,7 +116410,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 56066,
+     "amount": 56299,
      "currency": "JPY"
     }
    },
@@ -117613,7 +118303,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 55795,
+     "amount": 56026,
      "currency": "JPY"
     }
    },
@@ -117922,7 +118612,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 54933,
+     "amount": 55161,
      "currency": "JPY"
     }
    },
@@ -123131,7 +123821,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-15",
     "native": {
-     "amount": 53208,
+     "amount": 53429,
      "currency": "JPY"
     }
    },
@@ -124496,7 +125186,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 52989,
+     "amount": 53209,
      "currency": "JPY"
     }
    },
@@ -126953,7 +127643,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-18",
     "native": {
-     "amount": 52464,
+     "amount": 52682,
      "currency": "JPY"
     }
    },
@@ -129410,7 +130100,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-15",
     "native": {
-     "amount": 52223,
+     "amount": 52439,
      "currency": "JPY"
     }
    },
@@ -132471,7 +133161,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 49169,
+     "amount": 49373,
      "currency": "JPY"
     }
    },
@@ -135435,7 +136125,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-17",
     "native": {
-     "amount": 48283,
+     "amount": 48483,
      "currency": "JPY"
     }
    },
@@ -138221,1469 +138911,8 @@
    }
   },
   {
-   "id": "ptcg-jp-s3a-booster-box-std",
-   "rank": 197,
-   "game": "ptcg",
-   "lang": "jp",
-   "group": "ptcg-jp",
-   "setCode": "S3a",
-   "names": {
-    "en": "Legendary Heartbeat",
-    "jp": "伝説の鼓動"
-   },
-   "fullNames": {
-    "en": "Pokemon Card Game Sword&Shield Enhanced Expansion Pack Heartbeat of the Legend Box",
-    "ja": "ポケモンカードゲーム ソード&シールド 強化拡張パック 伝説の鼓動 ボックス"
-   },
-   "release": "2020-07",
-   "packsPerBox": 20,
-   "productKind": "booster-box",
-   "printWave": "std",
-   "status": "active",
-   "price": {
-    "usd": 283.02,
-    "kind": "market",
-    "source": "snkrdunk",
-    "asOf": "2026-08-06",
-    "native": {
-     "amount": 44341,
-     "currency": "JPY"
-    }
-   },
-   "windows": {
-    "1d": {
-     "soldCount": 0,
-     "changeUsd": 15.72,
-     "changePct": 5.88
-    },
-    "7d": {
-     "soldCount": 0,
-     "changeUsd": 31.45,
-     "changePct": 12.5
-    },
-    "30d": {
-     "soldCount": 0,
-     "changeUsd": 44.03,
-     "changePct": 18.42
-    }
-   },
-   "historyDaily": [
-    {
-     "date": "2021-11-17",
-     "priceUsd": 40.88,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-07-11",
-     "priceUsd": 50.31,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-08-20",
-     "priceUsd": 75.46,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-09-07",
-     "priceUsd": 58.81,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-09-24",
-     "priceUsd": 61.64,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-09-26",
-     "priceUsd": 71.69,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-09-27",
-     "priceUsd": 71.69,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-09-30",
-     "priceUsd": 520.44,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-10-03",
-     "priceUsd": 71.69,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-10-04",
-     "priceUsd": 176.1,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-10-05",
-     "priceUsd": 56.66,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-10-06",
-     "priceUsd": 345.91,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-10-07",
-     "priceUsd": 69.18,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-10-17",
-     "priceUsd": 224.53,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-10-18",
-     "priceUsd": 428.93,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-10-31",
-     "priceUsd": 232.69,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-11-06",
-     "priceUsd": 223.27,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-11-07",
-     "priceUsd": 232.7,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-11-08",
-     "priceUsd": 232.7,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-11-14",
-     "priceUsd": 81.13,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-11-15",
-     "priceUsd": 95.91,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-11-29",
-     "priceUsd": 81.76,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-12-05",
-     "priceUsd": 88.04,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-12-13",
-     "priceUsd": 264.15,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-12-14",
-     "priceUsd": 344.44,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-12-15",
-     "priceUsd": 94.33,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2022-12-19",
-     "priceUsd": 100.63,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-01-08",
-     "priceUsd": 191.82,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-01-11",
-     "priceUsd": 97.48,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-01-17",
-     "priceUsd": 1037.74,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-01-26",
-     "priceUsd": 99.37,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-01-29",
-     "priceUsd": 94.34,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-02-14",
-     "priceUsd": 311.82,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-02-17",
-     "priceUsd": 99.37,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-02-25",
-     "priceUsd": 314.47,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-02-26",
-     "priceUsd": 99.37,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-03-01",
-     "priceUsd": 99.37,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-03-02",
-     "priceUsd": 103.77,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-03-09",
-     "priceUsd": 75.48,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-03-16",
-     "priceUsd": 106.92,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-04-18",
-     "priceUsd": 105.66,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-04-23",
-     "priceUsd": 104.4,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-05-04",
-     "priceUsd": 371.07,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-05-11",
-     "priceUsd": 100.63,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-05-19",
-     "priceUsd": 119.5,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-05-22",
-     "priceUsd": 471.7,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-05-25",
-     "priceUsd": 124.47,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-05-27",
-     "priceUsd": 124.4,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-05-28",
-     "priceUsd": 124.34,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-05-29",
-     "priceUsd": 124.53,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-05-30",
-     "priceUsd": 880.5,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-06-01",
-     "priceUsd": 1257.86,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-06-09",
-     "priceUsd": 110.06,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-06-26",
-     "priceUsd": 943.4,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-06-27",
-     "priceUsd": 110.06,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-06-28",
-     "priceUsd": 124.53,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-07-19",
-     "priceUsd": 125.72,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-07-26",
-     "priceUsd": 94.34,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-08-08",
-     "priceUsd": 119.5,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-08-09",
-     "priceUsd": 119.5,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-08-17",
-     "priceUsd": 120.75,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-08-22",
-     "priceUsd": 122.64,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-09-16",
-     "priceUsd": 377.36,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-09-23",
-     "priceUsd": 377.35,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-10-03",
-     "priceUsd": 113.21,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-10-04",
-     "priceUsd": 377.36,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-10-14",
-     "priceUsd": 122.64,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-10-16",
-     "priceUsd": 125.47,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-10-31",
-     "priceUsd": 125.16,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-11-16",
-     "priceUsd": 101.26,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-11-19",
-     "priceUsd": 113.21,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-11-22",
-     "priceUsd": 103.77,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-11-30",
-     "priceUsd": 118.87,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-12-01",
-     "priceUsd": 120.75,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-12-11",
-     "priceUsd": 427.67,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-12-25",
-     "priceUsd": 128.93,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2023-12-29",
-     "priceUsd": 128.93,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-01-06",
-     "priceUsd": 133.65,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-01-11",
-     "priceUsd": 132.08,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-01-17",
-     "priceUsd": 132.08,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-01-26",
-     "priceUsd": 128.93,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-02-12",
-     "priceUsd": 119.5,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-02-16",
-     "priceUsd": 110.06,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-02-17",
-     "priceUsd": 238.99,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-02-28",
-     "priceUsd": 240.04,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-02-29",
-     "priceUsd": 115.09,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-03-11",
-     "priceUsd": 119.5,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-03-18",
-     "priceUsd": 130.82,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-03-22",
-     "priceUsd": 408.81,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-03-31",
-     "priceUsd": 124.53,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-04-15",
-     "priceUsd": 128.29,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-04-16",
-     "priceUsd": 128.29,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-04-24",
-     "priceUsd": 122.64,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-04-25",
-     "priceUsd": 122.64,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-04-28",
-     "priceUsd": 124.53,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-05-09",
-     "priceUsd": 113.84,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-05-10",
-     "priceUsd": 113.21,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-05-24",
-     "priceUsd": 118.87,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-06-07",
-     "priceUsd": 94.34,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-06-22",
-     "priceUsd": 112.89,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-07-01",
-     "priceUsd": 113.21,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-07-03",
-     "priceUsd": 113.21,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-07-07",
-     "priceUsd": 105.03,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-07-25",
-     "priceUsd": 117.6,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-08-23",
-     "priceUsd": 125.78,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-08-27",
-     "priceUsd": 125.78,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-09-09",
-     "priceUsd": 119.45,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-10-21",
-     "priceUsd": 110.06,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-10-27",
-     "priceUsd": 113.2,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-11-09",
-     "priceUsd": 94.34,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-11-11",
-     "priceUsd": 110.06,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-11-16",
-     "priceUsd": 113.21,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-11-20",
-     "priceUsd": 113.21,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-11-22",
-     "priceUsd": 113.21,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2024-12-20",
-     "priceUsd": 103.14,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-01-22",
-     "priceUsd": 119.5,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-01-26",
-     "priceUsd": 192.45,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-01-27",
-     "priceUsd": 125.79,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-01-28",
-     "priceUsd": 250.31,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-02-14",
-     "priceUsd": 125.79,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-02-24",
-     "priceUsd": 191.82,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-02-28",
-     "priceUsd": 119.5,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-03-16",
-     "priceUsd": 125.79,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-03-26",
-     "priceUsd": 125.79,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-03-30",
-     "priceUsd": 132.08,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-04-03",
-     "priceUsd": 123.27,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-04-08",
-     "priceUsd": 135.2,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-04-09",
-     "priceUsd": 144.65,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-04-25",
-     "priceUsd": 125.79,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-05-01",
-     "priceUsd": 154.09,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-05-11",
-     "priceUsd": 157.13,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-05-23",
-     "priceUsd": 156.6,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-05-26",
-     "priceUsd": 154.09,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-06-09",
-     "priceUsd": 155.97,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-06-13",
-     "priceUsd": 156.6,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-06-25",
-     "priceUsd": 144.53,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-06-27",
-     "priceUsd": 150.06,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-06-30",
-     "priceUsd": 144.65,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-07-01",
-     "priceUsd": 138.36,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-07-02",
-     "priceUsd": 134.91,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-07-03",
-     "priceUsd": 157.23,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-07-09",
-     "priceUsd": 157.23,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-08-10",
-     "priceUsd": 154.09,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-08-11",
-     "priceUsd": 157.23,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-08-20",
-     "priceUsd": 218.87,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-08-26",
-     "priceUsd": 155.97,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-08-31",
-     "priceUsd": 150.94,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-09-03",
-     "priceUsd": 450.62,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-09-04",
-     "priceUsd": 185.53,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-09-06",
-     "priceUsd": 188.68,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-09-07",
-     "priceUsd": 220.13,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-09-17",
-     "priceUsd": 188.36,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-10-01",
-     "priceUsd": 157.23,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-10-02",
-     "priceUsd": 188.68,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-10-08",
-     "priceUsd": 191.82,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-10-13",
-     "priceUsd": 182.39,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-10-19",
-     "priceUsd": 188.55,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-10-20",
-     "priceUsd": 188.58,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-10-21",
-     "priceUsd": 188.59,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-10-28",
-     "priceUsd": 182.39,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-11-01",
-     "priceUsd": 182.39,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-11-02",
-     "priceUsd": 364.78,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-11-03",
-     "priceUsd": 184.28,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-11-15",
-     "priceUsd": 182.39,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-11-18",
-     "priceUsd": 303.94,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-11-25",
-     "priceUsd": 179.25,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-12-03",
-     "priceUsd": 176.1,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-12-06",
-     "priceUsd": 183.52,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-12-09",
-     "priceUsd": 188.67,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-12-13",
-     "priceUsd": 187.74,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-12-21",
-     "priceUsd": 182.39,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-12-23",
-     "priceUsd": 186.15,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2025-12-25",
-     "priceUsd": 355.35,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-01-06",
-     "priceUsd": 180.82,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-01-07",
-     "priceUsd": 178.61,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-01-08",
-     "priceUsd": 182.38,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-01-21",
-     "priceUsd": 182.39,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-01-23",
-     "priceUsd": 179.25,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-01-24",
-     "priceUsd": 182.38,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-01-31",
-     "priceUsd": 182.38,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-02-01",
-     "priceUsd": 188.67,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-02-02",
-     "priceUsd": 201.26,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-02-03",
-     "priceUsd": 360.96,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-02-07",
-     "priceUsd": 200.94,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-02-10",
-     "priceUsd": 391.51,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-02-17",
-     "priceUsd": 220.12,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-02-18",
-     "priceUsd": 201.26,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-02-27",
-     "priceUsd": 214.89,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-03-01",
-     "priceUsd": 218.55,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-03-07",
-     "priceUsd": 213.83,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-03-09",
-     "priceUsd": 222.45,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-03-11",
-     "priceUsd": 220.13,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-03-15",
-     "priceUsd": 412.21,
-     "soldCount": 1,
-     "soldValueUsd": 412.21
-    },
-    {
-     "date": "2026-03-18",
-     "priceUsd": 447.8,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-03-19",
-     "priceUsd": 533.44,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-03-20",
-     "priceUsd": 221.38,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-03-22",
-     "priceUsd": 466.07,
-     "soldCount": 1,
-     "soldValueUsd": 466.07
-    },
-    {
-     "date": "2026-03-23",
-     "priceUsd": 155.36,
-     "soldCount": 1,
-     "soldValueUsd": 155.36
-    },
-    {
-     "date": "2026-03-25",
-     "priceUsd": 236.64,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-03-27",
-     "priceUsd": 226.42,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-03-31",
-     "priceUsd": 242.14,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-04-01",
-     "priceUsd": 245.28,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-04-03",
-     "priceUsd": 283.02,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-04-10",
-     "priceUsd": 455.97,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-04-12",
-     "priceUsd": 408.81,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-04-16",
-     "priceUsd": 284.61,
-     "soldCount": 1,
-     "soldValueUsd": 284.61
-    },
-    {
-     "date": "2026-04-17",
-     "priceUsd": 314.47,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-04-19",
-     "priceUsd": 314.47,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-04-20",
-     "priceUsd": 349.4,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-04-21",
-     "priceUsd": 338.36,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-04-22",
-     "priceUsd": 432.39,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-04-23",
-     "priceUsd": 357.86,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-04-24",
-     "priceUsd": 371.07,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-04-25",
-     "priceUsd": 364.78,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-04-27",
-     "priceUsd": 372.01,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-04-30",
-     "priceUsd": 348.43,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-05-01",
-     "priceUsd": 345.91,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-05-03",
-     "priceUsd": 356.92,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-05-04",
-     "priceUsd": 358.49,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-05-05",
-     "priceUsd": 372.86,
-     "soldCount": 1,
-     "soldValueUsd": 372.86
-    },
-    {
-     "date": "2026-05-06",
-     "priceUsd": 354.21,
-     "soldCount": 1,
-     "soldValueUsd": 354.21
-    },
-    {
-     "date": "2026-05-19",
-     "priceUsd": 339.62,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-05-30",
-     "priceUsd": 621.43,
-     "soldCount": 1,
-     "soldValueUsd": 621.43
-    },
-    {
-     "date": "2026-06-10",
-     "priceUsd": 2515.72,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-06-21",
-     "priceUsd": 283.02,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-06-26",
-     "priceUsd": 238.99,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-07-09",
-     "priceUsd": 283.02,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-07-15",
-     "priceUsd": 286.04,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-07-17",
-     "priceUsd": 273.46,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-07-18",
-     "priceUsd": 273.46,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-07-27",
-     "priceUsd": 251.57,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-07-31",
-     "priceUsd": 238.99,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-08-02",
-     "priceUsd": 267.3,
-     "soldCount": 0,
-     "soldValueUsd": null
-    },
-    {
-     "date": "2026-08-06",
-     "priceUsd": 283.02,
-     "soldCount": 0,
-     "soldValueUsd": null
-    }
-   ],
-   "image": {
-    "src": "/market-assets/b0bdc51a0fd90e1851092af4f1fa8127383c5c0537ebb56d90609235d56a8686.webp",
-    "sha256": "b0bdc51a0fd90e1851092af4f1fa8127383c5c0537ebb56d90609235d56a8686",
-    "kind": "box_front",
-    "width": 1000,
-    "height": 730
-   }
-  },
-  {
    "id": "ptcg-jp-s5i-booster-box-std",
-   "rank": 198,
+   "rank": 197,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -139707,7 +138936,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 44341,
+     "amount": 44525,
      "currency": "JPY"
     }
    },
@@ -140862,7 +140091,7 @@
   },
   {
    "id": "optcg-en-op-07-booster-box-std",
-   "rank": 199,
+   "rank": 198,
    "game": "optcg",
    "lang": "en",
    "group": "optcg-en",
@@ -141173,7 +140402,7 @@
   },
   {
    "id": "ptcg-jp-s8b-high-class-box-std",
-   "rank": 200,
+   "rank": 199,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -141197,7 +140426,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-18",
     "native": {
-     "amount": 43391,
+     "amount": 43571,
      "currency": "JPY"
     }
    },
@@ -143630,7 +142859,7 @@
   },
   {
    "id": "optcg-jp-op-01-booster-box-wave1",
-   "rank": 201,
+   "rank": 200,
    "game": "optcg",
    "lang": "jp",
    "group": "optcg-jp",
@@ -143654,7 +142883,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-15",
     "native": {
-     "amount": 43373,
+     "amount": 43552,
      "currency": "JPY"
     }
    },
@@ -146091,7 +145320,7 @@
   },
   {
    "id": "ptcg-jp-s4a-high-class-box-std",
-   "rank": 202,
+   "rank": 201,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -146115,7 +145344,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 42807,
+     "amount": 42985,
      "currency": "JPY"
     }
    },
@@ -148548,7 +147777,7 @@
   },
   {
    "id": "ptcg-en-sv09-booster-box-std",
-   "rank": 203,
+   "rank": 202,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -148823,7 +148052,7 @@
   },
   {
    "id": "optcg-en-op-12-booster-box-std",
-   "rank": 204,
+   "rank": 203,
    "game": "optcg",
    "lang": "en",
    "group": "optcg-en",
@@ -149050,7 +148279,7 @@
   },
   {
    "id": "ptcg-jp-sv9a-booster-box-std",
-   "rank": 205,
+   "rank": 204,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -149074,7 +148303,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 41384,
+     "amount": 41556,
      "currency": "JPY"
     }
    },
@@ -151507,7 +150736,7 @@
   },
   {
    "id": "optcg-jp-op-17-booster-box-std",
-   "rank": 206,
+   "rank": 205,
    "game": "optcg",
    "lang": "jp",
    "group": "optcg-jp",
@@ -151531,7 +150760,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 41366,
+     "amount": 41537,
      "currency": "JPY"
     }
    },
@@ -151622,7 +150851,7 @@
   },
   {
    "id": "ptcg-jp-sv10-booster-box-std",
-   "rank": 207,
+   "rank": 206,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -151646,7 +150875,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 40399,
+     "amount": 40567,
      "currency": "JPY"
     }
    },
@@ -154079,7 +153308,7 @@
   },
   {
    "id": "optcg-en-op-14-booster-box-std",
-   "rank": 208,
+   "rank": 207,
    "game": "optcg",
    "lang": "en",
    "group": "optcg-en",
@@ -154294,7 +153523,7 @@
   },
   {
    "id": "optcg-en-op-08-booster-box-std",
-   "rank": 209,
+   "rank": 208,
    "game": "optcg",
    "lang": "en",
    "group": "optcg-en",
@@ -156675,7 +155904,7 @@
   },
   {
    "id": "ptcg-en-mew-booster-box-std",
-   "rank": 210,
+   "rank": 209,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -156752,7 +155981,7 @@
   },
   {
    "id": "ptcg-en-swsh05-booster-box-std",
-   "rank": 211,
+   "rank": 210,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -157273,7 +156502,7 @@
   },
   {
    "id": "ptcg-jp-sv4a-high-class-box-std",
-   "rank": 212,
+   "rank": 211,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -157297,7 +156526,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 38577,
+     "amount": 38737,
      "currency": "JPY"
     }
    },
@@ -159730,7 +158959,7 @@
   },
   {
    "id": "optcg-en-op-15-booster-box-std",
-   "rank": 213,
+   "rank": 212,
    "game": "optcg",
    "lang": "en",
    "group": "optcg-en",
@@ -159963,7 +159192,7 @@
   },
   {
    "id": "optcg-en-op-10-booster-box-std",
-   "rank": 214,
+   "rank": 213,
    "game": "optcg",
    "lang": "en",
    "group": "optcg-en",
@@ -160232,7 +159461,7 @@
   },
   {
    "id": "optcg-jp-op-11-booster-box-std",
-   "rank": 215,
+   "rank": 214,
    "game": "optcg",
    "lang": "jp",
    "group": "optcg-jp",
@@ -160256,7 +159485,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-17",
     "native": {
-     "amount": 37931,
+     "amount": 38089,
      "currency": "JPY"
     }
    },
@@ -162465,7 +161694,7 @@
   },
   {
    "id": "optcg-jp-prb-02-booster-box-std",
-   "rank": 216,
+   "rank": 215,
    "game": "optcg",
    "lang": "jp",
    "group": "optcg-jp",
@@ -162489,7 +161718,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 37214,
+     "amount": 37368,
      "currency": "JPY"
     }
    },
@@ -164922,7 +164151,7 @@
   },
   {
    "id": "optcg-jp-op-13-booster-box-std",
-   "rank": 217,
+   "rank": 216,
    "game": "optcg",
    "lang": "jp",
    "group": "optcg-jp",
@@ -164946,7 +164175,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 36407,
+     "amount": 36558,
      "currency": "JPY"
     }
    },
@@ -167143,7 +166372,7 @@
   },
   {
    "id": "ptcg-jp-sv11w-booster-box-std",
-   "rank": 218,
+   "rank": 217,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -167167,7 +166396,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 35719,
+     "amount": 35867,
      "currency": "JPY"
     }
    },
@@ -169600,7 +168829,7 @@
   },
   {
    "id": "optcg-jp-op-15-booster-box-std",
-   "rank": 219,
+   "rank": 218,
    "game": "optcg",
    "lang": "jp",
    "group": "optcg-jp",
@@ -169624,7 +168853,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 34908,
+     "amount": 35052,
      "currency": "JPY"
     }
    },
@@ -170707,7 +169936,7 @@
   },
   {
    "id": "ptcg-jp-sv1a-booster-box-std",
-   "rank": 220,
+   "rank": 219,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -170731,7 +169960,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-18",
     "native": {
-     "amount": 34359,
+     "amount": 34502,
      "currency": "JPY"
     }
    },
@@ -173164,7 +172393,7 @@
   },
   {
    "id": "ptcg-jp-s12-booster-box-std",
-   "rank": 221,
+   "rank": 220,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -173188,7 +172417,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 33515,
+     "amount": 33654,
      "currency": "JPY"
     }
    },
@@ -175621,7 +174850,7 @@
   },
   {
    "id": "optcg-en-op-16-booster-box-std",
-   "rank": 222,
+   "rank": 221,
    "game": "optcg",
    "lang": "en",
    "group": "optcg-en",
@@ -175788,7 +175017,7 @@
   },
   {
    "id": "ptcg-jp-s12a-high-class-box-std",
-   "rank": 223,
+   "rank": 222,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -175812,7 +175041,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 31038,
+     "amount": 31167,
      "currency": "JPY"
     }
    },
@@ -178245,7 +177474,7 @@
   },
   {
    "id": "ptcg-en-me04-booster-box-std",
-   "rank": 224,
+   "rank": 223,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -178376,7 +177605,7 @@
   },
   {
    "id": "ptcg-jp-adv-trr-booster-box-std",
-   "rank": 225,
+   "rank": 224,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -178400,7 +177629,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 30328,
+     "amount": 30454,
      "currency": "JPY"
     }
    },
@@ -178451,7 +177680,7 @@
   },
   {
    "id": "ptcg-en-me05-booster-box-std",
-   "rank": 226,
+   "rank": 225,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -178588,7 +177817,7 @@
   },
   {
    "id": "ptcg-jp-s1h-booster-box-std",
-   "rank": 227,
+   "rank": 226,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -178612,7 +177841,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 28476,
+     "amount": 28594,
      "currency": "JPY"
     }
    },
@@ -181045,7 +180274,7 @@
   },
   {
    "id": "ptcg-en-me03-booster-box-std",
-   "rank": 228,
+   "rank": 227,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -181182,7 +180411,7 @@
   },
   {
    "id": "ptcg-jp-s4-booster-box-std",
-   "rank": 229,
+   "rank": 228,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -181206,7 +180435,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 27930,
+     "amount": 28045,
      "currency": "JPY"
     }
    },
@@ -181551,7 +180780,7 @@
   },
   {
    "id": "ptcg-jp-s10a-booster-box-std",
-   "rank": 230,
+   "rank": 229,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -181575,7 +180804,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 27590,
+     "amount": 27704,
      "currency": "JPY"
     }
    },
@@ -184008,7 +183237,7 @@
   },
   {
    "id": "optcg-jp-op-02-booster-box-std",
-   "rank": 231,
+   "rank": 230,
    "game": "optcg",
    "lang": "jp",
    "group": "optcg-jp",
@@ -184032,7 +183261,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 26112,
+     "amount": 26221,
      "currency": "JPY"
     }
    },
@@ -186465,7 +185694,7 @@
   },
   {
    "id": "ptcg-jp-sv11b-booster-box-std",
-   "rank": 232,
+   "rank": 231,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -186489,7 +185718,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 25324,
+     "amount": 25429,
      "currency": "JPY"
     }
    },
@@ -188922,7 +188151,7 @@
   },
   {
    "id": "optcg-jp-eb-03-booster-box-std",
-   "rank": 233,
+   "rank": 232,
    "game": "optcg",
    "lang": "jp",
    "group": "optcg-jp",
@@ -188946,7 +188175,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 22614,
+     "amount": 22708,
      "currency": "JPY"
     }
    },
@@ -190617,7 +189846,7 @@
   },
   {
    "id": "optcg-jp-op-06-booster-box-std",
-   "rank": 234,
+   "rank": 233,
    "game": "optcg",
    "lang": "jp",
    "group": "optcg-jp",
@@ -190641,7 +189870,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 22170,
+     "amount": 22262,
      "currency": "JPY"
     }
    },
@@ -193074,7 +192303,7 @@
   },
   {
    "id": "ptcg-jp-s6h-booster-box-std",
-   "rank": 235,
+   "rank": 234,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -193098,7 +192327,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 21677,
+     "amount": 21767,
      "currency": "JPY"
     }
    },
@@ -195531,7 +194760,7 @@
   },
   {
    "id": "ptcg-jp-s9-booster-box-std",
-   "rank": 236,
+   "rank": 235,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -195555,7 +194784,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 20691,
+     "amount": 20777,
      "currency": "JPY"
     }
    },
@@ -197988,7 +197217,7 @@
   },
   {
    "id": "ptcg-jp-sv5m-booster-box-std",
-   "rank": 237,
+   "rank": 236,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -198012,7 +197241,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 19214,
+     "amount": 19294,
      "currency": "JPY"
     }
    },
@@ -200445,7 +199674,7 @@
   },
   {
    "id": "ptcg-jp-sv3-booster-box-std",
-   "rank": 238,
+   "rank": 237,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -200469,7 +199698,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 18623,
+     "amount": 18701,
      "currency": "JPY"
     }
    },
@@ -202902,7 +202131,7 @@
   },
   {
    "id": "ptcg-en-pgo-booster-box-std",
-   "rank": 239,
+   "rank": 238,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -202967,7 +202196,7 @@
   },
   {
    "id": "ptcg-jp-m1s-booster-box-std",
-   "rank": 240,
+   "rank": 239,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -202991,7 +202220,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 18493,
+     "amount": 18570,
      "currency": "JPY"
     }
    },
@@ -205382,7 +204611,7 @@
   },
   {
    "id": "optcg-jp-op-12-booster-box-std",
-   "rank": 241,
+   "rank": 240,
    "game": "optcg",
    "lang": "jp",
    "group": "optcg-jp",
@@ -205406,7 +204635,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 18130,
+     "amount": 18205,
      "currency": "JPY"
     }
    },
@@ -206909,7 +206138,7 @@
   },
   {
    "id": "optcg-jp-op-03-booster-box-std",
-   "rank": 242,
+   "rank": 241,
    "game": "optcg",
    "lang": "jp",
    "group": "optcg-jp",
@@ -206933,7 +206162,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-14",
     "native": {
-     "amount": 18092,
+     "amount": 18167,
      "currency": "JPY"
     }
    },
@@ -207242,7 +206471,7 @@
   },
   {
    "id": "optcg-jp-eb-01-booster-box-std",
-   "rank": 243,
+   "rank": 242,
    "game": "optcg",
    "lang": "jp",
    "group": "optcg-jp",
@@ -207266,7 +206495,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-17",
     "native": {
-     "amount": 17603,
+     "amount": 17676,
      "currency": "JPY"
     }
    },
@@ -207555,7 +206784,7 @@
   },
   {
    "id": "ptcg-jp-sv7a-booster-box-std",
-   "rank": 244,
+   "rank": 243,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -207579,7 +206808,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 15371,
+     "amount": 15435,
      "currency": "JPY"
     }
    },
@@ -210012,7 +209241,7 @@
   },
   {
    "id": "ptcg-jp-s10d-booster-box-std",
-   "rank": 245,
+   "rank": 244,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -210036,7 +209265,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-17",
     "native": {
-     "amount": 15076,
+     "amount": 15139,
      "currency": "JPY"
     }
    },
@@ -212469,7 +211698,7 @@
   },
   {
    "id": "optcg-jp-op-16-booster-box-std",
-   "rank": 246,
+   "rank": 245,
    "game": "optcg",
    "lang": "jp",
    "group": "optcg-jp",
@@ -212493,7 +211722,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 14454,
+     "amount": 14514,
      "currency": "JPY"
     }
    },
@@ -213048,7 +212277,7 @@
   },
   {
    "id": "ptcg-jp-adv3-booster-box-std",
-   "rank": 247,
+   "rank": 246,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -213072,7 +212301,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-01",
     "native": {
-     "amount": 14351,
+     "amount": 14411,
      "currency": "JPY"
     }
    },
@@ -213123,7 +212352,7 @@
   },
   {
    "id": "ptcg-jp-sv1s-booster-box-std",
-   "rank": 248,
+   "rank": 247,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -213147,7 +212376,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 14091,
+     "amount": 14149,
      "currency": "JPY"
     }
    },
@@ -215580,7 +214809,7 @@
   },
   {
    "id": "optcg-jp-eb-04-booster-box-std",
-   "rank": 249,
+   "rank": 248,
    "game": "optcg",
    "lang": "jp",
    "group": "optcg-jp",
@@ -215604,7 +214833,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 14080,
+     "amount": 14138,
      "currency": "JPY"
     }
    },
@@ -216723,7 +215952,7 @@
   },
   {
    "id": "ptcg-jp-sv6-booster-box-std",
-   "rank": 250,
+   "rank": 249,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -216747,7 +215976,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 13992,
+     "amount": 14050,
      "currency": "JPY"
     }
    },
@@ -219180,7 +218409,7 @@
   },
   {
    "id": "ptcg-jp-sv5k-booster-box-std",
-   "rank": 251,
+   "rank": 250,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -219204,7 +218433,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 13721,
+     "amount": 13778,
      "currency": "JPY"
     }
    },
@@ -221637,7 +220866,7 @@
   },
   {
    "id": "ptcg-jp-s10p-booster-box-std",
-   "rank": 252,
+   "rank": 251,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -221661,7 +220890,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 13696,
+     "amount": 13753,
      "currency": "JPY"
     }
    },
@@ -224094,7 +223323,7 @@
   },
   {
    "id": "ptcg-en-lm-booster-box-std",
-   "rank": 253,
+   "rank": 252,
    "game": "ptcg",
    "lang": "en",
    "group": "ptcg-en",
@@ -224411,7 +223640,7 @@
   },
   {
    "id": "ptcg-jp-sv5a-booster-box-std",
-   "rank": 254,
+   "rank": 253,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -224435,7 +223664,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 13301,
+     "amount": 13356,
      "currency": "JPY"
     }
    },
@@ -226868,7 +226097,7 @@
   },
   {
    "id": "optcg-jp-prb-01-booster-box-std",
-   "rank": 255,
+   "rank": 254,
    "game": "optcg",
    "lang": "jp",
    "group": "optcg-jp",
@@ -226892,7 +226121,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-18",
     "native": {
-     "amount": 13253,
+     "amount": 13308,
      "currency": "JPY"
     }
    },
@@ -228783,7 +228012,7 @@
   },
   {
    "id": "optcg-jp-op-10-booster-box-std",
-   "rank": 256,
+   "rank": 255,
    "game": "optcg",
    "lang": "jp",
    "group": "optcg-jp",
@@ -228807,7 +228036,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 13105,
+     "amount": 13160,
      "currency": "JPY"
     }
    },
@@ -230826,7 +230055,7 @@
   },
   {
    "id": "ptcg-jp-s9a-booster-box-std",
-   "rank": 257,
+   "rank": 256,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -230850,7 +230079,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 13104,
+     "amount": 13158,
      "currency": "JPY"
     }
    },
@@ -233283,7 +232512,7 @@
   },
   {
    "id": "optcg-jp-op-14-booster-box-std",
-   "rank": 258,
+   "rank": 257,
    "game": "optcg",
    "lang": "jp",
    "group": "optcg-jp",
@@ -233307,7 +232536,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 12692,
+     "amount": 12744,
      "currency": "JPY"
     }
    },
@@ -234720,7 +233949,7 @@
   },
   {
    "id": "optcg-jp-op-07-booster-box-std",
-   "rank": 259,
+   "rank": 258,
    "game": "optcg",
    "lang": "jp",
    "group": "optcg-jp",
@@ -234744,7 +233973,7 @@
     "source": "pricecharting",
     "asOf": "2026-08-16",
     "native": {
-     "amount": 12532,
+     "amount": 12584,
      "currency": "JPY"
     }
    },
@@ -235047,7 +234276,7 @@
   },
   {
    "id": "ptcg-jp-sm5m-booster-box-std",
-   "rank": 260,
+   "rank": 259,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -235071,7 +234300,7 @@
     "source": "yahoo",
     "asOf": "2026-08-17",
     "native": {
-     "amount": 12294,
+     "amount": 12345,
      "currency": "JPY"
     }
    },
@@ -235146,7 +234375,7 @@
   },
   {
    "id": "optcg-jp-op-08-booster-box-std",
-   "rank": 261,
+   "rank": 260,
    "game": "optcg",
    "lang": "jp",
    "group": "optcg-jp",
@@ -235170,7 +234399,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-17",
     "native": {
-     "amount": 12120,
+     "amount": 12170,
      "currency": "JPY"
     }
    },
@@ -237537,7 +236766,7 @@
   },
   {
    "id": "ptcg-jp-sv4k-booster-box-std",
-   "rank": 262,
+   "rank": 261,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -237561,7 +236790,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 11973,
+     "amount": 12022,
      "currency": "JPY"
     }
    },
@@ -239994,7 +239223,7 @@
   },
   {
    "id": "ptcg-jp-m5-booster-box-std",
-   "rank": 263,
+   "rank": 262,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -240018,7 +239247,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 11608,
+     "amount": 11656,
      "currency": "JPY"
     }
    },
@@ -240657,7 +239886,7 @@
   },
   {
    "id": "ptcg-jp-sv2p-booster-box-std",
-   "rank": 264,
+   "rank": 263,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -240681,7 +239910,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 11578,
+     "amount": 11626,
      "currency": "JPY"
     }
    },
@@ -243114,7 +242343,7 @@
   },
   {
    "id": "ptcg-jp-sv2d-booster-box-std",
-   "rank": 265,
+   "rank": 264,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -243138,7 +242367,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 11553,
+     "amount": 11601,
      "currency": "JPY"
     }
    },
@@ -245571,7 +244800,7 @@
   },
   {
    "id": "ptcg-jp-sv7-booster-box-std",
-   "rank": 266,
+   "rank": 265,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -245595,7 +244824,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 11216,
+     "amount": 11263,
      "currency": "JPY"
     }
    },
@@ -248028,7 +247257,7 @@
   },
   {
    "id": "ptcg-jp-sv6a-booster-box-std",
-   "rank": 267,
+   "rank": 266,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -248052,7 +247281,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 11171,
+     "amount": 11217,
      "currency": "JPY"
     }
    },
@@ -250485,7 +249714,7 @@
   },
   {
    "id": "ptcg-jp-s11a-booster-box-std",
-   "rank": 268,
+   "rank": 267,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -250509,7 +249738,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 11036,
+     "amount": 11082,
      "currency": "JPY"
     }
    },
@@ -252942,7 +252171,7 @@
   },
   {
    "id": "ptcg-jp-sv9-booster-box-std",
-   "rank": 269,
+   "rank": 268,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -252966,7 +252195,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 10544,
+     "amount": 10588,
      "currency": "JPY"
     }
    },
@@ -255399,7 +254628,7 @@
   },
   {
    "id": "ptcg-jp-m1l-booster-box-std",
-   "rank": 270,
+   "rank": 269,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -255423,7 +254652,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 10400,
+     "amount": 10443,
      "currency": "JPY"
     }
    },
@@ -257814,7 +257043,7 @@
   },
   {
    "id": "ptcg-jp-m4-booster-box-std",
-   "rank": 271,
+   "rank": 270,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -257838,7 +257067,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 9952,
+     "amount": 9993,
      "currency": "JPY"
     }
    },
@@ -258915,7 +258144,7 @@
   },
   {
    "id": "ptcg-jp-bw2-booster-box-std",
-   "rank": 272,
+   "rank": 271,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -258939,7 +258168,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-19",
     "native": {
-     "amount": 9656,
+     "amount": 9696,
      "currency": "JPY"
     }
    },
@@ -259506,7 +258735,7 @@
   },
   {
    "id": "ptcg-jp-m3-booster-box-std",
-   "rank": 273,
+   "rank": 272,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -259530,7 +258759,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-20",
     "native": {
-     "amount": 8661,
+     "amount": 8697,
      "currency": "JPY"
     }
    },
@@ -260907,7 +260136,7 @@
   },
   {
    "id": "ptcg-jp-sv4m-booster-box-std",
-   "rank": 274,
+   "rank": 273,
    "game": "ptcg",
    "lang": "jp",
    "group": "ptcg-jp",
@@ -260931,7 +260160,7 @@
     "source": "snkrdunk",
     "asOf": "2026-08-17",
     "native": {
-     "amount": 8277,
+     "amount": 8311,
      "currency": "JPY"
     }
    },
@@ -261728,6 +260957,777 @@
     "kind": "box_front",
     "width": 1000,
     "height": 730
+   }
+  },
+  {
+   "id": "ptcg-jp-s3-booster-box-std",
+   "rank": 274,
+   "game": "ptcg",
+   "lang": "jp",
+   "group": "ptcg-jp",
+   "setCode": "S3",
+   "names": {
+    "en": "Infinity Zone",
+    "jp": "ムゲンゾーン"
+   },
+   "fullNames": {
+    "en": "Pokemon Card Game Sword&Shield Expansion Pack Mugen Zone Box",
+    "ja": "ポケモンカードゲーム ソード&シールド 拡張パック ムゲンゾーン ボックス"
+   },
+   "release": "2020-06",
+   "packsPerBox": 30,
+   "productKind": "booster-box",
+   "printWave": "std",
+   "status": "active",
+   "price": {
+    "usd": 34.53,
+    "kind": "sold",
+    "source": "yahoo",
+    "asOf": "2026-08-16",
+    "native": {
+     "amount": 5432,
+     "currency": "JPY"
+    }
+   },
+   "windows": {
+    "1d": {
+     "soldCount": 1,
+     "changeUsd": -15.18,
+     "changePct": -30.54
+    },
+    "7d": {
+     "soldCount": 2,
+     "changeUsd": -336.54,
+     "changePct": -90.69
+    },
+    "30d": {
+     "soldCount": 2,
+     "changeUsd": -349.12,
+     "changePct": -91.0
+    }
+   },
+   "historyDaily": [
+    {
+     "date": "2022-09-07",
+     "priceUsd": 84.91,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-10-01",
+     "priceUsd": 75.47,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-10-07",
+     "priceUsd": 84.91,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-10-14",
+     "priceUsd": 84.91,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-10-26",
+     "priceUsd": 94.34,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-11-02",
+     "priceUsd": 75.46,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-11-04",
+     "priceUsd": 75.46,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-11-14",
+     "priceUsd": 84.91,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2022-11-15",
+     "priceUsd": 88.05,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-02-14",
+     "priceUsd": 81.75,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-03-03",
+     "priceUsd": 84.91,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-03-06",
+     "priceUsd": 100.63,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-04-23",
+     "priceUsd": 176.1,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-07-25",
+     "priceUsd": 113.21,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-07-29",
+     "priceUsd": 119.5,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-08-14",
+     "priceUsd": 176.1,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-09-04",
+     "priceUsd": 176.1,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-09-26",
+     "priceUsd": 150.94,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-10-15",
+     "priceUsd": 110.06,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-11-12",
+     "priceUsd": 125.79,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-12-06",
+     "priceUsd": 163.52,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2023-12-21",
+     "priceUsd": 157.23,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-01-07",
+     "priceUsd": 144.03,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-01-11",
+     "priceUsd": 150.82,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-01-16",
+     "priceUsd": 217.45,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-01-26",
+     "priceUsd": 144.65,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-02-10",
+     "priceUsd": 116.35,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-02-15",
+     "priceUsd": 166.03,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-02-24",
+     "priceUsd": 175.79,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-03-03",
+     "priceUsd": 157.23,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-03-31",
+     "priceUsd": 201.26,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-04-25",
+     "priceUsd": 166.04,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-05-07",
+     "priceUsd": 163.52,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-05-08",
+     "priceUsd": 163.52,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-05-15",
+     "priceUsd": 157.23,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-05-16",
+     "priceUsd": 150.94,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-06-07",
+     "priceUsd": 125.79,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-07-06",
+     "priceUsd": 113.21,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-07-09",
+     "priceUsd": 112.58,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-07-17",
+     "priceUsd": 110.06,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-07-26",
+     "priceUsd": 125.79,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-08-16",
+     "priceUsd": 150.94,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-09-28",
+     "priceUsd": 174.84,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2024-11-12",
+     "priceUsd": 125.79,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-01-01",
+     "priceUsd": 187.42,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-01-13",
+     "priceUsd": 154.09,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-01-21",
+     "priceUsd": 150.94,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-01-25",
+     "priceUsd": 166.67,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-01-27",
+     "priceUsd": 201.26,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-02-14",
+     "priceUsd": 206.92,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-02-24",
+     "priceUsd": 174.7,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-02-26",
+     "priceUsd": 377.36,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-03-01",
+     "priceUsd": 194.97,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-03-14",
+     "priceUsd": 188.68,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-03-20",
+     "priceUsd": 181.45,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-04-03",
+     "priceUsd": 179.25,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-04-06",
+     "priceUsd": 188.68,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-04-28",
+     "priceUsd": 188.67,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-05-05",
+     "priceUsd": 201.25,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-05-11",
+     "priceUsd": 209.64,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-07-08",
+     "priceUsd": 311.32,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-07-15",
+     "priceUsd": 203.29,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-07-24",
+     "priceUsd": 210.06,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-07-27",
+     "priceUsd": 210.63,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-08-07",
+     "priceUsd": 211.53,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-08-11",
+     "priceUsd": 226.41,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-08-24",
+     "priceUsd": 213.77,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-08-31",
+     "priceUsd": 219.5,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-09-02",
+     "priceUsd": 334.91,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-09-20",
+     "priceUsd": 220.11,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-09-21",
+     "priceUsd": 277.67,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-10-02",
+     "priceUsd": 225.15,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-10-04",
+     "priceUsd": 227.75,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-10-12",
+     "priceUsd": 226.4,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-10-16",
+     "priceUsd": 226.42,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-10-31",
+     "priceUsd": 215.72,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-11-01",
+     "priceUsd": 215.72,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-11-11",
+     "priceUsd": 223.27,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-12-13",
+     "priceUsd": 232.7,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-12-18",
+     "priceUsd": 219.37,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2025-12-25",
+     "priceUsd": 220.13,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-01-02",
+     "priceUsd": 235.69,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-01-05",
+     "priceUsd": 243.14,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-01-06",
+     "priceUsd": 288.95,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-01-16",
+     "priceUsd": 279.24,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-01-27",
+     "priceUsd": 272.96,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-01-31",
+     "priceUsd": 281.64,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-02-01",
+     "priceUsd": 281.76,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-02-05",
+     "priceUsd": 281.76,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-02-13",
+     "priceUsd": 251.57,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-02-25",
+     "priceUsd": 280.33,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-02-26",
+     "priceUsd": 289.3,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-02-27",
+     "priceUsd": 564.14,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-03-06",
+     "priceUsd": 292.25,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-03-10",
+     "priceUsd": 220.13,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-03-21",
+     "priceUsd": 273.58,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-03-22",
+     "priceUsd": 276.73,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-03-23",
+     "priceUsd": 283.02,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-03-25",
+     "priceUsd": 289.31,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-04-06",
+     "priceUsd": 327.04,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-04-08",
+     "priceUsd": 344.51,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-04-12",
+     "priceUsd": 375.79,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-04-17",
+     "priceUsd": 440.25,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-04-21",
+     "priceUsd": 471.7,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-04-22",
+     "priceUsd": 494.75,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-04-24",
+     "priceUsd": 501.89,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-05-01",
+     "priceUsd": 459.12,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-05-06",
+     "priceUsd": 416.98,
+     "soldCount": 1,
+     "soldValueUsd": 416.98
+    },
+    {
+     "date": "2026-05-18",
+     "priceUsd": 471.06,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-05-19",
+     "priceUsd": 452.2,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-05-24",
+     "priceUsd": 440.25,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-05-26",
+     "priceUsd": 455.97,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-06-05",
+     "priceUsd": 364.78,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-06-26",
+     "priceUsd": 345.91,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-06-29",
+     "priceUsd": 283.02,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-07-09",
+     "priceUsd": 383.65,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-08-06",
+     "priceUsd": 371.07,
+     "soldCount": 0,
+     "soldValueUsd": null
+    },
+    {
+     "date": "2026-08-14",
+     "priceUsd": 49.71,
+     "soldCount": 1,
+     "soldValueUsd": 49.71
+    },
+    {
+     "date": "2026-08-16",
+     "priceUsd": 34.53,
+     "soldCount": 1,
+     "soldValueUsd": 34.53
+    }
+   ],
+   "image": {
+    "src": "/market-assets/7c0bf540e75b0b3221f1f5db6c609eecf2a7529ff73a781e02036c72adc77653.webp",
+    "sha256": "7c0bf540e75b0b3221f1f5db6c609eecf2a7529ff73a781e02036c72adc77653",
+    "kind": "box_front",
+    "width": 1136,
+    "height": 830
    }
   },
   {
