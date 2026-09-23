@@ -759,7 +759,7 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
 }
 .footer-nav-list a:hover,
 .footer-nav-list a:focus-visible {
-  color: var(--fg);
+  color: var(--ink);
   text-decoration: underline;
 }
 .footer-nav + .footer-nav {
@@ -798,7 +798,7 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
 }
 .provenance-steps dt {
   margin: 0;
-  color: var(--fg);
+  color: var(--ink);
   font-size: 12px;
   font-weight: 600;
 }
@@ -3367,7 +3367,7 @@ button.primary-action { border: 0; }
   border: 1px solid var(--line-strong);
   border-radius: var(--control-radius);
   background: var(--surface-translucent);
-  color: var(--text);
+  color: var(--ink);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
