@@ -413,28 +413,51 @@ def _snk_mark_mixed_points(cur, sealed_id: int, external_id: str, days: set[str]
     return len(stale)
 
 
-def _snk_requalify_sales(cur, sealed_id: int, trades: list[dict], jpy_per_usd: float | None) -> int:
-    """Sales stored before the box count was read sit 'unlabeled_qty'. Each one whose trade shows up with a count,
-    today or in a warehoused payload, takes it and goes ok. A title with no count ("FREE") stays unlabeled."""
+def _snk_requalify_sales(cur, sealed_id: int, external_id: str, trades: list[dict],
+                         jpy_per_usd: float | None) -> tuple[int, int]:
+    """(requalified, foreign). Sales stored before the box count was read sit 'unlabeled_qty'; one whose trade shows
+    up with a count, today or in a warehoused payload off this item, takes it and goes ok ("FREE" stays unlabeled).
+    Sales carry no item id, so a warehoused trade speaks only for the item its payload came off. 2026-09-24: XY6,
+    SM1S and SM1+ JP had moved their freeze off a wrong SNK item, and that item's sales, requalified, read XY6 at
+    ¥860,000. A sale seen only off another item goes 'foreign_item' (store-all + mark)."""
+    key = item_key("snkrdunk", external_id)
     cur.execute(
-        "SELECT lot_id FROM market_sealed_sale_observation WHERE source_code='snkrdunk' AND sealed_id=%s AND metric_status='unlabeled_qty'",
+        "SELECT lot_id, metric_status FROM market_sealed_sale_observation "
+        "WHERE source_code='snkrdunk' AND sealed_id=%s AND metric_status IN ('ok','outlier_trimmed','unlabeled_qty')",
         (sealed_id,),
     )
-    lots = {r["lot_id"] for r in cur.fetchall()}
-    if not lots:
-        return 0
-    seen = list(trades)
+    rows = {r["lot_id"]: r["metric_status"] for r in cur.fetchall()}
     cur.execute(
-        "SELECT raw_payload_json FROM market_sealed_source_warehouse "
+        "SELECT id, external_entity_id FROM market_sealed_source_warehouse "
         "WHERE sealed_id=%s AND source_code='snkrdunk' AND observation_kind='sealed_snk_history'",
         (sealed_id,),
     )
-    for row in cur.fetchall():
-        payload = json.loads(row["raw_payload_json"] or "{}")
-        for part in ("history", "oneBox"):
-            seen.extend(t for t in ((payload.get(part) or {}).get("trades") or []) if isinstance(t, dict))
+    heads = cur.fetchall()
+    foreign_ids = [h["id"] for h in heads if item_key("snkrdunk", h["external_entity_id"]) != key]
+    unlabeled = "unlabeled_qty" in rows.values()
+    own_ids = [h["id"] for h in heads if h["id"] not in foreign_ids] if (unlabeled or foreign_ids) else []
+
+    def payload_trades(ids: list) -> list[dict]:
+        out: list[dict] = []
+        for wid in ids:
+            cur.execute("SELECT raw_payload_json FROM market_sealed_source_warehouse WHERE id=%s", (wid,))
+            payload = json.loads((cur.fetchone() or {}).get("raw_payload_json") or "{}")
+            for part in ("history", "oneBox"):
+                out.extend(t for t in ((payload.get(part) or {}).get("trades") or []) if isinstance(t, dict))
+        return out
+
+    own = list(trades) + payload_trades(own_ids)
+    own_lots = {_snk_lot(t) for t in own}
+    foreign = sorted(({_snk_lot(t) for t in payload_trades(foreign_ids)} - own_lots) & set(rows))
+    for lot in foreign:
+        cur.execute(
+            "UPDATE market_sealed_sale_observation SET metric_status='foreign_item' WHERE source_code='snkrdunk' "
+            "AND lot_id=%s AND sealed_id=%s AND metric_status IN ('ok','outlier_trimmed','unlabeled_qty')",
+            (lot, sealed_id),
+        )
+    lots = {lot for lot, status in rows.items() if status == "unlabeled_qty"} - set(foreign)
     fixed = 0
-    for trade in seen:
+    for trade in own:
         lot, qty, total = _snk_lot(trade), _snk_trade_quantity(trade), trade.get("price")
         if lot not in lots or not qty or not isinstance(total, (int, float)) or total <= 0:
             continue
@@ -449,7 +472,7 @@ def _snk_requalify_sales(cur, sealed_id: int, trades: list[dict], jpy_per_usd: f
             (qty, unit_jpy, to_usd(unit_jpy, "JPY", jpy_per_usd), str(trade.get("title") or trade.get("label") or "") or None, lot),
         )
         fixed += cur.rowcount
-    return fixed
+    return fixed, len(foreign)
 
 
 def run_snk(conn, items: list[dict], *, mode: str, delay: float) -> dict:
@@ -551,10 +574,11 @@ def run_snk(conn, items: list[dict], *, mode: str, delay: float) -> dict:
                 payload={"master": master, **history},
                 ingest_run_key=run_key,
             )
-            requalified = _snk_requalify_sales(cur, item["sealedId"], trades, jpy_per_usd)
+            requalified, foreign = _snk_requalify_sales(cur, item["sealedId"], item["externalId"], trades, jpy_per_usd)
             conn.commit()
             res.update({"status": "ok", "points": len(price_rows), "mixedMarked": mixed, "trades": len(trades),
-                        "salesInserted": inserted_sales, "salesRequalified": requalified, "askJpy": ask_jpy})
+                        "salesInserted": inserted_sales, "salesRequalified": requalified, "salesForeign": foreign,
+                        "askJpy": ask_jpy})
             ok_items.append(item)
         except Exception as exc:  # noqa: BLE001
             conn.rollback()

@@ -841,7 +841,8 @@ CREATE TABLE market_sealed_sale_observation (id INTEGER PRIMARY KEY, sealed_id I
   sold_at TEXT, unit_price_usd REAL, native_price REAL, native_currency TEXT, quantity INTEGER, total_native_price REAL,
   box_condition TEXT, title TEXT, raw_url TEXT, transaction_fingerprint TEXT, metric_status TEXT, parser TEXT,
   ingest_run_key TEXT, UNIQUE (source_code, lot_id));
-CREATE TABLE market_sealed_source_warehouse (sealed_id INTEGER, source_code TEXT, observation_kind TEXT, raw_payload_json TEXT);
+CREATE TABLE market_sealed_source_warehouse (id INTEGER PRIMARY KEY, sealed_id INTEGER, source_code TEXT,
+  external_entity_id TEXT, observation_kind TEXT, raw_payload_json TEXT);
 """
 
 
@@ -872,6 +873,8 @@ def test_snk_reads_the_one_box_line_and_the_box_count_off_the_title():
 
     ten, fresh, old2, free = (trade("10個", 172000, "2026-09-16"), trade("1個", 16000, "2026-09-15"),
                               trade("2個", 36000, "2025-01-05"), trade("FREE", 9000, "2025-01-06"))
+    # 2026-09-24: XY6 JP read ¥860,000 off sales a wrong SNK item left behind before its freeze moved
+    wrong, wrong_ok = trade("1個", 860000, "2026-08-30"), trade("1個", 800000, "2026-08-20")
     options = [{"id": 77, "name": "1個"}, {"id": 78, "name": "10個"}]
     feeds = {
         (1, None): {"filters": {"variants": {"options": options}}, "trades": [ten, fresh],
@@ -904,12 +907,15 @@ def test_snk_reads_the_one_box_line_and_the_box_count_off_the_title():
                     "native_price, external_entity_id, metric_status) VALUES (211, 'snkrdunk', 'market', %s, %s, %s, %s)", row)
     cur.execute("INSERT INTO market_sealed_price_observation (sealed_id, source_code, price_kind, observed_date, native_price, "
                 "external_entity_id, metric_status) VALUES (212, 'snkrdunk', 'market', '2026-09-13', 5000, 'apparels:222', 'ok')")
-    for t in (ten, old2, free):
+    for t, status in ((ten, "unlabeled_qty"), (old2, "unlabeled_qty"), (free, "unlabeled_qty"), (wrong, "unlabeled_qty"),
+                      (wrong_ok, "ok")):
         cur.execute("INSERT INTO market_sealed_sale_observation (sealed_id, source_code, lot_id, sold_at, quantity, "
-                    "total_native_price, title, metric_status) VALUES (211, 'snkrdunk', %s, %s, 1, %s, '新品S', 'unlabeled_qty')",
-                    (sc._snk_lot(t), t["soldAt"], t["price"]))
-    cur.execute("INSERT INTO market_sealed_source_warehouse VALUES (211, 'snkrdunk', 'sealed_snk_history', %s)",
-                (json.dumps({"master": {}, "history": {"trades": [old2, free]}}),))
+                    "total_native_price, title, metric_status) VALUES (211, 'snkrdunk', %s, %s, 1, %s, '新品S', %s)",
+                    (sc._snk_lot(t), t["soldAt"], t["price"], status))
+    for ext, trades in (("trading-cards:111467", [old2, free]), ("apparels:14639", [wrong, wrong_ok])):
+        cur.execute("INSERT INTO market_sealed_source_warehouse (sealed_id, source_code, external_entity_id, observation_kind, "
+                    "raw_payload_json) VALUES (211, 'snkrdunk', %s, 'sealed_snk_history', %s)",
+                    (ext, json.dumps({"master": {}, "history": {"trades": trades}})))
 
     saved = {k: getattr(sc, k) for k in ("fx_units_per_usd", "warehouse_sealed", "record_sealed_run")}
     saved_mod = sys.modules.get("snkrdunk_bulk")
@@ -944,10 +950,13 @@ def test_snk_reads_the_one_box_line_and_the_box_count_off_the_title():
     cur.execute("SELECT total_native_price, quantity, native_price, metric_status FROM market_sealed_sale_observation "
                 "ORDER BY sold_at")
     sales = [tuple(r.values()) for r in cur.fetchall()]
-    assert sales == [(36000.0, 2, 18000.0, "ok"), (9000.0, 1, None, "unlabeled_qty"), (15933.0, 1, 15933.0, "ok"),
-                     (16000.0, 1, 16000.0, "ok"), (172000.0, 10, 17200.0, "ok")], \
-        "a sale takes its box count off `title`, a stored unlabeled one from today's or a warehoused trade: %r" % sales
-    assert first["items"][0]["salesRequalified"] == 2 and second["items"][0]["salesRequalified"] == 0, first["items"][0]
+    assert sales == [(36000.0, 2, 18000.0, "ok"), (9000.0, 1, None, "unlabeled_qty"), (800000.0, 1, None, "foreign_item"),
+                     (860000.0, 1, None, "foreign_item"), (15933.0, 1, 15933.0, "ok"), (16000.0, 1, 16000.0, "ok"),
+                     (172000.0, 10, 17200.0, "ok")], \
+        "a sale takes its box count off `title`, a stored unlabeled one from today's or this item's warehoused trade; " \
+        "one seen only off another item is foreign: %r" % sales
+    assert [(r["salesRequalified"], r["salesForeign"]) for r in (first["items"][0], second["items"][0])] == [(2, 2), (0, 0)], \
+        (first["items"][0], second["items"][0])
 
 
 if __name__ == "__main__":
