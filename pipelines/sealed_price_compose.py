@@ -19,6 +19,8 @@ Guards:
     are re-marked metric_status='outlier_trimmed' (store-all + mark; reversible);
     an older sale is judged the same way by the sales within 30 days either side
     of it, since the full daily line reads every ok sale
+  - market trim: a PC / SNK market point more than 5x off the median of the nearest accepted sales (at least 3,
+    all within 45 days) is re-marked 'outlier_trimmed' the same way
   - JP divergence guard: sold median vs SNK ask floor > 1.75x either way
     -> prefer ask, kind='ask', guard noted
 Sold / market / ask never mixed silently: composed_kind records which won.
@@ -56,6 +58,9 @@ GUARD_RATIO = 1.75
 SOLD_MIN_N = 3
 HISTORY_TRIM_HALF_D = 30  # a sale older than the 30d window is judged by the sales this many days either side of it
 MARKET_MAX_AGE_D = 45
+MARKET_TRIM_RATIO = 5.0
+MARKET_TRIM_NEAREST = 5
+MARKET_TRIM_GAP_D = 45
 ASK_MAX_AGE_D = 7
 
 
@@ -106,24 +111,30 @@ def load_sales(cur) -> dict[int, list[dict]]:
     return grouped
 
 
-def load_market(cur) -> dict[tuple[int, str], list[tuple[date, float]]]:
+def load_market_rows(cur) -> dict[tuple[int, str], list[dict]]:
+    """Market points off the frozen item, ok and outlier_trimmed, so trim_market can take a mark back."""
     frozen = load_frozen_items(cur)
     cur.execute(
         """
-        SELECT sealed_id, source_code, external_entity_id, observed_date, price_usd
+        SELECT sealed_id, source_code, external_entity_id, observed_date, price_usd, metric_status
         FROM market_sealed_price_observation
-        WHERE price_kind='market' AND price_usd IS NOT NULL AND metric_status='ok'
+        WHERE price_kind='market' AND price_usd IS NOT NULL AND metric_status IN ('ok','outlier_trimmed')
         ORDER BY observed_date
         """
     )
-    grouped: dict[tuple[int, str], list[tuple[date, float]]] = defaultdict(list)
+    grouped: dict[tuple[int, str], list[dict]] = defaultdict(list)
     for row in cur.fetchall():
-        if not _frozen_item(frozen, row):
-            continue
-        grouped[(int(row["sealed_id"]), str(row["source_code"]))].append(
-            (row["observed_date"], float(row["price_usd"]))
-        )
+        if _frozen_item(frozen, row):
+            grouped[(int(row["sealed_id"]), str(row["source_code"]))].append(dict(row))
     return grouped
+
+
+def ok_series(rows: list[dict]) -> list[tuple[date, float]]:
+    return [(r["observed_date"], float(r["price_usd"])) for r in rows if r["metric_status"] == "ok"]
+
+
+def load_market(cur) -> dict[tuple[int, str], list[tuple[date, float]]]:
+    return {key: series for key, rows in load_market_rows(cur).items() if (series := ok_series(rows))}
 
 
 def load_asks(cur) -> dict[int, tuple[date, float, float | None]]:
@@ -187,6 +198,33 @@ def trim_outliers(cur, sealed_id: int, sales: list[dict], today: date) -> tuple[
         if not is_outlier:
             keep.append(sale)
     return keep, marked
+
+
+def trim_market(cur, rows: list[dict], sold: list[dict]) -> int:
+    """Mark a market point off by more than MARKET_TRIM_RATIO from the median of the MARKET_TRIM_NEAREST accepted sales
+    nearest it, all within MARKET_TRIM_GAP_D days (at least SOLD_MIN_N). 2026-09-24: SNK's daily line carried carton
+    trades on the box line (SV1a $1,093 against $108 boxes, S1a $752 against $137). Any-age sales would mark true
+    appreciation (BREAKpoint $2,499 against 2021's $355), so a point with no sales near it stays as it is."""
+    marked = 0
+    for row in rows:
+        day = row["observed_date"]
+        near = sorted((s for s in sold if abs((s["sold_at"].date() - day).days) <= MARKET_TRIM_GAP_D),
+                      key=lambda s: abs((s["sold_at"].date() - day).days))[:MARKET_TRIM_NEAREST]
+        if len(near) < SOLD_MIN_N:
+            continue
+        med = median(float(s["unit_price_usd"]) for s in near)
+        value = float(row["price_usd"])
+        want = "outlier_trimmed" if value > med * MARKET_TRIM_RATIO or value < med / MARKET_TRIM_RATIO else "ok"
+        if row["metric_status"] == want:
+            continue
+        cur.execute(
+            "UPDATE market_sealed_price_observation SET metric_status=%s "
+            "WHERE sealed_id=%s AND source_code=%s AND price_kind='market' AND observed_date=%s",
+            (want, int(row["sealed_id"]), row["source_code"], day),
+        )
+        row["metric_status"] = want
+        marked += 1
+    return marked
 
 
 def compose_current(
@@ -320,10 +358,11 @@ def main() -> int:
         cur = conn.cursor()
         products = load_sealed_products(cur)
         sales_by_sealed = load_sales(cur)
-        market_all = load_market(cur)
+        market_rows = load_market_rows(cur)
         asks = load_asks(cur)
 
-        stats = {"products": len(products), "withSold30d": 0, "composed": 0, "bySource": {}, "byKind": {}, "outliersMarked": 0}
+        stats = {"products": len(products), "withSold30d": 0, "composed": 0, "bySource": {}, "byKind": {}, "outliersMarked": 0,
+                 "marketMarked": 0}
         for product in products:
             sealed_id = int(product["id"])
             group = str(product["group_code"])
@@ -332,10 +371,12 @@ def main() -> int:
             sales = sales_by_sealed.get(sealed_id, [])
             kept, marked = trim_outliers(cur, sealed_id, sales, today)
             stats["outliersMarked"] += marked
-            market_by_source = {
-                source: market_all.get((sealed_id, source), [])
-                for source in ("pricecharting", "snkrdunk")
-            }
+            sold_ok = [s for s in sales if s["metric_status"] == "ok" and s["source_code"] in sold_sources]
+            market_by_source = {}
+            for source in ("pricecharting", "snkrdunk"):
+                rows = market_rows.get((sealed_id, source), [])
+                stats["marketMarked"] += trim_market(cur, rows, sold_ok)
+                market_by_source[source] = ok_series(rows)
 
             # full daily line
             daily_sales: dict[date, list[dict]] = defaultdict(list)

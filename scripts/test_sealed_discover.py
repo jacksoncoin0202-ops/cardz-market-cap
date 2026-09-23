@@ -717,6 +717,45 @@ def test_compose_reads_only_the_frozen_item():
         "an SNK / eBay sale counted without its SKU's accepted SNK / PC freeze, or a Yahoo sale was dropped: %r" % (sales,)
 
 
+def test_compose_trims_market_points_by_the_sales_near_them():
+    # 2026-09-24: SNK's daily line carried carton trades on the box line (SV1a $1,093 against $108 boxes). Any-age
+    # sales would mark true appreciation (BREAKpoint $2,499 against 2021's $355), so only sales within 45 days judge.
+    from datetime import date, datetime
+
+    import sealed_price_compose as compose
+
+    class MarkCursor:
+        def __init__(self):
+            self.marks = {}
+
+        def execute(self, sql, params=()):
+            assert sql.startswith("UPDATE market_sealed_price_observation SET metric_status="), sql
+            self.marks[str(params[3])] = params[0]
+
+    def sale(day, usd):
+        return {"sold_at": datetime.fromisoformat(day), "unit_price_usd": usd, "metric_status": "ok"}
+
+    def point(day, usd, status="ok"):
+        return {"sealed_id": 1, "source_code": "snkrdunk", "observed_date": date.fromisoformat(day), "price_usd": usd,
+                "metric_status": status}
+
+    sold = [sale("2026-09-0%d" % d, usd) for d, usd in ((5, 100), (6, 105), (7, 110), (8, 115), (9, 120))]
+    sold += [sale("2026-08-0%d" % d, 1000) for d in (1, 2, 3)]  # a month when boxes traded at 1000
+    sold += [sale("2026-05-20", 100), sale("2026-05-25", 100)]  # two sales alone: too few to judge
+    rows = [point("2026-09-12", 110), point("2026-09-13", 1100), point("2026-09-14", 15),
+            point("2026-09-15", 104, "outlier_trimmed"), point("2026-09-16", 540),
+            point("2026-08-02", 1000),  # its nearest sales are the 1000s, not September's
+            point("2026-01-01", 6000),  # no sale within 45 days
+            point("2026-06-01", 5000)]
+    cur = MarkCursor()
+    marked = compose.trim_market(cur, rows, sold)
+    want = {"2026-09-13": "outlier_trimmed", "2026-09-14": "outlier_trimmed", "2026-09-15": "ok"}
+    assert cur.marks == want and marked == 3, "market marks: %r (%d)" % (cur.marks, marked)
+    assert [d.isoformat() for d, _ in compose.ok_series(rows)] == \
+        ["2026-09-12", "2026-09-15", "2026-09-16", "2026-08-02", "2026-01-01", "2026-06-01"], \
+        "the line read a trimmed point, or not the untrimmed one: %r" % compose.ok_series(rows)
+
+
 def test_compose_trims_old_sales_by_their_neighbours():
     # 2026-09-24: the trim judged only the 30d window, and the full daily line reads every ok sale: $90-$100 Unified
     # Minds boxes (median $2,850) stayed on the line, and marks made under the old box counts never came back.
