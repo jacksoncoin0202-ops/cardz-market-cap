@@ -38,6 +38,7 @@ from sealed_discover_lib import SNK_ITEM_RE, yahoo_closedsearch_url, yahoo_jp_qu
 from sealed_runtime import (  # noqa: E402
     HTML_DIR,
     OUT_DIR,
+    PRICE_UPSERT_HEAD,
     SEALED_ADAPTERS,
     SLA_HOURS,
     checkpoint_age_hours,
@@ -276,8 +277,8 @@ def run_pc(conn, items: list[dict], *, mode: str, html_max_age_h: float, timeout
                        price_usd, external_entity_id, source_url, metric_status, ingest_run_key)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON DUPLICATE KEY UPDATE
-                      native_price=VALUES(native_price), price_usd=VALUES(price_usd),
-                      metric_status=VALUES(metric_status), ingest_run_key=VALUES(ingest_run_key)
+                      """ + PRICE_UPSERT_HEAD + """, native_price=VALUES(native_price), price_usd=VALUES(price_usd),
+                      ingest_run_key=VALUES(ingest_run_key)
                     """,
                     price_rows,
                 )
@@ -408,8 +409,8 @@ def run_snk(conn, items: list[dict], *, mode: str, delay: float) -> dict:
                        price_usd, external_entity_id, source_url, metric_status, ingest_run_key)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON DUPLICATE KEY UPDATE
-                      native_price=VALUES(native_price), price_usd=VALUES(price_usd),
-                      metric_status=VALUES(metric_status), ingest_run_key=VALUES(ingest_run_key)
+                      """ + PRICE_UPSERT_HEAD + """, native_price=VALUES(native_price), price_usd=VALUES(price_usd),
+                      ingest_run_key=VALUES(ingest_run_key)
                     """,
                     price_rows,
                 )

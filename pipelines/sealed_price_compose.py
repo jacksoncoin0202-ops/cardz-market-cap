@@ -35,14 +35,19 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from statistics import median
 from typing import Any
+from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
+from sealed_discover_lib import same_item_ids  # noqa: E402
 from sealed_runtime import OUT_DIR, db, load_env, load_sealed_products, utc_now  # noqa: E402
 
 JP_SOLD_SOURCES = ("snkrdunk", "yahoo", "mercari")
 EN_SOLD_SOURCES = ("ebay",)
+# Sales carry no item id, so a sale counts only while its SKU holds an accepted freeze on the source it came off.
+# eBay sales are read off the PriceCharting item page; Yahoo/Mercari sales come from a keyword search, not a bind.
+SALE_FREEZE_SOURCE = {"snkrdunk": "snkrdunk", "ebay": "pricecharting"}
 TRIM_HIGH = 2.0
 TRIM_LOW = 2.5
 GUARD_RATIO = 1.75
@@ -55,7 +60,33 @@ def _is_jp(group_code: str) -> bool:
     return group_code.endswith("-jp")
 
 
+def item_key(source: str, external_id: Any) -> frozenset:
+    """One source item, every spelling of it (SNK namespaces, PC url-quoting) folded."""
+    return frozenset(same_item_ids(source, unquote(str(external_id or ""))))
+
+
+def load_frozen_items(cur) -> dict[tuple[int, str], frozenset]:
+    """(sealed_id, source) -> the item that SKU's accepted source freeze names. The loaders below, which compose
+    and export both read, keep a price row only when it comes from that item. 2026-09-23: 1,585 rows /box read
+    came from items no freeze named: S10b off a rejected SNK item, OP-01 EN off the JP box, JU EN off the
+    unlimited Jungle box, S5R off S5I's box, and four PC inventory prices for unreviewed binds."""
+    cur.execute(
+        """
+        SELECT sealed_id, source_code, external_entity_id FROM operator_sealed_binding_freeze
+        WHERE freeze_kind='source' AND acceptance_status='accepted'
+        """
+    )
+    return {(int(r["sealed_id"]), str(r["source_code"])): item_key(str(r["source_code"]), r["external_entity_id"])
+            for r in cur.fetchall()}
+
+
+def _frozen_item(frozen: dict, row: dict) -> bool:
+    key = (int(row["sealed_id"]), str(row["source_code"]))
+    return key in frozen and item_key(key[1], row["external_entity_id"]) == frozen[key]
+
+
 def load_sales(cur) -> dict[int, list[dict]]:
+    frozen = load_frozen_items(cur)
     cur.execute(
         """
         SELECT id, sealed_id, source_code, sold_at, unit_price_usd, quantity, metric_status
@@ -65,14 +96,18 @@ def load_sales(cur) -> dict[int, list[dict]]:
     )
     grouped: dict[int, list[dict]] = defaultdict(list)
     for row in cur.fetchall():
+        bound = SALE_FREEZE_SOURCE.get(str(row["source_code"]))
+        if bound and (int(row["sealed_id"]), bound) not in frozen:
+            continue
         grouped[int(row["sealed_id"])].append(dict(row))
     return grouped
 
 
 def load_market(cur) -> dict[tuple[int, str], list[tuple[date, float]]]:
+    frozen = load_frozen_items(cur)
     cur.execute(
         """
-        SELECT sealed_id, source_code, observed_date, price_usd
+        SELECT sealed_id, source_code, external_entity_id, observed_date, price_usd
         FROM market_sealed_price_observation
         WHERE price_kind='market' AND price_usd IS NOT NULL AND metric_status='ok'
         ORDER BY observed_date
@@ -80,6 +115,8 @@ def load_market(cur) -> dict[tuple[int, str], list[tuple[date, float]]]:
     )
     grouped: dict[tuple[int, str], list[tuple[date, float]]] = defaultdict(list)
     for row in cur.fetchall():
+        if not _frozen_item(frozen, row):
+            continue
         grouped[(int(row["sealed_id"]), str(row["source_code"]))].append(
             (row["observed_date"], float(row["price_usd"]))
         )
@@ -87,9 +124,10 @@ def load_market(cur) -> dict[tuple[int, str], list[tuple[date, float]]]:
 
 
 def load_asks(cur) -> dict[int, tuple[date, float, float | None]]:
+    frozen = load_frozen_items(cur)
     cur.execute(
         """
-        SELECT sealed_id, observed_date, price_usd, native_price
+        SELECT sealed_id, source_code, external_entity_id, observed_date, price_usd, native_price
         FROM market_sealed_price_observation
         WHERE price_kind='ask' AND source_code='snkrdunk' AND price_usd IS NOT NULL AND metric_status='ok'
         ORDER BY observed_date
@@ -97,6 +135,8 @@ def load_asks(cur) -> dict[int, tuple[date, float, float | None]]:
     )
     latest: dict[int, tuple[date, float, float | None]] = {}
     for row in cur.fetchall():
+        if not _frozen_item(frozen, row):
+            continue
         latest[int(row["sealed_id"])] = (
             row["observed_date"], float(row["price_usd"]),
             float(row["native_price"]) if row["native_price"] is not None else None,

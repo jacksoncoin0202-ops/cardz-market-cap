@@ -254,6 +254,17 @@ def load_sealed_hints(cur, *, source_code: str, hint_kinds: tuple[str, ...]) -> 
 # --- writes ------------------------------------------------------------------
 
 
+# ON DUPLICATE head of every sealed price write (upsert_sealed_price and sealed_collect's PC / SNK history). A row
+# names the item whose price it holds: a write from another item carries its item id in, and compose reads a row
+# only while that id is the SKU's frozen item (sealed_price_compose.load_frozen_items). metric_status goes first,
+# while external_entity_id still holds the row's old item (MySQL assigns left to right), so a row an operator
+# quarantined stays out when the same item writes it again.
+PRICE_UPSERT_HEAD = (
+    "metric_status=IF(metric_status='quarantined' AND external_entity_id=VALUES(external_entity_id), "
+    "metric_status, VALUES(metric_status)), external_entity_id=VALUES(external_entity_id)"
+)
+
+
 def upsert_sealed_price(
     cur,
     *,
@@ -276,9 +287,8 @@ def upsert_sealed_price(
            price_usd, external_entity_id, source_url, metric_status, ingest_run_key)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         ON DUPLICATE KEY UPDATE
-          native_price=VALUES(native_price), native_currency=VALUES(native_currency),
-          price_usd=VALUES(price_usd), metric_status=VALUES(metric_status),
-          source_url=VALUES(source_url), ingest_run_key=VALUES(ingest_run_key)
+          """ + PRICE_UPSERT_HEAD + """, native_price=VALUES(native_price), native_currency=VALUES(native_currency),
+          price_usd=VALUES(price_usd), source_url=VALUES(source_url), ingest_run_key=VALUES(ingest_run_key)
         """,
         (
             sealed_id, source_code, price_kind, observed_date, native_price, native_currency,

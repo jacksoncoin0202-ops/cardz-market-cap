@@ -434,6 +434,96 @@ def test_pc_inventory_prices_only_the_accepted_item():
     assert cur.fetchall() == [{"match_status": "exact"}], "the ingest demoted OP-02 EN's accepted bind"
 
 
+COMPOSE_DB = """
+CREATE TABLE operator_sealed_binding_freeze (sealed_id INTEGER, freeze_kind TEXT, source_code TEXT, external_entity_id TEXT,
+  acceptance_status TEXT, PRIMARY KEY (sealed_id, freeze_kind, source_code));
+CREATE TABLE market_sealed_price_observation (sealed_id INTEGER, source_code TEXT, price_kind TEXT, observed_date TEXT,
+  native_price REAL, native_currency TEXT, price_usd REAL, external_entity_id TEXT, source_url TEXT, metric_status TEXT,
+  ingest_run_key TEXT, PRIMARY KEY (sealed_id, source_code, price_kind, observed_date));
+CREATE TABLE market_sealed_sale_observation (id INTEGER PRIMARY KEY, sealed_id INTEGER, source_code TEXT, sold_at TEXT,
+  unit_price_usd REAL, quantity INTEGER, metric_status TEXT);
+INSERT INTO operator_sealed_binding_freeze VALUES
+  (1, 'source', 'snkrdunk', 'apparels:100', 'accepted'),
+  (1, 'source', 'pricecharting', 'pokemon-x-&-y/booster-box', 'accepted'),
+  (1, 'image', 'snkrdunk', 'apparels:999', 'accepted'),
+  (2, 'source', 'snkrdunk', 'apparels:200', 'rejected');
+INSERT INTO market_sealed_price_observation (sealed_id, source_code, price_kind, observed_date, price_usd, native_price,
+  external_entity_id, metric_status) VALUES
+  (1, 'snkrdunk', 'market', '2026-09-01', 100, 15000, 'trading-cards:100', 'ok'),
+  (1, 'snkrdunk', 'market', '2026-09-02', 900, 135000, 'apparels:999', 'ok'),
+  (1, 'pricecharting', 'market', '2026-09-01', 50, 50, 'pokemon-x-%26-y/booster-box', 'ok'),
+  (1, 'pricecharting', 'market', '2026-09-02', 70, 70, 'pokemon-x-&-y/booster-box-1st-edition', 'ok'),
+  (2, 'snkrdunk', 'market', '2026-09-01', 200, 30000, 'apparels:200', 'ok'),
+  (3, 'pricecharting', 'market', '2026-09-01', 300, 300, 'pokemon-z/booster-box', 'ok'),
+  (1, 'snkrdunk', 'ask', '2026-09-01', 110, 16500, 'apparels:100', 'ok'),
+  (1, 'snkrdunk', 'ask', '2026-09-02', 990, 148500, 'apparels:999', 'ok');
+INSERT INTO market_sealed_sale_observation VALUES
+  (1, 1, 'snkrdunk', '2026-09-01', 100, 1, 'ok'),
+  (2, 1, 'ebay', '2026-09-01', 55, 1, 'ok'),
+  (3, 2, 'snkrdunk', '2026-09-01', 200, 1, 'ok'),
+  (4, 3, 'ebay', '2026-09-01', 310, 1, 'ok'),
+  (5, 3, 'yahoo', '2026-09-01', 290, 1, 'outlier_trimmed');
+"""
+
+
+def test_compose_reads_only_the_frozen_item():
+    # 2026-09-23 compose and export read every row of a SKU: 1,585 /box prices came from items no accepted freeze
+    # named (S10b off a rejected SNK item, OP-01 EN off the JP box, JU EN off the unlimited Jungle box).
+    import sealed_price_compose as compose
+
+    cur = LiteConn(COMPOSE_DB).cursor()
+    market = compose.load_market(cur)
+    assert market == {(1, "snkrdunk"): [("2026-09-01", 100.0)], (1, "pricecharting"): [("2026-09-01", 50.0)]}, \
+        "market read a row off another item, a rejected freeze or no freeze (SNK spelling, PC quoting fold): %r" % (market,)
+    asks = compose.load_asks(cur)
+    assert asks == {1: ("2026-09-01", 110.0, 16500.0)}, "the latest ask came off another item: %r" % (asks,)
+    sales = {sid: sorted(r["id"] for r in rows) for sid, rows in compose.load_sales(cur).items()}
+    assert sales == {1: [1, 2], 3: [5]}, \
+        "an SNK / eBay sale counted without its SKU's accepted SNK / PC freeze, or a Yahoo sale was dropped: %r" % (sales,)
+
+
+def test_price_upsert_keeps_a_quarantine():
+    # Every sealed price write shares one ON DUPLICATE head: the same item rewriting a row an operator quarantined
+    # keeps it out; another item's write carries its id in, so compose's frozen-item filter judges it afresh.
+    import re
+
+    import sealed_runtime as rt
+
+    head = rt.PRICE_UPSERT_HEAD
+    assert head.index("metric_status=") < head.index("external_entity_id=VALUES"), \
+        "MySQL assigns left to right: metric_status must be judged before external_entity_id is overwritten"
+    for name in ("sealed_runtime.py", "sealed_collect.py"):
+        src = (Path(__file__).resolve().parents[1] / "pipelines" / name).read_text(encoding="utf-8")
+        writes = src.count("INSERT INTO market_sealed_price_observation")
+        headed = len(re.findall(r"INSERT INTO market_sealed_price_observation.*?ON DUPLICATE KEY UPDATE\s*\"\"\"\s*\+\s*"
+                                r"PRICE_UPSERT_HEAD\s*\+", src, re.S))
+        assert writes and headed == writes, f"{name}: {writes} price writes, {headed} open with PRICE_UPSERT_HEAD"
+
+    class UpsertCursor(LiteCursor):
+        def execute(self, sql, params=()):
+            sql = sql.replace("ON DUPLICATE KEY UPDATE",
+                              "ON CONFLICT(sealed_id, source_code, price_kind, observed_date) DO UPDATE SET")
+            super().execute(re.sub(r"\bVALUES\((\w+)\)", r"excluded.\1", sql).replace("IF(", "iif("), params)
+
+    conn = LiteConn(COMPOSE_DB)
+    cur = UpsertCursor(conn.conn.cursor())
+    row = dict(sealed_id=9, source_code="snkrdunk", price_kind="market", observed_date="2026-09-03", native_price=1.0,
+               native_currency="JPY", ingest_run_key="t")
+
+    def state():
+        cur.execute("SELECT external_entity_id, metric_status, price_usd FROM market_sealed_price_observation WHERE sealed_id=9")
+        return tuple(cur.fetchone().values())
+
+    rt.upsert_sealed_price(cur, price_usd=10.0, external_entity_id="apparels:1", **row)
+    cur.execute("UPDATE market_sealed_price_observation SET metric_status='quarantined' WHERE sealed_id=9")
+    rt.upsert_sealed_price(cur, price_usd=11.0, external_entity_id="apparels:1", **row)
+    assert state() == ("apparels:1", "quarantined", 11.0), "the same item's rewrite released a quarantine: %r" % (state(),)
+    rt.upsert_sealed_price(cur, price_usd=20.0, external_entity_id="apparels:2", **row)
+    assert state() == ("apparels:2", "ok", 20.0), "another item's write kept the old item id: %r" % (state(),)
+    rt.upsert_sealed_price(cur, price_usd=21.0, external_entity_id="apparels:2", **row)
+    assert state() == ("apparels:2", "ok", 21.0), state()
+
+
 if __name__ == "__main__":
     ran = 0
     for name, fn in list(globals().items()):
