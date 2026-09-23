@@ -63,7 +63,9 @@ from sealed_runtime import (  # noqa: E402
 
 COLLECT_OUT = OUT_DIR / "collect"
 
-SNK_QTY_LABEL = re.compile(r"^(\d+)\s*(?:枚|箱|BOX|box)$", re.I)
+SNK_QTY_LABEL = re.compile(r"^(\d+)\s*(?:個|枚|箱|BOX|box)$", re.I)
+# The one variant an SNK market line is read off: the all-lot chart averages 10個 cartons in (SV1a read ¥172,000).
+SNK_ONE_BOX = "1個"
 
 
 def _run_key(adapter: str, mode: str) -> str:
@@ -354,13 +356,100 @@ def run_pc(conn, items: list[dict], *, mode: str, html_max_age_h: float, timeout
 
 
 def _snk_trade_quantity(trade: dict) -> int | None:
+    """Box count of one trade. SNK puts it in `title` ("10個"); `label` is the condition ("新品S"). 2026-09-24: every
+    SNK sale sat 'unlabeled_qty' because only `label` was read."""
     quantity = trade.get("quantity")
     if isinstance(quantity, int) and not isinstance(quantity, bool) and quantity > 0:
         return quantity
-    match = SNK_QTY_LABEL.fullmatch(str(trade.get("label") or "").strip())
-    if match:
-        return int(match.group(1))
+    for field in ("title", "label"):
+        match = SNK_QTY_LABEL.fullmatch(str(trade.get(field) or "").strip())
+        if match and int(match.group(1)) > 0:
+            return int(match.group(1))
     return None
+
+
+def _snk_lot(trade: dict) -> str:
+    tx = trade.get("transactionId")
+    return f"tx:{tx}" if tx else "sha:" + sha({"soldAt": trade.get("soldAt"), "price": trade.get("price"), "label": trade.get("label")})[:32]
+
+
+def _snk_history(api, pcid: int) -> tuple[dict, list[dict], list[dict]]:
+    """(payload, market points, trades). The chart's one line mixes every lot size, so the market line is read off the
+    1個 variant; no 1個 variant, no market line. Trades come off both calls, each with its own box count."""
+    history = api.get_trading_history(pcid, range_="all", condition_code=None)
+    options = ((history.get("filters") or {}).get("variants") or {}).get("options") or []
+    one = next((o.get("id") for o in options if isinstance(o, dict) and str(o.get("name") or "").strip() == SNK_ONE_BOX), None)
+    one_box = api.get_trading_history(pcid, range_="all", condition_code=None, variant_id=int(one)) if one else {}
+    lines = ((one_box.get("chart") or {}).get("lines") or [])
+    points = (lines[0].get("points") or []) if lines else []
+    trades = [t for t in (history.get("trades") or []) + (one_box.get("trades") or []) if isinstance(t, dict)]
+    return {"history": history, "oneBox": one_box}, points, trades
+
+
+def _snk_mark_mixed_points(cur, sealed_id: int, external_id: str, days: set[str]) -> int:
+    """Market points written off the all-lot line on a day the 1個 line has no point go 'mixed_qty' (store-all +
+    mark; a later 1個 point on that day writes it back to ok). Only when the 1個 line came back non-empty."""
+    if not days:
+        return 0
+    cur.execute(
+        """
+        SELECT observed_date, external_entity_id FROM market_sealed_price_observation
+        WHERE sealed_id=%s AND source_code='snkrdunk' AND price_kind='market' AND metric_status IN ('ok','outlier_trimmed')
+        """,
+        (sealed_id,),
+    )
+    key = item_key("snkrdunk", external_id)
+    stale = sorted({str(r["observed_date"])[:10] for r in cur.fetchall()
+                    if item_key("snkrdunk", r["external_entity_id"]) == key and str(r["observed_date"])[:10] not in days})
+    for day in stale:
+        cur.execute(
+            """
+            UPDATE market_sealed_price_observation SET metric_status='mixed_qty'
+            WHERE sealed_id=%s AND source_code='snkrdunk' AND price_kind='market' AND observed_date=%s
+              AND metric_status IN ('ok','outlier_trimmed')
+            """,
+            (sealed_id, day),
+        )
+    return len(stale)
+
+
+def _snk_requalify_sales(cur, sealed_id: int, trades: list[dict], jpy_per_usd: float | None) -> int:
+    """Sales stored before the box count was read sit 'unlabeled_qty'. Each one whose trade shows up with a count,
+    today or in a warehoused payload, takes it and goes ok. A title with no count ("FREE") stays unlabeled."""
+    cur.execute(
+        "SELECT lot_id FROM market_sealed_sale_observation WHERE source_code='snkrdunk' AND sealed_id=%s AND metric_status='unlabeled_qty'",
+        (sealed_id,),
+    )
+    lots = {r["lot_id"] for r in cur.fetchall()}
+    if not lots:
+        return 0
+    seen = list(trades)
+    cur.execute(
+        "SELECT raw_payload_json FROM market_sealed_source_warehouse "
+        "WHERE sealed_id=%s AND source_code='snkrdunk' AND observation_kind='sealed_snk_history'",
+        (sealed_id,),
+    )
+    for row in cur.fetchall():
+        payload = json.loads(row["raw_payload_json"] or "{}")
+        for part in ("history", "oneBox"):
+            seen.extend(t for t in ((payload.get(part) or {}).get("trades") or []) if isinstance(t, dict))
+    fixed = 0
+    for trade in seen:
+        lot, qty, total = _snk_lot(trade), _snk_trade_quantity(trade), trade.get("price")
+        if lot not in lots or not qty or not isinstance(total, (int, float)) or total <= 0:
+            continue
+        lots.discard(lot)
+        unit_jpy = float(total) / qty
+        cur.execute(
+            """
+            UPDATE market_sealed_sale_observation
+            SET quantity=%s, native_price=%s, unit_price_usd=%s, title=%s, metric_status='ok'
+            WHERE source_code='snkrdunk' AND lot_id=%s AND metric_status='unlabeled_qty'
+            """,
+            (qty, unit_jpy, to_usd(unit_jpy, "JPY", jpy_per_usd), str(trade.get("title") or trade.get("label") or "") or None, lot),
+        )
+        fixed += cur.rowcount
+    return fixed
 
 
 def run_snk(conn, items: list[dict], *, mode: str, delay: float) -> dict:
@@ -397,10 +486,7 @@ def run_snk(conn, items: list[dict], *, mode: str, delay: float) -> dict:
             trades: list[dict] = []
             points: list[dict] = []
             if pcid:
-                history = api.get_trading_history(int(pcid), range_="all", condition_code=None)
-                trades = history.get("trades") or []
-                lines = ((history.get("chart") or {}).get("lines") or [])
-                points = (lines[0].get("points") or []) if lines else []
+                history, points, trades = _snk_history(api, int(pcid))
             price_rows = []
             for point in points:
                 ts = point.get("timestamp") if isinstance(point, dict) else None
@@ -425,6 +511,7 @@ def run_snk(conn, items: list[dict], *, mode: str, delay: float) -> dict:
                     """,
                     price_rows,
                 )
+            mixed = _snk_mark_mixed_points(cur, item["sealedId"], item["externalId"], {r[3] for r in price_rows})
             inserted_sales = 0
             for trade in trades:
                 if not isinstance(trade, dict):
@@ -434,8 +521,7 @@ def run_snk(conn, items: list[dict], *, mode: str, delay: float) -> dict:
                 if not isinstance(sold_at, str) or "T" not in sold_at or not isinstance(total, (int, float)) or total <= 0:
                     continue
                 qty = _snk_trade_quantity(trade)
-                tx = trade.get("transactionId")
-                lot = f"tx:{tx}" if tx else "sha:" + sha({"soldAt": sold_at, "price": total, "label": trade.get("label")})[:32]
+                lot = _snk_lot(trade)
                 sold_dt = sold_at.replace("T", " ").replace("Z", "")[:26]
                 unit_jpy = (float(total) / qty) if qty else None
                 inserted_sales += insert_sealed_sale(
@@ -450,7 +536,7 @@ def run_snk(conn, items: list[dict], *, mode: str, delay: float) -> dict:
                     quantity=qty or 1,
                     total_native_price=float(total),
                     box_condition="unknown",
-                    title=str(trade.get("label") or "") or None,
+                    title=str(trade.get("title") or trade.get("label") or "") or None,
                     raw_url=None,
                     metric_status="ok" if qty else "unlabeled_qty",
                     parser="snk_history_v1",
@@ -462,11 +548,13 @@ def run_snk(conn, items: list[dict], *, mode: str, delay: float) -> dict:
                 source_code="snkrdunk",
                 external_entity_id=item["externalId"],
                 observation_kind="sealed_snk_history",
-                payload={"master": master, "history": history},
+                payload={"master": master, **history},
                 ingest_run_key=run_key,
             )
+            requalified = _snk_requalify_sales(cur, item["sealedId"], trades, jpy_per_usd)
             conn.commit()
-            res.update({"status": "ok", "points": len(price_rows), "trades": len(trades), "salesInserted": inserted_sales, "askJpy": ask_jpy})
+            res.update({"status": "ok", "points": len(price_rows), "mixedMarked": mixed, "trades": len(trades),
+                        "salesInserted": inserted_sales, "salesRequalified": requalified, "askJpy": ask_jpy})
             ok_items.append(item)
         except Exception as exc:  # noqa: BLE001
             conn.rollback()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import sys
 import tempfile
@@ -832,6 +833,121 @@ def test_price_upsert_keeps_a_quarantine():
     assert state() == ("apparels:2", "ok", 20.0), "another item's write kept the old item id: %r" % (state(),)
     rt.upsert_sealed_price(cur, price_usd=21.0, external_entity_id="apparels:2", **row)
     assert state() == ("apparels:2", "ok", 21.0), state()
+
+
+SNK_DB = COMPOSE_DB.split("CREATE TABLE market_sealed_sale_observation")[0].split("CREATE TABLE market_sealed_price_observation")[1]
+SNK_DB = "CREATE TABLE market_sealed_price_observation" + SNK_DB + """
+CREATE TABLE market_sealed_sale_observation (id INTEGER PRIMARY KEY, sealed_id INTEGER, source_code TEXT, lot_id TEXT,
+  sold_at TEXT, unit_price_usd REAL, native_price REAL, native_currency TEXT, quantity INTEGER, total_native_price REAL,
+  box_condition TEXT, title TEXT, raw_url TEXT, transaction_fingerprint TEXT, metric_status TEXT, parser TEXT,
+  ingest_run_key TEXT, UNIQUE (source_code, lot_id));
+CREATE TABLE market_sealed_source_warehouse (sealed_id INTEGER, source_code TEXT, observation_kind TEXT, raw_payload_json TEXT);
+"""
+
+
+class MysqlLiteCursor(LiteCursor):
+    """The collector's own upserts on sqlite: ON DUPLICATE KEY / INSERT IGNORE / IF() translated."""
+
+    def execute(self, sql, params=()):
+        sql = sql.replace("INSERT IGNORE", "INSERT OR IGNORE").replace(
+            "ON DUPLICATE KEY UPDATE", "ON CONFLICT(sealed_id, source_code, price_kind, observed_date) DO UPDATE SET")
+        super().execute(re.sub(r"\bVALUES\((\w+)\)", r"excluded.\1", sql).replace("IF(", "iif("), params)
+
+    def executemany(self, sql, rows):
+        for row in rows:
+            self.execute(sql, row)
+
+
+def test_snk_reads_the_one_box_line_and_the_box_count_off_the_title():
+    # 2026-09-24: SV1a JP read ¥172,000 off SNK. The chart's one line mixes every lot size (that day was a 10個
+    # carton), and every SNK sale sat 'unlabeled_qty' because the box count is in `title`, not `label`.
+    import sealed_collect as sc
+    from datetime import datetime, timezone
+
+    def ts(day):
+        return int(datetime.fromisoformat(day).replace(tzinfo=timezone.utc).timestamp() * 1000)
+
+    def trade(title, price, day):
+        return {"label": "新品S", "price": price, "title": title, "soldAt": f"{day}T12:00:00Z"}
+
+    ten, fresh, old2, free = (trade("10個", 172000, "2026-09-16"), trade("1個", 16000, "2026-09-15"),
+                              trade("2個", 36000, "2025-01-05"), trade("FREE", 9000, "2025-01-06"))
+    options = [{"id": 77, "name": "1個"}, {"id": 78, "name": "10個"}]
+    feeds = {
+        (1, None): {"filters": {"variants": {"options": options}}, "trades": [ten, fresh],
+                    "chart": {"lines": [{"points": [{"timestamp": ts("2026-09-14"), "price": 27200},
+                                                    {"timestamp": ts("2026-09-16"), "price": 172000}]}]}},
+        (1, 77): {"filters": {"variants": {"options": options}}, "trades": [fresh, dict(fresh, price=15933, soldAt="2026-09-15T08:00:00Z")],
+                  "chart": {"lines": [{"points": [{"timestamp": ts("2026-09-14"), "price": 18000},
+                                                  {"timestamp": ts("2026-09-15"), "price": 15933}]}]}},
+        # no 1個 variant: no market line at all, rather than the mixed one
+        (2, None): {"filters": {"variants": {"options": [{"id": 88, "name": "10個"}]}}, "trades": [],
+                    "chart": {"lines": [{"points": [{"timestamp": ts("2026-09-14"), "price": 999000}]}]}},
+    }
+
+    class Api:
+        def __init__(self, delay):
+            pass
+
+        def get_master(self, item_id):
+            return {"productCatalogId": {"111467": 1, "222": 2}[item_id], "usedMinPrice": None}
+
+        def get_trading_history(self, pcid, range_="all", condition_code=None, variant_id=None):
+            return feeds[(pcid, variant_id)]
+
+    conn = LiteConn(SNK_DB)
+    conn.cursor = lambda: MysqlLiteCursor(conn.conn.cursor())
+    cur = conn.cursor()
+    for row in (("2026-09-14", 27200, "apparels:111467", "ok"), ("2026-09-16", 172000, "trading-cards:111467", "ok"),
+                ("2026-09-10", 90000, "apparels:111467", "quarantined"), ("2026-09-12", 50000, "apparels:999", "ok")):
+        cur.execute("INSERT INTO market_sealed_price_observation (sealed_id, source_code, price_kind, observed_date, "
+                    "native_price, external_entity_id, metric_status) VALUES (211, 'snkrdunk', 'market', %s, %s, %s, %s)", row)
+    cur.execute("INSERT INTO market_sealed_price_observation (sealed_id, source_code, price_kind, observed_date, native_price, "
+                "external_entity_id, metric_status) VALUES (212, 'snkrdunk', 'market', '2026-09-13', 5000, 'apparels:222', 'ok')")
+    for t in (ten, old2, free):
+        cur.execute("INSERT INTO market_sealed_sale_observation (sealed_id, source_code, lot_id, sold_at, quantity, "
+                    "total_native_price, title, metric_status) VALUES (211, 'snkrdunk', %s, %s, 1, %s, '新品S', 'unlabeled_qty')",
+                    (sc._snk_lot(t), t["soldAt"], t["price"]))
+    cur.execute("INSERT INTO market_sealed_source_warehouse VALUES (211, 'snkrdunk', 'sealed_snk_history', %s)",
+                (json.dumps({"master": {}, "history": {"trades": [old2, free]}}),))
+
+    saved = {k: getattr(sc, k) for k in ("fx_units_per_usd", "warehouse_sealed", "record_sealed_run")}
+    saved_mod = sys.modules.get("snkrdunk_bulk")
+    sys.modules["snkrdunk_bulk"] = type(sys)("snkrdunk_bulk")
+    sys.modules["snkrdunk_bulk"].SnkrdunkApi = Api
+    sc.fx_units_per_usd = lambda cur, ccy: 100.0
+    sc.warehouse_sealed = lambda cur, **kw: None
+    sc.record_sealed_run = lambda conn, **kw: {}
+    items = [{"sku": "ptcg:jp:SV1a:booster-box:std", "itemId": "111467", "sealedId": 211, "externalId": "apparels:111467"},
+             {"sku": "x", "itemId": "222", "sealedId": 212, "externalId": "apparels:222"}]
+    try:
+        first = sc.run_snk(conn, items, mode="stock", delay=0)
+        second = sc.run_snk(conn, items, mode="incr", delay=0)
+    finally:
+        for k, v in saved.items():
+            setattr(sc, k, v)
+        if saved_mod is None:
+            sys.modules.pop("snkrdunk_bulk", None)
+        else:
+            sys.modules["snkrdunk_bulk"] = saved_mod
+
+    assert [r["status"] for r in first["items"]] == ["ok", "ok"], first["items"]
+    cur.execute("SELECT sealed_id, observed_date, native_price, metric_status FROM market_sealed_price_observation "
+                "WHERE price_kind='market' ORDER BY sealed_id, observed_date")
+    market = [tuple(r.values()) for r in cur.fetchall()]
+    assert market == [(211, "2026-09-10", 90000.0, "quarantined"), (211, "2026-09-12", 50000.0, "ok"),
+                      (211, "2026-09-14", 18000.0, "ok"), (211, "2026-09-15", 15933.0, "ok"),
+                      (211, "2026-09-16", 172000.0, "mixed_qty"), (212, "2026-09-13", 5000.0, "ok")], \
+        "the market line must be the 1個 variant's; an all-lot point it lacks goes mixed_qty, others' rows untouched: %r" % market
+    assert (first["items"][0]["mixedMarked"], second["items"][0]["mixedMarked"]) == (1, 0), \
+        "mixed marks must be idempotent: %r" % ((first["items"][0], second["items"][0]),)
+    cur.execute("SELECT total_native_price, quantity, native_price, metric_status FROM market_sealed_sale_observation "
+                "ORDER BY sold_at")
+    sales = [tuple(r.values()) for r in cur.fetchall()]
+    assert sales == [(36000.0, 2, 18000.0, "ok"), (9000.0, 1, None, "unlabeled_qty"), (15933.0, 1, 15933.0, "ok"),
+                     (16000.0, 1, 16000.0, "ok"), (172000.0, 10, 17200.0, "ok")], \
+        "a sale takes its box count off `title`, a stored unlabeled one from today's or a warehoused trade: %r" % sales
+    assert first["items"][0]["salesRequalified"] == 2 and second["items"][0]["salesRequalified"] == 0, first["items"][0]
 
 
 if __name__ == "__main__":
