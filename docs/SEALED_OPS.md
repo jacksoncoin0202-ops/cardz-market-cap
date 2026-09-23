@@ -1,22 +1,28 @@
 # Sealed（原盒）Ops Runbook
 
 > **2026-08-25 已接返現行 authority：** 下面所有命令由 `cardz-market-cap-fe-db-20260805` 執行；BOX 產出已入 V2 鏈（`sealed_daily.py` in-chain 產 `/box` sidecar）。現狀睇 [../PROJECT_STATE.md](../PROJECT_STATE.md) §5。
+> **2026-09-23：** 呢份文件以前寫嘅 `operator_control.py sealed-*` 命令喺呢棵樹從來冇接過；V2 切換又封存咗 P6 嘅 collect lane，冇嘢頂上，所以 BOX 價由 08-20 企到 09-23。而家操作命令統一行 `pipelines/sealed_daily.py`（測試：`scripts/test_sealed_daily_cli.py`）。
 > 2026-08-14 起。Sealed 係 PSA10 單卡以外嘅平行線：自己嘅 identity／freeze／observations／composer／snapshot block，唔掂 GemRate gate、universe lock、`latest_prices()`、Top100 pass contract。
 > **2026-08-15：** 公開路徑 `/box`。Live BOX overlay 喺 fe-db／037 sidecar。呢棵樹只養 sidecar，**唔准** merge 入 PSA10 seed／pass／`[deploy]`。
 
-## 日常命令（WSL）
+## 日常命令（Windows）
 
-```bash
-cd /mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap-fe-db-20260805
-PY=/home/jackson0202/cardz-market-cap/.venv-backend/bin/python
+```powershell
+cd C:\Users\jackson0202\Documents\Playground\cardz-market-cap-fe-db-20260805
+$PY = 'C:\Users\jackson0202\AppData\Local\Programs\Python\Python310\python.exe'   # P6 一向用 Windows Python 行 sealed collect（PC 經 9333）
 
-$PY -X utf8 pipelines/operator_control.py sealed-status
-$PY -X utf8 pipelines/operator_control.py sealed-gaps
-$PY -X utf8 pipelines/operator_control.py sealed-daily --refresh   # 每日：incr 3 adapters（含 candidate）+ compose + status + gaps + export
-$PY -X utf8 pipelines/operator_control.py sealed-scan              # 每週：release 到期 / upcoming / 未 bind
+& $PY -X utf8 pipelines\sealed_daily.py status
+& $PY -X utf8 pipelines\sealed_daily.py gaps --limit 50
+& $PY -X utf8 -u pipelines\sealed_daily.py refresh   # 每日：incr PC → SNK → Yahoo（只刷 accepted bind）+ compose
+& $PY -X utf8 -u pipelines\sealed_daily.py scan      # 每週：release 到期 / upcoming / 未 bind + SNK/PC discovery
 ```
 
-前置：PriceCharting 需要 CDP Chrome —— `powershell -NoProfile -File scripts/ensure_chrome_cdp.ps1 -Port 9333 -UserDataDir $env:LOCALAPPDATA\cardz-chrome-cdp-9333`（Windows 側）。`sealed-daily --refresh` 會 `--allow-candidates` 刷新未 freeze 嘅 bind；product export 仍然只出 accepted freeze。PC incr 失敗唔擋 SNK／Yahoo／compose。唔好塞入 PSA10 `daily --refresh --pass`。
+前置：PriceCharting 需要 CDP Chrome —— `powershell -NoProfile -File scripts/ensure_chrome_cdp.ps1 -Port 9333 -UserDataDir $env:LOCALAPPDATA\cardz-chrome-cdp-9333`（Windows 側）。
+
+- `refresh`／`stock`／`accept-binding`／`scan` 攞 operator e2e lease；V2 行緊會被拒，唔好夾硬。`collect`／`compose`／`export`／`status`／`gaps` 唔攞 lease，因為 V2 box stage 攞住 lease 行 compose + export 做 child。
+- V2 box stage 每日自己 compose + export `/box`，但唔會 collect：`refresh` 要喺 V2（11:00 JST）之前或者 17:00 之後跑，下一轉 V2 先會出街。
+- `sealed_collect` 全部 fetch 失敗都 exit 0，所以 `refresh` 逐個 adapter 睇今次寫嘅 report：exit≠0、冇今次嘅 report、attempted>0 但 ok=0 都算紅。收據 `refresh-receipt.json` 嘅 `red` 唔係空就 exit 2。PC 紅唔擋 SNK／Yahoo／compose。
+- `refresh` 只刷 accepted bind（同 P6 一樣）；candidate 要先 accept。product export 只出 accepted source freeze。唔好塞入 PSA10 `daily --refresh --pass`。
 
 ## 架構一覽
 
@@ -34,32 +40,35 @@ $PY -X utf8 pipelines/operator_control.py sealed-scan              # 每週：re
 
 ## Bind → Freeze SOP（人手閘）
 
-```bash
-# Discovery：先對已有網站數據／手冊 listing，search 只補 leftover
-$PY -X utf8 pipelines/sealed_snk_discover.py          # harvest jsonl first, HTML search leftovers
-$PY -X utf8 pipelines/sealed_pc_discover.py           # category → console table → bind; no search
-$PY -X utf8 pipelines/sealed_fullname_backfill.py
-$PY -X utf8 pipelines/sealed_image_harvest.py --refresh
-$PY -X utf8 pipelines/sealed_price_triage.py
+```powershell
+# 同上 $PY（Windows）：PC discover／resolve／image 全部經 9333。
+# Discovery：先對已有網站數據／手冊 listing，search 只補 leftover。scan 會攞 lease 行頭兩條；直接行就自己避開 V2 11:00–17:00
+& $PY -X utf8 pipelines\sealed_snk_discover.py          # harvest jsonl first, HTML search leftovers
+& $PY -X utf8 pipelines\sealed_pc_discover.py           # category → console table → bind; no search
+& $PY -X utf8 pipelines\sealed_fullname_backfill.py
+& $PY -X utf8 pipelines\sealed_image_harvest.py --refresh
+& $PY -X utf8 pipelines\sealed_price_triage.py
 
-$PY -X utf8 pipelines/sealed_bind_resolve.py --source snkrdunk
-$PY -X utf8 pipelines/sealed_bind_resolve.py --source pricecharting
+& $PY -X utf8 pipelines\sealed_bind_resolve.py --source snkrdunk
+& $PY -X utf8 pipelines\sealed_bind_resolve.py --source pricecharting
 # 睇 data/runtime/operator/sealed/bind-resolve-receipt.json 嘅 note（名／overlap／langOk）
-$PY -X utf8 pipelines/operator_control.py sealed-accept-binding --sku optcg-en-op-09-booster-box-std --kind source --source-code pricecharting
+& $PY -X utf8 pipelines\sealed_daily.py accept-binding --sku optcg-en-op-09-booster-box-std --kind source --source-code pricecharting
 # 核清一批之後可以 bulk：
-$PY -X utf8 pipelines/operator_control.py sealed-accept-binding --all-resolved --kind source --source-code snkrdunk --group optcg-en
-$PY -X utf8 pipelines/operator_control.py sealed-accept-binding --all-resolved --kind image
+& $PY -X utf8 pipelines\sealed_daily.py accept-binding --all-resolved --kind source --source-code snkrdunk --group optcg-en
+& $PY -X utf8 pipelines\sealed_daily.py accept-binding --all-resolved --kind image
+# accept 完第一次一定要全量 stock，唔准靠 incr 頂（incr 只揀已經有數嘅 SKU）：
+& $PY -X utf8 -u pipelines\sealed_daily.py stock
 
-# Live-bar qualify（獨立線，唔掂 PSA10 pass／promote／GitHub live）
-$PY -X utf8 pipelines/operator_control.py sealed-live-qualify
-$PY -X utf8 pipelines/operator_control.py sealed-live-qualify --apply
+# Live-bar qualify（獨立線，唔掂 PSA10 pass／promote／GitHub live；自己唔攞 lease，唔好喺 V2 11:00–17:00 跑）
+& $PY -X utf8 pipelines\sealed_live_qualify.py
+& $PY -X utf8 pipelines\sealed_live_qualify.py --apply
 ```
 
 教訓實例（2026-08-14）：Kimi 條 `apparel-groups:450` link 其實係 FEAR OF GOD Polo，resolve 靠 master 名 auto-reject 咗；錯 bind 拉咗嘅 typed rows 要 purge。**呢個就係 human accept 閘存在嘅原因。**
 
 ## Product vs operator surface
 
-- `export-sealed-subset`（唔加 flag）＝ product 紀律：**只出有 accepted source freeze 嘅 SKU**。
+- `sealed_daily.py export --output <path>`（唔加 flag）＝ product 紀律：**只出有 accepted source freeze 嘅 SKU**。
 - `--include-candidates` ＝ engineering／operator FE surface（dual-mode operator loader 用呢個）。
 - 併入 product snapshot（bake 前）：
 
@@ -82,7 +91,7 @@ npm run dev -w @cardz/web    # /sealed + /sealed/[id]
 
 ## Artifacts
 
-`data/runtime/operator/sealed/`：`status.json`、`gaps.json`、`attention.json`、`daily_summary.json`、`compose-receipt.json`、`ingest-receipt.json`、`bind-resolve-receipt.json`、`image-harvest-receipt.json`、`backfill-receipt.json`、`sealed-subset-snapshot.json`、`collect/last_{stock,incr}.json`。
+`data/runtime/operator/sealed/`：`status.json`、`gaps.json`、`attention.json`、`daily_summary.json`、`compose-receipt.json`、`ingest-receipt.json`、`bind-resolve-receipt.json`、`image-harvest-receipt.json`、`backfill-receipt.json`、`sealed-subset-snapshot.json`、`collect/last_{stock,incr}.json`、`refresh-receipt.json`、`stock-receipt.json`。
 
 ## 已知待調（tuning backlog）
 
