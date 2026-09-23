@@ -24,6 +24,19 @@ true` 同**零收卡**：census 舊嘅時候永遠唔准講「冇新卡」。
 `data/private` 喺一個新開嘅 worktree 係空嘅（harvester 寫落邊個 checkout 就邊個有），
 所以 census 路徑係「搵」出嚟嘅，搵到邊個就喺 receipt 寫返邊個 —— **只讀，永遠唔寫**。
 
+`--census` 畀咗另一份（V2 畀 identity-completeness 砌嘅 `gemrate-qualified-latest.jsonl`）
+都**照讀埋 brute census**，同一張卡取最大 pop。嗰份 merged 檔只係同佢個 stage 一樣新：
+2026-09-06 起個 stage 日日 tick budget 唔夠被 skip，intake 由 09-13 起日日 stale 拒收；
+而兩份都有對方冇嘅卡（promo vs 新過線）。全部來源都過期先算 stale，每份幾舊寫入
+receipt `censusSources`。
+
+## 人手 ruling（`data/editorial/gemrate-intake-rulings.json`）
+
+第 2 層只撞到一張、但 parallel 唔同嘅卡，係 `ambiguous`，日日一樣。人睇過證據裁咗
+「呢張唔係 variant N，係另一個 printing」，就寫入 ruling 檔（入 git，有日期有原因）；
+classify 淨係喺**撞正嗰個 N、而且證據仲講唔同**嗰陣先開新 variant。證據變咗講「同
+一張」就交返人手，ruling 永遠唔可以蓋過一個乾淨嘅 match。
+
 ## 唔准讀 `pendingReasons`
 
 `rebuild_036.py:1296` 對 `non_qualified` 強制 `identity_pending=0`，令已裁決嘅卡個
@@ -111,6 +124,11 @@ CENSUS_SEARCH_ROOTS: tuple[Path, ...] = (
     rebuild.OLD_CHECKOUT_ROOT,
 )
 RECEIPT_DIR = ROOT / "data" / "runtime" / "daily-chain-v2"
+# A person's ruling on a card classify() cannot settle alone: "this GemRate card
+# is NOT variant N, it is its own printing". Checked in, so every ruling has a
+# reason and a date in git, and the V2 intake stage applies it on its own run.
+RULINGS_PATH = ROOT / "data" / "editorial" / "gemrate-intake-rulings.json"
+RULING_NEW_VARIANT = "new_variant"
 
 VERDICT_MEMBER_MISSING = "member_missing"
 VERDICT_ALREADY_QUALIFIED = "already_qualified"
@@ -157,10 +175,12 @@ class Census:
     rows: dict[str, int]
     below_floor: int
     duplicates: int
+    sources: tuple[Mapping[str, Any], ...] = ()
 
     def as_report(self) -> dict[str, Any]:
         return {
             "censusPath": str(self.path) if self.path else None,
+            "censusSources": [dict(source) for source in self.sources],
             "censusMtime": self.mtime,
             "censusAgeDays": round(self.age_days, 3) if self.age_days is not None else None,
             "censusStale": self.stale,
@@ -206,37 +226,60 @@ def census(
 
     `gemrate_checklist_id` is a DIFFERENT id space and joins 0/956 against
     catalog_rebuild_member.gemrate_id -- using it reads as "no new cards".
+
+    An explicit `path` is read together with the brute census (see the module
+    docstring): a card takes its highest pop, and the census is stale only
+    when every source is. `path`/`mtime`/`age_days` name the freshest source.
     """
 
     moment = now or _utc_now()
-    resolved = resolve_census_path(path)
-    if resolved is None:
+    sources: list[dict[str, Any]] = []
+    found: list[Path] = []
+    for candidate in (path, None) if path is not None else (None,):
+        resolved = resolve_census_path(candidate)
+        if resolved is None:
+            if candidate is not None:
+                sources.append({"path": str(candidate), "missing": True})
+        elif all(resolved.resolve() != seen.resolve() for seen in found):
+            found.append(resolved)
+    if not found:
         # Fail closed: a census we cannot read is not a census that says zero.
-        return Census(path, None, None, True, True, {}, 0, 0)
-    stat = resolved.stat()
-    mtime = datetime.fromtimestamp(stat.st_mtime, timezone.utc)
-    age_days = (moment - mtime).total_seconds() / 86400.0
+        return Census(path, None, None, True, True, {}, 0, 0, tuple(sources))
     rows: dict[str, int] = {}
     below_floor = 0
     duplicates = 0
-    with resolved.open(encoding="utf-8") as handle:
-        for line in handle:
-            line = line.strip()
-            if not line:
-                continue
-            payload = json.loads(line)
-            gid = str(payload.get("psa_id") or "").strip()
-            if not gid:
-                continue
-            population = _as_int(payload.get("psa_10"))
-            if population < POP_FLOOR:
-                below_floor += 1
-                continue
-            if gid in rows:
-                duplicates += 1
-                if population <= rows[gid]:
+    freshest: tuple[float, Path, datetime] | None = None
+    for resolved in found:
+        mtime = datetime.fromtimestamp(resolved.stat().st_mtime, timezone.utc)
+        age_days = (moment - mtime).total_seconds() / 86400.0
+        seen_here: set[str] = set()
+        with resolved.open(encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
                     continue
-            rows[gid] = population
+                payload = json.loads(line)
+                gid = str(payload.get("psa_id") or "").strip()
+                if not gid:
+                    continue
+                population = _as_int(payload.get("psa_10"))
+                if population < POP_FLOOR:
+                    below_floor += 1
+                    continue
+                if gid in seen_here:
+                    duplicates += 1
+                seen_here.add(gid)
+                rows[gid] = max(rows.get(gid, 0), population)
+        sources.append({
+            "path": str(resolved),
+            "mtime": mtime.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "ageDays": round(age_days, 3),
+            "stale": age_days > float(max_age_days),
+            "rowsAtOrAbovePop": len(seen_here),
+        })
+        if freshest is None or age_days < freshest[0]:
+            freshest = (age_days, resolved, mtime)
+    age_days, resolved, mtime = freshest
     return Census(
         path=resolved,
         mtime=mtime.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -246,7 +289,25 @@ def census(
         rows=rows,
         below_floor=below_floor,
         duplicates=duplicates,
+        sources=tuple(sources),
     )
+
+
+def load_rulings(path: Path = RULINGS_PATH) -> dict[str, dict[str, Any]]:
+    """gemrate_id -> ruling. No file is no rulings; a malformed ruling is an error."""
+
+    if not path.is_file():
+        return {}
+    rulings: dict[str, dict[str, Any]] = {}
+    for entry in json.loads(path.read_text(encoding="utf-8"))["rulings"]:
+        gid = str(entry.get("gemrateId") or "").strip()
+        if (not gid or gid in rulings or entry.get("ruling") != RULING_NEW_VARIANT
+                or _as_int(entry.get("notVariant")) <= 0
+                or not str(entry.get("why") or "").strip()
+                or not str(entry.get("ruledAt") or "").strip()):
+            raise SystemExit(f"intake ABORT: malformed ruling in {path}: {entry!r}")
+        rulings[gid] = dict(entry)
+    return rulings
 
 
 def refresh_census(*, timeout: int = 5400) -> dict[str, Any]:
@@ -391,6 +452,7 @@ def classify(
     population: int,
     member: Mapping[str, Any] | None,
     indexes: CatalogIndexes,
+    rulings: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> Verdict:
     """One census row -> one verdict. Order of the checks is the contract."""
 
@@ -519,6 +581,21 @@ def classify(
     if len(candidates) == 1:
         existing = candidates[0]
         blockers = _adoption_blockers(fingerprint, indexes.variants[existing])
+        ruling = (rulings or {}).get(gemrate_id)
+        if ruling is not None and _as_int(ruling.get("notVariant")) == existing:
+            if not blockers:
+                # The evidence now calls it the same card: a ruling never
+                # overrides a clean match, a person looks again.
+                return Verdict(
+                    gemrate_id, VERDICT_NEEDS_HUMAN,
+                    f"ruling_contradicts_clean_match_vs_variant_{existing}", population,
+                    tcg_code=tcg_code, variant_id=existing, detail=base,
+                )
+            return Verdict(
+                gemrate_id, VERDICT_AUTO, f"ruled_new_variant_vs_variant_{existing}",
+                population, tcg_code=tcg_code, variant_id=None, resolution="new_variant",
+                detail={**base, "blockers": blockers, "ruling": dict(ruling)},
+            )
         if blockers:
             return Verdict(
                 gemrate_id, VERDICT_AMBIGUOUS,
@@ -844,8 +921,10 @@ def run(
     reserve: int = RESERVE,
     do_apply: bool = False,
     now: datetime | None = None,
+    rulings: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], int]:
     moment = now or _utc_now()
+    rulings = load_rulings() if rulings is None else rulings
     with conn.cursor() as cursor:
         gen = generation or latest_generation(cursor)
         indexes = load_catalog_indexes(cursor)
@@ -854,7 +933,7 @@ def run(
         refusals = apply_preconditions(cursor, census_result) if do_apply else []
 
     verdicts = [
-        classify(gid, population=pop, member=members.get(gid), indexes=indexes)
+        classify(gid, population=pop, member=members.get(gid), indexes=indexes, rulings=rulings)
         for gid, pop in sorted(census_result.rows.items(), key=lambda kv: (-kv[1], kv[0]))
     ]
     buckets = {name: 0 for name in VERDICT_ORDER}
@@ -907,7 +986,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--census", type=Path, default=None,
-                        help="psa10_1000_plus.jsonl（唔畀就按 CENSUS_SEARCH_ROOTS 搵）")
+                        help="另一份 census；brute psa10_1000_plus.jsonl（按 CENSUS_SEARCH_ROOTS 搵）永遠一齊讀")
     parser.add_argument("--max-age-days", type=int, default=DEFAULT_MAX_AGE_DAYS)
     parser.add_argument("--max-seed", type=int, default=DEFAULT_MAX_SEED)
     parser.add_argument("--reserve", type=int, default=RESERVE)

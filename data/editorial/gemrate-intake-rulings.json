@@ -1,0 +1,22 @@
+{
+  "contract": "gemrate-intake-rulings-v1",
+  "readBy": "pipelines/gemrate_identity_intake.py load_rulings(); applied by classify() layer 2 only",
+  "rulings": [
+    {
+      "gemrateId": "d5d8ac897256e38ca20bc903aae7925c31918631",
+      "ruling": "new_variant",
+      "notVariant": 2255,
+      "card": "2025 One Piece OP13-Carrying on His Will St. Marcus Mars Special Alternate Art 091",
+      "why": "The OP13-091 red-text parallel: official card list OP13-091_p2, TCGplayer 657368, CGC 'R Red Alt. Art Parallel', about $493 vs about $24. Variant 2255 is the regular Alternate Art (OP13-091_p1, TCGplayer 657367, GemRate 022cf8de, PriceCharting 11012080). Two printings, not one.",
+      "ruledAt": "2026-09-24"
+    },
+    {
+      "gemrateId": "3b84cfe40c3a7d5cbedec85aaeb8f00a40daaf03",
+      "ruling": "new_variant",
+      "notVariant": 2272,
+      "card": "2025 One Piece OP13-Carrying on His Will Sabo Manga Alternate Art 120",
+      "why": "The English Manga / Super Alternate Art, TCGplayer 657412. Variant 2272 is the base SEC (TCGplayer 657410, GemRate 0a968e6d). It is none of the other Sabo variants either: 1739 is the English Parallel (657413), 1759 the Wanted Poster SP (657414), 2119 the Japanese Manga.",
+      "ruledAt": "2026-09-24"
+    }
+  ]
+}

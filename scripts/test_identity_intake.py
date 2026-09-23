@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -465,6 +466,77 @@ try:
     assert merged.variant_id == twin, "the same product must bind, not mint a second row"
     print("NEGATIVE_OK the same printing on the same card binds to the incumbent variant")
 
+    # ------------------------------------------------------------- rulings
+    # Re-seed the 2026-09 case: one card shares set + number and only the
+    # parallel differs (OP13-091 red text vs variant 2255). Ambiguous every day.
+    rule_db = FakeDB()
+    other_print = rule_db.add_variant(
+        tcg_code="one-piece", card_language="en", set_name=fields["set_name"],
+        collector_number=fields["collector_number"], canonical_name="Monkey D. Luffy",
+        opaque_id="cmc_other_print",
+    )
+    rule_db.add_printing(other_print, "f" * 64, parallel_code="manga alternate art")
+    unruled = intake.classify(
+        LUFFY_GID, population=1162, member=member(LUFFY_GID), indexes=indexes_from(rule_db)
+    )
+    assert unruled.verdict == "ambiguous", unruled
+    assert unruled.reason_code == f"printing_key_conflict_vs_variant_{other_print}", unruled
+    ruling = {"gemrateId": LUFFY_GID, "ruling": "new_variant", "notVariant": other_print,
+              "why": "a different parallel", "ruledAt": "2026-09-24"}
+    ruled_new = intake.classify(
+        LUFFY_GID, population=1162, member=member(LUFFY_GID), indexes=indexes_from(rule_db),
+        rulings={LUFFY_GID: ruling},
+    )
+    assert ruled_new.verdict == "auto" and ruled_new.resolution == "new_variant", ruled_new
+    assert ruled_new.variant_id is None, "a ruled card gets its own variant, never the one it is not"
+    assert ruled_new.reason_code == f"ruled_new_variant_vs_variant_{other_print}"
+    assert ruled_new.detail["blockers"] and ruled_new.detail["opaqueId"]
+    print("POSITIVE_OK a ruling naming the colliding variant opens a new variant, with the blockers kept")
+
+    elsewhere = intake.classify(
+        LUFFY_GID, population=1162, member=member(LUFFY_GID), indexes=indexes_from(rule_db),
+        rulings={LUFFY_GID: {**ruling, "notVariant": other_print + 1}},
+    )
+    assert elsewhere.verdict == "ambiguous", "a ruling about another variant decides nothing here"
+    print("POSITIVE_OK a ruling about a different variant leaves the card ambiguous")
+
+    clean_db = FakeDB()
+    clean = clean_db.add_variant(
+        tcg_code="one-piece", card_language="en", set_name=fields["set_name"],
+        collector_number=fields["collector_number"], canonical_name="Monkey D. Luffy",
+        opaque_id="cmc_clean",
+    )
+    clean_db.add_printing(clean, "e" * 64, parallel_code="base")
+    matched = intake.classify(
+        LUFFY_GID, population=1162, member=member(LUFFY_GID), indexes=indexes_from(clean_db)
+    )
+    assert matched.verdict == "auto" and matched.resolution == "existing_printing", matched
+    overruled = intake.classify(
+        LUFFY_GID, population=1162, member=member(LUFFY_GID), indexes=indexes_from(clean_db),
+        rulings={LUFFY_GID: {**ruling, "notVariant": clean}},
+    )
+    assert overruled.verdict == "needs_human", overruled
+    assert overruled.reason_code == f"ruling_contradicts_clean_match_vs_variant_{clean}"
+    print("POSITIVE_OK a ruling never overrides a clean match: the card goes back to a person")
+
+    real_rulings = intake.load_rulings()
+    assert real_rulings, "the checked-in rulings file must parse"
+    assert {int(r["notVariant"]) for r in real_rulings.values()} >= {2255, 2272}
+    assert intake.load_rulings(WORKSPACE / "no-rulings.json") == {}
+    for broken in ({"notVariant": 5, "ruledAt": "2026-09-24"},
+                   {"notVariant": 5, "why": "x"},
+                   {"notVariant": 0, "why": "x", "ruledAt": "2026-09-24"},
+                   {"ruling": "merge", "notVariant": 5, "why": "x", "ruledAt": "2026-09-24"}):
+        bad_rulings = WORKSPACE / "bad-rulings.json"
+        bad_rulings.write_text(json.dumps({"rulings": [
+            {"gemrateId": LUFFY_GID, "ruling": "new_variant", **broken}]}), encoding="utf-8")
+        try:
+            intake.load_rulings(bad_rulings)
+        except SystemExit:
+            continue
+        raise AssertionError(f"a malformed ruling was accepted: {broken}")
+    print("POSITIVE_OK a ruling without a reason, a date, a variant or a known kind is refused")
+
     # ------------------------------------------------------------- ratchet
     autos = [
         intake.Verdict(f"{i:040d}", "auto", "new_variant", 1000 + i, tcg_code="one-piece",
@@ -497,6 +569,9 @@ try:
     print("POSITIVE_OK a stale census interns zero cards, and says so per row")
 
     # -------------------------------------------------------------- census
+    # The brute census is always read too; here it lives nowhere unless a
+    # check below puts one in place.
+    intake.CENSUS_SEARCH_ROOTS = (WORKSPACE / "no-brute",)
     census_path = WORKSPACE / "psa10_1000_plus.jsonl"
     census_path.write_text(
         "\n".join([
@@ -506,6 +581,7 @@ try:
         ]) + "\n",
         encoding="utf-8",
     )
+    os.utime(census_path, (NOW.timestamp(), NOW.timestamp()))
     fresh = intake.census(census_path, max_age_days=7, now=NOW)
     assert fresh.stale is False and fresh.missing is False
     assert fresh.rows == {LUFFY_GID: 1162, PERONA_GID: 1084}
@@ -518,6 +594,42 @@ try:
     absent = intake.census(WORKSPACE / "nope.jsonl", max_age_days=7, now=NOW)
     assert absent.missing is True and absent.stale is True and absent.rows == {}
     print("POSITIVE_OK an old or unreadable census reports stale/missing and can never read as 'no new cards'")
+
+    # Re-seed 2026-09-13..23: V2's merged census went 18 days stale while the
+    # daily brute census was fresh, and intake refused every day.
+    brute_root = WORKSPACE / "brute-root"
+    brute = brute_root / intake.CENSUS_RELATIVE
+    brute.parent.mkdir(parents=True)
+    brute.write_text(
+        "\n".join([
+            json.dumps({"psa_id": LUFFY_GID, "psa_10": 1100}),
+            json.dumps({"psa_id": PERONA_GID, "psa_10": 1090}),
+            json.dumps({"psa_id": CLASH_GID, "psa_10": 1001}),
+        ]) + "\n",
+        encoding="utf-8",
+    )
+    os.utime(brute, (NOW.timestamp(), NOW.timestamp()))
+    merged_file = WORKSPACE / "gemrate-qualified-latest.jsonl"
+    merged_file.write_text(census_path.read_text(encoding="utf-8"), encoding="utf-8")
+    old_time = (NOW - timedelta(days=18)).timestamp()
+    os.utime(merged_file, (old_time, old_time))
+    intake.CENSUS_SEARCH_ROOTS = (brute_root,)
+    both = intake.census(merged_file, max_age_days=7, now=NOW)
+    assert both.stale is False and both.missing is False, both
+    assert both.rows == {LUFFY_GID: 1162, PERONA_GID: 1090, CLASH_GID: 1001}, both.rows
+    assert both.path == brute and both.age_days is not None and both.age_days < 1
+    assert [(s["path"], s["stale"]) for s in both.sources] == [(str(merged_file), True), (str(brute), False)]
+    assert both.as_report()["censusSources"][0]["ageDays"] == 18.0
+    print("POSITIVE_OK a stale merged census is read with the fresh brute one: every card, its highest pop, each age reported")
+
+    assert intake.census(merged_file, max_age_days=7, now=NOW + timedelta(days=30)).stale is True
+    lost = intake.census(WORKSPACE / "nope.jsonl", max_age_days=7, now=NOW)
+    assert lost.missing is False and lost.rows == {LUFFY_GID: 1100, PERONA_GID: 1090, CLASH_GID: 1001}
+    assert lost.sources[0] == {"path": str(WORKSPACE / "nope.jsonl"), "missing": True}
+    assert len(intake.census(brute, max_age_days=7, now=NOW).sources) == 1
+    assert len(intake.census(None, max_age_days=7, now=NOW).sources) == 1
+    intake.CENSUS_SEARCH_ROOTS = (WORKSPACE / "no-brute",)
+    print("POSITIVE_OK stale only when every source is; a missing file is named; one file is read once")
 
     # ------------------------------------------------------------- headroom
     head_db = FakeDB()
@@ -575,6 +687,22 @@ try:
     assert report["buckets"]["auto"] == 2 and len(report["interned"]) == 2
     assert run_db.committed == 0 and not run_db.variants and not run_db.identities
     print("NEGATIVE_OK the default dry-run classifies and plans without a single write")
+
+    # run() reads the checked-in rulings itself: the V2 stage passes none.
+    rule_db.members = {LUFFY_GID: member(LUFFY_GID)}
+    real_load = intake.load_rulings
+    intake.load_rulings = lambda *a, **k: {LUFFY_GID: ruling}  # type: ignore[assignment]
+    try:
+        report, code = intake.run(FakeConnection(rule_db), census_result=fresh, do_apply=False, now=NOW)
+    finally:
+        intake.load_rulings = real_load  # type: ignore[assignment]
+    assert code == 0 and [r["reasonCode"] for r in report["interned"]] == [
+        f"ruled_new_variant_vs_variant_{other_print}"], report["interned"]
+    report, code = intake.run(
+        FakeConnection(rule_db), census_result=fresh, do_apply=False, now=NOW, rulings={}
+    )
+    assert report["interned"] == [] and report["buckets"]["ambiguous"] == 1
+    print("POSITIVE_OK run() applies the checked-in rulings with no argument, and only them")
 
     # --------------------------------------------------------------- apply
     cards_dir = WORKSPACE / "cards"
