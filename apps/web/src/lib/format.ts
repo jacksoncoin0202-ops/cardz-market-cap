@@ -190,6 +190,18 @@ export function formatObservationDate(value: string | null, locale: Locale): str
 }
 
 /*
+ * 原盒發售日（box.release）。DB 出嚟全部係「YYYY-MM」（2026-09-23 live 307/307），淨係知道月份。
+ * 以前行 formatObservationDate：new Date("2026-10") 補咗個 1 號，詳情頁出「Oct 1, 2026」——
+ * 同上面一樣係造精度。YYYY-MM 出「月 年」；真係有日子（YYYY-MM-DD）先行 formatObservationDate。
+ */
+export function formatReleaseDate(value: string, locale: Locale): string {
+  if (!/^\d{4}-\d{2}$/.test(value)) return formatObservationDate(value, locale);
+  const date = new Date(`${value}-01T00:00:00Z`);
+  if (Number.isNaN(date.valueOf())) return copy[locale].status.unavailable;
+  return dateFormat(locale, { year: "numeric", month: "short", timeZone: "UTC" }).format(date);
+}
+
+/*
  * 同一批觀察日期，喺價格圖個軸上面淨係要「月 日」。行返上面同一組規矩（pin UTC +
  * 經 intlLocale），因為佢讀緊同一批 DATE 值。
  *

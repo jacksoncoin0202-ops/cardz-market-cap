@@ -12,7 +12,7 @@ import { BoxImage } from "./box-image";
 import { tcgOfGroup } from "./box-group-selector";
 import { absolutePublicUrl, canonicalPublicUrl, datasetId, StructuredData } from "./structured-data";
 import { copy } from "@/lib/i18n";
-import { formatInteger, formatMetricMoney, formatMoney, formatObservationDate, formatPercent, metricTone } from "@/lib/format";
+import { formatInteger, formatMetricMoney, formatMoney, formatObservationDate, formatPercent, formatReleaseDate, metricTone } from "@/lib/format";
 import { plainDescription } from "@/lib/plain-text";
 import { appendParam, fillTemplate, geoCopy } from "@/lib/related-cards";
 import type { Currency, MarketViewSnapshot, SealedProductView } from "@/lib/types";
@@ -161,8 +161,8 @@ export function BoxDetail({ product, snapshot }: {
                 <div><dt>{t.box.fullName}</dt><dd>{product.fullName[locale] || product.fullName.en}</dd></div>
               )}
               <div><dt>{t.box.setCode}</dt><dd>{product.setCode}</dd></div>
-              {/* release 係 DATE 字串：同卡頁一樣 pin UTC 淨出日期，唔出 raw ISO */}
-              {product.release && <div><dt>{t.box.release}</dt><dd>{formatObservationDate(product.release, locale)}</dd></div>}
+              {/* release 係「YYYY-MM」：出「月 年」，唔好補個 1 號出嚟（見 formatReleaseDate） */}
+              {product.release && <div><dt>{t.box.release}</dt><dd>{formatReleaseDate(product.release, locale)}</dd></div>}
               {product.packsPerBox > 0 && <div><dt>{t.box.packs}</dt><dd>{formatInteger(product.packsPerBox, locale)}</dd></div>}
               {product.printWave !== "std" && <div><dt>{t.box.print}</dt><dd>{printWaveLabel}</dd></div>}
               {product.status === "unreleased" && <div><dt>{t.labels.asOf}</dt><dd>{t.box.unreleased}</dd></div>}

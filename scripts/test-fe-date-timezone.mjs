@@ -22,6 +22,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 /* 20:30Z 同 23:59:59Z 喺 UTC+9 已經係第二日；純日期 2026-03-27 係 DB DATE 嘅樣 */
 const SAMPLES = ["2026-09-23T04:20:00.000Z", "2026-09-23T20:30:00.000Z", "2026-03-27", "2026-12-31T23:59:59Z"];
+/* 原盒 release：DB 係 YYYY-MM（淨係知月份）；YYYY-MM-DD 係將來有日子嘅樣 */
+const RELEASES = ["2026-10", "1999-01", "2026-09-16"];
 const LOCALES = ["en", "zh-TW", "zh-CN", "ja", "ko"];
 const ZONES = ["UTC", "Asia/Tokyo", "America/Los_Angeles", "Pacific/Kiritimati"];
 
@@ -34,10 +36,11 @@ if (process.argv[2] === "--child") {
       return next(specifier, context);
     },
   });
-  const { formatObservationDate, formatObservationDayMonth } = await import(pathToFileURL(join(ROOT, "apps/web/src/lib/format.ts")).href);
+  const { formatObservationDate, formatObservationDayMonth, formatReleaseDate } = await import(pathToFileURL(join(ROOT, "apps/web/src/lib/format.ts")).href);
   const out = {};
   for (const locale of LOCALES) {
     for (const sample of SAMPLES) out[`${locale} ${sample}`] = [formatObservationDate(sample, locale), formatObservationDayMonth(sample, locale)];
+    for (const value of RELEASES) out[`release ${locale} ${value}`] = [formatReleaseDate(value, locale)];
   }
   const control = SAMPLES.map((sample) => new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(sample)));
   console.log(JSON.stringify({ out, control }));
@@ -89,6 +92,8 @@ const boxPages = ["apps/web/src/components/box-market-page.tsx", "apps/web/src/c
 for (const page of boxPages) {
   check(`${page}: asOf 用 formatObservationDate`, /\{t\.labels\.asOf\}: \{formatObservationDate\(/.test(readFileSync(join(ROOT, page), "utf8")));
 }
+check("box-detail.tsx: 發售日用 formatReleaseDate（YYYY-MM 唔准補 1 號）",
+  /<dt>\{t\.box\.release\}<\/dt><dd>\{formatReleaseDate\(product\.release, locale\)\}/.test(readFileSync(join(ROOT, boxPages[1]), "utf8")));
 
 /* ② 行為：每個時區一個 child process（TZ 要喺 process 開頭定，同一個 process 入面改唔穩陣） */
 const runs = ZONES.map((zone) => {
@@ -102,6 +107,10 @@ const runs = ZONES.map((zone) => {
 const base = runs[0].data;
 if (base) {
   check("UTC 基準：20:30Z 仲係 9月23日", base.out["zh-TW 2026-09-23T20:30:00.000Z"][0] === "2026年9月23日", base.out["zh-TW 2026-09-23T20:30:00.000Z"][0]);
+  /* 發售月：唔准出「Oct 1, 2026」；有日子嘅就照出日子 */
+  for (const [key, want] of [["release en 2026-10", "Oct 2026"], ["release zh-TW 2026-10", "2026年10月"], ["release en 2026-09-16", "Sep 16, 2026"]]) {
+    check(`${key} → ${want}`, base.out[key][0] === want, base.out[key][0]);
+  }
   for (const run of runs.slice(1)) {
     if (!run.data) continue;
     const diff = Object.keys(base.out).filter((key) => JSON.stringify(base.out[key]) !== JSON.stringify(run.data.out[key]));
@@ -115,4 +124,4 @@ if (failed.length) {
   console.error("FAIL test-fe-date-timezone\n" + failed.map((item) => ` - ${item}`).join("\n"));
   process.exit(1);
 }
-console.log(`PASS test-fe-date-timezone (${calls} 個日期格式 call 帶 timeZone；${ZONES.length} 個時區 × ${LOCALES.length} 語言 × ${SAMPLES.length} 個日期字一樣；負控制會變)`);
+console.log(`PASS test-fe-date-timezone (${calls} 個日期格式 call 帶 timeZone；${ZONES.length} 個時區 × ${LOCALES.length} 語言 × ${SAMPLES.length} 個日期 + ${RELEASES.length} 個發售月字一樣；發售月唔補 1 號；負控制會變)`);
