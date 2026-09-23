@@ -14,6 +14,7 @@ import hashlib
 import json
 import re
 import sys
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -37,25 +38,44 @@ REJECT_PATTERNS = [
     (re.compile(r"(カートン|ケース販売)", re.I), "case_not_box"),
     (re.compile(r"\b(etb|elite trainer box|booster bundle|build\s*&\s*battle|blister|mini tin|tin\b)\b", re.I), "not_booster_box"),
     (re.compile(r"(エリートトレーナー|デッキ|スターター|プロモ|バラ売り|バラパック)", re.I), "not_booster_box"),
+    # other boxes of a set, and SV10's attache case sold on its own (2026-09-24 Yahoo titles)
+    (re.compile(r"(アタッシュケース|ジャンボカードコレクション|ミステリーボックス|トレーナーボックス|シャイニーボックス|コレクターボックス"
+                r"|mystery\s*box|trainer\s*box|shiny\s*box|collector\s*box)", re.I), "not_booster_box"),
     (re.compile(r"\b(empty|no box|box only|opened|resealed)\b", re.I), "opened_or_empty"),
+    (re.compile(r"(BOX|ボックス)\s*(無し|なし)", re.I), "opened_or_empty"),
     (re.compile(r"(空箱|空BOX|空ボックス|開封済|開封品|サーチ済|中身なし|箱のみ)", re.I), "opened_or_empty"),
     (re.compile(r"(ギフトボックス|gift\s*box)", re.I), "not_booster_box"),
     (re.compile(r"(収納ケース|紙製.{0,24}カードボックス)", re.I), "not_booster_box"),
-    (re.compile(r"(BOX購入キャンペーン)", re.I), "promo_card"),
+    (re.compile(r"(BOX|ボックス)用", re.I), "not_booster_box"),  # "BOX用プラスチック保護ケース": a case for a box
+    # a Pokemon Center special box, a collection file set, candy sold by the box (食玩/グミ)
+    (re.compile(r"(スペシャル\s*(BOX|ボックス)|コレクションファイル|食玩|グミ)", re.I), "not_booster_box"),
+    # boxes of several sets in one lot: "BOX 6種セット", "蒼海の七傑他", "SV11W + SV11B"; not "他の人", "他にも出品中"
+    (re.compile(r"(\d+\s*種\s*セット|(?<!その)他(?=\s|$|\d+\s*種))"), "bundle_or_fake"),
+    (re.compile(r"\b(?:op|eb|prb|sv|sm|swsh|s|m|xy|bw)-?\s?\d+[a-z]?\s*[+＋]\s*(?:op|eb|prb|sv|sm|swsh|s|m|xy|bw)-?\s?\d+",
+                re.I), "bundle_or_fake"),
+    (re.compile(r"(BOX|ボックス)購入(キャンペーン|特典)", re.I), "promo_card"),
     (re.compile(r"\d+/[A-Z]{2,4}-P", re.I), "promo_card"),
     (re.compile(r"(イタリア版|フランス版|ドイツ版|英語版|韓国版|中国版|海外版)", re.I), "foreign_edition"),
     (re.compile(r"\b(1|one)\s*(pack|booster pack)\b", re.I), "single_pack"),
     (re.compile(r"(1パック|パック単品)", re.I), "single_pack"),
-    (re.compile(r"(BOX分|ボックス分|パック分|相当|口分)", re.I), "box_equivalent_lot"),
+    (re.compile(r"((BOX|ボックス|パック)\s*分|相当|口分)", re.I), "box_equivalent_lot"),  # "2 box 分 48p"
+    (re.compile(r"(1/2|½)\s*(BOX|ボックス)", re.I), "box_equivalent_lot"),  # "5 パック セット 1/2 ボックス"
     (re.compile(r"(まとめ売り|まとめて|引退品|福袋|オリパ)", re.I), "junk_lot_signal"),
     (re.compile(r"\b(psa|bgs|cgc|ars)\s*\d", re.I), "graded_item"),
 ]
 
 BOX_KEYWORD_RE = re.compile(r"(booster box|display|\bbox\b|ボックス|ＢＯＸ|BOX)", re.I)
 
+# Boxes in a lot; the first pattern that finds 1..24 wins. 2026-09-24: "OP-03 BOX" read 3, "BOX 10パック" and
+# "Booster Box 24 Packs" read the X of BOX, "2BOXセット" read 1 (\b never falls between BOX and セ).
 QTY_PATTERNS = [
-    re.compile(r"(\d+)\s*(?:boxes|box|箱|BOX)\b", re.I),
-    re.compile(r"[x×]\s*(\d+)\s*(?:box|箱)?", re.I),
+    # "2BOXセット", "2 boxes", "10箱", "4ボックス"; not a set code's digits ("OP-03 BOX", "OP05 Box")
+    re.compile(r"(?<![a-z0-9-])(\d+)\s*(?:boxes|box|箱|ボックス)(?![a-z])", re.I),
+    # "BOX 2個セット", "4点セット", "BOX 2セット", "Booster Box 2 Set"; not a pack count ("パック 12個") nor a
+    # listing's number ("_2点目")
+    re.compile(r"(?<![0-9-])(?<!パック)(?<!パック )(\d+)\s*(?:個|点|セット|(?i:sets?\b))(?!目)"),
+    # "BOX×3", "x2"; not the x of a word ("BOX 10", "ドリームex 5") nor packs ("パック×13", "x 24 packs")
+    re.compile(r"(?:(?<![a-z])(?<!パック)x|(?<!パック)×)\s*(\d+)(?!\d)(?!\s*(?:パック|packs?\b|枚|cards?\b))", re.I),
 ]
 
 SHRINK_ON_RE = re.compile(r"(シュリンク付|シュリンク有|shrink[- ]?wrapped|factory sealed)", re.I)
@@ -107,26 +127,58 @@ def qc_box_title(title: str) -> dict[str, Any]:
     return {"accepted": True, "reason": "", "quantity": quantity, "condition": condition}
 
 
+PACK_WORD_RE = re.compile(r"(拡張パック|強化拡張パック|ハイクラスパック|ブースターパック|エクストラブースター|プレミアムブースター)")
+# Era names printed on every box of the era ("ソード＆シールド 拡張パック 反逆クラッシュ"). They hold set names (S1W ソード,
+# S1H シールド, SM1+ サン&ムーン), so an era name is never a set name on its own: 2026-09-23 S2's own titles were rejected
+# as foreign, and SM1+'s 「サン&ムーン」 would have matched every Sun & Moon box.
+SERIES_RE = re.compile(r"(?:ソード|サン|スカーレット|ブラック|ダイヤモンド|ハートゴールド)(?:&|アンド|・)"
+                       r"(?:シールド|ムーン|バイオレット|ホワイト|パール|ソウルシルバー)"
+                       r"|(?:sword|sun|scarlet|black|diamond|heartgold)(?:&|and)(?:shield|moon|violet|white|pearl|soulsilver)")
+# How sellers write a catalog name: M2a メガドリームex as MEGAドリームex, M6 ストームエメラルダ (pokemon-card.com/ex/m6)
+# as ストームエメラルド. Titles and names both pass through, so a bundle naming MEGAドリームex is foreign to SV10.
+SELLER_SPELLINGS = (("mega", "メガ"), ("ストームエメラルド", "ストームエメラルダ"))
+
+
+def _title_norm(text: str | None) -> str:
+    """Width, case, spaces and quote brackets do not name a set: 'THE BEST Vol.2' is 'THE BEST vol.2', ＆ is &."""
+    text = re.sub(r"[\s「」『』【】\"“”]+", "", unicodedata.normalize("NFKC", text or "").casefold())
+    for seller, name in SELLER_SPELLINGS:
+        text = text.replace(seller, name)
+    return text
+
+
 def _name_tokens(name: str | None) -> list[str]:
-    """Distinctive tokens for a set name (JP names used whole; EN split)."""
-    text = (name or "").strip()
-    if not text:
-        return []
-    cleaned = re.sub(r"(拡張パック|強化拡張パック|ハイクラスパック|ブースターパック|エクストラブースター|プレミアムブースター)", "", text).strip()
-    return [t for t in {cleaned, text} if len(t) >= 2]
+    """Distinctive tokens for a set name: the name, and the name without its pack word; never an era name alone."""
+    text = _title_norm(name)
+    cleaned = PACK_WORD_RE.sub("", text)
+    return [t for t in {cleaned, text} if len(t) >= 2 and not SERIES_RE.fullmatch(t)]
 
 
 def title_set_contamination(title: str, own_names: list[str], foreign_names: list[str]) -> dict[str, Any]:
-    """Require own set name in title; reject titles naming other sets too."""
-    text = title or ""
-    own_tokens = [t for name in own_names for t in _name_tokens(name)]
-    own_hit = any(t and t in text for t in own_tokens) if own_tokens else True
-    if not own_hit:
-        return {"accepted": False, "reason": "own_set_name_missing"}
+    """Require own set name in title; reject titles naming other sets too.
+
+    Longest name first, and each match is used up: in 'THE BEST Vol.2' PRB-02 is named, not PRB-01's 'THE BEST';
+    an era name in the title is used up before the set names inside it."""
+    text = _title_norm(title)
+    kinds: dict[str, set[str]] = {}
+    for name in own_names:
+        for token in _name_tokens(name):
+            kinds.setdefault(token, set()).add("own")
     for name in foreign_names:
         for token in _name_tokens(name):
-            if token and len(token) >= 3 and token in text:
-                return {"accepted": False, "reason": "foreign_set_in_title"}
+            if len(token) >= 3:
+                kinds.setdefault(token, set()).add("foreign")
+    for era in SERIES_RE.findall(text):
+        kinds.setdefault(era, set()).add("era")
+    hits: set[str] = set()
+    for token in sorted(kinds, key=len, reverse=True):
+        if token in text:
+            hits |= kinds[token]
+            text = text.replace(token, "\x00")
+    if any("own" in k for k in kinds.values()) and "own" not in hits:
+        return {"accepted": False, "reason": "own_set_name_missing"}
+    if "foreign" in hits:
+        return {"accepted": False, "reason": "foreign_set_in_title"}
     return {"accepted": True, "reason": ""}
 
 

@@ -737,6 +737,94 @@ def cmd_sealed_quarantine(*, table: str, ids: list[int], restore: bool, actor: s
     return doc
 
 
+SET_NAME_REJECTS = ("rejected_own_set_name_missing", "rejected_foreign_set_in_title")
+
+
+# the sales whose box count and title QC come from the title alone (an eBay import can carry its own quantity)
+REJUDGE_SOURCES = {"yahoo": "yahoo_closedsearch_v1", "ebay": "pc_page_v1"}
+
+
+def cmd_sealed_rejudge_sales(*, source: str, skus: list[str], actor: str, note: str, dry_run: bool = False) -> dict:
+    """Sales are INSERT IGNORE by lot, so a title-QC fix never reaches rows already written (2026-09-23: S2's own
+    'ソード＆シールド … 反逆クラッシュ' titles stayed rejected; 2026-09-24: 'OP-03 BOX' was 3 boxes, 'BOX 10パック' 10,
+    'Booster Box 24 Packs' 24, '2BOXセット' 1). This runs today's title QC on a source's rows that are counted, and for
+    yahoo those rejected for the set name (with the peers run_yahoo uses). A row today's QC rejects leaves for
+    rejected_<reason>, usd NULL; only a set-name reject today's QC accepts comes back, ok. A row that stays or comes back
+    counted takes today's box count: its unit is total_native_price / quantity, in USD at the rate the row was priced at,
+    or at the latest rate for a row coming back (compose's trim re-judges outliers). A quarantine or any other reject is
+    never read."""
+    from sealed_collect import _group_name_map, set_names
+    from sealed_runtime import fx_units_per_usd, qc_box_title, title_set_contamination, to_usd
+
+    parser = REJUDGE_SOURCES[source]
+    load_env()
+    conn = db()
+    try:
+        cur = conn.cursor()
+        if not skus:
+            cur.execute("SELECT DISTINCT p.sku_id FROM market_sealed_sale_observation s JOIN catalog_sealed_product p "
+                        "ON p.id=s.sealed_id WHERE s.source_code=%s AND s.parser=%s AND p.status<>'no-box'", (source, parser))
+            skus = [r["sku_id"] for r in cur.fetchall()]
+        products = [_product(cur, s) for s in skus]
+        boxless = [p["sku_id"] for p in products if p["status"] == "no-box"]
+        if boxless and source == "yahoo":
+            raise SystemExit(f"no-box SKUs have no set-name peers to judge by: {boxless}")
+        jpy_per_usd = fx_units_per_usd(cur, "JPY")
+        if not jpy_per_usd:
+            raise SystemExit("no JPY rate: a row coming back could not be priced")
+        groups = _group_name_map(cur)
+        states = ("ok", "outlier_trimmed", *(SET_NAME_REJECTS if source == "yahoo" else ()))
+        moves = []
+        for product in products:
+            sealed_id = int(product["id"])
+            own, foreign = set_names(groups, str(product["group_code"]), sealed_id)
+            cur.execute(
+                f"SELECT id, title, native_price, native_currency, quantity, total_native_price, unit_price_usd, metric_status "
+                f"FROM market_sealed_sale_observation WHERE sealed_id=%s AND source_code=%s AND parser=%s "
+                f"AND metric_status IN ({','.join(['%s'] * len(states))})",
+                (sealed_id, source, parser, *states),
+            )
+            for row in cur.fetchall():
+                qc = qc_box_title(row["title"] or "")
+                if qc["accepted"] and source == "yahoo":
+                    qc = {**qc, **title_set_contamination(row["title"] or "", own, foreign)}
+                was = row["metric_status"]
+                to = ("ok" if was in SET_NAME_REJECTS else was) if qc["accepted"] else f"rejected_{qc['reason']}"
+                qty, usd = int(row["quantity"] or 1), None
+                native = None if row["native_price"] is None else float(row["native_price"])  # DECIMAL
+                if to in ("ok", "outlier_trimmed"):
+                    total, qty = row["total_native_price"], qc["quantity"]
+                    currency = str(row["native_currency"] or "JPY")
+                    if source == "yahoo":  # yahoo's native_price is the unit, eBay's the lot (run_pc)
+                        native = round(float(total) / qty, 2)
+                    if was in SET_NAME_REJECTS or row["unit_price_usd"] is None:
+                        usd = to_usd(float(total) / qty, currency, jpy_per_usd)
+                    else:  # the rate the row was priced at: usd * old boxes = the lot in USD
+                        usd = round(float(row["unit_price_usd"]) * int(row["quantity"] or 1) / qty, 2)
+                    if to == was and qty == int(row["quantity"] or 1):
+                        continue
+                elif to == was:
+                    continue
+                moves.append({"id": int(row["id"]), "sealedId": sealed_id, "sku": product["sku_id"], "from": was, "to": to,
+                              "quantity": [int(row["quantity"] or 1), qty], "usd": usd, "native": native,
+                              "title": (row["title"] or "")[:120]})
+        for m in moves if not dry_run else ():
+            cur.execute("UPDATE market_sealed_sale_observation SET metric_status=%s, unit_price_usd=%s, quantity=%s, native_price=%s "
+                        "WHERE id=%s AND metric_status=%s AND quantity=%s",
+                        (m["to"], m["usd"], m["quantity"][1], m["native"], m["id"], m["from"], m["quantity"][0]))
+            if cur.rowcount != 1:
+                raise SystemExit(f"sale {m['id']}: UPDATE matched {cur.rowcount} rows, expected 1")
+        doc = {"asOf": utc_now(), "action": "sealed-rejudge-sales", "source": source, "dryRun": dry_run,
+               "jpyPerUsd": jpy_per_usd, "skus": len(products), "rows": moves, "actor": actor, "note": note}
+        if not dry_run:
+            _log_catalog_change(doc)
+            conn.commit()
+    finally:
+        conn.close()
+    print(json.dumps(doc, ensure_ascii=False, indent=2))
+    return doc
+
+
 def cmd_sealed_reject_binding(*, sku: str, source_code: str, external_id: str, actor: str, note: str) -> dict:
     """A SKU's bind to the wrong item comes down: its identity rows under every spelling turn rejected, which
     discover never reopens (insert_candidate_bind), and its source freeze turns rejected when it names that item."""

@@ -20,6 +20,7 @@ place, so BOX prices stood still from 2026-08-20 to 2026-09-23.
   python -X utf8 pipelines/sealed_daily.py set-product --sku <slug> --release 2025-10 --note "official source"
 Corrections, by status, never by delete (each has its reverse):
   python -X utf8 pipelines/sealed_daily.py quarantine --table sale --ids 334667,334755 [--restore] --note "why"
+  python -X utf8 pipelines/sealed_daily.py rejudge-sales --source yahoo|ebay [--sku <slug> ...] [--dry-run] --note "why"  # title QC fix -> old rows
   python -X utf8 pipelines/sealed_daily.py reject-binding --sku <slug> --source-code snkrdunk --ext apparels:N --note "why"
   python -X utf8 pipelines/sealed_daily.py move-binding --source-code snkrdunk --ext apparels:N --from-sku <a> --to-sku <b> --note "why"
   python -X utf8 pipelines/sealed_daily.py add-binding --sku <slug> --source-code snkrdunk --ext apparels:N --url https://... --note "why"
@@ -151,6 +152,11 @@ def main(argv: list[str] | None = None) -> int:
     for x in (q, *[sub.choices[n] for n in ("reject-binding", "move-binding", "add-binding", "revoke-image", "add-image")]):
         x.add_argument("--note", required=True, help="the evidence for this correction")
     q.add_argument("--actor", default="daddy")
+    y = sub.add_parser("rejudge-sales", help="today's title QC and box count on a source's counted rows (+ yahoo set-name rejects)")
+    y.add_argument("--source", required=True, choices=("ebay", "yahoo"))  # sealed_operator.REJUDGE_SOURCES
+    y.add_argument("--sku", action="append", default=[], help="sku_id or slug, repeatable; default every SKU with such rows")
+    y.add_argument("--dry-run", action="store_true"); y.add_argument("--actor", default="daddy")
+    y.add_argument("--note", required=True, help="the evidence for this correction")
     a = ap.parse_args(argv)
     py = sys.executable
     if a.cmd == "collect":
@@ -183,6 +189,9 @@ def main(argv: list[str] | None = None) -> int:
         if a.cmd == "quarantine":
             sealed_operator.cmd_sealed_quarantine(table=a.table, ids=[int(i) for i in a.ids.split(",") if i.strip()],
                                                   restore=a.restore, actor=a.actor, note=a.note)
+            return 0
+        if a.cmd == "rejudge-sales":
+            sealed_operator.cmd_sealed_rejudge_sales(source=a.source, skus=a.sku, actor=a.actor, note=a.note, dry_run=a.dry_run)
             return 0
         if a.cmd == "reject-binding":
             sealed_operator.cmd_sealed_reject_binding(sku=a.sku, source_code=a.source_code, external_id=a.ext,

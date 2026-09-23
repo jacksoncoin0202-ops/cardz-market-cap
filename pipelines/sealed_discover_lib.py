@@ -478,7 +478,8 @@ def grammar_full_name_ja(product: dict) -> str:
 
 
 def yahoo_jp_query(name_jp: str | None, name_en: str | None, print_wave: str, game: str = "") -> str:
-    core = (name_jp or name_en or "").strip()
+    # quote brackets are not words a seller types: SM1+ 強化拡張パック「サン&ムーン」 searches as 強化拡張パック サン&ムーン
+    core = " ".join(re.sub(r"[「」『』]", " ", name_jp or name_en or "").split())
     wave = ""
     if print_wave == "wave1":
         wave = "初版"

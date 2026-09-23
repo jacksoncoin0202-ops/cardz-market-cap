@@ -8,7 +8,8 @@ operator commands docs/SEALED_OPS.md listed were never wired into this tree. sea
 now carries refresh / stock / accept-binding / scan / release / add-product / set-product.
   - refresh / stock / accept-binding / scan / release / add-product / set-product run inside operator_e2e_lease;
     a refused lease runs nothing. add-product / set-product refuse to parse without --note (the source).
-  - so do the corrections (quarantine / reject-binding / move-binding / add-binding / revoke-image / add-image),
+  - so do the corrections (quarantine / rejudge-sales / reject-binding / move-binding / add-binding / revoke-image /
+    add-image),
     each with a required --note naming its evidence.
   - collect / compose / export / status / gaps take no lease: the V2 box stage holds it around
     compose/export, and a child's GET_LOCK would be refused.
@@ -62,7 +63,7 @@ sealed_operator = types.ModuleType("sealed_operator")
 for name in ("cmd_sealed_status", "cmd_sealed_gaps", "cmd_sealed_accept_binding", "cmd_sealed_scan", "cmd_sealed_release",
              "cmd_sealed_add_product", "cmd_sealed_set_product", "cmd_export_sealed_subset", "cmd_sealed_quarantine",
              "cmd_sealed_reject_binding", "cmd_sealed_move_binding", "cmd_sealed_add_binding", "cmd_sealed_revoke_image",
-             "cmd_sealed_add_image"):
+             "cmd_sealed_add_image", "cmd_sealed_rejudge_sales"):
     setattr(sealed_operator, name, recorder(name))
 sealed_runtime = types.ModuleType("sealed_runtime")
 sealed_runtime.OUT_DIR = TMP
@@ -211,6 +212,8 @@ def main() -> int:
     fixes = [
         (["quarantine", "--table", "sale", "--ids", "334667, 334755", "--note", "e"], "cmd_sealed_quarantine",
          {"table": "sale", "ids": [334667, 334755], "restore": False, "actor": "daddy", "note": "e"}),
+        (["rejudge-sales", "--source", "ebay", "--sku", "a", "--sku", "b", "--dry-run", "--note", "e"], "cmd_sealed_rejudge_sales",
+         {"source": "ebay", "skus": ["a", "b"], "actor": "daddy", "note": "e", "dry_run": True}),
         (["reject-binding", "--sku", "s10b", *snk, "--note", "e"], "cmd_sealed_reject_binding",
          {"sku": "s10b", "source_code": "snkrdunk", "external_id": "apparels:1", "actor": "daddy", "note": "e"}),
         (["move-binding", "--from-sku", "a", "--to-sku", "b", *snk, "--note", "e"], "cmd_sealed_move_binding",
@@ -234,7 +237,18 @@ def main() -> int:
         assert EVENTS == [], f"{argv[0]} without --note ran {EVENTS}"
     code = run(["accept-binding", "--sku", "s10b", "--kind", "image", "--ext", "abc", "--note", "n"])
     assert code == 0 and EVENTS[-1][2]["external_id"] == "abc", "accept-binding --ext lost: %r" % EVENTS
-    print("POSITIVE_OK quarantine / reject / move / add-binding / revoke-image / add-image write under the lease; "
+    code = run(["rejudge-sales", "--source", "yahoo", "--note", "e"])
+    assert code == 0 and EVENTS[-1] == ("cmd_sealed_rejudge_sales", True, {"source": "yahoo", "skus": [], "actor": "daddy",
+                                                                          "note": "e", "dry_run": False}), EVENTS
+    for argv in (["rejudge-sales", "--note", "e"], ["rejudge-sales", "--source", "snkrdunk", "--note", "e"]):
+        try:
+            run(argv)
+        except SystemExit as exc:
+            assert exc.code == 2, exc
+        else:
+            raise AssertionError(f"{argv} ran: a rejudge names a source whose rows take their box count from the title")
+        assert EVENTS == [], f"{argv} ran {EVENTS}"
+    print("POSITIVE_OK quarantine / rejudge-sales / reject / move / add-binding / revoke-image / add-image write under the lease; "
           "none runs without --note")
 
     STATE["refuse"] = True

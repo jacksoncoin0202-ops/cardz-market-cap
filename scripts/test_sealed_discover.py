@@ -4,6 +4,7 @@ import json
 import sqlite3
 import sys
 import tempfile
+from decimal import Decimal
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pipelines"))
@@ -144,6 +145,197 @@ def test_yahoo_rewrite_wave_english():
     assert yahoo_query_needs_rewrite(url, "jp")
     query = yahoo_jp_query("ロマンスドーン", "Romance Dawn", "wave1")
     assert "初版" in query and "BOX" in query
+
+
+# Catalog names as they stand (2026-09-24), one Yahoo group each.
+PTCG_JP = {"ptcg-jp": [(240, "Rebellion Crash", "反逆クラッシュ"), (242, "Shield", "シールド"), (243, "Sword", "ソード"),
+                       (254, "Tag Bolt", "タッグボルト"), (276, "Sun & Moon (JP enhanced)", "強化拡張パック「サン&ムーン」"),
+                       (277, "Collection Sun", "コレクションサン"), (185, "Mega Dream ex (High Class)", "メガドリームex"),
+                       (191, "Glory of Team Rocket", "ロケット団の栄光"), (352, "Rocket Gang", "ロケット団"),
+                       (181, "Storm Emeralda", "ストームエメラルダ")],
+           "optcg-jp": [(48, "Premium Booster — The Best", "プレミアムブースター THE BEST"),
+                        (50, "Premium Booster — The Best Vol.2", "プレミアムブースター THE BEST vol.2")]}
+
+
+def _set_verdict(title, group, sealed_id):
+    from sealed_collect import set_names
+    from sealed_runtime import title_set_contamination
+
+    return title_set_contamination(title, *set_names(PTCG_JP, group, sealed_id))["reason"] or "ok"
+
+
+def test_yahoo_title_names_its_own_set():
+    # 2026-09-23: every S2 title reads 'ソード＆シールド 拡張パック 反逆クラッシュ', and S1W ソード / S1H シールド are its
+    # peers, so its own sales were rejected as foreign; PRB-02's 'THE BEST Vol.2' was read as PRB-01's 'THE BEST'.
+    cases = [
+        ("ポケモンカード ソード＆シールド 拡張パック 反逆クラッシュ BOX シュリンク付き", "ptcg-jp", 240, "ok"),
+        ("ソード&シールド 拡張パック ソード 1BOX 未開封", "ptcg-jp", 243, "ok"),
+        ("ソード&シールド 拡張パック ソード 1BOX 未開封", "ptcg-jp", 240, "own_set_name_missing"),
+        ("ポケモンカード ソード＆シールド BOX 未開封", "ptcg-jp", 243, "own_set_name_missing"),  # the era alone names no set
+        ("ソード&シールド 反逆クラッシュ シールド BOX", "ptcg-jp", 240, "foreign_set_in_title"),
+        ("ポケモンカード 強化拡張パック サン&ムーン BOX", "ptcg-jp", 276, "ok"),
+        ("サン&ムーン 拡張パック タッグボルト BOX", "ptcg-jp", 254, "ok"),
+        ("サン&ムーン 拡張パック タッグボルト BOX", "ptcg-jp", 276, "own_set_name_missing"),
+        ("ワンピースカード プレミアムブースター THE BEST Vol.2 BOX", "optcg-jp", 50, "ok"),
+        ("ワンピースカード プレミアムブースター the best VOL.2 1BOX", "optcg-jp", 50, "ok"),
+        ("ワンピースカード プレミアムブースター THE BEST Vol.2 BOX", "optcg-jp", 48, "own_set_name_missing"),
+        ("ワンピースカード プレミアムブースター THE BEST BOX", "optcg-jp", 48, "ok"),
+        ("ワンピースカード プレミアムブースター THE BEST BOX", "optcg-jp", 50, "own_set_name_missing"),
+        ("Pokemon SWORD & SHIELD BOX", "ptcg-jp", 242, "own_set_name_missing"),  # the English era names no set either
+        ("ポケモンカードゲーム ロケット団の栄光 BOX シュリンク付", "ptcg-jp", 191, "ok"),  # not jp4 ロケット団
+        ("ポケモンカードゲーム MEGAドリームex & ロケット団の栄光 2BOXセット", "ptcg-jp", 191, "foreign_set_in_title"),
+        ("ポケモンカード ストームエメラルド 1BOX シュリンク付き", "ptcg-jp", 181, "ok"),
+        ("ポケモンカードゲーム MEGA 拡張パック ストームエメラルダ BOX", "ptcg-jp", 181, "ok"),
+    ]
+    wrong = [(t, sid, want, got) for t, g, sid, want in cases if (got := _set_verdict(t, g, sid)) != want]
+    assert not wrong, "title set-name verdicts: %r" % wrong
+
+
+def test_box_title_rejects_other_products():
+    # 2026-09-24 rejudge dry run: these titles passed the box QC and would have priced a booster box.
+    from sealed_runtime import qc_box_title
+
+    other = ["[BOX無し]ポケモンカードゲーム ロケット団の栄光 アタッシュケースセット 1個入り",
+             "ロケット団の栄光 アタッシュケースのみ ポケモンカードゲーム アタッシュケース boxなし",
+             "新品未開封 テープ付き ポケモンカード ジャンボカードコレクション ミュウ 5BOX Vstarユニバース パック付き",
+             "ポケモンカードゲーム ソード＆シールド ミステリーボックス 新品 未開封 シュリンク付き パラダイムトリガー",
+             "ポケモンカードゲーム ソード&シールド プレミアムトレーナーボックス VSTAR スターバース 未開封 1BOX",
+             "ポケモンカード 未開封 クロバットV シャイニーボックス シュリンク付き シャイニースターv",
+             "ポケモンカードゲーム プレシャスコレクターボックス SWORD & SHIELD",
+             "ポケモンカード インフェルノX BOXなし 30パック",
+             "ポケモンカードゲーム MEGA グミ ニンジャスピナー 20個 BOX 未開封 食玩 ポケカ メガゲッコウガex",
+             "ポケモンカードゲーム スペシャルBOX ポケモンセンタートウホク 1個 ＋ メガドリームex 2個セット",
+             "ポケモンカード コレクションファイルセット リーリエ N メガゲンガーEX ムニキスゼロ BOX 計4点セット",
+             "ワンピースカードゲーム BOX 6種セット ヒロインズ 決戦の刻 他",
+             "ポケモンカードゲーム 未開封BOX 4種セット インフェルノX ストームエメラルダ アビスアイ メガドリームex",
+             "ワンピースカードゲーム 【全てワンオーナー品】 蒼海の七傑他　新品未開封テープ付き8BOXセット",
+             "ポケモンカード BOX 楽園ドラゴーナ他2種 シュリンク付き",
+             "Pokemon JP SV11W + SV11B Booster Box Set Black Bolt & White Flare TCG Sealed US Japanese",
+             "One Piece OP-10+OP 08 Royal Blood Booster Box ENGLISH SEALED",
+             "ワンピースカードゲーム 神の島の冒険 OP-15 2BOX 分　４８パック 説明文必読"]
+    boxes = ["ポケモンカードゲーム ソード＆シールド 拡張パック 白銀のランス 1BOX（シュリンクなし）",
+             "ポケモンカードゲーム ソード＆シールド 強化拡張パック 白熱のアルカナ BOX シュリンク付き BOXケース付き",
+             "ポケモンカード インフェルノx ペリペリなし 1BOX",
+             "未開封 シュリンク付き ポケモンカードゲーム ロケット団の栄光 1BOX 保護ケース付き",
+             "【購入専門様専用】他の人は購入しないでください。ポケモンカードゲーム サン＆ムーン 強化拡張パック ひかる伝説 1BOX",
+             "ポケモンカード 黒炎の支配者 BOX シュリンク付き 他にも出品中",
+             "ポケモンカード 変幻の仮面 1Box 30パック 新品未開封 【ヤマダ電機購入分】",
+             "ポケモンカード　強化拡張パック「ウルトラフォース」SM5+　未開封ボックス"]
+    wrong = [t for t in other if qc_box_title(t)["accepted"]] + [t for t in boxes if not qc_box_title(t)["accepted"]]
+    assert not wrong, "box title QC: %r" % wrong
+
+
+def test_box_title_counts_boxes():
+    # 2026-09-24: "OP-03 BOX" read 3 boxes, "BOX 10パック" and "Booster Box 24 Packs" the X of BOX, "2BOXセット" 1.
+    from sealed_runtime import qc_box_title
+
+    cases = [("反逆クラッシュ 2BOXセット シュリンク付き", 2), ("ワンピースカードゲーム 謀略の王国 OP-04 BOX", 1), ("One Piece OP05 Box sealed", 1),
+             ("ハイクラスパック MEGAドリームex BOX 10パック シュリンク付き ランダム10枚入り", 1), ("蒼空ストリーム BOX 未開封パック×13", 1),
+             ("One Piece Booster Box 24 Packs", 1), ("Booster Box x 24 packs", 1), ("反逆クラッシュ BOX×3", 3),
+             ("500年後の未来 OP-07 BOX 2個セット", 2), ("未開封BOX 8個セット 師弟の絆×4", 8), ("テラスタルフェスex BOX 2セット", 2),
+             ("メガドリームex 4点セット BOX", 4), ("ムニキスゼロ 5BOXセット", 5), ("MEGAドリーム ex 10 BOX セット", 10),
+             ("反逆クラッシュ BOX x2", 2), ("BOX パック 12個", 1), ("頂上決戦 BOX 全6種", 1), ("４ボックス 決戦の刻", 4),
+             ("ポケモンカード151 2BOX", 2), ("Pokemon 151 Booster Box", 1), ("テラスタルフェスex\u30005BOXセット", 5),
+             ("【シュリンク、ローダー付き_2点目】ポケモンカードゲーム 拡張パック 未来の一閃 BOX", 1),
+             ("Pokemon Card Incandescent Arcana Booster Box 2 Set s11a Japanese", 2)]
+    rejects = [("BOX用プラスチック保護ケース 5枚", "not_booster_box"), ("ハーフBOX用プラスチックケース 白熱のアルカナ", "not_booster_box"),
+               ("ドリームex 5 パック セット 1/2 ボックス", "box_equivalent_lot"), ("テラスタルフェスex 5 パック 1/2BOX 分", "box_equivalent_lot"),
+               ("頂上決戦 ボックス購入特典パック OP-02 全6種", "promo_card")]
+    wrong = [(t, want, qc_box_title(t)) for t, want in cases if (qc_box_title(t)["accepted"], qc_box_title(t)["quantity"]) != (True, want)]
+    wrong += [(t, want, qc_box_title(t)) for t, want in rejects if qc_box_title(t)["reason"] != want]
+    assert not wrong, "box count: %r" % wrong
+
+
+def test_yahoo_query_drops_quote_brackets():
+    # SM1+'s name_jp is 強化拡張パック「サン&ムーン」; sellers type 強化拡張パック サン&ムーン, so a bracketed query found nothing.
+    query = yahoo_jp_query("強化拡張パック「サン&ムーン」", "Sun & Moon (JP enhanced)", "std")
+    assert query == "ポケモンカード 強化拡張パック サン&ムーン BOX", query
+
+
+REJUDGE_DB = """
+CREATE TABLE catalog_sealed_product (id INTEGER PRIMARY KEY, sku_id TEXT, slug TEXT, group_code TEXT, status TEXT,
+  name_en TEXT, name_jp TEXT);
+CREATE TABLE market_sealed_sale_observation (id INTEGER PRIMARY KEY, sealed_id INTEGER, source_code TEXT, parser TEXT,
+  title TEXT, native_price REAL, native_currency TEXT, quantity INTEGER, total_native_price REAL, unit_price_usd REAL,
+  metric_status TEXT);
+CREATE TABLE market_fx_rate_observation (base_currency TEXT, quote_currency TEXT, rate REAL, effective_date TEXT);
+INSERT INTO market_fx_rate_observation VALUES ('USD', 'JPY', 100.0, '2026-09-23'), ('USD', 'JPY', 90.0, '2026-09-01');
+INSERT INTO catalog_sealed_product VALUES
+  (240, 'ptcg:jp:S2:booster-box:std', 's2', 'ptcg-jp', 'active', 'Rebellion Crash', '反逆クラッシュ'),
+  (242, 'ptcg:jp:S1H:booster-box:std', 's1h', 'ptcg-jp', 'active', 'Shield', 'シールド'),
+  (243, 'ptcg:jp:S1W:booster-box:std', 's1w', 'ptcg-jp', 'active', 'Sword', 'ソード'),
+  (299, 'ptcg:jp:XX:booster-box:std', 'xx', 'ptcg-jp', 'no-box', 'Nothing', 'ナッシング');
+INSERT INTO market_sealed_sale_observation VALUES
+  (1, 240, 'yahoo', 'yahoo_closedsearch_v1', 'ソード＆シールド 拡張パック 反逆クラッシュ BOX', 20000, 'JPY', 1, 20000, NULL, 'rejected_foreign_set_in_title'),
+  (2, 240, 'yahoo', 'yahoo_closedsearch_v1', 'ポケモンカード 拡張パック シールド BOX', 15000, 'JPY', 1, 15000, 150.0, 'ok'),
+  (3, 240, 'yahoo', 'yahoo_closedsearch_v1', 'ソード＆シールド 拡張パック 反逆クラッシュ BOX', 90000, 'JPY', 1, 90000, NULL, 'quarantined'),
+  (4, 240, 'yahoo', 'yahoo_closedsearch_v1', 'ソード＆シールド 反逆クラッシュ 1パック', 300, 'JPY', 1, 300, NULL, 'rejected_single_pack'),
+  (5, 240, 'yahoo', 'yahoo_closedsearch_v1', '反逆クラッシュ BOX シュリンク付き', 60000, 'JPY', 1, 60000, 600.0, 'outlier_trimmed'),
+  (6, 240, 'yahoo', 'yahoo_closedsearch_v1', '反逆クラッシュ 空箱', 500, 'JPY', 1, 500, NULL, 'rejected_own_set_name_missing'),
+  (7, 240, 'snkrdunk', 'snk_history_v1', 'ソード＆シールド 拡張パック シールド BOX', 1, 'JPY', 1, 1, 1.0, 'ok'),
+  (8, 243, 'yahoo', 'yahoo_closedsearch_v1', 'ソード&シールド BOX', 18000, 'JPY', 1, 18000, 180.0, 'ok'),
+  (9, 299, 'yahoo', 'yahoo_closedsearch_v1', 'ナッシング BOX', 1, 'JPY', 1, 1, 1.0, 'ok'),
+  (10, 240, 'yahoo', 'yahoo_closedsearch_v1', 'ポケモンカード 拡張パック ソード BOX', 12000, 'JPY', 1, 12000, NULL, 'quarantined'),
+  (11, 240, 'yahoo', 'yahoo_closedsearch_v1', '反逆クラッシュ アタッシュケース BOX', 9000, 'JPY', 1, 9000, 90.0, 'ok'),
+  (12, 240, 'yahoo', 'yahoo_closedsearch_v1', 'ナッシング & 反逆クラッシュ 2BOXセット', 20000, 'JPY', 1, 20000, 100.0, 'ok'),
+  (13, 240, 'yahoo', 'yahoo_closedsearch_v1', '反逆クラッシュ アタッシュケース BOX', 9000, 'JPY', 1, 9000, NULL, 'rejected_single_pack'),
+  (14, 240, 'yahoo', 'yahoo_closedsearch_v1', '反逆クラッシュ 2BOXセット シュリンク付き', 40000, 'JPY', 1, 40000, 444.44, 'ok'),
+  (15, 240, 'yahoo', 'yahoo_closedsearch_v1', '反逆クラッシュ BOX 10パック', 1500, 'JPY', 10, 15000, NULL, 'rejected_foreign_set_in_title'),
+  (16, 240, 'ebay', 'pc_page_v1', 'Rebellion Crash Booster Box 24 Packs', 120, 'USD', 24, 120, 5.0, 'ok'),
+  (17, 240, 'ebay', 'ebay_import_v1', 'Rebellion Crash Booster Box 24 Packs', 120, 'USD', 24, 120, 5.0, 'ok'),
+  (18, 240, 'ebay', 'pc_page_v1', 'Rebellion Crash Premium Trainer Box', 50, 'USD', 1, 50, 50.0, 'ok'),
+  (19, 240, 'ebay', 'pc_page_v1', 'Rebellion Crash Booster Box', 110, 'USD', 1, 110, NULL, 'rejected_foreign_set_in_title'),
+  (20, 240, 'ebay', 'pc_page_v1', 'Pokemon S2 Rebel Clash Japanese Booster Box', 100, 'USD', 1, 100, 100.0, 'ok'),
+  (21, 240, 'ebay', 'pc_page_v1', 'Rebellion Crash Booster Box x2 sealed', 220, 'USD', 1, 220, 220.0, 'ok');
+"""
+
+
+def test_rejudge_sales_moves_only_what_todays_title_says():
+    # Sales are INSERT IGNORE by lot, so the 2026-09-24 title QC and box-count fixes never reach a row already written.
+    # Today's QC takes any counted row down; only a yahoo set-name reject comes back; a row that stays or comes back
+    # takes today's box count at the rate it was priced at; a quarantine, another reject or an eBay import is not read.
+    import sealed_operator as so
+
+    conn, logs = DecimalConn(REJUDGE_DB), []
+    so.load_env, so.db, so._log_catalog_change = (lambda: None), (lambda: conn), logs.append
+
+    def state():
+        cur = LiteConn.cursor(conn)
+        cur.execute("SELECT id, metric_status, unit_price_usd, quantity, native_price FROM market_sealed_sale_observation ORDER BY id")
+        return {r["id"]: (r["metric_status"], r["unit_price_usd"], r["quantity"], r["native_price"]) for r in cur.fetchall()}
+
+    before = state()
+    dry = so.cmd_sealed_rejudge_sales(source="yahoo", skus=[], actor="t", note="n", dry_run=True)
+    assert state() == before and not logs, "a dry run wrote: %r" % (state(),)
+    assert dry["skus"] == 2, "S2 and S1W, the SKUs with yahoo rows, and not the no-box one: %r" % dry["skus"]
+    so.cmd_sealed_rejudge_sales(source="yahoo", skus=[], actor="t", note="n")
+    after = state()
+    assert after[1] == ("ok", 200.0, 1, 20000), "S2's own title stayed rejected or was priced off an old rate: %r" % (after[1],)
+    assert after[2][:2] == ("rejected_own_set_name_missing", None), "S1H's title stayed counted on S2: %r" % (after[2],)
+    assert after[8][:2] == ("rejected_own_set_name_missing", None), "a bare era title stayed counted on S1W: %r" % (after[8],)
+    assert after[6][:2] == ("rejected_opened_or_empty", None), "an empty box kept its set-name reason: %r" % (after[6],)
+    assert after[11][:2] == ("rejected_not_booster_box", None), "an attache case stayed counted: %r" % (after[11],)
+    assert after[12][:2] == ("rejected_foreign_set_in_title", None), "a no-box set in a bundle title was not foreign: %r" % (after[12],)
+    assert after[14] == ("ok", 222.22, 2, 20000), "a 2BOX lot stayed one box, or lost the rate it was priced at: %r" % (after[14],)
+    assert after[15] == ("ok", 150.0, 1, 15000), "'BOX 10パック' came back as 10 boxes: %r" % (after[15],)
+    kept = {i: before[i] for i in (3, 4, 5, 7, 9, 10, 13, 16, 17, 18, 19, 20, 21)}
+    assert {i: after[i] for i in kept} == kept, "moved a row that is not its call: %r" % ({i: after[i] for i in kept},)
+    assert sorted(m["id"] for m in logs[0]["rows"]) == [1, 2, 6, 8, 11, 12, 14, 15], logs
+
+    ebay = so.cmd_sealed_rejudge_sales(source="ebay", skus=[], actor="t", note="n")
+    final = state()
+    assert ebay["skus"] == 1 and sorted(m["id"] for m in ebay["rows"]) == [16, 18, 21], ebay["rows"]
+    assert final[21] == ("ok", 110.0, 2, 220), "an eBay lot of two lost its lot price or stayed one box: %r" % (final[21],)
+    assert final[16] == ("ok", 120.0, 1, 120), "'Booster Box 24 Packs' stayed 24 boxes: %r" % (final[16],)
+    assert final[18][:2] == ("rejected_not_booster_box", None), "a trainer box stayed counted: %r" % (final[18],)
+    assert final[17] == before[17] and final[19] == before[19], "an eBay import or a set-name reject was read: %r" % (final,)
+    assert final[20] == before[20], "an English eBay title was judged by the Yahoo set names: %r" % (final[20],)
+    try:
+        so.cmd_sealed_rejudge_sales(source="yahoo", skus=["xx"], actor="t", note="n")
+    except SystemExit as exc:
+        assert "no-box" in str(exc), exc
+    else:
+        raise AssertionError("a no-box SKU has no peers to judge by and must be refused")
 
 
 class BindCursor:
@@ -381,6 +573,20 @@ class LiteCursor:
 
     def fetchall(self):
         return [dict(r) for r in self.cur.fetchall()]
+
+
+class DecimalConn(LiteConn):
+    """pymysql hands DECIMAL columns back as Decimal (2026-09-24: the first real dry run died in json.dumps on one)."""
+
+    def cursor(self):
+        cur = super().cursor()
+        rows = cur.fetchall
+        cur.fetchall = lambda: [{k: (Decimal(str(v)) if k in DECIMAL_COLUMNS and v is not None else v) for k, v in r.items()}
+                                for r in rows()]
+        return cur
+
+
+DECIMAL_COLUMNS = ("unit_price_usd", "native_price", "total_native_price", "rate")
 
 
 PC_GAME = "https://www.pricecharting.com/game/"

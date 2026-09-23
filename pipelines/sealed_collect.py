@@ -513,11 +513,22 @@ def _yahoo_rows(html: str) -> list[dict]:
 
 
 def _group_name_map(cur) -> dict[str, list[tuple[int, str | None, str | None]]]:
-    cur.execute("SELECT id, group_code, name_en, name_jp FROM catalog_sealed_product WHERE status <> 'no-box'")
+    # a no-box set (S8a 25th ANNIVERSARY COLLECTION) sells no box to price, but its name in a title still names
+    # another product: '25th ANNIVERSARY COLLECTION & ロストアビス 2BOXセット' is no S11 box.
+    cur.execute("SELECT id, group_code, name_en, name_jp FROM catalog_sealed_product")
     grouped: dict[str, list[tuple[int, str | None, str | None]]] = {}
     for r in cur.fetchall():
         grouped.setdefault(str(r["group_code"]), []).append((int(r["id"]), r["name_en"], r["name_jp"]))
     return grouped
+
+
+def set_names(group_names: dict[str, list[tuple[int, str | None, str | None]]], group: str,
+              sealed_id: int) -> tuple[list[str], list[str]]:
+    """A Yahoo title's set-name judge: own = the SKU's EN and JP names, foreign = every other box's JP name in its
+    group. run_yahoo and sealed_operator.cmd_sealed_rejudge_sales both read it, so old and new rows see one rule."""
+    peers = group_names.get(group, [])
+    return ([n for sid, en, jp in peers if sid == sealed_id for n in (en, jp) if n],
+            [jp for sid, en, jp in peers if sid != sealed_id and jp])
 
 
 def run_yahoo(conn, items: list[dict], *, mode: str, delay: float) -> dict:
@@ -540,9 +551,7 @@ def run_yahoo(conn, items: list[dict], *, mode: str, delay: float) -> dict:
     results: list[dict] = []
     for item in items:
         res: dict[str, Any] = {"sku": item["sku"], "url": item["url"]}
-        peers = group_names.get(item["group"], [])
-        own_names = [n for sid, en, jp in peers if sid == item["sealedId"] for n in (en, jp) if n]
-        foreign_names = [jp for sid, en, jp in peers if sid != item["sealedId"] and jp]
+        own_names, foreign_names = set_names(group_names, item["group"], item["sealedId"])
         try:
             response = session.get(item["url"], timeout=30)
             response.raise_for_status()
