@@ -37,7 +37,9 @@ def compose(py: str) -> int:
 
 def pull_verdict(adapter: str, mode: str, code: int, doc: dict | None, started: datetime) -> dict:
     """sealed_collect exits 0 even when every fetch failed (CDP down, SNK blocked), so a pull is
-    judged by the report it wrote: exit 0, a report dated after this pull started, and ok > 0."""
+    judged by the report it wrote: exit 0, a report dated after this pull started, and ok > 0.
+    A SKU that stock skipped because its source item is bound to another SKU is red until a human
+    rules which SKU owns the item; `shared` rides along so incr receipts show it too."""
     step: dict = {"adapter": adapter, "mode": mode, "exit": code}
     try:
         fresh = datetime.fromisoformat(str((doc or {}).get("asOf")).replace("Z", "+00:00")) >= started
@@ -46,12 +48,15 @@ def pull_verdict(adapter: str, mode: str, code: int, doc: dict | None, started: 
     report = next((r for r in doc.get("reports") or [] if r.get("adapter") == adapter), None) if fresh else None
     if report is not None:
         step.update(attempted=int(report.get("attempted") or 0), ok=int(report.get("ok") or 0), note=report.get("note"))
+        step.update({k: report[k] for k in ("blocked", "shared") if report.get(k)})
     if code != 0:
         step["red"] = f"exit {code}"
     elif report is None:
         step["red"] = "no report from this run"
     elif step["attempted"] and not step["ok"]:
         step["red"] = f"0/{step['attempted']} ok"
+    elif step.get("blocked"):
+        step["red"] = "blocked, source item bound to another SKU: " + ", ".join(b["sku"] for b in step["blocked"])
     return step
 
 

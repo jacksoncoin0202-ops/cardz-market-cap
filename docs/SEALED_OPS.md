@@ -58,6 +58,9 @@ $PY = 'C:\Users\jackson0202\AppData\Local\Programs\Python\Python310\python.exe' 
 & $PY -X utf8 pipelines\sealed_daily.py accept-binding --all-resolved --kind image
 # accept 完第一次一定要全量 stock，唔准靠 incr 頂（incr 只揀已經有數嘅 SKU）：
 & $PY -X utf8 -u pipelines\sealed_daily.py stock
+# stock 唔會拉同另一隻 SKU 共用緊同一件 source 貨嘅 SKU（SNK 剷走 trading-cards:/apparels: 前綴，
+# 767625 兩個寫法係同一件貨），收據 blocked 轉紅；人手裁決邊隻 SKU 擁有件貨、reject 錯嗰條 bind 之後先 stock。
+# incr 照刷已經有數嘅 SKU，收據 shared 列出共用。
 
 # Live-bar qualify（獨立線，唔掂 PSA10 pass／promote／GitHub live；自己唔攞 lease，唔好喺 V2 11:00–17:00 跑）
 & $PY -X utf8 pipelines\sealed_live_qualify.py

@@ -65,7 +65,7 @@ sys.modules.update(operator_control=operator_control, sealed_operator=sealed_ope
 
 import sealed_daily  # noqa: E402
 
-# adapter -> (exit code, attempted, ok); attempted None = the child writes no report this time
+# adapter -> (exit code, attempted, ok[, extra report fields]); attempted None = the child writes no report this time
 PULLS: dict[str, tuple] = {}
 
 
@@ -73,14 +73,14 @@ def fake_run(cmd, cwd=None, timeout=None):
     script = Path(cmd[4]).name
     if script == "sealed_collect.py":
         mode, adapter = cmd[5], cmd[7]
-        code, attempted, ok = PULLS.get(adapter, (0, 3, 3))
+        code, attempted, ok, *extra = PULLS.get(adapter, (0, 3, 3))
         EVENTS.append(("pull", STATE["held"], mode, adapter))
         if attempted is not None:
             report = TMP / "collect" / f"last_{mode}.json"
             report.parent.mkdir(parents=True, exist_ok=True)
             report.write_text(json.dumps({
                 "asOf": datetime.now(timezone.utc).strftime(STAMP),
-                "reports": [{"adapter": adapter, "mode": mode, "attempted": attempted, "ok": ok}],
+                "reports": [{"adapter": adapter, "mode": mode, "attempted": attempted, "ok": ok, **(extra[0] if extra else {})}],
             }), encoding="utf-8")
         return subprocess.CompletedProcess(cmd, code)
     EVENTS.append((script, STATE["held"]))
@@ -142,6 +142,20 @@ def main() -> int:
     assert code == 0 and EVENTS[0] == ("lease", "sealed:stock"), (code, EVENTS)
     assert pulled() == [("stock", a, True) for a in adapters], "stock pulls all three by default, inside the lease: %r" % EVENTS
     print("POSITIVE_OK stock does the first full pull for every adapter inside the lease")
+
+    eb05 = {"sku": "optcg:en:EB-05:booster-box:std", "key": "snkrdunk:767625", "sharedWith": ["optcg:en:EB-03:booster-box:std"]}
+    code = run(["stock", "--adapter", "sealed_snk"], {"sealed_snk": (0, 0, 0, {"note": "nothing due", "blocked": [eb05]})})
+    assert code == 2 and receipt("stock")["red"] == ["sealed_snk: blocked, source item bound to another SKU: optcg:en:EB-05:booster-box:std"], \
+        "a SKU stock skipped for a shared source item must be red: %r" % ((code, receipt("stock")["red"]),)
+    assert receipt("stock")["steps"][0]["blocked"] == [eb05], receipt("stock")["steps"]
+    print("NEGATIVE_OK a SKU stock skipped for a shared source item is red, even when nothing else was due")
+
+    shared = {"snkrdunk:145974": ["optcg:en:OP-06:booster-box:std", "optcg:jp:OP-06:booster-box:std"]}
+    code = run(["refresh"], {"sealed_snk": (0, 3, 3, {"shared": shared})})
+    snk = next(s for s in receipt("refresh")["steps"] if s["adapter"] == "sealed_snk")
+    assert code == 0 and snk.get("shared") == shared and "red" not in snk, \
+        "the refresh receipt must list the shared item without turning red: %r" % ((code, snk),)
+    print("POSITIVE_OK incr keeps refreshing, and its receipt lists source items bound to 2+ SKUs")
 
     code = run(["accept-binding", "--sku", "ptcg-jp-m6a-booster-box-std", "--kind", "source", "--source-code", "snkrdunk", "--note", "n"])
     name, held, kwargs = EVENTS[-1]

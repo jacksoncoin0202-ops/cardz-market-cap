@@ -176,11 +176,32 @@ def _load_adapter_items(cur, adapter: str, *, allow_candidates: bool) -> list[di
     return []
 
 
-def _select(cur, adapter: str, mode: str, *, limit: int | None, allow_candidates: bool, force: bool) -> list[dict]:
+def _fetch_key(adapter: str, item: dict) -> str:
+    """What the adapter really fetches. SNK drops trading-cards:/apparel-groups:/apparels: and GETs
+    /v1/apparels/{itemId}, so 'trading-cards:767625' and 'apparels:767625' are one box."""
+    if adapter == "sealed_snk":
+        return f"snkrdunk:{item['itemId']}"
+    return str(item.get("url") or item["externalId"]).lower()
+
+
+def _shared_keys(adapter: str, items: list[dict]) -> dict[str, list[str]]:
+    owners: dict[str, dict[int, str]] = {}
+    for item in items:
+        owners.setdefault(_fetch_key(adapter, item), {})[item["sealedId"]] = item["sku"]
+    return {key: sorted(skus.values()) for key, skus in owners.items() if len(skus) > 1}
+
+
+def _select(cur, adapter: str, mode: str, *, limit: int | None, allow_candidates: bool,
+            force: bool) -> tuple[list[dict], list[dict], dict[str, list[str]]]:
+    """(selected, blocked, shared). shared = fetch keys bound to 2+ SKUs. stock skips a due item whose key is
+    shared: the first pull would copy another SKU's box into it (2026-09-23: EB-05 EN sat on the EB-03 EN SNK
+    item). Which SKU owns the item is a human ruling. incr keeps refreshing SKUs that already have data and
+    only lists the sharing."""
     items = _load_adapter_items(cur, adapter, allow_candidates=allow_candidates)
+    shared = _shared_keys(adapter, items)
     have = _sealed_ids_with_data(cur, adapter)
     checkpoints = load_sealed_checkpoints(cur, adapter)
-    selected = []
+    selected, blocked = [], []
     for item in items:
         has_data = item["sealedId"] in have
         age = checkpoint_age_hours(checkpoints, stream_key(item["sealedId"], item["externalId"]))
@@ -191,11 +212,14 @@ def _select(cur, adapter: str, mode: str, *, limit: int | None, allow_candidates
             due = has_data
         else:
             due = has_data and (force or age is None or age > SLA_HOURS)
-        if due:
+        key = _fetch_key(adapter, item)
+        if due and mode == "stock" and key in shared:
+            blocked.append({"sku": item["sku"], "key": key, "sharedWith": [s for s in shared[key] if s != item["sku"]]})
+        elif due:
             selected.append(item)
     if limit:
         selected = selected[:limit]
-    return selected
+    return selected, blocked, shared
 
 
 # --- sealed_pc ---------------------------------------------------------------
@@ -705,16 +729,19 @@ def main() -> int:
             if adapter == "sealed_mercari":
                 reports.append({"adapter": adapter, "status": "unavailable", "reason": "no transport (needs authed browser); fails closed"})
                 continue
-            items = _select(cur, adapter, args.cmd, limit=args.limit, allow_candidates=args.allow_candidates, force=args.force)
+            items, blocked, shared = _select(cur, adapter, args.cmd, limit=args.limit, allow_candidates=args.allow_candidates,
+                                             force=args.force)
+            flags = {name: value for name, value in (("blocked", blocked), ("shared", shared)) if value}
             if not items:
-                reports.append({"adapter": adapter, "mode": args.cmd, "attempted": 0, "ok": 0, "note": "nothing due"})
+                reports.append({"adapter": adapter, "mode": args.cmd, "attempted": 0, "ok": 0, "note": "nothing due", **flags})
                 continue
             if adapter == "sealed_pc":
-                reports.append(run_pc(conn, items, mode=args.cmd, html_max_age_h=args.html_max_age_hours, timeout_s=args.timeout))
+                report = run_pc(conn, items, mode=args.cmd, html_max_age_h=args.html_max_age_hours, timeout_s=args.timeout)
             elif adapter == "sealed_snk":
-                reports.append(run_snk(conn, items, mode=args.cmd, delay=args.delay))
+                report = run_snk(conn, items, mode=args.cmd, delay=args.delay)
             elif adapter == "sealed_yahoo":
-                reports.append(run_yahoo(conn, items, mode=args.cmd, delay=args.delay))
+                report = run_yahoo(conn, items, mode=args.cmd, delay=args.delay)
+            reports.append({**report, **flags})
     finally:
         conn.close()
 
