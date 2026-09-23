@@ -113,25 +113,25 @@ def pulled():
 
 def main() -> int:
     adapters = list(sealed_daily.PULL_ADAPTERS)
-    assert adapters == ["sealed_pc", "sealed_snk", "sealed_yahoo"], adapters
+    assert adapters == ["sealed_pc", "sealed_snk"], "box prices read SNK + PriceCharting only, no Yahoo pull: %r" % adapters
 
     code = run(["refresh"])
     assert code == 0, code
     assert EVENTS[0] == ("lease", "sealed:refresh"), EVENTS
-    assert pulled() == [("incr", a, True) for a in adapters], "refresh must pull PC, SNK, Yahoo inside the lease: %r" % EVENTS
+    assert pulled() == [("incr", a, True) for a in adapters], "refresh must pull PC, SNK inside the lease: %r" % EVENTS
     assert EVENTS[-1] == ("sealed_price_compose.py", True), "compose runs last, inside the lease: %r" % EVENTS
     assert receipt("refresh")["red"] == [] and receipt("refresh")["composeExit"] == 0, receipt("refresh")
-    print("POSITIVE_OK refresh pulls PC, SNK, Yahoo, then composes, all inside operator_e2e_lease")
+    print("POSITIVE_OK refresh pulls PC, SNK, then composes, all inside operator_e2e_lease")
 
     code = run(["refresh"], {"sealed_pc": (0, 5, 0)})
     assert code == 2, code
     assert receipt("refresh")["red"] == ["sealed_pc: 0/5 ok"], receipt("refresh")["red"]
     assert [p[1] for p in pulled()] == adapters and EVENTS[-1][0] == "sealed_price_compose.py", \
-        "a red PC must not stop SNK, Yahoo or compose: %r" % EVENTS
-    print("NEGATIVE_OK every PC fetch failing (sealed_collect still exits 0) turns refresh red; SNK/Yahoo/compose still run")
+        "a red PC must not stop SNK or compose: %r" % EVENTS
+    print("NEGATIVE_OK every PC fetch failing (sealed_collect still exits 0) turns refresh red; SNK/compose still run")
 
-    code = run(["refresh"], {"sealed_yahoo": (1, 4, 4)})
-    assert code == 2 and receipt("refresh")["red"] == ["sealed_yahoo: exit 1"], (code, receipt("refresh")["red"])
+    code = run(["refresh"], {"sealed_snk": (1, 4, 4)})
+    assert code == 2 and receipt("refresh")["red"] == ["sealed_snk: exit 1"], (code, receipt("refresh")["red"])
     print("NEGATIVE_OK a non-zero sealed_collect exit is red")
 
     stale = TMP / "collect" / "last_stock.json"

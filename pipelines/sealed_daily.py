@@ -10,7 +10,7 @@ list were never wired into this tree, and the V2 cutover archived the P6 collect
 (archive/scripts/morning_browser_lanes.ps1, nightly_collect_accept.ps1) with nothing in their
 place, so BOX prices stood still from 2026-08-20 to 2026-09-23.
   python -X utf8 pipelines/sealed_daily.py status | gaps [--limit N]
-  python -X utf8 pipelines/sealed_daily.py refresh         # daily: incr PC (CDP 9333) + SNK + Yahoo, then compose
+  python -X utf8 pipelines/sealed_daily.py refresh         # daily: incr PC (CDP 9333) + SNK, then compose
   python -X utf8 pipelines/sealed_daily.py stock [--adapter sealed_snk]   # first full pull after a new accept
   python -X utf8 pipelines/sealed_daily.py accept-binding --sku <slug> --kind source --source-code snkrdunk
   python -X utf8 pipelines/sealed_daily.py scan            # release due / upcoming / unbound + SNK/PC discovery
@@ -39,7 +39,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
 # PC first: the 9333 page capture runs before the HTTP adapters (P6 order). Accepted binds only, as P6 ran.
-PULL_ADAPTERS = ("sealed_pc", "sealed_snk", "sealed_yahoo")
+# No Yahoo: box prices read SNK + PriceCharting only (daddy, 2026-09-24), so compose never reads a Yahoo sale.
+PULL_ADAPTERS = ("sealed_pc", "sealed_snk")
 PULL_TIMEOUT_S = 7200
 
 

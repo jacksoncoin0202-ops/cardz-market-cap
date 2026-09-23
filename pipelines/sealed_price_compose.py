@@ -8,7 +8,7 @@ Authority chains (display price):
               -> latest SNK ask (<=7d)
               -> last accepted sold (any age)
               -> last market line (any age)
-  JP groups : accepted sold units 30d median (snkrdunk+yahoo+mercari, n>=1)
+  JP groups : accepted sold units 30d median (snkrdunk, n>=1)
               -> latest SNK market line (<=45d) -> PC market (<=45d)
               -> latest SNK ask (<=7d)
               -> last accepted sold (any age)
@@ -47,10 +47,11 @@ sys.path.insert(0, str(ROOT / "pipelines"))
 from sealed_discover_lib import same_item_ids  # noqa: E402
 from sealed_runtime import OUT_DIR, db, load_env, load_sealed_products, utc_now  # noqa: E402
 
-JP_SOLD_SOURCES = ("snkrdunk", "yahoo", "mercari")
+JP_SOLD_SOURCES = ("snkrdunk",)
 EN_SOLD_SOURCES = ("ebay",)
 # Sales carry no item id, so a sale counts only while its SKU holds an accepted freeze on the source it came off.
-# eBay sales are read off the PriceCharting item page; Yahoo/Mercari sales come from a keyword search, not a bind.
+# eBay sales are read off the PriceCharting item page. Box prices read SNK + PriceCharting only (daddy, 2026-09-24):
+# Yahoo/Mercari sales come from a keyword search, not a bind, so they stay in the table and are never read.
 SALE_FREEZE_SOURCE = {"snkrdunk": "snkrdunk", "ebay": "pricecharting"}
 TRIM_HIGH = 2.0
 TRIM_LOW = 2.5
@@ -105,7 +106,7 @@ def load_sales(cur) -> dict[int, list[dict]]:
     grouped: dict[int, list[dict]] = defaultdict(list)
     for row in cur.fetchall():
         bound = SALE_FREEZE_SOURCE.get(str(row["source_code"]))
-        if bound and (int(row["sealed_id"]), bound) not in frozen:
+        if not bound or (int(row["sealed_id"]), bound) not in frozen:
             continue
         grouped[int(row["sealed_id"])].append(dict(row))
     return grouped
@@ -204,7 +205,9 @@ def trim_market(cur, rows: list[dict], sold: list[dict]) -> int:
     """Mark a market point off by more than MARKET_TRIM_RATIO from the median of the MARKET_TRIM_NEAREST accepted sales
     nearest it, all within MARKET_TRIM_GAP_D days (at least SOLD_MIN_N). 2026-09-24: SNK's daily line carried carton
     trades on the box line (SV1a $1,093 against $108 boxes, S1a $752 against $137). Any-age sales would mark true
-    appreciation (BREAKpoint $2,499 against 2021's $355), so a point with no sales near it stays as it is."""
+    appreciation (BREAKpoint $2,499 against 2021's $355), so a point with no sales near it stays as it is.
+    With Yahoo off the box price, a JP line has almost no sales to judge by (SNK sales carry no box count), so it
+    mostly guards PC / eBay: SV1a's carton point went to quarantine by hand."""
     marked = 0
     for row in rows:
         day = row["observed_date"]

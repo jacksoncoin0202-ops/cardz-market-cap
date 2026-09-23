@@ -697,7 +697,9 @@ INSERT INTO market_sealed_sale_observation VALUES
   (2, 1, 'ebay', '2026-09-01', 55, 1, 'ok'),
   (3, 2, 'snkrdunk', '2026-09-01', 200, 1, 'ok'),
   (4, 3, 'ebay', '2026-09-01', 310, 1, 'ok'),
-  (5, 3, 'yahoo', '2026-09-01', 290, 1, 'outlier_trimmed');
+  (5, 3, 'yahoo', '2026-09-01', 290, 1, 'outlier_trimmed'),
+  (6, 1, 'yahoo', '2026-09-01', 120, 1, 'ok'),
+  (7, 1, 'mercari', '2026-09-01', 130, 1, 'ok');
 """
 
 
@@ -713,8 +715,9 @@ def test_compose_reads_only_the_frozen_item():
     asks = compose.load_asks(cur)
     assert asks == {1: ("2026-09-01", 110.0, 16500.0)}, "the latest ask came off another item: %r" % (asks,)
     sales = {sid: sorted(r["id"] for r in rows) for sid, rows in compose.load_sales(cur).items()}
-    assert sales == {1: [1, 2], 3: [5]}, \
-        "an SNK / eBay sale counted without its SKU's accepted SNK / PC freeze, or a Yahoo sale was dropped: %r" % (sales,)
+    # 2026-09-24 daddy: box prices read SNK + PriceCharting (eBay off the PC page) only, so Yahoo / Mercari never count.
+    assert sales == {1: [1, 2]}, \
+        "an SNK / eBay sale counted without its SKU's accepted SNK / PC freeze, or a Yahoo / Mercari sale counted: %r" % (sales,)
 
 
 def test_compose_trims_market_points_by_the_sales_near_them():
