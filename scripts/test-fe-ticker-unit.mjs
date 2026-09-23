@@ -2,16 +2,28 @@
 /*
  * FE05 CapTicker 單位契約（fe05(cjk)，2026-08-17）：數字由起點滾去目標值途中，compact 單位（$…M/B、万/億、만/억/조）
  * 唔准中途換字 —— 換字 = 字串長度跳、`.heatmap-total-cap` 闊度跳、視覺上似 glitch。
- * 直接 import apps/web/src/lib/ticker-start.ts（Node ≥ 22.6 剝 type 就跑到，同 test-fe-pixel-snap.mjs 一樣），
- * 用同 lib/format.ts formatMoney(compact) 一樣嘅 Intl 參數（style currency / maximumFractionDigits 2 / notation compact）
+ * 直接 import apps/web/src/lib/ticker-start.ts 同 lib/format.ts（Node ≥ 22.6 剝 type 就跑到，同 test-fe-pixel-snap.mjs 一樣；
+ * format.ts 嘅 extensionless import 靠下面 registerHooks 補 .ts），用真嘅 formatMoney(compact)。
+ * 以前呢度自己抄一份 Intl 參數，format.ts 一改（中日韓千位分隔＋4 位有效數字）就同真身分家。
  * 掃 5 locale × 6 貨幣 × 一批目標值，逐條 path 採樣 101 點，睇 unitSignature 有冇變。
  * 由 run_all_tests.py 自動 glob 入 npm test。
  */
+import { registerHooks } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+registerHooks({
+  resolve(specifier, context, next) {
+    if (specifier.startsWith(".") && !/\.[a-z]+$/i.test(specifier)) {
+      try { return next(`${specifier}.ts`, context); } catch { /* 跌返原本 specifier */ }
+    }
+    return next(specifier, context);
+  },
+});
+
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const { tickerStart, tickerEase, unitSignature } = await import(pathToFileURL(resolve(ROOT, "apps/web/src/lib/ticker-start.ts")).href);
+const { formatMoney } = await import(pathToFileURL(resolve(ROOT, "apps/web/src/lib/format.ts")).href);
 
 const failed = [];
 const check = (label, condition, detail) => { if (!condition) failed.push(detail ? `${label}: ${detail}` : label); };
@@ -21,14 +33,9 @@ const currencies = ["USD", "JPY", "TWD", "KRW", "HKD", "EUR"];
 // 目標值（USD 基準 × 粗略匯率，令每隻貨幣都跨到唔同單位）：$850K … $27B
 const targetsUsd = [850_000, 999_000, 1_000_000, 2_700_000_000, 12_310_000, 999_990_000, 1_000_000_000, 27_120_000_000, 100, 12.5];
 const rate = { USD: 1, JPY: 150, TWD: 32, KRW: 1350, HKD: 7.8, EUR: 0.92 };
-const compact = (locale, currency) => {
-  const nf = new Intl.NumberFormat(intlLocale[locale], { style: "currency", currency, maximumFractionDigits: 2, notation: "compact" });
-  return (n) => nf.format(n);
-};
-const standard = (locale, currency) => {
-  const nf = new Intl.NumberFormat(intlLocale[locale], { style: "currency", currency, maximumFractionDigits: 0, notation: "standard" });
-  return (n) => nf.format(n);
-};
+// 匯率 1：formatMoney 收 USD 再乘匯率，呢度直接當 n 已經係嗰隻貨幣
+const compact = (locale, currency) => (n) => formatMoney(n, currency, { [currency]: 1 }, locale, true);
+const standard = (locale, currency) => (n) => formatMoney(n, currency, { [currency]: 1 }, locale, false);
 
 // 由 from 滾去 target 沿途（線性採樣 101 點；ease-out 只係改時間分佈，經過嘅值集合一樣）單位唔准變
 function pathUnits(from, target, format, steps = 100) {

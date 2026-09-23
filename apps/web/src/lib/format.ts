@@ -54,6 +54,22 @@ export function displayedChangePct(value: number, decimals: number): number {
   return q === 0 ? 0 : q;
 }
 
+/*
+ * 中日韓 compact 用萬／億（万／亿、만／억）做單位，所以單位前面個數最大去到 9999。
+ * Intl compact 預設 useGrouping "min2"（4 位數唔分組），加埋 2 位小數就出「US$3483.29萬」：
+ * 6 位有效數字、冇千位分隔，難讀兼假精度。中日韓 compact 另外加：
+ *   - useGrouping "always"：4 位數都分組 → 3,483萬
+ *   - 最多 4 位有效數字，同 2 位小數比揀精度低嗰個（roundingPriority "lessPrecision"）
+ *     → 3,483萬、243.3萬、38.04萬、1.23萬、11.31億；未夠萬嘅 2,134.87 → 2,135
+ * en 唔郁：K/M/B 前面最多 3 位，$34.83M 本身已經夠短。非 compact（卡價）唔郁。
+ * scripts/test-fe-money-format.mjs 鎖死上面啲例子；test-fe-ticker-unit.mjs 直接用呢個 formatMoney。
+ */
+const CJK_COMPACT: Intl.NumberFormatOptions = {
+  useGrouping: "always",
+  maximumSignificantDigits: 4,
+  roundingPriority: "lessPrecision",
+};
+
 export function formatMoney(
   valueUsd: number | null,
   currency: Currency,
@@ -71,6 +87,7 @@ export function formatMoney(
     currency,
     maximumFractionDigits: compact ? 2 : converted < 100 ? 2 : 0,
     notation: compact ? "compact" : "standard",
+    ...(compact && locale !== "en" ? CJK_COMPACT : {}),
   }).format(converted);
 }
 
