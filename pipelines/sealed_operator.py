@@ -22,6 +22,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
@@ -38,12 +39,13 @@ from sealed_runtime import (  # noqa: E402
 )
 from sealed_price_compose import (  # noqa: E402
     compose_current,
+    item_key,
     load_asks,
     load_market,
     load_sales,
     trim_outliers,
 )
-from sealed_discover_lib import same_item_ids, yahoo_closedsearch_url, yahoo_jp_query  # noqa: E402
+from sealed_discover_lib import insert_candidate_bind, same_item_ids, yahoo_closedsearch_url, yahoo_jp_query  # noqa: E402
 
 EDITORIAL_STORIES = ROOT / "data" / "editorial" / "sealed-stories.json"
 COLLISION_BASELINE = ROOT / "data" / "policy" / "box-image-collision-baseline.json"
@@ -310,6 +312,7 @@ def cmd_sealed_accept_binding(
     note: str | None,
     all_resolved: bool,
     group: str | None,
+    external_id: str | None = None,
 ) -> dict:
     if kind not in SEALED_FREEZE_KINDS:
         raise SystemExit(f"kind must be one of {SEALED_FREEZE_KINDS}")
@@ -317,6 +320,8 @@ def cmd_sealed_accept_binding(
         raise SystemExit("source freeze requires --source-code")
     if not sku and not all_resolved:
         raise SystemExit("need --sku or --all-resolved")
+    if external_id and (not sku or kind == "identity"):
+        raise SystemExit("--ext names one SKU's source item or image sha: needs --sku and --kind source|image")
     load_env()
     conn = db()
     accepted = []
@@ -371,24 +376,33 @@ def cmd_sealed_accept_binding(
                 group_sql = " WHERE status <> 'no-box'"
             cur.execute(f"SELECT id, sku_id FROM catalog_sealed_product{group_sql}", params)
             targets = [(int(r["id"]), str(r["sku_id"])) for r in cur.fetchall()]
+        if not sku:
+            targets = _bulk_acceptable(cur, targets, kind, refused)
+        wanted = external_id
         for sealed_id, sku_id in targets:
             external_id = ""
             if kind == "image":
                 cur.execute(
-                    "SELECT content_sha256 FROM market_sealed_image_asset WHERE sealed_id=%s AND image_kind='box_front' ORDER BY captured_at DESC LIMIT 1",
-                    (sealed_id,),
+                    "SELECT content_sha256 FROM market_sealed_image_asset WHERE sealed_id=%s AND image_kind='box_front'"
+                    + (" AND content_sha256=%s" if wanted else "") + " ORDER BY captured_at DESC LIMIT 1",
+                    (sealed_id, wanted) if wanted else (sealed_id,),
                 )
                 asset = cur.fetchone()
                 if not asset:
+                    if wanted:
+                        raise SystemExit(f"{sku_id}: no box_front asset {wanted}")
                     continue
                 external_id = str(asset["content_sha256"])
             elif kind == "source":
                 cur.execute(
-                    "SELECT external_entity_id FROM catalog_sealed_source_identity WHERE sealed_id=%s AND source_code=%s AND match_status<>'rejected' ORDER BY resolved DESC LIMIT 1",
-                    (sealed_id, source_code),
+                    "SELECT external_entity_id FROM catalog_sealed_source_identity WHERE sealed_id=%s AND source_code=%s AND match_status<>'rejected'"
+                    + (" AND external_entity_id=%s" if wanted else "") + " ORDER BY resolved DESC LIMIT 1",
+                    (sealed_id, source_code, wanted) if wanted else (sealed_id, source_code),
                 )
                 bind = cur.fetchone()
                 if not bind:
+                    if wanted:
+                        raise SystemExit(f"{sku_id}: no live {source_code} bind on {wanted}")
                     continue
                 external_id = str(bind["external_entity_id"])
                 ids = same_item_ids(source_code, external_id)
@@ -419,9 +433,39 @@ def cmd_sealed_accept_binding(
            "refused": refused}
     print(json.dumps(doc, ensure_ascii=False, indent=2))
     if refused:
-        raise SystemExit(f"refused {len(refused)}, source item bound to another SKU; reject the wrong bind first: "
-                         + "; ".join(f"{r['sku']} {r['ext']} held by {', '.join(r['heldBy'])}" for r in refused))
+        raise SystemExit(f"refused {len(refused)}: " + "; ".join(
+            f"{r['sku']} {r['ext']} held by {', '.join(r['heldBy'])}; reject the wrong bind first" if r.get("heldBy")
+            else f"{r['sku']} {r['reason']}; accept it on its own --sku" for r in refused))
     return doc
+
+
+def _bulk_acceptable(cur, targets: list[tuple[int, str]], kind: str, refused: list[dict]) -> list[tuple[int, str]]:
+    """--all-resolved accepts only what a bulk pass may: never a ptcg-jp SKU, an unreleased one, or (for source
+    and image) one whose identity no one accepted. The sealed accept gate takes those one SKU at a time; they go to
+    refused, so the call exits non-zero after committing the rest."""
+    if not targets:
+        return targets
+    cur.execute(
+        f"""
+        SELECT p.id, p.group_code, p.status,
+          EXISTS(SELECT 1 FROM operator_sealed_binding_freeze f WHERE f.sealed_id=p.id AND f.freeze_kind='identity'
+                 AND f.acceptance_status='accepted') AS identity_frozen
+        FROM catalog_sealed_product p WHERE p.id IN ({",".join(["%s"] * len(targets))})
+        """,
+        [t[0] for t in targets],
+    )
+    facts = {int(r["id"]): r for r in cur.fetchall()}
+    keep = []
+    for sealed_id, sku_id in targets:
+        row = facts.get(sealed_id) or {}
+        reason = ("ptcg-jp" if row.get("group_code") == "ptcg-jp" else
+                  "unreleased" if row.get("status") == "unreleased" else
+                  "identity not accepted" if kind != "identity" and not int(row.get("identity_frozen") or 0) else "")
+        if reason:
+            refused.append({"sku": sku_id, "ext": "", "reason": f"bulk refused: {reason}"})
+        else:
+            keep.append((sealed_id, sku_id))
+    return keep
 
 
 # --- release ----------------------------------------------------------------------
@@ -586,6 +630,271 @@ def cmd_sealed_set_product(*, sku: str, fields: dict, actor: str, note: str) -> 
                 (new, hashlib.sha256(new.encode("utf-8")).hexdigest(), sealed_id, old),
             )
             doc["yahooHint"] = {"from": old, "to": new, "moved": cur.rowcount}
+        _log_catalog_change(doc)
+        conn.commit()
+    finally:
+        conn.close()
+    print(json.dumps(doc, ensure_ascii=False, indent=2))
+    return doc
+
+
+# --- corrections: a wrong row, bind or image comes down by status, never by delete ------------------------------
+# Each has its reverse (quarantine --restore, accept-binding --ext, move-binding back, accept-binding --kind image)
+# and writes its catalog-changes.jsonl line before the commit.
+
+OBSERVATION_TABLES = {"sale": "market_sealed_sale_observation", "price": "market_sealed_price_observation"}
+
+
+def _product(cur, sku: str) -> dict:
+    cur.execute("SELECT id, sku_id, group_code, status FROM catalog_sealed_product WHERE sku_id=%s OR slug=%s", (sku, sku))
+    row = cur.fetchone()
+    if not row:
+        raise SystemExit(f"unknown sku/slug: {sku}")
+    return row
+
+
+def _item_rows(cur, source_code: str, external_id: str, sealed_id: int | None = None) -> list[dict]:
+    """Identity rows naming one source item under any spelling (SNK namespaces, PC url-quoting)."""
+    key = item_key(source_code, external_id)
+    sql = "SELECT sealed_id, external_entity_id, match_status FROM catalog_sealed_source_identity WHERE source_code=%s"
+    params: list[Any] = [source_code]
+    if sealed_id is not None:
+        sql += " AND sealed_id=%s"
+        params.append(sealed_id)
+    cur.execute(sql, params)
+    return [r for r in cur.fetchall() if item_key(source_code, r["external_entity_id"]) == key]
+
+
+def _reject_source_freeze(cur, sealed_id: int, source_code: str, external_id: str, actor: str, note: str) -> bool:
+    """The SKU's accepted source freeze turns rejected when it names this item: compose stops reading the item
+    (load_frozen_items) and collect stops pulling it."""
+    cur.execute(
+        "SELECT external_entity_id FROM operator_sealed_binding_freeze "
+        "WHERE sealed_id=%s AND freeze_kind='source' AND source_code=%s AND acceptance_status='accepted'",
+        (sealed_id, source_code),
+    )
+    row = cur.fetchone()
+    if not row or item_key(source_code, row["external_entity_id"]) != item_key(source_code, external_id):
+        return False
+    cur.execute(
+        "UPDATE operator_sealed_binding_freeze SET acceptance_status='rejected', actor=%s, note=%s "
+        "WHERE sealed_id=%s AND freeze_kind='source' AND source_code=%s AND acceptance_status='accepted'",
+        (actor, note[:1000], sealed_id, source_code),
+    )
+    if cur.rowcount != 1:
+        raise SystemExit(f"sealed {sealed_id}: freeze UPDATE matched {cur.rowcount} rows, expected 1")
+    return True
+
+
+def cmd_sealed_quarantine(*, table: str, ids: list[int], restore: bool, actor: str, note: str) -> dict:
+    """Named sale or price rows leave compose (metric_status 'quarantined'), or come back ('ok'; compose's trim
+    re-judges outliers). A sale is written INSERT IGNORE and a price row keeps its quarantine when its item writes
+    it again (sealed_runtime.PRICE_UPSERT_HEAD), so the decision sticks. Every id must be in the state it leaves:
+    counted (ok / outlier_trimmed) to quarantine, quarantined to restore, so a QC reject never turns ok."""
+    name = OBSERVATION_TABLES[table]
+    ids = sorted(set(int(i) for i in ids))
+    if not ids:
+        raise SystemExit("need --ids")
+    leaving = ("quarantined",) if restore else ("ok", "outlier_trimmed")
+    marks = ",".join(["%s"] * len(ids))
+    load_env()
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute(f"SELECT id, sealed_id, source_code, metric_status FROM {name} WHERE id IN ({marks})", ids)
+        rows = {int(r["id"]): r for r in cur.fetchall()}
+        wrong = {i: (rows[i]["metric_status"] if i in rows else "missing") for i in ids
+                 if i not in rows or rows[i]["metric_status"] not in leaving}
+        if wrong:
+            raise SystemExit(f"{table} rows not in {leaving}: {wrong}")
+        cur.execute(
+            f"UPDATE {name} SET metric_status=%s WHERE id IN ({marks}) AND metric_status IN ({','.join(['%s'] * len(leaving))})",
+            ("ok" if restore else "quarantined", *ids, *leaving),
+        )
+        if cur.rowcount != len(ids):
+            raise SystemExit(f"UPDATE matched {cur.rowcount} rows, expected {len(ids)}")
+        doc = {"asOf": utc_now(), "action": "sealed-quarantine-restore" if restore else "sealed-quarantine", "table": table,
+               "rows": [{"id": i, "sealedId": int(rows[i]["sealed_id"]), "source": rows[i]["source_code"],
+                         "from": rows[i]["metric_status"]} for i in ids],
+               "actor": actor, "note": note}
+        _log_catalog_change(doc)
+        conn.commit()
+    finally:
+        conn.close()
+    print(json.dumps(doc, ensure_ascii=False, indent=2))
+    return doc
+
+
+def cmd_sealed_reject_binding(*, sku: str, source_code: str, external_id: str, actor: str, note: str) -> dict:
+    """A SKU's bind to the wrong item comes down: its identity rows under every spelling turn rejected, which
+    discover never reopens (insert_candidate_bind), and its source freeze turns rejected when it names that item."""
+    load_env()
+    conn = db()
+    try:
+        cur = conn.cursor()
+        product = _product(cur, sku)
+        sealed_id = int(product["id"])
+        rows = [r for r in _item_rows(cur, source_code, external_id, sealed_id) if r["match_status"] != "rejected"]
+        if not rows:
+            raise SystemExit(f"{product['sku_id']}: no live {source_code} bind on {external_id}")
+        for r in rows:
+            cur.execute(
+                "UPDATE catalog_sealed_source_identity SET match_status='rejected', note=%s "
+                "WHERE source_code=%s AND external_entity_id=%s AND sealed_id=%s",
+                (f"rejected by {actor}: {note}"[:500], source_code, r["external_entity_id"], sealed_id),
+            )
+            if cur.rowcount != 1:
+                raise SystemExit(f"{product['sku_id']}: UPDATE matched {cur.rowcount} rows, expected 1")
+        doc = {"asOf": utc_now(), "action": "sealed-reject-binding", "sku": product["sku_id"], "sealedId": sealed_id,
+               "source": source_code, "ext": [r["external_entity_id"] for r in rows],
+               "from": [r["match_status"] for r in rows],
+               "freezeRejected": _reject_source_freeze(cur, sealed_id, source_code, external_id, actor, note),
+               "actor": actor, "note": note}
+        _log_catalog_change(doc)
+        conn.commit()
+    finally:
+        conn.close()
+    print(json.dumps(doc, ensure_ascii=False, indent=2))
+    return doc
+
+
+def cmd_sealed_move_binding(*, source_code: str, external_id: str, from_sku: str, to_sku: str, actor: str, note: str) -> dict:
+    """An item bound to the wrong SKU moves to the right one as a candidate (PRB-01 JP's box sat on PRB-02 JP);
+    the old SKU's freeze on it turns rejected. Accepting it on the new SKU is its own call: accept-binding --ext.
+    The item must sit on the old SKU only."""
+    load_env()
+    conn = db()
+    try:
+        cur = conn.cursor()
+        old, new = _product(cur, from_sku), _product(cur, to_sku)
+        old_id, new_id = int(old["id"]), int(new["id"])
+        if old_id == new_id:
+            raise SystemExit("--from-sku and --to-sku name the same SKU")
+        rows = _item_rows(cur, source_code, external_id)
+        if not rows or any(int(r["sealed_id"]) != old_id for r in rows):
+            raise SystemExit(f"{source_code} {external_id} is not on {old['sku_id']} alone: "
+                             f"{[(int(r['sealed_id']), r['external_entity_id'], r['match_status']) for r in rows]}")
+        for r in rows:
+            cur.execute(
+                "UPDATE catalog_sealed_source_identity SET sealed_id=%s, match_status='candidate', note=%s "
+                "WHERE source_code=%s AND external_entity_id=%s AND sealed_id=%s",
+                (new_id, f"moved from {old['sku_id']} by {actor}: {note}"[:500], source_code, r["external_entity_id"], old_id),
+            )
+            if cur.rowcount != 1:
+                raise SystemExit(f"UPDATE matched {cur.rowcount} rows, expected 1")
+        doc = {"asOf": utc_now(), "action": "sealed-move-binding", "source": source_code,
+               "ext": [r["external_entity_id"] for r in rows], "fromSku": old["sku_id"], "toSku": new["sku_id"],
+               "from": [r["match_status"] for r in rows],
+               "freezeRejected": _reject_source_freeze(cur, old_id, source_code, external_id, actor, note),
+               "actor": actor, "note": note}
+        _log_catalog_change(doc)
+        conn.commit()
+    finally:
+        conn.close()
+    print(json.dumps(doc, ensure_ascii=False, indent=2))
+    return doc
+
+
+def cmd_sealed_revoke_image(*, sku: str, actor: str, note: str) -> dict:
+    """A wrong box image comes down: the SKU's image freeze turns rejected, and export shows no image for it
+    until a right asset is accepted (add-image, then accept-binding --kind image --ext <sha>)."""
+    load_env()
+    conn = db()
+    try:
+        cur = conn.cursor()
+        product = _product(cur, sku)
+        cur.execute(
+            "SELECT external_entity_id FROM operator_sealed_binding_freeze "
+            "WHERE sealed_id=%s AND freeze_kind='image' AND acceptance_status='accepted'",
+            (int(product["id"]),),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise SystemExit(f"{product['sku_id']}: no accepted image freeze")
+        cur.execute(
+            "UPDATE operator_sealed_binding_freeze SET acceptance_status='rejected', actor=%s, note=%s "
+            "WHERE sealed_id=%s AND freeze_kind='image' AND acceptance_status='accepted'",
+            (actor, note[:1000], int(product["id"])),
+        )
+        if cur.rowcount != 1:
+            raise SystemExit(f"{product['sku_id']}: UPDATE matched {cur.rowcount} rows, expected 1")
+        doc = {"asOf": utc_now(), "action": "sealed-revoke-image", "sku": product["sku_id"], "sealedId": int(product["id"]),
+               "sha": row["external_entity_id"], "actor": actor, "note": note}
+        _log_catalog_change(doc)
+        conn.commit()
+    finally:
+        conn.close()
+    print(json.dumps(doc, ensure_ascii=False, indent=2))
+    return doc
+
+
+def cmd_sealed_add_binding(*, sku: str, source_code: str, external_id: str, url: str, actor: str, note: str) -> dict:
+    """The right item for a SKU that discover never proposed goes in as a candidate, under insert_candidate_bind's
+    rules (no item another SKU holds, no reopened reject). Accepting it is accept-binding --ext."""
+    if source_code not in ("snkrdunk", "pricecharting"):
+        raise SystemExit("source must be snkrdunk or pricecharting")
+    load_env()
+    conn = db()
+    try:
+        cur = conn.cursor()
+        product = _product(cur, sku)
+        status = insert_candidate_bind(cur, source=source_code, external_id=external_id, sealed_id=int(product["id"]),
+                                       url=url, note=f"add-binding by {actor}: {note}", origin="operator")
+        if status not in ("inserted", "updated"):
+            raise SystemExit(f"{product['sku_id']}: {source_code} {external_id} not added: {status}")
+        doc = {"asOf": utc_now(), "action": "sealed-add-binding", "sku": product["sku_id"], "sealedId": int(product["id"]),
+               "source": source_code, "ext": external_id, "url": url, "status": status, "actor": actor, "note": note}
+        _log_catalog_change(doc)
+        conn.commit()
+    finally:
+        conn.close()
+    print(json.dumps(doc, ensure_ascii=False, indent=2))
+    return doc
+
+
+def cmd_sealed_add_image(*, sku: str, url: str, actor: str, note: str) -> dict:
+    """A right box image from a named url becomes an asset of the SKU (the harvest's webp variants). It shows
+    once accepted: accept-binding --kind image --ext <sha>. PriceCharting is read through the 9333 session only."""
+    import requests
+
+    from sealed_image_harvest import ASSETS_DIR, UA, to_webp_variants
+
+    host = (urlparse(url).hostname or "").lower()
+    if not url.startswith("https://") or host.endswith("pricecharting.com"):
+        raise SystemExit(f"image url must be https and not PriceCharting: {url}")
+    response = requests.get(url, timeout=30, headers={"User-Agent": UA, "Referer": f"https://{host}/"})
+    if response.status_code != 200:
+        raise SystemExit(f"HTTP {response.status_code} {url}")
+    variants = to_webp_variants(response.content)
+    if not variants:
+        raise SystemExit(f"not an image of at least 150px: {url}")
+    full, w200, w600, width, height = variants
+    digest = hashlib.sha256(full).hexdigest()
+    source = "snkrdunk" if "snkrdunk" in host else "official"
+    load_env()
+    conn = db()
+    try:
+        cur = conn.cursor()
+        product = _product(cur, sku)
+        cur.execute("SELECT sealed_id FROM market_sealed_image_asset WHERE content_sha256=%s AND sealed_id<>%s",
+                    (digest, int(product["id"])))
+        other = cur.fetchone()
+        if other:
+            raise SystemExit(f"image {digest} is already sealed {other['sealed_id']}'s asset")
+        ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+        for suffix, blob in (("", full), ("_200", w200), ("_600", w600)):
+            (ASSETS_DIR / f"{digest}{suffix}.webp").write_bytes(blob)
+        cur.execute(
+            """
+            INSERT INTO market_sealed_image_asset
+              (sealed_id, image_kind, content_sha256, source_code, source_url, mime_type, width_px, height_px, captured_at)
+            VALUES (%s,'box_front',%s,%s,%s,'image/webp',%s,%s,%s)
+            ON DUPLICATE KEY UPDATE source_url=VALUES(source_url), captured_at=VALUES(captured_at)
+            """,
+            (int(product["id"]), digest, source, url[:700], width, height, utc_naive().strftime("%Y-%m-%d %H:%M:%S.%f")),
+        )
+        doc = {"asOf": utc_now(), "action": "sealed-add-image", "sku": product["sku_id"], "sealedId": int(product["id"]),
+               "sha": digest, "width": width, "height": height, "url": url, "actor": actor, "note": note}
         _log_catalog_change(doc)
         conn.commit()
     finally:

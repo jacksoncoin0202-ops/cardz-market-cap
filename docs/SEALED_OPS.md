@@ -19,7 +19,7 @@ $PY = 'C:\Users\jackson0202\AppData\Local\Programs\Python\Python310\python.exe' 
 
 前置：PriceCharting 需要 CDP Chrome —— `powershell -NoProfile -File scripts/ensure_chrome_cdp.ps1 -Port 9333 -UserDataDir $env:LOCALAPPDATA\cardz-chrome-cdp-9333`（Windows 側）。
 
-- `refresh`／`stock`／`accept-binding`／`scan`／`release`／`add-product`／`set-product` 攞 operator e2e lease；V2 行緊會被拒，唔好夾硬。`collect`／`compose`／`export`／`status`／`gaps` 唔攞 lease，因為 V2 box stage 攞住 lease 行 compose + export 做 child。
+- 除咗 `collect`／`compose`／`export`／`status`／`gaps`，其餘全部（包括下面嘅更正指令）攞 operator e2e lease；V2 行緊會被拒，唔好夾硬。`collect`／`compose`／`export`／`status`／`gaps` 唔攞 lease，因為 V2 box stage 攞住 lease 行 compose + export 做 child。
 - V2 box stage 每日自己 compose + export `/box`，但唔會 collect：`refresh` 要喺 V2（11:00 JST）之前或者 17:00 之後跑，下一轉 V2 先會出街。
 - `sealed_collect` 全部 fetch 失敗都 exit 0，所以 `refresh` 逐個 adapter 睇今次寫嘅 report：exit≠0、冇今次嘅 report、attempted>0 但 ok=0 都算紅。收據 `refresh-receipt.json` 嘅 `red` 唔係空就 exit 2。PC 紅唔擋 SNK／Yahoo／compose。
 - `refresh` 只刷 accepted bind（同 P6 一樣）；candidate 要先 accept。product export 只出 accepted source freeze。唔好塞入 PSA10 `daily --refresh --pass`。
@@ -36,6 +36,18 @@ $PY = 'C:\Users\jackson0202\AppData\Local\Programs\Python\Python310\python.exe' 
 6. **人手 accept**：新盒逐隻對證據 accept（`accept-binding --sku ... --kind source/image`）。**唔准 bulk accept 新貨；`ptcg-jp` 一律逐隻**：SNK 舊 JP 盒 candidate 試過黐到 DIESEL T 恤同第二個系列。
 7. **第一次全量**：`stock`（唔准用 incr 頂第一次）。收據 blocked＝件 source 貨同另一隻 SKU 共用，要人手裁決先再 stock。
 8. **之後日常**：V2 11:00 box stage compose + export `/box`；每日 `refresh`（V2 前或 17:00 後）刷價。
+
+## 更正：錯嘅嘢用狀態落，唔准 delete
+
+compose／export 只讀 SKU accepted source freeze 指名嗰件貨嘅價（SNK 寫法、PC url-quoting 當同一件）；SNK／eBay 成交冇 item id，要 SKU 有 accepted SNK／PC freeze 先計，Yahoo／Mercari 唔受影響。所以 bind 錯咗，reject 咗佢啲價就自動唔再入 `/box`。每條指令都要 `--note` 寫證據，commit 之前寫 `catalog-changes.jsonl`，而且有返轉頭路：
+
+- `quarantine --table sale|price --ids 1,2 --note "..."`：指名嘅 row 攞出 compose；`--restore` 放返（只准 quarantined → ok，QC reject 永遠唔會變 ok）。同一件貨再寫同一行都唔會解除 quarantine。
+- `reject-binding --sku <slug> --source-code snkrdunk --ext apparels:N --note "..."`：件貨所有寫法 → rejected（discover 唔會再開）；SKU 嘅 freeze 如果指住佢都一齊 rejected。
+- `move-binding --source-code ... --ext ... --from-sku <a> --to-sku <b> --note "..."`：綁錯 SKU 嘅貨搬去啱嗰隻做 candidate，舊 SKU 嘅 freeze rejected；件貨要淨係喺舊 SKU 度。
+- `add-binding --sku <slug> --source-code ... --ext ... --url ... --note "..."`：discover 冇搵到嘅啱貨入 candidate（SKU 有 live bind 要先 reject）。
+- `accept-binding --sku <slug> --kind source --source-code ... --ext <item>`：指名 accept 邊件貨；`--kind image --ext <sha>` 指名邊張圖。
+- `revoke-image --sku <slug> --note "..."`：錯圖落架；`add-image --sku <slug> --url https://... --note "..."` 入啱嘅圖（唔准 PC URL），再 `accept-binding --kind image --ext <sha>`。
+- `accept-binding --all-resolved` 會自動拒 `ptcg-jp`、`unreleased` 同 identity 未 accept 嘅 SKU（其餘照 commit，exit≠0）。
 
 ## 架構一覽
 
@@ -111,7 +123,7 @@ npm run dev -w @cardz/web    # /sealed + /sealed/[id]
 
 ## Artifacts
 
-`data/runtime/operator/sealed/`：`status.json`、`gaps.json`、`attention.json`、`daily_summary.json`、`compose-receipt.json`、`ingest-receipt.json`、`bind-resolve-receipt.json`、`image-harvest-receipt.json`、`backfill-receipt.json`、`sealed-subset-snapshot.json`、`collect/last_{stock,incr}.json`、`refresh-receipt.json`、`stock-receipt.json`、`catalog-changes.jsonl`（`release`／`add-product`／`set-product` 每次改 catalog 嘅 actor／note／前後值，commit 之前寫）。
+`data/runtime/operator/sealed/`：`status.json`、`gaps.json`、`attention.json`、`daily_summary.json`、`compose-receipt.json`、`ingest-receipt.json`、`bind-resolve-receipt.json`、`image-harvest-receipt.json`、`backfill-receipt.json`、`sealed-subset-snapshot.json`、`collect/last_{stock,incr}.json`、`refresh-receipt.json`、`stock-receipt.json`、`catalog-changes.jsonl`（`release`／`add-product`／`set-product` 同更正指令每次改動嘅 actor／note／前後值，commit 之前寫）。
 
 ## 已知待調（tuning backlog）
 

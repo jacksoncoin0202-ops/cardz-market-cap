@@ -18,7 +18,15 @@ place, so BOX prices stood still from 2026-08-20 to 2026-09-23.
   python -X utf8 pipelines/sealed_daily.py add-product --game optcg --lang jp --set OP-18 --name-en "..." --name-jp "..." \
       --release 2026-11 --packs 24 --official-url https://... --note "official source"   # new box, goes in unreleased
   python -X utf8 pipelines/sealed_daily.py set-product --sku <slug> --release 2025-10 --note "official source"
-refresh / stock / accept-binding / scan / release / add-product / set-product hold operator_e2e_lease, like collect_control. collect /
+Corrections, by status, never by delete (each has its reverse):
+  python -X utf8 pipelines/sealed_daily.py quarantine --table sale --ids 334667,334755 [--restore] --note "why"
+  python -X utf8 pipelines/sealed_daily.py reject-binding --sku <slug> --source-code snkrdunk --ext apparels:N --note "why"
+  python -X utf8 pipelines/sealed_daily.py move-binding --source-code snkrdunk --ext apparels:N --from-sku <a> --to-sku <b> --note "why"
+  python -X utf8 pipelines/sealed_daily.py add-binding --sku <slug> --source-code snkrdunk --ext apparels:N --url https://... --note "why"
+  python -X utf8 pipelines/sealed_daily.py accept-binding --sku <slug> --kind source --source-code snkrdunk --ext apparels:N
+  python -X utf8 pipelines/sealed_daily.py revoke-image --sku <slug> --note "why"
+  python -X utf8 pipelines/sealed_daily.py add-image --sku <slug> --url https://... --note "why"   # then accept-binding --kind image --ext <sha>
+Every command below the lease-free five holds operator_e2e_lease, like collect_control. collect /
 compose / export stay lease-free: the V2 box stage runs them as children while it holds the lease,
 and a child's GET_LOCK on its own connection would be refused. scripts/test_sealed_daily_cli.py.
 """
@@ -105,6 +113,7 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--source-code", default=""); b.add_argument("--actor", default="daddy"); b.add_argument("--note", default=None)
     b.add_argument("--all-resolved", action="store_true", help="bulk-accept every resolved candidate bind for --source-code")
     b.add_argument("--group", default=None, help="restrict bulk accept to one group_code")
+    b.add_argument("--ext", default=None, help="with --sku: the exact source item id or image sha to accept")
     sub.add_parser("scan")
     r = sub.add_parser("release", help="catalog status unreleased -> active once the release month has come")
     r.add_argument("--sku", required=True, help="sku_id or slug"); r.add_argument("--actor", default="daddy"); r.add_argument("--note", default=None)
@@ -120,6 +129,27 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--name-en", default=None); c.add_argument("--name-jp", default=None); c.add_argument("--release", default=None)
     c.add_argument("--packs", type=int, default=None); c.add_argument("--official-url", default=None)
     c.add_argument("--actor", default="daddy"); c.add_argument("--note", required=True, help="official source for the correction")
+    q = sub.add_parser("quarantine", help="sale/price rows out of compose (or back with --restore)")
+    q.add_argument("--table", choices=("sale", "price"), required=True)
+    q.add_argument("--ids", required=True, help="comma-separated row ids"); q.add_argument("--restore", action="store_true")
+    for name, text in (("reject-binding", "a SKU's bind to the wrong item -> rejected"),
+                       ("move-binding", "an item bound to the wrong SKU -> candidate on the right one"),
+                       ("add-binding", "the right item as a candidate"), ("revoke-image", "a wrong box image -> rejected"),
+                       ("add-image", "a right box image from a url, as an asset to accept")):
+        x = sub.add_parser(name, help=text)
+        if name == "move-binding":
+            x.add_argument("--from-sku", required=True); x.add_argument("--to-sku", required=True)
+        else:
+            x.add_argument("--sku", required=True, help="sku_id or slug")
+        if name in ("reject-binding", "move-binding", "add-binding"):
+            x.add_argument("--source-code", choices=("snkrdunk", "pricecharting"), required=True)
+            x.add_argument("--ext", required=True)
+        if name in ("add-binding", "add-image"):
+            x.add_argument("--url", required=True)
+        x.add_argument("--actor", default="daddy")
+    for x in (q, *[sub.choices[n] for n in ("reject-binding", "move-binding", "add-binding", "revoke-image", "add-image")]):
+        x.add_argument("--note", required=True, help="the evidence for this correction")
+    q.add_argument("--actor", default="daddy")
     a = ap.parse_args(argv)
     py = sys.executable
     if a.cmd == "collect":
@@ -146,7 +176,30 @@ def main(argv: list[str] | None = None) -> int:
             return pull_all(py, "stock", "stock", tuple(a.adapter or PULL_ADAPTERS))
         if a.cmd == "accept-binding":
             sealed_operator.cmd_sealed_accept_binding(sku=a.sku, kind=a.kind, source_code=a.source_code, actor=a.actor,
-                                                      note=a.note, all_resolved=a.all_resolved, group=a.group)
+                                                      note=a.note, all_resolved=a.all_resolved, group=a.group,
+                                                      external_id=a.ext)
+            return 0
+        if a.cmd == "quarantine":
+            sealed_operator.cmd_sealed_quarantine(table=a.table, ids=[int(i) for i in a.ids.split(",") if i.strip()],
+                                                  restore=a.restore, actor=a.actor, note=a.note)
+            return 0
+        if a.cmd == "reject-binding":
+            sealed_operator.cmd_sealed_reject_binding(sku=a.sku, source_code=a.source_code, external_id=a.ext,
+                                                      actor=a.actor, note=a.note)
+            return 0
+        if a.cmd == "move-binding":
+            sealed_operator.cmd_sealed_move_binding(source_code=a.source_code, external_id=a.ext, from_sku=a.from_sku,
+                                                    to_sku=a.to_sku, actor=a.actor, note=a.note)
+            return 0
+        if a.cmd == "add-binding":
+            sealed_operator.cmd_sealed_add_binding(sku=a.sku, source_code=a.source_code, external_id=a.ext, url=a.url,
+                                                   actor=a.actor, note=a.note)
+            return 0
+        if a.cmd == "revoke-image":
+            sealed_operator.cmd_sealed_revoke_image(sku=a.sku, actor=a.actor, note=a.note)
+            return 0
+        if a.cmd == "add-image":
+            sealed_operator.cmd_sealed_add_image(sku=a.sku, url=a.url, actor=a.actor, note=a.note)
             return 0
         if a.cmd == "release":
             sealed_operator.cmd_sealed_release(sku=a.sku, actor=a.actor, note=a.note)

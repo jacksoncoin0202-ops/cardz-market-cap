@@ -211,6 +211,9 @@ class AcceptCursor:
         elif sql.startswith("SELECT external_entity_id FROM catalog_sealed_source_identity"):
             self.last = [b for b in self.binds if (b["sealed_id"], b["source_code"]) == tuple(params)
                          and (not live or b["match_status"] != "rejected")]
+        elif sql.startswith("SELECT p.id, p.group_code, p.status, EXISTS"):
+            self.last = [{"id": p["id"], "group_code": p.get("group_code", "optcg-en"), "status": p.get("status", "active"),
+                          "identity_frozen": p.get("identity_frozen", 1)} for p in self.products if p["id"] in params]
         elif sql.startswith("SELECT p.sku_id FROM catalog_sealed_source_identity"):
             source, *ids, sealed_id = params
             sku = {p["id"]: p["sku_id"] for p in self.products}
@@ -229,19 +232,26 @@ class AcceptCursor:
 
 EB03_P = {"id": 41, "sku_id": "optcg:en:EB-03:booster-box:std", "slug": "optcg-en-eb-03-booster-box-std"}
 EB05_P = {"id": 45, "sku_id": "optcg:en:EB-05:booster-box:std", "slug": "optcg-en-eb-05-booster-box-std"}
-M6A_P = {"id": 356, "sku_id": M6A["sku_id"], "slug": M6A["slug"]}
-OTHER_P = {"id": 999, "sku_id": "ptcg:jp:X:booster-box:std", "slug": "ptcg-jp-x-booster-box-std"}
+M6A_P = {"id": 356, "sku_id": M6A["sku_id"], "slug": M6A["slug"], "group_code": "ptcg-jp"}
+OTHER_P = {"id": 999, "sku_id": "ptcg:jp:X:booster-box:std", "slug": "ptcg-jp-x-booster-box-std", "group_code": "ptcg-jp"}
+OP02_P = {"id": 5, "sku_id": "optcg:en:OP-02:booster-box:std", "slug": "optcg-en-op-02-booster-box-std"}
+OP18_P = {"id": 357, "sku_id": "optcg:jp:OP-18:booster-box:std", "slug": "optcg-jp-op-18-booster-box-std",
+          "group_code": "optcg-jp", "status": "unreleased"}
+NEW_P = {"id": 358, "sku_id": "optcg:en:OP-18:booster-box:std", "slug": "optcg-en-op-18-booster-box-std", "identity_frozen": 0}
 BINDS = [
     {"sealed_id": 41, "source_code": "snkrdunk", "external_entity_id": "trading-cards:767625", "match_status": "exact"},
     {"sealed_id": 45, "source_code": "snkrdunk", "external_entity_id": "apparels:767625", "match_status": "candidate"},
     {"sealed_id": 356, "source_code": "snkrdunk", "external_entity_id": "apparels:881421", "match_status": "candidate"},
     {"sealed_id": 999, "source_code": "snkrdunk", "external_entity_id": "trading-cards:881421", "match_status": "rejected"},
+    {"sealed_id": 5, "source_code": "snkrdunk", "external_entity_id": "apparels:500", "match_status": "candidate"},
+    {"sealed_id": 357, "source_code": "snkrdunk", "external_entity_id": "apparels:357", "match_status": "candidate"},
+    {"sealed_id": 358, "source_code": "snkrdunk", "external_entity_id": "apparels:358", "match_status": "candidate"},
 ]
 
 
 def accept_tests() -> None:
     accept = sealed_operator.cmd_sealed_accept_binding
-    products = [EB03_P, EB05_P, M6A_P, OTHER_P]
+    products = [EB03_P, EB05_P, M6A_P, OTHER_P, OP02_P, OP18_P, NEW_P]
     one = dict(kind="source", source_code="snkrdunk", actor="daddy", note="n", all_resolved=False, group=None)
 
     cur = AcceptCursor(products, BINDS)
@@ -263,9 +273,171 @@ def accept_tests() -> None:
     cur = AcceptCursor(products, BINDS)
     doc, err, conn = call(accept, cur, sku=None, **{**one, "all_resolved": True})
     exacts = [s[1] for s in writes(cur) if s[0].startswith("UPDATE")]
-    assert err and "refused 1" in err and exacts == [(356, "snkrdunk", "apparels:881421")] and len(conn.commits) == 1, \
+    assert err and "refused 4" in err and exacts == [(5, "snkrdunk", "apparels:500")] and len(conn.commits) == 1, \
         "bulk must keep the clean accept, refuse the shared item and exit non-zero: %r" % ((err, exacts, conn.commits),)
-    print("NEGATIVE_OK bulk accept commits the clean SKUs, refuses the shared item and still exits non-zero")
+    for sku_id, why in ((M6A_P["sku_id"], "ptcg-jp"), (OP18_P["sku_id"], "unreleased"), (NEW_P["sku_id"], "identity not accepted")):
+        assert f"{sku_id} bulk refused: {why}" in err, f"bulk accepted {sku_id} ({why}): {err}"
+    print("NEGATIVE_OK bulk accept commits the clean SKUs; refuses the shared item, ptcg-jp, unreleased and unreviewed "
+          "SKUs and still exits non-zero")
+
+
+CORRECTIONS_DB = """
+CREATE TABLE catalog_sealed_product (id INTEGER PRIMARY KEY, sku_id TEXT, slug TEXT, group_code TEXT, status TEXT);
+CREATE TABLE catalog_sealed_source_identity (source_code TEXT, external_entity_id TEXT, sealed_id INTEGER, canonical_url TEXT,
+  match_status TEXT, resolved INTEGER, evidence_sha256 TEXT, note TEXT, PRIMARY KEY (source_code, external_entity_id));
+CREATE TABLE operator_sealed_binding_freeze (sealed_id INTEGER, freeze_kind TEXT, source_code TEXT, external_entity_id TEXT,
+  content_sha256 TEXT, acceptance_status TEXT, actor TEXT, evidence_sha256 TEXT, note TEXT, accepted_at TEXT,
+  PRIMARY KEY (sealed_id, freeze_kind, source_code));
+CREATE TABLE market_sealed_sale_observation (id INTEGER PRIMARY KEY, sealed_id INTEGER, source_code TEXT, metric_status TEXT);
+CREATE TABLE market_sealed_price_observation (id INTEGER PRIMARY KEY, sealed_id INTEGER, source_code TEXT, metric_status TEXT);
+CREATE TABLE market_sealed_image_asset (sealed_id INTEGER, image_kind TEXT, content_sha256 TEXT, captured_at TEXT);
+INSERT INTO catalog_sealed_product VALUES
+  (218, 'ptcg:jp:S10b:booster-box:std', 's10b', 'ptcg-jp', 'active'),
+  (48, 'optcg:jp:PRB-01:booster-box:std', 'prb-01', 'optcg-jp', 'active'),
+  (50, 'optcg:jp:PRB-02:booster-box:std', 'prb-02', 'optcg-jp', 'active'),
+  (13, 'optcg:en:OP-06:booster-box:std', 'op-06-en', 'optcg-en', 'active');
+INSERT INTO catalog_sealed_source_identity VALUES
+  ('snkrdunk', 'trading-cards:100', 218, NULL, 'exact', 1, '', ''),
+  ('snkrdunk', 'apparels:101', 218, NULL, 'candidate', 1, '', ''),
+  ('snkrdunk', 'apparels:300', 50, NULL, 'exact', 1, '', ''),
+  ('snkrdunk', 'apparels:301', 50, NULL, 'candidate', 1, '', ''),
+  ('snkrdunk', 'apparels:400', 48, NULL, 'candidate', 1, '', ''),
+  ('snkrdunk', 'trading-cards:400', 13, NULL, 'candidate', 1, '', '');
+INSERT INTO operator_sealed_binding_freeze (sealed_id, freeze_kind, source_code, external_entity_id, acceptance_status) VALUES
+  (218, 'source', 'snkrdunk', 'apparels:100', 'accepted'),
+  (50, 'source', 'snkrdunk', 'apparels:300', 'accepted'),
+  (13, 'source', 'snkrdunk', 'apparels:999', 'accepted'),
+  (218, 'image', '', 'sha-wrong', 'accepted');
+INSERT INTO market_sealed_sale_observation VALUES (1, 179, 'ebay', 'ok'), (2, 179, 'ebay', 'outlier_trimmed'),
+  (3, 179, 'ebay', 'rejected_foreign_edition'), (4, 179, 'ebay', 'ok');
+INSERT INTO market_sealed_price_observation VALUES (7, 218, 'snkrdunk', 'ok');
+INSERT INTO market_sealed_image_asset VALUES (218, 'box_front', 'sha-wrong', '2026-09-01'), (218, 'box_front', 'sha-right', '2026-08-01');
+"""
+
+
+def correction_tests() -> None:
+    """2026-09-23 R0/R4: nothing in this tree could take a wrong bind, row or image down short of a delete. The
+    commands run their own SQL on sqlite; each change is on disk in catalog-changes.jsonl before its commit."""
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import re
+
+    from test_sealed_discover import LiteConn, LiteCursor
+
+    class MyCursor(LiteCursor):
+        def execute(self, sql, params=()):
+            sql = sql.replace("ON DUPLICATE KEY UPDATE", "ON CONFLICT DO UPDATE SET")
+            super().execute(re.sub(r"\bVALUES\((\w+)\)", r"excluded.\1", sql), params)
+
+    class Lite(LiteConn):
+        commits: list[str] = []
+
+        def cursor(self):
+            return MyCursor(self.conn.cursor())
+
+        def commit(self):
+            self.commits.append(LOG.read_text(encoding="utf-8") if LOG.is_file() else "")
+            super().commit()
+
+    lite = Lite(CORRECTIONS_DB)
+    sealed_operator.db = lambda: lite
+    q = lite.conn.cursor()
+
+    def rows(sql):
+        return [tuple(r) for r in q.execute(sql).fetchall()]
+
+    def run(fn, **kw):
+        before, n = LOG.read_text(encoding="utf-8") if LOG.is_file() else "", len(lite.commits)
+        try:
+            doc, err = fn(actor="claude", note="evidence", **kw), None
+        except SystemExit as exc:
+            lite.rollback()
+            doc, err = None, str(exc)
+        if err:
+            assert len(lite.commits) == n and (LOG.read_text(encoding="utf-8") if LOG.is_file() else "") == before, \
+                f"a refused {fn.__name__} committed or logged: {err}"
+        else:
+            assert len(lite.commits) == n + 1 and doc["action"] in lite.commits[-1].splitlines()[-1], \
+                f"{fn.__name__}: the catalog-changes line must be on disk before the commit"
+        return doc, err
+
+    quarantine = sealed_operator.cmd_sealed_quarantine
+    doc, err = run(quarantine, table="sale", ids=[1, 2], restore=False)
+    assert err is None and rows("SELECT id, metric_status FROM market_sealed_sale_observation WHERE id<3") == \
+        [(1, "quarantined"), (2, "quarantined")], (err, doc)
+    doc, err = run(quarantine, table="sale", ids=[3, 4], restore=False)
+    assert err and "rejected_foreign_edition" in err and rows("SELECT metric_status FROM market_sealed_sale_observation WHERE id=4") == [("ok",)], \
+        "a QC-rejected row in the list must refuse the whole call: %r" % err
+    doc, err = run(quarantine, table="sale", ids=[1, 4], restore=True)
+    assert err and "4" in err, "restore must touch quarantined rows only (never turn a QC reject ok): %r" % err
+    doc, err = run(quarantine, table="sale", ids=[1], restore=True)
+    assert err is None and rows("SELECT metric_status FROM market_sealed_sale_observation WHERE id=1") == [("ok",)], err
+    doc, err = run(quarantine, table="price", ids=[7, 8], restore=False)
+    assert err and "missing" in err, "an unknown id must refuse the call: %r" % err
+    print("POSITIVE_OK quarantine moves counted rows out and back; a QC reject, a non-quarantined restore or an unknown id "
+          "refuses the whole call with no write")
+
+    reject = sealed_operator.cmd_sealed_reject_binding
+    doc, err = run(reject, sku="s10b", source_code="snkrdunk", external_id="apparels:100")
+    assert err is None and doc["freezeRejected"] and doc["ext"] == ["trading-cards:100"], (err, doc)
+    assert rows("SELECT external_entity_id, match_status FROM catalog_sealed_source_identity WHERE sealed_id=218") == \
+        [("trading-cards:100", "rejected"), ("apparels:101", "candidate")], "reject must take every spelling of the item, only it"
+    assert rows("SELECT acceptance_status FROM operator_sealed_binding_freeze WHERE sealed_id=218 AND freeze_kind='source'") == \
+        [("rejected",)], "the freeze naming the rejected item must turn rejected"
+    doc, err = run(reject, sku="s10b", source_code="snkrdunk", external_id="apparels:100")
+    assert err and "no live" in err, "rejecting twice must refuse: %r" % err
+    doc, err = run(reject, sku="op-06-en", source_code="snkrdunk", external_id="apparels:400")
+    assert err is None and not doc["freezeRejected"] and rows(
+        "SELECT acceptance_status FROM operator_sealed_binding_freeze WHERE sealed_id=13") == [("accepted",)], \
+        "a freeze naming another item must stay: %r" % ((err, doc),)
+    print("POSITIVE_OK reject-binding rejects every spelling of one item and the freeze only when it names that item")
+
+    move = sealed_operator.cmd_sealed_move_binding
+    doc, err = run(move, source_code="snkrdunk", external_id="apparels:300", from_sku="prb-02", to_sku="prb-01")
+    assert err is None and doc["freezeRejected"], (err, doc)
+    assert rows("SELECT sealed_id, match_status FROM catalog_sealed_source_identity WHERE external_entity_id='apparels:300'") == \
+        [(48, "candidate")] and rows("SELECT acceptance_status FROM operator_sealed_binding_freeze WHERE sealed_id=50 "
+                                     "AND freeze_kind='source'") == [("rejected",)], "PRB-02's box must move to PRB-01 as a candidate"
+    lite.conn.execute("UPDATE catalog_sealed_source_identity SET match_status='rejected' WHERE external_entity_id='trading-cards:400'")
+    doc, err = run(move, source_code="snkrdunk", external_id="apparels:400", from_sku="prb-01", to_sku="prb-02")
+    assert err and "not on" in err, "an item another SKU also holds (even rejected) must not move: %r" % err
+    print("POSITIVE_OK move-binding moves an item held by one SKU as a candidate and rejects the old freeze; "
+          "an item on two SKUs is refused")
+
+    accept = sealed_operator.cmd_sealed_accept_binding
+    one = dict(sku="prb-01", kind="source", source_code="snkrdunk", actor="claude", note="n", all_resolved=False, group=None)
+    try:
+        accept(**one, external_id="apparels:777")
+        raise AssertionError("accept --ext on an item the SKU does not hold must refuse")
+    except SystemExit as exc:
+        lite.rollback()
+        assert "no live" in str(exc), exc
+    accept(**one, external_id="apparels:300")
+    assert rows("SELECT external_entity_id, acceptance_status FROM operator_sealed_binding_freeze WHERE sealed_id=48") == \
+        [("apparels:300", "accepted")], "accept --ext must freeze the named item"
+    print("POSITIVE_OK accept-binding --ext freezes the named item; an item the SKU does not hold is refused")
+
+    revoke = sealed_operator.cmd_sealed_revoke_image
+    doc, err = run(revoke, sku="s10b")
+    assert err is None and doc["sha"] == "sha-wrong" and rows(
+        "SELECT acceptance_status FROM operator_sealed_binding_freeze WHERE sealed_id=218 AND freeze_kind='image'") == [("rejected",)], err
+    doc, err = run(revoke, sku="s10b")
+    assert err and "no accepted image" in err, err
+    accept(**{**one, "sku": "s10b", "kind": "image", "source_code": ""}, external_id="sha-right")
+    assert rows("SELECT external_entity_id, acceptance_status FROM operator_sealed_binding_freeze WHERE sealed_id=218 "
+                "AND freeze_kind='image'") == [("sha-right", "accepted")], "accept --kind image --ext must take the named sha, not the latest"
+    print("POSITIVE_OK revoke-image rejects the image freeze; accept --kind image --ext puts the named asset back")
+
+    add = sealed_operator.cmd_sealed_add_binding
+    doc, err = run(add, sku="s10b", source_code="snkrdunk", external_id="apparels:102", url="https://snkrdunk.com/apparels/102")
+    assert err and "already_bound" in err, "a SKU with a live bind must reject it before another goes in: %r" % err
+    run(reject, sku="s10b", source_code="snkrdunk", external_id="apparels:101")
+    doc, err = run(add, sku="s10b", source_code="snkrdunk", external_id="apparels:102", url="https://snkrdunk.com/apparels/102")
+    assert err is None and doc["status"] == "inserted", (err, doc)
+    doc, err = run(add, sku="s10b", source_code="snkrdunk", external_id="apparels:100", url="https://snkrdunk.com/apparels/100")
+    assert err and "already_rejected" in err, "add-binding must not reopen a reject: %r" % err
+    doc, err = run(add, sku="s10b", source_code="snkrdunk", external_id="apparels:300", url="https://snkrdunk.com/apparels/300")
+    assert err and "conflict" in err, "add-binding must not take an item another SKU holds: %r" % err
+    print("POSITIVE_OK add-binding inserts a candidate; a rejected item or one another SKU holds is refused")
 
 
 def main() -> int:
@@ -317,6 +489,7 @@ def main() -> int:
 
     catalog_tests()
     accept_tests()
+    correction_tests()
     return 0
 
 
