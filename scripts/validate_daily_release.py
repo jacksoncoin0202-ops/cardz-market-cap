@@ -32,6 +32,20 @@ TARGET_ID = "cmc_f698284d7bc333408782e4c6"
 TARGET_NUMBER = "170/181"
 BOX_MAX_ASOF_AGE_HOURS = 36.0
 BOX_COLLISION_BASELINE = ROOT / "data" / "policy" / "box-image-collision-baseline.json"
+# The release commits the snapshot and GitHub refuses any file over 100 MiB.
+# Stop 5 MiB short of that with a reason, not with a push GitHub rejects.
+SNAPSHOT_MAX_BYTES = 95 * 1024 * 1024
+
+
+def load_snapshot(path: Path) -> dict[str, Any]:
+    size = path.stat().st_size
+    if size > SNAPSHOT_MAX_BYTES:
+        raise AssertionError(
+            f"{path.name} is {size:,} bytes, over the {SNAPSHOT_MAX_BYTES:,}-byte (95 MiB)"
+            " release limit: GitHub refuses files over 100 MiB, so this release could"
+            " not push. Shrink the public snapshot before releasing."
+        )
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def validate_box(
@@ -308,6 +322,17 @@ def self_test() -> None:
     import tempfile
 
     with tempfile.TemporaryDirectory() as folder:
+        oversized = Path(folder) / "seed-snapshot.json"
+        with oversized.open("wb") as handle:
+            handle.truncate(SNAPSHOT_MAX_BYTES + 1)
+        try:
+            load_snapshot(oversized)
+        except AssertionError:
+            print("NEGATIVE_OK snapshot-size fixture was rejected")
+        else:
+            raise AssertionError("negative self-test did not fire: snapshot-size")
+
+    with tempfile.TemporaryDirectory() as folder:
         assets = Path(folder)
         sha = "a" * 64
         for suffix in ("", "_200", "_600"):
@@ -360,8 +385,9 @@ def main() -> int:
     if args.snapshot:
         if args.assets is None:
             parser.error("--assets is required with --snapshot")
-        snapshot = json.loads(args.snapshot.read_text(encoding="utf-8"))
+        snapshot = load_snapshot(args.snapshot)
         report = validate(snapshot, args.assets, datetime.now(timezone.utc))
+        report["snapshotBytes"] = args.snapshot.stat().st_size
         if args.box:
             box = json.loads(args.box.read_text(encoding="utf-8"))
             previous = None
