@@ -12,7 +12,7 @@ import { BoxImage } from "./box-image";
 import { tcgOfGroup } from "./box-group-selector";
 import { absolutePublicUrl, canonicalPublicUrl, datasetId, StructuredData } from "./structured-data";
 import { copy } from "@/lib/i18n";
-import { formatDate, formatInteger, formatMetricMoney, formatMoney, formatObservationDate, formatPercent, metricTone } from "@/lib/format";
+import { formatInteger, formatMetricMoney, formatMoney, formatObservationDate, formatPercent, metricTone } from "@/lib/format";
 import { plainDescription } from "@/lib/plain-text";
 import { appendParam, fillTemplate, geoCopy } from "@/lib/related-cards";
 import type { Currency, MarketViewSnapshot, SealedProductView } from "@/lib/types";
@@ -197,7 +197,7 @@ export function BoxDetail({ product, snapshot }: {
               </div>
             )}
           </section>
-          <p className="data-time">{t.labels.asOf}: {formatDate(product.priceUsd.asOf ?? snapshot.effectiveAt, locale)}</p>
+          <p className="data-time">{t.labels.asOf}: {formatObservationDate(product.priceUsd.asOf ?? snapshot.effectiveAt, locale)}</p>
           <HistoryChart points={product.historyDaily} locale={locale} currency={currency} rates={rates} />
         </div>
       </article>

@@ -10,7 +10,7 @@ import { EmptyState } from "./empty-state";
 import { Provenance } from "./provenance";
 import { canonicalPublicUrl, siteOrganization, StructuredData } from "./structured-data";
 import { copy } from "@/lib/i18n";
-import { formatDate } from "@/lib/format";
+import { formatObservationDate } from "@/lib/format";
 import { geoCopy } from "@/lib/related-cards";
 import type { MarketViewSnapshot } from "@/lib/types";
 import { useMarketSettings } from "@/lib/use-market-settings";
@@ -74,7 +74,7 @@ export function BoxMarketPage({ snapshot }: { snapshot: MarketViewSnapshot }) {
         <p className="hero-copy">{t.boxHero.body}</p>
         {block && (
           <p className="data-time">
-            {coverage} · {t.labels.asOf}: {formatDate(block.asOf, locale)}
+            {coverage} · {t.labels.asOf}: {formatObservationDate(block.asOf, locale)}
           </p>
         )}
       </section>

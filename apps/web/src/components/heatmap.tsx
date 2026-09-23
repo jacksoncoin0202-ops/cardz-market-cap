@@ -16,7 +16,7 @@ import { TuneColor, TuneRange, useParamPump, useTuneCommit } from "./tune-panel"
 import { Sheet } from "./ui/sheet";
 import { displayCardName } from "@/lib/card-name";
 import { copy } from "@/lib/i18n";
-import { formatDate, formatMetricInteger, formatMetricMoney, formatMoney, formatObservationDate, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
+import { formatMetricInteger, formatMetricMoney, formatMoney, formatObservationDate, formatPercent, formatTrackedSales, metricTone } from "@/lib/format";
 import { tap } from "@/lib/haptic";
 import { snapCardBox, snapFrameGrid, snapTileBox } from "@/lib/pixel-snap";
 import { heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
