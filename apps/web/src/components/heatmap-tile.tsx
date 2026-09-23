@@ -15,7 +15,7 @@ export interface HeatmapTileProps {
   w: number;
   h: number;
   bg: string;
-  /* label 底板色（tileStyle.plate）：inline 落 .tile-move，唔靠 CSS token —— red-up / 自訂色都同 tile 同色 */
+  /* label 底板（tileStyle.plate = LABEL_PLATE；neutral 係 null）：inline 落 .tile-move，分享圖 route 同一個值 */
   plate: string | null;
   direction: TileStyle["direction"];
   /* 呢個窗口冇數（tileStyle.missing）→ data-missing，CSS 喺灰格上面加斜紋，同持平（0.0%）分開 */

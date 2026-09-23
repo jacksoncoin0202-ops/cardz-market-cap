@@ -86,7 +86,7 @@ export interface TileStyle {
   direction: "up" | "down" | "neutral";
   missing: boolean;      // 呢個窗口冇數（null）。同持平一樣係 neutral 灰，UI 再加斜紋分返開
   bg: string;            // tile 純色 fill
-  plate: string | null;  // 升跌 label 底板色（同 tile 同一隻升／跌 hex，34% alpha）；neutral 冇底板
+  plate: string | null;  // 升跌 label 底板（LABEL_PLATE，統一深色半透明）；neutral 冇底板
   cardW: number;         // 中間卡闊 px
   cardH: number;         // 中間卡高 px
   showCard: boolean;
@@ -111,6 +111,12 @@ export function tileCardSize(w: number, h: number, p: TileParams): { cardW: numb
    owner 2026-08-17：「唔好食咗啲 percentage」——label 一定要成個字入晒 tile 入面，
    仲要離開左右邊；寧願縮字／去小數／索性唔顯示，都唔准裁字。 */
 export const TILE_LABEL = { inset: 4, padX: 3, padY: 1, lineHeight: 1.2, minFont: 8, maxFont: 14 } as const;
+
+/* 升跌 label 底板：統一深色半透明（owner 2026-09-23 批）。以前係 tile 同一隻升／跌 hex 34%，
+   疊喺同色格上面等於冇底板：dark mode 5% 綠格白字對比得 2.66。而家兩個 theme × 紅綠對調 × 0.1–10%
+   白字對比全部 ≥ 4.5（WCAG AA 細字，scripts/test-fe-heatmap-tile-color.mjs 逐格計）。
+   neutral（0.0%）照舊冇底板（owner 2026-08-29：0% 唔應該有色塊）。分享圖 route 行同一個 tileStyle。 */
+export const LABEL_PLATE = "rgba(10, 10, 10, 0.4)";
 
 /* label 闊度（每 1px 字體嘅 em 數）—— 純查表，唔量 canvas（2026-08-17 起，FE05 webfont）。
    點解唔再用 canvas measureText：
@@ -184,10 +190,7 @@ export function tileStyle(value: number | null, w: number, h: number, colors: Ti
   const bg = direction === "neutral" || t === 0
     ? colors.neutral
     : `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`;
-  /* label 底板：同色淡板（34%），色由 colors 嚟（唔係 CSS token）—— red-up 對調 / /tune 自訂色之下
-     先同 tile 對得上；以前 CSS 用 --frame-up/--frame-down，red-up 時升 tile 係紅、底板卻係綠。 */
-  const [pr, pg, pb] = hexToRgb(hex);
-  const plate = direction === "neutral" ? null : `rgba(${pr}, ${pg}, ${pb}, 0.34)`;
+  const plate = direction === "neutral" ? null : LABEL_PLATE;
   const { cardW, cardH } = tileCardSize(w, h, p);
   /* 門檻放寬：tile 細都照 show 卡圖，保持成版整齊（用戶 2026-07-24 指示） */
   const showCard = p.cardPct > 0 && cardW >= 5 && cardH >= 7;

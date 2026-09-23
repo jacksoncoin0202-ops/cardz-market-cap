@@ -1488,8 +1488,8 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   color: #fff;
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7), 0 0 10px rgba(0, 0, 0, 0.4);
   pointer-events: none;
-  /* 同色淡底板（label 唔再齋靠 text-shadow）由 JS inline background 落（tileStyle.plate = tile 同一隻升／跌
-     hex 34%）：以前用 --frame-up/--frame-down token，red-up 對調 / /tune 自訂色時底板同 tile 唔同色。 */
+  /* 底板由 JS inline background 落（tileStyle.plate = lib/tile-style.ts LABEL_PLATE 深色半透明，neutral 冇），
+     分享圖 route 用同一個值 —— 唔好喺呢度加 CSS background，兩邊會唔同色。 */
 }
 
 /* ── 調參 panel ────────────────────────────────────────────── */

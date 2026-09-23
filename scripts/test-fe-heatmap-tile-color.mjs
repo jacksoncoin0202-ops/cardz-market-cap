@@ -6,6 +6,7 @@
  *   ① 預設 gamma 4 + aMin 0.78：1%→0.780、3%→0.809 —— 3% 以下肉眼同色，1D 成版一隻綠。
  *   ② 分享圖 api/og/heatmap 自己抄一份色階（tileFill），0.04% 印「+0.0%」綠格，網站係灰格。
  *   ③ 灰格一律叫「資料累積中」，印 0.0% 嘅卡都被講成未有數。
+ *   ④ label 底板係格同色 34%，疊喺同色格上面等於冇底板：dark 5% 綠格白字對比得 2.66。
  * 另外 /tune 存落 localStorage 嘅係成套 params，舊預設跟住存埋，新預設蓋唔到。
  *
  * 呢個檔真係 import tileStyle / restoreTileParams / copy（Node strip types）；
@@ -34,7 +35,7 @@ const check = (label, condition, detail = "") => {
   if (!condition) failed.push(detail ? `${label} —— ${detail}` : label);
 };
 
-const { DEFAULT_TILE, restoreTileParams, tileColors, tileStyle } = await import(
+const { DEFAULT_TILE, LABEL_PLATE, restoreTileParams, tileColors, tileStyle } = await import(
   `file://${join(ROOT, "apps/web/src/lib/tile-style.ts").replaceAll("\\", "/")}`
 );
 const { copy } = await import(`file://${join(ROOT, "apps/web/src/lib/i18n.ts").replaceAll("\\", "/")}`);
@@ -57,6 +58,46 @@ const now = ladder(DEFAULT_TILE);
 check("預設色階 1%≤0.55、3% 比 1% 深 ≥0.15、逐級加深、5% 頂格", now.ok, `alpha 1–5% = ${now.a.join(" / ")}`);
 check("負控制：舊 gamma 4 / aMin 0.78 過唔到色階合約", !ladder(OLD).ok, `old alpha = ${ladder(OLD).a.join(" / ")}`);
 check("升跌同一條色階（−3% 同 +3% 一樣深）", alphaOf(st(-3).bg) === alphaOf(st(3).bg));
+
+/* ── label 底板：白字對比 ≥ 4.5（WCAG AA 細字）。frame 底 ⊕ 格色 ⊕ 底板，兩個 theme × 紅綠對調 × 0.1–10%。
+   淺色 theme 格色配淺 frame、深色配深 frame（按 --heatmap-frame-bg 光暗配對，唔靠 CSS 次序）。
+   負控制：舊「同色 34%」底板要紅（dark 5% 綠格得 2.66）。 ── */
+const rgbaOf = (s) => {
+  if (s.startsWith("#")) return [1, 3, 5].map((i) => parseInt(s.slice(i, i + 2), 16)).concat(1);
+  const v = /rgba?\(([^)]+)\)/.exec(s)[1].split(",").map(Number);
+  return [v[0], v[1], v[2], v[3] ?? 1];
+};
+const over = (top, under) => { const [r, g, b, a] = rgbaOf(top); return [r, g, b].map((c, i) => c * a + under[i] * (1 - a)); };
+const lin = (c) => { const s = c / 255; return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; };
+const lum = ([r, g, b]) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+const frames = [...read("apps/web/src/app/globals.css").matchAll(/--heatmap-frame-bg: (#[0-9a-fA-F]{6});/g)]
+  .map((m) => rgbaOf(m[1]).slice(0, 3)).sort((a, b) => lum(b) - lum(a));
+check("--heatmap-frame-bg light + dark 兩套", frames.length === 2);
+function worstLabelContrast(plateOf) {
+  let worst = { c: Infinity, at: "" };
+  for (const [frame, dark] of [[frames[0], false], [frames[1], true]]) {
+    const base = tileColors(dark, DEFAULT_TILE);
+    for (const cs of [base, { ...base, up: base.down, down: base.up }]) {
+      for (const pct of [0.1, 0.5, 1, 2, 3, 4, 5, 10, -0.1, -1, -3, -5, -10]) {
+        const tile = tileStyle(pct, 120, 160, cs, DEFAULT_TILE);
+        const c = 1.05 / (lum(over(plateOf(tile, pct, cs), over(tile.bg, frame))) + 0.05);
+        if (c < worst.c) worst = { c, at: `${dark ? "dark" : "light"} ${cs === base ? "green-up" : "red-up"} ${pct}%` };
+      }
+    }
+  }
+  return worst;
+}
+let plateNow = { c: Number.NaN, at: "" };
+if (frames.length === 2) {
+  plateNow = worstLabelContrast((tile) => tile.plate);
+  check("升跌 label 白字對比 ≥ 4.5", plateNow.c >= 4.5, `最差 ${plateNow.c.toFixed(2)} @ ${plateNow.at}`);
+  const plateOld = worstLabelContrast((tile, pct, cs) => {
+    const [r, g, b] = rgbaOf(pct > 0 ? cs.up : cs.down);
+    return `rgba(${r}, ${g}, ${b}, 0.34)`;
+  });
+  check("負控制：舊同色 34% 底板過唔到 4.5", plateOld.c < 4.5, `舊最差 ${plateOld.c.toFixed(2)} @ ${plateOld.at}`);
+}
+check("升跌格底板 = LABEL_PLATE", st(2).plate === LABEL_PLATE && st(-2).plate === LABEL_PLATE);
 
 /* ── ③ 冇數 vs 持平：同樣灰，但 missing 分得開 ── */
 const miss = st(null);
@@ -124,5 +165,5 @@ if (failed.length) {
   for (const line of failed) console.error(`  - ${line}`);
   process.exit(1);
 }
-console.log(`PASS test-fe-heatmap-tile-color — 色階 1–5% = ${now.a.join(" / ")}；持平／冇數分開；分享圖同網站同一條`);
+console.log(`PASS test-fe-heatmap-tile-color — 色階 1–5% = ${now.a.join(" / ")}；label 白字對比最差 ${plateNow.c.toFixed(2)}（${plateNow.at}）；持平／冇數分開；分享圖同網站同一條`);
 process.exit(0);
