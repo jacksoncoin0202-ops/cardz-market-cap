@@ -19,7 +19,7 @@ $PY = 'C:\Users\jackson0202\AppData\Local\Programs\Python\Python310\python.exe' 
 
 前置：PriceCharting 需要 CDP Chrome —— `powershell -NoProfile -File scripts/ensure_chrome_cdp.ps1 -Port 9333 -UserDataDir $env:LOCALAPPDATA\cardz-chrome-cdp-9333`（Windows 側）。
 
-- `refresh`／`stock`／`accept-binding`／`scan` 攞 operator e2e lease；V2 行緊會被拒，唔好夾硬。`collect`／`compose`／`export`／`status`／`gaps` 唔攞 lease，因為 V2 box stage 攞住 lease 行 compose + export 做 child。
+- `refresh`／`stock`／`accept-binding`／`scan`／`release` 攞 operator e2e lease；V2 行緊會被拒，唔好夾硬。`collect`／`compose`／`export`／`status`／`gaps` 唔攞 lease，因為 V2 box stage 攞住 lease 行 compose + export 做 child。
 - V2 box stage 每日自己 compose + export `/box`，但唔會 collect：`refresh` 要喺 V2（11:00 JST）之前或者 17:00 之後跑，下一轉 V2 先會出街。
 - `sealed_collect` 全部 fetch 失敗都 exit 0，所以 `refresh` 逐個 adapter 睇今次寫嘅 report：exit≠0、冇今次嘅 report、attempted>0 但 ok=0 都算紅。收據 `refresh-receipt.json` 嘅 `red` 唔係空就 exit 2。PC 紅唔擋 SNK／Yahoo／compose。
 - `refresh` 只刷 accepted bind（同 P6 一樣）；candidate 要先 accept。product export 只出 accepted source freeze。唔好塞入 PSA10 `daily --refresh --pass`。
@@ -91,7 +91,7 @@ npm run dev -w @cardz/web    # /sealed + /sealed/[id]
 
 ## Artifacts
 
-`data/runtime/operator/sealed/`：`status.json`、`gaps.json`、`attention.json`、`daily_summary.json`、`compose-receipt.json`、`ingest-receipt.json`、`bind-resolve-receipt.json`、`image-harvest-receipt.json`、`backfill-receipt.json`、`sealed-subset-snapshot.json`、`collect/last_{stock,incr}.json`、`refresh-receipt.json`、`stock-receipt.json`。
+`data/runtime/operator/sealed/`：`status.json`、`gaps.json`、`attention.json`、`daily_summary.json`、`compose-receipt.json`、`ingest-receipt.json`、`bind-resolve-receipt.json`、`image-harvest-receipt.json`、`backfill-receipt.json`、`sealed-subset-snapshot.json`、`collect/last_{stock,incr}.json`、`refresh-receipt.json`、`stock-receipt.json`、`catalog-changes.jsonl`（`release` 每次改 status 嘅 actor／note，commit 之前寫）。
 
 ## 已知待調（tuning backlog）
 

@@ -14,7 +14,8 @@ place, so BOX prices stood still from 2026-08-20 to 2026-09-23.
   python -X utf8 pipelines/sealed_daily.py stock [--adapter sealed_snk]   # first full pull after a new accept
   python -X utf8 pipelines/sealed_daily.py accept-binding --sku <slug> --kind source --source-code snkrdunk
   python -X utf8 pipelines/sealed_daily.py scan            # release due / upcoming / unbound + SNK/PC discovery
-refresh / stock / accept-binding / scan hold operator_e2e_lease, like collect_control. collect /
+  python -X utf8 pipelines/sealed_daily.py release --sku <slug> --note "..."   # unreleased -> active once its month has come
+refresh / stock / accept-binding / scan / release hold operator_e2e_lease, like collect_control. collect /
 compose / export stay lease-free: the V2 box stage runs them as children while it holds the lease,
 and a child's GET_LOCK on its own connection would be refused. scripts/test_sealed_daily_cli.py.
 """
@@ -97,6 +98,8 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--all-resolved", action="store_true", help="bulk-accept every resolved candidate bind for --source-code")
     b.add_argument("--group", default=None, help="restrict bulk accept to one group_code")
     sub.add_parser("scan")
+    r = sub.add_parser("release", help="catalog status unreleased -> active once the release month has come")
+    r.add_argument("--sku", required=True, help="sku_id or slug"); r.add_argument("--actor", default="daddy"); r.add_argument("--note", default=None)
     a = ap.parse_args(argv)
     py = sys.executable
     if a.cmd == "collect":
@@ -124,6 +127,9 @@ def main(argv: list[str] | None = None) -> int:
         if a.cmd == "accept-binding":
             sealed_operator.cmd_sealed_accept_binding(sku=a.sku, kind=a.kind, source_code=a.source_code, actor=a.actor,
                                                       note=a.note, all_resolved=a.all_resolved, group=a.group)
+            return 0
+        if a.cmd == "release":
+            sealed_operator.cmd_sealed_release(sku=a.sku, actor=a.actor, note=a.note)
             return 0
         sealed_operator.cmd_sealed_scan()
         return 0

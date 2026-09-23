@@ -5,8 +5,8 @@
 2026-09-23: /box prices had stood still since 2026-08-20. The V2 cutover kept the box stage's
 compose/export and archived the P6 collect lanes with nothing in their place; the sealed-*
 operator commands docs/SEALED_OPS.md listed were never wired into this tree. sealed_daily.py
-now carries refresh / stock / accept-binding / scan.
-  - refresh / stock / accept-binding / scan run inside operator_e2e_lease; a refused lease runs nothing.
+now carries refresh / stock / accept-binding / scan / release.
+  - refresh / stock / accept-binding / scan / release run inside operator_e2e_lease; a refused lease runs nothing.
   - collect / compose / export / status / gaps take no lease: the V2 box stage holds it around
     compose/export, and a child's GET_LOCK would be refused.
   - sealed_collect exits 0 even when every fetch failed, so a pull is red on 0/N ok, on a report
@@ -56,7 +56,8 @@ TMP = Path(tempfile.mkdtemp(prefix="sealed-daily-cli-"))
 operator_control = types.ModuleType("operator_control")
 operator_control.operator_e2e_lease = fake_lease
 sealed_operator = types.ModuleType("sealed_operator")
-for name in ("cmd_sealed_status", "cmd_sealed_gaps", "cmd_sealed_accept_binding", "cmd_sealed_scan", "cmd_export_sealed_subset"):
+for name in ("cmd_sealed_status", "cmd_sealed_gaps", "cmd_sealed_accept_binding", "cmd_sealed_scan", "cmd_sealed_release",
+             "cmd_export_sealed_subset"):
     setattr(sealed_operator, name, recorder(name))
 sealed_runtime = types.ModuleType("sealed_runtime")
 sealed_runtime.OUT_DIR = TMP
@@ -149,11 +150,15 @@ def main() -> int:
                       "note": "n", "all_resolved": False, "group": None}, kwargs
     code = run(["scan"])
     assert code == 0 and EVENTS[-1][:2] == ("cmd_sealed_scan", True), EVENTS
-    print("POSITIVE_OK accept-binding and scan write under the lease")
+    code = run(["release", "--sku", "ptcg-jp-m6a-booster-box-std", "--note", "on sale 2026-09-16"])
+    assert code == 0 and EVENTS[0] == ("lease", "sealed:release"), (code, EVENTS)
+    assert EVENTS[-1] == ("cmd_sealed_release", True, {"sku": "ptcg-jp-m6a-booster-box-std", "actor": "daddy",
+                                                       "note": "on sale 2026-09-16"}), EVENTS
+    print("POSITIVE_OK accept-binding, scan and release write under the lease")
 
     STATE["refuse"] = True
     try:
-        for argv in (["refresh"], ["stock"], ["accept-binding", "--sku", "x", "--kind", "image"], ["scan"]):
+        for argv in (["refresh"], ["stock"], ["accept-binding", "--sku", "x", "--kind", "image"], ["scan"], ["release", "--sku", "x"]):
             try:
                 run(argv)
             except RuntimeError as exc:

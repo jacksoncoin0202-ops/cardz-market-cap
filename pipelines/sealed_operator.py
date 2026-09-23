@@ -401,6 +401,52 @@ def cmd_sealed_accept_binding(
     return doc
 
 
+# --- release ----------------------------------------------------------------------
+
+
+def current_month() -> str:
+    today = datetime.now(timezone.utc).date()
+    return f"{today.year:04d}-{today.month:02d}"
+
+
+def release_due(row: dict, month: str) -> bool:
+    """One rule for scan's releaseDue list and the release flip: still unreleased, catalog month has come."""
+    release = str(row.get("release_month") or "")
+    return row.get("status") == "unreleased" and bool(release) and release <= month
+
+
+def cmd_sealed_release(*, sku: str, actor: str, note: str | None) -> dict:
+    """unreleased -> active for one SKU whose release month has come; Yahoo sold search, price triage and
+    gaps read active rows only. A future month is refused: the box is not out yet, or its catalog month is
+    wrong and gets corrected first. The change goes to catalog-changes.jsonl before the commit, so no flip
+    lands in the DB without a line naming who made it."""
+    load_env()
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, sku_id, status, release_month FROM catalog_sealed_product WHERE sku_id=%s OR slug=%s", (sku, sku))
+        row = cur.fetchone()
+        if not row:
+            raise SystemExit(f"unknown sku/slug: {sku}")
+        month = current_month()
+        if not release_due(row, month):
+            raise SystemExit(f"{row['sku_id']}: status={row['status']} release_month={row['release_month']} (now {month}); "
+                             "only an unreleased SKU whose release month has come can be released")
+        cur.execute("UPDATE catalog_sealed_product SET status='active' WHERE id=%s AND status='unreleased'", (int(row["id"]),))
+        if cur.rowcount != 1:
+            raise SystemExit(f"{row['sku_id']}: UPDATE matched {cur.rowcount} rows, expected 1")
+        doc = {"asOf": utc_now(), "action": "sealed-release", "sku": row["sku_id"], "sealedId": int(row["id"]),
+               "from": "unreleased", "to": "active", "releaseMonth": row["release_month"], "actor": actor, "note": note}
+        OUT_DIR.mkdir(parents=True, exist_ok=True)
+        with (OUT_DIR / "catalog-changes.jsonl").open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(doc, ensure_ascii=False) + "\n")
+        conn.commit()
+    finally:
+        conn.close()
+    print(json.dumps(doc, ensure_ascii=False, indent=2))
+    return doc
+
+
 # --- export sealed subset --------------------------------------------------------
 
 
@@ -610,19 +656,19 @@ def cmd_sealed_scan() -> dict:
     try:
         cur = conn.cursor()
         today = datetime.now(timezone.utc).date()
-        current_month = f"{today.year:04d}-{today.month:02d}"
+        month = current_month()
         horizon = today + timedelta(days=60)
         horizon_month = f"{horizon.year:04d}-{horizon.month:02d}"
         products = _products(cur)
         binds = _bind_counts(cur)
-        release_due = []
+        due = []
         upcoming = []
         unbound_active = []
         for p in products:
             sealed_id = int(p["id"])
             release = str(p["release_month"] or "")
-            if p["status"] == "unreleased" and release and release <= current_month:
-                release_due.append({"sku": p["sku_id"], "release": release, "action": "flip active + bind + stock"})
+            if release_due(p, month):
+                due.append({"sku": p["sku_id"], "release": release, "action": "sealed_daily.py release, then bind + accept + stock"})
             elif p["status"] == "unreleased" and release and release <= horizon_month:
                 upcoming.append({"sku": p["sku_id"], "release": release})
             if p["status"] == "active" and not binds.get(sealed_id, {}).get("binds"):
@@ -642,12 +688,12 @@ def cmd_sealed_scan() -> dict:
         doc = {
             "asOf": utc_now(),
             "action": "sealed-scan",
-            "releaseDue": release_due,
+            "releaseDue": due,
             "upcoming60d": upcoming,
             "unboundActive": {"count": len(unbound_active), "sample": unbound_active[:30]},
             "discover": discover_steps,
             "next": [
-                "release due -> set status active, run bind-resolve, accept, stock",
+                "release due -> sealed_daily.py release --sku <slug>, then bind-resolve, accept, stock",
                 "new official sets not in catalog -> add row via sealed_catalog_ingest supplement",
                 "review snk-discover-receipt / pc-discover-receipt then sealed-accept-binding --all-resolved",
             ],
