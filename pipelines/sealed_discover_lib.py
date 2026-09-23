@@ -39,6 +39,8 @@ EN_MARK_RE = re.compile(r"\bEN\b|english|英語", re.I)
 JP_MARK_RE = re.compile(r"japanese|日版|日本語", re.I)
 WAVE1_RE = re.compile(r"初版|1st|wave\s*1|\bw1\b", re.I)
 WAVE2_RE = re.compile(r"再販|reprint|wave\s*2|\bw2\b|unlimited", re.I)
+SNK_SPELLINGS = ("trading-cards", "apparel-groups", "apparels")
+SNK_ITEM_RE = re.compile(r"^(?:%s):(\d+)$" % "|".join(SNK_SPELLINGS))
 PC_COVER_RE = re.compile(
     r'<div[^>]*class="[^"]*\bcover\b[^"]*"[^>]*>.*?<img[^>]+src=["\']([^"\']+)["\']',
     re.I | re.S,
@@ -150,6 +152,14 @@ def score_snk_box(sku: dict, box_name: str, box_localized: str) -> tuple[float, 
     return round(overlap, 2), "ok"
 
 
+def same_item_ids(source: str, external_id: str) -> tuple[str, ...]:
+    """Every external id that names the same source item. SNK's adapter drops the trading-cards:/apparel-groups:/
+    apparels: prefix and fetches /v1/apparels/{itemId}, so the three spellings are one box (2026-09-23: OP-01 EN
+    held trading-cards:136031, the JP box OP-01 JP holds as apparels:136031)."""
+    m = SNK_ITEM_RE.match(external_id) if source == "snkrdunk" else None
+    return tuple(f"{prefix}:{m.group(1)}" for prefix in SNK_SPELLINGS) if m else (external_id,)
+
+
 def insert_candidate_bind(
     cur,
     *,
@@ -160,22 +170,35 @@ def insert_candidate_bind(
     note: str,
     origin: str,
 ) -> str:
-    """Insert a resolved candidate. Never steal an exact id owned by another SKU, never reopen a rejected one."""
+    """Insert a resolved candidate. Never take an item another SKU holds under any spelling, never reopen a
+    rejected one."""
+    ids = same_item_ids(source, external_id)
     cur.execute(
-        """
-        SELECT sealed_id, match_status FROM catalog_sealed_source_identity
-        WHERE source_code=%s AND external_entity_id=%s
+        f"""
+        SELECT sealed_id, external_entity_id, match_status FROM catalog_sealed_source_identity
+        WHERE source_code=%s AND external_entity_id IN ({",".join(["%s"] * len(ids))})
         """,
-        (source, external_id),
+        (source, *ids),
     )
-    existing = cur.fetchone()
-    if existing:
-        if int(existing["sealed_id"]) != sealed_id:
-            return "conflict_exact" if existing["match_status"] == "exact" else "conflict_other"
-        if existing["match_status"] == "rejected":
-            # A reject is a decision, not a cache entry: rediscovering the same item must not reopen it
-            # (2026-09-23 the weekly SNK search flipped BW1B's rejected DIESEL T-shirt back to candidate).
-            return "already_rejected"
+    rows = list(cur.fetchall())
+    mine = [r for r in rows if int(r["sealed_id"]) == sealed_id]
+    # another SKU's live row is a conflict; its rejected row only when it sits on this exact id (the key is taken)
+    held = [r for r in rows if int(r["sealed_id"]) != sealed_id
+            and (r["match_status"] != "rejected" or r["external_entity_id"] == external_id)]
+    if held:
+        return "conflict_exact" if any(r["match_status"] == "exact" for r in held) else "conflict_other"
+    if any(r["match_status"] == "rejected" for r in mine):
+        # A reject is a decision, not a cache entry: rediscovering the same item must not reopen it
+        # (2026-09-23 the weekly SNK search flipped BW1B's rejected DIESEL T-shirt back to candidate).
+        return "already_rejected"
+    if any(r["match_status"] == "exact" for r in mine):
+        # An accept is a decision too: finding the item again must not demote it. 2026-09-23 a scan's PC inventory
+        # ingest set 193 accepted PC binds back to candidate and overwrote the notes that named their products.
+        return "already_exact"
+    if mine and not any(r["external_entity_id"] == external_id for r in mine):
+        # this SKU already holds the item under another spelling
+        return "already_bound"
+    if mine:
         cur.execute(
             """
             UPDATE catalog_sealed_source_identity
@@ -583,11 +606,9 @@ def match_pc_inventory(sku: dict, boxes_by_console: dict[str, list[dict]], hint_
 
 
 def accept_commands(source: str) -> list[str]:
-    py = "$PY -X utf8 pipelines/operator_control.py sealed-accept-binding"
-    return [
-        f"{py} --all-resolved --kind source --source-code {source} --group {group}"
-        for group in ("optcg-en", "optcg-jp", "ptcg-en", "ptcg-jp")
-    ]
+    """Where a discover receipt points next: one SKU at a time, after looking at the item. Never a bulk accept:
+    2026-09-23 every sealed source freeze in the DB came from one unlooked-at bulk accept, JP boxes on EN SKUs among them."""
+    return [f"$PY -X utf8 pipelines/sealed_daily.py accept-binding --sku <sku> --kind source --source-code {source}"]
 
 
 def evidence_sha(payload: Any) -> str:

@@ -34,7 +34,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
-from sealed_discover_lib import yahoo_closedsearch_url, yahoo_jp_query, yahoo_query_needs_rewrite  # noqa: E402
+from sealed_discover_lib import SNK_ITEM_RE, yahoo_closedsearch_url, yahoo_jp_query, yahoo_query_needs_rewrite  # noqa: E402
 from sealed_runtime import (  # noqa: E402
     HTML_DIR,
     OUT_DIR,
@@ -106,7 +106,7 @@ def _load_adapter_items(cur, adapter: str, *, allow_candidates: bool) -> list[di
         rows = load_sealed_bindings(cur, source_code="snkrdunk", require_accepted=not allow_candidates)
         items = []
         for r in rows:
-            m = re.match(r"^(?:trading-cards|apparel-groups|apparels):(\d+)$", r["external_entity_id"])
+            m = SNK_ITEM_RE.match(r["external_entity_id"])
             if not m:
                 continue
             items.append(

@@ -6,7 +6,10 @@ Live bar (MODEL.md §12), sealed-only:
   identity frozen + ≥1 source frozen + image frozen + usable price.
 
 This never touches PSA10 pass / promote / GitHub live.
-Rejects junk binds. Accepts only high-confidence source matches.
+--apply rejects junk candidates and nothing else. It never accepts or freezes: 2026-08-14 its auto-accept wrote
+every sealed source and image freeze in the DB, and 2026-09-23 /box showed a Game Boy jukebox on BW2, the
+Volt Tackle box on S1W and JP boxes behind EN SKUs, while BW1B/BW1W had DIESEL T-shirts frozen as box art.
+Accept verdicts are only listed; a human accepts one SKU at a time with sealed_daily.py accept-binding --sku.
 """
 from __future__ import annotations
 
@@ -29,10 +32,8 @@ from sealed_discover_lib import (  # noqa: E402
     console_key,
     score_pc_console,
     score_snk_box,
-    tokens,
 )
 from sealed_image_harvest import html_is_sku_product  # noqa: E402
-from sealed_operator import _freeze  # noqa: E402
 from sealed_runtime import HTML_DIR, OUT_DIR, db, load_env, utc_now  # noqa: E402
 
 SNK_ACCEPT = 0.50
@@ -41,7 +42,6 @@ CLOTHING_RE = (
     "diesel", "fear of god", "polo", "nike", "adidas", "uniqlo", "supreme",
     "t-shirt", "hoodie", "sneaker", "apparels:t-",
 )
-ACTOR = "sealed-live-qualify"
 STANDARD_KINDS = {"booster-box", "high-class-box"}
 # URL-identity consoles already walked; not fuzzy inventory.
 EXACT_PC_CONSOLE = {
@@ -94,26 +94,16 @@ def classify_snk(sku: dict, bind: dict) -> dict[str, Any]:
     if why in {"game_mismatch", "wave_mismatch"}:
         item.update({"decision": "reject", "reason": why})
         return item
+    # The scorer's lang_mismatch / not_box verdicts stand. Re-scoring on the English name alone is how the JP
+    # boxes of OP-06/OP-08/EB-02/PRB-01/PRB-02 read as EN boxes (2026-09-23); a box keyword never outvotes not_box.
     if why == "lang_mismatch":
         if re.search(r"(japanese|日版|日本語)", name, re.I) and str(sku.get("lang")) == "en":
             item.update({"decision": "reject", "reason": "snk_jp_on_en_sku"})
             return item
-        score_en, why_en = score_snk_box(sku, name, "")
-        if why_en == "ok" and score_en >= SNK_ACCEPT and not re.search(r"(japanese|日版|日本語)", name, re.I):
-            item.update({"score": score_en, "why": why_en, "decision": "accept", "reason": f"snk_en_name_{score_en}"})
-            wave = str(sku.get("print_wave") or "std")
-            if wave in {"wave1", "wave2"} and not WAVE1_RE.search(name) and not WAVE2_RE.search(name):
-                item.update({"decision": "hold", "reason": "snk_wave_unmarked"})
-            return item
-        item.update({"decision": "hold", "reason": "snk_localized_lang_unclear"})
+        item.update({"decision": "hold", "reason": "snk_lang_mismatch"})
         return item
     if why == "not_box":
         if re.search(r"(booster box|display box|booster pack.*box|ブースター)", name, re.I):
-            own = tokens(f"{sku.get('name_en') or ''} {sku.get('name_jp') or ''}")
-            overlap = (len(own & tokens(name)) / len(own)) if own else 0.0
-            if overlap >= SNK_ACCEPT:
-                item.update({"score": round(overlap, 2), "decision": "accept", "reason": f"snk_box_keyword_{overlap:.2f}"})
-                return item
             item.update({"decision": "hold", "reason": "snk_box_keyword_but_scorer_rejected"})
         else:
             item.update({"decision": "reject", "reason": "not_box"})
@@ -239,7 +229,7 @@ def run(*, apply: bool) -> int:
 
     counts = Counter(d["decision"] for d in decisions)
     by_source = Counter((d["source"], d["decision"]) for d in decisions)
-    applied = {"rejected": 0, "sourceFrozen": 0, "identityFrozen": 0, "imageFrozen": 0}
+    applied = {"rejected": 0}
     if apply:
         for item in decisions:
             if item["decision"] != "reject":
@@ -253,41 +243,6 @@ def run(*, apply: bool) -> int:
                 (f"live-qualify:{item.get('reason')}", item["source"], item["ext"]),
             )
             applied["rejected"] += cur.rowcount
-        for item in decisions:
-            if item["decision"] != "accept":
-                continue
-            sku = next(p for p in products if p["sku_id"] == item["sku"])
-            sealed_id = int(sku["id"])
-            cur.execute(
-                """
-                UPDATE catalog_sealed_source_identity
-                SET match_status='exact', resolved=1
-                WHERE sealed_id=%s AND source_code=%s AND external_entity_id=%s
-                """,
-                (sealed_id, item["source"], item["ext"]),
-            )
-            _freeze(
-                cur, sealed_id, "source", item["source"], item["ext"], ACTOR,
-                f"live-qualify {item.get('reason')}",
-            )
-            applied["sourceFrozen"] += 1
-        for sku in products:
-            _freeze(cur, int(sku["id"]), "identity", "", sku["sku_id"], ACTOR, "catalog identity locked")
-            applied["identityFrozen"] += 1
-        cur.execute(
-            """
-            SELECT a.sealed_id, a.content_sha256
-            FROM market_sealed_image_asset a
-            JOIN (
-              SELECT sealed_id, MAX(captured_at) AS captured_at
-              FROM market_sealed_image_asset WHERE image_kind='box_front' GROUP BY sealed_id
-            ) latest ON latest.sealed_id=a.sealed_id AND latest.captured_at=a.captured_at
-            WHERE a.image_kind='box_front'
-            """
-        )
-        for row in cur.fetchall():
-            _freeze(cur, int(row["sealed_id"]), "image", "", str(row["content_sha256"]), ACTOR, "harvested box_front")
-            applied["imageFrozen"] += 1
         conn.commit()
     else:
         conn.rollback()
@@ -304,6 +259,7 @@ def run(*, apply: bool) -> int:
         "rejectSample": [d for d in decisions if d["decision"] == "reject"][:25],
         "holdSample": [d for d in decisions if d["decision"] == "hold"][:25],
         "acceptSample": [d for d in decisions if d["decision"] == "accept"][:25],
+        "accepts": "not applied: look at each item, then sealed_daily.py accept-binding --sku <slug> --kind source --source-code <source>",
     }
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out = OUT_DIR / "live-qualify-receipt.json"
@@ -319,7 +275,7 @@ def main_from_args(*, apply: bool) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--apply", action="store_true", help="reject junk + freeze accept/identity/image")
+    ap.add_argument("--apply", action="store_true", help="reject junk candidates; never accepts or freezes")
     args = ap.parse_args()
     return run(apply=args.apply)
 
