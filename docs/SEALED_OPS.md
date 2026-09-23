@@ -66,7 +66,8 @@ $PY = 'C:\Users\jackson0202\AppData\Local\Programs\Python\Python310\python.exe' 
 & $PY -X utf8 pipelines\sealed_bind_resolve.py --source pricecharting
 # 睇 data/runtime/operator/sealed/bind-resolve-receipt.json 嘅 note（名／overlap／langOk）
 & $PY -X utf8 pipelines\sealed_daily.py accept-binding --sku optcg-en-op-09-booster-box-std --kind source --source-code pricecharting
-# 核清一批之後可以 bulk：
+# 核清一批舊貨先可以 bulk（新貨、ptcg-jp 一律逐隻）。件 source 貨已經綁住另一隻 SKU（任何 SNK 寫法、未 reject）就拒收：
+# 其餘照 commit，但 exit≠0 並列出 heldBy；先 reject 錯嗰條 bind 再 accept。
 & $PY -X utf8 pipelines\sealed_daily.py accept-binding --all-resolved --kind source --source-code snkrdunk --group optcg-en
 & $PY -X utf8 pipelines\sealed_daily.py accept-binding --all-resolved --kind image
 # accept 完第一次一定要全量 stock，唔准靠 incr 頂（incr 只揀已經有數嘅 SKU）：
@@ -76,11 +77,14 @@ $PY = 'C:\Users\jackson0202\AppData\Local\Programs\Python\Python310\python.exe' 
 # incr 照刷已經有數嘅 SKU，收據 shared 列出共用。
 
 # Live-bar qualify（獨立線，唔掂 PSA10 pass／promote／GitHub live；自己唔攞 lease，唔好喺 V2 11:00–17:00 跑）
+# --apply 只 reject 垃圾 candidate，永不 accept／freeze；收據 acceptSample 只係建議，逐隻睇完先 accept-binding --sku。
 & $PY -X utf8 pipelines\sealed_live_qualify.py
 & $PY -X utf8 pipelines\sealed_live_qualify.py --apply
 ```
 
 教訓實例（2026-08-14）：Kimi 條 `apparel-groups:450` link 其實係 FEAR OF GOD Polo，resolve 靠 master 名 auto-reject 咗；錯 bind 拉咗嘅 typed rows 要 purge。**呢個就係 human accept 閘存在嘅原因。**
+
+教訓實例（2026-09-23）：DB 全部 451 條 sealed source freeze 都係 2026-08-14 `sealed_live_qualify.py --apply` 自動 accept，冇一條經人手；`/box` 出咗 Game Boy jukebox 喺 BW2、Volt Tackle 盒喺 S1W、JP 盒頂 EN SKU，六件 SNK 貨用 `trading-cards:`／`apparels:` 兩個寫法各自綁咗兩隻 SKU。live-qualify 而家唔再 accept；discover 同 accept 都認同一件貨嘅三個寫法。同日 `scan` 嘅 PC inventory ingest（行晒全部 SKU）將 193 條 accepted PC bind 降返 candidate 兼覆寫 note；而家 discover 撞到 exact row 一律唔郁。
 
 ## Product vs operator surface
 

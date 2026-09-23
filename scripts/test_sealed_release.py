@@ -13,6 +13,10 @@ Same day: nothing in this tree could add a box (the seed script lives in the rea
 catalog fact. OP-17 JP's name_jp '世界最強の戦士達' (official: 世界最強の戦士) kept all its Yahoo sales out.
   - add-product inserts 'unreleased' only, refuses a known SKU, a bad month and an unknown group/kind.
   - set-product updates only the facts that differ; a JP name moves the Yahoo hint built from the old name.
+Same day, accept-binding: six SNK boxes sat accepted on two SKUs each, one per spelling (EB-03 EN held
+trading-cards:767625, EB-05 EN apparels:767625, and SNK fetches both as item 767625).
+  - a source item another SKU holds live, under any spelling, is refused: no write, exit non-zero.
+  - another SKU's reject does not block; a bulk run commits the clean SKUs and still exits non-zero.
 No MySQL, no network: db / load_env / subprocess.run are faked.
 """
 from __future__ import annotations
@@ -188,6 +192,82 @@ def catalog_tests() -> None:
     print("NEGATIVE_OK set-product refuses no-op, bad month, non-fact fields and unknown SKUs: no write, no log")
 
 
+class AcceptCursor:
+    """catalog_sealed_product + catalog_sealed_source_identity in memory for accept-binding. Each lookup answers from
+    the query's own ids and its rejected filter, so a query that drops a spelling or the filter shows in the result."""
+
+    def __init__(self, products, binds):
+        self.products, self.binds, self.sql, self.last, self.rowcount = products, [dict(b) for b in binds], [], [], 0
+
+    def execute(self, sql, params=()):
+        sql = " ".join(sql.split())
+        self.sql.append((sql, params))
+        live = "match_status<>'rejected'" in sql
+        if sql.startswith("SELECT id, sku_id FROM catalog_sealed_product"):
+            self.last = [p for p in self.products if params[0] in (p["sku_id"], p["slug"])]
+        elif sql.startswith("SELECT p.id, p.sku_id FROM catalog_sealed_source_identity"):
+            ids = {b["sealed_id"] for b in self.binds if b["source_code"] == params[0] and b["match_status"] == "candidate"}
+            self.last = [p for p in self.products if p["id"] in ids]
+        elif sql.startswith("SELECT external_entity_id FROM catalog_sealed_source_identity"):
+            self.last = [b for b in self.binds if (b["sealed_id"], b["source_code"]) == tuple(params)
+                         and (not live or b["match_status"] != "rejected")]
+        elif sql.startswith("SELECT p.sku_id FROM catalog_sealed_source_identity"):
+            source, *ids, sealed_id = params
+            sku = {p["id"]: p["sku_id"] for p in self.products}
+            self.last = [{"sku_id": sku[b["sealed_id"]]} for b in self.binds
+                         if b["source_code"] == source and b["external_entity_id"] in ids and b["sealed_id"] != sealed_id
+                         and (not live or b["match_status"] != "rejected")]
+        elif sql.startswith("SELECT"):
+            raise AssertionError(f"unexpected lookup: {sql}")
+
+    def fetchone(self):
+        return self.last[0] if self.last else None
+
+    def fetchall(self):
+        return list(self.last)
+
+
+EB03_P = {"id": 41, "sku_id": "optcg:en:EB-03:booster-box:std", "slug": "optcg-en-eb-03-booster-box-std"}
+EB05_P = {"id": 45, "sku_id": "optcg:en:EB-05:booster-box:std", "slug": "optcg-en-eb-05-booster-box-std"}
+M6A_P = {"id": 356, "sku_id": M6A["sku_id"], "slug": M6A["slug"]}
+OTHER_P = {"id": 999, "sku_id": "ptcg:jp:X:booster-box:std", "slug": "ptcg-jp-x-booster-box-std"}
+BINDS = [
+    {"sealed_id": 41, "source_code": "snkrdunk", "external_entity_id": "trading-cards:767625", "match_status": "exact"},
+    {"sealed_id": 45, "source_code": "snkrdunk", "external_entity_id": "apparels:767625", "match_status": "candidate"},
+    {"sealed_id": 356, "source_code": "snkrdunk", "external_entity_id": "apparels:881421", "match_status": "candidate"},
+    {"sealed_id": 999, "source_code": "snkrdunk", "external_entity_id": "trading-cards:881421", "match_status": "rejected"},
+]
+
+
+def accept_tests() -> None:
+    accept = sealed_operator.cmd_sealed_accept_binding
+    products = [EB03_P, EB05_P, M6A_P, OTHER_P]
+    one = dict(kind="source", source_code="snkrdunk", actor="daddy", note="n", all_resolved=False, group=None)
+
+    cur = AcceptCursor(products, BINDS)
+    doc, err, conn = call(accept, cur, sku=EB05_P["slug"], **one)
+    assert err and "refused 1" in err and EB03_P["sku_id"] in err and doc is None and not writes(cur), \
+        "EB-05 EN accepted the EB-03 EN box under its other spelling: %r" % ((err, cur.sql),)
+    print("NEGATIVE_OK accept-binding refuses a source item another SKU holds under another spelling: no write, exit non-zero")
+
+    cur = AcceptCursor(products, BINDS)
+    doc, err, conn = call(accept, cur, sku=M6A_P["slug"], **one)
+    assert err is None and doc["accepted"] == 1 and doc["refused"] == [], \
+        "another SKU's reject of the same item must not block this SKU: %r" % ((err, doc),)
+    ws = writes(cur)
+    assert ws[0] == ("UPDATE catalog_sealed_source_identity SET match_status='exact' WHERE sealed_id=%s AND source_code=%s "
+                     "AND external_entity_id=%s", (356, "snkrdunk", "apparels:881421")), ws
+    assert len(ws) == 2 and ws[1][0].startswith("INSERT INTO operator_sealed_binding_freeze") and len(conn.commits) == 1, ws
+    print("POSITIVE_OK accept-binding accepts an item no other SKU holds live; another SKU's reject does not block")
+
+    cur = AcceptCursor(products, BINDS)
+    doc, err, conn = call(accept, cur, sku=None, **{**one, "all_resolved": True})
+    exacts = [s[1] for s in writes(cur) if s[0].startswith("UPDATE")]
+    assert err and "refused 1" in err and exacts == [(356, "snkrdunk", "apparels:881421")] and len(conn.commits) == 1, \
+        "bulk must keep the clean accept, refuse the shared item and exit non-zero: %r" % ((err, exacts, conn.commits),)
+    print("NEGATIVE_OK bulk accept commits the clean SKUs, refuses the shared item and still exits non-zero")
+
+
 def main() -> int:
     sealed_operator.load_env = lambda: None
     sealed_operator.OUT_DIR = TMP
@@ -236,6 +316,7 @@ def main() -> int:
     print("POSITIVE_OK scan lists as releaseDue exactly the SKUs release accepts")
 
     catalog_tests()
+    accept_tests()
     return 0
 
 

@@ -43,7 +43,7 @@ from sealed_price_compose import (  # noqa: E402
     load_sales,
     trim_outliers,
 )
-from sealed_discover_lib import yahoo_closedsearch_url, yahoo_jp_query  # noqa: E402
+from sealed_discover_lib import same_item_ids, yahoo_closedsearch_url, yahoo_jp_query  # noqa: E402
 
 EDITORIAL_STORIES = ROOT / "data" / "editorial" / "sealed-stories.json"
 COLLISION_BASELINE = ROOT / "data" / "policy" / "box-image-collision-baseline.json"
@@ -320,6 +320,7 @@ def cmd_sealed_accept_binding(
     load_env()
     conn = db()
     accepted = []
+    refused = []
     try:
         cur = conn.cursor()
         if sku:
@@ -390,6 +391,21 @@ def cmd_sealed_accept_binding(
                 if not bind:
                     continue
                 external_id = str(bind["external_entity_id"])
+                ids = same_item_ids(source_code, external_id)
+                cur.execute(
+                    f"""
+                    SELECT p.sku_id FROM catalog_sealed_source_identity i JOIN catalog_sealed_product p ON p.id=i.sealed_id
+                    WHERE i.source_code=%s AND i.external_entity_id IN ({",".join(["%s"] * len(ids))})
+                      AND i.sealed_id<>%s AND i.match_status<>'rejected'
+                    """,
+                    (source_code, *ids, sealed_id),
+                )
+                held_by = sorted({str(r["sku_id"]) for r in cur.fetchall()})
+                if held_by:
+                    # One box, one SKU. 2026-09-23: six SNK boxes sat accepted on two SKUs each under the
+                    # trading-cards:/apparels: spellings (EB-05 EN priced off the EB-03 EN box). Reject the wrong bind first.
+                    refused.append({"sku": sku_id, "ext": external_id, "heldBy": held_by})
+                    continue
                 cur.execute(
                     "UPDATE catalog_sealed_source_identity SET match_status='exact' WHERE sealed_id=%s AND source_code=%s AND external_entity_id=%s",
                     (sealed_id, source_code, external_id),
@@ -399,8 +415,12 @@ def cmd_sealed_accept_binding(
         conn.commit()
     finally:
         conn.close()
-    doc = {"asOf": utc_now(), "action": "sealed-accept-binding", "actor": actor, "accepted": len(accepted), "items": accepted[:50]}
+    doc = {"asOf": utc_now(), "action": "sealed-accept-binding", "actor": actor, "accepted": len(accepted), "items": accepted[:50],
+           "refused": refused}
     print(json.dumps(doc, ensure_ascii=False, indent=2))
+    if refused:
+        raise SystemExit(f"refused {len(refused)}, source item bound to another SKU; reject the wrong bind first: "
+                         + "; ".join(f"{r['sku']} {r['ext']} held by {', '.join(r['heldBy'])}" for r in refused))
     return doc
 
 
@@ -822,7 +842,8 @@ def cmd_sealed_scan() -> dict:
             "next": [
                 "release due -> sealed_daily.py release --sku <slug>, then bind-resolve, accept, stock",
                 "new official box not in catalog -> sealed_daily.py add-product (goes in unreleased); wrong catalog fact -> set-product",
-                "review snk-discover-receipt / pc-discover-receipt then sealed-accept-binding --all-resolved",
+                "review snk-discover-receipt / pc-discover-receipt, then accept one SKU at a time: "
+                "sealed_daily.py accept-binding --sku <slug> --kind source --source-code <source>",
             ],
         }
         OUT_DIR.mkdir(parents=True, exist_ok=True)
