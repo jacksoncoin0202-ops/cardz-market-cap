@@ -145,7 +145,9 @@ export interface Copy {
     onePieceTitle: string;
     body: string;
     negative: string;
+    /* legend 灰格兩種：neutral = 冇數（斜紋），flat = 印出嚟 0.0%（實色） */
     neutral: string;
+    flat: string;
     positive: string;
     tilesLabel: string;
     /* kiosk 全屏（店主展示模式）：同一粒掣兩個 aria-label，唔准得一個字串靠 icon 講狀態 */
@@ -477,6 +479,7 @@ export const copy: Record<Locale, Copy> = {
       body: "Area represents current PSA 10 market cap. Colour follows the selected price window.",
       negative: "Down",
       neutral: "Data pending",
+      flat: "Flat",
       positive: "Up",
       tilesLabel: "Tiles",
       fullscreen: "Full screen display",
@@ -714,7 +717,7 @@ export const copy: Record<Locale, Copy> = {
     heatmap: {
       title: "市值前 {count} 熱力圖", rankingTitle: "市值前 {count} 排行", pokemonTitle: "寶可夢市場熱力圖", onePieceTitle: "海賊王市場熱力圖",
       body: "面積代表現時 PSA 10 市值，色彩反映所選期間的價格變化。",
-      negative: "下跌", neutral: "資料累積中", positive: "上升", tilesLabel: "顯示格數",
+      negative: "下跌", neutral: "資料累積中", flat: "持平", positive: "上升", tilesLabel: "顯示格數",
       fullscreen: "全螢幕展示", exitFullscreen: "離開全螢幕",
       customize: "自訂熱力圖", customizeTitle: "熱力圖設定", resetDefault: "恢復預設",
       upColor: "上升顏色", downColor: "下跌顏色", intensity: "色彩強度", neutralZone: "中立區", gap: "格子間距", cardSize: "卡牌大小",
@@ -927,7 +930,7 @@ export const copy: Record<Locale, Copy> = {
     heatmap: {
       title: "市值前 {count} 热力图", rankingTitle: "市值前 {count} 排行", pokemonTitle: "宝可梦市场热力图", onePieceTitle: "海贼王市场热力图",
       body: "面积代表当前 PSA 10 市值，色彩反映所选期间的价格变化。",
-      negative: "下跌", neutral: "数据累积中", positive: "上涨", tilesLabel: "显示格数",
+      negative: "下跌", neutral: "数据累积中", flat: "持平", positive: "上涨", tilesLabel: "显示格数",
       fullscreen: "全屏展示", exitFullscreen: "退出全屏",
       customize: "自定义热力图", customizeTitle: "热力图设置", resetDefault: "恢复默认",
       upColor: "上涨颜色", downColor: "下跌颜色", intensity: "色彩强度", neutralZone: "中立区", gap: "格子间距", cardSize: "卡牌大小",
@@ -1139,7 +1142,7 @@ export const copy: Record<Locale, Copy> = {
     heatmap: {
       title: "時価総額 TOP {count}", rankingTitle: "時価総額トップ {count}", pokemonTitle: "ポケモン TOP {count}", onePieceTitle: "ワンピース TOP {count}",
       body: "面積は現在の PSA 10 時価総額、色は選択期間の価格変化を表します。",
-      negative: "下落", neutral: "集計中", positive: "上昇", tilesLabel: "表示数",
+      negative: "下落", neutral: "集計中", flat: "横ばい", positive: "上昇", tilesLabel: "表示数",
       fullscreen: "フルスクリーン表示", exitFullscreen: "フルスクリーンを終了",
       customize: "ヒートマップをカスタマイズ", customizeTitle: "ヒートマップ設定", resetDefault: "デフォルトに戻す",
       upColor: "上昇カラー", downColor: "下落カラー", intensity: "色の強度", neutralZone: "ニュートラルゾーン", gap: "タイル間隔", cardSize: "カードサイズ",
@@ -1358,7 +1361,7 @@ export const copy: Record<Locale, Copy> = {
     heatmap: {
       title: "시가총액 TOP {count}", rankingTitle: "시가총액 상위 {count}", pokemonTitle: "포켓몬 TOP {count}", onePieceTitle: "원피스 TOP {count}",
       body: "면적은 현재 PSA 10 시가총액, 색상은 선택 기간의 가격 변동을 나타냅니다.",
-      negative: "하락", neutral: "집계 중", positive: "상승", tilesLabel: "표시 수",
+      negative: "하락", neutral: "집계 중", flat: "보합", positive: "상승", tilesLabel: "표시 수",
       fullscreen: "전체 화면 표시", exitFullscreen: "전체 화면 종료",
       customize: "히트맵 사용자 정의", customizeTitle: "히트맵 설정", resetDefault: "기본값으로 재설정",
       upColor: "상승 색상", downColor: "하락 색상", intensity: "색상 강도", neutralZone: "중립 구간", gap: "타일 간격", cardSize: "카드 크기",

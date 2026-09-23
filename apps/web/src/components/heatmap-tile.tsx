@@ -18,6 +18,8 @@ export interface HeatmapTileProps {
   /* label 底板色（tileStyle.plate）：inline 落 .tile-move，唔靠 CSS token —— red-up / 自訂色都同 tile 同色 */
   plate: string | null;
   direction: TileStyle["direction"];
+  /* 呢個窗口冇數（tileStyle.missing）→ data-missing，CSS 喺灰格上面加斜紋，同持平（0.0%）分開 */
+  missing: boolean;
   /* 卡圖闊高（CSS px）；heatmap.tsx 已用 snapCardBox 釘落 device px 格，.tile-card 用 50%+translate 置中 */
   cardW: number;
   cardH: number;
@@ -54,6 +56,7 @@ export const HeatmapTile = memo(function HeatmapTile(p: HeatmapTileProps) {
       className="heatmap-tile"
       type="button"
       data-dir={p.direction}
+      data-missing={p.missing ? "" : undefined}
       data-late={p.late ? "" : undefined}
       style={{
         left: p.x,

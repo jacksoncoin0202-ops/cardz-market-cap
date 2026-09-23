@@ -29,7 +29,7 @@ import {
   SHARE_RESOLUTIONS,
   type ShareResolution,
 } from "@/lib/share-resolution";
-import { changeValue, DEFAULT_TILE, tileCardSize, tileColors, tileStyle, type TileParams } from "@/lib/tile-style";
+import { changeValue, DEFAULT_TILE, restoreTileParams, tileCardSize, tileColors, tileStyle, type TileParams } from "@/lib/tile-style";
 import { useMarketSettings } from "@/lib/use-market-settings";
 import { useUpDown } from "@/lib/use-updown";
 import type { Currency, Locale, MarketCardView, MarketViewSnapshot, MarketWindow } from "@/lib/types";
@@ -545,8 +545,8 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title, scope 
   const [params, setParamsState] = useState<TileParams>(() => {
     if (typeof window === "undefined") return DEFAULT_TILE;
     try {
-      const raw = localStorage.getItem("cardz-heatmap-params");
-      if (raw) return { ...DEFAULT_TILE, ...(JSON.parse(raw) as Partial<TileParams>) };
+      /* 舊預設值（gamma 4 / aMin 0.78）喺 restoreTileParams 度洗走，見嗰邊註 */
+      return restoreTileParams(localStorage.getItem("cardz-heatmap-params"));
     } catch { /* 隱私模式 / 壞 JSON 就用預設 */ }
     return DEFAULT_TILE;
   });
@@ -1141,6 +1141,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title, scope 
               bg={st.bg}
               plate={st.plate}
               direction={st.direction}
+              missing={st.missing}
               cardW={cardBox.cardW}
               cardH={cardBox.cardH}
               showCard={st.showCard}
@@ -1196,9 +1197,12 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title, scope 
       <div className="heatmap-footer">
         {/* 本來就係一組並列項目，用 ul/li 出返語意，抽取器同讀屏都攞得到。 */}
         <ul className="heatmap-legend" aria-label={t.heatmap.body}>
+          {/* 灰格有兩種：持平（印 0.0%）同冇數（斜紋，.heatmap-tile[data-missing]）。以前一格「資料累積中」包晒，
+              0.0% 嘅卡都被講成未有數。 */}
           <li><span className="legend-swatch down" />{t.heatmap.negative}</li>
-          <li><span className="legend-swatch pending" />{t.heatmap.neutral}</li>
+          <li><span className="legend-swatch flat" />{t.heatmap.flat}</li>
           <li><span className="legend-swatch up" />{t.heatmap.positive}</li>
+          <li><span className="legend-swatch pending" />{t.heatmap.neutral}</li>
         </ul>
       </div>
       {/* 公司 logo（owner 明文要求）擺右下角，同左下角 legend 對角、離左上標題最遠。

@@ -1,5 +1,5 @@
-"use client";
-
+/* 純函數，冇 "use client"：api/og/heatmap/route.tsx（server）都 import 呢度嘅 tileStyle + DEFAULT_TILE，
+   分享圖同網站先會係同一條色階。加返 "use client" 嗰陣 route 攞到嘅係 client reference，一 call 就炸。 */
 import { displayedChangePct } from "./format";
 
 /* 熱力圖 label 一位小數。印出來係 0.0% 就當 0：中立、無正負號、無色塊。 */
@@ -27,12 +27,27 @@ export interface TileParams {
   downLight: string;
 }
 
+/* 色階 owner 2026-09-23 批改（DESIGN.md「明確非目標」已同步）：以前 gamma 4 + aMin 0.78，
+   1%→0.780、3%→0.809、5% 以上全部 1.000 —— 3% 以下肉眼同色，1D 成版一隻綠。
+   而家 gamma 1.5 + aMin 0.45：1%→0.50、2%→0.59、3%→0.71、4%→0.84。clamp 5 冇郁，所以 6M 大部分格仍然頂格。 */
 export const DEFAULT_TILE: TileParams = {
-  clamp: 5, gamma: 4, deadzone: 0, aMin: 0.78, aMax: 1, gap: 3,
+  clamp: 5, gamma: 1.5, deadzone: 0, aMin: 0.45, aMax: 1, gap: 3,
   cardPct: 0.62, cardAspect: 0.714, neutralTile: "rgba(138, 133, 120, 0.3)",
   upDark: "#17b576", upLight: "#1b714e",
   downDark: "#dc567c", downLight: "#972646",
 };
+
+/* localStorage「cardz-heatmap-params」→ TileParams。persistParams 係成套 params 寫低，
+   郁過 /tune 嘅人連 2026-09-23 之前嘅舊預設（gamma 4 / aMin 0.78）都存埋，新預設永遠蓋唔到。
+   撞正舊預設值就當冇揀過；自訂色、格距等等照留。壞 JSON 由 caller 嘅 try 接。 */
+const LEGACY_DEFAULT = { gamma: 4, aMin: 0.78 } as const;
+export function restoreTileParams(raw: string | null): TileParams {
+  if (!raw) return DEFAULT_TILE;
+  const saved = { ...(JSON.parse(raw) as Partial<TileParams> | null) };
+  if (saved.gamma === LEGACY_DEFAULT.gamma) delete saved.gamma;
+  if (saved.aMin === LEGACY_DEFAULT.aMin) delete saved.aMin;
+  return { ...DEFAULT_TILE, ...saved };
+}
 
 export interface TileColors {
   up: string;       // 升 tile hex
@@ -69,6 +84,7 @@ function scaleSaturation(r: number, g: number, b: number, t: number): [number, n
 
 export interface TileStyle {
   direction: "up" | "down" | "neutral";
+  missing: boolean;      // 呢個窗口冇數（null）。同持平一樣係 neutral 灰，UI 再加斜紋分返開
   bg: string;            // tile 純色 fill
   plate: string | null;  // 升跌 label 底板色（同 tile 同一隻升／跌 hex，34% alpha）；neutral 冇底板
   cardW: number;         // 中間卡闊 px
@@ -110,7 +126,6 @@ export const TILE_LABEL = { inset: 4, padX: 3, padY: 1, lineHeight: 1.2, minFont
      %            1.0293 em
    再加 .tile-move 嘅 letter-spacing 0.01em × 字元數（同 globals.css 綁死）。
    Inter 未到手嘅一刻（swap 前）真身係 Arial-metric fallback，數字 0.556em 窄過表值 → 只會細少少，唔會爆邊。
-   share PNG 個 canvas 用同一條數，方向一樣安全（見 lib/share-image.ts）。
    換字體 / 改 .tile-move weight 或 letter-spacing 就要重量呢三個數——
    temp/fe05/review-webfont/measure-inter.mjs（headless Chromium 對 dev :3901）出 tileLabelEm800tabular。 */
 const LABEL_EM_DIGIT = 0.6455;
@@ -177,7 +192,7 @@ export function tileStyle(value: number | null, w: number, h: number, colors: Ti
   /* 門檻放寬：tile 細都照 show 卡圖，保持成版整齊（用戶 2026-07-24 指示） */
   const showCard = p.cardPct > 0 && cardW >= 5 && cardH >= 7;
   const { move, fontSize } = fitTileLabel(value, w, h);
-  return { direction, bg, plate, cardW, cardH, showCard, move, fontSize };
+  return { direction, missing: shown === null, bg, plate, cardW, cardH, showCard, move, fontSize };
 }
 
 export function changeValue(card: { windows: Record<string, { changePct: { status: string; value: number | null } }> }, period: string): number | null {

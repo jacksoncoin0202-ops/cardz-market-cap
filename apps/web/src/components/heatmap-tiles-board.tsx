@@ -81,6 +81,7 @@ export function HeatmapTilesBoard({ cards, period, params, dark, locale, onPick 
             bg={st.bg}
             plate={st.plate}
             direction={st.direction}
+            missing={st.missing}
             cardW={cardBox.cardW}
             cardH={cardBox.cardH}
             showCard={st.showCard}

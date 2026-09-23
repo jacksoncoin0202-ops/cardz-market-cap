@@ -24,6 +24,7 @@ import {
   shareCopy,
   type ShareLang,
 } from "@/lib/share-copy";
+import { DEFAULT_TILE, tileStyle } from "@/lib/tile-style";
 import { marketWindows, type MarketCardView, type MarketWindow } from "@/lib/types";
 
 /**
@@ -101,10 +102,12 @@ const BOARD_LABEL: Record<ShareLang, Record<HeatmapOgScope, string>> = {
   "zh-CN": { all: "TCG", pokemon: "宝可梦", "one-piece": "海贼王" },
 };
 
+/* 灰格 = 持平（印出嚟係 0.0%）或者冇數，分享圖唔加斜紋（satori 未必食 repeating gradient，
+   呢條 route 唔准 500），所以一個色塊講晒兩樣。網站個 legend 就分開兩格。 */
 const LEGEND: Record<ShareLang, { up: string; down: string; pending: string; intensity: string }> = {
-  en: { up: "Up", down: "Down", pending: "Data pending", intensity: "Deeper shade = bigger move" },
-  "zh-TW": { up: "升", down: "跌", pending: "資料累積中", intensity: "顏色愈深＝變幅愈大" },
-  "zh-CN": { up: "涨", down: "跌", pending: "数据累积中", intensity: "颜色越深＝变幅越大" },
+  en: { up: "Up", down: "Down", pending: "Flat / data pending", intensity: "Deeper shade = bigger move" },
+  "zh-TW": { up: "升", down: "跌", pending: "持平／資料累積中", intensity: "顏色愈深＝變幅愈大" },
+  "zh-CN": { up: "涨", down: "跌", pending: "持平／数据累积中", intensity: "颜色越深＝变幅越大" },
 };
 
 type OgFont = { name: string; data: Buffer; weight: 400 | 600 | 700; style: "normal" };
@@ -173,20 +176,6 @@ function changePct(card: MarketCardView, period: MarketWindow): number | null {
   if (!metric || metric.value === null || !Number.isFinite(metric.value)) return null;
   if (metric.status !== "ready" && metric.status !== "stale") return null;
   return metric.value;
-}
-
-function hexToRgb(hex: string): [number, number, number] {
-  const h = hex.replace("#", "");
-  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
-}
-
-function tileFill(pct: number | null, up: string, down: string): string {
-  if (pct === null || pct === 0) return NEUTRAL;
-  const mag = Math.min(Math.abs(pct) / 5, 1);
-  const t = mag ** 4;
-  const alpha = 0.78 + t * 0.22;
-  const [r, g, b] = hexToRgb(pct > 0 ? up : down);
-  return `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`;
 }
 
 function cardBox(w: number, h: number): { cardW: number; cardH: number } {
@@ -416,12 +405,13 @@ export async function GET(request: Request): Promise<Response> {
             const tw = Math.max(1, tile.width - gap);
             const th = Math.max(1, tile.height - gap);
             const { cardW, cardH } = cardBox(tw, th);
-            const move = formatMove(pct);
+            /* 色階、「印出嚟 0.0% 就當持平」、label 底板，全部同網站行同一個 tileStyle ——
+               以前呢度自己抄一份，0.04% 會印「+0.0%」綠格，網站就係灰格。 */
+            const st = tileStyle(pct, tw, th, { up, down, neutral: NEUTRAL }, DEFAULT_TILE);
+            const move = st.direction === "neutral" ? null : formatMove(pct);
             const art = arts[i];
             const fontPx = Math.round(labelFontSize(tw, th, scale));
-            const plate = pct && pct !== 0
-              ? `rgba(${hexToRgb(pct > 0 ? up : down).join(", ")}, 0.34)`
-              : null;
+            const plate = st.plate;
             return (
               <div
                 key={tile.item.card.id}
@@ -435,7 +425,7 @@ export async function GET(request: Request): Promise<Response> {
                   alignItems: "center",
                   justifyContent: "center",
                   overflow: "hidden",
-                  background: tileFill(pct, up, down),
+                  background: st.bg,
                   borderRadius: 4 * scale,
                 }}
               >

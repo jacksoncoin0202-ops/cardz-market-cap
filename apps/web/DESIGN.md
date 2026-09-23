@@ -1213,6 +1213,6 @@ FE05 純粹係 presentation 層。認 live：`/api/health` → `presentation: "F
 
 唔遷 Tailwind / shadcn；唔上 WebGL / shader；`/` 唔加 marketing hero；字體只得 §1.3.1 嗰一隻 Inter latin
 （唔加 display face / 第二隻 / CJK web font / latin-ext / opsz 檔；`zero` `cv*` `ss*` `-webkit-font-smoothing` 全部唔開）；
-唔改 `heatmap.tsx` 嘅顏色算法（`exportHeatmap` 已按 owner 2026-08-17 要求重做，見 fix-share-image；tile 幾何亦已加 device-px snapping，見 fix-heatmap-align —— treemap「面積 ∝ 市值」算法本身冇郁）；唔加 `app/card/loading.tsx`；
+唔改 treemap「面積 ∝ 市值」算法（tile 幾何已加 device-px snapping，見 fix-heatmap-align）。顏色算法**已唔係**非目標：owner 2026-09-23 批咗預設 gamma 4→1.5、aMin 0.78→0.45，分享圖 `api/og/heatmap` 同網站共用 `lib/tile-style.ts` `tileStyle`，冇數格加斜紋、同持平（0.0%）分開；唔加 `app/card/loading.tsx`；
 唔為視覺效果加 npm dep；無 scroll-jacking / parallax；sparkline 同 ranking row 唔動；
 唔為咗動畫放鬆任何 gate / 契約 / crawler 可見文字。

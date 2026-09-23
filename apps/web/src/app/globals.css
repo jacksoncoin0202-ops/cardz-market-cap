@@ -183,6 +183,7 @@
   --primary-action-text: #fff;
   --story-panel-text: #41413d;
   --legend-pending: #7f807b;
+  --tile-hatch: rgba(25, 25, 23, 0.14);
   --grader-psa: #b04a17;
   --grader-bgs: #3b6ea5;
   --grader-cgc: #5a4fa8;
@@ -340,6 +341,7 @@
   --primary-action-text: #101010;
   --story-panel-text: #d0d0cb;
   --legend-pending: #7a7b76;
+  --tile-hatch: rgba(241, 241, 238, 0.12);
   --grader-psa: #e8874f;
   --grader-bgs: #6b9ed4;
   --grader-cgc: #8f81d4;
@@ -1374,6 +1376,15 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
   animation: tile-in 320ms var(--ease-standard) backwards;
   animation-delay: var(--d, 0ms);
 }
+/* 冇數格（tileStyle.missing → data-missing）：灰底再加斜紋，同持平（0.0%）嘅實色灰分開。
+   ::before 冇 z-index，喺 .tile-card（z 2）同 .tile-move（z 3）下面，只蓋格底唔蓋卡圖。 */
+.heatmap-tile[data-missing]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(135deg, var(--tile-hatch) 0 1px, transparent 1px 6px);
+  pointer-events: none;
+}
 /* 貼住 frame 四個角嗰格：跟返 frame 個弧（data-corner 由 heatmap.tsx layout effect 落，
    見嗰邊 cornerToken 註）。唔跟嘅話 frame 個 `overflow:hidden` 會斜斜咁切走格仔一隻角，
    hover 嗰條 `inset 0 0 0 2px` 白線就喺角位斷開（owner 2026-08-18 投訴）。
@@ -1654,7 +1665,12 @@ button.select-control { cursor: pointer; transition: border-color 170ms ease, co
 .heatmap-legend > li { display: flex; align-items: center; gap: 5px; }
 .legend-swatch { width: 22px; height: 5px; border-radius: 99px; }
 .legend-swatch.down { background: var(--negative); }
-.legend-swatch.pending { background: var(--legend-pending); }
+/* 持平 = 實色灰；冇數 = 斜紋灰（同 .heatmap-tile[data-missing] 一樣講法） */
+.legend-swatch.flat { background: var(--legend-pending); }
+.legend-swatch.pending {
+  background: repeating-linear-gradient(135deg, var(--legend-pending) 0 2px, transparent 2px 4px);
+  box-shadow: inset 0 0 0 1px var(--legend-pending);
+}
 .legend-swatch.up { background: var(--positive); }
 
 .sheet-backdrop { display: none; }
