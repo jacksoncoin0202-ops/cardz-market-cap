@@ -48,7 +48,8 @@ REJECT_PATTERNS = [
     (re.compile(r"(BOX|ボックス)\s*(無し|なし)", re.I), "opened_or_empty"),
     (re.compile(r"(空箱|空き箱|空BOX|空ボックス|空パック|開封済|開封品|サーチ済|中身なし|箱のみ)", re.I), "opened_or_empty"),
     (re.compile(r"(ギフトボックス|gift\s*box)", re.I), "not_booster_box"),
-    (re.compile(r"(収納ケース|紙製.{0,24}カードボックス)", re.I), "not_booster_box"),
+    # storage boxes; ロングカードボックス: Rocket Gang JP read ¥5,749 off a Pokémon Center one (2026-09-24)
+    (re.compile(r"(収納ケース|紙製.{0,24}カードボックス|ロングカードボックス)", re.I), "not_booster_box"),
     (re.compile(r"(BOX|ボックス)用", re.I), "not_booster_box"),  # "BOX用プラスチック保護ケース": a case for a box
     # a Pokemon Center special box, a collection file set, candy sold by the box (食玩/グミ)
     (re.compile(r"(スペシャル\s*(BOX|ボックス|カードセット)|コレクションファイル|食玩|グミ)", re.I), "not_booster_box"),

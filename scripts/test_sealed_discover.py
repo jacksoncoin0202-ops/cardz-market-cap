@@ -267,6 +267,7 @@ def test_box_title_counts_boxes():
              ("【シュリンク、ローダー付き_2点目】ポケモンカードゲーム 拡張パック 未来の一閃 BOX", 1),
              ("Pokemon Card Incandescent Arcana Booster Box 2 Set s11a Japanese", 2)]
     rejects = [("BOX用プラスチック保護ケース 5枚", "not_booster_box"), ("ハーフBOX用プラスチックケース 白熱のアルカナ", "not_booster_box"),
+               ("ポケモンカードゲーム ハイクラスロングカードボックス ロケット団", "not_booster_box"),
                ("ドリームex 5 パック セット 1/2 ボックス", "box_equivalent_lot"), ("テラスタルフェスex 5 パック 1/2BOX 分", "box_equivalent_lot"),
                ("頂上決戦 ボックス購入特典パック OP-02 全6種", "promo_card")]
     wrong = [(t, want, qc_box_title(t)) for t, want in cases if (qc_box_title(t)["accepted"], qc_box_title(t)["quantity"]) != (True, want)]
