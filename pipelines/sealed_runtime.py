@@ -33,33 +33,41 @@ SEALED_ADAPTERS = ("sealed_pc", "sealed_snk", "sealed_yahoo", "sealed_ebay", "se
 # --- box title QC ----------------------------------------------------------
 
 REJECT_PATTERNS = [
-    (re.compile(r"\b(lot|bundle|set of|repack|resale|proxy|replica|custom)\b", re.I), "bundle_or_fake"),
+    (re.compile(r"\b(lot|bundle|set of|repack|resale|proxy|replica|custom|bulk\s*sale)\b", re.I), "bundle_or_fake"),
+    (re.compile(r"i\s?m\s?i\s?t\s?a\s?t\s?i\s?o\s?n", re.I), "bundle_or_fake"),  # "( i m i t a t i o n)"
     (re.compile(r"\b(case|carton)\b", re.I), "case_not_box"),
     (re.compile(r"(カートン|ケース販売)", re.I), "case_not_box"),
     (re.compile(r"\b(etb|elite trainer box|booster bundle|build\s*&\s*battle|blister|mini tin|tin\b)\b", re.I), "not_booster_box"),
     (re.compile(r"(エリートトレーナー|デッキ|スターター|プロモ|バラ売り|バラパック)", re.I), "not_booster_box"),
     # other boxes of a set, and SV10's attache case sold on its own (2026-09-24 Yahoo titles)
     (re.compile(r"(アタッシュケース|ジャンボカードコレクション|ミステリーボックス|トレーナーボックス|シャイニーボックス|コレクターボックス"
-                r"|mystery\s*box|trainer\s*box|shiny\s*box|collector\s*box)", re.I), "not_booster_box"),
+                r"|エクストラレギュレーション|mystery\s*box|trainer\s*box|shiny\s*box|collector\s*box|extra\s*regulation"
+                r"|びっくりボックス|シークレットボックス|surprise\s*box)", re.I),  # the last three are trainer cards
+     "not_booster_box"),
     (re.compile(r"\b(empty|no box|box only|opened|resealed)\b", re.I), "opened_or_empty"),
     (re.compile(r"(BOX|ボックス)\s*(無し|なし)", re.I), "opened_or_empty"),
-    (re.compile(r"(空箱|空BOX|空ボックス|開封済|開封品|サーチ済|中身なし|箱のみ)", re.I), "opened_or_empty"),
+    (re.compile(r"(空箱|空き箱|空BOX|空ボックス|空パック|開封済|開封品|サーチ済|中身なし|箱のみ)", re.I), "opened_or_empty"),
     (re.compile(r"(ギフトボックス|gift\s*box)", re.I), "not_booster_box"),
     (re.compile(r"(収納ケース|紙製.{0,24}カードボックス)", re.I), "not_booster_box"),
     (re.compile(r"(BOX|ボックス)用", re.I), "not_booster_box"),  # "BOX用プラスチック保護ケース": a case for a box
     # a Pokemon Center special box, a collection file set, candy sold by the box (食玩/グミ)
-    (re.compile(r"(スペシャル\s*(BOX|ボックス)|コレクションファイル|食玩|グミ)", re.I), "not_booster_box"),
+    (re.compile(r"(スペシャル\s*(BOX|ボックス|カードセット)|コレクションファイル|食玩|グミ)", re.I), "not_booster_box"),
     # boxes of several sets in one lot: "BOX 6種セット", "蒼海の七傑他", "SV11W + SV11B"; not "他の人", "他にも出品中"
     (re.compile(r"(\d+\s*種\s*セット|(?<!その)他(?=\s|$|\d+\s*種))"), "bundle_or_fake"),
     (re.compile(r"\b(?:op|eb|prb|sv|sm|swsh|s|m|xy|bw)-?\s?\d+[a-z]?\s*[+＋]\s*(?:op|eb|prb|sv|sm|swsh|s|m|xy|bw)-?\s?\d+",
                 re.I), "bundle_or_fake"),
-    (re.compile(r"(BOX|ボックス)購入(キャンペーン|特典)", re.I), "promo_card"),
+    (re.compile(r"((BOX|ボックス)購入(キャンペーン|特典)|封入特典)", re.I), "promo_card"),
     (re.compile(r"\d+/[A-Z]{2,4}-P", re.I), "promo_card"),
-    (re.compile(r"(イタリア版|フランス版|ドイツ版|英語版|韓国版|中国版|海外版)", re.I), "foreign_edition"),
+    (re.compile(r"(イタリア版|フランス版|ドイツ版|英語版|韓国版|中国版|海外版|(韓国|中国|インドネシア|タイ)語版)", re.I), "foreign_edition"),
+    (re.compile(r"(\b(spanish|español|portuguese|german|italian|french|korean|chinese|thai|indonesian)\b|🇪🇸)", re.I),
+     "foreign_edition"),
     (re.compile(r"\b(1|one)\s*(pack|booster pack)\b", re.I), "single_pack"),
     (re.compile(r"(1パック|パック単品)", re.I), "single_pack"),
+    # cards, not a box (2026-09-24 QC, ok rows): "MサーナイトEX 1枚", "びっくりボックス 044/055 … 2枚セット" (a card named
+    # Surprise Box), a box's loose cards "1BOX（全160枚）" at ¥1,000. Not "ランダム5枚入り" or "各5枚".
+    (re.compile(r"([1１]\s*枚|\d+\s*枚\s*セット|全\s*\d+\s*枚|\d{3}/\d{3}|(?<!#)\b(OP|EB|ST|PRB)\d{2}-\d{3}\b)"), "single_card"),
     (re.compile(r"((BOX|ボックス|パック)\s*分|相当|口分)", re.I), "box_equivalent_lot"),  # "2 box 分 48p"
-    (re.compile(r"(1/2|½)\s*(BOX|ボックス)", re.I), "box_equivalent_lot"),  # "5 パック セット 1/2 ボックス"
+    (re.compile(r"(1/[2-4]|½|¼)\s*(BOX|ボックス)", re.I), "box_equivalent_lot"),  # "5 パック セット 1/2 ボックス"
     (re.compile(r"(まとめ売り|まとめて|引退品|福袋|オリパ)", re.I), "junk_lot_signal"),
     (re.compile(r"\b(psa|bgs|cgc|ars)\s*\d", re.I), "graded_item"),
 ]

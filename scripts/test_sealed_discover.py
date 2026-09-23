@@ -212,7 +212,29 @@ def test_box_title_rejects_other_products():
              "ポケモンカード BOX 楽園ドラゴーナ他2種 シュリンク付き",
              "Pokemon JP SV11W + SV11B Booster Box Set Black Bolt & White Flare TCG Sealed US Japanese",
              "One Piece OP-10+OP 08 Royal Blood Booster Box ENGLISH SEALED",
-             "ワンピースカードゲーム 神の島の冒険 OP-15 2BOX 分　４８パック 説明文必読"]
+             "ワンピースカードゲーム 神の島の冒険 OP-15 2BOX 分　４８パック 説明文必読",
+             # 2026-09-24 QC: single cards and a box's loose cards counted as box sales
+             "☆【ポケモンカードゲーム】MサーナイトEX 1枚/ディスピアーレイ/エクストラレギュレーションBOX/新品未使用/ ① 冷酷の反逆者",
+             "ポケモンカード びっくりボックス 044/055 ナイトユニゾン 2枚セット",
+             "ポケモンカードゲーム ソード＆シールド 強化拡張パック ダークファンタズマ 1BOX シュリンクなし（全160枚）",
+             "ポケモンカードゲーム XY エクストラレギュレーションBOX 未開封",
+             "ポケモンカード リザードンex 1枚 BOX出し",
+             "ポケモンカード ナンジャモ SAR 3枚セット 未開封BOXから",
+             "ポケモンカード ナンジャモ 091/071 SAR BOX出し",
+             "ポケモンカード 空き箱 2BOX 漆黒のガイスト",
+             "ポケモンカードゲーム 強化拡張パック ドリームリーグ 空パックとBOX",
+             "【韓国語版】ポケモンカードゲーム ソード＆シールド 強化拡張パック 伝説の鼓動 1BOX 未開封シュリンク付き",
+             "ポケモンカードゲーム 強化拡張パック ダークファンタズマ インドネシア語版 BOX",
+             "Pokemon Sun & Moon Tormenta Celestial Storm Spanish Sealed Booster Box Spanish",
+             "pokemon display Team Up 🇪🇸 - sealed, perfect - Booster box Team Up 🇪🇸",
+             "【1円スタート】 ポケカ ゲーム 新品 未開封 ポケモンカード バトルリージョン 5 パック 強化 拡張 1/4 ボックス ソード＆シールド 希少",
+             "ワンピースカード ボア・ハンコック OP02-059 UC 頂上決戦 BOX ONE PIECE",
+             "ワンピースカードゲーム ボア・ハンコック パラレル【ブースターパック頂上決戦 Box封入特典】",
+             "1BOX【新品・未開封】ポケモンカードゲーム/V-UNION スペシャルカードセット ミュウツー【送料無料】ボックス/箱/蒼空ストリーム/Pokemon",
+             "Pokémon TCG: Sun & Moon Unified Minds Booster Box (36 Packs)( i m i t a t i o n)",
+             "One Piece TCG OP-09 Emperors in the New World Booster Box English Bulk sale",
+             "ポケモンカード SM9a ☆ びっくりボックス ☆ ゲンガー TRAINER'S グッズ ☆ ナイトユニゾン",
+             "ポケモンカード シークレットボックス ACE 変幻の仮面 BOX出し"]
     boxes = ["ポケモンカードゲーム ソード＆シールド 拡張パック 白銀のランス 1BOX（シュリンクなし）",
              "ポケモンカードゲーム ソード＆シールド 強化拡張パック 白熱のアルカナ BOX シュリンク付き BOXケース付き",
              "ポケモンカード インフェルノx ペリペリなし 1BOX",
@@ -220,7 +242,13 @@ def test_box_title_rejects_other_products():
              "【購入専門様専用】他の人は購入しないでください。ポケモンカードゲーム サン＆ムーン 強化拡張パック ひかる伝説 1BOX",
              "ポケモンカード 黒炎の支配者 BOX シュリンク付き 他にも出品中",
              "ポケモンカード 変幻の仮面 1Box 30パック 新品未開封 【ヤマダ電機購入分】",
-             "ポケモンカード　強化拡張パック「ウルトラフォース」SM5+　未開封ボックス"]
+             "ポケモンカード　強化拡張パック「ウルトラフォース」SM5+　未開封ボックス",
+             "新品 ポケモンカードゲーム ハイクラスパック MEGAドリームex BOX 10パック シュリンク付き 拡張パック ランダム10枚入り メガシンカ",
+             "シュリンクあり メガブレイブ 拡張パック ポケモンカードゲーム MEGA BOX box ポケモン ポケカ ランダム５枚入り",
+             "新品 ポケモンカードゲーム 黒炎の支配者 拡張パック 30パック ランダム5枚入りシュリンク付き BOX POKEMON",
+             "ポケモンカード 白熱のアルカナ 1BOX 30パック入り 各5枚 シュリンク付き",
+             "One Piece Card Game Paramount War OP02 Booster Box Sealed Japanese New In Stock #OP09-001",
+             "Pokémon Pitch Black Booster Box (36 Packs) | New & Sealed | BULK AVAILABLE"]
     wrong = [t for t in other if qc_box_title(t)["accepted"]] + [t for t in boxes if not qc_box_title(t)["accepted"]]
     assert not wrong, "box title QC: %r" % wrong
 
