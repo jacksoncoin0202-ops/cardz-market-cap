@@ -975,7 +975,9 @@ def cmd_sealed_add_image(*, sku: str, url: str, actor: str, note: str) -> dict:
         raise SystemExit(f"not an image of at least 150px: {url}")
     full, w200, w600, width, height = variants
     digest = hashlib.sha256(full).hexdigest()
-    source = "snkrdunk" if "snkrdunk" in host else "official"
+    # PriceCharting's listing photos live on its Google Storage bucket, not on the site itself.
+    pc_photo = host == "storage.googleapis.com" and urlparse(url).path.startswith("/images.pricecharting.com/")
+    source = "snkrdunk" if "snkrdunk" in host else "pricecharting" if pc_photo else "official"
     load_env()
     conn = db()
     try:
