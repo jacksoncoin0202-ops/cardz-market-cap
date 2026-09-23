@@ -35,6 +35,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
 from sealed_discover_lib import SNK_ITEM_RE, yahoo_closedsearch_url, yahoo_jp_query, yahoo_query_needs_rewrite  # noqa: E402
+from sealed_price_compose import item_key  # noqa: E402
 from sealed_runtime import (  # noqa: E402
     HTML_DIR,
     OUT_DIR,
@@ -72,20 +73,30 @@ def _run_key(adapter: str, mode: str) -> str:
 # --- selection ---------------------------------------------------------------
 
 
-def _sealed_ids_with_data(cur, adapter: str) -> set[int]:
-    if adapter == "sealed_pc":
+ITEM_SOURCE = {"sealed_pc": "pricecharting", "sealed_snk": "snkrdunk"}
+
+
+def _data_key(adapter: str, sealed_id: int, external_id: Any) -> tuple:
+    """What "has data" means. PC / SNK price rows carry their item, so a SKU whose freeze moved to another item has
+    no data yet. 2026-09-24: stock skipped 26 SKUs rebound to their right SNK box (S1W, SM1S, XY5a, BW2, jp2, OP-06
+    EN...) because the wrong box's quarantined rows sat on the SKU, and eight of them lost their /box price. Yahoo
+    sales carry no item."""
+    source = ITEM_SOURCE.get(adapter)
+    return (int(sealed_id), item_key(source, external_id) if source else None)
+
+
+def _items_with_data(cur, adapter: str) -> set[tuple]:
+    if adapter in ITEM_SOURCE:
         cur.execute(
-            "SELECT DISTINCT sealed_id AS s FROM market_sealed_price_observation WHERE source_code='pricecharting'"
-        )
-    elif adapter == "sealed_snk":
-        cur.execute(
-            "SELECT DISTINCT sealed_id AS s FROM market_sealed_price_observation WHERE source_code='snkrdunk'"
+            "SELECT DISTINCT sealed_id AS s, external_entity_id AS e FROM market_sealed_price_observation "
+            "WHERE source_code=%s",
+            (ITEM_SOURCE[adapter],),
         )
     elif adapter == "sealed_yahoo":
-        cur.execute("SELECT DISTINCT sealed_id AS s FROM market_sealed_sale_observation WHERE source_code='yahoo'")
+        cur.execute("SELECT DISTINCT sealed_id AS s, NULL AS e FROM market_sealed_sale_observation WHERE source_code='yahoo'")
     else:
         return set()
-    return {int(r["s"]) for r in cur.fetchall()}
+    return {_data_key(adapter, r["s"], r["e"]) for r in cur.fetchall()}
 
 
 def _load_adapter_items(cur, adapter: str, *, allow_candidates: bool) -> list[dict]:
@@ -200,11 +211,11 @@ def _select(cur, adapter: str, mode: str, *, limit: int | None, allow_candidates
     only lists the sharing."""
     items = _load_adapter_items(cur, adapter, allow_candidates=allow_candidates)
     shared = _shared_keys(adapter, items)
-    have = _sealed_ids_with_data(cur, adapter)
+    have = _items_with_data(cur, adapter)
     checkpoints = load_sealed_checkpoints(cur, adapter)
     selected, blocked = [], []
     for item in items:
-        has_data = item["sealedId"] in have
+        has_data = _data_key(adapter, item["sealedId"], item["externalId"]) in have
         age = checkpoint_age_hours(checkpoints, stream_key(item["sealedId"], item["externalId"]))
         if mode == "stock":
             due = not has_data
@@ -675,7 +686,7 @@ def cmd_status() -> dict:
         for adapter in ("sealed_pc", "sealed_snk", "sealed_yahoo"):
             items = _load_adapter_items(cur, adapter, allow_candidates=True)
             accepted_items = _load_adapter_items(cur, adapter, allow_candidates=False)
-            have = _sealed_ids_with_data(cur, adapter)
+            have = _items_with_data(cur, adapter)
             checkpoints = load_sealed_checkpoints(cur, adapter)
             fresh = 0
             for item in items:
@@ -685,7 +696,7 @@ def cmd_status() -> dict:
             out["adapters"][adapter] = {
                 "bound": len(items),
                 "boundAccepted": len(accepted_items),
-                "withData": len([i for i in items if i["sealedId"] in have]),
+                "withData": len([i for i in items if _data_key(adapter, i["sealedId"], i["externalId"]) in have]),
                 "freshWithinSla": fresh,
                 "slaHours": SLA_HOURS,
             }

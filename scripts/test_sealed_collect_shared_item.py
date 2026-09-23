@@ -49,8 +49,10 @@ def world(items, have=()):
     WORLD["items"], WORLD["have"] = [dict(i) for i in items], set(have)
 
 
+ITEMS_WITH_DATA = sc._items_with_data
 sc._load_adapter_items = lambda cur, adapter, allow_candidates: [dict(i) for i in WORLD["items"]]
-sc._sealed_ids_with_data = lambda cur, adapter: set(WORLD["have"])
+sc._items_with_data = lambda cur, adapter: {sc._data_key(adapter, i["sealedId"], i["externalId"])
+                                            for i in WORLD["items"] if i["sealedId"] in WORLD["have"]}
 sc.load_sealed_checkpoints = lambda cur, adapter: {}
 sc.checkpoint_age_hours = lambda checkpoints, key: None  # no checkpoint: incr is due
 
@@ -105,8 +107,43 @@ def bindings_follow_the_frozen_item():
     print("NEGATIVE_OK an accepted freeze makes only the item it names pullable, whatever the row's match_status")
 
 
+def stock_follows_the_frozen_item():
+    """2026-09-24: SM1S JP's SNK freeze moved off the wrong box; its quarantined rows kept stock from pulling the
+    right one. Data is judged per item, SNK spellings folded; Yahoo sales carry no item."""
+    cur = LiteCursor("""
+    CREATE TABLE market_sealed_price_observation (sealed_id INTEGER, source_code TEXT, external_entity_id TEXT,
+      metric_status TEXT);
+    CREATE TABLE market_sealed_sale_observation (sealed_id INTEGER, source_code TEXT);
+    INSERT INTO market_sealed_price_observation VALUES
+      (277, 'snkrdunk', 'apparels:137785', 'quarantined'),
+      (41, 'snkrdunk', 'apparels:767625', 'ok'),
+      (179, 'pricecharting', 'pokemon-jungle/booster-box', 'ok'),
+      (5, 'pricecharting', 'one-piece-paramount-war%2Fbooster-box', 'ok');
+    INSERT INTO market_sealed_sale_observation VALUES (285, 'yahoo');
+    """)
+    moved = {"sealedId": 277, "externalId": "apparels:480200", "itemId": 480200, "sku": "ptcg:jp:SM1S:booster-box:std"}
+    ju = {"sealedId": 179, "externalId": "pokemon-jungle/booster-box-1st-edition", "sku": "ptcg:en:JU:booster-box:std",
+          "url": "https://www.pricecharting.com/game/pokemon-jungle/booster-box-1st-edition"}
+    op02 = {"sealedId": 5, "externalId": "one-piece-paramount-war/booster-box", "sku": "optcg:en:OP-02:booster-box:std",
+            "url": "https://www.pricecharting.com/game/one-piece-paramount-war/booster-box"}
+    y2 = {**Y2, "externalId": "closedsearch-moved"}
+    faked, sc._items_with_data = sc._items_with_data, ITEMS_WITH_DATA
+    try:
+        for adapter, items, stock, incr in (("sealed_snk", [moved, EB03], [moved], [EB03]),
+                                            ("sealed_pc", [ju, op02], [ju], [op02]),
+                                            ("sealed_yahoo", [y2], [], [y2])):
+            world(items)
+            got = [skus(sc._select(cur, adapter, mode, limit=None, allow_candidates=False, force=False)[0])
+                   for mode in ("stock", "incr")]
+            assert got == [skus(stock), skus(incr)], "%s stock/incr: %r" % (adapter, got)
+    finally:
+        sc._items_with_data = faked
+    print("NEGATIVE_OK stock pulls a SKU whose freeze moved to an item without rows; SNK spellings / PC quoting fold")
+
+
 def main() -> int:
     bindings_follow_the_frozen_item()
+    stock_follows_the_frozen_item()
     world([EB03, EB05, OP17])
     selected, blocked, shared = select("sealed_snk", "stock")
     assert shared == {"snkrdunk:767625": [EB03["sku"], EB05["sku"]]}, \
