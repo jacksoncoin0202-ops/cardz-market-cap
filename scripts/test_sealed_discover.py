@@ -716,6 +716,39 @@ def test_compose_reads_only_the_frozen_item():
         "an SNK / eBay sale counted without its SKU's accepted SNK / PC freeze, or a Yahoo sale was dropped: %r" % (sales,)
 
 
+def test_compose_trims_old_sales_by_their_neighbours():
+    # 2026-09-24: the trim judged only the 30d window, and the full daily line reads every ok sale: $90-$100 Unified
+    # Minds boxes (median $2,850) stayed on the line, and marks made under the old box counts never came back.
+    from datetime import date, datetime
+
+    import sealed_price_compose as compose
+
+    class MarkCursor:
+        def __init__(self):
+            self.marks = {}
+
+        def execute(self, sql, params=()):
+            assert sql.startswith("UPDATE market_sealed_sale_observation SET metric_status="), sql
+            self.marks[params[1]] = params[0]
+
+    def sale(i, day, usd, status="ok"):
+        return {"id": i, "sold_at": datetime.fromisoformat(day), "unit_price_usd": usd, "metric_status": status}
+
+    sales = [sale(1, "2026-06-10", 100), sale(2, "2026-06-15", 110), sale(3, "2026-06-20", 90), sale(4, "2026-06-25", 105),
+             sale(5, "2026-06-18", 5),  # far under its neighbours
+             sale(6, "2026-06-22", 100, "outlier_trimmed"),  # marked against a median of the old box counts
+             sale(7, "2025-01-01", 1), sale(8, "2025-01-20", 10),  # two sales alone: too few to judge
+             sale(9, "2026-09-10", 300), sale(10, "2026-09-12", 310), sale(11, "2026-09-14", 290), sale(12, "2026-09-15", 3000)]
+    cur = MarkCursor()
+    kept, marked = compose.trim_outliers(cur, 1, sales, date(2026, 9, 24))
+    want = {5: "outlier_trimmed", 6: "ok", 12: "outlier_trimmed"}
+    assert cur.marks == want and marked == 3, "trim marks: %r (%d)" % (cur.marks, marked)
+    assert sorted(s["id"] for s in kept) == [9, 10, 11], "the current price read: %r" % kept
+    status = {s["id"]: s["metric_status"] for s in sales}
+    assert all(status[i] == w for i, w in want.items()) and status[7] == status[8] == "ok", \
+        "the daily line reads these dicts in the same run: %r" % status
+
+
 def test_price_upsert_keeps_a_quarantine():
     # Every sealed price write shares one ON DUPLICATE head: the same item rewriting a row an operator quarantined
     # keeps it out; another item's write carries its id in, so compose's frozen-item filter judges it afresh.

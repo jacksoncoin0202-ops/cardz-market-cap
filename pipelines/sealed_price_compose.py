@@ -16,7 +16,9 @@ Authority chains (display price):
   Outlier trim still needs n>=3. Ask-divergence guard only when n>=3.
 Guards:
   - outlier trim per SKU: accepted 30d units outside [median/2.5, median*2.0]
-    are re-marked metric_status='outlier_trimmed' (store-all + mark; reversible)
+    are re-marked metric_status='outlier_trimmed' (store-all + mark; reversible);
+    an older sale is judged the same way by the sales within 30 days either side
+    of it, since the full daily line reads every ok sale
   - JP divergence guard: sold median vs SNK ask floor > 1.75x either way
     -> prefer ask, kind='ask', guard noted
 Sold / market / ask never mixed silently: composed_kind records which won.
@@ -52,6 +54,7 @@ TRIM_HIGH = 2.0
 TRIM_LOW = 2.5
 GUARD_RATIO = 1.75
 SOLD_MIN_N = 3
+HISTORY_TRIM_HALF_D = 30  # a sale older than the 30d window is judged by the sales this many days either side of it
 MARKET_MAX_AGE_D = 45
 ASK_MAX_AGE_D = 7
 
@@ -144,26 +147,43 @@ def load_asks(cur) -> dict[int, tuple[date, float, float | None]]:
     return latest
 
 
+def _mark(cur, sale: dict, med: float) -> tuple[bool, int]:
+    """Mark one sale against a median; the dict follows the row so this run's daily line reads the new status."""
+    unit = float(sale["unit_price_usd"])
+    is_outlier = unit > med * TRIM_HIGH or unit < med / TRIM_LOW
+    want_status = "outlier_trimmed" if is_outlier else "ok"
+    if sale["metric_status"] == want_status:
+        return is_outlier, 0
+    cur.execute(
+        "UPDATE market_sealed_sale_observation SET metric_status=%s WHERE id=%s",
+        (want_status, int(sale["id"])),
+    )
+    sale["metric_status"] = want_status
+    return is_outlier, 1
+
+
 def trim_outliers(cur, sealed_id: int, sales: list[dict], today: date) -> tuple[list[dict], int]:
-    """Re-mark 30d outliers; return (accepted-in-window, marked_count)."""
+    """Re-mark outliers; return (accepted-in-window, marked_count). The 30d window is judged by its own median. An older
+    sale is judged by the sales within HISTORY_TRIM_HALF_D days either side of it, because the full daily line reads
+    every ok sale: 2026-09-24, $90-$100 Unified Minds boxes against a $2,850 median stayed ok on the line once they left
+    the window, and 140 marks made under the old box counts ('3BOXセット' read 1 box) never came back."""
     window_start = today - timedelta(days=30)
+    marked = 0
+    for sale in sales:
+        day = sale["sold_at"].date()
+        if day >= window_start:
+            continue
+        near = [float(s["unit_price_usd"]) for s in sales if abs((s["sold_at"].date() - day).days) <= HISTORY_TRIM_HALF_D]
+        if len(near) >= SOLD_MIN_N:
+            marked += _mark(cur, sale, median(near))[1]
     in_window = [s for s in sales if s["sold_at"].date() >= window_start]
     if len(in_window) < SOLD_MIN_N:
-        return [s for s in in_window if s["metric_status"] == "ok"], 0
-    units = [float(s["unit_price_usd"]) for s in in_window]
-    med = median(units)
-    marked = 0
+        return [s for s in in_window if s["metric_status"] == "ok"], marked
+    med = median(float(s["unit_price_usd"]) for s in in_window)
     keep: list[dict] = []
     for sale in in_window:
-        unit = float(sale["unit_price_usd"])
-        is_outlier = unit > med * TRIM_HIGH or unit < med / TRIM_LOW
-        want_status = "outlier_trimmed" if is_outlier else "ok"
-        if sale["metric_status"] != want_status:
-            cur.execute(
-                "UPDATE market_sealed_sale_observation SET metric_status=%s WHERE id=%s",
-                (want_status, int(sale["id"])),
-            )
-            marked += 1
+        is_outlier, changed = _mark(cur, sale, med)
+        marked += changed
         if not is_outlier:
             keep.append(sale)
     return keep, marked
