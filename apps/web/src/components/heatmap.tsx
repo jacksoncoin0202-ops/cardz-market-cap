@@ -1036,7 +1036,6 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title, scope 
           updown/lang/res/stamp/tz）。onWarm 同卡片內頁一樣：OG 有幾十格卡圖，撳完先
           fetch 會過 iOS activation。 */}
       <ShareMenu
-        surface="heatmap"
         triggerClassName="heatmap-export"
         copy={{
           label: t.labels.shareImage,
@@ -1046,7 +1045,6 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title, scope 
           desktop: t.labels.shareToDesktop,
           portrait: t.labels.shareToPortrait,
           widescreen: t.labels.shareToWidescreen,
-          frame: t.labels.shareRatioFrame,
           done: t.share.done,
           error: t.share.error,
         }}

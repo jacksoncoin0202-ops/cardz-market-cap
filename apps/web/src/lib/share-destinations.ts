@@ -107,9 +107,6 @@ export const FORMAT_SIZES: Record<ShareFormat, { width: number; height: number }
  *   square = 1:1、post / portrait(alias) = 4:5、status = 9:16、wide / landscape = 1.91:1、
  *   3x4 = 3:4、16x9 = 16:9。
  */
-export const SHARE_ASPECTS = ["post", "wa", "frame"] as const;
-export type ShareAspect = (typeof SHARE_ASPECTS)[number];
-
 export type ShareTargetId =
   | "instagram" | "threads" | "x" | "whatsapp" | "status" | "other" | "desktop"
   /* 2026-08-23 加嘅兩粒「淨係揀個比例」列 —— 見下面 `SHARE_EXTRA_TARGETS` */
@@ -117,17 +114,10 @@ export type ShareTargetId =
 
 export interface ShareTarget {
   id: ShareTargetId;
-  /** 卡片內頁：server 出圖，`?format=` 就係佢（見 `app/api/og/card/[id]/route.tsx`） */
+  /** 卡片同熱力圖都按 format 由 server OG route 出圖。 */
   format: ShareFormat;
-  /** 熱力圖選單仍然帶 aspect（舊 canvas 槽）；出圖而家跟 `format` 行 OG。 */
-  aspect: ShareAspect;
   /** 選單右邊嗰粒比例標。純數字，唔使 i18n。 */
   ratio: string;
-  /**
-   * 熱力圖嗰邊唔係固定比例（`frame` = 跟畫面），所以上面個 `ratio` 只講得卡片內頁。
-   * 有呢個 flag 嘅列喺熱力圖選單會出本地化嘅「跟畫面」。
-   */
-  frameOnHeatmap?: true;
 }
 
 /*
@@ -147,13 +137,13 @@ export interface ShareTarget {
  * 而條 cron 鏈嘅 `?format=whatsapp` 講嘅正正係對話氣泡嗰個面（見下面 alias 表）。
  */
 export const SHARE_TARGETS: readonly ShareTarget[] = [
-  { id: "instagram", format: "square", aspect: "post", ratio: "1:1" },
-  { id: "threads", format: "post", aspect: "post", ratio: "4:5" },
-  { id: "x", format: "post", aspect: "post", ratio: "4:5" },
-  { id: "whatsapp", format: "post", aspect: "post", ratio: "4:5" },
-  { id: "status", format: "status", aspect: "wa", ratio: "9:16" },
-  { id: "other", format: "post", aspect: "post", ratio: "4:5" },
-  { id: "desktop", format: "wide", aspect: "frame", ratio: "1.91:1", frameOnHeatmap: true },
+  { id: "instagram", format: "square", ratio: "1:1" },
+  { id: "threads", format: "post", ratio: "4:5" },
+  { id: "x", format: "post", ratio: "4:5" },
+  { id: "whatsapp", format: "post", ratio: "4:5" },
+  { id: "status", format: "status", ratio: "9:16" },
+  { id: "other", format: "post", ratio: "4:5" },
+  { id: "desktop", format: "wide", ratio: "1.91:1" },
 ];
 
 /*
@@ -168,12 +158,10 @@ export const SHARE_TARGETS: readonly ShareTarget[] = [
  * ⚠️ 但係佢哋要行**同一套 guard**（下面三個 guard 掃嘅係 `GUARDED_TARGETS`，
  * 兩張表加埋）—— 唔係就變成「新加嗰兩列個比例標冇人核對」，正正係 2026-08-20
  * `desktop` 標錯 16:9 嗰單嘅翻版。
- *
- * ⚠️ 兩列都**冇** `frameOnHeatmap`：佢哋係固定比例，唔係「跟畫面」。
  */
 export const SHARE_EXTRA_TARGETS: readonly ShareTarget[] = [
-  { id: "ig-portrait", format: "portrait", aspect: "post", ratio: "3:4" },
-  { id: "widescreen", format: "widescreen", aspect: "frame", ratio: "16:9" },
+  { id: "ig-portrait", format: "portrait", ratio: "3:4" },
+  { id: "widescreen", format: "widescreen", ratio: "16:9" },
 ];
 
 /*

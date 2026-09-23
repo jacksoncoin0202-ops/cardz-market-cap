@@ -91,6 +91,51 @@ check("viewRank not renumbered", byPrice.find((item) => item.officialName === "C
 const byRank = explore.sortCards(ranked, "rank", "asc");
 check("rank sort keeps incoming order", byRank.map((item) => item.officialName).join(",") === "A,B,C");
 
+// 執行 Rankings 真正嘅 visibleCards 計算，覆蓋排序與顯示上限嘅組合。
+function rankingCalculation(source, context) {
+  const parsed = ts.createSourceFile("rankings.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let initializer;
+  function visit(node) {
+    if (ts.isVariableDeclaration(node) && node.name.getText(parsed) === "visibleCards") initializer = node.initializer;
+    ts.forEachChild(node, visit);
+  }
+  visit(parsed);
+  if (!initializer) throw new Error("Rankings visibleCards calculation missing");
+  const body = ts.transpileModule(`
+    const { activeLang, cards, searching, catalog, catalogHits, cardSort, dir, period, query, locale,
+      visibleLimit, sortCards, catalogToCard, cardMatchesQuery, useMemo } = context;
+    return ${initializer.getText(parsed)};
+  `, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  return new Function("context", body)(context);
+}
+const searchRows = Array.from({ length: 81 }, (_, index) => card({
+  id: `search-${index + 1}`, marketRank: index + 1, viewRank: index + 1,
+  pricePsa10: { value: index === 80 ? 1 : 100 + index },
+  populationPsa10: { value: index },
+  windows: { "30d": { trackedSales: { valueUsd: { value: index } }, changePct: { value: index } } },
+}));
+const searchContext = {
+  activeLang: "all", cards: searchRows, searching: true, catalog: searchRows,
+  catalogHits: searchRows.map(({ id }) => ({ id })), cardSort: "price", dir: "asc", period: "30d",
+  query: "card", locale: "en", visibleLimit: 80, sortCards: explore.sortCards,
+  catalogToCard: () => { throw new Error("fixture card should already be in view"); },
+  cardMatchesQuery: explore.cardMatchesQuery, useMemo: (calculate) => calculate(),
+};
+for (const [cardSort, dir] of [["price", "asc"], ["pop", "desc"], ["sales", "desc"], ["change", "desc"]]) {
+  const result = rankingCalculation(rankings, { ...searchContext, cardSort, dir });
+  check(`catalog ${cardSort} includes best hit beyond initial 80`, result[0].id === "search-81");
+  check(`catalog ${cardSort} retains 80-row render cap`, result.length === 80);
+}
+const moreSearchRows = rankingCalculation(rankings, { ...searchContext, visibleLimit: 160 });
+check("show more keeps prior sorted prefix", moreSearchRows.slice(0, 80).map((row) => row.id).join() ===
+  rankingCalculation(rankings, searchContext).map((row) => row.id).join());
+const earlySlice = rankings.replace(
+  "sortCards(rows, cardSort, dir, period).slice(0, visibleLimit)",
+  "sortCards(rows.slice(0, visibleLimit), cardSort, dir, period)",
+);
+check("early-slice mutation is exercised", earlySlice !== rankings);
+check("regression rejects sort-after-truncation", rankingCalculation(earlySlice, searchContext)[0].id !== "search-81");
+
 const boxes = [
   box({ name: { en: "Alpha", "zh-TW": null, "zh-CN": null, ja: null, ko: null }, setCode: "AAA", rank: 1, priceUsd: { value: 50 }, release: "2024-01-01" }),
   box({ name: { en: "Beta", "zh-TW": null, "zh-CN": null, ja: null, ko: null }, setCode: "BBB", rank: 2, priceUsd: { value: null }, release: null }),

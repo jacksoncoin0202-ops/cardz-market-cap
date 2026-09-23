@@ -232,10 +232,6 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
   useEffect(() => {
     if (showDirty) update({ show });
   }, [show, showDirty, update]);
-  const shownHits = useMemo(
-    () => (catalogHits.length > visibleLimit ? catalogHits.slice(0, visibleLimit) : catalogHits),
-    [catalogHits, visibleLimit],
-  );
   /* 篩選淨係隱藏行：viewRank / marketRank 照原樣出，唔准重新編號。
      搜尋打晒 bake 入站嘅卡，還原成同一張榜表，唔另開一列核突結果。 */
   const visibleCards = useMemo(() => {
@@ -247,11 +243,12 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
       return sortCards(langCards.filter((card) => cardMatchesQuery(card, query, locale)), cardSort, dir, period);
     }
     const inView = new Map(cards.map((card) => [card.id, card]));
-    const rows = shownHits
+    const rows = catalogHits
       .map((entry) => inView.get(entry.id) ?? catalogToCard(entry))
       .filter((card): card is MarketCardView => Boolean(card));
-    return sortCards(rows, cardSort, dir, period);
-  }, [activeLang, cardSort, cards, catalog, dir, locale, period, query, searching, shownHits]);
+    // 先排完整命中再截顯示數量，否則第 81 張之後嘅最高／最低值永遠入唔到首屏。
+    return sortCards(rows, cardSort, dir, period).slice(0, visibleLimit);
+  }, [activeLang, cardSort, cards, catalog, catalogHits, dir, locale, period, query, searching, visibleLimit]);
   const applySort = (key: string) => {
     tap.select();
     const next = nextExploreSort(cardSort, dir, key);

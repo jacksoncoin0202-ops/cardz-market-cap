@@ -124,7 +124,6 @@ function ShareImageButton({ cardId, imageLang, title, copy: menuCopy, qualityCop
   };
   return (
     <ShareMenu
-      surface="card"
       copy={menuCopy}
       quality={{
         label: qualityCopy.label,
@@ -220,8 +219,7 @@ export function CardDetail({ id, snapshot, related }: {
       pop: formatInteger(popValue, locale),
       date: formatObservationDate(factDate, locale),
       rank: card.marketRank,
-      total: related?.tcgRankedCount ?? null,
-      tcg: localizedTcg,
+      total: related?.indexRankedCount ?? null,
     })
     : null;
   const setPath = related?.setPath ?? setHubPath(card);
@@ -266,12 +264,10 @@ export function CardDetail({ id, snapshot, related }: {
         brand: { "@type": "Brand", name: card.tcg === "One Piece" ? "One Piece Card Game" : "Pokémon" },
         isPartOf: card.setName.en ? { "@type": "CreativeWorkSeries", name: card.setName.en } : undefined,
         /*
-         * JSON-LD 唔經 `marketMetadata`，所以要喺呢度自己 normalise 多一次。
-         * 呢個 `description` 同 `<meta>` 嗰個係同一篇故事、同一個消毒規矩，
-         * 唯獨走另一條路出街 —— 漏咗呢句就得 schema.org 嗰邊仲係生 markdown。
-         * 冇故事就用上面睇得見嗰句事實，兩邊字一模一樣。
+         * JSON-LD 同頁面用同一句完整現況，唔俾固定故事蓋過最新價格、POP、排名。
+         * 缺數而冇事實句時先用故事，並清理 markdown。
          */
-        description: plainDescription(story ?? "") || cardFact || undefined,
+        description: cardFact || plainDescription(story ?? "") || undefined,
         dateModified: card.pricePsa10.asOf || snapshot.effectiveAt || undefined,
         publisher: siteOrganization(),
         additionalProperty,
@@ -303,7 +299,6 @@ export function CardDetail({ id, snapshot, related }: {
             desktop: t.labels.shareToDesktop,
             portrait: t.labels.shareToPortrait,
             widescreen: t.labels.shareToWidescreen,
-            frame: t.labels.shareRatioFrame,
             done: t.share.done,
             error: t.share.error,
           }}

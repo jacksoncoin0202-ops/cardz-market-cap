@@ -25,13 +25,13 @@ export function SiteSearch() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
-  const [entries, setEntries] = useState<CatalogEntry[] | null>(null);
+  const [entries, setEntries] = useState<CatalogEntry[] | "error" | null>(null);
   const [active, setActive] = useState(0);
 
-  const hits = text.trim() && entries
+  const hits = text.trim() && Array.isArray(entries)
     ? searchCatalog(entries, text, locale, { limit: CATALOG_HEADER_CAP })
     : [];
-  const noResults = Boolean(text.trim()) && !hits.length;
+  const noResults = Boolean(text.trim()) && Array.isArray(entries) && !hits.length;
 
   useEffect(() => {
     if (!open) return;
@@ -41,7 +41,7 @@ export function SiteSearch() {
         if (!cancelled) setEntries(payload.entries);
       })
       .catch(() => {
-        if (!cancelled) setEntries([]);
+        if (!cancelled) setEntries("error");
       });
     return () => {
       cancelled = true;
@@ -70,6 +70,7 @@ export function SiteSearch() {
       if (document.querySelector(".explore-search input")) return;
       event.preventDefault();
       prefetchCatalog();
+      setEntries((current) => current === "error" ? null : current);
       setOpen(true);
       queueMicrotask(() => inputRef.current?.focus());
     };
@@ -94,6 +95,7 @@ export function SiteSearch() {
         onClick={() => {
           tap.select();
           prefetchCatalog();
+          setEntries((current) => current === "error" ? null : current);
           setOpen((current) => {
             const next = !current;
             if (next) queueMicrotask(() => inputRef.current?.focus());
@@ -123,6 +125,7 @@ export function SiteSearch() {
               aria-activedescendant={hits[active] ? `${listId}-${hits[active].kind}-${hits[active].id}` : undefined}
               onChange={(event) => setText(event.target.value)}
               onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
                 if (event.key === "Escape") {
                   event.preventDefault();
                   close();
@@ -155,9 +158,10 @@ export function SiteSearch() {
             擺喺 empty state 度唔夠 —— 嗰陣人已經覺得個站壞咗。有結果嗰陣照出：搵到 A 卡
             嘅人下一秒就會搵 B 卡，規矩留喺原位好過閃走。
           */}
-          {/* 搵唔到嗰陣唔出：下面 empty state 已經連「唔係故障」一齊講埋同一條規矩，
-              兩句排住講同一件事會似 bug。 */}
+          {/* 成功搜尋但冇結果時，下面提示已經包含同一條收錄規矩。 */}
           {!noResults ? <p className="site-search-note">{t.labels.searchPopRule}</p> : null}
+          {entries === null ? <p className="site-search-note" role="status">{t.labels.searchLoading}</p> : null}
+          {entries === "error" ? <p className="site-search-note" role="alert">{t.labels.searchLoadError}</p> : null}
           {noResults ? (
             <div className="site-search-empty">
               <p>{t.labels.noSearchResults}</p>

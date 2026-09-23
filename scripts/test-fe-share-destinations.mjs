@@ -17,7 +17,7 @@
  *  ③ `status` 1080×1920 真身喺 `FORMAT_SIZES`，og route 有佢嘅 JPEG 質素。
  *  ④ 兩個面（熱力圖／卡片內頁）行同一個 `ShareMenu`，冇第二份 picker（AGENTS.md 規矩 13）。
  *  ⑤ i18n 四條新 key 五個語言齊，舊嗰批死 key 清得乾淨。
- *  ⑥ 熱力圖 canvas 三個比例槽仲喺度，而 `exportHeatmap` 冇預設值 —— 有預設值就係
+ *  ⑥ 熱力圖經 OG API 出固定比例，而 `exportHeatmap` 冇預設值 —— 有預設值就係
  *     「call 少個參數都行得，靜靜出咗上次嗰個比例」。
  */
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -33,7 +33,6 @@ const read = (path) => readFileSync(join(ROOT, path), "utf8");
 const DEST_REL = "apps/web/src/lib/share-destinations.ts";
 const destinations = read(DEST_REL);
 const shareCopy = read("apps/web/src/lib/share-copy.ts");
-const shareImage = read("apps/web/src/lib/share-image.ts");
 const shareMenu = read("apps/web/src/components/share-menu.tsx");
 const heatmap = read("apps/web/src/components/heatmap.tsx");
 const cardDetail = read("apps/web/src/components/card-detail.tsx");
@@ -45,8 +44,8 @@ const css = read("apps/web/src/app/globals.css");
 /* ① 目的地表。唔用 regex 逐條 assert 字面 —— 讀返出嚟砌返 object，改咗次序／加多個
    目的地都唔會假紅，但改錯咗比例就一定紅。 */
 const targets = new Map();
-for (const m of destinations.matchAll(/\{\s*id:\s*"([\w-]+)",\s*format:\s*"(\w+)",\s*aspect:\s*"(\w+)",\s*ratio:\s*"([\d.:]+)"/g)) {
-  targets.set(m[1], { format: m[2], aspect: m[3], ratio: m[4] });
+for (const m of destinations.matchAll(/\{\s*id:\s*"([\w-]+)",\s*format:\s*"(\w+)",\s*ratio:\s*"([\d.:]+)"/g)) {
+  targets.set(m[1], { format: m[2], ratio: m[3] });
 }
 check("SHARE_TARGETS 讀得返（改咗寫法就要更新呢個 test）", targets.size >= 7, `搵到 ${targets.size} 個`);
 
@@ -67,15 +66,20 @@ for (const id of ["threads", "x", "whatsapp", "other"]) {
   const target = targets.get(id);
   if (!target) continue;
   check(`${id} 出 4:5（feed／氣泡唔裁，太直只會縮細；IG 改方唔准拉埋佢）`,
-    target.format === "post" && target.aspect === "post" && target.ratio === "4:5",
+    target.format === "post" && target.ratio === "4:5",
     JSON.stringify(target));
 }
 const status = targets.get("status");
 check("status 出 9:16（全屏面自己一行，唔掛公司名）",
-  status?.format === "status" && status?.aspect === "wa" && status?.ratio === "9:16", JSON.stringify(status));
+  status?.format === "status" && status?.ratio === "9:16", JSON.stringify(status));
 const desktop = targets.get("desktop");
-check("desktop 出闊版", desktop?.format === "wide" && desktop?.aspect === "frame", JSON.stringify(desktop));
-check("desktop 喺熱力圖跟畫面（frameOnHeatmap）", /id: "desktop"[^}]*frameOnHeatmap: true/.test(destinations));
+check("desktop 出固定 1.91:1 闊版", desktop?.format === "wide" && desktop?.ratio === "1.91:1", JSON.stringify(desktop));
+const ratioMarkup = /className="share-menu-ratio">\{target\.ratio\}<\/span>/;
+check("兩個面都顯示實際出圖比例", ratioMarkup.test(shareMenu));
+/* 只改記憶體副本：種返「跟畫面」顯示，以上同一條 assertion 必須拒絕。 */
+const wrongRatioMenu = shareMenu.replace("{target.ratio}</span>", "{copy.frame}</span>");
+check("比例標 regression 真係會攔到跟畫面舊寫法",
+  wrongRatioMenu !== shareMenu && !ratioMarkup.test(wrongRatioMenu));
 
 /* 目的地表同 alias 表對得返 —— import-time guard 已經會炸，但 build 唔行到就冇人知 */
 for (const [id, target] of targets) {
@@ -144,8 +148,8 @@ check("og route 冇剩返 `format === \"post\"` 分支（status 會跌落 wide�
 /* ④ 一個 picker，兩個面共用 */
 check("ShareMenu 由 SHARE_MENU_TARGETS 出（一張表，component 唔准自己砌）",
   /SHARE_MENU_TARGETS\.map\(/.test(shareMenu));
-check("熱力圖用 ShareMenu", /<ShareMenu/.test(heatmap) && /surface="heatmap"/.test(heatmap));
-check("卡片內頁用 ShareMenu", /<ShareMenu/.test(cardDetail) && /surface="card"/.test(cardDetail));
+check("熱力圖用 ShareMenu", /<ShareMenu/.test(heatmap));
+check("卡片內頁用 ShareMenu", /<ShareMenu/.test(cardDetail));
 check("熱力圖冇剩返舊 picker markup", !/heatmap-share-menu|heatmap-export-post|heatmap-export-wa/.test(heatmap));
 check("熱力圖冇剩返 shareAspect state", !/setShareAspectState|cardz-heatmap-share-aspect/.test(heatmap));
 /* 目的地→比例只准有一張表：兩個 component 都唔准自己寫死平台名對比例 */
@@ -195,7 +199,7 @@ check("warm cache key 連埋語言同清晰度", /const key = `\$\{format\}\|\$\
 
 /* ⑤ i18n：四條新 key × 5 語言，舊 key 清乾淨 */
 const localeText = i18n.slice(i18n.indexOf("export const copy"));
-for (const key of ["shareTo", "shareToStatus", "shareToOther", "shareToDesktop", "shareRatioFrame",
+for (const key of ["shareTo", "shareToStatus", "shareToOther", "shareToDesktop",
   "shareToPortrait", "shareToWidescreen"]) {
   check(`五個語言都有 ${key}`, (localeText.match(new RegExp(`${key}:`, "g")) || []).length === 5,
     `${(localeText.match(new RegExp(`${key}:`, "g")) || []).length} 個`);
@@ -205,10 +209,6 @@ for (const dead of ["shareImagePost", "shareImageWa", "shareShape"]) {
 }
 
 /* ⑥ 熱力圖分享走 OG download API，唔再喺 client canvas 截圖 */
-check("SHARE_WA_ASPECT is 9/16", /export const SHARE_WA_ASPECT = 9 \/ 16;/.test(shareImage));
-check("ShareAspect 由 share-destinations 出（一張表）", /export type \{ ShareAspect \};/.test(shareImage)
-  && /import type \{ ShareAspect \} from "\.\/share-destinations";/.test(shareImage));
-check("SHARE_ASPECTS 三個槽", /export const SHARE_ASPECTS = \["post", "wa", "frame"\] as const;/.test(destinations));
 check("heatmap 分享 GET /api/og/heatmap", /heatmapOgPath\(/.test(heatmap)
   && /fetchShareBlob\(path, res, "heatmap OG"\)/.test(heatmap) && /fetch\(path/.test(shareFetch));
 /* 2026-08-21：timeout 由寫死 45 秒改成跟清晰度（4K 實測 50–57 秒，45 秒會次次自斬）。
@@ -264,7 +264,7 @@ check("desktop 標 1.91:1（唔准寫返 16:9 —— 1200×630 唔係 16:9）",
 {
   const dir = mkdtempSync(join(tmpdir(), "cardz-share-ratio-guard-"));
   try {
-    const mutated = destinations.replace('ratio: "1.91:1", frameOnHeatmap: true', 'ratio: "16:9", frameOnHeatmap: true');
+    const mutated = destinations.replace('ratio: "1.91:1"', 'ratio: "16:9"');
     check("⑦c: 改得到 desktop 個標籤（改咗寫法就要更新呢個 test）", mutated !== destinations);
     const probe = join(dir, "share-destinations.ratio-probe.ts");
     writeFileSync(probe, mutated, "utf8");
@@ -398,12 +398,12 @@ check("⑧a: portrait 真係 3:4（唔係 4:5 嘅另一個名）",
   FORMAT_SIZES.portrait.width / FORMAT_SIZES.portrait.height === 3 / 4);
 check("⑧a: widescreen 真係 16:9",
   FORMAT_SIZES.widescreen.width / FORMAT_SIZES.widescreen.height === 16 / 9);
-/* 直度圖闊÷高 ≥ 0.8（同 share-image.ts `SHARE_MIN_ASPECT`）—— 3:4 = 0.75，**低過**
+/* 通用直度圖跟 FORMAT_SIZES.post 嘅 4:5 —— 3:4 = 0.75，**低過**
    條線：Threads／X 對呢個比例會縮細唔裁。所以佢淨係俾 IG feed／grid 用，
    唔准順手搶咗通用直度目的地（嗰批仲係 4:5）。 */
-const MIN_ASPECT = Number((shareImage.match(/SHARE_MIN_ASPECT\s*=\s*([\d.]+)/) || [])[1]);
-check("⑧a: 讀得返 SHARE_MIN_ASPECT", Number.isFinite(MIN_ASPECT), String(MIN_ASPECT));
-check("⑧a: 3:4 低過 SHARE_MIN_ASPECT，所以唔准搶通用直度目的地",
+const MIN_ASPECT = FORMAT_SIZES.post.width / FORMAT_SIZES.post.height;
+check("⑧a: 通用直度尺寸真係 4:5", MIN_ASPECT === 4 / 5, String(MIN_ASPECT));
+check("⑧a: 3:4 低過通用直度比例，所以唔准搶通用直度目的地",
   FORMAT_SIZES.portrait.width / FORMAT_SIZES.portrait.height < MIN_ASPECT
   && targets.get("threads")?.format === "post" && targets.get("x")?.format === "post");
 
@@ -490,8 +490,6 @@ check("⑧f: 選單有 ig-portrait 3:4", igPortrait?.format === "portrait" && ig
   JSON.stringify(igPortrait));
 check("⑧f: 選單有 widescreen 16:9", widescreenTarget?.format === "widescreen" && widescreenTarget?.ratio === "16:9",
   JSON.stringify(widescreenTarget));
-check("⑧f: 兩行唔准掛 frameOnHeatmap（佢哋係固定比例，唔跟畫面）",
-  !igPortrait?.frameOnHeatmap && !widescreenTarget?.frameOnHeatmap);
 check("⑧f: share-menu 兩行各有 glyph（冇 glyph 就兩行一模一樣，撳錯都唔知）",
   /id === "ig-portrait"/.test(shareMenu) && /id === "widescreen"/.test(shareMenu));
 check("⑧f: 兩行個名行 i18n 唔係品牌名（唔准寫死中文入 component）",

@@ -152,21 +152,6 @@ const opts = { filenameBase: "cardz-x", title: "t", text: "t\nhttps://x", clipbo
   env.restore();
 }
 
-/* ── B8：熱力圖嗰條 —— 一張永遠唔 load 嘅圖唔准拖死成個 export ──
-   舊 defaultLoadImage 得 onload/onerror，stall 咗嘅 request 兩個都唔 fire。 */
-{
-  class DeadImage { set src(_value) { /* 永遠唔 fire */ } }
-  globalThis.Image = DeadImage;
-  const { defaultLoadImage } = await import(`file://${join(ROOT, "apps/web/src/lib/share-image.ts").replaceAll("\\", "/")}`);
-  const started = Date.now();
-  const settled = await Promise.race([
-    defaultLoadImage("https://example.invalid/never.png").then(() => "settled"),
-    new Promise((r) => setTimeout(() => r("hung"), 12_000)),
-  ]);
-  check("B8: 吊死嘅圖會逾時回 null，唔會 pending 到天光", settled === "settled", `settled=${settled} after ${Date.now() - started}ms`);
-  delete globalThis.Image;
-}
-
 /* ── B9：副檔名一定要跟返 blob 個 MIME ──
    2026-08-20 卡片分享圖由 PNG 轉 JPEG（og route `JPEG_QUALITY`），而 card-detail
    嗰句檔名本來寫死 `.png`。一個 `.png` 入面裝住 JPEG bytes 唔會即刻爆 —— 爆喺

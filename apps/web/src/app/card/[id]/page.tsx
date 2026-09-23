@@ -4,7 +4,7 @@ import { CardDetail } from "@/components/card-detail";
 import { displayCardName } from "@/lib/card-name";
 import { formatInteger, formatMoney, formatObservationDate } from "@/lib/format";
 import { copy, localizedCardLanguage } from "@/lib/i18n";
-import { cardShareLine, cardSubject, relatedCards, shortSubject } from "@/lib/related-cards";
+import { cardShareLine, cardSubject, fillTemplate, geoCopy, relatedCards, shortSubject } from "@/lib/related-cards";
 import { localeFromSearchParams, marketMetadata, type PageSearchParams } from "@/lib/route-metadata";
 import { loadMarketSnapshot, singleCardSnapshot } from "@/lib/server-snapshot";
 import { defaultMarketWindow } from "@/lib/types";
@@ -45,17 +45,12 @@ async function requireCard(id: string) {
 }
 
 /*
- * 同一個 TCG 之下有排名嘅卡總數（實測 2026-08-18 snapshot：Pokémon 1,307、One Piece 297）。
- *
- * ⚠️ 一定要行 `top100` **加** `watchlist`：`top100` 個名係歷史遺留，佢真係得排頭 100 張，
- * 其餘 1,504 張坐喺 `watchlist`。淨數 `top100` 就會出「#4 of 93 ranked Pokémon」——
- * 一個 13 倍細嘅假分母，出咗街冇得追。
- * ⚠️ 「ranked／收錄」呢個限定詞喺文案入面永不准剝：1,307 係 CardZ 收錄兼排到名嘅卡，
- * 唔係全世界嘅寶可夢卡（`coverage.claim === "verified-top-n"`）。
+ * marketRank 係跨 TCG 嘅全站排名，分母必須包含 top100 + watchlist 所有已排名卡。
+ * 「ranked／已排名」限定 CardZ 收錄範圍，唔代表全世界嘅卡。
  */
-function tcgRankedCount(full: Awaited<ReturnType<typeof requireCard>>["full"], tcg: string): number | null {
+function indexRankedCount(full: Awaited<ReturnType<typeof requireCard>>["full"]): number | null {
   const count = [...full.top100, ...full.watchlist]
-    .filter((candidate) => candidate.tcg === tcg && candidate.marketRank >= 1).length;
+    .filter((candidate) => candidate.marketRank >= 1).length;
   return count > 0 ? count : null;
 }
 
@@ -66,14 +61,14 @@ export async function generateMetadata({ params, searchParams }: CardRouteProps)
   const labels = t.labels;
   const localName = displayCardName(card, locale, card.officialName || labels.viewCard);
   const tcgName = card.tcg === "One Piece" ? t.nav.onePiece : t.nav.pokemon;
-  const rankedCount = tcgRankedCount(full, card.tcg);
+  const rankedCount = indexRankedCount(full);
   const capValue = card.marketCap.value;
   const priceValue = card.pricePsa10.value;
   const popValue = card.populationPsa10.value;
   const capText = capValue !== null ? formatMoney(capValue, "USD", snapshot.rates, locale, true) : null;
 
   /*
-   * <title> / og:title 由「卡名（英文全名）· 印刷語言」改成「短卡名 #編號 語言 · #排名 TCG · 市值」
+   * <title> / og:title：「短卡名 #編號 語言 TCG · 全站排名 · 市值」。
    * （owner 2026-08-19）。
    *
    * 點解要改：舊式出街嘅係 PSA 全串，實測 rank #4 嗰張出咗
@@ -107,10 +102,12 @@ export async function generateMetadata({ params, searchParams }: CardRouteProps)
     card.collectorNumber ? `#${card.collectorNumber}` : null,
     printLanguage,
   ].filter(Boolean).join(" ");
-  const rankPart = card.marketRank >= 1 ? `#${card.marketRank}` : null;
+  const rankPart = card.marketRank >= 1
+    ? fillTemplate(geoCopy[locale].shareRankNoTotal, { rank: card.marketRank })
+    : null;
   const buildTitle = (subject: string, withIdentity: boolean, withTcg: boolean, withCap: boolean) => [
-    [subject, withIdentity ? identity : null].filter(Boolean).join(" "),
-    rankPart ? [rankPart, withTcg ? tcgName : null].filter(Boolean).join(" ") : null,
+    [subject, withIdentity ? identity : null, withTcg ? tcgName : null].filter(Boolean).join(" "),
+    rankPart,
     withCap ? capText : null,
   ].filter(Boolean).join(" · ");
   /*
@@ -175,7 +172,6 @@ export async function generateMetadata({ params, searchParams }: CardRouteProps)
       date: formatObservationDate(factDate, locale),
       rank: card.marketRank,
       total: rankedCount,
-      tcg: tcgName,
     }
     : null;
   const description = shareInput

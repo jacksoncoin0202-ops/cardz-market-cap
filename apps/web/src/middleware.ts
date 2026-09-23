@@ -9,14 +9,6 @@ import {
 } from "@/lib/geo-defaults";
 import { aliasHostRedirectLocation } from "@/lib/public-site";
 
-const htmlLanguages = {
-  en: "en",
-  "zh-TW": "zh-Hant",
-  "zh-CN": "zh-Hans",
-  ja: "ja",
-  ko: "ko",
-} as const;
-
 /* 有副檔名當 asset（/brand/*.png、/icons/*、manifest.webmanifest、robots.txt、sitemap.xml…） */
 const ASSET_PATH_PATTERN = /\.[a-z0-9]+$/i;
 
@@ -101,10 +93,7 @@ export function middleware(request: NextRequest) {
     }
   }
 
-  const requested = request.nextUrl.searchParams.get("lang") as keyof typeof htmlLanguages | null;
-  const requestHeaders = new Headers(request.headers);
-  requestHeaders.set("x-cardz-html-lang", requested && htmlLanguages[requested] ? htmlLanguages[requested] : "en");
-  return NextResponse.next({ request: { headers: requestHeaders } });
+  return NextResponse.next();
 }
 
 export const config = {

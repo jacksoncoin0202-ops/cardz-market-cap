@@ -6,13 +6,12 @@
  * owner 2026-08-20：「彈個 button 出嚟問你想分享去邊：WhatsApp、Threads、X.COM、IG
  * 定係其他地方？因應分享去唔同地方，要配合返唔同嘅最佳 social media size。」
  *
- * 熱力圖同卡片內頁**共用呢一個 component**：兩邊出圖嘅方法唔同（熱力圖係即場 canvas、
- * 卡頁係 server `/api/og/card`），但「有邊啲目的地、邊個目的地用邊個比例、個選單點樣
+ * 熱力圖同卡片內頁**共用呢一個 component**：兩邊各由 server OG route 出圖，
+ * 「有邊啲目的地、邊個目的地用邊個比例、個選單點樣
  * 揀」係同一件事，寫兩次一定有一邊漏（AGENTS.md 規矩 13）。目的地表本身仲要再高一層 ——
  * 喺 `lib/share-destinations.ts`，連 HERMES 條 cron 鏈都係讀同一張表。
  *
- * 呢度**唔知**點出圖：叫方俾一個 `onPick(target)`，攞住 `target.format`（卡頁）或者
- * `target.aspect`（熱力圖）自己做。
+ * 呢度**唔知**點出圖：叫方俾一個 `onPick(target)`，攞住 `target.format` 自己做。
  *
  * owner 2026-08-21：「人地下載可以揀 4K 嗎？我想 1080p 同埋 4K 兩隻分別嘅啫。」
  * → 選單頂多咗一行清晰度（`quality` prop，唔傳就冇呢一行，卡片內頁一如以往）。
@@ -145,8 +144,6 @@ export interface ShareMenuCopy {
   portrait: string;
   /** 真 16:9 橫向 */
   widescreen: string;
-  /** 熱力圖嘅闊版唔係固定比例，比例位出呢句（「跟畫面」） */
-  frame: string;
   done: string;
   error: string;
 }
@@ -170,9 +167,7 @@ export interface ShareMenuQuality {
   onChange: (res: ShareResolution) => void;
 }
 
-export function ShareMenu({ surface, copy, quality, onPick, onWarm, onOpen, triggerClassName }: {
-  /** 熱力圖同卡頁只有一處分別：闊版嗰列個比例標（卡頁固定 1.91:1、熱力圖跟畫面） */
-  surface: "card" | "heatmap";
+export function ShareMenu({ copy, quality, onPick, onWarm, onOpen, triggerClassName }: {
   copy: ShareMenuCopy;
   /** 冇就冇呢一行（卡片內頁）。見 `ShareMenuQuality`。 */
   quality?: ShareMenuQuality;
@@ -480,7 +475,6 @@ export function ShareMenu({ surface, copy, quality, onPick, onWarm, onOpen, trig
           {SHARE_MENU_TARGETS.map((target, offset) => {
             const index = resOptions.length + offset;
             const name = targetName(target.id, copy);
-            const ratio = surface === "heatmap" && target.frameOnHeatmap ? copy.frame : target.ratio;
             /*
              * ⚠️ 有得揀清晰度嗰陣，一定要同時報返**真實闊×高**。
              * 「4K」係個 tier 名，唔係像素：`wide` 揀 4K 出嘅係 2400×1260，唔係 3840。
@@ -506,7 +500,7 @@ export function ShareMenu({ surface, copy, quality, onPick, onWarm, onOpen, trig
                 <span className="share-menu-name">{name}</span>
                 <span className="share-menu-meta">
                   {px ? <span className="share-menu-px">{px.width}×{px.height}</span> : null}
-                  <span className="share-menu-ratio">{ratio}</span>
+                  <span className="share-menu-ratio">{target.ratio}</span>
                 </span>
               </button>
             );

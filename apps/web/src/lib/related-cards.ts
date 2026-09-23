@@ -217,8 +217,7 @@ export interface RelatedCardsPayload {
   characterLabel: string | null;
   setPath: string;
   tcgPath: string;
-  /** 同一個 TCG 有排名嘅卡數——卡頁「第 N 名／共 M 張」嗰個 M。 */
-  tcgRankedCount: number;
+  /** 全站有排名嘅卡數，與跨 TCG 嘅 marketRank 使用同一範圍。 */
   indexRankedCount: number;
 }
 
@@ -282,7 +281,6 @@ export function relatedCards(snapshot: MarketViewSnapshot, id: string): RelatedC
     characterLabel: character?.label ?? null,
     setPath: setHubPath(card),
     tcgPath: tcgHubPath(card.tcg),
-    tcgRankedCount: ranked.filter((candidate) => candidate.tcg === card.tcg).length,
     indexRankedCount: ranked.length,
   };
 }
@@ -339,10 +337,10 @@ export const geoCopy: Record<Locale, GeoCopy> = {
     cardFact: "{name} ({set} #{num}) has a PSA 10 market cap of {cap} on CardZ Marketcap as of {date}: PSA 10 price {price} × PSA 10 population {pop}.",
     /* 前一句已經講明係 PSA 10 市值，排名句唔使再重覆一次「PSA 10」——慳兩個字，
        大部分卡先至守得住 50 字上限（1,599 張實測：中位數 45 字）。 */
-    cardFactRank: "Ranked #{rank} of {total} {tcg} cards by market cap.",
-    cardFactRankNoTotal: "Ranked #{rank} by market cap.",
-    shareRank: "#{rank} of {total} ranked {tcg}",
-    shareRankNoTotal: "#{rank} ranked {tcg}",
+    cardFactRank: "Ranked #{rank} by market cap among {total} ranked cards across CardZ Marketcap.",
+    cardFactRankNoTotal: "Ranked #{rank} overall by market cap on CardZ Marketcap.",
+    shareRank: "#{rank} overall / {total} ranked cards",
+    shareRankNoTotal: "#{rank} overall",
     shareCap: "{cap} cap",
     sharePricePop: "PSA 10 {price} × {pop} pop",
     boxTitle: "Sealed Booster Box Prices — Sold-First Market Tracker",
@@ -368,10 +366,10 @@ export const geoCopy: Record<Locale, GeoCopy> = {
     otherPrintings: "{name} 的其他版本",
     viewSet: "查看系列",
     cardFact: "{name}（{set} #{num}）在 CardZ Marketcap 的 PSA 10 市值為 {cap}（{date}）：PSA 10 價格 {price} × PSA 10 鑑定數量 {pop}。",
-    cardFactRank: "在 {total} 張{tcg}卡牌之中，市值排名第 {rank}。",
-    cardFactRankNoTotal: "市值排名第 {rank}。",
-    shareRank: "{tcg}市值第 {rank} 名／已收錄 {total} 張",
-    shareRankNoTotal: "{tcg}市值第 {rank} 名",
+    cardFactRank: "在 CardZ Marketcap 全站 {total} 張已排名卡牌之中，市值排名第 {rank}。",
+    cardFactRankNoTotal: "CardZ Marketcap 全站市值排名第 {rank}。",
+    shareRank: "全站市值第 {rank} 名／已排名 {total} 張",
+    shareRankNoTotal: "全站第 {rank} 名",
     shareCap: "市值 {cap}",
     sharePricePop: "PSA 10 {price} × {pop} 張",
     boxTitle: "寶可夢／海賊王原盒價格 — 未拆盒行情追蹤",
@@ -392,10 +390,10 @@ export const geoCopy: Record<Locale, GeoCopy> = {
     otherPrintings: "{name} 的其他版本",
     viewSet: "查看系列",
     cardFact: "{name}（{set} #{num}）在 CardZ Marketcap 的 PSA 10 市值为 {cap}（{date}）：PSA 10 价格 {price} × PSA 10 评级数量 {pop}。",
-    cardFactRank: "在 {total} 张{tcg}卡牌之中，市值排名第 {rank}。",
-    cardFactRankNoTotal: "市值排名第 {rank}。",
-    shareRank: "{tcg}市值第 {rank} 名／已收录 {total} 张",
-    shareRankNoTotal: "{tcg}市值第 {rank} 名",
+    cardFactRank: "在 CardZ Marketcap 全站 {total} 张已排名卡牌之中，市值排名第 {rank}。",
+    cardFactRankNoTotal: "CardZ Marketcap 全站市值排名第 {rank}。",
+    shareRank: "全站市值第 {rank} 名／已排名 {total} 张",
+    shareRankNoTotal: "全站第 {rank} 名",
     shareCap: "市值 {cap}",
     sharePricePop: "PSA 10 {price} × {pop} 张",
     boxTitle: "宝可梦／海贼王原盒价格 — 未拆盒行情追踪",
@@ -416,10 +414,10 @@ export const geoCopy: Record<Locale, GeoCopy> = {
     otherPrintings: "{name} の他のバージョン",
     viewSet: "セットを見る",
     cardFact: "{name}（{set} #{num}）の PSA 10 時価総額は CardZ Marketcap で {date} 時点 {cap}。PSA 10 価格 {price} × PSA 10 鑑定枚数 {pop} で算出。",
-    cardFactRank: "{tcg}カード {total} 枚中、時価総額 {rank} 位。",
-    cardFactRankNoTotal: "時価総額 {rank} 位。",
-    shareRank: "{tcg}時価総額 {rank} 位／収録 {total} 枚",
-    shareRankNoTotal: "{tcg}時価総額 {rank} 位",
+    cardFactRank: "CardZ Marketcap 全体のランキング対象 {total} 枚中、時価総額 {rank} 位。",
+    cardFactRankNoTotal: "CardZ Marketcap 全体で時価総額 {rank} 位。",
+    shareRank: "全体で時価総額 {rank} 位／ランキング対象 {total} 枚",
+    shareRankNoTotal: "全体で {rank} 位",
     shareCap: "時価総額 {cap}",
     sharePricePop: "PSA 10 {price} × {pop} 枚",
     boxTitle: "ポケカ・ワンピBOX相場 — 未開封 BOX価格トラッカー",
@@ -440,10 +438,10 @@ export const geoCopy: Record<Locale, GeoCopy> = {
     otherPrintings: "{name}의 다른 버전",
     viewSet: "세트 보기",
     cardFact: "{name}({set} #{num})의 PSA 10 시가총액은 CardZ Marketcap 기준 {date} 현재 {cap}입니다: PSA 10 가격 {price} × PSA 10 개체수 {pop}.",
-    cardFactRank: "{tcg} 카드 {total}장 중 시가총액 {rank}위.",
-    cardFactRankNoTotal: "시가총액 {rank}위.",
-    shareRank: "{tcg} 시가총액 {rank}위／수록 {total}장",
-    shareRankNoTotal: "{tcg} 시가총액 {rank}위",
+    cardFactRank: "CardZ Marketcap 전체 순위 대상 카드 {total}장 중 시가총액 {rank}위.",
+    cardFactRankNoTotal: "CardZ Marketcap 전체 시가총액 {rank}위.",
+    shareRank: "전체 시가총액 {rank}위／순위 대상 {total}장",
+    shareRankNoTotal: "전체 {rank}위",
     shareCap: "시가총액 {cap}",
     sharePricePop: "PSA 10 {price} × {pop}장",
     boxTitle: "포켓몬·원피스 부스터 박스 시세 — 미개봉 박스 가격",
@@ -485,10 +483,8 @@ export interface CardFactInput {
   pop: string;
   date: string;
   rank: number;
-  /** 同 TCG 有排名嘅卡總數；冇完整 snapshot 就係 null，嗰陣唔准講「共 N 張」。 */
+  /** 全站有排名嘅卡總數；冇完整 snapshot 就係 null，嗰陣唔准講「共 N 張」。 */
   total: number | null;
-  /** 已本地化嘅 TCG 名（t.nav.pokemon / t.nav.onePiece）。 */
-  tcg: string;
 }
 
 /*
@@ -512,7 +508,6 @@ export function cardFactSentence(locale: Locale, input: CardFactInput): string {
     ? fillTemplate(t.cardFactRank, {
       rank: input.rank,
       total: formatInteger(input.total, locale),
-      tcg: input.tcg,
     })
     : fillTemplate(t.cardFactRankNoTotal, { rank: input.rank });
   /*
@@ -552,8 +547,8 @@ export function cardShareLine(locale: Locale, input: CardShareLineInput): string
   const segments: string[] = [];
   if (input.rank >= 1) {
     segments.push(input.total && input.total > 0
-      ? fillTemplate(t.shareRank, { rank: input.rank, total: formatInteger(input.total, locale), tcg: input.tcg })
-      : fillTemplate(t.shareRankNoTotal, { rank: input.rank, tcg: input.tcg }));
+      ? fillTemplate(t.shareRank, { rank: input.rank, total: formatInteger(input.total, locale) })
+      : fillTemplate(t.shareRankNoTotal, { rank: input.rank }));
   }
   segments.push(fillTemplate(t.shareCap, { cap: input.cap }));
   if (input.change) segments.push(input.change);
