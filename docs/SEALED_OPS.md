@@ -19,10 +19,23 @@ $PY = 'C:\Users\jackson0202\AppData\Local\Programs\Python\Python310\python.exe' 
 
 前置：PriceCharting 需要 CDP Chrome —— `powershell -NoProfile -File scripts/ensure_chrome_cdp.ps1 -Port 9333 -UserDataDir $env:LOCALAPPDATA\cardz-chrome-cdp-9333`（Windows 側）。
 
-- `refresh`／`stock`／`accept-binding`／`scan`／`release` 攞 operator e2e lease；V2 行緊會被拒，唔好夾硬。`collect`／`compose`／`export`／`status`／`gaps` 唔攞 lease，因為 V2 box stage 攞住 lease 行 compose + export 做 child。
+- `refresh`／`stock`／`accept-binding`／`scan`／`release`／`add-product`／`set-product` 攞 operator e2e lease；V2 行緊會被拒，唔好夾硬。`collect`／`compose`／`export`／`status`／`gaps` 唔攞 lease，因為 V2 box stage 攞住 lease 行 compose + export 做 child。
 - V2 box stage 每日自己 compose + export `/box`，但唔會 collect：`refresh` 要喺 V2（11:00 JST）之前或者 17:00 之後跑，下一轉 V2 先會出街。
 - `sealed_collect` 全部 fetch 失敗都 exit 0，所以 `refresh` 逐個 adapter 睇今次寫嘅 report：exit≠0、冇今次嘅 report、attempted>0 但 ok=0 都算紅。收據 `refresh-receipt.json` 嘅 `red` 唔係空就 exit 2。PC 紅唔擋 SNK／Yahoo／compose。
 - `refresh` 只刷 accepted bind（同 P6 一樣）；candidate 要先 accept。product export 只出 accepted source freeze。唔好塞入 PSA10 `daily --refresh --pass`。
+
+## 新貨上架 SOP
+
+新盒由官方公佈到上 `/box`，全部喺呢棵樹用 `sealed_daily.py` 做；catalog 每次改動（連 actor／`--note` 來源）喺 commit 之前寫入 `catalog-changes.jsonl`。
+
+1. **搵新貨**：`scan`（每週）列 release 到期／60 日內 upcoming／active 但未 bind，同時行 SNK／PC discover。官方清單：[onepiece-cardgame.com/products](https://www.onepiece-cardgame.com/products/)、[pokemon-card.com/products](https://www.pokemon-card.com/products/)、pokemon.com news。
+2. **入 catalog**：`add-product --game optcg --lang jp --set OP-18 --name-en "..." --name-jp "..." --release 2026-11 --packs 24 --official-url https://... --note "<官方來源 URL>"`。一律入 `unreleased`；group 同 kind 要已經存在，打錯字會被拒；`--official-url` 同時變 official hint，俾 image harvest 用。未有 bind 嘅 SKU 唔會出 product export，所以加咗都未上 FE。
+3. **事實錯就改**：`set-product --sku <slug> --release 2025-10 --note "<官方來源>"`，只寫有分別嘅欄。JP 盒改 `--name-jp` 會順手將由舊名砌出嚟嘅 Yahoo query hint 搬去新名（Yahoo QC 要標題有自己個名；OP-17 JP 多咗個「達」，Yahoo 成交 0 條入到）。`status` 唔係事實欄，要改狀態用 `release`。
+4. **到月上架**：`release --sku <slug> --note "..."`，只准 unreleased 而且發售月已到；之後 Yahoo 自動 query 同 price triage 先會包埋佢。
+5. **搵 source**：`sealed_bind_resolve.py --source snkrdunk`、`--source pricecharting`（9333），再 `sealed_fullname_backfill.py`、`sealed_image_harvest.py --refresh`、`sealed_price_triage.py`（見下面 Bind → Freeze）。
+6. **人手 accept**：新盒逐隻對證據 accept（`accept-binding --sku ... --kind source/image`）。**唔准 bulk accept 新貨；`ptcg-jp` 一律逐隻**：SNK 舊 JP 盒 candidate 試過黐到 DIESEL T 恤同第二個系列。
+7. **第一次全量**：`stock`（唔准用 incr 頂第一次）。收據 blocked＝件 source 貨同另一隻 SKU 共用，要人手裁決先再 stock。
+8. **之後日常**：V2 11:00 box stage compose + export `/box`；每日 `refresh`（V2 前或 17:00 後）刷價。
 
 ## 架構一覽
 
@@ -94,7 +107,7 @@ npm run dev -w @cardz/web    # /sealed + /sealed/[id]
 
 ## Artifacts
 
-`data/runtime/operator/sealed/`：`status.json`、`gaps.json`、`attention.json`、`daily_summary.json`、`compose-receipt.json`、`ingest-receipt.json`、`bind-resolve-receipt.json`、`image-harvest-receipt.json`、`backfill-receipt.json`、`sealed-subset-snapshot.json`、`collect/last_{stock,incr}.json`、`refresh-receipt.json`、`stock-receipt.json`、`catalog-changes.jsonl`（`release` 每次改 status 嘅 actor／note，commit 之前寫）。
+`data/runtime/operator/sealed/`：`status.json`、`gaps.json`、`attention.json`、`daily_summary.json`、`compose-receipt.json`、`ingest-receipt.json`、`bind-resolve-receipt.json`、`image-harvest-receipt.json`、`backfill-receipt.json`、`sealed-subset-snapshot.json`、`collect/last_{stock,incr}.json`、`refresh-receipt.json`、`stock-receipt.json`、`catalog-changes.jsonl`（`release`／`add-product`／`set-product` 每次改 catalog 嘅 actor／note／前後值，commit 之前寫）。
 
 ## 已知待調（tuning backlog）
 

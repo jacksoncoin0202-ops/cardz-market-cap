@@ -13,7 +13,9 @@ Artifacts live in data/runtime/operator/sealed/.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import subprocess
 import sys
 from collections import defaultdict
@@ -41,6 +43,7 @@ from sealed_price_compose import (  # noqa: E402
     load_sales,
     trim_outliers,
 )
+from sealed_discover_lib import yahoo_closedsearch_url, yahoo_jp_query  # noqa: E402
 
 EDITORIAL_STORIES = ROOT / "data" / "editorial" / "sealed-stories.json"
 COLLISION_BASELINE = ROOT / "data" / "policy" / "box-image-collision-baseline.json"
@@ -437,9 +440,133 @@ def cmd_sealed_release(*, sku: str, actor: str, note: str | None) -> dict:
             raise SystemExit(f"{row['sku_id']}: UPDATE matched {cur.rowcount} rows, expected 1")
         doc = {"asOf": utc_now(), "action": "sealed-release", "sku": row["sku_id"], "sealedId": int(row["id"]),
                "from": "unreleased", "to": "active", "releaseMonth": row["release_month"], "actor": actor, "note": note}
-        OUT_DIR.mkdir(parents=True, exist_ok=True)
-        with (OUT_DIR / "catalog-changes.jsonl").open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(doc, ensure_ascii=False) + "\n")
+        _log_catalog_change(doc)
+        conn.commit()
+    finally:
+        conn.close()
+    print(json.dumps(doc, ensure_ascii=False, indent=2))
+    return doc
+
+
+def _log_catalog_change(doc: dict) -> None:
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    with (OUT_DIR / "catalog-changes.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(doc, ensure_ascii=False) + "\n")
+
+
+# --- catalog add / correct ----------------------------------------------------------
+
+MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+PRODUCT_FIELDS = ("name_en", "name_jp", "release_month", "packs_per_box", "official_url")
+
+
+def sku_slug(sku_id: str) -> str:
+    """The seed's slug rule (sealed_catalog_ingest.slugify): SM3+ -> sm3plus, every other run of non-alnum -> '-'."""
+    return re.sub(r"[^a-z0-9]+", "-", sku_id.lower().replace("+", "plus")).strip("-")
+
+
+def _check_facts(fields: dict) -> None:
+    month = fields.get("release_month")
+    if month is not None and not MONTH_RE.match(str(month)):
+        raise SystemExit(f"release month must be YYYY-MM, got {month!r}")
+    if fields.get("packs_per_box") is not None and int(fields["packs_per_box"]) <= 0:
+        raise SystemExit("packs per box must be above 0")
+    url = fields.get("official_url")
+    if url and not str(url).startswith("https://"):
+        raise SystemExit(f"official url must be https: {url!r}")
+
+
+def cmd_sealed_add_product(*, game: str, lang: str, set_code: str, product_kind: str, print_wave: str, name_en: str,
+                           name_jp: str | None, release_month: str, packs_per_box: int, official_url: str | None,
+                           actor: str, note: str) -> dict:
+    """A box the catalog does not know yet. It goes in 'unreleased' whatever its month: release flips it once the
+    month has come, so release_due stays the one status rule. The group and product kind must already exist,
+    because a typo would mint a SKU nothing else reads. official_url also becomes an 'official' hint, which
+    image harvest reads. No Yahoo hint: sealed_collect builds the query from name_jp for every active JP box."""
+    game, lang = game.lower(), lang.lower()
+    _check_facts({"release_month": release_month, "packs_per_box": packs_per_box, "official_url": official_url})
+    sku_id = f"{game}:{lang}:{set_code}:{product_kind}:{print_wave}"
+    slug, group = sku_slug(sku_id), f"{game}-{lang}"
+    load_env()
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) AS n FROM catalog_sealed_product WHERE group_code=%s AND product_kind=%s", (group, product_kind))
+        if not int(cur.fetchone()["n"]):
+            raise SystemExit(f"no {product_kind} in group {group} yet; check --game/--lang/--kind")
+        cur.execute("SELECT sku_id FROM catalog_sealed_product WHERE sku_id=%s OR slug=%s", (sku_id, slug))
+        if cur.fetchone():
+            raise SystemExit(f"{sku_id} is already in the catalog; correct it with set-product")
+        cur.execute(
+            """
+            INSERT INTO catalog_sealed_product
+              (sku_id, slug, game, lang, group_code, set_code, name_en, name_jp, release_month,
+               packs_per_box, product_kind, print_wave, official_url, status, notes)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'unreleased',%s)
+            """,
+            (sku_id, slug, game, lang, group, set_code, name_en, name_jp, release_month, int(packs_per_box),
+             product_kind, print_wave, official_url, note[:1000]),
+        )
+        sealed_id = int(cur.lastrowid)
+        if official_url:
+            cur.execute(
+                "INSERT INTO catalog_sealed_source_hint (sealed_id, source_code, hint_kind, url, url_sha256, note) "
+                "VALUES (%s,'official','official',%s,%s,%s)",
+                (sealed_id, official_url, hashlib.sha256(official_url.encode("utf-8")).hexdigest(), f"add-product by {actor}"),
+            )
+        doc = {"asOf": utc_now(), "action": "sealed-add-product", "sku": sku_id, "slug": slug, "sealedId": sealed_id,
+               "status": "unreleased", "nameEn": name_en, "nameJp": name_jp, "releaseMonth": release_month,
+               "packsPerBox": int(packs_per_box), "officialUrl": official_url, "actor": actor, "note": note}
+        _log_catalog_change(doc)
+        conn.commit()
+    finally:
+        conn.close()
+    print(json.dumps(doc, ensure_ascii=False, indent=2))
+    return doc
+
+
+def cmd_sealed_set_product(*, sku: str, fields: dict, actor: str, note: str) -> dict:
+    """Correct catalog facts on one SKU; --note names the official source. A JP name change also moves the SKU's
+    Yahoo search hint when that hint is still the query built from the old name: sealed_collect uses a hint as
+    is, and Yahoo sold QC wants the own set name in the title. OP-17 JP read '世界最強の戦士達' (official:
+    世界最強の戦士), and 0 of its Yahoo sales got through."""
+    fields = {k: v for k, v in fields.items() if v is not None}
+    if set(fields) - set(PRODUCT_FIELDS):
+        raise SystemExit(f"not a catalog fact: {sorted(set(fields) - set(PRODUCT_FIELDS))}")
+    _check_facts(fields)
+    load_env()
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, sku_id, lang, group_code, print_wave, name_en, name_jp, release_month, packs_per_box, official_url "
+            "FROM catalog_sealed_product WHERE sku_id=%s OR slug=%s",
+            (sku, sku),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise SystemExit(f"unknown sku/slug: {sku}")
+        changes = {k: {"from": row[k], "to": v} for k, v in fields.items() if str(row[k] if row[k] is not None else "") != str(v)}
+        if not changes:
+            raise SystemExit(f"{row['sku_id']}: nothing differs from the catalog")
+        sealed_id = int(row["id"])
+        cur.execute(f"UPDATE catalog_sealed_product SET {', '.join(f'{k}=%s' for k in changes)} WHERE id=%s",
+                    (*[c["to"] for c in changes.values()], sealed_id))
+        if cur.rowcount != 1:
+            raise SystemExit(f"{row['sku_id']}: UPDATE matched {cur.rowcount} rows, expected 1")
+        doc = {"asOf": utc_now(), "action": "sealed-set-product", "sku": row["sku_id"], "sealedId": sealed_id,
+               "changes": changes, "actor": actor, "note": note}
+        if "name_jp" in changes and str(row["lang"]).lower() == "jp":
+            wave, group = str(row["print_wave"] or "std"), str(row["group_code"] or "")
+            old = yahoo_closedsearch_url(yahoo_jp_query(changes["name_jp"]["from"], row["name_en"], wave, group))
+            new = yahoo_closedsearch_url(yahoo_jp_query(changes["name_jp"]["to"], fields.get("name_en", row["name_en"]), wave, group))
+            cur.execute(
+                "UPDATE catalog_sealed_source_hint SET url=%s, url_sha256=%s "
+                "WHERE sealed_id=%s AND source_code='yahoo' AND hint_kind='search' AND url=%s",
+                (new, hashlib.sha256(new.encode("utf-8")).hexdigest(), sealed_id, old),
+            )
+            doc["yahooHint"] = {"from": old, "to": new, "moved": cur.rowcount}
+        _log_catalog_change(doc)
         conn.commit()
     finally:
         conn.close()
@@ -694,7 +821,7 @@ def cmd_sealed_scan() -> dict:
             "discover": discover_steps,
             "next": [
                 "release due -> sealed_daily.py release --sku <slug>, then bind-resolve, accept, stock",
-                "new official sets not in catalog -> add row via sealed_catalog_ingest supplement",
+                "new official box not in catalog -> sealed_daily.py add-product (goes in unreleased); wrong catalog fact -> set-product",
                 "review snk-discover-receipt / pc-discover-receipt then sealed-accept-binding --all-resolved",
             ],
         }

@@ -15,7 +15,10 @@ place, so BOX prices stood still from 2026-08-20 to 2026-09-23.
   python -X utf8 pipelines/sealed_daily.py accept-binding --sku <slug> --kind source --source-code snkrdunk
   python -X utf8 pipelines/sealed_daily.py scan            # release due / upcoming / unbound + SNK/PC discovery
   python -X utf8 pipelines/sealed_daily.py release --sku <slug> --note "..."   # unreleased -> active once its month has come
-refresh / stock / accept-binding / scan / release hold operator_e2e_lease, like collect_control. collect /
+  python -X utf8 pipelines/sealed_daily.py add-product --game optcg --lang jp --set OP-18 --name-en "..." --name-jp "..." \
+      --release 2026-11 --packs 24 --official-url https://... --note "official source"   # new box, goes in unreleased
+  python -X utf8 pipelines/sealed_daily.py set-product --sku <slug> --release 2025-10 --note "official source"
+refresh / stock / accept-binding / scan / release / add-product / set-product hold operator_e2e_lease, like collect_control. collect /
 compose / export stay lease-free: the V2 box stage runs them as children while it holds the lease,
 and a child's GET_LOCK on its own connection would be refused. scripts/test_sealed_daily_cli.py.
 """
@@ -105,6 +108,18 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("scan")
     r = sub.add_parser("release", help="catalog status unreleased -> active once the release month has come")
     r.add_argument("--sku", required=True, help="sku_id or slug"); r.add_argument("--actor", default="daddy"); r.add_argument("--note", default=None)
+    n = sub.add_parser("add-product", help="a box the catalog does not know yet; goes in unreleased")
+    n.add_argument("--game", required=True); n.add_argument("--lang", required=True); n.add_argument("--set", dest="set_code", required=True)
+    n.add_argument("--kind", default="booster-box"); n.add_argument("--wave", default="std")
+    n.add_argument("--name-en", required=True); n.add_argument("--name-jp", default=None)
+    n.add_argument("--release", required=True, help="YYYY-MM"); n.add_argument("--packs", type=int, required=True)
+    n.add_argument("--official-url", default=None)
+    n.add_argument("--actor", default="daddy"); n.add_argument("--note", required=True, help="official source for these facts")
+    c = sub.add_parser("set-product", help="correct catalog facts on one SKU")
+    c.add_argument("--sku", required=True, help="sku_id or slug")
+    c.add_argument("--name-en", default=None); c.add_argument("--name-jp", default=None); c.add_argument("--release", default=None)
+    c.add_argument("--packs", type=int, default=None); c.add_argument("--official-url", default=None)
+    c.add_argument("--actor", default="daddy"); c.add_argument("--note", required=True, help="official source for the correction")
     a = ap.parse_args(argv)
     py = sys.executable
     if a.cmd == "collect":
@@ -135,6 +150,18 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if a.cmd == "release":
             sealed_operator.cmd_sealed_release(sku=a.sku, actor=a.actor, note=a.note)
+            return 0
+        if a.cmd == "add-product":
+            sealed_operator.cmd_sealed_add_product(
+                game=a.game, lang=a.lang, set_code=a.set_code, product_kind=a.kind, print_wave=a.wave, name_en=a.name_en,
+                name_jp=a.name_jp, release_month=a.release, packs_per_box=a.packs, official_url=a.official_url,
+                actor=a.actor, note=a.note)
+            return 0
+        if a.cmd == "set-product":
+            sealed_operator.cmd_sealed_set_product(
+                sku=a.sku, actor=a.actor, note=a.note,
+                fields={"name_en": a.name_en, "name_jp": a.name_jp, "release_month": a.release, "packs_per_box": a.packs,
+                        "official_url": a.official_url})
             return 0
         sealed_operator.cmd_sealed_scan()
         return 0

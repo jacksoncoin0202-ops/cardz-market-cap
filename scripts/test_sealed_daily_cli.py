@@ -5,8 +5,9 @@
 2026-09-23: /box prices had stood still since 2026-08-20. The V2 cutover kept the box stage's
 compose/export and archived the P6 collect lanes with nothing in their place; the sealed-*
 operator commands docs/SEALED_OPS.md listed were never wired into this tree. sealed_daily.py
-now carries refresh / stock / accept-binding / scan / release.
-  - refresh / stock / accept-binding / scan / release run inside operator_e2e_lease; a refused lease runs nothing.
+now carries refresh / stock / accept-binding / scan / release / add-product / set-product.
+  - refresh / stock / accept-binding / scan / release / add-product / set-product run inside operator_e2e_lease;
+    a refused lease runs nothing. add-product / set-product refuse to parse without --note (the source).
   - collect / compose / export / status / gaps take no lease: the V2 box stage holds it around
     compose/export, and a child's GET_LOCK would be refused.
   - sealed_collect exits 0 even when every fetch failed, so a pull is red on 0/N ok, on a report
@@ -57,7 +58,7 @@ operator_control = types.ModuleType("operator_control")
 operator_control.operator_e2e_lease = fake_lease
 sealed_operator = types.ModuleType("sealed_operator")
 for name in ("cmd_sealed_status", "cmd_sealed_gaps", "cmd_sealed_accept_binding", "cmd_sealed_scan", "cmd_sealed_release",
-             "cmd_export_sealed_subset"):
+             "cmd_sealed_add_product", "cmd_sealed_set_product", "cmd_export_sealed_subset"):
     setattr(sealed_operator, name, recorder(name))
 sealed_runtime = types.ModuleType("sealed_runtime")
 sealed_runtime.OUT_DIR = TMP
@@ -170,9 +171,39 @@ def main() -> int:
                                                        "note": "on sale 2026-09-16"}), EVENTS
     print("POSITIVE_OK accept-binding, scan and release write under the lease")
 
+    add = ["add-product", "--game", "optcg", "--lang", "jp", "--set", "OP-18", "--name-en", "The Dominance of God",
+           "--name-jp", "神の支配", "--release", "2026-11", "--packs", "24",
+           "--official-url", "https://one-piece.com/news/81629/index.html", "--note", "one-piece.com news 81629"]
+    code = run(add)
+    assert code == 0 and EVENTS[0] == ("lease", "sealed:add-product"), (code, EVENTS)
+    assert EVENTS[-1] == ("cmd_sealed_add_product", True, {
+        "game": "optcg", "lang": "jp", "set_code": "OP-18", "product_kind": "booster-box", "print_wave": "std",
+        "name_en": "The Dominance of God", "name_jp": "神の支配", "release_month": "2026-11", "packs_per_box": 24,
+        "official_url": "https://one-piece.com/news/81629/index.html", "actor": "daddy", "note": "one-piece.com news 81629"}), EVENTS
+    code = run(["set-product", "--sku", "optcg-jp-eb-03-booster-box-std", "--release", "2025-10", "--note", "news 75635"])
+    assert code == 0 and EVENTS[0] == ("lease", "sealed:set-product"), (code, EVENTS)
+    assert EVENTS[-1] == ("cmd_sealed_set_product", True, {
+        "sku": "optcg-jp-eb-03-booster-box-std", "actor": "daddy", "note": "news 75635",
+        "fields": {"name_en": None, "name_jp": None, "release_month": "2025-10", "packs_per_box": None, "official_url": None}}), EVENTS
+    # every flag reaches its field: a dropped one would leave the wrong fact in place without a word
+    code = run(["set-product", "--sku", "x", "--name-en", "E", "--name-jp", "J", "--release", "2026-01", "--packs", "10",
+                "--official-url", "https://o.example/p", "--note", "n"])
+    assert code == 0 and EVENTS[-1][2]["fields"] == {"name_en": "E", "name_jp": "J", "release_month": "2026-01", "packs_per_box": 10,
+                                                     "official_url": "https://o.example/p"}, "set-product flag lost: %r" % EVENTS
+    for argv in (add[:-2], ["set-product", "--sku", "x", "--release", "2025-10"]):
+        try:
+            run(argv)
+        except SystemExit as exc:
+            assert exc.code == 2, exc
+        else:
+            raise AssertionError(f"{argv[0]} without --note must not run: a catalog change needs its source")
+        assert EVENTS == [], f"{argv[0]} without --note ran {EVENTS}"
+    print("POSITIVE_OK add-product and set-product write under the lease; neither runs without --note naming the source")
+
     STATE["refuse"] = True
     try:
-        for argv in (["refresh"], ["stock"], ["accept-binding", "--sku", "x", "--kind", "image"], ["scan"], ["release", "--sku", "x"]):
+        for argv in (["refresh"], ["stock"], ["accept-binding", "--sku", "x", "--kind", "image"], ["scan"], ["release", "--sku", "x"],
+                     add, ["set-product", "--sku", "x", "--release", "2025-10", "--note", "n"]):
             try:
                 run(argv)
             except RuntimeError as exc:
