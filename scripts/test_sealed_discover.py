@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
 import tempfile
 from pathlib import Path
@@ -9,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pipelines"))
 
 import sealed_fullname_backfill as fullname  # noqa: E402
 import sealed_live_qualify as live_qualify  # noqa: E402
+import sealed_pc_inventory_ingest as pc_ingest  # noqa: E402
 from sealed_discover_lib import (  # noqa: E402
     expand_pc_image_sizes,
     grammar_full_name_en,
@@ -341,6 +343,95 @@ def test_live_qualify_apply_never_accepts():
     assert verdict["trading-cards:145974"] == ("hold", "snk_lang_mismatch"), "OP-06 EN read its JP box as EN: %r" % (verdict,)
     assert verdict["apparels:881421"][0] == "accept" and receipt["applied"] == {"rejected": 1}, \
         "an accept verdict is listed, never applied: %r" % ((verdict, receipt["applied"]),)
+
+
+class LiteConn:
+    """MySQL-flavoured SQL on in-memory sqlite (%s -> ?), dict rows, so the ingest's own queries run for real.
+    close() keeps the data for the asserts."""
+
+    def __init__(self, script):
+        self.conn = sqlite3.connect(":memory:")
+        self.conn.row_factory = sqlite3.Row
+        self.conn.executescript(script)
+
+    def cursor(self):
+        return LiteCursor(self.conn.cursor())
+
+    def commit(self):
+        self.conn.commit()
+
+    def rollback(self):
+        self.conn.rollback()
+
+    def close(self):
+        pass
+
+
+class LiteCursor:
+    def __init__(self, cur):
+        self.cur, self.rowcount = cur, 0
+
+    def execute(self, sql, params=()):
+        self.cur.execute(sql.replace("%s", "?"), tuple(params or ()))
+        self.rowcount = self.cur.rowcount
+
+    def fetchone(self):
+        row = self.cur.fetchone()
+        return dict(row) if row else None
+
+    def fetchall(self):
+        return [dict(r) for r in self.cur.fetchall()]
+
+
+PC_GAME = "https://www.pricecharting.com/game/"
+PC_DB = f"""
+CREATE TABLE catalog_sealed_product (id INTEGER PRIMARY KEY, sku_id TEXT, game TEXT, lang TEXT, group_code TEXT,
+  set_code TEXT, name_en TEXT, print_wave TEXT, product_kind TEXT, status TEXT);
+CREATE TABLE catalog_sealed_source_hint (sealed_id INTEGER, source_code TEXT, url TEXT);
+CREATE TABLE catalog_sealed_source_identity (source_code TEXT, external_entity_id TEXT, sealed_id INTEGER, canonical_url TEXT,
+  match_status TEXT, resolved INTEGER, evidence_sha256 TEXT, note TEXT, PRIMARY KEY (source_code, external_entity_id));
+CREATE TABLE operator_sealed_binding_freeze (sealed_id INTEGER, freeze_kind TEXT, source_code TEXT, external_entity_id TEXT,
+  acceptance_status TEXT, PRIMARY KEY (sealed_id, freeze_kind, source_code));
+INSERT INTO catalog_sealed_product VALUES
+  (5, 'optcg:en:OP-02:booster-box:std', 'optcg', 'en', 'optcg-en', 'OP-02', 'Paramount War', 'std', 'booster-box', 'active'),
+  (179, 'ptcg:en:JU:booster-box:std', 'ptcg', 'en', 'ptcg-en', 'JU', 'Jungle', 'std', 'booster-box', 'active'),
+  (400, 'ptcg:en:ME02:booster-box:std', 'ptcg', 'en', 'ptcg-en', 'ME02', 'Phantasmal Flames', 'std', 'booster-box', 'active');
+INSERT INTO catalog_sealed_source_identity VALUES
+  ('pricecharting', 'one-piece-paramount-war/booster-box', 5, '{PC_GAME}one-piece-paramount-war/booster-box', 'exact', 1, '', '{{}}'),
+  ('pricecharting', 'pokemon-jungle/booster-box-1st-edition', 179, '{PC_GAME}pokemon-jungle/booster-box-1st-edition', 'candidate', 1, '', '{{}}'),
+  ('pricecharting', 'pokemon-jungle/booster-box', 179, '{PC_GAME}pokemon-jungle/booster-box', 'candidate', 1, '', '{{}}');
+INSERT INTO operator_sealed_binding_freeze VALUES
+  (5, 'source', 'pricecharting', 'one-piece-paramount-war/booster-box', 'accepted'),
+  (179, 'source', 'pricecharting', 'pokemon-jungle/booster-box-1st-edition', 'accepted');
+"""
+
+
+def test_pc_inventory_prices_only_the_accepted_item():
+    # 2026-09-23 a scan's PC inventory ingest priced every SKU it matched: JU EN, frozen on the 1st edition Jungle box,
+    # got the unlimited box's price from its candidate row, which /box showed. A candidate is unreviewed.
+    def box(console, slug, pid, usd):
+        return {"console": console, "consoleTitle": console.replace("-", " ").title(), "slug": slug, "title": slug,
+                "href": f"{PC_GAME}{console}/{slug}", "pid": pid, "ungraded": f"${usd:,.2f}"}
+
+    inventory = Path(tempfile.mkdtemp(prefix="pc-inventory-")) / "console-inventory.json"
+    inventory.write_text(json.dumps({"boxes": [
+        box("one-piece-paramount-war", "booster-box", "p5", 180.0),
+        box("pokemon-jungle", "booster-box", "p179u", 13584.68),
+        box("pokemon-jungle", "booster-box-1st-edition", "p179f", 14375.0),
+        box("pokemon-phantasmal-flames", "booster-box", "p400", 210.0),
+    ]}), encoding="utf-8")
+    conn, priced = LiteConn(PC_DB), []
+    pc_ingest.db = lambda: conn
+    pc_ingest.warehouse_sealed = lambda cur, **kw: None
+    pc_ingest.upsert_sealed_price = lambda cur, **kw: priced.append((kw["sealed_id"], kw["external_entity_id"], kw["price_usd"]))
+    doc = pc_ingest.ingest_inventory(inventory)
+    assert doc["statuses"] == {"already_exact": 1, "updated": 1, "inserted": 1}, doc["statuses"]
+    assert not [p for p in priced if p[0] == 179], "JU EN took the unlimited Jungle box's price from a candidate: %r" % priced
+    assert not [p for p in priced if p[0] == 400], "an unreviewed candidate priced a new SKU: %r" % priced
+    assert priced == [(5, "one-piece-paramount-war/booster-box", 180.0)], "the accepted item keeps today's table price: %r" % priced
+    cur = conn.cursor()
+    cur.execute("SELECT match_status FROM catalog_sealed_source_identity WHERE sealed_id=5")
+    assert cur.fetchall() == [{"match_status": "exact"}], "the ingest demoted OP-02 EN's accepted bind"
 
 
 if __name__ == "__main__":

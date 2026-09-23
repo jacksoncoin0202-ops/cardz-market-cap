@@ -207,7 +207,8 @@ def load_sealed_bindings(
     source_code: str,
     require_accepted: bool = True,
 ) -> list[dict]:
-    """Bindings for one source. accepted = source freeze exists for that source."""
+    """Bindings for one source. accepted = the SKU's accepted source freeze names this very item. A freeze on the
+    SKU is not enough: 2026-09-23 JU EN (freeze on the 1st edition Jungle box) also pulled its unlimited-box candidate."""
     cur.execute(
         """
         SELECT i.source_code, i.external_entity_id, i.sealed_id, i.canonical_url,
@@ -218,6 +219,7 @@ def load_sealed_bindings(
                  SELECT 1 FROM operator_sealed_binding_freeze f
                  WHERE f.sealed_id=i.sealed_id AND f.freeze_kind='source'
                    AND f.source_code=i.source_code AND f.acceptance_status='accepted'
+                   AND f.external_entity_id=i.external_entity_id
                ) AS source_accepted
         FROM catalog_sealed_source_identity i
         JOIN catalog_sealed_product p ON p.id = i.sealed_id

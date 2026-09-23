@@ -10,11 +10,14 @@ Seven SNK items were bound to two SKUs each.
     the URL (every Yahoo item has externalId 'closedsearch'; its URL carries the query).
   - stock skips a due SKU whose key another SKU also holds and reports it as blocked, also when
     nothing else was due; incr keeps refreshing SKUs that have data and only lists the sharing.
+  - a SKU's accepted freeze makes only the item it names pullable: JU EN, frozen on the 1st edition
+    Jungle box, also pulled its unlimited-box candidate (the binding query runs for real on sqlite).
 No MySQL, no network: the loaders, db and the fetcher are faked.
 """
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
 import tempfile
 from pathlib import Path
@@ -23,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
 import sealed_collect as sc  # noqa: E402
+from sealed_runtime import load_sealed_bindings  # noqa: E402
 
 TMP = Path(tempfile.mkdtemp(prefix="sealed-shared-"))
 EB03 = {"sealedId": 41, "externalId": "trading-cards:767625", "itemId": 767625, "sku": "optcg:en:EB-03:booster-box:std"}
@@ -59,7 +63,50 @@ def skus(items):
     return [i["sku"] for i in items]
 
 
+class LiteCursor:
+    """MySQL-flavoured SQL on in-memory sqlite (%s -> ?), dict rows."""
+
+    def __init__(self, script):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.executescript(script)
+        self.cur = conn.cursor()
+
+    def execute(self, sql, params=()):
+        self.cur.execute(sql.replace("%s", "?"), tuple(params or ()))
+
+    def fetchall(self):
+        return [dict(r) for r in self.cur.fetchall()]
+
+
+def bindings_follow_the_frozen_item():
+    cur = LiteCursor("""
+    CREATE TABLE catalog_sealed_product (id INTEGER PRIMARY KEY, sku_id TEXT, slug TEXT, group_code TEXT, game TEXT,
+      lang TEXT, set_code TEXT, name_en TEXT, name_jp TEXT, status TEXT);
+    CREATE TABLE catalog_sealed_source_identity (source_code TEXT, external_entity_id TEXT, sealed_id INTEGER,
+      canonical_url TEXT, match_status TEXT, resolved INTEGER, PRIMARY KEY (source_code, external_entity_id));
+    CREATE TABLE operator_sealed_binding_freeze (sealed_id INTEGER, freeze_kind TEXT, source_code TEXT,
+      external_entity_id TEXT, acceptance_status TEXT, PRIMARY KEY (sealed_id, freeze_kind, source_code));
+    INSERT INTO catalog_sealed_product VALUES
+      (5, 'optcg:en:OP-02:booster-box:std', 'optcg-en-op-02-booster-box-std', 'optcg-en', 'optcg', 'en', 'OP-02', 'Paramount War', '', 'active'),
+      (179, 'ptcg:en:JU:booster-box:std', 'ptcg-en-ju-booster-box-std', 'ptcg-en', 'ptcg', 'en', 'JU', 'Jungle', '', 'active');
+    INSERT INTO catalog_sealed_source_identity VALUES
+      ('pricecharting', 'one-piece-paramount-war/booster-box', 5, NULL, 'exact', 1),
+      ('pricecharting', 'pokemon-jungle/booster-box-1st-edition', 179, NULL, 'candidate', 1),
+      ('pricecharting', 'pokemon-jungle/booster-box', 179, NULL, 'candidate', 1);
+    INSERT INTO operator_sealed_binding_freeze VALUES
+      (5, 'source', 'pricecharting', 'one-piece-paramount-war/booster-box', 'accepted'),
+      (179, 'source', 'pricecharting', 'pokemon-jungle/booster-box-1st-edition', 'accepted');
+    """)
+    got = [(r["sealed_id"], r["external_entity_id"]) for r in load_sealed_bindings(cur, source_code="pricecharting")]
+    assert sorted(got) == [(5, "one-piece-paramount-war/booster-box"), (179, "pokemon-jungle/booster-box-1st-edition")], \
+        "JU EN pulled the unlimited Jungle box; its freeze names the 1st edition: %r" % got
+    assert len(load_sealed_bindings(cur, source_code="pricecharting", require_accepted=False)) == 3
+    print("NEGATIVE_OK an accepted freeze makes only the item it names pullable, whatever the row's match_status")
+
+
 def main() -> int:
+    bindings_follow_the_frozen_item()
     world([EB03, EB05, OP17])
     selected, blocked, shared = select("sealed_snk", "stock")
     assert shared == {"snkrdunk:767625": [EB03["sku"], EB05["sku"]]}, \

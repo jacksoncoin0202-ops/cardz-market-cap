@@ -84,7 +84,7 @@ $PY = 'C:\Users\jackson0202\AppData\Local\Programs\Python\Python310\python.exe' 
 
 教訓實例（2026-08-14）：Kimi 條 `apparel-groups:450` link 其實係 FEAR OF GOD Polo，resolve 靠 master 名 auto-reject 咗；錯 bind 拉咗嘅 typed rows 要 purge。**呢個就係 human accept 閘存在嘅原因。**
 
-教訓實例（2026-09-23）：DB 全部 451 條 sealed source freeze 都係 2026-08-14 `sealed_live_qualify.py --apply` 自動 accept，冇一條經人手；`/box` 出咗 Game Boy jukebox 喺 BW2、Volt Tackle 盒喺 S1W、JP 盒頂 EN SKU，六件 SNK 貨用 `trading-cards:`／`apparels:` 兩個寫法各自綁咗兩隻 SKU。live-qualify 而家唔再 accept；discover 同 accept 都認同一件貨嘅三個寫法。同日 `scan` 嘅 PC inventory ingest（行晒全部 SKU）將 193 條 accepted PC bind 降返 candidate 兼覆寫 note；而家 discover 撞到 exact row 一律唔郁。
+教訓實例（2026-09-23）：DB 全部 451 條 sealed source freeze 都係 2026-08-14 `sealed_live_qualify.py --apply` 自動 accept，冇一條經人手；`/box` 出咗 Game Boy jukebox 喺 BW2、Volt Tackle 盒喺 S1W、JP 盒頂 EN SKU，六件 SNK 貨用 `trading-cards:`／`apparels:` 兩個寫法各自綁咗兩隻 SKU。live-qualify 而家唔再 accept；discover 同 accept 都認同一件貨嘅三個寫法。同日 `scan` 嘅 PC inventory ingest（行晒全部 SKU）將 193 條 accepted PC bind 降返 candidate 兼覆寫 note；而家 discover 撞到 exact row 一律唔郁。JU EN freeze 喺 1st edition Jungle 盒，但 stock／incr 同 inventory ingest 都將 unlimited 盒嘅 candidate 價寫咗入去；而家只有 freeze 點名嗰件貨先拉價、先寫價。
 
 ## Product vs operator surface
 

@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 """Wash walked PriceCharting console inventory into candidate binds + market prices.
 
-Does not auto-accept freezes. Table Ungraded becomes today's PC market point.
+Does not auto-accept freezes. Table Ungraded becomes today's PC market point, only for the item a SKU's accepted
+source freeze names.
 """
 from __future__ import annotations
 
@@ -119,18 +120,17 @@ def ingest_inventory(path: Path, *, dry_run: bool = False) -> dict[str, Any]:
                 ),
                 origin="console-inventory",
             )
-            write_price = status in ("inserted", "updated")
-            if status == "already_bound":
-                cur.execute(
-                    """
-                    SELECT external_entity_id FROM catalog_sealed_source_identity
-                    WHERE sealed_id=%s AND source_code='pricecharting' AND match_status<>'rejected'
-                    LIMIT 1
-                    """,
-                    (int(sku["id"]),),
-                )
-                owned = cur.fetchone()
-                write_price = bool(owned and unquote(str(owned["external_entity_id"])) == unquote(ext))
+            # Price only the item a human accepted for this SKU; a candidate is unreviewed. 2026-09-23 JU EN, frozen
+            # on the 1st edition Jungle box, got today's price from its unlimited-box candidate.
+            cur.execute(
+                """
+                SELECT external_entity_id FROM operator_sealed_binding_freeze
+                WHERE sealed_id=%s AND freeze_kind='source' AND source_code='pricecharting' AND acceptance_status='accepted'
+                """,
+                (int(sku["id"]),),
+            )
+            frozen = cur.fetchone()
+            write_price = bool(frozen and unquote(str(frozen["external_entity_id"])) == unquote(ext))
             if write_price:
                 warehouse_sealed(
                     cur,
