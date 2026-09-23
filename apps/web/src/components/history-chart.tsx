@@ -5,7 +5,7 @@ import { ChartLine } from "lucide-react";
 import { EmptyState } from "./empty-state";
 import { revealOnce } from "./reveal";
 import { copy } from "@/lib/i18n";
-import { formatMoney, formatObservationDayMonth } from "@/lib/format";
+import { formatMoney, formatObservationDayMonth, moneyAxis } from "@/lib/format";
 import { mergeReferenceHistory, pointsForWindow } from "@/lib/history-window";
 import { useMarketSettings } from "@/lib/use-market-settings";
 import { marketWindowDays, type Currency, type Locale, type PricePoint } from "@/lib/types";
@@ -89,21 +89,19 @@ export function HistoryChart({ points, reference, locale, currency, rates }: His
   const priceValues = prices.map((point) => point.priceUsd as number);
   const min = priceValues.length ? Math.min(...priceValues) : 0;
   const max = priceValues.length ? Math.max(...priceValues) : 1;
-  const spread = Math.max(max - min, Math.max(1, max * 0.02));
-  const yMin = Math.max(0, min - spread * 0.2);
-  const yMax = max + spread * 0.2;
+  /* Y 軸上下限同刻度由 moneyAxis 揀：顯示貨幣入面嘅整數刻度、成條軸一個單位（見 format.ts） */
+  const axis = moneyAxis(min, max, currency, rates, locale);
   const startTime = Date.parse(selected[0]?.at ?? "");
   const endTime = Date.parse(selected.at(-1)?.at ?? "");
   const x = (point: PricePoint) => endTime <= startTime
     ? pad.left + plotWidth / 2
     : pad.left + (Date.parse(point.at) - startTime) / (endTime - startTime) * plotWidth;
-  const y = (value: number) => pad.top + (yMax - value) / Math.max(1, yMax - yMin) * plotHeight;
+  const y = (value: number) => pad.top + (axis.hi - value) / (axis.hi - axis.lo) * plotHeight;
   const line = selected.reduce<{ drawing: boolean; segments: string[] }>((state, point) => {
     if (point.priceUsd === null || !Number.isFinite(point.priceUsd)) return { drawing: false, segments: state.segments };
     const command = state.drawing ? "L" : "M";
     return { drawing: true, segments: [...state.segments, `${command}${x(point).toFixed(1)},${y(point.priceUsd).toFixed(1)}`] };
   }, { drawing: false, segments: [] }).segments.join(" ");
-  const yTicks = Array.from({ length: 4 }, (_, index) => yMin + (yMax - yMin) * index / 3);
   const maxSales = Math.max(1, ...sales.map((point) => point.trackedSalesValueUsd ?? 0));
   const barBand = Math.max(2, Math.min(16, plotWidth / Math.max(1, selected.length) * 0.58));
   const date = (value: string) => formatObservationDayMonth(value, locale);
@@ -128,10 +126,10 @@ export function HistoryChart({ points, reference, locale, currency, rates }: His
         <svg className="history-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-labelledby="chart-title chart-description" preserveAspectRatio="xMidYMid meet">
           <title id="chart-title">{t.labels.history}</title>
           <desc id="chart-description">{t.labels.dailyPrice}. {t.labels.salesHelp}</desc>
-          {yTicks.map((tick) => (
-            <g key={tick}>
-              <line x1={pad.left} x2={width - pad.right} y1={y(tick)} y2={y(tick)} className="chart-gridline" />
-              <text x={pad.left - 10} y={y(tick) + 4} textAnchor="end" className="chart-label">{formatMoney(tick, currency, rates, locale, true)}</text>
+          {axis.ticks.map((tick) => (
+            <g key={tick.valueUsd}>
+              <line x1={pad.left} x2={width - pad.right} y1={y(tick.valueUsd)} y2={y(tick.valueUsd)} className="chart-gridline" />
+              <text x={pad.left - 10} y={y(tick.valueUsd) + 4} textAnchor="end" className="chart-label">{tick.label}</text>
             </g>
           ))}
           {selected.map((point, index) => {

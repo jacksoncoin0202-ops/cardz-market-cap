@@ -91,6 +91,100 @@ export function formatMoney(
   }).format(converted);
 }
 
+/*
+ * 價格圖 Y 軸（history-chart.tsx，2026-09-23 A8）。原本 yMin→yMax 平均切 3 格、逐個
+ * formatMoney compact：live 出「US$2.37萬 / US$1.58萬 / US$7,901」，刻度唔係整數，單位又一時萬一時冇。
+ *   - 刻度喺**顯示貨幣**揀 1／2／2.5／5 × 10^k：換咗 JPY 刻度都係整數日圓，唔係 USD 整數乘匯率。
+ *   - 數據幅度最少當 2% 價（最少 1 USD 等值），上下各留 5%，再推到刻度上：條線唔掂框，平價都唔會壓成一條罅。
+ *   - 成條軸一個單位、一個小數位：頂刻度 < 100,000 全部標準寫法（US$25,000）；≥ 100,000 先 compact，
+ *     單位由頂刻度定（萬／万／만／K／M…），其他刻度跟佢；0 淨係寫「US$0」。
+ * 匯率壞照 formatMoney fail-closed：幾何當匯率 1，字全部「暫無資料」。scripts/test-fe-chart-axis.mjs 鎖死。
+ */
+const AXIS_STEPS = [1, 2, 2.5, 5, 10];
+const AXIS_COMPACT_FROM = 100_000;
+const AXIS_NUMBER_PARTS = new Set(["integer", "group", "decimal", "fraction"]);
+
+export interface MoneyAxis {
+  lo: number;
+  hi: number;
+  ticks: { valueUsd: number; label: string }[];
+}
+
+/* 印出 value 要幾多位小數先準（最多 4）：0.25 → 2、0.5 → 1、25 → 0 */
+function axisDecimals(value: number): number {
+  for (let digits = 0; digits < 4; digits += 1) {
+    const scaled = value * 10 ** digits;
+    if (Math.abs(scaled - Math.round(scaled)) < 1e-6) return digits;
+  }
+  return 4;
+}
+
+function axisLabels(values: number[], step: number, currency: Currency, locale: Locale): string[] {
+  const top = values[values.length - 1];
+  if (top < AXIS_COMPACT_FROM) {
+    const digits = axisDecimals(step);
+    const standard = numberFormat(locale, { style: "currency", currency, minimumFractionDigits: digits, maximumFractionDigits: digits });
+    return values.map((value) => standard.format(value));
+  }
+  /* 頂刻度 compact 出嚟嘅 parts 做模：貨幣符號、單位字照抄，數字部分換做「刻度 ÷ 單位」 */
+  const template = numberFormat(locale, {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 2,
+    notation: "compact",
+    ...(locale !== "en" ? CJK_COMPACT : {}),
+  }).formatToParts(top);
+  const shown = Number(template
+    .filter((part) => part.type === "integer" || part.type === "decimal" || part.type === "fraction")
+    .map((part) => part.type === "decimal" ? "." : part.value)
+    .join(""));
+  const unit = shown > 0 ? 10 ** Math.round(Math.log10(top / shown)) : 1;
+  const digits = axisDecimals(step / unit);
+  const number = numberFormat(locale, { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  const zero = numberFormat(locale, { style: "currency", currency, maximumFractionDigits: 0 }).format(0);
+  return values.map((value) => {
+    if (value === 0) return zero;
+    let placed = false;
+    return template.map((part) => {
+      if (!AXIS_NUMBER_PARTS.has(part.type)) return part.value;
+      if (placed) return "";
+      placed = true;
+      return number.format(value / unit);
+    }).join("");
+  });
+}
+
+export function moneyAxis(
+  minUsd: number,
+  maxUsd: number,
+  currency: Currency,
+  rates: Record<Currency, number>,
+  locale: Locale,
+  intervals = 4,
+): MoneyAxis {
+  const rate = rates[currency];
+  const usable = Number.isFinite(rate) && rate > 0;
+  const factor = usable ? rate : 1;
+  const min = minUsd * factor;
+  const max = maxUsd * factor;
+  const half = Math.max(max - min, max * 0.02, factor) / 2;
+  const mid = (min + max) / 2;
+  const lo = Math.max(0, mid - half * 1.1);
+  const hi = mid + half * 1.1;
+  const raw = (hi - lo) / intervals;
+  const magnitude = 10 ** Math.floor(Math.log10(raw));
+  const step = (AXIS_STEPS.find((candidate) => candidate * magnitude >= raw) ?? 10) * magnitude;
+  const first = Math.floor(lo / step);
+  const last = Math.ceil(hi / step);
+  const values = Array.from({ length: last - first + 1 }, (_, index) => (first + index) * step);
+  const labels = usable ? axisLabels(values, step, currency, locale) : values.map(() => copy[locale].status.unavailable);
+  return {
+    lo: values[0] / factor,
+    hi: values[values.length - 1] / factor,
+    ticks: values.map((value, index) => ({ valueUsd: value / factor, label: labels[index] })),
+  };
+}
+
 export function formatInteger(value: number | null, locale: Locale): string {
   if (value === null || !Number.isFinite(value)) return copy[locale].status.unavailable;
   return numberFormat(locale, { maximumFractionDigits: 0 }).format(value);
