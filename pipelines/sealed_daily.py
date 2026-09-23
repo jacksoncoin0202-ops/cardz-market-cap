@@ -128,6 +128,7 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--sku", required=True, help="sku_id or slug")
     c.add_argument("--name-en", default=None); c.add_argument("--name-jp", default=None); c.add_argument("--release", default=None)
     c.add_argument("--packs", type=int, default=None); c.add_argument("--official-url", default=None)
+    c.add_argument("--status", choices=("no-box", "active"), default=None, help="no-box: the set sold no booster box")
     c.add_argument("--actor", default="daddy"); c.add_argument("--note", required=True, help="official source for the correction")
     q = sub.add_parser("quarantine", help="sale/price rows out of compose (or back with --restore)")
     q.add_argument("--table", choices=("sale", "price"), required=True)
@@ -214,7 +215,7 @@ def main(argv: list[str] | None = None) -> int:
             sealed_operator.cmd_sealed_set_product(
                 sku=a.sku, actor=a.actor, note=a.note,
                 fields={"name_en": a.name_en, "name_jp": a.name_jp, "release_month": a.release, "packs_per_box": a.packs,
-                        "official_url": a.official_url})
+                        "official_url": a.official_url, "status": a.status})
             return 0
         sealed_operator.cmd_sealed_scan()
         return 0

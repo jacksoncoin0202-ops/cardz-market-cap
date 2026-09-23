@@ -521,7 +521,10 @@ def _log_catalog_change(doc: dict) -> None:
 # --- catalog add / correct ----------------------------------------------------------
 
 MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
-PRODUCT_FIELDS = ("name_en", "name_jp", "release_month", "packs_per_box", "official_url")
+PRODUCT_FIELDS = ("name_en", "name_jp", "release_month", "packs_per_box", "official_url", "status")
+# set-product --status: a SKU with no booster box leaves /box and every collector (MEW 151 EN and Pokemon GO EN were
+# sold as ETB / bundles only). Back to active only once its month has come, so this is never a way around release.
+STATUS_MOVES = {"no-box": ("active", "unreleased"), "active": ("no-box",)}
 
 
 def sku_slug(sku_id: str) -> str:
@@ -538,6 +541,8 @@ def _check_facts(fields: dict) -> None:
     url = fields.get("official_url")
     if url and not str(url).startswith("https://"):
         raise SystemExit(f"official url must be https: {url!r}")
+    if fields.get("status") is not None and fields["status"] not in STATUS_MOVES:
+        raise SystemExit(f"status must be one of {sorted(STATUS_MOVES)}, got {fields['status']!r}")
 
 
 def cmd_sealed_add_product(*, game: str, lang: str, set_code: str, product_kind: str, print_wave: str, name_en: str,
@@ -603,7 +608,7 @@ def cmd_sealed_set_product(*, sku: str, fields: dict, actor: str, note: str) -> 
     try:
         cur = conn.cursor()
         cur.execute(
-            "SELECT id, sku_id, lang, group_code, print_wave, name_en, name_jp, release_month, packs_per_box, official_url "
+            "SELECT id, sku_id, lang, group_code, print_wave, name_en, name_jp, release_month, packs_per_box, official_url, status "
             "FROM catalog_sealed_product WHERE sku_id=%s OR slug=%s",
             (sku, sku),
         )
@@ -613,6 +618,13 @@ def cmd_sealed_set_product(*, sku: str, fields: dict, actor: str, note: str) -> 
         changes = {k: {"from": row[k], "to": v} for k, v in fields.items() if str(row[k] if row[k] is not None else "") != str(v)}
         if not changes:
             raise SystemExit(f"{row['sku_id']}: nothing differs from the catalog")
+        if "status" in changes:
+            to = changes["status"]["to"]
+            if row["status"] not in STATUS_MOVES[to]:
+                raise SystemExit(f"{row['sku_id']}: status {row['status']} -> {to} is not a set-product move")
+            month = fields.get("release_month", row["release_month"])
+            if to == "active" and not release_due({"status": "unreleased", "release_month": month}, current_month()):
+                raise SystemExit(f"{row['sku_id']}: release month {month} has not come; release flips it when due")
         sealed_id = int(row["id"])
         cur.execute(f"UPDATE catalog_sealed_product SET {', '.join(f'{k}=%s' for k in changes)} WHERE id=%s",
                     (*[c["to"] for c in changes.values()], sealed_id))
@@ -761,7 +773,9 @@ def cmd_sealed_reject_binding(*, sku: str, source_code: str, external_id: str, a
 def cmd_sealed_move_binding(*, source_code: str, external_id: str, from_sku: str, to_sku: str, actor: str, note: str) -> dict:
     """An item bound to the wrong SKU moves to the right one as a candidate (PRB-01 JP's box sat on PRB-02 JP);
     the old SKU's freeze on it turns rejected. Accepting it on the new SKU is its own call: accept-binding --ext.
-    The item must sit on the old SKU only."""
+    Only the old SKU's live rows move and no other SKU may hold the item live. Another SKU's rejected spelling stays
+    where it is: it is that SKU's record that the item is not its box (PRB-01 EN rejected trading-cards:216885, the
+    JP box that then moved from PRB-02 JP to PRB-01 JP). A SKU that rejected the item cannot receive it."""
     load_env()
     conn = db()
     try:
@@ -770,10 +784,13 @@ def cmd_sealed_move_binding(*, source_code: str, external_id: str, from_sku: str
         old_id, new_id = int(old["id"]), int(new["id"])
         if old_id == new_id:
             raise SystemExit("--from-sku and --to-sku name the same SKU")
-        rows = _item_rows(cur, source_code, external_id)
-        if not rows or any(int(r["sealed_id"]) != old_id for r in rows):
-            raise SystemExit(f"{source_code} {external_id} is not on {old['sku_id']} alone: "
-                             f"{[(int(r['sealed_id']), r['external_entity_id'], r['match_status']) for r in rows]}")
+        found = _item_rows(cur, source_code, external_id)
+        rows = [r for r in found if int(r["sealed_id"]) == old_id and r["match_status"] != "rejected"]
+        blocked = [r for r in found if (int(r["sealed_id"]) != old_id and r["match_status"] != "rejected")
+                   or (int(r["sealed_id"]) == new_id and r["match_status"] == "rejected")]
+        if not rows or blocked:
+            raise SystemExit(f"{source_code} {external_id} is not live on {old['sku_id']} alone, or {new['sku_id']} rejected it: "
+                             f"{[(int(r['sealed_id']), r['external_entity_id'], r['match_status']) for r in found]}")
         for r in rows:
             cur.execute(
                 "UPDATE catalog_sealed_source_identity SET sealed_id=%s, match_status='candidate', note=%s "
@@ -876,11 +893,14 @@ def cmd_sealed_add_image(*, sku: str, url: str, actor: str, note: str) -> dict:
     try:
         cur = conn.cursor()
         product = _product(cur, sku)
-        cur.execute("SELECT sealed_id FROM market_sealed_image_asset WHERE content_sha256=%s AND sealed_id<>%s",
+        # Refused only while another SKU shows the image. A revoked asset is free to go to its right SKU: PRB-01 EN
+        # had shown the JP PRB-01 box, which is PRB-01 JP's image.
+        cur.execute("SELECT sealed_id FROM operator_sealed_binding_freeze WHERE freeze_kind='image' "
+                    "AND acceptance_status='accepted' AND external_entity_id=%s AND sealed_id<>%s",
                     (digest, int(product["id"])))
         other = cur.fetchone()
         if other:
-            raise SystemExit(f"image {digest} is already sealed {other['sealed_id']}'s asset")
+            raise SystemExit(f"image {digest} is sealed {other['sealed_id']}'s accepted image")
         ASSETS_DIR.mkdir(parents=True, exist_ok=True)
         for suffix, blob in (("", full), ("_200", w200), ("_600", w600)):
             (ASSETS_DIR / f"{digest}{suffix}.webp").write_bytes(blob)

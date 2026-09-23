@@ -180,16 +180,27 @@ def catalog_tests() -> None:
     cur = Script([{**OP17_ROW, "id": 35, "lang": "en", "group_code": "optcg-en"}])
     doc, err, conn = call(fix, cur, sku="optcg-en-op-17-booster-box-std", actor="claude", note="n", fields={"name_jp": "世界最強の戦士"})
     assert err is None and len(updates(cur)) == 1 and "yahooHint" not in doc, "an EN box has no Yahoo hint to move: %r" % cur.sql
+    cur = Script([{**OP17_ROW, "status": "active"}])
+    doc, err, conn = call(fix, cur, sku="x", actor="claude", note="official: sold as ETB only", fields={"status": "no-box"})
+    assert err is None and updates(cur) == [("UPDATE catalog_sealed_product SET status=%s WHERE id=%s", ("no-box", 36))], \
+        "set-product --status no-box takes a box-less set off /box: %r" % ((err, cur.sql),)
+    cur = Script([{**OP17_ROW, "status": "no-box", "release_month": "2020-01"}])
+    doc, err, conn = call(fix, cur, sku="x", actor="claude", note="n", fields={"status": "active"})
+    assert err is None and doc["changes"]["status"] == {"from": "no-box", "to": "active"}, "no-box comes back once its month has come"
+    print("POSITIVE_OK set-product --status moves a SKU to no-box, and back to active when its month has come")
     for fields, row, why in (({"name_jp": "世界最強の戦士達"}, OP17_ROW, "no difference"), ({"release_month": "2025-1"}, OP17_ROW, "bad month"),
                              # the row carries a status so that, without the gate, the flip would reach the UPDATE
-                             ({"status": "active"}, {**OP17_ROW, "status": "unreleased"}, "status is not a catalog fact"),
+                             ({"status": "active"}, {**OP17_ROW, "status": "unreleased"}, "unreleased -> active is release's flip"),
+                             ({"status": "active"}, {**OP17_ROW, "status": "no-box", "release_month": "2999-01"}, "no-box back before its month"),
+                             ({"status": "retired"}, {**OP17_ROW, "status": "active"}, "unknown status"),
                              ({"packs_per_box": 24}, None, "unknown sku")):
         before = LOG.read_text(encoding="utf-8")
         cur = Script([dict(row)] if row else [])
         doc, err, conn = call(fix, cur, sku="x", actor="claude", note="n", fields=fields)
         assert err and doc is None and not writes(cur) and not conn.commits, f"{why}: must be refused, got {doc} {cur.sql}"
         assert LOG.read_text(encoding="utf-8") == before, f"{why}: a refused fix must not log"
-    print("NEGATIVE_OK set-product refuses no-op, bad month, non-fact fields and unknown SKUs: no write, no log")
+    print("NEGATIVE_OK set-product refuses no-op, bad month, a status flip that is release's or not yet due, and unknown SKUs: "
+          "no write, no log")
 
 
 class AcceptCursor:
@@ -290,7 +301,8 @@ CREATE TABLE operator_sealed_binding_freeze (sealed_id INTEGER, freeze_kind TEXT
   PRIMARY KEY (sealed_id, freeze_kind, source_code));
 CREATE TABLE market_sealed_sale_observation (id INTEGER PRIMARY KEY, sealed_id INTEGER, source_code TEXT, metric_status TEXT);
 CREATE TABLE market_sealed_price_observation (id INTEGER PRIMARY KEY, sealed_id INTEGER, source_code TEXT, metric_status TEXT);
-CREATE TABLE market_sealed_image_asset (sealed_id INTEGER, image_kind TEXT, content_sha256 TEXT, captured_at TEXT);
+CREATE TABLE market_sealed_image_asset (sealed_id INTEGER, image_kind TEXT, content_sha256 TEXT, source_code TEXT, source_url TEXT,
+  mime_type TEXT, width_px INTEGER, height_px INTEGER, captured_at TEXT, PRIMARY KEY (sealed_id, image_kind, content_sha256));
 INSERT INTO catalog_sealed_product VALUES
   (218, 'ptcg:jp:S10b:booster-box:std', 's10b', 'ptcg-jp', 'active'),
   (48, 'optcg:jp:PRB-01:booster-box:std', 'prb-01', 'optcg-jp', 'active'),
@@ -311,7 +323,8 @@ INSERT INTO operator_sealed_binding_freeze (sealed_id, freeze_kind, source_code,
 INSERT INTO market_sealed_sale_observation VALUES (1, 179, 'ebay', 'ok'), (2, 179, 'ebay', 'outlier_trimmed'),
   (3, 179, 'ebay', 'rejected_foreign_edition'), (4, 179, 'ebay', 'ok');
 INSERT INTO market_sealed_price_observation VALUES (7, 218, 'snkrdunk', 'ok');
-INSERT INTO market_sealed_image_asset VALUES (218, 'box_front', 'sha-wrong', '2026-09-01'), (218, 'box_front', 'sha-right', '2026-08-01');
+INSERT INTO market_sealed_image_asset (sealed_id, image_kind, content_sha256, captured_at) VALUES
+  (218, 'box_front', 'sha-wrong', '2026-09-01'), (218, 'box_front', 'sha-right', '2026-08-01');
 """
 
 
@@ -397,11 +410,19 @@ def correction_tests() -> None:
     assert rows("SELECT sealed_id, match_status FROM catalog_sealed_source_identity WHERE external_entity_id='apparels:300'") == \
         [(48, "candidate")] and rows("SELECT acceptance_status FROM operator_sealed_binding_freeze WHERE sealed_id=50 "
                                      "AND freeze_kind='source'") == [("rejected",)], "PRB-02's box must move to PRB-01 as a candidate"
+    lite.conn.execute("UPDATE catalog_sealed_source_identity SET match_status='candidate' WHERE external_entity_id='trading-cards:400'")
+    doc, err = run(move, source_code="snkrdunk", external_id="apparels:400", from_sku="prb-01", to_sku="prb-02")
+    assert err and "(13, 'trading-cards:400', 'candidate')" in err, "an item another SKU holds live must not move: %r" % err
     lite.conn.execute("UPDATE catalog_sealed_source_identity SET match_status='rejected' WHERE external_entity_id='trading-cards:400'")
     doc, err = run(move, source_code="snkrdunk", external_id="apparels:400", from_sku="prb-01", to_sku="prb-02")
-    assert err and "not on" in err, "an item another SKU also holds (even rejected) must not move: %r" % err
-    print("POSITIVE_OK move-binding moves an item held by one SKU as a candidate and rejects the old freeze; "
-          "an item on two SKUs is refused")
+    assert err is None and rows("SELECT external_entity_id, sealed_id, match_status FROM catalog_sealed_source_identity "
+                                "WHERE external_entity_id LIKE '%:400' ORDER BY 1") == \
+        [("apparels:400", 50, "candidate"), ("trading-cards:400", 13, "rejected")], \
+        "only the live row moves; OP-06 EN's reject of the item stays OP-06 EN's: %r" % ((err, doc),)
+    doc, err = run(move, source_code="snkrdunk", external_id="apparels:400", from_sku="prb-02", to_sku="op-06-en")
+    assert err and "rejected it" in err, "a SKU that rejected the item must not receive it: %r" % err
+    print("POSITIVE_OK move-binding moves the old SKU's live row as a candidate and rejects the old freeze; another "
+          "SKU's reject stays put; an item another SKU holds live, or a target that rejected it, is refused")
 
     accept = sealed_operator.cmd_sealed_accept_binding
     one = dict(sku="prb-01", kind="source", source_code="snkrdunk", actor="claude", note="n", all_resolved=False, group=None)
@@ -438,6 +459,34 @@ def correction_tests() -> None:
     doc, err = run(add, sku="s10b", source_code="snkrdunk", external_id="apparels:300", url="https://snkrdunk.com/apparels/300")
     assert err and "conflict" in err, "add-binding must not take an item another SKU holds: %r" % err
     print("POSITIVE_OK add-binding inserts a candidate; a rejected item or one another SKU holds is refused")
+
+    import hashlib
+    import types
+
+    import sealed_image_harvest
+    blob = b"prb-01-jp-box"
+    digest = hashlib.sha256(blob).hexdigest()
+    real = sys.modules.get("requests")
+    sys.modules["requests"] = types.SimpleNamespace(get=lambda url, **kw: types.SimpleNamespace(status_code=200, content=blob))
+    sealed_image_harvest.ASSETS_DIR = TMP / "assets"
+    sealed_image_harvest.to_webp_variants = lambda raw: (raw, raw, raw, 600, 600)
+    try:
+        lite.conn.execute("INSERT INTO market_sealed_image_asset (sealed_id, image_kind, content_sha256, captured_at) "
+                          "VALUES (13, 'box_front', ?, '2026-08-01')", (digest,))
+        add_image = sealed_operator.cmd_sealed_add_image
+        doc, err = run(add_image, sku="prb-01", url="https://cdn.snkrdunk.com/prb01.webp")
+        assert err is None and doc["sha"] == digest and rows(
+            f"SELECT sealed_id FROM market_sealed_image_asset WHERE content_sha256='{digest}' ORDER BY 1") == [(13,), (48,)], \
+            "an asset no other SKU shows goes to its right SKU: %r" % ((err, doc),)
+        accept(**{**one, "sku": "prb-01", "kind": "image", "source_code": ""}, external_id=digest)
+        doc, err = run(add_image, sku="prb-02", url="https://cdn.snkrdunk.com/prb01.webp")
+        assert err and "accepted image" in err, "an image another SKU shows must be refused: %r" % err
+    finally:
+        if real is None:
+            sys.modules.pop("requests", None)
+        else:
+            sys.modules["requests"] = real
+    print("POSITIVE_OK add-image gives a revoked asset to its right SKU; an image another SKU shows is refused")
 
 
 def main() -> int:

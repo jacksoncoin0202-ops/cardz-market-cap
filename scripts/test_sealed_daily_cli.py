@@ -188,12 +188,14 @@ def main() -> int:
     assert code == 0 and EVENTS[0] == ("lease", "sealed:set-product"), (code, EVENTS)
     assert EVENTS[-1] == ("cmd_sealed_set_product", True, {
         "sku": "optcg-jp-eb-03-booster-box-std", "actor": "daddy", "note": "news 75635",
-        "fields": {"name_en": None, "name_jp": None, "release_month": "2025-10", "packs_per_box": None, "official_url": None}}), EVENTS
+        "fields": {"name_en": None, "name_jp": None, "release_month": "2025-10", "packs_per_box": None, "official_url": None,
+                   "status": None}}), EVENTS
     # every flag reaches its field: a dropped one would leave the wrong fact in place without a word
     code = run(["set-product", "--sku", "x", "--name-en", "E", "--name-jp", "J", "--release", "2026-01", "--packs", "10",
-                "--official-url", "https://o.example/p", "--note", "n"])
+                "--official-url", "https://o.example/p", "--status", "no-box", "--note", "n"])
     assert code == 0 and EVENTS[-1][2]["fields"] == {"name_en": "E", "name_jp": "J", "release_month": "2026-01", "packs_per_box": 10,
-                                                     "official_url": "https://o.example/p"}, "set-product flag lost: %r" % EVENTS
+                                                     "official_url": "https://o.example/p", "status": "no-box"}, \
+        "set-product flag lost: %r" % EVENTS
     for argv in (add[:-2], ["set-product", "--sku", "x", "--release", "2025-10"]):
         try:
             run(argv)
