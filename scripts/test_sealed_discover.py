@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pipelines"))
 
+import sealed_fullname_backfill as fullname  # noqa: E402
 from sealed_discover_lib import (  # noqa: E402
     expand_pc_image_sizes,
     grammar_full_name_en,
     grammar_full_name_ja,
+    insert_candidate_bind,
     is_pc_box_url,
     match_pc_inventory,
     parse_pc_category_consoles,
@@ -136,6 +139,84 @@ def test_yahoo_rewrite_wave_english():
     assert yahoo_query_needs_rewrite(url, "jp")
     query = yahoo_jp_query("ロマンスドーン", "Romance Dawn", "wave1")
     assert "初版" in query and "BOX" in query
+
+
+class BindCursor:
+    """insert_candidate_bind's lookups answered from fixed rows; every statement recorded."""
+
+    def __init__(self, *rows):
+        self.rows, self.sql = list(rows), []
+
+    def execute(self, sql, params=()):
+        self.sql.append(" ".join(sql.split()))
+
+    def fetchone(self):
+        return self.rows.pop(0) if self.rows else None
+
+
+def _bind(cur, sealed_id, ext="apparels:552991"):
+    return insert_candidate_bind(cur, source="snkrdunk", external_id=ext, sealed_id=sealed_id,
+                                 url="https://snkrdunk.com/" + ext.replace(":", "/"), note="{}", origin="search")
+
+
+def test_candidate_bind_never_reopens_a_reject():
+    # 2026-09-23: the weekly SNK search found apparels:552991 (a DIESEL T-shirt) for BW1B again and flipped its
+    # rejected row back to candidate, one bulk accept away from pricing a box off a T-shirt.
+    cur = BindCursor({"sealed_id": 307, "match_status": "rejected"})
+    status = _bind(cur, 307)
+    writes = [s for s in cur.sql if s.startswith(("UPDATE", "INSERT"))]
+    assert status == "already_rejected" and not writes, "a rejected item was reopened: %r %r" % (status, writes)
+    cur = BindCursor({"sealed_id": 307, "match_status": "candidate"})
+    assert _bind(cur, 307) == "updated" and cur.sql[-1].startswith("UPDATE"), cur.sql
+    cur = BindCursor(None, None)
+    assert _bind(cur, 356, "apparels:881421") == "inserted" and cur.sql[-1].startswith("INSERT"), cur.sql
+    cur = BindCursor({"sealed_id": 41, "match_status": "exact"})
+    assert _bind(cur, 45, "apparels:767625") == "conflict_exact" and len(cur.sql) == 1, cur.sql
+
+
+class NameCursor:
+    """Answers the full-name loaders by table: source freezes, then identity rows of the queried source."""
+
+    def __init__(self, freezes, idents):
+        self.freezes, self.idents, self.last = freezes, idents, []
+
+    def execute(self, sql, params=()):
+        if "operator_sealed_binding_freeze" in sql:
+            self.last = self.freezes
+        else:
+            source = "snkrdunk" if "'snkrdunk'" in sql else "pricecharting"
+            self.last = [r for r in self.idents if r["source"] == source]
+
+    def fetchall(self):
+        return self.last
+
+
+def test_fullname_only_from_accepted_binds():
+    # 2026-09-23 dry run: the backfill would have named BW1B after a DIESEL T-shirt and BW1W after the Shiny
+    # Collection box, both unreviewed SNK candidates. Only an accepted source bind may name a product.
+    def snk(en, ja=""):
+        return json.dumps({"snkName": en, "snkLocalized": ja})
+
+    freezes = [
+        {"sealed_id": 41, "source_code": "snkrdunk", "external_entity_id": "trading-cards:767625", "acceptance_status": "accepted"},
+        {"sealed_id": 69, "source_code": "pricecharting", "external_entity_id": "pokemon-151/booster-box", "acceptance_status": "accepted"},
+        {"sealed_id": 308, "source_code": "snkrdunk", "external_entity_id": "apparels:480865", "acceptance_status": "revoked"},
+    ]
+    idents = [
+        {"source": "snkrdunk", "sealed_id": 41, "external_entity_id": "trading-cards:767625", "note": snk("EB-03 EN Box", "EB-03 英語版")},
+        {"source": "snkrdunk", "sealed_id": 307, "external_entity_id": "apparels:552991", "note": snk('DIESEL T-BOXT-R29 "BLACK"')},
+        {"source": "snkrdunk", "sealed_id": 308, "external_entity_id": "apparels:480865", "note": snk("Shiny Collection 1ED Box")},
+        {"source": "pricecharting", "sealed_id": 69, "external_entity_id": "pokemon-151/booster-box",
+         "note": json.dumps({"pcName": "151 Booster Box"}), "canonical_url": None},
+        {"source": "pricecharting", "sealed_id": 35, "external_entity_id": "yugioh-x/booster-box",
+         "note": json.dumps({"pcName": "Yu-Gi-Oh Booster Box"}), "canonical_url": None},
+    ]
+    cur = NameCursor(freezes, idents)
+    accepted = fullname.accepted_binds(cur)
+    names = fullname.load_snk_names(cur, accepted), fullname.load_pc_names(cur, accepted)
+    assert names == ({41: {"en": "EB-03 EN Box", "ja": "EB-03 英語版", "source": "snkrdunk"}},
+                     {69: {"en": "151 Booster Box", "ja": "", "source": "pricecharting"}}), \
+        "only an accepted bind may name a product: %r" % (names,)
 
 
 if __name__ == "__main__":

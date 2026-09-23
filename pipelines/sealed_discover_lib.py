@@ -160,7 +160,7 @@ def insert_candidate_bind(
     note: str,
     origin: str,
 ) -> str:
-    """Insert a resolved candidate. Never steal an exact id owned by another SKU."""
+    """Insert a resolved candidate. Never steal an exact id owned by another SKU, never reopen a rejected one."""
     cur.execute(
         """
         SELECT sealed_id, match_status FROM catalog_sealed_source_identity
@@ -172,6 +172,10 @@ def insert_candidate_bind(
     if existing:
         if int(existing["sealed_id"]) != sealed_id:
             return "conflict_exact" if existing["match_status"] == "exact" else "conflict_other"
+        if existing["match_status"] == "rejected":
+            # A reject is a decision, not a cache entry: rediscovering the same item must not reopen it
+            # (2026-09-23 the weekly SNK search flipped BW1B's rejected DIESEL T-shirt back to candidate).
+            return "already_rejected"
         cur.execute(
             """
             UPDATE catalog_sealed_source_identity

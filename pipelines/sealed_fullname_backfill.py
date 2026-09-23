@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """Fill catalog_sealed_product full_name_en / full_name_ja.
 
-Priority:
+Priority (names come only from an accepted source bind; a candidate never names a product):
   1. SNK master name + localizedName (bind note or warehouse / harvest)
   2. PriceCharting VGPC.product name (bind note or cached HTML)
   3. Grammar fallback — never NULL
@@ -30,15 +30,33 @@ def _note_json(note: str | None) -> dict:
     return doc if isinstance(doc, dict) else {}
 
 
-def load_snk_names(cur) -> dict[int, dict[str, str]]:
+def accepted_binds(cur) -> set[tuple[int, str, str]]:
+    """(sealed_id, source, external id) of each accepted source bind. Only these may name a product: a candidate
+    is unreviewed (2026-09-23 SNK discover proposed a DIESEL T-shirt for BW1B, which would have become its name)."""
     cur.execute(
         """
-        SELECT sealed_id, note FROM catalog_sealed_source_identity
+        SELECT sealed_id, source_code, external_entity_id, acceptance_status FROM operator_sealed_binding_freeze
+        WHERE freeze_kind='source'
+        """
+    )
+    return {
+        (int(r["sealed_id"]), str(r["source_code"]), str(r["external_entity_id"]))
+        for r in cur.fetchall()
+        if r["acceptance_status"] == "accepted"
+    }
+
+
+def load_snk_names(cur, accepted: set[tuple[int, str, str]]) -> dict[int, dict[str, str]]:
+    cur.execute(
+        """
+        SELECT sealed_id, external_entity_id, note FROM catalog_sealed_source_identity
         WHERE source_code='snkrdunk' AND match_status<>'rejected'
         """
     )
     out: dict[int, dict[str, str]] = {}
     for row in cur.fetchall():
+        if (int(row["sealed_id"]), "snkrdunk", str(row["external_entity_id"])) not in accepted:
+            continue
         doc = _note_json(row["note"])
         name = str(doc.get("snkName") or "").strip()
         localized = str(doc.get("snkLocalized") or "").strip()
@@ -47,15 +65,17 @@ def load_snk_names(cur) -> dict[int, dict[str, str]]:
     return out
 
 
-def load_pc_names(cur) -> dict[int, dict[str, str]]:
+def load_pc_names(cur, accepted: set[tuple[int, str, str]]) -> dict[int, dict[str, str]]:
     cur.execute(
         """
-        SELECT sealed_id, note, canonical_url FROM catalog_sealed_source_identity
+        SELECT sealed_id, external_entity_id, note, canonical_url FROM catalog_sealed_source_identity
         WHERE source_code='pricecharting' AND match_status<>'rejected'
         """
     )
     out: dict[int, dict[str, str]] = {}
     for row in cur.fetchall():
+        if (int(row["sealed_id"]), "pricecharting", str(row["external_entity_id"])) not in accepted:
+            continue
         doc = _note_json(row["note"])
         name = str(doc.get("pcName") or "").strip()
         if not name:
@@ -94,8 +114,9 @@ def main() -> int:
             """
         )
         products = [dict(r) for r in cur.fetchall()]
-        snk = load_snk_names(cur)
-        pc = load_pc_names(cur)
+        accepted = accepted_binds(cur)
+        snk = load_snk_names(cur, accepted)
+        pc = load_pc_names(cur, accepted)
         for product in products:
             sealed_id = int(product["id"])
             en = grammar_full_name_en(product)
