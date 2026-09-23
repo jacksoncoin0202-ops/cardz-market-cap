@@ -1096,8 +1096,10 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title, scope 
               heading 唔再擺 heatmap.body 描述句（換語言唔會再偷 heatmap 高度；
               描述句保留喺下面 legend 嘅 aria-label 同 share image）。 */}
           <h1 id="heatmap-heading">{title.replace("{count}", String(cards.length))}</h1>
-          {/* 總市值用 CapTicker：載入 / 期間切換 / 拉 slider 都係由上一個顯示值滾去新值，唔會跳字 */}
-          <p className="heatmap-total-cap">{t.labels.marketCap} · <CapTicker value={totalCap} format={formatTotalCap} /></p>
+          {/* 總市值用 CapTicker：載入 / 期間切換 / 拉 slider 都係由上一個顯示值滾去新值，唔會跳字。
+              個數只計畫咗嘅格，所以冇揀晒全部格（手機預設 23）就講明「前 N 張市值」，
+              唔係 H1 嗰個 Top 100 嘅總數。 */}
+          <p className="heatmap-total-cap">{visibleCount < cards.length ? t.heatmap.totalCapTop.replace("{count}", String(visibleCount)) : t.labels.marketCap} · <CapTicker value={totalCap} format={formatTotalCap} /></p>
         </div>
         {controls}
       </div>

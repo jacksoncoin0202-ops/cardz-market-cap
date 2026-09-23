@@ -37,6 +37,9 @@ check("no first-paint slice", !/firstPaintScope|MARKET_INITIAL_VISIBLE/.test(hom
 check("mobile heatmap default 23", /const MOBILE_TILE_COUNT = 23/.test(heatmap));
 check("desktop heatmap uses full card count", /isMobileTiles \? MOBILE_TILE_COUNT : cards\.length/.test(heatmap));
 check("heatmap title uses full catalog", /title\.replace\("\{count\}", String\(cards\.length\)\)/.test(heatmap));
+/* 總市值只加畫咗嘅格：少過全數（手機 23）就要講明「前 N 張」，唔准同 H1 嘅 Top 100 撞 */
+check("heatmap total cap names its scope when not every tile is shown", /visibleCount < cards\.length \? t\.heatmap\.totalCapTop\.replace\("\{count\}", String\(visibleCount\)\) : t\.labels\.marketCap\} · <CapTicker value=\{totalCap\}/.test(heatmap));
+check("totalCapTop has {count} in all 5 locales", (read("apps/web/src/lib/i18n.ts").match(/totalCapTop: "[^"]*\{count\}[^"]*"/g) ?? []).length === 5);
 check("ranking title uses full catalog", /rankingTitle\.replace\("\{count\}", String\(cards\.length\)\)/.test(rankings) || /t\.heatmap\.rankingTitle\.replace\("\{count\}", String\(cards\.length\)\)/.test(rankings));
 check("FE03 visual component unchanged", !/separateAwaiting|awaiting-section|jsonLdPosition/.test(marketPage));
 
@@ -44,4 +47,4 @@ if (failed.length) {
   console.error("FAIL FE03 data wiring:\n" + failed.map((item) => ` - ${item}`).join("\n"));
   process.exit(1);
 }
-console.log("PASS FE03 full-catalog data wiring (16 contracts)");
+console.log("PASS FE03 full-catalog data wiring (18 contracts)");

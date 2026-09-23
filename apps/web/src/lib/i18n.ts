@@ -143,6 +143,9 @@ export interface Copy {
     rankingTitle: string;
     pokemonTitle: string;
     onePieceTitle: string;
+    /* 總市值 label：slider 冇揀晒全部格嗰陣（手機預設 23），講明係「前 N 張」嘅市值；
+       H1 永遠用全數（owner 2026-08-15 還原 Top 100），唔跟格數 */
+    totalCapTop: string;
     body: string;
     negative: string;
     /* legend 灰格兩種：neutral = 冇數（斜紋），flat = 印出嚟 0.0%（實色） */
@@ -476,6 +479,7 @@ export const copy: Record<Locale, Copy> = {
       rankingTitle: "Top {count} by market cap",
       pokemonTitle: "Pokémon heatmap",
       onePieceTitle: "One Piece heatmap",
+      totalCapTop: "Top {count} market cap",
       body: "Area represents current PSA 10 market cap. Colour follows the selected price window.",
       negative: "Down",
       neutral: "Data pending",
@@ -716,6 +720,7 @@ export const copy: Record<Locale, Copy> = {
     },
     heatmap: {
       title: "市值前 {count} 熱力圖", rankingTitle: "市值前 {count} 排行", pokemonTitle: "寶可夢市場熱力圖", onePieceTitle: "海賊王市場熱力圖",
+      totalCapTop: "前 {count} 張市值",
       body: "面積代表現時 PSA 10 市值，色彩反映所選期間的價格變化。",
       negative: "下跌", neutral: "資料累積中", flat: "持平", positive: "上升", tilesLabel: "顯示格數",
       fullscreen: "全螢幕展示", exitFullscreen: "離開全螢幕",
@@ -929,6 +934,7 @@ export const copy: Record<Locale, Copy> = {
     },
     heatmap: {
       title: "市值前 {count} 热力图", rankingTitle: "市值前 {count} 排行", pokemonTitle: "宝可梦市场热力图", onePieceTitle: "海贼王市场热力图",
+      totalCapTop: "前 {count} 张市值",
       body: "面积代表当前 PSA 10 市值，色彩反映所选期间的价格变化。",
       negative: "下跌", neutral: "数据累积中", flat: "持平", positive: "上涨", tilesLabel: "显示格数",
       fullscreen: "全屏展示", exitFullscreen: "退出全屏",
@@ -1141,6 +1147,7 @@ export const copy: Record<Locale, Copy> = {
     },
     heatmap: {
       title: "時価総額 TOP {count}", rankingTitle: "時価総額トップ {count}", pokemonTitle: "ポケモン TOP {count}", onePieceTitle: "ワンピース TOP {count}",
+      totalCapTop: "上位 {count} 枚の時価総額",
       body: "面積は現在の PSA 10 時価総額、色は選択期間の価格変化を表します。",
       negative: "下落", neutral: "集計中", flat: "横ばい", positive: "上昇", tilesLabel: "表示数",
       fullscreen: "フルスクリーン表示", exitFullscreen: "フルスクリーンを終了",
@@ -1360,6 +1367,7 @@ export const copy: Record<Locale, Copy> = {
     },
     heatmap: {
       title: "시가총액 TOP {count}", rankingTitle: "시가총액 상위 {count}", pokemonTitle: "포켓몬 TOP {count}", onePieceTitle: "원피스 TOP {count}",
+      totalCapTop: "상위 {count}장 시가총액",
       body: "면적은 현재 PSA 10 시가총액, 색상은 선택 기간의 가격 변동을 나타냅니다.",
       negative: "하락", neutral: "집계 중", flat: "보합", positive: "상승", tilesLabel: "표시 수",
       fullscreen: "전체 화면 표시", exitFullscreen: "전체 화면 종료",
