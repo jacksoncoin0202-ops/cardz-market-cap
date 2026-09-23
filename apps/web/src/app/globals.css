@@ -1822,7 +1822,11 @@ html { scrollbar-gutter: stable; }
 .ranking-heading h2 { margin-bottom: 0; font-size: clamp(28px, 3.2vw, 44px); }
 .ranking-heading p:not(.section-kicker) { max-width: 680px; margin: 7px 0 0; color: var(--muted); }
 .desktop-ranking-table {
+  /* clip 唔係 hidden（FE05 A1）：hidden 令呢個框變 scroll container，thead th 嘅 sticky 就只係對住個框黐 ——
+     框本身唔會捲，表頭跟住成張表碌走（實測 1440 闊碌入表 1500px，th top = -1499）。clip 一樣裁圓角，
+     但唔係 scroll container，th 先會對 viewport 黐。舊 Safari（<16）唔識 clip，跌返上一行 hidden：表頭唔黐，同改之前一樣。 */
   overflow: hidden;
+  overflow: clip;
   border: 1px solid var(--line);
   border-radius: var(--section-radius);
   background: var(--surface-translucent);
@@ -1830,7 +1834,9 @@ html { scrollbar-gutter: stable; }
 .desktop-ranking-table table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .desktop-ranking-table thead th {
   position: sticky;
-  top: 0;
+  /* 釘喺 sticky 榜標題（.ranking-heading，top = --header-height）底下。標題實高隨語言／闊度變，
+     lib/use-ranking-heading-height.ts 量咗寫落 section；未量到 = 0 → 表頭匿喺標題（z-index 40）後面。 */
+  top: calc(var(--header-height) + var(--ranking-heading-h, 0px));
   z-index: 5;
   background: var(--surface-translucent);
   -webkit-backdrop-filter: blur(12px) saturate(120%);

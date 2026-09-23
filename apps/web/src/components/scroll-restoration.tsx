@@ -38,10 +38,10 @@ function entryKey(): string {
   return `${STORE_PREFIX}${window.location.pathname}${window.location.search}`;
 }
 
-/* sticky header + sticky 榜標題遮住嘅高度：anchor 唔可以揀藏喺佢哋後面嗰行 */
+/* sticky header + sticky 榜標題 + 桌面 sticky 表頭遮住嘅高度：anchor 唔可以揀藏喺佢哋後面嗰行 */
 function stickyBottom(): number {
   let bottom = 0;
-  document.querySelectorAll<HTMLElement>("header, .ranking-heading").forEach((el) => {
+  document.querySelectorAll<HTMLElement>("header, .ranking-heading, .desktop-ranking-table thead th:first-child").forEach((el) => {
     const style = getComputedStyle(el);
     if (style.position !== "sticky" && style.position !== "fixed") return;
     const rect = el.getBoundingClientRect();

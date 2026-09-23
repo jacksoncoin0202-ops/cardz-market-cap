@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { PackageOpen } from "lucide-react";
 import { BoxImage } from "./box-image";
@@ -18,6 +18,7 @@ import { DEFAULT_RANKING_PAGE_SIZE } from "@/lib/pagination";
 import type { Currency, Locale, PrintLanguage, SealedProductView } from "@/lib/types";
 import { useMarketSettings, type PrintLangFilter } from "@/lib/use-market-settings";
 import { useMediaQuery } from "@/lib/use-media-query";
+import { useRankingHeadingHeight } from "@/lib/use-ranking-heading-height";
 
 const INITIAL_ROWS = 50;
 /* 「顯示更多」每次 +50，唔係一下 mount 幾百行 */
@@ -125,9 +126,12 @@ export function BoxRankings({ products, rates, locale, currency, href }: {
   /* 同 rankings.tsx：≤680 .ranking-heading 係一行（h2 左、掣右），六粒掣擺唔落 → 收埋做 PeriodMenu popover。
      之前漏咗呢度，/box 手機版 h2 被夾到一字一行、六粒掣撐成一大塊（owner 2026-08-17 截圖）。 */
   const isMobileBar = useMediaQuery(MOBILE_BAR_QUERY);
+  /* 同 rankings.tsx：桌面表頭釘喺 sticky 標題底下，要知標題實高 */
+  const headingRef = useRef<HTMLDivElement>(null);
+  useRankingHeadingHeight(headingRef);
   return (
     <section className="rankings-section" id="box-ranking" aria-labelledby="box-ranking-heading" aria-busy={queryPending || isPending}>
-      <div className="ranking-heading">
+      <div className="ranking-heading" ref={headingRef}>
         <div>
           <p className="section-kicker">{t.nav.box}</p>
           <h2 id="box-ranking-heading">{title}</h2>

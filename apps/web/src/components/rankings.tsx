@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { ArrowDown, ArrowUp, Inbox, SearchX, TrendingDown, TrendingUp } from "lucide-react";
 import { CardImage } from "./card-image";
 import { cardNameLangAttr, displayCardName } from "@/lib/card-name";
@@ -20,6 +20,7 @@ import { tap } from "@/lib/haptic";
 import { cardMatchesQuery, nextExploreSort, normaliseCardSort, sortCards } from "@/lib/list-explore";
 import { URL_SHOW_CAP, useMarketSettings, type PrintLangFilter } from "@/lib/use-market-settings";
 import { useMediaQuery } from "@/lib/use-media-query";
+import { useRankingHeadingHeight } from "@/lib/use-ranking-heading-height";
 import { DEFAULT_RANKING_PAGE_SIZE, RANKING_PAGE_SIZES, type RankingScope } from "@/lib/pagination";
 import type { CatalogEntry, Currency, Locale, MarketCardView, MarketMetric, MarketViewSnapshot, MarketWindow, TrackedSalesMetric } from "@/lib/types";
 
@@ -149,6 +150,9 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
   useEffect(() => setHydrated(true), []);
   const isMobileList = useMediaQuery(MOBILE_LIST_QUERY);
   const isMobileBar = useMediaQuery(MOBILE_BAR_QUERY);
+  /* 桌面表頭釘喺 sticky 標題底下，要知標題實高（見 use-ranking-heading-height.ts） */
+  const headingRef = useRef<HTMLDivElement>(null);
+  useRankingHeadingHeight(headingRef);
   const [sortSheetOpen, setSortSheetOpen] = useState(false);
   const searching = Boolean(query.trim());
   useEffect(() => {
@@ -319,7 +323,7 @@ export function Rankings({ cards, locale, currency, snapshot, href, watchlist = 
   return (
     <section className="rankings-section" id="market-ranking" aria-labelledby="ranking-heading" aria-busy={resultsBusy}>
       {/* 搜尋模式手機收起 kicker、h2 縮成一行（h2 要留住，section 嘅 aria-labelledby 指住佢） */}
-      <div className="ranking-heading" data-searching={searching ? "true" : "false"}>
+      <div className="ranking-heading" ref={headingRef} data-searching={searching ? "true" : "false"}>
         <div>
           <p className="section-kicker">{watchlist ? t.labels.watchStatus : marketLabel ?? t.nav.all}</p>
           <h2 id="ranking-heading">{heading}</h2>
