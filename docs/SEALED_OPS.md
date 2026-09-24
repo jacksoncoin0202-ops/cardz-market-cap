@@ -13,14 +13,14 @@ $PY = 'C:\Users\jackson0202\AppData\Local\Programs\Python\Python310\python.exe' 
 
 & $PY -X utf8 pipelines\sealed_daily.py status
 & $PY -X utf8 pipelines\sealed_daily.py gaps --limit 50
-& $PY -X utf8 -u pipelines\sealed_daily.py refresh   # 每日：incr PC → SNK → Yahoo（只刷 accepted bind）+ compose
+& $PY -X utf8 -u pipelines\sealed_daily.py refresh   # 手動補刷：incr PC → SNK（只刷 accepted bind）+ compose
 & $PY -X utf8 -u pipelines\sealed_daily.py scan      # 每週：release 到期 / upcoming / 未 bind + SNK/PC discovery
 ```
 
 前置：PriceCharting 需要 CDP Chrome —— `powershell -NoProfile -File scripts/ensure_chrome_cdp.ps1 -Port 9333 -UserDataDir $env:LOCALAPPDATA\cardz-chrome-cdp-9333`（Windows 側）。
 
 - 除咗 `collect`／`compose`／`export`／`status`／`gaps`，其餘全部（包括下面嘅更正指令）攞 operator e2e lease；V2 行緊會被拒，唔好夾硬。`collect`／`compose`／`export`／`status`／`gaps` 唔攞 lease，因為 V2 box stage 攞住 lease 行 compose + export 做 child。
-- V2 box stage 每日自己 compose + export `/box`，但唔會 collect：`refresh` 要喺 V2（11:00 JST）之前或者 17:00 之後跑，下一轉 V2 先會出街。
+- V2 box stage（卡 accept 之後）每日自己 incr pull PC → SNK，再 compose + export `/box`（2026-09-24 起）。PC 同卡一樣用 9333 兩條 tab（`sealed_collect.prefetch_pc_pages` 用返卡嗰個 pool），抓唔到嘅頁先逐頁 `cmd_fetch`；Cloudflare storm 就停。pull 紅唔擋 compose／export，收據 `boxPullRed` 會寫出嚟。手動 `refresh` 只係補刷，要喺 V2（11:00–17:00 JST）以外跑。
 - `sealed_collect` 全部 fetch 失敗都 exit 0，所以 `refresh` 逐個 adapter 睇今次寫嘅 report：exit≠0、冇今次嘅 report、attempted>0 但 ok=0 都算紅。收據 `refresh-receipt.json` 嘅 `red` 唔係空就 exit 2。PC 紅唔擋 SNK／Yahoo／compose。
 - `refresh` 只刷 accepted bind（同 P6 一樣）；candidate 要先 accept。product export 只出 accepted source freeze。唔好塞入 PSA10 `daily --refresh --pass`。
 
@@ -35,7 +35,7 @@ $PY = 'C:\Users\jackson0202\AppData\Local\Programs\Python\Python310\python.exe' 
 5. **搵 source**：`sealed_bind_resolve.py --source snkrdunk`、`--source pricecharting`（9333），再 `sealed_fullname_backfill.py`、`sealed_image_harvest.py --refresh`、`sealed_price_triage.py`（見下面 Bind → Freeze）。
 6. **人手 accept**：新盒逐隻對證據 accept（`accept-binding --sku ... --kind source/image`）。**唔准 bulk accept 新貨；`ptcg-jp` 一律逐隻**：SNK 舊 JP 盒 candidate 試過黐到 DIESEL T 恤同第二個系列。
 7. **第一次全量**：`stock`（唔准用 incr 頂第一次）。收據 blocked＝件 source 貨同另一隻 SKU 共用，要人手裁決先再 stock。
-8. **之後日常**：V2 11:00 box stage compose + export `/box`；每日 `refresh`（V2 前或 17:00 後）刷價。
+8. **之後日常**：V2 box stage 自己 pull + compose + export `/box`；唔使再手動 `refresh`。
 
 ## 更正：錯嘅嘢用狀態落，唔准 delete
 

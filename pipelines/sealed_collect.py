@@ -27,6 +27,7 @@ import hashlib
 import json
 import re
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -239,6 +240,48 @@ def _select(cur, adapter: str, mode: str, *, limit: int | None, allow_candidates
 # --- sealed_pc ---------------------------------------------------------------
 
 
+PC_CDP_PORT = 9333
+
+
+def _pc_html_path(item: dict) -> Path:
+    digest = hashlib.sha256(item["url"].encode("utf-8")).hexdigest()[:10]
+    return HTML_DIR / f"{item['sealedId']}_{digest}.html"
+
+
+def _pc_html_fresh(path: Path, max_age_h: float) -> bool:
+    # time.time(), not utc_naive().timestamp(): a naive UTC datetime reads as local time, so on a JST host every
+    # cached page lived 9 h past html_max_age_h and yesterday's page passed as today's.
+    if not path.exists() or (time.time() - path.stat().st_mtime) / 3600.0 >= max_age_h:
+        return False
+    return "VGPC" in path.read_text(encoding="utf-8", errors="replace")[:200000]  # else a CF challenge or junk page
+
+
+def prefetch_pc_pages(jobs: list[tuple[str, Path]]) -> dict:
+    """Fetch box pages on 2 tabs of 9333 with the card sweep's own pool: shared backoff, requeue, CF storm breaker.
+
+    daddy 2026-09-25: boxes run 2 tabs like cards. The stall watchdog stays unarmed: armed, it os._exit()s this
+    process and writes the card PC report path. A page the pool does not land falls back to cf.cmd_fetch."""
+    import asyncio
+
+    import pc_cdp_sold_refresh_win as pool
+
+    rows = [
+        {"variant_id": -(i + 1), "pc_url": url, "html_path": str(path.resolve()), "pc_product_id": "", "looseHtml": True}
+        for i, (url, path) in enumerate(jobs)
+    ]
+    results: list[dict] = []
+    watchdog = pool.new_stall_watchdog_state(batch=len(rows), results=results)
+    try:
+        out = asyncio.run(pool.run_fetch_pool(
+            rows, cdp_port=PC_CDP_PORT, tabs=pool.PC_TABS, sleep_seconds=pool.PC_SLEEP_SECONDS,
+            challenge_wait=120.0, watchdog=watchdog, results=results, start_index=0, batch_size=len(rows),
+        ))
+    finally:
+        watchdog["done"] = True
+    return {key: out.get(key) for key in ("ok", "fail", "cf", "rateLimited", "sessionError", "cfStorm")} | {
+        "attempted": len(rows), "tabs": pool.PC_TABS}
+
+
 def run_pc(conn, items: list[dict], *, mode: str, html_max_age_h: float, timeout_s: int) -> dict:
     import pricecharting_cf_session as cf
     from pricecharting_page_parse import parse_product_html
@@ -247,16 +290,25 @@ def run_pc(conn, items: list[dict], *, mode: str, html_max_age_h: float, timeout
     run_key = _run_key("sealed_pc", mode)
     ok_items: list[dict] = []
     results: list[dict] = []
+    stale = [(item["url"], _pc_html_path(item)) for item in items if not _pc_html_fresh(_pc_html_path(item), html_max_age_h)]
+    prefetch: dict[str, Any] = {"attempted": 0}
+    if stale:
+        try:
+            prefetch = prefetch_pc_pages(stale)
+        except Exception as exc:  # noqa: BLE001 -- the one-page fallback below still runs
+            prefetch = {"attempted": len(stale), "sessionError": f"{type(exc).__name__}:{exc}"}
     for item in items:
         url = item["url"]
-        digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:10]
-        out = HTML_DIR / f"{item['sealedId']}_{digest}.html"
+        out = _pc_html_path(item)
         res: dict[str, Any] = {"sku": item["sku"], "url": url}
         try:
-            fresh = out.exists() and (utc_naive().timestamp() - out.stat().st_mtime) / 3600.0 < html_max_age_h
-            if fresh and "VGPC" not in out.read_text(encoding="utf-8", errors="replace")[:200000]:
-                fresh = False  # cached file is a CF challenge or junk page
-            if not fresh:
+            if not _pc_html_fresh(out, html_max_age_h):
+                if prefetch.get("cfStorm"):
+                    # The pool stopped on a Cloudflare storm; one more tab hammering the same wall does not help.
+                    res["status"] = "fetch_failed"
+                    res["reason"] = "cf_storm"
+                    results.append(res)
+                    continue
                 code = cf.cmd_fetch(url, out, headless=True, timeout_s=timeout_s)
                 if code != 0:
                     res["status"] = "fetch_failed" if code != 4 else "terminal_404"
@@ -349,7 +401,8 @@ def run_pc(conn, items: list[dict], *, mode: str, html_max_age_h: float, timeout
         results.append(res)
     receipt = record_sealed_run(conn, adapter="sealed_pc", mode=mode, items=ok_items, payload=results, started_at=utc_naive())
     conn.commit()
-    return {"adapter": "sealed_pc", "mode": mode, "attempted": len(items), "ok": len(ok_items), "run": receipt, "items": results}
+    return {"adapter": "sealed_pc", "mode": mode, "attempted": len(items), "ok": len(ok_items), "prefetch": prefetch,
+            "run": receipt, "items": results}
 
 
 # --- sealed_snk ---------------------------------------------------------------
