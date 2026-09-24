@@ -234,42 +234,42 @@ def core_blocked_speaks() -> None:
     assert chain_module.blocked_core_source_tasks([]) == []
 
 
-# ---------------------------------------------------------------- audit P0-1
-@check("P0-1 a DEGRADED core source speaks too, and is not sent at a dead lever")
-def degraded_core_blocked_speaks() -> None:
+# ------------------------------------------------- audit P0-1, revised by R5
+@check("R5 a DEGRADED core source is settled: no page, and the contract judges its data")
+def degraded_core_is_settled() -> None:
+    # R5 2026-09-25 restructure: this check used to pin the opposite -- a
+    # DEGRADED core row held the source barrier all day and paged
+    # CORE_TASK_PARKED although no operator command clears DEGRADED.  It now
+    # counts as settled (daily_chain_v2.is_settled): the core contract right
+    # behind the barrier measures gemrate/fx coverage itself and fails closed
+    # (scripts/test_v2_restructure_settled.py pins both halves).
     journal = new_journal("core-degraded")
     chain = new_chain(journal)
-    # daily_chain_v2_worker.py finishes any report with quarantined >= 1 through
-    # finish_success(degraded=True), so a core row reaches DEGRADED without a
-    # single TASK_ERROR being written -- the quietest of the three blocked
-    # states, and the barrier stays shut on it exactly like TERMINAL.
-    blocked = add_source_task(journal, "gemrate", "pop", status="DEGRADED")
+    degraded = add_source_task(journal, "gemrate", "pop", status="DEGRADED")
     sink = io.StringIO()
     os.environ["CARDZ_V2_NOTIFY_DRY_RUN"] = "1"
     try:
         with contextlib.redirect_stdout(sink):
-            drive_plan(journal, chain, BEFORE_CUTOFF, rounds=40)
+            statuses = drive_plan(
+                journal, chain, BEFORE_CUTOFF, until="core-contract-pre", rounds=40
+            )
     finally:
         os.environ.pop("CARDZ_V2_NOTIFY_DRY_RUN", None)
-    parked = events(journal, "CORE_TASK_PARKED")
-    assert len(parked) == 1, [row["event_key"] for row in parked]
-    payload = json.loads(parked[0]["payload_json"])
-    assert payload["state"] == "DEGRADED", payload
-    assert payload["taskKey"] == blocked, payload
-    assert "state=DEGRADED" in sink.getvalue(), sink.getvalue()
-    # DEGRADED is in neither UNPARKABLE_TASK_STATES nor RETIRABLE_TASK_STATES,
-    # so "operator unpark or retire" would point at a lever that is not
-    # connected to anything.
-    assert journal.unpark(blocked, run_id=RUN_ID, reason="fixture") is None
-    assert journal.retire(blocked, run_id=RUN_ID, reason="fixture") is None
-    assert "unpark" not in payload["nextRetry"], payload
-    assert str(journal.task(blocked)["status"]) == "DEGRADED"
-    # The barrier is untouched: DEGRADED never opened it, before or after.
+    assert "core-contract-pre" in statuses, statuses
+    assert events(journal, "CORE_TASK_PARKED") == []
+    assert "v2-task-parked:" not in sink.getvalue(), sink.getvalue()
+    # Still no operator lever on DEGRADED -- the reason it must not block.
+    assert journal.unpark(degraded, run_id=RUN_ID, reason="fixture") is None
+    assert journal.retire(degraded, run_id=RUN_ID, reason="fixture") is None
+    assert str(journal.task(degraded)["status"]) == "DEGRADED"
     assert chain_module.source_barrier_ready(
         [{"required_class": "core", "status": "DEGRADED"}],
-        now=AFTER_CUTOFF,
-        cutoff=BEFORE_CUTOFF,
-    ) is False
+        now=BEFORE_CUTOFF,
+        cutoff=AFTER_CUTOFF,
+    ) is True
+    assert chain_module.blocked_core_source_tasks(
+        [{"required_class": "core", "status": "DEGRADED"}]
+    ) == []
 
 
 # ---------------------------------------------------------------- audit P0-1
@@ -278,7 +278,9 @@ def blocked_core_rows_page_separately() -> None:
     journal = new_journal("core-two-blocked")
     chain = new_chain(journal)
     terminal = add_source_task(journal, "fx", "rates", status="TERMINAL")
-    degraded = add_source_task(journal, "gemrate", "pop", status="DEGRADED")
+    # R5 2026-09-25: the second blocked row is PARKED; a DEGRADED core row
+    # is settled now and pages nobody (see degraded_core_is_settled).
+    parked = add_source_task(journal, "gemrate", "pop", status="PARKED")
     sink = io.StringIO()
     os.environ["CARDZ_V2_NOTIFY_DRY_RUN"] = "1"
     try:
@@ -295,7 +297,7 @@ def blocked_core_rows_page_separately() -> None:
     }
     assert len(keys) == 2, keys
     assert any(terminal in key for key in keys), keys
-    assert any(degraded in key for key in keys), keys
+    assert any(parked in key for key in keys), keys
     assert all(key.startswith(f"v2-task-parked:{DAY.isoformat()}:") for key in keys), keys
     # An event type with no scope keeps the old per-business-date key.
     assert chain_module.ALWAYS_ALERT_EVENTS["FAILED_FINAL"][0] == "v2-run-failed-terminal"

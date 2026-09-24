@@ -70,6 +70,7 @@ from daily_chain_v2_journal import (  # noqa: E402
     iso,
     utc_now,
 )
+from identity_census_stage import census_age_days, census_mtime_iso, census_path  # noqa: E402
 
 
 JST = ZoneInfo("Asia/Tokyo")
@@ -176,7 +177,25 @@ TICK_DRAIN_CEILING_SECONDS = (
     - TICK_DRAIN_TAIL_RESERVE_SECONDS
     - DEFAULT_MAX_RUNTIME_SECONDS
 )
+# R7 2026-09-25: the one Python statement of the unattended daily window.
+# jst_schedule(), next_scheduled_tick_utc() and last_scheduled_tick_utc() all
+# read these, and the cutoff/SLA split is shared with clamp_manual_window().
+# The Task Scheduler trigger (install_cardz_daily_v2_task.ps1: daily 11:00
+# local, PT10M for PT6H) states the same window in PowerShell;
+# scripts/test_v2_restructure_schedule.py parses it and fails on drift.
+FIRST_SCHEDULED_TICK_JST = "11:00"
 LAST_SCHEDULED_TICK_JST = "17:00"
+SCHEDULE_CUTOFF_FRACTION = 0.5
+SCHEDULE_SLA_FRACTION = 0.75
+# R1 2026-09-25 restructure: the identity census only finds NEW cards; the
+# prices of the cards already carried never read it.  A dead census stage
+# (PARKED/TERMINAL) therefore stops holding provider collection while the census
+# last written on disk is at most this many days older than the business date's
+# 11:00 JST start -- and says so (IDENTITY_CENSUS_STALE).  Its mtime is the only
+# evidence: a harvest that lost some sets still rewrites the file, so this is
+# "last written", not "last complete".  Older or missing: the fail-closed
+# CORE_TASK_PARKED park, unchanged.
+CENSUS_FALLBACK_MAX_AGE_DAYS = 3.0
 # 2026-08-22: the manual window was tick start + 600 s, and the run reached
 # publish with four minutes of window left.  Forty-five minutes is the floor
 # a manual E2E actually needs; the next scheduled tick is still the ceiling.
@@ -198,6 +217,9 @@ ALWAYS_ALERT_EVENTS: dict[str, tuple[str, str, int]] = {
     "live.confirmed": ("v2-run-published", "info", 10),
     "FAILED_FINAL": ("v2-run-failed-terminal", "error", 30),
     "CORE_TASK_PARKED": ("v2-task-parked", "error", 30),
+    # R1 2026-09-25: prices went ahead on an older census.  Loud even without
+    # --notify, because it replaces what used to be a CORE_TASK_PARKED page.
+    "IDENTITY_CENSUS_STALE": ("v2-census-stale", "warn", 30),
     # audit P1-2: a publish verdict that cannot be retried is the end of the
     # business date's automatic path.  TASK_ERROR is add_event only, so on
     # 2026-08-23 nothing spoke until FAILED_FINAL at 17:00 JST.
@@ -253,13 +275,23 @@ def jst_schedule(day: date) -> dict[str, datetime]:
     # skipped from 09-07 so the census went 17 days stale, and the source
     # barrier opened with PriceCharting still sweeping.  Cutoff and SLA sit at
     # 50% / 75% of the window, the same split clamp_manual_window gives a
-    # shortened one.
+    # shortened one.  R7 2026-09-25: derived from the schedule constants
+    # (11:00 / 14:00 / 15:30 / 17:00 JST), no second copy of the times.
+    start = at(*jst_hhmm(FIRST_SCHEDULED_TICK_JST))
+    final = at(*jst_hhmm(LAST_SCHEDULED_TICK_JST))
     return {
-        "start": at(11, 0),
-        "source_cutoff": at(14, 0),
-        "sla": at(15, 30),
-        "final": at(17, 0),
+        "start": start,
+        "source_cutoff": start + (final - start) * SCHEDULE_CUTOFF_FRACTION,
+        "sla": start + (final - start) * SCHEDULE_SLA_FRACTION,
+        "final": final,
     }
+
+
+def jst_hhmm(text: str) -> tuple[int, int]:
+    """Parse "HH:MM" into (hour, minute): the schedule constants' one parser."""
+
+    hour_text, minute_text = str(text).strip().split(":", 1)
+    return int(hour_text), int(minute_text)
 
 
 RUN_LABEL_RE = re.compile(r"^[A-Z][A-Z0-9]{1,7}$")
@@ -429,10 +461,9 @@ def last_scheduled_tick_utc(day: date) -> datetime:
 
     text = os.environ.get("CARDZ_V2_LAST_TICK_JST", "").strip() or LAST_SCHEDULED_TICK_JST
     try:
-        hour_text, minute_text = text.split(":", 1)
-        hour, minute = int(hour_text), int(minute_text)
+        hour, minute = jst_hhmm(text)
     except (ValueError, AttributeError):
-        hour, minute = 17, 0
+        hour, minute = jst_hhmm(LAST_SCHEDULED_TICK_JST)
     return datetime.combine(day, day_time(hour, minute), tzinfo=JST).astimezone(timezone.utc)
 
 
@@ -441,7 +472,7 @@ def next_scheduled_tick_utc(after: datetime) -> datetime:
 
     jst = timezone(timedelta(hours=9))
     local = after.astimezone(jst)
-    hour, minute = (int(part) for part in os.environ.get("CARDZ_V2_FIRST_TICK_JST", "11:00").split(":"))
+    hour, minute = jst_hhmm(os.environ.get("CARDZ_V2_FIRST_TICK_JST", FIRST_SCHEDULED_TICK_JST))
     candidate = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
     if candidate <= local:
         candidate += timedelta(days=1)
@@ -496,8 +527,8 @@ def clamp_manual_window(
         return values
     span = (cap - started).total_seconds()
     values["final"] = cap
-    values["source_cutoff"] = started + timedelta(seconds=span * 0.5)
-    values["sla"] = started + timedelta(seconds=span * 0.75)
+    values["source_cutoff"] = started + timedelta(seconds=span * SCHEDULE_CUTOFF_FRACTION)
+    values["sla"] = started + timedelta(seconds=span * SCHEDULE_SLA_FRACTION)
     return values
 
 
@@ -918,10 +949,33 @@ def aggregate_source_health(tasks: Iterable[Mapping[str, Any]]) -> dict[str, Any
 
 
 def degraded_source_codes(source_health: Mapping[str, Any]) -> list[str]:
+    # R5 2026-09-25: a DEGRADED core source now reaches publish (is_settled),
+    # so it is named here too and the run is PUBLISHED_DEGRADED, not PUBLISHED.
+    # A core source retired to SKIPPED stays out, as before.
     return sorted(
         code for code, row in source_health.items()
-        if str(row.get("requiredClass")) != "core" and str(row.get("status")) != "COMPLETED"
+        if str(row.get("status")) != "COMPLETED"
+        and (str(row.get("requiredClass")) != "core" or str(row.get("status")) == "DEGRADED")
     )
+
+
+# R5 2026-09-25: one definition of "settled" for a source-phase row.  A core
+# row is settled once it finished -- COMPLETED, SKIPPED (operator `retire` with
+# a journaled reason) or DEGRADED (finish_success(degraded=True): quarantined
+# items or an empty shard).  DEGRADED used to hold the barrier for the whole
+# business date with no operator command to clear it.  That was never the data
+# gate: the core-contract stage right behind this barrier measures every core
+# source itself (gemrate: a checkpoint for every active member; fx: every
+# supported currency; a core key it cannot measure is complete=False) and fails
+# closed on a shortfall, which plans the repair.  TERMINAL/PARKED core rows did
+# not finish and stay unsettled.  Non-core rows keep their own, wider set.
+CORE_SETTLED_STATES = frozenset({"COMPLETED", "SKIPPED", "DEGRADED"})
+OPTIONAL_SETTLED_STATES = frozenset({"COMPLETED", "DEGRADED", "TERMINAL", "SKIPPED"})
+
+
+def is_settled(row: Mapping[str, Any]) -> bool:
+    states = CORE_SETTLED_STATES if str(row["required_class"]) == "core" else OPTIONAL_SETTLED_STATES
+    return str(row["status"]) in states
 
 
 def source_barrier_ready(
@@ -945,7 +999,8 @@ def source_barrier_ready(
     # pop repair planned from a window bug) must not hold the run behind a
     # re-collection nobody needs.  The contract stage downstream still
     # measures the data itself, so this settles scheduling, not the data gate.
-    if not core or any(str(row["status"]) not in {"COMPLETED", "SKIPPED"} for row in core):
+    # The same holds for a DEGRADED core row (R5, is_settled above).
+    if not core or not all(is_settled(row) for row in core):
         return False
     # Quote/extra sources are allowed to keep their own leases and retry in
     # parallel after the deterministic 10:15 snapshot.  A slow optional source
@@ -954,8 +1009,7 @@ def source_barrier_ready(
         return True
     unsettled = [
         row for row in tasks
-        if str(row["required_class"]) != "core"
-        and str(row["status"]) not in {"COMPLETED", "DEGRADED", "TERMINAL", "SKIPPED"}
+        if str(row["required_class"]) != "core" and not is_settled(row)
     ]
     return not unsettled
 
@@ -963,29 +1017,26 @@ def source_barrier_ready(
 def blocked_core_source_tasks(
     tasks: Sequence[Mapping[str, Any]],
 ) -> list[Mapping[str, Any]]:
-    """Core source rows that settled without succeeding (audit P0-1).
+    """Core source rows that stopped without finishing (audit P0-1).
 
-    source_barrier_ready only opens a core row on COMPLETED/SKIPPED, so the
-    other three settled states -- TERMINAL, PARKED and DEGRADED -- each hold
-    the whole business date, and none of them is ever claimed again
-    (reopen_retryable_terminal refuses a terminal decision; CLAIMABLE_TASK_STATES
-    contains none of the three).  On 2026-08-24 fx:rates:all went TERMINAL at
-    +0.3m and the chain sat silent for 28.9 minutes, because the failure was
-    written as TASK_ERROR, which is not an ALWAYS_ALERT_EVENTS type.
+    TERMINAL and PARKED are the terminal states is_settled refuses for a core
+    row, so each holds the whole business date, and neither is ever claimed
+    again (reopen_retryable_terminal refuses a terminal decision;
+    CLAIMABLE_TASK_STATES contains neither).  On 2026-08-24 fx:rates:all went
+    TERMINAL at +0.3m and the chain sat silent for 28.9 minutes, because the
+    failure was written as TASK_ERROR, which is not an ALWAYS_ALERT_EVENTS type.
+    Both have an operator command: unpark or retire.
 
-    DEGRADED is the quietest and the most reachable of the three: any source
-    report with quarantined >= 1 finishes through finish_success(degraded=True)
-    (daily_chain_v2_worker.py), so there is no TASK_ERROR to find afterwards --
-    and neither unpark nor retire accepts DEGRADED, so the operator has no
-    command to clear it either.  Naming the row is the whole fix; the barrier
-    itself stays exactly as strict.
+    DEGRADED used to be listed here too and hold the barrier with no command
+    to clear it.  R5 2026-09-25: it is settled (is_settled); the core contract
+    behind the barrier is what judges its data.
     """
 
     return [
         row for row in tasks
         if str(row["required_class"]) == "core"
         and str(row["status"]) in TERMINAL_TASK_STATES
-        and str(row["status"]) not in {"COMPLETED", "SKIPPED"}
+        and not is_settled(row)
     ]
 
 
@@ -1003,6 +1054,11 @@ def optional_phase_settled(
 
 
 class DailyChainV2:
+    # R1 2026-09-25: the census file the stale fallback may lean on.  Bound
+    # in __init__; an instance built without it (object.__new__ in unit tests)
+    # has no file on record and keeps the fail-closed park whatever is on disk.
+    census_fallback_path: Path | None = None
+
     def __init__(
         self,
         *,
@@ -1035,6 +1091,7 @@ class DailyChainV2:
         self.receipt_dir = self.runtime_dir / "receipts"
         self.registry = build_default_registry()
         self.schedule = dict(schedule or jst_schedule(business_date))
+        self.census_fallback_path = census_path()
         # Claims this process currently owns, so a signal releases exactly its
         # own work and never steals another tick's live lease.
         self.own_claims: dict[str, str] = {}
@@ -1534,6 +1591,68 @@ class DailyChainV2:
         row = self.stage_row(capability)
         return bool(row and str(row["status"]) in SUCCESS_TASK_STATES)
 
+    def stale_census_fallback(self, census: Mapping[str, Any]) -> bool:
+        """R1 2026-09-25: may plan() go on past an unfinished census?
+
+        It opens only on a dead census (PARKED/TERMINAL) whose file, last
+        written on disk, is at most CENSUS_FALLBACK_MAX_AGE_DAYS older than this
+        business date's 11:00 JST start, and only after IDENTITY_CENSUS_STALE is
+        journaled (deduplicated per census mtime).  Every identity stage is
+        planned after this gate, so identity intake never reads that older file
+        -- or the completeness output rebuilt from it -- without the warning on
+        record first.  The age is anchored on the business date, not on the
+        tick clock, so one run never opens the gate at 11:00 and parks at 16:00.
+
+        Once open it stays open for the run.  Provider rows beside an unfinished
+        census exist only because this opened (a finished census never gets
+        here).  Review fix 2026-09-25: an operator `unpark` of the dead census
+        after that turned it READY, and every tick then stopped at the census
+        gate behind the rerun -- no contract, identity or publish -- which could
+        push a run that was on its way past 17:00 JST into FAILED_FINAL.  The
+        rerun now goes on beside the prices instead of in front of them.
+        """
+
+        path = self.census_fallback_path
+        if path is None:
+            return False
+        if any(
+            str(row.get("source_code") or "") != "system"
+            for row in self.journal.tasks(self.run_id, phase="source")
+        ):
+            return True
+        if str(census.get("status") or "") not in UNPARKABLE_TASK_STATES:
+            return False
+        age = census_age_days(path, jst_schedule(self.business_date)["start"])
+        if age is None or age > CENSUS_FALLBACK_MAX_AGE_DAYS:
+            return False
+        mtime = census_mtime_iso(path)
+        state = str(census.get("status") or "")
+        self.journal_event(
+            "IDENTITY_CENSUS_STALE",
+            f"{census['task_key']}:{mtime}",
+            {
+                "runId": self.run_id, "taskKey": str(census["task_key"]),
+                "phase": "source", "source": "system", "capability": "identity-census",
+                "state": state, "errorCode": str(census.get("last_error_code") or "CENSUS_BLOCKED"),
+                "censusPath": str(path), "censusMtime": mtime,
+                "ageDays": round(age, 3), "maxAgeDays": CENSUS_FALLBACK_MAX_AGE_DAYS,
+                "reason": (
+                    f"today's census stopped; prices continue and identity intake"
+                    f" reads the census from {mtime}"
+                ),
+                # Review 2026-09-25: an unpark today reruns the ~30 min harvest
+                # beside the prices, and a census claim short of budget ends
+                # that tick's claiming.  The next business date refreshes it.
+                "nextRetry": (
+                    "repair; the next business date's 11:00 JST run refreshes the"
+                    " census. Prices and publish no longer wait on it; do not"
+                    " unpark it today"
+                ),
+            },
+            alert_scope=f"{census['task_key']}:stale",
+        )
+        return True
+
     def pending_activation_ids(self) -> list[int]:
         row = self.stage_row("pending-identities") or {}
         if str(row.get("status") or "") not in SUCCESS_TASK_STATES:
@@ -1626,8 +1745,14 @@ class DailyChainV2:
         # deliberately planned before the adapters: when it used to be added
         # after four GemRate shards, only ~18 minutes of the 35-minute claim
         # window remained and the bounded all-set harvest could never start.
-        # A missing/failed census remains retryable and fail-closed here; an old
-        # file is never substituted for the current business date.
+        # A pending/running census is still waited for before the first
+        # provider is planned.  A dead one (PARKED/TERMINAL) used to hold every
+        # price behind it because an old file was never substituted; 2026-09-25
+        # restructure: the census is extra and prices must not wait on it, so a
+        # census file last written at most CENSUS_FALLBACK_MAX_AGE_DAYS before
+        # the start now stands in -- announced as IDENTITY_CENSUS_STALE before
+        # any identity stage reads it -- and the gate stays open for the run
+        # (stale_census_fallback).
         if self.stage_row("identity-census") is None:
             self.add_stage(
                 phase="source",
@@ -1641,7 +1766,8 @@ class DailyChainV2:
         if not self.stage_complete("identity-census"):
             census = self.stage_row("identity-census") or {}
             state = str(census.get("status") or "")
-            if state in UNPARKABLE_TASK_STATES:
+            stale_census_ok = self.stale_census_fallback(census)
+            if state in UNPARKABLE_TASK_STATES and not stale_census_ok:
                 # This mandatory stage bypasses provider/core alerts below.
                 # Use the existing durable, deduplicated blocker notification.
                 self.journal_event(
@@ -1658,7 +1784,8 @@ class DailyChainV2:
                     },
                     alert_scope=f"{census['task_key']}:{state}",
                 )
-            return
+            if not stale_census_ok:
+                return
 
         source_tasks = self.journal.tasks(self.run_id, phase="source")
         provider_source_tasks = [
@@ -1733,15 +1860,9 @@ class DailyChainV2:
                     "attempts": int(blocked.get("attempts") or 0),
                     "maxAttempts": int(blocked.get("max_attempts") or 0),
                     "reason": "core source settled without success; the source barrier stays closed",
-                    # Only PARKED/TERMINAL have an operator command; telling the
-                    # operator to unpark a DEGRADED row sends them at a lever
-                    # that is not connected to anything.
-                    "nextRetry": (
-                        "operator unpark or retire"
-                        if state in UNPARKABLE_TASK_STATES
-                        else "no operator command clears DEGRADED:"
-                        " fix the source and re-run this business date"
-                    ),
+                    # Only PARKED/TERMINAL reach here since R5 2026-09-25 (a
+                    # DEGRADED core row is settled), and both have this command.
+                    "nextRetry": "operator unpark or retire",
                 },
                 alert_scope=f"{blocked['task_key']}:{state}",
             )
@@ -3257,8 +3378,19 @@ class DailyChainV2:
         occurred_at = datetime.fromisoformat(str(event.get("occurredAt") or "").replace("Z", "+00:00"))
         if occurred_at.tzinfo is None:
             occurred_at = occurred_at.replace(tzinfo=timezone.utc)
-        if occurred_at.astimezone(timezone.utc) >= self.schedule["final"]:
-            return
+        # R3 2026-09-25: the outcome follows the fact, not the clock.  A
+        # confirmed live event at or after `final` used to be dropped here, and
+        # lifecycle_events() then stamped FAILED_FINAL on a date whose site was
+        # serving the new generation.  It is recorded as published; lateness
+        # rides in the live.confirmed payload (late=true) so the status values
+        # every reader knows stay the only ones.  The stage's own
+        # `--confirm-before final` insert gate is unchanged: this reader only
+        # stops second-guessing a live.confirmed row that already exists.
+        # Review note 2026-09-25: while that insert gate and may_claim()'s
+        # `final` bound stand, no row at/after `final` is ever written, so this
+        # branch is defensive.  A release that goes live but is confirmed after
+        # 17:00 JST still ends FAILED_FINAL until the stage gate changes.
+        late = occurred_at.astimezone(timezone.utc) >= self.schedule["final"]
         source_health = event.get("sourceHealth") or {}
         degraded = list(event.get("degradedSources") or [])
         status = "PUBLISHED_DEGRADED" if degraded else "PUBLISHED"
@@ -3284,6 +3416,8 @@ class DailyChainV2:
                     "degradedSources": degraded,
                     "sourceHealth": source_health,
                     "liveUrl": event["liveUrl"],
+                    "late": late,
+                    "finalAt": iso(self.schedule["final"]),
                 },
             )
 
@@ -3291,7 +3425,8 @@ class DailyChainV2:
         """The last instant this publish retry may start and still finish its leg.
 
         R4 2026-08-24: `final` is the business date's 17:00 JST cutoff and
-        lifecycle_events() stamps FAILED_FINAL there unconditionally, so a
+        lifecycle_events() stamps FAILED_FINAL there on any run that has not
+        recorded a publication (R3 2026-09-25: finalise_live runs first), so a
         publish backoff that lands after `final - <leg>` is an attempt the run
         owns but can never spend.  Capping the ladder is the honest repair; the
         cutoff itself stays exactly where it is.

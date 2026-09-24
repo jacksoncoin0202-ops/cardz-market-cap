@@ -281,14 +281,15 @@ Check "watchdog-yesterday-done-stale-fires" (($r7.Out -match "NOTIFY_DRYRUN v2-h
 $r8 = Invoke-Watchdog $hYest $afterWindowNow
 Check "watchdog-yesterday-done-not-done-fires" (($r8.Out -match "NOTIFY_DRYRUN v2-not-done") -and ($r8.Code -eq 2)) "exit=$($r8.Code) :: $((($r8.Out -split "`r?`n") | Where-Object { $_ -match 'NOTIFY_DRYRUN' } | Select-Object -First 1))"
 
-# ---- (d) installer -Print: all three tasks go through the vbs --------------
+# ---- (d) installer -Print: both managed tasks go through the vbs ----------
 $rInst = Invoke-Capture $PsExe "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$Installer`" -Print"
 $wscriptHits = ([regex]::Matches($rInst.Out, "wscript\.exe")).Count
 Check "installer-print-exit0" ($rInst.Code -eq 0) "exit=$($rInst.Code)"
-Check "installer-print-three-wscript-actions" ($wscriptHits -ge 3) "wscript.exe occurrences = $wscriptHits"
+Check "installer-print-two-wscript-actions" ($wscriptHits -ge 2) "wscript.exe occurrences = $wscriptHits"
 Check "installer-print-daily-action" ($rInst.Out -match "cardz_daily_v2_launcher\.ps1") "daily launcher action present"
 Check "installer-print-watchdog-action" ($rInst.Out -match "watchdog_live_release\.ps1") "watchdog action present"
-Check "installer-print-promo-action" ($rInst.Out -match "promo_after_publish\.py") "promo action present"
+# 2026-09-25: the promo task was stopped by the owner on 2026-09-23; the installer no longer manages it.
+Check "installer-print-no-promo-action" (-not ($rInst.Out -match "promo_after_publish\.py|CARDZ-Promo-After-Publish")) "promo task not managed"
 Check "installer-print-no-apply" (-not ($rInst.Out -match '"result"')) "-Print must not apply"
 # P0 2026-08-24: the computed StartBoundary used to be invisible in the plan, which
 # is why a mid-window -Apply could delete 79 of the day's 82 ticks in silence.

@@ -157,9 +157,6 @@ def test_window_constants_match_the_repetition_patterns():
     assert re.search(r"\$WatchdogWindowMinutes\s*=\s*420", text)
     assert 'Duration = "PT7H"' in text
     assert 'Interval = "PT10M"' in text
-    # The 17:45 promo trigger has no Repetition, so AddDays(1) is correct there
-    # and must NOT be "fixed" into a same-day boundary.
-    assert 'trigger = "daily 17:45 local"' in text
 
 
 if __name__ == "__main__":

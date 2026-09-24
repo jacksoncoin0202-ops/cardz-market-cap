@@ -10,8 +10,11 @@ remembered to harvest by hand.
 
 This stage is the missing refresher.  It refuses to start a half-hour harvest
 it cannot finish inside the tick and records every outcome.  The orchestrator
-owns the fail-closed decision: a business date cannot move on to source work
-until this receipt says the all-set census was refreshed.
+owns the decision: a business date waits for this receipt before source work,
+except that a dead census (PARKED/TERMINAL) whose file was last written at most
+CENSUS_FALLBACK_MAX_AGE_DAYS before the start lets prices go on beside it,
+journaled as IDENTITY_CENSUS_STALE (daily_chain_v2.stale_census_fallback,
+2026-09-25).  An older or missing file still parks the date.
 Budget refusal starts no harvest: the wrapper refunds the attempt and the
 orchestrator ends claiming for that tick, leaving the census for the next one.
 """

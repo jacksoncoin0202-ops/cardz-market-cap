@@ -462,21 +462,8 @@ try:
     assert (replay_id, replay_inserted) == (7, False)
     assert replay.marked == [] and replay.verbs() == ["SELECT"]
 
-    # A supersede that rebuilt byte-identical output explains the terminal
-    # condition before touching the current row; it must not leak IntegrityError
-    # after consuming the worker's entire retry budget.
-    unchanged = FakeConnection({first_key: dict(base_row)})
-    with with_fake_outbox(unchanged):
-        try:
-            chain_db.insert_live_event(dict(event_two, generationId="gen-one"))
-        except RuntimeError as error:
-            assert "unchanged generation" in str(error), error
-            assert "publication already carries these bytes" in str(error), error
-        else:
-            raise AssertionError("a byte-identical supersede must fail before UPDATE")
-    assert unchanged.verbs() == ["SELECT", "SELECT"], unchanged.verbs()
-    assert unchanged.marked == [] and unchanged.rows[first_key]["superseded"] == 0
-    assert unchanged.committed == 0 and unchanged.rolled_back == 1
+    # R2 2026-09-25: a supersede that rebuilt the live generation answers with
+    # the live row; pinned once, in scripts/test_v2_restructure_publish.py.
 
     # A key whose generation disagrees with its run id never reaches MySQL.
     forged = FakeConnection({})
@@ -488,7 +475,7 @@ try:
         else:
             raise AssertionError("a /2 run must not publish under the generation-1 key")
     assert forged.statements == []
-    print("POSITIVE_OK supersede publication is atomic and byte-identical reruns fail before replacing live")
+    print("POSITIVE_OK supersede publication is atomic and a taken key never changes generation")
 
     # ------------------------------------------------ auto-supersede is OFF by default
     stale_journal = new_journal("auto")

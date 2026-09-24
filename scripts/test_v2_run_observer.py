@@ -351,6 +351,33 @@ def main() -> int:
                 text = obs.write_report(RUN, o2.out_dir).read_text(encoding="utf-8")
             check("report falls back to cached journal", "journal source: cached" in text and "system:daily-accept:all" in text)
 
+            # 5b. dead-man (2026-09-25): the chain went silent before its 17:00 JST final,
+            # so no tick stamps FAILED_FINAL and the run row stays RUNNING.  Once final_at
+            # is behind us the observer must say so exactly once, as an error, even when
+            # the only journal it has is the cached one from before WSL stopped answering.
+            patch_probes(journal_fixture(clean=True))
+            sends: list[list[str]] = []
+            obs.run_capped = lambda command, timeout, **kwargs: (sends.append(command), (0, "", ""))[1]
+            o7 = obs.Observer(RUN, tmp / "final-exceeded" / "out", poll=1, max_hours=1, settle_minutes=0, notify_alerts=True)
+            with redirect_stdout(io.StringIO()):
+                o7.poll_once()
+            check("before final: no FINAL_EXCEEDED", "FINAL_EXCEEDED" not in kinds(o7.out_dir), json.dumps(kinds(o7.out_dir)))
+            o7.last_journal["run"]["final_at"] = ts(30)
+            obs.probe_journal = lambda run_id: {"error": "WSL_SNAPSHOT_TIMEOUT", "ms": 75000}
+            with redirect_stdout(io.StringIO()):
+                o7.poll_once(); o7.poll_once()
+            obs.run_capped = originals["run_capped"]
+            check("past final, run not terminal, cached journal: FINAL_EXCEEDED once as error",
+                  kinds(o7.out_dir).get("FINAL_EXCEEDED") == 1 and severity_of(o7.out_dir, "FINAL_EXCEEDED") == "error", json.dumps(kinds(o7.out_dir)))
+            # The page itself must name the fact (no live-confirmed site today, the final
+            # time, the stuck status), not the kind code the generic fallback prints.
+            pages = [c for c in sends if "--key" in c and c[c.index("--key") + 1].endswith(":final_exceeded")]
+            page = pages[0][pages[0].index("--text") + 1] if pages else ""
+            final_hm = obs.parse_ts(o7.last_journal["run"]["final_at"]).astimezone(obs.JST).strftime("%H:%M JST")
+            check("past final: one error page that says today's site is not confirmed live",
+                  len(pages) == 1 and pages[0][pages[0].index("--level") + 1] == "error" and "今日網站版未確認上線" in page
+                  and final_hm in page and "RUNNING" in page and "FINAL_EXCEEDED" not in page, page)
+
             # 6. terminal run -> finished after settle, report rendered, promo collected
             term = journal_fixture(clean=True)
             term["run"]["status"] = "PUBLISHED"; term["run"]["publication_status"] = "PUBLISHED"
@@ -367,6 +394,15 @@ def main() -> int:
             k3 = kinds(o3.out_dir)
             check("promo: task not run since promo time -> PROMO_TASK_NOT_RUN", k3.get("PROMO_TASK_NOT_RUN") == 1, json.dumps(k3))
             check("promo: missing brief -> PROMO_BRIEF_MISSING", k3.get("PROMO_BRIEF_MISSING") == 1)
+            # 2026-09-25: promo stopped by the owner (task Disabled since 2026-09-23): the
+            # same missed run + missing brief is recorded as info and pages nobody.
+            patch_probes(term, task_info={"state": "Disabled", "rc": 0, "last": ts(48 * 60), "next": None})
+            o_off = make_observer(tmp / "term-promo-disabled")
+            with redirect_stdout(io.StringIO()):
+                o_off.collect_promo(promo_at)
+            k_off = kinds(o_off.out_dir)
+            check("promo: Disabled task -> PROMO_TASK_DISABLED info only, no promo warn",
+                  k_off == {"PROMO_TASK_DISABLED": 1} and severity_of(o_off.out_dir, "PROMO_TASK_DISABLED") == "info", json.dumps(k_off))
             pdir = tmp / "data" / "runtime" / "promo" / DAY
             pdir.mkdir(parents=True)
             (pdir / "brief.json").write_text(json.dumps({"generation": "db3308_other", "lagHours": 6.0, "post": False}), encoding="utf-8")

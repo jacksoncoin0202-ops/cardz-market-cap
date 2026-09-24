@@ -22,7 +22,12 @@ $ErrorActionPreference = "Stop"
 $Repo = Split-Path -Parent $PSScriptRoot
 $TaskName = "CARDZ-Marketcap-Daily-V2"
 $WatchdogTaskName = "CARDZ-037-Watchdog-Live-Release"
-$PromoTaskName = "CARDZ-Promo-After-Publish"
+# 2026-09-25: CARDZ-Promo-After-Publish is deliberately NOT managed here.  The
+# owner stopped the promo chain on 2026-09-23 and left that task Disabled, but
+# Register-ScheduledTask -Force writes a fresh definition (settings default to
+# Enabled), so every -Apply of this installer switched promo back on.  Turning
+# promo on again is an owner decision made by hand, never a cutover side effect;
+# scripts/test_v2_restructure_ops_installer.py fails if it comes back.
 # R2 (2026-08-24): the claim window, not the whole PT55M.  Claiming closes at
 # 35 min and the tick drains live work for the remaining ~12 min inside the same
 # ExecutionTimeLimit.  Must equal DEFAULT_MAX_RUNTIME_SECONDS in
@@ -47,24 +52,13 @@ if (-not (Test-Path -LiteralPath $Watchdog)) {
     throw "V2 watchdog missing: $Watchdog"
 }
 
-function Convert-ToWslPath {
-    param([Parameter(Mandatory=$true)][string]$Path)
-    $resolved = [System.IO.Path]::GetFullPath($Path)
-    if ($resolved -notmatch '^[A-Za-z]:\\') {
-        throw "V2 installer requires a drive-letter path: $resolved"
-    }
-    return "/mnt/" + $resolved.Substring(0, 1).ToLowerInvariant() + ($resolved.Substring(2) -replace '\\', '/')
-}
-
 $WScriptExe = Join-Path ([Environment]::SystemDirectory) "wscript.exe"
 $quotedRunner = '"' + $SilentRunner + '"'
 $quotedLauncher = '"' + $Launcher + '"'
 $quotedWatchdog = '"' + $Watchdog + '"'
-$PromoScriptWsl = (Convert-ToWslPath -Path $Repo) + "/scripts/promo_after_publish.py"
 $PsHost = "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File"
 $DailyArgument = "//nologo //B $quotedRunner $PsHost $quotedLauncher -AllowPublish -Notify -MaxRuntimeSeconds $MaxRuntimeSeconds"
 $WatchdogArgument = "//nologo //B $quotedRunner $PsHost $quotedWatchdog"
-$PromoArgument = "//nologo //B $quotedRunner wsl.exe -d Ubuntu -- python3 -X utf8 $PromoScriptWsl"
 function Register-CardzManagedTask {
     param(
         [Parameter(Mandatory=$true)][string]$Name,
@@ -145,13 +139,6 @@ $plan = [ordered]@{
             trigger = "daily 11:15 local; repeat PT15M for PT7H"
             executionTimeLimit = "PT5M"
         }
-        promo = [ordered]@{
-            taskName = $PromoTaskName
-            execute = $WScriptExe
-            argument = $PromoArgument
-            trigger = "daily 17:45 local"
-            executionTimeLimit = "PT30M"
-        }
     }
     oldTasks = $LegacyTasks
     oldTaskAction = "export XML then disable when present; absence means cutover already completed"
@@ -164,7 +151,7 @@ if ($Print -or -not $Apply) {
     exit 0
 }
 
-$ManagedTasks = @($TaskName, $WatchdogTaskName, $PromoTaskName)
+$ManagedTasks = @($TaskName, $WatchdogTaskName)
 $runningTargets = @(
     @($LegacyTasks + $ManagedTasks) | ForEach-Object {
         Get-ScheduledTask -TaskName $_ -ErrorAction SilentlyContinue
@@ -245,19 +232,6 @@ Register-CardzManagedTask `
     -Trigger $watchdogTrigger `
     -ExecutionMinutes 5 `
     -Description "CARDZ V2 external watchdog: health.json freshness + live release check" `
-    -Principal $principal
-
-# Promo pack builder (contract C4): reads the published snapshot, writes a pack +
-# receipt under data/runtime/promo/<generation>/. It never posts.
-$promoFirstStart = $nowLocal.Date.AddHours(17).AddMinutes(45)
-if ($promoFirstStart -le $nowLocal) { $promoFirstStart = $promoFirstStart.AddDays(1) }
-$promoTrigger = New-ScheduledTaskTrigger -Daily -At $promoFirstStart
-Register-CardzManagedTask `
-    -Name $PromoTaskName `
-    -Argument $PromoArgument `
-    -Trigger $promoTrigger `
-    -ExecutionMinutes 30 `
-    -Description "CARDZ promo pack builder after publish (build only; never posts)" `
     -Principal $principal
 
 $plan["result"] = "applied"

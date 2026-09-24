@@ -917,15 +917,20 @@ def insert_live_event(event: Mapping[str, Any]) -> tuple[int, bool]:
                 current_live is not None
                 and str(current_live["generation_id"]) == str(event["generationId"])
             ):
-                raise RuntimeError(
-                    "supersede produced unchanged generation "
-                    f"{event['generationId']} for {event['businessDate']}; "
-                    "publication already carries these bytes"
-                )
+                # R2 2026-09-25: the generation id is sha256(date, content), so
+                # an equal id on this date means live already serves these
+                # bytes.  Publishing them twice is success, not an error: answer
+                # with the row that carries them, like the same-key replay
+                # above.  The old raise burned live-confirm's retries and left
+                # the run unpublished while the site was right.  A DIFFERENT
+                # generation still supersedes below.
+                connection.commit()
+                return int(current_live["id"]), False
             # Same transaction as the insert: the date must never be readable
             # with two live rows, and the widened
             # UNIQUE(business_date,event_type,generation_id) still refuses a
-            # rerun that produced the same generation.
+            # rerun whose generation equals an earlier, already superseded row
+            # of the date (A->B->A; R2 2026-09-25 answers only the live one).
             cursor.execute(
                 """
                 UPDATE publication_outbox SET superseded=1

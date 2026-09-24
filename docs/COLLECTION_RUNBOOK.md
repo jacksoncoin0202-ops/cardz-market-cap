@@ -863,8 +863,8 @@ no_console 11、ambiguous 8。三種 hold 各自嘅意思：
 4. **七個「age vs 門檻」比較收得低負數。**（2026-08-10 盤點）
    `rebuild_036.py:4843-4844`、`collect_control.py:278`／`:283`／`:1035`／`:1075`／`:3130`、
    `operator_control.py:1670`／`:1772`。repo 入面已經有三處寫啱咗，照抄就得：
-   `gemrate_candidate_backfill.py:803` `0 <= age <= max_age_days`、
-   `gemrate_candidate_backfill.py:822`、`market_alerts.py:691` `age < timedelta(0) or …`。
+   `archive/pipelines/gemrate_candidate_backfill.py:803` `0 <= age <= max_age_days`、
+   `archive/pipelines/gemrate_candidate_backfill.py:822`、`market_alerts.py:691` `age < timedelta(0) or …`。
    **但唔准一刀切**，三種 site 意思唔同：
    - `_poll_mode`（`:278`/`:283`）—— 對日 bar 嚟講 age 負數係「今日條 bar 已經喺手」，**當佢新鮮係啱嘅**。
      要改嘅係寫明白，唔係改行為。

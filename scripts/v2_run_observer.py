@@ -121,6 +121,11 @@ def human_alert_text(kind: str, severity: str, detail: dict, day: str) -> str:
     extra = _alert_extra(err)
     nth = f"第 {attempt} 次" if attempt not in (None, "") else ""
     mark = "🔴" if severity == "error" else "⚠️"
+    # 2026-09-25 dead-man: when the chain goes quiet before its 17:00 JST final no
+    # tick is left to stamp FAILED_FINAL, so FINAL_EXCEEDED is the only page that
+    # the day has no live-confirmed publication.  It must say that in words.
+    final = parse_ts(payload.get("finalAt"))
+    final_jst = final.astimezone(JST).strftime("%H:%M JST") if final else ""
     templates = {
         "ATTEMPT_RETRY": f"{mark} 更新鏈重試中（{day}）\n{task}{nth and ' ' + nth}自動再跑。{extra and ' ' + extra}\n唔使人手。約 10 分鐘內會再試。",
         "ATTEMPT_INTERRUPTED": f"{mark} 更新鏈被打斷（{day}）\n{task}未做完就被停。{extra and ' ' + extra}\n下一個 10 分鐘檔會續跑。",
@@ -135,6 +140,7 @@ def human_alert_text(kind: str, severity: str, detail: dict, day: str) -> str:
         "TASK_STATE_DEGRADED": f"{mark} 更新鏈有一步降級（{day}）\n{task}",
         "TASK_STATE_SKIPPED": f"{mark} 更新鏈跳過一步（{day}）\n{task}",
         "SLA_EXCEEDED": f"{mark} 更新鏈超時（{day}）\n{task}行得太耐。",
+        "FINAL_EXCEEDED": f"{mark} 今日網站版未確認上線（{day}）\n過咗收工時間 {final_jst}，更新鏈仍未完成（狀態 {payload.get('status')}）。今日唔會再開新一步；如果最後一檔收尾時上咗線，會另有上線通知。",
         "HEALTH_STALE": f"{mark} 更新鏈心跳停咗（{day}）\n狀態檔太舊，可能卡住。",
         "TICK_SKIPPED_LOCKED": f"{mark} 更新鏈呢檔跳過（{day}）\n上一檔未完，所以冇重開。正常。",
     }
@@ -1202,6 +1208,14 @@ class Observer:
         self.promo = rec
         self.log(f"promo: task={json.dumps(info)} files={files} brief={json.dumps(brief, default=str)}"
                  f" schedulerReceipt={json.dumps(scheduler_receipt, default=str)}")
+        # 2026-09-25: the owner stopped the promo chain on 2026-09-23 and left this
+        # task Disabled.  While it is Disabled every promo check below is skipped:
+        # that is the owner's decision, not a fault, so it is recorded as info
+        # (report only) instead of paging PROMO_TASK_NOT_RUN / PROMO_BRIEF_MISSING
+        # every evening.  Enabling the task brings every check back, no code change.
+        if str(info.get("state") or "") == "Disabled":
+            self.anomaly("PROMO_TASK_DISABLED", "info", {"last": info.get("last"), "promoAt": iso(promo_at)})
+            return
         task_ran = False
         if info.get("error"):
             self.anomaly("PROMO_TASK_PROBE_FAILED", "warn", info)
