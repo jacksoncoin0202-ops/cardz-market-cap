@@ -147,7 +147,7 @@ def main() -> int:
         check("parse_ts launcher 7-digit fraction + offset", obs.iso(obs.parse_ts("2026-08-23T03:30:01.2490936+09:00")) == "2026-08-22T18:30:01Z")
         check("launcher_line_time ISO line", obs.iso(obs.launcher_line_time("2026-08-23T03:30:01.2490936+09:00 CARDZ_V2_START", "20260823")) == "2026-08-22T18:30:01Z")
         check("launcher_line_time clock line uses file day as JST", obs.iso(obs.launcher_line_time("[03:30:10] CARDZ_V2_END exit=0", "20260825")) == "2026-08-24T18:30:10Z")
-        check("expected_tick_start 03:30 JST", obs.iso(obs.expected_tick_start("2026-08-25")) == "2026-08-24T18:30:00Z")
+        check("expected_tick_start 11:00 JST", obs.iso(obs.expected_tick_start("2026-08-25")) == "2026-08-25T02:00:00Z")
         check("run_business_day accepts base, supersede, and label",
               obs.run_business_day(RUN) == DAY and obs.run_business_day(RUN + "/2") == DAY and obs.run_business_day(RUN + "#T1") == DAY)
         check("scheduled family sequence accepts only base and numeric /2+",

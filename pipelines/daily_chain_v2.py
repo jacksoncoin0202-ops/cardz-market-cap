@@ -247,10 +247,17 @@ def jst_schedule(day: date) -> dict[str, datetime]:
     def at(hour: int, minute: int) -> datetime:
         return datetime.combine(day, day_time(hour, minute), tzinfo=JST).astimezone(timezone.utc)
 
+    # 2026-09-25: the task runs 11:00-17:00 JST (install_cardz_daily_v2_task.ps1).
+    # The 03:30 shape had the 10:15 cutoff already past at the first tick: every
+    # identity stage got a zero budget and no retry, identity-completeness
+    # skipped from 09-07 so the census went 17 days stale, and the source
+    # barrier opened with PriceCharting still sweeping.  Cutoff and SLA sit at
+    # 50% / 75% of the window, the same split clamp_manual_window gives a
+    # shortened one.
     return {
-        "start": at(3, 30),
-        "source_cutoff": at(10, 15),
-        "sla": at(11, 0),
+        "start": at(11, 0),
+        "source_cutoff": at(14, 0),
+        "sla": at(15, 30),
         "final": at(17, 0),
     }
 
@@ -430,11 +437,11 @@ def last_scheduled_tick_utc(day: date) -> datetime:
 
 
 def next_scheduled_tick_utc(after: datetime) -> datetime:
-    """First scheduled 03:30-JST start strictly after `after`."""
+    """First scheduled 11:00-JST start strictly after `after`."""
 
     jst = timezone(timedelta(hours=9))
     local = after.astimezone(jst)
-    hour, minute = (int(part) for part in os.environ.get("CARDZ_V2_FIRST_TICK_JST", "03:30").split(":"))
+    hour, minute = (int(part) for part in os.environ.get("CARDZ_V2_FIRST_TICK_JST", "11:00").split(":"))
     candidate = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
     if candidate <= local:
         candidate += timedelta(days=1)
@@ -457,7 +464,7 @@ def clamp_manual_window(
       covers part of a publish leg is worse than no window (2026-08-22 got
       600 s and finished with four minutes to spare).  Past 17:00 JST this
       floor is what binds, so a window opened at 18:00 JST runs to 18:45.
-    * Ceiling: the next unattended 03:30 JST tick minus NEXT_TICK_GUARD_SECONDS.
+    * Ceiling: the next unattended 11:00 JST tick minus NEXT_TICK_GUARD_SECONDS.
       A manual run is never still authoritative when the scheduler restarts,
       and this ceiling outranks the floor.
     * A labelled rehearsal (--run-label) lives in its own journal and never
@@ -465,7 +472,7 @@ def clamp_manual_window(
       it keeps the full +4h/+5h/+8h shape (A01 opened at 16:05 JST on
       2026-08-23 was cut to 55 minutes by that cap).  Only the ceiling still
       applies: a rehearsal and the unattended run would otherwise share CDP
-      9333, SNKRDUNK and MySQL at 03:30 JST.
+      9333, SNKRDUNK and MySQL at 11:00 JST.
     * Absolute lower bound: MANUAL_WINDOW_ABSOLUTE_MIN_SECONDS, for a window
       opened inside the guard band.
     * Renewals are capped at MANUAL_WINDOW_MAX_RENEWALS and are forward-only;
@@ -1747,7 +1754,7 @@ class DailyChainV2:
                 self.run_id,
                 "identity",
                 error_code="IDENTITY_CUTOFF",
-                reason="identity retry window closed at the 10:15 candidate snapshot barrier",
+                reason="identity retry window closed at the 14:00 JST candidate snapshot barrier",
             )
             if closed:
                 self.journal.add_event(
@@ -1913,7 +1920,7 @@ class DailyChainV2:
                 self.run_id,
                 "activation",
                 error_code="CANDIDATE_ACTIVATION_CUTOFF",
-                reason="candidate activation deferred after the 10:15 snapshot barrier",
+                reason="candidate activation deferred after the 14:00 JST snapshot barrier",
             )
             if closed:
                 self.journal.add_event(
@@ -1980,7 +1987,7 @@ class DailyChainV2:
                     self.run_id,
                     "candidate-source",
                     error_code="CANDIDATE_SOURCE_CUTOFF",
-                    reason="candidate source retry window closed at the 10:15 activation barrier",
+                    reason="candidate source retry window closed at the 14:00 JST activation barrier",
                 )
                 if closed:
                     self.journal.add_event(
@@ -2473,7 +2480,7 @@ class DailyChainV2:
         """The earliest deadline binding this worker, and WHICH one it is.
 
         Review fix 2026-08-24: only the tick's own budget ("tick") refunds the
-        attempt.  The 10:15 candidate cutoff and the 17:00 final are business
+        attempt.  The 14:00 candidate cutoff and the 17:00 final are business
         boundaries: a worker they cut really did fail to deliver, and refunding
         it would let the task re-claim into an already-past work deadline, spawn
         a worker that is interrupted immediately, and churn like that for the

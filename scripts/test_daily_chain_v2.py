@@ -1846,10 +1846,21 @@ _reh_window = v2core.manual_e2e_schedule(_reh_at, business_date=_reh_day, rehear
 assert _reh_window["source_cutoff"] == _reh_at + timedelta(hours=4), _reh_window
 assert _reh_window["sla"] == _reh_at + timedelta(hours=5), _reh_window
 assert _reh_window["final"] == _reh_at + timedelta(hours=8), _reh_window
-# ...and the unattended 03:30 JST tick (minus the 300 s guard) still caps it.
+# ...and the unattended 11:00 JST tick (minus the 300 s guard) still caps it.
 _reh_late = v2core.manual_e2e_schedule(
-    datetime(2026, 8, 23, 22, 0, tzinfo=_reh_jst), business_date=_reh_day, rehearsal=True
+    datetime(2026, 8, 24, 5, 0, tzinfo=_reh_jst), business_date=_reh_day, rehearsal=True
 )
-assert _reh_late["final"] == datetime(2026, 8, 24, 3, 25, tzinfo=_reh_jst), _reh_late
+assert _reh_late["final"] == datetime(2026, 8, 24, 10, 55, tzinfo=_reh_jst), _reh_late
 assert _reh_late["source_cutoff"] < _reh_late["sla"] < _reh_late["final"], _reh_late
-print("POSITIVE_OK a rehearsal window keeps the manual shape and only the 03:30 JST ceiling binds it")
+print("POSITIVE_OK a rehearsal window keeps the manual shape and only the 11:00 JST ceiling binds it")
+
+# 2026-09-25: the task fires 11:00-17:00 JST.  A 03:30-shaped schedule under an
+# 11:00 trigger had the candidate cutoff already past at the first tick, so every
+# identity stage got a zero budget (IDENTITY_CUTOFF) for 17 days.
+_sched = v2core.jst_schedule(date(2026, 9, 25))
+_first_tick = v2core.next_scheduled_tick_utc(_sched["start"] - timedelta(seconds=1))
+assert _first_tick == _sched["start"], (_first_tick, _sched)
+assert _sched["start"] < _sched["source_cutoff"] < _sched["sla"] < _sched["final"], _sched
+assert _sched["source_cutoff"] - _sched["start"] >= timedelta(hours=2), _sched
+assert _sched["final"] - _sched["start"] == timedelta(hours=6), _sched
+print("POSITIVE_OK the V2 schedule starts at the scheduled tick and leaves the identity phase a real budget")

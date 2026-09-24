@@ -122,7 +122,7 @@ CDP_CONSECUTIVE_FAILS = 2            # one failed /json/version is noise (the wa
 CDP_TIMEOUT_SECONDS = 15.0
 MYSQL_BACKOFF_POLLS = 10             # after 3 probe timeouts in a row, stop asking for this many polls
 JOURNAL_IDLE_REPROBE_SECONDS = 600   # Ubuntu stopped between ticks: re-read the journal (boots the distro) at most every 10 min
-EXPECTED_TICK_JST = (3, 30)
+EXPECTED_TICK_JST = (11, 0)          # CARDZ-Marketcap-Daily-V2 trigger: daily 11:00 JST, PT10M for PT6H
 DAILY_TASK = "CARDZ-Marketcap-Daily-V2"
 PROMO_TASK = "CARDZ-Promo-After-Publish"
 PROMO_JST = (17, 45)
@@ -610,7 +610,7 @@ class Observer:
         self.requested_run_id = run_id
         self.resolved_run_id = run_id
         self.day = run_business_day(run_id)
-        self.scheduled = "#" not in run_id              # labelled runs are manual rehearsals: no 03:30 / promo expectations
+        self.scheduled = "#" not in run_id              # labelled runs are manual rehearsals: no 11:00 / promo expectations
         self.expected_start = expected_tick_start(self.day) if self.scheduled else None
         self.out_dir = out_dir
         self.poll = poll
