@@ -169,9 +169,11 @@ try:
     late_window = manual_e2e_schedule(late, business_date=DAY)
     assert late_window["final"] == late + timedelta(seconds=2700)
     assert late_window["source_cutoff"] < late_window["sla"] < late_window["final"]
-    # 04:00 JST: after the 03:30 tick, so the next-tick ceiling is a full day
-    # away and an eight hour window survives untouched.
-    early = datetime(2026, 8, 19, 19, 0, tzinfo=timezone.utc)  # 04:00 JST
+    # 02:00 JST: the next 11:00 JST tick minus its guard is 8h55m away, so an
+    # eight hour window survives untouched.  2026-09-25: this was 04:00 JST
+    # while the first tick was 03:30; since 623b34b7 moved it to 11:00, 04:00
+    # is only seven hours from the next-tick ceiling.
+    early = datetime(2026, 8, 19, 17, 0, tzinfo=timezone.utc)  # 02:00 JST
     early_window = manual_e2e_schedule(early, business_date=DAY)
     assert early_window["final"] == early + timedelta(hours=8)  # inside 17:00 JST
     os.environ["CARDZ_V2_LAST_TICK_JST"] = "12:00"
@@ -179,12 +181,15 @@ try:
         assert last_scheduled_tick_utc(DAY) == datetime(
             2026, 8, 20, 3, 0, tzinfo=timezone.utc
         )
+        # Opened at 11:00 JST the next first tick is a day away, so the
+        # overridden 12:00 JST last tick is the ceiling that binds.
+        opened = datetime(2026, 8, 20, 2, 0, tzinfo=timezone.utc)  # 11:00 JST
         assert clamp_manual_window(
             {
-                "start": early,
-                "source_cutoff": early + timedelta(hours=4),
-                "sla": early + timedelta(hours=5),
-                "final": early + timedelta(hours=12),
+                "start": opened,
+                "source_cutoff": opened + timedelta(hours=4),
+                "sla": opened + timedelta(hours=5),
+                "final": opened + timedelta(hours=12),
             },
             business_date=DAY,
         )["final"] == datetime(2026, 8, 20, 3, 0, tzinfo=timezone.utc)
@@ -729,22 +734,23 @@ try:
     # ------------------------------------------------------------- fix C
     # The 2026-08-22 run published with four minutes of manual window left,
     # because the floor was tick start + 600 s.  The floor is now 2700 s, and
-    # the next unattended 03:30 JST tick is a hard ceiling above it.
+    # the next unattended 11:00 JST tick is a hard ceiling above it (03:30 JST
+    # until 623b34b7 on 2026-09-25).
     assert chain_module.MANUAL_WINDOW_MIN_SECONDS == 2700
     assert next_scheduled_tick_utc(
         datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)  # 21:00 JST
-    ) == datetime(2026, 8, 20, 18, 30, tzinfo=timezone.utc)
+    ) == datetime(2026, 8, 21, 2, 0, tzinfo=timezone.utc)
     assert next_scheduled_tick_utc(
-        datetime(2026, 8, 20, 18, 0, tzinfo=timezone.utc)  # 03:00 JST next day
-    ) == datetime(2026, 8, 20, 18, 30, tzinfo=timezone.utc)
-    assert next_scheduled_tick_utc(  # strictly after: 03:30 JST returns tomorrow
-        datetime(2026, 8, 20, 18, 30, tzinfo=timezone.utc)
-    ) == datetime(2026, 8, 21, 18, 30, tzinfo=timezone.utc)
+        datetime(2026, 8, 21, 1, 30, tzinfo=timezone.utc)  # 10:30 JST next day
+    ) == datetime(2026, 8, 21, 2, 0, tzinfo=timezone.utc)
+    assert next_scheduled_tick_utc(  # strictly after: 11:00 JST returns tomorrow
+        datetime(2026, 8, 21, 2, 0, tzinfo=timezone.utc)
+    ) == datetime(2026, 8, 22, 2, 0, tzinfo=timezone.utc)
     floor_start = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)  # 21:00 JST
     floor_window = manual_e2e_schedule(floor_start, business_date=DAY)
     assert floor_window["final"] == floor_start + timedelta(seconds=2700)
     assert floor_window["final"] - floor_start > timedelta(minutes=10)  # old floor
-    ceiling_start = datetime(2026, 8, 20, 18, 0, tzinfo=timezone.utc)  # 03:00 JST
+    ceiling_start = datetime(2026, 8, 21, 1, 30, tzinfo=timezone.utc)  # 10:30 JST
     ceiling_window = manual_e2e_schedule(ceiling_start)
     assert ceiling_window["final"] > ceiling_start
     assert ceiling_window["final"] <= next_scheduled_tick_utc(ceiling_start) - timedelta(
@@ -757,7 +763,7 @@ try:
         < ceiling_window["sla"]
         < ceiling_window["final"]
     )
-    edge_start = datetime(2026, 8, 20, 18, 20, tzinfo=timezone.utc)  # 03:20 JST
+    edge_start = datetime(2026, 8, 21, 1, 50, tzinfo=timezone.utc)  # 10:50 JST
     edge_window = manual_e2e_schedule(edge_start)
     assert edge_window["final"] == edge_start + timedelta(seconds=600)  # absolute floor
     print("POSITIVE_OK manual window floors at 2700s, stops five minutes short of the next tick, and keeps the ten minute absolute bound")
