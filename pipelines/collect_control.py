@@ -1828,10 +1828,16 @@ def classify_needs(
             "transport": "cdp_9333",
             "polarRole": "en_sales_primary",
         })
+        # 2026-09-25: 477 streams had an en_price_ref checkpoint (08-20/08-27)
+        # but no current explicit PC price row left, so they sat in 'stock'
+        # for a month: the daily run only takes incr and checkpoint-repair
+        # only takes streams with no checkpoint. A checkpoint means the first
+        # stock already ran; re-derive it daily like the other adapters.
         pmode = _poll_mode(
             has_stock=bool(row["prices"]["enExplicitPc"]),
             observed_at=row.get("_enExplicitPcMax"),
             checkpoint=_checkpoint_for(checkpoints, "en_price_ref", vid, external),
+            empty_poll_is_complete=True,
             refresh_due_hours=PC_REFRESH_DUE_HOURS,
         )
         needs.append({

@@ -31,6 +31,7 @@ from collect_control import (  # noqa: E402
     PC_REFRESH_DUE_HOURS,
     REFRESH_DUE_HOURS,
     _poll_mode,
+    classify_needs,
 )
 
 FAILED: list[str] = []
@@ -93,6 +94,34 @@ check(
     "classify_needs 兩個 PC adapter 都傳咗 PC_REFRESH_DUE_HOURS",
     source.count("refresh_due_hours=PC_REFRESH_DUE_HOURS"),
     2,
+)
+
+# --- 3b. en_price_ref 有 checkpoint 就入 daily incr ---------------------------
+# 2026-09-25：477 條 en_price_ref 08-20/08-27 做過 first stock（有 checkpoint），
+# 之後 explicit PC price row 冇咗，於是一個月都判 'stock'：daily 只跑 incr，
+# checkpoint-repair 只執冇 checkpoint 嘅 stream，兩邊都唔掂佢哋。
+def pc_modes(checkpoints):
+    row = {
+        "variantId": 2, "lang": "ja", "ids": {"pricecharting": "4199649"},
+        "sales": {"ebayAny": True, "snkAny": False},
+        "prices": {"enExplicitPc": False, "snkAny": False},
+    }
+    return {
+        need["adapter"]: need["modeNeeded"]
+        for need in classify_needs(row, checkpoints)
+        if need["adapter"] in {"pc_ebay_sales", "en_price_ref"}
+    }
+
+
+check(
+    "冇 explicit PC 價但有 checkpoint 嘅 en_price_ref 入 daily incr",
+    pc_modes({("en_price_ref", "2:4199649"): checkpoint(24 * 29)})["en_price_ref"],
+    "incr",
+)
+check(
+    "從未 stock 過（冇 checkpoint）嘅 en_price_ref 仍然留畀 first-stock",
+    pc_modes({})["en_price_ref"],
+    "stock",
 )
 
 # --- 4. 節奏參數只准住喺 refresher，唔准喺 CLI 寫死 ------------------------
