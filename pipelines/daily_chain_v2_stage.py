@@ -1185,8 +1185,15 @@ def stage_accept(args: argparse.Namespace) -> dict[str, Any]:
 
 def stage_box(args: argparse.Namespace) -> dict[str, Any]:
     import operator_control
+    import sealed_daily
 
     with operator_control.operator_e2e_lease("v2-box"):
+        # daddy 2026-09-24: cards pulled, then boxes.  Box prices are pulled
+        # here, incr, PC (9333) then SNK, under this stage's lease:
+        # `sealed_daily.py refresh` takes the lease itself and would be refused.
+        # A red pull does not hold the card release; compose/export still run
+        # and `boxPullRed` names it on the stage receipt.
+        pulls = [sealed_daily.pull(sys.executable, "incr", adapter) for adapter in sealed_daily.PULL_ADAPTERS]
         compose = _run(
             [sys.executable, "-X", "utf8", str(ROOT / "pipelines" / "sealed_daily.py"), "compose"],
             timeout=1800,
@@ -1218,6 +1225,8 @@ def stage_box(args: argparse.Namespace) -> dict[str, Any]:
         "boxAsOf": document.get("asOf"),
         "output": str(output),
         "payloadSha256": sha256(document),
+        "boxPull": pulls,
+        "boxPullRed": [f"{step['adapter']}: {step['red']}" for step in pulls if "red" in step],
         "compose": compose,
         "export": export,
     }

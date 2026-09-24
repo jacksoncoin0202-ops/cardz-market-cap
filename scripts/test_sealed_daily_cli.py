@@ -275,6 +275,35 @@ def main() -> int:
         assert not any(e[0] == "lease" for e in EVENTS), \
             f"{argv} must stay lease-free (the V2 box stage holds the lease around compose/export): {EVENTS}"
     print("POSITIVE_OK collect/compose/export/status/gaps stay lease-free for the V2 box stage")
+
+    # daddy 2026-09-24: cards pulled, then boxes. The V2 box stage pulls incr PC then SNK under its own
+    # lease, then composes and exports; a red pull is named on the receipt and does not stop compose/export.
+    import daily_chain_v2_stage as stage
+
+    def fake_stage_run(command, *, timeout):
+        EVENTS.append((command[4], STATE["held"]))
+        if command[4] == "export":
+            out = Path(command[-1])
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(json.dumps({"asOf": datetime.now(timezone.utc).strftime(STAMP)}), encoding="utf-8")
+        return {"exitCode": 0, "outputTail": ""}
+
+    stage_root, stage_run = stage.ROOT, stage._run
+    stage.ROOT, stage._run = TMP, fake_stage_run
+    try:
+        accepted = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+        for pulls, red in (({}, []), ({"sealed_pc": (0, 5, 0)}, ["sealed_pc: 0/5 ok"])):
+            EVENTS.clear()
+            PULLS.clear()
+            PULLS.update(pulls)
+            result = stage.stage_box(types.SimpleNamespace(run_id="r", accepted_at=accepted))
+            assert EVENTS == [("lease", "v2-box"), *[("pull", True, "incr", a) for a in adapters],
+                              ("compose", True), ("export", True)], \
+                "the box stage must pull PC, SNK, then compose and export, all inside its lease: %r" % EVENTS
+            assert [s["adapter"] for s in result["boxPull"]] == adapters and result["boxPullRed"] == red, result
+    finally:
+        stage.ROOT, stage._run = stage_root, stage_run
+    print("POSITIVE_OK the V2 box stage pulls PC then SNK before compose/export; a red pull is named, compose/export still run")
     return 0
 
 
