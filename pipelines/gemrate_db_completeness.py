@@ -336,11 +336,16 @@ def _raw_psa_population_row(
     if not isinstance(grades, Mapping):
         errors.append(f"missing_psa_grades:{artifact_label}:{request_id}")
         return None
+    # Provider-native raw: g10 before 2026-09-08, psa_10 since. The key choice
+    # lives in gemrate_source so capture and this gate cannot drift apart.
+    import gemrate_source
+
+    raw_g10 = gemrate_source.page_top_grade_raw("psa", grades)
     try:
-        population = int(grades.get("g10"))
+        population = int(raw_g10)
     except (TypeError, ValueError):
         errors.append(
-            f"invalid_psa_g10:{artifact_label}:{request_id}:{grades.get('g10')!r}"
+            f"invalid_psa_g10:{artifact_label}:{request_id}:{raw_g10!r}"
         )
         return None
     if population < 0:

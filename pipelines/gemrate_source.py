@@ -485,20 +485,40 @@ GRADER_CODE_BY_KEY: dict[str, str] = {
 }
 
 
-def _top_grade_value(grader_key: str, grades: Mapping[str, Any]) -> int | None:
-    """Top-grade population for one normalized grader row.
+# Website top-grade keys, old name first. The card page's /card-details JSON
+# carried flat g10 (g10p for Beckett) until 2026-09-08, then switched to
+# grader-prefixed names for the same grades: gid 02187b47... read psa_10 3364,
+# cgc_10 469, sgc_10 1, beckett_10_pristine 9 on 09-25 against g10 3238, 449,
+# 1 and g10p 8 on 09-06. CGC/SGC pristine and perfect stay out, as they always
+# did on this transport (TOP_GRADE is the direct API's own, different choice).
+PAGE_TOP_GRADE_KEYS: dict[str, tuple[str, ...]] = {
+    "psa": ("g10", "psa_10"),
+    "beckett": ("g10p", "beckett_10_pristine"),
+    "sgc": ("g10", "sgc_10"),
+    "cgc": ("g10", "cgc_10"),
+}
 
-    PSA/CGC/SGC rows carry a flat ``g10``. Beckett splits its top grade into
-    pristine (``g10p``) and black label (``g10b``); BGS Pristine is the
-    canonical top-grade population, matching ``beckett_10_pristine`` on the
-    direct API. A Beckett row without a pristine count contributes no BGS
-    point (never fall back to black label).
+
+def page_top_grade_raw(grader_key: str, grades: Mapping[str, Any]) -> Any:
+    """The provider value of one website grader row's top grade, unchecked."""
+
+    for name in PAGE_TOP_GRADE_KEYS.get(grader_key, ("g10",)):
+        if name in grades:
+            return grades[name]
+    return None
+
+
+def _top_grade_value(grader_key: str, grades: Mapping[str, Any]) -> int | None:
+    """Top-grade population for one website grader row.
+
+    PSA/CGC/SGC rows carry a flat 10. Beckett splits its top grade into
+    pristine and black label; BGS Pristine is the canonical top-grade
+    population, matching ``beckett_10_pristine`` on the direct API. A Beckett
+    row without a pristine count contributes no BGS point (never fall back to
+    black label).
     """
 
-    if grader_key == "beckett":
-        value = grades.get("g10p")
-    else:
-        value = grades.get("g10")
+    value = page_top_grade_raw(grader_key, grades)
     return value if isinstance(value, int) and value >= 0 else None
 
 
@@ -707,7 +727,10 @@ def build_public_card_page_json_payload(
     # provider value; year and set namespace remain mandatory.
     if not identity["year"] or not identity["set_name"] or "card_number" not in payload:
         return None, "page_initiated_json_identity_incomplete"
-    source_date = payload.get("date")
+    # ``date`` became ``data_last_updated`` on 2026-09-08 (same YYYY-MM-DD
+    # snapshot day); rejecting it here sent every card to the DOM fallback,
+    # whose unsourced receipts the completeness gate then refused daily.
+    source_date = payload.get("date") or payload.get("data_last_updated")
     if not isinstance(source_date, str) or not source_date.strip():
         return None, "page_initiated_json_effective_date_missing"
 
@@ -747,7 +770,7 @@ def build_public_card_page_json_payload(
 
     normalized_psa = {
         "grader": "psa",
-        "grades": {"g10": psa_row["grades"]["g10"]},
+        "grades": {"g10": _top_grade_value("psa", psa_row["grades"])},
     }
     last_change = psa_row.get("last_population_change") or payload.get("last_population_change")
     if isinstance(last_change, str) and last_change.strip():
