@@ -1050,7 +1050,10 @@ MAX_WINDOW_RATIO = {"1d": 3.0, "7d": 3.0, "30d": 3.0, "90d": 4.0, "180d": 5.0, "
 #     runs or a sale posting late; N/10 lets a long window's anchor lag by at most a tenth of the window.
 #   expired: on today-N the display would no longer have shown that value, by compose_current's own limits: a sold
 #     median whose newest sale is more than SOLD_WINDOW_D before today-N, a market point more than MARKET_MAX_AGE_D
-#     before it. PC's month-1st points (at most ~31 days apart) stay anchors.
+#     before it, or a market point while a sale within SOLD_WINDOW_D of today-N put its sold median first (compose_current
+#     reads sold before market). DEX 180d +231.48%: PC's $5,000 March point against today's $16,573.82, while on today-180
+#     /box showed the $20,101 sold on 03-08 (eBay $17,500-$21,194 through May): 24 of 820 windows, 2026-09-25, no value
+#     changed. PC's month-1st points (at most ~31 days apart) stay anchors.
 # The gap is not measured from today-N alone: that would withhold PC's month-1st anchors (463 of 1,035 windows).
 ANCHOR_CARRY_FLOOR_D = 3
 ANCHOR_CARRY_FRACTION = 0.10
@@ -1076,6 +1079,9 @@ def _anchor_withheld(anchor: dict, sale_days: list[date], target: date, days: in
             return True
         observed, expires = sale_days[idx - 1], SOLD_WINDOW_D
     else:
+        idx = bisect_right(sale_days, target)
+        if idx and (target - sale_days[idx - 1]).days <= SOLD_WINDOW_D:
+            return True
         observed, expires = anchor_day, MARKET_MAX_AGE_D
     carried = (anchor_day - observed).days > max(ANCHOR_CARRY_FLOOR_D, days * ANCHOR_CARRY_FRACTION)
     expired = (target - observed).days > expires

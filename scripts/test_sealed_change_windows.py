@@ -128,10 +128,24 @@ FFI = ("ptcg-en", [sale(date(2026, 7, 16), 3800.0, "ebay"), sale(date(2026, 7, 2
                    sale(date(2026, 7, 31), 4119.0, "ebay")],
        {"pricecharting": [(date(2025, 7, 1), 2203.59), (date(2026, 8, 1), 4168.17), (date(2026, 8, 14), 4169.80),
                           (date(2026, 9, 1), 4206.17), (ago(1), 4206.17)]})
+# DEX (EN): PC's chart ran 3-4x under the eBay sales from March to May, then caught up by July. Its March point is the
+# market lane's last point on or before today-180, but /box showed the $20,101 sale of 03-08 on that day.
+DEX = ("ptcg-en", [sale(date(2025, 5, 15), 6999.95, "ebay"), sale(date(2026, 3, 8), 20101.0, "ebay"),
+                   sale(date(2026, 4, 12), 7500.0, "ebay"), sale(date(2026, 4, 24), 17500.0, "ebay"),
+                   sale(date(2026, 5, 15), 21194.28, "ebay")],
+       {"pricecharting": [(date(2025, 7, 1), 5411.91), (date(2025, 8, 1), 5926.04), (date(2025, 9, 1), 6010.55),
+                          (date(2025, 10, 1), 6010.55), (date(2025, 11, 1), 6010.55), (date(2025, 12, 1), 5411.91),
+                          (date(2026, 1, 1), 5411.91), (date(2026, 2, 1), 5411.91), (date(2026, 3, 1), 5000.0),
+                          (date(2026, 4, 1), 6372.73), (date(2026, 5, 1), 7591.74), (date(2026, 6, 1), 12500.0),
+                          (date(2026, 7, 1), 16573.82), (date(2026, 8, 1), 16573.82), (date(2026, 9, 1), 16573.82),
+                          (ago(1), 16573.82)]})
+# A sale after today-90 but more than SOLD_WINDOW_D before today: /box showed PC's point on today-90.
+LATER_SALE = ("ptcg-en", [sale(ago(50), 105.0, "ebay")], {"pricecharting": [(ago(100), 100.0), (ago(1), 110.0)]})
 ALL = {"CG": CG, "CG_DIP": CG_DIP, "XY2": XY2, "STALE": STALE, "S5R": S5R, "EDGES": EDGES, "SV1V": SV1V,
        "SNK_PC": SNK_PC, "NOT_LATEST": NOT_LATEST, "TODAY_ROW": TODAY_ROW, "STEP": STEP,
        "STEP_OTHER_LANE": STEP_OTHER_LANE, "STEP_STALE": STEP_STALE, "STEP_SOLD": STEP_SOLD, "AS_OF": AS_OF,
-       "NO_NEW_POINT": NO_NEW_POINT, "LONG": LONG, "OP17": OP17, "FRESH": FRESH, "PC_MONTHLY": PC_MONTHLY, "FFI": FFI}
+       "NO_NEW_POINT": NO_NEW_POINT, "LONG": LONG, "OP17": OP17, "FRESH": FRESH, "PC_MONTHLY": PC_MONTHLY, "FFI": FFI,
+       "DEX": DEX, "LATER_SALE": LATER_SALE}
 
 
 # ------------------------------------------------------------------ windows (sealed_operator)
@@ -151,7 +165,6 @@ def check_as_of(comp, op) -> None:
     # The retired 30d step fallback's limits (market lane only, no other lane between, MARKET_MAX_AGE_D) are gone with
     # it: same-lane as-of is the whole rule.
     assert (change(box(comp, op, *STEP), "7d"), change(box(comp, op, *STEP), "30d")) == (10.0, 10.0), "STEP"
-    assert change(box(comp, op, *STEP_OTHER_LANE), "30d") == 10.0, "STEP_OTHER_LANE: the eBay point is another lane"
     # DADDY 2026-09-26: a market anchor the display had dropped by today-30 (07-01, 57 days > MARKET_MAX_AGE_D) is withheld.
     assert change(box(comp, op, *STEP_STALE), "30d") is None, "STEP_STALE: an expired market anchor is withheld"
 
@@ -223,6 +236,25 @@ rule("an expired anchor (past compose's own sold / market age) is withheld; PC m
     ("op", "expired = (target - observed).days > expires",
      "expired = (target - observed).days > max(ANCHOR_CARRY_FLOOR_D, days * ANCHOR_CARRY_FRACTION)"),
     ("op", "if anchor and _anchor_withheld(anchor, sale_days, start, days):", "if False:"),
+])
+
+
+def check_superseded(comp, op) -> None:
+    r = box(comp, op, *DEX)
+    assert (r["current"]["kind"], r["current"]["usd"]) == ("market", 16573.82), r["current"]
+    got = {label: change(r, label) for label in OP.WINDOW_DAYS}
+    assert got == {"1d": 0.0, "7d": 0.0, "30d": 0.0, "90d": None, "180d": None, "365d": 175.75}, \
+        f"DEX 180d: /box showed 03-08's $20,101 sale on today-180, not PC's $5,000 March point (+231.48%): {got}"
+    assert change(box(comp, op, *STEP_OTHER_LANE), "30d") is None, \
+        "STEP_OTHER_LANE: on today-30 /box showed 08-20's eBay sale, not PC's 08-10 point"
+    assert change(box(comp, op, *LATER_SALE), "90d") == 10.0, \
+        "LATER_SALE: a sale after today-90 does not unseat the PC point /box showed on today-90"
+
+
+rule("a market anchor a sale put behind the sold median on today-N is withheld (DEX 180d)", check_superseded, [
+    ("op", "        if idx and (target - sale_days[idx - 1]).days <= SOLD_WINDOW_D:\n            return True\n", ""),
+    ("op", "        idx = bisect_right(sale_days, target)\n", "        idx = bisect_right(sale_days, anchor_day)\n"),
+    ("op", "        idx = bisect_right(sale_days, target)\n", "        idx = len(sale_days)\n"),
 ])
 
 
