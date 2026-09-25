@@ -5,23 +5,28 @@
   "scripts": {
     "dev": "npm --workspace @cardz/market-data run build && next dev",
     "build": "npm --workspace @cardz/market-data run build && next build && node scripts/prepare-standalone.mjs",
-    "start": "next start"
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "geo:ua-matrix": "node scripts/geo/crawler-ua-matrix.mjs",
+    "geo:indexnow": "node scripts/geo/indexnow-ping.mjs"
   },
   "dependencies": {
     "@cardz/market-data": "0.1.0",
-    "d3-hierarchy": "^3.1.2",
     "framer-motion": "^12.42.2",
     "lucide-react": "^1.25.0",
     "mysql2": "^3.23.2",
     "next": "^16.2.10",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react-dom": "^19.2.4",
+    "sharp": "0.34.5"
   },
   "devDependencies": {
-    "@types/d3-hierarchy": "^3.1.7",
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.3.1",
     "typescript": "^5.9.0"
   }
 }

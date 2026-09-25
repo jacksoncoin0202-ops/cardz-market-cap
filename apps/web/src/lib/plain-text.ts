@@ -44,3 +44,16 @@ export function plainDescription(input: string, max = 160): string {
   const cut = lastSpace > max * KEEP_RATIO ? head.slice(0, lastSpace) : head;
   return `${cut.replace(/[\s.,;:!?、。，；：！？·\-–—]+$/u, "")}…`;
 }
+
+/*
+ * 故事段首嘅 emoji 記號（📦 🎨 🗂️ 🔎 📎…，2026-09-23 live 幾乎段段都有）係內容 pipeline
+ * 帶落嚟嘅段落記號。詳情頁行「克制嘅金融終端」路線，唔要表情符號，所以喺顯示層剝走段首
+ * 嗰串（連 FE0F、膚色、ZWJ 組合）；段中間嘅唔郁，DB 內容同 story-display.ts（bake input）
+ * 都唔改。©®™ 都係 Extended_Pictographic，但係真內容（版權行），唔准剝。
+ * scripts/test-fe-story-markers.mjs 鎖死。
+ */
+const STORY_MARKER = /^(?:(?![\u00A9\u00AE\u2122])\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier}|\u200D\p{Extended_Pictographic})*\s*)+/u;
+
+export function stripStoryMarker(paragraph: string): string {
+  return paragraph.replace(STORY_MARKER, "");
+}

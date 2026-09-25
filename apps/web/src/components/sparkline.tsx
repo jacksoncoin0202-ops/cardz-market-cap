@@ -6,6 +6,8 @@ interface SparklineProps {
   label: string;
 }
 
+/* FE05 WS3 明文決定：**sparkline 永遠唔加動畫**。rankings 一頁 100+ 個實例，
+   加 draw-in 就係一次過跑 100 條線；history chart 嗰個 draw-in 唔准抄落嚟（DESIGN.md §4.2）。 */
 export function Sparkline({ values, label }: SparklineProps) {
   const gradientId = useId();
   if (values.length < 3) return null;

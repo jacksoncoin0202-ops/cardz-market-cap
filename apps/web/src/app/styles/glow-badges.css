@@ -1,0 +1,167 @@
+/*
+ * 發光徽章（FE05 WS2）：#1 卡、7 日最大升幅、資料新鮮度 live 徽章。
+ * 由 `provenance.tsx`（live）、`card-detail.tsx`（#1）、`market-page.tsx`（top mover）import。
+ *
+ * 三個都行同一組 token（`globals.css` :root / [data-theme="dark"]），
+ * 一個 hardcode 色都冇；發光係 box-shadow，唔係 filter（filter 會逼多一層 raster）。
+ */
+
+/* .card-art 有 transform = 新 stacking context，喺 DOM 度排喺 .detail-rank 後面。
+   唔畀個 z 就係 wrapper 蓋住個名次牌（現時 mask 令佢睇唔出，但係計時炸彈）。 */
+.detail-rank { z-index: 2; }
+
+/* 只有 #1 先發光。第 2 名開始一律原樣 —— 發光係「唯一」嘅語意，唔係裝飾。 */
+.detail-rank-top {
+  box-shadow: var(--glow-accent);
+}
+
+/*
+ * 7 日最大升幅 chip。moverCard 本來淨係喺頁尾 <details> 嗰句市況文字入面出現過，
+ * 冇自己嘅 render site，所以喺同一段度補一粒 chip（順手多條內鏈落卡頁）。
+ * 摺埋咗嘅 <details> 入面 = 唔喺 `/` 第一屏，符合首屏預算。
+ */
+.mover-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  padding: 6px var(--space-3);
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-translucent);
+  box-shadow: var(--glow-accent);
+  color: var(--ink);
+  font-size: var(--step--1);
+  transition: box-shadow var(--interactive-transition), border-color var(--interactive-transition);
+}
+
+.mover-chip-label {
+  color: var(--muted);
+  /* 11px 係本 repo 大寫微標籤嘅慣用碼（globals.css 有 20+ 處），冇對應 step token；
+     用 --step--1（12–13px）會大過隔籬所有同類 label。 */
+  font-size: 11px;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  font-feature-settings: "case" 1;
+  white-space: nowrap;
+}
+
+/* 卡名要可以縮：日文／中文卡名唔會斷行（DESIGN.md §2.3）。 */
+.mover-chip strong {
+  overflow: hidden;
+  min-width: 0;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mover-chip em {
+  color: var(--accent);
+  font-style: normal;
+  font-weight: var(--w-data);
+  white-space: nowrap;
+}
+
+.mover-chip:hover,
+.mover-chip:focus-visible {
+  border-color: var(--line-strong);
+}
+
+/*
+ * live 徽章：綠點 + 現有嘅「更新於 <ISO>」<time>（文字一個字都冇改，
+ * 抽取器讀到嘅 rendered text 同以前一樣）+ 一圈 border beam。
+ *
+ * beam 行 @property 角度 + conic-gradient 邊框（padding-box / border-box 兩層背景），
+ * 零 npm dep、零額外 DOM。
+ */
+@property --beam-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  /* 左右唔對稱：左邊粒點本身有 3px halo，收窄 2px 先睇落對稱。 */
+  padding: var(--space-1) var(--space-3) var(--space-1) 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background:
+    linear-gradient(var(--live-badge-bg), var(--live-badge-bg)) padding-box,
+    conic-gradient(from var(--beam-angle), var(--live-beam-idle) 0 78%, var(--live-beam) 88%, var(--live-beam-idle) 96%) border-box;
+}
+
+.live-dot {
+  /* pseudo 個脈衝環要定位喺粒點度；position 唔改 layout（flex item 照舊）。 */
+  position: relative;
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--live-dot);
+  box-shadow: 0 0 0 3px var(--live-dot-halo);
+}
+
+/*
+ * 綠點脈衝（FE05 fix-visual，2026-08-17 owner 拍板）。
+ *
+ * **有迭代上限**：5 × 1.2s = 6s 之後自己停，冇 `infinite`（§4 預算明文唔准常駐視覺噪音；
+ * WS2 欠單 ③ 就係「要跳就要有上限，owner 拍板先加」——而家拍咗板）。
+ * **冇 fill-mode**（review fix 2026-08-17）：100% 嗰格（opacity 0 + scale(1)）本身就等於
+ * base style，所以 `forwards` 買唔到任何嘢，反而令個 animation 永遠 "in effect" —— 播完
+ * 之後 `getAnimations()` 仍然數到 1 個（`finished`、`currentTime` 封頂 6000），
+ * 一個「播完唔准留低嘢」嘅 audit 會當佢紅。拆咗 `forwards` 之後 6 秒後歸 0，
+ * 同隔籬 `card-sheen-sweep`（一樣冇 fill-mode）同一個形狀。
+ *
+ * 只 animate transform / opacity（compositor 做，零 paint）——**唔郁 .live-dot 個
+ * box-shadow**，box-shadow 每 frame 重 paint，係 §4.5 明文唔准嘅嗰種。
+ *
+ * 環擴到 scale(2.6) = 7px × 2.6，即每邊向外 5.6px；`.live-badge` 左內距 10px，
+ * 所以個環唔會撐大 scroll 區域（實測 scrollWidth 冇變）。
+ *
+ * **唔會因為 re-render 再播**：animation 純 CSS、掛喺 class 上面，`provenance.tsx`
+ * 換 locale / currency 只係 re-render 同一個 DOM 節點（冇 key、冇條件 mount），
+ * React 唔會重建佢 → CSS animation 唔會 restart。
+ */
+.live-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--live-dot);
+  opacity: 0;
+  pointer-events: none;
+  animation: live-dot-pulse 1.2s var(--ease-standard) 5;
+}
+
+@keyframes live-dot-pulse {
+  0% { opacity: 0.55; transform: scale(1); }
+  70% { opacity: 0; transform: scale(2.6); }
+  /* 收返 scale(1)：終態一定要同 base style 一樣（冇 fill-mode，播完直接跌返 base）。 */
+  100% { opacity: 0; transform: scale(1); }
+}
+
+/*
+ * beam 只喺卡頁行。`/` 個 provenance panel 用同一個 component，但 `/` 嘅預算係
+ * 「第一屏得熱力圖 + 一行總市值」，唔可以喺 load 嗰陣多一條 8 秒 paint 動畫喺頁尾轉緊。
+ * 迭代 3 次（~7.8s）之後自己停返喺 0deg（冇 fill-mode），唔係無限轉。
+ */
+.detail-page .live-badge {
+  animation: live-beam 2.6s linear 3;
+}
+
+@keyframes live-beam {
+  to { --beam-angle: 360deg; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 靜態點 + 靜態邊，冇 beam。 */
+  .detail-page .live-badge { animation: none; }
+  /* 脈衝環：唔播、亦都唔留一個 0 透明度嘅 pseudo 喺度（display: none 最乾淨）。 */
+  .live-dot::after { animation: none; display: none; }
+  /* globals.css 冇 blanket reduced-motion 規則，逐個新 transition 自己收（DESIGN.md §3.1）。 */
+  .mover-chip { transition: none; }
+}

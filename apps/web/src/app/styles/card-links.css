@@ -1,0 +1,195 @@
+/*
+ * 卡頁 / BOX 頁嘅 internal linking 樣式（owner 2026-08-16）。
+ * 全部行返 globals.css 已有嘅 token（--muted / --line / --surface / --control-radius…），
+ * 所以深色淺色兩邊自動跟；呢個檔一個新色都唔定義。
+ * Mobile-first：先寫細螢幕，≥981px 先加闊嘅版面（同主站斷點一致）。
+ */
+
+/* ---------- 麵包屑 ---------- */
+.crumbs {
+  margin: 0 0 10px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.crumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.crumbs li {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  color: var(--muted);
+}
+
+.crumbs li + li::before {
+  margin-right: 6px;
+  color: var(--line-strong);
+  content: "›";
+}
+
+.crumbs a {
+  color: var(--muted);
+  text-decoration: none;
+  transition: color var(--control-transition);
+}
+
+.crumbs a:hover,
+.crumbs a:focus-visible {
+  color: var(--ink);
+}
+
+/* 最後一層係當前頁：唔可以撳，所以唔畫成連結色，但要斬得住唔好撐爆一行。 */
+.crumbs li:last-child span {
+  max-width: min(100%, 42ch);
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- 可引用事實 ---------- */
+.card-fact {
+  max-width: 68ch;
+  /* owner 2026-08-17：card-fact 由 H1 下面搬咗去 metrics／資料時間後面做「簡介」開頭。
+     上面貼住 11.5px 嘅 .data-time，12px 太逼、睇落似同一段；拉開做 22px 分開兩組資訊。
+     下面留 0，交返俾 .story-panel 自己嘅 margin-top（唔想兩邊各加一次變雙倍）。 */
+  margin: 22px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--control-radius);
+  background: var(--surface-translucent);
+  color: var(--ink);
+  font-size: 15px; /* owner 2026-08-17：手機／桌面同一個字級 */
+  line-height: 1.65;
+}
+
+/* ---------- 相關卡 ---------- */
+.related-strip {
+  margin-top: 36px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+}
+
+.related-legend {
+  margin: 0 0 12px;
+  font-size: var(--fs-micro);
+  letter-spacing: 0.02em;
+}
+
+.related-group + .related-group {
+  margin-top: 22px;
+}
+
+.related-group > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 12px;
+  margin-bottom: 8px;
+}
+
+.related-group h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: var(--w-heading);
+  /* 收編：本來硬寫 -0.01em，CJK block 清唔到 → ja/ko/zh 嘅「このセットの他のカード」都食住負字距。
+     --track-copy = Latin -0.012em / CJK 0（差 0.028px @14px，肉眼冇）。 */
+  letter-spacing: var(--track-copy);
+}
+
+.related-group > header a {
+  color: var(--accent);
+  font-size: 11px;
+  text-decoration: none;
+}
+
+.related-group > header a:hover,
+.related-group > header a:focus-visible {
+  text-decoration: underline;
+}
+
+.related-group ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  grid-template-columns: 1fr;
+  list-style: none;
+}
+
+.related-group li a {
+  display: grid;
+  align-items: center;
+  gap: 2px 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--surface-translucent);
+  color: var(--ink);
+  text-decoration: none;
+  grid-template-columns: minmax(0, 1fr) auto;
+  transition: border-color var(--control-transition), box-shadow var(--control-transition);
+}
+
+.related-group li a:hover,
+.related-group li a:focus-visible {
+  border-color: var(--line-strong);
+  box-shadow: var(--elev-1);
+}
+
+.related-name {
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  grid-column: 1;
+}
+
+.related-meta {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: max(10.5px, var(--fs-micro)); /* 拉丁 10.5 唔郁；CJK token 升到 11 先跟 */
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  grid-column: 1;
+  grid-row: 2;
+}
+
+/* 兩個數（市值 · 7d）靠右自己一欄，跨兩行對齊卡名同 meta。 */
+.related-figures {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.related-figures strong {
+  font-size: 12.5px;
+  font-weight: var(--w-data);
+  white-space: nowrap;
+}
+
+.related-figures em {
+  font-size: max(10.5px, var(--fs-micro));
+  font-style: normal;
+  white-space: nowrap;
+}
+
+@media (min-width: 981px) {
+  .crumbs { font-size: 12px; }
+  .card-fact { font-size: 14px; }
+  .related-group ul { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

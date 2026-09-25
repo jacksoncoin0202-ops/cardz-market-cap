@@ -25,7 +25,15 @@ Thumbs.db
 fe03-server.ps1
 scripts/fe03-verify.cjs
 # .claude/launch.json 都係本機 dev server 設定，同上面一齊漏入過 commit。
-.claude/
+# 用 `.claude/*` 而唔係 `.claude/`：git 唔可以喺一個已排除嘅**目錄**入面 re-include 檔，
+# 寫成 `.claude/` 就永遠 negate 唔返。
+.claude/*
+# 例外：`.claude/agents/*.md` 係 repo 嘅一部分（fe-design-review 係 FE05 嘅阻斷式設計 gate，
+# apps/web/DESIGN.md 直接引住佢）。只喺本機存在 = 換一棵 clone／換一個 agent 就冇咗個 gate。
+!.claude/agents/
+.claude/agents/*
+!.claude/agents/*.md
+.gstack/
 
 # 2026-08-22 durability work: scratch scripts + backend env must never be committed
 temp/

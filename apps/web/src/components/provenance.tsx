@@ -2,6 +2,7 @@
 
 import { copy } from "@/lib/i18n";
 import { useMarketSettings } from "@/lib/use-market-settings";
+import "@/app/styles/glow-badges.css";
 
 /*
  * 出街可見嘅方法說明。兩個規矩：
@@ -20,18 +21,22 @@ function isoDay(value: string | null | undefined): string | null {
   return date.toISOString().slice(0, 10);
 }
 
-export function Provenance({ updatedAt }: { updatedAt: string | null | undefined }) {
+export function Provenance({ updatedAt, kind = "cards" }: {
+  updatedAt: string | null | undefined;
+  kind?: "cards" | "box";
+}) {
   const { locale } = useMarketSettings();
   const t = copy[locale];
+  const block = kind === "box" ? t.boxProvenance : t.provenance;
   const iso = isoDay(updatedAt);
 
   return (
     <section className="provenance-panel" aria-labelledby="provenance-heading">
-      <p className="section-kicker">{t.provenance.kicker}</p>
-      <h2 id="provenance-heading">{t.provenance.title}</h2>
-      <p className="provenance-body">{t.provenance.body}</p>
+      <p className="section-kicker">{block.kicker}</p>
+      <h2 id="provenance-heading">{block.title}</h2>
+      <p className="provenance-body">{block.body}</p>
       <dl className="provenance-steps">
-        {t.provenance.steps.map((step) => (
+        {block.steps.map((step) => (
           <div key={step.term}>
             <dt>{step.term}</dt>
             <dd>{step.detail}</dd>
@@ -40,10 +45,18 @@ export function Provenance({ updatedAt }: { updatedAt: string | null | undefined
       </dl>
       {iso && (
         <p className="provenance-updated">
-          <time dateTime={iso}>{`${t.provenance.updated} ${iso}`}</time>
+          {/*
+            live 徽章（FE05 WS2）：綠點 + 邊框 beam 包住原本嗰個 <time>。
+            **文字一個字都冇改**——上面第 2 條規矩（label + ISO 同一個 text node）照守，
+            粒點係 aria-hidden 嘅純裝飾，抽取器讀到嘅 rendered text 同以前一模一樣。
+          */}
+          <span className="live-badge">
+            <span className="live-dot" aria-hidden="true" />
+            <time dateTime={iso}>{`${block.updated} ${iso}`}</time>
+          </span>
         </p>
       )}
-      <p className="provenance-byline">{t.provenance.byline}</p>
+      <p className="provenance-byline">{block.byline}</p>
     </section>
   );
 }

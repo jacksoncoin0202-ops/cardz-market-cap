@@ -23,7 +23,7 @@ WSL `~/cardz-market-cap-release-daily` 只係每次 fast-forward `origin/main` �
 2. **`backend.env` 一個 byte 都唔准改**（讀可以）。任何 rebuild DDL/DML 用 `data/runtime/config/rebuild.env`（`--credentials-env`）。writer freeze 期間 `cardz@%` 只有 SELECT。
 3. **PriceCharting 只用 CDP port 9333**（Windows **headed** Chrome，`scripts/ensure_chrome_cdp.ps1 -Port 9333`。Headless 禁止：CF 擋、本機 CF tool 要視窗）。9222 係 Codex 嘅 browser profile：唔准掂，唔准 fallback。WSL/Linux Chrome 仍然禁止。**9333 PC 腳本永遠雙 tab**（`pc_cdp_sold_refresh_win.py` `PC_TABS=2`）。加卡（identity bind）同 cap 頁係**同一條腳本、一次執行**，唔准另開 `pc_identity_discover.py` 單 tab 去 9333。SNK 同 PC 係並行數據，有 SNK 唔等於唔使 PC。
 4. **同時起兩個 orchestrator 而家係 code 擋，唔再靠自律。** `operator_control.py` `main()` 除 `READ_ONLY_COMMANDS` 之外每條 subcommand 都攞 `operator_e2e_lease`（MySQL `GET_LOCK`），第二個會即刻 `refused: another CARDZ 026 operator run owns …`。所以唔好再「直接 call stage function 繞過 orchestrator」——嗰個係舊時冇閘先要嘅做法，繞過即係繞過個閘。
-5. **舊 checkout `C:\Users\jackson0202\Documents\Playground\cardz-market-cap` 只准讀** — 佢擁有 MySQL 3308 嘅 docker compose 同 14GB volume，刪/搬 = 斷 DB。
+5. **舊 checkout C:\\Users\\jackson0202\\Documents\\Playground\\cardz-market-cap 只准讀** — 佢擁有 MySQL 3308 嘅 docker compose 同 14GB volume，刪/搬 = 斷 DB。**唔准**用嗰棵當 live 做 pass／bake／[deploy]。
 6. **秘密**：唔准將任何 env 密碼/token 印落 log 或 commit。
 7. **採集唔准 filter** — fetch-all 落 landing，入 DB 先揀（政策，見 runbook）。
 8. **`rebuild-036-unfreeze --confirm` 會 DROP `cardz_rebuild`。** 之後想再跑任何 stage，一定要
@@ -48,10 +48,21 @@ WSL `~/cardz-market-cap-release-daily` 只係每次 fast-forward `origin/main` �
     缺陷有兩個方向，第一版修法喺 48 張「catalog 空白」度啱，喺 21 張「catalog 載住另一邊」
     度一格都冇郁；總數升咗 9 張，睇落似做完（runbook 形狀 21 補完）。剩低嗰批要逐個
     再跑一次修完嘅邏輯，見到佢由 refuse 變 pass 先算數。
-15. **日更 `incr` 唔拉 residual stock。** 新 activate／未 freeze-complete 先 `collect_control.py stock`。FE 出街車係 `../cardz-market-cap-037-fe04-live`，唔係呢度 push `main`。
+15. **036 係靚仔 PSA10，隨時 fallback。037／FE04 只加 BOX。** 唔開 rebuild_037。BOX 公開路徑 /box，sidecar overlay，唔准寫入 PSA10 seed-snapshot.json。契約：docs/HANDOFF_037_FE04.md。Live 認 https://app.cardzmarketcap.com/api/health。
+
 16. **宣傳鏈唔係自動更新鏈。** `live.confirmed` 之後等 **30 分鐘** 先跑 `promo_chain.py brief`（圖／文／閘）。**唔准**由 live.confirmed 直接 Hermes／X／Threads 發佈。**未證明今日新 bake 唔准 compose：** live `generation` 要係今日 JST、heatmap sha 唔可以同上一手 pack 一樣、`box.asOf` 要係今日 JST；圖舊／box 舊 = 未 bake 完。日更只做 X 英／中、Threads 英／中四步；Instagram、WhatsApp 暫停。公開 publisher 只准 Hermes，repo `promo_post.py --confirm` 必須拒絕，唔准雙 publisher。Hermes social browser 必須按 port 持有 `~/.hermes/state/cardz-social-cdp-<PORT>.lock`；Threads EN `@cardz.game`／ZH `@cardz.gamezh` 沿用 Hermes 現行隔離持久化 9222 profile；由 Hermes `cardz_marketcap_meta_session.py` 建立並讀回精確 handle，owner 未確認唔准 compose。9224 已停用，唔准另開或轉 browser。已確認重複、錯帳、錯 audience／community 或內容錯誤，必須先刪公開帖、保存 URL／ID，之後先可重發；已撳 Post 但未有 URL = `cleanup_required`，未定位及清理前唔准自動 retry。Daddy 叫停宣傳鏈 = 即停（包括背景）。操作法 [docs/PROMO_CHAIN.md](docs/PROMO_CHAIN.md)。9222 唔係 PC（PC 只准 9333）。Threads 英／中分別先核對 `@cardz.game`／`@cardz.gamezh`；Threads 中文 = 繁體，簡體只准 x.com 中文。
 
-17. **公開 bake／deploy 只准由資料 authority 呢棵樹起腳。** 人手入口係喺
+17. **個 deploy literal 一入 commit message，就一定要喺 subject。** 出街係 AWS 接收端睇
+    commit message 有冇個 literal 決定，而佢究竟睇 subject 定睇全文，repo 呢邊驗唔到
+    （源碼喺 AWS，IT 管；兩份契約都只寫「commit message 含」，冇分 subject／body）。
+    所以唔賭邊個讀法啱，而係**取消個分歧**：兩種讀法對每一粒合法 commit 都要俾同一個
+    答案。想喺 message 度講呢件事而唔出街 → 寫「deploy tag」，唔好打個 literal。
+    （2026-08-21 `2851497c` 喺 body 寫「呢粒唔帶 <literal>」解釋自己唔出街，個 literal
+    照樣入咗 message。`scripts/githooks/commit-msg` 而家擋住；`node scripts/install_githooks.mjs`
+    裝；`scripts/test-deploy-tag-contract.mjs` 守住條規矩同 deploy_watch 嘅判定口徑。）
+
+18. **日更 `incr` 唔拉 residual stock。** 新 activate／未 freeze-complete 先 `collect_control.py stock`。FE 出街車係 `../cardz-market-cap-037-fe04-live`，唔係呢度 push `main`。
+19. **公開 bake／deploy 只准由資料 authority 呢棵樹起腳。** 人手入口係喺
     `cardz-market-cap-fe-db-20260805` root 跑
     `pwsh -NoProfile -File scripts/daily_public_release.ps1`；唔准直接跑
     `~/cardz-market-cap-release-daily/scripts/daily_public_release.sh`。個 shell script 會由
@@ -60,7 +71,13 @@ WSL `~/cardz-market-cap-release-daily` 只係每次 fast-forward `origin/main` �
     呢個係**入口／checkout 錯誤**，唔係 DB 冇數。唔准為咗令佢過而喺 release checkout
     新建、複製、改寫或 commit `backend.env`；WSL release checkout 只負責 fast-forward
     `origin/main`、接收 authority runtime 輸入、bake `data/public` 同推 release commit。
-18. **`deploy_watch.ps1` 一律用 PowerShell 7 `pwsh`，唔准用 Windows PowerShell 5
+
+20. **出街唔准淨係 `git push` 就走人** — `git push origin HEAD:main` 之後一定要跑
+    `pwsh -NoProfile -File scripts\deploy_watch.ps1`，等佢講咗結果先算做完。（2026-08-17
+    `895f9f76` push 咗、GitHub 遲咗 30 分 55 秒先派，冇人睇實就當咗漏派去亂改 code。
+    exit code 分流同判讀見 [docs/FE05_ROLLBACK.md](docs/FE05_ROLLBACK.md) 第 8 步。）
+
+21. **`deploy_watch.ps1` 一律用 PowerShell 7 `pwsh`，唔准用 Windows PowerShell 5
     `powershell.exe`。** 呢份 UTF-8／廣東話 script 喺 PowerShell 5 會被錯誤解碼，表面會報
     大量 `Unexpected token '}'`／`Missing closing '}'`，唔係 script 真係壞。Watcher 依賴
     執行 checkout 嘅 `origin/main` reflog 推斷 push 時間：WSL release checkout 推完之後，
@@ -70,6 +87,11 @@ WSL `~/cardz-market-cap-release-daily` 只係每次 fast-forward `origin/main` �
     GitHub 冇派嘅證據。唔准人造／回填 reflog 冒充原 push receipt；攞唔到原 checkout 時間證據
     就如實標記 watcher receipt unavailable，另列真 GitHub exact delivery 同 live
     `generation + generatedAt` 證據。
+
+> **編號（2026-09-25 合併 `origin/main`）：** 15／16／17 跟返有 code／文件引用住嘅條文
+> （`apps/web/src/lib/product-generation.ts`→15；`docs/PROMO_CHAIN.md`、`scripts/test_promo_post.py`→16；
+> `scripts/deploy_watch.ps1`、`scripts/test-deploy-tag-contract.mjs`→17）。資料線舊 15／17／18 → 而家 18／19／21；
+> FE 線舊 16 → 而家 20（`apps/web/DESIGN.md` 歷史 log 寫嘅「規矩 16」＝而家 20）。
 
 ## 查 bug 之前
 

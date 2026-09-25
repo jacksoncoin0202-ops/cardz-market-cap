@@ -51,11 +51,13 @@ export const TOKEN_PATTERN = new RegExp(
 
 // 編輯故事嗰個 bucket 認 path segment。canonical snapshot 叫 `stories`（複數），
 // view model 叫 `story`（單數）—— 兩個都要認。用 `/story/i` 掃成條 path 係唔夠嘅：
-// "stories" 入面根本冇 "story" 呢六個字母，實測會將真出街嗰兩句市場評論當成結構
-// 泄漏，一 bake 就炸。
+// "stories" 入面根本冇 "story" 呢六個字母，實測會將市場評論當成結構泄漏，
+// 一 bake 就炸。
 export const STORY_PATH = /(?:^|\.)stor(?:y|ies)(?:\.|\[|$)/i;
 
-export const STORY_TOKEN_BASELINE = 2;
+// 2026-08-16：出街 snapshot db3308_b2fa581189fddbeb 故事提及已跌到 0。
+// 閘只准收緊；test-public-surface-gate 要求實測數 = baseline，唔降就擋每日鏈。
+export const STORY_TOKEN_BASELINE = 0;
 
 /**
  * 掃一份 canonical PublicMarketSnapshot。過 => return 個 gate 統計；唔過 => throw。

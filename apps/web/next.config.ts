@@ -31,18 +31,37 @@ const publicBuildId = /^[A-Za-z0-9._-]{1,64}$/.test(requestedBuildId)
   ? requestedBuildId
   : "invalid-build-id";
 
+/*
+ * Cloudflare Web Analytics 由 CF 邊緣自動注入 `<script src="https://static.cloudflareinsights.com/beacon.min.js/…">`，
+ * 個 beacon 再 POST 去 `https://cloudflareinsights.com/cdn-cgi/rum`。呢兩個 host 唔喺 CSP
+ * 白名單 = 生產 console 每次載入都紅一條 `violates the following Content Security Policy
+ * directive: "script-src 'self' 'unsafe-inline'"`，而且 analytics 完全冇數。
+ *
+ * 兩個 host **唔同**（`static.` 派 script、裸 domain 收 beacon），所以要分別落
+ * script-src 同 connect-src，唔可以只寫一個。
+ *
+ * ⚠ 呢個改動嘅範圍係「**CSP 唔再擋**」，唔等於「analytics 有返數」。CSP 頭本身
+ * 淨係證到瀏覽器容許呢兩個 origin；beacon 有冇真係被 CF 邊緣注入、Web Analytics
+ * token 有冇設好、`/cdn-cgi/rum` 收唔收得到 payload，喺呢棵 tree 同 dev server
+ * （前面冇 CF）都驗唔到。出街後先驗：
+ *   curl -s https://app.cardzmarketcap.com/ | grep -o 'static.cloudflareinsights.com[^"]*'
+ * 拎到 beacon URL、加上 CF dashboard 15 分鐘內 pageview > 0，先可以講 analytics 修好。
+ */
+const CF_INSIGHTS_SCRIPT_SRC = "https://static.cloudflareinsights.com";
+const CF_INSIGHTS_CONNECT_SRC = "https://cloudflareinsights.com";
+
 const contentSecurityPolicy = [
   "default-src 'self'",
   "base-uri 'self'",
   "form-action 'self'",
   "frame-ancestors 'none'",
   "object-src 'none'",
-  `script-src 'self' 'unsafe-inline'${isDevelopment ? " 'unsafe-eval'" : ""}`,
+  `script-src 'self' 'unsafe-inline' ${CF_INSIGHTS_SCRIPT_SRC}${isDevelopment ? " 'unsafe-eval'" : ""}`,
   "script-src-attr 'none'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
-  `connect-src 'self'${isDevelopment ? " ws: wss:" : ""}`,
+  `connect-src 'self' ${CF_INSIGHTS_CONNECT_SRC}${isDevelopment ? " ws: wss:" : ""}`,
   "worker-src 'self' blob:",
   "media-src 'self'",
   "manifest-src 'self'",
@@ -86,19 +105,34 @@ const nextConfig: NextConfig = {
   productionBrowserSourceMaps: false,
   ...(standaloneOutput ? { output: "standalone" as const } : {}),
   outputFileTracingRoot: repositoryRoot,
-  turbopack: { root: repositoryRoot },
-  experimental: {
-    optimizePackageImports: ["d3-hierarchy"],
+  /*
+   * OG 卡圖要喺 request 時用 `sharp` 解 WebP（api/og/card/[id]/route.tsx）。nft
+   * 對 sharp 有 special case，理論上自己會連 `@img/sharp-*` 平台包一齊 emit，但
+   * 呢個推論冇喺真 Docker build 驗證過，而漏咗嘅表現係「200 + 靜靜退返純文字版」
+   * ——冇 500、冇 log，冇人會發現。所以照明寫一次，零成本保險。
+   *
+   * key 一定要係 normalizeAppPath 之後嘅 route（`/api/og/card/[id]`，唔係
+   * entry name）；glob 相對 apps/web 行（collect-build-traces.js:430 cwd = dir），
+   * 而 node_modules hoist 咗上 repo root，所以要 `../../`。
+   */
+  outputFileTracingIncludes: {
+    "/api/og/card/[id]": ["../../node_modules/sharp/**/*", "../../node_modules/@img/**/*"],
   },
+  turbopack: { root: repositoryRoot },
   generateBuildId: async () => publicBuildId,
   /* 改過公開 id 嘅卡：舊 URL 已經入咗生產 sitemap，冇呢啲就硬 404。
      308 唔係 301：Next 嘅 `permanent` 出 308，搜尋引擎當佢一樣係永久轉向，
      但唔准 client 將 POST 改寫做 GET —— 對 /api/v1/cards/* 嚟講先啱。 */
   async redirects() {
-    return Object.entries(LEGACY_CARD_IDS).flatMap(([oldId, newId]) => [
-      { source: `/card/${oldId}`, destination: `/card/${newId}`, permanent: true },
-      { source: `/api/v1/cards/${oldId}`, destination: `/api/v1/cards/${newId}`, permanent: true },
-    ]);
+    return [
+      { source: "/sealed", destination: "/box", permanent: true },
+      { source: "/sealed/:id", destination: "/box/:id", permanent: true },
+      { source: "/watchlist", destination: "/", permanent: true },
+      ...Object.entries(LEGACY_CARD_IDS).flatMap(([oldId, newId]) => [
+        { source: `/card/${oldId}`, destination: `/card/${newId}`, permanent: true },
+        { source: `/api/v1/cards/${oldId}`, destination: `/api/v1/cards/${newId}`, permanent: true },
+      ]),
+    ];
   },
   async headers() {
     const htmlCacheControl = {
@@ -111,6 +145,19 @@ const nextConfig: NextConfig = {
       "/one-piece",
       "/watchlist",
       "/card/:id",
+      "/box",
+      "/box/:id",
+      /* GEO 批（owner 2026-08-16）新增嘅內容頁，同榜頁行同一個 edge cache。 */
+      "/methodology",
+      "/about",
+      "/faq",
+      "/glossary",
+      "/data",
+      "/rankings",
+      "/rankings/:slug",
+      "/market-report",
+      "/pokemon/set/:slug",
+      "/one-piece/set/:slug",
     ];
     return [
       {
@@ -121,8 +168,26 @@ const nextConfig: NextConfig = {
         source,
         headers: [htmlCacheControl],
       })),
+      /*
+       * `/api/v1/*` 係公開機讀面：任何人（包括 AI 引擎同第三方 script）攞得到、
+       * 而且要俾人索引。owner 2026-08-16 決定連 JSON 一齊開放引用，所以呢度明寫
+       * `X-Robots-Tag: all` 蓋返任何預設 noindex。
+       */
       {
-        source: "/api/:path*",
+        source: "/api/v1/:path*",
+        headers: [
+          { key: "Access-Control-Allow-Origin", value: "*" },
+          { key: "Access-Control-Allow-Methods", value: "GET, OPTIONS" },
+          { key: "X-Robots-Tag", value: "all" },
+          htmlCacheControl,
+        ],
+      },
+      /*
+       * 原本呢度係 `/api/:path*` 一刀切 noindex —— 連 /api/v1/ 同 /api/og/ 一齊殺埋。
+       * 而家只剩運維探針：health 冇內容價值，索引咗淨係污染 SERP。
+       */
+      {
+        source: "/api/health",
         headers: [
           {
             key: "X-Robots-Tag",

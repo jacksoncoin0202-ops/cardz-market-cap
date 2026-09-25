@@ -1,0 +1,873 @@
+/*
+ * 熱力圖 kiosk 全屏（owner 2026-08-18：「鋪頭店主想推廣我哋嘅 index⋯⋯一個掣一撳落去就自動
+ * 適應屏幕，橫嘅打橫佔據晒、直嘅打直佔據晒⋯⋯當然啦，要 show 翻個公司 logo」）。
+ *
+ * **點解唔使寫新演算法**：`heatmapTreemapLayout()` 收 frame 嘅實際闊高，frame 又有
+ * ResizeObserver 睇住 —— 即係任何長寬比佢一早已經自己重排啱。所以「橫鋪橫、直鋪直」
+ * 剩返一件事要做：**換個容器**，令 frame 由「grid 中間一行」變成「成塊屏」。
+ *
+ * 兩條路共用同一個 `[data-kiosk="true"]`：
+ *  ① native `Element.requestFullscreen()`（desktop / Android / iPad）
+ *  ② CSS 假全屏（`html.heatmap-kiosk-fallback`）—— **iPhone Safari 冇 `Element.requestFullscreen`**，
+ *     唔做呢條路個功能喺一大堆真店主部機直情係死嘅。
+ * 樣要一模一樣，所以「全屏之下點樣擺」嗰段規則只綁 `[data-kiosk="true"]`，唔綁 `:fullscreen`。
+ *
+ * 由 heatmap.tsx 自己 import（DESIGN.md §6 pattern，同 heatmap-tune.css 一樣）。
+ */
+
+/* ── 共用：section 變一個覆蓋層容器，frame 撐到盡，字同 logo 全部浮喺 tile 上面 ──
+   frame 一定要**佔足** viewport（唔可以留返標題嗰行高度俾佢），owner 要嘅係「佔據晒」。
+   所以標題／總市值／legend／logo 一律變 absolute overlay，唔再喺 grid 度食行高。 */
+.heatmap-section[data-kiosk="true"] {
+  /* 兩條路都自己寫死 fixed inset:0，唔靠 UA 嗰條 `:fullscreen { position: fixed !important }`：
+     Chrome 有落 !important，但唔係每個引擎都有；一旦跌返 static，入面啲 absolute overlay
+     就會去咗搵上一層 positioned 祖先，成個 HUD 飛去第二度。 */
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  /* isolation：HUD 同 frame 嘅 z-index 只喺呢個 section 入面比大細，唔會撞到站級 --z-* 階梯 */
+  isolation: isolate;
+  display: block; /* 拆咗 grid-template-rows：三行變一層 frame + 幾件 overlay */
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  /* 唔透明底：假全屏嗰條路全靠佢蓋住後面成版（tile 之間有 gap，透明底會見到榜單） */
+  background: var(--paper);
+}
+.heatmap-section[data-kiosk="true"] .heatmap-frame {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  /* 角落 tile 個圓角係 max(0px, var(--heatmap-frame-radius) - 2px)（globals.css）——
+     呢度落 0 之後四隻角一齊變 0。
+     （2026-08-18 覆核修正：舊註解寫「拆走 max() 就 invalid → 成句 declaration 俾瀏覽器丟走
+     → 跌返 .heatmap-tile 嘅 4px」。種返落真 DOM 量過：`calc(var(--r) - 2px)` 配 --r:0px，
+     computed 係 `0px`；就算下面先墊一句 4px 再蓋上去，computed 都仲係 `0px`。
+     border-radius 嘅負值係 used-value 時 clamp 落 0，唔係 parse error，句嘢根本冇被丟走。
+     max() 留住係防 --heatmap-frame-radius 將來被改成正數，唔係防 invalid。） */
+  --heatmap-frame-radius: 0px;
+}
+/* ── .heatmap-dim：一塊 overlay 兩個用途，三條規則一定要貼住寫 ──────────────
+   ① hover dim 喺 kiosk 之下冇意思：preview 係 portal 落 document.body，native 全屏只 render
+      section 個 subtree（假全屏果條路 --z-overlay 100 又低過 section 個 --z-modal 120）——
+      兩條路都見唔到 preview，留住 hover dim 就變咗「掃過去成版變灰但乜都冇出」。
+   ② 巡遊要重用同一塊做射燈。佢本身就係為咗代替「99 格逐格改 filter/opacity」而存在，
+      再開多一塊 overlay 係開多一個真身。
+   ⚠️ 由 `display: none` 改成「純 opacity 關掉 trigger」：試過保留 display:none 再喺巡遊
+      `display: block; opacity: 1; transition-duration: 620ms` —— **嗰條 620ms 淡入永遠唔會播**。
+      CSS Transitions 規定 before-change style 入面個 element 冇 render 就唔起 transition，
+      即係由 none 轉出嚟嗰一幀係硬跳一嚿黑紗。讀 computed style 讀到 "0.62s" 唔等於佢跑過。
+      改成純 opacity 就唔使賭呢個行為。
+   成本：dim 喺 kiosk 期間留喺 layer tree 但 opacity 0。佢**冇** backdrop-filter
+   （globals.css :1146–1153 淨係 background + opacity），同標題／legend 嗰個「留住盒 = 白燒
+   GPU」情況唔同，所以唔使 display:none 都冇成本。
+   ⚠️ 下面兩條 hover/tour 特異度打和 (0,5,0)，靠 source order 分勝負 —— 巡遊嗰條一定要排
+      喺後面，唔准調轉。 */
+.heatmap-section[data-kiosk="true"] .heatmap-dim { background: var(--kiosk-scrim); }        /* (0,3,0) */
+.heatmap-section[data-kiosk="true"] .heatmap-frame:hover .heatmap-dim,
+.heatmap-section[data-kiosk="true"] .heatmap-frame:focus-within .heatmap-dim { opacity: 0; } /* (0,5,0) 壓 globals.css :1156–1158 嗰條 (0,3,0) */
+/* ⚠️ 條件係「真係有格飛緊」，唔係「巡遊模式開咗」。`data-kiosk-tour` 由 mount 就一路喺度
+   （佢係 mode = fly|hold，唔係 in-flight），所以舊寫法係由入場第一秒起成塊板就長期蓋住
+   一浸紗 —— 連 5 秒 warmup、同埋每輪 hold 之後嗰 400ms gap 都照蓋。
+   實測 2026-08-18（temp/fe05/kiosk-fx-land/repro-enter-jump.mjs，1920×1080）：t=0…3000ms
+   全程 `.heatmap-dim` opacity 1，而 `.kiosk-stage` 係 0×0 / opacity 0 —— 即係「射燈紗着咗
+   但冇嘢照」。owner 報嗰浸白霧就係佢。
+   `data-kiosk-star` 先係真身：JS 揀中邊格先派、落返地即拆（heatmap-kiosk-fx.tsx :467 / :423），
+   所以佢嘅存在期 = 飛出 + 停留 + 飛返，正正就係應該着紗嗰段。
+   ⚠️ 特異度升到 (0,7,0)（`:has()` 計入面最高嗰個 = (0,2,0)），檔尾嗰條 reduced-motion
+      sibling 要一齊升，唔係就變咗寫咗等於冇寫（§3.4）。
+   ⚠️ 唔支援 `:has()` 嘅瀏覽器會丟走成條 rule ⇒ 紗永遠唔着 = 冇射燈但塊板乾淨，
+      degrade 方向啱，唔會變返長期一浸霧。 */
+.heatmap-section[data-kiosk="true"] .heatmap-frame[data-kiosk-tour]:has(.heatmap-tile[data-kiosk-star]) .heatmap-dim {  /* (0,7,0)，排喺 hover 後面先贏 */
+  opacity: 1;
+  /* 出街版 hover 係 180ms（要跟手）；kiosk 慢啲先有戲 */
+  transition-duration: 620ms;
+}
+/* ⚠️ 上面嗰條 tour scrim 靠 source order 贏咗 hover，於是 `.heatmap-frame:hover` 嗰條
+   「hover 就熄紗」由巡遊開始就 no-op —— 但 globals.css :1255–1263 嗰條**逐格**
+   `.heatmap-tile:hover`（z-index 3 + 白 inset 邊 + saturate）仍然行緊，而 dim 係 z-index 2。
+   結果：cursor 停喺板上面嗰一格會**成個 kiosk session 浮喺紗之上著住**，同射燈搶。
+   實測 2026-08-18（probe-static-highlight.mjs，720×1280）：撳完全屏掣，layout reflow 之後
+   靜止嘅 cursor 落咗喺第 6 格，t=2.5s / 4.6s / 5.2s / 5.8s 四次採樣佢都係 z-index 3 +
+   `rgba(0,0,0,.6) 0 12px 32px, rgba(236,236,236,.85) inset` —— 見 port-dark-static.png
+   個 `+5.1%` 格。JS 側 hover handler 喺 kiosk 已經 return（heatmap.tsx :766），所以
+   `data-hover` 冇派，中招嘅純粹係 CSS `:hover` 嗰條。
+   店主部機好多時就係一部 PC 插住 HDMI，滑鼠擺低就冇再郁 —— 呢個唔係理論上嘅 edge case。
+   `[data-hover]` / `:focus-visible` **唔掂**：前者 kiosk 期間根本唔會派，後者係鍵盤用家
+   真係要睇到自己揀緊邊格。 */
+@media (hover: hover) {
+  .heatmap-section[data-kiosk="true"] .heatmap-tile:hover {   /* (0,4,0) 壓 globals (0,2,0) 同 dark 果條 (0,3,0) */
+    z-index: auto;
+    box-shadow: none;
+    filter: none;
+  }
+}
+
+/* ── HUD 容器：淨返做全屏掣嘅定位框 ──
+   owner 2026-08-18：「都全圖 mode 就唔好要 top100 同升跌 仲有日子，好影響睇」。
+   標題 / 總市值 / legend / 期間掣全部收埋（見下），所以呢舊嘢原本嗰堆「面板」樣式
+   （60vw 底板、backdrop-filter、h1 margin、總市值字級）已經冇 element 食 —— 一齊刪咗，
+   唔留死 code。剩返定位：掣要浮喺右上角。 */
+.heatmap-section[data-kiosk="true"] .heatmap-heading {
+  position: absolute;
+  z-index: 1;
+  top: max(16px, env(safe-area-inset-top));
+  right: max(16px, env(safe-area-inset-right));
+  left: max(16px, env(safe-area-inset-left));
+  align-items: flex-start;
+  padding-bottom: 0;
+  /* HUD 唔准食走 tile 嘅 pointer：只有真係要撳嘅掣先收返 pointer-events */
+  pointer-events: none;
+}
+
+/* ── 全圖 mode 收埋 chrome（owner 2026-08-18）──
+   ⚠️ 收嘅係 `.heatmap-title`，**唔係** `.heatmap-heading` —— 差一個 class 就出唔返去。
+   `{controls}`（入面就係全屏掣）係 `.heatmap-heading` 嘅第二個 child（heatmap.tsx :984），
+   落 `.heatmap-heading { display: none }` 實測個掣即刻變 `box={w:0,h:0,visible:false}`，
+   即係入咗 kiosk 就永遠退唔出，店主要 reload 成版。
+   ⚠️ 用 display:none 唔用 visibility/opacity：標題同 legend 兩塊底板都有
+   `backdrop-filter: blur(10px)`，blur 係逐幀 backdrop copy —— 留住個盒就等於白燒 GPU。
+   收埋唔會令 frame 變大：frame 一早就係 `position:absolute; inset:0` 撐晒全屏，
+   而 :30 已經拆走 grid-template-rows，呢幾件本身就係 absolute overlay，冇食 grid track。 */
+.heatmap-section[data-kiosk="true"] .heatmap-title,
+.heatmap-section[data-kiosk="true"] .heatmap-footer,
+.heatmap-section[data-kiosk="true"] .period-selector { display: none; }
+
+/* ── Controls：淨返退出掣 ──
+   slider / 調色 / 分享圖係作者自己調嘢先用；期間掣（.period-selector）上面已經收咗。 */
+.heatmap-section[data-kiosk="true"] .tile-slider,
+.heatmap-section[data-kiosk="true"] .heatmap-tune-toggle,
+.heatmap-section[data-kiosk="true"] .heatmap-export { display: none; }
+/* 標題冇咗之後 `.heatmap-heading` 剩返個掣一個 child，而佢係 `justify-content: space-between`
+   （globals.css :886）→ 個掣會跌返最左。
+   用 `margin-left: auto` 唔用 `justify-content: flex-end`：窄機（globals.css :2094 / :2129）
+   會將 `.heatmap-heading` 轉做 `flex-direction: column` + controls `align-self: stretch`，
+   喺 column 之下 flex-end 係「推去底」，橫向完全冇作用（實測 720×1280 個掣仲企喺 x=16）。
+   auto margin 兩個方向都啱：row 係主軸推去右，column 係交叉軸靠右（同時取消 stretch）。 */
+.heatmap-section[data-kiosk="true"] .heatmap-controls {
+  margin-left: auto;
+  pointer-events: auto;
+  transition: opacity 240ms var(--ease-standard);
+}
+/* 有滑鼠嘅機（= 店主部機／電視盒）先淡出：掣淡到 0.22 而唔係 display:none —— 仍然撳得、
+   仍然喺 a11y tree、仍然 focus 得返，只係唔搶戲。觸控機冇 hover，一律留全亮，
+   否則店主喺 iPad 上面就搵唔返出口。 */
+@media (hover: hover) {
+  .heatmap-section[data-kiosk="true"] .heatmap-controls { opacity: 0.22; }
+  .heatmap-section[data-kiosk="true"]:hover .heatmap-controls,
+  .heatmap-section[data-kiosk="true"] .heatmap-controls:focus-within { opacity: 1; }
+}
+
+/* ⚠️ 刪咗（2026-08-18，FX 層合併）：`.heatmap-footer` 嘅 absolute 擺位同 `.heatmap-legend`
+   嘅 padding/backdrop-filter，共 16 行。上面 owner 收 chrome 嗰句已經
+   `.heatmap-footer { display: none }`，legend 係佢嘅後代 —— 全部係零 call site 嘅死 code
+   （AGENTS「死 code 就刪」）。（同一批仲有 `.ranking-jump { display: none }`，而個 link
+   本身喺 2026-08-19 已經由 heatmap footer 拆晒，全 repo 冇咗呢個 class。）
+   如果將來 footer 喺 kiosk 之下要返嚟，連擺位一齊重寫，唔好留住一份對唔到人嘅舊數。 */
+
+/* ── 公司 logo：右下角，同左上嘅退出掣對角 ──
+   vector 檔，clamp 到幾大都唔會糊。只喺 kiosk 開咗先 render（見 heatmap.tsx KIOSK_LOGO 註）。 */
+.heatmap-kiosk-logo {
+  position: absolute;
+  z-index: 1;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  width: clamp(120px, 15vw, 260px);
+  height: auto;
+  padding: 10px 14px;
+  border-radius: var(--control-radius);
+  background: color-mix(in srgb, var(--paper) 82%, transparent);
+  backdrop-filter: blur(10px);
+  pointer-events: none;
+}
+/* ── 直屏 logo 避位 ──────────────────────────────────────────────────────
+   上面釘死右下角。橫屏冇事（資訊板貼右、logo 喺右下再低啲，verify-chrome.json 量到
+   vsBillboard.y = 0）；**直屏就撞正**：`below` 個板係一條貼底橫額（left 4% → right 4%），
+   720×1280 之下疊 107.2 × 47.9 px（由 verify-chrome.json 兩個實測 rect 算返）。
+   ⚠️ 更正一句原型講錯咗嘅嘢：唔係「板食咗 logo」。kiosk 之下 frame 係 z-index 0 +
+   isolation:isolate（上面 :38–46 + globals.css :1142），入面個 z-7 資訊板升唔穿 frame，
+   而 logo 係 section 層 z-index 1 ⇒ **係 logo 蓋住資訊板**。方向反轉，但結論一樣：疊住就衰。
+   點解揀「搬 logo」唔揀「縮個板」：板窄咗 = 卡名摺多一兩行，而 owner 明文唔准截名；
+   標題收咗之後左上角本身空咗一大幅。
+   `data-kiosk-place` 由 JS 派（同 stageBox 同一個判斷 W/H ≥ 1.15），**唔喺 CSS 再寫多次
+   1.15 或者 media query** —— 兩個真身遲早對唔上。
+   right/bottom 要明寫 auto 先拆得走上面嗰兩句。特異度 (0,4,0) > 上面 (0,1,0)。
+   ⚠️ 搬完之後 720×1280 嘅淨空只剩 5.2px（dark，logo 底邊 16+57.4=73.4 vs 卡頂邊 78.6）／
+   2.8px（light，logo 高 59.8）。即係 verify-chrome.json 個 `overlaps === false` 係擦邊過。
+   **改 FRAME_CAP(0.70) / FIT(0.82) / 上面個 clamp(120px,15vw,260px) 任何一個都要重量呢個數。** */
+.heatmap-section[data-kiosk="true"][data-kiosk-place="below"] .heatmap-kiosk-logo {
+  top: max(16px, env(safe-area-inset-top));
+  right: auto;
+  bottom: auto;
+  left: max(16px, env(safe-area-inset-left));
+}
+
+/* ── 掣本身（非 kiosk 期間就係普通一粒方掣，同 .heatmap-tune-toggle 同一套幾何） ── */
+.heatmap-kiosk-toggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--soft);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+@media (hover: hover) {
+  .heatmap-kiosk-toggle:hover { color: var(--ink); border-color: var(--line-strong); }
+}
+.heatmap-kiosk-toggle[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--soft));
+}
+
+/* ── 兩條路都要：殺咗 page scrollbar **同埋** 佢留低嗰條 gutter ──
+   **唔係為咗靚，係為咗真係佔滿。** 全屏元素係 `position: fixed`，而 fixed 嘅 containing block
+   係「viewport 減走 scrollbar gutter」。globals.css :1476 有 `html { scrollbar-gutter: stable }`
+   （成個站防主題切換跳動用），即係右邊永遠鎖起 15px —— 實測 frame 1265 vs innerWidth 1280，
+   owner 要嘅「佔據晒」就差咗一條。
+   **兩句缺一不可**：`overflow: hidden` 收走真 scrollbar（榜單幾千 px 高，全屏之下佢仲喺度），
+   `scrollbar-gutter: auto` 先收得返嗰 15px 預留位 —— 淨落 overflow:hidden 量返出嚟一樣係 1265
+   （實測，見 _probe-kiosk-fixed.mjs 個 asIs / fixB）。
+   Windows / Linux Chrome 係實心 scrollbar，店主部電視就係呢個情況。 */
+html.heatmap-kiosk { overflow: hidden; scrollbar-gutter: auto; }
+
+/* ── CSS 假全屏（冇 Fullscreen API 嗰條路，主要係 iPhone Safari） ──
+   section 個 `fixed inset:0` 上面已經寫咗（兩條路共用），呢度淨係要多做一件事：
+   header / footer / 榜單一律 visibility:hidden
+   （唔用 display:none —— 800 行榜一 display:none 就成版 reflow，退出時再 reflow 一次，
+   而且 scroll 高度會塌，還原 scroll 位就唔準）。 */
+html.heatmap-kiosk-fallback .site-header,
+html.heatmap-kiosk-fallback .site-footer,
+html.heatmap-kiosk-fallback .skip-link { visibility: hidden; }
+html.heatmap-kiosk-fallback .page-shell > *:not(.heatmap-section) { visibility: hidden; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   KIOSK 特效層（FE05，2026-08-18 由 temp/fe05/kiosk-fx 原型合併落嚟）
+   ═══════════════════════════════════════════════════════════════════════════
+
+   ── 開關契約（唯一入口，兩邊逐隻字對）────────────────────────────────────
+   1. `.heatmap-section[data-kiosk="true"]` ← kiosk 總掣（heatmap.tsx :977 已經派）。
+      冇佢，下面一條 rule 都唔會 match。**唔另開 `html[data-kiosk]`** —— 同一個
+      attribute 名兩套語義係遲早出事嘅嘢。
+   2. `.heatmap-section[data-kiosk-fx~="…"]` ← 逐個特效嘅 kill switch（space token list）：
+        breathe  整版呼吸波
+        sweep    掃光
+        tour     自動聚光巡遊（默認 = 飛去正中）
+        edge     邊框脈動
+        noise    vignette + grain（靜態）
+      **owner 2026-08-18 要「開盡」⇒ 默認五個全開**，tsx 派 "breathe sweep tour edge noise"。
+      但 kill switch 一定要留：店主部機頂唔順就喺呢度剪走一個 token，對應嗰個特效即刻
+      唔 match。頂唔順第一個剪 `breathe`（成本真身，見下面 §1 註）。
+      ✗ 冇 `enter` token：入場動畫成個剷咗（點解 → 下面 §6），owner 2026-08-21 要「第一眼定住」。
+   3. 每格 tile 一個 custom property，由 heatmap.tsx 個 layout effect **直寫 DOM**
+      （同 `data-corner` 一模一樣做法，**唔准加 props** —— HeatmapTile 係 memo）：
+        --fx-i   tile 喺 tiles[] 嘅 index（0…n-1，無單位） → 呼吸波錯開相位
+      ✗ 剔咗 `--fx-r`（離中心歸一距離）：佢淨係餵入場 burst，burst 剷咗就冇 call site。
+   4. 巡遊狀態全部係 attribute，冇一個係 React state（避免每步 re-render 100 格）：
+        .heatmap-frame[data-kiosk-tour="fly"|"hold"]
+        .heatmap-tile[data-kiosk-star] / [data-kiosk-star][data-fly="out"]
+        .kiosk-stage[data-on] / .kiosk-ghost[data-on] / .kiosk-ring[data-on] /
+        .kiosk-billboard[data-on] / .kiosk-billboard[data-place]
+        .heatmap-section[data-kiosk-place="side"|"below"]（直屏 logo 避位，同 stageBox 同判斷）
+      ✗ 剔咗原型嗰個 `.heatmap-frame[data-kiosk-ghost="off"]`：佢係 A/B 掣，而且**由頭到尾
+        冇 fire 過** —— 關掉嗰條 (0,5,0) 輸畀開啟嗰條 (0,6,0)，排幾後都冇用。owner 已經
+        拍板要 ghost，所以直接剷，唔留一個冇 call site 嘅掣。
+   5. 飛行幾何由 JS 每步寫**三個 custom property** 落嗰格 tile（**唔係 inline transform**）：
+        --fly-x / --fly-y (px，未 scale 嘅 layout px)、--fly-s (uniform scale)
+      點解要繞呢個彎：inline `transform` 贏晒所有 stylesheet，reduced-motion sibling
+      特異度寫到爆都蓋唔到。改成 inline custom property + CSS 出 transform，
+      個 transform 就仲留喺 cascade 入面，sibling 照贏。
+      同一招 repo 已經用緊：`--d` / `--card-w` / `--card-h`（heatmap-tile.tsx）。
+   6. 時間**只有一個真身**：`--kiosk-fly-out` / `--kiosk-fly-back` 寫喺下面 token block，
+      JS 用 `getComputedStyle(frame)` 讀返嚟做時鐘。方向唔准調轉。
+
+   ── 硬約束（DESIGN.md §3 / §4.5）────────────────────────────────────────
+   • 只 animate `transform` / `opacity`。`filter` / `background-position` / `width` /
+     `height` / `top` / `left` 一條都冇。
+     ⚠️ 一個有意識嘅判斷：飛行嗰條 transition 帶咗 `background-color`（300/320ms）。
+     DESIGN §4.5 個黑名單係 width/height/top/left/box-shadow/filter，**冇 background-color**；
+     而且只係**一個** element、5.26 秒一次。留住佢係因為冇咗就變成「底板喺原位瞬間消失」
+     嘅一下閃。呢個係揀咗 DESIGN §4.5 字面 > 「只 transform/opacity」口頭簡寫。
+   • `box-shadow` 只出現喺**靜態** element（ghost / stage / ring / 資訊板 / hold 白邊 /
+     飛行期間拆 hairline）—— 冇一條 transition 或者 keyframe 掂佢。
+     原型 hold fallback 嗰句 `transition: … box-shadow 320ms ease` **已經拆走**：
+     §4.5 例外只批「hover 一次性」，而呢個係每 5.26s 一次。
+   • 每條 @keyframes / transition 都有自己一個 `prefers-reduced-motion: reduce` sibling，
+     全部收喺檔尾嗰個 block，selector **特意重複一次 `[data-kiosk]`** 令特異度嚴格 +1
+     （§3.4：特異度輸咗 = 寫咗等於冇寫，`card-sheen-sweep` 已經踩過）。
+     全份最高嗰條啟用 rule 係 (0,8,0)（T5，見檔尾對照表），sibling (0,9,0)。
+     ⚠️ 呢份嘢由頭到尾**一個 type selector 都冇**，所以特異度第三位一律 0。
+     原型檔頭寫「(0,7,1) / (0,8,1)」係數錯咗（佢當咗有個 html），已經更正。
+   • 一次性動畫（kiosk-billboard-in）用 `backwards` 唔用 `both`：
+     實測 `both` 播完 `getAnimations()` 仲有 1 個（永遠 in effect），`backwards` 回 0。
+   • 顏色零 hardcode：全部收埋落下面個 token block。
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* ── 0. kiosk 內部 token（呢層所有顏色嘅唯一定義點）─────────────────────────
+   全部掛喺 frame：overlay（sweep / ghost / stage / ring / noise / edge / billboard）同
+   `.heatmap-dim`、`.heatmap-tile` 都住喺 frame 入面，繼承得返。logo 喺 frame 外面，唔使呢啲。
+   點解陰影都做 token（globals.css 自己嘅陰影一律字面）：kiosk 要 light/dark 兩套值，
+   收埋做 token 之後 dark 覆寫由 6 條 rule 變 1 條 —— 係實質收益，唔係為咗過 lint 而過 lint。 */
+.heatmap-section[data-kiosk="true"] .heatmap-frame {
+  --kiosk-glow: color-mix(in srgb, var(--accent) 62%, transparent);
+  --kiosk-glow-soft: color-mix(in srgb, var(--accent) 26%, transparent);
+  /* 巡遊射燈嘅紗：**兩個主題都用深色**。出街版 light 個 dim 係白紗（hover 用，唔想撳親
+     變黑），但 kiosk 要嘅係劇場射燈 —— 白紗落喺深綠板上面只會變「成塊褪晒色」，
+     唔係「一格著住」。 */
+  --kiosk-scrim: rgba(16, 16, 14, 0.62);
+  --kiosk-cast: rgba(0, 0, 0, 0.55);           /* ring 落地陰影 */
+  --kiosk-cast-soft: rgba(0, 0, 0, 0.34);      /* 資訊板陰影 —— **唔准同上面共用一個 token**，
+                                                  0.55 vs 0.34 係兩個設計決定，共用 = 靜靜改咗設計 */
+  --kiosk-star-rim: rgba(255, 255, 255, 0.92); /* hold fallback 白邊 */
+  --kiosk-vignette-hi: rgba(255, 255, 255, 0.5);
+  --kiosk-vignette-lo: rgba(0, 0, 0, 0.055);
+  --kiosk-grain: 0.025;
+  /* 掃光：light / dark **同一組數**。實測（sweep-blend-light.png / -dark.png，9 個 variant
+     加一張 OFF control）—— heatmap tile 兩個主題都係飽和中／深色（light 個升色 #1B714E
+     仲深過 dark 個 #2FA37C），所以「light 要用暗條 multiply」呢個直覺**係錯**：
+     multiply / overlay-ink 兩個都變咗一條污糟嘅陰影，normal 白條就成塊起霧褪色。
+     screen 唔會拉低飽和度，兩邊都係最乾淨嗰條光。唔好再試一次。 */
+  --kiosk-sweep-color: rgba(255, 255, 255, 0.55);
+  --kiosk-sweep-blend: screen;
+  --kiosk-sweep-w: 12%;
+  /* 飛行節奏。JS 由 getComputedStyle(frame) 讀返呢兩個數做 state machine 個時鐘，
+     所以時間只有呢度一個真身，唔會 CSS 同 JS 各寫一份最後對唔上。
+     一輪 = out 900 + hold 3200 + 60 + back 700 + gap 400 = 5260ms。 */
+  --kiosk-fly-out: 900ms;
+  --kiosk-fly-back: 700ms;
+}
+[data-theme="dark"] .heatmap-section[data-kiosk="true"] .heatmap-frame {
+  --kiosk-scrim: rgba(8, 8, 7, 0.74);
+  --kiosk-vignette-hi: rgba(255, 255, 255, 0.055);
+  --kiosk-vignette-lo: rgba(0, 0, 0, 0.3);
+  --kiosk-grain: 0.035;
+}
+/* `--kiosk-move-up` / `--kiosk-move-down` **故意唔喺呢度定義** —— 定義咗就會有人以為改
+   呢度得。佢哋由 heatmap.tsx 派落 frame（colors.up / colors.down，同 tile 同一個來源），
+   見下面 §4 `.kiosk-billboard-move` 嗰段。 */
+
+/* ── 1. 整版呼吸波 ─────────────────────────────────────────────────────
+   scale 嘅係 inner `.tile-card`，**唔係** `.heatmap-tile` 個盒。
+   點解：tile 之間個 gap 係 device-px 釘死嘅（lib/pixel-snap.ts，p+q=gap 共用邊界線），
+   scale tile 盒 = 每格向外食 gap → 格與格穿崩／重疊，pixel-snap 成套嘢即刻報廢。
+   `.tile-card` 最大只係 tile 闊 88% / 高 86%（lib/tile-style.ts tileCardSize），
+   ×1.045 之後 92% / 90% 仲喺格入面。
+   keyframe 一定要帶返 `translate(-50%,-50%)`：`.tile-card` 靠佢置中（globals.css :1225），
+   淨寫 scale 會飛走。 */
+@keyframes kiosk-breathe {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  50%      { transform: translate(-50%, -50%) scale(1.045); }
+}
+.heatmap-section[data-kiosk="true"][data-kiosk-fx~="breathe"] .heatmap-tile .tile-card {   /* (0,5,0) */
+  /* 負 delay：一開波就已經散開晒相位，唔使等 100 × 53ms 先見到波。
+     53ms × 100 格 ≈ 5.3s > 4.2s 週期 → 波會繞多過一圈，成版似真係喺度起伏。 */
+  animation: kiosk-breathe 4200ms var(--ease-standard) infinite;
+  animation-delay: calc(var(--fx-i, 0) * -53ms);
+  /* 冇落 will-change：Chrome 對 running 嘅 transform animation 會自動 promote，
+     加咗只會令 100 個 layer 喺 reduced-motion／停波之後都拆唔走（DESIGN §4.4）。 */
+}
+/* 飛緊嗰格唔好再一路呼吸：兩個 transform 疊埋，落地嗰刻有肉眼見到嘅抽搐。 */
+.heatmap-section[data-kiosk="true"][data-kiosk-fx~="breathe"] .heatmap-tile[data-kiosk-star] .tile-card {
+  animation: none;
+  transform: translate(-50%, -50%);
+}
+/* ✗ 試過唔得，留低個結論免得下一個人再試：「細格唔派呼吸」（min(w,h) < 44px 就
+   animation:none）**慳唔到 fps** —— 動畫由 99 條減到 74 條，CPU 3× 節流嗰格一樣 30.1fps
+   （throttle-ladder-after.json，未減之前都係 30.1）。樽頸唔係條數，係逐幀掃成塊板嗰個
+   style pass 本身。真要救就要換方案（唔逐格 animate），唔係調門檻。
+   ⚠️ 呢個亦係 `breathe` 呢個 kill switch **唔准剪走**嘅理由：五個特效入面得佢一個食走
+   大半條 CPU 餘裕（recalcStyle 10 秒累計：baseline 0ms / noise 0ms / tour 27 / edge 33 /
+   sweep 48 / **breathe 255**）。店主部機頂唔順，熄佢。
+
+   ── 落地版實測（2026-08-18，1280×720 dark，temp/fe05/kiosk-fx-land/perf/）────────
+   上面嗰組數係**原型**度出嘅。落地版重量咗一次，結論一樣，但要留意兩件事：
+   ① `recalcStyleCount` 分唔到好壞 —— 七個 config 全部啱啱好 481 次（= 幀數，即每幀一次），
+      由 no-kiosk 到五個全開都一樣。睇 **duration** 先分得開：130ms → 426ms（8 秒累計）。
+   ② 邊際成本要用 A-B-A 量（A=fx-none，B=特效，marginal = B −(A1+A2)/2），順住跑會俾
+      時間漂移呃到：順序表度 `noise` 量到 1.604ms/幀，仲平過佢自己個基準 2.001 —— 加層
+      overlay 唔可能令部機快咗，嗰 0.4ms 係漂移。空白對照（A-A-A）實測 ±0.245ms/幀，
+      呢個就係分辨率地板。
+   每幀主線程 CPU 邊際（中位，n=3）：breathe **+0.91ms** / tour +0.60ms /
+   sweep +0.08ms(地板下) / edge、noise 量到負數（= 細過地板，量唔到）/ 五個全開 +1.88ms。
+   即係話：**breathe 一個就佔咗成組特效大半**，tour 第二，其餘三個埋單都喺雜訊入面。
+
+   ✗ 再試多一樣，一樣唔得，留低免得下一個人再試：**加 `will-change: transform`**。
+   動機係「純 transform 動畫照計應該行 compositor，但佢食住主線程 recalc，可能係冇
+   promote 到」。A-B-A 量（diag-breathe-composite.json，注 style tag，冇改過呢個檔）：
+   每幀中位 **−0.06ms**，三個樣本 +1.03 / −0.06 / −0.92 —— 散布 1.95ms，遠遠爆過
+   ±0.245ms 個分辨率地板，即係**量唔到任何一致嘅改善**。
+   ⇒ 樽頸唔係 compositor promotion，上面 :369 嗰個舊結論（樽頸係逐幀嗰個 style pass）
+   企得住。所以 :361 唔落 will-change 嘅決定**唔使改**：佢冇好處，但有 100 個 layer
+   拆唔走嘅代價。 */
+
+/* ── 2. 掃光 ───────────────────────────────────────────────────────────
+   單一 overlay element，唔逐格做。位移單位係 element **自己**嘅闊度（12% frame），
+   所以由 -160% 掃到 900%（900% × 12% ≈ frame 闊 108%）先真係由左出到右出。
+   改 --kiosk-sweep-w 要一齊改呢兩個數。動嘅只有 transform。 */
+@keyframes kiosk-sweep-x {
+  from { transform: translate3d(-160%, 0, 0) skewX(-18deg); }
+  to   { transform: translate3d(900%, 0, 0) skewX(-18deg); }
+}
+.kiosk-sweep {
+  position: absolute;
+  top: -25%;
+  bottom: -25%;
+  left: 0;
+  z-index: 6;
+  width: var(--kiosk-sweep-w, 12%);
+  background: linear-gradient(90deg, transparent, var(--kiosk-sweep-color), transparent);
+  mix-blend-mode: var(--kiosk-sweep-blend);
+  opacity: 0;
+  pointer-events: none;
+}
+.heatmap-section[data-kiosk="true"][data-kiosk-fx~="sweep"] .kiosk-sweep {                 /* (0,4,0) */
+  opacity: 1;
+  animation: kiosk-sweep-x 5200ms cubic-bezier(0.5, 0, 0.5, 1) infinite;
+}
+
+/* ═══ 3. 自動聚光巡遊 ═══════════════════════════════════════════════════
+   owner 2026-08-18：「你到去邊張，要**飛去中間**，比大家睇到先得」。
+   所以默認唔係原地著燈，係 FLIP —— **郁真嗰格 tile**，由佢自己個位飛到 stage 正中再放大。
+   唔另起 overlay 畫多張卡：另畫嗰下觀感會變成「彈 modal」唔係「飛出嚟」，
+   而且即刻同 pixel-snap 嘅幾何脫鈎（兩個真身）。
+
+   變暗**唔係**逐格改 filter/opacity（100 格 repaint），係重用上面嗰塊 `.heatmap-dim`
+   （trigger 喺檔頭 :47 嗰段，同 hover 嗰條貼住寫）。
+
+   z 疊法（frame 有 isolation:isolate，全部困喺同一個 stacking context）：
+     tile 原位 auto(0) → .heatmap-dim 2 → .kiosk-ghost 3（個窿嘅輪廓，要企喺 dim 之上先
+     睇得見 —— 擺 dim 下面實測會被 0.74 黑紗食到淨返一嚿黑）→ .kiosk-stage 4（射燈光暈）
+     → 飛緊嗰格 5 → .kiosk-sweep 6 → .kiosk-billboard 7 → .kiosk-noise 8 → .kiosk-edge 9
+   `.heatmap-tile[data-hover]` 出街版係 z-index 3，所以 5 一定企喺 dim 同 hover 之上。
+   **frame 外面**：`.heatmap-kiosk-logo` / `.heatmap-heading` 係 section 層 z-index 1，
+   而 frame 喺 kiosk 之下係 z-index 0 ⇒ 佢哋畫喺成塊 frame（連 z-7 資訊板）之上。 */
+
+/* 3a. 飛去正中（默認）────────────────────────────────────────────────
+   transform-origin **釘死 `0 0`，唔准改**：`translate() scale()` 喺 CSS 入面 = 矩陣 T·S，
+   local 原點 (0,0) ↦ (dx, dy)，即係 border-box 左上角由 (x,y) 搬去 (x+dx, y+dy) ——
+   位移**完全唔受 s 影響**，dx/dy 直接就係 layout px。
+   origin 用 `50% 50%` 就變成 C + T + S·(p−C)，要再補返 (s−1)·(w/2,h/2)，計錯一個數就飛歪。
+   uniform scale：tile 長寬比由 treemap 派（實測 0.55–1.94），非等比會扯到張卡圖變形。 */
+.heatmap-section[data-kiosk="true"] .heatmap-frame[data-kiosk-tour="fly"] .heatmap-tile[data-kiosk-star] {   /* (0,6,0) */
+  z-index: 5;
+  transform-origin: 0 0;
+  transition-property: transform, background-color;
+  transition-timing-function: var(--ease-standard), linear;
+  transition-duration: var(--kiosk-fly-back), 300ms;
+  /* arm/disarm 全部由 attribute 帶：JS 飛返到位就拆 data-kiosk-star，will-change 跟住消失
+     （同 globals.css `[data-settled]` 一樣形狀）。同一時間最多 **1 格** promote，唔係 100 格。 */
+  will-change: transform;
+}
+.heatmap-section[data-kiosk="true"] .heatmap-frame[data-kiosk-tour="fly"] .heatmap-tile[data-kiosk-star][data-fly="out"] {   /* (0,7,0) */
+  transform: translate3d(var(--fly-x, 0px), var(--fly-y, 0px), 0) scale(var(--fly-s, 1));
+  /* 出去 900ms / 返嚟 700ms：--ease-standard 係 cubic-bezier(0.22,1,0.36,1)，頭段快尾段極慢
+     —— 飛出去要「衝出嚟再輕輕停低」，所以出去比返嚟長。 */
+  transition-duration: var(--kiosk-fly-out), 320ms;
+  /* 飛嗰陣熄咗格自己塊熱力色底板，淨係得張卡飛出嚟。
+     點解要熄：tile 個盒嘅長寬比由 treemap 決定，uniform scale 一定連個比例一齊放大 ——
+     唔熄就變咗「一大塊綠色，中間一張細卡」，owner 要嘅係卡大。熄咗之後 --fly-s 就可以
+     純粹由「張卡圖要幾高」決定，唔再受 tile 盒比例綁住。
+     `!important` 係逼不得已：tile 底色係 heatmap-tile.tsx inline 派（style={{background}}），
+     stylesheet 冇 !important 一定輸。所以 JS 起飛前會抄一份原色落 `--star-bg`，
+     reduce sibling 就可以用同樣 !important + 更高特異度**原色還原**，唔會留低一個透明窿。 */
+  background-color: rgba(0, 0, 0, 0) !important;
+}
+/* 飛行期間拆走 `.tile-card` 條 1px 白 hairline（globals.css :1224 第三段）：
+   uniform scale 之後佢跟住放大 —— 實測 s = 3.150（1280×720）／4.667（720×1280，
+   2026-08-18 喺跑緊嘅 dev server 讀落地時嘅 `--fly-s`）⇒ 條線變 3.15px / 4.67px。
+   （舊註解寫 4.582 / 6.430 係抄咗原型 temp/fe05/kiosk-fx/flip-smoke.json，嗰版 KIOSK_GEOM
+   未收窄過，數已經唔啱。機制本身重現到：種返第三段落去飛行中嘅卡，卡邊量到 +18.47 luminance
+   峰、闊約 3.0 CSS px，同 1px × 3.150 對得上。）而 `.tile-card` 個盒本身闊過
+   object-fit:contain 之後張卡，左右有留白 → 睇落似個白 slab 框圍住張卡。
+   （原型 notes 寫「×5.5 → 5.5px」係攞咗 reduce-proof 種落去嗰個 5.5 講，唔係真實測 scale。）
+   保留頭兩段落地陰影，同 globals 逐個 byte 一樣（唔係新色，所以唔使開 token）。
+   **唔准用 `revert` / `unset`**：revert 退去 UA origin（三段一齊冇），unset = none。
+   釘 [data-kiosk-star] 唔釘 [data-fly="out"]：飛返嗰程（data-fly 已拆、star 未拆）一樣
+   仲喺放大緊。星一拆，hairline 即刻返嚟。呢條係**靜態** box-shadow，冇 transition。 */
+.heatmap-section[data-kiosk="true"] .heatmap-frame[data-kiosk-tour="fly"] .heatmap-tile[data-kiosk-star] .tile-card {   /* (0,7,0) > .tile-card (0,1,0) */
+  box-shadow: 0 2px 6px rgba(8, 8, 8, 0.18), 0 6px 18px rgba(8, 8, 8, 0.14);
+}
+/* 飛到六七倍大之後，格入面個 % label 都會跟住大六七倍（成 60px 一嚿），同資訊板上面
+   同一個數撞晒。飛出嗰刻淡走，飛返之前淡返（見 kiosk-fx-notes.md 對比圖）。 */
+.heatmap-section[data-kiosk="true"] .heatmap-frame[data-kiosk-tour="fly"] .heatmap-tile[data-kiosk-star] .tile-move {   /* (0,7,0) */
+  opacity: 1;
+  transition: opacity 260ms var(--ease-standard);
+}
+.heatmap-section[data-kiosk="true"] .heatmap-frame[data-kiosk-tour="fly"] .heatmap-tile[data-kiosk-star][data-fly="out"] .tile-move {   /* (0,8,0) ← 全份最高嗰條啟用 rule */
+  opacity: 0;
+}
+
+/* 個「窿」：格飛走之後原位會露出 frame 底（kiosk 之下就係 var(--paper)，一嚿死黑）。
+   留返一個輪廓，睇得出「佢由呢度飛出嚟」。
+   ⚠️ 第一版擺咗喺 z-index 1（dim 下面），諗住「同其餘 99 格一齊被壓暗先啱」—— 實測係錯：
+   dark 塊 dim 係 rgba(8,8,7,0.74)，30% 熱力色再食 74% 黑之後 ≈ rgb(2,14,9)，肉眼同純黑
+   冇分別，個窿完全冇輪廓（hole-*.png 第一版）。所以改咗擺 dim 之上，但用低透明度 +
+   同色實線邊，讀落係「一個空咗嘅位」，唔係第二個亮點。 */
+.kiosk-ghost {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  border-radius: 4px;
+  /* 用返嗰格自己嘅熱力色（JS 起飛前抄落 --star-bg）淡淡咁鋪返，加一條同色實線邊 ——
+     咁個窿仲係「屬於呢張卡」，唔係一嚿灰色補丁。 */
+  background: color-mix(in srgb, var(--star-bg, transparent) 16%, transparent);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--star-bg, transparent) 72%, transparent);
+  opacity: 0;
+  transition: opacity 320ms var(--ease-standard);
+  pointer-events: none;
+}
+.heatmap-section[data-kiosk="true"] .heatmap-frame[data-kiosk-tour="fly"] .kiosk-ghost[data-on] { opacity: 1; }   /* (0,6,0) */
+
+/* 射燈光暈：一個靜態 radial-gradient element 釘喺 stage 正中，只有 opacity 會動。
+   唔用 box-shadow/filter 落喺飛緊嗰格身上 —— tile 有 `contain: layout paint`（globals.css
+   :1171），向外嘅 glow 一定俾佢自己裁走（呢個係實測踩過嘅坑，唔係推測）。 */
+.kiosk-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 4;
+  background: radial-gradient(closest-side,
+    color-mix(in srgb, var(--accent) 20%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 7%, transparent) 46%,
+    transparent 78%);
+  opacity: 0;
+  transition: opacity var(--kiosk-fly-out) var(--ease-standard);
+  pointer-events: none;
+}
+.heatmap-section[data-kiosk="true"] .heatmap-frame[data-kiosk-tour="fly"] .kiosk-stage[data-on] { opacity: 1; }   /* (0,6,0) */
+
+/* 3b. 原地著燈（fallback）────────────────────────────────────────────
+   reduced-motion，或者實測 fps 跌穿 55 嘅機，就行呢個：格唔郁，外面套個光環。
+   ⚠️ 原型嗰句 `transition: transform 620ms var(--ease-spring), box-shadow 320ms ease`
+   **已經拆走 box-shadow 嗰半** —— DESIGN §4.5 明文唔准 animate box-shadow，例外只係
+   「hover 一次性」，而呢個係每 5.26s 一次。box-shadow 即時落，只 transition transform。
+   光環另外開一個 element（tile 自己裁走向外 glow），JS 每步寫一次 width/height +
+   translate3d，一個 element、5 秒一次，唔係逐幀。 */
+.heatmap-section[data-kiosk="true"] .heatmap-frame[data-kiosk-tour="hold"] .heatmap-tile[data-kiosk-star] {   /* (0,6,0) */
+  z-index: 5;
+  transform: scale(1.06);
+  box-shadow: inset 0 0 0 2px var(--kiosk-star-rim), inset 0 0 0 6px var(--kiosk-glow-soft);
+  transition: transform 620ms var(--ease-spring);
+}
+.kiosk-ring {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  border-radius: 8px;
+  box-shadow:
+    0 0 0 2px var(--kiosk-glow),
+    0 0 0 7px color-mix(in srgb, var(--accent) 18%, transparent),
+    0 0 54px 14px var(--kiosk-glow-soft),
+    0 24px 60px var(--kiosk-cast);
+  opacity: 0;
+  transition: opacity 380ms var(--ease-standard);
+  pointer-events: none;
+}
+.heatmap-section[data-kiosk="true"] .heatmap-frame[data-kiosk-tour="hold"] .kiosk-ring[data-on] { opacity: 1; }   /* (0,6,0) */
+
+/* ── 4. 資訊板 ─────────────────────────────────────────────────────────
+   owner 2026-08-18：「#3 太細，呢個係排行嚟」。呢個網站本身就係排行榜，所以視覺階層 =
+   排名 > 升跌% > 卡名 > 市值。`#` 做細做淡，**個數字**做 hero，唔好俾個井號分薄。
+
+   擺位跟 frame 比例（JS 只寫一個 data-place，唔逐步度）：
+     side  橫向（frame 闊/高 ≥ 1.15）：貼右邊、垂直置中；卡飛去左邊嗰個 stage 正中
+     below 直向：貼底；卡飛去上面嗰個 stage 正中
+   兩個都係 absolute 喺 frame 入面 → 唔會推郁任何嘢（CLS 實測 0），
+   而且**結構上唔可能同飛到中間嗰張卡重疊**（stage box 已經預先扣走資訊板嗰塊）——
+   唔係靠肉眼調數。 */
+@keyframes kiosk-billboard-in {
+  from { opacity: 0; transform: translate3d(0, 18px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+.kiosk-billboard {
+  position: absolute;
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 16px 22px;
+  border-radius: 18px;
+  /* 唔落 backdrop-filter。⚠️ 老實講：A/B 量咗，**量唔到分別** —— perf.json run "all" vs
+     "all+glass" 四個 context 未節流全部一樣（59.9 med / 59.5 p5 / 0 dropped），CPU 6× 嗰組
+     兩邊互有高低 = 噪聲。即係「實色快啲」喺 RTX 5090 上面**冇實測支持**。
+     用實色係保守選擇（blur 係逐幀 backdrop copy，弱機先食得到痛，而我哋量唔到弱機），
+     唔係量出嚟嘅結論。唔好將呢句寫成「實測實色快」。 */
+  background: color-mix(in srgb, var(--paper) 94%, transparent);
+  box-shadow: 0 18px 48px var(--kiosk-cast-soft),
+              inset 0 0 0 1px color-mix(in srgb, var(--accent) 26%, transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+/* 用 `translate` 個別屬性（唔係 transform）做垂直置中：咁樣 kiosk-billboard-in 個 keyframe
+   先可以獨佔 `transform`，兩者唔會打架。 */
+.kiosk-billboard[data-place="side"] {
+  top: 50%;
+  right: 2.6%;
+  width: 32%;
+  min-width: 300px;
+  max-width: 470px;
+  translate: 0 -50%;
+}
+.kiosk-billboard[data-place="below"] {
+  right: 4%;
+  bottom: 3.4%;
+  left: 4%;
+}
+.heatmap-section[data-kiosk="true"] .kiosk-billboard[data-on] {                            /* (0,4,0) */
+  opacity: 1;
+  /* 每換一張卡 JS re-arm（拆 attribute → 讀 offsetWidth → 再落），一次性播。
+     backwards 唔用 both：100% 格 = base style，播完唔再 in effect → getAnimations() 回 0。 */
+  animation: kiosk-billboard-in 420ms var(--ease-standard) backwards;
+}
+.kiosk-billboard-rank {
+  display: flex;
+  align-items: baseline;
+  gap: 0.06em;
+  margin: 0;
+  color: var(--ink);
+  font-weight: 800;
+  /* -0.035em 同 h1/h2/h3 同一個數，但呢個 element 唔係標題，所以直寫，
+     唔准 call --track-hero（嗰個 token 有 contract test assert 全 globals 只宣告一次）。 */
+  letter-spacing: -0.035em;
+  line-height: 0.92;
+}
+.kiosk-rank-hash {
+  color: var(--muted);
+  font-size: 0.30em;
+  font-weight: 700;
+  letter-spacing: 0;
+  opacity: 0.75;
+}
+.kiosk-rank-num { font-variant-numeric: tabular-nums; }  /* #1 跳 #10 唔會左右彈 */
+.kiosk-billboard-move {
+  display: block;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+/* ⚠️ 升跌色**唔准直接寫 var(--frame-up/--frame-down)** —— globals.css :376 明文：嗰對 token
+   `data-updown` **唔對調**，heatmap tile 嘅色係 heatmap.tsx tileColors 自己對調嘅（仲要
+   食埋 /tune 自訂色）。直接用就會出「飛出嚟嗰格紅色、板上面個 +43.2% 綠色」。
+   呢個 repo 喺 `.tile-move` 底板度已經踩過同一個坑（globals.css :1286–1287）。
+   修法同嗰次一樣：色由 tsx 派（frame.style.setProperty("--kiosk-move-up", colors.up)），
+   CSS 只讀 var。fallback 留住係為咗 JS 未跑到嗰刻唔會冇色。
+   下面兩條 red-up 覆寫係**保險**：萬一 tsx 側未派 --kiosk-move-*，至少 fallback 都翻啱；
+   派咗嘅話兩邊都解到同一個 --kiosk-move-up，覆寫係 no-op，唔會雙重對調。 */
+.kiosk-billboard-move[data-dir="up"]   { color: var(--kiosk-move-up,   var(--frame-up)); }
+.kiosk-billboard-move[data-dir="down"] { color: var(--kiosk-move-down, var(--frame-down)); }
+html[data-updown="red-up"] .kiosk-billboard-move[data-dir="up"]   { color: var(--kiosk-move-up,   var(--frame-down)); }
+html[data-updown="red-up"] .kiosk-billboard-move[data-dir="down"] { color: var(--kiosk-move-down, var(--frame-up)); }
+/* `data-dir="flat"` 冇對應 rule（跌返 --ink），係有意嘅。 */
+/* 卡名：**唔准 ellipsis**（owner 2026-08-18）。kiosk 係企喺舖頭度睇，切走一半個名等於冇
+   講到係咩卡。所以冇 white-space:nowrap、冇 line-clamp、冇 max-height —— 唔夠位就摺行。
+   `overflow-wrap: anywhere` 應付「085/SVP」呢種冇空格長 token；
+   `text-wrap: balance` 令兩行長度平均，唔會第二行淨係得兩個字。
+   壓力測試全綠（flip-smoke.json stress，五個 case × 兩個擺位，全部 clipped:false /
+   overflowsFrame:false）：live top-100 英文 officialName 最長 **113 字**（唔係口述嗰個 93）
+   → side 摺 4 行（板高 316）、below 摺 3 行。
+   CJK 斷行靠 globals 現成 `:lang()` 規則 —— 出街版個 <p> 一定要落
+   `lang={cardNameLangAttr(card, locale)}`，唔係 CJK 頁跌返英文名會食 CJK 斷行規則。 */
+.kiosk-billboard-name {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+.kiosk-billboard-cap {
+  display: block;
+  color: var(--metric-neutral);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+/* 字級跟 frame 高度（vh）走，**唔跟卡名長度走** —— 跟長度走等於每張卡個板都唔同大細，
+   5.26 秒閃一次會好嘈。公式同實測逐個對得返（flip-smoke.json facts.*FontPx）：
+     side 1280×720：rank 13.5%×720 = 97.2 ✓ / move 46.08 ✓ / name 20.88 ✓ / cap 13.68 ✓
+     below 720×1280：rank 7.6%×1280 = 97.28 ✓ / move 51.2 ✓ / name 25.6 ✓ / cap 17.28 ✓
+   ⚠️ 未驗：CSS 假全屏條路（iPhone Safari 冇 Element.requestFullscreen）之下 100vh ≠ 可見
+   高度（URL bar），字可能大過 frame。原型只跑過 Chromium。**唔准而家憑估轉 svh** ——
+   要就喺 iOS 量一次先決定。 */
+.kiosk-billboard[data-place="side"]  .kiosk-billboard-rank { font-size: clamp(58px, 13.5vh, 168px); }
+.kiosk-billboard[data-place="side"]  .kiosk-billboard-move { font-size: clamp(30px, 6.4vh, 76px); margin-top: 4px; }
+.kiosk-billboard[data-place="side"]  .kiosk-billboard-name { font-size: clamp(17px, 2.9vh, 32px); margin-top: 10px; }
+.kiosk-billboard[data-place="side"]  .kiosk-billboard-cap  { font-size: clamp(12px, 1.9vh, 20px); margin-top: 8px; }
+.kiosk-billboard[data-place="below"] .kiosk-billboard-rank { font-size: clamp(50px, 7.6vh, 128px); }
+.kiosk-billboard[data-place="below"] .kiosk-billboard-move { font-size: clamp(26px, 4.0vh, 62px); margin-top: 2px; }
+.kiosk-billboard[data-place="below"] .kiosk-billboard-name { font-size: clamp(16px, 2.0vh, 28px); margin-top: 8px; }
+.kiosk-billboard[data-place="below"] .kiosk-billboard-cap  { font-size: clamp(12px, 1.35vh, 18px); margin-top: 6px; }
+
+/* ── 5. 邊框脈動 ───────────────────────────────────────────────────────
+   一個 element，只 animate opacity。border-radius: inherit 跟返 frame 個弧
+   （frame 個弧係 --heatmap-frame-radius，唔准寫死；kiosk 之下佢係 0px）。 */
+@keyframes kiosk-edge-pulse {
+  0%, 100% { opacity: 0.26; }
+  50%      { opacity: 0.92; }
+}
+.kiosk-edge {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  border: 1px solid var(--accent);
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+}
+.heatmap-section[data-kiosk="true"][data-kiosk-fx~="edge"] .kiosk-edge {                   /* (0,4,0) */
+  animation: kiosk-edge-pulse 3600ms ease-in-out infinite;
+}
+
+/* ── 6. 入場：冇動畫（特登，唔准加返）────────────────────────────────────
+   撳落全屏第一幀，成塊板已經係最終狀態。呢度**冇** @keyframes、冇 `[data-kiosk-enter]`、
+   heatmap-kiosk-fx.tsx 冇 arm/disarm、heatmap.tsx 冇寫 `--fx-r`。
+
+   點解剷咗（owner 兩次投訴同一件事，2026-08-18 → 2026-08-21）：
+   入場 burst scale 嘅係 `.heatmap-tile` 個**盒**，而格與格之間條白隙係釘死喺 device px
+   格上面（lib/pixel-snap.ts）。盒一 scale，每格就向外食走自己嗰條隙、而且各自 delay
+   唔同步 —— 成版睇落就係「啲卡走晒位」。呢條同 §1 kiosk-breathe 個註寫嘅係同一條規矩，
+   只不過 breathe scale 嘅係入面嗰張 `.tile-card`，所以冇事。
+
+   實測（app.cardzmarketcap.com，headed Chromium，2026-08-21，逐幀量相鄰 tile 之間嘅隙）：
+     · 入 kiosk 之前：全版一律 5.00 device px（dpr 1.5）／3.00（dpr 1）
+     · Enter 後 185ms：8.3…16.93px，100 格全部凍喺 scale(0.94)（`backwards` 填 delay 窗）
+     · 221…455ms：9.11…17.69px，仲係 0.94
+     · 之後 `--ease-spring` 過衝到 1.0059 先埋位；最後一幀衰嘢 851ms，105 幀中 30 幀係花嘅
+     · dpr 1 一樣中招（3px → 2.2…9.85px），唔係 scaling 問題
+   ⚠️ 唔好「改細幅度」／「縮短時間」當修好：0.94 已經係第二次縮細嘅版本，一樣量到走位。
+      任何 scale 落 `.heatmap-tile` 盒都會踩同一個窿。真係想要入場動效就淡 frame 底色，
+      或者跟 breathe 咁 scale `.tile-card`，唔准掂 tile 盒。
+   附帶好處：C8 `verify-kiosk.mjs` 個 fillScan / unionDH 閘唔再同入場動畫鬥時間
+   （見 heatmap-kiosk-fx.tsx 檔頭嗰段 2026-08-18 實測，270ms 餘量嗰條數）—— 冇動畫就冇餘量問題。 */
+
+/* ── 7. 底噪：vignette + grain（靜態，零逐幀成本）────────────────────────
+   抄 lib/share-image.ts 嗰套：純色底 → 中央微亮／邊角微暗 radial vignette → 幼噪點。
+   share PNG 個噪點係 canvas 128² random RGBA；CSS 側行 inline SVG feTurbulence data-URI
+   （唔加新 asset、唔加 npm dep，DESIGN §4.8），瀏覽器只 raster 一次。
+   兩層都係靜態 background → 冇逐幀 repaint（recalcStyle 10 秒累計實測 0ms）。
+   light / dark 兩套數收埋咗做 token，所以呢度**一條 rule 都唔使為 dark 再寫**。 */
+.kiosk-noise {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  border-radius: inherit;
+  background:
+    radial-gradient(120% 90% at 50% 34%,
+      var(--kiosk-vignette-hi) 0%,
+      rgba(255, 255, 255, 0) 55%,
+      var(--kiosk-vignette-lo) 100%);
+  opacity: 0;
+  pointer-events: none;
+}
+.kiosk-noise::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='128' height='128' filter='url(%23g)'/%3E%3C/svg%3E");
+  background-size: 128px 128px;
+  background-repeat: repeat;
+  opacity: var(--kiosk-grain);
+}
+.heatmap-section[data-kiosk="true"][data-kiosk-fx~="noise"] .kiosk-noise { opacity: 1; }   /* (0,4,0) */
+
+/* ═══════════════════════════════════════════════════════════════════════
+   reduced-motion sibling —— 逐條對返上面
+   ═══════════════════════════════════════════════════════════════════════
+   §3.4 嘅坑：sibling 特異度輸咗就等於冇寫。所以下面每條都**特登多寫一次 `[data-kiosk]`**
+   （同一個 compound 入面重複 attribute selector 係合法嘅，每次都計特異度），
+   令每條都嚴格 +1，同 source order 冇關、俾人 import 亂咗次序都照贏。
+
+   ⚠️ 飛行嗰段一定要靠呢個 sibling 贏，唔可以靠「JS 唔會 arm」——
+   所以幾何係 inline **custom property**（--fly-x/y/s），唔係 inline transform。
+   ⚠️ 驗法：喺 reduce context 手種返 data-kiosk / -fx / -tour / -star / -fly / -enter，
+   **等 ≥1600ms** 再讀 computed style。globals.css 個 `*` blanket 將所有 transition-duration
+   壓到 0.01ms，而 transition-property initial 係 `all` ⇒ reduce 之下全頁每個 element 都
+   「乜都 transition」，種完即刻讀會讀到**起點值**唔係終值。
+   ⚠️ 亦**唔准** assert `transition-duration === "0s"` —— blanket 令佢係 "0.01ms"。 */
+@media (prefers-reduced-motion: reduce) {
+  /* 1. 呼吸波 —— 停波，卡歸位（要保留 translate 置中，唔可以寫 transform:none）  (0,6,0) */
+  .heatmap-section[data-kiosk][data-kiosk="true"][data-kiosk-fx~="breathe"] .heatmap-tile .tile-card {
+    animation: none;
+    transform: translate(-50%, -50%);
+  }
+  /* 2. 掃光 —— 連個 element 都唔畫（唔係淨係停低喺畫面中間）  (0,5,0) */
+  .heatmap-section[data-kiosk][data-kiosk="true"][data-kiosk-fx~="sweep"] .kiosk-sweep {
+    display: none;
+    animation: none;
+    opacity: 0;
+  }
+  /* 3. 巡遊 —— 資訊仍然要換（呢個係內容唔係裝飾），但零位移。
+        3a 飛行：**唔飛**，格留喺原位；will-change 一齊拆（唔好長期 promote）。 */
+  /* selector 要同 :82 嗰條啟用 rule 一模一樣再 +1 個 `[data-kiosk]`：嗰條升咗做 (0,7,0)
+     （加咗 `:has([data-kiosk-star])`），呢條唔跟住升就 (0,6,0) 輸畀佢 = 寫咗等於冇寫。 */
+  .heatmap-section[data-kiosk][data-kiosk="true"] .heatmap-frame[data-kiosk-tour]:has(.heatmap-tile[data-kiosk-star]) .heatmap-dim {   /* (0,8,0) */
+    transition: none;
+  }
+  .heatmap-section[data-kiosk][data-kiosk="true"] .heatmap-frame[data-kiosk-tour="fly"] .heatmap-tile[data-kiosk-star] {   /* (0,7,0) */
+    transition: none;
+    will-change: auto;
+  }
+  .heatmap-section[data-kiosk][data-kiosk="true"] .heatmap-frame[data-kiosk-tour="fly"] .heatmap-tile[data-kiosk-star][data-fly="out"] {   /* (0,8,0) */
+    transform: none;
+    transition: none;
+    /* 格唔飛 = 底板一定要留返，唔係板上面會多咗個透明窿。
+       兩邊都係 !important，靠特異度分勝負（(0,8,0) > 啟用嗰條 (0,7,0)）。 */
+    background-color: var(--star-bg, currentColor) !important;
+  }
+  /* 格唔飛 = 冇 uniform scale = 條 1px hairline 冇放大問題，還原返三段陰影，
+     令嗰格同隔籬格睇落一模一樣。 (0,8,0) > 啟用嗰條 (0,7,0) */
+  .heatmap-section[data-kiosk][data-kiosk="true"] .heatmap-frame[data-kiosk-tour="fly"] .heatmap-tile[data-kiosk-star] .tile-card {
+    box-shadow: 0 2px 6px rgba(8, 8, 8, 0.18), 0 6px 18px rgba(8, 8, 8, 0.14), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  }
+  .heatmap-section[data-kiosk][data-kiosk="true"] .heatmap-frame[data-kiosk-tour="fly"] .heatmap-tile[data-kiosk-star] .tile-move {   /* (0,8,0) */
+    transition: none;
+  }
+  .heatmap-section[data-kiosk][data-kiosk="true"] .heatmap-frame[data-kiosk-tour="fly"] .heatmap-tile[data-kiosk-star][data-fly="out"] .tile-move {   /* (0,9,0) ← 全份最高 */
+    opacity: 1;
+    transition: none;
+  }
+  /* 格唔飛 = 冇窿，個 ghost 就冇意思，收埋  (0,7,0) */
+  .heatmap-section[data-kiosk][data-kiosk="true"] .heatmap-frame[data-kiosk-tour="fly"] .kiosk-ghost[data-on] {
+    opacity: 0;
+    transition: none;
+  }
+  /* 格留喺原位，射燈光暈就唔可以留喺中間（會變咗照住一個空位）：
+     改為 3b 嗰個原地光環出場，即係 reduce 之下 fly 自動退化做 hold 嘅樣。 (0,7,0) */
+  .heatmap-section[data-kiosk][data-kiosk="true"] .heatmap-frame[data-kiosk-tour="fly"] .kiosk-stage[data-on] {
+    opacity: 0;
+    transition: none;
+  }
+  /* 用無值嘅 [data-kiosk-tour]：fly 同 hold 兩個值都 match，所以 fly 退化嗰陣個環照出。 (0,7,0) */
+  .heatmap-section[data-kiosk][data-kiosk="true"] .heatmap-frame[data-kiosk-tour] .kiosk-ring[data-on] {
+    opacity: 1;
+    transition: none;
+  }
+  /* 3b fallback 本身：唔升起、唔 spring（box-shadow 白邊照留 —— 佢係靜態，唔係動效）  (0,7,0) */
+  .heatmap-section[data-kiosk][data-kiosk="true"] .heatmap-frame[data-kiosk-tour="hold"] .heatmap-tile[data-kiosk-star] {
+    transform: none;
+    transition: none;
+  }
+  /* 4. 資訊板：內容照換，唔 slide  (0,5,0) */
+  .heatmap-section[data-kiosk][data-kiosk="true"] .kiosk-billboard[data-on] { animation: none; }
+  /* 5. 邊框脈動 —— 唔閃，留一條穩定嘅細線（唔係消失，佢係 kiosk 嘅框）  (0,5,0) */
+  .heatmap-section[data-kiosk][data-kiosk="true"][data-kiosk-fx~="edge"] .kiosk-edge {
+    animation: none;
+    opacity: 0.55;
+  }
+  /* 6. 入場 —— 冇 sibling：上面 §6 根本冇動畫，reduce 同正常一樣「第一眼定住」。 */
+  /* 7. 底噪本身係靜態，reduce 之下照出（佢唔係動效）；呢度只係明寫出嚟，
+        免得下一個人以為漏咗一條 sibling。 (0,5,0) */
+  .heatmap-section[data-kiosk][data-kiosk="true"][data-kiosk-fx~="noise"] .kiosk-noise { opacity: 1; }
+}

@@ -14,9 +14,14 @@ packages/*/dist
 data/*
 !data/public
 data/public/*
-# seed-snapshot.json 一定要留喺 context：5 個 page 有 revalidate=300（ISR），
-# sitemap.ts 亦一樣，next build 期間就會 loadMarketSnapshot() 讀佢。
+# seed / box sidecar 留喺 context 做無-compose 後備。runtime 由 compose volume 蓋過。
+# sitemap.ts 而家 force-dynamic，唔再靠 build 當刻嗰份。
 !data/public/seed-snapshot.json
+!data/public/box-subset.json
+!data/editorial
+data/editorial/*
+!data/editorial/card-names-by-id.json
+!data/editorial/sealed-stories.json
 # data/public/market-assets（1.4GB）刻意唔入 context：build 期冇任何一步讀佢
 # （prepare-standalone.mjs 仲主動刪走 standalone 入面嘅 public/market-assets），
 # runtime 先由 compose 嘅 :ro volume 掛入 /app/data/public/market-assets。

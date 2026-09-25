@@ -2,10 +2,15 @@
 
 /* interactionkit CodeBlock copy 反饋移植（https://github.com/armondschneider/interactionkit, MIT）：
    撳掣 copy 成功 → icon Copy/Share morph 做 Check， 1.8s 後回復；
-   Clipboard API + textarea fallback。 */
+   Clipboard API + textarea fallback。
+
+   可見 label 唔會變（唔會跳闊度），結果由隔籬 <span role="status" class="sr-only"> 讀出；
+   busy 期間 disabled + aria-busy + Loader icon，ref 擋重入（連撳兩下唔會開兩個 share sheet）。
+   有 onCopy 就由 onCopy 喺 click handler 入面（user activation 內）自己寫 clipboard，getText 可以唔傳。 */
 import { AnimatePresence, motion } from "framer-motion";
-import { Check, Share2 } from "lucide-react";
+import { Check, Loader2, Share2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { tap } from "@/lib/haptic";
 
 async function writeClipboard(text: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
@@ -25,68 +30,137 @@ async function writeClipboard(text: string): Promise<void> {
   }
 }
 
-export function CopyButton({ getText, label, doneLabel, errorLabel, className = "share-button", preferNativeShare = false, onCopy }: {
-  getText: () => string;
+type CopyState = "idle" | "busy" | "done" | "error";
+
+/*
+ * ⚠️ 死鎖閘（owner 2026-08-19 報：分享圖撳落去轉圈轉好耐，之後「直頭冇反應」，
+ *    再撳幾多次都冇用）。根因唔喺張圖度 —— 係呢度 `await onCopy()` 冇上限：
+ *    條 promise 一日唔 settle，`state` 就一日停喺 "busy"，而 busy = `disabled`
+ *    + `busyRef` 擋重入 = 用戶連再撳嘅機會都冇，亦冇任何錯誤訊號。
+ *
+ *    45 秒係度出嚟嘅：分享圖個 blob 撳之前已經 warm 咗（見 onWarm），由撳到出
+ *    share sheet 係毫秒級；真正會食時間嘅只有用戶喺 sheet 度揀 app。揀足 45 秒
+ *    先當炒 —— 炒咗出返 error 俾佢再撳，唔會靜靜鎖死。
+ */
+const COPY_TIMEOUT_MS = 45_000;
+
+function withTimeout<T>(task: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    task,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`copy-button: ${ms}ms 都未 settle`)), ms);
+    }),
+  ]).finally(() => { if (timer) clearTimeout(timer); });
+}
+
+const iconMotion = {
+  initial: { opacity: 0, scale: 0.6 },
+  animate: { opacity: 1, scale: 1 },
+  exit: { opacity: 0, scale: 0.6 },
+  transition: { duration: 0.18, ease: [0.16, 1, 0.3, 1] as const },
+};
+
+export function CopyButton({ getText, label, doneLabel, errorLabel, className = "share-button", preferNativeShare = false, onCopy, onWarm }: {
+  /* onCopy 自己搞 clipboard 嗰陣可以唔傳 */
+  getText?: () => string;
   label: string;
   doneLabel: string;
   errorLabel: string;
   className?: string;
   preferNativeShare?: boolean;
   onCopy?: () => void | Promise<void>;
+  /*
+   * 「就快撳」嘅信號（hover / focus / 撳落去嗰刻），俾叫方預先攞定重嘢。
+   * ⚠️ 存在理由：`navigator.share` 一定要喺 user activation 之內叫（見 lib/share-file.ts），
+   * 撳完先 fetch 幾百 KB 圖 iOS Safari 會掟 NotAllowedError，share sheet 唔出、直接落載。
+   * 一定要 idempotent —— 呢個 handler 一次互動會 fire 兩三次（enter → focus → down）。
+   */
+  onWarm?: () => void;
 }) {
-  const [state, setState] = useState<"idle" | "done" | "error">("idle");
+  const [state, setState] = useState<CopyState>("idle");
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const busyRef = useRef(false);
   useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
 
   const run = useCallback(async () => {
-    const finish = (next: "done" | "error") => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setState("busy");
+    const finish = (next: "done" | "error" | "idle") => {
+      busyRef.current = false;
       setState(next);
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => setState("idle"), 1800);
+      if (next === "done") tap.success();
+      if (next === "error") tap.error();
+      if (next !== "idle") timerRef.current = setTimeout(() => setState("idle"), 1800);
     };
-    const text = getText();
-    if (onCopy) {
-      try { await onCopy(); finish("done"); } catch { finish("error"); }
-      return;
-    }
-    if (preferNativeShare && navigator.share) {
-      try { await navigator.share({ url: text }); finish("done"); } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        finish("error");
+    try {
+      if (onCopy) {
+        await withTimeout(Promise.resolve(onCopy()), COPY_TIMEOUT_MS);
+        finish("done");
+        return;
       }
-      return;
+      const text = getText ? getText() : "";
+      if (!text) { finish("error"); return; }
+      if (preferNativeShare && navigator.share) {
+        try {
+          await navigator.share({ url: text });
+          finish("done");
+        } catch (error) {
+          // 用戶自己撳走 share sheet 唔算失敗
+          if (error instanceof DOMException && error.name === "AbortError") finish("idle");
+          else finish("error");
+        }
+        return;
+      }
+      await writeClipboard(text);
+      finish("done");
+    } catch {
+      finish("error");
     }
-    try { await writeClipboard(text); finish("done"); } catch { finish("error"); }
   }, [getText, preferNativeShare, onCopy]);
 
+  const busy = state === "busy";
   return (
-    <button type="button" className={className} onClick={run} data-state={state}>
-      <AnimatePresence mode="wait" initial={false}>
-        {state === "done" ? (
-          <motion.span
-            key="check"
-            className="copy-icon"
-            initial={{ opacity: 0, scale: 0.6 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.6 }}
-            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-          >
-            <Check aria-hidden="true" size={14} strokeWidth={2.2} />
-          </motion.span>
-        ) : (
-          <motion.span
-            key="copy"
-            className="copy-icon"
-            initial={{ opacity: 0, scale: 0.6 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.6 }}
-            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-          >
-            <Share2 aria-hidden="true" size={14} strokeWidth={1.8} />
-          </motion.span>
-        )}
-      </AnimatePresence>
-      <span>{state === "done" ? doneLabel : state === "error" ? errorLabel : label}</span>
-    </button>
+    <>
+      <button
+        type="button"
+        className={className}
+        onClick={run}
+        onPointerEnter={onWarm}
+        onPointerDown={onWarm}
+        onFocus={onWarm}
+        data-state={state}
+        disabled={busy}
+        aria-busy={busy}
+        title={state === "error" ? errorLabel : state === "done" ? doneLabel : undefined}
+      >
+        <AnimatePresence mode="wait" initial={false}>
+          {state === "done" ? (
+            <motion.span key="check" className="copy-icon" {...iconMotion}>
+              <Check aria-hidden="true" size={14} strokeWidth={2.2} />
+            </motion.span>
+          ) : state === "error" ? (
+            <motion.span key="error" className="copy-icon" {...iconMotion}>
+              <X aria-hidden="true" size={14} strokeWidth={2.2} />
+            </motion.span>
+          ) : busy ? (
+            <motion.span key="busy" className="copy-icon copy-icon-busy" {...iconMotion}>
+              <Loader2 aria-hidden="true" size={14} strokeWidth={2} />
+            </motion.span>
+          ) : (
+            <motion.span key="copy" className="copy-icon" {...iconMotion}>
+              <Share2 aria-hidden="true" size={14} strokeWidth={1.8} />
+            </motion.span>
+          )}
+        </AnimatePresence>
+        <span>{label}</span>
+      </button>
+      {/* 結果讀屏用：sibling status，label 唔郁 */}
+      <span role="status" aria-live="polite" className="sr-only">
+        {state === "done" ? doneLabel : state === "error" ? errorLabel : ""}
+      </span>
+    </>
   );
 }

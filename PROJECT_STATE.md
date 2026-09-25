@@ -10,6 +10,17 @@
 > 讀嘢次序：[AGENTS.md](AGENTS.md)（硬規矩）→ 本檔（現狀）→ 各專題檔（§7 文件地圖）。
 > **文件同 code 衝突時 code 贏**，發現即修文件。日程／cadence 真相永遠睇 `Get-ScheduledTask`，唔好信文件記憶。
 
+### 2026-09-25 合併：FE／release 線（`origin/main`）併入同一條 code 線
+
+> 目的：一條 code 線，修復唔再散落兩邊。合併喺隔離樹 `cardz-market-cap-restructure-20260925`（branch `consolidate/main-merge-20260925`）做；**落 authority 樹同出街之前唔當 live**——生效與否以 authority `git log` 同 live `/api/health` 為準。未落之前 live 仍然由 authority 樹 `rebuild/036-foundation`（資料）同 `origin/main`（FE／release）各自出。
+
+- [KNOWN] 兩邊：`restructure/20260925`（資料／V2 鏈線，`37dce213`）＋ `origin/main`（FE／release 線，`3759d190`），merge base `5b0f8343`（2026-08-13）。
+- 權威分工照舊：pipelines／V2 鏈／collectors／box（sealed）採集／identity／鏈測試跟資料線；`apps/web` 同 release／bake／validate／public-surface 工具跟 `origin/main`（即 WSL `~/cardz-market-cap-release-daily` 實際跑嗰份）。
+- [KNOWN] FE 現況（`origin/main`）：presentation `FE05`、fallback `FE04`（`apps/web/src/lib/product-generation.ts`）。FE04 退路錨 tag `fe04-live` = `c622d741`，一句 `pwsh -NoProfile -File scripts\fe05_rollback.ps1`（[docs/FE05_ROLLBACK.md](docs/FE05_ROLLBACK.md)）。FE 設計 gate：`.claude/agents/fe-design-review.md` ＋ [apps/web/DESIGN.md](apps/web/DESIGN.md)。
+- [KNOWN] Release 現況（`origin/main`）：daily release commit subject `release: daily CARDZ 037 FE04 $generation [deploy]`；最新 `3759d190`（2026-09-25 13:33 JST，`db3308_d3601e743fc3d8e9`）。`fabefa9b` 起 seed-snapshot minified、release 超過 95 MiB 即停；`4d4191d7` 起 K 線唔入公開 snapshot（日線／變幅只由真成交嚟）。
+- Deploy 契約而家同資料線同一份 [AGENTS.md](AGENTS.md)：deploy literal 一入 message 就要喺 subject（規矩 17；`scripts/githooks/commit-msg`，`node scripts/install_githooks.mjs` 裝，`scripts/test-deploy-tag-contract.mjs` 守）；push 完必跑 `deploy_watch.ps1`（規矩 20）、一律 `pwsh`（規矩 21）。§4 P3「FE 樹文件分裂」由呢次合併收。
+- 037／FE04 開代（2026-08-14）當日狀態：`origin/main` 版本檔嘅「037 / FE04 — 現狀」節已喺 [docs/archive/PROJECT_STATE_025-037_archived-20260824.md](docs/archive/PROJECT_STATE_025-037_archived-20260824.md)；內頁／BOX 細節（`.detail-art`、askFloor `wide-metric`、`/box/[id]` Product + BreadcrumbList）喺 [docs/HANDOFF_037_FE04.md](docs/HANDOFF_037_FE04.md)。
+
 ### 2026-08-26 宣傳鏈 cutover
 
 - [KNOWN] **08-28 data→Live 已完成**：03:30 natural event 107 啟動 `cardz-v2:2026-08-28`，全程 scheduler provenance capture 正常；PriceCharting 首次 attempt 被 tick deadline interrupt，下一個自然 tick 自動續成。05:34 release gate 因 `test_pc_master_ball_rebind.py` stale synonym assertion fail-closed；只更新測試期望、targeted regression 通過後 guarded unpark release。06:08 `PUBLISHED`，generation `db3308_8325adf7c4ffe094` 與 Live confirmed、activeCount 1604；因 unpark，final origin `manual`、intervention `1`、`proven_autonomous=0`，唔作純自動綠日。
@@ -110,7 +121,7 @@ sibling-console inference：grep `pc_identity_discover.py` 證實**未落地**�
 | ~~P2~~ **staged** | 調度器／分類器結構修 | structured test verdict、`execute_ready`／recovery interlocks、manual window／durability guards 已分批落 `4e1154af`、`99ca63cd` 等 staging commits | 17:00 後完整測試＋自然 E2E 未過前唔標 done |
 | ~~P2~~ **已修 08-24** | Windows 側 durability test 紅 | `test_daily_chain_v2_durability.py` 標 WSL-only（`daily_chain_v2.py tick` 喺 `os.name=='nt'` 直接 SystemExit）；`test_pc_lane_durability.py` 只跳 `test_sigterm_writes_partial`（Windows `os.kill(SIGTERM)` = TerminateProcess，handler 唔會行） | 冇。兩個 suite 喺 Windows SKIP／綠、喺 WSL 照跑足 |
 | ~~P3~~ ✅ | ~~本樹未 push~~ **08-24 晚已 push**（`7a5f188a..6dba8d8e` → origin/rebuild/036-foundation，ahead 0） | 之後新 commit 照常再 push | 完 |
-| P3 | FE 樹文件分裂 | FE deploy 契約（`deploy_watch`／commit-msg hook／FE05_ROLLBACK）只喺 FE 樹；FE 樹 pointer 仲指 036 | 下次掂 FE 樹時同步 |
+| P3 | FE 樹文件分裂 | FE deploy 契約（`deploy_watch`／commit-msg hook／FE05_ROLLBACK）只喺 FE 樹；FE 樹 pointer 仲指 036 | 下次掂 FE 樹時同步；**2026-09-25**：`consolidate/main-merge-20260925` 將 FE 契約併入同一條線（落 authority 前未生效，見頂部「2026-09-25 合併」） |
 | ~~P3~~ ✅ | ~~phantom ps1~~ **08-24 晚根因＋修復**：index LF、working copy mixed CRLF/LF＋BOM，`autocrlf=true` 下永遠出 M；repo 內零 writer（純歷史手改）。working copy 統一 CRLF（BOM 保留），`git status` 已清、parser 0 error，**零 commit** | 如再現先考慮 `.gitattributes *.ps1 eol=crlf` pin（YAGNI，暫唔加） | 完 |
 
 ## 5. 機制參考
@@ -201,6 +212,8 @@ Receipts／logs：`data/runtime/daily-chain-v2/<business-date>/{receipts,logs}/`
 | [docs/COLLECTION_RUNBOOK.md](docs/COLLECTION_RUNBOOK.md) | 五條採集 lane 機制／缺陷形狀（**日更調度唔關佢事**，睇 §5.2） |
 | [docs/ADDING_A_SOURCE.md](docs/ADDING_A_SOURCE.md) | 加新數據源八步 |
 | [docs/PROMO_CHAIN.md](docs/PROMO_CHAIN.md) | 宣傳鏈（零自動發文） |
+| [docs/FE05_ROLLBACK.md](docs/FE05_ROLLBACK.md) | FE05→FE04 一句退路＋`deploy_watch` exit code 判讀（`origin/main` 線） |
+| [apps/web/DESIGN.md](apps/web/DESIGN.md) | FE05 設計系統＋FE 出街 log（`origin/main` 線） |
 | [docs/LEFTOVER5_IDENTITY_20260813.md](docs/LEFTOVER5_IDENTITY_20260813.md) | 人手身份裁決方法論（leftover-5 舊案） |
 | [docs/TCG_PRINTING_IDENTITY.md](docs/TCG_PRINTING_IDENTITY.md) | TCG 印刷身份活頁（認卡／SNK 標題；唔係工程） |
 

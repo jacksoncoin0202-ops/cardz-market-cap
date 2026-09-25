@@ -118,14 +118,17 @@ throws(
   "structural field",
 );
 // 呢兩條係上面嗰個真 bug 嘅 regression：canonical 叫 `stories`、view model 叫
-// `story`，兩個 bucket 都要認得，唔係就會將市場評論當成結構泄漏。
-passes(
+// `story`，兩個 bucket 都要認得。baseline 已收緊到 0，故事入面提平台會炸
+// editorial 而唔係 structural —— 炸中呢個原因先證明認到 bucket。
+throws(
   "canonical 複數 `stories` 認得係故事 bucket",
   snap([card({ stories: { en: "listed on eBay", zhTW: null, zhCN: null, ja: null, ko: null } })]),
+  "editorial stories name a provider",
 );
-passes(
+throws(
   "view model 單數 `story` 一樣認得",
   snap([card({ stories: undefined, story: { en: "listed on eBay" } })]),
+  "editorial stories name a provider",
 );
 throws(
   "個名夾住 story 唔算故事 bucket（`storyboardSource`）",
@@ -143,11 +146,8 @@ throws(
   "editorial stories name a provider",
 );
 passes(
-  "故事提及次數 <= baseline → 過（今日出街嗰兩句就係咁）",
-  snap([
-    card({ stories: { en: "platforms like SNKRDUNK", zhTW: null, zhCN: null, ja: null, ko: null } }),
-    card({ stories: { en: "early eBay pre-orders", zhTW: null, zhCN: null, ja: null, ko: null } }),
-  ]),
+  "故事提及次數 <= baseline → 過（今日出街 0 句）",
+  snap([card({ stories: { en: "secondary-market prints stay quiet", zhTW: null, zhCN: null, ja: null, ko: null } })]),
 );
 
 // --- 3. 唔准誤殺 ------------------------------------------------------------

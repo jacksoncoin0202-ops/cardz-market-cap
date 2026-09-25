@@ -45,7 +45,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const WEB = join(ROOT, "apps", "web");
 const LIB = join(WEB, "src", "lib");
 const BUILD = join(WEB, ".next", "cache", "cardz-bake");
-const SOURCES = ["live-db-snapshot.ts", "snapshot.ts", "types.ts"];
+const SOURCES = ["live-db-snapshot.ts", "snapshot.ts", "types.ts", "derive-windows.ts", "story-display.ts"];
 
 function arg(name, fallback = null) {
   const at = process.argv.indexOf(name);
@@ -124,7 +124,11 @@ const snapshot = await loadLiveDbSnapshot();
 const gate = assertPublicSurface(snapshot);
 
 const cards = snapshot.top100.length + snapshot.watchlist.length;
-const body = Buffer.from(`${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
+// Minified on purpose. The release commits this file and GitHub refuses any file
+// over 100 MiB: on 2026-09-23 the indented copy was 104,082,640 B (99.3% of that)
+// and growing ~0.3 MB a day. Indentation was 35% of the bytes and every reader
+// JSON-parses the file. validate_daily_release.py stops the release at 95 MiB.
+const body = Buffer.from(`${JSON.stringify(snapshot)}\n`, "utf8");
 mkdirSync(dirname(OUTPUT), { recursive: true });
 const staging = `${OUTPUT}.bake-tmp`;
 writeFileSync(staging, body);

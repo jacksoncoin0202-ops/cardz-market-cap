@@ -77,11 +77,20 @@ check("release lane cannot free lane-quarantine rows",
       A.QUARANTINE_STATUS in R._RELEASABLE_PRICE_ROWS_WHERE, False)
 
 # 4. 讀者隔離：FE 歷史 query 同 legacy composition 都要避開非 ready 行。
+# 2026-08-24（R6）：FE 日線唔再讀 market_price_observation —— K 線全線踢走，日線只准
+# 由真成交嚟（scripts/test-fe-history-sale-only.mjs）。「冇讀路」比「有讀路 + ready
+# filter」更嚴，但兩種形狀都要 fail-closed：讀路返嚟就一定要帶 ready filter；冇讀路
+# 就要連個 JOIN 都真係一條都冇（唔准有人改個 alias 就靜靜溜返入嚟）。
 fe = (ROOT / "apps" / "web" / "src" / "lib" / "live-db-snapshot.ts").read_text(encoding="utf-8")
 needle_from = "FROM market_metric_history_acceptance history"
-block = fe[fe.index(needle_from):]
-block = block[:block.index("ORDER BY")]
-check("FE history query filters ready", "price.metric_status='ready'" in block, True)
+if needle_from in fe:
+    block = fe[fe.index(needle_from):]
+    block = block[:block.index("ORDER BY")]
+    check("FE history query filters ready", "price.metric_status='ready'" in block, True)
+else:
+    fe_code = "\n".join(line for line in fe.splitlines() if not line.lstrip().startswith(("//", "*", "/*")))
+    check("FE 冇 chart 觀測讀路（比 ready filter 更嚴）",
+          "market_price_observation" in fe_code, False)
 
 # 2026-08-23：legacy composition（operator_control 嗰個 chart 價 composer）成個
 # 刪咗 —— 零 call site，而且佢砌價唔經 F-MINT。讀者唔存在 = 佢冇可能讀到非 ready

@@ -1,4 +1,11 @@
-import { loadMarketSnapshot, scopeSnapshot } from "@/lib/server-snapshot";
+import {
+  FALLBACK_GENERATION,
+  FALLBACK_PRESENTATION,
+  PRESENTATION,
+  PRODUCT_GENERATION,
+  PRODUCT_GENERATION_ALIAS,
+} from "@/lib/product-generation";
+import { boxSidecarHealth, loadMarketSnapshot, scopeSnapshot } from "@/lib/server-snapshot";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +53,16 @@ export async function GET(): Promise<Response> {
           localizedStories: snapshot.coverage?.localizedStoryCount ?? null,
         },
         build,
+        product: PRODUCT_GENERATION,
+        alias: PRODUCT_GENERATION_ALIAS,
+        presentation: PRESENTATION,
+        fallback: { product: FALLBACK_GENERATION, presentation: FALLBACK_PRESENTATION },
+        box: (() => {
+          const health = boxSidecarHealth();
+          return snapshot.sealed
+            ? { path: "/box", ...snapshot.sealed.coverage, asOf: snapshot.sealed.asOf, ageHours: health.ageHours, status: health.status }
+            : { path: "/box", total: 0, priced: 0, imaged: 0, asOf: null, ageHours: null, status: health.status, error: health.error };
+        })(),
         dataMode: process.env.CARDZ_DATA_MODE?.trim() === "live-db" ? "windows-db-3308" : "baked-snapshot",
         databasePort: process.env.CARDZ_DATA_MODE?.trim() === "live-db" ? 3308 : null,
       },

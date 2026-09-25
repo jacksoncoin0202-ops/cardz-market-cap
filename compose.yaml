@@ -1,12 +1,14 @@
-# Production web (app.cardzmarketcap.com)
+# Production web (public canonical: cardzmarketcap.com; app.cardzmarketcap.com still serves /api/health)
 # Server deploy path: git pull → docker compose up --build
 #
 # Build context MUST be repo root (npm workspaces + data/public).
 #
 # seed-snapshot.json 係烘焙入 image（next build 期間 ISR 預渲染就要讀佢）。
+# 037 / FE04：box-subset.json 一齊 COPY 入 image，唔寫入 seed。
 # market-assets（1.4GB 卡圖）唔烘焙，由下面個 :ro volume 掛入嚟 —— 少咗佢，
 # 每次 build 嘅 build cache 由 4.55GB 跌到約 0.3GB（實測）。
-# 換咗圖唔使 rebuild，但換咗 seed-snapshot.json 就一定要 rebuild。
+# 換數 + restart 就得（volume 蓋過 image 內後備）。FE／lockfile／Dockerfile 變先要 --build。
+# 見 scripts/compose_up_needed.sh。BOX 唔寫入 PSA10 seed。
 
 name: cardz-market-cap-web
 
@@ -17,6 +19,7 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         CARDZ_PUBLIC_BUILD_ID: ${CARDZ_PUBLIC_BUILD_ID:-deploy}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://cardzmarketcap.com}
     image: cardz-web:latest
     ports:
       - "${CARDZ_WEB_PORT:-3000}:3000"
@@ -31,9 +34,13 @@ services:
       HOSTNAME: "0.0.0.0"
       MARKET_DATA_SNAPSHOT_PATH: /app/data/public/seed-snapshot.json
     volumes:
-      # 卡圖唔喺 image 入面，一定要掛。冇咗佢 /market-assets/* 會 404
+      # 卡圖／seed／BOX sidecar／editorial overlay 唔靠 image 內嗰份。冇掛卡圖 /market-assets/* 會 404
       # （/api/health 唔會察覺 —— 佢淨係驗 snapshot 讀唔讀到）。
       - ./data/public/market-assets:/app/data/public/market-assets:ro
+      - ./data/public/seed-snapshot.json:/app/data/public/seed-snapshot.json:ro
+      - ./data/public/box-subset.json:/app/data/public/box-subset.json:ro
+      - ./data/editorial/card-names-by-id.json:/app/data/editorial/card-names-by-id.json:ro
+      - ./data/editorial/sealed-stories.json:/app/data/editorial/sealed-stories.json:ro
     restart: unless-stopped
     healthcheck:
       test:

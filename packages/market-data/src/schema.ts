@@ -9,7 +9,19 @@ export const MARKET_STATUSES = [
 
 export const MARKET_WINDOWS = ["1d", "7d", "30d"] as const;
 export const COVERAGE_STATUSES = ["complete", "partial", "stale", "unavailable"] as const;
-export const CURRENCIES = ["USD", "HKD", "CNY", "GBP", "TWD", "JPY", "KRW"] as const;
+/*
+ * Canonical currency order — USD must stay index 0 (base).
+ * The same list in the same order lives in three places; change all three together:
+ *   1. here (canonical snapshot contract)
+ *   2. `apps/web/src/lib/types.ts` `currencies` (FE selector + `Currency` type)
+ *   3. `pipelines/fx_rates.py` `SUPPORTED_CURRENCIES` (FX collection + snapshot validation)
+ */
+export const CURRENCIES = [
+  "USD", "HKD", "TWD", "JPY", "KRW", "CNY", "SGD", "MYR", "THB", "PHP",
+  "IDR", "VND", "INR", "AUD", "NZD", "EUR", "GBP", "CHF", "SEK", "NOK",
+  "DKK", "PLN", "CZK", "CAD", "MXN", "BRL", "AED", "SAR", "ILS", "TRY",
+  "ZAR",
+] as const;
 
 export type MarketStatus = (typeof MARKET_STATUSES)[number];
 export type MarketWindow = (typeof MARKET_WINDOWS)[number];
@@ -30,8 +42,13 @@ export interface MarketMetric {
   status: MarketStatus;
   /** Public "last updated" time. For PSA10 price this is checkedAt (043). */
   asOf: string | null;
-  /** Source chart/period date (e.g. PriceCharting month head). Optional. */
+  /** Source chart/period date (legacy chart quotes only). Optional. */
   sourcePeriodAt?: string | null;
+  /**
+   * Sale date of the completed sale this price IS. Present only when the
+   * quote is a real transaction; mutually exclusive with sourcePeriodAt.
+   */
+  saleAt?: string | null;
   /** Actual capture/check time used for freshness. Optional. */
   checkedAt?: string | null;
   /**
@@ -165,6 +182,18 @@ export interface PublicCard {
   marketCap: MarketMetric;
   windows: Record<MarketWindow, WindowMetrics>;
   historyDaily: DailyHistoryPoint[];
+  /**
+   * Reference (chart / K-line) observations, kept as a SEPARATE series from
+   * `historyDaily`. `historyDaily` stays completed-sales-only; these points are
+   * "a price was quoted, no sale was recorded" and must never be merged into it.
+   * Two sanctioned uses only: the long windows (90d/180d/365d) may anchor on
+   * them when the card has no real-sale anchor in range, and the card-page chart
+   * may plot them for the span older than the card's earliest real-sale day.
+   * The short windows (1d/7d/30d) must never touch them.
+   * Optional: retained snapshots predate the field; `trackedSales*` are always
+   * null here because a reference point is by definition not a sale.
+   */
+  historyReference?: DailyHistoryPoint[];
 }
 
 export interface SnapshotGeneration {

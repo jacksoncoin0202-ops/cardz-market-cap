@@ -15,29 +15,23 @@
  * 加新 route 嗰陣：要骨架就放入 `(market)/`，要控制 status 就放喺外面。
  * 反過嚟：唔准喺 `app/card/` 或者 `app/watchlist/` 加返 `loading.tsx` —— 加咗
  * 就靜靜地打返轉頭，兩邊嘅 404 一齊變返 200，而且冇任何嘢會紅。
+ *
+ * 形狀要對返真頁：第一屏係 heatmap（`.heatmap-section` = 100svh − header 嘅 grid，
+ * 骨架直接借同一個 class 攞同一個 footprint，內容 stream 入嚟先唔會跳版）；
+ * 下面榜表 desktop 係 42×60 縮圖 + section radius，≤980px 係五欄 grid
+ * （rank / thumb / 名 / 價 / 成交圖）—— 同 .mobile-rank-card 一樣。
  */
+/* 兩塊都由 `components/skeletons.tsx` 出（FE05 WS4）：JSX 同 `.skeleton-*` CSS 收埋
+   一個 owner，改一邊唔會漏另一邊。輸出 DOM 同之前一模一樣。
+   （原本仲有個 `CardDetailSkeleton` 俾卡頁做 Suspense fallback，review 2026-08-17
+   拆咗——一包 boundary 就冇咗 crawler shell，理由喺 `card/[id]/page.tsx`。） */
+import { MarketHeroSkeleton, RankingRowsSkeleton } from "@/components/skeletons";
+
 export default function Loading() {
   return (
     <div className="page-shell market-page-shell" aria-hidden="true">
-      <div className="skeleton-hero">
-        <div className="skeleton-block skeleton-kicker" />
-        <div className="skeleton-block skeleton-title" />
-        <div className="skeleton-block skeleton-copy" />
-      </div>
-      <div className="skeleton-block skeleton-strip" />
-      <div className="skeleton-rows">
-        {Array.from({ length: 8 }, (_, index) => (
-          <div className="skeleton-row" key={index}>
-            <div className="skeleton-block skeleton-rank" />
-            <div className="skeleton-block skeleton-thumb" />
-            <div className="skeleton-lines">
-              <div className="skeleton-block skeleton-line-name" />
-              <div className="skeleton-block skeleton-line-sub" />
-            </div>
-            <div className="skeleton-block skeleton-value" />
-          </div>
-        ))}
-      </div>
+      <MarketHeroSkeleton />
+      <RankingRowsSkeleton rows={8} />
     </div>
   );
 }

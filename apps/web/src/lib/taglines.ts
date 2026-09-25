@@ -1,6 +1,8 @@
 /* Prestige taglines：100 句已批核英文 slogan + 四語翻譯。
-   footer / 404 用 pickTagline（slot+UTC 日期 deterministic，每日輪換、人人同句），
-   share image 用 pickRandomTagline（click-time Math.random，同 pickShareTheme 一樣）。 */
+   唯一出口係 <Tagline>（components/tagline.tsx）行 pickTagline：slot + 當日 UTC date
+   deterministic，每日輪換、同一日人人見到同一句。
+   heatmap 分享圖**冇**用 tagline（owner 2026-08-17：張圖淨係熱力圖 + 一行 legend，
+   「咩都唔使加」）—— 舊註解講嘅 pickRandomTagline / pickShareTheme 兩個都唔存在。 */
 import type { Locale } from "./types";
 
 export const TAGLINE_COUNT = 100;
@@ -546,9 +548,4 @@ export function pickTagline(locale: Locale, slot: string, seed?: string): string
   const day = seed ?? new Date().toISOString().slice(0, 10);
   const list = listFor(locale);
   return list[hashTaglineKey(`${slot}:${day}`) % list.length];
-}
-
-export function pickRandomTagline(locale: Locale, random: () => number = Math.random): string {
-  const list = listFor(locale);
-  return list[Math.floor(random() * list.length) % list.length];
 }

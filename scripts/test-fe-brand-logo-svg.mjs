@@ -1,0 +1,265 @@
+#!/usr/bin/env node
+/*
+ * Brand wordmark SVG 契約（fe05(logo-svg)，2026-08-18）—— 純靜態，唔開瀏覽器、唔使 dev server，
+ * 由 run_all_tests.py glob `scripts/test-*.mjs` 入 `npm test`。
+ *
+ * 呢個檔守嘅全部係「一錯就靜靜出錯圖、冇 error 冇 warning、CI 照綠」嗰種：
+ *  ① 兩個 SVG 要喺度（卡片同熱力圖 OG route 都直接讀佢）
+ *  ② viewBox 同 width/height 一定要對得住 —— 呢個係最靜嘅陷阱：淨改 viewBox 唔改 width/height，
+ *     satori（resvg）同 Chrome 都會照舊 intrinsic ratio 去 fit，出嚟係 letterbox（logo 縮細 + 四邊留白）
+ *  ③ 零 <text>／<script>／xlink:href／外連 URL —— <text> 等於「字體冇裝就出第二隻字」，
+ *     其餘三樣喺 CSP（`img-src 'self' data: blob:`、`script-src` 冇 unsafe-inline）之下係靜靜唔畫
+ *  ④ <defs> 每條有 id 嘅 path 一定要被 <use> 引用過；每個 <use href="#x"> 亦一定要指到真嘅 id。
+ *     前者防「有人第日再貼一份帶死 path 嘅原稿返嚟」（dark 版嗰條死 path 自己就 62KB）；
+ *     後者防改名改半路 —— dangling ref 唔會報錯，只係嗰層唔畫，logo 缺一截色
+ *  ⑤ OG route 一定要用 `image/svg+xml;base64`。`svg+xml;charset=utf-8,` + encodeURIComponent
+ *     行到 satori 內部個 `btoa` 會 `InvalidCharacterError` → OG 端點 500（實測）
+ *  ⑥ 熱力圖 OG 兩個 skin 都指 SVG；header **仍然**指 `-h100.png`。呢個係刻意決定，唔係漏咗：
+ *     header 最大只顯示 50px 高，231×100 嘅 PNG 已經係 2× 以上，轉 SVG 一粒銳度都賺唔到，
+ *     但 light 版 first-paint 資產 brotli(q11) 由 9,098 → 17,016 B（**+7,918 B**）。
+ *     ⚠️ dark 版方向係**相反**嘅（7,304 → 4,994，慳 2,310 B）—— 但 light 係默認面，
+ *     而且要轉就兩版一齊轉先唔會半新半舊，所以整體照計唔抵。
+ *  ⑦ 檔頭 provenance 個 `minified body sha256` 要對得返檔案真身 —— SVG 係人手加工過嘅衍生檔，
+ *     冇呢個 stamp 就冇人知手上呢份係咪嗰份
+ */
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const failed = [];
+const check = (label, condition, detail) => { if (!condition) failed.push(detail ? `${label}: ${detail}` : label); };
+const read = (path) => readFileSync(join(ROOT, path), "utf8");
+
+const LOGOS = [
+  { rel: "apps/web/public/brand/logo-cardz-marketcap.svg", label: "light" },
+  { rel: "apps/web/public/brand/logo-cardz-marketcap-dark.svg", label: "dark" },
+];
+
+for (const { rel, label } of LOGOS) {
+  const abs = join(ROOT, rel);
+  // ① 兩個檔都要喺度：卡片同熱力圖 OG route 搵唔到就回 500
+  check(`${label}: ${rel} present`, existsSync(abs));
+  if (!existsSync(abs)) continue;
+
+  const text = readFileSync(abs, "utf8");
+  /* 檔頭嗰段廣東話 provenance 註釋入面本身寫住 `<text>`、`<use>` 呢啲字，掃描一定要由
+     `<svg` 開始，否則掃到自己嘅註釋，永遠紅。 */
+  const body = text.slice(text.indexOf("<svg"));
+  check(`${label}: has an <svg> root`, body.startsWith("<svg"));
+
+  // ⑦ provenance stamp：sha256 = 由 `<svg` 起、trim 過嘅 body
+  const declaredSha = (text.match(/minified body sha256:\s*([0-9a-f]{64})/) || [])[1];
+  const actualSha = createHash("sha256").update(body.trim()).digest("hex");
+  check(`${label}: 檔頭有 minified body sha256`, Boolean(declaredSha));
+  check(`${label}: body sha256 對得返檔頭（改過 SVG 就要順手改埋個 stamp）`,
+    declaredSha === actualSha, `file=${actualSha} declared=${declaredSha ?? "(none)"}`);
+
+  /* ② 最靜嗰個陷阱：viewBox 後兩個數 = width/height。唔一致嘅話 resvg / Chrome 用嘅
+     intrinsic ratio 同真實畫布唔同 → letterbox，logo 縮細、四邊多咗留白，零 warning。 */
+  const viewBox = (body.match(/\sviewBox="([^"]+)"/) || [])[1];
+  const width = (body.match(/<svg[^>]*\swidth="([^"]+)"/) || [])[1];
+  const height = (body.match(/<svg[^>]*\sheight="([^"]+)"/) || [])[1];
+  check(`${label}: <svg> 有 viewBox`, Boolean(viewBox));
+  check(`${label}: <svg> 有 width 屬性（同 viewBox 一齊守住 intrinsic ratio）`, Boolean(width));
+  check(`${label}: <svg> 有 height 屬性`, Boolean(height));
+  if (viewBox && width && height) {
+    const vb = viewBox.trim().split(/[\s,]+/).map(Number);
+    check(`${label}: viewBox 係 4 個數`, vb.length === 4 && vb.every(Number.isFinite), viewBox);
+    check(`${label}: width == viewBox[2]`, Number(width) === vb[2], `width=${width} viewBox[2]=${vb[2]}`);
+    check(`${label}: height == viewBox[3]`, Number(height) === vb[3], `height=${height} viewBox[3]=${vb[3]}`);
+  }
+
+  // ③ 零 <text>：SVG 入面嘅 <text> 要靠 render 環境有嗰隻字，冇就靜靜出第二隻字
+  check(`${label}: zero <text>（wordmark 要 outlined，唔准靠字體）`, !/<text[\s>/]/.test(body));
+  check(`${label}: zero <script>`, !/<script[\s>/]/i.test(body));
+  // xlink:href 係 SVG 1.1 舊寫法，resvg 版本之間支援唔一致 —— 統一只准 SVG2 `href`
+  check(`${label}: zero xlink:href（只准 SVG2 href）`, !/xlink:href/i.test(body));
+  /* 外連 URL：`xmlns="http://www.w3.org/2000/svg"` 係必須嘅 namespace 宣告，唔算外連，
+     所以先剝走所有 xmlns 宣告再掃。剩返任何 http / // = 真係想去攞外部資源，
+     CSP `img-src 'self' data: blob:` 之下佢係靜靜唔畫，唔會有 error。 */
+  const noNs = body.replace(/xmlns(:[\w-]+)?="[^"]*"/g, "");
+  check(`${label}: zero external http(s) reference`, !/https?:/i.test(noNs));
+  check(`${label}: zero protocol-relative //`, !noNs.includes("//"));
+
+  /* ④ <defs> 入面每條有 id 嘅 path 都要真係被 <use> 過。原稿 dark 版有條 62KB 黑描邊 path
+     坐喺 <defs> 度冇人用 —— 佢唔會 render，但每個請求都要派多 62KB。 */
+  /* 一定要 matchAll 掃晒**每個** <defs> block，唔可以淨係攞第一個：覆核 2026-08-18 種過
+     一條 fault —— 喺 </svg> 之前另開第二個 <defs> 藏一條死 path，單 match 版本照綠。
+     現行兩個檔各只得一個 defs，所以呢句而家係防守性，唔係喺度修 live bug。 */
+  const defs = [...body.matchAll(/<defs>([\s\S]*?)<\/defs>/g)].map((m) => m[1]).join("\n");
+  check(`${label}: 有 <defs> block`, defs.length > 0);
+  const defIds = [...defs.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]);
+  const useRefs = [...body.matchAll(/<use[^>]*\shref="#([^"]+)"/g)].map((m) => m[1]);
+  check(`${label}: <defs> 至少有一條有 id 嘅 path（唔好變空掃描）`, defIds.length > 0);
+  check(`${label}: 至少有一個 <use>`, useRefs.length > 0);
+  for (const id of defIds) {
+    check(`${label}: <defs> #${id} 被 <use> 引用過（死 path = 白派 bytes）`,
+      useRefs.includes(id), `<use> 只 reference 咗: ${useRefs.join(", ") || "(none)"}`);
+  }
+  for (const ref of useRefs) {
+    // dangling <use> 唔會報錯，只係嗰層唔畫 —— logo 缺一截色而已，好易走漏眼
+    check(`${label}: <use href="#${ref}"> 指到真嘅 id`, defIds.includes(ref), `已有 id: ${defIds.join(", ") || "(none)"}`);
+  }
+
+  console.error(`[info] ${rel} ${statSync(abs).size} bytes, viewBox="${viewBox}", ${defIds.length} def paths, ${useRefs.length} uses`);
+}
+
+/* ⑤ OG route（satori）。`;base64,` 係硬條件：換成 `svg+xml;charset=utf-8,` + encodeURIComponent
+   會喺 satori 內部個 btoa 度炸 InvalidCharacterError，成個 OG 端點 500。 */
+const OG_ROUTE = "apps/web/src/app/api/og/card/[id]/route.tsx";
+/* 剝走 block comment 先掃：route 檔頭嗰段警告本身就要引用「唔准寫」嗰串字
+   （`svg+xml;charset=…`），唔剝就會捉住自己嘅註釋，永遠紅。 */
+const ogRoute = read(OG_ROUTE).replace(/\/\*[\s\S]*?\*\//g, "");
+check("OG route 用 data:image/svg+xml;base64", ogRoute.includes("data:image/svg+xml;base64,"));
+check("OG route 冇用 svg+xml;charset（btoa 會炸 InvalidCharacterError）", !/svg\+xml;\s*charset/i.test(ogRoute));
+/* 驗**完整檔名**唔係驗 `.svg` 後綴：覆核 2026-08-18 種過 fault —— OG route 改指
+   `-dark.svg`（白 wordmark 畫落 #f7f7f5 panel = 隱形），舊版後綴檢查照綠。
+   2026-08-19 起 OG 有 `?theme=light|dark` 兩塊底，所以唔再係「一定 light skin」，
+   而係**邊個 theme 配邊個檔**要對 —— 掉轉一樣係白字畫白底／黑描邊畫黑底，一樣零 error。
+   route 側寫成 `LOGO_BY_THEME` 一張明表（唔准砌 template string），就係為咗俾呢度驗。 */
+const OG_LOGO_BY_THEME = { light: "brand/logo-cardz-marketcap.svg", dark: "brand/logo-cardz-marketcap-dark.svg" };
+const ogSkins = [...ogRoute.matchAll(/\b(light|dark):\s*"(brand\/logo-cardz-marketcap[\w-]*\.\w+)"/g)].map((m) => [m[1], m[2]]);
+check("OG route 有 LOGO_BY_THEME 兩個 skin", ogSkins.length === 2, JSON.stringify(ogSkins));
+for (const [theme, logoPath] of ogSkins) {
+  check(`OG route ${theme} theme 用 ${OG_LOGO_BY_THEME[theme]}（掉轉 = wordmark 隱形，零 error）`,
+    logoPath === OG_LOGO_BY_THEME[theme], `實際 ${logoPath}`);
+}
+/* 再兜一句：全個 route 出現過嘅 logo 路徑**只可以**係嗰兩條（即係冇人喺 map 以外
+   另外寫死一條）。冇呢句嘅話，有人喺 layout 入面直接寫死一個檔名，上面張表仍然全綠。 */
+const ogLogoPaths = [...ogRoute.matchAll(/brand\/logo-cardz-marketcap[\w-]*\.(\w+)/g)].map((m) => m[0]);
+check("OG route 冇喺 LOGO_BY_THEME 以外再寫死 logo 路徑",
+  ogLogoPaths.length === 2 && ogLogoPaths.every((p) => Object.values(OG_LOGO_BY_THEME).includes(p)),
+  ogLogoPaths.join(", ") || "(none)");
+
+/* satori 唔理 SVG 自己嗰個 width/height（覆核實測：剝走都逐 px 一樣），所以呢兩個 declared
+   數就係 OG wordmark 嘅**唯一**尺寸來源。原本零 assert —— 種 fault 改成 100×43，wordmark
+   靜靜細一半，test 照綠。寫死喺度：要改版面就連呢行一齊改，改動先至被人睇見。 */
+const OG_IMG_DIMS = [[144, 62], [190, 82]];
+const ogImgs = [...ogRoute.matchAll(/<img\s+src=\{logoSrc\}[^>]*?width=\{S\((\d+), scale\)\}\s+height=\{S\((\d+), scale\)\}/g)]
+  .map((m) => [Number(m[1]), Number(m[2])]);
+check("OG route 有兩個寫死尺寸嘅 wordmark <img src={logoSrc}>", ogImgs.length === 2, JSON.stringify(ogImgs));
+/* ⚠️ 2026-08-22 真 4K：每個 px 常數都要過 `S(n, scale)`。漏咗一個唔會炸 —— 嗰嚿嘢
+   喺 4K 度細一半，200、冇 error、冇 log（route 個 `S()` 註寫住）。所以呢度逐個
+   `<img src={logoSrc}>` 掃：三個（wide／post／fail-open）都一定要 width **同** height
+   都行 `S(..., scale)`。 */
+const logoImgs = [...ogRoute.matchAll(/<img\s+src=\{logoSrc\}[^>]*?\/>/g)].map((m) => m[0]);
+check("OG route 三個 wordmark <img>", logoImgs.length === 3, `搵到 ${logoImgs.length} 個`);
+const unscaledLogo = logoImgs.filter((tag) =>
+  !/width=\{S\([\w.]+, scale\)\}/.test(tag) || !/height=\{S\([\w.]+, scale\)\}/.test(tag));
+check("wordmark 尺寸全部行 S(n, scale)（漏咗 = 4K 度細一半，零 error）",
+  unscaledLogo.length === 0, unscaledLogo.join(" | "));
+check(`OG wordmark declared 尺寸 = Wide 144×62 / Post 190×82`,
+  JSON.stringify(ogImgs) === JSON.stringify(OG_IMG_DIMS),
+  `實際 ${JSON.stringify(ogImgs)}`);
+
+/* fail-open 個 TextOnlyLayout 兩個 format 共用，尺寸由 `TEXT_ONLY_GEO` 出，唔係寫死喺
+   `<img>` 度 —— 上面條 regex 掃唔到。呢一段唔補返，退化版嘅 wordmark 就變返零 assert。 */
+const TEXT_ONLY_WANT = { wide: [144, 62], post: [280, 121] };
+const geoBlock = ogRoute.match(/const TEXT_ONLY_GEO\s*=\s*\{[\s\S]*?\n\} as const;/)?.[0] ?? "";
+check("OG route 有 TEXT_ONLY_GEO", !!geoBlock);
+for (const [format, want] of Object.entries(TEXT_ONLY_WANT)) {
+  const row = geoBlock.match(new RegExp(`${format}:\\s*\\{[^}]*logoW:\\s*(\\d+),\\s*logoH:\\s*(\\d+)`));
+  const got = row ? [Number(row[1]), Number(row[2])] : null;
+  check(`TEXT_ONLY_GEO.${format} wordmark = ${want[0]}×${want[1]}`,
+    JSON.stringify(got) === JSON.stringify(want), `實際 ${JSON.stringify(got)}`);
+}
+
+/*
+ * 四對數全部要守返同一個長寬比。上面幾條寫死數字，係為咗「改動要被人睇見」；
+ * 呢條守嘅係另一件事 —— **改成一個唔成比例嘅數**。satori 唔會補正，出街就係扁咗／
+ * 拉長咗嘅 wordmark，一樣係零 error。2.328:1 係量返出圖度返嚟嘅（見 route.tsx 個註）。
+ */
+const WORDMARK_RATIO = 2.328;
+for (const [w, h] of [...ogImgs, ...Object.values(TEXT_ONLY_WANT)]) {
+  const ratio = w / h;
+  check(`wordmark ${w}×${h} 長寬比 ≈ ${WORDMARK_RATIO}`, Math.abs(ratio - WORDMARK_RATIO) / WORDMARK_RATIO < 0.01,
+    `${ratio.toFixed(3)}`);
+}
+
+/*
+ * 分享圖尺寸（2026-08-19）。兩個數都係「改咗都唔會有 error，只係出街張圖唔啱樣」：
+ *  · wide 1200×630 係 og:image / twitter summary_large_image 嗰個平台比例，而且
+ *    `lib/route-metadata.ts` 對外宣告緊呢兩個數 —— route 同 metadata 各行各路就會
+ *    出現「宣告 1200×630、實際出另一個尺寸」，平台照 crop，冇人收到警告。
+ *  · post 1080×1350 = 4:5，**唔准改返 9:16**。2026-08-19 早上出過一版 1080×1920，
+ *    owner 實測貼上 Threads / X：三家對直度圖都有高度上限，超過就**唔裁、改為按高度
+ *    縮細**，於是隔離人哋啲相滿版、我哋嗰張永遠得七八成闊。IG feed 4:5 最嚴，鎖到
+ *    闊÷高 ≥ 0.8 三家都唔會再縮。卡片同熱力圖 OG 共用 `FORMAT_SIZES.post`。
+ *    改高過 1350 冇 error、冇 warning，只係貼出去嗰刻細一截，冇人收到通知。
+ */
+const OG_FORMAT_WANT = { wide: [1200, 630], post: [1080, 1350] };
+/* ⚠️ 2026-08-20 起尺寸真身搬咗去 `lib/share-destinations.ts` 個 `FORMAT_SIZES`
+   （route.tsx 讀返佢，自己只留 defaultTheme）—— 本來兩邊各寫一組數字，就係噉出咗
+   「選單標 16:9 但實際出 1200×630」嗰單。呢度照樣讀真身，只係真身換咗個檔。 */
+const shareSizes = read("apps/web/src/lib/share-destinations.ts");
+const ogFormats = [...shareSizes.matchAll(/\b(wide|post):\s*\{\s*width:\s*(\d+),\s*height:\s*(\d+)/g)]
+  .map((m) => [m[1], Number(m[2]), Number(m[3])]);
+check("FORMAT_SIZES 有 wide + post 兩個", ogFormats.length === 2, JSON.stringify(ogFormats));
+check("og route 真係讀 FORMAT_SIZES（唔係自己再寫一組）",
+  /import \{[^}]*\bFORMAT_SIZES\b[^}]*\breadShareFormat\b[^}]*\} from "@\/lib\/share-destinations"/.test(ogRoute) && /const spec = FORMAT_SIZES\[format\];/.test(ogRoute));
+/* 通用直度分享圖闊÷高一定要 ≥ 0.8。
+   上面對死 1080×1350 已經夠，但呢句講嘅係**點解**係嗰對數 —— 第日有人要換另一對
+   直度尺寸，起碼唔會靜靜跌返落 Threads / X 縮細嗰個區間。 */
+/* 讀 route **真身**嗰對數（唔係上面張 want 表）—— 咁樣改 source 先會 fire，改 want 表
+   亦頂唔住。兩句都紅先係啱：一句話「唔係嗰對數」，一句話「而且跌咗入被縮細嗰區間」。 */
+const ogPost = ogFormats.find(([format]) => format === "post");
+check("OG route FORMATS 有 post", Boolean(ogPost), JSON.stringify(ogFormats));
+if (ogPost) {
+  check("OG post 闊÷高 ≥ 4:5",
+    ogPost[1] / ogPost[2] >= 4 / 5,
+    `${ogPost[1]}/${ogPost[2]} = ${(ogPost[1] / ogPost[2]).toFixed(3)} —— Threads / X / IG 會按高度縮細，貼出去食唔晒 post 闊度`);
+}
+for (const [format, width, height] of ogFormats) {
+  const want = OG_FORMAT_WANT[format];
+  check(`OG ${format} 尺寸 = ${want.join("×")}`, want[0] === width && want[1] === height, `實際 ${width}×${height}`);
+}
+/* wide 個尺寸同時要對得返 route-metadata 對外宣告嗰對數。 */
+const routeMetadata = read("apps/web/src/lib/route-metadata.ts");
+const declaredOg = (routeMetadata.match(/width:\s*(\d+),\s*height:\s*(\d+)/) || []).slice(1).map(Number);
+check("route-metadata 宣告嘅 og:image 尺寸 = OG wide 尺寸",
+  declaredOg.length === 2 && declaredOg[0] === OG_FORMAT_WANT.wide[0] && declaredOg[1] === OG_FORMAT_WANT.wide[1],
+  `metadata=${declaredOg.join("×") || "(none)"} route=${OG_FORMAT_WANT.wide.join("×")}`);
+
+/* ⑥ 熱力圖 OG 用 SVG；header **唔准**轉 —— light 版
+   first-paint 資產 brotli(q11) 9,098 → 17,016 B（+7,918 B）而視覺上零得着（header 最大 50px 高，
+   PNG 已經 2×+）。呢個係刻意決定，唔係漏咗。 */
+const heatmapRoute = read("apps/web/src/app/api/og/heatmap/route.tsx").replace(/\/\*[\s\S]*?\*\//g, "");
+/* 同 OG 一樣要驗**邊個 skin 配邊個檔**，唔係淨驗 .svg：覆核種過 fault 將兩個 skin 掉轉
+   （深色底用黑描邊版、淺色底用白版 = 兩邊都睇唔到），舊版後綴檢查照綠。 */
+const SHARE_LOGO_WANT = { dark: "brand/logo-cardz-marketcap-dark.svg", light: "brand/logo-cardz-marketcap.svg" };
+const skinPattern = /\b(dark|light):\s*\{[^}]*?logo:\s*"([^"]+)"/g;
+const shareSkins = [...heatmapRoute.matchAll(skinPattern)].map((m) => [m[1], m[2]]);
+check("熱力圖 OG 有兩個 skin.logo", shareSkins.length === 2, JSON.stringify(shareSkins));
+for (const [skin, path] of shareSkins) {
+  check(`熱力圖 OG ${skin} skin 用 ${SHARE_LOGO_WANT[skin]}（掉轉 = 白字畫白底／黑描邊畫黑底）`,
+    path === SHARE_LOGO_WANT[skin], `實際 ${path}`);
+  /* 記憶體副本換成另一個 theme 嘅 logo，沿用同一條 skin 判定要捉到。 */
+  const wrongSkinRoute = heatmapRoute.replace(`"${path}"`, `"${SHARE_LOGO_WANT[skin === "dark" ? "light" : "dark"]}"`);
+  const wrongSkins = [...wrongSkinRoute.matchAll(skinPattern)].map((m) => [m[1], m[2]]);
+  check(`熱力圖 OG ${skin} logo 掉轉會被攔`, wrongSkinRoute !== heatmapRoute
+    && wrongSkins.some(([theme, logoPath]) => logoPath !== SHARE_LOGO_WANT[theme]));
+}
+check("熱力圖 OG 用 data:image/svg+xml;base64", heatmapRoute.includes("data:image/svg+xml;base64,"));
+const wrongLogoEncoding = heatmapRoute.replace("data:image/svg+xml;base64,", "data:image/svg+xml;charset=utf-8,");
+check("熱力圖 OG charset 編碼會被攔", wrongLogoEncoding !== heatmapRoute
+  && !wrongLogoEncoding.includes("data:image/svg+xml;base64,"));
+const sharedSizesPattern = /const spec = FORMAT_SIZES\[format\];/;
+check("熱力圖 OG 讀共用 FORMAT_SIZES", sharedSizesPattern.test(heatmapRoute));
+const wrongSizeSource = heatmapRoute.replace("const spec = FORMAT_SIZES[format];", "const spec = LOCAL_SIZES[format];");
+check("熱力圖 OG 尺寸另開一份會被攔", wrongSizeSource !== heatmapRoute && !sharedSizesPattern.test(wrongSizeSource));
+
+const header = read("apps/web/src/components/header.tsx");
+const headerLogos = [...header.matchAll(/src:\s*"(\/brand\/[^"]+)"/g)].map((m) => m[1]);
+check("header 兩個 logo src", headerLogos.length === 2, headerLogos.join(", "));
+for (const path of headerLogos) {
+  check(`header logo ${path} 仍然係 -h100.png（轉 SVG = first-paint +7.4 KB，刻意唔轉）`,
+    path.endsWith("-h100.png"));
+}
+
+if (failed.length) {
+  console.error("FAIL brand wordmark SVG contract:\n" + failed.map((item) => ` - ${item}`).join("\n"));
+  process.exit(1);
+}
+console.log("PASS brand wordmark SVG contract (2 SVG, viewBox==width/height, no text/script/xlink/external, defs⇄use 兩邊對得晒, OG base64 svg+xml, OG theme⇄skin + 4 個 wordmark 尺寸同長寬比, OG wide/post 尺寸 + 直度 aspect ≥ 0.8 + route-metadata 對得返, heatmap OG .svg + shared FORMAT_SIZES, header 仍然 -h100.png, sha256 stamp 對得返)");

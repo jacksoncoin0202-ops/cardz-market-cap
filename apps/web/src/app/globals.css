@@ -15,7 +15,125 @@
   --control-radius: 12px;
   --card-img-radius: 9%; /* 2026-07-25 已廢：卡圖統一用原生 RGBA 圓角，唔准再 CSS 削角 */
   --header-height: 68px;
+  /* z 階梯：header 80 < 浮層（preview / tune）100 < modal（sheet / dialog）120 */
+  --z-header: 80;
+  --z-overlay: 100;
+  --z-modal: 120;
   --shadow: 0 18px 54px rgba(24, 24, 22, 0.14);
+  /* 三層高度階梯：同一光源（上方），y-offset 主導、blur 隨高度倍增。 */
+  --elev-1: 0 1px 2px rgba(24, 24, 22, 0.07), 0 4px 12px rgba(24, 24, 22, 0.05);
+  --elev-2: 0 2px 6px rgba(24, 24, 22, 0.09), 0 10px 28px rgba(24, 24, 22, 0.1);
+  --elev-3: 0 4px 12px rgba(24, 24, 22, 0.1), 0 18px 54px rgba(24, 24, 22, 0.14);
+  --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ── 字體 stack（FE05 webfont，owner 2026-08-17）──
+     --font-inter 由 next/font/local 喺 <html> 落（src/fonts/index.ts，Inter Variable latin subset，
+     self-host、swap、preload、Arial metric fallback）。呢度只准 consume，唔准硬寫 "Inter"。
+     拉丁 + 數字永遠由 Inter 出；漢字／假名／諺文 Inter 冇 glyph，逐字跌落後面嘅 OS 字。
+     舊 stack 頭四個 family（-apple-system / SF Pro / Helvetica Neue）Windows 一隻都冇 → 全站跌落
+     Yu Gothic（日文字）出拉丁 = 2026-08-17 個「用緊日文字體」投訴嘅根。
+     Windows CJK family（JhengHei / YaHei / Malgun）補返，令 zh / ko 唔再食 Yu Gothic 字形。
+     C3（fe05(cjk)）：stack 拆做四條 per-script token，`--font-sans` 按 <html lang>（`[lang]:lang()` 規則，
+     :root 之後）重排——ja 頁 JP 字先、zh-Hant 頁 TC 先、zh-Hans 頁 SC 先、ko 頁 KR 先；en 頁 / 未標 lang
+     嘅漢字 JP-first（owner 默認）。點解要重排：Han unification —— 同一個 code point（直／骨／画）
+     喺 JP / TC / SC 字體出唔同字形，Windows 用戶睇 zh 頁唔應該食 Yu Gothic 嘅日式字形。
+     全部係 OS 字，唔 self-host CJK web font（deferred：第二期 Noto font-display: optional）。
+     UI 變體（Yu Gothic UI / JhengHei UI）刻意唔用：拉丁反正由 Inter 出，UI 變體嘅假名／諺文闊度同
+     C1 量度用嘅正體唔同（title-width 估算表 CJK 1.0em/字係對住 Yu Gothic / JhengHei / Malgun 量）。
+     --font-mono 之前喺四處逐字複製（collector-cell / mobile-card-number /
+     identity-list dd / box-set-chip），改一次要改四處，所以收埋一份；補 Cascadia / Consolas，
+     Windows 唔再跌 Courier New。 */
+  --f-latin: var(--font-inter);
+  --f-jp: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", YuGothic, Meiryo, "Noto Sans JP", "Noto Sans CJK JP";
+  --f-tc: "PingFang TC", "PingFang HK", "Microsoft JhengHei", "Noto Sans TC", "Noto Sans CJK TC";
+  --f-sc: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC";
+  --f-kr: "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", "Noto Sans CJK KR";
+  --f-tail: -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+  --font-sans: var(--f-latin), var(--f-jp), var(--f-tc), var(--f-sc), var(--f-kr), var(--f-tail);
+  --font-mono: "SF Mono", "Cascadia Mono", Consolas, "Roboto Mono", ui-monospace, monospace;
+
+  /* ── 流體字階（FE05）──
+     **step-2/3/4 原封照抄 FE04 嗰條 vw 曲線，唔係自己畫一條新嘅。**
+     第一版 FE05 寫成 390→1280 直線，兩端啱但中段唔同：量到 768/900/1024 度
+     `.content-hero h1` 差到 −5.97px、`.hub-hero h1` +6.68px、成頁最多位移 57.74px。
+     教訓：**端點相同 ≠ 曲線相同**，換 clamp 一定要至少量 390/768/900/1024/1280 五個闊度。
+     --step-0 / --step-1 **喺 fix-visual（2026-08-17）收編咗**：owner 拍板接受 reflow，
+     所以 .content-answer / .hub-answer 統一落 --step-1（一個角色一套字級），
+     .hub-lead / .provenance-panel h2 落 --step-0（WS1 原計劃）。呢啲落點喺 FE04 係
+     **斷點階梯**，連續 clamp 夾唔到階梯 → ramp 窗口入面一定同以前唔同，實測數字
+     喺 DESIGN.md §1.3。`.provenance-body` / `.hub-note` 仍然留硬數（未拍板）。
+       step  值                        ramp 窗口     落點
+       --1   clamp(12px,1.3vw,13px)    923–1000px    .mover-chip、.empty-state-title
+        0    clamp(14px,1.5vw,15px)    933–1000px    .hub-lead、.provenance-panel h2
+        1    clamp(16px,2.222vw,17px)  720–765px     .content-answer、.hub-answer
+        2    clamp(20px,3vw,26px)      667–867px     .content-body h2（= FE04 原式，逐字照抄）
+        3    clamp(26px,3.4vw,42px)    765–1236px    .hub-hero h1（= FE04 原式）
+        4    clamp(28px,5vw,42px)      560–840px     .content-hero h1（= FE04 原式）
+     用 px + vw（唔用 rem）係跟返成個 codebase 嘅寫法，唔喺呢個 commit 換單位。 */
+  --step--1: clamp(12px, 1.3vw, 13px);
+  --step-0: clamp(14px, 1.5vw, 15px);
+  --step-1: clamp(16px, 2.222vw, 17px);
+  --step-2: clamp(20px, 3vw, 26px);
+  --step-3: clamp(26px, 3.4vw, 42px);
+  --step-4: clamp(28px, 5vw, 42px);
+  /* 字距：tight 畀大標題（現況 .content-hero h1 -0.02em），wide 畀大寫細標籤（0.08em）。
+     全局 h1/h2/h3 嘅 -0.035em 唔喺呢度改，佢係首頁聲線嘅一部分。 */
+  --tracking-tight: -0.02em;
+  --tracking-wide: 0.08em;
+
+  /* ── 字重階（FE05 type-scale，owner 2026-08-17）──
+     拉丁行 Inter Variable（100–900 連續），但 CJK 跌落 OS 字（Yu Gothic / JhengHei / YaHei / Malgun）
+     只得 Regular / Bold 兩級，CSS 匹配界線 = 500（>500 一律 Bold，≤500 一律 Regular）。
+     所以「標題 vs 標籤」唔可以靠 550 vs 650 呢種 Inter 先分得出嘅差，一定要跨過 500 界；
+     而且 weight 唔准做階層唯一載體（size + weight + colour 三樣一齊）。全站 computed weight
+     只准 ∈ {400, 500, 600, 700, 800}，550 / 650 全部收埋落呢張表：
+       body 400 · quiet 500（次要文字／首頁一行總市值）· heading 600（h1–h3）· name 600（卡名）
+       label 600（大寫細標籤／表頭／chip）· data 600（數值）· strong 700（Bold）· tile 800（heatmap label） */
+  --w-body: 400;
+  --w-quiet: 500;
+  --w-heading: 600;
+  --w-name: 600;
+  --w-label: 600;
+  --w-data: 600;
+  --w-strong: 700;
+  --w-tile: 800;
+  /* 細字級 floor：CJK 承載文字 ≥ 10px（label 目標 11px）；純拉丁／數字微標可以 9px。
+     C3 會喺 :lang(CJK) 度將 --fs-nano/--fs-micro/--fs-th 一齊升。 */
+  --fs-nano: 9px;
+  --fs-micro: 10px;
+  --fs-th: 9.5px;
+  /* 行高／裁字 padding：display 係 h1–h3 全局、hero 係首頁 H1（唔准郁：/ H1 高度 = lh × fs，郁咗偷熱力圖高度）、
+     clamp2 係兩行 line-clamp 盒（桌面 preview / 手機卡名）、copy 係段落。clip-pad 係 nowrap+overflow:hidden
+     標題嘅上下 padding（防 descender／假名被 overflow 裁走），margin 用負值抵消返，版面唔郁。 */
+  --lh-display: 1.04;
+  --lh-hero: 1.06;
+  --lh-clamp2: 1.15;
+  --lh-clamp2m: 1.25;
+  --lh-copy: 1.55;
+  --clip-pad: 0.16em;
+  /* 字距：display = 全局 h1–h3 嘅 -0.035em（首頁聲線，拉丁不變；CJK 清零，見 :root 之後嘅 CJK block）、
+     hero = 首頁 heatmap H1 專用（**唔准喺 CJK 清零**：H1 有 9.5em 容器預算，ja「ワンピース TOP 100」
+     ls 0 = 9.52em 會出「…」；test-fe-heatmap-title-width.mjs 讀呢個值做估算，全 repo 只准聲明一次）、
+     name = 卡名、copy = 段落、kicker = 大寫 kicker、th = 表頭、sentence = 整句大寫標語（.prestige-tagline）。 */
+  --track-display: -0.035em;
+  --track-hero: -0.035em;
+  --track-name: -0.02em;
+  --track-copy: -0.012em;
+  --track-kicker: 0.14em;
+  --track-th: 0.055em;
+  --track-sentence: 0.1em;
+
+  /* ── 間距階（FE05）── 4px 基準；只係俾新 CSS 用同埋逐步收編現有硬數，
+     現有版面數值一個都冇改（用邊個 step 就一定係同一個 px 值）。 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
 
   --header-bg: rgba(247, 247, 245, 0.92);
   --header-border: rgba(206, 206, 200, 0.88);
@@ -32,6 +150,8 @@
   --table-body: #33332f;
   --table-head-cell: #7c7c76;
   --table-row-hover: #f1f3f1;
+  --control-transition: 170ms cubic-bezier(0.4, 0, 0.2, 1);
+  --interactive-transition: 180ms cubic-bezier(0.33, 1, 0.68, 1);
   --dt-color: #85857f;
   --preview-facts-dt: #7c7c76;
   --sheet-close: #61615c;
@@ -63,6 +183,7 @@
   --primary-action-text: #fff;
   --story-panel-text: #41413d;
   --legend-pending: #7f807b;
+  --tile-hatch: rgba(25, 25, 23, 0.14);
   --grader-psa: #b04a17;
   --grader-bgs: #3b6ea5;
   --grader-cgc: #5a4fa8;
@@ -79,7 +200,82 @@
   --print-chip-bg: rgba(255, 255, 255, 0.72);
   --print-chip-text: #5f5f5a;
   --print-pill-shadow: 0 1px 4px rgba(22, 22, 20, 0.1);
+
+  /* FE05 WS2：卡圖 holo / spotlight + 發光徽章（styles/card-art.css、styles/glow-badges.css）。
+     卡圖係透明底 WebP，所有 overlay 只准 mask（DESIGN.md §5），所以呢啲 token 全部係
+     「畫喺卡形之內」嘅顏色，唔係蓋成個 box 嘅背景。 */
+  --holo-a1: rgba(255, 255, 255, 0.42);
+  --holo-a2: rgba(255, 255, 255, 0.1);
+  --holo-rainbow: conic-gradient(from 210deg at 50% 50%, rgba(255, 138, 76, 0.11), rgba(96, 186, 255, 0.1), rgba(178, 132, 255, 0.11), rgba(96, 226, 178, 0.08), rgba(255, 138, 76, 0.11));
+  /* 靜態（手機／reduced-motion／未 hover）嗰陣 holo 嘅透明度；唔係顏色所以唔使 dark 對版。 */
+  --holo-idle: 0.28;
+  --spot-a: rgba(255, 255, 255, 0.34);
+  --row-spot: rgba(184, 84, 22, 0.1);
+  --glow-accent: 0 0 0 1px rgba(184, 84, 22, 0.34), 0 6px 20px rgba(184, 84, 22, 0.28);
+  /* live 徽章嘅綠係「狀態色」，**故意唔行 --positive**：--positive 會俾 data-updown 對調，
+     用戶揀「紅升」個「資料新鮮」點就會變紅 = 講錯嘢。 */
+  --live-dot: #1f9d55;
+  --live-dot-halo: rgba(31, 157, 85, 0.18);
+  --live-badge-bg: var(--surface);
+  --live-beam: var(--accent);
+  --live-beam-idle: var(--line);
 }
+
+/* ── per-:lang() 字體 stack（fe05(cjk)，owner 2026-08-17）──
+   `[lang]:lang(x)`（唔係裸 `:lang(x)`）：只掛喺真係帶 lang 屬性嘅元素（<html> + 卡名 <strong lang>），
+   specificity (0,2,0) 唔會同 .collector-cell 之類嘅 --font-mono 規則鬥 source order。
+   ⚠️ 每條除咗重排 --font-sans 之外一定要再寫一次 font-family：body{font-family:var(--font-sans)} 只喺 body
+   compute 一次，後代 <span lang> 繼承嘅係 computed family，唔會因為 --font-sans 變咗而重算。
+   值域 = lib/card-name.ts htmlLang()：en / ja / ko / zh-Hant / zh-Hans（LangScript 亦係出呢五個）。
+   :lang(zh-Hant) 唔 match lang="zh-TW"（RFC 4647 extended filtering），所以 JSX 唔准硬寫 zh-TW。 */
+[lang]:lang(ja) { --font-sans: var(--f-latin), var(--f-jp), var(--f-tc), var(--f-sc), var(--f-kr), var(--f-tail); font-family: var(--font-sans); }
+[lang]:lang(zh-Hant) { --font-sans: var(--f-latin), var(--f-tc), var(--f-sc), var(--f-jp), var(--f-kr), var(--f-tail); font-family: var(--font-sans); }
+[lang]:lang(zh-Hans) { --font-sans: var(--f-latin), var(--f-sc), var(--f-tc), var(--f-jp), var(--f-kr), var(--f-tail); font-family: var(--font-sans); }
+[lang]:lang(ko) { --font-sans: var(--f-latin), var(--f-kr), var(--f-jp), var(--f-tc), var(--f-sc), var(--f-tail); font-family: var(--font-sans); }
+
+/* ── CJK 排版 token 覆蓋（fe05(cjk)）──
+   一個 block 改 token 值，唔重寫版面規則（call site 全部經 §1.3.2 token）。掛喺每個 CJK 語言元素上
+   （唔係只 :root）：en 頁入面嘅 <strong lang="ja"> 都食到；反過來 ja 頁入面 lang="en" 嘅英文卡名
+   繼承 CJK 值（頁面級一致）。specificity (0,1,0) 同 :root 一樣 → 一定要排喺 :root 之後。
+   - 字級 floor：漢字／假名／諺文 10px 已經係下限，label 升到 11（--fs-micro / --fs-th / --fs-nano）
+   - 行高：CJK 冇 ascender/descender 分別，方塊字 1.04 行高會黐埋 → h1–h3 1.25、兩行 clamp 盒 1.35 / 1.4、
+     段落 1.75；`--lh-hero` 唔郁（/ H1 高度 = lh × fs，五語言 heading 高度要全等）；--clip-pad 0.16 → 0.24em
+     （假名濁點／諺文下伸部喺 overflow:hidden 盒要多啲位；padding + 負 margin 一對，版面唔郁）
+   - 字距：display / name / copy / sentence 全部清零（CJK 唔靠 tracking 出聲線；.prestige-tagline 0.1em
+     對 ja / ko 整句係最傷）；kicker 0.14 → 0.05em、th 0.055 → 0.02em、--tracking-wide 0.08 → 0.03em
+   - ⚠️ 首頁 H1 嘅 --track-hero 唔喺呢度清零：`ワンピース TOP 100` 喺 ls 0 會去到 9.52em > 9.5em 容器預算
+     → 出「…」；-0.035em 保住 9.07em（scripts/test-fe-heatmap-title-width.mjs 亦係假設全語言 -0.035）。 */
+:is(:lang(ja), :lang(ko), :lang(zh-Hant), :lang(zh-Hans)) {
+  --fs-nano: 10px;
+  --fs-micro: 11px;
+  --fs-th: 11px;
+  --lh-display: 1.25;
+  --lh-clamp2: 1.35;
+  --lh-clamp2m: 1.4;
+  --lh-copy: 1.75;
+  --clip-pad: 0.24em;
+  --track-display: 0;
+  --track-name: 0;
+  --track-copy: 0;
+  --track-kicker: 0.05em;
+  --track-th: 0.02em;
+  --track-sentence: 0;
+  --tracking-tight: 0;
+  --tracking-wide: 0.03em;
+}
+/* 韓文以詞為單位斷行（keep-all），太長嘅單一詞先由 break-word 硬斷；日／中 kinsoku strict（行首唔准出
+   句讀／小假名／長音）只落文字盒，唔落全局（table cell / chip 入面嘅純數字唔使）。 */
+:lang(ko) { word-break: keep-all; overflow-wrap: break-word; }
+:is(:lang(ja), :lang(zh-Hant), :lang(zh-Hans)) :is(h1, h2, h3, .mobile-card-name, .preview-copy h3, .muted-copy, .preview-facts dd, .hero-copy, .story-panel p) { line-break: strict; }
+/* ⚠️ 上面兩條係「祖先 :lang() + 後代按 tag/class 命中」，所以 CJK 頁入面標咗 lang="en" 嘅英文卡名
+   （card-name.ts cardNameLangAttr）唔會自動解除 —— keep-all 由祖先繼承落嚟，line-break: strict 更加係
+   直接命中 <h1> / .mobile-card-name 本身。要真係有 opt-out 就要明寫呢條解除規則。
+   specificity 同上面兩條打和（0,2,0 / 0,2,0），排喺後面先贏。 */
+:is(:lang(ja), :lang(ko), :lang(zh-Hant), :lang(zh-Hans)) [lang="en"] { word-break: normal; overflow-wrap: break-word; line-break: auto; }
+/* 六條仲係硬寫 0.05–0.1em 嘅大寫 label（拉丁值各自唔同，唔值得為 0.2px 差開幾個 token）：CJK 一律收到
+   --track-kicker（0.05em）。其餘硬寫嘅 letter-spacing 全部 |≤ 0.04em|（最大係 .mobile-list-header 0.04em），
+   CJK 上唔顯眼，唔郁。scripts/test-fe-font-contract.mjs 掃全部 CSS 守住呢句唔會再講大話。 */
+:is(:lang(ja), :lang(ko), :lang(zh-Hant), :lang(zh-Hans)) :is(.rank-kicker, .select-group-label, .share-menu-kicker, .footer-methodology-title, .footer-nav-title, .sort-sheet-group h4, .seo-table thead th) { letter-spacing: var(--track-kicker); }
 
 [data-theme="dark"] {
   --ink: #ececec;
@@ -95,6 +291,9 @@
   --ice: #1c262a;
   --lilac: #241f2e;
   --shadow: 0 18px 54px rgba(0, 0, 0, 0.5);
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.3);
+  --elev-2: 0 2px 6px rgba(0, 0, 0, 0.45), 0 10px 28px rgba(0, 0, 0, 0.4);
+  --elev-3: 0 4px 12px rgba(0, 0, 0, 0.45), 0 18px 54px rgba(0, 0, 0, 0.5);
 
   --header-bg: rgba(16, 16, 16, 0.9);
   --header-border: rgba(68, 68, 65, 0.88);
@@ -142,6 +341,7 @@
   --primary-action-text: #101010;
   --story-panel-text: #d0d0cb;
   --legend-pending: #7a7b76;
+  --tile-hatch: rgba(241, 241, 238, 0.12);
   --grader-psa: #e8874f;
   --grader-bgs: #6b9ed4;
   --grader-cgc: #8f81d4;
@@ -157,6 +357,32 @@
   --print-chip-bg: rgba(36, 36, 36, 0.72);
   --print-chip-text: #a5a5a0;
   --print-pill-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+
+  /* FE05 WS2：深色底卡圖本身已經跳，holo/spotlight 一律收細 alpha，唔好搞到似濕水。
+     --live-badge-bg / --live-beam 喺 :root 用 var(--surface) / var(--accent)，
+     兩個底 token 自己已經翻，所以呢度唔使再定義一次（定義多次先係漏改嘅來源）。 */
+  --holo-a1: rgba(255, 255, 255, 0.26);
+  --holo-a2: rgba(255, 255, 255, 0.06);
+  --holo-rainbow: conic-gradient(from 210deg at 50% 50%, rgba(255, 150, 92, 0.14), rgba(110, 196, 255, 0.12), rgba(190, 148, 255, 0.14), rgba(110, 236, 190, 0.1), rgba(255, 150, 92, 0.14));
+  --spot-a: rgba(255, 255, 255, 0.2);
+  --row-spot: rgba(232, 130, 63, 0.16);
+  --glow-accent: 0 0 0 1px rgba(232, 130, 63, 0.4), 0 6px 22px rgba(232, 130, 63, 0.3);
+  --live-dot: #3ec98a;
+  --live-dot-halo: rgba(62, 201, 138, 0.2);
+  --live-beam-idle: var(--line-strong);
+}
+
+/* 升跌顏色慣例（owner 2026-08-16）：全部 locale 默認綠升紅跌；用戶喺 header 設定掣揀「紅升」
+   先落 html[data-updown="red-up"]（ThemeScript paint 前由 localStorage 落，冇閃色），
+   直接對調 --positive/--negative，所有 consumer（sparkline / delta / badge / chart）一齊翻。
+   --frame-up/--frame-down 唔對調：heatmap tile 色由 heatmap.tsx tileColors 按同一 attribute 對調。 */
+html[data-updown="red-up"] {
+  --positive: #a63b52;
+  --negative: #23775b;
+}
+html[data-updown="red-up"][data-theme="dark"] {
+  --positive: #d4748c;
+  --negative: #4cb893;
 }
 
 * { box-sizing: border-box; }
@@ -174,19 +400,26 @@ body {
   overflow-x: clip;
   background: var(--paper);
   color: var(--ink);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", "PingFang TC", "PingFang SC", "Hiragino Sans", "Yu Gothic", Arial, sans-serif;
+  font-family: var(--font-sans);
   font-size: 15px;
-  font-feature-settings: "kern" 1, "tnum" 1;
+  /* tnum 用高階屬性唔用 font-feature-settings：後者 all-or-nothing，後代任何一層再寫一次
+     font-feature-settings 就靜靜抹走 tnum；font-variant-numeric 可繼承、可組合。kern 預設已開。 */
+  font-variant-numeric: tabular-nums;
+  /* CJK OS 字只得 Regular/Bold static；遇著只有 Regular 嘅 family 瀏覽器會合成粗體，10–13px 漢字糊成一嚿。
+     有真 Bold 嘅 family 照樣攞真 Bold，所以 none 冇損失。全站零 italic。 */
+  font-synthesis: none;
   line-height: 1.5;
-  text-rendering: optimizeLegibility;
 }
 
 a { color: inherit; text-decoration: none; }
 button, select { color: inherit; font: inherit; }
 button { cursor: pointer; }
-img { max-width: 100%; }
+img { max-width: 100%; height: auto; }
+/* touch：唔要系統灰色 tap 閃光，pressed feel 由各自 :active 規則負責 */
+a, button, [role="button"], label, input, select, textarea, summary { -webkit-tap-highlight-color: transparent; }
 h1, h2, h3, p { margin-top: 0; }
-h1, h2, h3 { font-weight: 500; letter-spacing: -0.035em; line-height: 1.04; }
+/* 標題 600 唔係 500：CJK OS 字 500 → Regular，會輕過 600 嘅標籤（投訴 2026-08-17：H1 普通、副標粗）。 */
+h1, h2, h3 { font-weight: var(--w-heading); letter-spacing: var(--track-display); line-height: var(--lh-display); }
 :focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 .sr-only {
   position: absolute;
@@ -199,16 +432,52 @@ h1, h2, h3 { font-weight: 500; letter-spacing: -0.035em; line-height: 1.04; }
   white-space: nowrap;
   border: 0;
 }
+/* 跳到內容：平時收埋，鍵盤 focus 先由左上角滑出，浮喺 header / sheet 之上 */
+.skip-link {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 200;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: var(--primary-action-bg);
+  color: var(--primary-action-text);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  box-shadow: var(--elev-1);
+  transform: translateY(-160%);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 180ms var(--ease-standard), opacity 180ms var(--ease-standard);
+}
+.skip-link:focus-visible {
+  transform: none;
+  opacity: 1;
+  pointer-events: auto;
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+/* <main id="main" tabIndex={-1}> 只係 programmatic focus 目標，成頁唔要 ring */
+#main:focus { outline: none; }
 
 .site-header {
   position: sticky;
   inset: 0 0 auto;
-  z-index: 80;
+  z-index: var(--z-header);
+  /* notch / Dynamic Island：header 背景鋪滿，內容避開 safe-area */
+  padding-top: env(safe-area-inset-top);
+  padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
   border-bottom: 1px solid var(--header-border);
   background: var(--header-bg);
   -webkit-backdrop-filter: blur(18px) saturate(130%);
   backdrop-filter: blur(18px) saturate(130%);
+  transition: box-shadow 180ms var(--ease-standard);
 }
+.site-header[data-scrolled="true"] { box-shadow: 0 1px 0 var(--line); }
 .header-inner {
   width: min(100%, 1440px);
   min-height: var(--header-height);
@@ -221,32 +490,13 @@ h1, h2, h3 { font-weight: 500; letter-spacing: -0.035em; line-height: 1.04; }
 }
 .brand {
   min-height: 44px;
-  display: inline-grid;
-  grid-template-columns: auto auto;
+  display: inline-flex;
   align-items: center;
-  gap: 7px;
   white-space: nowrap;
 }
-.brand-logo { display: block; width: auto; height: 30px; grid-area: 1 / 1; }
-/* 用 opacity 交叉淡換而唔係 display，等明暗 logo 同 theme transition 一齊轉 */
-.brand-logo-dark { opacity: 0; }
-[data-theme="dark"] .brand-logo { opacity: 0; }
-[data-theme="dark"] .brand-logo-dark { opacity: 1; }
-.brand-logo-fe02 { height: 46px; opacity: 1; }
-[data-theme="dark"] .brand-logo-fe02 { opacity: 1; }
-.brand-beta {
-  grid-column: 2;
-  grid-row: 1;
-  align-self: center;
-  padding: 3px 5px 2px;
-  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--line));
-  border-radius: 4px;
-  color: var(--accent);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: .09em;
-  line-height: 1;
-}
+/* header.tsx 只 render 一張 <img class="brand-logo">，src 由 JS 跟 theme 換，
+   唔再靠 CSS display 切兩張圖。 */
+.brand-logo { display: block; width: auto; height: 46px; }
 .primary-nav {
   min-width: 0;
   display: flex;
@@ -262,7 +512,7 @@ h1, h2, h3 { font-weight: 500; letter-spacing: -0.035em; line-height: 1.04; }
   color: var(--nav-idle);
   font-size: 13px;
   white-space: nowrap;
-  transition: color 170ms ease;
+  transition: color 170ms ease, transform 90ms ease;
 }
 .primary-nav a::after {
   content: "";
@@ -270,14 +520,19 @@ h1, h2, h3 { font-weight: 500; letter-spacing: -0.035em; line-height: 1.04; }
   right: 100%;
   bottom: 6px;
   left: 0;
-  height: 1px;
-  background: var(--ink);
+  height: 2px;
+  border-radius: 1px;
+  /* owner 2026-08-17：現時位置底線用品牌橙，唔係 --ink（「呢啲橙色嘅小細節位做好啲」） */
+  background: var(--accent);
   transition: right 170ms ease;
 }
-.primary-nav a:hover,
 .primary-nav a:focus-visible,
 .primary-nav a[data-active="true"] { color: var(--ink); }
 .primary-nav a[data-active="true"]::after { right: 0; }
+/* :hover 一律鎖喺 (hover: hover)：touch 嘅 sticky hover 會令掃過嘅嘢「揀死」 */
+@media (hover: hover) {
+  .primary-nav a:hover { color: var(--ink); }
+}
 .market-controls { display: flex; align-items: center; gap: 8px; }
 .select-control {
   min-height: 44px;
@@ -290,11 +545,21 @@ h1, h2, h3 { font-weight: 500; letter-spacing: -0.035em; line-height: 1.04; }
   background: var(--control-bg);
   color: var(--control-idle);
 }
-button.select-control { cursor: pointer; transition: border-color 170ms ease, color 170ms ease; }
-button.select-control:hover { border-color: var(--line-strong); color: var(--ink); }
+button.select-control { cursor: pointer; transition: border-color 170ms ease, color 170ms ease, transform 90ms ease; }
 .select-control > span[aria-hidden="true"] { color: var(--accent); font-size: 12px; }
 .control-icon { width: 14px; height: 14px; flex: none; color: var(--ink); }
 .select-control { position: relative; }
+/* header 兩粒 icon 掣：真 44px 方格，圖示置中 */
+.theme-toggle,
+.updown-toggle,
+.site-search-toggle { min-width: 44px; min-height: 44px; justify-content: center; padding-inline: 0; }
+/* 升跌反轉掣 render 兩粒（header.tsx）：桌面一行 header 用控制列嗰粒；≤980 兩行 header 用 nav 行嗰粒
+   （owner 2026-08-17：search 永遠喺 header，但唔准逼細個 logo → 第一行淨返 4 粒掣）。 */
+.updown-toggle-nav { display: none; }
+/* 升跌反轉掣兩支箭嘴跟現時升跌色：data-updown 對調 --positive/--negative 時，箭嘴顏色一齊翻 */
+.updown-icon-up { color: var(--positive); }
+.updown-icon-down { color: var(--negative); }
+.theme-toggle-icon { display: inline-flex; align-items: center; justify-content: center; line-height: 0; }
 .select-trigger {
   display: flex;
   align-items: center;
@@ -305,8 +570,12 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   cursor: pointer;
   font-size: 12px;
   padding: 0;
+  transition: color 170ms ease, transform 90ms ease;
 }
-.select-trigger:hover { color: var(--ink); }
+@media (hover: hover) {
+  button.select-control:hover { border-color: var(--line-strong); color: var(--ink); }
+  .select-trigger:hover { color: var(--ink); }
+}
 .select-chevron { color: var(--accent); transition: transform 170ms ease; }
 .select-chevron[data-open="true"] { transform: rotate(180deg); }
 .select-menu {
@@ -320,10 +589,31 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   list-style: none;
   border: 1px solid var(--line-strong);
   border-radius: var(--control-radius);
-  background: var(--surface-translucent-strong);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  box-shadow: var(--shadow);
+  /*
+   * 實色底（FE05 fix-visual，2026-08-17）。原本係 --surface-translucent-strong（alpha .82）
+   * + backdrop-filter blur(14px)，同 .period-menu-list 修之前一模一樣嘅根因：
+   * 祖先 .site-header 自己有 backdrop-filter（:351）→ 佢係 **backdrop root**，
+   * 喺佢入面嘅 popover 個 backdrop-filter 根本 sample 唔到 header 以外嘅頁面內容，
+   * 即係得返 .82 alpha 蓋住**未 blur** 嘅底 = 睇穿（文字疊住下面嘅排名／熱力圖）。
+   * 收埋 backdrop-filter：喺 backdrop root 入面冇效果，淨係逼多次 repaint。
+   * 兩個 menu（.select-menu / .period-menu-list）而家同一條規矩。
+   */
+  background: var(--surface);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: var(--elev-3);
+  animation: menu-in 140ms var(--ease-standard) both;
+  transform-origin: top right;
+}
+@keyframes menu-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* 收 menu：select-control.tsx 留 120ms 先 unmount，呢段做退場 */
+.select-menu-exit { animation: menu-out 120ms var(--ease-standard) both; pointer-events: none; }
+@keyframes menu-out {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-4px); }
 }
 .select-option {
   display: flex;
@@ -334,12 +624,60 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   font-size: 12px;
   cursor: pointer;
   color: var(--control-idle);
+  /* <li> 本身透明，但呢個 class 一旦落喺 <button> 上面，冇呢句就會跌返 UA
+     `buttonface`（跟 OS color-scheme，唔跟站內 data-theme）→ 主題倒轉。 */
+  background: transparent;
+}
+@media (hover: hover) {
+  .select-option:hover { background: color-mix(in srgb, var(--control-bg) 32%, transparent); }
 }
 .select-option[data-active="true"] { background: var(--control-bg); color: var(--ink); }
 .select-option[aria-selected="true"] { color: var(--ink); }
 .select-check { margin-left: auto; color: var(--accent); }
+
+/* 貨幣選單（FE05 currencies，owner 2026-08-17：「加多啲貨幣、對應返個 logo」）
+   31 隻貨幣 → 要 scroll；符號係「logo」，code 係身份，名係 ICU 本地化。
+   max-height 用 svh 減 header，手機 360 都要留喺畫面內；.select-menu 本身係 period menu 都用嘅殼，所以呢度只加 class。 */
+.currency-menu {
+  min-width: 236px;
+  max-height: min(420px, calc(100svh - var(--header-height) - 24px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.currency-menu .select-option { gap: 8px; }
+.select-group-label {
+  padding: 8px 10px 4px;
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.select-group-label + .select-group-label { display: none; }
+.currency-symbol {
+  display: inline-flex;
+  min-width: 2.6em;
+  justify-content: center;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+/* trigger 個符號唔使對齊欄位，唔好被 2.6em 撐開（.select-control gap 得 5px） */
+.select-control > .currency-symbol { min-width: 0; color: var(--accent); font-size: 12px; }
+.currency-code { font-weight: 600; min-width: 3.2em; }
+.currency-name {
+  color: var(--control-idle);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 12em;
+}
+.select-option[data-active="true"] .currency-name,
+.select-option[aria-selected="true"] .currency-name { color: var(--ink); }
+
 .header-fallback { height: var(--header-height); border-bottom: 1px solid var(--line); }
 
+/* 橫屏 notch：page-shell 嘅 gutter 逐個 breakpoint 唔同，safe-area 加喺 <main> 外殼一次搞掂 */
+#main { padding-inline: env(safe-area-inset-left) env(safe-area-inset-right); }
 .page-shell {
   width: min(100%, 1440px);
   margin: 0 auto;
@@ -350,7 +688,8 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
 .site-footer {
   width: min(100%, 1440px);
   margin: 0 auto;
-  padding: 28px 48px 56px;
+  /* footer 係頁底：safe-area 左右 + home indicator 底部都要避 */
+  padding: 28px max(48px, env(safe-area-inset-right)) calc(56px + env(safe-area-inset-bottom)) max(48px, env(safe-area-inset-left));
   border-top: 1px solid var(--line);
 }
 .footer-inner {
@@ -363,14 +702,14 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   margin: 0;
   color: var(--footer-text);
   font-size: 12px;
-  font-weight: 550;
+  font-weight: var(--w-quiet);
   line-height: 1.6;
 }
 .footer-methodology-title {
   margin: 0 0 6px;
   color: var(--accent);
-  font-size: 10px;
-  font-weight: 650;
+  font-size: var(--fs-micro);
+  font-weight: var(--w-label);
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
@@ -389,6 +728,44 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   line-height: 1.6;
   opacity: 0.85;
 }
+/* Footer 導覽：GEO 批七版內容頁／榜頁嘅站內入口（verify pass 2026-08-16）。
+   flex-wrap 唔用 grid：label 長度五個語言差好遠，固定欄數喺 ja/ko 會爆行。 */
+.footer-nav {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.footer-nav-title {
+  margin: 0 0 8px;
+  color: var(--accent);
+  font-size: var(--fs-micro);
+  font-weight: var(--w-label);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.footer-nav-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.footer-nav-list a {
+  color: var(--footer-text);
+  font-size: 12px;
+  line-height: 1.6;
+  text-decoration: none;
+}
+.footer-nav-list a:hover,
+.footer-nav-list a:focus-visible {
+  color: var(--ink);
+  text-decoration: underline;
+}
+.footer-nav + .footer-nav {
+  margin-top: 16px;
+}
+
 /* 方法區：首頁排名下面同卡頁圖表下面共用（components/provenance.tsx）。 */
 .provenance-panel {
   margin-top: 40px;
@@ -397,11 +774,17 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   border-radius: 18px;
   background: var(--soft);
 }
+/* FE05 fix-visual（owner 2026-08-17 拍板）：斷點階梯（15px / ≤900px 14px）收編做
+   --step-0 = clamp(14px, 1.5vw, 15px)，即 WS1 原本嘅計劃。步位由 900 變成 933–1000 嘅
+   ramp，所以 900–1000 嗰段會同以前唔同（以前 901px 就已經係 15px，而家 901px 係 14px）。
+   量度基線見 DESIGN.md §1.3。要反轉：改返 `font-size: 15px` + 下面 ≤900 嗰句 14px。 */
 .provenance-panel h2 {
   margin: 6px 0 10px;
-  font-size: 15px;
+  font-size: var(--step-0);
   line-height: 1.35;
 }
+/* 13px 平頭，冇一個 step 兩端都夾得返（--step--1 喺 390 係 12px，量到成頁跌 5.1px）。
+   WS1 契約係零 reflow，所以呢行留硬數；要收編就要 owner 接受 hub/內容頁細字統一改細一級。 */
 .provenance-body {
   margin: 0;
   color: var(--muted);
@@ -415,7 +798,7 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
 }
 .provenance-steps dt {
   margin: 0;
-  color: var(--fg);
+  color: var(--ink);
   font-size: 12px;
   font-weight: 600;
 }
@@ -438,11 +821,11 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   opacity: 0.85;
 }
 @media (max-width: 900px) {
-  .provenance-panel { margin-top: 28px; padding: 20px 18px; border-radius: 14px; }
-  .provenance-panel h2 { font-size: 14px; }
+  .provenance-panel { margin-top: 28px; padding: var(--space-5) 18px; border-radius: 14px; }
+  /* h2 個 font-size 唔再喺呢度覆寫：--step-0 喺 ≤933px 已經解出 14px（clamp 下限）。 */
 }
 @media (max-width: 900px) {
-  .site-footer { padding: 24px 18px 48px; }
+  .site-footer { padding: 24px max(18px, env(safe-area-inset-right)) calc(48px + env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); }
   .footer-inner { grid-template-columns: minmax(0, 1fr); gap: 16px; }
 }
 .market-page-shell { padding-top: 0; }
@@ -461,27 +844,32 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   margin-bottom: 11px;
   color: var(--accent);
   font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.14em;
+  font-weight: var(--w-label);
+  letter-spacing: var(--track-kicker);
   line-height: 1.2;
   text-transform: uppercase;
 }
+/* 大寫細標籤開 Inter 嘅 `case`（連字號／括號／「·」對齊大寫高度）。只落 uppercase label class，
+   唔准落 body：「·」係全站分隔符（Market cap · $2.7B），全局開會令佢喺小寫行度浮高。
+   font-feature-settings 係低階屬性，呢度只寫 case，唔會抹走 body 嘅 font-variant-numeric（另一條屬性）。 */
+.section-kicker, .rank-kicker, .desktop-ranking-table th, .footer-methodology-title, .footer-nav-title,
+.sort-sheet-group h4, .select-group-label, .grader-share-center span { font-feature-settings: "case" 1; }
 .hero-section h1,
-.heatmap-heading h1 {
+.heatmap-heading h1,
+.heatmap-heading h2 {
   width: min(100%, 970px);
   margin-bottom: 16px;
   overflow-wrap: break-word;
-  font-size: clamp(42px, 6vw, 78px);
+  font-size: clamp(30px, 4.2vw, 56px);
   text-wrap: balance;
 }
-.hero-copy,
-.heatmap-heading > div > p:last-child {
+.hero-copy {
   width: min(100%, 780px);
   margin-bottom: 0;
   color: var(--hero-copy);
   font-size: clamp(15px, 1.55vw, 20px);
-  line-height: 1.55;
-  letter-spacing: -0.012em;
+  line-height: var(--lh-copy);
+  letter-spacing: var(--track-copy);
   text-wrap: pretty;
 }
 
@@ -501,32 +889,53 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   display: flex;
   align-items: end;
   justify-content: space-between;
-  gap: 36px;
+  gap: 24px;
   padding-bottom: 22px;
 }
+/* 標題欄係一個 inline-size container：H1 字級跟「controls 剩返幾多闊」縮，
+   唔係跟 viewport。flex: 1 1 0 —— inline-size containment 令 auto basis 變 0，
+   要 grow 先攞得返剩餘空間。 */
+.heatmap-title { flex: 1 1 0; min-width: 0; container-type: inline-size; }
 .heatmap-heading > div { min-width: 0; }
-.heatmap-heading h1 {
-  margin-bottom: 12px;
-  /* 唔好 line-clamp：過渡寬度會夾出「...」。寧願字級跟寬度落，
-     最多兩行自然換行。 */
-  overflow-wrap: break-word;
-  font-size: clamp(30px, 4.6vw, 68px);
-  line-height: 1.06;
-}
-.heatmap-heading > div > p:last-child {
+.heatmap-heading h1,
+.heatmap-heading h2 {
+  /* owner 2026-08-17：文字遷就熱力圖 —— H1 永遠一行，唔准換行偷 heatmap 高度。
+     字級 = min(viewport 階梯, 容器闊度 ÷ 9.5)：五語言最長標題（ja「ワンピース TOP 100」）實測 ≈ 9.03em，
+     9.5 留 5% 俾 Mac / Windows / Noto 字體差；字級只由容器決定、唔由語言決定 → 五語言 heading 高度一致。
+     公式唔認得文字，所以 i18n heatmap title 一定要 ≤ 9em（scripts/test-fe-heatmap-title-width.mjs 守住）。
+     樓底 16px（981px 時 ja/ko 容器只剩 ~152px，最長標題要 16px 先入到）；再唔夠位先出「...」（= 文案要再縮，唔係 CSS 問題）。
+     padding/margin ±clip-pad 係一對：overflow hidden 會裁 1.06 行高外面嘅下伸部（p/g 同假名嘅濁點），
+     加 padding 擴大裁剪盒、負 margin 補返，版面高度不變（C3 CJK 會將 --clip-pad 升到 0.24em）。
+     字重明寫 --w-heading（600）：首頁階層由 size（68:14）+ weight（跨 500 界）+ colour（ink:muted）三樣承載。
+     字距用 --track-hero 唔用 h1 全局嘅 --track-display：CJK block 會將 --track-display 清零，但呢個 H1 有 9.5em
+     容器預算，ja「ワンピース TOP 100」ls 0 = 9.52em 會出「…」，所以五語言一律 -0.035em（title-width test 同一假設）。 */
+  white-space: nowrap;
   overflow: hidden;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  text-overflow: ellipsis;
+  padding-block: var(--clip-pad);
+  margin-block: calc(-1 * var(--clip-pad)) calc(12px - var(--clip-pad));
+  font-size: clamp(16px, 4.6vw, 68px); /* 唔識 cqi 嘅舊瀏覽器（Safari < 16）用返 viewport 階梯 */
+  font-size: clamp(16px, min(4.6vw, calc(100cqi / 9.5)), 68px);
+  font-weight: var(--w-heading);
+  letter-spacing: var(--track-hero);
+  line-height: var(--lh-hero);
+}
+/* 唔識 cqi 嘅舊瀏覽器：字級跟 viewport，一行塞唔落就照舊換行，唔好 nowrap 剩返兩三隻字 */
+@supports not (font-size: 1cqi) {
+  .heatmap-heading h1,
+  .heatmap-heading h2 { white-space: normal; text-overflow: clip; }
 }
 .heatmap-total-cap {
   margin: -4px 0 10px;
   color: var(--muted, var(--hero-copy));
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px; /* 手機／桌面同一個數（owner 2026-08-17 字級統一） */
+  font-weight: var(--w-quiet); /* 500：一定要輕過 H1（600）——CJK OS 字上 600 vs 650 冇分別，500 vs 600 先跨到 Regular/Bold 界 */
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.01em;
 }
+/* owner 2026-08-17：市值數字要品牌橙（label「市值 ·」照舊 muted），同排行表 .market-cap-cell 同一隻色；
+   weight 600 = data 角色，同 H1 齊平唔超過（accent 已經係佢嘅強調） */
+.heatmap-total-cap .cap-ticker { color: var(--accent); font-weight: var(--w-data); }
 .heatmap-controls {
   flex: none;
   display: flex;
@@ -549,7 +958,59 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   margin: 0;
   accent-color: var(--accent);
   cursor: pointer;
+  --fill: 0%;
+  /* 拖動時唔俾頁面跟住 scroll */
+  touch-action: none;
 }
+/* 品牌 slider（全部闊度）：橙 fill track + 白圓 thumb；--fill 由 JS 拖動直寫。
+   thumb / track 尺寸只喺 680 media 入面改細。tune-panel 嘅 range 共用同一套。 */
+.tile-slider input[type="range"],
+.tune-field input[type="range"] {
+  height: 24px;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.tile-slider input[type="range"]::-webkit-slider-thumb,
+.tune-field input[type="range"]::-webkit-slider-thumb {
+  width: 20px;
+  height: 20px;
+  margin-top: -7px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: var(--print-pill-shadow), 0 0 0 1px var(--line);
+  -webkit-appearance: none;
+  appearance: none;
+}
+.tile-slider input[type="range"]::-webkit-slider-runnable-track,
+.tune-field input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--accent) 0 var(--fill, 0%), color-mix(in srgb, var(--accent) 24%, var(--line)) var(--fill, 0%) 100%);
+}
+.tile-slider input[type="range"]::-moz-range-thumb,
+.tune-field input[type="range"]::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: var(--print-pill-shadow), 0 0 0 1px var(--line);
+}
+.tile-slider input[type="range"]::-moz-range-track,
+.tune-field input[type="range"]::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--accent) 0 var(--fill, 0%), color-mix(in srgb, var(--accent) 24%, var(--line)) var(--fill, 0%) 100%);
+}
+/* 鍵盤 focus：ring 畫喺 thumb 上，唔要成條 input 個框 */
+.tile-slider input[type="range"]:focus-visible,
+.tune-field input[type="range"]:focus-visible { outline: none; }
+.tile-slider input[type="range"]:focus-visible::-webkit-slider-thumb,
+.tune-field input[type="range"]:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tile-slider input[type="range"]:focus-visible::-moz-range-thumb,
+.tune-field input[type="range"]:focus-visible::-moz-range-thumb { outline: 2px solid var(--accent); outline-offset: 2px; }
 .tile-slider-value {
   min-width: 3ch;
   color: var(--ink);
@@ -572,9 +1033,11 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   cursor: pointer;
   transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }
-.heatmap-tune-toggle:hover {
-  color: var(--ink);
-  border-color: var(--line-strong);
+@media (hover: hover) {
+  .heatmap-tune-toggle:hover {
+    color: var(--ink);
+    border-color: var(--line-strong);
+  }
 }
 .heatmap-tune-toggle[aria-expanded="true"] {
   color: var(--accent);
@@ -584,7 +1047,7 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
 .tune-panel-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 55;
+  z-index: var(--z-overlay);
   background: rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(4px);
 }
@@ -592,7 +1055,7 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   position: fixed;
   right: 16px;
   bottom: calc(16px + env(safe-area-inset-bottom));
-  z-index: 60;
+  z-index: var(--z-overlay);
   width: min(340px, calc(100vw - 32px));
   max-height: 78vh;
   overflow-y: auto;
@@ -601,6 +1064,194 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   border-radius: 16px;
   background: var(--surface);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+/* ── 分享目的地選單（components/share-menu.tsx）─────────────────
+ * 熱力圖同卡片內頁共用。owner 2026-08-20：撳「分享圖片」要先問去邊
+ * （WhatsApp / Threads / X / IG / 其他），再按目的地出啱嗰個尺寸。
+ *
+ * 個殼刻意**唔**照抄 .select-menu：嗰個係「一行字 + 剔」嘅細清單（min-width 140），
+ * 呢個每行有 icon｜名｜比例三欄。共用嘅係 token（--surface / --line-strong /
+ * --elev-3 / --control-radius）同埋 menu-in / menu-out 兩條 keyframes —— 即係話
+ * 「popover 睇落係點」仲係得一套，變嘅淨係行入面點排。
+ *
+ * ⚠️ 退場嗰條**要明寫**（下面 .share-menu-panel.select-menu-exit）。`.select-menu-exit`
+ * 喺呢個檔第 611 行、即係喺 `.share-menu-panel` 之前；兩條都係單 class（0,1,0），打和
+ * 就睇邊條後 —— 後嗰條係 `.share-menu-panel { animation: menu-in }`，所以淨靠加個
+ * `.select-menu-exit` class 係**改唔到** animation-name，塊板會硬企 120ms 之後一格閃走。
+ * `.select-menu` 本身冇事（佢喺 603 行，喺 611 之前），所以呢個坑淨係新 component 中。 */
+.share-menu { position: relative; flex: none; display: inline-flex; }
+.share-menu-chevron { margin-left: 2px; color: var(--accent); transition: transform 170ms var(--ease-standard); }
+.share-menu-chevron[data-open="true"] { transform: rotate(180deg); }
+.share-menu-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: var(--z-overlay);
+  width: max-content;
+  min-width: 216px;
+  /* 360px 機都要留喺畫面內：page-shell 手機 gutter 16px ×2 */
+  max-width: calc(100vw - 32px);
+  /* 七個目的地 + kicker = 324px 高。橫置手機 viewport 淨係 390 高，唔加閘就要成版
+     scroll 落去先撳到下面四個目的地（2026-08-20 844×390 實測：panel 249→573）。
+     同 `.currency-menu`（31 隻貨幣）行同一套；`svh` 唔用 `vh` 係為咗手機瀏覽器
+     嗰條會縮嘅網址列。`overscroll-behavior: contain` 擋住碌到底就帶埋成版走。 */
+  max-height: min(420px, calc(100svh - var(--header-height) - 24px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--control-radius);
+  /* 實色底 + 唔准 backdrop-filter：同 .select-menu / .period-menu-list 同一個根因
+     —— 呢個 popover 一樣住喺有 backdrop-filter 嘅祖先（.site-header / .ranking-heading）
+     入面，即係 backdrop root 之內，blur sample 唔到外面，半透明就變咗睇穿。 */
+  background: var(--surface);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: var(--elev-3);
+  animation: menu-in 140ms var(--ease-standard) both;
+  transform-origin: top right;
+}
+/* 個掣唔一定喺右邊：熱力圖喺手機係排喺左手邊，右貼就飛咗出畫面左邊（名同比例
+   齊齊斬走）。share-menu.tsx 開嗰下度真身闊度，唔夠位就反去左貼 —— 呢度唔准
+   改成 media query：決定嘅係個掣喺畫面邊個位，唔係畫面幾闊。 */
+.share-menu-panel[data-align="left"] {
+  right: auto;
+  left: 0;
+  transform-origin: top left;
+}
+/* 見上面：`.select-menu-exit` 排喺前面，唔明寫呢條就冇退場動畫（0,1,1 > 0,1,0） */
+.share-menu-panel.select-menu-exit { animation: menu-out 120ms var(--ease-standard) both; }
+.share-menu-kicker {
+  margin: 0;
+  padding: 7px 10px 5px;
+  color: var(--muted);
+  font-size: var(--fs-micro);
+  font-weight: var(--w-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.share-menu-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 8px;
+  /* 殼 12px 減 5px padding = 7px：內外圓角同心，唔會見到行角同殼角錯開 */
+  border: 0;
+  border-radius: 7px;
+  /* <button> 冇 background 就跌返 UA `buttonface`（跟 OS color-scheme，唔跟站內
+     data-theme）→ 淺色主題配深色系統即刻黑底。同 .period-option 同一個坑。 */
+  background: transparent;
+  color: var(--control-idle);
+  font-size: 13px;
+  font-weight: var(--w-label);
+  text-align: left;
+  cursor: pointer;
+  transition: background 140ms var(--ease-standard), color 140ms var(--ease-standard);
+}
+@media (hover: hover) {
+  .share-menu-item:hover { background: var(--control-bg); color: var(--ink); }
+}
+.share-menu-item:focus-visible { background: var(--control-bg); color: var(--ink); }
+.share-menu-icon { display: inline-flex; align-items: center; justify-content: center; color: inherit; }
+.share-menu-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 第三欄：有得揀清晰度嗰陣係「真實像素 + 比例標」，冇就淨返比例標（卡片內頁）。
+   `.share-menu-item` 個 grid 仍然係三欄 —— 加第四個 child 會靜靜咁跌出格。 */
+.share-menu-meta { display: inline-flex; align-items: center; gap: 6px; }
+.share-menu-px {
+  color: var(--muted);
+  font-size: var(--fs-micro);
+  font-weight: var(--w-label);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.share-menu-item:hover .share-menu-px,
+.share-menu-item:focus-visible .share-menu-px { color: var(--ink); }
+.share-menu-ratio {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--soft);
+  color: var(--muted);
+  font-size: var(--fs-micro);
+  font-weight: var(--w-label);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.share-menu-item:hover .share-menu-ratio,
+.share-menu-item:focus-visible .share-menu-ratio {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+/* ── 清晰度（1080p / 4K）───────────────────────────────────────
+ * owner 2026-08-21：「人地下載可以揀 4K 嗎？」熱力圖先有，卡片內頁唔傳個 prop
+ * 就冇呢一行。兩粒掣打橫排，唔照抄 `.share-menu-item` 嗰個 icon｜名｜比例三欄 ——
+ * 呢行係「揀一個設定」，唔係「揀一個目的地」，撳落去唔會收 menu。 */
+.share-menu-chips { display: flex; gap: 5px; padding: 0 3px 3px; }
+.share-menu-chip {
+  /* 粒字要**喺粒掣正中間**。「較慢」係徽章唔係字嘅一部分：留喺 flow 入面會
+     推歪個 label（4K 會偏左，同隔籬 1080p 對唔齊），所以抽出去絕對定位。
+     `baseline` 亦都唔會 vertically center —— 單行 flex line 會貼住 cross-start。 */
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 1;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  /* 同 .share-menu-item 一樣：<button> 冇 background 就跌返 UA `buttonface`，
+     跟 OS color-scheme 唔跟站內 data-theme。 */
+  background: transparent;
+  color: var(--control-idle);
+  font-size: 13px;
+  font-weight: var(--w-label);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 140ms var(--ease-standard), color 140ms var(--ease-standard),
+    border-color 140ms var(--ease-standard);
+}
+@media (hover: hover) {
+  .share-menu-chip:hover { background: var(--control-bg); color: var(--ink); }
+}
+.share-menu-chip:focus-visible { background: var(--control-bg); color: var(--ink); }
+.share-menu-chip[data-active="true"] {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+/* 「較慢」——4K 未 cache 實測 50–57 秒。唔講就係扮撳落去即刻有。 */
+.share-menu-chip-note {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  font-size: var(--fs-micro);
+  font-weight: var(--w-label);
+  pointer-events: none;
+}
+.share-menu-chip[data-active="true"] .share-menu-chip-note { color: inherit; opacity: 0.75; }
+@media (pointer: coarse) {
+  .share-menu-chip { min-height: 40px; }
+}
+/* 頭四行係 owner 點名嗰四個平台，尾兩行係兜底：畫條 hairline 分開，好過再加個 kicker */
+.share-menu-item[data-target="other"] { margin-top: 5px; }
+.share-menu-item[data-target="other"]::before {
+  content: "";
+  position: absolute;
+  top: -3px;
+  left: 8px;
+  right: 8px;
+  height: 1px;
+  background: var(--line);
+}
+/* 觸控：44px 係手指下限（DESIGN.md §3.2），滑鼠唔使咁高 */
+@media (pointer: coarse) {
+  .share-menu-item { min-height: 44px; }
 }
 .heatmap-export {
   flex: none;
@@ -618,14 +1269,24 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   cursor: pointer;
   transition: background 170ms ease, border-color 170ms ease;
 }
-.heatmap-export:hover,
 .heatmap-export:focus-visible { background: var(--table-row-hover); border-color: var(--accent); }
+@media (hover: hover) {
+  .heatmap-export:hover { background: var(--table-row-hover); border-color: var(--accent); }
+}
 .heatmap-export[data-state="done"] { border-color: var(--positive); color: var(--positive); }
 .heatmap-export[data-state="error"] { border-color: var(--negative); color: var(--negative); }
 .copy-icon { display: inline-flex; align-items: center; }
+/* copy 進行中：icon 轉圈，掣鎖住 */
+@keyframes copy-spin { to { transform: rotate(360deg); } }
+.copy-icon-busy svg { animation: copy-spin 800ms linear infinite; }
+.share-button:disabled, .heatmap-export:disabled { cursor: wait; opacity: 0.7; }
+/* 分享掣 busy 嗰陣用 `aria-disabled` 唔用 `disabled`（DOM disabled 會踢走 focus，
+   見 components/share-menu.tsx），所以要自己補返同一個樣。 */
+.share-menu-trigger[aria-disabled="true"] { cursor: wait; opacity: 0.7; }
 .period-selector {
   flex: none;
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
   padding: 4px;
@@ -633,19 +1294,26 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   border-radius: 16px;
   background: var(--soft);
 }
+.heatmap-controls .period-selector,
+.ranking-heading .period-selector {
+  max-width: min(100%, 360px);
+  justify-content: flex-end;
+}
 .period-selector button {
   position: relative;
-  min-width: 56px;
+  min-width: 40px;
   min-height: 44px;
-  padding: 0 13px;
+  padding: 0 9px;
   border: 0;
   border-radius: var(--control-radius);
   background: transparent;
   color: var(--period-idle);
   font-size: 13px;
-  transition: color 170ms ease;
+  transition: color 170ms ease, transform 90ms ease;
 }
-.period-selector button:hover { color: var(--ink); }
+@media (hover: hover) {
+  .period-selector button:hover { color: var(--ink); }
+}
 .period-selector button[aria-pressed="true"] { color: var(--ink); }
 .period-pill {
   position: absolute;
@@ -656,16 +1324,34 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   box-shadow: 0 1px 4px rgba(22, 22, 20, 0.1);
 }
 .period-label { position: relative; z-index: 1; }
-.period-selector-compact button { min-width: 52px; }
+.period-selector-compact button { min-width: 36px; padding: 0 8px; }
 .heatmap-frame {
   position: relative;
   min-height: 0;
   /* tile 可以裁，但 preview 用 fixed 脫離呢個 frame，唔會被呢度裁邊 */
   overflow: hidden;
   border: 0;
-  border-radius: var(--section-radius);
+  /* 角落 tile 要跟返呢個弧，所以圓角行一個會繼承落 tile 嘅 var，唔准直接寫死喺 border-radius */
+  --heatmap-frame-radius: var(--section-radius);
+  border-radius: var(--heatmap-frame-radius);
   background: transparent;
   isolation: isolate;
+}
+/* hover dim：一層 overlay 蓋住成個 frame，唔再逐格改 opacity/filter（99 格 repaint）。
+   指緊嗰格（JS 落 data-hover）同 focus 嗰格升到 overlay 上面。 */
+.heatmap-dim {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: rgba(233, 233, 230, 0.45);
+  opacity: 0;
+  transition: opacity 180ms var(--ease-standard);
+  pointer-events: none;
+}
+[data-theme="dark"] .heatmap-dim { background: rgba(28, 28, 26, 0.55); }
+@media (hover: hover) {
+  .heatmap-frame:hover .heatmap-dim,
+  .heatmap-frame:focus-within .heatmap-dim { opacity: 1; }
 }
 .heatmap-tile {
   position: absolute;
@@ -678,16 +1364,70 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   background: transparent;
   cursor: pointer;
   outline: 0;
-  transform: translateZ(0);
-  transition: box-shadow 170ms ease, filter 170ms ease, opacity 220ms ease;
+  contain: layout paint;
+  /* tap 唔等 double-tap zoom；長按唔彈 callout / 唔揀字 */
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: box-shadow 170ms ease, filter 170ms ease, transform 90ms ease;
+  /* 入場：由透明浮上，--d 由 JS 按 tile 中心離 frame 左上角距離派（cap 240ms）。
+     fill 用 backwards 唔用 both：delay 期間隱形，播完就放手俾普通 rule 接管。 */
+  animation: tile-in 320ms var(--ease-standard) backwards;
+  animation-delay: var(--d, 0ms);
 }
-/* 中間直向卡（Wall Card 比例），擺喺純色框中心 */
+/* 冇數格（tileStyle.missing → data-missing）：灰底再加斜紋，同持平（0.0%）嘅實色灰分開。
+   ::before 冇 z-index，喺 .tile-card（z 2）同 .tile-move（z 3）下面，只蓋格底唔蓋卡圖。 */
+.heatmap-tile[data-missing]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(135deg, var(--tile-hatch) 0 1px, transparent 1px 6px);
+  pointer-events: none;
+}
+/* 貼住 frame 四個角嗰格：跟返 frame 個弧（data-corner 由 heatmap.tsx layout effect 落，
+   見嗰邊 cornerToken 註）。唔跟嘅話 frame 個 `overflow:hidden` 會斜斜咁切走格仔一隻角，
+   hover 嗰條 `inset 0 0 0 2px` 白線就喺角位斷開（owner 2026-08-18 投訴）。
+   減 2px：tile 由 frame 邊縮入咗半個 gap（實測 1.6px），外圈半徑扣返先同 frame 個弧同心。
+   `max(0px, …)` 係**防守性**寫法，唔係喺度修緊一個 live bug —— 講清楚免得下手誤信：
+   kiosk 全屏會落 `--heatmap-frame-radius: 0px`（見 styles/heatmap-kiosk.css），計出嚟係 -2px，
+   而 css-values-4 講明 math function 出負數係喺 **used-value** 階段 clamp，唔係 parse 階段丟句。
+   即係話冇 max() 都一樣 computed 0px（覆核 2026-08-18 兩邊實測都係 "0px"）。
+   留住佢係因為「半徑唔准出負數」呢個意圖要睇得出，唔係因為拆咗會爛。 */
+.heatmap-tile[data-corner~="tl"] { border-top-left-radius: max(0px, calc(var(--heatmap-frame-radius) - 2px)); }
+.heatmap-tile[data-corner~="tr"] { border-top-right-radius: max(0px, calc(var(--heatmap-frame-radius) - 2px)); }
+.heatmap-tile[data-corner~="bl"] { border-bottom-left-radius: max(0px, calc(var(--heatmap-frame-radius) - 2px)); }
+.heatmap-tile[data-corner~="br"] { border-bottom-right-radius: max(0px, calc(var(--heatmap-frame-radius) - 2px)); }
+/* 拖 slider 之後先出現嘅 tile（data-late）：零 delay、200ms 由細 pop 出嚟。
+   pop 期間先 promote layer；播完 JS 拆 data-late + 落 data-settled。 */
+.heatmap-tile[data-late] {
+  animation-name: tile-pop;
+  animation-duration: 200ms;
+  animation-timing-function: var(--ease-standard);
+  will-change: transform, opacity;
+}
+.heatmap-tile[data-settled] { animation: none; will-change: auto; }
+@keyframes tile-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes tile-pop {
+  0% { opacity: 0.55; transform: scale(0.9); }
+  55% { opacity: 1; transform: scale(1.02); }
+  100% { opacity: 1; transform: scale(1); }
+}
+/* 中間直向卡（Wall Card 比例），擺喺純色框中心；幾何走 CSS var（JS 寫 --card-w/--card-h 喺 tile 上） */
 .tile-card {
   position: absolute;
+  left: 50%;
+  top: 50%;
   z-index: 2;
+  width: var(--card-w);
+  height: var(--card-h);
   overflow: hidden;
   border-radius: 4px;
-  box-shadow: 0 2px 8px rgba(8, 8, 8, 0.22), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  box-shadow: 0 2px 6px rgba(8, 8, 8, 0.18), 0 6px 18px rgba(8, 8, 8, 0.14), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  transform: translate(-50%, -50%);
   pointer-events: none;
 }
 .tile-card img {
@@ -696,53 +1436,60 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   height: 100%;
   object-fit: contain;
   object-position: center;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
-.heatmap-frame:hover .heatmap-tile:not(:hover),
-.heatmap-frame:focus-within .heatmap-tile:not(:hover):not(:focus-visible) {
-  opacity: 0.5;
-  filter: saturate(0.6) brightness(0.9);
-}
-/* 手機 / touch device：hover 會 stick，掃過嘅卡會被「揀死」做高亮、其他變暗。
-   hover: none 之下唔好做呢個 dim，等所有 tile 保持原色。 */
-@media (hover: none) {
-  .heatmap-frame:hover .heatmap-tile:not(:hover),
-  .heatmap-frame:focus-within .heatmap-tile:not(:hover):not(:focus-visible) {
-    opacity: 1;
-    filter: none;
-  }
-  /* touch 嘅 sticky hover 會俾個 tile 留下白框 + 陰影，取消埋 */
-  .heatmap-tile:hover {
-    box-shadow: none;
-    filter: none;
-    z-index: auto;
-  }
-}
-.heatmap-tile:hover,
+/* 拖 slider 先出現嘅 tile：圖未 load 完之前隱形（tile 純色框照舊），
+   load 好先淡入——唔會閃灰底骷髏。JS 只喺 late tile 嘅 img 落 .tile-img-gated，
+   load/error 之後加 .tile-img-ready。 */
+.tile-img-gated { opacity: 0; transition: opacity 150ms ease; }
+.tile-img-gated.tile-img-ready { opacity: 1; }
+/* hover / focus 高亮：data-hover 由 JS 落（唔使 :hover 掃兄弟），:hover 只鎖喺有 pointer 嘅裝置。
+   唔好 scale/translate 做高亮：tile 係 absolute 定位，transform 一郁就同 preview 對唔上位。 */
+.heatmap-tile[data-hover],
 .heatmap-tile:focus-visible {
-  z-index: 5;
+  z-index: 3;
   box-shadow: 0 12px 32px rgba(15, 15, 14, 0.28), inset 0 0 0 2px rgba(255, 255, 255, 0.9);
   filter: saturate(1.08);
-  /* 唔好 scale/translate：tile 係 absolute 定位、入面卡圖用 px 對位，
-     transform 一郁張圖就會甩出框（尤其近手機版寬度） */
 }
-[data-theme="dark"] .heatmap-tile:hover,
+[data-theme="dark"] .heatmap-tile[data-hover],
 [data-theme="dark"] .heatmap-tile:focus-visible {
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6), inset 0 0 0 2px rgba(236, 236, 236, 0.85);
 }
+@media (hover: hover) {
+  .heatmap-tile:hover {
+    z-index: 3;
+    box-shadow: 0 12px 32px rgba(15, 15, 14, 0.28), inset 0 0 0 2px rgba(255, 255, 255, 0.9);
+    filter: saturate(1.08);
+  }
+  [data-theme="dark"] .heatmap-tile:hover {
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6), inset 0 0 0 2px rgba(236, 236, 236, 0.85);
+  }
+}
 .heatmap-tile:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.9); outline-offset: 2px; }
+/* 幾何（inset 4 / padding 1px 3px / line-height 1.2 / weight 800 / letter-spacing 0.01em）同
+   lib/tile-style.ts `TILE_LABEL` + tileLabelEm 逐個數綁死：JS 用 Inter 800 tabular 實測嘅逐字元闊度表
+   揀字體大細，保證 label 成個入晒 tile 又離開左右邊（owner 2026-08-17：唔准食字）；改呢度必改嗰邊
+   （改 font-weight / letter-spacing / 換字體 = 重量嗰張表）。 */
 .tile-move {
   position: absolute;
-  top: 5px;
-  right: 6px;
+  top: 4px;
+  right: 4px;
   z-index: 3;
+  padding: 1px 3px;
+  border-radius: 4px;
   font-size: 10px; /* JS inline fontSize 會冚過呢個，呢個係 SSR fallback */
   font-weight: 800;
   line-height: 1.2;
   letter-spacing: 0.01em;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   color: #fff;
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7), 0 0 10px rgba(0, 0, 0, 0.4);
   pointer-events: none;
+  /* 底板由 JS inline background 落（tileStyle.plate = lib/tile-style.ts LABEL_PLATE 深色半透明，neutral 冇），
+     分享圖 route 用同一個值 —— 唔好喺呢度加 CSS background，兩邊會唔同色。 */
 }
 
 /* ── 調參 panel ────────────────────────────────────────────── */
@@ -762,9 +1509,11 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
 }
 .tune-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
 .tune-panel-head strong { font-size: 13px; }
+.tune-panel-body { display: grid; gap: 10px; }
 .tune-panel-actions { display: flex; gap: 6px; }
-.tune-panel-actions button {
-  min-height: 30px;
+/* D4：panel 係 dialog，掣要夠 44px 手指位 */
+.tune-panel-actions button, .tune-copy {
+  min-height: 44px;
   padding: 0 10px;
   border: 1px solid var(--line);
   border-radius: var(--control-radius);
@@ -778,7 +1527,7 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
 .tune-field input[type="range"] { width: 100%; accent-color: var(--accent); }
 .tune-field input[type="color"] { width: 100%; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: transparent; cursor: pointer; }
 .tune-field-inactive { opacity: 0.45; }
-.tune-field output { min-width: 44px; text-align: right; font-variant-numeric: tabular-nums; font-size: 11px; font-weight: 650; }
+.tune-field output { min-width: 44px; text-align: right; font-variant-numeric: tabular-nums; font-size: 11px; font-weight: var(--w-data); }
 .tune-json { margin: 10px 0 0; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft); font-size: 10px; line-height: 1.5; overflow-x: auto; }
 
 /* /tune 調參 lab：左邊全幅 board、右邊固定 panel；手機轉直排 */
@@ -807,17 +1556,15 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   border: 1px solid var(--line-strong);
   border-radius: 20px;
   background: var(--preview-bg);
-  box-shadow: var(--shadow);
-  animation: preview-in 170ms ease-out both;
-  -webkit-backdrop-filter: blur(18px);
-  backdrop-filter: blur(18px);
+  box-shadow: var(--elev-3);
+  /* 進出動畫由 framer AnimatePresence 負責（D3），CSS 唔再落 keyframe */
+  /* bg 已係 .97 alpha，唔使 backdrop-filter（每次 hover 換位都要重 blur） */
 }
 .heatmap-preview.preview-left { right: auto; left: 18px; }
 .heatmap-preview.preview-top { bottom: auto; top: 18px; }
 /* fixed 版：portal 上 body、對齊 viewport，徹底唔受 heatmap-frame overflow 裁切。
    left/top 由 JS inline 計好，呢度淨係接管 position，唔覆蓋 inline 座標。 */
-.heatmap-preview-fixed { position: fixed; right: auto; bottom: auto; margin: 0; z-index: 60; }
-@keyframes preview-in { from { opacity: 0; transform: translateY(6px) scale(0.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.heatmap-preview-fixed { position: fixed; right: auto; bottom: auto; margin: 0; z-index: var(--z-overlay); }
 .preview-image {
   min-height: 0;
   padding: 14px;
@@ -838,7 +1585,7 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
 }
 .sheet-image img { width: 100%; height: 100%; object-fit: contain; }
 .preview-copy { min-width: 0; padding: 18px 20px; display: flex; flex-direction: column; }
-.rank-kicker { margin-bottom: 8px; color: var(--accent); font-size: 10px; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; }
+.rank-kicker { margin-bottom: 8px; color: var(--accent); font-size: var(--fs-micro); font-weight: var(--w-label); letter-spacing: 0.08em; text-transform: uppercase; }
 .preview-copy h3,
 .bottom-sheet h3 { margin-bottom: 6px; font-size: 22px; }
 .preview-copy h3 {
@@ -846,19 +1593,22 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-  line-height: 1.15;
-  max-height: calc(2 * 1.15em);
+  line-height: var(--lh-clamp2);
+  max-height: calc(2 * var(--lh-clamp2) * 1em);
 }
 .muted-copy { margin-bottom: 12px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+/* overflow-wrap: break-word 唔係 anywhere：grid 欄已經 minmax(0,1fr) + min-width:0，anywhere 會喺有位嘅情況下
+   都揀「Brilliant Star|s」咁斷字；break-word 只喺一個字都塞唔落先斷。 */
 .preview-copy .muted-copy {
+  --lh: 1.35;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
   white-space: normal;
-  overflow-wrap: anywhere;
-  line-height: 1.35;
-  max-height: calc(2 * 1.35em);
+  overflow-wrap: break-word;
+  line-height: var(--lh);
+  max-height: calc(2 * var(--lh) * 1em);
 }
 .preview-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 12px; margin: 0; }
 .preview-facts div { min-width: 0; }
@@ -868,7 +1618,7 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--preview-facts-dt);
-  font-size: 9px;
+  font-size: var(--fs-micro);
   letter-spacing: 0.03em;
 }
 .preview-facts dd {
@@ -876,14 +1626,14 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   font-size: 12px;
   font-weight: 600;
   white-space: normal;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   line-height: 1.3;
 }
 .preview-facts div[data-field="editionCode"] {
   grid-column: 1 / -1;
 }
 /* As of 貼底：facts 長短因語言而異，用 auto margin 頂落去，唔會再被裁 */
-.preview-time { margin: auto 0 0; padding-top: 10px; color: var(--muted); font-size: 9px; }
+.preview-time { margin: auto 0 0; padding-top: 10px; color: var(--muted); font-size: var(--fs-micro); }
 .primary-action {
   min-height: 44px;
   display: inline-flex;
@@ -899,47 +1649,44 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   font-weight: 600;
   transition: background 170ms ease, transform 170ms ease;
 }
-.primary-action:hover,
 .primary-action:focus-visible { background: var(--accent); transform: translateY(-1px); }
+@media (hover: hover) {
+  .primary-action:hover { background: var(--accent); transform: translateY(-1px); }
+}
+/* 得一行 legend（見 heatmap.tsx 個註）。原本 min-height:54px 係為咗托住
+   `.ranking-jump` 嗰個 44px tap target，link 拆咗就唔可以留 —— 留住等於熱力圖
+   白白矮 46px。`justify-content` 亦冇意思，得一個 child。 */
 .heatmap-footer {
-  min-height: 54px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 10px 2px 0;
+  padding: 8px 2px 0;
 }
-.heatmap-legend { display: flex; align-items: center; gap: 16px; margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: 10px; }
+.heatmap-legend { display: flex; align-items: center; gap: 16px; margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: var(--fs-micro); }
 .heatmap-legend > li { display: flex; align-items: center; gap: 5px; }
 .legend-swatch { width: 22px; height: 5px; border-radius: 99px; }
 .legend-swatch.down { background: var(--negative); }
-.legend-swatch.pending { background: var(--legend-pending); }
+/* 持平 = 實色灰；冇數 = 斜紋灰（同 .heatmap-tile[data-missing] 一樣講法） */
+.legend-swatch.flat { background: var(--legend-pending); }
+.legend-swatch.pending {
+  background: repeating-linear-gradient(135deg, var(--legend-pending) 0 2px, transparent 2px 4px);
+  box-shadow: inset 0 0 0 1px var(--legend-pending);
+}
 .legend-swatch.up { background: var(--positive); }
-.legend-count { margin-left: 4px; }
-.ranking-jump {
-  min-height: 44px;
-  display: inline-flex;
-  align-items: center;
-  border-bottom: 1px solid var(--ink);
-  font-size: 12px;
-  font-weight: 550;
-  white-space: nowrap;
-}
-.methodology-note {
-  max-width: 460px;
-  margin: 0;
-  color: var(--muted);
-  font-size: 10px;
-  line-height: 1.55;
-}
 
 .sheet-backdrop { display: none; }
-.sheet-open { overflow: hidden; }
+/* B5 scroll lock：gutter 固定避免鎖 scroll 時版面跳位；framer 而家負責 sheet 進出動畫 */
+html { scrollbar-gutter: stable; }
+.sheet-open, html.sheet-open { overflow: hidden; }
+.bottom-sheet, .tune-panel, .select-menu { overscroll-behavior: contain; }
+.sheet-drag-region { touch-action: none; }
+.sheet-backdrop, .tune-panel-backdrop { cursor: pointer; }
+.bottom-sheet .sheet-drag-region, .card-dialog .sheet-drag-region { cursor: default; }
+.sheet-motion { animation: none; }
 @media (min-width: 901px) {
   .sheet-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 120;
+    z-index: var(--z-modal);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -947,7 +1694,6 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
     background: rgba(19, 19, 18, 0.45);
     -webkit-backdrop-filter: blur(4px);
     backdrop-filter: blur(4px);
-    animation: fade-in 170ms ease both;
   }
   .card-dialog {
     width: min(660px, 100%);
@@ -957,7 +1703,6 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
     border-radius: 26px;
     background: var(--sheet-bg);
     box-shadow: 0 28px 70px rgba(15, 15, 14, 0.28);
-    animation: sheet-in 170ms ease both;
   }
   [data-theme="dark"] .card-dialog { box-shadow: 0 28px 70px rgba(0, 0, 0, 0.65); }
   .card-dialog .sheet-handle { display: none; }
@@ -975,6 +1720,78 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
     color: var(--sheet-close);
     font-size: 11px;
   }
+  /* 排序 sheet 個 trigger 只喺 ≤680 出，但開住嗰陣轉橫／resize 上桌面唔可以變裸 panel */
+  .sort-sheet {
+    width: min(420px, 100%);
+    max-height: min(86vh, 640px);
+    overflow-y: auto;
+    padding: 16px 24px 24px;
+    border-radius: 24px;
+    background: var(--sheet-bg);
+    box-shadow: var(--elev-3);
+  }
+  .sort-sheet .sheet-handle { display: none; }
+  .sort-sheet .sheet-close {
+    min-width: 44px;
+    min-height: 44px;
+    display: block;
+    margin: 0 0 6px auto;
+    padding: 0 10px;
+    border: 0;
+    background: transparent;
+    color: var(--sheet-close);
+    font-size: 11px;
+  }
+}
+/* 排序／篩選 sheet 內容（modal 機制喺 ui/sheet.tsx，呢度淨係外觀） */
+.sort-sheet .sort-sheet-title { margin: 0 0 16px; font-size: 18px; }
+.sort-sheet-group { margin-bottom: 18px; }
+.sort-sheet-group h4 {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: var(--fs-micro);
+  font-weight: var(--w-label);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.sort-sheet-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.sort-sheet-options button {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--soft);
+  color: var(--control-idle);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 170ms ease, border-color 170ms ease, background 170ms ease;
+}
+.sort-sheet-options button[aria-pressed="true"] {
+  border-color: var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+.sort-sheet-actions { display: flex; gap: 10px; padding-top: 4px; }
+.sort-sheet-actions button {
+  min-height: 48px;
+  border-radius: var(--control-radius);
+  font-size: 14px;
+  font-weight: var(--w-label);
+  cursor: pointer;
+}
+.sort-sheet-apply {
+  flex: 1 1 auto;
+  border: 0;
+  background: var(--primary-action-bg);
+  color: var(--primary-action-text);
+}
+.sort-sheet-reset {
+  flex: none;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--control-idle);
 }
 .rankings-section {
   min-height: 100vh;
@@ -997,25 +1814,46 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   -webkit-backdrop-filter: blur(18px) saturate(130%);
   backdrop-filter: blur(18px) saturate(130%);
 }
+/* touch 裝置：sticky + backdrop-filter 每 scroll 一幀重 blur，換實色底 */
+@media (hover: none) {
+  .ranking-heading { background: var(--paper); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .desktop-ranking-table thead th { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
 .ranking-heading h2 { margin-bottom: 0; font-size: clamp(28px, 3.2vw, 44px); }
 .ranking-heading p:not(.section-kicker) { max-width: 680px; margin: 7px 0 0; color: var(--muted); }
 .desktop-ranking-table {
+  /* clip 唔係 hidden（FE05 A1）：hidden 令呢個框變 scroll container，thead th 嘅 sticky 就只係對住個框黐 ——
+     框本身唔會捲，表頭跟住成張表碌走（實測 1440 闊碌入表 1500px，th top = -1499）。clip 一樣裁圓角，
+     但唔係 scroll container，th 先會對 viewport 黐。舊 Safari（<16）唔識 clip，跌返上一行 hidden：表頭唔黐，同改之前一樣。 */
   overflow: hidden;
+  overflow: clip;
   border: 1px solid var(--line);
   border-radius: var(--section-radius);
   background: var(--surface-translucent);
 }
 .desktop-ranking-table table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.desktop-ranking-table thead th {
+  position: sticky;
+  /* 釘喺 sticky 榜標題（.ranking-heading，top = --header-height）底下。標題實高隨語言／闊度變，
+     lib/use-ranking-heading-height.ts 量咗寫落 section；未量到 = 0 → 表頭匿喺標題（z-index 40）後面。 */
+  top: calc(var(--header-height) + var(--ranking-heading-h, 0px));
+  z-index: 5;
+  background: var(--surface-translucent);
+  -webkit-backdrop-filter: blur(12px) saturate(120%);
+  backdrop-filter: blur(12px) saturate(120%);
+  box-shadow: 0 1px 0 var(--line);
+}
 .desktop-ranking-table th {
   height: 54px;
   padding: 0 11px;
   overflow: hidden;
   border-bottom: 1px solid var(--line);
   color: var(--table-head);
-  font-size: 10px;
-  font-weight: 550;
-  letter-spacing: 0.015em;
+  font-size: var(--fs-th);
+  font-weight: var(--w-label);
+  letter-spacing: var(--track-th);
   text-align: left;
+  text-transform: uppercase;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1031,11 +1869,21 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   white-space: nowrap;
 }
 .desktop-ranking-table tbody tr:last-child td { border-bottom: 0; }
-.desktop-ranking-table tbody tr { transition: background 170ms ease; }
-.desktop-ranking-table tbody tr:hover { background: var(--table-row-hover); }
-/* 成列可撳入內頁：cursor + focus 可見 */
-.desktop-ranking-table tbody tr.ranking-row-link { cursor: pointer; }
-.desktop-ranking-table tbody tr.ranking-row-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.desktop-ranking-table tbody tr { transition: background 170ms ease, box-shadow 180ms var(--ease-standard); }
+@media (hover: hover) {
+  .desktop-ranking-table tbody tr:hover {
+    position: relative;
+    z-index: 1;
+    background: var(--table-row-hover);
+    box-shadow: var(--elev-1);
+  }
+}
+/* 成列可撳入內頁：卡名係真 <a>（.row-link），::after 鋪滿成個 .rank-row；focus ring 畫喺 tr */
+.desktop-ranking-table tbody tr.rank-row { position: relative; cursor: pointer; }
+.desktop-ranking-table tbody tr.rank-row:active { background: var(--table-row-hover); }
+.rank-row .row-link::after { content: ""; position: absolute; inset: 0; }
+.rank-row .row-link:focus-visible { outline: none; }
+.desktop-ranking-table tbody tr.rank-row:has(.row-link:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
 .desktop-ranking-table .numeric { text-align: right; }
 .col-rank { width: 4%; }
 .col-card { width: 20%; }
@@ -1058,8 +1906,11 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   flex: none;
   object-fit: contain;
 }
-.grader-table .grader-card strong { min-width: 0; overflow: hidden; font-size: 13px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
-.rank-cell { color: var(--rank-cell) !important; font-variant-numeric: tabular-nums; text-align: left; }
+.grader-table .grader-card strong { min-width: 0; overflow: hidden; font-size: 13px; font-weight: var(--w-name); text-overflow: ellipsis; white-space: nowrap; }
+.rank-cell { color: var(--rank-cell) !important; font-variant-numeric: tabular-nums; font-weight: 600; text-align: left; }
+.rank-cell[data-rank="1"],
+.rank-cell[data-rank="2"],
+.rank-cell[data-rank="3"] { color: var(--accent) !important; font-weight: 700; }
 .price-cell,
 .market-cap-cell,
 .sales-cell { white-space: nowrap !important; }
@@ -1068,7 +1919,7 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
 .sales-cell .price-delta { display: flex; justify-content: flex-end; }
 /* 主數同 delta 各自右對齊，兩行右邊先齊；成個 cell 內容推埋右邊 */
 .price-cell, .market-cap-cell, .sales-cell { text-align: right; }
-.price-now { display: block; margin-left: auto; font-size: 14px; font-weight: 650; text-align: right; }
+.price-now { display: block; margin-left: auto; font-size: 14px; font-weight: var(--w-data); text-align: right; }
 .pop-now { display: block; font-weight: 600; }
 .desktop-ranking-table td:has(.pop-now) { white-space: normal !important; }
 .price-delta {
@@ -1082,8 +1933,8 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   white-space: nowrap;
 }
 .price-delta svg { flex: none; }
-.price-delta[data-dir="up"] svg { animation: delta-rise 2.6s ease-in-out infinite; }
-.price-delta[data-dir="down"] svg { animation: delta-fall 2.6s ease-in-out infinite; }
+.price-delta[data-dir="up"] svg { animation: delta-rise 3.2s var(--ease-spring) infinite; }
+.price-delta[data-dir="down"] svg { animation: delta-fall 3.2s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
 @keyframes delta-rise {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-2px); }
@@ -1101,7 +1952,7 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
 /* 卡圖統一原生 RGBA 圓角（2026-07-25 標準）：DB 入面每張圖已係 429x600 透明畫布
    （梵高比卡超做基準），前端唔准再 CSS 削角/放大裁切。 */
 .detail-price-now { font-size: 22px !important; }
-.detail-price-now + .price-delta { display: flex; margin-top: 4px; font-size: 11px; }
+.detail-price-now + .price-delta { display: flex; margin-top: 4px; font-size: 12px; }
 .ranking-card-identity { min-width: 0; display: flex; align-items: center; gap: 12px; }
 .ranking-thumb {
   width: 42px;
@@ -1111,15 +1962,18 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  box-shadow: var(--elev-1);
 }
-.ranking-thumb img { width: 100%; height: 100%; vertical-align: middle; object-fit: contain; }
+.ranking-thumb img { width: 100%; height: 100%; vertical-align: middle; object-fit: contain; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 .ranking-name { min-width: 0; }
-.ranking-name strong { display: block; overflow: hidden; color: var(--ink); font-size: 13px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
-.collector-cell { color: var(--mobile-number) !important; font-family: "SF Mono", "Roboto Mono", ui-monospace, monospace; font-size: 10px !important; }
-.market-cap-cell { color: var(--accent) !important; font-weight: 650; }
+.ranking-name strong { display: block; overflow: hidden; color: var(--ink); font-size: 13px; font-weight: var(--w-name); text-overflow: ellipsis; white-space: nowrap; }
+.collector-cell { color: var(--mobile-number) !important; font-family: var(--font-mono); font-size: 10px !important; }
+.market-cap-cell { color: var(--accent) !important; font-weight: var(--w-data); }
 .metric-positive { color: var(--positive) !important; }
 .metric-negative { color: var(--negative) !important; }
 .metric-neutral { color: var(--metric-neutral) !important; }
+/* 過期數（pop / price stale）：虛線底，title 講明幾耐冇更新 */
+.metric-stale { text-decoration: underline dotted var(--muted); text-underline-offset: 3px; text-decoration-thickness: 1px; }
 /* ── Grader market share donut ─────────────────────────────── */
 .grader-share { padding: 28px 0 8px; }
 .grader-share-heading { padding-bottom: 12px; }
@@ -1153,8 +2007,8 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
   text-align: center;
   pointer-events: none;
 }
-.grader-share-center strong { font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
-.grader-share-center span { color: var(--muted); font-size: 9.5px; letter-spacing: 0.04em; text-transform: uppercase; }
+.grader-share-center strong { font-size: 15px; font-weight: var(--w-data); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.grader-share-center span { color: var(--muted); font-size: var(--fs-micro); letter-spacing: 0.04em; text-transform: uppercase; }
 .grader-share-legend {
   display: flex;
   flex-wrap: wrap;
@@ -1185,35 +2039,48 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
     border-radius: 18px;
     background: var(--surface-translucent);
   }
-  .mobile-list-header {
-    display: flex;
+  /* header 同 row（卡 / 原盒共用）一個 5 欄 grid：rank / thumb / 名 / 價錢+升跌 / 成交圖，
+     header 嘅欄先會同 row 對得齊。 */
+  .mobile-list-header,
+  .mobile-rank-card {
+    display: grid;
+    grid-template-columns: 26px 52px minmax(0, 1fr) auto 48px;
+    gap: 12px;
     align-items: center;
-    gap: 10px;
-    padding: 6px 12px;
+  }
+  .mobile-list-header {
+    padding: 6px 14px 6px 10px;
     border-bottom: 1px solid var(--line);
     color: var(--dt-color);
-    font-size: 9px;
+    font-size: 10px; /* 固定唔用 token：390px 五欄一行，CJK 11px 會令欄名互撞（C2 9→10 只補 CJK floor） */
     font-weight: 600;
     letter-spacing: 0.04em;
+    /* 表頭高度唔准跟翻譯長度變：英文欄名摺兩行就由 27px 變 40px，成張榜俾佢推低 13px
+       （第一張卡直接跌出設計稿嘅 320px）。一律一行，過長切走尾巴。 */
+    white-space: nowrap;
   }
-  .mobile-list-header .mobile-col-info { flex: 1; min-width: 0; }
-  .mobile-list-header .mobile-col-right { flex: none; }
-  /* sparkline 喺 row 係 flex 最尾（48px），header 要同寬 + 置右先對得齊 */
-  .mobile-list-header .mobile-col-spark { width: 48px; flex: none; text-align: right; }
+  .mobile-list-header .mobile-col-info,
+  .mobile-list-header .mobile-col-right,
+  .mobile-list-header .mobile-col-spark { overflow: hidden; text-overflow: ellipsis; }
+  .mobile-list-header .mobile-col-info { grid-column: 1 / 4; min-width: 0; }
+  .mobile-list-header .mobile-col-right { grid-column: 4; }
+  .mobile-list-header .mobile-col-spark,
+  .box-mobile-list-header .sparkline { grid-column: 5; justify-self: end; width: 48px; text-align: right; }
   .mobile-rank-card {
-    display: flex;
-    align-items: center;
-    gap: 12px;
     padding: 12px 14px 12px 10px;
     border-bottom: 1px solid var(--line);
+    touch-action: manipulation;
     transition: background 170ms ease;
     /* ~500+ 卡列表：off-screen 行唔洗 layout/paint，跌入嚟先計。 */
     content-visibility: auto;
-    contain-intrinsic-size: auto 72px;
+    contain-intrinsic-size: auto 96px;
   }
   .mobile-rank-card:last-child { border-bottom: 0; }
-  .mobile-rank-card:hover,
-  .mobile-rank-card:focus-visible { background: var(--table-row-hover); }
+  .mobile-rank-card:focus-visible,
+  .mobile-rank-card:active { background: var(--table-row-hover); }
+  @media (hover: hover) {
+    .mobile-rank-card:hover { background: var(--table-row-hover); }
+  }
   .mobile-rank-index {
     width: 26px;
     flex: none;
@@ -1223,7 +2090,7 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
     font-variant-numeric: tabular-nums;
     text-align: left;
   }
-  .mobile-rank-card .ranking-thumb { width: 34px; height: 48px; flex: none; margin-left: 4px; }
+  .mobile-rank-card .ranking-thumb { width: 52px; height: 72px; flex: none; margin-left: 0; }
   .mobile-card-info {
     min-width: 0;
     flex: 1;
@@ -1239,7 +2106,7 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
     color: var(--ink);
     font-size: 13px;
     font-weight: 600;
-    line-height: 1.25;
+    line-height: var(--lh-clamp2m);
     white-space: normal;
   }
   .mobile-card-sub {
@@ -1248,11 +2115,13 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
     gap: 8px;
     min-width: 0;
   }
+  /* 卡榜手機版語言 chip：同編號一行、細粒啲（owner 2026-08-17「擺細粒 d 整齊 d」） */
+  .mobile-card-sub .mobile-lang-badge { align-self: center; padding: 1px 6px; font-size: 9px; }
   .mobile-card-number {
     align-self: flex-start;
     overflow: hidden;
     color: var(--mobile-number);
-    font-family: "SF Mono", "Roboto Mono", ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 9px;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1291,13 +2160,21 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
-  .mobile-rank-card .sparkline { width: 48px; height: 16px; flex: none; }
+  .mobile-rank-card .sparkline { grid-column: 5; align-self: center; justify-self: end; width: 48px; height: 16px; }
+  .box-mobile-list-header .sparkline { height: 16px; }
+
+  /* 原盒手機適配：group selector 繼承 .period-selector 嘅 stretch/full-width 手機規則，
+     五個選項平均攤分，唔會撐爆細屏。（list header 同卡片共用上面嘅 5 欄 grid） */
+  .box-group-selector { display: flex; align-self: stretch; }
+  .box-group-selector button { min-width: 0; flex: 1; padding-inline: 2px; white-space: normal; line-height: 1.15; }
 }
 
 @media (max-width: 380px) {
   .mobile-card-name { font-size: 12px; }
   .mobile-card-price { font-size: 13px; }
-  .mobile-rank-card .sparkline { display: none; }
+  /* 最窄屏：收起成交圖欄，header 同 row 一齊縮做 4 欄 */
+  .mobile-list-header, .mobile-rank-card { grid-template-columns: 26px 52px minmax(0, 1fr) auto; }
+  .mobile-col-spark, .box-mobile-list-header .sparkline, .mobile-rank-card .sparkline { display: none; }
 }
 
 /* ── Detail / chart / footer vars already themed above ─────── */
@@ -1312,77 +2189,36 @@ button.select-control:hover { border-color: var(--line-strong); color: var(--ink
 .spark-cell .sparkline { margin-left: auto; }
 
 /* ── Theme transition ──────────────────────────────────────── */
-/* 用 `background`（唔係 `background-color`）先過渡到 gradient（--preview-image-bg、
-   --detail-art-bg、--loading-bg 呢類）。統一 240ms cubic-bezier 令全站同步。 */
+/* 只過渡大面積 surface；用 longhand transition-property，唔覆蓋各 component 自己嘅
+   transition（.heatmap-tile 嘅 box-shadow/filter/transform、.mobile-rank-card 嘅 background
+   之前俾呢條 rule 冚死）。細件（tile / thumb / chip）由 token 即時切，人眼分唔到。 */
 html.theme-transitions,
 html.theme-transitions body,
 html.theme-transitions .site-header,
+html.theme-transitions .page-shell,
 html.theme-transitions .desktop-ranking-table,
-html.theme-transitions .mobile-rank-card,
 html.theme-transitions .heatmap-frame,
-html.theme-transitions .heatmap-tile,
-html.theme-transitions .heatmap-tile img,
-html.theme-transitions .tile-card,
-html.theme-transitions .ranking-thumb,
-html.theme-transitions .period-selector,
-html.theme-transitions .select-control,
+html.theme-transitions .site-footer,
 html.theme-transitions .bottom-sheet,
-html.theme-transitions .heatmap-preview,
-html.theme-transitions .preview-image,
-html.theme-transitions .detail-art,
-html.theme-transitions .sheet-image,
-html.theme-transitions .heatmap-export,
-html.theme-transitions .tile-slider,
-html.theme-transitions .tile-slider-label,
-html.theme-transitions .primary-action,
-html.theme-transitions .skeleton-block,
-html.theme-transitions .heatmap-legend,
-html.theme-transitions .legend-swatch,
-html.theme-transitions .site-footer {
-  transition: background 240ms cubic-bezier(0.4, 0, 0.2, 1), background-color 240ms cubic-bezier(0.4, 0, 0.2, 1), border-color 240ms cubic-bezier(0.4, 0, 0.2, 1), color 240ms cubic-bezier(0.4, 0, 0.2, 1), fill 240ms cubic-bezier(0.4, 0, 0.2, 1), stroke 240ms cubic-bezier(0.4, 0, 0.2, 1), background-image 240ms cubic-bezier(0.4, 0, 0.2, 1), opacity 240ms cubic-bezier(0.4, 0, 0.2, 1);
+html.theme-transitions .card-dialog {
+  transition-property: background-color, color, border-color;
+  transition-duration: 240ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* brand logo 明/暗切換：同其他部件同一時長同一 easing 交叉淡入淡出 */
-html.theme-transitions .brand-logo,
-html.theme-transitions .brand-logo-dark {
-  transition: opacity 240ms cubic-bezier(0.4, 0, 0.2, 1);
-}
 
 /* ── Skeleton loading ──────────────────────────────────────── */
-.skeleton-block {
-  border-radius: var(--control-radius);
-  background: var(--loading-bg);
-  background-size: 220% 100%;
-  animation: loading-sheen 1.4s ease infinite;
-}
-.skeleton-hero { width: min(100%, 940px); padding: 34px 0 48px; display: grid; gap: 14px; }
-.skeleton-kicker { width: 140px; height: 12px; }
-.skeleton-title { width: min(100%, 620px); height: clamp(42px, 6vw, 72px); border-radius: 16px; }
-.skeleton-copy { width: min(100%, 540px); height: 16px; }
-.skeleton-strip { height: 84px; margin: 8px 0 20px; border-radius: var(--section-radius); }
-.skeleton-rows { display: grid; gap: 2px; overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: var(--surface-translucent); }
-.skeleton-row {
-  display: grid;
-  grid-template-columns: 20px 38px minmax(0, 1fr) 120px;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--line);
-}
-.skeleton-row:last-child { border-bottom: 0; }
-.skeleton-rank { width: 14px; height: 12px; justify-self: center; }
-.skeleton-thumb { width: 38px; height: 54px; border-radius: 4px; }
-.skeleton-lines { display: grid; gap: 6px; }
-.skeleton-line-name { width: 62%; height: 13px; }
-.skeleton-line-sub { width: 38%; height: 10px; }
-.skeleton-value { width: 84px; height: 13px; justify-self: end; }
-@media (prefers-reduced-motion: reduce) {
-  .skeleton-block, .skeleton-hero .skeleton-block { animation: none; }
-}
+/* 成組 `.skeleton-*` 搬咗去 `styles/skeleton.css`（FE05 WS4），由
+   `components/skeletons.tsx` import。`loading-sheen` keyframe 留喺呢個檔（:620），
+   因為 `.page-loading` 都用緊佢。 */
 
 /* ── Detail actions / share ────────────────────────────────── */
 /* fixed 卡圖 z-index 40，detail-actions 要高過佢先唔會被遮住 */
 .detail-actions { position: relative; z-index: 50; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+/* 主 action：accent 描邊 + accent 字，同 `.primary-action` 唔同級（嗰個係實色底），
+   唔會喺頂部一行細掣入面搶到成頁失衡。`.detail-actions` 個 space-between 分「返回」
+   同佢。手機 360px 放得落：量過最長語言（日文「画像をシェア」）112px。 */
+.share-image-button { border-color: var(--accent); color: var(--accent); }
 .share-button {
   min-height: 44px;
   display: inline-flex;
@@ -1397,8 +2233,19 @@ html.theme-transitions .brand-logo-dark {
   font-weight: 600;
   transition: border-color 170ms ease, color 170ms ease;
 }
-.share-button:hover { border-color: var(--line-strong); color: var(--ink); }
-.share-button[data-state="done"] { border-color: var(--positive); color: var(--positive); }
+@media (hover: hover) {
+  .share-button:hover { border-color: var(--line-strong); color: var(--ink); }
+}
+.share-button[data-state="done"] {
+  border-color: var(--positive);
+  color: var(--positive);
+  background: color-mix(in srgb, var(--positive) 8%, var(--control-bg));
+}
+.share-button[data-state="done"] .copy-icon { animation: copy-pop 300ms cubic-bezier(0.34, 1.56, 0.64, 1); }
+@keyframes copy-pop {
+  0% { transform: scale(0.6); }
+  100% { transform: scale(1); }
+}
 .share-button[data-state="error"] { border-color: var(--negative); color: var(--negative); }
 @media (max-width: 980px) { .detail-actions { margin-bottom: 10px; } }
 
@@ -1417,6 +2264,46 @@ html.theme-transitions .brand-logo-dark {
 .history-empty p { margin: 0; }
 
 .detail-grid { display: grid; grid-template-columns: minmax(300px, 34%) minmax(0, 1fr); gap: 44px; align-items: start; }
+/*
+ * 卡內頁長文區（可引用事實 + 故事 + 方法）—— 2026-08-19 由 `.detail-content` 右欄
+ * 搬咗出嚟做成版，因為右欄本身淨係 ~574–755px 闊，塞三塊長文落去等於自願用半版紙。
+ *
+ * measure 由呢度一個地方收，唔准三塊各自帶 cap：佢哋 base 係 68ch（card-fact）/
+ * 冇（story-panel）/ 76ch（provenance-panel）。喺舊嗰個窄右欄冇一個 bind 得到，
+ * 所以睇落齊；一搬做成版即刻解到三個唔同數（1440 量到右邊線 1382 / 1315 / 1346），
+ * 就係 owner 講嘅「唔對齊」。
+ *
+ *   ≥1121px：兩欄，`.provenance-panel` 佔右邊成柱，欄闊 ~645px ≈ 73ch = measure，
+ *            所以喺 grid 入面 `max-width: none` 拆走個人 cap。
+ *   ≤1120px：一柱，由 `.detail-prose` 自己收 76ch（呢個站已經用開嘅數），三塊填滿佢。
+ *            手機 76ch 遠大過版心，等於冇 cap —— block flow 同搬出嚟之前一模一樣。
+ *
+ * 三塊嘅左邊線 = `.page-shell` 左邊線（1440 度係 x=43），同麵包屑／返回／相關卡牌
+ * 同一條。`.provenance-panel` 個 76ch base 唔准拆 —— 首頁／原盒嗰啲成版 panel 仲靠佢。
+ */
+@media (max-width: 1120px) {
+  .detail-prose { max-width: 76ch; }
+  .detail-prose .card-fact,
+  .detail-prose .provenance-panel { max-width: none; }
+}
+@media (min-width: 1121px) {
+  .detail-prose { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 48px; align-items: start; margin-top: 22px; }
+  /* 明寫 column、**唔好**明寫 row：`card-fact` 同 story 都係 conditional render。
+     寫死 `grid-row: 2` 嘅話，冇 card-fact 嗰啲卡個故事就會困喺第二行，頂部同右欄
+     差 78px（1440 實測 T=1270 vs 1192）。留返 auto：有 fact 就 fact 行 1 / story 行 2，
+     冇 fact 就 story 上返行 1，兩欄永遠平頭。`.provenance-panel` 釘死 column 2，
+     所以 auto-flow 唔會將佢抽落左欄。
+     `max-width: none`：base 68ch 喺 14px 字解到 601px，喺 645px 欄入面仲會 bind，
+     令 card-fact 比隔籬「市場為何追捧」窄 45px（實測）—— 欄本身已經係 measure。 */
+  .detail-prose .card-fact { grid-column: 1; max-width: none; }
+  .detail-prose .detail-story-slot { grid-column: 1; }
+  .detail-prose .provenance-panel { grid-column: 2; grid-row: 1 / span 2; }
+  /* 兩欄嘅頂要平頭：兩塊本來各自帶 22px / 40px top margin（block flow 嗰陣係「同上面
+     隔開」），喺 grid 入面就變成「row 1 入面各自向下推唔同距離」= 兩欄高低唔一。
+     隔開嘅責任交返俾 `.detail-prose` 自己個 margin-top。 */
+  .detail-prose .card-fact,
+  .detail-prose .provenance-panel { margin-top: 0; }
+}
 
 @media (max-width: 1120px) {
   .header-inner { padding-inline: 28px; gap: 20px; }
@@ -1443,22 +2330,24 @@ html.theme-transitions .brand-logo-dark {
     justify-content: space-between;
     gap: 0 8px;
   }
-  .primary-nav a { min-height: 40px; font-size: 11px; white-space: nowrap; padding-inline: 2px; }
+  /* nav 字級同桌面統一 14px（owner 2026-08-17：「menu 太細」）；四個 locale 最長 ja 都入到 320px */
+  .primary-nav a { min-height: 40px; font-size: 14px; white-space: nowrap; padding-inline: 2px; }
   .market-controls { justify-self: end; }
+  .market-controls .updown-toggle-header { display: none; }
+  .primary-nav .updown-toggle-nav { display: inline-flex; min-width: 40px; min-height: 40px; }
   .header-fallback { height: var(--header-height); }
   .page-shell { padding-top: 44px; padding-bottom: 78px; }
   .market-page-shell { padding-top: 0; }
   .heatmap-section { grid-template-rows: auto minmax(0, 1fr) auto; padding-top: 28px; }
-  /* 手機：heatmap 描述長文收起，legend 保留精簡一行，methodology 唔再全滅 */
-  .heatmap-heading > div > p:last-child { display: none; }
-  .methodology-note { display: none; }
   /* 過渡寬度（平板/窄 desktop）：標題攞全寬，controls 落去下一行，
      唔係標題俾逼到逐字斷行。 */
   .heatmap-heading { align-items: flex-start; flex-direction: column; gap: 12px; }
+  /* column + flex-start 之下 inline-size container 會縮到 0 闊，要 stretch 攞返全寬 */
+  .heatmap-title { align-self: stretch; }
   .heatmap-controls { align-self: stretch; flex-wrap: wrap; }
   .desktop-ranking-table { display: none; }
-  .sheet-backdrop { position: fixed; inset: 0; z-index: 120; display: flex; align-items: flex-end; background: rgba(19, 19, 18, 0.5); animation: fade-in 170ms ease both; }
-  .bottom-sheet { width: 100%; max-height: min(88vh, 760px); overflow-y: auto; padding: 10px 22px calc(30px + env(safe-area-inset-bottom)); border-radius: 24px 24px 0 0; background: var(--sheet-bg); box-shadow: 0 -18px 50px rgba(15, 15, 14, 0.2); animation: sheet-in 170ms ease both; }
+  .sheet-backdrop { position: fixed; inset: 0; z-index: var(--z-modal); display: flex; align-items: flex-end; background: rgba(19, 19, 18, 0.5); }
+  .bottom-sheet { width: 100%; max-height: min(88svh, 760px); overflow-y: auto; padding: 10px 22px calc(30px + env(safe-area-inset-bottom)); border-radius: 24px 24px 0 0; background: var(--sheet-bg); box-shadow: 0 -18px 50px rgba(15, 15, 14, 0.2); }
   [data-theme="dark"] .bottom-sheet { box-shadow: 0 -18px 50px rgba(0, 0, 0, 0.6); }
   .sheet-handle { width: 38px; height: 4px; margin: 0 auto 8px; border-radius: 5px; background: var(--sheet-handle); }
   .sheet-close { min-width: 44px; min-height: 44px; display: block; margin: 0 0 10px auto; padding: 0 10px; border: 0; background: transparent; color: var(--sheet-close); font-size: 11px; }
@@ -1466,8 +2355,7 @@ html.theme-transitions .brand-logo-dark {
   .sheet-image { min-height: 270px; padding: 10px; border-radius: 18px; background: var(--sheet-image-bg); }
   .sheet-image img { max-height: 370px; }
   .detail-grid { display: block; grid-template-columns: none; }
-  .detail-header { padding-top: 0; }
-  .story-panel { padding: 26px; }
+  /* .detail-header / .story-panel 嘅手機 override 搬咗落佢哋 base rule 後面（source order 先生效） */
   .grader-page { padding-top: 30px; }
   .grader-ranking { padding-top: 48px; }
 }
@@ -1486,33 +2374,54 @@ html.theme-transitions .brand-logo-dark {
   .primary-nav { grid-column: 1 / -1; grid-row: 2; gap: 0 8px; }
   .market-controls { grid-column: 2; grid-row: 1; }
   .page-shell { padding-inline: 16px; }
-  .heatmap-section { grid-template-rows: auto minmax(0, 1fr) auto; padding: 16px 0 12px; }
-  .heatmap-heading { align-items: flex-start; flex-direction: column; gap: 12px; padding-bottom: 12px; }
-  .heatmap-heading h1 { font-size: clamp(28px, 8.2vw, 36px); line-height: 1.1; }
-  .period-selector { align-self: stretch; gap: 2px; padding: 3px; }
-  .period-selector button { min-width: 0; min-height: 36px; flex: 1; font-size: 12px; }
-  .heatmap-controls { align-self: stretch; flex-wrap: wrap; }
-  .heatmap-controls .period-selector { flex: 0 1 auto; min-width: 0; max-width: 152px; }
-  .heatmap-controls .period-selector button { min-width: 0; padding-inline: 8px; white-space: nowrap; }
-  .heatmap-export { order: 3; flex: none; width: auto; white-space: nowrap; }
-  .tile-slider { flex: 1 1 100%; }
+  /* Mobile first viewport: small heading -> compact controls row (slider as hero) -> big heatmap. */
+  .heatmap-section { grid-template-rows: auto minmax(0, 1fr) auto; padding: 8px 0 12px; }
+  .heatmap-heading { align-items: flex-start; flex-direction: column; gap: 4px; padding-bottom: 8px; }
+  .heatmap-heading h1,
+  /* clip-pad 對：padding-block 係 var(--clip-pad)，margin 一定要用同一個 token 抵返。
+     本來硬寫 0.16em，CJK 升到 0.24em 之後抵少咗 0.08em × 20px = 1.6px —— 390 度 CJK heading
+     實測高過 EN 1.61px（DOM 量到 149.98 vs 151.59），熱力圖偷咗嗰 1.6px。 */
+  .heatmap-heading h2 { margin-bottom: calc(4px - var(--clip-pad)); font-size: 20px; line-height: 1.15; }
+  .heatmap-total-cap { margin: 0; }
+  .heatmap-controls { align-self: stretch; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 4px; }
+  /* Row 1: tune toggle + Tiles slider stretched wide. */
+  .heatmap-tune-toggle { order: 1; width: 36px; height: 36px; border-radius: 12px; }
+  .tile-slider { order: 2; flex: 1 1 calc(100% - 44px); min-width: 0; min-height: 40px; padding: 4px 12px; border-radius: 12px; }
   .tile-slider-label { white-space: nowrap; }
-  .tile-slider input[type="range"] { flex: 1; width: auto; }
-  .heatmap-frame { border-radius: 18px; }
-  .heatmap-footer { align-items: flex-start; flex-direction: column; gap: 3px; }
+  /* 品牌 slider 樣式（thumb / track / fill）喺頂層；呢度只改 layout */
+  .tile-slider input[type="range"] { flex: 1; width: auto; min-width: 0; }
+  /* Row 2: compact period buttons + small Share. */
+  .heatmap-controls .period-selector { order: 3; flex: 1 1 auto; align-self: auto; justify-content: flex-start; gap: 2px; padding: 3px; border-radius: 12px; }
+  .heatmap-controls .period-selector button { flex: 1 1 auto; min-width: 0; min-height: 30px; padding: 0 6px; font-size: 11px; }
+  .heatmap-export { order: 4; flex: none; min-height: 36px; padding: 4px 12px; font-size: 12px; }
+  /* Period selectors in the ranking/detail area keep the stretch treatment. */
+  .ranking-heading .period-selector,
+  .detail-period-row .period-selector { align-self: stretch; }
+  .ranking-heading .period-selector button,
+  .detail-period-row .period-selector button { flex: 1 1 0; min-width: 0; padding-inline: 8px; white-space: nowrap; }
+  /* 改 token 唔好淨改 border-radius：角落 tile 要靠同一個數跟返個弧（見 .heatmap-tile[data-corner]） */
+  .heatmap-frame { --heatmap-frame-radius: 18px; }
+  /* 三粒 legend 手機一行放得晒（量過最長嗰個語言 296px < 360px 可用闊），
+     所以唔使再 column stack；padding 再收 2px 俾熱力圖。 */
+  .heatmap-footer { padding-top: 6px; }
   .heatmap-legend { flex-wrap: wrap; gap: 7px 12px; }
-  .legend-count { width: 100%; margin-left: 0; }
-  .ranking-heading { align-items: flex-start; flex-direction: column; gap: 12px; }
+  /* 手機 sticky 預算：h2 + kicker + lang-filter + period 成舊釘住會食走成三分一屏。
+     markup 冇獨立 chip row 可以單獨釘（chips 同 h2 同一個 div），所以整個 heading 唔釘。 */
+  .ranking-heading { position: static; align-items: flex-start; flex-direction: column; gap: 12px; }
+  /* column flex + align-items:flex-start → 包住 kicker/h2/lang-filter 嗰個 div 係 shrink-to-fit，
+     底下 width:100% 嘅 .lang-filter 就跟住 h2 文字闊度走（241/144/210/194px，四語言唔同）。 */
+  .ranking-heading > div { align-self: stretch; }
   .ranking-heading h2 { font-size: 24px; }
-  .ranking-heading .period-selector { width: 100%; }
+  .ranking-heading .period-selector { width: 100%; max-width: none; }
+  /* Ranking controls: one compact spec so every chip row shares the same size. */
+  .ranking-heading .period-selector { flex-wrap: nowrap; padding: 3px; border-radius: 12px; gap: 2px; }
+  .ranking-heading .period-selector button { min-height: 32px; font-size: 11px; padding-inline: 4px; }
+  .ranking-heading .lang-filter { width: 100%; flex-wrap: nowrap; padding: 3px; border-radius: 12px; gap: 2px; }
+  .ranking-heading .lang-filter button { flex: 1 1 0; min-width: 0; min-height: 32px; font-size: 11px; padding-inline: 4px; white-space: nowrap; }
+  /* .explore-* / .detail-* / .box-detail-art 嘅手機 override 搬咗落各自 base rule 後面（source order 先生效） */
   .rankings-section { min-height: 0; padding-top: 24px; }
   .sheet-card-layout { display: block; }
   .sheet-image { height: 280px; min-height: 0; margin-bottom: 18px; }
-  .detail-art { height: 330px; }
-  .detail-art img { padding: 16px; }
-  .detail-header h1 { font-size: 36px; line-height: 1.1; }
-  .detail-set { font-size: 14px; }
-  .story-panel > p:last-child { font-size: 14px; }
   .grader-hero { padding: 30px 24px; }
   .grader-hero h1 { font-size: 36px; line-height: 1.1; }
   .grader-share-body { grid-template-columns: minmax(0, 1fr); justify-items: center; padding-inline: 16px; }
@@ -1535,6 +2444,11 @@ html.theme-transitions .brand-logo-dark {
   border-radius: var(--section-radius);
   background: var(--detail-art-bg);
 }
+/* `<img width height>`（FE05 fix-state，防 CLS）係 presentational hint，兩軸各自俾 max-* clamp，
+   所以個 element box 會撐到容器咁大（390 闊 +149px）而唔係 contain 大細——**故意唔加 `height: auto`**：
+   實測（temp/fe05/final/mech_auto.json）一加返 auto，未 load 個盒又變返冇比例，CLS 由 0 彈返
+   0.026@390 / 0.058@768 / 0.032@1280。畫出嚟嘅圖（object-fit: contain）同 mask 幾何一樣，
+   螢幕截圖 byte-identical，所以個盒大咗係接受咗嘅代價。 */
 .detail-art img { max-width: 100%; max-height: 100%; padding: 26px; object-fit: contain; }
 .detail-rank {
   position: absolute;
@@ -1545,41 +2459,66 @@ html.theme-transitions .brand-logo-dark {
   background: var(--detail-rank-bg);
   color: var(--detail-rank-text);
   font-size: 11px;
-  font-weight: 650;
+  font-weight: var(--w-label);
 }
 .detail-content { min-width: 0; }
 .detail-header { padding-top: 6px; }
-.detail-header h1 { font-size: clamp(34px, 3.4vw, 48px); letter-spacing: -0.02em; }
+.detail-header h1 { font-size: clamp(34px, 3.4vw, 48px); letter-spacing: var(--track-name); }
 /* set 名後面跟印刷語言 badge，所以要 flex + gap（純文字行冇 gap 會黐埋個 pill） */
-.detail-set { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; color: var(--muted); font-size: 13px; }
+.detail-set { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; color: var(--muted); font-size: 15px; }
 .detail-period-row { margin: 18px 0 12px; }
+.detail-period-row .period-selector { max-width: min(100%, 360px); }
+/* 內頁手機 override 一定要跟喺 base 後面：之前擺喺上面嘅 980/680 block 入面，
+   同 specificity 一樣，俾後面嘅 base 冚死（全部 dead）。 */
+@media (max-width: 980px) {
+  .detail-header { padding-top: 0; }
+}
+@media (max-width: 680px) {
+  .detail-art { height: 330px; }
+  .detail-art img { padding: 16px; }
+  .detail-header h1 { font-size: 36px; line-height: 1.1; }
+  .detail-period-row .period-selector { width: 100%; max-width: none; }
+}
 .detail-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-.detail-metrics > div { min-width: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--surface-translucent); }
+.detail-metrics > div { min-width: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--surface-translucent); box-shadow: var(--elev-1); transition: transform 180ms var(--ease-standard), box-shadow 180ms var(--ease-standard); }
+@media (hover: hover) {
+  .detail-metrics > div:hover { transform: translateY(-1px); box-shadow: var(--elev-2); }
+}
 .detail-metrics .wide-metric { grid-column: span 2; }
-.detail-metrics span { display: block; margin-bottom: 5px; overflow: hidden; color: var(--dt-color); font-size: 9.5px; letter-spacing: 0.02em; text-overflow: ellipsis; white-space: nowrap; }
-.detail-metrics strong { display: block; overflow: hidden; font-size: 19px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
-.detail-metrics .metric-value-fit { font-size: clamp(13px, 1.35vw, 19px); }
-.detail-metrics .price-delta { margin-top: 4px; font-size: 10.5px; }
+.detail-metrics span { display: block; margin-bottom: 5px; overflow: hidden; color: var(--dt-color); font-size: 11px; letter-spacing: 0.02em; text-overflow: ellipsis; white-space: nowrap; }
+.detail-metrics strong { display: block; overflow: hidden; font-size: 22px; font-weight: var(--w-data); text-overflow: ellipsis; white-space: nowrap; }
+.detail-metrics .metric-value-fit { font-size: clamp(16px, 1.5vw, 22px); }
+/* WS3 count-up 將數值包咗一層 <span class="cap-ticker">，撞正上面「.detail-metrics span = 細字 label」嗰條——
+   市值 / PSA10 價 / POP 三格出街版一直係 9.5px 灰字（2026-08-17 owner 話「d 錢」睇唔清先揭發）。
+   呢度顯式還原：ticker 跟返 <strong> 嘅 size / colour。 */
+.detail-metrics strong > .cap-ticker { display: inline; margin: 0; overflow: visible; color: inherit; font-size: inherit; letter-spacing: inherit; white-space: inherit; }
+.detail-metrics .price-delta { margin-top: 4px; font-size: 12px; }
 .detail-metrics span sup { margin-left: 3px; color: var(--accent); font-size: 8px; }
 @media (max-width: 680px) {
   .detail-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
   .detail-metrics .wide-metric { grid-column: span 2; }
+  /* 手機兩欄：wide-metric 後面嗰格（RAW 參考價）唔准孤零零佔半行 */
+  .detail-metrics .wide-metric ~ div { grid-column: 1 / -1; }
   .detail-metrics > div { padding: 10px 8px; }
-  .detail-metrics strong { font-size: 14px; }
-  .detail-metrics .metric-value-fit { font-size: 11px; }
-  .detail-metrics .price-delta { font-size: 8px; letter-spacing: -0.02em; }
-  .detail-metrics .detail-price-now { font-size: 14px !important; }
+  /* owner 2026-08-17 字級手機／桌面統一：label 11 / delta 12 同桌面一樣；大數字 20（桌面 22）因為兩欄每格淨 ~150px */
+  .detail-metrics strong { font-size: 20px; }
+  .detail-metrics .metric-value-fit { font-size: 16px; }
+  .detail-metrics .detail-price-now { font-size: 20px !important; }
 }
 
-.story-panel { margin-top: 16px; padding: 20px 22px; border-radius: 16px; background: var(--soft); color: var(--story-panel-text); }
-.story-panel h2 { margin-bottom: 8px; font-size: 13px; }
-.story-panel > p:last-child { font-size: 13px; line-height: 1.65; }
+.story-panel { margin-top: 16px; padding: 24px 26px; border-radius: 16px; background: var(--soft); color: var(--story-panel-text); }
+.story-panel h2 { margin-bottom: 8px; font-size: 15px; }
+.story-panel > p { font-size: 15px; line-height: 1.7; white-space: pre-line; }
+.story-panel > p + p { margin-top: 12px; }
+@media (max-width: 980px) {
+  .story-panel { padding: 26px; }
+}
 .grader-supply-panel { margin-top: 18px; }
 .grader-supply-panel h2 { margin-bottom: 10px; font-size: 13px; }
 .grader-supply-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
 .grader-supply-grid > div { min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-translucent); }
-.grader-supply-grid span { display: block; margin-bottom: 4px; overflow: hidden; color: var(--dt-color); font-size: 9.5px; text-overflow: ellipsis; white-space: nowrap; }
-.grader-supply-grid strong { display: block; font-size: 15px; font-weight: 650; }
+.grader-supply-grid span { display: block; margin-bottom: 4px; overflow: hidden; color: var(--dt-color); font-size: var(--fs-micro); text-overflow: ellipsis; white-space: nowrap; }
+.grader-supply-grid strong { display: block; font-size: 15px; font-weight: var(--w-data); }
 .grader-supply-grid small { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
 @media (max-width: 680px) {
   .grader-supply-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
@@ -1594,16 +2533,109 @@ html.theme-transitions .brand-logo-dark {
   .grader-tabs { display: flex; width: 100%; justify-content: center; }
 }
 .empty-state { margin: 24px 0; padding: 18px; border: 1px dashed var(--line-strong); border-radius: var(--control-radius); color: var(--muted); font-size: 12px; }
+.empty-state p { margin: 0; }
+.empty-state p + p,
+.site-search-empty p + p { margin-top: 8px; }
+.empty-state-hint { font-size: 11px; line-height: 1.55; color: var(--dt-color); }
+/* 空狀態嘅唯一出路掣（分榜搜唔到 → 全站搜）：44px 命中區，唔靠 ::after 補 */
+.empty-state-action {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin-top: 8px;
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--control-radius);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: var(--w-label);
+  cursor: pointer;
+  transition: border-color 170ms ease, background 170ms ease;
+}
+.empty-state-action:focus-visible { border-color: var(--accent); }
+@media (hover: hover) {
+  .empty-state-action:hover { border-color: var(--accent); background: var(--soft); }
+}
+.site-search-hit {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  min-height: 64px;
+  padding: 8px 10px;
+  color: inherit;
+  text-decoration: none;
+  border-radius: 6px;
+}
+.site-search-hit .ranking-thumb { width: 42px; height: 60px; }
+.catalog-hit-copy { min-width: 0; display: grid; gap: 3px; }
+.catalog-hit-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: var(--w-name); }
+.catalog-hit-meta { display: flex; flex-wrap: wrap; gap: 0 10px; color: var(--muted); font-size: 11px; }
+@media (hover: hover) {
+  .site-search-hit:hover,
+  .site-search-hit[aria-selected="true"] { background: var(--table-row-hover); }
+}
+.site-search { position: relative; }
+.site-search-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: var(--z-overlay);
+  width: min(420px, calc(100vw - 32px));
+  padding: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--control-radius);
+  background: var(--surface-translucent-strong);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: var(--elev-3);
+}
+.site-search-field {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--control-bg);
+}
+.site-search-field:focus-within { border-color: var(--line-strong); }
+.site-search-field input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+.site-search-field input::placeholder { color: var(--muted); }
+.site-search-field input::-webkit-search-cancel-button,
+.site-search-field input::-webkit-search-decoration { -webkit-appearance: none; appearance: none; display: none; }
+.site-search-hits { list-style: none; margin: 8px 0 0; padding: 0; }
+/* 門檻提示：常駐喺輸入框下面，細過 hit 行、貼住框，讀落係註腳唔係結果。 */
+.site-search-note { margin: 8px 4px 0; color: var(--muted); font-size: 11.5px; line-height: 1.35; }
+.site-search-empty { margin: 10px 4px 2px; color: var(--muted); font-size: 12px; }
+.site-search-empty p { margin: 0; }
+@media (max-width: 680px) {
+  .site-search-panel { position: fixed; top: calc(var(--header-height) + env(safe-area-inset-top)); right: 12px; left: 12px; width: auto; }
+  .site-search-field input { font-size: 16px; }
+}
 .empty-detail { padding: 60px 0; }
-.data-time { margin-top: 10px; color: var(--muted); font-size: 10px; }
+.data-time { margin-top: 10px; color: var(--muted); font-size: 11.5px; }
 .identity-list { display: flex; flex-wrap: wrap; gap: 10px 26px; margin: 10px 0 0; }
-.identity-list dt { color: var(--dt-color); font-size: 10px; }
-.identity-list dd { margin: 0; font-family: "SF Mono", "Roboto Mono", ui-monospace, monospace; font-size: 11px; }
+.identity-list dt { color: var(--dt-color); font-size: 11.5px; }
+.identity-list dd { margin: 0; font-family: var(--font-mono); font-size: 13px; }
 .detail-page { padding-top: 40px; }
-.back-link { display: inline-flex; align-items: center; min-height: 44px; color: var(--muted); font-size: 12px; }
-.back-link:hover { color: var(--ink); }
+.back-link { display: inline-flex; align-items: center; min-height: 44px; color: var(--muted); font-size: 13px; transition: color 170ms ease, transform 180ms var(--ease-standard); }
+@media (hover: hover) {
+  .back-link:hover { color: var(--ink); transform: translateX(-2px); }
+}
 .history-heading { padding-top: 28px; }
-.chart-legend { display: flex; gap: 14px; padding-top: 8px; color: var(--muted); font-size: 10px; }
+.chart-legend { display: flex; gap: 14px; padding-top: 8px; color: var(--muted); font-size: 12px; }
 .chart-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .grader-tabs { position: relative; display: inline-flex; gap: 0; margin-top: 14px; padding: 4px; border: 1px solid var(--line); border-radius: 16px; background: var(--soft); }
 /* 滑動 pill：跟住 active tab 走，transition 負責滑動效果 */
@@ -1639,8 +2671,8 @@ html.theme-transitions .brand-logo-dark {
   .grader-tab-pill, .grader-tabs a { transition: none; }
 }
 .mobile-card-pop {
-  /* graders 版：pop 數係主角之一，同 market cap 同級，唔係最細字 */
-  color: var(--ink);
+  /* 手機 row 第三行 PSA10 pop：同 market cap 同級大細，但用 muted 唔搶價錢 */
+  color: var(--muted);
   font-size: 11px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -1650,7 +2682,9 @@ html.theme-transitions .brand-logo-dark {
 }
 
 @media (max-width: 430px) {
-  :root { --header-height: 120px; }
+  /* 真實 header：4 + 48（brand row）+ 32（nav row）+ 4 = 88，留 4px 呼吸 → 92（+1px border 唔計，同 desktop 68 一致）。
+     舊值 120 係 header-inner min-height 自己撐大出嚟，heatmap 白白蝕咗 28px。 */
+  :root { --header-height: 92px; }
   .header-inner {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-rows: 48px auto;
@@ -1658,11 +2692,12 @@ html.theme-transitions .brand-logo-dark {
     padding: 4px 14px;
   }
   .brand { grid-column: 1; grid-row: 1; justify-self: start; display: inline-flex; align-items: center; gap: 6px; }
-  .brand-logo { height: 24px; }
-  .brand-logo-fe02 { height: 34px; }
-  .brand-beta { flex: none; padding: 2px 4px; font-size: 8px; }
+  .brand-logo { height: 34px; }
   .market-controls { grid-column: 2; grid-row: 1; justify-content: flex-end; justify-self: end; }
   .market-controls .select-control { flex: none; padding-inline: 7px; }
+  /* 兩粒 icon 掣係真 44px 方格，唔跟上面 7px 收窄 */
+  .market-controls .theme-toggle,
+  .market-controls .updown-toggle { padding-inline: 0; }
   .primary-nav {
     grid-column: 1 / -1;
     grid-row: 2;
@@ -1672,73 +2707,77 @@ html.theme-transitions .brand-logo-dark {
     width: 100%;
     gap: 0 6px;
   }
-  .primary-nav a { min-height: 32px; font-size: 10px; white-space: nowrap; padding-inline: 1px; }
+  .primary-nav a { min-height: 32px; font-size: 14px; white-space: nowrap; padding-inline: 1px; }
+  .primary-nav .updown-toggle-nav { min-width: 32px; min-height: 32px; border-radius: 10px; }
+}
+@media (max-width: 400px) {
+  /* 360 闊 + ja「日本語」語言掣：四粒掣 265px 會逼細 logo（實測 79→59）；收 gap / padding / icon 掣闊度慳 18px，
+     logo 保得住 34px 高嘅原生比例（79px 闊）。320 闊仍然唔夠，接受（iPhone SE 1 代級數）。 */
+  .market-controls { gap: 6px; }
+  .market-controls .select-control { padding-inline: 6px; }
+  .market-controls .theme-toggle,
+  .market-controls .site-search-toggle { min-width: 40px; padding-inline: 0; }
   .heatmap-section { height: calc(100vh - var(--header-height)); height: calc(100svh - var(--header-height)); min-height: 0; grid-template-rows: auto minmax(0, 1fr) auto; }
-  .hero-section h1 { font-size: 37px; }
+  .hero-section h1 { font-size: 28px; }
   .detail-art { height: 280px; }
   .history-heading { padding-inline: 16px; }
   .chart-legend { padding-inline: 16px; }
-  .mobile-rank-card { display: grid; grid-template-columns: 26px 34px minmax(0, 1fr) auto 48px; gap: 8px; padding-inline: 12px; }
-  /* 5 欄：rank / thumb / 卡名(中間) / 價錢+升跌 / 成交圖(最右) */
-  .mobile-rank-card .sparkline { grid-column: 5; align-self: center; justify-self: end; width: 48px; height: 16px; }
+  /* 5 欄 grid 喺 980 block 定義；呢度只收窄 gap / gutter */
+  .mobile-list-header, .mobile-rank-card { gap: 8px; padding-inline: 12px; }
 }
 
-@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
-@keyframes sheet-in { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
 
 /* ── UI experiments 2026-07-25（branch ui-experiments-20260725）── */
 
 /* interactionkit spring button：撳落去縮一放，回彈帶少少 overshoot */
 .primary-action,
 .heatmap-export,
-.share-button,
-.ranking-jump {
+.share-button {
   transition: background 170ms ease, border-color 170ms ease, color 170ms ease,
     transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .primary-action:active,
 .heatmap-export:active,
-.share-button:active,
-.ranking-jump:active { transform: scale(0.94); }
+.share-button:active { transform: scale(0.98); }
+/* FE05 WS3（Interaction Kit）：scale(.98) 上面已經有，撳落嗰下再收埋一層陰影，
+   而且 press 用 120ms（快過回彈嗰 220ms spring）—— 落手要即刻應，鬆手先慢慢彈返。
+   只落 .primary-action：另外三個係細 chip，加陰影會喺熱力圖頂搶眼。 */
+.primary-action { transition-property: background, border-color, color, transform, box-shadow; }
+.primary-action:active { box-shadow: var(--elev-1); transition-duration: 120ms; }
+/* 共用 pressed feel（touch 冇 hover，靠呢下俾反應）：控件輕縮，行用 background 閃 */
+.heatmap-tile:active,
+.period-selector button:active,
+.lang-filter button:active,
+.explore-sort-chips button:active,
+.select-trigger:active,
+.theme-toggle:active,
+.updown-toggle:active,
+.heatmap-tune-toggle:active,
+.box-show-more:active,
+.watchlist-pager a:active,
+.primary-nav a:active { transform: scale(0.985); }
 
-/* interactionkit tooltip 移植：hover 開、80ms delay 收，bubble fixed 對準 trigger（表頭 overflow hidden） */
-.tooltip { position: relative; display: inline-flex; margin-left: 4px; vertical-align: middle; }
-.tooltip-trigger {
-  width: 16px;
-  height: 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 1px solid var(--line-strong);
-  border-radius: 50%;
-  background: transparent;
-  color: var(--dt-color);
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 1;
-}
-.tooltip-trigger:hover,
-.tooltip-trigger[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
-.tooltip-bubble {
-  position: fixed;
-  z-index: 60;
-  width: 210px;
-  padding: 10px 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: 12px;
-  background: var(--preview-bg);
-  box-shadow: var(--shadow);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
-  color: var(--ink);
-  font-size: 11px;
-  font-weight: 400;
-  letter-spacing: 0;
-  line-height: 1.5;
-  text-align: left;
-  text-transform: none;
-  white-space: normal;
+/* touch 44px 命中區：視覺尺寸唔郁，用 ::after 向外擴（compact chip 32px → 44px）。
+   icon 掣（theme / updown / tune）本身已係真 44px。 */
+@media (hover: none) {
+  /* header select：成個 44px .select-control 都可以撳開 menu（.select-control 已係 position:relative） */
+  .select-trigger::after { content: ""; position: absolute; inset: 0; }
+  /* nav link：::after 已經係底線，用 ::before */
+  .primary-nav a::before { content: ""; position: absolute; inset: -6px -4px; }
+  .explore-sort-chips button,
+  .heatmap-export,
+  .heatmap-tune-toggle,
+  .explore-clear { position: relative; }
+  .explore-sort-chips button::after,
+  .explore-active-chips button::after,
+  .period-menu-trigger::after,
+  .lang-filter button::after,
+  .period-selector button::after { content: ""; position: absolute; inset: -6px 0; }
+  .heatmap-controls .period-selector button::after { inset: -7px 0; }
+  .heatmap-export::after,
+  .heatmap-tune-toggle::after { content: ""; position: absolute; inset: -4px; }
+  /* ✕ 本身 32×42（跟框），::after 溢出 1px/6px 補到 44×44，唔影響 row 高度 */
+  .explore-clear::after { content: ""; position: absolute; inset: -1px -6px; }
 }
 
 /* moumen ticket ticker：卡詳情頁市值數字 0 滾到目標值 */
@@ -1761,6 +2800,9 @@ html.theme-transitions .brand-logo-dark {
   .mobile-rank-card:focus-visible,
   .primary-action:hover,
   .primary-action:focus-visible { transform: none; }
+  /* FE05 WS3 sibling：press 態嘅縮同陰影一齊收（全局 block 只壓時間，唔會取消個 transform） */
+  .primary-action:active { transform: none; box-shadow: none; }
+  .explore-dir-icon { transition: none; }
 }
 
 /* ── 404 + prestige tagline（ui-experiments-20260725 移植）───── */
@@ -1768,8 +2810,21 @@ html.theme-transitions .brand-logo-dark {
 .not-found h1 { margin-bottom: 16px; font-size: clamp(36px, 5vw, 68px); }
 .not-found .primary-action { margin-top: 28px; }
 .site-footer .prestige-tagline,
-.not-found .prestige-tagline { margin: 16px 0 0; color: var(--footer-methodology-text); font-size: 11px; font-weight: 500; letter-spacing: 0.1em; line-height: 1.6; opacity: 0.8; }
+.not-found .prestige-tagline { margin: 16px 0 0; color: var(--footer-methodology-text); font-size: 11px; font-weight: var(--w-quiet); letter-spacing: var(--track-sentence); line-height: 1.6; opacity: 0.8; }
 .not-found .prestige-tagline { margin-top: 24px; max-width: 65ch; }
+/* error.tsx：重試掣 + 返首頁並排，窄屏直排 */
+.error-page-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+.not-found .error-page-actions .primary-action { margin-top: 0; }
+button.primary-action { border: 0; }
+.error-page-home { background: var(--surface); color: var(--ink); border: 1px solid var(--line); }
+.error-page-home:focus-visible { background: var(--soft); color: var(--ink); }
+@media (hover: hover) {
+  .error-page-home:hover { background: var(--soft); color: var(--ink); }
+}
+@media (max-width: 640px) {
+  .error-page-actions { flex-direction: column; align-items: stretch; }
+  .error-page-actions .primary-action { width: 100%; }
+}
 
 /* ── 印刷版本：語言 badge／identity chips／語言篩選 ─────────────────────
  * 全部頂層 selector，唔准搬入 @media —— .mobile-change-badge 就係困死喺
@@ -1785,7 +2840,7 @@ html.theme-transitions .brand-logo-dark {
   background: var(--print-badge-neutral-bg);
   color: var(--print-badge-neutral-text);
   font-size: 11px;
-  font-weight: 650;
+  font-weight: var(--w-label);
   letter-spacing: 0.01em;
   line-height: 1;
   white-space: nowrap;
@@ -1812,7 +2867,7 @@ html.theme-transitions .brand-logo-dark {
   border-radius: 999px;
   background: var(--print-chip-bg);
   color: var(--print-chip-text);
-  font-size: 10px;
+  font-size: var(--fs-micro);
   font-weight: 600;
   letter-spacing: 0.02em;
   line-height: 1.6;
@@ -1840,9 +2895,11 @@ html.theme-transitions .brand-logo-dark {
   color: var(--control-idle);
   font-size: 12px;
   font-weight: 600;
-  transition: color 170ms ease;
+  transition: color 170ms ease, transform 90ms ease;
 }
-.lang-filter button:hover { color: var(--ink); }
+@media (hover: hover) {
+  .lang-filter button:hover { color: var(--ink); }
+}
 .lang-filter button[aria-pressed="true"] { color: var(--ink); }
 /* 個 pill 都係 button 嘅直屬 span，唔排除佢就會俾呢條規則覆蓋成 position: relative，
    膠囊即刻由背景變成一嚿撐大 button 嘅方塊。 */
@@ -1855,8 +2912,372 @@ html.theme-transitions .brand-logo-dark {
   background: var(--surface);
   box-shadow: var(--print-pill-shadow);
 }
-/* 榜標題底下獨立一行，唔好逼死右邊 sticky 嘅 PeriodSelector */
-.ranking-heading .lang-filter { margin-top: 10px; }
+/* 榜標題底下獨立一行，唔好逼死右邊 sticky 嘅 PeriodSelector。
+   margin 掛喺個 row 度唔係掛喺 .lang-filter：而家一行入面有兩條分段掣
+   （語言 + 每頁數量），逐條掛就會喺 wrap 之後多咗一段冇人要嘅空隙。 */
+.ranking-heading .ranking-filter-row { margin-top: 10px; }
+.ranking-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+/* 「每頁」嗰個字唔係掣，唔可以食 `.lang-filter button` 嗰份 min-height／padding，
+   所以自己一條規則。放喺膠囊入面（唔係外面）先睇得出佢係講緊呢組掣。 */
+.page-size-filter .page-size-label,
+.page-size-filter .page-size-loaded {
+  color: var(--muted);
+  font-size: var(--fs-micro);
+  font-weight: var(--w-label);
+  letter-spacing: var(--track-th);
+  white-space: nowrap;
+}
+.page-size-filter .page-size-label { padding-inline: 8px 2px; }
+/* 「已載入 500」——同「每頁」對稱擺喺膠囊另一端，中間留條淡線分開「你揀嘅設定」
+   同「而家實際幾多行」兩件事（owner 2026-08-18：碌到 500 返上頂見唔到 500）。 */
+.page-size-filter .page-size-loaded {
+  margin-inline-start: 2px;
+  padding-inline: 8px;
+  border-inline-start: 1px solid var(--line);
+}
+.explore-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin: 0 0 14px;
+}
+.explore-search {
+  flex: 1 1 240px;
+  min-width: 0;
+  /* 固定 44px（border-box）：✕ 出現／消失都唔准撐高個框。
+     子元素一律唔准做高度來源 —— 舊時 .explore-clear 嘅 min-height:44 令個框變 46px。 */
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 0 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--control-bg);
+  transition: border-color 170ms ease;
+}
+.explore-search:focus-within { border-color: var(--line-strong); }
+.explore-search-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+.explore-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+.explore-search input::placeholder { color: var(--muted); }
+/* 原生 search 嘅 X 收起，用自己個 .explore-clear（icon 掣、跟框 42px，命中區 44px） */
+.explore-search input::-webkit-search-cancel-button,
+.explore-search input::-webkit-search-decoration { -webkit-appearance: none; appearance: none; display: none; }
+.explore-clear {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  /* 跟住 44px 個框拉滿（42px 內容區），唔准反過嚟撐高佢；44px 命中區靠下面嘅 ::after */
+  align-self: stretch;
+  margin-right: -8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--control-idle);
+  cursor: pointer;
+  transition: color 170ms ease;
+}
+.explore-clear:focus-visible { color: var(--ink); }
+@media (hover: hover) {
+  .explore-clear:hover { color: var(--ink); }
+}
+/* "/" 快捷鍵提示：得有 pointer 嘅裝置先出，focus 入去就收（JS 有 value 時亦收） */
+.explore-kbd { display: none; }
+@media (hover: hover) {
+  .explore-kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    border: 1px solid var(--line-strong);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--muted);
+    /* `font:` shorthand 會**重設**冇寫嘅 font-* 子屬性（font-variant / font-stretch / …），
+       而且直接寫死一條 mono stack，繞過 `--font-mono`（Windows 果度先至有 Cascadia / Consolas）。
+       拆返做逐個屬性 = 同全站行同一條 stack。 */
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: var(--w-heading);
+    line-height: 1;
+    pointer-events: none;
+  }
+  .explore-search:focus-within .explore-kbd { display: none; }
+}
+/* 計數入框（.explore-search 內、✕ 左邊）：唔准做高度來源，個框固定 44px。
+   Phase C 起桌面都行呢個 slot —— 獨立一行 `.explore-count` 同「清除搜尋」掣已拆走。 */
+.explore-inline-count {
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* 手機排序掣：同搜尋框同一行、同一高度（44px border-box） */
+.explore-sort-trigger {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 44px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--control-bg);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 170ms ease;
+}
+.explore-sort-trigger:focus-visible { border-color: var(--line-strong); }
+/* 非預設篩選嘅紅點：掣個 label 唔夠位講晒（「排序 · 價格」已經係全長） */
+.explore-sort-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.explore-active-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.explore-active-chips button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--control-radius);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+/* 時段 popover：住喺 .ranking-heading 右邊（同 h2 同一行），唔再自己霸一行 */
+.period-menu { position: relative; flex: none; }
+.period-menu-trigger {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--soft);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+/*
+ * 六個時段行 3×2 等闊格（以前係一條直行，每粒跟字寬，長短不一睇落似壞咗）。
+ * 外殼照用 .select-menu（surface / border / elev / right:0 對齊 trigger 右邊 /
+ * prefers-reduced-motion 收動畫都喺嗰度），呢度只改格局。
+ */
+.period-menu-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  width: max-content;
+  min-width: 180px;
+  /* 360px 都要留喺畫面內：page-shell 手機 gutter 16px ×2 */
+  max-width: calc(100vw - 32px);
+  padding: 5px;
+  /*
+   * 實色底，同 .select-menu 一樣（兩個 popover 都喺 backdrop root 之下，backdrop-filter
+   * 冇效果，所以唔可以靠 --surface-translucent-strong 嗰個 alpha .82）。
+   * 父層 .ranking-heading 自己有 backdrop-filter → 佢係 backdrop root，popover 嘅
+   * backdrop-filter 根本 sample 唔到 heading 以外嘅嘢（搜尋列／「走勢」表頭），
+   * 所以得返 .82 alpha 蓋住未 blur 嘅字 = 睇穿（owner 2026-08-17 截圖）。
+   * 收埋 backdrop-filter：喺 backdrop root 入面冇效果，淨係逼多次 repaint。
+   */
+  z-index: var(--z-overlay);
+  background: var(--surface);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+/*
+ * 選項底色一定要明寫。<button> 冇 background 就跌返 UA `buttonface`，而 buttonface
+ * 跟 OS color-scheme（layout 出 <meta name="color-scheme" content="light dark">），
+ * **唔跟**站內 data-theme —— 淺色主題配深色系統就變咗黑底深灰字（owner 2026-08-17 截圖）。
+ * 選中態同桌面 .period-pill 同一套語言：--surface 底 + --ink 字。
+ */
+.period-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--control-radius);
+  background: transparent;
+  color: var(--period-idle);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: color 170ms ease, border-color 170ms ease, background 170ms ease;
+}
+.period-option[aria-selected="true"] {
+  border-color: var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+.period-option:focus-visible { border-color: var(--accent); }
+@media (hover: hover) {
+  .period-option:hover { border-color: var(--line-strong); color: var(--ink); }
+}
+.explore-sort-chips {
+  display: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.explore-sort-chips button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--soft);
+  color: var(--control-idle);
+  font-size: 12px;
+  font-weight: 600;
+  transition: color 170ms ease, border-color 170ms ease, background 170ms ease, transform 90ms ease;
+}
+.explore-sort-chips button[aria-pressed="true"] { color: var(--ink); border-color: var(--line-strong); background: var(--surface); }
+@media (hover: hover) {
+  .explore-sort-chips button:hover { color: var(--ink); border-color: var(--line-strong); background: var(--surface); }
+}
+/* 手機 explore bar：一定要喺 base 後面（同 specificity，source order 決勝）。
+   input 16px：iOS focus 唔會 zoom；框高度用返 base 嘅固定 44px，手機唔再縮細（有／冇 ✕ 同高）。 */
+@media (max-width: 680px) {
+  /* chips 唔准 wrap，亦唔准 clip 走 .explore-dir：橫向 scroll 保底（Phase B 拆走 chips 後可以刪）。
+     padding/margin ±6px：留位俾 button::after 嘅 44px 命中區，唔會變咗垂直 scroll。 */
+  .explore-sort-chips {
+    flex-wrap: nowrap;
+    gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-block: 6px;
+    margin-block: -6px;
+  }
+  .explore-sort-chips button { min-height: 32px; font-size: 11px; padding-inline: 10px; }
+  /* 方向掣個 label 唔准摺行：摺咗就縮到細過 min-content，scroll 都救唔返 */
+  .explore-dir span { white-space: nowrap; }
+  .explore-search input { font-size: 16px; }
+  /*
+   * Phase B 一行版：搜尋框 + 排序掣同一行。
+   * `.explore-search` 要覆蓋 @media(max-width:980px) 嗰句 `flex-basis: 100%`（specificity
+   * 0,2,0 > 0,1,0，唔靠 source order），唔係喺 360px 排序掣會被逼落第二行。
+   */
+  .explore-bar-lean { gap: 8px; }
+  .explore-bar-lean .explore-search { flex: 1 1 0; min-width: 0; }
+  .explore-bar-lean .explore-active-chips { flex-basis: 100%; }
+  /* 第一張卡要喺 320px 內入畫（設計稿驗收 a）。淨係改英文表頭嘅話五個 locale 都啱啱好
+     319px、得返 1px 餘裕 —— 再收窄搜尋列／toolbar／表頭之間嘅留白，留返 9px（311px）
+     俾之後嘅字體同 translation 變化，唔使每次改文案都重新度過。 */
+  .explore-bar { margin-bottom: 10px; }
+  .mobile-list-header { padding-block: 5px; }
+  /*
+   * 標題行返返一行（owner 2026-08-17）：h2 左、時段掣右，垂直置中。
+   * ≤980 嗰段將 .ranking-heading 拆咗做直行（嗰陣右邊仲係六粒掣嘅 PeriodSelector，
+   * 一行擺唔落）；≤680 收埋咗做一粒 popover trigger，就唔使再食多一行。
+   * 同 specificity，靠 source order 蓋返 ≤980 嗰段。
+   */
+  .ranking-heading { flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; }
+  /* ≤980 嗰段寫嘅 `.ranking-heading > div{align-self:stretch}` 而家會夾埋 .period-menu 一齊中
+     （佢都係 <div>，而且 selector 0,1,1 高過 .period-menu 0,1,0，唔係 source order 可以蓋）：
+     結果個掣被拉高到行頂、又跟住 flex-grow 離開咗右邊 10px。所以兩個細佬要分開寫。 */
+  .ranking-heading > div:first-child { flex: 1 1 auto; min-width: 0; align-self: auto; }
+  /* 貼住 h2 個底行（同桌面 .ranking-heading{align-items:end} 一樣）：跟成舊 heading 置中
+     會高過 h2 文字 12px（kicker 拉高咗個 block），貼底之後同 h2 中線只差 4px。 */
+  .ranking-heading > .period-menu { flex: none; align-self: flex-end; }
+  /* 搜尋模式釘住 toolbar：site-header 係 sticky，佢嘅實高 = --header-height + safe-area */
+  .explore-bar-sticky {
+    position: sticky;
+    top: calc(var(--header-height) + env(safe-area-inset-top));
+    z-index: 30;
+    padding-block: 8px;
+    margin-bottom: 6px;
+    background: var(--paper);
+  }
+  /* 搜尋模式：kicker 收起、h2 縮成一行，張榜早啲入畫 */
+  .ranking-heading[data-searching="true"] { gap: 6px; }
+  .ranking-heading[data-searching="true"] .section-kicker { display: none; }
+  .ranking-heading[data-searching="true"] h2 { font-size: 15px; }
+}
+.explore-dir { display: inline-flex; align-items: center; gap: 5px; }
+/* FE05 WS3（Interaction Kit）：排序方向唔再換一個 icon component，永遠出 ArrowUp，
+   由 CSS 轉 180° —— 換 icon 係「消失＋出現」，轉係「同一支箭調轉頭」，睇得明啲。 */
+.explore-dir-icon { flex: none; transition: transform var(--control-transition); }
+.explore-dir[data-dir="desc"] .explore-dir-icon { transform: rotate(180deg); }
+.sort-th {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  transition: color 170ms ease;
+}
+@media (hover: hover) {
+  .sort-th:hover { color: var(--ink); }
+}
+.desktop-ranking-table th.numeric .sort-th { justify-content: flex-end; width: 100%; }
+.sort-caret { flex: none; opacity: 0.32; }
+.sort-caret-active { opacity: 1; color: var(--accent); }
+@media (prefers-reduced-motion: reduce) {
+  .explore-search, .explore-clear, .explore-sort-chips button, .sort-th { transition: none; }
+}
+@media (max-width: 980px) {
+  .explore-sort-chips { display: flex; }
+  .explore-search { flex-basis: 100%; }
+}
 /* 編號 cell：chips 另起一行，set code 唔可以睇落似 collector number 嘅一部分 */
 .collector-cell .print-chips { display: flex; margin-top: 4px; }
 .watchlist-pager {
@@ -1880,8 +3301,48 @@ html.theme-transitions .brand-logo-dark {
   background: var(--soft);
   color: var(--ink);
   text-decoration: none;
+  transition: background 170ms ease, transform 90ms ease;
 }
-.watchlist-pager a:hover { background: var(--surface); }
+.watchlist-pager a[data-active="true"] {
+  border-color: var(--line-strong);
+  background: var(--surface);
+}
+.ranking-pager { flex-wrap: wrap; }
+.ranking-page-sizes { display: inline-flex; align-items: center; gap: 8px; }
+.ranking-show-more { padding-inline: 14px; min-width: auto; }
+/* 「返回頂部」（owner 2026-08-18 要求擺喺榜尾呢排掣度）。食返 `.watchlist-pager a`
+   嗰份 36×36 底，只加返個字嘅左右位。 */
+.ranking-to-top { gap: 6px; padding-inline: 12px; min-width: auto; }
+@media (max-width: 680px) {
+  /* 手機呢一行已經有 5 個數量掣 + ‹ › + 「展示更多」，個字收埋剩返支箭嘴。
+     `aria-label` 一直都喺 `<a>` 度，所以讀屏冇損失。 */
+  .ranking-to-top-text { display: none; }
+  .ranking-to-top { padding-inline: 0; }
+}
+/* 「碌到底接落去」嘅觸發線（ranking-pager.tsx）。**唔可以 `display:none`**——
+   `display:none` 嘅元素冇 box，IntersectionObserver 永遠唔會 fire，成個自動接落去
+   會靜靜死咗而畫面睇唔出分別。所以留返一粒 1px 高、完全透明嘅 box。 */
+.ranking-feed-sentinel {
+  width: 100%;
+  height: 1px;
+  margin: 0;
+  pointer-events: none;
+}
+/* 讀屏公告專用：唔准佔位（否則接緊嗰陣個 pager 會跳一跳），但要留喺 a11y tree 入面，
+   所以用 clip 唔用 display:none。 */
+.ranking-feed-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@media (hover: hover) {
+  .watchlist-pager a:hover { background: var(--surface); }
+}
 .watchlist-pager > span[aria-hidden="true"] {
   display: inline-flex;
   align-items: center;
@@ -1889,4 +3350,390 @@ html.theme-transitions .brand-logo-dark {
   min-width: 36px;
   min-height: 36px;
   opacity: 0.35;
+}
+.box-controls { margin: 4px 0 18px; }
+.box-group-selector { flex-wrap: wrap; }
+.box-thumb { padding: 3px; border-radius: 8px; background: var(--soft); box-shadow: var(--elev-1); }
+.box-thumb img { border: 0; object-fit: contain; filter: none; }
+.box-sub-row, .ranking-sub-row { display: flex; align-items: center; gap: 6px; min-width: 0; margin-top: 3px; }
+.box-set-chip { color: var(--muted); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.02em; white-space: nowrap; }
+.box-status-chip { padding: 2px 7px; border-radius: 999px; background: var(--print-badge-neutral-bg); color: var(--print-badge-neutral-text); font-size: 10px; font-weight: 600; line-height: 1; white-space: nowrap; }
+.box-muted-row { opacity: 0.55; }
+.box-show-more {
+  display: block;
+  width: 100%;
+  margin: 16px 0;
+  padding: 14px 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--control-radius);
+  background: var(--surface-translucent);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 200ms ease, border-color 200ms ease, transform 90ms ease;
+}
+@media (hover: hover) {
+  .box-show-more:hover {
+    background: var(--surface);
+    border-color: var(--accent);
+  }
+}
+.box-show-more:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+.box-price-native { display: block; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.box-detail-art img { padding: 32px; }
+/* 手機 override 要跟喺 base 後面（之前困喺上面 680 block，dead） */
+@media (max-width: 680px) {
+  .box-detail-art img { padding: 20px; }
+}
+html.theme-transitions .box-thumb { transition: background-color 240ms cubic-bezier(0.33, 1, 0.68, 1); }
+
+/* FE01 浮現特效：box / watchlist hero + group filter 用。
+   手機唔玩浮現（第一屏要即刻見到 group tabs），所以 fade-up 只係桌面先有。 */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-up { animation: fade-up 700ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.fade-up-desktop { }
+.hover-lift { transition: transform 180ms var(--ease-standard), box-shadow 180ms var(--ease-standard); }
+@media (hover: hover) {
+  .hover-lift:hover { transform: translateY(-2px); }
+}
+.hover-lift:active { transform: translateY(0); }
+
+/* 原盒 group filter 嘅浮現淨係桌面先有：手機第一屏要即刻見到 group tabs。 */
+@media (min-width: 981px) {
+  .fade-up-desktop { animation: fade-up 700ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fade-up, .fade-up-desktop { animation: none; }
+  .hover-lift { transition: none; }
+  .hover-lift:hover { transform: none; }
+  .heatmap-tile { animation: none; }
+  /* animationend 唔會 fire，will-change 要喺呢度自己拆 */
+  .heatmap-tile[data-late] { will-change: auto; }
+  .select-menu, .select-menu-exit { animation: none; }
+  /* 兩條都要寫：`.share-menu-panel.select-menu-exit` 係 0,1,1，單靠下面條 0,1,0
+     嘅 `animation: none` 蓋唔到佢（specificity 贏過 source order）。 */
+  .share-menu-panel, .share-menu-panel.select-menu-exit { animation: none; }
+  .share-menu-chevron { transition: none; }
+  .copy-icon-busy svg { animation: none; }
+  .skip-link { transition: none; }
+  .detail-metrics > div { transition: none; }
+  .detail-metrics > div:hover { transform: none; }
+  .back-link { transition: none; }
+  .back-link:hover { transform: none; }
+}
+
+/* ── 首屏可引用段（GEO，owner 2026-08-16）──
+   hero 下面嗰 3–5 行定義／as-of／市況／消歧義。首頁聲線係 art first，所以呢舊字
+   刻意細一級、用 --hero-copy 淡色：畀引擎同第一次嚟嘅人一句答案，唔准搶熱力圖。
+   闊度同 .hero-copy 一樣（780px），兩段字唔會左右對唔齊。 */
+.intro-block {
+  width: min(100%, 780px);
+  margin-top: 14px;
+  color: var(--hero-copy);
+  font-size: 13.5px;
+  line-height: 1.6;
+  letter-spacing: -0.006em;
+  text-wrap: pretty;
+}
+/* summary 一行：as-of 日期常駐可見；用 ▸/▾ 自己畫，唔用 UA marker（跨瀏覽器樣式一致）。 */
+.intro-block > summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  font-size: 13px;
+  user-select: none;
+}
+.intro-block > summary::-webkit-details-marker { display: none; }
+.intro-block > summary::before {
+  content: "";
+  width: 0; height: 0;
+  border-left: 5px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  opacity: 0.7;
+  transition: transform 160ms ease;
+}
+.intro-block[open] > summary::before { transform: rotate(90deg); }
+.intro-block > summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; border-radius: 3px; }
+.intro-body { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
+.intro-block p { margin: 0; }
+.intro-block a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+.intro-links { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+@media (max-width: 980px) {
+  /* 手機：熱力圖係第一屏主角，所以 hero 收窄留白、intro 再細一級。 */
+  .market-page-shell .hero-section { padding: 18px 0 22px; }
+  .intro-block { margin-top: 10px; font-size: 12.5px; }
+  .intro-body { gap: 4px; }
+}
+
+/* ── Desktop fill（owner 2026-08-17：「只搞電腦版，放返大啲嘢，佔晒啲位；用盡佢，再留少少呼吸位」）──
+   ≥981 先生效，≤980 手機一律唔郁（owner：「黎緊唔好搞手機」）。
+   1. 1440px cap 拆走：shell 跟 viewport 行，gutter = clamp(32px, 3vw, 72px)（1440→43 / 1920→58 / 2560→72），
+      2400px 先封頂（3440 ultra-wide 唔使成行字拉到天邊）。實測 1920 之前左右各留 240px 白、2560 各 560px。
+   2. 排行表：字 12→13.5、卡名 13→15、縮圖 42×60→50×70、sparkline 72×22→96×30 —— 之前 82px 高嘅行入面淨係得
+      12px 字，行高冇用到。
+   3. 卡內頁：卡圖 520→680 高（欄 34%→40%）、metrics 字 19→24、故事 13→15；RAW 格 span 2 填返第二行個空位。
+   放呢度（檔尾）係因為同 specificity 靠 source order 贏返上面嘅 base；`!important` 只用喺 base 本身已經
+   `!important` 嗰幾條（.collector-cell / .detail-price-now），唔准擴散。 */
+@media (min-width: 981px) {
+  :root {
+    --desk-gutter: clamp(32px, 3vw, 72px);
+    --desk-max: 2400px;
+  }
+  /* 1. 闊度 */
+  .header-inner { width: min(100%, var(--desk-max)); padding-inline: var(--desk-gutter); }
+  .page-shell { width: min(100%, var(--desk-max)); padding-inline: var(--desk-gutter); }
+  .site-footer {
+    width: min(100%, var(--desk-max));
+    padding-inline: max(var(--desk-gutter), env(safe-area-inset-right)) max(var(--desk-gutter), env(safe-area-inset-left));
+  }
+  .page-loading { width: min(calc(100% - 2 * var(--desk-gutter)), calc(var(--desk-max) - 2 * var(--desk-gutter))); }
+  .brand-logo { height: 50px; }
+  .primary-nav a { font-size: 14px; }
+  .footer-brandline, .footer-methodology-body { font-size: 13px; }
+
+  /* 首頁：標題行副標 */
+  .hero-section { width: min(100%, 1100px); }
+  .hero-section h1 { font-size: clamp(30px, 4.2vw, 64px); }
+  .hero-copy { font-size: clamp(15px, 1.55vw, 22px); }
+
+  /* 2. 排行表 */
+  .desktop-ranking-table th { height: 56px; padding-inline: 12px; font-size: max(10.5px, var(--fs-th)); }
+  .desktop-ranking-table td { height: 88px; padding-inline: 12px; font-size: 13.5px; }
+  /* 欄闊重分：卡名欄 20%→26%（1440 闊 12 個中文字就省略號，而編號／POP 欄一半係空），
+     編號 10→8、POP 10→9、價 13→12、升跌 9→8、走勢 10→9；卡榜合計仍係 100%。 */
+  .col-card { width: 26%; }
+  .col-number { width: 8%; }
+  .col-pop { width: 9%; }
+  .col-price { width: 12%; }
+  .col-change { width: 8%; }
+  .col-spark { width: 9%; }
+  .ranking-thumb { width: 50px; height: 70px; }
+  .ranking-card-identity { gap: 14px; }
+  .ranking-name strong { font-size: 15px; }
+  .grader-table .grader-card strong { font-size: 15px; }
+  .collector-cell { font-size: 11.5px !important; }
+  .price-now { font-size: 16px; }
+  .price-delta { font-size: 11px; }
+  .sparkline { width: 96px; height: 30px; }
+  .explore-search input { font-size: 14px; }
+
+  /* 3. 卡內頁 */
+  .detail-grid { grid-template-columns: minmax(360px, min(40%, 680px)) minmax(0, 1fr); gap: 48px; }
+  .detail-art {
+    height: min(680px, calc(100vh - var(--header-height) - 64px));
+    height: min(680px, calc(100svh - var(--header-height) - 64px));
+  }
+  /* img padding 唔郁（26px = card-art.css --card-art-pad，改咗 sheen 會偏） */
+  .detail-rank { top: 16px; left: 16px; padding: 5px 12px; font-size: 12px; }
+  .detail-header h1 { font-size: clamp(36px, 3.6vw, 60px); }
+  /* 字級（detail-set / card-fact / identity / story / metrics label+delta / data-time / legend）已經升晒去 base，
+     手機同桌面同一個數（owner：字體大小統一）；呢度淨返 layout。 */
+  /* 呢度唔再改 max-width：`.card-fact` 而家住喺 `.detail-prose` 一欄入面，欄本身
+     已經係 measure；原本嗰個 78ch（實測 689px）淨係喺右欄整出第二條右邊線 ——
+     2026-08-19 owner 就係指住呢條線講「唔對齊」。base 68ch（card-links.css）由
+     `.detail-prose .card-fact { max-width: none }` 喺 ≥1121px 收返。 */
+  .detail-page .card-fact { padding: 14px 18px; }
+  .identity-list { gap: 12px 30px; margin-top: 14px; }
+  .story-panel { padding: 26px 30px; }
+  .detail-metrics { gap: 12px; }
+  .detail-metrics > div { padding: 16px 18px; }
+  .detail-metrics span { margin-bottom: 6px; }
+  /* 第二行：wide（成交額）+ RAW 各佔一半；冇 RAW 就 wide 獨佔成行 —— 唔留空格 */
+  .detail-metrics .wide-metric ~ div { grid-column: span 2; }
+  .detail-metrics .wide-metric:last-child { grid-column: span 4; }
+}
+/* ============================================================
+ * 卡內頁桌面 rail（`.detail-grid-rail`）—— owner 2026-08-19：
+ * 「你睇下呢度咁大個空位，你唔好好利用佢……你可以將啲嘢放大縮細，
+ *   或者諗下點樣可以佔用晒啲空間，而家成件事好核突。」
+ *
+ * 病（1920 / zh-TW / 一般卡實測）：左欄卡圖盤寫死 680 高，右欄 1118.75 高
+ * → 漸變盤底下吉 438.75px（1600 吉 343.95、1440 吉 294.72、1280 吉 254.45）。
+ * 同時 `.detail-metrics` 迫喺右欄 1061.8px 入面，`.wide-metric:last-child` 食
+ * `span 4` 變一格 1061.8px 闊嘅孤兒行 —— 一格數字霸半版紙。兩個病同一個根：
+ * 兩欄嘅高度冇人夾，闊度又冇人用。
+ *
+ * 醫法（次序好重要，係由 row 推落去唔係由卡圖推上嚟）：
+ *   1. panel `align-self: stretch` + `height: auto` → 高度 = 個 grid row = 右欄高度。
+ *      係結構性歸零，唔係啱啱夾掂個數。
+ *   2. `.card-art` 抽離 flow（`position: absolute; inset: 0`）→ panel 內在高度變 0，
+ *      斬斷「卡圖撐高 panel、panel 又撐高 row」個循環，卡圖先至真係彈性。
+ *      `.detail-rank` 一直都係 `position: absolute`，所以 `.detail-art` 呢個 flex
+ *      container 冇晒 in-flow child 都冇嘢郁位。
+ *   3. metrics + 資料時間 `grid-column: 1 / -1` 升做全幅 KPI 條 —— 橫向嗰忽浪費
+ *      同嗰條孤兒行一齊解掉，而且 5 格同 6 格都鋪得滿（見下面 6-unit 嗰段）。
+ *
+ * 五個 class（`.detail-grid` / `.detail-art` / `.detail-content` / `.detail-metrics` /
+ * `.data-time`）全部同 `box-detail.tsx` 共用，所以每一條都要用 `.detail-grid-rail`
+ * 收窄，`/box/[id]` 先至一個 px 都唔會郁。成個 block 收喺 `@media (min-width: 981px)`
+ * 入面 = 手機由構造上郁唔到（owner：手機版內頁係 OK 嘅）。
+ * ============================================================ */
+@media (min-width: 981px) {
+  .detail-grid.detail-grid-rail {
+    /* 以下每個數都有出處，一個度身砌嘅魔術數都冇： */
+    --rail-min: 360px;   /* = 上面 `.detail-grid` `minmax(360px, …)` 原有下限，冇改過 */
+    --rail-frame: 52px;  /* = `.detail-art img` `padding: 26px` 左右加埋
+                              = `.card-art` `--card-art-pad`（card-art.css:24）兩邊。
+                              呢個係「卡面」同「欄闊」之間唯一嘅差額。 */
+    --rail-ar-w: 429;    /* = <img width>／<img height>，即係瀏覽器攞去解 aspect-ratio */
+    --rail-ar-h: 600;    /*   嗰兩個數。用返同一對先唔會出現兩套幾何。 */
+    /* 卡面闊度封頂。**唔准當佢係「揀個靚數」** —— 佢係「唔准放大過 1.25×」呢條
+       owner 硬規矩（唔好蒙查查）換算出嚟嘅，所以兩個因數各自寫一行：
+       429px = 出街嗰張 `_600.webp` **真身** bitmap 闊度（RIFF `VP8 ` chunk 讀出嚟，
+               同 `<img width>` 一致；全 1604 張入面最細嗰個闊度亦係 429）。
+       ⚠️ 唔准用 `img.naturalWidth` 去量呢個數。呢張圖有 `srcset … 600w` +
+          `sizes: 560px`，瀏覽器會做 density correction（density = 600 ÷ 560），
+          `naturalWidth` 回 **400**、375 度更加回 241 —— 個數跟 viewport 郁，
+          攞佢做分母會當咗自己放大緊 1.25× 其實得 1.16×，白白縮細張卡。
+          量真身：讀檔頭，或者 `<img width>` attribute。（`scripts/test-fe-detail-rail.mjs`
+          有一條 assert 專登釘死呢件事。） */
+    --rail-src-w: 429px;
+    --rail-upscale: 1.25;
+    --rail-card-w: calc(var(--rail-src-w) * var(--rail-upscale));
+    /* 兩條上限取細：
+       ① 卡面上限 + 框。
+       ② 「成張卡入到一個螢幕」—— 即係原本 `min(680px, calc(100svh - --header-height
+          - 64px))` 嗰個意思。panel 高度而家由 row 話事、唔再受控，所以要由**闊度**
+          封返：可用高度按同一個比例換算成闊度。冇咗呢忽，矮 viewport（1920×720）
+          張卡會爆出螢幕。 */
+    --rail-max: min(
+      calc(var(--rail-card-w) + var(--rail-frame)),
+      calc((100svh - var(--header-height) - 64px - var(--rail-frame)) * var(--rail-ar-w) / var(--rail-ar-h) + var(--rail-frame))
+    );
+    /* 由 981 到 ∞ 一條式，冇第二個斷點 —— 1121–1280 嗰段唔使另外補，佢本身就喺條線上面
+       （評審投訴其他方案「1121–1280 完全冇修」，呢度唔可以犯同一個錯）。 */
+    grid-template-columns: minmax(var(--rail-min), min(40%, var(--rail-max))) minmax(0, 1fr);
+    /* 22px = `.detail-prose` 個 `margin-top: 22px`（呢個檔 :2074）—— 全版 block 之間
+       嘅距離已經有一個數，唔好再發明第三個。`gap: 48px` 只係欄距，行距由呢條話事。
+       KPI 條 ↔ 資料時間亦食呢個 gap，所以下面要拆走 `.data-time` 自己嗰 10px margin
+       （一個概念一個實現，唔准 gap + margin 兩層叠）。 */
+    row-gap: 22px;
+    /* KPI 條排幾多欄要睇「佢自己有幾闊」，唔係睇 viewport：viewport 減 gutter 減
+       scrollbar 之後同真實條闊差成十幾 px，用 viewport 做斷點 = Windows 同 Mac
+       睇到兩個唔同版。所以開 inline-size container，下面直接量條 bar。
+       同 `.heatmap-title`（:893）同一招。 */
+    container-type: inline-size;
+    container-name: detail-rail;
+    /* 22px = `.detail-metrics strong` base（:2273，owner 2026-08-17 定「d 錢要睇得清」）。
+       19px = 2026-08-17 加大之前嘅桌面 metrics 字級，即「跌到呢度為止仲係出過街嘅
+       標準」，再細寧願退返兩行都唔准。 */
+    --kpi-fs-max: 22px;
+    --kpi-fs-min: 19px;
+  }
+
+  .detail-grid-rail > .detail-art {
+    height: auto;
+    align-self: stretch;
+    /* 樓底 = 欄闊喺下限（`--rail-min`）嗰陣張卡嘅完整高度。同 `--rail-max` 行同一條
+       `(w − frame) × ar_h / ar_w + frame`，只係 w 換成欄闊下限 —— 一條公式覆蓋成個
+       桌面段，唔會出現「981–1120 用一個數、≥1121 用另一條式」呢種兩個來源。
+       點解一定要有樓底：`server-snapshot` 有幾條 runtime 路會出冇 width/height
+       attribute 嘅 <img>（placeholder／量到 0／舊 snapshot）。冇 attribute 就冇
+       aspect-ratio，加上 `.card-art` 已經離咗 flow，右欄一矮個盤就會塌到 0。 */
+    min-height: calc((var(--rail-min) - var(--rail-frame)) * var(--rail-ar-h) / var(--rail-ar-w) + var(--rail-frame));
+  }
+
+  /* 見上面第 2 點：抽離 flow 係「彈性卡圖」嘅前提。順帶修返 sheen mask ——
+     `.card-art::before/::after` 用 `mask-size: contain` 對住 `.card-art` padding box 解，
+     但 `<img>` 個 border box 以前俾 `width` attribute（429）釘死，欄闊一過 481px
+     兩個盒就分家（review #3 講嗰個 71.95×100.73px 偏移就係呢件事）。落咗
+     `width: 100%` 之後兩個盒共用同一條限制邊。 */
+  .detail-grid-rail > .detail-art > .card-art { position: absolute; inset: 0; }
+  /* 唔係 `height: auto` —— 嗰條已經因為 CLS 被否決（見 `.detail-art img` 上面嗰段）。
+     呢度淨係令 border box 跟欄闊，高度照舊由 width/height attribute 嘅 aspect-ratio
+     出，所以 CLS 路徑一個字都冇變。 */
+  .detail-grid-rail > .detail-art img { width: 100%; }
+
+  /* 全版 KPI 條。一定要明寫橫跨：唔寫嘅話 auto-placement 會將佢哋掉入卡圖嗰欄
+     （1120 度只剩 415px 闊、每格 ~95px，即刻爆字）。 */
+  .detail-grid-rail > .detail-metrics,
+  .detail-grid-rail > .data-time { grid-column: 1 / -1; }
+  /* 做咗 grid item 之後行距歸 `row-gap` 管；唔清就係 22 + 10 = 32，兩個來源爭同一個間距。 */
+  .detail-grid-rail > .data-time { margin-top: 0; }
+
+  /* 永遠 6 個 unit —— 所以 3 欄同 6 欄都啱啱鋪滿，兩種卡都冇孤行、冇空格：
+       冇 RAW（1604 張入面 523 張）：市值 / 價 / POP / 升跌 各 1 + 成交額 2 = 6
+       有 RAW                      ：上面四格 + 成交額 1 + RAW 1          = 6
+     判斷靠 `.wide-metric` 係咪 `:last-child` —— 對返 card-detail.tsx 真 DOM：`.wide-metric`
+     （成交額）永遠係第 5 個 child，RAW 係 conditional render 嘅第 6 個，而 `<Reveal>`
+     淨係出 `<Tag>` 本身、零多餘 wrapper，所以 `:last-child` 判得準，**唔使 `:has()`**。
+     明寫 `> ` 同 `.detail-grid-rail` 前綴係為咗贏返 base `.detail-metrics .wide-metric`
+     （0,2,0）同 ≥981 嗰兩條，唔靠 source order。 */
+  .detail-grid-rail > .detail-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    --kpi-fs: var(--kpi-fs-max);
+  }
+  .detail-grid-rail > .detail-metrics > .wide-metric:last-child { grid-column: span 2; }
+  .detail-grid-rail > .detail-metrics > .wide-metric:not(:last-child) { grid-column: span 1; }
+  .detail-grid-rail > .detail-metrics > .wide-metric ~ div { grid-column: span 1; }
+
+  /* ⚠️ 截字（`US$2188.45萬` 俾 ellipsis 切走）唔係加 `overflow: visible` 就算數。
+     根因係 `.metric-value-fit` 個 `clamp(16px, 1.5vw, 22px)`（:2274）攞 **viewport**
+     做「fit」嘅尺，但真正決定塞唔塞得落嘅係 **格闊**，兩者唔同步；而且中招嘅唔止佢
+     一個 —— `.detail-price-now`、POP、升跌 % 都係 22px 死數，連隻假 fit 都冇。
+     所以：① 格夠闊（上面）② 字級由格闊解（下面）。一條 KPI 帶入面六個數要同一級，
+     所以由**成條 bar** 解唔係逐格解 —— 逐格解嘅話 5 格卡嗰個 span 2 會大過隔籬四格，
+     同一行兩隻字級。 */
+  .detail-grid-rail > .detail-metrics strong { font-size: var(--kpi-fs); }
+  /* `!important` 唔係新開嘅擴散：base `.detail-price-now`（:1738）本身就 important，
+     唔跟返就淨係 PSA 10 價嗰格甩返 22px、成行唔齊。:3271 嗰條「只用喺 base 本身
+     已經 important 嗰幾條」照守。 */
+  .detail-grid-rail > .detail-metrics .detail-price-now { font-size: var(--kpi-fs) !important; }
+
+  /* 1284px 唔係執個數，係咁計出嚟：
+       8.7em  = 五語言 × 全部幣種入面最闊嗰個數值（ko / IDR「IDR 607,800,295」實測
+                8.28em @22px）+ 5% 俾字體差。同 `.heatmap-heading` 個 9.5em 同一個做法。
+       166px  = 19px（--kpi-fs-min）× 8.7em，即「字唔准細過 19px」換算返嘅最窄內文區。
+                順帶蓋埋 label：五語言最長 label（en「Ungraded / RAW reference」）實測
+                144.73px @11px，喺 166px 度仲有位 —— label 係 nowrap + ellipsis 又冇得縮，
+                所以佢一定要入得晒，呢個先係六欄嘅真樓底。
+       204px  = 166 + 18×2（padding，≥981 `.detail-metrics > div`）+ 1×2（border，:2267）
+       1284px = 6 × 204 + 5 × 12（gap，≥981 `.detail-metrics`）
+     即「條 bar 夠位畫六格、每格夠位畫 ≥19px 數字同一行完整 label」先開六欄；唔夠就留返
+     三欄兩行 —— 一樣鋪滿、一樣冇孤行，而且格闊闊好多，字保住 22px。 */
+  @container detail-rail (min-width: 1284px) {
+    /* 明寫 `.detail-grid` 前綴（0,3,0）贏返上面同名嗰條（0,2,0）：`@container` 本身
+       唔加 specificity，唔可以靠佢，亦唔准靠 source order。 */
+    .detail-grid.detail-grid-rail > .detail-metrics {
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      /* 288px = 5 × 12（gap）+ 6 × 38（每格 padding + border）；52.2 = 6 × 8.7。
+         即 font = 每格內文闊 ÷ 8.7。上面 1284px 條件已經保證佢 ≥19px，所以個 clamp
+         樓底行唔到 —— 留住係怕將來有人郁 padding / gap 而唔記得改呢條式。 */
+      --kpi-fs: clamp(var(--kpi-fs-min), calc((100cqi - 288px) / 52.2), var(--kpi-fs-max));
+    }
+  }
+}
+
+/* 唔識 `cqi` / `@container` 嘅瀏覽器（Safari < 16）：條 bar 停喺三欄、`--kpi-fs` 照樣
+   22px，三欄格闊本身已經夠，其實一樣唔會切。呢條係最後一道保險：萬一將來有人改窄咗，
+   寧願換行都唔好切走位數 —— 數字讀少一位係報錯價，換行只係唔靚。
+   同 `.heatmap-heading` 個 @supports 同一招。 */
+@supports not (font-size: 1cqi) {
+  @media (min-width: 981px) {
+    .detail-grid-rail > .detail-metrics strong { white-space: normal; text-overflow: clip; }
+  }
+}
+
+@media (min-width: 1441px) {
+  /* SEO hub 長文頁：1120 量度係讀得舒服嘅理由，但 1920 度左右各 400px 白太誇；放到 1280 + 榜單三欄 */
+  /* hubs.css 係 component CSS，載入次序喺 globals 之後 → 要高一級 specificity 先贏 */
+  .page-shell.hub-page { width: min(100%, 1280px); }
+  .hub-page .hub-links ul { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }

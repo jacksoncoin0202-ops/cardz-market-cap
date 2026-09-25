@@ -1,0 +1,274 @@
+/*
+ * SEO hub 頁樣式（set hub / rankings / market-report，owner 2026-08-16）。
+ * 全部行 globals.css 已有嘅 token（--ink / --muted / --line / --surface / --soft /
+ * --accent / --positive / --negative / --table-head-cell / --table-body），
+ * 呢個檔一個新色都唔定義，所以深淺色主題自動跟。
+ * Mobile-first：先寫細螢幕，≥981px 先放大（同 card-links.css 同一個斷點）。
+ * 橫向捲只可以喺 .table-scroll 入面發生，唔准搞到成頁左右捲。
+ */
+
+.hub-page {
+  /* .page-shell 本身係 1440px 闊；長文頁窄啲先讀得舒服。 */
+  width: min(100%, 1120px);
+}
+
+/* ---------- 麵包屑 ---------- */
+.hub-breadcrumb {
+  margin-bottom: 14px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.hub-breadcrumb ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hub-breadcrumb li {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  color: var(--muted);
+}
+
+.hub-breadcrumb li + li::before {
+  margin-right: 6px;
+  color: var(--line-strong);
+  content: "›";
+}
+
+.hub-breadcrumb a {
+  color: var(--muted);
+  text-decoration: none;
+  transition: color var(--control-transition);
+}
+
+.hub-breadcrumb a:hover,
+.hub-breadcrumb a:focus-visible {
+  color: var(--ink);
+}
+
+.hub-breadcrumb li:last-child span {
+  max-width: min(100%, 42ch);
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- Hero / 可引用答案 ---------- */
+.hub-hero {
+  padding-bottom: 30px;
+}
+
+/* FE05：--step-3 **就係本來嗰條 clamp 原式**（`clamp(26px, 3.4vw, 42px)`，逐字照抄）。
+   第一版改咗做 390→1280 直線，兩端啱但 @768 差 +6.68px，所以而家一律照抄唔重寫。 */
+.hub-hero h1 {
+  font-size: var(--step-3);
+}
+
+/* 第一段係畀 AI 引用嗰句（entity + 計法 + 日期）：襯線邊框標示佢係獨立事實塊。
+   FE05 fix-visual（owner 2026-08-17 拍板）：同 .content-answer 統一落 --step-1。
+   之前兩邊係同一個角色兩套字級（14→17px vs 16→17px），係設計缺陷。
+   手機面由 14px 升到 16px 係**預期嘅視覺改動**，唔係 regression；量度基線見
+   DESIGN.md §1.3。要反轉就將呢行改返 `clamp(14px, 1.4vw, 17px)`。 */
+.hub-answer {
+  max-width: 72ch;
+  padding-left: 14px;
+  border-left: 3px solid var(--accent);
+  font-size: var(--step-1);
+}
+
+/* 12px / ≥981px 12.5px：--step--1 上限係 13px，1280 度量到累積 22.9px 位移，同樣留硬數。 */
+.hub-note {
+  max-width: 78ch;
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.hub-method-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.hub-method-link:hover,
+.hub-method-link:focus-visible {
+  text-decoration: underline;
+}
+
+/* ---------- 摘要數字 ---------- */
+.hub-stats {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 30px;
+  padding: 0;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.hub-stat {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--surface);
+}
+
+.hub-stat dt {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: max(10.5px, var(--fs-micro)); /* 拉丁 10.5 唔郁；CJK token 11 先跟 */
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-feature-settings: "case" 1;
+}
+
+.hub-stat dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: var(--w-data);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* ---------- 章節 ---------- */
+.hub-section {
+  margin-bottom: 40px;
+}
+
+.hub-section > h2 {
+  margin: 0 0 8px;
+  font-size: clamp(18px, 2vw, 24px);
+  letter-spacing: -0.01em;
+}
+
+.hub-lead {
+  max-width: 78ch;
+  margin: 0 0 14px;
+  color: var(--ink);
+  /* FE05 fix-visual（owner 2026-08-17 拍板）：斷點階梯（14px / ≥981px 15px）收編做
+     --step-0 = clamp(14px, 1.5vw, 15px)，即 WS1 原本嘅計劃。兩端數值同以前一樣，
+     933–1000px 中段係新曲線（ramp），所以會有 reflow —— 量度基線見 DESIGN.md §1.3。
+     呢個 selector 唯一 call site 係 `/market-report`（seo-table.tsx:110，block.intro 存在先出）。 */
+  font-size: var(--step-0);
+  line-height: 1.6;
+}
+
+.hub-table-note {
+  margin-top: 12px;
+}
+
+/* ---------- 表格 ---------- */
+/* 表格闊過螢幕就喺呢個容器入面捲，成頁唔會左右郁。 */
+.table-scroll {
+  overflow-x: auto;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--surface);
+  -webkit-overflow-scrolling: touch;
+}
+
+.seo-table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--table-body);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.seo-table th,
+.seo-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+/* 唔用 position: sticky —— .table-scroll 只係橫向捲，sticky top 喺度冇作用，
+   反而會同 fixed header 打架。 */
+.seo-table thead th {
+  background: var(--soft);
+  color: var(--table-head-cell);
+  font-size: max(10.5px, var(--fs-micro));
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-feature-settings: "case" 1;
+}
+
+.seo-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.seo-table .numeric {
+  text-align: right;
+}
+
+.seo-table a {
+  color: var(--ink);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.seo-table a:hover,
+.seo-table a:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+/* 卡名下面嘅細字（set / 編號）：唔准撐闊個 cell。 */
+.seo-table-sub {
+  display: block;
+  max-width: 34ch;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: max(10.5px, var(--fs-micro));
+  font-weight: 400;
+  text-overflow: ellipsis;
+}
+
+/* ---------- 相關連結 ---------- */
+.hub-links ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  grid-template-columns: 1fr;
+  list-style: none;
+}
+
+.hub-links li a {
+  display: block;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+  text-decoration: none;
+  transition: border-color var(--control-transition), box-shadow var(--control-transition);
+}
+
+.hub-links li a:hover,
+.hub-links li a:focus-visible {
+  border-color: var(--line-strong);
+  box-shadow: var(--elev-1);
+}
+
+@media (min-width: 981px) {
+  .hub-breadcrumb { font-size: 12px; }
+  .hub-note { font-size: 12.5px; }
+  /* .hub-lead 個 font-size 唔再喺呢度覆寫：--step-0 喺 ≥1000px 已經解出 15px（clamp 上限），
+     981–1000px 嗰段係 ramp 本身（14.7→15px）。 */
+  .seo-table { font-size: 13.5px; }
+  .seo-table th,
+  .seo-table td { padding: 10px 14px; }
+  .hub-links ul { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

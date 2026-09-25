@@ -23,8 +23,10 @@ COPY --from=deps /repo/node_modules ./node_modules
 COPY . .
 
 ARG CARDZ_PUBLIC_BUILD_ID=docker
+ARG NEXT_PUBLIC_SITE_URL=https://cardzmarketcap.com
 ENV CARDZ_PUBLIC_BUILD_ID=${CARDZ_PUBLIC_BUILD_ID} \
     CARDZ_BUILD_TARGET=node \
+    NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL} \
     NEXT_TELEMETRY_DISABLED=1
 
 WORKDIR /repo
@@ -43,11 +45,13 @@ ENV NODE_ENV=production \
 
 COPY --from=builder --chown=node:node /repo/apps/web/.next/standalone ./
 COPY --from=builder --chown=node:node /repo/data/public/seed-snapshot.json ./data/public/seed-snapshot.json
+COPY --from=builder --chown=node:node /repo/data/public/box-subset.json ./data/public/box-subset.json
+COPY --from=builder --chown=node:node /repo/data/editorial/card-names-by-id.json ./data/editorial/card-names-by-id.json
+COPY --from=builder --chown=node:node /repo/data/editorial/sealed-stories.json ./data/editorial/sealed-stories.json
 
-# data/public/market-assets 唔會烘焙入 image —— 由 compose 掛 :ro volume 入
-# /app/data/public/market-assets。詳細原因見 .dockerignore。
-# ⚠ 冇掛 volume 嘅話卡圖會 404（loadNodeMarketAsset readFile 失敗回 null），
-#   但 /api/health 照樣 200，因為 snapshot 係烘焙入 image 嘅。
+# data/public/market-assets / seed / box-subset 由 compose :ro volume 蓋過 image
+# 內後備檔。詳細原因見 .dockerignore 同 compose.yaml。
+# ⚠ 冇掛卡圖 volume 嘅話 /market-assets/* 會 404（health 仍然 200）。
 
 USER node
 EXPOSE 3000

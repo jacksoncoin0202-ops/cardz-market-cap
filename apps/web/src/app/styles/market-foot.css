@@ -1,0 +1,78 @@
+/*
+ * 市場頁榜尾／頁尾（owner 2026-08-16 晚）。由 market-page.tsx 自己 import（repo 慣例，同
+ * card-links.css 一樣），唔掂 globals.css（另一 session 正喺度改緊）。
+ *
+ * 首屏規矩：熱力圖第一，只准一個標題 + 一行細字。GEO 文案（keyword-first 標題、定義、
+ * as-of、市況、消歧義）全部收落頁尾 .index-about：同 .provenance-panel 一樣嘅字級／顏色／
+ * 闊度，兩塊並排睇落係同一組頁尾說明，唔係第二個 hero。
+ */
+.index-about {
+  margin-top: 28px;
+  max-width: 76ch;
+}
+/* 摺埋時只見一行細字（summary）；打開先見標題＋定義。標題喺 details 入面做 h2，唔係第二個 hero。 */
+.index-about h2 {
+  margin: 4px 0 2px;
+  font-size: 14px;
+  line-height: 1.4;
+  overflow-wrap: break-word;
+  text-wrap: balance;
+}
+.index-about-body {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.7;
+  text-wrap: pretty;
+}
+/* globals.css 嘅 .intro-block 係為 hero 位寫嘅（780px、--hero-copy）；頁尾用返 provenance 嘅 --muted。 */
+.index-about .intro-block {
+  width: auto;
+  max-width: 76ch;
+  margin-top: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+.index-about .intro-block > summary { font-size: 12.5px; color: var(--muted); }
+.index-about .intro-body { gap: 4px; margin-top: 8px; }
+
+/*
+ * 榜尾 pager（每頁 100／200／300／500 + ‹ 1/17 › + 睇更多）：
+ * 緊貼個榜，左邊係「每頁幾多」一組，右邊係翻頁一組——兩組意思唔同，唔准混埋一行亂 wrap
+ * （之前手機版「›」自己孤伶伶跌落第二行）。手機：兩組各自一行，都置中。
+ */
+.market-page-shell .ranking-pager {
+  justify-content: space-between;
+  gap: 12px 20px;
+  padding: 18px 0 8px;
+  border-top: 1px solid var(--line);
+  margin-top: 8px;
+}
+.market-page-shell .ranking-page-sizes { gap: 6px; }
+.market-page-shell .ranking-pager-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+/* 去到頭／尾嘅 ‹ › 佔位（globals 嗰條係 `.watchlist-pager > span`，nested 之後要自己寫一次） */
+.market-page-shell .ranking-pager-nav > span[aria-hidden="true"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  min-height: 36px;
+  opacity: 0.35;
+}
+.market-page-shell .ranking-pager-nav [aria-current="page"] {
+  min-width: 0;
+  padding: 0 4px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+@media (max-width: 980px) {
+  .market-page-shell .ranking-pager { justify-content: center; }
+  .market-page-shell .ranking-page-sizes { width: 100%; justify-content: center; }
+  .market-page-shell .ranking-pager-nav { width: 100%; justify-content: center; margin-left: 0; }
+}

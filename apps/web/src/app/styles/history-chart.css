@@ -1,0 +1,59 @@
+/* FE05 WS3 —— history chart 入場：價線由頭畫到尾、成交 bar 由 baseline 升起、
+   價點最後至淡入。
+
+   全部收喺 `.history-panel[data-draw="in"]` 呢個 state 底下。SSR 出嘅 HTML 冇呢個
+   attribute，即係 view-source 同 crawler 見到嘅係**畫好晒**嘅圖：冇 dasharray、
+   冇 scaleY(0)、冇 opacity 0。state 由 history-chart.tsx 用共用 observer 喺
+   「桌面 + 冇 reduced-motion + 個圖仲喺視窗下面」嗰陣先落。
+
+   入場係**一次性**：播完 1200ms 之後 tsx 會將 state 由 "in" 升做 "done"，下面三條
+   rule 一條都唔再中。所以之後換 period（bar / dot 節點全部重建）唔會再播多次
+   （DESIGN.md §4.4 個 data-settled 形狀）。
+
+   只 animate transform / opacity / stroke-dashoffset（三個都唔觸發 layout），
+   亦冇落 will-change：30 個 bar 各自掛一次 will-change 得不償失（DESIGN.md §4.4–4.5）。 */
+
+@keyframes chart-draw {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes chart-bar-rise {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+@keyframes chart-dot-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* path 帶 pathLength="1"，所以 dasharray / dashoffset 直接係 0–1 嘅比例，
+   唔使 JS 度 getTotalLength()。 */
+.history-panel[data-draw="in"] .price-line {
+  stroke-dasharray: 1;
+  animation: chart-draw 900ms var(--ease-standard) both;
+}
+
+/* SVG rect 要 fill-box 先至由自己個框底部縮放（預設 view-box 會由成個 viewBox 底部計）。
+   --bar-i 由 tsx 逐條寫（只數真係畫得出嘅 bar，唔用 point index），stagger 30ms、
+   序號封頂 20 → 最尾一條最多等 600ms。 */
+.history-panel[data-draw="in"] .sales-bar {
+  transform-box: fill-box;
+  transform-origin: bottom;
+  animation: chart-bar-rise 420ms var(--ease-standard) both;
+  animation-delay: calc(var(--bar-i, 0) * 30ms);
+}
+
+/* 價點喺線畫完先出，否則會變成「點已經喺度、線追住畫」 */
+.history-panel[data-draw="in"] .price-point {
+  animation: chart-dot-in 240ms var(--ease-standard) 760ms both;
+}
+
+/* reduced-motion sibling（DESIGN.md §3.1）：state 就算落咗，一樣即刻係最終狀態 —— */
+@media (prefers-reduced-motion: reduce) {
+  .history-panel[data-draw="in"] .price-line {
+    stroke-dasharray: none;
+    animation: none;
+  }
+  .history-panel[data-draw="in"] .sales-bar,
+  .history-panel[data-draw="in"] .price-point { animation: none; }
+}

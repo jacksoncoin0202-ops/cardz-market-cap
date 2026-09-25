@@ -1,0 +1,64 @@
+#!/bin/sh
+# cardz-githook: deploy-tag-subject-rule
+#
+# 擋一個形態：commit message 個 body 有 literal [deploy]，但 subject 冇。
+#
+# 點解要擋（2026-08-21 真事）：出街係由 AWS webhook 接收端睇 commit message 有冇個
+# literal 決定嘅，而**冇人知佢究竟睇 subject 定成個 message**——
+#   - AWS_GITHUB_PULL_DEPLOY.md 同 WSL DEPLOY_WEBHOOK_SMOKE.md 兩份契約都只寫
+#     「commit message 含 [deploy]」，冇分 subject／body；
+#   - scripts/deploy_watch.ps1 個錯誤訊息話係 head_commit.message（全文）；
+#   - 接收端本身喺 AWS 上面由 IT 管，repo 入面攞唔到源碼，驗唔到。
+# 2851497c 就係喺 body 寫「呢粒唔帶 [deploy]」解釋自己唔出街，個 literal 照樣入咗
+# message，AWS 側按契約會當佢要 deploy。
+#
+# 所以呢度唔賭邊個講法啱，而係**取消個分歧**：只要個 literal 出現喺 message，
+# 就一定要出現喺 subject。咁樣「淨睇 subject」同「睇全文」兩種讀法對每一粒
+# commit 都會俾同一個答案，AWS 側點實作都唔會再有意外。
+#
+# 想喺 commit message 度**講**呢件事而唔想出街：寫「deploy tag」／「個 deploy 標記」，
+# 唔好打個 literal 出嚟。
+#
+# 繞過（自己負責）：git commit --no-verify
+#
+# 裝法：node scripts/install_githooks.mjs
+# 呢個檔係唯一真身，裝落 git common hooks dir 嗰份係副本；
+# scripts/test-deploy-tag-contract.mjs 會對返兩者一唔一樣，唔一樣就紅。
+
+set -eu
+
+MSGFILE="$1"
+TAG='[deploy]'
+
+# git 會喺 message 檔尾巴塞注釋，`--verbose` 之下仲會塞成段 diff。
+# 唔剝走佢哋，改呢個檔本身（diff 入面有個 literal）就會被自己咬住。
+# 先由 scissors 線斬到尾，再剝晒 `#` 開頭嘅行。
+# ⚠️ `--cleanup=verbatim` 之下 `#` 行其實算 message 一部分，呢度會漏睇——
+#    呢個 repo 冇人用 verbatim，記住有呢個窿就得。
+CLEAN=$(sed -e '/^# *-\{8,\} *>8/,$d' "$MSGFILE" | sed -e '/^#/d')
+
+# subject = 第一行非空行（git 自己都係咁分）
+SUBJECT=$(printf '%s\n' "$CLEAN" | sed -e '/^[[:space:]]*$/d' | head -n 1)
+
+if printf '%s\n' "$CLEAN" | grep -qF -- "$TAG"; then
+  if ! printf '%s\n' "$SUBJECT" | grep -qF -- "$TAG"; then
+    cat >&2 <<EOF
+
+  commit-msg 擋咗：body 有 $TAG，subject 冇。
+
+  subject：$SUBJECT
+
+  出街由 AWS 接收端睇 commit message 有冇個 literal 決定，而佢究竟睇 subject 定
+  睇全文，repo 呢邊驗唔到（源碼喺 AWS，IT 管）。所以規矩係：個 literal 一入
+  message，就一定要喺 subject —— 兩種讀法先會同一個答案。
+
+  想出街   → 將 $TAG 擺上 subject 尾。
+  唔想出街 → 唔好打個 literal，寫「deploy tag」／「個 deploy 標記」。
+  真係要照推 → git commit --no-verify（自己睇實 scripts/deploy_watch.ps1）。
+
+EOF
+    exit 1
+  fi
+fi
+
+exit 0
