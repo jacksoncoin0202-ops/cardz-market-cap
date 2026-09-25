@@ -1,7 +1,8 @@
 # AGENTS.md — cardz-market-cap-fe-db-20260805
 
 **呢棵係資料／日更真身**（collect → `daily-accept` → `daily_public_release`）。
-FE 出街車 = `../cardz-market-cap-037-fe04-live`（`[deploy]`）。**唔喺呢度** push `main` 當網站 deploy。
+**2026-09-25 起呢棵同 GitHub `origin/main` 係同一條 code 線**（`e50dfc50`）。FE 同 pipeline 嘅 code commit 都喺呢度做，push `main` 時**唔帶** deploy literal；網站只由 release script 嘅 `[deploy]` commit 出街。`../cardz-market-cap-037-fe04-live` 已退役。
+**LIVE 追 main**（release commit 令 main 行前）只准 `git reset --mixed` 收養，再淨係 restore 真正唔同嘅檔。`git pull`、checkout 同 `reset --hard` 會撞埋 data/public 入面 untracked 嘅圖，或者刪咗佢哋。
 實驗樹 `../cardz-market-cap` 只准讀 3308，**唔准** pass／bake／`[deploy]`。
 Live：`https://app.cardzmarketcap.com`（卡數／generation／presentation 睇 [PROJECT_STATE.md](PROJECT_STATE.md) §0，唔好信呢度嘅舊數）。
 
@@ -9,8 +10,8 @@ Live：`https://app.cardzmarketcap.com`（卡數／generation／presentation 睇
 
 | 樹 | 唯一角色 | 不可跨越界線 |
 |---|---|---|
-| `cardz-market-cap-fe-db-20260805` | pipeline／日更 authority | 唔係 FE deploy 車 |
-| `cardz-market-cap-037-fe04-live` | `origin/main` FE 出街車 | 唔係 runtime／DB authority |
+| `cardz-market-cap-fe-db-20260805` | pipeline／日更 authority，同時係 `origin/main` 嘅 code 線 | 唔准直接 bake／`[deploy]` |
+| `cardz-market-cap-037-fe04-live` | 已退役（2026-09-25 之前嘅 FE 出街車） | 唔准再用嚟 commit／push／bake |
 | `cardz-market-cap` | worktree 宿主＋MySQL compose／volume owner | 只讀；唔准刪、搬、bake |
 
 WSL `~/cardz-market-cap-release-daily` 只係每次 fast-forward `origin/main` 嘅 release checkout，唔係第四個 authority；私有 runtime 由 authority 樹嘅 `data/runtime` junction 指返宿主樹持有。
@@ -61,7 +62,7 @@ WSL `~/cardz-market-cap-release-daily` 只係每次 fast-forward `origin/main` �
     照樣入咗 message。`scripts/githooks/commit-msg` 而家擋住；`node scripts/install_githooks.mjs`
     裝；`scripts/test-deploy-tag-contract.mjs` 守住條規矩同 deploy_watch 嘅判定口徑。）
 
-18. **日更 `incr` 唔拉 residual stock。** 新 activate／未 freeze-complete 先 `collect_control.py stock`。FE 出街車係 `../cardz-market-cap-037-fe04-live`，唔係呢度 push `main`。
+18. **日更 `incr` 唔拉 residual stock。** 新 activate／未 freeze-complete 先 `collect_control.py stock`。
 19. **公開 bake／deploy 只准由資料 authority 呢棵樹起腳。** 人手入口係喺
     `cardz-market-cap-fe-db-20260805` root 跑
     `pwsh -NoProfile -File scripts/daily_public_release.ps1`；唔准直接跑

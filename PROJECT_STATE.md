@@ -12,7 +12,9 @@
 
 ### 2026-09-25 合併：FE／release 線（`origin/main`）併入同一條 code 線
 
-> 目的：一條 code 線，修復唔再散落兩邊。合併喺隔離樹 `cardz-market-cap-restructure-20260925`（branch `consolidate/main-merge-20260925`）做；**落 authority 樹同出街之前唔當 live**——生效與否以 authority `git log` 同 live `/api/health` 為準。未落之前 live 仍然由 authority 樹 `rebuild/036-foundation`（資料）同 `origin/main`（FE／release）各自出。
+> 目的：一條 code 線，修復唔再散落兩邊。合併喺隔離樹 `cardz-market-cap-restructure-20260925` 做。
+> **[KNOWN] 已落地：** 2026-09-25 約 16:40 JST，authority 樹用 `reset --mixed` fast-forward 到合併線。之後加咗兩粒 release clone 測試修正（`98de0941`、`e50dfc50`）。WSL gate 124/124；release clone dry run 166/166。約 17:00 JST push `main`（`3759d190`→`e50dfc50`），**冇** deploy literal。
+> 第一次喺合併線跑嘅係 manual proof run `cardz-v2:2026-09-26`，17:02 JST 開始。佢有冇出街，睇 journal 同 live `/api/health`，唔好信呢句。
 
 - [KNOWN] 兩邊：`restructure/20260925`（資料／V2 鏈線，`37dce213`）＋ `origin/main`（FE／release 線，`3759d190`），merge base `5b0f8343`（2026-08-13）。
 - 權威分工照舊：pipelines／V2 鏈／collectors／box（sealed）採集／identity／鏈測試跟資料線；`apps/web` 同 release／bake／validate／public-surface 工具跟 `origin/main`（即 WSL `~/cardz-market-cap-release-daily` 實際跑嗰份）。
@@ -128,13 +130,17 @@ sibling-console inference：grep `pc_identity_discover.py` 證實**未落地**�
 
 ### 5.1 邊棵樹做咩
 
-先記唯一三棵 Windows 樹：authority = `cardz-market-cap-fe-db-20260805`、FE 出街車 = `cardz-market-cap-037-fe04-live`、宿主／DB owner = `cardz-market-cap`。WSL release checkout 只係短命同步車，GitHub `origin/main` 係 remote ref，兩者都唔係另一棵資料 authority。
+2026-09-25 起得兩棵現役 Windows 樹：
+- authority＋code 線 = `cardz-market-cap-fe-db-20260805`，同 `origin/main` 係同一條線。
+- 宿主／DB owner = `cardz-market-cap`。
+
+`cardz-market-cap-037-fe04-live` 已退役。WSL release checkout 只係短命同步車，GitHub `origin/main` 係 remote ref，兩者都唔係另一棵資料 authority。
 
 | 位置 | 角色 | 規矩 |
 |---|---|---|
 | `cardz-market-cap-fe-db-20260805`（本樹，`rebuild/036-foundation`） | **資料／日更真身**：V2 鏈、pipelines、receipts、DB migrations | 唔准由呢度直接 bake／`[deploy]` |
-| GitHub `origin/main` | **FE 出街源頭**：release bake 只 ff GitHub main | FE fix 要上 live＝push 上 GitHub main，等下一次 bake |
-| `../cardz-market-cap-037-fe04-live` | FE 出街車 worktree（= origin/main） | 認佢靠 branch==origin/main + live HTML 獨有字串 |
+| GitHub `origin/main` | **出街源頭**：release bake 只 ff GitHub main。由本樹 push，release commit 會令佢行前過本樹 | code fix 要上 live：本樹 commit、push main（冇 deploy literal），等下一次 bake。main 收返落本樹只准 `reset --mixed` 收養 |
+| `../cardz-market-cap-037-fe04-live` | **已退役**（2026-09-25 之前嘅 FE 出街車） | 唔准再用嚟 commit／push／bake |
 | `../cardz-fe-price-20260823` | FE dev 樹 | deploy 契約只喺 FE 樹有 |
 | WSL `~/cardz-market-cap-release-daily` | bake／release checkout | 只睇 GitHub main；由鏈自動用 |
 | `../cardz-market-cap`（舊實驗樹） | **read-only** | 唔准刪／搬——MySQL 3308 Docker compose 同 14GB volume 名由佢推導 |
