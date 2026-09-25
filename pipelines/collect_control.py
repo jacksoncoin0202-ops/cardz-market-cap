@@ -4808,7 +4808,11 @@ def pc_fresh_fetch_fallback(
                 for reason in replay_reasons.values()
                 if reason == "fresh_page_captured_this_run"
             ),
-            "freshFetchFailed": True,
+            # 2026-09-25: a tick-interrupted attempt's orphan child finished the
+            # sweep, so every page was captured this run and nothing was covered
+            # with older HTML. That is not a failed fetch; flagging it degraded
+            # the source with 1640/1640 fresh pages.
+            "freshFetchFailed": bool(stale_cover),
             "freshFetchError": fresh_error,
             "freshFetchErrorClass": fresh_error_class,
             "fallbackReplayVariantIds": sorted(

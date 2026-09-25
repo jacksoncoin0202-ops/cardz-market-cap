@@ -262,6 +262,34 @@ def main() -> int:
                 check("fallback 之後條 lane 先叫 ok", degraded.get("ok"), True)
                 check("矛盾嘅 error key 要清走", "error" in degraded, False)
 
+            # --- 6b. 孤兒 child 自己行完：全部頁都係今轉攞到，唔算 fetch 失敗 ---
+            # 2026-09-25 live：attempt 1 被 tick 斬，佢個 9333 child 繼續行晒
+            # 1640 頁；attempt 2 見 child 仲喺度，拒絕第二次 sweep，等佢完再用
+            # 返今轉嘅頁。冇一張係舊 HTML，唔准標 degraded。
+            orphan_done = call_fallback(
+                fallback_fn,
+                [items[1]],
+                {
+                    **failed_refresh,
+                    "error": "pc_child_already_running",
+                    "errorClass": "pc_child_already_running",
+                    "attemptedFailedVariantIds": [],
+                },
+                mode="incr",
+                run_started_at=run_started_at,
+                cycle_key="cardz-v2:orphan-finished",
+            )
+            check("孤兒 child 行完：照用今轉嘅頁", orphan_done is not None, True)
+            if orphan_done is not None:
+                _, orphan_report, orphan_refresh = orphan_done
+                check(
+                    "孤兒 child 行完：冇舊 HTML 就唔係 fetch 失敗",
+                    orphan_refresh.get("freshFetchFailed"),
+                    False,
+                )
+                check("孤兒 child 行完：冇 fallback variant", orphan_refresh.get("fallbackReplayVariantIds"), [])
+                check("孤兒 child 行完：原因照記低", orphan_refresh.get("freshFetchErrorClass"), "pc_child_already_running")
+
             # --- 7. 過 SLA 冇得 fallback：refresh 照舊 fail -------------------
             refused = call_fallback(
                 fallback_fn,

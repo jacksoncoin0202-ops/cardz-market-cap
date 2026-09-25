@@ -376,6 +376,11 @@ def publish_failure_is_deterministic(value: str) -> bool:
 # mai-nan-tenance, gover-nan-ce and fi-nan-ce all read as numeric contract
 # faults with an empty retry ladder.  Only a standalone token is a fault.
 TERMINAL_NUMERIC_RE = re.compile(r"(?<![a-z])(nan|infinity)(?![a-z])")
+# 2026-09-25 live: an identity-completeness error carrying 1858 card hashes was
+# read as CDP_9333_UNAVAILABLE because one sha1 contained "...933334...".  A port
+# counts only as a whole number, never as digits inside a hex run.
+CDP_PORT_RE = re.compile(r"(?<![0-9a-f])9333(?![0-9a-f])")
+MYSQL_PORT_RE = re.compile(r"(?<![0-9a-f])3308(?![0-9a-f])")
 
 
 # audit P2-4 (first step): the worker already knows what failed, so a verdict
@@ -470,12 +475,12 @@ def classify_error(text: str, *, stage: str = "source") -> RetryDecision:
         if publish_failure_is_deterministic(cleaned):
             return RetryDecision("PUBLISH_DETERMINISTIC", True, ())
         return RetryDecision("PUBLISH_FAILED", False, PUBLISH_RETRY_SECONDS)
-    if any(token in value for token in (
-        "cdp", "9333", "devtoolsactiveport", "chrome not reachable",
+    if CDP_PORT_RE.search(value) or any(token in value for token in (
+        "cdp", "devtoolsactiveport", "chrome not reachable",
     )):
         return RetryDecision("CDP_9333_UNAVAILABLE", False, INFRA_RETRY_SECONDS)
-    if any(token in value for token in (
-        "3308", "can't connect to mysql", "cannot connect to mysql", "mysql server has gone away",
+    if MYSQL_PORT_RE.search(value) or any(token in value for token in (
+        "can't connect to mysql", "cannot connect to mysql", "mysql server has gone away",
         "operationalerror(2003", "no such container: cardz-market-cap-db-1",
     )):
         return RetryDecision("MYSQL_UNAVAILABLE", False, INFRA_RETRY_SECONDS)

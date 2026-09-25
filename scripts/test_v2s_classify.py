@@ -267,6 +267,19 @@ try:
     assert decide(fallthrough)[0] == "MYSQL_UNAVAILABLE", decide(fallthrough)
     print("POSITIVE_OK P2-4 a mapped worker error code short-circuits the prose scan and an unmapped one does not")
 
+    # 2026-09-25 live: the identity-completeness error listed 1858 card sha1s;
+    # one held "...94933334..." and the whole failure read as a dead 9333.
+    hash_blob = (
+        "GemRate inventory build failed: {\"status\": \"INCOMPLETE_CENSUS\", \"reason\":"
+        " \"missing_staged_raw_card_details:75b16a14a61dfe9dbf640b8ba21f1ffee94933334"
+        ";missing_population_data:receipt_raw:0a3308ffbe01\"}"
+    )
+    assert decide(hash_blob)[0] == "SOURCE_FAILED", decide(hash_blob)
+    assert decide("connect ECONNREFUSED 127.0.0.1:9333")[0] == "CDP_9333_UNAVAILABLE"
+    assert decide("port 9333 refused")[0] == "CDP_9333_UNAVAILABLE"
+    assert decide("tcp 127.0.0.1:3308 refused")[0] == "MYSQL_UNAVAILABLE"
+    print("POSITIVE_OK a port inside a hex hash is not a dead browser or database, a real port still is")
+
     # ------------------------------------------------------------------ P2-6
     # Live receipt 0419b3c9e68c852f-attempt-2.json said {"currencies":0,
     # "written":30}: the receipt counted snapshot["quotes"], a key the FX
