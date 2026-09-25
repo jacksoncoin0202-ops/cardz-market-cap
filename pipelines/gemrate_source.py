@@ -400,6 +400,9 @@ def _persist_public_card_capture(cards_dir: Path, gemrate_id: str, payload: Mapp
             "contentSha256": page_meta["domSha256"],
             "sourcePointer": None,
         })
+        for field in ("pageJsonRejectReason", "pageJsonResponses"):
+            if field in page_meta:
+                receipt[field] = page_meta[field]
     else:
         receipt.update({"rawStatus": "not_captured", "contentSha256": None, "sourcePointer": None})
     normalized["privateSourceReceipt"] = receipt
@@ -1797,6 +1800,14 @@ def _fetch_card_once(
             # The page-initiated JSON was rate-limited and nothing usable
             # arrived; a DOM "table missing" verdict here would be a lie.
             return None, None, True
+        # A DOM fallback keeps why the JSON did not count. 2026-09-25: three
+        # JTG reverse holos fell back in every run, each such card failed the
+        # whole completeness census, and the rejection reason was dropped here.
+        page_json_seen = [
+            f"{(parse_qs(urlparse(str(entry.get('url') or '')).query).get('gemrate_id') or ['?'])[0]}"
+            f":{entry.get('status')}"
+            for entry in initiated_json
+        ]
         if isinstance(page_json, Mapping) and isinstance(page_data, Mapping):
             payload, reason = build_public_card_page_json_payload(
                 gid,
@@ -1808,10 +1819,16 @@ def _fetch_card_once(
                 dom_sha256=page_data.get("domSha256"),
                 route_verified=page_data.get("routeVerified"),
             )
+            if payload is None and dom_payload is not None:
+                dom_payload["publicCardPage"]["pageJsonRejectReason"] = reason
+                dom_payload["publicCardPage"]["pageJsonResponses"] = page_json_seen
             page_data = payload or dom_payload or {
                 "__failureReason": reason or dom_reason or "page_initiated_json_invalid",
             }
         else:
+            if dom_payload is not None:
+                dom_payload["publicCardPage"]["pageJsonRejectReason"] = "page_initiated_json_absent"
+                dom_payload["publicCardPage"]["pageJsonResponses"] = page_json_seen
             page_data = dom_payload or {
                 "__failureReason": dom_reason or (
                     page_data.get("__failureReason") if isinstance(page_data, Mapping) else "invalid_payload"

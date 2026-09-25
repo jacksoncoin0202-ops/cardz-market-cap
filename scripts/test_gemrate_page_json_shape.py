@@ -114,6 +114,60 @@ def capture_then_gate(label: str, payload: dict, want: dict) -> None:
         check(f"{label}: staged card agrees with raw", completeness._psa10_from_card_details(stored), want["graders"]["PSA"])
 
 
+class FakeResponse:
+    def __init__(self, url: str, status: int, body=None) -> None:
+        self.url, self.status, self.body = url, status, body
+
+    def json(self):
+        return self.body
+
+
+class FakePage:
+    """Just enough of a Playwright page for _fetch_card_once: the card page,
+    its page-initiated /card-details replies, and the DOM table it renders."""
+
+    def __init__(self, replies: list[FakeResponse], clock: list[float]) -> None:
+        self.replies, self.clock, self.listener = replies, clock, None
+
+    def on(self, event, callback) -> None:
+        self.listener = callback
+
+    def remove_listener(self, event, callback) -> None:
+        self.listener = None
+
+    def goto(self, url, **kwargs):
+        for reply in self.replies:
+            self.listener(reply)
+        return FakeResponse(url, 200)
+
+    def wait_for_timeout(self, ms) -> None:
+        self.clock[0] += ms / 1000.0
+
+    def evaluate(self, script, args):
+        return {"canonicalUrl": PAGE, "title": "Paldean Wooper", "domSha256": "b" * 64,
+                "routeVerified": True, "headers": ["GRADER", "POP", "GEM MINT"], "psaRow": ["PSA", "12", "0"]}
+
+
+def dom_fallback_keeps_reason(label: str, replies: list[FakeResponse], want_reason: str, want_seen: list[str]) -> None:
+    clock = [0.0]
+    real_time = gs.time
+    gs.time = type("FakeClock", (), {"monotonic": staticmethod(lambda: clock[0])})
+    try:
+        payload, failure, limited = gs._fetch_card_once(FakePage(replies, clock), GID)
+    finally:
+        gs.time = real_time
+    check(f"{label}: the DOM table still stands in", (failure, limited, (payload or {}).get("publicCardPage", {}).get("populationMode")),
+          (None, False, "dom_labelled_fallback"))
+    if payload is None:
+        return
+    with tempfile.TemporaryDirectory() as tmp:
+        receipt = gs._persist_public_card_capture(Path(tmp), GID, payload)["privateSourceReceipt"]
+    check(f"{label}: still no raw file, so the census gate still refuses it",
+          (receipt["rawStatus"], receipt["sourcePointer"]), ("dom_evidence_only", None))
+    check(f"{label}: the receipt says why the JSON did not count", receipt.get("pageJsonRejectReason"), want_reason)
+    check(f"{label}: the receipt lists every /card-details reply", receipt.get("pageJsonResponses"), want_seen)
+
+
 def main() -> int:
     capture_then_gate(
         "09-25 shape", payload_0925(),
@@ -132,6 +186,19 @@ def main() -> int:
     check("a PSA row without a 10 is still refused", build(no_ten), (None, "page_initiated_json_psa_g10_missing"))
     cgc = gs._top_grade_value("cgc", {"cgc_10_pristine": 220, "cgc_10_perfect": 0})
     check("CGC pristine/perfect never stand in for the CGC 10", cgc, None)
+
+    details = f"{gs.WEB}/card-details?gemrate_id={GID}"
+    dom_fallback_keeps_reason(
+        "JSON refused", [FakeResponse(details, 200, no_ten)],
+        "page_initiated_json_psa_g10_missing", [f"{GID}:200"],
+    )
+    other = "f" * 40
+    dom_fallback_keeps_reason(
+        "JSON for another id first", [FakeResponse(f"{gs.WEB}/card-details?gemrate_id={other}", 200, payload_0925()),
+                                      FakeResponse(details, 200, payload_0925())],
+        "page_initiated_json_route_unverified", [f"{other}:200", f"{GID}:200"],
+    )
+    dom_fallback_keeps_reason("no JSON at all", [], "page_initiated_json_absent", [])
 
     for line in FAILED:
         print(line)
