@@ -29,7 +29,7 @@ import {
   SHARE_RESOLUTIONS,
   type ShareResolution,
 } from "@/lib/share-resolution";
-import { changeValue, DEFAULT_TILE, restoreTileParams, tileCardSize, tileColors, tileStyle, type TileParams } from "@/lib/tile-style";
+import { changeValue, DEFAULT_TILE, restoreTileParams, tileCardSize, tileColors, tileStyle, windowTileParams, type TileParams } from "@/lib/tile-style";
 import { useMarketSettings } from "@/lib/use-market-settings";
 import { useUpDown } from "@/lib/use-updown";
 import type { Currency, Locale, MarketCardView, MarketViewSnapshot, MarketWindow } from "@/lib/types";
@@ -1126,7 +1126,7 @@ export function Heatmap({ cards, locale, currency, snapshot, href, title, scope 
         {tiles.map(({ item }, i) => {
           const card = item.card;
           const box = tileBoxes[i];
-          const st = tileStyle(changeValue(card, activePeriod), box.w, box.h, colors, params);
+          const st = tileStyle(changeValue(card, activePeriod), box.w, box.h, colors, windowTileParams(params, activePeriod));
           /* 卡圖 box 都釘格：闊高整數 device px、置中餘量雙數，卡邊唔會半粒 pixel 糊 */
           const cardBox = snapCardBox(box.w, box.h, st.cardW, st.cardH, size.dpr);
           const entry = entries.get(card.id) ?? LATE_ENTRY;

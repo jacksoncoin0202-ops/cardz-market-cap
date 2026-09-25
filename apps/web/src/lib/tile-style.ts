@@ -1,6 +1,7 @@
 /* 純函數，冇 "use client"：api/og/heatmap/route.tsx（server）都 import 呢度嘅 tileStyle + DEFAULT_TILE，
    分享圖同網站先會係同一條色階。加返 "use client" 嗰陣 route 攞到嘅係 client reference，一 call 就炸。 */
 import { displayedChangePct } from "./format";
+import type { MarketWindow } from "./types";
 
 /* 熱力圖 label 一位小數。印出來係 0.0% 就當 0：中立、無正負號、無色塊。 */
 export const TILE_CHANGE_DECIMALS = 1;
@@ -12,7 +13,7 @@ function tileChange(value: number | null): number | null {
 
 /* 純色框強度編碼：框 = 純紅/綠 fill（面積 = 市值，深淺 = 升跌幅），中間放直向卡 */
 export interface TileParams {
-  clamp: number;      // change% 到幾多就當最深色（爆色）
+  clamp: number;      // 1D change% 到幾多就當最深色（爆色）；長窗乘 WINDOW_CLAMP_SCALE
   gamma: number;      // 誇大/壓細強度曲線
   deadzone: number;   // ±deadzone% 之內當中立（0 = 只有顯示 0.0% 嘅格）
   aMin: number;       // 最淺色透明度
@@ -29,7 +30,7 @@ export interface TileParams {
 
 /* 色階 owner 2026-09-23 批改（DESIGN.md「明確非目標」已同步）：以前 gamma 4 + aMin 0.78，
    1%→0.780、3%→0.809、5% 以上全部 1.000 —— 3% 以下肉眼同色，1D 成版一隻綠。
-   而家 gamma 1.5 + aMin 0.45：1%→0.50、2%→0.59、3%→0.71、4%→0.84。clamp 5 冇郁，所以 6M 大部分格仍然頂格。 */
+   而家 gamma 1.5 + aMin 0.45：1%→0.50、2%→0.59、3%→0.71、4%→0.84。clamp 5 冇郁，所以 6M 大部分格仍然頂格（09-25 起長窗按 WINDOW_CLAMP_SCALE 放大，見下）。 */
 export const DEFAULT_TILE: TileParams = {
   clamp: 5, gamma: 1.5, deadzone: 0, aMin: 0.45, aMax: 1, gap: 3,
   cardPct: 0.62, cardAspect: 0.714, neutralTile: "rgba(138, 133, 120, 0.3)",
@@ -64,14 +65,34 @@ function hexToRgb(hex: string): [number, number, number] {
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
 }
 
+/* 每個窗口自己一個飽和點（owner 2026-09-25：「D 卡升親都唔係 5% 咁小，熱力圖 % 間隔要隔開 D」）。
+   以前全部窗口都係 clamp 5% 就頂格：09-25 Top100 實測，7D 58%、30D 80%、90D 87%、180D 91%、365D 90%
+   嘅格都係最深色，成版一樣深，睇唔出邊張升／跌得最勁，最深色亦冇晒稀缺性。
+   clamp 仍然係 1D 嘅飽和點（/tune 個 slider 郁嘅都係佢），長窗按倍數放大；預設 5% →
+   1D 5%、7D 20%、30D 50%、90D 70%、180D 120%、365D 250%，大約係 Top100 嗰個窗口第 95 百分位，
+   即係每個窗口得最極端嗰 3–8% 格先頂格。scripts/test-fe-heatmap-tile-color.mjs 守住呢組數同三個 call site。 */
+export const WINDOW_CLAMP_SCALE: Record<MarketWindow, number> = {
+  "1d": 1, "7d": 4, "30d": 10, "90d": 14, "180d": 24, "365d": 50,
+};
+export function windowTileParams(p: TileParams, period: MarketWindow): TileParams {
+  return { ...p, clamp: p.clamp * WINDOW_CLAMP_SCALE[period] };
+}
+
+/* 升跌幅用倍數（log）量，唔係直接用 %：+100%（×2）同 −50%（÷2）一樣深。365D 升可以幾百 %、
+   跌最多都係幾十 %，直接用 % 嘅話跌得最傷嗰張都永遠淺過一般升幅。細幅度 log ≈ %：1D ±3% 只差 0.01（−3% 0.72、+3% 0.71）。
+   ≤ −100%（壞數）當頂格，唔會出 NaN。 */
+function logMagnitude(pct: number): number {
+  return pct > -100 ? Math.abs(Math.log1p(pct / 100)) : Infinity;
+}
+
 /* 強度 0–1：顯示幅喺 deadzone 內 → 0（中立無色）；過咗 deadzone 之後由 0 重新升到 clamp 爆色 */
 export function frameStrength(value: number | null, p: TileParams): number {
   const shown = tileChange(value);
   if (shown === null) return 0;
-  const mag = Math.abs(shown);
-  if (mag <= p.deadzone) return 0;
-  const span = Math.max(p.clamp - p.deadzone, 0.1);
-  return Math.pow(Math.min(Math.max(mag - p.deadzone, 0), span) / span, p.gamma);
+  if (Math.abs(shown) <= p.deadzone) return 0;
+  const floor = Math.log1p(p.deadzone / 100);
+  const span = Math.max(Math.log1p(p.clamp / 100) - floor, 0.001);
+  return Math.pow(Math.min(Math.max(logMagnitude(shown) - floor, 0), span) / span, p.gamma);
 }
 
 /* 飽和度跟強度行：t=0 全灰（保留明暗），t=1 全彩——deadzone 內嘅格就近灰色 */

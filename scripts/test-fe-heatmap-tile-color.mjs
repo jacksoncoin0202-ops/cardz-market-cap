@@ -35,7 +35,7 @@ const check = (label, condition, detail = "") => {
   if (!condition) failed.push(detail ? `${label} —— ${detail}` : label);
 };
 
-const { DEFAULT_TILE, LABEL_PLATE, restoreTileParams, tileColors, tileStyle } = await import(
+const { DEFAULT_TILE, LABEL_PLATE, restoreTileParams, tileColors, tileStyle, windowTileParams, WINDOW_CLAMP_SCALE } = await import(
   `file://${join(ROOT, "apps/web/src/lib/tile-style.ts").replaceAll("\\", "/")}`
 );
 const { copy } = await import(`file://${join(ROOT, "apps/web/src/lib/i18n.ts").replaceAll("\\", "/")}`);
@@ -57,7 +57,33 @@ function ladder(p) {
 const now = ladder(DEFAULT_TILE);
 check("預設色階 1%≤0.55、3% 比 1% 深 ≥0.15、逐級加深、5% 頂格", now.ok, `alpha 1–5% = ${now.a.join(" / ")}`);
 check("負控制：舊 gamma 4 / aMin 0.78 過唔到色階合約", !ladder(OLD).ok, `old alpha = ${ladder(OLD).a.join(" / ")}`);
-check("升跌同一條色階（−3% 同 +3% 一樣深）", alphaOf(st(-3).bg) === alphaOf(st(3).bg));
+check("升跌同一條色階：用倍數量，+25%（×1.25）同 −20%（÷1.25）一樣深", alphaOf(st(-20, windowTileParams(DEFAULT_TILE, "30d")).bg) === alphaOf(st(25, windowTileParams(DEFAULT_TILE, "30d")).bg));
+check("細幅度 log ≈ %：−3% 只係深過 +3% 少少（< 0.02）", alphaOf(st(-3).bg) >= alphaOf(st(3).bg) && alphaOf(st(-3).bg) - alphaOf(st(3).bg) < 0.02,
+  `alpha −3% ${alphaOf(st(-3).bg)} / +3% ${alphaOf(st(3).bg)}`);
+
+/* ── ④ 每個窗口自己一個飽和點（owner 2026-09-25：「升親都唔係 5% 咁小，熱力圖 % 間隔要隔開 D」）──
+   以前全部窗口 5% 頂格，09-25 Top100 30D 80%／180D 91% 嘅格都係最深色。數字係 Top100 嗰個窗口約第 95 百分位；
+   改數要連 tile-style.ts 註解一齊改。負控制：唔經 windowTileParams（舊寫法）30D +13%（Top100 中位數）一定頂格。 */
+const { marketWindows } = await import(`file://${join(ROOT, "apps/web/src/lib/types.ts").replaceAll("\\", "/")}`);
+const EXPECT_CLAMP = { "1d": 5, "7d": 20, "30d": 50, "90d": 70, "180d": 120, "365d": 250 };
+check("WINDOW_CLAMP_SCALE 包晒每個 market window",
+  marketWindows.every((w) => Number.isFinite(WINDOW_CLAMP_SCALE[w])) && Object.keys(WINDOW_CLAMP_SCALE).length === marketWindows.length,
+  `windows ${marketWindows.join(",")} vs ${Object.keys(WINDOW_CLAMP_SCALE).join(",")}`);
+for (const w of marketWindows) {
+  const wp = windowTileParams(DEFAULT_TILE, w);
+  const cap = EXPECT_CLAMP[w];
+  const down = Math.floor(1000 * (1 / (1 + cap / 100) - 1)) / 10; /* label 一位小數：−33.33 印 −33.3 就差一條命，向下取 */
+  check(`${w} 飽和點 = +${cap}%`, wp.clamp === cap, `got ${wp.clamp}`);
+  check(`${w} 到 +${cap}% 同 ${down.toFixed(1)}% 先頂格，一半幅度仲淺`,
+    alphaOf(st(cap, wp).bg) === 1 && alphaOf(st(down, wp).bg) === 1 && alphaOf(st(cap / 2, wp).bg) < 0.8,
+    `alpha ${alphaOf(st(cap, wp).bg)} / ${alphaOf(st(down, wp).bg)} / ${alphaOf(st(cap / 2, wp).bg)}`);
+}
+check("windowTileParams 淨係改 clamp，1D 同預設一樣", JSON.stringify(windowTileParams(DEFAULT_TILE, "1d")) === JSON.stringify(DEFAULT_TILE));
+check("/tune 調 1D clamp，長窗跟住按比例", windowTileParams({ ...DEFAULT_TILE, clamp: 10 }, "30d").clamp === 100);
+const mid30 = alphaOf(st(13, windowTileParams(DEFAULT_TILE, "30d")).bg);
+check("30D +13% 唔再頂格（深淺分得出）", mid30 < 0.7, `alpha ${mid30}`);
+check("負控制：唔經 windowTileParams 30D +13% 頂格", alphaOf(st(13).bg) === 1);
+check("≤ −100% 壞數唔出 NaN（當頂格）", alphaOf(st(-100, windowTileParams(DEFAULT_TILE, "365d")).bg) === 1 && alphaOf(st(-150).bg) === 1);
 
 /* ── label 底板：白字對比 ≥ 4.5（WCAG AA 細字）。frame 底 ⊕ 格色 ⊕ 底板，兩個 theme × 紅綠對調 × 0.1–10%。
    淺色 theme 格色配淺 frame、深色配深 frame（按 --heatmap-frame-bg 光暗配對，唔靠 CSS 次序）。
@@ -130,9 +156,9 @@ check("heatmap.tsx 用 restoreTileParams 讀 localStorage（喺 try 入面）",
 const tileSrc = read("apps/web/src/lib/tile-style.ts");
 check("tile-style.ts 冇 \"use client\"（OG route 係 server，要真 call 佢）", !/^\s*["']use client["'];?\s*$/m.test(tileSrc));
 const route = read("apps/web/src/app/api/og/heatmap/route.tsx");
-check("OG route import tileStyle + DEFAULT_TILE", /import \{ DEFAULT_TILE, tileStyle \} from "@\/lib\/tile-style";/.test(route));
+check("OG route import tileStyle + DEFAULT_TILE + windowTileParams", /import \{ DEFAULT_TILE, tileStyle, windowTileParams \} from "@\/lib\/tile-style";/.test(route));
 check("OG route 格色 / 底板由 tileStyle 出",
-  /tileStyle\(pct, [^;]*DEFAULT_TILE\)/.test(route) && /background: st\.bg,/.test(route) && /const plate = st\.plate;/.test(route));
+  /tileStyle\(pct, [^;]*windowTileParams\(DEFAULT_TILE, period\)\)/.test(route) && /background: st\.bg,/.test(route) && /const plate = st\.plate;/.test(route));
 check("OG route 冇自己計 alpha", !/\balpha\s*=/.test(route) && !/function tileFill/.test(route));
 check("OG route 持平唔出 label", /const move = st\.direction === "neutral" \? null : formatMove\(pct\);/.test(route));
 check("OG legend 灰格講埋持平（三個語言）",
@@ -144,6 +170,14 @@ check("OG legend 灰格講埋持平（三個語言）",
 check("HeatmapTile 出 data-missing", /data-missing=\{p\.missing \? "" : undefined\}/.test(read("apps/web/src/components/heatmap-tile.tsx")));
 check("heatmap.tsx 傳 missing", heatmapSrc.includes("missing={st.missing}"));
 check("/tune board 傳 missing", read("apps/web/src/components/heatmap-tiles-board.tsx").includes("missing={st.missing}"));
+/* 三個 call site 全部經 windowTileParams：漏一個就係網站同分享圖兩條色階 */
+for (const [rel, re] of [
+  ["apps/web/src/components/heatmap.tsx", /tileStyle\(changeValue\(card, activePeriod\), box\.w, box\.h, colors, windowTileParams\(params, activePeriod\)\)/],
+  ["apps/web/src/components/heatmap-tiles-board.tsx", /tileStyle\(changeValue\(card, period\), box\.w, box\.h, colors, windowTileParams\(params, period\)\)/],
+]) {
+  const src = read(rel);
+  check(`${rel} tileStyle 經 windowTileParams`, re.test(src) && (src.match(/tileStyle\(/g) ?? []).length === 1);
+}
 check("legend 有持平一格", heatmapSrc.includes('<li><span className="legend-swatch flat" />{t.heatmap.flat}</li>'));
 check("legend 有冇數一格", heatmapSrc.includes('<li><span className="legend-swatch pending" />{t.heatmap.neutral}</li>'));
 for (const [locale, c] of Object.entries(copy)) {
@@ -165,5 +199,5 @@ if (failed.length) {
   for (const line of failed) console.error(`  - ${line}`);
   process.exit(1);
 }
-console.log(`PASS test-fe-heatmap-tile-color — 色階 1–5% = ${now.a.join(" / ")}；label 白字對比最差 ${plateNow.c.toFixed(2)}（${plateNow.at}）；持平／冇數分開；分享圖同網站同一條`);
+console.log(`PASS test-fe-heatmap-tile-color — 色階 1–5% = ${now.a.join(" / ")}；飽和點 ${marketWindows.map((w) => `${w} ${windowTileParams(DEFAULT_TILE, w).clamp}%`).join(" ")}；label 白字對比最差 ${plateNow.c.toFixed(2)}（${plateNow.at}）；持平／冇數分開；分享圖同網站同一條`);
 process.exit(0);

@@ -6,7 +6,7 @@ import { HeatmapTile, tileFetchPriority, tileImageSizes } from "./heatmap-tile";
 import { displayCardName } from "@/lib/card-name";
 import { snapCardBox, snapFrameGrid, snapTileBox } from "@/lib/pixel-snap";
 import { heatmapTreemapLayout } from "@/lib/ranked-strip-layout";
-import { changeValue, tileColors, tileStyle, type TileParams } from "@/lib/tile-style";
+import { changeValue, tileColors, tileStyle, windowTileParams, type TileParams } from "@/lib/tile-style";
 import { useUpDown } from "@/lib/use-updown";
 import type { Locale, MarketCardView, MarketWindow } from "@/lib/types";
 
@@ -68,7 +68,7 @@ export function HeatmapTilesBoard({ cards, period, params, dark, locale, onPick 
         const card = item.card;
         /* 同主 heatmap 同一套釘格（lib/pixel-snap.ts）：gap 一律相等、卡圖落整數格 */
         const box = snapTileBox(x, y, width, height, params.gap, size);
-        const st = tileStyle(changeValue(card, period), box.w, box.h, colors, params);
+        const st = tileStyle(changeValue(card, period), box.w, box.h, colors, windowTileParams(params, period));
         const cardBox = snapCardBox(box.w, box.h, st.cardW, st.cardH, size.dpr);
         return (
           <HeatmapTile

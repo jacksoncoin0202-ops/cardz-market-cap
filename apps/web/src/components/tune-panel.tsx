@@ -111,7 +111,7 @@ export function TunePanel({ params, onChange, dark, locale }: { params: TilePara
   const [resetKey, setResetKey] = useState(0);
   const reset = () => { onChange(DEFAULT_TILE); setResetKey((k) => k + 1); };
   const sliders: { key: keyof TileParams; label: string; min: number; max: number; step: number; format: (v: number) => string }[] = [
-    { key: "clamp", label: t.heatmap.clamp, min: 1, max: 20, step: 0.5, format: (v) => `${v.toFixed(1)}%` },
+    { key: "clamp", label: t.heatmap.clamp, min: 1, max: 20, step: 0.5, format: (v) => `1D ${v.toFixed(1)}%` }, /* 長窗按 WINDOW_CLAMP_SCALE 放大 */
     { key: "gamma", label: t.heatmap.intensity, min: 0.5, max: 4, step: 0.1, format: (v) => v.toFixed(1) },
     { key: "deadzone", label: t.heatmap.neutralZone, min: 0, max: 5, step: 0.5, format: (v) => `±${v}%` },
     { key: "aMin", label: t.heatmap.alphaMin, min: 0, max: 1, step: 0.01, format: (v) => v.toFixed(2) },

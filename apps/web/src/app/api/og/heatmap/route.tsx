@@ -24,7 +24,7 @@ import {
   shareCopy,
   type ShareLang,
 } from "@/lib/share-copy";
-import { DEFAULT_TILE, tileStyle } from "@/lib/tile-style";
+import { DEFAULT_TILE, tileStyle, windowTileParams } from "@/lib/tile-style";
 import { marketWindows, type MarketCardView, type MarketWindow } from "@/lib/types";
 
 /**
@@ -407,7 +407,7 @@ export async function GET(request: Request): Promise<Response> {
             const { cardW, cardH } = cardBox(tw, th);
             /* 色階、「印出嚟 0.0% 就當持平」、label 底板，全部同網站行同一個 tileStyle ——
                以前呢度自己抄一份，0.04% 會印「+0.0%」綠格，網站就係灰格。 */
-            const st = tileStyle(pct, tw, th, { up, down, neutral: NEUTRAL }, DEFAULT_TILE);
+            const st = tileStyle(pct, tw, th, { up, down, neutral: NEUTRAL }, windowTileParams(DEFAULT_TILE, period));
             const move = st.direction === "neutral" ? null : formatMove(pct);
             const art = arts[i];
             const fontPx = Math.round(labelFontSize(tw, th, scale));
