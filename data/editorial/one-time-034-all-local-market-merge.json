@@ -1,25 +1,25 @@
 {
   "contract": "pc_psa10_local_history_v1",
   "map": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/runtime/private-source-map/c11_pc_ebay_map_full900.jsonl",
-  "mapRows": 921,
-  "activeExactPriceChartingRows": 575,
+  "mapRows": 1522,
+  "activeExactPriceChartingRows": 1521,
   "roots": [
     {
-      "root": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap/data/private/pricecharting_session/html",
+      "root": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap-fe-db-20260805/data/private/pricecharting_session/html/full900",
       "exists": true,
-      "htmlFiles": 2697,
-      "matchedExactArtifacts": 1306,
-      "acceptedPricePoints": 41129
+      "htmlFiles": 3220,
+      "matchedExactArtifacts": 2589,
+      "acceptedPricePoints": 99254
     },
     {
       "root": "/mnt/c/Users/jackson0202/Documents/Playground/cardz-market-cap-fe-db-20260805/data/private/pricecharting_session/html",
       "exists": true,
-      "htmlFiles": 441,
-      "matchedExactArtifacts": 440,
-      "acceptedPricePoints": 14395
+      "htmlFiles": 5037,
+      "matchedExactArtifacts": 3893,
+      "acceptedPricePoints": 150758
     }
   ],
-  "mergedHistoricalPriceRows": 18236,
-  "variantsWithHistoricalPrice": 573,
+  "mergedHistoricalPriceRows": 57002,
+  "variantsWithHistoricalPrice": 1521,
   "rejectedReason": "non-exact provider identity, no explicit PSA 10 series, malformed local artifact, or empty price point"
 }

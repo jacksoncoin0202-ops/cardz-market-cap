@@ -1,10 +1,20 @@
 # CardZ Marketcap 宣傳鏈
 
-> **冇任何嘢會自動出帖。** 全條鏈只會**砌 pack、寫 receipt**。出街係人手一句
-> `promo_post.py compose --confirm`，冇第二條路：`live.confirmed` 唔會 post、
-> 17:45 嗰個排程 task 唔會 post、dry-run 連瀏覽器都唔會掂。
+> **每日一條固定路。** Repo 17:45 task 只砌渠道 pack；Hermes gate 等 live bake
+> 至少 30 分鐘後，按 receipt 只補未完成嘅 X／Threads 英中四步。
+> Instagram、WhatsApp 目前暫停，唔計入 missing／完成條件；repo pack 亦只產四個 active 渠道。
+> 公開出帖只准由 Hermes `cardz_marketcap_x_post.py`／`cardz_marketcap_meta_post.py`
+> 經指定隔離 CDP 執行；Hermes job 啟用時，repo `promo_post.py --confirm` 會
+> fail closed，避免雙 publisher。
 
-**唔係自動更新鏈。** `live.confirmed` **唔准即刻 post**。Daddy 2026-08-21：Live bake 成功之後 **再等 30 分鐘** 先跑宣傳 `brief`（圖／文／閘）。出 X／Threads／WhatsApp 仍然要 9222／固定群名，未齊就停喺 pack。
+> **錯帖清理鐵律：** 已確認重複、錯帳、錯 audience／community 或內容錯誤，
+> 必須先刪除公開貼文，之後先可以重發。只停 retry、只寫 receipt、或只話
+> `posted=true` 都唔算收口。每次公開動作必須保存平台 post URL／ID；如果已撳
+> Post 但未攞到 URL，事件保持 `cleanup_required`，唔准自動再試。
+
+**唔係即時 publish。** Live bake 成功後等 30 分鐘，再跑圖／文／generation gate。heatmap 同上一手 pack 同一 sha、或者 live `box.asOf` 唔係今日 JST = **舊 bake／舊圖**，即停。X／Threads 英中全部固定用隔離持久化 9222；9333 只屬 PriceCharting。
+
+Hermes browser 操作按 port 使用 `~/.hermes/state/cardz-social-cdp-<PORT>.lock`；poster 進程必須先取得對應 lock，先可以讀 account、轉 tab 或 compose。未知 Threads handle 冇專用 port mapping 就 fail closed，唔准 fallback。
 
 每日公開流程：
 
@@ -12,7 +22,7 @@
 2. HTTP 拎熱力圖：`GET /api/og/heatmap?period=7d&show=40&scope=all&format=post&theme=dark&updown=green-up&lang=en`（對 generation header；**唔開 browser、唔截 :3900**）。`scope` = all / pokemon / one-piece；`format` = post（4:5 直）/ status（9:16）/ wide 或 landscape（橫）；`updown=red-up` 顏色反轉；`lang` = en / zh-TW / zh-CN。
 3. 腳本出 TCG Top 100 最大升 3／最大跌 3（圖可以係 Top 40，**數字永遠講 Top 100 排名**）
 4. 文案係模板，唔寫評論；結尾一條 https://cardzmarketcap.com
-5. 分語文推 X / Threads / WhatsApp（圖+字）
+5. 依 receipt 推 X、Threads EN／ZH（圖+字）；Instagram、WhatsApp 暫停
 
 ---
 
@@ -26,9 +36,8 @@
 | 文案 | **腳本** `render_copy`：排名 + 語言名 + % + 🟢／🔴 | 唔准加評論 | 係 |
 | 語文閘／洩漏閘 | **腳本** | `promo_chain.py assert <pack>` | 係 |
 | Telegram 內部 | Hermes `send --to telegram:…`（已 set） | 內部通報，唔係公開帖 | 係 |
-| WhatsApp 群 | Hermes `send --to whatsapp:#PTCG`（Pokémon 圖）／`whatsapp:#Yaichi x Cardz.Game TCG 社區｜4號群`（TCG 圖）／`whatsapp:#海賊王`（海賊王圖） + `MEDIA:<jpg>` | 固定表 `CHANNEL_HERMES_NAME`，同 `CHANNEL_BOARD` 對齊。唔 `send --list`、唔模糊、唔 AI | 係 |
 | X EN / X 中文 | 9222 重用 x.com tab | Hermes **冇** X token | 要頭 |
-| Threads EN / 中文 | 9222 重用 threads.net tab | Hermes **冇** Threads token | 要頭 |
+| Threads EN / 中文 | 9222；`@cardz.game`／`@cardz.gamezh` | 目標帳唔啱即停 | 要頭 |
 
 腳本一次過做得到、唔好再用 AI 估：排行、generation、period、文案模板、洩漏掃、簡繁閘、9222 揀 tab。
 
@@ -36,7 +45,7 @@
 
 ---
 
-## 9222 tab 紀律（hard）
+## Social CDP tab 紀律（hard）
 
 同一 host **一個 tab**。唔得就喺**同一個 tab** 再試，最多 2 次；第三次停，唔准再開分頁。
 
@@ -54,17 +63,15 @@ python -X utf8 scripts/promo_chain.py pick-tab --channel x.com-en
 
 ## 登入順序（hard）
 
-宣傳帳喺用戶 Chrome（9222），唔係 9333（9333 係 PriceCharting）。
+宣傳帳使用 watchdog 維持嘅隔離持久 9222 profile；唔係 Codex Chrome、用戶日常 Chrome、9224，亦唔係 9333（PriceCharting）。
 
 1. 重用嗰個站已開嘅 tab
 2. 已經登入目標帳 → 繼續
 3. 登入頁有**已儲存帳號／一鍵撳入** → 先撳，唔好打字
-4. 預設帳唔啱 → Hermes 1Password（`OP_SERVICE_ACCOUNT_TOKEN` 已喺 Hermes env）攞正確 item，再填。密碼唔准印 log、唔准入 brief
-5. 2FA／passkey → 停，交返 Daddy。唔好開新 tab 再試
+4. Instagram／Threads 每個帳先由 Hermes `cardz_marketcap_meta_session.py --handle <cardz.game|cardz.gamezh> --port 9222` 建立 session；1Password 用 item title `Instagram`＋username 精確配對。密碼／TOTP／item ID 唔准印 log、唔准入 brief
+5. helper 只喺 2FA input 可見後攞 fresh TOTP；Instagram 同 Threads profile 都見到 `Edit profile` 先算 `owner_confirmed`。唔接受 transient redirect，唔准開 composer
 
-### Threads 出帖（hard）
-
-compose 有「post 去邊個社羣／主題」。**一定揀 CARDZGAME**，唔好留喺預設個人主 feed。EN／ZH 兩則都係。未見到 CARDZGAME 就停，唔好發。
+Threads 英／中分別由 `@cardz.game`／`@cardz.gamezh` 主 feed 出；每步先讀回目標 handle，唔啱即停，唔准靠 composer 內文或 audience 字樣估帳號。
 
 ---
 
@@ -75,7 +82,7 @@ compose 有「post 去邊個社羣／主題」。**一定揀 CARDZGAME**，唔�
 | x.com 英文 | en |
 | x.com 中文 | **簡體** |
 | Threads 英文 | en |
-| Threads 中文、WhatsApp PTCG、WhatsApp 海賊王、Fork zh、站內中文 | **繁體** |
+| Threads 中文、Fork zh、站內中文 | **繁體** |
 
 簡體只准 `x.com-zh`。引文（例如小紅書原帖）可以保留簡體，CARDZ 自己寫嘅字唔准。
 
@@ -83,7 +90,7 @@ compose 有「post 去邊個社羣／主題」。**一定揀 CARDZGAME**，唔�
 
 ## 文案（模板，腳本出）
 
-X / Threads = **TCG Top 100**。WhatsApp PTCG = 寶可夢 Top 100；WhatsApp 海賊王 = 海賊王 Top 100。圖 slider Top 40，行內 `#N` 永遠係該榜 Top 100 排名。
+X / Threads = **TCG Top 100**。圖 slider Top 40，行內 `#N` 永遠係該榜 Top 100 排名。
 
 ```
 TCG Top 100 · 7D
@@ -109,7 +116,6 @@ https://cardzmarketcap.com
 |---|---|---|
 | x.com-en / x.com-zh | **280 加權** | [X counting](https://docs.x.com/fundamentals/counting-characters)：Latin=1、CJK／emoji=2、URL 一律 23。未核對 Premium 就當 280，唔當 25k |
 | threads-en / threads-zh | **500 字** | 每則 post |
-| WhatsApp 群 | **4096** | Cloud API 文字上限；普通聊天更高，fail-closed 用細嗰個 |
 
 塞唔入 3+3 就自動減 2+2 → 1+1，再塞唔入就 `PromoError`，唔准截一半名出街。
 
@@ -208,7 +214,6 @@ python -X utf8 scripts/promo_after_publish.py                      # 排程用�
 python -X utf8 scripts/promo_post.py plan --pack data/runtime/promo/<generation>
 python -X utf8 scripts/promo_post.py compose --channel x.com-en --pack data/runtime/promo/<generation>
 python -X utf8 scripts/promo_post.py compose --channel x.com-en --pack data/runtime/promo/<generation> --fill-only
-python -X utf8 scripts/promo_post.py compose --channel threads-zh --pack data/runtime/promo/<generation> --confirm
 python -X utf8 scripts/test_promo_pack.py
 python -X utf8 scripts/test_promo_post.py
 ```
@@ -219,7 +224,7 @@ python -X utf8 scripts/test_promo_post.py
 |---|---|---|
 | 預設（dry-run） | **零** CDP／websocket／network，淨係寫 receipt | 否 |
 | `--fill-only` | 重用 9222 個 tab、填 composer + 貼圖 | 否（**唔撳 Post**） |
-| `--confirm` | 同上 | **係**，人手先准 |
+| `--confirm` | X／IG／Threads 立即 fail-closed | 否；公開出帖只屬 Hermes 四步鏈 |
 
 `--cdp` 可以換 endpoint，預設仍然係 `http://127.0.0.1:9222`（9333 係 PriceCharting，唔關事）。
 `--confirm` 同 `--fill-only` 唔可以一齊用。
@@ -228,12 +233,11 @@ python -X utf8 scripts/test_promo_post.py
 
 | 渠道 | 點發 | 未齊就停 |
 |---|---|---|
-| X.com EN／ZH | 9222 同一 x.com tab，`tweetTextarea_0` + `fileInput` + `tweetButton` | 9222 熄／未登入 |
-| Threads（Daddy 講 Flock＝Threads 社羣） | 9222 同一 threads.net tab，**一定揀 CARDZGAME** | 見唔到 CARDZGAME |
-| WhatsApp | Hermes WS：`send --to whatsapp:#PTCG`（Pokémon）／`whatsapp:#Yaichi x Cardz.Game TCG 社區｜4號群`（TCG）／`whatsapp:#海賊王` + `MEDIA:<jpg>`（`CHANNEL_HERMES_NAME`） | Hermes WhatsApp directory 仍空／gateway 未 ready。**唔** list 估群 |
+| X.com EN／ZH | Hermes `cardz_marketcap_x_post.py`；9222；先核對目標帳 | 9222 熄／未登入／錯帳 |
+| Threads EN／ZH | Hermes `cardz_marketcap_meta_post.py --platform threads`；9222；先核對 handle | 9222 熄／錯帳／mapping 缺失 |
 | Facebook | 唔做 | — |
 
-`data/runtime/promo/destinations.json` 抄 [`scripts/promo_destinations.example.json`](../scripts/promo_destinations.example.json)。未有 Daddy `--confirm` 之前，中午只跑 `brief` + `plan`。
+Repo pack destination contract 見 [`scripts/promo_destinations.example.json`](../scripts/promo_destinations.example.json)；日更 completion gate 只計 X／Threads 英中四步，Instagram／WhatsApp／fork／site 暫停。Hermes 官方 job `bc4615fdd701`（歷史名稱 `cardz-mc-6acct-12jst-daily`）每 15 分鐘於 12–20 JST 觸發；保留 job ID，不因名稱含 6 而重建或恢復 Instagram。
 
 ---
 
@@ -256,4 +260,4 @@ python -X utf8 scripts/test_promo_post.py
 3. 你叫「睇呢幾日 receipt」→ AI **一次過**分類形狀、改腳本、種 bug 證明閘會紅
 4. 唔好每晚開 9222 試發；唔好 LLM 坐通宵睇 log（貴、擾人瞓）
 
-AI 嘅位：讀 receipt 修腳本。**唔係**每日創作文案、亦唔係自動推送。
+AI 嘅位：讀 receipt 修腳本。公開推送只由 Hermes deterministic no-agent job 執行。

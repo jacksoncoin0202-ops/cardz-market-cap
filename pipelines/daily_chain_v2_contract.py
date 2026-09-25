@@ -566,6 +566,12 @@ def classify_provenance(receipt: Mapping[str, Any]) -> str:
         else receipt.get("eventAgeSeconds")
     )
     scheduler_parent = parent in {"taskeng.exe", "taskhostw.exe", "svchost.exe"}
+    # The production task deliberately launches through the hidden
+    # cardz_silent_run.vbs wrapper, so PowerShell's direct parent is wscript.
+    # Accept that shape only with a fresh, fully-bound event 107 receipt; the
+    # event-missing repetition shortcut below remains restricted to native
+    # Task Scheduler parents so a manually launched VBS cannot claim autonomy.
+    hidden_task_wrapper = parent == "wscript.exe"
     task_ok = task_name.rstrip("\\") == "\\CARDZ-Marketcap-Daily-V2".rstrip("\\")
     if event_id == 110:
         return "manual"
@@ -575,7 +581,7 @@ def classify_provenance(receipt: Mapping[str, Any]) -> str:
         and record_id > 0
         and bool(instance_id)
         and 0 <= age_seconds <= 120
-        and scheduler_parent
+        and (scheduler_parent or hidden_task_wrapper)
     ):
         return "scheduled"
     # 10-minute repetition often has no fresh event 107 in the launcher's

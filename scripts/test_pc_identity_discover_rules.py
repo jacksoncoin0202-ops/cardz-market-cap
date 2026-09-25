@@ -192,7 +192,10 @@ for page in PROMO_PAGES:
     for row in D.parse_console_rows(page.read_text(encoding="utf-8", errors="replace")):
         promo_rows[row["pid"]] = row
 
-luffy = promo_rows.get("10956514")
+luffy = next((
+    row for row in promo_rows.values()
+    if row["title"] == "Monkey.D.Luffy [Championship 25-26 Top Player] OP07-109"
+), None)
 truthy("the promo page has the card we are looking for", luffy is not None)
 if luffy:
     check("its number is the full one", D.listing_number(luffy), "OP07-109")
@@ -220,9 +223,13 @@ def promo_variant(**over):
     row = {
         "tcg_code": "one-piece", "collector_number": "109",
         "fp_name": "Monkey D. Luffy",
-        "canonical_name": "2024 One Piece Promo Monkey D. Luffy Illustration Box Vol.3 109",
-        "set_name": "One Piece Promos", "fp_parallel": "Illustration Box Vol.3",
-        "parallel_code": "illustration box vol.3", "printing_code": "",
+        "canonical_name": (
+            "2026 One Piece Promo Monkey D. Luffy "
+            "Championship 25-26 Top Player 109"
+        ),
+        "set_name": "One Piece Promos",
+        "fp_parallel": "Championship 25-26 Top Player",
+        "parallel_code": "championship 25-26 top player", "printing_code": "",
     }
     row.update(over)
     return row
@@ -471,6 +478,40 @@ check("and [SP Foil] is still a different product",
       RB._pc_print_signature_ok("SP Foil", {"parallel_code": "sr-spc", "printing_code": "sp"}),
       False)
 
+ok, why = D.judge_listing(
+    {"tcg_code": "one-piece", "collector_number": "EB01-057",
+     "fp_name": "Shirahoshi",
+     "canonical_name": (
+         "2025 One Piece Japanese OP11-A Fist of Divine Speed "
+         "Shirahoshi Special Alternate Art EB01-057"
+     ),
+     "set_name": "One Piece Japanese OP11-A Fist of Divine Speed",
+     "fp_parallel": "special alternate art",
+     "parallel_code": "special alternate art", "printing_code": "",
+     "card_language": "ja"},
+    listing(title="Shirahoshi EB01-057",
+            slug="shirahoshi-eb01-057",
+            url="https://www.pricecharting.com/game/"
+                "one-piece-japanese-fist-of-divine-speed/shirahoshi-eb01-057"),
+    "One Piece Japanese OP11-A Fist of Divine Speed")
+check(f"unbracketed SP listing on leftover's own set is accepted ({why})", ok, True)
+ok, why = D.judge_listing(
+    {"tcg_code": "one-piece", "collector_number": "OP01-121",
+     "fp_name": "Yamato",
+     "canonical_name": "Yamato Special Alternate Art OP01-121",
+     "set_name": "One Piece Japanese OP05-Awakening of the New Era",
+     "fp_parallel": "special alternate art",
+     "parallel_code": "special alternate art", "printing_code": "sp",
+     "card_language": "ja"},
+    listing(title="Yamato OP01-121",
+            slug="yamato-op01-121",
+            url="https://www.pricecharting.com/game/"
+                "one-piece-japanese-romance-dawn/yamato-op01-121"),
+    "One Piece Japanese Romance Dawn")
+check("unbracketed SP listing on the NUMBER's set is still refused", ok, False)
+truthy("Yamato reason is number-set own print or print signature",
+       why.startswith("number_set_own_print:") or why.startswith("print_signature:"))
+
 
 # --- 3f. the promoting gate reads the number's set too ---------------------
 # Both readings have to reach whoever judges the product, not just the lane
@@ -593,6 +634,8 @@ check("number's set + [Manga] is its own manga rare",
       RB._pc_print_belongs_to_number_set("paramount war", "Manga"), True)
 check("[SP] is only ever a reprint",
       RB._pc_print_belongs_to_number_set("two legends", "SP"), False)
+check("[Wanted] is only ever a reprint",
+      RB._pc_print_belongs_to_number_set("awakening of the new era", "Wanted"), False)
 check("[Special Alternate Art] likewise",
       RB._pc_print_belongs_to_number_set("romance dawn", "Special Alternate Art"), False)
 check("[Treasure Rare] likewise",

@@ -333,7 +333,10 @@ def cmd_alert(args: argparse.Namespace) -> int:
         _log(f"notify_hermes: alert {args.key} within cooldown -> silent")
         return 0
     icon = {"info": "ℹ️", "warn": "⚠️", "error": "🔴"}.get(args.level, "⚠️")
-    text = f"{icon} <b>CARDZ {html.escape(args.key)}</b>\n{html.escape(args.text)}"
+    if getattr(args, "human", False):
+        text = html.escape(args.text)
+    else:
+        text = f"{icon} <b>CARDZ {html.escape(args.key)}</b>\n{html.escape(args.text)}"
     delivered = send_message(text)
     if delivered:
         _mark_sent(state, args.key)
@@ -553,6 +556,11 @@ def main() -> int:
     p_alert.add_argument("--text", required=True)
     p_alert.add_argument("--level", choices=("info", "warn", "error"), default="warn")
     p_alert.add_argument("--cooldown-min", default="60")
+    p_alert.add_argument(
+        "--human",
+        action="store_true",
+        help="send --text as the Telegram body; do not wrap with CARDZ key",
+    )
     p_alert.add_argument(
         "--require-delivery",
         action="store_true",

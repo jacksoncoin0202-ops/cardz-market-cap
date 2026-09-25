@@ -236,6 +236,12 @@ PC_CHILD_WAIT_BUDGET_SECONDS = float(
     os.environ.get("PC_CHILD_WAIT_BUDGET_SECONDS") or 120.0
 )
 PC_CHILD_WAIT_POLL_SECONDS = float(os.environ.get("PC_CHILD_WAIT_POLL_SECONDS") or 5.0)
+# The hidden VBS launcher returns when the Windows child has exited, but the
+# final ``.rc`` write can become visible to WSL a few seconds later.  This is
+# part of the launcher hand-off contract, not a retry: wait for that authority
+# file before classifying an otherwise completed 1179-page sweep as failed.
+PC_CHILD_RC_GRACE_SECONDS = float(os.environ.get("PC_CHILD_RC_GRACE_SECONDS") or 10.0)
+PC_CHILD_RC_POLL_SECONDS = float(os.environ.get("PC_CHILD_RC_POLL_SECONDS") or 0.1)
 # Chrome's lifecycle belongs to the launcher preflight and the ChromeCdpWatchdog
 # task; the chain only asks whether the session is the right one. 30s, not 90.
 PC_ENSURE_CDP_TIMEOUT_SECONDS = 30
@@ -1150,6 +1156,25 @@ def _read_rc_file(path: Path) -> int | None:
     return None
 
 
+def pc_wait_for_rc_file(
+    path: Path,
+    *,
+    grace_seconds: float = PC_CHILD_RC_GRACE_SECONDS,
+    poll_seconds: float = PC_CHILD_RC_POLL_SECONDS,
+) -> tuple[int | None, float]:
+    """Read the hidden launcher's authoritative rc after its WSL visibility lag."""
+
+    started = time.monotonic()
+    while True:
+        value = _read_rc_file(path)
+        if value is not None:
+            return value, round(time.monotonic() - started, 3)
+        remaining = float(grace_seconds) - (time.monotonic() - started)
+        if remaining <= 0:
+            return None, round(time.monotonic() - started, 3)
+        time.sleep(min(float(poll_seconds), remaining))
+
+
 def _log_tail(path: Path, lines: int = PC_CHILD_LOG_TAIL_LINES) -> str:
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -1341,8 +1366,9 @@ def _run_pc_child(
                 encoding="utf-8",
                 errors="replace",
             )
-            rc_value = _read_rc_file(rc_path)
+            rc_value, rc_waited = pc_wait_for_rc_file(rc_path)
             item["rcFileExit"] = rc_value
+            item["rcFileWaitedSeconds"] = rc_waited
             if rc_value is None:
                 item["exit"] = proc.returncode
                 item["error"] = "pc_child_rc_file_missing"

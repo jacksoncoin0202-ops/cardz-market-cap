@@ -35,7 +35,7 @@ function Invoke-CappedProcess {
         # PS 5.1: ExitCode stays empty unless the handle was touched before exit.
         $null = $p.Handle
         if (-not $p.WaitForExit($Seconds * 1000)) {
-            cmd.exe /c "taskkill /PID $($p.Id) /T /F" | Out-Null
+            & "$env:SystemRoot\System32\taskkill.exe" /PID $p.Id /T /F | Out-Null
             if ($LogPath) {
                 "[timeout] $File $($Arguments -join ' ') after ${Seconds}s" | Add-Content -LiteralPath $LogPath
             }

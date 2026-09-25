@@ -258,6 +258,9 @@ try:
     assert revived["status"] == "READY" and revived["previousStatus"] == "TERMINAL"
     assert int(revived["attempts"]) == 13 and int(revived["max_attempts"]) == 14
     assert int(revived["interruptions"]) == 0
+    unparked_run = journal.run(RUN_ID)
+    assert int(unparked_run["manual_intervention_count"]) == 1
+    assert unparked_run["origin"] == "manual" and int(unparked_run["proven_autonomous"]) == 0
     claimed = journal.claim_ready(RUN_ID, now=utc_now())
     assert [row["task_key"] for row in claimed] == [stuck]
     assert int(claimed[0]["attempts"]) == 14
@@ -303,6 +306,9 @@ try:
     assert retired["previousStatus"] == "PARKED"
     assert retired["last_error_code"] == "OPERATOR_RETIRED"
     assert int(retired["attempts"]) == 8 and int(retired["max_attempts"]) == 8
+    retired_run = journal.run(RUN_ID)
+    assert int(retired_run["manual_intervention_count"]) == 1
+    assert retired_run["origin"] == "manual" and int(retired_run["proven_autonomous"]) == 0
     assert journal.claim_ready(RUN_ID, now=utc_now()) == []
     assert journal.retire(stale, run_id=RUN_ID, reason="twice") is None  # SKIPPED is settled
     assert journal.unpark(stale, run_id=RUN_ID) is None

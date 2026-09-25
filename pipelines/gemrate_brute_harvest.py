@@ -135,14 +135,14 @@ def harvest_all_sets(limit: Optional[int] = None, resume: bool = False) -> None:
     sets_data = extract_sets_data()
 
     def _is_tcg(s): return (s.get("category") or "").strip().lower() == "tcg"
-    def _year_ok(s):
-        try:
-            return int(s.get("year") or 0) >= 2020
-        except (TypeError, ValueError):
-            return False
-
-    tcg_sets = [s for s in sets_data if _is_tcg(s) and _year_ok(s)]
-    log(f"Found {len(tcg_sets)} TCG sets >= 2020")
+    # This page exposes a fixed public set snapshot, not a paginated/global
+    # GemRate catalogue.  Keep every TCG set present in that snapshot; callers
+    # must not use this artifact alone as a provider-wide census.
+    tcg_sets = [s for s in sets_data if _is_tcg(s)]
+    log(
+        f"Found {len(tcg_sets)} TCG sets in the public {len(sets_data)}-set "
+        "snapshot (all years; not a global catalogue)"
+    )
     if limit:
         tcg_sets = tcg_sets[:limit]
         log(f"Limited to first {limit} sets")

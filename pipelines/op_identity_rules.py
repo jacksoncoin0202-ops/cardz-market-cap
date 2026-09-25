@@ -26,6 +26,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from typing import Any, Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -125,8 +126,21 @@ def names_a_treatment(parallel_words: str) -> bool:
     one SNKRDUNK's One Piece rarity suffixes can speak about.
     """
 
-    return bool(gemrate_treatment(parallel_words)) or (
-        R._norm_text(parallel_words) in _NUMBERED_RARITY_WORDINGS
+    wording = R._norm_text(parallel_words)
+    # PriceCharting's [SP Gold]/[SP Silver] brackets name distinct SPC
+    # products.  They are not GemRate's bare "Gold" treatment.
+    if wording in {"sp gold", "sp silver"}:
+        return False
+    if gemrate_treatment(parallel_words) or wording in _NUMBERED_RARITY_WORDINGS:
+        return True
+    # "Gold Manga Alternate Art" is still the manga treatment, just with a
+    # metal prefix the GEMRATE_TREATMENT table never saw as an exact key.
+    # Without the substring, product_agrees demanded "alternate"/"art" on a
+    # [Manga] listing and leftover v80 stayed held.
+    return any(
+        key and key in wording
+        for key in GEMRATE_TREATMENT
+        if key not in {"", "base", "gold"}
     )
 
 
@@ -149,8 +163,15 @@ _PRODUCT_STOPWORDS = frozenset({
     # printed, so it names no product at all. Treating it as distinctive would
     # let any listing with the word "Promotional" in it look like a match.
     "promo", "promos", "promotional",
+    # Magazine issue stamps: GemRate writes "Weekly Shonen Jump-Issue 36-37"
+    # while PC brackets [Weekly Shonen Jump Foil]. The issue numbers are not
+    # a second product.
+    "issue",
     # PriceCharting spells the same idea in its own words.
     "prices", "price", "psa", "graded", "ungraded", "loose", "new",
+    # Finish word. PC brackets "[Weekly Shonen Jump Foil]" where GemRate
+    # writes the magazine issue; foil names no product.
+    "foil",
 })
 
 
@@ -168,13 +189,46 @@ _SPLIT_SET_CODE_RE = re.compile(r"\b(op|st|eb|prb)[\s\-]+(\d{2})\b")
 
 def _product_tokens(text: str) -> set[str]:
     normalised = _SPLIT_SET_CODE_RE.sub(r"\1\2", R._norm_text(text))
+    volume_numbers = set(re.findall(r"\bvol(?:ume)?\.?\s*(\d+)\b", normalised))
     words = re.split(r"[^0-9a-z]+", normalised)
     return {
         word for word in words
         if word and word not in _PRODUCT_STOPWORDS
         and not _YEAR_RE.match(word)
         and not SET_CODE_RE.match(word.upper())
+        and not (len(word) == 1 and word.isalpha())
+        and not (word.isdigit() and len(word) <= 2 and word not in volume_numbers)
     }
+
+
+def our_product_text(row: Mapping[str, Any], candidate_set: str = "") -> str:
+    """The words that name THIS card's product for product_agrees.
+
+    A booster names its product in set_name. A promo-bucket set_name
+    ("One Piece Promos") has no distinctive token after stopwords -- GemRate
+    files every promo under one bucket and puts the product in canonical_name
+    / parallel ("One Piece Day Dallas", "Dodgers X One Piece Night"). Reading
+    canonical_name for a booster would hand it an anniversary page (v1424);
+    this only substitutes when the candidate set itself names no product.
+    """
+
+    set_name = candidate_set or str(row.get("set_name") or "")
+    # SPC welds the anniversary product to its metal in parallel_code, and PC
+    # prints exactly that row-owned metal as [SP Silver]/[SP Gold].  Feeding the
+    # canonical name into product_agrees would additionally demand words PC's
+    # generic promo page does not repeat; the metal comparison remains narrow
+    # and continues to reject the opposite twin.
+    if R._norm_text(str(row.get("printing_code") or "")) == "spc":
+        return set_name
+    if _product_tokens(set_name):
+        return set_name
+    bits = [
+        str(row.get("canonical_name") or ""),
+        str(row.get("fp_canonical") or ""),
+        str(row.get("parallel_code") or row.get("fp_parallel") or ""),
+    ]
+    joined = " ".join(bit for bit in bits if bit.strip())
+    return joined or set_name
 
 
 def product_agrees(

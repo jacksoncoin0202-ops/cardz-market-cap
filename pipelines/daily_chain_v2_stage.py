@@ -27,6 +27,7 @@ from daily_chain_v2_contract import (  # noqa: E402
     TICK_RESERVE_SECONDS,
     WORK_DEADLINE_ENV,
     canonical_json,
+    classify_error,
     contract_shortfall,
     core_contract_keys,
     daily_generation_sha256,
@@ -34,11 +35,15 @@ from daily_chain_v2_contract import (  # noqa: E402
     list_v2_migrations,
     sha256,
 )
+from collection_contract import CHECKPOINT_ADAPTERS  # noqa: E402
 
-# The two browser-lane adapters whose streams the same run's identity repair
-# creates after the collection registry was already built.  Both are declared
-# `lane="browser"` in collection_contract, hence the cdp:9333 stage group.
-CHECKPOINT_REPAIR_ADAPTERS: tuple[str, ...] = ("pc_ebay_sales", "en_price_ref")
+# Repair every adapter enforced by daily-accept.  Restricting this stage to the
+# two browser lanes left newly exact SNK streams permanently outside the graph:
+# their source task correctly ignores residual ``stock`` rows, then accept
+# retried the same missing checkpoints four times with no task able to mint
+# them.  The shared collection contract is the authority, so a future adapter
+# cannot enter the gate without entering repair too.
+CHECKPOINT_REPAIR_ADAPTERS: tuple[str, ...] = tuple(CHECKPOINT_ADAPTERS)
 # Wall-clock epoch this stage must stop by, published by the orchestrator with
 # TICK_RESERVE_SECONDS already subtracted, so that reserve keeps exactly one
 # definition (daily_chain_v2_contract.TICK_RESERVE_SECONDS).
@@ -392,7 +397,9 @@ def stage_identity_intake(args: argparse.Namespace) -> dict[str, Any]:
 
     now = datetime.now(timezone.utc)
     business_date = str(args.business_date or now.strftime("%Y-%m-%d"))
-    census = intake.census(None, max_age_days=int(args.max_age_days), now=now)
+    explicit_census = getattr(args, "census", None)
+    census_path = Path(explicit_census).resolve() if explicit_census else None
+    census = intake.census(census_path, max_age_days=int(args.max_age_days), now=now)
     connection = rebuild.connect(rebuild.DAILY_CREDENTIALS_ENV)
     try:
         with connection.cursor() as cursor:
@@ -622,7 +629,7 @@ def missing_repair_streams(collect_control: Any, operator_control: Any) -> dict[
 
 
 def stage_checkpoint_repair(_args: argparse.Namespace) -> dict[str, Any]:
-    """Give this run's freshly bound (variant, pid) streams their first checkpoint.
+    """Give every gate-enforced stream without a checkpoint its first checkpoint.
 
     2026-08-22: activation bound 50 new `pc_ebay_sales` streams and 48
     `en_price_ref` streams after the collection registry had already been
@@ -1324,7 +1331,31 @@ def stage_identity_census(args: argparse.Namespace) -> dict[str, Any]:
             or result.get("skipReason")
             or "all-set harvest did not produce a complete census"
         )
+        if result.get("outputTail"):
+            # The per-attempt log survives later overwrites of the dated receipt.
+            print(json.dumps({"stage": "identity-census", "error": reason,
+                              "outputTail": result["outputTail"]}, ensure_ascii=False), file=sys.stderr)
         raise RuntimeError(f"INCOMPLETE_CENSUS: {reason}")
+    return result
+
+
+def stage_identity_completeness(args: argparse.Namespace) -> dict[str, Any]:
+    """Recompute the qualified GemRate universe and its read-only DB gap queue."""
+
+    from gemrate_completeness_daily import run_daily_completeness
+
+    result = run_daily_completeness(
+        business_date=args.business_date,
+        budget_seconds=stage_deadline_budget_seconds(),
+    )
+    inventory_status = str(result.pop("status", "") or "UNKNOWN")
+    if result.get("latestAdvanced") is not True:
+        # A short tick is a defer/retry decision, not a successful stage.  The
+        # previous implementation returned its domain status in the wrapper's
+        # reserved `status` field, so even a fully written inventory exited 0
+        # and was then misread as SOURCE_FAILED three times.
+        raise RuntimeError(f"IDENTITY_COMPLETENESS_DEFERRED: {inventory_status}")
+    result["inventoryStatus"] = inventory_status
     return result
 
 
@@ -1364,6 +1395,12 @@ def main() -> int:
     )
     intake.add_argument("--max-age-days", type=int, default=7)
     intake.add_argument("--max-seed", type=int, default=25)
+    intake.add_argument(
+        "--census",
+        type=Path,
+        default=None,
+        help="explicit merged GemRate qualified census produced by identity-completeness",
+    )
     intake.set_defaults(func=stage_identity_intake)
     reverify = sub.add_parser("reverify")
     reverify.add_argument("--lane", choices=discovery_lane_names(), required=True)
@@ -1414,6 +1451,11 @@ def main() -> int:
         "--business-date", default=os.environ.get("CARDZ_V2_BUSINESS_DATE")
     )
     census.set_defaults(func=stage_identity_census)
+    completeness = sub.add_parser("identity-completeness")
+    completeness.add_argument(
+        "--business-date", default=os.environ.get("CARDZ_V2_BUSINESS_DATE")
+    )
+    completeness.set_defaults(func=stage_identity_completeness)
     args = parser.parse_args()
     os.environ["CARDZ_DAILY_CHAIN_V2"] = "1"
     if hasattr(args, "run_id"):
@@ -1442,7 +1484,9 @@ def main() -> int:
             "stage": args.stage,
             "status": "terminal",
             "checkedAt": iso_now(),
-            "errorCode": type(error).__name__,
+            # Keep the retry identity across the process/receipt boundary.
+            # A generic RuntimeError prefix hides the inner no-work marker.
+            "errorCode": classify_error(str(error)).error_code,
             "error": str(error),
             "traceback": traceback.format_exc()[-8000:],
         }

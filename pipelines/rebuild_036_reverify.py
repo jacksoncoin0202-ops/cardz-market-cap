@@ -21,6 +21,7 @@ _REQUIRED_API = (
     "NOT_A_REJECTION_VERDICT_SQL",
     "VARIANT_OPERATOR_RULING_SQL",
     "_PC_BRACKET_SYNONYMS",
+    "_collector_core",
     "_fingerprint_variant_conflicts",
     "_norm_text",
     "_parallel_agrees",
@@ -39,9 +40,11 @@ _REQUIRED_API = (
     "operator_ruling",
     "red_listed_variants",
     "set_names_a_card_could_carry",
+    "pc_product_candidate_sets",
     "sha256_bytes",
     "sha256_file",
     "snk_claim_set_agrees",
+    "snk_has_collector_claim",
 )
 
 
@@ -175,17 +178,19 @@ def _pc_bracket_names_our_product(page_parallel: str, row: Mapping[str, Any]) ->
     such cards were held print_signature_mismatch on 2026-08-22 with their own
     product's page in hand.
 
-    The bracket has to be EARNED out of our own set_name, one direction only:
-    every distinctive word the bracket says must already be in the set name we
-    wrote. That is what separates a card from its sibling product -- v2146 is
-    "1st Anniversary Set" and v2126 is "Film Red", so neither can take the
-    other's page.
+    The bracket has to be EARNED out of a product name THIS row already
+    carries, one direction only: every distinctive word the bracket says must
+    already be in a name set_names_a_card_could_carry returned. That is what
+    separates a card from its sibling product -- v2146 is "1st Anniversary
+    Set" and v2126 is "Film Red", so neither can take the other's page.
 
-    Deliberately only set_name. canonical_name and fp_parallel say "1st
-    Anniversary" for v1424, a card whose set_name is the OP05 booster: reading
-    them would hand a booster card the anniversary product's page. And
-    _product_tokens drops years, so corroborating on canonical_name would also
-    let the 2014 Battle Festa twin eat the 2015 page.
+    Promo-bucket set_names ("One Piece Japanese Promos") have no distinctive
+    token, so our_product_text falls through to canonical_name. Official
+    Event Top Prize is filed on PriceCharting as "[Flagship Battle]"; that
+    synonym is an extra name on the leftover, not a read of every booster's
+    canonical. Reading canonical_name as the bracket's covering text for a
+    booster (v1424) would still hand it an anniversary page -- extras from
+    set_names_a_card_could_carry do not add that.
 
     A bracket that is nothing but a set code ("[PRB01]") carries no
     distinctive word at all -- _product_tokens drops set codes, because every
@@ -200,24 +205,150 @@ def _pc_bracket_names_our_product(page_parallel: str, row: Mapping[str, Any]) ->
     bracket = _norm_text(page_parallel)
     if not bracket:
         return False
-    set_name = str(row.get("set_name") or "")
-    if not set_name:
-        return False
+    names = list(set_names_a_card_could_carry(row))
+    if not names:
+        names = [str(row.get("set_name") or "")]
     code = op_identity_rules.SET_CODE_RE.fullmatch(bracket.upper())
-    if code:
-        ours = {
-            str(row.get("v_set_code") or row.get("set_code") or "").upper(),
-            *(
-                match.group(1)
-                for match in op_identity_rules.SET_CODE_RE.finditer(set_name.upper())
-            ),
-        } - {""}
-        return code.group(1) in ours
-    # Arguments deliberately reversed: product_agrees asks "does THEIR listing
-    # say every distinctive word OURS does", and here the bracket is the
-    # smaller claim that our own set name has to cover.
-    agrees, _why = op_identity_rules.product_agrees(page_parallel, "", set_name)
-    return agrees
+    for candidate_set in names:
+        product_text = op_identity_rules.our_product_text(row, candidate_set)
+        if not product_text:
+            continue
+        if code:
+            ours = {
+                str(row.get("v_set_code") or row.get("set_code") or "").upper(),
+                *(
+                    match.group(1)
+                    for match in op_identity_rules.SET_CODE_RE.finditer(
+                        product_text.upper()
+                    )
+                ),
+            } - {""}
+            if code.group(1) in ours:
+                return True
+            continue
+        # Arguments deliberately reversed: product_agrees asks "does THEIR
+        # listing say every distinctive word OURS does", and here the
+        # bracket is the smaller claim that our own product words have to
+        # cover. Promo-bucket set_names have no distinctive token;
+        # our_product_text reads canonical. A leftover extra such as
+        # Flagship Battle is a replacement product name, not an add-on.
+        agrees, _why = op_identity_rules.product_agrees(
+            page_parallel, "", product_text,
+        )
+        if not agrees:
+            continue
+        # Champion extra "Flagship Battle" must not cover leftover extra
+        # "Flagship Battle Top 8": the shorter bracket is a subset.
+        cand_n = _norm_text(candidate_set)
+        if "flagship battle" in cand_n:
+            if ("top 8" in cand_n) != ("top 8" in bracket):
+                continue
+        return True
+    return False
+
+
+def _printing_code_from_parallel(parallel: str) -> str:
+    """printing_code the synonym table assigns this parallel_code, or "".
+
+    GemRate often leaves printing_code blank and writes the treatment in
+    parallel_code ("special alternate art", "manga alternate art"). The
+    synonym table is keyed by printing_code, so a blank code never hit it.
+    Reverse lookup does not change what a bracket means: the page still has
+    to resolve to the SAME code via _pc_bracket_printing_code, which keeps
+    bare [Manga] as mr and [SP Foil] unmatched.
+    """
+
+    wording = _norm_text(parallel)
+    if not wording:
+        return ""
+    if wording in _PC_BRACKET_SYNONYMS:
+        return wording
+    for code, longforms in _PC_BRACKET_SYNONYMS.items():
+        if wording in longforms:
+            return code
+    return ""
+
+
+def _pc_unbracketed_sp_on_own_set(
+    via_number_set: str,
+    page_parallel: str,
+    row: Mapping[str, Any],
+) -> bool:
+    """PriceCharting files some One Piece SPs unbracketed on the leftover's set.
+
+    2167 JP Shirahoshi Special Alternate Art / Fist of Divine Speed pid
+    9362267 (ungraded $64.48; sales 'SP ALTERNATE ART'). The EN twin is
+    leftover-5 v1438/9362360. Memorial Collection unbracketed is the cheap
+    base. SP is always a later set's reprint, so an unbracketed page already
+    on the leftover's own set cannot be the number's base.
+
+    Yamato is unbracketed on the NUMBER's original set, so via_number_set is
+    non-empty and this returns False; number_set_own_print still refuses.
+    _pc_print_signature_ok('', SP) stays False.
+    """
+
+    if via_number_set:
+        return False
+    if str(page_parallel or "").strip():
+        return False
+    if str(row.get("tcg_code") or "") != "one-piece":
+        return False
+    printing = _norm_text(
+        str(row.get("printing_code") or row.get("v_printing_code") or "")
+    )
+    variant_parallel = str(
+        row.get("parallel_code") or row.get("fp_parallel") or ""
+    )
+    derived = printing or _printing_code_from_parallel(variant_parallel)
+    return derived == "sp"
+
+
+def _pc_unbracketed_texture_error_on_own_set(
+    via_number_set: str,
+    page_parallel: str,
+    row: Mapping[str, Any],
+) -> bool:
+    """PriceCharting files Mega Dream EX texture-error Gengar as unbracketed #230.
+
+    Leftover v1904 GemRate PSA10 1410 matches PSA Incorrect Texture (~1040–
+    1443) and the page census 963. The correct MA twin v339 is 39082 — 40×
+    the census, so not this page. Charizard got a separate [Texture Error]
+    bracket; Gengar did not. _pc_print_signature_ok('', incorrect texture)
+    stays False. via_number_set non-empty still refuses (wrong set).
+    """
+
+    if via_number_set:
+        return False
+    if str(page_parallel or "").strip():
+        return False
+    if str(row.get("tcg_code") or "") != "pokemon":
+        return False
+    blob = _norm_text(
+        str(row.get("parallel_code") or "")
+        + " "
+        + str(row.get("fp_parallel") or "")
+        + " "
+        + str(row.get("canonical_name") or "")
+        + " "
+        + str(row.get("printing_code") or row.get("v_printing_code") or "")
+    )
+    return (
+        "incorrect texture" in blob
+        or "texture error" in blob
+        or "missing texture" in blob
+    )
+
+
+def _pc_unbracketed_own_set_print(
+    via_number_set: str,
+    page_parallel: str,
+    row: Mapping[str, Any],
+) -> bool:
+    return _pc_unbracketed_sp_on_own_set(
+        via_number_set, page_parallel, row,
+    ) or _pc_unbracketed_texture_error_on_own_set(
+        via_number_set, page_parallel, row,
+    )
 
 
 def _pc_print_signature_ok(page_parallel: str, row: Mapping[str, Any]) -> bool:
@@ -227,9 +358,14 @@ def _pc_print_signature_ok(page_parallel: str, row: Mapping[str, Any]) -> bool:
     _print_signature_agrees); the synonym table only ever maps a page bracket
     onto that code, never loosens the no-bracket path."""
 
-    variant_parallel = str(row.get("parallel_code") or "")
+    variant_parallel = str(
+        row.get("parallel_code") or row.get("fp_parallel") or ""
+    )
     if _parallel_agrees(page_parallel, variant_parallel):
         return True
+    printing = _norm_text(
+        str(row.get("printing_code") or row.get("v_printing_code") or "")
+    )
     if not page_parallel:
         # A heading with no bracket is PriceCharting's base print. Letting it
         # satisfy a variant whose printing_code names a treatment is how seven
@@ -240,11 +376,134 @@ def _pc_print_signature_ok(page_parallel: str, row: Mapping[str, Any]) -> bool:
         # leftover5_go.hold_exact_against_refresh, not a relaxation here.
         # Measured 2026-08-09 over all 928 exact PC bindings: 919 unaffected,
         # 7 refused, and all 7 were parallels bound to a base print.
-        if _norm_text(str(row.get("printing_code") or "")) not in _PC_BASE_PRINTINGS:
+        #
+        # JP 1st-only sets (Pokekyun, Dream Shine): the whole set is 1st and
+        # PriceCharting does not split 1st/Unlimited. WOTC Jungle twins keep
+        # refusing because sole_1st_printing is false when an unlimited
+        # sibling shares the number. Not a relaxation of the Yamato hole.
+        if row.get("sole_1st_printing") and (
+            printing == "1st"
+            or _norm_text(variant_parallel) in {"1st", "1st edition", "first edition"}
+        ):
+            return True
+        # Pokemon event-prize promos: the catalog's only 288/SV-P is the
+        # Victini BWR Event Prize, and PriceCharting files it unbracketed.
+        # printing_code 'prize' is not a treatment (Yamato is SP); requiring
+        # a [Prize] bracket held the leftover on its own page. One Piece
+        # prize leftovers still need their product bracket (Flagship Battle).
+        if (
+            str(row.get("tcg_code") or "") == "pokemon"
+            and printing == "prize"
+            and "prize" in _norm_text(str(row.get("canonical_name") or ""))
+        ):
+            return True
+        if printing not in _PC_BASE_PRINTINGS:
             return False
+        name_n = _norm_text(str(row.get("canonical_name") or "")).replace(
+            "reverse foil", "reverse holo"
+        )
+        vpp = _norm_text(variant_parallel)
+        # Pokemon promo whose only PC product is unbracketed, but the card
+        # IS the holo / reverse foil (Pretend Gyarados, Neo Premium File
+        # Charizard). A treated printing_code still refuses (Yamato).
+        if (
+            str(row.get("tcg_code") or "") == "pokemon"
+            and "holo" in name_n
+        ):
+            return True
+        # Event name lives in the heading, not a bracket (20th Anniversary
+        # Festa). The parallel must already be spelled in the canonical name
+        # so a random unbracketed page cannot claim it. Treatments
+        # (special alternate art, manga, SP) still refuse: that is the
+        # Yamato hole that promoted leftover v2167 onto Shirahoshi base.
+        import op_identity_rules
+        if (
+            vpp
+            and len(vpp) >= 8
+            and vpp in name_n
+            and not op_identity_rules.names_a_treatment(vpp)
+        ):
+            return True
         return _pc_rarity_only_parallel(variant_parallel)
     bracket = _norm_text(page_parallel)
-    printing = _norm_text(str(row.get("printing_code") or ""))
+    # catalog_printing_identity is sometimes an empty row (measured 2026-08-27
+    # leftover v1020/v1050) while catalog_variant.printing_code and the
+    # rebuild fingerprint still carry mb / Master Ball Reverse Holo. The
+    # judge SQL already selects those as v_printing_code / fp_parallel.
+    derived = printing or _printing_code_from_parallel(variant_parallel)
+    page_code = _pc_bracket_printing_code(page_parallel)
+    if not printing:
+        if derived and page_code and derived == page_code:
+            return True
+    # PriceCharting files One Piece manga AA as "[Manga]". Catalog stores
+    # printing_code manga / parallel "manga alternate art". The synonym table
+    # still maps "[Manga]" to mr so number_set_own_print treats the booster
+    # [Manga] as the number's own print (PRB reprints cannot steal it).
+    # Alternate Art still refuses [Manga]: derived is aa. OP catalog has
+    # zero `mr` rows (measured 2026-08-28).
+    if (
+        str(row.get("tcg_code") or "") == "one-piece"
+        and page_code == "mr"
+        and derived == "manga"
+    ):
+        return True
+    # PRB reprint of an alt-art: PC brackets "[Alternate Art PRB01]". Catalog
+    # parallel is still "alternate art". The rest of the bracket is the
+    # product, answered by _pc_bracket_names_our_product so the OP05 booster
+    # AA cannot take the PRB01 page.
+    # ONE PIECE Chopper's 1 comic-bundle promo: PC brackets [Comic].
+    if (
+        str(row.get("tcg_code") or "") == "one-piece"
+        and bracket == "comic"
+        and "chopper" in _norm_text(str(row.get("canonical_name") or ""))
+        and "chopper" in _norm_text(variant_parallel + " " + str(row.get("canonical_name") or ""))
+    ):
+        return True
+    # Official Event Top Prize is PriceCharting's [Flagship Battle] (champion
+    # stamp). Official Event Prize (no Top) is [Flagship Battle Top 8].
+    # Asia is a third cut and stays out.
+    prize_blob = _norm_text(
+        str(row.get("canonical_name") or "") + " " + variant_parallel
+    )
+    if (
+        str(row.get("tcg_code") or "") == "one-piece"
+        and "flagship battle" in bracket
+        and "top 8" not in bracket
+        and "top prize" in prize_blob
+        and "asia" not in prize_blob
+    ):
+        return True
+    if (
+        str(row.get("tcg_code") or "") == "one-piece"
+        and "flagship battle" in bracket
+        and "top 8" in bracket
+        and "official event" in prize_blob
+        and "prize" in prize_blob
+        and "top prize" not in prize_blob
+        and "asia" not in prize_blob
+    ):
+        return True
+    # PriceCharting files One Piece Special Alternate Art as "[SP Foil]".
+    # [SP Gold] is a different PC product and stays refused. A coarse
+    # printing_code 'sp' whose parallel is not the spelled-out treatment
+    # (sr-spc) still cannot say which of those two the card is.
+    if (
+        str(row.get("tcg_code") or "") == "one-piece"
+        and bracket == "sp foil"
+        and (
+            "special alternate art" in _norm_text(variant_parallel)
+            or "sp alternate art" in _norm_text(variant_parallel)
+        )
+    ):
+        return True
+    if (
+        str(row.get("tcg_code") or "") == "one-piece"
+        and derived == "aa"
+        and bracket.startswith("alternate art ")
+    ):
+        rest = bracket[len("alternate art "):].strip()
+        if rest and _pc_bracket_names_our_product(rest, row):
+            return True
     if printing and bracket:
         if bracket == printing or bracket == f"{printing} edition":
             return True
@@ -276,6 +535,106 @@ def _pc_print_signature_ok(page_parallel: str, row: Mapping[str, Any]) -> bool:
     year = re.match(r"(19|20)\d{2}\b", str(row.get("canonical_name") or ""))
     if vpp and year and bracket == f"{vpp} {year.group(0)}":
         return True
+    # SM-P 061 is Battle Festa 2017. GemRate filed the same card as
+    # "Pokemon Card Festa". Year must corroborate so 2014/2015 twins
+    # cannot take each other's page.
+    name_festa = _norm_text(str(row.get("canonical_name") or ""))
+    if (
+        str(row.get("tcg_code") or "") == "pokemon"
+        and "festa" in bracket
+        and "festa" in name_festa
+    ):
+        b_year = re.search(r"(?:19|20)\d{2}", bracket)
+        c_year = re.search(r"(?:19|20)\d{2}", name_festa)
+        if b_year and c_year and b_year.group(0) == c_year.group(0):
+            return True
+    # Yu Nagaba campaigns: GemRate stored parallel_code as standard/base while
+    # both the canonical name and the PC bracket say Nagaba. Corroborate the
+    # same word on both sides; a Nagaba page cannot claim a non-Nagaba card.
+    if (
+        str(row.get("tcg_code") or "") == "pokemon"
+        and "nagaba" in _norm_text(str(row.get("canonical_name") or ""))
+        and "nagaba" in bracket
+    ):
+        return True
+    # Master Ball seal: PC brackets "[Master Ball]" while GemRate writes the
+    # finish into the canonical name. Same corroboration as Nagaba — the
+    # reverse-holo sibling page "[Reverse Holo]" has no "master ball" in the
+    # bracket, so it stays refused.
+    if (
+        str(row.get("tcg_code") or "") == "pokemon"
+        and "master ball" in _norm_text(str(row.get("canonical_name") or ""))
+        and "master ball" in bracket
+    ):
+        return True
+    # Wanted AA: GemRate writes "Wanted Alternate Art" (sometimes under
+    # printing_code sp); PC brackets [Wanted] / [Wanted Poster] /
+    # [Wanted Poster Foil]. The word must be on BOTH sides, so a manga AA
+    # leftover cannot take the Wanted page.
+    if (
+        str(row.get("tcg_code") or "") == "one-piece"
+        and "wanted" in _norm_text(
+            str(row.get("canonical_name") or "") + " " + variant_parallel
+        )
+        and "wanted" in bracket
+    ):
+        return True
+    # JP Start Deck 100 files reverse holo as "[Mirror Holo]". Catalog
+    # parallel is "reverse holo". Master Ball / monster ball stay out:
+    # their names also contain those words and have their own brackets.
+    # Multi-word brackets that the catalog already spells (Mega Tokyo's,
+    # Tea Party, Official Event Top Prize vs [Event Top Prize]). Short
+    # treatment codes stay out: "sp" is a substring of "special".
+    catalog_blob = _norm_text(
+        str(row.get("canonical_name") or "") + " " + variant_parallel
+    )
+    if (
+        " " in bracket
+        and bracket in catalog_blob
+        and printing in _PC_BASE_PRINTINGS | frozenset({"promo", "prize"})
+        and bracket not in {"reverse holo", "sp foil", "sp gold"}
+        and not (
+            "master ball" in catalog_blob and "master ball" not in bracket
+        )
+    ):
+        set_n = _norm_text(str(row.get("set_name") or ""))
+        # v1424: an OP05 booster whose canonical mentions 1st Anniversary.
+        # The real anniversary leftover names that product in set_name or
+        # in parallel_code (v2045); canonical alone must not earn the page.
+        if not (
+            bracket == "1st anniversary"
+            and "1st anniversary" not in set_n
+            and "1st anniversary" not in _norm_text(variant_parallel)
+        ):
+            return True
+    catalog_finish = _norm_text(
+        variant_parallel + " " + str(row.get("canonical_name") or "")
+    ).replace("reverse foil", "reverse holo")
+    if (
+        str(row.get("tcg_code") or "") == "pokemon"
+        and "reverse holo" in catalog_finish
+        and "master ball" not in catalog_finish
+        and "monster ball" not in catalog_finish
+        and bracket == "mirror holo"
+    ):
+        return True
+    # Holo / reverse-holo finish written into the canonical name while the
+    # catalog printing stays base (McDonald's Charmander-Holo, 25th Reverse
+    # Foil). Same corroboration as Nagaba: the word must be on BOTH sides, so
+    # a non-holo card cannot take the holo page and reverse cannot take plain
+    # holo. Foil and holo are the same finish word on these JP promo names.
+    if (
+        str(row.get("tcg_code") or "") == "pokemon"
+        and printing in _PC_BASE_PRINTINGS
+    ):
+        name_n = _norm_text(str(row.get("canonical_name") or "")).replace(
+            "reverse foil", "reverse holo"
+        )
+        if "holo" in name_n and "holo" in bracket:
+            name_rev = "reverse" in name_n
+            page_rev = "reverse" in bracket
+            if name_rev == page_rev:
+                return True
     # 3rd Anniversary metal prints, corroborated the same way: PC brackets
     # "[SP Silver]" for a card the catalog labels "3rd Anniversary-Silver"
     # with printing_code 'spc'. The metal is not noise to strip -- Silver and
@@ -301,12 +660,23 @@ def _pc_print_signature_ok(page_parallel: str, row: Mapping[str, Any]) -> bool:
     # satisfy the bracket-less path on the parallel alone -- the Yamato hole,
     # reached through a bracket this time. The catalog has to claim NO
     # treatment for a product bracket to be readable as the product.
+    printing_for_product = _norm_text(str(row.get("printing_code") or ""))
+    # "promo" is GemRate's bucket for a product stamp, not a treatment.
+    # The unbracketed recursive call would refuse it (not in _PC_BASE_PRINTINGS)
+    # which is correct for a booster base page; the product BRACKET is what
+    # proves the promo. sp/aa/manga stay out.
     if (
         str(row.get("tcg_code") or "") == "one-piece"
         and not _pc_bracket_printing_code(page_parallel)
-        and _norm_text(str(row.get("printing_code") or "")) in _PC_BASE_PRINTINGS
+        and (
+            printing_for_product in _PC_BASE_PRINTINGS
+            or printing_for_product == "promo"
+        )
         and _pc_bracket_names_our_product(page_parallel, row)
-        and _pc_print_signature_ok("", row)
+        and (
+            printing_for_product == "promo"
+            or _pc_print_signature_ok("", row)
+        )
     ):
         return True
     return False
@@ -396,6 +766,61 @@ def _pc_fetch_missing_pages(conn, pages_dir: Path, map_html_by_variant: dict[int
     return counts
 
 
+def _stamp_sole_1st_printing(conn: Any, bindings: list[Mapping[str, Any]]) -> None:
+    """Mark 1st-edition rows that have no unlimited/base sibling on the same number.
+
+    JP sets that exist only as 1st (Pokekyun, Dream Shine) get an unbracketed
+    PriceCharting heading. WOTC Jungle 1st still has an Unlimited sibling, so
+    this stays false and the unbracketed page keeps refusing the 1st card.
+    """
+
+    for row in bindings:
+        if isinstance(row, dict):
+            row["sole_1st_printing"] = False
+    def _is_1st_row(row: Mapping[str, Any]) -> bool:
+        if _norm_text(str(row.get("printing_code") or row.get("v_printing_code") or "")) == "1st":
+            return True
+        return _norm_text(str(row.get("parallel_code") or row.get("fp_parallel") or "")) in {
+            "1st", "1st edition", "first edition",
+        }
+
+    firsts = [row for row in bindings if isinstance(row, dict) and _is_1st_row(row)]
+    if not firsts:
+        return
+    ids = [int(row["variant_id"]) for row in firsts]
+    placeholders = ",".join(["%s"] * len(ids))
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT a.id AS vid, a.collector_number AS our_num,"
+            " a.set_name AS our_set, a.set_code AS our_code,"
+            " b.collector_number AS sib_num, b.set_name AS sib_set,"
+            " b.set_code AS sib_code, b.printing_code AS sib_print"
+            " FROM catalog_variant a"
+            " JOIN catalog_variant b ON b.id<>a.id"
+            "  AND b.tcg_code=a.tcg_code AND b.card_language=a.card_language"
+            f" WHERE a.id IN ({placeholders})",
+            tuple(ids),
+        )
+        sibs = cursor.fetchall()
+    has_other: set[int] = set()
+    for sib in sibs:
+        if _collector_core(str(sib["sib_num"] or "")) != _collector_core(
+            str(sib["our_num"] or "")
+        ):
+            continue
+        our_code = str(sib["our_code"] or "").strip().upper()
+        sib_code = str(sib["sib_code"] or "").strip().upper()
+        same_set = (our_code and sib_code and our_code == sib_code) or (
+            _norm_text(str(sib["our_set"] or "")) == _norm_text(str(sib["sib_set"] or ""))
+        )
+        if not same_set:
+            continue
+        if _norm_text(str(sib["sib_print"] or "")) != "1st":
+            has_other.add(int(sib["vid"]))
+    for row in firsts:
+        row["sole_1st_printing"] = int(row["variant_id"]) not in has_other
+
+
 def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
     """Re-verify manual_review PC bindings against freshly captured pages.
 
@@ -421,6 +846,7 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
 
     # Imported here, not at module scope: op_identity_rules imports this
     # module for its text normaliser, so a top-level import would be circular.
+    import leftover5_go
     import op_identity_rules
 
     credentials = args.credentials_env or DAILY_CREDENTIALS_ENV
@@ -503,6 +929,7 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
             else:
                 cursor.execute(binding_sql, tuple(binding_params))
                 bindings = cursor.fetchall()
+        _stamp_sole_1st_printing(conn, bindings)
 
         updates: list[tuple[str, str, str, dict[str, Any], tuple[str, ...], Path]] = []
         still_red = set(red_listed_variants())
@@ -526,7 +953,10 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
             ruling = operator_ruling(row.get("bind_evidence_json")) or str(
                 row.get("ruled_elsewhere") or ""
             )
-            if ruling:
+            pin_holds = leftover5_go.hold_exact_against_refresh(
+                "pricecharting", variant_id, pid,
+            )
+            if ruling and not pin_holds:
                 counts["operatorRuled"] += 1
                 hold("operator_ruled", ruling[:160])
                 continue
@@ -573,6 +1003,10 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
             if identity["tcg"] and str(row["tcg_code"] or "") and \
                     identity["tcg"] != str(row["tcg_code"]):
                 conflicts.append(f"tcg:{identity['tcg']}!={row['tcg_code']}")
+            heading_n = _norm_text(identity.get("heading") or "")
+            name_n = _norm_text(str(row.get("canonical_name") or ""))
+            if "gengar" in name_n and "gengar" not in heading_n:
+                conflicts.append("character:gengar")
             if conflicts:
                 counts["hardConflicts"] += 1
                 hold("hard_conflict", ";".join(conflicts))
@@ -584,7 +1018,9 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
             # Art, and every check up to here agreed. The rule is applied only
             # where its vocabulary was derived.
             if str(row["tcg_code"] or "") == "one-piece":
-                if _pc_print_belongs_to_number_set(via_number_set, identity["parallel"]):
+                if _pc_print_belongs_to_number_set(
+                    via_number_set, identity["parallel"], row,
+                ):
                     counts["productMismatch"] += 1
                     hold(
                         "product_mismatch",
@@ -600,24 +1036,33 @@ def cmd_pc_identity_reverify(args: argparse.Namespace) -> int:
                     _pc_spc_metal_parallel(row, *listing_text)
                     or str(row["fp_parallel"] or "")
                 )
-                for candidate_set in set_names_a_card_could_carry(row):
-                    same_product, why = op_identity_rules.product_agrees(
-                        candidate_set, our_parallel, *listing_text,
-                    )
-                    if same_product:
-                        break
+                if _pc_bracket_names_our_product(identity["parallel"], row):
+                    same_product, why = True, ""
+                else:
+                    for candidate_set in pc_product_candidate_sets(
+                        row, via_number_set,
+                    ):
+                        same_product, why = op_identity_rules.product_agrees(
+                            op_identity_rules.our_product_text(row, candidate_set),
+                            our_parallel, *listing_text,
+                        )
+                        if same_product:
+                            break
                 if not same_product:
                     counts["productMismatch"] += 1
                     hold("product_mismatch", why)
                     continue
             if not _pc_print_signature_ok(identity["parallel"], row):
-                counts["printSignatureMismatch"] += 1
-                hold(
-                    "print_signature_mismatch",
-                    f"page=[{identity['parallel']}] printing={row['printing_code']}"
-                    f" parallel={row['parallel_code']}",
-                )
-                continue
+                if not _pc_unbracketed_own_set_print(
+                    via_number_set, identity["parallel"], row,
+                ):
+                    counts["printSignatureMismatch"] += 1
+                    hold(
+                        "print_signature_mismatch",
+                        f"page=[{identity['parallel']}] printing={row['printing_code']}"
+                        f" parallel={row['parallel_code']}",
+                    )
+                    continue
             digest = sha256_file(html_path)
             evidence = {
                 "providerClaims": {
@@ -911,14 +1356,14 @@ def cmd_snk_identity_reverify(args: argparse.Namespace) -> int:
             conflicts = _fingerprint_variant_conflicts(pseudo_fp, row)
             # Same supersede rule as S7: the bracket designation's own set
             # claim beats the noisy title-vs-set-name token comparison.
-            if snk_claim_set_agrees(claim, row):
+            if snk_claim_set_agrees(claim, row, master_name, localized):
                 conflicts = [
                     c for c in conflicts
                     if not c.startswith("set:") and not c.startswith("set_code:")
                 ]
             if tcg and str(row["tcg_code"] or "") and tcg != str(row["tcg_code"]):
                 conflicts.append(f"tcg:{tcg}!={row['tcg_code']}")
-            if not claim:
+            if not snk_has_collector_claim(claim, master_name, localized, row):
                 conflicts.append("product_number_missing")
             snk_mirror = _snk_treatment_mirror(master_name, localized)
             variant_blob = " ".join((

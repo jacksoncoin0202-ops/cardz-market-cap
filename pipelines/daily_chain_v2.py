@@ -1639,6 +1639,25 @@ class DailyChainV2:
             )
             return
         if not self.stage_complete("identity-census"):
+            census = self.stage_row("identity-census") or {}
+            state = str(census.get("status") or "")
+            if state in UNPARKABLE_TASK_STATES:
+                # This mandatory stage bypasses provider/core alerts below.
+                # Use the existing durable, deduplicated blocker notification.
+                self.journal_event(
+                    "CORE_TASK_PARKED",
+                    f"{census['task_key']}:{state}:{int(census.get('attempts') or 0)}",
+                    {
+                        "runId": self.run_id, "taskKey": str(census["task_key"]),
+                        "phase": "source", "source": "system", "capability": "identity-census",
+                        "state": state, "errorCode": str(census.get("last_error_code") or "CENSUS_BLOCKED"),
+                        "attempts": int(census.get("attempts") or 0),
+                        "maxAttempts": int(census.get("max_attempts") or 0),
+                        "reason": "required census stopped; provider collection cannot start",
+                        "nextRetry": "operator repair then unpark",
+                    },
+                    alert_scope=f"{census['task_key']}:{state}",
+                )
             return
 
         source_tasks = self.journal.tasks(self.run_id, phase="source")
@@ -1792,12 +1811,32 @@ class DailyChainV2:
         operator_apply = self.stage_row("identity-operator-apply") or {}
         if str(operator_apply.get("status") or "") not in TERMINAL_TASK_STATES:
             return
+        if self.stage_row("identity-completeness") is None:
+            self.add_stage(
+                phase="identity",
+                capability="identity-completeness",
+                stage_name="identity-completeness",
+                args=("--business-date", self.day_text),
+                required_class="extra",
+                concurrency_group="host:gemrate",
+                max_attempts=3,
+            )
+            return
+        completeness_stage = self.stage_row("identity-completeness") or {}
+        if str(completeness_stage.get("status") or "") not in TERMINAL_TASK_STATES:
+            return
         if self.stage_row("identity-intake") is None:
             self.add_stage(
                 phase="identity",
                 capability="identity-intake",
                 stage_name="intake",
-                args=("--business-date", self.day_text),
+                args=(
+                    "--business-date", self.day_text,
+                    "--census", str(
+                        ROOT / "data" / "runtime" / "daily-chain-v2"
+                        / "gemrate-qualified-latest.jsonl"
+                    ),
+                ),
                 required_class="extra",
                 concurrency_group="host:gemrate",
                 max_attempts=4,

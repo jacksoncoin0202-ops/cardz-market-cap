@@ -222,40 +222,36 @@ def _cmd_fetch_once(
                     continue
                 context = browser.contexts[0] if browser.contexts else browser.new_context()
                 page = context.new_page()
-                response = page.goto(url, wait_until="domcontentloaded", timeout=120000)
-                initial_html = page.content()
-                status_code = response.status if response is not None else None
-                if _is_terminal_not_found(status_code, page.title(), initial_html):
-                    out.write_text(initial_html, encoding="utf-8", errors="replace")
-                    print(f"WROTE terminal 404 {out}", flush=True)
-                    try:
-                        page.close()
-                    except Exception:
-                        pass
-                    return 4
-                ok = _wait_clear(page, timeout_s=timeout_s)
-                html = page.content()
-                title = page.title()
-                cf = _is_cf(title, html)
-                print(f"fetch CDP title={title!r} len={len(html)} cf={cf} ok={ok}", flush=True)
-                if ok and not cf:
-                    out.write_text(html, encoding="utf-8", errors="replace")
-                    print(f"WROTE {out}", flush=True)
-                    _save_state(context, page, note=f"fetch cdp port={port} ok url={url}")
-                    try:
-                        page.close()
-                    except Exception:
-                        pass
-                    return 0
-                # Unverified / CF-blocked HTML never lands on the final cache
-                # path — keep it beside it for diagnosis only.
-                reject = out.with_name(out.name + ".rejected")
-                reject.write_text(html, encoding="utf-8", errors="replace")
                 try:
-                    page.close()
-                except Exception:
-                    pass
-                print(f"fetch: CDP {port} still CF (snapshot {reject}) — try next", flush=True)
+                    response = page.goto(url, wait_until="domcontentloaded", timeout=120000)
+                    initial_html = page.content()
+                    status_code = response.status if response is not None else None
+                    if _is_terminal_not_found(status_code, page.title(), initial_html):
+                        out.write_text(initial_html, encoding="utf-8", errors="replace")
+                        print(f"WROTE terminal 404 {out}", flush=True)
+                        return 4
+                    ok = _wait_clear(page, timeout_s=timeout_s)
+                    html = page.content()
+                    title = page.title()
+                    cf = _is_cf(title, html)
+                    print(f"fetch CDP title={title!r} len={len(html)} cf={cf} ok={ok}", flush=True)
+                    if ok and not cf:
+                        out.write_text(html, encoding="utf-8", errors="replace")
+                        print(f"WROTE {out}", flush=True)
+                        _save_state(context, page, note=f"fetch cdp port={port} ok url={url}")
+                        return 0
+                    # Unverified / CF-blocked HTML never lands on the final cache
+                    # path — keep it beside it for diagnosis only.
+                    reject = out.with_name(out.name + ".rejected")
+                    reject.write_text(html, encoding="utf-8", errors="replace")
+                    print(f"fetch: CDP {port} still CF (snapshot {reject}) — try next", flush=True)
+                finally:
+                    # CDP disconnect does not close this Chrome tab. Navigation,
+                    # content and state-save failures must release it as well.
+                    try:
+                        page.close()
+                    except Exception:
+                        pass
 
     # 2) No launch fallback: Chrome launched here (headless especially) is the
     # known Cloudflare-blocked mode and only produces junk CF snapshots.

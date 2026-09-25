@@ -295,12 +295,6 @@ def _rows(cursor: Any, query: str, params: tuple[Any, ...] = ()) -> list[dict[st
     return [dict(row) for row in cursor.fetchall()]
 
 
-def quote_repair_sources(variant_ids: Sequence[int]) -> dict[str, list[int]]:
-    """Route each missing variant to its highest-priority strict quote source."""
-
-    return quote_repair_plan(variant_ids)["routes"]
-
-
 def quote_repair_plan(variant_ids: Sequence[int]) -> dict[str, Any]:
     """Repair routes plus every variant the versioned policy refused.
 

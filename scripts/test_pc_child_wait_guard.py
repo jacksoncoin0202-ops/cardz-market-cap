@@ -291,6 +291,45 @@ def test_wait_helper_direct() -> None:
         check(f"the waiter never kills the child: {banned}", banned in waiter_src, False)
 
 
+def test_rc_file_visibility_grace(tmp: Path) -> None:
+    """The VBS/WSL hand-off may expose the rc file after subprocess.run returns."""
+
+    rc_path = tmp / "late.rc"
+    original_time = cc.time
+    original_reader = cc._read_rc_file
+    clock = FakeClock()
+    reads = {"n": 0}
+    release_after = {"n": 4}
+
+    def delayed_reader(path: Path) -> int | None:
+        check("the rc waiter reads the requested authority file", path, rc_path)
+        reads["n"] += 1
+        return 0 if reads["n"] >= release_after["n"] else None
+
+    cc.time = clock  # type: ignore[assignment]
+    cc._read_rc_file = delayed_reader  # type: ignore[assignment]
+    try:
+        value, waited = cc.pc_wait_for_rc_file(
+            rc_path, grace_seconds=10.0, poll_seconds=1.0
+        )
+        check("a late successful rc remains successful", value, 0)
+        check("the waiter records the visibility lag", waited, 3.0)
+        check("the rc waiter polls only until the file is readable", clock.slept, [1.0, 1.0, 1.0])
+
+        reads["n"] = 0
+        release_after["n"] = 999
+        clock.slept.clear()
+        value, waited = cc.pc_wait_for_rc_file(
+            rc_path, grace_seconds=2.5, poll_seconds=1.0
+        )
+        check("a missing rc still fails after the grace budget", value, None)
+        check("the final poll is trimmed to the grace budget", clock.slept, [1.0, 1.0, 0.5])
+        check("the rc waiter never exceeds its budget", waited, 2.5)
+    finally:
+        cc.time = original_time  # type: ignore[assignment]
+        cc._read_rc_file = original_reader  # type: ignore[assignment]
+
+
 def main() -> int:
     test_tmp_root = ROOT / "data" / "runtime" / "test-tmp"
     test_tmp_root.mkdir(parents=True, exist_ok=True)
@@ -300,6 +339,7 @@ def main() -> int:
         test_live_child_exits_within_budget(tmp)
         test_live_child_never_exits_still_refuses(tmp)
         test_wait_helper_direct()
+        test_rc_file_visibility_grace(tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

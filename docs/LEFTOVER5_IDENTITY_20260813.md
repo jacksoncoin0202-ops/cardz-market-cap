@@ -1,5 +1,6 @@
 # Leftover-5 身份裁決同方法論（2026-08-13）
 
+> 活頁（SNK 標題文法、1st／CLC／SET EN）：[TCG_PRINTING_IDENTITY.md](TCG_PRINTING_IDENTITY.md)。
 > 操作命令仍然以 [COLLECTION_RUNBOOK.md](COLLECTION_RUNBOOK.md) 為準。
 > Pin 只准寫喺 `pipelines/leftover5_go.py`；refresh lane 只准 call
 > `hold_exact_against_refresh`（形狀 22）。

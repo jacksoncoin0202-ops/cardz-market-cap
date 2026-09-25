@@ -159,16 +159,45 @@ if (-not [string]::IsNullOrWhiteSpace($RunLabel) -and ($AllowPublish -or $Manual
     throw "-RunLabel names a rehearsal; it takes none of -AllowPublish/-ManualE2E/-RenewManualWindow"
 }
 
-# Windows owns the headed CARDZ Chrome.  WSL workers consume :9333 but never
-# invent or substitute a browser profile. Nested powershell must stay Hidden
-# so the 10-minute tick does not steal focus with a CMD/PowerShell console.
+# Nested powershell.exe as a child still pops Windows Terminal if it allocates
+# a new console. -WindowStyle Hidden is not enough; CREATE_NO_WINDOW is.
 # Chrome itself stays headed (Cloudflare). Do not add --headless here.
+function Invoke-HiddenPowerShellFile {
+    param(
+        [Parameter(Mandatory=$true)][string]$File,
+        [string]$ArgumentString = "",
+        [int]$CapMs = 120000
+    )
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+    $arg = "-WindowStyle Hidden -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$File`""
+    if (-not [string]::IsNullOrWhiteSpace($ArgumentString)) { $arg = "$arg $ArgumentString" }
+    $psi.Arguments = $arg
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.CreateNoWindow = $true
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $null = $p.Handle
+    if (-not $p.WaitForExit($CapMs)) {
+        try { $p.Kill() } catch {}
+        return @{ ExitCode = 124; Output = "timeout ${CapMs}ms" }
+    }
+    return @{
+        ExitCode = [int]$p.ExitCode
+        Output = ($p.StandardOutput.ReadToEnd() + $p.StandardError.ReadToEnd())
+    }
+}
+
 if ($SelfTest) {
     Write-Log "SELFTEST_SKIP_PREFLIGHT cdp=9333"
 } else {
-    & powershell.exe -WindowStyle Hidden -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "ensure_chrome_cdp.ps1") -Port 9333
-    Write-Log "CARDZ_V2_PREFLIGHT cdp=9333 exit=$LASTEXITCODE"
-    if ($LASTEXITCODE -ne 0) {
+    $cdp = Invoke-HiddenPowerShellFile -File (Join-Path $PSScriptRoot "ensure_chrome_cdp.ps1") -ArgumentString "-Port 9333"
+    Write-Log "CARDZ_V2_PREFLIGHT cdp=9333 exit=$($cdp.ExitCode)"
+    if ($cdp.ExitCode -ne 0) {
+        $cdpOutput = [string]$cdp.Output
+        if ($cdpOutput.Length -gt 8000) { $cdpOutput = $cdpOutput.Substring(0, 8000) + " [truncated]" }
+        Write-Log ("CARDZ_V2_PREFLIGHT_OUTPUT cdp=9333 " + $cdpOutput)
         throw "CARDZ CDP 9333 preflight failed"
     }
 }
@@ -205,27 +234,40 @@ if ($self -and $self.ParentProcessId) {
 }
 $parentName = if ($parent) { $parent.ProcessName + ".exe" } else { "unknown" }
 
-$events = @(
-    Get-WinEvent -FilterHashtable @{
-        LogName = "Microsoft-Windows-TaskScheduler/Operational"
-        Id = 107,110
-        StartTime = $StartedAt.AddMinutes(-3)
-    } -ErrorAction SilentlyContinue |
-    Sort-Object TimeCreated -Descending
-)
 $selected = $null
 $selectedData = $null
-foreach ($event in $events) {
-    $parsed = Get-EventDataMap -Event $event
-    $eventTask = [string]$parsed.Data["TaskName"]
-    if ([string]::IsNullOrWhiteSpace($eventTask)) {
-        $eventTask = [string]$parsed.Xml.Event.UserData.TaskStart.TaskName
+$eventReadAttempts = 1
+# Task Scheduler writes event 107 before starting wscript, but its Operational
+# log can become queryable a few seconds after the child PowerShell begins.
+# Re-read the same strict event evidence only for the production hidden-wrapper
+# process shape. Direct CLI/manual launches stay single-shot and fail closed.
+$maxEventReadAttempts = if ($parentName -eq "wscript.exe") { 11 } else { 1 }
+for ($attempt = 1; $attempt -le $maxEventReadAttempts; $attempt++) {
+    $eventReadAttempts = $attempt
+    $events = @(
+        Get-WinEvent -FilterHashtable @{
+            LogName = "Microsoft-Windows-TaskScheduler/Operational"
+            Id = 107,110
+            StartTime = $StartedAt.AddMinutes(-3)
+        } -ErrorAction SilentlyContinue |
+        Sort-Object TimeCreated -Descending
+    )
+    foreach ($event in $events) {
+        $parsed = Get-EventDataMap -Event $event
+        $eventTask = [string]$parsed.Data["TaskName"]
+        if ([string]::IsNullOrWhiteSpace($eventTask)) {
+            $eventTask = [string]$parsed.Xml.Event.UserData.TaskStart.TaskName
+        }
+        if ($eventTask.TrimEnd('\') -eq $TaskName.TrimEnd('\')) {
+            $selected = $event
+            $selectedData = $parsed
+            break
+        }
     }
-    if ($eventTask.TrimEnd('\') -eq $TaskName.TrimEnd('\')) {
-        $selected = $event
-        $selectedData = $parsed
+    if ($selected -or $attempt -eq $maxEventReadAttempts) {
         break
     }
+    Start-Sleep -Milliseconds 500
 }
 
 $eventId = 0
@@ -254,6 +296,7 @@ $receipt = [ordered]@{
     launcher_pid = $PID
     event_time = $eventTime
     event_age_seconds = [Math]::Round($ageSeconds, 3)
+    event_read_attempts = $eventReadAttempts
     captured_at = (Get-Date).ToUniversalTime().ToString("o")
     manual_e2e = [bool]$ManualE2E
     renew_manual_window = [bool]$RenewManualWindow
@@ -311,8 +354,12 @@ $selfhealScript = if ([string]::IsNullOrWhiteSpace($env:CARDZ_V2_WSL_SELFHEAL_PS
 } else {
     $env:CARDZ_V2_WSL_SELFHEAL_PS1
 }
-$selfheal = & powershell.exe -WindowStyle Hidden -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $selfhealScript
-$selfhealExit = $LASTEXITCODE
+# Self-heal worst case is ~155s (30s probe + 30s docker + 60s terminate + 5s
+# sleep + 30s re-probe). The default 120s child cap kills it first and the
+# launcher then reports wsl=dead with no revive attempt.
+$selfhealRun = Invoke-HiddenPowerShellFile -File $selfhealScript -CapMs 180000
+$selfheal = $selfhealRun.Output
+$selfhealExit = $selfhealRun.ExitCode
 Write-Log ("CARDZ_V2_WSL_PREFLIGHT exit=$selfhealExit " + (($selfheal | Out-String).Trim()))
 if ($selfhealExit -ne 0) {
     Send-LauncherAlert -Key "v2-launcher-wsl-dead" -Text (

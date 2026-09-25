@@ -128,6 +128,13 @@ def main() -> int:
     x_steps = PP.plan_steps("x.com-en")
     check("x-testid", any("tweetTextarea_0" in s for s in x_steps), True)
     check("x-confirm", any("--confirm" in s for s in x_steps), True)
+    check("ig-pack-square", PP.P.CHANNEL_FORMAT["instagram-en"], "square")
+    expect_fail(
+        "ig-publish-owned-by-hermes",
+        lambda: PP.cmd_compose(
+            type("A", (), {"channel": "instagram-en", "confirm": False, "fill_only": False})()
+        ),
+    )
     th = PP.plan_steps("threads-zh")
     check("threads-community", any("CARDZGAME" in s for s in th), True)
     wa = PP.plan_steps("whatsapp-ptcg")
@@ -180,6 +187,23 @@ def main() -> int:
         "unknown-channel",
         lambda: PP.hermes_target_for_channel("x.com-en", destinations={}),
     )
+
+    with tempfile.TemporaryDirectory(prefix="promo-authority-") as tmp:
+        jobs = Path(tmp) / "jobs.json"
+        jobs.write_text(
+            json.dumps({"jobs": [{"name": PP.HERMES_PROMO_JOB, "enabled": True, "state": "scheduled"}]}),
+            encoding="utf-8",
+        )
+        authority_err = expect_fail(
+            "manual-publisher-blocked-while-hermes-active",
+            lambda: PP.assert_manual_post_authority(jobs),
+        )
+        check("manual-publisher-block-names-owner", PP.HERMES_PROMO_JOB in authority_err, True)
+        jobs.write_text(
+            json.dumps({"jobs": [{"name": PP.HERMES_PROMO_JOB, "enabled": False, "state": "paused"}]}),
+            encoding="utf-8",
+        )
+        check("manual-publisher-allowed-only-when-hermes-paused", PP.assert_manual_post_authority(jobs), None)
 
     expect_fail("pack-missing", lambda: PP.load_pack(Path(tempfile.gettempdir()) / "no-such-promo-pack"))
     expect_fail(
@@ -287,27 +311,69 @@ def main() -> int:
     check("audience-match-outcome", match["outcome"], "posted")
     check("audience-match-posted", match["posted"], True)
     check("audience-match-exit", PP.exit_code_for_outcome(match["outcome"]), 0)
-    mismatch = PP.compose_threads(
-        FakePage(), COPY, Path("x.jpg"), confirm=True, page_reader=lambda _page: "Anyone"
+    mismatch_err = expect_fail(
+        "audience-wrong-stops-before-post",
+        lambda: PP.compose_threads(
+            FakePage(), COPY, Path("x.jpg"), confirm=True, page_reader=lambda _page: "Anyone"
+        ),
     )
-    check("audience-mismatch-outcome", mismatch["outcome"], "audience_mismatch")
-    check("audience-mismatch-label", mismatch["audienceLabel"], "Anyone")
-    check("audience-mismatch-exit", PP.exit_code_for_outcome(mismatch["outcome"]), 4)
+    check("audience-wrong-names-cardzgame", "CARDZGAME" in mismatch_err, True)
+    check("audience-wrong-says-not-selected", "未選定" in mismatch_err, True)
 
     def unreadable(_page):
         raise RuntimeError("selector gone")
 
-    blind = PP.compose_threads(FakePage(), COPY, Path("x.jpg"), confirm=True, page_reader=unreadable)
-    check("audience-unreadable-outcome", blind["outcome"], "audience_mismatch")
-    check("audience-unreadable-error", "selector gone" in str(blind["error"]), True)
+    blind_err = expect_fail(
+        "audience-unreadable-stops-before-post",
+        lambda: PP.compose_threads(FakePage(), COPY, Path("x.jpg"), confirm=True, page_reader=unreadable),
+    )
+    check("audience-unreadable-names-cardzgame", "CARDZGAME" in blind_err, True)
     filled = PP.compose_threads(
-        FakePage(), COPY, Path("x.jpg"), confirm=False, page_reader=lambda _page: "Anyone"
+        FakePage(), COPY, Path("x.jpg"), confirm=False, page_reader=lambda _page: "CARDZGAME"
     )
     check("fill-only-threads-outcome", filled["outcome"], "filled")
     check("fill-only-threads-not-posted", filled["posted"], False)
     check("audience-normalizes-case", PP.audience_outcome("Posted to cardzgame", "CARDZGAME"), "posted")
+    pre = PP.require_threads_audience(
+        FakePage(), "CARDZGAME", reader=lambda _page: "CARDZGAME"
+    )
+    check("require-composer-chip-ok", pre, "CARDZGAME")
+    empty_pre = expect_fail(
+        "require-composer-chip-empty",
+        lambda: PP.require_threads_audience(FakePage(), "CARDZGAME", reader=lambda _page: ""),
+    )
+    check("require-composer-chip-empty-stops", "未選定" in empty_pre, True)
     check("exit-map-error", PP.exit_code_for_outcome("error"), 1)
     check("exit-map-unknown", PP.exit_code_for_outcome("who-knows"), 1)
+
+    class TimeoutNode(FakeNode):
+        def click(self, *_a, **_k):
+            raise type("TimeoutError", (Exception,), {})("mask intercepts pointer events")
+
+    class TimeoutPage(FakePage):
+        def locator(self, selector="", **_k):
+            if "tweetTextarea" in str(selector):
+                return TimeoutNode()
+            return FakeNode()
+
+    leak = expect_fail(
+        "x-mask-timeout-is-posterror",
+        lambda: PP.compose_x(TimeoutPage(), COPY, Path("x.jpg"), confirm=False),
+    )
+    check("x-mask-timeout-mentions-intercept", "intercepted" in leak, True)
+    check("timeout-name-helper", PP._is_timeout(type("TimeoutError", (Exception,), {})()), True)
+
+    class NoSearchPage(FakePage):
+        def get_by_role(self, role="", name=""):
+            if role == "searchbox":
+                return FakeNode(0)
+            return FakeNode(1)
+
+    missing = expect_fail(
+        "threads-no-searchbox-stops",
+        lambda: PP.compose_threads(NoSearchPage(), COPY, Path("x.jpg"), confirm=False),
+    )
+    check("threads-no-searchbox-names-cardzgame", "CARDZGAME" in missing, True)
 
     if FAILED:
         print("\n".join(FAILED))

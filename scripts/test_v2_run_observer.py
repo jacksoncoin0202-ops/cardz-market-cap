@@ -500,6 +500,27 @@ def main() -> int:
             with redirect_stdout(buf):
                 obs.cmd_snapshot("cardz-v2:2026-08-25#NOPE")
             check("snapshot missing journal -> NO_JOURNAL", json.loads(buf.getvalue()).get("error") == "NO_JOURNAL")
+            retry = obs.human_alert_text(
+                "ATTEMPT_RETRY",
+                "warn",
+                {
+                    "task": "pricecharting:quote+price+sales+identity:all",
+                    "attempt": 3,
+                    "errorCode": "SOURCE_FAILED",
+                    "error": "RuntimeError:errorCode=PC_CHILD_ALREADY_RUNNING",
+                },
+                "2026-09-08",
+            )
+            check("human retry names PriceCharting", "PriceCharting" in retry and "第 3 次" in retry)
+            check("human retry explains collision", "未完" in retry)
+            check("human retry has no machine dump", "run=" not in retry and "{" not in retry and "ATTEMPT_RETRY" not in retry)
+            launch = obs.human_alert_text(
+                "LAUNCHER_EXCEPTION",
+                "error",
+                {"line": "CARDZ_V2_LAUNCHER_EXCEPTION CARDZ CDP 9333 preflight failed"},
+                "2026-09-08",
+            )
+            check("human launcher names Chrome", "專用 Chrome" in launch and "run=" not in launch)
     finally:
         for n, v in originals.items():
             setattr(obs, n, v)

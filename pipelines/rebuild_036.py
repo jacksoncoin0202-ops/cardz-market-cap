@@ -1053,14 +1053,14 @@ def _collector_core(value: str) -> str:
     return str(int(text)) if text.isdigit() else text
 
 
-_SET_CODE_RE = re.compile(r"\b(op\d{2}|eb\d{2}|st\d{2}|prb\d{2}|sv\d+[a-z]?|s\d+[a-z]?|swsh\d+|sm\d+[a-z]?|xy\d+[a-z]?)\b")
+_SET_CODE_RE = re.compile(r"\b(op\d{2}|eb\d{2}|st\d{2}|prb\d{2}|sv\d+[a-z]?|s\d+[a-z]?|swsh\d+|sm\d+[a-z]?|xy\d+[a-z]?|mbg|m3|wcs\d{2})\b")
 _ERA_PHRASES = (
     "scarlet and violet", "sword and shield", "sun and moon", "mega evolution",
     "black and white", "diamond and pearl", "heartgold and soulsilver",
 )
 _NOISE_TOKENS = {
     "pokemon", "one", "piece", "japanese", "japan", "english", "en", "jp", "ja",
-    "booster", "pack", "the", "of", "and", "a", "an",
+    "booster", "pack", "deck", "set", "the", "of", "and", "a", "an",
     # The abbreviation half of _ERA_PHRASES. GemRate writes the era short
     # ("Pokemon SM Black Star Promo") where the catalog writes it long ("2019
     # Sun and Moon Black Star Promo Power Partnership Tins"); the phrases above
@@ -1103,6 +1103,33 @@ def _set_signals(set_name: str) -> tuple[set[str], set[str]]:
 
     for phrase in _ERA_PHRASES:
         text = text.replace(phrase, " ")
+    # GemRate files the 1996 Japanese Base as "Basic"; PriceCharting's console
+    # is "Expansion Pack". Not the 20th Anniversary expansion, which keeps
+    # "anniversary" and never contains the two-word phrase.
+    if "anniversary" not in text:
+        text = text.replace("expansion pack", "basic")
+    # Same Japanese M3 set: GemRate "Nullifying Zero", PC "Nihil Zero".
+    text = text.replace("nullifying zero", "nihil zero")
+    text = text.replace("mask of transformation", "mask of change")
+    text = text.replace("transformation mask", "mask of change")
+    text = re.sub(r"mask(?: of)? transformation", "mask of change", text)
+    # JP Gym 2 (闇からの挑戦) is PriceCharting's "Challenge from the Darkness".
+    # Not EN Gym Challenge.
+    text = text.replace("challenge from the darkness", "gym 2")
+    text = re.sub(r"\bgym2\b", "gym 2", text)
+    # JP Neo 2 booster (遺跡をこえて) is PriceCharting's Crossing the Ruins.
+    # Neo 2 Promo keeps the extra "promo" token so it cannot take the
+    # booster page (see fingerprint: catalog-only promo token conflicts).
+    text = text.replace("crossing the ruins", "neo 2")
+    # Neo 2 promo file product, not Neo 2 booster.
+    text = text.replace("neo premium file", "neo 2 promo")
+    # Game Boy promos are filed on PriceCharting's Japanese Promo console.
+    text = text.replace("game boy", "")
+    text = re.sub(r"\bmega[-\s]+rayquaza\b", "m rayquaza", text)
+    # PC console is "Rayquaza-EX Mega Battle Deck"; catalog is "M Rayquaza EX
+    # Battle Deck". mega comes AFTER rayquaza-ex, not before.
+    text = text.replace("rayquaza-ex mega", "m rayquaza ex")
+    text = re.sub(r"\bwcs(\d{2})\b", r"20\1 championships world", text)
     tokens = _tok(text)
     if not tokens:
         # A set name that is nothing but an era phrase ("Mega Evolution")
@@ -1129,7 +1156,19 @@ def _fingerprint_variant_conflicts(
     v_number = _collector_core(variant.get("collector_number") or "")
     f_number = _collector_core(fp.get("cardNumber") or "")
     if v_number and f_number and v_number != f_number:
-        conflicts.append(f"collector_number:{f_number}!={v_number}")
+        # CBB3 Gem Pack AR: GemRate stores the 03/07 pack slot as "07";
+        # PriceCharting files Gengar as #307. Same physical card, same
+        # Chinese gem-pack console. Absol #7 (core 7==7) never reaches here.
+        vset = str(variant.get("set_name") or "").lower()
+        fset = str(fp.get("setName") or "").lower()
+        vname = str(variant.get("canonical_name") or "").lower()
+        if not (
+            "gem pack" in vset
+            and "gem pack" in fset
+            and "gengar" in vname
+            and {v_number, f_number} == {"7", "307"}
+        ):
+            conflicts.append(f"collector_number:{f_number}!={v_number}")
     v_lang = str(variant.get("card_language") or "")
     if not v_lang:
         # Catalog rows minted before the language column was enforced carry
@@ -1206,6 +1245,12 @@ def _fingerprint_variant_conflicts(
         covered(f_tokens, v_tokens) or covered(v_tokens, f_tokens)
     ):
         conflicts.append(f"set:{sorted(f_tokens)}!={sorted(v_tokens)}")
+    # A catalog row that names itself a promo cannot take a booster page
+    # that never says promo. Coverage is one-way, so extra catalog tokens
+    # otherwise sail through: Neo 2 Promo would agree with Crossing the
+    # Ruins after the Neo 2 alias.
+    elif f_tokens and v_tokens and "promo" in v_tokens and "promo" not in f_tokens:
+        conflicts.append("set:promo")
     return conflicts
 
 
@@ -1548,6 +1593,7 @@ from rebuild_036_identity_rules import (  # noqa: E402,F401
     red_listed_variants,
     rejection_is_verdict,
     set_names_a_card_could_carry,
+    pc_product_candidate_sets,
 )
 
 
@@ -2669,6 +2715,30 @@ def _pc_replay_dir(generation: str) -> Path:
             / f"replay-{generation}")
 
 
+def _pc_language_from_console_slug(console_slug: str) -> str:
+    """Language PriceCharting's console slug itself asserts.
+
+    "japanese" in the slug is ja. Chinese consoles are not English: the old
+    binary (japanese vs else→en) labelled pokemon-chinese-151-collect as en
+    and held leftover v2233 as language:en!=zhCN on the card's own page.
+    "chinese" without a script stays "zh"; zh vs zhCN already agrees in
+    _fingerprint_variant_conflicts. Korean is ko. Anything else stays en.
+    """
+
+    tokens = str(console_slug or "").replace("-", " ").split()
+    if "japanese" in tokens:
+        return "ja"
+    if "simplified" in tokens:
+        return "zhCN"
+    if "traditional" in tokens:
+        return "zhTW"
+    if "chinese" in tokens:
+        return "zh"
+    if "korean" in tokens:
+        return "ko"
+    return "en"
+
+
 def _pc_page_identity(html: str) -> tuple[dict[str, Any] | None, str]:
     """Provider-native identity signals from a replayed PC product page.
 
@@ -2709,7 +2779,9 @@ def _pc_page_identity(html: str) -> tuple[dict[str, Any] | None, str]:
     if not collector and re.fullmatch(r"[0-9]+[a-z]?", slug_tail):
         collector = slug_tail
     if not collector:
-        return None, "collector_missing"
+        # Promo / Old Maid / movie cards: PC heading has no #number.
+        # Catalog uses the token Old. Empty is not "unknown product".
+        collector = "Old"
     bracket = re.search(r"\[([^\]]+)\]", heading)
     console_tokens = console_slug.replace("-", " ")
     if console_slug.startswith("pokemon"):
@@ -2718,7 +2790,7 @@ def _pc_page_identity(html: str) -> tuple[dict[str, Any] | None, str]:
         tcg = "one-piece"
     else:
         tcg = ""
-    language = "ja" if "japanese" in console_tokens.split() else "en"
+    language = _pc_language_from_console_slug(console_slug)
     # The h1 states the set inside its own /console/ anchor. Carving it out of
     # the heading text instead needed a '#' before the card number to know where
     # the card's name ended, and One Piece headings have no '#' -- so the name
@@ -3154,7 +3226,53 @@ def _snk_claim_number(claim: str) -> str:
     return token
 
 
-def snk_claim_set_agrees(claim: str, row: Mapping[str, Any]) -> bool:
+# Pokemon EN SNK brackets: `[MEG EN 150/132]`, `[SVP EN 051]`. The last token
+# is the collector, the first is the ptcgo/set code -- not "MEG EN" as a blob.
+_POKEMON_EN_SET_RE = re.compile(r"(?i)^([A-Za-z]{2,4})\s+EN\b")
+# GemRate set_name prefix "Pokemon Svp EN-SV Black Star Promo" when set_code is blank.
+_POKEMON_GEMRATE_EN_RE = re.compile(r"(?i)\b([A-Za-z]{2,4})\s+EN-")
+
+
+def snk_bracket_set_code(claim: str) -> str:
+    """Set code the SNK designation itself asserts.
+
+    Pokemon: `MEG EN 150/132` -> MEG. One Piece: `OP09-001` -> OP09.
+    """
+
+    text = str(claim or "").strip()
+    pokemon = _POKEMON_EN_SET_RE.match(text)
+    if pokemon:
+        return pokemon.group(1)
+    import op_identity_rules  # deferred: it imports this module at its top
+
+    in_claim = op_identity_rules.SET_CODE_RE.search(text.upper())
+    if in_claim:
+        return in_claim.group(1)
+    return " ".join(text.split()[:-1])
+
+
+def snk_has_collector_claim(
+    claim: str, master_name: str, localized: str, row: Mapping[str, Any],
+) -> bool:
+    """Does the listing carry a collector designation the judge can use?
+
+    Celebrations Classic Collection EN titles often omit `[24]` and only say
+    Celebrations. That is still a collector claim when our catalog set is CLC.
+    """
+
+    if str(claim or "").strip():
+        return True
+    code = str(row.get("v_set_code") or row.get("p_set_code") or "").upper()
+    blob = f"{master_name} {localized}".casefold()
+    return code == "CLC" and "celebration" in blob
+
+
+def snk_claim_set_agrees(
+    claim: str,
+    row: Mapping[str, Any],
+    master_name: str = "",
+    localized: str = "",
+) -> bool:
     """Does the SNKRDUNK designation's own set claim agree with ours?
 
     One function because three lanes ask it -- S7, snk-identity-reverify and
@@ -3164,6 +3282,16 @@ def snk_claim_set_agrees(claim: str, row: Mapping[str, Any]) -> bool:
     the number ("OP09-106"), so that reading returned "" for every One Piece
     card ever put to it, the supersede below never fired once, and 16 cards sat
     in manual_review behind a set conflict nothing could clear.
+
+    2026-08-26: the same leftover-token reading returned "MEG EN" for
+    `[MEG EN 150/132]`, which never equalled catalog MEG, so Mega Evolution IR
+    and SV Black Star Promos sat in hard_conflict set:['meg']!=['mega','evolution'].
+    `snk_bracket_set_code` reads the Pokemon `[SET EN num]` form. Catalog
+    `set_code` is blank on the SVP rows (`Pokemon Svp EN-SV Black Star Promo`);
+    the GemRate `CODE EN-` prefix is the same set_name spelling the OP gap
+    already read via SET_CODE_RE. A bare `[24]` is not a set agreement --
+    WOTC mailaway is also `[24]`. CLC titles that omit the number and only
+    name Celebrations still agree, and only then.
 
     Our side is read from four places rather than two for the same reason. The
     set_code column is empty on 48 of the cards in the gap while the code is
@@ -3176,17 +3304,25 @@ def snk_claim_set_agrees(claim: str, row: Mapping[str, Any]) -> bool:
 
     import op_identity_rules  # deferred: it imports this module at its top
 
-    in_claim = op_identity_rules.SET_CODE_RE.search(claim.upper())
-    claim_set = in_claim.group(1) if in_claim else " ".join(claim.split()[:-1])
-    named = op_identity_rules.SET_CODE_RE.search(str(row.get("set_name") or "").upper())
+    claim_set = snk_bracket_set_code(claim)
+    set_name = str(row.get("set_name") or "")
+    named = op_identity_rules.SET_CODE_RE.search(set_name.upper())
+    gemrate = _POKEMON_GEMRATE_EN_RE.search(set_name)
     ours = {
         str(row.get("v_set_code") or "").casefold(),
         str(row.get("p_set_code") or "").casefold(),
         named.group(1).casefold() if named else "",
+        gemrate.group(1).casefold() if gemrate else "",
         op_identity_rules.printed_set_code(row.get("variant_id")).casefold(),
         op_identity_rules.sold_in_set_code(row.get("variant_id")).casefold(),
     } - {""}
-    return bool(claim_set) and claim_set.casefold() in ours
+    if not claim_set:
+        # A leftover-token empty set is not agreement. CLC without `[24]` is
+        # the one exception, and only when the title names Celebrations.
+        if str(claim or "").strip():
+            return False
+        return snk_has_collector_claim(claim, master_name, localized, row)
+    return claim_set.casefold() in ours
 
 
 def stage_snk_refresh(ctx: SimpleNamespace) -> dict[str, Any]:
@@ -3364,14 +3500,14 @@ def stage_snk_refresh(ctx: SimpleNamespace) -> dict[str, Any]:
         # ("[S-P 227]" -> set "S-P"). When it equals the variant's set code,
         # that claim supersedes the noisy product-title-vs-set-name token
         # comparison (which can never contain era names like "SWSH").
-        if snk_claim_set_agrees(claim, row):
+        if snk_claim_set_agrees(claim, row, master_name, localized):
             conflicts = [
                 c for c in conflicts
                 if not c.startswith("set:") and not c.startswith("set_code:")
             ]
         if tcg and str(row["tcg_code"] or "") and tcg != str(row["tcg_code"]):
             conflicts.append(f"tcg:{tcg}!={row['tcg_code']}")
-        if not claim:
+        if not snk_has_collector_claim(claim, master_name, localized, row):
             conflicts.append("product_number_missing")
         # Mirror is a distinct print: the provider's treatment slot and the
         # variant's own wording must agree, in both directions. Variant side
@@ -8541,7 +8677,7 @@ _PC_BRACKET_SYNONYMS: dict[str, frozenset[str]] = {
     "sp": frozenset({"sp alternate art", "special alternate art"}),
     # Pokemon Master Ball is a 1:1 pairing; the catalog spells out the finish
     # ("master ball reverse holo") where the page bracket says just the seal.
-    "mb": frozenset({"master ball"}),
+    "mb": frozenset({"master ball", "master ball reverse", "master ball reverse holo"}),
     # The plain reverse-holo finish. PC brackets it "[Reverse]" where the
     # catalog stores "rh"; "[Reverse Holo]" is deliberately NOT here, because
     # only the one word was seen and a longer wording is a page that says
@@ -8569,6 +8705,9 @@ from rebuild_036_reverify import (  # noqa: E402,F401
     _pc_map_url_by_product,
     _pc_page_product_id,
     _pc_print_signature_ok,
+    _pc_unbracketed_sp_on_own_set,
+    _pc_unbracketed_texture_error_on_own_set,
+    _pc_unbracketed_own_set_print,
     _pc_spc_metal,
     _pc_spc_metal_parallel,
     cmd_pc_identity_reverify,

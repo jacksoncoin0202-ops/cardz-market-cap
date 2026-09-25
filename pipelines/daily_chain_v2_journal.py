@@ -867,25 +867,63 @@ class Journal:
                     canonical_json(receipt).decode(), now, now,
                 ),
             ).rowcount == 1
-            if inserted:
-                if origin == "scheduled":
+            reclassified = False
+            if not inserted and origin == "scheduled" and record_id > 0:
+                existing = conn.execute(
+                    "SELECT run_id,event_type,payload_json FROM chain_event WHERE event_key=?",
+                    (event_key,),
+                ).fetchone()
+                if (
+                    existing is not None
+                    and str(existing["run_id"]) == run_id
+                    and str(existing["event_type"]) == "origin.manual"
+                ):
                     try:
-                        event_id = int(
-                            receipt.get("event_id") or receipt.get("eventId") or 0
+                        original_receipt = json.loads(str(existing["payload_json"]))
+                    except (TypeError, ValueError):
+                        original_receipt = {}
+                    # Reclassification is allowed only when the exact durable
+                    # receipt now independently passes the strict scheduler
+                    # classifier.  This repairs the pre-2026-08-26 omission of
+                    # the production wscript wrapper without blessing a CLI run.
+                    if classify_provenance(original_receipt) == "scheduled":
+                        conn.execute(
+                            "UPDATE chain_event SET event_type='origin.scheduled' WHERE event_key=?",
+                            (event_key,),
                         )
-                    except (TypeError, ValueError, OverflowError):
-                        event_id = 0
-                    bump_107 = 1 if event_id == 107 else 0
-                    conn.execute(
-                        """
-                        UPDATE chain_run
-                        SET scheduled_event_107_count=scheduled_event_107_count+?,
-                            origin=CASE WHEN manual_intervention_count=0 THEN 'scheduled' ELSE origin END,
-                            updated_at=?
-                        WHERE run_id=?
-                        """,
-                        (bump_107, now, run_id),
-                    )
+                        conn.execute(
+                            """
+                            UPDATE chain_run
+                            SET manual_intervention_count=MAX(0,manual_intervention_count-1),
+                                scheduled_event_107_count=scheduled_event_107_count+1,
+                                origin=CASE WHEN manual_intervention_count<=1
+                                            THEN 'scheduled' ELSE origin END,
+                                updated_at=?
+                            WHERE run_id=?
+                            """,
+                            (now, run_id),
+                        )
+                        reclassified = True
+            if inserted or reclassified:
+                if origin == "scheduled":
+                    if not reclassified:
+                        try:
+                            event_id = int(
+                                receipt.get("event_id") or receipt.get("eventId") or 0
+                            )
+                        except (TypeError, ValueError, OverflowError):
+                            event_id = 0
+                        bump_107 = 1 if event_id == 107 else 0
+                        conn.execute(
+                            """
+                            UPDATE chain_run
+                            SET scheduled_event_107_count=scheduled_event_107_count+?,
+                                origin=CASE WHEN manual_intervention_count=0 THEN 'scheduled' ELSE origin END,
+                                updated_at=?
+                            WHERE run_id=?
+                            """,
+                            (bump_107, now, run_id),
+                        )
                 else:
                     conn.execute(
                         """
@@ -917,7 +955,7 @@ class Journal:
                         "UPDATE chain_run SET proven_autonomous=? WHERE run_id=?",
                         (1 if proven else 0, proof_row["run_id"]),
                     )
-        return origin, inserted
+        return origin, inserted or reclassified
 
     def add_task(
         self,
@@ -1597,6 +1635,28 @@ class Journal:
             ).rowcount
             if changed != 1:
                 return None
+            # An operator revival is manual intervention even when the next
+            # worker is claimed by a genuine event-107 tick.  Without this,
+            # TASK_UNPARKED could repair a failed release and the completed day
+            # would still advertise manual_intervention_count=0.
+            conn.execute(
+                """
+                UPDATE chain_run
+                SET manual_intervention_count=manual_intervention_count+1,
+                    origin='manual',proven_autonomous=0,updated_at=?
+                WHERE run_id=?
+                """,
+                (now_text, run_id),
+            )
+            conn.execute(
+                """
+                UPDATE chain_run SET proven_autonomous=0,updated_at=?
+                WHERE business_date >= (
+                    SELECT business_date FROM chain_run WHERE run_id=?
+                )
+                """,
+                (now_text, run_id),
+            )
             row = dict(
                 conn.execute(
                     "SELECT * FROM chain_task WHERE task_key=?", (task_key,)
@@ -1654,6 +1714,27 @@ class Journal:
             ).rowcount
             if changed != 1:
                 return None
+            # Retiring work is the same operator authority boundary as unpark:
+            # a later natural tick may continue the run, but the day itself is
+            # no longer unattended evidence.
+            conn.execute(
+                """
+                UPDATE chain_run
+                SET manual_intervention_count=manual_intervention_count+1,
+                    origin='manual',proven_autonomous=0,updated_at=?
+                WHERE run_id=?
+                """,
+                (now_text, run_id),
+            )
+            conn.execute(
+                """
+                UPDATE chain_run SET proven_autonomous=0,updated_at=?
+                WHERE business_date >= (
+                    SELECT business_date FROM chain_run WHERE run_id=?
+                )
+                """,
+                (now_text, run_id),
+            )
             row = dict(
                 conn.execute(
                     "SELECT * FROM chain_task WHERE task_key=?", (task_key,)

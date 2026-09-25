@@ -17,7 +17,7 @@ import unicodedata
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlencode, urlparse
 
@@ -38,10 +38,12 @@ SCOPE_PATH = {"pokemon": "/pokemon", "one-piece": "/one-piece", "all": "/"}
 
 # Platform hard caps. Fail-closed: X Premium 25k exists, CARDZ 帳未核對就當 280。
 # Sources: docs.x.com/fundamentals/counting-characters (280 weighted; CJK/emoji=2; t.co URL=23);
-# Threads post 500 (2026); WhatsApp Cloud API text 4096.
+# Instagram caption 2200; Threads post 500 (2026); WhatsApp Cloud API text 4096.
 CHANNEL_LIMIT = {
     "x.com-en": {"max": 280, "count": "x"},
     "x.com-zh": {"max": 280, "count": "x"},
+    "instagram-en": {"max": 2200, "count": "chars"},
+    "instagram-zh": {"max": 2200, "count": "chars"},
     "threads-en": {"max": 500, "count": "chars"},
     "threads-zh": {"max": 500, "count": "chars"},
     "whatsapp-ptcg": {"max": 4096, "count": "chars"},
@@ -52,10 +54,12 @@ CHANNEL_LIMIT = {
 }
 URL_RE = re.compile(r"https?://[^\s]+", re.I)
 
-# fork-zh / site / WhatsApp groups = Traditional. x.com Chinese = Simplified only.
+# fork-zh / site / WhatsApp groups = Traditional. X Chinese = Simplified only.
 CHANNEL_SCRIPT = {
     "x.com-en": "en",
     "x.com-zh": "zh-Hans",
+    "instagram-en": "en",
+    "instagram-zh": "zh-Hant",
     "threads-en": "en",
     "threads-zh": "zh-Hant",
     "whatsapp-ptcg": "zh-Hant",
@@ -68,6 +72,8 @@ CHANNEL_SCRIPT = {
 HOST_FOR_CHANNEL = {
     "x.com-en": "x.com",
     "x.com-zh": "x.com",
+    "instagram-en": "instagram.com",
+    "instagram-zh": "instagram.com",
     "threads-en": "threads.net",
     "threads-zh": "threads.net",
     "whatsapp-ptcg": "web.whatsapp.com",
@@ -93,6 +99,7 @@ CDP_JSON = "http://127.0.0.1:9222/json"
 # "today's" movers, so the pack refuses to build instead of shipping stale data.
 # 26h (not 24h) leaves room for a late bake without opening a whole extra day.
 PROMO_MAX_LIVE_LAG_HOURS_DEFAULT = 26.0
+PROMO_MIN_BAKE_AGE_HOURS_DEFAULT = 0.5
 JST = timezone(timedelta(hours=9))
 RECEIPT_SLUG_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -103,6 +110,10 @@ class PromoError(RuntimeError):
 
 class PromoStaleLive(PromoError):
     """Live payload older than PROMO_MAX_LIVE_LAG_HOURS. CLI exit code 3."""
+
+
+class PromoBakeCooling(PromoError):
+    """Live bake is less than 30 minutes old and is not ready for promotion."""
 
 
 def promo_runtime_dir() -> Path:
@@ -156,8 +167,9 @@ def assert_live_fresh(
     allow_stale: bool = False,
     now: datetime | None = None,
     max_lag_hours: float | None = None,
+    min_lag_hours: float = PROMO_MIN_BAKE_AGE_HOURS_DEFAULT,
 ) -> tuple[float | None, float]:
-    """Fail closed: an unparseable timestamp counts as stale, never as fresh."""
+    """Fail closed outside the 30-minute-to-26-hour promotion window."""
     limit = max_live_lag_hours() if max_lag_hours is None else float(max_lag_hours)
     lag = live_lag_hours(generated_at, now=now)
     if lag is None:
@@ -166,6 +178,11 @@ def assert_live_fresh(
         raise PromoStaleLive(
             f"live generatedAt {str(generated_at or '')!r} missing/unparseable — "
             "refusing to promo (use --allow-stale)"
+        )
+    if lag < float(min_lag_hours):
+        raise PromoBakeCooling(
+            f"live generatedAt {generated_at} is only {lag:.2f}h old < "
+            f"{float(min_lag_hours):.2f}h — wait 30 minutes before promo"
         )
     if lag > limit and not allow_stale:
         raise PromoStaleLive(
@@ -391,9 +408,10 @@ def heatmap_og_url(
 def heatmap_og_url_for_channel(channel: str, period: str = DAILY_PERIOD) -> str:
     script = CHANNEL_SCRIPT.get(channel)
     board = CHANNEL_BOARD.get(channel)
-    if not script or not board:
+    fmt = CHANNEL_FORMAT.get(channel)
+    if not script or not board or not fmt:
         raise PromoError(f"unknown channel {channel}")
-    return heatmap_og_url(board, period, lang=SCRIPT_TO_OG_LANG[script])
+    return heatmap_og_url(board, period, fmt=fmt, lang=SCRIPT_TO_OG_LANG[script])
 
 
 def format_pct(value: float) -> str:
@@ -457,6 +475,8 @@ def render_copy(
 CHANNEL_BOARD = {
     "x.com-en": "all",
     "x.com-zh": "all",
+    "instagram-en": "all",
+    "instagram-zh": "all",
     "threads-en": "all",
     "threads-zh": "all",
     "whatsapp-ptcg": "pokemon",
@@ -465,7 +485,17 @@ CHANNEL_BOARD = {
     "fork-zh": "all",
     "site-zh": "all",
 }
-if not (CHANNEL_LIMIT.keys() == CHANNEL_SCRIPT.keys() == HOST_FOR_CHANNEL.keys() == CHANNEL_BOARD.keys()):
+CHANNEL_FORMAT = {
+    channel: ("square" if channel.startswith("instagram-") else "post")
+    for channel in CHANNEL_SCRIPT
+}
+if not (
+    CHANNEL_LIMIT.keys()
+    == CHANNEL_SCRIPT.keys()
+    == HOST_FOR_CHANNEL.keys()
+    == CHANNEL_BOARD.keys()
+    == CHANNEL_FORMAT.keys()
+):
     raise RuntimeError("CHANNEL_* tables out of sync")
 
 
@@ -527,6 +557,7 @@ def brief_from_payload(
         "generation": generation,
         "generatedAt": generated_at,
         "lagHours": None if lag_hours is None else round(lag_hours, 4),
+        "minBakeAgeHours": PROMO_MIN_BAKE_AGE_HOURS_DEFAULT,
         "maxLagHours": lag_limit,
         "allowStale": bool(allow_stale),
         "period": period,
@@ -622,6 +653,12 @@ def download_heatmap(
     return dest
 
 
+def heatmap_receipt_ref(path: Path) -> str:
+    """Filename only. Absolute Windows paths put the operator username in receipt.json."""
+    raw = str(path)
+    return PureWindowsPath(raw).name if "\\" in raw else Path(raw).name
+
+
 def fetch_json(url: str) -> Any:
     req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
     try:
@@ -673,6 +710,59 @@ def assert_text(channel: str, text: str) -> None:
         raise PromoError(over)
 
 
+def _sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def jst_date_of(iso_text: str) -> str:
+    raw = str(iso_text or "").strip()
+    if not raw:
+        raise PromoError("missing timestamp")
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    parsed = datetime.fromisoformat(raw)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(JST).date().isoformat()
+
+
+def assert_box_matches_business_date(health: Mapping[str, Any], business_date: str) -> None:
+    """Refuse promo when live /box is a previous JST day (old bake, old picture)."""
+    box = health.get("box") if isinstance(health.get("box"), Mapping) else {}
+    as_of = str(box.get("asOf") or "")
+    if not as_of:
+        raise PromoError("live health has no box.asOf — not a complete bake")
+    box_day = jst_date_of(as_of)
+    if box_day != str(business_date):
+        raise PromoError(
+            f"box asOf {as_of} is JST {box_day}, not business date {business_date} — old bake, do not promo"
+        )
+
+
+def assert_heatmap_not_repeat(
+    pack_dir: Path, *, filename: str = "heatmap-all-7d-post-en.jpg"
+) -> None:
+    """Refuse a pack whose TCG heatmap is byte-identical to an older generation pack."""
+    current = pack_dir / filename
+    if not current.is_file():
+        return
+    cur_sha = _sha256_file(current)
+    parent = pack_dir.parent
+    if not parent.is_dir():
+        return
+    for other in parent.iterdir():
+        if not other.is_dir() or other == pack_dir:
+            continue
+        jpg = other / filename
+        if not jpg.is_file():
+            continue
+        other_sha = _sha256_file(jpg)
+        if other_sha == cur_sha:
+            raise PromoError(
+                f"heatmap {filename} sha256 matches previous pack {other.name} — old picture, do not promo"
+            )
+
+
 def assert_pack(pack_dir: Path, *, expect_generation: str | None = None) -> dict[str, Any]:
     if not pack_dir.is_dir():
         raise PromoError(f"pack dir missing: {pack_dir}")
@@ -703,7 +793,37 @@ def assert_pack(pack_dir: Path, *, expect_generation: str | None = None) -> dict
                     problems.append(str(error))
     if problems:
         raise PromoError(" ; ".join(problems))
+    assert_heatmap_not_repeat(pack_dir)
     return {"ok": True, "generation": brief.get("generation"), "files": sum(1 for _ in pack_dir.rglob("*") if _.is_file())}
+
+
+def _cdp_host_aliases(host: str) -> tuple[str, ...]:
+    """Threads moved www.threads.net → www.threads.com; both name the same tab."""
+
+    folded = str(host or "").casefold()
+    if folded in {"threads.net", "threads.com"}:
+        return ("threads.net", "threads.com")
+    return (folded,) if folded else ()
+
+
+def hostname_matches_cdp_host(hostname: str, host: str) -> bool:
+    """Exact/suffix match. Substring would steal accountscenter.threads.com."""
+
+    folded = str(hostname or "").casefold()
+    if not folded or folded.startswith("accountscenter."):
+        return False
+    for alias in _cdp_host_aliases(host):
+        if folded == alias or folded.endswith("." + alias):
+            return True
+    return False
+
+
+def _threads_tab_rank(url: str) -> int:
+    parsed = urlparse(str(url or ""))
+    path = parsed.path or "/"
+    if path in {"/", ""}:
+        return 0
+    return 1
 
 
 def pick_cdp_tab(pages: Sequence[Mapping[str, Any]], host: str) -> dict[str, Any]:
@@ -716,9 +836,11 @@ def pick_cdp_tab(pages: Sequence[Mapping[str, Any]], host: str) -> dict[str, Any
         if str(page.get("type") or "page") not in {"page", "tab"}:
             continue
         parsed = urlparse(str(page.get("url") or ""))
-        if parsed.hostname and host in parsed.hostname:
+        hostname = str(parsed.hostname or "").casefold()
+        if hostname_matches_cdp_host(hostname, host):
             matches.append(page)
     if matches:
+        matches.sort(key=lambda page: _threads_tab_rank(str(page.get("url") or "")))
         chosen = matches[0]
         extras = [str(page.get("id")) for page in matches[1:]]
         return {
@@ -771,11 +893,14 @@ def cmd_brief(args: argparse.Namespace) -> int:
         board = CHANNEL_BOARD[channel]
         script = CHANNEL_SCRIPT[channel]
         lang = SCRIPT_TO_OG_LANG[script]
-        key = f"{board}-{lang}"
+        fmt = CHANNEL_FORMAT[channel]
+        key = f"{board}-{fmt}-{lang}"
         if key in heatmaps:
             continue
         try:
-            heatmaps[key] = str(download_heatmap(brief, pack, board, lang=lang))
+            heatmaps[key] = heatmap_receipt_ref(
+                download_heatmap(brief, pack, board, fmt=fmt, lang=lang)
+            )
         except PromoError as error:
             errors.append({"stage": "heatmap", "key": key, "error": str(error)})
             print(f"PROMO_HEATMAP {key} {error}", file=sys.stderr)
@@ -794,7 +919,7 @@ def cmd_brief(args: argparse.Namespace) -> int:
         "wrote": str(out),
         "generation": brief["generation"],
         "period": brief["period"],
-        "heatmap": heatmaps.get("all-en"),
+        "heatmap": heatmaps.get("all-post-en"),
         "heatmaps": heatmaps,
         "heatmapUrl": brief["boards"].get("all", {}).get("heatmapUrl") or brief.get("channelHeatmaps", {}).get("x.com-en"),
         "channelHeatmaps": brief.get("channelHeatmaps"),
@@ -820,7 +945,9 @@ def cmd_status(args: argparse.Namespace) -> int:
 def cmd_assert(args: argparse.Namespace) -> int:
     expect = args.generation
     if args.require_live:
-        expect = generation_id(fetch_json(f"{LIVE}/api/health").get("generation"))
+        health = fetch_json(f"{LIVE}/api/health")
+        expect = generation_id(health.get("generation"))
+        assert_box_matches_business_date(health, business_date_jst())
     result = assert_pack(Path(args.pack), expect_generation=expect)
     print(json.dumps(result, ensure_ascii=False))
     return 0
@@ -958,7 +1085,12 @@ def cmd_self_test() -> int:
     assert x_tab["extraSameHost"] == ["b"], x_tab
     fresh = pick_cdp_tab(pages, "threads.net")
     assert fresh["action"] == "open_once" and fresh["openNew"] is True, fresh
-    fired += 2
+    com_tab = pick_cdp_tab(
+        list(pages) + [{"id": "t1", "type": "page", "url": "https://www.threads.com/@cardz.game"}],
+        "threads.net",
+    )
+    assert com_tab["action"] == "reuse" and com_tab["id"] == "t1" and com_tab["openNew"] is False, com_tab
+    fired += 3
 
     copy = render_copy(movers, board="all", script="zh-Hant")
     assert "🟢 #2 升一" in copy and "🔴 #5 跌一" in copy, copy

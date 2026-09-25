@@ -901,17 +901,32 @@ async def run_fetch_pool(
             pool = price_pages[:tabs]
             for extra in price_pages[tabs:]:
                 await extra.close()
-            while len(pool) < tabs:
-                pool.append(await context.new_page())
-            for page in pool:
-                page.set_default_timeout(120000)
-                if "pricecharting.com" not in (page.url or ""):
-                    await page.goto(
-                        "https://www.pricecharting.com/",
-                        wait_until="domcontentloaded",
-                        timeout=min(120000, int(CDP_SETUP_SECONDS * 1000)),
-                    )
-            return pool
+            created = []
+            ready = False
+            try:
+                while len(pool) < tabs:
+                    page = await context.new_page()
+                    created.append(page)
+                    pool.append(page)
+                for page in pool:
+                    page.set_default_timeout(120000)
+                    if "pricecharting.com" not in (page.url or ""):
+                        await page.goto(
+                            "https://www.pricecharting.com/",
+                            wait_until="domcontentloaded",
+                            timeout=min(120000, int(CDP_SETUP_SECONDS * 1000)),
+                        )
+                ready = True
+                return pool
+            finally:
+                # A failed/cancelled setup can leave about:blank tabs that the
+                # next attach cannot recognize by URL. Release only our new tabs.
+                if not ready:
+                    for page in created:
+                        try:
+                            await asyncio.wait_for(page.close(), timeout=5.0)
+                        except Exception:  # noqa: BLE001
+                            pass
 
         # 唔好諗住 `page.route` 擋走圖／css 嚟慳額度：試過，會反效果。一版產品頁
         # 向 www.pricecharting.com 打 31 個 request（15 圖 / 6 script / 4 css /
@@ -942,13 +957,15 @@ async def run_fetch_pool(
                 ),
             }
         kwargs.setdefault("transport", PC_TRANSPORT)
-        out = await run_fetch_pool_with_pages(pending, pages=pool, **kwargs)
-        # 收工剩返一條 tab，同單 tab 年代嘅 session 狀態一模一樣。
-        for extra in pool[1:]:
-            try:
-                await extra.close()
-            except Exception:  # noqa: BLE001
-                pass
+        try:
+            out = await run_fetch_pool_with_pages(pending, pages=pool, **kwargs)
+        finally:
+            # 成功、worker exception 同 cancellation 都收返第二條 tab。
+            for extra in pool[1:]:
+                try:
+                    await asyncio.wait_for(extra.close(), timeout=5.0)
+                except Exception:  # noqa: BLE001
+                    pass
     return out
 
 

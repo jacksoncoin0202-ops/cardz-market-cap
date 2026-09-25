@@ -413,6 +413,100 @@ if REGISTRY.is_file():
         check("and the poll list is not empty (an empty list proves nothing)",
               truthy_polled, True)
 
+# --- Pokemon SNK `[SET EN num]` is a set code, not leftover title tokens ---
+# 2026-08-26: bind-url judge held MEG IR / SVP promo as
+# set:['meg','150']!=['mega','evolution'] because snk_claim_set_agrees only
+# read One Piece OP00 codes and treated "MEG EN 150/132" as claim_set "MEG EN".
+meg_row = {"v_set_code": "MEG", "p_set_code": "", "set_name": "Mega Evolution", "variant_id": 546}
+check(
+    "MEG EN 150/132 agrees with catalog MEG",
+    R.snk_claim_set_agrees("MEG EN 150/132", meg_row),
+    True,
+)
+check(
+    "MEG EN 150/132 does not agree with SCR",
+    R.snk_claim_set_agrees("MEG EN 150/132", {**meg_row, "v_set_code": "SCR"}),
+    False,
+)
+check(
+    "SVP EN 051 agrees with catalog SVP",
+    R.snk_claim_set_agrees("SVP EN 051", {"v_set_code": "SVP", "p_set_code": "", "set_name": "SV Black Star Promo", "variant_id": 2082}),
+    True,
+)
+check(
+    "SVP EN 051 agrees when catalog set_code is blank but Svp EN- is in set_name",
+    R.snk_claim_set_agrees(
+        "SVP EN 051",
+        {
+            "v_set_code": "",
+            "p_set_code": "",
+            "set_name": "Pokemon Svp EN-SV Black Star Promo",
+            "variant_id": 2082,
+        },
+    ),
+    True,
+)
+check(
+    "SVP EN 051 does not agree with MEG",
+    R.snk_claim_set_agrees("SVP EN 051", meg_row),
+    False,
+)
+check(
+    "One Piece OP09-001 still agrees",
+    R.snk_claim_set_agrees("OP09-001", {"v_set_code": "OP09", "p_set_code": "", "set_name": "Emperors in the New World", "variant_id": 1}),
+    True,
+)
+clc_row = {"v_set_code": "CLC", "p_set_code": "", "set_name": "Celebrations Classic Collection", "variant_id": 910}
+clc_title = "_'s Pikachu (Birthday Pikachu) (Sword & Shield \"Celebrations\")"
+check("MEG EN 150/132 bracket set is MEG", R.snk_bracket_set_code("MEG EN 150/132"), "MEG")
+check("SVP EN 051 bracket set is SVP", R.snk_bracket_set_code("SVP EN 051"), "SVP")
+check(
+    "CLC Celebrations title without [24] still has a collector claim",
+    R.snk_has_collector_claim("", clc_title, "", clc_row),
+    True,
+)
+check(
+    "empty claim on a non-CLC listing is still missing",
+    R.snk_has_collector_claim("", "Steelix IR [MEG EN 150/132]", "", meg_row),
+    False,
+)
+check(
+    "CLC empty claim + Celebrations title agrees on set",
+    R.snk_claim_set_agrees("", clc_row, clc_title, ""),
+    True,
+)
+check(
+    "WOTC [24] does not agree with CLC set",
+    R.snk_claim_set_agrees(
+        "24",
+        clc_row,
+        "_'s Pikachu P [24](Wizards of the Coast \"Promotional\")",
+        "",
+    ),
+    False,
+)
+check(
+    "empty claim on MEG does not agree on set",
+    R.snk_claim_set_agrees("", meg_row, "Steelix IR", ""),
+    False,
+)
+
+# The collector-claim gate must be the shared function at every judge lane.
+# `if not claim:` is how CLC Birthday Pikachu sat behind product_number_missing
+# after bind-url already wrote the row.
+for rel in (
+    "pipelines/rebuild_036.py",
+    "pipelines/rebuild_036_reverify.py",
+    "pipelines/snk_identity_discover.py",
+):
+    src = (ROOT / rel).read_text(encoding="utf-8")
+    check(
+        f"{rel} uses snk_has_collector_claim for product_number_missing",
+        "snk_has_collector_claim(claim, master_name, localized, row)" in src
+        and "conflicts.append(\"product_number_missing\")" in src,
+        True,
+    )
+
 print()
 if failures:
     print(f"{len(failures)} FAILURE(S)")

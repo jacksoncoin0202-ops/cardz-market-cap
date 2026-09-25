@@ -26,6 +26,7 @@ Writes need the rebuild credentials while the database is frozen; pass
 """
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -97,14 +98,30 @@ def red_variant_ids() -> list[int]:
     sheet = V.load_sheet_manifest()
     by_old_name: dict[str, list[dict]] = {}
     for row in audit["rows"]:
-        by_old_name.setdefault(str(row["oldCanonicalName"]), []).append(row)
+        by_old_name.setdefault(_red_sheet_name_key(row["oldCanonicalName"]), []).append(row)
     ids = {
-        int(by_old_name[sheet["oldCanonicalNames"][sheet_row - 5]][0]["variantId"])
+        int(by_old_name[_red_sheet_name_key(
+            sheet["oldCanonicalNames"][sheet_row - 5]
+        )][0]["variantId"])
         for sheet_row in sheet["redSheetRows"]
     }
     if len(ids) != 13:
         raise SystemExit(f"expected 13 red variants, derived {len(ids)}: {sorted(ids)}")
     return sorted(ids)
+
+
+def _red_sheet_name_key(value: object) -> str:
+    """Stable 034 join key across catalog set-code restatements.
+
+    The human sheet predates canonical names such as ``OP01-Romance Dawn``;
+    its saved name only says ``Romance Dawn``.  Collector/set codes are already
+    separate identity evidence, so remove only those known prefixes before
+    joining the sheet back to the current audit.
+    """
+
+    return " ".join(re.sub(
+        r"\b(?:op|st|eb|prb)\d{2}-?", " ", R._norm_text(str(value or "")),
+    ).split())
 
 
 def released_red_variant_ids() -> set[int]:

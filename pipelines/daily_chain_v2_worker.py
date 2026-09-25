@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT / "pipelines"))
 from daily_chain_v2_contract import (  # noqa: E402
     PC_CHILD_ALREADY_RUNNING_CLASS,
     canonical_json,
+    classify_error,
     sha256,
 )
 from daily_chain_v2_journal import Journal  # noqa: E402
@@ -536,7 +537,7 @@ def failure_receipt(task: Mapping[str, Any], error: BaseException) -> dict[str, 
 
     R3: a runner may attach ``receipt_extra`` to its exception (currently
     ``childInterrupted``) so the receipt can describe HOW the attempt ended
-    without changing the exception type the retry classifier reads.  Extras
+    without changing the retry verdict the orchestrator reads.  Extras
     never overwrite the contract fields.
     """
 
@@ -548,7 +549,7 @@ def failure_receipt(task: Mapping[str, Any], error: BaseException) -> dict[str, 
         "status": "failed",
         "observedAt": iso_now(),
         "checkedAt": iso_now(),
-        "errorCode": type(error).__name__,
+        "errorCode": classify_error(str(error)).error_code,
         "error": str(error),
     }
     for key, value in (getattr(error, "receipt_extra", None) or {}).items():

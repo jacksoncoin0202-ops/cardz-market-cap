@@ -11,6 +11,7 @@ Run: python -X utf8 scripts/test_cdp_jammed_targets.py
 from __future__ import annotations
 
 import sys
+import socket
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -44,6 +45,18 @@ VERSION_BODY = (
 STOP = threading.Event()
 
 
+class _ReadyServer(ThreadingHTTPServer):
+    """Expose when serve_forever has entered its accept loop."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.ready = threading.Event()
+
+    def service_actions(self) -> None:
+        self.ready.set()
+        super().service_actions()
+
+
 class _JammedHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         if self.path.startswith("/json/version"):
@@ -63,27 +76,42 @@ class _JammedHandler(BaseHTTPRequestHandler):
         del format, args
 
 
-def _serve() -> tuple[ThreadingHTTPServer, threading.Thread, int]:
-    server = ThreadingHTTPServer(("127.0.0.1", 0), _JammedHandler)
+def _local_interface_ip() -> str:
+    """Address the planted server without WSL mirrored-loopback routing."""
+
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+        probe.connect(("192.0.2.1", 9))
+        return str(probe.getsockname()[0])
+
+
+def _serve() -> tuple[ThreadingHTTPServer, threading.Thread, int, str]:
+    host = _local_interface_ip()
+    server = _ReadyServer((host, 0), _JammedHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    return server, thread, int(server.server_address[1])
+    if not server.ready.wait(timeout=2.0):
+        raise RuntimeError("planted CDP server did not enter its accept loop")
+    return server, thread, int(server.server_address[1]), host
 
 
 def main() -> int:
     failed = 0
-    server, _thread, port = _serve()
+    server, _thread, port, test_host = _serve()
     try:
-        version = fetch_version(port, timeout=1.0)
+        # WSL mirrored networking reserves explicit 127.0.0.1 for Windows-host
+        # services (the real CDP contract), while localhost can alternate
+        # between the Windows and WSL sides.  The fixture therefore uses its
+        # WSL interface address; production's default host stays unchanged.
+        version = fetch_version(port, timeout=1.0, host=test_host)
         if reject_reason(version) is not None:
             print(f"FAIL planted version should be accepted got={reject_reason(version)}")
             failed += 1
         else:
             print("PASS planted version accepted as Windows headed")
-        require_headed_windows(port)
+        require_headed_windows(port, host=test_host)
         print("PASS require_headed_windows accepts version-only 200")
         started = time.monotonic()
-        targets = fetch_targets(port, timeout=1.0)
+        targets = fetch_targets(port, timeout=1.0, host=test_host)
         elapsed = time.monotonic() - started
         if targets is not None:
             print(f"FAIL hung list returned {targets!r}")
@@ -94,7 +122,7 @@ def main() -> int:
         else:
             print(f"PASS hung list timed out in {elapsed:.2f}s")
         try:
-            require_session_ready(port)
+            require_session_ready(port, host=test_host)
             print("FAIL require_session_ready accepted jammed session")
             failed += 1
         except RuntimeError as exc:

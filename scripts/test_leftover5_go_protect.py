@@ -94,6 +94,31 @@ check(
     leftover5_go.LEFTOVER5_VIDS,
     frozenset({35, 1225, 1228, 1438, 1900}),
 )
+check(
+    "JP Shirahoshi SP refresh-hold is not one of the leftover-5 five",
+    2167 in leftover5_go.LEFTOVER5_VIDS,
+    False,
+)
+check(
+    "JP Shirahoshi SP unbracketed own-set page is held against refresh",
+    leftover5_go.hold_exact_against_refresh("pricecharting", 2167, "9362267"),
+    True,
+)
+check(
+    "JP Shirahoshi Memorial Collection pid is not the OP11 SP pin",
+    leftover5_go.hold_exact_against_refresh("pricecharting", 2167, "8507117"),
+    False,
+)
+check(
+    "Gengar incorrect-texture refresh-hold is not one of the leftover-5 five",
+    1904 in leftover5_go.LEFTOVER5_VIDS,
+    False,
+)
+check(
+    "Gengar incorrect-texture unbracketed page is held against refresh",
+    leftover5_go.hold_exact_against_refresh("pricecharting", 1904, "11302596"),
+    True,
+)
 
 # Refresh downgrade rule, in one place: exact + print-sig fail + not pinned
 # would drop to manual_review. Pinned exact is held even when the heading
@@ -110,6 +135,12 @@ would_downgrade_stussy_go = (
 )
 check("unpinned SP exact still eligible for replay downgrade", would_downgrade_unpinned, True)
 check("Stussy GO exact is not eligible for replay downgrade", would_downgrade_stussy_go, False)
+would_downgrade_2167 = (
+    True
+    and not _pc_print_signature_ok("", ROW_SP)
+    and not leftover5_go.hold_exact_against_refresh("pricecharting", 2167, "9362267")
+)
+check("JP Shirahoshi SP exact is not eligible for replay downgrade", would_downgrade_2167, False)
 
 if FAILURES:
     print(f"\n{len(FAILURES)} failure(s): {FAILURES}")

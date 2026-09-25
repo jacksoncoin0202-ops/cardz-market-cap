@@ -49,7 +49,27 @@ WSL `~/cardz-market-cap-release-daily` 只係每次 fast-forward `origin/main` �
     度一格都冇郁；總數升咗 9 張，睇落似做完（runbook 形狀 21 補完）。剩低嗰批要逐個
     再跑一次修完嘅邏輯，見到佢由 refuse 變 pass 先算數。
 15. **日更 `incr` 唔拉 residual stock。** 新 activate／未 freeze-complete 先 `collect_control.py stock`。FE 出街車係 `../cardz-market-cap-037-fe04-live`，唔係呢度 push `main`。
-16. **宣傳鏈唔係自動更新鏈。** `live.confirmed` 之後等 **30 分鐘** 先跑 `promo_chain.py brief`（圖／文／閘）。**唔准**由 live.confirmed 直接 Hermes／X／Threads 發佈。操作法 [docs/PROMO_CHAIN.md](docs/PROMO_CHAIN.md)。9222 同一 host 一個 tab。Fork zh／WhatsApp／Threads 中文 = 繁體；簡體只准 x.com 中文。Threads compose 揀社羣 **CARDZGAME**。WhatsApp Hermes 用固定群名 **PTCG**（Pokémon 圖）／**Yaichi x Cardz.Game TCG 社區｜4號群**（TCG 圖）／**海賊王**（海賊王圖）（`CHANNEL_HERMES_NAME`），唔准 `send --list` 模糊對、唔准每次 AI 判定。
+16. **宣傳鏈唔係自動更新鏈。** `live.confirmed` 之後等 **30 分鐘** 先跑 `promo_chain.py brief`（圖／文／閘）。**唔准**由 live.confirmed 直接 Hermes／X／Threads 發佈。**未證明今日新 bake 唔准 compose：** live `generation` 要係今日 JST、heatmap sha 唔可以同上一手 pack 一樣、`box.asOf` 要係今日 JST；圖舊／box 舊 = 未 bake 完。日更只做 X 英／中、Threads 英／中四步；Instagram、WhatsApp 暫停。公開 publisher 只准 Hermes，repo `promo_post.py --confirm` 必須拒絕，唔准雙 publisher。Hermes social browser 必須按 port 持有 `~/.hermes/state/cardz-social-cdp-<PORT>.lock`；Threads EN `@cardz.game`／ZH `@cardz.gamezh` 沿用 Hermes 現行隔離持久化 9222 profile；由 Hermes `cardz_marketcap_meta_session.py` 建立並讀回精確 handle，owner 未確認唔准 compose。9224 已停用，唔准另開或轉 browser。已確認重複、錯帳、錯 audience／community 或內容錯誤，必須先刪公開帖、保存 URL／ID，之後先可重發；已撳 Post 但未有 URL = `cleanup_required`，未定位及清理前唔准自動 retry。Daddy 叫停宣傳鏈 = 即停（包括背景）。操作法 [docs/PROMO_CHAIN.md](docs/PROMO_CHAIN.md)。9222 唔係 PC（PC 只准 9333）。Threads 英／中分別先核對 `@cardz.game`／`@cardz.gamezh`；Threads 中文 = 繁體，簡體只准 x.com 中文。
+
+17. **公開 bake／deploy 只准由資料 authority 呢棵樹起腳。** 人手入口係喺
+    `cardz-market-cap-fe-db-20260805` root 跑
+    `pwsh -NoProfile -File scripts/daily_public_release.ps1`；唔准直接跑
+    `~/cardz-market-cap-release-daily/scripts/daily_public_release.sh`。個 shell script 會由
+    自己所在位置推導 `SOURCE_REPO`；由 release checkout 起腳會錯指自己，然後喺
+    `data/runtime/config/backend.env`、quarantine receipt、BOX sidecar 或 assets 處失敗。
+    呢個係**入口／checkout 錯誤**，唔係 DB 冇數。唔准為咗令佢過而喺 release checkout
+    新建、複製、改寫或 commit `backend.env`；WSL release checkout 只負責 fast-forward
+    `origin/main`、接收 authority runtime 輸入、bake `data/public` 同推 release commit。
+18. **`deploy_watch.ps1` 一律用 PowerShell 7 `pwsh`，唔准用 Windows PowerShell 5
+    `powershell.exe`。** 呢份 UTF-8／廣東話 script 喺 PowerShell 5 會被錯誤解碼，表面會報
+    大量 `Unexpected token '}'`／`Missing closing '}'`，唔係 script 真係壞。Watcher 依賴
+    執行 checkout 嘅 `origin/main` reflog 推斷 push 時間：WSL release checkout 推完之後，
+    要立即喺一棵含該 deploy SHA、已更新 `origin/main` 嘅 Windows-native checkout 跑 watcher，
+    唔好等 live poll 完先由另一棵 checkout 做 `-AuditOnly`。另一棵 checkout 冇原 push reflog，
+    事後會退化成「而家時間」再查，可能假報 `0 candidate deliveries`／exit 3；呢個結果唔係
+    GitHub 冇派嘅證據。唔准人造／回填 reflog 冒充原 push receipt；攞唔到原 checkout 時間證據
+    就如實標記 watcher receipt unavailable，另列真 GitHub exact delivery 同 live
+    `generation + generatedAt` 證據。
 
 ## 查 bug 之前
 

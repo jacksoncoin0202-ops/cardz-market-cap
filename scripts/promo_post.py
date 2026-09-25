@@ -34,6 +34,10 @@ CDP = "http://127.0.0.1:9222"
 THREADS_COMMUNITY = "CARDZGAME"
 DEST_FILE = ROOT / "data" / "runtime" / "promo" / "destinations.json"
 HERMES_REAL = "/home/jackson0202/.local/bin/hermes.real"
+HERMES_PROMO_JOB = "cardz-mc-6acct-12jst-daily"
+HERMES_CRON_JOBS = Path(
+    os.environ.get("HERMES_CRON_JOBS", "/home/jackson0202/.hermes/cron/jobs.json")
+)
 # 一早分好類，同 CHANNEL_BOARD 對齊。每次 send 用呢個表，唔好 AI／模糊字估群。
 CHANNEL_HERMES_NAME = {
     "whatsapp-ptcg": "PTCG",
@@ -45,7 +49,7 @@ if set(CHANNEL_HERMES_NAME) != _WA_CHANNELS:
     raise RuntimeError(f"CHANNEL_HERMES_NAME missing {_WA_CHANNELS - set(CHANNEL_HERMES_NAME)}")
 
 X_COMPOSE = "https://x.com/compose/post"
-THREADS_HOME = "https://www.threads.net/"
+THREADS_HOME = "https://www.threads.com/"
 _AUDIENCE_WS_RE = re.compile(r"\s+")
 
 # Outcome -> process exit code. A post that landed in the wrong audience is a
@@ -62,6 +66,24 @@ OUTCOME_EXIT = {
 
 def exit_code_for_outcome(outcome: str) -> int:
     return OUTCOME_EXIT.get(str(outcome), 1)
+
+
+def assert_manual_post_authority(jobs_path: Path | None = None) -> None:
+    """One publisher only: manual repo posting is locked while Hermes owns the day."""
+    path = Path(jobs_path) if jobs_path is not None else HERMES_CRON_JOBS
+    if not path.is_file():
+        raise PostError(f"Hermes promo authority state unreadable: {path} — 唔准手動出帖")
+    try:
+        jobs = json.loads(path.read_text(encoding="utf-8")).get("jobs") or []
+    except Exception as error:
+        raise PostError(f"Hermes promo authority state unreadable: {path} — 唔准手動出帖") from error
+    job = next((row for row in jobs if str(row.get("name")) == HERMES_PROMO_JOB), None)
+    if not isinstance(job, dict):
+        raise PostError(f"Hermes promo authority {HERMES_PROMO_JOB} missing — 唔准手動出帖")
+    if bool(job.get("enabled")) and str(job.get("state") or "").lower() != "paused":
+        raise PostError(
+            f"Hermes promo authority {HERMES_PROMO_JOB} 正在啟用；先 pause 正式鏈，唔准雙 publisher"
+        )
 
 
 class PostError(P.PromoError):
@@ -89,7 +111,8 @@ def channel_image(pack: Path, channel: str) -> Path:
     period = str(brief.get("period") or P.DAILY_PERIOD)
     board = P.CHANNEL_BOARD[channel]
     lang = P.SCRIPT_TO_OG_LANG[P.CHANNEL_SCRIPT[channel]]
-    jpg = pack / f"heatmap-{board}-{period}-post-{lang}.jpg"
+    fmt = P.CHANNEL_FORMAT[channel]
+    jpg = pack / f"heatmap-{board}-{period}-{fmt}-{lang}.jpg"
     if not jpg.is_file():
         raise PostError(f"missing heatmap {jpg.name} — run brief first")
     if not P.reusable_heatmap(jpg):
@@ -132,17 +155,79 @@ def audience_outcome(label: Any, expected: Any) -> str:
     return "audience_mismatch"
 
 
-def read_threads_audience(page) -> str:
-    """Best-effort read-back of the audience/visibility label of the new post."""
-    for selector in (
-        '[data-testid="audience-selector"]',
-        '[role="dialog"] [role="button"][aria-haspopup]',
-        '[data-pressable-container] [role="link"]',
-    ):
-        node = page.locator(selector).first
-        if node.count():
-            return str(node.inner_text(timeout=5000) or "").strip()
+def _node_text(node) -> str:
+    """Playwright inner_text/input_value; ignore non-str fakes in unit tests."""
+    for attr in ("input_value", "inner_text", "text_content"):
+        fn = getattr(node, attr, None)
+        if not callable(fn):
+            continue
+        try:
+            val = fn(timeout=3000)
+        except TypeError:
+            try:
+                val = fn()
+            except Exception:
+                continue
+        except Exception:
+            continue
+        if isinstance(val, str) and val.strip():
+            return val.strip()
     return ""
+
+
+def read_composer_audience(page) -> str:
+    """Selected community = searchbox value after the suggestion listbox closed."""
+    listbox = page.get_by_role("listbox")
+    if listbox.count():
+        visible = getattr(listbox.first, "is_visible", None)
+        if callable(visible):
+            try:
+                if visible():
+                    return ""
+            except TypeError:
+                pass
+    search = page.get_by_role("searchbox")
+    if search.count():
+        typed = _node_text(search.first)
+        if typed:
+            return typed
+    return ""
+
+
+def read_threads_audience(page) -> str:
+    """Read-back: composer chip, then a visible CARDZGAME label. Never a feed username."""
+    chip = read_composer_audience(page)
+    if chip:
+        return chip
+    hit = page.get_by_text(THREADS_COMMUNITY, exact=False)
+    if hit.count():
+        vis = getattr(hit.first, "is_visible", None)
+        if callable(vis):
+            try:
+                if vis():
+                    return THREADS_COMMUNITY
+            except TypeError:
+                pass
+        else:
+            text = _node_text(hit.first)
+            if audience_outcome(text, THREADS_COMMUNITY) == "posted":
+                return text
+    return ""
+
+
+def require_threads_audience(page, expected: str, *, reader=None) -> str:
+    """Stop before Post if CARDZGAME is not the selected composer audience."""
+    try:
+        label = str(reader(page) or "") if reader else read_composer_audience(page)
+    except Exception as error:
+        raise PostError(
+            f"Threads 社羣 {expected} 未選定 — 停，唔好發去個人主 feed"
+        ) from error
+    if audience_outcome(label, expected) != "posted":
+        raise PostError(
+            f"Threads 社羣 {expected} 未選定 got={label!r} — 停，唔好發去個人主 feed"
+        )
+    return label
 
 
 def plan_steps(channel: str) -> list[str]:
@@ -230,11 +315,18 @@ def _page_for_host(browser, host: str, *, allow_open: bool):
     pages = P.list_cdp_pages()
     decision = P.pick_cdp_tab(pages, host)
     if decision["action"] == "reuse":
+        want = str(decision.get("url") or "")
+        ranked: list[tuple[int, Any]] = []
         for ctx in browser.contexts:
             for page in ctx.pages:
-                hostname = urlparse(page.url).hostname or ""
-                if host in hostname:
+                if want and str(page.url) == want:
                     return page, decision
+                hostname = str(urlparse(page.url).hostname or "").casefold()
+                if P.hostname_matches_cdp_host(hostname, host):
+                    ranked.append((P._threads_tab_rank(str(page.url)), page))
+        if ranked:
+            ranked.sort(key=lambda item: item[0])
+            return ranked[0][1], decision
         raise PostError(f"9222 listed {host} but Playwright 見唔到嗰個 tab")
     if not allow_open:
         raise PostError(f"no {host} tab; dry-run will not open a new one unless --open-once")
@@ -244,18 +336,102 @@ def _page_for_host(browser, host: str, *, allow_open: bool):
     return page, decision
 
 
+def _is_timeout(error: BaseException) -> bool:
+    return error.__class__.__name__ == "TimeoutError"
+
+
+def _dismiss_x_layers(page) -> None:
+    """Close sheets/masks that intercept the compose textarea (data-testid=mask)."""
+    try:
+        page.keyboard.press("Escape")
+    except Exception:
+        return
+    mask = page.locator('[data-testid="mask"]')
+    if mask.count():
+        try:
+            page.keyboard.press("Escape")
+        except Exception:
+            return
+
+
+def _click_first(locator, *, timeout: int = 8000, force: bool = False) -> None:
+    try:
+        locator.click(timeout=timeout, force=force)
+    except TypeError:
+        locator.click()
+
+
+def _fill_draftjs(page, box, text: str) -> None:
+    """Draft.js ignores insert_text; type after selecting the existing draft."""
+    _click_first(box, timeout=8000)
+    try:
+        page.keyboard.press("Control+A")
+        page.keyboard.press("Backspace")
+    except Exception:
+        pass
+    typer = getattr(page.keyboard, "type", None)
+    body = text.strip()
+    if callable(typer):
+        try:
+            typer(body, delay=15)
+            return
+        except TypeError:
+            typer(body)
+            return
+    page.keyboard.insert_text(body)
+
+
 def compose_x(page, text: str, image: Path, *, confirm: bool) -> dict[str, Any]:
     page.goto(X_COMPOSE, wait_until="domcontentloaded", timeout=30000)
+    _dismiss_x_layers(page)
     box = page.locator('[data-testid="tweetTextarea_0"]').first
     box.wait_for(timeout=15000)
-    box.click()
-    page.keyboard.insert_text(text.strip())
+    try:
+        _fill_draftjs(page, box, text)
+    except Exception as error:
+        if not _is_timeout(error):
+            raise
+        _dismiss_x_layers(page)
+        try:
+            _click_first(box, timeout=8000, force=True)
+            _fill_draftjs(page, box, text)
+        except Exception as retry_error:
+            raise PostError(
+                f"x.com composer click intercepted (mask/layer): {retry_error}"
+            ) from retry_error
     file_input = page.locator('input[type="file"][data-testid="fileInput"]').first
     if file_input.count():
         file_input.set_input_files(str(image))
     btn = page.locator('[data-testid="tweetButtonInline"], [data-testid="tweetButton"]').first
     if not confirm:
         return {"filled": True, "posted": False, "reason": "fill-only", "outcome": "filled"}
+    waiter = getattr(page, "wait_for_function", None)
+    if callable(waiter):
+        snippet = text.strip().splitlines()[0][:12]
+        try:
+            waiter(
+                """(snippet) => {
+                    const box = document.querySelector('[data-testid="tweetTextarea_0"]');
+                    const b = document.querySelector('[data-testid="tweetButtonInline"], [data-testid="tweetButton"]');
+                    const landed = !!(box && (box.innerText || '').indexOf(snippet) >= 0);
+                    const enabled = !!(b && !b.disabled && b.getAttribute('aria-disabled') !== 'true');
+                    return landed && enabled;
+                }""",
+                snippet,
+                timeout=20000,
+            )
+        except TypeError:
+            waiter(
+                """() => {
+                    const b = document.querySelector('[data-testid="tweetButtonInline"], [data-testid="tweetButton"]');
+                    return !!(b && !b.disabled && b.getAttribute('aria-disabled') !== 'true');
+                }""",
+                timeout=20000,
+            )
+        except Exception as error:
+            if not _is_timeout(error):
+                raise
+            raise PostError("x.com Post button stayed disabled (text/media did not land)") from error
     btn.click(timeout=10000)
     return {"filled": True, "posted": True, "outcome": "posted"}
 
@@ -270,14 +446,87 @@ def compose_threads(
     page_reader=None,
 ) -> dict[str, Any]:
     page.goto(THREADS_HOME, wait_until="domcontentloaded", timeout=30000)
-    community = page.get_by_text(audience, exact=False)
-    if community.count() == 0:
+    # CARDZGAME is a searchbox inside the "新串文" dialog, not home-feed text.
+    search = page.get_by_role("searchbox")
+    for label in ("新串文", "What's new?", "有什麼新鮮事", "有什么新鲜事", "建立"):
+        opener = page.get_by_role("button", name=label)
+        if opener.count() == 0:
+            continue
+        try:
+            opener.first.click(timeout=8000)
+        except Exception as error:
+            if not _is_timeout(error):
+                raise
+            continue
+        waiter = getattr(search.first, "wait_for", None)
+        if callable(waiter):
+            try:
+                waiter(timeout=12000)
+            except Exception as error:
+                if not _is_timeout(error):
+                    raise
+                continue
+        break
+    search = page.get_by_role("searchbox")
+    if search.count() == 0:
         raise PostError(f"Threads 社羣 {audience} 未出現 — 停，唔好發去個人主 feed")
-    community.first.click(timeout=8000)
-    composer = page.locator('[role="textbox"]').first
+    try:
+        search.first.click(timeout=8000)
+        filler = getattr(search.first, "fill", None)
+        if callable(filler):
+            filler(audience)
+        else:
+            page.keyboard.insert_text(audience)
+    except Exception as error:
+        raise PostError(f"Threads 社羣 {audience} 搜尋失敗 — 停，唔好發去個人主 feed") from error
+    listbox = page.get_by_role("listbox")
+    waiter = getattr(listbox.first, "wait_for", None)
+    if callable(waiter):
+        try:
+            waiter(timeout=10000)
+        except Exception as error:
+            if not _is_timeout(error):
+                raise
+    try:
+        page.keyboard.press("ArrowDown")
+        page.keyboard.press("Enter")
+    except Exception:
+        pass
+    hide = getattr(listbox.first, "wait_for", None)
+    if callable(hide):
+        try:
+            hide(state="hidden", timeout=8000)
+        except TypeError:
+            pass
+        except Exception as error:
+            if not _is_timeout(error):
+                raise
+            option = listbox.get_by_text(audience, exact=False)
+            if option.count() == 0:
+                option = listbox.get_by_text(audience.lower(), exact=False)
+            if option.count() == 0:
+                raise PostError(f"Threads 社羣 {audience} 未出現 — 停，唔好發去個人主 feed")
+            try:
+                option.first.click(timeout=8000)
+            except Exception:
+                option.first.click(force=True, timeout=8000)
+            if callable(hide):
+                try:
+                    hide(state="hidden", timeout=8000)
+                except Exception:
+                    pass
+    require_threads_audience(page, audience, reader=page_reader)
+    composer = page.locator('[role="dialog"] [role="textbox"]').first
+    if composer.count() == 0:
+        composer = page.locator('[role="textbox"]').first
     composer.wait_for(timeout=15000)
-    composer.click()
-    page.keyboard.insert_text(text.strip())
+    try:
+        _click_first(composer, timeout=8000, force=True)
+        _fill_draftjs(page, composer, text)
+    except Exception as error:
+        if not _is_timeout(error):
+            raise
+        raise PostError("Threads composer click intercepted — 停，唔好發去個人主 feed") from error
     file_input = page.locator('input[type="file"]').first
     if file_input.count():
         file_input.set_input_files(str(image))
@@ -291,6 +540,12 @@ def compose_threads(
         }
     post_btn = page.get_by_role("button", name="Post").or_(page.get_by_role("button", name="發佈"))
     post_btn.first.click(timeout=10000)
+    sleeper = getattr(page, "wait_for_timeout", None)
+    if callable(sleeper):
+        try:
+            sleeper(1500)
+        except TypeError:
+            pass
     reader = page_reader or read_threads_audience
     try:
         label = str(reader(page) or "")
@@ -298,6 +553,17 @@ def compose_threads(
     except Exception as read_error:  # unreadable == unverified == fail closed
         label = ""
         error = str(read_error)
+    if audience_outcome(label, audience) != "posted":
+        visible = page.get_by_text(audience, exact=False)
+        vis = getattr(visible.first, "is_visible", None) if visible.count() else None
+        shown = False
+        if visible.count() and callable(vis):
+            try:
+                shown = bool(vis())
+            except TypeError:
+                shown = False
+        if shown:
+            label = audience
     outcome = audience_outcome(label, audience)
     return {
         "filled": True,
@@ -381,12 +647,23 @@ def cmd_compose(args: argparse.Namespace) -> int:
     channel = args.channel
     if channel not in P.CHANNEL_SCRIPT or channel in {"fork-zh", "site-zh"}:
         raise PostError(f"unsupported channel {channel}")
+    if channel.startswith("instagram-"):
+        raise PostError(
+            "Instagram publish is owned by Hermes cardz_marketcap_meta_post.py on isolated CDP 9222"
+        )
     confirm = bool(args.confirm)
     fill_only = bool(getattr(args, "fill_only", False))
     if confirm and fill_only:
         raise PostError("--fill-only and --confirm are mutually exclusive")
+    if confirm:
+        assert_manual_post_authority()
+    if confirm and channel.startswith(("x.com-", "threads-", "instagram-")):
+        raise PostError(
+            "public social publish is owned by the Hermes four-lane chain on isolated CDP 9222"
+        )
     pack = Path(args.pack)
     brief = load_pack(pack)
+    P.assert_heatmap_not_repeat(pack)
     text = channel_copy(pack, channel)
     image = channel_image(pack, channel)
     business_date = str(getattr(args, "business_date", "") or P.business_date_jst())
@@ -411,6 +688,11 @@ def cmd_compose(args: argparse.Namespace) -> int:
             )
     except (PostError, P.PromoError) as error:
         error_text = str(error)
+        result = {"filled": False, "posted": False, "outcome": "error"}
+    except Exception as error:
+        if not _is_timeout(error):
+            raise
+        error_text = f"playwright timeout: {error}"
         result = {"filled": False, "posted": False, "outcome": "error"}
     error_text = error_text or result.get("error")
     outcome = str(result.get("outcome") or ("posted" if result.get("posted") else "dry_run"))

@@ -2778,6 +2778,17 @@ def main() -> int:
         help="required to replace a ruling this row already carries",
     )
     p_rule.add_argument("--write", action="store_true")
+    p_rac = sub.add_parser(
+        "release-and-claim",
+        help="release an owner pid only when the page fails the owner and passes the leftover (dry-run without --write)",
+    )
+    p_rac.add_argument("--source-code", dest="source_code", required=True,
+                       choices=RULING_SOURCE_CODES)
+    p_rac.add_argument("--owner-variant-id", dest="owner_variant_id", type=int, required=True)
+    p_rac.add_argument("--claimant-variant-id", dest="claimant_variant_id", type=int, required=True)
+    p_rac.add_argument("--external-id", dest="external_id", required=True)
+    p_rac.add_argument("--actor", required=True)
+    p_rac.add_argument("--write", action="store_true")
     p_snk_discover = sub.add_parser(
         "snk-identity-discover",
         help="propose a first SNK binding for qualified variants that have no price source at all (dry-run without --write)",
@@ -2894,6 +2905,17 @@ def main() -> int:
                 action=args.action,
                 reason_text=args.reason_text,
                 supersede=args.supersede,
+                write=args.write,
+            )
+        elif args.cmd == "release-and-claim":
+            import collision_adjudicate as _ca
+
+            return _ca.cmd_release_and_claim(
+                source_code=args.source_code,
+                owner_variant_id=args.owner_variant_id,
+                claimant_variant_id=args.claimant_variant_id,
+                external_id=args.external_id,
+                actor=args.actor,
                 write=args.write,
             )
         elif args.cmd == "snk-identity-discover":

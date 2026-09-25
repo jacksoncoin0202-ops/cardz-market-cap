@@ -6,8 +6,8 @@ Registered by the Windows installer as `\\CARDZ-Promo-After-Publish`, 17:45 JST
 daily, run hidden through `scripts/cardz_silent_run.vbs`. Its whole job is to
 exercise the promo chain every day so the pack + gates cannot rot unnoticed:
 read the live published snapshot, apply the freshness gate, render the copy for
-every configured destination, and write pack + receipts to disk. Posting stays a
-human-triggered `promo_post.py compose --confirm`.
+every configured destination, and write pack + receipts to disk. Public posting
+belongs exclusively to the Hermes four-lane chain; this repo task never posts.
 
 Deliberately imports **only** `promo_chain` — never `promo_post`, playwright,
 websocket, or any other module that can open a browser. `test_promo_pack.py`

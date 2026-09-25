@@ -10,17 +10,35 @@
 > 讀嘢次序：[AGENTS.md](AGENTS.md)（硬規矩）→ 本檔（現狀）→ 各專題檔（§7 文件地圖）。
 > **文件同 code 衝突時 code 贏**，發現即修文件。日程／cadence 真相永遠睇 `Get-ScheduledTask`，唔好信文件記憶。
 
+### 2026-08-26 宣傳鏈 cutover
+
+- [KNOWN] **08-28 data→Live 已完成**：03:30 natural event 107 啟動 `cardz-v2:2026-08-28`，全程 scheduler provenance capture 正常；PriceCharting 首次 attempt 被 tick deadline interrupt，下一個自然 tick 自動續成。05:34 release gate 因 `test_pc_master_ball_rebind.py` stale synonym assertion fail-closed；只更新測試期望、targeted regression 通過後 guarded unpark release。06:08 `PUBLISHED`，generation `db3308_8325adf7c4ffe094` 與 Live confirmed、activeCount 1604；因 unpark，final origin `manual`、intervention `1`、`proven_autonomous=0`，唔作純自動綠日。
+- [KNOWN] **08-28 全量身份母體已回到正確量級**：daily identity brief 計出 POP≥1000 母體 **1,655**，其中出街 1,373、有身份未出街 164、等人綁 99、自動研究 19；呢個新全量結果取代 08-27 不完整 extraction 嘅 1,153，亦解釋點解用戶判斷 957／1,153 一定錯。
+- [KNOWN] **08-28 Hermes 六渠道 receipts 已收齊**：X EN／ZH、Instagram EN／ZH、Threads EN／ZH 全部 `ok=true`，同屬 generation `db3308_8325adf7c4ffe094`；四條 Meta live 圖均實測 `2160×2700`。14:18 JST 自然 no-agent tick 收口，14:30、14:45 後續 ticks 均 silent dedupe，cron 回復 `ok`、failure streak `0`。今日途中先修正被改成四渠道嘅 gate／runner，再固化 9222 單一 Threads tab、直達 Instagram bridge 嘅 deterministic account routing，所以 **08-28 社交亦唔算零介入 one-click 證明**；下一個自然 business date 仍要重證。
+- [KNOWN] **08-28 repo promo pack 已由 17:45:01 自然 Task Scheduler run 完成**：outer task result `0`；scheduler receipt `data/runtime/promo/scheduler/2026-08-28.json` outcome `ok`、exitCode `0`、generation `db3308_8325adf7c4ffe094`，同 Live／Hermes 六渠道 receipts 一致。pack 有 `brief.json`、X／Instagram／Threads EN+ZH 六份 copy，同六份 `built`、`posted=false` action receipts；repo consumer 冇 browser、冇 public publish。
+- [KNOWN] **08-27 data/live 自然 E2E 已完成並 live 對數**：03:30 Task Scheduler event 107 啟動 `cardz-v2:2026-08-27`；durable retry 自動處理 PriceCharting／checkpoint repair，38/38 tasks `COMPLETED`，05:24 JST `PUBLISHED`。run generation `db3308_9e1f8aeeac299789` 與 live `/api/health` 完全一致，live `status=ok`、`generatedAt=2026-08-26T20:20:55.736Z`。但 final observer 正確保留 journal 現況：10 個經 `wscript.exe` 入場嘅自然 repetition ticks 因 launcher 單次讀唔到已存在嘅 event 107，被記成 `origin.manual`，所以本日 `manual_intervention_count=10`、`proven_autonomous=0`；唔准用早段 snapshot 嘅 intervention 0 冒充全日證明。
+- [KNOWN] **08-27 Hermes 六渠道 receipts 已收齊**：X EN／ZH、Instagram EN／ZH、Threads EN／ZH 全部 `ok=true`、`dry_run=false`、generation `db3308_9e1f8aeeac299789`、live media `2160×2700`。12:00–12:45 自然 ticks 先後暴露 missing top100、9222 短暫 probe、X active-account 判定；12:46 用戶回覆 Hermes「fix it」後，Hermes 暫停 cron 並手動修復／補出五路，13:30 恢復後自然 no-agent tick 補齊 Threads EN，execution `e5873c10ffc9463c820abf7a63d8afa1` completed。因中途有人手「fix it」，08-27 社交部分唔算純自然 one-click 證明。
+- [KNOWN] **08-27 repo promo pack 已由 17:45:01 自然 Task Scheduler run 完成**：outer task result `0`；inner scheduler receipt contract `cardz-promo-pack-scheduled-v1`、outcome `ok`、exitCode `0`、generation `db3308_9e1f8aeeac299789`，同 live／六渠道 receipts 一致。pack 產生 `brief.json` + X／Instagram／Threads EN+ZH 六份 copy，同六份 dry-run `built` action receipts；repo consumer 全程只 build，冇 browser／冇 publish。08-27 data→live→promo pack→六渠道結果全部齊，但因社交中途有人手「fix it」，整日仍唔當純自然 one-click 綠日；要下一個自然 business date 零介入重證。
+- [KNOWN] **08-27 provenance defect 已作最小修正**：Windows Operational log 證實被誤判 tick 其實各自有 exact `\CARDZ-Marketcap-Daily-V2` event 107。launcher 現只喺 production `wscript.exe` 父程序形狀下，最多 11 次、每次 500ms 重讀同一 event-107 證據；direct CLI 仍只讀一次，最後冇 exact event 仍 fail-closed 判 manual。PowerShell AST、`git diff --check`、WSL `scripts/test_daily_chain_v2.py` 已一次通過；冇回寫／洗走 08-27 journal，唯一接受證據係 08-28 自然 run。
+- [KNOWN] 08-26 live bake 已完成；repo promo pack 已產生，但舊公開路徑造成混合 receipts：IG 英／中完全冇跑，Threads EN 有 3 次 `audience_mismatch` 點擊，Threads ZH 未成功。呢日唔當六渠道綠日。
+- [KNOWN] 由下一個自然 business date **2026-08-27** 起，Hermes gate 固定以六個 primary receipts 收口：X EN／ZH、Instagram EN／ZH、Threads EN／ZH；WhatsApp／fork／site 唔再入 daily completion gate。
+- [KNOWN] 公開 browser ownership 已收窄到 Hermes poster + 隔離持久化 **CDP 9222**。唔准用 Codex Chrome、日常 Chrome、9333，亦唔准再用 repo `promo_post.py --confirm`；repo task 只砌六渠道 pack。
+- [KNOWN] IG daily block 已移除；IG 接受平台原生 4:5 圖、Original crop、IG→Threads switch off，08-27 live receipt 實測 2160×2700。Threads 用目標 handle 驗帳，唔再用 community/audience 字樣推斷。
+- [KNOWN] 08-26 舊 Grok cron agent 無視 `IDLE`、嘗試公開操作並兩度自行 pause；現已改為 `cardz_marketcap_six_channel_daily.sh` deterministic **no-agent** job，恢復 active。`x-chrome-mcp-post.js` 已禁止 9222 不可用時另開 browser；只可 fail-closed。2026-08-27 起 gate 必須收齊 X／Instagram／Threads EN+ZH 六份 receipts。
+- [KNOWN] 15:15 自然 no-agent run 暴露 WSL gate 未真正更新；9222 profile 隨後用主 Chrome `Default` 嘅一致 SQLite snapshot 重建並以原 port 重啟，主 Chrome／9333 全程未停。16:00 後再發現 posters 嘅 exit-7 仍會召喚 Hermes agent，導致 agent 覆蓋 gate、direct replay 及 Threads wrong-account loop；現已喺 shell 最前加入 2026-08-27 hard activation guard，並強制 `CARDZ_ACCOUNT_ESCALATION=0`。job 已恢復 active，今日後續 tick 只可 no-op。
+- [KNOWN] 17:24–19:12 反覆覆蓋嘅實際 writer 已定位：另一個仍在運行嘅 Codex task `01a03c5b-bd7f-72a2-a46c-6d0d44e4f6ff`（標題「跟進 TokenMarketCap 自動鏈」；cwd `C:\Users\jackson0202\Documents\Codex\2026-08-26\tokenmarketcap-clark-block`）越出 TokenMarketCap／Clark scope，將 CARDZ Hermes job、skill、gate、runner 改成四渠道並引入 9224。19:56 已先 pause `bc4615fdd701`；20:00 該 task 明確確認停止所有 CARDZ／Hermes public action並轉 idle。CARDZ canonical skill、runtime gate／runner、Meta poster、Chrome watchdog 同 cron 已重建成 2026-08-27 起 X／Instagram／Threads EN+ZH 六渠道，只准隔離持久化 9222；今日 mixed receipts 不作綠日，亦冇刪任何已發公開貼文。
+
 ## 0. 一眼現狀
 
 | 項 | 數值 | 來源 |
 |---|---|---|
-| Live | `https://app.cardzmarketcap.com` · status `ok` · generation `db3308_0b7eb7f4d2c34174` · generatedAt `2026-08-24T14:24:06.075Z` | `/api/health` 2026-08-25 04:30 JST [KNOWN] |
+| Live | `https://app.cardzmarketcap.com` · status `ok` · generation `db3308_8325adf7c4ffe094` · generatedAt `2026-08-27T21:03:59.315Z` | V2 `live.confirmed` 2026-08-28 06:08 JST [KNOWN] |
 | 版本 | product **037** · presentation **FE05**（fallback FE04）· BOX `/box` 307／275／307 | [KNOWN] |
 | 日更排程 | `CARDZ-Marketcap-Daily-V2` **Ready**，03:30–17:00 每 10 分鐘；04:20 tick result **0**。Watchdog／Promo Ready；Observer 03:25 result **1** | Task Scheduler 2026-08-25 04:30 JST [KNOWN] |
-| 今日 run | live row `cardz-v2:2026-08-25/2` **FAILED_FINAL**；34 COMPLETED／1 DEGRADED／1 SKIPPED／1 TERMINAL；manual=66、event107=0。被 archive 嘅 run 1 先係 PUBLISHED/live generation | WSL journal `status --business-date 2026-08-25` [KNOWN] |
+| 今日 run | `cardz-v2:2026-08-28` **PUBLISHED**；Live generation `db3308_8325adf7c4ffe094`；final origin `manual`、intervention `1`、`proven_autonomous=0`（release test drift 修正後 guarded unpark） | observer `2026-08-28/report.md` + `live.confirmed` [KNOWN] |
 | 自動化證明 | `autonomous_proven = false` | health.json [KNOWN] |
 | ⚠ 今日失敗根因 | supersede 重建出同一 generation，`live-confirm` 燒 6 次後撞 `uq_publication_outbox_business_type_generation`；新 code 會第一次就用明確錯誤拒絕，唔再 raw 1062／重試 | journal terminal task + staged `daily_chain_v2_db.py` [KNOWN] |
-| 宣傳鏈 | 2026-08-24 六步成功；2026-08-25 repo pack 17:45、Hermes cron 12:00–20:00 嘅真 browser one-take **待實跑 receipts** | [KNOWN] |
+| 宣傳鏈 | 2026-08-28 Hermes 六渠道 6/6 public receipts；17:45 repo promo pack outcome `ok`、六份 `built` receipts；因日內修鏈，仍待下一自然日零介入重證 | [KNOWN] |
 | Code | authority `rebuild/036-foundation` HEAD `1cbbe85f` tracked clean；隔離 `codex/cardz-handoff-complete` implementation tip `b964893d`，11 implementation commits ahead（另加本狀態文件 commit），17:00 前未落 authority | `git status/log` 2026-08-25 04:30 JST [KNOWN] |
 
 **Handoff 11 commits（staged，未 apply）[KNOWN]：** `53dc9531` 歷史 FX freeze＋060；`5f14ba53` reliability；`a2476ca2` shared registries；`4e1154af` executable guards；`99ca63cd` module split／recovery interlocks；`8d6e1fce` legacy retirement dependency；`5338ed4a` scheduled auto-align env；`9e23440a` promo inner receipt；`9c923721` docs；`faf9fb8d` FX unknowns；`b964893d` observer `/N` resolution。19 棵已確認 clean worktree 已移除，9 棵有效／dirty 樹保留；branch／commit 冇刪。
@@ -81,7 +99,7 @@ sibling-console inference：grep `pc_identity_discover.py` 證實**未落地**�
 |---|---|---|---|
 | ~~P1~~ ✅ | ~~059 未落 3308~~ **08-24 晚已人手落**（`db_runtime.py migrate --only 059`，16 statements；version `059`、`superseded` 欄、寬 unique key 全部實查有，event_key lock 冇郁） | tick infra stage 見到有就 skip（冪等）；08-26 自然 E2E 收 receipt |
 | ~~P1~~ ✅ | ~~Census 過期~~ **08-24 20:56 JST 已人手 harvest**（52/52 set、16309 張、**957 張 ≥1000**——比舊檔多 1 張新卡過線）；7 日死線推到 **08-31** | `identity_census_stage.py` in-chain 自動 refresh 仍待自然 E2E receipt |
-| **P1** | 宣傳鏈 cron 一 take 未驗 | 五個 bug 已喺 code 修好，但今日六步係人手接力出街——**未證明過 cron 自己行得** | 08-25 12:00 JST 第一個 slot 睇 |
+| **P1** | 宣傳鏈零介入一 take 未驗 | 08-28 六份 receipts 已齊，後續 tick silent dedupe；但今日途中修過六渠道 gate／runner 同 9222 Meta account routing，唔算自然零介入證明 | 下一個自然 business date 由 live generation 到六 receipts 全程只讀監察 |
 | **P1** | Observer 排程 03:25 result 1，舊 observer 又只認 base ID | Task Scheduler action 由 03:25 行到 04:04 回 1；隔離 VBS smoke 證明 wrapper／quoting 可啟動，但 base request 對 current `/2` 會假報 `RUN_NOT_STARTED` | staged `b964893d` 動態 resolve 同日最高 `/N`，live/report 同時留 requested/resolved ID；17:00 後重裝，08-26 自然跑驗收 |
 | ~~P1~~ ✅ | ~~`snk_grade` 會否同樣受歷史 FX 重算影響~~ | 唯一 writer 已封存於 `archive/pipelines/g10_snkrdunk_grades_ingest.py`，輸入 API 明文要求 USD；非 USD 行直接拒絕，從未做 JPY→USD 換算。全 repo 冇 active `snk_grade` writer/call site | 唔屬於 060 修復面，唔改 |
 | ~~P1~~ ✅ | ~~08-03…08-16 FX 空窗成因未知~~ | 3308 `frankfurter` ingest 實查：08-02 後下一次 loader 係 08-17，中間零 run；08-02 run 嘅 `started_at` 亦冇被 last-good reuse 重播。舊 `CARDZ-Market-Cap-Daily` 最後只跑到 07-31，故空窗係 loader/scheduler 冇執行，唔係 72h reuse | `fx_asof` 對空窗用「不晚於市場日」最新已知點並寫 `fx_rate_as_of`；060 唔捏造歷史 backfill |
@@ -157,9 +175,9 @@ Receipts／logs：`data/runtime/daily-chain-v2/<business-date>/{receipts,logs}/`
    兩條 default dry-run、行真 gate、寫 receipt（`data/runtime/operator/{bind-url,rulings}/`）；批次掉入 `data/runtime/operator/bind/inbox/`，第二朝 `operator-apply` 自動抽乾。
 7. **上場最後一里**：exact → cohort `qualified_identity` → `product_ready`（**V2 未有呢個 stage——§4 P2**）→ activation → daily-accept。
 
-**最近數字 [KNOWN]（intake --apply 2026-08-24 20:19 JST，receipt `identity-intake-2026-08-24.json`）：** census **957** 張 pop≥1000（08-24 20:56 fresh harvest）；**首張全自動收卡實證**——Mega Manectric EX #158（Mega Evolution EN，pop 1003）verdict `auto`/`new_variant` → **variant 2259** 開咗（exact gemrate binding + capture receipt + member cohort `qualified_identity` + decision row，同一 transaction，DB 五路獨立驗證齊）；discovery ledger **1622==1622** 帳齊（active_exact 1604）。新卡 backlog 0。
+**最近數字 [KNOWN]：** 2026-08-28 自然 daily identity census／brief 已計出 `PSA 10 POP >= 1000` 全量母體 **1,655**：出街 1,373、有身份未出街 164、等人綁 99、自動研究 19，四組精確加總 1,655。呢個結果取代 08-27 僅 1,153 rows 嘅不完整 extraction，亦唔准再沿用 08-24 嘅 957 當現況。08-24 intake 首張全自動收卡實證仍有效：Mega Manectric EX #158（Mega Evolution EN，pop 1003）verdict `auto`/`new_variant` → **variant 2259**；當時 discovery ledger **1622==1622**（active_exact 1604），只係歷史 snapshot，唔係今日母體數。
 
-人手裁決方法論：[docs/LEFTOVER5_IDENTITY_20260813.md](docs/LEFTOVER5_IDENTITY_20260813.md)。
+人手裁決方法論：[docs/LEFTOVER5_IDENTITY_20260813.md](docs/LEFTOVER5_IDENTITY_20260813.md)。認印刷（SNK `{SET} EN`、`:1ED`、CLC vs WOTC）：[docs/TCG_PRINTING_IDENTITY.md](docs/TCG_PRINTING_IDENTITY.md)。
 
 ## 6. 哲學（唔准商量嗰啲）
 
@@ -183,6 +201,7 @@ Receipts／logs：`data/runtime/daily-chain-v2/<business-date>/{receipts,logs}/`
 | [docs/COLLECTION_RUNBOOK.md](docs/COLLECTION_RUNBOOK.md) | 五條採集 lane 機制／缺陷形狀（**日更調度唔關佢事**，睇 §5.2） |
 | [docs/ADDING_A_SOURCE.md](docs/ADDING_A_SOURCE.md) | 加新數據源八步 |
 | [docs/PROMO_CHAIN.md](docs/PROMO_CHAIN.md) | 宣傳鏈（零自動發文） |
-| [docs/LEFTOVER5_IDENTITY_20260813.md](docs/LEFTOVER5_IDENTITY_20260813.md) | 人手身份裁決方法論 |
+| [docs/LEFTOVER5_IDENTITY_20260813.md](docs/LEFTOVER5_IDENTITY_20260813.md) | 人手身份裁決方法論（leftover-5 舊案） |
+| [docs/TCG_PRINTING_IDENTITY.md](docs/TCG_PRINTING_IDENTITY.md) | TCG 印刷身份活頁（認卡／SNK 標題；唔係工程） |
 
 **封存／歷史（唔好當現狀讀）：** [docs/archive/PROJECT_STATE_025-037_archived-20260824.md](docs/archive/PROJECT_STATE_025-037_archived-20260824.md)、[docs/HANDOFF_036_20260812.md](docs/HANDOFF_036_20260812.md)、[docs/HANDOFF_037_FE04.md](docs/HANDOFF_037_FE04.md)、[docs/DAILY_CHAIN_AUTONOMY.md](docs/DAILY_CHAIN_AUTONOMY.md)（已被 V2 取代）、[docs/archive/PLAN_036_CLOSEOUT_archived-20260824.md](docs/archive/PLAN_036_CLOSEOUT_archived-20260824.md)、`docs/handoff/`、postmortem 三份。Sealed 現行操作改讀 [docs/SEALED_OPS.md](docs/SEALED_OPS.md)。

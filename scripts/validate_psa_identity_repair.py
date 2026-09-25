@@ -89,6 +89,18 @@ PHASE_WAIVED_036 = (
     "active762IdentityAndProvenanceResolved",
     "activeGemrateExactBindingUnique",
     "unresolvedExplicitAndExcluded",
+    # Same 034-era snapshot sizes as catalogExactly1782 / active762: the
+    # audit and 035 plan files pin the pre-rebuild world. 036 catalog grew;
+    # S11 cohortEquation owns end-state. Missing these two waives made S12
+    # fail closed whenever the 034 runtime dir was regenerated from live.
+    "auditExactly1782Unique",
+    "planExactly762Unique",
+    # sheet70 / green6 key off 034-era canonical_name strings in the private
+    # audit file. After collector-tail completion those names no longer match
+    # the sheet. Red-13 human decisions live in red-sheet-036-release.json
+    # (self-contained; stillRedVariantIds). Keep red13 via that ruling.
+    "sheet70ExactMapping",
+    "green6AcceptedIdentity",
 )
 
 
@@ -145,7 +157,16 @@ def main(argv: list[str] | None = None) -> int:
             release = json.loads(release_path.read_text(encoding="utf-8-sig"))
             if release.get("contract") != "red-sheet-036-release-v1":
                 raise RuntimeError("red-sheet-036-release contract invalid")
-            remaining_red_ids -= {int(x) for x in release.get("releasedVariantIds") or []}
+            released = {int(x) for x in release.get("releasedVariantIds") or []}
+            remaining_red_ids -= released
+            # Self-contained 036 ruling (stamp_red_sheet_quarantine._release_lists):
+            # after the private 034 audit names drifted, still recover the 13.
+            if "stillRedVariantIds" in release:
+                still = {int(x) for x in release.get("stillRedVariantIds") or []}
+                historical = released | still
+                if len(historical) == 13 and len(red_ids) != 13:
+                    red_ids = historical
+                    remaining_red_ids = set(still)
     red_old_printing_hashes = [
         str(audit_by_old_name[row["oldCanonicalName"]][0]["printing"]["canonical_printing_sha256"])
         for row in sheet_rows

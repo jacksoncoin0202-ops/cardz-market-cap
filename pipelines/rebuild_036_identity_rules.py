@@ -25,7 +25,7 @@ _REQUIRED_API = (
     "sha256_bytes",
 )
 
-_OPTIONAL_API = ("_PC_BRACKET_SYNONYMS",)
+_OPTIONAL_API = ("_PC_BRACKET_SYNONYMS", "_collector_core")
 
 
 def configure(api: Mapping[str, Any]) -> None:
@@ -70,6 +70,11 @@ def operator_ruling(bind_evidence_json: Any) -> str:
 # the newest operator ruling on any OTHER row of the same variant alongside the
 # row's own. '%%' because the PC lane executes with parameters (pymysql
 # formats the query) and the SNK lane without; LIKE reads both as a wildcard.
+#
+# Rejection verdicts are about THAT binding (wrong pid / wrong print), not the
+# card. Copying them onto a sibling pid blocked v1074's correct Poke Ball page
+# after the base print was rejected. Keep this action list in lockstep with
+# rebuild_036.REJECTION_VERDICT_ACTIONS.
 VARIANT_OPERATOR_RULING_SQL = (
     " (SELECT CONCAT(o.source_code, ': ',"
     "         JSON_UNQUOTE(JSON_EXTRACT(o.bind_evidence_json, '$.reason')))"
@@ -78,6 +83,9 @@ VARIANT_OPERATOR_RULING_SQL = (
     "              AND o.external_entity_id=si.external_entity_id)"
     "     AND JSON_UNQUOTE(JSON_EXTRACT(o.bind_evidence_json, '$.reason'))"
     f"         LIKE '{OPERATOR_RULING_REASON_PREFIX}%%'"
+    "     AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(o.bind_evidence_json,'$.action')),'')"
+    "         NOT IN ('reject','reject-wrong-printing-source',"
+    "                 'supersede-losing-gemrate-binding')"
     "   ORDER BY o.updated_at DESC LIMIT 1) AS ruled_elsewhere,"
 )
 
@@ -141,7 +149,69 @@ def set_names_a_card_could_carry(row: Mapping[str, Any]) -> list[str]:
         alt = op_identity_rules.limitless_product_name(code)
         if alt and alt not in names:
             names.append(alt)
+    # PriceCharting's PRB consoles are "Premium Booster" / "Premium Booster 2".
+    # GemRate welds "One Piece Card the Best Vol.2". product_agrees on the
+    # GemRate string demanded 'best'/'vol2' the PC console never prints.
+    lowered = str(row.get("set_name") or "").lower()
+    if "prb02" in lowered or "vol.2" in lowered or "vol 2" in lowered:
+        extra = "One Piece Japanese Premium Booster 2"
+        if extra not in names:
+            names.append(extra)
+    elif "prb01" in lowered:
+        extra = "One Piece Japanese Premium Booster"
+        if extra not in names:
+            names.append(extra)
+    blob = " ".join(
+        str(row.get(k) or "")
+        for k in ("set_name", "canonical_name", "parallel_code", "fp_parallel")
+    ).lower()
+    if (
+        "official event" in blob
+        and "top prize" in blob
+        and "top 8" not in blob
+        and "asia" not in blob
+    ):
+        extra = "Flagship Battle"
+        if extra not in names:
+            names.append(extra)
+    elif (
+        "official event" in blob
+        and "prize" in blob
+        and "top prize" not in blob
+        and "asia" not in blob
+    ):
+        extra = "Flagship Battle Top 8"
+        if extra not in names:
+            names.append(extra)
+    # GemRate stamps 1st Anniversary on the leftover's parallel; PriceCharting
+    # files it as [1st Anniversary] on the number's starter-deck console.
+    # Read ONLY the parallel (not canonical): a booster whose canonical
+    # mentions an anniversary must not earn that bracket.
+    par = str(row.get("parallel_code") or row.get("fp_parallel") or "").lower()
+    if par == "1st anniversary":
+        extra = "1st Anniversary"
+        if extra not in names:
+            names.append(extra)
     return [name for name in names if name]
+
+
+def pc_product_candidate_sets(
+    row: Mapping[str, Any], via_number_set: str = "",
+) -> list[str]:
+    """set_names_a_card_could_carry plus the set the NUMBER's PC page is under.
+
+    PriceCharting files a Treasure Rare / SP reprint on the number's original
+    console (Nami [Treasure Rare] ST01-007 on Starter Deck 1). The catalog
+    set_name is the later product (OP06). via_number_set already cleared the
+    set: hard_conflict; product_agrees still has to see that console's name
+    or it holds product_mismatch missing=['wings','captain'].
+    """
+
+    names = list(set_names_a_card_could_carry(row))
+    extra = str(via_number_set or "").strip()
+    if extra and extra not in names:
+        names.append(extra)
+    return names
 
 
 def _pc_number_set_explaining(
@@ -175,6 +245,25 @@ def _pc_number_set_explaining(
     for alt in set_names_a_card_could_carry(row)[1:]:
         if not _fingerprint_variant_conflicts(fp, {**dict(row), "set_name": alt}):
             return alt
+    # Promo/anniversary leftovers often store a bare collector ("113") while
+    # PriceCharting files the stamp on the number's home set as OP07-113.
+    # Cores matching is not enough to accept the page -- _pc_print_belongs_to
+    # the number set still refuses that set's own prints, and a product
+    # bracket still has to earn itself out of our catalog words.
+    core_fn = globals().get("_collector_core")
+    if core_fn is None:
+        return ""
+    page_num = str(fp.get("cardNumber") or "")
+    row_num = str(row.get("collector_number") or "")
+    page_core = core_fn(page_num)
+    row_core = core_fn(row_num)
+    if not page_core or page_core != row_core:
+        return ""
+    page_set = str(fp.get("setName") or "")
+    if not page_set:
+        return ""
+    if not _fingerprint_variant_conflicts(fp, {**dict(row), "set_name": page_set}):
+        return page_set
     return ""
 
 
@@ -183,7 +272,7 @@ def _pc_number_set_explaining(
 # reissues of a card from an earlier set, so a "[SP] OP01-047" page can only
 # be the reprint's. Base, Alternate Art and Manga are printed by the number's
 # own set and a page carrying them is that set's card.
-_PC_REPRINT_ONLY_PRINTINGS = frozenset({"sp", "tr"})
+_PC_REPRINT_ONLY_PRINTINGS = frozenset({"sp", "tr", "wanted"})
 
 
 def _pc_bracket_printing_code(page_parallel: str) -> str:
@@ -207,7 +296,9 @@ def _pc_bracket_printing_code(page_parallel: str) -> str:
     return ""
 
 
-def _pc_print_belongs_to_number_set(via_number_set: str, page_parallel: str) -> bool:
+def _pc_print_belongs_to_number_set(
+    via_number_set: str, page_parallel: str, row: Mapping[str, Any] | None = None,
+) -> bool:
     """Does a page reached only through the card's NUMBER belong to the
     number's own set -- that is, to the card whose catalog set that is?
 
@@ -239,6 +330,15 @@ def _pc_print_belongs_to_number_set(via_number_set: str, page_parallel: str) -> 
     if not str(page_parallel or "").strip():
         return True
     code = _pc_bracket_printing_code(page_parallel)
+    # Catalog has no JA OP01 Nami manga row; PC files the JA [Manga] on
+    # Romance Dawn. PRB01 leftover is the only JA manga OP01-016 we carry,
+    # so the number's-own-print rule would leave the page unbound.
+    if (
+        row is not None
+        and code == "mr"
+        and "prb" in str(row.get("set_name") or "").lower()
+    ):
+        return False
     return bool(code) and code not in _PC_REPRINT_ONLY_PRINTINGS
 
 
@@ -480,10 +580,26 @@ def _same_listing(fp_a: Mapping[str, Any], fp_b: Mapping[str, Any]) -> bool:
     return bool(a) and bool(b) and _token_covered(a, b) and _token_covered(b, a)
 
 
+# PriceCharting brackets Japanese モンスターボール as "[Poke Ball]". The catalog
+# stores that seal as "monster ball" / "monster ball mirror". Same physical
+# finish; Master Ball is a different seal and is deliberately not in this set.
+_POKE_BALL_PARALLELS = frozenset({
+    "poke ball",
+    "pokeball",
+    "poké ball",
+    "monster ball",
+    "monster ball mirror",
+    "monster ball reverse",
+    "monster ball reverse holo",
+})
+
+
 def _parallel_agrees(fp_parallel: str, variant_parallel: str) -> bool:
     fpp = _norm_text(fp_parallel)
     vpp = _norm_text(variant_parallel)
     if fpp == vpp:
+        return True
+    if fpp in _POKE_BALL_PARALLELS and vpp in _POKE_BALL_PARALLELS:
         return True
     # A variant with no printing evidence + a Base fingerprint is the default
     # print of the same card; alt-art wordings never collapse into "".

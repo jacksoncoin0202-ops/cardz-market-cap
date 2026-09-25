@@ -40,6 +40,7 @@ import io
 import json
 import re
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -1238,17 +1239,36 @@ def main(argv: list[str] | None = None) -> int:
             cursor.execute("SET SESSION max_execution_time=60000")
         if args.from_inbox:
             done = args.from_inbox / "done"
-            for path, item in inbox_items(args.from_inbox):
-                report = apply_one(
-                    variant_id=int(item["variantId"]), url=str(item["url"]),
-                    actor=str(item.get("actor") or args.actor),
-                    note=item.get("note"), write=args.write,
-                    operator_ruling_slug=args.operator_ruling,
-                    freeze=args.freeze, conn=conn, pages_dir=args.pages_dir,
-                    map_path=args.map_path,
-                    credentials_env=args.credentials_env,
-                    allow_fetch=args.allow_fetch, receipts_dir=receipts_dir,
-                )
+            # Judge harvest files are stamped to the second. Two inbox cards in
+            # the same UTC second reuse snk_reverify_harvest.jsonl and the
+            # second dies: "resumable SNK row is outside the locked active
+            # universe". Sleep is the execution-point fix; do not share a file.
+            for index, (path, item) in enumerate(inbox_items(args.from_inbox)):
+                if index:
+                    time.sleep(1.2)
+                try:
+                    report = apply_one(
+                        variant_id=int(item["variantId"]), url=str(item["url"]),
+                        actor=str(item.get("actor") or args.actor),
+                        note=item.get("note"), write=args.write,
+                        operator_ruling_slug=args.operator_ruling,
+                        freeze=args.freeze, conn=conn, pages_dir=args.pages_dir,
+                        map_path=args.map_path,
+                        credentials_env=args.credentials_env,
+                        allow_fetch=args.allow_fetch, receipts_dir=receipts_dir,
+                    )
+                except Exception as error:  # noqa: BLE001 -- one card must not abort the batch
+                    report = {
+                        "bindUrl": True,
+                        "variantId": item.get("variantId"),
+                        "url": item.get("url"),
+                        "write": bool(args.write),
+                        "verdict": "inbox_item_failed",
+                        "gate": type(error).__name__,
+                        "exitCode": EXIT_REFUSED,
+                        "error": str(error)[:500],
+                    }
+                    print(json.dumps(report, ensure_ascii=False), flush=True)
                 reports.append(report)
                 if args.write:
                     done.mkdir(parents=True, exist_ok=True)

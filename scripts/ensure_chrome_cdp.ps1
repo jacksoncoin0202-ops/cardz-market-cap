@@ -28,9 +28,9 @@ function Get-CdpVersion {
   if ($Attempts -lt 1) { $Attempts = 1 }
   for ($i = 1; $i -le $Attempts; $i++) {
     try {
-      $response = Invoke-WebRequest -Uri "http://127.0.0.1:$CandidatePort/json/version" -UseBasicParsing -TimeoutSec 2
-      if ($response.StatusCode -eq 200 -and -not [string]::IsNullOrWhiteSpace($response.Content)) {
-        return ($response.Content | ConvertFrom-Json)
+      $raw = & curl.exe -sS --max-time 2 --fail "http://127.0.0.1:$CandidatePort/json/version" 2>$null
+      if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($raw)) {
+        return ($raw | ConvertFrom-Json)
       }
     } catch {
     }
@@ -72,12 +72,62 @@ function Get-CdpRejectReason {
   return $null
 }
 
+function Invoke-WslPkill {
+  param([string]$File, [string]$ArgumentString)
+  # WSL may be silent while Windows is healthy. Cleanup is best-effort;
+  # never make headed Windows Chrome revival depend on Ubuntu answering.
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $File
+  $psi.Arguments = $ArgumentString
+  $psi.UseShellExecute = $false
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $psi.CreateNoWindow = $true
+  $p = $null
+  try {
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $null = $p.Handle
+    if (-not $p.WaitForExit(3000)) {
+      # Parent Kill() leaves the nested wsl.exe child waiting on the service.
+      # Those leftovers jammed new `wsl.exe -d Ubuntu` invocations on 2026-09-08.
+      try { & "$env:SystemRoot\System32\taskkill.exe" /PID $p.Id /T /F | Out-Null } catch {}
+      Write-Host "CDP_EVICT_WSL_TIMEOUT timeout=3000ms args=$ArgumentString"
+    } elseif ($p.ExitCode -ne 0) {
+      Write-Host "CDP_EVICT_WSL_FAILED exit=$($p.ExitCode) args=$ArgumentString"
+    }
+  } catch {
+    Write-Host "CDP_EVICT_WSL_FAILED error=$($_.Exception.Message)"
+  } finally {
+    if ($null -ne $p) { $p.Dispose() }
+  }
+}
+
+function Clear-StaleWslPkill {
+  param([int]$CandidatePort)
+  if ($CandidatePort -eq 9222) { return }
+  $needle = "--remote-debugging-port=$CandidatePort"
+  $staleIds = @()
+  $procs = Get-CimInstance Win32_Process -Filter "Name='wsl.exe'" -ErrorAction SilentlyContinue
+  foreach ($proc in $procs) {
+    $cmd = [string]$proc.CommandLine
+    if ($cmd -match 'docker-desktop') { continue }
+    if ($cmd -match 'pkill' -and $cmd -match [regex]::Escape($needle)) {
+      $staleIds += [int]$proc.ProcessId
+    }
+  }
+  if ($staleIds.Count -gt 0) {
+    Write-Host "CDP_EVICT stale-wsl-pkill count=$($staleIds.Count) port=$CandidatePort"
+    Stop-Process -Id $staleIds -Force -ErrorAction SilentlyContinue
+  }
+}
+
 function Clear-ForeignCdp {
   param([int]$CandidatePort)
   if ($CandidatePort -eq 9222) {
     throw "refusing to touch Codex/browser port 9222"
   }
   Write-Host "CDP_EVICT port=$CandidatePort"
+  Clear-StaleWslPkill -CandidatePort $CandidatePort
 
   $listenPids = @()
   $net = netstat -ano
@@ -100,15 +150,12 @@ function Clear-ForeignCdp {
 
   $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
   if ($wsl) {
-    $prev = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
     # Only the process advertising this exact debug port. Never 9222/9223.
     $pattern = "--remote-debugging-port=$CandidatePort"
     Write-Host "CDP_EVICT wsl-pkill $pattern"
-    & wsl.exe -d Ubuntu -- pkill -f -- $pattern 2>$null | Out-Null
+    Invoke-WslPkill -File $wsl.Source -ArgumentString "-d Ubuntu -- pkill -f -- $pattern"
     Start-Sleep -Milliseconds 400
-    & wsl.exe -d Ubuntu -- pkill -9 -f -- $pattern 2>$null | Out-Null
-    $ErrorActionPreference = $prev
+    Invoke-WslPkill -File $wsl.Source -ArgumentString "-d Ubuntu -- pkill -9 -f -- $pattern"
   }
 
   $deadline = (Get-Date).AddSeconds(8)

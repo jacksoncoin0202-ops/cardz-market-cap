@@ -218,7 +218,9 @@ try:
     # bracket our set_name does not say is refused even when it does.
     assert R._pc_bracket_printing_code("Wanted") == "wanted"
     assert R._pc_bracket_printing_code("Wanted Poster") == "wanted"
-    assert R._pc_print_signature_ok("Wanted", V2096) is False
+    assert R._pc_print_signature_ok("Wanted", V2096) is True
+    assert R._pc_print_signature_ok("Wanted Poster Foil", V2096) is True
+    assert R._pc_print_signature_ok("Wanted", V267) is False
     assert R._pc_print_signature_ok("SP Foil", V1745) is False
     assert R._pc_print_signature_ok(
         "SP Foil", {"parallel_code": "sr-spc", "printing_code": "sp"}) is False
@@ -256,6 +258,116 @@ try:
     assert R._pc_print_signature_ok("Red", {**V2126, "tcg_code": "pokemon"}) is False
     print("NEGATIVE_OK the product-bracket branch is scoped to one-piece")
 
+    # GemRate left printing_code blank and wrote the treatment in parallel_code.
+    # Reverse lookup through the synonym table; the page still has to resolve
+    # to the SAME code. Bare [Manga] stays mr. [SP Foil] is PC's filing of
+    # Special Alternate Art; [SP Gold] stays unmatched.
+    sp_blank = {"parallel_code": "special alternate art", "printing_code": "",
+                "tcg_code": "one-piece"}
+    manga_blank = {"parallel_code": "manga alternate art", "printing_code": "",
+                   "tcg_code": "one-piece"}
+    assert R._pc_print_signature_ok("SP", sp_blank) is True
+    assert R._pc_print_signature_ok("Special Alternate Art", sp_blank) is True
+    assert R._pc_print_signature_ok("SP Foil", sp_blank) is True
+    assert R._pc_print_signature_ok("SP Gold", sp_blank) is False
+    # PC files manga AA as "[Manga]". Vocabulary still maps the bracket to mr
+    # so number_set_own_print keeps the booster page; AA still refuses it.
+    assert R._pc_bracket_printing_code("Manga") == "mr"
+    assert R._pc_print_signature_ok("Manga", manga_blank) is True
+    assert R._pc_print_signature_ok("Manga", V267) is False
+    assert R._pc_print_signature_ok("Alternate Art Manga", manga_blank) is True
+    assert R._pc_print_signature_ok("Manga Alternate Art", manga_blank) is True
+    print("POSITIVE_OK blank printing_code still matches the synonym table via parallel_code")
+    print("POSITIVE_OK [SP Foil] names Special Alternate Art; [SP Gold] stays out")
+    print("NEGATIVE_OK AA still refuses [Manga]")
+
+    basic = {"set_name": "Pokemon Japanese Basic", "collector_number": "6",
+             "card_language": "ja", "tcg_code": "pokemon"}
+    basic_fp = {"setName": "Pokemon Japanese Expansion Pack", "cardNumber": "6",
+                "derivedLanguage": "ja"}
+    assert not any(
+        c.startswith("set:") for c in R._fingerprint_variant_conflicts(basic_fp, basic)
+    ), R._fingerprint_variant_conflicts(basic_fp, basic)
+    anni_fp = {"setName": "Pokemon Japanese Expansion 20th Anniversary",
+               "cardNumber": "6", "derivedLanguage": "ja"}
+    assert any(
+        c.startswith("set:") for c in R._fingerprint_variant_conflicts(anni_fp, basic)
+    )
+    mega = {"set_name": "Pokemon Japanese Mbg-Mega Starter Set Mega Gengar EX",
+            "collector_number": "3", "card_language": "ja", "tcg_code": "pokemon"}
+    mega_fp = {"setName": "Pokemon Japanese Mega Starter Deck Gengar EX",
+               "cardNumber": "3", "derivedLanguage": "ja"}
+    assert not any(
+        c.startswith("set:") for c in R._fingerprint_variant_conflicts(mega_fp, mega)
+    ), R._fingerprint_variant_conflicts(mega_fp, mega)
+    print("POSITIVE_OK Japanese Basic ≡ Expansion Pack; Mega Starter Set ≡ Deck")
+    print("NEGATIVE_OK 20th Anniversary Expansion stays a different set")
+
+    nihil = {"set_name": "Pokemon Japanese M3-Nullifying Zero",
+             "collector_number": "114", "card_language": "ja", "tcg_code": "pokemon"}
+    nihil_fp = {"setName": "Pokemon Japanese Nihil Zero", "cardNumber": "114",
+                "derivedLanguage": "ja"}
+    assert not any(
+        c.startswith("set:") for c in R._fingerprint_variant_conflicts(nihil_fp, nihil)
+    ), R._fingerprint_variant_conflicts(nihil_fp, nihil)
+    carddass = {"set_name": "Pokemon Japanese Sv2a-Pokemon Card 151",
+                "collector_number": "6", "card_language": "ja", "tcg_code": "pokemon"}
+    carddass_fp = {"setName": "Pokemon Japanese 1997 Carddass", "cardNumber": "6",
+                   "derivedLanguage": "ja"}
+    assert any(
+        c.startswith("set:") for c in R._fingerprint_variant_conflicts(carddass_fp, carddass)
+    )
+    print("POSITIVE_OK Nullifying Zero ≡ Nihil Zero")
+    print("NEGATIVE_OK Carddass stays distinct from 151")
+
+    nagaba = {
+        "tcg_code": "pokemon", "printing_code": "base", "parallel_code": "standard",
+        "canonical_name": "2021 Pokemon Japanese S Promo Pikachu YU Nagaba X Pokemon Card Game Campaign 208/S-P",
+    }
+    assert R._pc_print_signature_ok("Nagaba Holo", nagaba) is True
+    assert R._pc_print_signature_ok("Nagaba", nagaba) is True
+    assert R._pc_print_signature_ok("Nagaba", {**nagaba, "canonical_name": "Pikachu Promo 208"}) is False
+    print("POSITIVE_OK Nagaba bracket matches a Nagaba canonical name")
+    print("NEGATIVE_OK Nagaba bracket cannot claim a card whose name is not Nagaba")
+
+    mb_blank = {"parallel_code": "Master Ball Reverse Holo", "printing_code": "",
+                "tcg_code": "pokemon"}
+    mb_code = {"parallel_code": "", "printing_code": "mb", "tcg_code": "pokemon"}
+    assert R._pc_print_signature_ok("Master Ball", mb_blank) is True
+    assert R._pc_print_signature_ok("Master Ball", mb_code) is True
+    assert R._pc_print_signature_ok("Reverse Holo", mb_blank) is False
+    print("POSITIVE_OK [Master Ball] matches mb / Master Ball Reverse Holo parallel")
+    print("NEGATIVE_OK [Reverse Holo] does not satisfy a Master Ball card")
+
+    # Live leftover 2026-08-27: v1020/v1050 printing_identity rows are blank
+    # while catalog_variant.printing_code='mb' and fingerprint.parallel is
+    # Master Ball Reverse Holo. The judge SQL already selects those as
+    # v_printing_code / fp_parallel; a blank p.printing_code must not hide them.
+    mb_empty_print_id = {
+        "printing_code": "",
+        "parallel_code": "",
+        "v_printing_code": "mb",
+        "fp_parallel": "Master Ball Reverse Holo",
+        "canonical_name": (
+            "2023 Pokemon Japanese Sv2a-Pokemon Card 151 "
+            "Wartortle Master Ball Reverse Holo 008/165"
+        ),
+        "tcg_code": "pokemon",
+    }
+    assert R._pc_print_signature_ok("Master Ball", mb_empty_print_id) is True
+    assert R._pc_print_signature_ok("Reverse Holo", mb_empty_print_id) is False
+    assert R._pc_print_signature_ok(
+        "Master Ball",
+        {
+            **mb_empty_print_id,
+            "v_printing_code": "",
+            "fp_parallel": "",
+            "canonical_name": "Wartortle 008/165",
+        },
+    ) is False
+    print("POSITIVE_OK blank printing_identity still reads v_printing_code/fp_parallel/canonical Master Ball")
+    print("NEGATIVE_OK [Reverse Holo] and a non-Master-Ball name stay refused when printing_identity is blank")
+
     # =======================================================================
     # Step 2a -- stage_pc_replay honours an operator ruling
     # =======================================================================
@@ -278,9 +390,9 @@ try:
     IDENTITY = {
         "tcg": "one-piece", "language": "en", "collector": "OP09-004",
         "setText": "One Piece OP09-Emperors in the New World",
-        "parallel": "Wanted",  # a treatment bracket: refused by the gate, always
+        "parallel": "SP Foil",  # closed gate: refused always, even for V2096
         "canonicalUrl": "https://www.pricecharting.com/game/x/y",
-        "heading": "Shanks [Wanted] OP09-004",
+        "heading": "Shanks [SP Foil] OP09-004",
     }
 
     def binding(bind_evidence_json: Any, status: str = "exact") -> dict[str, Any]:

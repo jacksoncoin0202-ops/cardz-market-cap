@@ -61,8 +61,9 @@ RH = {
 # --- (i) the existing synonym already reads the product page ---------------
 check("[Master Ball] is this card's own print",
       _pc_print_signature_ok("Master Ball", MB), True)
-check("and the synonym doing it is the one already in the table",
-      _PC_BRACKET_SYNONYMS["mb"], frozenset({"master ball"}))
+check("and the synonym table carries the three observed Master Ball wordings",
+      _PC_BRACKET_SYNONYMS["mb"],
+      frozenset({"master ball", "master ball reverse", "master ball reverse holo"}))
 
 # --- (ii) the stale base-page candidates can never promote -----------------
 # Every held mb row points at a base product page whose heading carries no
@@ -110,6 +111,23 @@ check("a longer wording is not carried by the synonym",
 check("while the one word is",
       _pc_print_signature_ok("Reverse", {"parallel_code": "", "printing_code": "rh"}),
       True)
+
+# --- (v) Poke Ball is the monster-ball reverse, never Master Ball / plain rh
+PB = {
+    "tcg_code": "pokemon",
+    "parallel_code": "monster ball mirror",
+    "printing_code": "rh",
+    "canonical_name": "2024 Pokemon Japanese Terastal Festival ex Umbreon"
+                      " Poke Ball Reverse Holo 092/187",
+}
+check("[Poke Ball] is the monster-ball reverse card",
+      _pc_print_signature_ok("Poke Ball", PB), True)
+check("that card still may not take Master Ball",
+      _pc_print_signature_ok("Master Ball", PB), False)
+check("a plain reverse-holo card may not take Poke Ball",
+      _pc_print_signature_ok("Poke Ball", RH), False)
+check("a Master Ball card may not take Poke Ball",
+      _pc_print_signature_ok("Poke Ball", MB), False)
 
 if FAILURES:
     print(f"\n{len(FAILURES)} failure(s): {FAILURES}")

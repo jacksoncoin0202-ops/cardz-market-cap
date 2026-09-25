@@ -102,9 +102,9 @@ if ($NowOverride -ne [datetime]::MinValue) {
 } else {
     $nowLocal = Get-Date
 }
-$DailyWindowMinutes = 810      # PT13H30M -- must match the daily Repetition Duration below
-$WatchdogWindowMinutes = 840   # PT14H    -- must match the watchdog Repetition Duration below
-$firstNaturalStart = $nowLocal.Date.AddHours(3).AddMinutes(30)
+$DailyWindowMinutes = 360      # PT6H -- 11:00-17:00 JST; must match the daily Repetition Duration below
+$WatchdogWindowMinutes = 420   # PT7H -- 11:15-18:15 JST; must match the watchdog Repetition Duration below
+$firstNaturalStart = $nowLocal.Date.AddHours(11)
 if ($nowLocal -ge $firstNaturalStart.AddMinutes($DailyWindowMinutes)) {
     $firstNaturalStart = $firstNaturalStart.AddDays(1)
 }
@@ -120,7 +120,7 @@ $plan = [ordered]@{
     taskName = $TaskName
     launcher = $Launcher
     silentRunner = $SilentRunner
-    trigger = "next 03:30 local; then daily; repeat PT10M for PT13H30M"
+    trigger = "next 11:00 local; then daily; repeat PT10M for PT6H"
     nowLocal = $nowLocal.ToString("yyyy-MM-ddTHH:mm:ssK")
     startBoundary = $firstNaturalStart.ToString("yyyy-MM-ddTHH:mm:ssK")
     insideDailyWindow = $dailyInsideWindow
@@ -135,14 +135,14 @@ $plan = [ordered]@{
             taskName = $TaskName
             execute = $WScriptExe
             argument = $DailyArgument
-            trigger = "daily 03:30 local; repeat PT10M for PT13H30M"
+            trigger = "daily 11:00 local; repeat PT10M for PT6H"
             executionTimeLimit = "PT55M"
         }
         watchdog = [ordered]@{
             taskName = $WatchdogTaskName
             execute = $WScriptExe
             argument = $WatchdogArgument
-            trigger = "daily 04:00 local; repeat PT15M for PT14H"
+            trigger = "daily 11:15 local; repeat PT15M for PT7H"
             executionTimeLimit = "PT5M"
         }
         promo = [ordered]@{
@@ -181,7 +181,7 @@ $trigger.Repetition = New-CimInstance `
     -ClientOnly `
     -Property @{
         Interval = "PT10M"
-        Duration = "PT13H30M"
+        Duration = "PT6H"
         StopAtDurationEnd = $false
     }
 $principal = New-ScheduledTaskPrincipal `
@@ -225,9 +225,9 @@ Register-CardzManagedTask `
     -Principal $principal
 
 # Watchdog is no longer a legacy 037 task to be disabled: it is the out-of-chain
-# health probe for V2 and is (re)registered here, every 15 min 04:00-18:00 local
+# health probe for V2 and is (re)registered here, every 15 min 11:15-18:15 local
 # so the 17:30 final check is covered by the last repetition.
-$watchdogFirstStart = $nowLocal.Date.AddHours(4)
+$watchdogFirstStart = $nowLocal.Date.AddHours(11).AddMinutes(15)
 if ($nowLocal -ge $watchdogFirstStart.AddMinutes($WatchdogWindowMinutes)) { $watchdogFirstStart = $watchdogFirstStart.AddDays(1) }
 $watchdogTrigger = New-ScheduledTaskTrigger -Daily -At $watchdogFirstStart
 $watchdogTrigger.Repetition = New-CimInstance `
@@ -236,7 +236,7 @@ $watchdogTrigger.Repetition = New-CimInstance `
     -ClientOnly `
     -Property @{
         Interval = "PT15M"
-        Duration = "PT14H"
+        Duration = "PT7H"
         StopAtDurationEnd = $false
     }
 Register-CardzManagedTask `

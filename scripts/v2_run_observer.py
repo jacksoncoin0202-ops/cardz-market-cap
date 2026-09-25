@@ -78,6 +78,75 @@ def event_severity(event_type: str) -> str | None:
     return "error" if event_type in ERROR_EVENTS else "warn"
 
 
+def human_task_label(task: str) -> str:
+    t = (task or "").casefold()
+    rules = (
+        ("pricecharting", "PriceCharting 價錢同成交"),
+        ("gemrate", "GemRate 人口"),
+        ("snkrdunk", "SNK 價錢同成交"),
+        ("fx:", "匯率"),
+        ("candidate-activation", "今日新卡啟用"),
+        ("identity", "卡牌身份核對"),
+        ("system:release", "出今日網站版"),
+        ("daily-accept", "入庫"),
+        ("system:box", "組 Box"),
+        ("core-contract", "核心合約檢查"),
+    )
+    for needle, label in rules:
+        if needle in t:
+            return label
+    return "更新鏈其中一步"
+
+
+def _alert_extra(error: str) -> str:
+    e = error or ""
+    folded = e.casefold()
+    if "PC_CHILD_ALREADY_RUNNING" in e:
+        return "上一輪 PriceCharting 未完，所以撞車。"
+    if "9333" in e:
+        return "專用 Chrome 開唔到。"
+    if "wsl" in folded or "WSL_DEAD" in e:
+        return "入唔到 Ubuntu。"
+    if "SOURCE_FAILED" in e:
+        return "資料來源暫時失敗。"
+    return ""
+
+
+def human_alert_text(kind: str, severity: str, detail: dict, day: str) -> str:
+    kind_u = (kind or "").upper()
+    payload = detail if isinstance(detail, dict) else {}
+    task = human_task_label(str(payload.get("task") or payload.get("key") or ""))
+    attempt = payload.get("attempt")
+    err = " ".join(str(payload.get(k) or "") for k in ("errorCode", "error", "line"))
+    extra = _alert_extra(err)
+    nth = f"第 {attempt} 次" if attempt not in (None, "") else ""
+    mark = "🔴" if severity == "error" else "⚠️"
+    templates = {
+        "ATTEMPT_RETRY": f"{mark} 更新鏈重試中（{day}）\n{task}{nth and ' ' + nth}自動再跑。{extra and ' ' + extra}\n唔使人手。約 10 分鐘內會再試。",
+        "ATTEMPT_INTERRUPTED": f"{mark} 更新鏈被打斷（{day}）\n{task}未做完就被停。{extra and ' ' + extra}\n下一個 10 分鐘檔會續跑。",
+        "ATTEMPT_TERMINAL": f"{mark} 更新鏈呢步停咗（{day}）\n{task}已放棄。{extra and ' ' + extra}",
+        "ATTEMPT_DEGRADED": f"{mark} 更新鏈呢步降級（{day}）\n{task}未達標，鏈繼續。{extra and ' ' + extra}",
+        "LAUNCHER_EXCEPTION": f"{mark} 更新鏈開唔到（{day}）\n{extra or '啟動程式出事。'}",
+        "CDP_PREFLIGHT_FAILED": f"{mark} 專用 Chrome 未就緒（{day}）\nPriceCharting／SNK 呢步會卡住。",
+        "CDP_9333_DOWN": f"{mark} 專用 Chrome 斷咗（{day}）\n更新鏈睇唔到 PriceCharting／SNK。",
+        "WSL_PREFLIGHT_NOT_OK": f"{mark} 入唔到 Ubuntu（{day}）\n更新鏈開唔到。",
+        "WSL_PROBE_FAILED": f"{mark} Ubuntu 無回應（{day}）",
+        "WSL_SERVICE_ERROR": f"{mark} Ubuntu 入口有問題（{day}）",
+        "TASK_STATE_DEGRADED": f"{mark} 更新鏈有一步降級（{day}）\n{task}",
+        "TASK_STATE_SKIPPED": f"{mark} 更新鏈跳過一步（{day}）\n{task}",
+        "SLA_EXCEEDED": f"{mark} 更新鏈超時（{day}）\n{task}行得太耐。",
+        "HEALTH_STALE": f"{mark} 更新鏈心跳停咗（{day}）\n狀態檔太舊，可能卡住。",
+        "TICK_SKIPPED_LOCKED": f"{mark} 更新鏈呢檔跳過（{day}）\n上一檔未完，所以冇重開。正常。",
+    }
+    body = templates.get(kind_u)
+    if body:
+        return re.sub(r" +", " ", body).replace(" \n", "\n").strip()
+    fallback = f"{mark} 更新鏈告警（{day}）\n{task}：{kind_u}。"
+    if extra:
+        fallback += " " + extra
+    return fallback.strip()
+
+
 # Expected attempt seconds per task kind [KNOWN: real runs 2026-08-23/24 +
 # rehearsal A10].  A finished attempt slower than max(2x, +120 s) is flagged.
 # candidate-stock lanes were never observed (no rebuild day yet): provisional.
@@ -667,19 +736,19 @@ class Observer:
         brief = json.dumps({k: v for k, v in detail.items() if k not in ("payload", "tail")}, ensure_ascii=False, default=str)
         self.log(f"!! {severity.upper():5} {kind} {brief[:400]}")
         if self.notify_alerts and severity in {"warn", "error"}:
-            self.send_anomaly_alert(kind, severity, brief)
+            self.send_anomaly_alert(kind, severity, detail)
 
-    def send_anomaly_alert(self, kind: str, severity: str, brief: str) -> bool:
+    def send_anomaly_alert(self, kind: str, severity: str, detail: dict) -> bool:
         """Deliver an anomaly and durably admit when delivery did not land."""
 
         safe_kind = re.sub(r"[^a-z0-9_-]+", "-", kind.casefold()).strip("-") or "anomaly"
         key = f"v2-observer:{self.day}:{safe_kind}"
-        message = scrub(f"CARDZ V2 observer {severity.upper()} {kind} run={self.resolved_run_id} requested={self.requested_run_id} {brief[:900]}")
+        message = scrub(human_alert_text(kind, severity, detail, self.day))
         rc, _stdout, _stderr = run_capped(
             [
                 sys.executable, "-X", "utf8", str(NOTIFY_SCRIPT), "alert",
                 "--key", key, "--text", message, "--level", severity,
-                "--cooldown-min", "30", "--require-delivery",
+                "--human", "--cooldown-min", "30", "--require-delivery",
             ],
             NOTIFY_TIMEOUT_SECONDS,
         )

@@ -16,7 +16,7 @@ param(
     [switch]$Apply,
     [switch]$Remove,
     [switch]$Print,
-    [double]$MaxHours = 14.75,
+    [double]$MaxHours = 7.5,
     [string]$PythonExe = "C:\Users\jackson0202\AppData\Local\Programs\Python\Python310\python.exe"
 )
 
@@ -37,8 +37,8 @@ $plan = [ordered]@{
     execute = $WScriptExe
     argument = $Argument
     workingDirectory = $Repo
-    trigger = "daily 03:25 local (JST), no repetition"
-    executionTimeLimit = "PT15H"
+    trigger = "daily 10:50 local (JST), no repetition"
+    executionTimeLimit = "PT8H"
     multipleInstances = "IgnoreNew"
     principal = "current user, Interactive, Limited"
     writes = "data\runtime\daily-chain-v2\observer\<day>\ plus notify failure artifacts (gitignored)"
@@ -61,13 +61,13 @@ if ($Remove) {
 
 $action = New-ScheduledTaskAction -Execute $WScriptExe -Argument $Argument -WorkingDirectory $Repo
 $nowLocal = Get-Date
-$start = $nowLocal.Date.AddHours(3).AddMinutes(25)
+$start = $nowLocal.Date.AddHours(10).AddMinutes(50)
 if ($start -le $nowLocal) { $start = $start.AddDays(1) }
 $trigger = New-ScheduledTaskTrigger -Daily -At $start
 $settings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
     -MultipleInstances IgnoreNew `
-    -ExecutionTimeLimit (New-TimeSpan -Hours 15)
+    -ExecutionTimeLimit (New-TimeSpan -Hours 8)
 $principal = New-ScheduledTaskPrincipal `
     -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) `
     -LogonType Interactive `

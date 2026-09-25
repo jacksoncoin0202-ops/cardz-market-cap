@@ -293,7 +293,7 @@ def rule_candidate(row: dict[str, Any], payload: dict[str, Any]) -> tuple[bool, 
     # from the claim, the set name and the printed-code policy while the other
     # two still read the bracketed Pokemon form, and three readings of one
     # question is how the same card passes here and is refused there.
-    set_codes_agree = R.snk_claim_set_agrees(claim, row)
+    set_codes_agree = R.snk_claim_set_agrees(claim, row, master_name, localized)
     if set_codes_agree:
         conflicts = [
             c for c in conflicts
@@ -301,7 +301,7 @@ def rule_candidate(row: dict[str, Any], payload: dict[str, Any]) -> tuple[bool, 
         ]
     if tcg and str(row["tcg_code"] or "") and tcg != str(row["tcg_code"]):
         conflicts.append(f"tcg:{tcg}!={row['tcg_code']}")
-    if not claim:
+    if not R.snk_has_collector_claim(claim, master_name, localized, row):
         conflicts.append("product_number_missing")
     snk_mirror = R._snk_treatment_mirror(master_name, localized)
     variant_blob = " ".join((

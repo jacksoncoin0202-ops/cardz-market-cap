@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
 import identity_name as N
+from psa_identity_repair import load_psa_raw
 
 FAILED: list[str] = []
 CHECKS = 0
@@ -122,13 +123,16 @@ check(
 check("細階前綴一律轉大階", N.complete_collector_number("", [], "op01-001"), "OP01-001")
 
 # --- 5. 對住真 GemRate payload 行一次 --------------------------------------
-# 對 fixture 冇信心，所以行返張真卡：v5 個 payload 喺 disk，PSA 行印裸 110，
-# CGC 行印 110/080。呢個 payload 一旦變格式，呢條 check 就要紅。
-GEMRATE = ROOT / "data/private/gemrate/cards/80a8b349acb400cc08fe55617c3ff152256d371d"
-receipt_path = GEMRATE / "card_details.raw.receipt.json"
-if receipt_path.is_file():
-    receipt = json.loads(receipt_path.read_text(encoding="utf-8-sig"))
-    raw = json.loads((GEMRATE / receipt["sourcePointer"]).read_text(encoding="utf-8-sig"))
+# 固定同一份真實 v5 capture：PSA 行印裸 110，CGC 行印 110/080。
+# 最新 receipt 只描述最新採集；DOM-only 採集合法地冇 sourcePointer，
+# 唔可以用佢取代回歸測試已選定嘅原始 bytes。沿用 canonical pinned resolver，
+# 原檔遺失、hash 不符或身份欄位錯誤仍然要紅。
+GEMRATE_ID = "80a8b349acb400cc08fe55617c3ff152256d371d"
+RAW_SHA = "328da8488056c401a59478d8717e3232fa947f1aef13ac711fd76957ef3abadb"
+resolved = load_psa_raw(GEMRATE_ID, pinned_sha=RAW_SHA)
+check("真 payload 固定原始 hash", resolved.get("rawPayloadSha256"), RAW_SHA)
+if not resolved.get("error") and resolved.get("rawPayloadSha256") == RAW_SHA:
+    raw = json.loads((ROOT / resolved["rawPath"]).read_text(encoding="utf-8-sig"))
     psa_rows = [r for r in raw.get("population_data") or [] if str(r.get("grader")).casefold() == "psa"]
     truthy("真 payload 得一行 PSA", len(psa_rows) == 1)
     check("真 payload 個 PSA 行本身就係裸號", psa_rows[0].get("card_number"), "110")
@@ -143,7 +147,7 @@ if receipt_path.is_file():
         "2025 Pokemon Japanese M2-Inferno X Mega Charizard X EX Special Art Rare 110/80",
     )
 else:
-    FAILED.append(f"FAIL 揾唔到真 GemRate payload：{receipt_path}")
+    FAILED.append(f"FAIL 真 GemRate payload 驗證失敗：{resolved}")
     CHECKS += 1
 
 # --- 6. 出街嗰份 snapshot 全量掃：唔准出雙號 -------------------------------

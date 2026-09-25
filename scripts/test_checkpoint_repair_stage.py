@@ -54,7 +54,7 @@ REGISTRY = [
     {"adapter": "pc_ebay_sales", "variantId": 2033, "externalId": "8506789"},
     {"adapter": "en_price_ref", "variantId": 1876, "externalId": "6235181"},
     {"adapter": "en_price_ref", "variantId": 1915, "externalId": "10395109"},
-    # A third adapter must never be pulled into this repair.
+    # Another gate adapter is already checkpointed and therefore must not be pulled.
     {"adapter": "gemrate_pop", "variantId": 1876, "externalId": "4d8d7d8945"},
 ]
 
@@ -106,6 +106,7 @@ ALL_CHECKPOINTS = [
     checkpoint_row("pc_ebay_sales", 2033, "8506789", "2026-08-22T02:00:00Z"),
     checkpoint_row("en_price_ref", 1876, "6235181", "2026-08-22T02:00:00Z"),
     checkpoint_row("en_price_ref", 1915, "10395109", "2026-08-22T02:00:00Z"),
+    checkpoint_row("gemrate_pop", 1876, "4d8d7d8945", "2026-08-22T02:00:00Z"),
 ]
 # The 08-22 shape: identity repair created v1915 and v2033 after the registry
 # stage ran, so pc_ebay_sales is two streams short.  v1876 already collected.
@@ -115,7 +116,9 @@ AFTER_IDENTITY_REPAIR = [
     checkpoint_row("pc_ebay_sales", 2033, "8506789", None),
     checkpoint_row("en_price_ref", 1876, "6235181", "2026-08-22T02:00:00Z"),
     checkpoint_row("en_price_ref", 1915, "10395109", "2026-08-22T02:00:00Z"),
+    checkpoint_row("gemrate_pop", 1876, "4d8d7d8945", "2026-08-22T02:00:00Z"),
 ]
+ZERO_REPAIR_STREAMS = {adapter: 0 for adapter in stage.CHECKPOINT_REPAIR_ADAPTERS}
 
 
 # ---------------------------------------------------------------------------
@@ -198,22 +201,22 @@ missing = operator_control.missing_checkpoint_streams(
     registry=REGISTRY,
     adapters=stage.CHECKPOINT_REPAIR_ADAPTERS,
 )
-assert sorted(missing) == ["en_price_ref", "pc_ebay_sales"], sorted(missing)
+assert sorted(missing) == sorted(stage.CHECKPOINT_REPAIR_ADAPTERS), sorted(missing)
 assert [row["variantId"] for row in missing["pc_ebay_sales"]] == [1915, 2033]
 # Positive fire: the v2033 row EXISTS but carries no last_effective_at, and a
 # row without a stamp is what the gate counts as missing.
 assert [row["externalId"] for row in missing["pc_ebay_sales"]] == ["10395109", "8506789"]
 assert missing["en_price_ref"] == []
-# A third registered adapter is out of scope; this stage never collects it.
-assert "gemrate_pop" not in missing
+# An already-checkpointed adapter stays in scope but requires no network work.
+assert missing["gemrate_pop"] == []
 # Negative: a fully checkpointed registry leaves nothing to repair.
 healthy = operator_control.missing_checkpoint_streams(
     FixtureCursor(ALL_CHECKPOINTS),
     registry=REGISTRY,
     adapters=stage.CHECKPOINT_REPAIR_ADAPTERS,
 )
-assert healthy == {"pc_ebay_sales": [], "en_price_ref": []}
-print("POSITIVE_OK missing-stream computation counts a stamp-less checkpoint row as missing and stays inside the two repair adapters")
+assert healthy == {adapter: [] for adapter in stage.CHECKPOINT_REPAIR_ADAPTERS}
+print("POSITIVE_OK missing-stream computation counts a stamp-less checkpoint row as missing and covers every gate adapter")
 
 
 # ---------------------------------------------------------------------------
@@ -307,8 +310,8 @@ noop_result, noop_elapsed, noop_conn = run_stage(FixtureCursor(ALL_CHECKPOINTS),
 assert not isinstance(noop_result, Exception), noop_result
 assert noop_spy.calls == [], noop_spy.calls
 assert noop_result["network"] is False
-assert noop_result["streamsMissingBefore"] == {"pc_ebay_sales": 0, "en_price_ref": 0}
-assert noop_result["streamsMissingAfter"] == {"pc_ebay_sales": 0, "en_price_ref": 0}
+assert noop_result["streamsMissingBefore"] == ZERO_REPAIR_STREAMS
+assert noop_result["streamsMissingAfter"] == ZERO_REPAIR_STREAMS
 assert noop_result["repairAdapters"] == [] and noop_result["variantIds"] == {}
 assert noop_conn.closed == 1
 # Nothing to collect means nothing to serialize against daily-accept either.
@@ -332,8 +335,8 @@ assert call["force_network"] is True
 assert call["adapters"] == ["pc_ebay_sales"], call["adapters"]
 assert call["dry_run"] is False and call["ensure_browser"] is True
 assert forced_result["network"] is True
-assert forced_result["streamsMissingBefore"] == {"pc_ebay_sales": 2, "en_price_ref": 0}
-assert forced_result["streamsMissingAfter"] == {"pc_ebay_sales": 0, "en_price_ref": 0}
+assert forced_result["streamsMissingBefore"] == {**ZERO_REPAIR_STREAMS, "pc_ebay_sales": 2}
+assert forced_result["streamsMissingAfter"] == ZERO_REPAIR_STREAMS
 assert forced_result["variantIds"] == {"pc_ebay_sales": [1915, 2033]}
 assert forced_result["firstStock"]["ok"] is True
 assert forced_conn.closed == 2  # measured before and measured again after
@@ -383,7 +386,7 @@ stale_cursor = FixtureCursor(list(AFTER_IDENTITY_REPAIR))
 stale_spy = FirstStockSpy(fills=stale_cursor)
 stale_result, _stale_elapsed, _stale_conn = run_stage(stale_cursor, stale_spy)
 assert not isinstance(stale_result, Exception), stale_result
-assert stale_result["streamsMissingAfter"] == {"pc_ebay_sales": 0, "en_price_ref": 0}, stale_result
+assert stale_result["streamsMissingAfter"] == ZERO_REPAIR_STREAMS, stale_result
 assert len(stale_spy.calls) == 1, stale_spy.calls
 print("NEGATIVE_OK a sweep refused by the 9333 single-flight probe defers to the next tick as contention and succeeds once the stamp is stale")
 

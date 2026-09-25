@@ -56,7 +56,7 @@
 ## 3. P1：Census 自動 refresh
 
 - 現況：`gemrate_brute_harvest.py --all-sets` 人手跑；intake 讀 `psa10_1000_plus.jsonl`，>7 日 fail-closed 報 `censusStale`。
-- 設計：加一條每週兩次嘅 source-phase stage（`identity-census`，concurrency group `host:gemrate`，行 harvest + mtime receipt）；失敗唔阻出街（optional phase），但 brief 日報必須印 census 日期——「census 舊」永遠唔准講成「冇新卡」。[INFERRED]
+- 設計：每個自然 business date 跑 `identity-census`（concurrency group `host:gemrate`）全量刷新 GemRate set census；再於 identity intake 前跑 `identity-completeness`，動態重算全部 `PSA10 >= 1000` 卡、當日入／出名單、逐卡 DB 缺口及 GROK queue，並把合併 census 交現有 guarded intake／discovery。任何數量（包括 2026-08-25 的 1,660）都不寫死；失敗唔阻出街（optional phase），但唔完整證據必須明示，唔准講成「冇新卡」。[KNOWN]
 - 唔改 intake 判斷邏輯——stale gate 係保護，唔係 bug。
 
 ## 4. P2：結構修 + cohort promotion

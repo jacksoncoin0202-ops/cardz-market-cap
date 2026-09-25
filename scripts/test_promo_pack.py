@@ -216,6 +216,11 @@ def main() -> int:
         brief["channelHeatmaps"]["x.com-zh"],
         "https://app.cardzmarketcap.com/api/og/heatmap?period=7d&show=40&scope=all&format=post&theme=dark&updown=green-up&lang=zh-CN",
     )
+    check(
+        "channel-instagram-en-square",
+        brief["channelHeatmaps"]["instagram-en"],
+        "https://app.cardzmarketcap.com/api/og/heatmap?period=7d&show=40&scope=all&format=square&theme=dark&updown=green-up&lang=en",
+    )
     expect_fail("og-180d", lambda: P.heatmap_og_url("all", "180d"))
     check("post-flag", brief["post"], False)
     expect_fail(
@@ -230,7 +235,23 @@ def main() -> int:
         (NOW_FIXED - P.parse_iso_utc(health["generatedAt"])).total_seconds() / 3600.0, 4
     )
     check("brief-lag-hours", brief["lagHours"], expected_lag)
+    check("brief-min-bake-age", brief["minBakeAgeHours"], 0.5)
     check("brief-max-lag", brief["maxLagHours"], 26.0)
+    cooling_msg = expect_fail(
+        "cooling-under-30min",
+        lambda: P.brief_from_payload(
+            health,
+            {"all": payload},
+            now=P.parse_iso_utc(health["generatedAt"]) + timedelta(minutes=29),
+        ),
+    )
+    check("cooling-msg", "wait 30 minutes" in cooling_msg, True)
+    cooled = P.brief_from_payload(
+        health,
+        {"all": payload},
+        now=P.parse_iso_utc(health["generatedAt"]) + timedelta(minutes=30),
+    )
+    check("cooling-edge-30min", round(cooled["lagHours"], 2), 0.5)
     fresh_edge = P.brief_from_payload(
         health,
         {"all": payload},
@@ -329,6 +350,9 @@ def main() -> int:
         .replace("+00:00", "Z")
     )
     dest_file_default, warn_default = PAP.resolve_destinations_file(None)
+    active_channels = ["x.com-en", "x.com-zh", "threads-en", "threads-zh"]
+    check("dest-example-active-four", PAP.destination_channels(PAP.DEST_EXAMPLE)[0], active_channels)
+    check("dest-default-active-four", PAP.destination_channels(dest_file_default)[0], active_channels)
     if PAP.DEST_FILE.is_file():
         check("dest-real-used", dest_file_default, PAP.DEST_FILE)
     else:
@@ -358,11 +382,12 @@ def main() -> int:
             check("after-publish-ok-rc", rc_ok, 0)
             pack = runtime / "db3308_fix"
             check("after-publish-brief", (pack / "brief.json").is_file(), True)
-            check("after-publish-copy", (pack / "whatsapp-ptcg.txt").is_file(), True)
-            check("after-publish-copy-no-cr", b"\r" in (pack / "whatsapp-ptcg.txt").read_bytes(), False)
+            check("after-publish-copy", (pack / "threads-en.txt").is_file(), True)
+            check("after-publish-copy-no-cr", b"\r" in (pack / "threads-en.txt").read_bytes(), False)
+            check("after-publish-instagram-paused", sorted(p.name for p in pack.glob("instagram-*.txt")), [])
             check("after-publish-brief-no-cr", b"\r" in (pack / "brief.json").read_bytes(), False)
             receipts = sorted((runtime / "receipts").glob("2026-08-20_*.json"))
-            check("after-publish-receipts", len(receipts), 3)
+            check("after-publish-receipts", len(receipts), 4)
             first = json.loads(receipts[0].read_text(encoding="utf-8"))
             check("after-publish-not-posted", first["posted"], False)
             check("after-publish-dry", first["dry_run"], True)
@@ -484,6 +509,71 @@ def main() -> int:
         expect_fail("pack-hans", lambda: P.assert_pack(pack, expect_generation="db3308_aaa"))
         (pack / "fork-zh.txt").write_text("這張卡", encoding="utf-8")
         expect_fail("pack-wrong-gen", lambda: P.assert_pack(pack, expect_generation="live_now"))
+        (pack / "fork-zh.txt").write_text("這張卡今日升咗", encoding="utf-8")
+        (pack / "receipt.json").write_text(
+            json.dumps({
+                "generation": "db3308_aaa",
+                "heatmaps": {
+                    "all-en": r"C:\Users\jackson0202\Documents\heatmap-all-7d-post-en.jpg",
+                },
+                "errors": [],
+            }),
+            encoding="utf-8",
+        )
+        leak_err = expect_fail(
+            "pack-receipt-abs-path-leak",
+            lambda: P.assert_pack(pack, expect_generation="db3308_aaa"),
+        )
+        check("pack-receipt-abs-path-leak-names-file", "receipt.json" in leak_err, True)
+        check("pack-receipt-abs-path-leak-names-user", "jackson0202" in leak_err, True)
+        (pack / "receipt.json").write_text(
+            json.dumps({
+                "generation": "db3308_aaa",
+                "heatmaps": {"all-en": "heatmap-all-7d-post-en.jpg"},
+                "errors": [],
+            }),
+            encoding="utf-8",
+        )
+        relative_ok = P.assert_pack(pack, expect_generation="db3308_aaa")
+        check("pack-receipt-relative-ok", relative_ok["ok"], True)
+        check(
+            "heatmap-receipt-ref-is-basename",
+            P.heatmap_receipt_ref(Path(r"C:\Users\jackson0202\Documents\heatmap-all-7d-post-en.jpg")),
+            "heatmap-all-7d-post-en.jpg",
+        )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        runtime = Path(tmp)
+        old = runtime / "db3308_old"
+        new = runtime / "db3308_new"
+        old.mkdir()
+        new.mkdir()
+        blob = b"\xff\xd8\xff" + b"\x11" * 9000
+        (old / "heatmap-all-7d-post-en.jpg").write_bytes(blob)
+        (new / "heatmap-all-7d-post-en.jpg").write_bytes(blob)
+        (new / "brief.json").write_text(json.dumps(brief), encoding="utf-8")
+        (new / "fork-zh.txt").write_text("這張卡今日升咗", encoding="utf-8")
+        repeat_err = expect_fail(
+            "pack-repeat-heatmap",
+            lambda: P.assert_pack(new, expect_generation="db3308_aaa"),
+        )
+        check("pack-repeat-heatmap-names-old", "db3308_old" in repeat_err, True)
+        (new / "heatmap-all-7d-post-en.jpg").write_bytes(b"\xff\xd8\xff" + b"\x22" * 9000)
+        ok_new = P.assert_pack(new, expect_generation="db3308_aaa")
+        check("pack-new-heatmap-ok", ok_new["ok"], True)
+        box_err = expect_fail(
+            "box-previous-jst-day",
+            lambda: P.assert_box_matches_business_date(
+                {"box": {"asOf": "2026-08-25T20:33:52.644848Z"}},
+                "2026-08-27",
+            ),
+        )
+        check("box-previous-jst-day-mentions-old", "old bake" in box_err, True)
+        P.assert_box_matches_business_date(
+            {"box": {"asOf": "2026-08-25T20:33:52.644848Z"}},
+            "2026-08-26",
+        )
+        check("box-same-jst-day-ok", True, True)
 
     pages = [
         {"id": "x1", "type": "page", "url": "https://x.com/home"},
@@ -498,6 +588,26 @@ def main() -> int:
     missing = P.pick_cdp_tab(pages, "threads.net")
     check("tab-open-once", missing["action"], "open_once")
     check("tab-open-new", missing["openNew"], True)
+    threads_pages = pages + [
+        {"id": "t1", "type": "page", "url": "https://www.threads.com/@cardz.game"},
+    ]
+    threads_hit = P.pick_cdp_tab(threads_pages, "threads.net")
+    check("tab-threads-com-matches-net", threads_hit.get("action"), "reuse")
+    check("tab-threads-com-id", threads_hit.get("id"), "t1")
+    check("tab-threads-com-no-new", threads_hit.get("openNew"), False)
+    mixed = [
+        {"id": "ac", "type": "page", "url": "https://accountscenter.threads.com/"},
+        {"id": "prof", "type": "page", "url": "https://www.threads.com/@cardz.gamezh"},
+        {"id": "home", "type": "page", "url": "https://www.threads.com/"},
+    ]
+    mixed_hit = P.pick_cdp_tab(mixed, "threads.net")
+    check("tab-threads-skips-accountscenter-prefers-home", mixed_hit.get("id"), "home")
+    check("tab-threads-accountscenter-not-host", P.hostname_matches_cdp_host("accountscenter.threads.com", "threads.net"), False)
+    only_ac = P.pick_cdp_tab(
+        [{"id": "ac", "type": "page", "url": "https://accountscenter.threads.com/"}],
+        "threads.net",
+    )
+    check("tab-threads-accountscenter-only-open-once", only_ac.get("action"), "open_once")
 
     if FAILED:
         print("\n".join(FAILED))

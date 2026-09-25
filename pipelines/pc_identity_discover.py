@@ -344,8 +344,9 @@ def judge_listing(
         return False, why
 
     listing_text = (listing["title"], urllib.parse.unquote(listing["url"]))
+    judged_set = set_name or str(row.get("set_name") or "")
     same_product, why = product_agrees(
-        set_name or str(row.get("set_name") or ""),
+        op_identity_rules.our_product_text(row, judged_set),
         # An spc row's label welds the anniversary product to its metal; the
         # metal alone stays required when the listing itself prints it.
         R._pc_spc_metal_parallel(row, *listing_text)
@@ -371,11 +372,14 @@ def judge_listing(
     if R._pc_print_belongs_to_number_set(via_number_set, page_parallel):
         return False, f"number_set_own_print:[{page_parallel}]:{set_name}"
     if not R._pc_print_signature_ok(page_parallel, row):
-        return False, (
-            f"print_signature:[{page_parallel}]"
-            f" vs printing={row.get('printing_code') or ''}"
-            f" parallel={row.get('parallel_code') or ''}"
-        )
+        if not R._pc_unbracketed_own_set_print(
+            via_number_set, page_parallel, row,
+        ):
+            return False, (
+                f"print_signature:[{page_parallel}]"
+                f" vs printing={row.get('printing_code') or ''}"
+                f" parallel={row.get('parallel_code') or ''}"
+            )
     return True, ""
 
 

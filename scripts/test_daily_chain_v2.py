@@ -360,6 +360,16 @@ with tempfile.TemporaryDirectory() as folder:
         "task_name": "", "parent_process": "python.exe", "event_age_seconds": 999,
     }) == "manual"
     assert classify_provenance({
+        "event_id": 107, "event_record_id": 1234, "instance_id": "hidden-task",
+        "task_name": "\\CARDZ-Marketcap-Daily-V2",
+        "parent_process": "wscript.exe", "event_age_seconds": 1,
+    }) == "scheduled"
+    assert classify_provenance({
+        "event_id": 0, "event_record_id": 0, "instance_id": "",
+        "task_name": "\\CARDZ-Marketcap-Daily-V2",
+        "parent_process": "wscript.exe", "event_age_seconds": 999999,
+    }) == "manual"
+    assert classify_provenance({
         "event_id": 0, "event_record_id": 0, "instance_id": "",
         "task_name": "\\CARDZ-Marketcap-Daily-V2",
         "parent_process": "svchost.exe", "event_age_seconds": 999999,
@@ -590,7 +600,7 @@ rebuild = (ROOT / "pipelines" / "rebuild_036.py").read_text(encoding="utf-8")
 assert "Id = 107,110" in launcher and "event_record_id" in launcher
 assert "-WindowStyle Hidden" in launcher
 assert '"env", "CARDZ_V2_AUTO_SUPERSEDE=1"' in launcher
-assert "03:30" in installer and "PT10M" in installer and "PT13H30M" in installer
+assert "11:00" in installer and "PT10M" in installer and "PT6H" in installer
 assert "-WindowStyle Hidden" in installer and "consoleWindowStyle" in installer
 assert "IgnoreNew" in installer and "StartWhenAvailable" in installer and "55" in installer
 assert "Disable-ScheduledTask" in installer and "Unregister-ScheduledTask" not in installer
@@ -1363,7 +1373,9 @@ O3_SCHEDULE = {
 O3_LANES = tuple(lane for lane, _group in identity_lanes(
     adapter.spec for adapter in build_default_registry().enabled()
 ))
-O3_INTAKE_STAGES = ("identity-operator-apply", "identity-intake")
+O3_INTAKE_STAGES = (
+    "identity-operator-apply", "identity-completeness", "identity-intake",
+)
 O3_LANE_STAGES = tuple(f"identity-{lane}" for lane in O3_LANES)
 O3_REVERIFY_STAGES = tuple(f"identity-reverify-{lane}" for lane in O3_LANES)
 

@@ -83,6 +83,29 @@ def test_script_forces_ipv4_debug_bind():
     assert "--remote-debugging-address=127.0.0.1" in text
 
 
+def test_wsl_cleanup_and_version_probe_are_bounded():
+    text = PS1.read_text(encoding="utf-8")
+    helper = text.split("function Invoke-WslPkill {", 1)[1].split("function Clear-StaleWslPkill", 1)[0]
+    clear = text.split("function Clear-ForeignCdp {", 1)[1].split("function Start-CardzChrome", 1)[0]
+    assert "$p.WaitForExit(3000)" in helper
+    assert "taskkill.exe" in helper
+    assert "/T /F" in helper
+    assert "$p.Kill()" not in helper
+    assert "Clear-StaleWslPkill -CandidatePort $CandidatePort" in clear
+    assert clear.count("Invoke-WslPkill -File $wsl.Source") == 2
+    assert "& wsl.exe" not in text
+    version = text.split("function Get-CdpVersion {", 1)[1].split("function Get-CdpTargetList", 1)[0]
+    assert "curl.exe -sS --max-time 2 --fail" in version
+    assert "$LASTEXITCODE -eq 0" in version
+    assert "Invoke-WebRequest" not in version
+
+
+def test_launcher_selfheal_cap_covers_worst_case():
+    launcher = (ROOT / "scripts" / "cardz_daily_v2_launcher.ps1").read_text(encoding="utf-8")
+    assert "Invoke-HiddenPowerShellFile -File $selfhealScript -CapMs 180000" in launcher
+    assert "[int]$CapMs = 120000" in launcher
+
+
 def test_python_identity_matches_ps1_fixtures():
     headless = {
         "Browser": "Chrome/146.0.7680.75",
@@ -170,6 +193,8 @@ if __name__ == "__main__":
         test_port_9222_is_refused,
         test_script_does_not_assign_automatic_pid,
         test_script_forces_ipv4_debug_bind,
+        test_wsl_cleanup_and_version_probe_are_bounded,
+        test_launcher_selfheal_cap_covers_worst_case,
         test_python_identity_matches_ps1_fixtures,
         test_python_refuses_9222,
         test_dead_port_targets_are_none,

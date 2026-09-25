@@ -54,6 +54,24 @@ LEFTOVER5_VIDS = frozenset(
     {vid for vid, _ in LEFTOVER5_PC_GO} | {vid for vid, _ in LEFTOVER5_SNK_GO}
 )
 
+# JP twin of leftover-5 EN Shirahoshi (v1438 / 9362360). Same PriceCharting
+# filing: OP11 SP sold unbracketed on Fist of Divine Speed. Keep this pair
+# OUT of LEFTOVER5_PC_GO so the 2026-08-13 five-card adjudicate script
+# cannot re-run it. Refresh still has to hold the exact once the judge
+# promotes it; unbracketed vs SP would otherwise downgrade (Yamato).
+_PC_REFRESH_HOLD_EXTRA: dict[tuple[int, str], str] = {
+    (2167, "9362267"): (
+        "JP Shirahoshi SP EB01-057 packed in OP11; unbracketed Fist of "
+        "Divine Speed; sales SP ALTERNATE ART; ungraded $64.48; EN twin "
+        "v1438 exact 9362360"
+    ),
+    (1904, "11302596"): (
+        "Mega Gengar EX Incorrect Texture 230/193; PC unbracketed #230 "
+        "census 963 ≈ GemRate 1410 / PSA Incorrect Texture ~1040-1443; "
+        "correct MA twin v339 pop 39082 is 40× the census, not this page"
+    ),
+}
+
 # Pages that look like leftover-5 candidates but are a different card.
 LEFTOVER5_PC_REJECT: frozenset[tuple[int, str]] = frozenset({
     (1225, "8843990"),  # JP Stussy [SP] console; belongs to v1875
@@ -78,7 +96,8 @@ def hold_exact_against_refresh(
     downgrade site.
     """
     if source == "pricecharting":
-        return pc_go(variant_id, external_id)
+        key = (int(variant_id), str(external_id))
+        return key in LEFTOVER5_PC_GO or key in _PC_REFRESH_HOLD_EXTRA
     if source == "snkrdunk":
         return snk_go(variant_id, external_id)
     return False

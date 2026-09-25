@@ -36,11 +36,11 @@ BUGGY_GUARD = "if ($firstNaturalStart -le $nowLocal) {"
 
 # (now, expected startBoundary date+time, insideDailyWindow, todayTicksPreserved)
 CASES = [
-    ("2026-08-25T02:23:00", "2026-08-25 03:30:00", False, 0),
-    ("2026-08-24T03:58:36", "2026-08-24 03:30:00", True, 79),  # the real incident
-    ("2026-08-25T09:07:00", "2026-08-25 03:30:00", True, 48),
-    ("2026-08-25T16:59:00", "2026-08-25 03:30:00", True, 1),
-    ("2026-08-25T17:30:00", "2026-08-26 03:30:00", False, 0),
+    ("2026-08-25T02:23:00", "2026-08-25 11:00:00", False, 0),
+    ("2026-08-25T10:58:00", "2026-08-25 11:00:00", False, 0),
+    ("2026-08-25T11:28:00", "2026-08-25 11:00:00", True, 34),
+    ("2026-08-25T16:59:00", "2026-08-25 11:00:00", True, 1),
+    ("2026-08-25T17:30:00", "2026-08-26 11:00:00", False, 0),
 ]
 
 
@@ -141,8 +141,8 @@ def test_planted_bug_loses_the_day():
         twin = stage / "install_cardz_daily_v2_task.ps1"
         twin.write_text(reverted, encoding="utf-8")
 
-        plan = _plan(twin, "-NowOverride", "2026-08-24T03:58:36")
-        assert _boundary(plan) == "2026-08-25 03:30:00", (
+        plan = _plan(twin, "-NowOverride", "2026-08-24T11:28:00")
+        assert _boundary(plan) == "2026-08-25 11:00:00", (
             "planted bug did not fire: the reverted guard still kept the day's "
             f"window, so this test proves nothing. plan={plan}"
         )
@@ -152,10 +152,10 @@ def test_planted_bug_loses_the_day():
 
 def test_window_constants_match_the_repetition_patterns():
     text = PS1.read_text(encoding="utf-8-sig")
-    assert re.search(r"\$DailyWindowMinutes\s*=\s*810", text)
-    assert 'Duration = "PT13H30M"' in text
-    assert re.search(r"\$WatchdogWindowMinutes\s*=\s*840", text)
-    assert 'Duration = "PT14H"' in text
+    assert re.search(r"\$DailyWindowMinutes\s*=\s*360", text)
+    assert 'Duration = "PT6H"' in text
+    assert re.search(r"\$WatchdogWindowMinutes\s*=\s*420", text)
+    assert 'Duration = "PT7H"' in text
     assert 'Interval = "PT10M"' in text
     # The 17:45 promo trigger has no Repetition, so AddDays(1) is correct there
     # and must NOT be "fixed" into a same-day boundary.

@@ -15,6 +15,7 @@ from typing import Any
 
 CODEX_BROWSER_PORT = 9222
 DEFAULT_PORT = 9333
+_LOOPBACK_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 def reject_reason(version: dict[str, Any] | None) -> str | None:
@@ -30,14 +31,19 @@ def reject_reason(version: dict[str, Any] | None) -> str | None:
     return None
 
 
-def fetch_version(port: int = DEFAULT_PORT, timeout: float = 2.0) -> dict[str, Any] | None:
+def fetch_version(
+    port: int = DEFAULT_PORT,
+    timeout: float = 2.0,
+    *,
+    host: str = "127.0.0.1",
+) -> dict[str, Any] | None:
     if int(port) == CODEX_BROWSER_PORT:
         raise RuntimeError(
             "CARDZ must never attach to CDP 9222 (Codex browser profile). Use 9333."
         )
     try:
-        with urllib.request.urlopen(
-            f"http://127.0.0.1:{int(port)}/json/version", timeout=timeout
+        with _LOOPBACK_OPENER.open(
+            f"http://{host}:{int(port)}/json/version", timeout=timeout
         ) as response:
             payload = json.load(response)
         if isinstance(payload, dict):
@@ -47,7 +53,12 @@ def fetch_version(port: int = DEFAULT_PORT, timeout: float = 2.0) -> dict[str, A
     return None
 
 
-def fetch_targets(port: int = DEFAULT_PORT, timeout: float = 5.0) -> list[Any] | None:
+def fetch_targets(
+    port: int = DEFAULT_PORT,
+    timeout: float = 5.0,
+    *,
+    host: str = "127.0.0.1",
+) -> list[Any] | None:
     """Return /json/list or None when the DevTools HTTP target list is jammed."""
 
     if int(port) == CODEX_BROWSER_PORT:
@@ -55,8 +66,8 @@ def fetch_targets(port: int = DEFAULT_PORT, timeout: float = 5.0) -> list[Any] |
             "CARDZ must never attach to CDP 9222 (Codex browser profile). Use 9333."
         )
     try:
-        with urllib.request.urlopen(
-            f"http://127.0.0.1:{int(port)}/json/list", timeout=timeout
+        with _LOOPBACK_OPENER.open(
+            f"http://{host}:{int(port)}/json/list", timeout=timeout
         ) as response:
             payload = json.load(response)
         if isinstance(payload, list):
@@ -66,8 +77,10 @@ def fetch_targets(port: int = DEFAULT_PORT, timeout: float = 5.0) -> list[Any] |
     return None
 
 
-def require_headed_windows(port: int = DEFAULT_PORT) -> dict[str, Any]:
-    version = fetch_version(port)
+def require_headed_windows(
+    port: int = DEFAULT_PORT, *, host: str = "127.0.0.1"
+) -> dict[str, Any]:
+    version = fetch_version(port, host=host)
     reason = reject_reason(version)
     if reason:
         raise RuntimeError(
@@ -77,11 +90,13 @@ def require_headed_windows(port: int = DEFAULT_PORT) -> dict[str, Any]:
     return version
 
 
-def require_session_ready(port: int = DEFAULT_PORT) -> dict[str, Any]:
+def require_session_ready(
+    port: int = DEFAULT_PORT, *, host: str = "127.0.0.1"
+) -> dict[str, Any]:
     """Identity plus a live target list. Version-only 200 is not a usable session."""
 
-    version = require_headed_windows(port)
-    if fetch_targets(port) is None:
+    version = require_headed_windows(port, host=host)
+    if fetch_targets(port, host=host) is None:
         raise RuntimeError(
             f"CDP identity rejected port={port} reason=jammed-targets; "
             "run scripts/ensure_chrome_cdp.ps1 -Port 9333"

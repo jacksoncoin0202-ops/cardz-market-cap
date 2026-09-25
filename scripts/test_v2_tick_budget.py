@@ -409,7 +409,10 @@ def interrupted_child_is_named_in_the_receipt() -> None:
     assert receipt["childInterrupted"] is True, (
         f"the receipt does not name the interrupted child: {receipt}"
     )
-    assert receipt["status"] == "failed" and receipt["errorCode"] == "RuntimeError", receipt
+    # The receipt carries the retry verdict; childInterrupted remains separate
+    # evidence for the orchestrator's tick-budget accounting.
+    assert receipt["status"] == "failed" and receipt["errorCode"] == "SOURCE_FAILED", receipt
+    assert receipt["error"] == str(failure), receipt
 
 
 # ----------------------------------------------------------------------- A (8)
