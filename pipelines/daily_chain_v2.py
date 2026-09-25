@@ -2904,7 +2904,9 @@ class DailyChainV2:
             decision = classify_error(
                 text, stage="publish" if str(row["phase"]) == "publish" else "source"
             )
-            if decision.error_code == "CENSUS_TICK_BUDGET_DEFERRED":
+            if decision.error_code in (
+                "CENSUS_TICK_BUDGET_DEFERRED", "IDENTITY_COMPLETENESS_TICK_BUDGET_DEFERRED",
+            ):
                 # Remaining budget only shrinks: retrying in this tick cannot
                 # start the harvest. Leave the refunded row for the next tick.
                 self.deadline_monotonic = min(self.deadline_monotonic, time.monotonic())

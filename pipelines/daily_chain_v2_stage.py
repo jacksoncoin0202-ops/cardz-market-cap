@@ -1349,6 +1349,11 @@ def stage_identity_completeness(args: argparse.Namespace) -> dict[str, Any]:
         budget_seconds=stage_deadline_budget_seconds(),
     )
     inventory_status = str(result.pop("status", "") or "UNKNOWN")
+    if inventory_status == "SKIPPED_INSUFFICIENT_TICK_BUDGET":
+        # No fetch started. Refund the claim and yield to a fresh tick, as
+        # identity-census does: 2026-09-25 this skip spent attempt 2 of 3 in 2 s
+        # right after a 31 min attempt, so the day got two real tries, not three.
+        raise RuntimeError(f"errorCode=IDENTITY_COMPLETENESS_TICK_BUDGET_DEFERRED: {inventory_status}")
     if result.get("latestAdvanced") is not True:
         # A short tick is a defer/retry decision, not a successful stage.  The
         # previous implementation returned its domain status in the wrapper's

@@ -403,6 +403,9 @@ ERROR_CODE_DECISIONS: dict[str, RetryDecision] = {
     "census_tick_budget_deferred": RetryDecision(
         "CENSUS_TICK_BUDGET_DEFERRED", False, (0,), contention=True
     ),
+    "identity_completeness_tick_budget_deferred": RetryDecision(
+        "IDENTITY_COMPLETENESS_TICK_BUDGET_DEFERRED", False, (0,), contention=True
+    ),
     "worker_receipt_missing": RetryDecision(
         "WORKER_RECEIPT_MISSING", False, INFRA_RETRY_SECONDS
     ),
