@@ -145,6 +145,12 @@ type AnchorCandidate = { at: string; priceUsd: number; sourceCode: string | null
 // R6（2026-08-24）之後上面兩段變成歷史紀錄：history 已經冇 chart 觀測點，剩返成交點，
 // 所以 chartLaneOf 而家嘅工作淨係「錨（`<lane>_sales`）同現價 quote（`<lane>_sales`）
 // 剝返同一個母碼再比」，跨 marketplace 嗰個假暴升由源頭消失。
+// 2026-09-25 收緊：上面「唔同源就退去當日成交均價」同「`*_sales` 升格點照收」兩條後門一齊封。
+// 錨一定要同現價同一條 lane；另一個市場嘅成交、同埋多源嗰日嘅 `exact_psa10_sales` 均價都唔准。
+// 實測 Mimikyu（#26）現價係 SNKRDUNK 成交 $21,063，180d 錨咗 PC 一單 $95（03-28，錯卡成交），
+// 出街 +22,072%；Celebrations 噴火龍（#54）現價 $450，90d 錨咗另一條 lane 嘅 $20,500，出 −97.8%。
+// 同 lane 冇錨就照灰（accumulating）。currentSource 係 null 嗰陣（例如
+// test-fe-default-window-coverage 對住已剝碼嘅出街 payload 行）照舊唔揀 lane。
 function chartLaneOf(sourceCode: unknown): string | null {
   const code = String(sourceCode ?? "").trim();
   if (!code) return null;
@@ -156,16 +162,17 @@ function anchorCandidate(
   currentSource: string | null,
 ): AnchorCandidate | null {
   const source = (point as DailyHistoryPoint & { priceSourceCode?: string | null }).priceSourceCode ?? null;
-  if (
-    point.priceUsd !== null
-    && (!source || !currentSource || source === currentSource || source.endsWith("_sales"))
-  ) {
+  // 現價有 lane 嗰陣，錨要講得出自己係同一條 lane：冇 source 嘅點（連下面成交均價後備）一樣唔准。
+  if (currentSource && (!source || chartLaneOf(source) !== currentSource)) return null;
+  if (point.priceUsd !== null) {
     return { at: point.at, priceUsd: point.priceUsd, sourceCode: source };
   }
   const count = point.trackedSalesCount;
   const value = point.trackedSalesValueUsd;
   if (count !== null && count > 0 && value !== null && value > 0) {
-    return { at: point.at, priceUsd: value / count, sourceCode: "exact_psa10_sales" };
+    // 行到呢度個點已經過咗 lane 閘，均價就係同一條 lane 嘅；標返 exact_psa10_sales 會令
+    // sourceSwitched 無端端 true，validate_daily_release.py 當跨 lane 擋低成個 release。
+    return { at: point.at, priceUsd: value / count, sourceCode: currentSource ? source : "exact_psa10_sales" };
   }
   return null;
 }
@@ -272,6 +279,19 @@ function salesTotal(history: DailyHistoryPoint[], endMs: number, days: number): 
  * 市值變幅照舊只喺短窗作（`inventCap`），所以參考錨永遠生唔出市值變幅。
  * 條界由 `scripts/test-fe-hybrid-window-anchor.mjs` 用 mutation 探針釘住。
  */
+/*
+ * 離晒譜嘅變幅唔出街（2026-09-25；owner 2026-07-29 規矩：Top100 升跌異常 fail-closed，可信 > 覆蓋）。
+ * 錨同現價差過呢個倍數（升或跌對稱），個錨幾乎一定係錯卡／錯級成交混咗入日線：實測
+ * Latias & Latios GX 170/181（#12）90d 錨咗 06-27 一單 $1,485（前後兩日 $17,100／$17,700），
+ * 出街 +916.8%。日線未有離群帶（見 R6-OPEN-TICKET），呢度唔係離群帶，係出街閘：唔改錨、
+ * 唔揀第二個點，淨係唔出個數，標 unavailable。短窗 3 倍即係「|30d| > 200% 唔准 ready」；
+ * 長窗真係會有大郁（新卡上市、OP 熱潮），所以逐級放寬。
+ * scripts/validate_daily_release.py 用同一組數對住將要出街嘅 snapshot 再驗一次。
+ */
+const MAX_WINDOW_RATIO: Record<keyof typeof WINDOWS, number> = {
+  "1d": 3, "7d": 3, "30d": 3, "90d": 4, "180d": 5, "365d": 7,
+};
+
 function windowMetrics(
   history: DailyHistoryPoint[],
   currentPrice: number | null,
@@ -292,10 +312,15 @@ function windowMetrics(
       ? latestBefore(history, targetMs + 1, currentSource)
       : nearestPrice(history, targetMs, tolerance, currentMs, currentSource)
         ?? (code === "30d" ? latestBefore(history, targetMs - tolerance * 86_400_000, currentSource) : null);
-    const anchor = saleAnchor
+    const found = saleAnchor
       ?? (LONG_WINDOWS.has(code) ? latestBefore(reference, targetMs + 1, currentSource) : null);
+    // 現價或錨 ≤ 0 算唔出倍數，一樣唔出街（唔係 −100%）。
+    const implausible = found !== null && currentPrice !== null && (currentPrice <= 0 || found.priceUsd <= 0
+      || Math.max(currentPrice / found.priceUsd, found.priceUsd / currentPrice)
+        > MAX_WINDOW_RATIO[code as keyof typeof WINDOWS]);
+    const anchor = implausible ? null : found;
     const priceChange = percentage(currentPrice, anchor?.priceUsd ?? null);
-    // 錨點而家一律係成交點（`<lane>_sales` / 多源嗰日 `exact_psa10_sales`），
+    // 錨點而家一律係同 lane 嘅成交點（`<lane>_sales`），
     // 而 currentSource 已經行過 chartLaneOf（母碼）。唔剝尾碼比較 = 全板 1,604
     // 張卡永遠 anchorSource !== currentSource，UI 掛住一個假嘅「換咗來源」提示。
     const anchorSource = chartLaneOf(anchor?.sourceCode ?? null);
@@ -308,7 +333,7 @@ function windowMetrics(
     const currentSales = salesTotal(history, currentMs, daysBack);
     const previousSales = salesTotal(history, currentMs - daysBack * 86_400_000, daysBack);
     const salesChange = percentage(currentSales?.value ?? null, previousSales?.value ?? null);
-    const accumulating = currentPrice === null ? "unavailable" : "accumulating";
+    const accumulating = currentPrice === null || implausible ? "unavailable" : "accumulating";
     return [code, {
       changePct: {
         value: priceChange,

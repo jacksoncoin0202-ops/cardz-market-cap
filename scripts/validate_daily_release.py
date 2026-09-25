@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,36 @@ BOX_COLLISION_BASELINE = ROOT / "data" / "policy" / "box-image-collision-baselin
 # The release commits the snapshot and GitHub refuses any file over 100 MiB.
 # Stop 5 MiB short of that with a reason, not with a push GitHub rejects.
 SNAPSHOT_MAX_BYTES = 95 * 1024 * 1024
+# Same numbers as MAX_WINDOW_RATIO in apps/web/src/lib/live-db-snapshot.ts. The producer
+# withholds a move this large (either way) as unavailable and only anchors on the current
+# price's own lane, so a ready change past these, or one flagged sourceSwitched, means the
+# producer lost a guard. 2026-09-25: Mimikyu 180d +22,072% and Latias 90d +916.8% went out ready.
+WINDOW_MAX_RATIO = {"1d": 3.0, "7d": 3.0, "30d": 3.0, "90d": 4.0, "180d": 5.0, "365d": 7.0}
+
+
+def window_violations(cards: list[dict[str, Any]]) -> tuple[list[tuple[Any, ...]], int]:
+    bad: list[tuple[Any, ...]] = []
+    checked = 0
+    for card in cards:
+        for code, window in (card.get("windows") or {}).items():
+            for metric in ("changePct", "marketCapChangePct"):
+                change = (window or {}).get(metric) or {}
+                if change.get("status") not in ("ready", "stale"):  # the FE prints both (format.ts, rankings.tsx)
+                    continue
+                checked += 1
+                value = change.get("value")
+                if not isinstance(value, (int, float)) or not math.isfinite(value):
+                    bad.append((card.get("id"), code, metric, "not a finite number"))
+                    continue
+                if change.get("sourceSwitched"):
+                    bad.append((card.get("id"), code, metric, "anchored on another lane"))
+                    continue
+                ratio = 1 + value / 100
+                limit = WINDOW_MAX_RATIO.get(code)
+                # The producer compares price/anchor; the published percent carries float noise.
+                if limit is None or ratio <= 0 or max(ratio, 1 / ratio) > limit * (1 + 1e-9):
+                    bad.append((card.get("id"), code, metric, f"{value:+.1f}%"))
+    return bad, checked
 
 
 def load_snapshot(path: Path) -> dict[str, Any]:
@@ -186,6 +217,12 @@ def validate(snapshot: dict[str, Any], asset_root: Path, now: datetime) -> dict[
         )
     if missing_assets:
         raise AssertionError(f"missing public assets: {sorted(set(missing_assets))[:10]}")
+    implausible, windows_checked = window_violations(cards)
+    if implausible:
+        raise AssertionError(
+            f"{len(implausible)} ready window changes are cross-lane or past"
+            f" WINDOW_MAX_RATIO: {implausible[:10]}"
+        )
 
     target = next((card for card in cards if card.get("id") == TARGET_ID), None)
     if target is None:
@@ -205,6 +242,7 @@ def validate(snapshot: dict[str, Any], asset_root: Path, now: datetime) -> dict[
         "stalePricesOverPolicy": 0,
         "awaitingFreshPrice": len(awaiting_price),
         "maximumAwaitingFreshPrice": max_awaiting,
+        "readyWindowChanges": windows_checked,
         "target": TARGET_NUMBER,
     }
 
@@ -311,6 +349,33 @@ def self_test() -> None:
         waiting_card["marketRank"] = 0
         waiting_card["viewRank"] = 0
     cases.append(("awaiting-limit", too_many_waiting))
+
+    windowed = json.loads(json.dumps(document))
+    windowed["top100"][0]["windows"] = {
+        "30d": {"changePct": {"value": 150.0, "status": "ready", "sourceSwitched": False}},
+        "90d": {"changePct": {"value": None, "status": "unavailable", "sourceSwitched": False}},
+        "365d": {"changePct": {"value": 500.0, "status": "ready", "sourceSwitched": False}},
+    }
+    validate(windowed, Path("."), now)
+    print("POSITIVE_OK same-lane window changes inside the limits, and a withheld one, are accepted")
+    producer = (ROOT / "apps" / "web" / "src" / "lib" / "live-db-snapshot.ts").read_text(encoding="utf-8")
+    literal = re.search(r"const MAX_WINDOW_RATIO[^=]*=\s*\{([^}]*)\}", producer)
+    assert literal, "MAX_WINDOW_RATIO literal not found in live-db-snapshot.ts"
+    producer_ratio = {code: float(v) for code, v in re.findall(r'"(\w+)":\s*([\d.]+)', literal.group(1))}
+    assert producer_ratio == WINDOW_MAX_RATIO, (
+        f"WINDOW_MAX_RATIO {WINDOW_MAX_RATIO} drifted from the producer's MAX_WINDOW_RATIO {producer_ratio}")
+    print("POSITIVE_OK WINDOW_MAX_RATIO equals the producer's MAX_WINDOW_RATIO")
+    for label, code, value, switched, status in (
+        ("window-cross-lane", "30d", 10.0, True, "ready"),
+        ("window-implausible-rise", "90d", 916.8, False, "ready"),
+        ("window-implausible-drop", "30d", -97.8, False, "ready"),
+        ("window-implausible-stale", "30d", -97.8, False, "stale"),
+    ):
+        broken_window = json.loads(json.dumps(windowed))
+        broken_window["top100"][0]["windows"][code] = {
+            "changePct": {"value": value, "status": status, "sourceSwitched": switched}
+        }
+        cases.append((label, broken_window))
     for label, broken in cases:
         try:
             validate(broken, Path("."), now)

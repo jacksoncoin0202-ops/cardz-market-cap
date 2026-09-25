@@ -196,6 +196,128 @@ const near = (value, want) => typeof value === "number" && Math.abs(value - want
 }
 
 /* ─────────────────────────────────────────────────────────────
+ * F — 錨一定同現價同一條 lane（2026-09-25）：另一個市場嘅成交、多源嗰日嘅
+ *     `exact_psa10_sales` 均價都唔准做錨。實測 Mimikyu 180d 錨咗 PC 一單 $95
+ *     對 SNKRDUNK 現價 $21,063，出街 +22,072%。
+ *     種返個 bug（剝走 lane 閘）之後就一定要錨返另一條 lane，證明閘真係擋緊嘢。
+ * ───────────────────────────────────────────────────────────── */
+{
+  const other = (date, price, code = "snkrdunk_sales") => ({ ...salePoint(date, price), priceSourceCode: code });
+  const sales = [
+    salePoint("2026-07-20", 2300),                   // 30d 帶內，同 lane
+    other("2026-07-23", 2000),                       // 30d 帶內，另一條 lane，仲近 target
+    other("2026-08-21", 2600, "exact_psa10_sales"),  // 1d 帶內淨係得多源嗰日
+    salePoint("2026-02-10", 1500),                   // 180d（target 02-23）之前，同 lane
+    other("2026-02-20", 1200),                       // 180d 之前最後一點，但係另一條 lane
+  ];
+  const w = run(sales, []);
+  check("F: 30d 揀同 lane 嗰單 2300，唔揀近啲嗰單另一條 lane 嘅 2000",
+    w["30d"].changePct.status === "ready" && near(w["30d"].changePct.value, pct(2300)),
+    JSON.stringify(w["30d"].changePct));
+  check("F: 錨同 lane → 唔准 flag sourceSwitched", w["30d"].changePct.sourceSwitched === false,
+    JSON.stringify(w["30d"].changePct));
+  check("F: 多源嗰日嘅均價唔准做 1d 錨 → accumulating",
+    w["1d"].changePct.value === null && w["1d"].changePct.status === "accumulating",
+    JSON.stringify(w["1d"].changePct));
+  check("F: 180d 跳過另一條 lane 嘅最後一點，錨返同 lane 嘅 1500",
+    near(w["180d"].changePct.value, pct(1500)), JSON.stringify(w["180d"].changePct));
+
+  // 冇 source 嘅點（2026-09-25 QC）：現價有 lane 嗰陣佢講唔出自己係同一條 lane，一樣唔准做錨；
+  // 現價冇 lane（已剝碼 payload）就照舊唔揀 lane。
+  const bare = [salePoint("2026-07-18", 2300), { ...salePoint("2026-07-23", 2000), priceSourceCode: null }];
+  const lane = run(bare, []);
+  check("F: 冇 source 嘅點唔准做錨 → 30d 錨返同 lane 嘅 2300",
+    near(lane["30d"].changePct.value, pct(2300)), JSON.stringify(lane["30d"].changePct));
+  const laneless = windowMetrics(bare, CURRENT_PRICE, POP, CURRENT_AS_OF, null, []);
+  check("F: 現價冇 lane → 冇 source 嘅點照用（2000）",
+    near(laneless["30d"].changePct.value, pct(2000)), JSON.stringify(laneless["30d"].changePct));
+  // 同 lane 但冇 priceUsd 嘅點退去成交均價：標返自己條 lane，唔准變 sourceSwitched
+  //（validate_daily_release.py 見到 ready + sourceSwitched 會擋成個 release）。
+  const averaged = [{ ...salePoint("2026-07-23", 2000), priceUsd: null }];
+  const avg = run(averaged, []);
+  check("F: 同 lane 嘅成交均價後備 → 錨 2000，sourceSwitched false",
+    near(avg["30d"].changePct.value, pct(2000)) && avg["30d"].changePct.sourceSwitched === false,
+    JSON.stringify(avg["30d"].changePct));
+  const AVG_LABEL = 'sourceCode: currentSource ? source : "exact_psa10_sales"';
+  const avgHits = moduleBody.split(AVG_LABEL).length - 1;
+  check("F: 均價標籤喺源碼入面有且只有一處（探針錨點唯一）", avgHits === 1, `搵到 ${avgHits} 處`);
+  if (avgHits === 1) {
+    const { windowMetrics: relabel } = await load(
+      moduleBody.replace(AVG_LABEL, 'sourceCode: "exact_psa10_sales"'), "producer-avg-label.mjs");
+    const r = run(averaged, [], relabel)["30d"].changePct;
+    check("F: 均價標返 exact_psa10_sales 就會 sourceSwitched（證明標籤真係要緊）", r.sourceSwitched === true,
+      JSON.stringify(r));
+  }
+
+  const LANE_GUARD = "if (currentSource && (!source || chartLaneOf(source) !== currentSource)) return null;";
+  const OLD_GUARD = "if (source && currentSource && chartLaneOf(source) !== currentSource) return null;";
+  const hits = moduleBody.split(LANE_GUARD).length - 1;
+  check("F: lane 閘喺源碼入面有且只有一處（探針錨點唯一）", hits === 1, `搵到 ${hits} 處`);
+  if (hits === 1) {
+    const { windowMetrics: broken } = await load(moduleBody.replace(LANE_GUARD, ""), "producer-no-lane.mjs");
+    const b = run(sales, [], broken);
+    check("F: 剝走 lane 閘之後 30d 就錨到另一條 lane 嘅 2000（證明閘真係擋緊嘢）",
+      near(b["30d"].changePct.value, pct(2000)), JSON.stringify(b["30d"].changePct));
+    check("F: 剝走 lane 閘之後 1d 就錨到多源均價 2600",
+      near(b["1d"].changePct.value, pct(2600)), JSON.stringify(b["1d"].changePct));
+    const { windowMetrics: loose } = await load(moduleBody.replace(LANE_GUARD, OLD_GUARD), "producer-old-lane.mjs");
+    const o = run(bare, [], loose);
+    check("F: 換返舊閘（放過冇 source 嘅點）之後 30d 就錨到 2000（證明新閘擋緊嘢）",
+      near(o["30d"].changePct.value, pct(2000)), JSON.stringify(o["30d"].changePct));
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * G — 離晒譜嘅變幅唔出街（2026-09-25）：錨同現價差過窗口上限（升跌對稱），
+ *     changePct 同 marketCapChangePct 都係 null / unavailable。實測 Latias 90d
+ *     錨咗一單 $1,485（前後兩日 $17,100／$17,700），出街 +916.8%。
+ * ───────────────────────────────────────────────────────────── */
+{
+  const withheld = (metric) => metric.value === null && metric.status === "unavailable"
+    && metric.asOf === null && metric.sourceSwitched === false;
+  const rise = run([salePoint("2026-05-20", 300)], []);   // 90d：3100 / 300 = 10.3 倍 > 4
+  check("G: 90d 升 10 倍 → 唔出街，unavailable", withheld(rise["90d"].changePct),
+    JSON.stringify(rise["90d"].changePct));
+  const edge = run([salePoint("2026-05-20", 800)], []);   // 90d：3.875 倍 ≤ 4
+  check("G: 90d 3.9 倍仲喺上限入面 → 照出",
+    edge["90d"].changePct.status === "ready" && near(edge["90d"].changePct.value, pct(800)),
+    JSON.stringify(edge["90d"].changePct));
+  const drop = run([salePoint("2026-07-23", 10000)], []); // 30d：跌到 0.31 倍，即係 3.2 倍 > 3
+  check("G: 30d 跌 69% → 唔出街，unavailable", withheld(drop["30d"].changePct),
+    JSON.stringify(drop["30d"].changePct));
+  check("G: 同一個錨嘅市值變幅一齊唔出", withheld(drop["30d"].marketCapChangePct),
+    JSON.stringify(drop["30d"].marketCapChangePct));
+  const ref = run([], [refPoint("2025-06-01", 400)]);     // 365d 參考錨：7.75 倍 > 7
+  check("G: 長窗參考錨一樣受上限管", withheld(ref["365d"].changePct),
+    JSON.stringify(ref["365d"].changePct));
+  // 現價或錨 ≤ 0 算唔出倍數（2026-09-25 QC）：一樣唔出街，唔係 −100% 或者 accumulating。
+  const at = (anchor, current) => windowMetrics([salePoint("2026-07-23", anchor)], current, POP,
+    CURRENT_AS_OF, chartLaneOf(`${LANE}_sales`), [])["30d"].changePct;
+  check("G: 現價 −5 → 唔出街，unavailable", withheld(at(1000, -5)), JSON.stringify(at(1000, -5)));
+  check("G: 現價同錨都係 0 → 唔出街，unavailable", withheld(at(0, 0)), JSON.stringify(at(0, 0)));
+  const NONPOSITIVE = "currentPrice <= 0 || found.priceUsd <= 0";
+  const npHits = moduleBody.split(NONPOSITIVE).length - 1;
+  check("G: ≤ 0 閘喺源碼入面有且只有一處（探針錨點唯一）", npHits === 1, `搵到 ${npHits} 處`);
+  if (npHits === 1) {
+    const { windowMetrics: open } = await load(moduleBody.replace(NONPOSITIVE, "false"), "producer-no-nonpositive.mjs");
+    const n = open([salePoint("2026-07-23", 1000)], -5, POP, CURRENT_AS_OF, chartLaneOf(`${LANE}_sales`), [])["30d"].changePct;
+    check("G: 拆咗 ≤ 0 閘之後現價 −5 就出返 ready（證明閘真係擋緊嘢）", n.status === "ready", JSON.stringify(n));
+  }
+
+  const LIMITS = '"1d": 3, "7d": 3, "30d": 3, "90d": 4, "180d": 5, "365d": 7,';
+  const hits = moduleBody.split(LIMITS).length - 1;
+  check("G: 上限表喺源碼入面有且只有一處（探針錨點唯一）", hits === 1, `搵到 ${hits} 處`);
+  if (hits === 1) {
+    const loose = '"1d": 1e9, "7d": 1e9, "30d": 1e9, "90d": 1e9, "180d": 1e9, "365d": 1e9,';
+    const { windowMetrics: broken } = await load(moduleBody.replace(LIMITS, loose), "producer-no-limit.mjs");
+    const b = run([salePoint("2026-05-20", 300)], [], broken);
+    check("G: 拆咗上限之後 90d 就出返 +933%（證明上限真係擋緊嘢）",
+      b["90d"].changePct.status === "ready" && near(b["90d"].changePct.value, pct(300)),
+      JSON.stringify(b["90d"].changePct));
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
  * E — 參考點唔准滲入 `historyDaily`：兩條 series 分開出，唔准合併。
  * ───────────────────────────────────────────────────────────── */
 {
