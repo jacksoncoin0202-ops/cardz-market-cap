@@ -109,7 +109,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("status")
     g = sub.add_parser("gaps"); g.add_argument("--limit", type=int)
     sub.add_parser("refresh")
-    s = sub.add_parser("stock"); s.add_argument("--adapter", choices=PULL_ADAPTERS, action="append", help="repeatable; default all three")
+    s = sub.add_parser("stock"); s.add_argument("--adapter", choices=PULL_ADAPTERS, action="append", help="repeatable; default both (sealed_pc, sealed_snk)")
     b = sub.add_parser("accept-binding", help="human freeze for sealed identity/source/image")
     b.add_argument("--sku", default=None, help="sku_id or slug"); b.add_argument("--kind", choices=("identity", "source", "image"), required=True)
     b.add_argument("--source-code", default=""); b.add_argument("--actor", default="daddy"); b.add_argument("--note", default=None)
