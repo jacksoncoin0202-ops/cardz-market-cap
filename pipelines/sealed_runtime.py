@@ -27,6 +27,12 @@ OUT_DIR = ROOT / "data" / "runtime" / "operator" / "sealed"
 HTML_DIR = ROOT / "data" / "runtime" / "sealed" / "pc_html"
 
 SLA_HOURS = 36.0
+# "Fresh enough to publish" (SLA_HOURS) and "old enough to pull again" are different questions;
+# collect_control.py split them for cards. The V2 box stage runs once a day, so an item pulled by
+# yesterday's stage is ~24 h old today, and waiting for 36 h skipped it: SNK boxes refreshed every
+# other day (2026-09-25 box stage: 147 SNK items with data, 0 due at 35.4 h).
+LANE_INTERVAL_HOURS = 24.0
+REFRESH_DUE_HOURS = SLA_HOURS - LANE_INTERVAL_HOURS
 
 SEALED_ADAPTERS = ("sealed_pc", "sealed_snk", "sealed_yahoo", "sealed_ebay", "sealed_mercari")
 

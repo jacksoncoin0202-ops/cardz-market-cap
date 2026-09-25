@@ -41,6 +41,7 @@ from sealed_runtime import (  # noqa: E402
     HTML_DIR,
     OUT_DIR,
     PRICE_UPSERT_HEAD,
+    REFRESH_DUE_HOURS,
     SEALED_ADAPTERS,
     SLA_HOURS,
     checkpoint_age_hours,
@@ -226,7 +227,7 @@ def _select(cur, adapter: str, mode: str, *, limit: int | None, allow_candidates
             # Same rule as PSA10 PC: sold table is 30 rows. No cooldown.
             due = has_data
         else:
-            due = has_data and (force or age is None or age > SLA_HOURS)
+            due = has_data and (force or age is None or age > REFRESH_DUE_HOURS)
         key = _fetch_key(adapter, item)
         if due and mode == "stock" and key in shared:
             blocked.append({"sku": item["sku"], "key": key, "sharedWith": [s for s in shared[key] if s != item["sku"]]})
