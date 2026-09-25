@@ -77,6 +77,10 @@ SCRIPT_REQUIRES_PATH: dict[str, Path] = {
         ROOT / "data" / "private" / "pricecharting_session" / "html" / "full900"
         / "1_pikachu-with-grey-felt-hat-85_r.html"
     ),
+    "test_pc_identity_discover_rules.py": (
+        ROOT / "data" / "private" / "pricecharting_session" / "html" / "console"
+        / "one-piece-wings-of-the-captain.html"
+    ),
 }
 
 SELF_TEST_PATTERN = re.compile(

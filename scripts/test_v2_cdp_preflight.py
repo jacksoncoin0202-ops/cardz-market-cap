@@ -39,6 +39,8 @@ def quote(value):
 class PreflightTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # logs/ is ignored, so a fresh release clone does not have it.
+        (ROOT / "logs").mkdir(exist_ok=True)
         cls.temp = tempfile.TemporaryDirectory(prefix="cdp-preflight-test-", dir=ROOT / "logs")
         cls.folder = Path(cls.temp.name)
         cls.exe = cls.folder / "wsl.exe"
