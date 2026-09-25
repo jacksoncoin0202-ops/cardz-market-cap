@@ -339,7 +339,10 @@ def baseline_provisional(short: str) -> bool:
 
 
 def wsl_path(p: Path) -> str:
-    s = str(p.resolve()).replace("\\", "/")
+    s = str(p).replace("\\", "/")
+    # Off Windows "C:/x" is a relative path, and resolve() would glue it onto the cwd.
+    if os.name == "nt" or not (len(s) > 1 and s[1] == ":"):
+        s = str(p.resolve()).replace("\\", "/")
     if len(s) > 1 and s[1] == ":":
         s = f"/mnt/{s[0].lower()}{s[2:]}"
     return s
