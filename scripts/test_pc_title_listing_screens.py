@@ -409,7 +409,8 @@ rule("W attach_card_identity revives the dead 107/095 check", check_attach_ident
 rule("R receipt gives stored sales per-class reasons", check_receipt, Q, Q_PATH, [
     ('    return title_listing_conflict(\n', '    return None and title_listing_conflict(\n'),
     ('        card_language=str(row.get("card_language") or ""),', '        card_language="",'),
-    ('    if title_collector_contradiction(title, str(row["collector_number"])):\n        return REASON_TITLE\n', ''),
+    ('    if released_reason != REASON_TITLE and title_collector_contradiction(\n'
+     '        title, str(row["collector_number"])\n    ):\n        return REASON_TITLE\n', ''),
 ])
 rule("R receipt SQL carries the card identity", check_receipt_sql, Q, Q_PATH, [
     ('           p.card_language, p.set_name, v.canonical_name\n    FROM market_sale_observation s\n    INNER JOIN',

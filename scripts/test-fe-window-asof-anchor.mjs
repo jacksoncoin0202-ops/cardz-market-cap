@@ -7,7 +7,9 @@
  *   · 錨唔准遲過 target。以前 nearestPrice 喺 ±2/3/5 日揀最近一點，會揀到窗入面嘅
  *     成交（連頭條價自己嗰日）：rank 4（vid 2）1d 錨咗 09-25 自己個日均價出 −0.92%。
  *   · 窗入面冇成交 → 錨到頭條價自己 → 0%，係定義，唔准灰、唔准變「同上一單比」。
- *     vid 24（rank 47）30d：08-22 成交 $15,600，target 08-26 → 0.0%。
+ *     2026-09-26 同日後補（盒規矩 anchorWithheld）：錨日離 target 超過 max(3 日, N/10) → unavailable，
+ *     唔出 0%、亦唔出「同上一單比」。vid 24（rank 47）30d：08-22 成交，target 08-26（4 日）→ 而家唔出街；
+ *     容忍內（≤ 3 日）照 0.0%。過咗容忍嗰邊由 scripts/test-fe-window-stale-anchor.mjs 釘。
  *   · 同 lane（68b82c75）同 MAX_WINDOW_RATIO 照企。
  *   · 同 lane 睇 lane 自己嗰日嘅成交，唔睇合併日點個標籤（2026-09-26）：多源日（PC + SNK
  *     同日）入面 lane 自己嗰部分照做錨；混合均價照唔准。#60（vid 42）現價係 09-18 一單
@@ -72,26 +74,25 @@ const cases = ({ windowMetrics, chartLaneOf }) => {
     out.B = ["B: 7d 錨 target 嗰刻嘅價（09-16 $1,000 → +30%），唔係 09-19",
       near(w["7d"].changePct.value, 30), JSON.stringify(w["7d"].changePct)];
   }
-  // C — 1d：頭條同日成交（09-25），target 09-24T08:06 → 錨 09-10 $2,600，唔准同自己比。
+  // C — 1d：頭條同日成交（09-25），target 09-24T08:06 → 錨 09-22 $2,600，唔准同自己比。
   {
-    const w = run([sale("2026-09-10", 2600), sale("2026-09-25", 2742.84)], 2717.556721, "2026-09-25T08:06:00Z");
-    out.C = ["C: 1d 錨 target 前最後一單（09-10），唔係頭條自己嗰日",
+    const w = run([sale("2026-09-22", 2600), sale("2026-09-25", 2742.84)], 2717.556721, "2026-09-25T08:06:00Z");
+    out.C = ["C: 1d 錨 target 前最後一單（09-22），唔係頭條自己嗰日",
       near(w["1d"].changePct.value, pct(2717.556721, 2600)), JSON.stringify(w["1d"].changePct)];
   }
-  // D — 30d：target 08-26T09:29。08-29 遲過 target；≤ target 最後一點係 07-01。
+  // D — 30d：target 08-26T09:29。08-29 遲過 target；≤ target 最後一點係 08-24。
   {
-    const w = run([sale("2026-07-01", 900), sale("2026-08-29", 950), sale("2026-09-20", 1000)],
+    const w = run([sale("2026-08-24", 900), sale("2026-08-29", 950), sale("2026-09-20", 1000)],
       1000, "2026-09-25T09:29:29Z");
-    out.D = ["D: 30d 錨 ≤ target 最後一點（07-01 $900 → +11.11%）",
+    out.D = ["D: 30d 錨 ≤ target 最後一點（08-24 $900 → +11.11%）",
       near(w["30d"].changePct.value, pct(1000, 900)), JSON.stringify(w["30d"].changePct)];
   }
-  // F — 窗入面冇成交、上一單遠過任何 ±帶：1d／7d／30d 全部 0% ready（唔准灰）。
-  {
-    const w = run([sale("2026-08-01", 800), sale("2026-09-01", 1000)], 1000, "2026-09-25T09:29:29Z");
-    for (const code of ["1d", "7d"]) {
-      out[`F${code}`] = [`F: ${code} 窗入面冇成交 → 0.0% ready（唔准灰）`,
-        w[code].changePct.value === 0 && w[code].changePct.status === "ready", JSON.stringify(w[code].changePct)];
-    }
+  // F — 窗入面冇成交、上一單喺 ±帶外但喺盒容忍（3 日）內：1d／7d 0% ready（唔准灰）。
+  //     1d target 09-24 → 上一單 09-21；7d target 09-18 → 上一單 09-15。
+  for (const [code, last] of [["1d", "2026-09-21"], ["7d", "2026-09-15"]]) {
+    const w = run([sale("2026-08-01", 800), sale(last, 1000)], 1000, "2026-09-25T09:29:29Z");
+    out[`F${code}`] = [`F: ${code} 窗入面冇成交（上一單 ${last}）→ 0.0% ready（唔准灰）`,
+      w[code].changePct.value === 0 && w[code].changePct.status === "ready", JSON.stringify(w[code].changePct)];
   }
   return out;
 };
@@ -115,12 +116,14 @@ const laneCases = ({ windowMetrics, chartLaneOf }) => {
       w["7d"].changePct.value === 0 && w["7d"].changePct.status === "ready" && w["7d"].changePct.sourceSwitched === false,
       JSON.stringify(w["7d"].changePct)];
   }
-  // L60b — 同一日冇 PC 嗰部分：唔准攞混合均價 $1,134.03，錨返 ≤ target 最後一單 PC（09-01 $760）。
+  // L60b — 同一日冇 PC 嗰部分：唔准攞混合均價 $1,134.03，錨返 ≤ target 最後一單 PC（09-16 $1,100；
+  //        09-01 $760 離 target 17 日，盒規矩唔出街，所以加一單容忍內嘅 PC）。
   {
-    const l60b = { ...l60, "2026-09-18": { snkrdunk: [977.01, 1], ebay: [1291.05, 1] } };
-    const w = windowMetrics(h60, 1291.05, 100, "2026-09-25T09:29:29Z", chartLaneOf("pricecharting_sales"), [], laneDays(l60b));
-    out.L60b = ["L60b: 多源日冇 lane 自己嗰部分 → 唔准用混合均價，錨 09-01 $760",
-      near(w["7d"].changePct.value, pct(1291.05, 760)), JSON.stringify(w["7d"].changePct)];
+    const h60b = [...h60, sale("2026-09-16", 1100)].sort((a, b) => a.at.localeCompare(b.at));
+    const l60b = { ...l60, "2026-09-16": { pricecharting: [1100, 1] }, "2026-09-18": { snkrdunk: [977.01, 1], ebay: [1291.05, 1] } };
+    const w = windowMetrics(h60b, 1291.05, 100, "2026-09-25T09:29:29Z", chartLaneOf("pricecharting_sales"), [], laneDays(l60b));
+    out.L60b = ["L60b: 多源日冇 lane 自己嗰部分 → 唔准用混合均價，錨 09-16 $1,100",
+      near(w["7d"].changePct.value, pct(1291.05, 1100)), JSON.stringify(w["7d"].changePct)];
   }
   // L64 — vid 37 形狀：SNK 現價 $384.88；09-17／09-18 多源，SNK 自己 09-18 係 2 單共 $810（均 $405）。
   {
@@ -137,13 +140,18 @@ const laneCases = ({ windowMetrics, chartLaneOf }) => {
 };
 for (const [label, ok, detail] of Object.values(laneCases(await load(producer, "producer-lane.mjs")))) check(label, ok, detail);
 
-// A — vid 24 rank 47 形狀：30d 窗入面冇成交 → 0.0%，唔准變「同上一單比」−12.6%。
+// A — vid 24 rank 47 形狀：30d 窗入面冇成交，唔准變「同上一單比」−12.6%。
+//     08-22 離 target 08-26 4 日 > 3 → 盒規矩唔出街（unavailable）；A′ 08-23（3 日）→ 0.0% ready。
 const { windowMetrics, chartLaneOf } = await load(producer, "producer-a.mjs");
 {
   const w = windowMetrics([sale("2026-08-01", 17850), sale("2026-08-22", 15600)],
     15600, 100, "2026-09-25T09:29:29Z", chartLaneOf(`${LANE}_sales`), []);
-  check("A: 30d 窗入面冇成交 → 0.0% ready", w["30d"].changePct.value === 0 && w["30d"].changePct.status === "ready",
-    JSON.stringify(w["30d"].changePct));
+  check("A: 30d 錨 4 日前 → unavailable，唔出 −12.6% 亦唔出 0%",
+    w["30d"].changePct.value === null && w["30d"].changePct.status === "unavailable", JSON.stringify(w["30d"].changePct));
+  const w2 = windowMetrics([sale("2026-08-01", 17850), sale("2026-08-23", 15600)],
+    15600, 100, "2026-09-25T09:29:29Z", chartLaneOf(`${LANE}_sales`), []);
+  check("A′: 30d 窗入面冇成交、錨 3 日前 → 0.0% ready", w2["30d"].changePct.value === 0 && w2["30d"].changePct.status === "ready",
+    JSON.stringify(w2["30d"].changePct));
 }
 // E — 68b82c75 照企：≤ target 得另一條 lane 嘅成交 → 唔准做錨（照灰）。
 {
@@ -151,9 +159,9 @@ const { windowMetrics, chartLaneOf } = await load(producer, "producer-a.mjs");
     1300, 100, "2026-09-25T09:29:29Z", chartLaneOf(`${LANE}_sales`), []);
   check("E: 7d 唔准錨另一條 lane", w["7d"].changePct.value === null, JSON.stringify(w["7d"].changePct));
 }
-// G — MAX_WINDOW_RATIO 照企：7d 同 lane 錨 $300 對現價 $1,300（4.3×）→ unavailable。
+// G — MAX_WINDOW_RATIO 照企：7d 同 lane 錨 $300（09-16，容忍內，淨係試 ratio）對現價 $1,300（4.3×）→ unavailable。
 {
-  const w = windowMetrics([sale("2026-09-10", 300), sale("2026-09-22", 1300)],
+  const w = windowMetrics([sale("2026-09-16", 300), sale("2026-09-22", 1300)],
     1300, 100, "2026-09-25T09:29:29Z", chartLaneOf(`${LANE}_sales`), []);
   check("G: 7d 超過 3× 唔出街（unavailable）",
     w["7d"].changePct.value === null && w["7d"].changePct.status === "unavailable", JSON.stringify(w["7d"].changePct));

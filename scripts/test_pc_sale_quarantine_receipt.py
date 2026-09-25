@@ -22,6 +22,20 @@ This file pins what the builder promises, with injected rows instead of a DB:
      FE subtracts from the day SUM) plus both medians as evidence
   R6 a condemned id with no landing detail row raises; it is never dropped
   R7 load_stored_rows tolerates only error 1146 (058 not applied yet)
+
+063 releases (market_pc_sale_quarantine_release, one predicate:
+market_pc_sale_title_quarantine_effective):
+
+  R8  a released sale is not an entry and is listed under `released`; the rule
+      it was released from no longer counts, every other rule still does
+      (lot title -> listing entry; price spike -> price entry)
+  R9  release_problems: a released sale in the receipt, or one without 64-hex
+      evidence, is a gate problem; a clean receipt has none
+  R10 a release of a reason this module cannot re-judge raises
+  R11 load_stored_rows: 1146 on the release SQL (063 not applied) falls back
+      to the raw table; any other error raises
+  R12 collect_document: a released sale joins the price pool (votes and is
+      judged); only still-quarantined ids are kept out
 """
 from __future__ import annotations
 
@@ -230,6 +244,160 @@ try:
 except RuntimeError:
     other_raised = True
 check("R7 any other DB error raises", other_raised, "")
+
+
+# R8-R12: 063 releases
+HEX = "a" * 64
+# 1001: only the collector rule condemns it (the Gengar 0307/07 shape) -> freed.
+rel_ok = landing(1001, 20, "16700", "Pokemon Latias Latios GX #060/095 Team Up PSA 10")
+# 1002: collector rule AND a lot title -> the lot rule still condemns it.
+rel_lot = landing(1002, 21, "16600", "Pokemon Tag Bolt #060/095 PSA 10 x2")
+# 1003: released from the title rule, but it is an isolated price spike.
+rel_spike = landing(1003, 22, "1500", GOOD)
+# 1004: same title shape as 1001 but NOT released -> stays quarantined.
+kept = landing(1004, 23, "16500", "Pokemon Latias Latios GX #060/095 Team Up PSA 10")
+
+
+def released_row(row, reason=Q.REASON_TITLE, sha=HEX):
+    return {**row, "reason": reason, "released": 1, "release_evidence_sha256": sha}
+
+
+R_EXTRA = [rel_ok, rel_lot, rel_spike, kept]
+R_LANDING = LANDING + R_EXTRA
+DETAILS.update({row["id"]: row for row in R_EXTRA})
+R_STORED = STORED + [
+    released_row(rel_ok), released_row(rel_lot), released_row(rel_spike),
+    {**kept, "reason": Q.REASON_TITLE, "released": 0, "release_evidence_sha256": None},
+]
+check("fixture: the collector rule condemns 1001, 1002 and 1004; the lot rule 1002",
+      [e["saleObservationId"] for e in Q.build_receipt(R_EXTRA)] == [1001, 1002, 1004]
+      and Q.title_reason(rel_lot, released_reason=Q.REASON_TITLE) == "title_lot_or_bundle", "")
+r_doc = Q.build_document(
+    stamp=STAMP, title_rows=R_LANDING, sales_by_variant={VARIANT: [planner(r) for r in R_LANDING]},
+    detail_loader=detail_loader, stored_rows=R_STORED,
+)
+r_by_id = {e["saleObservationId"]: e for e in r_doc["entries"]}
+r_released = {r["saleObservationId"]: r for r in r_doc["released"]}
+check("fixture: the price rule condemns 1003",
+      1003 in Q.price_spike_verdicts({VARIANT: [planner(r) for r in R_LANDING]}), "")
+check("R8 a sale released from the collector rule is not an entry", 1001 not in r_by_id, str(r_by_id.get(1001)))
+check("R8 ...and is listed under released with its evidence",
+      r_released.get(1001) == {"saleObservationId": 1001, "variantId": VARIANT,
+                               "releasedReason": Q.REASON_TITLE, "evidenceSha256": HEX,
+                               "condemnedBy": None}, str(r_released.get(1001)))
+check("R8 a released sale the lot rule condemns is still an entry, with the lot reason",
+      r_by_id.get(1002, {}).get("reason") == "title_lot_or_bundle"
+      and r_released.get(1002, {}).get("condemnedBy") == "title_lot_or_bundle", str(r_by_id.get(1002)))
+check("R8 a released sale the price rule condemns is still an entry, with the price reason",
+      r_by_id.get(1003, {}).get("reason") == Q.REASON_PRICE, str(r_by_id.get(1003)))
+check("R8 an unreleased stored row with the same title stays quarantined",
+      r_by_id.get(1004, {}).get("reason") == Q.REASON_TITLE, str(r_by_id.get(1004)))
+check("R8 counts: releasedSales and quarantinedSales describe the document",
+      r_doc["releasedSales"] == 3 and r_doc["quarantinedSales"] == len(r_doc["entries"])
+      and set(r_by_id) == set(by_id) | {1002, 1003, 1004}, f"{r_doc['releasedSales']} {sorted(r_by_id)}")
+check("R8 no release => an empty released block (pre-063 receipts keep their entries)",
+      doc["releasedSales"] == 0 and doc["released"] == [], str(doc.get("released")))
+
+# R9
+problems = Q.release_problems(R_STORED, r_by_id)
+check("R9 released sales that another rule condemns are a gate problem",
+      any("1002" in p and "1003" in p for p in problems), str(problems))
+check("R9 a receipt without released sales and with evidence has no problem",
+      Q.release_problems(R_STORED, set(r_by_id) - {1002, 1003}) == [], "")
+check("R9 a release without 64-hex evidence is a gate problem",
+      bool(Q.release_problems([released_row(rel_ok, sha="XYZ")], [])), "")
+
+# R10
+try:
+    Q.split_released([released_row(rel_spike, reason=Q.REASON_PRICE)])
+    unsupported_raised = False
+except RuntimeError:
+    unsupported_raised = True
+check("R10 a release of a reason this module cannot re-judge raises", unsupported_raised, "")
+try:
+    Q.title_reason(rel_ok, released_reason=Q.REASON_PRICE)
+    title_raised = False
+except ValueError:
+    title_raised = True
+check("R10 title_reason refuses a release reason it cannot re-judge", title_raised, "")
+
+
+# R11
+class ReleaseCursor:
+    """Raises `first_error` on the 063 SQL; answers the raw-table SQL."""
+
+    def __init__(self, first_error):
+        self.first_error = first_error
+        self.sent: list[str] = []
+        self.rows: list[dict] = []
+
+    def execute(self, sql, *_args):
+        self.sent.append(sql)
+        if "market_pc_sale_title_quarantine_effective" in sql:
+            raise self.first_error
+        self.rows = [dict(row) for row in STORED]
+
+    def fetchall(self):
+        return self.rows
+
+
+fallback = ReleaseCursor(RuntimeError(1146, "Table 'market_pc_sale_title_quarantine_effective' doesn't exist"))
+fallback_rows = Q.load_stored_rows(fallback)
+check("R11 063 not applied (1146) => the raw table rows, nothing released",
+      [r["id"] for r in fallback_rows] == [r["id"] for r in STORED]
+      and not any(r.get("released") for r in fallback_rows) and len(fallback.sent) == 2, str(fallback.sent))
+try:
+    Q.load_stored_rows(ReleaseCursor(RuntimeError(1356, "View references invalid table(s)")))
+    view_raised = False
+except RuntimeError:
+    view_raised = True
+check("R11 a broken release view (1356) raises instead of falling back", view_raised, "")
+
+
+# R12
+import psa10_latest_sale_quote as P  # noqa: E402
+
+pool_exclusions: list[set] = []
+
+
+def fake_candidates(cursor, *, source, variant_ids, quarantined_sale_ids=None):
+    pool_exclusions.append(set(quarantined_sale_ids or ()))
+    return {VARIANT: [planner(r) for r in R_LANDING]} if source == "pricecharting" else {}
+
+
+class CollectCursor:
+    def __init__(self):
+        self.rows: list[dict] = []
+
+    def execute(self, sql, params=None):
+        if "FROM market_pc_sale_title_quarantine tq" in sql:
+            self.rows = [dict(r) for r in R_STORED]
+        elif "WHERE s.id IN" in sql:
+            self.rows = [DETAILS[int(i)] for i in (params or ()) if int(i) in DETAILS]
+        elif "listing_title IS NOT NULL" in sql:
+            self.rows = [dict(r) for r in R_LANDING]
+        else:
+            raise AssertionError(sql[:80])
+
+    def fetchall(self):
+        return self.rows
+
+
+saved = (P.current_universe_variant_ids, P.load_candidate_sales)
+P.current_universe_variant_ids = lambda cursor: [VARIANT]
+P.load_candidate_sales = fake_candidates
+try:
+    c_doc = Q.collect_document(CollectCursor(), stamp=STAMP)
+finally:
+    P.current_universe_variant_ids, P.load_candidate_sales = saved
+check("R12 collect_document asked for both lanes", len(pool_exclusions) == 2, str(len(pool_exclusions)))
+check("R12 a sale released and clean joins the price pool (1001 not excluded)",
+      pool_exclusions and 1001 not in pool_exclusions[0], str(sorted(pool_exclusions[0]) if pool_exclusions else None))
+check("R12 still-quarantined ids stay out of the pool (1004 stored, 1002 lot, 501 title)",
+      pool_exclusions and {1002, 1004, 501, 900, 901} <= pool_exclusions[0],
+      str(sorted(pool_exclusions[0]) if pool_exclusions else None))
+check("R12 collect_document == build_document on the same rows",
+      Q.render(c_doc) == Q.render(r_doc), "")
 
 print()
 if FAILED:

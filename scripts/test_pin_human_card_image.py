@@ -392,8 +392,19 @@ def run_pin_checks() -> None:
             code = PIN.main([str(manifest), "--apply"])
         check("冇替換圖：拒絕（exit 2）", code == 2, str(code))
         check("冇替換圖：連 DB 都唔開", not opened)
+        # low_resolution：啱卡但細圖，係真實理由（v501），唔使再借 wrong_printing 做假 label
+        _png(tmp / "ok.png", (1, 2, 3))
+        lowres = dict(json.loads(manifest.read_text(encoding="utf-8"))[0],
+                      newImagePath="ok.png", rejectionReason="low_resolution")
+        (tmp / "lowres.json").write_text(json.dumps([lowres]), encoding="utf-8")
+        try:
+            rows = PIN.load_manifest(tmp / "lowres.json")
+            check("manifest：low_resolution → 接受",
+                  rows[0]["rejectionReason"] == "low_resolution", str(rows))
+        except PIN.ManifestError as exc:
+            check("manifest：low_resolution → 接受", False, str(exc))
         for label, patch in {
-            "reason 唔喺四個之內": {"rejectionReason": "ugly"},
+            "reason 唔喺清單之內": {"rejectionReason": "ugly"},
             "oldSha256 唔係 64 hex": {"oldSha256": "ABC"},
             "冇 reviewNote": {"reviewNote": ""},
         }.items():

@@ -94,7 +94,8 @@ const reference = [
   refPoint("2026-07-23", 2800),   // 30d 錨帶
   refPoint("2026-05-20", 2000),   // 90d（target 05-24）之前最後一點
   refPoint("2026-02-01", 1500),   // 180d（target 02-23）之前最後一點
-  refPoint("2025-06-01", 1000),   // 365d（target 2025-08-22）之前最後一點
+  refPoint("2025-08-01", 1000),   // 365d（target 2025-08-22）之前最後一點
+  // 參考點離 target ≤ 45 日（盒 MARKET_MAX_AGE_D）先做得錨；過咗嗰邊由 test-fe-window-stale-anchor.mjs 釘。
 ];
 
 const run = (history, ref, metrics = windowMetrics) => metrics(
@@ -206,6 +207,7 @@ const near = (value, want) => typeof value === "number" && Math.abs(value - want
   const sales = [
     salePoint("2026-07-20", 2300),                   // 30d 帶內，同 lane
     other("2026-07-23", 2000),                       // 30d 帶內，另一條 lane，仲近 target
+    salePoint("2026-08-19", 2450),                   // 1d target 前兩日，同 lane（盒容忍 3 日內）
     other("2026-08-21", 2600, "exact_psa10_sales"),  // 1d target 嗰日淨係得多源均價
     salePoint("2026-02-10", 1500),                   // 180d（target 02-23）之前，同 lane
     other("2026-02-20", 1200),                       // 180d 之前最後一點，但係另一條 lane
@@ -216,16 +218,16 @@ const near = (value, want) => typeof value === "number" && Math.abs(value - want
     JSON.stringify(w["30d"].changePct));
   check("F: 錨同 lane → 唔准 flag sourceSwitched", w["30d"].changePct.sourceSwitched === false,
     JSON.stringify(w["30d"].changePct));
-  // 2026-09-26 as-of（冇 ±帶）：跳過多源嗰日，錨返 target 或之前最後一單同 lane（07-20 2300）。
-  check("F: 多源嗰日嘅均價唔准做 1d 錨 → 錨返 ≤ target 最後一單同 lane 嘅 2300",
-    w["1d"].changePct.status === "ready" && near(w["1d"].changePct.value, pct(2300)),
+  // 2026-09-26 as-of（冇 ±帶）：跳過多源嗰日，錨返 target 或之前最後一單同 lane（08-19 2450）。
+  check("F: 多源嗰日嘅均價唔准做 1d 錨 → 錨返 ≤ target 最後一單同 lane 嘅 2450",
+    w["1d"].changePct.status === "ready" && near(w["1d"].changePct.value, pct(2450)),
     JSON.stringify(w["1d"].changePct));
   check("F: 180d 跳過另一條 lane 嘅最後一點，錨返同 lane 嘅 1500",
     near(w["180d"].changePct.value, pct(1500)), JSON.stringify(w["180d"].changePct));
 
   // 冇 source 嘅點（2026-09-25 QC）：現價有 lane 嗰陣佢講唔出自己係同一條 lane，一樣唔准做錨；
   // 現價冇 lane（已剝碼 payload）就照舊唔揀 lane。
-  const bare = [salePoint("2026-07-18", 2300), { ...salePoint("2026-07-23", 2000), priceSourceCode: null }];
+  const bare = [salePoint("2026-07-20", 2300), { ...salePoint("2026-07-23", 2000), priceSourceCode: null }];
   const lane = run(bare, []);
   check("F: 冇 source 嘅點唔准做錨 → 30d 錨返同 lane 嘅 2300",
     near(lane["30d"].changePct.value, pct(2300)), JSON.stringify(lane["30d"].changePct));
@@ -288,7 +290,7 @@ const near = (value, want) => typeof value === "number" && Math.abs(value - want
     JSON.stringify(drop["30d"].changePct));
   check("G: 同一個錨嘅市值變幅一齊唔出", withheld(drop["30d"].marketCapChangePct),
     JSON.stringify(drop["30d"].marketCapChangePct));
-  const ref = run([], [refPoint("2025-06-01", 400)]);     // 365d 參考錨：7.75 倍 > 7
+  const ref = run([], [refPoint("2025-08-01", 400)]);     // 365d 參考錨（45 日內）：7.75 倍 > 7
   check("G: 長窗參考錨一樣受上限管", withheld(ref["365d"].changePct),
     JSON.stringify(ref["365d"].changePct));
   // 現價或錨 ≤ 0 算唔出倍數（2026-09-25 QC）：一樣唔出街，唔係 −100% 或者 accumulating。

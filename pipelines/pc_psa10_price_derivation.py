@@ -222,28 +222,40 @@ def load_pc_sales(connection: Any, variant_ids: list[int], *, as_of: datetime) -
     # applies, so there is one enforcement point, not a second copy of the rule.
     # No 1146 tolerance: the chain's migrate stage installs 058 before this runs,
     # and a missing table must stop the median, not silently re-admit the sales.
+    # 2026-09-26 (063): read the quarantine through
+    # market_pc_sale_title_quarantine_effective, the one predicate that honours
+    # a proven release.  1146 on THAT view only = 063 not applied yet: the raw
+    # table, which releases nothing (stricter, never looser).
     if not variant_ids:
         return []
+    quarantine_reads = ("market_pc_sale_title_quarantine_effective", "market_pc_sale_title_quarantine")
     marks = ",".join(["%s"] * len(variant_ids))
     with connection.cursor() as cursor:
-        cursor.execute(
-            f"""
-            SELECT variant_id, source_code, external_entity_id, grader_code, grade_label,
-                   sold_at, timestamp_quality, unit_price_usd, coverage_status,
-                   transaction_fingerprint, source_payload_sha256
-            FROM market_sale_observation s
-            WHERE variant_id IN ({marks})
-              AND source_code IN ({",".join(["%s"] * len(LIVE_EBAY_SOLD_SOURCE_CODES))})
-              AND sold_at >= %s
-              AND NOT EXISTS (
-                SELECT 1 FROM market_pc_sale_title_quarantine tq
-                WHERE tq.sale_observation_id = s.id
-              )
-            ORDER BY variant_id, sold_at, transaction_fingerprint
-            """,
-            (*variant_ids, *LIVE_EBAY_SOLD_SOURCE_CODES, (as_of - WINDOW).replace(tzinfo=None)),
-        )
-        return list(cursor.fetchall())
+        for quarantine in quarantine_reads:
+            try:
+                cursor.execute(
+                    f"""
+                    SELECT variant_id, source_code, external_entity_id, grader_code, grade_label,
+                           sold_at, timestamp_quality, unit_price_usd, coverage_status,
+                           transaction_fingerprint, source_payload_sha256
+                    FROM market_sale_observation s
+                    WHERE variant_id IN ({marks})
+                      AND source_code IN ({",".join(["%s"] * len(LIVE_EBAY_SOLD_SOURCE_CODES))})
+                      AND sold_at >= %s
+                      AND NOT EXISTS (
+                        SELECT 1 FROM {quarantine} tq
+                        WHERE tq.sale_observation_id = s.id
+                      )
+                    ORDER BY variant_id, sold_at, transaction_fingerprint
+                    """,
+                    (*variant_ids, *LIVE_EBAY_SOLD_SOURCE_CODES, (as_of - WINDOW).replace(tzinfo=None)),
+                )
+            except Exception as error:  # noqa: BLE001 - re-raised unless 063 is not applied yet
+                if quarantine != quarantine_reads[0] or tuple(getattr(error, "args", ()))[:1] != (1146,):
+                    raise
+                continue
+            return list(cursor.fetchall())
+    raise RuntimeError("unreachable: the raw quarantine read either returns or raises")
 
 
 def plan_rows(rows: Iterable[Mapping[str, Any]], *, as_of: datetime) -> list[dict[str, Any]]:

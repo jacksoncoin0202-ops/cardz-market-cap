@@ -92,16 +92,23 @@ function loadSaleQuarantine(alreadyExcludedSaleIds: ReadonlySet<number>): Map<st
 }
 
 async function loadDbExcludedSaleIds(connection: mysql.Connection): Promise<Set<number>> {
-  // 058 之前嘅 DB 冇呢張表：ER_NO_SUCH_TABLE = 乜都未剔走，全靠 receipt 扣。
-  try {
-    const [rows] = await connection.query<DbRow[]>(`
-      SELECT sale_observation_id FROM market_pc_sale_title_quarantine
-    `);
-    return new Set(rows.map((row) => Number(row.sale_observation_id)));
-  } catch (error) {
-    if ((error as { code?: string }).code === "ER_NO_SUCH_TABLE") return new Set<number>();
-    throw error;
+  // 呢個 set 一定要等於 DB view 真係剔走嗰批，否則 loadSaleQuarantine 雙重扣／漏扣。
+  // 063 起 view 讀 market_pc_sale_title_quarantine_effective（表減去有證據放返嘅成交），
+  // 呢度讀同一個 view。063 未 apply（ER_NO_SUCH_TABLE）= view 仲係剔成張表 → 讀原表；
+  // 058 之前嘅 DB 連原表都冇：ER_NO_SUCH_TABLE = 乜都未剔走，全靠 receipt 扣。
+  const reads = [
+    "SELECT sale_observation_id FROM market_pc_sale_title_quarantine_effective",
+    "SELECT sale_observation_id FROM market_pc_sale_title_quarantine",
+  ];
+  for (const sql of reads) {
+    try {
+      const [rows] = await connection.query<DbRow[]>(sql);
+      return new Set(rows.map((row) => Number(row.sale_observation_id)));
+    } catch (error) {
+      if ((error as { code?: string }).code !== "ER_NO_SUCH_TABLE") throw error;
+    }
   }
+  return new Set<number>();
 }
 
 function iso(value: unknown): string | null {
@@ -210,6 +217,8 @@ function anchorCandidate(
 // 「同自己比」嘅 0.0%／日均價差：generation 6f0d6e09 上 1d 14、7d 392、30d 540 個窗。
 // 帶外就灰嗰條規矩一齊拎走：窗入面冇成交 = target 嗰刻嘅價就係頭條價自己 = 0%，
 // 呢個係定義，唔係「資料累積中」，亦唔准變成「同上一單比」。
+// （2026-09-26 同日後補：錨日離 target 超過 max(3 日, N/10) 就冇觀察撐住，照盒規矩 unavailable，
+// 唔再出 0%；見 anchorWithheld。「唔准同上一單比」照企。）
 // 乜舊點都冇（第一單成交遲過 target）嘅卡照灰——嗰個先至係真「資料累積中」。
 // 同 lane 規矩（anchorCandidate）同 MAX_WINDOW_RATIO 照企。
 function latestBefore(
@@ -290,6 +299,30 @@ const MAX_WINDOW_RATIO: Record<keyof typeof WINDOWS, number> = {
   "1d": 3, "7d": 3, "30d": 3, "90d": 4, "180d": 5, "365d": 7,
 };
 
+/*
+ * 冇觀察撐住嘅錨唔出街（2026-09-26，DADDY「可信 > 覆蓋」）—— 同盒 sealed_operator._anchor_withheld
+ * 同一條規矩、同一組數。盒 daily line 每日一點、carry 住 sold median，所以盒量「點嘅日子 − 佢最新成交」。
+ * 卡 history 係 sale-only：target 嗰刻嘅價 = target 或之前最後一單成交，即係由成交日 carry 到 target；
+ * 同一件事喺卡度 = target 日 − 錨日。
+ *   carried：成交錨 > max(3 日, N/10) → 唔出（3 日 = 採集漏兩輪／成交遲 post；長窗容錨落後窗長一成）
+ *   expired：成交錨 > 30 日（SOLD_WINDOW_D）、參考點（K 線／market）> 45 日（MARKET_MAX_AGE_D）→ 唔出
+ * 參考點自己就係觀察（同盒 market 點一樣），PC 月頭點相距 ≤ 31 日，所以淨係睇 expired。
+ * 唔出 = unavailable，同 ratio 閘一樣：唔改錨、唔揀第二個點（成交錨舊咗都唔准退去 K 線）。
+ * 呢條推翻咗上面「窗入面冇成交 = 0%」嘅定義：generation 6f0d6e09 實測 ready 窗變 unavailable
+ * 1d 704/1632、7d 667/1632、30d 417/1634、90d 100、180d 29、365d 25；Top100 30d 18/100。
+ * scripts/test-fe-window-stale-anchor.mjs 由 Python 原檔讀返四個數對住，盒改卡唔改會紅。
+ */
+const ANCHOR_CARRY_FLOOR_D = 3;
+const ANCHOR_CARRY_FRACTION = 0.10;
+const SALE_ANCHOR_MAX_AGE_D = 30;
+const MARKET_ANCHOR_MAX_AGE_D = 45;
+
+function anchorWithheld(anchorAt: string, targetMs: number, daysBack: number, kind: "sale" | "reference"): boolean {
+  const gapDays = Math.floor(targetMs / 86_400_000) - Math.floor(new Date(anchorAt).valueOf() / 86_400_000);
+  if (kind === "reference") return gapDays > MARKET_ANCHOR_MAX_AGE_D;
+  return gapDays > Math.max(ANCHOR_CARRY_FLOOR_D, daysBack * ANCHOR_CARRY_FRACTION) || gapDays > SALE_ANCHOR_MAX_AGE_D;
+}
+
 function windowMetrics(
   history: DailyHistoryPoint[],
   currentPrice: number | null,
@@ -305,7 +338,7 @@ function windowMetrics(
   return Object.fromEntries(Object.entries(WINDOWS).map(([code, daysBack]) => {
     const targetMs = currentMs - daysBack * 86_400_000;
     // as-of：target 或之前最後一單同 lane 成交（見 latestBefore 註釋）。錨舊過 target
-    // 幾多日都係 target 嗰刻嘅價（市場靜 = 價冇郁），唔設 ±帶。
+    // 太多（anchorWithheld）就冇觀察撐住，下面 stale 唔出街。
     const saleAnchor = latestBefore(history, targetMs + 1, currentSource, laneSales);
     const found = saleAnchor
       ?? (LONG_WINDOWS.has(code) ? latestBefore(reference, targetMs + 1, currentSource) : null);
@@ -313,7 +346,8 @@ function windowMetrics(
     const implausible = found !== null && currentPrice !== null && (currentPrice <= 0 || found.priceUsd <= 0
       || Math.max(currentPrice / found.priceUsd, found.priceUsd / currentPrice)
         > MAX_WINDOW_RATIO[code as keyof typeof WINDOWS]);
-    const anchor = implausible ? null : found;
+    const stale = found !== null && anchorWithheld(found.at, targetMs, daysBack, saleAnchor ? "sale" : "reference");
+    const anchor = implausible || stale ? null : found;
     const priceChange = percentage(currentPrice, anchor?.priceUsd ?? null);
     // 錨點而家一律係同 lane 嘅成交點（`<lane>_sales`），
     // 而 currentSource 已經行過 chartLaneOf（母碼）。唔剝尾碼比較 = 全板 1,604
@@ -328,7 +362,7 @@ function windowMetrics(
     const currentSales = salesTotal(history, currentMs, daysBack);
     const previousSales = salesTotal(history, currentMs - daysBack * 86_400_000, daysBack);
     const salesChange = percentage(currentSales?.value ?? null, previousSales?.value ?? null);
-    const accumulating = currentPrice === null || implausible ? "unavailable" : "accumulating";
+    const accumulating = currentPrice === null || implausible || stale ? "unavailable" : "accumulating";
     return [code, {
       changePct: {
         value: priceChange,

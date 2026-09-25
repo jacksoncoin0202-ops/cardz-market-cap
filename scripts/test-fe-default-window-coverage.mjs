@@ -161,16 +161,16 @@ const coverage = (cards, code, options) => (cards.length === 0
   });
   // 淨係得三日前一單：30d / 365d 都搵唔到夠舊嘅錨。
   const recentOnly = [card([sale("2026-08-20", 3000)])];
-  // 加返 40 日前嗰單：30d 有錨（帶外 step-function 後備），365d 仲係冇。
-  const midOld = [card([sale("2026-07-14", 2400), sale("2026-08-20", 3000)])];
-  // 加返一年多前嗰單：連 365d 都有錨。
-  const veryOld = [card([sale("2025-06-01", 900), sale("2026-08-20", 3000)])];
+  // 加返 32 日前嗰單（30d target 前 2 日，盒容忍 3 日內）：30d 有錨，365d 仲係冇。
+  const midOld = [card([sale("2026-07-22", 2400), sale("2026-08-20", 3000)])];
+  // 加返一年前嗰單（365d target 前 2 日）：連 365d 都有錨。
+  const veryOld = [card([sale("2025-08-21", 900), sale("2026-08-20", 3000)])];
 
   check("D2: 冇夠舊成交 → 30d 覆蓋率 0", coverage(recentOnly, "30d") === 0,
     String(coverage(recentOnly, "30d")));
-  check("D2: 40 日前有成交 → 30d 覆蓋率 1", coverage(midOld, "30d") === 1,
+  check("D2: 32 日前有成交 → 30d 覆蓋率 1", coverage(midOld, "30d") === 1,
     String(coverage(midOld, "30d")));
-  check("D2: 40 日前嗰單唔夠 365d 用 → 365d 覆蓋率 0", coverage(midOld, "365d") === 0,
+  check("D2: 32 日前嗰單唔夠 365d 用 → 365d 覆蓋率 0", coverage(midOld, "365d") === 0,
     String(coverage(midOld, "365d")));
   check("D2: 一年前有成交 → 365d 覆蓋率 1", coverage(veryOld, "365d") === 1,
     String(coverage(veryOld, "365d")));
@@ -180,7 +180,7 @@ const coverage = (cards, code, options) => (cards.length === 0
 
   // R6b 之後 bake：參考點住喺 `historyReference` 欄。呢三條證明讀欄嗰條 path
   // 真係會 fire，同埋欄一存在就係唯一來源（空欄唔會回落 historyDaily 猜）。
-  const refPoint = { at: "2025-06-01T00:00:00Z", priceUsd: 900, priceStatus: "ready",
+  const refPoint = { at: "2025-08-01T00:00:00Z", priceUsd: 900, priceStatus: "ready", // 365d target 前 22 日（≤ 45）
     trackedSalesValueUsd: null, trackedSalesCount: null,
     salesCoverage: "unavailable", salesVerifiedZero: false };
   const fieldCard = { ...card([sale("2026-08-20", 3000)]), historyReference: [refPoint] };

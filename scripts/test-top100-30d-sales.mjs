@@ -35,6 +35,7 @@ const fnNamed = (tree, name) =>
 const RULE = ["TOP100_SEATS", "hasQualifying30dSale"]; // snapshot.ts: the one definition
 const LIVE = [
   "WINDOWS", "LONG_WINDOWS", "MAX_WINDOW_RATIO",
+  "ANCHOR_CARRY_FLOOR_D", "ANCHOR_CARRY_FRACTION", "SALE_ANCHOR_MAX_AGE_D", "MARKET_ANCHOR_MAX_AGE_D", "anchorWithheld",
   "repoRoot", "readSaleQuarantineEntries", "loadSaleQuarantine", "iso", "day", "numberValue", "readyMetric",
   "chartLaneOf", "anchorCandidate", "latestBefore", "percentage",
   "salesTotal", "windowMetrics", "seatTop100",

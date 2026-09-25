@@ -40,7 +40,7 @@ re-vouches registry content (scripts/test_pin_human_card_image.py).
 Manifest: a JSON array of
   {"variantId": 123, "oldSha256": "<64 hex>", "newImagePath": "front.png",
    "sourceUrl": "...", "sourceLineage": "...",
-   "rejectionReason": "sample_watermark|overlay|not_card_front|wrong_printing",
+   "rejectionReason": "sample_watermark|overlay|not_card_front|wrong_printing|low_resolution",
    "reviewNote": "..."}
 A relative newImagePath is relative to the manifest file.  Nothing is fetched.
 
@@ -72,8 +72,13 @@ CONTRACT = "human-card-image-replacement-v1"
 LEASE_OWNER = "pin-human-card-image"
 FREEZE_SOURCE_CODE = "human"
 QC_VERSION = "human-pin-v1"
+# low_resolution: the right card, but only a small (upscaled) scan -- replaced,
+# like sample_watermark, only when a clean larger image of the right card
+# exists.  A label only: every reason already allowed the same replacement, so
+# a missing label forced a false one into the registry (v501, 2026-09-26).
 REJECTION_REASONS = frozenset({
     "sample_watermark", "overlay", "not_card_front", "wrong_printing",
+    "low_resolution",
 })
 MANIFEST_FIELDS = (
     "variantId", "oldSha256", "newImagePath", "sourceUrl", "sourceLineage",

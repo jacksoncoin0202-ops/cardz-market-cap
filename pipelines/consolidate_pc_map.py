@@ -129,6 +129,45 @@ def verified_binding_evidence_rows() -> list[tuple[Path, dict[str, Any]]]:
     return rows
 
 
+def rejected_pc_binding_rows() -> list[dict[str, Any]]:
+    """Every PriceCharting binding the DB holds at match_status='rejected'."""
+
+    from qualified_pool_operator import db
+
+    connection = db()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT variant_id,external_entity_id,match_status,bind_evidence_json
+                  FROM catalog_source_identity
+                 WHERE source_code='pricecharting' AND match_status='rejected'
+                """
+            )
+            return [dict(row) for row in cursor.fetchall()]
+    finally:
+        connection.close()
+
+
+def rejected_in_place_pairs(rows: list[dict[str, Any]]) -> set[tuple[int, str]]:
+    """(variant, product) pairs somebody ruled wrong, from rejected_pc_binding_rows().
+
+    A verdict is read with rejection_is_verdict, the predicate every lane uses
+    to tell a reasoned rejection from collateral quarantine. Collateral never
+    examined the product, and pc-identity-reverify may still promote it with
+    the map row as its second opinion, so that row stays.
+    """
+
+    from rebuild_036 import rejection_is_verdict
+
+    return {
+        (int(row["variant_id"]), str(row.get("external_entity_id") or "").strip())
+        for row in rows
+        if str(row.get("match_status") or "") == "rejected"
+        and rejection_is_verdict(row.get("bind_evidence_json"))
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--write", action="store_true", required=True)
@@ -299,12 +338,28 @@ def main() -> int:
     # registry is what this map is defined to project, so the dead row goes.
     # Rows whose product nobody actively holds are left alone: those are cards
     # awaiting a decision, not a contradiction.
+    #
+    # Except when the decision was made. A binding rejected IN PLACE (exact ->
+    # rejected by a verdict, e.g. apply_verified_source_bindings' reject
+    # manifest) leaves its product unowned, so the rule above never fires, and
+    # the dead row then vetoes the card's correct proposal with
+    # map_product_mismatch. 2026-09-25: nine WOTC 1st Edition cards rejected off
+    # their Unlimited products could only be rebound by pointing the judge at a
+    # scratch copy of this map. The ruling on the pair is the contradiction, so
+    # that row goes too.
     owner_by_product = {product_id: variant_id for variant_id, product_id in pc_exact.items()}
+    rejected_pairs = rejected_in_place_pairs(rejected_pc_binding_rows())
     retired: list[dict[str, Any]] = []
+    retired_rejected: list[dict[str, Any]] = []
     for variant_id, row in sorted(canonical_by_variant.items()):
         if variant_id in pc_exact:
             continue
-        holder = owner_by_product.get(str(row.get("pc_product_id") or ""))
+        product_id = str(row.get("pc_product_id") or "").strip()
+        if (variant_id, product_id) in rejected_pairs:
+            canonical_rows.remove(row)
+            retired_rejected.append({"variantId": variant_id, "productId": product_id})
+            continue
+        holder = owner_by_product.get(product_id)
         if holder is None or holder == variant_id:
             continue
         canonical_rows.remove(row)
@@ -313,7 +368,7 @@ def main() -> int:
             "productId": str(row.get("pc_product_id") or ""),
             "nowOwnedBy": holder,
         })
-    for entry in retired:
+    for entry in retired + retired_rejected:
         canonical_by_variant.pop(int(entry["variantId"]), None)
 
     active_missing = sorted(set(pc_exact) - set(canonical_by_variant))
@@ -358,6 +413,7 @@ def main() -> int:
         "supplementalUsed": supplemental_used,
         "verifiedBindingEvidenceRows": len(binding_evidence_rows),
         "retiredStolenProducts": retired,
+        "retiredRejectedInPlace": retired_rejected,
         "activeMissing": active_missing,
         "activeProductMismatch": active_mismatch,
         "canonicalSha256": canonical_sha256,

@@ -144,14 +144,26 @@ def main() -> int:
         SCAN_SQL,
         collect_document,
         load_stored_rows,
+        release_problems,
+        split_released,
         title_reason,
     )
 
     # 唔設 env = live receipt（平時就係監呢個）；設咗 = 驗一份 dry-run receipt。
     receipt_path = Path(os.environ.get("PC_SALE_QUARANTINE_RECEIPT") or CURRENT_RECEIPT)
     print(f"info sale quarantine receipt = {receipt_path}")
+    # 063：market_pc_sale_title_quarantine_effective 放返咗嘅成交，佢嗰條 reason
+    # 唔再算數（其他判別器照判）；表嘅覆蓋要求 = (表 − 放返) ⊆ receipt。
+    stored_rows = load_stored_rows(cur)
+    active_stored, released = split_released(stored_rows)
+    print(f"info 隔離表 = {len(stored_rows)} 行；有證據放返 = {len(released)}：{sorted(released)[:20]}")
     cur.execute(SCAN_SQL)
-    title_reasons = {int(r["id"]): title_reason(r) for r in cur.fetchall()}
+    title_reasons = {
+        int(r["id"]): title_reason(
+            r, released_reason=str(released[int(r["id"])]["reason"]) if int(r["id"]) in released else None
+        )
+        for r in cur.fetchall()
+    }
     flagged = {sale_id for sale_id, reason in title_reasons.items() if reason is not None}
     listing_flagged = {
         sale_id for sale_id, reason in title_reasons.items() if reason not in (None, REASON_TITLE)
@@ -192,12 +204,18 @@ def main() -> int:
         not missing_price,
         f"{len(missing_price)} missing, e.g. {missing_price[:10]}",
     )
-    stored_ids = {int(r["id"]) for r in load_stored_rows(cur)}
+    stored_ids = {int(r["id"]) for r in active_stored}
     missing_stored = sorted(stored_ids - receipt_ids)
     check(
         "every market_pc_sale_title_quarantine row is still in the receipt",
         not missing_stored,
         f"{len(missing_stored)} table rows missing, e.g. {missing_stored[:10]}",
+    )
+    problems = release_problems(stored_rows, receipt_ids)
+    check(
+        "a released sale is out of the receipt and carries its evidence",
+        not problems,
+        "; ".join(problems) + " -- revoke the release (status='revoked') or regenerate the receipt",
     )
     missing_known = sorted(KNOWN_PRICE_SPIKES - receipt_ids)
     check(
@@ -224,7 +242,8 @@ def main() -> int:
         """,
         tuple(LIVE_EBAY_SOLD_SOURCE_CODES),
     )
-    stored_sales = [dict(r) for r in cur.fetchall()]
+    # 放返咗嘅成交（063）係真成交，中位數本來就要食返佢，唔算漏。
+    stored_sales = [dict(r) for r in cur.fetchall() if int(r["id"]) not in released]
     print(f"info 隔離表 PC 成交 = {len(stored_sales)}")
     check("the quarantine table holds PC sales to test the median against", bool(stored_sales), "")
     by_window: dict[tuple[int, object], set[str]] = {}
