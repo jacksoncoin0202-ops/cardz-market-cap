@@ -761,11 +761,12 @@ def _verify_decision_evidence(decision: dict[str, Any]) -> dict[str, Any]:
 def _quarantine_binding_observations(
     cur, *, variant_id: int, source_code: str, external_id: str
 ) -> int:
-    storage_sources = (
-        ("snkrdunk", "snk", "snk_psa10")
-        if source_code == "snkrdunk"
-        else (source_code,)
-    )
+    # The quote lane owns the storage-code table; a local copy here missed the
+    # `*_sales` rows (v1904 kept 21 ready pricecharting_sales rows after its
+    # PC page was rejected on 2026-09-25).
+    from current_quote_revision import quote_storage_source_codes
+
+    storage_sources = quote_storage_source_codes(source_code)
     placeholders = ",".join(["%s"] * len(storage_sources))
     cur.execute(
         f"""

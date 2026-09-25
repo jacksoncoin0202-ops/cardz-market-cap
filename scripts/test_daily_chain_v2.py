@@ -1606,6 +1606,534 @@ with tempfile.TemporaryDirectory(prefix="v2-o3-deliver-") as folder:
             sys.modules["notify_hermes"] = o3_real_notify
 print("NEGATIVE_OK only a delivered identity brief stamps its own dedupe rows")
 
+# ---------------------------------------------------------------------------
+# Anomaly census: report-only, after every release, one Telegram message.
+import daily_anomaly_census as o3_census  # noqa: E402
+
+O3_GENERATION = "db3308_0123456789abcdef"
+O3_ACCEPT = json.dumps({
+    "acceptedAt": "2026-08-20T01:00:00Z",
+    "publicGenerationId": O3_GENERATION,
+    "contentSha256": "d" * 64,
+    "activeCount": 1703,
+})
+O3_LIVE = json.dumps({
+    "stage": "live-confirm",
+    "eventId": 77,
+    "event": {
+        "occurredAt": "2026-08-20T02:00:00Z",
+        "generationId": O3_GENERATION,
+        "generatedAt": "2026-08-20T01:50:00Z",
+        "contentSha256": "d" * 64,
+        "activeCount": 1703,
+        "liveUrl": "https://app.cardzmarketcap.com/",
+        "sourceHealth": {},
+        "degradedSources": [],
+    },
+})
+O3_CENSUS_HTML = (
+    "\U0001F9EA <b>CARDZ 異常普查</b> 2026-08-20\n"
+    '<a href="https://app.cardzmarketcap.com/">live</a> &amp; <code>x</code>'
+)
+
+
+def o3_released(folder: str) -> tuple[Journal, Any]:
+    """A publishing run whose release has just completed (nothing planned after)."""
+
+    journal, chain = o3_chain(folder)
+    chain.allow_publish = True
+    chain.runtime_dir = Path(folder) / "runtime"
+    o3_drive(journal, chain, O3_BEFORE, until="daily-accept")
+    o3_set(journal, str(o3_rows(journal, chain)["daily-accept"]["task_key"]), "COMPLETED", O3_ACCEPT)
+    o3_drive(journal, chain, O3_BEFORE, until="release")
+    o3_set(journal, str(o3_rows(journal, chain)["release"]["task_key"]), "COMPLETED")
+    return journal, chain
+
+
+with tempfile.TemporaryDirectory(prefix="v2-o3-census-plan-") as folder:
+    o3_journal, o3_planner = o3_released(folder)
+    o3_before = set(o3_rows(o3_journal, o3_planner))
+    assert "live-confirm" not in o3_before and "anomaly-census" not in o3_before
+    o3_planner.plan(O3_BEFORE)
+    o3_planned = o3_rows(o3_journal, o3_planner)
+    # One pass plans both: the census has no later pass (eligible_phases is
+    # ("source",) once publication is recorded).
+    assert {"live-confirm", "anomaly-census"} <= set(o3_planned), sorted(o3_planned)
+    o3_row = o3_planned["anomaly-census"]
+    assert str(o3_row["phase"]) == "barrier"
+    assert str(o3_row["required_class"]) == "extra"
+    assert str(o3_row["concurrency_group"]) == "anomaly-census"
+    assert int(o3_row["max_attempts"]) == 2
+    o3_payload = json.loads(str(o3_row["payload_json"]))
+    assert o3_payload["stageName"] == "anomaly-census", o3_payload
+    assert o3_payload["stageArgs"] == [
+        "--business-date", O3_DAY.isoformat(),
+        "--snapshot", str(v2core.RELEASE_SNAPSHOT),
+        "--expected-generation", O3_GENERATION,
+    ], o3_payload
+    # Idempotent across ticks.
+    o3_count = len(o3_journal.tasks(o3_planner.run_id))
+    o3_planner.plan(O3_BEFORE)
+    o3_planner.plan(O3_BEFORE)
+    assert len(o3_journal.tasks(o3_planner.run_id)) == o3_count
+    # Claimable in the same batch as live-confirm: own concurrency group, so it
+    # never queues behind the db-writer release legs.
+    o3_claimed = {
+        str(row["capability"])
+        for row in o3_journal.claim_ready(
+            o3_planner.run_id, phases=o3_planner.eligible_phases(), lease_seconds=60, limit=16,
+        )
+    }
+    assert {"live-confirm", "anomaly-census"} <= o3_claimed, o3_claimed
+print("POSITIVE_OK anomaly-census is planned with live-confirm in one pass, extra/barrier, idempotent, co-claimable")
+
+# The stage journals the rendered HTML; the key hashes the message, so a retry
+# of the same census cannot post twice.  An AnomalyInputError is a failed
+# stage carrying its ANOMALY_* text, never a "dry" day.
+with tempfile.TemporaryDirectory(prefix="v2-o3-census-stage-") as folder:
+    o3_journal, o3_planner = o3_chain(folder)
+    o3_env_keys = ("CARDZ_V2_STATE_DB", "CARDZ_V2_RUN_ID", "CARDZ_DAILY_V2_STATE_DB")
+    o3_env = {key: os.environ.get(key) for key in o3_env_keys}
+    o3_real_run = o3_census.run
+    o3_real_notify = sys.modules.get("notify_hermes")
+    o3_calls: list[dict[str, Any]] = []
+    try:
+        os.environ["CARDZ_V2_STATE_DB"] = str(o3_journal.path)
+        os.environ["CARDZ_V2_RUN_ID"] = o3_planner.run_id
+        os.environ.pop("CARDZ_DAILY_V2_STATE_DB", None)
+
+        def o3_fake_run(**kwargs: Any) -> dict[str, Any]:
+            o3_calls.append(kwargs)
+            return {"message": O3_CENSUS_HTML, "generation": O3_GENERATION, "newCount": 2,
+                    "consecutiveDryDays": 0, "openCount": 9, "baseline": False}
+
+        o3_census.run = o3_fake_run  # type: ignore[assignment]
+        o3_args = types.SimpleNamespace(
+            business_date=O3_DAY.isoformat(),
+            snapshot=Path(folder) / "seed-snapshot.json",
+            expected_generation=O3_GENERATION,
+        )
+        o3_first = v2stage.stage_anomaly_census(o3_args)
+        o3_again = v2stage.stage_anomaly_census(o3_args)
+        assert o3_calls[0] == {
+            "business_date": O3_DAY.isoformat(),
+            "snapshot_path": Path(folder) / "seed-snapshot.json",
+            "expected_generation": O3_GENERATION,
+        }, o3_calls[0]
+        assert os.environ.get("CARDZ_DAILY_V2_STATE_DB") == str(o3_journal.path)
+        assert o3_first["eventKey"] == o3_again["eventKey"] == f"{O3_DAY.isoformat()}:{sha256(O3_CENSUS_HTML)[:16]}"
+        o3_events = [
+            event for event in o3_journal.pending_events(o3_planner.run_id)
+            if event["event_type"] == v2core.ANOMALY_CENSUS_EVENT
+        ]
+        assert len(o3_events) == 1, o3_events
+        assert json.loads(str(o3_events[0]["payload_json"])) == {
+            "runId": o3_planner.run_id,
+            "businessDate": O3_DAY.isoformat(),
+            "generation": O3_GENERATION,
+            "message": O3_CENSUS_HTML,
+            "newCount": 2,
+            "consecutiveDryDays": 0,
+        }
+
+        def o3_stale(**_kwargs: Any) -> dict[str, Any]:
+            raise o3_census.AnomalyInputError("ANOMALY_RECEIPT_STALE: planted")
+
+        o3_census.run = o3_stale  # type: ignore[assignment]
+        try:
+            v2stage.stage_anomaly_census(o3_args)
+        except RuntimeError as error:
+            assert str(error).startswith("ANOMALY_RECEIPT_STALE"), str(error)
+        else:
+            raise AssertionError("an ANOMALY_* input error must fail the stage")
+
+        # Delivery: verbatim, on the ops topic, and only once.
+        o3_census.run = o3_real_run  # type: ignore[assignment]
+        o3_planner.notify = True
+        o3_sent: list[tuple[str, str | None]] = []
+        sys.modules["notify_hermes"] = types.SimpleNamespace(  # type: ignore[assignment]
+            send_message=lambda text: o3_sent.append((text, os.environ.get("CARDZ_TG_THREAD_ID"))) or True
+        )
+        o3_planner.deliver_events()
+        o3_planner.deliver_events()
+        assert o3_sent == [(O3_CENSUS_HTML, "2925")], o3_sent
+    finally:
+        o3_census.run = o3_real_run  # type: ignore[assignment]
+        for key, value in o3_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        if o3_real_notify is None:
+            sys.modules.pop("notify_hermes", None)
+        else:
+            sys.modules["notify_hermes"] = o3_real_notify
+assert v2core.ANOMALY_CENSUS_EVENT == o3_census.ANOMALY_CENSUS_EVENT == "anomaly.census"
+assert v2core.ANOMALY_CENSUS_EVENT not in v2core.ALWAYS_ALERT_EVENTS
+assert DailyChainV2._event_message(v2core.ANOMALY_CENSUS_EVENT, {"message": O3_CENSUS_HTML}) == O3_CENSUS_HTML
+print("POSITIVE_OK the census stage journals one event per message and it is delivered verbatim")
+
+# The real stage CLI, end to end without a DB: a generation mismatch is caught
+# before any connection and leaves as exit 1 with the ANOMALY_* text.
+with tempfile.TemporaryDirectory(prefix="v2-o3-census-cli-") as folder:
+    o3_snapshot = Path(folder) / "seed-snapshot.json"
+    o3_snapshot.write_bytes(json.dumps({"generation": {"id": "db3308_other"}}).encode("utf-8"))
+    o3_receipt = Path(folder) / "receipt.json"
+    o3_cli_env = {
+        key: value for key, value in os.environ.items()
+        if key not in {"CARDZ_V2_STATE_DB", "CARDZ_V2_RUN_ID", "CARDZ_DAILY_V2_STATE_DB"}
+    }
+    o3_proc = subprocess.run(
+        [
+            sys.executable, "-X", "utf8", str(ROOT / "pipelines" / "daily_chain_v2_stage.py"),
+            "--output", str(o3_receipt), "anomaly-census",
+            "--business-date", O3_DAY.isoformat(), "--snapshot", str(o3_snapshot),
+            "--expected-generation", O3_GENERATION,
+        ],
+        cwd=str(ROOT), env=o3_cli_env, capture_output=True, text=True, encoding="utf-8",
+        errors="replace", timeout=300, check=False,
+    )
+    assert o3_proc.returncode == 1, (o3_proc.returncode, o3_proc.stdout[-800:], o3_proc.stderr[-800:])
+    o3_stage_receipt = json.loads(o3_receipt.read_text(encoding="utf-8"))
+    assert o3_stage_receipt["status"] == "terminal", o3_stage_receipt
+    assert o3_stage_receipt["error"].startswith("ANOMALY_SNAPSHOT_MISMATCH"), o3_stage_receipt["error"]
+print("NEGATIVE_OK the anomaly-census CLI exits nonzero with ANOMALY_SNAPSHOT_MISMATCH")
+
+# Publication never waits on the census, and a census that did not land says so.
+assert v2core.ALWAYS_ALERT_EVENTS["ANOMALY_CENSUS_INCOMPLETE"] == (
+    "v2-anomaly-census-incomplete", "warn", 30,
+)
+o3_dry = os.environ.get("CARDZ_V2_NOTIFY_DRY_RUN")
+os.environ["CARDZ_V2_NOTIFY_DRY_RUN"] = "1"
+try:
+    for o3_state, o3_expect_alert in (("TERMINAL", True), ("RETRY", True), ("COMPLETED", False)):
+        with tempfile.TemporaryDirectory(prefix="v2-o3-census-final-") as folder:
+            o3_journal, o3_planner = o3_released(folder)
+            o3_planner.plan(O3_BEFORE)
+            o3_planned = o3_rows(o3_journal, o3_planner)
+            o3_set(o3_journal, str(o3_planned["anomaly-census"]["task_key"]), o3_state)
+            o3_set(o3_journal, str(o3_planned["live-confirm"]["task_key"]), "COMPLETED", O3_LIVE)
+            o3_planner.finalise_live()
+            o3_run = o3_journal.run(o3_planner.run_id) or {}
+            assert o3_run.get("publication_status") == "PUBLISHED", (o3_state, o3_run.get("publication_status"))
+            assert o3_run.get("status") == "PUBLISHED", (o3_state, o3_run.get("status"))
+            assert o3_planner.eligible_phases() == ("source",)
+            o3_planner.finalise_live()  # a second pass records nothing new
+            o3_incomplete = [
+                json.loads(str(event["payload_json"]))
+                for event in o3_journal.pending_events(o3_planner.run_id)
+                if event["event_type"] == "ANOMALY_CENSUS_INCOMPLETE"
+            ]
+            if o3_expect_alert:
+                assert len(o3_incomplete) == 1, (o3_state, o3_incomplete)
+                assert o3_incomplete[0]["state"] == o3_state, o3_incomplete
+                assert o3_incomplete[0]["generation"] == O3_GENERATION, o3_incomplete
+                assert v2core.LAST_ALERT["key"] == f"v2-anomaly-census-incomplete:{O3_DAY.isoformat()}"
+            else:
+                assert o3_incomplete == [], (o3_state, o3_incomplete)
+finally:
+    if o3_dry is None:
+        os.environ.pop("CARDZ_V2_NOTIFY_DRY_RUN", None)
+    else:
+        os.environ["CARDZ_V2_NOTIFY_DRY_RUN"] = o3_dry
+print("NEGATIVE_OK a failed or retrying census still ends PUBLISHED and raises ANOMALY_CENSUS_INCOMPLETE")
+
+# A post-activation revision reopens the publish legs.  The census is on the
+# same reopen list; a NEW accepted generation gets its own census row once the
+# release completes again, and the same generation reruns the old row, whose
+# content-hash event key cannot post twice.
+O3_GENERATION_B = "db3308_fedcba9876543210"
+O3_ACCEPT_B = O3_ACCEPT.replace(O3_GENERATION, O3_GENERATION_B)
+O3_LIVE_B = O3_LIVE.replace(O3_GENERATION, O3_GENERATION_B)
+
+
+def o3_census_rows(journal: Journal, chain: Any) -> list[dict[str, Any]]:
+    return [row for row in journal.tasks(chain.run_id) if str(row["capability"]) == "anomaly-census"]
+
+
+def o3_reopen(folder: str, accept_after: str, *, plant: str = "") -> tuple[Journal, Any, str, list[str]]:
+    """Census A done; the activation revision lands later; the reopened
+    core/accept/box/release legs complete again (accepting `accept_after`)."""
+
+    journal, chain = o3_released(folder)
+    chain.plan(O3_BEFORE)
+    rows = o3_rows(journal, chain)
+    census_a = str(rows["anomaly-census"]["task_key"])
+    o3_set(journal, census_a, "COMPLETED")
+    with closing(sqlite3.connect(str(journal.path))) as conn:
+        conn.execute(
+            "UPDATE chain_task SET updated_at=? WHERE task_key=?",
+            (iso(datetime.now(timezone.utc) + timedelta(seconds=5)), str(rows["candidate-activation"]["task_key"])),
+        )
+        conn.commit()
+    if plant == "reopen-list":
+        real_reopen = journal.reopen_successful_tasks_before
+        journal.reopen_successful_tasks_before = (  # type: ignore[method-assign]
+            lambda run_id, capabilities, **kw: real_reopen(
+                run_id, [c for c in capabilities if c != "anomaly-census"], **kw)
+        )
+    reopened = chain.reconcile_post_activation_dependencies()
+    for key in reopened:
+        capability = str((journal.task(key) or {}).get("capability"))
+        if capability == "daily-accept":
+            o3_set(journal, key, "COMPLETED", accept_after)
+        elif capability != "anomaly-census":
+            o3_set(journal, key, "COMPLETED")
+    if plant == "generation-blind":
+        chain.anomaly_census_row = lambda _generation: journal.task(census_a)  # type: ignore[method-assign]
+    chain.plan(O3_BEFORE)
+    return journal, chain, census_a, reopened
+
+
+o3_dry = os.environ.get("CARDZ_V2_NOTIFY_DRY_RUN")
+os.environ["CARDZ_V2_NOTIFY_DRY_RUN"] = "1"
+try:
+    # New generation: census A is reopened for A, census B is planned for B.
+    with tempfile.TemporaryDirectory(prefix="v2-o3-census-reopen-") as folder:
+        o3_journal, o3_planner, o3_key_a, o3_reopened = o3_reopen(folder, O3_ACCEPT_B)
+        assert o3_key_a in o3_reopened, o3_reopened
+        assert {str((o3_journal.task(k) or {}).get("capability")) for k in o3_reopened} >= {
+            "daily-accept", "release", "anomaly-census"}, o3_reopened
+        assert str((o3_journal.task(o3_key_a) or {})["status"]) == "INTERRUPTED"
+        o3_row_b = o3_planner.anomaly_census_row(O3_GENERATION_B)
+        assert o3_row_b is not None and str(o3_row_b["task_key"]) != o3_key_a
+        assert str(o3_row_b["status"]) == "PENDING"
+        assert json.loads(str(o3_row_b["payload_json"]))["stageArgs"][-2:] == [
+            "--expected-generation", O3_GENERATION_B]
+        assert str((o3_planner.anomaly_census_row(O3_GENERATION) or {}).get("task_key")) == o3_key_a
+        o3_planner.plan(O3_BEFORE)
+        assert len(o3_census_rows(o3_journal, o3_planner)) == 2
+        # finalise_live judges the census of the generation that went live:
+        # A's COMPLETED row must not vouch for B.
+        o3_set(o3_journal, o3_key_a, "COMPLETED")
+        o3_set(o3_journal, str(o3_rows(o3_journal, o3_planner)["live-confirm"]["task_key"]), "COMPLETED", O3_LIVE_B)
+        o3_planner.finalise_live()
+        assert (o3_journal.run(o3_planner.run_id) or {}).get("publication_status") == "PUBLISHED"
+        o3_incomplete = [
+            json.loads(str(event["payload_json"]))
+            for event in o3_journal.pending_events(o3_planner.run_id)
+            if event["event_type"] == "ANOMALY_CENSUS_INCOMPLETE"
+        ]
+        assert len(o3_incomplete) == 1, o3_incomplete
+        assert o3_incomplete[0]["generation"] == O3_GENERATION_B, o3_incomplete
+        assert o3_incomplete[0]["taskKey"] == str(o3_row_b["task_key"]), o3_incomplete
+        assert o3_incomplete[0]["state"] == "PENDING", o3_incomplete
+    # Plants: each must break one of the verdicts above.
+    with tempfile.TemporaryDirectory(prefix="v2-o3-census-reopen-plant-") as folder:
+        o3_journal, o3_planner, o3_key_a, o3_reopened = o3_reopen(folder, O3_ACCEPT_B, plant="reopen-list")
+        assert o3_key_a not in o3_reopened, "planted: census dropped from the reopen list"
+    with tempfile.TemporaryDirectory(prefix="v2-o3-census-reopen-plant-") as folder:
+        o3_journal, o3_planner, o3_key_a, _ = o3_reopen(folder, O3_ACCEPT_B, plant="generation-blind")
+        assert len(o3_census_rows(o3_journal, o3_planner)) == 1, "planted: a generation-blind lookup plans no census for B"
+finally:
+    if o3_dry is None:
+        os.environ.pop("CARDZ_V2_NOTIFY_DRY_RUN", None)
+    else:
+        os.environ["CARDZ_V2_NOTIFY_DRY_RUN"] = o3_dry
+print("POSITIVE_OK a reopened release with a new generation gets its own census; A's row cannot vouch for B")
+
+# Same generation: no second row; the reopened row is claimable again and its
+# rerun re-journals the same content-hash key, so Telegram hears it once.
+with tempfile.TemporaryDirectory(prefix="v2-o3-census-rerun-") as folder:
+    o3_journal, o3_planner, o3_key_a, o3_reopened = o3_reopen(folder, O3_ACCEPT)
+    assert o3_key_a in o3_reopened, o3_reopened
+    assert [str(row["task_key"]) for row in o3_census_rows(o3_journal, o3_planner)] == [o3_key_a]
+    o3_env_keys = ("CARDZ_V2_STATE_DB", "CARDZ_V2_RUN_ID", "CARDZ_DAILY_V2_STATE_DB")
+    o3_env = {key: os.environ.get(key) for key in o3_env_keys}
+    o3_real_run = o3_census.run
+    try:
+        os.environ["CARDZ_V2_STATE_DB"] = str(o3_journal.path)
+        os.environ["CARDZ_V2_RUN_ID"] = o3_planner.run_id
+        os.environ.pop("CARDZ_DAILY_V2_STATE_DB", None)
+        o3_census.run = lambda **_kw: {  # type: ignore[assignment]
+            "message": O3_CENSUS_HTML, "generation": O3_GENERATION, "newCount": 0,
+            "consecutiveDryDays": 1, "openCount": 3, "baseline": False,
+        }
+        o3_args = types.SimpleNamespace(business_date=O3_DAY.isoformat(),
+                                        snapshot=Path(folder) / "seed-snapshot.json",
+                                        expected_generation=O3_GENERATION)
+        o3_first = v2stage.stage_anomaly_census(o3_args)   # the run before the reopen
+        o3_claimed = {
+            str(row["task_key"])
+            for row in o3_journal.claim_ready(
+                o3_planner.run_id, phases=o3_planner.eligible_phases(), lease_seconds=60, limit=16)
+        }
+        assert o3_key_a in o3_claimed, o3_claimed
+        o3_again = v2stage.stage_anomaly_census(o3_args)   # its rerun
+        assert o3_first["eventKey"] == o3_again["eventKey"]
+        o3_census_events = [
+            event for event in o3_journal.pending_events(o3_planner.run_id)
+            if event["event_type"] == v2core.ANOMALY_CENSUS_EVENT
+        ]
+        assert len(o3_census_events) == 1, o3_census_events
+    finally:
+        o3_census.run = o3_real_run  # type: ignore[assignment]
+        for key, value in o3_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+print("NEGATIVE_OK a same-generation reopen reruns the one census row and posts no second message")
+
+import argparse  # noqa: E402
+
+# live-confirm across a reopen that re-accepts a NEW generation.  Generations
+# here are real lineage (daily_generation_sha256), so the stage's own checks run.
+O3_SHA_A, O3_SHA_B = "a" * 64, "b" * 64
+O3_GEN_A = f"db3308_{daily_generation_sha256(O3_DAY.isoformat(), O3_SHA_A)[:16]}"
+O3_GEN_B = f"db3308_{daily_generation_sha256(O3_DAY.isoformat(), O3_SHA_B)[:16]}"
+
+
+def o3_accept(generation: str, content_sha: str) -> str:
+    return json.dumps({"acceptedAt": "2026-08-20T01:00:00Z", "publicGenerationId": generation,
+                       "contentSha256": content_sha, "activeCount": 1703})
+
+
+def o3_live(generation: str, content_sha: str) -> str:
+    return O3_LIVE.replace(O3_GENERATION, generation).replace("d" * 64, content_sha)
+
+
+def o3_arg(row: Mapping[str, Any], flag: str) -> str:
+    args = json.loads(str(row["payload_json"]))["stageArgs"]
+    return str(args[args.index(flag) + 1])
+
+
+def o3_live_rows(journal: Journal, chain: Any) -> list[dict[str, Any]]:
+    return [row for row in journal.tasks(chain.run_id) if str(row["capability"]) == "live-confirm"]
+
+
+def o3_live_reopen(folder: str, accept_after: str, *, plant: str = "") -> tuple[Journal, Any, str]:
+    """live-confirm A finished, publication not yet recorded (plan() runs on
+    every completion inside execute_ready, before finalise_live); the
+    activation revision lands; the reopened legs re-accept `accept_after`."""
+
+    journal, chain = o3_chain(folder)
+    chain.allow_publish = True
+    chain.runtime_dir = Path(folder) / "runtime"
+    o3_drive(journal, chain, O3_BEFORE, until="daily-accept")
+    o3_set(journal, str(o3_rows(journal, chain)["daily-accept"]["task_key"]), "COMPLETED",
+           o3_accept(O3_GEN_A, O3_SHA_A))
+    o3_drive(journal, chain, O3_BEFORE, until="release")
+    o3_set(journal, str(o3_rows(journal, chain)["release"]["task_key"]), "COMPLETED")
+    chain.plan(O3_BEFORE)
+    rows = o3_rows(journal, chain)
+    live_a = str(rows["live-confirm"]["task_key"])
+    o3_set(journal, live_a, "COMPLETED", o3_live(O3_GEN_A, O3_SHA_A))
+    with closing(sqlite3.connect(str(journal.path))) as conn:
+        conn.execute(
+            "UPDATE chain_task SET updated_at=? WHERE task_key=?",
+            (iso(datetime.now(timezone.utc) + timedelta(seconds=5)), str(rows["candidate-activation"]["task_key"])),
+        )
+        conn.commit()
+    reopened = chain.reconcile_post_activation_dependencies()
+    assert live_a in reopened, reopened
+    for key in reopened:
+        capability = str((journal.task(key) or {}).get("capability"))
+        if capability == "daily-accept":
+            o3_set(journal, key, "COMPLETED", accept_after)
+        elif capability not in {"live-confirm", "anomaly-census"}:
+            o3_set(journal, key, "COMPLETED")
+    if plant == "generation-blind":
+        chain.live_confirm_row = lambda _generation: journal.task(live_a)  # type: ignore[method-assign]
+    chain.plan(O3_BEFORE)
+    return journal, chain, live_a
+
+
+O3_PAST_CHECKS = "PAST_GENERATION_CHECKS"
+
+
+def o3_run_live_confirm(row: Mapping[str, Any], snapshot_generation: str, folder: str) -> str:
+    """The real stage body on this row's args, against a snapshot of `snapshot_generation`.
+
+    Returns the refusal text, or O3_PAST_CHECKS when both generation checks
+    passed and the stage reached its (absent) source-health receipt, which it
+    reads before any network call."""
+
+    snapshot = Path(folder) / f"snapshot-{snapshot_generation}.json"
+    snapshot.write_bytes(json.dumps({"generation": {"id": snapshot_generation}}).encode("utf-8"))
+    missing = Path(folder) / "no-source-health.json"
+    args = argparse.Namespace(
+        run_id=o3_arg(row, "--run-id"), business_date=o3_arg(row, "--business-date"),
+        snapshot=snapshot, expected_generation=o3_arg(row, "--expected-generation"),
+        expected_content_sha256=o3_arg(row, "--expected-content-sha256"),
+        active_count=int(o3_arg(row, "--active-count")), source_health=missing,
+        confirm_before=o3_arg(row, "--confirm-before"), degraded_source=[],
+    )
+    try:
+        v2stage.stage_live_confirm(args)
+    except RuntimeError as error:
+        return str(error)
+    except FileNotFoundError as error:
+        assert Path(str(error.filename)).name == missing.name, error
+        return O3_PAST_CHECKS
+    raise AssertionError("stage_live_confirm was expected to stop before the health fetch")
+
+
+def o3_publication(journal: Journal, chain: Any) -> tuple[str, str]:
+    run = journal.run(chain.run_id) or {}
+    return str(run.get("publication_status") or ""), str(run.get("generation_id") or "")
+
+
+o3_dry = os.environ.get("CARDZ_V2_NOTIFY_DRY_RUN")
+os.environ["CARDZ_V2_NOTIFY_DRY_RUN"] = "1"
+try:
+    # New generation: A's row stays for A; B gets its own row with B's args,
+    # and finalise_live trusts only B's confirm while daily-accept holds B.
+    with tempfile.TemporaryDirectory(prefix="v2-o3-live-reopen-") as folder:
+        o3_journal, o3_planner, o3_live_a = o3_live_reopen(folder, o3_accept(O3_GEN_B, O3_SHA_B))
+        assert len(o3_live_rows(o3_journal, o3_planner)) == 2, o3_live_rows(o3_journal, o3_planner)
+        assert str((o3_journal.task(o3_live_a) or {})["status"]) == "INTERRUPTED"
+        o3_live_b = o3_planner.live_confirm_row(O3_GEN_B)
+        assert o3_live_b is not None and str(o3_live_b["task_key"]) != o3_live_a
+        assert str(o3_live_b["status"]) == "PENDING"
+        assert o3_arg(o3_live_b, "--expected-generation") == O3_GEN_B
+        assert o3_arg(o3_live_b, "--expected-content-sha256") == O3_SHA_B
+        assert str((o3_planner.live_confirm_row(O3_GEN_A) or {}).get("task_key")) == o3_live_a
+        assert o3_run_live_confirm(o3_live_b, O3_GEN_B, folder) == O3_PAST_CHECKS
+        o3_planner.plan(O3_BEFORE)
+        assert len(o3_live_rows(o3_journal, o3_planner)) == 2
+        o3_set(o3_journal, o3_live_a, "COMPLETED", o3_live(O3_GEN_A, O3_SHA_A))
+        o3_planner.finalise_live()
+        assert o3_publication(o3_journal, o3_planner) == ("", ""), "A's confirm must not publish a day that accepted B"
+        o3_set(o3_journal, str(o3_live_b["task_key"]), "COMPLETED", o3_live(O3_GEN_B, O3_SHA_B))
+        o3_planner.finalise_live()
+        assert o3_publication(o3_journal, o3_planner) == ("PUBLISHED", O3_GEN_B), o3_publication(o3_journal, o3_planner)
+    # Plant 1: the old generation-blind plan lookup is the bug as found -- the
+    # only row after re-accepting B carries A and refuses B's snapshot.
+    with tempfile.TemporaryDirectory(prefix="v2-o3-live-reopen-plant-") as folder:
+        o3_journal, o3_planner, o3_live_a = o3_live_reopen(
+            folder, o3_accept(O3_GEN_B, O3_SHA_B), plant="generation-blind")
+        o3_lives = o3_live_rows(o3_journal, o3_planner)
+        assert [str(row["task_key"]) for row in o3_lives] == [o3_live_a], "planted: no row for B"
+        assert o3_arg(o3_lives[0], "--expected-generation") == O3_GEN_A
+        o3_error = o3_run_live_confirm(o3_lives[0], O3_GEN_B, folder)
+        assert o3_error == f"release snapshot generation mismatch: expected={O3_GEN_A} actual={O3_GEN_B}", o3_error
+        print("PROOF (planted old lookup) live-confirm reruns with the old generation:", o3_error)
+    # Plant 2: a finalise_live that reads any live-confirm row publishes A's
+    # confirm on a day whose daily-accept holds B.
+    with tempfile.TemporaryDirectory(prefix="v2-o3-live-reopen-plant-") as folder:
+        o3_journal, o3_planner, o3_live_a = o3_live_reopen(folder, o3_accept(O3_GEN_B, O3_SHA_B))
+        o3_set(o3_journal, o3_live_a, "COMPLETED", o3_live(O3_GEN_A, O3_SHA_A))
+        o3_planner.live_confirm_row = lambda _generation: o3_journal.task(o3_live_a)  # type: ignore[method-assign]
+        o3_planner.finalise_live()
+        assert o3_publication(o3_journal, o3_planner) == ("PUBLISHED", O3_GEN_A), "planted: A vouches for B"
+finally:
+    if o3_dry is None:
+        os.environ.pop("CARDZ_V2_NOTIFY_DRY_RUN", None)
+    else:
+        os.environ["CARDZ_V2_NOTIFY_DRY_RUN"] = o3_dry
+print("POSITIVE_OK a reopen that re-accepts a new generation gets its own live-confirm; A's confirm cannot publish B's day")
+
+# Same generation: the one reopened row is reused, not duplicated, and its
+# args still pass the stage's generation checks.
+with tempfile.TemporaryDirectory(prefix="v2-o3-live-rerun-") as folder:
+    o3_journal, o3_planner, o3_live_a = o3_live_reopen(folder, o3_accept(O3_GEN_A, O3_SHA_A))
+    o3_lives = o3_live_rows(o3_journal, o3_planner)
+    assert [str(row["task_key"]) for row in o3_lives] == [o3_live_a], o3_lives
+    assert str(o3_lives[0]["status"]) == "INTERRUPTED"
+    assert o3_run_live_confirm(o3_lives[0], O3_GEN_A, folder) == O3_PAST_CHECKS
+print("NEGATIVE_OK a same-generation reopen reruns the one live-confirm row")
+
 # A PARKED identity stage is settled, not pending: an extra-class stage that
 # spent its interruption budget must never hold the publication day hostage
 # behind a gate only an operator `unpark` could open.

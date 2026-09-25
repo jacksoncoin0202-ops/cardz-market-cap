@@ -169,11 +169,15 @@ try {
       notes.push(`⚠️ I: ${r.name} 嗰個位已經有另一個 hook（唔係我哋嘅），冇覆蓋 → ${r.path}`);
       continue;
     }
+    if (r.state === "skipped-platform") {
+      notes.push(`I: ${r.name} 淨係 Windows 裝，呢度唔裝 → ${r.path}`);
+      continue;
+    }
     const dest = readFileSync(r.path, "utf8");
     check(`I: 裝落去嗰份 ${r.name} 要同源碼一樣`, lf(dest) === lf(readFileSync(join(SRC_DIR, r.name), "utf8")), r.path);
     check(`I: 裝落去嗰份 ${r.name} 唔准有 CR（CRLF → bad interpreter → 靜靜唔行）`, !dest.includes("\r"), r.path);
     installedOk = true;
-    notes.push(`I: ${r.name} ${{ ok: "已經係最新", installed: "裝咗", updated: "更新咗" }[r.state]} → ${r.path}`);
+    notes.push(`I: ${r.name} ${{ ok: "已經係最新", installed: "裝咗", updated: "更新咗", "replaced-lfs-shim": "取代咗 LFS shim" }[r.state]} → ${r.path}`);
   }
 } catch (err) {
   notes.push(`⚠️ I: 裝唔到 hook（環境問題，唔當紅）—— ${err.message}`);

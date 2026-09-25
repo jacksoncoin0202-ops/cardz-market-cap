@@ -27,7 +27,7 @@ from rebuild_036 import (  # noqa: E402
     _pc_language_from_console_slug,
     _pc_print_signature_ok,
     _pc_unbracketed_sp_on_own_set,
-    _pc_unbracketed_texture_error_on_own_set,
+    _pc_unbracketed_own_set_print,
 )
 from rebuild_036_identity_rules import (  # noqa: E402
     _pc_number_set_explaining,
@@ -291,6 +291,20 @@ check(
 check(
     "WOTC 1st with Unlimited sibling still refuses unbracketed",
     _pc_print_signature_ok("", FIRST_TWIN),
+    False,
+)
+check(
+    "English WOTC 1st stamped sole-1st still refuses unbracketed Unlimited",
+    _pc_print_signature_ok("", dict(
+        FIRST_SOLE, card_language="en", set_name="Pokemon Fossil",
+        canonical_name="1999 Pokemon Fossil 1st Edition Psyduck 53",
+        collector_number="53",
+    )),
+    False,
+)
+check(
+    "sole-1st with no card_language refuses (fail closed)",
+    _pc_print_signature_ok("", dict(FIRST_SOLE, card_language="")),
     False,
 )
 check(
@@ -976,18 +990,13 @@ check(
     True,
 )
 check(
-    "unbracketed Mega Dream page is the texture-error leftover PC filed without a bracket",
-    _pc_unbracketed_texture_error_on_own_set("", "", GENGAR_ERR),
-    True,
-)
-check(
-    "texture-error leftover on another set stays False",
-    _pc_unbracketed_texture_error_on_own_set("151", "", GENGAR_ERR),
+    "unbracketed Mega Dream page is the regular MAR, never the texture-error print",
+    _pc_unbracketed_own_set_print("", "", GENGAR_ERR),
     False,
 )
 check(
-    "correct MA leftover does not use the texture-error carve-out",
-    _pc_unbracketed_texture_error_on_own_set("", "", GENGAR_MA),
+    "correct MA leftover gets no own-set carve-out either",
+    _pc_unbracketed_own_set_print("", "", GENGAR_MA),
     False,
 )
 

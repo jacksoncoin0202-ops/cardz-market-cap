@@ -33,7 +33,13 @@ import pymysql
 
 from identity_name import complete_collector_number, complete_collector_tail
 import leftover5_go
-from current_quote_revision import pc_price_language_ok, pc_price_language_sql
+from current_quote_revision import (
+    all_quote_storage_source_codes,
+    canonical_quote_source_sql,
+    pc_price_language_ok,
+    pc_price_language_sql,
+    sql_source_in_list,
+)
 import db_runtime as db_runtime_connect
 from pc_sale_identity import pc_sale_fingerprint, pc_sale_price_text
 
@@ -3725,12 +3731,15 @@ def _snk_harvest_path(generation: str) -> Path:
 # eligibility view (migration 024) re-proves the exact binding and the payload
 # sha independently afterwards. Releasing the flag proves nothing on its own and
 # is not asked to.
+# Storage code -> identity source code, shared with the demotion below and with
+# the quote lane (current_quote_revision owns the alias table), so a row can
+# never be "proven" by one mapping and "unproven" by another.
+_PRICE_ROW_IDENTITY_SOURCE_SQL = canonical_quote_source_sql("p.source_code")
 _RELEASABLE_PRICE_ROWS_JOIN = """
     market_price_observation p
     INNER JOIN catalog_source_identity si
        ON si.variant_id = p.variant_id
-      AND si.source_code = CASE WHEN p.source_code IN ('snk','snk_psa10')
-                                THEN 'snkrdunk' ELSE p.source_code END
+      AND si.source_code = """ + _PRICE_ROW_IDENTITY_SOURCE_SQL + """
       AND si.external_entity_id = p.source_external_entity_id
       AND LOWER(si.match_status) = 'exact'
     INNER JOIN operator_strict_source_identity osi
@@ -3772,6 +3781,65 @@ def release_collateral_price_quarantine(conn: Any) -> dict[str, int]:
             # keeps the half-known write and only stops the reporting.
             raise SystemExit(
                 "price quarantine release counted"
+                f" {before['rows']} rows but updated {updated};"
+                " another writer is active -- re-run with the freeze in place"
+            )
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    return {"rows": updated, "variants": before["variants"]}
+
+
+# The other half of the release: a ready PC/SNK price row stays ready only while
+# the provider item it was captured from is, today, the item this card is PROVEN
+# to be. `metric_status` is the one flag every reader honours (the FE history
+# read, the quote bootstrap, the eligibility views), so it is the one place to
+# enforce identity; nothing downstream re-checks it for the reference series.
+#
+# 2026-09-25 read-only census: 18,078 ready rows on 97 variants had no strict
+# identity for their own card -- 31 cards bound to another card's item since a
+# rebinding, 66 EN One Piece cards carrying JA SNK prices from manual_review
+# guesses, 2 cards with an empty entity id -- and 17,682 of them fed the card
+# page long chart and the 90/180/365 fallback anchor.
+#
+# The two predicates are disjoint (this one requires NO strict identity, the
+# release requires one), so a row can never flap between them in one pass, and
+# a demoted row comes back by itself the day its identity is proven.
+_UNPROVEN_READY_PRICE_ROWS_WHERE = (
+    " WHERE p.metric_status = 'ready'"
+    " AND p.source_code IN (" + sql_source_in_list(all_quote_storage_source_codes()) + ")"
+    " AND NOT EXISTS (SELECT 1 FROM operator_strict_source_identity osi"
+    " WHERE osi.variant_id = p.variant_id"
+    " AND osi.source_code = " + _PRICE_ROW_IDENTITY_SOURCE_SQL +
+    " AND osi.external_entity_id = p.source_external_entity_id)"
+)
+COUNT_UNPROVEN_READY_PRICE_ROWS_SQL = (
+    "SELECT COUNT(*) AS rows_n, COUNT(DISTINCT p.variant_id) AS variants_n"
+    " FROM market_price_observation p" + _UNPROVEN_READY_PRICE_ROWS_WHERE
+)
+QUARANTINE_UNPROVEN_READY_PRICE_ROWS_SQL = (
+    "UPDATE market_price_observation p SET p.metric_status = 'quarantined'"
+    + _UNPROVEN_READY_PRICE_ROWS_WHERE
+)
+
+
+def quarantine_unproven_price_rows(conn: Any) -> dict[str, int]:
+    """Quarantine ready price rows whose card is not proven to be their item."""
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute(COUNT_UNPROVEN_READY_PRICE_ROWS_SQL)
+            row = cur.fetchone()
+            before = {
+                "rows": int(row["rows_n"]), "variants": int(row["variants_n"]),
+            }
+            cur.execute(QUARANTINE_UNPROVEN_READY_PRICE_ROWS_SQL)
+            updated = int(cur.rowcount)
+        if updated != before["rows"]:
+            # Same guard as the release: decide before the commit.
+            raise SystemExit(
+                "unproven price quarantine counted"
                 f" {before['rows']} rows but updated {updated};"
                 " another writer is active -- re-run with the freeze in place"
             )
@@ -4300,6 +4368,9 @@ def stage_price_materialize(ctx: SimpleNamespace) -> dict[str, Any]:
     snk_manifest_path.write_bytes(snk_manifest_blob)
     counts["snkSalesManifest"] = snk_manifest_path.relative_to(ROOT).as_posix()
 
+    unproven = quarantine_unproven_price_rows(conn)
+    counts["priceUnprovenQuarantined"] = unproven["rows"]
+    counts["priceUnprovenQuarantinedVariants"] = unproven["variants"]
     released = release_collateral_price_quarantine(conn)
     counts["priceQuarantineReleased"] = released["rows"]
     counts["priceQuarantineReleasedVariants"] = released["variants"]
@@ -4436,6 +4507,11 @@ _PC_IMAGE_TRANSFORM = {
     "roundedCorners": False,
     "encoder": {"format": "webp", "quality": 92},
 }
+# accepted_by of a human-designated image acceptance (pipelines/
+# pin_human_card_image.py; the 2026-08-11 pin has the same value).  No auto
+# lane supersedes an acceptance carrying it.  Defined once, in the only writer
+# of market_canonical_image_acceptance; re-exported here under the old name.
+from image_lane_policy import HUMAN_IMAGE_ACCEPTED_BY, accept_canonical_image  # noqa: E402,F401
 
 
 def _market_assets_dir() -> Path:
@@ -4484,7 +4560,11 @@ def _fe_image_state(conn, variant_ids: list[int]) -> dict[int, dict[str, Any]]:
             "   AND f.canonical_image_acceptance_id IS NOT NULL"
             "   AND f.content_sha256 REGEXP '^[0-9a-f]{64}$'"
             "   AND NOT EXISTS (SELECT 1 FROM market_canonical_image_acceptance newer"
-            "                   WHERE newer.supersedes_acceptance_id=ca.id)",
+            "                   WHERE newer.supersedes_acceptance_id=ca.id)"
+            # Human reject = hard authority at the FE read; same text as the
+            # live-db-snapshot.ts fallback and migration 061's view.
+            "   AND NOT EXISTS (SELECT 1 FROM market_image_rejection_registry rej"
+            "                   WHERE rej.variant_id=a.variant_id AND rej.content_sha256=a.content_sha256)",
             variant_ids,
         )
         for row in cursor.fetchall():
@@ -4739,7 +4819,8 @@ def _persist_pc_product_image(cursor, *, variant_id: int, pid: str, image_url: s
         "qcVersion": processed["qcVersion"],
     }))
     cursor.execute(
-        "SELECT ca.id, ca.lineage_sha256 FROM market_canonical_image_acceptance ca"
+        "SELECT ca.id, ca.lineage_sha256, ca.accepted_by"
+        " FROM market_canonical_image_acceptance ca"
         " WHERE ca.variant_id=%s"
         "  AND NOT EXISTS (SELECT 1 FROM market_canonical_image_acceptance newer"
         "                  WHERE newer.supersedes_acceptance_id=ca.id)"
@@ -4750,18 +4831,24 @@ def _persist_pc_product_image(cursor, *, variant_id: int, pid: str, image_url: s
     if current and str(current["lineage_sha256"]) == lineage_sha:
         acceptance_id = int(current["id"])
     else:
-        cursor.execute(
-            "INSERT INTO market_canonical_image_acceptance"
-            " (variant_id,storefront_lineage_id,image_asset_id,"
-            "  fallback_source_path,fallback_source_version_sha256,"
-            "  fallback_source_observed_at,lineage_sha256,evidence_sha256,"
-            "  accepted_by,accepted_at,supersedes_acceptance_id)"
-            " VALUES (%s,NULL,%s,%s,%s,%s,%s,%s,'rebuild_036:image_bind',%s,%s)",
-            (variant_id, asset_id, f"pricecharting:{pid}:{image_url}",
-             lineage_sha, observed_at, lineage_sha, acceptance_evidence,
-             completed_at, int(current["id"]) if current else None),
-        )
-        acceptance_id = int(cursor.lastrowid)
+        # image_lane_policy is the only writer of the table.  A human pin, a
+        # review-approved head or a registry (variant, sha) is held there; this
+        # lane raises on a hold (ImageLaneHeld), which rolls the whole card
+        # back in stage_image_bind (pc_persist) -- no acceptance, no freeze.
+        acceptance_id = accept_canonical_image(
+            cursor,
+            variant_id=variant_id,
+            image_asset_id=asset_id,
+            content_sha256=content_sha,
+            lineage_sha256=lineage_sha,
+            evidence_sha256=acceptance_evidence,
+            accepted_by="rebuild_036:image_bind",
+            accepted_at=completed_at,
+            fallback_source_path=f"pricecharting:{pid}:{image_url}",
+            fallback_source_version_sha256=lineage_sha,
+            fallback_source_observed_at=observed_at,
+            raise_on_hold=True,
+        ).acceptance_id
     cursor.execute(
         "INSERT INTO operator_binding_freeze"
         " (variant_id,freeze_kind,source_code,external_entity_id,content_sha256,"
@@ -8571,7 +8658,9 @@ def cmd_daily_accept(args: argparse.Namespace) -> int:
         # Tonight's discovery proves identities for cards whose price rows were
         # collateral-quarantined months ago. Nothing else would ever look at
         # those rows again, so the card would keep its new binding and still
-        # have no price. Same predicate the rebuild stage uses.
+        # have no price. Same predicate the rebuild stage uses. Rows whose card
+        # is no longer proven to be their item go the other way first.
+        unproven = quarantine_unproven_price_rows(conn)
         released = release_collateral_price_quarantine(conn)
         _mark("quarantineRelease")
 
@@ -8632,6 +8721,7 @@ def cmd_daily_accept(args: argparse.Namespace) -> int:
                 "dailyManifests": daily_manifest_stats,
             },
             "historyAcceptance": history,
+            "priceUnprovenQuarantined": unproven,
             "priceQuarantineReleased": released,
             "discoveryGap": discovery_gap,
             "freshness36h": freshness,
@@ -8706,7 +8796,6 @@ from rebuild_036_reverify import (  # noqa: E402,F401
     _pc_page_product_id,
     _pc_print_signature_ok,
     _pc_unbracketed_sp_on_own_set,
-    _pc_unbracketed_texture_error_on_own_set,
     _pc_unbracketed_own_set_print,
     _pc_spc_metal,
     _pc_spc_metal_parallel,

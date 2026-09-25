@@ -322,7 +322,9 @@ export async function GET(request: Request): Promise<Response> {
     }
   }
   const scoped = scopeSnapshot(snapshot, scope, { pageSize: 100 });
-  const cards = scoped.top100.slice(0, show);
+  // The seated board (30d seat rule, #47), not page 1 of the list: on a short
+  // per-game board page 1 continues into rank 101+. scripts/test-top100-30d-sales.mjs checks this.
+  const cards = (scoped.lead100 ?? []).slice(0, show);
   if (cards.length === 0) return new Response("No cards", { status: 404 });
 
   /*

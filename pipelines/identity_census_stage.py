@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -42,6 +43,15 @@ CENSUS_MAX_AGE_DAYS = 0.75
 HARVEST_BUDGET_SECONDS = 1920.0
 HARVEST_TIMEOUT_SECONDS = 1800
 SECONDS_PER_DAY = 86400.0
+# 2026-09-21 live: the harvester died on a Cloudflare 403 and the journal only
+# said "harvest exit=1", which the V2 classifier reads as SOURCE_FAILED and the
+# morning brief cannot explain.  The harvester's own cause line (its final
+# CENSUS_HARVEST_FAILED line or the traceback's exception line) now rides along
+# after that prefix, so a 403 reads as AUTH_OR_BLOCKED.
+HARVEST_CAUSE_RE = re.compile(
+    r"CENSUS_HARVEST_FAILED:.*|^[A-Za-z_][\w.]*(?:Error|Exception|Incomplete|Expired)\b:.*"
+)
+HARVEST_CAUSE_MAX_CHARS = 300
 
 
 def census_path(root: Path | None = None) -> Path:
@@ -95,6 +105,16 @@ def _subprocess_runner(command: list[str], *, timeout: int, cwd: Path) -> dict[s
         "exitCode": int(proc.returncode),
         "outputTail": "\n".join(combined.splitlines()[-20:]),
     }
+
+
+def harvest_failure_cause(output_tail: str) -> str:
+    """The last line of harvester output that says why it failed, or ''."""
+
+    for line in reversed(str(output_tail or "").splitlines()):
+        match = HARVEST_CAUSE_RE.search(line.strip())
+        if match:
+            return match.group(0)[:HARVEST_CAUSE_MAX_CHARS]
+    return ""
 
 
 def write_receipt(receipt: Mapping[str, Any], path: Path) -> Path:
@@ -181,7 +201,10 @@ def run_identity_census(
                 refreshed_age = census_age_days(path, moment)
                 receipt["ageDays"] = None if refreshed_age is None else round(refreshed_age, 4)
             else:
-                receipt["error"] = f"harvest exit={receipt['exitCode']}"
+                cause = harvest_failure_cause(receipt["outputTail"])
+                receipt["error"] = f"harvest exit={receipt['exitCode']}" + (
+                    f": {cause}" if cause else ""
+                )
     if not receipt["refreshed"] and refresh_required:
         receipt["censusNote"] = (
             "business-date all-set census was not refreshed: the chain must not"

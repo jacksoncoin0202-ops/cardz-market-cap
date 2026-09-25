@@ -300,6 +300,13 @@ git -C "$RELEASE_REPO" rev-parse HEAD > "$TESTED_MARK"
 # receipt 寫入 SOURCE 嘅 data/runtime（bake 個 CARDZ_REPO_ROOT 都係指 SOURCE）。
 "$TEST_PY" -X utf8 "$SOURCE_REPO/pipelines/pc_sale_title_quarantine.py"
 
+# 價格 DB 閘（test_price_lane_contracts + proof_historical_quote_resolver）。上面兩次
+# run_all_tests 都帶 --no-db，所以以前呢啲閘喺發佈路徑係零 call site。一定要喺 receipt
+# 重生之後（閘驗「隔離表 ⊆ receipt」）、bake 之前（bake 食呢份 receipt）。頂層指令、
+# 唔包 if、唔加 || true：紅就 set -e 即死；runner 印嘅 CARDZ_TEST_RESULT failed>=1 令
+# V2 attempt 1 就判 PUBLISH_DETERMINISTIC。MySQL 連唔到唔出 verdict，照舊可重試。
+"$TEST_PY" -X utf8 "$SOURCE_REPO/scripts/run_all_tests.py" --release-db-gates
+
 # BOX sidecar: SOURCE (fe-db) data/public/box-subset.json is the producer output.
 # No SOURCE file → keep whatever release git already carries (never publish empty /box).
 BOX_SRC="$SOURCE_REPO/data/public/box-subset.json"
@@ -328,25 +335,28 @@ stage_box_sidecar
 # 就係咁：prune movedFiles=897，sync「source tree is missing 897」，retry
 # 位（11:30／16:30）撞同一個洞，當日 [deploy] 出唔到。
 # --no-prune 交俾下面 SOURCE sync：PSA10 由 source 抄，BOX 留 dest，多餘先刪。
+# 每步都要 `|| return`：下面 `if publish_assets` 嘅 if 條件入面 set -e 失效，冇呢個
+# 函數淨係回傳最後一步（coverage）嘅 exit code，bake throw／sync／validate 紅全部被吞，
+# 之後驗嘅係舊 snapshot。
 publish_assets() {
   CARDZ_REPO_ROOT="$SOURCE_REPO" node "$RELEASE_REPO/scripts/bake-public-snapshot.mjs" \
     --output "$RELEASE_REPO/data/public/seed-snapshot.json" \
-    --no-prune
+    --no-prune || return
   python3 -X utf8 "$SOURCE_REPO/scripts/sync_public_release_assets.py" \
     --snapshot "$RELEASE_REPO/data/public/seed-snapshot.json" \
     --source "$SOURCE_REPO/data/public/market-assets" \
-    --destination "$RELEASE_REPO/data/public/market-assets"
+    --destination "$RELEASE_REPO/data/public/market-assets" || return
   python3 -X utf8 "$RELEASE_REPO/scripts/validate_daily_release.py" \
     --snapshot "$RELEASE_REPO/data/public/seed-snapshot.json" \
     --assets "$RELEASE_REPO/data/public/market-assets" \
     --box "$BOX_DST" \
-    --box-previous "$BOX_PREV"
+    --box-previous "$BOX_PREV" || return
   # R6b 2026-08-24：真板 D3/D5（預設窗錨覆蓋率 ≥60% + 後備真係做緊嘢）喺呢度先判
   # 得到——pre-bake suite 對住嘅係「上一次 bake」，producer schema 啱啱改嗰晚必然
   # 係舊 schema（實錄：R6-final 過渡 snapshot 冇混合 series 又未有 historyReference，
   # 180d 覆蓋率 10.4%，判唔到 R6b 本身好唔好）。--board 逼個 test 對住頭先 bake 出
   # 嚟、將要 commit 出街嘅 bytes 硬跑，唔准 skip——gate 冇鬆過，只係搬到見到真相嘅位。
-  node "$RELEASE_REPO/scripts/test-fe-default-window-coverage.mjs" --board
+  node "$RELEASE_REPO/scripts/test-fe-default-window-coverage.mjs" --board || return
 }
 
 asset_attempt=1

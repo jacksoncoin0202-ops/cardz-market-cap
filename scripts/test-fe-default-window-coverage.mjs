@@ -3,7 +3,7 @@
  * 預設時段（`types.ts` `defaultMarketWindow`）要喺**真數據**上面錨得住 —— 2026-08-24（R6 後續）。
  *
  * 背景：R6 將 `historyDaily` 由「K 線觀測點」收窄成「真成交日」之後，條 series 稀疏咗好多，
- * 而 `windows.*.changePct` 全部靠佢搵錨（`windowMetrics` → `nearestPrice` / `latestBefore`）。
+ * 而 `windows.*.changePct` 全部靠佢搵錨（`windowMetrics` → `latestBefore`）。
  * 純成交嘅 180d 喺 08-23 嗰份 seed snapshot 上面只有 165/1604（10.3%）張卡搵到錨 —— 即係
  * 成板 ~90% 卡嘅預設視圖、卡頁 meta 變動徽章、同分享圖（`SHARE_WINDOW`）全部變「資料累積中」。
  * 冇 error、冇 500、頁面照出，所以呢種塌方唔會有人嗌，只可以用數據釘住。

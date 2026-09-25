@@ -2891,40 +2891,28 @@ def sync_026_canonical_image_acceptances(cur) -> dict:
                 "storefrontLineageId": storefront_lineage_id,
             }
         )
-        cur.execute(
-            """
-            SELECT id,lineage_sha256 FROM market_canonical_image_acceptance
-            WHERE variant_id=%s AND NOT EXISTS (
-              SELECT 1 FROM market_canonical_image_acceptance newer
-              WHERE newer.supersedes_acceptance_id=market_canonical_image_acceptance.id
-            ) ORDER BY accepted_at DESC,id DESC LIMIT 1
-            """,
-            (variant_id,),
-        )
-        current = cur.fetchone()
-        supersedes = None if not current or current.get("lineage_sha256") == lineage_sha else int(current["id"])
-        cur.execute(
-            """
-            INSERT INTO market_canonical_image_acceptance
-              (variant_id,storefront_lineage_id,image_asset_id,fallback_source_path,
-               fallback_source_version_sha256,fallback_source_observed_at,lineage_sha256,
-               evidence_sha256,accepted_by,accepted_at,supersedes_acceptance_id)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)
-            """,
-            (
-                variant_id, storefront_lineage_id, asset_id, fallback_path,
-                fallback_version, fallback_observed, lineage_sha, evidence_sha,
-                ACCEPTANCE_ACTOR, now, supersedes,
-            ),
-        )
-        acceptance_id = int(cur.lastrowid)
-        if acceptance_id <= 0:
-            cur.execute(
-                "SELECT id FROM market_canonical_image_acceptance WHERE lineage_sha256=%s",
-                (lineage_sha,),
-            )
-            acceptance_id = int((cur.fetchone() or {}).get("id") or 0)
+        # image_lane_policy is the only writer of the table (same head read,
+        # same ON DUPLICATE KEY reuse of an existing lineage).  This sync must
+        # be complete or fail, so a hold (human / review-approved head, One
+        # Piece SNK over an existing head, registry pair) raises.
+        from image_lane_policy import accept_canonical_image
+
+        acceptance_id = accept_canonical_image(
+            cur,
+            variant_id=variant_id,
+            image_asset_id=asset_id,
+            content_sha256=content_sha,
+            lineage_sha256=lineage_sha,
+            evidence_sha256=evidence_sha,
+            accepted_by=ACCEPTANCE_ACTOR,
+            accepted_at=now,
+            storefront_lineage_id=storefront_lineage_id,
+            fallback_source_path=fallback_path,
+            fallback_source_version_sha256=fallback_version,
+            fallback_source_observed_at=fallback_observed,
+            reuse_existing_lineage=True,
+            raise_on_hold=True,
+        ).acceptance_id
         cur.execute(
             """
             INSERT INTO operator_binding_freeze

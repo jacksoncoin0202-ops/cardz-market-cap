@@ -1,4 +1,3 @@
-import { deriveBoxWindow, longWindows } from "./derive-windows";
 import { intrinsicSize, marketWindows, sealedGroups, type MarketMetric, type SealedProductView, type SealedViewBlock } from "./types";
 
 /*
@@ -92,18 +91,13 @@ function boxProductView(product: BoxSidecarProduct): SealedProductView | null {
   const askMetric: MarketMetric<number> = product.askFloor
     ? { value: product.askFloor.usd, status: "ready", asOf: product.askFloor.asOf }
     : { value: null, status: "unavailable", asOf: null };
-  const history = product.historyDaily || [];
+  /*
+   * Every window, 1d to 365d, is the producer's (sealed_operator._windows_from_line): the same-lane as-of anchor and the
+   * MAX_WINDOW_RATIO withhold live there only, since historyDaily carries no lane and stops at 400 points. A window
+   * without changePct was withheld or has no anchor; it stays accumulating, never re-derived here from the lane-blind
+   * history (deriveBoxWindow did that for 90d / 180d / 365d until 2026-09-26, and showed moves the producer withheld).
+   */
   const windows = Object.fromEntries(marketWindows.map((window) => {
-    if ((longWindows as readonly string[]).includes(window)) {
-      const baked = product.windows?.[window];
-      if (baked && typeof baked.changePct === "number") {
-        return [window, {
-          changePct: { value: baked.changePct, status: "ready" as const, asOf: price?.asOf ?? null },
-          soldCount: baked.soldCount ?? 0,
-        }];
-      }
-      return [window, deriveBoxWindow(history, price?.usd ?? null, price?.asOf ?? null, window as typeof longWindows[number])];
-    }
     const metrics = product.windows?.[window];
     const changePct: MarketMetric<number> =
       metrics && typeof metrics.changePct === "number"

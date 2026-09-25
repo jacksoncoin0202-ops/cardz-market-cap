@@ -303,52 +303,16 @@ def _pc_unbracketed_sp_on_own_set(
     return derived == "sp"
 
 
-def _pc_unbracketed_texture_error_on_own_set(
-    via_number_set: str,
-    page_parallel: str,
-    row: Mapping[str, Any],
-) -> bool:
-    """PriceCharting files Mega Dream EX texture-error Gengar as unbracketed #230.
-
-    Leftover v1904 GemRate PSA10 1410 matches PSA Incorrect Texture (~1040–
-    1443) and the page census 963. The correct MA twin v339 is 39082 — 40×
-    the census, so not this page. Charizard got a separate [Texture Error]
-    bracket; Gengar did not. _pc_print_signature_ok('', incorrect texture)
-    stays False. via_number_set non-empty still refuses (wrong set).
-    """
-
-    if via_number_set:
-        return False
-    if str(page_parallel or "").strip():
-        return False
-    if str(row.get("tcg_code") or "") != "pokemon":
-        return False
-    blob = _norm_text(
-        str(row.get("parallel_code") or "")
-        + " "
-        + str(row.get("fp_parallel") or "")
-        + " "
-        + str(row.get("canonical_name") or "")
-        + " "
-        + str(row.get("printing_code") or row.get("v_printing_code") or "")
-    )
-    return (
-        "incorrect texture" in blob
-        or "texture error" in blob
-        or "missing texture" in blob
-    )
-
-
 def _pc_unbracketed_own_set_print(
     via_number_set: str,
     page_parallel: str,
     row: Mapping[str, Any],
 ) -> bool:
-    return _pc_unbracketed_sp_on_own_set(
-        via_number_set, page_parallel, row,
-    ) or _pc_unbracketed_texture_error_on_own_set(
-        via_number_set, page_parallel, row,
-    )
+    # 2026-09-25: the Mega Dream EX texture-error carve-out is gone. It bound
+    # v1904 (Incorrect Texture) to PC 11302596 on a 963 page census, but every
+    # PSA10 sale on that page is the regular MAR (v339) at a ninth of the error
+    # print's price. An unbracketed heading is PriceCharting's base print.
+    return _pc_unbracketed_sp_on_own_set(via_number_set, page_parallel, row)
 
 
 def _pc_print_signature_ok(page_parallel: str, row: Mapping[str, Any]) -> bool:
@@ -381,7 +345,12 @@ def _pc_print_signature_ok(page_parallel: str, row: Mapping[str, Any]) -> bool:
         # PriceCharting does not split 1st/Unlimited. WOTC Jungle twins keep
         # refusing because sole_1st_printing is false when an unlimited
         # sibling shares the number. Not a relaxation of the Yamato hole.
-        if row.get("sole_1st_printing") and (
+        # English is never sole-1st: every WOTC English 1st Edition card has
+        # an Unlimited print on PriceCharting even when our catalog lacks the
+        # sibling, and the unbracketed heading is that Unlimited print
+        # (2026-09-26: nine Fossil/Rocket/Jungle 1st were bound to it).
+        language = _norm_text(str(row.get("card_language") or ""))
+        if row.get("sole_1st_printing") and language and language not in {"en", "english"} and (
             printing == "1st"
             or _norm_text(variant_parallel) in {"1st", "1st edition", "first edition"}
         ):

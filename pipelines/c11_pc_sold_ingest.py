@@ -54,7 +54,6 @@ GRADE = "10"
 ACCEPTED = "partial"
 OTHER_GRADE_RE = re.compile(r"\b(?:BGS|CGC|SGC|TAG)\s*10\b", re.IGNORECASE)
 RAW_RE = re.compile(r"\b(?:raw|ungraded|proxy|orica|reprint)\b", re.IGNORECASE)
-BUNDLE_RE = re.compile(r"\b(?:lot|bundle|set of|x\s*\d+)\b", re.IGNORECASE)
 JP_RE = re.compile(r"\b(?:japanese|japan|jp)\b", re.IGNORECASE)
 STOP = {
     "the", "and", "with", "ex", "gx", "vmax", "vstar", "card", "pokemon",
@@ -154,6 +153,162 @@ def title_collector_contradiction(title: str, collector_number: str) -> bool:
     if re.search(rf"(?<![\d/.])0*{wanted}(?![\d/])", title or ""):
         return False
     return True
+
+
+# ── Listing-level screens (2026-09-25) ────────────────────────────────────
+# One implementation, two callers: verify_sale (new rows never land) and
+# pc_sale_title_quarantine.build_receipt (rows that already landed are
+# subtracted at bake).  Each returns a stable reason code; the receipt stores
+# it (market_pc_sale_title_quarantine.reason is VARCHAR(64)).
+# Measured over the 90,501 stored PC sales and 240 judge-labelled titles
+# (scratchpad xsku/jev): every rule below was checked hit by hit.
+TITLE_REASON_LOT = "title_lot_or_bundle"
+TITLE_REASON_DAMAGED = "title_damaged_slab"
+TITLE_REASON_OTHER_GRADE = "title_other_psa_grade"
+TITLE_REASON_LANGUAGE = "title_language_mismatch"
+
+# Quantity words.  The old rule was `x\s*\d+`, which rejected seller stock
+# codes ("Glaceon VMAX 209/203 … x608 - Pokemon See Card"), "Inferno X 2025"
+# and "Lv.X 2021": 34 of 34 board rejects were single cards.  A quantity is
+# x + 1-2 digits that is not a card number (X 13/80) and not glued to "Lv.".
+LOT_RE = re.compile(
+    r"\b(?:lot|bundle|set of|pairs?)\b"
+    r"|(?<![\w.])x\s?[1-9]\d?\b(?!\s*/|\.\d)"
+    r"|\b[2-9]\s?x\b"
+    r"|\b[2-9]\s?pcs\b|\b[2-9]sets?\b"
+    r"|\+\s*display\b",
+    re.IGNORECASE,
+)
+# "Sequential" names consecutive PSA certs.  57 of 65 stored titles with it
+# sell 2+ cards; 8 are one card from a split run ("… PSA 10 *Sequential",
+# "(Sequential IDs)", price ~1.0x the card median).  So the word alone is not
+# enough: it needs a second-card cue.
+SEQUENTIAL_RE = re.compile(r"(?<!part of )(?<!part of a )\bsequential\b", re.IGNORECASE)
+SEQUENTIAL_GROUP_RE = re.compile(
+    r"\bsequential\W{0,3}(?:set|pair|lot)\b|\b(?:set|pair)\W{0,3}sequential\b",
+    re.IGNORECASE,
+)
+# Cues that also occur in single-card names ("Latias & Latios GX", "Sun & Moon",
+# "Base Set") count only when the card's own identity text lacks them.
+SEQUENTIAL_NAME_CUE_RE = re.compile(r"&|\band\b|\bset\b", re.IGNORECASE)
+SEQUENTIAL_NUMBER_LIST_RE = re.compile(r"#?\b\d{1,3}\s*,\s*#?\d{1,3}\b")
+
+# Slab damage.  "Cracked Ice" is a holo pattern; a word the card's own
+# identity text carries (a "Cracked" promo) is its name, not damage.
+DAMAGED_SLAB_RE = re.compile(r"\b(?:damaged?|broken|crack)\b|\bcracked\b(?!\s+ice)", re.IGNORECASE)
+
+# Another PSA grade.  These rows come from PC's PSA 10 tab, so a title with no
+# grade at all is a match; only an explicit PSA 1-9 or PSA AUTHENTIC, with no
+# PSA 10 anywhere in the title, contradicts the tab.  "PSA 0" is a typo.
+PSA_GRADE_RE = re.compile(
+    r"\bpsa[\s-]*(?:gem\s*(?:mint|mt)\s*|mint\s*|nm-?mt\s*|graded?\s*)?(10|[1-9])(?![\w/.])",
+    re.IGNORECASE,
+)
+PSA_AUTHENTIC_RE = re.compile(r"\bpsa[\s-]*(?:auth|authentic)\b", re.IGNORECASE)
+
+# Language a title claims.  Words, plus PSA's uppercase label prefix
+# ("PRE ES-PRISMATIC EVOLUTIONS").  A claim contradicts the card only when the
+# card's language AND its identity text (set name + canonical name) share
+# none of the title's claims: "JP … English" on a JP card passes, an
+# Indonesian claim on an "Indonesian SV-P Promo" card passes.
+LANGUAGE_WORDS = {
+    "en": r"english|eng",
+    "ja": r"japanese|japan|jpn|jap|jp",
+    "ko": r"korean|korea|kor|kr",
+    "zh": r"chinese|china|chn|cn|taiwan|taiwanese",
+    "id": r"indonesian|indonesia|indo|idn",
+    "th": r"thai|thailand",
+    "es": r"spanish|espa[ñn]ol",
+    "fr": r"french|fran[çc]ais",
+    "de": r"german|deutsch",
+    "it": r"italian|italiano",
+    "pt": r"portuguese|portugu[eê]s",
+}
+LANGUAGE_WORD_RES = {
+    code: re.compile(rf"\b(?:{words})\b", re.IGNORECASE) for code, words in LANGUAGE_WORDS.items()
+}
+LANGUAGE_LABEL_RE = re.compile(r"\b(ES|FR|DE|IT|PT)-(?=[A-Z])")
+CARD_LANGUAGE_CODES = {"en": "en", "ja": "ja", "zhCN": "zh", "zhTW": "zh", "ko": "ko"}
+
+
+def language_claims(text: str) -> set[str]:
+    claims = {code for code, pattern in LANGUAGE_WORD_RES.items() if pattern.search(text or "")}
+    claims |= {m.group(1).lower() for m in LANGUAGE_LABEL_RE.finditer(text or "")}
+    return claims
+
+
+def title_lot_or_bundle(title: str, identity_text: str = "") -> bool:
+    title = title or ""
+    if LOT_RE.search(title):
+        return True
+    if not SEQUENTIAL_RE.search(title):
+        return False
+    if SEQUENTIAL_GROUP_RE.search(title) or "+" in title or SEQUENTIAL_NUMBER_LIST_RE.search(title):
+        return True
+    if len(_collector_claims(title)) >= 2:
+        return True
+    identity_cf = (identity_text or "").casefold()
+    for m in SEQUENTIAL_NAME_CUE_RE.finditer(title):
+        cue = m.group(0).casefold()
+        if cue == "&":
+            if "&" not in identity_cf:
+                return True
+        elif not re.search(rf"\b{cue}\b", identity_cf):
+            return True
+    return False
+
+
+def title_damaged_slab(title: str, identity_text: str = "") -> bool:
+    m = DAMAGED_SLAB_RE.search(title or "")
+    if not m:
+        return False
+    return not re.search(rf"\b{re.escape(m.group(0))}\b", identity_text or "", re.IGNORECASE)
+
+
+def title_other_psa_grade(title: str) -> bool:
+    grades = {int(m.group(1)) for m in PSA_GRADE_RE.finditer(title or "")}
+    if 10 in grades:
+        return False
+    return bool(grades) or bool(PSA_AUTHENTIC_RE.search(title or ""))
+
+
+def title_language_mismatch(title: str, card_language: str, identity_text: str = "") -> bool:
+    claims = language_claims(title)
+    language = str(card_language or "").strip()
+    if not claims or not language:
+        return False
+    have = {CARD_LANGUAGE_CODES.get(language, language[:2].lower())} | language_claims(identity_text)
+    return not (claims & have)
+
+
+def title_listing_conflict(
+    title: str, *, card_language: str = "", identity_text: str = ""
+) -> str | None:
+    """First listing-level reason this title contradicts the bound card, or None."""
+
+    if title_lot_or_bundle(title, identity_text):
+        return TITLE_REASON_LOT
+    if title_damaged_slab(title, identity_text):
+        return TITLE_REASON_DAMAGED
+    if title_other_psa_grade(title):
+        return TITLE_REASON_OTHER_GRADE
+    if title_language_mismatch(title, card_language, identity_text):
+        return TITLE_REASON_LANGUAGE
+    return None
+
+
+LISTING_REJECT_STAT = {
+    TITLE_REASON_LOT: "reject_bundle",
+    TITLE_REASON_DAMAGED: "reject_damaged_slab",
+    TITLE_REASON_OTHER_GRADE: "reject_other_psa_grade",
+    TITLE_REASON_LANGUAGE: "reject_language_mismatch",
+}
+
+
+def identity_text(row: Mapping[str, Any]) -> str:
+    """Set name + canonical name: the text a language/damage word may legitimately come from."""
+
+    return f"{row.get('set_name') or ''} | {row.get('canonical_name') or ''}"
 
 
 def name_tokens(value: str) -> set[str]:
@@ -314,6 +469,39 @@ def gate_map_rows_against_db_exact_products(
     )
 
 
+# PC map rows (c11_pc_ebay_map_full900.jsonl) carry no collector_number, set
+# or language, so until 2026-09-25 the gated title_collector_contradiction
+# call always received "" and never fired at ingest ("107/095" landed on a
+# 213/214 card; only the stored-sale receipt caught it).  The bound card's
+# identity comes from the catalog instead, read-only, once per run.
+CARD_IDENTITY_SQL = """
+    SELECT p.variant_id, p.collector_number, p.card_language, p.set_name, v.canonical_name
+    FROM catalog_printing_identity p
+    LEFT JOIN catalog_variant v ON v.id = p.variant_id
+    WHERE p.variant_id IN ({marks})
+"""
+CARD_IDENTITY_KEYS = ("collector_number", "card_language", "set_name", "canonical_name")
+
+
+def attach_card_identity(cur, map_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    variant_ids = sorted({int(row["variant_id"]) for row in map_rows})
+    identity: dict[int, Mapping[str, Any]] = {}
+    for start in range(0, len(variant_ids), 400):
+        chunk = variant_ids[start:start + 400]
+        cur.execute(CARD_IDENTITY_SQL.format(marks=",".join(["%s"] * len(chunk))), chunk)
+        for found in cur.fetchall():
+            identity[int(found["variant_id"])] = found
+    enriched: list[dict[str, Any]] = []
+    for row in map_rows:
+        work = dict(row)
+        found = identity.get(int(row["variant_id"]))
+        if found is not None:
+            for key in CARD_IDENTITY_KEYS:
+                work[key] = str(found.get(key) or "")
+        enriched.append(work)
+    return enriched
+
+
 def verify_sale(
     row: dict[str, Any],
     sale: dict[str, Any],
@@ -346,10 +534,17 @@ def verify_sale(
     # their title (1.06%). They are not other grades -- they are sellers who
     # wrote "PSA GEM MINT 10", "PSA GRADE 10", or no grade at all
     # ("Electrode 101/165 | SV - MEW en: 151 | Holo - English | Pokemon NM").
-    # OTHER_GRADE_RE / RAW_RE / BUNDLE_RE stay: those catch titles that
-    # contradict the tab (a BGS 10, a raw copy, a lot), which is a real signal.
-    if BUNDLE_RE.search(title):
-        stats["reject_bundle"] += 1
+    # OTHER_GRADE_RE / RAW_RE and the listing screens stay: those catch titles
+    # that contradict the tab (a BGS 10, a raw copy, a lot, a PSA 9), which is
+    # a real signal.  The same title_listing_conflict decides stored rows
+    # (pc_sale_title_quarantine), so ingest and the receipt cannot disagree.
+    listing_reason = title_listing_conflict(
+        title,
+        card_language=str(row.get("card_language") or ""),
+        identity_text=identity_text(row),
+    )
+    if listing_reason is not None:
+        stats[LISTING_REJECT_STAT[listing_reason]] += 1
         return None
     # A current exact PC product identity already proves product ↔ canonical card.
     # Its completed-sale listing titles are transport metadata, not a second
@@ -842,6 +1037,7 @@ def main() -> int:
     map_rows, exact_product_rejections = gate_map_rows_against_db_exact_products(
         cur, map_rows
     )
+    map_rows = attach_card_identity(cur, map_rows)
     # Gated alias rows now carry the canonical variant id, which is also the
     # only id allowed in downstream sale/registry records.
     card_meta.update({int(row["variant_id"]): row for row in map_rows})

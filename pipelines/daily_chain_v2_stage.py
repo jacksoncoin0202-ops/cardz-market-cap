@@ -573,6 +573,72 @@ def stage_identity_brief(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def stage_anomaly_census(args: argparse.Namespace) -> dict[str, Any]:
+    """Run the report-only anomaly census on the released snapshot and journal it.
+
+    Same transport as stage_identity_brief: the rendered HTML rides in the
+    event payload and DailyChainV2._event_message returns it verbatim.  The
+    event key hashes the message, and the census renders the same message for
+    a same-day rerun (its baseline is the previous business date's archive),
+    so a retry cannot post a second copy.  An AnomalyInputError leaves as a
+    nonzero stage exit carrying its ANOMALY_* text -- never as a "dry" day.
+    """
+
+    # Same bridge as stage_identity_brief (see there): the chain exports
+    # CARDZ_V2_STATE_DB, default_state_path() reads CARDZ_DAILY_V2_STATE_DB.
+    state_db = os.environ.get("CARDZ_V2_STATE_DB", "").strip()
+    if state_db:
+        os.environ.setdefault("CARDZ_DAILY_V2_STATE_DB", state_db)
+
+    import daily_anomaly_census
+
+    business_date = str(args.business_date or "")
+    if not business_date:
+        raise RuntimeError("ANOMALY_BUSINESS_DATE_MISSING: anomaly-census needs --business-date")
+    try:
+        doc = daily_anomaly_census.run(
+            business_date=business_date,
+            snapshot_path=Path(args.snapshot),
+            expected_generation=args.expected_generation or None,
+        )
+    except daily_anomaly_census.AnomalyInputError as error:
+        raise RuntimeError(str(error)) from error
+    message = str(doc.get("message") or "")
+
+    event_key = ""
+    journal_path = os.environ.get("CARDZ_V2_STATE_DB")
+    run_id = os.environ.get("CARDZ_V2_RUN_ID")
+    if journal_path and run_id:
+        from daily_chain_v2_journal import Journal
+
+        event_key = f"{business_date}:{sha256(message)[:16]}"
+        Journal(Path(journal_path)).add_event(
+            run_id,
+            daily_anomaly_census.ANOMALY_CENSUS_EVENT,
+            event_key,
+            {
+                "runId": run_id,
+                "businessDate": business_date,
+                "generation": doc.get("generation"),
+                "message": message,
+                "newCount": int(doc.get("newCount") or 0),
+                "consecutiveDryDays": int(doc.get("consecutiveDryDays") or 0),
+            },
+        )
+    return {
+        "stage": "anomaly-census",
+        "businessDate": business_date,
+        "generation": doc.get("generation"),
+        "openCount": int(doc.get("openCount") or 0),
+        "newCount": int(doc.get("newCount") or 0),
+        "consecutiveDryDays": int(doc.get("consecutiveDryDays") or 0),
+        "baseline": bool(doc.get("baseline")),
+        "messageChars": len(message),
+        "eventType": daily_anomaly_census.ANOMALY_CENSUS_EVENT,
+        "eventKey": event_key,
+    }
+
+
 def stage_noop(args: argparse.Namespace) -> dict[str, Any]:
     detail = json.loads(args.detail_json)
     if not isinstance(detail, Mapping):
@@ -1419,6 +1485,13 @@ def main() -> int:
         "--business-date", default=os.environ.get("CARDZ_V2_BUSINESS_DATE")
     )
     brief.set_defaults(func=stage_identity_brief)
+    anomaly = sub.add_parser("anomaly-census")
+    anomaly.add_argument(
+        "--business-date", default=os.environ.get("CARDZ_V2_BUSINESS_DATE")
+    )
+    anomaly.add_argument("--snapshot", type=Path, required=True)
+    anomaly.add_argument("--expected-generation", default=None)
+    anomaly.set_defaults(func=stage_anomaly_census)
     noop = sub.add_parser("noop")
     noop.add_argument("--detail-json", required=True)
     noop.set_defaults(func=stage_noop)

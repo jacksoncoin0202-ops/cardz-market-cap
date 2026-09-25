@@ -10,7 +10,7 @@ import type {
 } from "@cardz/market-data";
 import type { RowDataPacket } from "mysql2";
 import mysql from "mysql2/promise";
-import { normaliseSnapshot } from "./snapshot";
+import { hasQualifying30dSale, normaliseSnapshot, TOP100_SEATS } from "./snapshot";
 import { formatStoryForDisplay } from "./story-display";
 import { currencies, type MarketViewSnapshot } from "./types";
 
@@ -59,11 +59,12 @@ function loadDbEnvironment(): void {
 // PC 成交 title↔卡號矛盾隔離 receipt（runbook 形狀 29，v1326 Latias +556% 事故）。
 // sales landing 冇 status 欄、acceptance append-only、sales history 係 VIEW，
 // 所以隔離用 ledger 形式：pipelines/pc_sale_title_quarantine.py 用判別器
-// （c11_pc_sold_ingest.title_collector_contradiction，一個概念一份實現）重新
-// 生成，呢度淨係讀 receipt 扣數，唔准喺 TS 再抄一次判別邏輯。
+// （c11_pc_sold_ingest.title_collector_contradiction；2026-09-25 起加
+// sale_price_outlier.is_isolated_price_outlier = reason price_isolated_spike，
+// 一個概念一份實現）重新生成，呢度淨係讀 receipt 扣數，唔准喺 TS 再抄一次判別邏輯。
 // 檔案唔存在就 throw：靜靜咁 fail-open 出街 = 毒數照出，寧願 bake 死。
 // receipt 過期就由 scripts/test_price_lane_contracts.py 嘅 DB gate 兜住。
-function loadSaleQuarantine(alreadyExcludedSaleIds: ReadonlySet<number>): Map<string, { valueUsd: number; count: number }> {
+function readSaleQuarantineEntries(): Array<{ saleObservationId: number; variantId: number; observedDate: string; transactionValueUsd: number | null; quantity: number | null }> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- 同步 lazy load（見 repoRoot 上面嘅 block 註）。
   const { readFileSync } = require("node:fs") as typeof import("node:fs");
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- 同上。
@@ -72,8 +73,12 @@ function loadSaleQuarantine(alreadyExcludedSaleIds: ReadonlySet<number>): Map<st
   const doc = JSON.parse(readFileSync(receiptPath, "utf8")) as {
     entries: Array<{ saleObservationId: number; variantId: number; observedDate: string; transactionValueUsd: number | null; quantity: number | null }>;
   };
+  return doc.entries;
+}
+
+function loadSaleQuarantine(alreadyExcludedSaleIds: ReadonlySet<number>): Map<string, { valueUsd: number; count: number }> {
   const excluded = new Map<string, { valueUsd: number; count: number }>();
-  for (const entry of doc.entries) {
+  for (const entry of readSaleQuarantineEntries()) {
     // 058 之後 DB view 已經將 market_pc_sale_title_quarantine 入面嘅成交剔走；
     // 呢度再扣一次就係雙重扣減（有真成交嗰日會被扣到偏低／歸零）。只扣 DB 未識嘅。
     if (alreadyExcludedSaleIds.has(Number(entry.saleObservationId))) continue;
@@ -146,7 +151,8 @@ type AnchorCandidate = { at: string; priceUsd: number; sourceCode: string | null
 // 所以 chartLaneOf 而家嘅工作淨係「錨（`<lane>_sales`）同現價 quote（`<lane>_sales`）
 // 剝返同一個母碼再比」，跨 marketplace 嗰個假暴升由源頭消失。
 // 2026-09-25 收緊：上面「唔同源就退去當日成交均價」同「`*_sales` 升格點照收」兩條後門一齊封。
-// 錨一定要同現價同一條 lane；另一個市場嘅成交、同埋多源嗰日嘅 `exact_psa10_sales` 均價都唔准。
+// 錨一定要同現價同一條 lane；另一個市場嘅成交、同埋多源嗰日嘅 `exact_psa10_sales` 均價都唔准
+//（多源嗰日 lane 自己嗰部分成交照做得錨，2026-09-26，見 anchorCandidate）。
 // 實測 Mimikyu（#26）現價係 SNKRDUNK 成交 $21,063，180d 錨咗 PC 一單 $95（03-28，錯卡成交），
 // 出街 +22,072%；Celebrations 噴火龍（#54）現價 $450，90d 錨咗另一條 lane 嘅 $20,500，出 −97.8%。
 // 同 lane 冇錨就照灰（accumulating）。currentSource 係 null 嗰陣（例如
@@ -157,10 +163,28 @@ function chartLaneOf(sourceCode: unknown): string | null {
   return code.endsWith("_sales") ? code.slice(0, -"_sales".length) : code;
 }
 
+// 一日入面每條 lane 自己嘅成交（lane → 合計），由 bake 另外由成交 view 按 lane 讀出嚟。
+type LaneSalesDay = Readonly<Record<string, { value: number; count: number }>>;
+
+// 2026-09-26 價格審計（coordinator 拍板）：錨讀現價嗰條 lane **自己**嗰日嘅成交，唔係睇
+// 合併日點個 source 標籤。以前多源日（PC + SNK 同日都有成交）合併成一個
+// `exact_psa10_sales` 均價點，lane 閘見標籤唔啱就成日跳走——連埋嗰日 lane 自己真有嘅成交。
+// 實測 #60（vid 42）現價係 09-18 一單 PC $1,291.05，嗰日 SNK 都有單，於是 7d 退去 09-01
+// 一單 $760，出 +69.9%（應該 ≈0%）；#64（vid 37）差唔多日日多源，7d 退咗成個月去 08-25，
+// 出 −28.3%。所以有 lane 資料嗰日就淨係睇 lane 自己：有就用 lane 自己嘅均價，冇就唔係
+// 候選。混合均價一樣唔准做錨（冇放鬆 lane 閘）。冇 lane 資料（測試、已剝碼 payload）先
+// 退返下面按標籤嘅舊路。
 function anchorCandidate(
   point: DailyHistoryPoint,
   currentSource: string | null,
+  laneDay?: LaneSalesDay,
 ): AnchorCandidate | null {
+  if (currentSource && laneDay) {
+    const own = laneDay[currentSource];
+    return own && own.count > 0 && own.value > 0
+      ? { at: point.at, priceUsd: own.value / own.count, sourceCode: `${currentSource}_sales` }
+      : null;
+  }
   const source = (point as DailyHistoryPoint & { priceSourceCode?: string | null }).priceSourceCode ?? null;
   // 現價有 lane 嗰陣，錨要講得出自己係同一條 lane：冇 source 嘅點（連下面成交均價後備）一樣唔准。
   if (currentSource && (!source || chartLaneOf(source) !== currentSource)) return null;
@@ -177,53 +201,27 @@ function anchorCandidate(
   return null;
 }
 
-function nearestPrice(
-  history: DailyHistoryPoint[],
-  targetMs: number,
-  toleranceDays: number,
-  beforeMs: number,
-  currentSource: string | null,
-): AnchorCandidate | null {
-  let winner: AnchorCandidate | null = null;
-  let winnerDelta = Number.POSITIVE_INFINITY;
-  for (const point of history) {
-    const candidate = anchorCandidate(point, currentSource);
-    if (candidate === null) continue;
-    const at = new Date(candidate.at).valueOf();
-    // 錨必須嚴格舊過而家嗰個 as-of。1d 個 tolerance 係 2 日（下面 :126）而
-    // daysBack 得 1 日，所以卡自己嗰個 current price point 落喺錨嘅容忍窗入面
-    // （delta 啱啱好 1.0）—— 冇更近嘅舊點嗰陣佢就贏，變成攞自己同自己比，
-    // 出一個 status:"ready" 嘅 0.00%。實測 393 張卡（372 pricecharting + 21
-    // snkrdunk）就係咁，錨價同頭條價 byte 相同。我哋冇嗰 24 小時嘅證據，就唔應該
-    // 出嗰個數。
-    if (at >= beforeMs) continue;
-    const delta = Math.abs(at - targetMs) / 86_400_000;
-    if (delta <= toleranceDays && delta < winnerDelta) {
-      winner = candidate;
-      winnerDelta = delta;
-    }
-  }
-  return winner;
-}
-
-// 30d 帶內（25–35 日前）搵唔到錨，唔代表「唔知 30 日前價錢係幾多」——價格
-// 係 step function：30 日前嘅價 = 嗰一刻嘅最後已知價（股票圖星期一計 1d 變化
-// 用星期五收市價，同一個道理）。PC 月線每月 1 號先郁一次，所以每個月嘅尾段
-// 「啱啱好 30±5 日前」永遠冇點落喺帶內——帶內政策同月線源頭嘅週期天生相沖
-//（同 40 日 freshness cutoff 要遷就月線係同一個理由）。所以 30d 帶內落空時，
-// 准退去帶前最後一個同基準點：梵高喺 08-12 會攞 07-01 月線 $2,850 對現價
-// $2,836 出 −0.5%，係真·月對月變化，唔係發明數。1d 唔跟（:117 嘅 24 小時
-// 證據原則照企），7d 都唔跟（周對周退到月線會出假 0.0%，週期唔匹配）。
-// 乜舊點都冇（上市未夠一個月）嘅卡照灰——嗰個先至係真「資料累積中」。
+// 窗變幅 = 現價 對 「(now − 窗) 嗰刻當時嘅價」（as-of）。價格係 step function：
+// target 嗰刻嘅價 = target 或之前最後一單同 lane 成交（股票圖星期一計 1d 變化用
+// 星期五收市價，同一個道理）。所以 1d／7d／30d／長窗全部行呢一條，冇 ±帶。
+// 2026-09-26 價格審計（coordinator 拍板）：以前 1d／7d／30d 用 nearestPrice 喺 target
+// ±2/3/5 日揀最近一點，會揀到 target **之後**嘅成交（連頭條價自己嗰日）。043 之後
+// currentAsOf 係 checkedAt（採集鐘），`at >= beforeMs` 攔唔住成交日自己個點，出街變咗
+// 「同自己比」嘅 0.0%／日均價差：generation 6f0d6e09 上 1d 14、7d 392、30d 540 個窗。
+// 帶外就灰嗰條規矩一齊拎走：窗入面冇成交 = target 嗰刻嘅價就係頭條價自己 = 0%，
+// 呢個係定義，唔係「資料累積中」，亦唔准變成「同上一單比」。
+// 乜舊點都冇（第一單成交遲過 target）嘅卡照灰——嗰個先至係真「資料累積中」。
+// 同 lane 規矩（anchorCandidate）同 MAX_WINDOW_RATIO 照企。
 function latestBefore(
   history: DailyHistoryPoint[],
   beforeMs: number,
   currentSource: string | null,
+  laneSales?: ReadonlyMap<string, LaneSalesDay> | null,
 ): AnchorCandidate | null {
   let winner: AnchorCandidate | null = null;
   let winnerMs = Number.NEGATIVE_INFINITY;
   for (const point of history) {
-    const candidate = anchorCandidate(point, currentSource);
+    const candidate = anchorCandidate(point, currentSource, laneSales?.get(point.at.slice(0, 10)));
     if (candidate === null) continue;
     const at = new Date(candidate.at).valueOf();
     if (at < beforeMs && at > winnerMs) {
@@ -299,19 +297,16 @@ function windowMetrics(
   currentAsOf: string | null,
   currentSource: string | null,
   reference: DailyHistoryPoint[] = [],
+  // 日期（YYYY-MM-DD）→ 嗰日每條 lane 自己嘅成交（見 anchorCandidate）。淨係成交錨用，參考點唔用。
+  laneSales: ReadonlyMap<string, LaneSalesDay> | null = null,
 ): Record<keyof typeof WINDOWS, WindowMetrics> {
   const currentMs = currentAsOf ? new Date(currentAsOf).valueOf() : Date.now();
   const currentCap = currentPrice === null || currentPopulation === null ? null : currentPrice * currentPopulation;
   return Object.fromEntries(Object.entries(WINDOWS).map(([code, daysBack]) => {
-    const tolerance = code === "1d" ? 2 : code === "7d" ? 3 : 5;
     const targetMs = currentMs - daysBack * 86_400_000;
-    // 帶內空咗先輪到 step-function 後備（見 latestBefore 註釋）。帶內冇點
-    // ⇒ (target−5d, target+5d) 全空 ⇒「最後一個 < target−5d 嘅點」就係
-    //「最後一個 ≤ target 嘅點」，即係標準 as-of 語義，冇偷步。
-    const saleAnchor = LONG_WINDOWS.has(code)
-      ? latestBefore(history, targetMs + 1, currentSource)
-      : nearestPrice(history, targetMs, tolerance, currentMs, currentSource)
-        ?? (code === "30d" ? latestBefore(history, targetMs - tolerance * 86_400_000, currentSource) : null);
+    // as-of：target 或之前最後一單同 lane 成交（見 latestBefore 註釋）。錨舊過 target
+    // 幾多日都係 target 嗰刻嘅價（市場靜 = 價冇郁），唔設 ±帶。
+    const saleAnchor = latestBefore(history, targetMs + 1, currentSource, laneSales);
     const found = saleAnchor
       ?? (LONG_WINDOWS.has(code) ? latestBefore(reference, targetMs + 1, currentSource) : null);
     // 現價或錨 ≤ 0 算唔出倍數，一樣唔出街（唔係 −100%）。
@@ -419,6 +414,68 @@ export async function loadLiveDbSnapshot(): Promise<MarketViewSnapshot> {
   return promise;
 }
 
+/*
+ * Post-build check: no published (variant, sha) may be one a human rejected
+ * (market_image_rejection_registry). The reads filter it already; this is the
+ * one point that proves the bytes about to ship obey it, whichever read path
+ * picked the image. Keyed on (variant, sha), never the sha alone: the same
+ * scan is legitimately reused across variants (JP rejected, EN published).
+ * "contract mismatch" makes the V2 classifier stop the release terminally.
+ * scripts/test-image-rejection-publish-gate.mjs extracts and plants this.
+ */
+export function assertNoRejectedImagePublished(
+  published: { variantId: number; sha256: string }[],
+  rejected: DbRow[],
+): void {
+  const key = (variantId: unknown, sha: unknown) => `${Number(variantId)}:${String(sha ?? "").toLowerCase()}`;
+  const banned = new Set(rejected.map((row) => key(row.variant_id, row.content_sha256)));
+  const hits = published
+    .filter((item) => item.sha256 && banned.has(key(item.variantId, item.sha256)))
+    .map((item) => `${item.variantId}:${item.sha256.toLowerCase().slice(0, 12)}`);
+  if (hits.length) {
+    throw new Error(
+      `image rejection registry contract mismatch: ${hits.length} published (variant, sha) pair(s) are human-rejected: ${hits.join(",")}`,
+    );
+  }
+}
+
+/*
+ * Global Top100 liquidity seat (daddy 2026-07-29, #47; the rule itself is
+ * hasQualifying30dSale in snapshot.ts): a card with no qualifying PSA10 sale in
+ * its 30d window holds no Top100 seat; the next card that has one moves up.
+ *
+ * The ranks are rewritten, not just the top100/watchlist split: every board
+ * (server-snapshot scopeSnapshot, heatmap lead100, OG image, watchlist 101+)
+ * picks by marketRank. Seated cards take 1..100 in canonical order; every other
+ * ranked card keeps canonical order from 101, so a dropped card keeps its detail
+ * page and heads the watchlist. Unranked (rank 0) cards are untouched. Fewer
+ * seatable cards than seats throws: the boards would fill the gap by rank with
+ * cards that have no sale.
+ * scripts/test-top100-30d-sales.mjs extracts and plants this.
+ */
+export function seatTop100(cards: PublicCard[]): { top100: PublicCard[]; watchlist: PublicCard[] } {
+  const ranked = cards.filter((card) => card.marketRank > 0).sort((a, b) => a.marketRank - b.marketRank);
+  const unranked = cards.filter((card) => !(card.marketRank > 0));
+  const seated: PublicCard[] = [];
+  const rest: PublicCard[] = [];
+  for (const card of ranked) {
+    if (seated.length < TOP100_SEATS && hasQualifying30dSale(card)) seated.push(card);
+    else rest.push(card);
+  }
+  if (seated.length < Math.min(TOP100_SEATS, ranked.length)) {
+    throw new Error(
+      `Top100 liquidity seat rule: only ${seated.length} of ${ranked.length} ranked cards have a qualifying 30d PSA10 sale; refusing to rank cards without one into the top ${TOP100_SEATS}`,
+    );
+  }
+  const reranked = [...seated, ...rest].map((card, index) => ({
+    ...card,
+    rank: index + 1,
+    marketRank: index + 1,
+    viewRank: index + 1,
+  }));
+  return { top100: reranked.slice(0, seated.length), watchlist: [...reranked.slice(seated.length), ...unranked] };
+}
+
 async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSnapshot> {
   const connection = await openConnection();
   try {
@@ -482,8 +539,11 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
     }
     const variantIds = coreRows.map((row) => Number(row.variant_id));
     const placeholders = variantIds.map(() => "?").join(",");
+    // lane 自己嘅成交（錨用）要同日線扣同一批隔離 receipt；receipt 冇 lane 欄，所以按成交 id
+    // 喺 SQL 度剔（DB 表已剔嗰批本來就唔喺 view，再剔一次係 no-op，唔會雙重扣）。
+    const quarantinedSaleIds = [0, ...readSaleQuarantineEntries().map((entry) => Number(entry.saleObservationId))];
 
-  const [localeRows, imageRows, fallbackImageRows, rawRows, referenceRows, salesRows, fxRows] = await Promise.all([
+  const [localeRows, imageRows, fallbackImageRows, rawRows, referenceRows, salesRows, laneSalesRows, fxRows] = await Promise.all([
       connection.query<DbRow[]>(`
         SELECT variant_id,locale_code,localized_name,localized_set_name,market_story,observed_at
         FROM catalog_variant_locale WHERE variant_id IN (${placeholders})
@@ -522,6 +582,13 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
             SELECT 1 FROM market_canonical_image_acceptance newer
             WHERE newer.supersedes_acceptance_id=ca.id
           )
+          -- A human rejection (market_image_rejection_registry) is hard
+          -- authority at the READ: whatever lane re-accepted that exact
+          -- (variant, content), it does not reach the page.  Same text as the
+          -- view's closing predicate in migration 061 and as
+          -- rebuild_036._fe_image_state (scripts/test_image_rejection_registry.py).
+          AND NOT EXISTS (SELECT 1 FROM market_image_rejection_registry rej
+                          WHERE rej.variant_id=a.variant_id AND rej.content_sha256=a.content_sha256)
       `, variantIds),
       connection.query<DbRow[]>(`
         SELECT raw.variant_id,raw.price_usd,raw.observed_at
@@ -560,6 +627,19 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
         FROM operator_accepted_psa10_sales_history
         WHERE variant_id IN (${placeholders}) ORDER BY variant_id,observed_date
       `, variantIds),
+      // 同一個成交 view（日線嗰個 view 就係佢嘅 GROUP BY variant,日），淨係多分一層 lane：
+      // 多源日個合併點冇咗每條 lane 自己嘅價，窗錨要（見 anchorCandidate）。lane 碼同
+      // view 入面 catalog_source_identity 嗰條 CASE 一樣。
+      connection.query<DbRow[]>(`
+        SELECT tx.variant_id,tx.observed_date,
+          CASE WHEN tx.source_code IN ('snk','snk_psa10') THEN 'snkrdunk' ELSE tx.source_code END AS lane,
+          SUM(tx.quantity) AS sales_count,SUM(tx.transaction_value_usd) AS sales_value_usd
+        FROM operator_eligible_accepted_psa10_sales_rows tx
+        INNER JOIN market_metric_history_acceptance ha ON ha.id=tx.sales_history_acceptance_id
+        WHERE tx.variant_id IN (${placeholders})
+          AND ha.source_record_id NOT IN (${quarantinedSaleIds.map(() => "?").join(",")})
+        GROUP BY tx.variant_id,tx.observed_date,lane
+      `, [...variantIds, ...quarantinedSaleIds]),
       connection.query<DbRow[]>(`
         SELECT rate.quote_currency,rate.rate,rate.effective_at
         FROM market_fx_rate_observation rate
@@ -642,6 +722,19 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       });
     }
 
+    // variant → 日期 → lane → 嗰條 lane 自己當日嘅成交（窗錨用，唔出街，唔入 historyDaily）。
+    const laneSalesByVariant = new Map<number, Map<string, Record<string, { value: number; count: number }>>>();
+    for (const row of laneSalesRows[0]) {
+      const observedDate = day(row.observed_date);
+      const value = numberValue(row.sales_value_usd);
+      const count = numberValue(row.sales_count);
+      if (!observedDate || value === null || count === null) continue;
+      const variantId = Number(row.variant_id);
+      const byDate = laneSalesByVariant.get(variantId) ?? new Map<string, Record<string, { value: number; count: number }>>();
+      laneSalesByVariant.set(variantId, byDate);
+      byDate.set(observedDate, { ...byDate.get(observedDate), [String(row.lane)]: { value, count } });
+    }
+
     type HistoryDraft = DailyHistoryPoint & {
       priceSourceCode: string | null;
       priceSourcePriority: number;
@@ -662,20 +755,26 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
     for (const row of salesRows[0]) {
       const observedDate = day(row.observed_date);
       if (!observedDate) continue;
-      const point = getPoint(Number(row.variant_id), observedDate);
-      // 扣除 title↔卡號矛盾隔離 receipt 嘅貢獻（PC fuzzy match 塞錯卡嘅成交）。
-      // 淨低仲有真成交就照出真嗰部分；扣到零就當嗰日冇 tracked sales。
+      // 扣除隔離 receipt 嘅貢獻（title↔卡號矛盾 + 孤立價格尖刺，DB 表未識嗰批）。
+      // 淨低仲有真成交就照出真嗰部分。
       const quarantined = saleQuarantine.get(`${Number(row.variant_id)}|${observedDate}`);
       let dayValue = numberValue(row.sales_value_usd);
       let dayCount = numberValue(row.sales_count);
       if (quarantined && dayValue !== null && dayCount !== null) {
         dayValue = Math.max(0, dayValue - quarantined.valueUsd);
         dayCount = Math.max(0, dayCount - quarantined.count);
-        if (dayValue <= 0 || dayCount <= 0) {
+        // 成日啲單全部隔離走 = 嗰日根本冇成交：下一輪 sync 之後 view 連呢行都冇，
+        // 所以呢度一樣唔出點。唔准留個 coverage 'partial' + value null 嘅點——
+        // salesTotal 會當「未知」，蓋住嗰日嘅 90d/180d/365d trackedSales 全部變
+        // unavailable（Top100 要 30d 成交，第一次 rollout ~550 單會拖跌幾百張卡）。
+        if (dayCount <= 0) continue;
+        // 仲有單但個值扣到 ≤ 0 = receipt 同 view 對唔上數，嗰日先係真·未知。
+        if (dayValue <= 0) {
           dayValue = null;
           dayCount = null;
         }
       }
+      const point = getPoint(Number(row.variant_id), observedDate);
       point.trackedSalesValueUsd = dayValue;
       point.trackedSalesCount = dayCount;
       point.salesCoverage = String(row.sales_coverage_status || "unavailable") as DailyHistoryPoint["salesCoverage"];
@@ -688,8 +787,8 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       // 而 `windowMetrics` 全部變幅都錨喺呢條 history 上面 —— 即係攞真成交同
       // K 線比，出街一個 +8.8% 其實應該係 +55%，冇 error、冇 warning。owner
       // 2026-08-23：「月 K 全部全線踢走」。所以 chart 讀路已經整條刪走，日線
-      // 淨返成交日；冇成交嘅日就冇點（唔准填），窗計算靠 nearestPrice /
-      // latestBefore 嘅 as-of 語義自己向前帶。
+      // 淨返成交日；冇成交嘅日就冇點（唔准填），窗計算靠 latestBefore
+      // 嘅 as-of 語義自己向前帶。
       // R6-OPEN-TICKET: history-daily-latest-sale-and-outlier-band —— 呢條日線
       // **未**做到 brief 要求嘅「當日最新一單非離群成交」。兩處差異，明文寫低，
       // 唔准當交咗貨：
@@ -700,6 +799,9 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       //  (b) 呢條日線**冇離群帶**。離群帶淨係喺 quote 側（頭條價）行，呢個 tree
       //      冇對應實現，喺 TS 再抄一份 = 一個概念兩份實現，唔准。後果：頭條價
       //      自己會 reject 嘅一單離群成交，仍然可以做到窗錨。
+      //      2026-09-25 部分收窄（唔係修好）：PC 嘅**孤立**尖刺（前後兩邊都出帶、
+      //      同一方向）喺上游隔離 receipt／058 表剔走（reason price_isolated_spike），
+      //      呢度照舊只係扣數，冇 band。SNK、同埋未有後續成交嘅最新一單仍然冇帶。
       // (a)(b) 係一套嚟，唔准拆半修：淨做 (a) 唔做 (b) 會**放大**離群曝光——
       // 出街 top100 嘅 2,623 個成交日點入面 1,592 個（60.7%）當日有 ≥2 單，均價
       // 本身有攤薄作用，換成單一最後成交就冇。頭條價嗰邊照舊係單筆最新真成交
@@ -883,11 +985,23 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
           priceAsOf,
           chartLaneOf(row.price_source_code),
           referenceDrafts,
+          laneSalesByVariant.get(variantId) ?? null,
         ),
         historyDaily: history,
         historyReference: reference,
       };
     });
+
+    const [rejectedImages] = await connection.query<DbRow[]>(
+      "SELECT variant_id,content_sha256 FROM market_image_rejection_registry",
+    );
+    assertNoRejectedImagePublished(
+      coreRows.map((row) => ({
+        variantId: Number(row.variant_id),
+        sha256: String(images.get(Number(row.variant_id))?.canonical_image_content_sha256 ?? ""),
+      })),
+      rejectedImages,
+    );
 
     // metric_accepted_at 係 daily-accept 落筆嗰刻嘅 wall clock，唔係證據時間 ——
     // 佢一路都係三個入面最大嗰個，所以 snapshot 個 effectiveAt 實質等於「我幾時
@@ -900,6 +1014,8 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       const row = fx.get(code);
       return readyMetric(numberValue(row?.rate), iso(row?.effective_at));
     };
+    // Top100 seats need a qualifying 30d PSA10 sale; ranks are rewritten to match (seatTop100).
+    const board = seatTop100(cards);
     const snapshot: PublicMarketSnapshot = {
       schemaVersion: "2.0.0",
       generation: {
@@ -918,9 +1034,9 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
       coverage: {
         claim: "verified-top-n",
         requestedCount: 100,
-        verifiedCount: Math.min(100, cards.length),
-        top100Count: Math.min(100, cards.length),
-        watchlistCount: Math.max(0, cards.length - 100),
+        verifiedCount: board.top100.length,
+        top100Count: board.top100.length,
+        watchlistCount: board.watchlist.length,
         changeReady: Object.fromEntries(Object.keys(WINDOWS).map((code) => [code, cards.filter((card) => (card.windows as Record<string, WindowMetrics>)[code].changePct.value !== null).length])) as Record<keyof typeof WINDOWS, number>,
         salesReady: Object.fromEntries(Object.keys(WINDOWS).map((code) => [code, cards.filter((card) => (card.windows as Record<string, WindowMetrics>)[code].trackedSales.valueUsd.value !== null).length])) as Record<keyof typeof WINDOWS, number>,
         completeIdentityCount: cards.filter((card) => card.identityStatus === "confirmed").length,
@@ -934,8 +1050,8 @@ async function buildLiveDbSnapshot(generationHash: string): Promise<MarketViewSn
         rates: Object.fromEntries(currencies.map((code) => [code, rate(code)])) as PublicMarketSnapshot["currencies"]["rates"],
         asOf: [...fx.values()].map((row) => iso(row.effective_at)).filter((value): value is string => Boolean(value)).sort().at(-1) ?? effectiveAt,
       },
-      top100: cards.slice(0, 100),
-      watchlist: cards.slice(100),
+      top100: board.top100,
+      watchlist: board.watchlist,
     };
     return normaliseSnapshot(snapshot);
   } finally {

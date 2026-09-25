@@ -88,6 +88,11 @@ WSL `~/cardz-market-cap-release-daily` 只係每次 fast-forward `origin/main` �
     GitHub 冇派嘅證據。唔准人造／回填 reflog 冒充原 push receipt；攞唔到原 checkout 時間證據
     就如實標記 watcher receipt unavailable，另列真 GitHub exact delivery 同 live
     `generation + generatedAt` 證據。
+22. **push 一律經 pre-push gate，唔准 `--no-verify`。** `scripts/githooks/pre-push`
+    （`node scripts/install_githooks.mjs` 裝；Windows FE test 會自動裝）每次 push 都掃
+    secret；push `main` 又改咗 `data/public/` 以外嘅嘢，就會喺 WSL 對住被 push 嗰個 sha
+    嘅乾淨 export 跑 `daily_public_release.sh` 嗰條 `--no-db` suite（約 5 分鐘）。
+    Agent 嘅 push 指令 timeout 要 ≥ 600000 ms，或者用 background；被拒就修根因再 push。
 
 > **編號（2026-09-25 合併 `origin/main`）：** 15／16／17 跟返有 code／文件引用住嘅條文
 > （`apps/web/src/lib/product-generation.ts`→15；`docs/PROMO_CHAIN.md`、`scripts/test_promo_post.py`→16；

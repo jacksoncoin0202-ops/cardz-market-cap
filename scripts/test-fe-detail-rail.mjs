@@ -27,7 +27,7 @@
  *  ⑤ **KPI 條唔准出孤兒行。** 原本個病就係 `.wide-metric:last-child { span 4 }` 喺右欄整咗
  *     一格 1062px 闊嘅孤兒行。5 格同 6 格兩種卡都要啱啱鋪滿（永遠 6 個 unit）。
  */
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -191,18 +191,21 @@ const webpSize = (buf) => {
   }
   check("T5: 真係開過檔驗（一個檔都冇開就唔准當佢過）", checkedFiles > 0, `開咗 ${checkedFiles} 個`);
 
-  /* top100 只係 1604 分之 100。用一條「數量對得返」嘅身份式覆蓋埋其餘嗰 1504：
-     卡面 variant 全部同一個尺寸，所以呢個尺寸嘅 `_600.webp` 應該啱啱好 = universe 成員數。
-     有人重 bake 成另一個尺寸嘅話呢個數即刻散，唔使等人肉眼睇到卡圖糊咗。 */
-  const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith("_600.webp")) : [];
+  /* top100 只係 universe 嘅 100 張。其餘喺 watchlist：逐張攞 seed-snapshot 指住嗰個 sha，
+     `_600.webp` 要喺度、要係卡面尺寸，而且數量 = universe 成員數。有人重 bake 成另一個尺寸
+     嘅話呢個數即刻散。唔數成個目錄：換圖之後舊 sha 嘅檔仲喺度（2026-09-25 換咗 77 張，
+     目錄 2138 個 `_600` 對 1643 張卡），數目錄只會隨換圖次數漂走，唔係驗緊出街嗰張。 */
+  const universeCards = [...cards, ...(snapshot.watchlist ?? [])];
   let cohort = 0;
-  for (const f of files) {
-    const d = webpSize(readFileSync(join(dir, f)).subarray(0, 64));
+  for (const c of universeCards) {
+    const sha = c.image?.sha256;
+    const file = sha ? join(dir, `${sha}_600.webp`) : null;
+    const d = file && existsSync(file) ? webpSize(readFileSync(file).subarray(0, 64)) : null;
     if (d && d.w === wantW && d.h === wantH) cohort += 1;
   }
   const members = Number(snapshot.universe?.memberCount);
-  check("T5: 卡面尺寸嘅 `_600.webp` 數量 = universe 成員數（覆蓋 top100 以外嗰 1504 張）",
-    Number.isFinite(members) && cohort === members, `${wantW}×${wantH} 有 ${cohort} 個，universe 有 ${members}`);
+  check("T5: universe 每張卡指住嘅 `_600.webp` 都係卡面尺寸，數量 = universe 成員數",
+    Number.isFinite(members) && cohort === members, `${wantW}×${wantH} 有 ${cohort} 張，universe 有 ${members}`);
 }
 
 /* ─────────────────────────────────────────────────────────────

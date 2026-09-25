@@ -2,7 +2,7 @@ import type { PublicMarketSnapshot } from "@cardz/market-data";
 import { boxBlockView, boxStory, type BoxSidecarBlock } from "./box-view";
 import { marketAssetObjectKey } from "./market-media";
 import { normalisePageSize } from "./pagination";
-import { normaliseSnapshot } from "./snapshot";
+import { hasQualifying30dSale, normaliseSnapshot, TOP100_SEATS } from "./snapshot";
 import { currencies, type Currency, type MarketCardView, type MarketMetric, type MarketViewSnapshot, type SealedProductView, type SealedViewBlock } from "./types";
 
 const DEFAULT_SNAPSHOT_PATH = "data/public/seed-snapshot.json";
@@ -27,11 +27,31 @@ function canonicalCards(snapshot: MarketViewSnapshot): MarketCardView[] {
     });
 }
 
+/*
+ * Per-game boards re-rank inside the game, so the global seat rule
+ * (live-db-snapshot.ts seatTop100) does not carry over: a card the global rule
+ * moved to 101+ can still be one of its game's first 100. Same rule here
+ * (hasQualifying30dSale, daddy 2026-07-29 #47): only a card with a qualifying 30d
+ * PSA10 sale takes one of the game's first TOP100_SEATS ranks. Unlike the global
+ * board this never throws: fewer qualifying cards is a short board (lead100 holds
+ * only the seated), never one padded with no-sale cards; every other card of the
+ * game keeps marketRank order from TOP100_SEATS + 1.
+ * scripts/test-top100-30d-sales.mjs extracts and plants this.
+ */
 function gameUniverse(cards: MarketCardView[], tcg: "Pokémon" | "One Piece"): MarketCardView[] {
-  return cards
+  const ranked = cards
     .filter((card) => card.tcg === tcg && card.marketRank > 0)
-    .sort((a, b) => a.marketRank - b.marketRank)
-    .map((card, index) => ({ ...card, rank: index + 1, viewRank: index + 1 }));
+    .sort((a, b) => a.marketRank - b.marketRank);
+  const seated: MarketCardView[] = [];
+  const rest: MarketCardView[] = [];
+  for (const card of ranked) {
+    if (seated.length < TOP100_SEATS && hasQualifying30dSale(card)) seated.push(card);
+    else rest.push(card);
+  }
+  return [
+    ...seated.map((card, index) => ({ ...card, rank: index + 1, viewRank: index + 1 })),
+    ...rest.map((card, index) => ({ ...card, rank: TOP100_SEATS + 1 + index, viewRank: TOP100_SEATS + 1 + index })),
+  ];
 }
 
 function scopedCoverage(count: number, requestedCount = 100): MarketViewSnapshot["coverage"] {
@@ -387,7 +407,7 @@ export function scopeSnapshot(
   const pageCount = Math.max(Math.ceil(ranked.length / pageSize), 1);
   const page = Math.min(Math.max(Math.trunc(options?.page ?? 1), 1), pageCount);
   const cards = ranked.slice((page - 1) * pageSize, page * pageSize).map(listCard);
-  const lead100 = ranked.slice(0, 100).map(listCard);
+  const lead100 = ranked.filter((card) => card.rank <= TOP100_SEATS).map(listCard);
   return {
     ...withoutSealed(snapshot),
     coverage: scopedCoverage(cards.length, ranked.length),

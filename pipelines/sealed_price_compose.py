@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from bisect import bisect_left, bisect_right
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -58,6 +59,7 @@ TRIM_LOW = 2.5
 GUARD_RATIO = 1.75
 SOLD_MIN_N = 3
 HISTORY_TRIM_HALF_D = 30  # a sale older than the 30d window is judged by the sales this many days either side of it
+SOLD_WINDOW_D = 30  # the display's sold window: sales on [day-30, day] (trim_outliers, export_sealed_subset's kept)
 MARKET_MAX_AGE_D = 45
 MARKET_TRIM_RATIO = 5.0
 MARKET_TRIM_NEAREST = 5
@@ -363,6 +365,58 @@ def _last_market(
     }
 
 
+def daily_line(
+    *,
+    group_code: str,
+    sales: list[dict],
+    market_by_source: dict[str, list[tuple[date, float]]],
+) -> list[dict]:
+    """The full daily line, one row per day with an ok sold-source sale or a market point, keyed like
+    market_sealed_daily_aggregate. A day's price is compose_current run as of that day (its SOLD_WINDOW_D sold median,
+    else its fresh market point, SNK before PC for JP), so each point is the price /box would have shown that day and
+    names the lane (composed_kind + composed_source) it came from. 2026-09-25 box audit: the line took the day's own sales
+    median (one sale became the point) or else that day's market point, so it flipped sold/market and SNK/PC day to day
+    and the windows measured those flips (ptcg-jp-sv1v 7d +66.78%: an SNK sold price against a PC market point).
+    The line holds no ask history, and it never reads the any-age last sale: that price was not observed that day.
+    Every line day still gets a price (a sale day's window holds that sale; a market day's newest point is that day's),
+    so an EN day with only an SNK point keeps it, as note last_market."""
+    jp = _is_jp(group_code)
+    sold_sources = JP_SOLD_SOURCES if jp else EN_SOLD_SOURCES
+    sold = sorted((s for s in sales if s["metric_status"] == "ok" and s["source_code"] in sold_sources),
+                  key=lambda s: s["sold_at"])
+    sold_days = [s["sold_at"].date() for s in sold]
+    by_day: dict[date, list[dict]] = defaultdict(list)
+    for sale in sold:
+        by_day[sale["sold_at"].date()].append(sale)
+    series = {source: list(market_by_source.get(source) or []) for source in ("pricecharting", "snkrdunk")}
+    series_days = {source: [d for d, _ in points] for source, points in series.items()}
+    rows: list[dict] = []
+    for d in sorted(set(by_day).union(*series_days.values())):
+        day_sales = by_day.get(d, [])
+        count = sum(int(s["quantity"] or 1) for s in day_sales)
+        value = round(sum(float(s["unit_price_usd"]) * int(s["quantity"] or 1) for s in day_sales), 2)
+        window = sold[bisect_left(sold_days, d - timedelta(days=SOLD_WINDOW_D)):bisect_right(sold_days, d)]
+        # compose_current reads only a series' newest point, so the newest point on or before d stands for the series
+        # as it stood on d.
+        as_of = {}
+        for source, days in series_days.items():
+            idx = bisect_right(days, d)
+            if idx:
+                as_of[source] = series[source][idx - 1:idx]
+        point = compose_current(group_code=group_code, kept_sales=window, market_by_source=as_of, ask=None, today=d,
+                                all_sales=[])
+        rows.append({
+            "observed_date": d,
+            "sold_count": count,
+            "sold_value_usd": value if count else None,
+            "vwap_usd": round(value / count, 2) if count else None,
+            "composed_price_usd": point["usd"] if point else None,
+            "composed_kind": point["kind"] if point else None,
+            "composed_source": point["source"] if point else None,
+        })
+    return rows
+
+
 def upsert_daily(cur, sealed_id: int, rows: list[tuple]) -> None:
     keep_dates = [row[1] for row in rows]
     if keep_dates:
@@ -427,30 +481,11 @@ def main() -> int:
                 market_by_source[source] = ok_series(rows)
 
             # full daily line
-            daily_sales: dict[date, list[dict]] = defaultdict(list)
-            for sale in sales:
-                if sale["metric_status"] == "ok" and sale["source_code"] in sold_sources:
-                    daily_sales[sale["sold_at"].date()].append(sale)
-            market_line: dict[date, tuple[float, str]] = {}
-            order = ("pricecharting", "snkrdunk") if not jp else ("snkrdunk", "pricecharting")
-            for source in reversed(order):
-                for d, v in market_by_source.get(source) or []:
-                    market_line[d] = (v, source)
-            all_dates = sorted(set(daily_sales) | set(market_line))
-            rows = []
-            for d in all_dates:
-                day_sales = daily_sales.get(d, [])
-                count = sum(int(s["quantity"] or 1) for s in day_sales)
-                value = round(sum(float(s["unit_price_usd"]) * int(s["quantity"] or 1) for s in day_sales), 2)
-                vwap = round(value / count, 2) if count else None
-                day_units = [float(s["unit_price_usd"]) for s in day_sales]
-                if day_units:
-                    composed = (round(median(day_units), 2), "sold", day_sales[0]["source_code"])
-                elif d in market_line:
-                    composed = (round(market_line[d][0], 2), "market", market_line[d][1])
-                else:
-                    composed = (None, None, None)
-                rows.append((sealed_id, d.isoformat(), count, value if count else None, vwap, composed[0], composed[1], composed[2]))
+            rows = [
+                (sealed_id, r["observed_date"].isoformat(), r["sold_count"], r["sold_value_usd"], r["vwap_usd"],
+                 r["composed_price_usd"], r["composed_kind"], r["composed_source"])
+                for r in daily_line(group_code=group, sales=sales, market_by_source=market_by_source)
+            ]
             if args.write:
                 upsert_daily(cur, sealed_id, rows)
 

@@ -67,7 +67,11 @@ FLAGGED_TASK_STATES = {"PARKED": "error", "TERMINAL": "error", "SKIPPED": "warn"
 # (daily_chain_v2 ALWAYS_ALERT_EVENTS + what 2026-08-20..24 journals contain)
 # decides which are errors; anything unknown is recorded as warn so a new event
 # type can never slip past the batch-fix review unseen.
-INFO_EVENTS = {"RUN_STARTED", "SOURCE_CONTRACT_REPAIR_PLANNED", "identity.brief", "live.confirmed", "origin.manual", "origin.scheduled"}
+# anomaly.census is the report-only daily census message (routine, like the
+# brief); its failure is ANOMALY_CENSUS_INCOMPLETE, left to the warn default
+# like the chain's other "warn" always-alert IDENTITY_CENSUS_STALE.
+INFO_EVENTS = {"RUN_STARTED", "SOURCE_CONTRACT_REPAIR_PLANNED", "identity.brief", "anomaly.census", "live.confirmed",
+               "origin.manual", "origin.scheduled"}
 ERROR_EVENTS = {"CORE_TASK_PARKED", "SLA_MISSED", "FAILED_FINAL", "ORCHESTRATOR_ERROR", "TICK_CRASHED", "TICK_SIGNALLED",
                 "PUBLISH_TERMINAL", "SOURCE_CONTRACT_REPAIR_PLAN_ERROR", "DELIVERY_LEDGER_ERROR", "RUN_ABORTED"}
 

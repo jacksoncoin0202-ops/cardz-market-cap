@@ -201,7 +201,7 @@ Receipts／logs：`data/runtime/daily-chain-v2/<business-date>/{receipts,logs}/`
 - **方向**：人手歸零——鏈自動跑、帳期自動對齊、新卡自動入場，判唔到嘅先嚟朝早 brief 搵你；你嘅唯一日常工作係回覆 brief 嘅 `bind-url`／`rule`。
 - **Gate**：永不鬆 gate——證據唔夠＝修 input 或落 ruling；每個新 assert 要證明佢真係會 fire；**「有檢查但零 call site」當冇檢查**。
 - **價格**：價＝最新真實成交；K 線只可以做長窗（≥90d）錨，永不冒充成交價。四源政策（ebay flag 由 env 管）係政策唔係 error。
-- **圖源**：G10 > SNK，其他血統 hard exclude；SAMPLE 水印唔擋發佈只做排名信號；人手 reject 係 hard authority。
+- **圖源**：G10 > SNK，其他血統 hard exclude；圖要啱先（同一張卡、編號、parallel、語言）：錯卡、EN 卡用 JP 圖、overlay／遮字、唔係卡正面嘅圖一律 reject、要換圖；SAMPLE 水印但卡啱嘅照出街，有冇 SAMPLE 嘅正確版本先換（DADDY 2026-09-26「SAMPLE 水印照要！最主要圖啱」，取代 09-25「SAMPLE 一律 reject」）；人手 reject 係 hard authority，喺 FE 讀嗰下執行（`market_image_rejection_registry`：live-db-snapshot fallback 已剔，canonical view 等 migration 061 落地）；換圖只經 `pipelines/pin_human_card_image.py`（reject＋替換同一個 transaction，auto lane 推翻唔到）。
 - **交付**：冇 receipt 唔准寫「做咗」；`autonomous_proven` 冇轉 true 之前唔准講「全自動」。
 
 ## 7. 文件地圖

@@ -189,11 +189,96 @@ with tempfile.TemporaryDirectory() as tmp:
     check("the receipt is read by saleObservationId",
           M.load_title_quarantine(present) == {90, 91})
 
+    # 2026-09-25: the same receipt now also carries price_isolated_spike entries
+    # (pc_sale_title_quarantine.py, second discriminator).  The planner must drop
+    # every entry whatever its reason -- a reason filter here would let the
+    # $1,485 Latias & Latios sale back in as a headline candidate.  Sale 95 is
+    # the newest and IN band, so only the receipt can keep it out.
+    mixed = Path(tmp) / "mixed.json"
+    mixed.write_text(json.dumps({"entries": [
+        {"saleObservationId": 90, "reason": "title_collector_contradiction"},
+        {"saleObservationId": 95, "reason": "price_isolated_spike"},
+    ]}), encoding="utf-8")
+    check("every receipt entry is quarantined, whatever its reason",
+          M.load_title_quarantine(mixed) == {90, 95}, str(M.load_title_quarantine(mixed)))
+    spiked = M.plan(
+        FakeCursor(pc_identities, pc_sales + [sale(95, 1326, "5834844", 0, "121.00", "f-spike")]),
+        source="pricecharting", variant_ids=[1326], as_of=AS_OF, quarantine_receipt=mixed,
+    )
+    check("plan() never quotes a price_isolated_spike sale from the receipt",
+          [r["saleObservationId"] for r in spiked["rows"]] == [91],
+          str([r["saleObservationId"] for r in spiked["rows"]]))
+
+# --------------------------------------------------------------------------
+# 3b. SNKRDUNK sales are quarantined by the same receipt (2026-09-25)
+# --------------------------------------------------------------------------
+# Sale 2452342 (v126) is a JPY 1,999,999 placeholder trade among JPY 21k-23.5k
+# neighbours.  The receipt keys on market_sale_observation.id, which is
+# source-neutral, and the 058 history view already drops a quarantined id of
+# any source -- but plan() used to read the receipt only for pricecharting, so
+# the same sale could leave the history and still be minted as the price.
+# Sale 7 is the newest bound sale and IN band: only the receipt keeps it out.
+_RECEIPTS = tempfile.TemporaryDirectory()
+NO_QUARANTINE = Path(_RECEIPTS.name) / "none.json"
+NO_QUARANTINE.write_bytes(b'{"entries": []}')
+snk_receipt = Path(_RECEIPTS.name) / "snk.json"
+snk_receipt.write_bytes(json.dumps({"entries": [
+    {"saleObservationId": 7, "variantId": 1279, "reason": "snk_price_placeholder"},
+]}).encode("utf-8"))
+snk_sales = sales + [sale(7, 1279, "snkrdunk:807560", 0, "305.00", "f-snk-quarantined")]
+open_door = M.plan(FakeCursor(identities, snk_sales), source="snkrdunk",
+                   variant_ids=[1279], as_of=AS_OF, quarantine_receipt=NO_QUARANTINE)
+check("fixture: with an empty receipt the in-band SNK sale 7 IS the quote",
+      [r["saleObservationId"] for r in open_door["rows"]] == [7],
+      str([r["saleObservationId"] for r in open_door["rows"]]))
+shut = M.plan(FakeCursor(identities, snk_sales), source="snkrdunk",
+              variant_ids=[1279], as_of=AS_OF, quarantine_receipt=snk_receipt)
+snk_quoted = [r["saleObservationId"] for r in shut["rows"]]
+check("a quarantined SNKRDUNK sale is never the latest-sale quote", snk_quoted == [1], str(snk_quoted))
+check("a quarantined SNKRDUNK sale is not even scanned as a band prior",
+      shut["salesScanned"] == open_door["salesScanned"] - 1,
+      f"{shut['salesScanned']} vs {open_door['salesScanned']}")
+if snk_quoted == [1]:
+    HITS.append("snk_quarantine_rejection")
+try:
+    M.plan(FakeCursor(identities, sales), source="snkrdunk", variant_ids=[1279],
+           as_of=AS_OF, quarantine_receipt=Path(_RECEIPTS.name) / "gone.json")
+    snk_raised = ""
+except FileNotFoundError as exc:
+    snk_raised = str(exc)
+check("a missing receipt stops the SNKRDUNK mint too, never an empty set",
+      "quarantine receipt is missing" in snk_raised, snk_raised or "<no raise>")
+
+# Window anchors (live-db-snapshot.ts) come from operator_accepted_psa10_sales_history,
+# which reads operator_eligible_accepted_psa10_sales_rows.  The NEWEST migration
+# defining that view must drop a quarantined sale by id alone: a source predicate
+# inside the exclusion would re-admit SNKRDUNK sales as 7d/30d anchors.
+import re  # noqa: E402
+
+VIEW_HEAD = re.compile(
+    r"CREATE\s+OR\s+REPLACE\s+VIEW\s+operator_eligible_accepted_psa10_sales_rows\b", re.I)
+defining = [
+    p for p in sorted((ROOT / "pipelines" / "migrations").glob("*.sql"))
+    if VIEW_HEAD.search(p.read_bytes().decode("utf-8"))
+]
+view_sql = defining[-1].read_bytes().decode("utf-8") if defining else ""
+view_body = VIEW_HEAD.split(view_sql)[-1].split(";", 1)[0] if defining else ""
+exclusions = [
+    m.group(1) for m in re.finditer(r"NOT\s+EXISTS\s*\((.*?)\)", view_body, re.S | re.I)
+    if "market_pc_sale_title_quarantine" in m.group(1)
+]
+check("the newest sales-rows view drops a quarantined sale by id, whatever its source",
+      len(exclusions) == 1
+      and re.search(r"tq\.sale_observation_id\s*=\s*s\.id", exclusions[0]) is not None
+      and "source_code" not in exclusions[0].lower(),
+      f"{defining[-1].name if defining else '<no view>'}: {exclusions}")
+
 # --------------------------------------------------------------------------
 # 4. plan(): the two timestamps, the payload, and registry independence
 # --------------------------------------------------------------------------
 plan_cursor = FakeCursor(identities, sales)
-doc = M.plan(plan_cursor, source="snkrdunk", variant_ids=[1279, 1300, 1444], as_of=AS_OF)
+doc = M.plan(plan_cursor, source="snkrdunk", variant_ids=[1279, 1300, 1444], as_of=AS_OF,
+             quarantine_receipt=NO_QUARANTINE)
 check("plan touched neither the source registry nor the route policy",
       not any("source_registry" in s or "route_policy" in s
               for s in plan_cursor.statements))
@@ -227,6 +312,7 @@ check("rejectedSales is present even when nothing was rejected",
 later = M.plan(
     FakeCursor(identities, sales), source="snkrdunk",
     variant_ids=[1279, 1300, 1444], as_of=AS_OF + timedelta(days=1),
+    quarantine_receipt=NO_QUARANTINE,
 )
 later_row = next(r for r in later["rows"] if r["variantId"] == 1279)
 check("replaying the same sale a day later keeps payload_sha256 identical",
@@ -239,7 +325,7 @@ check("payload_sha256 is a real sha256 of the payload body",
 # a NEW sale must move the hash -- otherwise the price could never change
 moved = M.plan(
     FakeCursor(identities, sales + [sale(6, 1279, "snkrdunk:807560", 0, "305.00", "f-new")]),
-    source="snkrdunk", variant_ids=[1279], as_of=AS_OF,
+    source="snkrdunk", variant_ids=[1279], as_of=AS_OF, quarantine_receipt=NO_QUARANTINE,
 )
 check("a newer bound sale changes both the quote and its hash",
       moved["rows"][0]["saleObservationId"] == 6
@@ -254,7 +340,7 @@ band_sales = [sale(1, 1279, "snkrdunk:807560", 0, "4000.00", "f-poison")] + [
     for i in range(10)
 ]
 band = M.plan(FakeCursor(identities, band_sales), source="snkrdunk",
-              variant_ids=[1279], as_of=AS_OF)
+              variant_ids=[1279], as_of=AS_OF, quarantine_receipt=NO_QUARANTINE)
 check("a 13x sale is rejected by the planner and the walk-back takes the next",
       band["rows"][0]["saleObservationId"] == 10, str(band["rows"][0]["saleObservationId"]))
 check("the rejection is carried in the receipt inputs with its variant",
@@ -284,7 +370,8 @@ with tempfile.TemporaryDirectory() as tmp:
 # --------------------------------------------------------------------------
 # min-hit: the fixtures must exercise each rejection path at least once
 # --------------------------------------------------------------------------
-for hit in ("identity_rejection", "quarantine_rejection", "band_rejection", "ungated_accept"):
+for hit in ("identity_rejection", "quarantine_rejection", "snk_quarantine_rejection",
+            "band_rejection", "ungated_accept"):
     check(f"fixtures exercised {hit}", hit in HITS, str(HITS))
 check("only mintable sale lanes are reachable from the CLI",
       set(M.SALE_LANE_BY_SOURCE) == {"pricecharting", "snkrdunk"}

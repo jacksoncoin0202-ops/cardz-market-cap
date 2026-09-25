@@ -206,7 +206,7 @@ const near = (value, want) => typeof value === "number" && Math.abs(value - want
   const sales = [
     salePoint("2026-07-20", 2300),                   // 30d 帶內，同 lane
     other("2026-07-23", 2000),                       // 30d 帶內，另一條 lane，仲近 target
-    other("2026-08-21", 2600, "exact_psa10_sales"),  // 1d 帶內淨係得多源嗰日
+    other("2026-08-21", 2600, "exact_psa10_sales"),  // 1d target 嗰日淨係得多源均價
     salePoint("2026-02-10", 1500),                   // 180d（target 02-23）之前，同 lane
     other("2026-02-20", 1200),                       // 180d 之前最後一點，但係另一條 lane
   ];
@@ -216,8 +216,9 @@ const near = (value, want) => typeof value === "number" && Math.abs(value - want
     JSON.stringify(w["30d"].changePct));
   check("F: 錨同 lane → 唔准 flag sourceSwitched", w["30d"].changePct.sourceSwitched === false,
     JSON.stringify(w["30d"].changePct));
-  check("F: 多源嗰日嘅均價唔准做 1d 錨 → accumulating",
-    w["1d"].changePct.value === null && w["1d"].changePct.status === "accumulating",
+  // 2026-09-26 as-of（冇 ±帶）：跳過多源嗰日，錨返 target 或之前最後一單同 lane（07-20 2300）。
+  check("F: 多源嗰日嘅均價唔准做 1d 錨 → 錨返 ≤ target 最後一單同 lane 嘅 2300",
+    w["1d"].changePct.status === "ready" && near(w["1d"].changePct.value, pct(2300)),
     JSON.stringify(w["1d"].changePct));
   check("F: 180d 跳過另一條 lane 嘅最後一點，錨返同 lane 嘅 1500",
     near(w["180d"].changePct.value, pct(1500)), JSON.stringify(w["180d"].changePct));

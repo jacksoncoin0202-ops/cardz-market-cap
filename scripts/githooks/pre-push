@@ -1,0 +1,25 @@
+#!/bin/sh
+# cardz-githook: pre-push-wsl-gate
+#
+# Installed by scripts/install_githooks.mjs on Windows only; the WSL release
+# clone keeps its Git LFS shim. This hook replaces the LFS pre-push shim in the
+# shared hooks dir and chains `git lfs pre-push` last with the same stdin.
+#
+# cardz_prepush.py does the work: a secret scan on every pushed ref, and on
+# refs/heads/main the WSL test suite on a clean export of the pushed sha.
+# --no-verify is forbidden (DADDY). A refusal means fix the cause and push again.
+set -u
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) ;;
+  *) exec git lfs pre-push "$@" ;;
+esac
+command -v git-lfs >/dev/null 2>&1 || { echo >&2 "cardz pre-push: git-lfs missing; push refused"; exit 2; }
+PY="${CARDZ_PYTHON:-python}"
+REFS="$(mktemp)" || exit 2
+trap 'rm -f "$REFS"' EXIT
+cat > "$REFS" || exit 2
+"$PY" -X utf8 "$(dirname "$0")/cardz_prepush.py" "$@" < "$REFS" || {
+  echo >&2 "cardz pre-push: REFUSED (see above). --no-verify is forbidden; fix and push again."
+  exit 1
+}
+git lfs pre-push "$@" < "$REFS"

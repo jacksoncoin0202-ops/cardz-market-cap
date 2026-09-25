@@ -24,8 +24,10 @@ sys.path.insert(0, str(ROOT / "pipelines"))
 
 from daily_chain_v2_contract import (  # noqa: E402
     PC_CHILD_ALREADY_RUNNING_CLASS,
+    adapter_stderr_excerpt,
     canonical_json,
     classify_error,
+    redact_secrets,
     sha256,
 )
 from daily_chain_v2_journal import Journal  # noqa: E402
@@ -298,11 +300,21 @@ def run_collect(
         # classifier reads a code instead of whichever card happened to land
         # in the last 6000 characters of provider prose.  The blob still
         # follows, because an unmapped code falls through to the prose scan.
+        # 2026-09-25 crawler follow-up: the sorted blob's tail is stdout
+        # progress, so the 09-18 DNS stderr never reached the classifier.  A
+        # bounded stderr excerpt leads the blob and takes its room out of the
+        # same 6000 characters; both are redacted before they are cut.
+        stderr_excerpt = adapter_stderr_excerpt(failed_detail)
+        detail_text = redact_secrets(
+            json.dumps(failed_detail, ensure_ascii=False, sort_keys=True)
+        )
+        detail_budget = 6000 - len(stderr_excerpt)
         error = RuntimeError(
             f"errorCode={'PC_CHILD_ALREADY_RUNNING' if pc_child_busy else 'COLLECT_ADAPTER_FAILED'}"
             f" adapters={adapters}"
             f" failed={report.get('failedAdapters')} truncated={report.get('truncatedAdapters')}"
-            f" detail={json.dumps(failed_detail, ensure_ascii=False, sort_keys=True)[-6000:]}"
+            + (f" stderr={stderr_excerpt}" if stderr_excerpt else "")
+            + f" detail={detail_text[max(0, len(detail_text) - detail_budget):]}"
         )
         if bool(report.get("childInterrupted")):
             # R3: the lane still failed, but the failure receipt must say the
@@ -337,9 +349,24 @@ def run_collect(
         network_refresh = pc_refresh.get("networkRefresh")
         if isinstance(network_refresh, Mapping):
             pc_fresh_fetch_failed = bool(network_refresh.get("freshFetchFailed"))
+    # 2026-09-25 crawler follow-up: snk_en_image selected nothing for 28 days
+    # and still said slaOk.  An adapter that ran clean but reports its own
+    # lane past SLA is a warning, not a failure: it degrades the source (the
+    # run publishes PUBLISHED_DEGRADED and names it) and never retries.
+    sla_stale_adapters = sorted(
+        str(result.get("adapter"))
+        for result in (report.get("results") or [])
+        if isinstance(result, Mapping)
+        and not result.get("dryRun")
+        and isinstance(result.get("freshness"), Mapping)
+        and result["freshness"].get("slaOk") is False
+    )
     status = (
         "degraded"
-        if (quarantined or failed_items or pc_fallback_replays or pc_fresh_fetch_failed)
+        if (
+            quarantined or failed_items or pc_fallback_replays or pc_fresh_fetch_failed
+            or sla_stale_adapters
+        )
         else "completed"
     )
     return {
@@ -368,6 +395,7 @@ def run_collect(
             "truncatedAdapters": report.get("truncatedAdapters") or [],
             "pcFallbackReplays": pc_fallback_replays,
             "pcFreshFetchFailed": pc_fresh_fetch_failed,
+            "slaStaleAdapters": sla_stale_adapters,
         },
     }
 

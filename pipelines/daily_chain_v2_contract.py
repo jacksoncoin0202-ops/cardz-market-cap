@@ -381,6 +381,33 @@ TERMINAL_NUMERIC_RE = re.compile(r"(?<![a-z])(nan|infinity)(?![a-z])")
 # counts only as a whole number, never as digits inside a hex run.
 CDP_PORT_RE = re.compile(r"(?<![0-9a-f])9333(?![0-9a-f])")
 MYSQL_PORT_RE = re.compile(r"(?<![0-9a-f])3308(?![0-9a-f])")
+# 2026-09-25 crawler follow-up: the bare substring "cdp" also matched file
+# names (pc_cdp_refresh_report.json, ensure_chrome_cdp.ps1, cdp.lock) and the
+# success line "CDP_IDENTITY_OK port=9333" that 182 collect-report stdout tails
+# carry, so any collect failure with a PC stdout tail took the CDP ladder.
+# "cdp" now counts as a standalone word or as a failure marker the CDP code
+# really emits (journal + runtime receipts, read 2026-09-25).  A success line
+# is removed before the scan, so it can no longer vote for a dead 9333.
+CDP_WORD_RE = re.compile(r"(?<![a-z0-9_./\\-])cdp(?![a-z0-9_-]|\.[a-z])")
+CDP_FAILURE_MARKERS = (
+    "cdp_unreachable", "cdp_identity_reject", "cdp_down", "cdp_still_down",
+    "cdp_fail", "cdp_wrong", "cdp_jammed", "cdp_revive_failed",
+    "cdp_revive_still_wrong", "cdp_evict_still_up", "cdp_evict_wsl",
+    "cdp_preflight_failed", "cdp_9333_unavailable",
+    # The PC child's generic nonzero exit.  Not always a dead browser, but
+    # dropping it could hide one, so it keeps the CDP reading it had.
+    "pc_cdp_refresh_failed",
+    "devtoolsactiveport", "chrome not reachable",
+)
+CDP_SUCCESS_LINE_RE = re.compile(
+    r"(?:cdp_identity_ok|cdp_ok|cdp_revived|fetch cdp port=\d+ ok)[^\n\"\\]*"
+)
+# DNS failures clear on their own; 2026-09-18 an SNK harvest lost every item to
+# "[Errno -3] Temporary failure in name resolution" and climbed SOURCE_FAILED.
+DNS_TRANSIENT_TOKENS = (
+    "temporary failure in name resolution",
+    "could not resolve host",
+)
 
 
 # audit P2-4 (first step): the worker already knows what failed, so a verdict
@@ -478,9 +505,12 @@ def classify_error(text: str, *, stage: str = "source") -> RetryDecision:
         if publish_failure_is_deterministic(cleaned):
             return RetryDecision("PUBLISH_DETERMINISTIC", True, ())
         return RetryDecision("PUBLISH_FAILED", False, PUBLISH_RETRY_SECONDS)
-    if CDP_PORT_RE.search(value) or any(token in value for token in (
-        "cdp", "devtoolsactiveport", "chrome not reachable",
-    )):
+    cdp_scan = CDP_SUCCESS_LINE_RE.sub(" ", value)
+    if (
+        CDP_PORT_RE.search(cdp_scan)
+        or CDP_WORD_RE.search(cdp_scan)
+        or any(token in cdp_scan for token in CDP_FAILURE_MARKERS)
+    ):
         return RetryDecision("CDP_9333_UNAVAILABLE", False, INFRA_RETRY_SECONDS)
     if MYSQL_PORT_RE.search(value) or any(token in value for token in (
         "can't connect to mysql", "cannot connect to mysql", "mysql server has gone away",
@@ -493,6 +523,7 @@ def classify_error(text: str, *, stage: str = "source") -> RetryDecision:
     ))
     if transient_http_status or any(token in value for token in (
         "too many requests", "retry-after", "timed out", "timeout",
+        *DNS_TRANSIENT_TOKENS,
     )):
         retry_after = re.search(r"retry-after\s*[:=]\s*(\d{1,5})", value)
         if retry_after:
@@ -506,6 +537,80 @@ def classify_error(text: str, *, stage: str = "source") -> RetryDecision:
     if any(token in value for token in ("ambiguous", "multiple exact", "identity conflict")):
         return RetryDecision("IDENTITY_AMBIGUOUS", True, ())
     return RetryDecision("SOURCE_FAILED", False, TRANSIENT_RETRY_SECONDS)
+
+
+# 2026-09-25 crawler follow-up: worker stderr now reaches the journal, the
+# receipts and the operator's Telegram, so anything shaped like a credential is
+# masked before it leaves the worker.  A key only needs to CONTAIN a secret
+# word (MYSQL_PASSWORD=, x-api-key:, "session_id": ...); the lookbehind keeps a
+# long hex run from being rescanned at every offset.
+_SECRET_KEY_PATTERN = (
+    r"(?<![a-z0-9_.\-])[a-z0-9_.\-]*"
+    r"(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key"
+    r"|private[_-]?key|authorization|cookie|credential|session[_-]?id)"
+    r"[a-z0-9_.\-]*"
+)
+_SECRET_REDACTIONS: tuple[tuple[re.Pattern[str], str], ...] = (
+    # Whole header lines: a cookie jar or an auth scheme has spaces and ';'.
+    (re.compile(r"(?im)^(\s*(?:set-cookie|cookie|authorization)\s*:\s*).*$"), r"\1[REDACTED]"),
+    (re.compile(r"(?i)\b(bearer|basic)\s+[a-z0-9._~+/=\-]{8,}"), r"\1 [REDACTED]"),
+    (
+        re.compile(
+            r"(?i)(" + _SECRET_KEY_PATTERN + r"\\?[\"']?\s*[:=]\s*\\?[\"']?)[^\s\"',;&\\]+"
+        ),
+        r"\1[REDACTED]",
+    ),
+    (re.compile(r"(?i)\b([a-z][a-z0-9+.\-]*://)[^/\s:@\"']+:[^/\s@\"']+@"), r"\1[REDACTED]@"),
+    (re.compile(r"(?i)\bbot\d{6,}:[a-z0-9_\-]{30,}"), "bot[REDACTED]"),
+)
+STDERR_EXCERPT_PER_TAIL = 400
+STDERR_EXCERPT_MAX_TAILS = 3
+STDERR_EXCERPT_MAX_CHARS = 1500
+COLLECT_COMMAND_NAMES = ("run", "harvest", "ingest", "derive", "materialize")
+
+
+def redact_secrets(text: Any) -> str:
+    value = str(text or "")
+    for pattern, replacement in _SECRET_REDACTIONS:
+        value = pattern.sub(replacement, value)
+    return value
+
+
+def adapter_stderr_excerpt(failed_detail: Iterable[Mapping[str, Any]]) -> str:
+    """A bounded, redacted stderr tail for a COLLECT_ADAPTER_FAILED error.
+
+    2026-09-18: SNK harvest stderr said "Temporary failure in name resolution"
+    on every item, but the error kept only the last 6000 characters of the
+    sorted detail, i.e. stdout progress lines, and the journal read
+    SOURCE_FAILED.  The last lines of each distinct stderr tail now lead the
+    detail.  Empty string when no failed command wrote to stderr.
+    """
+
+    tails: list[str] = []
+    for row in failed_detail or ():
+        commands = row.get("commands") if isinstance(row, Mapping) else None
+        if not isinstance(commands, Mapping):
+            continue
+        for name in COLLECT_COMMAND_NAMES:
+            command = commands.get(name)
+            if not isinstance(command, Mapping):
+                continue
+            # Redact the whole tail before cutting it, so the cut can never
+            # split a key from its value.  The cut stays raw: a trailing short
+            # line must not push the causal line out of the budget.
+            tail = redact_secrets(command.get("stderrTail")).strip()[-STDERR_EXCERPT_PER_TAIL:]
+            if tail and tail not in tails:
+                tails.append(tail)
+        if len(tails) >= STDERR_EXCERPT_MAX_TAILS:
+            break
+    tails = tails[:STDERR_EXCERPT_MAX_TAILS]
+    if not tails:
+        return ""
+    excerpt = json.dumps(tails, ensure_ascii=False)
+    while len(excerpt) > STDERR_EXCERPT_MAX_CHARS and len(tails) > 1:
+        tails.pop()
+        excerpt = json.dumps(tails, ensure_ascii=False)
+    return excerpt[-STDERR_EXCERPT_MAX_CHARS:]
 
 
 def publish_leg_seconds(capability: Any) -> int:

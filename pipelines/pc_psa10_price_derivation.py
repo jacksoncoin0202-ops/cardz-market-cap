@@ -217,6 +217,11 @@ def derive(rows: Iterable[Mapping[str, Any]], sales: Iterable[Mapping[str, Any]]
 
 
 def load_pc_sales(connection: Any, variant_ids: list[int], *, as_of: datetime) -> list[dict[str, Any]]:
+    # 2026-09-25: a sale in market_pc_sale_title_quarantine (058) is poison for
+    # every reader, this eBay median included -- the same table the 058 view
+    # applies, so there is one enforcement point, not a second copy of the rule.
+    # No 1146 tolerance: the chain's migrate stage installs 058 before this runs,
+    # and a missing table must stop the median, not silently re-admit the sales.
     if not variant_ids:
         return []
     marks = ",".join(["%s"] * len(variant_ids))
@@ -226,10 +231,14 @@ def load_pc_sales(connection: Any, variant_ids: list[int], *, as_of: datetime) -
             SELECT variant_id, source_code, external_entity_id, grader_code, grade_label,
                    sold_at, timestamp_quality, unit_price_usd, coverage_status,
                    transaction_fingerprint, source_payload_sha256
-            FROM market_sale_observation
+            FROM market_sale_observation s
             WHERE variant_id IN ({marks})
               AND source_code IN ({",".join(["%s"] * len(LIVE_EBAY_SOLD_SOURCE_CODES))})
               AND sold_at >= %s
+              AND NOT EXISTS (
+                SELECT 1 FROM market_pc_sale_title_quarantine tq
+                WHERE tq.sale_observation_id = s.id
+              )
             ORDER BY variant_id, sold_at, transaction_fingerprint
             """,
             (*variant_ids, *LIVE_EBAY_SOLD_SOURCE_CODES, (as_of - WINDOW).replace(tzinfo=None)),

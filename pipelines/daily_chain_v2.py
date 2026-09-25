@@ -228,11 +228,18 @@ ALWAYS_ALERT_EVENTS: dict[str, tuple[str, str, int]] = {
     "TICK_SIGNALLED": ("v2-tick-signalled", "warn", 10),
     "TASK_ADOPTED": ("v2-task-adopted", "info", 30),
     "MYSQL_RECOVERY_FAILED": ("v2-mysql-recovery-failed", "error", 30),
+    # The report-only anomaly census did not land before publication was
+    # recorded.  It never blocks the release, so silence is the failure mode
+    # this entry exists to prevent: a census that died must say so.
+    "ANOMALY_CENSUS_INCOMPLETE": ("v2-anomaly-census-incomplete", "warn", 30),
 }
 # The morning identity brief ships as its own journal event and _event_message
 # returns its already-rendered HTML verbatim.  Deliberately absent from the
 # dict above: that path escapes the message and prints every link as markup.
 IDENTITY_BRIEF_EVENT = "identity.brief"
+# Same transport as the brief: daily_anomaly_census renders Telegram HTML once
+# and _event_message hands it over verbatim (daily_anomaly_census.ANOMALY_CENSUS_EVENT).
+ANOMALY_CENSUS_EVENT = "anomaly.census"
 RUN_STATE_BY_STATUS = {
     "PUBLISHED": "PUBLISHED",
     "PUBLISHED_DEGRADED": "PUBLISHED",
@@ -1587,6 +1594,39 @@ class DailyChainV2:
             raise RuntimeError(f"duplicate V2 stage task: {capability}")
         return rows[0] if rows else None
 
+    def anomaly_census_args(self, generation: str) -> tuple[str, ...]:
+        return (
+            "--business-date", self.day_text,
+            "--snapshot", str(RELEASE_SNAPSHOT),
+            "--expected-generation", generation,
+        )
+
+    def generation_row(self, capability: str, generation: str) -> dict[str, Any] | None:
+        """The `capability` task planned for one accepted generation.
+
+        live-confirm and anomaly-census carry `--expected-generation` in their
+        stage args, so the task key (a hash of the args) is per generation and
+        stage_row()'s one-row-per-capability rule does not apply to them.  A
+        post-activation reopen that re-accepts a NEW generation leaves the old
+        row behind with the old args (reopen resets status, never args); the
+        new generation must get its own row, and only that row may speak for
+        what went live.
+        """
+
+        for row in self.journal.tasks(self.run_id):
+            if str(row["source_code"]) != "system" or str(row["capability"]) != capability:
+                continue
+            args = [str(value) for value in json.loads(str(row["payload_json"])).get("stageArgs") or []]
+            if "--expected-generation" in args and args[args.index("--expected-generation") + 1:][:1] == [generation]:
+                return row
+        return None
+
+    def anomaly_census_row(self, generation: str) -> dict[str, Any] | None:
+        return self.generation_row("anomaly-census", generation)
+
+    def live_confirm_row(self, generation: str) -> dict[str, Any] | None:
+        return self.generation_row("live-confirm", generation)
+
     def stage_complete(self, capability: str) -> bool:
         row = self.stage_row(capability)
         return bool(row and str(row["status"]) in SUCCESS_TASK_STATES)
@@ -1685,9 +1725,14 @@ class DailyChainV2:
         )
         if not dependency_updated_at:
             return []
+        # anomaly-census rows are one per accepted generation (see
+        # anomaly_census_row): reopening one reruns it for ITS generation, and
+        # a rerun of the same generation re-journals the same content-hash
+        # event key, so it cannot post twice.  A new generation gets its own
+        # row from plan() once the reopened release completes again.
         reopened = self.journal.reopen_successful_tasks_before(
             self.run_id,
-            ("core-contract-post", "daily-accept", "box", "release", "live-confirm"),
+            ("core-contract-post", "daily-accept", "box", "release", "live-confirm", "anomaly-census"),
             dependency_updated_at=dependency_updated_at,
             reason="post-activation universe/registry revision superseded this result",
         )
@@ -2338,7 +2383,8 @@ class DailyChainV2:
         health_path = self.runtime_dir / "source-health.json"
         atomic_json(health_path, health)
         degraded = degraded_source_codes(health)
-        if self.stage_row("live-confirm") is None:
+        # One row per accepted generation (generation_row).
+        if self.live_confirm_row(expected_generation) is None:
             args: list[str] = [
                 "--run-id", self.run_id,
                 "--business-date", self.day_text,
@@ -2354,6 +2400,24 @@ class DailyChainV2:
             self.add_stage(
                 phase="publish", capability="live-confirm", stage_name="live-confirm",
                 args=args, max_attempts=6,
+            )
+        # Report-only anomaly census over the snapshot that just shipped.
+        # Planned in the SAME pass as live-confirm, so the one execute_ready()
+        # that confirms the release also runs it: once publication is recorded
+        # eligible_phases() is ("source",) and a barrier row is never claimed
+        # again.  `extra` + its own concurrency group + no return: nothing
+        # downstream waits on it.  A census that has not succeeded when
+        # finalise_live() records publication raises ANOMALY_CENSUS_INCOMPLETE.
+        # One row per accepted generation (anomaly_census_row).
+        if self.anomaly_census_row(expected_generation) is None:
+            self.add_stage(
+                phase="barrier",
+                capability="anomaly-census",
+                stage_name="anomaly-census",
+                args=self.anomaly_census_args(expected_generation),
+                required_class="extra",
+                concurrency_group="anomaly-census",
+                max_attempts=2,
             )
 
     def journal_event(
@@ -3345,7 +3409,12 @@ class DailyChainV2:
         run = self.journal.run(self.run_id) or {}
         if run.get("publication_status"):
             return
-        live = self.stage_row("live-confirm")
+        # Only the confirm planned for the generation daily-accept holds now
+        # counts; a reopen that re-accepted a new one leaves the old row behind.
+        # With no accepted generation plan() never planned a live-confirm, so
+        # at most one row can exist and stage_row() reads it as before.
+        accepted = str(task_result(self.stage_row("daily-accept") or {}).get("publicGenerationId") or "")
+        live = self.live_confirm_row(accepted) if accepted else self.stage_row("live-confirm")
         if not live:
             return
         result: dict[str, Any] = {}
@@ -3422,6 +3491,24 @@ class DailyChainV2:
                     "finalAt": iso(self.schedule["final"]),
                 },
             )
+            # Publication is recorded, so no barrier row will be claimed again
+            # (eligible_phases).  A census that has not succeeded by now never
+            # will today; say so instead of letting the report go quiet.  The
+            # census that counts is the one for the generation that went live.
+            census = self.anomaly_census_row(str(event["generationId"]))
+            if census is None or str(census["status"]) not in SUCCESS_TASK_STATES:
+                self.journal_event(
+                    "ANOMALY_CENSUS_INCOMPLETE",
+                    self.day_text,
+                    {
+                        "runId": self.run_id,
+                        "taskKey": "" if census is None else str(census["task_key"]),
+                        "state": "UNPLANNED" if census is None else str(census["status"]),
+                        "attempts": 0 if census is None else int(census.get("attempts") or 0),
+                        "errorCode": "" if census is None else str(census.get("last_error_code") or ""),
+                        "generation": event["generationId"],
+                    },
+                )
 
     def publish_retry_not_after(self, row: Mapping[str, Any]) -> datetime | None:
         """The last instant this publish retry may start and still finish its leg.
@@ -3566,7 +3653,7 @@ class DailyChainV2:
 
     @staticmethod
     def _event_message(event_type: str, payload: Mapping[str, Any]) -> str:
-        if event_type == IDENTITY_BRIEF_EVENT:
+        if event_type in (IDENTITY_BRIEF_EVENT, ANOMALY_CENSUS_EVENT):
             # Verbatim: the brief is already rendered Telegram HTML with real
             # <a href> links.  Never route it through _alert_text/html.escape
             # (that is what ALWAYS_ALERT_EVENTS does), or every link in the

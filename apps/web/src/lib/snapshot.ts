@@ -15,6 +15,26 @@ import {
 } from "./types";
 
 /*
+ * Top100 liquidity seat (daddy 2026-07-29, #47): a card with no qualifying PSA10
+ * sale in its 30d window holds no Top100 seat. Qualifying = exactly what the
+ * card's own windows["30d"].trackedSales.count counts, as built by
+ * live-db-snapshot.ts: operator_accepted_psa10_sales_history (SNK + PC; sales in
+ * the 058 quarantine table are already out of the view) minus the quarantine
+ * receipt. A null count (no covered day in the window, or an unknown day) is not
+ * >= 1 and does not seat: 可信 > 覆蓋. The one definition, shared by the global
+ * board (live-db-snapshot.ts seatTop100) and the per-game boards
+ * (server-snapshot.ts gameUniverse); it lives here because both already import
+ * this module and server-snapshot must not pull mysql in statically.
+ * scripts/test-top100-30d-sales.mjs extracts and plants this.
+ */
+export const TOP100_SEATS = 100;
+
+export function hasQualifying30dSale(card: { windows: { "30d": { trackedSales: { count: { value: number | null } } } } }): boolean {
+  const count = card.windows["30d"].trackedSales.count.value;
+  return typeof count === "number" && Number.isFinite(count) && count >= 1;
+}
+
+/*
  * Product mode is a pure projection of the canonical public snapshot. Missing
  * locale values stay missing: names, set titles, stories and image alt text
  * must be consolidated before publication, never repaired by the browser.
@@ -83,8 +103,10 @@ function printingIdentityView(card: CanonicalCard): MarketCardView["printingIden
 function cardView(card: CanonicalCard): MarketCardView {
   const name = localised(card.names);
   const canonicalName = officialName(card);
-  // 圖片信任來自 release receipt + rejection registry（owner 2026-08-02 拆舊 image QC gate）；
-  // receipt 路徑出嘅 qcAt 永遠係 null，再要求 qcAt 就會全站 placeholder。
+  // 圖片信任喺 DB 讀嗰下已經決定：live-db-snapshot.ts 讀 canonical image view + freeze
+  // fallback（最新 QC public_allowed、accepted freeze、未被 supersede），fallback 同
+  // view（migration 061 落地後）都剔走 market_image_rejection_registry 嘅 (variant, sha)。
+  // 呢度只驗「係咪 public raw_front asset」；唔要求 qcAt（冇 QC 時間嗰陣 producer 出 ""）。
   const imageIsSafe = card.image.kind === "raw_front"
     && /^\/market-assets\/[a-f0-9]{64}\.webp$/.test(card.image.src);
 

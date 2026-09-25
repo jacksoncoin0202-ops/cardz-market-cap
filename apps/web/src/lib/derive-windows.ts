@@ -9,6 +9,7 @@ export const longWindowDays = { "90d": 90, "180d": 180, "365d": 365 } as const;
  * PC 月線每月 1 號先郁，緊帶 ±5/10 日會喺「啱啱好 90 日前」落空，睇落好似冇 1Y。
  * 誠實 as-of：用 asOf−N 當日或之前最後一個 ready 價。冇錨就 accumulating，唔發明數。
  * 1d / 7d / 30d 仍然用 snapshot 已發布嘅窗，呢度唔覆寫。
+ * BOX 唔經呢度：盒 1d–365d 全部窗由 sealed_operator 出（同 lane as-of + ratio withhold），box-view.ts 只顯示。
  */
 
 const DAY_MS = 86_400_000;
@@ -141,27 +142,4 @@ export function deriveLongWindows(
       deriveWindowMetrics(history, currentPrice, currentAsOf, window, reference),
     ]),
   ) as Record<LongWindow, WindowMetrics>;
-}
-
-export function deriveBoxWindow(
-  history: HistoryPricePoint[],
-  currentPrice: number | null,
-  currentAsOf: string | null,
-  window: LongWindow,
-): { changePct: MarketMetric<number>; soldCount: number } {
-  const days = longWindowDays[window];
-  const currentMs = currentAsOf ? Date.parse(currentAsOf) : Number.NaN;
-  const targetMs = currentMs - days * DAY_MS;
-  const anchor = Number.isFinite(currentMs) ? latestPriceOnOrBefore(history, targetMs) : null;
-  const priceChange = percentage(currentPrice, anchor?.priceUsd ?? null);
-  const accumulating = currentPrice === null ? "unavailable" : "accumulating";
-  const sales = Number.isFinite(currentMs) ? salesTotal(history, currentMs, days) : null;
-  return {
-    changePct: {
-      value: priceChange,
-      status: priceChange === null ? accumulating : "ready",
-      asOf: priceChange === null ? null : currentAsOf,
-    },
-    soldCount: sales?.count ?? 0,
-  };
 }

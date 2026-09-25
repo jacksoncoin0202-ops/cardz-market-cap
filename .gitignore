@@ -39,3 +39,6 @@ scripts/fe03-verify.cjs
 temp/
 backend.env
 **/backend.env
+
+# Promo account destinations: machine-local, never pushed (pre-push DENY_PATH too).
+scripts/promo_destinations.json

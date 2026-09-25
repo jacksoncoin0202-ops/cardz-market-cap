@@ -54,11 +54,36 @@ const salesHistory = [
 const sales = derive.salesTotal(salesHistory, Date.parse(asOf), 7);
 check("sales sum is day-by-day", sales && sales.value === 50 && sales.count === 3);
 
-const box = derive.deriveBoxWindow(monthly, 150, asOf, "90d");
-check("box 90d as-of ready", box.changePct.status === "ready" && Math.abs(box.changePct.value - 50) < 0.01);
+// BOX：1d–365d 全部窗只顯示 producer（sealed_operator）出嘅數；冇 changePct = withhold／冇錨，
+// 唔准用冇 lane 嘅 historyDaily 自己再計（monthly 會計出 +50）。
+const boxDir = join(tmpdir(), `cardz-box-view-${process.pid}`);
+mkdirSync(boxDir, { recursive: true });
+for (const name of ["types", "derive-windows", "box-view"]) {
+  const { outputText: js } = ts.transpileModule(readFileSync(join(ROOT, `apps/web/src/lib/${name}.ts`), "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  });
+  writeFileSync(join(boxDir, `${name}.mjs`), js.replace(/from "\.\/([\w-]+)"/g, 'from "./$1.mjs"'));
+}
+const boxView = await import(pathToFileURL(join(boxDir, "box-view.mjs")).href);
+rmSync(boxDir, { recursive: true, force: true });
+const boxBlock = boxView.boxBlockView({
+  asOf,
+  products: [{
+    id: "ptcg-en-test", rank: 1, game: "ptcg", lang: "en", group: "ptcg-en", setCode: "T", names: { en: "Test" },
+    release: null, productKind: "booster_box", printWave: "1", status: "active",
+    price: { usd: 150, kind: "market", asOf },
+    windows: { "7d": { changePct: -3, soldCount: 1 }, "90d": { soldCount: 0 }, "180d": { changePct: 12.5, soldCount: 3 } },
+    historyDaily: monthly.map((point) => ({ date: point.at.slice(0, 10), priceUsd: point.priceUsd, soldCount: 0 })),
+  }],
+});
+const bw = boxBlock.products[0].windows;
+check("box withheld 90d stays accumulating, not re-derived", bw["90d"].changePct.value === null && bw["90d"].changePct.status === "accumulating");
+check("box baked 180d shown", bw["180d"].changePct.status === "ready" && bw["180d"].changePct.value === 12.5 && bw["180d"].soldCount === 3);
+check("box missing 365d accumulating", bw["365d"].changePct.value === null && bw["365d"].changePct.status === "accumulating");
+check("box baked 7d shown", bw["7d"].changePct.status === "ready" && bw["7d"].changePct.value === -3);
 
 if (failed.length) {
   console.error("FAIL derive-windows:\n" + failed.map((item) => ` - ${item}`).join("\n"));
   process.exit(1);
 }
-console.log("PASS derive-windows (as-of, no-invent, no-fake-cap, sales-sum)");
+console.log("PASS derive-windows (as-of, no-invent, no-fake-cap, sales-sum, box shows producer windows only)");

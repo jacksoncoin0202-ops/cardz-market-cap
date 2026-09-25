@@ -36,6 +36,36 @@ USER_AGENT = (
 HEADERS = {"User-Agent": USER_AGENT}
 SET_DELAY = 1.0  # 每個 set 之間嘅 delay（秒）
 RETRY_SLEEP = 10.0  # transient set failure 重試前等幾耐（秒）
+INDEX_URL = "https://www.gemrate.com/universal-pop-report"
+# 2026-09-21 live: the set-list page answered 403 on both census attempts and
+# the harvest died on its first request.  A Cloudflare 403 here has cleared
+# after a pause (09-23: a 403'd set page answered on its retry), so the list
+# page gets a bounded backoff before the harvest gives up.
+INDEX_RETRY_WAITS = (30.0, 90.0)
+# 2026-09-22/23 live: 1 and then 4 set pages stayed 403 through their single
+# retry, the harvest still exited 0, and a census 73 qualified cards short was
+# promoted as refreshed.  Failed sets now get one more pass after a cool-down.
+# If any set still fails, the combined census files are NOT rewritten and the
+# run exits INCOMPLETE_EXIT_CODE -- the V2 census stage then falls back to the
+# last complete census and says so (IDENTITY_CENSUS_STALE).
+FAILED_SET_COOLDOWN = 60.0
+# A block that has not cleared answers every page the same way; stop the retry
+# pass instead of spending the subprocess timeout on it.
+RETRY_PASS_CONSECUTIVE_FAILURE_LIMIT = 3
+INCOMPLETE_EXIT_CODE = 3
+
+
+class CensusHarvestIncomplete(RuntimeError):
+    """Some TCG sets could not be fetched; the combined census was not rewritten."""
+
+
+def http_failure(label: str, status: int) -> str:
+    # "forbidden" is the word daily_chain_v2_contract.classify_error reads as
+    # AUTH_OR_BLOCKED; "HTTP 5xx/429" reads as TRANSIENT_SOURCE.
+    text = f"{label} HTTP {status}"
+    if status == 403:
+        text += " forbidden"
+    return text
 
 
 def log(msg: str) -> None:
@@ -58,13 +88,31 @@ def _post(url: str, **kw):
     return cr.post(url, **kw)
 
 
+def fetch_index_html() -> str:
+    """GET /universal-pop-report with a bounded backoff; raise a classifiable error."""
+    waits = tuple(INDEX_RETRY_WAITS)
+    tries = len(waits) + 1
+    last = "universal-pop-report no response"
+    for attempt in range(1, tries + 1):
+        try:
+            r = _get(INDEX_URL)
+        except Exception as e:  # noqa: BLE001 - network faults retry like a 403
+            last = f"universal-pop-report request failed: {type(e).__name__}: {str(e)[:200]}"
+        else:
+            if r.status_code == 200:
+                return r.text
+            last = http_failure("universal-pop-report", int(r.status_code))
+        if attempt < tries:
+            wait = waits[attempt - 1]
+            log(f"    {last}; retry {attempt}/{tries - 1} in {wait:.0f}s")
+            time.sleep(wait)
+    raise RuntimeError(f"{last} after {tries} tries")
+
+
 def extract_sets_data() -> list[dict]:
     """由 /universal-pop-report 抽 inline setsData。"""
     log("Fetching /universal-pop-report ...")
-    r = _get("https://www.gemrate.com/universal-pop-report")
-    if r.status_code != 200:
-        raise RuntimeError(f"universal-pop-report status {r.status_code}")
-    html = r.text
+    html = fetch_index_html()
     big = None
     for m in re.finditer(r"<script[^>]*>(.*?)</script>", html, re.DOTALL):
         if len(m.group(1)) > 200000:
@@ -87,7 +135,7 @@ def extract_row_data(set_link: str) -> list[dict]:
     url = set_link if set_link.startswith("http") else f"https://www.gemrate.com{set_link}"
     r = _get(url)
     if r.status_code != 200:
-        raise RuntimeError(f"set page status {r.status_code}")
+        raise RuntimeError(http_failure("set page", int(r.status_code)))
     html = r.text
     m = re.search(r"const rowData = JSON\.parse\('(.*?)'\);", html, re.DOTALL)
     if not m:
@@ -147,38 +195,92 @@ def harvest_all_sets(limit: Optional[int] = None, resume: bool = False) -> None:
         tcg_sets = tcg_sets[:limit]
         log(f"Limited to first {limit} sets")
 
-    all_cards, failed_sets = [], []
+    def _set_path(s: dict) -> Path:
+        safe = re.sub(r"[^\w\-]+", "_", s.get("set_name", "unknown"))[:60]
+        return DATA_DIR / f"set_{s.get('set_id')}_{safe}.jsonl"
+
+    def _fetch_and_save(s: dict, fetch) -> list[dict]:
+        cards = fetch(s.get("set_link"))
+        if not cards:
+            raise RuntimeError("empty rowData")
+        for card in cards:
+            card["_set_id"] = s.get("set_id")
+            card["_set_name"] = s.get("set_name", "unknown")
+            card["_set_link"] = s.get("set_link")
+        save_jsonl(cards, _set_path(s))
+        return cards
+
+    # Per-set results stay in set order so the combined file does not depend
+    # on which sets needed the retry pass.
+    results: list[Optional[list[dict]]] = [None] * len(tcg_sets)
+    errors: dict[int, str] = {}
     for i, s in enumerate(tcg_sets, 1):
-        set_id, set_link = s.get("set_id"), s.get("set_link")
         set_name = s.get("set_name", "unknown")
-        safe = re.sub(r"[^\w\-]+", "_", set_name)[:60]
-        set_path = DATA_DIR / f"set_{set_id}_{safe}.jsonl"
+        set_path = _set_path(s)
         if resume and set_path.exists() and set_path.stat().st_size > 0:
             cards = load_jsonl(set_path)
-            all_cards.extend(cards)
+            results[i - 1] = cards
             log(f"[{i}/{len(tcg_sets)}] {set_name} — resume: {len(cards)} cards from {set_path.name}")
             continue
         log(f"[{i}/{len(tcg_sets)}] {set_name}")
         try:
-            cards = fetch_set_with_retry(set_link)
-            for card in cards:
-                card["_set_id"] = set_id
-                card["_set_name"] = set_name
-                card["_set_link"] = set_link
-            all_cards.extend(cards)
-            save_jsonl(cards, set_path)
+            cards = _fetch_and_save(s, fetch_set_with_retry)
+            results[i - 1] = cards
             log(f"    -> {len(cards)} cards")
             time.sleep(SET_DELAY)
         except Exception as e:
             log(f"    ERROR: {e}")
-            failed_sets.append({"set_id": set_id, "set_name": set_name, "error": str(e)})
+            errors[i - 1] = str(e)
             time.sleep(SET_DELAY * 2)
 
+    if errors:
+        log(f"{len(errors)} set(s) failed; retry pass after {FAILED_SET_COOLDOWN:.0f}s cool-down")
+        time.sleep(FAILED_SET_COOLDOWN)
+        consecutive = 0
+        for index in sorted(errors):
+            if consecutive >= RETRY_PASS_CONSECUTIVE_FAILURE_LIMIT:
+                log(f"    retry pass stopped after {consecutive} consecutive failures")
+                break
+            s = tcg_sets[index]
+            log(f"[retry {index + 1}/{len(tcg_sets)}] {s.get('set_name', 'unknown')}")
+            try:
+                cards = _fetch_and_save(s, extract_row_data)
+            except Exception as e:
+                consecutive += 1
+                errors[index] = str(e)
+                log(f"    ERROR: {e}")
+                time.sleep(SET_DELAY * 2)
+            else:
+                consecutive = 0
+                results[index] = cards
+                del errors[index]
+                log(f"    -> {len(cards)} cards")
+                time.sleep(SET_DELAY)
+
+    failed_sets = [
+        {
+            "set_id": tcg_sets[index].get("set_id"),
+            "set_name": tcg_sets[index].get("set_name", "unknown"),
+            "error": errors[index],
+        }
+        for index in sorted(errors)
+    ]
+    # Written on every run, empty when clean: gemrate_db_completeness reads a
+    # fresh non-empty file as failed_sets:N, and an old file must not survive
+    # beside a newer census as if it described it.
+    save_jsonl(failed_sets, DATA_DIR / "failed_sets.jsonl")
+    if failed_sets:
+        log(f"Failed sets: {len(failed_sets)}")
+        detail = "; ".join(f"{f['set_name']}: {f['error']}" for f in failed_sets[:3])
+        raise CensusHarvestIncomplete(
+            f"CENSUS_HARVEST_FAILED: census incomplete: {len(failed_sets)}/{len(tcg_sets)}"
+            f" TCG sets failed after retry pass ({detail}); all_cards.jsonl and"
+            " psa10_1000_plus.jsonl were not rewritten"
+        )
+
+    all_cards = [card for cards in results for card in (cards or [])]
     save_jsonl(all_cards, DATA_DIR / "all_cards.jsonl")
     log(f"Total cards harvested: {len(all_cards)}")
-    if failed_sets:
-        save_jsonl(failed_sets, DATA_DIR / "failed_sets.jsonl")
-        log(f"Failed sets: {len(failed_sets)}")
     psa = [c for c in all_cards if int(c.get("psa_10") or 0) >= 1000]
     log(f"Cards with PSA 10 >= 1000: {len(psa)}")
     save_jsonl(psa, DATA_DIR / "psa10_1000_plus.jsonl")
@@ -225,7 +327,12 @@ def main() -> None:
         sys.exit(1)
 
     if args.all_sets:
-        harvest_all_sets(limit=args.limit, resume=args.resume)
+        try:
+            harvest_all_sets(limit=args.limit, resume=args.resume)
+        except CensusHarvestIncomplete as exc:
+            # Last stderr line: identity_census_stage copies it into the error.
+            print(str(exc), file=sys.stderr, flush=True)
+            sys.exit(INCOMPLETE_EXIT_CODE)
     elif args.set_id:
         harvest_single_set(args.set_id)
     elif args.query:

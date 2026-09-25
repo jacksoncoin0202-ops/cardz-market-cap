@@ -119,8 +119,12 @@ def payload_sha256(payload: Mapping[str, Any]) -> str:
 
 
 def load_title_quarantine(path: Path = QUARANTINE_RECEIPT) -> set[int]:
-    """PC title<->collector-number contradictions, fail-closed.
+    """Quarantined sale ids for EVERY sale lane, fail-closed.
 
+    The receipt is pc_sale_title_quarantine.py's union of its discriminators
+    and every market_pc_sale_title_quarantine row.  The table keys on
+    market_sale_observation.id, which is source-neutral, so since 2026-09-25 it
+    also holds SNKRDUNK sales (e.g. a JPY 1,999,999 placeholder trade).
     The receipt is regenerated before every bake and a DB gate keeps it from
     going stale.  A missing receipt is a hard stop, never an empty set: the
     2026-07-14 v1326 Latias sale is exactly the shape that becomes the headline
@@ -354,11 +358,12 @@ def plan(
         raise ValueError(
             f"{source!r} has no mintable sale lane; known lanes: {SALE_LANE_BY_SOURCE}"
         )
-    quarantined = (
-        load_title_quarantine(quarantine_receipt or QUARANTINE_RECEIPT)
-        if source == "pricecharting"
-        else set()
-    )
+    # Every lane reads the receipt (2026-09-25).  The 058 history view drops a
+    # quarantined sale of ANY source, so reading it only for pricecharting let
+    # a quarantined SNKRDUNK sale (v126's JPY 1,999,999 placeholder, sale
+    # 2452342) leave the history and the window anchors yet still be minted as
+    # the headline price.  scripts/test_psa10_latest_sale_quote.py section 3b.
+    quarantined = load_title_quarantine(quarantine_receipt or QUARANTINE_RECEIPT)
     sales_by_variant = load_candidate_sales(
         cursor,
         source=source,

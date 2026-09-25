@@ -20,7 +20,8 @@ operator_eligible_accepted_psa10_sales_rows 一次過剔走 —— 一個概念�
      → operator_card_daily_fact_dates / operator_card_daily_fact_projection /
      operator_fe_export / live-db-snapshot.ts）就會靜靜咁換咗語意。
   2. sync function：只准 upsert，永遠唔准 DELETE；receipt 唔見要拋，唔准當
-     「冇嘢隔離」；每行嘅 receipt_sha256 要等於 receipt **原始 bytes** 嘅 sha。
+     「冇嘢隔離」；每行嘅 receipt_sha256 要等於 receipt **原始 bytes** 嘅 sha；
+     duplicate key 唔改 reason（2026-09-25 兩個判別器之後 first reason wins）。
   3. call site：_mint_sale_quotes 真係喺 mint **之前**叫佢（PC lane），同埋 FE
      bake 唔會喺 DB 剔走之後再喺 TS 減多次（同一日仲有真成交嘅話，減兩次會連真
      嗰單都食埋）。
@@ -286,6 +287,18 @@ def run_sync_checks() -> None:
                   "INSERT INTO" in upper and "ON DUPLICATE KEY UPDATE" in upper)
             check("sync 永遠唔會 DELETE（刪一行＝放返條毒成交出街）",
                   not any(word in upper for word in ("DELETE", "TRUNCATE", "DROP")))
+            # 2026-09-25 起 receipt 有兩個判別器：同一單後嚟俾另一個判別器再中，
+            # 張表要記住當初點解隔離（first reason wins），receipt 亦照 stored
+            # reason 帶返出嚟（pc_sale_title_quarantine.compose_entries）。
+            update_clause = ""
+            if "ON DUPLICATE KEY UPDATE" in upper:
+                update_clause = _compact(sql[upper.index("ON DUPLICATE KEY UPDATE"):])
+                update_clause = update_clause.replace(" =", "=").replace("= ", "=")
+            check("duplicate key 唔改 reason（first reason wins）",
+                  bool(update_clause) and "reason=" not in update_clause, update_clause)
+            check("duplicate key 仍然 re-stamp receipt_sha256 同 written_at",
+                  "receipt_sha256=VALUES(receipt_sha256)" in update_clause
+                  and "written_at=VALUES(written_at)" in update_clause, update_clause)
             check("每張 receipt entry 都寫一行", len(rows) == 2, str(len(rows)))
             check("sale_observation_id / variant_id 對得返 receipt",
                   [(row[0], row[1]) for row in rows] == [(1601127, 651), (1601128, 652)],
@@ -298,6 +311,16 @@ def run_sync_checks() -> None:
         check("sync 有 commit", ("commit", None) in log)
         check("sync 有收線", ("close", None) in log)
         check("sync 報返寫咗幾多行", result.get("entries") == 2, str(result))
+
+        # 價格尖刺 entry 照自己個 reason 寫，唔准跌返做 title 嗰個。
+        spike_doc = {"entries": [
+            {"saleObservationId": 1920226, "variantId": 1148, "reason": "price_isolated_spike"},
+        ]}
+        _, spike_log, _ = _run_sync(spike_doc, tmp)
+        spike_rows = [row for kind, payload in spike_log if kind == "executemany" for row in payload[1]]  # type: ignore[index]
+        check("price_isolated_spike entry 照 reason 寫落表",
+              [(row[0], row[2]) for row in spike_rows] == [(1920226, "price_isolated_spike")],
+              str(spike_rows))
 
         # 空 receipt：唔使開連線，但一樣要報 sha（下游可以憑佢知讀過邊份）。
         empty_result, empty_log, empty_raw = _run_sync({"entries": []}, tmp)

@@ -172,6 +172,24 @@ def main() -> int:
         check("promo_time 17:45 JST", obs.iso(obs.promo_time("2026-08-25")) == "2026-08-25T08:45:00Z")
         check("event_severity allowlist/error/unknown", obs.event_severity("RUN_STARTED") is None and obs.event_severity("FAILED_FINAL") == "error"
               and obs.event_severity("SOMETHING_NEW") == "warn" and obs.event_severity("TASK_ERROR") == "warn")
+
+        def census_classed() -> bool:
+            # the daily census message is routine; its INCOMPLETE alert is a warn like IDENTITY_CENSUS_STALE
+            return (obs.event_severity("anomaly.census") is None
+                    and obs.event_severity("ANOMALY_CENSUS_INCOMPLETE") == obs.event_severity("IDENTITY_CENSUS_STALE") == "warn")
+
+        check("event_severity anomaly census: message info, INCOMPLETE warn", census_classed())
+        planted = []
+        for info, error in ((obs.INFO_EVENTS - {"anomaly.census"}, obs.ERROR_EVENTS),
+                            (obs.INFO_EVENTS, obs.ERROR_EVENTS | {"ANOMALY_CENSUS_INCOMPLETE"}),
+                            (obs.INFO_EVENTS | {"ANOMALY_CENSUS_INCOMPLETE"}, obs.ERROR_EVENTS)):
+            saved = obs.INFO_EVENTS, obs.ERROR_EVENTS
+            obs.INFO_EVENTS, obs.ERROR_EVENTS = info, error
+            try:
+                planted.append(census_classed())
+            finally:
+                obs.INFO_EVENTS, obs.ERROR_EVENTS = saved
+        check("event_severity anomaly census: 3 planted misclassifications fire", planted == [False, False, False], json.dumps(planted))
         check("scrub token/password/pb_live/query", obs.scrub('token=abc123 "password": "p@ss" pb_live_XyZ_9 https://h/x?sig=1') ==
               'token=<redacted> "password": "<redacted>" pb_live_<redacted> https://h/x?<query-redacted>')
         chain = Path(__file__).resolve().parents[1] / "pipelines" / "daily_chain_v2.py"

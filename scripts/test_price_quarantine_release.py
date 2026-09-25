@@ -110,6 +110,64 @@ else:
 check("nothing was committed on mismatch", disagreeing.committed, False)
 
 
+# 3. The demotion is the release's mirror, never its twin.
+#
+# A ready row whose card is not proven to be its item is quarantined; the
+# release frees a quarantined row whose card is. Disjoint predicates are what
+# stop a row flapping between the two in one pass.
+for name, sql in (
+    ("count", R.COUNT_UNPROVEN_READY_PRICE_ROWS_SQL),
+    ("update", R.QUARANTINE_UNPROVEN_READY_PRICE_ROWS_SQL),
+):
+    check(f"demote {name} keeps the shared predicate",
+          R._UNPROVEN_READY_PRICE_ROWS_WHERE in sql, True)
+check("demotion only reads ready rows",
+      "p.metric_status = 'ready'" in R._UNPROVEN_READY_PRICE_ROWS_WHERE, True)
+check("demotion requires the strict identity to be ABSENT",
+      "NOT EXISTS (SELECT 1 FROM operator_strict_source_identity osi"
+      in R._UNPROVEN_READY_PRICE_ROWS_WHERE, True)
+check("demotion matches the provider item the row came from",
+      "osi.external_entity_id = p.source_external_entity_id"
+      in R._UNPROVEN_READY_PRICE_ROWS_WHERE, True)
+check("demotion writes nothing but quarantined",
+      R.QUARANTINE_UNPROVEN_READY_PRICE_ROWS_SQL.count("SET"), 1)
+check("demotion SET is quarantined",
+      "SET p.metric_status = 'quarantined'" in R.QUARANTINE_UNPROVEN_READY_PRICE_ROWS_SQL,
+      True)
+# One source mapping for both halves. The release used to map only snk /
+# snk_psa10, so a `*_sales` row demoted here could never have come back.
+check("release and demotion map storage codes the same way",
+      R._PRICE_ROW_IDENTITY_SOURCE_SQL in R._RELEASABLE_PRICE_ROWS_JOIN
+      and R._PRICE_ROW_IDENTITY_SOURCE_SQL in R._UNPROVEN_READY_PRICE_ROWS_WHERE,
+      True)
+for code in ("snkrdunk_sales", "pricecharting_sales", "snk_psa10"):
+    check(f"mapping covers {code}", f"'{code}'" in R._PRICE_ROW_IDENTITY_SOURCE_SQL, True)
+    check(f"demotion scope covers {code}",
+          f"'{code}'" in R._UNPROVEN_READY_PRICE_ROWS_WHERE, True)
+check("demotion never touches other sources (ebay/tcgfish/g10)",
+      any(f"'{code}'" in R._UNPROVEN_READY_PRICE_ROWS_WHERE
+          for code in ("ebay", "tcgfish", "g10_kline")), False)
+
+agreeing = _Conn(counted=5, updated=5)
+check("agreeing demotion returns the quarantined rows",
+      R.quarantine_unproven_price_rows(agreeing), {"rows": 5, "variants": 1})
+check("agreeing demotion commits", agreeing.committed, True)
+disagreeing = _Conn(counted=5, updated=2)
+try:
+    R.quarantine_unproven_price_rows(disagreeing)
+except SystemExit as exc:
+    check("a demotion mismatch stops the run", "counted 5 rows but updated 2" in str(exc), True)
+else:
+    FAILED.append("a demotion mismatch stops the run")
+    print("FAIL a demotion mismatch stops the run: no SystemExit")
+check("nothing was committed on demotion mismatch", disagreeing.committed, False)
+
+# Both call sites run the demotion; a helper nobody calls is no helper.
+_src = (ROOT / "pipelines" / "rebuild_036.py").read_text(encoding="utf-8")
+check("both release call sites demote first",
+      _src.count("quarantine_unproven_price_rows(conn)"), 2)
+
+
 print()
 if FAILED:
     print(f"{len(FAILED)} FAILED: {FAILED}")

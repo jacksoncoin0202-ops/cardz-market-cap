@@ -276,6 +276,54 @@ def test_box_title_counts_boxes():
     assert not wrong, "box count: %r" % wrong
 
 
+def test_box_title_case_of_boxes_not_box_with_case():
+    # 2026-09-25: case_not_box read every "case", and 378 of its 527 rows were one box that came with or out of a case;
+    # ptcg-en-prc lost 68269 ($3,600) and 92162 ($3,171) and showed 30d -61% off one sale. Titles are the DB's.
+    from sealed_runtime import qc_box_title
+
+    one_box = ["Pokemon XY Primal Clash Factory Sealed Booster Box w/ Acrylic Case",  # 68269
+               "Pokemon Card - XY Primal Clash Booster Box - SEALED - With Case",  # 92162
+               "Pokemon TCG Sun & Moon Unified Minds Booster Box Sealed New W/ Case 36 Packs",
+               "Pokémon TCG Sun & Moon Burning Shadows Sealed Booster Box Acrylic Case 2017",
+               "Pokemon - XY Primal Clash - Booster Box - Case Fresh - 0% VAT GVMS",
+               "Pokemon 2000 Factory Sealed Base Set 2 Booster Box From Brand New Case",
+               "The Glory of Team Rocket Pokemon 2025 incl Pet Case Japanese Booster Box Original Packaging Sealed",
+               "Pokemon TCG Sun & Moon Unbroken Bonds Booster Box Sealed + Dragon Scale Case",
+               "Pokémon TCG Evolving Skies Booster Box 36 Packs New and Sealed + Arcylic Case",
+               "One Piece - Awakening of the New Era - Booster Box in Hard Case - 24 Packs",
+               "Pokemon TEAM UP Booster Box 36 packs - FACTORY SEALED ACRYLIC CASE INCLUDED",
+               "Star Birth S9 Japanese Pokemon Booster Box New Sealed From Case - C Japanese",
+               "Pokemon XY Roaring Skies Booster Box from Sealed Case w/ Acrylic Case-READ DESC",
+               "One Piece TCG OP10 Royal Blood Eng Booster Box | 1 Sealed Box From Fresh Case🔥",
+               "Pokemon Evolving Skies Booster Box Factory Sealed Fresh Case 1",
+               "Japanese Pokemon Paradigm Trigger Booster Box New/sealed with Magnetic Case Japanese",
+               "POKÉMON LOST ORIGIN BOOSTER BOX 2022 ENGLISH SEALED ACRYL CASE",
+               "Pokemon Violet ex sv1V Japanese Booster Box New & Factory Sealed with case Japanese"]
+    case_of_boxes = ["2023 One Piece English Awakening of the New Era OP-05 Sealed Booster Box Case",
+                     "One Piece OP-08 TWO LEGENDS 12 BOX BOOSTER BOX CASE Factory Sealed",
+                     "EB04 Sealed Case 12 Booster Box Japanese Egghead Crisis One Piece Japanese",
+                     "Pokemon TCG Darkness Vivid Voltage 6 Booster Box Case SWSH SWSH04 2020",
+                     "Pokemon 2017 Sun & Moon Base Booster Box Case Factory Sealed 6 Booster Boxes",
+                     "The Time Of Battle Case 12 Booster Box OP-16 ONE PIECE Card Japanese New Sealed Japanese",
+                     "One Piece English TCG The Azure Sea's Seven Booster Box Case x2 Factory Sealed",
+                     "Bandai One Piece TCG Two Legends OP-08 CASE booster box Japanese Japanese",
+                     "SEALED CASE! 12x One Piece: The Time of Battle (OP-16) Booster Box",
+                     "Pokemon TCG  Paradox Rift Booster Box Factory Sealed  Case SV04",
+                     "🚨Japanese Pokemon Eevee Heroes s6a Booster Box Case - 12 Boxes In Sealed Case😍 Japanese",
+                     "Pokemon TCG Japanese white Flare Booster Box Sealed Case (12 Boxes) Japanese",
+                     "Japanese OP09 One Piece Card The Four Emperors Booster Box Case Sealed US SELLER Japanese",  # $105: unclear, stays
+                     "【未開封カートン】ワンピース　ONE PIECEカードゲーム ROMANCE DAWN OP-01 ロマンスドーン 12BOX入り　ワンピースカード",
+                     # not a box at all
+                     "Acrylic Case fits One Piece Booster Box japanese OP-08 Two Legends hardcover pro",
+                     "Pokemon Glory Of Team Rocket Attaché Case W/ Booster Box Brand New Japanese"]
+    other = [("2016 Pokemon XY Fates Collide Empty Booster Box w/Display Case", "opened_or_empty"),
+             ("(SPANISH)  POKÉMON - PALDEA EVOLVED BOOSTER BOX - w/case - Sealed (US Seller) Spanish", "foreign_edition")]
+    wrong = [(t, v) for t in one_box if ((v := qc_box_title(t))["accepted"], v["quantity"]) != (True, 1)]
+    wrong += [(t, v) for t in case_of_boxes if (v := qc_box_title(t))["reason"] != "case_not_box"]
+    wrong += [(t, v) for t, want in other if (v := qc_box_title(t))["reason"] != want]
+    assert not wrong, "case titles: %r" % wrong
+
+
 def test_yahoo_query_drops_quote_brackets():
     # SM1+'s name_jp is 強化拡張パック「サン&ムーン」; sellers type 強化拡張パック サン&ムーン, so a bracketed query found nothing.
     query = yahoo_jp_query("強化拡張パック「サン&ムーン」", "Sun & Moon (JP enhanced)", "std")
@@ -316,7 +364,12 @@ INSERT INTO market_sealed_sale_observation VALUES
   (18, 240, 'ebay', 'pc_page_v1', 'Rebellion Crash Premium Trainer Box', 50, 'USD', 1, 50, 50.0, 'ok'),
   (19, 240, 'ebay', 'pc_page_v1', 'Rebellion Crash Booster Box', 110, 'USD', 1, 110, NULL, 'rejected_foreign_set_in_title'),
   (20, 240, 'ebay', 'pc_page_v1', 'Pokemon S2 Rebel Clash Japanese Booster Box', 100, 'USD', 1, 100, 100.0, 'ok'),
-  (21, 240, 'ebay', 'pc_page_v1', 'Rebellion Crash Booster Box x2 sealed', 220, 'USD', 1, 220, 220.0, 'ok');
+  (21, 240, 'ebay', 'pc_page_v1', 'Rebellion Crash Booster Box x2 sealed', 220, 'USD', 1, 220, 220.0, 'ok'),
+  (22, 240, 'ebay', 'pc_page_v1', 'Rebellion Crash Booster Box Sealed w/ Acrylic Case', 130, 'USD', 1, 130, NULL, 'rejected_case_not_box'),
+  (23, 240, 'ebay', 'pc_page_v1', 'Rebellion Crash Booster Box Case Factory Sealed 12 Boxes', 1500, 'USD', 1, 1500, NULL,
+   'rejected_case_not_box'),
+  (24, 240, 'yahoo', 'yahoo_closedsearch_v1', '反逆クラッシュ 1カートン 12BOX入り', 200000, 'JPY', 1, 200000, NULL, 'rejected_case_not_box'),
+  (25, 240, 'ebay', 'pc_page_v1', 'Rebellion Crash Empty Booster Box w/Display Case', 20, 'USD', 1, 20, NULL, 'rejected_case_not_box');
 """
 
 
@@ -348,13 +401,17 @@ def test_rejudge_sales_moves_only_what_todays_title_says():
     assert after[12][:2] == ("rejected_foreign_set_in_title", None), "a no-box set in a bundle title was not foreign: %r" % (after[12],)
     assert after[14] == ("ok", 222.22, 2, 20000), "a 2BOX lot stayed one box, or lost the rate it was priced at: %r" % (after[14],)
     assert after[15] == ("ok", 150.0, 1, 15000), "'BOX 10パック' came back as 10 boxes: %r" % (after[15],)
-    kept = {i: before[i] for i in (3, 4, 5, 7, 9, 10, 13, 16, 17, 18, 19, 20, 21)}
+    kept = {i: before[i] for i in (3, 4, 5, 7, 9, 10, 13, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25)}
     assert {i: after[i] for i in kept} == kept, "moved a row that is not its call: %r" % ({i: after[i] for i in kept},)
     assert sorted(m["id"] for m in logs[0]["rows"]) == [1, 2, 6, 8, 11, 12, 14, 15], logs
 
     ebay = so.cmd_sealed_rejudge_sales(source="ebay", skus=[], actor="t", note="n")
     final = state()
-    assert ebay["skus"] == 1 and sorted(m["id"] for m in ebay["rows"]) == [16, 18, 21], ebay["rows"]
+    assert ebay["skus"] == 1 and sorted(m["id"] for m in ebay["rows"]) == [16, 18, 21, 22, 25], ebay["rows"]
+    # 2026-09-25 case_not_box was narrowed: a box with a case comes back at its lot price; a case of boxes stays
+    assert final[22] == ("ok", 130.0, 1, 130), "a box w/ Acrylic Case stayed a case: %r" % (final[22],)
+    assert final[23] == before[23] and final[24] == before[24], "a case of boxes came back: %r" % ((final[23], final[24]),)
+    assert final[25][:2] == ("rejected_opened_or_empty", None), "an empty box w/ case kept the case reason: %r" % (final[25],)
     assert final[21] == ("ok", 110.0, 2, 220), "an eBay lot of two lost its lot price or stayed one box: %r" % (final[21],)
     assert final[16] == ("ok", 120.0, 1, 120), "'Booster Box 24 Packs' stayed 24 boxes: %r" % (final[16],)
     assert final[18][:2] == ("rejected_not_booster_box", None), "a trainer box stayed counted: %r" % (final[18],)

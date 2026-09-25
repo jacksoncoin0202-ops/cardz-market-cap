@@ -17,8 +17,17 @@ market_price_observation，同埋錯綁 identity 令兩個 source 家族嘅價�
      已接受矛盾 sale，一定要喺 pc_sale_title_quarantine_current.json 度有名。
      receipt 由 daily_public_release.sh 每次 bake 前重新生成；呢度監住兩者
      冇甩開（有新毒但 receipt 未跟上 = 紅）。
+     2026-09-25 加：第二個判別器（sale_price_outlier.is_isolated_price_outlier，
+     reason price_isolated_spike）重算出嚟嘅每一單都要喺 receipt；
+     market_pc_sale_title_quarantine 每一行都要喺 receipt（receipt ⊇ 表）；
+     已知嘅 Latias & Latios 170/181 等尖刺永遠要喺度。
+     驗 dry-run receipt：PC_SALE_QUARANTINE_RECEIPT=<pc_sale_title_quarantine.py --out 個檔>。
+     2026-09-25 再加：listing 判別器（c11_pc_sold_ingest.title_listing_conflict：
+     lot／爛殼／PSA 9／語言）同 title↔卡號一齊用 pc_sale_title_quarantine.title_reason 重算，
+     一樣要全部喺 receipt；佢喺真 board 上一定要 fire 過；價審點名嗰 7 單永遠喺度。
 """
 import json
+import os
 import sys
 from decimal import Decimal
 from pathlib import Path
@@ -45,6 +54,17 @@ SNK_SOURCES = ("snkrdunk", "snk", "snk_psa10", "snkrdunk_sales")
 # 夾埋差 3-5 倍。裁決 receipt：audit/bothstrict_chip_quarantine_20260812T145822Z。
 # 呢個名單而家係空 —— 任何新 both-strict 矛盾都係新事故，即刻紅。
 KNOWN_BOTH_STRICT_CONFLICTS: set[int] = set()
+
+# 2026-09-25 量度到嘅孤立價格尖刺（PC，前後成交都判同一方向出界）：
+# 1920226 / 1920225 / 2249919 = Latias & Latios GX 170/181（variant 1148）嘅
+# $1,485 / $1,908 / $4,662，06-27 嗰單做過 90d 錨；2228905、2264434 同樣形狀。
+# 佢哋一旦跌出 receipt，就會重新做返 FE 窗錨。
+KNOWN_PRICE_SPIKES: set[int] = {1920225, 1920226, 2249919, 2228905, 2264434}
+
+# 2026-09-25 價審點名、listing 判別器捉到嘅 PC 成交：2557711 Mewtwo + Charizard
+# Pair（variant 2066 rank-45 價 $1,999）、2252501 Wooper & Quagsire SET、
+# 2546238 DAMAGED/CRACKED SLAB、2377821 / 1952262 / 1829027 / 2558370 另一語言版本。
+KNOWN_LISTING_CONFLICTS: set[int] = {2557711, 2252501, 2546238, 2377821, 1952262, 1829027, 2558370}
 
 FAILED: list[str] = []
 
@@ -84,6 +104,21 @@ def main() -> int:
         f"offending run_keys: {offenders[:5]}",
     )
 
+    # 1b. 每一行 ready 嘅 PC/SNK 價都要係「本卡已證實 = 呢個 provider item」。
+    # 2026-09-25：18,078 行冇 strict 身份（錯綁 31 張、manual_review 66 張 EN OP
+    # 掛住 JA SNK 價），17,682 行餵緊卡頁長圖同 90/180/365 後備錨。
+    # 每日由 rebuild_036.quarantine_unproven_price_rows 清；呢度用同一條 SQL 驗。
+    from rebuild_036 import COUNT_UNPROVEN_READY_PRICE_ROWS_SQL  # noqa: E402
+
+    cur.execute(COUNT_UNPROVEN_READY_PRICE_ROWS_SQL)
+    unproven = cur.fetchone()
+    check(
+        "every ready PC/SNK price row is proven to be its own card",
+        int(unproven["rows_n"]) == 0,
+        f"{unproven['rows_n']} rows on {unproven['variants_n']} variants"
+        " -- run rebuild_036.quarantine_unproven_price_rows",
+    )
+
     # 2. 跨家族矛盾 monitor（重用 audit 嘅偵測器 —— 一個概念一份實現）
     from price_identity_conflict_audit import READY_ROWS_SQL, find_conflicts  # noqa: E402
 
@@ -102,26 +137,109 @@ def main() -> int:
     # 3. sales title 隔離 receipt 冇過期（判別器重掃 vs receipt 檔逐條對）
     import json  # noqa: E402
 
-    from c11_pc_sold_ingest import title_collector_contradiction  # noqa: E402
-    from pc_sale_title_quarantine import CURRENT_RECEIPT, SCAN_SQL  # noqa: E402
+    from pc_sale_title_quarantine import (  # noqa: E402
+        CURRENT_RECEIPT,
+        REASON_PRICE,
+        REASON_TITLE,
+        SCAN_SQL,
+        collect_document,
+        load_stored_rows,
+        title_reason,
+    )
 
+    # 唔設 env = live receipt（平時就係監呢個）；設咗 = 驗一份 dry-run receipt。
+    receipt_path = Path(os.environ.get("PC_SALE_QUARANTINE_RECEIPT") or CURRENT_RECEIPT)
+    print(f"info sale quarantine receipt = {receipt_path}")
     cur.execute(SCAN_SQL)
-    flagged = {
-        int(r["id"])
-        for r in cur.fetchall()
-        if title_collector_contradiction(str(r["listing_title"]), str(r["collector_number"]))
+    title_reasons = {int(r["id"]): title_reason(r) for r in cur.fetchall()}
+    flagged = {sale_id for sale_id, reason in title_reasons.items() if reason is not None}
+    listing_flagged = {
+        sale_id for sale_id, reason in title_reasons.items() if reason not in (None, REASON_TITLE)
     }
+    print(f"info title 判別器重算 = {len(flagged)}（listing {len(listing_flagged)}）")
     receipt_ids: set[int] = set()
-    receipt_ok = CURRENT_RECEIPT.is_file()
+    receipt_ok = receipt_path.is_file()
     if receipt_ok:
-        doc = json.loads(CURRENT_RECEIPT.read_text(encoding="utf-8"))
+        doc = json.loads(receipt_path.read_text(encoding="utf-8"))
         receipt_ids = {int(e["saleObservationId"]) for e in doc.get("entries", [])}
-    check("sale title quarantine receipt exists", receipt_ok, str(CURRENT_RECEIPT))
+    check("sale title quarantine receipt exists", receipt_ok, str(receipt_path))
     missing = sorted(flagged - receipt_ids)
     check(
         "sale title quarantine receipt is fresh",
         not missing,
         f"flagged sales missing from receipt: {missing[:10]}",
+    )
+    check("the listing-conflict discriminator fires on the live board", bool(listing_flagged), "")
+    missing_listing = sorted(KNOWN_LISTING_CONFLICTS - receipt_ids)
+    check(
+        "the price-audit lot / damaged / language sales stay quarantined",
+        not missing_listing,
+        f"missing: {missing_listing}",
+    )
+
+    # 3b. 價格尖刺判別器：用 builder 自己嘅 collect_document 重算（同一份實現、
+    # 同一個 planner 成交範圍），唔喺度抄一份規則。
+    regenerated = collect_document(cur, stamp="price-lane-gate")
+    price_ids = {
+        int(e["saleObservationId"]) for e in regenerated["entries"] if e["reason"] == REASON_PRICE
+    }
+    print(f"info price_isolated_spike 重算 = {len(price_ids)}；receipt entries = {len(receipt_ids)}")
+    # 「零單」同「全部喺 receipt」睇落唔可以一樣：判別器喺真 board 上一定要 fire 過。
+    check("the isolated price spike discriminator fires on the live board", bool(price_ids), "")
+    missing_price = sorted(price_ids - receipt_ids)
+    check(
+        "every isolated price spike is in the receipt",
+        not missing_price,
+        f"{len(missing_price)} missing, e.g. {missing_price[:10]}",
+    )
+    stored_ids = {int(r["id"]) for r in load_stored_rows(cur)}
+    missing_stored = sorted(stored_ids - receipt_ids)
+    check(
+        "every market_pc_sale_title_quarantine row is still in the receipt",
+        not missing_stored,
+        f"{len(missing_stored)} table rows missing, e.g. {missing_stored[:10]}",
+    )
+    missing_known = sorted(KNOWN_PRICE_SPIKES - receipt_ids)
+    check(
+        "the known Latias & Latios / price spike sales stay quarantined",
+        not missing_known,
+        f"missing: {missing_known}",
+    )
+
+    # 3c. pc_psa10_price_derivation 嘅 eBay 30d 中位數都要避開隔離表：每一行
+    # 表入面嘅 PC 成交，喺佢自己嘅 30 日窗入面（as_of = sold_at + 1 日）用
+    # load_pc_sales 真讀一次，都唔准再出現。
+    from datetime import datetime, timedelta, timezone  # noqa: E402
+
+    from collection_contract import LIVE_EBAY_SOLD_SOURCE_CODES  # noqa: E402
+    from pc_psa10_price_derivation import load_pc_sales  # noqa: E402
+
+    live_codes = ",".join(["%s"] * len(LIVE_EBAY_SOLD_SOURCE_CODES))
+    cur.execute(
+        f"""
+        SELECT s.id, s.variant_id, s.sold_at, s.transaction_fingerprint
+        FROM market_pc_sale_title_quarantine tq
+        INNER JOIN market_sale_observation s ON s.id = tq.sale_observation_id
+        WHERE s.source_code IN ({live_codes})
+        """,
+        tuple(LIVE_EBAY_SOLD_SOURCE_CODES),
+    )
+    stored_sales = [dict(r) for r in cur.fetchall()]
+    print(f"info 隔離表 PC 成交 = {len(stored_sales)}")
+    check("the quarantine table holds PC sales to test the median against", bool(stored_sales), "")
+    by_window: dict[tuple[int, object], set[str]] = {}
+    for sale in stored_sales:
+        key = (int(sale["variant_id"]), sale["sold_at"].date())
+        by_window.setdefault(key, set()).add(str(sale["transaction_fingerprint"]))
+    leaked = []
+    for (variant_id, sold_date), fingerprints in sorted(by_window.items()):
+        as_of = datetime.combine(sold_date, datetime.min.time(), tzinfo=timezone.utc) + timedelta(days=1)
+        loaded = {str(r["transaction_fingerprint"]) for r in load_pc_sales(conn, [variant_id], as_of=as_of)}
+        leaked.extend((variant_id, fp) for fp in sorted(fingerprints & loaded))
+    check(
+        "the eBay 30d median never loads a quarantined sale",
+        not leaked,
+        f"{len(leaked)} leaked, e.g. {leaked[:5]}",
     )
 
     # 4. F-BAND：出街嘅每一個成交價都要企喺 [M/2.5, M*2.0] 入面，

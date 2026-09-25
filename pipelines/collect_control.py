@@ -832,24 +832,28 @@ def _db_writer_lease(timeout_seconds: int = DB_WRITER_LEASE_TIMEOUT_SECONDS):
             connection.close()
 
 
+# `reason` is deliberately NOT in the UPDATE list: first reason wins.  The
+# receipt carries a stored row's reason back unchanged
+# (pc_sale_title_quarantine.compose_entries), so the row says why the sale was
+# condemned when it was condemned, not whichever discriminator re-flags it later.
 PC_SALE_TITLE_QUARANTINE_UPSERT = """
     INSERT INTO market_pc_sale_title_quarantine
       (sale_observation_id, variant_id, reason, receipt_sha256, written_at)
     VALUES (%s, %s, %s, %s, %s)
     ON DUPLICATE KEY UPDATE
       variant_id=VALUES(variant_id),
-      reason=VALUES(reason),
       receipt_sha256=VALUES(receipt_sha256),
       written_at=VALUES(written_at)
 """
 
 
 def _sync_pc_sale_title_quarantine() -> dict[str, Any]:
-    """Materialise the PC title<->collector-number quarantine receipt (058).
+    """Materialise the PC sale quarantine receipt (058).
 
-    The receipt stays the derivation -- pc_sale_title_quarantine.py runs the one
-    discriminator (c11_pc_sold_ingest.title_collector_contradiction) and writes
-    it.  This only copies it into market_pc_sale_title_quarantine, so
+    The receipt stays the derivation -- pc_sale_title_quarantine.py runs the
+    discriminators (c11_pc_sold_ingest.title_collector_contradiction and, since
+    2026-09-25, sale_price_outlier.is_isolated_price_outlier) and writes it.
+    This only copies it into market_pc_sale_title_quarantine, so
     operator_eligible_accepted_psa10_sales_rows can drop the poisoned
     transactions once for every reader, instead of each reader having to
     remember to subtract them (operator_fe_export's daily projection and
@@ -3349,6 +3353,15 @@ def _write_snk_en_asset(image: ProcessedSnkDefaultImage) -> tuple[Path, str]:
     return path, relative
 
 
+def _snk_en_human_rejected(cur, variant_id: int, content_sha256: str) -> bool:
+    cur.execute(
+        "SELECT 1 FROM market_image_rejection_registry"
+        " WHERE variant_id=%s AND content_sha256=%s",
+        (variant_id, content_sha256),
+    )
+    return cur.fetchone() is not None
+
+
 def _upsert_snk_en_freeze(
     cur,
     *,
@@ -3365,12 +3378,7 @@ def _upsert_snk_en_freeze(
     # 呢條 lane 由頭到尾冇讀過 —— 所以人手換走一張圖之後，下一次 SNK EN lane
     # 會將舊 sha 寫返 'accepted'，同人手釘落嘅 freeze 變成兩行 accepted。
     # 照跑照 checkpoint，但個 status 要講真話。
-    cur.execute(
-        "SELECT 1 FROM market_image_rejection_registry"
-        " WHERE variant_id=%s AND content_sha256=%s",
-        (variant_id, content_sha256),
-    )
-    human_rejected = cur.fetchone() is not None
+    human_rejected = _snk_en_human_rejected(cur, variant_id, content_sha256)
     status = "rejected" if human_rejected else "accepted"
     note = (
         "human-rejected content; SNK EN storefront default not published"
@@ -3597,20 +3605,30 @@ def _persist_prepared_snk_en(
             prepared.source_observed_at,
         ),
     )
-    cur.execute(
-        """
-        INSERT INTO market_image_qc
-          (image_asset_id,semantic_match_status,card_number_match,language_match,
-           tcg_match,raw_front_confirmed,public_allowed,rejection_reason,
-           checked_at,qc_version)
-        VALUES (%s,'accepted_freeze',1,1,1,1,1,NULL,%s,%s)
-        ON DUPLICATE KEY UPDATE
-          semantic_match_status='accepted_freeze',card_number_match=1,
-          language_match=1,tcg_match=1,raw_front_confirmed=1,
-          public_allowed=1,rejection_reason=NULL,checked_at=VALUES(checked_at)
-        """,
-        (asset_id, completed_at, prepared.image.qc_version),
+    # Human-rejected content (SAMPLE watermark / overlay / not a card front /
+    # wrong printing — DADDY 2026-09-25) is still recorded as seen (asset,
+    # lineage, page authority, checkpoint) but never re-vouched: this QC row
+    # would be the asset's newest, public_allowed=1, and a new acceptance would
+    # supersede whatever replaced it.  The FE read drops it too; this keeps the
+    # writer from putting it back in the first place.
+    human_rejected = _snk_en_human_rejected(
+        cur, prepared.variant_id, prepared.image.content_sha256
     )
+    if not human_rejected:
+        cur.execute(
+            """
+            INSERT INTO market_image_qc
+              (image_asset_id,semantic_match_status,card_number_match,language_match,
+               tcg_match,raw_front_confirmed,public_allowed,rejection_reason,
+               checked_at,qc_version)
+            VALUES (%s,'accepted_freeze',1,1,1,1,1,NULL,%s,%s)
+            ON DUPLICATE KEY UPDATE
+              semantic_match_status='accepted_freeze',card_number_match=1,
+              language_match=1,tcg_match=1,raw_front_confirmed=1,
+              public_allowed=1,rejection_reason=NULL,checked_at=VALUES(checked_at)
+            """,
+            (asset_id, completed_at, prepared.image.qc_version),
+        )
     lineage_payload = {
         "contract": "snk-en-storefront-lineage-v1",
         "variantId": prepared.variant_id,
@@ -3756,32 +3774,36 @@ def _persist_prepared_snk_en(
     # 但唔郁 canonical，亦唔郁 freeze —— 唔會再靜靜換走人手或者 image-bind 嘅決定。
     owned = current is None or str(current["accepted_by"]) == SNK_EN_ACCEPTED_BY
     if current and str(current["lineage_sha256"]) == lineage_sha:
+        # Same lineage already canonical: the freeze below is rewritten and says
+        # 'rejected' when this content is in the registry.
         acceptance_id = int(current["id"])
         acceptance_inserted = False
-    elif not owned:
+    elif not owned or human_rejected:
+        # Human-rejected content never gets a new acceptance: superseding the
+        # current row with it would take the card's image down (or put the
+        # rejected one back), whoever owns the current row.
         acceptance_id = None
         acceptance_inserted = False
     else:
-        cur.execute(
-            """
-            INSERT INTO market_canonical_image_acceptance
-              (variant_id,storefront_lineage_id,image_asset_id,lineage_sha256,
-               evidence_sha256,accepted_by,accepted_at,supersedes_acceptance_id)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-            """,
-            (
-                prepared.variant_id,
-                lineage_id,
-                asset_id,
-                lineage_sha,
-                acceptance_evidence,
-                SNK_EN_ACCEPTED_BY,
-                completed_at,
-                int(current["id"]) if current else None,
-            ),
+        # image_lane_policy is the only writer of the table.  A held decision
+        # (One Piece head: SNK OP art is the SAMPLE source; review-approved
+        # head; registry pair) is handled like "not owned" above: no acceptance,
+        # no freeze, the rest of the item is still recorded and checkpointed.
+        from image_lane_policy import accept_canonical_image
+
+        lane = accept_canonical_image(
+            cur,
+            variant_id=prepared.variant_id,
+            image_asset_id=asset_id,
+            content_sha256=prepared.image.content_sha256,
+            lineage_sha256=lineage_sha,
+            evidence_sha256=acceptance_evidence,
+            accepted_by=SNK_EN_ACCEPTED_BY,
+            accepted_at=completed_at,
+            storefront_lineage_id=lineage_id,
         )
-        acceptance_id = int(cur.lastrowid)
-        acceptance_inserted = True
+        acceptance_id = lane.acceptance_id
+        acceptance_inserted = lane.inserted
     if acceptance_id is not None:
         _upsert_snk_en_freeze(
             cur,
@@ -3813,6 +3835,73 @@ def _persist_prepared_snk_en(
         "runId": run_id,
         "lineageSha256": lineage_sha,
     }
+
+
+def _snk_en_checkpoint_window() -> tuple[datetime | None, datetime | None, int]:
+    """Oldest/newest success of this lane's own checkpoints (read only)."""
+
+    load_env()
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT MIN(last_effective_at) AS oldest,
+                   MAX(last_effective_at) AS newest,
+                   COUNT(*) AS n
+            FROM market_ingest_checkpoint
+            WHERE source_code = %s
+            """,
+            ("snk_en_image",),
+        )
+        row = cur.fetchone() or {}
+    finally:
+        conn.close()
+    return (
+        _parse_datetime(row.get("oldest")),
+        _parse_datetime(row.get("newest")),
+        int(row.get("n") or 0),
+    )
+
+
+def _snk_en_idle_freshness() -> dict[str, Any]:
+    """Freshness of a poll that selected nothing, judged by the last success.
+
+    2026-09-25 crawler follow-up: every registry row reads modeNeeded=stock
+    (the projection never shows SNK EN lineage, see the work-folder note), so
+    V2 incr selected nothing and this branch said slaOk=True from 08-28 on.
+    Nothing due only means fresh when the lane's newest success is inside
+    SLA_HOURS; an unreadable or missing checkpoint is not fresh either.
+    """
+
+    freshness: dict[str, Any] = {
+        "slaHours": SLA_HOURS,
+        "oldestSuccessAt": None,
+        "newestSuccessAt": None,
+        "slaOk": False,
+        "judgedBy": "lane_checkpoint_newest_success",
+    }
+    try:
+        oldest, newest, rows = _snk_en_checkpoint_window()
+    except Exception as exc:  # noqa: BLE001
+        freshness["reason"] = f"checkpoint_unreadable:{type(exc).__name__}"
+        return freshness
+    age = _age_hours(newest)
+    freshness.update(
+        {
+            "oldestSuccessAt": oldest.isoformat(sep=" ") if oldest else None,
+            "newestSuccessAt": newest.isoformat(sep=" ") if newest else None,
+            "newestAgeHours": None if age is None else round(age, 2),
+            "checkpointRows": rows,
+            "slaOk": age is not None and 0 <= age <= SLA_HOURS,
+        }
+    )
+    if not freshness["slaOk"]:
+        freshness["reason"] = (
+            "no_lane_checkpoint" if newest is None
+            else "nothing_due_and_last_success_past_sla"
+        )
+    return freshness
 
 
 def run_snk_en_image(
@@ -3863,12 +3952,7 @@ def run_snk_en_image(
         "browserUsed": False,
     }
     if not selected:
-        report["freshness"] = {
-            "slaHours": SLA_HOURS,
-            "oldestSuccessAt": None,
-            "newestSuccessAt": None,
-            "slaOk": True,
-        }
+        report["freshness"] = _snk_en_idle_freshness()
         return report
     if dry_run:
         report.update(

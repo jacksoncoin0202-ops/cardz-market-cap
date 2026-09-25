@@ -20,6 +20,19 @@ wide enough that the threshold is not sitting on top of real data.  The band is
 asymmetric because the distribution is left-skewed (p10 0.823 vs p90 1.134):
 a cheap sale is usually condition or a rushed listing, not poison.
 
+The same band is used two ways, never with a second set of numbers:
+  * one-sided (`select_latest_sale`): the headline quote walks back past a
+    newest sale that sits outside the band of the sales BEFORE it.
+  * two-sided (`is_isolated_price_outlier`, 2026-09-25): a sale is an isolated
+    price spike only when it sits outside the band of the sales before it AND
+    of the sales after it, on the same side.  This is what the PC sale
+    quarantine receipt (pc_sale_title_quarantine.py) removes from the sales
+    history.  Prior-only would flag ~901 PC sales on the live board and kill
+    real regime shifts (variant 419 went ~$48 -> ~$101 around 2026-06-01 and
+    stayed there); asking the following sales too flags ~550, and on Latias &
+    Latios GX 170/181 exactly the three $1,485 / $1,908 / $4,662 sales among
+    ~$17k neighbours.
+
 This module is pure: no DB, no clock, no I/O.  Everything it needs arrives in
 the `sales` sequence.
 """
@@ -122,6 +135,48 @@ def prior_sales(
     older = [sale for sale in sales if floor <= _sold_at(sale) < edge]
     older.sort(key=lambda sale: (_sold_at(sale), _fingerprint(sale)), reverse=True)
     return older[:PRIOR_LIMIT]
+
+
+def following_sales(
+    candidate: Mapping[str, Any],
+    sales: Sequence[Mapping[str, Any]],
+) -> list[Mapping[str, Any]]:
+    """Mirror of prior_sales: up to PRIOR_LIMIT sales strictly NEWER than `candidate`.
+
+    Same window, same limit, nearest first.  Strict on both sides, so a
+    PriceCharting same-day sale (date-only sold_at) is neither before nor after
+    the candidate and never votes on it.
+    """
+
+    edge = _sold_at(candidate)
+    ceiling = edge + timedelta(days=PRIOR_WINDOW_DAYS)
+    newer = [sale for sale in sales if edge < _sold_at(sale) <= ceiling]
+    newer.sort(key=lambda sale: (_sold_at(sale), _fingerprint(sale)))
+    return newer[:PRIOR_LIMIT]
+
+
+def is_isolated_price_outlier(
+    candidate: Mapping[str, Any],
+    sales: Sequence[Mapping[str, Any]],
+) -> str | None:
+    """REASON_ABOVE / REASON_BELOW when `candidate` is an isolated spike, else None.
+
+    Both neighbourhoods have to condemn it, each gated on its own (SOLD_MIN_N
+    sales on that side, via is_price_outlier), and in the SAME direction.  A
+    sale at the start of a new price level is out of band against the old level
+    but inside the band of what followed, so a real regime shift is never
+    flagged; a sale sitting between two levels (above the old, below the new)
+    is not a spike either, so opposite verdicts are not a flag.  Newest sales
+    have no followers yet and stay unflagged until the market answers.
+    """
+
+    bad_before, before = is_price_outlier(candidate, prior_sales(candidate, sales))
+    if not bad_before:
+        return None
+    bad_after, after = is_price_outlier(candidate, following_sales(candidate, sales))
+    if not bad_after or after["verdict"] != before["verdict"]:
+        return None
+    return str(before["verdict"])
 
 
 def is_price_outlier(

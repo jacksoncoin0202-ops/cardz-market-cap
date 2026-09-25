@@ -12,6 +12,7 @@ import os
 import re
 import json
 import subprocess
+import time
 from pathlib import Path
 
 
@@ -24,6 +25,58 @@ WSL_COMPOSE = Path(
 COMPOSE_VARIABLE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}$")
 MYSQL_CONTAINER = "cardz-market-cap-db-1"
 DOCKER_CLI = "docker" if os.name == "nt" else "docker.exe"
+# 2026-09-13..20 live: six V2 tasks died on "container configuration is
+# unavailable" and each passed on its next attempt -- a docker.exe call from
+# WSL that failed once.  The bare message classified as SOURCE_FAILED, so the
+# MySQL recovery path never saw it.  The inspect now retries after these waits,
+# and a final failure names the container and port 3308, which
+# daily_chain_v2_contract.classify_error reads as MYSQL_UNAVAILABLE.
+INSPECT_RETRY_WAITS = (2.0, 5.0)
+INSPECT_TIMEOUT_SECONDS = 20
+INSPECT_STDERR_MAX_CHARS = 160
+
+
+def _inspect_stderr_hint(stderr: str) -> str:
+    """First stderr line for the error message; dropped if it could hold a value."""
+
+    lines = [line.strip() for line in str(stderr or "").splitlines() if line.strip()]
+    if not lines or "=" in lines[0]:
+        return ""
+    return lines[0][:INSPECT_STDERR_MAX_CHARS]
+
+
+def _inspect_container_env() -> str:
+    """stdout of `docker inspect` for the DB container's Config.Env (secret: never logged)."""
+
+    waits = tuple(INSPECT_RETRY_WAITS)
+    tries = len(waits) + 1
+    reason = "no attempt"
+    for attempt in range(1, tries + 1):
+        try:
+            inspected = subprocess.run(
+                [DOCKER_CLI, "inspect", "--format", "{{json .Config.Env}}", MYSQL_CONTAINER],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=INSPECT_TIMEOUT_SECONDS,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            reason = f"timed out after {INSPECT_TIMEOUT_SECONDS}s"
+        except OSError as exc:
+            reason = f"{type(exc).__name__}"
+        else:
+            if inspected.returncode == 0:
+                return inspected.stdout
+            hint = _inspect_stderr_hint(inspected.stderr)
+            reason = f"rc={inspected.returncode}" + (f": {hint}" if hint else "")
+        if attempt < tries:
+            time.sleep(waits[attempt - 1])
+    raise RuntimeError(
+        "canonical CARDZ DB container configuration is unavailable: docker inspect"
+        f" {MYSQL_CONTAINER} (MySQL 3308) failed after {tries} tries: {reason}"
+    )
 
 
 def canonical_compose_path() -> Path:
@@ -83,19 +136,9 @@ def compose_db_env(path: Path | None = None) -> dict[str, str]:
     # stopped) container's saved Config.Env is the only value that can
     # authenticate to that volume.  `docker inspect` works for a stopped
     # container too and no value is written to stdout or disk.
-    inspected = subprocess.run(
-        [DOCKER_CLI, "inspect", "--format", "{{json .Config.Env}}", MYSQL_CONTAINER],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=20,
-        check=False,
-    )
-    if inspected.returncode != 0:
-        raise RuntimeError("canonical CARDZ DB container configuration is unavailable")
+    inspected_stdout = _inspect_container_env()
     try:
-        entries = json.loads(inspected.stdout)
+        entries = json.loads(inspected_stdout)
     except (json.JSONDecodeError, TypeError) as exc:
         raise RuntimeError("canonical CARDZ DB container configuration is invalid") from exc
     container_values = {

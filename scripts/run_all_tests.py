@@ -8,11 +8,13 @@ test 即時掃描。新 test 會自動加入同一個 call site；新 pipeline s
 
 Run: python -X utf8 scripts/run_all_tests.py
      python -X utf8 scripts/run_all_tests.py --no-db   # 跳過要連 DB 嗰啲
+     python -X utf8 scripts/run_all_tests.py --release-db-gates   # 發佈前 DB 閘
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -54,7 +56,15 @@ SCRIPT_SELF_TEST_ENTRIES: dict[str, list[str]] = {
 
 # 要連 3308 先跑得嘅入口。--no-db 淨係跳過呢啲，其餘照跑。
 # test_price_lane_contracts 係 scripts/test_*.py glob 嗰邊；glob loop 都會查呢個 set。
-NEEDS_DB = {"db_runtime.py", "proof_historical_quote_resolver.py", "test_price_lane_contracts.py", "test_collect_shares_e2e_lease.py", "test_chart_quote_retired.py", "test_adapter_lease_orphan_reaped.py"}
+# db_runtime self-test 係純邏輯（唔開 DB），所以唔喺度：放入嚟只會令每次發佈無故 SKIP。
+NEEDS_DB = {"proof_historical_quote_resolver.py", "test_price_lane_contracts.py", "test_collect_shares_e2e_lease.py", "test_chart_quote_retired.py", "test_adapter_lease_orphan_reaped.py"}
+
+# 發佈前一定要對住 live DB 綠嘅閘（daily_public_release.sh 喺 receipt 重生之後、bake
+# 之前跑 `--release-db-gates`）。以前佢哋喺 NEEDS_DB，發佈兩次都帶 --no-db，所以
+# 「有 gate 監住」其實係零 call site。只放唯讀嘅：lease／GET_LOCK／寫 quote 嗰幾個唔准入。
+RELEASE_DB_GATES = {"test_price_lane_contracts.py", "proof_historical_quote_resolver.py"}
+if not RELEASE_DB_GATES <= NEEDS_DB:
+    raise SystemExit(f"RELEASE_DB_GATES 一定要係 NEEDS_DB 子集：{sorted(RELEASE_DB_GATES - NEEDS_DB)}")
 
 # g10_public_snapshot 個 `--self-test` 唔係 unit test，係「照砌 snapshot 但唔寫
 # asset、容許舊價」，所以要成棵 G10 source tree。呢棵 tree 唔喺呢個 repo 入面。
@@ -118,6 +128,38 @@ def _run(label: str, argv: list[str], timeout: int) -> tuple[str, float, str]:
     return "FAIL", took, " / ".join(line.strip() for line in tail if line.strip())
 
 
+def release_db_gate_results(timeout: int) -> list[tuple[str, str, float, str]]:
+    """Run every release DB gate; a missing gate file is a FAIL, never a SKIP."""
+
+    results: list[tuple[str, str, float, str]] = []
+    for name in sorted(RELEASE_DB_GATES):
+        label = f"scripts/{name}:release-db-gate"
+        path = ROOT / "scripts" / name
+        if not path.is_file():
+            results.append((label, "FAIL", 0.0, f"release DB gate 唔存在：{path}"))
+            continue
+        argv = [PY, "-X", "utf8", str(path), *SCRIPT_SELF_TEST_ENTRIES.get(name, [])]
+        results.append((label, *_run(label, argv, timeout)))
+    return results
+
+
+def _db_preflight() -> str | None:
+    """None when 3308 answers; otherwise why not.
+
+    A dead connection must stay retryable, so the caller exits without a
+    CARDZ_TEST_RESULT line: a verdict with failed>=1 is terminal on attempt 1.
+    """
+
+    sys.path.insert(0, str(ROOT / "pipelines"))
+    try:
+        from rebuild_036 import DAILY_CREDENTIALS_ENV, connect
+
+        connect(DAILY_CREDENTIALS_ENV).close()
+    except Exception as exc:  # noqa: BLE001 -- any failure to connect is the answer
+        return f"{type(exc).__name__}: {exc}"
+    return None
+
+
 def test_result_document(results: list[tuple[str, str, float, str]]) -> dict[str, int | str]:
     """Machine-readable verdict consumed by the publish retry classifier."""
 
@@ -140,8 +182,30 @@ def main() -> int:
     parser.add_argument("--skip-fe", action="store_true", help="跳過 scripts/test-*.mjs")
     parser.add_argument("--skip-pipelines", action="store_true", help="跳過 pipelines/* --self-test")
     parser.add_argument("--skip-script-tests", action="store_true", help="跳過 scripts/test_*.py")
+    parser.add_argument(
+        "--release-db-gates",
+        action="store_true",
+        help="淨係跑 RELEASE_DB_GATES（發佈前，對住 live DB）",
+    )
     parser.add_argument("--timeout", type=int, default=300)
     args = parser.parse_args()
+
+    if args.release_db_gates:
+        if args.no_db:
+            parser.error("--release-db-gates 同 --no-db 唔可以一齊用")
+        # 閘一定要驗 bake 真係會讀嗰份 receipt；env 指去第二份就等於驗錯嘢。
+        if os.environ.get("PC_SALE_QUARANTINE_RECEIPT"):
+            return _report([(
+                "runner:release-db-gate-receipt",
+                "FAIL",
+                0.0,
+                "PC_SALE_QUARANTINE_RECEIPT 有設；發佈閘只准驗 live receipt",
+            )])
+        down = _db_preflight()
+        if down is not None:
+            print(f"release DB gate: MySQL 連唔到，唔出 verdict（可重試）：{down}", file=sys.stderr)
+            return 1
+        return _report(release_db_gate_results(args.timeout))
 
     results: list[tuple[str, str, float, str]] = []
 
@@ -221,6 +285,10 @@ def main() -> int:
             continue
         results.append((label, *_run(label, [node, str(path)], args.timeout)))
 
+    return _report(results)
+
+
+def _report(results: list[tuple[str, str, float, str]]) -> int:
     width = max(len(row[0]) for row in results)
     for label, status, took, detail in results:
         line = f"{status:<8}{label:<{width}}  {took:6.1f}s"

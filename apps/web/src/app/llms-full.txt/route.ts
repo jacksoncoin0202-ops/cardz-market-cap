@@ -130,9 +130,11 @@ export async function GET(): Promise<Response> {
   const snapshot = await loadMarketSnapshot();
   const asOf = day(snapshot.effectiveAt);
   const totals = totalsOf(snapshot);
-  const all = scopeSnapshot(snapshot, "all").top100;
-  const pokemon = scopeSnapshot(snapshot, "pokemon").top100;
-  const onePiece = scopeSnapshot(snapshot, "one-piece").top100;
+  // Seated boards (30d seat rule, #47), not page 1 of each list: a short per-game
+  // board's page 1 continues into rank 101+. scripts/test-top100-30d-sales.mjs checks this.
+  const all = scopeSnapshot(snapshot, "all").lead100 ?? [];
+  const pokemon = scopeSnapshot(snapshot, "pokemon").lead100 ?? [];
+  const onePiece = scopeSnapshot(snapshot, "one-piece").lead100 ?? [];
   const boxes = boxListSnapshot(snapshot).sealed?.products ?? [];
   const top = all[0];
   const topName = top ? cardName(top) : "not available";

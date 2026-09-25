@@ -18,6 +18,7 @@ import json
 import re
 import subprocess
 import sys
+from bisect import bisect_right
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -38,6 +39,8 @@ from sealed_runtime import (  # noqa: E402
     utc_now,
 )
 from sealed_price_compose import (  # noqa: E402
+    MARKET_MAX_AGE_D,
+    SOLD_WINDOW_D,
     compose_current,
     item_key,
     load_asks,
@@ -738,6 +741,9 @@ def cmd_sealed_quarantine(*, table: str, ids: list[int], restore: bool, actor: s
 
 
 SET_NAME_REJECTS = ("rejected_own_set_name_missing", "rejected_foreign_set_in_title")
+# Title rejects whose rule was narrowed: a row today's rule no longer rejects comes back (2026-09-25: case_not_box read
+# every "case", so a box "w/ Acrylic Case" was rejected as a case of boxes; ptcg-en-prc lost its $3,600 and $3,171 sales).
+NARROWED_REJECTS = ("rejected_case_not_box",)
 
 
 # the sales whose box count and title QC come from the title alone (an eBay import can carry its own quantity)
@@ -748,8 +754,9 @@ def cmd_sealed_rejudge_sales(*, source: str, skus: list[str], actor: str, note: 
     """Sales are INSERT IGNORE by lot, so a title-QC fix never reaches rows already written (2026-09-23: S2's own
     'ソード＆シールド … 反逆クラッシュ' titles stayed rejected; 2026-09-24: 'OP-03 BOX' was 3 boxes, 'BOX 10パック' 10,
     'Booster Box 24 Packs' 24, '2BOXセット' 1). This runs today's title QC on a source's rows that are counted, and for
-    yahoo those rejected for the set name (with the peers run_yahoo uses). A row today's QC rejects leaves for
-    rejected_<reason>, usd NULL; only a set-name reject today's QC accepts comes back, ok. A row that stays or comes back
+    yahoo those rejected for the set name (with the peers run_yahoo uses), and rows under a narrowed reject
+    (NARROWED_REJECTS). A row today's QC rejects leaves for rejected_<reason>, usd NULL; only a set-name or narrowed
+    reject today's QC accepts comes back, ok. A row that stays or comes back
     counted takes today's box count: its unit is total_native_price / quantity, in USD at the rate the row was priced at,
     or at the latest rate for a row coming back (compose's trim re-judges outliers). A quarantine or any other reject is
     never read."""
@@ -773,7 +780,8 @@ def cmd_sealed_rejudge_sales(*, source: str, skus: list[str], actor: str, note: 
         if not jpy_per_usd:
             raise SystemExit("no JPY rate: a row coming back could not be priced")
         groups = _group_name_map(cur)
-        states = ("ok", "outlier_trimmed", *(SET_NAME_REJECTS if source == "yahoo" else ()))
+        back = (*(SET_NAME_REJECTS if source == "yahoo" else ()), *NARROWED_REJECTS)
+        states = ("ok", "outlier_trimmed", *back)
         moves = []
         for product in products:
             sealed_id = int(product["id"])
@@ -789,7 +797,7 @@ def cmd_sealed_rejudge_sales(*, source: str, skus: list[str], actor: str, note: 
                 if qc["accepted"] and source == "yahoo":
                     qc = {**qc, **title_set_contamination(row["title"] or "", own, foreign)}
                 was = row["metric_status"]
-                to = ("ok" if was in SET_NAME_REJECTS else was) if qc["accepted"] else f"rejected_{qc['reason']}"
+                to = ("ok" if was in back else was) if qc["accepted"] else f"rejected_{qc['reason']}"
                 qty, usd = int(row["quantity"] or 1), None
                 native = None if row["native_price"] is None else float(row["native_price"])  # DECIMAL
                 if to in ("ok", "outlier_trimmed"):
@@ -797,7 +805,7 @@ def cmd_sealed_rejudge_sales(*, source: str, skus: list[str], actor: str, note: 
                     currency = str(row["native_currency"] or "JPY")
                     if source == "yahoo":  # yahoo's native_price is the unit, eBay's the lot (run_pc)
                         native = round(float(total) / qty, 2)
-                    if was in SET_NAME_REJECTS or row["unit_price_usd"] is None:
+                    if was in back or row["unit_price_usd"] is None:
                         usd = to_usd(float(total) / qty, currency, jpy_per_usd)
                     else:  # the rate the row was priced at: usd * old boxes = the lot in USD
                         usd = round(float(row["unit_price_usd"]) * int(row["quantity"] or 1) / qty, 2)
@@ -1025,8 +1033,64 @@ def _stories() -> dict[str, dict[str, str]]:
     return {}
 
 
-def _windows_from_line(line: list[dict], today: date) -> tuple[dict, list[dict], dict | None]:
-    """(windows, historyDaily, latestPoint) from the composed aggregate line."""
+# The Top100 card board's window rule (apps/web/src/lib/live-db-snapshot.ts windowMetrics), for boxes, 1d to 365d:
+# as-of. The anchor is the last line point in the displayed price's lane on or before today-N (no ±band: 2026-09-26
+# price audit, coordinator ruling for cards and boxes alike; a window with no new point in it is 0%, by definition).
+# A move past MAX_WINDOW_RATIO either way is withheld, and so is a carried or expired anchor (_anchor_withheld, boxes
+# only). The ±2/3/5-day band this replaced (68b82c75) picked points after today-N, and left PC's month-1st points out
+# of every band but a month's first days. scripts/test_sealed_change_windows.py pins the table to the card literal.
+WINDOW_DAYS = {"1d": 1, "7d": 7, "30d": 30, "90d": 90, "180d": 180, "365d": 365}
+MAX_WINDOW_RATIO = {"1d": 3.0, "7d": 3.0, "30d": 3.0, "90d": 4.0, "180d": 5.0, "365d": 7.0}
+# DADDY 2026-09-26, honest over coverage: a window whose anchor no observation near it supports is withheld (not ready),
+# like the ratio guard. SNKRDUNK box sales went uncollected 08-21..09-22 and the line carried the 08-20 sold median
+# through the gap: op-17 JP 7d and 30d both -44.19%, $76.24 against 08-20's $136.60, while SNK's own market line read
+# ~$100 on 08-26. FFI's 30d +90.88% anchored on a 2025-07-01 PC point, 421 days before today-30.
+#   carried: the anchor point's value rests on an observation more than max(3 d, N/10) before the point's own date (a
+#     sold point's newest sale; a market point is its own observation). 3 days covers a daily collector missing two
+#     runs or a sale posting late; N/10 lets a long window's anchor lag by at most a tenth of the window.
+#   expired: on today-N the display would no longer have shown that value, by compose_current's own limits: a sold
+#     median whose newest sale is more than SOLD_WINDOW_D before today-N, a market point more than MARKET_MAX_AGE_D
+#     before it. PC's month-1st points (at most ~31 days apart) stay anchors.
+# The gap is not measured from today-N alone: that would withhold PC's month-1st anchors (463 of 1,035 windows).
+ANCHOR_CARRY_FLOOR_D = 3
+ANCHOR_CARRY_FRACTION = 0.10
+
+
+def _window_anchor(points: list[dict], lane: tuple[str, str], target: date) -> dict | None:
+    """The price the lane showed on `target`: its last point on or before it."""
+    best = None
+    for r in points:
+        if (r["composed_kind"], r["composed_source"]) != lane or r["observed_date"] > target:
+            continue
+        if best is None or r["observed_date"] > best["observed_date"]:
+            best = r
+    return best
+
+
+def _anchor_withheld(anchor: dict, sale_days: list[date], target: date, days: int) -> bool:
+    """True when the anchor is carried or expired (see ANCHOR_CARRY_FLOOR_D). sale_days: the line's days with a sale."""
+    anchor_day = anchor["observed_date"]
+    if anchor["composed_kind"] == "sold":
+        idx = bisect_right(sale_days, anchor_day)
+        if not idx:
+            return True
+        observed, expires = sale_days[idx - 1], SOLD_WINDOW_D
+    else:
+        observed, expires = anchor_day, MARKET_MAX_AGE_D
+    carried = (anchor_day - observed).days > max(ANCHOR_CARRY_FLOOR_D, days * ANCHOR_CARRY_FRACTION)
+    expired = (target - observed).days > expires
+    return carried or expired
+
+
+def _windows_from_line(line: list[dict], today: date, current: dict | None = None) -> tuple[dict, list[dict], dict | None]:
+    """(windows, historyDaily, latestPoint) from the composed aggregate line (sealed_price_compose.daily_line).
+    A window compares the DISPLAYED price `current` (compose_current as of today) with its anchor (_window_anchor); no
+    anchor, or no lane (no price, or a stale last_sold / last_market fallback), leaves the change out: the FE shows it
+    as not ready, never as a number measured across lanes. soldCount is the units sold in (today-N, today]. The long
+    windows (90d / 180d / 365d) come from here too, off the full line; the FE only shows them (box-view.ts).
+    2026-09-25 box audit: the change ran from the newest line point, not the displayed price, to any older point (CG
+    "1d" against a point 40 days back), dated from the newest point, not today (xy2 "7d" +360.8% was two sales 14
+    months apart; jp-s5r's 30d soldCount 13 against 1)."""
     pts = [r for r in line if r["composed_price_usd"] is not None]
     history = [
         {
@@ -1040,20 +1104,21 @@ def _windows_from_line(line: list[dict], today: date) -> tuple[dict, list[dict],
     if not pts:
         return {}, history, None
     latest = pts[-1]
-    latest_price = float(latest["composed_price_usd"])
+    price = float(current["usd"]) if current and current.get("usd") is not None else None
+    lane = (current["kind"], current["source"]) if price and not current.get("note") else None
+    sale_days = [r["observed_date"] for r in line if int(r["sold_count"] or 0) > 0]
     windows: dict[str, Any] = {}
-    for label, days in (("1d", 1), ("7d", 7), ("30d", 30)):
-        target = latest["observed_date"] - timedelta(days=days)
-        prev = None
-        for r in reversed(pts):
-            if r["observed_date"] <= target:
-                prev = float(r["composed_price_usd"])
-                break
-        sold = sum(int(r["sold_count"] or 0) for r in line if r["observed_date"] > target)
+    for label, days in WINDOW_DAYS.items():
+        start = today - timedelta(days=days)
+        sold = sum(int(r["sold_count"] or 0) for r in line if start < r["observed_date"] <= today)
         win: dict[str, Any] = {"soldCount": sold}
-        if prev and prev > 0:
-            win["changeUsd"] = round(latest_price - prev, 2)
-            win["changePct"] = round((latest_price - prev) / prev * 100.0, 2)
+        anchor = _window_anchor(pts, lane, start) if lane else None
+        if anchor and _anchor_withheld(anchor, sale_days, start, days):
+            anchor = None
+        prev = float(anchor["composed_price_usd"]) if anchor else 0.0
+        if price and price > 0 and prev > 0 and max(price / prev, prev / price) <= MAX_WINDOW_RATIO[label]:
+            win["changeUsd"] = round(price - prev, 2)
+            win["changePct"] = round((price - prev) / prev * 100.0, 2)
         windows[label] = win
     return windows, history, latest
 
@@ -1123,14 +1188,15 @@ def cmd_export_sealed_subset(output: Path | None = None, *, include_candidates: 
             sealed_id = int(p["id"])
             group = str(p["group_code"])
             line = aggregates.get(sealed_id) or []
-            windows, history, latest = _windows_from_line(line, today)
             sales = sales_by.get(sealed_id, [])
-            kept = [s for s in sales if s["metric_status"] == "ok" and s["sold_at"].date() >= today - timedelta(days=30)]
+            kept = [s for s in sales
+                    if s["metric_status"] == "ok" and s["sold_at"].date() >= today - timedelta(days=SOLD_WINDOW_D)]
             market_by_source = {s: market_all.get((sealed_id, s), []) for s in ("pricecharting", "snkrdunk")}
             current = compose_current(
                 group_code=group, kept_sales=kept, market_by_source=market_by_source,
                 ask=asks.get(sealed_id), today=today, all_sales=sales,
             )
+            windows, history, latest = _windows_from_line(line, today, current)
             price = None
             if current:
                 priced += 1

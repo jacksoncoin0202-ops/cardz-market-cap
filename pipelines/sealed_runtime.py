@@ -38,10 +38,50 @@ SEALED_ADAPTERS = ("sealed_pc", "sealed_snk", "sealed_yahoo", "sealed_ebay", "se
 
 # --- box title QC ----------------------------------------------------------
 
+
+class _CaseNotBox:
+    """A case of boxes, not a box that ships with a protective case.
+
+    The bare word rule rejected every "case": 2026-09-25 ptcg-en-prc lost $3,600 "... w/ Acrylic Case" and
+    $3,171 "... With Case" (single boxes) and read 30d -61% off its one remaining sale; 378 of 527 case_not_box
+    rows were single boxes. A title that names a case of boxes stays rejected; a case the box comes in or with
+    is stripped; any "case" left over still rejects, so an unclear title fails closed as before.
+    """
+
+    WORD = re.compile(r"\b(case|carton)\b", re.I)
+    # where one box came from: "Case Fresh", "fresh from case", "pulled from a sealed case"
+    ORIGIN = re.compile(r"\bcase[\s-]*fresh\b|\bfresh\s+(?:from\s+)?case\b"
+                        r"|\bfrom\s+(?:(?:an?|the|brand|new|sealed|fresh|factory)\s+){0,3}case\b", re.I)
+    # a case of boxes, or not a box at all ("Acrylic Case fits ...", an attaché case)
+    REAL = re.compile(r"\bcarton\b"
+                      r"|\bbox(?:es)?\s*case\b"  # "Booster Box Case"
+                      r"|\b(?:sealed|factory|master)\s*case\b"
+                      # "case of 6", "Case x12", "Case 6 Booster Boxes"; not "W/ Case 36 Packs", "Acrylic Case 2017"
+                      r"|\bcase\s*(?:of\s*)?[x×]?\s*\d{1,2}(?!\d)(?!\s*(?:booster\s*)?packs?\b)"
+                      r"|\bcase\s+(?:booster\s*)?box"  # "Sealed Case Booster Box"
+                      r"|\b(?:[2-9]|1\d|2[0-4])\s*(?:booster\s*)?(?:boxes|displays)\b"  # "6 Booster Boxes"
+                      r"|\b(?:[2-9]|1\d|2[0-4])\s*x\b"  # "6x"
+                      r"|\battach[eé]\s*case\b"
+                      r"|\bcase\s+(?:fits|for)\b", re.I)
+    _MOD = r"(?:acrylic|acryl|arcylic|plastic|magnetic|uv|hard|soft|pet|protective|clear|dragon\s*scale|ultra\s*pro|display)"
+    # the box comes with, in or plus a case: "w/ Acrylic Case", "With Case", "in Magnetic Case", "UV Case"
+    PROTECTIVE = re.compile(r"(?:\bw\s*/\s*|\bw\s+|\bwith\s+(?:(?:the|an?)\s+)?|\+\s*|&\s*|\band\s+|\bin\s+(?:(?:an?|the)\s+)?"
+                            r"|\bincl(?:uded|udes|uding|\.)?\s+|\bfree\s+)(?:" + _MOD + r"[\s-]*){0,3}case\b"
+                            r"|\b(?:" + _MOD + r"[\s-]*){1,3}case\b|\bcase\s*included\b", re.I)
+
+    def search(self, text: str) -> bool:
+        if not self.WORD.search(text):
+            return False
+        rest = self.ORIGIN.sub(" ", text)
+        if self.REAL.search(rest):
+            return True
+        return bool(self.WORD.search(self.PROTECTIVE.sub(" ", rest)))
+
+
 REJECT_PATTERNS = [
     (re.compile(r"\b(lot|bundle|set of|repack|resale|proxy|replica|custom|bulk\s*sale)\b", re.I), "bundle_or_fake"),
     (re.compile(r"i\s?m\s?i\s?t\s?a\s?t\s?i\s?o\s?n", re.I), "bundle_or_fake"),  # "( i m i t a t i o n)"
-    (re.compile(r"\b(case|carton)\b", re.I), "case_not_box"),
+    (_CaseNotBox(), "case_not_box"),
     (re.compile(r"(カートン|ケース販売)", re.I), "case_not_box"),
     (re.compile(r"\b(etb|elite trainer box|booster bundle|build\s*&\s*battle|blister|mini tin|tin\b)\b", re.I), "not_booster_box"),
     (re.compile(r"(エリートトレーナー|デッキ|スターター|プロモ|バラ売り|バラパック)", re.I), "not_booster_box"),

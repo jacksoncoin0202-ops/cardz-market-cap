@@ -329,7 +329,7 @@ function braced(source, start) {
     /const anchorSource = chartLaneOf\(anchor\?\.sourceCode \?\? null\);/.test(producer),
     "anchorSource 冇剝尾碼，全板會假 sourceSwitched");
   check("T5: windowMetrics 個 currentSource 行過 chartLaneOf",
-    /priceAsOf,\s*chartLaneOf\(row\.price_source_code\),\s*referenceDrafts,\s*\)/.test(producer),
+    /priceAsOf,\s*chartLaneOf\(row\.price_source_code\),\s*referenceDrafts,\s*(?:laneSalesByVariant\.get\(variantId\) \?\? null,\s*)?\)/.test(producer),
     "windowMetrics 仲係直接 String(row.price_source_code)");
   check("T5: call site 冇剩返舊寫法",
     !/\[Number\(row\.variant_id\), String\(row\.price_source_code\)\]/.test(producer)

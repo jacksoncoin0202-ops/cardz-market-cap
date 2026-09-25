@@ -15,7 +15,7 @@
  *  ② **真源碼行一次**：抽 live-db-snapshot.ts 嗰段 history builder 出嚟，餵住 K 線點 +
  *     成交點，K 線嗰日一定唔可以出現喺 historyDaily。
  *  ③ **真 windowMetrics 行一次**（同一份 history）：30d 變幅要等於成交對成交嘅差；
- *     窗內冇成交嘅 1d 要係 null（唔准借 K 線點填）。
+ *     1d 一樣係成交對成交——錨係 target 或之前最後一單（as-of，2026-09-26），唔准借 K 線點填。
  *  ④ 錨同現價同一條 lane 嗰陣唔准 flag `sourceSwitched`——全板 quote code 係
  *     `pricecharting_sales`，history 點係 `pricecharting_sales`，唔剝尾碼比較就會
  *     成板卡掛住「換咗來源」嘅提示。
@@ -123,7 +123,7 @@ const CURRENT_AS_OF = "2026-08-22T00:00:00Z";
 const chartRows = [
   // 30d 錨帶（07-18…07-28）入面，特登比真成交（07-20）更近 target（07-23）。
   { variant_id: VARIANT, observed_date: "2026-07-25", price_usd: 2850, source_code: "pricecharting" },
-  // 1d 錨帶（08-19…08-23，要嚴格舊過 08-22）入面，而嗰窗根本冇成交。
+  // 1d target（08-21）嗰日得 K 線、冇成交：1d 要錨 07-20 嗰單真成交，唔准錨呢點。
   { variant_id: VARIANT, observed_date: "2026-08-21", price_usd: 3000, source_code: "pricecharting" },
 ];
 const saleRows = [
@@ -171,7 +171,7 @@ if (buildHistories) {
 }
 
 /* ─────────────────────────────────────────────────────────────
- * H3 — 真 `windowMetrics`：30d 變幅 = 成交對成交；1d 窗內冇成交 → null。
+ * H3 — 真 `windowMetrics`：30d／1d 變幅 = 成交對成交（1d as-of 錨 07-20，唔係 08-21 K 線）。
  * ───────────────────────────────────────────────────────────── */
 {
   const windows = snapshotLib.windowMetrics(
@@ -190,10 +190,10 @@ if (buildHistories) {
     thirty.sourceSwitched === false, JSON.stringify(thirty));
 
   const one = windows["1d"].changePct;
-  check("H3: 1d 窗內冇成交 → null / accumulating（唔准借 K 線）",
-    one.value === null && one.status === "accumulating", JSON.stringify(one));
-  check("H3: 1d 市值變幅一樣要 null",
-    windows["1d"].marketCapChangePct.value === null, JSON.stringify(windows["1d"].marketCapChangePct));
+  check("H3: 1d 錨 target 前最後一單真成交 07-20（+55%，唔准借 08-21 K 線出 +3.3%）",
+    one.status === "ready" && Math.abs(one.value - expected) < 1e-9, JSON.stringify(one));
+  check("H3: 1d 市值變幅一樣跟成交錨",
+    Math.abs(windows["1d"].marketCapChangePct.value - expected) < 1e-9, JSON.stringify(windows["1d"].marketCapChangePct));
   check("H3: 30d 市值變幅跟返成交錨（價×POP）",
     Math.abs(windows["30d"].marketCapChangePct.value - expected) < 1e-9,
     JSON.stringify(windows["30d"].marketCapChangePct));
