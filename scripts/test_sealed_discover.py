@@ -628,6 +628,8 @@ CREATE TABLE catalog_sealed_source_identity (source_code TEXT, external_entity_i
   match_status TEXT, resolved INTEGER, evidence_sha256 TEXT, note TEXT, PRIMARY KEY (source_code, external_entity_id));
 CREATE TABLE operator_sealed_binding_freeze (sealed_id INTEGER, freeze_kind TEXT, source_code TEXT, external_entity_id TEXT,
   acceptance_status TEXT, PRIMARY KEY (sealed_id, freeze_kind, source_code));
+CREATE TABLE market_sealed_price_observation (sealed_id INTEGER, source_code TEXT, price_kind TEXT, observed_date TEXT,
+  price_usd REAL, external_entity_id TEXT, metric_status TEXT, PRIMARY KEY (sealed_id, source_code, price_kind, observed_date));
 INSERT INTO catalog_sealed_product VALUES
   (5, 'optcg:en:OP-02:booster-box:std', 'optcg', 'en', 'optcg-en', 'OP-02', 'Paramount War', 'std', 'booster-box', 'active'),
   (179, 'ptcg:en:JU:booster-box:std', 'ptcg', 'en', 'ptcg-en', 'JU', 'Jungle', 'std', 'booster-box', 'active'),
@@ -668,6 +670,35 @@ def test_pc_inventory_prices_only_the_accepted_item():
     cur = conn.cursor()
     cur.execute("SELECT match_status FROM catalog_sealed_source_identity WHERE sealed_id=5")
     assert cur.fetchall() == [{"match_status": "exact"}], "the ingest demoted OP-02 EN's accepted bind"
+    return inventory
+
+
+def test_pc_inventory_price_follows_the_live_rule():
+    # 2026-09-25 QC: the scan writes PC's live price too, so the daily pull's rule (sealed_price_compose.pc_live_status)
+    # judges it: a 5x move lands outlier_trimmed, and a quarantined month-1st row holds the price (no row written).
+    from datetime import datetime, timezone
+
+    inventory = test_pc_inventory_prices_only_the_accepted_item()
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    month_1st = today[:8] + "01"
+    cases = [
+        ([("2000-01-01", 180.0 * 5, "ok", "one-piece-paramount-war/booster-box")], ["outlier_trimmed"]),
+        ([("2000-01-01", 180.0 * 4.9, "ok", "one-piece-paramount-war/booster-box")], ["ok"]),
+        ([("2000-01-01", 180.0 * 5, "ok", "one-piece-paramount-war/booster-box-sealed-case")], ["ok"]),
+        ([(month_1st, 180.0, "quarantined", "one-piece-paramount-war/booster-box")], []),
+    ]
+    for seeds, want in cases:
+        conn, priced = LiteConn(PC_DB), []
+        for day, usd, status, ext in seeds:
+            conn.cursor().execute(
+                "INSERT INTO market_sealed_price_observation VALUES (5, 'pricecharting', 'market', %s, %s, %s, %s)",
+                (day, usd, ext, status))
+        pc_ingest.db = lambda: conn
+        pc_ingest.upsert_sealed_price = lambda cur, **kw: priced.append(kw["metric_status"])
+        doc = pc_ingest.ingest_inventory(inventory)
+        assert priced == want, "scan price status %r, want %r (seeds %r)" % (priced, want, seeds)
+        live = [i.get("livePrice") for i in doc["items"] if i["sku"].startswith("optcg:en:OP-02")]
+        assert live == [want[0] if want else "quarantined_month"], (live, seeds)
 
 
 COMPOSE_DB = """

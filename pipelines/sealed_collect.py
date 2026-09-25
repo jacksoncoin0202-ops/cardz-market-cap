@@ -36,7 +36,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
 from sealed_discover_lib import SNK_ITEM_RE, yahoo_closedsearch_url, yahoo_jp_query, yahoo_query_needs_rewrite  # noqa: E402
-from sealed_price_compose import item_key  # noqa: E402
+from sealed_price_compose import item_key, pc_history_status, pc_item_rows, pc_live_status  # noqa: E402
 from sealed_runtime import (  # noqa: E402
     HTML_DIR,
     OUT_DIR,
@@ -283,6 +283,33 @@ def prefetch_pc_pages(jobs: list[tuple[str, Path]]) -> dict:
         "attempted": len(rows), "tabs": pool.PC_TABS}
 
 
+def _pc_price_points(cur, item: dict, series: list, page: Path) -> tuple[list[tuple[str, float, str]], str]:
+    """The chart's month points with their statuses, plus PC's live Ungraded price dated the day its page was fetched.
+
+    PC stamps its live price on the chart's current-month 1st, so the daily pull only rewrote month-1st rows and the
+    box price and asOf stood still between console scans: 2026-09-25 every PC-priced box sat at the 09-23 scan while
+    212/212 pages were pulled (FFI shown $4,143.96, page $4,206.17). Dated by the page's mtime, not now(), because a
+    page up to html_max_age_h old is reused. A chart whose last point is not from the fetch month gets no live row.
+    The live price's verdict (pc_live_status) is the month-1st row's too, since both carry the same price."""
+    points = sorted(
+        (datetime.fromtimestamp(pt[0] / 1000, tz=timezone.utc).strftime("%Y-%m-%d"), round(float(pt[1]) / 100.0, 2))
+        for pt in series if isinstance(pt, list) and len(pt) >= 2 and pt[1])
+    rows = pc_item_rows(cur, item["sealedId"], item["externalId"])
+    fetched = datetime.fromtimestamp(page.stat().st_mtime, tz=timezone.utc).strftime("%Y-%m-%d")
+    live = points.pop() if points and points[-1][0][:7] == fetched[:7] else None
+    out = [(day, usd, pc_history_status(rows, day, usd)) for day, usd in points]
+    if live is None:
+        return out, "none"
+    status = pc_live_status(rows, fetched, live[1])
+    if status is None:
+        # The item's month-1st row is quarantined: PRICE_UPSERT_HEAD keeps it, and no dated row carries the price past.
+        return out + [(live[0], live[1], "ok")], "quarantined_month"
+    out.append((live[0], live[1], status))
+    if fetched != live[0]:
+        out.append((fetched, live[1], status))
+    return out, status
+
+
 def run_pc(conn, items: list[dict], *, mode: str, html_max_age_h: float, timeout_s: int) -> dict:
     import pricecharting_cf_session as cf
     from pricecharting_page_parse import parse_product_html
@@ -321,20 +348,9 @@ def run_pc(conn, items: list[dict], *, mode: str, html_max_age_h: float, timeout
                 results.append(res)
                 continue
             used = (parsed.get("chart") or {}).get("used") or {}
-            series = used.get("series") or []
-            price_rows = []
-            for point in series:
-                if not (isinstance(point, list) and len(point) >= 2):
-                    continue
-                ts, cents = point[0], point[1]
-                if not cents:
-                    continue
-                day = datetime.fromtimestamp(ts / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
-                usd = round(float(cents) / 100.0, 2)
-                price_rows.append(
-                    (item["sealedId"], "pricecharting", "market", day, usd, "USD", usd,
-                     item["externalId"], url[:700], "ok", run_key)
-                )
+            points, live_status = _pc_price_points(cur, item, used.get("series") or [], out)
+            price_rows = [(item["sealedId"], "pricecharting", "market", day, usd, "USD", usd,
+                           item["externalId"], url[:700], status, run_key) for day, usd, status in points]
             if price_rows:
                 cur.executemany(
                     """
@@ -394,7 +410,8 @@ def run_pc(conn, items: list[dict], *, mode: str, html_max_age_h: float, timeout
                 ingest_run_key=run_key,
             )
             conn.commit()
-            res.update({"status": "ok", "pricePoints": len(price_rows), "soldRows": len(sold_rows), "salesInserted": inserted_sales})
+            res.update({"status": "ok", "pricePoints": len(price_rows), "livePrice": live_status, "soldRows": len(sold_rows),
+                        "salesInserted": inserted_sales})
             ok_items.append(item)
         except Exception as exc:  # noqa: BLE001
             conn.rollback()

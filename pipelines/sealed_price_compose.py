@@ -230,6 +230,51 @@ def trim_market(cur, rows: list[dict], sold: list[dict]) -> int:
     return marked
 
 
+def pc_item_rows(cur, sealed_id: int, external_id: Any) -> dict[str, dict]:
+    """One SKU's stored PriceCharting market rows off one item, by ISO day: what pc_live_status and pc_history_status
+    judge a PC write against. Each verdict is recorded back in, so a later point is judged against this write's."""
+    cur.execute(
+        "SELECT observed_date, price_usd, metric_status, external_entity_id FROM market_sealed_price_observation "
+        "WHERE sealed_id=%s AND source_code='pricecharting' AND price_kind='market'",
+        (sealed_id,),
+    )
+    want = item_key("pricecharting", external_id)
+    return {str(r["observed_date"])[:10]: {"usd": float(r["price_usd"] or 0), "status": str(r["metric_status"])}
+            for r in cur.fetchall() if item_key("pricecharting", r["external_entity_id"]) == want}
+
+
+def _pc_jump(rows: dict[str, dict], day: str, usd: float) -> str:
+    prev = next((r["usd"] for d, r in sorted(rows.items(), reverse=True)
+                 if d < day and r["status"] == "ok" and r["usd"] > 0), 0.0)
+    return "outlier_trimmed" if prev > 0 and usd > 0 and max(usd / prev, prev / usd) >= MARKET_TRIM_RATIO else "ok"
+
+
+def _pc_record(rows: dict[str, dict], day: str, usd: float, status: str) -> str:
+    if rows.get(day, {}).get("status") != "quarantined":  # PRICE_UPSERT_HEAD keeps the item's quarantine too
+        rows[day] = {"usd": usd, "status": status}
+    return status
+
+
+def pc_live_status(rows: dict[str, dict], day: str, usd: float) -> str | None:
+    """PC's live price written on `day`: one rule for every row that carries it (the daily pull's dated row and the
+    chart's current-month 1st, where PC stamps it; the console scan's row). None: this month's 1st row is quarantined
+    for the item, which holds the live price. 'outlier_trimmed': MARKET_TRIM_RATIO or more off the item's newest ok
+    point before `day`; trim_market takes it back once sales agree. 2026-09-25 CG's page went $27,666.18 -> $1,289.64
+    with no sales to judge by; the month-1st row wrote it 'ok' beside the trimmed dated row, and a quarantined month-1st
+    row was passed by the new dated row."""
+    if rows.get(day[:8] + "01", {}).get("status") == "quarantined":
+        return None
+    return _pc_record(rows, day, usd, _pc_jump(rows, day, usd))
+
+
+def pc_history_status(rows: dict[str, dict], day: str, usd: float) -> str:
+    """A chart point before the live one: 'ok' as ever (trim_market judges it against sales), but a point stored
+    'outlier_trimmed' is judged again by the live rule, so a month rollover, which moves the last live price into the
+    chart's history, cannot release it."""
+    stored = rows.get(day, {}).get("status")
+    return _pc_record(rows, day, usd, _pc_jump(rows, day, usd) if stored == "outlier_trimmed" else "ok")
+
+
 def compose_current(
     *,
     group_code: str,

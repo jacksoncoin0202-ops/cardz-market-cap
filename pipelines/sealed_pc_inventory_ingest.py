@@ -27,6 +27,7 @@ from sealed_discover_lib import (  # noqa: E402
     match_pc_inventory,
     parse_pc_usd,
 )
+from sealed_price_compose import pc_item_rows, pc_live_status  # noqa: E402
 from sealed_runtime import (  # noqa: E402
     OUT_DIR,
     db,
@@ -147,7 +148,11 @@ def ingest_inventory(path: Path, *, dry_run: bool = False) -> dict[str, Any]:
                     },
                     ingest_run_key=run_key,
                 )
+                # The table's Ungraded price is PC's live price, so the daily pull's rule judges it here too.
+                live = pc_live_status(pc_item_rows(cur, int(sku["id"]), ext), today, usd) if usd is not None else None
                 if usd is not None:
+                    item["livePrice"] = live or "quarantined_month"
+                if live:
                     upsert_sealed_price(
                         cur,
                         sealed_id=int(sku["id"]),
@@ -159,6 +164,7 @@ def ingest_inventory(path: Path, *, dry_run: bool = False) -> dict[str, Any]:
                         price_usd=usd,
                         external_entity_id=ext,
                         source_url=url,
+                        metric_status=live,
                         ingest_run_key=run_key,
                     )
                     priced += 1
