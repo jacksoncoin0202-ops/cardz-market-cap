@@ -16,6 +16,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ENSURE = ROOT / "scripts/ensure_chrome_cdp.ps1"
 LAUNCHER = ROOT / "scripts/cardz_daily_v2_launcher.ps1"
+# A capped revive waits 2 x WaitForExit(3000) plus PowerShell startup, about 8.5 s alone, but past
+# 12 s when the gate shares the machine with other suites. The planted uncapped wait sleeps 120 s per
+# helper, so 30 s still tells the two apart.
+WATCHDOG_S = 30
 
 
 def winpath(path):
@@ -117,7 +121,7 @@ function Start-CardzChrome {
         try:
             result = subprocess.run(
                 ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", winpath(harness)],
-                capture_output=True, text=True, errors="replace", timeout=12,
+                capture_output=True, text=True, errors="replace", timeout=WATCHDOG_S,
             )
             elapsed = time.monotonic() - started
             out = result.stdout + result.stderr
@@ -134,7 +138,7 @@ function Start-CardzChrome {
             self.assertEqual(alive.stdout.strip(), "0", alive.stdout + alive.stderr)
             print(f"REVIVE_OK reason={reason} mode={mode} elapsed={elapsed:.2f}s helpers_exited=2", flush=True)
         finally:
-            # Also reap the planted uncapped helper after the 12 s test watchdog.
+            # Also reap the planted uncapped helper after the test watchdog.
             pids = ",".join(line.split()[0] for line in record.read_text().splitlines())
             if pids:
                 ps(f"Stop-Process -Id {pids} -Force -ErrorAction SilentlyContinue")
@@ -152,7 +156,7 @@ function Start-CardzChrome {
     def test_planted_uncapped_wait_is_caught(self):
         with self.assertRaises(subprocess.TimeoutExpired):
             self.revive("no-listener", mutant=True)
-        print("MUTATION_CAUGHT uncapped WaitForExit: no Chrome startup within 12s", flush=True)
+        print(f"MUTATION_CAUGHT uncapped WaitForExit: no Chrome startup within {WATCHDOG_S}s", flush=True)
 
     def test_launcher_logs_child_output_before_throw(self):
         source = LAUNCHER.read_text(encoding="utf-8-sig")
