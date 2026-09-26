@@ -1128,7 +1128,7 @@ with tempfile.TemporaryDirectory(prefix="v2-o2-repair-") as folder:
     o2_contract_real = v2db.current_run_contract
     o2_plan_real = v2db.quote_repair_plan
     try:
-        v2db.current_run_contract = lambda business_date: {
+        v2db.current_run_contract = lambda business_date, pop_fallback_days=None: {
             "popSources": ["dummy-pop"],
             "dummy-pop": {"missing": [21, 22], "complete": False},
             "quotes": {"missing": [23], "complete": False},
@@ -1277,6 +1277,183 @@ try:
 finally:
     v2db.db, v2db.load_env = o2_db_real, o2_load_env_real
 print("POSITIVE_OK current_run_contract measures one section per registry source and blocks an unmeasurable core source")
+
+
+# F-POP-BLOCK-FALLBACK (2026-09-26): Cloudflare blocked GemRate's card pages.
+# A shard that met the block settles DEGRADED with GEMRATE_BLOCKED, and only
+# that opens the gemrate POP window POP_BLOCKED_FALLBACK_DAYS JST days early.
+# Variant 1's last pop is two days old; variant 2 popped today.
+from daily_chain_v2 import blocked_pop_fallback  # noqa: E402
+from daily_chain_v2_contract import (  # noqa: E402
+    GEMRATE_BLOCKED_ERROR_CODE,
+    POP_BLOCKED_FALLBACK_DAYS,
+    canonical_json,
+    parse_pop_fallback,
+)
+
+
+class _PopWindowCursor(_O2ContractCursor):
+    def __init__(self, registry_rows: Sequence[Mapping[str, Any]], stale_at: datetime) -> None:
+        super().__init__(registry_rows)
+        self.stale_at = stale_at
+        self.windows: list[datetime] = []
+
+    def execute(self, sql: str, params: Any = ()) -> None:
+        if "current_pop" not in " ".join(str(sql).split()):
+            super().execute(sql, params)
+            return
+        window_start, window_end = tuple(params)[:2]
+        self.windows.append(window_start)
+        self._result = [
+            {"variant_id": 1, "current_pop": int(window_start <= self.stale_at < window_end)},
+            {"variant_id": 2, "current_pop": 1},
+        ]
+
+
+def _o2b_untouchable_db() -> Any:
+    raise AssertionError("an out-of-range pop fallback reached MySQL")
+
+
+o2b_start, _o2b_end = v2db.business_window_utc("2026-08-20")
+o2b_stale = o2b_start - timedelta(days=2)
+o2_db_real, o2_load_env_real = v2db.db, v2db.load_env
+try:
+    v2db.load_env = lambda: None
+
+    def o2b_contract(fallback: Mapping[str, int] | None) -> tuple[dict[str, Any], _PopWindowCursor]:
+        cursor = _PopWindowCursor(O2_TODAY_REGISTRY, o2b_stale)
+        v2db.db = lambda: _O2Connection(cursor)
+        return v2db.current_run_contract("2026-08-20", pop_fallback_days=fallback), cursor
+
+    # Negative: no block, today's window only; the two-day-old pop is missing.
+    o2b_plain, o2b_cursor = o2b_contract(None)
+    assert o2b_plain["gemrate"] == {"covered": 1, "missing": [1], "complete": False}
+    assert o2b_cursor.windows == [o2b_start]
+    assert o2_barrier_failures(o2b_plain) == ["gemrate"]
+    # Positive: the approved 3 days take it, and the section says how much is stale.
+    o2b_wide, o2b_cursor = o2b_contract({"gemrate": POP_BLOCKED_FALLBACK_DAYS})
+    assert o2b_wide["gemrate"] == {
+        "covered": 2, "missing": [], "complete": True,
+        "fallbackDays": POP_BLOCKED_FALLBACK_DAYS,
+        "windowStart": (o2b_start - timedelta(days=POP_BLOCKED_FALLBACK_DAYS)).isoformat(),
+        "sameDayCovered": 1, "staleCovered": 1,
+    }, o2b_wide["gemrate"]
+    assert o2b_cursor.windows == [o2b_start - timedelta(days=POP_BLOCKED_FALLBACK_DAYS), o2b_start]
+    assert o2_barrier_failures(o2b_wide) == []
+    # Negative: a pop older than the fallback still fails the barrier.
+    o2b_short, _ = o2b_contract({"gemrate": 1})
+    assert o2b_short["gemrate"]["missing"] == [1] and o2b_short["gemrate"]["complete"] is False
+    assert o2_barrier_failures(o2b_short) == ["gemrate"]
+    # Negative: no caller can widen it past the approval; refused before MySQL.
+    v2db.db = _o2b_untouchable_db
+    for o2b_bad in ({"gemrate": POP_BLOCKED_FALLBACK_DAYS + 1}, {"gemrate": -1}):
+        try:
+            v2db.current_run_contract("2026-08-20", pop_fallback_days=o2b_bad)
+        except ValueError as error:
+            assert f"outside 0..{POP_BLOCKED_FALLBACK_DAYS}" in str(error)
+        else:
+            raise AssertionError(f"pop fallback {o2b_bad} fixture did not fire")
+finally:
+    v2db.db, v2db.load_env = o2_db_real, o2_load_env_real
+
+for o2b_bad in ("gemrate", "gemrate=", "=3", "gemrate=x", "gemrate=-1",
+                f"gemrate={POP_BLOCKED_FALLBACK_DAYS + 1}"):
+    try:
+        parse_pop_fallback([o2b_bad])
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(f"parse_pop_fallback accepted {o2b_bad!r}")
+assert parse_pop_fallback([f"gemrate={POP_BLOCKED_FALLBACK_DAYS}"]) == {"gemrate": POP_BLOCKED_FALLBACK_DAYS}
+assert parse_pop_fallback(["gemrate=0"]) == {"gemrate": 0}
+assert parse_pop_fallback([]) == {}
+
+# The worker receipt, through the adapter's ingest, into the journal row that
+# both the repair planner and the contract stage read.
+o2b_reports: list[dict[str, Any]] = []
+o2b_blocked = {"reason": "cloudflare_blocked", "breaker": 3, "pass": "first",
+               "at": "2026-08-20T01:00:00Z"}
+o2b_gemrate_blocked = {"adapter": "gemrate_pop", "ok": False, "failed": 1,
+                       "error": "gemrate_blocked", "blocked": o2b_blocked}
+
+
+def o2b_report(results: Sequence[Mapping[str, Any]], *, failed: Sequence[str],
+               truncated: Sequence[str] = ()) -> dict[str, Any]:
+    return {
+        "ok": False, "processed": 2, "inserted": 1, "checkpointed": 1, "failed": 1,
+        "quarantined": 0, "asOf": "2026-08-20T01:00:00Z",
+        "failedAdapters": list(failed), "truncatedAdapters": list(truncated),
+        "results": [dict(row) for row in results],
+    }
+
+
+def o2b_row(status: str, code: str | None) -> dict[str, Any]:
+    return {"source_code": "gemrate", "status": status,
+            "result_json": canonical_json({"status": "degraded", "error_code": code}).decode()}
+
+
+o2b_fake_collect = types.ModuleType("collect_control")
+o2b_fake_collect.cmd_incr = lambda **_kwargs: o2b_reports.pop(0)
+o2b_fake_collect.cmd_stock = lambda **_kwargs: o2b_reports.pop(0)
+o2b_previous_collect = sys.modules.get("collect_control")
+sys.modules["collect_control"] = o2b_fake_collect
+try:
+    with tempfile.TemporaryDirectory(prefix="v2-o2-block-") as folder:
+        o2b_task = {"source_code": "gemrate", "run_id": "cardz-v2:2026-08-20"}
+        o2b_payload = {"shard": "all", "worker": {"adapters": ["gemrate_pop"], "variantIds": [1, 2]}}
+        o2b_receipt_path = Path(folder) / "receipt.json"
+        # Positive: a lane whose only failure is the block settles as a verdict.
+        o2b_reports.append(o2b_report([o2b_gemrate_blocked], failed=["gemrate_pop"]))
+        o2b_receipt = v2worker.run_collect(o2b_task, o2b_payload, o2b_receipt_path)
+        assert o2b_receipt["status"] == "degraded"
+        assert o2b_receipt["errorCode"] == GEMRATE_BLOCKED_ERROR_CODE
+        assert o2b_receipt["detail"]["blocked"] is True
+        assert o2b_receipt["detail"]["blockedBy"] == [o2b_blocked]
+        assert o2b_receipt["counts"]["inserted"] == 1
+        o2b_result = build_default_registry().get("gemrate").ingest(
+            SourceTask(run_id=o2b_task["run_id"], business_date="2026-08-20",
+                       source_code="gemrate", capability="pop"),
+            {"receipt": o2b_receipt, "exitCode": 0, "receiptPath": str(o2b_receipt_path)},
+            {},
+        )
+        assert (o2b_result.status, o2b_result.error_code) == ("degraded", GEMRATE_BLOCKED_ERROR_CODE)
+        o2b_journal_row = {
+            "source_code": "gemrate", "status": "DEGRADED",
+            "result_json": canonical_json(dataclasses.asdict(o2b_result)).decode(),
+        }
+        assert blocked_pop_fallback([o2b_journal_row]) == {"gemrate": POP_BLOCKED_FALLBACK_DAYS}
+        # Negative: a real fault next to the block, or a truncated adapter, still raises.
+        for o2b_mixed in (
+            o2b_report(
+                [o2b_gemrate_blocked, {"adapter": "snk_pop", "ok": False, "error": "snk_harvest_failed"}],
+                failed=["gemrate_pop", "snk_pop"],
+            ),
+            o2b_report([o2b_gemrate_blocked], failed=["gemrate_pop"], truncated=["snk_pop"]),
+        ):
+            o2b_reports.append(o2b_mixed)
+            try:
+                v2worker.run_collect(o2b_task, o2b_payload, o2b_receipt_path)
+            except RuntimeError as error:
+                assert "errorCode=COLLECT_ADAPTER_FAILED" in str(error), error
+            else:
+                raise AssertionError("a block next to another failure settled as a verdict")
+finally:
+    if o2b_previous_collect is None:
+        sys.modules.pop("collect_control", None)
+    else:
+        sys.modules["collect_control"] = o2b_previous_collect
+
+# Negative: only a DEGRADED row carrying the block code earns the fallback.
+assert blocked_pop_fallback([o2b_row("DEGRADED", None)]) == {}
+assert blocked_pop_fallback([o2b_row("DEGRADED", "COLLECT_ADAPTER_FAILED")]) == {}
+assert blocked_pop_fallback([o2b_row("RETRY", GEMRATE_BLOCKED_ERROR_CODE)]) == {}
+assert blocked_pop_fallback([o2b_row("COMPLETED", GEMRATE_BLOCKED_ERROR_CODE)]) == {}
+assert blocked_pop_fallback([{"source_code": "gemrate", "status": "DEGRADED", "result_json": None}]) == {}
+# Positive: one blocked shard among completed ones is enough.
+assert blocked_pop_fallback(
+    [o2b_row("COMPLETED", None), o2b_row("DEGRADED", GEMRATE_BLOCKED_ERROR_CODE)]
+) == {"gemrate": POP_BLOCKED_FALLBACK_DAYS}
+print("POSITIVE_OK a GemRate block settles DEGRADED and widens only the gemrate POP window, to 3 days at most")
 
 
 # F-FIXF: stage order around the daily-accept checkpoint gate.  The 08-22 run

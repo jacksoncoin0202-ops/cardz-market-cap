@@ -100,6 +100,16 @@ WEBSITE_SESSION_RETRY_BACKOFF = (5.0, 15.0, 30.0)
 # session-level errors that harvested nothing, instead of breaking on the first.
 WEBSITE_SESSION_ERROR_LIMIT = 2
 
+# 2026-09-26: GemRate's Cloudflare answered every card page with its WAF block
+# page ("Sorry, you have been blocked", HTTP 403). Unlike the "Just a moment..."
+# challenge it never clears, yet each card still paid the ~25s JSON + DOM wait
+# and every shard was retried until PARKED, so the day lost its publish window
+# knocking on a shut door. This many block pages in a row stop the pass, and
+# nothing retries it the same day.
+CLOUDFLARE_BLOCK_REASON = "cloudflare_blocked"
+CLOUDFLARE_BLOCK_NOT_ATTEMPTED = "cloudflare_blocked_not_attempted"
+CLOUDFLARE_BLOCK_BREAKER = 3
+
 # audit item 10 (2026-08-24 repair): a SIGTERM used to discard every card the
 # website pass had already captured because the manifest is only written at the
 # end of cmd_daily. This event lets the pass stop dispatching and fall through
@@ -1295,6 +1305,7 @@ def cmd_daily(args) -> int:
                     break
             time.sleep(delay)
     website_ids = list(dict.fromkeys(gid for gid in selected_ids if gid not in direct_payloads))
+    website_blocked: dict[str, Any] | None = None
     if website_ids:
         # The browser pass is the slowest transport and the caller wraps this
         # process in a hard --pipeline-timeout-seconds. Overrunning it kills
@@ -1335,6 +1346,22 @@ def cmd_daily(args) -> int:
                 payload_sink=website_payloads,
             )
             website_failure_receipts.extend(outcome.get("failureReceipts") or [])
+            if outcome.get("blocked"):
+                # The block page does not clear for a slower pass; the slow
+                # retry would only knock again. The manifest says so, and the
+                # caller stops the lane instead of retrying it all day.
+                website_blocked = {
+                    "reason": CLOUDFLARE_BLOCK_REASON,
+                    "breaker": CLOUDFLARE_BLOCK_BREAKER,
+                    "pass": label,
+                    "at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+                }
+                print(
+                    f"[daily] public card page blocked by Cloudflare on the {label} pass; "
+                    f"{len([gid for gid in pending if gid not in website_payloads])} cards left unfetched",
+                    file=sys.stderr,
+                )
+                break
             if outcome["error"]:
                 print(
                     f"[daily] public card page unavailable: {outcome['error']}",
@@ -1402,6 +1429,8 @@ def cmd_daily(args) -> int:
         manifest.update({"runId": run_id, "historyIncluded": False, "promoted": False})
         if website_failure_reasons:
             manifest["websiteFailureReceipts"] = website_failure_reasons
+        if website_blocked:
+            manifest["blocked"] = website_blocked
         if _SHUTDOWN_EVENT.is_set():
             manifest["interrupted"] = True
         if direct_identity_failures:
@@ -1413,6 +1442,8 @@ def cmd_daily(args) -> int:
     manifest.update({"runId": run_id, "historyIncluded": False, "promoted": False})
     if website_failure_reasons:
         manifest["websiteFailureReceipts"] = website_failure_reasons
+    if website_blocked:
+        manifest["blocked"] = website_blocked
     if _SHUTDOWN_EVENT.is_set():
         # audit item 10: a declared-partial manifest is what lets the caller
         # ingest the cards this run did fetch. The flag keeps the lane failing
@@ -1637,6 +1668,52 @@ def _public_failure_receipt(gid: str, *, http_status: int | None, reason: str) -
     }
 
 
+class CloudflareBlocked(Exception):
+    """CLOUDFLARE_BLOCK_BREAKER card pages in a row were Cloudflare's block page.
+
+    Deliberately not a RuntimeError: _safe_browser_error would file it as
+    ``browser_unavailable`` and the slow-retry pass would knock again.
+    """
+
+    def __init__(self, receipts: list[dict[str, Any]]) -> None:
+        super().__init__(f"Cloudflare block page {CLOUDFLARE_BLOCK_BREAKER} times in a row")
+        self.receipts = receipts
+
+
+def is_cloudflare_block(status: int | None, title: str, text: str) -> bool:
+    """Cloudflare's WAF block page, never its self-clearing JS challenge.
+
+    The block page (2026-09-26) is HTTP 403 titled "Attention Required! |
+    Cloudflare" with the heading "Sorry, you have been blocked". The challenge
+    is a 403 too, but titled "Just a moment..." and it settles into the card
+    page, so it has to stay on the slow path.
+    """
+
+    if status != 403:
+        return False
+    title = str(title or "")
+    return ("Attention Required" in title and "Cloudflare" in title) or (
+        "Sorry, you have been blocked" in str(text or "")
+    )
+
+
+def _page_is_cloudflare_block(page: Any, status: int) -> bool:
+    """Read the settled document; a document that cannot be read is no verdict."""
+
+    if status != 403:
+        return False
+    try:
+        seen = page.evaluate(
+            "() => ({title: document.title || '',"
+            " text: document.body ? document.body.innerText.slice(0, 2000) : ''})"
+        )
+    except Exception:
+        return False
+    if not isinstance(seen, Mapping):
+        return False
+    return is_cloudflare_block(status, str(seen.get("title") or ""), str(seen.get("text") or ""))
+
+
 def _remove_page_listener(page: Any, event: str, callback: Any) -> None:
     """Use the Playwright Python listener API, not the Node-only ``page.off``."""
 
@@ -1695,6 +1772,11 @@ def _fetch_card_once(
                 # challenge page self-resolves and the JSON can still arrive.
                 return None, _public_failure_receipt(
                     gid, http_status=status, reason=f"page_http_{status}",
+                ), False
+            if _page_is_cloudflare_block(page, status):
+                # Cloudflare's block page is the one 403 that never resolves.
+                return None, _public_failure_receipt(
+                    gid, http_status=status, reason=CLOUDFLARE_BLOCK_REASON,
                 ), False
         # Primary transport first: the page-initiated /card-details JSON
         # usually settles within seconds. Only when it never arrives do we pay
@@ -1949,6 +2031,8 @@ def _fetch_card_pages_on_page(
     card an immediate durable checkpoint instead of waiting for a whole chunk.
     ``cancel_event`` lets a terminating orchestrator stop workers between page
     requests and during long 429 waits without discarding completed captures.
+    CLOUDFLARE_BLOCK_BREAKER block pages in a row raise ``CloudflareBlocked``
+    carrying this call's receipts; successes already went to the callback.
     """
 
     def _raise_if_cancelled() -> None:
@@ -1969,6 +2053,7 @@ def _fetch_card_pages_on_page(
 
     results: dict[str, Mapping[str, Any]] = {}
     receipts: list[dict[str, Any]] = []
+    blocked_in_a_row = 0
     for index, gid in enumerate(ids, start=1):
         _raise_if_cancelled()
         if deadline is not None and time.monotonic() >= deadline:
@@ -2007,6 +2092,12 @@ def _fetch_card_pages_on_page(
             elif failure is not None:
                 receipts.append(failure)
             break
+        if failure is not None and failure.get("reason") == CLOUDFLARE_BLOCK_REASON:
+            blocked_in_a_row += 1
+            if blocked_in_a_row >= CLOUDFLARE_BLOCK_BREAKER:
+                raise CloudflareBlocked(receipts)
+        else:
+            blocked_in_a_row = 0
         if index % 25 == 0:
             print(
                 f"  {label}public card pages {index}/{len(ids)} ok={len(results)}",
@@ -2094,6 +2185,9 @@ def collect_public_card_details(
     failure_receipts: list[dict[str, Any]] = []
     attempted = 0
     cancel_event = threading.Event()
+    # One worker meeting the Cloudflare block stops every worker: the block is
+    # on the host, not on that worker's cards.
+    blocked_event = threading.Event()
 
     def _run_shard(shard: list[str], label: str, stagger: float) -> tuple[
         dict[str, Mapping[str, Any]], list[dict[str, Any]], int, str | None,
@@ -2135,18 +2229,34 @@ def collect_public_card_details(
                             shard_receipts.append(_public_failure_receipt(
                                 gid, http_status=None, reason="missing_response",
                             ))
+        except CloudflareBlocked as blocked:
+            blocked_event.set()
+            cancel_event.set()
+            shard_error = CLOUDFLARE_BLOCK_REASON
+            shard_receipts.extend(blocked.receipts)
+            leftover = [gid for gid in shard if gid not in shard_payloads]
+            leftover = [gid for gid in leftover if gid not in {str(row.get("gemrateId")) for row in shard_receipts}]
+            shard_receipts.extend(
+                _public_failure_receipt(gid, http_status=None, reason=CLOUDFLARE_BLOCK_NOT_ATTEMPTED)
+                for gid in leftover
+            )
         except InterruptedError:
             # audit item 10: an in-flight shutdown is not a lost shard. Return
             # what this worker already captured (each card was persisted the
             # moment it succeeded) so cmd_daily can still build a declared
             # partial manifest and the chain ingests it instead of re-fetching.
-            if not _SHUTDOWN_EVENT.is_set():
+            # A sibling worker that met the Cloudflare block stops this one the
+            # same way.
+            if blocked_event.is_set():
+                shard_error, leftover_reason = CLOUDFLARE_BLOCK_REASON, CLOUDFLARE_BLOCK_NOT_ATTEMPTED
+            elif _SHUTDOWN_EVENT.is_set():
+                shard_error = leftover_reason = "interrupted_by_signal"
+            else:
                 raise
-            shard_error = "interrupted_by_signal"
             leftover = [gid for gid in shard if gid not in shard_payloads]
             leftover = [gid for gid in leftover if gid not in {str(row.get("gemrateId")) for row in shard_receipts}]
             shard_receipts.extend(
-                _public_failure_receipt(gid, http_status=None, reason=shard_error)
+                _public_failure_receipt(gid, http_status=None, reason=leftover_reason)
                 for gid in leftover
             )
         except Exception as caught:
@@ -2210,6 +2320,7 @@ def collect_public_card_details(
         "partial": failed > 0,
         "promotable": failed == 0,
         "error": error,
+        "blocked": blocked_event.is_set(),
         "failureReceiptCount": len(failure_receipts),
         "failureReceipts": failure_receipts,
     }

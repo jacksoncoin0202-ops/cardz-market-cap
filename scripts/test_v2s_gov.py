@@ -593,7 +593,7 @@ def orchestrator_exports_run_start() -> None:
 def repair_planner_refuses_future_window() -> None:
     repair_source = inspect.getsource(DailyChainV2.plan_contract_repair_tasks)
     assert repair_source.index("business_window_utc(") < repair_source.index(
-        "current_run_contract(self.day_text)"
+        "current_run_contract("
     ), "the window check must run before the MySQL contract read"
     saved = os.environ.pop(chain_module.RUN_STARTED_AT_ENV, None)
     try:

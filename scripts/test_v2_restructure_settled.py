@@ -12,7 +12,10 @@ itself and fails closed:
     and with the contract satisfied the run moves on to the identity stages;
 (b) the real stage_contract still raises with the shortfall marker when the
     gemrate pop coverage or the fx rates are short, and plan() does not pass a
-    core-contract-pre that failed.
+    core-contract-pre that failed;
+(c) 2026-09-26: a gemrate shard that Cloudflare's block settled DEGRADED hands
+    the contract stage the approved 3-day pop fallback, end to end through the
+    real stage CLI, and the repair planner measures the same window.
 
 sqlite journal plus a fake MySQL cursor: no database, no network, no workers.
 """
@@ -20,13 +23,18 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import io
 import json
 import os
+import signal
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import time
+import types
 from contextlib import closing
+from dataclasses import asdict
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -49,7 +57,13 @@ from daily_chain_v2 import (  # noqa: E402
     jst_schedule,
     source_barrier_ready,
 )
-from daily_chain_v2_contract import CONTRACT_SHORTFALL_MARKER  # noqa: E402
+from daily_chain_v2_contract import (  # noqa: E402
+    CONTRACT_SHORTFALL_MARKER,
+    GEMRATE_BLOCKED_ERROR_CODE,
+    POP_BLOCKED_FALLBACK_DAYS,
+    SourceTask,
+    canonical_json,
+)
 from daily_chain_v2_journal import Journal, iso  # noqa: E402
 from fx_rates import SUPPORTED_CURRENCIES  # noqa: E402
 
@@ -330,6 +344,169 @@ with tempfile.TemporaryDirectory(prefix="v2-r5-short-") as raw:
     chain.plan(BEFORE_CUTOFF)
     check("(b) a contract that ran out of attempts still holds the run",
           chain.stage_row("identity-operator-apply") is None)
+
+
+# ------------------------------------------------ (c) GemRate block fallback
+class BlockedPopCursor(ContractCursor):
+    """Variant 2's last GemRate pop is two JST days old; 1 and 3 popped today."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        start, _end = v2db.business_window_utc(DAY.isoformat())
+        self.stale_at = start - timedelta(days=2)
+
+    def execute(self, sql: str, params: Any = ()) -> None:
+        if "current_pop" not in " ".join(str(sql).split()):
+            super().execute(sql, params)
+            return
+        window_start, window_end = tuple(params)[:2]
+        self._result = [
+            {"variant_id": index,
+             "current_pop": int(index != 2 or window_start <= self.stale_at < window_end)}
+            for index in range(1, self.active + 1)
+        ]
+
+
+def set_result(journal: Journal, task_key: str, result_json: str) -> None:
+    with closing(sqlite3.connect(str(journal.path))) as conn:
+        conn.execute("UPDATE chain_task SET result_json=? WHERE task_key=?", (result_json, task_key))
+        conn.commit()
+
+
+def degraded_gemrate_chain(folder: Path, error_code: str | None) -> tuple[Journal, DailyChainV2]:
+    """One gemrate shard settles DEGRADED through the real adapter ingest."""
+
+    journal, chain = new_chain(folder)
+    for _ in range(40):
+        chain.plan(BEFORE_CUTOFF)
+        if providers(journal, chain):
+            break
+        settle(journal, chain, {})
+    gemrate = [row for row in providers(journal, chain) if str(row["source_code"]) == "gemrate"]
+    key = str(gemrate[0]["task_key"]) if gemrate else ""
+    settle(journal, chain, {key: "DEGRADED"})
+    receipt = {"contract": "cardz-source-result-v2", "sourceCode": "gemrate", "status": "degraded",
+               "errorCode": error_code, "counts": {"processed": 2, "failed": 1}}
+    result = chain.registry.get("gemrate").ingest(
+        SourceTask(run_id=chain.run_id, business_date=DAY.isoformat(),
+                   source_code="gemrate", capability="pop"),
+        {"receipt": receipt, "exitCode": 0}, {},
+    )
+    set_result(journal, key, canonical_json(asdict(result)).decode())
+    chain.plan(BEFORE_CUTOFF)
+    return journal, chain
+
+
+class CommandCaptured(Exception):
+    pass
+
+
+def contract_command(chain: DailyChainV2, folder: Path) -> list[str]:
+    """The command _run_stage_process builds for core-contract-pre; nothing spawns."""
+
+    captured: list[list[str]] = []
+
+    def fake_popen(command: Sequence[str], **_kwargs: Any) -> Any:
+        captured.append([str(part) for part in command])
+        raise CommandCaptured()
+
+    saved = (v2core.subprocess, chain.log_dir, chain.receipt_dir,
+             os.environ.get(v2core.RUN_STARTED_AT_ENV))
+    v2core.subprocess = types.SimpleNamespace(
+        Popen=fake_popen, DEVNULL=subprocess.DEVNULL, STDOUT=subprocess.STDOUT,
+    )
+    chain.log_dir, chain.receipt_dir = folder / "logs", folder / "receipts"
+    try:
+        chain._run_stage_process(chain.stage_row("core-contract-pre") or {})
+    except CommandCaptured:
+        pass
+    finally:
+        v2core.subprocess, chain.log_dir, chain.receipt_dir = saved[:3]
+        if saved[3] is None:
+            os.environ.pop(v2core.RUN_STARTED_AT_ENV, None)
+        else:
+            os.environ[v2core.RUN_STARTED_AT_ENV] = saved[3]
+    return captured[0] if captured else []
+
+
+def run_stage_main(command: Sequence[str], cursor: ContractCursor) -> tuple[int, dict[str, Any]]:
+    """The real stage CLI on exactly that command line, MySQL edges faked."""
+
+    output = Path(command[command.index("--output") + 1])
+    env_keys = ("CARDZ_DAILY_CHAIN_V2", "CARDZ_V2_RUN_ID", "CARDZ_V2_BUSINESS_DATE")
+    saved_env = {key: os.environ.get(key) for key in env_keys}
+    saved_signals = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}
+    saved = (sys.argv, v2db.db, v2db.load_env, v2db.sync_variant_source_states,
+             operator_control.operator_e2e_lease)
+    sys.argv = list(command[4:])
+    v2db.db = lambda: FakeConnection(cursor)
+    v2db.load_env = lambda: None
+    v2db.sync_variant_source_states = lambda run_id, business_date: {"projected": 0}
+    operator_control.operator_e2e_lease = lambda owner: contextlib.nullcontext()
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            rc = v2stage.main()
+    finally:
+        (sys.argv, v2db.db, v2db.load_env, v2db.sync_variant_source_states,
+         operator_control.operator_e2e_lease) = saved
+        for sig, handler in saved_signals.items():
+            signal.signal(sig, handler)
+        for key, value in saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+    receipt = json.loads(output.read_text(encoding="utf-8")) if output.is_file() else {}
+    return rc, receipt
+
+
+def planner_fallback(chain: DailyChainV2) -> list[dict[str, int]]:
+    seen: list[dict[str, int]] = []
+
+    def fake_contract(business_date: str, pop_fallback_days: Mapping[str, int] | None = None):
+        seen.append(dict(pop_fallback_days or {}))
+        return {"popSources": [], "quotes": {"missing": []}}
+
+    saved = v2db.current_run_contract
+    v2db.current_run_contract = fake_contract
+    try:
+        chain.plan_contract_repair_tasks()
+    finally:
+        v2db.current_run_contract = saved
+    return seen
+
+
+with tempfile.TemporaryDirectory(prefix="v2-block-") as raw:
+    journal, chain = degraded_gemrate_chain(Path(raw), GEMRATE_BLOCKED_ERROR_CODE)
+    check("(c) a blocked gemrate shard still opens the barrier",
+          chain.stage_row("core-contract-pre") is not None)
+    command = contract_command(chain, Path(raw))
+    check("(c) the contract stage is handed the approved fallback",
+          command[-2:] == ["--pop-fallback", f"gemrate={POP_BLOCKED_FALLBACK_DAYS}"], command)
+    rc, receipt = run_stage_main(command, BlockedPopCursor())
+    # A terminal receipt's "contract" is the receipt name, not the run contract.
+    run_contract = receipt.get("contract")
+    gemrate_section = (run_contract.get("gemrate") if isinstance(run_contract, Mapping) else None) or {}
+    check("(c) the real stage takes the two-day-old pop and completes",
+          rc == 0 and receipt.get("status") == "completed", receipt.get("error"))
+    check("(c) the receipt names the fallback and how much stands on it",
+          receipt.get("popFallback") == {"gemrate": POP_BLOCKED_FALLBACK_DAYS}
+          and gemrate_section.get("staleCovered") == 1
+          and gemrate_section.get("sameDayCovered") == 2, gemrate_section)
+    check("(c) the repair planner measures the same window",
+          planner_fallback(chain) == [{"gemrate": POP_BLOCKED_FALLBACK_DAYS}])
+
+with tempfile.TemporaryDirectory(prefix="v2-block-plain-") as raw:
+    journal, chain = degraded_gemrate_chain(Path(raw), None)
+    command = contract_command(chain, Path(raw))
+    check("(c) a plain DEGRADED gemrate shard earns no fallback",
+          bool(command) and "--pop-fallback" not in command, command)
+    rc, receipt = run_stage_main(command, BlockedPopCursor())
+    check("(c) so the same two-day-old pop still fails the contract",
+          rc == 1 and receipt.get("status") == "terminal"
+          and f"gemrate{CONTRACT_SHORTFALL_MARKER}1" in str(receipt.get("error")),
+          receipt.get("error"))
+    check("(c) and the planner sees no fallback either", planner_fallback(chain) == [{}])
 
 if failures:
     print(f"FAILED {len(failures)}: {failures}")

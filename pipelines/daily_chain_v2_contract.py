@@ -32,6 +32,13 @@ ROUTE_POLICY_VERSION = "cardz-route-v2"
 # The token the orchestrator looks for to decide that a failed barrier is
 # repairable coverage rather than an infrastructure fault.
 CONTRACT_SHORTFALL_MARKER = "Missing="
+# 2026-09-26, daddy approved "3 日內": when Cloudflare blocks GemRate's card
+# pages the gemrate source settles DEGRADED with this error code, and the core
+# contract accepts each card's last pop from up to this many JST days back
+# instead of today's. Older than that, it fails closed as before.
+GEMRATE_BLOCKED_ERROR_CODE = "GEMRATE_BLOCKED"
+POP_BLOCKED_ERROR_CODES = frozenset({GEMRATE_BLOCKED_ERROR_CODE})
+POP_BLOCKED_FALLBACK_DAYS = 3
 # Wall-clock twin of the orchestrator's monotonic work deadline, exported
 # to every stage subprocess so a stage can shrink its own work instead of
 # being killed mid-fetch at the cutoff.
@@ -1064,6 +1071,23 @@ def pop_contract_sources(
             "popCheckpointSourceCode": checkpoint,
         })
     return tuple(sorted(found, key=lambda item: item["sourceCode"]))
+
+
+def parse_pop_fallback(values: Iterable[str]) -> dict[str, int]:
+    """``SOURCE=DAYS`` contract-stage arguments, capped at POP_BLOCKED_FALLBACK_DAYS."""
+
+    parsed: dict[str, int] = {}
+    for value in values:
+        source, separator, days = str(value).partition("=")
+        source, days = source.strip(), days.strip()
+        if not separator or not source or not days.isdigit():
+            raise ValueError(f"pop fallback must be SOURCE=DAYS, got {value!r}")
+        if int(days) > POP_BLOCKED_FALLBACK_DAYS:
+            raise ValueError(
+                f"pop fallback {source}={days} exceeds {POP_BLOCKED_FALLBACK_DAYS} days"
+            )
+        parsed[source] = int(days)
+    return parsed
 
 
 def rates_contract_sources(

@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipelines"))
 
 from daily_chain_v2_contract import (  # noqa: E402
+    GEMRATE_BLOCKED_ERROR_CODE,
     PC_CHILD_ALREADY_RUNNING_CLASS,
     adapter_stderr_excerpt,
     canonical_json,
@@ -41,6 +42,10 @@ WORKER_LEASE_SECONDS = 90
 # (pipelines/collect_control.py).  scripts/test_pc_daily_full_refresh.py pins
 # this to the string the collector really emits.
 PC_PAGES_UNAVAILABLE_ADAPTER_ERROR = "fresh_pc_pages_unavailable"
+# What collect_control.run_gemrate_pop reports when Cloudflare blocked the card
+# pages (collect_control.GEMRATE_BLOCKED_ERROR).  scripts/test_v2s_gemrate.py
+# pins this to the string the collector really emits.
+GEMRATE_BLOCKED_ADAPTER_ERROR = "gemrate_blocked"
 
 
 def heartbeat_interval_seconds() -> float:
@@ -274,6 +279,54 @@ def run_collect(
                     "commands": commands,
                 }
             )
+        # 2026-09-26: Cloudflare blocked GemRate's card pages. Raising here
+        # walked every shard up the retry ladder into PARKED, knocking on the
+        # block each time, and PARKED held the whole publish. A block is a
+        # verdict, not a blip: the shard settles DEGRADED with its own code, the
+        # run publishes PUBLISHED_DEGRADED naming gemrate, and the core contract
+        # takes each card's last pop inside POP_BLOCKED_FALLBACK_DAYS. Only when
+        # every failed or truncated adapter is that block -- a real fault next
+        # to it still raises.
+        blocked_adapters = {
+            str(row.get("adapter")) for row in failed_detail
+            if str(row.get("error") or "") == GEMRATE_BLOCKED_ADAPTER_ERROR
+        }
+        if (
+            failed_detail
+            and len(blocked_adapters) == len(failed_detail)
+            and set(report.get("failedAdapters") or []) <= blocked_adapters
+            and set(report.get("truncatedAdapters") or []) <= blocked_adapters
+        ):
+            return {
+                "contract": "cardz-source-result-v2",
+                "sourceCode": source_code,
+                "status": "degraded",
+                "errorCode": GEMRATE_BLOCKED_ERROR_CODE,
+                "observedAt": str(report.get("asOf") or iso_now()),
+                "checkedAt": iso_now(),
+                "payloadSha256": sha256(report),
+                "evidenceRef": str(report_path),
+                "counts": {
+                    "processed": int(report.get("processed") or 0),
+                    "inserted": int(report.get("inserted") or 0),
+                    "checkpointed": int(report.get("checkpointed") or 0),
+                    "failed": int(report.get("failed") or 0),
+                    "quarantined": int(report.get("quarantined") or 0),
+                },
+                "detail": {
+                    "adapters": adapters,
+                    "shard": shard,
+                    "mode": mode,
+                    "blocked": True,
+                    "blockedBy": [
+                        result.get("blocked")
+                        for result in report.get("results") or []
+                        if isinstance(result, Mapping)
+                        and str(result.get("error") or "") == GEMRATE_BLOCKED_ADAPTER_ERROR
+                    ],
+                    "failedAdapters": report.get("failedAdapters") or [],
+                },
+            }
         # review 2026-08-24 (blocking): the PC adapters also report
         # `fresh_pc_pages_unavailable` when the sweep was REFUSED because this
         # lane's own 9333 child is still fetching.  That is contention, and

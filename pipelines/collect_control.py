@@ -118,7 +118,12 @@ GEMRATE_TRANSPORT_FAILURE_REASONS = frozenset({
     "missing_response",
     "browser_unavailable",
 })
-GEMRATE_TRANSPORT_FAILURE_PREFIXES = ("browser_collection_failed",)
+# "cloudflare_blocked" also covers "cloudflare_blocked_not_attempted".
+GEMRATE_TRANSPORT_FAILURE_PREFIXES = ("browser_collection_failed", "cloudflare_blocked")
+# 2026-09-26: a manifest that says Cloudflare blocked the card pages. The lane
+# reports this once (the worker turns it into a degraded receipt) instead of
+# failing into the retry ladder, which only knocked on the block until PARKED.
+GEMRATE_BLOCKED_ERROR = "gemrate_blocked"
 # audit P1-5 / audit trap 12: the gemrate adapter already runs max_concurrency=4
 # shards, so N workers means 4N Chromes on this host. The "no 429 at 4 Chromes"
 # evidence does not transfer to 8; going past 2 needs new measurement, so this
@@ -2604,7 +2609,9 @@ def run_gemrate_pop(
                 or "gemrate_manifest_missing_id",
             }
         )
-    if _gemrate_transport_outage(manifest, len(selected)):
+    blocked = manifest.get("blocked") if failed_items else None
+    blocked = dict(blocked) if isinstance(blocked, Mapping) else None
+    if blocked is None and _gemrate_transport_outage(manifest, len(selected)):
         # audit P1-7: every attempted transport resolved nothing for the whole
         # cohort -- one dead browser session, not len(selected) bad IDs. Report
         # the lane failure and advance NO per-item streak; the core contract
@@ -2657,7 +2664,13 @@ def run_gemrate_pop(
         for reason in (manifest.get("websiteFailureReceipts") or {}).values()
         if str(reason) == "rate_limited_429_exhausted"
     )
-    if child_interrupted or manifest.get("interrupted"):
+    if blocked is not None:
+        # The cards above are ingested; the rest met Cloudflare's block page.
+        # Retrying today only knocks again, so the lane says so once and the
+        # V2 contract falls back to each card's last pop inside
+        # POP_BLOCKED_FALLBACK_DAYS (daddy 2026-09-26: 3 days, then block).
+        report.update({"ok": False, "error": GEMRATE_BLOCKED_ERROR, "blocked": blocked})
+    elif child_interrupted or manifest.get("interrupted"):
         # audit item 10: the cards above are ingested and checkpointed, but an
         # interrupted run is never a clean verdict for the rest of the cohort.
         report.update({

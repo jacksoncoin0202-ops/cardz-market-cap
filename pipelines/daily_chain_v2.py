@@ -44,6 +44,8 @@ from daily_chain_v2_adapters import (  # noqa: E402
 )
 from daily_chain_v2_contract import (  # noqa: E402
     CONTRACT_SHORTFALL_MARKER,
+    POP_BLOCKED_ERROR_CODES,
+    POP_BLOCKED_FALLBACK_DAYS,
     PUBLISH_LOCK_EXIT_CODE,
     PUBLISH_LOCK_MARKER,
     TICK_RESERVE_SECONDS,
@@ -955,6 +957,23 @@ def aggregate_source_health(tasks: Iterable[Mapping[str, Any]]) -> dict[str, Any
     return result
 
 
+def blocked_pop_fallback(tasks: Iterable[Mapping[str, Any]]) -> dict[str, int]:
+    """{source: POP_BLOCKED_FALLBACK_DAYS} for each source a block settled DEGRADED.
+
+    2026-09-26: a GemRate shard that met Cloudflare's block page settles
+    DEGRADED with GEMRATE_BLOCKED (daily_chain_v2_worker.run_collect). The core
+    contract then takes each card's last pop inside the fallback instead of
+    today's; a card with nothing that recent still fails it.
+    """
+
+    return {
+        str(row["source_code"]): POP_BLOCKED_FALLBACK_DAYS
+        for row in tasks
+        if str(row.get("status") or "") == "DEGRADED"
+        and str(task_result(row).get("error_code") or "") in POP_BLOCKED_ERROR_CODES
+    }
+
+
 def degraded_source_codes(source_health: Mapping[str, Any]) -> list[str]:
     # R5 2026-09-25: a DEGRADED core source now reaches publish (is_settled),
     # so it is named here too and the run is PUBLISHED_DEGRADED, not PUBLISHED.
@@ -1539,7 +1558,10 @@ class DailyChainV2:
                 f" run={self.run_id}"
                 f" {RUN_STARTED_AT_ENV}={os.environ.get(RUN_STARTED_AT_ENV, '') or '<unset>'}"
             )
-        contract = current_run_contract(self.day_text)
+        contract = current_run_contract(
+            self.day_text,
+            pop_fallback_days=blocked_pop_fallback(self.journal.tasks(self.run_id, phase="source")),
+        )
         added = 0
         # The contract names its own POP sections, so a third pop source is
         # repaired by being registered rather than by being named here.
@@ -2771,6 +2793,14 @@ class DailyChainV2:
                 f"--v2-expected-generation={expected_generation}",
             ]
         else:
+            if stage_name == "contract":
+                # Read at every attempt, never frozen into the stage row: a
+                # contract repair that meets the block after this stage was
+                # planned still earns the fallback on the retry.
+                for code, days in sorted(blocked_pop_fallback(
+                    self.journal.tasks(self.run_id, phase="source")
+                ).items()):
+                    stage_args += ["--pop-fallback", f"{code}={days}"]
             command = [
                 sys.executable, "-X", "utf8", "-u", str(STAGE_SCRIPT),
                 "--output", str(receipt_path), stage_name, *stage_args,

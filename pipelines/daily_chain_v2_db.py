@@ -13,6 +13,7 @@ from typing import Any, Iterable, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
 from daily_chain_v2_contract import (
+    POP_BLOCKED_FALLBACK_DAYS,
     canonical_json,
     core_contract_keys,
     pop_contract_sources,
@@ -86,9 +87,23 @@ def _scalar(cursor: Any, query: str, params: tuple[Any, ...] = ()) -> int:
     return int(value or 0)
 
 
-def current_run_contract(business_date: str) -> dict[str, Any]:
-    """Read the strict pre-publication coverage facts from canonical MySQL."""
+def current_run_contract(
+    business_date: str, pop_fallback_days: Mapping[str, int] | None = None,
+) -> dict[str, Any]:
+    """Read the strict pre-publication coverage facts from canonical MySQL.
 
+    ``pop_fallback_days`` ({pop source: n}) opens only that source's POP window
+    n JST days early: the GemRate block fallback. It is capped here, at the one
+    place that reads the window, so no caller can widen it past
+    POP_BLOCKED_FALLBACK_DAYS.
+    """
+
+    fallback = {str(code): int(days) for code, days in (pop_fallback_days or {}).items()}
+    for code, days in fallback.items():
+        if not 0 <= days <= POP_BLOCKED_FALLBACK_DAYS:
+            raise ValueError(
+                f"pop fallback {code}={days} is outside 0..{POP_BLOCKED_FALLBACK_DAYS} days"
+            )
     start, end = business_window_utc(business_date)
     load_env()
     connection = db()
@@ -150,11 +165,7 @@ def current_run_contract(business_date: str) -> dict[str, Any]:
               ON ul.id=am.universe_lock_id AND ul.is_current=1
             """,
         )
-        pop_sections: dict[str, Any] = {}
-        for pop_source in pop_sources:
-            pop_rows = _rows(
-                cursor,
-                """
+        pop_query = """
                 SELECT am.variant_id,MAX(CASE
                   WHEN si.variant_id IS NOT NULL
                    AND cp.last_effective_at>=%s AND cp.last_effective_at<%s
@@ -170,9 +181,16 @@ def current_run_contract(business_date: str) -> dict[str, Any]:
                   ON cp.source_code=%s
                  AND cp.stream_key=CONCAT(am.variant_id,':',si.external_entity_id)
                 GROUP BY am.variant_id ORDER BY am.variant_id
-                """,
+                """
+        pop_sections: dict[str, Any] = {}
+        for pop_source in pop_sources:
+            fallback_days = fallback.get(pop_source["sourceCode"], 0)
+            pop_start = start - timedelta(days=fallback_days)
+            pop_rows = _rows(
+                cursor,
+                pop_query,
                 (
-                    start, end,
+                    pop_start, end,
                     pop_source["identitySourceCode"],
                     pop_source["popCheckpointSourceCode"],
                 ),
@@ -182,11 +200,33 @@ def current_run_contract(business_date: str) -> dict[str, Any]:
                 for row in pop_rows
                 if int(row.get("current_pop") or 0) != 1
             ]
-            pop_sections[pop_source["sourceCode"]] = {
+            section: dict[str, Any] = {
                 "covered": len(pop_rows) - len(missing_pop),
                 "missing": missing_pop,
                 "complete": len(pop_rows) == active_count and not missing_pop,
             }
+            if fallback_days:
+                # Say how much of the section stands on a pop older than today.
+                same_day = sum(
+                    1
+                    for row in _rows(
+                        cursor,
+                        pop_query,
+                        (
+                            start, end,
+                            pop_source["identitySourceCode"],
+                            pop_source["popCheckpointSourceCode"],
+                        ),
+                    )
+                    if int(row.get("current_pop") or 0) == 1
+                )
+                section.update({
+                    "fallbackDays": fallback_days,
+                    "windowStart": pop_start.isoformat(),
+                    "sameDayCovered": same_day,
+                    "staleCovered": section["covered"] - same_day,
+                })
+            pop_sections[pop_source["sourceCode"]] = section
 
         quote_rows = _rows(
             cursor,

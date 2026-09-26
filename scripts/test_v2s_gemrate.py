@@ -20,7 +20,9 @@ import shutil
 import signal
 import sys
 import tempfile
+import threading
 import types
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -726,6 +728,316 @@ def test_repair_due_set_is_frozen_by_explicit_variant_ids() -> None:
     )
 
 
+# ---------------------------------- 2026-09-26 Cloudflare block page, GemRate
+
+
+def test_block_page_is_told_from_the_challenge() -> None:
+    check("block page title is a block",
+          gs.is_cloudflare_block(403, "Attention Required! | Cloudflare", ""), True)
+    check("block page heading is a block",
+          gs.is_cloudflare_block(403, "", "Sorry, you have been blocked\nYou are unable to access"), True)
+    check("the self-clearing JS challenge is not a block",
+          gs.is_cloudflare_block(403, "Just a moment...", "Checking your browser"), False)
+    for status in (200, None, 503):
+        check(f"status {status} is never a block",
+              gs.is_cloudflare_block(status, "Attention Required! | Cloudflare",
+                                     "Sorry, you have been blocked"), False)
+
+
+class _Status:
+    def __init__(self, status: int) -> None:
+        self.status = status
+
+
+class BlockPage:
+    """A card page answered `status`; its settled document reads `seen`."""
+
+    def __init__(self, status: int, seen: Any, clock: list[float]) -> None:
+        self.status, self.seen, self.clock = status, seen, clock
+        self.listener: Any = None
+        self.waits: list[int] = []
+        self.probes = 0
+        self.dom_polls = 0
+
+    def on(self, _event: str, callback: Any) -> None:
+        self.listener = callback
+
+    def remove_listener(self, _event: str, _callback: Any) -> None:
+        self.listener = None
+
+    def goto(self, _url: str, **_kwargs: Any) -> _Status:
+        return _Status(self.status)
+
+    def wait_for_timeout(self, ms: int) -> None:
+        self.waits.append(ms)
+        self.clock[0] += ms / 1000.0
+
+    def evaluate(self, _script: str, args: Any = None) -> Any:
+        if args is None:  # the block probe reads title + body text
+            self.probes += 1
+            if isinstance(self.seen, Exception):
+                raise self.seen
+            return self.seen
+        self.dom_polls += 1
+        return {"__failureReason": "population_table_missing"}
+
+
+def _fetch_once_on(page: BlockPage) -> tuple[Any, Any, Any]:
+    real_time = gs.time
+    gs.time = type("FakeClock", (), {"monotonic": staticmethod(lambda: page.clock[0])})
+    try:
+        return gs._fetch_card_once(page, HEX_A)
+    finally:
+        gs.time = real_time
+
+
+BLOCK_DOCUMENT = {"title": "Attention Required! | Cloudflare",
+                  "text": "Sorry, you have been blocked"}
+
+
+def test_block_page_is_a_verdict_without_the_json_wait() -> None:
+    page = BlockPage(403, BLOCK_DOCUMENT, [0.0])
+    payload, failure, limited = _fetch_once_on(page)
+    check("block page: no payload, not rate limited", (payload, limited), (None, False))
+    check("block page: receipt names the block",
+          failure, {"gemrateId": HEX_A, "httpStatus": 403, "reason": gs.CLOUDFLARE_BLOCK_REASON})
+    check("block page: no JSON wait, no DOM poll", (page.waits, page.dom_polls), ([], 0))
+    check("block page: the response listener is removed", page.listener, None)
+
+    for label, seen in (
+        ("JS challenge", {"title": "Just a moment...", "text": "Checking your browser"}),
+        ("unreadable document", RuntimeError("Execution context was destroyed")),
+    ):
+        page = BlockPage(403, seen, [0.0])
+        _payload, failure, _limited = _fetch_once_on(page)
+        check(f"{label}: stays on the slow path", len(page.waits) > 0 and page.dom_polls == 1, True)
+        check(f"{label}: is no block verdict", (failure or {}).get("reason"), "population_table_missing")
+
+    page = BlockPage(200, BLOCK_DOCUMENT, [0.0])
+    _fetch_once_on(page)
+    check("a 200 page is never probed for the block", page.probes, 0)
+
+
+def _collect_with(outcomes: dict[str, str], ids: list[str], workers: int) -> tuple[dict[str, Any], list[str]]:
+    """collect_public_card_details over fake pages: 'block' or 'ok' per id."""
+
+    page = FakePage()
+    calls: list[str] = []
+    lock = threading.Lock()
+
+    @contextmanager
+    def fake_session():
+        yield page
+
+    def fake_fetch(_page: Any, gid: str):
+        with lock:
+            calls.append(gid)
+        if outcomes.get(gid) == "ok":
+            return {"gemrate_id": gid, "population_data": []}, None, False
+        return None, gs._public_failure_receipt(
+            gid, http_status=403, reason=gs.CLOUDFLARE_BLOCK_REASON,
+        ), False
+
+    original = (gs._gemrate_public_page, gs._fetch_card_once, gs._persist_public_card_capture)
+    gs._gemrate_public_page = fake_session
+    gs._fetch_card_once = fake_fetch
+    gs._persist_public_card_capture = lambda *_a, **_k: {}
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            outcome = gs.collect_public_card_details(
+                ids, cards_dir=Path(tmp), delay=0.0, chunk_size=25, workers=workers,
+            )
+    finally:
+        gs._gemrate_public_page, gs._fetch_card_once, gs._persist_public_card_capture = original
+    return outcome, calls
+
+
+def _reasons(outcome: dict[str, Any]) -> dict[str, str]:
+    return {str(row["gemrateId"]): str(row["reason"]) for row in outcome.get("failureReceipts") or []}
+
+
+def test_block_breaker_stops_the_pass() -> None:
+    ids = [f"{index:040x}" for index in range(6)]
+    blocked = {gid: gs.CLOUDFLARE_BLOCK_REASON for gid in ids[:3]}
+    not_attempted = {gid: gs.CLOUDFLARE_BLOCK_NOT_ATTEMPTED for gid in ids[3:]}
+
+    outcome, calls = _collect_with({}, ids, workers=1)
+    check("breaker: three block pages in a row, then no more requests", calls, ids[:3])
+    check("breaker: the outcome says blocked", (outcome.get("blocked"), outcome.get("error")),
+          (True, gs.CLOUDFLARE_BLOCK_REASON))
+    check("breaker: the rest are named not attempted", _reasons(outcome), {**blocked, **not_attempted})
+
+    plan = dict(zip(ids, ("block", "block", "ok", "block", "block", "ok")))
+    outcome, calls = _collect_with(plan, ids, workers=1)
+    check("breaker: a card that loads resets the streak", calls, ids)
+    check("breaker: two in a row is not a block",
+          (outcome.get("blocked"), outcome.get("error"), outcome.get("succeeded")), (False, None, 2))
+
+    # workers=2 shards round-robin: w1 gets ids 0/2/4, w2 waits out its 1.5s
+    # stagger, and w1's third block page stops w2 before it opens a page.
+    outcome, calls = _collect_with({}, ids, workers=2)
+    check("breaker: one worker's block stops its sibling", calls, [ids[0], ids[2], ids[4]])
+    check("breaker: the sibling's cards are not attempted",
+          {gid: reason for gid, reason in _reasons(outcome).items() if gid in ids[1::2]},
+          {gid: gs.CLOUDFLARE_BLOCK_NOT_ATTEMPTED for gid in ids[1::2]})
+    check("breaker: blocked across workers", outcome.get("blocked"), True)
+
+
+def _run_cmd_daily(fake_collect) -> tuple[int, dict[str, Any]]:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        ids_file = root / "ids.txt"
+        ids_file.write_text(f"{HEX_A}\n{HEX_B}\n", encoding="utf-8")
+        args = types.SimpleNamespace(
+            ids_file=str(ids_file), speed="fast", limit=None, run_suffix="",
+            identity_file=str(root / "no-identity.json"),
+            mirror_root=str(root / "no-mirror"),
+            website_budget_seconds=60, workers=1,
+            with_history=False, no_history=True, skip_grader_volume=True,
+            volume_slug=None,
+        )
+        original = (gs.OUT_DIR, gs.CARDS_DIR, gs.collect_public_card_details,
+                    os.environ.get("GEMRATE_API_KEY"))
+        out_dir = root / "out"
+        gs.OUT_DIR = out_dir
+        gs.CARDS_DIR = out_dir / "cards"
+        gs.collect_public_card_details = fake_collect
+        os.environ["GEMRATE_API_KEY"] = ""
+        try:
+            rc = gs.cmd_daily(args)
+        finally:
+            gs.OUT_DIR, gs.CARDS_DIR, gs.collect_public_card_details = original[:3]
+            if original[3] is None:
+                os.environ.pop("GEMRATE_API_KEY", None)
+            else:
+                os.environ["GEMRATE_API_KEY"] = original[3]
+        run_dirs = sorted((out_dir / "runs").glob("daily_*"))
+        manifest = (
+            json.loads((run_dirs[0] / "manifest.json").read_text(encoding="utf-8"))
+            if len(run_dirs) == 1 else {}
+        )
+    return rc, manifest
+
+
+def test_cmd_daily_skips_the_slow_retry_when_blocked() -> None:
+    calls: list[list[str]] = []
+
+    def fake_collect(ids, **_kwargs):
+        calls.append(list(ids))
+        return {
+            "transport": gs.WEBSITE_TRANSPORT, "requested": len(ids), "attempted": len(ids),
+            "succeeded": 0, "failed": len(ids), "error": gs.CLOUDFLARE_BLOCK_REASON,
+            "blocked": True,
+            "failureReceipts": [
+                {"gemrateId": HEX_A, "httpStatus": 403, "reason": gs.CLOUDFLARE_BLOCK_REASON},
+                {"gemrateId": HEX_B, "httpStatus": None,
+                 "reason": gs.CLOUDFLARE_BLOCK_NOT_ATTEMPTED},
+            ],
+        }
+
+    rc, manifest = _run_cmd_daily(fake_collect)
+    check("blocked run is still a declared partial", rc, 1)
+    check("no slow-retry pass knocks on the block again", len(calls), 1)
+    blocked = manifest.get("blocked") or {}
+    check("manifest says who blocked and on which pass",
+          (blocked.get("reason"), blocked.get("breaker"), blocked.get("pass")),
+          (gs.CLOUDFLARE_BLOCK_REASON, gs.CLOUDFLARE_BLOCK_BREAKER, "first"))
+    check("unresolved reasons keep the transport receipts",
+          {row["gemrateId"]: row["reason"] for row in manifest.get("unresolved") or []},
+          {HEX_A: gs.CLOUDFLARE_BLOCK_REASON, HEX_B: gs.CLOUDFLARE_BLOCK_NOT_ATTEMPTED})
+
+
+def _write_blocked_manifest(runs_dir: Path, resolved: list[str]) -> None:
+    run_dir = runs_dir / "daily_20260926T000000000000Z_0-of-4"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    reasons = {HEX_A: gs.CLOUDFLARE_BLOCK_REASON, HEX_B: gs.CLOUDFLARE_BLOCK_NOT_ATTEMPTED}
+    unresolved = {gid: reason for gid, reason in reasons.items() if gid not in resolved}
+    counts = {"attempted": 2, "succeeded": len(resolved), "failed": len(unresolved)}
+    idle = {"attempted": 0, "succeeded": 0, "failed": 0}
+    manifest = {
+        "schemaVersion": "2.0.0", "fetchedAt": "2026-09-26T00:00:00Z", **counts,
+        "partial": True, "promotable": False, "promoted": False,
+        "transports": {gs.WEBSITE_TRANSPORT: counts, gs.DIRECT_TRANSPORT: idle,
+                       gs.MIRROR_TRANSPORT: idle},
+        "observations": [], "resolved": [{"gemrateId": gid} for gid in resolved],
+        "unresolved": [{"gemrateId": gid, "reason": reason} for gid, reason in unresolved.items()],
+        "websiteFailureReceipts": unresolved,
+        "blocked": {"reason": gs.CLOUDFLARE_BLOCK_REASON, "breaker": 3, "pass": "first",
+                    "at": "2026-09-26T00:00:00Z"},
+    }
+    (run_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def _run_blocked_pop(resolved: list[str]) -> tuple[dict[str, Any], dict[str, list[Any]]]:
+    seen: dict[str, list[Any]] = {"streaks": [], "succeeded": [], "ingested": [], "checkpointed": []}
+
+    def spy_record(_adapter, *, succeeded, failed):
+        seen["succeeded"].extend(int(item["variantId"]) for item in succeeded)
+        seen["streaks"].extend(int(item["variantId"]) for item in failed)
+
+    def fake_run(cmd, *, timeout, dry_run):
+        _write_blocked_manifest(cc.ROOT / "data/private/gemrate/runs", resolved)
+        return {"cmd": cmd, "exit": 1}
+
+    def fake_ingest(_manifest, items):
+        seen["ingested"].extend(int(item["variantId"]) for item in items)
+        return {"runId": "fixture-run", "inserted": len(items), "checkpointed": len(items)}
+
+    def fake_checkpoints(_adapter, *, mode, items, payload_sha_by_external, run_id):
+        seen["checkpointed"].extend(int(item["variantId"]) for item in items)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "data/private/gemrate/runs").mkdir(parents=True, exist_ok=True)
+        names = ("ROOT", "OUT_DIR", "QUARANTINE_PATH", "_run", "_record_item_outcomes",
+                 "_db_writer_lease", "_ingest_gemrate_manifest", "_persist_item_checkpoints")
+        original = {name: getattr(cc, name) for name in names}
+        cc.ROOT = root
+        cc.OUT_DIR = root / "out"
+        cc.QUARANTINE_PATH = root / "quarantine.json"
+        cc._run = fake_run
+        cc._record_item_outcomes = spy_record
+        cc._db_writer_lease = nullcontext
+        cc._ingest_gemrate_manifest = fake_ingest
+        cc._persist_item_checkpoints = fake_checkpoints
+        try:
+            report = cc.run_gemrate_pop(
+                [{"variantId": 1, "externalId": HEX_A}, {"variantId": 2, "externalId": HEX_B}],
+                mode="incr", limit=None, dry_run=False, work_scope="0-of-4",
+            )
+        finally:
+            for name, value in original.items():
+                setattr(cc, name, value)
+    return report, seen
+
+
+def test_blocked_manifest_is_one_lane_verdict() -> None:
+    report, seen = _run_blocked_pop([])
+    # The same manifest is also a whole-cohort zero harvest; the block wins.
+    check("blocked lane: named as the block, not a transport outage",
+          (report.get("ok"), report.get("error")), (False, cc.GEMRATE_BLOCKED_ERROR))
+    check("blocked lane: the receipt carries the block",
+          (report.get("blocked") or {}).get("reason"), gs.CLOUDFLARE_BLOCK_REASON)
+    check("blocked lane: no quarantine streak advances", seen["streaks"], [])
+    check("blocked lane: both cards counted as transport skips",
+          report.get("quarantineStreaksSkipped"), 2)
+
+    report, seen = _run_blocked_pop([HEX_A])
+    check("one card landed before the block: it is ingested and checkpointed",
+          (seen["ingested"], seen["checkpointed"], seen["succeeded"]), ([1], [1], [1]))
+    check("one card landed before the block: the lane still says blocked",
+          (report.get("ok"), report.get("error"), report.get("inserted")),
+          (False, cc.GEMRATE_BLOCKED_ERROR, 1))
+    check("one card landed before the block: the other card is no streak", seen["streaks"], [])
+
+
+def test_worker_names_the_collector_block_string() -> None:
+    import daily_chain_v2_worker as v2worker
+
+    check("worker's pinned error is what run_gemrate_pop emits",
+          v2worker.GEMRATE_BLOCKED_ADAPTER_ERROR, cc.GEMRATE_BLOCKED_ERROR)
+
+
 QUARANTINE_DECAY_PROBE = 8
 
 
@@ -750,6 +1062,12 @@ def main() -> int:
     case("P2-12 window bounds", test_manifest_reuse_rejects_a_future_receipt)
     case("P2-13 pc local guards", test_pc_local_replay_guards)
     case("item 10 repair due set", test_repair_due_set_is_frozen_by_explicit_variant_ids)
+    case("09-26 block page vs challenge", test_block_page_is_told_from_the_challenge)
+    case("09-26 block page skips the waits", test_block_page_is_a_verdict_without_the_json_wait)
+    case("09-26 block breaker", test_block_breaker_stops_the_pass)
+    case("09-26 cmd_daily blocked", test_cmd_daily_skips_the_slow_retry_when_blocked)
+    case("09-26 blocked lane verdict", test_blocked_manifest_is_one_lane_verdict)
+    case("09-26 worker error pin", test_worker_names_the_collector_block_string)
 
     for line in FAILED:
         print(line)

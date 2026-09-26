@@ -33,6 +33,7 @@ from daily_chain_v2_contract import (  # noqa: E402
     daily_generation_sha256,
     identity_lanes,
     list_v2_migrations,
+    parse_pop_fallback,
     sha256,
 )
 from collection_contract import CHECKPOINT_ADAPTERS  # noqa: E402
@@ -148,9 +149,12 @@ def stage_contract(args: argparse.Namespace) -> dict[str, Any]:
     import operator_control
     from daily_chain_v2_db import current_run_contract, sync_variant_source_states
 
+    # The orchestrator passes --pop-fallback only for a source a Cloudflare
+    # block settled DEGRADED (daily_chain_v2.blocked_pop_fallback).
+    pop_fallback = parse_pop_fallback(getattr(args, "pop_fallback", None) or ())
     with operator_control.operator_e2e_lease(f"v2-contract:{args.label}"):
         projected = sync_variant_source_states(args.run_id, args.business_date)
-        contract = current_run_contract(args.business_date)
+        contract = current_run_contract(args.business_date, pop_fallback_days=pop_fallback)
     # Registry-driven barrier: every enabled core source plus the shared quote
     # coverage.  The literal tuple survives only inside core_contract_keys as
     # the no-registry fallback, so a new core source blocks publication by
@@ -168,6 +172,7 @@ def stage_contract(args: argparse.Namespace) -> dict[str, Any]:
         "barrierKeys": list(barrier),
         "complete": not failures,
         "failures": failures,
+        "popFallback": pop_fallback,
     }
     if failures:
         raise RuntimeError(
@@ -1452,6 +1457,7 @@ def main() -> int:
     contract.add_argument("--run-id", required=True)
     contract.add_argument("--business-date", required=True)
     contract.add_argument("--label", required=True)
+    contract.add_argument("--pop-fallback", action="append", default=[], metavar="SOURCE=DAYS")
     contract.set_defaults(func=stage_contract)
     discover = sub.add_parser("discover")
     discover.add_argument("--lane", choices=discovery_lane_names(), required=True)
