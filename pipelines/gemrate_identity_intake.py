@@ -742,6 +742,7 @@ def apply(
     }
     written: list[dict[str, Any]] = []
     ledger: dict[str, Any] = {}
+    display: dict[str, Any] = {}
     try:
         with conn.cursor() as cursor:
             for verdict in interned:
@@ -869,6 +870,14 @@ def apply(
                     "evidenceSha256": evidence_sha,
                 })
 
+            # The INSERT above publishes the bare PSA numerator and the PSA label
+            # that ends at it, and the V2 chain never runs the bind that completes
+            # them -- 91 cards shipped as `091` / `... Leader 091` that way. Same
+            # function the bind runs, same transaction, limited to rows still raw.
+            display = rebuild.restate_display_identity(
+                cursor, generation, incomplete_only=True
+            )
+
             # Same transaction: rebuild_ledger's own assert is ledger == catalog,
             # and a new variant with no ledger row makes the NEXT discover lane
             # raise instead of run.
@@ -889,7 +898,7 @@ def apply(
     except BaseException:
         conn.rollback()
         raise
-    return {"counts": counts, "ledger": ledger, "interned": written}
+    return {"counts": counts, "ledger": ledger, "interned": written, "display": display}
 
 
 # --------------------------------------------------------------------------

@@ -420,6 +420,7 @@ def stage_identity_intake(args: argparse.Namespace) -> dict[str, Any]:
         connection.close()
     receipt = intake.write_receipt(report, business_date=business_date)
     interned = list(report.get("interned") or [])
+    display = dict((report.get("written") or {}).get("display") or {})
     result: dict[str, Any] = {
         "stage": "intake",
         "generation": report.get("generation"),
@@ -435,6 +436,8 @@ def stage_identity_intake(args: argparse.Namespace) -> dict[str, Any]:
         ],
         "deferredByRatchet": len(report.get("deferredByRatchet") or []),
         "needsHuman": len(report.get("needsHuman") or []),
+        "displayCompleted": len(display.get("restated") or []),
+        "displayRefused": display.get("refused") or [],
         "receiptPath": str(receipt),
     }
     if result["censusStale"] or result["censusMissing"]:

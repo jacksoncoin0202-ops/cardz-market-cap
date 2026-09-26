@@ -10,9 +10,9 @@
 110`，真編號 `110/80`），全 universe 436/1605；另外 top 100 有 29 張連編號欄本身
 都冇分母但照標 `complete: true`，全 universe 1169/1605。
 
-呢個 module 得兩個 function，兩個都係純字串運算、冇 DB、冇 IO，所以三個 writer
-（rebuild_036 stage_bind、new_era_db_tidy、resolve_active_psa_identity）可以行同一
-份邏輯而唔會各自飄。
+呢個 module 全部係純字串運算、冇 DB、冇 IO，所以各個 writer（rebuild_036
+stage_bind、new_era_db_tidy、resolve_active_psa_identity、每日新卡 intake）可以行
+同一份邏輯而唔會各自飄。
 """
 
 from __future__ import annotations
@@ -50,6 +50,54 @@ def collector_core(value: Any) -> str:
 
 def _has_denominator(value: str) -> bool:
     return "/" in value or "-" in value
+
+
+def collector_is_complete(value: Any) -> bool:
+    """同 FE 個 `collectorNumber.complete` 同一條定義（live-db-snapshot.ts：顯示
+    式有 `/` 或 `-`）。裸號 `091` 係 False，`OP13-091`、`110/80` 係 True。"""
+
+    return _has_denominator(normalise_text(value))
+
+
+def collector_prefix(value: Any) -> str:
+    """Set 前綴（`OP09-061` → `OP09`），冇就 ''。
+
+    前綴係「邊套卡」嘅證據，唔係格式：同一個 core 061，OP09 同 EB02 係兩張卡。
+    """
+
+    text = normalise_text(value).replace(" ", "").upper().split("/", 1)[0]
+    return text.rsplit("-", 1)[0] if "-" in text else ""
+
+
+def restate_collector_number(current: Any, candidate: Any) -> tuple[str, str]:
+    """已出街嘅編號可唔可以被 candidate 取代；回 (出街值, 理由)。
+
+    candidate 係 complete_collector_number 由 GemRate capture 砌出嚟嘅號，前綴／
+    分母可以係借其他 grader 行。借嘅證據會錯：2026-09-26 實測 v2030 PSA 行印
+    `061`，GemRate 將 EB02 Anime 25th Collection 嘅 SGC/CGC 行併咗入同一個 entity，
+    借出 `EB02-061`，但出街嘅 `OP09-061` 先啱。所以 restate 只准補全，唔准改寫：
+
+      - candidate 空或者一樣 → same
+      - 現值空或 placeholder → filled（用 candidate）
+      - core 唔同 → core_conflict（照舊）：restate 唔係換卡
+      - 現值完整、candidate 裸號 → keep_complete（照舊）：唔准降級
+      - 現值有前綴、candidate 前綴唔同 → prefix_conflict（照舊）：v2030 呢類
+      - 其餘（裸號補全、大細階、分母寫法）→ restated（用 candidate）
+    """
+
+    now = normalise_text(current)
+    new = normalise_text(candidate)
+    if not new or new == now:
+        return now, "same"
+    if not collector_core(now):
+        return new, "filled"
+    if collector_core(new) != collector_core(now):
+        return now, "core_conflict"
+    if _has_denominator(now) and not _has_denominator(new):
+        return now, "keep_complete"
+    if collector_prefix(now) and collector_prefix(new) != collector_prefix(now):
+        return now, "prefix_conflict"
+    return new, "restated"
 
 
 def complete_collector_number(
@@ -117,11 +165,14 @@ def complete_collector_tail(psa_description: Any, collector_number: Any) -> str:
       - 最尾一個 token 嘅 core 同完整編號嘅 core 相等 → 換咗佢
       - 除此以外，完整編號又未喺個名度出現過 → 先至 append（實測得
         `… Alternate Art-Gold` + `OPCD-093` 呢一類，個名根本冇數字尾巴）
+
+    編號一個數字都冇就唔係號，三條分支都唔行：v2307 個 PSA 號係 `Old`，照 append
+    會出 `… Base OLD`（2026-09-26 實測）。
     """
 
     title = normalise_text(psa_description)
     collector = normalise_text(collector_number)
-    if not title or not collector:
+    if not title or not collector or not re.search(r"\d", collector):
         return title
     if title.casefold().endswith(collector.casefold()):
         return title

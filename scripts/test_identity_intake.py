@@ -122,11 +122,14 @@ class FakeDB:
         self.variants[variant_id] = record
         return variant_id
 
-    def add_printing(self, variant_id: int, sha: str, *, parallel_code: str = "base") -> None:
+    def add_printing(
+        self, variant_id: int, sha: str, *, parallel_code: str = "base", collector_number: str = ""
+    ) -> None:
         self.printings[variant_id] = {
             "variant_id": variant_id,
             "canonical_printing_sha256": sha,
             "parallel_code": parallel_code,
+            "collector_number": collector_number,
         }
 
 
@@ -218,7 +221,9 @@ class FakeCursor:
             )
             if owner is not None:
                 raise RuntimeError(f"Duplicate entry '{sha}' for key 'canonical_printing_sha256'")
-            self.db.add_printing(int(args[0]), sha, parallel_code=str(args[5]))
+            self.db.add_printing(
+                int(args[0]), sha, parallel_code=str(args[5]), collector_number=str(args[4])
+            )
             self.rowcount = 1
             return
         if text.startswith("INSERT INTO catalog_source_identity"):
@@ -246,6 +251,38 @@ class FakeCursor:
             )
             row["cohort"] = str(cohort)
             row["identity_pending"] = int(pending)
+            self.rowcount = 1
+            return
+        if "AS psa_number_full" in text:
+            # rebuild_036.restate_display_identity: exact gemrate bindings joined to
+            # their member row in this generation, number/name off its fingerprint.
+            rows = []
+            for (code, gid), identity in sorted(self.db.identities.items()):
+                row = self.db.members.get(gid)
+                variant = self.db.variants.get(int(identity["variant_id"]))
+                if (code != "gemrate" or identity["match_status"] != "exact"
+                        or str(args[0]) != GEN or row is None or variant is None
+                        or row["variant_id"] != variant["id"]):
+                    continue
+                fp = json.loads(row["detail_json"] or "{}").get("fingerprint") or {}
+                rows.append({
+                    "variant_id": variant["id"],
+                    "canonical_name": variant["canonical_name"],
+                    "collector_number": variant["collector_number"],
+                    "psa_description": fp.get("description"),
+                    "psa_number_full": fp.get("cardNumberFull"),
+                    "printed_collector_number": (
+                        self.db.printings.get(variant["id"], {}).get("collector_number")
+                    ),
+                })
+            self._rows = rows
+            return
+        if text.startswith("UPDATE catalog_variant SET collector_number=%s WHERE id=%s"):
+            self.db.variants[int(args[1])]["collector_number"] = args[0]
+            self.rowcount = 1
+            return
+        if text.startswith("UPDATE catalog_variant SET canonical_name=%s WHERE id=%s"):
+            self.db.variants[int(args[1])]["canonical_name"] = args[0]
             self.rowcount = 1
             return
         if text.startswith("INSERT INTO market_identity_intake_decision"):
@@ -848,6 +885,63 @@ try:
             raise AssertionError("a missing capture must abort before any binding is written")
         assert gone_db.committed == 0 and not gone_db.variants
         print("POSITIVE_OK a binding whose capture is gone aborts at write time, not at read time")
+
+        # Re-seed 2026-08-23..09-25: intake published the bare PSA numerator and
+        # the label ending at it, and the V2 chain never binds, so 91 cards
+        # shipped as `091` / `... Alternate Art 091` (v2255 is OP13-091).
+        heal_db = FakeDB()
+        bare_fp = dict(fingerprint(LUFFY_GID), cardNumberFull="OP01-024")
+        heal_db.members = {LUFFY_GID: member(LUFFY_GID, population=965,
+                                             detail={"fingerprint": bare_fp})}
+        # And a card published earlier with the right prefix whose capture now
+        # borrows a mis-merged sibling's (v2030: EB02-061 over OP09-061).
+        merge_fp = dict(fingerprint(PERONA_GID, name="Perona", card_number="061"),
+                        cardNumberFull="EB02-061")
+        published_name = merge_fp["description"][: -len("061")] + "OP09-061"
+        published = heal_db.add_variant(canonical_name=published_name, collector_number="OP09-061")
+        heal_db.identities[("gemrate", PERONA_GID)] = {
+            "variant_id": published, "match_status": "exact", "evidence_sha256": "1" * 64,
+        }
+        heal_db.members[PERONA_GID] = member(PERONA_GID, cohort="qualified_identity",
+                                             variant_id=published,
+                                             detail={"fingerprint": merge_fp})
+        heal_verdict = intake.classify(
+            LUFFY_GID, population=1162, member=heal_db.members[LUFFY_GID],
+            indexes=indexes_from(heal_db),
+        )
+        assert heal_verdict.verdict == "auto", heal_verdict
+        healed = run_apply(FakeConnection(heal_db), generation=GEN, interned=[heal_verdict],
+                           verdicts=[heal_verdict], now=NOW, cards_dir=cards_dir)
+        new_id = healed["interned"][0]["variantId"]
+        assert heal_db.variants[new_id]["collector_number"] == "OP01-024", heal_db.variants[new_id]
+        assert heal_db.variants[new_id]["canonical_name"] == (
+            "2022 One Piece OP01-Romance Dawn Monkey D. Luffy Base OP01-024"
+        ), heal_db.variants[new_id]
+        assert heal_db.printings[new_id]["collector_number"] == "024", \
+            "the printing identity is a sha input and keeps the bare numerator"
+        assert heal_db.variants[published]["collector_number"] == "OP09-061"
+        assert heal_db.variants[published]["canonical_name"] == published_name
+        display = healed["display"]
+        assert [r["variantId"] for r in display["restated"]] == [new_id], display
+        assert display["refused"] == [{"variantId": published, "shown": "OP09-061",
+                                       "candidate": "EB02-061", "reason": "prefix_conflict"}]
+        assert heal_db.committed == 1
+        print("POSITIVE_OK apply completes the new card's number and name in the same transaction"
+              " and refuses to re-prefix a published one")
+
+        # A card whose number no grader completes stays bare and says nothing.
+        plain_db = FakeDB()
+        plain_db.members = {LUFFY_GID: member(LUFFY_GID, population=965)}
+        plain_verdict = intake.classify(
+            LUFFY_GID, population=1162, member=plain_db.members[LUFFY_GID],
+            indexes=indexes_from(plain_db),
+        )
+        plain = run_apply(FakeConnection(plain_db), generation=GEN, interned=[plain_verdict],
+                          verdicts=[plain_verdict], now=NOW, cards_dir=cards_dir)
+        plain_id = plain["interned"][0]["variantId"]
+        assert plain_db.variants[plain_id]["canonical_name"].endswith(" 024")
+        assert plain["display"]["restated"] == [] and plain["display"]["refused"] == []
+        print("NEGATIVE_OK a card no grader completes keeps its bare number, unpadded and unflagged")
     finally:
         intake.discovery_ledger.rebuild_ledger = real_ledger  # type: ignore[assignment]
 

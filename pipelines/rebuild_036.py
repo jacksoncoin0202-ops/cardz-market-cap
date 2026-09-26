@@ -31,7 +31,13 @@ from typing import Any, Callable, Mapping
 
 import pymysql
 
-from identity_name import complete_collector_number, complete_collector_tail
+from identity_name import (
+    collector_is_complete,
+    complete_collector_number,
+    complete_collector_tail,
+    normalise_text,
+    restate_collector_number,
+)
 import leftover5_go
 from current_quote_revision import (
     all_quote_storage_source_codes,
@@ -1620,6 +1626,91 @@ _PSA_NUMBER_FULL_SQL = (
 )
 
 
+def restate_display_identity(
+    cursor: Any, generation: str, *, incomplete_only: bool = False
+) -> dict[str, Any]:
+    """Settle each bound variant's public collector number and name off its PSA row.
+
+    The one execution point for the display identity, with two callers.
+    stage_bind (incomplete_only=False) restates every variant it settles, as it
+    always has -- see the comment at its call site. The daily identity intake
+    (incomplete_only=True) calls it after interning, because the V2 chain never
+    runs the bind: intake inserts a new card with the bare PSA numerator and the
+    PSA label that ends at it, and 91 cards interned 2026-08-23..09-25 published
+    exactly that (v2255 `091` for OP13-091, v2247 `030` for OP10-030, Pokemon
+    `SV57` for SV57/SV94). In that mode it completes only what is still raw: a
+    number only when it gains its denominator or prefix, a name only while it is
+    still the verbatim PSA label.
+
+    identity_name.restate_collector_number decides the number in both modes, so a
+    prefix borrowed from a mis-merged sibling grader row can never overwrite a
+    published one (v2030, EB02-061 over OP09-061); those land in `refused`.
+    """
+
+    cursor.execute(
+        "SELECT v.id AS variant_id, v.canonical_name, v.collector_number,"
+        f" {_PSA_FULL_NAME_SQL} AS psa_description,"
+        f" {_PSA_NUMBER_FULL_SQL} AS psa_number_full,"
+        " p.collector_number AS printed_collector_number"
+        " FROM catalog_variant v"
+        " INNER JOIN catalog_source_identity s ON s.variant_id=v.id"
+        "   AND s.source_code='gemrate' AND s.match_status='exact'"
+        " INNER JOIN catalog_rebuild_member m ON m.generation_id=%s"
+        "   AND m.variant_id=v.id AND m.gemrate_id=s.external_entity_id"
+        " LEFT JOIN catalog_printing_identity p ON p.variant_id=v.id",
+        (generation,),
+    )
+    result: dict[str, Any] = {
+        "psaCollectorNumbersRestated": 0,
+        "psaNamesRestated": 0,
+        "psaCollectorNumbersRefused": 0,
+        "restated": [],
+        "refused": [],
+    }
+    for row in cursor.fetchall():
+        variant_id = int(row["variant_id"])
+        current_number = str(row["collector_number"] or "")
+        current_name = str(row["canonical_name"] or "")
+        candidate = complete_collector_number(
+            row["psa_number_full"], (), row["printed_collector_number"]
+        )
+        collector, reason = restate_collector_number(current_number, candidate)
+        if reason in ("core_conflict", "prefix_conflict"):
+            result["psaCollectorNumbersRefused"] += 1
+            result["refused"].append({
+                "variantId": variant_id, "shown": current_number,
+                "candidate": candidate, "reason": reason,
+            })
+        name_open = True
+        if incomplete_only:
+            completes = reason == "filled" or (
+                not collector_is_complete(current_number)
+                and collector_is_complete(collector)
+            )
+            if not completes:
+                collector = current_number
+            name_open = normalise_text(current_name) == normalise_text(row["psa_description"])
+        change: dict[str, Any] = {}
+        if collector and collector != current_number:
+            cursor.execute(
+                "UPDATE catalog_variant SET collector_number=%s WHERE id=%s",
+                (collector, variant_id),
+            )
+            result["psaCollectorNumbersRestated"] += 1
+            change["collector"] = [current_number, collector]
+        full_name = complete_collector_tail(row["psa_description"], collector) if name_open else ""
+        if full_name and full_name != current_name:
+            cursor.execute(
+                "UPDATE catalog_variant SET canonical_name=%s WHERE id=%s",
+                (full_name, variant_id),
+            )
+            result["psaNamesRestated"] += 1
+            change["name"] = [current_name, full_name]
+        if change:
+            result["restated"].append({"variantId": variant_id, **change})
+    return result
+
+
 def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
     """S5: the single execution/closure point for S4's identity decisions.
 
@@ -2453,40 +2544,11 @@ def stage_bind(ctx: SimpleNamespace) -> dict[str, Any]:
             # input and is frozen for the reason spelled out at the set_name
             # restate below. _collector_core() folds the denominator away before
             # any identity comparison, so widening the display column moves no
-            # match.
-            cursor.execute(
-                "SELECT v.id AS variant_id, v.canonical_name, v.collector_number,"
-                f" {_PSA_FULL_NAME_SQL} AS psa_description,"
-                f" {_PSA_NUMBER_FULL_SQL} AS psa_number_full,"
-                " p.collector_number AS printed_collector_number"
-                " FROM catalog_variant v"
-                " INNER JOIN catalog_source_identity s ON s.variant_id=v.id"
-                "   AND s.source_code='gemrate' AND s.match_status='exact'"
-                " INNER JOIN catalog_rebuild_member m ON m.generation_id=%s"
-                "   AND m.variant_id=v.id AND m.gemrate_id=s.external_entity_id"
-                " LEFT JOIN catalog_printing_identity p ON p.variant_id=v.id",
-                (generation,),
-            )
-            counts["psaNamesRestated"] = 0
-            counts["psaCollectorNumbersRestated"] = 0
-            for row in cursor.fetchall():
-                variant_id = int(row["variant_id"])
-                collector = complete_collector_number(
-                    row["psa_number_full"], (), row["printed_collector_number"]
-                ) or str(row["collector_number"] or "")
-                if collector and collector != str(row["collector_number"] or ""):
-                    cursor.execute(
-                        "UPDATE catalog_variant SET collector_number=%s WHERE id=%s",
-                        (collector, variant_id),
-                    )
-                    counts["psaCollectorNumbersRestated"] += 1
-                full_name = complete_collector_tail(row["psa_description"], collector)
-                if full_name and full_name != str(row["canonical_name"] or ""):
-                    cursor.execute(
-                        "UPDATE catalog_variant SET canonical_name=%s WHERE id=%s",
-                        (full_name, variant_id),
-                    )
-                    counts["psaNamesRestated"] += 1
+            # match. The daily intake runs the same function on what it interns.
+            display = restate_display_identity(cursor, generation)
+            counts["psaNamesRestated"] = display["psaNamesRestated"]
+            counts["psaCollectorNumbersRestated"] = display["psaCollectorNumbersRestated"]
+            counts["psaCollectorNumbersRefused"] = display["psaCollectorNumbersRefused"]
 
             # And the set name off the same PSA row, for a reason the display
             # only half explains: set_name is not decoration, it is an INPUT to
