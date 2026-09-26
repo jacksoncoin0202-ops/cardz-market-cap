@@ -1,7 +1,7 @@
 # Cardz Market Cap
 
 **呢棵係資料／日更真身。** 日常：collect → `daily-accept` → `daily_public_release`。
-FE 出街車：`../cardz-market-cap-037-fe04-live`（`[deploy]`）。**唔喺呢度** push `main` 當網站 deploy。
+呢棵同 GitHub `origin/main` 係同一條 code 線：FE 同 pipeline 都喺呢度 commit、push `main`（唔帶 deploy literal）；網站只由 release script 嘅 `[deploy]` commit 出街。`../cardz-market-cap-037-fe04-live` 已退役（2026-09-26 歸檔）。
 實驗樹 `../cardz-market-cap` 只准讀 3308。Live：037／FE04／1449／`/box`。
 
 Cardz Market Cap has two explicit data modes.
