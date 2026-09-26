@@ -250,6 +250,32 @@ check("bind：個名由 PSA 標籤重新組裝", shown(bind, 9001), ("OP13-091",
 check("bind：細階轉大階", shown(bind, 9002), ("OP01-001", ZORO))
 check("bind：refused", out["refused"], REFUSED_2030)
 
+# QC 2026-09-26：core_conflict 即係 PSA 行講緊另一個號，個名唔准再由佢個標籤砌，
+# 唔係就出雙號 `… Base 120 OP05-119`。prefix_conflict core 一樣，照用出街號補名尾。
+OTHER_CARD = "2023 One Piece OP05-Awakening of the New Era Test Card Base 120"
+RAW_LUFFY = f"{LUFFY} 061"
+
+
+def refusal_rows() -> list[dict]:
+    return [
+        {"variant_id": 9003, "canonical_name": OTHER_CARD, "collector_number": "OP05-119",
+         "psa_description": OTHER_CARD, "psa_number_full": "OP05-120", "printed_collector_number": "120"},
+        {"variant_id": 9004, "canonical_name": RAW_LUFFY, "collector_number": "OP09-061",
+         "psa_description": RAW_LUFFY, "psa_number_full": "EB02-061", "printed_collector_number": "061"},
+    ]
+
+
+for mode, incomplete_only in (("intake", True), ("bind", False)):
+    refusal = BindCursor(refusal_rows())
+    out = rebuild.restate_display_identity(refusal, GEN, incomplete_only=incomplete_only)
+    check(f"{mode}：core_conflict 號同名都唔郁（唔准出雙號）", shown(refusal, 9003), ("OP05-119", OTHER_CARD))
+    check(f"{mode}：prefix_conflict 照用出街號補名尾", shown(refusal, 9004), ("OP09-061", f"{LUFFY} OP09-061"))
+    check(
+        f"{mode}：兩張都入 refused",
+        [(item["variantId"], item["reason"]) for item in out["refused"]],
+        [(9003, "core_conflict"), (9004, "prefix_conflict")],
+    )
+
 # --- 7. canonical writer 全部要經唯一組裝點 -------------------------------
 # 每日新卡 intake 係第六個 writer：佢 INSERT 裸號同斷尾 PSA 名，而 V2 日更唔行
 # bind，2026-08-23..09-25 就咁出咗 91 張裸號卡。intake 經 restate_display_identity

@@ -1681,7 +1681,11 @@ def restate_display_identity(
                 "variantId": variant_id, "shown": current_number,
                 "candidate": candidate, "reason": reason,
             })
-        name_open = True
+        # A core conflict means the PSA row names another card number, so its label
+        # cannot name this card either: the tail would stitch both numbers on
+        # (`... Base 120 OP05-119`, QC 2026-09-26). A prefix conflict shares the
+        # core and still completes the name off the published number.
+        name_open = reason != "core_conflict"
         if incomplete_only:
             completes = reason == "filled" or (
                 not collector_is_complete(current_number)
@@ -1689,7 +1693,9 @@ def restate_display_identity(
             )
             if not completes:
                 collector = current_number
-            name_open = normalise_text(current_name) == normalise_text(row["psa_description"])
+            name_open = name_open and (
+                normalise_text(current_name) == normalise_text(row["psa_description"])
+            )
         change: dict[str, Any] = {}
         if collector and collector != current_number:
             cursor.execute(
