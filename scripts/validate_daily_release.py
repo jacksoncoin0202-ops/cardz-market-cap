@@ -52,6 +52,12 @@ BOX_WINDOW_LABEL_FLOOR = 20
 BOX_WINDOW_MIN_RATIO = 0.5
 
 
+def finite_number(value: Any) -> bool:
+    # bool subclasses int: a True in a change field is a producer type bug, not a +1% move
+    # (QC 2026-09-26: 25 box 30d changes set to True passed as ready).
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
 def window_violations(cards: list[dict[str, Any]]) -> tuple[list[tuple[Any, ...]], int]:
     bad: list[tuple[Any, ...]] = []
     checked = 0
@@ -63,7 +69,7 @@ def window_violations(cards: list[dict[str, Any]]) -> tuple[list[tuple[Any, ...]
                     continue
                 checked += 1
                 value = change.get("value")
-                if not isinstance(value, (int, float)) or not math.isfinite(value):
+                if not finite_number(value):
                     bad.append((card.get("id"), code, metric, "not a finite number"))
                     continue
                 if change.get("sourceSwitched"):
@@ -86,7 +92,7 @@ def box_window_counts(products: list[dict[str, Any]]) -> tuple[dict[str, int], l
             if value is None:
                 continue
             limit = WINDOW_MAX_RATIO.get(code)
-            if limit is None or not isinstance(value, (int, float)) or not math.isfinite(value):
+            if limit is None or not finite_number(value):
                 bad.append((product.get("id"), code, value))
                 continue
             ready[code] += 1
@@ -420,6 +426,7 @@ def self_test() -> None:
         ("window-implausible-rise", "90d", 916.8, False, "ready"),
         ("window-implausible-drop", "30d", -97.8, False, "ready"),
         ("window-implausible-stale", "30d", -97.8, False, "stale"),
+        ("window-boolean", "30d", True, False, "ready"),
     ):
         broken_window = json.loads(json.dumps(windowed))
         broken_window["top100"][0]["windows"][code] = {
@@ -505,6 +512,10 @@ def self_test() -> None:
         unknown_window = json.loads(json.dumps(windowed_box))
         unknown_window["products"][0]["windows"]["2y"] = {"changePct": 5.0}
         box_cases.append(("box-window-unknown-label", unknown_window, windowed_box))
+        booleans = json.loads(json.dumps(windowed_box))
+        for product in booleans["products"]:
+            product["windows"]["30d"]["changePct"] = True
+        box_cases.append(("box-window-boolean", booleans, windowed_box))
         emptied = json.loads(json.dumps(windowed_box))
         for product in emptied["products"]:
             del product["windows"]["180d"]["changePct"]
