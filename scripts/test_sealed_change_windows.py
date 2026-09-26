@@ -15,6 +15,9 @@ today-N, with no ±band; a window with no new point in it is 0%. The long window
 deriveBoxWindow, which anchored on any lane.
 DADDY 2026-09-26 (boxes): a carried or expired anchor is withheld. op-17 JP's 7d / 30d -44.19% anchored on 08-20's SNK
 sold median, carried through the 08-21..09-22 collection gap; FFI's 30d +90.88% on a PC point 421 days old.
+2026-09-26 (JP PC delay, boxes): a PC month-1st point is PC's price at its month's end, not on the 1st, so it anchors
+today-N only near that day or across a month that did not move. sm3h / jp3 are the windows the reverted month-end
+dating got wrong (30d +97.73%, 180d +272.22%).
 Every rule is pinned twice: the shipped module passes its check, and a twin with that one rule planted back to the
 bug FAILS the same check (AGENTS.md rule 9). No DB, no network.
 """
@@ -141,11 +144,27 @@ DEX = ("ptcg-en", [sale(date(2025, 5, 15), 6999.95, "ebay"), sale(date(2026, 3, 
                           (ago(1), 16573.82)]})
 # A sale after today-90 but more than SOLD_WINDOW_D before today: /box showed PC's point on today-90.
 LATER_SALE = ("ptcg-en", [sale(ago(50), 105.0, "ebay")], {"pricecharting": [(ago(100), 100.0), (ago(1), 110.0)]})
+# JP PC delay, 2026-09-26: PC's month-1st rows as stored, last 14 months (no SNK freeze, so no sale counts: JP reads SNK
+# sales only). sm3h: PC read $1,892.66 on the 08-14..08-16 pulls and $4,296.45 from 08-17; the August point froze at
+# $4,296.45. jp3: $33,500 already on 08-14's pull.
+SM3H = ("ptcg-jp", [], {"pricecharting": [
+    (date(2025, 7, 1), 1354.30), (date(2025, 8, 1), 1354.30), (date(2025, 9, 1), 1400.0), (date(2025, 10, 1), 1400.0),
+    (date(2025, 11, 1), 1400.0), (date(2025, 12, 1), 1401.96), (date(2026, 1, 1), 1401.96), (date(2026, 2, 1), 1401.96),
+    (date(2026, 3, 1), 2173.04), (date(2026, 4, 1), 2088.53), (date(2026, 5, 1), 1978.05), (date(2026, 6, 1), 1922.19),
+    (date(2026, 7, 1), 1899.10), (date(2026, 8, 1), 4296.45), (date(2026, 9, 1), 3755.0), (ago(1), 3755.0)]})
+JP3 = ("ptcg-jp", [], {"pricecharting": [(date(2025, m, 1), 9000.0) for m in range(7, 13)]
+                       + [(date(2026, m, 1), 9000.0 if m < 3 else 16775.0) for m in range(1, 8)]
+                       + [(date(2026, 8, 1), 33500.0), (date(2026, 8, 14), 33500.0), (date(2026, 9, 1), 33500.0),
+                          (date(2026, 9, 23), 33500.0), (ago(1), 33500.0)]})
+# The open month's point with no dated row since: PC's price on the last pull (today), not on 09-30.
+PC_OPEN = ("ptcg-en", [], {"pricecharting": [(date(2026, 8, 1), 100.0), (date(2026, 9, 1), 110.0)]})
+# SNK's market line is daily: its point on a 1st is that day's.
+SNK_1ST = ("ptcg-jp", [], {"snkrdunk": [(date(2026, 9, 1), 100.0), (ago(1), 120.0)]})
 ALL = {"CG": CG, "CG_DIP": CG_DIP, "XY2": XY2, "STALE": STALE, "S5R": S5R, "EDGES": EDGES, "SV1V": SV1V,
        "SNK_PC": SNK_PC, "NOT_LATEST": NOT_LATEST, "TODAY_ROW": TODAY_ROW, "STEP": STEP,
        "STEP_OTHER_LANE": STEP_OTHER_LANE, "STEP_STALE": STEP_STALE, "STEP_SOLD": STEP_SOLD, "AS_OF": AS_OF,
        "NO_NEW_POINT": NO_NEW_POINT, "LONG": LONG, "OP17": OP17, "FRESH": FRESH, "PC_MONTHLY": PC_MONTHLY, "FFI": FFI,
-       "DEX": DEX, "LATER_SALE": LATER_SALE}
+       "DEX": DEX, "LATER_SALE": LATER_SALE, "SM3H": SM3H, "JP3": JP3, "PC_OPEN": PC_OPEN, "SNK_1ST": SNK_1ST}
 
 
 # ------------------------------------------------------------------ windows (sealed_operator)
@@ -216,7 +235,7 @@ rule("a carried anchor (newest observation > max(3 d, N/10) before it) is withhe
      "carried = False"),
     ("op", "carried = (anchor_day - observed).days > max(ANCHOR_CARRY_FLOOR_D, days * ANCHOR_CARRY_FRACTION)",
      "carried = (anchor_day - observed).days >= 0"),
-    ("op", "if anchor and _anchor_withheld(anchor, sale_days, start, days):", "if False:"),
+    ("op", "if anchor and _anchor_withheld(anchor, sale_days, start, days, lane_by_day):", "if False:"),
 ])
 
 
@@ -224,18 +243,21 @@ def check_expired(comp, op) -> None:
     r = box(comp, op, *FFI)
     assert (r["current"]["kind"], r["current"]["usd"]) == ("market", 4206.17), r["current"]
     got = {label: change(r, label) for label in OP.WINDOW_DAYS}
-    assert got == {"1d": 0.0, "7d": 0.0, "30d": None, "90d": None, "180d": None, "365d": None}, \
+    # 7d: PC's September point ($4,206.17, today's) moved off August's close ($4,168.17), so it is ahead of today-7.
+    assert got == {"1d": 0.0, "7d": None, "30d": None, "90d": None, "180d": None, "365d": None}, \
         f"FFI: a 2025-07-01 PC anchor is withheld, not +90.88%: {got}"
     r = box(comp, op, *PC_MONTHLY)
     got = {label: change(r, label) for label in ("7d", "30d", "90d")}
-    assert got == {"7d": 4.17, "30d": 13.64, "90d": 25.0}, f"PC's month-1st points are their own observation: {got}"
+    assert got == {"7d": None, "30d": None, "90d": 25.0}, \
+        f"06-01's $100 was PC's price on 06-30, 2 days after today-90 (within 9) and 27 days after the point's own " \
+        f"date; 09-01's / 08-01's were PC's 7 / 4 days after today-7 / today-30, and those months moved: {got}"
 
 
-rule("an expired anchor (past compose's own sold / market age) is withheld; PC month-1st points stay", check_expired, [
+rule("an expired anchor (past compose's own sold / market age) is withheld", check_expired, [
     ("op", "expired = (target - observed).days > expires", "expired = False"),
     ("op", "expired = (target - observed).days > expires",
      "expired = (target - observed).days > max(ANCHOR_CARRY_FLOOR_D, days * ANCHOR_CARRY_FRACTION)"),
-    ("op", "if anchor and _anchor_withheld(anchor, sale_days, start, days):", "if False:"),
+    ("op", "if anchor and _anchor_withheld(anchor, sale_days, start, days, lane_by_day):", "if False:"),
 ])
 
 
@@ -255,6 +277,32 @@ rule("a market anchor a sale put behind the sold median on today-N is withheld (
     ("op", "        if idx and (target - sale_days[idx - 1]).days <= SOLD_WINDOW_D:\n            return True\n", ""),
     ("op", "        idx = bisect_right(sale_days, target)\n", "        idx = bisect_right(sale_days, anchor_day)\n"),
     ("op", "        idx = bisect_right(sale_days, target)\n", "        idx = len(sale_days)\n"),
+])
+
+
+def check_ahead(comp, op) -> None:
+    got = {label: change(box(comp, op, *SM3H), label) for label in OP.WINDOW_DAYS}
+    assert got == {"1d": 0.0, "7d": None, "30d": None, "90d": 95.35, "180d": 72.8, "365d": 168.21}, \
+        f"sm3h 30d: PC's August close ($4,296.45) was its price on 08-31, 4 days after today-30, and July closed at " \
+        f"$1,899.10: PC's price on 08-27 is not known, neither -12.6% nor +97.73%; 7d likewise: {got}"
+    got = {label: change(box(comp, op, *JP3), label) for label in OP.WINDOW_DAYS}
+    assert got == {"1d": 0.0, "7d": 0.0, "30d": 0.0, "90d": 99.7, "180d": 99.7, "365d": 272.22}, \
+        f"jp3 180d: March's $16,775 close was PC's price a day after today-180 (within 18), not February's $9,000 " \
+        f"(+272.22%); 7d: September did not move off August's close: {got}"
+    assert change(box(comp, op, *PC_OPEN), "1d") == 0.0, "the open month's point is PC's price today, not on 09-30"
+    assert change(box(comp, op, *SNK_1ST), "7d") == 20.0, "an SNK market point on a 1st is that day's observation"
+
+
+rule("ahead: a PC month-1st point is PC's price at its month's end (today while open)", check_ahead, [
+    # the bug: the point read as the 1st's own observation, up to a month ahead of today-N
+    ("op", "            if moved and ahead > max(ANCHOR_CARRY_FLOOR_D, days * ANCHOR_CARRY_FRACTION):\n"
+           "                return True\n", ""),
+    ("op", "if moved and ahead > max(ANCHOR_CARRY_FLOOR_D, days * ANCHOR_CARRY_FRACTION):",
+     "if moved and ahead > ANCHOR_CARRY_FLOOR_D:"),
+    ("op", "prior = lane_by_day.get((anchor_day - timedelta(days=1)).replace(day=1))", "prior = lane_by_day.get(anchor_day)"),
+    ("op", 'moved = not prior or prior["composed_price_usd"] != anchor["composed_price_usd"]', "moved = True"),
+    ("op", "ahead = (min(closed, target + timedelta(days=days)) - target).days", "ahead = (closed - target).days"),
+    ("op", 'if anchor["composed_source"] == "pricecharting" and anchor_day.day == 1:', "if anchor_day.day == 1:"),
 ])
 
 

@@ -1053,7 +1053,17 @@ MAX_WINDOW_RATIO = {"1d": 3.0, "7d": 3.0, "30d": 3.0, "90d": 4.0, "180d": 5.0, "
 #     before it, or a market point while a sale within SOLD_WINDOW_D of today-N put its sold median first (compose_current
 #     reads sold before market). DEX 180d +231.48%: PC's $5,000 March point against today's $16,573.82, while on today-180
 #     /box showed the $20,101 sold on 03-08 (eBay $17,500-$21,194 through May): 24 of 820 windows, 2026-09-25, no value
-#     changed. PC's month-1st points (at most ~31 days apart) stay anchors.
+#     changed. PC's month-1st points (at most ~31 days apart) stay anchors, unless ahead.
+#   ahead: a PriceCharting point on a month's 1st was not observed that day. PC's chart keeps one point a month, stamped
+#     on the 1st: PC's live price while the month is open (each pull rewrites it), frozen at the close. So its value is
+#     PC's price at the month's end (today while open), and it stands for today-N only within max(3 d, N/10) of that
+#     day, or when the month did not move (the lane's point on the previous month's 1st has its price: all 28 such boxes
+#     read that price on every August 2026 pull). Inside a month that moved, PC's price is on no point: of 42 boxes
+#     whose August close moved >10%, the 08-14..08-20 pulls read August's close in 8, July's in 8, July's then
+#     August's in 3, neither in 23. Dating the point on its month's last day (reverted 2026-09-26) traded look-ahead
+#     for a stale close: sm3h 30d +97.73% off July's $1,899.10, though PC read $4,296.45 from 08-17; jp3 180d +272.22%
+#     off February's $9,000, a day before March's close. 2026-09-26: 38 of 796 windows (7d 31, 30d 7); early in a
+#     month 90d / 180d ones too.
 # The gap is not measured from today-N alone: that would withhold PC's month-1st anchors (463 of 1,035 windows).
 ANCHOR_CARRY_FLOOR_D = 3
 ANCHOR_CARRY_FRACTION = 0.10
@@ -1070,8 +1080,10 @@ def _window_anchor(points: list[dict], lane: tuple[str, str], target: date) -> d
     return best
 
 
-def _anchor_withheld(anchor: dict, sale_days: list[date], target: date, days: int) -> bool:
-    """True when the anchor is carried or expired (see ANCHOR_CARRY_FLOOR_D). sale_days: the line's days with a sale."""
+def _anchor_withheld(anchor: dict, sale_days: list[date], target: date, days: int,
+                     lane_by_day: dict[date, dict]) -> bool:
+    """True when the anchor is carried, expired or ahead (see ANCHOR_CARRY_FLOOR_D). sale_days: the line's days with a
+    sale; lane_by_day: the lane's points by day."""
     anchor_day = anchor["observed_date"]
     if anchor["composed_kind"] == "sold":
         idx = bisect_right(sale_days, anchor_day)
@@ -1082,6 +1094,13 @@ def _anchor_withheld(anchor: dict, sale_days: list[date], target: date, days: in
         idx = bisect_right(sale_days, target)
         if idx and (target - sale_days[idx - 1]).days <= SOLD_WINDOW_D:
             return True
+        if anchor["composed_source"] == "pricecharting" and anchor_day.day == 1:
+            closed = (anchor_day.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+            ahead = (min(closed, target + timedelta(days=days)) - target).days
+            prior = lane_by_day.get((anchor_day - timedelta(days=1)).replace(day=1))
+            moved = not prior or prior["composed_price_usd"] != anchor["composed_price_usd"]
+            if moved and ahead > max(ANCHOR_CARRY_FLOOR_D, days * ANCHOR_CARRY_FRACTION):
+                return True
         observed, expires = anchor_day, MARKET_MAX_AGE_D
     carried = (anchor_day - observed).days > max(ANCHOR_CARRY_FLOOR_D, days * ANCHOR_CARRY_FRACTION)
     expired = (target - observed).days > expires
@@ -1113,13 +1132,14 @@ def _windows_from_line(line: list[dict], today: date, current: dict | None = Non
     price = float(current["usd"]) if current and current.get("usd") is not None else None
     lane = (current["kind"], current["source"]) if price and not current.get("note") else None
     sale_days = [r["observed_date"] for r in line if int(r["sold_count"] or 0) > 0]
+    lane_by_day = {r["observed_date"]: r for r in pts if (r["composed_kind"], r["composed_source"]) == lane}
     windows: dict[str, Any] = {}
     for label, days in WINDOW_DAYS.items():
         start = today - timedelta(days=days)
         sold = sum(int(r["sold_count"] or 0) for r in line if start < r["observed_date"] <= today)
         win: dict[str, Any] = {"soldCount": sold}
         anchor = _window_anchor(pts, lane, start) if lane else None
-        if anchor and _anchor_withheld(anchor, sale_days, start, days):
+        if anchor and _anchor_withheld(anchor, sale_days, start, days, lane_by_day):
             anchor = None
         prev = float(anchor["composed_price_usd"]) if anchor else 0.0
         if price and price > 0 and prev > 0 and max(price / prev, prev / price) <= MAX_WINDOW_RATIO[label]:
