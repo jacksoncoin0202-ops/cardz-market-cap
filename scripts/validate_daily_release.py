@@ -41,6 +41,15 @@ SNAPSHOT_MAX_BYTES = 95 * 1024 * 1024
 # price's own lane, so a ready change past these, or one flagged sourceSwitched, means the
 # producer lost a guard. 2026-09-25: Mimikyu 180d +22,072% and Latias 90d +916.8% went out ready.
 WINDOW_MAX_RATIO = {"1d": 3.0, "7d": 3.0, "30d": 3.0, "90d": 4.0, "180d": 5.0, "365d": 7.0}
+# Box changes come from pipelines/sealed_operator.py (_windows_from_line), which withholds a move
+# past its own MAX_WINDOW_RATIO (the same numbers) and a carried, expired or ahead anchor. Nothing
+# checked them before 2026-09-26, and every /box release from 08-14 to 09-25 carried some past the
+# limit (ptcg-en-dx 30d +27,878%, ptcg-en-trr 30d +991.2%). Some withholding is expected: on a
+# month's 1st the ahead rule withholds about 1 box change in 8. A label that had
+# BOX_WINDOW_LABEL_FLOOR ready changes and now has none, or a total under BOX_WINDOW_MIN_RATIO of
+# the previous release, means the producer withheld far more than it should.
+BOX_WINDOW_LABEL_FLOOR = 20
+BOX_WINDOW_MIN_RATIO = 0.5
 
 
 def window_violations(cards: list[dict[str, Any]]) -> tuple[list[tuple[Any, ...]], int]:
@@ -66,6 +75,26 @@ def window_violations(cards: list[dict[str, Any]]) -> tuple[list[tuple[Any, ...]
                 if limit is None or ratio <= 0 or max(ratio, 1 / ratio) > limit * (1 + 1e-9):
                     bad.append((card.get("id"), code, metric, f"{value:+.1f}%"))
     return bad, checked
+
+
+def box_window_counts(products: list[dict[str, Any]]) -> tuple[dict[str, int], list[tuple[Any, ...]]]:
+    ready = dict.fromkeys(WINDOW_MAX_RATIO, 0)
+    bad: list[tuple[Any, ...]] = []
+    for product in products:
+        for code, window in (product.get("windows") or {}).items():
+            value = (window or {}).get("changePct")
+            if value is None:
+                continue
+            limit = WINDOW_MAX_RATIO.get(code)
+            if limit is None or not isinstance(value, (int, float)) or not math.isfinite(value):
+                bad.append((product.get("id"), code, value))
+                continue
+            ready[code] += 1
+            # The producer rounds changePct to 2 decimals: -66.67 can stand for a -66.666% move its 3.0 allows.
+            ratio = 1 + (value - math.copysign(min(abs(value), 0.005), value)) / 100
+            if ratio <= 0 or max(ratio, 1 / ratio) > limit * (1 + 1e-9):
+                bad.append((product.get("id"), code, f"{value:+.1f}%"))
+    return ready, bad
 
 
 def load_snapshot(path: Path) -> dict[str, Any]:
@@ -136,6 +165,18 @@ def validate_box(
     unknown = {s: v for s, v in collisions.items() if baseline.get(s) != v}
     if unknown or len(collisions) > len(baseline):
         raise AssertionError(f"box image sha shared by multiple ids beyond baseline: {list(unknown.items())[:5]}")
+    ready, implausible = box_window_counts(products)
+    if implausible:
+        raise AssertionError(
+            f"{len(implausible)} box window changes are not finite or past WINDOW_MAX_RATIO: {implausible[:10]}"
+        )
+    before = box_window_counts((previous or {}).get("products") or [])[0]
+    collapsed = [code for code, count in ready.items() if count == 0 and before[code] >= BOX_WINDOW_LABEL_FLOOR]
+    if collapsed or sum(ready.values()) < sum(before.values()) * BOX_WINDOW_MIN_RATIO:
+        raise AssertionError(
+            f"box window changes collapsed: ready {ready}, previous {before}"
+            f" (emptied: {collapsed}; total floor {BOX_WINDOW_MIN_RATIO:.0%} of the previous)"
+        )
     return {
         "boxProducts": len(products),
         "boxPriced": priced,
@@ -144,6 +185,8 @@ def validate_box(
         "boxAgeHours": round(age_h, 1),
         "boxPreviousProducts": prev_count,
         "boxShaCollisions": len(collisions),
+        "boxReadyWindowChanges": ready,
+        "boxPreviousReadyWindowChanges": before,
     }
 
 
@@ -365,6 +408,13 @@ def self_test() -> None:
     assert producer_ratio == WINDOW_MAX_RATIO, (
         f"WINDOW_MAX_RATIO {WINDOW_MAX_RATIO} drifted from the producer's MAX_WINDOW_RATIO {producer_ratio}")
     print("POSITIVE_OK WINDOW_MAX_RATIO equals the producer's MAX_WINDOW_RATIO")
+    sealed = (ROOT / "pipelines" / "sealed_operator.py").read_text(encoding="utf-8")
+    literal = re.search(r"^MAX_WINDOW_RATIO\s*=\s*\{([^}]*)\}", sealed, re.M)
+    assert literal, "MAX_WINDOW_RATIO literal not found in sealed_operator.py"
+    sealed_ratio = {code: float(v) for code, v in re.findall(r'"(\w+)":\s*([\d.]+)', literal.group(1))}
+    assert sealed_ratio == WINDOW_MAX_RATIO, (
+        f"WINDOW_MAX_RATIO {WINDOW_MAX_RATIO} drifted from the box producer's MAX_WINDOW_RATIO {sealed_ratio}")
+    print("POSITIVE_OK WINDOW_MAX_RATIO equals the box producer's MAX_WINDOW_RATIO")
     for label, code, value, switched, status in (
         ("window-cross-lane", "30d", 10.0, True, "ready"),
         ("window-implausible-rise", "90d", 916.8, False, "ready"),
@@ -425,6 +475,45 @@ def self_test() -> None:
                 {"products": [{"id": "a"}, {"id": "b"}]},
             ),
         ]
+        windowed_box = {
+            "asOf": box["asOf"],
+            "products": [
+                {
+                    "id": f"box-{index}",
+                    "price": {"usd": 100.0},
+                    "windows": {"30d": {"soldCount": 1, "changePct": -12.5}, "180d": {"soldCount": 0, "changePct": 263.66}},
+                }
+                for index in range(BOX_WINDOW_LABEL_FLOOR + 5)
+            ],
+        }
+        validate_box(windowed_box, windowed_box, assets, now)
+        rounded_edge = json.loads(json.dumps(windowed_box))
+        rounded_edge["products"][0]["windows"]["30d"]["changePct"] = -66.67
+        validate_box(rounded_edge, windowed_box, assets, now)
+        month_start = json.loads(json.dumps(windowed_box))
+        for product in month_start["products"][:12]:
+            del product["windows"]["180d"]["changePct"]
+        validate_box(month_start, windowed_box, assets, now)
+        print("POSITIVE_OK box window changes inside the limits (a rounded -66.67% on 3.0 too),"
+              " and a month-start withhold of some, are accepted")
+        implausible_box = json.loads(json.dumps(windowed_box))
+        implausible_box["products"][0]["windows"]["180d"]["changePct"] = 22072.0
+        box_cases.append(("box-window-implausible", implausible_box, windowed_box))
+        past_rounding = json.loads(json.dumps(windowed_box))
+        past_rounding["products"][0]["windows"]["30d"]["changePct"] = -66.68
+        box_cases.append(("box-window-past-rounding", past_rounding, windowed_box))
+        unknown_window = json.loads(json.dumps(windowed_box))
+        unknown_window["products"][0]["windows"]["2y"] = {"changePct": 5.0}
+        box_cases.append(("box-window-unknown-label", unknown_window, windowed_box))
+        emptied = json.loads(json.dumps(windowed_box))
+        for product in emptied["products"]:
+            del product["windows"]["180d"]["changePct"]
+        box_cases.append(("box-window-label-emptied", emptied, windowed_box))
+        thinned = json.loads(json.dumps(windowed_box))
+        for product in thinned["products"][:20]:
+            del product["windows"]["30d"]["changePct"]
+            del product["windows"]["180d"]["changePct"]
+        box_cases.append(("box-window-total-collapse", thinned, windowed_box))
         missing_600 = json.loads(json.dumps(box))
         (assets / f"{sha}_600.webp").unlink()
         box_cases.append(("box-missing-asset", missing_600, None))
