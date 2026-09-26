@@ -6,21 +6,27 @@
 validate_daily_release）。佢做嘅係「每日自動掃一次、新嘢即刻講」，等人唔使
 靠記性去搵：
 
-  ① 價格離群   PC = 隔離 receipt 入面嘅 price_isolated_spike（已隔離，唔重判）；
-                SNK = 同一個判別器（pc_sale_title_quarantine.price_spike_verdicts）
-                對 SNK 成交跑一次，只報唔隔離；eBay = 已知缺口，每日照講。
+  ① 價格離群   已隔離 = bake 用嗰份隔離 receipt 入面嘅 price_isolated_spike（唔重判）；
+                2026-09-25 起 PC 同 SNK 都會隔離，來源逐條查 landing 行嘅 source_code。
+                SNK 未隔離 = 同一個判別器（pc_sale_title_quarantine.price_spike_verdicts）
+                對 receipt 同 effective view 以外嘅 SNK 成交跑一次，只報唔隔離；
+                eBay = 已知缺口，每日照講。
   ② OP 自動圖待審   出街緊、唔係 human 揀、冇 market_image_review_approval 嘅 OP 圖。
   ③ 被拒圖出街   出街 (variant, sha) 喺 market_image_rejection_registry（critical）；
                 同一個 sha 只係喺第二張卡被拒（warn）。
   ④ Top100   價變動被扣起（changePct unavailable 但有現價）、
-             單筆離群日（當日得一單而嗰單係離群）、30 日冇成交。
-  ⑤ 隔離     receipt 每一條；「新」= 同上一份普查嘅集合差，唔讀 written_at。
+             單筆離群日（當日得一單而嗰單係離群；已隔離 = error，未隔離 = warn）、30 日冇成交。
+  ⑤ 隔離     bake 用嗰份 receipt 每一條；「新」= 同上一份普查嘅集合差，唔讀 written_at。
 
+receipt 綁 bake：snapshot generation.generatedAt 或之前最新嗰份 receipt archive
+（release 喺 bake 前即刻重生 receipt，bake 讀 CURRENT）。唔讀 CURRENT：遲跑或者
+重跑嘅普查會見到 bake 之後先隔離嘅成交，當咗佢哋係出街錯誤。
 冇自己嘅門檻：離群規則、ratio、「human」嘅定義全部 import 返唯一實現。
 「新」同「連續乾」：同**前一個營業日或更早**嗰份 archive 比（唔係 current），
 所以同日重跑得返同一個 baseline、同一段 message、同一個 event key。
-輸入有問題（snapshot generation 對唔上、receipt 冇／過期、卡對唔到 variant、
-DB 等超時）一律 raise ANOMALY_*，唔會扮「今日乾」；其他 DB 錯照原樣 raise。
+輸入有問題（snapshot generation 對唔上／冇 generatedAt、receipt 冇／綁唔到 bake／
+過期、卡對唔到 variant、DB 等超時）一律 raise ANOMALY_*，唔會扮「今日乾」；
+其他 DB 錯照原樣 raise。
 
 用法：
   python -X utf8 pipelines/daily_anomaly_census.py --business-date D --snapshot S \
@@ -59,6 +65,12 @@ JST = timezone(timedelta(hours=9))
 PLACEHOLDER_SHA = "0" * 64
 ITEM_SAMPLE = 50
 LIST_PER_SECTION = 5
+# pc_sale_title_quarantine.main writes CURRENT and `<prefix><stamp>.json` with
+# the same stamp on every non-dry run; bake_receipt_path binds to the archive.
+RECEIPT_ARCHIVE_PREFIX = "pc_sale_title_quarantine_"
+# A quarantined sale whose landing row is gone (058 keeps it) has no lane.
+UNKNOWN_SOURCE = "unknown"
+SOURCE_LABEL = {"pricecharting": "PC", "snkrdunk": "SNK"}
 # 改呢度 = 改 code = 要 review；缺口唔准靜靜消失。
 KNOWN_GAPS = {"price.ebay": "eBay 冇 strict identity，成交停喺 2026-08-04：離群未覆蓋"}
 
@@ -79,6 +91,8 @@ ACCEPTANCE_SQL = """
     INNER JOIN market_image_asset a ON a.id = ca.image_asset_id
     WHERE f.freeze_kind = 'image' AND f.acceptance_status = 'accepted'
 """
+# Receipt entries carry no source; each quarantined spike's lane is its landing row's.
+SOURCE_SQL = "SELECT id, source_code FROM market_sale_observation WHERE id IN ({marks})"
 
 
 # Bounded DB wait, same session knobs the repo already uses: a per-SELECT server
@@ -120,18 +134,27 @@ def _card_label(card: Mapping[str, Any] | None) -> dict[str, Any]:
 
 def detect_price(
     receipt_entries: Iterable[Mapping[str, Any]],
+    source_of: Mapping[int, str],
     snk_verdicts: Mapping[int, Mapping[str, Any]],
     snk_sales: Mapping[int, Sequence[Mapping[str, Any]]],
     card_of_variant: Mapping[int, Mapping[str, Any]],
 ) -> dict[str, Any]:
+    """Quarantined spikes of the bound receipt, then SNK spikes nothing quarantines.
+
+    `snk_sales` already leaves out every quarantined sale (collect), so a sale
+    is listed once: `price:<lane>:` or `price-unquarantined:snkrdunk:`.
+    """
+
     items: list[dict[str, Any]] = []
     for entry in receipt_entries:
         if entry.get("reason") != pcq.REASON_PRICE:
             continue
         variant_id = int(entry["variantId"])
+        sale_id = int(entry["saleObservationId"])
+        source = source_of.get(sale_id, UNKNOWN_SOURCE)
         items.append(_item(
-            f"price:pricecharting:{int(entry['saleObservationId'])}", "quarantined",
-            source="pricecharting", variantId=variant_id, soldAt=entry.get("observedDate"),
+            f"price:{source}:{sale_id}", "quarantined",
+            source=source, variantId=variant_id, soldAt=entry.get("observedDate"),
             priceUsd=_num(entry.get("unitPriceUsd")), direction=entry.get("direction"),
             priorMedianUsd=_num(entry.get("priorMedianUsd")),
             followingMedianUsd=_num(entry.get("followingMedianUsd")),
@@ -143,7 +166,7 @@ def detect_price(
         sale = by_id[int(sale_id)]
         variant_id = int(sale["variantId"])
         items.append(_item(
-            f"price:snkrdunk:{int(sale_id)}", "report",
+            f"price-unquarantined:snkrdunk:{int(sale_id)}", "report",
             source="snkrdunk", variantId=variant_id, soldAt=str(sale["soldAt"])[:10],
             priceUsd=_num(sale["unitPriceUsd"]), direction=verdict.get("direction"),
             priorMedianUsd=_num(verdict.get("priorMedianUsd")),
@@ -220,8 +243,10 @@ def detect_top100(
         variant_id = variant_of[card_id]
         base = {"cardId": card_id, "variantId": variant_id, **_card_label(card)}
         windows = card.get("windows") or {}
-        # withheld == the FE's own "implausible" verdict (live-db-snapshot.ts
-        # MAX_WINDOW_RATIO): a current price with an unavailable change.
+        # withheld == a current price whose change the FE withheld
+        # (live-db-snapshot.ts windowMetrics): the anchor is implausible
+        # (MAX_WINDOW_RATIO, or a price <= 0) or stale (anchorWithheld,
+        # 0349acd5).  Both read "unavailable", so this item cannot tell which.
         if (card.get("pricePsa10") or {}).get("value") is not None:
             for window in WINDOWS:
                 status = ((windows.get(window) or {}).get("changePct") or {}).get("status")
@@ -235,9 +260,10 @@ def detect_top100(
             for sale in flagged_by_day.get((variant_id, day), ()):
                 if not _same_price(point["priceUsd"], sale["priceUsd"]):
                     continue
-                # A PC sale in the receipt must already be subtracted by the FE;
-                # seeing it as the day's only sale means that subtraction failed.
-                severity = "error" if sale["source"] == "pricecharting" else "warn"
+                # The FE subtracts every receipt entry, whatever its lane; a
+                # quarantined sale seen as the day's only sale means that
+                # subtraction failed.  An unquarantined spike is only a warn.
+                severity = "error" if sale["quarantined"] else "warn"
                 items.append(_item(f"top100-flagged-day:{card_id}:{day}", severity, kind="flagged-day",
                                    day=day, source=sale["source"], priceUsd=float(point["priceUsd"]),
                                    saleObservationId=sale["saleObservationId"], **base))
@@ -262,21 +288,24 @@ def detect_quarantine(receipt_entries: Iterable[Mapping[str, Any]]) -> dict[str,
 
 def flagged_sales_by_day(
     receipt_entries: Iterable[Mapping[str, Any]],
+    source_of: Mapping[int, str],
     snk_verdicts: Mapping[int, Mapping[str, Any]],
     snk_sales: Mapping[int, Sequence[Mapping[str, Any]]],
 ) -> dict[tuple[int, str], list[dict[str, Any]]]:
     out: dict[tuple[int, str], list[dict[str, Any]]] = {}
     for entry in receipt_entries:
         if entry.get("reason") == pcq.REASON_PRICE and entry.get("unitPriceUsd") is not None:
+            sale_id = int(entry["saleObservationId"])
             out.setdefault((int(entry["variantId"]), str(entry.get("observedDate"))), []).append({
-                "source": "pricecharting", "saleObservationId": int(entry["saleObservationId"]),
-                "priceUsd": float(entry["unitPriceUsd"]),
+                "source": source_of.get(sale_id, UNKNOWN_SOURCE), "quarantined": True,
+                "saleObservationId": sale_id, "priceUsd": float(entry["unitPriceUsd"]),
             })
     for sales in snk_sales.values():
         for sale in sales:
             if int(sale["saleObservationId"]) in snk_verdicts:
                 out.setdefault((int(sale["variantId"]), str(sale["soldAt"])[:10]), []).append({
-                    "source": "snkrdunk", "saleObservationId": int(sale["saleObservationId"]),
+                    "source": "snkrdunk", "quarantined": False,
+                    "saleObservationId": int(sale["saleObservationId"]),
                     "priceUsd": float(sale["unitPriceUsd"]),
                 })
     return out
@@ -350,9 +379,10 @@ def _who(item: Mapping[str, Any]) -> str:
 
 
 def _price_line(item: Mapping[str, Any]) -> str:
+    status = "已隔離" if item.get("severity") == "quarantined" else "未隔離"
     return (f"• {_who(item)} {_money(item.get('priceUsd'))} vs 前 {_money(item.get('priorMedianUsd'))}"
             f" / 後 {_money(item.get('followingMedianUsd'))}"
-            f"（{html.escape(str(item.get('source')))} {html.escape(str(item.get('soldAt')))}）")
+            f"（{html.escape(str(item.get('source')))} {html.escape(str(item.get('soldAt')))} {status}）")
 
 
 def _top_line(item: Mapping[str, Any]) -> str:
@@ -380,10 +410,12 @@ def render(doc: Mapping[str, Any]) -> str:
          else f"新 {doc['newCount']}｜未清 {doc['openCount']}｜連續乾 {doc['consecutiveDryDays']} 日"),
     ]
     price_open = d["price"]["open"]
+    isolated = Counter(fp.split(":")[1] for fp in price_open if fp.startswith("price:"))
     body = [
         "① 價格離群："
-        f"PC 已隔離 {sum(fp.startswith('price:pricecharting:') for fp in price_open)}｜"
-        f"SNK 只報 {sum(fp.startswith('price:snkrdunk:') for fp in price_open)}｜"
+        + "".join(f"{html.escape(SOURCE_LABEL.get(source, source))} 已隔離 {isolated[source]}｜"
+                  for source in sorted({*SOURCE_LABEL, *isolated}))
+        + f"SNK 未隔離 {sum(fp.startswith('price-unquarantined:snkrdunk:') for fp in price_open)}｜"
         + "｜".join(html.escape(text) for text in doc["knownGaps"].values()),
         *(_price_line(item) for item in new_items("price")[:LIST_PER_SECTION]),
         f"② OP 自動圖待審：新 {d['imageReview']['newCount']}｜積壓 {d['imageReview']['openCount']}",
@@ -476,7 +508,41 @@ def receipt_business_day(stamp: str) -> str | None:
     return at.astimezone(JST).date().isoformat()
 
 
-def load_quarantine_receipt(business_date: str, path: Path = pcq.CURRENT_RECEIPT) -> dict:
+def bake_receipt_path(snapshot: Mapping[str, Any], audit_dir: Path) -> Path:
+    """The quarantine receipt the bake of `snapshot` subtracted.
+
+    The release regenerates the receipt (CURRENT plus an archive with the same
+    stamp) right before its DB gate and bake, and the bake reads CURRENT
+    before it stamps generation.generatedAt, so the bake's receipt is the
+    newest archive stamped at or before generatedAt.  CURRENT is never read:
+    a later run rewrites it with quarantines the published board could not
+    have subtracted.  No generatedAt or no such archive raises; never a guess.
+    """
+
+    raw = str((snapshot.get("generation") or {}).get("generatedAt") or "")
+    try:
+        baked = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        baked = None
+    if baked is None or baked.tzinfo is None:
+        raise AnomalyInputError(f"ANOMALY_SNAPSHOT_UNDATED: generation.generatedAt={raw!r}")
+    best: tuple[datetime, Path] | None = None
+    for path in audit_dir.glob(f"{RECEIPT_ARCHIVE_PREFIX}????????T??????Z.json"):
+        try:
+            at = datetime.strptime(path.stem[len(RECEIPT_ARCHIVE_PREFIX):], "%Y%m%dT%H%M%SZ")
+        except ValueError:
+            continue
+        at = at.replace(tzinfo=timezone.utc)
+        if at <= baked and (best is None or at > best[0]):
+            best = (at, path)
+    if best is None:
+        raise AnomalyInputError(
+            f"ANOMALY_RECEIPT_UNBOUND: no {RECEIPT_ARCHIVE_PREFIX}<stamp>.json in {audit_dir} at or before {raw}"
+        )
+    return best[1]
+
+
+def load_quarantine_receipt(business_date: str, path: Path) -> dict:
     if not path.is_file():
         raise AnomalyInputError(f"ANOMALY_RECEIPT_MISSING: {path}")
     doc = json.loads(path.read_text(encoding="utf-8"))
@@ -485,6 +551,16 @@ def load_quarantine_receipt(business_date: str, path: Path = pcq.CURRENT_RECEIPT
     if not isinstance(doc.get("entries"), list) or day is None or day < business_date:
         raise AnomalyInputError(f"ANOMALY_RECEIPT_STALE: {path} generatedAt={stamp!r} < {business_date} (JST)")
     return doc
+
+
+def load_sale_sources(cursor: Any, sale_ids: Iterable[int]) -> dict[int, str]:
+    ids = sorted({int(sale_id) for sale_id in sale_ids})
+    out: dict[int, str] = {}
+    for start in range(0, len(ids), 400):
+        chunk = ids[start:start + 400]
+        cursor.execute(SOURCE_SQL.format(marks=",".join(["%s"] * len(chunk))), tuple(chunk))
+        out.update((int(row["id"]), str(row["source_code"])) for row in cursor.fetchall())
+    return out
 
 
 def collect(cursor: Any, snapshot: Mapping[str, Any], receipt: Mapping[str, Any]) -> dict[str, dict]:
@@ -513,18 +589,27 @@ def collect(cursor: Any, snapshot: Mapping[str, Any], receipt: Mapping[str, Any]
     cursor.execute(ACCEPTANCE_SQL)
     acceptances = [dict(row) for row in cursor.fetchall()]
 
+    entries = list(receipt["entries"])
+    # Quarantined = the bound receipt plus what the effective view (063)
+    # quarantines now, through the producer's own loader: a released sale is a
+    # real sale again.  Like the producer, a quarantined sale is no neighbour,
+    # and it is never listed a second time as unquarantined.
+    active_rows, _released = pcq.split_released(pcq.load_stored_rows(cursor))
+    quarantined = {int(entry["saleObservationId"]) for entry in entries} | {int(row["id"]) for row in active_rows}
     snk_sales = load_candidate_sales(
-        cursor, source="snkrdunk", variant_ids=current_universe_variant_ids(cursor), quarantined_sale_ids=set(),
+        cursor, source="snkrdunk", variant_ids=current_universe_variant_ids(cursor),
+        quarantined_sale_ids=quarantined,
     )
     snk_verdicts = pcq.price_spike_verdicts(snk_sales)
-    entries = list(receipt["entries"])
+    source_of = load_sale_sources(
+        cursor, [int(entry["saleObservationId"]) for entry in entries if entry.get("reason") == pcq.REASON_PRICE])
     return {
-        "price": detect_price(entries, snk_verdicts, snk_sales, card_of_variant),
+        "price": detect_price(entries, source_of, snk_verdicts, snk_sales, card_of_variant),
         "imageReview": detect_image_review(
             acceptances, {(v, s) for _c, v, s in published}, approvals, tcg_of, card_of_variant),
         "imageRegistry": detect_image_registry(published, registry),
         "top100": detect_top100(snapshot.get("top100") or [], variant_of,
-                                flagged_sales_by_day(entries, snk_verdicts, snk_sales)),
+                                flagged_sales_by_day(entries, source_of, snk_verdicts, snk_sales)),
         "quarantine": detect_quarantine(entries),
     }
 
@@ -539,7 +624,8 @@ def run(
     from rebuild_036 import DAILY_CREDENTIALS_ENV, connect
 
     snapshot, snapshot_digest = load_snapshot(Path(snapshot_path), expected_generation)
-    receipt = load_quarantine_receipt(business_date)
+    receipt_path = bake_receipt_path(snapshot, pcq.AUDIT_DIR)
+    receipt = load_quarantine_receipt(business_date, receipt_path)
     conn = connect(DAILY_CREDENTIALS_ENV)
     try:
         cursor = conn.cursor()
@@ -562,7 +648,8 @@ def run(
         snapshot_sha256=snapshot_digest,
         inputs={
             "snapshot": str(snapshot_path),
-            "quarantineReceipt": {"path": str(pcq.CURRENT_RECEIPT), "generatedAt": receipt.get("generatedAt")},
+            "quarantineReceipt": {"path": str(receipt_path), "generatedAt": receipt.get("generatedAt"),
+                                  "boundToGeneratedAt": snapshot["generation"].get("generatedAt")},
             "previousReceipt": None if previous is None else {
                 "path": str(previous[0]), "businessDate": previous[1].get("businessDate")},
         },

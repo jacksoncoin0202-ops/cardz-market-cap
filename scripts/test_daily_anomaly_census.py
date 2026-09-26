@@ -14,6 +14,8 @@ import json
 import sys
 import tempfile
 import types
+from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable
 
@@ -79,23 +81,40 @@ SNK_SALES = {3: [
     {"saleObservationId": 22, "variantId": 3, "soldAt": "2026-09-19 11:00:00", "unitPriceUsd": 50.0},
 ]}
 SNK_VERDICTS = {21: {"direction": "below_band", "priorMedianUsd": 50.0, "followingMedianUsd": 55.0}}
+# Since 2026-09-25 the producer quarantines SNKRDUNK spikes too (sale 13).
+SNK_PRICE = {**PC_PRICE, "variantId": 3, "saleObservationId": 13, "observedDate": "2026-09-18", "unitPriceUsd": 400.0}
+SOURCES = {11: "pricecharting", 13: "snkrdunk"}
 
 
 def check_price(mod: Any) -> None:
-    result = mod.detect_price([PC_PRICE, PC_TITLE], SNK_VERDICTS, SNK_SALES, {1: card("c1", 7)})
-    assert fps(result) == ["price:pricecharting:11", "price:snkrdunk:21"], fps(result)
+    result = mod.detect_price([PC_PRICE, PC_TITLE, SNK_PRICE], SOURCES, SNK_VERDICTS, SNK_SALES, {1: card("c1", 7)})
+    assert fps(result) == [
+        "price-unquarantined:snkrdunk:21", "price:pricecharting:11", "price:snkrdunk:13",
+    ], fps(result)
     by_fp = {item["fp"]: item for item in result["items"]}
     assert by_fp["price:pricecharting:11"]["severity"] == "quarantined"
     assert by_fp["price:pricecharting:11"]["rank"] == 7
-    # SNK is judged by the same discriminator but only reported, never isolated.
-    assert by_fp["price:snkrdunk:21"]["severity"] == "report"
-    assert by_fp["price:snkrdunk:21"]["soldAt"] == "2026-09-19"
+    # A receipt spike keeps its own lane.
+    assert by_fp["price:snkrdunk:13"]["severity"] == "quarantined"
+    assert by_fp["price:snkrdunk:13"]["source"] == "snkrdunk"
+    # A spike nothing quarantines is only reported, never isolated.
+    assert by_fp["price-unquarantined:snkrdunk:21"]["severity"] == "report"
+    assert by_fp["price-unquarantined:snkrdunk:21"]["soldAt"] == "2026-09-19"
+    # A quarantined sale without a landing row has no lane: said, not guessed.
+    lone = mod.detect_price([{**PC_PRICE, "saleObservationId": 14}], SOURCES, {}, {}, {})
+    assert fps(lone) == ["price:unknown:14"], fps(lone)
 
 
-rule("price: PC = receipt price entries only, SNK = verdicts, report-only", check_price, [
+rule("price: receipt spikes under their own lane, unquarantined SNK spikes report-only", check_price, [
     ('if entry.get("reason") != pcq.REASON_PRICE:\n            continue\n        variant_id',
      'if entry.get("reason") is None:\n            continue\n        variant_id'),
-    ('f"price:snkrdunk:{int(sale_id)}", "report",', 'f"price:snkrdunk:{int(sale_id)}", "quarantined",'),
+    ('f"price-unquarantined:snkrdunk:{int(sale_id)}", "report",',
+     'f"price-unquarantined:snkrdunk:{int(sale_id)}", "quarantined",'),
+    # The pre-fix fp: render cannot tell "SNK quarantined" from "SNK unquarantined".
+    ('f"price-unquarantined:snkrdunk:{int(sale_id)}"', 'f"price:snkrdunk:{int(sale_id)}"'),
+    # The pre-fix hard-coded lane, and a lane guessed for a sale without one.
+    ("source = source_of.get(sale_id, UNKNOWN_SOURCE)", 'source = "pricecharting"'),
+    ("source = source_of.get(sale_id, UNKNOWN_SOURCE)", 'source = source_of.get(sale_id, "pricecharting")'),
 ])
 
 
@@ -188,10 +207,10 @@ def check_top100(mod: Any) -> None:
         {"at": "2026-09-23T00:00:00Z", "priceUsd": 100.0, "trackedSalesCount": 1},
     ])
     flagged = {
-        (3, "2026-09-20"): [{"source": "pricecharting", "saleObservationId": 31, "priceUsd": 900.0}],
-        (3, "2026-09-21"): [{"source": "snkrdunk", "saleObservationId": 32, "priceUsd": 500.0}],
-        (4, "2026-09-22"): [{"source": "snkrdunk", "saleObservationId": 41, "priceUsd": 300.5}],
-        (4, "2026-09-23"): [{"source": "snkrdunk", "saleObservationId": 42, "priceUsd": 400.0}],
+        (3, "2026-09-20"): [{"source": "snkrdunk", "quarantined": True, "saleObservationId": 31, "priceUsd": 900.0}],
+        (3, "2026-09-21"): [{"source": "snkrdunk", "quarantined": False, "saleObservationId": 32, "priceUsd": 500.0}],
+        (4, "2026-09-22"): [{"source": "snkrdunk", "quarantined": False, "saleObservationId": 41, "priceUsd": 300.5}],
+        (4, "2026-09-23"): [{"source": "snkrdunk", "quarantined": False, "saleObservationId": 42, "priceUsd": 400.0}],
     }
     result = mod.detect_top100([c1, c2, c3, c4], {"c1": 1, "c2": 2, "c3": 3, "c4": 4}, flagged)
     assert fps(result) == sorted([
@@ -202,7 +221,7 @@ def check_top100(mod: Any) -> None:
         "top100-no30d:c4",
     ]), fps(result)
     by_fp = {item["fp"]: item for item in result["items"]}
-    # A PC sale in the receipt showing as the day's only sale = FE subtraction failed.
+    # A receipt sale of any lane showing as the day's only sale = FE subtraction failed.
     assert by_fp["top100-flagged-day:c3:2026-09-20"]["severity"] == "error"
     assert by_fp["top100-flagged-day:c4:2026-09-22"]["severity"] == "warn"
     assert by_fp["top100-no30d:c2"]["staleReady"] is True
@@ -210,7 +229,10 @@ def check_top100(mod: Any) -> None:
 
 
 rule("top100: withheld / single-sale flagged day / no 30d sales", check_top100, [
-    ('severity = "error" if sale["source"] == "pricecharting" else "warn"', 'severity = "warn"'),
+    ('severity = "error" if sale["quarantined"] else "warn"', 'severity = "warn"'),
+    # The pre-fix rule: a quarantined SNK sale on show is an error too.
+    ('severity = "error" if sale["quarantined"] else "warn"',
+     'severity = "error" if sale["source"] == "pricecharting" else "warn"'),
     ('if (card.get("pricePsa10") or {}).get("value") is not None:', "if True:"),
     ('if point.get("trackedSalesCount") != 1 or point.get("priceUsd") is None:',
      'if point.get("priceUsd") is None:'),
@@ -238,16 +260,23 @@ rule("quarantine: one item per receipt entry, reason in the key", check_quaranti
 
 
 def check_flagged_map(mod: Any) -> None:
-    got = mod.flagged_sales_by_day([PC_PRICE, PC_TITLE], SNK_VERDICTS, SNK_SALES)
-    assert sorted(got) == [(1, "2026-09-20"), (3, "2026-09-19")], sorted(got)
-    assert got[(1, "2026-09-20")] == [{"source": "pricecharting", "saleObservationId": 11, "priceUsd": 900.0}]
-    assert [sale["saleObservationId"] for sale in got[(3, "2026-09-19")]] == [21]
+    got = mod.flagged_sales_by_day([PC_PRICE, PC_TITLE, SNK_PRICE], SOURCES, SNK_VERDICTS, SNK_SALES)
+    assert sorted(got) == [(1, "2026-09-20"), (3, "2026-09-18"), (3, "2026-09-19")], sorted(got)
+    assert got[(1, "2026-09-20")] == [
+        {"source": "pricecharting", "quarantined": True, "saleObservationId": 11, "priceUsd": 900.0}]
+    assert got[(3, "2026-09-18")] == [
+        {"source": "snkrdunk", "quarantined": True, "saleObservationId": 13, "priceUsd": 400.0}]
+    assert got[(3, "2026-09-19")] == [
+        {"source": "snkrdunk", "quarantined": False, "saleObservationId": 21, "priceUsd": 5.0}]
 
 
-rule("flagged-by-day: PC price entries + SNK verdicts only", check_flagged_map, [
+rule("flagged-by-day: receipt price entries (own lane) + unquarantined SNK verdicts", check_flagged_map, [
     ('if entry.get("reason") == pcq.REASON_PRICE and entry.get("unitPriceUsd") is not None:',
      'if entry.get("unitPriceUsd") is not None:'),
     ('if int(sale["saleObservationId"]) in snk_verdicts:', "if True:"),
+    ('"source": source_of.get(sale_id, UNKNOWN_SOURCE), "quarantined": True,',
+     '"source": "pricecharting", "quarantined": True,'),
+    ('"source": "snkrdunk", "quarantined": False,', '"source": "snkrdunk", "quarantined": True,'),
 ])
 
 
@@ -390,7 +419,9 @@ def check_render_budget(mod: Any) -> None:
     assert "<Monkey" not in doc["message"] and "&lt;Monkey" in doc["message"]
     saved = mod.MESSAGE_BUDGET
     try:
-        for budget in (300, 450, 700, 1100):
+        # Every budget: a hand-picked few stop catching the overflow as soon
+        # as a header line changes length.
+        for budget in range(300, 1101):
             mod.MESSAGE_BUDGET = budget
             text = mod.render(doc)
             assert len(text) <= budget, (budget, len(text))
@@ -471,6 +502,49 @@ rule("quarantine receipt: missing/stale refused, freshness judged on the JST day
 ])
 
 
+BAKED_AT = "2026-09-25T12:59:29.453Z"  # generation.generatedAt of live db3308_6f0d6e09d56c49d1
+BOUND_STAMP, LATER_STAMP = "20260925T125916Z", "20260925T210114Z"
+
+
+def check_bake_binding(mod: Any) -> None:
+    # The producer's archive name is the contract this binding reads.
+    producer = Path(C.pcq.__file__).read_text(encoding="utf-8")
+    assert f'AUDIT_DIR / f"{mod.RECEIPT_ARCHIVE_PREFIX}{{stamp}}.json"' in producer, mod.RECEIPT_ARCHIVE_PREFIX
+    with tempfile.TemporaryDirectory(prefix="anomaly-bind-") as folder:
+        audit = Path(folder)
+        for stamp in ("20260925T043115Z", BOUND_STAMP, LATER_STAMP, "current", "20260925T999999Z"):
+            write_json(audit / f"pc_sale_title_quarantine_{stamp}.json", {"generatedAt": stamp, "entries": []})
+
+        def expect(generated_at: Any, want: str) -> None:
+            try:
+                path = mod.bake_receipt_path({"generation": {"id": "db3308_a", "generatedAt": generated_at}}, audit)
+            except Exception as error:  # a twin raises its own class object
+                assert type(error).__name__ == "AnomalyInputError", repr(error)
+                assert str(error).startswith(want), (generated_at, str(error))
+                return
+            assert path.name == f"pc_sale_title_quarantine_{want}.json", (generated_at, path.name)
+
+        expect(BAKED_AT, BOUND_STAMP)                            # the 2026-09-25 bake: not the 1412-entry rerun
+        expect("2026-09-25T12:59:16Z", BOUND_STAMP)              # at or before
+        expect("2026-09-25T12:59:15.999Z", "20260925T043115Z")
+        expect("2026-09-26T00:00:00+09:00", BOUND_STAMP)         # an offset is an instant, not digits
+        expect("2026-09-25T04:31:14Z", "ANOMALY_RECEIPT_UNBOUND")
+        for undated in (None, "", "garbage", "2026-09-25T12:59:29"):  # naive = no instant
+            expect(undated, "ANOMALY_SNAPSHOT_UNDATED")
+
+
+rule("quarantine receipt = the archive the bake read (newest at or before generatedAt)", check_bake_binding, [
+    ("if at <= baked and", "if at < baked and"),
+    ("if at <= baked and (best is None or at > best[0]):", "if best is None or at > best[0]:"),
+    ('raise AnomalyInputError(f"ANOMALY_SNAPSHOT_UNDATED: generation.generatedAt={raw!r}")',
+     "baked = datetime.now(timezone.utc)"),
+    ('    if best is None:\n        raise AnomalyInputError(\n            f"ANOMALY_RECEIPT_UNBOUND',
+     '    if best is None:\n        return audit_dir / "pc_sale_title_quarantine_current.json"\n'
+     '        raise AnomalyInputError(\n            f"ANOMALY_RECEIPT_UNBOUND'),
+    ('RECEIPT_ARCHIVE_PREFIX = "pc_sale_title_quarantine_"', 'RECEIPT_ARCHIVE_PREFIX = "pc_sale_quarantine_"'),
+])
+
+
 class FakeCursor:
     def __init__(self, map_rows: list[dict]) -> None:
         self.map_rows = map_rows
@@ -503,7 +577,7 @@ rule("collect refuses a published card it cannot map to a variant", check_unmapp
 
 
 def check_select_only(mod: Any) -> None:
-    for sql in (mod.MAP_SQL, mod.REGISTRY_SQL, mod.APPROVAL_SQL, mod.ACCEPTANCE_SQL):
+    for sql in (mod.MAP_SQL, mod.REGISTRY_SQL, mod.APPROVAL_SQL, mod.ACCEPTANCE_SQL, mod.SOURCE_SQL):
         head = sql.strip().split(None, 1)[0].upper()
         assert head == "SELECT", sql
     assert "v.tcg_code" in mod.MAP_SQL, "tcg from catalog_variant, not an optional join"
@@ -544,15 +618,16 @@ class StuckConnection:
 def run_on(mod: Any, conn: StuckConnection, folder: Path) -> Any:
     import rebuild_036
 
-    saved = rebuild_036.connect, mod.load_snapshot, mod.load_quarantine_receipt
+    saved = rebuild_036.connect, mod.load_snapshot, mod.bake_receipt_path, mod.load_quarantine_receipt
     rebuild_036.connect = lambda _env: conn
     mod.load_snapshot = lambda _path, _gen: ({"generation": {"id": "db3308_a"}, "top100": []}, sha("0"))
-    mod.load_quarantine_receipt = lambda _day: {"generatedAt": "20260925T030000Z", "entries": []}
+    mod.bake_receipt_path = lambda _snapshot, _audit: folder / "receipt.json"
+    mod.load_quarantine_receipt = lambda _day, _path: {"generatedAt": "20260925T030000Z", "entries": []}
     try:
         return mod.run(business_date=D, snapshot_path=folder / "seed-snapshot.json",
                        expected_generation="db3308_a", out=folder / "out.json")
     finally:
-        rebuild_036.connect, mod.load_snapshot, mod.load_quarantine_receipt = saved
+        rebuild_036.connect, mod.load_snapshot, mod.bake_receipt_path, mod.load_quarantine_receipt = saved
 
 
 def check_db_timeout(mod: Any) -> None:
@@ -587,6 +662,162 @@ rule("census DB wait is bounded; a stuck query ends as ANOMALY_DB_TIMEOUT", chec
     ("DB_TIMEOUT_ERRNOS = (1205, 3024)", "DB_TIMEOUT_ERRNOS = (3024,)"),
     ("if error.args and error.args[0] in DB_TIMEOUT_ERRNOS:", "if False:"),
     ("if error.args and error.args[0] in DB_TIMEOUT_ERRNOS:", "if error.args:"),
+])
+
+
+# ---------------------------------------------- whole census vs the bake
+
+
+class FakeDb:
+    """Read-only fake census DB: answers each SELECT the census issues by its shape."""
+
+    def __init__(self, tables: dict[str, Any]) -> None:
+        self.tables = tables
+        self.rows: list[dict] = []
+
+    def cursor(self) -> "FakeDb":
+        return self
+
+    def execute(self, sql: str, params: Any = None) -> None:
+        text = " ".join(sql.split())
+        assert text.startswith(("SELECT", "SET SESSION", "START TRANSACTION READ ONLY")), text
+        t, wanted = self.tables, set(params or ())
+        if not text.startswith("SELECT"):
+            self.rows = []
+        elif sql == C.MAP_SQL:
+            self.rows = t["map"]
+        elif sql in (C.REGISTRY_SQL, C.APPROVAL_SQL, C.ACCEPTANCE_SQL):
+            self.rows = []
+        elif sql == C.pcq.STORED_RELEASE_SQL:
+            self.rows = t["stored"]
+        elif "FROM market_universe_member" in text:
+            self.rows = [{"variant_id": v} for v in t["universe"]]
+        elif "FROM operator_strict_source_identity" in text:
+            self.rows = [r for r in t["identity"] if r["source_code"] == params[0] and r["variant_id"] in wanted]
+        elif "FROM market_sale_observation s WHERE s.source_code=%s" in text:
+            self.rows = [r for r in t["sales"] if r["source_code"] == params[0] and r["variant_id"] in wanted]
+        elif text.startswith("SELECT id, source_code FROM market_sale_observation WHERE id IN"):
+            self.rows = [{"id": i, "source_code": t["sources"][i]} for i in sorted(wanted) if i in t["sources"]]
+        else:
+            raise AssertionError(f"unexpected census SQL: {text[:80]}")
+
+    def fetchall(self) -> list[dict]:
+        return [dict(row) for row in self.rows]
+
+    def rollback(self) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
+def spike(sale_id: int, variant_id: int, day: str, price: float) -> dict[str, Any]:
+    return {"reason": C.pcq.REASON_PRICE, "variantId": variant_id, "saleObservationId": sale_id,
+            "observedDate": day, "unitPriceUsd": price, "direction": "above_band",
+            "priorMedianUsd": 100.0, "followingMedianUsd": 100.0}
+
+
+def snk_row(sale_id: int, day: int, price: str) -> dict[str, Any]:
+    return {"id": sale_id, "variant_id": 3, "source_code": "snkrdunk", "external_entity_id": "snkrdunk:807560",
+            "sold_at": datetime(2026, 9, day, 12, 0), "unit_price_usd": Decimal(price), "quantity": 1,
+            "transaction_fingerprint": f"fp-{sale_id}", "listing_item_id": None, "listing_url": None,
+            "listing_title": None}
+
+
+def check_bound_census(mod: Any) -> None:
+    """run() end to end: the published board is judged against the receipt its bake read.
+
+    v3 (SNK) trades at $100 with $1000 spikes on 09-04 (301: bound receipt),
+    09-08 (302: quarantined after the bake, in the later receipt and the
+    effective view), 09-12 (303: released) and 09-16 (304: never quarantined).
+    """
+
+    import rebuild_036
+
+    bound = [spike(11, 1, "2026-09-20", 900.0), PC_TITLE, spike(301, 3, "2026-09-04", 1000.0)]
+    later = [*bound, spike(302, 3, "2026-09-08", 1000.0)]
+    line = [snk_row(3001 + i, day, "100.00") for i, day in enumerate((1, 2, 3, 5, 6, 7, 9, 10, 11, 13, 14, 15, 17, 18, 19))]
+    db = FakeDb({
+        "map": [{"variant_id": v, "public_id": f"c{v}", "tcg_code": tcg}
+                for v, tcg in ((1, "pokemon"), (2, "pokemon"), (3, "one-piece"))],
+        "universe": [1, 3],
+        "identity": [{"source_code": "snkrdunk", "variant_id": 3, "external_entity_id": "807560"}],
+        "sales": line + [snk_row(sale_id, day, "1000.00") for sale_id, day in ((301, 4), (302, 8), (303, 12), (304, 16))],
+        "stored": [
+            {"id": 12, "variant_id": 2, "reason": C.pcq.REASON_TITLE, "released": 0, "release_evidence_sha256": None},
+            {"id": 302, "variant_id": 3, "reason": C.pcq.REASON_PRICE, "released": 0, "release_evidence_sha256": None},
+            {"id": 303, "variant_id": 3, "reason": C.pcq.REASON_TITLE, "released": 1, "release_evidence_sha256": sha("e")},
+        ],
+        "sources": {11: "pricecharting", 12: "pricecharting", 301: "snkrdunk", 302: "snkrdunk"},
+    })
+    month = {"30d": {"changePct": {"status": "ready"}, "trackedSales": {"count": {"value": 3}}}}
+    snapshot = {"generation": {"id": "db3308_bound", "generatedAt": BAKED_AT}, "watchlist": [], "top100": [
+        card("c1", 1, windows=month, historyDaily=[
+            {"at": "2026-09-20T00:00:00Z", "priceUsd": 900.0, "trackedSalesCount": 1}]),
+        card("c3", 2, windows=month, historyDaily=[
+            {"at": f"2026-09-{day:02d}T00:00:00Z", "priceUsd": 1000.0, "trackedSalesCount": 1} for day in (4, 8, 12, 16)]),
+    ]}
+    saved = rebuild_036.connect, mod.previous_receipt, C.pcq.AUDIT_DIR, C.pcq.CURRENT_RECEIPT
+    with tempfile.TemporaryDirectory(prefix="anomaly-bound-") as folder:
+        audit = Path(folder) / "audit"
+        for name, stamp, entries in (
+            ("20260925T043115Z", "20260925T043115Z", bound[:1]),
+            (BOUND_STAMP, BOUND_STAMP, bound),
+            (LATER_STAMP, LATER_STAMP, later),   # the rerun after the bake ...
+            ("current", LATER_STAMP, later),     # ... which also rewrote CURRENT
+        ):
+            write_json(audit / f"pc_sale_title_quarantine_{name}.json", {"generatedAt": stamp, "entries": entries})
+        snapshot_path = Path(folder) / "seed-snapshot.json"
+        write_json(snapshot_path, snapshot)
+        rebuild_036.connect = lambda _env: db
+        mod.previous_receipt = lambda _day: None
+        C.pcq.AUDIT_DIR, C.pcq.CURRENT_RECEIPT = audit, audit / "pc_sale_title_quarantine_current.json"
+        try:
+            doc = mod.run(business_date=D, snapshot_path=snapshot_path, expected_generation="db3308_bound",
+                          out=Path(folder) / "census.json")
+        finally:
+            rebuild_036.connect, mod.previous_receipt, C.pcq.AUDIT_DIR, C.pcq.CURRENT_RECEIPT = saved
+    det = doc["detectors"]
+    # Each quarantined spike under its own lane; 302 (quarantined after the
+    # bake) is neither a published error nor an unquarantined spike; 303
+    # (released) is a real sale again.  No sale is listed twice.
+    assert det["price"]["open"] == [
+        "price-unquarantined:snkrdunk:303", "price-unquarantined:snkrdunk:304",
+        "price:pricecharting:11", "price:snkrdunk:301",
+    ], det["price"]["open"]
+    assert det["quarantine"]["open"] == [
+        f"quarantine:11:{C.pcq.REASON_PRICE}", f"quarantine:12:{C.pcq.REASON_TITLE}",
+        f"quarantine:301:{C.pcq.REASON_PRICE}",
+    ], det["quarantine"]["open"]
+    flagged = {item["fp"]: (item["severity"], item["source"]) for item in det["top100"]["items"]}
+    assert flagged == {
+        "top100-flagged-day:c1:2026-09-20": ("error", "pricecharting"),
+        "top100-flagged-day:c3:2026-09-04": ("error", "snkrdunk"),
+        "top100-flagged-day:c3:2026-09-12": ("warn", "snkrdunk"),
+        "top100-flagged-day:c3:2026-09-16": ("warn", "snkrdunk"),
+    }, flagged
+    assert "PC 已隔離 1｜SNK 已隔離 1｜SNK 未隔離 2｜" in doc["message"], doc["message"]
+    receipt = doc["inputs"]["quarantineReceipt"]
+    assert Path(receipt["path"]).name == f"pc_sale_title_quarantine_{BOUND_STAMP}.json", receipt
+    assert receipt["generatedAt"] == BOUND_STAMP and receipt["boundToGeneratedAt"] == BAKED_AT, receipt
+
+
+rule("census judges the board against its bake's receipt; lanes and SNK verdicts exact", check_bound_census, [
+    # bug 1: every receipt spike hard-coded to PriceCharting
+    ("source = source_of.get(sale_id, UNKNOWN_SOURCE)", 'source = "pricecharting"'),
+    ('"source": source_of.get(sale_id, UNKNOWN_SOURCE), "quarantined": True,',
+     '"source": "pricecharting", "quarantined": True,'),
+    ('severity = "error" if sale["quarantined"] else "warn"',
+     'severity = "error" if sale["source"] == "pricecharting" else "warn"'),
+    # bug 1: SNK verdicts over sales that are already quarantined
+    ("quarantined_sale_ids=quarantined,", "quarantined_sale_ids=set(),"),
+    ("active_rows, _released = pcq.split_released(pcq.load_stored_rows(cursor))",
+     "active_rows, _released = pcq.load_stored_rows(cursor), {}"),
+    ('quarantined = {int(entry["saleObservationId"]) for entry in entries} | {int(row["id"]) for row in active_rows}',
+     'quarantined = {int(row["id"]) for row in active_rows}'),
+    # bug 2: the receipt of a later run instead of the bake's
+    ("if at <= baked and (best is None or at > best[0]):", "if best is None or at > best[0]:"),
+    ("receipt_path = bake_receipt_path(snapshot, pcq.AUDIT_DIR)", "receipt_path = pcq.CURRENT_RECEIPT"),
 ])
 
 
