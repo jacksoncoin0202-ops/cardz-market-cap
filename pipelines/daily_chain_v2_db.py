@@ -105,6 +105,13 @@ def current_run_contract(
                 f"pop fallback {code}={days} is outside 0..{POP_BLOCKED_FALLBACK_DAYS} days"
             )
     start, end = business_window_utc(business_date)
+    # The fallback counts JST days back from the business day itself.  A manual
+    # run opened the day before pulls `start` early; counting from that
+    # stretched the approved D-3 00:00 bound by up to a day (QC 2026-09-26).
+    day_start = (
+        datetime.combine(date.fromisoformat(business_date), time.min, tzinfo=JST)
+        .astimezone(timezone.utc).replace(tzinfo=None)
+    )
     load_env()
     connection = db()
     try:
@@ -185,7 +192,7 @@ def current_run_contract(
         pop_sections: dict[str, Any] = {}
         for pop_source in pop_sources:
             fallback_days = fallback.get(pop_source["sourceCode"], 0)
-            pop_start = start - timedelta(days=fallback_days)
+            pop_start = min(start, day_start - timedelta(days=fallback_days))
             pop_rows = _rows(
                 cursor,
                 pop_query,

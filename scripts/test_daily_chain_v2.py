@@ -1283,6 +1283,8 @@ print("POSITIVE_OK current_run_contract measures one section per registry source
 # A shard that met the block settles DEGRADED with GEMRATE_BLOCKED, and only
 # that opens the gemrate POP window POP_BLOCKED_FALLBACK_DAYS JST days early.
 # Variant 1's last pop is two days old; variant 2 popped today.
+import os  # noqa: E402
+
 from daily_chain_v2 import blocked_pop_fallback  # noqa: E402
 from daily_chain_v2_contract import (  # noqa: E402
     GEMRATE_BLOCKED_ERROR_CODE,
@@ -1340,6 +1342,23 @@ try:
     }, o2b_wide["gemrate"]
     assert o2b_cursor.windows == [o2b_start - timedelta(days=POP_BLOCKED_FALLBACK_DAYS), o2b_start]
     assert o2_barrier_failures(o2b_wide) == []
+    # A manual run opened the day before (08-19 09:38 JST) pulls today's
+    # window early, but the fallback still ends at JST D-3 00:00, not at the
+    # run's start minus 3 days (QC 2026-09-26).
+    o2b_env_before = os.environ.get(v2db.RUN_STARTED_AT_ENV)
+    os.environ[v2db.RUN_STARTED_AT_ENV] = "2026-08-19T00:38:00Z"
+    try:
+        o2b_manual, o2b_cursor = o2b_contract({"gemrate": POP_BLOCKED_FALLBACK_DAYS})
+    finally:
+        if o2b_env_before is None:
+            os.environ.pop(v2db.RUN_STARTED_AT_ENV, None)
+        else:
+            os.environ[v2db.RUN_STARTED_AT_ENV] = o2b_env_before
+    assert o2b_cursor.windows == [
+        o2b_start - timedelta(days=POP_BLOCKED_FALLBACK_DAYS), datetime(2026, 8, 19, 0, 38),
+    ], o2b_cursor.windows
+    assert o2b_manual["gemrate"]["windowStart"] == (
+        o2b_start - timedelta(days=POP_BLOCKED_FALLBACK_DAYS)).isoformat(), o2b_manual["gemrate"]
     # Negative: a pop older than the fallback still fails the barrier.
     o2b_short, _ = o2b_contract({"gemrate": 1})
     assert o2b_short["gemrate"]["missing"] == [1] and o2b_short["gemrate"]["complete"] is False
