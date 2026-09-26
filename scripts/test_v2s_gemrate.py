@@ -25,7 +25,7 @@ import types
 from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 ROOT = Path(__file__).resolve().parents[1]
 PIPELINES = Path(os.environ.get("CARDZ_V2S_PIPELINES_DIR") or (ROOT / "pipelines"))
@@ -947,7 +947,7 @@ def test_cmd_daily_skips_the_slow_retry_when_blocked() -> None:
           {HEX_A: gs.CLOUDFLARE_BLOCK_REASON, HEX_B: gs.CLOUDFLARE_BLOCK_NOT_ATTEMPTED})
 
 
-def _write_blocked_manifest(runs_dir: Path, resolved: list[str]) -> None:
+def _write_blocked_manifest(runs_dir: Path, resolved: list[str], identity_failed: Sequence[str] = ()) -> None:
     run_dir = runs_dir / "daily_20260926T000000000000Z_0-of-4"
     run_dir.mkdir(parents=True, exist_ok=True)
     reasons = {HEX_A: gs.CLOUDFLARE_BLOCK_REASON, HEX_B: gs.CLOUDFLARE_BLOCK_NOT_ATTEMPTED}
@@ -965,10 +965,16 @@ def _write_blocked_manifest(runs_dir: Path, resolved: list[str]) -> None:
         "blocked": {"reason": gs.CLOUDFLARE_BLOCK_REASON, "breaker": 3, "pass": "first",
                     "at": "2026-09-26T00:00:00Z"},
     }
+    if identity_failed:
+        manifest["directIdentityReceiptFailures"] = [
+            {"gemrateId": gid, "reason": "identity_receipt_failed"} for gid in identity_failed
+        ]
     (run_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
 
-def _run_blocked_pop(resolved: list[str]) -> tuple[dict[str, Any], dict[str, list[Any]]]:
+def _run_blocked_pop(
+    resolved: list[str], identity_failed: Sequence[str] = (),
+) -> tuple[dict[str, Any], dict[str, list[Any]]]:
     seen: dict[str, list[Any]] = {"streaks": [], "succeeded": [], "ingested": [], "checkpointed": []}
 
     def spy_record(_adapter, *, succeeded, failed):
@@ -976,7 +982,7 @@ def _run_blocked_pop(resolved: list[str]) -> tuple[dict[str, Any], dict[str, lis
         seen["streaks"].extend(int(item["variantId"]) for item in failed)
 
     def fake_run(cmd, *, timeout, dry_run):
-        _write_blocked_manifest(cc.ROOT / "data/private/gemrate/runs", resolved)
+        _write_blocked_manifest(cc.ROOT / "data/private/gemrate/runs", resolved, identity_failed)
         return {"cmd": cmd, "exit": 1}
 
     def fake_ingest(_manifest, items):
@@ -1029,6 +1035,15 @@ def test_blocked_manifest_is_one_lane_verdict() -> None:
           (report.get("ok"), report.get("error"), report.get("inserted")),
           (False, cc.GEMRATE_BLOCKED_ERROR, 1))
     check("one card landed before the block: the other card is no streak", seen["streaks"], [])
+
+    # QC 2026-09-26: the block explains transport failures only. A card whose own
+    # identity receipt failed holds the lane as on an unblocked day: no fallback.
+    report, seen = _run_blocked_pop([HEX_A], identity_failed=[HEX_A])
+    check("an identity failure beside the block is not the block",
+          (report.get("ok"), report.get("error")), (False, "gemrate_partial_items_failed"))
+    check("an identity failure beside the block: the receipt still names the block",
+          (report.get("blocked") or {}).get("reason"), gs.CLOUDFLARE_BLOCK_REASON)
+    check("an identity failure beside the block advances that card's streak", seen["streaks"], [1])
 
 
 def test_worker_names_the_collector_block_string() -> None:

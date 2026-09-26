@@ -2664,12 +2664,17 @@ def run_gemrate_pop(
         for reason in (manifest.get("websiteFailureReceipts") or {}).values()
         if str(reason) == "rate_limited_429_exhausted"
     )
-    if blocked is not None:
+    if blocked is not None and not streak_items:
         # The cards above are ingested; the rest met Cloudflare's block page.
         # Retrying today only knocks again, so the lane says so once and the
         # V2 contract falls back to each card's last pop inside
         # POP_BLOCKED_FALLBACK_DAYS (daddy 2026-09-26: 3 days, then block).
         report.update({"ok": False, "error": GEMRATE_BLOCKED_ERROR, "blocked": blocked})
+    elif blocked is not None:
+        # QC 2026-09-26: the block explains transport failures only. A card that
+        # failed on its own (identity receipt, missing from the manifest) holds
+        # the lane exactly as on an unblocked day instead of riding the fallback.
+        report.update({"ok": False, "error": "gemrate_partial_items_failed", "blocked": blocked})
     elif child_interrupted or manifest.get("interrupted"):
         # audit item 10: the cards above are ingested and checkpointed, but an
         # interrupted run is never a clean verdict for the rest of the cohort.
