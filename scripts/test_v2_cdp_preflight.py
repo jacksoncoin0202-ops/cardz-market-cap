@@ -6,6 +6,7 @@ Mutations run only in temporary copies; no real WSL, Chrome or tick is invoked.
 from __future__ import annotations
 
 import base64
+import os
 import subprocess
 import sys
 import tempfile
@@ -20,6 +21,11 @@ LAUNCHER = ROOT / "scripts/cardz_daily_v2_launcher.ps1"
 # 12 s when the gate shares the machine with other suites. The planted uncapped wait sleeps 120 s per
 # helper, so 30 s still tells the two apart.
 WATCHDOG_S = 30
+# Clear-StaleWslPkill stops every wsl.exe pkill naming the port machine-wide, so two runs on one
+# port stopped each other's helpers (the release gate beside a dry run, 2026-09-26). Each run takes
+# its own five-digit port, so none is a prefix of another and none is 9222/9223/9333; nothing
+# listens on it because netstat and Chrome are mocked.
+PORT = 20000 + os.getpid() % 10000
 
 
 def winpath(path):
@@ -86,14 +92,15 @@ public class FakeWsl {
         record.write_text("")
         harness = self.folder / "revive.ps1"
         fixture = r'''
-$Port = 9333
-$UserDataDir = 'fixture-cardz-chrome-cdp-9333'
+$Port = FIXTURE_PORT
+$UserDataDir = 'fixture-cardz-chrome-cdp-FIXTURE_PORT'
 $StartUrl = 'about:blank'
 $ErrorActionPreference = 'Stop'
 $env:PATH = FAKE_DIR + ';' + $env:PATH
 $env:CARDZ_TEST_WSL_LOG = RECORD
 $env:CARDZ_TEST_WSL_MODE = FIXTURE_MODE
-'''.replace("FAKE_DIR", quote(winpath(self.folder))).replace("RECORD", quote(winpath(record))).replace("FIXTURE_MODE", quote(mode))
+'''.replace("FAKE_DIR", quote(winpath(self.folder))).replace("RECORD", quote(winpath(record))).replace(
+            "FIXTURE_MODE", quote(mode)).replace("FIXTURE_PORT", str(PORT))
         mocks = r'''
 $script:revived = $false
 function netstat { return @() }
@@ -126,13 +133,13 @@ function Start-CardzChrome {
             elapsed = time.monotonic() - started
             out = result.stdout + result.stderr
             self.assertEqual(result.returncode, 0, out)
-            self.assertIn("FIXTURE_START_CHROME port=9333", out)
+            self.assertIn(f"FIXTURE_START_CHROME port={PORT}", out)
             marker = "CDP_EVICT_WSL_TIMEOUT" if mode == "hang" else "CDP_EVICT_WSL_FAILED"
             self.assertEqual(result.stdout.count(marker), 2, out)
             calls = record.read_text().splitlines()
             self.assertEqual(len(calls), 2, calls)
-            self.assertIn("-d Ubuntu -- pkill -f -- --remote-debugging-port=9333", calls[0])
-            self.assertIn("-d Ubuntu -- pkill -9 -f -- --remote-debugging-port=9333", calls[1])
+            self.assertIn(f"-d Ubuntu -- pkill -f -- --remote-debugging-port={PORT}", calls[0])
+            self.assertIn(f"-d Ubuntu -- pkill -9 -f -- --remote-debugging-port={PORT}", calls[1])
             pids = ",".join(line.split()[0] for line in calls)
             alive = ps(f"@(Get-Process -Id {pids} -ErrorAction SilentlyContinue).Count")
             self.assertEqual(alive.stdout.strip(), "0", alive.stdout + alive.stderr)
